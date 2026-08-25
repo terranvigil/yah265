@@ -199,12 +199,40 @@ static int search_luma_mode(struct n265_encoder *e, int x0, int y0, int log2n,
     return best_mode;
 }
 
+/* SAD-domain lambda: sqrt(0.85 * 2^((qp-12)/3)), Q4 fixed point */
+static int lambda_sad_q4(int qp)
+{
+    static const uint16_t tab[52] = {
+        4, 5, 5, 6, 7, 7, 8, 9, 10, 12, 13, 15, 16, 18, 21, 23,
+        26, 29, 33, 37, 41, 46, 52, 58, 66, 74, 83, 93, 104, 117,
+        131, 148, 166, 186, 209, 234, 263, 295, 331, 372, 418, 469,
+        526, 590, 663, 744, 835, 937, 1052, 1181, 1325, 1487
+    };
+    return tab[qp < 0 ? 0 : qp > 51 ? 51 : qp];
+}
+
+/* rough MVD rate in bits */
+static int mvd_bits(int dx, int dy)
+{
+    int b = 2;
+    for (int c = 0; c < 2; c++) {
+        int a = c ? (dy < 0 ? -dy : dy) : (dx < 0 ? -dx : dx);
+        while (a) {
+            b += 2;
+            a >>= 1;
+        }
+    }
+    return b;
+}
+
 static int skip_thr8(void)
 {
     static int thr8 = -1;
     if (thr8 < 0) {
         const char *v = getenv("N265_SKIP_THR");
-        thr8 = v ? atoi(v) : 10;
+        thr8 = v ? atoi(v) : 2;     /* strict: ~0.25/pixel; anything
+                                     * looser must earn skip through the
+                                     * residual-quantizes-to-zero test */
     }
     return thr8;
 }
@@ -218,7 +246,7 @@ static int want_skip(struct n265_encoder *e, int x0, int y0, int log2n)
     int n = 1 << log2n;
     mv_t cand = n265_merge_cand0(e, x0, y0, n, n);
     return n265_mc_sad(e, x0, y0, log2n, cand) * 8u <=
-           (uint32_t)(n * n * (skip_thr8() + e->qp / 4));
+           (uint32_t)(n * n * skip_thr8());
 }
 
 /* transform tree for a 2Nx2N CU (intra or inter): records, per node,
@@ -332,34 +360,40 @@ static void analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
         uint32_t cand_sad = n265_mc_sad(e, x0, y0, log2n, cand);
 
         /* strict static skip at the merge candidate */
-        if (cand_sad * 8u <=
-            (uint32_t)(n * n * (skip_thr8() + e->qp / 4))) {
+        if (cand_sad * 8u <= (uint32_t)(n * n * skip_thr8())) {
             skip_cu(e, x0, y0, log2n, cand);
             return;
         }
 
         if (log2n <= 5) {
-            uint32_t intra_cost;
+            uint32_t intra_sad;
             search_luma_mode(e, x0, y0, log2n, e->pad_plane[0],
-                             &intra_cost);
+                             &intra_sad);
             mv_t mvp[2], me_mv;
             n265_amvp(e, x0, y0, n, n, mvp);
             uint32_t me_sad = n265_me_search(e, x0, y0, log2n, mvp[0],
                                              &me_mv);
-            /* prefer merge when it is nearly as good (far cheaper bits) */
+            /* lambda-weighted costs: merge ~2 bits, AMVP ~6 + mvd,
+             * intra ~6 (mode signalling) */
+            uint32_t lam = (uint32_t)lambda_sad_q4(e->qp);
+            uint32_t cand_cost = cand_sad + (2 * lam >> 4);
+            int mb = mvd_bits(me_mv.x - mvp[0].x, me_mv.y - mvp[0].y);
+            uint32_t me_cost = me_sad + ((uint32_t)(6 + mb) * lam >> 4);
+            uint32_t intra_cost = intra_sad + (6 * lam >> 4);
             int merge = (me_mv.x == cand.x && me_mv.y == cand.y) ||
-                        cand_sad <= me_sad + (uint32_t)(n * n / 8);
+                        cand_cost <= me_cost;
             if (getenv("N265_NO_AMVP"))
                 merge = 1;
             if (getenv("N265_ZERO_MV_ONLY")) {
                 merge = 1;
                 cand.x = cand.y = 0;
                 cand_sad = n265_mc_sad(e, x0, y0, log2n, cand);
+                cand_cost = cand_sad;
             }
             mv_t mv = merge ? cand : me_mv;
-            uint32_t inter_sad = merge ? cand_sad : me_sad;
+            uint32_t inter_cost = merge ? cand_cost : me_cost;
 
-            if (inter_sad <= intra_cost) {
+            if (inter_cost <= intra_cost) {
                 tb_analyze(e, 0, x0, y0, log2n, e->qp, MODE_INTER, mv, &tl);
                 tb_analyze(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c,
                            MODE_INTER, mv, &tcb);

@@ -3,6 +3,8 @@
  * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
+#include <stdlib.h>
+
 #include "encoder/mc.h"
 #include "encoder/mv.h"
 
@@ -155,7 +157,10 @@ uint32_t n265_me_search(struct n265_encoder *e, int x0, int y0, int log2n,
         best_sad = bs;
     }
     /* subpel refinement: one half-pel round, one quarter-pel round */
-    for (int step = 2; step >= 1; step--) {
+    static int fullpel = -1;
+    if (fullpel < 0)
+        fullpel = getenv("N265_FULLPEL") != NULL;
+    for (int step = fullpel ? 0 : 2; step >= 1; step--) {
         mv_t b = cur;
         uint32_t bs = best_sad;
         for (int dy = -step; dy <= step; dy += step)
