@@ -121,6 +121,8 @@ static int code_component(struct n265_encoder *e, cabac_t *cb, int c_idx,
                 (int16_t)(src[y * e->pad_stride[c_idx] + x] - pred[y * n + x]);
     n265_fdct(coef, resid, log2n, use_dst);
     int nz = n265_quant(level, coef, log2n, qp);
+    if (nz)
+        n265_sbh_adjust(level, log2n, n265_scan_idx(mode, log2n, c_idx));
 
     if (!coded)
         return nz != 0;     /* first pass: just report cbf */

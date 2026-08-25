@@ -141,7 +141,7 @@ void n265_write_pps(struct n265_encoder *e)
     bs_put_bits(bs, 0, 1);          /* dependent_slice_segments_enabled_flag */
     bs_put_bits(bs, 0, 1);          /* output_flag_present_flag */
     bs_put_bits(bs, 0, 3);          /* num_extra_slice_header_bits */
-    bs_put_bits(bs, 0, 1);          /* sign_data_hiding_enabled_flag */
+    bs_put_bits(bs, e->mode != N265_MODE_PCM, 1); /* sign_data_hiding */
     bs_put_bits(bs, 0, 1);          /* cabac_init_present_flag */
     bs_put_ue(bs, 0);               /* num_ref_idx_l0_default_active_minus1 */
     bs_put_ue(bs, 0);               /* num_ref_idx_l1_default_active_minus1 */

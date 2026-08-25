@@ -12,10 +12,17 @@
 
 /* Encode one transform block's levels (raster order, n*n int16) per
  * 7.3.8.11. Caller guarantees at least one nonzero level (cbf gates the
- * call). scan_idx: 0 diag, 1 horizontal, 2 vertical (only 0 wired up so
- * far). ctx points at the slice context array (tables.h layout). */
+ * call). scan_idx: 0 diag, 1 horizontal, 2 vertical. ctx points at the
+ * slice context array (tables.h layout). */
 void n265_residual_coding(cabac_t *cb, cabac_ctx_t *ctx,
                           const int16_t *level, int log2n, int c_idx,
                           int scan_idx);
+
+/* Sign-bit hiding: enforce, per 4x4 sub-block that qualifies
+ * (last - first sig scan pos > 3), that the abs-level sum parity encodes
+ * the sign of the first significant coefficient. Adjusts levels in place
+ * (grows one magnitude by 1 when parity disagrees). Run after quant and
+ * before reconstruction. */
+void n265_sbh_adjust(int16_t *level, int log2n, int scan_idx);
 
 #endif

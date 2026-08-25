@@ -84,6 +84,41 @@ static void write_remaining(cabac_t *cb, int rem, int k)
     }
 }
 
+void n265_sbh_adjust(int16_t *level, int log2n, int scan_idx)
+{
+    int n = 1 << log2n;
+    int sb_dim = n >> 2;
+    int num_sb = sb_dim * sb_dim;
+    const uint8_t *sb_scan = n265_scan_sb[scan_idx][log2n - 2];
+    const uint8_t *co_scan = n265_scan_coef[scan_idx];
+
+    for (int s = 0; s < num_sb; s++) {
+        int sx = (sb_scan[s] & 15) << 2, sy = (sb_scan[s] >> 4) << 2;
+        int first = -1, last = -1;
+        int sum = 0;
+        for (int c = 0; c < 16; c++) {
+            int x = sx + (co_scan[c] & 15), y = sy + (co_scan[c] >> 4);
+            int l = level[y * n + x];
+            if (l) {
+                if (first < 0)
+                    first = c;
+                last = c;
+                sum += l < 0 ? -l : l;
+            }
+        }
+        if (first < 0 || last - first <= 3)
+            continue;
+        int fx = sx + (co_scan[first] & 15), fy = sy + (co_scan[first] >> 4);
+        int want = level[fy * n + fx] < 0;
+        if ((sum & 1) != want) {
+            /* grow the highest-frequency nonzero away from zero: keeps
+             * first/last stable, flips the parity */
+            int lx = sx + (co_scan[last] & 15), ly = sy + (co_scan[last] >> 4);
+            level[ly * n + lx] += level[ly * n + lx] > 0 ? 1 : -1;
+        }
+    }
+}
+
 void n265_residual_coding(cabac_t *cb, cabac_ctx_t *ctx,
                           const int16_t *level, int log2n, int c_idx,
                           int scan_idx)
@@ -235,9 +270,16 @@ void n265_residual_coding(cabac_t *cb, cabac_ctx_t *ctx,
             g2 = abs_l > 2;
             n265_cabac_bin(cb, ctx + CTX_G2 + ctx_set + (c_idx ? 4 : 0), g2);
         }
+        /* sign hiding: when the sub-block qualifies, the sign of the
+         * first-in-scan significant coefficient (last entry of sig_pos)
+         * is inferred from the abs-sum parity and not coded */
+        int hidden = num_sig > 0 &&
+            sig_pos[0] - sig_pos[num_sig - 1] > 3;
         for (int i = 0; i < num_sig; i++) {
             int c = sig_pos[i];
             int x = sx + (co_scan[c] & 15), y = sy + (co_scan[c] >> 4);
+            if (hidden && i == num_sig - 1)
+                continue;
             n265_cabac_bypass(cb, level[y * n + x] < 0);
         }
         int rice = 0;
