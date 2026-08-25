@@ -13,6 +13,7 @@
 #include "encoder/deblock.h"
 #include "encoder/encoder.h"
 #include "encoder/est.h"
+#include "encoder/la.h"
 #include "encoder/sao.h"
 
 const char *n265_version_str(void)
@@ -47,6 +48,15 @@ static int g_keyint = 60;
 
 static int g_bframes = 1;
 static int g_aq = 0;
+static int g_la_depth = 12;
+static int g_cutree = 0;
+
+void n265_set_la(int depth, int cutree);
+void n265_set_la(int depth, int cutree)
+{
+    g_la_depth = depth < 1 ? 1 : depth > LA_MAX - 4 ? LA_MAX - 4 : depth;
+    g_cutree = cutree ? 1 : 0;
+}
 
 void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes,
                    int aq);
@@ -89,6 +99,10 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->bframes = e->mode == N265_MODE_PCM ? 0 : g_bframes;
     e->no_sao = getenv("N265_NO_SAO") != NULL;      /* diagnostic */
     e->aq = g_aq || getenv("N265_AQ") != NULL;      /* variance AQ */
+    e->la_depth = e->mode == N265_MODE_PCM || !e->bframes ? g_la_depth
+                                                          : g_la_depth;
+    e->cutree = e->mode == N265_MODE_PCM ? 0 : g_cutree;
+    e->scenecut = e->mode != N265_MODE_PCM;
     int align = e->mode == N265_MODE_PCM ? 16 : (1 << MIN_CB_LOG2);
     if (p->width < align || p->height < align)
         goto fail;
@@ -105,8 +119,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         e->recon_stride[i] = w;
         e->pad_plane[i] = malloc((size_t)w * h);
         e->recon[i] = malloc((size_t)w * h);
-        e->held_src[i] = malloc((size_t)w * h);
-        if (!e->pad_plane[i] || !e->recon[i] || !e->held_src[i])
+        if (!e->pad_plane[i] || !e->recon[i])
             goto fail;
         int pad = i ? N265_REF_PAD / 2 : N265_REF_PAD;
         for (int sl = 0; sl < 2; sl++) {
@@ -148,9 +161,12 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     size_t frame_bytes = (size_t)e->pad_w * e->pad_h * 3 / 2;
     if (bs_init(&e->rbsp, frame_bytes + 4096) < 0)
         goto fail;
-    e->out_cap = nal_pack_bound(frame_bytes + 4096) + 4096;
+    /* up to two coded frames (anchor + B) leave per call */
+    e->out_cap = 3 * nal_pack_bound(frame_bytes + 4096) + 4096;
     e->out = malloc(e->out_cap);
     if (!e->out)
+        goto fail;
+    if (n265_la_init(e) < 0)
         goto fail;
     n265_tables_init();
     n265_tables_init_est();
@@ -182,10 +198,10 @@ void n265_encoder_close(n265_encoder *e)
     free(e->sao);
     for (int i = 0; i < 3; i++) {
         free(e->sao_tmp[i]);
-        free(e->held_src[i]);
         free(e->dpb[0].base[i]);
         free(e->dpb[1].base[i]);
     }
+    n265_la_free(e);
     bs_free(&e->rbsp);
     free(e->rec_buf);
     free(e->out);
@@ -334,8 +350,10 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
         memset(e->blk_pred, 0, (size_t)e->map_stride * (e->pad_h >> 2));
         memset(e->blk_mv, 0,
                (size_t)e->map_stride * (e->pad_h >> 2) * 4 * sizeof(int16_t));
-        /* per-CTU QP offsets: variance AQ when enabled, else zero */
-        memset(e->ctu_qp_off, 0, (size_t)e->ctb_cols * e->ctb_rows);
+        /* per-CTU QP offsets: cu-tree (filled by the scheduler) plus
+         * variance AQ on top */
+        if (!e->cutree)
+            memset(e->ctu_qp_off, 0, (size_t)e->ctb_cols * e->ctb_rows);
         if (e->aq && getenv("N265_AQ_FLAT"))
             memset(e->ctu_qp_off, (uint8_t)atoi(getenv("N265_AQ_FLAT")),
                    (size_t)e->ctb_cols * e->ctb_rows);
@@ -365,8 +383,9 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
             avg /= nctu;
             for (int i = 0; i < nctu; i++) {
                 double off = 1.0 * (lv[i] - avg);    /* strength 1.0 */
-                int o = (int)(off > 0 ? off + 0.5 : off - 0.5);
-                e->ctu_qp_off[i] = (int8_t)(o < -6 ? -6 : o > 6 ? 6 : o);
+                int o = (int)(off > 0 ? off + 0.5 : off - 0.5) +
+                        e->ctu_qp_off[i];
+                e->ctu_qp_off[i] = (int8_t)(o < -12 ? -12 : o > 12 ? 12 : o);
             }
             free(lv);
         }
@@ -452,16 +471,81 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
     e->frames_done++;
 }
 
-/* encode the held picture as a P frame (flush / pre-IDR close) */
-static void emit_held_as_p(n265_encoder *e, size_t *out_used, int *count)
+/* schedule and encode from the front of the lookahead queue: one
+ * display step per call (an anchor may bring the B it delayed). Returns
+ * the number of source frames consumed. */
+static int drive_scheduler(n265_encoder *e, size_t *out_used, int *count)
 {
-    const uint8_t *src[3] = { e->held_src[0], e->held_src[1],
-                              e->held_src[2] };
+    n265_la *la = &e->la;
+    if (la->count == 0)
+        return 0;
+
+    la_frame *f0 = &la->f[0];
+    int d0 = f0->display_idx;
+    const uint8_t *s0[3] = { f0->src[0], f0->src[1], f0->src[2] };
     int st[3] = { e->pad_stride[0], e->pad_stride[1], e->pad_stride[2] };
-    int poc = e->held_display_idx - e->gop_start_display;
-    encode_frame(e, src, st, 1, poc, 0, e->held_display_idx, out_used,
+
+    int idr0 = e->mode == N265_MODE_PCM || e->keyint == 1 ||
+               (d0 % e->keyint) == 0 || !e->ref_valid ||
+               (e->scenecut && d0 - e->gop_start_display >= 4 &&
+                n265_la_scenecut(e, 0));
+
+    int is_b_slot = e->bframes && !idr0 &&
+                    ((d0 - e->gop_start_display) & 1) == 1;
+
+    memset(e->ctu_qp_off, 0, (size_t)e->ctb_cols * e->ctb_rows);
+
+    if (!is_b_slot || la->count < 2) {
+        /* anchor (or a tail frame with no future anchor: code as P) */
+        if (idr0) {
+            e->gop_start_display = d0;
+            e->dpb[0].valid = e->dpb[1].valid = 0;
+            e->ref_valid = 0;
+        }
+        if (e->cutree)
+            n265_la_cutree(e, 0);
+        encode_frame(e, s0, st, idr0 ? 2 : 1,
+                     idr0 ? 0 : d0 - e->gop_start_display, 0, d0,
+                     out_used, count);
+        n265_la_pop(e);
+        return 1;
+    }
+
+    /* B slot: its future anchor is queue index 1, unless that frame
+     * starts a new GOP, in which case this one closes the old GOP as P */
+    la_frame *f1 = &la->f[1];
+    int d1 = f1->display_idx;
+    int idr1 = (d1 % e->keyint) == 0 ||
+               (e->scenecut && d1 - e->gop_start_display >= 4 &&
+                n265_la_scenecut(e, 1));
+    if (idr1) {
+        if (e->cutree)
+            n265_la_cutree(e, 0);
+        encode_frame(e, s0, st, 1, d0 - e->gop_start_display, 0, d0,
+                     out_used, count);
+        n265_la_pop(e);
+        return 1;
+    }
+
+    /* encode the anchor first, then the B between the two anchors */
+    struct n265_refpic *prev_anchor = e->ref_l0;
+    const uint8_t *s1[3] = { f1->src[0], f1->src[1], f1->src[2] };
+    if (e->cutree)
+        n265_la_cutree(e, 1);
+    encode_frame(e, s1, st, 1, d1 - e->gop_start_display, 0, d1, out_used,
                  count);
-    e->held_valid = 0;
+    struct n265_refpic *next_anchor = e->ref_l0;
+    e->ref_l0 = prev_anchor;
+    e->ref_l1 = next_anchor;
+    memset(e->ctu_qp_off, 0, (size_t)e->ctb_cols * e->ctb_rows);
+    if (e->cutree)
+        n265_la_cutree(e, 0);
+    encode_frame(e, s0, st, 0, d0 - e->gop_start_display, 1, d0, out_used,
+                 count);
+    e->ref_l0 = next_anchor;
+    n265_la_pop(e);
+    n265_la_pop(e);
+    return 2;
 }
 
 int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
@@ -474,63 +558,16 @@ int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
     size_t out_used = 0;
     int count = 0;
 
-    if (!pic) {         /* flush */
-        if (e->held_valid)
-            emit_held_as_p(e, &out_used, &count);
-        *nnal = count;
-        return (int)out_used;
-    }
-
-    int d = e->in_display_idx++;
-    int idr = e->mode == N265_MODE_PCM || e->keyint == 1 ||
-              (d % e->keyint) == 0 || !e->ref_valid;
-
-    if (e->bframes && !idr && !e->held_valid &&
-        ((d - e->gop_start_display) & 1) == 1) {
-        /* hold this picture; it becomes a B when the next anchor lands */
-        for (int i = 0; i < 3; i++) {
-            int w = i ? e->param.width / 2 : e->param.width;
-            int h = i ? e->param.height / 2 : e->param.height;
-            for (int y = 0; y < h; y++)
-                memcpy(e->held_src[i] + y * e->pad_stride[i],
-                       pic->plane[i] + y * pic->stride[i], (size_t)w);
-        }
-        e->held_valid = 1;
-        e->held_display_idx = d;
-        *nnal = count;
-        return 0;
-    }
-
-    const uint8_t *src[3] = { pic->plane[0], pic->plane[1], pic->plane[2] };
-    int st[3] = { pic->stride[0], pic->stride[1], pic->stride[2] };
-
-    if (idr) {
-        if (e->held_valid)
-            emit_held_as_p(e, &out_used, &count);
-        e->gop_start_display = d;
-        e->dpb[0].valid = e->dpb[1].valid = 0;
-        e->ref_valid = 0;
-        encode_frame(e, src, st, 2, 0, 0, d, &out_used, &count);
+    if (pic) {
+        const uint8_t *planes[3] = { pic->plane[0], pic->plane[1],
+                                     pic->plane[2] };
+        n265_la_push(e, planes, pic->stride);
+        e->in_display_idx++;
+        while (e->la.count > e->la_depth)
+            drive_scheduler(e, &out_used, &count);
     } else {
-        struct n265_refpic *prev_anchor = e->ref_l0;
-        encode_frame(e, src, st, 1, d - e->gop_start_display, 0, d,
-                     &out_used, &count);
-        if (e->held_valid) {
-            /* the held picture codes as a non-reference B between the
-             * two anchors */
-            struct n265_refpic *next_anchor = e->ref_l0;
-            e->ref_l0 = prev_anchor;
-            e->ref_l1 = next_anchor;
-            const uint8_t *bs_[3] = { e->held_src[0], e->held_src[1],
-                                      e->held_src[2] };
-            int bst[3] = { e->pad_stride[0], e->pad_stride[1],
-                           e->pad_stride[2] };
-            encode_frame(e, bs_, bst, 0,
-                         e->held_display_idx - e->gop_start_display, 1,
-                         e->held_display_idx, &out_used, &count);
-            e->held_valid = 0;
-            e->ref_l0 = next_anchor;    /* restore for the next P */
-        }
+        /* flush: one scheduler step per call until drained */
+        drive_scheduler(e, &out_used, &count);
     }
 
     *nnal = count;

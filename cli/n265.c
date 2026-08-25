@@ -12,6 +12,7 @@
 
 /* internal knobs, resolved from the library (not yet public API) */
 void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes, int aq);
+void n265_set_la(int depth, int cutree);
 void n265_encoder_set_dump_decode(n265_encoder *e, FILE *f);
 void n265_encoder_set_dump(n265_encoder *e, FILE *f);
 
@@ -77,6 +78,8 @@ static void usage(void)
         "  --keyint <n>    IDR period in frames (default 60)\n"
         "  --bframes <0|1> non-reference B between anchors (default 1)\n"
         "  --aq <0|1>      variance adaptive quantization (default 0)\n"
+        "  --rc-lookahead <n>  lookahead depth in frames (default 12)\n"
+        "  --cutree <0|1>  lookahead propagation QP offsets (default 0)\n"
         "  --dump-recon <file>  write reconstruction as raw YUV (the\n"
         "                  conformance gate compares decoders against it)\n"
         "  --version       print version\n");
@@ -88,6 +91,7 @@ int main(int argc, char **argv)
     const char *dump_path = NULL;
     long max_frames = -1;
     int qp = 26, pcm = 0, ctu = 32, keyint = 60, bframes = 1, aq = 0;
+    int lookahead = 12, cutree = 0;
     const char *dump_decode_path = NULL;
 
     for (int i = 1; i < argc; i++) {
@@ -103,6 +107,10 @@ int main(int argc, char **argv)
             bframes = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--aq") && i + 1 < argc) {
             aq = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--rc-lookahead") && i + 1 < argc) {
+            lookahead = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--cutree") && i + 1 < argc) {
+            cutree = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--dump-recon-decode") && i + 1 < argc) {
             dump_decode_path = argv[++i];
         } else if (!strcmp(argv[i], "--ctu") && i + 1 < argc) {
@@ -151,6 +159,7 @@ int main(int argc, char **argv)
     }
     int ctb_log2 = ctu == 16 ? 4 : ctu == 32 ? 5 : 6;
     n265_set_mode(pcm ? 1 : 0, qp, ctb_log2, keyint, bframes, aq);
+    n265_set_la(lookahead, cutree);
     n265_param p;
     n265_param_default(&p);
     p.width = y.w;
@@ -211,13 +220,15 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    /* flush the held frame, if any */
-    {
+    /* flush the lookahead queue */
+    for (;;) {
         n265_nal *nal;
         int nnal;
-        if (n265_encoder_encode(enc, &nal, &nnal, NULL) >= 0)
-            for (int i = 0; i < nnal; i++)
-                fwrite(nal[i].payload, 1, (size_t)nal[i].size, fout);
+        int r2 = n265_encoder_encode(enc, &nal, &nnal, NULL);
+        if (r2 <= 0 && nnal == 0)
+            break;
+        for (int i = 0; i < nnal; i++)
+            fwrite(nal[i].payload, 1, (size_t)nal[i].size, fout);
     }
     n265_encoder_close(enc);
     if (fdump)

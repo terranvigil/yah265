@@ -11,6 +11,7 @@
 #include "next265.h"
 #include "common/bitstream.h"
 #include "encoder/cabac.h"
+#include "encoder/la.h"
 #include "encoder/tables.h"
 
 struct sao_params;
@@ -91,10 +92,10 @@ struct n265_encoder {
     int nonref;             /* current frame is not a reference      */
     int display_idx;        /* current frame's global display index  */
 
-    /* one-deep latency queue for the held B source */
-    uint8_t *held_src[3];
-    int held_valid;
-    int held_display_idx;
+    n265_la la;             /* lookahead queue + stats               */
+    int la_depth;
+    int cutree;
+    int scenecut;
     int in_display_idx;     /* next arriving picture's display index */
     int gop_start_display;  /* display index of the current IDR      */
 
