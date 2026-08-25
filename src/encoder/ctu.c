@@ -563,10 +563,19 @@ static uint64_t cu_area_ssd(struct n265_encoder *e, int x0, int y0, int n)
     return ssd;
 }
 
+/* qstep^2 / 8: the per-pixel MSE below which a skip is "clean" and the
+ * split trial cannot plausibly pay for its syntax */
+static uint64_t skip_clean_thr(int qp, int n)
+{
+    double qstep = pow(2.0, (qp - 4) / 6.0);
+    return (uint64_t)((double)n * n * qstep * qstep / 4.0);
+}
+
 static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
 {
     int n = 1 << log2n;
     int qp_c = n265_chroma_qp(e->qp);
+    e->last_skip_clean = 0;
     mark_cu_edges(e, x0, y0, n);
 
     size_t pos0 = e->rec_len;
@@ -584,13 +593,18 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
             e->rec_pos = pos0;
             est_state adv = { e->est_ctx, 0 };
             n265_est_advance_cu(e, &adv, x0, y0, log2n);
-            return rd_j(cu_area_ssd(e, x0, y0, n), adv.bits,
-                        lambda_mode_q8(e->qp));
+            uint64_t ssd = cu_area_ssd(e, x0, y0, n);
+            e->last_skip_clean = ssd <= skip_clean_thr(e->qp, n);
+            return rd_j(ssd, adv.bits, lambda_mode_q8(e->qp));
         }
 
         if (log2n <= 5) {
             uint32_t lam = lambda_mode_q8(e->qp);
             int inc = est_skip_inc(e, x0, y0);
+            /* economy gates: a very good merge prediction prunes the
+             * expensive candidates (classic early-skip shape) */
+            int gate_amvp = cand_plain_sad < (uint32_t)(n * n) / 2;
+            int gate_intra = cand_plain_sad < (uint32_t)(n * n);
 
             /* merge candidate (and the forced-skip variant) */
             tb_analyze(e, 0, x0, y0, log2n, e->qp, MODE_INTER, cand, &m_tl);
@@ -643,12 +657,16 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
             mv_t mvp[2] = { { 0, 0 }, { 0, 0 } }, me_mv = { 0, 0 };
             uint64_t j_amvp = UINT64_MAX;
             int a_any = 0, mvp_idx = 0;
-            n265_amvp(e, x0, y0, n, n, mvp);
-            n265_me_search(e, x0, y0, log2n, mvp[0], &me_mv);
-            mot_t amot = { { me_mv, { 0, 0 } }, 1 };
-            int same_as_cand = cand.pred == 1 && me_mv.x == cand.mv[0].x &&
+            mot_t amot = { { { 0, 0 }, { 0, 0 } }, 1 };
+            int same_as_cand = 1;
+            if (!gate_amvp) {
+                n265_amvp(e, x0, y0, n, n, mvp);
+                n265_me_search(e, x0, y0, log2n, mvp[0], &me_mv);
+                amot.mv[0] = me_mv;
+                same_as_cand = cand.pred == 1 && me_mv.x == cand.mv[0].x &&
                                me_mv.y == cand.mv[0].y;
-            if (!same_as_cand && !getenv("N265_NO_AMVP")) {
+            }
+            if (!gate_amvp && !same_as_cand && !getenv("N265_NO_AMVP")) {
                 tb_analyze(e, 0, x0, y0, log2n, e->qp, MODE_INTER, amot,
                            &a_tl);
                 tb_analyze(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c,
@@ -693,8 +711,11 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
             }
 
             /* intra candidate (2Nx2N, SAD-ranked best mode) */
-            int imode = search_luma_mode(e, x0, y0, log2n, e->recon[0],
-                                         NULL);
+            uint64_t j_intra = UINT64_MAX;
+            int imode = 1;
+            if (!gate_intra) {
+            imode = search_luma_mode(e, x0, y0, log2n, e->recon[0],
+                                     NULL);
             tb_analyze(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c, imode,
                        mot_zero, &i_tcb);
             tb_analyze(e, 2, x0 / 2, y0 / 2, log2n - 1, qp_c, imode,
@@ -732,7 +753,8 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                 if (i_tcr.nz)
                     n265_residual_coding(&ops, i_tcr.level, log2n - 1, 2, sc);
             }
-            uint64_t j_intra = rd_j(d_intra, st.bits, lam);
+            j_intra = rd_j(d_intra, st.bits, lam);
+            }
 
             /* pick the winner */
             uint64_t best = j_skip;
@@ -743,6 +765,7 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
 
             if (kind == 0) {
                 skip_cu(e, x0, y0, log2n, cand);
+                e->last_skip_clean = d_skip <= skip_clean_thr(e->qp, n);
             } else if (kind == 1 || kind == 2) {
                 mot_t mot = kind == 1 ? cand : amot;
                 tb_ctx *tl = kind == 1 ? &m_tl : &a_tl;
@@ -1025,6 +1048,10 @@ static uint64_t quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
     uint32_t b0 = n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + split_inc], 0);
     uint64_t j_cu = analyze_cu(e, x0, y0, log2n) + ((uint64_t)b0 * lam >> 16);
     set_blk(e, e->ct_depth, x0, y0, n, depth);
+    /* early skip: a CLEAN whole-CU skip ends the trial (children could
+     * only re-buy the same prediction with more syntax) */
+    if (e->last_skip_clean)
+        return j_cu;
     qt_save(e, sw, x0, y0, n);
     qt_save_records(e, sw, rec_base);
 

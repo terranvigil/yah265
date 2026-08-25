@@ -62,6 +62,7 @@ struct n265_encoder {
 
     cabac_ctx_t ctx[CTX_COUNT];
     cabac_ctx_t est_ctx[CTX_COUNT];     /* RD cost-model contexts */
+    int last_skip_clean;    /* analyze_cu: skip won with low distortion */
 
     bitstream_t rbsp;       /* per-NAL RBSP scratch                  */
     uint8_t *out;           /* Annex-B output for the current call   */
