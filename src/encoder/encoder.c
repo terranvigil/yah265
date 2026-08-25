@@ -146,6 +146,7 @@ void n265_encoder_close(n265_encoder *e)
         free(e->ref_plane[i]);
     }
     bs_free(&e->rbsp);
+    free(e->rec_buf);
     free(e->out);
     free(e);
 }
@@ -269,31 +270,24 @@ int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
     cabac_t cb;
 
     if (e->mode != N265_MODE_PCM) {
-        /* pass A: decisions + recon only; the bits are thrown away.
-         * Then deblock and choose SAO params against the source. */
+        /* analysis: decisions + recon + records, then in-loop filters and
+         * SAO decision; the trailing entropy pass replays the records */
         memset(e->edge_map, 0, (size_t)e->map_stride * (e->pad_h >> 2));
         memset(e->blk_intra, 0, (size_t)e->map_stride * (e->pad_h >> 2));
         memset(e->blk_skip, 0, (size_t)e->map_stride * (e->pad_h >> 2));
         memset(e->blk_cbf_y, 0, (size_t)e->map_stride * (e->pad_h >> 2));
-        bs_reset(&e->rbsp);
-        n265_cabac_start(&cb, &e->rbsp);
-        for (int i = 0; i < CTX_COUNT; i++)
-            n265_cabac_ctx_init(&e->ctx[i], e->slice_type == 2
-                                ? n265_ctx_init_i[i] : n265_ctx_init_p[i],
-                                e->qp);
+        e->rec_len = 0;
+        e->rec_pos = 0;
         for (int i = 0; i <= last; i++)
-            n265_encode_ctu(e, &cb, i % e->ctb_cols, i / e->ctb_cols);
+            n265_analyze_ctu(e, i % e->ctb_cols, i / e->ctb_cols);
         n265_deblock_frame(e);
         n265_sao_analyze(e);
         if (e->no_sao)
             memset(e->sao, 0,
                    (size_t)e->ctb_cols * e->ctb_rows * sizeof(sao_params));
+        n265_sao_apply(e);
     }
 
-    memset(e->edge_map, 0, (size_t)e->map_stride * (e->pad_h >> 2));
-    memset(e->blk_intra, 0, (size_t)e->map_stride * (e->pad_h >> 2));
-    memset(e->blk_skip, 0, (size_t)e->map_stride * (e->pad_h >> 2));
-    memset(e->blk_cbf_y, 0, (size_t)e->map_stride * (e->pad_h >> 2));
     bs_reset(&e->rbsp);
     write_slice_header(e);
     n265_cabac_start(&cb, &e->rbsp);
@@ -303,13 +297,11 @@ int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
                             e->qp);
 
     for (int i = 0; i <= last; i++) {
-        if (e->mode == N265_MODE_PCM) {
+        if (e->mode == N265_MODE_PCM)
             write_pcm_ctu(e, &cb, &e->ctx[CTX_PART_MODE],
                           i % e->ctb_cols, i / e->ctb_cols);
-        } else {
-            n265_sao_write(e, &cb, i % e->ctb_cols, i / e->ctb_cols);
-            n265_encode_ctu(e, &cb, i % e->ctb_cols, i / e->ctb_cols);
-        }
+        else
+            n265_entropy_ctu(e, &cb, i % e->ctb_cols, i / e->ctb_cols);
         n265_cabac_terminate(&cb, i == last);
     }
     bs_align_zero(&e->rbsp);
@@ -317,8 +309,6 @@ int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
             &count);
 
     if (e->mode != N265_MODE_PCM) {
-        n265_deblock_frame(e);
-        n265_sao_apply(e);
         /* the filtered picture becomes the reference for the next frame */
         for (int i = 0; i < 3; i++) {
             int w = i ? e->pad_w / 2 : e->pad_w;

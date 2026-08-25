@@ -56,6 +56,9 @@ struct n265_encoder {
     uint8_t *out;           /* Annex-B output for the current call   */
     size_t out_cap;
 
+    uint8_t *rec_buf;       /* CTU record stream (records.h)         */
+    size_t rec_len, rec_cap, rec_pos;
+
     n265_nal nal[8];
     int frames_done;
     int poc;
@@ -69,10 +72,14 @@ void n265_write_vps(struct n265_encoder *e);
 void n265_write_sps(struct n265_encoder *e);
 void n265_write_pps(struct n265_encoder *e);
 
-/* ctu.c: encode one CTU's coding_quadtree into the CABAC stream,
- * reconstructing as it goes. */
-void n265_encode_ctu(struct n265_encoder *e, cabac_t *cb, int ctb_x,
-                     int ctb_y);
+/* ctu.c: analyze one CTU (decisions + recon + records, no entropy) */
+void n265_analyze_ctu(struct n265_encoder *e, int ctb_x, int ctb_y);
+
+/* entropy.c: replay one CTU's records through the CABAC engine */
+void n265_entropy_ctu(struct n265_encoder *e, cabac_t *cb, int ctb_x,
+                      int ctb_y);
+
+#define MODE_INTER (-1)     /* mode value selecting zero-MV MC prediction */
 
 /* encoder.c, shared with ctu.c */
 void n265_encoder_set_dump(n265_encoder *e, FILE *f);

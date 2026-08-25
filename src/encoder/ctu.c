@@ -1,5 +1,7 @@
 /*
- * Coding-tree walk and intra CU encoding (DC mode, 2Nx2N, TU == CU).
+ * Coding-tree analysis: decisions, reconstruction, and record commit.
+ * No entropy coding happens here; the trailing pass in entropy.c replays
+ * the record stream (docs/threading-design.md).
  * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
@@ -9,6 +11,7 @@
 
 #include "encoder/encoder.h"
 #include "encoder/intra.h"
+#include "encoder/records.h"
 #include "encoder/residual.h"
 #include "encoder/transform.h"
 
@@ -27,77 +30,42 @@ static void atexit_hist(int *h)
     atexit(print_hist);
 }
 
-/* MPM candidate list (8.4.2). All-intra: neighbors are intra when inside
- * the picture; above outside the current CTB row degrades to DC. */
-static void mpm_list(struct n265_encoder *e, int x0, int y0, int cand[3])
+static void set_blk(struct n265_encoder *e, uint8_t *map, int x0, int y0,
+                    int n, int v)
 {
-    int a = INTRA_DC, b = INTRA_DC;
-    if (x0 > 0)
-        a = e->intra_mode[(y0 >> 2) * e->map_stride + ((x0 - 1) >> 2)];
-    if (y0 > 0 && (y0 & ((1 << e->ctb_log2) - 1)) != 0)
-        b = e->intra_mode[((y0 - 1) >> 2) * e->map_stride + (x0 >> 2)];
-
-    if (a == b) {
-        if (a < 2) {
-            cand[0] = INTRA_PLANAR;
-            cand[1] = INTRA_DC;
-            cand[2] = 26;
-        } else {
-            cand[0] = a;
-            cand[1] = 2 + ((a + 29) % 32);
-            cand[2] = 2 + ((a - 2 + 1) % 32);
-        }
-    } else {
-        cand[0] = a;
-        cand[1] = b;
-        if (a != INTRA_PLANAR && b != INTRA_PLANAR)
-            cand[2] = INTRA_PLANAR;
-        else if (a != INTRA_DC && b != INTRA_DC)
-            cand[2] = INTRA_DC;
-        else
-            cand[2] = 26;
-    }
+    for (int y = 0; y < n; y += 4)
+        for (int x = 0; x < n; x += 4)
+            map[((y0 + y) >> 2) * e->map_stride + ((x0 + x) >> 2)] =
+                (uint8_t)v;
 }
 
-static void write_luma_mode(struct n265_encoder *e, cabac_t *cb, int x0,
-                            int y0, int mode)
+static void set_mode_map(struct n265_encoder *e, int x0, int y0, int n,
+                         int mode)
 {
-    int cand[3];
-    mpm_list(e, x0, y0, cand);
-    int idx = -1;
-    for (int i = 0; i < 3; i++)
-        if (cand[i] == mode)
-            idx = i;
-    n265_cabac_bin(cb, &e->ctx[CTX_PREV_INTRA], idx >= 0);
-    if (idx >= 0) {
-        n265_cabac_bypass(cb, idx > 0);
-        if (idx > 0)
-            n265_cabac_bypass(cb, idx > 1);
-    } else {
-        /* rem_intra_luma_pred_mode: mode minus the smaller candidates,
-         * candidates sorted descending first (spec swap steps) */
-        int c[3] = { cand[0], cand[1], cand[2] }, t;
-        if (c[0] > c[1]) { t = c[0]; c[0] = c[1]; c[1] = t; }
-        if (c[0] > c[2]) { t = c[0]; c[0] = c[2]; c[2] = t; }
-        if (c[1] > c[2]) { t = c[1]; c[1] = c[2]; c[2] = t; }
-        int rem = mode;
-        for (int i = 2; i >= 0; i--)
-            if (mode > c[i])
-                rem--;
-        n265_cabac_bypass_bits(cb, (uint32_t)rem, 5);
-    }
+    set_blk(e, e->intra_mode, x0, y0, n, mode);
 }
 
-/* one color component of the TU: predict, transform, quant, code, recon.
- * Returns cbf. */
-#define MODE_INTER (-1)     /* mode value selecting zero-MV MC prediction */
+static void mark_cu_edges(struct n265_encoder *e, int x0, int y0, int n)
+{
+    for (int y = 0; y < n; y += 4)
+        e->edge_map[((y0 + y) >> 2) * e->map_stride + (x0 >> 2)] |= 1;
+    for (int x = 0; x < n; x += 4)
+        e->edge_map[(y0 >> 2) * e->map_stride + ((x0 + x) >> 2)] |= 2;
+}
 
-static int code_component(struct n265_encoder *e, cabac_t *cb, int c_idx,
-                          int x0, int y0, int log2n, int qp, int mode,
-                          int coded)
+/* one component TB: predict + transform + quant (+SBH). recon and record
+ * are separate so the inter skip/merge decision can look at nz first. */
+typedef struct tb_ctx {
+    uint8_t pred[32 * 32];
+    int16_t level[32 * 32];
+    int nz;
+} tb_ctx;
+
+static void tb_analyze(struct n265_encoder *e, int c_idx, int x0, int y0,
+                       int log2n, int qp, int mode, tb_ctx *tb)
 {
     int inter = mode == MODE_INTER;
-    int use_dst = !inter && c_idx == 0 && log2n == 2;   /* intra luma 4x4 */
+    int use_dst = !inter && c_idx == 0 && log2n == 2;
     int n = 1 << log2n;
     uint8_t *recon = e->recon[c_idx];
     int stride = e->recon_stride[c_idx];
@@ -106,56 +74,65 @@ static int code_component(struct n265_encoder *e, cabac_t *cb, int c_idx,
     int pic_h = c_idx ? e->pad_h / 2 : e->pad_h;
     int ctb_log2 = c_idx ? e->ctb_log2 - 1 : e->ctb_log2;
 
-    uint8_t refs[4 * 32 + 1], refs_f[4 * 32 + 1];
-    uint8_t pred[32 * 32];
     if (inter) {
         const uint8_t *rp = e->ref_plane[c_idx] + y0 * stride + x0;
         for (int y = 0; y < n; y++)
-            memcpy(pred + y * n, rp + y * stride, (size_t)n);
+            memcpy(tb->pred + y * n, rp + y * stride, (size_t)n);
     } else {
+        uint8_t refs[4 * 32 + 1], refs_f[4 * 32 + 1];
         n265_intra_refs(refs, recon, stride, x0, y0, log2n, pic_w, pic_h,
                         ctb_log2);
         if (n265_use_filtered_refs(mode, log2n, c_idx)) {
             n265_filter_refs(refs_f, refs, log2n);
-            n265_intra_pred(pred, n, refs_f, log2n, mode, c_idx);
+            n265_intra_pred(tb->pred, n, refs_f, log2n, mode, c_idx);
         } else {
-            n265_intra_pred(pred, n, refs, log2n, mode, c_idx);
+            n265_intra_pred(tb->pred, n, refs, log2n, mode, c_idx);
         }
     }
 
-    int16_t resid[32 * 32], coef[32 * 32], level[32 * 32], dq[32 * 32];
+    int16_t resid[32 * 32], coef[32 * 32];
     for (int y = 0; y < n; y++)
         for (int x = 0; x < n; x++)
-            resid[y * n + x] =
-                (int16_t)(src[y * e->pad_stride[c_idx] + x] - pred[y * n + x]);
+            resid[y * n + x] = (int16_t)(src[y * e->pad_stride[c_idx] + x] -
+                                         tb->pred[y * n + x]);
     n265_fdct(coef, resid, log2n, use_dst);
-    int nz = n265_quant(level, coef, log2n, qp);
-    int scan = inter ? 0 : n265_scan_idx(mode, log2n, c_idx);
-    if (nz)
-        n265_sbh_adjust(level, log2n, scan);
-
-    if (!coded)
-        return nz != 0;     /* first pass: just report cbf */
-
-    if (nz) {
-        n265_residual_coding(cb, e->ctx, level, log2n, c_idx, scan);
-        n265_dequant(dq, level, log2n, qp);
-        n265_idct_add(recon + y0 * stride + x0, stride, dq, log2n, pred, n,
-                      use_dst);
-    } else {
-        for (int y = 0; y < n; y++)
-            memcpy(recon + (y0 + y) * stride + x0, pred + y * n, (size_t)n);
-    }
-    if (c_idx == 0)
-        for (int y = 0; y < n; y += 4)
-            for (int x = 0; x < n; x += 4)
-                e->blk_cbf_y[((y0 + y) >> 2) * e->map_stride +
-                             ((x0 + x) >> 2)] = nz != 0;
-    return nz != 0;
+    tb->nz = n265_quant(tb->level, coef, log2n, qp);
+    if (tb->nz)
+        n265_sbh_adjust(tb->level, log2n,
+                        inter ? 0 : n265_scan_idx(mode, log2n, c_idx));
 }
 
-/* pick the luma mode by SAD over prediction from decoded refs (decision
- * quality is a later phase's business; the gate only needs consistency) */
+static void tb_recon(struct n265_encoder *e, int c_idx, int x0, int y0,
+                     int log2n, int qp, int mode, tb_ctx *tb)
+{
+    int inter = mode == MODE_INTER;
+    int use_dst = !inter && c_idx == 0 && log2n == 2;
+    int n = 1 << log2n;
+    uint8_t *recon = e->recon[c_idx];
+    int stride = e->recon_stride[c_idx];
+    if (tb->nz) {
+        int16_t dq[32 * 32];
+        n265_dequant(dq, tb->level, log2n, qp);
+        n265_idct_add(recon + y0 * stride + x0, stride, dq, log2n, tb->pred,
+                      n, use_dst);
+    } else {
+        for (int y = 0; y < n; y++)
+            memcpy(recon + (y0 + y) * stride + x0, tb->pred + y * n,
+                   (size_t)n);
+    }
+    if (c_idx == 0)
+        set_blk(e, e->blk_cbf_y, x0, y0, n < 4 ? 4 : n, tb->nz != 0);
+}
+
+static int tb_full(struct n265_encoder *e, int c_idx, int x0, int y0,
+                   int log2n, int qp, int mode, tb_ctx *tb)
+{
+    tb_analyze(e, c_idx, x0, y0, log2n, qp, mode, tb);
+    tb_recon(e, c_idx, x0, y0, log2n, qp, mode, tb);
+    return tb->nz != 0;
+}
+
+/* pick the luma mode by SAD over prediction from the given ref plane */
 static int search_luma_mode(struct n265_encoder *e, int x0, int y0, int log2n,
                             const uint8_t *ref_plane, uint32_t *cost_out)
 {
@@ -187,8 +164,6 @@ static int search_luma_mode(struct n265_encoder *e, int x0, int y0, int log2n,
     }
     if (cost_out)
         *cost_out = best_cost;
-    /* coverage-honesty tap: N265_MODE_HIST=1 prints the pick histogram at
-     * exit so the conformance suite can prove every mode runs */
     static int hist[35], armed = -1;
     if (armed < 0)
         armed = getenv("N265_MODE_HIST") != NULL;
@@ -203,90 +178,6 @@ static int search_luma_mode(struct n265_encoder *e, int x0, int y0, int log2n,
     return best_mode;
 }
 
-static void set_mode_map(struct n265_encoder *e, int x0, int y0, int n,
-                         int mode)
-{
-    for (int y = 0; y < n; y += 4)
-        for (int x = 0; x < n; x += 4)
-            e->intra_mode[((y0 + y) >> 2) * e->map_stride + ((x0 + x) >> 2)] =
-                (uint8_t)mode;
-}
-
-static void mark_cu_edges(struct n265_encoder *e, int x0, int y0, int n)
-{
-    for (int y = 0; y < n; y += 4)
-        e->edge_map[((y0 + y) >> 2) * e->map_stride + (x0 >> 2)] |= 1;
-    for (int x = 0; x < n; x += 4)
-        e->edge_map[(y0 >> 2) * e->map_stride + ((x0 + x) >> 2)] |= 2;
-}
-
-/* transform_tree for a 2Nx2N intra CU. A 64x64 CB exceeds the 32x32 max
- * TB and splits (inferred; MaxTbLog2 == 5); smaller CBs are leaves.
- * Chroma cbfs are hierarchical: coded at a node when the parent's was 1
- * (or at depth 0). Each leaf TB also contributes deblock edges. */
-static void transform_tree_2nx2n(struct n265_encoder *e, cabac_t *cb,
-                                 int mode, int x0, int y0, int log2ts,
-                                 int depth, int pcb, int pcr)
-{
-    int qp_c = n265_chroma_qp(e->qp);
-    int split = log2ts > 5;
-    int cbf_cb = 0, cbf_cr = 0;
-    int pcb_any, pcr_any;
-
-    if (split) {
-        int h = 1 << (log2ts - 1);
-        for (int i = 0; i < 4; i++) {
-            int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
-            cbf_cb |= code_component(e, cb, 1, x1 / 2, y1 / 2, log2ts - 2,
-                                     qp_c, mode, 0);
-            cbf_cr |= code_component(e, cb, 2, x1 / 2, y1 / 2, log2ts - 2,
-                                     qp_c, mode, 0);
-        }
-    } else {
-        cbf_cb = code_component(e, cb, 1, x0 / 2, y0 / 2, log2ts - 1, qp_c,
-                                mode, 0);
-        cbf_cr = code_component(e, cb, 2, x0 / 2, y0 / 2, log2ts - 1, qp_c,
-                                mode, 0);
-    }
-    if (depth == 0 || pcb)
-        n265_cabac_bin(cb, &e->ctx[CTX_CBF_CHROMA + depth], cbf_cb);
-    if (depth == 0 || pcr)
-        n265_cabac_bin(cb, &e->ctx[CTX_CBF_CHROMA + depth], cbf_cr);
-    pcb_any = cbf_cb;
-    pcr_any = cbf_cr;
-
-    if (split) {
-        int h = 1 << (log2ts - 1);
-        for (int i = 0; i < 4; i++)
-            transform_tree_2nx2n(e, cb, mode, x0 + (i & 1) * h,
-                                 y0 + (i >> 1) * h, log2ts - 1, depth + 1,
-                                 cbf_cb, cbf_cr);
-        return;
-    }
-
-    mark_cu_edges(e, x0, y0, 1 << log2ts);
-    int cbf_l = code_component(e, cb, 0, x0, y0, log2ts, e->qp, mode, 0);
-    /* inter, depth 0, no chroma cbf: cbf_luma is inferred 1 (the caller
-     * guarantees the all-zero case became a skip CU instead) */
-    if (!(mode == MODE_INTER && depth == 0 && !pcb_any && !pcr_any))
-        n265_cabac_bin(cb, &e->ctx[CTX_CBF_LUMA + (depth == 0)], cbf_l);
-    code_component(e, cb, 0, x0, y0, log2ts, e->qp, mode, 1);
-    code_component(e, cb, 1, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, 1);
-    code_component(e, cb, 2, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, 1);
-}
-
-static void set_blk(struct n265_encoder *e, uint8_t *map, int x0, int y0,
-                    int n, int v)
-{
-    for (int y = 0; y < n; y += 4)
-        for (int x = 0; x < n; x += 4)
-            map[((y0 + y) >> 2) * e->map_stride + ((x0 + x) >> 2)] =
-                (uint8_t)v;
-}
-
-/* SAD of the co-located reference block: the skip candidate's cost
- * (merge list is all zero-MV ref-0 while MaxNumMergeCand == 1 and every
- * inter block is zero-MV; revisit with real ME) */
 static uint32_t skip_sad(struct n265_encoder *e, int x0, int y0, int n)
 {
     const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
@@ -306,10 +197,6 @@ static int want_skip(struct n265_encoder *e, int x0, int y0, int log2n)
     if (e->slice_type != 1)
         return 0;
     int n = 1 << log2n;
-    /* skip only when the co-located block is genuinely close: the copy
-     * is free in bits but its distortion is unrecoverable. Threshold in
-     * eighths of a level per pixel, scaled with QP (N265_SKIP_THR
-     * overrides; docs/knobs.md). */
     static int thr8 = -1;
     if (thr8 < 0) {
         const char *v = getenv("N265_SKIP_THR");
@@ -318,11 +205,75 @@ static int want_skip(struct n265_encoder *e, int x0, int y0, int log2n)
     return skip_sad(e, x0, y0, n) * 8u <= (uint32_t)(n * n * thr8);
 }
 
-static void encode_skip_cu(struct n265_encoder *e, cabac_t *cb, int x0,
-                           int y0, int log2n)
+/* transform tree for a 2Nx2N CU (intra or inter): records, per node,
+ * [cbf_cb][cbf_cr] then per leaf [cbf_l][levels l][levels cb][levels cr].
+ * A 64x64 CB splits into four 32x32 TUs (maxTB). */
+static void tt_analyze(struct n265_encoder *e, int mode, int x0, int y0,
+                       int log2ts)
+{
+    int qp_c = n265_chroma_qp(e->qp);
+    int split = log2ts > 5;
+    tb_ctx tb;
+
+    if (split) {
+        /* children reconstruct sequentially (a child's chroma prediction
+         * reads the previous child's chroma recon), so the root cbfs -
+         * which precede the children in the record stream - are patched
+         * in after the loop. */
+        int h = 1 << (log2ts - 1);
+        size_t root_off = e->rec_len;
+        rec_u8(e, 0);
+        rec_u8(e, 0);
+        int root_cb = 0, root_cr = 0;
+        tb_ctx tcb, tcr;
+        for (int i = 0; i < 4; i++) {
+            int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
+            mark_cu_edges(e, x1, y1, h);
+            tb_analyze(e, 1, x1 / 2, y1 / 2, log2ts - 2, qp_c, mode, &tcb);
+            tb_analyze(e, 2, x1 / 2, y1 / 2, log2ts - 2, qp_c, mode, &tcr);
+            root_cb |= tcb.nz != 0;
+            root_cr |= tcr.nz != 0;
+            rec_u8(e, tcb.nz != 0);
+            rec_u8(e, tcr.nz != 0);
+            int cbf_l = tb_full(e, 0, x1, y1, log2ts - 1, e->qp, mode, &tb);
+            rec_u8(e, (unsigned)cbf_l);
+            if (cbf_l)
+                rec_levels(e, tb.level, h * h);
+            tb_recon(e, 1, x1 / 2, y1 / 2, log2ts - 2, qp_c, mode, &tcb);
+            if (tcb.nz)
+                rec_levels(e, tcb.level, (h / 2) * (h / 2));
+            tb_recon(e, 2, x1 / 2, y1 / 2, log2ts - 2, qp_c, mode, &tcr);
+            if (tcr.nz)
+                rec_levels(e, tcr.level, (h / 2) * (h / 2));
+        }
+        e->rec_buf[root_off] = (uint8_t)root_cb;
+        e->rec_buf[root_off + 1] = (uint8_t)root_cr;
+        return;
+    }
+
+    int n = 1 << log2ts;
+    mark_cu_edges(e, x0, y0, n);
+    tb_ctx tcb, tcr;
+    tb_analyze(e, 1, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, &tcb);
+    tb_analyze(e, 2, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, &tcr);
+    tb_analyze(e, 0, x0, y0, log2ts, e->qp, mode, &tb);
+    rec_u8(e, tcb.nz != 0);
+    rec_u8(e, tcr.nz != 0);
+    rec_u8(e, tb.nz != 0);
+    tb_recon(e, 0, x0, y0, log2ts, e->qp, mode, &tb);
+    if (tb.nz)
+        rec_levels(e, tb.level, n * n);
+    tb_recon(e, 1, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, &tcb);
+    if (tcb.nz)
+        rec_levels(e, tcb.level, (n / 2) * (n / 2));
+    tb_recon(e, 2, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, &tcr);
+    if (tcr.nz)
+        rec_levels(e, tcr.level, (n / 2) * (n / 2));
+}
+
+static void skip_cu(struct n265_encoder *e, int x0, int y0, int log2n)
 {
     int n = 1 << log2n;
-    /* merge_idx absent (MaxNumMergeCand == 1); recon = co-located ref */
     for (int y = 0; y < n; y++)
         memcpy(e->recon[0] + (y0 + y) * e->recon_stride[0] + x0,
                e->ref_plane[0] + (y0 + y) * e->recon_stride[0] + x0,
@@ -336,11 +287,10 @@ static void encode_skip_cu(struct n265_encoder *e, cabac_t *cb, int x0,
     set_blk(e, e->blk_intra, x0, y0, n, 0);
     set_blk(e, e->blk_skip, x0, y0, n, 1);
     set_blk(e, e->blk_cbf_y, x0, y0, n, 0);
-    set_mode_map(e, x0, y0, n, INTRA_DC);   /* MPM neighbor default */
+    set_mode_map(e, x0, y0, n, INTRA_DC);
 }
 
-static void encode_cu(struct n265_encoder *e, cabac_t *cb, int x0, int y0,
-                      int log2n)
+static void analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
 {
     int n = 1 << log2n;
     int qp_c = n265_chroma_qp(e->qp);
@@ -348,56 +298,55 @@ static void encode_cu(struct n265_encoder *e, cabac_t *cb, int x0, int y0,
 
     if (e->slice_type == 1) {
         int skip = 0, inter = 0;
-        int qp_cc = n265_chroma_qp(e->qp);
+        static tb_ctx tl, tcb, tcr;
         if (want_skip(e, x0, y0, log2n)) {
             skip = 1;
-        } else if (log2n <= 5) {    /* CB64 buffers: skip/intra only */
+        } else if (log2n <= 5) {
             uint32_t intra_cost;
             search_luma_mode(e, x0, y0, log2n, e->pad_plane[0],
                              &intra_cost);
             if (skip_sad(e, x0, y0, n) <= intra_cost) {
-                /* zero-MV merge; all-zero residual must become skip
-                 * (cbf_luma is inferred 1 for depth-0 inter otherwise) */
-                int nzl = code_component(e, cb, 0, x0, y0, log2n, e->qp,
-                                         MODE_INTER, 0);
-                int nzb = code_component(e, cb, 1, x0 / 2, y0 / 2,
-                                         log2n - 1, qp_cc, MODE_INTER, 0);
-                int nzr = code_component(e, cb, 2, x0 / 2, y0 / 2,
-                                         log2n - 1, qp_cc, MODE_INTER, 0);
-                if (!nzl && !nzb && !nzr)
+                tb_analyze(e, 0, x0, y0, log2n, e->qp, MODE_INTER, &tl);
+                tb_analyze(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c,
+                           MODE_INTER, &tcb);
+                tb_analyze(e, 2, x0 / 2, y0 / 2, log2n - 1, qp_c,
+                           MODE_INTER, &tcr);
+                if (!tl.nz && !tcb.nz && !tcr.nz)
                     skip = 1;
                 else
                     inter = 1;
             }
         }
-        int inc = 0;
-        if (x0 > 0)
-            inc += e->blk_skip[(y0 >> 2) * e->map_stride + ((x0 - 1) >> 2)];
-        if (y0 > 0)
-            inc += e->blk_skip[((y0 - 1) >> 2) * e->map_stride + (x0 >> 2)];
-        n265_cabac_bin(cb, &e->ctx[CTX_CU_SKIP + inc], skip);
         if (skip) {
-            encode_skip_cu(e, cb, x0, y0, log2n);
+            skip_cu(e, x0, y0, log2n);
             return;
         }
-        n265_cabac_bin(cb, &e->ctx[CTX_PRED_MODE], inter ? 0 : 1);
         if (inter) {
-            /* inter 2Nx2N merge: part_mode bin0 '1', merge_flag 1,
-             * merge_idx absent, rqt_root_cbf not coded for 2Nx2N merge */
-            n265_cabac_bin(cb, &e->ctx[CTX_PART_MODE], 1);
-            n265_cabac_bin(cb, &e->ctx[CTX_MERGE_FLAG], 1);
             set_blk(e, e->blk_intra, x0, y0, n, 0);
             set_blk(e, e->blk_skip, x0, y0, n, 0);
             set_mode_map(e, x0, y0, n, INTRA_DC);
-            transform_tree_2nx2n(e, cb, MODE_INTER, x0, y0, log2n, 0, 1, 1);
+            rec_u8(e, tcb.nz != 0);
+            rec_u8(e, tcr.nz != 0);
+            rec_u8(e, tl.nz != 0);
+            tb_recon(e, 0, x0, y0, log2n, e->qp, MODE_INTER, &tl);
+            if (tl.nz)
+                rec_levels(e, tl.level, n * n);
+            tb_recon(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c, MODE_INTER,
+                     &tcb);
+            if (tcb.nz)
+                rec_levels(e, tcb.level, (n / 2) * (n / 2));
+            tb_recon(e, 2, x0 / 2, y0 / 2, log2n - 1, qp_c, MODE_INTER,
+                     &tcr);
+            if (tcr.nz)
+                rec_levels(e, tcr.level, (n / 2) * (n / 2));
             return;
         }
     }
+
+    /* intra */
     set_blk(e, e->blk_intra, x0, y0, n, 1);
     set_blk(e, e->blk_skip, x0, y0, n, 0);
 
-    /* at min CB size, decide 2Nx2N vs NxN by summed SAD (NxN searched
-     * against source refs since PU recon does not exist yet) */
     int nxn = 0;
     int modes[4] = { 0, 0, 0, 0 };
     if (log2n == MIN_CB_LOG2) {
@@ -417,98 +366,44 @@ static void encode_cu(struct n265_encoder *e, cabac_t *cb, int x0, int y0,
             for (int i = 0; i < 4; i++)
                 modes[i] = nmodes[i];
         }
-        n265_cabac_bin(cb, &e->ctx[CTX_PART_MODE], !nxn);
+        rec_u8(e, (unsigned)nxn);
         if (getenv("N265_MODE_HIST")) {
             g_nxn += nxn;
             g_2nx2n_min += !nxn;
         }
     } else {
-        /* prediction (and the search buffers) are TB-sized: a 64x64 CB
-         * picks its mode from its top-left 32x32 TB */
         modes[0] = search_luma_mode(e, x0, y0, log2n > 5 ? 5 : log2n,
                                     e->recon[0], NULL);
     }
 
     if (!nxn) {
-        int mode = modes[0];
-        write_luma_mode(e, cb, x0, y0, mode);
-        n265_cabac_bin(cb, &e->ctx[CTX_CHROMA_MODE], 0);    /* DM */
-        transform_tree_2nx2n(e, cb, mode, x0, y0, log2n, 0, 1, 1);
-        set_mode_map(e, x0, y0, n, mode);
+        set_mode_map(e, x0, y0, n, modes[0]);
+        tt_analyze(e, modes[0], x0, y0, log2n);
         return;
     }
 
-    /* NxN: four PUs, four 4x4 luma TUs (split_transform_flag inferred 1),
-     * chroma stays 4x4 at the parent and is coded after the last luma TU.
-     * Mode signalling: all four prev_intra flags, then the four
-     * mpm_idx/rem values; candidate lists are derived sequentially with
-     * earlier PU modes visible (map updated as we go). */
-    int prev[4], idx_or_rem[4], is_mpm[4];
+    /* NxN: chroma at the parent, four 4x4 luma TUs with DST */
+    tb_ctx tcb, tcr, tl;
+    tb_analyze(e, 1, x0 / 2, y0 / 2, 2, qp_c, modes[0], &tcb);
+    tb_analyze(e, 2, x0 / 2, y0 / 2, 2, qp_c, modes[0], &tcr);
+    rec_u8(e, tcb.nz != 0);
+    rec_u8(e, tcr.nz != 0);
     for (int i = 0; i < 4; i++) {
         int px = x0 + (i & 1) * 4, py = y0 + (i >> 1) * 4;
-        int cand[3];
-        mpm_list(e, px, py, cand);
-        int idx = -1;
-        for (int k = 0; k < 3; k++)
-            if (cand[k] == modes[i])
-                idx = k;
-        is_mpm[i] = idx >= 0;
-        prev[i] = idx >= 0;
-        if (idx >= 0) {
-            idx_or_rem[i] = idx;
-        } else {
-            int c[3] = { cand[0], cand[1], cand[2] }, t;
-            if (c[0] > c[1]) { t = c[0]; c[0] = c[1]; c[1] = t; }
-            if (c[0] > c[2]) { t = c[0]; c[0] = c[2]; c[2] = t; }
-            if (c[1] > c[2]) { t = c[1]; c[1] = c[2]; c[2] = t; }
-            int rem = modes[i];
-            for (int k = 2; k >= 0; k--)
-                if (modes[i] > c[k])
-                    rem--;
-            idx_or_rem[i] = rem;
-        }
         set_mode_map(e, px, py, 4, modes[i]);
+        int cbf_l = tb_full(e, 0, px, py, 2, e->qp, modes[i], &tl);
+        rec_u8(e, (unsigned)cbf_l);
+        if (cbf_l)
+            rec_levels(e, tl.level, 16);
     }
-    for (int i = 0; i < 4; i++)
-        n265_cabac_bin(cb, &e->ctx[CTX_PREV_INTRA], prev[i]);
-    for (int i = 0; i < 4; i++) {
-        if (is_mpm[i]) {
-            n265_cabac_bypass(cb, idx_or_rem[i] > 0);
-            if (idx_or_rem[i] > 0)
-                n265_cabac_bypass(cb, idx_or_rem[i] > 1);
-        } else {
-            n265_cabac_bypass_bits(cb, (uint32_t)idx_or_rem[i], 5);
-        }
-    }
-    n265_cabac_bin(cb, &e->ctx[CTX_CHROMA_MODE], 0);    /* DM (PU0 mode) */
-
-    /* transform_tree depth 0: chroma cbfs (TBs live here), then the four
-     * luma TUs at depth 1 */
-    int cbf_cb = code_component(e, cb, 1, x0 / 2, y0 / 2, 2, qp_c,
-                                modes[0], 0);
-    int cbf_cr = code_component(e, cb, 2, x0 / 2, y0 / 2, 2, qp_c,
-                                modes[0], 0);
-    n265_cabac_bin(cb, &e->ctx[CTX_CBF_CHROMA + 0], cbf_cb);
-    n265_cabac_bin(cb, &e->ctx[CTX_CBF_CHROMA + 0], cbf_cr);
-
-    for (int i = 0; i < 4; i++) {
-        int px = x0 + (i & 1) * 4, py = y0 + (i >> 1) * 4;
-        int cbf_l = code_component(e, cb, 0, px, py, 2, e->qp, modes[i], 0);
-        /* cbf_luma at trafoDepth 1 */
-        n265_cabac_bin(cb, &e->ctx[CTX_CBF_LUMA + 0], cbf_l);
-        code_component(e, cb, 0, px, py, 2, e->qp, modes[i], 1);
-        if (i == 3) {
-            code_component(e, cb, 1, x0 / 2, y0 / 2, 2, qp_c, modes[0], 1);
-            code_component(e, cb, 2, x0 / 2, y0 / 2, 2, qp_c, modes[0], 1);
-        }
-    }
+    tb_recon(e, 1, x0 / 2, y0 / 2, 2, qp_c, modes[0], &tcb);
+    if (tcb.nz)
+        rec_levels(e, tcb.level, 16);
+    tb_recon(e, 2, x0 / 2, y0 / 2, 2, qp_c, modes[0], &tcr);
+    if (tcr.nz)
+        rec_levels(e, tcr.level, 16);
 }
 
-/* content-adaptive split decision from source-ref SAD at the two levels:
- * split when the children's summed best-mode SAD beats the parent's by
- * more than the signalling overhead is worth. Search buffers cap at 32,
- * so 64x64 parents are costed by their top-left 32x32 (bias toward
- * splitting large blocks, which is where x265 medium lives anyway). */
 static int decide_split(struct n265_encoder *e, int x0, int y0, int log2n)
 {
     uint32_t parent;
@@ -524,12 +419,11 @@ static int decide_split(struct n265_encoder *e, int x0, int y0, int log2n)
                          log2n - 1 > 5 ? 5 : log2n - 1, e->pad_plane[0], &c);
         kids += c;
     }
-    /* fixed relative margin: split when children win by > 1/16 */
     return kids + (kids >> 4) < parent;
 }
 
-static void quadtree(struct n265_encoder *e, cabac_t *cb, int x0, int y0,
-                     int log2n, int depth)
+static void quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
+                     int depth)
 {
     int n = 1 << log2n;
     int inside = x0 + n <= e->pad_w && y0 + n <= e->pad_h;
@@ -537,44 +431,31 @@ static void quadtree(struct n265_encoder *e, cabac_t *cb, int x0, int y0,
     if (inside && log2n > MIN_CB_LOG2) {
         int split = want_skip(e, x0, y0, log2n) ? 0
                     : decide_split(e, x0, y0, log2n);
-        int inc = 0;
-        if (x0 > 0)
-            inc += e->ct_depth[(y0 >> 2) * e->map_stride + ((x0 - 1) >> 2)] >
-                   depth;
-        if (y0 > 0)
-            inc += e->ct_depth[((y0 - 1) >> 2) * e->map_stride + (x0 >> 2)] >
-                   depth;
-        n265_cabac_bin(cb, &e->ctx[CTX_SPLIT_CU + inc], split);
         if (split) {
+            /* no record: the split flag replays from ct_depth */
             int h = 1 << (log2n - 1);
             for (int i = 0; i < 4; i++)
-                quadtree(e, cb, x0 + (i & 1) * h, y0 + (i >> 1) * h,
+                quadtree(e, x0 + (i & 1) * h, y0 + (i >> 1) * h,
                          log2n - 1, depth + 1);
             return;
         }
     } else if (!inside && log2n > MIN_CB_LOG2) {
-        /* forced split, flag not coded */
         int h = n >> 1;
         for (int i = 0; i < 4; i++) {
             int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
             if (x1 < e->pad_w && y1 < e->pad_h)
-                quadtree(e, cb, x1, y1, log2n - 1, depth + 1);
+                quadtree(e, x1, y1, log2n - 1, depth + 1);
         }
         return;
     } else if (!inside) {
-        return;     /* min CB outside: nothing to code */
+        return;
     }
 
-    encode_cu(e, cb, x0, y0, log2n);
-    for (int y = 0; y < n; y += 4)
-        for (int x = 0; x < n; x += 4)
-            e->ct_depth[((y0 + y) >> 2) * e->map_stride + ((x0 + x) >> 2)] =
-                (uint8_t)depth;
+    analyze_cu(e, x0, y0, log2n);
+    set_blk(e, e->ct_depth, x0, y0, n, depth);
 }
 
-void n265_encode_ctu(struct n265_encoder *e, cabac_t *cb, int ctb_x,
-                     int ctb_y)
+void n265_analyze_ctu(struct n265_encoder *e, int ctb_x, int ctb_y)
 {
-    quadtree(e, cb, ctb_x << e->ctb_log2, ctb_y << e->ctb_log2, e->ctb_log2,
-             0);
+    quadtree(e, ctb_x << e->ctb_log2, ctb_y << e->ctb_log2, e->ctb_log2, 0);
 }
