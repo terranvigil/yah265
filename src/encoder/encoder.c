@@ -40,12 +40,14 @@ static void pad_plane(uint8_t *dst, int dst_stride, int dst_w, int dst_h,
 /* internal knobs the public API doesn't expose yet */
 static int g_mode = N265_MODE_INTRA;
 static int g_qp = 26;
+static int g_ctb_log2 = 5;
 
-void n265_set_mode(int mode, int qp);
-void n265_set_mode(int mode, int qp)
+void n265_set_mode(int mode, int qp, int ctb_log2);
+void n265_set_mode(int mode, int qp, int ctb_log2)
 {
     g_mode = mode;
     g_qp = qp;
+    g_ctb_log2 = ctb_log2;
 }
 
 void n265_encoder_set_dump(n265_encoder *e, FILE *f)
@@ -64,7 +66,8 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->param = *p;
     e->mode = g_mode;
     e->qp = g_qp;
-    e->ctb_log2 = e->mode == N265_MODE_PCM ? 4 : 5;
+    e->ctb_log2 = e->mode == N265_MODE_PCM ? 4 : g_ctb_log2;
+    e->no_sao = getenv("N265_NO_SAO") != NULL;      /* diagnostic */
     int align = e->mode == N265_MODE_PCM ? 16 : (1 << MIN_CB_LOG2);
     if (p->width < align || p->height < align)
         goto fail;
@@ -244,6 +247,9 @@ int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
             n265_encode_ctu(e, &cb, i % e->ctb_cols, i / e->ctb_cols);
         n265_deblock_frame(e);
         n265_sao_analyze(e);
+        if (e->no_sao)
+            memset(e->sao, 0,
+                   (size_t)e->ctb_cols * e->ctb_rows * sizeof(sao_params));
     }
 
     memset(e->edge_map, 0, (size_t)e->map_stride * (e->pad_h >> 2));

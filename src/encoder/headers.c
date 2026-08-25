@@ -104,9 +104,10 @@ void n265_write_sps(struct n265_encoder *e)
         bs_put_ue(bs, 2);           /* log2_diff max TB 16 */
     } else {
         bs_put_ue(bs, 0);           /* min CB 8 */
-        bs_put_ue(bs, 2);           /* CTB 32 */
+        bs_put_ue(bs, (uint32_t)(e->ctb_log2 - 3));
         bs_put_ue(bs, 0);           /* min TB 4 */
-        bs_put_ue(bs, 3);           /* max TB 32 */
+        /* max TB = min(CTB, 32) */
+        bs_put_ue(bs, (uint32_t)((e->ctb_log2 > 5 ? 5 : e->ctb_log2) - 2));
     }
     bs_put_ue(bs, 0);               /* max_transform_hierarchy_depth_inter */
     bs_put_ue(bs, 0);               /* max_transform_hierarchy_depth_intra */

@@ -206,6 +206,55 @@ static void mark_cu_edges(struct n265_encoder *e, int x0, int y0, int n)
         e->edge_map[(y0 >> 2) * e->map_stride + ((x0 + x) >> 2)] |= 2;
 }
 
+/* transform_tree for a 2Nx2N intra CU. A 64x64 CB exceeds the 32x32 max
+ * TB and splits (inferred; MaxTbLog2 == 5); smaller CBs are leaves.
+ * Chroma cbfs are hierarchical: coded at a node when the parent's was 1
+ * (or at depth 0). Each leaf TB also contributes deblock edges. */
+static void transform_tree_2nx2n(struct n265_encoder *e, cabac_t *cb,
+                                 int mode, int x0, int y0, int log2ts,
+                                 int depth, int pcb, int pcr)
+{
+    int qp_c = n265_chroma_qp(e->qp);
+    int split = log2ts > 5;
+    int cbf_cb = 0, cbf_cr = 0;
+
+    if (split) {
+        int h = 1 << (log2ts - 1);
+        for (int i = 0; i < 4; i++) {
+            int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
+            cbf_cb |= code_component(e, cb, 1, x1 / 2, y1 / 2, log2ts - 2,
+                                     qp_c, mode, 0);
+            cbf_cr |= code_component(e, cb, 2, x1 / 2, y1 / 2, log2ts - 2,
+                                     qp_c, mode, 0);
+        }
+    } else {
+        cbf_cb = code_component(e, cb, 1, x0 / 2, y0 / 2, log2ts - 1, qp_c,
+                                mode, 0);
+        cbf_cr = code_component(e, cb, 2, x0 / 2, y0 / 2, log2ts - 1, qp_c,
+                                mode, 0);
+    }
+    if (depth == 0 || pcb)
+        n265_cabac_bin(cb, &e->ctx[CTX_CBF_CHROMA + depth], cbf_cb);
+    if (depth == 0 || pcr)
+        n265_cabac_bin(cb, &e->ctx[CTX_CBF_CHROMA + depth], cbf_cr);
+
+    if (split) {
+        int h = 1 << (log2ts - 1);
+        for (int i = 0; i < 4; i++)
+            transform_tree_2nx2n(e, cb, mode, x0 + (i & 1) * h,
+                                 y0 + (i >> 1) * h, log2ts - 1, depth + 1,
+                                 cbf_cb, cbf_cr);
+        return;
+    }
+
+    mark_cu_edges(e, x0, y0, 1 << log2ts);
+    int cbf_l = code_component(e, cb, 0, x0, y0, log2ts, e->qp, mode, 0);
+    n265_cabac_bin(cb, &e->ctx[CTX_CBF_LUMA + (depth == 0)], cbf_l);
+    code_component(e, cb, 0, x0, y0, log2ts, e->qp, mode, 1);
+    code_component(e, cb, 1, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, 1);
+    code_component(e, cb, 2, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, 1);
+}
+
 static void encode_cu(struct n265_encoder *e, cabac_t *cb, int x0, int y0,
                       int log2n)
 {
@@ -240,28 +289,17 @@ static void encode_cu(struct n265_encoder *e, cabac_t *cb, int x0, int y0,
             g_2nx2n_min += !nxn;
         }
     } else {
-        modes[0] = search_luma_mode(e, x0, y0, log2n, e->recon[0], NULL);
+        /* prediction (and the search buffers) are TB-sized: a 64x64 CB
+         * picks its mode from its top-left 32x32 TB */
+        modes[0] = search_luma_mode(e, x0, y0, log2n > 5 ? 5 : log2n,
+                                    e->recon[0], NULL);
     }
 
     if (!nxn) {
         int mode = modes[0];
         write_luma_mode(e, cb, x0, y0, mode);
         n265_cabac_bin(cb, &e->ctx[CTX_CHROMA_MODE], 0);    /* DM */
-
-        int cbf_cb = code_component(e, cb, 1, x0 / 2, y0 / 2, log2n - 1,
-                                    qp_c, mode, 0);
-        int cbf_cr = code_component(e, cb, 2, x0 / 2, y0 / 2, log2n - 1,
-                                    qp_c, mode, 0);
-        int cbf_l = code_component(e, cb, 0, x0, y0, log2n, e->qp, mode, 0);
-
-        n265_cabac_bin(cb, &e->ctx[CTX_CBF_CHROMA + 0], cbf_cb);
-        n265_cabac_bin(cb, &e->ctx[CTX_CBF_CHROMA + 0], cbf_cr);
-        n265_cabac_bin(cb, &e->ctx[CTX_CBF_LUMA + 1], cbf_l);
-
-        code_component(e, cb, 0, x0, y0, log2n, e->qp, mode, 1);
-        code_component(e, cb, 1, x0 / 2, y0 / 2, log2n - 1, qp_c, mode, 1);
-        code_component(e, cb, 2, x0 / 2, y0 / 2, log2n - 1, qp_c, mode, 1);
-
+        transform_tree_2nx2n(e, cb, mode, x0, y0, log2n, 0, 1, 1);
         set_mode_map(e, x0, y0, n, mode);
         return;
     }

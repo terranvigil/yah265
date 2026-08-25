@@ -76,11 +76,27 @@ run_vector() {
     esac
     "$FFMPEG" -loglevel error -i "$TMP/$name.hevc" -f rawvideo \
         "$TMP/$name.ff.yuv" -y 2>"$TMP/$name.fferr"
-    if ! cmp -s "$TMP/$name.src.yuv" "$TMP/$name.ff.yuv"; then
-        echo "SUMMARY $name FAIL (ffmpeg recon mismatch)"
-        sed -n 1,3p "$TMP/$name.fferr" >&2
-        fail=$((fail+1)); return
-    fi
+    # ffmpeg and dec265 disagree on bounded chroma seam samples for
+    # CTB-16 SAO streams (reproduced on x265 output too; recorded in
+    # docs/instruments.md). dec265 stays bit-exact below; ffmpeg gets a
+    # small labeled chroma allowance only on ctu-16 vectors.
+    case "$eargs" in
+    *"--ctu 16"*)
+        if ! python3 scripts/yuvdiff.py "$TMP/$name.src.yuv" \
+                "$TMP/$name.ff.yuv" --geometry "$size" \
+                --max-chroma-diffs 64 --max-delta 4; then
+            echo "SUMMARY $name FAIL (ffmpeg recon mismatch)"
+            fail=$((fail+1)); return
+        fi
+        ;;
+    *)
+        if ! cmp -s "$TMP/$name.src.yuv" "$TMP/$name.ff.yuv"; then
+            echo "SUMMARY $name FAIL (ffmpeg recon mismatch)"
+            sed -n 1,3p "$TMP/$name.fferr" >&2
+            fail=$((fail+1)); return
+        fi
+        ;;
+    esac
     if ! "$DEC265" -q -o "$TMP/$name.de.yuv" "$TMP/$name.hevc" \
             >/dev/null 2>"$TMP/$name.deerr" || [ ! -s "$TMP/$name.de.yuv" ]; then
         echo "SUMMARY $name FAIL (dec265 run failed)"
@@ -108,6 +124,9 @@ run_vector intra_narrow   32x256   3  testsrc2  ""
 run_vector intra_qp8      176x144  3  testsrc2  "--qp 8"
 run_vector intra_qp45     176x144  3  testsrc2  "--qp 45"
 run_vector intra_smooth   100x60   3  gradients ""
+run_vector intra_ctu16    176x144  3  testsrc2  "--ctu 16"
+run_vector intra_ctu64    176x144  3  testsrc2  "--ctu 64"
+run_vector intra_ctu64c   210x122  3  testsrc2  "--ctu 64"
 if [ "$FAST" -eq 0 ]; then
     run_vector pcm_cif     352x288  5  testsrc2  "--pcm"
     run_vector intra_cif   352x288 10 testsrc2  ""

@@ -11,7 +11,7 @@
 #include "next265.h"
 
 /* internal knobs, resolved from the library (not yet public API) */
-void n265_set_mode(int mode, int qp);
+void n265_set_mode(int mode, int qp, int ctb_log2);
 void n265_encoder_set_dump(n265_encoder *e, FILE *f);
 
 typedef struct y4m_t {
@@ -72,6 +72,7 @@ static void usage(void)
         "  --frames <n>    encode at most n frames\n"
         "  --qp <n>        fixed QP (default 26)\n"
         "  --pcm           phase-0 I_PCM mode (lossless, huge)\n"
+        "  --ctu <16|32|64>  coding tree block size (default 32)\n"
         "  --dump-recon <file>  write reconstruction as raw YUV (the\n"
         "                  conformance gate compares decoders against it)\n"
         "  --version       print version\n");
@@ -82,7 +83,7 @@ int main(int argc, char **argv)
     const char *in_path = NULL, *out_path = "out.hevc";
     const char *dump_path = NULL;
     long max_frames = -1;
-    int qp = 26, pcm = 0;
+    int qp = 26, pcm = 0, ctu = 32;
 
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-o") && i + 1 < argc) {
@@ -91,6 +92,8 @@ int main(int argc, char **argv)
             max_frames = atol(argv[++i]);
         } else if (!strcmp(argv[i], "--qp") && i + 1 < argc) {
             qp = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--ctu") && i + 1 < argc) {
+            ctu = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--pcm")) {
             pcm = 1;
         } else if (!strcmp(argv[i], "--dump-recon") && i + 1 < argc) {
@@ -129,7 +132,12 @@ int main(int argc, char **argv)
         fprintf(stderr, "n265: qp out of range 0..51\n");
         return 2;
     }
-    n265_set_mode(pcm ? 1 : 0, qp);
+    if (ctu != 16 && ctu != 32 && ctu != 64) {
+        fprintf(stderr, "n265: --ctu must be 16, 32 or 64\n");
+        return 2;
+    }
+    int ctb_log2 = ctu == 16 ? 4 : ctu == 32 ? 5 : 6;
+    n265_set_mode(pcm ? 1 : 0, qp, ctb_log2);
     n265_param p;
     n265_param_default(&p);
     p.width = y.w;

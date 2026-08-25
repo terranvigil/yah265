@@ -27,6 +27,7 @@ struct n265_encoder {
     int mode;
     int qp;
     int ctb_log2;
+    int no_sao;
 
     int pad_w, pad_h;       /* dims padded up to a min-CB multiple  */
     int ctb_cols, ctb_rows;
