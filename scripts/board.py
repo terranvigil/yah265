@@ -2,12 +2,14 @@
 """Parity board: measure next265 against pinned x265 and append one row
 per clip to docs/data/parity-history.csv so progress charts over time.
 
-Current scope (grows with the encoder): all-intra, fixed-QP sweep,
-single-threaded, both sides no-asm for the goal-1 basis plus x265
-as-shipped for goal-3 context. Speed multiple = our_time / x265_time
-(1.00 = parity, lower = faster). Quality context = BD-rate (Y-PSNR) of
-our rate/distortion curve vs x265's over the QP sweep; negative = we
-spend fewer bits at equal PSNR.
+Two x265 arms, single-threaded:
+- "matched": x265 configured down to our current featureset (kept in
+  X265_MATCHED below; grows with the encoder until it equals medium) -
+  the like-for-like progress line, and the BD-rate anchor.
+- "medium": x265 pure defaults - the goal line the legs are defined on.
+Speed multiple = our_time / x265_time (1.00 = parity, lower = faster).
+BD-rate (Y-PSNR) vs the matched arm; negative = we spend fewer bits at
+equal PSNR.
 
 Timing rules (docs/instruments.md): output to /dev/null, median of
 NRUNS, sizes measured in a separate untimed pass.
@@ -32,6 +34,11 @@ FFMPEG = os.environ.get("FFMPEG", "ffmpeg")
 HISTORY = os.path.join(ROOT, "docs/data/parity-history.csv")
 NRUNS = 3
 QPS = [22, 27, 32, 37]
+
+# x265 args mirroring our current featureset (update as features land;
+# the goal is for this list to shrink to nothing)
+X265_MATCHED = ["--keyint", "60", "--bframes", "0", "--rc-lookahead", "0",
+                "--ref", "1", "--no-scenecut", "--no-open-gop"]
 
 CLIPS = [
     # deterministic synthetic material until the real corpus lands
@@ -134,15 +141,19 @@ def measure_clip(tmp, name, size, frames, filt, quick):
         run([N265, y4m, "-o", out, "--qp", str(qp), "--dump-recon", rec])
         ours_pts.append((os.path.getsize(out) * 8, psnr_y(rec, y4m, size)))
 
-    # x265 all-intra, ST; medium tool settings otherwise
-    common = [X265, "--input", y4m, "--keyint", "1", "--pools", "none",
-              "--frame-threads", "1", "--log-level", "error"]
-    t_x_noasm = time_cmd(common + ["--no-asm", "--qp", "27", "-o", "/dev/null"])
-    t_x_asm = time_cmd(common + ["--qp", "27", "-o", "/dev/null"])
+    st = ["--pools", "none", "--frame-threads", "1", "--log-level", "error"]
+    matched = [X265, "--input", y4m] + st + X265_MATCHED
+    medium = [X265, "--input", y4m] + st
+    t_m_noasm = time_cmd(matched + ["--no-asm", "--qp", "27", "-o",
+                                    "/dev/null"])
+    t_m_asm = time_cmd(matched + ["--qp", "27", "-o", "/dev/null"])
+    t_med_noasm = time_cmd(medium + ["--no-asm", "--crf", "28", "-o",
+                                     "/dev/null"])
+    t_med_asm = time_cmd(medium + ["--crf", "28", "-o", "/dev/null"])
     x_pts = []
     for qp in QPS:
         out = os.path.join(tmp, f"x_{name}_{qp}.hevc")
-        run(common + ["--qp", str(qp), "-o", out])
+        run(matched + ["--qp", str(qp), "-o", out])
         dec = os.path.join(tmp, f"x_{name}_{qp}.yuv")
         run([FFMPEG, "-loglevel", "error", "-i", out, "-f", "rawvideo",
              dec, "-y"])
@@ -151,10 +162,14 @@ def measure_clip(tmp, name, size, frames, filt, quick):
     row["clip"] = name
     row["frames"] = frames
     row["our_fps"] = round(frames / t_ours, 2)
-    row["x265_noasm_fps"] = round(frames / t_x_noasm, 2)
-    row["x265_asm_fps"] = round(frames / t_x_asm, 2)
-    row["speed_mult_goal1"] = round(t_ours / t_x_noasm, 3)
-    row["speed_mult_goal3"] = round(t_ours / t_x_asm, 3)
+    row["x265m_noasm_fps"] = round(frames / t_m_noasm, 2)
+    row["x265m_asm_fps"] = round(frames / t_m_asm, 2)
+    row["mult_matched_g1"] = round(t_ours / t_m_noasm, 3)
+    row["mult_matched_g3"] = round(t_ours / t_m_asm, 3)
+    row["x265med_noasm_fps"] = round(frames / t_med_noasm, 2)
+    row["x265med_asm_fps"] = round(frames / t_med_asm, 2)
+    row["mult_medium_g1"] = round(t_ours / t_med_noasm, 3)
+    row["mult_medium_g3"] = round(t_ours / t_med_asm, 3)
     row["bd_rate_psnr_pct"] = round(bd_rate(x_pts, ours_pts), 2)
     return row
 
@@ -172,8 +187,10 @@ def main():
     xv = m.group(1) if m else "?"
 
     fields = ["date", "commit", "x265", "clip", "frames", "our_fps",
-              "x265_noasm_fps", "x265_asm_fps", "speed_mult_goal1",
-              "speed_mult_goal3", "bd_rate_psnr_pct", "note"]
+              "x265m_noasm_fps", "x265m_asm_fps", "mult_matched_g1",
+              "mult_matched_g3", "x265med_noasm_fps", "x265med_asm_fps",
+              "mult_medium_g1", "mult_medium_g3", "bd_rate_psnr_pct",
+              "note"]
     os.makedirs(os.path.dirname(HISTORY), exist_ok=True)
     new = not os.path.exists(HISTORY)
 
@@ -188,9 +205,9 @@ def main():
             row.update(date=datetime.date.today().isoformat(),
                        commit=commit, x265=xv, note=note)
             wr.writerow(row)
-            print("{clip}: ours {our_fps} fps | x265 no-asm "
-                  "{x265_noasm_fps} fps (g1 {speed_mult_goal1}x) | asm "
-                  "{x265_asm_fps} fps (g3 {speed_mult_goal3}x) | BD-PSNR "
+            print("{clip}: ours {our_fps} fps | matched g1 "
+                  "{mult_matched_g1}x g3 {mult_matched_g3}x | medium g1 "
+                  "{mult_medium_g1}x g3 {mult_medium_g3}x | BD "
                   "{bd_rate_psnr_pct}%".format(**row))
     print(f"appended to {os.path.relpath(HISTORY, ROOT)}")
 

@@ -90,11 +90,14 @@ static void write_luma_mode(struct n265_encoder *e, cabac_t *cb, int x0,
 
 /* one color component of the TU: predict, transform, quant, code, recon.
  * Returns cbf. */
+#define MODE_INTER (-1)     /* mode value selecting zero-MV MC prediction */
+
 static int code_component(struct n265_encoder *e, cabac_t *cb, int c_idx,
                           int x0, int y0, int log2n, int qp, int mode,
                           int coded)
 {
-    int use_dst = c_idx == 0 && log2n == 2;     /* intra luma 4x4: DST-VII */
+    int inter = mode == MODE_INTER;
+    int use_dst = !inter && c_idx == 0 && log2n == 2;   /* intra luma 4x4 */
     int n = 1 << log2n;
     uint8_t *recon = e->recon[c_idx];
     int stride = e->recon_stride[c_idx];
@@ -105,13 +108,19 @@ static int code_component(struct n265_encoder *e, cabac_t *cb, int c_idx,
 
     uint8_t refs[4 * 32 + 1], refs_f[4 * 32 + 1];
     uint8_t pred[32 * 32];
-    n265_intra_refs(refs, recon, stride, x0, y0, log2n, pic_w, pic_h,
-                    ctb_log2);
-    if (n265_use_filtered_refs(mode, log2n, c_idx)) {
-        n265_filter_refs(refs_f, refs, log2n);
-        n265_intra_pred(pred, n, refs_f, log2n, mode, c_idx);
+    if (inter) {
+        const uint8_t *rp = e->ref_plane[c_idx] + y0 * stride + x0;
+        for (int y = 0; y < n; y++)
+            memcpy(pred + y * n, rp + y * stride, (size_t)n);
     } else {
-        n265_intra_pred(pred, n, refs, log2n, mode, c_idx);
+        n265_intra_refs(refs, recon, stride, x0, y0, log2n, pic_w, pic_h,
+                        ctb_log2);
+        if (n265_use_filtered_refs(mode, log2n, c_idx)) {
+            n265_filter_refs(refs_f, refs, log2n);
+            n265_intra_pred(pred, n, refs_f, log2n, mode, c_idx);
+        } else {
+            n265_intra_pred(pred, n, refs, log2n, mode, c_idx);
+        }
     }
 
     int16_t resid[32 * 32], coef[32 * 32], level[32 * 32], dq[32 * 32];
@@ -121,15 +130,15 @@ static int code_component(struct n265_encoder *e, cabac_t *cb, int c_idx,
                 (int16_t)(src[y * e->pad_stride[c_idx] + x] - pred[y * n + x]);
     n265_fdct(coef, resid, log2n, use_dst);
     int nz = n265_quant(level, coef, log2n, qp);
+    int scan = inter ? 0 : n265_scan_idx(mode, log2n, c_idx);
     if (nz)
-        n265_sbh_adjust(level, log2n, n265_scan_idx(mode, log2n, c_idx));
+        n265_sbh_adjust(level, log2n, scan);
 
     if (!coded)
         return nz != 0;     /* first pass: just report cbf */
 
     if (nz) {
-        n265_residual_coding(cb, e->ctx, level, log2n, c_idx,
-                             n265_scan_idx(mode, log2n, c_idx));
+        n265_residual_coding(cb, e->ctx, level, log2n, c_idx, scan);
         n265_dequant(dq, level, log2n, qp);
         n265_idct_add(recon + y0 * stride + x0, stride, dq, log2n, pred, n,
                       use_dst);
@@ -222,6 +231,7 @@ static void transform_tree_2nx2n(struct n265_encoder *e, cabac_t *cb,
     int qp_c = n265_chroma_qp(e->qp);
     int split = log2ts > 5;
     int cbf_cb = 0, cbf_cr = 0;
+    int pcb_any, pcr_any;
 
     if (split) {
         int h = 1 << (log2ts - 1);
@@ -242,6 +252,8 @@ static void transform_tree_2nx2n(struct n265_encoder *e, cabac_t *cb,
         n265_cabac_bin(cb, &e->ctx[CTX_CBF_CHROMA + depth], cbf_cb);
     if (depth == 0 || pcr)
         n265_cabac_bin(cb, &e->ctx[CTX_CBF_CHROMA + depth], cbf_cr);
+    pcb_any = cbf_cb;
+    pcr_any = cbf_cr;
 
     if (split) {
         int h = 1 << (log2ts - 1);
@@ -254,7 +266,10 @@ static void transform_tree_2nx2n(struct n265_encoder *e, cabac_t *cb,
 
     mark_cu_edges(e, x0, y0, 1 << log2ts);
     int cbf_l = code_component(e, cb, 0, x0, y0, log2ts, e->qp, mode, 0);
-    n265_cabac_bin(cb, &e->ctx[CTX_CBF_LUMA + (depth == 0)], cbf_l);
+    /* inter, depth 0, no chroma cbf: cbf_luma is inferred 1 (the caller
+     * guarantees the all-zero case became a skip CU instead) */
+    if (!(mode == MODE_INTER && depth == 0 && !pcb_any && !pcr_any))
+        n265_cabac_bin(cb, &e->ctx[CTX_CBF_LUMA + (depth == 0)], cbf_l);
     code_component(e, cb, 0, x0, y0, log2ts, e->qp, mode, 1);
     code_component(e, cb, 1, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, 1);
     code_component(e, cb, 2, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, 1);
@@ -291,14 +306,16 @@ static int want_skip(struct n265_encoder *e, int x0, int y0, int log2n)
     if (e->slice_type != 1)
         return 0;
     int n = 1 << log2n;
-    uint32_t intra_cost;
-    search_luma_mode(e, x0, y0, log2n > 5 ? 5 : log2n, e->pad_plane[0],
-                     &intra_cost);
-    if (log2n > 5)
-        intra_cost *= 4;
-    /* skip when the co-located block is at least as good as the best
-     * intra prediction (skip costs ~1 bin; intra costs mode + residual) */
-    return skip_sad(e, x0, y0, n) <= intra_cost + (uint32_t)(n * n / 4);
+    /* skip only when the co-located block is genuinely close: the copy
+     * is free in bits but its distortion is unrecoverable. Threshold in
+     * eighths of a level per pixel, scaled with QP (N265_SKIP_THR
+     * overrides; docs/knobs.md). */
+    static int thr8 = -1;
+    if (thr8 < 0) {
+        const char *v = getenv("N265_SKIP_THR");
+        thr8 = v ? atoi(v) : 8 + e->qp / 4;
+    }
+    return skip_sad(e, x0, y0, n) * 8u <= (uint32_t)(n * n * thr8);
 }
 
 static void encode_skip_cu(struct n265_encoder *e, cabac_t *cb, int x0,
@@ -330,7 +347,29 @@ static void encode_cu(struct n265_encoder *e, cabac_t *cb, int x0, int y0,
     mark_cu_edges(e, x0, y0, n);
 
     if (e->slice_type == 1) {
-        int skip = want_skip(e, x0, y0, log2n);
+        int skip = 0, inter = 0;
+        int qp_cc = n265_chroma_qp(e->qp);
+        if (want_skip(e, x0, y0, log2n)) {
+            skip = 1;
+        } else if (log2n <= 5) {    /* CB64 buffers: skip/intra only */
+            uint32_t intra_cost;
+            search_luma_mode(e, x0, y0, log2n, e->pad_plane[0],
+                             &intra_cost);
+            if (skip_sad(e, x0, y0, n) <= intra_cost) {
+                /* zero-MV merge; all-zero residual must become skip
+                 * (cbf_luma is inferred 1 for depth-0 inter otherwise) */
+                int nzl = code_component(e, cb, 0, x0, y0, log2n, e->qp,
+                                         MODE_INTER, 0);
+                int nzb = code_component(e, cb, 1, x0 / 2, y0 / 2,
+                                         log2n - 1, qp_cc, MODE_INTER, 0);
+                int nzr = code_component(e, cb, 2, x0 / 2, y0 / 2,
+                                         log2n - 1, qp_cc, MODE_INTER, 0);
+                if (!nzl && !nzb && !nzr)
+                    skip = 1;
+                else
+                    inter = 1;
+            }
+        }
         int inc = 0;
         if (x0 > 0)
             inc += e->blk_skip[(y0 >> 2) * e->map_stride + ((x0 - 1) >> 2)];
@@ -341,8 +380,18 @@ static void encode_cu(struct n265_encoder *e, cabac_t *cb, int x0, int y0,
             encode_skip_cu(e, cb, x0, y0, log2n);
             return;
         }
-        /* pred_mode_flag: only intra CUs besides skip for now */
-        n265_cabac_bin(cb, &e->ctx[CTX_PRED_MODE], 1);
+        n265_cabac_bin(cb, &e->ctx[CTX_PRED_MODE], inter ? 0 : 1);
+        if (inter) {
+            /* inter 2Nx2N merge: part_mode bin0 '1', merge_flag 1,
+             * merge_idx absent, rqt_root_cbf not coded for 2Nx2N merge */
+            n265_cabac_bin(cb, &e->ctx[CTX_PART_MODE], 1);
+            n265_cabac_bin(cb, &e->ctx[CTX_MERGE_FLAG], 1);
+            set_blk(e, e->blk_intra, x0, y0, n, 0);
+            set_blk(e, e->blk_skip, x0, y0, n, 0);
+            set_mode_map(e, x0, y0, n, INTRA_DC);
+            transform_tree_2nx2n(e, cb, MODE_INTER, x0, y0, log2n, 0, 1, 1);
+            return;
+        }
     }
     set_blk(e, e->blk_intra, x0, y0, n, 1);
     set_blk(e, e->blk_skip, x0, y0, n, 0);

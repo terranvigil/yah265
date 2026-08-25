@@ -1,7 +1,16 @@
-date,commit,x265,clip,frames,our_fps,x265_noasm_fps,x265_asm_fps,speed_mult_goal1,speed_mult_goal3,bd_rate_psnr_pct,note
-2026-08-25,b7e1fd4,4.2+1-e444744,synth_detail_cif,30,40.6,14.42,21.92,0.355,0.54,65.66,
-2026-08-25,b7e1fd4,4.2+1-e444744,synth_smooth_cif,30,69.43,34.17,71.44,0.492,1.029,-88.08,
-2026-08-25,b7e1fd4,4.2+1-e444744,synth_detail_720,10,5.38,1.91,3.3,0.355,0.615,66.04,
-2026-08-25,b7e1fd4,4.2+1-e444744,synth_detail_cif,30,29.45,14.39,21.87,0.489,0.742,45.08,
-2026-08-25,b7e1fd4,4.2+1-e444744,synth_smooth_cif,30,40.39,33.87,70.18,0.839,1.738,-38.99,
-2026-08-25,b7e1fd4,4.2+1-e444744,synth_detail_720,10,4.03,1.9,3.31,0.471,0.821,51.66,
+date,commit,x265,clip,frames,our_fps,x265m_noasm_fps,x265m_asm_fps,mult_matched_g1,mult_matched_g3,x265med_noasm_fps,x265med_asm_fps,mult_medium_g1,mult_medium_g3,bd_rate_psnr_pct,note
+2026-08-25,b7e1fd4,4.2+1-e444744,synth_detail_cif,30,40.6,14.42,21.92,0.355,0.54,,,,,65.66, all-intra matched basis
+2026-08-25,b7e1fd4,4.2+1-e444744,synth_smooth_cif,30,69.43,34.17,71.44,0.492,1.029,,,,,-88.08, all-intra matched basis
+2026-08-25,b7e1fd4,4.2+1-e444744,synth_detail_720,10,5.38,1.91,3.3,0.355,0.615,,,,,66.04, all-intra matched basis
+2026-08-25,b7e1fd4,4.2+1-e444744,synth_detail_cif,30,29.45,14.39,21.87,0.489,0.742,,,,,45.08, all-intra matched basis
+2026-08-25,b7e1fd4,4.2+1-e444744,synth_smooth_cif,30,40.39,33.87,70.18,0.839,1.738,,,,,-38.99, all-intra matched basis
+2026-08-25,b7e1fd4,4.2+1-e444744,synth_detail_720,10,4.03,1.9,3.31,0.471,0.821,,,,,51.66, all-intra matched basis
+2026-08-25,cdce0a2,4.2+1-e444744,synth_detail_cif,30,65.74,13.69,20.85,0.208,0.317,,,,,nan, all-intra matched basis
+2026-08-25,cdce0a2,4.2+1-e444744,synth_smooth_cif,30,69.23,32.93,69.35,0.476,1.002,,,,,-78.16, all-intra matched basis
+2026-08-25,cdce0a2,4.2+1-e444744,synth_detail_720,10,8.84,1.83,3.18,0.207,0.359,,,,,nan, all-intra matched basis
+2026-08-25,cdce0a2,4.2+1-e444744,synth_detail_cif,30,68.39,40.05,99.14,0.586,1.45,71.49,190.54,1.045,2.786,nan,
+2026-08-25,cdce0a2,4.2+1-e444744,synth_smooth_cif,30,108.57,191.01,528.92,1.759,4.872,149.35,432.47,1.376,3.984,141.69,
+2026-08-25,cdce0a2,4.2+1-e444744,synth_detail_720,10,9.06,7.32,16.72,0.808,1.846,9.33,23.78,1.03,2.625,nan,
+2026-08-25,cdce0a2,4.2+1-e444744,synth_detail_cif,30,28.96,39.95,98.36,1.379,3.396,71.31,191.04,2.462,6.596,107.51,
+2026-08-25,cdce0a2,4.2+1-e444744,synth_detail_cif,30,28.86,39.4,97.58,1.365,3.381,71.07,189.44,2.463,6.565,107.51,
+2026-08-25,cdce0a2,4.2+1-e444744,synth_detail_cif,30,69.53,36.9,90.46,0.531,1.301,65.9,168.83,0.948,2.428,117.37,
