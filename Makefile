@@ -2,7 +2,7 @@
 
 BUILD ?= build
 
-.PHONY: build test conformance conformance-fast provenance asan clean
+.PHONY: build test conformance conformance-fast provenance asan board board-quick clean
 
 build:
 	@[ -d $(BUILD) ] || meson setup $(BUILD)
@@ -20,6 +20,14 @@ conformance-fast: build
 
 provenance:
 	scripts/provenance_check.sh
+
+# append current goal numbers to docs/data/parity-history.csv (run at
+# every feature milestone; the user charts this until parity)
+board: build
+	scripts/board.py
+
+board-quick: build
+	scripts/board.py --quick
 
 asan:
 	@[ -d build-asan ] || meson setup build-asan -Db_sanitize=address,undefined -Db_lundef=false

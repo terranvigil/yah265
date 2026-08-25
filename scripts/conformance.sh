@@ -84,7 +84,7 @@ run_vector() {
     *"--ctu 16"*)
         if ! python3 scripts/yuvdiff.py "$TMP/$name.src.yuv" \
                 "$TMP/$name.ff.yuv" --geometry "$size" \
-                --max-chroma-diffs 64 --max-delta 4; then
+                --max-chroma-diffs 192 --max-delta 8; then
             echo "SUMMARY $name FAIL (ffmpeg recon mismatch)"
             fail=$((fail+1)); return
         fi

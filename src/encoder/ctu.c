@@ -370,6 +370,30 @@ static void encode_cu(struct n265_encoder *e, cabac_t *cb, int x0, int y0,
     }
 }
 
+/* content-adaptive split decision from source-ref SAD at the two levels:
+ * split when the children's summed best-mode SAD beats the parent's by
+ * more than the signalling overhead is worth. Search buffers cap at 32,
+ * so 64x64 parents are costed by their top-left 32x32 (bias toward
+ * splitting large blocks, which is where x265 medium lives anyway). */
+static int decide_split(struct n265_encoder *e, int x0, int y0, int log2n)
+{
+    uint32_t parent;
+    search_luma_mode(e, x0, y0, log2n > 5 ? 5 : log2n, e->pad_plane[0],
+                     &parent);
+    if (log2n > 5)
+        parent *= 4;
+    int h = 1 << (log2n - 1);
+    uint32_t kids = 0;
+    for (int i = 0; i < 4; i++) {
+        uint32_t c;
+        search_luma_mode(e, x0 + (i & 1) * h, y0 + (i >> 1) * h,
+                         log2n - 1 > 5 ? 5 : log2n - 1, e->pad_plane[0], &c);
+        kids += c;
+    }
+    /* fixed relative margin: split when children win by > 1/16 */
+    return kids + (kids >> 4) < parent;
+}
+
 static void quadtree(struct n265_encoder *e, cabac_t *cb, int x0, int y0,
                      int log2n, int depth)
 {
@@ -377,7 +401,7 @@ static void quadtree(struct n265_encoder *e, cabac_t *cb, int x0, int y0,
     int inside = x0 + n <= e->pad_w && y0 + n <= e->pad_h;
 
     if (inside && log2n > MIN_CB_LOG2) {
-        /* we always code split 0 (largest CU); context from neighbors */
+        int split = decide_split(e, x0, y0, log2n);
         int inc = 0;
         if (x0 > 0)
             inc += e->ct_depth[(y0 >> 2) * e->map_stride + ((x0 - 1) >> 2)] >
@@ -385,7 +409,14 @@ static void quadtree(struct n265_encoder *e, cabac_t *cb, int x0, int y0,
         if (y0 > 0)
             inc += e->ct_depth[((y0 - 1) >> 2) * e->map_stride + (x0 >> 2)] >
                    depth;
-        n265_cabac_bin(cb, &e->ctx[CTX_SPLIT_CU + inc], 0);
+        n265_cabac_bin(cb, &e->ctx[CTX_SPLIT_CU + inc], split);
+        if (split) {
+            int h = 1 << (log2n - 1);
+            for (int i = 0; i < 4; i++)
+                quadtree(e, cb, x0 + (i & 1) * h, y0 + (i >> 1) * h,
+                         log2n - 1, depth + 1);
+            return;
+        }
     } else if (!inside && log2n > MIN_CB_LOG2) {
         /* forced split, flag not coded */
         int h = n >> 1;
