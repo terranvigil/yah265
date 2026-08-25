@@ -25,7 +25,8 @@ enum {
 struct n265_encoder {
     n265_param param;
     int mode;
-    int qp;
+    int qp;                 /* current frame's QP */
+    int qp_base;            /* configured QP (P anchors) */
     int ctb_log2;
     int no_sao;
 

@@ -78,6 +78,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->param = *p;
     e->mode = g_mode;
     e->qp = g_qp;
+    e->qp_base = g_qp;
     e->ctb_log2 = e->mode == N265_MODE_PCM ? 4 : g_ctb_log2;
     e->keyint = e->mode == N265_MODE_PCM ? 1 : g_keyint;
     e->bframes = e->mode == N265_MODE_PCM ? 0 : g_bframes;
@@ -294,6 +295,10 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
     e->poc = poc;
     e->nonref = nonref;
     e->display_idx = display_idx;
+    /* frame-type QP ladder (the matched reference applies its ip/pb
+     * ratios in CQP mode too): I anchors lower, non-ref B higher */
+    int q = e->qp_base + (slice_type == 0 ? 2 : 0);
+    e->qp = q < 0 ? 0 : q > 51 ? 51 : q;
 
     if (e->frames_done == 0) {
         n265_write_vps(e); add_nal(e, N265_NAL_VPS, out_used, count);
