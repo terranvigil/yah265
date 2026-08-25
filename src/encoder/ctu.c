@@ -745,8 +745,13 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
             int inc = est_skip_inc(e, x0, y0);
             /* economy gates: a very good merge prediction prunes the
              * expensive candidates (classic early-skip shape) */
-            int gate_amvp = cand_plain_sad < (uint32_t)(n * n) / 2;
-            int gate_intra = cand_plain_sad < (uint32_t)(n * n);
+            static int no_gates = -1;
+            if (no_gates < 0)
+                no_gates = getenv("N265_NO_GATES") != NULL;
+            int gate_amvp = !no_gates &&
+                            cand_plain_sad < (uint32_t)(n * n) / 8;
+            int gate_intra = !no_gates &&
+                             cand_plain_sad < (uint32_t)(n * n) / 4;
 
             /* merge candidate (and the forced-skip variant) */
             tb_analyze(e, 0, x0, y0, log2n, e->qp, MODE_INTER, cand, &m_tl);
@@ -1181,7 +1186,10 @@ static uint64_t quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
     set_blk(e, e->ct_depth, x0, y0, n, depth);
     /* early skip: a CLEAN whole-CU skip ends the trial (children could
      * only re-buy the same prediction with more syntax) */
-    if (e->last_skip_clean)
+    static int no_es = -1;
+    if (no_es < 0)
+        no_es = getenv("N265_NO_EARLYSKIP") != NULL;
+    if (e->last_skip_clean && !no_es)
         return j_cu;
     qt_save(e, sw, x0, y0, n);
     qt_save_records(e, sw, rec_base);
