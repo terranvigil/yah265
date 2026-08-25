@@ -11,6 +11,7 @@
 
 #include "encoder/deblock.h"
 #include "encoder/encoder.h"
+#include "encoder/est.h"
 #include "encoder/sao.h"
 
 const char *n265_version_str(void)
@@ -143,6 +144,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     if (!e->out)
         goto fail;
     n265_tables_init();
+    n265_tables_init_est();
     return e;
 
 fail:
@@ -319,8 +321,15 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
                (size_t)e->map_stride * (e->pad_h >> 2) * 4 * sizeof(int16_t));
         e->rec_len = 0;
         e->rec_pos = 0;
+        for (int i = 0; i < CTX_COUNT; i++)
+            n265_cabac_ctx_init(&e->est_ctx[i],
+                                e->slice_type == 2 ? n265_ctx_init_i[i]
+                                : e->slice_type == 1 ? n265_ctx_init_p[i]
+                                                     : n265_ctx_init_b[i],
+                                e->qp);
         for (int i = 0; i <= last; i++)
             n265_analyze_ctu(e, i % e->ctb_cols, i / e->ctb_cols);
+        e->rec_pos = 0;     /* rewind for the entropy pass */
         n265_deblock_frame(e);
         n265_sao_analyze(e);
         if (e->no_sao)

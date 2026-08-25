@@ -61,6 +61,7 @@ struct n265_encoder {
     uint8_t *sao_tmp[3];    /* pristine deblocked planes during apply */
 
     cabac_ctx_t ctx[CTX_COUNT];
+    cabac_ctx_t est_ctx[CTX_COUNT];     /* RD cost-model contexts */
 
     bitstream_t rbsp;       /* per-NAL RBSP scratch                  */
     uint8_t *out;           /* Annex-B output for the current call   */

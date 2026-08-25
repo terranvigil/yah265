@@ -9,6 +9,30 @@
 #include "encoder/residual.h"
 #include "encoder/tables.h"
 
+static void real_bin_cb(void *h, int ctx_idx, int bin)
+{
+    real_emit *re = h;
+    n265_cabac_bin(re->cb, &re->ctx[ctx_idx], bin);
+}
+
+static void real_bypass_cb(void *h, int bin)
+{
+    n265_cabac_bypass(((real_emit *)h)->cb, bin);
+}
+
+static void real_bypass_bits_cb(void *h, uint32_t v, int n)
+{
+    n265_cabac_bypass_bits(((real_emit *)h)->cb, v, n);
+}
+
+void n265_real_ops(res_ops *ops, real_emit *re)
+{
+    ops->h = re;
+    ops->bin = real_bin_cb;
+    ops->bypass = real_bypass_cb;
+    ops->bypass_bits = real_bypass_bits_cb;
+}
+
 /* last_sig_coeff group index: 0..3 direct, then log-spaced */
 static int group_idx(int v)
 {
@@ -20,13 +44,13 @@ static int group_idx(int v)
 
 static const uint8_t min_in_group[10] = { 0, 1, 2, 3, 4, 6, 8, 12, 16, 24 };
 
-static void write_last_prefix(cabac_t *cb, cabac_ctx_t *ctx_base, int g,
+static void write_last_prefix(const res_ops *ops, int ctx_base, int g,
                               int cmax, int ctx_off, int ctx_shift)
 {
     for (int i = 0; i < g; i++)
-        n265_cabac_bin(cb, ctx_base + ctx_off + (i >> ctx_shift), 1);
+        ops->bin(ops->h, ctx_base + ctx_off + (i >> ctx_shift), 1);
     if (g < cmax)
-        n265_cabac_bin(cb, ctx_base + ctx_off + (g >> ctx_shift), 0);
+        ops->bin(ops->h, ctx_base + ctx_off + (g >> ctx_shift), 0);
 }
 
 /* sig_coeff_flag ctxInc (9.3.4.2.5); returns index into CTX_SIG..+41 */
@@ -60,27 +84,27 @@ static int sig_ctx(int xc, int yc, int log2n, int c_idx, int scan_idx,
 
 /* coeff_abs_level_remaining: truncated-Rice prefix, EGk escape (ones-first
  * form), all bypass */
-static void write_remaining(cabac_t *cb, int rem, int k)
+static void write_remaining(const res_ops *ops, int rem, int k)
 {
     if ((rem >> k) < 4) {
         int q = rem >> k;
         for (int i = 0; i < q; i++)
-            n265_cabac_bypass(cb, 1);
-        n265_cabac_bypass(cb, 0);
+            ops->bypass(ops->h, 1);
+        ops->bypass(ops->h, 0);
         if (k)
-            n265_cabac_bypass_bits(cb, (uint32_t)rem & ((1u << k) - 1), k);
+            ops->bypass_bits(ops->h, (uint32_t)rem & ((1u << k) - 1), k);
     } else {
         for (int i = 0; i < 4; i++)
-            n265_cabac_bypass(cb, 1);
+            ops->bypass(ops->h, 1);
         int v = rem - (4 << k);
         int b = k + 1;
         while (v >= (1 << b)) {
-            n265_cabac_bypass(cb, 1);
+            ops->bypass(ops->h, 1);
             v -= 1 << b;
             b++;
         }
-        n265_cabac_bypass(cb, 0);
-        n265_cabac_bypass_bits(cb, (uint32_t)v, b);
+        ops->bypass(ops->h, 0);
+        ops->bypass_bits(ops->h, (uint32_t)v, b);
     }
 }
 
@@ -119,9 +143,8 @@ void n265_sbh_adjust(int16_t *level, int log2n, int scan_idx)
     }
 }
 
-void n265_residual_coding(cabac_t *cb, cabac_ctx_t *ctx,
-                          const int16_t *level, int log2n, int c_idx,
-                          int scan_idx)
+void n265_residual_coding(const res_ops *ops, const int16_t *level,
+                          int log2n, int c_idx, int scan_idx)
 {
     int n = 1 << log2n;
     int sb_dim = n >> 2;                    /* sub-blocks per side */
@@ -176,14 +199,14 @@ void n265_residual_coding(cabac_t *cb, cabac_ctx_t *ctx,
         ctx_shift = log2n - 2;
     }
     int gx = group_idx(last_x), gy = group_idx(last_y);
-    write_last_prefix(cb, ctx + CTX_LAST_X, gx, cmax, ctx_off, ctx_shift);
-    write_last_prefix(cb, ctx + CTX_LAST_Y, gy, cmax, ctx_off, ctx_shift);
+    write_last_prefix(ops, CTX_LAST_X, gx, cmax, ctx_off, ctx_shift);
+    write_last_prefix(ops, CTX_LAST_Y, gy, cmax, ctx_off, ctx_shift);
     if (gx > 3)
-        n265_cabac_bypass_bits(cb, (uint32_t)(last_x - min_in_group[gx]),
-                               (gx >> 1) - 1);
+        ops->bypass_bits(ops->h, (uint32_t)(last_x - min_in_group[gx]),
+                         (gx >> 1) - 1);
     if (gy > 3)
-        n265_cabac_bypass_bits(cb, (uint32_t)(last_y - min_in_group[gy]),
-                               (gy >> 1) - 1);
+        ops->bypass_bits(ops->h, (uint32_t)(last_y - min_in_group[gy]),
+                         (gy >> 1) - 1);
 
     int prev_sb_g1 = 0;     /* any greater1==1 in previously coded CSB */
 
@@ -208,7 +231,7 @@ void n265_residual_coding(cabac_t *cb, cabac_ctx_t *ctx,
         int infer_sb_dc = 0;
         if (s < last_s && s > 0) {
             int inc = ((csbf_right || csbf_below) ? 1 : 0) + (c_idx ? 2 : 0);
-            n265_cabac_bin(cb, ctx + CTX_SIG_GROUP + inc, csbf[s]);
+            ops->bin(ops->h, CTX_SIG_GROUP + inc, csbf[s]);
             if (!csbf[s])
                 continue;
             infer_sb_dc = 1;
@@ -231,7 +254,7 @@ void n265_residual_coding(cabac_t *cb, cabac_ctx_t *ctx,
                 break;
             }
             int inc = sig_ctx(x, y, log2n, c_idx, scan_idx, prev_csbf);
-            n265_cabac_bin(cb, ctx + CTX_SIG + inc, sig);
+            ops->bin(ops->h, CTX_SIG + inc, sig);
             if (sig)
                 sig_pos[num_sig++] = c;
         }
@@ -251,7 +274,7 @@ void n265_residual_coding(cabac_t *cb, cabac_ctx_t *ctx,
             int g1 = abs_l > 1;
             int inc = ctx_set * 4 + (g1_ctx < 3 ? g1_ctx : 3) +
                       (c_idx ? 16 : 0);
-            n265_cabac_bin(cb, ctx + CTX_G1 + inc, g1);
+            ops->bin(ops->h, CTX_G1 + inc, g1);
             if (g1) {
                 this_sb_g1 = 1;
                 if (first_g1_idx < 0)
@@ -268,7 +291,7 @@ void n265_residual_coding(cabac_t *cb, cabac_ctx_t *ctx,
             int abs_l = level[y * n + x] < 0 ? -level[y * n + x]
                                              : level[y * n + x];
             g2 = abs_l > 2;
-            n265_cabac_bin(cb, ctx + CTX_G2 + ctx_set + (c_idx ? 4 : 0), g2);
+            ops->bin(ops->h, CTX_G2 + ctx_set + (c_idx ? 4 : 0), g2);
         }
         /* sign hiding: when the sub-block qualifies, the sign of the
          * first-in-scan significant coefficient (last entry of sig_pos)
@@ -280,7 +303,7 @@ void n265_residual_coding(cabac_t *cb, cabac_ctx_t *ctx,
             int x = sx + (co_scan[c] & 15), y = sy + (co_scan[c] >> 4);
             if (hidden && i == num_sig - 1)
                 continue;
-            n265_cabac_bypass(cb, level[y * n + x] < 0);
+            ops->bypass(ops->h, level[y * n + x] < 0);
         }
         int rice = 0;
         for (int i = 0; i < num_sig; i++) {
@@ -299,7 +322,7 @@ void n265_residual_coding(cabac_t *cb, cabac_ctx_t *ctx,
                 cap += 1;
             int present = (i < 8) ? (base == cap) : 1;
             if (present) {
-                write_remaining(cb, abs_l - base, rice);
+                write_remaining(ops, abs_l - base, rice);
                 if (abs_l > (3 << rice) && rice < 4)
                     rice++;
             }

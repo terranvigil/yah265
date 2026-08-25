@@ -30,6 +30,7 @@ lib_sources = [
   'src/encoder/entropy.c',
   'src/encoder/mc.c',
   'src/encoder/satd.c',
+  'src/encoder/est.c',
   'src/encoder/mv.c',
   'src/encoder/deblock.c',
   'src/encoder/sao.c',

@@ -5,11 +5,13 @@
  * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "encoder/encoder.h"
+#include "encoder/est.h"
 #include "encoder/intra.h"
 #include "encoder/mc.h"
 #include "encoder/mv.h"
@@ -60,6 +62,7 @@ static void mark_cu_edges(struct n265_encoder *e, int x0, int y0, int n)
  * are separate so the inter skip/merge decision can look at nz first. */
 typedef struct tb_ctx {
     uint8_t pred[32 * 32];
+    uint8_t recon[32 * 32];
     int16_t level[32 * 32];
     int nz;
 } tb_ctx;
@@ -151,26 +154,54 @@ static void tb_analyze(struct n265_encoder *e, int c_idx, int x0, int y0,
                         inter ? 0 : n265_scan_idx(mode, log2n, c_idx));
 }
 
-static void tb_recon(struct n265_encoder *e, int c_idx, int x0, int y0,
-                     int log2n, int qp, int mode, tb_ctx *tb)
+/* reconstruct into the TB's scratch buffer */
+static void tb_make_recon(int c_idx, int log2n, int qp, int mode, tb_ctx *tb)
 {
     int inter = mode == MODE_INTER;
     int use_dst = !inter && c_idx == 0 && log2n == 2;
     int n = 1 << log2n;
-    uint8_t *recon = e->recon[c_idx];
-    int stride = e->recon_stride[c_idx];
     if (tb->nz) {
         int16_t dq[32 * 32];
         n265_dequant(dq, tb->level, log2n, qp);
-        n265_idct_add(recon + y0 * stride + x0, stride, dq, log2n, tb->pred,
-                      n, use_dst);
+        n265_idct_add(tb->recon, n, dq, log2n, tb->pred, n, use_dst);
     } else {
-        for (int y = 0; y < n; y++)
-            memcpy(recon + (y0 + y) * stride + x0, tb->pred + y * n,
-                   (size_t)n);
+        memcpy(tb->recon, tb->pred, (size_t)n * n);
     }
+}
+
+/* blit the scratch recon into the frame and mark the cbf map */
+static void tb_commit(struct n265_encoder *e, int c_idx, int x0, int y0,
+                      int log2n, tb_ctx *tb)
+{
+    int n = 1 << log2n;
+    uint8_t *recon = e->recon[c_idx];
+    int stride = e->recon_stride[c_idx];
+    for (int y = 0; y < n; y++)
+        memcpy(recon + (y0 + y) * stride + x0, tb->recon + y * n, (size_t)n);
     if (c_idx == 0)
         set_blk(e, e->blk_cbf_y, x0, y0, n < 4 ? 4 : n, tb->nz != 0);
+}
+
+static void tb_recon(struct n265_encoder *e, int c_idx, int x0, int y0,
+                     int log2n, int qp, int mode, tb_ctx *tb)
+{
+    tb_make_recon(c_idx, log2n, qp, mode, tb);
+    tb_commit(e, c_idx, x0, y0, log2n, tb);
+}
+
+/* SSD of a TB scratch recon against the source */
+static uint64_t tb_ssd(struct n265_encoder *e, int c_idx, int x0, int y0,
+                       int log2n, const tb_ctx *tb)
+{
+    int n = 1 << log2n;
+    const uint8_t *src = e->pad_plane[c_idx] + y0 * e->pad_stride[c_idx] + x0;
+    uint64_t ssd = 0;
+    for (int y = 0; y < n; y++)
+        for (int x = 0; x < n; x++) {
+            int d = src[y * e->pad_stride[c_idx] + x] - tb->recon[y * n + x];
+            ssd += (uint64_t)(d * d);
+        }
+    return ssd;
 }
 
 static const mot_t mot_zero = { { { 0, 0 }, { 0, 0 } }, 1 };
@@ -257,6 +288,25 @@ static int mvd_bits(int dx, int dy)
 
 static uint32_t mot_sad(struct n265_encoder *e, int x0, int y0, int log2n,
                         mot_t mot);
+
+/* mode-decision lambda 0.85 * 2^((qp-12)/3), Q8 */
+static uint32_t lambda_mode_q8(int qp)
+{
+    static uint32_t tab[52];
+    if (!tab[51]) {
+        for (int q = 0; q < 52; q++) {
+            double l = 0.85 * pow(2.0, (q - 12) / 3.0);
+            tab[q] = (uint32_t)(l * 256.0 + 0.5);
+        }
+    }
+    return tab[qp < 0 ? 0 : qp > 51 ? 51 : qp];
+}
+
+/* J = D + lambda * bits, with bits in Q8 and lambda in Q8 */
+static uint64_t rd_j(uint64_t ssd, uint32_t bits_q8, uint32_t lam_q8)
+{
+    return ssd + (((uint64_t)bits_q8 * lam_q8) >> 16);
+}
 
 static int skip_thr8(void)
 {
@@ -413,122 +463,314 @@ static uint32_t mot_satd(struct n265_encoder *e, int x0, int y0, int log2n,
                      e->pad_stride[0], pred, n, n);
 }
 
+/* --- estimator-side syntax costing (mirrors entropy.c) --- */
+
+static void est_mpm_bits(struct n265_encoder *e, est_state *st, int x0,
+                         int y0, int mode)
+{
+    int a = INTRA_DC, b = INTRA_DC;
+    if (x0 > 0 && e->blk_intra[(y0 >> 2) * e->map_stride + ((x0 - 1) >> 2)])
+        a = e->intra_mode[(y0 >> 2) * e->map_stride + ((x0 - 1) >> 2)];
+    if (y0 > 0 && (y0 & ((1 << e->ctb_log2) - 1)) != 0 &&
+        e->blk_intra[((y0 - 1) >> 2) * e->map_stride + (x0 >> 2)])
+        b = e->intra_mode[((y0 - 1) >> 2) * e->map_stride + (x0 >> 2)];
+    int cand[3];
+    if (a == b) {
+        if (a < 2) { cand[0] = 0; cand[1] = 1; cand[2] = 26; }
+        else { cand[0] = a; cand[1] = 2 + ((a + 29) % 32);
+               cand[2] = 2 + ((a - 2 + 1) % 32); }
+    } else {
+        cand[0] = a; cand[1] = b;
+        cand[2] = (a != 0 && b != 0) ? 0 : (a != 1 && b != 1) ? 1 : 26;
+    }
+    int idx = -1;
+    for (int i = 0; i < 3; i++)
+        if (cand[i] == mode)
+            idx = i;
+    st->bits += n265_est_bin(&st->ctx[CTX_PREV_INTRA], idx >= 0);
+    st->bits += n265_est_bypass_bits(idx >= 0 ? (idx == 0 ? 1 : 2) : 5);
+}
+
+static int est_skip_inc(struct n265_encoder *e, int x0, int y0)
+{
+    int inc = 0;
+    if (x0 > 0)
+        inc += e->blk_skip[(y0 >> 2) * e->map_stride + ((x0 - 1) >> 2)];
+    if (y0 > 0)
+        inc += e->blk_skip[((y0 - 1) >> 2) * e->map_stride + (x0 >> 2)];
+    return inc;
+}
+
+static void est_mvd(est_state *st, int mx, int my)
+{
+    int ax = mx < 0 ? -mx : mx, ay = my < 0 ? -my : my;
+    st->bits += n265_est_bin(&st->ctx[CTX_MVD_GR0], ax > 0);
+    st->bits += n265_est_bin(&st->ctx[CTX_MVD_GR0], ay > 0);
+    if (ax > 0)
+        st->bits += n265_est_bin(&st->ctx[CTX_MVD_GR1], ax > 1);
+    if (ay > 0)
+        st->bits += n265_est_bin(&st->ctx[CTX_MVD_GR1], ay > 1);
+    for (int c = 0; c < 2; c++) {
+        int a = c ? ay : ax;
+        if (a > 0) {
+            if (a > 1) {
+                int v = a - 2, bl = 1, bits = 1;
+                while (v >= (1 << bl)) { v -= 1 << bl; bl++; bits += 2; }
+                st->bits += n265_est_bypass_bits(bits + bl - 1);
+            }
+            st->bits += n265_est_bypass_bits(1);
+        }
+    }
+}
+
+/* residual + cbf bits of a flat (TU == CU) transform set */
+static void est_tt_bits(struct n265_encoder *e, est_state *st, int log2n,
+                        int mode, const tb_ctx *tl, const tb_ctx *tcb,
+                        const tb_ctx *tcr)
+{
+    res_ops ops;
+    n265_est_ops(&ops, st);
+    int inter = mode == MODE_INTER;
+    st->bits += n265_est_bin(&st->ctx[CTX_CBF_CHROMA + 0], tcb->nz != 0);
+    st->bits += n265_est_bin(&st->ctx[CTX_CBF_CHROMA + 0], tcr->nz != 0);
+    if (!(inter && !tcb->nz && !tcr->nz))
+        st->bits += n265_est_bin(&st->ctx[CTX_CBF_LUMA + 1], tl->nz != 0);
+    int scan_l = inter ? 0 : n265_scan_idx(mode, log2n, 0);
+    int scan_c = inter ? 0 : n265_scan_idx(mode, log2n - 1, 1);
+    if (tl->nz)
+        n265_residual_coding(&ops, tl->level, log2n, 0, scan_l);
+    if (tcb->nz)
+        n265_residual_coding(&ops, tcb->level, log2n - 1, 1, scan_c);
+    if (tcr->nz)
+        n265_residual_coding(&ops, tcr->level, log2n - 1, 2, scan_c);
+}
+
 static void analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
 {
     int n = 1 << log2n;
     int qp_c = n265_chroma_qp(e->qp);
     mark_cu_edges(e, x0, y0, n);
 
+    size_t pos0 = e->rec_len;
+
     if (e->slice_type != 2) {
-        static tb_ctx tl, tcb, tcr;      /* single-thread only; row_ctx at T1 */
+        static tb_ctx m_tl, m_tcb, m_tcr;   /* merge candidate TBs */
+        static tb_ctx a_tl, a_tcb, a_tcr;   /* amvp candidate TBs */
+        static tb_ctx i_tl, i_tcb, i_tcr;   /* intra candidate TBs */
         mot_t cand = n265_merge_cand0(e, x0, y0, n, n);
         uint32_t cand_plain_sad = mot_sad(e, x0, y0, log2n, cand);
 
-        /* strict static skip at the merge candidate (plain SAD: this is
-         * a near-identity test, not a coding-cost estimate) */
+        /* strict static skip at the merge candidate */
         if (cand_plain_sad * 8u <= (uint32_t)(n * n * skip_thr8())) {
             skip_cu(e, x0, y0, log2n, cand);
+            e->rec_pos = pos0;
+            est_state adv = { e->est_ctx, 0 };
+            n265_est_advance_cu(e, &adv, x0, y0, log2n);
             return;
         }
-        uint32_t cand_sad = cand_plain_sad;
 
         if (log2n <= 5) {
-            uint32_t intra_sad;
-            search_luma_mode(e, x0, y0, log2n, e->pad_plane[0],
-                             &intra_sad);
-            uint32_t lam = (uint32_t)lambda_sad_q4(e->qp);
-            uint32_t cand_cost = cand_sad + (2 * lam >> 4);
-            uint32_t intra_cost = intra_sad + (6 * lam >> 4);
+            uint32_t lam = lambda_mode_q8(e->qp);
+            int inc = est_skip_inc(e, x0, y0);
 
-            /* uni-L0 AMVP search in both P and B (our streams carry no
-             * uni-L1 neighbors, so L0 AMVP never needs cross-list
-             * scaling); B bi/L1 explicit ME is future work */
-            int merge = 1;
-            mv_t mvp[2] = { { 0, 0 }, { 0, 0 } }, me_mv = { 0, 0 };
-            uint32_t inter_cost = cand_cost;
+            /* merge candidate (and the forced-skip variant) */
+            tb_analyze(e, 0, x0, y0, log2n, e->qp, MODE_INTER, cand, &m_tl);
+            tb_analyze(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c, MODE_INTER,
+                       cand, &m_tcb);
+            tb_analyze(e, 2, x0 / 2, y0 / 2, log2n - 1, qp_c, MODE_INTER,
+                       cand, &m_tcr);
+            tb_make_recon(0, log2n, e->qp, MODE_INTER, &m_tl);
+            tb_make_recon(1, log2n - 1, qp_c, MODE_INTER, &m_tcb);
+            tb_make_recon(2, log2n - 1, qp_c, MODE_INTER, &m_tcr);
+            int m_any = m_tl.nz || m_tcb.nz || m_tcr.nz;
+            uint64_t d_merge = tb_ssd(e, 0, x0, y0, log2n, &m_tl) +
+                tb_ssd(e, 1, x0 / 2, y0 / 2, log2n - 1, &m_tcb) +
+                tb_ssd(e, 2, x0 / 2, y0 / 2, log2n - 1, &m_tcr);
+            /* forced skip: prediction only */
+            uint64_t d_skip;
             {
-                n265_amvp(e, x0, y0, n, n, mvp);
-                uint32_t me_sad = n265_me_search(e, x0, y0, log2n, mvp[0],
-                                                 &me_mv);
-                int mb = mvd_bits(me_mv.x - mvp[0].x, me_mv.y - mvp[0].y);
-                uint32_t me_cost = me_sad +
-                    ((uint32_t)((e->slice_type == 0 ? 8 : 6) + mb) * lam
-                     >> 4);
-                merge = (cand.pred == 1 && me_mv.x == cand.mv[0].x &&
-                         me_mv.y == cand.mv[0].y) ||
-                        cand_cost <= me_cost;
-                if (getenv("N265_NO_AMVP"))
-                    merge = 1;
-                if (!merge)
-                    inter_cost = me_cost;
+                tb_ctx t;
+                memcpy(t.recon, m_tl.pred, (size_t)n * n);
+                d_skip = tb_ssd(e, 0, x0, y0, log2n, &t);
+                memcpy(t.recon, m_tcb.pred, (size_t)(n / 2) * (n / 2));
+                d_skip += tb_ssd(e, 1, x0 / 2, y0 / 2, log2n - 1, &t);
+                memcpy(t.recon, m_tcr.pred, (size_t)(n / 2) * (n / 2));
+                d_skip += tb_ssd(e, 2, x0 / 2, y0 / 2, log2n - 1, &t);
             }
-            mot_t mot = cand;
-            if (!merge) {
-                mot.pred = 1;
-                mot.mv[0] = me_mv;
-                mot.mv[1].x = mot.mv[1].y = 0;
+            est_state st;
+            cabac_ctx_t local[CTX_COUNT];
+
+            /* skip bits */
+            memcpy(local, e->est_ctx, sizeof(local));
+            st.ctx = local; st.bits = 0;
+            st.bits += n265_est_bin(&local[CTX_CU_SKIP + inc], 1);
+            uint64_t j_skip = rd_j(d_skip, st.bits, lam);
+
+            /* merge bits */
+            uint64_t j_merge = UINT64_MAX;
+            if (m_any) {
+                memcpy(local, e->est_ctx, sizeof(local));
+                st.ctx = local; st.bits = 0;
+                st.bits += n265_est_bin(&local[CTX_CU_SKIP + inc], 0);
+                st.bits += n265_est_bin(&local[CTX_PRED_MODE], 0);
+                st.bits += n265_est_bin(&local[CTX_PART_MODE], 1);
+                st.bits += n265_est_bin(&local[CTX_MERGE_FLAG], 1);
+                est_tt_bits(e, &st, log2n, MODE_INTER, &m_tl, &m_tcb,
+                            &m_tcr);
+                j_merge = rd_j(d_merge, st.bits, lam);
             }
 
-            if (inter_cost <= intra_cost) {
-                tb_analyze(e, 0, x0, y0, log2n, e->qp, MODE_INTER, mot, &tl);
+            /* amvp candidate */
+            mv_t mvp[2] = { { 0, 0 }, { 0, 0 } }, me_mv = { 0, 0 };
+            uint64_t j_amvp = UINT64_MAX;
+            int a_any = 0, mvp_idx = 0;
+            n265_amvp(e, x0, y0, n, n, mvp);
+            n265_me_search(e, x0, y0, log2n, mvp[0], &me_mv);
+            mot_t amot = { { me_mv, { 0, 0 } }, 1 };
+            int same_as_cand = cand.pred == 1 && me_mv.x == cand.mv[0].x &&
+                               me_mv.y == cand.mv[0].y;
+            if (!same_as_cand && !getenv("N265_NO_AMVP")) {
+                tb_analyze(e, 0, x0, y0, log2n, e->qp, MODE_INTER, amot,
+                           &a_tl);
                 tb_analyze(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c,
-                           MODE_INTER, mot, &tcb);
+                           MODE_INTER, amot, &a_tcb);
                 tb_analyze(e, 2, x0 / 2, y0 / 2, log2n - 1, qp_c,
-                           MODE_INTER, mot, &tcr);
-                int any = tl.nz || tcb.nz || tcr.nz;
-                if (merge && !any) {
-                    skip_cu(e, x0, y0, log2n, mot);
-                    return;
+                           MODE_INTER, amot, &a_tcr);
+                tb_make_recon(0, log2n, e->qp, MODE_INTER, &a_tl);
+                tb_make_recon(1, log2n - 1, qp_c, MODE_INTER, &a_tcb);
+                tb_make_recon(2, log2n - 1, qp_c, MODE_INTER, &a_tcr);
+                a_any = a_tl.nz || a_tcb.nz || a_tcr.nz;
+                uint64_t d = tb_ssd(e, 0, x0, y0, log2n, &a_tl) +
+                    tb_ssd(e, 1, x0 / 2, y0 / 2, log2n - 1, &a_tcb) +
+                    tb_ssd(e, 2, x0 / 2, y0 / 2, log2n - 1, &a_tcr);
+                int c0 = (me_mv.x - mvp[0].x < 0 ? mvp[0].x - me_mv.x
+                                                 : me_mv.x - mvp[0].x) +
+                         (me_mv.y - mvp[0].y < 0 ? mvp[0].y - me_mv.y
+                                                 : me_mv.y - mvp[0].y);
+                int c1 = (me_mv.x - mvp[1].x < 0 ? mvp[1].x - me_mv.x
+                                                 : me_mv.x - mvp[1].x) +
+                         (me_mv.y - mvp[1].y < 0 ? mvp[1].y - me_mv.y
+                                                 : me_mv.y - mvp[1].y);
+                mvp_idx = c1 < c0;
+                memcpy(local, e->est_ctx, sizeof(local));
+                st.ctx = local; st.bits = 0;
+                st.bits += n265_est_bin(&local[CTX_CU_SKIP + inc], 0);
+                st.bits += n265_est_bin(&local[CTX_PRED_MODE], 0);
+                st.bits += n265_est_bin(&local[CTX_PART_MODE], 1);
+                st.bits += n265_est_bin(&local[CTX_MERGE_FLAG], 0);
+                if (e->slice_type == 0) {
+                    int depth = e->ctb_log2 - log2n;
+                    st.bits += n265_est_bin(&local[CTX_INTER_IDC + depth], 0);
+                    st.bits += n265_est_bin(&local[CTX_INTER_IDC + 4], 0);
                 }
+                est_mvd(&st, me_mv.x - mvp[mvp_idx].x,
+                        me_mv.y - mvp[mvp_idx].y);
+                st.bits += n265_est_bin(&local[CTX_MVP_FLAG], mvp_idx);
+                st.bits += n265_est_bin(&local[CTX_RQT_ROOT_CBF], a_any);
+                if (a_any)
+                    est_tt_bits(e, &st, log2n, MODE_INTER, &a_tl, &a_tcb,
+                                &a_tcr);
+                j_amvp = rd_j(d, st.bits, lam);
+            }
+
+            /* intra candidate (2Nx2N, SAD-ranked best mode) */
+            int imode = search_luma_mode(e, x0, y0, log2n, e->recon[0],
+                                         NULL);
+            tb_analyze(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c, imode,
+                       mot_zero, &i_tcb);
+            tb_analyze(e, 2, x0 / 2, y0 / 2, log2n - 1, qp_c, imode,
+                       mot_zero, &i_tcr);
+            tb_analyze(e, 0, x0, y0, log2n, e->qp, imode, mot_zero, &i_tl);
+            tb_make_recon(0, log2n, e->qp, imode, &i_tl);
+            tb_make_recon(1, log2n - 1, qp_c, imode, &i_tcb);
+            tb_make_recon(2, log2n - 1, qp_c, imode, &i_tcr);
+            uint64_t d_intra = tb_ssd(e, 0, x0, y0, log2n, &i_tl) +
+                tb_ssd(e, 1, x0 / 2, y0 / 2, log2n - 1, &i_tcb) +
+                tb_ssd(e, 2, x0 / 2, y0 / 2, log2n - 1, &i_tcr);
+            memcpy(local, e->est_ctx, sizeof(local));
+            st.ctx = local; st.bits = 0;
+            st.bits += n265_est_bin(&local[CTX_CU_SKIP + inc], 0);
+            st.bits += n265_est_bin(&local[CTX_PRED_MODE], 1);
+            if (log2n == MIN_CB_LOG2)
+                st.bits += n265_est_bin(&local[CTX_PART_MODE], 1);
+            est_mpm_bits(e, &st, x0, y0, imode);
+            st.bits += n265_est_bin(&local[CTX_CHROMA_MODE], 0);
+            {
+                res_ops ops;
+                n265_est_ops(&ops, &st);
+                st.bits += n265_est_bin(&local[CTX_CBF_CHROMA + 0],
+                                        i_tcb.nz != 0);
+                st.bits += n265_est_bin(&local[CTX_CBF_CHROMA + 0],
+                                        i_tcr.nz != 0);
+                st.bits += n265_est_bin(&local[CTX_CBF_LUMA + 1],
+                                        i_tl.nz != 0);
+                if (i_tl.nz)
+                    n265_residual_coding(&ops, i_tl.level, log2n, 0,
+                                         n265_scan_idx(imode, log2n, 0));
+                int sc = n265_scan_idx(imode, log2n - 1, 1);
+                if (i_tcb.nz)
+                    n265_residual_coding(&ops, i_tcb.level, log2n - 1, 1, sc);
+                if (i_tcr.nz)
+                    n265_residual_coding(&ops, i_tcr.level, log2n - 1, 2, sc);
+            }
+            uint64_t j_intra = rd_j(d_intra, st.bits, lam);
+
+            /* pick the winner */
+            uint64_t best = j_skip;
+            int kind = 0;   /* 0 skip, 1 merge, 2 amvp, 3 intra */
+            if (j_merge < best) { best = j_merge; kind = 1; }
+            if (j_amvp < best) { best = j_amvp; kind = 2; }
+            if (j_intra < best) { best = j_intra; kind = 3; }
+
+            if (kind == 0) {
+                skip_cu(e, x0, y0, log2n, cand);
+            } else if (kind == 1 || kind == 2) {
+                mot_t mot = kind == 1 ? cand : amot;
+                tb_ctx *tl = kind == 1 ? &m_tl : &a_tl;
+                tb_ctx *tcb = kind == 1 ? &m_tcb : &a_tcb;
+                tb_ctx *tcr = kind == 1 ? &m_tcr : &a_tcr;
+                int any = kind == 1 ? m_any : a_any;
                 set_blk(e, e->blk_intra, x0, y0, n, 0);
                 set_blk(e, e->blk_skip, x0, y0, n, 0);
                 set_mot_map(e, x0, y0, n, mot);
                 set_mode_map(e, x0, y0, n, INTRA_DC);
-                /* record: flags, then mvd for the AMVP path */
-                int mvp_idx = 0;
-                mv_t mv = mot.mv[0];
-                if (!merge && !getenv("N265_MVP0")) {
-                    int c0 = (mv.x - mvp[0].x < 0 ? mvp[0].x - mv.x
-                                                  : mv.x - mvp[0].x) +
-                             (mv.y - mvp[0].y < 0 ? mvp[0].y - mv.y
-                                                  : mv.y - mvp[0].y);
-                    int c1 = (mv.x - mvp[1].x < 0 ? mvp[1].x - mv.x
-                                                  : mv.x - mvp[1].x) +
-                             (mv.y - mvp[1].y < 0 ? mvp[1].y - mv.y
-                                                  : mv.y - mvp[1].y);
-                    mvp_idx = c1 < c0;
-                }
-                rec_u8(e, (unsigned)(merge | (mvp_idx << 1) | ((any != 0) << 2)));
-                if (!merge) {
-                    int16_t mvd[2] = { (int16_t)(mv.x - mvp[mvp_idx].x),
-                                       (int16_t)(mv.y - mvp[mvp_idx].y) };
+                mark_cu_edges(e, x0, y0, n);
+                rec_u8(e, (unsigned)((kind == 1) | (mvp_idx << 1) |
+                                     ((any != 0) << 2)));
+                if (kind == 2) {
+                    int16_t mvd[2] = {
+                        (int16_t)(mot.mv[0].x - mvp[mvp_idx].x),
+                        (int16_t)(mot.mv[0].y - mvp[mvp_idx].y)
+                    };
                     rec_levels(e, mvd, 2);
                 }
                 if (any) {
-                    rec_u8(e, tcb.nz != 0);
-                    rec_u8(e, tcr.nz != 0);
-                    rec_u8(e, tl.nz != 0);
-                    tb_recon(e, 0, x0, y0, log2n, e->qp, MODE_INTER, &tl);
-                    if (tl.nz)
-                        rec_levels(e, tl.level, n * n);
-                    tb_recon(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c,
-                             MODE_INTER, &tcb);
-                    if (tcb.nz)
-                        rec_levels(e, tcb.level, (n / 2) * (n / 2));
-                    tb_recon(e, 2, x0 / 2, y0 / 2, log2n - 1, qp_c,
-                             MODE_INTER, &tcr);
-                    if (tcr.nz)
-                        rec_levels(e, tcr.level, (n / 2) * (n / 2));
+                    rec_u8(e, tcb->nz != 0);
+                    rec_u8(e, tcr->nz != 0);
+                    rec_u8(e, tl->nz != 0);
+                    tb_commit(e, 0, x0, y0, log2n, tl);
+                    if (tl->nz)
+                        rec_levels(e, tl->level, n * n);
+                    tb_commit(e, 1, x0 / 2, y0 / 2, log2n - 1, tcb);
+                    if (tcb->nz)
+                        rec_levels(e, tcb->level, (n / 2) * (n / 2));
+                    tb_commit(e, 2, x0 / 2, y0 / 2, log2n - 1, tcr);
+                    if (tcr->nz)
+                        rec_levels(e, tcr->level, (n / 2) * (n / 2));
                 } else {
-                    /* AMVP, rqt_root_cbf 0: prediction is the recon */
-                    tb_recon(e, 0, x0, y0, log2n, e->qp, MODE_INTER, &tl);
-                    tb_recon(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c,
-                             MODE_INTER, &tcb);
-                    tb_recon(e, 2, x0 / 2, y0 / 2, log2n - 1, qp_c,
-                             MODE_INTER, &tcr);
+                    tb_commit(e, 0, x0, y0, log2n, tl);
+                    tb_commit(e, 1, x0 / 2, y0 / 2, log2n - 1, tcb);
+                    tb_commit(e, 2, x0 / 2, y0 / 2, log2n - 1, tcr);
                 }
+            }
+            if (kind != 3) {
+                e->rec_pos = pos0;
+                est_state adv = { e->est_ctx, 0 };
+                n265_est_advance_cu(e, &adv, x0, y0, log2n);
                 return;
             }
+            /* intra wins: fall through to the intra section, which also
+             * arbitrates NxN at min CB */
         }
     }
 
@@ -568,6 +810,9 @@ static void analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
     if (!nxn) {
         set_mode_map(e, x0, y0, n, modes[0]);
         tt_analyze(e, modes[0], x0, y0, log2n);
+        e->rec_pos = pos0;
+        est_state adv = { e->est_ctx, 0 };
+        n265_est_advance_cu(e, &adv, x0, y0, log2n);
         return;
     }
 
@@ -591,6 +836,9 @@ static void analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
     tb_recon(e, 2, x0 / 2, y0 / 2, 2, qp_c, modes[0], &tcr);
     if (tcr.nz)
         rec_levels(e, tcr.level, 16);
+    e->rec_pos = pos0;
+    est_state adv = { e->est_ctx, 0 };
+    n265_est_advance_cu(e, &adv, x0, y0, log2n);
 }
 
 static int decide_split(struct n265_encoder *e, int x0, int y0, int log2n)
@@ -620,6 +868,16 @@ static void quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
     if (inside && log2n > MIN_CB_LOG2) {
         int split = want_skip(e, x0, y0, log2n) ? 0
                     : decide_split(e, x0, y0, log2n);
+        {
+            int inc = 0;
+            if (x0 > 0)
+                inc += e->ct_depth[(y0 >> 2) * e->map_stride +
+                                   ((x0 - 1) >> 2)] > depth;
+            if (y0 > 0)
+                inc += e->ct_depth[((y0 - 1) >> 2) * e->map_stride +
+                                   (x0 >> 2)] > depth;
+            n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + inc], split);
+        }
         if (split) {
             /* no record: the split flag replays from ct_depth */
             int h = 1 << (log2n - 1);
