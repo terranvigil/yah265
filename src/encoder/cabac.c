@@ -130,3 +130,25 @@ void n265_cabac_terminate(cabac_t *cb, int bin)
         renorm(cb);
     }
 }
+
+void n265_cabac_bypass(cabac_t *cb, int bin)
+{
+    cb->low <<= 1;
+    if (bin)
+        cb->low += cb->range;
+    if (cb->low >= 1024) {
+        put_bit(cb, 1);
+        cb->low -= 1024;
+    } else if (cb->low < 512) {
+        put_bit(cb, 0);
+    } else {
+        cb->outstanding++;
+        cb->low -= 512;
+    }
+}
+
+void n265_cabac_bypass_bits(cabac_t *cb, uint32_t val, int n)
+{
+    for (int i = n - 1; i >= 0; i--)
+        n265_cabac_bypass(cb, (int)((val >> i) & 1));
+}

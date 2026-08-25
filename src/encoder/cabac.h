@@ -36,4 +36,7 @@ void n265_cabac_bin(cabac_t *cb, cabac_ctx_t *ctx, int bin);
  * engine; the caller then byte-aligns the bitstream (alignment zeros). */
 void n265_cabac_terminate(cabac_t *cb, int bin);
 
+void n265_cabac_bypass(cabac_t *cb, int bin);
+void n265_cabac_bypass_bits(cabac_t *cb, uint32_t val, int n);
+
 #endif

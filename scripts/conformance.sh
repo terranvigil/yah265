@@ -43,8 +43,10 @@ pass=0
 fail=0
 
 run_vector() {
-    # $1 name  $2 WxH  $3 frames  $4 lavfi source
-    name=$1; size=$2; frames=$3; src=$4
+    # $1 name  $2 WxH  $3 frames  $4 lavfi source  $5 encoder args
+    # ("--pcm" makes the reference the source itself; anything else makes
+    # it the encoder's own reconstruction via --dump-recon)
+    name=$1; size=$2; frames=$3; src=$4; eargs=$5
     y4m="$TMP/$name.y4m"
     "$FFMPEG" -loglevel error -f lavfi -i "$src=size=$size:rate=25" \
         -vf "noise=alls=12:allf=t+u" -frames:v "$frames" -pix_fmt yuv420p "$y4m" -y \
@@ -54,14 +56,24 @@ run_vector() {
         return
     fi
 
-    "$N265" "$y4m" -o "$TMP/$name.hevc" 2>/dev/null || {
+    # shellcheck disable=SC2086
+    "$N265" "$y4m" -o "$TMP/$name.hevc" $eargs \
+        --dump-recon "$TMP/$name.recon.yuv" 2>/dev/null || {
         echo "SUMMARY $name FAIL (encode)"; fail=$((fail+1)); return; }
-    "$N265" "$y4m" -o "$TMP/$name.2.hevc" 2>/dev/null
+    # shellcheck disable=SC2086
+    "$N265" "$y4m" -o "$TMP/$name.2.hevc" $eargs 2>/dev/null
     cmp -s "$TMP/$name.hevc" "$TMP/$name.2.hevc" || {
         echo "SUMMARY $name FAIL (determinism: two runs differ)"
         fail=$((fail+1)); return; }
 
-    "$FFMPEG" -loglevel error -i "$y4m" -f rawvideo "$TMP/$name.src.yuv" -y
+    case " $eargs " in
+    *" --pcm "*)
+        "$FFMPEG" -loglevel error -i "$y4m" -f rawvideo "$TMP/$name.src.yuv" -y
+        ;;
+    *)
+        cp "$TMP/$name.recon.yuv" "$TMP/$name.src.yuv"
+        ;;
+    esac
     "$FFMPEG" -loglevel error -i "$TMP/$name.hevc" -f rawvideo \
         "$TMP/$name.ff.yuv" -y 2>"$TMP/$name.fferr"
     if ! cmp -s "$TMP/$name.src.yuv" "$TMP/$name.ff.yuv"; then
@@ -83,18 +95,25 @@ run_vector() {
     pass=$((pass+1))
 }
 
-# geometry coverage: CTB-aligned, unaligned (conformance window), tiny,
-# tall/narrow, HD
-run_vector aligned_qcif   176x144  5  testsrc2
-run_vector aligned_qvga   320x240  5  testsrc2
-run_vector tiny_1ctb      64x64    3  testsrc2
-run_vector crop_100x60    100x60   5  testsrc2
-run_vector crop_210x122   210x122  5  testsrc2
-run_vector narrow_32x256  32x256   3  testsrc2
+# geometry coverage: CTB-aligned, unaligned (forced splits + conformance
+# window), tiny, tall/narrow, HD; QP sweep on the real path
+run_vector pcm_qcif       176x144  3  testsrc2  "--pcm"
+run_vector pcm_crop       100x60   3  testsrc2  "--pcm"
+run_vector intra_qcif     176x144  5  testsrc2  ""
+run_vector intra_qvga     320x240  5  testsrc2  ""
+run_vector intra_1ctb     64x64    3  testsrc2  ""
+run_vector intra_crop     100x60   5  testsrc2  ""
+run_vector intra_crop2    210x122  5  testsrc2  ""
+run_vector intra_narrow   32x256   3  testsrc2  ""
+run_vector intra_qp8      176x144  3  testsrc2  "--qp 8"
+run_vector intra_qp45     176x144  3  testsrc2  "--qp 45"
 if [ "$FAST" -eq 0 ]; then
-    run_vector aligned_cif 352x288 10 testsrc2
-    run_vector hd_720      1280x720 3 testsrc2
-    run_vector long_qcif   176x144 30 smptebars
+    run_vector pcm_cif     352x288  5  testsrc2  "--pcm"
+    run_vector intra_cif   352x288 10 testsrc2  ""
+    run_vector intra_720   1280x720 3 testsrc2  ""
+    run_vector intra_bars  176x144 30 smptebars ""
+    run_vector intra_qp0   64x64    2  testsrc2  "--qp 0"
+    run_vector intra_qp51  176x144  3  testsrc2  "--qp 51"
 fi
 
 echo "conformance: $pass pass, $fail fail"

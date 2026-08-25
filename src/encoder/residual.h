@@ -1,0 +1,21 @@
+/*
+ * residual_coding() syntax writer.
+ * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
+ */
+
+#ifndef N265_RESIDUAL_H
+#define N265_RESIDUAL_H
+
+#include <stdint.h>
+
+#include "encoder/cabac.h"
+
+/* Encode one transform block's levels (raster order, n*n int16) per
+ * 7.3.8.11. Caller guarantees at least one nonzero level (cbf gates the
+ * call). scan_idx: 0 diag, 1 horizontal, 2 vertical (only 0 wired up so
+ * far). ctx points at the slice context array (tables.h layout). */
+void n265_residual_coding(cabac_t *cb, cabac_ctx_t *ctx,
+                          const int16_t *level, int log2n, int c_idx,
+                          int scan_idx);
+
+#endif

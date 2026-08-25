@@ -10,6 +10,10 @@
 
 #include "next265.h"
 
+/* internal knobs, resolved from the library (not yet public API) */
+void n265_set_mode(int mode, int qp);
+void n265_encoder_set_dump(n265_encoder *e, FILE *f);
+
 typedef struct y4m_t {
     FILE *f;
     int w, h, fps_num, fps_den;
@@ -66,19 +70,31 @@ static void usage(void)
         "usage: n265 [options] <input.y4m|->\n"
         "  -o <file>       output Annex-B bitstream (default: out.hevc)\n"
         "  --frames <n>    encode at most n frames\n"
+        "  --qp <n>        fixed QP (default 26)\n"
+        "  --pcm           phase-0 I_PCM mode (lossless, huge)\n"
+        "  --dump-recon <file>  write reconstruction as raw YUV (the\n"
+        "                  conformance gate compares decoders against it)\n"
         "  --version       print version\n");
 }
 
 int main(int argc, char **argv)
 {
     const char *in_path = NULL, *out_path = "out.hevc";
+    const char *dump_path = NULL;
     long max_frames = -1;
+    int qp = 26, pcm = 0;
 
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-o") && i + 1 < argc) {
             out_path = argv[++i];
         } else if (!strcmp(argv[i], "--frames") && i + 1 < argc) {
             max_frames = atol(argv[++i]);
+        } else if (!strcmp(argv[i], "--qp") && i + 1 < argc) {
+            qp = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--pcm")) {
+            pcm = 1;
+        } else if (!strcmp(argv[i], "--dump-recon") && i + 1 < argc) {
+            dump_path = argv[++i];
         } else if (!strcmp(argv[i], "--version")) {
             printf("n265 %s\n", n265_version_str());
             return 0;
@@ -109,6 +125,11 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    if (qp < 0 || qp > 51) {
+        fprintf(stderr, "n265: qp out of range 0..51\n");
+        return 2;
+    }
+    n265_set_mode(pcm ? 1 : 0, qp);
     n265_param p;
     n265_param_default(&p);
     p.width = y.w;
@@ -121,6 +142,16 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    FILE *fdump = NULL;
+    if (dump_path) {
+        fdump = fopen(dump_path, "wb");
+        if (!fdump) {
+            fprintf(stderr, "n265: cannot open %s: %s\n", dump_path,
+                    strerror(errno));
+            return 1;
+        }
+        n265_encoder_set_dump(enc, fdump);
+    }
     FILE *fout = fopen(out_path, "wb");
     if (!fout) {
         fprintf(stderr, "n265: cannot open %s: %s\n", out_path, strerror(errno));
@@ -154,6 +185,8 @@ int main(int argc, char **argv)
     }
 
     n265_encoder_close(enc);
+    if (fdump)
+        fclose(fdump);
     free(y.frame);
     if (fin != stdin)
         fclose(fin);

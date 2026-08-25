@@ -97,21 +97,32 @@ void n265_write_sps(struct n265_encoder *e)
     bs_put_ue(bs, 0);               /* sps_max_dec_pic_buffering_minus1 */
     bs_put_ue(bs, 0);               /* sps_max_num_reorder_pics */
     bs_put_ue(bs, 0);               /* sps_max_latency_increase_plus1 */
-    bs_put_ue(bs, 1);               /* log2_min_luma_coding_block_size_minus3: 16 */
-    bs_put_ue(bs, 0);               /* log2_diff_max_min_luma_coding_block_size */
-    bs_put_ue(bs, 0);               /* log2_min_luma_transform_block_size_minus2: 4 */
-    bs_put_ue(bs, 2);               /* log2_diff_max_min_luma_transform_block_size: 16 */
+    if (e->mode == N265_MODE_PCM) {
+        bs_put_ue(bs, 1);           /* log2_min_luma_coding_block_size_minus3: 16 */
+        bs_put_ue(bs, 0);           /* log2_diff_max_min: CTB 16 */
+        bs_put_ue(bs, 0);           /* log2_min_luma_transform_block_size_minus2: 4 */
+        bs_put_ue(bs, 2);           /* log2_diff max TB 16 */
+    } else {
+        bs_put_ue(bs, 0);           /* min CB 8 */
+        bs_put_ue(bs, 2);           /* CTB 32 */
+        bs_put_ue(bs, 0);           /* min TB 4 */
+        bs_put_ue(bs, 3);           /* max TB 32 */
+    }
     bs_put_ue(bs, 0);               /* max_transform_hierarchy_depth_inter */
     bs_put_ue(bs, 0);               /* max_transform_hierarchy_depth_intra */
     bs_put_bits(bs, 0, 1);          /* scaling_list_enabled_flag */
     bs_put_bits(bs, 0, 1);          /* amp_enabled_flag */
     bs_put_bits(bs, 0, 1);          /* sample_adaptive_offset_enabled_flag */
-    bs_put_bits(bs, 1, 1);          /* pcm_enabled_flag */
-    bs_put_bits(bs, 7, 4);          /* pcm_sample_bit_depth_luma_minus1 */
-    bs_put_bits(bs, 7, 4);          /* pcm_sample_bit_depth_chroma_minus1 */
-    bs_put_ue(bs, 1);               /* log2_min_pcm_luma_coding_block_size_minus3: 16 */
-    bs_put_ue(bs, 0);               /* log2_diff_max_min_pcm_luma_coding_block_size */
-    bs_put_bits(bs, 1, 1);          /* pcm_loop_filter_disabled_flag */
+    if (e->mode == N265_MODE_PCM) {
+        bs_put_bits(bs, 1, 1);      /* pcm_enabled_flag */
+        bs_put_bits(bs, 7, 4);      /* pcm_sample_bit_depth_luma_minus1 */
+        bs_put_bits(bs, 7, 4);      /* pcm_sample_bit_depth_chroma_minus1 */
+        bs_put_ue(bs, 1);           /* log2_min_pcm_luma_coding_block_size_minus3: 16 */
+        bs_put_ue(bs, 0);           /* log2_diff_max_min_pcm_luma_coding_block_size */
+        bs_put_bits(bs, 1, 1);      /* pcm_loop_filter_disabled_flag */
+    } else {
+        bs_put_bits(bs, 0, 1);      /* pcm_enabled_flag */
+    }
     bs_put_ue(bs, 0);               /* num_short_term_ref_pic_sets */
     bs_put_bits(bs, 0, 1);          /* long_term_ref_pics_present_flag */
     bs_put_bits(bs, 0, 1);          /* sps_temporal_mvp_enabled_flag */
