@@ -15,6 +15,7 @@
 #include "encoder/mv.h"
 #include "encoder/records.h"
 #include "encoder/residual.h"
+#include "encoder/satd.h"
 #include "encoder/transform.h"
 
 static int *g_hist;
@@ -144,7 +145,7 @@ static void tb_analyze(struct n265_encoder *e, int c_idx, int x0, int y0,
             resid[y * n + x] = (int16_t)(src[y * e->pad_stride[c_idx] + x] -
                                          tb->pred[y * n + x]);
     n265_fdct(coef, resid, log2n, use_dst);
-    tb->nz = n265_quant(tb->level, coef, log2n, qp);
+    tb->nz = n265_quant(tb->level, coef, log2n, qp, !inter);
     if (tb->nz)
         n265_sbh_adjust(tb->level, log2n,
                         inter ? 0 : n265_scan_idx(mode, log2n, c_idx));
@@ -400,6 +401,18 @@ static uint32_t mot_sad(struct n265_encoder *e, int x0, int y0, int log2n,
     return sad;
 }
 
+/* SATD of the full-motion prediction (luma): the decision metric that
+ * actually tracks post-transform bits */
+static uint32_t mot_satd(struct n265_encoder *e, int x0, int y0, int log2n,
+                         mot_t mot)
+{
+    int n = 1 << log2n;
+    uint8_t pred[64 * 64];
+    mc_pred(e, 0, x0, y0, n, mot, pred);
+    return n265_satd(e->pad_plane[0] + y0 * e->pad_stride[0] + x0,
+                     e->pad_stride[0], pred, n, n);
+}
+
 static void analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
 {
     int n = 1 << log2n;
@@ -409,13 +422,15 @@ static void analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
     if (e->slice_type != 2) {
         static tb_ctx tl, tcb, tcr;      /* single-thread only; row_ctx at T1 */
         mot_t cand = n265_merge_cand0(e, x0, y0, n, n);
-        uint32_t cand_sad = mot_sad(e, x0, y0, log2n, cand);
+        uint32_t cand_plain_sad = mot_sad(e, x0, y0, log2n, cand);
 
-        /* strict static skip at the merge candidate */
-        if (cand_sad * 8u <= (uint32_t)(n * n * skip_thr8())) {
+        /* strict static skip at the merge candidate (plain SAD: this is
+         * a near-identity test, not a coding-cost estimate) */
+        if (cand_plain_sad * 8u <= (uint32_t)(n * n * skip_thr8())) {
             skip_cu(e, x0, y0, log2n, cand);
             return;
         }
+        uint32_t cand_sad = cand_plain_sad;
 
         if (log2n <= 5) {
             uint32_t intra_sad;

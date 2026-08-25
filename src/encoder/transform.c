@@ -126,14 +126,15 @@ void n265_idct_add(uint8_t *dst, int dst_stride, const int16_t *dq,
         }
 }
 
-int n265_quant(int16_t *level, const int16_t *coef, int log2n, int qp)
+int n265_quant(int16_t *level, const int16_t *coef, int log2n, int qp,
+               int intra)
 {
     static const int quant_scale[6] = {
         26214, 23302, 20560, 18396, 16384, 14564
     };
     int n = 1 << log2n;
     int qbits = 21 + qp / 6 - log2n;    /* 14 + qp/6 + (15 - bd - log2n) */
-    int64_t add = ((int64_t)1 << qbits) / 3;    /* intra rounding */
+    int64_t add = ((int64_t)1 << qbits) / (intra ? 3 : 6);
     int q = quant_scale[qp % 6];
     int nz = 0;
     for (int i = 0; i < n * n; i++) {
