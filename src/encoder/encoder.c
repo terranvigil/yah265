@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "encoder/deblock.h"
 #include "encoder/encoder.h"
 
 const char *n265_version_str(void)
@@ -85,7 +86,8 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->map_stride = e->pad_w >> 2;
     e->ct_depth = calloc((size_t)e->map_stride * (e->pad_h >> 2), 1);
     e->intra_mode = calloc((size_t)e->map_stride * (e->pad_h >> 2), 1);
-    if (!e->ct_depth || !e->intra_mode)
+    e->edge_map = calloc((size_t)e->map_stride * (e->pad_h >> 2), 1);
+    if (!e->ct_depth || !e->intra_mode || !e->edge_map)
         goto fail;
 
     size_t frame_bytes = (size_t)e->pad_w * e->pad_h * 3 / 2;
@@ -113,6 +115,7 @@ void n265_encoder_close(n265_encoder *e)
     }
     free(e->ct_depth);
     free(e->intra_mode);
+    free(e->edge_map);
     bs_free(&e->rbsp);
     free(e->out);
     free(e);
@@ -126,6 +129,9 @@ static void write_slice_header(n265_encoder *e)
     bs_put_ue(bs, 0);               /* slice_pic_parameter_set_id */
     bs_put_ue(bs, 2);               /* slice_type: I */
     bs_put_se(bs, e->qp - 26);      /* slice_qp_delta */
+    if (e->mode != N265_MODE_PCM)
+        bs_put_bits(bs, 1, 1);      /* slice_loop_filter_across_slices_enabled
+                                     * (present because deblocking is on) */
     bs_align_one_then_zero(bs);     /* byte_alignment() */
 }
 
@@ -207,6 +213,7 @@ int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
                   pic->plane[i], pic->stride[i],
                   e->param.width / 2, e->param.height / 2);
 
+    memset(e->edge_map, 0, (size_t)e->map_stride * (e->pad_h >> 2));
     bs_reset(&e->rbsp);
     write_slice_header(e);
 
@@ -227,6 +234,8 @@ int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
     bs_align_zero(&e->rbsp);
     add_nal(e, N265_NAL_IDR_W_RADL, &out_used, &count);
 
+    if (e->mode != N265_MODE_PCM)
+        n265_deblock_frame(e);
     dump_recon_frame(e);
     e->frames_done++;
     *nnal = count;

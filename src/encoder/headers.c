@@ -158,9 +158,14 @@ void n265_write_pps(struct n265_encoder *e)
     bs_put_bits(bs, 0, 1);          /* tiles_enabled_flag */
     bs_put_bits(bs, 0, 1);          /* entropy_coding_sync_enabled_flag */
     bs_put_bits(bs, 1, 1);          /* pps_loop_filter_across_slices_enabled */
-    bs_put_bits(bs, 1, 1);          /* deblocking_filter_control_present_flag */
-    bs_put_bits(bs, 0, 1);          /* deblocking_filter_override_enabled_flag */
-    bs_put_bits(bs, 1, 1);          /* pps_deblocking_filter_disabled_flag */
+    if (e->mode == N265_MODE_PCM) {
+        bs_put_bits(bs, 1, 1);      /* deblocking_filter_control_present_flag */
+        bs_put_bits(bs, 0, 1);      /* deblocking_filter_override_enabled */
+        bs_put_bits(bs, 1, 1);      /* pps_deblocking_filter_disabled_flag */
+    } else {
+        /* control absent: deblocking on, zero offsets */
+        bs_put_bits(bs, 0, 1);      /* deblocking_filter_control_present_flag */
+    }
     bs_put_bits(bs, 0, 1);          /* pps_scaling_list_data_present_flag */
     bs_put_bits(bs, 0, 1);          /* lists_modification_present_flag */
     bs_put_ue(bs, 0);               /* log2_parallel_merge_level_minus2 */

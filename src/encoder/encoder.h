@@ -36,6 +36,7 @@ struct n265_encoder {
 
     uint8_t *ct_depth;      /* 4x4-granularity coding-tree depth map */
     uint8_t *intra_mode;    /* 4x4-granularity luma intra mode map   */
+    uint8_t *edge_map;      /* bit0 = CU left edge, bit1 = top edge  */
     int map_stride;         /* in 4x4 units                          */
 
     cabac_ctx_t ctx[CTX_COUNT];

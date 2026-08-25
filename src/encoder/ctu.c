@@ -196,11 +196,20 @@ static void set_mode_map(struct n265_encoder *e, int x0, int y0, int n,
                 (uint8_t)mode;
 }
 
+static void mark_cu_edges(struct n265_encoder *e, int x0, int y0, int n)
+{
+    for (int y = 0; y < n; y += 4)
+        e->edge_map[((y0 + y) >> 2) * e->map_stride + (x0 >> 2)] |= 1;
+    for (int x = 0; x < n; x += 4)
+        e->edge_map[(y0 >> 2) * e->map_stride + ((x0 + x) >> 2)] |= 2;
+}
+
 static void encode_cu(struct n265_encoder *e, cabac_t *cb, int x0, int y0,
                       int log2n)
 {
     int n = 1 << log2n;
     int qp_c = n265_chroma_qp(e->qp);
+    mark_cu_edges(e, x0, y0, n);
 
     /* at min CB size, decide 2Nx2N vs NxN by summed SAD (NxN searched
      * against source refs since PU recon does not exist yet) */
