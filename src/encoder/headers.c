@@ -112,7 +112,7 @@ void n265_write_sps(struct n265_encoder *e)
     bs_put_ue(bs, 0);               /* max_transform_hierarchy_depth_intra */
     bs_put_bits(bs, 0, 1);          /* scaling_list_enabled_flag */
     bs_put_bits(bs, 0, 1);          /* amp_enabled_flag */
-    bs_put_bits(bs, 0, 1);          /* sample_adaptive_offset_enabled_flag */
+    bs_put_bits(bs, e->mode != N265_MODE_PCM, 1); /* sample_adaptive_offset */
     if (e->mode == N265_MODE_PCM) {
         bs_put_bits(bs, 1, 1);      /* pcm_enabled_flag */
         bs_put_bits(bs, 7, 4);      /* pcm_sample_bit_depth_luma_minus1 */

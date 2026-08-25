@@ -11,6 +11,7 @@
 
 #include "encoder/deblock.h"
 #include "encoder/encoder.h"
+#include "encoder/sao.h"
 
 const char *n265_version_str(void)
 {
@@ -87,7 +88,15 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->ct_depth = calloc((size_t)e->map_stride * (e->pad_h >> 2), 1);
     e->intra_mode = calloc((size_t)e->map_stride * (e->pad_h >> 2), 1);
     e->edge_map = calloc((size_t)e->map_stride * (e->pad_h >> 2), 1);
-    if (!e->ct_depth || !e->intra_mode || !e->edge_map)
+    e->sao = calloc((size_t)e->ctb_cols * e->ctb_rows, sizeof(sao_params));
+    for (int i = 0; i < 3; i++) {
+        int w = i ? e->pad_w / 2 : e->pad_w;
+        int h = i ? e->pad_h / 2 : e->pad_h;
+        e->sao_tmp[i] = malloc((size_t)w * h);
+        if (!e->sao_tmp[i])
+            goto fail;
+    }
+    if (!e->ct_depth || !e->intra_mode || !e->edge_map || !e->sao)
         goto fail;
 
     size_t frame_bytes = (size_t)e->pad_w * e->pad_h * 3 / 2;
@@ -116,6 +125,9 @@ void n265_encoder_close(n265_encoder *e)
     free(e->ct_depth);
     free(e->intra_mode);
     free(e->edge_map);
+    free(e->sao);
+    for (int i = 0; i < 3; i++)
+        free(e->sao_tmp[i]);
     bs_free(&e->rbsp);
     free(e->out);
     free(e);
@@ -128,6 +140,10 @@ static void write_slice_header(n265_encoder *e)
     bs_put_bits(bs, 0, 1);          /* no_output_of_prior_pics_flag (IRAP) */
     bs_put_ue(bs, 0);               /* slice_pic_parameter_set_id */
     bs_put_ue(bs, 2);               /* slice_type: I */
+    if (e->mode != N265_MODE_PCM) {
+        bs_put_bits(bs, 1, 1);      /* slice_sao_luma_flag */
+        bs_put_bits(bs, 1, 1);      /* slice_sao_chroma_flag */
+    }
     bs_put_se(bs, e->qp - 26);      /* slice_qp_delta */
     if (e->mode != N265_MODE_PCM)
         bs_put_bits(bs, 1, 1);      /* slice_loop_filter_across_slices_enabled
@@ -213,29 +229,47 @@ int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
                   pic->plane[i], pic->stride[i],
                   e->param.width / 2, e->param.height / 2);
 
+    int last = e->ctb_rows * e->ctb_cols - 1;
+    cabac_t cb;
+
+    if (e->mode != N265_MODE_PCM) {
+        /* pass A: decisions + recon only; the bits are thrown away.
+         * Then deblock and choose SAO params against the source. */
+        memset(e->edge_map, 0, (size_t)e->map_stride * (e->pad_h >> 2));
+        bs_reset(&e->rbsp);
+        n265_cabac_start(&cb, &e->rbsp);
+        for (int i = 0; i < CTX_COUNT; i++)
+            n265_cabac_ctx_init(&e->ctx[i], n265_ctx_init_i[i], e->qp);
+        for (int i = 0; i <= last; i++)
+            n265_encode_ctu(e, &cb, i % e->ctb_cols, i / e->ctb_cols);
+        n265_deblock_frame(e);
+        n265_sao_analyze(e);
+    }
+
     memset(e->edge_map, 0, (size_t)e->map_stride * (e->pad_h >> 2));
     bs_reset(&e->rbsp);
     write_slice_header(e);
-
-    cabac_t cb;
     n265_cabac_start(&cb, &e->rbsp);
     for (int i = 0; i < CTX_COUNT; i++)
         n265_cabac_ctx_init(&e->ctx[i], n265_ctx_init_i[i], e->qp);
 
-    int last = e->ctb_rows * e->ctb_cols - 1;
     for (int i = 0; i <= last; i++) {
-        if (e->mode == N265_MODE_PCM)
+        if (e->mode == N265_MODE_PCM) {
             write_pcm_ctu(e, &cb, &e->ctx[CTX_PART_MODE],
                           i % e->ctb_cols, i / e->ctb_cols);
-        else
+        } else {
+            n265_sao_write(e, &cb, i % e->ctb_cols, i / e->ctb_cols);
             n265_encode_ctu(e, &cb, i % e->ctb_cols, i / e->ctb_cols);
+        }
         n265_cabac_terminate(&cb, i == last);
     }
     bs_align_zero(&e->rbsp);
     add_nal(e, N265_NAL_IDR_W_RADL, &out_used, &count);
 
-    if (e->mode != N265_MODE_PCM)
+    if (e->mode != N265_MODE_PCM) {
         n265_deblock_frame(e);
+        n265_sao_apply(e);
+    }
     dump_recon_frame(e);
     e->frames_done++;
     *nnal = count;

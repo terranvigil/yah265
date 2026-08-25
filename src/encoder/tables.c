@@ -37,6 +37,8 @@ const uint8_t n265_ctx_init_i[CTX_COUNT] = {
     122, 152, 140, 179, 166, 182, 140, 227, 122, 197,
     /* coeff_abs_level_greater2_flag (6) */
     138, 153, 136, 167, 152, 152,
+    /* sao_merge_flag, sao_type_idx */
+    153, 200,
 };
 
 /* 9.3.4.2.5, ctxIdxMap for 4x4 TBs */

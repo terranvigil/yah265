@@ -13,6 +13,8 @@
 #include "encoder/cabac.h"
 #include "encoder/tables.h"
 
+struct sao_params;
+
 enum {
     N265_MODE_INTRA = 0,    /* real coding: DC intra, CTB 32 */
     N265_MODE_PCM = 1,      /* phase-0 path: I_PCM, CTB 16 */
@@ -38,6 +40,9 @@ struct n265_encoder {
     uint8_t *intra_mode;    /* 4x4-granularity luma intra mode map   */
     uint8_t *edge_map;      /* bit0 = CU left edge, bit1 = top edge  */
     int map_stride;         /* in 4x4 units                          */
+
+    struct sao_params *sao; /* per-CTB SAO decisions                 */
+    uint8_t *sao_tmp[3];    /* pristine deblocked planes during apply */
 
     cabac_ctx_t ctx[CTX_COUNT];
 

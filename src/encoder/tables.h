@@ -23,7 +23,9 @@ enum {
     CTX_SIG = 52,           /* 42: luma 0-26, chroma 27-41 */
     CTX_G1 = 94,            /* 24: luma 0-15, chroma 16-23 */
     CTX_G2 = 118,           /* 6: luma 0-3, chroma 4-5 */
-    CTX_COUNT = 124,
+    CTX_SAO_MERGE = 124,    /* 1 */
+    CTX_SAO_TYPE = 125,     /* 1 */
+    CTX_COUNT = 126,
 };
 
 extern const uint8_t n265_ctx_init_i[CTX_COUNT];

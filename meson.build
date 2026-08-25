@@ -28,6 +28,7 @@ lib_sources = [
   'src/encoder/residual.c',
   'src/encoder/ctu.c',
   'src/encoder/deblock.c',
+  'src/encoder/sao.c',
   'src/encoder/headers.c',
   'src/encoder/encoder.c',
 ]
