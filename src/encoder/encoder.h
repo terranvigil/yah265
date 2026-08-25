@@ -36,11 +36,15 @@ struct n265_encoder {
     int pad_stride[3];
     uint8_t *recon[3];      /* reconstruction planes (padded dims)   */
     int recon_stride[3];
-    uint8_t *ref_base[3];   /* padded allocation                     */
-    uint8_t *ref_plane[3];  /* previous frame, fully filtered, origin
-                             * inside a PAD-sample border (MC may read
-                             * outside the picture)                  */
-    int ref_stride[3];
+    /* two-slot DPB of padded, border-extended, fully filtered pictures */
+    struct n265_refpic {
+        uint8_t *base[3];
+        uint8_t *plane[3];  /* origin inside the border */
+        int stride[3];
+        int poc;
+        int valid;
+    } dpb[2];
+    struct n265_refpic *ref_l0, *ref_l1;    /* current frame's lists */
     int ref_valid;
 
     uint8_t *ct_depth;      /* 4x4-granularity coding-tree depth map */
@@ -49,7 +53,8 @@ struct n265_encoder {
     uint8_t *blk_intra;     /* per 4x4: CU coded intra               */
     uint8_t *blk_skip;      /* per 4x4: cu_skip_flag (ctx + bS)      */
     uint8_t *blk_cbf_y;     /* per 4x4: luma TB had coefficients     */
-    int16_t *blk_mv;        /* per 4x4: (x,y) quarter-pel MV pairs   */
+    int16_t *blk_mv;        /* per 4x4: L0 then L1 (x,y) qpel pairs  */
+    uint8_t *blk_pred;      /* per 4x4: pred flags (1=L0, 2=L1)      */
     int map_stride;         /* in 4x4 units                          */
 
     struct sao_params *sao; /* per-CTB SAO decisions                 */
@@ -68,7 +73,19 @@ struct n265_encoder {
     int frames_done;
     int poc;
     int keyint;
-    int slice_type;         /* 2 = I, 1 = P (current frame)          */
+    int bframes;            /* 0 or 1 for now                        */
+    int slice_type;         /* 2 = I, 1 = P, 0 = B (current frame)   */
+    int nonref;             /* current frame is not a reference      */
+    int display_idx;        /* current frame's global display index  */
+
+    /* one-deep latency queue for the held B source */
+    uint8_t *held_src[3];
+    int held_valid;
+    int held_display_idx;
+    int in_display_idx;     /* next arriving picture's display index */
+    int gop_start_display;  /* display index of the current IDR      */
+
+    FILE *dump_decode;      /* decode-order recon tap (dec265 leg)   */
     FILE *dump_recon;       /* optional recon tap for the gate       */
 };
 

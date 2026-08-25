@@ -88,6 +88,47 @@ const uint8_t n265_ctx_init_p[CTX_COUNT] = {
     140, 198, 168,
 };
 
+/* initType 2: B slices with cabac_init_flag 0 */
+const uint8_t n265_ctx_init_b[CTX_COUNT] = {
+    /* split_cu_flag */
+    107, 139, 126,
+    /* part_mode (intra bin0) */
+    154,
+    /* prev_intra_luma_pred_flag */
+    183,
+    /* intra_chroma_pred_mode */
+    152,
+    /* cbf_luma */
+    153, 111,
+    /* cbf_cb/cbf_cr */
+    149,  92, 167, 154,
+    /* last_sig_coeff_x_prefix */
+    125, 110, 124, 110,  95,  94, 125, 111, 111,  79, 125, 126, 111, 111,
+     79, 108, 123,  93,
+    /* last_sig_coeff_y_prefix */
+    125, 110, 124, 110,  95,  94, 125, 111, 111,  79, 125, 126, 111, 111,
+     79, 108, 123,  93,
+    /* coded_sub_block_flag */
+    121, 140,  61, 154,
+    /* sig_coeff_flag (42) */
+    170, 154, 139, 153, 139, 123, 123,  63, 124, 166, 183, 140, 136, 153,
+    154, 166, 183, 140, 136, 153, 154, 166, 183, 140, 136, 153, 154, 170,
+    153, 138, 138, 122, 121, 122, 121, 167, 151, 183, 140, 151, 183, 140,
+    /* coeff_abs_level_greater1_flag (24) */
+    154, 196, 167, 167, 154, 152, 167, 182, 182, 134, 149, 136, 153, 121,
+    136, 122, 169, 208, 166, 167, 154, 152, 167, 182,
+    /* coeff_abs_level_greater2_flag (6) */
+    107, 167,  91, 107, 107, 167,
+    /* sao_merge_flag, sao_type_idx */
+    153, 160,
+    /* cu_skip_flag */
+    197, 185, 201,
+    /* pred_mode_flag, merge_flag, merge_idx, rqt_root_cbf */
+    134, 154, 137, 79,
+    /* abs_mvd_greater0/1, mvp_l0_flag */
+    169, 198, 168,
+};
+
 /* 9.3.4.2.5, ctxIdxMap for 4x4 TBs */
 const uint8_t n265_sig_ctx_map4x4[15] = {
     0, 1, 4, 5, 2, 3, 4, 5, 6, 6, 8, 8, 7, 7, 8

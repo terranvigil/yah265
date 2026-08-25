@@ -14,12 +14,19 @@ typedef struct mv_t {
     int16_t x, y;   /* quarter-pel units */
 } mv_t;
 
+/* full motion of a PU: per-list MVs and prediction flags */
+typedef struct mot_t {
+    mv_t mv[2];
+    uint8_t pred;   /* bit0 = L0, bit1 = L1 */
+} mot_t;
+
 /* First merge candidate (MaxNumMergeCand == 1): the first available
- * spatial of A1, B1, B0, A0, B2, else zero. Availability = inside the
- * picture, decoded (z-scan), and inter-coded. Matches the decoder's
- * 8.5.3.2.3 order exactly for a one-deep list with TMVP off. */
-mv_t n265_merge_cand0(struct n265_encoder *e, int x0, int y0, int nw,
-                      int nh);
+ * spatial of A1, B1, B0, A0, B2, else zero (which in B slices is
+ * bi-predictive zero). Availability = inside the picture, decoded
+ * (z-scan), and inter-coded. Matches the decoder's 8.5.3.2.3 order
+ * exactly for a one-deep list with TMVP off. */
+mot_t n265_merge_cand0(struct n265_encoder *e, int x0, int y0, int nw,
+                       int nh);
 
 /* AMVP candidate list for L0 ref 0 (8.5.3.2.6): mvp[0], mvp[1]. */
 void n265_amvp(struct n265_encoder *e, int x0, int y0, int nw, int nh,

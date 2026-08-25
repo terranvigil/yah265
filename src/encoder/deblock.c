@@ -134,10 +134,21 @@ static int seg_bs(const struct n265_encoder *e, int x, int y, int vertical)
         return 2;
     if (e->blk_cbf_y[pi] || e->blk_cbf_y[qi])
         return 1;
-    int dx = e->blk_mv[2 * pi] - e->blk_mv[2 * qi];
-    int dy = e->blk_mv[2 * pi + 1] - e->blk_mv[2 * qi + 1];
-    if (dx <= -4 || dx >= 4 || dy <= -4 || dy >= 4)
+    /* per-list motion compare; within a frame each list maps to one
+     * reference picture, so different pred-flag sets mean different
+     * pictures or MV counts (bS 1 either way) */
+    if (e->blk_pred[pi] != e->blk_pred[qi])
         return 1;
+    int lists = e->blk_pred[pi];
+    for (int l = 0; l < 2; l++) {
+        if (!(lists & (1 << l)))
+            continue;
+        int dx = e->blk_mv[4 * pi + 2 * l] - e->blk_mv[4 * qi + 2 * l];
+        int dy = e->blk_mv[4 * pi + 2 * l + 1] -
+                 e->blk_mv[4 * qi + 2 * l + 1];
+        if (dx <= -4 || dx >= 4 || dy <= -4 || dy >= 4)
+            return 1;
+    }
     return 0;
 }
 

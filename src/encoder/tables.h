@@ -36,9 +36,10 @@ enum {
     CTX_COUNT = 136,
 };
 
-/* initType 0 (I slices) and initType 1 (P slices, cabac_init_flag 0) */
+/* initType 0 (I), 1 (P, cabac_init_flag 0), 2 (B, cabac_init_flag 0) */
 extern const uint8_t n265_ctx_init_i[CTX_COUNT];
 extern const uint8_t n265_ctx_init_p[CTX_COUNT];
+extern const uint8_t n265_ctx_init_b[CTX_COUNT];
 
 /* sig_coeff_flag ctxIdxMap for 4x4 TBs (9.3.4.2.5), index (yP<<2)|xP,
  * position 15 never coded. */

@@ -173,7 +173,7 @@ static void replay_cu(struct n265_encoder *e, cabac_t *cb, int x0, int y0,
     int is_skip = map_at(e, e->blk_skip, x0, y0);
     int is_intra = map_at(e, e->blk_intra, x0, y0);
 
-    if (e->slice_type == 1) {
+    if (e->slice_type != 2) {
         int inc = 0;
         if (x0 > 0)
             inc += map_at(e, e->blk_skip, x0 - 1, y0);

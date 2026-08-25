@@ -19,7 +19,7 @@ static int inter_at(struct n265_encoder *e, int x, int y, uint64_t cur_z)
     return !e->blk_intra[(y >> 2) * e->map_stride + (x >> 2)];
 }
 
-mv_t n265_merge_cand0(struct n265_encoder *e, int x0, int y0, int nw, int nh)
+mot_t n265_merge_cand0(struct n265_encoder *e, int x0, int y0, int nw, int nh)
 {
     uint64_t cur = n265_zorder(x0, y0, e->pad_w, e->ctb_log2);
     /* A1, B1, B0, A0, B2 */
@@ -30,16 +30,23 @@ mv_t n265_merge_cand0(struct n265_encoder *e, int x0, int y0, int nw, int nh)
         { x0 - 1, y0 + nh },
         { x0 - 1, y0 - 1 },
     };
+    mot_t r;
     for (int i = 0; i < 5; i++) {
         int x = pos[i][0], y = pos[i][1];
         if (inter_at(e, x, y, cur)) {
             int m = (y >> 2) * e->map_stride + (x >> 2);
-            mv_t r = { e->blk_mv[2 * m], e->blk_mv[2 * m + 1] };
+            r.mv[0].x = e->blk_mv[4 * m];
+            r.mv[0].y = e->blk_mv[4 * m + 1];
+            r.mv[1].x = e->blk_mv[4 * m + 2];
+            r.mv[1].y = e->blk_mv[4 * m + 3];
+            r.pred = e->blk_pred[m];
             return r;
         }
     }
-    mv_t z = { 0, 0 };
-    return z;
+    /* zero candidate: uni in P, bi in B */
+    r.mv[0].x = r.mv[0].y = r.mv[1].x = r.mv[1].y = 0;
+    r.pred = e->slice_type == 0 ? 3 : 1;
+    return r;
 }
 
 void n265_amvp(struct n265_encoder *e, int x0, int y0, int nw, int nh,
@@ -53,8 +60,10 @@ void n265_amvp(struct n265_encoder *e, int x0, int y0, int nw, int nh,
     for (int i = 0; i < 2 && n == 0; i++)
         if (inter_at(e, a_pos[i][0], a_pos[i][1], cur)) {
             int m = (a_pos[i][1] >> 2) * e->map_stride + (a_pos[i][0] >> 2);
-            mvp[n].x = e->blk_mv[2 * m];
-            mvp[n].y = e->blk_mv[2 * m + 1];
+            if (!(e->blk_pred[m] & 1))
+                continue;   /* AMVP here is L0 ref 0 only */
+            mvp[n].x = e->blk_mv[4 * m];
+            mvp[n].y = e->blk_mv[4 * m + 1];
             n++;
         }
     /* candidate B: exactly one, the first available of B0, B1, B2; then
@@ -65,7 +74,9 @@ void n265_amvp(struct n265_encoder *e, int x0, int y0, int nw, int nh,
     for (int i = 0; i < 3; i++)
         if (inter_at(e, b_pos[i][0], b_pos[i][1], cur)) {
             int m = (b_pos[i][1] >> 2) * e->map_stride + (b_pos[i][0] >> 2);
-            mv_t c = { e->blk_mv[2 * m], e->blk_mv[2 * m + 1] };
+            if (!(e->blk_pred[m] & 1))
+                continue;
+            mv_t c = { e->blk_mv[4 * m], e->blk_mv[4 * m + 1] };
             if (!(n == 1 && c.x == mvp[0].x && c.y == mvp[0].y))
                 mvp[n++] = c;
             break;
@@ -84,9 +95,9 @@ uint32_t n265_mc_sad(struct n265_encoder *e, int x0, int y0, int log2n,
     const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
     if ((mv.x | mv.y) & 3) {    /* fractional: interpolate then SAD */
         uint8_t pred[64 * 64];
-        const uint8_t *rp = e->ref_plane[0] +
-            (y0 + (mv.y >> 2)) * e->ref_stride[0] + x0 + (mv.x >> 2);
-        n265_mc_luma(pred, n, rp, e->ref_stride[0], mv.x & 3, mv.y & 3);
+        const uint8_t *rp = e->ref_l0->plane[0] +
+            (y0 + (mv.y >> 2)) * e->ref_l0->stride[0] + x0 + (mv.x >> 2);
+        n265_mc_luma(pred, n, rp, e->ref_l0->stride[0], mv.x & 3, mv.y & 3);
         uint32_t sad = 0;
         for (int y = 0; y < n; y++)
             for (int x = 0; x < n; x++) {
@@ -95,13 +106,13 @@ uint32_t n265_mc_sad(struct n265_encoder *e, int x0, int y0, int log2n,
             }
         return sad;
     }
-    const uint8_t *ref = e->ref_plane[0] +
-        (y0 + (mv.y >> 2)) * e->ref_stride[0] + x0 + (mv.x >> 2);
+    const uint8_t *ref = e->ref_l0->plane[0] +
+        (y0 + (mv.y >> 2)) * e->ref_l0->stride[0] + x0 + (mv.x >> 2);
     uint32_t sad = 0;
     for (int y = 0; y < n; y++)
         for (int x = 0; x < n; x++) {
             int d = src[y * e->pad_stride[0] + x] -
-                    ref[y * e->ref_stride[0] + x];
+                    ref[y * e->ref_l0->stride[0] + x];
             sad += (uint32_t)(d < 0 ? -d : d);
         }
     return sad;

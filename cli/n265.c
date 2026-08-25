@@ -11,7 +11,8 @@
 #include "next265.h"
 
 /* internal knobs, resolved from the library (not yet public API) */
-void n265_set_mode(int mode, int qp, int ctb_log2, int keyint);
+void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes);
+void n265_encoder_set_dump_decode(n265_encoder *e, FILE *f);
 void n265_encoder_set_dump(n265_encoder *e, FILE *f);
 
 typedef struct y4m_t {
@@ -74,6 +75,7 @@ static void usage(void)
         "  --pcm           phase-0 I_PCM mode (lossless, huge)\n"
         "  --ctu <16|32|64>  coding tree block size (default 32)\n"
         "  --keyint <n>    IDR period in frames (default 60)\n"
+        "  --bframes <0|1> non-reference B between anchors (default 1)\n"
         "  --dump-recon <file>  write reconstruction as raw YUV (the\n"
         "                  conformance gate compares decoders against it)\n"
         "  --version       print version\n");
@@ -84,7 +86,8 @@ int main(int argc, char **argv)
     const char *in_path = NULL, *out_path = "out.hevc";
     const char *dump_path = NULL;
     long max_frames = -1;
-    int qp = 26, pcm = 0, ctu = 32, keyint = 60;
+    int qp = 26, pcm = 0, ctu = 32, keyint = 60, bframes = 1;
+    const char *dump_decode_path = NULL;
 
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-o") && i + 1 < argc) {
@@ -95,6 +98,10 @@ int main(int argc, char **argv)
             qp = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--keyint") && i + 1 < argc) {
             keyint = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--bframes") && i + 1 < argc) {
+            bframes = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--dump-recon-decode") && i + 1 < argc) {
+            dump_decode_path = argv[++i];
         } else if (!strcmp(argv[i], "--ctu") && i + 1 < argc) {
             ctu = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--pcm")) {
@@ -140,7 +147,7 @@ int main(int argc, char **argv)
         return 2;
     }
     int ctb_log2 = ctu == 16 ? 4 : ctu == 32 ? 5 : 6;
-    n265_set_mode(pcm ? 1 : 0, qp, ctb_log2, keyint);
+    n265_set_mode(pcm ? 1 : 0, qp, ctb_log2, keyint, bframes);
     n265_param p;
     n265_param_default(&p);
     p.width = y.w;
@@ -162,6 +169,12 @@ int main(int argc, char **argv)
             return 1;
         }
         n265_encoder_set_dump(enc, fdump);
+    }
+    FILE *fdump2 = NULL;
+    if (dump_decode_path) {
+        fdump2 = fopen(dump_decode_path, "wb");
+        if (fdump2)
+            n265_encoder_set_dump_decode(enc, fdump2);
     }
     FILE *fout = fopen(out_path, "wb");
     if (!fout) {
@@ -195,9 +208,19 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    /* flush the held frame, if any */
+    {
+        n265_nal *nal;
+        int nnal;
+        if (n265_encoder_encode(enc, &nal, &nnal, NULL) >= 0)
+            for (int i = 0; i < nnal; i++)
+                fwrite(nal[i].payload, 1, (size_t)nal[i].size, fout);
+    }
     n265_encoder_close(enc);
     if (fdump)
         fclose(fdump);
+    if (fdump2)
+        fclose(fdump2);
     free(y.frame);
     if (fin != stdin)
         fclose(fin);

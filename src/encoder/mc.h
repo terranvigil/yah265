@@ -17,4 +17,13 @@ void n265_mc_luma(uint8_t *dst, int n, const uint8_t *ref, int ref_stride,
 void n265_mc_chroma(uint8_t *dst, int n, const uint8_t *ref, int ref_stride,
                     int fx, int fy);
 
+/* 14-bit intermediate variants for bi-prediction (no final rounding) */
+void n265_mc_luma_14(int16_t *dst, int n, const uint8_t *ref, int ref_stride,
+                     int fx, int fy);
+void n265_mc_chroma_14(int16_t *dst, int n, const uint8_t *ref,
+                       int ref_stride, int fx, int fy);
+
+/* default bi combine: (a + b + 64) >> 7, clipped */
+void n265_bi_avg(uint8_t *dst, const int16_t *a, const int16_t *b, int n);
+
 #endif

@@ -128,3 +128,111 @@ void n265_mc_chroma(uint8_t *dst, int n, const uint8_t *ref, int ref_stride,
             dst[y * n + x] = clip1((s + 2048) >> 12);
         }
 }
+
+/* 14-bit outputs: 1-D keeps sum<<0 (values are sum of coef*sample, i.e.
+ * sample<<6 scale); full-pel is sample<<6; 2-D second stage >>6. */
+void n265_mc_luma_14(int16_t *dst, int n, const uint8_t *ref, int ref_stride,
+                     int fx, int fy)
+{
+    if (!fx && !fy) {
+        for (int y = 0; y < n; y++)
+            for (int x = 0; x < n; x++)
+                dst[y * n + x] = (int16_t)(ref[y * ref_stride + x] << 6);
+        return;
+    }
+    if (!fy) {
+        const int8_t *f = luma_filt[fx];
+        for (int y = 0; y < n; y++)
+            for (int x = 0; x < n; x++) {
+                int s = 0;
+                for (int k = 0; k < 8; k++)
+                    s += f[k] * ref[y * ref_stride + x + k - 3];
+                dst[y * n + x] = (int16_t)s;
+            }
+        return;
+    }
+    if (!fx) {
+        const int8_t *f = luma_filt[fy];
+        for (int y = 0; y < n; y++)
+            for (int x = 0; x < n; x++) {
+                int s = 0;
+                for (int k = 0; k < 8; k++)
+                    s += f[k] * ref[(y + k - 3) * ref_stride + x];
+                dst[y * n + x] = (int16_t)s;
+            }
+        return;
+    }
+    int16_t tmp[(64 + 7) * 64];
+    const int8_t *fh = luma_filt[fx], *fv = luma_filt[fy];
+    for (int y = -3; y < n + 4; y++)
+        for (int x = 0; x < n; x++) {
+            int s = 0;
+            for (int k = 0; k < 8; k++)
+                s += fh[k] * ref[y * ref_stride + x + k - 3];
+            tmp[(y + 3) * n + x] = (int16_t)s;
+        }
+    for (int y = 0; y < n; y++)
+        for (int x = 0; x < n; x++) {
+            int s = 0;
+            for (int k = 0; k < 8; k++)
+                s += fv[k] * tmp[(y + k) * n + x];
+            dst[y * n + x] = (int16_t)(s >> 6);
+        }
+}
+
+void n265_mc_chroma_14(int16_t *dst, int n, const uint8_t *ref,
+                       int ref_stride, int fx, int fy)
+{
+    if (!fx && !fy) {
+        for (int y = 0; y < n; y++)
+            for (int x = 0; x < n; x++)
+                dst[y * n + x] = (int16_t)(ref[y * ref_stride + x] << 6);
+        return;
+    }
+    if (!fy) {
+        const int8_t *f = chroma_filt[fx];
+        for (int y = 0; y < n; y++)
+            for (int x = 0; x < n; x++) {
+                int s = 0;
+                for (int k = 0; k < 4; k++)
+                    s += f[k] * ref[y * ref_stride + x + k - 1];
+                dst[y * n + x] = (int16_t)s;
+            }
+        return;
+    }
+    if (!fx) {
+        const int8_t *f = chroma_filt[fy];
+        for (int y = 0; y < n; y++)
+            for (int x = 0; x < n; x++) {
+                int s = 0;
+                for (int k = 0; k < 4; k++)
+                    s += f[k] * ref[(y + k - 1) * ref_stride + x];
+                dst[y * n + x] = (int16_t)s;
+            }
+        return;
+    }
+    int16_t tmp[(32 + 3) * 32];
+    const int8_t *fh = chroma_filt[fx], *fv = chroma_filt[fy];
+    for (int y = -1; y < n + 2; y++)
+        for (int x = 0; x < n; x++) {
+            int s = 0;
+            for (int k = 0; k < 4; k++)
+                s += fh[k] * ref[y * ref_stride + x + k - 1];
+            tmp[(y + 1) * n + x] = (int16_t)s;
+        }
+    for (int y = 0; y < n; y++)
+        for (int x = 0; x < n; x++) {
+            int s = 0;
+            for (int k = 0; k < 4; k++)
+                s += fv[k] * tmp[(y + k) * n + x];
+            dst[y * n + x] = (int16_t)(s >> 6);
+        }
+}
+
+void n265_bi_avg(uint8_t *dst, const int16_t *a, const int16_t *b, int n)
+{
+    for (int i = 0; i < n * n; i++) {
+        int v = (a[i] + b[i] + 64) >> 7;
+        dst[i] = (uint8_t)(v < 0 ? 0 : v > 255 ? 255 : v);
+    }
+}
