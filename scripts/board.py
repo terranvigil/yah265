@@ -38,7 +38,7 @@ QPS = [22, 27, 32, 37]
 # x265 args mirroring our current featureset (update as features land;
 # the goal is for this list to shrink to nothing)
 X265_MATCHED = ["--keyint", "60", "--bframes", "1", "--b-adapt", "0",
-                "--rc-lookahead", "1", "--ref", "1", "--no-scenecut",
+                "--rc-lookahead", "2", "--ref", "1", "--no-scenecut",
                 "--no-open-gop", "--no-b-pyramid"]
 
 CLIPS = [
