@@ -215,9 +215,11 @@ static int tb_full(struct n265_encoder *e, int c_idx, int x0, int y0,
     return tb->nz != 0;
 }
 
-/* pick the luma mode by SAD over prediction from the given ref plane */
-static int search_luma_mode(struct n265_encoder *e, int x0, int y0, int log2n,
-                            const uint8_t *ref_plane, uint32_t *cost_out)
+/* pick the luma mode by SAD over prediction from the given ref plane;
+ * optionally reports the three best-ranked modes for RD refinement */
+static int search_luma_mode_k(struct n265_encoder *e, int x0, int y0,
+                              int log2n, const uint8_t *ref_plane,
+                              uint32_t *cost_out, int top3[3])
 {
     int n = 1 << log2n;
     const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
@@ -230,6 +232,8 @@ static int search_luma_mode(struct n265_encoder *e, int x0, int y0, int log2n,
 
     int best_mode = 0;
     uint32_t best_cost = UINT32_MAX;
+    uint32_t c3[3] = { UINT32_MAX, UINT32_MAX, UINT32_MAX };
+    int m3[3] = { 0, 1, 26 };
     for (int mode = 0; mode < 35; mode++) {
         const uint8_t *r = n265_use_filtered_refs(mode, log2n, 0) ? refs_f
                                                                   : refs;
@@ -240,11 +244,24 @@ static int search_luma_mode(struct n265_encoder *e, int x0, int y0, int log2n,
                 int d = src[y * e->pad_stride[0] + x] - pred[y * n + x];
                 cost += (uint32_t)(d < 0 ? -d : d);
             }
+        if (cost < c3[0]) {
+            c3[2] = c3[1]; m3[2] = m3[1];
+            c3[1] = c3[0]; m3[1] = m3[0];
+            c3[0] = cost; m3[0] = mode;
+        } else if (cost < c3[1]) {
+            c3[2] = c3[1]; m3[2] = m3[1];
+            c3[1] = cost; m3[1] = mode;
+        } else if (cost < c3[2]) {
+            c3[2] = cost; m3[2] = mode;
+        }
         if (cost < best_cost) {
             best_cost = cost;
             best_mode = mode;
         }
     }
+    if (top3)
+        for (int i = 0; i < 3; i++)
+            top3[i] = m3[i];
     if (cost_out)
         *cost_out = best_cost;
     static int hist[35], armed = -1;
@@ -259,6 +276,13 @@ static int search_luma_mode(struct n265_encoder *e, int x0, int y0, int log2n,
         }
     }
     return best_mode;
+}
+
+static int search_luma_mode(struct n265_encoder *e, int x0, int y0,
+                            int log2n, const uint8_t *ref_plane,
+                            uint32_t *cost_out)
+{
+    return search_luma_mode_k(e, x0, y0, log2n, ref_plane, cost_out, NULL);
 }
 
 /* SAD-domain lambda: sqrt(0.85 * 2^((qp-12)/3)), Q4 fixed point */
@@ -688,6 +712,62 @@ static void commit_inter_tt(struct n265_encoder *e, mot_t mot, int x0,
     }
 }
 
+/* RD-refine the intra luma mode over the top-3 SAD-ranked candidates:
+ * only mode-dependent bits (MPM, cbfs, residuals) enter the compare */
+static int intra_rd_pick(struct n265_encoder *e, int x0, int y0, int log2n)
+{
+    int top3[3];
+    search_luma_mode_k(e, x0, y0, log2n, e->recon[0], NULL, top3);
+    int qp_c = n265_chroma_qp(e->qp);
+    uint32_t lam = lambda_mode_q8(e->qp);
+    static tb_ctx tl, tcb, tcr;
+    uint64_t best_j = UINT64_MAX;
+    int best = top3[0];
+    for (int k = 0; k < 3; k++) {
+        int mode = top3[k];
+        int dup = 0;
+        for (int q = 0; q < k; q++)
+            if (top3[q] == mode)
+                dup = 1;
+        if (dup)
+            continue;
+        tb_analyze(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c, mode, mot_zero,
+                   &tcb);
+        tb_analyze(e, 2, x0 / 2, y0 / 2, log2n - 1, qp_c, mode, mot_zero,
+                   &tcr);
+        tb_analyze(e, 0, x0, y0, log2n, e->qp, mode, mot_zero, &tl);
+        tb_make_recon(0, log2n, e->qp, mode, &tl);
+        tb_make_recon(1, log2n - 1, qp_c, mode, &tcb);
+        tb_make_recon(2, log2n - 1, qp_c, mode, &tcr);
+        uint64_t d = tb_ssd(e, 0, x0, y0, log2n, &tl) +
+            tb_ssd(e, 1, x0 / 2, y0 / 2, log2n - 1, &tcb) +
+            tb_ssd(e, 2, x0 / 2, y0 / 2, log2n - 1, &tcr);
+        cabac_ctx_t local[CTX_COUNT];
+        memcpy(local, e->est_ctx, sizeof(local));
+        est_state st = { local, 0 };
+        res_ops ops;
+        n265_est_ops(&ops, &st);
+        est_mpm_bits(e, &st, x0, y0, mode);
+        st.bits += n265_est_bin(&local[CTX_CBF_CHROMA + 0], tcb.nz != 0);
+        st.bits += n265_est_bin(&local[CTX_CBF_CHROMA + 0], tcr.nz != 0);
+        st.bits += n265_est_bin(&local[CTX_CBF_LUMA + 1], tl.nz != 0);
+        if (tl.nz)
+            n265_residual_coding(&ops, tl.level, log2n, 0,
+                                 n265_scan_idx(mode, log2n, 0));
+        int sc = n265_scan_idx(mode, log2n - 1, 1);
+        if (tcb.nz)
+            n265_residual_coding(&ops, tcb.level, log2n - 1, 1, sc);
+        if (tcr.nz)
+            n265_residual_coding(&ops, tcr.level, log2n - 1, 2, sc);
+        uint64_t j = rd_j(d, st.bits, lam);
+        if (j < best_j) {
+            best_j = j;
+            best = mode;
+        }
+    }
+    return best;
+}
+
 static uint64_t cu_area_ssd(struct n265_encoder *e, int x0, int y0, int n)
 {
     uint64_t ssd = 0;
@@ -861,8 +941,7 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
             uint64_t j_intra = UINT64_MAX;
             int imode = 1;
             if (!gate_intra) {
-            imode = search_luma_mode(e, x0, y0, log2n, e->recon[0],
-                                     NULL);
+            imode = search_luma_mode(e, x0, y0, log2n, e->recon[0], NULL);
             tb_analyze(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c, imode,
                        mot_zero, &i_tcb);
             tb_analyze(e, 2, x0 / 2, y0 / 2, log2n - 1, qp_c, imode,
@@ -981,9 +1060,10 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
             g_nxn += nxn;
             g_2nx2n_min += !nxn;
         }
+    } else if (log2n <= 5) {
+        modes[0] = intra_rd_pick(e, x0, y0, log2n);
     } else {
-        modes[0] = search_luma_mode(e, x0, y0, log2n > 5 ? 5 : log2n,
-                                    e->recon[0], NULL);
+        modes[0] = search_luma_mode(e, x0, y0, 5, e->recon[0], NULL);
     }
 
     if (!nxn) {
