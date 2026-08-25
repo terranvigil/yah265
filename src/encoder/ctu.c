@@ -11,6 +11,7 @@
 
 #include "encoder/encoder.h"
 #include "encoder/intra.h"
+#include "encoder/mc.h"
 #include "encoder/mv.h"
 #include "encoder/records.h"
 #include "encoder/residual.h"
@@ -62,16 +63,23 @@ typedef struct tb_ctx {
     int nz;
 } tb_ctx;
 
-/* MC prediction at an even-full-pel MV into dst (n x n) */
+/* MC prediction at any quarter-pel MV into dst (n x n) */
 static void mc_pred(struct n265_encoder *e, int c_idx, int x0, int y0,
                     int n, mv_t mv, uint8_t *dst)
 {
     int rs = e->ref_stride[c_idx];
-    int dx = c_idx ? mv.x >> 3 : mv.x >> 2;
-    int dy = c_idx ? mv.y >> 3 : mv.y >> 2;
-    const uint8_t *rp = e->ref_plane[c_idx] + (y0 + dy) * rs + x0 + dx;
-    for (int y = 0; y < n; y++)
-        memcpy(dst + y * n, rp + y * rs, (size_t)n);
+    if (c_idx) {
+        /* chroma mv = luma mv / 2, in eighth-pel of chroma samples */
+        int dx = mv.x >> 3, dy = mv.y >> 3;
+        int fx = mv.x & 7, fy = mv.y & 7;
+        const uint8_t *rp = e->ref_plane[c_idx] + (y0 + dy) * rs + x0 + dx;
+        n265_mc_chroma(dst, n, rp, rs, fx, fy);
+    } else {
+        int dx = mv.x >> 2, dy = mv.y >> 2;
+        int fx = mv.x & 3, fy = mv.y & 3;
+        const uint8_t *rp = e->ref_plane[0] + (y0 + dy) * rs + x0 + dx;
+        n265_mc_luma(dst, n, rp, rs, fx, fy);
+    }
 }
 
 static void tb_analyze(struct n265_encoder *e, int c_idx, int x0, int y0,
