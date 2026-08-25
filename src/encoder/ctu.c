@@ -425,18 +425,20 @@ static void analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
             uint32_t cand_cost = cand_sad + (2 * lam >> 4);
             uint32_t intra_cost = intra_sad + (6 * lam >> 4);
 
-            /* B slices: merge/skip only (no AMVP until inter_pred_idc
-             * syntax lands); P slices search */
+            /* uni-L0 AMVP search in both P and B (our streams carry no
+             * uni-L1 neighbors, so L0 AMVP never needs cross-list
+             * scaling); B bi/L1 explicit ME is future work */
             int merge = 1;
             mv_t mvp[2] = { { 0, 0 }, { 0, 0 } }, me_mv = { 0, 0 };
             uint32_t inter_cost = cand_cost;
-            if (e->slice_type == 1) {
+            {
                 n265_amvp(e, x0, y0, n, n, mvp);
                 uint32_t me_sad = n265_me_search(e, x0, y0, log2n, mvp[0],
                                                  &me_mv);
                 int mb = mvd_bits(me_mv.x - mvp[0].x, me_mv.y - mvp[0].y);
                 uint32_t me_cost = me_sad +
-                    ((uint32_t)(6 + mb) * lam >> 4);
+                    ((uint32_t)((e->slice_type == 0 ? 8 : 6) + mb) * lam
+                     >> 4);
                 merge = (cand.pred == 1 && me_mv.x == cand.mv[0].x &&
                          me_mv.y == cand.mv[0].y) ||
                         cand_cost <= me_cost;

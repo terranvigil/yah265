@@ -33,7 +33,8 @@ enum {
     CTX_MVD_GR0 = 133,      /* 1 */
     CTX_MVD_GR1 = 134,      /* 1 */
     CTX_MVP_FLAG = 135,     /* 1 */
-    CTX_COUNT = 136,
+    CTX_INTER_IDC = 136,    /* 5: bin0 by CU depth, bin1 at 4 */
+    CTX_COUNT = 141,
 };
 
 /* initType 0 (I), 1 (P, cabac_init_flag 0), 2 (B, cabac_init_flag 0) */

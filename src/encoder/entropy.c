@@ -191,6 +191,13 @@ static void replay_cu(struct n265_encoder *e, cabac_t *cb, int x0, int y0,
             int root_cbf = (flags >> 2) & 1;
             n265_cabac_bin(cb, &e->ctx[CTX_MERGE_FLAG], merge);
             if (!merge) {
+                if (e->slice_type == 0) {
+                    /* inter_pred_idc = PRED_L0: bin0 0 (ctx by CU depth),
+                     * bin1 0 (ctx 4) */
+                    int depth = e->ctb_log2 - log2n;
+                    n265_cabac_bin(cb, &e->ctx[CTX_INTER_IDC + depth], 0);
+                    n265_cabac_bin(cb, &e->ctx[CTX_INTER_IDC + 4], 0);
+                }
                 const int16_t *mvd = rd_levels(e, 2);
                 write_mvd(e, cb, mvd[0], mvd[1]);
                 n265_cabac_bin(cb, &e->ctx[CTX_MVP_FLAG], mvp_idx);
