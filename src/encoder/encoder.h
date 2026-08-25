@@ -65,6 +65,16 @@ struct n265_encoder {
     cabac_ctx_t est_ctx[CTX_COUNT];     /* RD cost-model contexts */
     int last_skip_clean;    /* analyze_cu: skip won with low distortion */
 
+    int aq;                 /* adaptive quantization on/off            */
+    int8_t *ctu_qp_off;     /* per-CTU QP offset map (AQ/cu-tree feed) */
+    uint8_t *blk_qp;        /* per-4x4 actual QP (deblock, prediction) */
+    int cur_ctu_qp;         /* QP of the CTU being analyzed            */
+    int ent_qp_prev;        /* entropy-side qPY_PREV chain             */
+    int ent_qp_coded;       /* IsCuQpDeltaCoded for the current CTU    */
+    int ent_ctu_qp;         /* current CTU's target QP (entropy pass)  */
+    int ent_parent_chroma;
+    int in_entropy;  /* CB8-split TU3 sees parent chroma cbfs   */
+
     bitstream_t rbsp;       /* per-NAL RBSP scratch                  */
     uint8_t *out;           /* Annex-B output for the current call   */
     size_t out_cap;

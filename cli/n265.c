@@ -11,7 +11,7 @@
 #include "next265.h"
 
 /* internal knobs, resolved from the library (not yet public API) */
-void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes);
+void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes, int aq);
 void n265_encoder_set_dump_decode(n265_encoder *e, FILE *f);
 void n265_encoder_set_dump(n265_encoder *e, FILE *f);
 
@@ -76,6 +76,7 @@ static void usage(void)
         "  --ctu <16|32|64>  coding tree block size (default 32)\n"
         "  --keyint <n>    IDR period in frames (default 60)\n"
         "  --bframes <0|1> non-reference B between anchors (default 1)\n"
+        "  --aq <0|1>      variance adaptive quantization (default 0)\n"
         "  --dump-recon <file>  write reconstruction as raw YUV (the\n"
         "                  conformance gate compares decoders against it)\n"
         "  --version       print version\n");
@@ -86,7 +87,7 @@ int main(int argc, char **argv)
     const char *in_path = NULL, *out_path = "out.hevc";
     const char *dump_path = NULL;
     long max_frames = -1;
-    int qp = 26, pcm = 0, ctu = 32, keyint = 60, bframes = 1;
+    int qp = 26, pcm = 0, ctu = 32, keyint = 60, bframes = 1, aq = 0;
     const char *dump_decode_path = NULL;
 
     for (int i = 1; i < argc; i++) {
@@ -100,6 +101,8 @@ int main(int argc, char **argv)
             keyint = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--bframes") && i + 1 < argc) {
             bframes = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--aq") && i + 1 < argc) {
+            aq = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--dump-recon-decode") && i + 1 < argc) {
             dump_decode_path = argv[++i];
         } else if (!strcmp(argv[i], "--ctu") && i + 1 < argc) {
@@ -147,7 +150,7 @@ int main(int argc, char **argv)
         return 2;
     }
     int ctb_log2 = ctu == 16 ? 4 : ctu == 32 ? 5 : 6;
-    n265_set_mode(pcm ? 1 : 0, qp, ctb_log2, keyint, bframes);
+    n265_set_mode(pcm ? 1 : 0, qp, ctb_log2, keyint, bframes, aq);
     n265_param p;
     n265_param_default(&p);
     p.width = y.w;

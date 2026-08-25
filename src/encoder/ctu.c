@@ -375,7 +375,7 @@ static int want_skip(struct n265_encoder *e, int x0, int y0, int log2n)
 static void tt_analyze(struct n265_encoder *e, int mode, int x0, int y0,
                        int log2ts)
 {
-    int qp_c = n265_chroma_qp(e->qp);
+    int qp_c = n265_chroma_qp(e->cur_ctu_qp);
     int split = log2ts > 5;
     tb_ctx tb;
 
@@ -401,7 +401,7 @@ static void tt_analyze(struct n265_encoder *e, int mode, int x0, int y0,
             root_cr |= tcr.nz != 0;
             rec_u8(e, tcb.nz != 0);
             rec_u8(e, tcr.nz != 0);
-            int cbf_l = tb_full(e, 0, x1, y1, log2ts - 1, e->qp, mode, &tb);
+            int cbf_l = tb_full(e, 0, x1, y1, log2ts - 1, e->cur_ctu_qp, mode, &tb);
             rec_u8(e, (unsigned)cbf_l);
             if (cbf_l)
                 rec_levels(e, tb.level, h * h);
@@ -422,7 +422,7 @@ static void tt_analyze(struct n265_encoder *e, int mode, int x0, int y0,
      * so the split arm commits as it goes and restores on loss) */
     int n = 1 << log2ts;
     mark_cu_edges(e, x0, y0, n);
-    uint32_t lam = lambda_mode_q8(e->qp);
+    uint32_t lam = lambda_mode_q8(e->cur_ctu_qp);
     int h = n >> 1;
     int child_chroma = log2ts > 3;
 
@@ -430,8 +430,8 @@ static void tt_analyze(struct n265_encoder *e, int mode, int x0, int y0,
     tb_ctx tcb, tcr;
     tb_analyze(e, 1, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, mot_zero, &tcb);
     tb_analyze(e, 2, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, mot_zero, &tcr);
-    tb_analyze(e, 0, x0, y0, log2ts, e->qp, mode, mot_zero, &tb);
-    tb_make_recon(0, log2ts, e->qp, mode, &tb);
+    tb_analyze(e, 0, x0, y0, log2ts, e->cur_ctu_qp, mode, mot_zero, &tb);
+    tb_make_recon(0, log2ts, e->cur_ctu_qp, mode, &tb);
     tb_make_recon(1, log2ts - 1, qp_c, mode, &tcb);
     tb_make_recon(2, log2ts - 1, qp_c, mode, &tcr);
     uint64_t d_flat = tb_ssd(e, 0, x0, y0, log2ts, &tb) +
@@ -462,9 +462,9 @@ static void tt_analyze(struct n265_encoder *e, int mode, int x0, int y0,
     int root_cb = 0, root_cr = 0;
     for (int i = 0; i < 4; i++) {
         int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
-        tb_analyze(e, 0, x1, y1, log2ts - 1, e->qp, mode, mot_zero,
+        tb_analyze(e, 0, x1, y1, log2ts - 1, e->cur_ctu_qp, mode, mot_zero,
                    &s_l[i]);
-        tb_recon(e, 0, x1, y1, log2ts - 1, e->qp, mode, &s_l[i]);
+        tb_recon(e, 0, x1, y1, log2ts - 1, e->cur_ctu_qp, mode, &s_l[i]);
         d_split += tb_ssd(e, 0, x1, y1, log2ts - 1, &s_l[i]);
         if (child_chroma) {
             tb_analyze(e, 1, x1 / 2, y1 / 2, log2ts - 2, qp_c, mode,
@@ -765,8 +765,8 @@ static void commit_inter_tt(struct n265_encoder *e, mot_t mot, int x0,
                             tb_ctx *tcr)
 {
     int n = 1 << log2n;
-    int qp_c = n265_chroma_qp(e->qp);
-    uint32_t lam = lambda_mode_q8(e->qp);
+    int qp_c = n265_chroma_qp(e->cur_ctu_qp);
+    uint32_t lam = lambda_mode_q8(e->cur_ctu_qp);
     int h = n >> 1;
     int child_chroma = log2n > 3;
     static tb_ctx s_l[4], s_c[4][2];
@@ -776,9 +776,9 @@ static void commit_inter_tt(struct n265_encoder *e, mot_t mot, int x0,
     int root_cb = 0, root_cr = 0;
     for (int i = 0; i < 4; i++) {
         int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
-        tb_analyze(e, 0, x1, y1, log2n - 1, e->qp, MODE_INTER, mot,
+        tb_analyze(e, 0, x1, y1, log2n - 1, e->cur_ctu_qp, MODE_INTER, mot,
                    &s_l[i]);
-        tb_make_recon(0, log2n - 1, e->qp, MODE_INTER, &s_l[i]);
+        tb_make_recon(0, log2n - 1, e->cur_ctu_qp, MODE_INTER, &s_l[i]);
         d_split += tb_ssd(e, 0, x1, y1, log2n - 1, &s_l[i]);
         if (child_chroma) {
             tb_analyze(e, 1, x1 / 2, y1 / 2, log2n - 2, qp_c, MODE_INTER,
@@ -902,8 +902,8 @@ static int intra_rd_pick(struct n265_encoder *e, int x0, int y0, int log2n)
 {
     int top3[3];
     search_luma_mode_k(e, x0, y0, log2n, e->recon[0], NULL, top3);
-    int qp_c = n265_chroma_qp(e->qp);
-    uint32_t lam = lambda_mode_q8(e->qp);
+    int qp_c = n265_chroma_qp(e->cur_ctu_qp);
+    uint32_t lam = lambda_mode_q8(e->cur_ctu_qp);
     static tb_ctx tl, tcb, tcr;
     uint64_t best_j = UINT64_MAX;
     int best = top3[0];
@@ -919,8 +919,8 @@ static int intra_rd_pick(struct n265_encoder *e, int x0, int y0, int log2n)
                    &tcb);
         tb_analyze(e, 2, x0 / 2, y0 / 2, log2n - 1, qp_c, mode, mot_zero,
                    &tcr);
-        tb_analyze(e, 0, x0, y0, log2n, e->qp, mode, mot_zero, &tl);
-        tb_make_recon(0, log2n, e->qp, mode, &tl);
+        tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, mode, mot_zero, &tl);
+        tb_make_recon(0, log2n, e->cur_ctu_qp, mode, &tl);
         tb_make_recon(1, log2n - 1, qp_c, mode, &tcb);
         tb_make_recon(2, log2n - 1, qp_c, mode, &tcr);
         uint64_t d = tb_ssd(e, 0, x0, y0, log2n, &tl) +
@@ -980,7 +980,7 @@ static uint64_t skip_clean_thr(int qp, int n)
 static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
 {
     int n = 1 << log2n;
-    int qp_c = n265_chroma_qp(e->qp);
+    int qp_c = n265_chroma_qp(e->cur_ctu_qp);
     e->last_skip_clean = 0;
     mark_cu_edges(e, x0, y0, n);
 
@@ -999,13 +999,15 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
             e->rec_pos = pos0;
             est_state adv = { e->est_ctx, 0 };
             n265_est_advance_cu(e, &adv, x0, y0, log2n);
+            set_blk(e, e->blk_qp, x0, y0, n,
+                    e->ent_qp_coded ? e->cur_ctu_qp : e->ent_qp_prev);
             uint64_t ssd = cu_area_ssd(e, x0, y0, n);
-            e->last_skip_clean = ssd <= skip_clean_thr(e->qp, n);
-            return rd_j(ssd, adv.bits, lambda_mode_q8(e->qp));
+            e->last_skip_clean = ssd <= skip_clean_thr(e->cur_ctu_qp, n);
+            return rd_j(ssd, adv.bits, lambda_mode_q8(e->cur_ctu_qp));
         }
 
         if (log2n <= 5) {
-            uint32_t lam = lambda_mode_q8(e->qp);
+            uint32_t lam = lambda_mode_q8(e->cur_ctu_qp);
             int inc = est_skip_inc(e, x0, y0);
             /* economy gates: a very good merge prediction prunes the
              * expensive candidates (classic early-skip shape) */
@@ -1018,12 +1020,12 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                              cand_plain_sad < (uint32_t)(n * n) / 4;
 
             /* merge candidate (and the forced-skip variant) */
-            tb_analyze(e, 0, x0, y0, log2n, e->qp, MODE_INTER, cand, &m_tl);
+            tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, cand, &m_tl);
             tb_analyze(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c, MODE_INTER,
                        cand, &m_tcb);
             tb_analyze(e, 2, x0 / 2, y0 / 2, log2n - 1, qp_c, MODE_INTER,
                        cand, &m_tcr);
-            tb_make_recon(0, log2n, e->qp, MODE_INTER, &m_tl);
+            tb_make_recon(0, log2n, e->cur_ctu_qp, MODE_INTER, &m_tl);
             tb_make_recon(1, log2n - 1, qp_c, MODE_INTER, &m_tcb);
             tb_make_recon(2, log2n - 1, qp_c, MODE_INTER, &m_tcr);
             int m_any = m_tl.nz || m_tcb.nz || m_tcr.nz;
@@ -1078,13 +1080,13 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                                me_mv.y == cand.mv[0].y;
             }
             if (!gate_amvp && !same_as_cand && !getenv("N265_NO_AMVP")) {
-                tb_analyze(e, 0, x0, y0, log2n, e->qp, MODE_INTER, amot,
+                tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, amot,
                            &a_tl);
                 tb_analyze(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c,
                            MODE_INTER, amot, &a_tcb);
                 tb_analyze(e, 2, x0 / 2, y0 / 2, log2n - 1, qp_c,
                            MODE_INTER, amot, &a_tcr);
-                tb_make_recon(0, log2n, e->qp, MODE_INTER, &a_tl);
+                tb_make_recon(0, log2n, e->cur_ctu_qp, MODE_INTER, &a_tl);
                 tb_make_recon(1, log2n - 1, qp_c, MODE_INTER, &a_tcb);
                 tb_make_recon(2, log2n - 1, qp_c, MODE_INTER, &a_tcr);
                 a_any = a_tl.nz || a_tcb.nz || a_tcr.nz;
@@ -1130,8 +1132,8 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                        mot_zero, &i_tcb);
             tb_analyze(e, 2, x0 / 2, y0 / 2, log2n - 1, qp_c, imode,
                        mot_zero, &i_tcr);
-            tb_analyze(e, 0, x0, y0, log2n, e->qp, imode, mot_zero, &i_tl);
-            tb_make_recon(0, log2n, e->qp, imode, &i_tl);
+            tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, imode, mot_zero, &i_tl);
+            tb_make_recon(0, log2n, e->cur_ctu_qp, imode, &i_tl);
             tb_make_recon(1, log2n - 1, qp_c, imode, &i_tcb);
             tb_make_recon(2, log2n - 1, qp_c, imode, &i_tcr);
             uint64_t d_intra = tb_ssd(e, 0, x0, y0, log2n, &i_tl) +
@@ -1175,7 +1177,7 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
 
             if (kind == 0) {
                 skip_cu(e, x0, y0, log2n, cand);
-                e->last_skip_clean = d_skip <= skip_clean_thr(e->qp, n);
+                e->last_skip_clean = d_skip <= skip_clean_thr(e->cur_ctu_qp, n);
             } else if (kind == 1 || kind == 2) {
                 mot_t mot = kind == 1 ? cand : amot;
                 tb_ctx *tl = kind == 1 ? &m_tl : &a_tl;
@@ -1208,8 +1210,10 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                 e->rec_pos = pos0;
                 est_state adv = { e->est_ctx, 0 };
                 n265_est_advance_cu(e, &adv, x0, y0, log2n);
+                set_blk(e, e->blk_qp, x0, y0, n,
+                        e->ent_qp_coded ? e->cur_ctu_qp : e->ent_qp_prev);
                 return rd_j(cu_area_ssd(e, x0, y0, n), adv.bits,
-                            lambda_mode_q8(e->qp));
+                            lambda_mode_q8(e->cur_ctu_qp));
             }
             /* intra wins: fall through to the intra section, which also
              * arbitrates NxN at min CB */
@@ -1256,8 +1260,10 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
         e->rec_pos = pos0;
         est_state adv = { e->est_ctx, 0 };
         n265_est_advance_cu(e, &adv, x0, y0, log2n);
+        set_blk(e, e->blk_qp, x0, y0, n,
+                e->ent_qp_coded ? e->cur_ctu_qp : e->ent_qp_prev);
         return rd_j(cu_area_ssd(e, x0, y0, n), adv.bits,
-                    lambda_mode_q8(e->qp));
+                    lambda_mode_q8(e->cur_ctu_qp));
     }
 
     /* NxN: chroma at the parent, four 4x4 luma TUs with DST */
@@ -1269,7 +1275,7 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
     for (int i = 0; i < 4; i++) {
         int px = x0 + (i & 1) * 4, py = y0 + (i >> 1) * 4;
         set_mode_map(e, px, py, 4, modes[i]);
-        int cbf_l = tb_full(e, 0, px, py, 2, e->qp, modes[i], &tl);
+        int cbf_l = tb_full(e, 0, px, py, 2, e->cur_ctu_qp, modes[i], &tl);
         rec_u8(e, (unsigned)cbf_l);
         if (cbf_l)
             rec_levels(e, tl.level, 16);
@@ -1283,7 +1289,10 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
     e->rec_pos = pos0;
     est_state adv = { e->est_ctx, 0 };
     n265_est_advance_cu(e, &adv, x0, y0, log2n);
-    return rd_j(cu_area_ssd(e, x0, y0, n), adv.bits, lambda_mode_q8(e->qp));
+    set_blk(e, e->blk_qp, x0, y0, n,
+            e->ent_qp_coded ? e->cur_ctu_qp : e->ent_qp_prev);
+    return rd_j(cu_area_ssd(e, x0, y0, n), adv.bits,
+                lambda_mode_q8(e->cur_ctu_qp));
 }
 
 static int decide_split(struct n265_encoder *e, int x0, int y0, int log2n)
@@ -1307,9 +1316,10 @@ static int decide_split(struct n265_encoder *e, int x0, int y0, int log2n)
 /* full encoder-state snapshot of a CU area, for split-vs-nosplit trials */
 typedef struct qt_snap {
     uint8_t recon[64 * 64 * 3 / 2];
-    uint8_t maps[7][16 * 16];
+    uint8_t maps[8][16 * 16];
     int16_t mv[16 * 16 * 2];
     cabac_ctx_t est[CTX_COUNT];
+    int ent_qp_coded;
     size_t rec_len;
     /* the records this arm appended beyond rec_base (the other arm
      * overwrites the shared tail, so content must be kept too) */
@@ -1320,10 +1330,10 @@ typedef struct qt_snap {
 
 static uint8_t *snap_maps(struct n265_encoder *e, int i)
 {
-    uint8_t *m[7];
+    uint8_t *m[8];
     m[0] = e->ct_depth; m[1] = e->intra_mode; m[2] = e->edge_map;
     m[3] = e->blk_intra; m[4] = e->blk_skip; m[5] = e->blk_cbf_y;
-    m[6] = e->blk_pred;
+    m[6] = e->blk_pred; m[7] = e->blk_qp;
     return m[i];
 }
 
@@ -1340,7 +1350,7 @@ static void qt_save(struct n265_encoder *e, qt_snap *sn, int x0, int y0,
         }
     }
     int cells = n >> 2;
-    for (int i = 0; i < 7; i++)
+    for (int i = 0; i < 8; i++)
         for (int y = 0; y < cells; y++)
             memcpy(sn->maps[i] + y * cells,
                    snap_maps(e, i) + ((y0 >> 2) + y) * e->map_stride +
@@ -1351,6 +1361,7 @@ static void qt_save(struct n265_encoder *e, qt_snap *sn, int x0, int y0,
                e->blk_mv + (((y0 >> 2) + y) * e->map_stride + (x0 >> 2)) * 4,
                (size_t)cells * 4 * sizeof(int16_t));
     memcpy(sn->est, e->est_ctx, sizeof(sn->est));
+    sn->ent_qp_coded = e->ent_qp_coded;
     sn->rec_len = e->rec_len;
     sn->rec_copy_len = 0;
 }
@@ -1378,7 +1389,7 @@ static void qt_restore(struct n265_encoder *e, const qt_snap *sn, int x0,
         }
     }
     int cells = n >> 2;
-    for (int i = 0; i < 7; i++)
+    for (int i = 0; i < 8; i++)
         for (int y = 0; y < cells; y++)
             memcpy(snap_maps(e, i) + ((y0 >> 2) + y) * e->map_stride +
                        (x0 >> 2),
@@ -1388,6 +1399,7 @@ static void qt_restore(struct n265_encoder *e, const qt_snap *sn, int x0,
                sn->mv + y * cells * 2 * 2,
                (size_t)cells * 4 * sizeof(int16_t));
     memcpy(e->est_ctx, sn->est, sizeof(sn->est));
+    e->ent_qp_coded = sn->ent_qp_coded;
     e->rec_len = sn->rec_len;
     if (sn->rec_copy_len)
         memcpy(e->rec_buf + sn->rec_base, sn->rec_copy, sn->rec_copy_len);
@@ -1401,7 +1413,7 @@ static uint64_t quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
 {
     int n = 1 << log2n;
     int inside = x0 + n <= e->pad_w && y0 + n <= e->pad_h;
-    uint32_t lam = lambda_mode_q8(e->qp);
+    uint32_t lam = lambda_mode_q8(e->cur_ctu_qp);
 
     if (!inside && log2n > MIN_CB_LOG2) {
         uint64_t j = 0;
@@ -1434,6 +1446,17 @@ static uint64_t quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
     if (want_skip(e, x0, y0, log2n)) {
         uint32_t b = n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + split_inc], 0);
         uint64_t j = analyze_cu(e, x0, y0, log2n) + ((uint64_t)b * lam >> 16);
+        set_blk(e, e->ct_depth, x0, y0, n, depth);
+        return j;
+    }
+
+    static int no_split = -1;
+    if (no_split < 0)
+        no_split = getenv("N265_NO_SPLIT") != NULL;
+    if (no_split) {
+        uint32_t b0s = n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + split_inc], 0);
+        uint64_t j = analyze_cu(e, x0, y0, log2n) +
+                     ((uint64_t)b0s * lam >> 16);
         set_blk(e, e->ct_depth, x0, y0, n, depth);
         return j;
     }
@@ -1476,6 +1499,12 @@ static uint64_t quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
 
 void n265_analyze_ctu(struct n265_encoder *e, int ctb_x, int ctb_y)
 {
+    int q = e->qp + e->ctu_qp_off[ctb_y * e->ctb_cols + ctb_x];
+    e->cur_ctu_qp = q < 0 ? 0 : q > 51 ? 51 : q;
+    e->ent_ctu_qp = e->cur_ctu_qp;
+    e->ent_qp_coded = 0;
     (void)quadtree(e, ctb_x << e->ctb_log2, ctb_y << e->ctb_log2,
                    e->ctb_log2, 0);
+    if (e->ent_qp_coded)
+        e->ent_qp_prev = e->cur_ctu_qp;
 }

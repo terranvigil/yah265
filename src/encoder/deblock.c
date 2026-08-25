@@ -152,14 +152,17 @@ static int seg_bs(const struct n265_encoder *e, int x, int y, int vertical)
     return 0;
 }
 
+/* per-segment average QP from the block QP map */
+static int seg_qp(const struct n265_encoder *e, int x, int y, int vertical)
+{
+    int qi = (y >> 2) * e->map_stride + (x >> 2);
+    int pi = vertical ? (y >> 2) * e->map_stride + ((x - 1) >> 2)
+                      : ((y - 1) >> 2) * e->map_stride + (x >> 2);
+    return (e->blk_qp[pi] + e->blk_qp[qi] + 1) >> 1;
+}
+
 void n265_deblock_frame(struct n265_encoder *e)
 {
-    int qp = e->qp;
-    int beta = beta_tab[clip3(0, 51, qp)];
-    int tc_bs[3] = { 0, tc_tab[clip3(0, 53, qp)],
-                     tc_tab[clip3(0, 53, qp + 2)] };
-    int qpc = n265_chroma_qp(qp);
-    int tc_c = tc_tab[clip3(0, 53, qpc + 2)];
     uint8_t *luma = e->recon[0];
     int ls = e->recon_stride[0];
 
@@ -168,20 +171,26 @@ void n265_deblock_frame(struct n265_encoder *e)
         for (int y = 0; y < e->pad_h; y += 4)
             if (has_edge(e, x, y, 1)) {
                 int bs = seg_bs(e, x, y, 1);
-                if (bs)
-                    luma_segment(luma + y * ls + x, 1, ls, beta, tc_bs[bs]);
+                if (bs) {
+                    int q = seg_qp(e, x, y, 1);
+                    luma_segment(luma + y * ls + x, 1, ls,
+                                 beta_tab[clip3(0, 51, q)],
+                                 tc_tab[clip3(0, 53, q + 2 * (bs - 1))]);
+                }
             }
     /* horizontal edges */
     for (int y = 8; y < e->pad_h; y += 8)
         for (int x = 0; x < e->pad_w; x += 4)
             if (has_edge(e, x, y, 0)) {
                 int bs = seg_bs(e, x, y, 0);
-                if (bs)
-                    luma_segment(luma + y * ls + x, ls, 1, beta, tc_bs[bs]);
+                if (bs) {
+                    int q = seg_qp(e, x, y, 0);
+                    luma_segment(luma + y * ls + x, ls, 1,
+                                 beta_tab[clip3(0, 51, q)],
+                                 tc_tab[clip3(0, 53, q + 2 * (bs - 1))]);
+                }
             }
 
-    if (tc_c == 0)
-        return;
     for (int p = 1; p <= 2; p++) {
         uint8_t *c = e->recon[p];
         int cs = e->recon_stride[p];
@@ -191,12 +200,20 @@ void n265_deblock_frame(struct n265_encoder *e)
         for (int x = 8; x < cw; x += 8)
             for (int y = 0; y < ch; y += 2)
                 if (has_edge(e, 2 * x, 2 * y, 1) &&
-                    seg_bs(e, 2 * x, 2 * y, 1) == 2)
-                    chroma_segment(c + y * cs + x, 1, cs, tc_c, 2);
+                    seg_bs(e, 2 * x, 2 * y, 1) == 2) {
+                    int q = n265_chroma_qp(seg_qp(e, 2 * x, 2 * y, 1));
+                    int t = tc_tab[clip3(0, 53, q + 2)];
+                    if (t)
+                        chroma_segment(c + y * cs + x, 1, cs, t, 2);
+                }
         for (int y = 8; y < ch; y += 8)
             for (int x = 0; x < cw; x += 2)
                 if (has_edge(e, 2 * x, 2 * y, 0) &&
-                    seg_bs(e, 2 * x, 2 * y, 0) == 2)
-                    chroma_segment(c + y * cs + x, cs, 1, tc_c, 2);
+                    seg_bs(e, 2 * x, 2 * y, 0) == 2) {
+                    int q = n265_chroma_qp(seg_qp(e, 2 * x, 2 * y, 0));
+                    int t = tc_tab[clip3(0, 53, q + 2)];
+                    if (t)
+                        chroma_segment(c + y * cs + x, cs, 1, t, 2);
+                }
     }
 }

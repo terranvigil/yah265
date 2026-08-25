@@ -7,6 +7,9 @@
  * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
+#include <stdio.h>
+#include <stdlib.h>
+
 #include "encoder/encoder.h"
 #include "encoder/intra.h"
 #include "encoder/records.h"
@@ -111,6 +114,40 @@ static void write_mvd(const res_ops *ops, int mx, int my)
     }
 }
 
+/* cu_qp_delta_abs/sign at the first cbf TU of a quantization group
+ * (QG == CTB): TU prefix cMax 5 (bin0 ctx 0, later bins ctx 1), EG0
+ * escape, bypass sign */
+static void maybe_qp_delta(struct n265_encoder *e, const res_ops *ops,
+                           int any_cbf)
+{
+    if (!e->aq || !any_cbf || e->ent_qp_coded)
+        return;
+    e->ent_qp_coded = 1;
+    int delta = e->ent_ctu_qp - e->ent_qp_prev;
+    if (getenv("N265_QP_TRACE"))
+        fprintf(stderr, "[%s %d->%d]", e->in_entropy ? "ENT" : "ana",
+                e->ent_qp_prev, e->ent_ctu_qp);
+    int a = delta < 0 ? -delta : delta;
+    int prefix = a < 5 ? a : 5;
+    for (int i = 0; i < prefix; i++)
+        ops->bin(ops->h, CTX_CU_QP + (i > 0), 1);
+    if (prefix < 5)
+        ops->bin(ops->h, CTX_CU_QP + (prefix > 0), 0);
+    else {
+        int v = a - 5, b = 0;
+        while (v >= (1 << b)) {
+            ops->bypass(ops->h, 1);
+            v -= 1 << b;
+            b++;
+        }
+        ops->bypass(ops->h, 0);
+        if (b)
+            ops->bypass_bits(ops->h, (uint32_t)v, b);
+    }
+    if (a)
+        ops->bypass(ops->h, delta < 0);
+}
+
 static void replay_residual(struct n265_encoder *e, const res_ops *ops,
                             int c_idx, int log2n, int mode)
 {
@@ -156,8 +193,13 @@ static void replay_tt(struct n265_encoder *e, const res_ops *ops, int mode,
         int chroma_at_parent = log2ts == 3;
         for (int i = 0; i < 4; i++) {
             int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
+            /* every 4x4 child TU sees the parent's chroma cbfs in its
+             * transform_unit condition (7.3.8.10) */
+            if (chroma_at_parent && (cbf_cb || cbf_cr))
+                e->ent_parent_chroma = 1;
             replay_tt(e, ops, mode, x1, y1, log2ts - 1, depth + 1, cbf_cb,
                       cbf_cr);
+            e->ent_parent_chroma = 0;
             if (chroma_at_parent && i == 3) {
                 if (cbf_cb)
                     replay_residual(e, ops, 1, log2ts - 1, m);
@@ -174,6 +216,8 @@ static void replay_tt(struct n265_encoder *e, const res_ops *ops, int mode,
         ;   /* cbf_luma inferred 1 */
     else
         ops->bin(ops->h, CTX_CBF_LUMA + (depth == 0), cbf_l);
+    maybe_qp_delta(e, ops, cbf_l || (log2ts > 2 && (cbf_cb || cbf_cr)) ||
+                   e->ent_parent_chroma);
     if (cbf_l)
         replay_residual(e, ops, 0, log2ts, m);
     if (log2ts > 2) {
@@ -287,6 +331,9 @@ static void replay_cu(struct n265_encoder *e, const res_ops *ops, int x0,
     for (int i = 0; i < 4; i++) {
         int cbf_l = (int)rd_u8(e);
         ops->bin(ops->h, CTX_CBF_LUMA + 0, cbf_l);
+        /* 4x4 luma TUs read the PARENT's chroma cbfs in their
+         * transform_unit condition (7.3.8.10), all four of them */
+        maybe_qp_delta(e, ops, cbf_l || cbf_cb || cbf_cr);
         if (cbf_l)
             replay_residual(e, ops, 0, 2, modes[i]);
     }
@@ -335,6 +382,9 @@ static void replay_quadtree(struct n265_encoder *e, const res_ops *ops,
 void n265_entropy_ctu(struct n265_encoder *e, cabac_t *cb, int ctb_x,
                       int ctb_y)
 {
+    int q = e->qp + e->ctu_qp_off[ctb_y * e->ctb_cols + ctb_x];
+    e->ent_ctu_qp = q < 0 ? 0 : q > 51 ? 51 : q;
+    e->ent_qp_coded = 0;
     real_emit re = { cb, e->ctx };
     res_ops ops_s;
     n265_real_ops(&ops_s, &re);
@@ -342,6 +392,8 @@ void n265_entropy_ctu(struct n265_encoder *e, cabac_t *cb, int ctb_x,
     n265_sao_write(e, cb, ctb_x, ctb_y);
     replay_quadtree(e, ops, ctb_x << e->ctb_log2, ctb_y << e->ctb_log2,
                     e->ctb_log2, 0);
+    if (e->ent_qp_coded)
+        e->ent_qp_prev = e->ent_ctu_qp;
 }
 
 /* estimator advance: replay one CU's just-committed records through the

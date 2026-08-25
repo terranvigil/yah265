@@ -5,6 +5,7 @@
  * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -45,15 +46,19 @@ static int g_ctb_log2 = 5;
 static int g_keyint = 60;
 
 static int g_bframes = 1;
+static int g_aq = 0;
 
-void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes);
-void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes)
+void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes,
+                   int aq);
+void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes,
+                   int aq)
 {
     g_mode = mode;
     g_qp = qp;
     g_ctb_log2 = ctb_log2;
     g_keyint = keyint < 1 ? 1 : keyint;
     g_bframes = bframes ? 1 : 0;
+    g_aq = aq ? 1 : 0;
 }
 
 void n265_encoder_set_dump(n265_encoder *e, FILE *f)
@@ -83,6 +88,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->keyint = e->mode == N265_MODE_PCM ? 1 : g_keyint;
     e->bframes = e->mode == N265_MODE_PCM ? 0 : g_bframes;
     e->no_sao = getenv("N265_NO_SAO") != NULL;      /* diagnostic */
+    e->aq = g_aq || getenv("N265_AQ") != NULL;      /* variance AQ */
     int align = e->mode == N265_MODE_PCM ? 16 : (1 << MIN_CB_LOG2);
     if (p->width < align || p->height < align)
         goto fail;
@@ -123,8 +129,10 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->blk_mv = calloc((size_t)e->map_stride * (e->pad_h >> 2) * 4,
                        sizeof(int16_t));
     e->blk_pred = calloc((size_t)e->map_stride * (e->pad_h >> 2), 1);
+    e->blk_qp = calloc((size_t)e->map_stride * (e->pad_h >> 2), 1);
+    e->ctu_qp_off = calloc((size_t)e->ctb_cols * e->ctb_rows, 1);
     if (!e->blk_intra || !e->blk_skip || !e->blk_cbf_y || !e->blk_mv ||
-        !e->blk_pred)
+        !e->blk_pred || !e->blk_qp || !e->ctu_qp_off)
         goto fail;
     e->sao = calloc((size_t)e->ctb_cols * e->ctb_rows, sizeof(sao_params));
     for (int i = 0; i < 3; i++) {
@@ -169,6 +177,8 @@ void n265_encoder_close(n265_encoder *e)
     free(e->blk_cbf_y);
     free(e->blk_mv);
     free(e->blk_pred);
+    free(e->blk_qp);
+    free(e->ctu_qp_off);
     free(e->sao);
     for (int i = 0; i < 3; i++) {
         free(e->sao_tmp[i]);
@@ -324,6 +334,45 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
         memset(e->blk_pred, 0, (size_t)e->map_stride * (e->pad_h >> 2));
         memset(e->blk_mv, 0,
                (size_t)e->map_stride * (e->pad_h >> 2) * 4 * sizeof(int16_t));
+        /* per-CTU QP offsets: variance AQ when enabled, else zero */
+        memset(e->ctu_qp_off, 0, (size_t)e->ctb_cols * e->ctb_rows);
+        if (e->aq && getenv("N265_AQ_FLAT"))
+            memset(e->ctu_qp_off, (uint8_t)atoi(getenv("N265_AQ_FLAT")),
+                   (size_t)e->ctb_cols * e->ctb_rows);
+        else if (e->aq) {
+            int ctb = 1 << e->ctb_log2;
+            int nctu = e->ctb_cols * e->ctb_rows;
+            double *lv = malloc((size_t)nctu * sizeof(double));
+            double avg = 0;
+            for (int cy = 0; cy < e->ctb_rows; cy++)
+                for (int cx = 0; cx < e->ctb_cols; cx++) {
+                    int x0 = cx * ctb, y0 = cy * ctb;
+                    int w = x0 + ctb > e->pad_w ? e->pad_w - x0 : ctb;
+                    int h = y0 + ctb > e->pad_h ? e->pad_h - y0 : ctb;
+                    int64_t s1 = 0, s2 = 0;
+                    for (int y = y0; y < y0 + h; y++)
+                        for (int x = x0; x < x0 + w; x++) {
+                            int v = e->pad_plane[0][y * e->pad_stride[0] + x];
+                            s1 += v;
+                            s2 += v * v;
+                        }
+                    int np = w * h;
+                    double var = (double)s2 / np -
+                        ((double)s1 / np) * ((double)s1 / np);
+                    lv[cy * e->ctb_cols + cx] = log2(var + 1.0);
+                    avg += lv[cy * e->ctb_cols + cx];
+                }
+            avg /= nctu;
+            for (int i = 0; i < nctu; i++) {
+                double off = 1.0 * (lv[i] - avg);    /* strength 1.0 */
+                int o = (int)(off > 0 ? off + 0.5 : off - 0.5);
+                e->ctu_qp_off[i] = (int8_t)(o < -6 ? -6 : o > 6 ? 6 : o);
+            }
+            free(lv);
+        }
+
+        e->ent_qp_prev = e->qp;
+        e->ent_parent_chroma = 0;
         e->rec_len = 0;
         e->rec_pos = 0;
         for (int i = 0; i < CTX_COUNT; i++)
@@ -343,6 +392,9 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
         n265_sao_apply(e);
     }
 
+    e->ent_qp_prev = e->qp;
+    e->ent_parent_chroma = 0;
+    e->in_entropy = 1;
     bs_reset(&e->rbsp);
     write_slice_header(e);
     n265_cabac_start(&cb, &e->rbsp);
@@ -361,6 +413,7 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
             n265_entropy_ctu(e, &cb, i % e->ctb_cols, i / e->ctb_cols);
         n265_cabac_terminate(&cb, i == last);
     }
+    e->in_entropy = 0;
     bs_align_zero(&e->rbsp);
     add_nal(e, e->slice_type == 2 ? N265_NAL_IDR_W_RADL
                                   : (nonref ? 0 /* TRAIL_N */
