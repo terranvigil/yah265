@@ -383,6 +383,7 @@ static void tt_analyze(struct n265_encoder *e, int mode, int x0, int y0,
 
     int n = 1 << log2ts;
     mark_cu_edges(e, x0, y0, n);
+    rec_u8(e, 0);   /* split_transform_flag 0 (flat TU) */
     tb_ctx tcb, tcr;
     tb_analyze(e, 1, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, mot_zero, &tcb);
     tb_analyze(e, 2, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, mot_zero, &tcr);
@@ -532,6 +533,7 @@ static void est_tt_bits(struct n265_encoder *e, est_state *st, int log2n,
     res_ops ops;
     n265_est_ops(&ops, st);
     int inter = mode == MODE_INTER;
+    st->bits += n265_est_bin(&st->ctx[CTX_TSPLIT + 5 - log2n], 0);
     st->bits += n265_est_bin(&st->ctx[CTX_CBF_CHROMA + 0], tcb->nz != 0);
     st->bits += n265_est_bin(&st->ctx[CTX_CBF_CHROMA + 0], tcr->nz != 0);
     if (!(inter && !tcb->nz && !tcr->nz))
@@ -544,6 +546,146 @@ static void est_tt_bits(struct n265_encoder *e, est_state *st, int log2n,
         n265_residual_coding(&ops, tcb->level, log2n - 1, 1, scan_c);
     if (tcr->nz)
         n265_residual_coding(&ops, tcr->level, log2n - 1, 2, scan_c);
+}
+
+/* choose flat vs 4-TU split for an inter winner and commit records +
+ * recon accordingly. Inter prediction is neighbor-free, so both
+ * arrangements evaluate order-free. CB8 splits keep chroma at the
+ * parent. */
+static void commit_inter_tt(struct n265_encoder *e, mot_t mot, int x0,
+                            int y0, int log2n, tb_ctx *tl, tb_ctx *tcb,
+                            tb_ctx *tcr)
+{
+    int n = 1 << log2n;
+    int qp_c = n265_chroma_qp(e->qp);
+    uint32_t lam = lambda_mode_q8(e->qp);
+    int h = n >> 1;
+    int child_chroma = log2n > 3;
+    static tb_ctx s_l[4], s_c[4][2];
+
+    /* split arrangement */
+    uint64_t d_split = 0;
+    int root_cb = 0, root_cr = 0;
+    for (int i = 0; i < 4; i++) {
+        int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
+        tb_analyze(e, 0, x1, y1, log2n - 1, e->qp, MODE_INTER, mot,
+                   &s_l[i]);
+        tb_make_recon(0, log2n - 1, e->qp, MODE_INTER, &s_l[i]);
+        d_split += tb_ssd(e, 0, x1, y1, log2n - 1, &s_l[i]);
+        if (child_chroma) {
+            tb_analyze(e, 1, x1 / 2, y1 / 2, log2n - 2, qp_c, MODE_INTER,
+                       mot, &s_c[i][0]);
+            tb_analyze(e, 2, x1 / 2, y1 / 2, log2n - 2, qp_c, MODE_INTER,
+                       mot, &s_c[i][1]);
+            tb_make_recon(1, log2n - 2, qp_c, MODE_INTER, &s_c[i][0]);
+            tb_make_recon(2, log2n - 2, qp_c, MODE_INTER, &s_c[i][1]);
+            d_split += tb_ssd(e, 1, x1 / 2, y1 / 2, log2n - 2, &s_c[i][0]);
+            d_split += tb_ssd(e, 2, x1 / 2, y1 / 2, log2n - 2, &s_c[i][1]);
+            root_cb |= s_c[i][0].nz != 0;
+            root_cr |= s_c[i][1].nz != 0;
+        }
+    }
+    if (!child_chroma) {
+        root_cb = tcb->nz != 0;
+        root_cr = tcr->nz != 0;
+        d_split += tb_ssd(e, 1, x0 / 2, y0 / 2, log2n - 1, tcb);
+        d_split += tb_ssd(e, 2, x0 / 2, y0 / 2, log2n - 1, tcr);
+    }
+
+    uint64_t d_flat = tb_ssd(e, 0, x0, y0, log2n, tl) +
+        tb_ssd(e, 1, x0 / 2, y0 / 2, log2n - 1, tcb) +
+        tb_ssd(e, 2, x0 / 2, y0 / 2, log2n - 1, tcr);
+
+    /* bits, both arrangements, on estimator copies */
+    cabac_ctx_t local[CTX_COUNT];
+    est_state st;
+    res_ops ops;
+
+    memcpy(local, e->est_ctx, sizeof(local));
+    st.ctx = local; st.bits = 0;
+    n265_est_ops(&ops, &st);
+    est_tt_bits(e, &st, log2n, MODE_INTER, tl, tcb, tcr);
+    uint64_t j_flat = rd_j(d_flat, st.bits, lam);
+
+    memcpy(local, e->est_ctx, sizeof(local));
+    st.ctx = local; st.bits = 0;
+    st.bits += n265_est_bin(&local[CTX_TSPLIT + 5 - log2n], 1);
+    st.bits += n265_est_bin(&local[CTX_CBF_CHROMA + 0], root_cb);
+    st.bits += n265_est_bin(&local[CTX_CBF_CHROMA + 0], root_cr);
+    for (int i = 0; i < 4; i++) {
+        if (child_chroma) {
+            if (root_cb)
+                st.bits += n265_est_bin(&local[CTX_CBF_CHROMA + 1],
+                                        s_c[i][0].nz != 0);
+            if (root_cr)
+                st.bits += n265_est_bin(&local[CTX_CBF_CHROMA + 1],
+                                        s_c[i][1].nz != 0);
+        }
+        st.bits += n265_est_bin(&local[CTX_CBF_LUMA + 0], s_l[i].nz != 0);
+        if (s_l[i].nz)
+            n265_residual_coding(&ops, s_l[i].level, log2n - 1, 0, 0);
+        if (child_chroma) {
+            if (s_c[i][0].nz)
+                n265_residual_coding(&ops, s_c[i][0].level, log2n - 2, 1, 0);
+            if (s_c[i][1].nz)
+                n265_residual_coding(&ops, s_c[i][1].level, log2n - 2, 2, 0);
+        } else if (i == 3) {
+            if (tcb->nz)
+                n265_residual_coding(&ops, tcb->level, log2n - 1, 1, 0);
+            if (tcr->nz)
+                n265_residual_coding(&ops, tcr->level, log2n - 1, 2, 0);
+        }
+    }
+    uint64_t j_split = rd_j(d_split, st.bits, lam);
+
+    if (j_flat <= j_split) {
+        rec_u8(e, 0);
+        rec_u8(e, tcb->nz != 0);
+        rec_u8(e, tcr->nz != 0);
+        rec_u8(e, tl->nz != 0);
+        tb_commit(e, 0, x0, y0, log2n, tl);
+        if (tl->nz)
+            rec_levels(e, tl->level, n * n);
+        tb_commit(e, 1, x0 / 2, y0 / 2, log2n - 1, tcb);
+        if (tcb->nz)
+            rec_levels(e, tcb->level, (n / 2) * (n / 2));
+        tb_commit(e, 2, x0 / 2, y0 / 2, log2n - 1, tcr);
+        if (tcr->nz)
+            rec_levels(e, tcr->level, (n / 2) * (n / 2));
+        return;
+    }
+
+    /* commit split: record layout mirrors replay_tt */
+    rec_u8(e, 1);
+    rec_u8(e, (unsigned)root_cb);
+    rec_u8(e, (unsigned)root_cr);
+    for (int i = 0; i < 4; i++) {
+        int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
+        mark_cu_edges(e, x1, y1, h);
+        if (child_chroma) {
+            rec_u8(e, s_c[i][0].nz != 0);
+            rec_u8(e, s_c[i][1].nz != 0);
+        }
+        rec_u8(e, s_l[i].nz != 0);
+        tb_commit(e, 0, x1, y1, log2n - 1, &s_l[i]);
+        if (s_l[i].nz)
+            rec_levels(e, s_l[i].level, h * h);
+        if (child_chroma) {
+            tb_commit(e, 1, x1 / 2, y1 / 2, log2n - 2, &s_c[i][0]);
+            if (s_c[i][0].nz)
+                rec_levels(e, s_c[i][0].level, (h / 2) * (h / 2));
+            tb_commit(e, 2, x1 / 2, y1 / 2, log2n - 2, &s_c[i][1]);
+            if (s_c[i][1].nz)
+                rec_levels(e, s_c[i][1].level, (h / 2) * (h / 2));
+        } else if (i == 3) {
+            tb_commit(e, 1, x0 / 2, y0 / 2, log2n - 1, tcb);
+            if (tcb->nz)
+                rec_levels(e, tcb->level, (n / 2) * (n / 2));
+            tb_commit(e, 2, x0 / 2, y0 / 2, log2n - 1, tcr);
+            if (tcr->nz)
+                rec_levels(e, tcr->level, (n / 2) * (n / 2));
+        }
+    }
 }
 
 static uint64_t cu_area_ssd(struct n265_encoder *e, int x0, int y0, int n)
@@ -787,18 +929,7 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                     rec_levels(e, mvd, 2);
                 }
                 if (any) {
-                    rec_u8(e, tcb->nz != 0);
-                    rec_u8(e, tcr->nz != 0);
-                    rec_u8(e, tl->nz != 0);
-                    tb_commit(e, 0, x0, y0, log2n, tl);
-                    if (tl->nz)
-                        rec_levels(e, tl->level, n * n);
-                    tb_commit(e, 1, x0 / 2, y0 / 2, log2n - 1, tcb);
-                    if (tcb->nz)
-                        rec_levels(e, tcb->level, (n / 2) * (n / 2));
-                    tb_commit(e, 2, x0 / 2, y0 / 2, log2n - 1, tcr);
-                    if (tcr->nz)
-                        rec_levels(e, tcr->level, (n / 2) * (n / 2));
+                    commit_inter_tt(e, mot, x0, y0, log2n, tl, tcb, tcr);
                 } else {
                     tb_commit(e, 0, x0, y0, log2n, tl);
                     tb_commit(e, 1, x0 / 2, y0 / 2, log2n - 1, tcb);

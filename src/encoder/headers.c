@@ -109,8 +109,8 @@ void n265_write_sps(struct n265_encoder *e)
         /* max TB = min(CTB, 32) */
         bs_put_ue(bs, (uint32_t)((e->ctb_log2 > 5 ? 5 : e->ctb_log2) - 2));
     }
-    bs_put_ue(bs, 0);               /* max_transform_hierarchy_depth_inter */
-    bs_put_ue(bs, 0);               /* max_transform_hierarchy_depth_intra */
+    bs_put_ue(bs, e->mode == N265_MODE_PCM ? 0 : 1);    /* tu depth inter */
+    bs_put_ue(bs, e->mode == N265_MODE_PCM ? 0 : 1);    /* tu depth intra */
     bs_put_bits(bs, 0, 1);          /* scaling_list_enabled_flag */
     bs_put_bits(bs, 0, 1);          /* amp_enabled_flag */
     bs_put_bits(bs, e->mode != N265_MODE_PCM, 1); /* sample_adaptive_offset */

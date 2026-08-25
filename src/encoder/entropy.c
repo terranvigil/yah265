@@ -120,51 +120,68 @@ static void replay_residual(struct n265_encoder *e, const res_ops *ops,
     n265_residual_coding(ops, lv, log2n, c_idx, scan);
 }
 
-/* replay one 2Nx2N transform tree (intra or zero-MV inter) */
+/* replay one 2Nx2N transform tree, general RQT form (maxTB 32, min TB 4,
+ * MaxTrafoDepth 1). Record layout per node: [tsplit byte when the flag is
+ * coded][cbf_cb][cbf_cr when log2ts > 2], then children or the leaf's
+ * [cbf_l][levels l][levels cb][levels cr]. A CB8 split keeps chroma at
+ * the parent, coded after the last luma child. */
 static void replay_tt(struct n265_encoder *e, const res_ops *ops, int mode,
-                      int x0, int y0, int log2ts)
+                      int x0, int y0, int log2ts, int depth, int pcb,
+                      int pcr)
 {
-    int split = log2ts > 5;
+    int coded_flag = log2ts <= 5 && log2ts > 2 && depth == 0;
+    int split = log2ts > 5 ? 1 : coded_flag ? (int)rd_u8(e) : 0;
+    if (coded_flag)
+        ops->bin(ops->h, CTX_TSPLIT + 5 - log2ts, split);
+
+    int cbf_cb = pcb, cbf_cr = pcr;
+    if (log2ts > 2) {
+        cbf_cb = (int)rd_u8(e);
+        cbf_cr = (int)rd_u8(e);
+        if (depth == 0 || pcb)
+            ops->bin(ops->h, CTX_CBF_CHROMA + depth, cbf_cb);
+        else
+            cbf_cb = 0;
+        if (depth == 0 || pcr)
+            ops->bin(ops->h, CTX_CBF_CHROMA + depth, cbf_cr);
+        else
+            cbf_cr = 0;
+    }
+
+    int m = mode == MODE_INTER ? MODE_INTER
+                               : map_at(e, e->intra_mode, x0, y0);
 
     if (split) {
         int h = 1 << (log2ts - 1);
-        int cbf_cb = (int)rd_u8(e), cbf_cr = (int)rd_u8(e);
-        ops->bin(ops->h, CTX_CBF_CHROMA + 0, cbf_cb);
-        ops->bin(ops->h, CTX_CBF_CHROMA + 0, cbf_cr);
+        int chroma_at_parent = log2ts == 3;
         for (int i = 0; i < 4; i++) {
             int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
-            int ccb = (int)rd_u8(e), ccr = (int)rd_u8(e);
-            if (cbf_cb)
-                ops->bin(ops->h, CTX_CBF_CHROMA + 1, ccb);
-            if (cbf_cr)
-                ops->bin(ops->h, CTX_CBF_CHROMA + 1, ccr);
-            int cbf_l = (int)rd_u8(e);
-            ops->bin(ops->h, CTX_CBF_LUMA + 0, cbf_l);
-            int m = mode == MODE_INTER ? MODE_INTER
-                                       : map_at(e, e->intra_mode, x1, y1);
-            if (cbf_l)
-                replay_residual(e, ops, 0, log2ts - 1, m);
-            if (ccb)
-                replay_residual(e, ops, 1, log2ts - 2, m);
-            if (ccr)
-                replay_residual(e, ops, 2, log2ts - 2, m);
+            replay_tt(e, ops, mode, x1, y1, log2ts - 1, depth + 1, cbf_cb,
+                      cbf_cr);
+            if (chroma_at_parent && i == 3) {
+                if (cbf_cb)
+                    replay_residual(e, ops, 1, log2ts - 1, m);
+                if (cbf_cr)
+                    replay_residual(e, ops, 2, log2ts - 1, m);
+            }
         }
         return;
     }
 
-    int cbf_cb = (int)rd_u8(e), cbf_cr = (int)rd_u8(e);
+    /* leaf */
     int cbf_l = (int)rd_u8(e);
-    ops->bin(ops->h, CTX_CBF_CHROMA + 0, cbf_cb);
-    ops->bin(ops->h, CTX_CBF_CHROMA + 0, cbf_cr);
-    /* inter, depth 0, no chroma cbf: cbf_luma inferred 1 */
-    if (!(mode == MODE_INTER && !cbf_cb && !cbf_cr))
-        ops->bin(ops->h, CTX_CBF_LUMA + 1, cbf_l);
+    if (mode == MODE_INTER && depth == 0 && !cbf_cb && !cbf_cr)
+        ;   /* cbf_luma inferred 1 */
+    else
+        ops->bin(ops->h, CTX_CBF_LUMA + (depth == 0), cbf_l);
     if (cbf_l)
-        replay_residual(e, ops, 0, log2ts, mode);
-    if (cbf_cb)
-        replay_residual(e, ops, 1, log2ts - 1, mode);
-    if (cbf_cr)
-        replay_residual(e, ops, 2, log2ts - 1, mode);
+        replay_residual(e, ops, 0, log2ts, m);
+    if (log2ts > 2) {
+        if (cbf_cb)
+            replay_residual(e, ops, 1, log2ts - 1, m);
+        if (cbf_cr)
+            replay_residual(e, ops, 2, log2ts - 1, m);
+    }
 }
 
 static void replay_cu(struct n265_encoder *e, const res_ops *ops, int x0,
@@ -205,7 +222,7 @@ static void replay_cu(struct n265_encoder *e, const res_ops *ops, int x0,
                 if (!root_cbf)
                     return;
             }
-            replay_tt(e, ops, MODE_INTER, x0, y0, log2n);
+            replay_tt(e, ops, MODE_INTER, x0, y0, log2n, 0, 1, 1);
             return;
         }
     }
@@ -221,7 +238,7 @@ static void replay_cu(struct n265_encoder *e, const res_ops *ops, int x0,
         int mode = map_at(e, e->intra_mode, x0, y0);
         write_luma_mode(e, ops, x0, y0, mode);
         ops->bin(ops->h, CTX_CHROMA_MODE, 0);    /* DM */
-        replay_tt(e, ops, mode, x0, y0, log2n);
+        replay_tt(e, ops, mode, x0, y0, log2n, 0, 1, 1);
         return;
     }
 
