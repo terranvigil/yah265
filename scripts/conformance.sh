@@ -69,7 +69,12 @@ run_vector() {
         sed -n 1,3p "$TMP/$name.fferr" >&2
         fail=$((fail+1)); return
     fi
-    "$DEC265" -q -o "$TMP/$name.de.yuv" "$TMP/$name.hevc" >/dev/null 2>&1
+    if ! "$DEC265" -q -o "$TMP/$name.de.yuv" "$TMP/$name.hevc" \
+            >/dev/null 2>"$TMP/$name.deerr" || [ ! -s "$TMP/$name.de.yuv" ]; then
+        echo "SUMMARY $name FAIL (dec265 run failed)"
+        sed -n 1,3p "$TMP/$name.deerr" >&2
+        fail=$((fail+1)); return
+    fi
     if ! cmp -s "$TMP/$name.src.yuv" "$TMP/$name.de.yuv"; then
         echo "SUMMARY $name FAIL (dec265 recon mismatch)"
         fail=$((fail+1)); return

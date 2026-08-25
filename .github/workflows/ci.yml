@@ -28,13 +28,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: dec265-bin
-          key: dec265-${{ runner.os }}-v1.1.1
+          key: dec265-${{ runner.os }}-${{ runner.arch }}-v1.1.1-static
       - name: build dec265
         if: steps.cache-dec265.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 --branch v1.1.1 \
             https://github.com/strukturag/libde265.git de265-src
-          cmake -S de265-src -B de265-build -DCMAKE_BUILD_TYPE=Release
+          cmake -S de265-src -B de265-build -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF
           cmake --build de265-build --target dec265 -j 3
           mkdir -p dec265-bin && cp de265-build/dec265/dec265 dec265-bin/
       - name: build + unit + provenance
