@@ -5,6 +5,7 @@
  * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
+#include <assert.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -545,7 +546,24 @@ static void est_tt_bits(struct n265_encoder *e, est_state *st, int log2n,
         n265_residual_coding(&ops, tcr->level, log2n - 1, 2, scan_c);
 }
 
-static void analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
+static uint64_t cu_area_ssd(struct n265_encoder *e, int x0, int y0, int n)
+{
+    uint64_t ssd = 0;
+    for (int c = 0; c < 3; c++) {
+        int sh = c ? 1 : 0;
+        const uint8_t *src = e->pad_plane[c];
+        const uint8_t *rec = e->recon[c];
+        for (int y = y0 >> sh; y < (y0 + n) >> sh; y++)
+            for (int x = x0 >> sh; x < (x0 + n) >> sh; x++) {
+                int d = src[y * e->pad_stride[c] + x] -
+                        rec[y * e->recon_stride[c] + x];
+                ssd += (uint64_t)(d * d);
+            }
+    }
+    return ssd;
+}
+
+static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
 {
     int n = 1 << log2n;
     int qp_c = n265_chroma_qp(e->qp);
@@ -566,7 +584,8 @@ static void analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
             e->rec_pos = pos0;
             est_state adv = { e->est_ctx, 0 };
             n265_est_advance_cu(e, &adv, x0, y0, log2n);
-            return;
+            return rd_j(cu_area_ssd(e, x0, y0, n), adv.bits,
+                        lambda_mode_q8(e->qp));
         }
 
         if (log2n <= 5) {
@@ -767,7 +786,8 @@ static void analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                 e->rec_pos = pos0;
                 est_state adv = { e->est_ctx, 0 };
                 n265_est_advance_cu(e, &adv, x0, y0, log2n);
-                return;
+                return rd_j(cu_area_ssd(e, x0, y0, n), adv.bits,
+                            lambda_mode_q8(e->qp));
             }
             /* intra wins: fall through to the intra section, which also
              * arbitrates NxN at min CB */
@@ -813,7 +833,8 @@ static void analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
         e->rec_pos = pos0;
         est_state adv = { e->est_ctx, 0 };
         n265_est_advance_cu(e, &adv, x0, y0, log2n);
-        return;
+        return rd_j(cu_area_ssd(e, x0, y0, n), adv.bits,
+                    lambda_mode_q8(e->qp));
     }
 
     /* NxN: chroma at the parent, four 4x4 luma TUs with DST */
@@ -839,6 +860,7 @@ static void analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
     e->rec_pos = pos0;
     est_state adv = { e->est_ctx, 0 };
     n265_est_advance_cu(e, &adv, x0, y0, log2n);
+    return rd_j(cu_area_ssd(e, x0, y0, n), adv.bits, lambda_mode_q8(e->qp));
 }
 
 static int decide_split(struct n265_encoder *e, int x0, int y0, int log2n)
@@ -859,50 +881,171 @@ static int decide_split(struct n265_encoder *e, int x0, int y0, int log2n)
     return kids + (kids >> 4) < parent;
 }
 
-static void quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
-                     int depth)
+/* full encoder-state snapshot of a CU area, for split-vs-nosplit trials */
+typedef struct qt_snap {
+    uint8_t recon[64 * 64 * 3 / 2];
+    uint8_t maps[7][16 * 16];
+    int16_t mv[16 * 16 * 2];
+    cabac_ctx_t est[CTX_COUNT];
+    size_t rec_len;
+    /* the records this arm appended beyond rec_base (the other arm
+     * overwrites the shared tail, so content must be kept too) */
+    size_t rec_base;
+    size_t rec_copy_len;
+    uint8_t rec_copy[16384];
+} qt_snap;
+
+static uint8_t *snap_maps(struct n265_encoder *e, int i)
+{
+    uint8_t *m[7];
+    m[0] = e->ct_depth; m[1] = e->intra_mode; m[2] = e->edge_map;
+    m[3] = e->blk_intra; m[4] = e->blk_skip; m[5] = e->blk_cbf_y;
+    m[6] = e->blk_pred;
+    return m[i];
+}
+
+static void qt_save(struct n265_encoder *e, qt_snap *sn, int x0, int y0,
+                    int n)
+{
+    uint8_t *p = sn->recon;
+    for (int c = 0; c < 3; c++) {
+        int sh = c ? 1 : 0;
+        for (int y = y0 >> sh; y < (y0 + n) >> sh; y++) {
+            memcpy(p, e->recon[c] + y * e->recon_stride[c] + (x0 >> sh),
+                   (size_t)(n >> sh));
+            p += n >> sh;
+        }
+    }
+    int cells = n >> 2;
+    for (int i = 0; i < 7; i++)
+        for (int y = 0; y < cells; y++)
+            memcpy(sn->maps[i] + y * cells,
+                   snap_maps(e, i) + ((y0 >> 2) + y) * e->map_stride +
+                       (x0 >> 2),
+                   (size_t)cells);
+    for (int y = 0; y < cells; y++)
+        memcpy(sn->mv + y * cells * 2 * 2,
+               e->blk_mv + (((y0 >> 2) + y) * e->map_stride + (x0 >> 2)) * 4,
+               (size_t)cells * 4 * sizeof(int16_t));
+    memcpy(sn->est, e->est_ctx, sizeof(sn->est));
+    sn->rec_len = e->rec_len;
+    sn->rec_copy_len = 0;
+}
+
+static void qt_save_records(struct n265_encoder *e, qt_snap *sn,
+                            size_t base)
+{
+    sn->rec_base = base;
+    sn->rec_copy_len = e->rec_len - base;
+    /* worst case is an intra CB64's full record (~12.5 KB) */
+    assert(sn->rec_copy_len <= sizeof(sn->rec_copy));
+    memcpy(sn->rec_copy, e->rec_buf + base, sn->rec_copy_len);
+}
+
+static void qt_restore(struct n265_encoder *e, const qt_snap *sn, int x0,
+                       int y0, int n)
+{
+    const uint8_t *p = sn->recon;
+    for (int c = 0; c < 3; c++) {
+        int sh = c ? 1 : 0;
+        for (int y = y0 >> sh; y < (y0 + n) >> sh; y++) {
+            memcpy(e->recon[c] + y * e->recon_stride[c] + (x0 >> sh), p,
+                   (size_t)(n >> sh));
+            p += n >> sh;
+        }
+    }
+    int cells = n >> 2;
+    for (int i = 0; i < 7; i++)
+        for (int y = 0; y < cells; y++)
+            memcpy(snap_maps(e, i) + ((y0 >> 2) + y) * e->map_stride +
+                       (x0 >> 2),
+                   sn->maps[i] + y * cells, (size_t)cells);
+    for (int y = 0; y < cells; y++)
+        memcpy(e->blk_mv + (((y0 >> 2) + y) * e->map_stride + (x0 >> 2)) * 4,
+               sn->mv + y * cells * 2 * 2,
+               (size_t)cells * 4 * sizeof(int16_t));
+    memcpy(e->est_ctx, sn->est, sizeof(sn->est));
+    e->rec_len = sn->rec_len;
+    if (sn->rec_copy_len)
+        memcpy(e->rec_buf + sn->rec_base, sn->rec_copy, sn->rec_copy_len);
+}
+
+/* RD quadtree: at each inside node try no-split (one CU) and split (four
+ * children, recursively), keep the cheaper tree. Returns the committed
+ * subtree's J. Boundary nodes recurse without a flag. */
+static uint64_t quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
+                         int depth)
 {
     int n = 1 << log2n;
     int inside = x0 + n <= e->pad_w && y0 + n <= e->pad_h;
+    uint32_t lam = lambda_mode_q8(e->qp);
 
-    if (inside && log2n > MIN_CB_LOG2) {
-        int split = want_skip(e, x0, y0, log2n) ? 0
-                    : decide_split(e, x0, y0, log2n);
-        {
-            int inc = 0;
-            if (x0 > 0)
-                inc += e->ct_depth[(y0 >> 2) * e->map_stride +
-                                   ((x0 - 1) >> 2)] > depth;
-            if (y0 > 0)
-                inc += e->ct_depth[((y0 - 1) >> 2) * e->map_stride +
-                                   (x0 >> 2)] > depth;
-            n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + inc], split);
-        }
-        if (split) {
-            /* no record: the split flag replays from ct_depth */
-            int h = 1 << (log2n - 1);
-            for (int i = 0; i < 4; i++)
-                quadtree(e, x0 + (i & 1) * h, y0 + (i >> 1) * h,
-                         log2n - 1, depth + 1);
-            return;
-        }
-    } else if (!inside && log2n > MIN_CB_LOG2) {
+    if (!inside && log2n > MIN_CB_LOG2) {
+        uint64_t j = 0;
         int h = n >> 1;
         for (int i = 0; i < 4; i++) {
             int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
             if (x1 < e->pad_w && y1 < e->pad_h)
-                quadtree(e, x1, y1, log2n - 1, depth + 1);
+                j += quadtree(e, x1, y1, log2n - 1, depth + 1);
         }
-        return;
-    } else if (!inside) {
-        return;
+        return j;
+    }
+    if (!inside)
+        return 0;
+
+    int split_inc = 0;
+    if (x0 > 0)
+        split_inc += e->ct_depth[(y0 >> 2) * e->map_stride +
+                                 ((x0 - 1) >> 2)] > depth;
+    if (y0 > 0)
+        split_inc += e->ct_depth[((y0 - 1) >> 2) * e->map_stride +
+                                 (x0 >> 2)] > depth;
+
+    if (log2n == MIN_CB_LOG2) {
+        uint64_t j = analyze_cu(e, x0, y0, log2n);
+        set_blk(e, e->ct_depth, x0, y0, n, depth);
+        return j;
     }
 
-    analyze_cu(e, x0, y0, log2n);
+    /* strict-skip regions never split: try only the CU */
+    if (want_skip(e, x0, y0, log2n)) {
+        uint32_t b = n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + split_inc], 0);
+        uint64_t j = analyze_cu(e, x0, y0, log2n) + ((uint64_t)b * lam >> 16);
+        set_blk(e, e->ct_depth, x0, y0, n, depth);
+        return j;
+    }
+
+    static qt_snap pre[4], won[4];      /* per recursion depth (0..3) */
+    qt_snap *sp = &pre[depth], *sw = &won[depth];
+
+    qt_save(e, sp, x0, y0, n);
+
+    /* arm 1: no split */
+    size_t rec_base = e->rec_len;
+    uint32_t b0 = n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + split_inc], 0);
+    uint64_t j_cu = analyze_cu(e, x0, y0, log2n) + ((uint64_t)b0 * lam >> 16);
     set_blk(e, e->ct_depth, x0, y0, n, depth);
+    qt_save(e, sw, x0, y0, n);
+    qt_save_records(e, sw, rec_base);
+
+    /* arm 2: split */
+    qt_restore(e, sp, x0, y0, n);
+    uint32_t b1 = n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + split_inc], 1);
+    uint64_t j_split = (uint64_t)b1 * lam >> 16;
+    int h = n >> 1;
+    for (int i = 0; i < 4; i++)
+        j_split += quadtree(e, x0 + (i & 1) * h, y0 + (i >> 1) * h,
+                            log2n - 1, depth + 1);
+
+    if (j_cu <= j_split) {
+        qt_restore(e, sw, x0, y0, n);
+        return j_cu;
+    }
+    return j_split;
 }
 
 void n265_analyze_ctu(struct n265_encoder *e, int ctb_x, int ctb_y)
 {
-    quadtree(e, ctb_x << e->ctb_log2, ctb_y << e->ctb_log2, e->ctb_log2, 0);
+    (void)quadtree(e, ctb_x << e->ctb_log2, ctb_y << e->ctb_log2,
+                   e->ctb_log2, 0);
 }

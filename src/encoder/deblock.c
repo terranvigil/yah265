@@ -108,7 +108,7 @@ static void chroma_segment(uint8_t *pix, int xstride, int ystride, int tc,
         int p1 = l[-2 * xstride], p0 = l[-xstride];
         int q0 = l[0], q1 = l[xstride];
         int delta = clip3(-tc, tc,
-                          ((((q0 - p0) << 2) + p1 - q1 + 4) >> 3));
+                          (((q0 - p0) * 4 + p1 - q1 + 4) >> 3));
         l[-xstride] = clip1(p0 + delta);
         l[0] = clip1(q0 - delta);
     }
