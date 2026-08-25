@@ -100,9 +100,10 @@ static void luma_segment(uint8_t *pix, int xstride, int ystride, int beta,
     }
 }
 
-static void chroma_segment(uint8_t *pix, int xstride, int ystride, int tc)
+static void chroma_segment(uint8_t *pix, int xstride, int ystride, int tc,
+                           int nlines)
 {
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < nlines; i++) {
         uint8_t *l = pix + i * ystride;
         int p1 = l[-2 * xstride], p0 = l[-xstride];
         int q0 = l[0], q1 = l[xstride];
@@ -113,7 +114,7 @@ static void chroma_segment(uint8_t *pix, int xstride, int ystride, int tc)
     }
 }
 
-/* is there a CU boundary crossing the 8-grid position? edge_map bit 0 =
+/* is there a CU/TU boundary crossing the 8-grid position? edge_map bit 0 =
  * left edge here, bit 1 = top edge. */
 static int has_edge(const struct n265_encoder *e, int x, int y, int vertical)
 {
@@ -121,12 +122,27 @@ static int has_edge(const struct n265_encoder *e, int x, int y, int vertical)
            (vertical ? 1 : 2);
 }
 
+/* boundary strength for the 4-line segment whose q-side starts at luma
+ * (x,y) (8.7.2.4). All inter blocks are zero-MV ref-0 for now, so the MV
+ * legs of the bS-1 rule reduce to the cbf test; extend when ME lands. */
+static int seg_bs(const struct n265_encoder *e, int x, int y, int vertical)
+{
+    int qi = (y >> 2) * e->map_stride + (x >> 2);
+    int pi = vertical ? (y >> 2) * e->map_stride + ((x - 1) >> 2)
+                      : ((y - 1) >> 2) * e->map_stride + (x >> 2);
+    if (e->blk_intra[pi] || e->blk_intra[qi])
+        return 2;
+    if (e->blk_cbf_y[pi] || e->blk_cbf_y[qi])
+        return 1;
+    return 0;
+}
+
 void n265_deblock_frame(struct n265_encoder *e)
 {
     int qp = e->qp;
     int beta = beta_tab[clip3(0, 51, qp)];
-    /* bS 2: tc index takes +2 */
-    int tc = tc_tab[clip3(0, 53, qp + 2)];
+    int tc_bs[3] = { 0, tc_tab[clip3(0, 53, qp)],
+                     tc_tab[clip3(0, 53, qp + 2)] };
     int qpc = n265_chroma_qp(qp);
     int tc_c = tc_tab[clip3(0, 53, qpc + 2)];
     uint8_t *luma = e->recon[0];
@@ -135,13 +151,19 @@ void n265_deblock_frame(struct n265_encoder *e)
     /* vertical edges, whole picture */
     for (int x = 8; x < e->pad_w; x += 8)
         for (int y = 0; y < e->pad_h; y += 4)
-            if (has_edge(e, x, y, 1))
-                luma_segment(luma + y * ls + x, 1, ls, beta, tc);
+            if (has_edge(e, x, y, 1)) {
+                int bs = seg_bs(e, x, y, 1);
+                if (bs)
+                    luma_segment(luma + y * ls + x, 1, ls, beta, tc_bs[bs]);
+            }
     /* horizontal edges */
     for (int y = 8; y < e->pad_h; y += 8)
         for (int x = 0; x < e->pad_w; x += 4)
-            if (has_edge(e, x, y, 0))
-                luma_segment(luma + y * ls + x, ls, 1, beta, tc);
+            if (has_edge(e, x, y, 0)) {
+                int bs = seg_bs(e, x, y, 0);
+                if (bs)
+                    luma_segment(luma + y * ls + x, ls, 1, beta, tc_bs[bs]);
+            }
 
     if (tc_c == 0)
         return;
@@ -149,14 +171,17 @@ void n265_deblock_frame(struct n265_encoder *e)
         uint8_t *c = e->recon[p];
         int cs = e->recon_stride[p];
         int cw = e->pad_w / 2, ch = e->pad_h / 2;
-        /* chroma edges on the 16-luma grid, bS 2 only (always true here) */
+        /* chroma edges on the 16-luma grid, bS 2 only. Two chroma lines
+         * share one luma bS segment, so check per 2-line half. */
         for (int x = 8; x < cw; x += 8)
-            for (int y = 0; y < ch; y += 4)
-                if (has_edge(e, 2 * x, 2 * y, 1))
-                    chroma_segment(c + y * cs + x, 1, cs, tc_c);
+            for (int y = 0; y < ch; y += 2)
+                if (has_edge(e, 2 * x, 2 * y, 1) &&
+                    seg_bs(e, 2 * x, 2 * y, 1) == 2)
+                    chroma_segment(c + y * cs + x, 1, cs, tc_c, 2);
         for (int y = 8; y < ch; y += 8)
-            for (int x = 0; x < cw; x += 4)
-                if (has_edge(e, 2 * x, 2 * y, 0))
-                    chroma_segment(c + y * cs + x, cs, 1, tc_c);
+            for (int x = 0; x < cw; x += 2)
+                if (has_edge(e, 2 * x, 2 * y, 0) &&
+                    seg_bs(e, 2 * x, 2 * y, 0) == 2)
+                    chroma_segment(c + y * cs + x, cs, 1, tc_c, 2);
     }
 }

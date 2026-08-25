@@ -36,10 +36,15 @@ struct n265_encoder {
     int pad_stride[3];
     uint8_t *recon[3];      /* reconstruction planes (padded dims)   */
     int recon_stride[3];
+    uint8_t *ref_plane[3];  /* previous frame, fully filtered (DPB)  */
+    int ref_valid;
 
     uint8_t *ct_depth;      /* 4x4-granularity coding-tree depth map */
     uint8_t *intra_mode;    /* 4x4-granularity luma intra mode map   */
     uint8_t *edge_map;      /* bit0 = CU left edge, bit1 = top edge  */
+    uint8_t *blk_intra;     /* per 4x4: CU coded intra               */
+    uint8_t *blk_skip;      /* per 4x4: cu_skip_flag (ctx + bS)      */
+    uint8_t *blk_cbf_y;     /* per 4x4: luma TB had coefficients     */
     int map_stride;         /* in 4x4 units                          */
 
     struct sao_params *sao; /* per-CTB SAO decisions                 */
@@ -53,6 +58,9 @@ struct n265_encoder {
 
     n265_nal nal[8];
     int frames_done;
+    int poc;
+    int keyint;
+    int slice_type;         /* 2 = I, 1 = P (current frame)          */
     FILE *dump_recon;       /* optional recon tap for the gate       */
 };
 

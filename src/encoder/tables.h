@@ -25,10 +25,17 @@ enum {
     CTX_G2 = 118,           /* 6: luma 0-3, chroma 4-5 */
     CTX_SAO_MERGE = 124,    /* 1 */
     CTX_SAO_TYPE = 125,     /* 1 */
-    CTX_COUNT = 126,
+    CTX_CU_SKIP = 126,      /* 3 (left/above skip neighbors) */
+    CTX_PRED_MODE = 129,    /* 1 */
+    CTX_MERGE_FLAG = 130,   /* 1 */
+    CTX_MERGE_IDX = 131,    /* 1 */
+    CTX_RQT_ROOT_CBF = 132, /* 1 */
+    CTX_COUNT = 133,
 };
 
+/* initType 0 (I slices) and initType 1 (P slices, cabac_init_flag 0) */
 extern const uint8_t n265_ctx_init_i[CTX_COUNT];
+extern const uint8_t n265_ctx_init_p[CTX_COUNT];
 
 /* sig_coeff_flag ctxIdxMap for 4x4 TBs (9.3.4.2.5), index (yP<<2)|xP,
  * position 15 never coded. */

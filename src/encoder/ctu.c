@@ -137,6 +137,11 @@ static int code_component(struct n265_encoder *e, cabac_t *cb, int c_idx,
         for (int y = 0; y < n; y++)
             memcpy(recon + (y0 + y) * stride + x0, pred + y * n, (size_t)n);
     }
+    if (c_idx == 0)
+        for (int y = 0; y < n; y += 4)
+            for (int x = 0; x < n; x += 4)
+                e->blk_cbf_y[((y0 + y) >> 2) * e->map_stride +
+                             ((x0 + x) >> 2)] = nz != 0;
     return nz != 0;
 }
 
@@ -255,12 +260,92 @@ static void transform_tree_2nx2n(struct n265_encoder *e, cabac_t *cb,
     code_component(e, cb, 2, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, 1);
 }
 
+static void set_blk(struct n265_encoder *e, uint8_t *map, int x0, int y0,
+                    int n, int v)
+{
+    for (int y = 0; y < n; y += 4)
+        for (int x = 0; x < n; x += 4)
+            map[((y0 + y) >> 2) * e->map_stride + ((x0 + x) >> 2)] =
+                (uint8_t)v;
+}
+
+/* SAD of the co-located reference block: the skip candidate's cost
+ * (merge list is all zero-MV ref-0 while MaxNumMergeCand == 1 and every
+ * inter block is zero-MV; revisit with real ME) */
+static uint32_t skip_sad(struct n265_encoder *e, int x0, int y0, int n)
+{
+    const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
+    const uint8_t *ref = e->ref_plane[0] + y0 * e->recon_stride[0] + x0;
+    uint32_t sad = 0;
+    for (int y = 0; y < n; y++)
+        for (int x = 0; x < n; x++) {
+            int d = src[y * e->pad_stride[0] + x] -
+                    ref[y * e->recon_stride[0] + x];
+            sad += (uint32_t)(d < 0 ? -d : d);
+        }
+    return sad;
+}
+
+static int want_skip(struct n265_encoder *e, int x0, int y0, int log2n)
+{
+    if (e->slice_type != 1)
+        return 0;
+    int n = 1 << log2n;
+    uint32_t intra_cost;
+    search_luma_mode(e, x0, y0, log2n > 5 ? 5 : log2n, e->pad_plane[0],
+                     &intra_cost);
+    if (log2n > 5)
+        intra_cost *= 4;
+    /* skip when the co-located block is at least as good as the best
+     * intra prediction (skip costs ~1 bin; intra costs mode + residual) */
+    return skip_sad(e, x0, y0, n) <= intra_cost + (uint32_t)(n * n / 4);
+}
+
+static void encode_skip_cu(struct n265_encoder *e, cabac_t *cb, int x0,
+                           int y0, int log2n)
+{
+    int n = 1 << log2n;
+    /* merge_idx absent (MaxNumMergeCand == 1); recon = co-located ref */
+    for (int y = 0; y < n; y++)
+        memcpy(e->recon[0] + (y0 + y) * e->recon_stride[0] + x0,
+               e->ref_plane[0] + (y0 + y) * e->recon_stride[0] + x0,
+               (size_t)n);
+    for (int p = 1; p <= 2; p++)
+        for (int y = 0; y < n / 2; y++)
+            memcpy(e->recon[p] + (y0 / 2 + y) * e->recon_stride[p] + x0 / 2,
+                   e->ref_plane[p] + (y0 / 2 + y) * e->recon_stride[p] +
+                       x0 / 2,
+                   (size_t)(n / 2));
+    set_blk(e, e->blk_intra, x0, y0, n, 0);
+    set_blk(e, e->blk_skip, x0, y0, n, 1);
+    set_blk(e, e->blk_cbf_y, x0, y0, n, 0);
+    set_mode_map(e, x0, y0, n, INTRA_DC);   /* MPM neighbor default */
+}
+
 static void encode_cu(struct n265_encoder *e, cabac_t *cb, int x0, int y0,
                       int log2n)
 {
     int n = 1 << log2n;
     int qp_c = n265_chroma_qp(e->qp);
     mark_cu_edges(e, x0, y0, n);
+
+    if (e->slice_type == 1) {
+        int skip = want_skip(e, x0, y0, log2n);
+        int inc = 0;
+        if (x0 > 0)
+            inc += e->blk_skip[(y0 >> 2) * e->map_stride + ((x0 - 1) >> 2)];
+        if (y0 > 0)
+            inc += e->blk_skip[((y0 - 1) >> 2) * e->map_stride + (x0 >> 2)];
+        n265_cabac_bin(cb, &e->ctx[CTX_CU_SKIP + inc], skip);
+        if (skip) {
+            encode_skip_cu(e, cb, x0, y0, log2n);
+            return;
+        }
+        /* pred_mode_flag: only intra CUs besides skip for now */
+        n265_cabac_bin(cb, &e->ctx[CTX_PRED_MODE], 1);
+    }
+    set_blk(e, e->blk_intra, x0, y0, n, 1);
+    set_blk(e, e->blk_skip, x0, y0, n, 0);
 
     /* at min CB size, decide 2Nx2N vs NxN by summed SAD (NxN searched
      * against source refs since PU recon does not exist yet) */
@@ -401,7 +486,8 @@ static void quadtree(struct n265_encoder *e, cabac_t *cb, int x0, int y0,
     int inside = x0 + n <= e->pad_w && y0 + n <= e->pad_h;
 
     if (inside && log2n > MIN_CB_LOG2) {
-        int split = decide_split(e, x0, y0, log2n);
+        int split = want_skip(e, x0, y0, log2n) ? 0
+                    : decide_split(e, x0, y0, log2n);
         int inc = 0;
         if (x0 > 0)
             inc += e->ct_depth[(y0 >> 2) * e->map_stride + ((x0 - 1) >> 2)] >
