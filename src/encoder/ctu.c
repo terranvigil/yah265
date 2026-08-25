@@ -313,6 +313,11 @@ static int mvd_bits(int dx, int dy)
 
 static uint32_t mot_sad(struct n265_encoder *e, int x0, int y0, int log2n,
                         mot_t mot);
+static void est_tt_bits(struct n265_encoder *e, est_state *st, int log2n,
+                        int mode, const tb_ctx *tl, const tb_ctx *tcb,
+                        const tb_ctx *tcr);
+static void set_mot_map(struct n265_encoder *e, int x0, int y0, int n,
+                        mot_t mot);
 
 /* mode-decision lambda 0.85 * 2^((qp-12)/3), Q8 */
 static uint32_t lambda_mode_q8(int qp)
@@ -405,25 +410,197 @@ static void tt_analyze(struct n265_encoder *e, int mode, int x0, int y0,
         return;
     }
 
+    /* <= 32: choose flat TU == CU vs four TUs with sequential intra
+     * prediction (each TU predicts from the recon of the previous ones,
+     * so the split arm commits as it goes and restores on loss) */
     int n = 1 << log2ts;
     mark_cu_edges(e, x0, y0, n);
-    rec_u8(e, 0);   /* split_transform_flag 0 (flat TU) */
+    uint32_t lam = lambda_mode_q8(e->qp);
+    int h = n >> 1;
+    int child_chroma = log2ts > 3;
+
+    /* flat arrangement (no frame commits yet) */
     tb_ctx tcb, tcr;
     tb_analyze(e, 1, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, mot_zero, &tcb);
     tb_analyze(e, 2, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, mot_zero, &tcr);
     tb_analyze(e, 0, x0, y0, log2ts, e->qp, mode, mot_zero, &tb);
-    rec_u8(e, tcb.nz != 0);
-    rec_u8(e, tcr.nz != 0);
-    rec_u8(e, tb.nz != 0);
-    tb_recon(e, 0, x0, y0, log2ts, e->qp, mode, &tb);
-    if (tb.nz)
-        rec_levels(e, tb.level, n * n);
-    tb_recon(e, 1, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, &tcb);
-    if (tcb.nz)
-        rec_levels(e, tcb.level, (n / 2) * (n / 2));
-    tb_recon(e, 2, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, &tcr);
-    if (tcr.nz)
-        rec_levels(e, tcr.level, (n / 2) * (n / 2));
+    tb_make_recon(0, log2ts, e->qp, mode, &tb);
+    tb_make_recon(1, log2ts - 1, qp_c, mode, &tcb);
+    tb_make_recon(2, log2ts - 1, qp_c, mode, &tcr);
+    uint64_t d_flat = tb_ssd(e, 0, x0, y0, log2ts, &tb) +
+        tb_ssd(e, 1, x0 / 2, y0 / 2, log2ts - 1, &tcb) +
+        tb_ssd(e, 2, x0 / 2, y0 / 2, log2ts - 1, &tcr);
+    cabac_ctx_t local[CTX_COUNT];
+    est_state st = { local, 0 };
+    memcpy(local, e->est_ctx, sizeof(local));
+    st.bits = 0;
+    est_tt_bits(e, &st, log2ts, mode, &tb, &tcb, &tcr);
+    uint64_t j_flat = rd_j(d_flat, st.bits, lam);
+
+    /* split arrangement: sequential, committing recon TU by TU */
+    uint8_t save_l[32 * 32], save_c[2][16 * 16];
+    uint8_t split_l[32 * 32], split_c[2][16 * 16];
+    for (int y = 0; y < n; y++)
+        memcpy(save_l + y * n,
+               e->recon[0] + (y0 + y) * e->recon_stride[0] + x0, (size_t)n);
+    for (int c = 0; c < 2; c++)
+        for (int y = 0; y < n / 2; y++)
+            memcpy(save_c[c] + y * (n / 2),
+                   e->recon[c + 1] + (y0 / 2 + y) * e->recon_stride[c + 1] +
+                       x0 / 2,
+                   (size_t)(n / 2));
+
+    static tb_ctx s_l[4], s_c[4][2];
+    uint64_t d_split = 0;
+    int root_cb = 0, root_cr = 0;
+    for (int i = 0; i < 4; i++) {
+        int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
+        tb_analyze(e, 0, x1, y1, log2ts - 1, e->qp, mode, mot_zero,
+                   &s_l[i]);
+        tb_recon(e, 0, x1, y1, log2ts - 1, e->qp, mode, &s_l[i]);
+        d_split += tb_ssd(e, 0, x1, y1, log2ts - 1, &s_l[i]);
+        if (child_chroma) {
+            tb_analyze(e, 1, x1 / 2, y1 / 2, log2ts - 2, qp_c, mode,
+                       mot_zero, &s_c[i][0]);
+            tb_recon(e, 1, x1 / 2, y1 / 2, log2ts - 2, qp_c, mode,
+                     &s_c[i][0]);
+            tb_analyze(e, 2, x1 / 2, y1 / 2, log2ts - 2, qp_c, mode,
+                       mot_zero, &s_c[i][1]);
+            tb_recon(e, 2, x1 / 2, y1 / 2, log2ts - 2, qp_c, mode,
+                     &s_c[i][1]);
+            d_split += tb_ssd(e, 1, x1 / 2, y1 / 2, log2ts - 2,
+                              &s_c[i][0]);
+            d_split += tb_ssd(e, 2, x1 / 2, y1 / 2, log2ts - 2,
+                              &s_c[i][1]);
+            root_cb |= s_c[i][0].nz != 0;
+            root_cr |= s_c[i][1].nz != 0;
+        }
+    }
+    if (!child_chroma) {
+        /* CB8: chroma stays a single 4x4 at the parent, predicted after
+         * the luma children per decode order */
+        tb_analyze(e, 1, x0 / 2, y0 / 2, 2, qp_c, mode, mot_zero,
+                   &s_c[0][0]);
+        tb_recon(e, 1, x0 / 2, y0 / 2, 2, qp_c, mode, &s_c[0][0]);
+        tb_analyze(e, 2, x0 / 2, y0 / 2, 2, qp_c, mode, mot_zero,
+                   &s_c[0][1]);
+        tb_recon(e, 2, x0 / 2, y0 / 2, 2, qp_c, mode, &s_c[0][1]);
+        d_split += tb_ssd(e, 1, x0 / 2, y0 / 2, 2, &s_c[0][0]);
+        d_split += tb_ssd(e, 2, x0 / 2, y0 / 2, 2, &s_c[0][1]);
+        root_cb = s_c[0][0].nz != 0;
+        root_cr = s_c[0][1].nz != 0;
+    }
+    /* keep the split recon, restore the pre-CU state */
+    for (int y = 0; y < n; y++) {
+        memcpy(split_l + y * n,
+               e->recon[0] + (y0 + y) * e->recon_stride[0] + x0, (size_t)n);
+        memcpy(e->recon[0] + (y0 + y) * e->recon_stride[0] + x0,
+               save_l + y * n, (size_t)n);
+    }
+    for (int c = 0; c < 2; c++)
+        for (int y = 0; y < n / 2; y++) {
+            memcpy(split_c[c] + y * (n / 2),
+                   e->recon[c + 1] + (y0 / 2 + y) * e->recon_stride[c + 1] +
+                       x0 / 2,
+                   (size_t)(n / 2));
+            memcpy(e->recon[c + 1] + (y0 / 2 + y) * e->recon_stride[c + 1] +
+                       x0 / 2,
+                   save_c[c] + y * (n / 2), (size_t)(n / 2));
+        }
+
+    memcpy(local, e->est_ctx, sizeof(local));
+    st.bits = 0;
+    {
+        res_ops ops;
+        n265_est_ops(&ops, &st);
+        st.bits += n265_est_bin(&local[CTX_TSPLIT + 5 - log2ts], 1);
+        st.bits += n265_est_bin(&local[CTX_CBF_CHROMA + 0], root_cb);
+        st.bits += n265_est_bin(&local[CTX_CBF_CHROMA + 0], root_cr);
+        for (int i = 0; i < 4; i++) {
+            if (child_chroma) {
+                if (root_cb)
+                    st.bits += n265_est_bin(&local[CTX_CBF_CHROMA + 1],
+                                            s_c[i][0].nz != 0);
+                if (root_cr)
+                    st.bits += n265_est_bin(&local[CTX_CBF_CHROMA + 1],
+                                            s_c[i][1].nz != 0);
+            }
+            st.bits += n265_est_bin(&local[CTX_CBF_LUMA + 0],
+                                    s_l[i].nz != 0);
+            if (s_l[i].nz)
+                n265_residual_coding(&ops, s_l[i].level, log2ts - 1, 0,
+                                     n265_scan_idx(mode, log2ts - 1, 0));
+            if (child_chroma) {
+                int sc = n265_scan_idx(mode, log2ts - 2, 1);
+                if (s_c[i][0].nz)
+                    n265_residual_coding(&ops, s_c[i][0].level, log2ts - 2,
+                                         1, sc);
+                if (s_c[i][1].nz)
+                    n265_residual_coding(&ops, s_c[i][1].level, log2ts - 2,
+                                         2, sc);
+            } else if (i == 3) {
+                int sc = n265_scan_idx(mode, 2, 1);
+                if (root_cb)
+                    n265_residual_coding(&ops, s_c[0][0].level, 2, 1, sc);
+                if (root_cr)
+                    n265_residual_coding(&ops, s_c[0][1].level, 2, 2, sc);
+            }
+        }
+    }
+    uint64_t j_split = rd_j(d_split, st.bits, lam);
+
+    if (j_flat <= j_split) {
+        rec_u8(e, 0);
+        rec_u8(e, tcb.nz != 0);
+        rec_u8(e, tcr.nz != 0);
+        rec_u8(e, tb.nz != 0);
+        tb_commit(e, 0, x0, y0, log2ts, &tb);
+        if (tb.nz)
+            rec_levels(e, tb.level, n * n);
+        tb_commit(e, 1, x0 / 2, y0 / 2, log2ts - 1, &tcb);
+        if (tcb.nz)
+            rec_levels(e, tcb.level, (n / 2) * (n / 2));
+        tb_commit(e, 2, x0 / 2, y0 / 2, log2ts - 1, &tcr);
+        if (tcr.nz)
+            rec_levels(e, tcr.level, (n / 2) * (n / 2));
+        return;
+    }
+
+    /* commit split: blit the saved split recon and write records */
+    for (int y = 0; y < n; y++)
+        memcpy(e->recon[0] + (y0 + y) * e->recon_stride[0] + x0,
+               split_l + y * n, (size_t)n);
+    for (int c = 0; c < 2; c++)
+        for (int y = 0; y < n / 2; y++)
+            memcpy(e->recon[c + 1] + (y0 / 2 + y) * e->recon_stride[c + 1] +
+                       x0 / 2,
+                   split_c[c] + y * (n / 2), (size_t)(n / 2));
+    rec_u8(e, 1);
+    rec_u8(e, (unsigned)root_cb);
+    rec_u8(e, (unsigned)root_cr);
+    for (int i = 0; i < 4; i++) {
+        int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
+        mark_cu_edges(e, x1, y1, h);
+        set_blk(e, e->blk_cbf_y, x1, y1, h, s_l[i].nz != 0);
+        if (child_chroma) {
+            rec_u8(e, s_c[i][0].nz != 0);
+            rec_u8(e, s_c[i][1].nz != 0);
+        }
+        rec_u8(e, s_l[i].nz != 0);
+        if (s_l[i].nz)
+            rec_levels(e, s_l[i].level, h * h);
+        if (child_chroma) {
+            if (s_c[i][0].nz)
+                rec_levels(e, s_c[i][0].level, (h / 2) * (h / 2));
+            if (s_c[i][1].nz)
+                rec_levels(e, s_c[i][1].level, (h / 2) * (h / 2));
+        } else if (i == 3) {
+            if (root_cb)
+                rec_levels(e, s_c[0][0].level, 16);
+            if (root_cr)
+                rec_levels(e, s_c[0][1].level, 16);
+        }
+    }
 }
 
 static void set_mot_map(struct n265_encoder *e, int x0, int y0, int n,
