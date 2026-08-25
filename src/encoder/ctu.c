@@ -238,12 +238,9 @@ static int search_luma_mode_k(struct n265_encoder *e, int x0, int y0,
         const uint8_t *r = n265_use_filtered_refs(mode, log2n, 0) ? refs_f
                                                                   : refs;
         n265_intra_pred(pred, n, r, log2n, mode, 0);
-        uint32_t cost = 0;
-        for (int y = 0; y < n; y++)
-            for (int x = 0; x < n; x++) {
-                int d = src[y * e->pad_stride[0] + x] - pred[y * n + x];
-                cost += (uint32_t)(d < 0 ? -d : d);
-            }
+        /* rank by SATD (post-transform bits proxy); the reported cost
+         * stays SAD-domain for the callers that compare across metrics */
+        uint32_t cost = n265_satd(src, e->pad_stride[0], pred, n, n);
         if (cost < c3[0]) {
             c3[2] = c3[1]; m3[2] = m3[1];
             c3[1] = c3[0]; m3[1] = m3[0];
@@ -262,8 +259,18 @@ static int search_luma_mode_k(struct n265_encoder *e, int x0, int y0,
     if (top3)
         for (int i = 0; i < 3; i++)
             top3[i] = m3[i];
-    if (cost_out)
-        *cost_out = best_cost;
+    if (cost_out) {
+        const uint8_t *r = n265_use_filtered_refs(best_mode, log2n, 0)
+                               ? refs_f : refs;
+        n265_intra_pred(pred, n, r, log2n, best_mode, 0);
+        uint32_t sad = 0;
+        for (int y = 0; y < n; y++)
+            for (int x = 0; x < n; x++) {
+                int d = src[y * e->pad_stride[0] + x] - pred[y * n + x];
+                sad += (uint32_t)(d < 0 ? -d : d);
+            }
+        *cost_out = sad;
+    }
     static int hist[35], armed = -1;
     if (armed < 0)
         armed = getenv("N265_MODE_HIST") != NULL;

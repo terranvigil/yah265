@@ -116,6 +116,25 @@ void n265_pred_dc(uint8_t *dst, int dst_stride, const uint8_t *refs,
 void n265_filter_refs(uint8_t *out, const uint8_t *in, int log2n)
 {
     int n = 1 << log2n;
+    /* strong smoothing (8.4.4.2.3, enabled in the SPS): for 32x32 luma
+     * with near-linear boundaries, the references are rebuilt by
+     * bilinear interpolation of the three corners */
+    if (n == 32) {
+        int tl = in[0], tr = in[2 * n], bl = in[4 * n];
+        int thr = 1 << (8 - 5);
+        int flat_top = abs_int(tl + tr - 2 * in[n]) < thr;
+        int flat_left = abs_int(tl + bl - 2 * in[2 * n + n]) < thr;
+        if (flat_top && flat_left) {
+            out[0] = (uint8_t)tl;
+            for (int i = 1; i <= 2 * n; i++)
+                out[i] = (uint8_t)(((2 * n - i) * tl + i * tr + n) /
+                                   (2 * n));
+            for (int i = 1; i <= 2 * n; i++)
+                out[2 * n + i] = (uint8_t)(((2 * n - i) * tl + i * bl + n) /
+                                           (2 * n));
+            return;
+        }
+    }
     /* spec filters along the contiguous boundary left-bottom -> corner ->
      * top-right; our layout keeps corner at 0, top at 1..2n, left at
      * 2n+1..4n. Neighbors along the boundary of index i in the top row are
