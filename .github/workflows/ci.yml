@@ -1,0 +1,43 @@
+name: ci
+on: [push, pull_request]
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y meson ninja-build ffmpeg libde265-examples
+      - name: build + unit + provenance
+        run: make test
+      - name: conformance (two-decoder recon gate)
+        run: make conformance
+      - name: asan/ubsan
+        run: make asan
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: deps
+        run: brew install meson ninja ffmpeg
+      - name: cache dec265
+        id: cache-dec265
+        uses: actions/cache@v4
+        with:
+          path: dec265-bin
+          key: dec265-${{ runner.os }}-v1.1.1
+      - name: build dec265
+        if: steps.cache-dec265.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch v1.1.1 \
+            https://github.com/strukturag/libde265.git de265-src
+          cmake -S de265-src -B de265-build -DCMAKE_BUILD_TYPE=Release
+          cmake --build de265-build --target dec265 -j 3
+          mkdir -p dec265-bin && cp de265-build/dec265/dec265 dec265-bin/
+      - name: build + unit + provenance
+        run: make test
+      - name: conformance (two-decoder recon gate)
+        run: DEC265=$PWD/dec265-bin/dec265 make conformance
