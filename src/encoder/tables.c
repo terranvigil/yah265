@@ -43,6 +43,8 @@ const uint8_t n265_ctx_init_i[CTX_COUNT] = {
     154, 154, 154,
     /* pred_mode_flag, merge_flag, merge_idx, rqt_root_cbf (unused in I) */
     154, 154, 154, 154,
+    /* abs_mvd_greater0/1, mvp_l0_flag (unused in I) */
+    154, 154, 154,
 };
 
 /* initType 1: P slices with cabac_init_flag 0 */
@@ -82,6 +84,8 @@ const uint8_t n265_ctx_init_p[CTX_COUNT] = {
     197, 185, 201,
     /* pred_mode_flag, merge_flag, merge_idx, rqt_root_cbf */
     149, 110, 122, 79,
+    /* abs_mvd_greater0/1, mvp_l0_flag */
+    140, 198, 168,
 };
 
 /* 9.3.4.2.5, ctxIdxMap for 4x4 TBs */

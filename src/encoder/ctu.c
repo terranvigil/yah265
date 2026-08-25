@@ -11,6 +11,7 @@
 
 #include "encoder/encoder.h"
 #include "encoder/intra.h"
+#include "encoder/mv.h"
 #include "encoder/records.h"
 #include "encoder/residual.h"
 #include "encoder/transform.h"
@@ -61,8 +62,20 @@ typedef struct tb_ctx {
     int nz;
 } tb_ctx;
 
+/* MC prediction at an even-full-pel MV into dst (n x n) */
+static void mc_pred(struct n265_encoder *e, int c_idx, int x0, int y0,
+                    int n, mv_t mv, uint8_t *dst)
+{
+    int rs = e->ref_stride[c_idx];
+    int dx = c_idx ? mv.x >> 3 : mv.x >> 2;
+    int dy = c_idx ? mv.y >> 3 : mv.y >> 2;
+    const uint8_t *rp = e->ref_plane[c_idx] + (y0 + dy) * rs + x0 + dx;
+    for (int y = 0; y < n; y++)
+        memcpy(dst + y * n, rp + y * rs, (size_t)n);
+}
+
 static void tb_analyze(struct n265_encoder *e, int c_idx, int x0, int y0,
-                       int log2n, int qp, int mode, tb_ctx *tb)
+                       int log2n, int qp, int mode, mv_t mv, tb_ctx *tb)
 {
     int inter = mode == MODE_INTER;
     int use_dst = !inter && c_idx == 0 && log2n == 2;
@@ -75,9 +88,7 @@ static void tb_analyze(struct n265_encoder *e, int c_idx, int x0, int y0,
     int ctb_log2 = c_idx ? e->ctb_log2 - 1 : e->ctb_log2;
 
     if (inter) {
-        const uint8_t *rp = e->ref_plane[c_idx] + y0 * stride + x0;
-        for (int y = 0; y < n; y++)
-            memcpy(tb->pred + y * n, rp + y * stride, (size_t)n);
+        mc_pred(e, c_idx, x0, y0, n, mv, tb->pred);
     } else {
         uint8_t refs[4 * 32 + 1], refs_f[4 * 32 + 1];
         n265_intra_refs(refs, recon, stride, x0, y0, log2n, pic_w, pic_h,
@@ -124,10 +135,12 @@ static void tb_recon(struct n265_encoder *e, int c_idx, int x0, int y0,
         set_blk(e, e->blk_cbf_y, x0, y0, n < 4 ? 4 : n, tb->nz != 0);
 }
 
+static const mv_t mv_zero;
+
 static int tb_full(struct n265_encoder *e, int c_idx, int x0, int y0,
                    int log2n, int qp, int mode, tb_ctx *tb)
 {
-    tb_analyze(e, c_idx, x0, y0, log2n, qp, mode, tb);
+    tb_analyze(e, c_idx, x0, y0, log2n, qp, mode, mv_zero, tb);
     tb_recon(e, c_idx, x0, y0, log2n, qp, mode, tb);
     return tb->nz != 0;
 }
@@ -178,31 +191,26 @@ static int search_luma_mode(struct n265_encoder *e, int x0, int y0, int log2n,
     return best_mode;
 }
 
-static uint32_t skip_sad(struct n265_encoder *e, int x0, int y0, int n)
+static int skip_thr8(void)
 {
-    const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
-    const uint8_t *ref = e->ref_plane[0] + y0 * e->recon_stride[0] + x0;
-    uint32_t sad = 0;
-    for (int y = 0; y < n; y++)
-        for (int x = 0; x < n; x++) {
-            int d = src[y * e->pad_stride[0] + x] -
-                    ref[y * e->recon_stride[0] + x];
-            sad += (uint32_t)(d < 0 ? -d : d);
-        }
-    return sad;
+    static int thr8 = -1;
+    if (thr8 < 0) {
+        const char *v = getenv("N265_SKIP_THR");
+        thr8 = v ? atoi(v) : 10;
+    }
+    return thr8;
 }
 
+/* strict static-region check at the merge candidate: used by the split
+ * gate; the CU decision proper re-derives */
 static int want_skip(struct n265_encoder *e, int x0, int y0, int log2n)
 {
     if (e->slice_type != 1)
         return 0;
     int n = 1 << log2n;
-    static int thr8 = -1;
-    if (thr8 < 0) {
-        const char *v = getenv("N265_SKIP_THR");
-        thr8 = v ? atoi(v) : 8 + e->qp / 4;
-    }
-    return skip_sad(e, x0, y0, n) * 8u <= (uint32_t)(n * n * thr8);
+    mv_t cand = n265_merge_cand0(e, x0, y0, n, n);
+    return n265_mc_sad(e, x0, y0, log2n, cand) * 8u <=
+           (uint32_t)(n * n * (skip_thr8() + e->qp / 4));
 }
 
 /* transform tree for a 2Nx2N CU (intra or inter): records, per node,
@@ -229,8 +237,10 @@ static void tt_analyze(struct n265_encoder *e, int mode, int x0, int y0,
         for (int i = 0; i < 4; i++) {
             int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
             mark_cu_edges(e, x1, y1, h);
-            tb_analyze(e, 1, x1 / 2, y1 / 2, log2ts - 2, qp_c, mode, &tcb);
-            tb_analyze(e, 2, x1 / 2, y1 / 2, log2ts - 2, qp_c, mode, &tcr);
+            tb_analyze(e, 1, x1 / 2, y1 / 2, log2ts - 2, qp_c, mode,
+                       mv_zero, &tcb);
+            tb_analyze(e, 2, x1 / 2, y1 / 2, log2ts - 2, qp_c, mode,
+                       mv_zero, &tcr);
             root_cb |= tcb.nz != 0;
             root_cr |= tcr.nz != 0;
             rec_u8(e, tcb.nz != 0);
@@ -254,9 +264,9 @@ static void tt_analyze(struct n265_encoder *e, int mode, int x0, int y0,
     int n = 1 << log2ts;
     mark_cu_edges(e, x0, y0, n);
     tb_ctx tcb, tcr;
-    tb_analyze(e, 1, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, &tcb);
-    tb_analyze(e, 2, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, &tcr);
-    tb_analyze(e, 0, x0, y0, log2ts, e->qp, mode, &tb);
+    tb_analyze(e, 1, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, mv_zero, &tcb);
+    tb_analyze(e, 2, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, mv_zero, &tcr);
+    tb_analyze(e, 0, x0, y0, log2ts, e->qp, mode, mv_zero, &tb);
     rec_u8(e, tcb.nz != 0);
     rec_u8(e, tcr.nz != 0);
     rec_u8(e, tb.nz != 0);
@@ -271,22 +281,34 @@ static void tt_analyze(struct n265_encoder *e, int mode, int x0, int y0,
         rec_levels(e, tcr.level, (n / 2) * (n / 2));
 }
 
-static void skip_cu(struct n265_encoder *e, int x0, int y0, int log2n)
+static void set_mv_map(struct n265_encoder *e, int x0, int y0, int n,
+                       mv_t mv)
+{
+    for (int y = 0; y < n; y += 4)
+        for (int x = 0; x < n; x += 4) {
+            int m = ((y0 + y) >> 2) * e->map_stride + ((x0 + x) >> 2);
+            e->blk_mv[2 * m] = mv.x;
+            e->blk_mv[2 * m + 1] = mv.y;
+        }
+}
+
+static void skip_cu(struct n265_encoder *e, int x0, int y0, int log2n,
+                    mv_t mv)
 {
     int n = 1 << log2n;
-    for (int y = 0; y < n; y++)
-        memcpy(e->recon[0] + (y0 + y) * e->recon_stride[0] + x0,
-               e->ref_plane[0] + (y0 + y) * e->recon_stride[0] + x0,
-               (size_t)n);
-    for (int p = 1; p <= 2; p++)
-        for (int y = 0; y < n / 2; y++)
-            memcpy(e->recon[p] + (y0 / 2 + y) * e->recon_stride[p] + x0 / 2,
-                   e->ref_plane[p] + (y0 / 2 + y) * e->recon_stride[p] +
-                       x0 / 2,
-                   (size_t)(n / 2));
+    uint8_t pred[64 * 64];
+    for (int c = 0; c < 3; c++) {
+        int sh = c ? 1 : 0;
+        mc_pred(e, c, x0 >> sh, y0 >> sh, n >> sh, mv, pred);
+        for (int y = 0; y < n >> sh; y++)
+            memcpy(e->recon[c] + ((y0 >> sh) + y) * e->recon_stride[c] +
+                       (x0 >> sh),
+                   pred + y * (n >> sh), (size_t)(n >> sh));
+    }
     set_blk(e, e->blk_intra, x0, y0, n, 0);
     set_blk(e, e->blk_skip, x0, y0, n, 1);
     set_blk(e, e->blk_cbf_y, x0, y0, n, 0);
+    set_mv_map(e, x0, y0, n, mv);
     set_mode_map(e, x0, y0, n, INTRA_DC);
 }
 
@@ -297,49 +319,97 @@ static void analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
     mark_cu_edges(e, x0, y0, n);
 
     if (e->slice_type == 1) {
-        int skip = 0, inter = 0;
-        static tb_ctx tl, tcb, tcr;
-        if (want_skip(e, x0, y0, log2n)) {
-            skip = 1;
-        } else if (log2n <= 5) {
+        static tb_ctx tl, tcb, tcr;      /* single-thread only; row_ctx at T1 */
+        mv_t cand = n265_merge_cand0(e, x0, y0, n, n);
+        uint32_t cand_sad = n265_mc_sad(e, x0, y0, log2n, cand);
+
+        /* strict static skip at the merge candidate */
+        if (cand_sad * 8u <=
+            (uint32_t)(n * n * (skip_thr8() + e->qp / 4))) {
+            skip_cu(e, x0, y0, log2n, cand);
+            return;
+        }
+
+        if (log2n <= 5) {
             uint32_t intra_cost;
             search_luma_mode(e, x0, y0, log2n, e->pad_plane[0],
                              &intra_cost);
-            if (skip_sad(e, x0, y0, n) <= intra_cost) {
-                tb_analyze(e, 0, x0, y0, log2n, e->qp, MODE_INTER, &tl);
-                tb_analyze(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c,
-                           MODE_INTER, &tcb);
-                tb_analyze(e, 2, x0 / 2, y0 / 2, log2n - 1, qp_c,
-                           MODE_INTER, &tcr);
-                if (!tl.nz && !tcb.nz && !tcr.nz)
-                    skip = 1;
-                else
-                    inter = 1;
+            mv_t mvp[2], me_mv;
+            n265_amvp(e, x0, y0, n, n, mvp);
+            uint32_t me_sad = n265_me_search(e, x0, y0, log2n, mvp[0],
+                                             &me_mv);
+            /* prefer merge when it is nearly as good (far cheaper bits) */
+            int merge = (me_mv.x == cand.x && me_mv.y == cand.y) ||
+                        cand_sad <= me_sad + (uint32_t)(n * n / 8);
+            if (getenv("N265_NO_AMVP"))
+                merge = 1;
+            if (getenv("N265_ZERO_MV_ONLY")) {
+                merge = 1;
+                cand.x = cand.y = 0;
+                cand_sad = n265_mc_sad(e, x0, y0, log2n, cand);
             }
-        }
-        if (skip) {
-            skip_cu(e, x0, y0, log2n);
-            return;
-        }
-        if (inter) {
-            set_blk(e, e->blk_intra, x0, y0, n, 0);
-            set_blk(e, e->blk_skip, x0, y0, n, 0);
-            set_mode_map(e, x0, y0, n, INTRA_DC);
-            rec_u8(e, tcb.nz != 0);
-            rec_u8(e, tcr.nz != 0);
-            rec_u8(e, tl.nz != 0);
-            tb_recon(e, 0, x0, y0, log2n, e->qp, MODE_INTER, &tl);
-            if (tl.nz)
-                rec_levels(e, tl.level, n * n);
-            tb_recon(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c, MODE_INTER,
-                     &tcb);
-            if (tcb.nz)
-                rec_levels(e, tcb.level, (n / 2) * (n / 2));
-            tb_recon(e, 2, x0 / 2, y0 / 2, log2n - 1, qp_c, MODE_INTER,
-                     &tcr);
-            if (tcr.nz)
-                rec_levels(e, tcr.level, (n / 2) * (n / 2));
-            return;
+            mv_t mv = merge ? cand : me_mv;
+            uint32_t inter_sad = merge ? cand_sad : me_sad;
+
+            if (inter_sad <= intra_cost) {
+                tb_analyze(e, 0, x0, y0, log2n, e->qp, MODE_INTER, mv, &tl);
+                tb_analyze(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c,
+                           MODE_INTER, mv, &tcb);
+                tb_analyze(e, 2, x0 / 2, y0 / 2, log2n - 1, qp_c,
+                           MODE_INTER, mv, &tcr);
+                int any = tl.nz || tcb.nz || tcr.nz;
+                if (merge && !any) {
+                    skip_cu(e, x0, y0, log2n, mv);
+                    return;
+                }
+                set_blk(e, e->blk_intra, x0, y0, n, 0);
+                set_blk(e, e->blk_skip, x0, y0, n, 0);
+                set_mv_map(e, x0, y0, n, mv);
+                set_mode_map(e, x0, y0, n, INTRA_DC);
+                /* record: flags, then mvd for the AMVP path */
+                int mvp_idx = 0;
+                if (!merge && !getenv("N265_MVP0")) {
+                    int c0 = (mv.x - mvp[0].x < 0 ? mvp[0].x - mv.x
+                                                  : mv.x - mvp[0].x) +
+                             (mv.y - mvp[0].y < 0 ? mvp[0].y - mv.y
+                                                  : mv.y - mvp[0].y);
+                    int c1 = (mv.x - mvp[1].x < 0 ? mvp[1].x - mv.x
+                                                  : mv.x - mvp[1].x) +
+                             (mv.y - mvp[1].y < 0 ? mvp[1].y - mv.y
+                                                  : mv.y - mvp[1].y);
+                    mvp_idx = c1 < c0;
+                }
+                rec_u8(e, (unsigned)(merge | (mvp_idx << 1) | ((any != 0) << 2)));
+                if (!merge) {
+                    int16_t mvd[2] = { (int16_t)(mv.x - mvp[mvp_idx].x),
+                                       (int16_t)(mv.y - mvp[mvp_idx].y) };
+                    rec_levels(e, mvd, 2);
+                }
+                if (any) {
+                    rec_u8(e, tcb.nz != 0);
+                    rec_u8(e, tcr.nz != 0);
+                    rec_u8(e, tl.nz != 0);
+                    tb_recon(e, 0, x0, y0, log2n, e->qp, MODE_INTER, &tl);
+                    if (tl.nz)
+                        rec_levels(e, tl.level, n * n);
+                    tb_recon(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c,
+                             MODE_INTER, &tcb);
+                    if (tcb.nz)
+                        rec_levels(e, tcb.level, (n / 2) * (n / 2));
+                    tb_recon(e, 2, x0 / 2, y0 / 2, log2n - 1, qp_c,
+                             MODE_INTER, &tcr);
+                    if (tcr.nz)
+                        rec_levels(e, tcr.level, (n / 2) * (n / 2));
+                } else {
+                    /* AMVP, rqt_root_cbf 0: prediction is the recon */
+                    tb_recon(e, 0, x0, y0, log2n, e->qp, MODE_INTER, &tl);
+                    tb_recon(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c,
+                             MODE_INTER, &tcb);
+                    tb_recon(e, 2, x0 / 2, y0 / 2, log2n - 1, qp_c,
+                             MODE_INTER, &tcr);
+                }
+                return;
+            }
         }
     }
 
@@ -384,8 +454,8 @@ static void analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
 
     /* NxN: chroma at the parent, four 4x4 luma TUs with DST */
     tb_ctx tcb, tcr, tl;
-    tb_analyze(e, 1, x0 / 2, y0 / 2, 2, qp_c, modes[0], &tcb);
-    tb_analyze(e, 2, x0 / 2, y0 / 2, 2, qp_c, modes[0], &tcr);
+    tb_analyze(e, 1, x0 / 2, y0 / 2, 2, qp_c, modes[0], mv_zero, &tcb);
+    tb_analyze(e, 2, x0 / 2, y0 / 2, 2, qp_c, modes[0], mv_zero, &tcr);
     rec_u8(e, tcb.nz != 0);
     rec_u8(e, tcr.nz != 0);
     for (int i = 0; i < 4; i++) {

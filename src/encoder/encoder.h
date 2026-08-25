@@ -36,7 +36,11 @@ struct n265_encoder {
     int pad_stride[3];
     uint8_t *recon[3];      /* reconstruction planes (padded dims)   */
     int recon_stride[3];
-    uint8_t *ref_plane[3];  /* previous frame, fully filtered (DPB)  */
+    uint8_t *ref_base[3];   /* padded allocation                     */
+    uint8_t *ref_plane[3];  /* previous frame, fully filtered, origin
+                             * inside a PAD-sample border (MC may read
+                             * outside the picture)                  */
+    int ref_stride[3];
     int ref_valid;
 
     uint8_t *ct_depth;      /* 4x4-granularity coding-tree depth map */
@@ -45,6 +49,7 @@ struct n265_encoder {
     uint8_t *blk_intra;     /* per 4x4: CU coded intra               */
     uint8_t *blk_skip;      /* per 4x4: cu_skip_flag (ctx + bS)      */
     uint8_t *blk_cbf_y;     /* per 4x4: luma TB had coefficients     */
+    int16_t *blk_mv;        /* per 4x4: (x,y) quarter-pel MV pairs   */
     int map_stride;         /* in 4x4 units                          */
 
     struct sao_params *sao; /* per-CTB SAO decisions                 */
@@ -79,7 +84,11 @@ void n265_analyze_ctu(struct n265_encoder *e, int ctb_x, int ctb_y);
 void n265_entropy_ctu(struct n265_encoder *e, cabac_t *cb, int ctb_x,
                       int ctb_y);
 
-#define MODE_INTER (-1)     /* mode value selecting zero-MV MC prediction */
+#define MODE_INTER (-1)     /* mode value selecting MC prediction */
+
+/* z-scan decode-order key (intra.c) */
+uint64_t n265_zorder(int x, int y, int pic_w, int ctb_log2);
+#define N265_REF_PAD 64     /* reference plane border, luma samples */
 
 /* encoder.c, shared with ctu.c */
 void n265_encoder_set_dump(n265_encoder *e, FILE *f);

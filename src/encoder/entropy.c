@@ -76,6 +76,41 @@ static int map_at(struct n265_encoder *e, const uint8_t *map, int x, int y)
     return map[(y >> 2) * e->map_stride + (x >> 2)];
 }
 
+/* EG1, CABAC ones-first bypass form */
+static void bypass_eg1(cabac_t *cb, int v)
+{
+    int b = 1;
+    while (v >= (1 << b)) {
+        n265_cabac_bypass(cb, 1);
+        v -= 1 << b;
+        b++;
+    }
+    n265_cabac_bypass(cb, 0);
+    n265_cabac_bypass_bits(cb, (uint32_t)v, b);
+}
+
+/* mvd_coding (7.3.8.9) */
+static void write_mvd(struct n265_encoder *e, cabac_t *cb, int mx, int my)
+{
+    int ax = mx < 0 ? -mx : mx, ay = my < 0 ? -my : my;
+    n265_cabac_bin(cb, &e->ctx[CTX_MVD_GR0], ax > 0);
+    n265_cabac_bin(cb, &e->ctx[CTX_MVD_GR0], ay > 0);
+    if (ax > 0)
+        n265_cabac_bin(cb, &e->ctx[CTX_MVD_GR1], ax > 1);
+    if (ay > 0)
+        n265_cabac_bin(cb, &e->ctx[CTX_MVD_GR1], ay > 1);
+    if (ax > 0) {
+        if (ax > 1)
+            bypass_eg1(cb, ax - 2);
+        n265_cabac_bypass(cb, mx < 0);
+    }
+    if (ay > 0) {
+        if (ay > 1)
+            bypass_eg1(cb, ay - 2);
+        n265_cabac_bypass(cb, my < 0);
+    }
+}
+
 static void replay_residual(struct n265_encoder *e, cabac_t *cb, int c_idx,
                             int log2n, int mode)
 {
@@ -150,7 +185,19 @@ static void replay_cu(struct n265_encoder *e, cabac_t *cb, int x0, int y0,
         n265_cabac_bin(cb, &e->ctx[CTX_PRED_MODE], is_intra);
         if (!is_intra) {
             n265_cabac_bin(cb, &e->ctx[CTX_PART_MODE], 1);  /* 2Nx2N */
-            n265_cabac_bin(cb, &e->ctx[CTX_MERGE_FLAG], 1);
+            unsigned flags = rd_u8(e);
+            int merge = flags & 1;
+            int mvp_idx = (flags >> 1) & 1;
+            int root_cbf = (flags >> 2) & 1;
+            n265_cabac_bin(cb, &e->ctx[CTX_MERGE_FLAG], merge);
+            if (!merge) {
+                const int16_t *mvd = rd_levels(e, 2);
+                write_mvd(e, cb, mvd[0], mvd[1]);
+                n265_cabac_bin(cb, &e->ctx[CTX_MVP_FLAG], mvp_idx);
+                n265_cabac_bin(cb, &e->ctx[CTX_RQT_ROOT_CBF], root_cbf);
+                if (!root_cbf)
+                    return;
+            }
             replay_tt(e, cb, MODE_INTER, x0, y0, log2n);
             return;
         }

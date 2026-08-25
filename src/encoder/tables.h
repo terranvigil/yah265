@@ -30,7 +30,10 @@ enum {
     CTX_MERGE_FLAG = 130,   /* 1 */
     CTX_MERGE_IDX = 131,    /* 1 */
     CTX_RQT_ROOT_CBF = 132, /* 1 */
-    CTX_COUNT = 133,
+    CTX_MVD_GR0 = 133,      /* 1 */
+    CTX_MVD_GR1 = 134,      /* 1 */
+    CTX_MVP_FLAG = 135,     /* 1 */
+    CTX_COUNT = 136,
 };
 
 /* initType 0 (I slices) and initType 1 (P slices, cabac_init_flag 0) */

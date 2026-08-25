@@ -1,7 +1,7 @@
 /*
- * Deblocking filter (ITU-T H.265 8.7.2). All-intra simplifications: every
- * filtered edge has bS 2, QP is constant per slice for now (the per-4x4
- * hooks arrive with cu_qp_delta).
+ * Deblocking filter (ITU-T H.265 8.7.2). QP is constant per slice for
+ * now (the per-4x4 hooks arrive with cu_qp_delta); single reference, so
+ * the different-ref bS leg cannot fire yet.
  * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
@@ -133,6 +133,10 @@ static int seg_bs(const struct n265_encoder *e, int x, int y, int vertical)
     if (e->blk_intra[pi] || e->blk_intra[qi])
         return 2;
     if (e->blk_cbf_y[pi] || e->blk_cbf_y[qi])
+        return 1;
+    int dx = e->blk_mv[2 * pi] - e->blk_mv[2 * qi];
+    int dy = e->blk_mv[2 * pi + 1] - e->blk_mv[2 * qi + 1];
+    if (dx <= -4 || dx >= 4 || dy <= -4 || dy >= 4)
         return 1;
     return 0;
 }

@@ -87,9 +87,12 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         e->recon_stride[i] = w;
         e->pad_plane[i] = malloc((size_t)w * h);
         e->recon[i] = malloc((size_t)w * h);
-        e->ref_plane[i] = malloc((size_t)w * h);
-        if (!e->pad_plane[i] || !e->recon[i] || !e->ref_plane[i])
+        int pad = i ? N265_REF_PAD / 2 : N265_REF_PAD;
+        e->ref_stride[i] = w + 2 * pad;
+        e->ref_base[i] = malloc((size_t)e->ref_stride[i] * (h + 2 * pad));
+        if (!e->pad_plane[i] || !e->recon[i] || !e->ref_base[i])
             goto fail;
+        e->ref_plane[i] = e->ref_base[i] + pad * e->ref_stride[i] + pad;
     }
     e->map_stride = e->pad_w >> 2;
     e->ct_depth = calloc((size_t)e->map_stride * (e->pad_h >> 2), 1);
@@ -98,7 +101,9 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->blk_intra = calloc((size_t)e->map_stride * (e->pad_h >> 2), 1);
     e->blk_skip = calloc((size_t)e->map_stride * (e->pad_h >> 2), 1);
     e->blk_cbf_y = calloc((size_t)e->map_stride * (e->pad_h >> 2), 1);
-    if (!e->blk_intra || !e->blk_skip || !e->blk_cbf_y)
+    e->blk_mv = calloc((size_t)e->map_stride * (e->pad_h >> 2) * 2,
+                       sizeof(int16_t));
+    if (!e->blk_intra || !e->blk_skip || !e->blk_cbf_y || !e->blk_mv)
         goto fail;
     e->sao = calloc((size_t)e->ctb_cols * e->ctb_rows, sizeof(sao_params));
     for (int i = 0; i < 3; i++) {
@@ -140,10 +145,11 @@ void n265_encoder_close(n265_encoder *e)
     free(e->blk_intra);
     free(e->blk_skip);
     free(e->blk_cbf_y);
+    free(e->blk_mv);
     free(e->sao);
     for (int i = 0; i < 3; i++) {
         free(e->sao_tmp[i]);
-        free(e->ref_plane[i]);
+        free(e->ref_base[i]);
     }
     bs_free(&e->rbsp);
     free(e->rec_buf);
@@ -276,6 +282,8 @@ int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
         memset(e->blk_intra, 0, (size_t)e->map_stride * (e->pad_h >> 2));
         memset(e->blk_skip, 0, (size_t)e->map_stride * (e->pad_h >> 2));
         memset(e->blk_cbf_y, 0, (size_t)e->map_stride * (e->pad_h >> 2));
+        memset(e->blk_mv, 0,
+               (size_t)e->map_stride * (e->pad_h >> 2) * 2 * sizeof(int16_t));
         e->rec_len = 0;
         e->rec_pos = 0;
         for (int i = 0; i <= last; i++)
@@ -309,11 +317,25 @@ int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
             &count);
 
     if (e->mode != N265_MODE_PCM) {
-        /* the filtered picture becomes the reference for the next frame */
+        /* the filtered picture becomes the reference for the next frame,
+         * border-extended so MC may read outside the picture */
         for (int i = 0; i < 3; i++) {
             int w = i ? e->pad_w / 2 : e->pad_w;
             int h = i ? e->pad_h / 2 : e->pad_h;
-            memcpy(e->ref_plane[i], e->recon[i], (size_t)w * h);
+            int pad = i ? N265_REF_PAD / 2 : N265_REF_PAD;
+            int rs = e->ref_stride[i];
+            for (int y = 0; y < h; y++) {
+                uint8_t *d = e->ref_plane[i] + y * rs;
+                memcpy(d, e->recon[i] + y * e->recon_stride[i], (size_t)w);
+                memset(d - pad, d[0], (size_t)pad);
+                memset(d + w, d[w - 1], (size_t)pad);
+            }
+            for (int y = 1; y <= pad; y++) {
+                memcpy(e->ref_plane[i] - y * rs - pad,
+                       e->ref_plane[i] - pad, (size_t)rs);
+                memcpy(e->ref_plane[i] + (h - 1 + y) * rs - pad,
+                       e->ref_plane[i] + (h - 1) * rs - pad, (size_t)rs);
+            }
         }
         e->ref_valid = 1;
     }

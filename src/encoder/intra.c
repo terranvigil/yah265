@@ -12,7 +12,8 @@ static inline int abs_int(int v) { return v < 0 ? -v : v; }
 /* z-scan order key at 4x4 granularity: CTB raster index in the high bits,
  * interleaved in-CTB coordinates below. pic_w is the padded width the CTB
  * grid spans. */
-static uint64_t zorder(int x, int y, int pic_w, int ctb_log2)
+uint64_t n265_zorder(int x, int y, int pic_w, int ctb_log2);
+uint64_t n265_zorder(int x, int y, int pic_w, int ctb_log2)
 {
     int ctb_cols = (pic_w + (1 << ctb_log2) - 1) >> ctb_log2;
     int cx = x >> ctb_log2, cy = y >> ctb_log2;
@@ -30,7 +31,7 @@ void n265_intra_refs(uint8_t *refs, const uint8_t *recon, int stride,
 {
     int n = 1 << log2n;
     int total = 4 * n + 1;
-    uint64_t cur = zorder(x0, y0, pic_w, ctb_log2);
+    uint64_t cur = n265_zorder(x0, y0, pic_w, ctb_log2);
     /* gather with availability; -1 marks unavailable */
     int val[4 * 32 + 1];
 
@@ -44,7 +45,7 @@ void n265_intra_refs(uint8_t *refs, const uint8_t *recon, int stride,
             x = x0 - 1; y = y0 + (i - 2 * n - 1);
         }
         int ok = x >= 0 && y >= 0 && x < pic_w && y < pic_h &&
-                 zorder(x, y, pic_w, ctb_log2) < cur;
+                 n265_zorder(x, y, pic_w, ctb_log2) < cur;
         val[i] = ok ? recon[y * stride + x] : -1;
     }
 
