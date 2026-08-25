@@ -16,13 +16,19 @@ DEC265=${DEC265:-}
 FAST=0
 [ "${1:-}" = "--fast" ] && FAST=1
 
-# find dec265: env, PATH, then the sibling libde265 build
+# find dec265: env, PATH (Debian ships it as libde265-dec265), then the
+# sibling libde265 build
 if [ -z "$DEC265" ]; then
-    if command -v dec265 >/dev/null 2>&1; then
-        DEC265=dec265
-    elif [ -x ../libde265/build/dec265/dec265 ]; then
+    for cand in dec265 libde265-dec265; do
+        if command -v "$cand" >/dev/null 2>&1; then
+            DEC265=$cand
+            break
+        fi
+    done
+    if [ -z "$DEC265" ] && [ -x ../libde265/build/dec265/dec265 ]; then
         DEC265=../libde265/build/dec265/dec265
-    else
+    fi
+    if [ -z "$DEC265" ]; then
         echo "conformance: dec265 not found (set DEC265=); FAILING: the gate requires two decoders" >&2
         exit 1
     fi
