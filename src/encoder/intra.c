@@ -178,8 +178,8 @@ static void pred_angular(uint8_t *dst, int stride, const uint8_t *refs,
     const uint8_t *left = refs + 2 * n + 1;
     int corner = refs[0];
     int angle = intra_angle[mode];
-    uint8_t ref[4 * 32 + 1];    /* projected main reference, index n + i */
-    uint8_t *r = ref + n;       /* r[i], i in -n..2n */
+    uint8_t ref[4 * 32 + 2];    /* projected main reference */
+    uint8_t *r = ref + n + 1;   /* r[i], i in -n-1..2n */
     memset(ref, 0, sizeof(ref));
 
     if (mode >= 18) {           /* main = top */
