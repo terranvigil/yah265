@@ -107,6 +107,7 @@ run_vector intra_crop2    210x122  5  testsrc2  ""
 run_vector intra_narrow   32x256   3  testsrc2  ""
 run_vector intra_qp8      176x144  3  testsrc2  "--qp 8"
 run_vector intra_qp45     176x144  3  testsrc2  "--qp 45"
+run_vector intra_smooth   100x60   3  gradients ""
 if [ "$FAST" -eq 0 ]; then
     run_vector pcm_cif     352x288  5  testsrc2  "--pcm"
     run_vector intra_cif   352x288 10 testsrc2  ""

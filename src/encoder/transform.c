@@ -12,13 +12,28 @@
 
 #define BIT_DEPTH 8
 
+/* DST-VII 4x4 for intra luma 4x4 TBs (8.6.4.2) */
+static const int8_t dst4[4][4] = {
+    { 29, 55, 74, 84 },
+    { 74, 74,  0,-74 },
+    { 84,-29,-74, 55 },
+    { 55,-84, 74,-29 },
+};
+
+static inline int mat(int i, int j, int stride, int use_dst)
+{
+    extern int8_t n265_tmatrix[32][32];
+    return use_dst ? dst4[i][j] : n265_tmatrix[i * stride][j];
+}
+
 static inline int clip3(int lo, int hi, int v)
 {
     return v < lo ? lo : v > hi ? hi : v;
 }
 
 /* one forward stage: out[i][j] = sum_k T[i][k] * in[k][j], scaled */
-static void fwd_stage(int32_t *out, const int32_t *in, int log2n, int shift)
+static void fwd_stage(int32_t *out, const int32_t *in, int log2n, int shift,
+                      int use_dst)
 {
     int n = 1 << log2n;
     int stride = 32 >> log2n;   /* matrix row stride for this size */
@@ -27,13 +42,12 @@ static void fwd_stage(int32_t *out, const int32_t *in, int log2n, int shift)
         for (int j = 0; j < n; j++) {
             int64_t s = 0;
             for (int k = 0; k < n; k++)
-                s += (int64_t)n265_tmatrix[i * stride][k] *
-                     in[k * n + j];
+                s += (int64_t)mat(i, k, stride, use_dst) * in[k * n + j];
             out[i * n + j] = (int32_t)((s + add) >> shift);
         }
 }
 
-void n265_fdct(int16_t *coef, const int16_t *resid, int log2n)
+void n265_fdct(int16_t *coef, const int16_t *resid, int log2n, int use_dst)
 {
     int n = 1 << log2n;
     int32_t a[32 * 32], b[32 * 32];
@@ -43,12 +57,12 @@ void n265_fdct(int16_t *coef, const int16_t *resid, int log2n)
     for (int i = 0; i < n * n; i++)
         a[i] = resid[i];
     /* columns then rows: stage on the transpose twice */
-    fwd_stage(b, a, log2n, shift1);
+    fwd_stage(b, a, log2n, shift1, use_dst);
     /* transpose b */
     for (int i = 0; i < n; i++)
         for (int j = 0; j < n; j++)
             a[j * n + i] = b[i * n + j];
-    fwd_stage(b, a, log2n, shift2);
+    fwd_stage(b, a, log2n, shift2, use_dst);
     for (int i = 0; i < n; i++)
         for (int j = 0; j < n; j++)
             coef[i * n + j] = (int16_t)clip3(-32768, 32767, b[j * n + i]);
@@ -71,7 +85,7 @@ void n265_dequant(int16_t *dq, const int16_t *level, int log2n, int qp)
 /* one inverse stage: out[j][i] = sum_k T[k][j] * in[k][i] (transposed
  * matrix), scaled and clipped to 16 bits after stage 1 */
 static void inv_stage(int32_t *out, const int32_t *in, int log2n, int shift,
-                      int clip)
+                      int clip, int use_dst)
 {
     int n = 1 << log2n;
     int stride = 32 >> log2n;
@@ -80,15 +94,15 @@ static void inv_stage(int32_t *out, const int32_t *in, int log2n, int shift,
         for (int i = 0; i < n; i++) {
             int64_t s = 0;
             for (int k = 0; k < n; k++)
-                s += (int64_t)n265_tmatrix[k * stride][j] *
-                     in[k * n + i];
+                s += (int64_t)mat(k, j, stride, use_dst) * in[k * n + i];
             int32_t v = (int32_t)((s + add) >> shift);
             out[j * n + i] = clip ? clip3(-32768, 32767, v) : v;
         }
 }
 
 void n265_idct_add(uint8_t *dst, int dst_stride, const int16_t *dq,
-                   int log2n, const uint8_t *pred, int pred_stride)
+                   int log2n, const uint8_t *pred, int pred_stride,
+                   int use_dst)
 {
     int n = 1 << log2n;
     int32_t a[32 * 32], b[32 * 32];
@@ -97,13 +111,13 @@ void n265_idct_add(uint8_t *dst, int dst_stride, const int16_t *dq,
         for (int x = 0; x < n; x++)
             a[y * n + x] = dq[y * n + x];
     /* stage 1 transforms columns: treat a as [row][col], sum over rows */
-    inv_stage(b, a, log2n, 7, 1);
+    inv_stage(b, a, log2n, 7, 1, use_dst);
     /* b is [col-transformed], second stage over the other dimension: we
      * transpose in and out so both stages use the same kernel */
     for (int i = 0; i < n; i++)
         for (int j = 0; j < n; j++)
             a[j * n + i] = b[i * n + j];
-    inv_stage(b, a, log2n, 20 - BIT_DEPTH, 0);
+    inv_stage(b, a, log2n, 20 - BIT_DEPTH, 0, use_dst);
     for (int y = 0; y < n; y++)
         for (int x = 0; x < n; x++) {
             int r = b[x * n + y];
