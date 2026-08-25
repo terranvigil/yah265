@@ -30,4 +30,16 @@ void n265_intra_refs(uint8_t *refs, const uint8_t *recon, int stride,
 void n265_pred_dc(uint8_t *dst, int dst_stride, const uint8_t *refs,
                   int log2n, int filter_edges);
 
+/* [1 2 1] reference smoothing (8.4.4.2.3), strong smoothing excluded
+ * (disabled in the SPS). in and out may not alias. */
+void n265_filter_refs(uint8_t *out, const uint8_t *in, int log2n);
+
+/* Whether mode/size/component uses the filtered references. */
+int n265_use_filtered_refs(int mode, int log2n, int c_idx);
+
+/* Any of the 35 modes; refs must already be the correct (un)filtered set.
+ * c_idx gates the luma-only boundary filters. */
+void n265_intra_pred(uint8_t *dst, int dst_stride, const uint8_t *refs,
+                     int log2n, int mode, int c_idx);
+
 #endif

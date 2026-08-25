@@ -44,21 +44,31 @@ const uint8_t n265_sig_ctx_map4x4[15] = {
     0, 1, 4, 5, 2, 3, 4, 5, 6, 6, 8, 8, 7, 7, 8
 };
 
-uint8_t n265_scan_diag4[16];
-uint8_t n265_scan_diag_sb[4][64];
+uint8_t n265_scan_coef[3][16];
+uint8_t n265_scan_sb[3][4][64];
 int8_t n265_tmatrix[32][32];
 
 /* up-right diagonal scan order (6.5.3): each diagonal starts at (0, d) and
  * walks x++, y-- */
-static void build_diag(uint8_t *out, int size)
+static void build_scan(uint8_t *out, int size, int idx)
 {
     int i = 0;
-    for (int d = 0; d <= 2 * (size - 1); d++)
-        for (int x = 0; x <= d; x++) {
-            int y = d - x;
-            if (x < size && y < size)
+    if (idx == 0) {
+        for (int d = 0; d <= 2 * (size - 1); d++)
+            for (int x = 0; x <= d; x++) {
+                int y = d - x;
+                if (x < size && y < size)
+                    out[i++] = (uint8_t)((y << 4) | x);
+            }
+    } else if (idx == 1) {          /* horizontal: row-major */
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
                 out[i++] = (uint8_t)((y << 4) | x);
-        }
+    } else {                        /* vertical: column-major */
+        for (int x = 0; x < size; x++)
+            for (int y = 0; y < size; y++)
+                out[i++] = (uint8_t)((y << 4) | x);
+    }
 }
 
 /* Transform core: rows 0/8/16/24 etc. of the 32-point matrix serve the
@@ -116,9 +126,11 @@ void n265_tables_init(void)
     static int done;
     if (done)
         return;
-    build_diag(n265_scan_diag4, 4);
-    for (int l = 2; l <= 5; l++)
-        build_diag(n265_scan_diag_sb[l - 2], 1 << (l - 2));
+    for (int k = 0; k < 3; k++) {
+        build_scan(n265_scan_coef[k], 4, k);
+        for (int l = 2; l <= 5; l++)
+            build_scan(n265_scan_sb[k][l - 2], 1 << (l - 2), k);
+    }
     build_tmatrix();
     done = 1;
 }

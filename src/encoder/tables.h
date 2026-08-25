@@ -33,10 +33,23 @@ extern const uint8_t n265_ctx_init_i[CTX_COUNT];
 extern const uint8_t n265_sig_ctx_map4x4[15];
 
 /* Scan tables: pos -> (x,y) packed as (y<<4)|x inside one 4x4 sub-block,
- * and sub-block scan for each TB size. Diagonal only for now (DC mode has
- * no MDCS). Built at first use. */
-extern uint8_t n265_scan_diag4[16];         /* coeff scan in a sub-block */
-extern uint8_t n265_scan_diag_sb[4][64];    /* sub-block scan, log2TbSize 2..5 */
+ * and sub-block scans per TB size. Index 0 diag, 1 horizontal, 2 vertical
+ * (6.5.3/6.5.4). Built at first use. */
+extern uint8_t n265_scan_coef[3][16];       /* coeff scan in a sub-block */
+extern uint8_t n265_scan_sb[3][4][64];      /* sub-block scan, log2TbSize 2..5 */
+
+/* scanIdx for an intra TB (residual coding semantics): MDCS applies to
+ * 4x4 and luma 8x8 TBs. */
+static inline int n265_scan_idx(int mode, int log2n, int c_idx)
+{
+    if (log2n == 2 || (log2n == 3 && c_idx == 0)) {
+        if (mode >= 6 && mode <= 14)
+            return 2;   /* near-horizontal modes: vertical scan */
+        if (mode >= 22 && mode <= 30)
+            return 1;   /* near-vertical modes: horizontal scan */
+    }
+    return 0;
+}
 
 void n265_tables_init(void);
 

@@ -3,7 +3,11 @@
  * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
+#include <string.h>
+
 #include "encoder/intra.h"
+
+static inline int abs_int(int v) { return v < 0 ? -v : v; }
 
 /* z-scan order key at 4x4 granularity: CTB raster index in the high bits,
  * interleaved in-CTB coordinates below. pic_w is the padded width the CTB
@@ -106,4 +110,132 @@ void n265_pred_dc(uint8_t *dst, int dst_stride, const uint8_t *refs,
         for (int y = 1; y < n; y++)
             dst[y * dst_stride] = (uint8_t)((left[y] + 3 * dc + 2) >> 2);
     }
+}
+
+void n265_filter_refs(uint8_t *out, const uint8_t *in, int log2n)
+{
+    int n = 1 << log2n;
+    /* spec filters along the contiguous boundary left-bottom -> corner ->
+     * top-right; our layout keeps corner at 0, top at 1..2n, left at
+     * 2n+1..4n. Neighbors along the boundary of index i in the top row are
+     * i-1 and i+1 with the corner before index 1; in the left column,
+     * lower index = closer to the corner. */
+    out[0] = (uint8_t)((in[2 * n + 1] + 2 * in[0] + in[1] + 2) >> 2);
+    for (int i = 1; i < 2 * n; i++)
+        out[i] = (uint8_t)((in[i - 1] + 2 * in[i] + in[i + 1] + 2) >> 2);
+    out[2 * n] = in[2 * n];
+    out[2 * n + 1] = (uint8_t)((in[0] + 2 * in[2 * n + 1] +
+                                in[2 * n + 2] + 2) >> 2);
+    for (int i = 2 * n + 2; i < 4 * n; i++)
+        out[i] = (uint8_t)((in[i - 1] + 2 * in[i] + in[i + 1] + 2) >> 2);
+    out[4 * n] = in[4 * n];
+}
+
+int n265_use_filtered_refs(int mode, int log2n, int c_idx)
+{
+    if (c_idx || mode == INTRA_DC || log2n == 2)
+        return 0;
+    int n = 1 << log2n;
+    int dist = mode == INTRA_PLANAR
+        ? 10    /* planar passes the distance test at every size >= 8 */
+        : (abs_int(mode - 26) < abs_int(mode - 10) ? abs_int(mode - 26)
+                                                   : abs_int(mode - 10));
+    int thres = n == 8 ? 7 : n == 16 ? 1 : 0;
+    return dist > thres;
+}
+
+static void pred_planar(uint8_t *dst, int stride, const uint8_t *refs,
+                        int log2n)
+{
+    int n = 1 << log2n;
+    const uint8_t *top = refs + 1;
+    const uint8_t *left = refs + 2 * n + 1;
+    int tr = top[n];        /* p[nTbS][-1] */
+    int bl = left[n];       /* p[-1][nTbS] */
+    for (int y = 0; y < n; y++)
+        for (int x = 0; x < n; x++)
+            dst[y * stride + x] = (uint8_t)(((n - 1 - x) * left[y] +
+                (x + 1) * tr + (n - 1 - y) * top[x] + (y + 1) * bl + n) >>
+                (log2n + 1));
+}
+
+/* Table 8-4/8-5 */
+static const int8_t intra_angle[35] = {
+    0, 0, 32, 26, 21, 17, 13, 9, 5, 2, 0, -2, -5, -9, -13, -17, -21, -26,
+    -32, -26, -21, -17, -13, -9, -5, -2, 0, 2, 5, 9, 13, 17, 21, 26, 32
+};
+static const int16_t inv_angle[35] = {
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -4096, -1638, -910, -630, -482, -390,
+    -315, -256, -315, -390, -482, -630, -910, -1638, -4096, 0, 0, 0, 0, 0,
+    0, 0, 0, 0
+};
+
+static void pred_angular(uint8_t *dst, int stride, const uint8_t *refs,
+                         int log2n, int mode, int c_idx)
+{
+    int n = 1 << log2n;
+    const uint8_t *top = refs + 1;
+    const uint8_t *left = refs + 2 * n + 1;
+    int corner = refs[0];
+    int angle = intra_angle[mode];
+    uint8_t ref[4 * 32 + 1];    /* projected main reference, index n + i */
+    uint8_t *r = ref + n;       /* r[i], i in -n..2n */
+    memset(ref, 0, sizeof(ref));
+
+    if (mode >= 18) {           /* main = top */
+        r[-1] = (uint8_t)corner;
+        for (int i = 0; i < 2 * n; i++)
+            r[i] = top[i];
+        if (angle < 0) {
+            /* spec ref[x] = p[-1][-1+((x*invAngle+128)>>8)]; our r[i] is
+             * spec ref[i+1] */
+            int last = ((n * angle) >> 5) - 1;
+            for (int i = -2; i >= last; i--)
+                r[i] = left[(((i + 1) * inv_angle[mode] + 128) >> 8) - 1];
+        }
+        for (int y = 0; y < n; y++) {
+            int idx = ((y + 1) * angle) >> 5;
+            int fact = ((y + 1) * angle) & 31;
+            for (int x = 0; x < n; x++)
+                dst[y * stride + x] = (uint8_t)(((32 - fact) *
+                    r[x + idx] + fact * r[x + idx + 1] + 16) >> 5);
+        }
+        if (mode == 26 && c_idx == 0 && n < 32)
+            for (int y = 0; y < n; y++) {
+                int v = top[0] + ((left[y] - corner) >> 1);
+                dst[y * stride] = (uint8_t)(v < 0 ? 0 : v > 255 ? 255 : v);
+            }
+    } else {                    /* main = left, transposed walk */
+        r[-1] = (uint8_t)corner;
+        for (int i = 0; i < 2 * n; i++)
+            r[i] = left[i];
+        if (angle < 0) {
+            int last = ((n * angle) >> 5) - 1;
+            for (int i = -2; i >= last; i--)
+                r[i] = top[(((i + 1) * inv_angle[mode] + 128) >> 8) - 1];
+        }
+        for (int x = 0; x < n; x++) {
+            int idx = ((x + 1) * angle) >> 5;
+            int fact = ((x + 1) * angle) & 31;
+            for (int y = 0; y < n; y++)
+                dst[y * stride + x] = (uint8_t)(((32 - fact) *
+                    r[y + idx] + fact * r[y + idx + 1] + 16) >> 5);
+        }
+        if (mode == 10 && c_idx == 0 && n < 32)
+            for (int x = 0; x < n; x++) {
+                int v = left[0] + ((top[x] - corner) >> 1);
+                dst[x] = (uint8_t)(v < 0 ? 0 : v > 255 ? 255 : v);
+            }
+    }
+}
+
+void n265_intra_pred(uint8_t *dst, int dst_stride, const uint8_t *refs,
+                     int log2n, int mode, int c_idx)
+{
+    if (mode == INTRA_PLANAR)
+        pred_planar(dst, dst_stride, refs, log2n);
+    else if (mode == INTRA_DC)
+        n265_pred_dc(dst, dst_stride, refs, log2n, c_idx == 0);
+    else
+        pred_angular(dst, dst_stride, refs, log2n, mode, c_idx);
 }

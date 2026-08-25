@@ -3,12 +3,28 @@
  * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "encoder/encoder.h"
 #include "encoder/intra.h"
 #include "encoder/residual.h"
 #include "encoder/transform.h"
+
+static int *g_hist;
+static void print_hist(void)
+{
+    fprintf(stderr, "mode_hist:");
+    for (int i = 0; i < 35; i++)
+        fprintf(stderr, " %d:%d", i, g_hist[i]);
+    fprintf(stderr, "\n");
+}
+static void atexit_hist(int *h)
+{
+    g_hist = h;
+    atexit(print_hist);
+}
 
 /* MPM candidate list (8.4.2). All-intra: neighbors are intra when inside
  * the picture; above outside the current CTB row degrades to DC. */
@@ -74,7 +90,8 @@ static void write_luma_mode(struct n265_encoder *e, cabac_t *cb, int x0,
 /* one color component of the TU: predict, transform, quant, code, recon.
  * Returns cbf. */
 static int code_component(struct n265_encoder *e, cabac_t *cb, int c_idx,
-                          int x0, int y0, int log2n, int qp, int coded)
+                          int x0, int y0, int log2n, int qp, int mode,
+                          int coded)
 {
     int n = 1 << log2n;
     uint8_t *recon = e->recon[c_idx];
@@ -84,11 +101,16 @@ static int code_component(struct n265_encoder *e, cabac_t *cb, int c_idx,
     int pic_h = c_idx ? e->pad_h / 2 : e->pad_h;
     int ctb_log2 = c_idx ? e->ctb_log2 - 1 : e->ctb_log2;
 
-    uint8_t refs[4 * 32 + 1];
+    uint8_t refs[4 * 32 + 1], refs_f[4 * 32 + 1];
     uint8_t pred[32 * 32];
     n265_intra_refs(refs, recon, stride, x0, y0, log2n, pic_w, pic_h,
                     ctb_log2);
-    n265_pred_dc(pred, n, refs, log2n, c_idx == 0);
+    if (n265_use_filtered_refs(mode, log2n, c_idx)) {
+        n265_filter_refs(refs_f, refs, log2n);
+        n265_intra_pred(pred, n, refs_f, log2n, mode, c_idx);
+    } else {
+        n265_intra_pred(pred, n, refs, log2n, mode, c_idx);
+    }
 
     int16_t resid[32 * 32], coef[32 * 32], level[32 * 32], dq[32 * 32];
     for (int y = 0; y < n; y++)
@@ -102,7 +124,8 @@ static int code_component(struct n265_encoder *e, cabac_t *cb, int c_idx,
         return nz != 0;     /* first pass: just report cbf */
 
     if (nz) {
-        n265_residual_coding(cb, e->ctx, level, log2n, c_idx, 0);
+        n265_residual_coding(cb, e->ctx, level, log2n, c_idx,
+                             n265_scan_idx(mode, log2n, c_idx));
         n265_dequant(dq, level, log2n, qp);
         n265_idct_add(recon + y0 * stride + x0, stride, dq, log2n, pred, n);
     } else {
@@ -112,11 +135,57 @@ static int code_component(struct n265_encoder *e, cabac_t *cb, int c_idx,
     return nz != 0;
 }
 
+/* pick the luma mode by SAD over prediction from decoded refs (decision
+ * quality is a later phase's business; the gate only needs consistency) */
+static int search_luma_mode(struct n265_encoder *e, int x0, int y0, int log2n)
+{
+    int n = 1 << log2n;
+    const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
+    uint8_t refs[4 * 32 + 1], refs_f[4 * 32 + 1];
+    uint8_t pred[32 * 32];
+
+    n265_intra_refs(refs, e->recon[0], e->recon_stride[0], x0, y0, log2n,
+                    e->pad_w, e->pad_h, e->ctb_log2);
+    n265_filter_refs(refs_f, refs, log2n);
+
+    int best_mode = 0;
+    uint32_t best_cost = UINT32_MAX;
+    for (int mode = 0; mode < 35; mode++) {
+        const uint8_t *r = n265_use_filtered_refs(mode, log2n, 0) ? refs_f
+                                                                  : refs;
+        n265_intra_pred(pred, n, r, log2n, mode, 0);
+        uint32_t cost = 0;
+        for (int y = 0; y < n; y++)
+            for (int x = 0; x < n; x++) {
+                int d = src[y * e->pad_stride[0] + x] - pred[y * n + x];
+                cost += (uint32_t)(d < 0 ? -d : d);
+            }
+        if (cost < best_cost) {
+            best_cost = cost;
+            best_mode = mode;
+        }
+    }
+    /* coverage-honesty tap: N265_MODE_HIST=1 prints the pick histogram at
+     * exit so the conformance suite can prove every mode runs */
+    static int hist[35], armed = -1;
+    if (armed < 0)
+        armed = getenv("N265_MODE_HIST") != NULL;
+    if (armed) {
+        hist[best_mode]++;
+        static int registered;
+        if (!registered) {
+            registered = 1;
+            atexit_hist(hist);
+        }
+    }
+    return best_mode;
+}
+
 static void encode_cu(struct n265_encoder *e, cabac_t *cb, int x0, int y0,
                       int log2n)
 {
     int n = 1 << log2n;
-    int mode = INTRA_DC;
+    int mode = search_luma_mode(e, x0, y0, log2n);
 
     if (log2n == MIN_CB_LOG2)
         n265_cabac_bin(cb, &e->ctx[CTX_PART_MODE], 1);  /* PART_2Nx2N */
@@ -128,18 +197,20 @@ static void encode_cu(struct n265_encoder *e, cabac_t *cb, int x0, int y0,
     /* dry-run the transforms to learn the cbfs (syntax order puts chroma
      * cbfs before any residual), then code for real */
     int qp_c = n265_chroma_qp(e->qp);
-    int cbf_cb = code_component(e, cb, 1, x0 / 2, y0 / 2, log2n - 1, qp_c, 0);
-    int cbf_cr = code_component(e, cb, 2, x0 / 2, y0 / 2, log2n - 1, qp_c, 0);
-    int cbf_l = code_component(e, cb, 0, x0, y0, log2n, e->qp, 0);
+    int cbf_cb = code_component(e, cb, 1, x0 / 2, y0 / 2, log2n - 1, qp_c,
+                                mode, 0);
+    int cbf_cr = code_component(e, cb, 2, x0 / 2, y0 / 2, log2n - 1, qp_c,
+                                mode, 0);
+    int cbf_l = code_component(e, cb, 0, x0, y0, log2n, e->qp, mode, 0);
 
     /* transform_tree, no split: cbf_cb, cbf_cr, then transform_unit */
     n265_cabac_bin(cb, &e->ctx[CTX_CBF_CHROMA + 0], cbf_cb);
     n265_cabac_bin(cb, &e->ctx[CTX_CBF_CHROMA + 0], cbf_cr);
     n265_cabac_bin(cb, &e->ctx[CTX_CBF_LUMA + 1], cbf_l);
 
-    code_component(e, cb, 0, x0, y0, log2n, e->qp, 1);
-    code_component(e, cb, 1, x0 / 2, y0 / 2, log2n - 1, qp_c, 1);
-    code_component(e, cb, 2, x0 / 2, y0 / 2, log2n - 1, qp_c, 1);
+    code_component(e, cb, 0, x0, y0, log2n, e->qp, mode, 1);
+    code_component(e, cb, 1, x0 / 2, y0 / 2, log2n - 1, qp_c, mode, 1);
+    code_component(e, cb, 2, x0 / 2, y0 / 2, log2n - 1, qp_c, mode, 1);
 
     /* bookkeeping maps at 4x4 granularity */
     for (int y = 0; y < n; y += 4)

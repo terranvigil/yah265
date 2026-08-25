@@ -1,7 +1,6 @@
 /*
  * residual_coding() (ITU-T H.265 7.3.8.11) with the 9.3.4.2.4-9.3.4.2.7
- * context derivations and 9.3.3 binarizations. Diagonal scan only so far;
- * MDCS arrives with the angular-mode increment.
+ * context derivations and 9.3.3 binarizations.
  * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
@@ -89,12 +88,11 @@ void n265_residual_coding(cabac_t *cb, cabac_ctx_t *ctx,
                           const int16_t *level, int log2n, int c_idx,
                           int scan_idx)
 {
-    assert(scan_idx == 0);
     int n = 1 << log2n;
     int sb_dim = n >> 2;                    /* sub-blocks per side */
     int num_sb = sb_dim * sb_dim;
-    const uint8_t *sb_scan = n265_scan_diag_sb[log2n - 2];
-    const uint8_t *co_scan = n265_scan_diag4;
+    const uint8_t *sb_scan = n265_scan_sb[scan_idx][log2n - 2];
+    const uint8_t *co_scan = n265_scan_coef[scan_idx];
 
     /* per-sub-block significance map */
     uint8_t csbf[64] = { 0 };
