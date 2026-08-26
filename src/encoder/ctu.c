@@ -787,7 +787,11 @@ static void commit_inter_tt(struct n265_encoder *e, mot_t mot, int x0,
         d_split += tb_ssd(e, 2, x0 / 2, y0 / 2, log2n - 1, tcr);
     }
 
-    uint64_t d_flat = tb_ssd(e, 0, x0, y0, log2n, tl) +
+    /* past maxTB the split is inferred and the flat arrangement does
+     * not exist (CB64: forced 4x TU32) */
+    int flat_ok = log2n <= 5;
+    uint64_t d_flat = !flat_ok ? 0 :
+        tb_ssd(e, 0, x0, y0, log2n, tl) +
         tb_ssd(e, 1, x0 / 2, y0 / 2, log2n - 1, tcb) +
         tb_ssd(e, 2, x0 / 2, y0 / 2, log2n - 1, tcr);
 
@@ -796,15 +800,20 @@ static void commit_inter_tt(struct n265_encoder *e, mot_t mot, int x0,
     est_state st;
     res_ops ops;
 
-    memcpy(local, e->est_ctx, sizeof(local));
-    st.ctx = local; st.bits = 0;
-    n265_est_ops(&ops, &st);
-    est_tt_bits(e, &st, log2n, MODE_INTER, tl, tcb, tcr);
-    uint64_t j_flat = rd_j(d_flat, st.bits, lam);
+    uint64_t j_flat = UINT64_MAX;
+    if (flat_ok) {
+        memcpy(local, e->est_ctx, sizeof(local));
+        st.ctx = local; st.bits = 0;
+        n265_est_ops(&ops, &st);
+        est_tt_bits(e, &st, log2n, MODE_INTER, tl, tcb, tcr);
+        j_flat = rd_j(d_flat, st.bits, lam);
+    }
 
     memcpy(local, e->est_ctx, sizeof(local));
     st.ctx = local; st.bits = 0;
-    st.bits += n265_est_bin(&local[CTX_TSPLIT + 5 - log2n], 1);
+    n265_est_ops(&ops, &st);
+    if (flat_ok)
+        st.bits += n265_est_bin(&local[CTX_TSPLIT + 5 - log2n], 1);
     st.bits += n265_est_bin(&local[CTX_CBF_CHROMA + 0], root_cb);
     st.bits += n265_est_bin(&local[CTX_CBF_CHROMA + 0], root_cr);
     for (int i = 0; i < 4; i++) {
@@ -850,8 +859,10 @@ static void commit_inter_tt(struct n265_encoder *e, mot_t mot, int x0,
         return;
     }
 
-    /* commit split: record layout mirrors replay_tt */
-    rec_u8(e, 1);
+    /* commit split: record layout mirrors replay_tt (which reads no
+     * split byte where the split is inferred past maxTB) */
+    if (flat_ok)
+        rec_u8(e, 1);
     rec_u8(e, (unsigned)root_cb);
     rec_u8(e, (unsigned)root_cr);
     for (int i = 0; i < 4; i++) {
@@ -1566,6 +1577,31 @@ static uint64_t quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
         } else {
             qt_restore(e, ss, x0, y0, n);   /* back to arm-1 outcome */
         }
+
+        /* merge with residual (forced 4x TU32 tree) */
+        qt_save(e, ss, x0, y0, n);
+        qt_save_records(e, ss, rec_base);
+        qt_restore(e, sp, x0, y0, n);
+        (void)n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + split_inc], 0);
+        mark_cu_edges(e, x0, y0, n);
+        set_blk(e, e->blk_intra, x0, y0, n, 0);
+        set_blk(e, e->blk_skip, x0, y0, n, 0);
+        set_mot_map(e, x0, y0, n, mlist[midx]);
+        set_mode_map(e, x0, y0, n, INTRA_DC);
+        rec_u8(e, (unsigned)(1 | (midx << 3)));
+        commit_inter_tt(e, mlist[midx], x0, y0, log2n, NULL, NULL, NULL);
+        e->rec_pos = pos0;
+        est_state madv = { e->est_ctx, 0 };
+        n265_est_advance_cu(e, &madv, x0, y0, log2n);
+        set_blk(e, e->blk_qp, x0, y0, n,
+                e->ent_qp_coded ? e->cur_ctu_qp : e->ent_qp_prev);
+        set_blk(e, e->ct_depth, x0, y0, n, depth);
+        uint64_t j_m = rd_j(cu_area_ssd(e, x0, y0, n), madv.bits + b0,
+                            lam);
+        if (j_m < j_cu)
+            j_cu = j_m;
+        else
+            qt_restore(e, ss, x0, y0, n);
     }
     qt_save(e, sw, x0, y0, n);
     qt_save_records(e, sw, rec_base);
