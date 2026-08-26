@@ -292,14 +292,14 @@ static int search_luma_mode(struct n265_encoder *e, int x0, int y0,
     return search_luma_mode_k(e, x0, y0, log2n, ref_plane, cost_out, NULL);
 }
 
-/* SAD-domain lambda: sqrt(0.85 * 2^((qp-12)/3)), Q4 fixed point */
+/* SAD-domain lambda: sqrt(0.68 * 2^((qp-12)/3)), Q4 fixed point */
 static int lambda_sad_q4(int qp)
 {
     static const uint16_t tab[52] = {
-        4, 5, 5, 6, 7, 7, 8, 9, 10, 12, 13, 15, 16, 18, 21, 23,
-        26, 29, 33, 37, 41, 46, 52, 58, 66, 74, 83, 93, 104, 117,
-        131, 148, 166, 186, 209, 234, 263, 295, 331, 372, 418, 469,
-        526, 590, 663, 744, 835, 937, 1052, 1181, 1325, 1487
+        3, 4, 4, 5, 5, 6, 7, 7, 8, 9, 10, 12, 13, 15, 17, 19,
+        21, 24, 26, 30, 33, 37, 42, 47, 53, 59, 66, 75, 84, 94, 106, 118,
+        133, 149, 168, 188, 211, 237, 266, 299, 335, 376, 422, 474, 532, 597, 670, 752,
+        844, 948, 1064, 1194
     };
     return tab[qp < 0 ? 0 : qp > 51 ? 51 : qp];
 }
@@ -312,13 +312,14 @@ static void est_tt_bits(struct n265_encoder *e, est_state *st, int log2n,
 static void set_mot_map(struct n265_encoder *e, int x0, int y0, int n,
                         mot_t mot);
 
-/* mode-decision lambda 0.85 * 2^((qp-12)/3), Q8 (shared with SAO) */
+/* mode-decision lambda 0.68 * 2^((qp-12)/3), Q8 (shared with SAO;
+ * N265_LAMBDA overrides the factor) */
 uint32_t n265_lambda_mode_q8(int qp)
 {
     static uint32_t tab[52];
     if (!tab[51]) {
         for (int q = 0; q < 52; q++) {
-            double l = 0.85 * pow(2.0, (q - 12) / 3.0);
+            double l = (getenv("N265_LAMBDA") ? atof(getenv("N265_LAMBDA")) : 0.68) * pow(2.0, (q - 12) / 3.0);
             tab[q] = (uint32_t)(l * 256.0 + 0.5);
         }
     }
