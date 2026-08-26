@@ -1071,18 +1071,41 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                 j_merge = rd_j(d_merge, st.bits, lam);
             }
 
-            /* amvp candidate */
-            mv_t mvp[2] = { { 0, 0 }, { 0, 0 } }, me_mv = { 0, 0 };
+            /* amvp candidate: per-list ME, then the best of uni-L0,
+             * uni-L1, bi by prediction SAD carries to RD */
+            mv_t mvp[2][2] = { { { 0, 0 }, { 0, 0 } },
+                               { { 0, 0 }, { 0, 0 } } };
+            mv_t me_mv[2] = { { 0, 0 }, { 0, 0 } };
             uint64_t j_amvp = UINT64_MAX;
-            int a_any = 0, mvp_idx = 0;
+            int a_any = 0;
+            int mvp_idx[2] = { 0, 0 };
             mot_t amot = { { { 0, 0 }, { 0, 0 } }, 1 };
             int same_as_cand = 1;
             if (!gate_amvp) {
-                n265_amvp(e, x0, y0, n, n, mvp);
-                n265_me_search(e, x0, y0, log2n, mvp[0], &me_mv);
-                amot.mv[0] = me_mv;
-                same_as_cand = cand.pred == 1 && me_mv.x == cand.mv[0].x &&
-                               me_mv.y == cand.mv[0].y;
+                n265_amvp(e, 0, x0, y0, n, n, mvp[0]);
+                n265_me_search(e, 0, x0, y0, log2n, mvp[0][0], &me_mv[0]);
+                amot.mv[0] = me_mv[0];
+                if (e->slice_type == 0) {
+                    n265_amvp(e, 1, x0, y0, n, n, mvp[1]);
+                    n265_me_search(e, 1, x0, y0, log2n, mvp[1][0],
+                                   &me_mv[1]);
+                    mot_t u1 = { { { 0, 0 }, me_mv[1] }, 2 };
+                    mot_t bi = { { me_mv[0], me_mv[1] }, 3 };
+                    uint32_t s0 = mot_sad(e, x0, y0, log2n, amot);
+                    uint32_t s1 = mot_sad(e, x0, y0, log2n, u1);
+                    uint32_t sb = mot_sad(e, x0, y0, log2n, bi);
+                    if (s1 < s0 && s1 <= sb)
+                        amot = u1;
+                    else if (sb < s0)
+                        amot = bi;
+                }
+                same_as_cand = amot.pred == cand.pred &&
+                    (!(amot.pred & 1) ||
+                     (amot.mv[0].x == cand.mv[0].x &&
+                      amot.mv[0].y == cand.mv[0].y)) &&
+                    (!(amot.pred & 2) ||
+                     (amot.mv[1].x == cand.mv[1].x &&
+                      amot.mv[1].y == cand.mv[1].y));
             }
             if (!gate_amvp && !same_as_cand && !getenv("N265_NO_AMVP")) {
                 tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, amot,
@@ -1098,15 +1121,15 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                 uint64_t d = tb_ssd(e, 0, x0, y0, log2n, &a_tl) +
                     tb_ssd(e, 1, x0 / 2, y0 / 2, log2n - 1, &a_tcb) +
                     tb_ssd(e, 2, x0 / 2, y0 / 2, log2n - 1, &a_tcr);
-                int c0 = (me_mv.x - mvp[0].x < 0 ? mvp[0].x - me_mv.x
-                                                 : me_mv.x - mvp[0].x) +
-                         (me_mv.y - mvp[0].y < 0 ? mvp[0].y - me_mv.y
-                                                 : me_mv.y - mvp[0].y);
-                int c1 = (me_mv.x - mvp[1].x < 0 ? mvp[1].x - me_mv.x
-                                                 : me_mv.x - mvp[1].x) +
-                         (me_mv.y - mvp[1].y < 0 ? mvp[1].y - me_mv.y
-                                                 : me_mv.y - mvp[1].y);
-                mvp_idx = c1 < c0;
+                for (int l = 0; l < 2; l++) {
+                    if (!(amot.pred & (1 << l)))
+                        continue;
+                    int c0 = abs(me_mv[l].x - mvp[l][0].x) +
+                             abs(me_mv[l].y - mvp[l][0].y);
+                    int c1 = abs(me_mv[l].x - mvp[l][1].x) +
+                             abs(me_mv[l].y - mvp[l][1].y);
+                    mvp_idx[l] = c1 < c0;
+                }
                 memcpy(local, e->est_ctx, sizeof(local));
                 st.ctx = local; st.bits = 0;
                 st.bits += n265_est_bin(&local[CTX_CU_SKIP + inc], 0);
@@ -1115,12 +1138,20 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                 st.bits += n265_est_bin(&local[CTX_MERGE_FLAG], 0);
                 if (e->slice_type == 0) {
                     int depth = e->ctb_log2 - log2n;
-                    st.bits += n265_est_bin(&local[CTX_INTER_IDC + depth], 0);
-                    st.bits += n265_est_bin(&local[CTX_INTER_IDC + 4], 0);
+                    st.bits += n265_est_bin(&local[CTX_INTER_IDC + depth],
+                                            amot.pred == 3);
+                    if (amot.pred != 3)
+                        st.bits += n265_est_bin(&local[CTX_INTER_IDC + 4],
+                                                amot.pred >> 1);
                 }
-                est_mvd(&st, me_mv.x - mvp[mvp_idx].x,
-                        me_mv.y - mvp[mvp_idx].y);
-                st.bits += n265_est_bin(&local[CTX_MVP_FLAG], mvp_idx);
+                for (int l = 0; l < 2; l++) {
+                    if (!(amot.pred & (1 << l)))
+                        continue;
+                    est_mvd(&st, me_mv[l].x - mvp[l][mvp_idx[l]].x,
+                            me_mv[l].y - mvp[l][mvp_idx[l]].y);
+                    st.bits += n265_est_bin(&local[CTX_MVP_FLAG],
+                                            mvp_idx[l]);
+                }
                 st.bits += n265_est_bin(&local[CTX_RQT_ROOT_CBF], a_any);
                 if (a_any)
                     est_tt_bits(e, &st, log2n, MODE_INTER, &a_tl, &a_tcb,
@@ -1194,16 +1225,21 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                 set_mot_map(e, x0, y0, n, mot);
                 set_mode_map(e, x0, y0, n, INTRA_DC);
                 mark_cu_edges(e, x0, y0, n);
-                rec_u8(e, (unsigned)((kind == 1) | (mvp_idx << 1) |
+                rec_u8(e, (unsigned)((kind == 1) | (mvp_idx[0] << 1) |
                                      ((any != 0) << 2) |
-                                     (kind == 1 ? midx << 3 : 0)));
-                if (kind == 2) {
-                    int16_t mvd[2] = {
-                        (int16_t)(mot.mv[0].x - mvp[mvp_idx].x),
-                        (int16_t)(mot.mv[0].y - mvp[mvp_idx].y)
-                    };
-                    rec_levels(e, mvd, 2);
-                }
+                                     (kind == 1 ? midx << 3
+                                                : (mot.pred - 1) << 3) |
+                                     (mvp_idx[1] << 5)));
+                if (kind == 2)
+                    for (int l = 0; l < 2; l++) {
+                        if (!(mot.pred & (1 << l)))
+                            continue;
+                        int16_t mvd[2] = {
+                            (int16_t)(mot.mv[l].x - mvp[l][mvp_idx[l]].x),
+                            (int16_t)(mot.mv[l].y - mvp[l][mvp_idx[l]].y)
+                        };
+                        rec_levels(e, mvd, 2);
+                    }
                 if (any) {
                     commit_inter_tt(e, mot, x0, y0, log2n, tl, tcb, tcr);
                 } else {

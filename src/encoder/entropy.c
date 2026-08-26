@@ -262,23 +262,29 @@ static void replay_cu(struct n265_encoder *e, const res_ops *ops, int x0,
             ops->bin(ops->h, CTX_PART_MODE, 1);  /* 2Nx2N */
             unsigned flags = rd_u8(e);
             int merge = flags & 1;
-            int mvp_idx = (flags >> 1) & 1;
             int root_cbf = (flags >> 2) & 1;
-            int merge_idx = (flags >> 3) & 3;
             ops->bin(ops->h, CTX_MERGE_FLAG, merge);
             if (merge)
-                write_merge_idx(ops, merge_idx);
+                write_merge_idx(ops, (int)(flags >> 3) & 3);
             if (!merge) {
+                int pred = ((int)(flags >> 3) & 3) + 1;
+                int mvp_idx[2] = { (int)(flags >> 1) & 1,
+                                   (int)(flags >> 5) & 1 };
                 if (e->slice_type == 0) {
-                    /* inter_pred_idc = PRED_L0: bin0 0 (ctx by CU depth),
-                     * bin1 0 (ctx 4) */
+                    /* inter_pred_idc: bi -> bin0 1; uni -> bin0 0 then
+                     * bin1 selects the list (ctx 4) */
                     int depth = e->ctb_log2 - log2n;
-                    ops->bin(ops->h, CTX_INTER_IDC + depth, 0);
-                    ops->bin(ops->h, CTX_INTER_IDC + 4, 0);
+                    ops->bin(ops->h, CTX_INTER_IDC + depth, pred == 3);
+                    if (pred != 3)
+                        ops->bin(ops->h, CTX_INTER_IDC + 4, pred >> 1);
                 }
-                const int16_t *mvd = rd_levels(e, 2);
-                write_mvd(ops, mvd[0], mvd[1]);
-                ops->bin(ops->h, CTX_MVP_FLAG, mvp_idx);
+                for (int l = 0; l < 2; l++) {
+                    if (!(pred & (1 << l)))
+                        continue;
+                    const int16_t *mvd = rd_levels(e, 2);
+                    write_mvd(ops, mvd[0], mvd[1]);
+                    ops->bin(ops->h, CTX_MVP_FLAG, mvp_idx[l]);
+                }
                 ops->bin(ops->h, CTX_RQT_ROOT_CBF, root_cbf);
                 if (!root_cbf)
                     return;

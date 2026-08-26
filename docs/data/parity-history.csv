@@ -161,3 +161,10 @@ date,commit,x265,clip,frames,our_fps,x265m_noasm_fps,x265m_asm_fps,mult_matched_
 2026-08-25,69a8ed4,4.2+1-e444744,bus_cif,120,,,,,,,,,,34.9,MaxNumMergeCand 3 (combined-bi fixed)
 2026-08-25,69a8ed4,4.2+1-e444744,tempete_cif,120,,,,,,,,,,11.92,MaxNumMergeCand 3 (combined-bi fixed)
 2026-08-25,69a8ed4,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,25.35,MaxNumMergeCand 3 (combined-bi fixed)
+2026-08-25,eaa16a0,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,-1.16,"B-slice AMVP: L1 + bi-pred ME candidates, spec AMVP scaling"
+2026-08-25,eaa16a0,4.2+1-e444744,foreman_cif,120,,,,,,,,,,0.97,"B-slice AMVP: L1 + bi-pred ME candidates, spec AMVP scaling"
+2026-08-25,eaa16a0,4.2+1-e444744,mobile_cif,120,,,,,,,,,,2.65,"B-slice AMVP: L1 + bi-pred ME candidates, spec AMVP scaling"
+2026-08-25,eaa16a0,4.2+1-e444744,stefan_cif,120,,,,,,,,,,5.86,"B-slice AMVP: L1 + bi-pred ME candidates, spec AMVP scaling"
+2026-08-25,eaa16a0,4.2+1-e444744,bus_cif,120,,,,,,,,,,17.4,"B-slice AMVP: L1 + bi-pred ME candidates, spec AMVP scaling"
+2026-08-25,eaa16a0,4.2+1-e444744,tempete_cif,120,,,,,,,,,,3.6,"B-slice AMVP: L1 + bi-pred ME candidates, spec AMVP scaling"
+2026-08-25,eaa16a0,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,5.12,"B-slice AMVP: L1 + bi-pred ME candidates, spec AMVP scaling"

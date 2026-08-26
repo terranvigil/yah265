@@ -30,17 +30,17 @@ int n265_merge_list(struct n265_encoder *e, int x0, int y0, int nw, int nh,
 mot_t n265_merge_cand0(struct n265_encoder *e, int x0, int y0, int nw,
                        int nh);
 
-/* AMVP candidate list for L0 ref 0 (8.5.3.2.6): mvp[0], mvp[1]. */
-void n265_amvp(struct n265_encoder *e, int x0, int y0, int nw, int nh,
-               mv_t mvp[2]);
+/* AMVP candidate list for ref 0 of the given list (8.5.3.2.6). */
+void n265_amvp(struct n265_encoder *e, int list, int x0, int y0, int nw,
+               int nh, mv_t mvp[2]);
 
-/* Full-pel motion search around the given start (quarter-pel in/out;
- * result is full-pel aligned). Returns best SAD. */
-uint32_t n265_me_search(struct n265_encoder *e, int x0, int y0, int log2n,
-                        mv_t start, mv_t *best);
+/* Motion search on one reference list around the given start
+ * (quarter-pel in/out). Returns the best cost. */
+uint32_t n265_me_search(struct n265_encoder *e, int list, int x0, int y0,
+                        int log2n, mv_t start, mv_t *best);
 
-/* SAD of luma MC prediction at mv (full-pel aligned). */
-uint32_t n265_mc_sad(struct n265_encoder *e, int x0, int y0, int log2n,
-                     mv_t mv);
+/* SAD of luma MC prediction at mv on one list. */
+uint32_t n265_mc_sad(struct n265_encoder *e, int list, int x0, int y0,
+                     int log2n, mv_t mv);
 
 #endif

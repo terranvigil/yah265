@@ -121,38 +121,108 @@ mot_t n265_merge_cand0(struct n265_encoder *e, int x0, int y0, int nw, int nh)
     return out[0];
 }
 
-void n265_amvp(struct n265_encoder *e, int x0, int y0, int nw, int nh,
-               mv_t mvp[2])
+/* POC-distance MV scaling (8.5.3.2.8 shape) */
+static mv_t mv_scale(mv_t mv, int tb, int td)
+{
+    if (td == 0 || tb == td)
+        return mv;
+    int tx = (16384 + (td < 0 ? -td : td) / 2) / td;
+    int dsf = (tb * tx + 32) >> 6;
+    dsf = dsf < -4096 ? -4096 : dsf > 4095 ? 4095 : dsf;
+    mv_t r;
+    int v = dsf * mv.x;
+    v = (v >= 0 ? (v + 127) >> 8 : -((-v + 127) >> 8));
+    r.x = (int16_t)(v < -32768 ? -32768 : v > 32767 ? 32767 : v);
+    v = dsf * mv.y;
+    v = (v >= 0 ? (v + 127) >> 8 : -((-v + 127) >> 8));
+    r.y = (int16_t)(v < -32768 ? -32768 : v > 32767 ? 32767 : v);
+    return r;
+}
+
+/* neighbor take for AMVP (8.5.3.2.7): unscaled pass wants a ref with
+ * the target's POC (same list first, then the other); the scaled pass
+ * takes the first motion present (same list first) and scales it to
+ * the target distance. One ref per list, all short-term. */
+static int amvp_take(struct n265_encoder *e, int m, int list, int scaled,
+                     mv_t *out)
+{
+    int ref_poc[2] = { e->ref_l0 ? e->ref_l0->poc : 0,
+                       e->ref_l1 ? e->ref_l1->poc : 0 };
+    for (int p = 0; p < 2; p++) {
+        int ly = p ? !list : list;
+        if (!(e->blk_pred[m] & (1 << ly)))
+            continue;
+        int same = ref_poc[ly] == ref_poc[list];
+        if (!scaled && !same)
+            continue;
+        mv_t v = { e->blk_mv[4 * m + 2 * ly],
+                   e->blk_mv[4 * m + 2 * ly + 1] };
+        if (scaled) {
+            int td = e->poc - ref_poc[ly];
+            int tb = e->poc - ref_poc[list];
+            td = td < -128 ? -128 : td > 127 ? 127 : td;
+            tb = tb < -128 ? -128 : tb > 127 ? 127 : tb;
+            v = mv_scale(v, tb, td);
+        }
+        *out = v;
+        return 1;
+    }
+    return 0;
+}
+
+void n265_amvp(struct n265_encoder *e, int list, int x0, int y0, int nw,
+               int nh, mv_t mvp[2])
 {
     uint64_t cur = n265_zorder(x0, y0, e->pad_w, e->ctb_log2);
-    int n = 0;
-    /* candidate A: first available of A0 (below-left), A1 (left).
-     * Same ref (only one), so no scaling variants apply. */
     const int a_pos[2][2] = { { x0 - 1, y0 + nh }, { x0 - 1, y0 + nh - 1 } };
-    for (int i = 0; i < 2 && n == 0; i++)
-        if (inter_at(e, a_pos[i][0], a_pos[i][1], cur)) {
-            int m = (a_pos[i][1] >> 2) * e->map_stride + (a_pos[i][0] >> 2);
-            if (!(e->blk_pred[m] & 1))
-                continue;   /* AMVP here is L0 ref 0 only */
-            mvp[n].x = e->blk_mv[4 * m];
-            mvp[n].y = e->blk_mv[4 * m + 1];
-            n++;
-        }
-    /* candidate B: exactly one, the first available of B0, B1, B2; then
-     * assemble [A?, B?] with the duplicate pruned and zero-fill */
     const int b_pos[3][2] = {
         { x0 + nw, y0 - 1 }, { x0 + nw - 1, y0 - 1 }, { x0 - 1, y0 - 1 }
     };
-    for (int i = 0; i < 3; i++)
-        if (inter_at(e, b_pos[i][0], b_pos[i][1], cur)) {
-            int m = (b_pos[i][1] >> 2) * e->map_stride + (b_pos[i][0] >> 2);
-            if (!(e->blk_pred[m] & 1))
-                continue;
-            mv_t c = { e->blk_mv[4 * m], e->blk_mv[4 * m + 1] };
-            if (!(n == 1 && c.x == mvp[0].x && c.y == mvp[0].y))
-                mvp[n++] = c;
-            break;
+    int a_avail[2], a_m[2];
+    for (int i = 0; i < 2; i++) {
+        a_avail[i] = inter_at(e, a_pos[i][0], a_pos[i][1], cur);
+        a_m[i] = (a_pos[i][1] >> 2) * e->map_stride + (a_pos[i][0] >> 2);
+    }
+    int is_scaled = a_avail[0] || a_avail[1];
+
+    /* candidate A: unscaled pass over A0, A1; then the scaled pass */
+    mv_t mva = { 0, 0 }, mvb = { 0, 0 };
+    int avail_a = 0, avail_b = 0;
+    for (int i = 0; i < 2 && !avail_a; i++)
+        if (a_avail[i] && amvp_take(e, a_m[i], list, 0, &mva))
+            avail_a = 1;
+    for (int i = 0; i < 2 && !avail_a; i++)
+        if (a_avail[i] && amvp_take(e, a_m[i], list, 1, &mva))
+            avail_a = 1;
+
+    /* candidate B: unscaled over B0, B1, B2 */
+    for (int i = 0; i < 3 && !avail_b; i++) {
+        int bx = b_pos[i][0], by = b_pos[i][1];
+        if (inter_at(e, bx, by, cur) &&
+            amvp_take(e, (by >> 2) * e->map_stride + (bx >> 2), list, 0,
+                      &mvb))
+            avail_b = 1;
+    }
+    /* neither A position inter: unscaled B is promoted to the A slot
+     * and B re-derives with scaling allowed */
+    if (!is_scaled) {
+        avail_a = avail_b;
+        mva = mvb;
+        avail_b = 0;
+        for (int i = 0; i < 3 && !avail_b; i++) {
+            int bx = b_pos[i][0], by = b_pos[i][1];
+            if (inter_at(e, bx, by, cur) &&
+                amvp_take(e, (by >> 2) * e->map_stride + (bx >> 2), list,
+                          1, &mvb))
+                avail_b = 1;
         }
+    }
+
+    int n = 0;
+    if (avail_a)
+        mvp[n++] = mva;
+    if (avail_b && !(avail_a && mvb.x == mva.x && mvb.y == mva.y))
+        mvp[n++] = mvb;
     while (n < 2) {
         mvp[n].x = 0;
         mvp[n].y = 0;
@@ -160,16 +230,17 @@ void n265_amvp(struct n265_encoder *e, int x0, int y0, int nw, int nh,
     }
 }
 
-uint32_t n265_mc_sad(struct n265_encoder *e, int x0, int y0, int log2n,
-                     mv_t mv)
+uint32_t n265_mc_sad(struct n265_encoder *e, int list, int x0, int y0,
+                     int log2n, mv_t mv)
 {
+    const struct n265_refpic *ref = list ? e->ref_l1 : e->ref_l0;
     int n = 1 << log2n;
     const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
     if ((mv.x | mv.y) & 3) {    /* fractional: interpolate then SAD */
         uint8_t pred[64 * 64];
-        const uint8_t *rp = e->ref_l0->plane[0] +
-            (y0 + (mv.y >> 2)) * e->ref_l0->stride[0] + x0 + (mv.x >> 2);
-        n265_mc_luma(pred, n, rp, e->ref_l0->stride[0], mv.x & 3, mv.y & 3);
+        const uint8_t *rp = ref->plane[0] +
+            (y0 + (mv.y >> 2)) * ref->stride[0] + x0 + (mv.x >> 2);
+        n265_mc_luma(pred, n, rp, ref->stride[0], mv.x & 3, mv.y & 3);
         uint32_t sad = 0;
         for (int y = 0; y < n; y++)
             for (int x = 0; x < n; x++) {
@@ -178,13 +249,13 @@ uint32_t n265_mc_sad(struct n265_encoder *e, int x0, int y0, int log2n,
             }
         return sad;
     }
-    const uint8_t *ref = e->ref_l0->plane[0] +
-        (y0 + (mv.y >> 2)) * e->ref_l0->stride[0] + x0 + (mv.x >> 2);
+    const uint8_t *rp = ref->plane[0] +
+        (y0 + (mv.y >> 2)) * ref->stride[0] + x0 + (mv.x >> 2);
     uint32_t sad = 0;
     for (int y = 0; y < n; y++)
         for (int x = 0; x < n; x++) {
             int d = src[y * e->pad_stride[0] + x] -
-                    ref[y * e->ref_l0->stride[0] + x];
+                    rp[y * ref->stride[0] + x];
             sad += (uint32_t)(d < 0 ? -d : d);
         }
     return sad;
@@ -192,15 +263,16 @@ uint32_t n265_mc_sad(struct n265_encoder *e, int x0, int y0, int log2n,
 
 /* SATD of luma MC at mv: phase-aware cost for subpel refinement, where
  * SAD cannot tell interpolation blur from misalignment */
-static uint32_t mc_satd(struct n265_encoder *e, int x0, int y0, int log2n,
-                        mv_t mv)
+static uint32_t mc_satd(struct n265_encoder *e, int list, int x0, int y0,
+                        int log2n, mv_t mv)
 {
+    const struct n265_refpic *ref = list ? e->ref_l1 : e->ref_l0;
     int n = 1 << log2n;
     const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
     uint8_t pred[64 * 64];
-    const uint8_t *rp = e->ref_l0->plane[0] +
-        (y0 + (mv.y >> 2)) * e->ref_l0->stride[0] + x0 + (mv.x >> 2);
-    n265_mc_luma(pred, n, rp, e->ref_l0->stride[0], mv.x & 3, mv.y & 3);
+    const uint8_t *rp = ref->plane[0] +
+        (y0 + (mv.y >> 2)) * ref->stride[0] + x0 + (mv.x >> 2);
+    n265_mc_luma(pred, n, rp, ref->stride[0], mv.x & 3, mv.y & 3);
     return n265_satd(src, e->pad_stride[0], pred, n, n);
 }
 
@@ -217,15 +289,15 @@ static void clamp_mv(struct n265_encoder *e, int x0, int y0, int n, mv_t *mv)
     if (mv->y > hi_y) mv->y = (int16_t)hi_y;
 }
 
-uint32_t n265_me_search(struct n265_encoder *e, int x0, int y0, int log2n,
-                        mv_t start, mv_t *best)
+uint32_t n265_me_search(struct n265_encoder *e, int list, int x0, int y0,
+                        int log2n, mv_t start, mv_t *best)
 {
     int n = 1 << log2n;
     mv_t cur = { (int16_t)((start.x >> 2) * 4), (int16_t)((start.y >> 2) * 4) };
     clamp_mv(e, x0, y0, n, &cur);
     mv_t zero = { 0, 0 };
-    uint32_t best_sad = n265_mc_sad(e, x0, y0, log2n, cur);
-    uint32_t zs = n265_mc_sad(e, x0, y0, log2n, zero);
+    uint32_t best_sad = n265_mc_sad(e, list, x0, y0, log2n, cur);
+    uint32_t zs = n265_mc_sad(e, list, x0, y0, log2n, zero);
     if (zs < best_sad) {
         best_sad = zs;
         cur = zero;
@@ -242,7 +314,7 @@ uint32_t n265_me_search(struct n265_encoder *e, int x0, int y0, int log2n,
             clamp_mv(e, x0, y0, n, &tc);
             if (tc.x != t.x || tc.y != t.y)
                 continue;
-            uint32_t s = n265_mc_sad(e, x0, y0, log2n, t);
+            uint32_t s = n265_mc_sad(e, list, x0, y0, log2n, t);
             if (s < bs) {
                 bs = s;
                 b = t;
@@ -258,7 +330,7 @@ uint32_t n265_me_search(struct n265_encoder *e, int x0, int y0, int log2n,
     static int fullpel = -1;
     if (fullpel < 0)
         fullpel = getenv("N265_FULLPEL") != NULL;
-    uint32_t best_satd = fullpel ? 0 : mc_satd(e, x0, y0, log2n, cur);
+    uint32_t best_satd = fullpel ? 0 : mc_satd(e, list, x0, y0, log2n, cur);
     for (int step = fullpel ? 0 : 2; step >= 1; step--) {
         mv_t b = cur;
         uint32_t bs = best_satd;
@@ -271,7 +343,7 @@ uint32_t n265_me_search(struct n265_encoder *e, int x0, int y0, int log2n,
                 clamp_mv(e, x0, y0, n, &tc);
                 if (tc.x != t.x || tc.y != t.y)
                     continue;
-                uint32_t s = mc_satd(e, x0, y0, log2n, t);
+                uint32_t s = mc_satd(e, list, x0, y0, log2n, t);
                 if (s < bs) {
                     bs = s;
                     b = t;
