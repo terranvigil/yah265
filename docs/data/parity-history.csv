@@ -91,3 +91,24 @@ date,commit,x265,clip,frames,our_fps,x265m_noasm_fps,x265m_asm_fps,mult_matched_
 2026-08-25,a0476e4,4.2+1-e444744,bus_cif,120,,,,,,,,,,44.68,SAO lambda RD decision (was flat -64 bias)
 2026-08-25,a0476e4,4.2+1-e444744,tempete_cif,120,,,,,,,,,,24.26,SAO lambda RD decision (was flat -64 bias)
 2026-08-25,a0476e4,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,36.97,SAO lambda RD decision (was flat -64 bias)
+2026-08-25,96cad82,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,18.48,MV rate cost in motion search
+2026-08-25,96cad82,4.2+1-e444744,foreman_cif,120,,,,,,,,,,30.65,MV rate cost in motion search
+2026-08-25,96cad82,4.2+1-e444744,mobile_cif,120,,,,,,,,,,28.68,MV rate cost in motion search
+2026-08-25,96cad82,4.2+1-e444744,stefan_cif,120,,,,,,,,,,26.28,MV rate cost in motion search
+2026-08-25,96cad82,4.2+1-e444744,bus_cif,120,,,,,,,,,,45.72,MV rate cost in motion search
+2026-08-25,96cad82,4.2+1-e444744,tempete_cif,120,,,,,,,,,,24.53,MV rate cost in motion search
+2026-08-25,96cad82,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,37.14,MV rate cost in motion search
+2026-08-25,96cad82,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,8.58,I-3 frame QP (retry on real corpus)
+2026-08-25,96cad82,4.2+1-e444744,foreman_cif,120,,,,,,,,,,26.8,I-3 frame QP (retry on real corpus)
+2026-08-25,96cad82,4.2+1-e444744,mobile_cif,120,,,,,,,,,,27.25,I-3 frame QP (retry on real corpus)
+2026-08-25,96cad82,4.2+1-e444744,stefan_cif,120,,,,,,,,,,26.7,I-3 frame QP (retry on real corpus)
+2026-08-25,96cad82,4.2+1-e444744,bus_cif,120,,,,,,,,,,43.78,I-3 frame QP (retry on real corpus)
+2026-08-25,96cad82,4.2+1-e444744,tempete_cif,120,,,,,,,,,,22.5,I-3 frame QP (retry on real corpus)
+2026-08-25,96cad82,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,35.46,I-3 frame QP (retry on real corpus)
+2026-08-25,96cad82,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,8.03,"I-3 ladder kept, MV-search rate cost reverted"
+2026-08-25,96cad82,4.2+1-e444744,foreman_cif,120,,,,,,,,,,24.46,"I-3 ladder kept, MV-search rate cost reverted"
+2026-08-25,96cad82,4.2+1-e444744,mobile_cif,120,,,,,,,,,,27.32,"I-3 ladder kept, MV-search rate cost reverted"
+2026-08-25,96cad82,4.2+1-e444744,stefan_cif,120,,,,,,,,,,24.82,"I-3 ladder kept, MV-search rate cost reverted"
+2026-08-25,96cad82,4.2+1-e444744,bus_cif,120,,,,,,,,,,41.76,"I-3 ladder kept, MV-search rate cost reverted"
+2026-08-25,96cad82,4.2+1-e444744,tempete_cif,120,,,,,,,,,,22.33,"I-3 ladder kept, MV-search rate cost reverted"
+2026-08-25,96cad82,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,35.48,"I-3 ladder kept, MV-search rate cost reverted"

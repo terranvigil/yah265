@@ -304,20 +304,6 @@ static int lambda_sad_q4(int qp)
     return tab[qp < 0 ? 0 : qp > 51 ? 51 : qp];
 }
 
-/* rough MVD rate in bits */
-static int mvd_bits(int dx, int dy)
-{
-    int b = 2;
-    for (int c = 0; c < 2; c++) {
-        int a = c ? (dy < 0 ? -dy : dy) : (dx < 0 ? -dx : dx);
-        while (a) {
-            b += 2;
-            a >>= 1;
-        }
-    }
-    return b;
-}
-
 static uint32_t mot_sad(struct n265_encoder *e, int x0, int y0, int log2n,
                         mot_t mot);
 static void est_tt_bits(struct n265_encoder *e, est_state *st, int log2n,

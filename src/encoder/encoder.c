@@ -323,7 +323,7 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
     e->display_idx = display_idx;
     /* frame-type QP ladder (the matched reference applies its ip/pb
      * ratios in CQP mode too): I anchors lower, non-ref B higher */
-    int q = e->qp_base + (slice_type == 0 ? 2 : 0);
+    int q = e->qp_base + (slice_type == 2 ? -3 : slice_type == 0 ? 2 : 0);
     e->qp = q < 0 ? 0 : q > 51 ? 51 : q;
 
     if (e->frames_done == 0) {
