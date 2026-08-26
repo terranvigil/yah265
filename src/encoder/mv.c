@@ -45,6 +45,71 @@ static int same_motion(const mot_t *a, const mot_t *b)
     return 1;
 }
 
+/* POC-distance MV scaling (8.5.3.2.8 shape) */
+static mv_t mv_scale(mv_t mv, int tb, int td)
+{
+    if (td == 0 || tb == td)
+        return mv;
+    int tx = (16384 + (td < 0 ? -td : td) / 2) / td;
+    int dsf = (tb * tx + 32) >> 6;
+    dsf = dsf < -4096 ? -4096 : dsf > 4095 ? 4095 : dsf;
+    mv_t r;
+    int v = dsf * mv.x;
+    v = (v >= 0 ? (v + 127) >> 8 : -((-v + 127) >> 8));
+    r.x = (int16_t)(v < -32768 ? -32768 : v > 32767 ? 32767 : v);
+    v = dsf * mv.y;
+    v = (v >= 0 ? (v + 127) >> 8 : -((-v + 127) >> 8));
+    r.y = (int16_t)(v < -32768 ? -32768 : v > 32767 ? 32767 : v);
+    return r;
+}
+
+/* temporal MV prediction for target list X ref 0 (8.5.3.2.8): C0
+ * (bottom-right, same CTB row) else C1 (center) in the collocated
+ * picture (always l0[0], collocated_from_l0 == 1), listCol per
+ * NoBackwardPredFlag, POC-distance scaling. */
+static int tmvp_mv(struct n265_encoder *e, int x0, int y0, int nw, int nh,
+                   int list, mv_t *out)
+{
+    const struct n265_refpic *col = e->ref_l0;
+    if (!col || !col->valid)
+        return 0;
+    int c16w = (e->pad_w + 15) >> 4;
+    int i16 = -1;
+    int xbr = x0 + nw, ybr = y0 + nh;
+    if (xbr < e->pad_w && ybr < e->pad_h &&
+        (y0 >> e->ctb_log2) == (ybr >> e->ctb_log2)) {
+        int t = (ybr >> 4) * c16w + (xbr >> 4);
+        if (col->col_pred[t])
+            i16 = t;
+    }
+    if (i16 < 0) {
+        int xc = x0 + nw / 2, yc = y0 + nh / 2;
+        int t = (yc >> 4) * c16w + (xc >> 4);
+        if (col->col_pred[t])
+            i16 = t;
+    }
+    if (i16 < 0)
+        return 0;
+    int pf = col->col_pred[i16];
+    int lc;
+    if (!(pf & 1))
+        lc = 1;
+    else if (!(pf & 2))
+        lc = 0;
+    else if (e->slice_type != 0)
+        lc = list;      /* NoBackwardPredFlag: all refs precede us */
+    else
+        lc = 1;         /* N = collocated_from_l0_flag */
+    mv_t v = { col->col_mv[4 * i16 + 2 * lc],
+               col->col_mv[4 * i16 + 2 * lc + 1] };
+    int td = col->poc - col->col_ref_poc[lc];
+    int tb = e->poc - (list ? e->ref_l1->poc : e->ref_l0->poc);
+    td = td < -128 ? -128 : td > 127 ? 127 : td;
+    tb = tb < -128 ? -128 : tb > 127 ? 127 : tb;
+    *out = mv_scale(v, tb, td);
+    return 1;
+}
+
 int n265_merge_list(struct n265_encoder *e, int x0, int y0, int nw, int nh,
                     mot_t out[], int max)
 {
@@ -79,6 +144,22 @@ int n265_merge_list(struct n265_encoder *e, int x0, int y0, int nw, int nh,
         !(avail[0] && same_motion(&m[4], &m[0])) &&
         !(avail[1] && same_motion(&m[4], &m[1])))
         out[n++] = m[4];
+    /* temporal candidate (8.5.3.2.1 step: after the spatials) */
+    if (n < max) {
+        mot_t t = { { { 0, 0 }, { 0, 0 } }, 0 };
+        mv_t v;
+        if (tmvp_mv(e, x0, y0, nw, nh, 0, &v)) {
+            t.mv[0] = v;
+            t.pred |= 1;
+        }
+        if (e->slice_type == 0 && tmvp_mv(e, x0, y0, nw, nh, 1, &v)) {
+            t.mv[1] = v;
+            t.pred |= 2;
+        }
+        if (t.pred)
+            out[n++] = t;
+    }
+
     /* combined bi-predictive candidates (8.5.3.2.4), B slices, from the
      * first candidate pairs (l0 of i, l1 of j), order (0,1),(1,0),... */
     if (e->slice_type == 0 && n > 1 && n < max) {
@@ -119,24 +200,6 @@ mot_t n265_merge_cand0(struct n265_encoder *e, int x0, int y0, int nw, int nh)
     mot_t out[1];
     n265_merge_list(e, x0, y0, nw, nh, out, 1);
     return out[0];
-}
-
-/* POC-distance MV scaling (8.5.3.2.8 shape) */
-static mv_t mv_scale(mv_t mv, int tb, int td)
-{
-    if (td == 0 || tb == td)
-        return mv;
-    int tx = (16384 + (td < 0 ? -td : td) / 2) / td;
-    int dsf = (tb * tx + 32) >> 6;
-    dsf = dsf < -4096 ? -4096 : dsf > 4095 ? 4095 : dsf;
-    mv_t r;
-    int v = dsf * mv.x;
-    v = (v >= 0 ? (v + 127) >> 8 : -((-v + 127) >> 8));
-    r.x = (int16_t)(v < -32768 ? -32768 : v > 32767 ? 32767 : v);
-    v = dsf * mv.y;
-    v = (v >= 0 ? (v + 127) >> 8 : -((-v + 127) >> 8));
-    r.y = (int16_t)(v < -32768 ? -32768 : v > 32767 ? 32767 : v);
-    return r;
 }
 
 /* neighbor take for AMVP (8.5.3.2.7): unscaled pass wants a ref with
@@ -223,6 +286,11 @@ void n265_amvp(struct n265_encoder *e, int list, int x0, int y0, int nw,
         mvp[n++] = mva;
     if (avail_b && !(avail_a && mvb.x == mva.x && mvb.y == mva.y))
         mvp[n++] = mvb;
+    if (n < 2) {
+        mv_t v;
+        if (tmvp_mv(e, x0, y0, nw, nh, list, &v))
+            mvp[n++] = v;
+    }
     while (n < 2) {
         mvp[n].x = 0;
         mvp[n].y = 0;

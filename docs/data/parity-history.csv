@@ -168,3 +168,10 @@ date,commit,x265,clip,frames,our_fps,x265m_noasm_fps,x265m_asm_fps,mult_matched_
 2026-08-25,eaa16a0,4.2+1-e444744,bus_cif,120,,,,,,,,,,17.4,"B-slice AMVP: L1 + bi-pred ME candidates, spec AMVP scaling"
 2026-08-25,eaa16a0,4.2+1-e444744,tempete_cif,120,,,,,,,,,,3.6,"B-slice AMVP: L1 + bi-pred ME candidates, spec AMVP scaling"
 2026-08-25,eaa16a0,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,5.12,"B-slice AMVP: L1 + bi-pred ME candidates, spec AMVP scaling"
+2026-08-25,807974d,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,-1.12,TMVP (merge + AMVP temporal candidates)
+2026-08-25,807974d,4.2+1-e444744,foreman_cif,120,,,,,,,,,,0.07,TMVP (merge + AMVP temporal candidates)
+2026-08-25,807974d,4.2+1-e444744,mobile_cif,120,,,,,,,,,,0.6,TMVP (merge + AMVP temporal candidates)
+2026-08-25,807974d,4.2+1-e444744,stefan_cif,120,,,,,,,,,,3.92,TMVP (merge + AMVP temporal candidates)
+2026-08-25,807974d,4.2+1-e444744,bus_cif,120,,,,,,,,,,4.09,TMVP (merge + AMVP temporal candidates)
+2026-08-25,807974d,4.2+1-e444744,tempete_cif,120,,,,,,,,,,2.19,TMVP (merge + AMVP temporal candidates)
+2026-08-25,807974d,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,4.43,TMVP (merge + AMVP temporal candidates)

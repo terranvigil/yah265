@@ -132,6 +132,13 @@ n265_encoder *n265_encoder_open(const n265_param *p)
                 e->dpb[sl].base[i] + pad * e->dpb[sl].stride[i] + pad;
         }
     }
+    for (int sl = 0; sl < 2; sl++) {
+        int c16 = ((e->pad_w + 15) >> 4) * ((e->pad_h + 15) >> 4);
+        e->dpb[sl].col_pred = calloc((size_t)c16, 1);
+        e->dpb[sl].col_mv = calloc((size_t)c16, 8);
+        if (!e->dpb[sl].col_pred || !e->dpb[sl].col_mv)
+            goto fail;
+    }
     e->map_stride = e->pad_w >> 2;
     e->ct_depth = calloc((size_t)e->map_stride * (e->pad_h >> 2), 1);
     e->intra_mode = calloc((size_t)e->map_stride * (e->pad_h >> 2), 1);
@@ -201,6 +208,10 @@ void n265_encoder_close(n265_encoder *e)
         free(e->dpb[0].base[i]);
         free(e->dpb[1].base[i]);
     }
+    for (int sl = 0; sl < 2; sl++) {
+        free(e->dpb[sl].col_pred);
+        free(e->dpb[sl].col_mv);
+    }
     n265_la_free(e);
     bs_free(&e->rbsp);
     free(e->rec_buf);
@@ -229,6 +240,7 @@ static void write_slice_header(n265_encoder *e)
             bs_put_ue(bs, (uint32_t)(e->ref_l1->poc - e->poc - 1));
             bs_put_bits(bs, 1, 1);  /* used_by_curr_pic_s1_flag[0] */
         }
+        bs_put_bits(bs, 1, 1);      /* slice_temporal_mvp_enabled_flag */
     }
     if (e->mode != N265_MODE_PCM) {
         bs_put_bits(bs, 1, 1);      /* slice_sao_luma_flag */
@@ -238,6 +250,8 @@ static void write_slice_header(n265_encoder *e)
         bs_put_bits(bs, 0, 1);      /* num_ref_idx_active_override_flag */
         if (e->slice_type == 0)
             bs_put_bits(bs, 0, 1);  /* mvd_l1_zero_flag */
+        if (e->slice_type == 0)
+            bs_put_bits(bs, 1, 1);  /* collocated_from_l0_flag */
         bs_put_ue(bs, 5 - MAX_MERGE);   /* five_minus_max_num_merge_cand */
     }
     bs_put_se(bs, e->qp - 26);      /* slice_qp_delta */
@@ -461,6 +475,25 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
                 memcpy(slot->plane[i] + (h - 1 + y) * rs - pad,
                        slot->plane[i] + (h - 1) * rs - pad, (size_t)rs);
             }
+        }
+        {
+            int c16w = (e->pad_w + 15) >> 4;
+            int c16h = (e->pad_h + 15) >> 4;
+            for (int cy = 0; cy < c16h; cy++)
+                for (int cx = 0; cx < c16w; cx++) {
+                    int m = (cy * 4) * e->map_stride + cx * 4;
+                    int i16 = cy * c16w + cx;
+                    if (e->slice_type == 2 || e->blk_intra[m]) {
+                        slot->col_pred[i16] = 0;
+                        continue;
+                    }
+                    slot->col_pred[i16] = e->blk_pred[m];
+                    memcpy(slot->col_mv + 4 * i16, e->blk_mv + 4 * m, 8);
+                }
+            slot->col_ref_poc[0] = e->ref_valid ? e->ref_l0->poc : 0;
+            slot->col_ref_poc[1] = (e->slice_type == 0 && e->ref_l1)
+                                       ? e->ref_l1->poc
+                                       : slot->col_ref_poc[0];
         }
         slot->poc = poc;
         slot->valid = 1;

@@ -126,7 +126,7 @@ void n265_write_sps(struct n265_encoder *e)
     }
     bs_put_ue(bs, 0);               /* num_short_term_ref_pic_sets */
     bs_put_bits(bs, 0, 1);          /* long_term_ref_pics_present_flag */
-    bs_put_bits(bs, 0, 1);          /* sps_temporal_mvp_enabled_flag */
+    bs_put_bits(bs, e->mode != N265_MODE_PCM, 1);   /* sps_temporal_mvp */
     bs_put_bits(bs, e->mode != N265_MODE_PCM, 1);   /* strong smoothing */
     bs_put_bits(bs, 0, 1);          /* vui_parameters_present_flag */
     bs_put_bits(bs, 0, 1);          /* sps_extension_present_flag */

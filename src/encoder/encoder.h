@@ -46,6 +46,11 @@ struct n265_encoder {
         int stride[3];
         int poc;
         int valid;
+        /* collocated motion for TMVP, 16x16 granularity (top-left 4x4
+         * of each region, spec mv storage reduction) */
+        uint8_t *col_pred;
+        int16_t *col_mv;    /* 4 per cell: L0 x,y then L1 x,y */
+        int col_ref_poc[2]; /* POC of that picture's L0/L1 ref */
     } dpb[2];
     struct n265_refpic *ref_l0, *ref_l1;    /* current frame's lists */
     int ref_valid;
