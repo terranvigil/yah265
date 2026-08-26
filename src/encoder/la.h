@@ -15,6 +15,8 @@
 struct n265_encoder;
 
 typedef struct la_frame {
+    float sc_ratio;         /* pcost/icost at push time */
+    float sc_ema;           /* running ratio EMA before this frame */
     int valid;
     int display_idx;
     uint8_t *src[3];        /* full-res source copy (pad_stride layout) */
@@ -32,6 +34,7 @@ typedef struct n265_la {
     int lw, lh;             /* lowres dims */
     int bw, bh;             /* lowres 8x8 block grid */
     int depth;              /* target queue depth before draining */
+    float sc_ema;           /* running pcost/icost EMA */
 } n265_la;
 
 int n265_la_init(struct n265_encoder *e);

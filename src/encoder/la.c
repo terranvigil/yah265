@@ -116,18 +116,61 @@ void n265_la_push(struct n265_encoder *e, const uint8_t *const plane[3],
             if (y0 + 8 > lh)
                 y0 = lh - 8;
             const uint8_t *blk = f->lowres + y0 * lw + x0;
-            /* intra proxy: SAD against the block mean (AC energy) */
-            int sum = 0;
-            for (int y = 0; y < 8; y++)
-                for (int x = 0; x < 8; x++)
-                    sum += blk[y * lw + x];
-            int mean = (sum + 32) >> 6;
-            uint32_t ic = 64;   /* mode/signal floor */
-            for (int y = 0; y < 8; y++)
-                for (int x = 0; x < 8; x++) {
-                    int d = blk[y * lw + x] - mean;
-                    ic += (uint32_t)(d < 0 ? -d : d);
+            /* intra estimate: best of V/H/DC prediction from decoded-side
+             * neighbors (the AC-energy proxy undercosts structure and
+             * fires false scenecuts on grain). Falls back to AC energy
+             * in the top-left corner. */
+            uint32_t ic;
+            {
+                uint32_t sv = UINT32_MAX, sh = UINT32_MAX, sd;
+                int have_t = y0 > 0, have_l = x0 > 0;
+                if (have_t) {
+                    sv = 0;
+                    for (int y = 0; y < 8; y++)
+                        for (int x = 0; x < 8; x++) {
+                            int d = blk[y * lw + x] - blk[-lw + x];
+                            sv += (uint32_t)(d < 0 ? -d : d);
+                        }
                 }
+                if (have_l) {
+                    sh = 0;
+                    for (int y = 0; y < 8; y++)
+                        for (int x = 0; x < 8; x++) {
+                            int d = blk[y * lw + x] - blk[y * lw - 1];
+                            sh += (uint32_t)(d < 0 ? -d : d);
+                        }
+                }
+                int dcs = 0, dcn = 0;
+                if (have_t) {
+                    for (int x = 0; x < 8; x++)
+                        dcs += blk[-lw + x];
+                    dcn += 8;
+                }
+                if (have_l) {
+                    for (int y = 0; y < 8; y++)
+                        dcs += blk[y * lw - 1];
+                    dcn += 8;
+                }
+                if (!dcn) {     /* corner: block mean */
+                    for (int y = 0; y < 8; y++)
+                        for (int x = 0; x < 8; x++)
+                            dcs += blk[y * lw + x];
+                    dcn = 64;
+                }
+                int dc = (dcs + dcn / 2) / dcn;
+                sd = 0;
+                for (int y = 0; y < 8; y++)
+                    for (int x = 0; x < 8; x++) {
+                        int d = blk[y * lw + x] - dc;
+                        sd += (uint32_t)(d < 0 ? -d : d);
+                    }
+                ic = sd;
+                if (sv < ic)
+                    ic = sv;
+                if (sh < ic)
+                    ic = sh;
+                ic += 64;       /* mode/signal floor */
+            }
             f->icost[b] = (uint16_t)(ic > 65535 ? 65535 : ic);
 
             if (!prev) {
@@ -171,6 +214,12 @@ void n265_la_push(struct n265_encoder *e, const uint8_t *const plane[3],
             f->icost_sum += f->icost[b];
             f->pcost_sum += f->pcost[b];
         }
+    f->sc_ratio = (float)f->pcost_sum /
+                  (float)(f->icost_sum ? f->icost_sum : 1);
+    f->sc_ema = la->sc_ema;
+    la->sc_ema = la->sc_ema == 0.0f
+                     ? f->sc_ratio
+                     : 0.5f * la->sc_ema + 0.5f * f->sc_ratio;
     la->count++;
 }
 
@@ -180,8 +229,18 @@ int n265_la_scenecut(struct n265_encoder *e, int i)
     if (i >= la->count || la->f[i].display_idx == 0)
         return 0;
     const la_frame *f = &la->f[i];
-    /* x264-shape: cut when inter cost fails to undercut intra */
-    return f->pcost_sum >= (uint64_t)(f->icost_sum * 0.75);
+    /* cut when inter fails to undercut intra AND the ratio spikes over
+     * its running level - a steady high ratio (grain, foliage) is not a
+     * scene change */
+    int cut = f->sc_ratio >= 0.75f &&
+              (f->sc_ema == 0.0f || f->sc_ratio >= 1.3f * f->sc_ema);
+    if (getenv("N265_SC_TRACE"))
+        fprintf(stderr, "sc d=%d p=%llu i=%llu ratio=%.2f cut=%d\n",
+                f->display_idx, (unsigned long long)f->pcost_sum,
+                (unsigned long long)f->icost_sum,
+                (double)f->pcost_sum / (double)(f->icost_sum ? f->icost_sum : 1),
+                cut);
+    return cut;
 }
 
 void n265_la_cutree(struct n265_encoder *e, int i)
