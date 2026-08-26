@@ -11,8 +11,6 @@
 #include "next265.h"
 
 /* internal knobs, resolved from the library (not yet public API) */
-void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes, int aq);
-void n265_set_la(int depth, int cutree);
 void n265_encoder_set_dump_decode(n265_encoder *e, FILE *f);
 void n265_encoder_set_dump(n265_encoder *e, FILE *f);
 

@@ -16,6 +16,16 @@
 extern "C" {
 #endif
 
+/* Everything this header declares is exported; everything else in the
+ * library is not. The shared build compiles with hidden visibility so
+ * internal calls stay direct rather than routing through the export
+ * table. */
+#if defined(__GNUC__) || defined(__clang__)
+#  define NEXT265_API __attribute__((visibility("default")))
+#else
+#  define NEXT265_API
+#endif
+
 #define NEXT265_VERSION_MAJOR 0
 #define NEXT265_VERSION_MINOR 0
 #define NEXT265_VERSION_PATCH 1
@@ -33,8 +43,12 @@ typedef struct n265_param {
     int fps_den;
 } n265_param;
 
-/* NAL unit types we emit (subset of ITU-T H.265 Table 7-1). */
+/* NAL unit types we emit (subset of ITU-T H.265 Table 7-1). VCL types
+ * are < 32; a caller splitting output into coded frames can cut after
+ * each VCL unit. */
 enum {
+    N265_NAL_TRAIL_N    = 0,
+    N265_NAL_TRAIL_R    = 1,
     N265_NAL_IDR_W_RADL = 19,
     N265_NAL_VPS        = 32,
     N265_NAL_SPS        = 33,
@@ -56,21 +70,30 @@ typedef struct n265_picture {
 typedef struct n265_encoder n265_encoder;
 
 /* Fill defaults; returns 0 on success. */
-void n265_param_default(n265_param *p);
+NEXT265_API void n265_param_default(n265_param *p);
+
+/* v0 configuration, set before n265_encoder_open (process-global; one
+ * encoder per process for now): mode 0 normal / 1 PCM, CQP qp, CTB size
+ * as log2 (4..6), keyframe interval, consecutive B frames (0/1),
+ * variance AQ on/off; lookahead depth in frames and cu-tree on/off.
+ * Encode latency is `lookahead depth + bframes` frames. */
+NEXT265_API void n265_set_mode(int mode, int qp, int ctb_log2, int keyint,
+                               int bframes, int aq);
+NEXT265_API void n265_set_la(int depth, int cutree);
 
 /* NULL on invalid params or allocation failure. */
-n265_encoder *n265_encoder_open(const n265_param *p);
+NEXT265_API n265_encoder *n265_encoder_open(const n265_param *p);
 
 /* Encode one picture. On success returns the number of bytes of Annex-B
  * output produced and sets nal/nnal to an array valid until the next
  * call on this encoder. pic == NULL flushes (no-op for now: zero-latency
  * all-intra). Returns < 0 on error, 0 when flushing with nothing left. */
-int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
-                        const n265_picture *pic);
+NEXT265_API int n265_encoder_encode(n265_encoder *e, n265_nal **nal,
+                                    int *nnal, const n265_picture *pic);
 
-void n265_encoder_close(n265_encoder *e);
+NEXT265_API void n265_encoder_close(n265_encoder *e);
 
-const char *n265_version_str(void);
+NEXT265_API const char *n265_version_str(void);
 
 #ifdef __cplusplus
 }

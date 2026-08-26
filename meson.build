@@ -39,12 +39,35 @@ lib_sources = [
   'src/encoder/encoder.c',
 ]
 
-libnext265 = static_library('next265', lib_sources,
+# Both linkage forms (next264 lesson: plain library() made the CLI link
+# the dylib and cross a shared-library boundary on every hot call, worth
+# 12-14% of wall time). In-tree consumers - the CLI and tests, the
+# binaries the boards time - link the STATIC form; the shared form with
+# hidden visibility is what gets installed for external callers (the
+# ffmpeg wrapper).
+libnext265_both = both_libraries('next265', lib_sources,
   include_directories : inc,
-  dependencies : [m_dep, threads_dep])
+  dependencies : [m_dep, threads_dep],
+  version : meson.project_version(),
+  soversion : '0',
+  gnu_symbol_visibility : 'hidden',
+  install : true)
+
+libnext265 = libnext265_both.get_shared_lib()
+libnext265_static = libnext265_both.get_static_lib()
+
+install_headers('include/next265.h')
+
+pkg = import('pkgconfig')
+pkg.generate(libnext265,
+  name : 'next265',
+  filebase : 'next265',
+  description : 'HEVC/H.265 encoder',
+  url : 'https://github.com/terranvigil/next265',
+  subdirs : '.')
 
 next265_dep = declare_dependency(
-  link_with : libnext265,
+  link_with : libnext265_static,
   include_directories : inc)
 
 n265 = executable('n265', 'cli/n265.c',
