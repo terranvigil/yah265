@@ -175,3 +175,10 @@ date,commit,x265,clip,frames,our_fps,x265m_noasm_fps,x265m_asm_fps,mult_matched_
 2026-08-25,807974d,4.2+1-e444744,bus_cif,120,,,,,,,,,,4.09,TMVP (merge + AMVP temporal candidates)
 2026-08-25,807974d,4.2+1-e444744,tempete_cif,120,,,,,,,,,,2.19,TMVP (merge + AMVP temporal candidates)
 2026-08-25,807974d,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,4.43,TMVP (merge + AMVP temporal candidates)
+2026-08-25,86883b2,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,-1.67,SAO merge left/up
+2026-08-25,86883b2,4.2+1-e444744,foreman_cif,120,,,,,,,,,,0.02,SAO merge left/up
+2026-08-25,86883b2,4.2+1-e444744,mobile_cif,120,,,,,,,,,,0.53,SAO merge left/up
+2026-08-25,86883b2,4.2+1-e444744,stefan_cif,120,,,,,,,,,,3.53,SAO merge left/up
+2026-08-25,86883b2,4.2+1-e444744,bus_cif,120,,,,,,,,,,4.09,SAO merge left/up
+2026-08-25,86883b2,4.2+1-e444744,tempete_cif,120,,,,,,,,,,1.8,SAO merge left/up
+2026-08-25,86883b2,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,3.95,SAO merge left/up

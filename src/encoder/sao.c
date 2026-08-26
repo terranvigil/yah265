@@ -78,21 +78,63 @@ static int best_offset(int64_t n, int64_t d, int min_o, int max_o,
     return best;
 }
 
-/* analyze one component of one CTB; fills type/class/offsets, returns the
- * SSD gain (negative = improvement) */
-static int64_t analyze_comp(const uint8_t *src, const uint8_t *rec,
-                            int stride, int x0, int y0, int w, int h,
-                            int pw, int ph, uint32_t lam, uint8_t *type,
-                            uint8_t *cop, int8_t off[4])
+/* per-component CTB stats: enough to score any parameter set */
+typedef struct sao_stats {
+    int64_t bn[32], bd[32];         /* band: count, diff sum per band */
+    int64_t en[4][5], ed[4][5];     /* edge: per class, per category */
+} sao_stats;
+
+static void collect_stats(const uint8_t *src, const uint8_t *rec,
+                          int stride, int x0, int y0, int w, int h,
+                          int pw, int ph, sao_stats *st)
 {
-    /* band stats */
-    int64_t bn[32] = { 0 }, bd[32] = { 0 };
+    memset(st, 0, sizeof(*st));
     for (int y = y0; y < y0 + h; y++)
         for (int x = x0; x < x0 + w; x++) {
             int r = rec[y * stride + x];
-            bn[r >> 3]++;
-            bd[r >> 3] += src[y * stride + x] - r;
+            st->bn[r >> 3]++;
+            st->bd[r >> 3] += src[y * stride + x] - r;
         }
+    for (int cls = 0; cls < 4; cls++)
+        for (int y = y0; y < y0 + h; y++) {
+            if (y + eo_dy[cls] < 0 || y - eo_dy[cls] < 0 ||
+                y + eo_dy[cls] >= ph || y - eo_dy[cls] >= ph)
+                continue;
+            for (int x = x0; x < x0 + w; x++) {
+                if (x + eo_dx[cls] < 0 || x - eo_dx[cls] < 0 ||
+                    x + eo_dx[cls] >= pw || x - eo_dx[cls] >= pw)
+                    continue;
+                int cat = eo_category(rec, stride, x, y, cls);
+                if (cat) {
+                    st->en[cls][cat]++;
+                    st->ed[cls][cat] +=
+                        src[y * stride + x] - rec[y * stride + x];
+                }
+            }
+        }
+}
+
+/* SSD delta of applying a given parameter set to this CTB (no rate) */
+static int64_t score_params(const sao_stats *st, int type, int cop,
+                            const int8_t off[4])
+{
+    int64_t g = 0;
+    if (type == SAO_BAND)
+        for (int i = 0; i < 4; i++)
+            g += gain(st->bn[(cop + i) & 31], st->bd[(cop + i) & 31],
+                      off[i]);
+    else if (type == SAO_EDGE)
+        for (int i = 0; i < 4; i++)
+            g += gain(st->en[cop][i + 1], st->ed[cop][i + 1], off[i]);
+    return g;
+}
+
+/* pick the RD-best explicit params for one component from its stats;
+ * returns dSSD + lambda*(param bits) relative to OFF */
+static int64_t analyze_comp(const sao_stats *st, uint32_t lam,
+                            uint8_t *type, uint8_t *cop, int8_t off[4])
+{
+    const int64_t *bn = st->bn, *bd = st->bd;
     /* candidate J values are relative to SAO_OFF: syntax bits beyond the
      * type code itself (type is ~2 bins either way) are priced here -
      * band pos 5 bits, edge class 2 bits, offsets via best_offset */
@@ -115,27 +157,12 @@ static int64_t analyze_comp(const uint8_t *src, const uint8_t *rec,
         }
     }
 
-    /* edge stats per class */
+    /* edge classes from the stats */
     int64_t best_edge = INT64_MAX;
     int best_cls = 0;
     int8_t best_eoff[4] = { 0, 0, 0, 0 };
     for (int cls = 0; cls < 4; cls++) {
-        int64_t en[5] = { 0 }, ed[5] = { 0 };
-        for (int y = y0; y < y0 + h; y++) {
-            if (y + eo_dy[cls] < 0 || y - eo_dy[cls] < 0 ||
-                y + eo_dy[cls] >= ph || y - eo_dy[cls] >= ph)
-                continue;
-            for (int x = x0; x < x0 + w; x++) {
-                if (x + eo_dx[cls] < 0 || x - eo_dx[cls] < 0 ||
-                    x + eo_dx[cls] >= pw || x - eo_dx[cls] >= pw)
-                    continue;
-                int cat = eo_category(rec, stride, x, y, cls);
-                if (cat) {
-                    en[cat]++;
-                    ed[cat] += src[y * stride + x] - rec[y * stride + x];
-                }
-            }
-        }
+        const int64_t *en = st->en[cls], *ed = st->ed[cls];
         int8_t o[4];
         int64_t rd0, rd1, rd2, rd3;
         o[0] = (int8_t)best_offset(en[1], ed[1], 0, 7, lam, 0, &rd0);
@@ -172,33 +199,26 @@ void n265_sao_analyze(struct n265_encoder *e)
 {
     int ctb = 1 << e->ctb_log2;
     uint32_t lam = n265_lambda_mode_q8(e->qp);
+    sao_stats st[3];
     for (int cy = 0; cy < e->ctb_rows; cy++)
         for (int cx = 0; cx < e->ctb_cols; cx++) {
             sao_params *p = &e->sao[cy * e->ctb_cols + cx];
             memset(p, 0, sizeof(*p));
+            int64_t j_expl = 0;
             for (int c = 0; c < 3; c++) {
                 int sh = c ? 1 : 0;
                 int x0 = (cx * ctb) >> sh, y0 = (cy * ctb) >> sh;
                 int pw = e->pad_w >> sh, ph = e->pad_h >> sh;
                 int w = (x0 + (ctb >> sh) > pw) ? pw - x0 : ctb >> sh;
                 int h = (y0 + (ctb >> sh) > ph) ? ph - y0 : ctb >> sh;
-                analyze_comp(e->pad_plane[c], e->recon[c],
-                             e->recon_stride[c], x0, y0, w, h, pw, ph,
-                             lam, &p->type[c], &p->class_or_pos[c],
-                             p->offset[c]);
-            }
-            if (getenv("N265_MODE_HIST")) {
-                static int cnt[3][3], reg;
-                for (int c = 0; c < 3; c++)
-                    cnt[c][p->type[c]]++;
-                (void)reg;
-                fprintf(stderr, "sao: l %d/%d/%d cb %d/%d/%d cr %d/%d/%d\r",
-                        cnt[0][0], cnt[0][1], cnt[0][2],
-                        cnt[1][0], cnt[1][1], cnt[1][2],
-                        cnt[2][0], cnt[2][1], cnt[2][2]);
+                collect_stats(e->pad_plane[c], e->recon[c],
+                              e->recon_stride[c], x0, y0, w, h, pw, ph,
+                              &st[c]);
+                j_expl += analyze_comp(&st[c], lam, &p->type[c],
+                                       &p->class_or_pos[c], p->offset[c]);
             }
             /* chroma shares one type (and eo class): coded once for cb;
-             * force cr to cb's type/class, re-deriving nothing fancy */
+             * force cr to cb's type/class */
             if (p->type[2] != p->type[1] ||
                 (p->type[1] == SAO_EDGE &&
                  p->class_or_pos[2] != p->class_or_pos[1])) {
@@ -208,12 +228,55 @@ void n265_sao_analyze(struct n265_encoder *e)
                 } else {
                     p->type[2] = p->type[1];
                     p->class_or_pos[2] = p->class_or_pos[1];
-                    /* offsets for cr stay as analyzed only if same type;
-                     * otherwise disable them */
                     memset(p->offset[2], 0, 4);
-                    if (p->type[1] == SAO_BAND)
-                        p->class_or_pos[2] = p->class_or_pos[1];
                 }
+            }
+            /* type-code rate for the explicit choice (luma + cb sets) */
+            for (int c = 0; c < 2; c++)
+                j_expl += ((int64_t)lam *
+                           (p->type[c] == SAO_OFF ? 1 : 2)) >> 8;
+
+            /* merge candidates: neighbor params scored on our stats.
+             * Bin counts: left = 1; up = (left exists) + 1; explicit
+             * pays the same merge bins as zeros, folded in uniformly. */
+            const sao_params *lp = cx > 0
+                ? &e->sao[cy * e->ctb_cols + cx - 1] : NULL;
+            const sao_params *up = cy > 0
+                ? &e->sao[(cy - 1) * e->ctb_cols + cx] : NULL;
+            int64_t j_left = INT64_MAX, j_up = INT64_MAX;
+            if (lp) {
+                j_left = ((int64_t)lam * 1) >> 8;
+                for (int c = 0; c < 3; c++)
+                    j_left += score_params(&st[c], lp->type[c],
+                                           lp->class_or_pos[c],
+                                           lp->offset[c]);
+            }
+            if (up) {
+                j_up = ((int64_t)lam * ((lp ? 1 : 0) + 1)) >> 8;
+                for (int c = 0; c < 3; c++)
+                    j_up += score_params(&st[c], up->type[c],
+                                         up->class_or_pos[c],
+                                         up->offset[c]);
+            }
+            if (j_left <= j_expl && j_left <= j_up) {
+                uint8_t m = 1;
+                *p = *lp;
+                p->merge = m;
+            } else if (j_up < j_expl) {
+                uint8_t m = 2;
+                *p = *up;
+                p->merge = m;
+            } else {
+                p->merge = 0;
+            }
+            if (getenv("N265_MODE_HIST")) {
+                static int cnt[3][3];
+                for (int c = 0; c < 3; c++)
+                    cnt[c][p->type[c]]++;
+                fprintf(stderr, "sao: l %d/%d/%d cb %d/%d/%d cr %d/%d/%d\r",
+                        cnt[0][0], cnt[0][1], cnt[0][2],
+                        cnt[1][0], cnt[1][1], cnt[1][2],
+                        cnt[2][0], cnt[2][1], cnt[2][2]);
             }
         }
 }
@@ -233,9 +296,11 @@ void n265_sao_write(struct n265_encoder *e, cabac_t *cb, int ctb_x,
     const sao_params *p = &e->sao[ctb_y * e->ctb_cols + ctb_x];
 
     if (ctb_x > 0)
-        n265_cabac_bin(cb, &e->ctx[CTX_SAO_MERGE], 0);
-    if (ctb_y > 0)
-        n265_cabac_bin(cb, &e->ctx[CTX_SAO_MERGE], 0);
+        n265_cabac_bin(cb, &e->ctx[CTX_SAO_MERGE], p->merge == 1);
+    if (p->merge != 1 && ctb_y > 0)
+        n265_cabac_bin(cb, &e->ctx[CTX_SAO_MERGE], p->merge == 2);
+    if (p->merge)
+        return;
 
     for (int c = 0; c < 3; c++) {
         if (c == 0 || c == 1) {

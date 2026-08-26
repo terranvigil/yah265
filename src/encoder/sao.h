@@ -11,6 +11,7 @@
 enum { SAO_OFF = 0, SAO_BAND = 1, SAO_EDGE = 2 };
 
 typedef struct sao_params {
+    uint8_t merge;          /* 0 explicit, 1 left, 2 up */
     uint8_t type[3];        /* per component; [2] mirrors [1]'s type   */
     uint8_t class_or_pos[3];/* eo class (0..3) or band position (0..31) */
     int8_t offset[3][4];    /* band: signed; edge: category 1..4 magnitudes
