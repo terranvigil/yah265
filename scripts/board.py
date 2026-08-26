@@ -14,7 +14,9 @@ equal PSNR.
 Timing rules (docs/instruments.md): output to /dev/null, median of
 NRUNS, sizes measured in a separate untimed pass.
 
-usage: scripts/board.py [--quick] [--note TEXT]
+usage: scripts/board.py [--quick] [--bd-only] [--synth] [--note TEXT]
+  --bd-only  skip timing (loaded machine); BD columns only
+  --synth    force the synthetic clips even when tests/corpus exists
 """
 
 import csv
@@ -41,8 +43,8 @@ X265_MATCHED = ["--keyint", "60", "--bframes", "1", "--b-adapt", "0",
                 "--rc-lookahead", "2", "--ref", "1", "--no-scenecut",
                 "--no-open-gop", "--no-b-pyramid"]
 
-CLIPS = [
-    # deterministic synthetic material until the real corpus lands
+SYNTH_CLIPS = [
+    # deterministic synthetic fallback (--synth, or no corpus fetched)
     ("synth_detail_cif", "352x288", 30,
      "testsrc2=size=352x288:rate=25,noise=alls=8:allf=t:all_seed=7"),
     ("synth_smooth_cif", "352x288", 30,
@@ -50,6 +52,27 @@ CLIPS = [
     ("synth_detail_720", "1280x720", 10,
      "testsrc2=size=1280x720:rate=25,noise=alls=6:allf=t:all_seed=7"),
 ]
+
+CORPUS = os.path.join(ROOT, "tests/corpus")
+CORPUS_FRAMES = 120     # truncate long clips; plenty for a 4-point sweep
+
+
+def corpus_clips():
+    """(name, size, frames, path) from tests/corpus/CLASSES, or None."""
+    manifest = os.path.join(CORPUS, "CLASSES")
+    if not os.path.exists(manifest):
+        return None
+    out = []
+    for line in open(manifest):
+        name = line.split()[0]
+        path = os.path.join(CORPUS, name + ".y4m")
+        if not os.path.exists(path):
+            continue
+        hdr = open(path, "rb").readline().decode()
+        w = re.search(r" W(\d+)", hdr).group(1)
+        h = re.search(r" H(\d+)", hdr).group(1)
+        out.append((name, f"{w}x{h}", CORPUS_FRAMES, path))
+    return out or None
 
 
 def run(cmd, **kw):
@@ -78,7 +101,12 @@ def psnr_y(dist, ref_y4m, size):
         [FFMPEG, "-loglevel", "info",
          "-f", "rawvideo", "-pix_fmt", "yuv420p", "-video_size", size,
          "-i", dist, "-i", ref_y4m,
-         "-lavfi", "psnr", "-f", "null", "-"],
+         # frame-index alignment: corpus y4m rates (29.97) differ from the
+         # rawvideo default; timestamp sync would compare wrong frames.
+         # shortest=1 stops at the truncated encode length.
+         "-lavfi", "[0:v]settb=1/25,setpts=N[d];[1:v]settb=1/25,"
+                   "setpts=N[r];[d][r]psnr=shortest=1",
+         "-f", "null", "-"],
         capture_output=True, text=True)
     m = re.search(r"psnr.*y:([0-9.]+|inf)", p.stderr)
     v = m.group(1) if m else "0"
@@ -129,28 +157,25 @@ def bd_rate(anchor, test):
     return (math.exp(dt - da) - 1) * 100
 
 
-def measure_clip(tmp, name, size, frames, filt, quick):
-    y4m = gen_clip(tmp, name, filt, frames)
-    row = {}
+def measure_clip(tmp, name, size, frames, src, bd_only):
+    if os.path.exists(str(src)):
+        y4m = src
+    else:
+        y4m = gen_clip(tmp, name, src, frames)
+    lim = ["--frames", str(frames)]
+    row = {"clip": name, "frames": frames}
 
-    # ours: speed at qp 27 (timing), then the sweep for rate/quality
-    t_ours = time_cmd([N265, y4m, "-o", "/dev/null", "--qp", "27"])
     ours_pts = []
     for qp in QPS:
         out = os.path.join(tmp, f"n_{name}_{qp}.hevc")
         rec = os.path.join(tmp, f"n_{name}_{qp}.yuv")
-        run([N265, y4m, "-o", out, "--qp", str(qp), "--dump-recon", rec])
+        run([N265, y4m, "-o", out, "--qp", str(qp),
+             "--dump-recon", rec] + lim)
         ours_pts.append((os.path.getsize(out) * 8, psnr_y(rec, y4m, size)))
 
     st = ["--pools", "none", "--frame-threads", "1", "--log-level", "error"]
-    matched = [X265, "--input", y4m] + st + X265_MATCHED
-    medium = [X265, "--input", y4m] + st
-    t_m_noasm = time_cmd(matched + ["--no-asm", "--qp", "27", "-o",
-                                    "/dev/null"])
-    t_m_asm = time_cmd(matched + ["--qp", "27", "-o", "/dev/null"])
-    t_med_noasm = time_cmd(medium + ["--no-asm", "--crf", "28", "-o",
-                                     "/dev/null"])
-    t_med_asm = time_cmd(medium + ["--crf", "28", "-o", "/dev/null"])
+    matched = [X265, "--input", y4m] + st + X265_MATCHED + lim
+    medium = [X265, "--input", y4m] + st + lim
     x_pts = []
     for qp in QPS:
         out = os.path.join(tmp, f"x_{name}_{qp}.hevc")
@@ -159,9 +184,23 @@ def measure_clip(tmp, name, size, frames, filt, quick):
         run([FFMPEG, "-loglevel", "error", "-i", out, "-f", "rawvideo",
              dec, "-y"])
         x_pts.append((os.path.getsize(out) * 8, psnr_y(dec, y4m, size)))
+    row["bd_rate_psnr_pct"] = round(bd_rate(x_pts, ours_pts), 2)
 
-    row["clip"] = name
-    row["frames"] = frames
+    if bd_only:
+        # timing skipped (loaded machine); columns stay empty
+        for k in ("our_fps", "x265m_noasm_fps", "x265m_asm_fps",
+                  "mult_matched_g1", "mult_matched_g3", "x265med_noasm_fps",
+                  "x265med_asm_fps", "mult_medium_g1", "mult_medium_g3"):
+            row[k] = ""
+        return row
+
+    t_ours = time_cmd([N265, y4m, "-o", "/dev/null", "--qp", "27"] + lim)
+    t_m_noasm = time_cmd(matched + ["--no-asm", "--qp", "27", "-o",
+                                    "/dev/null"])
+    t_m_asm = time_cmd(matched + ["--qp", "27", "-o", "/dev/null"])
+    t_med_noasm = time_cmd(medium + ["--no-asm", "--crf", "28", "-o",
+                                     "/dev/null"])
+    t_med_asm = time_cmd(medium + ["--crf", "28", "-o", "/dev/null"])
     row["our_fps"] = round(frames / t_ours, 2)
     row["x265m_noasm_fps"] = round(frames / t_m_noasm, 2)
     row["x265m_asm_fps"] = round(frames / t_m_asm, 2)
@@ -171,12 +210,13 @@ def measure_clip(tmp, name, size, frames, filt, quick):
     row["x265med_asm_fps"] = round(frames / t_med_asm, 2)
     row["mult_medium_g1"] = round(t_ours / t_med_noasm, 3)
     row["mult_medium_g3"] = round(t_ours / t_med_asm, 3)
-    row["bd_rate_psnr_pct"] = round(bd_rate(x_pts, ours_pts), 2)
     return row
 
 
 def main():
     quick = "--quick" in sys.argv
+    bd_only = "--bd-only" in sys.argv
+    synth = "--synth" in sys.argv
     note = ""
     if "--note" in sys.argv:
         note = sys.argv[sys.argv.index("--note") + 1]
@@ -195,21 +235,28 @@ def main():
     os.makedirs(os.path.dirname(HISTORY), exist_ok=True)
     new = not os.path.exists(HISTORY)
 
-    clips = CLIPS[:1] if quick else CLIPS
+    clips = None if synth else corpus_clips()
+    if clips is None:
+        clips = SYNTH_CLIPS
+    if quick:
+        clips = clips[:1]
     with tempfile.TemporaryDirectory() as tmp, \
          open(HISTORY, "a", newline="") as f:
         wr = csv.DictWriter(f, fieldnames=fields)
         if new:
             wr.writeheader()
-        for name, size, frames, filt in clips:
-            row = measure_clip(tmp, name, size, frames, filt, quick)
+        for name, size, frames, src in clips:
+            row = measure_clip(tmp, name, size, frames, src, bd_only)
             row.update(date=datetime.date.today().isoformat(),
                        commit=commit, x265=xv, note=note)
             wr.writerow(row)
-            print("{clip}: ours {our_fps} fps | matched g1 "
-                  "{mult_matched_g1}x g3 {mult_matched_g3}x | medium g1 "
-                  "{mult_medium_g1}x g3 {mult_medium_g3}x | BD "
-                  "{bd_rate_psnr_pct}%".format(**row))
+            if bd_only:
+                print("{clip}: BD {bd_rate_psnr_pct}%".format(**row))
+            else:
+                print("{clip}: ours {our_fps} fps | matched g1 "
+                      "{mult_matched_g1}x g3 {mult_matched_g3}x | medium g1 "
+                      "{mult_medium_g1}x g3 {mult_medium_g3}x | BD "
+                      "{bd_rate_psnr_pct}%".format(**row))
     print(f"appended to {os.path.relpath(HISTORY, ROOT)}")
 
 

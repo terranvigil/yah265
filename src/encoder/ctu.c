@@ -326,8 +326,8 @@ static void est_tt_bits(struct n265_encoder *e, est_state *st, int log2n,
 static void set_mot_map(struct n265_encoder *e, int x0, int y0, int n,
                         mot_t mot);
 
-/* mode-decision lambda 0.85 * 2^((qp-12)/3), Q8 */
-static uint32_t lambda_mode_q8(int qp)
+/* mode-decision lambda 0.85 * 2^((qp-12)/3), Q8 (shared with SAO) */
+uint32_t n265_lambda_mode_q8(int qp)
 {
     static uint32_t tab[52];
     if (!tab[51]) {
@@ -422,7 +422,7 @@ static void tt_analyze(struct n265_encoder *e, int mode, int x0, int y0,
      * so the split arm commits as it goes and restores on loss) */
     int n = 1 << log2ts;
     mark_cu_edges(e, x0, y0, n);
-    uint32_t lam = lambda_mode_q8(e->cur_ctu_qp);
+    uint32_t lam = n265_lambda_mode_q8(e->cur_ctu_qp);
     int h = n >> 1;
     int child_chroma = log2ts > 3;
 
@@ -766,7 +766,7 @@ static void commit_inter_tt(struct n265_encoder *e, mot_t mot, int x0,
 {
     int n = 1 << log2n;
     int qp_c = n265_chroma_qp(e->cur_ctu_qp);
-    uint32_t lam = lambda_mode_q8(e->cur_ctu_qp);
+    uint32_t lam = n265_lambda_mode_q8(e->cur_ctu_qp);
     int h = n >> 1;
     int child_chroma = log2n > 3;
     static tb_ctx s_l[4], s_c[4][2];
@@ -903,7 +903,7 @@ static int intra_rd_pick(struct n265_encoder *e, int x0, int y0, int log2n)
     int top3[3];
     search_luma_mode_k(e, x0, y0, log2n, e->recon[0], NULL, top3);
     int qp_c = n265_chroma_qp(e->cur_ctu_qp);
-    uint32_t lam = lambda_mode_q8(e->cur_ctu_qp);
+    uint32_t lam = n265_lambda_mode_q8(e->cur_ctu_qp);
     static tb_ctx tl, tcb, tcr;
     uint64_t best_j = UINT64_MAX;
     int best = top3[0];
@@ -1003,11 +1003,11 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                     e->ent_qp_coded ? e->cur_ctu_qp : e->ent_qp_prev);
             uint64_t ssd = cu_area_ssd(e, x0, y0, n);
             e->last_skip_clean = ssd <= skip_clean_thr(e->cur_ctu_qp, n);
-            return rd_j(ssd, adv.bits, lambda_mode_q8(e->cur_ctu_qp));
+            return rd_j(ssd, adv.bits, n265_lambda_mode_q8(e->cur_ctu_qp));
         }
 
         if (log2n <= 5) {
-            uint32_t lam = lambda_mode_q8(e->cur_ctu_qp);
+            uint32_t lam = n265_lambda_mode_q8(e->cur_ctu_qp);
             int inc = est_skip_inc(e, x0, y0);
             /* economy gates: a very good merge prediction prunes the
              * expensive candidates (classic early-skip shape) */
@@ -1213,7 +1213,7 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                 set_blk(e, e->blk_qp, x0, y0, n,
                         e->ent_qp_coded ? e->cur_ctu_qp : e->ent_qp_prev);
                 return rd_j(cu_area_ssd(e, x0, y0, n), adv.bits,
-                            lambda_mode_q8(e->cur_ctu_qp));
+                            n265_lambda_mode_q8(e->cur_ctu_qp));
             }
             /* intra wins: fall through to the intra section, which also
              * arbitrates NxN at min CB */
@@ -1263,7 +1263,7 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
         set_blk(e, e->blk_qp, x0, y0, n,
                 e->ent_qp_coded ? e->cur_ctu_qp : e->ent_qp_prev);
         return rd_j(cu_area_ssd(e, x0, y0, n), adv.bits,
-                    lambda_mode_q8(e->cur_ctu_qp));
+                    n265_lambda_mode_q8(e->cur_ctu_qp));
     }
 
     /* NxN: chroma at the parent, four 4x4 luma TUs with DST */
@@ -1292,7 +1292,7 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
     set_blk(e, e->blk_qp, x0, y0, n,
             e->ent_qp_coded ? e->cur_ctu_qp : e->ent_qp_prev);
     return rd_j(cu_area_ssd(e, x0, y0, n), adv.bits,
-                lambda_mode_q8(e->cur_ctu_qp));
+                n265_lambda_mode_q8(e->cur_ctu_qp));
 }
 
 static int decide_split(struct n265_encoder *e, int x0, int y0, int log2n)
@@ -1413,7 +1413,7 @@ static uint64_t quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
 {
     int n = 1 << log2n;
     int inside = x0 + n <= e->pad_w && y0 + n <= e->pad_h;
-    uint32_t lam = lambda_mode_q8(e->cur_ctu_qp);
+    uint32_t lam = n265_lambda_mode_q8(e->cur_ctu_qp);
 
     if (!inside && log2n > MIN_CB_LOG2) {
         uint64_t j = 0;

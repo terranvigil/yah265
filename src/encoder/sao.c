@@ -44,23 +44,37 @@ static int64_t gain(int64_t n, int64_t d, int o)
     return n * o * o - 2 * o * d;
 }
 
-static int best_offset(int64_t n, int64_t d, int min_o, int max_o)
+/* rate of one coded offset: TU magnitude (|o|+1 bits, capped at 7) plus
+ * a sign bit when the syntax carries one (band offsets; edge signs are
+ * implied by the category) */
+static int off_bits(int o, int sign)
 {
-    if (n == 0)
-        return 0;
-    int o = (int)((d + (n >> 1) * (d < 0 ? -1 : 1)) / (n ? n : 1));
-    o = clip3(min_o, max_o, o);
-    /* refine one step each way */
-    int best = o;
-    int64_t bg = gain(n, d, o);
-    for (int t = o - 1; t <= o + 1; t += 2) {
-        if (t < min_o || t > max_o)
-            continue;
-        if (gain(n, d, t) < bg) {
-            bg = gain(n, d, t);
+    int a = o < 0 ? -o : o;
+    int b = a >= 7 ? 7 : a + 1;
+    return a ? b + sign : b;
+}
+
+/* RD offset pick: minimize n*o^2 - 2*o*d + lam*bits over the magnitude
+ * path toward the SSD-optimal offset */
+static int best_offset(int64_t n, int64_t d, int min_o, int max_o,
+                       uint32_t lam, int sign, int64_t *rd)
+{
+    int o = 0;
+    if (n)
+        o = clip3(min_o, max_o,
+                  (int)((d + (n >> 1) * (d < 0 ? -1 : 1)) / n));
+    int step = o > 0 ? 1 : -1;
+    int best = 0;
+    int64_t bj = ((int64_t)lam * off_bits(0, sign)) >> 8;
+    for (int t = step; n && t != o + step; t += step) {
+        int64_t j = gain(n, d, t) +
+                    (((int64_t)lam * off_bits(t, sign)) >> 8);
+        if (j < bj) {
+            bj = j;
             best = t;
         }
     }
+    *rd = bj;
     return best;
 }
 
@@ -68,8 +82,8 @@ static int best_offset(int64_t n, int64_t d, int min_o, int max_o)
  * SSD gain (negative = improvement) */
 static int64_t analyze_comp(const uint8_t *src, const uint8_t *rec,
                             int stride, int x0, int y0, int w, int h,
-                            int pw, int ph, uint8_t *type, uint8_t *cop,
-                            int8_t off[4])
+                            int pw, int ph, uint32_t lam, uint8_t *type,
+                            uint8_t *cop, int8_t off[4])
 {
     /* band stats */
     int64_t bn[32] = { 0 }, bd[32] = { 0 };
@@ -79,15 +93,20 @@ static int64_t analyze_comp(const uint8_t *src, const uint8_t *rec,
             bn[r >> 3]++;
             bd[r >> 3] += src[y * stride + x] - r;
         }
+    /* candidate J values are relative to SAO_OFF: syntax bits beyond the
+     * type code itself (type is ~2 bins either way) are priced here -
+     * band pos 5 bits, edge class 2 bits, offsets via best_offset */
     int best_pos = 0;
     int8_t best_boff[4] = { 0, 0, 0, 0 };
-    int64_t best_band = 0;
+    int64_t best_band = INT64_MAX;
     for (int pos = 0; pos < 29; pos++) {
-        int64_t g = 0;
+        int64_t g = ((int64_t)lam * 5) >> 8;
         int8_t o[4];
         for (int i = 0; i < 4; i++) {
-            o[i] = (int8_t)best_offset(bn[pos + i], bd[pos + i], -7, 7);
-            g += gain(bn[pos + i], bd[pos + i], o[i]);
+            int64_t rd;
+            o[i] = (int8_t)best_offset(bn[pos + i], bd[pos + i], -7, 7,
+                                       lam, 1, &rd);
+            g += rd;
         }
         if (g < best_band) {
             best_band = g;
@@ -97,7 +116,7 @@ static int64_t analyze_comp(const uint8_t *src, const uint8_t *rec,
     }
 
     /* edge stats per class */
-    int64_t best_edge = 0;
+    int64_t best_edge = INT64_MAX;
     int best_cls = 0;
     int8_t best_eoff[4] = { 0, 0, 0, 0 };
     for (int cls = 0; cls < 4; cls++) {
@@ -118,13 +137,12 @@ static int64_t analyze_comp(const uint8_t *src, const uint8_t *rec,
             }
         }
         int8_t o[4];
-        int64_t g = 0;
-        o[0] = (int8_t)best_offset(en[1], ed[1], 0, 7);
-        o[1] = (int8_t)best_offset(en[2], ed[2], 0, 7);
-        o[2] = (int8_t)best_offset(en[3], ed[3], -7, 0);
-        o[3] = (int8_t)best_offset(en[4], ed[4], -7, 0);
-        g = gain(en[1], ed[1], o[0]) + gain(en[2], ed[2], o[1]) +
-            gain(en[3], ed[3], o[2]) + gain(en[4], ed[4], o[3]);
+        int64_t rd0, rd1, rd2, rd3;
+        o[0] = (int8_t)best_offset(en[1], ed[1], 0, 7, lam, 0, &rd0);
+        o[1] = (int8_t)best_offset(en[2], ed[2], 0, 7, lam, 0, &rd1);
+        o[2] = (int8_t)best_offset(en[3], ed[3], -7, 0, lam, 0, &rd2);
+        o[3] = (int8_t)best_offset(en[4], ed[4], -7, 0, lam, 0, &rd3);
+        int64_t g = rd0 + rd1 + rd2 + rd3 + (((int64_t)lam * 2) >> 8);
         if (g < best_edge) {
             best_edge = g;
             best_cls = cls;
@@ -132,15 +150,13 @@ static int64_t analyze_comp(const uint8_t *src, const uint8_t *rec,
         }
     }
 
-    /* a rough lambda: demand a real gain before spending the syntax */
-    const int64_t bias = -64;
-    if (best_band < best_edge && best_band < bias) {
+    if (best_band < best_edge && best_band < 0) {
         *type = SAO_BAND;
         *cop = (uint8_t)best_pos;
         memcpy(off, best_boff, 4);
         return best_band;
     }
-    if (best_edge < bias) {
+    if (best_edge < 0) {
         *type = SAO_EDGE;
         *cop = (uint8_t)best_cls;
         memcpy(off, best_eoff, 4);
@@ -155,6 +171,7 @@ static int64_t analyze_comp(const uint8_t *src, const uint8_t *rec,
 void n265_sao_analyze(struct n265_encoder *e)
 {
     int ctb = 1 << e->ctb_log2;
+    uint32_t lam = n265_lambda_mode_q8(e->qp);
     for (int cy = 0; cy < e->ctb_rows; cy++)
         for (int cx = 0; cx < e->ctb_cols; cx++) {
             sao_params *p = &e->sao[cy * e->ctb_cols + cx];
@@ -167,7 +184,7 @@ void n265_sao_analyze(struct n265_encoder *e)
                 int h = (y0 + (ctb >> sh) > ph) ? ph - y0 : ctb >> sh;
                 analyze_comp(e->pad_plane[c], e->recon[c],
                              e->recon_stride[c], x0, y0, w, h, pw, ph,
-                             &p->type[c], &p->class_or_pos[c],
+                             lam, &p->type[c], &p->class_or_pos[c],
                              p->offset[c]);
             }
             if (getenv("N265_MODE_HIST")) {

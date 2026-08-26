@@ -118,6 +118,7 @@ void n265_entropy_ctu(struct n265_encoder *e, cabac_t *cb, int ctb_x,
 #define MODE_INTER (-1)     /* mode value selecting MC prediction */
 
 /* z-scan decode-order key (intra.c) */
+uint32_t n265_lambda_mode_q8(int qp);
 uint64_t n265_zorder(int x, int y, int pic_w, int ctb_log2);
 #define N265_REF_PAD 64     /* reference plane border, luma samples */
 
