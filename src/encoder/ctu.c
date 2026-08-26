@@ -1359,7 +1359,7 @@ static int decide_split(struct n265_encoder *e, int x0, int y0, int log2n)
 typedef struct qt_snap {
     uint8_t recon[64 * 64 * 3 / 2];
     uint8_t maps[8][16 * 16];
-    int16_t mv[16 * 16 * 2];
+    int16_t mv[16 * 16 * 4];
     cabac_ctx_t est[CTX_COUNT];
     int ent_qp_coded;
     size_t rec_len;
@@ -1520,6 +1520,53 @@ static uint64_t quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
         no_es = getenv("N265_NO_EARLYSKIP") != NULL;
     if (e->last_skip_clean && !no_es)
         return j_cu;
+
+    /* 64x64 whole-CU skip: prediction-only, so it is legal where the
+     * flat-TB inter candidates are not (max TB 32). RD it against the
+     * intra/static outcome of arm 1 before trying the split. */
+    if (log2n == 6 && e->slice_type != 2) {
+        qt_snap *ss = &won[depth];      /* reuse after the compare */
+        qt_save(e, ss, x0, y0, n);
+        qt_save_records(e, ss, rec_base);
+        qt_restore(e, sp, x0, y0, n);
+        e->rec_len = rec_base;
+        /* the restore rewound the split-flag context mutation arm 1
+         * made; re-apply it so analysis tracks the entropy pass */
+        (void)n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + split_inc], 0);
+
+        mot_t mlist[MAX_MERGE];
+        n265_merge_list(e, x0, y0, n, n, mlist, MAX_MERGE);
+        int midx = 0;
+        uint32_t sd0 = mot_sad(e, x0, y0, log2n, mlist[0]);
+        for (int i = 1; i < MAX_MERGE; i++) {
+            uint32_t sd = mot_sad(e, x0, y0, log2n, mlist[i]);
+            if (sd < sd0) {
+                sd0 = sd;
+                midx = i;
+            }
+        }
+        size_t pos0 = e->rec_len;
+        mark_cu_edges(e, x0, y0, n);
+        skip_cu(e, x0, y0, log2n, mlist[midx], midx);
+        e->rec_pos = pos0;
+        est_state adv = { e->est_ctx, 0 };
+        n265_est_advance_cu(e, &adv, x0, y0, log2n);
+        set_blk(e, e->blk_qp, x0, y0, n,
+                e->ent_qp_coded ? e->cur_ctu_qp : e->ent_qp_prev);
+        set_blk(e, e->ct_depth, x0, y0, n, depth);
+        uint64_t j_skip = rd_j(cu_area_ssd(e, x0, y0, n),
+                               adv.bits + b0, lam);
+        if (j_skip < j_cu) {
+            if (getenv("N265_CB64_TRACE"))
+                fprintf(stderr, "cb64skip poc=%d ctu=(%d,%d) midx=%d pred=%d mv0=(%d,%d) mv1=(%d,%d)\n",
+                        e->poc, x0 >> 6, y0 >> 6, midx, mlist[midx].pred,
+                        mlist[midx].mv[0].x, mlist[midx].mv[0].y,
+                        mlist[midx].mv[1].x, mlist[midx].mv[1].y);
+            j_cu = j_skip;      /* current state is the skip */
+        } else {
+            qt_restore(e, ss, x0, y0, n);   /* back to arm-1 outcome */
+        }
+    }
     qt_save(e, sw, x0, y0, n);
     qt_save_records(e, sw, rec_base);
 
