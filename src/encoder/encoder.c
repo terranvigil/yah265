@@ -43,7 +43,7 @@ static void pad_plane(uint8_t *dst, int dst_stride, int dst_w, int dst_h,
 /* internal knobs the public API doesn't expose yet */
 static int g_mode = N265_MODE_INTRA;
 static int g_qp = 26;
-static int g_ctb_log2 = 5;
+static int g_ctb_log2 = 6;
 static int g_keyint = 60;
 
 static int g_bframes = 1;

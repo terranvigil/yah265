@@ -90,7 +90,7 @@ int main(int argc, char **argv)
     const char *in_path = NULL, *out_path = "out.hevc";
     const char *dump_path = NULL;
     long max_frames = -1;
-    int qp = 26, pcm = 0, ctu = 32, keyint = 60, bframes = 1, aq = 0;
+    int qp = 26, pcm = 0, ctu = 64, keyint = 60, bframes = 1, aq = 0;
     int lookahead = 12, cutree = 0;
     const char *dump_decode_path = NULL;
 

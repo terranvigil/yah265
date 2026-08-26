@@ -112,3 +112,10 @@ date,commit,x265,clip,frames,our_fps,x265m_noasm_fps,x265m_asm_fps,mult_matched_
 2026-08-25,96cad82,4.2+1-e444744,bus_cif,120,,,,,,,,,,41.76,"I-3 ladder kept, MV-search rate cost reverted"
 2026-08-25,96cad82,4.2+1-e444744,tempete_cif,120,,,,,,,,,,22.33,"I-3 ladder kept, MV-search rate cost reverted"
 2026-08-25,96cad82,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,35.48,"I-3 ladder kept, MV-search rate cost reverted"
+2026-08-25,988705f,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,7.53,default CTU 64 (matches x265)
+2026-08-25,988705f,4.2+1-e444744,foreman_cif,120,,,,,,,,,,23.77,default CTU 64 (matches x265)
+2026-08-25,988705f,4.2+1-e444744,mobile_cif,120,,,,,,,,,,26.68,default CTU 64 (matches x265)
+2026-08-25,988705f,4.2+1-e444744,stefan_cif,120,,,,,,,,,,24.02,default CTU 64 (matches x265)
+2026-08-25,988705f,4.2+1-e444744,bus_cif,120,,,,,,,,,,41.54,default CTU 64 (matches x265)
+2026-08-25,988705f,4.2+1-e444744,tempete_cif,120,,,,,,,,,,21.75,default CTU 64 (matches x265)
+2026-08-25,988705f,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,33.94,default CTU 64 (matches x265)
