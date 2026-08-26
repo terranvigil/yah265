@@ -399,7 +399,8 @@ uint32_t n265_me_search(struct n265_encoder *e, int list, int x0, int y0,
     if (fullpel < 0)
         fullpel = getenv("N265_FULLPEL") != NULL;
     uint32_t best_satd = fullpel ? 0 : mc_satd(e, list, x0, y0, log2n, cur);
-    for (int step = fullpel ? 0 : 2; step >= 1; step--) {
+    for (int round = 0; round < (fullpel ? 0 : 2); round++)
+    for (int step = 2; step >= 1; step--) {
         mv_t b = cur;
         uint32_t bs = best_satd;
         for (int dy = -step; dy <= step; dy += step)

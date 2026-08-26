@@ -203,3 +203,10 @@ date,commit,x265,clip,frames,our_fps,x265m_noasm_fps,x265m_asm_fps,mult_matched_
 2026-08-25,43136a1,4.2+1-e444744,bus_cif,120,,,,,,,,,,3.71,CB64 merge-with-residual arm
 2026-08-25,43136a1,4.2+1-e444744,tempete_cif,120,,,,,,,,,,1.79,CB64 merge-with-residual arm
 2026-08-25,43136a1,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,3.91,CB64 merge-with-residual arm
+2026-08-25,6b6e384,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,-4.81,two-round subpel refinement
+2026-08-25,6b6e384,4.2+1-e444744,foreman_cif,120,,,,,,,,,,-1.97,two-round subpel refinement
+2026-08-25,6b6e384,4.2+1-e444744,mobile_cif,120,,,,,,,,,,0.35,two-round subpel refinement
+2026-08-25,6b6e384,4.2+1-e444744,stefan_cif,120,,,,,,,,,,3.18,two-round subpel refinement
+2026-08-25,6b6e384,4.2+1-e444744,bus_cif,120,,,,,,,,,,3.96,two-round subpel refinement
+2026-08-25,6b6e384,4.2+1-e444744,tempete_cif,120,,,,,,,,,,1.6,two-round subpel refinement
+2026-08-25,6b6e384,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,3.77,two-round subpel refinement
