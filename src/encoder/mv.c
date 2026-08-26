@@ -7,6 +7,7 @@
 
 #include "encoder/mc.h"
 #include "encoder/mv.h"
+#include "encoder/satd.h"
 
 /* is the 4x4 cell holding (x,y) an already-decoded inter block? */
 static int inter_at(struct n265_encoder *e, int x, int y, uint64_t cur_z)
@@ -118,6 +119,20 @@ uint32_t n265_mc_sad(struct n265_encoder *e, int x0, int y0, int log2n,
     return sad;
 }
 
+/* SATD of luma MC at mv: phase-aware cost for subpel refinement, where
+ * SAD cannot tell interpolation blur from misalignment */
+static uint32_t mc_satd(struct n265_encoder *e, int x0, int y0, int log2n,
+                        mv_t mv)
+{
+    int n = 1 << log2n;
+    const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
+    uint8_t pred[64 * 64];
+    const uint8_t *rp = e->ref_l0->plane[0] +
+        (y0 + (mv.y >> 2)) * e->ref_l0->stride[0] + x0 + (mv.x >> 2);
+    n265_mc_luma(pred, n, rp, e->ref_l0->stride[0], mv.x & 3, mv.y & 3);
+    return n265_satd(src, e->pad_stride[0], pred, n, n);
+}
+
 /* clamp a full-pel mv so MC stays inside the padded reference */
 static void clamp_mv(struct n265_encoder *e, int x0, int y0, int n, mv_t *mv)
 {
@@ -167,13 +182,15 @@ uint32_t n265_me_search(struct n265_encoder *e, int x0, int y0, int log2n,
         cur = b;
         best_sad = bs;
     }
-    /* subpel refinement: one half-pel round, one quarter-pel round */
+    /* subpel refinement: one half-pel round, one quarter-pel round,
+     * SATD-costed (SAD favors the blur of interpolated phases) */
     static int fullpel = -1;
     if (fullpel < 0)
         fullpel = getenv("N265_FULLPEL") != NULL;
+    uint32_t best_satd = fullpel ? 0 : mc_satd(e, x0, y0, log2n, cur);
     for (int step = fullpel ? 0 : 2; step >= 1; step--) {
         mv_t b = cur;
-        uint32_t bs = best_sad;
+        uint32_t bs = best_satd;
         for (int dy = -step; dy <= step; dy += step)
             for (int dx = -step; dx <= step; dx += step) {
                 if (!dx && !dy)
@@ -183,14 +200,14 @@ uint32_t n265_me_search(struct n265_encoder *e, int x0, int y0, int log2n,
                 clamp_mv(e, x0, y0, n, &tc);
                 if (tc.x != t.x || tc.y != t.y)
                     continue;
-                uint32_t s = n265_mc_sad(e, x0, y0, log2n, t);
+                uint32_t s = mc_satd(e, x0, y0, log2n, t);
                 if (s < bs) {
                     bs = s;
                     b = t;
                 }
             }
         cur = b;
-        best_sad = bs;
+        best_satd = bs;
     }
     *best = cur;
     return best_sad;
