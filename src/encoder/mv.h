@@ -20,11 +20,13 @@ typedef struct mot_t {
     uint8_t pred;   /* bit0 = L0, bit1 = L1 */
 } mot_t;
 
-/* First merge candidate (MaxNumMergeCand == 1): the first available
- * spatial of A1, B1, B0, A0, B2, else zero (which in B slices is
- * bi-predictive zero). Availability = inside the picture, decoded
- * (z-scan), and inter-coded. Matches the decoder's 8.5.3.2.3 order
- * exactly for a one-deep list with TMVP off. */
+/* Merge candidate list (8.5.3.2.3, TMVP off): pruned spatials
+ * A1,B1,B0,A0,B2, then combined bi-pred (B), then zero fill up to max.
+ * Fills out[] and returns the count (== max after zero fill). */
+int n265_merge_list(struct n265_encoder *e, int x0, int y0, int nw, int nh,
+                    mot_t out[], int max);
+
+/* out[0] of the list above */
 mot_t n265_merge_cand0(struct n265_encoder *e, int x0, int y0, int nw,
                        int nh);
 

@@ -238,7 +238,7 @@ static void write_slice_header(n265_encoder *e)
         bs_put_bits(bs, 0, 1);      /* num_ref_idx_active_override_flag */
         if (e->slice_type == 0)
             bs_put_bits(bs, 0, 1);  /* mvd_l1_zero_flag */
-        bs_put_ue(bs, 4);           /* five_minus_max_num_merge_cand: 1 cand */
+        bs_put_ue(bs, 5 - MAX_MERGE);   /* five_minus_max_num_merge_cand */
     }
     bs_put_se(bs, e->qp - 26);      /* slice_qp_delta */
     if (e->mode != N265_MODE_PCM)

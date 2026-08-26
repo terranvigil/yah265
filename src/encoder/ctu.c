@@ -611,9 +611,10 @@ static void set_mot_map(struct n265_encoder *e, int x0, int y0, int n,
 }
 
 static void skip_cu(struct n265_encoder *e, int x0, int y0, int log2n,
-                    mot_t mot)
+                    mot_t mot, int merge_idx)
 {
     int n = 1 << log2n;
+    rec_u8(e, (unsigned)merge_idx);
     uint8_t pred[64 * 64];
     for (int c = 0; c < 3; c++) {
         int sh = c ? 1 : 0;
@@ -976,12 +977,22 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
         static tb_ctx m_tl, m_tcb, m_tcr;   /* merge candidate TBs */
         static tb_ctx a_tl, a_tcb, a_tcr;   /* amvp candidate TBs */
         static tb_ctx i_tl, i_tcb, i_tcr;   /* intra candidate TBs */
-        mot_t cand = n265_merge_cand0(e, x0, y0, n, n);
-        uint32_t cand_plain_sad = mot_sad(e, x0, y0, log2n, cand);
+        mot_t mlist[MAX_MERGE];
+        n265_merge_list(e, x0, y0, n, n, mlist, MAX_MERGE);
+        int midx = 0;
+        uint32_t cand_plain_sad = mot_sad(e, x0, y0, log2n, mlist[0]);
+        for (int i = 1; i < MAX_MERGE; i++) {
+            uint32_t sd = mot_sad(e, x0, y0, log2n, mlist[i]);
+            if (sd < cand_plain_sad) {
+                cand_plain_sad = sd;
+                midx = i;
+            }
+        }
+        mot_t cand = mlist[midx];
 
-        /* strict static skip at the merge candidate */
+        /* strict static skip at the best merge candidate */
         if (cand_plain_sad * 8u <= (uint32_t)(n * n * skip_thr8())) {
-            skip_cu(e, x0, y0, log2n, cand);
+            skip_cu(e, x0, y0, log2n, cand, midx);
             e->rec_pos = pos0;
             est_state adv = { e->est_ctx, 0 };
             n265_est_advance_cu(e, &adv, x0, y0, log2n);
@@ -1036,6 +1047,7 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
             memcpy(local, e->est_ctx, sizeof(local));
             st.ctx = local; st.bits = 0;
             st.bits += n265_est_bin(&local[CTX_CU_SKIP + inc], 1);
+            st.bits += n265_est_bin(&local[CTX_MERGE_IDX], midx);
             uint64_t j_skip = rd_j(d_skip, st.bits, lam);
 
             /* merge bits */
@@ -1047,6 +1059,7 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                 st.bits += n265_est_bin(&local[CTX_PRED_MODE], 0);
                 st.bits += n265_est_bin(&local[CTX_PART_MODE], 1);
                 st.bits += n265_est_bin(&local[CTX_MERGE_FLAG], 1);
+                st.bits += n265_est_bin(&local[CTX_MERGE_IDX], midx);
                 est_tt_bits(e, &st, log2n, MODE_INTER, &m_tl, &m_tcb,
                             &m_tcr);
                 j_merge = rd_j(d_merge, st.bits, lam);
@@ -1162,7 +1175,7 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
             if (j_intra < best) { best = j_intra; kind = 3; }
 
             if (kind == 0) {
-                skip_cu(e, x0, y0, log2n, cand);
+                skip_cu(e, x0, y0, log2n, cand, midx);
                 e->last_skip_clean = d_skip <= skip_clean_thr(e->cur_ctu_qp, n);
             } else if (kind == 1 || kind == 2) {
                 mot_t mot = kind == 1 ? cand : amot;
@@ -1176,7 +1189,8 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                 set_mode_map(e, x0, y0, n, INTRA_DC);
                 mark_cu_edges(e, x0, y0, n);
                 rec_u8(e, (unsigned)((kind == 1) | (mvp_idx << 1) |
-                                     ((any != 0) << 2)));
+                                     ((any != 0) << 2) |
+                                     (kind == 1 ? midx << 3 : 0)));
                 if (kind == 2) {
                     int16_t mvd[2] = {
                         (int16_t)(mot.mv[0].x - mvp[mvp_idx].x),

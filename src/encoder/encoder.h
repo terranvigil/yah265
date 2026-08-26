@@ -22,6 +22,7 @@ enum {
 };
 
 #define MIN_CB_LOG2 3
+#define MAX_MERGE 2     /* MaxNumMergeCand */
 
 struct n265_encoder {
     n265_param param;

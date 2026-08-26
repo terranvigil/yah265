@@ -241,8 +241,12 @@ static void replay_cu(struct n265_encoder *e, const res_ops *ops, int x0,
         if (y0 > 0)
             inc += map_at(e, e->blk_skip, x0, y0 - 1);
         ops->bin(ops->h, CTX_CU_SKIP + inc, is_skip);
-        if (is_skip)
-            return;     /* merge_idx absent (MaxNumMergeCand == 1) */
+        if (is_skip) {
+            /* merge_idx: TU cMax MAX_MERGE-1, first bin ctx-coded */
+            int idx = (int)rd_u8(e);
+            ops->bin(ops->h, CTX_MERGE_IDX, idx > 0);
+            return;
+        }
         ops->bin(ops->h, CTX_PRED_MODE, is_intra);
         if (!is_intra) {
             ops->bin(ops->h, CTX_PART_MODE, 1);  /* 2Nx2N */
@@ -250,7 +254,10 @@ static void replay_cu(struct n265_encoder *e, const res_ops *ops, int x0,
             int merge = flags & 1;
             int mvp_idx = (flags >> 1) & 1;
             int root_cbf = (flags >> 2) & 1;
+            int merge_idx = (flags >> 3) & 3;
             ops->bin(ops->h, CTX_MERGE_FLAG, merge);
+            if (merge)
+                ops->bin(ops->h, CTX_MERGE_IDX, merge_idx > 0);
             if (!merge) {
                 if (e->slice_type == 0) {
                     /* inter_pred_idc = PRED_L0: bin0 0 (ctx by CU depth),

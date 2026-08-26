@@ -126,3 +126,10 @@ date,commit,x265,clip,frames,our_fps,x265m_noasm_fps,x265m_asm_fps,mult_matched_
 2026-08-25,ac231ff,4.2+1-e444744,bus_cif,120,,,,,,,,,,39.47,SATD subpel refinement
 2026-08-25,ac231ff,4.2+1-e444744,tempete_cif,120,,,,,,,,,,20.91,SATD subpel refinement
 2026-08-25,ac231ff,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,33.36,SATD subpel refinement
+2026-08-25,3e57b8b,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,0.49,MaxNumMergeCand 2
+2026-08-25,3e57b8b,4.2+1-e444744,foreman_cif,120,,,,,,,,,,13.29,MaxNumMergeCand 2
+2026-08-25,3e57b8b,4.2+1-e444744,mobile_cif,120,,,,,,,,,,20.32,MaxNumMergeCand 2
+2026-08-25,3e57b8b,4.2+1-e444744,stefan_cif,120,,,,,,,,,,20.44,MaxNumMergeCand 2
+2026-08-25,3e57b8b,4.2+1-e444744,bus_cif,120,,,,,,,,,,35.53,MaxNumMergeCand 2
+2026-08-25,3e57b8b,4.2+1-e444744,tempete_cif,120,,,,,,,,,,12.16,MaxNumMergeCand 2
+2026-08-25,3e57b8b,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,27.67,MaxNumMergeCand 2
