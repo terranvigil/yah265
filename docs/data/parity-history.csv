@@ -221,3 +221,5 @@ date,commit,x265,clip,frames,our_fps,x265m_noasm_fps,x265m_asm_fps,mult_matched_
 2026-08-25,66cd894,4.2+1-e444744,ducks_720p,120,,,,,,,,,,5.7,lowres intra estimate + spike-based scenecut
 2026-08-25,66cd894,4.2+1-e444744,in_to_tree_720p,120,,,,,,,,,,-1.03,lowres intra estimate + spike-based scenecut
 2026-08-25,66cd894,4.2+1-e444744,crowd_run_1080p,120,,,,,,,,,,5.36,lowres intra estimate + spike-based scenecut
+2026-08-25,fb7d92a,4.2+1-e444744,touchdown_1080p,120,,,,,,,,,,2.1,lowres intra estimate + spike-based scenecut
+2026-08-25,fb7d92a,4.2+1-e444744,sintel_720p,120,,,,,,,,,,-1.72,lowres intra estimate + spike-based scenecut
