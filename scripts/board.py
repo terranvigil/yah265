@@ -14,7 +14,7 @@ equal PSNR.
 Timing rules (docs/instruments.md): output to /dev/null, median of
 NRUNS, sizes measured in a separate untimed pass.
 
-usage: scripts/board.py [--quick] [--bd-only] [--synth] [--note TEXT]
+usage: scripts/board.py [--quick] [--bd-only] [--synth] [--clips a,b] [--note TEXT]
   --bd-only  skip timing (loaded machine); BD columns only
   --synth    force the synthetic clips even when tests/corpus exists
 """
@@ -240,6 +240,9 @@ def main():
         clips = SYNTH_CLIPS
     if quick:
         clips = clips[:1]
+    if "--clips" in sys.argv:
+        only = sys.argv[sys.argv.index("--clips") + 1].split(",")
+        clips = [c for c in clips if c[0] in only]
     with tempfile.TemporaryDirectory() as tmp, \
          open(HISTORY, "a", newline="") as f:
         wr = csv.DictWriter(f, fieldnames=fields)

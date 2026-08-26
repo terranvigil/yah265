@@ -106,4 +106,14 @@ if [ "$full" = 1 ]; then
     done
 fi
 
+# normalize chroma: some derf masters are 4:2:2 (touchdown); the
+# encoders under test are 4:2:0 only
+for f in "$dest"/*.y4m; do
+    if head -c 200 "$f" | head -1 | grep -q "C422"; then
+        echo "convert $(basename "$f") 4:2:2 -> 4:2:0"
+        ffmpeg -loglevel error -i "$f" -pix_fmt yuv420p "$f.tmp.y4m" -y
+        mv "$f.tmp.y4m" "$f"
+    fi
+done
+
 echo "corpus ready in $dest (classes in $manifest)"
