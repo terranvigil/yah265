@@ -228,6 +228,18 @@ static void replay_tt(struct n265_encoder *e, const res_ops *ops, int mode,
     }
 }
 
+/* merge_idx: TU with cMax MAX_MERGE-1; first bin ctx-coded, the rest
+ * bypass */
+static void write_merge_idx(const res_ops *ops, int idx)
+{
+    ops->bin(ops->h, CTX_MERGE_IDX, idx > 0);
+    for (int i = 1; i < MAX_MERGE - 1 && idx > 0; i++) {
+        ops->bypass(ops->h, idx > i);
+        if (idx <= i)
+            break;
+    }
+}
+
 static void replay_cu(struct n265_encoder *e, const res_ops *ops, int x0,
                       int y0, int log2n)
 {
@@ -242,9 +254,7 @@ static void replay_cu(struct n265_encoder *e, const res_ops *ops, int x0,
             inc += map_at(e, e->blk_skip, x0, y0 - 1);
         ops->bin(ops->h, CTX_CU_SKIP + inc, is_skip);
         if (is_skip) {
-            /* merge_idx: TU cMax MAX_MERGE-1, first bin ctx-coded */
-            int idx = (int)rd_u8(e);
-            ops->bin(ops->h, CTX_MERGE_IDX, idx > 0);
+            write_merge_idx(ops, (int)rd_u8(e));
             return;
         }
         ops->bin(ops->h, CTX_PRED_MODE, is_intra);
@@ -257,7 +267,7 @@ static void replay_cu(struct n265_encoder *e, const res_ops *ops, int x0,
             int merge_idx = (flags >> 3) & 3;
             ops->bin(ops->h, CTX_MERGE_FLAG, merge);
             if (merge)
-                ops->bin(ops->h, CTX_MERGE_IDX, merge_idx > 0);
+                write_merge_idx(ops, merge_idx);
             if (!merge) {
                 if (e->slice_type == 0) {
                     /* inter_pred_idc = PRED_L0: bin0 0 (ctx by CU depth),

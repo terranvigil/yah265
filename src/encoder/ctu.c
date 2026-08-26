@@ -1047,7 +1047,10 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
             memcpy(local, e->est_ctx, sizeof(local));
             st.ctx = local; st.bits = 0;
             st.bits += n265_est_bin(&local[CTX_CU_SKIP + inc], 1);
-            st.bits += n265_est_bin(&local[CTX_MERGE_IDX], midx);
+            st.bits += n265_est_bin(&local[CTX_MERGE_IDX], midx > 0);
+            if (midx > 0 && MAX_MERGE > 2)
+                st.bits += 256u * (uint32_t)(midx < MAX_MERGE - 1 ? midx
+                                                                  : midx - 1);
             uint64_t j_skip = rd_j(d_skip, st.bits, lam);
 
             /* merge bits */
@@ -1059,7 +1062,10 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                 st.bits += n265_est_bin(&local[CTX_PRED_MODE], 0);
                 st.bits += n265_est_bin(&local[CTX_PART_MODE], 1);
                 st.bits += n265_est_bin(&local[CTX_MERGE_FLAG], 1);
-                st.bits += n265_est_bin(&local[CTX_MERGE_IDX], midx);
+                st.bits += n265_est_bin(&local[CTX_MERGE_IDX], midx > 0);
+                if (midx > 0 && MAX_MERGE > 2)
+                    st.bits += 256u * (uint32_t)(midx < MAX_MERGE - 1
+                                                 ? midx : midx - 1);
                 est_tt_bits(e, &st, log2n, MODE_INTER, &m_tl, &m_tcb,
                             &m_tcr);
                 j_merge = rd_j(d_merge, st.bits, lam);

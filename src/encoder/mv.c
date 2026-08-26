@@ -93,11 +93,9 @@ int n265_merge_list(struct n265_encoder *e, int x0, int y0, int nw, int nh,
                 continue;
             if (!(out[i].pred & 1) || !(out[j].pred & 2))
                 continue;
-            /* both lists point at the same reference here; require the
-             * MVs to differ or the combination adds nothing */
-            if (out[i].mv[0].x == out[j].mv[1].x &&
-                out[i].mv[0].y == out[j].mv[1].y)
-                continue;
+            /* spec adds the pair when the refs differ OR the mvs differ;
+             * our l0/l1 refs are always different pictures, so every
+             * flag-eligible pair is added (8.5.3.2.4) */
             mot_t c;
             c.mv[0] = out[i].mv[0];
             c.mv[1] = out[j].mv[1];
