@@ -86,6 +86,17 @@ def gen_clip(tmp, name, filt, frames):
     return path
 
 
+def warm_file(path):
+    """Read the input into page cache before timing. x265 mmaps its
+    input while we stream ours, so a cold file lands in the two wall
+    clocks asymmetrically (next264 lesson: ~49% of a profile could be
+    __mmap on a cold multi-GB y4m). One untimed sequential read puts
+    both encoders on the same warm footing."""
+    with open(path, "rb") as f:
+        while f.read(1 << 22):
+            pass
+
+
 def time_cmd(cmd):
     best = []
     for _ in range(NRUNS):
@@ -194,6 +205,7 @@ def measure_clip(tmp, name, size, frames, src, bd_only):
             row[k] = ""
         return row
 
+    warm_file(y4m)
     t_ours = time_cmd([N265, y4m, "-o", "/dev/null", "--qp", "27"] + lim)
     t_m_noasm = time_cmd(matched + ["--no-asm", "--qp", "27", "-o",
                                     "/dev/null"])
