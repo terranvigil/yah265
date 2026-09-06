@@ -18,8 +18,12 @@
 int n265_la_init(struct n265_encoder *e)
 {
     n265_la *la = &e->la;
-    la->lw = e->pad_w / 2;
-    la->lh = e->pad_h / 2;
+    /* The cost loops read whole 8x8 lowres blocks (anchored at lw - 8 on the
+     * right and bottom edges), so the plane is never smaller than one
+     * block; the downscale below edge-replicates into the padding. A 8x8
+     * input overran a 4x4 plane here (the sanitiser matrix, 2026-09-06). */
+    la->lw = e->pad_w / 2 < 8 ? 8 : e->pad_w / 2;
+    la->lh = e->pad_h / 2 < 8 ? 8 : e->pad_h / 2;
     la->bw = (la->lw + 7) / 8;
     la->bh = (la->lh + 7) / 8;
     la->depth = e->la_depth;
@@ -356,6 +360,8 @@ void n265_la_cutree(struct n265_encoder *e, int i)
             mean += v;
         }
     mean /= nctu;
+    if (e->crf_on)
+        mean = 0;           /* CRF: un-centred, the shift in the base nets the mean */
     for (int k = 0; k < nctu; k++) {
         float v = raw[k] - mean;
         int off = (int)(v > 0 ? v + 0.5f : v - 0.5f);

@@ -80,6 +80,11 @@ YAH265_API void n265_param_default(n265_param *p);
 YAH265_API void n265_set_mode(int mode, int qp, int ctb_log2, int keyint,
                                int bframes, int aq);
 YAH265_API void n265_set_la(int depth, int cutree);
+/* Constant rate factor: the per-frame base QP comes from `crf` (plus the
+ * frame-type ladder, the cu-tree operating-point shift and the AQ frame-mean
+ * term) instead of the fixed QP. crf < 0 turns it off (the default). Open
+ * loop: no bits feedback. */
+YAH265_API void n265_set_crf(double crf);
 
 /* NULL on invalid params or allocation failure. */
 YAH265_API n265_encoder *n265_encoder_open(const n265_param *p);

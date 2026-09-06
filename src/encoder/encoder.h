@@ -29,6 +29,8 @@ struct n265_encoder {
     int mode;
     int qp;                 /* current frame's QP */
     int qp_base;            /* configured QP (P anchors) */
+    int crf_on;             /* n265_set_crf: base QP from crf, not qp_base */
+    double crf;
     int ctb_log2;
     int no_sao;
 

@@ -43,6 +43,7 @@ static void pad_plane(uint8_t *dst, int dst_stride, int dst_w, int dst_h,
 /* internal knobs the public API doesn't expose yet */
 static int g_mode = N265_MODE_INTRA;
 static int g_qp = 26;
+static double g_crf = -1.0;      /* n265_set_crf; < 0 = CQP */
 static int g_ctb_log2 = 6;
 static int g_keyint = 60;
 
@@ -60,6 +61,8 @@ void n265_set_la(int depth, int cutree)
 
 void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes,
                    int aq);
+void n265_set_crf(double crf) { g_crf = crf; }
+
 void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes,
                    int aq)
 {
@@ -94,6 +97,8 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->mode = g_mode;
     e->qp = g_qp;
     e->qp_base = g_qp;
+    e->crf_on = g_crf >= 0.0;
+    e->crf = g_crf;
     e->ctb_log2 = e->mode == N265_MODE_PCM ? 4 : g_ctb_log2;
     e->keyint = e->mode == N265_MODE_PCM ? 1 : g_keyint;
     e->bframes = e->mode == N265_MODE_PCM ? 0 : g_bframes;
@@ -337,7 +342,21 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
     e->display_idx = display_idx;
     /* frame-type QP ladder (the matched reference applies its ip/pb
      * ratios in CQP mode too): I anchors lower, non-ref B higher */
-    int q = e->qp_base + (slice_type == 2 ? -3 : slice_type == 0 ? 2 : 0);
+    /* CRF (yah264's final form, written for this encoder): a constant base per
+     * frame, crf + the cu-tree operating-point shift. The cu-tree offsets are
+     * left un-centred under CRF (a referenced region nets a lower QP, a leaf
+     * region does not), so their mean-negative field is netted out by a
+     * fixed shift and only the DIFFERENTIAL survives; centring them would
+     * throw the cross-frame allocation away. N265_CRF_SHIFT (default 5.4 =
+     * (1 - qcomp) * 13.5 at qcomp 0.6, 0 without cu-tree). The AQ frame-mean
+     * term lands on the base below, once the variances are known. */
+    double base = e->qp_base;
+    if (e->crf_on) {
+        double shift = 0.0;
+        if (e->cutree) { const char *v = getenv("N265_CRF_SHIFT"); shift = v ? atof(v) : 5.4; }
+        base = e->crf + shift;
+    }
+    int q = (int)lround(base) + (slice_type == 2 ? -3 : slice_type == 0 ? 2 : 0);
     e->qp = q < 0 ? 0 : q > 51 ? 51 : q;
 
     if (e->frames_done == 0) {
@@ -395,6 +414,19 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
                     avg += lv[cy * e->ctb_cols + cx];
                 }
             avg /= nctu;
+            /* Under CRF the frame mean of the AQ field is the across-frame /
+             * across-shot allocation term (yah264 row 10, 2026-09-05): a busy
+             * frame codes a little cheaper, a quiet one a little better. It
+             * goes on the BASE QP at its own strength (N265_AQ_DC, default
+             * 1.0) against an absolute anchor in log2(variance) units
+             * (N265_AQ_ANCHOR, default 6.4), so every base-keyed decision sees
+             * it; the per-CTU part below stays centred on the frame. */
+            if (e->crf_on) {
+                const char *v = getenv("N265_AQ_DC"), *a = getenv("N265_AQ_ANCHOR");
+                double dc = (v ? atof(v) : 1.0) * (avg - (a ? atof(a) : 6.4));
+                int nq = e->qp + (int)lround(dc);
+                e->qp = nq < 0 ? 0 : nq > 51 ? 51 : nq;
+            }
             for (int i = 0; i < nctu; i++) {
                 double off = 1.0 * (lv[i] - avg);    /* strength 1.0 */
                 int o = (int)(off > 0 ? off + 0.5 : off - 0.5) +
@@ -404,6 +436,8 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
             free(lv);
         }
 
+        if (getenv("N265_QP_TRACE"))
+            fprintf(stderr, "QPT disp=%d type=%d qp=%d\n", display_idx, slice_type, e->qp);
         e->ent_qp_prev = e->qp;
         e->ent_parent_chroma = 0;
         e->rec_len = 0;

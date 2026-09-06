@@ -71,6 +71,7 @@ static void usage(void)
         "  -o <file>       output Annex-B bitstream (default: out.hevc)\n"
         "  --frames <n>    encode at most n frames\n"
         "  --qp <n>        fixed QP (default 26)\n"
+        "  --crf <f>       constant rate factor (base QP from f; overrides --qp)\n"
         "  --pcm           phase-0 I_PCM mode (lossless, huge)\n"
         "  --ctu <16|32|64>  coding tree block size (default 32)\n"
         "  --keyint <n>    IDR period in frames (default 60)\n"
@@ -89,6 +90,7 @@ int main(int argc, char **argv)
     const char *dump_path = NULL;
     long max_frames = -1;
     int qp = 26, pcm = 0, ctu = 64, keyint = 60, bframes = 1, aq = 0;
+    double crf = -1.0;
     int lookahead = 12, cutree = 0;
     const char *dump_decode_path = NULL;
 
@@ -99,6 +101,8 @@ int main(int argc, char **argv)
             max_frames = atol(argv[++i]);
         } else if (!strcmp(argv[i], "--qp") && i + 1 < argc) {
             qp = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--crf") && i + 1 < argc) {
+            crf = atof(argv[++i]);
         } else if (!strcmp(argv[i], "--keyint") && i + 1 < argc) {
             keyint = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--bframes") && i + 1 < argc) {
@@ -157,6 +161,7 @@ int main(int argc, char **argv)
     }
     int ctb_log2 = ctu == 16 ? 4 : ctu == 32 ? 5 : 6;
     n265_set_mode(pcm ? 1 : 0, qp, ctb_log2, keyint, bframes, aq);
+    if (crf >= 0) n265_set_crf(crf);
     n265_set_la(lookahead, cutree);
     n265_param p;
     n265_param_default(&p);
