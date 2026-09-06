@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Parity board: measure next265 against pinned x265 and append one row
+"""Parity board: measure yah265 against pinned x265 and append one row
 per clip to docs/data/parity-history.csv so progress charts over time.
 
 Two x265 arms, single-threaded:
@@ -89,7 +89,7 @@ def gen_clip(tmp, name, filt, frames):
 def warm_file(path):
     """Read the input into page cache before timing. x265 mmaps its
     input while we stream ours, so a cold file lands in the two wall
-    clocks asymmetrically (next264 lesson: ~49% of a profile could be
+    clocks asymmetrically (yah264 lesson: ~49% of a profile could be
     __mmap on a cold multi-GB y4m). One untimed sequential read puts
     both encoders on the same warm footing."""
     with open(path, "rb") as f:

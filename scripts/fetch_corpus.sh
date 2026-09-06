@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copyright (c) 2026, the next265 authors
+# Copyright (c) 2026, the yah265 authors
 # SPDX-License-Identifier: GPL-2.0-or-later
 #
 # fetch_corpus.sh - populate tests/corpus/ with standard Xiph "derf" test
@@ -28,7 +28,7 @@ base="https://media.xiph.org/video/derf"
 
 # local caches to try before downloading
 caches=(
-    "$root/../next264/tests/corpus"
+    "$root/../yah264/tests/corpus"
     "$root/../nextav1-bench/corpus"
 )
 

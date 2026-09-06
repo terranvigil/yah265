@@ -2,7 +2,7 @@
  * Coding-tree analysis: decisions, reconstruction, and record commit.
  * No entropy coding happens here; the trailing pass in entropy.c replays
  * the record stream (docs/threading-design.md).
- * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
+ * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
 #include <assert.h>

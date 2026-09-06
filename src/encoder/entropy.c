@@ -4,7 +4,7 @@
  * (docs/threading-design.md sec 2). Everything read here is final:
  * neighbor-derived contexts see exactly the values they had at analysis
  * time because maps are write-once per position per frame.
- * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
+ * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
 #include <stdio.h>

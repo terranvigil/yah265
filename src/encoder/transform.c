@@ -2,7 +2,7 @@
  * Transforms and quantization. The dequant + inverse transform pair is
  * normative (8.6.3/8.6.4) and must match a conformant decoder bit-exactly;
  * the forward pair only shapes what levels the encoder picks.
- * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
+ * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
 #include <string.h>

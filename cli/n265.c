@@ -1,6 +1,6 @@
 /*
  * n265: Y4M in, Annex-B HEVC out.
- * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
+ * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
 #include <errno.h>
@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "next265.h"
+#include "yah265.h"
 
 /* internal knobs, resolved from the library (not yet public API) */
 void n265_encoder_set_dump_decode(n265_encoder *e, FILE *f);

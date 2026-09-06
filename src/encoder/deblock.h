@@ -1,6 +1,6 @@
 /*
  * In-loop deblocking filter.
- * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
+ * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
 #ifndef N265_DEBLOCK_H

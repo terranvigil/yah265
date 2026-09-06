@@ -11,7 +11,7 @@ Rules:
 1. Do not copy code from x265, x264, HM, or any other encoder into this
    repository, in any form, including transliteration into another style or
    language. Encoder code is written fresh for this repo. The narrow
-   exception is next264's codec-agnostic tooling (build files, harness and
+   exception is yah264's codec-agnostic tooling (build files, harness and
    measurement scripts, checkasm scaffolding): that's our own work
    under this same policy and may be adapted.
 2. Do not port the internal architecture of another encoder file by file.

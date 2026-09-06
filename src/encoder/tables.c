@@ -1,7 +1,7 @@
 /*
  * Spec constants (ITU-T H.265 Tables 9-5..9-32, 8.6.4 transform core,
  * 6.5.3 scan orders) and their builders.
- * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
+ * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
 #include "encoder/tables.h"

@@ -3,7 +3,7 @@
  * decision (off / band / four edge classes by SSD gain), syntax writer,
  * and application after deblocking. Merge flags are always coded 0 for
  * now (explicit params everywhere); the merge path is on the ideas list.
- * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
+ * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
 #include <stdio.h>

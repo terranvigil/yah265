@@ -3,7 +3,7 @@
 **An H.265/HEVC encoder written from scratch, by AI, to find out how far
 AI-driven development can get against x265.**
 
-Sibling of [next264](../next264), which met its pure-C speed-parity goals
+Sibling of [yah264](../yah264), which met its pure-C speed-parity goals
 against x264. Same rules here, new codec: clean-room from the ITU-T H.265
 spec, GPL-2.0-or-later, every stream verified against independent decoders, every
 performance claim reproducible from a Makefile target.

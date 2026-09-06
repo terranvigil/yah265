@@ -1,4 +1,4 @@
-project('next265', 'c',
+project('yah265', 'c',
   version : '0.0.1',
   license : 'GPL-2.0-or-later',
   default_options : [
@@ -39,13 +39,13 @@ lib_sources = [
   'src/encoder/encoder.c',
 ]
 
-# Both linkage forms (next264 lesson: plain library() made the CLI link
+# Both linkage forms (yah264 lesson: plain library() made the CLI link
 # the dylib and cross a shared-library boundary on every hot call, worth
 # 12-14% of wall time). In-tree consumers - the CLI and tests, the
 # binaries the boards time - link the STATIC form; the shared form with
 # hidden visibility is what gets installed for external callers (the
 # ffmpeg wrapper).
-libnext265_both = both_libraries('next265', lib_sources,
+libyah265_both = both_libraries('yah265', lib_sources,
   include_directories : inc,
   dependencies : [m_dep, threads_dep],
   version : meson.project_version(),
@@ -53,25 +53,25 @@ libnext265_both = both_libraries('next265', lib_sources,
   gnu_symbol_visibility : 'hidden',
   install : true)
 
-libnext265 = libnext265_both.get_shared_lib()
-libnext265_static = libnext265_both.get_static_lib()
+libyah265 = libyah265_both.get_shared_lib()
+libyah265_static = libyah265_both.get_static_lib()
 
-install_headers('include/next265.h')
+install_headers('include/yah265.h')
 
 pkg = import('pkgconfig')
-pkg.generate(libnext265,
-  name : 'next265',
-  filebase : 'next265',
+pkg.generate(libyah265,
+  name : 'yah265',
+  filebase : 'yah265',
   description : 'HEVC/H.265 encoder',
-  url : 'https://github.com/terranvigil/next265',
+  url : 'https://github.com/terranvigil/yah265',
   subdirs : '.')
 
-next265_dep = declare_dependency(
-  link_with : libnext265_static,
+yah265_dep = declare_dependency(
+  link_with : libyah265_static,
   include_directories : inc)
 
 n265 = executable('n265', 'cli/n265.c',
-  dependencies : next265_dep,
+  dependencies : yah265_dep,
   install : true)
 
 subdir('tests')

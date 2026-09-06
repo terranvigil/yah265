@@ -1,6 +1,6 @@
 /*
  * Parameter set writers: VPS, SPS, PPS (ITU-T H.265 7.3.2).
- * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
+ * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
 #include "encoder/encoder.h"

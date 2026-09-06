@@ -2,7 +2,7 @@
  * Interpolation filters (ITU-T H.265 Table 8-11/8-12): 8-tap luma at
  * quarter-pel, 4-tap chroma at eighth-pel. Uni-prediction rounding:
  * 14-bit intermediate, (v + 32) >> 6 at the end.
- * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
+ * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
 #include "encoder/mc.h"

@@ -1,6 +1,6 @@
 /*
  * Motion-compensated interpolation (8.4.4.3.2/8.4.4.3.3).
- * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
+ * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
 #ifndef N265_MC_H

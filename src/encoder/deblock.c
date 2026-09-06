@@ -2,7 +2,7 @@
  * Deblocking filter (ITU-T H.265 8.7.2). QP is constant per slice for
  * now (the per-4x4 hooks arrive with cu_qp_delta); single reference, so
  * the different-ref bS leg cannot fire yet.
- * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
+ * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
 #include "encoder/deblock.h"

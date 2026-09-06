@@ -1,7 +1,7 @@
 /*
  * CABAC arithmetic encoder (ITU-T H.265 9.3: 9-bit range, 10-bit low,
  * outstanding-bit carry handling per the spec's informative encoder).
- * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
+ * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
 #include "encoder/cabac.h"

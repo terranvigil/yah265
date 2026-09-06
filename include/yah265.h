@@ -1,14 +1,14 @@
 /*
- * next265: an HEVC/H.265 encoder built from scratch.
- * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
+ * yah265: an HEVC/H.265 encoder built from scratch.
+ * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  *
  * Public API. The shape follows the conventions H.26x encoder libraries
  * share (a params struct, pictures in, NAL units out); every line here is
  * original to this project. C99-compatible on purpose.
  */
 
-#ifndef NEXT265_H
-#define NEXT265_H
+#ifndef YAH265_H
+#define YAH265_H
 
 #include <stdint.h>
 
@@ -21,14 +21,14 @@ extern "C" {
  * internal calls stay direct rather than routing through the export
  * table. */
 #if defined(__GNUC__) || defined(__clang__)
-#  define NEXT265_API __attribute__((visibility("default")))
+#  define YAH265_API __attribute__((visibility("default")))
 #else
-#  define NEXT265_API
+#  define YAH265_API
 #endif
 
-#define NEXT265_VERSION_MAJOR 0
-#define NEXT265_VERSION_MINOR 0
-#define NEXT265_VERSION_PATCH 1
+#define YAH265_VERSION_MAJOR 0
+#define YAH265_VERSION_MINOR 0
+#define YAH265_VERSION_PATCH 1
 
 /* Chroma sampling of input pictures. Only 4:2:0 8-bit for now. */
 enum {
@@ -70,33 +70,33 @@ typedef struct n265_picture {
 typedef struct n265_encoder n265_encoder;
 
 /* Fill defaults; returns 0 on success. */
-NEXT265_API void n265_param_default(n265_param *p);
+YAH265_API void n265_param_default(n265_param *p);
 
 /* v0 configuration, set before n265_encoder_open (process-global; one
  * encoder per process for now): mode 0 normal / 1 PCM, CQP qp, CTB size
  * as log2 (4..6), keyframe interval, consecutive B frames (0/1),
  * variance AQ on/off; lookahead depth in frames and cu-tree on/off.
  * Encode latency is `lookahead depth + bframes` frames. */
-NEXT265_API void n265_set_mode(int mode, int qp, int ctb_log2, int keyint,
+YAH265_API void n265_set_mode(int mode, int qp, int ctb_log2, int keyint,
                                int bframes, int aq);
-NEXT265_API void n265_set_la(int depth, int cutree);
+YAH265_API void n265_set_la(int depth, int cutree);
 
 /* NULL on invalid params or allocation failure. */
-NEXT265_API n265_encoder *n265_encoder_open(const n265_param *p);
+YAH265_API n265_encoder *n265_encoder_open(const n265_param *p);
 
 /* Encode one picture. On success returns the number of bytes of Annex-B
  * output produced and sets nal/nnal to an array valid until the next
  * call on this encoder. pic == NULL flushes (no-op for now: zero-latency
  * all-intra). Returns < 0 on error, 0 when flushing with nothing left. */
-NEXT265_API int n265_encoder_encode(n265_encoder *e, n265_nal **nal,
+YAH265_API int n265_encoder_encode(n265_encoder *e, n265_nal **nal,
                                     int *nnal, const n265_picture *pic);
 
-NEXT265_API void n265_encoder_close(n265_encoder *e);
+YAH265_API void n265_encoder_close(n265_encoder *e);
 
-NEXT265_API const char *n265_version_str(void);
+YAH265_API const char *n265_version_str(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* NEXT265_H */
+#endif /* YAH265_H */

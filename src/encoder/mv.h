@@ -2,7 +2,7 @@
  * Motion vectors: merge candidate and AMVP derivation (8.5.3.2), motion
  * search. Shared between analysis (decisions) and nothing else - the
  * entropy pass replays recorded MVDs and never re-derives.
- * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
+ * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
 #ifndef N265_MV_H

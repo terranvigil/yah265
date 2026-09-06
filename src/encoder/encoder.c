@@ -2,7 +2,7 @@
  * Encoder core. Two modes: N265_MODE_INTRA is the real path (DC intra,
  * CTB 32, TU == CU, fixed QP); N265_MODE_PCM is the phase-0 I_PCM path
  * kept for harness A/B. Every frame is an IDR either way.
- * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
+ * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
 #include <math.h>

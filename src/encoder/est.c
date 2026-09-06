@@ -4,7 +4,7 @@
  * published design constant of the H.26x arithmetic coder), so the cost
  * of a bin is -log2(p) of whichever symbol was coded, and the state
  * transition matches Table 9-47.
- * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
+ * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
 #include <math.h>

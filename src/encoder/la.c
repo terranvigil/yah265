@@ -4,7 +4,7 @@
  * style cu-tree propagation over the queued window feeding the per-CTU QP
  * offset map. Serial and deterministic; the threading ladder moves this
  * onto the pool at T3/L3.
- * Copyright (c) 2026, the next265 authors. GPL-2.0-or-later; see LICENSE.
+ * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
 #include <math.h>
