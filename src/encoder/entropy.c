@@ -265,7 +265,7 @@ static void replay_cu(struct n265_encoder *e, const res_ops *ops, int x0,
             int root_cbf = (flags >> 2) & 1;
             ops->bin(ops->h, CTX_MERGE_FLAG, merge);
             if (merge)
-                write_merge_idx(ops, (int)(flags >> 3) & 3);
+                write_merge_idx(ops, (int)(flags >> 3) & 7);   /* bits 3-5 */
             if (!merge) {
                 int pred = ((int)(flags >> 3) & 3) + 1;
                 int mvp_idx[2] = { (int)(flags >> 1) & 1,

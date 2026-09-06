@@ -1252,11 +1252,15 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                 set_mot_map(e, x0, y0, n, mot);
                 set_mode_map(e, x0, y0, n, INTRA_DC);
                 mark_cu_edges(e, x0, y0, n);
-                rec_u8(e, (unsigned)((kind == 1) | (mvp_idx[0] << 1) |
-                                     ((any != 0) << 2) |
-                                     (kind == 1 ? midx << 3
-                                                : (mot.pred - 1) << 3) |
-                                     (mvp_idx[1] << 5)));
+                /* merge records carry the index in bits 3-5; the mvp bits
+                 * belong to AMVP records only (a stale mvp_idx[1] on a
+                 * merge record reads as index + 4 once five candidates are
+                 * allowed; found 2026-09-06 while widening MAX_MERGE) */
+                rec_u8(e, (unsigned)((kind == 1) | ((any != 0) << 2) |
+                                     (kind == 1 ? (midx << 3)
+                                                : ((mvp_idx[0] << 1) |
+                                                   ((mot.pred - 1) << 3) |
+                                                   (mvp_idx[1] << 5)))));
                 if (kind == 2)
                     for (int l = 0; l < 2; l++) {
                         if (!(mot.pred & (1 << l)))
