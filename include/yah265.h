@@ -85,6 +85,8 @@ YAH265_API void n265_set_la(int depth, int cutree);
  * term) instead of the fixed QP. crf < 0 turns it off (the default). Open
  * loop: no bits feedback. */
 YAH265_API void n265_set_crf(double crf);
+/* references per list (1..3), P and B alike; more references cost search time. */
+YAH265_API void n265_set_ref(int n);
 
 /* NULL on invalid params or allocation failure. */
 YAH265_API n265_encoder *n265_encoder_open(const n265_param *p);

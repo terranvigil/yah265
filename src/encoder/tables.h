@@ -36,7 +36,8 @@ enum {
     CTX_INTER_IDC = 136,    /* 5: bin0 by CU depth, bin1 at 4 */
     CTX_TSPLIT = 141,       /* 3: ctx = 5 - log2TrafoSize */
     CTX_CU_QP = 144,        /* 2: bin0, bins 1..4 */
-    CTX_COUNT = 146,
+    CTX_REF_IDX = 146,      /* 2: ref_idx_lX bins 0 and 1 */
+    CTX_COUNT = 148,
 };
 
 /* initType 0 (I), 1 (P, cabac_init_flag 0), 2 (B, cabac_init_flag 0) */

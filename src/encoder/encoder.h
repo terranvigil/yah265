@@ -22,7 +22,7 @@ enum {
 };
 
 #define MIN_CB_LOG2 3
-#define MAX_MERGE 3     /* MaxNumMergeCand */
+#define MAX_MERGE 5     /* MaxNumMergeCand (5 since 2026-09-06: -0.36% mean, 4 of 4 clips at matched rate) */
 #define N265_DPB_SLOTS 6
 #define N265_MAX_REF 3
 
@@ -54,12 +54,14 @@ struct n265_encoder {
          * of each region, spec mv storage reduction) */
         uint8_t *col_pred;
         int16_t *col_mv;    /* 4 per cell: L0 x,y then L1 x,y */
-        int col_ref_poc[2]; /* POC of that picture's L0/L1 ref */
+        int col_ref_poc[2]; /* POC of that picture's L0/L1 ref (idx 0) */
+        int16_t *col_ref;   /* per 16x16 cell: the block's own L0/L1 ref POCs */
     } dpb[N265_DPB_SLOTS];
     /* the current frame's reference lists: refl[list][idx], nref[list]
      * entries (docs/refstruct-design.md); ref_valid = at least one */
     struct n265_refpic *refl[2][N265_MAX_REF];
     int nref[2];
+    int ref_max;            /* --ref: references per list wanted (1..N265_MAX_REF) */
     int ref_valid;
 
     uint8_t *ct_depth;      /* 4x4-granularity coding-tree depth map */
@@ -70,6 +72,7 @@ struct n265_encoder {
     uint8_t *blk_cbf_y;     /* per 4x4: luma TB had coefficients     */
     int16_t *blk_mv;        /* per 4x4: L0 then L1 (x,y) qpel pairs  */
     uint8_t *blk_pred;      /* per 4x4: pred flags (1=L0, 2=L1)      */
+    int8_t  *blk_ref;       /* per 4x4: reference index, L0 then L1  */
     int map_stride;         /* in 4x4 units                          */
 
     struct sao_params *sao; /* per-CTB SAO decisions                 */
@@ -134,6 +137,7 @@ void n265_entropy_ctu(struct n265_encoder *e, cabac_t *cb, int ctb_x,
 
 /* z-scan decode-order key (intra.c) */
 uint32_t n265_lambda_mode_q8(int qp);
+void n265_build_lists(struct n265_encoder *e, int cur, int is_b, struct n265_refpic *future);
 uint64_t n265_zorder(int x, int y, int pic_w, int ctb_log2);
 #define N265_REF_PAD 64     /* reference plane border, luma samples */
 

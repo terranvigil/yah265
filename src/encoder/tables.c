@@ -51,6 +51,8 @@ const uint8_t n265_ctx_init_i[CTX_COUNT] = {
     153, 138, 138,
     /* cu_qp_delta_abs */
     154, 154,
+    /* ref_idx_lX */
+    153, 153,
 };
 
 /* initType 1: P slices with cabac_init_flag 0 */
@@ -98,6 +100,8 @@ const uint8_t n265_ctx_init_p[CTX_COUNT] = {
     124, 138,  94,
     /* cu_qp_delta_abs */
     154, 154,
+    /* ref_idx_lX */
+    153, 153,
 };
 
 /* initType 2: B slices with cabac_init_flag 0 */
@@ -145,6 +149,8 @@ const uint8_t n265_ctx_init_b[CTX_COUNT] = {
     224, 167, 122,
     /* cu_qp_delta_abs */
     154, 154,
+    /* ref_idx_lX */
+    153, 153,
 };
 
 /* 9.3.4.2.5, ctxIdxMap for 4x4 TBs */

@@ -18,6 +18,7 @@ typedef struct mv_t {
 typedef struct mot_t {
     mv_t mv[2];
     uint8_t pred;   /* bit0 = L0, bit1 = L1 */
+    int8_t ref[2];  /* reference index per list (docs/refstruct-design.md) */
 } mot_t;
 
 /* Merge candidate list (8.5.3.2.3, TMVP off): pruned spatials
@@ -31,16 +32,16 @@ mot_t n265_merge_cand0(struct n265_encoder *e, int x0, int y0, int nw,
                        int nh);
 
 /* AMVP candidate list for ref 0 of the given list (8.5.3.2.6). */
-void n265_amvp(struct n265_encoder *e, int list, int x0, int y0, int nw,
+void n265_amvp(struct n265_encoder *e, int list, int ref, int x0, int y0, int nw,
                int nh, mv_t mvp[2]);
 
 /* Motion search on one reference list around the given start
  * (quarter-pel in/out). Returns the best cost. */
-uint32_t n265_me_search(struct n265_encoder *e, int list, int x0, int y0,
+uint32_t n265_me_search(struct n265_encoder *e, int list, int ridx, int x0, int y0,
                         int log2n, mv_t start, mv_t *best);
 
 /* SAD of luma MC prediction at mv on one list. */
-uint32_t n265_mc_sad(struct n265_encoder *e, int list, int x0, int y0,
+uint32_t n265_mc_sad(struct n265_encoder *e, int list, int ridx, int x0, int y0,
                      int log2n, mv_t mv);
 
 #endif

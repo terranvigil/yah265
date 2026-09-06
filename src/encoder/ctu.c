@@ -71,10 +71,10 @@ typedef struct tb_ctx {
 } tb_ctx;
 
 /* uni MC from one list at any quarter-pel MV into dst (n x n) */
-static void mc_pred_uni(struct n265_encoder *e, int list, int c_idx, int x0,
+static void mc_pred_uni(struct n265_encoder *e, int list, int ref, int c_idx, int x0,
                         int y0, int n, mv_t mv, uint8_t *dst)
 {
-    struct n265_refpic *r = e->refl[list][0];
+    struct n265_refpic *r = e->refl[list][ref];
     int rs = r->stride[c_idx];
     if (c_idx) {
         int dx = mv.x >> 3, dy = mv.y >> 3;
@@ -87,10 +87,10 @@ static void mc_pred_uni(struct n265_encoder *e, int list, int c_idx, int x0,
     }
 }
 
-static void mc_pred14(struct n265_encoder *e, int list, int c_idx, int x0,
+static void mc_pred14(struct n265_encoder *e, int list, int ref, int c_idx, int x0,
                       int y0, int n, mv_t mv, int16_t *dst)
 {
-    struct n265_refpic *r = e->refl[list][0];
+    struct n265_refpic *r = e->refl[list][ref];
     int rs = r->stride[c_idx];
     if (c_idx) {
         int dx = mv.x >> 3, dy = mv.y >> 3;
@@ -109,12 +109,12 @@ static void mc_pred(struct n265_encoder *e, int c_idx, int x0, int y0,
 {
     if (mot.pred == 3) {
         int16_t a[64 * 64], b[64 * 64];
-        mc_pred14(e, 0, c_idx, x0, y0, n, mot.mv[0], a);
-        mc_pred14(e, 1, c_idx, x0, y0, n, mot.mv[1], b);
+        mc_pred14(e, 0, mot.ref[0], c_idx, x0, y0, n, mot.mv[0], a);
+        mc_pred14(e, 1, mot.ref[1], c_idx, x0, y0, n, mot.mv[1], b);
         n265_bi_avg(dst, a, b, n);
     } else {
         int list = mot.pred == 2;
-        mc_pred_uni(e, list, c_idx, x0, y0, n, mot.mv[list], dst);
+        mc_pred_uni(e, list, mot.ref[list], c_idx, x0, y0, n, mot.mv[list], dst);
     }
 }
 
@@ -619,6 +619,8 @@ static void set_mot_map(struct n265_encoder *e, int x0, int y0, int n,
             e->blk_mv[4 * m + 2] = mot.mv[1].x;
             e->blk_mv[4 * m + 3] = mot.mv[1].y;
             e->blk_pred[m] = mot.pred;
+            e->blk_ref[2 * m] = mot.ref[0];
+            e->blk_ref[2 * m + 1] = mot.ref[1];
         }
 }
 
@@ -1109,15 +1111,28 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
             mot_t amot = { { { 0, 0 }, { 0, 0 } }, 1 };
             int same_as_cand = 1;
             if (!gate_amvp) {
-                n265_amvp(e, 0, x0, y0, n, n, mvp[0]);
-                n265_me_search(e, 0, x0, y0, log2n, mvp[0][0], &me_mv[0]);
+                /* per list: search every reference, keep the one whose
+                 * SAD + lambda x (mvd + ref_idx) bits is lowest, and the
+                 * predictors of that reference */
+                for (int l = 0; l < (e->slice_type == 0 ? 2 : 1); l++) {
+                    uint32_t best_c = UINT32_MAX;
+                    for (int r = 0; r < e->nref[l]; r++) {
+                        mv_t p[2], mv;
+                        n265_amvp(e, l, r, x0, y0, n, n, p);
+                        uint32_t sad = n265_me_search(e, l, r, x0, y0, log2n, p[0], &mv);
+                        int mvd = abs(mv.x - p[0].x) + abs(mv.y - p[0].y);
+                        int m1 = abs(mv.x - p[1].x) + abs(mv.y - p[1].y);
+                        if (m1 < mvd) mvd = m1;
+                        /* cheap rate proxy: ~1 bit per qpel unit of mvd magnitude
+                         * plus the ref index's unary bins, at lambda_sad */
+                        uint32_t c = sad + (uint32_t)(((mvd + 2 * r + 4) * lambda_sad_q4(e->cur_ctu_qp)) >> 4);
+                        if (c < best_c) { best_c = c; me_mv[l] = mv; mvp[l][0] = p[0]; mvp[l][1] = p[1]; amot.ref[l] = (int8_t)r; }
+                    }
+                }
                 amot.mv[0] = me_mv[0];
                 if (e->slice_type == 0) {
-                    n265_amvp(e, 1, x0, y0, n, n, mvp[1]);
-                    n265_me_search(e, 1, x0, y0, log2n, mvp[1][0],
-                                   &me_mv[1]);
-                    mot_t u1 = { { { 0, 0 }, me_mv[1] }, 2 };
-                    mot_t bi = { { me_mv[0], me_mv[1] }, 3 };
+                    mot_t u1 = { { { 0, 0 }, me_mv[1] }, 2, { 0, amot.ref[1] } };
+                    mot_t bi = { { me_mv[0], me_mv[1] }, 3, { amot.ref[0], amot.ref[1] } };
                     uint32_t s0 = mot_sad(e, x0, y0, log2n, amot);
                     uint32_t s1 = mot_sad(e, x0, y0, log2n, u1);
                     uint32_t sb = mot_sad(e, x0, y0, log2n, bi);
@@ -1129,10 +1144,10 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                 same_as_cand = amot.pred == cand.pred &&
                     (!(amot.pred & 1) ||
                      (amot.mv[0].x == cand.mv[0].x &&
-                      amot.mv[0].y == cand.mv[0].y)) &&
+                      amot.mv[0].y == cand.mv[0].y && amot.ref[0] == cand.ref[0])) &&
                     (!(amot.pred & 2) ||
                      (amot.mv[1].x == cand.mv[1].x &&
-                      amot.mv[1].y == cand.mv[1].y));
+                      amot.mv[1].y == cand.mv[1].y && amot.ref[1] == cand.ref[1]));
             }
             if (!gate_amvp && !same_as_cand && !getenv("N265_NO_AMVP")) {
                 tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, amot,
@@ -1174,6 +1189,12 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                 for (int l = 0; l < 2; l++) {
                     if (!(amot.pred & (1 << l)))
                         continue;
+                    if (e->nref[l] > 1) {      /* ref_idx_lX, truncated unary */
+                        int r = amot.ref[l], cmax = e->nref[l] - 1;
+                        st.bits += n265_est_bin(&local[CTX_REF_IDX + 0], r > 0);
+                        if (r > 0 && cmax > 1) st.bits += n265_est_bin(&local[CTX_REF_IDX + 1], r > 1);
+                        if (r > 1 && cmax > 2) st.bits += 256u * (uint32_t)((r < cmax ? r : cmax - 1) - 1);
+                    }
                     est_mvd(&st, me_mv[l].x - mvp[l][mvp_idx[l]].x,
                             me_mv[l].y - mvp[l][mvp_idx[l]].y);
                     st.bits += n265_est_bin(&local[CTX_MVP_FLAG],
@@ -1265,6 +1286,7 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                     for (int l = 0; l < 2; l++) {
                         if (!(mot.pred & (1 << l)))
                             continue;
+                        rec_u8(e, (unsigned)mot.ref[l]);
                         int16_t mvd[2] = {
                             (int16_t)(mot.mv[l].x - mvp[l][mvp_idx[l]].x),
                             (int16_t)(mot.mv[l].y - mvp[l][mvp_idx[l]].y)
@@ -1391,6 +1413,7 @@ typedef struct qt_snap {
     uint8_t recon[64 * 64 * 3 / 2];
     uint8_t maps[8][16 * 16];
     int16_t mv[16 * 16 * 4];
+    int8_t ref[16 * 16 * 2];    /* the reference-index map (multi-ref, 2026-09-06) */
     cabac_ctx_t est[CTX_COUNT];
     int ent_qp_coded;
     size_t rec_len;
@@ -1433,6 +1456,10 @@ static void qt_save(struct n265_encoder *e, qt_snap *sn, int x0, int y0,
         memcpy(sn->mv + y * cells * 2 * 2,
                e->blk_mv + (((y0 >> 2) + y) * e->map_stride + (x0 >> 2)) * 4,
                (size_t)cells * 4 * sizeof(int16_t));
+    for (int y = 0; y < cells; y++)
+        memcpy(sn->ref + y * cells * 2,
+               e->blk_ref + (((y0 >> 2) + y) * e->map_stride + (x0 >> 2)) * 2,
+               (size_t)cells * 2);
     memcpy(sn->est, e->est_ctx, sizeof(sn->est));
     sn->ent_qp_coded = e->ent_qp_coded;
     sn->rec_len = e->rec_len;
@@ -1471,6 +1498,9 @@ static void qt_restore(struct n265_encoder *e, const qt_snap *sn, int x0,
         memcpy(e->blk_mv + (((y0 >> 2) + y) * e->map_stride + (x0 >> 2)) * 4,
                sn->mv + y * cells * 2 * 2,
                (size_t)cells * 4 * sizeof(int16_t));
+    for (int y = 0; y < cells; y++)
+        memcpy(e->blk_ref + (((y0 >> 2) + y) * e->map_stride + (x0 >> 2)) * 2,
+               sn->ref + y * cells * 2, (size_t)cells * 2);
     memcpy(e->est_ctx, sn->est, sizeof(sn->est));
     e->ent_qp_coded = sn->ent_qp_coded;
     e->rec_len = sn->rec_len;

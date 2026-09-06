@@ -3,6 +3,8 @@
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <stdlib.h>
 
 #include "encoder/mc.h"
@@ -29,12 +31,18 @@ static mot_t mot_at(struct n265_encoder *e, int x, int y)
     r.mv[1].x = e->blk_mv[4 * m + 2];
     r.mv[1].y = e->blk_mv[4 * m + 3];
     r.pred = e->blk_pred[m];
+    r.ref[0] = e->blk_ref[2 * m];
+    r.ref[1] = e->blk_ref[2 * m + 1];
     return r;
 }
 
 static int same_motion(const mot_t *a, const mot_t *b)
 {
     if (a->pred != b->pred)
+        return 0;
+    if ((a->pred & 1) && a->ref[0] != b->ref[0])
+        return 0;
+    if ((a->pred & 2) && a->ref[1] != b->ref[1])
         return 0;
     if ((a->pred & 1) && (a->mv[0].x != b->mv[0].x ||
                           a->mv[0].y != b->mv[0].y))
@@ -68,10 +76,10 @@ static mv_t mv_scale(mv_t mv, int tb, int td)
  * picture (always l0[0], collocated_from_l0 == 1), listCol per
  * NoBackwardPredFlag, POC-distance scaling. */
 static int tmvp_mv(struct n265_encoder *e, int x0, int y0, int nw, int nh,
-                   int list, mv_t *out)
+                   int list, int ref, mv_t *out)
 {
     const struct n265_refpic *col = e->refl[0][0];
-    if (!col || !col->valid)
+    if (!col || !col->valid || getenv("N265_NO_TMVP"))   /* diagnostic toggle */
         return 0;
     int c16w = (e->pad_w + 15) >> 4;
     int i16 = -1;
@@ -102,8 +110,8 @@ static int tmvp_mv(struct n265_encoder *e, int x0, int y0, int nw, int nh,
         lc = 1;         /* N = collocated_from_l0_flag */
     mv_t v = { col->col_mv[4 * i16 + 2 * lc],
                col->col_mv[4 * i16 + 2 * lc + 1] };
-    int td = col->poc - col->col_ref_poc[lc];
-    int tb = e->poc - e->refl[list][0]->poc;
+    int td = col->poc - col->col_ref[2 * i16 + lc];
+    int tb = e->poc - e->refl[list][ref]->poc;
     td = td < -128 ? -128 : td > 127 ? 127 : td;
     tb = tb < -128 ? -128 : tb > 127 ? 127 : tb;
     *out = mv_scale(v, tb, td);
@@ -148,11 +156,11 @@ int n265_merge_list(struct n265_encoder *e, int x0, int y0, int nw, int nh,
     if (n < max) {
         mot_t t = { { { 0, 0 }, { 0, 0 } }, 0 };
         mv_t v;
-        if (tmvp_mv(e, x0, y0, nw, nh, 0, &v)) {
+        if (tmvp_mv(e, x0, y0, nw, nh, 0, 0, &v)) {
             t.mv[0] = v;
             t.pred |= 1;
         }
-        if (e->slice_type == 0 && tmvp_mv(e, x0, y0, nw, nh, 1, &v)) {
+        if (e->slice_type == 0 && tmvp_mv(e, x0, y0, nw, nh, 1, 0, &v)) {
             t.mv[1] = v;
             t.pred |= 2;
         }
@@ -174,23 +182,36 @@ int n265_merge_list(struct n265_encoder *e, int x0, int y0, int nw, int nh,
                 continue;
             if (!(out[i].pred & 1) || !(out[j].pred & 2))
                 continue;
-            /* spec adds the pair when the refs differ OR the mvs differ;
-             * our l0/l1 refs are always different pictures, so every
-             * flag-eligible pair is added (8.5.3.2.4) */
+            /* 8.5.3.2.4: added when the two reference pictures differ or
+             * the two motion vectors differ */
+            int p0 = e->refl[0][out[i].ref[0]]->poc, p1 = e->refl[1][out[j].ref[1]]->poc;
+            if (p0 == p1 && out[i].mv[0].x == out[j].mv[1].x && out[i].mv[0].y == out[j].mv[1].y)
+                continue;
             mot_t c;
             c.mv[0] = out[i].mv[0];
             c.mv[1] = out[j].mv[1];
             c.pred = 3;
+            c.ref[0] = out[i].ref[0];
+            c.ref[1] = out[j].ref[1];
             out[n++] = c;
         }
     }
-    /* zero fill: uni in P, bi in B (single ref per list, so the zero
-     * candidate repeats when more slots remain) */
-    while (n < max) {
+    /* zero candidates (8.5.3.2.5): uni in P, bi in B, the reference index
+     * walking 0.. numRefIdx-1 then staying at 0 */
+    int num_ref = e->slice_type == 0 ? (e->nref[0] < e->nref[1] ? e->nref[0] : e->nref[1]) : e->nref[0];
+    for (int zi = 0; n < max; zi++) {
+        int r = zi < num_ref ? zi : 0;
         out[n].mv[0].x = out[n].mv[0].y = 0;
         out[n].mv[1].x = out[n].mv[1].y = 0;
         out[n].pred = e->slice_type == 0 ? 3 : 1;
+        out[n].ref[0] = (int8_t)r;
+        out[n].ref[1] = (int8_t)(e->slice_type == 0 ? r : 0);
         n++;
+    }
+    if (getenv("N265_MERGE_TRACE") && e->display_idx == atoi(getenv("N265_MERGE_TRACE"))) {
+        fprintf(stderr, "MRG disp=%d cu=(%d,%d,%dx%d) type=%d nref=%d/%d:", e->display_idx, x0, y0, nw, nh, e->slice_type, e->nref[0], e->nref[1]);
+        for (int i = 0; i < n; i++) fprintf(stderr, " %d:p%d r%d/%d (%d,%d|%d,%d)", i, out[i].pred, out[i].ref[0], out[i].ref[1], out[i].mv[0].x, out[i].mv[0].y, out[i].mv[1].x, out[i].mv[1].y);
+        fprintf(stderr, "\n");
     }
     return n;
 }
@@ -206,23 +227,23 @@ mot_t n265_merge_cand0(struct n265_encoder *e, int x0, int y0, int nw, int nh)
  * the target's POC (same list first, then the other); the scaled pass
  * takes the first motion present (same list first) and scales it to
  * the target distance. One ref per list, all short-term. */
-static int amvp_take(struct n265_encoder *e, int m, int list, int scaled,
+static int amvp_take(struct n265_encoder *e, int m, int list, int ref, int scaled,
                      mv_t *out)
 {
-    int ref_poc[2] = { e->refl[0][0] ? e->refl[0][0]->poc : 0,
-                       e->refl[1][0] ? e->refl[1][0]->poc : 0 };
+    int target_poc = e->refl[list][ref]->poc;
     for (int p = 0; p < 2; p++) {
         int ly = p ? !list : list;
         if (!(e->blk_pred[m] & (1 << ly)))
             continue;
-        int same = ref_poc[ly] == ref_poc[list];
+        int nb_poc = e->refl[ly][e->blk_ref[2 * m + ly]]->poc;
+        int same = nb_poc == target_poc;
         if (!scaled && !same)
             continue;
         mv_t v = { e->blk_mv[4 * m + 2 * ly],
                    e->blk_mv[4 * m + 2 * ly + 1] };
-        if (scaled) {
-            int td = e->poc - ref_poc[ly];
-            int tb = e->poc - ref_poc[list];
+        if (scaled && !same) {
+            int td = e->poc - nb_poc;
+            int tb = e->poc - target_poc;
             td = td < -128 ? -128 : td > 127 ? 127 : td;
             tb = tb < -128 ? -128 : tb > 127 ? 127 : tb;
             v = mv_scale(v, tb, td);
@@ -233,7 +254,7 @@ static int amvp_take(struct n265_encoder *e, int m, int list, int scaled,
     return 0;
 }
 
-void n265_amvp(struct n265_encoder *e, int list, int x0, int y0, int nw,
+void n265_amvp(struct n265_encoder *e, int list, int ref, int x0, int y0, int nw,
                int nh, mv_t mvp[2])
 {
     uint64_t cur = n265_zorder(x0, y0, e->pad_w, e->ctb_log2);
@@ -252,17 +273,17 @@ void n265_amvp(struct n265_encoder *e, int list, int x0, int y0, int nw,
     mv_t mva = { 0, 0 }, mvb = { 0, 0 };
     int avail_a = 0, avail_b = 0;
     for (int i = 0; i < 2 && !avail_a; i++)
-        if (a_avail[i] && amvp_take(e, a_m[i], list, 0, &mva))
+        if (a_avail[i] && amvp_take(e, a_m[i], list, ref, 0, &mva))
             avail_a = 1;
     for (int i = 0; i < 2 && !avail_a; i++)
-        if (a_avail[i] && amvp_take(e, a_m[i], list, 1, &mva))
+        if (a_avail[i] && amvp_take(e, a_m[i], list, ref, 1, &mva))
             avail_a = 1;
 
     /* candidate B: unscaled over B0, B1, B2 */
     for (int i = 0; i < 3 && !avail_b; i++) {
         int bx = b_pos[i][0], by = b_pos[i][1];
         if (inter_at(e, bx, by, cur) &&
-            amvp_take(e, (by >> 2) * e->map_stride + (bx >> 2), list, 0,
+            amvp_take(e, (by >> 2) * e->map_stride + (bx >> 2), list, ref, 0,
                       &mvb))
             avail_b = 1;
     }
@@ -276,7 +297,7 @@ void n265_amvp(struct n265_encoder *e, int list, int x0, int y0, int nw,
             int bx = b_pos[i][0], by = b_pos[i][1];
             if (inter_at(e, bx, by, cur) &&
                 amvp_take(e, (by >> 2) * e->map_stride + (bx >> 2), list,
-                          1, &mvb))
+                          ref, 1, &mvb))
                 avail_b = 1;
         }
     }
@@ -288,7 +309,7 @@ void n265_amvp(struct n265_encoder *e, int list, int x0, int y0, int nw,
         mvp[n++] = mvb;
     if (n < 2) {
         mv_t v;
-        if (tmvp_mv(e, x0, y0, nw, nh, list, &v))
+        if (tmvp_mv(e, x0, y0, nw, nh, list, ref, &v))
             mvp[n++] = v;
     }
     while (n < 2) {
@@ -298,10 +319,10 @@ void n265_amvp(struct n265_encoder *e, int list, int x0, int y0, int nw,
     }
 }
 
-uint32_t n265_mc_sad(struct n265_encoder *e, int list, int x0, int y0,
+uint32_t n265_mc_sad(struct n265_encoder *e, int list, int ridx, int x0, int y0,
                      int log2n, mv_t mv)
 {
-    const struct n265_refpic *ref = e->refl[list][0];
+    const struct n265_refpic *ref = e->refl[list][ridx];
     int n = 1 << log2n;
     const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
     if ((mv.x | mv.y) & 3) {    /* fractional: interpolate then SAD */
@@ -331,10 +352,10 @@ uint32_t n265_mc_sad(struct n265_encoder *e, int list, int x0, int y0,
 
 /* SATD of luma MC at mv: phase-aware cost for subpel refinement, where
  * SAD cannot tell interpolation blur from misalignment */
-static uint32_t mc_satd(struct n265_encoder *e, int list, int x0, int y0,
+static uint32_t mc_satd(struct n265_encoder *e, int list, int ridx, int x0, int y0,
                         int log2n, mv_t mv)
 {
-    const struct n265_refpic *ref = e->refl[list][0];
+    const struct n265_refpic *ref = e->refl[list][ridx];
     int n = 1 << log2n;
     const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
     uint8_t pred[64 * 64];
@@ -357,15 +378,15 @@ static void clamp_mv(struct n265_encoder *e, int x0, int y0, int n, mv_t *mv)
     if (mv->y > hi_y) mv->y = (int16_t)hi_y;
 }
 
-uint32_t n265_me_search(struct n265_encoder *e, int list, int x0, int y0,
+uint32_t n265_me_search(struct n265_encoder *e, int list, int ridx, int x0, int y0,
                         int log2n, mv_t start, mv_t *best)
 {
     int n = 1 << log2n;
     mv_t cur = { (int16_t)((start.x >> 2) * 4), (int16_t)((start.y >> 2) * 4) };
     clamp_mv(e, x0, y0, n, &cur);
     mv_t zero = { 0, 0 };
-    uint32_t best_sad = n265_mc_sad(e, list, x0, y0, log2n, cur);
-    uint32_t zs = n265_mc_sad(e, list, x0, y0, log2n, zero);
+    uint32_t best_sad = n265_mc_sad(e, list, ridx, x0, y0, log2n, cur);
+    uint32_t zs = n265_mc_sad(e, list, ridx, x0, y0, log2n, zero);
     if (zs < best_sad) {
         best_sad = zs;
         cur = zero;
@@ -382,7 +403,7 @@ uint32_t n265_me_search(struct n265_encoder *e, int list, int x0, int y0,
             clamp_mv(e, x0, y0, n, &tc);
             if (tc.x != t.x || tc.y != t.y)
                 continue;
-            uint32_t s = n265_mc_sad(e, list, x0, y0, log2n, t);
+            uint32_t s = n265_mc_sad(e, list, ridx, x0, y0, log2n, t);
             if (s < bs) {
                 bs = s;
                 b = t;
@@ -398,7 +419,7 @@ uint32_t n265_me_search(struct n265_encoder *e, int list, int x0, int y0,
     static int fullpel = -1;
     if (fullpel < 0)
         fullpel = getenv("N265_FULLPEL") != NULL;
-    uint32_t best_satd = fullpel ? 0 : mc_satd(e, list, x0, y0, log2n, cur);
+    uint32_t best_satd = fullpel ? 0 : mc_satd(e, list, ridx, x0, y0, log2n, cur);
     for (int round = 0; round < (fullpel ? 0 : 2); round++)
     for (int step = 2; step >= 1; step--) {
         mv_t b = cur;
@@ -412,7 +433,7 @@ uint32_t n265_me_search(struct n265_encoder *e, int list, int x0, int y0,
                 clamp_mv(e, x0, y0, n, &tc);
                 if (tc.x != t.x || tc.y != t.y)
                     continue;
-                uint32_t s = mc_satd(e, list, x0, y0, log2n, t);
+                uint32_t s = mc_satd(e, list, ridx, x0, y0, log2n, t);
                 if (s < bs) {
                     bs = s;
                     b = t;

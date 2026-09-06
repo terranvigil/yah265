@@ -281,6 +281,17 @@ static void replay_cu(struct n265_encoder *e, const res_ops *ops, int x0,
                 for (int l = 0; l < 2; l++) {
                     if (!(pred & (1 << l)))
                         continue;
+                    int ref = (int)rd_u8(e);
+                    if (e->nref[l] > 1) {
+                        /* ref_idx_lX: truncated unary, cMax = nref - 1, bins 0
+                         * and 1 context coded, the rest bypass */
+                        int cmax = e->nref[l] - 1;
+                        ops->bin(ops->h, CTX_REF_IDX + 0, ref > 0);
+                        if (ref > 0 && cmax > 1)
+                            ops->bin(ops->h, CTX_REF_IDX + 1, ref > 1);
+                        for (int b = 2; b < cmax && ref > b - 1; b++)
+                            ops->bypass(ops->h, ref > b);
+                    }
                     const int16_t *mvd = rd_levels(e, 2);
                     write_mvd(ops, mvd[0], mvd[1]);
                     ops->bin(ops->h, CTX_MVP_FLAG, mvp_idx[l]);

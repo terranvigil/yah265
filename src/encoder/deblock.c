@@ -5,6 +5,7 @@
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
+#include <stdlib.h>
 #include "encoder/deblock.h"
 #include "encoder/transform.h"
 
@@ -134,22 +135,47 @@ static int seg_bs(const struct n265_encoder *e, int x, int y, int vertical)
         return 2;
     if (e->blk_cbf_y[pi] || e->blk_cbf_y[qi])
         return 1;
-    /* per-list motion compare; within a frame each list maps to one
-     * reference picture, so different pred-flag sets mean different
-     * pictures or MV counts (bS 1 either way) */
-    if (e->blk_pred[pi] != e->blk_pred[qi])
-        return 1;
-    int lists = e->blk_pred[pi];
-    for (int l = 0; l < 2; l++) {
-        if (!(lists & (1 << l)))
-            continue;
-        int dx = e->blk_mv[4 * pi + 2 * l] - e->blk_mv[4 * qi + 2 * l];
-        int dy = e->blk_mv[4 * pi + 2 * l + 1] -
-                 e->blk_mv[4 * qi + 2 * l + 1];
-        if (dx <= -4 || dx >= 4 || dy <= -4 || dy >= 4)
-            return 1;
+    /* 8.7.2.4 by reference PICTURE: different pictures or a different
+     * number of motion vectors -> 1; same pictures -> compare the vectors
+     * that point at the same picture, both pairings when both point at
+     * one picture twice */
+    if (getenv("N265_OLD_BS")) {            /* diagnostic: the list-based rule */
+        if (e->blk_pred[pi] != e->blk_pred[qi]) return 1;
+        for (int l = 0; l < 2; l++) {
+            if (!(e->blk_pred[pi] & (1 << l))) continue;
+            int dx = e->blk_mv[4 * pi + 2 * l] - e->blk_mv[4 * qi + 2 * l];
+            int dy = e->blk_mv[4 * pi + 2 * l + 1] - e->blk_mv[4 * qi + 2 * l + 1];
+            if (dx <= -4 || dx >= 4 || dy <= -4 || dy >= 4) return 1;
+        }
+        return 0;
     }
-    return 0;
+    int np = (e->blk_pred[pi] & 1) + ((e->blk_pred[pi] >> 1) & 1);
+    int nq = (e->blk_pred[qi] & 1) + ((e->blk_pred[qi] >> 1) & 1);
+    if (np != nq)
+        return 1;
+    int pp[2], pq[2], nmp = 0, nmq = 0;     /* the pictures (POCs) each block uses */
+    const int16_t *mp[2], *mq[2];
+    for (int l = 0; l < 2; l++) {
+        if (e->blk_pred[pi] & (1 << l)) { pp[nmp] = e->refl[l][e->blk_ref[2 * pi + l]]->poc; mp[nmp++] = e->blk_mv + 4 * pi + 2 * l; }
+        if (e->blk_pred[qi] & (1 << l)) { pq[nmq] = e->refl[l][e->blk_ref[2 * qi + l]]->poc; mq[nmq++] = e->blk_mv + 4 * qi + 2 * l; }
+    }
+#define MVDIFF(a, b) ((a)[0] - (b)[0] <= -4 || (a)[0] - (b)[0] >= 4 || (a)[1] - (b)[1] <= -4 || (a)[1] - (b)[1] >= 4)
+    if (np == 1)
+        return pp[0] != pq[0] || MVDIFF(mp[0], mq[0]);
+    /* two vectors each: the same two pictures? */
+    if (!((pp[0] == pq[0] && pp[1] == pq[1]) || (pp[0] == pq[1] && pp[1] == pq[0])))
+        return 1;
+    if (pp[0] != pp[1]) {                   /* two different pictures: pair by picture */
+        if (pp[0] == pq[0])
+            return MVDIFF(mp[0], mq[0]) || MVDIFF(mp[1], mq[1]);
+        return MVDIFF(mp[0], mq[1]) || MVDIFF(mp[1], mq[0]);
+    }
+    /* both vectors of both blocks point at the same picture: bS 1 only if
+     * BOTH pairings differ */
+    int direct = MVDIFF(mp[0], mq[0]) || MVDIFF(mp[1], mq[1]);
+    int cross = MVDIFF(mp[0], mq[1]) || MVDIFF(mp[1], mq[0]);
+    return direct && cross;
+#undef MVDIFF
 }
 
 /* per-segment average QP from the block QP map */
