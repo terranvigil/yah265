@@ -70,7 +70,7 @@ static mv_t mv_scale(mv_t mv, int tb, int td)
 static int tmvp_mv(struct n265_encoder *e, int x0, int y0, int nw, int nh,
                    int list, mv_t *out)
 {
-    const struct n265_refpic *col = e->ref_l0;
+    const struct n265_refpic *col = e->refl[0][0];
     if (!col || !col->valid)
         return 0;
     int c16w = (e->pad_w + 15) >> 4;
@@ -103,7 +103,7 @@ static int tmvp_mv(struct n265_encoder *e, int x0, int y0, int nw, int nh,
     mv_t v = { col->col_mv[4 * i16 + 2 * lc],
                col->col_mv[4 * i16 + 2 * lc + 1] };
     int td = col->poc - col->col_ref_poc[lc];
-    int tb = e->poc - (list ? e->ref_l1->poc : e->ref_l0->poc);
+    int tb = e->poc - e->refl[list][0]->poc;
     td = td < -128 ? -128 : td > 127 ? 127 : td;
     tb = tb < -128 ? -128 : tb > 127 ? 127 : tb;
     *out = mv_scale(v, tb, td);
@@ -209,8 +209,8 @@ mot_t n265_merge_cand0(struct n265_encoder *e, int x0, int y0, int nw, int nh)
 static int amvp_take(struct n265_encoder *e, int m, int list, int scaled,
                      mv_t *out)
 {
-    int ref_poc[2] = { e->ref_l0 ? e->ref_l0->poc : 0,
-                       e->ref_l1 ? e->ref_l1->poc : 0 };
+    int ref_poc[2] = { e->refl[0][0] ? e->refl[0][0]->poc : 0,
+                       e->refl[1][0] ? e->refl[1][0]->poc : 0 };
     for (int p = 0; p < 2; p++) {
         int ly = p ? !list : list;
         if (!(e->blk_pred[m] & (1 << ly)))
@@ -301,7 +301,7 @@ void n265_amvp(struct n265_encoder *e, int list, int x0, int y0, int nw,
 uint32_t n265_mc_sad(struct n265_encoder *e, int list, int x0, int y0,
                      int log2n, mv_t mv)
 {
-    const struct n265_refpic *ref = list ? e->ref_l1 : e->ref_l0;
+    const struct n265_refpic *ref = e->refl[list][0];
     int n = 1 << log2n;
     const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
     if ((mv.x | mv.y) & 3) {    /* fractional: interpolate then SAD */
@@ -334,7 +334,7 @@ uint32_t n265_mc_sad(struct n265_encoder *e, int list, int x0, int y0,
 static uint32_t mc_satd(struct n265_encoder *e, int list, int x0, int y0,
                         int log2n, mv_t mv)
 {
-    const struct n265_refpic *ref = list ? e->ref_l1 : e->ref_l0;
+    const struct n265_refpic *ref = e->refl[list][0];
     int n = 1 << log2n;
     const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
     uint8_t pred[64 * 64];

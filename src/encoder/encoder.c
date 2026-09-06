@@ -131,7 +131,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         if (!e->pad_plane[i] || !e->recon[i])
             goto fail;
         int pad = i ? N265_REF_PAD / 2 : N265_REF_PAD;
-        for (int sl = 0; sl < 2; sl++) {
+        for (int sl = 0; sl < N265_DPB_SLOTS; sl++) {
             e->dpb[sl].stride[i] = w + 2 * pad;
             e->dpb[sl].base[i] =
                 malloc((size_t)e->dpb[sl].stride[i] * (h + 2 * pad));
@@ -141,7 +141,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
                 e->dpb[sl].base[i] + pad * e->dpb[sl].stride[i] + pad;
         }
     }
-    for (int sl = 0; sl < 2; sl++) {
+    for (int sl = 0; sl < N265_DPB_SLOTS; sl++) {
         int c16 = ((e->pad_w + 15) >> 4) * ((e->pad_h + 15) >> 4);
         e->dpb[sl].col_pred = calloc((size_t)c16, 1);
         e->dpb[sl].col_mv = calloc((size_t)c16, 8);
@@ -214,10 +214,10 @@ void n265_encoder_close(n265_encoder *e)
     free(e->sao);
     for (int i = 0; i < 3; i++) {
         free(e->sao_tmp[i]);
-        free(e->dpb[0].base[i]);
-        free(e->dpb[1].base[i]);
+        for (int sl = 0; sl < N265_DPB_SLOTS; sl++)
+            free(e->dpb[sl].base[i]);
     }
-    for (int sl = 0; sl < 2; sl++) {
+    for (int sl = 0; sl < N265_DPB_SLOTS; sl++) {
         free(e->dpb[sl].col_pred);
         free(e->dpb[sl].col_mv);
     }
@@ -243,10 +243,10 @@ static void write_slice_header(n265_encoder *e)
         int npos = e->slice_type == 0 ? 1 : 0;
         bs_put_ue(bs, 1);           /* num_negative_pics */
         bs_put_ue(bs, (uint32_t)npos);
-        bs_put_ue(bs, (uint32_t)(e->poc - e->ref_l0->poc - 1));
+        bs_put_ue(bs, (uint32_t)(e->poc - e->refl[0][0]->poc - 1));
         bs_put_bits(bs, 1, 1);      /* used_by_curr_pic_s0_flag[0] */
         if (npos) {
-            bs_put_ue(bs, (uint32_t)(e->ref_l1->poc - e->poc - 1));
+            bs_put_ue(bs, (uint32_t)(e->refl[1][0]->poc - e->poc - 1));
             bs_put_bits(bs, 1, 1);  /* used_by_curr_pic_s1_flag[0] */
         }
         bs_put_bits(bs, 1, 1);      /* slice_temporal_mvp_enabled_flag */
@@ -494,8 +494,19 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
     if (e->mode != N265_MODE_PCM && !nonref) {
         /* store the filtered picture into the DPB slot not holding the
          * current L0 anchor */
-        struct n265_refpic *slot = e->ref_valid && e->ref_l0 == &e->dpb[0]
-                                       ? &e->dpb[1] : &e->dpb[0];
+        /* the slot to overwrite: an invalid one, else the oldest picture
+         * that is not in the current lists */
+        struct n265_refpic *slot = NULL;
+        for (int sl = 0; sl < N265_DPB_SLOTS && !slot; sl++)
+            if (!e->dpb[sl].valid) slot = &e->dpb[sl];
+        for (int sl = 0; sl < N265_DPB_SLOTS && !slot; sl++) {
+            int in_list = 0;
+            for (int l = 0; l < 2; l++)
+                for (int k = 0; k < e->nref[l]; k++)
+                    if (e->refl[l][k] == &e->dpb[sl]) in_list = 1;
+            if (!in_list && (!slot || e->dpb[sl].poc < slot->poc)) slot = &e->dpb[sl];
+        }
+        if (!slot) slot = &e->dpb[0];
         for (int i = 0; i < 3; i++) {
             int w = i ? e->pad_w / 2 : e->pad_w;
             int h = i ? e->pad_h / 2 : e->pad_h;
@@ -528,14 +539,15 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
                     slot->col_pred[i16] = e->blk_pred[m];
                     memcpy(slot->col_mv + 4 * i16, e->blk_mv + 4 * m, 8);
                 }
-            slot->col_ref_poc[0] = e->ref_valid ? e->ref_l0->poc : 0;
-            slot->col_ref_poc[1] = (e->slice_type == 0 && e->ref_l1)
-                                       ? e->ref_l1->poc
+            slot->col_ref_poc[0] = e->ref_valid ? e->refl[0][0]->poc : 0;
+            slot->col_ref_poc[1] = (e->slice_type == 0 && e->refl[1][0])
+                                       ? e->refl[1][0]->poc
                                        : slot->col_ref_poc[0];
         }
         slot->poc = poc;
         slot->valid = 1;
-        e->ref_l0 = slot;       /* newest anchor is the next L0 */
+        e->refl[0][0] = slot;       /* newest anchor is the next L0 */
+        e->nref[0] = 1;
         e->ref_valid = 1;
     }
     dump_recon_frame(e);
@@ -570,7 +582,8 @@ static int drive_scheduler(n265_encoder *e, size_t *out_used, int *count)
         /* anchor (or a tail frame with no future anchor: code as P) */
         if (idr0) {
             e->gop_start_display = d0;
-            e->dpb[0].valid = e->dpb[1].valid = 0;
+            for (int sl = 0; sl < N265_DPB_SLOTS; sl++)
+                e->dpb[sl].valid = 0;
             e->ref_valid = 0;
         }
         if (e->cutree)
@@ -599,21 +612,23 @@ static int drive_scheduler(n265_encoder *e, size_t *out_used, int *count)
     }
 
     /* encode the anchor first, then the B between the two anchors */
-    struct n265_refpic *prev_anchor = e->ref_l0;
+    struct n265_refpic *prev_anchor = e->refl[0][0];
     const uint8_t *s1[3] = { f1->src[0], f1->src[1], f1->src[2] };
     if (e->cutree)
         n265_la_cutree(e, 1);
     encode_frame(e, s1, st, 1, d1 - e->gop_start_display, 0, d1, out_used,
                  count);
-    struct n265_refpic *next_anchor = e->ref_l0;
-    e->ref_l0 = prev_anchor;
-    e->ref_l1 = next_anchor;
+    struct n265_refpic *next_anchor = e->refl[0][0];
+    e->refl[0][0] = prev_anchor;
+    e->refl[1][0] = next_anchor;
+    e->nref[0] = 1; e->nref[1] = 1;
     memset(e->ctu_qp_off, 0, (size_t)e->ctb_cols * e->ctb_rows);
     if (e->cutree)
         n265_la_cutree(e, 0);
     encode_frame(e, s0, st, 0, d0 - e->gop_start_display, 1, d0, out_used,
                  count);
-    e->ref_l0 = next_anchor;
+    e->refl[0][0] = next_anchor;
+    e->nref[1] = 0;
     n265_la_pop(e);
     n265_la_pop(e);
     return 2;

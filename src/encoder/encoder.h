@@ -23,6 +23,8 @@ enum {
 
 #define MIN_CB_LOG2 3
 #define MAX_MERGE 3     /* MaxNumMergeCand */
+#define N265_DPB_SLOTS 6
+#define N265_MAX_REF 3
 
 struct n265_encoder {
     n265_param param;
@@ -53,8 +55,11 @@ struct n265_encoder {
         uint8_t *col_pred;
         int16_t *col_mv;    /* 4 per cell: L0 x,y then L1 x,y */
         int col_ref_poc[2]; /* POC of that picture's L0/L1 ref */
-    } dpb[2];
-    struct n265_refpic *ref_l0, *ref_l1;    /* current frame's lists */
+    } dpb[N265_DPB_SLOTS];
+    /* the current frame's reference lists: refl[list][idx], nref[list]
+     * entries (docs/refstruct-design.md); ref_valid = at least one */
+    struct n265_refpic *refl[2][N265_MAX_REF];
+    int nref[2];
     int ref_valid;
 
     uint8_t *ct_depth;      /* 4x4-granularity coding-tree depth map */

@@ -74,7 +74,7 @@ typedef struct tb_ctx {
 static void mc_pred_uni(struct n265_encoder *e, int list, int c_idx, int x0,
                         int y0, int n, mv_t mv, uint8_t *dst)
 {
-    struct n265_refpic *r = list ? e->ref_l1 : e->ref_l0;
+    struct n265_refpic *r = e->refl[list][0];
     int rs = r->stride[c_idx];
     if (c_idx) {
         int dx = mv.x >> 3, dy = mv.y >> 3;
@@ -90,7 +90,7 @@ static void mc_pred_uni(struct n265_encoder *e, int list, int c_idx, int x0,
 static void mc_pred14(struct n265_encoder *e, int list, int c_idx, int x0,
                       int y0, int n, mv_t mv, int16_t *dst)
 {
-    struct n265_refpic *r = list ? e->ref_l1 : e->ref_l0;
+    struct n265_refpic *r = e->refl[list][0];
     int rs = r->stride[c_idx];
     if (c_idx) {
         int dx = mv.x >> 3, dy = mv.y >> 3;
