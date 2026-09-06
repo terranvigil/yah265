@@ -103,6 +103,8 @@ struct n265_encoder {
     n265_la la;             /* lookahead queue + stats               */
     int la_depth;
     int cutree;
+    int rdoq;               /* N265_RDOQ: RD-optimised quantisation (rdoq.c) */
+    double psy;             /* N265_PSY: psychovisual energy term strength (psy.c), 0 = off */
     int scenecut;
     int in_display_idx;     /* next arriving picture's display index */
     int gop_start_display;  /* display index of the current IDR      */

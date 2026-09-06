@@ -29,7 +29,7 @@ FRAMES = int(os.environ.get("FRAMES", "120"))
 # YAH264=<path> points the gate at a different build -- needed for anything
 # behind a build option rather than an env knob (the -Dgpu builds live outside
 # build/, so the default binary cannot exercise them).
-N = os.environ.get("YAH264", "build/cli/yah265")
+N = os.environ.get("N265", "build/n265")
 
 ladders = json.load(open(os.path.join(HERE, "ladders.json")))
 # BANDS=band (default, the standing 88-94 gate -- numbers comparable to every

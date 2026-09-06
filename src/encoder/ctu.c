@@ -18,6 +18,8 @@
 #include "encoder/mv.h"
 #include "encoder/records.h"
 #include "encoder/residual.h"
+#include "encoder/rdoq.h"
+#include "encoder/psy.h"
 #include "encoder/satd.h"
 #include "encoder/transform.h"
 
@@ -149,10 +151,14 @@ static void tb_analyze(struct n265_encoder *e, int c_idx, int x0, int y0,
             resid[y * n + x] = (int16_t)(src[y * e->pad_stride[c_idx] + x] -
                                          tb->pred[y * n + x]);
     n265_fdct(coef, resid, log2n, use_dst);
-    tb->nz = n265_quant(tb->level, coef, log2n, qp, !inter);
+    int scan = inter ? 0 : n265_scan_idx(mode, log2n, c_idx);
+    if (e->rdoq)
+        tb->nz = n265_rdoq(tb->level, coef, log2n, qp, !inter, c_idx, scan,
+                           e->est_ctx, n265_lambda_mode_q8(qp));
+    else
+        tb->nz = n265_quant(tb->level, coef, log2n, qp, !inter);
     if (tb->nz)
-        n265_sbh_adjust(tb->level, log2n,
-                        inter ? 0 : n265_scan_idx(mode, log2n, c_idx));
+        n265_sbh_adjust(tb->level, log2n, scan);
 }
 
 /* reconstruct into the TB's scratch buffer */
@@ -202,6 +208,11 @@ static uint64_t tb_ssd(struct n265_encoder *e, int c_idx, int x0, int y0,
             int d = src[y * e->pad_stride[c_idx] + x] - tb->recon[y * n + x];
             ssd += (uint64_t)(d * d);
         }
+    /* the psychovisual term (psy.c): luma only, the same strength for every
+     * candidate so it only ever re-ranks them */
+    if (c_idx == 0 && e->psy > 0.0)
+        ssd += n265_psy_cost(src, e->pad_stride[0], tb->recon, n, n,
+                             n265_lambda_mode_q8(e->cur_ctu_qp), e->psy);
     return ssd;
 }
 
@@ -954,6 +965,10 @@ static int intra_rd_pick(struct n265_encoder *e, int x0, int y0, int log2n)
 static uint64_t cu_area_ssd(struct n265_encoder *e, int x0, int y0, int n)
 {
     uint64_t ssd = 0;
+    if (e->psy > 0.0)       /* the same psy term the TB candidates carry */
+        ssd += n265_psy_cost(e->pad_plane[0] + y0 * e->pad_stride[0] + x0, e->pad_stride[0],
+                             e->recon[0] + y0 * e->recon_stride[0] + x0, e->recon_stride[0],
+                             n, n265_lambda_mode_q8(e->cur_ctu_qp), e->psy);
     for (int c = 0; c < 3; c++) {
         int sh = c ? 1 : 0;
         const uint8_t *src = e->pad_plane[c];

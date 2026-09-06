@@ -103,6 +103,10 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->keyint = e->mode == N265_MODE_PCM ? 1 : g_keyint;
     e->bframes = e->mode == N265_MODE_PCM ? 0 : g_bframes;
     e->no_sao = getenv("N265_NO_SAO") != NULL;      /* diagnostic */
+    /* RDOQ on by default (2026-09-06: -5.9% median BD-VMAF-NEG at matched
+     * rate, 7/7 clips, worst -5.5%); N265_RDOQ=0 is the escape. */
+    { const char *v = getenv("N265_RDOQ"); e->rdoq = v ? atoi(v) : 1; }
+    { const char *v = getenv("N265_PSY"); e->psy = v ? atof(v) : 0.0; }
     e->aq = g_aq || getenv("N265_AQ") != NULL;      /* variance AQ */
     e->la_depth = e->mode == N265_MODE_PCM || !e->bframes ? g_la_depth
                                                           : g_la_depth;

@@ -26,6 +26,8 @@ lib_sources = [
   'src/encoder/transform.c',
   'src/encoder/intra.c',
   'src/encoder/residual.c',
+  'src/encoder/rdoq.c',
+  'src/encoder/psy.c',
   'src/encoder/ctu.c',
   'src/encoder/entropy.c',
   'src/encoder/mc.c',

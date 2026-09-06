@@ -72,6 +72,7 @@ static void usage(void)
         "  --frames <n>    encode at most n frames\n"
         "  --qp <n>        fixed QP (default 26)\n"
         "  --crf <f>       constant rate factor (base QP from f; overrides --qp)\n"
+        "  (RDOQ is on; N265_RDOQ=0 turns it off, N265_PSY=F adds the psy term)\n"
         "  --pcm           phase-0 I_PCM mode (lossless, huge)\n"
         "  --ctu <16|32|64>  coding tree block size (default 32)\n"
         "  --keyint <n>    IDR period in frames (default 60)\n"

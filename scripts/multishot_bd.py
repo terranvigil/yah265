@@ -54,7 +54,7 @@ def main():
     ap.add_argument("--x265", dest="x265", default=os.environ.get("X265", "x265"))
     ap.add_argument("--threads", default="0", help="our --threads (0 = auto)")
     a = ap.parse_args()
-    ours = os.environ.get("YAH264", os.path.join(ROOT, "build", "cli", "yah265"))
+    ours = os.environ.get("YAH264", os.path.join(ROOT, "build", "n265"))
     os.makedirs(a.work, exist_ok=True)
     pts = [int(x) for x in a.points.split(",")]
     arms = {}
