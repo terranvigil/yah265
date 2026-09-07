@@ -64,15 +64,26 @@ static uint32_t satd8(const uint8_t *a, int as, const uint8_t *b, int bs)
     return (sum + 2) >> 2;
 }
 
-uint32_t n265_satd(const uint8_t *a, int a_stride, const uint8_t *b,
-                   int b_stride, int n)
+uint32_t n265_satd_wh(const uint8_t *a, int a_stride, const uint8_t *b,
+                      int b_stride, int w, int h)
 {
-    if (n == 4)
-        return satd4(a, a_stride, b, b_stride);
     uint32_t sum = 0;
-    for (int y = 0; y < n; y += 8)
-        for (int x = 0; x < n; x += 8)
+    if ((w & 7) || (h & 7)) {
+        for (int y = 0; y < h; y += 4)
+            for (int x = 0; x < w; x += 4)
+                sum += satd4(a + y * a_stride + x, a_stride,
+                             b + y * b_stride + x, b_stride);
+        return sum;
+    }
+    for (int y = 0; y < h; y += 8)
+        for (int x = 0; x < w; x += 8)
             sum += satd8(a + y * a_stride + x, a_stride,
                          b + y * b_stride + x, b_stride);
     return sum;
+}
+
+uint32_t n265_satd(const uint8_t *a, int a_stride, const uint8_t *b,
+                   int b_stride, int n)
+{
+    return n265_satd_wh(a, a_stride, b, b_stride, n, n);
 }

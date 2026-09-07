@@ -10,8 +10,9 @@
 const uint8_t n265_ctx_init_i[CTX_COUNT] = {
     /* split_cu_flag */
     139, 141, 157,
-    /* part_mode (intra bin0) */
-    184,
+    /* part_mode: only bin0 (intra NxN) is ever coded in an I slice; the
+     * inter bins keep the neutral state so the layout stays uniform */
+    184, 154, 154, 154,
     /* prev_intra_luma_pred_flag */
     184,
     /* intra_chroma_pred_mode */
@@ -59,8 +60,8 @@ const uint8_t n265_ctx_init_i[CTX_COUNT] = {
 const uint8_t n265_ctx_init_p[CTX_COUNT] = {
     /* split_cu_flag */
     107, 139, 126,
-    /* part_mode (intra bin0) */
-    154,
+    /* part_mode: bins 0..3 (Table 9-11) */
+    154, 139, 154, 154,
     /* prev_intra_luma_pred_flag */
     154,
     /* intra_chroma_pred_mode */
@@ -108,8 +109,8 @@ const uint8_t n265_ctx_init_p[CTX_COUNT] = {
 const uint8_t n265_ctx_init_b[CTX_COUNT] = {
     /* split_cu_flag */
     107, 139, 126,
-    /* part_mode (intra bin0) */
-    154,
+    /* part_mode: bins 0..3 (Table 9-11) */
+    154, 139, 154, 154,
     /* prev_intra_luma_pred_flag */
     183,
     /* intra_chroma_pred_mode */

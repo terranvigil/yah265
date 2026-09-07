@@ -112,6 +112,12 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * N265_AQ_STR=1 N265_QP_ROUND1=0 restores the old field. */
     { const char *v = getenv("N265_AQ_STR"); e->aq_str = v ? (float)atof(v) : 0.7f; }
     { const char *v = getenv("N265_QP_ROUND1"); e->qp_round1 = v ? atoi(v) != 0 : 1; }
+    /* rectangular (2NxN/Nx2N) and asymmetric (2NxnU/D, nLx2N, nRx2N)
+     * inter partitions. AMP rides on rect: the AMP trial is only entered
+     * where a rectangular split already beat 2Nx2N, so turning rect off
+     * turns AMP off with it. N265_NO_RECT / N265_NO_AMP are the escapes. */
+    e->rect = e->mode != N265_MODE_PCM && !getenv("N265_NO_RECT");
+    e->amp = e->rect && !getenv("N265_NO_AMP");
     e->ctb_log2 = e->mode == N265_MODE_PCM ? 4 : g_ctb_log2;
     e->keyint = e->mode == N265_MODE_PCM ? 1 : g_keyint;
     e->bframes = e->mode == N265_MODE_PCM ? 0 : g_bframes;

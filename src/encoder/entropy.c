@@ -240,6 +240,74 @@ static void write_merge_idx(const res_ops *ops, int idx)
     }
 }
 
+/* part_mode for an INTER CU (Table 9-34). ctxInc is binIdx for bins 0
+ * and 1; bin 2 takes ctx 3 above the min CB (the min-CB ctx 2 cannot
+ * occur here: MinCbLog2SizeY is 3, where the code is two bins and inter
+ * NxN does not exist). Bin 3, the AMP up/down choice, is bypass. */
+void n265_write_part_mode(struct n265_encoder *e, const res_ops *ops,
+                          int log2n, int part)
+{
+    ops->bin(ops->h, CTX_PART_MODE + 0, part == PART_2Nx2N);
+    if (part == PART_2Nx2N)
+        return;
+    ops->bin(ops->h, CTX_PART_MODE + 1, PART_IS_HORIZ(part));
+    if (log2n == MIN_CB_LOG2 || !e->amp)
+        return;
+    ops->bin(ops->h, CTX_PART_MODE + 3, !PART_IS_AMP(part));
+    if (PART_IS_AMP(part))
+        ops->bypass(ops->h, part == PART_2NxnD || part == PART_nRx2N);
+}
+
+/* inter_pred_idc (9.3.3.9): bin0 is coded by CU depth and selects bi;
+ * an 8x4 or 4x8 PU cannot be bi-predicted, so it codes the list bin
+ * alone */
+static void write_inter_idc(const res_ops *ops, int depth, int pw, int ph,
+                            int pred)
+{
+    if (pw + ph != 12) {
+        ops->bin(ops->h, CTX_INTER_IDC + depth, pred == 3);
+        if (pred == 3)
+            return;
+    }
+    ops->bin(ops->h, CTX_INTER_IDC + 4, pred >> 1);
+}
+
+/* one PU's motion syntax; returns merge_flag */
+static int replay_pu(struct n265_encoder *e, const res_ops *ops, int log2n,
+                     int pw, int ph)
+{
+    unsigned flags = rd_u8(e);
+    int merge = flags & 1;
+    ops->bin(ops->h, CTX_MERGE_FLAG, merge);
+    if (merge) {
+        write_merge_idx(ops, (int)(flags >> 3) & 7);
+        return 1;
+    }
+    int pred = ((int)(flags >> 3) & 3) + 1;
+    int mvp_idx[2] = { (int)(flags >> 1) & 1, (int)(flags >> 5) & 1 };
+    if (e->slice_type == 0)
+        write_inter_idc(ops, e->ctb_log2 - log2n, pw, ph, pred);
+    for (int l = 0; l < 2; l++) {
+        if (!(pred & (1 << l)))
+            continue;
+        int ref = (int)rd_u8(e);
+        if (e->nref[l] > 1) {
+            /* ref_idx_lX: truncated unary, cMax = nref - 1, bins 0
+             * and 1 context coded, the rest bypass */
+            int cmax = e->nref[l] - 1;
+            ops->bin(ops->h, CTX_REF_IDX + 0, ref > 0);
+            if (ref > 0 && cmax > 1)
+                ops->bin(ops->h, CTX_REF_IDX + 1, ref > 1);
+            for (int b = 2; b < cmax && ref > b - 1; b++)
+                ops->bypass(ops->h, ref > b);
+        }
+        const int16_t *mvd = rd_levels(e, 2);
+        write_mvd(ops, mvd[0], mvd[1]);
+        ops->bin(ops->h, CTX_MVP_FLAG, mvp_idx[l]);
+    }
+    return 0;
+}
+
 static void replay_cu(struct n265_encoder *e, const res_ops *ops, int x0,
                       int y0, int log2n)
 {
@@ -259,47 +327,23 @@ static void replay_cu(struct n265_encoder *e, const res_ops *ops, int x0,
         }
         ops->bin(ops->h, CTX_PRED_MODE, is_intra);
         if (!is_intra) {
-            ops->bin(ops->h, CTX_PART_MODE, 1);  /* 2Nx2N */
-            unsigned flags = rd_u8(e);
-            int merge = flags & 1;
-            int root_cbf = (flags >> 2) & 1;
-            ops->bin(ops->h, CTX_MERGE_FLAG, merge);
-            if (merge)
-                write_merge_idx(ops, (int)(flags >> 3) & 7);   /* bits 3-5 */
-            if (!merge) {
-                int pred = ((int)(flags >> 3) & 3) + 1;
-                int mvp_idx[2] = { (int)(flags >> 1) & 1,
-                                   (int)(flags >> 5) & 1 };
-                if (e->slice_type == 0) {
-                    /* inter_pred_idc: bi -> bin0 1; uni -> bin0 0 then
-                     * bin1 selects the list (ctx 4) */
-                    int depth = e->ctb_log2 - log2n;
-                    ops->bin(ops->h, CTX_INTER_IDC + depth, pred == 3);
-                    if (pred != 3)
-                        ops->bin(ops->h, CTX_INTER_IDC + 4, pred >> 1);
-                }
-                for (int l = 0; l < 2; l++) {
-                    if (!(pred & (1 << l)))
-                        continue;
-                    int ref = (int)rd_u8(e);
-                    if (e->nref[l] > 1) {
-                        /* ref_idx_lX: truncated unary, cMax = nref - 1, bins 0
-                         * and 1 context coded, the rest bypass */
-                        int cmax = e->nref[l] - 1;
-                        ops->bin(ops->h, CTX_REF_IDX + 0, ref > 0);
-                        if (ref > 0 && cmax > 1)
-                            ops->bin(ops->h, CTX_REF_IDX + 1, ref > 1);
-                        for (int b = 2; b < cmax && ref > b - 1; b++)
-                            ops->bypass(ops->h, ref > b);
-                    }
-                    const int16_t *mvd = rd_levels(e, 2);
-                    write_mvd(ops, mvd[0], mvd[1]);
-                    ops->bin(ops->h, CTX_MVP_FLAG, mvp_idx[l]);
-                }
-                ops->bin(ops->h, CTX_RQT_ROOT_CBF, root_cbf);
-                if (!root_cbf)
-                    return;
+            int part = (int)rd_u8(e);
+            n265_write_part_mode(e, ops, log2n, part);
+            int npu = N265_NUM_PU(part), merge0 = 0;
+            for (int p = 0; p < npu; p++) {
+                int px, py, pw, ph;
+                n265_pu_rect(part, p, x0, y0, 1 << log2n, &px, &py, &pw, &ph);
+                int m = replay_pu(e, ops, log2n, pw, ph);
+                if (p == 0)
+                    merge0 = m;
             }
+            int root_cbf = (int)rd_u8(e);
+            /* rqt_root_cbf is absent, and inferred 1, only for a merged
+             * 2Nx2N CU (7.3.8.5) */
+            if (!(part == PART_2Nx2N && merge0))
+                ops->bin(ops->h, CTX_RQT_ROOT_CBF, root_cbf);
+            if (!root_cbf)
+                return;
             replay_tt(e, ops, MODE_INTER, x0, y0, log2n, 0, 1, 1);
             return;
         }

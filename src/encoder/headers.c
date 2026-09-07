@@ -109,10 +109,16 @@ void n265_write_sps(struct n265_encoder *e)
         /* max TB = min(CTB, 32) */
         bs_put_ue(bs, (uint32_t)((e->ctb_log2 > 5 ? 5 : e->ctb_log2) - 2));
     }
+    /* max_transform_hierarchy_depth_inter 1: interSplitFlag (7.4.9.8)
+     * fires only at depth 0 for a non-2Nx2N inter CU, so a partitioned
+     * CU still CODES split_transform_flag rather than inferring it */
     bs_put_ue(bs, e->mode == N265_MODE_PCM ? 0 : 1);    /* tu depth inter */
     bs_put_ue(bs, e->mode == N265_MODE_PCM ? 0 : 1);    /* tu depth intra */
     bs_put_bits(bs, 0, 1);          /* scaling_list_enabled_flag */
-    bs_put_bits(bs, 0, 1);          /* amp_enabled_flag */
+    /* amp_enabled_flag: also a binarization switch - with it set,
+     * part_mode codes 2NxN/Nx2N in three bins instead of two, so it must
+     * track exactly what ctu.c/entropy.c assume */
+    bs_put_bits(bs, e->amp != 0, 1);
     bs_put_bits(bs, e->mode != N265_MODE_PCM, 1); /* sample_adaptive_offset */
     if (e->mode == N265_MODE_PCM) {
         bs_put_bits(bs, 1, 1);      /* pcm_enabled_flag */

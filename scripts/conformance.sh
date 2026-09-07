@@ -131,6 +131,10 @@ run_vector inter_crop     210x122 12  testsrc2  "--keyint 8"
 run_vector aq_intra       352x288  3  testsrc2  "--keyint 1 --aq 1"
 run_vector cutree_ipb     176x144 18  testsrc2  "--keyint 9 --cutree 1"
 run_vector aq_ipb         176x144 15  testsrc2  "--keyint 8 --aq 1"
+# rectangular/asymmetric inter PUs: low QP forces 8x8 CUs (8x4/4x8 PUs,
+# where bi-prediction is forbidden and the merge list drops A1/B1), CTB 64
+# reaches the 32x32 AMP shapes
+run_vector inter_rect8    176x144 16  testsrc2  "--keyint 8 --qp 20"
 run_vector intra_ctu16    176x144  3  testsrc2  "--ctu 16"
 run_vector intra_ctu64    176x144  3  testsrc2  "--ctu 64"
 run_vector intra_ctu64c   210x122  3  testsrc2  "--ctu 64"
@@ -139,6 +143,7 @@ if [ "$FAST" -eq 0 ]; then
     run_vector inter_b_cif 352x288 24  testsrc2  "--keyint 9"
     run_vector inter_b_smooth 176x144 16 gradients ""
     run_vector inter_ctu64 176x144 12  testsrc2  "--keyint 6 --ctu 64"
+    run_vector inter_amp   352x288 20  testsrc2  "--keyint 10 --ctu 64 --aq 1"
     run_vector pcm_cif     352x288  5  testsrc2  "--pcm"
     run_vector intra_cif   352x288 10 testsrc2  ""
     run_vector intra_720   1280x720 3 testsrc2  ""

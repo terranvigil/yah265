@@ -8,8 +8,13 @@
 
 #include <stdint.h>
 
-/* SATD of (a - b) over an n x n block (n a power of two >= 4), computed
- * as 8x8 Hadamard tiles (4x4 tiles for n == 4). */
+/* SATD of (a - b) over a w x h block (both multiples of 4), computed as
+ * 8x8 Hadamard tiles, or 4x4 tiles when either side is not a multiple of
+ * 8 (rectangular PUs: 8x4, 4x16, 12x16, ...). */
+uint32_t n265_satd_wh(const uint8_t *a, int a_stride, const uint8_t *b,
+                      int b_stride, int w, int h);
+
+/* square form: n a power of two >= 4 */
 uint32_t n265_satd(const uint8_t *a, int a_stride, const uint8_t *b,
                    int b_stride, int n);
 

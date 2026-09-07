@@ -11,12 +11,19 @@
 #include "encoder/mv.h"
 #include "encoder/satd.h"
 
-/* is the 4x4 cell holding (x,y) an already-decoded inter block? */
-static int inter_at(struct n265_encoder *e, int x, int y, uint64_t cur_z)
+/* is the 4x4 cell holding (x,y) an already-decoded inter block?
+ * Prediction-block availability (6.4.2): a neighbour inside the CURRENT
+ * coding block skips the z-scan test entirely - it is the first PU of a
+ * two-PU split, already derived and stored. Outside the CB the z-scan
+ * order decides (6.4.1). */
+static int inter_at_cb(struct n265_encoder *e, int x, int y, uint64_t cur_z,
+                       const pu_geo *g)
 {
     if (x < 0 || y < 0 || x >= e->pad_w || y >= e->pad_h)
         return 0;
-    if (n265_zorder(x, y, e->pad_w, e->ctb_log2) >= cur_z)
+    int same_cb = g && x >= g->cbx && x < g->cbx + g->cbn &&
+                  y >= g->cby && y < g->cby + g->cbn;
+    if (!same_cb && n265_zorder(x, y, e->pad_w, e->ctb_log2) >= cur_z)
         return 0;
     /* decoded and not intra => inter */
     return !e->blk_intra[(y >> 2) * e->map_stride + (x >> 2)];
@@ -75,7 +82,7 @@ static mv_t mv_scale(mv_t mv, int tb, int td)
  * (bottom-right, same CTB row) else C1 (center) in the collocated
  * picture (always l0[0], collocated_from_l0 == 1), listCol per
  * NoBackwardPredFlag, POC-distance scaling. */
-static int tmvp_mv(struct n265_encoder *e, int x0, int y0, int nw, int nh,
+static int tmvp_mv(struct n265_encoder *e, const pu_geo *g,
                    int list, int ref, mv_t *out)
 {
     const struct n265_refpic *col = e->refl[0][0];
@@ -83,15 +90,19 @@ static int tmvp_mv(struct n265_encoder *e, int x0, int y0, int nw, int nh,
         return 0;
     int c16w = (e->pad_w + 15) >> 4;
     int i16 = -1;
-    int xbr = x0 + nw, ybr = y0 + nh;
+    /* bottom-right: the PREDICTION block's corner, gated on the
+     * prediction block's CTB row (8.5.3.2.8). Verified against ffmpeg
+     * and libde265 on rect PUs: taking the CODING block's corner (both
+     * PUs of a split sharing one C0) mismatches both decoders. */
+    int xbr = g->x + g->w, ybr = g->y + g->h;
     if (xbr < e->pad_w && ybr < e->pad_h &&
-        (y0 >> e->ctb_log2) == (ybr >> e->ctb_log2)) {
+        (g->y >> e->ctb_log2) == (ybr >> e->ctb_log2)) {
         int t = (ybr >> 4) * c16w + (xbr >> 4);
         if (col->col_pred[t])
             i16 = t;
     }
-    if (i16 < 0) {
-        int xc = x0 + nw / 2, yc = y0 + nh / 2;
+    if (i16 < 0) {      /* centre: the prediction block's */
+        int xc = g->x + g->w / 2, yc = g->y + g->h / 2;
         int t = (yc >> 4) * c16w + (xc >> 4);
         if (col->col_pred[t])
             i16 = t;
@@ -118,9 +129,10 @@ static int tmvp_mv(struct n265_encoder *e, int x0, int y0, int nw, int nh,
     return 1;
 }
 
-int n265_merge_list(struct n265_encoder *e, int x0, int y0, int nw, int nh,
-                    mot_t out[], int max)
+int n265_merge_list_pu(struct n265_encoder *e, const pu_geo *g, mot_t out[],
+                       int max)
 {
+    int x0 = g->x, y0 = g->y, nw = g->w, nh = g->h;
     uint64_t cur = n265_zorder(x0, y0, e->pad_w, e->ctb_log2);
     /* spatial positions in list order: A1, B1, B0, A0, B2 */
     const int pos[5][2] = {
@@ -133,10 +145,17 @@ int n265_merge_list(struct n265_encoder *e, int x0, int y0, int nw, int nh,
     int avail[5];
     mot_t m[5];
     for (int i = 0; i < 5; i++) {
-        avail[i] = inter_at(e, pos[i][0], pos[i][1], cur);
+        avail[i] = inter_at_cb(e, pos[i][0], pos[i][1], cur, g);
         if (avail[i])
             m[i] = mot_at(e, pos[i][0], pos[i][1]);
     }
+    /* 8.5.3.2.2: the second PU of a vertical split cannot take A1, the
+     * second PU of a horizontal split cannot take B1 - either would make
+     * the split degenerate into the single motion it was meant to beat */
+    if (g->excl_a1)
+        avail[0] = 0;
+    if (g->excl_b1)
+        avail[1] = 0;
     /* pairwise pruning is between POSITIONS (8.5.3.2.3), not between
      * list entries: B1~A1, B0~B1, A0~A1, B2~A1 and B2~B1 */
     int n = 0;
@@ -156,11 +175,11 @@ int n265_merge_list(struct n265_encoder *e, int x0, int y0, int nw, int nh,
     if (n < max) {
         mot_t t = { { { 0, 0 }, { 0, 0 } }, 0 };
         mv_t v;
-        if (tmvp_mv(e, x0, y0, nw, nh, 0, 0, &v)) {
+        if (tmvp_mv(e, g, 0, 0, &v)) {
             t.mv[0] = v;
             t.pred |= 1;
         }
-        if (e->slice_type == 0 && tmvp_mv(e, x0, y0, nw, nh, 1, 0, &v)) {
+        if (e->slice_type == 0 && tmvp_mv(e, g, 1, 0, &v)) {
             t.mv[1] = v;
             t.pred |= 2;
         }
@@ -208,12 +227,28 @@ int n265_merge_list(struct n265_encoder *e, int x0, int y0, int nw, int nh,
         out[n].ref[1] = (int8_t)(e->slice_type == 0 ? r : 0);
         n++;
     }
+    /* 8.5.3.2.1, last step: an 8x4 or 4x8 PU may not be bi-predicted, so
+     * every bi candidate collapses to its L0 half */
+    if (nw + nh == 12)
+        for (int i = 0; i < n; i++)
+            if (out[i].pred == 3) {
+                out[i].pred = 1;
+                out[i].mv[1].x = out[i].mv[1].y = 0;
+                out[i].ref[1] = 0;
+            }
     if (getenv("N265_MERGE_TRACE") && e->display_idx == atoi(getenv("N265_MERGE_TRACE"))) {
         fprintf(stderr, "MRG disp=%d cu=(%d,%d,%dx%d) type=%d nref=%d/%d:", e->display_idx, x0, y0, nw, nh, e->slice_type, e->nref[0], e->nref[1]);
         for (int i = 0; i < n; i++) fprintf(stderr, " %d:p%d r%d/%d (%d,%d|%d,%d)", i, out[i].pred, out[i].ref[0], out[i].ref[1], out[i].mv[0].x, out[i].mv[0].y, out[i].mv[1].x, out[i].mv[1].y);
         fprintf(stderr, "\n");
     }
     return n;
+}
+
+int n265_merge_list(struct n265_encoder *e, int x0, int y0, int nw, int nh,
+                    mot_t out[], int max)
+{
+    pu_geo g = { x0, y0, nw, x0, y0, nw, nh, 0, 0 };
+    return n265_merge_list_pu(e, &g, out, max);
 }
 
 mot_t n265_merge_cand0(struct n265_encoder *e, int x0, int y0, int nw, int nh)
@@ -254,9 +289,10 @@ static int amvp_take(struct n265_encoder *e, int m, int list, int ref, int scale
     return 0;
 }
 
-void n265_amvp(struct n265_encoder *e, int list, int ref, int x0, int y0, int nw,
-               int nh, mv_t mvp[2])
+void n265_amvp_pu(struct n265_encoder *e, int list, int ref,
+                  const pu_geo *g, mv_t mvp[2])
 {
+    int x0 = g->x, y0 = g->y, nw = g->w, nh = g->h;
     uint64_t cur = n265_zorder(x0, y0, e->pad_w, e->ctb_log2);
     const int a_pos[2][2] = { { x0 - 1, y0 + nh }, { x0 - 1, y0 + nh - 1 } };
     const int b_pos[3][2] = {
@@ -264,7 +300,7 @@ void n265_amvp(struct n265_encoder *e, int list, int ref, int x0, int y0, int nw
     };
     int a_avail[2], a_m[2];
     for (int i = 0; i < 2; i++) {
-        a_avail[i] = inter_at(e, a_pos[i][0], a_pos[i][1], cur);
+        a_avail[i] = inter_at_cb(e, a_pos[i][0], a_pos[i][1], cur, g);
         a_m[i] = (a_pos[i][1] >> 2) * e->map_stride + (a_pos[i][0] >> 2);
     }
     int is_scaled = a_avail[0] || a_avail[1];
@@ -282,7 +318,7 @@ void n265_amvp(struct n265_encoder *e, int list, int ref, int x0, int y0, int nw
     /* candidate B: unscaled over B0, B1, B2 */
     for (int i = 0; i < 3 && !avail_b; i++) {
         int bx = b_pos[i][0], by = b_pos[i][1];
-        if (inter_at(e, bx, by, cur) &&
+        if (inter_at_cb(e, bx, by, cur, g) &&
             amvp_take(e, (by >> 2) * e->map_stride + (bx >> 2), list, ref, 0,
                       &mvb))
             avail_b = 1;
@@ -295,7 +331,7 @@ void n265_amvp(struct n265_encoder *e, int list, int ref, int x0, int y0, int nw
         avail_b = 0;
         for (int i = 0; i < 3 && !avail_b; i++) {
             int bx = b_pos[i][0], by = b_pos[i][1];
-            if (inter_at(e, bx, by, cur) &&
+            if (inter_at_cb(e, bx, by, cur, g) &&
                 amvp_take(e, (by >> 2) * e->map_stride + (bx >> 2), list,
                           ref, 1, &mvb))
                 avail_b = 1;
@@ -309,7 +345,7 @@ void n265_amvp(struct n265_encoder *e, int list, int ref, int x0, int y0, int nw
         mvp[n++] = mvb;
     if (n < 2) {
         mv_t v;
-        if (tmvp_mv(e, x0, y0, nw, nh, list, ref, &v))
+        if (tmvp_mv(e, g, list, ref, &v))
             mvp[n++] = v;
     }
     while (n < 2) {
@@ -319,21 +355,27 @@ void n265_amvp(struct n265_encoder *e, int list, int ref, int x0, int y0, int nw
     }
 }
 
+void n265_amvp(struct n265_encoder *e, int list, int ref, int x0, int y0,
+               int nw, int nh, mv_t mvp[2])
+{
+    pu_geo g = { x0, y0, nw, x0, y0, nw, nh, 0, 0 };
+    n265_amvp_pu(e, list, ref, &g, mvp);
+}
+
 uint32_t n265_mc_sad(struct n265_encoder *e, int list, int ridx, int x0, int y0,
-                     int log2n, mv_t mv)
+                     int w, int h, mv_t mv)
 {
     const struct n265_refpic *ref = e->refl[list][ridx];
-    int n = 1 << log2n;
     const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
     if ((mv.x | mv.y) & 3) {    /* fractional: interpolate then SAD */
         uint8_t pred[64 * 64];
         const uint8_t *rp = ref->plane[0] +
             (y0 + (mv.y >> 2)) * ref->stride[0] + x0 + (mv.x >> 2);
-        n265_mc_luma(pred, n, rp, ref->stride[0], mv.x & 3, mv.y & 3);
+        n265_mc_luma_wh(pred, w, w, h, rp, ref->stride[0], mv.x & 3, mv.y & 3);
         uint32_t sad = 0;
-        for (int y = 0; y < n; y++)
-            for (int x = 0; x < n; x++) {
-                int d = src[y * e->pad_stride[0] + x] - pred[y * n + x];
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++) {
+                int d = src[y * e->pad_stride[0] + x] - pred[y * w + x];
                 sad += (uint32_t)(d < 0 ? -d : d);
             }
         return sad;
@@ -341,8 +383,8 @@ uint32_t n265_mc_sad(struct n265_encoder *e, int list, int ridx, int x0, int y0,
     const uint8_t *rp = ref->plane[0] +
         (y0 + (mv.y >> 2)) * ref->stride[0] + x0 + (mv.x >> 2);
     uint32_t sad = 0;
-    for (int y = 0; y < n; y++)
-        for (int x = 0; x < n; x++) {
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++) {
             int d = src[y * e->pad_stride[0] + x] -
                     rp[y * ref->stride[0] + x];
             sad += (uint32_t)(d < 0 ? -d : d);
@@ -353,25 +395,25 @@ uint32_t n265_mc_sad(struct n265_encoder *e, int list, int ridx, int x0, int y0,
 /* SATD of luma MC at mv: phase-aware cost for subpel refinement, where
  * SAD cannot tell interpolation blur from misalignment */
 static uint32_t mc_satd(struct n265_encoder *e, int list, int ridx, int x0, int y0,
-                        int log2n, mv_t mv)
+                        int w, int h, mv_t mv)
 {
     const struct n265_refpic *ref = e->refl[list][ridx];
-    int n = 1 << log2n;
     const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
     uint8_t pred[64 * 64];
     const uint8_t *rp = ref->plane[0] +
         (y0 + (mv.y >> 2)) * ref->stride[0] + x0 + (mv.x >> 2);
-    n265_mc_luma(pred, n, rp, ref->stride[0], mv.x & 3, mv.y & 3);
-    return n265_satd(src, e->pad_stride[0], pred, n, n);
+    n265_mc_luma_wh(pred, w, w, h, rp, ref->stride[0], mv.x & 3, mv.y & 3);
+    return n265_satd_wh(src, e->pad_stride[0], pred, w, w, h);
 }
 
 /* clamp a full-pel mv so MC stays inside the padded reference */
-static void clamp_mv(struct n265_encoder *e, int x0, int y0, int n, mv_t *mv)
+static void clamp_mv(struct n265_encoder *e, int x0, int y0, int w, int h,
+                     mv_t *mv)
 {
     int lo_x = -(x0 + N265_REF_PAD - 8) * 4;
-    int hi_x = (e->pad_w + N265_REF_PAD - 8 - (x0 + n)) * 4;
+    int hi_x = (e->pad_w + N265_REF_PAD - 8 - (x0 + w)) * 4;
     int lo_y = -(y0 + N265_REF_PAD - 8) * 4;
-    int hi_y = (e->pad_h + N265_REF_PAD - 8 - (y0 + n)) * 4;
+    int hi_y = (e->pad_h + N265_REF_PAD - 8 - (y0 + h)) * 4;
     if (mv->x < lo_x) mv->x = (int16_t)lo_x;
     if (mv->x > hi_x) mv->x = (int16_t)hi_x;
     if (mv->y < lo_y) mv->y = (int16_t)lo_y;
@@ -379,14 +421,13 @@ static void clamp_mv(struct n265_encoder *e, int x0, int y0, int n, mv_t *mv)
 }
 
 uint32_t n265_me_search(struct n265_encoder *e, int list, int ridx, int x0, int y0,
-                        int log2n, mv_t start, mv_t *best)
+                        int w, int h, mv_t start, mv_t *best)
 {
-    int n = 1 << log2n;
     mv_t cur = { (int16_t)((start.x >> 2) * 4), (int16_t)((start.y >> 2) * 4) };
-    clamp_mv(e, x0, y0, n, &cur);
+    clamp_mv(e, x0, y0, w, h, &cur);
     mv_t zero = { 0, 0 };
-    uint32_t best_sad = n265_mc_sad(e, list, ridx, x0, y0, log2n, cur);
-    uint32_t zs = n265_mc_sad(e, list, ridx, x0, y0, log2n, zero);
+    uint32_t best_sad = n265_mc_sad(e, list, ridx, x0, y0, w, h, cur);
+    uint32_t zs = n265_mc_sad(e, list, ridx, x0, y0, w, h, zero);
     if (zs < best_sad) {
         best_sad = zs;
         cur = zero;
@@ -400,10 +441,10 @@ uint32_t n265_me_search(struct n265_encoder *e, int list, int ridx, int x0, int 
             mv_t t = { (int16_t)(cur.x + d[i][0]),
                        (int16_t)(cur.y + d[i][1]) };
             mv_t tc = t;
-            clamp_mv(e, x0, y0, n, &tc);
+            clamp_mv(e, x0, y0, w, h, &tc);
             if (tc.x != t.x || tc.y != t.y)
                 continue;
-            uint32_t s = n265_mc_sad(e, list, ridx, x0, y0, log2n, t);
+            uint32_t s = n265_mc_sad(e, list, ridx, x0, y0, w, h, t);
             if (s < bs) {
                 bs = s;
                 b = t;
@@ -419,7 +460,7 @@ uint32_t n265_me_search(struct n265_encoder *e, int list, int ridx, int x0, int 
     static int fullpel = -1;
     if (fullpel < 0)
         fullpel = getenv("N265_FULLPEL") != NULL;
-    uint32_t best_satd = fullpel ? 0 : mc_satd(e, list, ridx, x0, y0, log2n, cur);
+    uint32_t best_satd = fullpel ? 0 : mc_satd(e, list, ridx, x0, y0, w, h, cur);
     for (int round = 0; round < (fullpel ? 0 : 2); round++)
     for (int step = 2; step >= 1; step--) {
         mv_t b = cur;
@@ -430,10 +471,10 @@ uint32_t n265_me_search(struct n265_encoder *e, int list, int ridx, int x0, int 
                     continue;
                 mv_t t = { (int16_t)(cur.x + dx), (int16_t)(cur.y + dy) };
                 mv_t tc = t;
-                clamp_mv(e, x0, y0, n, &tc);
+                clamp_mv(e, x0, y0, w, h, &tc);
                 if (tc.x != t.x || tc.y != t.y)
                     continue;
-                uint32_t s = mc_satd(e, list, ridx, x0, y0, log2n, t);
+                uint32_t s = mc_satd(e, list, ridx, x0, y0, w, h, t);
                 if (s < bs) {
                     bs = s;
                     b = t;

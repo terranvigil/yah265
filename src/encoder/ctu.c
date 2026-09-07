@@ -53,12 +53,35 @@ static void set_mode_map(struct n265_encoder *e, int x0, int y0, int n,
     set_blk(e, e->intra_mode, x0, y0, n, mode);
 }
 
+/* CU and TU boundaries: filtered edges that are also TRANSFORM edges,
+ * so the cbf leg of the bS derivation applies to them (edge_map bits
+ * 2/3, deblock.c) */
 static void mark_cu_edges(struct n265_encoder *e, int x0, int y0, int n)
 {
     for (int y = 0; y < n; y += 4)
-        e->edge_map[((y0 + y) >> 2) * e->map_stride + (x0 >> 2)] |= 1;
+        e->edge_map[((y0 + y) >> 2) * e->map_stride + (x0 >> 2)] |= 1 | 4;
     for (int x = 0; x < n; x += 4)
-        e->edge_map[(y0 >> 2) * e->map_stride + ((x0 + x) >> 2)] |= 2;
+        e->edge_map[(y0 >> 2) * e->map_stride + ((x0 + x) >> 2)] |= 2 | 8;
+}
+
+/* the internal PU boundary of a split CU is a prediction edge and, on
+ * its own, NOT a transform edge (8.7.2.4 gates the cbf leg on the latter),
+ * so it sets only the filtered-edge bit. The deblock walk visits the 8x8
+ * grid, so an AMP or 8x8-CU cut at a 4-offset is marked and correctly
+ * never filtered. */
+static void mark_pu_edge(struct n265_encoder *e, int part, int x0, int y0,
+                         int n)
+{
+    if (part == PART_2Nx2N)
+        return;
+    int px, py, pw, ph;
+    n265_pu_rect(part, 1, x0, y0, n, &px, &py, &pw, &ph);
+    if (PART_IS_HORIZ(part))
+        for (int x = 0; x < n; x += 4)
+            e->edge_map[(py >> 2) * e->map_stride + ((x0 + x) >> 2)] |= 2;
+    else
+        for (int y = 0; y < n; y += 4)
+            e->edge_map[((y0 + y) >> 2) * e->map_stride + (px >> 2)] |= 1;
 }
 
 /* one component TB: predict + transform + quant (+SBH). recon and record
@@ -70,52 +93,59 @@ typedef struct tb_ctx {
     int nz;
 } tb_ctx;
 
-/* uni MC from one list at any quarter-pel MV into dst (n x n) */
+/* uni MC from one list at any quarter-pel MV into dst (w x h at ds) */
 static void mc_pred_uni(struct n265_encoder *e, int list, int ref, int c_idx, int x0,
-                        int y0, int n, mv_t mv, uint8_t *dst)
+                        int y0, int w, int h, mv_t mv, uint8_t *dst, int ds)
 {
     struct n265_refpic *r = e->refl[list][ref];
     int rs = r->stride[c_idx];
     if (c_idx) {
         int dx = mv.x >> 3, dy = mv.y >> 3;
         const uint8_t *rp = r->plane[c_idx] + (y0 + dy) * rs + x0 + dx;
-        n265_mc_chroma(dst, n, rp, rs, mv.x & 7, mv.y & 7);
+        n265_mc_chroma_wh(dst, ds, w, h, rp, rs, mv.x & 7, mv.y & 7);
     } else {
         int dx = mv.x >> 2, dy = mv.y >> 2;
         const uint8_t *rp = r->plane[0] + (y0 + dy) * rs + x0 + dx;
-        n265_mc_luma(dst, n, rp, rs, mv.x & 3, mv.y & 3);
+        n265_mc_luma_wh(dst, ds, w, h, rp, rs, mv.x & 3, mv.y & 3);
     }
 }
 
 static void mc_pred14(struct n265_encoder *e, int list, int ref, int c_idx, int x0,
-                      int y0, int n, mv_t mv, int16_t *dst)
+                      int y0, int w, int h, mv_t mv, int16_t *dst)
 {
     struct n265_refpic *r = e->refl[list][ref];
     int rs = r->stride[c_idx];
     if (c_idx) {
         int dx = mv.x >> 3, dy = mv.y >> 3;
         const uint8_t *rp = r->plane[c_idx] + (y0 + dy) * rs + x0 + dx;
-        n265_mc_chroma_14(dst, n, rp, rs, mv.x & 7, mv.y & 7);
+        n265_mc_chroma_14_wh(dst, w, w, h, rp, rs, mv.x & 7, mv.y & 7);
     } else {
         int dx = mv.x >> 2, dy = mv.y >> 2;
         const uint8_t *rp = r->plane[0] + (y0 + dy) * rs + x0 + dx;
-        n265_mc_luma_14(dst, n, rp, rs, mv.x & 3, mv.y & 3);
+        n265_mc_luma_14_wh(dst, w, w, h, rp, rs, mv.x & 3, mv.y & 3);
     }
 }
 
 /* full motion (uni either list, or bi with the default average) */
-static void mc_pred(struct n265_encoder *e, int c_idx, int x0, int y0,
-                    int n, mot_t mot, uint8_t *dst)
+static void mc_pred_wh(struct n265_encoder *e, int c_idx, int x0, int y0,
+                       int w, int h, mot_t mot, uint8_t *dst, int ds)
 {
     if (mot.pred == 3) {
         int16_t a[64 * 64], b[64 * 64];
-        mc_pred14(e, 0, mot.ref[0], c_idx, x0, y0, n, mot.mv[0], a);
-        mc_pred14(e, 1, mot.ref[1], c_idx, x0, y0, n, mot.mv[1], b);
-        n265_bi_avg(dst, a, b, n);
+        mc_pred14(e, 0, mot.ref[0], c_idx, x0, y0, w, h, mot.mv[0], a);
+        mc_pred14(e, 1, mot.ref[1], c_idx, x0, y0, w, h, mot.mv[1], b);
+        n265_bi_avg_wh(dst, ds, a, b, w, h);
     } else {
         int list = mot.pred == 2;
-        mc_pred_uni(e, list, mot.ref[list], c_idx, x0, y0, n, mot.mv[list], dst);
+        mc_pred_uni(e, list, mot.ref[list], c_idx, x0, y0, w, h,
+                    mot.mv[list], dst, ds);
     }
+}
+
+static void mc_pred(struct n265_encoder *e, int c_idx, int x0, int y0,
+                    int n, mot_t mot, uint8_t *dst)
+{
+    mc_pred_wh(e, c_idx, x0, y0, n, n, mot, dst, n);
 }
 
 static void tb_analyze(struct n265_encoder *e, int c_idx, int x0, int y0,
@@ -132,7 +162,19 @@ static void tb_analyze(struct n265_encoder *e, int c_idx, int x0, int y0,
     int ctb_log2 = c_idx ? e->ctb_log2 - 1 : e->ctb_log2;
 
     if (inter) {
-        mc_pred(e, c_idx, x0, y0, n, mot, tb->pred);
+        if (e->cu_pred[c_idx]) {
+            /* a partitioned CU predicts PU by PU once; every TB inside it
+             * crops that instead of running whole-TB MC on one motion */
+            int sh = c_idx ? 1 : 0;
+            int cs = e->cu_pred_stride[c_idx];
+            const uint8_t *p = e->cu_pred[c_idx] +
+                (y0 - (e->cu_pred_y0 >> sh)) * cs +
+                (x0 - (e->cu_pred_x0 >> sh));
+            for (int y = 0; y < n; y++)
+                memcpy(tb->pred + y * n, p + y * cs, (size_t)n);
+        } else {
+            mc_pred(e, c_idx, x0, y0, n, mot, tb->pred);
+        }
     } else {
         uint8_t refs[4 * 32 + 1], refs_f[4 * 32 + 1];
         n265_intra_refs(refs, recon, stride, x0, y0, log2n, pic_w, pic_h,
@@ -608,6 +650,22 @@ static void tt_analyze(struct n265_encoder *e, int mode, int x0, int y0,
     }
 }
 
+static void set_mot_map_wh(struct n265_encoder *e, int x0, int y0, int w,
+                           int h, mot_t mot)
+{
+    for (int y = 0; y < h; y += 4)
+        for (int x = 0; x < w; x += 4) {
+            int m = ((y0 + y) >> 2) * e->map_stride + ((x0 + x) >> 2);
+            e->blk_mv[4 * m] = mot.mv[0].x;
+            e->blk_mv[4 * m + 1] = mot.mv[0].y;
+            e->blk_mv[4 * m + 2] = mot.mv[1].x;
+            e->blk_mv[4 * m + 3] = mot.mv[1].y;
+            e->blk_pred[m] = mot.pred;
+            e->blk_ref[2 * m] = mot.ref[0];
+            e->blk_ref[2 * m + 1] = mot.ref[1];
+        }
+}
+
 static void set_mot_map(struct n265_encoder *e, int x0, int y0, int n,
                         mot_t mot)
 {
@@ -664,14 +722,13 @@ static uint32_t mot_sad(struct n265_encoder *e, int x0, int y0, int log2n,
 
 /* SATD of the full-motion prediction (luma): the decision metric that
  * actually tracks post-transform bits */
-static uint32_t mot_satd(struct n265_encoder *e, int x0, int y0, int log2n,
-                         mot_t mot)
+static uint32_t mot_satd_wh(struct n265_encoder *e, int x0, int y0, int w,
+                            int h, mot_t mot)
 {
-    int n = 1 << log2n;
     uint8_t pred[64 * 64];
-    mc_pred(e, 0, x0, y0, n, mot, pred);
-    return n265_satd(e->pad_plane[0] + y0 * e->pad_stride[0] + x0,
-                     e->pad_stride[0], pred, n, n);
+    mc_pred_wh(e, 0, x0, y0, w, h, mot, pred, w);
+    return n265_satd_wh(e->pad_plane[0] + y0 * e->pad_stride[0] + x0,
+                        e->pad_stride[0], pred, w, w, h);
 }
 
 /* --- estimator-side syntax costing (mirrors entropy.c) --- */
@@ -993,6 +1050,383 @@ static uint64_t skip_clean_thr(int qp, int n)
     return (uint64_t)((double)n * n * qstep * qstep / 4.0);
 }
 
+/* --- rectangular and asymmetric inter partitions --- */
+
+/* one PU's motion decision */
+typedef struct pu_dec {
+    mot_t mot;
+    int merge;
+    int midx;
+    int mvp_idx[2];
+    mv_t mvp[2][2];     /* the AMVP predictor pair, per list */
+} pu_dec;
+
+/* the CU's motion maps across a partition trial. The first PU's motion
+ * has to be visible to the second PU's AMVP derivation - 6.4.2 makes a
+ * neighbour inside the same coding block available, and A1 of a vertical
+ * split (B1 of a horizontal one) is exactly that - so every trial writes
+ * the maps and then puts them back. */
+typedef struct mot_snap {
+    int16_t mv[16 * 16 * 4];
+    uint8_t pred[16 * 16];
+    int8_t ref[16 * 16 * 2];
+    uint8_t intra[16 * 16];
+} mot_snap;
+
+static void mot_save(struct n265_encoder *e, int x0, int y0, int n,
+                     mot_snap *sn)
+{
+    int cells = n >> 2;
+    for (int y = 0; y < cells; y++) {
+        int m = ((y0 >> 2) + y) * e->map_stride + (x0 >> 2);
+        memcpy(sn->mv + y * cells * 4, e->blk_mv + 4 * m,
+               (size_t)cells * 4 * sizeof(int16_t));
+        memcpy(sn->pred + y * cells, e->blk_pred + m, (size_t)cells);
+        memcpy(sn->ref + y * cells * 2, e->blk_ref + 2 * m,
+               (size_t)cells * 2);
+        memcpy(sn->intra + y * cells, e->blk_intra + m, (size_t)cells);
+    }
+}
+
+static void mot_load(struct n265_encoder *e, int x0, int y0, int n,
+                     const mot_snap *sn)
+{
+    int cells = n >> 2;
+    for (int y = 0; y < cells; y++) {
+        int m = ((y0 >> 2) + y) * e->map_stride + (x0 >> 2);
+        memcpy(e->blk_mv + 4 * m, sn->mv + y * cells * 4,
+               (size_t)cells * 4 * sizeof(int16_t));
+        memcpy(e->blk_pred + m, sn->pred + y * cells, (size_t)cells);
+        memcpy(e->blk_ref + 2 * m, sn->ref + y * cells * 2,
+               (size_t)cells * 2);
+        memcpy(e->blk_intra + m, sn->intra + y * cells, (size_t)cells);
+    }
+}
+
+/* one PU: the merge list against an AMVP search, both ranked by SATD of
+ * the prediction plus lambda x a syntax proxy. The 2Nx2N winner's MVs
+ * seed the search where they beat the AMVP predictor. */
+static uint32_t search_pu(struct n265_encoder *e, const pu_geo *g,
+                          const mv_t start[2], pu_dec *d)
+{
+    int lam4 = lambda_sad_q4(e->cur_ctu_qp);
+    int w = g->w, h = g->h;
+    int no_bi = w + h == 12;    /* 8x4 and 4x8 PUs stay uni-predicted */
+
+    mot_t mlist[MAX_MERGE];
+    n265_merge_list_pu(e, g, mlist, MAX_MERGE);
+    int best_m = 0;
+    uint32_t best_mc = UINT32_MAX;
+    for (int i = 0; i < MAX_MERGE; i++) {
+        uint32_t c = mot_satd_wh(e, g->x, g->y, w, h, mlist[i]) +
+                     (uint32_t)(((i + 1) * lam4) >> 4);
+        if (c < best_mc) {
+            best_mc = c;
+            best_m = i;
+        }
+    }
+
+    mv_t me[2] = { { 0, 0 }, { 0, 0 } }, mvp[2][2];
+    int8_t bref[2] = { 0, 0 };
+    int mvdc[2] = { 0, 0 };
+    uint32_t side[2] = { UINT32_MAX, UINT32_MAX };
+    int nl = e->slice_type == 0 ? 2 : 1;
+    for (int l = 0; l < 2; l++) {
+        mvp[l][0].x = mvp[l][0].y = mvp[l][1].x = mvp[l][1].y = 0;
+        if (l >= nl)
+            continue;
+        for (int r = 0; r < e->nref[l]; r++) {
+            mv_t p[2], mv;
+            n265_amvp_pu(e, l, r, g, p);
+            mv_t seed = p[0];
+            if (start && (start[l].x != p[0].x || start[l].y != p[0].y) &&
+                n265_mc_sad(e, l, r, g->x, g->y, w, h, start[l]) <
+                    n265_mc_sad(e, l, r, g->x, g->y, w, h, p[0]))
+                seed = start[l];
+            n265_me_search(e, l, r, g->x, g->y, w, h, seed, &mv);
+            int c0 = abs(mv.x - p[0].x) + abs(mv.y - p[0].y);
+            int c1 = abs(mv.x - p[1].x) + abs(mv.y - p[1].y);
+            int mvd = c1 < c0 ? c1 : c0;
+            mot_t u;
+            u.mv[0].x = u.mv[0].y = u.mv[1].x = u.mv[1].y = 0;
+            u.ref[0] = u.ref[1] = 0;
+            u.pred = (uint8_t)(1 << l);
+            u.mv[l] = mv;
+            u.ref[l] = (int8_t)r;
+            uint32_t c = mot_satd_wh(e, g->x, g->y, w, h, u) +
+                (uint32_t)(((mvd + 2 * r + 6) * lam4) >> 4);
+            if (c < side[l]) {
+                side[l] = c;
+                me[l] = mv;
+                bref[l] = (int8_t)r;
+                mvdc[l] = mvd;
+                mvp[l][0] = p[0];
+                mvp[l][1] = p[1];
+            }
+        }
+    }
+
+    mot_t amot;
+    amot.mv[0] = me[0];
+    amot.mv[1].x = amot.mv[1].y = 0;
+    amot.ref[0] = bref[0];
+    amot.ref[1] = 0;
+    amot.pred = 1;
+    uint32_t acost = side[0];
+    if (nl == 2) {
+        if (side[1] < acost) {
+            amot.mv[0].x = amot.mv[0].y = 0;
+            amot.ref[0] = 0;
+            amot.mv[1] = me[1];
+            amot.ref[1] = bref[1];
+            amot.pred = 2;
+            acost = side[1];
+        }
+        if (!no_bi && side[0] != UINT32_MAX && side[1] != UINT32_MAX) {
+            mot_t bi;
+            bi.mv[0] = me[0];
+            bi.mv[1] = me[1];
+            bi.ref[0] = bref[0];
+            bi.ref[1] = bref[1];
+            bi.pred = 3;
+            uint32_t c = mot_satd_wh(e, g->x, g->y, w, h, bi) +
+                (uint32_t)(((mvdc[0] + mvdc[1] + 2 * (bref[0] + bref[1]) +
+                             12) * lam4) >> 4);
+            if (c < acost) {
+                amot = bi;
+                acost = c;
+            }
+        }
+    }
+
+    if (best_mc <= acost) {
+        d->merge = 1;
+        d->midx = best_m;
+        d->mot = mlist[best_m];
+        d->mvp_idx[0] = d->mvp_idx[1] = 0;
+        return best_mc;
+    }
+    d->merge = 0;
+    d->midx = 0;
+    d->mot = amot;
+    for (int l = 0; l < 2; l++) {
+        d->mvp[l][0] = mvp[l][0];
+        d->mvp[l][1] = mvp[l][1];
+        int c0 = abs(amot.mv[l].x - mvp[l][0].x) +
+                 abs(amot.mv[l].y - mvp[l][0].y);
+        int c1 = abs(amot.mv[l].x - mvp[l][1].x) +
+                 abs(amot.mv[l].y - mvp[l][1].y);
+        d->mvp_idx[l] = c1 < c0;
+    }
+    return acost;
+}
+
+/* rank one candidate partition: search both PUs in decode order, then
+ * restore the maps the search wrote */
+static uint32_t try_part(struct n265_encoder *e, int x0, int y0, int n,
+                         int part, const mv_t start[2], pu_dec d[2])
+{
+    mot_snap sn;
+    mot_save(e, x0, y0, n, &sn);
+    set_blk(e, e->blk_intra, x0, y0, n, 0);
+    uint32_t tot = 0;
+    memset(d, 0, 2 * sizeof(d[0]));
+    for (int p = 0; p < 2; p++) {
+        pu_geo g;
+        g.cbx = x0; g.cby = y0; g.cbn = n;
+        n265_pu_rect(part, p, x0, y0, n, &g.x, &g.y, &g.w, &g.h);
+        g.excl_a1 = p == 1 && !PART_IS_HORIZ(part);
+        g.excl_b1 = p == 1 && PART_IS_HORIZ(part);
+        tot += search_pu(e, &g, start, &d[p]);
+        set_mot_map_wh(e, g.x, g.y, g.w, g.h, d[p].mot);
+    }
+    mot_load(e, x0, y0, n, &sn);
+    return tot;
+}
+
+/* a partition candidate carried from its RD trial to its commit */
+typedef struct part_cand {
+    int part;
+    int any;                    /* rqt_root_cbf */
+    pu_dec d[2];
+    tb_ctx tl, tcb, tcr;
+    uint8_t py[32 * 32];        /* the PU-by-PU prediction of the CU */
+    uint8_t pc[2][16 * 16];
+} part_cand;
+
+static void set_cu_pred(struct n265_encoder *e, int x0, int y0, int n,
+                        part_cand *c)
+{
+    e->cu_pred[0] = c->py;
+    e->cu_pred[1] = c->pc[0];
+    e->cu_pred[2] = c->pc[1];
+    e->cu_pred_stride[0] = n;
+    e->cu_pred_stride[1] = e->cu_pred_stride[2] = n >> 1;
+    e->cu_pred_x0 = x0;
+    e->cu_pred_y0 = y0;
+}
+
+static void clear_cu_pred(struct n265_encoder *e)
+{
+    e->cu_pred[0] = e->cu_pred[1] = e->cu_pred[2] = NULL;
+}
+
+/* CU-level inter syntax on the estimator: everything up to and including
+ * rqt_root_cbf. Mirrors replay_cu's inter branch exactly - the 2Nx2N
+ * candidates go through here too, so the two can't drift. */
+static void est_inter_cu_bits(struct n265_encoder *e, est_state *st, int x0,
+                              int y0, int log2n, int part,
+                              const pu_dec d[2], int any, int inc)
+{
+    cabac_ctx_t *local = st->ctx;
+    int n = 1 << log2n;
+    res_ops ops;
+    n265_est_ops(&ops, st);
+    st->bits += n265_est_bin(&local[CTX_CU_SKIP + inc], 0);
+    st->bits += n265_est_bin(&local[CTX_PRED_MODE], 0);
+    n265_write_part_mode(e, &ops, log2n, part);
+    for (int p = 0; p < N265_NUM_PU(part); p++) {
+        int px, py, pw, ph;
+        n265_pu_rect(part, p, x0, y0, n, &px, &py, &pw, &ph);
+        st->bits += n265_est_bin(&local[CTX_MERGE_FLAG], d[p].merge);
+        if (d[p].merge) {
+            st->bits += n265_est_bin(&local[CTX_MERGE_IDX], d[p].midx > 0);
+            if (d[p].midx > 0 && MAX_MERGE > 2)
+                st->bits += 256u * (uint32_t)(d[p].midx < MAX_MERGE - 1
+                                              ? d[p].midx : d[p].midx - 1);
+            continue;
+        }
+        int pred = d[p].mot.pred;
+        if (e->slice_type == 0) {
+            if (pw + ph != 12) {
+                st->bits += n265_est_bin(
+                    &local[CTX_INTER_IDC + (e->ctb_log2 - log2n)], pred == 3);
+                if (pred != 3)
+                    st->bits += n265_est_bin(&local[CTX_INTER_IDC + 4],
+                                             pred >> 1);
+            } else {
+                st->bits += n265_est_bin(&local[CTX_INTER_IDC + 4], pred >> 1);
+            }
+        }
+        for (int l = 0; l < 2; l++) {
+            if (!(pred & (1 << l)))
+                continue;
+            if (e->nref[l] > 1) {      /* ref_idx_lX, truncated unary */
+                int r = d[p].mot.ref[l], cmax = e->nref[l] - 1;
+                st->bits += n265_est_bin(&local[CTX_REF_IDX + 0], r > 0);
+                if (r > 0 && cmax > 1)
+                    st->bits += n265_est_bin(&local[CTX_REF_IDX + 1], r > 1);
+                if (r > 1 && cmax > 2)
+                    st->bits += 256u *
+                        (uint32_t)((r < cmax ? r : cmax - 1) - 1);
+            }
+            int k = d[p].mvp_idx[l];
+            est_mvd(st, d[p].mot.mv[l].x - d[p].mvp[l][k].x,
+                    d[p].mot.mv[l].y - d[p].mvp[l][k].y);
+            st->bits += n265_est_bin(&local[CTX_MVP_FLAG], k);
+        }
+    }
+    /* rqt_root_cbf is absent, and inferred 1, only for a merged 2Nx2N CU */
+    if (!(part == PART_2Nx2N && d[0].merge))
+        st->bits += n265_est_bin(&local[CTX_RQT_ROOT_CBF], any);
+}
+
+/* full RD of one partition: predict PU by PU, then cost the CU with a
+ * flat transform set (the commit re-decides flat vs split, exactly as
+ * the 2Nx2N candidates do) */
+static uint64_t rd_part(struct n265_encoder *e, int x0, int y0, int log2n,
+                        int inc, part_cand *c)
+{
+    int n = 1 << log2n, hn = n >> 1;
+    int qp_c = n265_chroma_qp(e->cur_ctu_qp);
+    for (int p = 0; p < N265_NUM_PU(c->part); p++) {
+        int px, py, pw, ph;
+        n265_pu_rect(c->part, p, x0, y0, n, &px, &py, &pw, &ph);
+        mc_pred_wh(e, 0, px, py, pw, ph, c->d[p].mot,
+                   c->py + (py - y0) * n + (px - x0), n);
+        for (int ci = 1; ci <= 2; ci++)
+            mc_pred_wh(e, ci, px / 2, py / 2, pw / 2, ph / 2, c->d[p].mot,
+                       c->pc[ci - 1] + ((py - y0) / 2) * hn + (px - x0) / 2,
+                       hn);
+    }
+    set_cu_pred(e, x0, y0, n, c);
+    tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, mot_zero,
+               &c->tl);
+    tb_analyze(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c, MODE_INTER, mot_zero,
+               &c->tcb);
+    tb_analyze(e, 2, x0 / 2, y0 / 2, log2n - 1, qp_c, MODE_INTER, mot_zero,
+               &c->tcr);
+    tb_make_recon(0, log2n, e->cur_ctu_qp, MODE_INTER, &c->tl);
+    tb_make_recon(1, log2n - 1, qp_c, MODE_INTER, &c->tcb);
+    tb_make_recon(2, log2n - 1, qp_c, MODE_INTER, &c->tcr);
+    clear_cu_pred(e);
+    c->any = c->tl.nz || c->tcb.nz || c->tcr.nz;
+    uint64_t d = tb_ssd(e, 0, x0, y0, log2n, &c->tl) +
+        tb_ssd(e, 1, x0 / 2, y0 / 2, log2n - 1, &c->tcb) +
+        tb_ssd(e, 2, x0 / 2, y0 / 2, log2n - 1, &c->tcr);
+
+    cabac_ctx_t local[CTX_COUNT];
+    memcpy(local, e->est_ctx, sizeof(local));
+    est_state st = { local, 0 };
+    est_inter_cu_bits(e, &st, x0, y0, log2n, c->part, c->d, c->any, inc);
+    if (c->any)
+        est_tt_bits(e, &st, log2n, MODE_INTER, &c->tl, &c->tcb, &c->tcr);
+    return rd_j(d, st.bits, n265_lambda_mode_q8(e->cur_ctu_qp));
+}
+
+/* commit an inter CU (any partition): maps, records, recon */
+static void commit_inter_cu(struct n265_encoder *e, int x0, int y0,
+                            int log2n, int part, const pu_dec d[2], int any,
+                            tb_ctx *tl, tb_ctx *tcb, tb_ctx *tcr,
+                            part_cand *pred_src)
+{
+    int n = 1 << log2n;
+    set_blk(e, e->blk_intra, x0, y0, n, 0);
+    set_blk(e, e->blk_skip, x0, y0, n, 0);
+    set_mode_map(e, x0, y0, n, INTRA_DC);
+    mark_cu_edges(e, x0, y0, n);
+    mark_pu_edge(e, part, x0, y0, n);
+    rec_u8(e, (unsigned)part);
+    for (int p = 0; p < N265_NUM_PU(part); p++) {
+        int px, py, pw, ph;
+        n265_pu_rect(part, p, x0, y0, n, &px, &py, &pw, &ph);
+        /* merge records carry the index in bits 3-5; the mvp bits belong
+         * to AMVP records only (a stale mvp_idx[1] on a merge record
+         * reads as index + 4 once five candidates are allowed; found
+         * 2026-09-06 while widening MAX_MERGE) */
+        unsigned f = d[p].merge
+            ? (1u | ((unsigned)d[p].midx << 3))
+            : (((unsigned)d[p].mvp_idx[0] << 1) |
+               ((unsigned)(d[p].mot.pred - 1) << 3) |
+               ((unsigned)d[p].mvp_idx[1] << 5));
+        rec_u8(e, f);
+        if (!d[p].merge)
+            for (int l = 0; l < 2; l++) {
+                if (!(d[p].mot.pred & (1 << l)))
+                    continue;
+                rec_u8(e, (unsigned)d[p].mot.ref[l]);
+                int k = d[p].mvp_idx[l];
+                int16_t mvd[2] = {
+                    (int16_t)(d[p].mot.mv[l].x - d[p].mvp[l][k].x),
+                    (int16_t)(d[p].mot.mv[l].y - d[p].mvp[l][k].y)
+                };
+                rec_levels(e, mvd, 2);
+            }
+        set_mot_map_wh(e, px, py, pw, ph, d[p].mot);
+    }
+    rec_u8(e, (unsigned)(any != 0));
+    if (pred_src)
+        set_cu_pred(e, x0, y0, n, pred_src);
+    if (any) {
+        commit_inter_tt(e, d[0].mot, x0, y0, log2n, tl, tcb, tcr);
+    } else {
+        tb_commit(e, 0, x0, y0, log2n, tl);
+        tb_commit(e, 1, x0 / 2, y0 / 2, log2n - 1, tcb);
+        tb_commit(e, 2, x0 / 2, y0 / 2, log2n - 1, tcr);
+    }
+    clear_cu_pred(e);
+}
+
 static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
 {
     int n = 1 << log2n;
@@ -1083,18 +1517,17 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
             uint64_t j_skip = rd_j(d_skip, st.bits, lam);
 
             /* merge bits */
+            pu_dec pd[2];
+            memset(pd, 0, sizeof(pd));
+            pd[0].mot = cand;
+            pd[0].merge = 1;
+            pd[0].midx = midx;
             uint64_t j_merge = UINT64_MAX;
             if (m_any) {
                 memcpy(local, e->est_ctx, sizeof(local));
                 st.ctx = local; st.bits = 0;
-                st.bits += n265_est_bin(&local[CTX_CU_SKIP + inc], 0);
-                st.bits += n265_est_bin(&local[CTX_PRED_MODE], 0);
-                st.bits += n265_est_bin(&local[CTX_PART_MODE], 1);
-                st.bits += n265_est_bin(&local[CTX_MERGE_FLAG], 1);
-                st.bits += n265_est_bin(&local[CTX_MERGE_IDX], midx > 0);
-                if (midx > 0 && MAX_MERGE > 2)
-                    st.bits += 256u * (uint32_t)(midx < MAX_MERGE - 1
-                                                 ? midx : midx - 1);
+                est_inter_cu_bits(e, &st, x0, y0, log2n, PART_2Nx2N, pd,
+                                  m_any, inc);
                 est_tt_bits(e, &st, log2n, MODE_INTER, &m_tl, &m_tcb,
                             &m_tcr);
                 j_merge = rd_j(d_merge, st.bits, lam);
@@ -1119,7 +1552,7 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                     for (int r = 0; r < e->nref[l]; r++) {
                         mv_t p[2], mv;
                         n265_amvp(e, l, r, x0, y0, n, n, p);
-                        uint32_t sad = n265_me_search(e, l, r, x0, y0, log2n, p[0], &mv);
+                        uint32_t sad = n265_me_search(e, l, r, x0, y0, n, n, p[0], &mv);
                         int mvd = abs(mv.x - p[0].x) + abs(mv.y - p[0].y);
                         int m1 = abs(mv.x - p[1].x) + abs(mv.y - p[1].y);
                         if (m1 < mvd) mvd = m1;
@@ -1172,35 +1605,18 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                              abs(me_mv[l].y - mvp[l][1].y);
                     mvp_idx[l] = c1 < c0;
                 }
+                pd[1].mot = amot;
+                pd[1].merge = 0;
+                pd[1].midx = 0;
+                for (int l = 0; l < 2; l++) {
+                    pd[1].mvp_idx[l] = mvp_idx[l];
+                    pd[1].mvp[l][0] = mvp[l][0];
+                    pd[1].mvp[l][1] = mvp[l][1];
+                }
                 memcpy(local, e->est_ctx, sizeof(local));
                 st.ctx = local; st.bits = 0;
-                st.bits += n265_est_bin(&local[CTX_CU_SKIP + inc], 0);
-                st.bits += n265_est_bin(&local[CTX_PRED_MODE], 0);
-                st.bits += n265_est_bin(&local[CTX_PART_MODE], 1);
-                st.bits += n265_est_bin(&local[CTX_MERGE_FLAG], 0);
-                if (e->slice_type == 0) {
-                    int depth = e->ctb_log2 - log2n;
-                    st.bits += n265_est_bin(&local[CTX_INTER_IDC + depth],
-                                            amot.pred == 3);
-                    if (amot.pred != 3)
-                        st.bits += n265_est_bin(&local[CTX_INTER_IDC + 4],
-                                                amot.pred >> 1);
-                }
-                for (int l = 0; l < 2; l++) {
-                    if (!(amot.pred & (1 << l)))
-                        continue;
-                    if (e->nref[l] > 1) {      /* ref_idx_lX, truncated unary */
-                        int r = amot.ref[l], cmax = e->nref[l] - 1;
-                        st.bits += n265_est_bin(&local[CTX_REF_IDX + 0], r > 0);
-                        if (r > 0 && cmax > 1) st.bits += n265_est_bin(&local[CTX_REF_IDX + 1], r > 1);
-                        if (r > 1 && cmax > 2) st.bits += 256u * (uint32_t)((r < cmax ? r : cmax - 1) - 1);
-                    }
-                    est_mvd(&st, me_mv[l].x - mvp[l][mvp_idx[l]].x,
-                            me_mv[l].y - mvp[l][mvp_idx[l]].y);
-                    st.bits += n265_est_bin(&local[CTX_MVP_FLAG],
-                                            mvp_idx[l]);
-                }
-                st.bits += n265_est_bin(&local[CTX_RQT_ROOT_CBF], a_any);
+                est_inter_cu_bits(e, &st, x0, y0, log2n, PART_2Nx2N, &pd[1],
+                                  a_any, inc);
                 if (a_any)
                     est_tt_bits(e, &st, log2n, MODE_INTER, &a_tl, &a_tcb,
                                 &a_tcr);
@@ -1252,54 +1668,68 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
             j_intra = rd_j(d_intra, st.bits, lam);
             }
 
-            /* pick the winner */
+            /* pick the winner among the 2Nx2N candidates */
             uint64_t best = j_skip;
-            int kind = 0;   /* 0 skip, 1 merge, 2 amvp, 3 intra */
+            int kind = 0;   /* 0 skip, 1 merge, 2 amvp, 3 intra, 4 split PU */
             if (j_merge < best) { best = j_merge; kind = 1; }
             if (j_amvp < best) { best = j_amvp; kind = 2; }
             if (j_intra < best) { best = j_intra; kind = 3; }
 
+            /* rectangular and asymmetric partitions. Gated the way the
+             * expensive candidates are: a static region (skip won, or the
+             * merge prediction was already good enough to prune AMVP)
+             * cannot be paying for two motion fields. Rank the two
+             * rectangular splits by SATD, RD only the better; try AMP
+             * only in the orientation a rectangular split already won,
+             * and only above the min CB where the spec allows it. */
+            static part_cand pca, pcb;
+            part_cand *cur = &pca, *pwin = NULL;
+            if (e->rect && kind != 0 && !gate_amvp) {
+                mv_t start[2] = { me_mv[0], me_mv[1] };
+                pu_dec dh[2], dv[2];
+                uint32_t ch = try_part(e, x0, y0, n, PART_2NxN, start, dh);
+                uint32_t cv = try_part(e, x0, y0, n, PART_Nx2N, start, dv);
+                int horiz = ch <= cv;
+                cur->part = horiz ? PART_2NxN : PART_Nx2N;
+                memcpy(cur->d, horiz ? dh : dv, sizeof(cur->d));
+                uint64_t jr = rd_part(e, x0, y0, log2n, inc, cur);
+                if (jr < best) {
+                    best = jr;
+                    kind = 4;
+                    pwin = cur;
+                    cur = cur == &pca ? &pcb : &pca;
+                    if (e->amp && log2n > MIN_CB_LOG2) {
+                        int a0 = horiz ? PART_2NxnU : PART_nLx2N;
+                        int a1 = horiz ? PART_2NxnD : PART_nRx2N;
+                        pu_dec da[2], db[2];
+                        uint32_t ca = try_part(e, x0, y0, n, a0, start, da);
+                        uint32_t cb = try_part(e, x0, y0, n, a1, start, db);
+                        cur->part = ca <= cb ? a0 : a1;
+                        memcpy(cur->d, ca <= cb ? da : db, sizeof(cur->d));
+                        uint64_t ja = rd_part(e, x0, y0, log2n, inc, cur);
+                        if (ja < best) {
+                            best = ja;
+                            pwin = cur;
+                        }
+                    }
+                }
+            }
+
             if (kind == 0) {
                 skip_cu(e, x0, y0, log2n, cand, midx);
                 e->last_skip_clean = d_skip <= skip_clean_thr(e->cur_ctu_qp, n);
+            } else if (kind == 4) {
+                commit_inter_cu(e, x0, y0, log2n, pwin->part, pwin->d,
+                                pwin->any, &pwin->tl, &pwin->tcb,
+                                &pwin->tcr, pwin);
             } else if (kind == 1 || kind == 2) {
-                mot_t mot = kind == 1 ? cand : amot;
                 tb_ctx *tl = kind == 1 ? &m_tl : &a_tl;
                 tb_ctx *tcb = kind == 1 ? &m_tcb : &a_tcb;
                 tb_ctx *tcr = kind == 1 ? &m_tcr : &a_tcr;
                 int any = kind == 1 ? m_any : a_any;
-                set_blk(e, e->blk_intra, x0, y0, n, 0);
-                set_blk(e, e->blk_skip, x0, y0, n, 0);
-                set_mot_map(e, x0, y0, n, mot);
-                set_mode_map(e, x0, y0, n, INTRA_DC);
-                mark_cu_edges(e, x0, y0, n);
-                /* merge records carry the index in bits 3-5; the mvp bits
-                 * belong to AMVP records only (a stale mvp_idx[1] on a
-                 * merge record reads as index + 4 once five candidates are
-                 * allowed; found 2026-09-06 while widening MAX_MERGE) */
-                rec_u8(e, (unsigned)((kind == 1) | ((any != 0) << 2) |
-                                     (kind == 1 ? (midx << 3)
-                                                : ((mvp_idx[0] << 1) |
-                                                   ((mot.pred - 1) << 3) |
-                                                   (mvp_idx[1] << 5)))));
-                if (kind == 2)
-                    for (int l = 0; l < 2; l++) {
-                        if (!(mot.pred & (1 << l)))
-                            continue;
-                        rec_u8(e, (unsigned)mot.ref[l]);
-                        int16_t mvd[2] = {
-                            (int16_t)(mot.mv[l].x - mvp[l][mvp_idx[l]].x),
-                            (int16_t)(mot.mv[l].y - mvp[l][mvp_idx[l]].y)
-                        };
-                        rec_levels(e, mvd, 2);
-                    }
-                if (any) {
-                    commit_inter_tt(e, mot, x0, y0, log2n, tl, tcb, tcr);
-                } else {
-                    tb_commit(e, 0, x0, y0, log2n, tl);
-                    tb_commit(e, 1, x0 / 2, y0 / 2, log2n - 1, tcb);
-                    tb_commit(e, 2, x0 / 2, y0 / 2, log2n - 1, tcr);
-                }
+                commit_inter_cu(e, x0, y0, log2n, PART_2Nx2N,
+                                kind == 1 ? &pd[0] : &pd[1], any, tl, tcb,
+                                tcr, NULL);
             }
             if (kind != 3) {
                 e->rec_pos = pos0;
@@ -1633,13 +2063,13 @@ static uint64_t quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
         qt_save_records(e, ss, rec_base);
         qt_restore(e, sp, x0, y0, n);
         (void)n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + split_inc], 0);
-        mark_cu_edges(e, x0, y0, n);
-        set_blk(e, e->blk_intra, x0, y0, n, 0);
-        set_blk(e, e->blk_skip, x0, y0, n, 0);
-        set_mot_map(e, x0, y0, n, mlist[midx]);
-        set_mode_map(e, x0, y0, n, INTRA_DC);
-        rec_u8(e, (unsigned)(1 | (midx << 3)));
-        commit_inter_tt(e, mlist[midx], x0, y0, log2n, NULL, NULL, NULL);
+        pu_dec pdm;
+        memset(&pdm, 0, sizeof(pdm));
+        pdm.mot = mlist[midx];
+        pdm.merge = 1;
+        pdm.midx = midx;
+        commit_inter_cu(e, x0, y0, log2n, PART_2Nx2N, &pdm, 1, NULL, NULL,
+                        NULL, NULL);
         e->rec_pos = pos0;
         est_state madv = { e->est_ctx, 0 };
         n265_est_advance_cu(e, &madv, x0, y0, log2n);
@@ -1678,6 +2108,7 @@ void n265_analyze_ctu(struct n265_encoder *e, int ctb_x, int ctb_y)
     e->cur_ctu_qp = q < 0 ? 0 : q > 51 ? 51 : q;
     e->ent_ctu_qp = e->cur_ctu_qp;
     e->ent_qp_coded = 0;
+    clear_cu_pred(e);
     (void)quadtree(e, ctb_x << e->ctb_log2, ctb_y << e->ctb_log2,
                    e->ctb_log2, 0);
     if (e->ent_qp_coded)

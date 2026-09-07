@@ -12,32 +12,36 @@
  * ours; init values are ITU-T H.265 Table 9-5..9-32 constants. */
 enum {
     CTX_SPLIT_CU = 0,       /* 3 */
-    CTX_PART_MODE = 3,      /* 1 used (intra bin0) */
-    CTX_PREV_INTRA = 4,     /* 1 */
-    CTX_CHROMA_MODE = 5,    /* 1 */
-    CTX_CBF_LUMA = 6,       /* 2 */
-    CTX_CBF_CHROMA = 8,     /* 4 (trafo depth) */
-    CTX_LAST_X = 12,        /* 18 */
-    CTX_LAST_Y = 30,        /* 18 */
-    CTX_SIG_GROUP = 48,     /* 4: luma 0-1, chroma 2-3 */
-    CTX_SIG = 52,           /* 42: luma 0-26, chroma 27-41 */
-    CTX_G1 = 94,            /* 24: luma 0-15, chroma 16-23 */
-    CTX_G2 = 118,           /* 6: luma 0-3, chroma 4-5 */
-    CTX_SAO_MERGE = 124,    /* 1 */
-    CTX_SAO_TYPE = 125,     /* 1 */
-    CTX_CU_SKIP = 126,      /* 3 (left/above skip neighbors) */
-    CTX_PRED_MODE = 129,    /* 1 */
-    CTX_MERGE_FLAG = 130,   /* 1 */
-    CTX_MERGE_IDX = 131,    /* 1 */
-    CTX_RQT_ROOT_CBF = 132, /* 1 */
-    CTX_MVD_GR0 = 133,      /* 1 */
-    CTX_MVD_GR1 = 134,      /* 1 */
-    CTX_MVP_FLAG = 135,     /* 1 */
-    CTX_INTER_IDC = 136,    /* 5: bin0 by CU depth, bin1 at 4 */
-    CTX_TSPLIT = 141,       /* 3: ctx = 5 - log2TrafoSize */
-    CTX_CU_QP = 144,        /* 2: bin0, bins 1..4 */
-    CTX_REF_IDX = 146,      /* 2: ref_idx_lX bins 0 and 1 */
-    CTX_COUNT = 148,
+    /* part_mode (9.3.4.2, Table 9-37): bin0 -> 0, bin1 -> 1, bin2 ->
+     * 2 at min CB / 3 above it, bin3 bypass. Only 0, 1 and 3 can occur
+     * here: min CB is 8, where inter has no bin2 and intra has bin0
+     * only. */
+    CTX_PART_MODE = 3,      /* 4 */
+    CTX_PREV_INTRA = 7,     /* 1 */
+    CTX_CHROMA_MODE = 8,    /* 1 */
+    CTX_CBF_LUMA = 9,       /* 2 */
+    CTX_CBF_CHROMA = 11,    /* 4 (trafo depth) */
+    CTX_LAST_X = 15,        /* 18 */
+    CTX_LAST_Y = 33,        /* 18 */
+    CTX_SIG_GROUP = 51,     /* 4: luma 0-1, chroma 2-3 */
+    CTX_SIG = 55,           /* 42: luma 0-26, chroma 27-41 */
+    CTX_G1 = 97,            /* 24: luma 0-15, chroma 16-23 */
+    CTX_G2 = 121,           /* 6: luma 0-3, chroma 4-5 */
+    CTX_SAO_MERGE = 127,    /* 1 */
+    CTX_SAO_TYPE = 128,     /* 1 */
+    CTX_CU_SKIP = 129,      /* 3 (left/above skip neighbors) */
+    CTX_PRED_MODE = 132,    /* 1 */
+    CTX_MERGE_FLAG = 133,   /* 1 */
+    CTX_MERGE_IDX = 134,    /* 1 */
+    CTX_RQT_ROOT_CBF = 135, /* 1 */
+    CTX_MVD_GR0 = 136,      /* 1 */
+    CTX_MVD_GR1 = 137,      /* 1 */
+    CTX_MVP_FLAG = 138,     /* 1 */
+    CTX_INTER_IDC = 139,    /* 5: bin0 by CU depth, bin1 at 4 */
+    CTX_TSPLIT = 144,       /* 3: ctx = 5 - log2TrafoSize */
+    CTX_CU_QP = 147,        /* 2: bin0, bins 1..4 */
+    CTX_REF_IDX = 149,      /* 2: ref_idx_lX bins 0 and 1 */
+    CTX_COUNT = 151,
 };
 
 /* initType 0 (I), 1 (P, cabac_init_flag 0), 2 (B, cabac_init_flag 0) */

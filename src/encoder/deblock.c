@@ -115,17 +115,25 @@ static void chroma_segment(uint8_t *pix, int xstride, int ystride, int tc,
     }
 }
 
-/* is there a CU/TU boundary crossing the 8-grid position? edge_map bit 0 =
- * left edge here, bit 1 = top edge. */
+/* is there a CU/TU/PU boundary crossing the 8-grid position? edge_map
+ * bit 0 = left edge here, bit 1 = top edge; bits 2 and 3 say that edge is
+ * also a TRANSFORM edge, which the cbf leg of the bS derivation needs
+ * (8.7.2.4) - a PU boundary inside a CU is a prediction edge only. */
 static int has_edge(const struct n265_encoder *e, int x, int y, int vertical)
 {
     return e->edge_map[(y >> 2) * e->map_stride + (x >> 2)] &
            (vertical ? 1 : 2);
 }
 
+static int is_tu_edge(const struct n265_encoder *e, int x, int y, int vertical)
+{
+    return e->edge_map[(y >> 2) * e->map_stride + (x >> 2)] &
+           (vertical ? 4 : 8);
+}
+
 /* boundary strength for the 4-line segment whose q-side starts at luma
- * (x,y) (8.7.2.4). All inter blocks are zero-MV ref-0 for now, so the MV
- * legs of the bS-1 rule reduce to the cbf test; extend when ME lands. */
+ * (x,y) (8.7.2.4). The cbf leg applies to transform edges only; PU edges
+ * inside a CU reach the motion legs below. */
 static int seg_bs(const struct n265_encoder *e, int x, int y, int vertical)
 {
     int qi = (y >> 2) * e->map_stride + (x >> 2);
@@ -133,7 +141,8 @@ static int seg_bs(const struct n265_encoder *e, int x, int y, int vertical)
                       : ((y - 1) >> 2) * e->map_stride + (x >> 2);
     if (e->blk_intra[pi] || e->blk_intra[qi])
         return 2;
-    if (e->blk_cbf_y[pi] || e->blk_cbf_y[qi])
+    if (is_tu_edge(e, x, y, vertical) &&
+        (e->blk_cbf_y[pi] || e->blk_cbf_y[qi]))
         return 1;
     /* 8.7.2.4 by reference PICTURE: different pictures or a different
      * number of motion vectors -> 1; same pictures -> compare the vectors

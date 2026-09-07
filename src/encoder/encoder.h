@@ -23,6 +23,24 @@ enum {
 
 #define MIN_CB_LOG2 3
 #define MAX_MERGE 5     /* MaxNumMergeCand (5 since 2026-09-06: -0.36% mean, 4 of 4 clips at matched rate) */
+
+/* inter PartMode (7.4.9.5), in the order part_mode's binarization walks
+ * them. NxN is intra-only here: at our min CB (8) the spec forbids inter
+ * NxN, and above it the quadtree split already covers the shape. */
+enum {
+    PART_2Nx2N = 0,
+    PART_2NxN,
+    PART_Nx2N,
+    PART_2NxnU,
+    PART_2NxnD,
+    PART_nLx2N,
+    PART_nRx2N,
+    PART_COUNT
+};
+
+#define PART_IS_HORIZ(p) ((p) == PART_2NxN || (p) == PART_2NxnU || \
+                          (p) == PART_2NxnD)
+#define PART_IS_AMP(p)   ((p) >= PART_2NxnU)
 #define N265_DPB_SLOTS 6
 #define N265_MAX_REF 3
 
@@ -69,6 +87,10 @@ struct n265_encoder {
      * entries (docs/refstruct-design.md); ref_valid = at least one */
     struct n265_refpic *refl[2][N265_MAX_REF];
     int nref[2];
+    int rect;               /* rectangular inter PUs, SMP (N265_NO_RECT off) */
+    int amp;                /* asymmetric inter PUs; also the SPS flag,
+                             * which changes part_mode's binarization
+                             * whether or not an AMP mode is chosen */
     int ref_max;            /* --ref: references per list wanted (1..N265_MAX_REF) */
     int badapt;             /* --b-adapt: shorten the B run on high-motion spans */
     float cutree_str;       /* N265_CUTREE_STR: cu-tree offset strength (default 2.0) */
@@ -86,6 +108,13 @@ struct n265_encoder {
     uint8_t *blk_pred;      /* per 4x4: pred flags (1=L0, 2=L1)      */
     int8_t  *blk_ref;       /* per 4x4: reference index, L0 then L1  */
     int map_stride;         /* in 4x4 units                          */
+
+    /* prediction override for a partitioned inter CU: the PU-by-PU MC
+     * result, which every TB inside the CU crops from instead of running
+     * its own whole-TB MC. NULL for 2Nx2N. */
+    const uint8_t *cu_pred[3];
+    int cu_pred_stride[3];
+    int cu_pred_x0, cu_pred_y0;     /* luma origin of those planes */
 
     struct sao_params *sao; /* per-CTB SAO decisions                 */
     uint8_t *sao_tmp[3];    /* pristine deblocked planes during apply */
@@ -145,6 +174,33 @@ void n265_analyze_ctu(struct n265_encoder *e, int ctb_x, int ctb_y);
 /* entropy.c: replay one CTU's records through the CABAC engine */
 void n265_entropy_ctu(struct n265_encoder *e, cabac_t *cb, int ctb_x,
                       int ctb_y);
+
+/* PU rectangle idx (0 or 1) of `part` inside an n x n CU at (x0, y0).
+ * Quarter offsets are the AMP ones; the split is always into two. */
+static inline void n265_pu_rect(int part, int idx, int x0, int y0, int n,
+                                int *px, int *py, int *pw, int *ph)
+{
+    int q = n >> 2, half = n >> 1;
+    int cut;    /* the first PU's extent along the split axis */
+    switch (part) {
+    case PART_2NxnU: case PART_nLx2N: cut = q; break;
+    case PART_2NxnD: case PART_nRx2N: cut = n - q; break;
+    default:                          cut = half; break;
+    }
+    if (part == PART_2Nx2N) {
+        *px = x0; *py = y0; *pw = n; *ph = n;
+    } else if (PART_IS_HORIZ(part)) {
+        *px = x0; *pw = n;
+        *py = idx ? y0 + cut : y0;
+        *ph = idx ? n - cut : cut;
+    } else {
+        *py = y0; *ph = n;
+        *px = idx ? x0 + cut : x0;
+        *pw = idx ? n - cut : cut;
+    }
+}
+
+#define N265_NUM_PU(part) ((part) == PART_2Nx2N ? 1 : 2)
 
 #define MODE_INTER (-1)     /* mode value selecting MC prediction */
 
