@@ -365,6 +365,7 @@ void n265_la_cutree(struct n265_encoder *e, int i)
         mean = 0;           /* CRF: un-centred, the shift in the base nets the mean */
     for (int k = 0; k < nctu; k++) {
         float v = raw[k] - mean;
+        e->ctu_qp_raw[k] = v;
         int off = (int)(v > 0 ? v + 0.5f : v - 0.5f);
         e->ctu_qp_off[k] = (int8_t)(off < -12 ? -12 : off > 12 ? 12 : off);
     }

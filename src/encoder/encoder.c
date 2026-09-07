@@ -106,6 +106,12 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->ref_max = e->mode == N265_MODE_PCM ? 1 : g_ref;
     e->badapt = g_badapt;
     { const char *v = getenv("N265_CUTREE_STR"); e->cutree_str = v ? (float)atof(v) : 2.0f; }
+    /* AQ 0.7 with the joint field rounded once (2026-09-07 sweep vs cu-tree
+     * strength: 6/7 clips better, -0.9% mean BD-VMAF-NEG at matched rate;
+     * AQ 0.4 and cu-tree 2.5 each bought median by giving bus back 2-3%).
+     * N265_AQ_STR=1 N265_QP_ROUND1=0 restores the old field. */
+    { const char *v = getenv("N265_AQ_STR"); e->aq_str = v ? (float)atof(v) : 0.7f; }
+    { const char *v = getenv("N265_QP_ROUND1"); e->qp_round1 = v ? atoi(v) != 0 : 1; }
     e->ctb_log2 = e->mode == N265_MODE_PCM ? 4 : g_ctb_log2;
     e->keyint = e->mode == N265_MODE_PCM ? 1 : g_keyint;
     e->bframes = e->mode == N265_MODE_PCM ? 0 : g_bframes;
@@ -169,8 +175,9 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->blk_ref = calloc((size_t)e->map_stride * (e->pad_h >> 2) * 2, 1);
     e->blk_qp = calloc((size_t)e->map_stride * (e->pad_h >> 2), 1);
     e->ctu_qp_off = calloc((size_t)e->ctb_cols * e->ctb_rows, 1);
+    e->ctu_qp_raw = calloc((size_t)e->ctb_cols * e->ctb_rows, sizeof(float));
     if (!e->blk_intra || !e->blk_skip || !e->blk_cbf_y || !e->blk_mv ||
-        !e->blk_pred || !e->blk_qp || !e->ctu_qp_off)
+        !e->blk_pred || !e->blk_qp || !e->ctu_qp_off || !e->ctu_qp_raw)
         goto fail;
     e->sao = calloc((size_t)e->ctb_cols * e->ctb_rows, sizeof(sao_params));
     for (int i = 0; i < 3; i++) {
@@ -221,6 +228,7 @@ void n265_encoder_close(n265_encoder *e)
     free(e->blk_ref);
     free(e->blk_qp);
     free(e->ctu_qp_off);
+    free(e->ctu_qp_raw);
     free(e->sao);
     for (int i = 0; i < 3; i++) {
         free(e->sao_tmp[i]);
@@ -439,8 +447,10 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
                (size_t)e->map_stride * (e->pad_h >> 2) * 4 * sizeof(int16_t));
         /* per-CTU QP offsets: cu-tree (filled by the scheduler) plus
          * variance AQ on top */
-        if (!e->cutree)
+        if (!e->cutree) {
             memset(e->ctu_qp_off, 0, (size_t)e->ctb_cols * e->ctb_rows);
+            memset(e->ctu_qp_raw, 0, (size_t)e->ctb_cols * e->ctb_rows * sizeof(float));
+        }
         if (e->aq && getenv("N265_AQ_FLAT"))
             memset(e->ctu_qp_off, (uint8_t)atoi(getenv("N265_AQ_FLAT")),
                    (size_t)e->ctb_cols * e->ctb_rows);
@@ -481,10 +491,20 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
                 int nq = e->qp + (int)lround(dc);
                 e->qp = nq < 0 ? 0 : nq > 51 ? 51 : nq;
             }
+            /* per-CTU term at N265_AQ_STR. Default: round it on its own and
+             * add it to the already-rounded cu-tree offset (two roundings);
+             * N265_QP_ROUND1 sums the two float fields and rounds once, so
+             * fractional strengths on either side survive. */
             for (int i = 0; i < nctu; i++) {
-                double off = 1.0 * (lv[i] - avg);    /* strength 1.0 */
-                int o = (int)(off > 0 ? off + 0.5 : off - 0.5) +
+                double off = e->aq_str * (lv[i] - avg);
+                int o;
+                if (e->qp_round1) {
+                    off += e->ctu_qp_raw[i];
+                    o = (int)(off > 0 ? off + 0.5 : off - 0.5);
+                } else {
+                    o = (int)(off > 0 ? off + 0.5 : off - 0.5) +
                         e->ctu_qp_off[i];
+                }
                 e->ctu_qp_off[i] = (int8_t)(o < -12 ? -12 : o > 12 ? 12 : o);
             }
             free(lv);

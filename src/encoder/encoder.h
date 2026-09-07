@@ -72,6 +72,8 @@ struct n265_encoder {
     int ref_max;            /* --ref: references per list wanted (1..N265_MAX_REF) */
     int badapt;             /* --b-adapt: shorten the B run on high-motion spans */
     float cutree_str;       /* N265_CUTREE_STR: cu-tree offset strength (default 2.0) */
+    float aq_str;           /* N265_AQ_STR: per-CTU variance-AQ strength (default 0.7) */
+    int qp_round1;          /* N265_QP_ROUND1: round the cu-tree + AQ field once (default on) */
     int ref_valid;
 
     uint8_t *ct_depth;      /* 4x4-granularity coding-tree depth map */
@@ -94,6 +96,7 @@ struct n265_encoder {
 
     int aq;                 /* adaptive quantization on/off            */
     int8_t *ctu_qp_off;     /* per-CTU QP offset map (AQ/cu-tree feed) */
+    float *ctu_qp_raw;      /* per-CTU cu-tree offset before rounding  */
     uint8_t *blk_qp;        /* per-4x4 actual QP (deblock, prediction) */
     int cur_ctu_qp;         /* QP of the CTU being analyzed            */
     int ent_qp_prev;        /* entropy-side qPY_PREV chain             */
