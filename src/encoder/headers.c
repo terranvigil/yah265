@@ -57,7 +57,7 @@ void n265_write_vps(struct n265_encoder *e)
     write_ptl(bs, e->param.width, e->param.height);
     bs_put_bits(bs, 0, 1);          /* vps_sub_layer_ordering_info_present */
     bs_put_ue(bs, N265_DPB_SLOTS);      /* vps_max_dec_pic_buffering_minus1 (the DPB + the current) */
-    bs_put_ue(bs, e->bframes ? 1 : 0);  /* vps_max_num_reorder_pics[0] */
+    bs_put_ue(bs, (uint32_t)e->bframes);  /* vps_max_num_reorder_pics[0]: a pyramid reorders by bframes */
     bs_put_ue(bs, 0);               /* vps_max_latency_increase_plus1[0] */
     bs_put_bits(bs, 0, 6);          /* vps_max_layer_id */
     bs_put_ue(bs, 0);               /* vps_num_layer_sets_minus1 */
@@ -95,7 +95,7 @@ void n265_write_sps(struct n265_encoder *e)
     bs_put_ue(bs, 4);               /* log2_max_pic_order_cnt_lsb_minus4 */
     bs_put_bits(bs, 0, 1);          /* sps_sub_layer_ordering_info_present */
     bs_put_ue(bs, N265_DPB_SLOTS);      /* sps_max_dec_pic_buffering_minus1 */
-    bs_put_ue(bs, e->bframes ? 1 : 0);  /* sps_max_num_reorder_pics */
+    bs_put_ue(bs, (uint32_t)e->bframes);  /* sps_max_num_reorder_pics: a pyramid reorders by bframes */
     bs_put_ue(bs, 0);               /* sps_max_latency_increase_plus1 */
     if (e->mode == N265_MODE_PCM) {
         bs_put_ue(bs, 1);           /* log2_min_luma_coding_block_size_minus3: 16 */

@@ -72,7 +72,7 @@ void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes,
     g_qp = qp;
     g_ctb_log2 = ctb_log2;
     g_keyint = keyint < 1 ? 1 : keyint;
-    g_bframes = bframes ? 1 : 0;
+    g_bframes = bframes < 0 ? 0 : bframes > 7 ? 7 : bframes;
     g_aq = aq ? 1 : 0;
 }
 
@@ -251,10 +251,7 @@ static void write_slice_header(n265_encoder *e)
          * marks the ones in the current lists (docs/refstruct-design.md) */
         int negs[N265_DPB_SLOTS], poss[N265_DPB_SLOTS], nn = 0, np = 0;
         for (int sl = 0; sl < N265_DPB_SLOTS; sl++) {
-            if (!e->dpb[sl].valid) continue;
-            int in_list = 0;
-            for (int l = 0; l < 2; l++) for (int k = 0; k < e->nref[l]; k++) if (e->refl[l][k] == &e->dpb[sl]) in_list = 1;
-            if (!in_list) { e->dpb[sl].valid = 0; continue; }   /* not listed: the decoder drops it, so do we */
+            if (!e->dpb[sl].valid) continue;   /* every kept picture is listed; eviction is at mini-GOP ends */
             if (e->dpb[sl].poc < e->poc) negs[nn++] = sl; else poss[np++] = sl;
         }
         for (int i = 1; i < nn; i++)      /* sort: nearest (largest POC) first */
@@ -379,10 +376,11 @@ static void dump_recon_frame(n265_encoder *e)
 /* encode one frame from the given source planes; appends NALs */
 static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
                          const int src_stride[3], int slice_type, int poc,
-                         int nonref, int display_idx, size_t *out_used,
-                         int *count)
+                         int nonref, int display_idx, int b_depth,
+                         size_t *out_used, int *count)
 {
     e->slice_type = slice_type;
+    e->b_depth = b_depth;
     e->poc = poc;
     e->nonref = nonref;
     e->display_idx = display_idx;
@@ -402,7 +400,13 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
         if (e->cutree) { const char *v = getenv("N265_CRF_SHIFT"); shift = v ? atof(v) : 5.4; }
         base = e->crf + shift;
     }
-    int q = (int)lround(base) + (slice_type == 2 ? -3 : slice_type == 0 ? 2 : 0);
+    /* the pyramid QP cascade: I anchors -3, P anchors +0, and each B layer
+     * one step deeper than its parent (the reference B nearest the anchors
+     * codes best, the leaves worst). N265_PB_STEP scales the per-layer
+     * increment. */
+    double pb = 1.0; { const char *v = getenv("N265_PB_STEP"); if (v) pb = atof(v); }
+    int cascade = slice_type == 2 ? -3 : slice_type == 0 ? (int)lround(1 + b_depth * pb) : 0;
+    int q = (int)lround(base) + cascade;
     e->qp = q < 0 ? 0 : q > 51 ? 51 : q;
 
     if (e->frames_done == 0) {
@@ -591,7 +595,7 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
         }
         slot->poc = poc;
         slot->valid = 1;
-        n265_build_lists(e, poc, 0, NULL);   /* the next anchor's L0: past pictures nearest first */
+        slot->is_anchor = e->slice_type != 0;   /* I/P; a reference B is not */
         e->ref_valid = 1;
     }
     dump_recon_frame(e);
@@ -603,97 +607,139 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
  * DPB pictures before cur, nearest first, up to ref_max; L1 = the future
  * picture then the past ones. A caller coding a B passes the past anchor
  * POC as `cur` so the L0 head is that anchor. */
-void n265_build_lists(n265_encoder *e, int cur, int is_b, struct n265_refpic *future)
+void n265_build_lists(n265_encoder *e, int poc, int is_b, struct n265_refpic *future)
 {
-    struct n265_refpic *past[N265_DPB_SLOTS]; int npast = 0;
-    for (int sl = 0; sl < N265_DPB_SLOTS; sl++)
-        if (e->dpb[sl].valid && e->dpb[sl].poc <= cur && &e->dpb[sl] != future) past[npast++] = &e->dpb[sl];
-    for (int i = 1; i < npast; i++)
+    (void)future;
+    /* every valid DPB picture, split at `poc`: past = poc < this, nearest
+     * (largest POC) first; future = poc > this, nearest (smallest) first.
+     * L0 = past then future (for B); L1 = future then past (B only). */
+    struct n265_refpic *past[N265_DPB_SLOTS], *fut[N265_DPB_SLOTS];
+    int np = 0, nf = 0;
+    for (int sl = 0; sl < N265_DPB_SLOTS; sl++) {
+        if (!e->dpb[sl].valid) continue;
+        if (e->dpb[sl].poc < poc) past[np++] = &e->dpb[sl];
+        else if (e->dpb[sl].poc > poc) fut[nf++] = &e->dpb[sl];
+    }
+    for (int i = 1; i < np; i++)
         for (int k = i; k > 0 && past[k]->poc > past[k - 1]->poc; k--) { struct n265_refpic *t = past[k]; past[k] = past[k - 1]; past[k - 1] = t; }
-    e->nref[0] = 0;
-    for (int i = 0; i < npast && e->nref[0] < e->ref_max; i++) e->refl[0][e->nref[0]++] = past[i];
-    e->nref[1] = 0;
-    if (is_b && future) {
-        e->refl[1][e->nref[1]++] = future;
-        for (int i = 0; i < npast && e->nref[1] < e->ref_max; i++) e->refl[1][e->nref[1]++] = past[i];
+    for (int i = 1; i < nf; i++)
+        for (int k = i; k > 0 && fut[k]->poc < fut[k - 1]->poc; k--) { struct n265_refpic *t = fut[k]; fut[k] = fut[k - 1]; fut[k - 1] = t; }
+    e->nref[0] = e->nref[1] = 0;
+    for (int i = 0; i < np && e->nref[0] < e->ref_max; i++) e->refl[0][e->nref[0]++] = past[i];
+    if (is_b) for (int i = 0; i < nf && e->nref[0] < e->ref_max; i++) e->refl[0][e->nref[0]++] = fut[i];
+    if (is_b) {
+        for (int i = 0; i < nf && e->nref[1] < e->ref_max; i++) e->refl[1][e->nref[1]++] = fut[i];
+        for (int i = 0; i < np && e->nref[1] < e->ref_max; i++) e->refl[1][e->nref[1]++] = past[i];
     }
 }
 
-/* schedule and encode from the front of the lookahead queue: one
- * display step per call (an anchor may bring the B it delayed). Returns
- * the number of source frames consumed. */
+/* Is the lookahead frame at index i a forced key frame (IDR)? keyint,
+ * a scene cut, or the encoder's first frame. */
+static int la_is_idr(n265_encoder *e, int i)
+{
+    int d = e->la.f[i].display_idx;
+    return e->mode == N265_MODE_PCM || e->keyint == 1 || (d % e->keyint) == 0 ||
+           !e->ref_valid ||
+           (e->scenecut && d - e->gop_start_display >= 4 && n265_la_scenecut(e, i));
+}
+
+/* Emit the pyramid coding order for the B lookahead indices [blo, bhi],
+ * bracketed by already-coded references: the midpoint first (a reference if
+ * it has children on either side), then its two halves. */
+static void plan_brange(n265_encoder *e, int blo, int bhi, int depth)
+{
+    if (blo > bhi)
+        return;
+    int mid = (blo + bhi) / 2;
+    int is_ref = (blo <= mid - 1) || (mid + 1 <= bhi);
+    int k = e->plan_len++;
+    e->plan_li[k] = mid; e->plan_kind[k] = 0; e->plan_depth[k] = depth;
+    e->plan_nonref[k] = !is_ref;
+    plan_brange(e, blo, mid - 1, depth + 1);
+    plan_brange(e, mid + 1, bhi, depth + 1);
+}
+
+/* Build the coding-order plan for the mini-GOP at the front of the queue. */
+static void build_plan(n265_encoder *e)
+{
+    n265_la *la = &e->la;
+    e->plan_len = e->plan_pos = 0;
+    if (la_is_idr(e, 0)) {
+        e->gop_start_display = la->f[0].display_idx;
+        for (int sl = 0; sl < N265_DPB_SLOTS; sl++) e->dpb[sl].valid = 0;
+        e->ref_valid = 0;
+        e->plan_li[0] = 0; e->plan_kind[0] = 2; e->plan_depth[0] = 0; e->plan_nonref[0] = 0;
+        e->plan_len = 1; e->plan_pop = 1;
+        return;
+    }
+    /* the anchor offset A: as many B frames as bframes, cut short by the
+     * first forced key frame in the run (that frame opens the next GOP). */
+    int maxa = e->bframes < la->count ? e->bframes : la->count - 1;
+    int A = 0;
+    for (int i = 1; i <= maxa; i++) {
+        if (la_is_idr(e, i)) break;
+        A = i;
+    }
+    if (A == 0) {                       /* next frame is a key frame: front is a plain P */
+        e->plan_li[0] = 0; e->plan_kind[0] = 1; e->plan_depth[0] = 0; e->plan_nonref[0] = 0;
+        e->plan_len = 1; e->plan_pop = 1;
+        return;
+    }
+    /* the anchor first, then the B pyramid between the anchors */
+    e->plan_li[0] = A; e->plan_kind[0] = 1; e->plan_depth[0] = 0; e->plan_nonref[0] = 0;
+    e->plan_len = 1;
+    plan_brange(e, 0, A - 1, 1);
+    e->plan_pop = A + 1;
+}
+
+/* Encode one frame from the plan (building it first if none is active).
+ * Returns the number of source frames retired from the queue (0 until the
+ * plan completes, then the whole mini-GOP). */
 static int drive_scheduler(n265_encoder *e, size_t *out_used, int *count)
 {
     n265_la *la = &e->la;
     if (la->count == 0)
         return 0;
+    if (e->plan_pos >= e->plan_len)
+        build_plan(e);
 
-    la_frame *f0 = &la->f[0];
-    int d0 = f0->display_idx;
-    const uint8_t *s0[3] = { f0->src[0], f0->src[1], f0->src[2] };
+    int li = e->plan_li[e->plan_pos];
+    int kind = e->plan_kind[e->plan_pos];
+    la_frame *f = &la->f[li];
+    const uint8_t *src[3] = { f->src[0], f->src[1], f->src[2] };
     int st[3] = { e->pad_stride[0], e->pad_stride[1], e->pad_stride[2] };
-
-    int idr0 = e->mode == N265_MODE_PCM || e->keyint == 1 ||
-               (d0 % e->keyint) == 0 || !e->ref_valid ||
-               (e->scenecut && d0 - e->gop_start_display >= 4 &&
-                n265_la_scenecut(e, 0));
-
-    int is_b_slot = e->bframes && !idr0 &&
-                    ((d0 - e->gop_start_display) & 1) == 1;
+    int poc = f->display_idx - e->gop_start_display;
 
     memset(e->ctu_qp_off, 0, (size_t)e->ctb_cols * e->ctb_rows);
+    if (e->cutree)
+        n265_la_cutree(e, li);
+    /* reference lists from the DPB around this frame's POC (anchors have
+     * only L0; B frames have both) */
+    n265_build_lists(e, kind == 2 ? poc : poc, kind == 0, NULL);
+    int slice_type = kind == 2 ? 2 : kind == 1 ? 1 : 0;
+    encode_frame(e, src, st, slice_type, poc, e->plan_nonref[e->plan_pos],
+                 f->display_idx, e->plan_depth[e->plan_pos], out_used, count);
+    e->plan_pos++;
 
-    if (!is_b_slot || la->count < 2) {
-        /* anchor (or a tail frame with no future anchor: code as P) */
-        if (idr0) {
-            e->gop_start_display = d0;
+    if (e->plan_pos >= e->plan_len) {
+        int pop = e->plan_pop;
+        for (int i = 0; i < pop; i++) n265_la_pop(e);
+        /* the mini-GOP is done: reference B frames live only within it, and
+         * only ref_max anchors carry into the next one. Retire the rest so
+         * the DPB (and the next slice's RPS) hold exactly what is reusable. */
+        for (int sl = 0; sl < N265_DPB_SLOTS; sl++)
+            if (e->dpb[sl].valid && !e->dpb[sl].is_anchor) e->dpb[sl].valid = 0;
+        int nanchor = 0;
+        for (int sl = 0; sl < N265_DPB_SLOTS; sl++) if (e->dpb[sl].valid) nanchor++;
+        while (nanchor > e->ref_max) {
+            int oldest = -1;
             for (int sl = 0; sl < N265_DPB_SLOTS; sl++)
-                e->dpb[sl].valid = 0;
-            e->ref_valid = 0;
+                if (e->dpb[sl].valid && (oldest < 0 || e->dpb[sl].poc < e->dpb[oldest].poc)) oldest = sl;
+            e->dpb[oldest].valid = 0; nanchor--;
         }
-        if (e->cutree)
-            n265_la_cutree(e, 0);
-        encode_frame(e, s0, st, idr0 ? 2 : 1,
-                     idr0 ? 0 : d0 - e->gop_start_display, 0, d0,
-                     out_used, count);
-        n265_la_pop(e);
-        return 1;
+        return pop;
     }
-
-    /* B slot: its future anchor is queue index 1, unless that frame
-     * starts a new GOP, in which case this one closes the old GOP as P */
-    la_frame *f1 = &la->f[1];
-    int d1 = f1->display_idx;
-    int idr1 = (d1 % e->keyint) == 0 ||
-               (e->scenecut && d1 - e->gop_start_display >= 4 &&
-                n265_la_scenecut(e, 1));
-    if (idr1) {
-        if (e->cutree)
-            n265_la_cutree(e, 0);
-        encode_frame(e, s0, st, 1, d0 - e->gop_start_display, 0, d0,
-                     out_used, count);
-        n265_la_pop(e);
-        return 1;
-    }
-
-    /* encode the anchor first, then the B between the two anchors */
-    struct n265_refpic *prev_anchor = e->refl[0][0];
-    const uint8_t *s1[3] = { f1->src[0], f1->src[1], f1->src[2] };
-    if (e->cutree)
-        n265_la_cutree(e, 1);
-    encode_frame(e, s1, st, 1, d1 - e->gop_start_display, 0, d1, out_used,
-                 count);
-    struct n265_refpic *next_anchor = e->refl[0][0];
-    n265_build_lists(e, prev_anchor->poc, 1, next_anchor);
-    memset(e->ctu_qp_off, 0, (size_t)e->ctb_cols * e->ctb_rows);
-    if (e->cutree)
-        n265_la_cutree(e, 0);
-    encode_frame(e, s0, st, 0, d0 - e->gop_start_display, 1, d0, out_used,
-                 count);
-    n265_build_lists(e, next_anchor->poc, 0, NULL);
-    n265_la_pop(e);
-    n265_la_pop(e);
-    return 2;
+    return 0;
 }
 
 int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,

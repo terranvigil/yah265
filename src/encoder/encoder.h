@@ -33,6 +33,13 @@ struct n265_encoder {
     int qp_base;            /* configured QP (P anchors) */
     int crf_on;             /* n265_set_crf: base QP from crf, not qp_base */
     double crf;
+    int b_depth;            /* current B frame's pyramid layer (0 = anchor) */
+    /* the current mini-GOP's coding-order plan (pyramid): each entry is a
+     * lookahead index with its kind (0 B, 1 P, 2 IDR), pyramid depth and
+     * reference flag. Built once per mini-GOP, then drained one per call. */
+    int plan_li[LA_MAX], plan_depth[LA_MAX];
+    uint8_t plan_kind[LA_MAX], plan_nonref[LA_MAX];
+    int plan_len, plan_pos, plan_pop;
     int ctb_log2;
     int no_sao;
 
@@ -50,6 +57,7 @@ struct n265_encoder {
         int stride[3];
         int poc;
         int valid;
+        int is_anchor;      /* 1 for I/P anchors, 0 for reference B (pyramid lifetime) */
         /* collocated motion for TMVP, 16x16 granularity (top-left 4x4
          * of each region, spec mv storage reduction) */
         uint8_t *col_pred;

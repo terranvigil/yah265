@@ -77,7 +77,7 @@ static void usage(void)
         "  --pcm           phase-0 I_PCM mode (lossless, huge)\n"
         "  --ctu <16|32|64>  coding tree block size (default 32)\n"
         "  --keyint <n>    IDR period in frames (default 60)\n"
-        "  --bframes <0|1> non-reference B between anchors (default 1)\n"
+        "  --bframes <0..7> B frames between anchors, hierarchical (default 1)\n"
         "  --aq <0|1>      variance adaptive quantization (default 0)\n"
         "  --rc-lookahead <n>  lookahead depth in frames (default 12)\n"
         "  --cutree <0|1>  lookahead propagation QP offsets (default 0)\n"
