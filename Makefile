@@ -29,6 +29,12 @@ board: build
 board-quick: build
 	scripts/board.py --quick
 
+# BD-PSNR rows only, speed columns blank: the phase 3 form (quality work
+# doesn't move speed; the timed board runs at the phase exit and at every
+# speed milestone from phase 4 on)
+board-bd: build
+	scripts/board.py --bd-only
+
 asan:
 	@[ -d build-asan ] || meson setup build-asan -Db_sanitize=address,undefined -Db_lundef=false
 	ninja -C build-asan
