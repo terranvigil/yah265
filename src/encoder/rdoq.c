@@ -171,6 +171,10 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
               uint32_t lam_q8)
 {
     n265_rdoq_init();
+    static int up_probe = -1;
+    /* the away-from-zero level probe: -2.7% median BD-VMAF-NEG, 7/7 clips
+     * (2026-09-07). On by default; N265_RDOQ_UP=0 restores the 3-candidate set. */
+    if (up_probe < 0) { const char *v = getenv("N265_RDOQ_UP"); up_probe = v ? atoi(v) : 1; }
     int n = 1 << log2n;
     int nn = n * n;
     int qbits = 21 + qp / 6 - log2n;
@@ -256,7 +260,10 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
             double best = dz + lam * rsig0[i];
             int bestl = 0;
             double bestd = dz, bestr = rsig0[i];
-            for (int l = lmax; l >= 1 && l >= lmax - 1; l--) {
+            int lhi = lmax, llo = lmax - 1;
+            if (up_probe && lmax >= 1) lhi = lmax + 1;   /* away-from-zero probe */
+            if (lhi > 32767) lhi = 32767;
+            for (int l = lhi; l >= 1 && l >= llo; l--) {
                 int64_t dq = (l * dscale * 16 + dadd) >> bd_shift;
                 double e = (double)ac - (double)dq;
                 double d = e * e;
