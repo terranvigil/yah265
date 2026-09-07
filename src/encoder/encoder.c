@@ -404,7 +404,7 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
      * one step deeper than its parent (the reference B nearest the anchors
      * codes best, the leaves worst). N265_PB_STEP scales the per-layer
      * increment. */
-    double pb = 1.0; { const char *v = getenv("N265_PB_STEP"); if (v) pb = atof(v); }
+    double pb = 1.0; { const char *v = getenv("N265_PB_STEP"); if (v) pb = atof(v); }   /* live in CQP and CRF alike */
     int cascade = slice_type == 2 ? -3 : slice_type == 0 ? (int)lround(1 + b_depth * pb) : 0;
     int q = (int)lround(base) + cascade;
     e->qp = q < 0 ? 0 : q > 51 ? 51 : q;
