@@ -39,9 +39,12 @@ QPS = [22, 27, 32, 37]
 
 # x265 args mirroring our current featureset (update as features land;
 # the goal is for this list to shrink to nothing)
-X265_MATCHED = ["--keyint", "60", "--bframes", "1", "--b-adapt", "0",
-                "--rc-lookahead", "2", "--ref", "1", "--no-scenecut",
-                "--no-open-gop", "--no-b-pyramid"]
+# x265 configured DOWN to our current featureset, for the like-for-like BD
+# anchor. Grows as the encoder does; now: hierarchical B (bframes 3, fast
+# adaptive), one reference, no rect/AMP yet. (2026-09-07)
+X265_MATCHED = ["--keyint", "60", "--bframes", "3", "--b-adapt", "1",
+                "--rc-lookahead", "12", "--ref", "1", "--no-open-gop",
+                "--no-rect", "--no-amp"]
 
 SYNTH_CLIPS = [
     # deterministic synthetic fallback (--synth, or no corpus fetched)
