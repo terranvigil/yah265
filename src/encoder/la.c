@@ -356,7 +356,7 @@ void n265_la_cutree(struct n265_encoder *e, int i)
                     acc += log2f((ic + f->prop[b]) / ic);
                     cnt++;
                 }
-            float v = cnt ? -2.0f * acc / cnt : 0;
+            float v = cnt ? -e->cutree_str * acc / cnt : 0;
             raw[cy * e->ctb_cols + cx] = v;
             mean += v;
         }

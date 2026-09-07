@@ -71,6 +71,7 @@ struct n265_encoder {
     int nref[2];
     int ref_max;            /* --ref: references per list wanted (1..N265_MAX_REF) */
     int badapt;             /* --b-adapt: shorten the B run on high-motion spans */
+    float cutree_str;       /* N265_CUTREE_STR: cu-tree offset strength (default 2.0) */
     int ref_valid;
 
     uint8_t *ct_depth;      /* 4x4-granularity coding-tree depth map */

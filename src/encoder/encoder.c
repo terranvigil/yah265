@@ -105,6 +105,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->crf = g_crf;
     e->ref_max = e->mode == N265_MODE_PCM ? 1 : g_ref;
     e->badapt = g_badapt;
+    { const char *v = getenv("N265_CUTREE_STR"); e->cutree_str = v ? (float)atof(v) : 2.0f; }
     e->ctb_log2 = e->mode == N265_MODE_PCM ? 4 : g_ctb_log2;
     e->keyint = e->mode == N265_MODE_PCM ? 1 : g_keyint;
     e->bframes = e->mode == N265_MODE_PCM ? 0 : g_bframes;
