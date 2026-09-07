@@ -70,6 +70,7 @@ struct n265_encoder {
     struct n265_refpic *refl[2][N265_MAX_REF];
     int nref[2];
     int ref_max;            /* --ref: references per list wanted (1..N265_MAX_REF) */
+    int badapt;             /* --b-adapt: shorten the B run on high-motion spans */
     int ref_valid;
 
     uint8_t *ct_depth;      /* 4x4-granularity coding-tree depth map */

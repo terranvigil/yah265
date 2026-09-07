@@ -47,8 +47,9 @@ static double g_crf = -1.0;      /* n265_set_crf; < 0 = CQP */
 static int g_ctb_log2 = 6;
 static int g_keyint = 60;
 
-static int g_bframes = 1;
+static int g_bframes = 3;         /* hierarchical B default (2026-09-07) */
 static int g_ref = 1;            /* n265_set_ref */
+static int g_badapt = 1;         /* adaptive B run length, default on */
 static int g_aq = 0;
 static int g_la_depth = 12;
 static int g_cutree = 0;
@@ -64,6 +65,7 @@ void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes,
                    int aq);
 void n265_set_crf(double crf) { g_crf = crf; }
 void n265_set_ref(int n) { g_ref = n < 1 ? 1 : n > N265_MAX_REF ? N265_MAX_REF : n; }
+void n265_set_badapt(int on) { g_badapt = on ? 1 : 0; }
 
 void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes,
                    int aq)
@@ -102,6 +104,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->crf_on = g_crf >= 0.0;
     e->crf = g_crf;
     e->ref_max = e->mode == N265_MODE_PCM ? 1 : g_ref;
+    e->badapt = g_badapt;
     e->ctb_log2 = e->mode == N265_MODE_PCM ? 4 : g_ctb_log2;
     e->keyint = e->mode == N265_MODE_PCM ? 1 : g_keyint;
     e->bframes = e->mode == N265_MODE_PCM ? 0 : g_bframes;
@@ -676,9 +679,20 @@ static void build_plan(n265_encoder *e)
      * first forced key frame in the run (that frame opens the next GOP). */
     int maxa = e->bframes < la->count ? e->bframes : la->count - 1;
     int A = 0;
+    /* adaptive B placement: extend the B run frame by frame, but end it at
+     * the first frame whose lookahead motion x inter/intra ratio says a far
+     * bidirectional prediction will code badly (high-motion pans hurt as
+     * deep B; foliage/texture with low motion do not). N265_BADAPT_THR the
+     * cutoff on (mean |lowres MV| per block) x (pcost/icost). */
+    double bthr = 0.35; { const char *v = getenv("N265_BADAPT_THR"); if (v) bthr = atof(v); }
+    int nb = la->bw * la->bh;
     for (int i = 1; i <= maxa; i++) {
         if (la_is_idr(e, i)) break;
         A = i;
+        if (e->badapt) {
+            double m = (double)la->f[i].mvabs_sum / (nb ? nb : 1) * (double)la->f[i].sc_ratio;
+            if (m > bthr) break;    /* this frame ends the run (it is the anchor) */
+        }
     }
     if (A == 0) {                       /* next frame is a key frame: front is a plain P */
         e->plan_li[0] = 0; e->plan_kind[0] = 1; e->plan_depth[0] = 0; e->plan_nonref[0] = 0;

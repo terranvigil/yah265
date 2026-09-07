@@ -110,7 +110,7 @@ void n265_la_push(struct n265_encoder *e, const uint8_t *const plane[3],
         }
 
     /* per-8x8 costs */
-    f->icost_sum = f->pcost_sum = 0;
+    f->icost_sum = f->pcost_sum = f->mvabs_sum = 0;
     for (int by = 0; by < la->bh; by++)
         for (int bx = 0; bx < la->bw; bx++) {
             int b = by * la->bw + bx;
@@ -217,6 +217,7 @@ void n265_la_push(struct n265_encoder *e, const uint8_t *const plane[3],
             }
             f->icost_sum += f->icost[b];
             f->pcost_sum += f->pcost[b];
+            f->mvabs_sum += abs(f->mv[2*b]) + abs(f->mv[2*b+1]);
         }
     f->sc_ratio = (float)f->pcost_sum /
                   (float)(f->icost_sum ? f->icost_sum : 1);

@@ -87,6 +87,9 @@ YAH265_API void n265_set_la(int depth, int cutree);
 YAH265_API void n265_set_crf(double crf);
 /* references per list (1..3), P and B alike; more references cost search time. */
 YAH265_API void n265_set_ref(int n);
+/* adaptive B run length: with bframes > 1, shorten the run on high-motion
+ * spans (measured from the lookahead) instead of always coding the maximum. */
+YAH265_API void n265_set_badapt(int on);
 
 /* NULL on invalid params or allocation failure. */
 YAH265_API n265_encoder *n265_encoder_open(const n265_param *p);

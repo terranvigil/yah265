@@ -26,6 +26,7 @@ typedef struct la_frame {
     int16_t *mv;            /* lowres MV pairs (full-pel lowres units)  */
     float *prop;            /* cu-tree propagate-in accumulator         */
     uint64_t icost_sum, pcost_sum;
+    uint64_t mvabs_sum;     /* sum |lowres MV| over blocks (motion magnitude) */
 } la_frame;
 
 typedef struct n265_la {

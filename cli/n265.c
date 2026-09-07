@@ -73,11 +73,12 @@ static void usage(void)
         "  --qp <n>        fixed QP (default 26)\n"
         "  --crf <f>       constant rate factor (base QP from f; overrides --qp)\n"
         "  --ref <n>       references per list, 1..3 (default 1)\n"
+        "  --b-adapt <0|1> adaptive B run length from the lookahead (default 1)\n"
         "  (RDOQ is on; N265_RDOQ=0 turns it off, N265_PSY=F adds the psy term)\n"
         "  --pcm           phase-0 I_PCM mode (lossless, huge)\n"
         "  --ctu <16|32|64>  coding tree block size (default 32)\n"
         "  --keyint <n>    IDR period in frames (default 60)\n"
-        "  --bframes <0..7> B frames between anchors, hierarchical (default 1)\n"
+        "  --bframes <0..7> B frames between anchors, hierarchical (default 3)\n"
         "  --aq <0|1>      variance adaptive quantization (default 0)\n"
         "  --rc-lookahead <n>  lookahead depth in frames (default 12)\n"
         "  --cutree <0|1>  lookahead propagation QP offsets (default 0)\n"
@@ -91,9 +92,9 @@ int main(int argc, char **argv)
     const char *in_path = NULL, *out_path = "out.hevc";
     const char *dump_path = NULL;
     long max_frames = -1;
-    int qp = 26, pcm = 0, ctu = 64, keyint = 60, bframes = 1, aq = 0;
+    int qp = 26, pcm = 0, ctu = 64, keyint = 60, bframes = 3, aq = 0;
     double crf = -1.0;
-    int nref = 1;
+    int nref = 1, badapt = 1;
     int lookahead = 12, cutree = 0;
     const char *dump_decode_path = NULL;
 
@@ -108,6 +109,8 @@ int main(int argc, char **argv)
             crf = atof(argv[++i]);
         } else if (!strcmp(argv[i], "--ref") && i + 1 < argc) {
             nref = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--b-adapt") && i + 1 < argc) {
+            badapt = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--keyint") && i + 1 < argc) {
             keyint = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--bframes") && i + 1 < argc) {
@@ -168,6 +171,7 @@ int main(int argc, char **argv)
     n265_set_mode(pcm ? 1 : 0, qp, ctb_log2, keyint, bframes, aq);
     if (crf >= 0) n265_set_crf(crf);
     n265_set_ref(nref);
+    n265_set_badapt(badapt);
     n265_set_la(lookahead, cutree);
     n265_param p;
     n265_param_default(&p);
