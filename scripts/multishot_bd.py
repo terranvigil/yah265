@@ -11,8 +11,9 @@ move between shots; this encodes the S0 multi-shot sequences
 shot) at several CRF points for every arm and reports, per sequence,
 BD-VMAF-NEG for every arm pair, the per-shot VMAF-NEG at each point and the
 per-shot bit share. Arms are "name=<command template>" with {src} {q} {out};
-"name=env:VAR=val ..." runs our binary (YAH264, default build/cli/yah265)
-at --threads 0 under that environment, "x265" runs the reference at medium.
+"name=env:VAR=val ..." runs our binary (YAH264, default build/n265) under that
+environment with --our-args (default `--crf {q} --aq 1 --cutree 1`, the band's
+operating point), "x265" runs the reference at medium.
 
   scripts/multishot_bd.py --arms flat=env: aqdc=env:N265_AQ_DC=0.4 x265 \\
       --seqs ms_cif_30,ms_720p_50,ms_1080p_25 --points 22,26,30,34
@@ -53,6 +54,11 @@ def main():
     ap.add_argument("--work", default=os.path.join(ROOT, "local", "multishot_work"))
     ap.add_argument("--x265", dest="x265", default=os.environ.get("X265", "x265"))
     ap.add_argument("--threads", default="0", help="our --threads (0 = auto)")
+    ap.add_argument("--our-args", dest="our_args", default="--crf {q} --aq 1 --cutree 1",
+                    help="the rate-control flags the env: arms encode with. The default is "
+                         "the band's CRF operating point; the across-shot term this gate "
+                         "measures (N265_AQ_DC) only exists under CRF, and CQP would make "
+                         "every arm here byte-identical. '--qp {q}' restores the CQP form.")
     a = ap.parse_args()
     ours = os.environ.get("YAH264", os.path.join(ROOT, "build", "n265"))
     os.makedirs(a.work, exist_ok=True)
@@ -64,7 +70,7 @@ def main():
             tmpl = f"{shlex.quote(a.x265)} --preset medium --crf {{q}} --pools none --frame-threads 1 --log-level none -o {{out}} {{src}}"
         elif tmpl.startswith("env:"):
             env = tmpl[4:].strip()
-            tmpl = (f"env {env} " if env else "") + f"{shlex.quote(ours)} {{src}} --qp {{q}} -o {{out}}"
+            tmpl = (f"env {env} " if env else "") + f"{shlex.quote(ours)} {{src}} {a.our_args} -o {{out}}"
         arms[name] = tmpl
     for seq in a.seqs.split(","):
         src = os.path.join(a.corpus, seq + ".y4m")
