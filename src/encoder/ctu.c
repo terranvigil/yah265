@@ -769,26 +769,272 @@ static int est_skip_inc(struct n265_encoder *e, int x0, int y0)
     return inc;
 }
 
-static void est_mvd(est_state *st, int mx, int my)
+/* mvd_coding (7.3.8.9): the two greater-flags on their own contexts, the
+ * EG1 remainder and the sign in bypass. The contexts are advanced, so a
+ * caller that only wants a PRICE passes copies. Q8 bits. */
+static uint32_t mvd_cost_q8(cabac_ctx_t *g0, cabac_ctx_t *g1, int mx, int my)
 {
     int ax = mx < 0 ? -mx : mx, ay = my < 0 ? -my : my;
-    st->bits += n265_est_bin(&st->ctx[CTX_MVD_GR0], ax > 0);
-    st->bits += n265_est_bin(&st->ctx[CTX_MVD_GR0], ay > 0);
+    uint32_t b = 0;
+    b += n265_est_bin(g0, ax > 0);
+    b += n265_est_bin(g0, ay > 0);
     if (ax > 0)
-        st->bits += n265_est_bin(&st->ctx[CTX_MVD_GR1], ax > 1);
+        b += n265_est_bin(g1, ax > 1);
     if (ay > 0)
-        st->bits += n265_est_bin(&st->ctx[CTX_MVD_GR1], ay > 1);
+        b += n265_est_bin(g1, ay > 1);
     for (int c = 0; c < 2; c++) {
         int a = c ? ay : ax;
         if (a > 0) {
             if (a > 1) {
                 int v = a - 2, bl = 1, bits = 1;
                 while (v >= (1 << bl)) { v -= 1 << bl; bl++; bits += 2; }
-                st->bits += n265_est_bypass_bits(bits + bl - 1);
+                b += n265_est_bypass_bits(bits + bl - 1);
             }
-            st->bits += n265_est_bypass_bits(1);
+            b += n265_est_bypass_bits(1);
         }
     }
+    return b;
+}
+
+static void est_mvd(est_state *st, int mx, int my)
+{
+    st->bits += mvd_cost_q8(&st->ctx[CTX_MVD_GR0], &st->ctx[CTX_MVD_GR1],
+                            mx, my);
+}
+
+/* --- the motion-candidate rate model (N265_MVD_BITS, N265_BI_REFINE) --- */
+
+static int mvd_bits_on(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *v = getenv("N265_MVD_BITS");
+        on = v ? atoi(v) != 0 : 0;
+    }
+    return on;
+}
+
+/* Hadamard instead of SAD in the 2Nx2N reference ranking and the
+ * uni/bi arbitration (the rect/AMP PU search already uses it) */
+static int me_satd_on(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *v = getenv("N265_ME_SATD");
+        on = v ? atoi(v) != 0 : 0;
+    }
+    return on;
+}
+
+/* AMVP 2Nx2N at the CB64 node (the quadtree's log2n == 6 arm set) */
+static int cb64_amvp(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *v = getenv("N265_CB64_AMVP");
+        on = v ? atoi(v) != 0 : 0;
+    }
+    return on;
+}
+
+/* percent by which an intra CU must beat the best inter cost in a B
+ * slice to be admitted; N265_B_INTRA_MARGIN=0 is the plain comparison */
+static int b_intra_margin(void)
+{
+    static int mg = -1;
+    if (mg < 0) {
+        const char *v = getenv("N265_B_INTRA_MARGIN");
+        mg = v ? atoi(v) : 0;
+        if (mg < 0)
+            mg = 0;
+    }
+    return mg;
+}
+
+/* number of L0/L1 refinement sweeps; N265_BI_REFINE unset is the arm off */
+static int bi_refine_iters(void)
+{
+    static int it = -1;
+    if (it < 0) {
+        const char *v = getenv("N265_BI_REFINE");
+        it = v ? atoi(v) : 0;
+        if (it > 4)
+            it = 4;
+    }
+    return it;
+}
+
+/* L1 distance to the nearer of the two AMVP predictors: the historical
+ * proxy's "one bit per quarter-pel" measure, and the mvp_lX_flag choice */
+static int mvd_proxy(mv_t mv, const mv_t p[2])
+{
+    int c0 = abs(mv.x - p[0].x) + abs(mv.y - p[0].y);
+    int c1 = abs(mv.x - p[1].x) + abs(mv.y - p[1].y);
+    return c1 < c0 ? c1 : c0;
+}
+
+static int mvp_pick(mv_t mv, const mv_t p[2])
+{
+    return abs(mv.x - p[1].x) + abs(mv.y - p[1].y) <
+           abs(mv.x - p[0].x) + abs(mv.y - p[0].y);
+}
+
+/* ref_idx_lX (truncated unary, two contexts then bypass) in Q8 bits */
+static uint32_t ref_bits_q8(struct n265_encoder *e, int list, int r)
+{
+    int cmax = e->nref[list] - 1;
+    if (cmax < 1)
+        return 0;
+    cabac_ctx_t c0 = e->est_ctx[CTX_REF_IDX + 0];
+    cabac_ctx_t c1 = e->est_ctx[CTX_REF_IDX + 1];
+    uint32_t b = n265_est_bin(&c0, r > 0);
+    if (r > 0 && cmax > 1)
+        b += n265_est_bin(&c1, r > 1);
+    if (r > 1 && cmax > 2)
+        b += 256u * (uint32_t)((r < cmax ? r : cmax - 1) - 1);
+    return b;
+}
+
+/* inter_pred_idc in Q8 bits (9.3.3.8: bin 0 on the CU depth context, the
+ * uni-direction bin at index 4; an 8x4/4x8 PU codes only the latter) */
+static uint32_t idc_bits_q8(struct n265_encoder *e, int log2cb, int pw, int ph,
+                            int pred)
+{
+    if (e->slice_type != 0)
+        return 0;
+    uint32_t b = 0;
+    if (pw + ph != 12) {
+        cabac_ctx_t c = e->est_ctx[CTX_INTER_IDC + (e->ctb_log2 - log2cb)];
+        b += n265_est_bin(&c, pred == 3);
+        if (pred == 3)
+            return b;
+    }
+    cabac_ctx_t c4 = e->est_ctx[CTX_INTER_IDC + 4];
+    b += n265_est_bin(&c4, pred >> 1);
+    return b;
+}
+
+/* Motion syntax rate of one AMVP candidate, Q8 bits, for the SATD-domain
+ * candidate ranking. With N265_MVD_BITS off this is the historical proxy
+ * - one bit per quarter-pel of MVD distance plus two per reference index
+ * plus `base` - written in Q8 so the call sites are shared; the two are
+ * numerically identical there (a Q8 value scaled by lambda_sad >> 12 is
+ * the old expression scaled >> 4). */
+static uint32_t mot_rate_q8(struct n265_encoder *e, const pu_geo *g,
+                            const mot_t *m, mv_t mvp[2][2], int base)
+{
+    uint32_t b = 0;
+    int real = mvd_bits_on();
+    if (real)
+        b += idc_bits_q8(e, 31 - __builtin_clz((unsigned)g->cbn), g->w, g->h,
+                         m->pred);
+    for (int l = 0; l < 2; l++) {
+        if (!(m->pred & (1 << l)))
+            continue;
+        if (!real) {
+            b += (uint32_t)(mvd_proxy(m->mv[l], mvp[l]) + 2 * m->ref[l] +
+                            base) << 8;
+            continue;
+        }
+        int k = mvp_pick(m->mv[l], mvp[l]);
+        cabac_ctx_t g0 = e->est_ctx[CTX_MVD_GR0];
+        cabac_ctx_t g1 = e->est_ctx[CTX_MVD_GR1];
+        cabac_ctx_t mf = e->est_ctx[CTX_MVP_FLAG];
+        b += mvd_cost_q8(&g0, &g1, m->mv[l].x - mvp[l][k].x,
+                         m->mv[l].y - mvp[l][k].y);
+        b += n265_est_bin(&mf, k);
+        b += ref_bits_q8(e, l, m->ref[l]);
+    }
+    return b;
+}
+
+/* SATD of a bi prediction whose fixed list is already interpolated into
+ * fix14: only the moving list pays an MC. */
+static uint32_t bi_satd_fixed(struct n265_encoder *e, int x0, int y0, int w,
+                              int h, const int16_t *fix14, int list, int ref,
+                              mv_t mv)
+{
+    int16_t a[64 * 64];
+    uint8_t pred[64 * 64];
+    mc_pred14(e, list, ref, 0, x0, y0, w, h, mv, a);
+    n265_bi_avg_wh(pred, w, a, fix14, w, h);
+    return n265_satd_wh(e->pad_plane[0] + y0 * e->pad_stride[0] + x0,
+                        e->pad_stride[0], pred, w, w, h);
+}
+
+/* Bi-prediction refinement (N265_BI_REFINE). Pairing the two independent
+ * per-list winners optimises each half against the SOURCE; the average
+ * they form is never searched. Holding one list fixed makes the bi
+ * prediction an affine function of the other, so the pair walks downhill
+ * on the combined SATD under a small quarter-pel square pattern, one
+ * list at a time. A zero-MV bi probe goes first: it is the one pair the
+ * per-list winners cannot produce once either list has drifted, and it
+ * costs one SATD.
+ *
+ * `bi` and `mvp` are updated in place; the caller keeps its own copies
+ * until it knows the bi candidate won, because a probe that changes a
+ * reference index changes the predictor pair with it and a stale mvp
+ * would make the decoder reconstruct a different vector. */
+static uint32_t bi_refine(struct n265_encoder *e, const pu_geo *g, mot_t *bi,
+                          mv_t mvp[2][2], int lam4, int base)
+{
+    int w = g->w, h = g->h, x0 = g->x, y0 = g->y;
+    int16_t fix[64 * 64];
+    uint32_t best = mot_satd_wh(e, x0, y0, w, h, *bi) +
+        (uint32_t)(((uint64_t)mot_rate_q8(e, g, bi, mvp, base) * lam4) >> 12);
+
+    if (bi->mv[0].x || bi->mv[0].y || bi->mv[1].x || bi->mv[1].y ||
+        bi->ref[0] || bi->ref[1]) {
+        mot_t z = { { { 0, 0 }, { 0, 0 } }, 3, { 0, 0 } };
+        mv_t zp[2][2];
+        n265_amvp_pu(e, 0, 0, g, zp[0]);
+        n265_amvp_pu(e, 1, 0, g, zp[1]);
+        uint32_t c = mot_satd_wh(e, x0, y0, w, h, z) +
+            (uint32_t)(((uint64_t)mot_rate_q8(e, g, &z, zp, base) * lam4) >> 12);
+        if (c < best) {
+            best = c;
+            *bi = z;
+            memcpy(mvp, zp, sizeof(zp));
+        }
+    }
+
+    int iters = bi_refine_iters();
+    for (int it = 0; it < iters; it++) {
+        int moved = 0;
+        for (int l = 0; l < 2; l++) {
+            int o = !l;
+            mc_pred14(e, o, bi->ref[o], 0, x0, y0, w, h, bi->mv[o], fix);
+            mot_t t = *bi;
+            mv_t bmv = bi->mv[l];
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++) {
+                    if (!dx && !dy)
+                        continue;
+                    mv_t v = { (int16_t)(bi->mv[l].x + dx),
+                               (int16_t)(bi->mv[l].y + dy) };
+                    mv_t vc = v;
+                    n265_clamp_mv(e, x0, y0, w, h, &vc);
+                    if (vc.x != v.x || vc.y != v.y)
+                        continue;
+                    t.mv[l] = v;
+                    uint32_t c = bi_satd_fixed(e, x0, y0, w, h, fix, l,
+                                               bi->ref[l], v) +
+                        (uint32_t)(((uint64_t)mot_rate_q8(e, g, &t, mvp, base)
+                                    * lam4) >> 12);
+                    if (c < best) {
+                        best = c;
+                        bmv = v;
+                    }
+                }
+            if (bmv.x != bi->mv[l].x || bmv.y != bi->mv[l].y) {
+                bi->mv[l] = bmv;
+                moved = 1;
+            }
+        }
+        if (!moved)
+            break;
+    }
+    return best;
 }
 
 /* residual + cbf bits of a flat (TU == CU) transform set */
@@ -1128,7 +1374,6 @@ static uint32_t search_pu(struct n265_encoder *e, const pu_geo *g,
 
     mv_t me[2] = { { 0, 0 }, { 0, 0 } }, mvp[2][2];
     int8_t bref[2] = { 0, 0 };
-    int mvdc[2] = { 0, 0 };
     uint32_t side[2] = { UINT32_MAX, UINT32_MAX };
     int nl = e->slice_type == 0 ? 2 : 1;
     for (int l = 0; l < 2; l++) {
@@ -1144,22 +1389,23 @@ static uint32_t search_pu(struct n265_encoder *e, const pu_geo *g,
                     n265_mc_sad(e, l, r, g->x, g->y, w, h, p[0]))
                 seed = start[l];
             n265_me_search(e, l, r, g->x, g->y, w, h, seed, &mv);
-            int c0 = abs(mv.x - p[0].x) + abs(mv.y - p[0].y);
-            int c1 = abs(mv.x - p[1].x) + abs(mv.y - p[1].y);
-            int mvd = c1 < c0 ? c1 : c0;
             mot_t u;
             u.mv[0].x = u.mv[0].y = u.mv[1].x = u.mv[1].y = 0;
             u.ref[0] = u.ref[1] = 0;
             u.pred = (uint8_t)(1 << l);
             u.mv[l] = mv;
             u.ref[l] = (int8_t)r;
+            mv_t up[2][2] = { { { 0, 0 }, { 0, 0 } },
+                              { { 0, 0 }, { 0, 0 } } };
+            up[l][0] = p[0];
+            up[l][1] = p[1];
             uint32_t c = mot_satd_wh(e, g->x, g->y, w, h, u) +
-                (uint32_t)(((mvd + 2 * r + 6) * lam4) >> 4);
+                (uint32_t)(((uint64_t)mot_rate_q8(e, g, &u, up, 6) * lam4)
+                           >> 12);
             if (c < side[l]) {
                 side[l] = c;
                 me[l] = mv;
                 bref[l] = (int8_t)r;
-                mvdc[l] = mvd;
                 mvp[l][0] = p[0];
                 mvp[l][1] = p[1];
             }
@@ -1189,12 +1435,20 @@ static uint32_t search_pu(struct n265_encoder *e, const pu_geo *g,
             bi.ref[0] = bref[0];
             bi.ref[1] = bref[1];
             bi.pred = 3;
-            uint32_t c = mot_satd_wh(e, g->x, g->y, w, h, bi) +
-                (uint32_t)(((mvdc[0] + mvdc[1] + 2 * (bref[0] + bref[1]) +
-                             12) * lam4) >> 4);
+            mv_t bp[2][2];
+            memcpy(bp, mvp, sizeof(bp));
+            uint32_t c;
+            if (bi_refine_iters()) {
+                c = bi_refine(e, g, &bi, bp, lam4, 6);
+            } else {
+                c = mot_satd_wh(e, g->x, g->y, w, h, bi) +
+                    (uint32_t)(((uint64_t)mot_rate_q8(e, g, &bi, bp, 6) *
+                                lam4) >> 12);
+            }
             if (c < acost) {
                 amot = bi;
                 acost = c;
+                memcpy(mvp, bp, sizeof(bp));
             }
         }
     }
@@ -1543,6 +1797,8 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
             int mvp_idx[2] = { 0, 0 };
             mot_t amot = { { { 0, 0 }, { 0, 0 } }, 1 };
             int same_as_cand = 1;
+            pu_geo pg = { x0, y0, n, x0, y0, n, n, 0, 0 };
+            int lam4 = lambda_sad_q4(e->cur_ctu_qp);
             if (!gate_amvp) {
                 /* per list: search every reference, keep the one whose
                  * SAD + lambda x (mvd + ref_idx) bits is lowest, and the
@@ -1553,12 +1809,26 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                         mv_t p[2], mv;
                         n265_amvp(e, l, r, x0, y0, n, n, p);
                         uint32_t sad = n265_me_search(e, l, r, x0, y0, n, n, p[0], &mv);
-                        int mvd = abs(mv.x - p[0].x) + abs(mv.y - p[0].y);
-                        int m1 = abs(mv.x - p[1].x) + abs(mv.y - p[1].y);
-                        if (m1 < mvd) mvd = m1;
-                        /* cheap rate proxy: ~1 bit per qpel unit of mvd magnitude
-                         * plus the ref index's unary bins, at lambda_sad */
-                        uint32_t c = sad + (uint32_t)(((mvd + 2 * r + 4) * lambda_sad_q4(e->cur_ctu_qp)) >> 4);
+                        mot_t u;
+                        u.mv[0].x = u.mv[0].y = u.mv[1].x = u.mv[1].y = 0;
+                        u.ref[0] = u.ref[1] = 0;
+                        u.pred = (uint8_t)(1 << l);
+                        u.mv[l] = mv;
+                        u.ref[l] = (int8_t)r;
+                        mv_t up[2][2] = { { { 0, 0 }, { 0, 0 } },
+                                          { { 0, 0 }, { 0, 0 } } };
+                        up[l][0] = p[0];
+                        up[l][1] = p[1];
+                        /* rate proxy (or the real syntax under
+                         * N265_MVD_BITS), at lambda_sad. n265_me_search
+                         * returns the FULL-PEL SAD, so the reference
+                         * ranking never sees what the subpel round did
+                         * to the winner; N265_ME_SATD re-costs it. */
+                        uint32_t d = me_satd_on()
+                            ? mot_satd_wh(e, x0, y0, n, n, u) : sad;
+                        uint32_t c = d +
+                            (uint32_t)(((uint64_t)mot_rate_q8(e, &pg, &u, up, 4)
+                                        * lam4) >> 12);
                         if (c < best_c) { best_c = c; me_mv[l] = mv; mvp[l][0] = p[0]; mvp[l][1] = p[1]; amot.ref[l] = (int8_t)r; }
                     }
                 }
@@ -1566,13 +1836,32 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                 if (e->slice_type == 0) {
                     mot_t u1 = { { { 0, 0 }, me_mv[1] }, 2, { 0, amot.ref[1] } };
                     mot_t bi = { { me_mv[0], me_mv[1] }, 3, { amot.ref[0], amot.ref[1] } };
-                    uint32_t s0 = mot_sad(e, x0, y0, log2n, amot);
-                    uint32_t s1 = mot_sad(e, x0, y0, log2n, u1);
-                    uint32_t sb = mot_sad(e, x0, y0, log2n, bi);
+                    mv_t bp[2][2];
+                    memcpy(bp, mvp, sizeof(bp));
+                    if (bi_refine_iters())
+                        (void)bi_refine(e, &pg, &bi, bp, lam4, 6);
+                    /* SAD cannot tell the blur of a bi average from a
+                     * misalignment, and this is the comparison that
+                     * decides bi against uni; N265_ME_SATD makes it the
+                     * Hadamard cost the rect/AMP PU search already uses */
+                    int ms = me_satd_on();
+                    uint32_t s0 = ms ? mot_satd_wh(e, x0, y0, n, n, amot)
+                                     : mot_sad(e, x0, y0, log2n, amot);
+                    uint32_t s1 = ms ? mot_satd_wh(e, x0, y0, n, n, u1)
+                                     : mot_sad(e, x0, y0, log2n, u1);
+                    uint32_t sb = ms ? mot_satd_wh(e, x0, y0, n, n, bi)
+                                     : mot_sad(e, x0, y0, log2n, bi);
+                    if (mvd_bits_on()) {
+                        s0 += (uint32_t)(((uint64_t)mot_rate_q8(e, &pg, &amot, mvp, 6) * lam4) >> 12);
+                        s1 += (uint32_t)(((uint64_t)mot_rate_q8(e, &pg, &u1, mvp, 6) * lam4) >> 12);
+                        sb += (uint32_t)(((uint64_t)mot_rate_q8(e, &pg, &bi, bp, 6) * lam4) >> 12);
+                    }
                     if (s1 < s0 && s1 <= sb)
                         amot = u1;
-                    else if (sb < s0)
+                    else if (sb < s0) {
                         amot = bi;
+                        memcpy(mvp, bp, sizeof(bp));
+                    }
                 }
                 same_as_cand = amot.pred == cand.pred &&
                     (!(amot.pred & 1) ||
@@ -1596,14 +1885,14 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                 uint64_t d = tb_ssd(e, 0, x0, y0, log2n, &a_tl) +
                     tb_ssd(e, 1, x0 / 2, y0 / 2, log2n - 1, &a_tcb) +
                     tb_ssd(e, 2, x0 / 2, y0 / 2, log2n - 1, &a_tcr);
+                /* the vector actually coded, not the per-list ME winner:
+                 * the two are the same only until a bi refinement moves
+                 * one of them, and a predictor picked for the other
+                 * vector would make the decoder rebuild a different MV */
                 for (int l = 0; l < 2; l++) {
                     if (!(amot.pred & (1 << l)))
                         continue;
-                    int c0 = abs(me_mv[l].x - mvp[l][0].x) +
-                             abs(me_mv[l].y - mvp[l][0].y);
-                    int c1 = abs(me_mv[l].x - mvp[l][1].x) +
-                             abs(me_mv[l].y - mvp[l][1].y);
-                    mvp_idx[l] = c1 < c0;
+                    mvp_idx[l] = mvp_pick(amot.mv[l], mvp[l]);
                 }
                 pd[1].mot = amot;
                 pd[1].merge = 0;
@@ -1673,7 +1962,19 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
             int kind = 0;   /* 0 skip, 1 merge, 2 amvp, 3 intra, 4 split PU */
             if (j_merge < best) { best = j_merge; kind = 1; }
             if (j_amvp < best) { best = j_amvp; kind = 2; }
-            if (j_intra < best) { best = j_intra; kind = 3; }
+            /* Intra admission margin in B (N265_B_INTRA_MARGIN, percent).
+             * An intra CU in a referenced B costs more than its own RD
+             * says: it cuts the prediction chain the frames above it in
+             * the pyramid ride on, and the local J cannot see that. Make
+             * it win by a margin instead of by a hair. Zero = the plain
+             * comparison. */
+            uint64_t j_intra_adm = j_intra;
+            {
+                int mg = b_intra_margin();
+                if (mg && e->slice_type == 0 && j_intra != UINT64_MAX)
+                    j_intra_adm = j_intra * (uint64_t)(100 + mg) / 100;
+            }
+            if (j_intra_adm < best) { best = j_intra; kind = 3; }
 
             /* rectangular and asymmetric partitions. Gated the way the
              * expensive candidates are: a static region (skip won, or the
@@ -2082,6 +2383,40 @@ static uint64_t quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
             j_cu = j_m;
         else
             qt_restore(e, ss, x0, y0, n);
+
+        /* AMVP 2Nx2N at 64x64 (N265_CB64_AMVP). The CB64 node had merge
+         * and skip only, so a 64x64 region whose motion is not in the
+         * merge list had to be split into four 32x32 CUs and pay four
+         * motion fields plus the split flags for one. The transform is
+         * the same forced TU32 quad the merge arm uses. Entered only
+         * where the PU search prefers AMVP to merge - where merge wins
+         * the arm above already has it. */
+        if (cb64_amvp()) {
+            qt_save(e, ss, x0, y0, n);
+            qt_save_records(e, ss, rec_base);
+            qt_restore(e, sp, x0, y0, n);
+            (void)n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + split_inc], 0);
+            pu_geo g = { x0, y0, n, x0, y0, n, n, 0, 0 };
+            pu_dec pda;
+            memset(&pda, 0, sizeof(pda));
+            (void)search_pu(e, &g, NULL, &pda);
+            uint64_t j_a = UINT64_MAX;
+            if (!pda.merge) {
+                commit_inter_cu(e, x0, y0, log2n, PART_2Nx2N, &pda, 1, NULL,
+                                NULL, NULL, NULL);
+                e->rec_pos = pos0;
+                est_state aadv = { e->est_ctx, 0 };
+                n265_est_advance_cu(e, &aadv, x0, y0, log2n);
+                set_blk(e, e->blk_qp, x0, y0, n,
+                        e->ent_qp_coded ? e->cur_ctu_qp : e->ent_qp_prev);
+                set_blk(e, e->ct_depth, x0, y0, n, depth);
+                j_a = rd_j(cu_area_ssd(e, x0, y0, n), aadv.bits + b0, lam);
+            }
+            if (j_a < j_cu)
+                j_cu = j_a;
+            else
+                qt_restore(e, ss, x0, y0, n);
+        }
     }
     qt_save(e, sw, x0, y0, n);
     qt_save_records(e, sw, rec_base);

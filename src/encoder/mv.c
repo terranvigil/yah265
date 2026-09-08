@@ -407,8 +407,8 @@ static uint32_t mc_satd(struct n265_encoder *e, int list, int ridx, int x0, int 
 }
 
 /* clamp a full-pel mv so MC stays inside the padded reference */
-static void clamp_mv(struct n265_encoder *e, int x0, int y0, int w, int h,
-                     mv_t *mv)
+void n265_clamp_mv(struct n265_encoder *e, int x0, int y0, int w, int h,
+                   mv_t *mv)
 {
     int lo_x = -(x0 + N265_REF_PAD - 8) * 4;
     int hi_x = (e->pad_w + N265_REF_PAD - 8 - (x0 + w)) * 4;
@@ -424,7 +424,7 @@ uint32_t n265_me_search(struct n265_encoder *e, int list, int ridx, int x0, int 
                         int w, int h, mv_t start, mv_t *best)
 {
     mv_t cur = { (int16_t)((start.x >> 2) * 4), (int16_t)((start.y >> 2) * 4) };
-    clamp_mv(e, x0, y0, w, h, &cur);
+    n265_clamp_mv(e, x0, y0, w, h, &cur);
     mv_t zero = { 0, 0 };
     uint32_t best_sad = n265_mc_sad(e, list, ridx, x0, y0, w, h, cur);
     uint32_t zs = n265_mc_sad(e, list, ridx, x0, y0, w, h, zero);
@@ -441,7 +441,7 @@ uint32_t n265_me_search(struct n265_encoder *e, int list, int ridx, int x0, int 
             mv_t t = { (int16_t)(cur.x + d[i][0]),
                        (int16_t)(cur.y + d[i][1]) };
             mv_t tc = t;
-            clamp_mv(e, x0, y0, w, h, &tc);
+            n265_clamp_mv(e, x0, y0, w, h, &tc);
             if (tc.x != t.x || tc.y != t.y)
                 continue;
             uint32_t s = n265_mc_sad(e, list, ridx, x0, y0, w, h, t);
@@ -471,7 +471,7 @@ uint32_t n265_me_search(struct n265_encoder *e, int list, int ridx, int x0, int 
                     continue;
                 mv_t t = { (int16_t)(cur.x + dx), (int16_t)(cur.y + dy) };
                 mv_t tc = t;
-                clamp_mv(e, x0, y0, w, h, &tc);
+                n265_clamp_mv(e, x0, y0, w, h, &tc);
                 if (tc.x != t.x || tc.y != t.y)
                     continue;
                 uint32_t s = mc_satd(e, list, ridx, x0, y0, w, h, t);

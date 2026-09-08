@@ -65,4 +65,11 @@ uint32_t n265_me_search(struct n265_encoder *e, int list, int ridx, int x0, int 
 uint32_t n265_mc_sad(struct n265_encoder *e, int list, int ridx, int x0, int y0,
                      int w, int h, mv_t mv);
 
+/* Clamp a quarter-pel MV so the interpolation window of a w x h block at
+ * (x0,y0) stays inside the padded reference. A caller that wants to
+ * REJECT an out-of-range vector rather than move it compares before and
+ * after. */
+void n265_clamp_mv(struct n265_encoder *e, int x0, int y0, int w, int h,
+                   mv_t *mv);
+
 #endif

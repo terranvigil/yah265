@@ -144,6 +144,11 @@ if [ "$FAST" -eq 0 ]; then
     run_vector inter_b_smooth 176x144 16 gradients ""
     run_vector inter_ctu64 176x144 12  testsrc2  "--keyint 6 --ctu 64"
     run_vector inter_amp   352x288 20  testsrc2  "--keyint 10 --ctu 64 --aq 1"
+    # AMVP 2Nx2N at the CB64 node: merge_flag 0 on a 64x64 CU, so
+    # inter_pred_idc / ref_idx / mvd / mvp_flag ride the forced TU32
+    # transform quad. QP 38 keeps the quadtree at depth 0 often enough
+    # for the arm to be chosen (verified: the stream moves with the arm).
+    run_vector inter_cb64  352x288 20  testsrc2  "--keyint 10 --ctu 64 --qp 38"
     run_vector pcm_cif     352x288  5  testsrc2  "--pcm"
     run_vector intra_cif   352x288 10 testsrc2  ""
     run_vector intra_720   1280x720 3 testsrc2  ""

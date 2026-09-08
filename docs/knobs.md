@@ -19,7 +19,7 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 | `N265_AQ_ANCHOR` | ? | src/encoder/encoder.c:495 |
 | `N265_AQ_DC` | ? | src/encoder/encoder.c:495 |
 | `N265_AQ_STR` | 1 | src/encoder/encoder.c:113 |
-| `N265_CB64_TRACE` | ? | src/encoder/ctu.c:2051 |
+| `N265_CB64_TRACE` | ? | src/encoder/ctu.c:2352 |
 | `N265_CRF_SHIFT` | 5.4 | src/encoder/encoder.c:418 |
 | `N265_CT_TRACE` | ? | src/encoder/la.c:372 |
 | `N265_CUTREE_STR` | ? | src/encoder/encoder.c:108 |
@@ -27,23 +27,28 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 | `N265_MODE_HIST` | ? | src/encoder/sao.c:272 |
 | `N265_NO_AMP` | ? | src/encoder/encoder.c:120 |
 | `N265_NO_RECT` | ? | src/encoder/encoder.c:119 |
-| `N265_NO_SPLIT` | ? | src/encoder/ctu.c:1988 |
+| `N265_NO_SPLIT` | ? | src/encoder/ctu.c:2289 |
 | `N265_QP_ROUND1` | 1 | src/encoder/encoder.c:114 |
 | `N265_QP_TRACE` | ? | src/encoder/encoder.c:519 |
 | `N265_SC_TRACE` | ? | src/encoder/la.c:242 |
 
-## arm (13)
+## arm (18)
 
 | knob | default | reader |
 |---|---|---|
 | `N265_AQ` | ? | src/encoder/encoder.c:129 |
 | `N265_AQ_FLAT` | ? | src/encoder/encoder.c:460 |
 | `N265_BADAPT_THR` | ? | src/encoder/encoder.c:714 |
+| `N265_BI_REFINE` | 0 | src/encoder/ctu.c:859 |
+| `N265_B_INTRA_MARGIN` | 0 | src/encoder/ctu.c:846 |
+| `N265_CB64_AMVP` | 0 | src/encoder/ctu.c:834 |
 | `N265_FULLPEL` | ? | src/encoder/mv.c:462 |
 | `N265_LAMBDA` | ? | src/encoder/ctu.c:375 |
-| `N265_NO_AMVP` | ? | src/encoder/ctu.c:1585 |
-| `N265_NO_EARLYSKIP` | ? | src/encoder/ctu.c:2011 |
-| `N265_NO_GATES` | ? | src/encoder/ctu.c:1476 |
+| `N265_ME_SATD` | 0 | src/encoder/ctu.c:823 |
+| `N265_MVD_BITS` | 0 | src/encoder/ctu.c:811 |
+| `N265_NO_AMVP` | ? | src/encoder/ctu.c:1874 |
+| `N265_NO_EARLYSKIP` | ? | src/encoder/ctu.c:2312 |
+| `N265_NO_GATES` | ? | src/encoder/ctu.c:1730 |
 | `N265_NO_SAO` | ? | src/encoder/encoder.c:124 |
 | `N265_NO_TMVP` | ? | src/encoder/encoder.c:299 |
 | `N265_OLD_BS` | ? | src/encoder/deblock.c:151 |
