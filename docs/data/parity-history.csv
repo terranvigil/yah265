@@ -291,3 +291,16 @@ date,commit,x265,clip,frames,our_fps,x265m_noasm_fps,x265m_asm_fps,mult_matched_
 2026-09-08,21571a8,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,-6.11,B-frame mode decision (bi refine, B intra margin, CB64 AMVP)
 2026-09-08,21571a8,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,-6.53,B-frame mode decision (bi refine, B intra margin, CB64 AMVP)
 2026-09-08,21571a8,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,-18.17,B-frame mode decision (bi refine, B intra margin, CB64 AMVP)
+2026-09-08,09ba8e2,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,-13.63,SBH-RD parity fix + RD dct-decimate
+2026-09-08,09ba8e2,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,-21.17,SBH-RD parity fix + RD dct-decimate
+2026-09-08,09ba8e2,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,-26.39,SBH-RD parity fix + RD dct-decimate
+2026-09-08,09ba8e2,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,-16.21,SBH-RD parity fix + RD dct-decimate
+2026-09-08,09ba8e2,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,-10.92,SBH-RD parity fix + RD dct-decimate
+2026-09-08,09ba8e2,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,-23.65,SBH-RD parity fix + RD dct-decimate
+2026-09-08,09ba8e2,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,-18.93,SBH-RD parity fix + RD dct-decimate
+2026-09-08,09ba8e2,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,-10.99,SBH-RD parity fix + RD dct-decimate
+2026-09-08,09ba8e2,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,-18.28,SBH-RD parity fix + RD dct-decimate
+2026-09-08,09ba8e2,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,-30.44,SBH-RD parity fix + RD dct-decimate
+2026-09-08,09ba8e2,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,-12.95,SBH-RD parity fix + RD dct-decimate
+2026-09-08,09ba8e2,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,-14.04,SBH-RD parity fix + RD dct-decimate
+2026-09-08,09ba8e2,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,-19.71,SBH-RD parity fix + RD dct-decimate
