@@ -304,3 +304,16 @@ date,commit,x265,clip,frames,our_fps,x265m_noasm_fps,x265m_asm_fps,mult_matched_
 2026-09-08,09ba8e2,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,-12.95,SBH-RD parity fix + RD dct-decimate
 2026-09-08,09ba8e2,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,-14.04,SBH-RD parity fix + RD dct-decimate
 2026-09-08,09ba8e2,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,-19.71,SBH-RD parity fix + RD dct-decimate
+2026-09-08,5a9370a,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,-13.63,phase 3 exit read; gate red on sintel_720p and touchdown_1080p
+2026-09-08,5a9370a,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,-21.17,phase 3 exit read; gate red on sintel_720p and touchdown_1080p
+2026-09-08,5a9370a,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,-26.39,phase 3 exit read; gate red on sintel_720p and touchdown_1080p
+2026-09-08,5a9370a,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,-16.21,phase 3 exit read; gate red on sintel_720p and touchdown_1080p
+2026-09-08,5a9370a,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,-10.92,phase 3 exit read; gate red on sintel_720p and touchdown_1080p
+2026-09-08,5a9370a,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,-23.65,phase 3 exit read; gate red on sintel_720p and touchdown_1080p
+2026-09-08,5a9370a,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,-18.93,phase 3 exit read; gate red on sintel_720p and touchdown_1080p
+2026-09-08,5a9370a,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,-10.99,phase 3 exit read; gate red on sintel_720p and touchdown_1080p
+2026-09-08,5a9370a,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,-18.28,phase 3 exit read; gate red on sintel_720p and touchdown_1080p
+2026-09-08,5a9370a,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,-30.44,phase 3 exit read; gate red on sintel_720p and touchdown_1080p
+2026-09-08,5a9370a,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,-12.95,phase 3 exit read; gate red on sintel_720p and touchdown_1080p
+2026-09-08,5a9370a,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,-14.04,phase 3 exit read; gate red on sintel_720p and touchdown_1080p
+2026-09-08,5a9370a,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,-19.71,phase 3 exit read; gate red on sintel_720p and touchdown_1080p
