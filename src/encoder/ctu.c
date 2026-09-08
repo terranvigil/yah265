@@ -271,10 +271,10 @@ static int tb_full(struct n265_encoder *e, int c_idx, int x0, int y0,
     return tb->nz != 0;
 }
 
-/* pick the luma mode by SAD over prediction from the given ref plane;
- * optionally reports the three best-ranked modes for RD refinement */
 #define INTRA_RD_MAX 8
 
+/* pick the luma mode by SAD over prediction from the given ref plane;
+ * optionally reports the nk best-ranked modes for RD refinement */
 static int search_luma_mode_k(struct n265_encoder *e, int x0, int y0,
                               int log2n, const uint8_t *ref_plane,
                               uint32_t *cost_out, int topk[], int nk)

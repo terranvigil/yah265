@@ -12,7 +12,7 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 | `N265_RDOQ_UP` | 1 | src/encoder/rdoq.c:206 |
 | `N265_SKIP_THR` | 2 | src/encoder/ctu.c:397 |
 
-## instrument (26)
+## instrument (27)
 
 | knob | default | reader |
 |---|---|---|
@@ -36,6 +36,7 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 | `N265_NO_AMP` | ? | src/encoder/encoder.c:120 |
 | `N265_NO_RECT` | ? | src/encoder/encoder.c:119 |
 | `N265_NO_SPLIT` | ? | src/encoder/ctu.c:2358 |
+| `N265_PSY` | 0.0 | src/encoder/encoder.c:128 |
 | `N265_QP_ROUND1` | 1 | src/encoder/encoder.c:114 |
 | `N265_QP_TRACE` | ? | src/encoder/encoder.c:519 |
 | `N265_RDOQ_ADAPT` | 0 | src/encoder/rdoq.c:217 |
@@ -43,7 +44,7 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 | `N265_SBH_RD` | 2 | src/encoder/rdoq.c:190 |
 | `N265_SC_TRACE` | ? | src/encoder/la.c:242 |
 
-## arm (13)
+## arm (12)
 
 | knob | default | reader |
 |---|---|---|
@@ -59,4 +60,3 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 | `N265_NO_TMVP` | ? | src/encoder/encoder.c:299 |
 | `N265_OLD_BS` | ? | src/encoder/deblock.c:151 |
 | `N265_PB_STEP` | 0 | src/encoder/encoder.c:425 |
-| `N265_PSY` | 0.0 | src/encoder/encoder.c:128 |
