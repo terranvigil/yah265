@@ -278,3 +278,16 @@ date,commit,x265,clip,frames,our_fps,x265m_noasm_fps,x265m_asm_fps,mult_matched_
 2026-09-07,5b64471,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,-5.38,rect + AMP inter partitions
 2026-09-07,5b64471,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,-5.4,rect + AMP inter partitions
 2026-09-07,5b64471,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,-17.35,rect + AMP inter partitions
+2026-09-07,21571a8,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,-8.45,B-frame mode decision (bi refine, B intra margin, CB64 AMVP)
+2026-09-07,21571a8,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,-16.78,B-frame mode decision (bi refine, B intra margin, CB64 AMVP)
+2026-09-07,21571a8,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,-20.22,B-frame mode decision (bi refine, B intra margin, CB64 AMVP)
+2026-09-08,21571a8,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,-9.01,B-frame mode decision (bi refine, B intra margin, CB64 AMVP)
+2026-09-08,21571a8,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,-3.57,B-frame mode decision (bi refine, B intra margin, CB64 AMVP)
+2026-09-08,21571a8,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,-17.39,B-frame mode decision (bi refine, B intra margin, CB64 AMVP)
+2026-09-08,21571a8,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,-12.06,B-frame mode decision (bi refine, B intra margin, CB64 AMVP)
+2026-09-08,21571a8,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,-3.38,B-frame mode decision (bi refine, B intra margin, CB64 AMVP)
+2026-09-08,21571a8,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,-11.46,B-frame mode decision (bi refine, B intra margin, CB64 AMVP)
+2026-09-08,21571a8,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,-25.1,B-frame mode decision (bi refine, B intra margin, CB64 AMVP)
+2026-09-08,21571a8,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,-6.11,B-frame mode decision (bi refine, B intra margin, CB64 AMVP)
+2026-09-08,21571a8,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,-6.53,B-frame mode decision (bi refine, B intra margin, CB64 AMVP)
+2026-09-08,21571a8,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,-18.17,B-frame mode decision (bi refine, B intra margin, CB64 AMVP)
