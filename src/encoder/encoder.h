@@ -132,6 +132,7 @@ struct n265_encoder {
     cabac_ctx_t ctx[CTX_COUNT];
     cabac_ctx_t est_ctx[CTX_COUNT];     /* RD cost-model contexts */
     int last_skip_clean;    /* analyze_cu: skip won with low distortion */
+    int last_cu_nores;      /* analyze_cu: the winner had rqt_root_cbf 0 */
 
     int aq;                 /* adaptive quantization on/off            */
     int8_t *ctu_qp_off;     /* per-CTU QP offset map (AQ/cu-tree feed) */

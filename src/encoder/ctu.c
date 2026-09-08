@@ -406,6 +406,52 @@ static int skip_thr8(void)
     return thr8;
 }
 
+/* P1, the early-out trio (docs/phase4-ladder.md). All three are off by
+ * default; each one reshapes a decision, so each is priced on the band
+ * before it becomes a default. */
+
+/* N265_ES_THR: percent scale on the clean-skip distortion bound that
+ * ends the quadtree trial. 100 is the shipped rule. */
+static int es_thr_pct(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_ES_THR");
+        v = s ? atoi(s) : 100;
+    }
+    return v;
+}
+
+/* N265_RSKIP: stop the recursion where the no-split winner carried no
+ * residual at all. 1 also requires that neither decoded neighbour went
+ * deeper than this node; 2 drops that condition. */
+static int rskip_mode(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_RSKIP");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
+/* N265_CBF_FAST: once a candidate quantises to nothing, stop trying the
+ * expensive ones. Two independent stages: the merge candidate's cbf
+ * gating AMVP, intra and the partitions, and the AMVP candidate's cbf
+ * gating intra and the partitions. 1 is the first stage, 2 is both,
+ * 3 is the second alone, the default: stage 1 costs three times what
+ * stage 2 does and buys less per point (docs/phase4-ladder.md). 0 is the
+ * pre-P1 encoder. */
+static int cbf_fast(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_CBF_FAST");
+        v = s ? atoi(s) : 3;    /* stage 2, the one that priced (P1) */
+    }
+    return v;
+}
+
 /* strict static-region check at the merge candidate: used by the split
  * gate; the CU decision proper re-derives */
 static int want_skip(struct n265_encoder *e, int x0, int y0, int log2n)
@@ -1366,7 +1412,8 @@ static uint64_t cu_area_ssd(struct n265_encoder *e, int x0, int y0, int n)
 static uint64_t skip_clean_thr(int qp, int n)
 {
     double qstep = pow(2.0, (qp - 4) / 6.0);
-    return (uint64_t)((double)n * n * qstep * qstep / 4.0);
+    return (uint64_t)((double)n * n * qstep * qstep / 4.0 *
+                      es_thr_pct() / 100.0);
 }
 
 /* --- rectangular and asymmetric inter partitions --- */
@@ -1759,6 +1806,7 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
     int n = 1 << log2n;
     int qp_c = n265_chroma_qp(e->cur_ctu_qp);
     e->last_skip_clean = 0;
+    e->last_cu_nores = 0;
     mark_cu_edges(e, x0, y0, n);
 
     size_t pos0 = e->rec_len;
@@ -1790,6 +1838,7 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                     e->ent_qp_coded ? e->cur_ctu_qp : e->ent_qp_prev);
             uint64_t ssd = cu_area_ssd(e, x0, y0, n);
             e->last_skip_clean = ssd <= skip_clean_thr(e->cur_ctu_qp, n);
+            e->last_cu_nores = 1;
             return rd_j(ssd, adv.bits, n265_lambda_mode_q8(e->cur_ctu_qp));
         }
 
@@ -1805,6 +1854,7 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                             cand_plain_sad < (uint32_t)(n * n) / 8;
             int gate_intra = !no_gates &&
                              cand_plain_sad < (uint32_t)(n * n) / 4;
+            int gate_part = 0;
 
             /* merge candidate (and the forced-skip variant) */
             tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, cand, &m_tl);
@@ -1816,6 +1866,11 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
             tb_make_recon(1, log2n - 1, qp_c, MODE_INTER, &m_tcb);
             tb_make_recon(2, log2n - 1, qp_c, MODE_INTER, &m_tcr);
             int m_any = m_tl.nz || m_tcb.nz || m_tcr.nz;
+            /* P1 CBF fast: the merge prediction already quantised to
+             * nothing, so every remaining candidate can only re-buy the
+             * same block with more syntax */
+            if ((cbf_fast() == 1 || cbf_fast() == 2) && !m_any)
+                gate_amvp = gate_intra = 1;
             uint64_t d_merge = tb_ssd(e, 0, x0, y0, log2n, &m_tl) +
                 tb_ssd(e, 1, x0 / 2, y0 / 2, log2n - 1, &m_tcb) +
                 tb_ssd(e, 2, x0 / 2, y0 / 2, log2n - 1, &m_tcr);
@@ -1983,6 +2038,10 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                     est_tt_bits(e, &st, log2n, MODE_INTER, &a_tl, &a_tcb,
                                 &a_tcr);
                 j_amvp = rd_j(d, st.bits, lam);
+                /* P1 CBF fast, second stage: the searched vector's
+                 * residual quantised away too */
+                if (cbf_fast() >= 2 && !a_any)
+                    gate_intra = gate_part = 1;
             }
 
             /* intra candidate (2Nx2N, SAD-ranked best mode) */
@@ -2058,7 +2117,7 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
              * and only above the min CB where the spec allows it. */
             static part_cand pca, pcb;
             part_cand *cur = &pca, *pwin = NULL;
-            if (e->rect && kind != 0 && !gate_amvp) {
+            if (e->rect && kind != 0 && !gate_amvp && !gate_part) {
                 mv_t start[2] = { me_mv[0], me_mv[1] };
                 pu_dec dh[2], dv[2];
                 uint32_t ch = try_part(e, x0, y0, n, PART_2NxN, start, dh);
@@ -2092,10 +2151,12 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
             if (kind == 0) {
                 skip_cu(e, x0, y0, log2n, cand, midx);
                 e->last_skip_clean = d_skip <= skip_clean_thr(e->cur_ctu_qp, n);
+                e->last_cu_nores = 1;
             } else if (kind == 4) {
                 commit_inter_cu(e, x0, y0, log2n, pwin->part, pwin->d,
                                 pwin->any, &pwin->tl, &pwin->tcb,
                                 &pwin->tcr, pwin);
+                e->last_cu_nores = !pwin->any;
             } else if (kind == 1 || kind == 2) {
                 tb_ctx *tl = kind == 1 ? &m_tl : &a_tl;
                 tb_ctx *tcb = kind == 1 ? &m_tcb : &a_tcb;
@@ -2104,6 +2165,7 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                 commit_inter_cu(e, x0, y0, log2n, PART_2Nx2N,
                                 kind == 1 ? &pd[0] : &pd[1], any, tl, tcb,
                                 tcr, NULL);
+                e->last_cu_nores = !any;
             }
             if (kind != 3) {
                 e->rec_pos = pos0;
@@ -2384,6 +2446,16 @@ static uint64_t quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
     if (no_es < 0)
         no_es = getenv("N265_NO_EARLYSKIP") != NULL;
     if (e->last_skip_clean && !no_es)
+        return j_cu;
+    /* P1 rskip: the no-split arm left no residual at all, so the four
+     * children can only re-buy the same prediction with four sets of
+     * syntax. Mode 1 also asks that neither decoded neighbour went
+     * deeper than this node - where they did, this block is on a real
+     * boundary and the split is worth trying anyway. Above 32 the CU
+     * arm is intra-or-strict-skip and the CB64 arms below have not run,
+     * so the rule stays where the full candidate set decided. */
+    if (rskip_mode() && log2n <= 5 && e->last_cu_nores &&
+        (rskip_mode() >= 2 || !split_inc))
         return j_cu;
 
     /* 64x64 whole-CU skip: prediction-only, so it is legal where the
