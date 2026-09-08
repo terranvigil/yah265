@@ -194,12 +194,15 @@ static void tb_analyze(struct n265_encoder *e, int c_idx, int x0, int y0,
                                          tb->pred[y * n + x]);
     n265_fdct(coef, resid, log2n, use_dst);
     int scan = inter ? 0 : n265_scan_idx(mode, log2n, c_idx);
-    if (e->rdoq)
+    int sbh_done = 0;
+    if (e->rdoq) {
         tb->nz = n265_rdoq(tb->level, coef, log2n, qp, !inter, c_idx, scan,
                            e->est_ctx, n265_lambda_mode_q8(qp));
-    else
+        sbh_done = n265_rdoq_sbh_on();      /* RDOQ hid the signs itself */
+    } else {
         tb->nz = n265_quant(tb->level, coef, log2n, qp, !inter);
-    if (tb->nz)
+    }
+    if (tb->nz && !sbh_done)
         n265_sbh_adjust(tb->level, log2n, scan);
 }
 
@@ -270,9 +273,11 @@ static int tb_full(struct n265_encoder *e, int c_idx, int x0, int y0,
 
 /* pick the luma mode by SAD over prediction from the given ref plane;
  * optionally reports the three best-ranked modes for RD refinement */
+#define INTRA_RD_MAX 8
+
 static int search_luma_mode_k(struct n265_encoder *e, int x0, int y0,
                               int log2n, const uint8_t *ref_plane,
-                              uint32_t *cost_out, int top3[3])
+                              uint32_t *cost_out, int topk[], int nk)
 {
     int n = 1 << log2n;
     const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
@@ -285,8 +290,10 @@ static int search_luma_mode_k(struct n265_encoder *e, int x0, int y0,
 
     int best_mode = 0;
     uint32_t best_cost = UINT32_MAX;
-    uint32_t c3[3] = { UINT32_MAX, UINT32_MAX, UINT32_MAX };
-    int m3[3] = { 0, 1, 26 };
+    uint32_t ck[INTRA_RD_MAX];
+    int mk[INTRA_RD_MAX];
+    int nkc = nk < 1 ? 1 : nk > INTRA_RD_MAX ? INTRA_RD_MAX : nk;
+    for (int i = 0; i < nkc; i++) { ck[i] = UINT32_MAX; mk[i] = i < 2 ? i : 26; }
     for (int mode = 0; mode < 35; mode++) {
         const uint8_t *r = n265_use_filtered_refs(mode, log2n, 0) ? refs_f
                                                                   : refs;
@@ -294,24 +301,22 @@ static int search_luma_mode_k(struct n265_encoder *e, int x0, int y0,
         /* rank by SATD (post-transform bits proxy); the reported cost
          * stays SAD-domain for the callers that compare across metrics */
         uint32_t cost = n265_satd(src, e->pad_stride[0], pred, n, n);
-        if (cost < c3[0]) {
-            c3[2] = c3[1]; m3[2] = m3[1];
-            c3[1] = c3[0]; m3[1] = m3[0];
-            c3[0] = cost; m3[0] = mode;
-        } else if (cost < c3[1]) {
-            c3[2] = c3[1]; m3[2] = m3[1];
-            c3[1] = cost; m3[1] = mode;
-        } else if (cost < c3[2]) {
-            c3[2] = cost; m3[2] = mode;
+        if (topk && cost < ck[nkc - 1]) {
+            int p = nkc - 1;
+            while (p > 0 && cost < ck[p - 1]) {
+                ck[p] = ck[p - 1]; mk[p] = mk[p - 1];
+                p--;
+            }
+            ck[p] = cost; mk[p] = mode;
         }
         if (cost < best_cost) {
             best_cost = cost;
             best_mode = mode;
         }
     }
-    if (top3)
-        for (int i = 0; i < 3; i++)
-            top3[i] = m3[i];
+    if (topk)
+        for (int i = 0; i < nkc; i++)
+            topk[i] = mk[i];
     if (cost_out) {
         const uint8_t *r = n265_use_filtered_refs(best_mode, log2n, 0)
                                ? refs_f : refs;
@@ -342,7 +347,7 @@ static int search_luma_mode(struct n265_encoder *e, int x0, int y0,
                             int log2n, const uint8_t *ref_plane,
                             uint32_t *cost_out)
 {
-    return search_luma_mode_k(e, x0, y0, log2n, ref_plane, cost_out, NULL);
+    return search_luma_mode_k(e, x0, y0, log2n, ref_plane, cost_out, NULL, 0);
 }
 
 /* SAD-domain lambda: sqrt(0.68 * 2^((qp-12)/3)), Q4 fixed point */
@@ -1219,22 +1224,78 @@ static void commit_inter_tt(struct n265_encoder *e, mot_t mot, int x0,
     }
 }
 
-/* RD-refine the intra luma mode over the top-3 SAD-ranked candidates:
- * only mode-dependent bits (MPM, cbfs, residuals) enter the compare */
+/* the three most probable modes for this position (9.3.3.6), the list the
+ * mode's own syntax cost is built on */
+static void mpm_cands(struct n265_encoder *e, int x0, int y0, int cand[3])
+{
+    int a = INTRA_DC, b = INTRA_DC;
+    if (x0 > 0 && e->blk_intra[(y0 >> 2) * e->map_stride + ((x0 - 1) >> 2)])
+        a = e->intra_mode[(y0 >> 2) * e->map_stride + ((x0 - 1) >> 2)];
+    if (y0 > 0 && (y0 & ((1 << e->ctb_log2) - 1)) != 0 &&
+        e->blk_intra[((y0 - 1) >> 2) * e->map_stride + (x0 >> 2)])
+        b = e->intra_mode[((y0 - 1) >> 2) * e->map_stride + (x0 >> 2)];
+    if (a == b) {
+        if (a < 2) { cand[0] = 0; cand[1] = 1; cand[2] = 26; }
+        else { cand[0] = a; cand[1] = 2 + ((a + 29) % 32);
+               cand[2] = 2 + ((a - 2 + 1) % 32); }
+    } else {
+        cand[0] = a; cand[1] = b;
+        cand[2] = (a != 0 && b != 0) ? 0 : (a != 1 && b != 1) ? 1 : 26;
+    }
+}
+
+/* shortlist width for the intra RD stage (N265_INTRA_RD_N, 3 by default)
+ * and whether the MPMs join it (N265_INTRA_MPM) */
+static int intra_rd_n(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_INTRA_RD_N");
+        v = s ? atoi(s) : 3;
+        if (v < 1) v = 1;
+        if (v > INTRA_RD_MAX) v = INTRA_RD_MAX;
+    }
+    return v;
+}
+
+static int intra_rd_mpm(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *s = getenv("N265_INTRA_MPM"); v = s ? atoi(s) : 0; }
+    return v;
+}
+
+/* RD-refine the intra luma mode over the SATD-ranked shortlist: only
+ * mode-dependent bits (MPM, cbfs, residuals) enter the compare */
 static int intra_rd_pick(struct n265_encoder *e, int x0, int y0, int log2n)
 {
-    int top3[3];
-    search_luma_mode_k(e, x0, y0, log2n, e->recon[0], NULL, top3);
+    int cands[INTRA_RD_MAX + 3];
+    int nk = intra_rd_n(), ncand = nk;
+    search_luma_mode_k(e, x0, y0, log2n, e->recon[0], NULL, cands, nk);
+    if (intra_rd_mpm()) {
+        /* an MPM costs two bits where a remainder costs six, so a mode the
+         * SATD prefilter ranked just outside can still win on J */
+        int mpm[3];
+        mpm_cands(e, x0, y0, mpm);
+        for (int i = 0; i < 3; i++) {
+            int dup = 0;
+            for (int q = 0; q < ncand; q++)
+                if (cands[q] == mpm[i])
+                    dup = 1;
+            if (!dup)
+                cands[ncand++] = mpm[i];
+        }
+    }
     int qp_c = n265_chroma_qp(e->cur_ctu_qp);
     uint32_t lam = n265_lambda_mode_q8(e->cur_ctu_qp);
     static tb_ctx tl, tcb, tcr;
     uint64_t best_j = UINT64_MAX;
-    int best = top3[0];
-    for (int k = 0; k < 3; k++) {
-        int mode = top3[k];
+    int best = cands[0];
+    for (int k = 0; k < ncand; k++) {
+        int mode = cands[k];
         int dup = 0;
         for (int q = 0; q < k; q++)
-            if (top3[q] == mode)
+            if (cands[q] == mode)
                 dup = 1;
         if (dup)
             continue;

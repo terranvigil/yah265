@@ -9,6 +9,10 @@
 
 void n265_rdoq_init(void);
 
+/* N265_SBH_RD: RDOQ decides the sign-bit-hiding parity fix itself (see
+ * rdoq.c), so the caller must not run n265_sbh_adjust after it. */
+int n265_rdoq_sbh_on(void);
+
 /* Quantise coef (raster, n*n) into level with the RD choice per coefficient
  * (see rdoq.c). ctx is the slice context array the block will be coded
  * against (read, not adapted); lam_q8 the mode-decision lambda (Q8) in

@@ -162,6 +162,35 @@ static uint32_t last_pos_bits(const cabac_ctx_t *ctx, int last_x, int last_y,
     return bits;
 }
 
+/* Sign-bit hiding decided by RD instead of by rule (N265_SBH_RD).
+ *
+ * SBH costs nothing when the sub-block's abs-level sum already has the
+ * parity that encodes the first significant coefficient's sign, and costs
+ * one changed level when it does not. n265_sbh_adjust always grows the
+ * highest-frequency nonzero, which is a rule, not a decision: it spends
+ * bits and distortion at whichever position happens to sit last in the
+ * scan. Here every position in the sub-block offers its cheapest
+ * already-priced level of the opposite parity (RDOQ evaluated 0, l-1, l
+ * and l+1 at that position anyway, so the J of each is in hand) and the
+ * cheapest one wins. Changes that would move the sub-block's first or
+ * last significant position are excluded: those change the SBH
+ * qualification itself, and the sign being hidden.
+ *
+ * 0 is the rule form. 1 spends the fix on a coefficient the block already
+ * codes; 2 also lets it land on a position the block quantised to zero,
+ * which is where the cheapest fix usually is - a coefficient sitting just
+ * under its own rounding boundary costs almost nothing to promote, where
+ * every already-coded level is at least a full quantiser step from its
+ * neighbour. Measured on the CIF band 2026-09-08: 1 is -2.8% median
+ * BD-VMAF-NEG on the rule form, 2 another -2.3%, both 7 of 7 clips. 2 is
+ * the default. */
+int n265_rdoq_sbh_on(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *s = getenv("N265_SBH_RD"); v = s ? atoi(s) : 2; }
+    return v;
+}
+
 /* level_scale of 8.6.3 */
 static const int level_scale[6] = { 40, 45, 51, 57, 64, 72 };
 static const int quant_scale[6] = { 26214, 23302, 20560, 18396, 16384, 14564 };
@@ -175,6 +204,25 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
     /* the away-from-zero level probe: -2.7% median BD-VMAF-NEG, 7/7 clips
      * (2026-09-07). On by default; N265_RDOQ_UP=0 restores the 3-candidate set. */
     if (up_probe < 0) { const char *v = getenv("N265_RDOQ_UP"); up_probe = v ? atoi(v) : 1; }
+    static int adapt = -1;
+    /* context adaptation along the scan INSIDE the block (N265_RDOQ_ADAPT):
+     * the sig/greater1/greater2/coded_sub_block states move as the real
+     * coder would move them, on a private copy, so a long run of levels is
+     * priced at the probabilities it creates rather than at the block's
+     * opening state. The three families are disjoint and each is visited in
+     * its own coding order, so within a sub-block the adaptation is exact;
+     * what stays approximate is the last-position and sub-block-zero passes,
+     * which run after the states have already moved. Nothing leaves the
+     * block, so the slice contexts and determinism are untouched. */
+    if (adapt < 0) { const char *v = getenv("N265_RDOQ_ADAPT"); adapt = v ? atoi(v) : 0; }
+    int sbh_rd = n265_rdoq_sbh_on();
+    cabac_ctx_t lctx[CTX_COUNT];
+    const cabac_ctx_t *ctx0 = ctx;      /* the block's opening states */
+    if (adapt) {
+        n265_tables_init_est();
+        memcpy(lctx, ctx, sizeof(lctx));
+        ctx = lctx;
+    }
     int n = 1 << log2n;
     int nn = n * n;
     int qbits = 21 + qp / 6 - log2n;
@@ -186,7 +234,17 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
     int64_t dscale = (int64_t)level_scale[qp % 6] << (qp / 6);
     /* lambda in coefficient-SSD units: J = SSD_coef / F + lam * bits, so
      * scale lambda by F and keep everything in coefficient SSD */
+    /* N265_RDOQ_LAM scales the coefficient-decision lambda away from the
+     * mode lambda (percent, 100 = the same). Below 100 the lattice keeps
+     * coefficients the mode decision would have priced away, which is the
+     * one lever in this file that trades rate for retained texture
+     * directly; the rate-matched band then reads whether the bits are
+     * better spent there or on a lower QP. */
+    static int lam_pct = -1;
+    if (lam_pct < 0) { const char *v = getenv("N265_RDOQ_LAM"); lam_pct = v ? atoi(v) : 100; }
     double lam = (double)lam_q8 / 256.0 * parseval[log2n];
+    if (lam_pct != 100)
+        lam = lam * lam_pct / 100.0;
 
     const uint8_t *sb_scan = n265_scan_sb[scan_idx][log2n - 2];
     const uint8_t *co_scan = n265_scan_coef[scan_idx];
@@ -212,8 +270,14 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
     double dsel[32 * 32];        /* distortion of the chosen level */
     double rsel[32 * 32];        /* rate (bits, real) of the chosen level incl. sig flag */
     double rsig0[32 * 32];       /* rate of a sig_coeff_flag = 0 at this position */
+    double rsig1[32 * 32];       /* rate of a sig_coeff_flag = 1 (adapt mode) */
+    double alt_cost[32 * 32];    /* J penalty of the cheapest opposite-parity level */
+    int alt_lvl[32 * 32];        /* that level (SBH-RD mode) */
     int lsel[32 * 32];           /* chosen |level| */
+    uint8_t keep[32 * 32];       /* survived the last-position pass */
     int csbf[64] = { 0 };
+    if (sbh_rd)
+        memset(keep, 0, (size_t)nn);
     double sb_cost[64], sb_zero[64];
     int last_s = -1, last_c = -1;
     for (int s = num_sb - 1; s >= 0 && last_s < 0; s--) {
@@ -251,18 +315,28 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
              * the last coefficient, whose flag is inferred */
             int sig_ctx_ok = !(log2n == 2 && (x & 3) == 3 && (y & 3) == 3);
             double r_sig1 = 0.0, r_sig0 = 0.0;
+            int sctx = -1;
             if (sig_coded && sig_ctx_ok) {
-                int sctx = sig_ctx(x, y, log2n, c_idx, scan_idx, prev_csbf);
+                sctx = sig_ctx(x, y, log2n, c_idx, scan_idx, prev_csbf);
                 r_sig1 = bin_cost(&ctx[CTX_SIG + sctx], 1) / 256.0;
                 r_sig0 = bin_cost(&ctx[CTX_SIG + sctx], 0) / 256.0;
             }
             rsig0[i] = sig_coded ? r_sig0 : 0.0;
+            rsig1[i] = sig_coded ? r_sig1 : 0.0;
             double best = dz + lam * rsig0[i];
             int bestl = 0;
             double bestd = dz, bestr = rsig0[i];
+            double jcand[4]; int lcand[4], ncand = 0;
+            jcand[ncand] = best; lcand[ncand] = 0; ncand++;
             int lhi = lmax, llo = lmax - 1;
             if (up_probe && lmax >= 1) lhi = lmax + 1;   /* away-from-zero probe */
             if (lhi > 32767) lhi = 32767;
+            /* N265_SBH_RD=2 also prices making a zero position significant,
+             * so a parity fix can be spent on the coefficient nearest its
+             * own rounding boundary rather than on one already coded. The
+             * level is priced but never selected as the block's own. */
+            int probe_only = 0;
+            if (sbh_rd >= 2 && lmax == 0) { lhi = 1; llo = 1; probe_only = 1; }
             for (int l = lhi; l >= 1 && l >= llo; l--) {
                 int64_t dq = (l * dscale * 16 + dadd) >> bd_shift;
                 double e = (double)ac - (double)dq;
@@ -284,11 +358,37 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
                 if (n_g1 >= 8 || base == cap)
                     r += remaining_bits(l - base, rice) / 256.0;
                 double j = d + lam * r;
-                if (j < best) { best = j; bestl = l; bestd = d; bestr = r; }
+                jcand[ncand] = j; lcand[ncand] = l; ncand++;
+                if (!probe_only && j < best) { best = j; bestl = l; bestd = d; bestr = r; }
             }
             lsel[i] = bestl;
             dsel[i] = bestd;
             rsel[i] = bestr;
+            if (sbh_rd) {
+                /* the cheapest already-priced level of the opposite parity:
+                 * what a sign-bit-hiding parity fix at this position costs */
+                double ac2 = 1e300;
+                int al = -1;
+                for (int t = 0; t < ncand; t++)
+                    if (((lcand[t] ^ bestl) & 1) && jcand[t] - best < ac2) {
+                        ac2 = jcand[t] - best;
+                        al = lcand[t];
+                    }
+                alt_cost[i] = ac2;
+                alt_lvl[i] = al;
+            }
+            if (adapt) {
+                /* the bins this decision commits, on the local copy, in the
+                 * coder's own order within each context family */
+                if (sctx >= 0)
+                    n265_est_bin(&lctx[CTX_SIG + sctx], bestl != 0);
+                if (bestl && n_g1 < 8) {
+                    int inc = ctx_set * 4 + (g1_ctx < 3 ? g1_ctx : 3) + (c_idx ? 16 : 0);
+                    n265_est_bin(&lctx[CTX_G1 + inc], bestl > 1);
+                    if (bestl > 1 && !g2_done)
+                        n265_est_bin(&lctx[CTX_G2 + ctx_set + (c_idx ? 4 : 0)], bestl > 2);
+                }
+            }
             if (bestl) {
                 /* advance the coder state the chosen level implies */
                 if (n_g1 < 8) {
@@ -325,6 +425,8 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
                 cost = zero + lam * r0;
                 this_g1 = 0;
             }
+            if (adapt)
+                n265_est_bin(&lctx[CTX_SIG_GROUP + inc], csbf[s]);
         }
         sb_cost[s] = cost;
         sb_zero[s] = zero;
@@ -351,12 +453,16 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
             if (lsel[i]) {
                 int lx = x, ly = y;
                 if (scan_idx == 2) { int t = lx; lx = ly; ly = t; }
-                double lastbits = last_pos_bits(ctx, lx, ly, log2n, c_idx) / 256.0;
+                /* last_sig_coeff_x/y is coded before any of this block's
+                 * other bins, so it is priced at the opening states */
+                double lastbits = last_pos_bits(ctx0, lx, ly, log2n, c_idx) / 256.0;
                 /* as the last, this coefficient's own sig flag is inferred */
                 /* as the last, this coefficient's own sig flag is no longer
                  * coded: take its sig=1 cost back out of the body */
                 double own_sig = 0.0;
-                if (!(log2n == 2 && (x & 3) == 3 && (y & 3) == 3) && !(s == last_s && c == last_c))
+                if (adapt)
+                    own_sig = rsig1[i];     /* the price it was actually charged */
+                else if (!(log2n == 2 && (x & 3) == 3 && (y & 3) == 3) && !(s == last_s && c == last_c))
                     own_sig = bin_cost(&ctx[CTX_SIG + sig_ctx(x, y, log2n, c_idx, scan_idx, 0)], 1) / 256.0;
                 double total = total_body - tail_saved + tail_d + lam * lastbits - lam * own_sig;
                 if (total < best_total) { best_total = total; best_s = s; best_c = c; }
@@ -366,10 +472,22 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
             tail_d += d0[i];
         }
     }
-    /* 4. all zero: nothing coded at all */
+    /* 4. all zero: nothing coded at all. N265_DECIMATE widens that test by
+     * a percentage of the coded arrangement's cost, so a block the lattice
+     * only just prefers to code gets dropped instead - the RD-domain form
+     * of dct-decimate, and speed-positive since a zero block skips the
+     * inverse transform and every downstream cbf.
+     *
+     * Swept on the CIF band 2026-09-08: 0 / 8 / 15 / 25 read -8.17 /
+     * -7.87 / -8.97 / -8.82 median and -9.39 / -9.43 / -9.77 / -9.84 mean,
+     * so the optimum is broad between 15 and 25 and 15 is the default -
+     * best median and best worst clip, and the more conservative of the
+     * two on content the band does not cover. */
+    static int decimate = -1;
+    if (decimate < 0) { const char *v = getenv("N265_DECIMATE"); decimate = v ? atoi(v) : 15; }
     double all_zero = 0;
     for (int i = 0; i < nn; i++) all_zero += (double)coef[i] * coef[i];
-    if (best_s < 0 || all_zero <= best_total)
+    if (best_s < 0 || all_zero <= best_total * (1.0 + decimate / 100.0))
         return 0;
 
     /* write the levels: everything after the chosen last is zero */
@@ -383,7 +501,58 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
             if (s == best_s && c == best_c) past = 0;
             int l = past ? 0 : lsel[i];
             level[i] = (int16_t)(coef[i] < 0 ? -l : l);
+            keep[i] = !past;
             nz += l != 0;
+        }
+    }
+
+    if (sbh_rd) {
+        for (int s = 0; s < num_sb; s++) {
+            int sx = (sb_scan[s] & 15) << 2, sy = (sb_scan[s] >> 4) << 2;
+            int first = -1, last = -1, sum = 0;
+            for (int c = 0; c < 16; c++) {
+                int x = sx + (co_scan[c] & 15), y = sy + (co_scan[c] >> 4);
+                int l = level[y * n + x];
+                if (l) {
+                    if (first < 0) first = c;
+                    last = c;
+                    sum += l < 0 ? -l : l;
+                }
+            }
+            if (first < 0 || last - first <= 3)
+                continue;
+            int fi = (sy + (co_scan[first] >> 4)) * n + sx + (co_scan[first] & 15);
+            int want = level[fi] < 0;
+            if ((sum & 1) == want)
+                continue;
+            double bestc = 1e300;
+            int bi = -1;
+            for (int c = 0; c < 16; c++) {
+                int x = sx + (co_scan[c] & 15), y = sy + (co_scan[c] >> 4);
+                int i = y * n + x;
+                /* only positions whose decision survived the last-position
+                 * pass carry a valid alternative */
+                if (!keep[i] || alt_lvl[i] < 0)
+                    continue;
+                /* the change must not move first or last */
+                if (lsel[i] == 0) {
+                    if (sbh_rd < 2 || c <= first || c >= last)
+                        continue;
+                } else if (alt_lvl[i] == 0 && (c == first || c == last)) {
+                    continue;
+                }
+                if (alt_cost[i] < bestc) { bestc = alt_cost[i]; bi = i; }
+            }
+            if (bi < 0) {
+                /* nothing priced here: the rule form, grow the last */
+                int lx = sx + (co_scan[last] & 15), ly = sy + (co_scan[last] >> 4);
+                int i = ly * n + lx;
+                level[i] += level[i] > 0 ? 1 : -1;
+                continue;
+            }
+            int nl = alt_lvl[bi], had = level[bi] != 0;
+            level[bi] = (int16_t)(coef[bi] < 0 ? -nl : nl);
+            nz += (nl != 0) - had;
         }
     }
     return nz;
