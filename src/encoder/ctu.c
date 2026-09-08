@@ -826,38 +826,46 @@ static int me_satd_on(void)
     return on;
 }
 
-/* AMVP 2Nx2N at the CB64 node (the quadtree's log2n == 6 arm set) */
+/* AMVP 2Nx2N at the CB64 node (the quadtree's log2n == 6 arm set). On
+ * since 2026-09-07: -0.38 median BD-VMAF-NEG on the CIF band at 1.06-1.09x
+ * the encode time; N265_CB64_AMVP=0 is the escape. */
 static int cb64_amvp(void)
 {
     static int on = -1;
     if (on < 0) {
         const char *v = getenv("N265_CB64_AMVP");
-        on = v ? atoi(v) != 0 : 0;
+        on = v ? atoi(v) != 0 : 1;
     }
     return on;
 }
 
 /* percent by which an intra CU must beat the best inter cost in a B
- * slice to be admitted; N265_B_INTRA_MARGIN=0 is the plain comparison */
+ * slice to be admitted; N265_B_INTRA_MARGIN=0 is the plain comparison.
+ * 30 since 2026-09-07: -0.21 median BD-VMAF-NEG on the CIF band for no
+ * measurable time. The optimum is broad - 15, 30 and 60 land within
+ * 0.04 of each other - so this is a shape, not a tuned constant. */
 static int b_intra_margin(void)
 {
     static int mg = -1;
     if (mg < 0) {
         const char *v = getenv("N265_B_INTRA_MARGIN");
-        mg = v ? atoi(v) : 0;
+        mg = v ? atoi(v) : 30;
         if (mg < 0)
             mg = 0;
     }
     return mg;
 }
 
-/* number of L0/L1 refinement sweeps; N265_BI_REFINE unset is the arm off */
+/* number of L0/L1 refinement sweeps; N265_BI_REFINE=0 is the escape.
+ * One sweep since 2026-09-07: -0.29 mean BD-VMAF-NEG on the CIF band
+ * (6/7 clips, bus flat) at 1.05x the encode time. A second sweep buys
+ * another 0.02 mean for another 4%, so one is where it stops paying. */
 static int bi_refine_iters(void)
 {
     static int it = -1;
     if (it < 0) {
         const char *v = getenv("N265_BI_REFINE");
-        it = v ? atoi(v) : 0;
+        it = v ? atoi(v) : 1;
         if (it > 4)
             it = 4;
     }
