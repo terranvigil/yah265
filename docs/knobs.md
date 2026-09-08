@@ -8,55 +8,57 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 
 | knob | default | reader |
 |---|---|---|
-| `N265_RDOQ` | 1 | src/encoder/encoder.c:127 |
+| `N265_RDOQ` | 1 | src/encoder/encoder.c:128 |
 | `N265_RDOQ_UP` | 1 | src/encoder/rdoq.c:206 |
-| `N265_SKIP_THR` | 2 | src/encoder/ctu.c:397 |
+| `N265_SKIP_THR` | 2 | src/encoder/ctu.c:401 |
 
-## instrument (27)
+## instrument (29)
 
 | knob | default | reader |
 |---|---|---|
-| `N265_AQ_ANCHOR` | ? | src/encoder/encoder.c:495 |
-| `N265_AQ_DC` | ? | src/encoder/encoder.c:495 |
-| `N265_AQ_STR` | 1 | src/encoder/encoder.c:113 |
-| `N265_BI_REFINE` | 1 | src/encoder/ctu.c:872 |
-| `N265_B_INTRA_MARGIN` | 30 | src/encoder/ctu.c:856 |
-| `N265_CB64_AMVP` | 1 | src/encoder/ctu.c:841 |
-| `N265_CB64_TRACE` | ? | src/encoder/ctu.c:2421 |
-| `N265_CRF_SHIFT` | 5.4 | src/encoder/encoder.c:418 |
+| `N265_AQ_ANCHOR` | ? | src/encoder/encoder.c:541 |
+| `N265_AQ_DC` | ? | src/encoder/encoder.c:541 |
+| `N265_AQ_STR` | 1 | src/encoder/encoder.c:114 |
+| `N265_BI_REFINE` | 1 | src/encoder/ctu.c:876 |
+| `N265_B_INTRA_MARGIN` | 30 | src/encoder/ctu.c:860 |
+| `N265_CB64_AMVP` | 1 | src/encoder/ctu.c:845 |
+| `N265_CB64_TRACE` | ? | src/encoder/ctu.c:2425 |
+| `N265_CRF_SHIFT` | 5.4 | src/encoder/encoder.c:464 |
 | `N265_CT_TRACE` | ? | src/encoder/la.c:372 |
-| `N265_CUTREE_STR` | ? | src/encoder/encoder.c:108 |
+| `N265_CUTREE_STR` | ? | src/encoder/encoder.c:109 |
 | `N265_DECIMATE` | 15 | src/encoder/rdoq.c:487 |
-| `N265_INTRA_MPM` | 0 | src/encoder/ctu.c:1264 |
-| `N265_INTRA_RD_N` | 3 | src/encoder/ctu.c:1253 |
+| `N265_HFCACHE` | 1 | src/encoder/encoder.c:342 |
+| `N265_INTRA_MPM` | 0 | src/encoder/ctu.c:1268 |
+| `N265_INTRA_RD_N` | 3 | src/encoder/ctu.c:1257 |
 | `N265_MERGE_TRACE` | ? | src/encoder/mv.c:239 |
-| `N265_ME_SATD` | 0 | src/encoder/ctu.c:828 |
+| `N265_ME_SATD` | 0 | src/encoder/ctu.c:832 |
 | `N265_MODE_HIST` | ? | src/encoder/sao.c:272 |
-| `N265_MVD_BITS` | 0 | src/encoder/ctu.c:816 |
-| `N265_NO_AMP` | ? | src/encoder/encoder.c:120 |
-| `N265_NO_RECT` | ? | src/encoder/encoder.c:119 |
-| `N265_NO_SPLIT` | ? | src/encoder/ctu.c:2358 |
-| `N265_PSY` | 0.0 | src/encoder/encoder.c:128 |
-| `N265_QP_ROUND1` | 1 | src/encoder/encoder.c:114 |
-| `N265_QP_TRACE` | ? | src/encoder/encoder.c:519 |
+| `N265_MVD_BITS` | 0 | src/encoder/ctu.c:820 |
+| `N265_NO_AMP` | ? | src/encoder/encoder.c:121 |
+| `N265_NO_RECT` | ? | src/encoder/encoder.c:120 |
+| `N265_NO_SPLIT` | ? | src/encoder/ctu.c:2362 |
+| `N265_PSY` | 0.0 | src/encoder/encoder.c:129 |
+| `N265_QP_ROUND1` | 1 | src/encoder/encoder.c:115 |
+| `N265_QP_TRACE` | ? | src/encoder/encoder.c:565 |
 | `N265_RDOQ_ADAPT` | 0 | src/encoder/rdoq.c:217 |
 | `N265_RDOQ_LAM` | 100 | src/encoder/rdoq.c:244 |
 | `N265_SBH_RD` | 2 | src/encoder/rdoq.c:190 |
 | `N265_SC_TRACE` | ? | src/encoder/la.c:242 |
+| `N265_SUBPEL_DEDUP` | 1 | src/encoder/mv.c:469 |
 
 ## arm (12)
 
 | knob | default | reader |
 |---|---|---|
-| `N265_AQ` | ? | src/encoder/encoder.c:129 |
-| `N265_AQ_FLAT` | ? | src/encoder/encoder.c:460 |
-| `N265_BADAPT_THR` | ? | src/encoder/encoder.c:714 |
-| `N265_FULLPEL` | ? | src/encoder/mv.c:462 |
-| `N265_LAMBDA` | ? | src/encoder/ctu.c:380 |
-| `N265_NO_AMVP` | ? | src/encoder/ctu.c:1943 |
-| `N265_NO_EARLYSKIP` | ? | src/encoder/ctu.c:2381 |
-| `N265_NO_GATES` | ? | src/encoder/ctu.c:1799 |
-| `N265_NO_SAO` | ? | src/encoder/encoder.c:124 |
-| `N265_NO_TMVP` | ? | src/encoder/encoder.c:299 |
+| `N265_AQ` | ? | src/encoder/encoder.c:130 |
+| `N265_AQ_FLAT` | ? | src/encoder/encoder.c:506 |
+| `N265_BADAPT_THR` | ? | src/encoder/encoder.c:761 |
+| `N265_FULLPEL` | ? | src/encoder/mv.c:466 |
+| `N265_LAMBDA` | ? | src/encoder/ctu.c:384 |
+| `N265_NO_AMVP` | ? | src/encoder/ctu.c:1947 |
+| `N265_NO_EARLYSKIP` | ? | src/encoder/ctu.c:2385 |
+| `N265_NO_GATES` | ? | src/encoder/ctu.c:1803 |
+| `N265_NO_SAO` | ? | src/encoder/encoder.c:125 |
+| `N265_NO_TMVP` | ? | src/encoder/encoder.c:302 |
 | `N265_OLD_BS` | ? | src/encoder/deblock.c:151 |
-| `N265_PB_STEP` | 0 | src/encoder/encoder.c:425 |
+| `N265_PB_STEP` | 0 | src/encoder/encoder.c:471 |

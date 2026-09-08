@@ -14,6 +14,7 @@
 #include "encoder/encoder.h"
 #include "encoder/est.h"
 #include "encoder/la.h"
+#include "encoder/mc.h"
 #include "encoder/sao.h"
 
 const char *n265_version_str(void)
@@ -245,6 +246,8 @@ void n265_encoder_close(n265_encoder *e)
         free(e->dpb[sl].col_pred);
         free(e->dpb[sl].col_mv);
         free(e->dpb[sl].col_ref);
+        for (int i = 0; i < 3; i++)
+            free(e->dpb[sl].hf_base[i]);
     }
     n265_la_free(e);
     bs_free(&e->rbsp);
@@ -325,6 +328,49 @@ static void write_slice_header(n265_encoder *e)
         bs_put_bits(bs, 1, 1);      /* slice_loop_filter_across_slices_enabled
                                      * (present because deblocking is on) */
     bs_align_one_then_zero(bs);     /* byte_alignment() */
+}
+
+/* E1: the reference's cached horizontal first stage, three frame-sized
+ * 8-tap passes once per stored reference. Every later subpel candidate
+ * with a nonzero fx - which is most of them - then skips its own. Off
+ * with N265_HFCACHE=0, which is the A/B arm and nothing else: the two
+ * paths produce identical bytes. */
+static int hf_cache_on(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *v = getenv("N265_HFCACHE");
+        on = v ? atoi(v) != 0 : 1;
+    }
+    return on;
+}
+
+static void build_hf_cache(n265_encoder *e, struct n265_refpic *r)
+{
+    for (int i = 0; i < 3; i++)
+        r->hf[i] = NULL;
+    if (!hf_cache_on())
+        return;
+    int w = e->pad_w + 2 * N265_HF_PAD, h = e->pad_h + 2 * N265_HF_PAD;
+    int rs = r->stride[0];
+    const uint8_t *src = r->plane[0] - N265_HF_PAD * rs - N265_HF_PAD;
+    r->hf_stride = w;
+    for (int i = 0; i < 3; i++) {
+        if (!r->hf_base[i]) {
+            r->hf_base[i] = malloc((size_t)w * h * sizeof(int16_t));
+            if (!r->hf_base[i]) {   /* no cache is a slow path, not a fail */
+                for (int k = 0; k < 3; k++)
+                    r->hf[k] = NULL;
+                return;
+            }
+        }
+        n265_mc_luma_hplane(r->hf_base[i], w, w, h, src, rs, i + 1);
+        r->hf[i] = r->hf_base[i] + N265_HF_PAD * w + N265_HF_PAD;
+    }
+    r->hf_x0 = -N265_HF_PAD;
+    r->hf_x1 = e->pad_w + N265_HF_PAD;
+    r->hf_y0 = -N265_HF_PAD;
+    r->hf_y1 = e->pad_h + N265_HF_PAD;
 }
 
 static void write_pcm_ctu(n265_encoder *e, cabac_t *cb, cabac_ctx_t *part_mode,
@@ -601,6 +647,7 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
                        slot->plane[i] + (h - 1) * rs - pad, (size_t)rs);
             }
         }
+        build_hf_cache(e, slot);
         {
             int c16w = (e->pad_w + 15) >> 4;
             int c16h = (e->pad_h + 15) >> 4;

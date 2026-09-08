@@ -82,6 +82,16 @@ struct n265_encoder {
         int16_t *col_mv;    /* 4 per cell: L0 x,y then L1 x,y */
         int col_ref_poc[2]; /* POC of that picture's L0/L1 ref (idx 0) */
         int16_t *col_ref;   /* per 16x16 cell: the block's own L0/L1 ref POCs */
+        /* E1: the horizontal half of 8.4.4.3.2, cached per luma phase
+         * (fx = 1,2,3) once per stored reference. Every subpel candidate
+         * landing on the same fx then needs only the vertical pass, over
+         * the same int16 intermediates the on-the-fly path would have
+         * built - so the prediction stays bit-identical. Origin aligned
+         * with plane[0]; NULL when the cache is off. */
+        int16_t *hf_base[3];
+        int16_t *hf[3];
+        int hf_stride;
+        int hf_x0, hf_x1, hf_y0, hf_y1;     /* positions it covers */
     } dpb[N265_DPB_SLOTS];
     /* the current frame's reference lists: refl[list][idx], nref[list]
      * entries (docs/refstruct-design.md); ref_valid = at least one */
@@ -209,6 +219,25 @@ uint32_t n265_lambda_mode_q8(int qp);
 void n265_build_lists(struct n265_encoder *e, int cur, int is_b, struct n265_refpic *future);
 uint64_t n265_zorder(int x, int y, int pic_w, int ctb_log2);
 #define N265_REF_PAD 64     /* reference plane border, luma samples */
+/* E1 cache border. n265_clamp_mv keeps integer positions inside
+ * [-(N265_REF_PAD - 8), pic + N265_REF_PAD - 8), and the vertical pass
+ * reads 3 rows above and 4 below, so 60 covers every clamped MV. */
+#define N265_HF_PAD 60
+
+/* The cached horizontal intermediate for luma phase fx at integer
+ * position (x, y) of a w x h block, or NULL when the cache cannot serve
+ * it (off, or the block reaches outside the covered region and the
+ * caller must interpolate from the plane itself). */
+static inline const int16_t *n265_ref_hf(const struct n265_refpic *r,
+                                         int x, int y, int w, int h, int fx)
+{
+    if (!fx || !r->hf[fx - 1])
+        return NULL;
+    if (x < r->hf_x0 || x + w > r->hf_x1 ||
+        y - 3 < r->hf_y0 || y + h + 4 > r->hf_y1)
+        return NULL;
+    return r->hf[fx - 1] + y * r->hf_stride + x;
+}
 
 /* encoder.c, shared with ctu.c */
 void n265_encoder_set_dump(n265_encoder *e, FILE *f);

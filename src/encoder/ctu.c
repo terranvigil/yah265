@@ -104,9 +104,11 @@ static void mc_pred_uni(struct n265_encoder *e, int list, int ref, int c_idx, in
         const uint8_t *rp = r->plane[c_idx] + (y0 + dy) * rs + x0 + dx;
         n265_mc_chroma_wh(dst, ds, w, h, rp, rs, mv.x & 7, mv.y & 7);
     } else {
-        int dx = mv.x >> 2, dy = mv.y >> 2;
-        const uint8_t *rp = r->plane[0] + (y0 + dy) * rs + x0 + dx;
-        n265_mc_luma_wh(dst, ds, w, h, rp, rs, mv.x & 3, mv.y & 3);
+        int ix = x0 + (mv.x >> 2), iy = y0 + (mv.y >> 2);
+        const uint8_t *rp = r->plane[0] + iy * rs + ix;
+        n265_mc_luma_hf(dst, ds, w, h, rp, rs,
+                        n265_ref_hf(r, ix, iy, w, h, mv.x & 3),
+                        r->hf_stride, mv.x & 3, mv.y & 3);
     }
 }
 
@@ -120,9 +122,11 @@ static void mc_pred14(struct n265_encoder *e, int list, int ref, int c_idx, int 
         const uint8_t *rp = r->plane[c_idx] + (y0 + dy) * rs + x0 + dx;
         n265_mc_chroma_14_wh(dst, w, w, h, rp, rs, mv.x & 7, mv.y & 7);
     } else {
-        int dx = mv.x >> 2, dy = mv.y >> 2;
-        const uint8_t *rp = r->plane[0] + (y0 + dy) * rs + x0 + dx;
-        n265_mc_luma_14_wh(dst, w, w, h, rp, rs, mv.x & 3, mv.y & 3);
+        int ix = x0 + (mv.x >> 2), iy = y0 + (mv.y >> 2);
+        const uint8_t *rp = r->plane[0] + iy * rs + ix;
+        n265_mc_luma_14_hf(dst, w, w, h, rp, rs,
+                           n265_ref_hf(r, ix, iy, w, h, mv.x & 3),
+                           r->hf_stride, mv.x & 3, mv.y & 3);
     }
 }
 

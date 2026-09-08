@@ -369,9 +369,11 @@ uint32_t n265_mc_sad(struct n265_encoder *e, int list, int ridx, int x0, int y0,
     const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
     if ((mv.x | mv.y) & 3) {    /* fractional: interpolate then SAD */
         uint8_t pred[64 * 64];
-        const uint8_t *rp = ref->plane[0] +
-            (y0 + (mv.y >> 2)) * ref->stride[0] + x0 + (mv.x >> 2);
-        n265_mc_luma_wh(pred, w, w, h, rp, ref->stride[0], mv.x & 3, mv.y & 3);
+        int ix = x0 + (mv.x >> 2), iy = y0 + (mv.y >> 2);
+        const uint8_t *rp = ref->plane[0] + iy * ref->stride[0] + ix;
+        n265_mc_luma_hf(pred, w, w, h, rp, ref->stride[0],
+                        n265_ref_hf(ref, ix, iy, w, h, mv.x & 3),
+                        ref->hf_stride, mv.x & 3, mv.y & 3);
         uint32_t sad = 0;
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++) {
@@ -400,9 +402,11 @@ static uint32_t mc_satd(struct n265_encoder *e, int list, int ridx, int x0, int 
     const struct n265_refpic *ref = e->refl[list][ridx];
     const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
     uint8_t pred[64 * 64];
-    const uint8_t *rp = ref->plane[0] +
-        (y0 + (mv.y >> 2)) * ref->stride[0] + x0 + (mv.x >> 2);
-    n265_mc_luma_wh(pred, w, w, h, rp, ref->stride[0], mv.x & 3, mv.y & 3);
+    int ix = x0 + (mv.x >> 2), iy = y0 + (mv.y >> 2);
+    const uint8_t *rp = ref->plane[0] + iy * ref->stride[0] + ix;
+    n265_mc_luma_hf(pred, w, w, h, rp, ref->stride[0],
+                    n265_ref_hf(ref, ix, iy, w, h, mv.x & 3),
+                    ref->hf_stride, mv.x & 3, mv.y & 3);
     return n265_satd_wh(src, e->pad_stride[0], pred, w, w, h);
 }
 
@@ -460,28 +464,42 @@ uint32_t n265_me_search(struct n265_encoder *e, int list, int ridx, int x0, int 
     static int fullpel = -1;
     if (fullpel < 0)
         fullpel = getenv("N265_FULLPEL") != NULL;
+    static int dedup = -1;
+    if (dedup < 0) {
+        const char *v = getenv("N265_SUBPEL_DEDUP");
+        dedup = v ? atoi(v) != 0 : 1;
+    }
     uint32_t best_satd = fullpel ? 0 : mc_satd(e, list, ridx, x0, y0, w, h, cur);
-    for (int round = 0; round < (fullpel ? 0 : 2); round++)
-    for (int step = 2; step >= 1; step--) {
-        mv_t b = cur;
-        uint32_t bs = best_satd;
-        for (int dy = -step; dy <= step; dy += step)
-            for (int dx = -step; dx <= step; dx += step) {
-                if (!dx && !dy)
-                    continue;
-                mv_t t = { (int16_t)(cur.x + dx), (int16_t)(cur.y + dy) };
-                mv_t tc = t;
-                n265_clamp_mv(e, x0, y0, w, h, &tc);
-                if (tc.x != t.x || tc.y != t.y)
-                    continue;
-                uint32_t s = mc_satd(e, list, ridx, x0, y0, w, h, t);
-                if (s < bs) {
-                    bs = s;
-                    b = t;
+    for (int round = 0; round < (fullpel ? 0 : 2); round++) {
+        mv_t round_start = cur;
+        for (int step = 2; step >= 1; step--) {
+            mv_t b = cur;
+            uint32_t bs = best_satd;
+            for (int dy = -step; dy <= step; dy += step)
+                for (int dx = -step; dx <= step; dx += step) {
+                    if (!dx && !dy)
+                        continue;
+                    mv_t t = { (int16_t)(cur.x + dx), (int16_t)(cur.y + dy) };
+                    mv_t tc = t;
+                    n265_clamp_mv(e, x0, y0, w, h, &tc);
+                    if (tc.x != t.x || tc.y != t.y)
+                        continue;
+                    uint32_t s = mc_satd(e, list, ridx, x0, y0, w, h, t);
+                    if (s < bs) {
+                        bs = s;
+                        b = t;
+                    }
                 }
-            }
-        cur = b;
-        best_satd = bs;
+            cur = b;
+            best_satd = bs;
+        }
+        /* A round that did not move the centre leaves the search in the
+         * state it started in - same centre, same best cost - so the
+         * next one walks the identical candidate set to the identical
+         * answer. Not running it is bit-identical, and it is half the
+         * subpel budget on every block that had already converged. */
+        if (dedup && cur.x == round_start.x && cur.y == round_start.y)
+            break;
     }
     *best = cur;
     return best_sad;

@@ -80,6 +80,71 @@ void n265_mc_luma_wh(uint8_t *dst, int ds, int w, int h,
         }
 }
 
+void n265_mc_luma_hplane(int16_t *dst, int ds, int w, int h,
+                         const uint8_t *ref, int ref_stride, int fx)
+{
+    const int8_t *f = luma_filt[fx];
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++) {
+            int s = 0;
+            for (int k = 0; k < 8; k++)
+                s += f[k] * ref[y * ref_stride + x + k - 3];
+            dst[y * ds + x] = (int16_t)s;
+        }
+}
+
+/* The cached-first-stage forms. The plain path's horizontal-only branch
+ * emits clip1((s + 32) >> 6) of exactly the value cached here, and its
+ * 2-D branch runs the vertical filter over exactly these int16 rows, so
+ * both arms below reproduce it bit for bit. */
+void n265_mc_luma_hf(uint8_t *dst, int ds, int w, int h,
+                     const uint8_t *ref, int ref_stride,
+                     const int16_t *hf, int hs, int fx, int fy)
+{
+    if (!fx || !hf) {
+        n265_mc_luma_wh(dst, ds, w, h, ref, ref_stride, fx, fy);
+        return;
+    }
+    if (!fy) {
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+                dst[y * ds + x] = clip1((hf[y * hs + x] + 32) >> 6);
+        return;
+    }
+    const int8_t *fv = luma_filt[fy];
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++) {
+            int s = 0;
+            for (int k = 0; k < 8; k++)
+                s += fv[k] * hf[(y + k - 3) * hs + x];
+            dst[y * ds + x] = clip1((s + 2048) >> 12);
+        }
+}
+
+void n265_mc_luma_14_hf(int16_t *dst, int ds, int w, int h,
+                        const uint8_t *ref, int ref_stride,
+                        const int16_t *hf, int hs, int fx, int fy)
+{
+    if (!fx || !hf) {
+        n265_mc_luma_14_wh(dst, ds, w, h, ref, ref_stride, fx, fy);
+        return;
+    }
+    if (!fy) {
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+                dst[y * ds + x] = hf[y * hs + x];
+        return;
+    }
+    const int8_t *fv = luma_filt[fy];
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++) {
+            int s = 0;
+            for (int k = 0; k < 8; k++)
+                s += fv[k] * hf[(y + k - 3) * hs + x];
+            dst[y * ds + x] = (int16_t)(s >> 6);
+        }
+}
+
 void n265_mc_chroma_wh(uint8_t *dst, int ds, int w, int h,
                        const uint8_t *ref, int ref_stride, int fx, int fy)
 {
