@@ -267,6 +267,7 @@ typedef struct n265_frame_work {
     /* rate control hand-off, frozen at dispatch (sec 3 rule 4) */
     int rc_cls;
     double rc_cplx, rc_base;
+    double rc_planned;      /* D4: the fair share rc_next handed this frame */
 
     /* ---- entropy, frame-level ---- */
     cabac_ctx_t ctx[CTX_COUNT];
@@ -365,6 +366,12 @@ struct n265_encoder {
 
     n265_frame_work fw[N265_MAX_FRAME_WORK];
     int K;                  /* live frames in flight (N265_MAX_FRAME_WORK) */
+    /* D4: the ABR observation lag, N265_RC_LAG, clamped to K - 1. This
+     * one IS bitstream-affecting - it changes which frames' actual bits
+     * frame k's rate factor is solved from - and it is the only reason K
+     * can reach the bitstream at all: under ABR, K bounds the lag. At
+     * the default 0, ABR frames do not overlap and K is inert. */
+    int rc_lag;
     int fw_next;            /* the frame_work slot the next dispatch takes */
     /* the frames dispatched and not yet retired, in DISPATCH ORDER. The
      * driver owns this list; it is what the deferred-NAL ring walks, and

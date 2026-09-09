@@ -360,6 +360,11 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     { const char *v = getenv("N265_MAX_FRAME_WORK");
       int k = v ? atoi(v) : 4;
       e->K = k < 1 ? 1 : k > N265_MAX_FRAME_WORK ? N265_MAX_FRAME_WORK : k; }
+    { const char *v = getenv("N265_RC_LAG");
+      int d = v ? atoi(v) : 0;
+      if (d < 0) d = 0;
+      if (d > e->K - 1) d = e->K - 1;
+      e->rc_lag = d; }
 
     for (int i = 0; i < 3; i++) {
         int w = i ? e->pad_w / 2 : e->pad_w;
@@ -1312,7 +1317,7 @@ static void join_oldest(n265_encoder *e)
     /* D4: the actual bits are applied on the driver, in coding order. */
     if (e->abr_on || e->rc.trace)
         n265_rc_done(e, fw->rc_cls, fw->rc_cplx, fw->rc_base,
-                     (double)d->len * 8.0);
+                     (double)d->len * 8.0, fw->rc_planned);
     fw->slot->in_use = 0;
     fw->emit_headers = 0;
     fw->in_flight = 0;
@@ -1614,15 +1619,18 @@ static int drive_scheduler(n265_encoder *e)
     fw->rc_cls = n265_rc_class(slice_type, fw->nonref);
     fw->rc_cplx = n265_rc_cplx(e, li, fw->rc_cls);
     if (e->abr_on) {
-        /* D4 at D = 0: frame k's rate factor is solved from the ACTUAL
-         * bits of every frame before it, so the driver applies those
-         * first (rc_done runs in retire_frame, in coding order). ABR
-         * therefore does not overlap frames at D = 0 - by construction,
-         * and identically at every thread count - while CQP and CRF
-         * launch immediately and overlap fully. */
-        while (e->n_inflight)
+        /* D4: frame k's rate factor is solved from the ACTUAL bits of
+         * every frame with coding index <= k - 1 - D, so the driver
+         * joins those first; rc_done runs inside join_oldest, on the
+         * driver, in coding order. The frames still inside the lag
+         * contribute their PLANNED bits instead. At D = 0 that is every
+         * earlier frame, ABR does not overlap, and the loop is
+         * bit-identical to the pre-T2 one; CQP and CRF launch
+         * immediately and overlap fully either way. */
+        while (e->n_inflight > e->rc_lag)
             join_oldest(e);
         e->rc_rf = n265_rc_next(e, fw->rc_cls, fw->rc_cplx);
+        fw->rc_planned = e->rc.last_planned;
     }
     if (kind != 0)          /* the priced b-adapt prices against this plane */
         n265_la_set_anchor(e, li);

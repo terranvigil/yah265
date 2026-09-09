@@ -197,6 +197,13 @@ run_vector_env "N265_MAX_FRAME_WORK=8" \
            k8_t12_b7   352x288 24  testsrc2  "--keyint 12 --bframes 7 --aq 1 --cutree 1 --threads 12"
 run_vector_env "N265_MAX_FRAME_WORK=8" \
            k8_t12_abr  352x288 24  testsrc2  "--keyint 12 --bitrate 400 --aq 1 --cutree 1 --threads 12"
+# D4's observation lag. Unlike K this one IS bitstream-affecting, so it
+# gets a cell at one thread and at twelve: the stream must differ from
+# the D = 0 one and must not differ between thread counts.
+run_vector_env "N265_RC_LAG=3" \
+           lag3_t1_abr 352x288 24  testsrc2  "--keyint 12 --bitrate 400 --aq 1 --cutree 1 --threads 1"
+run_vector_env "N265_RC_LAG=3" \
+           lag3_t12_abr 352x288 24 testsrc2  "--keyint 12 --bitrate 400 --aq 1 --cutree 1 --threads 12"
 if [ "$FAST" -eq 0 ]; then
     run_vector thr4_720    1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 4"
     run_vector thr12_720   1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 12"

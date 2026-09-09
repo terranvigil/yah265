@@ -217,6 +217,7 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx)
 
     double T = rc->bits_per_frame * w / w_avg;      /* the fair share */
     rc->planned_bits += T;
+    rc->last_planned = T;
 
     /* Two errors, and the two feedback terms read different ones.
      *
@@ -233,10 +234,14 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx)
      *
      * The INTEGRAL term always reads the error against the flat BUDGET,
      * because that is the one whose zero is the file landing on its size. */
-    double err = rc->total_bits - (rc->planerr ? rc->planned_bits
-                                               : rc->bits_per_frame *
-                                                     (double)rc->n_coded);
-    double errb = rc->total_bits - rc->bits_per_frame * (double)rc->n_coded;
+    /* D4: the frames inside the observation lag are counted at their
+     * planned bits. At lag 0 pend_bits and pend_n are zero and this is
+     * the expression it always was. */
+    double seen = rc->total_bits + rc->pend_bits;
+    double nseen = (double)rc->n_coded + (double)rc->pend_n;
+    double err = seen - (rc->planerr ? rc->planned_bits
+                                     : rc->bits_per_frame * nseen);
+    double errb = seen - rc->bits_per_frame * nseen;
     double corr = 1.0 + err / (rc->bits_per_frame * rc->horizon);
     if (corr < 0.5)
         corr = 0.5;
@@ -287,6 +292,8 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx)
     else if (rf > 51.0)
         rf = 51.0;
     rc->rf = rf;
+    rc->pend_bits += T;
+    rc->pend_n++;
     if (rc->trace)
         fprintf(stderr, "RC n=%ld cls=%d cplx=%.0f w=%.3g wavg=%.3g "
                 "T=%.0f corr=%.4f bias=%+.3f fb=%+.3f rf=%.3f err=%.0f\n",
@@ -296,9 +303,15 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx)
 }
 
 void n265_rc_done(struct n265_encoder *e, int cls, double cplx, double rf_used,
-                  double bits)
+                  double bits, double planned)
 {
     n265_rc *rc = &e->rc;
+    if (rc->pend_n > 0) {
+        rc->pend_bits -= planned;
+        rc->pend_n--;
+        if (rc->pend_n == 0)
+            rc->pend_bits = 0.0;    /* no drift from the running subtraction */
+    }
     double obs = bits * qscale_of_qp(rf_used) /
                  (rc->nblk * pow(cplx / rc->nblk, rc->qcomp));
     if (obs > 0.0) {
