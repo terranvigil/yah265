@@ -45,7 +45,7 @@ static int g_mode = N265_MODE_INTRA;
 static int g_qp = 26;
 static double g_crf = -1.0;      /* n265_set_crf; < 0 = CQP */
 static int g_ctb_log2 = 6;
-static int g_keyint = 60;
+static int g_keyint = 250;      /* x265 4.3's own default (2026-09-08) */
 
 static int g_bframes = 3;         /* hierarchical B default (2026-09-07) */
 static int g_ref = 1;            /* n265_set_ref */
