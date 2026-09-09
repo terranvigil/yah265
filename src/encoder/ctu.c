@@ -452,6 +452,22 @@ static int cbf_fast(void)
     return v;
 }
 
+/* N265_SKIP_EXIT (phase 4): the merge and skip arms run before the AMVP
+ * search, so where they have already ended in a skip whose distortion
+ * is inside the quantiser floor, the CU's winner is decided and the
+ * search - and the partitions behind it - are bought to lose. 1 and 2
+ * are the bound in multiples of the clean-skip level; 3 drops the bound
+ * and asks only that skip beat the merge candidate's own RD. */
+static int skip_exit(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_SKIP_EXIT");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
 /* N265_INTRA_GATE (P3): the intra RD trial inside an inter slice is
  * 10-14% of the encode and is bought at every CU whether or not the
  * inter arms left anything for it to win. Each mode adds a disjunct to
@@ -2242,6 +2258,18 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                             &m_tcr);
                 j_merge = rd_j(d_merge, st.bits, lam);
             }
+
+            /* the merge-first skip exit: both merge arms are priced by
+             * now, and where the skip won on J with its distortion
+             * inside the quantiser floor, this CU's winner is already
+             * decided - the AMVP search cannot code less than nothing,
+             * and the rect/AMP trials are never entered on a CU the
+             * skip wins anyway. */
+            if (skip_exit() && !gate_amvp && j_skip <= j_merge &&
+                (skip_exit() >= 3 ||
+                 d_skip * (skip_exit() == 1 ? 4u : 1u) <=
+                     skip_clean_thr(e->cur_ctu_qp, n)))
+                gate_amvp = 1;
 
             /* amvp candidate: per-list ME, then the best of uni-L0,
              * uni-L1, bi by prediction SAD carries to RD */
