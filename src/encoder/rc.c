@@ -110,7 +110,8 @@ void n265_rc_open(struct n265_encoder *e)
     rc->igain = abr_tunable("N265_ABR_IGAIN", 0.085);
     rc->imax = abr_tunable("N265_ABR_IMAX", 8.0);
     rc->fbmax = abr_tunable("N265_ABR_FBMAX", 6.0);
-    rc->w_mem = abr_tunable("N265_ABR_WMEM", 120.0);
+    rc->planerr = (int)abr_tunable("N265_ABR_PLANERR", 0);
+    rc->w_mem = abr_tunable("N265_ABR_WMEM", 1000.0);
     /* Prior per-class scales: bits x qscale per lowres block per
      * (per-block complexity)^qcomp. Geometric means over 11 corpus clips x
      * QP 24/30/36 x 40 frames, read off N265_RC_TRACE on CQP encodes
@@ -200,7 +201,13 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx)
      * an I frame is worth several ordinary frames: folding one into the mean
      * would raise the yardstick for the whole GOP that follows it and hand
      * the I frame a share smaller than a P frame's. An IDR recurs every
-     * keyint frames; the mean has to describe the other 249. */
+     * keyint frames; the mean has to describe the other 249.
+     *
+     * Its memory (N265_ABR_WMEM) is the sequence, not a window. A window
+     * tracks the SHOT, and a yardstick that tracks the shot makes every
+     * shot average out to the same bits per frame - the across-shot
+     * allocation collapses. Worth 3.5% of BD-rate on the multi-shot gate
+     * (2026-09-09) and inert on any clip shorter than the memory. */
     if (cls != RC_I || rc->w_n < 1.0) {
         rc->w_avg += (w - rc->w_avg) / (rc->w_n + 1.0);
         if (rc->w_n < rc->w_mem)
@@ -209,14 +216,37 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx)
     double w_avg = rc->w_avg > 0.0 ? rc->w_avg : w;
 
     double T = rc->bits_per_frame * w / w_avg;      /* the fair share */
+    rc->planned_bits += T;
 
-    /* the feedback: the cumulative error against the flat budget */
-    double err = rc->total_bits - rc->bits_per_frame * (double)rc->n_coded;
+    /* Two errors, and the two feedback terms read different ones.
+     *
+     * `N265_ABR_PLANERR` points the PROPORTIONAL term at the error against
+     * the PLAN - the fair shares the allocator handed out - rather than
+     * against the flat budget, on the reasoning that a fast term aimed at
+     * the flat budget fights the complexity model: a hard shot is given more
+     * than the flat budget by design and a six-frame horizon takes it
+     * straight back. It is REFUSED (2026-09-09): rate accuracy goes from
+     * 0.57% median / 2.67% worst to 1.34% / 12.74%, and the dSIZE leg is
+     * what this loop exists for. Kept as an arm because it is the right
+     * shape for the across-shot problem and will be re-priced when VBV
+     * gives the budget error somewhere else to live.
+     *
+     * The INTEGRAL term always reads the error against the flat BUDGET,
+     * because that is the one whose zero is the file landing on its size. */
+    double err = rc->total_bits - (rc->planerr ? rc->planned_bits
+                                               : rc->bits_per_frame *
+                                                     (double)rc->n_coded);
+    double errb = rc->total_bits - rc->bits_per_frame * (double)rc->n_coded;
     double corr = 1.0 + err / (rc->bits_per_frame * rc->horizon);
     if (corr < 0.5)
         corr = 0.5;
     else if (corr > 2.0)
         corr = 2.0;
+    double corrb = 1.0 + errb / (rc->bits_per_frame * rc->horizon);
+    if (corrb < 0.5)
+        corrb = 0.5;
+    else if (corrb > 2.0)
+        corrb = 2.0;
     /* The proportional term above settles wherever the accumulated error is
      * large enough to cancel the bits model's own bias - a standing offset,
      * and the file misses its size by exactly that. The integral term
@@ -224,7 +254,7 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx)
      * only fixed point is a cumulative error of zero, which is the size
      * landing on the target. The proportional term is what damps it; an
      * integrator this slow oscillates on its own. */
-    rc->rf_bias += rc->igain * 6.0 * log2(corr);
+    rc->rf_bias += rc->igain * 6.0 * log2(corrb);
     if (rc->rf_bias > rc->imax)
         rc->rf_bias = rc->imax;
     else if (rc->rf_bias < -rc->imax)
@@ -257,7 +287,6 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx)
     else if (rf > 51.0)
         rf = 51.0;
     rc->rf = rf;
-    rc->planned_bits += T;
     if (rc->trace)
         fprintf(stderr, "RC n=%ld cls=%d cplx=%.0f w=%.3g wavg=%.3g "
                 "T=%.0f corr=%.4f bias=%+.3f fb=%+.3f rf=%.3f err=%.0f\n",

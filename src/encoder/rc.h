@@ -35,6 +35,7 @@ typedef struct n265_rc {
     double lvl_gain;            /* how fast the shared level follows  */
     double igain, imax;         /* integral gain and its bound        */
     double fbmax;               /* bound on both feedback terms       */
+    int planerr;                /* P term reads the plan, not the budget */
     double open_step;           /* extra step allowed over the opening */
     int nblk;                   /* lowres 8x8 blocks per frame        */
     int trace;
