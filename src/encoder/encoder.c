@@ -181,15 +181,21 @@ static void fw_close(n265_frame_work *fw)
 }
 
 /* A row lane starts from a shallow copy of the frame's coding context
- * and re-points what has to be row-private. At T0a rows still run
- * serially and the record stream and the estimator chain stay
- * frame-continuous, so both are handed back at row end; T0b splits
- * them. */
+ * and re-points what has to be row-private. Nothing crosses a row
+ * boundary except through est_snap, which is a fixed position (sec 2):
+ * row r's cost-model contexts start from the snapshot row r-1 published
+ * after its CTB 1, and row 0 starts from the slice-init contexts. The
+ * analysis-side qPY_PREV is row-local too - it only prices the
+ * cu_qp_delta bin now, since the QP map itself is resolved afterwards by
+ * n265_qpmap_row. */
 void n265_row_begin(n265_row_ctx *row, n265_frame_work *fw, int r)
 {
     row->c = *fw;
-    memcpy(row->est, fw->est_ctx, sizeof(row->est));
+    memcpy(row->est, r > 0 ? fw->est_snap + (size_t)(r - 1) * CTX_COUNT
+                           : fw->est_store,
+           sizeof(row->est));
     row->c.est_ctx = row->est;
+    row->c.ent_qp_prev = fw->qp;
     row->c.sc = row->sc;
     row->c.rec_buf = fw->rrec[r].buf;
     row->c.rec_cap = fw->rrec[r].cap;
@@ -199,8 +205,6 @@ void n265_row_begin(n265_row_ctx *row, n265_frame_work *fw, int r)
 
 void n265_row_end(n265_row_ctx *row, n265_frame_work *fw, int r)
 {
-    memcpy(fw->est_ctx, row->est, sizeof(row->est));
-    fw->ent_qp_prev = row->c.ent_qp_prev;   /* the analysis-side qPY_PREV chain */
     fw->rrec[r].buf = row->c.rec_buf;
     fw->rrec[r].cap = row->c.rec_cap;
     fw->rrec[r].len = row->c.rec_len;
