@@ -507,6 +507,33 @@ static int nb_inter_clean(struct n265_encoder *e, int x0, int y0, int n)
     return 1;
 }
 
+/* N265_PART_GATE (P4): tighten entry to the rectangular and asymmetric
+ * partition trials, which together are 18-21% of the encode and run a
+ * complete PU search - five merge candidates at SATD, a full ME per
+ * list, a bi refinement - for all four PUs of both orientations before
+ * one orientation is thrown away. 1 makes AMP wait for the rectangular
+ * winner to beat 2Nx2N by a margin; 2 also asks the 2Nx2N AMVP
+ * candidate to have carried residual before rect is entered at all;
+ * 3 also drops rect at the min CB, where its PUs are 8x4/4x8 and its
+ * share per bit is highest; 4 is 3 with the AMP margin widened from 2%
+ * to 8%. 0 is the pre-P4 encoder. */
+static int part_gate(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_PART_GATE");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
+/* percent by which the rectangular winner must beat the 2Nx2N winner
+ * before the AMP orientations are searched */
+static int part_amp_margin(void)
+{
+    return part_gate() >= 4 ? 8 : 2;
+}
+
 /* N265_DEPTH_BOUND (P2): bound the depth range the quadtree searches to
  * the range the decoded neighbours and the collocated CTU already used.
  * 0 off; 1 widens that range by one each way; 3 takes it as it stands.
@@ -2281,7 +2308,18 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
              * and only above the min CB where the spec allows it. */
             static part_cand pca, pcb;
             part_cand *cur = &pca, *pwin = NULL;
-            if (e->rect && kind != 0 && !gate_amvp && !gate_part) {
+            /* P4: a two-PU split can only pay where the block's own
+             * searched motion left something to code. Where the AMVP
+             * candidate reproduced the merge vector, or its residual
+             * quantised away, the neighbours' single motion field
+             * already explains the block. */
+            int rect_ok = 1;
+            if (part_gate() >= 2)
+                rect_ok = a_any;
+            if (part_gate() >= 3 && log2n == MIN_CB_LOG2)
+                rect_ok = 0;
+            uint64_t best_2n = best;
+            if (e->rect && kind != 0 && !gate_amvp && !gate_part && rect_ok) {
                 mv_t start[2] = { me_mv[0], me_mv[1] };
                 pu_dec dh[2], dv[2];
                 uint32_t ch = try_part(e, x0, y0, n, PART_2NxN, start, dh);
@@ -2295,7 +2333,10 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                     kind = 4;
                     pwin = cur;
                     cur = cur == &pca ? &pcb : &pca;
-                    if (e->amp && log2n > MIN_CB_LOG2) {
+                    if (e->amp && log2n > MIN_CB_LOG2 &&
+                        (!part_gate() ||
+                         jr * (100 + (unsigned)part_amp_margin()) <=
+                             best_2n * 100)) {
                         int a0 = horiz ? PART_2NxnU : PART_nLx2N;
                         int a1 = horiz ? PART_2NxnD : PART_nRx2N;
                         pu_dec da[2], db[2];
