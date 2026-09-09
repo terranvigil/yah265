@@ -511,10 +511,23 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
              * full of them, and without a floor the field reads a
              * perfectly flat fill as maximally masking-free and drives it
              * many QP steps DOWN, buying bits for a region that codes to
-             * nothing while the outlines that carry the picture pay. 0 is
-             * the pre-2026-09-09 behaviour and is exactly inert. */
-            double vfloor = 0.0;
+             * nothing while the outlines that carry the picture pay. 4 is
+             * a standard deviation of two luma levels: below it an 8-bit
+             * picture is flat to within the smallest step the quantiser
+             * reproduces. 0 is the pre-2026-09-09 behaviour and is
+             * exactly inert.
+             *
+             * The floor reaches the per-CTU term ONLY. The frame mean below
+             * it feeds a different term with a different job - the AQ_DC
+             * across-shot allocation - and there the unfloored mean is the
+             * right quantity: a black frame really is cheaper to code, and
+             * flooring it makes the complexity proxy worse. Measured: with
+             * the floor on both, the across-shot gate on ms_720p_50 went
+             * -16.92% to -16.08%; with it on the per-CTU field alone the
+             * gate holds. */
+            double vfloor = 4.0;
             { const char *v = getenv("N265_AQ_FLOOR"); if (v) vfloor = atof(v); }
+            double avg_dc = 0;      /* the same field WITHOUT the floor */
             for (int cy = 0; cy < e->ctb_rows; cy++)
                 for (int cx = 0; cx < e->ctb_cols; cx++) {
                     int x0 = cx * ctb, y0 = cy * ctb;
@@ -530,11 +543,13 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
                     int np = w * h;
                     double var = (double)s2 / np -
                         ((double)s1 / np) * ((double)s1 / np);
+                    avg_dc += log2((var < 0.0 ? 0.0 : var) + 1.0);
                     if (var < vfloor) var = vfloor;
                     lv[cy * e->ctb_cols + cx] = log2(var + 1.0);
                     avg += lv[cy * e->ctb_cols + cx];
                 }
             avg /= nctu;
+            avg_dc /= nctu;
             /* Under CRF the frame mean of the AQ field is the across-frame /
              * across-shot allocation term (yah264 row 10, 2026-09-05): a busy
              * frame codes a little cheaper, a quiet one a little better. It
@@ -544,7 +559,7 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
              * it; the per-CTU part below stays centred on the frame. */
             if (e->crf_on || e->abr_on) {
                 const char *v = getenv("N265_AQ_DC"), *a = getenv("N265_AQ_ANCHOR");
-                double dc = (v ? atof(v) : 1.0) * (avg - (a ? atof(a) : 6.4));
+                double dc = (v ? atof(v) : 1.0) * (avg_dc - (a ? atof(a) : 6.4));
                 int dci = (int)lround(dc);
                 int nq = e->qp + dci;
                 e->qp = nq < 0 ? 0 : nq > 51 ? 51 : nq;
