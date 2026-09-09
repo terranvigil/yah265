@@ -29,11 +29,15 @@ import sys
 import tempfile
 import time
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
+import bdcompare as _bd
+_bd.SUBSAMPLE = 1
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 N265 = os.environ.get("N265", os.path.join(ROOT, "build/n265"))
 X265 = os.environ.get("X265", "x265")
 FFMPEG = os.environ.get("FFMPEG", "ffmpeg")
-HISTORY = os.path.join(ROOT, "docs/data/parity-history.csv")
+HISTORY = os.environ.get("BOARD_HISTORY", os.path.join(ROOT, "docs/data/parity-history.csv"))
 NRUNS = 3
 QPS = [22, 27, 32, 37]
 
@@ -183,17 +187,21 @@ def measure_clip(tmp, name, size, frames, src, bd_only):
     row = {"clip": name, "frames": frames}
 
     ours_pts = []
+    ours_neg = []       # (bits, VMAF-NEG): the leg the quality decisions use
     for qp in QPS:
         out = os.path.join(tmp, f"n_{name}_{qp}.hevc")
         rec = os.path.join(tmp, f"n_{name}_{qp}.yuv")
         run([N265, y4m, "-o", out, "--qp", str(qp),
              "--dump-recon", rec] + lim)
         ours_pts.append((os.path.getsize(out) * 8, psnr_y(rec, y4m, size)))
+        v = _bd.vmaf_of(out, y4m, tmp)
+        ours_neg.append((os.path.getsize(out) * 8, v["VMAF-NEG"] if v and "VMAF-NEG" in v else None))
 
     st = ["--pools", "none", "--frame-threads", "1", "--log-level", "error"]
     matched = [X265, "--input", y4m] + st + X265_MATCHED + lim
     medium = [X265, "--input", y4m] + st + lim
     x_pts = []
+    x_neg = []
     for qp in QPS:
         out = os.path.join(tmp, f"x_{name}_{qp}.hevc")
         run(matched + ["--qp", str(qp), "-o", out])
@@ -201,7 +209,18 @@ def measure_clip(tmp, name, size, frames, src, bd_only):
         run([FFMPEG, "-loglevel", "error", "-i", out, "-f", "rawvideo",
              dec, "-y"])
         x_pts.append((os.path.getsize(out) * 8, psnr_y(dec, y4m, size)))
+        v = _bd.vmaf_of(out, y4m, tmp)
+        x_neg.append((os.path.getsize(out) * 8, v["VMAF-NEG"] if v and "VMAF-NEG" in v else None))
     row["bd_rate_psnr_pct"] = round(bd_rate(x_pts, ours_pts), 2)
+    # BD-rate on VMAF-NEG against the same matched arm. PSNR and VMAF-NEG
+    # can disagree on purpose (SAO buys PSNR and pays VMAF-NEG, 2026-09-09);
+    # the band's decisions are made on VMAF-NEG, so the chart carries both.
+    if all(p[1] is not None for p in ours_neg + x_neg):
+        r = _bd.bd_rate([p[0] for p in x_neg], [p[1] for p in x_neg],
+                        [p[0] for p in ours_neg], [p[1] for p in ours_neg])
+        row["bd_rate_vmafneg_pct"] = round(r, 2) if isinstance(r, float) else ""
+    else:
+        row["bd_rate_vmafneg_pct"] = ""
 
     if bd_only:
         # timing skipped (loaded machine); columns stay empty
@@ -249,7 +268,7 @@ def main():
               "x265m_noasm_fps", "x265m_asm_fps", "mult_matched_g1",
               "mult_matched_g3", "x265med_noasm_fps", "x265med_asm_fps",
               "mult_medium_g1", "mult_medium_g3", "bd_rate_psnr_pct",
-              "note"]
+              "bd_rate_vmafneg_pct", "note"]
     os.makedirs(os.path.dirname(HISTORY), exist_ok=True)
     new = not os.path.exists(HISTORY)
 
@@ -272,12 +291,12 @@ def main():
                        commit=commit, x265=xv, note=note)
             wr.writerow(row)
             if bd_only:
-                print("{clip}: BD {bd_rate_psnr_pct}%".format(**row))
+                print("{clip}: BD-PSNR {bd_rate_psnr_pct}% BD-VMAF-NEG {bd_rate_vmafneg_pct}%".format(**row))
             else:
                 print("{clip}: ours {our_fps} fps | matched g1 "
                       "{mult_matched_g1}x g3 {mult_matched_g3}x | medium g1 "
                       "{mult_medium_g1}x g3 {mult_medium_g3}x | BD "
-                      "{bd_rate_psnr_pct}%".format(**row))
+                      "{bd_rate_psnr_pct}% / NEG {bd_rate_vmafneg_pct}%".format(**row))
     print(f"appended to {os.path.relpath(HISTORY, ROOT)}")
 
 
