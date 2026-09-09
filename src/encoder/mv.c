@@ -3,6 +3,7 @@
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -446,6 +447,30 @@ static int subme_mode(void)
     return v;
 }
 
+/* N265_ME_PATTERN (phase 4): 0 the unit diamond, 1 the hexagon with a
+ * diamond finish, 2 and 3 that plus an early-out on the seed. */
+static int me_pattern(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_ME_PATTERN");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
+/* quantiser step at qp, Q8: the unit the early-out bound is asked in,
+ * because a prediction already inside the quantiser floor leaves the
+ * pattern nothing to find */
+static uint32_t qstep_q8(int qp)
+{
+    static uint32_t tab[52];
+    if (!tab[51])
+        for (int q = 0; q < 52; q++)
+            tab[q] = (uint32_t)(pow(2.0, (q - 4) / 6.0) * 256.0 + 0.5);
+    return tab[qp < 0 ? 0 : qp > 51 ? 51 : qp];
+}
+
 uint32_t n265_me_search(struct n265_encoder *e, int list, int ridx, int x0, int y0,
                         int w, int h, mv_t start, mv_t *best)
 {
@@ -462,28 +487,100 @@ uint32_t n265_me_search(struct n265_encoder *e, int list, int ridx, int x0, int 
             cur = zero;
         }
     }
-    /* iterative small diamond, range bounded by iteration count */
-    for (int iter = 0; iter < 24; iter++) {
-        mv_t b = cur;
-        uint32_t bs = best_sad;
-        static const int d[4][2] = { {4,0}, {-4,0}, {0,4}, {0,-4} };
-        for (int i = 0; i < 4; i++) {
-            mv_t t = { (int16_t)(cur.x + d[i][0]),
-                       (int16_t)(cur.y + d[i][1]) };
-            mv_t tc = t;
-            n265_clamp_mv(e, x0, y0, w, h, &tc);
-            if (tc.x != t.x || tc.y != t.y)
-                continue;
-            uint32_t s = n265_mc_sad(e, list, ridx, x0, y0, w, h, t);
-            if (s < bs) {
-                bs = s;
-                b = t;
+    static const int dia4[4][2] = { {4,0}, {-4,0}, {0,4}, {0,-4} };
+    int pattern = me_pattern();
+    /* Early-out: a seed whose prediction is already inside the
+     * quantiser floor has nothing for the pattern to find - whatever it
+     * moves to, the residual quantises to the same nothing - so the
+     * walk is bought to lose. Asked per pixel in quantiser steps. */
+    int early = 0;
+    if (pattern >= 2) {
+        unsigned pct = pattern == 2 ? 50u : 100u;
+        uint64_t thr = (uint64_t)(w * h) * qstep_q8(e->cur_ctu_qp) * pct / 100u;
+        early = (uint64_t)best_sad * 256u <= thr;
+    }
+    if (early) {
+        /* nothing */
+    } else if (pattern) {
+        /* Hexagon search (HEXBS, Zhu/Lin/Chau 2002): six points on a
+         * flattened hexagon so a step covers two pels of ground for the
+         * same six evaluations, walked until the centre wins, then a
+         * unit-diamond finish for the pel the hexagon steps over. The
+         * walk is bounded at the reference's merange class - 57 full
+         * pels from the seed - rather than by an iteration count. */
+        static const int hex6[6][2] = {
+            {8,0}, {4,8}, {-4,8}, {-8,0}, {-4,-8}, {4,-8}
+        };
+        const int rng = 57 * 4;
+        int cx0 = cur.x, cy0 = cur.y;
+        for (int iter = 0; iter < 64; iter++) {
+            mv_t b = cur;
+            uint32_t bs = best_sad;
+            for (int i = 0; i < 6; i++) {
+                mv_t t = { (int16_t)(cur.x + hex6[i][0]),
+                           (int16_t)(cur.y + hex6[i][1]) };
+                if (t.x - cx0 > rng || cx0 - t.x > rng ||
+                    t.y - cy0 > rng || cy0 - t.y > rng)
+                    continue;
+                mv_t tc = t;
+                n265_clamp_mv(e, x0, y0, w, h, &tc);
+                if (tc.x != t.x || tc.y != t.y)
+                    continue;
+                uint32_t s = n265_mc_sad(e, list, ridx, x0, y0, w, h, t);
+                if (s < bs) {
+                    bs = s;
+                    b = t;
+                }
             }
+            if (b.x == cur.x && b.y == cur.y)
+                break;
+            cur = b;
+            best_sad = bs;
         }
-        if (b.x == cur.x && b.y == cur.y)
-            break;
-        cur = b;
-        best_sad = bs;
+        for (int iter = 0; iter < 4; iter++) {
+            mv_t b = cur;
+            uint32_t bs = best_sad;
+            for (int i = 0; i < 4; i++) {
+                mv_t t = { (int16_t)(cur.x + dia4[i][0]),
+                           (int16_t)(cur.y + dia4[i][1]) };
+                mv_t tc = t;
+                n265_clamp_mv(e, x0, y0, w, h, &tc);
+                if (tc.x != t.x || tc.y != t.y)
+                    continue;
+                uint32_t s = n265_mc_sad(e, list, ridx, x0, y0, w, h, t);
+                if (s < bs) {
+                    bs = s;
+                    b = t;
+                }
+            }
+            if (b.x == cur.x && b.y == cur.y)
+                break;
+            cur = b;
+            best_sad = bs;
+        }
+    } else {
+        /* iterative small diamond, range bounded by iteration count */
+        for (int iter = 0; iter < 24; iter++) {
+            mv_t b = cur;
+            uint32_t bs = best_sad;
+            for (int i = 0; i < 4; i++) {
+                mv_t t = { (int16_t)(cur.x + dia4[i][0]),
+                           (int16_t)(cur.y + dia4[i][1]) };
+                mv_t tc = t;
+                n265_clamp_mv(e, x0, y0, w, h, &tc);
+                if (tc.x != t.x || tc.y != t.y)
+                    continue;
+                uint32_t s = n265_mc_sad(e, list, ridx, x0, y0, w, h, t);
+                if (s < bs) {
+                    bs = s;
+                    b = t;
+                }
+            }
+            if (b.x == cur.x && b.y == cur.y)
+                break;
+            cur = b;
+            best_sad = bs;
+        }
     }
     /* subpel refinement: one half-pel round, one quarter-pel round,
      * SATD-costed (SAD favors the blur of interpolated phases) */

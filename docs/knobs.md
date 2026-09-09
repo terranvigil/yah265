@@ -12,7 +12,7 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 | `N265_RDOQ_UP` | 1 | src/encoder/rdoq.c:206 |
 | `N265_SKIP_THR` | 2 | src/encoder/ctu.c:401 |
 
-## instrument (46)
+## instrument (47)
 
 | knob | default | reader |
 |---|---|---|
@@ -37,7 +37,8 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 | `N265_INTRA_MPM` | 0 | src/encoder/ctu.c:1635 |
 | `N265_INTRA_RD_N` | 3 | src/encoder/ctu.c:1624 |
 | `N265_MERGE_RD_N` | ? | src/encoder/ctu.c:1196 |
-| `N265_MERGE_TRACE` | -1 | src/encoder/mv.c:245 |
+| `N265_MERGE_TRACE` | -1 | src/encoder/mv.c:246 |
+| `N265_ME_PATTERN` | 0 | src/encoder/mv.c:456 |
 | `N265_ME_SATD` | 0 | src/encoder/ctu.c:1083 |
 | `N265_MODE_HIST` | ? | src/encoder/sao.c:599 |
 | `N265_MVD_BITS` | 0 | src/encoder/ctu.c:1071 |
@@ -60,8 +61,8 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 | `N265_SAO_TYPES` | 0 | src/encoder/sao.c:150 |
 | `N265_SBH_RD` | 2 | src/encoder/rdoq.c:190 |
 | `N265_SC_TRACE` | ? | src/encoder/la.c:242 |
-| `N265_SUBME` | 0 | src/encoder/mv.c:443 |
-| `N265_SUBPEL_DEDUP` | 1 | src/encoder/mv.c:495 |
+| `N265_SUBME` | 0 | src/encoder/mv.c:444 |
+| `N265_SUBPEL_DEDUP` | 1 | src/encoder/mv.c:592 |
 
 ## arm (12)
 
@@ -70,7 +71,7 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 | `N265_AQ` | ? | src/encoder/encoder.c:130 |
 | `N265_AQ_FLAT` | ? | src/encoder/encoder.c:524 |
 | `N265_BADAPT_THR` | ? | src/encoder/encoder.c:785 |
-| `N265_FULLPEL` | ? | src/encoder/mv.c:492 |
+| `N265_FULLPEL` | ? | src/encoder/mv.c:589 |
 | `N265_LAMBDA` | ? | src/encoder/ctu.c:384 |
 | `N265_NO_AMVP` | ? | src/encoder/ctu.c:2356 |
 | `N265_NO_EARLYSKIP` | ? | src/encoder/ctu.c:2938 |
