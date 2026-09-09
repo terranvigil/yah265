@@ -140,6 +140,16 @@ run_vector inter_rect8    176x144 16  testsrc2  "--keyint 8 --qp 20"
 # with the PPS flag on even where AQ and cu-tree are off
 run_vector abr_cif       352x288 24  testsrc2  "--keyint 12 --bitrate 400 --aq 1 --cutree 1"
 run_vector abr_flat      176x144 16  testsrc2  "--keyint 8 --bitrate 200"
+# deblocking offsets: the PPS grows its control block
+# (deblocking_filter_control_present_flag with pps_beta_offset_div2 and
+# pps_tc_offset_div2), and both decoders have to shift the Table 8-12
+# lookups by the same amount we did. One vector per sign so a decoder that
+# ignores the offsets, or reads them with the wrong sign, cannot pass both.
+N265_DBF_BETA=-3 N265_DBF_TC=-3 \
+run_vector deblock_neg    176x144 16  testsrc2  "--keyint 8 --aq 1"
+N265_DBF_BETA=3 N265_DBF_TC=2 \
+run_vector deblock_pos    176x144 16  testsrc2  "--keyint 8 --aq 1"
+unset N265_DBF_BETA N265_DBF_TC
 run_vector intra_ctu16    176x144  3  testsrc2  "--ctu 16"
 run_vector intra_ctu64    176x144  3  testsrc2  "--ctu 64"
 run_vector intra_ctu64c   210x122  3  testsrc2  "--ctu 64"

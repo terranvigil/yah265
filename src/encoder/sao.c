@@ -131,10 +131,26 @@ static int64_t score_params(const sao_stats *st, int type, int cop,
 
 /* pick the RD-best explicit params for one component from its stats;
  * returns dSSD + lambda*(param bits) relative to OFF */
+/* N265_SAO_TYPES: bitmask of the offset types the analysis may pick -
+ * 1 band, 2 edge, 3 both (the default, and the shipped behaviour).
+ * Edge offset's sign is fixed by category in 8.7.3.2 (categories 1 and 2
+ * are local minima and may only be raised, 3 and 4 local maxima and may
+ * only be lowered), so it is a strict local smoother with no way to
+ * sharpen; band offset moves a level inside four value bands and leaves
+ * local structure alone. Separating them lets a band read whether the
+ * filter's win on its content is the banding fix or the smoothing. */
+static int sao_types(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *s = getenv("N265_SAO_TYPES"); v = s ? atoi(s) : 3; }
+    return v;
+}
+
 static int64_t analyze_comp(const sao_stats *st, uint32_t lam,
                             uint8_t *type, uint8_t *cop, int8_t off[4])
 {
     const int64_t *bn = st->bn, *bd = st->bd;
+    int types = sao_types();
     /* candidate J values are relative to SAO_OFF: syntax bits beyond the
      * type code itself (type is ~2 bins either way) are priced here -
      * band pos 5 bits, edge class 2 bits, offsets via best_offset */
@@ -177,6 +193,8 @@ static int64_t analyze_comp(const sao_stats *st, uint32_t lam,
         }
     }
 
+    if (!(types & 1)) best_band = INT64_MAX;
+    if (!(types & 2)) best_edge = INT64_MAX;
     if (best_band < best_edge && best_band < 0) {
         *type = SAO_BAND;
         *cop = (uint8_t)best_pos;

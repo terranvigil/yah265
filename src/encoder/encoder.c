@@ -146,6 +146,14 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->qp_delta_on = e->mode != N265_MODE_PCM &&
                      (e->aq || e->cutree || e->qp_frac);
     e->scenecut = e->mode != N265_MODE_PCM;
+    /* deblocking offsets: both clamped to the spec's +-6, and both zero by
+     * default, which keeps the PPS control block out of the stream */
+    { const char *v = getenv("N265_DBF_BETA"); e->dbf_beta = v ? atoi(v) : 0; }
+    { const char *v = getenv("N265_DBF_TC"); e->dbf_tc = v ? atoi(v) : 0; }
+    if (e->dbf_beta < -6) e->dbf_beta = -6;
+    if (e->dbf_beta > 6) e->dbf_beta = 6;
+    if (e->dbf_tc < -6) e->dbf_tc = -6;
+    if (e->dbf_tc > 6) e->dbf_tc = 6;
     int align = e->mode == N265_MODE_PCM ? 16 : (1 << MIN_CB_LOG2);
     if (p->width < align || p->height < align)
         goto fail;
@@ -493,6 +501,20 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
             int nctu = e->ctb_cols * e->ctb_rows;
             double *lv = malloc((size_t)nctu * sizeof(double));
             double avg = 0;
+            /* N265_AQ_FLOOR: a floor on the CTU variance the AQ field is
+             * built from. The term models masking, and masking is a
+             * property of content the eye can see; below the coding noise
+             * floor there is nothing to mask and nothing to hide, so a
+             * CTU flatter than the floor is not flatter for this purpose.
+             * Natural video has no such CTUs (film grain and sensor noise
+             * put a variance floor in every block); synthetic animation is
+             * full of them, and without a floor the field reads a
+             * perfectly flat fill as maximally masking-free and drives it
+             * many QP steps DOWN, buying bits for a region that codes to
+             * nothing while the outlines that carry the picture pay. 0 is
+             * the pre-2026-09-09 behaviour and is exactly inert. */
+            double vfloor = 0.0;
+            { const char *v = getenv("N265_AQ_FLOOR"); if (v) vfloor = atof(v); }
             for (int cy = 0; cy < e->ctb_rows; cy++)
                 for (int cx = 0; cx < e->ctb_cols; cx++) {
                     int x0 = cx * ctb, y0 = cy * ctb;
@@ -508,6 +530,7 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
                     int np = w * h;
                     double var = (double)s2 / np -
                         ((double)s1 / np) * ((double)s1 / np);
+                    if (var < vfloor) var = vfloor;
                     lv[cy * e->ctb_cols + cx] = log2(var + 1.0);
                     avg += lv[cy * e->ctb_cols + cx];
                 }
@@ -779,6 +802,33 @@ void n265_build_lists(n265_encoder *e, int poc, int is_b, struct n265_refpic *fu
     }
 }
 
+/* The minimum distance between the last key frame and a SCENECUT key
+ * frame, in display frames. `--keyint` still forces one on its own
+ * period; this only bounds how close together the detector may place
+ * them. Ours was 4 - one mini-GOP - which is a lower bound with no
+ * derivation, and on cut-out animation the detector reaches it: the
+ * lookahead's pcost/icost ratio sits near 1 on every frame that moves,
+ * so every anchor becomes an IDR (sita_toon: 30 of 120 frames intra,
+ * 65% of the file). x265's own default is auto = min(keyint/10, fps),
+ * i.e. 24-25 at keyint 250, and the same argument applies here: an IDR
+ * costs the whole prediction chain, so the detector has to be very sure
+ * before it may place one close to the last. N265_MIN_KEYINT sets it;
+ * 0 means the auto rule; 4 is the pre-2026-09-09 behaviour. */
+static int min_keyint(n265_encoder *e)
+{
+    static int v = -2;
+    if (v == -2) { const char *s = getenv("N265_MIN_KEYINT"); v = s ? atoi(s) : 4; }
+    int m = v;
+    if (m == 0) {
+        int fps = e->param.fps_den > 0
+                      ? (e->param.fps_num + e->param.fps_den / 2) / e->param.fps_den
+                      : 25;
+        m = e->keyint / 10;
+        if (fps < m) m = fps;
+    }
+    return m < 1 ? 1 : m;
+}
+
 /* Is the lookahead frame at index i a forced key frame (IDR)? keyint,
  * a scene cut, or the encoder's first frame. */
 static int la_is_idr(n265_encoder *e, int i)
@@ -786,7 +836,8 @@ static int la_is_idr(n265_encoder *e, int i)
     int d = e->la.f[i].display_idx;
     return e->mode == N265_MODE_PCM || e->keyint == 1 || (d % e->keyint) == 0 ||
            !e->ref_valid ||
-           (e->scenecut && d - e->gop_start_display >= 4 && n265_la_scenecut(e, i));
+           (e->scenecut && d - e->gop_start_display >= min_keyint(e) &&
+            n265_la_scenecut(e, i));
 }
 
 /* Emit the pyramid coding order for the B lookahead indices [blo, bhi],

@@ -200,6 +200,9 @@ void n265_deblock_frame(struct n265_encoder *e)
 {
     uint8_t *luma = e->recon[0];
     int ls = e->recon_stride[0];
+    /* 8.7.2.5.3: Q for beta is qP + 2*slice_beta_offset_div2, and for tC
+     * qP + 2*(bS-1) + 2*slice_tc_offset_div2 */
+    int bo = 2 * e->dbf_beta, to = 2 * e->dbf_tc;
 
     /* vertical edges, whole picture */
     for (int x = 8; x < e->pad_w; x += 8)
@@ -209,8 +212,8 @@ void n265_deblock_frame(struct n265_encoder *e)
                 if (bs) {
                     int q = seg_qp(e, x, y, 1);
                     luma_segment(luma + y * ls + x, 1, ls,
-                                 beta_tab[clip3(0, 51, q)],
-                                 tc_tab[clip3(0, 53, q + 2 * (bs - 1))]);
+                                 beta_tab[clip3(0, 51, q + bo)],
+                                 tc_tab[clip3(0, 53, q + 2 * (bs - 1) + to)]);
                 }
             }
     /* horizontal edges */
@@ -221,8 +224,8 @@ void n265_deblock_frame(struct n265_encoder *e)
                 if (bs) {
                     int q = seg_qp(e, x, y, 0);
                     luma_segment(luma + y * ls + x, ls, 1,
-                                 beta_tab[clip3(0, 51, q)],
-                                 tc_tab[clip3(0, 53, q + 2 * (bs - 1))]);
+                                 beta_tab[clip3(0, 51, q + bo)],
+                                 tc_tab[clip3(0, 53, q + 2 * (bs - 1) + to)]);
                 }
             }
 
@@ -237,7 +240,7 @@ void n265_deblock_frame(struct n265_encoder *e)
                 if (has_edge(e, 2 * x, 2 * y, 1) &&
                     seg_bs(e, 2 * x, 2 * y, 1) == 2) {
                     int q = n265_chroma_qp(seg_qp(e, 2 * x, 2 * y, 1));
-                    int t = tc_tab[clip3(0, 53, q + 2)];
+                    int t = tc_tab[clip3(0, 53, q + 2 + to)];
                     if (t)
                         chroma_segment(c + y * cs + x, 1, cs, t, 2);
                 }
@@ -246,7 +249,7 @@ void n265_deblock_frame(struct n265_encoder *e)
                 if (has_edge(e, 2 * x, 2 * y, 0) &&
                     seg_bs(e, 2 * x, 2 * y, 0) == 2) {
                     int q = n265_chroma_qp(seg_qp(e, 2 * x, 2 * y, 0));
-                    int t = tc_tab[clip3(0, 53, q + 2)];
+                    int t = tc_tab[clip3(0, 53, q + 2 + to)];
                     if (t)
                         chroma_segment(c + y * cs + x, cs, 1, t, 2);
                 }

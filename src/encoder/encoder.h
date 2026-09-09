@@ -86,6 +86,13 @@ struct n265_encoder {
     int plan_len, plan_pos, plan_pop;
     int ctb_log2;
     int no_sao;
+    /* N265_DBF_BETA / N265_DBF_TC: slice_beta_offset_div2 and
+     * slice_tc_offset_div2, signalled through the PPS. Both shift the
+     * index into Table 8-12, so a negative offset filters less: fewer
+     * segments pass the d < beta test at all, and the ones that do are
+     * clipped to a smaller tC. Zero is the shipped default and the
+     * control block stays out of the PPS entirely. */
+    int dbf_beta, dbf_tc;
 
     int pad_w, pad_h;       /* dims padded up to a min-CB multiple  */
     int ctb_cols, ctb_rows;

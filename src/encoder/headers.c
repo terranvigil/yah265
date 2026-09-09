@@ -174,6 +174,14 @@ void n265_write_pps(struct n265_encoder *e)
         bs_put_bits(bs, 1, 1);      /* deblocking_filter_control_present_flag */
         bs_put_bits(bs, 0, 1);      /* deblocking_filter_override_enabled */
         bs_put_bits(bs, 1, 1);      /* pps_deblocking_filter_disabled_flag */
+    } else if (e->dbf_beta || e->dbf_tc) {
+        /* non-zero deblock offsets: the control block carries them and
+         * both sides derive beta and tC from the same shifted index */
+        bs_put_bits(bs, 1, 1);      /* deblocking_filter_control_present_flag */
+        bs_put_bits(bs, 0, 1);      /* deblocking_filter_override_enabled */
+        bs_put_bits(bs, 0, 1);      /* pps_deblocking_filter_disabled_flag */
+        bs_put_se(bs, e->dbf_beta); /* pps_beta_offset_div2 */
+        bs_put_se(bs, e->dbf_tc);   /* pps_tc_offset_div2 */
     } else {
         /* control absent: deblocking on, zero offsets */
         bs_put_bits(bs, 0, 1);      /* deblocking_filter_control_present_flag */
