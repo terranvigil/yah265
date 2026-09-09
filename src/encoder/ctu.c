@@ -1132,6 +1132,42 @@ static int bi_refine_iters(void)
     return it;
 }
 
+/* N265_BI_GATE (R2): the refinement walks the L0/L1 pair downhill from a
+ * starting point it does not choose - the two independent per-list
+ * winners - and costs about eighteen SATDs against the one the plain
+ * combined pair costs. Where that plain pair is already well behind the
+ * better uni candidate, the walk is bought to lose: the square it steps
+ * over is a quarter-pel wide and cannot close a gap the per-list
+ * searches opened. Run it only where the plain pair is within this
+ * margin of the better uni candidate. 0 is the pre-R2 encoder; 1, 2 and
+ * 3 are margins of 0, 10 and 25 percent - the plain pair may be that far
+ * BEHIND and still be refined - and 4 and 5 turn the margin the other
+ * way and ask the plain pair to beat the better uni by 5 and 15 percent
+ * first. 4 is the default: +0.10 mean BD for 1.041x foreman / 1.021x
+ * mobile, and it improves the worst clip. The positive margins are worth
+ * nothing (1 buys 1.025x foreman and 0.994x mobile) and 5 is priced out
+ * at +0.24 for 1.061x. Numbers in docs/phase4-ladder.md. */
+static int bi_gate(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_BI_GATE");
+        v = s ? atoi(s) : 4;    /* the -5% margin, the one that priced */
+    }
+    return v;
+}
+
+static int bi_gate_margin(void)
+{
+    switch (bi_gate()) {
+    case 2:  return 10;
+    case 3:  return 25;
+    case 4:  return -5;
+    case 5:  return -15;
+    default: return 0;
+    }
+}
+
 /* L1 distance to the nearer of the two AMVP predictors: the historical
  * proxy's "one bit per quarter-pel" measure, and the mvp_lX_flag choice */
 static int mvd_proxy(mv_t mv, const mv_t p[2])
@@ -1244,12 +1280,21 @@ static uint32_t bi_satd_fixed(struct n265_encoder *e, int x0, int y0, int w,
  * reference index changes the predictor pair with it and a stale mvp
  * would make the decoder reconstruct a different vector. */
 static uint32_t bi_refine(struct n265_encoder *e, const pu_geo *g, mot_t *bi,
-                          mv_t mvp[2][2], int lam4, int base)
+                          mv_t mvp[2][2], int lam4, int base,
+                          uint32_t uni_ref)
 {
     int w = g->w, h = g->h, x0 = g->x, y0 = g->y;
     int16_t fix[64 * 64];
     uint32_t best = mot_satd_wh(e, x0, y0, w, h, *bi) +
         (uint32_t)(((uint64_t)mot_rate_q8(e, g, bi, mvp, base) * lam4) >> 12);
+
+    /* R2: the plain pair is already this far behind the better uni
+     * candidate, in the units the caller will arbitrate in. The zero
+     * probe and the quarter-pel square cannot close that, so stop here
+     * and hand back the cost the caller would have paid anyway. */
+    if (uni_ref != UINT32_MAX &&
+        (int64_t)best * 100 > (int64_t)uni_ref * (100 + bi_gate_margin()))
+        return best;
 
     if (bi->mv[0].x || bi->mv[0].y || bi->mv[1].x || bi->mv[1].y ||
         bi->ref[0] || bi->ref[1]) {
@@ -1764,7 +1809,10 @@ static uint32_t search_pu(struct n265_encoder *e, const pu_geo *g,
             memcpy(bp, mvp, sizeof(bp));
             uint32_t c;
             if (bi_refine_iters()) {
-                c = bi_refine(e, g, &bi, bp, lam4, 6);
+                /* `acost` is the better uni candidate in exactly the
+                 * units bi_refine costs the pair in */
+                c = bi_refine(e, g, &bi, bp, lam4, 6,
+                              bi_gate() ? acost : UINT32_MAX);
             } else {
                 c = mot_satd_wh(e, g->x, g->y, w, h, bi) +
                     (uint32_t)(((uint64_t)mot_rate_q8(e, g, &bi, bp, 6) *
@@ -2172,8 +2220,6 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                     mot_t bi = { { me_mv[0], me_mv[1] }, 3, { amot.ref[0], amot.ref[1] } };
                     mv_t bp[2][2];
                     memcpy(bp, mvp, sizeof(bp));
-                    if (bi_refine_iters())
-                        (void)bi_refine(e, &pg, &bi, bp, lam4, 6);
                     /* SAD cannot tell the blur of a bi average from a
                      * misalignment, and this is the comparison that
                      * decides bi against uni; N265_ME_SATD makes it the
@@ -2183,12 +2229,36 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                                      : mot_sad(e, x0, y0, log2n, amot);
                     uint32_t s1 = ms ? mot_satd_wh(e, x0, y0, n, n, u1)
                                      : mot_sad(e, x0, y0, log2n, u1);
-                    uint32_t sb = ms ? mot_satd_wh(e, x0, y0, n, n, bi)
-                                     : mot_sad(e, x0, y0, log2n, bi);
                     if (mvd_bits_on()) {
                         s0 += (uint32_t)(((uint64_t)mot_rate_q8(e, &pg, &amot, mvp, 6) * lam4) >> 12);
                         s1 += (uint32_t)(((uint64_t)mot_rate_q8(e, &pg, &u1, mvp, 6) * lam4) >> 12);
-                        sb += (uint32_t)(((uint64_t)mot_rate_q8(e, &pg, &bi, bp, 6) * lam4) >> 12);
+                    }
+                    /* R2: ask the gate in the units this arbitration
+                     * runs in rather than bi_refine's, because those are
+                     * SAD here by default and Hadamard inside. The plain
+                     * pair's cost is the one number both the gate and
+                     * the comparison below need. */
+                    uint32_t sb = UINT32_MAX;
+                    int refine = bi_refine_iters() != 0;
+                    if (refine && bi_gate()) {
+                        sb = ms ? mot_satd_wh(e, x0, y0, n, n, bi)
+                                : mot_sad(e, x0, y0, log2n, bi);
+                        if (mvd_bits_on())
+                            sb += (uint32_t)(((uint64_t)mot_rate_q8(e, &pg, &bi, bp, 6) * lam4) >> 12);
+                        uint32_t uni = s0 < s1 ? s0 : s1;
+                        if ((int64_t)sb * 100 >
+                            (int64_t)uni * (100 + bi_gate_margin()))
+                            refine = 0;
+                        else
+                            sb = UINT32_MAX;    /* the walk will move it */
+                    }
+                    if (refine)
+                        (void)bi_refine(e, &pg, &bi, bp, lam4, 6, UINT32_MAX);
+                    if (sb == UINT32_MAX) {
+                        sb = ms ? mot_satd_wh(e, x0, y0, n, n, bi)
+                                : mot_sad(e, x0, y0, log2n, bi);
+                        if (mvd_bits_on())
+                            sb += (uint32_t)(((uint64_t)mot_rate_q8(e, &pg, &bi, bp, 6) * lam4) >> 12);
                     }
                     if (s1 < s0 && s1 <= sb)
                         amot = u1;
