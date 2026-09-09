@@ -502,8 +502,21 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
              * add it to the already-rounded cu-tree offset (two roundings);
              * N265_QP_ROUND1 sums the two float fields and rounds once, so
              * fractional strengths on either side survive. */
+            /* The per-CTU term is a perceptual correction, not a rate
+             * lever, and it is proportional to the frame's variance SPREAD,
+             * which is unbounded: flat animation puts black CTUs and drawn
+             * detail in the same frame and the term reaches +-4 QP, taxing
+             * exactly the CTUs the metric reads. N265_AQ_CLAMP bounds it
+             * before the cu-tree field is added. 12 is the old effective
+             * bound (the offset byte's own clamp); 3 ships (2026-09-08) and
+             * is inert wherever the spread is small - four of the seven CIF
+             * clips are byte-identical under it and the worst moves 0.43. */
+            double aqc = 3.0;
+            { const char *v = getenv("N265_AQ_CLAMP"); if (v) aqc = atof(v); }
             for (int i = 0; i < nctu; i++) {
                 double off = e->aq_str * (lv[i] - avg);
+                if (off > aqc) off = aqc;
+                else if (off < -aqc) off = -aqc;
                 int o;
                 if (e->qp_round1) {
                     off += e->ctu_qp_raw[i];
