@@ -6,11 +6,29 @@
 #include "encoder/encoder.h"
 #include "encoder/sao.h"
 
-/* general_level_idc = level * 30. Picked from Table A.8's MaxLumaPs plus
- * the per-dimension bound sqrt(MaxLumaPs * 8). Bitrate limits are ignored:
- * phase 0's PCM payload exceeds every tier's MaxBR by construction, which
- * is recorded in docs/ideas.md and dies with PCM. */
-static int pick_level_idc(int w, int h)
+/* MaxDpbSize for a level (A.4.2) with maxDpbPicBuf = 6. A picture well
+ * below the level's MaxLumaPs is granted more picture storage buffers,
+ * which is how a deep pyramid pays for itself: the level rises until the
+ * DPB the reference structure needs fits inside it. */
+static int max_dpb_size(int ps, int max_luma_ps)
+{
+    if (ps <= max_luma_ps >> 2)
+        return 16;
+    if (ps <= max_luma_ps >> 1)
+        return 12;
+    if ((int64_t)ps <= ((int64_t)max_luma_ps * 3) >> 2)
+        return 8;
+    return 6;
+}
+
+/* general_level_idc = level * 30. Picked from Table A.8's MaxLumaPs, the
+ * per-dimension bound sqrt(MaxLumaPs * 8), and the DPB: A.4.2 requires
+ * sps_max_dec_pic_buffering_minus1 < MaxDpbSize, so a level that fits the
+ * picture but not the reference structure is not a legal choice.
+ * Bitrate limits are ignored: phase 0's PCM payload exceeds every tier's
+ * MaxBR by construction, which is recorded in docs/ideas.md and dies with
+ * PCM. */
+static int pick_level_idc(int w, int h, int dpb)
 {
     static const struct { int idc; int max_luma_ps; } lv[] = {
         { 30,    36864 }, { 60,   122880 }, { 63,   245760 },
@@ -21,14 +39,15 @@ static int pick_level_idc(int w, int h)
     for (unsigned i = 0; i < sizeof(lv) / sizeof(lv[0]); i++) {
         int dim_ok = (int64_t)w * w <= (int64_t)lv[i].max_luma_ps * 8 &&
                      (int64_t)h * h <= (int64_t)lv[i].max_luma_ps * 8;
-        if (ps <= lv[i].max_luma_ps && dim_ok)
+        if (ps <= lv[i].max_luma_ps && dim_ok &&
+            dpb <= max_dpb_size(ps, lv[i].max_luma_ps))
             return lv[i].idc;
     }
     return 186; /* 6.2 */
 }
 
 /* profile_tier_level with maxNumSubLayersMinus1 == 0 (7.3.3). */
-static void write_ptl(bitstream_t *bs, int w, int h)
+static void write_ptl(bitstream_t *bs, int w, int h, int dpb)
 {
     bs_put_bits(bs, 0, 2);          /* general_profile_space */
     bs_put_bits(bs, 0, 1);          /* general_tier_flag: main */
@@ -41,7 +60,7 @@ static void write_ptl(bitstream_t *bs, int w, int h)
     bs_put_bits(bs, 1, 1);          /* general_frame_only_constraint_flag */
     bs_put_bits(bs, 0, 32);         /* general_reserved_zero_44bits... */
     bs_put_bits(bs, 0, 12);         /* ...cont */
-    bs_put_bits(bs, (uint32_t)pick_level_idc(w, h), 8);
+    bs_put_bits(bs, (uint32_t)pick_level_idc(w, h, dpb), 8);
 }
 
 void n265_write_vps(struct n265_frame_work *e)
@@ -55,11 +74,13 @@ void n265_write_vps(struct n265_frame_work *e)
     bs_put_bits(bs, 0, 3);          /* vps_max_sub_layers_minus1 */
     bs_put_bits(bs, 1, 1);          /* vps_temporal_id_nesting_flag */
     bs_put_bits(bs, 0xffff, 16);    /* vps_reserved_0xffff_16bits */
-    write_ptl(bs, e->param.width, e->param.height);
+    write_ptl(bs, e->param.width, e->param.height, e->dpb_buffering);
     bs_put_bits(bs, 0, 1);          /* vps_sub_layer_ordering_info_present */
-    bs_put_ue(bs, N265_DPB_SLOTS);      /* vps_max_dec_pic_buffering_minus1 (the DPB + the current) */
-    bs_put_ue(bs, (uint32_t)e->bframes);  /* vps_max_num_reorder_pics[0]: a pyramid reorders by bframes */
-    bs_put_ue(bs, 0);               /* vps_max_latency_increase_plus1[0] */
+    bs_put_ue(bs, (uint32_t)(e->dpb_buffering - 1)); /* vps_max_dec_pic_buffering_minus1 */
+    bs_put_ue(bs, (uint32_t)e->dpb_reorder);         /* vps_max_num_reorder_pics[0] */
+    bs_put_ue(bs, 0);               /* vps_max_latency_increase_plus1[0]:
+                                     * 0 = no limit, so it cannot be
+                                     * under-declared */
     bs_put_bits(bs, 0, 6);          /* vps_max_layer_id */
     bs_put_ue(bs, 0);               /* vps_num_layer_sets_minus1 */
     bs_put_bits(bs, 0, 1);          /* vps_timing_info_present_flag */
@@ -77,7 +98,7 @@ void n265_write_sps(struct n265_frame_work *e)
     bs_put_bits(bs, 0, 4);          /* sps_video_parameter_set_id */
     bs_put_bits(bs, 0, 3);          /* sps_max_sub_layers_minus1 */
     bs_put_bits(bs, 1, 1);          /* sps_temporal_id_nesting_flag */
-    write_ptl(bs, e->param.width, e->param.height);
+    write_ptl(bs, e->param.width, e->param.height, e->dpb_buffering);
     bs_put_ue(bs, 0);               /* sps_seq_parameter_set_id */
     bs_put_ue(bs, 1);               /* chroma_format_idc: 4:2:0 */
     bs_put_ue(bs, (uint32_t)e->pad_w);
@@ -95,9 +116,10 @@ void n265_write_sps(struct n265_frame_work *e)
     bs_put_ue(bs, 0);               /* bit_depth_chroma_minus8 */
     bs_put_ue(bs, 4);               /* log2_max_pic_order_cnt_lsb_minus4 */
     bs_put_bits(bs, 0, 1);          /* sps_sub_layer_ordering_info_present */
-    bs_put_ue(bs, N265_DPB_SLOTS);      /* sps_max_dec_pic_buffering_minus1 */
-    bs_put_ue(bs, (uint32_t)e->bframes);  /* sps_max_num_reorder_pics: a pyramid reorders by bframes */
-    bs_put_ue(bs, 0);               /* sps_max_latency_increase_plus1 */
+    bs_put_ue(bs, (uint32_t)(e->dpb_buffering - 1)); /* sps_max_dec_pic_buffering_minus1 */
+    bs_put_ue(bs, (uint32_t)e->dpb_reorder);         /* sps_max_num_reorder_pics */
+    bs_put_ue(bs, 0);               /* sps_max_latency_increase_plus1:
+                                     * 0 = no limit */
     if (e->mode == N265_MODE_PCM) {
         bs_put_ue(bs, 1);           /* log2_min_luma_coding_block_size_minus3: 16 */
         bs_put_ue(bs, 0);           /* log2_diff_max_min: CTB 16 */

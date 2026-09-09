@@ -172,15 +172,14 @@ run_vector_env "N265_SAO_TYPES=3" \
 # cmp's the two runs, so these carry the same-thread-count determinism
 # leg as well as the two-decoder leg.
 #
-# --bframes 5, not 7: at 7 the reorder depth reaches the DPB size this
-# encoder DECLARES in the SPS (sps_max_dec_pic_buffering_minus1 is
-# N265_DPB_SLOTS), dec265 then bumps pictures out before it can reorder
-# them and emits near-decode order, and the leg fails. ffmpeg decodes it
-# correctly, so the reconstruction is right and the declaration is
-# wrong. Pre-existing, unrelated to threading, logged in
-# docs/threading-design.md for the RPS torture set; fixing it moves the
-# SPS bytes of every stream, which no phase of the threading ladder is
-# allowed to do.
+# The full pyramid, at one thread and at twelve. These could not exist
+# before the SPS fix: sps_max_num_reorder_pics was signalled as
+# `bframes` against sps_max_dec_pic_buffering_minus1 = N265_DPB_SLOTS,
+# so at --bframes 7 the declared reorder depth exceeded the declared
+# buffer count. That is out of range by 7.4.3.2.1 and dec265 refuses the
+# stream. Both fields now come from the reference structure itself.
+run_vector b7_t1_cif   352x288 24  testsrc2  "--keyint 12 --bframes 7 --aq 1 --cutree 1 --threads 1"
+run_vector b7_t12_cif  352x288 24  testsrc2  "--keyint 12 --bframes 7 --aq 1 --cutree 1 --threads 12"
 run_vector thr4_cif    352x288 24  testsrc2  "--keyint 12 --bframes 5 --aq 1 --cutree 1 --threads 4"
 run_vector thr12_cif   352x288 24  testsrc2  "--keyint 12 --bframes 5 --aq 1 --cutree 1 --threads 12"
 run_vector thr4_abr    352x288 24  testsrc2  "--keyint 12 --bitrate 400 --aq 1 --cutree 1 --threads 4"

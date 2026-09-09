@@ -52,6 +52,8 @@ enum {
  * the markers. */
 #define N265_QP_INHERIT 0xff
 #define N265_MAX_REF 3
+#define N265_MAX_BFRAMES 7      /* --bframes clamp; also sizes the mini-GOP
+                                 * walk the SPS's DPB derivation runs */
 
 /* The DPB picture: a padded, border-extended, fully filtered
  * reconstruction plus the side data a later frame reads from it. The
@@ -129,6 +131,12 @@ typedef struct n265_frame_work {
     int qp_delta_on;        /* cu_qp_delta_enabled_flag: the ONE predicate
                              * the PPS and the entropy writer both read */
     int bframes;
+    /* What the reference structure asks of a decoder's DPB, derived from
+     * --bframes and --ref at open (n265_dpb_requirement). `dpb_reorder`
+     * is sps_max_num_reorder_pics; `dpb_buffering` is the picture storage
+     * buffer count, i.e. sps_max_dec_pic_buffering_minus1 + 1, and the
+     * level is picked to hold it. */
+    int dpb_reorder, dpb_buffering;
     double psy;             /* N265_PSY: psychovisual energy strength */
 
     /* ---- per-frame: source, recon, slice ---- */
@@ -322,6 +330,11 @@ void n265_rdoq_warm(void);
 /* ...and hand back what the frame has to keep: the record stream the row
  * appended to and the estimator state the next row continues from. */
 void n265_row_end(n265_row_ctx *row, n265_frame_work *fw, int r);
+
+/* encoder.c: the DPB the reference structure needs at this --bframes /
+ * --ref, in the SPS's own units (see the definition). */
+void n265_dpb_requirement(int bframes, int ref_max, int *reorder,
+                          int *buffering);
 
 /* headers.c */
 void n265_write_vps(n265_frame_work *e);

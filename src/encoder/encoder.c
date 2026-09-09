@@ -82,7 +82,8 @@ void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes,
     g_qp = qp;
     g_ctb_log2 = ctb_log2;
     g_keyint = keyint < 1 ? 1 : keyint;
-    g_bframes = bframes < 0 ? 0 : bframes > 7 ? 7 : bframes;
+    g_bframes = bframes < 0 ? 0 : bframes > N265_MAX_BFRAMES
+                                      ? N265_MAX_BFRAMES : bframes;
     g_aq = aq ? 1 : 0;
 }
 
@@ -95,6 +96,70 @@ void n265_encoder_set_dump_decode(n265_encoder *e, FILE *f);
 void n265_encoder_set_dump_decode(n265_encoder *e, FILE *f)
 {
     e->dump_decode = f;
+}
+
+/* The coding order plan_brange emits for a B run [lo, hi], appended to
+ * `ord` as display offsets, counting the ones that are references. It
+ * lives beside the SPS's DPB derivation on purpose: if the pyramid shape
+ * ever changes, both have to move together or the SPS under-declares. */
+static void gop_order(int lo, int hi, int *ord, int *n, int *nref)
+{
+    if (lo > hi)
+        return;
+    int mid = (lo + hi) / 2;
+    if ((lo <= mid - 1) || (mid + 1 <= hi))
+        (*nref)++;
+    ord[(*n)++] = mid;
+    gop_order(lo, mid - 1, ord, n, nref);
+    gop_order(mid + 1, hi, ord, n, nref);
+}
+
+/* What the reference structure asks of a decoder's DPB (Annex C.5.2).
+ *
+ * `reorder` is exact. A picture is only ever reordered against its own
+ * mini-GOP - display order advances monotonically from one mini-GOP to
+ * the next - so the deepest reorder is the largest count of pictures
+ * that precede a picture in the plan's coding order and follow it in
+ * display order, maximised over every B-run length b-adapt may pick.
+ *
+ * `buffering` bounds the peak DPB occupancy, the union of the pictures
+ * marked for reference and the pictures still waiting to be output: at
+ * most (carried anchors + this mini-GOP's anchor + its reference Bs),
+ * capped by the encoder's own slot count, plus the reorder + 1 pictures
+ * the bumping process can leave pending. That is one to two buffers
+ * above the occupancy a C.5.2.2 walk of the actual coding order reaches
+ * at every (bframes, ref) pair, and over-declaring is the safe
+ * direction: it only means the reorder condition rather than DPB
+ * fullness is what triggers output.
+ *
+ * The old declaration was N265_DPB_SLOTS with sps_max_num_reorder_pics =
+ * bframes, which at --bframes 7 signals a reorder depth LARGER than the
+ * buffer count. That is out of range by 7.4.3.2.1 and dec265 refuses the
+ * stream. */
+void n265_dpb_requirement(int bframes, int ref_max, int *reorder,
+                          int *buffering)
+{
+    int R = 0, nrefb = 0;
+    for (int a = 0; a <= bframes; a++) {
+        int ord[N265_MAX_BFRAMES + 1], n = 0, nref = 0;
+        ord[n++] = a;                   /* the anchor is coded first */
+        gop_order(0, a - 1, ord, &n, &nref);
+        for (int i = 0; i < n; i++) {
+            int c = 0;
+            for (int k = 0; k < i; k++)
+                if (ord[k] > ord[i])
+                    c++;
+            if (c > R)
+                R = c;
+        }
+        if (nref > nrefb)
+            nrefb = nref;
+    }
+    int refs = ref_max + 1 + nrefb;
+    if (refs > N265_DPB_SLOTS)
+        refs = N265_DPB_SLOTS;
+    *reorder = R;
+    *buffering = refs + R + 1;
 }
 
 /* Copy the immutable geometry and config into a frame_work. The ONE
@@ -116,6 +181,8 @@ static void fw_config(n265_encoder *e, n265_frame_work *fw)
     fw->rdoq = e->rdoq;
     fw->qp_delta_on = e->qp_delta_on;
     fw->bframes = e->bframes;
+    n265_dpb_requirement(e->bframes, e->ref_max, &fw->dpb_reorder,
+                         &fw->dpb_buffering);
     fw->psy = e->psy;
     for (int i = 0; i < 3; i++)
         fw->pad_stride[i] = e->pad_stride[i];
