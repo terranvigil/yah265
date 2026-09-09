@@ -120,7 +120,7 @@ static void write_mvd(const res_ops *ops, int mx, int my)
 static void maybe_qp_delta(struct n265_encoder *e, const res_ops *ops,
                            int any_cbf)
 {
-    if (!(e->aq || e->cutree) || !any_cbf || e->ent_qp_coded)
+    if (!e->qp_delta_on || !any_cbf || e->ent_qp_coded)
         return;
     e->ent_qp_coded = 1;
     int delta = e->ent_ctu_qp - e->ent_qp_prev;

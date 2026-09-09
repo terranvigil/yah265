@@ -149,6 +149,11 @@ run_vector aq_ipb         176x144 15  testsrc2  "--keyint 8 --aq 1"
 # where bi-prediction is forbidden and the merge list drops A1/B1), CTB 64
 # reaches the 32x32 AMP shapes
 run_vector inter_rect8    176x144 16  testsrc2  "--keyint 8 --qp 20"
+# ABR: the rate factor is fractional, so the per-CTU dither writes
+# cu_qp_delta at quant groups the CRF/CQP paths never touch, and it does so
+# with the PPS flag on even where AQ and cu-tree are off
+run_vector abr_cif       352x288 24  testsrc2  "--keyint 12 --bitrate 400 --aq 1 --cutree 1"
+run_vector abr_flat      176x144 16  testsrc2  "--keyint 8 --bitrate 200"
 run_vector intra_ctu16    176x144  3  testsrc2  "--ctu 16"
 run_vector intra_ctu64    176x144  3  testsrc2  "--ctu 64"
 run_vector intra_ctu64c   210x122  3  testsrc2  "--ctu 64"
@@ -173,6 +178,7 @@ if [ "$FAST" -eq 0 ]; then
     # transform quad. QP 38 keeps the quadtree at depth 0 often enough
     # for the arm to be chosen (verified: the stream moves with the arm).
     run_vector inter_cb64  352x288 20  testsrc2  "--keyint 10 --ctu 64 --qp 38"
+    run_vector abr_720     1280x720 12 testsrc2  "--keyint 6 --bitrate 4000 --aq 1 --cutree 1"
     run_vector pcm_cif     352x288  5  testsrc2  "--pcm"
     run_vector intra_cif   352x288 10 testsrc2  ""
     run_vector intra_720   1280x720 3 testsrc2  ""

@@ -61,6 +61,7 @@ DEFAULT_OVERRIDES = {
     "N265_SKIP_ORACLE_AT": "pre",        # pre | post | postr
     "N265_NTP_SPIN": "25",               # microseconds x 1000 inside
     "N265_HW": "off",                    # off | auto | videotoolbox (a string)
+    "N265_QP_FRAC": "= --bitrate",       # on with ABR, off otherwise
 }
 
 OVERRIDES = {

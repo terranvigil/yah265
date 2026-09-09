@@ -44,8 +44,9 @@ QPS = [22, 27, 32, 37]
 # adaptive), one reference, rectangular and asymmetric inter partitions
 # (both landed 2026-09-07, so the --no-rect/--no-amp handicaps are gone).
 # What still separates this from plain medium: --ref 1 and the lookahead
-# depth. (2026-09-07)
-X265_MATCHED = ["--keyint", "60", "--bframes", "3", "--b-adapt", "1",
+# depth. (2026-09-07). keyint moved 60 -> 250 with our own default on
+# 2026-09-09, so the matched arm tracks it. (2026-09-09)
+X265_MATCHED = ["--keyint", "250", "--bframes", "3", "--b-adapt", "1",
                 "--rc-lookahead", "12", "--ref", "1", "--no-open-gop"]
 
 SYNTH_CLIPS = [

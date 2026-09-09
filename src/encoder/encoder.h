@@ -12,6 +12,7 @@
 #include "common/bitstream.h"
 #include "encoder/cabac.h"
 #include "encoder/la.h"
+#include "encoder/rc.h"
 #include "encoder/tables.h"
 
 struct sao_params;
@@ -51,6 +52,18 @@ struct n265_encoder {
     int qp_base;            /* configured QP (P anchors) */
     int crf_on;             /* n265_set_crf: base QP from crf, not qp_base */
     double crf;
+    int abr_on;             /* n265_set_bitrate: the base is the ABR rate factor */
+    double abr_bitrate;     /* bits per second                          */
+    int qp_frac;            /* carry the base QP's fraction and spread it
+                             * over the CTUs (N265_QP_FRAC; on under ABR) */
+    int qp_delta_on;        /* cu_qp_delta_enabled_flag: the ONE predicate
+                             * the PPS and the entropy writer both read, so
+                             * they cannot disagree about whether the
+                             * syntax element is in the stream */
+    n265_rc rc;             /* rc.c state                               */
+    double rc_rf;           /* the base rate factor for the current frame */
+    double rc_cplx;         /* its lookahead complexity                 */
+    int rc_cls;             /* its RC_* class                           */
     int b_depth;            /* current B frame's pyramid layer (0 = anchor) */
     /* the current mini-GOP's coding-order plan (pyramid): each entry is a
      * lookahead index with its kind (0 B, 1 P, 2 IDR), pyramid depth and

@@ -52,10 +52,48 @@ clips_full=(
     "sintel_720p      $base/y4m/sintel_trailer_2k_720p24.y4m  -   cadence"
 )
 
+# excerpts: name  url(.xz y4m)  first_frame  nframes  sha256  class
+# Streamed and cut (curl | xz | ffmpeg select), never stored whole; the
+# pin is on the cut file. The 2D animation regime (flat fills, hard
+# outlines, limited motion, 0.01-0.05 bpp) that sintel alone stood for.
+# Sita Sings the Blues is public domain (CC0, Nina Paley 2013).
+clips_excerpt=(
+    "sita_flat_720p   $base/y4m/sita_sings_the_blues_720p24.y4m.xz  11400  120  dd3bb7adb868444d9cb7bb7d54ad42c58d3c572ab8e73fb697aa40a1b8b40441  animation"
+    "sita_toon_720p   $base/y4m/sita_sings_the_blues_720p24.y4m.xz   8760  120  fa0ee26c3f170eac0e492ae53d399e412ca32fa6776b69f32013e50354c15e74  animation"
+)
+
 manifest="$dest/CLASSES"
 : > "$manifest"
 
 sha() { shasum -a 256 "$1" | awk '{print $1}'; }
+
+fetch_excerpt() {
+    local name="$1" url="$2" first="$3" n="$4" want="$5" class="$6"
+    local out="$dest/$name.y4m" last=$((first + n - 1))
+    echo "$name $class" >> "$manifest"
+    if [ -f "$out" ]; then
+        echo "have  $name  [$class]"
+        return
+    fi
+    for c in "${caches[@]}"; do
+        if [ -f "$c/$name.y4m" ] && [ "$(sha "$c/$name.y4m")" = "$want" ]; then
+            echo "copy  $name  [$class]  (from $c)"
+            cp "$c/$name.y4m" "$out"
+            return
+        fi
+    done
+    echo "fetch $name  [$class]  (frames $first-$last of $(basename "$url"))"
+    curl -fsSL "$url" | xz -dc | ffmpeg -loglevel error -y -f yuv4mpegpipe -i pipe:0 \
+        -vf "select='between(n,$first,$last)'" -fps_mode vfr -frames:v "$n" \
+        -f yuv4mpegpipe -pix_fmt yuv420p "$out" || true
+    local got
+    got="$(sha "$out")"
+    if [ "$got" != "$want" ]; then
+        echo "  hash mismatch for $name: got $got" >&2
+        rm -f "$out"
+        exit 1
+    fi
+}
 
 fetch() {
     local name="$1" url="$2" want="$3" class="$4"
@@ -103,6 +141,10 @@ if [ "$full" = 1 ]; then
     for row in "${clips_full[@]}"; do
         read -r c_name c_url c_want c_class <<< "$row"
         fetch "$c_name" "$c_url" "$c_want" "$c_class"
+    done
+    for row in "${clips_excerpt[@]}"; do
+        read -r c_name c_url c_first c_n c_want c_class <<< "$row"
+        fetch_excerpt "$c_name" "$c_url" "$c_first" "$c_n" "$c_want" "$c_class"
     done
 fi
 

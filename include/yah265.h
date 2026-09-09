@@ -85,6 +85,12 @@ YAH265_API void n265_set_la(int depth, int cutree);
  * term) instead of the fixed QP. crf < 0 turns it off (the default). Open
  * loop: no bits feedback. */
 YAH265_API void n265_set_crf(double crf);
+/* Average bitrate, in kbit/s: single-pass ABR. The base QP per frame comes
+ * from a rate factor the encoder solves from the bits it has spent against
+ * the bits it planned, with the lookahead's per-frame complexity and
+ * online per-frame-type scales deciding the split. Overrides crf. 0 turns
+ * it off (the default). */
+YAH265_API void n265_set_bitrate(double kbps);
 /* references per list (1..3), P and B alike; more references cost search time. */
 YAH265_API void n265_set_ref(int n);
 /* adaptive B run length: with bframes > 1, shorten the run on high-motion
