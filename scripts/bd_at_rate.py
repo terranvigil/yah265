@@ -93,11 +93,13 @@ def enc(tmpl, q, src, out):
     if cb and os.path.exists(cb):
         shutil.copyfile(cb, out)
         return os.path.getsize(out)
-    subprocess.run(tmpl.format(q=str(q), src=src, out=out),
-                   shell=True, capture_output=True)
+    r = subprocess.run(tmpl.format(q=str(q), src=src, out=out),
+                       shell=True, capture_output=True)
     if not os.path.exists(out):
         return 0
-    if cb:
+    # only a complete encode may enter the cache: a killed child leaves a
+    # truncated file that would otherwise be served to every later arm
+    if cb and r.returncode == 0 and os.path.getsize(out) > 0:
         os.makedirs(_CACHE, exist_ok=True)
         tmp = cb + f".{os.getpid()}.tmp"
         shutil.copyfile(out, tmp)
