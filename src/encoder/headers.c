@@ -44,7 +44,7 @@ static void write_ptl(bitstream_t *bs, int w, int h)
     bs_put_bits(bs, (uint32_t)pick_level_idc(w, h), 8);
 }
 
-void n265_write_vps(struct n265_encoder *e)
+void n265_write_vps(struct n265_frame_work *e)
 {
     bitstream_t *bs = &e->rbsp;
     bs_reset(bs);
@@ -67,7 +67,7 @@ void n265_write_vps(struct n265_encoder *e)
     bs_rbsp_trailing(bs);
 }
 
-void n265_write_sps(struct n265_encoder *e)
+void n265_write_sps(struct n265_frame_work *e)
 {
     bitstream_t *bs = &e->rbsp;
     int crop_r = e->pad_w - e->param.width;   /* luma samples */
@@ -141,7 +141,7 @@ void n265_write_sps(struct n265_encoder *e)
     bs_rbsp_trailing(bs);
 }
 
-void n265_write_pps(struct n265_encoder *e)
+void n265_write_pps(struct n265_frame_work *e)
 {
     bitstream_t *bs = &e->rbsp;
     bs_reset(bs);

@@ -16,7 +16,7 @@
  * coding block skips the z-scan test entirely - it is the first PU of a
  * two-PU split, already derived and stored. Outside the CB the z-scan
  * order decides (6.4.1). */
-static int inter_at_cb(struct n265_encoder *e, int x, int y, uint64_t cur_z,
+static int inter_at_cb(struct n265_frame_work *e, int x, int y, uint64_t cur_z,
                        const pu_geo *g)
 {
     if (x < 0 || y < 0 || x >= e->pad_w || y >= e->pad_h)
@@ -29,7 +29,7 @@ static int inter_at_cb(struct n265_encoder *e, int x, int y, uint64_t cur_z,
     return !e->blk_intra[(y >> 2) * e->map_stride + (x >> 2)];
 }
 
-static mot_t mot_at(struct n265_encoder *e, int x, int y)
+static mot_t mot_at(struct n265_frame_work *e, int x, int y)
 {
     int m = (y >> 2) * e->map_stride + (x >> 2);
     mot_t r;
@@ -82,7 +82,7 @@ static mv_t mv_scale(mv_t mv, int tb, int td)
  * (bottom-right, same CTB row) else C1 (center) in the collocated
  * picture (always l0[0], collocated_from_l0 == 1), listCol per
  * NoBackwardPredFlag, POC-distance scaling. */
-static int tmvp_mv(struct n265_encoder *e, const pu_geo *g,
+static int tmvp_mv(struct n265_frame_work *e, const pu_geo *g,
                    int list, int ref, mv_t *out)
 {
     static int no_tmvp = -1;    /* diagnostic toggle, cached: this runs
@@ -134,7 +134,7 @@ static int tmvp_mv(struct n265_encoder *e, const pu_geo *g,
     return 1;
 }
 
-int n265_merge_list_pu(struct n265_encoder *e, const pu_geo *g, mot_t out[],
+int n265_merge_list_pu(struct n265_frame_work *e, const pu_geo *g, mot_t out[],
                        int max)
 {
     int x0 = g->x, y0 = g->y, nw = g->w, nh = g->h;
@@ -254,14 +254,14 @@ int n265_merge_list_pu(struct n265_encoder *e, const pu_geo *g, mot_t out[],
     return n;
 }
 
-int n265_merge_list(struct n265_encoder *e, int x0, int y0, int nw, int nh,
+int n265_merge_list(struct n265_frame_work *e, int x0, int y0, int nw, int nh,
                     mot_t out[], int max)
 {
     pu_geo g = { x0, y0, nw, x0, y0, nw, nh, 0, 0 };
     return n265_merge_list_pu(e, &g, out, max);
 }
 
-mot_t n265_merge_cand0(struct n265_encoder *e, int x0, int y0, int nw, int nh)
+mot_t n265_merge_cand0(struct n265_frame_work *e, int x0, int y0, int nw, int nh)
 {
     mot_t out[1];
     n265_merge_list(e, x0, y0, nw, nh, out, 1);
@@ -272,7 +272,7 @@ mot_t n265_merge_cand0(struct n265_encoder *e, int x0, int y0, int nw, int nh)
  * the target's POC (same list first, then the other); the scaled pass
  * takes the first motion present (same list first) and scales it to
  * the target distance. One ref per list, all short-term. */
-static int amvp_take(struct n265_encoder *e, int m, int list, int ref, int scaled,
+static int amvp_take(struct n265_frame_work *e, int m, int list, int ref, int scaled,
                      mv_t *out)
 {
     int target_poc = e->refl[list][ref]->poc;
@@ -299,7 +299,7 @@ static int amvp_take(struct n265_encoder *e, int m, int list, int ref, int scale
     return 0;
 }
 
-void n265_amvp_pu(struct n265_encoder *e, int list, int ref,
+void n265_amvp_pu(struct n265_frame_work *e, int list, int ref,
                   const pu_geo *g, mv_t mvp[2])
 {
     int x0 = g->x, y0 = g->y, nw = g->w, nh = g->h;
@@ -365,14 +365,14 @@ void n265_amvp_pu(struct n265_encoder *e, int list, int ref,
     }
 }
 
-void n265_amvp(struct n265_encoder *e, int list, int ref, int x0, int y0,
+void n265_amvp(struct n265_frame_work *e, int list, int ref, int x0, int y0,
                int nw, int nh, mv_t mvp[2])
 {
     pu_geo g = { x0, y0, nw, x0, y0, nw, nh, 0, 0 };
     n265_amvp_pu(e, list, ref, &g, mvp);
 }
 
-uint32_t n265_mc_sad(struct n265_encoder *e, int list, int ridx, int x0, int y0,
+uint32_t n265_mc_sad(struct n265_frame_work *e, int list, int ridx, int x0, int y0,
                      int w, int h, mv_t mv)
 {
     const struct n265_refpic *ref = e->refl[list][ridx];
@@ -406,7 +406,7 @@ uint32_t n265_mc_sad(struct n265_encoder *e, int list, int ridx, int x0, int y0,
 
 /* SATD of luma MC at mv: phase-aware cost for subpel refinement, where
  * SAD cannot tell interpolation blur from misalignment */
-static uint32_t mc_satd(struct n265_encoder *e, int list, int ridx, int x0, int y0,
+static uint32_t mc_satd(struct n265_frame_work *e, int list, int ridx, int x0, int y0,
                         int w, int h, mv_t mv)
 {
     const struct n265_refpic *ref = e->refl[list][ridx];
@@ -421,7 +421,7 @@ static uint32_t mc_satd(struct n265_encoder *e, int list, int ridx, int x0, int 
 }
 
 /* clamp a full-pel mv so MC stays inside the padded reference */
-void n265_clamp_mv(struct n265_encoder *e, int x0, int y0, int w, int h,
+void n265_clamp_mv(struct n265_frame_work *e, int x0, int y0, int w, int h,
                    mv_t *mv)
 {
     int lo_x = -(x0 + N265_REF_PAD - 8) * 4;
@@ -471,7 +471,7 @@ static uint32_t qstep_q8(int qp)
     return tab[qp < 0 ? 0 : qp > 51 ? 51 : qp];
 }
 
-uint32_t n265_me_search(struct n265_encoder *e, int list, int ridx, int x0, int y0,
+uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, int y0,
                         int w, int h, mv_t start, mv_t *best)
 {
     mv_t cur = { (int16_t)((start.x >> 2) * 4), (int16_t)((start.y >> 2) * 4) };

@@ -31,17 +31,6 @@ void n265_param_default(n265_param *p)
     p->fps_den = 1;
 }
 
-static void pad_plane(uint8_t *dst, int dst_stride, int dst_w, int dst_h,
-                      const uint8_t *src, int src_stride, int src_w, int src_h)
-{
-    for (int y = 0; y < dst_h; y++) {
-        const uint8_t *s = src + (y < src_h ? y : src_h - 1) * src_stride;
-        uint8_t *d = dst + y * dst_stride;
-        memcpy(d, s, (size_t)src_w);
-        memset(d + src_w, s[src_w - 1], (size_t)(dst_w - src_w));
-    }
-}
-
 /* internal knobs the public API doesn't expose yet */
 static int g_mode = N265_MODE_INTRA;
 static int g_qp = 26;
@@ -94,6 +83,129 @@ void n265_encoder_set_dump_decode(n265_encoder *e, FILE *f)
     e->dump_decode = f;
 }
 
+/* Copy the immutable geometry and config into a frame_work. The ONE
+ * writer of these fields (T0 audit); everything below is read-only for
+ * the life of the encoder, which is what lets a row lane hold a copy. */
+static void fw_config(n265_encoder *e, n265_frame_work *fw)
+{
+    fw->enc = e;
+    fw->param = e->param;
+    fw->mode = e->mode;
+    fw->ctb_log2 = e->ctb_log2;
+    fw->pad_w = e->pad_w;
+    fw->pad_h = e->pad_h;
+    fw->ctb_cols = e->ctb_cols;
+    fw->ctb_rows = e->ctb_rows;
+    fw->map_stride = e->map_stride;
+    fw->rect = e->rect;
+    fw->amp = e->amp;
+    fw->rdoq = e->rdoq;
+    fw->qp_delta_on = e->qp_delta_on;
+    fw->bframes = e->bframes;
+    fw->psy = e->psy;
+    for (int i = 0; i < 3; i++)
+        fw->pad_stride[i] = e->pad_stride[i];
+}
+
+static int fw_open(n265_encoder *e, n265_frame_work *fw)
+{
+    fw_config(e, fw);
+    size_t nblk = (size_t)e->map_stride * (e->pad_h >> 2);
+    size_t nctu = (size_t)e->ctb_cols * e->ctb_rows;
+    fw->est_ctx = fw->est_store;
+    fw->ctu_dmin = malloc(nctu);
+    fw->ctu_dmax = malloc(nctu);
+    fw->ct_depth = calloc(nblk, 1);
+    fw->intra_mode = calloc(nblk, 1);
+    fw->edge_map = calloc(nblk, 1);
+    fw->blk_intra = calloc(nblk, 1);
+    fw->blk_skip = calloc(nblk, 1);
+    fw->blk_cbf_y = calloc(nblk, 1);
+    fw->blk_mv = calloc(nblk * 4, sizeof(int16_t));
+    fw->blk_pred = calloc(nblk, 1);
+    fw->blk_ref = calloc(nblk * 2, 1);
+    fw->blk_qp = calloc(nblk, 1);
+    fw->ctu_qp_off = calloc(nctu, 1);
+    fw->ctu_qp_raw = calloc(nctu, sizeof(float));
+    fw->sao = calloc(nctu, sizeof(sao_params));
+    if (!fw->ctu_dmin || !fw->ctu_dmax || !fw->ct_depth || !fw->intra_mode ||
+        !fw->edge_map || !fw->blk_intra || !fw->blk_skip || !fw->blk_cbf_y ||
+        !fw->blk_mv || !fw->blk_pred || !fw->blk_ref || !fw->blk_qp ||
+        !fw->ctu_qp_off || !fw->ctu_qp_raw || !fw->sao)
+        return -1;
+    fw->rrec = calloc((size_t)e->ctb_rows, sizeof(*fw->rrec));
+    fw->est_snap = calloc((size_t)e->ctb_rows * CTX_COUNT,
+                          sizeof(cabac_ctx_t));
+    if (!fw->rrec || !fw->est_snap)
+        return -1;
+    for (int i = 0; i < 3; i++) {
+        int w = i ? e->pad_w / 2 : e->pad_w;
+        int bh = (1 << e->ctb_log2) >> (i ? 1 : 0);
+        fw->sao_tmp[i] = malloc((size_t)w * bh);
+        fw->sao_line[i] = malloc((size_t)w);
+        if (!fw->sao_tmp[i] || !fw->sao_line[i])
+            return -1;
+    }
+    size_t frame_bytes = (size_t)e->pad_w * e->pad_h * 3 / 2;
+    if (bs_init(&fw->rbsp, frame_bytes + 4096) < 0)
+        return -1;
+    return 0;
+}
+
+static void fw_close(n265_frame_work *fw)
+{
+    free(fw->ctu_dmin);
+    free(fw->ctu_dmax);
+    free(fw->ct_depth);
+    free(fw->intra_mode);
+    free(fw->edge_map);
+    free(fw->blk_intra);
+    free(fw->blk_skip);
+    free(fw->blk_cbf_y);
+    free(fw->blk_mv);
+    free(fw->blk_pred);
+    free(fw->blk_ref);
+    free(fw->blk_qp);
+    free(fw->ctu_qp_off);
+    free(fw->ctu_qp_raw);
+    free(fw->sao);
+    for (int i = 0; i < 3; i++) {
+        free(fw->sao_tmp[i]);
+        free(fw->sao_line[i]);
+    }
+    for (int r = 0; fw->rrec && r < fw->ctb_rows; r++)
+        free(fw->rrec[r].buf);
+    free(fw->rrec);
+    free(fw->est_snap);
+    bs_free(&fw->rbsp);
+}
+
+/* A row lane starts from a shallow copy of the frame's coding context
+ * and re-points what has to be row-private. At T0a rows still run
+ * serially and the record stream and the estimator chain stay
+ * frame-continuous, so both are handed back at row end; T0b splits
+ * them. */
+void n265_row_begin(n265_row_ctx *row, n265_frame_work *fw, int r)
+{
+    row->c = *fw;
+    memcpy(row->est, fw->est_ctx, sizeof(row->est));
+    row->c.est_ctx = row->est;
+    row->c.sc = row->sc;
+    row->c.rec_buf = fw->rrec[r].buf;
+    row->c.rec_cap = fw->rrec[r].cap;
+    row->c.rec_len = 0;
+    row->c.rec_pos = 0;
+}
+
+void n265_row_end(n265_row_ctx *row, n265_frame_work *fw, int r)
+{
+    memcpy(fw->est_ctx, row->est, sizeof(row->est));
+    fw->ent_qp_prev = row->c.ent_qp_prev;   /* the analysis-side qPY_PREV chain */
+    fw->rrec[r].buf = row->c.rec_buf;
+    fw->rrec[r].cap = row->c.rec_cap;
+    fw->rrec[r].len = row->c.rec_len;
+}
+
 n265_encoder *n265_encoder_open(const n265_param *p)
 {
     if (!p || (p->width & 1) || (p->height & 1) || p->csp != N265_CSP_I420)
@@ -104,7 +216,6 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         return NULL;
     e->param = *p;
     e->mode = g_mode;
-    e->qp = g_qp;
     e->qp_base = g_qp;
     e->crf_on = g_crf >= 0.0;
     e->crf = g_crf;
@@ -159,20 +270,15 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         int w = i ? e->pad_w / 2 : e->pad_w;
         int h = i ? e->pad_h / 2 : e->pad_h;
         e->pad_stride[i] = w;
-        e->recon_stride[i] = w;
-        e->pad_plane[i] = malloc((size_t)w * h);
-        e->recon[i] = malloc((size_t)w * h);
-        if (!e->pad_plane[i] || !e->recon[i])
-            goto fail;
         int pad = i ? N265_REF_PAD / 2 : N265_REF_PAD;
-        for (int sl = 0; sl < N265_DPB_SLOTS; sl++) {
-            e->dpb[sl].stride[i] = w + 2 * pad;
-            e->dpb[sl].base[i] =
-                malloc((size_t)e->dpb[sl].stride[i] * (h + 2 * pad));
-            if (!e->dpb[sl].base[i])
+        for (int sl = 0; sl < N265_DPB_SLOTS + N265_MAX_FRAME_WORK; sl++) {
+            struct n265_refpic *r = sl < N265_DPB_SLOTS
+                ? &e->dpb[sl] : &e->scratch_pic[sl - N265_DPB_SLOTS];
+            r->stride[i] = w + 2 * pad;
+            r->base[i] = malloc((size_t)r->stride[i] * (h + 2 * pad));
+            if (!r->base[i])
                 goto fail;
-            e->dpb[sl].plane[i] =
-                e->dpb[sl].base[i] + pad * e->dpb[sl].stride[i] + pad;
+            r->plane[i] = r->base[i] + pad * r->stride[i] + pad;
         }
     }
     for (int sl = 0; sl < N265_DPB_SLOTS; sl++) {
@@ -190,41 +296,15 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         memset(e->dpb[sl].ctu_dmin, 0xff, nctu);
         memset(e->dpb[sl].ctu_dmax, 0xff, nctu);
     }
-    e->ctu_dmin = malloc((size_t)e->ctb_cols * e->ctb_rows);
-    e->ctu_dmax = malloc((size_t)e->ctb_cols * e->ctb_rows);
-    if (!e->ctu_dmin || !e->ctu_dmax)
-        goto fail;
     e->map_stride = e->pad_w >> 2;
-    e->ct_depth = calloc((size_t)e->map_stride * (e->pad_h >> 2), 1);
-    e->intra_mode = calloc((size_t)e->map_stride * (e->pad_h >> 2), 1);
-    e->edge_map = calloc((size_t)e->map_stride * (e->pad_h >> 2), 1);
-    e->blk_intra = calloc((size_t)e->map_stride * (e->pad_h >> 2), 1);
-    e->blk_skip = calloc((size_t)e->map_stride * (e->pad_h >> 2), 1);
-    e->blk_cbf_y = calloc((size_t)e->map_stride * (e->pad_h >> 2), 1);
-    e->blk_mv = calloc((size_t)e->map_stride * (e->pad_h >> 2) * 4,
-                       sizeof(int16_t));
-    e->blk_pred = calloc((size_t)e->map_stride * (e->pad_h >> 2), 1);
-    e->blk_ref = calloc((size_t)e->map_stride * (e->pad_h >> 2) * 2, 1);
-    e->blk_qp = calloc((size_t)e->map_stride * (e->pad_h >> 2), 1);
-    e->ctu_qp_off = calloc((size_t)e->ctb_cols * e->ctb_rows, 1);
-    e->ctu_qp_raw = calloc((size_t)e->ctb_cols * e->ctb_rows, sizeof(float));
-    if (!e->blk_intra || !e->blk_skip || !e->blk_cbf_y || !e->blk_mv ||
-        !e->blk_pred || !e->blk_qp || !e->ctu_qp_off || !e->ctu_qp_raw)
-        goto fail;
-    e->sao = calloc((size_t)e->ctb_cols * e->ctb_rows, sizeof(sao_params));
-    for (int i = 0; i < 3; i++) {
-        int w = i ? e->pad_w / 2 : e->pad_w;
-        int h = i ? e->pad_h / 2 : e->pad_h;
-        e->sao_tmp[i] = malloc((size_t)w * h);
-        if (!e->sao_tmp[i])
+    for (int i = 0; i < N265_MAX_FRAME_WORK; i++)
+        if (fw_open(e, &e->fw[i]) < 0)
             goto fail;
-    }
-    if (!e->ct_depth || !e->intra_mode || !e->edge_map || !e->sao)
-        goto fail;
+    for (int i = 0; i < N265_MAX_LANES; i++)
+        if (!(e->row[i].sc = n265_scratch_new()))
+            goto fail;
 
     size_t frame_bytes = (size_t)e->pad_w * e->pad_h * 3 / 2;
-    if (bs_init(&e->rbsp, frame_bytes + 4096) < 0)
-        goto fail;
     /* up to two coded frames (anchor + B) leave per call */
     e->out_cap = 3 * nal_pack_bound(frame_bytes + 4096) + 4096;
     e->out = malloc(e->out_cap);
@@ -246,27 +326,15 @@ void n265_encoder_close(n265_encoder *e)
 {
     if (!e)
         return;
+    for (int i = 0; i < N265_MAX_FRAME_WORK; i++)
+        fw_close(&e->fw[i]);
+    for (int i = 0; i < N265_MAX_LANES; i++)
+        n265_scratch_free(e->row[i].sc);
     for (int i = 0; i < 3; i++) {
-        free(e->pad_plane[i]);
-        free(e->recon[i]);
-    }
-    free(e->ct_depth);
-    free(e->intra_mode);
-    free(e->edge_map);
-    free(e->blk_intra);
-    free(e->blk_skip);
-    free(e->blk_cbf_y);
-    free(e->blk_mv);
-    free(e->blk_pred);
-    free(e->blk_ref);
-    free(e->blk_qp);
-    free(e->ctu_qp_off);
-    free(e->ctu_qp_raw);
-    free(e->sao);
-    for (int i = 0; i < 3; i++) {
-        free(e->sao_tmp[i]);
         for (int sl = 0; sl < N265_DPB_SLOTS; sl++)
             free(e->dpb[sl].base[i]);
+        for (int sl = 0; sl < N265_MAX_FRAME_WORK; sl++)
+            free(e->scratch_pic[sl].base[i]);
     }
     for (int sl = 0; sl < N265_DPB_SLOTS; sl++) {
         free(e->dpb[sl].col_pred);
@@ -277,25 +345,21 @@ void n265_encoder_close(n265_encoder *e)
         for (int i = 0; i < 3; i++)
             free(e->dpb[sl].hf_base[i]);
     }
-    free(e->ctu_dmin);
-    free(e->ctu_dmax);
     n265_la_free(e);
-    bs_free(&e->rbsp);
-    free(e->rec_buf);
     free(e->out);
     free(e);
 }
 
-static void write_slice_header(n265_encoder *e)
+static void write_slice_header(n265_encoder *e, n265_frame_work *fw)
 {
-    bitstream_t *bs = &e->rbsp;
+    bitstream_t *bs = &fw->rbsp;
     bs_put_bits(bs, 1, 1);          /* first_slice_segment_in_pic_flag */
-    if (e->slice_type == 2)
+    if (fw->slice_type == 2)
         bs_put_bits(bs, 0, 1);      /* no_output_of_prior_pics_flag (IRAP) */
     bs_put_ue(bs, 0);               /* slice_pic_parameter_set_id */
-    bs_put_ue(bs, (uint32_t)e->slice_type);
-    if (e->slice_type != 2) {
-        bs_put_bits(bs, (uint32_t)(e->poc & 255), 8); /* pic_order_cnt_lsb */
+    bs_put_ue(bs, (uint32_t)fw->slice_type);
+    if (fw->slice_type != 2) {
+        bs_put_bits(bs, (uint32_t)(fw->poc & 255), 8); /* pic_order_cnt_lsb */
         bs_put_bits(bs, 0, 1);      /* short_term_ref_pic_set_sps_flag */
         /* st_ref_pic_set(idx 0) inline: every valid DPB picture, negative
          * POCs nearest first then positive nearest first; used_by_curr
@@ -303,7 +367,7 @@ static void write_slice_header(n265_encoder *e)
         int negs[N265_DPB_SLOTS], poss[N265_DPB_SLOTS], nn = 0, np = 0;
         for (int sl = 0; sl < N265_DPB_SLOTS; sl++) {
             if (!e->dpb[sl].valid) continue;   /* every kept picture is listed; eviction is at mini-GOP ends */
-            if (e->dpb[sl].poc < e->poc) negs[nn++] = sl; else poss[np++] = sl;
+            if (e->dpb[sl].poc < fw->poc) negs[nn++] = sl; else poss[np++] = sl;
         }
         for (int i = 1; i < nn; i++)      /* sort: nearest (largest POC) first */
             for (int k = i; k > 0 && e->dpb[negs[k]].poc > e->dpb[negs[k - 1]].poc; k--) { int t = negs[k]; negs[k] = negs[k - 1]; negs[k - 1] = t; }
@@ -311,50 +375,50 @@ static void write_slice_header(n265_encoder *e)
             for (int k = i; k > 0 && e->dpb[poss[k]].poc < e->dpb[poss[k - 1]].poc; k--) { int t = poss[k]; poss[k] = poss[k - 1]; poss[k - 1] = t; }
         bs_put_ue(bs, (uint32_t)nn);      /* num_negative_pics */
         bs_put_ue(bs, (uint32_t)np);      /* num_positive_pics */
-        int prev = e->poc;
+        int prev = fw->poc;
         for (int i = 0; i < nn; i++) {
             const struct n265_refpic *r = &e->dpb[negs[i]];
             bs_put_ue(bs, (uint32_t)(prev - r->poc - 1));   /* delta_poc_s0_minus1 */
             int used = 0;
-            for (int l = 0; l < 2; l++) for (int k = 0; k < e->nref[l]; k++) if (e->refl[l][k] == r) used = 1;
+            for (int l = 0; l < 2; l++) for (int k = 0; k < fw->nref[l]; k++) if (fw->refl[l][k] == r) used = 1;
             bs_put_bits(bs, (uint32_t)used, 1);            /* used_by_curr_pic_s0_flag */
             prev = r->poc;
         }
-        prev = e->poc;
+        prev = fw->poc;
         for (int i = 0; i < np; i++) {
             const struct n265_refpic *r = &e->dpb[poss[i]];
             bs_put_ue(bs, (uint32_t)(r->poc - prev - 1));   /* delta_poc_s1_minus1 */
             int used = 0;
-            for (int l = 0; l < 2; l++) for (int k = 0; k < e->nref[l]; k++) if (e->refl[l][k] == r) used = 1;
+            for (int l = 0; l < 2; l++) for (int k = 0; k < fw->nref[l]; k++) if (fw->refl[l][k] == r) used = 1;
             bs_put_bits(bs, (uint32_t)used, 1);
             prev = r->poc;
         }
         bs_put_bits(bs, getenv("N265_NO_TMVP") ? 0 : 1, 1);      /* slice_temporal_mvp_enabled_flag */
     }
-    if (e->mode != N265_MODE_PCM && n265_sao_enabled()) {
+    if (fw->mode != N265_MODE_PCM && n265_sao_enabled()) {
         bs_put_bits(bs, 1, 1);      /* slice_sao_luma_flag */
         bs_put_bits(bs, 1, 1);      /* slice_sao_chroma_flag */
     }
-    if (e->slice_type != 2) {
-        int override = e->nref[0] != 1 || (e->slice_type == 0 && e->nref[1] != 1);
+    if (fw->slice_type != 2) {
+        int override = fw->nref[0] != 1 || (fw->slice_type == 0 && fw->nref[1] != 1);
         bs_put_bits(bs, (uint32_t)override, 1);     /* num_ref_idx_active_override_flag */
         if (override) {
-            bs_put_ue(bs, (uint32_t)(e->nref[0] - 1));
-            if (e->slice_type == 0)
-                bs_put_ue(bs, (uint32_t)(e->nref[1] - 1));
+            bs_put_ue(bs, (uint32_t)(fw->nref[0] - 1));
+            if (fw->slice_type == 0)
+                bs_put_ue(bs, (uint32_t)(fw->nref[1] - 1));
         }
-        if (e->slice_type == 0)
+        if (fw->slice_type == 0)
             bs_put_bits(bs, 0, 1);  /* mvd_l1_zero_flag */
         if (!getenv("N265_NO_TMVP")) {
-            if (e->slice_type == 0)
+            if (fw->slice_type == 0)
                 bs_put_bits(bs, 1, 1);  /* collocated_from_l0_flag */
-            if (e->nref[0] > 1)
+            if (fw->nref[0] > 1)
                 bs_put_ue(bs, 0);       /* collocated_ref_idx: L0[0] */
         }
         bs_put_ue(bs, 5 - MAX_MERGE);   /* five_minus_max_num_merge_cand */
     }
-    bs_put_se(bs, e->qp - 26);      /* slice_qp_delta */
-    if (e->mode != N265_MODE_PCM)
+    bs_put_se(bs, fw->qp - 26);      /* slice_qp_delta */
+    if (fw->mode != N265_MODE_PCM)
         bs_put_bits(bs, 1, 1);      /* slice_loop_filter_across_slices_enabled
                                      * (present because deblocking is on) */
     bs_align_one_then_zero(bs);     /* byte_alignment() */
@@ -403,7 +467,7 @@ static void build_hf_cache(n265_encoder *e, struct n265_refpic *r)
     r->hf_y1 = e->pad_h + N265_HF_PAD;
 }
 
-static void write_pcm_ctu(n265_encoder *e, cabac_t *cb, cabac_ctx_t *part_mode,
+static void write_pcm_ctu(n265_frame_work *e, cabac_t *cb, cabac_ctx_t *part_mode,
                           int ctb_x, int ctb_y)
 {
     bitstream_t *bs = &e->rbsp;
@@ -428,10 +492,11 @@ static void write_pcm_ctu(n265_encoder *e, cabac_t *cb, cabac_ctx_t *part_mode,
     n265_cabac_start(cb, bs);
 }
 
-static void add_nal(n265_encoder *e, int type, size_t *out_used, int *nnal)
+static void add_nal(n265_encoder *e, n265_frame_work *fw, int type,
+                    size_t *out_used, int *nnal)
 {
     size_t sz = nal_pack(e->out + *out_used, e->out_cap - *out_used,
-                         type, e->rbsp.buf, e->rbsp.bytes);
+                         type, fw->rbsp.buf, fw->rbsp.bytes);
     e->nal[*nnal].type = type;
     e->nal[*nnal].payload = e->out + *out_used;
     e->nal[*nnal].size = (int)sz;
@@ -439,49 +504,45 @@ static void add_nal(n265_encoder *e, int type, size_t *out_used, int *nnal)
     *out_used += sz;
 }
 
-static void dump_planes(n265_encoder *e, FILE *f)
+static void dump_planes(n265_frame_work *fw, FILE *f)
 {
-    const uint8_t **planes =
-        e->mode == N265_MODE_PCM ? (const uint8_t **)e->pad_plane
-                                 : (const uint8_t **)e->recon;
+    /* PCM writes no reconstruction; its output IS the padded source, and
+     * that plane set has the unpadded stride, not the DPB slot's. */
+    int pcm = fw->mode == N265_MODE_PCM;
     for (int i = 0; i < 3; i++) {
-        int w = i ? e->param.width / 2 : e->param.width;
-        int h = i ? e->param.height / 2 : e->param.height;
-        int stride = e->recon_stride[i];
+        int w = i ? fw->param.width / 2 : fw->param.width;
+        int h = i ? fw->param.height / 2 : fw->param.height;
+        int stride = pcm ? fw->pad_stride[i] : fw->recon_stride[i];
+        const uint8_t *pl = pcm ? fw->pad_plane[i] : fw->recon[i];
         for (int y = 0; y < h; y++)
-            fwrite(planes[i] + y * stride, 1, (size_t)w, f);
+            fwrite(pl + y * stride, 1, (size_t)w, f);
     }
 }
 
-static void dump_recon_frame(n265_encoder *e)
+static void dump_recon_frame(n265_encoder *e, n265_frame_work *fw)
 {
     if (e->dump_recon) {
         /* display order: frames land at their display index (B frames
          * are encoded out of order, so seek) */
         long frame_bytes =
             (long)e->param.width * e->param.height * 3 / 2;
-        fseek(e->dump_recon, (long)e->display_idx * frame_bytes, SEEK_SET);
-        dump_planes(e, e->dump_recon);
+        fseek(e->dump_recon, (long)fw->display_idx * frame_bytes, SEEK_SET);
+        dump_planes(fw, e->dump_recon);
     }
     if (e->dump_decode)
-        dump_planes(e, e->dump_decode);
+        dump_planes(fw, e->dump_decode);
 }
 
 /* encode one frame from the given source planes; appends NALs */
-static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
-                         const int src_stride[3], int slice_type, int poc,
-                         int nonref, int display_idx, int b_depth,
+static void encode_frame(n265_encoder *e, n265_frame_work *fw,
                          size_t *out_used, int *count)
 {
     size_t frame_out0 = *out_used;
-    e->slice_type = slice_type;
-    e->b_depth = b_depth;
-    e->poc = poc;
-    e->nonref = nonref;
-    e->display_idx = display_idx;
+    int slice_type = fw->slice_type, b_depth = fw->b_depth;
+    int nonref = fw->nonref, poc = fw->poc;
     /* P2: no CTU of this picture has a decided depth range yet */
-    memset(e->ctu_dmin, 0xff, (size_t)e->ctb_cols * e->ctb_rows);
-    memset(e->ctu_dmax, 0xff, (size_t)e->ctb_cols * e->ctb_rows);
+    memset(fw->ctu_dmin, 0xff, (size_t)fw->ctb_cols * fw->ctb_rows);
+    memset(fw->ctu_dmax, 0xff, (size_t)fw->ctb_cols * fw->ctb_rows);
     /* frame-type QP ladder (the matched reference applies its ip/pb
      * ratios in CQP mode too): I anchors lower, non-ref B higher */
     /* CRF (yah264's final form, written for this encoder): a constant base per
@@ -516,63 +577,56 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
     int qi = (int)lround(base);
     double qfrac = e->qp_frac ? base - (double)qi : 0.0;
     int q = qi + cascade;
-    e->qp = q < 0 ? 0 : q > 51 ? 51 : q;
+    fw->qp = q < 0 ? 0 : q > 51 ? 51 : q;
 
     if (e->frames_done == 0) {
-        n265_write_vps(e); add_nal(e, N265_NAL_VPS, out_used, count);
-        n265_write_sps(e); add_nal(e, N265_NAL_SPS, out_used, count);
-        n265_write_pps(e); add_nal(e, N265_NAL_PPS, out_used, count);
+        n265_write_vps(fw); add_nal(e, fw, N265_NAL_VPS, out_used, count);
+        n265_write_sps(fw); add_nal(e, fw, N265_NAL_SPS, out_used, count);
+        n265_write_pps(fw); add_nal(e, fw, N265_NAL_PPS, out_used, count);
     }
 
-    pad_plane(e->pad_plane[0], e->pad_stride[0], e->pad_w, e->pad_h,
-              src[0], src_stride[0], e->param.width, e->param.height);
-    for (int i = 1; i < 3; i++)
-        pad_plane(e->pad_plane[i], e->pad_stride[i], e->pad_w / 2,
-                  e->pad_h / 2, src[i], src_stride[i],
-                  e->param.width / 2, e->param.height / 2);
-
-    int last = e->ctb_rows * e->ctb_cols - 1;
+    int last = fw->ctb_rows * fw->ctb_cols - 1;
     cabac_t cb;
 
-    if (e->mode != N265_MODE_PCM) {
-        memset(e->edge_map, 0, (size_t)e->map_stride * (e->pad_h >> 2));
-        memset(e->blk_intra, 0, (size_t)e->map_stride * (e->pad_h >> 2));
-        memset(e->blk_skip, 0, (size_t)e->map_stride * (e->pad_h >> 2));
-        memset(e->blk_cbf_y, 0, (size_t)e->map_stride * (e->pad_h >> 2));
-        memset(e->blk_pred, 0, (size_t)e->map_stride * (e->pad_h >> 2));
-        memset(e->blk_mv, 0,
-               (size_t)e->map_stride * (e->pad_h >> 2) * 4 * sizeof(int16_t));
+    if (fw->mode != N265_MODE_PCM) {
+        memset(fw->edge_map, 0, (size_t)fw->map_stride * (fw->pad_h >> 2));
+        memset(fw->blk_intra, 0, (size_t)fw->map_stride * (fw->pad_h >> 2));
+        memset(fw->blk_skip, 0, (size_t)fw->map_stride * (fw->pad_h >> 2));
+        memset(fw->blk_cbf_y, 0, (size_t)fw->map_stride * (fw->pad_h >> 2));
+        memset(fw->blk_pred, 0, (size_t)fw->map_stride * (fw->pad_h >> 2));
+        memset(fw->blk_mv, 0,
+               (size_t)fw->map_stride * (fw->pad_h >> 2) * 4 * sizeof(int16_t));
         /* per-CTU QP offsets: cu-tree (filled by the scheduler) plus
          * variance AQ on top */
         if (!e->cutree) {
-            memset(e->ctu_qp_off, 0, (size_t)e->ctb_cols * e->ctb_rows);
-            memset(e->ctu_qp_raw, 0, (size_t)e->ctb_cols * e->ctb_rows * sizeof(float));
+            memset(fw->ctu_qp_off, 0, (size_t)fw->ctb_cols * fw->ctb_rows);
+            memset(fw->ctu_qp_raw, 0, (size_t)fw->ctb_cols * fw->ctb_rows * sizeof(float));
         }
         if (e->aq && getenv("N265_AQ_FLAT"))
-            memset(e->ctu_qp_off, (uint8_t)atoi(getenv("N265_AQ_FLAT")),
-                   (size_t)e->ctb_cols * e->ctb_rows);
+            memset(fw->ctu_qp_off, (uint8_t)atoi(getenv("N265_AQ_FLAT")),
+                   (size_t)fw->ctb_cols * fw->ctb_rows);
         else if (e->aq) {
-            int ctb = 1 << e->ctb_log2;
-            int nctu = e->ctb_cols * e->ctb_rows;
+            int ctb = 1 << fw->ctb_log2;
+            int nctu = fw->ctb_cols * fw->ctb_rows;
             double *lv = malloc((size_t)nctu * sizeof(double));
             double avg = 0;
-            for (int cy = 0; cy < e->ctb_rows; cy++)
-                for (int cx = 0; cx < e->ctb_cols; cx++) {
+            for (int cy = 0; cy < fw->ctb_rows; cy++)
+                for (int cx = 0; cx < fw->ctb_cols; cx++) {
                     int x0 = cx * ctb, y0 = cy * ctb;
-                    int w = x0 + ctb > e->pad_w ? e->pad_w - x0 : ctb;
-                    int h = y0 + ctb > e->pad_h ? e->pad_h - y0 : ctb;
+                    int w = x0 + ctb > fw->pad_w ? fw->pad_w - x0 : ctb;
+                    int h = y0 + ctb > fw->pad_h ? fw->pad_h - y0 : ctb;
                     int64_t s1 = 0, s2 = 0;
                     for (int y = y0; y < y0 + h; y++)
                         for (int x = x0; x < x0 + w; x++) {
-                            int v = e->pad_plane[0][y * e->pad_stride[0] + x];
+                            int v = fw->pad_plane[0][y * fw->pad_stride[0] + x];
                             s1 += v;
                             s2 += v * v;
                         }
                     int np = w * h;
                     double var = (double)s2 / np -
                         ((double)s1 / np) * ((double)s1 / np);
-                    lv[cy * e->ctb_cols + cx] = log2(var + 1.0);
-                    avg += lv[cy * e->ctb_cols + cx];
+                    lv[cy * fw->ctb_cols + cx] = log2(var + 1.0);
+                    avg += lv[cy * fw->ctb_cols + cx];
                 }
             avg /= nctu;
             /* Under CRF the frame mean of the AQ field is the across-frame /
@@ -586,8 +640,8 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
                 const char *v = getenv("N265_AQ_DC"), *a = getenv("N265_AQ_ANCHOR");
                 double dc = (v ? atof(v) : 1.0) * (avg - (a ? atof(a) : 6.4));
                 int dci = (int)lround(dc);
-                int nq = e->qp + dci;
-                e->qp = nq < 0 ? 0 : nq > 51 ? 51 : nq;
+                int nq = fw->qp + dci;
+                fw->qp = nq < 0 ? 0 : nq > 51 ? 51 : nq;
                 if (e->qp_frac)
                     qfrac += dc - (double)dci;
             }
@@ -612,13 +666,13 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
                 else if (off < -aqc) off = -aqc;
                 int o;
                 if (e->qp_round1) {
-                    off += e->ctu_qp_raw[i];
+                    off += fw->ctu_qp_raw[i];
                     o = (int)(off > 0 ? off + 0.5 : off - 0.5);
                 } else {
                     o = (int)(off > 0 ? off + 0.5 : off - 0.5) +
-                        e->ctu_qp_off[i];
+                        fw->ctu_qp_off[i];
                 }
-                e->ctu_qp_off[i] = (int8_t)(o < -12 ? -12 : o > 12 ? 12 : o);
+                fw->ctu_qp_off[i] = (int8_t)(o < -12 ? -12 : o > 12 ? 12 : o);
             }
             free(lv);
         }
@@ -631,94 +685,112 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
          * frame counter - not of a running error - so it stays
          * position-independent and survives any future thread schedule. */
         if (e->qp_frac && qfrac != 0.0) {
-            int nctu = e->ctb_cols * e->ctb_rows;
+            int nctu = fw->ctb_cols * fw->ctb_rows;
             for (int i = 0; i < nctu; i++) {
                 double d = (double)(i + 1) * 0.7548776662466927 +
                            (double)(e->frames_done + 1) * 0.5698402909980532;
                 d -= floor(d);
-                int o = e->ctu_qp_off[i] + (int)floor(qfrac + d);
-                e->ctu_qp_off[i] = (int8_t)(o < -12 ? -12 : o > 12 ? 12 : o);
+                int o = fw->ctu_qp_off[i] + (int)floor(qfrac + d);
+                fw->ctu_qp_off[i] = (int8_t)(o < -12 ? -12 : o > 12 ? 12 : o);
             }
         }
 
         if (getenv("N265_QP_TRACE"))
             fprintf(stderr, "QPT disp=%d type=%d qp=%d qf=%+.3f\n",
-                    display_idx, slice_type, e->qp, qfrac);
-        e->ent_qp_prev = e->qp;
-        e->ent_parent_chroma = 0;
-        e->rec_len = 0;
-        e->rec_pos = 0;
+                    fw->display_idx, slice_type, fw->qp, qfrac);
+        fw->ent_qp_prev = fw->qp;
+        fw->ent_parent_chroma = 0;
+        fw->rec_len = 0;
+        fw->rec_pos = 0;
         for (int i = 0; i < CTX_COUNT; i++)
-            n265_cabac_ctx_init(&e->est_ctx[i],
-                                e->slice_type == 2 ? n265_ctx_init_i[i]
-                                : e->slice_type == 1 ? n265_ctx_init_p[i]
+            n265_cabac_ctx_init(&fw->est_ctx[i],
+                                fw->slice_type == 2 ? n265_ctx_init_i[i]
+                                : fw->slice_type == 1 ? n265_ctx_init_p[i]
                                                      : n265_ctx_init_b[i],
-                                e->qp);
-        for (int i = 0; i <= last; i++)
-            n265_analyze_ctu(e, i % e->ctb_cols, i / e->ctb_cols);
-        e->rec_pos = 0;     /* rewind for the entropy pass */
-        n265_deblock_frame(e);
-        if (n265_sao_enabled()) {
-            n265_sao_analyze(e);
-            if (e->no_sao)
-                memset(e->sao, 0,
-                       (size_t)e->ctb_cols * e->ctb_rows * sizeof(sao_params));
-            n265_sao_apply(e);
+                                fw->qp);
+        /* One row lane, one row at a time: the wavefront's serial
+         * schedule. The row handle is a copy of fw with the row-private
+         * storage swapped in (n265_row_begin). */
+        /* The row pipeline of threading-design sec 1, run serially: at
+         * step k, encode row k, resolve its QP map, deblock row k-2
+         * (deblock(r) waits for enc_rows >= r+2 because row r+1's intra
+         * prediction reads row r's last unfiltered line), and filter
+         * SAO row k-3 (sao(r) waits for dbk_rows >= r+2). T1 turns each
+         * of these into a pool task with exactly these predicates. */
+        n265_row_ctx *row = &e->row[0];
+        int R = fw->ctb_rows;
+        int snap_x = fw->ctb_cols > 1 ? 1 : 0;
+        int qprev = fw->qp;
+        int sao_on = n265_sao_enabled();
+        for (int k = 0; k < R + 3; k++) {
+            if (k < R) {
+                n265_row_begin(row, fw, k);
+                for (int cx = 0; cx < fw->ctb_cols; cx++) {
+                    n265_analyze_ctu(&row->c, cx, k);
+                    if (cx == snap_x)
+                        memcpy(fw->est_snap + (size_t)k * CTX_COUNT,
+                               row->c.est_ctx,
+                               CTX_COUNT * sizeof(cabac_ctx_t));
+                }
+                n265_row_end(row, fw, k);
+                n265_qpmap_row(fw, k, &qprev);
+            }
+            if (k >= 2 && k - 2 < R)
+                n265_deblock_row(fw, k - 2);
+            if (sao_on && k >= 3 && k - 3 < R) {
+                if (e->no_sao)
+                    memset(&fw->sao[(k - 3) * fw->ctb_cols], 0,
+                           (size_t)fw->ctb_cols * sizeof(sao_params));
+                n265_sao_row(fw, k - 3);
+            }
         }
     }
 
-    e->ent_qp_prev = e->qp;
-    e->ent_parent_chroma = 0;
-    e->in_entropy = 1;
-    bs_reset(&e->rbsp);
-    write_slice_header(e);
-    n265_cabac_start(&cb, &e->rbsp);
+    fw->ent_qp_prev = fw->qp;
+    fw->ent_parent_chroma = 0;
+    fw->in_entropy = 1;
+    bs_reset(&fw->rbsp);
+    write_slice_header(e, fw);
+    n265_cabac_start(&cb, &fw->rbsp);
     for (int i = 0; i < CTX_COUNT; i++)
-        n265_cabac_ctx_init(&e->ctx[i],
-                            e->slice_type == 2 ? n265_ctx_init_i[i]
-                            : e->slice_type == 1 ? n265_ctx_init_p[i]
+        n265_cabac_ctx_init(&fw->ctx[i],
+                            fw->slice_type == 2 ? n265_ctx_init_i[i]
+                            : fw->slice_type == 1 ? n265_ctx_init_p[i]
                                                  : n265_ctx_init_b[i],
-                            e->qp);
+                            fw->qp);
 
     for (int i = 0; i <= last; i++) {
-        if (e->mode == N265_MODE_PCM)
-            write_pcm_ctu(e, &cb, &e->ctx[CTX_PART_MODE],
-                          i % e->ctb_cols, i / e->ctb_cols);
-        else
-            n265_entropy_ctu(e, &cb, i % e->ctb_cols, i / e->ctb_cols);
+        int cx = i % fw->ctb_cols, cy = i / fw->ctb_cols;
+        if (fw->mode == N265_MODE_PCM) {
+            write_pcm_ctu(fw, &cb, &fw->ctx[CTX_PART_MODE], cx, cy);
+        } else {
+            if (cx == 0) {      /* this row's record stream */
+                fw->rec_buf = fw->rrec[cy].buf;
+                fw->rec_pos = 0;
+            }
+            n265_entropy_ctu(fw, &cb, cx, cy);
+        }
         n265_cabac_terminate(&cb, i == last);
     }
-    e->in_entropy = 0;
-    bs_align_zero(&e->rbsp);
-    add_nal(e, e->slice_type == 2 ? N265_NAL_IDR_W_RADL
+    fw->in_entropy = 0;
+    bs_align_zero(&fw->rbsp);
+    add_nal(e, fw, fw->slice_type == 2 ? N265_NAL_IDR_W_RADL
                                   : (nonref ? 0 /* TRAIL_N */
                                             : 1 /* TRAIL_R */),
             out_used, count);
 
-    if (e->mode != N265_MODE_PCM && !nonref) {
-        /* store the filtered picture into the DPB slot not holding the
-         * current L0 anchor */
-        /* the slot to overwrite: an invalid one, else the oldest picture
-         * that is not in the current lists */
-        struct n265_refpic *slot = NULL;
-        for (int sl = 0; sl < N265_DPB_SLOTS && !slot; sl++)
-            if (!e->dpb[sl].valid) slot = &e->dpb[sl];
-        for (int sl = 0; sl < N265_DPB_SLOTS && !slot; sl++) {
-            int in_list = 0;
-            for (int l = 0; l < 2; l++)
-                for (int k = 0; k < e->nref[l]; k++)
-                    if (e->refl[l][k] == &e->dpb[sl]) in_list = 1;
-            if (!in_list && (!slot || e->dpb[sl].poc < slot->poc)) slot = &e->dpb[sl];
-        }
-        if (!slot) slot = &e->dpb[0];
+    if (fw->mode != N265_MODE_PCM && !nonref) {
+        /* Publish. The picture reconstructed directly into this slot, so
+         * all that is left is the border extension, the side data a later
+         * frame reads, and the valid flag that puts it in the next RPS. */
+        struct n265_refpic *slot = fw->slot;
         for (int i = 0; i < 3; i++) {
-            int w = i ? e->pad_w / 2 : e->pad_w;
-            int h = i ? e->pad_h / 2 : e->pad_h;
+            int w = i ? fw->pad_w / 2 : fw->pad_w;
+            int h = i ? fw->pad_h / 2 : fw->pad_h;
             int pad = i ? N265_REF_PAD / 2 : N265_REF_PAD;
             int rs = slot->stride[i];
             for (int y = 0; y < h; y++) {
                 uint8_t *d = slot->plane[i] + y * rs;
-                memcpy(d, e->recon[i] + y * e->recon_stride[i], (size_t)w);
                 memset(d - pad, d[0], (size_t)pad);
                 memset(d + w, d[w - 1], (size_t)pad);
             }
@@ -731,37 +803,39 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
         }
         build_hf_cache(e, slot);
         {
-            int c16w = (e->pad_w + 15) >> 4;
-            int c16h = (e->pad_h + 15) >> 4;
+            int c16w = (fw->pad_w + 15) >> 4;
+            int c16h = (fw->pad_h + 15) >> 4;
             for (int cy = 0; cy < c16h; cy++)
                 for (int cx = 0; cx < c16w; cx++) {
-                    int m = (cy * 4) * e->map_stride + cx * 4;
+                    int m = (cy * 4) * fw->map_stride + cx * 4;
                     int i16 = cy * c16w + cx;
-                    if (e->slice_type == 2 || e->blk_intra[m]) {
+                    if (fw->slice_type == 2 || fw->blk_intra[m]) {
                         slot->col_pred[i16] = 0;
                         continue;
                     }
-                    slot->col_pred[i16] = e->blk_pred[m];
-                    memcpy(slot->col_mv + 4 * i16, e->blk_mv + 4 * m, 8);
+                    slot->col_pred[i16] = fw->blk_pred[m];
+                    memcpy(slot->col_mv + 4 * i16, fw->blk_mv + 4 * m, 8);
                     for (int l = 0; l < 2; l++)
-                        slot->col_ref[2 * i16 + l] = (e->blk_pred[m] & (1 << l))
-                            ? (int16_t)e->refl[l][e->blk_ref[2 * m + l]]->poc : 0;
+                        slot->col_ref[2 * i16 + l] = (fw->blk_pred[m] & (1 << l))
+                            ? (int16_t)fw->refl[l][fw->blk_ref[2 * m + l]]->poc : 0;
                 }
-            slot->col_ref_poc[0] = e->ref_valid ? e->refl[0][0]->poc : 0;
-            slot->col_ref_poc[1] = (e->slice_type == 0 && e->refl[1][0])
-                                       ? e->refl[1][0]->poc
+            slot->col_ref_poc[0] = fw->ref_valid ? fw->refl[0][0]->poc : 0;
+            slot->col_ref_poc[1] = (fw->slice_type == 0 && fw->refl[1][0])
+                                       ? fw->refl[1][0]->poc
                                        : slot->col_ref_poc[0];
         }
         /* P2: carry this picture's per-CTU depth range with it, so a
          * later frame can read the collocated range */
-        memcpy(slot->ctu_dmin, e->ctu_dmin, (size_t)e->ctb_cols * e->ctb_rows);
-        memcpy(slot->ctu_dmax, e->ctu_dmax, (size_t)e->ctb_cols * e->ctb_rows);
+        memcpy(slot->ctu_dmin, fw->ctu_dmin, (size_t)fw->ctb_cols * fw->ctb_rows);
+        memcpy(slot->ctu_dmax, fw->ctu_dmax, (size_t)fw->ctb_cols * fw->ctb_rows);
         slot->poc = poc;
         slot->valid = 1;
-        slot->is_anchor = e->slice_type != 0;   /* I/P; a reference B is not */
+        slot->is_anchor = fw->slice_type != 0;   /* I/P; a reference B is not */
         e->ref_valid = 1;
     }
-    dump_recon_frame(e);
+    fw->slot->in_use = 0;
+    fw->slot = NULL;
+    dump_recon_frame(e, fw);
     if (e->abr_on || e->rc.trace)
         n265_rc_done(e, e->rc_cls, e->rc_cplx, base,
                      (double)(*out_used - frame_out0) * 8.0);
@@ -773,7 +847,8 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
  * DPB pictures before cur, nearest first, up to ref_max; L1 = the future
  * picture then the past ones. A caller coding a B passes the past anchor
  * POC as `cur` so the L0 head is that anchor. */
-void n265_build_lists(n265_encoder *e, int poc, int is_b, struct n265_refpic *future)
+void n265_build_lists(n265_encoder *e, n265_frame_work *fw, int poc,
+                      int is_b, struct n265_refpic *future)
 {
     (void)future;
     /* every valid DPB picture, split at `poc`: past = poc < this, nearest
@@ -790,12 +865,12 @@ void n265_build_lists(n265_encoder *e, int poc, int is_b, struct n265_refpic *fu
         for (int k = i; k > 0 && past[k]->poc > past[k - 1]->poc; k--) { struct n265_refpic *t = past[k]; past[k] = past[k - 1]; past[k - 1] = t; }
     for (int i = 1; i < nf; i++)
         for (int k = i; k > 0 && fut[k]->poc < fut[k - 1]->poc; k--) { struct n265_refpic *t = fut[k]; fut[k] = fut[k - 1]; fut[k - 1] = t; }
-    e->nref[0] = e->nref[1] = 0;
-    for (int i = 0; i < np && e->nref[0] < e->ref_max; i++) e->refl[0][e->nref[0]++] = past[i];
-    if (is_b) for (int i = 0; i < nf && e->nref[0] < e->ref_max; i++) e->refl[0][e->nref[0]++] = fut[i];
+    fw->nref[0] = fw->nref[1] = 0;
+    for (int i = 0; i < np && fw->nref[0] < e->ref_max; i++) fw->refl[0][fw->nref[0]++] = past[i];
+    if (is_b) for (int i = 0; i < nf && fw->nref[0] < e->ref_max; i++) fw->refl[0][fw->nref[0]++] = fut[i];
     if (is_b) {
-        for (int i = 0; i < nf && e->nref[1] < e->ref_max; i++) e->refl[1][e->nref[1]++] = fut[i];
-        for (int i = 0; i < np && e->nref[1] < e->ref_max; i++) e->refl[1][e->nref[1]++] = past[i];
+        for (int i = 0; i < nf && fw->nref[1] < e->ref_max; i++) fw->refl[1][fw->nref[1]++] = fut[i];
+        for (int i = 0; i < np && fw->nref[1] < e->ref_max; i++) fw->refl[1][fw->nref[1]++] = past[i];
     }
 }
 
@@ -909,6 +984,40 @@ static void build_plan(n265_encoder *e)
     e->plan_pop = A + 1;
 }
 
+/* Claim the DPB slot this frame reconstructs into and point the
+ * frame_work's recon planes at it. Same rule the pre-T0a store applied
+ * after entropy: an invalid slot, else the first valid one that is not
+ * in this frame's reference lists. `in_use` keeps two frames in flight
+ * off the same slot (a no-op until T2). */
+static void claim_slot(n265_encoder *e, n265_frame_work *fw)
+{
+    struct n265_refpic *slot = NULL;
+    if (fw->nonref || fw->mode == N265_MODE_PCM)
+        slot = &e->scratch_pic[fw - e->fw];
+    for (int sl = 0; sl < N265_DPB_SLOTS && !slot; sl++)
+        if (!e->dpb[sl].valid && !e->dpb[sl].in_use) slot = &e->dpb[sl];
+    for (int sl = 0; sl < N265_DPB_SLOTS && !slot; sl++) {
+        if (e->dpb[sl].in_use) continue;
+        int in_list = 0;
+        for (int l = 0; l < 2; l++)
+            for (int k = 0; k < fw->nref[l]; k++)
+                if (fw->refl[l][k] == &e->dpb[sl]) in_list = 1;
+        if (!in_list && (!slot || e->dpb[sl].poc < slot->poc)) slot = &e->dpb[sl];
+    }
+    if (!slot) slot = &e->dpb[0];
+    slot->in_use = 1;
+    /* NOT cleared valid: when the pool is exhausted the picture being
+     * overwritten stays listed in this frame's RPS exactly as it did
+     * before the claim moved to dispatch (it is replaced at publish).
+     * That is a pre-existing DPB-pressure bug at --ref 3 --bframes 7,
+     * reproduced on purpose so T0a changes no bits. */
+    fw->slot = slot;
+    for (int i = 0; i < 3; i++) {
+        fw->recon[i] = slot->plane[i];
+        fw->recon_stride[i] = slot->stride[i];
+    }
+}
+
 /* Encode one frame from the plan (building it first if none is active).
  * Returns the number of source frames retired from the queue (0 until the
  * plan completes, then the whole mini-GOP). */
@@ -923,30 +1032,44 @@ static int drive_scheduler(n265_encoder *e, size_t *out_used, int *count)
     int li = e->plan_li[e->plan_pos];
     int kind = e->plan_kind[e->plan_pos];
     la_frame *f = &la->f[li];
-    const uint8_t *src[3] = { f->src[0], f->src[1], f->src[2] };
-    int st[3] = { e->pad_stride[0], e->pad_stride[1], e->pad_stride[2] };
     int poc = f->display_idx - e->gop_start_display;
+    n265_frame_work *fw = &e->fw[0];
 
-    memset(e->ctu_qp_off, 0, (size_t)e->ctb_cols * e->ctb_rows);
+    /* the queue slot IS the padded source (threading-design sec 4) */
+    for (int i = 0; i < 3; i++)
+        fw->pad_plane[i] = f->src[i];
+
+    memset(fw->ctu_qp_off, 0, (size_t)fw->ctb_cols * fw->ctb_rows);
     if (e->cutree)
-        n265_la_cutree(e, li);
+        n265_la_cutree(e, fw, li);
     /* reference lists from the DPB around this frame's POC (anchors have
      * only L0; B frames have both) */
-    n265_build_lists(e, kind == 2 ? poc : poc, kind == 0, NULL);
+    n265_build_lists(e, fw, poc, kind == 0, NULL);
     int slice_type = kind == 2 ? 2 : kind == 1 ? 1 : 0;
-    e->sc_ratio = f->sc_ratio;      /* lookahead pcost/icost, P3 reads it */
-    e->la_icost = f->icost;         /* the same field per CTU, R3 reads it */
-    e->la_pcost = f->pcost;
-    e->la_bw = la->bw;
-    e->la_bh = la->bh;
-    e->rc_cls = n265_rc_class(slice_type, e->plan_nonref[e->plan_pos]);
+    fw->slice_type = slice_type;
+    fw->poc = poc;
+    fw->nonref = e->plan_nonref[e->plan_pos];
+    fw->display_idx = f->display_idx;
+    fw->b_depth = e->plan_depth[e->plan_pos];
+    fw->ref_valid = e->ref_valid;
+    fw->sc_ratio = f->sc_ratio;     /* lookahead pcost/icost, P3 reads it */
+    fw->la_icost = f->icost;        /* the same field per CTU, R3 reads it */
+    fw->la_pcost = f->pcost;
+    fw->la_bw = la->bw;
+    fw->la_bh = la->bh;
+    /* Claim the DPB slot the picture reconstructs into, by the rule the
+     * store used to apply after entropy. Nothing between here and there
+     * changes the valid set, so the choice is the one the pre-T0a
+     * encoder made; the slot stays valid = 0 until publish, so neither
+     * this frame's RPS nor its lists can see it. */
+    claim_slot(e, fw);
+    e->rc_cls = n265_rc_class(slice_type, fw->nonref);
     e->rc_cplx = n265_rc_cplx(e, li, e->rc_cls);
     if (e->abr_on)
         e->rc_rf = n265_rc_next(e, e->rc_cls, e->rc_cplx);
     if (kind != 0)          /* the priced b-adapt prices against this plane */
         n265_la_set_anchor(e, li);
-    encode_frame(e, src, st, slice_type, poc, e->plan_nonref[e->plan_pos],
-                 f->display_idx, e->plan_depth[e->plan_pos], out_used, count);
+    encode_frame(e, fw, out_used, count);
     e->plan_pos++;
 
     if (e->plan_pos >= e->plan_len) {

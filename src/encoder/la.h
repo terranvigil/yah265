@@ -13,6 +13,7 @@
 #define LA_MAX_CTUS 8160    /* 4K at CTB 32 */
 
 struct n265_encoder;
+struct n265_frame_work;
 
 typedef struct la_frame {
     float sc_ratio;         /* pcost/icost at push time */
@@ -54,7 +55,8 @@ int n265_la_scenecut(struct n265_encoder *e, int i);
 
 /* run cu-tree over the queued window and fill e->ctu_qp_off for queued
  * frame index i */
-void n265_la_cutree(struct n265_encoder *e, int i);
+void n265_la_cutree(struct n265_encoder *e, struct n265_frame_work *fw,
+                    int i);
 
 /* drop the front frame */
 void n265_la_pop(struct n265_encoder *e);

@@ -23,15 +23,14 @@ typedef struct sao_params {
  * nor the application pass runs. */
 int n265_sao_enabled(void);
 
-/* Analyze the deblocked recon against the source and fill e->sao[]. */
-void n265_sao_analyze(struct n265_encoder *e);
+/* Decide and apply one CTB row's offsets (docs/threading-design.md
+ * sec 1). Analysis and application both see the picture pre-SAO: the
+ * one line SAO has already rewritten - the last line of the row above -
+ * comes from e->sao_line[]. */
+void n265_sao_row(struct n265_frame_work *e, int cy);
 
 /* Write one CTB's sao() syntax (7.3.8.3). */
-void n265_sao_write(struct n265_encoder *e, cabac_t *cb, int ctb_x,
+void n265_sao_write(struct n265_frame_work *e, cabac_t *cb, int ctb_x,
                     int ctb_y);
-
-/* Apply the chosen offsets: reads a pristine copy of the deblocked
- * planes, writes into e->recon. */
-void n265_sao_apply(struct n265_encoder *e);
 
 #endif

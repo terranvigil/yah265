@@ -37,13 +37,13 @@ typedef struct pu_geo {
  * w + h is 12 (8x4 / 4x8) has its bi candidates converted to L0
  * uni-prediction, per the last step of 8.5.3.2.1. Fills out[] and
  * returns the count (== max after zero fill). */
-int n265_merge_list_pu(struct n265_encoder *e, const pu_geo *g, mot_t out[],
+int n265_merge_list_pu(struct n265_frame_work *e, const pu_geo *g, mot_t out[],
                        int max);
-int n265_merge_list(struct n265_encoder *e, int x0, int y0, int nw, int nh,
+int n265_merge_list(struct n265_frame_work *e, int x0, int y0, int nw, int nh,
                     mot_t out[], int max);
 
 /* out[0] of the list above */
-mot_t n265_merge_cand0(struct n265_encoder *e, int x0, int y0, int nw,
+mot_t n265_merge_cand0(struct n265_frame_work *e, int x0, int y0, int nw,
                        int nh);
 
 /* AMVP candidate list for the given reference of the given list
@@ -51,25 +51,25 @@ mot_t n265_merge_cand0(struct n265_encoder *e, int x0, int y0, int nw,
  * vertical split, and B1 of the second PU of a horizontal split, are in
  * the same CB and available (6.4.2), so the first PU's motion must
  * already be in the maps. */
-void n265_amvp_pu(struct n265_encoder *e, int list, int ref,
+void n265_amvp_pu(struct n265_frame_work *e, int list, int ref,
                   const pu_geo *g, mv_t mvp[2]);
-void n265_amvp(struct n265_encoder *e, int list, int ref, int x0, int y0, int nw,
+void n265_amvp(struct n265_frame_work *e, int list, int ref, int x0, int y0, int nw,
                int nh, mv_t mvp[2]);
 
 /* Motion search on one reference list around the given start
  * (quarter-pel in/out). Returns the best cost. */
-uint32_t n265_me_search(struct n265_encoder *e, int list, int ridx, int x0, int y0,
+uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, int y0,
                         int w, int h, mv_t start, mv_t *best);
 
 /* SAD of luma MC prediction at mv on one list. */
-uint32_t n265_mc_sad(struct n265_encoder *e, int list, int ridx, int x0, int y0,
+uint32_t n265_mc_sad(struct n265_frame_work *e, int list, int ridx, int x0, int y0,
                      int w, int h, mv_t mv);
 
 /* Clamp a quarter-pel MV so the interpolation window of a w x h block at
  * (x0,y0) stays inside the padded reference. A caller that wants to
  * REJECT an out-of-range vector rather than move it compares before and
  * after. */
-void n265_clamp_mv(struct n265_encoder *e, int x0, int y0, int w, int h,
+void n265_clamp_mv(struct n265_frame_work *e, int x0, int y0, int w, int h,
                    mv_t *mv);
 
 #endif
