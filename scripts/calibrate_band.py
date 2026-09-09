@@ -25,6 +25,11 @@ FRAMES = 120
 TARGETS = [88.0, 90.0, 92.0, 94.0]
 
 CLIPS = [ln.split()[0] for ln in open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tests", "corpus", "CLASSES")) if ln.strip()]
+# CLIPS=a,b calibrates a subset and MERGES it into ladders.json / curves.json,
+# so adding a clip does not re-run (or perturb) the pinned ladders of the rest
+_sel = os.environ.get("CLIPS", "")
+if _sel:
+    CLIPS = _sel.split(",")
 
 CRFS = [16, 20, 24, 28, 32, 36, 40]
 
@@ -119,12 +124,17 @@ def main():
     for c, l in ladders.items():
         print(f"{c}: {','.join(str(x) for x in l)}")
     here = os.path.dirname(os.path.abspath(__file__))
-    json.dump(ladders, open(os.path.join(here, "ladders.json"), "w"), indent=1)
     # the reference curve itself, so run_band.py stops carrying a hand-pasted
     # copy that goes stale the moment the clip set changes
     curves = {c: [[k, v] for _, k, v in sorted(results.get(c, []), key=lambda x: x[1])]
               for c in CLIPS if results.get(c)}
-    json.dump(curves, open(os.path.join(here, "curves.json"), "w"), indent=1)
+    for fname, new in (("ladders.json", ladders), ("curves.json", curves)):
+        path = os.path.join(here, fname)
+        merged = {}
+        if _sel and os.path.exists(path):
+            merged = json.load(open(path))
+        merged.update(new)
+        json.dump(merged, open(path, "w"), indent=1)
 
 
 main()
