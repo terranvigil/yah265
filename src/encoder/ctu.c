@@ -452,6 +452,61 @@ static int cbf_fast(void)
     return v;
 }
 
+/* N265_INTRA_GATE (P3): the intra RD trial inside an inter slice is
+ * 10-14% of the encode and is bought at every CU whether or not the
+ * inter arms left anything for it to win. Each mode adds a disjunct to
+ * the gate on top of 1, the 2Nx2N winner being the skip: 2 the winning
+ * inter candidate's distortion already sitting at the quantiser floor,
+ * 3 the decoded neighbourhood being inter with no luma coefficients.
+ * 4 and 5 instead keep the 35-mode rank and gate only the RD trial,
+ * on the ranked intra prediction being worse than the merge prediction
+ * by 1.5x and by 1.0x in the SAD units both are measured in. 4 is the
+ * default; 0 is the pre-P3 encoder. */
+static int intra_gate(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_INTRA_GATE");
+        v = s ? atoi(s) : 4;    /* the prefilter, the one that priced (P3) */
+    }
+    return v;
+}
+
+/* modes 4 and 5: the prefilter's margin, in eighths of the merge
+ * candidate's SAD */
+static int intra_pf_q8(void)
+{
+    return intra_gate() >= 5 ? 8 : 12;
+}
+
+/* P3 mode 3: every decoded 4x4 along this CU's left and top edges is
+ * inter and carried no luma coefficients. Both edges are fully
+ * available at this point - the left column ends at A1 and the top row
+ * at B1, the same neighbours the AMVP derivation reads. */
+static int nb_inter_clean(struct n265_encoder *e, int x0, int y0, int n)
+{
+    int cells = n >> 2;
+    if (!x0 && !y0)
+        return 0;
+    if (x0 > 0) {
+        int cx = (x0 - 1) >> 2;
+        for (int i = 0; i < cells; i++) {
+            int m = ((y0 >> 2) + i) * e->map_stride + cx;
+            if (e->blk_intra[m] || e->blk_cbf_y[m])
+                return 0;
+        }
+    }
+    if (y0 > 0) {
+        int cy = (y0 - 1) >> 2;
+        for (int i = 0; i < cells; i++) {
+            int m = cy * e->map_stride + ((x0 >> 2) + i);
+            if (e->blk_intra[m] || e->blk_cbf_y[m])
+                return 0;
+        }
+    }
+    return 1;
+}
+
 /* N265_DEPTH_BOUND (P2): bound the depth range the quadtree searches to
  * the range the decoded neighbours and the collocated CTU already used.
  * 0 off; 1 widens that range by one each way; 3 takes it as it stands.
@@ -1983,6 +2038,7 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                                { { 0, 0 }, { 0, 0 } } };
             mv_t me_mv[2] = { { 0, 0 }, { 0, 0 } };
             uint64_t j_amvp = UINT64_MAX;
+            uint64_t d_amvp = UINT64_MAX;
             int a_any = 0;
             int mvp_idx[2] = { 0, 0 };
             mot_t amot = { { { 0, 0 }, { 0, 0 } }, 1 };
@@ -2075,6 +2131,7 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                 uint64_t d = tb_ssd(e, 0, x0, y0, log2n, &a_tl) +
                     tb_ssd(e, 1, x0 / 2, y0 / 2, log2n - 1, &a_tcb) +
                     tb_ssd(e, 2, x0 / 2, y0 / 2, log2n - 1, &a_tcr);
+                d_amvp = d;
                 /* the vector actually coded, not the per-list ME winner:
                  * the two are the same only until a bi refinement moves
                  * one of them, and a predictor picked for the other
@@ -2106,11 +2163,56 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                     gate_intra = gate_part = 1;
             }
 
+            /* P3: what the inter arms already proved decides whether
+             * the intra arm is worth its 35-mode rank and its
+             * three-component RD trial. Never gated where the lookahead
+             * calls the frame intra-heavy - sc_ratio at or above 0.6,
+             * just under the 0.75 scenecut bar - because that is the
+             * content whose intra CUs are the coding. */
+            if (intra_gate() && !gate_intra && e->sc_ratio < 0.6f) {
+                uint64_t j_inter = j_skip, d_inter = d_skip;
+                if (j_merge < j_inter) { j_inter = j_merge; d_inter = d_merge; }
+                if (j_amvp < j_inter) { j_inter = j_amvp; d_inter = d_amvp; }
+                int g = 0;
+                /* the 2Nx2N winner is the skip: the neighbours' motion
+                 * explains the block with no residual at all, and an
+                 * intra CU there codes a prediction mode and a residual
+                 * to say the same thing */
+                if (j_inter == j_skip)
+                    g = 1;
+                /* the winning inter candidate's distortion is already at
+                 * the quantiser floor (per-pixel MSE within qstep^2), so
+                 * intra has no distortion left to buy and can only spend
+                 * bits */
+                if ((intra_gate() == 2 || intra_gate() == 3) && !g &&
+                    d_inter <= 4 * skip_clean_thr(e->cur_ctu_qp, n))
+                    g = 1;
+                /* and the neighbourhood agrees: no intra structure is
+                 * arriving from either decoded edge */
+                if (intra_gate() == 3 && !g && nb_inter_clean(e, x0, y0, n))
+                    g = 1;
+                gate_intra = g;
+            }
+
             /* intra candidate (2Nx2N, SAD-ranked best mode) */
             uint64_t j_intra = UINT64_MAX;
             int imode = 1;
+            uint32_t isad = UINT32_MAX;
             if (!gate_intra) {
-            imode = search_luma_mode(e, x0, y0, log2n, e->recon[0], NULL);
+            imode = search_luma_mode(e, x0, y0, log2n, e->recon[0],
+                                     intra_gate() >= 4 ? &isad : NULL);
+            /* P3 modes 4 and 5: the 35-mode rank is the cheap half of
+             * the intra arm (3.8% of the encode against the RD trial's
+             * 10-14%) and it reports its winner's prediction SAD in the
+             * same units the merge candidate was ranked in. Where the
+             * best intra prediction is worse than the merge one by this
+             * margin, the RD trial is bought to lose. */
+            if (intra_gate() >= 4 && e->sc_ratio < 0.6f &&
+                (uint64_t)isad * 8u >
+                    (uint64_t)cand_plain_sad * (unsigned)intra_pf_q8())
+                gate_intra = 1;
+            }
+            if (!gate_intra) {
             tb_analyze(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c, imode,
                        mot_zero, &i_tcb);
             tb_analyze(e, 2, x0 / 2, y0 / 2, log2n - 1, qp_c, imode,

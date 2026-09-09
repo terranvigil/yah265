@@ -827,6 +827,7 @@ static int drive_scheduler(n265_encoder *e, size_t *out_used, int *count)
      * only L0; B frames have both) */
     n265_build_lists(e, kind == 2 ? poc : poc, kind == 0, NULL);
     int slice_type = kind == 2 ? 2 : kind == 1 ? 1 : 0;
+    e->sc_ratio = f->sc_ratio;      /* lookahead pcost/icost, P3 reads it */
     encode_frame(e, src, st, slice_type, poc, e->plan_nonref[e->plan_pos],
                  f->display_idx, e->plan_depth[e->plan_pos], out_used, count);
     e->plan_pos++;

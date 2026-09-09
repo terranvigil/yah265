@@ -118,6 +118,7 @@ struct n265_encoder {
      * CTU of the nearest reference. */
     uint8_t *ctu_dmin, *ctu_dmax;
     int db_lo, db_hi;
+    float sc_ratio;         /* this frame's lookahead pcost/icost (P3) */
 
     uint8_t *ct_depth;      /* 4x4-granularity coding-tree depth map */
     uint8_t *intra_mode;    /* 4x4-granularity luma intra mode map   */
