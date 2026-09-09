@@ -154,6 +154,9 @@ static void replay_residual(struct n265_encoder *e, const res_ops *ops,
     int n = 1 << log2n;
     const int16_t *lv = rd_levels(e, n * n);
     int scan = mode == MODE_INTER ? 0 : n265_scan_idx(mode, log2n, c_idx);
+    if (e->cu_stats && e->in_entropy && c_idx == 0)
+        for (int i = 0; i < n * n; i++)
+            e->cs_coef += lv[i] != 0;
     n265_residual_coding(ops, lv, log2n, c_idx, scan);
 }
 
@@ -212,6 +215,10 @@ static void replay_tt(struct n265_encoder *e, const res_ops *ops, int mode,
 
     /* leaf */
     int cbf_l = (int)rd_u8(e);
+    if (e->cu_stats && e->in_entropy && log2ts >= 2 && log2ts <= 5) {
+        e->cs_tu[log2ts - 2]++;
+        e->cs_tu_cbf[log2ts - 2] += cbf_l != 0;
+    }
     if (mode == MODE_INTER && depth == 0 && !cbf_cb && !cbf_cr)
         ;   /* cbf_luma inferred 1 */
     else
@@ -323,6 +330,8 @@ static void replay_cu(struct n265_encoder *e, const res_ops *ops, int x0,
         ops->bin(ops->h, CTX_CU_SKIP + inc, is_skip);
         if (is_skip) {
             write_merge_idx(ops, (int)rd_u8(e));
+            if (e->cu_stats && e->in_entropy)
+                e->cs_area[N265_CS_SKIP] += (uint64_t)1 << (2 * log2n);
             return;
         }
         ops->bin(ops->h, CTX_PRED_MODE, is_intra);
@@ -342,6 +351,14 @@ static void replay_cu(struct n265_encoder *e, const res_ops *ops, int x0,
              * 2Nx2N CU (7.3.8.5) */
             if (!(part == PART_2Nx2N && merge0))
                 ops->bin(ops->h, CTX_RQT_ROOT_CBF, root_cbf);
+            if (e->cu_stats && e->in_entropy) {
+                uint64_t a = (uint64_t)1 << (2 * log2n);
+                e->cs_area[PART_IS_AMP(part) ? N265_CS_AMP
+                           : part != PART_2Nx2N ? N265_CS_RECT
+                           : merge0 ? N265_CS_MERGE : N265_CS_AMVP] += a;
+                if (!root_cbf)
+                    e->cs_area[N265_CS_ZEROCBF] += a;
+            }
             if (!root_cbf)
                 return;
             replay_tt(e, ops, MODE_INTER, x0, y0, log2n, 0, 1, 1);
@@ -355,6 +372,9 @@ static void replay_cu(struct n265_encoder *e, const res_ops *ops, int x0,
         nxn = (int)rd_u8(e);
         ops->bin(ops->h, CTX_PART_MODE, !nxn);
     }
+    if (e->cu_stats && e->in_entropy)
+        e->cs_area[nxn ? N265_CS_INTRA_NXN : N265_CS_INTRA] +=
+            (uint64_t)1 << (2 * log2n);
 
     if (!nxn) {
         int mode = map_at(e, e->intra_mode, x0, y0);

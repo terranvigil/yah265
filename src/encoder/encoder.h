@@ -45,6 +45,19 @@ enum {
 #define N265_DPB_SLOTS 6
 #define N265_MAX_REF 3
 
+/* N265_CU_STATS buckets: coded luma area by the CU kind actually written */
+enum {
+    N265_CS_SKIP = 0,       /* cu_skip_flag                          */
+    N265_CS_MERGE,          /* merged 2Nx2N with residual            */
+    N265_CS_AMVP,           /* 2Nx2N with explicit motion            */
+    N265_CS_RECT,           /* 2NxN / Nx2N                           */
+    N265_CS_AMP,            /* the four asymmetric partitions        */
+    N265_CS_INTRA,          /* intra 2Nx2N                           */
+    N265_CS_INTRA_NXN,      /* intra NxN at the min CB               */
+    N265_CS_ZEROCBF,        /* of the above, inter CUs with no residual */
+    N265_CS_COUNT
+};
+
 struct n265_encoder {
     n265_param param;
     int mode;
@@ -174,6 +187,14 @@ struct n265_encoder {
 
     FILE *dump_decode;      /* decode-order recon tap (dec265 leg)   */
     FILE *dump_recon;       /* optional recon tap for the gate       */
+
+    /* N265_CU_STATS: per-frame coded-area shares by CU kind and TU leaf
+     * size, accumulated in the entropy pass (everything there is final).
+     * Output-neutral; off unless the variable is set. */
+    int cu_stats;
+    uint64_t cs_area[N265_CS_COUNT];
+    uint64_t cs_tu[4], cs_tu_cbf[4];
+    uint64_t cs_coef;       /* nonzero luma levels coded              */
 };
 
 /* headers.c */

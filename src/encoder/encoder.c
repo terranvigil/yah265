@@ -134,6 +134,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->keyint = e->mode == N265_MODE_PCM ? 1 : g_keyint;
     e->bframes = e->mode == N265_MODE_PCM ? 0 : g_bframes;
     e->no_sao = getenv("N265_NO_SAO") != NULL;      /* diagnostic */
+    e->cu_stats = getenv("N265_CU_STATS") != NULL;  /* diagnostic */
     /* RDOQ on by default (2026-09-06: -5.9% median BD-VMAF-NEG at matched
      * rate, 7/7 clips, worst -5.5%); N265_RDOQ=0 is the escape. */
     { const char *v = getenv("N265_RDOQ"); e->rdoq = v ? atoi(v) : 1; }
@@ -542,6 +543,23 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
              * clips are byte-identical under it and the worst moves 0.43. */
             double aqc = 3.0;
             { const char *v = getenv("N265_AQ_CLAMP"); if (v) aqc = atof(v); }
+            if (getenv("N265_AQ_TRACE")) {
+                /* the field the per-CTU term is built from: how far the
+                 * frame's log2-variance spread reaches, and how much of
+                 * it the clamp is already eating */
+                double mn = 1e9, mx = -1e9, sd = 0, lo = 0, hi = 0;
+                for (int i = 0; i < nctu; i++) {
+                    if (lv[i] < mn) mn = lv[i];
+                    if (lv[i] > mx) mx = lv[i];
+                    sd += (lv[i] - avg) * (lv[i] - avg);
+                    double o = e->aq_str * (lv[i] - avg);
+                    lo += o < -aqc;
+                    hi += o > aqc;
+                }
+                fprintf(stderr, "AQT,%d,%d,%d,%.3f,%.3f,%.3f,%.3f,%.4f,%.4f\n",
+                        display_idx, slice_type, nctu, avg, mn, mx,
+                        sqrt(sd / nctu), lo / nctu, hi / nctu);
+            }
             for (int i = 0; i < nctu; i++) {
                 double off = e->aq_str * (lv[i] - avg);
                 if (off > aqc) off = aqc;
@@ -628,6 +646,39 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
                                   : (nonref ? 0 /* TRAIL_N */
                                             : 1 /* TRAIL_R */),
             out_used, count);
+
+    if (e->cu_stats) {
+        /* one CSV row per frame: what the entropy pass actually wrote.
+         * Shares are of the coded luma area, so they sum to 1. */
+        double a = 0;
+        for (int i = 0; i < N265_CS_ZEROCBF; i++) a += (double)e->cs_area[i];
+        if (a != (double)e->pad_w * e->pad_h)
+            fprintf(stderr, "CUS-BUG frame %d: area %.0f != %d\n",
+                    display_idx, a, e->pad_w * e->pad_h);
+        if (a <= 0) a = 1;
+        double tu = 0;
+        for (int i = 0; i < 4; i++) tu += (double)e->cs_tu[i];
+        if (tu <= 0) tu = 1;
+        fprintf(stderr,
+                "CUS,%d,%d,%d,%d,%zu,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,"
+                "%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%llu\n",
+                display_idx, slice_type, b_depth, e->qp,
+                *out_used - frame_out0,
+                e->cs_area[N265_CS_SKIP] / a, e->cs_area[N265_CS_MERGE] / a,
+                e->cs_area[N265_CS_AMVP] / a, e->cs_area[N265_CS_RECT] / a,
+                e->cs_area[N265_CS_AMP] / a, e->cs_area[N265_CS_INTRA] / a,
+                e->cs_area[N265_CS_INTRA_NXN] / a,
+                e->cs_area[N265_CS_ZEROCBF] / a,
+                e->cs_tu[0] / tu, e->cs_tu[1] / tu, e->cs_tu[2] / tu,
+                e->cs_tu[3] / tu,
+                (double)(e->cs_tu_cbf[0] + e->cs_tu_cbf[1] +
+                         e->cs_tu_cbf[2] + e->cs_tu_cbf[3]) / tu,
+                (unsigned long long)e->cs_coef);
+        memset(e->cs_area, 0, sizeof e->cs_area);
+        memset(e->cs_tu, 0, sizeof e->cs_tu);
+        memset(e->cs_tu_cbf, 0, sizeof e->cs_tu_cbf);
+        e->cs_coef = 0;
+    }
 
     if (e->mode != N265_MODE_PCM && !nonref) {
         /* store the filtered picture into the DPB slot not holding the
