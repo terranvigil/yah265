@@ -582,8 +582,54 @@ void n265_la_cutree(struct n265_encoder *e, int i)
             mean += v;
         }
     mean /= nctu;
-    if (e->crf_on)
-        mean = 0;           /* CRF: un-centred, the shift in the base nets the mean */
+    /* CRF leaves the field un-centred so the cross-frame differential
+     * survives, and a fixed shift in the base nets "the" mean. There is no
+     * one mean: a NON-REFERENCED frame receives no propagation at all, so
+     * its field is identically zero, where a referenced frame's mean is
+     * strongly negative and content-keyed. The difference lands on top of
+     * the pyramid QP cascade as a second, uncalibrated cascade.
+     * N265_CT_CENTRE 1 centres every frame's field on its own mean under
+     * CRF as well (the CQP form), leaving the cascade the only frame-type
+     * term; that removes the step and the cross-frame differential with it.
+     * 2 removes only the step: it nets each PROPAGATED-INTO frame against
+     * the mean over the frames in the lookahead window that receive
+     * propagation at all, so what survives is the frame's deviation from
+     * the window's own level, and a frame with no propagation keeps its
+     * zero. 0 is the pre-2026-09-08 behaviour. */
+    if (e->crf_on) {
+        static int centre = -1;
+        if (centre < 0) {
+            const char *v = getenv("N265_CT_CENTRE");
+            centre = v ? atoi(v) : 0;
+        }
+        if (!centre) {
+            mean = 0;       /* un-centred: the shift in the base nets the mean */
+        } else if (centre >= 2) {
+            if (mean == 0.0f) {
+                /* no propagation into this frame: it IS the operating point */
+            } else {
+                double sum = 0;
+                int n = 0;
+                for (int k = 0; k < la->count; k++) {
+                    const la_frame *g = &la->f[k];
+                    double acc = 0;
+                    int cnt = 0;
+                    for (int b = 0; b < nb; b++) {
+                        if (g->prop[b] == 0.0f)
+                            continue;
+                        float ic = g->icost[b];
+                        acc += log2f((ic + g->prop[b]) / ic);
+                        cnt++;
+                    }
+                    if (!cnt)
+                        continue;   /* leaf frame: not part of the level */
+                    sum += -(double)e->cutree_str * acc / nb;
+                    n++;
+                }
+                mean = n ? (float)(sum / n) : mean;
+            }
+        }
+    }
     for (int k = 0; k < nctu; k++) {
         float v = raw[k] - mean;
         e->ctu_qp_raw[k] = v;
@@ -592,13 +638,15 @@ void n265_la_cutree(struct n265_encoder *e, int i)
     }
     if (getenv("N265_CT_TRACE")) {
         int nz = 0, mn = 0;
+        double fm = 0;
         for (int k = 0; k < e->ctb_cols * e->ctb_rows; k++) {
             nz += e->ctu_qp_off[k] != 0;
+            fm += e->ctu_qp_raw[k];
             if (e->ctu_qp_off[k] < mn)
                 mn = e->ctu_qp_off[k];
         }
-        fprintf(stderr, "[ct d%d cnt%d nz%d min%d]", f->display_idx,
-                la->count, nz, mn);
+        fprintf(stderr, "[ct d%d cnt%d nz%d min%d raw%.2f fieldmean%.2f]",
+                f->display_idx, la->count, nz, mn, mean, fm / nctu);
     }
 }
 
