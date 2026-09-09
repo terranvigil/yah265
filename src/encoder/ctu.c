@@ -1182,6 +1182,26 @@ static int bi_refine_iters(void)
     return it;
 }
 
+/* N265_MERGE_RD_N (R5): how many of the merge list's five candidates get
+ * a prediction and a cost in the prefilter that picks one for the RD
+ * trial. The SIGNALLED list is untouched - MaxNumMergeCand stays 5 and
+ * the merge_idx binarization with it - this is only how many are given
+ * an MC and a SATD (or a SAD at the CU level) first. The list is derivation-ordered, so the ones dropped are the
+ * temporal and combined candidates, not the spatial neighbours. */
+static int merge_rd_n(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_MERGE_RD_N");
+        v = s ? atoi(s) : MAX_MERGE;
+        if (v < 1)
+            v = 1;
+        if (v > MAX_MERGE)
+            v = MAX_MERGE;
+    }
+    return v;
+}
+
 /* N265_BI_GATE (R2): the refinement walks the L0/L1 pair downhill from a
  * starting point it does not choose - the two independent per-list
  * winners - and costs about eighteen SATDs against the one the plain
@@ -1783,7 +1803,7 @@ static uint32_t search_pu(struct n265_encoder *e, const pu_geo *g,
     n265_merge_list_pu(e, g, mlist, MAX_MERGE);
     int best_m = 0;
     uint32_t best_mc = UINT32_MAX;
-    for (int i = 0; i < MAX_MERGE; i++) {
+    for (int i = 0; i < merge_rd_n(); i++) {
         uint32_t c = mot_satd_wh(e, g->x, g->y, w, h, mlist[i]) +
                      (uint32_t)(((i + 1) * lam4) >> 4);
         if (c < best_mc) {
@@ -2122,7 +2142,7 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
         n265_merge_list(e, x0, y0, n, n, mlist, MAX_MERGE);
         int midx = 0;
         uint32_t cand_plain_sad = mot_sad(e, x0, y0, log2n, mlist[0]);
-        for (int i = 1; i < MAX_MERGE; i++) {
+        for (int i = 1; i < merge_rd_n(); i++) {
             uint32_t sd = mot_sad(e, x0, y0, log2n, mlist[i]);
             if (sd < cand_plain_sad) {
                 cand_plain_sad = sd;
@@ -2853,7 +2873,7 @@ static uint64_t quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
             n265_merge_list(e, x0, y0, n, n, mlist, MAX_MERGE);
             int midx = 0;
             uint32_t sd0 = mot_sad(e, x0, y0, log2n, mlist[0]);
-            for (int i = 1; i < MAX_MERGE; i++) {
+            for (int i = 1; i < merge_rd_n(); i++) {
                 uint32_t sd = mot_sad(e, x0, y0, log2n, mlist[i]);
                 if (sd < sd0) { sd0 = sd; midx = i; }
             }
@@ -2940,7 +2960,7 @@ static uint64_t quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
         n265_merge_list(e, x0, y0, n, n, mlist, MAX_MERGE);
         int midx = 0;
         uint32_t sd0 = mot_sad(e, x0, y0, log2n, mlist[0]);
-        for (int i = 1; i < MAX_MERGE; i++) {
+        for (int i = 1; i < merge_rd_n(); i++) {
             uint32_t sd = mot_sad(e, x0, y0, log2n, mlist[i]);
             if (sd < sd0) {
                 sd0 = sd;
