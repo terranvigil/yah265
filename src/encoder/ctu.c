@@ -278,10 +278,12 @@ static int tb_full(struct n265_encoder *e, int c_idx, int x0, int y0,
 #define INTRA_RD_MAX 8
 
 /* pick the luma mode by SAD over prediction from the given ref plane;
- * optionally reports the nk best-ranked modes for RD refinement */
-static int search_luma_mode_k(struct n265_encoder *e, int x0, int y0,
-                              int log2n, const uint8_t *ref_plane,
-                              uint32_t *cost_out, int topk[], int nk)
+ * optionally reports the nk best-ranked modes for RD refinement, and
+ * optionally ranks only the `nsub` modes in `sub` instead of all 35 */
+static int search_luma_mode_sub(struct n265_encoder *e, int x0, int y0,
+                                int log2n, const uint8_t *ref_plane,
+                                uint32_t *cost_out, int topk[], int nk,
+                                const int *sub, int nsub)
 {
     int n = 1 << log2n;
     const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
@@ -298,7 +300,8 @@ static int search_luma_mode_k(struct n265_encoder *e, int x0, int y0,
     int mk[INTRA_RD_MAX];
     int nkc = nk < 1 ? 1 : nk > INTRA_RD_MAX ? INTRA_RD_MAX : nk;
     for (int i = 0; i < nkc; i++) { ck[i] = UINT32_MAX; mk[i] = i < 2 ? i : 26; }
-    for (int mode = 0; mode < 35; mode++) {
+    for (int mi = 0; mi < (sub ? nsub : 35); mi++) {
+        int mode = sub ? sub[mi] : mi;
         const uint8_t *r = n265_use_filtered_refs(mode, log2n, 0) ? refs_f
                                                                   : refs;
         n265_intra_pred(pred, n, r, log2n, mode, 0);
@@ -347,11 +350,20 @@ static int search_luma_mode_k(struct n265_encoder *e, int x0, int y0,
     return best_mode;
 }
 
+static int search_luma_mode_k(struct n265_encoder *e, int x0, int y0,
+                              int log2n, const uint8_t *ref_plane,
+                              uint32_t *cost_out, int topk[], int nk)
+{
+    return search_luma_mode_sub(e, x0, y0, log2n, ref_plane, cost_out,
+                                topk, nk, NULL, 0);
+}
+
 static int search_luma_mode(struct n265_encoder *e, int x0, int y0,
                             int log2n, const uint8_t *ref_plane,
                             uint32_t *cost_out)
 {
-    return search_luma_mode_k(e, x0, y0, log2n, ref_plane, cost_out, NULL, 0);
+    return search_luma_mode_sub(e, x0, y0, log2n, ref_plane, cost_out,
+                                NULL, 0, NULL, 0);
 }
 
 /* SAD-domain lambda: sqrt(0.68 * 2^((qp-12)/3)), Q4 fixed point */
@@ -1651,12 +1663,60 @@ static int intra_rd_mpm(void)
     return v;
 }
 
+/* N265_I_INTRA (phase 4, rung R11): the intra economy inside I slices
+ * only, where there is no inter arm to gate against and every CU pays
+ * the full search. 1 and 2 narrow the RD shortlist to two modes and to
+ * one; 3 - the default - ranks the four 4x4 NxN luma blocks over the
+ * 8x8 parent's own neighbourhood instead of all 35 modes; 4 is 2 and 3
+ * together. 0 is the pre-R11 encoder, byte for byte. */
+static int i_intra(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_I_INTRA");
+        v = s ? atoi(s) : 3;
+    }
+    return v;
+}
+
+/* the modes a 4x4 RMD looks at when N265_I_INTRA >= 3: the parent 8x8's
+ * own winner and its two angular neighbours, planar and DC, and the two
+ * most probable modes, which cost two bins where a remainder costs six */
+static int intra_sub_cands(struct n265_encoder *e, int x0, int y0,
+                           int parent, int out[8])
+{
+    int n = 0;
+    out[n++] = 0;
+    out[n++] = 1;
+    if (parent >= 2) {
+        out[n++] = parent;
+        out[n++] = 2 + ((parent - 2 + 31) % 32);
+        out[n++] = 2 + ((parent - 2 + 1) % 32);
+    }
+    int mpm[3];
+    mpm_cands(e, x0, y0, mpm);
+    for (int i = 0; i < 3 && n < 8; i++) {
+        int dup = 0;
+        for (int q = 0; q < n; q++)
+            if (out[q] == mpm[i])
+                dup = 1;
+        if (!dup)
+            out[n++] = mpm[i];
+    }
+    return n;
+}
+
 /* RD-refine the intra luma mode over the SATD-ranked shortlist: only
  * mode-dependent bits (MPM, cbfs, residuals) enter the compare */
 static int intra_rd_pick(struct n265_encoder *e, int x0, int y0, int log2n)
 {
     int cands[INTRA_RD_MAX + 3];
-    int nk = intra_rd_n(), ncand = nk;
+    int nk = intra_rd_n();
+    if (e->slice_type == 2 && (i_intra() == 1 || i_intra() == 2))
+        nk = 3 - i_intra();     /* 1 -> two modes, 2 -> the rank's winner */
+    if (e->slice_type == 2 && i_intra() == 4)
+        nk = 1;
+    int ncand = nk;
     search_luma_mode_k(e, x0, y0, log2n, e->recon[0], NULL, cands, nk);
     if (intra_rd_mpm()) {
         /* an MPM costs two bits where a remainder costs six, so a mode the
@@ -2657,11 +2717,20 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
         modes[0] = search_luma_mode(e, x0, y0, log2n, e->recon[0], &cost2n);
         uint32_t costn = 0;
         int nmodes[4];
+        /* I slices, N265_I_INTRA >= 3: the four 4x4 ranks run over the
+         * 8x8 parent's own neighbourhood rather than all 35 modes. The
+         * parent was just ranked at the same position off the same
+         * reference samples, so its winner is the direction this block
+         * is in; what a 4x4 adds is a step either side of it. */
+        int sub[8], nsub = 0;
+        if (e->slice_type == 2 && i_intra() >= 3)
+            nsub = intra_sub_cands(e, x0, y0, modes[0], sub);
         for (int i = 0; i < 4; i++) {
             uint32_t c;
-            nmodes[i] = search_luma_mode(e, x0 + (i & 1) * 4,
-                                         y0 + (i >> 1) * 4, log2n - 1,
-                                         e->pad_plane[0], &c);
+            nmodes[i] = search_luma_mode_sub(e, x0 + (i & 1) * 4,
+                                             y0 + (i >> 1) * 4, log2n - 1,
+                                             e->pad_plane[0], &c, NULL, 0,
+                                             nsub ? sub : NULL, nsub);
             costn += c;
         }
         if (costn < cost2n) {
