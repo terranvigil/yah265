@@ -452,6 +452,68 @@ static int cbf_fast(void)
     return v;
 }
 
+/* N265_DEPTH_BOUND (P2): bound the depth range the quadtree searches to
+ * the range the decoded neighbours and the collocated CTU already used.
+ * 0 off; 1 widens that range by one each way; 3 takes it as it stands.
+ * 2 and 4 are 1 and 3 plus the whole-CTU prediction-only skip trial at
+ * depth 0 even where the bound forbids the CTB depth. 5 and 6 keep only
+ * the upper half of the bound and read it locally, off the 4x4 cells
+ * immediately left of and above the node rather than off whole
+ * neighbouring CTUs: 5 stops one level below the deepest of them, 6 at
+ * their depth. */
+static int depth_bound(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_DEPTH_BOUND");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
+/* how far the bound is widened each way, per mode */
+static int depth_bound_widen(void)
+{
+    return depth_bound() >= 3 ? 0 : 1;
+}
+
+/* modes 5 and 6: the CTU-range bound is replaced by a local one */
+static int depth_bound_local(void)
+{
+    return depth_bound() >= 5;
+}
+
+/* The deepest the decoded 4x4 cells immediately left of and above this
+ * node went. Both edges are available in decode order - the same
+ * neighbours split_inc and the AMVP derivation read - and the split
+ * trial restores the map, so this reads the committed tree only. With
+ * no decoded neighbour at all it does not bound. */
+static int nb_depth_max(struct n265_encoder *e, int x0, int y0, int n)
+{
+    int cells = n >> 2, hi = -1;
+    if (x0 > 0) {
+        int cx = (x0 - 1) >> 2;
+        for (int i = 0; i < cells; i++) {
+            int d = e->ct_depth[((y0 >> 2) + i) * e->map_stride + cx];
+            if (d > hi) hi = d;
+        }
+    }
+    if (y0 > 0) {
+        int cy = (y0 - 1) >> 2;
+        for (int i = 0; i < cells; i++) {
+            int d = e->ct_depth[cy * e->map_stride + ((x0 >> 2) + i)];
+            if (d > hi) hi = d;
+        }
+    }
+    return hi;
+}
+
+/* whether the CTB skip trial survives a bound that forbids depth 0 */
+static int depth_bound_ctb_skip(void)
+{
+    return depth_bound() == 2 || depth_bound() == 4;
+}
+
 /* strict static-region check at the merge candidate: used by the split
  * gate; the CU decision proper re-derives */
 static int want_skip(struct n265_encoder *e, int x0, int y0, int log2n)
@@ -2419,6 +2481,56 @@ static uint64_t quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
         return j;
     }
 
+    /* P2: this node is above the depth range the neighbourhood used, so
+     * the no-split arm (and, at the CTB, its CB64 arms) never wins.
+     * Recurse straight away. Modes 2 and 4 keep one arm here: the
+     * whole-CTU prediction-only skip, which is cheap and is the one
+     * thing a neighbourhood bound gets wrong when a moving picture
+     * goes still. */
+    if (depth_bound() && depth < e->db_lo) {
+        static qt_snap fpre, fwon;      /* only depth 0 uses these */
+        uint64_t j_cu2 = UINT64_MAX;
+        size_t rec_base2 = e->rec_len;
+        if (depth_bound_ctb_skip() && log2n == e->ctb_log2 &&
+            e->slice_type != 2 && e->ref_valid) {
+            qt_save(e, &fpre, x0, y0, n);
+            uint32_t b0 = n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + split_inc],
+                                       0);
+            mot_t mlist[MAX_MERGE];
+            n265_merge_list(e, x0, y0, n, n, mlist, MAX_MERGE);
+            int midx = 0;
+            uint32_t sd0 = mot_sad(e, x0, y0, log2n, mlist[0]);
+            for (int i = 1; i < MAX_MERGE; i++) {
+                uint32_t sd = mot_sad(e, x0, y0, log2n, mlist[i]);
+                if (sd < sd0) { sd0 = sd; midx = i; }
+            }
+            size_t pos0 = e->rec_len;
+            mark_cu_edges(e, x0, y0, n);
+            skip_cu(e, x0, y0, log2n, mlist[midx], midx);
+            e->rec_pos = pos0;
+            est_state adv = { e->est_ctx, 0 };
+            n265_est_advance_cu(e, &adv, x0, y0, log2n);
+            set_blk(e, e->blk_qp, x0, y0, n,
+                    e->ent_qp_coded ? e->cur_ctu_qp : e->ent_qp_prev);
+            set_blk(e, e->ct_depth, x0, y0, n, depth);
+            j_cu2 = rd_j(cu_area_ssd(e, x0, y0, n), adv.bits + b0, lam);
+            qt_save(e, &fwon, x0, y0, n);
+            qt_save_records(e, &fwon, rec_base2);
+            qt_restore(e, &fpre, x0, y0, n);
+        }
+        uint32_t b1 = n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + split_inc], 1);
+        uint64_t js = (uint64_t)b1 * lam >> 16;
+        int hh = n >> 1;
+        for (int i = 0; i < 4; i++)
+            js += quadtree(e, x0 + (i & 1) * hh, y0 + (i >> 1) * hh,
+                           log2n - 1, depth + 1);
+        if (j_cu2 <= js) {
+            qt_restore(e, &fwon, x0, y0, n);
+            return j_cu2;
+        }
+        return js;
+    }
+
     static int no_split = -1;
     if (no_split < 0)
         no_split = getenv("N265_NO_SPLIT") != NULL;
@@ -2563,6 +2675,18 @@ static uint64_t quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
                 qt_restore(e, ss, x0, y0, n);
         }
     }
+
+    /* P2: the neighbourhood never went below this depth, so the split
+     * arm is not worth its four candidate sets. The no-split arm has
+     * run and its state stands; its J already carries the split flag. */
+    if (depth_bound() && !depth_bound_local() && depth >= e->db_hi)
+        return j_cu;
+    if (depth_bound_local()) {
+        int hi = nb_depth_max(e, x0, y0, n);
+        if (hi >= 0 && depth >= hi + (depth_bound() == 5))
+            return j_cu;
+    }
+
     qt_save(e, sw, x0, y0, n);
     qt_save_records(e, sw, rec_base);
 
@@ -2582,6 +2706,55 @@ static uint64_t quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
     return j_split;
 }
 
+/* P2: the depth range this CTU's quadtree may search, from the decoded
+ * spatial neighbours (left, above, above-left, above-right) and, in an
+ * inter slice, the collocated CTU of the nearest reference, widened by
+ * one each way. With nothing decided yet the range is the whole tree. */
+static void depth_bounds(struct n265_encoder *e, int ctb_x, int ctb_y)
+{
+    int maxd = e->ctb_log2 - MIN_CB_LOG2;
+    e->db_lo = 0;
+    e->db_hi = maxd;
+    if (!depth_bound() || depth_bound_local())
+        return;
+    static const int dx[4] = { -1, 0, -1, 1 };
+    static const int dy[4] = { 0, -1, -1, -1 };
+    int lo = maxd, hi = 0, have = 0;
+    for (int i = 0; i < 4; i++) {
+        int nx = ctb_x + dx[i], ny = ctb_y + dy[i];
+        if (nx < 0 || ny < 0 || nx >= e->ctb_cols || ny >= e->ctb_rows)
+            continue;
+        int k = ny * e->ctb_cols + nx;
+        if (e->ctu_dmin[k] == 0xff)
+            continue;
+        if (e->ctu_dmin[k] < lo) lo = e->ctu_dmin[k];
+        if (e->ctu_dmax[k] > hi) hi = e->ctu_dmax[k];
+        have = 1;
+    }
+    if (e->slice_type != 2 && e->ref_valid) {
+        const struct n265_refpic *near = NULL;
+        for (int l = 0; l < 2; l++)
+            for (int r = 0; r < e->nref[l]; r++) {
+                const struct n265_refpic *p = e->refl[l][r];
+                if (!p || !p->ctu_dmin)
+                    continue;
+                if (!near || abs(p->poc - e->poc) < abs(near->poc - e->poc))
+                    near = p;
+            }
+        int k = ctb_y * e->ctb_cols + ctb_x;
+        if (near && near->ctu_dmin[k] != 0xff) {
+            if (near->ctu_dmin[k] < lo) lo = near->ctu_dmin[k];
+            if (near->ctu_dmax[k] > hi) hi = near->ctu_dmax[k];
+            have = 1;
+        }
+    }
+    if (!have)
+        return;
+    int w = depth_bound_widen();
+    e->db_lo = lo > w ? lo - w : 0;
+    e->db_hi = hi + w < maxd ? hi + w : maxd;
+}
+
 void n265_analyze_ctu(struct n265_encoder *e, int ctb_x, int ctb_y)
 {
     int q = e->qp + e->ctu_qp_off[ctb_y * e->ctb_cols + ctb_x];
@@ -2589,8 +2762,26 @@ void n265_analyze_ctu(struct n265_encoder *e, int ctb_x, int ctb_y)
     e->ent_ctu_qp = e->cur_ctu_qp;
     e->ent_qp_coded = 0;
     clear_cu_pred(e);
+    depth_bounds(e, ctb_x, ctb_y);
     (void)quadtree(e, ctb_x << e->ctb_log2, ctb_y << e->ctb_log2,
                    e->ctb_log2, 0);
+    if (depth_bound()) {    /* record what this CTU actually used */
+        int x0 = ctb_x << e->ctb_log2, y0 = ctb_y << e->ctb_log2;
+        int n = 1 << e->ctb_log2;
+        int xe = (x0 + n) >> 2, ye = (y0 + n) >> 2;
+        if (xe > (e->pad_w >> 2)) xe = e->pad_w >> 2;
+        if (ye > (e->pad_h >> 2)) ye = e->pad_h >> 2;
+        int lo = 0xff, hi = 0;
+        for (int y = y0 >> 2; y < ye; y++)
+            for (int x = x0 >> 2; x < xe; x++) {
+                int d = e->ct_depth[y * e->map_stride + x];
+                if (d < lo) lo = d;
+                if (d > hi) hi = d;
+            }
+        int k = ctb_y * e->ctb_cols + ctb_x;
+        e->ctu_dmin[k] = (uint8_t)(lo == 0xff ? 0 : lo);
+        e->ctu_dmax[k] = (uint8_t)hi;
+    }
     if (e->ent_qp_coded)
         e->ent_qp_prev = e->cur_ctu_qp;
 }

@@ -92,6 +92,10 @@ struct n265_encoder {
         int16_t *hf[3];
         int hf_stride;
         int hf_x0, hf_x1, hf_y0, hf_y1;     /* positions it covers */
+        /* P2: the coding-tree depth range this picture used, per CTU;
+         * 0xff where nothing filled it. The collocated entry is the
+         * temporal half of the depth bound. */
+        uint8_t *ctu_dmin, *ctu_dmax;
     } dpb[N265_DPB_SLOTS];
     /* the current frame's reference lists: refl[list][idx], nref[list]
      * entries (docs/refstruct-design.md); ref_valid = at least one */
@@ -107,6 +111,13 @@ struct n265_encoder {
     float aq_str;           /* N265_AQ_STR: per-CTU variance-AQ strength (default 0.7) */
     int qp_round1;          /* N265_QP_ROUND1: round the cu-tree + AQ field once (default on) */
     int ref_valid;
+
+    /* P2 (N265_DEPTH_BOUND): per-CTU depth range of the picture being
+     * coded, and the range the current CTU's quadtree is allowed to
+     * search, derived from the decoded neighbours and the collocated
+     * CTU of the nearest reference. */
+    uint8_t *ctu_dmin, *ctu_dmax;
+    int db_lo, db_hi;
 
     uint8_t *ct_depth;      /* 4x4-granularity coding-tree depth map */
     uint8_t *intra_mode;    /* 4x4-granularity luma intra mode map   */

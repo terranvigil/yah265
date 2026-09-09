@@ -168,7 +168,18 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         e->dpb[sl].col_ref = calloc((size_t)c16, 4);
         if (!e->dpb[sl].col_pred || !e->dpb[sl].col_mv || !e->dpb[sl].col_ref)
             goto fail;
+        size_t nctu = (size_t)e->ctb_cols * e->ctb_rows;
+        e->dpb[sl].ctu_dmin = malloc(nctu);
+        e->dpb[sl].ctu_dmax = malloc(nctu);
+        if (!e->dpb[sl].ctu_dmin || !e->dpb[sl].ctu_dmax)
+            goto fail;
+        memset(e->dpb[sl].ctu_dmin, 0xff, nctu);
+        memset(e->dpb[sl].ctu_dmax, 0xff, nctu);
     }
+    e->ctu_dmin = malloc((size_t)e->ctb_cols * e->ctb_rows);
+    e->ctu_dmax = malloc((size_t)e->ctb_cols * e->ctb_rows);
+    if (!e->ctu_dmin || !e->ctu_dmax)
+        goto fail;
     e->map_stride = e->pad_w >> 2;
     e->ct_depth = calloc((size_t)e->map_stride * (e->pad_h >> 2), 1);
     e->intra_mode = calloc((size_t)e->map_stride * (e->pad_h >> 2), 1);
@@ -246,9 +257,13 @@ void n265_encoder_close(n265_encoder *e)
         free(e->dpb[sl].col_pred);
         free(e->dpb[sl].col_mv);
         free(e->dpb[sl].col_ref);
+        free(e->dpb[sl].ctu_dmin);
+        free(e->dpb[sl].ctu_dmax);
         for (int i = 0; i < 3; i++)
             free(e->dpb[sl].hf_base[i]);
     }
+    free(e->ctu_dmin);
+    free(e->ctu_dmax);
     n265_la_free(e);
     bs_free(&e->rbsp);
     free(e->rec_buf);
@@ -448,6 +463,9 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
     e->poc = poc;
     e->nonref = nonref;
     e->display_idx = display_idx;
+    /* P2: no CTU of this picture has a decided depth range yet */
+    memset(e->ctu_dmin, 0xff, (size_t)e->ctb_cols * e->ctb_rows);
+    memset(e->ctu_dmax, 0xff, (size_t)e->ctb_cols * e->ctb_rows);
     /* frame-type QP ladder (the matched reference applies its ip/pb
      * ratios in CQP mode too): I anchors lower, non-ref B higher */
     /* CRF (yah264's final form, written for this encoder): a constant base per
@@ -670,6 +688,10 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
                                        ? e->refl[1][0]->poc
                                        : slot->col_ref_poc[0];
         }
+        /* P2: carry this picture's per-CTU depth range with it, so a
+         * later frame can read the collocated range */
+        memcpy(slot->ctu_dmin, e->ctu_dmin, (size_t)e->ctb_cols * e->ctb_rows);
+        memcpy(slot->ctu_dmax, e->ctu_dmax, (size_t)e->ctb_cols * e->ctb_rows);
         slot->poc = poc;
         slot->valid = 1;
         slot->is_anchor = e->slice_type != 0;   /* I/P; a reference B is not */
