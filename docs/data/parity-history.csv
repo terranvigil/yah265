@@ -345,3 +345,18 @@ date,commit,x265,clip,frames,our_fps,x265m_noasm_fps,x265m_asm_fps,mult_matched_
 2026-09-09,df10982,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,-15.93,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base
 2026-09-09,df10982,4.3+1-e9b8812,sita_flat_720p,120,,,,,,,,,,-14.66,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base
 2026-09-09,df10982,4.3+1-e9b8812,sita_toon_720p,120,,,,,,,,,,-15.61,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base
+2026-09-09,8dc381c,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,-14.18,-24.1,"merged standing, VMAF-NEG column"
+2026-09-09,8dc381c,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,-19.44,-23.91,"merged standing, VMAF-NEG column"
+2026-09-09,8dc381c,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,-26.32,-32.68,"merged standing, VMAF-NEG column"
+2026-09-09,8dc381c,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,-14.48,-26.18,"merged standing, VMAF-NEG column"
+2026-09-09,8dc381c,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,-8.11,,"merged standing, VMAF-NEG column"
+2026-09-09,8dc381c,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,-23.31,-29.35,"merged standing, VMAF-NEG column"
+2026-09-09,8dc381c,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,-17.31,-26.1,"merged standing, VMAF-NEG column"
+2026-09-09,8dc381c,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,-13.17,-31.26,"merged standing, VMAF-NEG column"
+2026-09-09,8dc381c,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,-15.74,-22.3,"merged standing, VMAF-NEG column"
+2026-09-09,8dc381c,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,-29.67,-33.42,"merged standing, VMAF-NEG column"
+2026-09-09,8dc381c,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,-11.85,-19.12,"merged standing, VMAF-NEG column"
+2026-09-09,8dc381c,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,-4.75,-28.98,"merged standing, VMAF-NEG column"
+2026-09-09,8dc381c,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,-15.93,-13.01,"merged standing, VMAF-NEG column"
+2026-09-09,8dc381c,4.3+1-e9b8812,sita_flat_720p,120,,,,,,,,,,-14.66,-20.68,"merged standing, VMAF-NEG column"
+2026-09-09,8dc381c,4.3+1-e9b8812,sita_toon_720p,120,,,,,,,,,,-15.61,-14.74,"merged standing, VMAF-NEG column"
