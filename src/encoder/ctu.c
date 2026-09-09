@@ -1824,7 +1824,12 @@ static uint32_t search_pu(struct n265_encoder *e, const pu_geo *g,
             mv_t p[2], mv;
             n265_amvp_pu(e, l, r, g, p);
             mv_t seed = p[0];
-            if (start && (start[l].x != p[0].x || start[l].y != p[0].y) &&
+            /* the seed choice is decided at full pel - n265_me_search
+             * truncates whatever it is given - so where the 2Nx2N
+             * winner and the predictor share a full-pel position the
+             * two whole-PU SADs below decide nothing and are skipped */
+            if (start && ((start[l].x >> 2) != (p[0].x >> 2) ||
+                          (start[l].y >> 2) != (p[0].y >> 2)) &&
                 n265_mc_sad(e, l, r, g->x, g->y, w, h, start[l]) <
                     n265_mc_sad(e, l, r, g->x, g->y, w, h, p[0]))
                 seed = start[l];
