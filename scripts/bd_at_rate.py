@@ -27,16 +27,38 @@ bd.SUBSAMPLE = 1
 # per clip are duplicates; and the reference arm is identical across every
 # one of our arms. Keyed by the exact command with {q} filled, the source
 # path and size, and a hash of the encoder binary named first in the
-# template (so a rebuild of ours never hits a stale entry). BD_CACHE names
-# the directory (default ~/.cache/yah265-bd); BD_CACHE=0 disables it.
+# template (looking past a leading `env VAR=..`, so a rebuild of ours never
+# hits a stale entry), and every N265_* variable in the environment (arms
+# are selected by them; the command string alone cannot tell arms apart).
+# BD_CACHE names the directory (default ~/.cache/yah265-bd); BD_CACHE=0
+# disables it.
 _CACHE = os.environ.get("BD_CACHE", os.path.expanduser("~/.cache/yah265-bd"))
 if _CACHE == "0":
     _CACHE = None
 _binhash = {}
 
 
+def _exe_of(tmpl):
+    """The encoder binary in a template, looking past a leading `env` and
+    any VAR=value assignments in front of it."""
+    toks = shlex.split(tmpl)
+    if toks and toks[0] == "env":
+        toks = toks[1:]
+    for t in toks:
+        if "=" not in t or t.startswith("/") or t.startswith("."):
+            return t
+    return toks[0] if toks else ""
+
+
+def _env_key():
+    """Every N265_* variable in our environment, since arms are selected
+    by them and the command string alone cannot tell two arms apart."""
+    return ";".join(f"{k}={v}" for k, v in sorted(os.environ.items())
+                    if k.startswith("N265_"))
+
+
 def _bin_hash(tmpl):
-    exe = shlex.split(tmpl)[0]
+    exe = _exe_of(tmpl)
     if exe not in _binhash:
         path = shutil.which(exe) or exe
         h = hashlib.sha256()
@@ -53,8 +75,8 @@ def _bin_hash(tmpl):
 def _key(tmpl, q, src):
     cmd = tmpl.format(q=str(q), src=src, out="{out}")
     st = os.stat(src)
-    return hashlib.sha256(f"{cmd}|{src}|{st.st_size}|{_bin_hash(tmpl)}"
-                          .encode()).hexdigest()[:24]
+    return hashlib.sha256(f"{cmd}|{src}|{st.st_size}|{_bin_hash(tmpl)}|"
+                          f"{_env_key()}".encode()).hexdigest()[:24]
 
 
 def _cache_paths(tmpl, q, src):
