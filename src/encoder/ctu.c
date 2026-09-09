@@ -2325,7 +2325,10 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                      (amot.mv[1].x == cand.mv[1].x &&
                       amot.mv[1].y == cand.mv[1].y && amot.ref[1] == cand.ref[1]));
             }
-            if (!gate_amvp && !same_as_cand && !getenv("N265_NO_AMVP")) {
+            static int no_amvp = -1;
+            if (no_amvp < 0)
+                no_amvp = getenv("N265_NO_AMVP") != NULL;
+            if (!gate_amvp && !same_as_cand && !no_amvp) {
                 tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, amot,
                            &a_tl);
                 tb_analyze(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c,
@@ -2614,7 +2617,10 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                 modes[i] = nmodes[i];
         }
         rec_u8(e, (unsigned)nxn);
-        if (getenv("N265_MODE_HIST")) {
+        static int hist_on = -1;
+        if (hist_on < 0)
+            hist_on = getenv("N265_MODE_HIST") != NULL;
+        if (hist_on) {
             g_nxn += nxn;
             g_2nx2n_min += !nxn;
         }
@@ -2955,7 +2961,10 @@ static uint64_t quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
         uint64_t j_arm1 = j_cu;         /* R3 reads how far the merge
                                          * arms improve on the CU arm */
         if (j_skip < j_cu) {
-            if (getenv("N265_CB64_TRACE"))
+            static int cb64_trace = -1;
+            if (cb64_trace < 0)
+                cb64_trace = getenv("N265_CB64_TRACE") != NULL;
+            if (cb64_trace)
                 fprintf(stderr, "cb64skip poc=%d ctu=(%d,%d) midx=%d pred=%d mv0=(%d,%d) mv1=(%d,%d)\n",
                         e->poc, x0 >> 6, y0 >> 6, midx, mlist[midx].pred,
                         mlist[midx].mv[0].x, mlist[midx].mv[0].y,
