@@ -534,6 +534,67 @@ static int part_amp_margin(void)
     return part_gate() >= 4 ? 8 : 2;
 }
 
+/* N265_RECT_RANK (P5): the two rectangular orientations are ranked today
+ * by running a complete PU search for each and throwing one away, and
+ * P4 established that ranking the orientations is where the partition
+ * share is, not entering them. The value is the margin in percent by
+ * which the cheap proxy below has to separate the two before the loser's
+ * search is skipped: a larger margin runs both more often, and 0 is the
+ * pre-P5 encoder.
+ *
+ * Measured and refused at 5, 20 and 50 (docs/phase4-ladder.md, R1). The
+ * proxy is a coin flip on the clip with the texture, the two-motion
+ * proxies that are not do not cover enough of the population to pay,
+ * and a wrong orientation costs about four times what the time it buys
+ * is worth. Kept at 0 for re-pricing. */
+static int rect_rank(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_RECT_RANK");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
+/* Which way a two-PU split would cut, read off the 2Nx2N winner's own
+ * residual. A CU that wants a horizontal boundary carries a residual
+ * whose energy varies down the rows and not across the columns, because
+ * one motion field is right for one band of rows and wrong for the
+ * other. The mean absolute deviation of the row sums against that of the
+ * column sums is that statement; the two share a mean by construction,
+ * so they are directly comparable, and it is one pass over the CU
+ * against try_part's two full PU searches. */
+static void rect_proxy(struct n265_encoder *e, int x0, int y0, int n,
+                       const uint8_t *pred, uint64_t *e_h, uint64_t *e_v)
+{
+    const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
+    int ps = e->pad_stride[0];
+    uint32_t row[32], col[32];
+    uint64_t tot = 0;
+    for (int x = 0; x < n; x++)
+        col[x] = 0;
+    for (int y = 0; y < n; y++) {
+        uint32_t r = 0;
+        for (int x = 0; x < n; x++) {
+            int d = src[y * ps + x] - pred[y * n + x];
+            uint32_t a = (uint32_t)(d < 0 ? -d : d);
+            r += a;
+            col[x] += a;
+        }
+        row[y] = r;
+        tot += r;
+    }
+    uint32_t mean = (uint32_t)(tot / (unsigned)n);
+    uint64_t mr = 0, mc = 0;
+    for (int i = 0; i < n; i++) {
+        mr += row[i] > mean ? row[i] - mean : mean - row[i];
+        mc += col[i] > mean ? col[i] - mean : mean - col[i];
+    }
+    *e_h = mr;      /* rows disagree -> a horizontal cut -> 2NxN */
+    *e_v = mc;      /* columns disagree -> a vertical cut -> Nx2N */
+}
+
 /* N265_DEPTH_BOUND (P2): bound the depth range the quadtree searches to
  * the range the decoded neighbours and the collocated CTU already used.
  * 0 off; 1 widens that range by one each way; 3 takes it as it stands.
@@ -2322,8 +2383,31 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
             if (e->rect && kind != 0 && !gate_amvp && !gate_part && rect_ok) {
                 mv_t start[2] = { me_mv[0], me_mv[1] };
                 pu_dec dh[2], dv[2];
-                uint32_t ch = try_part(e, x0, y0, n, PART_2NxN, start, dh);
-                uint32_t cv = try_part(e, x0, y0, n, PART_Nx2N, start, dv);
+                /* P5: pre-rank the two orientations off the 2Nx2N
+                 * winner's residual and search only the winner, unless
+                 * the proxy cannot separate them by the margin. The
+                 * AMVP candidate's residual is the evidence when it
+                 * exists - it is the block's own best single motion, so
+                 * what it leaves behind is what a second motion field
+                 * would have to explain - and the merge candidate's
+                 * otherwise. */
+                int do_h = 1, do_v = 1;
+                if (rect_rank()) {
+                    uint64_t e_h, e_v;
+                    rect_proxy(e, x0, y0, n,
+                               j_amvp != UINT64_MAX ? a_tl.pred : m_tl.pred,
+                               &e_h, &e_v);
+                    unsigned mg = (unsigned)rect_rank();
+                    if (e_h * 100 > e_v * (100 + mg))
+                        do_v = 0;
+                    else if (e_v * 100 > e_h * (100 + mg))
+                        do_h = 0;
+                }
+                uint32_t ch = UINT32_MAX, cv = UINT32_MAX;
+                if (do_h)
+                    ch = try_part(e, x0, y0, n, PART_2NxN, start, dh);
+                if (do_v)
+                    cv = try_part(e, x0, y0, n, PART_Nx2N, start, dv);
                 int horiz = ch <= cv;
                 cur->part = horiz ? PART_2NxN : PART_Nx2N;
                 memcpy(cur->d, horiz ? dh : dv, sizeof(cur->d));
