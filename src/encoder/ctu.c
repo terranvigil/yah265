@@ -1086,6 +1086,56 @@ static int me_satd_on(void)
     return on;
 }
 
+/* R3: the lookahead's inter-against-intra cost over this node, in
+ * percent - sum(pcost) x 100 / sum(icost) over the lowres 8x8 blocks it
+ * covers, the same grid cu-tree averages over. -1 where there is no
+ * field. It is computed before any coding decision is taken, which is
+ * the property P2's depth bound did not have. */
+static int la_inter_pct(struct n265_encoder *e, int x0, int y0, int n)
+{
+    if (!e->la_icost || !e->la_bw)
+        return -1;
+    int b0x = x0 >> 4, b0y = y0 >> 4, nb = n >> 4;
+    uint64_t ic = 0, pc = 0;
+    for (int by = b0y; by < b0y + nb && by < e->la_bh; by++)
+        for (int bx = b0x; bx < b0x + nb && bx < e->la_bw; bx++) {
+            int b = by * e->la_bw + bx;
+            ic += e->la_icost[b];
+            pc += e->la_pcost[b];
+        }
+    if (!ic)
+        return -1;
+    return (int)(pc * 100u / ic);
+}
+
+/* N265_CB64_GATE (R3): the AMVP arm at the 64x64 coding block runs a
+ * whole-CTU PU search and, where that search prefers AMVP to merge, a
+ * commit through the forced TU32 quad. It is 8% of the encode by A/B and
+ * it exists for one case: a 64x64 region whose motion is not in the
+ * merge list. Where the CB64 merge arms have ALREADY improved a long way
+ * on the CU arm, the merge list evidently does have the region's motion,
+ * and the search is bought to lose. 1 and 2 gate on that improvement
+ * exceeding 60 and 75 percent; 3 gates instead on the lookahead calling
+ * the region badly inter-predicted (pcost at or above 70% of icost),
+ * where a single 64x64 motion field is not what it is missing. 0 is the
+ * pre-R3 encoder, byte for byte.
+ *
+ * 1 is the default: -0.01 mean BD on the band - free to the resolution
+ * of the instrument - for 1.033x foreman. 2 is the same rule at a bound
+ * that fires too rarely to pay (1.005x). 3 never fires on CIF at all,
+ * where the lookahead's ratio tops out near 70, and is measured and held
+ * with its park_joy number. Numbers in docs/phase4-ladder.md. */
+static int cb64_gate(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_CB64_GATE");
+        v = s ? atoi(s) : 1;    /* the 60% improvement bound, which is
+                                 * quality-free on the band (R3) */
+    }
+    return v;
+}
+
 /* AMVP 2Nx2N at the CB64 node (the quadtree's log2n == 6 arm set). On
  * since 2026-09-07: -0.38 median BD-VMAF-NEG on the CIF band at 1.06-1.09x
  * the encode time; N265_CB64_AMVP=0 is the escape. */
@@ -2902,6 +2952,8 @@ static uint64_t quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
         set_blk(e, e->ct_depth, x0, y0, n, depth);
         uint64_t j_skip = rd_j(cu_area_ssd(e, x0, y0, n),
                                adv.bits + b0, lam);
+        uint64_t j_arm1 = j_cu;         /* R3 reads how far the merge
+                                         * arms improve on the CU arm */
         if (j_skip < j_cu) {
             if (getenv("N265_CB64_TRACE"))
                 fprintf(stderr, "cb64skip poc=%d ctu=(%d,%d) midx=%d pred=%d mv0=(%d,%d) mv1=(%d,%d)\n",
@@ -2945,7 +2997,14 @@ static uint64_t quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
          * the same forced TU32 quad the merge arm uses. Entered only
          * where the PU search prefers AMVP to merge - where merge wins
          * the arm above already has it. */
-        if (cb64_amvp()) {
+        int amvp_gated = 0;
+        if (cb64_gate() == 3) {
+            amvp_gated = la_inter_pct(e, x0, y0, n) >= 70;
+        } else if (cb64_gate() && j_arm1 && j_arm1 != UINT64_MAX) {
+            int imp = (int)(100 - (uint64_t)j_cu * 100 / j_arm1);
+            amvp_gated = imp >= (cb64_gate() >= 2 ? 75 : 60);
+        }
+        if (cb64_amvp() && !amvp_gated) {
             qt_save(e, ss, x0, y0, n);
             qt_save_records(e, ss, rec_base);
             qt_restore(e, sp, x0, y0, n);

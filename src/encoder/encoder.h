@@ -119,6 +119,13 @@ struct n265_encoder {
     uint8_t *ctu_dmin, *ctu_dmax;
     int db_lo, db_hi;
     float sc_ratio;         /* this frame's lookahead pcost/icost (P3) */
+    /* This frame's lookahead cost field, per lowres 8x8 block (= 16x16
+     * full-res, the same grid cu-tree averages over). R3 reads it per
+     * CTU. It is computed before any coding decision is taken, so unlike
+     * the ct_depth map P2 tried to bound from it is not a reading of our
+     * own output. NULL when no lookahead frame is driving the encode. */
+    const uint16_t *la_icost, *la_pcost;
+    int la_bw, la_bh;
 
     uint8_t *ct_depth;      /* 4x4-granularity coding-tree depth map */
     uint8_t *intra_mode;    /* 4x4-granularity luma intra mode map   */
