@@ -18,6 +18,11 @@ typedef struct sao_params {
                              * stored signed with the inferred sign applied */
 } sao_params;
 
+/* Is the filter enabled at all? N265_SAO_TYPES=0 disables it in the SPS,
+ * so no slice flag and no sao() syntax is coded and neither the analysis
+ * nor the application pass runs. */
+int n265_sao_enabled(void);
+
 /* Analyze the deblocked recon against the source and fill e->sao[]. */
 void n265_sao_analyze(struct n265_encoder *e);
 

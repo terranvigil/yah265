@@ -152,15 +152,24 @@ void n265_residual_coding(const res_ops *ops, const int16_t *level,
     const uint8_t *sb_scan = n265_scan_sb[scan_idx][log2n - 2];
     const uint8_t *co_scan = n265_scan_coef[scan_idx];
 
-    /* per-sub-block significance map */
+    /* per-sub-block significance map, in scan order and again on the
+     * sub-block grid: the context derivation below wants the right and
+     * below neighbours of each sub-block, and finding them by walking
+     * the scan is quadratic in the sub-block count (4096 lookups for a
+     * 32x32 TB, on a path the mode decision runs per candidate). */
     uint8_t csbf[64] = { 0 };
+    uint8_t csbf_xy[64] = { 0 };
     for (int s = 0; s < num_sb; s++) {
-        int sx = (sb_scan[s] & 15) << 2, sy = (sb_scan[s] >> 4) << 2;
+        int sbx = sb_scan[s] & 15, sby = sb_scan[s] >> 4;
+        int sx = sbx << 2, sy = sby << 2;
         for (int c = 0; c < 16; c++) {
             int x = sx + (co_scan[c] & 15), y = sy + (co_scan[c] >> 4);
-            if (level[y * n + x])
+            if (level[y * n + x]) {
                 csbf[s] = 1;
+                break;
+            }
         }
+        csbf_xy[sby * sb_dim + sbx] = csbf[s];
     }
 
     /* last significant position in scan order */
@@ -215,17 +224,10 @@ void n265_residual_coding(const res_ops *ops, const int16_t *level,
         int sb_x = sb_scan[s] & 15, sb_y = sb_scan[s] >> 4;
 
         /* neighbor csbf for contexts: right and below sub-blocks */
-        int csbf_right = 0, csbf_below = 0;
-        if (sb_x + 1 < sb_dim) {
-            for (int t = 0; t < num_sb; t++)
-                if ((sb_scan[t] & 15) == sb_x + 1 && (sb_scan[t] >> 4) == sb_y)
-                    csbf_right = csbf[t];
-        }
-        if (sb_y + 1 < sb_dim) {
-            for (int t = 0; t < num_sb; t++)
-                if ((sb_scan[t] & 15) == sb_x && (sb_scan[t] >> 4) == sb_y + 1)
-                    csbf_below = csbf[t];
-        }
+        int csbf_right = sb_x + 1 < sb_dim
+            ? csbf_xy[sb_y * sb_dim + sb_x + 1] : 0;
+        int csbf_below = sb_y + 1 < sb_dim
+            ? csbf_xy[(sb_y + 1) * sb_dim + sb_x] : 0;
         int prev_csbf = csbf_right | (csbf_below << 1);
 
         int infer_sb_dc = 0;
@@ -260,18 +262,23 @@ void n265_residual_coding(const res_ops *ops, const int16_t *level,
         }
 
         /* level coding: greater1 (first 8), greater2 (first g1), signs,
-         * remaining */
+         * remaining. The four passes below all want each significant
+         * coefficient's magnitude and sign; fetch them once. */
+        int abs_v[16], neg_v[16];
+        for (int i = 0; i < num_sig; i++) {
+            int c = sig_pos[i];
+            int l = level[(sy + (co_scan[c] >> 4)) * n + sx +
+                          (co_scan[c] & 15)];
+            abs_v[i] = l < 0 ? -l : l;
+            neg_v[i] = l < 0;
+        }
         int ctx_set = ((s > 0 && c_idx == 0) ? 2 : 0) + (prev_sb_g1 ? 1 : 0);
         int g1_ctx = 1;
         int first_g1_idx = -1;
         int this_sb_g1 = 0;
         int n_g1 = num_sig < 8 ? num_sig : 8;
         for (int i = 0; i < n_g1; i++) {
-            int c = sig_pos[i];
-            int x = sx + (co_scan[c] & 15), y = sy + (co_scan[c] >> 4);
-            int abs_l = level[y * n + x] < 0 ? -level[y * n + x]
-                                             : level[y * n + x];
-            int g1 = abs_l > 1;
+            int g1 = abs_v[i] > 1;
             int inc = ctx_set * 4 + (g1_ctx < 3 ? g1_ctx : 3) +
                       (c_idx ? 16 : 0);
             ops->bin(ops->h, CTX_G1 + inc, g1);
@@ -286,11 +293,7 @@ void n265_residual_coding(const res_ops *ops, const int16_t *level,
         }
         int g2 = 0;
         if (first_g1_idx >= 0) {
-            int c = sig_pos[first_g1_idx];
-            int x = sx + (co_scan[c] & 15), y = sy + (co_scan[c] >> 4);
-            int abs_l = level[y * n + x] < 0 ? -level[y * n + x]
-                                             : level[y * n + x];
-            g2 = abs_l > 2;
+            g2 = abs_v[first_g1_idx] > 2;
             ops->bin(ops->h, CTX_G2 + ctx_set + (c_idx ? 4 : 0), g2);
         }
         /* sign hiding: when the sub-block qualifies, the sign of the
@@ -299,18 +302,13 @@ void n265_residual_coding(const res_ops *ops, const int16_t *level,
         int hidden = num_sig > 0 &&
             sig_pos[0] - sig_pos[num_sig - 1] > 3;
         for (int i = 0; i < num_sig; i++) {
-            int c = sig_pos[i];
-            int x = sx + (co_scan[c] & 15), y = sy + (co_scan[c] >> 4);
             if (hidden && i == num_sig - 1)
                 continue;
-            ops->bypass(ops->h, level[y * n + x] < 0);
+            ops->bypass(ops->h, neg_v[i]);
         }
         int rice = 0;
         for (int i = 0; i < num_sig; i++) {
-            int c = sig_pos[i];
-            int x = sx + (co_scan[c] & 15), y = sy + (co_scan[c] >> 4);
-            int abs_l = level[y * n + x] < 0 ? -level[y * n + x]
-                                             : level[y * n + x];
+            int abs_l = abs_v[i];
             int base = 1;
             if (i < 8)
                 base += abs_l > 1;      /* the coded g1 value */

@@ -10,9 +10,29 @@
 #include "encoder/cabac.h"
 #include "encoder/tables.h"
 
+/* The per-state cost and transition tables (est.c). Exposed so the
+ * per-bin call below can be inlined: the mode decision runs it millions
+ * of times per frame and the estimator was 5-14% of the encode with it
+ * behind a cross-translation-unit call. */
+extern uint16_t n265_est_bits_mps[64], n265_est_bits_lps[64];
+extern const uint8_t n265_est_trans_mps[64], n265_est_trans_lps[64];
+
 /* bits (Q8) for coding `bin` in context state; updates the state exactly
  * as the arithmetic engine would */
-uint32_t n265_est_bin(cabac_ctx_t *ctx, int bin);
+static inline uint32_t n265_est_bin(cabac_ctx_t *ctx, int bin)
+{
+    uint32_t b;
+    if (bin == ctx->mps) {
+        b = n265_est_bits_mps[ctx->state];
+        ctx->state = n265_est_trans_mps[ctx->state];
+    } else {
+        b = n265_est_bits_lps[ctx->state];
+        if (ctx->state == 0)
+            ctx->mps ^= 1;
+        ctx->state = n265_est_trans_lps[ctx->state];
+    }
+    return b;
+}
 
 static inline uint32_t n265_est_bypass_bits(int n)
 {

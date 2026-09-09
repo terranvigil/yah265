@@ -14,6 +14,7 @@
 #include "encoder/encoder.h"
 #include "encoder/est.h"
 #include "encoder/la.h"
+#include "encoder/mc.h"
 #include "encoder/rc.h"
 #include "encoder/sao.h"
 
@@ -190,7 +191,18 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         e->dpb[sl].col_ref = calloc((size_t)c16, 4);
         if (!e->dpb[sl].col_pred || !e->dpb[sl].col_mv || !e->dpb[sl].col_ref)
             goto fail;
+        size_t nctu = (size_t)e->ctb_cols * e->ctb_rows;
+        e->dpb[sl].ctu_dmin = malloc(nctu);
+        e->dpb[sl].ctu_dmax = malloc(nctu);
+        if (!e->dpb[sl].ctu_dmin || !e->dpb[sl].ctu_dmax)
+            goto fail;
+        memset(e->dpb[sl].ctu_dmin, 0xff, nctu);
+        memset(e->dpb[sl].ctu_dmax, 0xff, nctu);
     }
+    e->ctu_dmin = malloc((size_t)e->ctb_cols * e->ctb_rows);
+    e->ctu_dmax = malloc((size_t)e->ctb_cols * e->ctb_rows);
+    if (!e->ctu_dmin || !e->ctu_dmax)
+        goto fail;
     e->map_stride = e->pad_w >> 2;
     e->ct_depth = calloc((size_t)e->map_stride * (e->pad_h >> 2), 1);
     e->intra_mode = calloc((size_t)e->map_stride * (e->pad_h >> 2), 1);
@@ -269,7 +281,13 @@ void n265_encoder_close(n265_encoder *e)
         free(e->dpb[sl].col_pred);
         free(e->dpb[sl].col_mv);
         free(e->dpb[sl].col_ref);
+        free(e->dpb[sl].ctu_dmin);
+        free(e->dpb[sl].ctu_dmax);
+        for (int i = 0; i < 3; i++)
+            free(e->dpb[sl].hf_base[i]);
     }
+    free(e->ctu_dmin);
+    free(e->ctu_dmax);
     n265_la_free(e);
     bs_free(&e->rbsp);
     free(e->rec_buf);
@@ -322,7 +340,7 @@ static void write_slice_header(n265_encoder *e)
         }
         bs_put_bits(bs, getenv("N265_NO_TMVP") ? 0 : 1, 1);      /* slice_temporal_mvp_enabled_flag */
     }
-    if (e->mode != N265_MODE_PCM) {
+    if (e->mode != N265_MODE_PCM && n265_sao_enabled()) {
         bs_put_bits(bs, 1, 1);      /* slice_sao_luma_flag */
         bs_put_bits(bs, 1, 1);      /* slice_sao_chroma_flag */
     }
@@ -349,6 +367,49 @@ static void write_slice_header(n265_encoder *e)
         bs_put_bits(bs, 1, 1);      /* slice_loop_filter_across_slices_enabled
                                      * (present because deblocking is on) */
     bs_align_one_then_zero(bs);     /* byte_alignment() */
+}
+
+/* E1: the reference's cached horizontal first stage, three frame-sized
+ * 8-tap passes once per stored reference. Every later subpel candidate
+ * with a nonzero fx - which is most of them - then skips its own. Off
+ * with N265_HFCACHE=0, which is the A/B arm and nothing else: the two
+ * paths produce identical bytes. */
+static int hf_cache_on(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *v = getenv("N265_HFCACHE");
+        on = v ? atoi(v) != 0 : 1;
+    }
+    return on;
+}
+
+static void build_hf_cache(n265_encoder *e, struct n265_refpic *r)
+{
+    for (int i = 0; i < 3; i++)
+        r->hf[i] = NULL;
+    if (!hf_cache_on())
+        return;
+    int w = e->pad_w + 2 * N265_HF_PAD, h = e->pad_h + 2 * N265_HF_PAD;
+    int rs = r->stride[0];
+    const uint8_t *src = r->plane[0] - N265_HF_PAD * rs - N265_HF_PAD;
+    r->hf_stride = w;
+    for (int i = 0; i < 3; i++) {
+        if (!r->hf_base[i]) {
+            r->hf_base[i] = malloc((size_t)w * h * sizeof(int16_t));
+            if (!r->hf_base[i]) {   /* no cache is a slow path, not a fail */
+                for (int k = 0; k < 3; k++)
+                    r->hf[k] = NULL;
+                return;
+            }
+        }
+        n265_mc_luma_hplane(r->hf_base[i], w, w, h, src, rs, i + 1);
+        r->hf[i] = r->hf_base[i] + N265_HF_PAD * w + N265_HF_PAD;
+    }
+    r->hf_x0 = -N265_HF_PAD;
+    r->hf_x1 = e->pad_w + N265_HF_PAD;
+    r->hf_y0 = -N265_HF_PAD;
+    r->hf_y1 = e->pad_h + N265_HF_PAD;
 }
 
 static void write_pcm_ctu(n265_encoder *e, cabac_t *cb, cabac_ctx_t *part_mode,
@@ -427,6 +488,9 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
     e->poc = poc;
     e->nonref = nonref;
     e->display_idx = display_idx;
+    /* P2: no CTU of this picture has a decided depth range yet */
+    memset(e->ctu_dmin, 0xff, (size_t)e->ctb_cols * e->ctb_rows);
+    memset(e->ctu_dmax, 0xff, (size_t)e->ctb_cols * e->ctb_rows);
     /* frame-type QP ladder (the matched reference applies its ip/pb
      * ratios in CQP mode too): I anchors lower, non-ref B higher */
     /* CRF (yah264's final form, written for this encoder): a constant base per
@@ -650,11 +714,13 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
             n265_analyze_ctu(e, i % e->ctb_cols, i / e->ctb_cols);
         e->rec_pos = 0;     /* rewind for the entropy pass */
         n265_deblock_frame(e);
-        n265_sao_analyze(e);
-        if (e->no_sao)
-            memset(e->sao, 0,
-                   (size_t)e->ctb_cols * e->ctb_rows * sizeof(sao_params));
-        n265_sao_apply(e);
+        if (n265_sao_enabled()) {
+            n265_sao_analyze(e);
+            if (e->no_sao)
+                memset(e->sao, 0,
+                       (size_t)e->ctb_cols * e->ctb_rows * sizeof(sao_params));
+            n265_sao_apply(e);
+        }
     }
 
     e->ent_qp_prev = e->qp;
@@ -752,6 +818,7 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
                        slot->plane[i] + (h - 1) * rs - pad, (size_t)rs);
             }
         }
+        build_hf_cache(e, slot);
         {
             int c16w = (e->pad_w + 15) >> 4;
             int c16h = (e->pad_h + 15) >> 4;
@@ -774,6 +841,10 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
                                        ? e->refl[1][0]->poc
                                        : slot->col_ref_poc[0];
         }
+        /* P2: carry this picture's per-CTU depth range with it, so a
+         * later frame can read the collocated range */
+        memcpy(slot->ctu_dmin, e->ctu_dmin, (size_t)e->ctb_cols * e->ctb_rows);
+        memcpy(slot->ctu_dmax, e->ctu_dmax, (size_t)e->ctb_cols * e->ctb_rows);
         slot->poc = poc;
         slot->valid = 1;
         slot->is_anchor = e->slice_type != 0;   /* I/P; a reference B is not */
@@ -980,6 +1051,11 @@ static int drive_scheduler(n265_encoder *e, size_t *out_used, int *count)
      * only L0; B frames have both) */
     n265_build_lists(e, kind == 2 ? poc : poc, kind == 0, NULL);
     int slice_type = kind == 2 ? 2 : kind == 1 ? 1 : 0;
+    e->sc_ratio = f->sc_ratio;      /* lookahead pcost/icost, P3 reads it */
+    e->la_icost = f->icost;         /* the same field per CTU, R3 reads it */
+    e->la_pcost = f->pcost;
+    e->la_bw = la->bw;
+    e->la_bh = la->bh;
     e->rc_cls = n265_rc_class(slice_type, e->plan_nonref[e->plan_pos]);
     e->rc_cplx = n265_rc_cplx(e, li, e->rc_cls);
     if (e->abr_on)

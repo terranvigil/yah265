@@ -104,9 +104,11 @@ static void mc_pred_uni(struct n265_encoder *e, int list, int ref, int c_idx, in
         const uint8_t *rp = r->plane[c_idx] + (y0 + dy) * rs + x0 + dx;
         n265_mc_chroma_wh(dst, ds, w, h, rp, rs, mv.x & 7, mv.y & 7);
     } else {
-        int dx = mv.x >> 2, dy = mv.y >> 2;
-        const uint8_t *rp = r->plane[0] + (y0 + dy) * rs + x0 + dx;
-        n265_mc_luma_wh(dst, ds, w, h, rp, rs, mv.x & 3, mv.y & 3);
+        int ix = x0 + (mv.x >> 2), iy = y0 + (mv.y >> 2);
+        const uint8_t *rp = r->plane[0] + iy * rs + ix;
+        n265_mc_luma_hf(dst, ds, w, h, rp, rs,
+                        n265_ref_hf(r, ix, iy, w, h, mv.x & 3),
+                        r->hf_stride, mv.x & 3, mv.y & 3);
     }
 }
 
@@ -120,9 +122,11 @@ static void mc_pred14(struct n265_encoder *e, int list, int ref, int c_idx, int 
         const uint8_t *rp = r->plane[c_idx] + (y0 + dy) * rs + x0 + dx;
         n265_mc_chroma_14_wh(dst, w, w, h, rp, rs, mv.x & 7, mv.y & 7);
     } else {
-        int dx = mv.x >> 2, dy = mv.y >> 2;
-        const uint8_t *rp = r->plane[0] + (y0 + dy) * rs + x0 + dx;
-        n265_mc_luma_14_wh(dst, w, w, h, rp, rs, mv.x & 3, mv.y & 3);
+        int ix = x0 + (mv.x >> 2), iy = y0 + (mv.y >> 2);
+        const uint8_t *rp = r->plane[0] + iy * rs + ix;
+        n265_mc_luma_14_hf(dst, w, w, h, rp, rs,
+                           n265_ref_hf(r, ix, iy, w, h, mv.x & 3),
+                           r->hf_stride, mv.x & 3, mv.y & 3);
     }
 }
 
@@ -274,10 +278,12 @@ static int tb_full(struct n265_encoder *e, int c_idx, int x0, int y0,
 #define INTRA_RD_MAX 8
 
 /* pick the luma mode by SAD over prediction from the given ref plane;
- * optionally reports the nk best-ranked modes for RD refinement */
-static int search_luma_mode_k(struct n265_encoder *e, int x0, int y0,
-                              int log2n, const uint8_t *ref_plane,
-                              uint32_t *cost_out, int topk[], int nk)
+ * optionally reports the nk best-ranked modes for RD refinement, and
+ * optionally ranks only the `nsub` modes in `sub` instead of all 35 */
+static int search_luma_mode_sub(struct n265_encoder *e, int x0, int y0,
+                                int log2n, const uint8_t *ref_plane,
+                                uint32_t *cost_out, int topk[], int nk,
+                                const int *sub, int nsub)
 {
     int n = 1 << log2n;
     const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
@@ -294,7 +300,8 @@ static int search_luma_mode_k(struct n265_encoder *e, int x0, int y0,
     int mk[INTRA_RD_MAX];
     int nkc = nk < 1 ? 1 : nk > INTRA_RD_MAX ? INTRA_RD_MAX : nk;
     for (int i = 0; i < nkc; i++) { ck[i] = UINT32_MAX; mk[i] = i < 2 ? i : 26; }
-    for (int mode = 0; mode < 35; mode++) {
+    for (int mi = 0; mi < (sub ? nsub : 35); mi++) {
+        int mode = sub ? sub[mi] : mi;
         const uint8_t *r = n265_use_filtered_refs(mode, log2n, 0) ? refs_f
                                                                   : refs;
         n265_intra_pred(pred, n, r, log2n, mode, 0);
@@ -343,11 +350,20 @@ static int search_luma_mode_k(struct n265_encoder *e, int x0, int y0,
     return best_mode;
 }
 
+static int search_luma_mode_k(struct n265_encoder *e, int x0, int y0,
+                              int log2n, const uint8_t *ref_plane,
+                              uint32_t *cost_out, int topk[], int nk)
+{
+    return search_luma_mode_sub(e, x0, y0, log2n, ref_plane, cost_out,
+                                topk, nk, NULL, 0);
+}
+
 static int search_luma_mode(struct n265_encoder *e, int x0, int y0,
                             int log2n, const uint8_t *ref_plane,
                             uint32_t *cost_out)
 {
-    return search_luma_mode_k(e, x0, y0, log2n, ref_plane, cost_out, NULL, 0);
+    return search_luma_mode_sub(e, x0, y0, log2n, ref_plane, cost_out,
+                                NULL, 0, NULL, 0);
 }
 
 /* SAD-domain lambda: sqrt(0.68 * 2^((qp-12)/3)), Q4 fixed point */
@@ -400,6 +416,298 @@ static int skip_thr8(void)
                                      * residual-quantizes-to-zero test */
     }
     return thr8;
+}
+
+/* P1, the early-out trio (docs/phase4-ladder.md). All three are off by
+ * default; each one reshapes a decision, so each is priced on the band
+ * before it becomes a default. */
+
+/* N265_ES_THR: percent scale on the clean-skip distortion bound that
+ * ends the quadtree trial. 100 is the shipped rule. */
+static int es_thr_pct(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_ES_THR");
+        v = s ? atoi(s) : 100;
+    }
+    return v;
+}
+
+/* N265_RSKIP: stop the recursion where the no-split winner carried no
+ * residual at all. 1 also requires that neither decoded neighbour went
+ * deeper than this node; 2 drops that condition. Measured and held
+ * twice: P1 refused it stacked on the CBF_FAST=3 it had just shipped,
+ * and R12 re-priced it on the R7 base at +0.14 mean BD for 1.050x
+ * foreman - which passes on the CQP band and fails at the pinned CRF
+ * point, where it costs +0.71 with two clips past the per-clip bar
+ * (docs/phase4-ladder.md R12). 0 is the default. */
+static int rskip_mode(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_RSKIP");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
+/* N265_CBF_FAST: once a candidate quantises to nothing, stop trying the
+ * expensive ones. Two independent stages: the merge candidate's cbf
+ * gating AMVP, intra and the partitions, and the AMVP candidate's cbf
+ * gating intra and the partitions. 1 is the first stage, 2 is both,
+ * 3 is the second alone, the default: stage 1 costs three times what
+ * stage 2 does and buys less per point (docs/phase4-ladder.md). 0 is the
+ * pre-P1 encoder. */
+static int cbf_fast(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_CBF_FAST");
+        v = s ? atoi(s) : 3;    /* stage 2, the one that priced (P1) */
+    }
+    return v;
+}
+
+/* N265_GATE_SCALE (phase 4, the ladder's P8): percent scale on the two
+ * economy gates the encoder has always had - the merge candidate's
+ * prediction SAD under n*n/8 prunes the AMVP search, under n*n/4 the
+ * intra arm. Both sit at a value that almost never fires
+ * (`N265_NO_GATES=1` costs 1.2% on foreman), so this is how they get
+ * re-derived against the band. 100 is the shipped rule, byte for byte. */
+static int gate_scale(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_GATE_SCALE");
+        v = s ? atoi(s) : 100;
+        if (v < 1) v = 1;
+    }
+    return v;
+}
+
+/* N265_SKIP_EXIT (phase 4): the merge and skip arms run before the AMVP
+ * search, so where they have already ended in a skip whose distortion
+ * is inside the quantiser floor, the CU's winner is decided and the
+ * search - and the partitions behind it - are bought to lose. 1 and 2
+ * are the bound in multiples of the clean-skip level; 3 drops the bound
+ * and asks only that skip beat the merge candidate's own RD. */
+static int skip_exit(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_SKIP_EXIT");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
+/* N265_INTRA_GATE (P3): the intra RD trial inside an inter slice is
+ * 10-14% of the encode and is bought at every CU whether or not the
+ * inter arms left anything for it to win. Each mode adds a disjunct to
+ * the gate on top of 1, the 2Nx2N winner being the skip: 2 the winning
+ * inter candidate's distortion already sitting at the quantiser floor,
+ * 3 the decoded neighbourhood being inter with no luma coefficients.
+ * 4 and 5 instead keep the 35-mode rank and gate only the RD trial,
+ * on the ranked intra prediction being worse than the merge prediction
+ * by 1.5x and by 1.0x in the SAD units both are measured in. 5 is the
+ * default since R12 - P3 refused it on the per-clip bar (coastguard
+ * +1.59) and on the base R7 left it improves the band's mean, median
+ * and worst clip at both operating points; 4 is P3's shipped value and
+ * 0 the pre-P3 encoder. */
+static int intra_gate(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_INTRA_GATE");
+        v = s ? atoi(s) : 5;    /* the prefilter at the tighter margin (R12) */
+    }
+    return v;
+}
+
+/* modes 4 and 5: the prefilter's margin, in eighths of the merge
+ * candidate's SAD */
+static int intra_pf_q8(void)
+{
+    return intra_gate() >= 5 ? 8 : 12;
+}
+
+/* P3 mode 3: every decoded 4x4 along this CU's left and top edges is
+ * inter and carried no luma coefficients. Both edges are fully
+ * available at this point - the left column ends at A1 and the top row
+ * at B1, the same neighbours the AMVP derivation reads. */
+static int nb_inter_clean(struct n265_encoder *e, int x0, int y0, int n)
+{
+    int cells = n >> 2;
+    if (!x0 && !y0)
+        return 0;
+    if (x0 > 0) {
+        int cx = (x0 - 1) >> 2;
+        for (int i = 0; i < cells; i++) {
+            int m = ((y0 >> 2) + i) * e->map_stride + cx;
+            if (e->blk_intra[m] || e->blk_cbf_y[m])
+                return 0;
+        }
+    }
+    if (y0 > 0) {
+        int cy = (y0 - 1) >> 2;
+        for (int i = 0; i < cells; i++) {
+            int m = cy * e->map_stride + ((x0 >> 2) + i);
+            if (e->blk_intra[m] || e->blk_cbf_y[m])
+                return 0;
+        }
+    }
+    return 1;
+}
+
+/* N265_PART_GATE (P4): tighten entry to the rectangular and asymmetric
+ * partition trials, which together are 18-21% of the encode and run a
+ * complete PU search - five merge candidates at SATD, a full ME per
+ * list, a bi refinement - for all four PUs of both orientations before
+ * one orientation is thrown away. 1 makes AMP wait for the rectangular
+ * winner to beat 2Nx2N by a margin; 2 also asks the 2Nx2N AMVP
+ * candidate to have carried residual before rect is entered at all;
+ * 3 also drops rect at the min CB, where its PUs are 8x4/4x8 and its
+ * share per bit is highest; 4 is 3 with the AMP margin widened from 2%
+ * to 8%. 0 is the pre-P4 encoder. */
+static int part_gate(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_PART_GATE");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
+/* percent by which the rectangular winner must beat the 2Nx2N winner
+ * before the AMP orientations are searched */
+static int part_amp_margin(void)
+{
+    return part_gate() >= 4 ? 8 : 2;
+}
+
+/* N265_RECT_RANK (P5): the two rectangular orientations are ranked today
+ * by running a complete PU search for each and throwing one away, and
+ * P4 established that ranking the orientations is where the partition
+ * share is, not entering them. The value is the margin in percent by
+ * which the cheap proxy below has to separate the two before the loser's
+ * search is skipped: a larger margin runs both more often, and 0 is the
+ * pre-P5 encoder.
+ *
+ * Measured and refused at 5, 20 and 50 (docs/phase4-ladder.md, R1). The
+ * proxy is a coin flip on the clip with the texture, the two-motion
+ * proxies that are not do not cover enough of the population to pay,
+ * and a wrong orientation costs about four times what the time it buys
+ * is worth. Kept at 0 for re-pricing. */
+static int rect_rank(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_RECT_RANK");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
+/* Which way a two-PU split would cut, read off the 2Nx2N winner's own
+ * residual. A CU that wants a horizontal boundary carries a residual
+ * whose energy varies down the rows and not across the columns, because
+ * one motion field is right for one band of rows and wrong for the
+ * other. The mean absolute deviation of the row sums against that of the
+ * column sums is that statement; the two share a mean by construction,
+ * so they are directly comparable, and it is one pass over the CU
+ * against try_part's two full PU searches. */
+static void rect_proxy(struct n265_encoder *e, int x0, int y0, int n,
+                       const uint8_t *pred, uint64_t *e_h, uint64_t *e_v)
+{
+    const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
+    int ps = e->pad_stride[0];
+    uint32_t row[32], col[32];
+    uint64_t tot = 0;
+    for (int x = 0; x < n; x++)
+        col[x] = 0;
+    for (int y = 0; y < n; y++) {
+        uint32_t r = 0;
+        for (int x = 0; x < n; x++) {
+            int d = src[y * ps + x] - pred[y * n + x];
+            uint32_t a = (uint32_t)(d < 0 ? -d : d);
+            r += a;
+            col[x] += a;
+        }
+        row[y] = r;
+        tot += r;
+    }
+    uint32_t mean = (uint32_t)(tot / (unsigned)n);
+    uint64_t mr = 0, mc = 0;
+    for (int i = 0; i < n; i++) {
+        mr += row[i] > mean ? row[i] - mean : mean - row[i];
+        mc += col[i] > mean ? col[i] - mean : mean - col[i];
+    }
+    *e_h = mr;      /* rows disagree -> a horizontal cut -> 2NxN */
+    *e_v = mc;      /* columns disagree -> a vertical cut -> Nx2N */
+}
+
+/* N265_DEPTH_BOUND (P2): bound the depth range the quadtree searches to
+ * the range the decoded neighbours and the collocated CTU already used.
+ * 0 off; 1 widens that range by one each way; 3 takes it as it stands.
+ * 2 and 4 are 1 and 3 plus the whole-CTU prediction-only skip trial at
+ * depth 0 even where the bound forbids the CTB depth. 5 and 6 keep only
+ * the upper half of the bound and read it locally, off the 4x4 cells
+ * immediately left of and above the node rather than off whole
+ * neighbouring CTUs: 5 stops one level below the deepest of them, 6 at
+ * their depth. */
+static int depth_bound(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_DEPTH_BOUND");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
+/* how far the bound is widened each way, per mode */
+static int depth_bound_widen(void)
+{
+    return depth_bound() >= 3 ? 0 : 1;
+}
+
+/* modes 5 and 6: the CTU-range bound is replaced by a local one */
+static int depth_bound_local(void)
+{
+    return depth_bound() >= 5;
+}
+
+/* The deepest the decoded 4x4 cells immediately left of and above this
+ * node went. Both edges are available in decode order - the same
+ * neighbours split_inc and the AMVP derivation read - and the split
+ * trial restores the map, so this reads the committed tree only. With
+ * no decoded neighbour at all it does not bound. */
+static int nb_depth_max(struct n265_encoder *e, int x0, int y0, int n)
+{
+    int cells = n >> 2, hi = -1;
+    if (x0 > 0) {
+        int cx = (x0 - 1) >> 2;
+        for (int i = 0; i < cells; i++) {
+            int d = e->ct_depth[((y0 >> 2) + i) * e->map_stride + cx];
+            if (d > hi) hi = d;
+        }
+    }
+    if (y0 > 0) {
+        int cy = (y0 - 1) >> 2;
+        for (int i = 0; i < cells; i++) {
+            int d = e->ct_depth[cy * e->map_stride + ((x0 >> 2) + i)];
+            if (d > hi) hi = d;
+        }
+    }
+    return hi;
+}
+
+/* whether the CTB skip trial survives a bound that forbids depth 0 */
+static int depth_bound_ctb_skip(void)
+{
+    return depth_bound() == 2 || depth_bound() == 4;
 }
 
 /* strict static-region check at the merge candidate: used by the split
@@ -831,6 +1139,56 @@ static int me_satd_on(void)
     return on;
 }
 
+/* R3: the lookahead's inter-against-intra cost over this node, in
+ * percent - sum(pcost) x 100 / sum(icost) over the lowres 8x8 blocks it
+ * covers, the same grid cu-tree averages over. -1 where there is no
+ * field. It is computed before any coding decision is taken, which is
+ * the property P2's depth bound did not have. */
+static int la_inter_pct(struct n265_encoder *e, int x0, int y0, int n)
+{
+    if (!e->la_icost || !e->la_bw)
+        return -1;
+    int b0x = x0 >> 4, b0y = y0 >> 4, nb = n >> 4;
+    uint64_t ic = 0, pc = 0;
+    for (int by = b0y; by < b0y + nb && by < e->la_bh; by++)
+        for (int bx = b0x; bx < b0x + nb && bx < e->la_bw; bx++) {
+            int b = by * e->la_bw + bx;
+            ic += e->la_icost[b];
+            pc += e->la_pcost[b];
+        }
+    if (!ic)
+        return -1;
+    return (int)(pc * 100u / ic);
+}
+
+/* N265_CB64_GATE (R3): the AMVP arm at the 64x64 coding block runs a
+ * whole-CTU PU search and, where that search prefers AMVP to merge, a
+ * commit through the forced TU32 quad. It is 8% of the encode by A/B and
+ * it exists for one case: a 64x64 region whose motion is not in the
+ * merge list. Where the CB64 merge arms have ALREADY improved a long way
+ * on the CU arm, the merge list evidently does have the region's motion,
+ * and the search is bought to lose. 1 and 2 gate on that improvement
+ * exceeding 60 and 75 percent; 3 gates instead on the lookahead calling
+ * the region badly inter-predicted (pcost at or above 70% of icost),
+ * where a single 64x64 motion field is not what it is missing. 0 is the
+ * pre-R3 encoder, byte for byte.
+ *
+ * 1 is the default: -0.01 mean BD on the band - free to the resolution
+ * of the instrument - for 1.033x foreman. 2 is the same rule at a bound
+ * that fires too rarely to pay (1.005x). 3 never fires on CIF at all,
+ * where the lookahead's ratio tops out near 70, and is measured and held
+ * with its park_joy number. Numbers in docs/phase4-ladder.md. */
+static int cb64_gate(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_CB64_GATE");
+        v = s ? atoi(s) : 1;    /* the 60% improvement bound, which is
+                                 * quality-free on the band (R3) */
+    }
+    return v;
+}
+
 /* AMVP 2Nx2N at the CB64 node (the quadtree's log2n == 6 arm set). On
  * since 2026-09-07: -0.38 median BD-VMAF-NEG on the CIF band at 1.06-1.09x
  * the encode time; N265_CB64_AMVP=0 is the escape. */
@@ -875,6 +1233,62 @@ static int bi_refine_iters(void)
             it = 4;
     }
     return it;
+}
+
+/* N265_MERGE_RD_N (R5): how many of the merge list's five candidates get
+ * a prediction and a cost in the prefilter that picks one for the RD
+ * trial. The SIGNALLED list is untouched - MaxNumMergeCand stays 5 and
+ * the merge_idx binarization with it - this is only how many are given
+ * an MC and a SATD (or a SAD at the CU level) first. The list is derivation-ordered, so the ones dropped are the
+ * temporal and combined candidates, not the spatial neighbours. */
+static int merge_rd_n(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_MERGE_RD_N");
+        v = s ? atoi(s) : MAX_MERGE;
+        if (v < 1)
+            v = 1;
+        if (v > MAX_MERGE)
+            v = MAX_MERGE;
+    }
+    return v;
+}
+
+/* N265_BI_GATE (R2): the refinement walks the L0/L1 pair downhill from a
+ * starting point it does not choose - the two independent per-list
+ * winners - and costs about eighteen SATDs against the one the plain
+ * combined pair costs. Where that plain pair is already well behind the
+ * better uni candidate, the walk is bought to lose: the square it steps
+ * over is a quarter-pel wide and cannot close a gap the per-list
+ * searches opened. Run it only where the plain pair is within this
+ * margin of the better uni candidate. 0 is the pre-R2 encoder; 1, 2 and
+ * 3 are margins of 0, 10 and 25 percent - the plain pair may be that far
+ * BEHIND and still be refined - and 4 and 5 turn the margin the other
+ * way and ask the plain pair to beat the better uni by 5 and 15 percent
+ * first. 4 is the default: +0.10 mean BD for 1.041x foreman / 1.021x
+ * mobile, and it improves the worst clip. The positive margins are worth
+ * nothing (1 buys 1.025x foreman and 0.994x mobile) and 5 is priced out
+ * at +0.24 for 1.061x. Numbers in docs/phase4-ladder.md. */
+static int bi_gate(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_BI_GATE");
+        v = s ? atoi(s) : 4;    /* the -5% margin, the one that priced */
+    }
+    return v;
+}
+
+static int bi_gate_margin(void)
+{
+    switch (bi_gate()) {
+    case 2:  return 10;
+    case 3:  return 25;
+    case 4:  return -5;
+    case 5:  return -15;
+    default: return 0;
+    }
 }
 
 /* L1 distance to the nearer of the two AMVP predictors: the historical
@@ -989,12 +1403,21 @@ static uint32_t bi_satd_fixed(struct n265_encoder *e, int x0, int y0, int w,
  * reference index changes the predictor pair with it and a stale mvp
  * would make the decoder reconstruct a different vector. */
 static uint32_t bi_refine(struct n265_encoder *e, const pu_geo *g, mot_t *bi,
-                          mv_t mvp[2][2], int lam4, int base)
+                          mv_t mvp[2][2], int lam4, int base,
+                          uint32_t uni_ref)
 {
     int w = g->w, h = g->h, x0 = g->x, y0 = g->y;
     int16_t fix[64 * 64];
     uint32_t best = mot_satd_wh(e, x0, y0, w, h, *bi) +
         (uint32_t)(((uint64_t)mot_rate_q8(e, g, bi, mvp, base) * lam4) >> 12);
+
+    /* R2: the plain pair is already this far behind the better uni
+     * candidate, in the units the caller will arbitrate in. The zero
+     * probe and the quarter-pel square cannot close that, so stop here
+     * and hand back the cost the caller would have paid anyway. */
+    if (uni_ref != UINT32_MAX &&
+        (int64_t)best * 100 > (int64_t)uni_ref * (100 + bi_gate_margin()))
+        return best;
 
     if (bi->mv[0].x || bi->mv[0].y || bi->mv[1].x || bi->mv[1].y ||
         bi->ref[0] || bi->ref[1]) {
@@ -1265,12 +1688,62 @@ static int intra_rd_mpm(void)
     return v;
 }
 
+/* N265_I_INTRA (phase 4, rung R11): the intra economy inside I slices
+ * only, where there is no inter arm to gate against and every CU pays
+ * the full search. 1 and 2 narrow the RD shortlist to two modes and to
+ * one; 3 ranks the four 4x4 NxN luma blocks over the 8x8 parent's own
+ * neighbourhood instead of all 35 modes; 4 is 2 and 3 together. 0 is
+ * the default: 3 is quality-free but the clean timing pass reads it at
+ * 1.005x foreman against a byte-identical base, so there is nothing to
+ * buy at this keyint (docs/phase4-ladder.md R11). */
+static int i_intra(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_I_INTRA");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
+/* the modes a 4x4 RMD looks at when N265_I_INTRA >= 3: the parent 8x8's
+ * own winner and its two angular neighbours, planar and DC, and the two
+ * most probable modes, which cost two bins where a remainder costs six */
+static int intra_sub_cands(struct n265_encoder *e, int x0, int y0,
+                           int parent, int out[8])
+{
+    int n = 0;
+    out[n++] = 0;
+    out[n++] = 1;
+    if (parent >= 2) {
+        out[n++] = parent;
+        out[n++] = 2 + ((parent - 2 + 31) % 32);
+        out[n++] = 2 + ((parent - 2 + 1) % 32);
+    }
+    int mpm[3];
+    mpm_cands(e, x0, y0, mpm);
+    for (int i = 0; i < 3 && n < 8; i++) {
+        int dup = 0;
+        for (int q = 0; q < n; q++)
+            if (out[q] == mpm[i])
+                dup = 1;
+        if (!dup)
+            out[n++] = mpm[i];
+    }
+    return n;
+}
+
 /* RD-refine the intra luma mode over the SATD-ranked shortlist: only
  * mode-dependent bits (MPM, cbfs, residuals) enter the compare */
 static int intra_rd_pick(struct n265_encoder *e, int x0, int y0, int log2n)
 {
     int cands[INTRA_RD_MAX + 3];
-    int nk = intra_rd_n(), ncand = nk;
+    int nk = intra_rd_n();
+    if (e->slice_type == 2 && (i_intra() == 1 || i_intra() == 2))
+        nk = 3 - i_intra();     /* 1 -> two modes, 2 -> the rank's winner */
+    if (e->slice_type == 2 && i_intra() == 4)
+        nk = 1;
+    int ncand = nk;
     search_luma_mode_k(e, x0, y0, log2n, e->recon[0], NULL, cands, nk);
     if (intra_rd_mpm()) {
         /* an MPM costs two bits where a remainder costs six, so a mode the
@@ -1362,7 +1835,8 @@ static uint64_t cu_area_ssd(struct n265_encoder *e, int x0, int y0, int n)
 static uint64_t skip_clean_thr(int qp, int n)
 {
     double qstep = pow(2.0, (qp - 4) / 6.0);
-    return (uint64_t)((double)n * n * qstep * qstep / 4.0);
+    return (uint64_t)((double)n * n * qstep * qstep / 4.0 *
+                      es_thr_pct() / 100.0);
 }
 
 /* --- rectangular and asymmetric inter partitions --- */
@@ -1432,7 +1906,7 @@ static uint32_t search_pu(struct n265_encoder *e, const pu_geo *g,
     n265_merge_list_pu(e, g, mlist, MAX_MERGE);
     int best_m = 0;
     uint32_t best_mc = UINT32_MAX;
-    for (int i = 0; i < MAX_MERGE; i++) {
+    for (int i = 0; i < merge_rd_n(); i++) {
         uint32_t c = mot_satd_wh(e, g->x, g->y, w, h, mlist[i]) +
                      (uint32_t)(((i + 1) * lam4) >> 4);
         if (c < best_mc) {
@@ -1453,7 +1927,12 @@ static uint32_t search_pu(struct n265_encoder *e, const pu_geo *g,
             mv_t p[2], mv;
             n265_amvp_pu(e, l, r, g, p);
             mv_t seed = p[0];
-            if (start && (start[l].x != p[0].x || start[l].y != p[0].y) &&
+            /* the seed choice is decided at full pel - n265_me_search
+             * truncates whatever it is given - so where the 2Nx2N
+             * winner and the predictor share a full-pel position the
+             * two whole-PU SADs below decide nothing and are skipped */
+            if (start && ((start[l].x >> 2) != (p[0].x >> 2) ||
+                          (start[l].y >> 2) != (p[0].y >> 2)) &&
                 n265_mc_sad(e, l, r, g->x, g->y, w, h, start[l]) <
                     n265_mc_sad(e, l, r, g->x, g->y, w, h, p[0]))
                 seed = start[l];
@@ -1508,7 +1987,10 @@ static uint32_t search_pu(struct n265_encoder *e, const pu_geo *g,
             memcpy(bp, mvp, sizeof(bp));
             uint32_t c;
             if (bi_refine_iters()) {
-                c = bi_refine(e, g, &bi, bp, lam4, 6);
+                /* `acost` is the better uni candidate in exactly the
+                 * units bi_refine costs the pair in */
+                c = bi_refine(e, g, &bi, bp, lam4, 6,
+                              bi_gate() ? acost : UINT32_MAX);
             } else {
                 c = mot_satd_wh(e, g->x, g->y, w, h, bi) +
                     (uint32_t)(((uint64_t)mot_rate_q8(e, g, &bi, bp, 6) *
@@ -1755,6 +2237,7 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
     int n = 1 << log2n;
     int qp_c = n265_chroma_qp(e->cur_ctu_qp);
     e->last_skip_clean = 0;
+    e->last_cu_nores = 0;
     mark_cu_edges(e, x0, y0, n);
 
     size_t pos0 = e->rec_len;
@@ -1767,7 +2250,7 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
         n265_merge_list(e, x0, y0, n, n, mlist, MAX_MERGE);
         int midx = 0;
         uint32_t cand_plain_sad = mot_sad(e, x0, y0, log2n, mlist[0]);
-        for (int i = 1; i < MAX_MERGE; i++) {
+        for (int i = 1; i < merge_rd_n(); i++) {
             uint32_t sd = mot_sad(e, x0, y0, log2n, mlist[i]);
             if (sd < cand_plain_sad) {
                 cand_plain_sad = sd;
@@ -1786,6 +2269,7 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                     e->ent_qp_coded ? e->cur_ctu_qp : e->ent_qp_prev);
             uint64_t ssd = cu_area_ssd(e, x0, y0, n);
             e->last_skip_clean = ssd <= skip_clean_thr(e->cur_ctu_qp, n);
+            e->last_cu_nores = 1;
             return rd_j(ssd, adv.bits, n265_lambda_mode_q8(e->cur_ctu_qp));
         }
 
@@ -1798,9 +2282,12 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
             if (no_gates < 0)
                 no_gates = getenv("N265_NO_GATES") != NULL;
             int gate_amvp = !no_gates &&
-                            cand_plain_sad < (uint32_t)(n * n) / 8;
+                (uint64_t)cand_plain_sad * 800u <
+                    (uint64_t)(n * n) * (unsigned)gate_scale();
             int gate_intra = !no_gates &&
-                             cand_plain_sad < (uint32_t)(n * n) / 4;
+                (uint64_t)cand_plain_sad * 400u <
+                    (uint64_t)(n * n) * (unsigned)gate_scale();
+            int gate_part = 0;
 
             /* merge candidate (and the forced-skip variant) */
             tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, cand, &m_tl);
@@ -1812,6 +2299,11 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
             tb_make_recon(1, log2n - 1, qp_c, MODE_INTER, &m_tcb);
             tb_make_recon(2, log2n - 1, qp_c, MODE_INTER, &m_tcr);
             int m_any = m_tl.nz || m_tcb.nz || m_tcr.nz;
+            /* P1 CBF fast: the merge prediction already quantised to
+             * nothing, so every remaining candidate can only re-buy the
+             * same block with more syntax */
+            if ((cbf_fast() == 1 || cbf_fast() == 2) && !m_any)
+                gate_amvp = gate_intra = 1;
             uint64_t d_merge = tb_ssd(e, 0, x0, y0, log2n, &m_tl) +
                 tb_ssd(e, 1, x0 / 2, y0 / 2, log2n - 1, &m_tcb) +
                 tb_ssd(e, 2, x0 / 2, y0 / 2, log2n - 1, &m_tcr);
@@ -1856,12 +2348,25 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                 j_merge = rd_j(d_merge, st.bits, lam);
             }
 
+            /* the merge-first skip exit: both merge arms are priced by
+             * now, and where the skip won on J with its distortion
+             * inside the quantiser floor, this CU's winner is already
+             * decided - the AMVP search cannot code less than nothing,
+             * and the rect/AMP trials are never entered on a CU the
+             * skip wins anyway. */
+            if (skip_exit() && !gate_amvp && j_skip <= j_merge &&
+                (skip_exit() >= 3 ||
+                 d_skip * (skip_exit() == 1 ? 4u : 1u) <=
+                     skip_clean_thr(e->cur_ctu_qp, n)))
+                gate_amvp = 1;
+
             /* amvp candidate: per-list ME, then the best of uni-L0,
              * uni-L1, bi by prediction SAD carries to RD */
             mv_t mvp[2][2] = { { { 0, 0 }, { 0, 0 } },
                                { { 0, 0 }, { 0, 0 } } };
             mv_t me_mv[2] = { { 0, 0 }, { 0, 0 } };
             uint64_t j_amvp = UINT64_MAX;
+            uint64_t d_amvp = UINT64_MAX;
             int a_any = 0;
             int mvp_idx[2] = { 0, 0 };
             mot_t amot = { { { 0, 0 }, { 0, 0 } }, 1 };
@@ -1907,8 +2412,6 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                     mot_t bi = { { me_mv[0], me_mv[1] }, 3, { amot.ref[0], amot.ref[1] } };
                     mv_t bp[2][2];
                     memcpy(bp, mvp, sizeof(bp));
-                    if (bi_refine_iters())
-                        (void)bi_refine(e, &pg, &bi, bp, lam4, 6);
                     /* SAD cannot tell the blur of a bi average from a
                      * misalignment, and this is the comparison that
                      * decides bi against uni; N265_ME_SATD makes it the
@@ -1918,12 +2421,36 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                                      : mot_sad(e, x0, y0, log2n, amot);
                     uint32_t s1 = ms ? mot_satd_wh(e, x0, y0, n, n, u1)
                                      : mot_sad(e, x0, y0, log2n, u1);
-                    uint32_t sb = ms ? mot_satd_wh(e, x0, y0, n, n, bi)
-                                     : mot_sad(e, x0, y0, log2n, bi);
                     if (mvd_bits_on()) {
                         s0 += (uint32_t)(((uint64_t)mot_rate_q8(e, &pg, &amot, mvp, 6) * lam4) >> 12);
                         s1 += (uint32_t)(((uint64_t)mot_rate_q8(e, &pg, &u1, mvp, 6) * lam4) >> 12);
-                        sb += (uint32_t)(((uint64_t)mot_rate_q8(e, &pg, &bi, bp, 6) * lam4) >> 12);
+                    }
+                    /* R2: ask the gate in the units this arbitration
+                     * runs in rather than bi_refine's, because those are
+                     * SAD here by default and Hadamard inside. The plain
+                     * pair's cost is the one number both the gate and
+                     * the comparison below need. */
+                    uint32_t sb = UINT32_MAX;
+                    int refine = bi_refine_iters() != 0;
+                    if (refine && bi_gate()) {
+                        sb = ms ? mot_satd_wh(e, x0, y0, n, n, bi)
+                                : mot_sad(e, x0, y0, log2n, bi);
+                        if (mvd_bits_on())
+                            sb += (uint32_t)(((uint64_t)mot_rate_q8(e, &pg, &bi, bp, 6) * lam4) >> 12);
+                        uint32_t uni = s0 < s1 ? s0 : s1;
+                        if ((int64_t)sb * 100 >
+                            (int64_t)uni * (100 + bi_gate_margin()))
+                            refine = 0;
+                        else
+                            sb = UINT32_MAX;    /* the walk will move it */
+                    }
+                    if (refine)
+                        (void)bi_refine(e, &pg, &bi, bp, lam4, 6, UINT32_MAX);
+                    if (sb == UINT32_MAX) {
+                        sb = ms ? mot_satd_wh(e, x0, y0, n, n, bi)
+                                : mot_sad(e, x0, y0, log2n, bi);
+                        if (mvd_bits_on())
+                            sb += (uint32_t)(((uint64_t)mot_rate_q8(e, &pg, &bi, bp, 6) * lam4) >> 12);
                     }
                     if (s1 < s0 && s1 <= sb)
                         amot = u1;
@@ -1940,7 +2467,10 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                      (amot.mv[1].x == cand.mv[1].x &&
                       amot.mv[1].y == cand.mv[1].y && amot.ref[1] == cand.ref[1]));
             }
-            if (!gate_amvp && !same_as_cand && !getenv("N265_NO_AMVP")) {
+            static int no_amvp = -1;
+            if (no_amvp < 0)
+                no_amvp = getenv("N265_NO_AMVP") != NULL;
+            if (!gate_amvp && !same_as_cand && !no_amvp) {
                 tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, amot,
                            &a_tl);
                 tb_analyze(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c,
@@ -1954,6 +2484,7 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                 uint64_t d = tb_ssd(e, 0, x0, y0, log2n, &a_tl) +
                     tb_ssd(e, 1, x0 / 2, y0 / 2, log2n - 1, &a_tcb) +
                     tb_ssd(e, 2, x0 / 2, y0 / 2, log2n - 1, &a_tcr);
+                d_amvp = d;
                 /* the vector actually coded, not the per-list ME winner:
                  * the two are the same only until a bi refinement moves
                  * one of them, and a predictor picked for the other
@@ -1979,13 +2510,62 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                     est_tt_bits(e, &st, log2n, MODE_INTER, &a_tl, &a_tcb,
                                 &a_tcr);
                 j_amvp = rd_j(d, st.bits, lam);
+                /* P1 CBF fast, second stage: the searched vector's
+                 * residual quantised away too */
+                if (cbf_fast() >= 2 && !a_any)
+                    gate_intra = gate_part = 1;
+            }
+
+            /* P3: what the inter arms already proved decides whether
+             * the intra arm is worth its 35-mode rank and its
+             * three-component RD trial. Never gated where the lookahead
+             * calls the frame intra-heavy - sc_ratio at or above 0.6,
+             * just under the 0.75 scenecut bar - because that is the
+             * content whose intra CUs are the coding. */
+            if (intra_gate() && !gate_intra && e->sc_ratio < 0.6f) {
+                uint64_t j_inter = j_skip, d_inter = d_skip;
+                if (j_merge < j_inter) { j_inter = j_merge; d_inter = d_merge; }
+                if (j_amvp < j_inter) { j_inter = j_amvp; d_inter = d_amvp; }
+                int g = 0;
+                /* the 2Nx2N winner is the skip: the neighbours' motion
+                 * explains the block with no residual at all, and an
+                 * intra CU there codes a prediction mode and a residual
+                 * to say the same thing */
+                if (j_inter == j_skip)
+                    g = 1;
+                /* the winning inter candidate's distortion is already at
+                 * the quantiser floor (per-pixel MSE within qstep^2), so
+                 * intra has no distortion left to buy and can only spend
+                 * bits */
+                if ((intra_gate() == 2 || intra_gate() == 3) && !g &&
+                    d_inter <= 4 * skip_clean_thr(e->cur_ctu_qp, n))
+                    g = 1;
+                /* and the neighbourhood agrees: no intra structure is
+                 * arriving from either decoded edge */
+                if (intra_gate() == 3 && !g && nb_inter_clean(e, x0, y0, n))
+                    g = 1;
+                gate_intra = g;
             }
 
             /* intra candidate (2Nx2N, SAD-ranked best mode) */
             uint64_t j_intra = UINT64_MAX;
             int imode = 1;
+            uint32_t isad = UINT32_MAX;
             if (!gate_intra) {
-            imode = search_luma_mode(e, x0, y0, log2n, e->recon[0], NULL);
+            imode = search_luma_mode(e, x0, y0, log2n, e->recon[0],
+                                     intra_gate() >= 4 ? &isad : NULL);
+            /* P3 modes 4 and 5: the 35-mode rank is the cheap half of
+             * the intra arm (3.8% of the encode against the RD trial's
+             * 10-14%) and it reports its winner's prediction SAD in the
+             * same units the merge candidate was ranked in. Where the
+             * best intra prediction is worse than the merge one by this
+             * margin, the RD trial is bought to lose. */
+            if (intra_gate() >= 4 && e->sc_ratio < 0.6f &&
+                (uint64_t)isad * 8u >
+                    (uint64_t)cand_plain_sad * (unsigned)intra_pf_q8())
+                gate_intra = 1;
+            }
+            if (!gate_intra) {
             tb_analyze(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c, imode,
                        mot_zero, &i_tcb);
             tb_analyze(e, 2, x0 / 2, y0 / 2, log2n - 1, qp_c, imode,
@@ -2054,11 +2634,45 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
              * and only above the min CB where the spec allows it. */
             static part_cand pca, pcb;
             part_cand *cur = &pca, *pwin = NULL;
-            if (e->rect && kind != 0 && !gate_amvp) {
+            /* P4: a two-PU split can only pay where the block's own
+             * searched motion left something to code. Where the AMVP
+             * candidate reproduced the merge vector, or its residual
+             * quantised away, the neighbours' single motion field
+             * already explains the block. */
+            int rect_ok = 1;
+            if (part_gate() >= 2)
+                rect_ok = a_any;
+            if (part_gate() >= 3 && log2n == MIN_CB_LOG2)
+                rect_ok = 0;
+            uint64_t best_2n = best;
+            if (e->rect && kind != 0 && !gate_amvp && !gate_part && rect_ok) {
                 mv_t start[2] = { me_mv[0], me_mv[1] };
                 pu_dec dh[2], dv[2];
-                uint32_t ch = try_part(e, x0, y0, n, PART_2NxN, start, dh);
-                uint32_t cv = try_part(e, x0, y0, n, PART_Nx2N, start, dv);
+                /* P5: pre-rank the two orientations off the 2Nx2N
+                 * winner's residual and search only the winner, unless
+                 * the proxy cannot separate them by the margin. The
+                 * AMVP candidate's residual is the evidence when it
+                 * exists - it is the block's own best single motion, so
+                 * what it leaves behind is what a second motion field
+                 * would have to explain - and the merge candidate's
+                 * otherwise. */
+                int do_h = 1, do_v = 1;
+                if (rect_rank()) {
+                    uint64_t e_h, e_v;
+                    rect_proxy(e, x0, y0, n,
+                               j_amvp != UINT64_MAX ? a_tl.pred : m_tl.pred,
+                               &e_h, &e_v);
+                    unsigned mg = (unsigned)rect_rank();
+                    if (e_h * 100 > e_v * (100 + mg))
+                        do_v = 0;
+                    else if (e_v * 100 > e_h * (100 + mg))
+                        do_h = 0;
+                }
+                uint32_t ch = UINT32_MAX, cv = UINT32_MAX;
+                if (do_h)
+                    ch = try_part(e, x0, y0, n, PART_2NxN, start, dh);
+                if (do_v)
+                    cv = try_part(e, x0, y0, n, PART_Nx2N, start, dv);
                 int horiz = ch <= cv;
                 cur->part = horiz ? PART_2NxN : PART_Nx2N;
                 memcpy(cur->d, horiz ? dh : dv, sizeof(cur->d));
@@ -2068,7 +2682,10 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                     kind = 4;
                     pwin = cur;
                     cur = cur == &pca ? &pcb : &pca;
-                    if (e->amp && log2n > MIN_CB_LOG2) {
+                    if (e->amp && log2n > MIN_CB_LOG2 &&
+                        (!part_gate() ||
+                         jr * (100 + (unsigned)part_amp_margin()) <=
+                             best_2n * 100)) {
                         int a0 = horiz ? PART_2NxnU : PART_nLx2N;
                         int a1 = horiz ? PART_2NxnD : PART_nRx2N;
                         pu_dec da[2], db[2];
@@ -2088,10 +2705,12 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
             if (kind == 0) {
                 skip_cu(e, x0, y0, log2n, cand, midx);
                 e->last_skip_clean = d_skip <= skip_clean_thr(e->cur_ctu_qp, n);
+                e->last_cu_nores = 1;
             } else if (kind == 4) {
                 commit_inter_cu(e, x0, y0, log2n, pwin->part, pwin->d,
                                 pwin->any, &pwin->tl, &pwin->tcb,
                                 &pwin->tcr, pwin);
+                e->last_cu_nores = !pwin->any;
             } else if (kind == 1 || kind == 2) {
                 tb_ctx *tl = kind == 1 ? &m_tl : &a_tl;
                 tb_ctx *tcb = kind == 1 ? &m_tcb : &a_tcb;
@@ -2100,6 +2719,7 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                 commit_inter_cu(e, x0, y0, log2n, PART_2Nx2N,
                                 kind == 1 ? &pd[0] : &pd[1], any, tl, tcb,
                                 tcr, NULL);
+                e->last_cu_nores = !any;
             }
             if (kind != 3) {
                 e->rec_pos = pos0;
@@ -2126,11 +2746,20 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
         modes[0] = search_luma_mode(e, x0, y0, log2n, e->recon[0], &cost2n);
         uint32_t costn = 0;
         int nmodes[4];
+        /* I slices, N265_I_INTRA >= 3: the four 4x4 ranks run over the
+         * 8x8 parent's own neighbourhood rather than all 35 modes. The
+         * parent was just ranked at the same position off the same
+         * reference samples, so its winner is the direction this block
+         * is in; what a 4x4 adds is a step either side of it. */
+        int sub[8], nsub = 0;
+        if (e->slice_type == 2 && i_intra() >= 3)
+            nsub = intra_sub_cands(e, x0, y0, modes[0], sub);
         for (int i = 0; i < 4; i++) {
             uint32_t c;
-            nmodes[i] = search_luma_mode(e, x0 + (i & 1) * 4,
-                                         y0 + (i >> 1) * 4, log2n - 1,
-                                         e->pad_plane[0], &c);
+            nmodes[i] = search_luma_mode_sub(e, x0 + (i & 1) * 4,
+                                             y0 + (i >> 1) * 4, log2n - 1,
+                                             e->pad_plane[0], &c, NULL, 0,
+                                             nsub ? sub : NULL, nsub);
             costn += c;
         }
         if (costn < cost2n) {
@@ -2139,7 +2768,10 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
                 modes[i] = nmodes[i];
         }
         rec_u8(e, (unsigned)nxn);
-        if (getenv("N265_MODE_HIST")) {
+        static int hist_on = -1;
+        if (hist_on < 0)
+            hist_on = getenv("N265_MODE_HIST") != NULL;
+        if (hist_on) {
             g_nxn += nxn;
             g_2nx2n_min += !nxn;
         }
@@ -2353,6 +2985,56 @@ static uint64_t quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
         return j;
     }
 
+    /* P2: this node is above the depth range the neighbourhood used, so
+     * the no-split arm (and, at the CTB, its CB64 arms) never wins.
+     * Recurse straight away. Modes 2 and 4 keep one arm here: the
+     * whole-CTU prediction-only skip, which is cheap and is the one
+     * thing a neighbourhood bound gets wrong when a moving picture
+     * goes still. */
+    if (depth_bound() && depth < e->db_lo) {
+        static qt_snap fpre, fwon;      /* only depth 0 uses these */
+        uint64_t j_cu2 = UINT64_MAX;
+        size_t rec_base2 = e->rec_len;
+        if (depth_bound_ctb_skip() && log2n == e->ctb_log2 &&
+            e->slice_type != 2 && e->ref_valid) {
+            qt_save(e, &fpre, x0, y0, n);
+            uint32_t b0 = n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + split_inc],
+                                       0);
+            mot_t mlist[MAX_MERGE];
+            n265_merge_list(e, x0, y0, n, n, mlist, MAX_MERGE);
+            int midx = 0;
+            uint32_t sd0 = mot_sad(e, x0, y0, log2n, mlist[0]);
+            for (int i = 1; i < merge_rd_n(); i++) {
+                uint32_t sd = mot_sad(e, x0, y0, log2n, mlist[i]);
+                if (sd < sd0) { sd0 = sd; midx = i; }
+            }
+            size_t pos0 = e->rec_len;
+            mark_cu_edges(e, x0, y0, n);
+            skip_cu(e, x0, y0, log2n, mlist[midx], midx);
+            e->rec_pos = pos0;
+            est_state adv = { e->est_ctx, 0 };
+            n265_est_advance_cu(e, &adv, x0, y0, log2n);
+            set_blk(e, e->blk_qp, x0, y0, n,
+                    e->ent_qp_coded ? e->cur_ctu_qp : e->ent_qp_prev);
+            set_blk(e, e->ct_depth, x0, y0, n, depth);
+            j_cu2 = rd_j(cu_area_ssd(e, x0, y0, n), adv.bits + b0, lam);
+            qt_save(e, &fwon, x0, y0, n);
+            qt_save_records(e, &fwon, rec_base2);
+            qt_restore(e, &fpre, x0, y0, n);
+        }
+        uint32_t b1 = n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + split_inc], 1);
+        uint64_t js = (uint64_t)b1 * lam >> 16;
+        int hh = n >> 1;
+        for (int i = 0; i < 4; i++)
+            js += quadtree(e, x0 + (i & 1) * hh, y0 + (i >> 1) * hh,
+                           log2n - 1, depth + 1);
+        if (j_cu2 <= js) {
+            qt_restore(e, &fwon, x0, y0, n);
+            return j_cu2;
+        }
+        return js;
+    }
+
     static int no_split = -1;
     if (no_split < 0)
         no_split = getenv("N265_NO_SPLIT") != NULL;
@@ -2381,6 +3063,16 @@ static uint64_t quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
         no_es = getenv("N265_NO_EARLYSKIP") != NULL;
     if (e->last_skip_clean && !no_es)
         return j_cu;
+    /* P1 rskip: the no-split arm left no residual at all, so the four
+     * children can only re-buy the same prediction with four sets of
+     * syntax. Mode 1 also asks that neither decoded neighbour went
+     * deeper than this node - where they did, this block is on a real
+     * boundary and the split is worth trying anyway. Above 32 the CU
+     * arm is intra-or-strict-skip and the CB64 arms below have not run,
+     * so the rule stays where the full candidate set decided. */
+    if (rskip_mode() && log2n <= 5 && e->last_cu_nores &&
+        (rskip_mode() >= 2 || !split_inc))
+        return j_cu;
 
     /* 64x64 whole-CU skip: prediction-only, so it is legal where the
      * flat-TB inter candidates are not (max TB 32). RD it against the
@@ -2399,7 +3091,7 @@ static uint64_t quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
         n265_merge_list(e, x0, y0, n, n, mlist, MAX_MERGE);
         int midx = 0;
         uint32_t sd0 = mot_sad(e, x0, y0, log2n, mlist[0]);
-        for (int i = 1; i < MAX_MERGE; i++) {
+        for (int i = 1; i < merge_rd_n(); i++) {
             uint32_t sd = mot_sad(e, x0, y0, log2n, mlist[i]);
             if (sd < sd0) {
                 sd0 = sd;
@@ -2417,8 +3109,13 @@ static uint64_t quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
         set_blk(e, e->ct_depth, x0, y0, n, depth);
         uint64_t j_skip = rd_j(cu_area_ssd(e, x0, y0, n),
                                adv.bits + b0, lam);
+        uint64_t j_arm1 = j_cu;         /* R3 reads how far the merge
+                                         * arms improve on the CU arm */
         if (j_skip < j_cu) {
-            if (getenv("N265_CB64_TRACE"))
+            static int cb64_trace = -1;
+            if (cb64_trace < 0)
+                cb64_trace = getenv("N265_CB64_TRACE") != NULL;
+            if (cb64_trace)
                 fprintf(stderr, "cb64skip poc=%d ctu=(%d,%d) midx=%d pred=%d mv0=(%d,%d) mv1=(%d,%d)\n",
                         e->poc, x0 >> 6, y0 >> 6, midx, mlist[midx].pred,
                         mlist[midx].mv[0].x, mlist[midx].mv[0].y,
@@ -2460,7 +3157,14 @@ static uint64_t quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
          * the same forced TU32 quad the merge arm uses. Entered only
          * where the PU search prefers AMVP to merge - where merge wins
          * the arm above already has it. */
-        if (cb64_amvp()) {
+        int amvp_gated = 0;
+        if (cb64_gate() == 3) {
+            amvp_gated = la_inter_pct(e, x0, y0, n) >= 70;
+        } else if (cb64_gate() && j_arm1 && j_arm1 != UINT64_MAX) {
+            int imp = (int)(100 - (uint64_t)j_cu * 100 / j_arm1);
+            amvp_gated = imp >= (cb64_gate() >= 2 ? 75 : 60);
+        }
+        if (cb64_amvp() && !amvp_gated) {
             qt_save(e, ss, x0, y0, n);
             qt_save_records(e, ss, rec_base);
             qt_restore(e, sp, x0, y0, n);
@@ -2487,6 +3191,18 @@ static uint64_t quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
                 qt_restore(e, ss, x0, y0, n);
         }
     }
+
+    /* P2: the neighbourhood never went below this depth, so the split
+     * arm is not worth its four candidate sets. The no-split arm has
+     * run and its state stands; its J already carries the split flag. */
+    if (depth_bound() && !depth_bound_local() && depth >= e->db_hi)
+        return j_cu;
+    if (depth_bound_local()) {
+        int hi = nb_depth_max(e, x0, y0, n);
+        if (hi >= 0 && depth >= hi + (depth_bound() == 5))
+            return j_cu;
+    }
+
     qt_save(e, sw, x0, y0, n);
     qt_save_records(e, sw, rec_base);
 
@@ -2506,6 +3222,55 @@ static uint64_t quadtree(struct n265_encoder *e, int x0, int y0, int log2n,
     return j_split;
 }
 
+/* P2: the depth range this CTU's quadtree may search, from the decoded
+ * spatial neighbours (left, above, above-left, above-right) and, in an
+ * inter slice, the collocated CTU of the nearest reference, widened by
+ * one each way. With nothing decided yet the range is the whole tree. */
+static void depth_bounds(struct n265_encoder *e, int ctb_x, int ctb_y)
+{
+    int maxd = e->ctb_log2 - MIN_CB_LOG2;
+    e->db_lo = 0;
+    e->db_hi = maxd;
+    if (!depth_bound() || depth_bound_local())
+        return;
+    static const int dx[4] = { -1, 0, -1, 1 };
+    static const int dy[4] = { 0, -1, -1, -1 };
+    int lo = maxd, hi = 0, have = 0;
+    for (int i = 0; i < 4; i++) {
+        int nx = ctb_x + dx[i], ny = ctb_y + dy[i];
+        if (nx < 0 || ny < 0 || nx >= e->ctb_cols || ny >= e->ctb_rows)
+            continue;
+        int k = ny * e->ctb_cols + nx;
+        if (e->ctu_dmin[k] == 0xff)
+            continue;
+        if (e->ctu_dmin[k] < lo) lo = e->ctu_dmin[k];
+        if (e->ctu_dmax[k] > hi) hi = e->ctu_dmax[k];
+        have = 1;
+    }
+    if (e->slice_type != 2 && e->ref_valid) {
+        const struct n265_refpic *near = NULL;
+        for (int l = 0; l < 2; l++)
+            for (int r = 0; r < e->nref[l]; r++) {
+                const struct n265_refpic *p = e->refl[l][r];
+                if (!p || !p->ctu_dmin)
+                    continue;
+                if (!near || abs(p->poc - e->poc) < abs(near->poc - e->poc))
+                    near = p;
+            }
+        int k = ctb_y * e->ctb_cols + ctb_x;
+        if (near && near->ctu_dmin[k] != 0xff) {
+            if (near->ctu_dmin[k] < lo) lo = near->ctu_dmin[k];
+            if (near->ctu_dmax[k] > hi) hi = near->ctu_dmax[k];
+            have = 1;
+        }
+    }
+    if (!have)
+        return;
+    int w = depth_bound_widen();
+    e->db_lo = lo > w ? lo - w : 0;
+    e->db_hi = hi + w < maxd ? hi + w : maxd;
+}
+
 void n265_analyze_ctu(struct n265_encoder *e, int ctb_x, int ctb_y)
 {
     int q = e->qp + e->ctu_qp_off[ctb_y * e->ctb_cols + ctb_x];
@@ -2513,8 +3278,26 @@ void n265_analyze_ctu(struct n265_encoder *e, int ctb_x, int ctb_y)
     e->ent_ctu_qp = e->cur_ctu_qp;
     e->ent_qp_coded = 0;
     clear_cu_pred(e);
+    depth_bounds(e, ctb_x, ctb_y);
     (void)quadtree(e, ctb_x << e->ctb_log2, ctb_y << e->ctb_log2,
                    e->ctb_log2, 0);
+    if (depth_bound()) {    /* record what this CTU actually used */
+        int x0 = ctb_x << e->ctb_log2, y0 = ctb_y << e->ctb_log2;
+        int n = 1 << e->ctb_log2;
+        int xe = (x0 + n) >> 2, ye = (y0 + n) >> 2;
+        if (xe > (e->pad_w >> 2)) xe = e->pad_w >> 2;
+        if (ye > (e->pad_h >> 2)) ye = e->pad_h >> 2;
+        int lo = 0xff, hi = 0;
+        for (int y = y0 >> 2; y < ye; y++)
+            for (int x = x0 >> 2; x < xe; x++) {
+                int d = e->ct_depth[y * e->map_stride + x];
+                if (d < lo) lo = d;
+                if (d > hi) hi = d;
+            }
+        int k = ctb_y * e->ctb_cols + ctb_x;
+        e->ctu_dmin[k] = (uint8_t)(lo == 0xff ? 0 : lo);
+        e->ctu_dmax[k] = (uint8_t)hi;
+    }
     if (e->ent_qp_coded)
         e->ent_qp_prev = e->cur_ctu_qp;
 }

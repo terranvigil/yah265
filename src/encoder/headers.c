@@ -4,6 +4,7 @@
  */
 
 #include "encoder/encoder.h"
+#include "encoder/sao.h"
 
 /* general_level_idc = level * 30. Picked from Table A.8's MaxLumaPs plus
  * the per-dimension bound sqrt(MaxLumaPs * 8). Bitrate limits are ignored:
@@ -119,7 +120,8 @@ void n265_write_sps(struct n265_encoder *e)
      * part_mode codes 2NxN/Nx2N in three bins instead of two, so it must
      * track exactly what ctu.c/entropy.c assume */
     bs_put_bits(bs, e->amp != 0, 1);
-    bs_put_bits(bs, e->mode != N265_MODE_PCM, 1); /* sample_adaptive_offset */
+    bs_put_bits(bs, e->mode != N265_MODE_PCM && n265_sao_enabled(), 1);
+                                    /* sample_adaptive_offset_enabled_flag */
     if (e->mode == N265_MODE_PCM) {
         bs_put_bits(bs, 1, 1);      /* pcm_enabled_flag */
         bs_put_bits(bs, 7, 4);      /* pcm_sample_bit_depth_luma_minus1 */

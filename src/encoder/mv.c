@@ -3,8 +3,8 @@
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
+#include <math.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <stdlib.h>
 
 #include "encoder/mc.h"
@@ -85,8 +85,13 @@ static mv_t mv_scale(mv_t mv, int tb, int td)
 static int tmvp_mv(struct n265_encoder *e, const pu_geo *g,
                    int list, int ref, mv_t *out)
 {
+    static int no_tmvp = -1;    /* diagnostic toggle, cached: this runs
+                                 * once per merge list and twice per AMVP
+                                 * derivation, which is a per-PU path */
+    if (no_tmvp < 0)
+        no_tmvp = getenv("N265_NO_TMVP") != NULL;
     const struct n265_refpic *col = e->refl[0][0];
-    if (!col || !col->valid || getenv("N265_NO_TMVP"))   /* diagnostic toggle */
+    if (!col || !col->valid || no_tmvp)
         return 0;
     int c16w = (e->pad_w + 15) >> 4;
     int i16 = -1;
@@ -236,7 +241,12 @@ int n265_merge_list_pu(struct n265_encoder *e, const pu_geo *g, mot_t out[],
                 out[i].mv[1].x = out[i].mv[1].y = 0;
                 out[i].ref[1] = 0;
             }
-    if (getenv("N265_MERGE_TRACE") && e->display_idx == atoi(getenv("N265_MERGE_TRACE"))) {
+    static int trace_disp = -2;     /* cached: once per merge list */
+    if (trace_disp == -2) {
+        const char *s = getenv("N265_MERGE_TRACE");
+        trace_disp = s ? atoi(s) : -1;
+    }
+    if (trace_disp >= 0 && e->display_idx == trace_disp) {
         fprintf(stderr, "MRG disp=%d cu=(%d,%d,%dx%d) type=%d nref=%d/%d:", e->display_idx, x0, y0, nw, nh, e->slice_type, e->nref[0], e->nref[1]);
         for (int i = 0; i < n; i++) fprintf(stderr, " %d:p%d r%d/%d (%d,%d|%d,%d)", i, out[i].pred, out[i].ref[0], out[i].ref[1], out[i].mv[0].x, out[i].mv[0].y, out[i].mv[1].x, out[i].mv[1].y);
         fprintf(stderr, "\n");
@@ -369,9 +379,11 @@ uint32_t n265_mc_sad(struct n265_encoder *e, int list, int ridx, int x0, int y0,
     const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
     if ((mv.x | mv.y) & 3) {    /* fractional: interpolate then SAD */
         uint8_t pred[64 * 64];
-        const uint8_t *rp = ref->plane[0] +
-            (y0 + (mv.y >> 2)) * ref->stride[0] + x0 + (mv.x >> 2);
-        n265_mc_luma_wh(pred, w, w, h, rp, ref->stride[0], mv.x & 3, mv.y & 3);
+        int ix = x0 + (mv.x >> 2), iy = y0 + (mv.y >> 2);
+        const uint8_t *rp = ref->plane[0] + iy * ref->stride[0] + ix;
+        n265_mc_luma_hf(pred, w, w, h, rp, ref->stride[0],
+                        n265_ref_hf(ref, ix, iy, w, h, mv.x & 3),
+                        ref->hf_stride, mv.x & 3, mv.y & 3);
         uint32_t sad = 0;
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++) {
@@ -400,9 +412,11 @@ static uint32_t mc_satd(struct n265_encoder *e, int list, int ridx, int x0, int 
     const struct n265_refpic *ref = e->refl[list][ridx];
     const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
     uint8_t pred[64 * 64];
-    const uint8_t *rp = ref->plane[0] +
-        (y0 + (mv.y >> 2)) * ref->stride[0] + x0 + (mv.x >> 2);
-    n265_mc_luma_wh(pred, w, w, h, rp, ref->stride[0], mv.x & 3, mv.y & 3);
+    int ix = x0 + (mv.x >> 2), iy = y0 + (mv.y >> 2);
+    const uint8_t *rp = ref->plane[0] + iy * ref->stride[0] + ix;
+    n265_mc_luma_hf(pred, w, w, h, rp, ref->stride[0],
+                    n265_ref_hf(ref, ix, iy, w, h, mv.x & 3),
+                    ref->hf_stride, mv.x & 3, mv.y & 3);
     return n265_satd_wh(src, e->pad_stride[0], pred, w, w, h);
 }
 
@@ -420,68 +434,229 @@ void n265_clamp_mv(struct n265_encoder *e, int x0, int y0, int w, int h,
     if (mv->y > hi_y) mv->y = (int16_t)hi_y;
 }
 
+/* N265_SUBME (phase 4): how much of the subpel ladder each block gets.
+ * 0 is the two-round half-pel/quarter-pel square this encoder has had
+ * since phase 2. */
+static int subme_mode(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_SUBME");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
+/* N265_ME_PATTERN (phase 4): 0 the unit diamond, 1 the hexagon with a
+ * diamond finish, 2 and 3 that plus an early-out on the seed. */
+static int me_pattern(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_ME_PATTERN");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
+/* quantiser step at qp, Q8: the unit the early-out bound is asked in,
+ * because a prediction already inside the quantiser floor leaves the
+ * pattern nothing to find */
+static uint32_t qstep_q8(int qp)
+{
+    static uint32_t tab[52];
+    if (!tab[51])
+        for (int q = 0; q < 52; q++)
+            tab[q] = (uint32_t)(pow(2.0, (q - 4) / 6.0) * 256.0 + 0.5);
+    return tab[qp < 0 ? 0 : qp > 51 ? 51 : qp];
+}
+
 uint32_t n265_me_search(struct n265_encoder *e, int list, int ridx, int x0, int y0,
                         int w, int h, mv_t start, mv_t *best)
 {
     mv_t cur = { (int16_t)((start.x >> 2) * 4), (int16_t)((start.y >> 2) * 4) };
     n265_clamp_mv(e, x0, y0, w, h, &cur);
-    mv_t zero = { 0, 0 };
     uint32_t best_sad = n265_mc_sad(e, list, ridx, x0, y0, w, h, cur);
-    uint32_t zs = n265_mc_sad(e, list, ridx, x0, y0, w, h, zero);
-    if (zs < best_sad) {
-        best_sad = zs;
-        cur = zero;
-    }
-    /* iterative small diamond, range bounded by iteration count */
-    for (int iter = 0; iter < 24; iter++) {
-        mv_t b = cur;
-        uint32_t bs = best_sad;
-        static const int d[4][2] = { {4,0}, {-4,0}, {0,4}, {0,-4} };
-        for (int i = 0; i < 4; i++) {
-            mv_t t = { (int16_t)(cur.x + d[i][0]),
-                       (int16_t)(cur.y + d[i][1]) };
-            mv_t tc = t;
-            n265_clamp_mv(e, x0, y0, w, h, &tc);
-            if (tc.x != t.x || tc.y != t.y)
-                continue;
-            uint32_t s = n265_mc_sad(e, list, ridx, x0, y0, w, h, t);
-            if (s < bs) {
-                bs = s;
-                b = t;
-            }
+    /* the zero probe, unless the seed already is zero - costing the
+     * same block twice cannot change the answer */
+    if (cur.x || cur.y) {
+        mv_t zero = { 0, 0 };
+        uint32_t zs = n265_mc_sad(e, list, ridx, x0, y0, w, h, zero);
+        if (zs < best_sad) {
+            best_sad = zs;
+            cur = zero;
         }
-        if (b.x == cur.x && b.y == cur.y)
-            break;
-        cur = b;
-        best_sad = bs;
+    }
+    static const int dia4[4][2] = { {4,0}, {-4,0}, {0,4}, {0,-4} };
+    int pattern = me_pattern();
+    /* Early-out: a seed whose prediction is already inside the
+     * quantiser floor has nothing for the pattern to find - whatever it
+     * moves to, the residual quantises to the same nothing - so the
+     * walk is bought to lose. Asked per pixel in quantiser steps. */
+    int early = 0;
+    if (pattern >= 2) {
+        unsigned pct = pattern == 2 ? 50u : 100u;
+        uint64_t thr = (uint64_t)(w * h) * qstep_q8(e->cur_ctu_qp) * pct / 100u;
+        early = (uint64_t)best_sad * 256u <= thr;
+    }
+    if (early) {
+        /* nothing */
+    } else if (pattern) {
+        /* Hexagon search (HEXBS, Zhu/Lin/Chau 2002): six points on a
+         * flattened hexagon so a step covers two pels of ground for the
+         * same six evaluations, walked until the centre wins, then a
+         * unit-diamond finish for the pel the hexagon steps over. The
+         * walk is bounded at the reference's merange class - 57 full
+         * pels from the seed - rather than by an iteration count. */
+        static const int hex6[6][2] = {
+            {8,0}, {4,8}, {-4,8}, {-8,0}, {-4,-8}, {4,-8}
+        };
+        const int rng = 57 * 4;
+        int cx0 = cur.x, cy0 = cur.y;
+        for (int iter = 0; iter < 64; iter++) {
+            mv_t b = cur;
+            uint32_t bs = best_sad;
+            for (int i = 0; i < 6; i++) {
+                mv_t t = { (int16_t)(cur.x + hex6[i][0]),
+                           (int16_t)(cur.y + hex6[i][1]) };
+                if (t.x - cx0 > rng || cx0 - t.x > rng ||
+                    t.y - cy0 > rng || cy0 - t.y > rng)
+                    continue;
+                mv_t tc = t;
+                n265_clamp_mv(e, x0, y0, w, h, &tc);
+                if (tc.x != t.x || tc.y != t.y)
+                    continue;
+                uint32_t s = n265_mc_sad(e, list, ridx, x0, y0, w, h, t);
+                if (s < bs) {
+                    bs = s;
+                    b = t;
+                }
+            }
+            if (b.x == cur.x && b.y == cur.y)
+                break;
+            cur = b;
+            best_sad = bs;
+        }
+        for (int iter = 0; iter < 4; iter++) {
+            mv_t b = cur;
+            uint32_t bs = best_sad;
+            for (int i = 0; i < 4; i++) {
+                mv_t t = { (int16_t)(cur.x + dia4[i][0]),
+                           (int16_t)(cur.y + dia4[i][1]) };
+                mv_t tc = t;
+                n265_clamp_mv(e, x0, y0, w, h, &tc);
+                if (tc.x != t.x || tc.y != t.y)
+                    continue;
+                uint32_t s = n265_mc_sad(e, list, ridx, x0, y0, w, h, t);
+                if (s < bs) {
+                    bs = s;
+                    b = t;
+                }
+            }
+            if (b.x == cur.x && b.y == cur.y)
+                break;
+            cur = b;
+            best_sad = bs;
+        }
+    } else {
+        /* iterative small diamond, range bounded by iteration count */
+        for (int iter = 0; iter < 24; iter++) {
+            mv_t b = cur;
+            uint32_t bs = best_sad;
+            for (int i = 0; i < 4; i++) {
+                mv_t t = { (int16_t)(cur.x + dia4[i][0]),
+                           (int16_t)(cur.y + dia4[i][1]) };
+                mv_t tc = t;
+                n265_clamp_mv(e, x0, y0, w, h, &tc);
+                if (tc.x != t.x || tc.y != t.y)
+                    continue;
+                uint32_t s = n265_mc_sad(e, list, ridx, x0, y0, w, h, t);
+                if (s < bs) {
+                    bs = s;
+                    b = t;
+                }
+            }
+            if (b.x == cur.x && b.y == cur.y)
+                break;
+            cur = b;
+            best_sad = bs;
+        }
     }
     /* subpel refinement: one half-pel round, one quarter-pel round,
      * SATD-costed (SAD favors the blur of interpolated phases) */
     static int fullpel = -1;
     if (fullpel < 0)
         fullpel = getenv("N265_FULLPEL") != NULL;
+    static int dedup = -1;
+    if (dedup < 0) {
+        const char *v = getenv("N265_SUBPEL_DEDUP");
+        dedup = v ? atoi(v) != 0 : 1;
+    }
+    /* N265_SUBME, the subme-2 ladder. 1 runs the quarter-pel square
+     * only where the half-pel one moved: where it did not, the block's
+     * best half-pel phase is the centre the round started at and the
+     * quarter-pel square is refining a position the search has already
+     * decided nothing better is near. 2 also drops it for 8x4 and 4x8
+     * PUs, where the sixteen extra interpolations buy a quarter of a
+     * pel on a block too small to carry the mvd that pays for it. 3
+     * caps the whole thing at one round. 4 costs the half-pel square in
+     * SAD and keeps the Hadamard for the quarter-pel one, so a round is
+     * eight interpolations plus eight SADs instead of eight SATDs. 5 is
+     * 3 and 4 together, 6 the round cap on its own. */
+    int sm = subme_mode();
+    int hsad = sm == 4 || sm == 5;
+    int gate_q_move = sm == 1 || sm == 2 || sm == 3 || sm == 5;
+    int gate_q_small = (sm == 2 || sm == 3 || sm == 5) && w + h == 12;
+    int rounds = (sm == 3 || sm == 5 || sm == 6) ? 1 : 2;
     uint32_t best_satd = fullpel ? 0 : mc_satd(e, list, ridx, x0, y0, w, h, cur);
-    for (int round = 0; round < (fullpel ? 0 : 2); round++)
-    for (int step = 2; step >= 1; step--) {
-        mv_t b = cur;
-        uint32_t bs = best_satd;
-        for (int dy = -step; dy <= step; dy += step)
-            for (int dx = -step; dx <= step; dx += step) {
-                if (!dx && !dy)
-                    continue;
-                mv_t t = { (int16_t)(cur.x + dx), (int16_t)(cur.y + dy) };
-                mv_t tc = t;
-                n265_clamp_mv(e, x0, y0, w, h, &tc);
-                if (tc.x != t.x || tc.y != t.y)
-                    continue;
-                uint32_t s = mc_satd(e, list, ridx, x0, y0, w, h, t);
-                if (s < bs) {
-                    bs = s;
-                    b = t;
+    for (int round = 0; round < (fullpel ? 0 : rounds); round++) {
+        mv_t round_start = cur;
+        for (int step = 2; step >= 1; step--) {
+            if (step == 1 && gate_q_small)
+                break;
+            if (step == 1 && gate_q_move &&
+                cur.x == round_start.x && cur.y == round_start.y)
+                break;
+            int sad_step = hsad && step == 2;
+            mv_t b = cur;
+            uint32_t bs = sad_step
+                ? n265_mc_sad(e, list, ridx, x0, y0, w, h, cur) : best_satd;
+            for (int dy = -step; dy <= step; dy += step)
+                for (int dx = -step; dx <= step; dx += step) {
+                    if (!dx && !dy)
+                        continue;
+                    mv_t t = { (int16_t)(cur.x + dx), (int16_t)(cur.y + dy) };
+                    mv_t tc = t;
+                    n265_clamp_mv(e, x0, y0, w, h, &tc);
+                    if (tc.x != t.x || tc.y != t.y)
+                        continue;
+                    uint32_t s = sad_step
+                        ? n265_mc_sad(e, list, ridx, x0, y0, w, h, t)
+                        : mc_satd(e, list, ridx, x0, y0, w, h, t);
+                    if (s < bs) {
+                        bs = s;
+                        b = t;
+                    }
                 }
+            if (sad_step) {
+                /* the two steps rank in different metrics, so the
+                 * quarter-pel square needs its centre re-costed */
+                if (b.x != cur.x || b.y != cur.y) {
+                    cur = b;
+                    best_satd = mc_satd(e, list, ridx, x0, y0, w, h, cur);
+                }
+            } else {
+                cur = b;
+                best_satd = bs;
             }
-        cur = b;
-        best_satd = bs;
+        }
+        /* A round that did not move the centre leaves the search in the
+         * state it started in - same centre, same best cost - so the
+         * next one walks the identical candidate set to the identical
+         * answer. Not running it is bit-identical, and it is half the
+         * subpel budget on every block that had already converged. */
+        if (dedup && cur.x == round_start.x && cur.y == round_start.y)
+            break;
     }
     *best = cur;
     return best_sad;
