@@ -155,7 +155,7 @@ void n265_write_pps(struct n265_encoder *e)
     bs_put_se(bs, 0);               /* init_qp_minus26 */
     bs_put_bits(bs, 0, 1);          /* constrained_intra_pred_flag */
     bs_put_bits(bs, 0, 1);          /* transform_skip_enabled_flag */
-    if (e->mode != N265_MODE_PCM && (e->aq || e->cutree)) {
+    if (e->qp_delta_on) {
         bs_put_bits(bs, 1, 1);      /* cu_qp_delta_enabled_flag */
         bs_put_ue(bs, 0);           /* diff_cu_qp_depth: QG = CTB */
     } else {

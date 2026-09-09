@@ -14,6 +14,7 @@
 #include "encoder/encoder.h"
 #include "encoder/est.h"
 #include "encoder/la.h"
+#include "encoder/rc.h"
 #include "encoder/sao.h"
 
 const char *n265_version_str(void)
@@ -44,6 +45,7 @@ static void pad_plane(uint8_t *dst, int dst_stride, int dst_w, int dst_h,
 static int g_mode = N265_MODE_INTRA;
 static int g_qp = 26;
 static double g_crf = -1.0;      /* n265_set_crf; < 0 = CQP */
+static double g_bitrate = 0.0;   /* n265_set_bitrate, kbit/s; 0 = off */
 static int g_ctb_log2 = 6;
 static int g_keyint = 250;      /* x265 4.3's own default (2026-09-08) */
 
@@ -64,6 +66,7 @@ void n265_set_la(int depth, int cutree)
 void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes,
                    int aq);
 void n265_set_crf(double crf) { g_crf = crf; }
+void n265_set_bitrate(double kbps) { g_bitrate = kbps > 0.0 ? kbps : 0.0; }
 void n265_set_ref(int n) { g_ref = n < 1 ? 1 : n > N265_MAX_REF ? N265_MAX_REF : n; }
 /* 0 off (fixed cadence), 1 the motion rule, 2 the priced mini-GOP */
 void n265_set_badapt(int on) { g_badapt = on < 0 ? 0 : on > 3 ? 3 : on; }
@@ -104,6 +107,14 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->qp_base = g_qp;
     e->crf_on = g_crf >= 0.0;
     e->crf = g_crf;
+    /* ABR overrides CRF: the rate factor is solved, not given. The
+     * fractional base QP rides with it - see encode_frame. */
+    e->abr_on = g_bitrate > 0.0 && e->mode != N265_MODE_PCM;
+    e->abr_bitrate = g_bitrate * 1000.0;
+    { const char *v = getenv("N265_QP_FRAC");
+      e->qp_frac = v ? atoi(v) != 0 : e->abr_on; }
+    if (e->abr_on)
+        e->crf_on = 0;
     e->ref_max = e->mode == N265_MODE_PCM ? 1 : g_ref;
     e->badapt = g_badapt;
     { const char *v = getenv("N265_CUTREE_STR"); e->cutree_str = v ? (float)atof(v) : 2.0f; }
@@ -131,6 +142,8 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->la_depth = e->mode == N265_MODE_PCM || !e->bframes ? g_la_depth
                                                           : g_la_depth;
     e->cutree = e->mode == N265_MODE_PCM ? 0 : g_cutree;
+    e->qp_delta_on = e->mode != N265_MODE_PCM &&
+                     (e->aq || e->cutree || e->qp_frac);
     e->scenecut = e->mode != N265_MODE_PCM;
     int align = e->mode == N265_MODE_PCM ? 16 : (1 << MIN_CB_LOG2);
     if (p->width < align || p->height < align)
@@ -207,6 +220,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         goto fail;
     if (n265_la_init(e) < 0)
         goto fail;
+    n265_rc_open(e);        /* after la_init: it needs the lowres geometry */
     n265_tables_init();
     n265_tables_init_est();
     return e;
@@ -398,6 +412,7 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
                          int nonref, int display_idx, int b_depth,
                          size_t *out_used, int *count)
 {
+    size_t frame_out0 = *out_used;
     e->slice_type = slice_type;
     e->b_depth = b_depth;
     e->poc = poc;
@@ -414,7 +429,11 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
      * (1 - qcomp) * 13.5 at qcomp 0.6, 0 without cu-tree). The AQ frame-mean
      * term lands on the base below, once the variances are known. */
     double base = e->qp_base;
-    if (e->crf_on) {
+    if (e->abr_on) {
+        /* ABR: the base is the rate factor rc.c solved for this frame from
+         * the bits spent against the bits planned (docs/instruments.md). */
+        base = e->rc_rf;
+    } else if (e->crf_on) {
         double shift = 0.0;
         if (e->cutree) { const char *v = getenv("N265_CRF_SHIFT"); shift = v ? atof(v) : 5.4; }
         base = e->crf + shift;
@@ -425,7 +444,14 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
      * increment. */
     double pb = 1.0; { const char *v = getenv("N265_PB_STEP"); if (v) pb = atof(v); }   /* live in CQP and CRF alike */
     int cascade = slice_type == 2 ? -3 : slice_type == 0 ? (int)lround(1 + b_depth * pb) : 0;
-    int q = (int)lround(base) + cascade;
+    /* The signalled base QP is an integer, so a control variable that only
+     * moves it is quantised to 5-15% of the rate per step and cannot land on
+     * a size. Carry the base's fraction instead and spend it over the CTUs
+     * below; qfrac is exactly 0 when the fractional path is off, which is
+     * what keeps CQP and CRF byte-identical to the pre-ABR encoder. */
+    int qi = (int)lround(base);
+    double qfrac = e->qp_frac ? base - (double)qi : 0.0;
+    int q = qi + cascade;
     e->qp = q < 0 ? 0 : q > 51 ? 51 : q;
 
     if (e->frames_done == 0) {
@@ -492,11 +518,14 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
              * 1.0) against an absolute anchor in log2(variance) units
              * (N265_AQ_ANCHOR, default 6.4), so every base-keyed decision sees
              * it; the per-CTU part below stays centred on the frame. */
-            if (e->crf_on) {
+            if (e->crf_on || e->abr_on) {
                 const char *v = getenv("N265_AQ_DC"), *a = getenv("N265_AQ_ANCHOR");
                 double dc = (v ? atof(v) : 1.0) * (avg - (a ? atof(a) : 6.4));
-                int nq = e->qp + (int)lround(dc);
+                int dci = (int)lround(dc);
+                int nq = e->qp + dci;
                 e->qp = nq < 0 ? 0 : nq > 51 ? 51 : nq;
+                if (e->qp_frac)
+                    qfrac += dc - (double)dci;
             }
             /* per-CTU term at N265_AQ_STR. Default: round it on its own and
              * add it to the already-rounded cu-tree offset (two roundings);
@@ -530,8 +559,27 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
             free(lv);
         }
 
+        /* Spend the base QP's fractional part over the CTUs: each one is
+         * rounded against its own threshold from a low-discrepancy
+         * sequence, so the frame's MEAN QP is the float base to within one
+         * CTU and the achieved rate is continuous in the control variable.
+         * The threshold is a pure function of the CTU raster index and the
+         * frame counter - not of a running error - so it stays
+         * position-independent and survives any future thread schedule. */
+        if (e->qp_frac && qfrac != 0.0) {
+            int nctu = e->ctb_cols * e->ctb_rows;
+            for (int i = 0; i < nctu; i++) {
+                double d = (double)(i + 1) * 0.7548776662466927 +
+                           (double)(e->frames_done + 1) * 0.5698402909980532;
+                d -= floor(d);
+                int o = e->ctu_qp_off[i] + (int)floor(qfrac + d);
+                e->ctu_qp_off[i] = (int8_t)(o < -12 ? -12 : o > 12 ? 12 : o);
+            }
+        }
+
         if (getenv("N265_QP_TRACE"))
-            fprintf(stderr, "QPT disp=%d type=%d qp=%d\n", display_idx, slice_type, e->qp);
+            fprintf(stderr, "QPT disp=%d type=%d qp=%d qf=%+.3f\n",
+                    display_idx, slice_type, e->qp, qfrac);
         e->ent_qp_prev = e->qp;
         e->ent_parent_chroma = 0;
         e->rec_len = 0;
@@ -643,6 +691,9 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
         e->ref_valid = 1;
     }
     dump_recon_frame(e);
+    if (e->abr_on || e->rc.trace)
+        n265_rc_done(e, e->rc_cls, e->rc_cplx, base,
+                     (double)(*out_used - frame_out0) * 8.0);
     e->frames_done++;
 }
 
@@ -812,6 +863,10 @@ static int drive_scheduler(n265_encoder *e, size_t *out_used, int *count)
      * only L0; B frames have both) */
     n265_build_lists(e, kind == 2 ? poc : poc, kind == 0, NULL);
     int slice_type = kind == 2 ? 2 : kind == 1 ? 1 : 0;
+    e->rc_cls = n265_rc_class(slice_type, e->plan_nonref[e->plan_pos]);
+    e->rc_cplx = n265_rc_cplx(e, li, e->rc_cls);
+    if (e->abr_on)
+        e->rc_rf = n265_rc_next(e, e->rc_cls, e->rc_cplx);
     if (kind != 0)          /* the priced b-adapt prices against this plane */
         n265_la_set_anchor(e, li);
     encode_frame(e, src, st, slice_type, poc, e->plan_nonref[e->plan_pos],
