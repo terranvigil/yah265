@@ -66,8 +66,19 @@ struct n265_refpic {
     uint8_t *plane[3];  /* origin inside the border */
     int stride[3];
     int poc;
-    int valid;
-    int in_use;         /* claimed by a frame in flight (not yet published) */
+    /* D2 (T2 decision): DPB membership as the DECODER sees it - the RPS,
+     * the reference lists, eviction. Driver-serial: set at the end of
+     * this picture's own dispatch step, cleared by the mini-GOP-end
+     * retirement, both in coding order, so frame k+1's dispatch sees
+     * frame k marked whether or not a single row of k has run. It says
+     * nothing about whether the pixels exist yet; `final_rows` does. */
+    int marked;
+    /* ...and the physical half: CTB rows of this picture that are
+     * deblocked, SAO-filtered, border-extended and published. The sec 1
+     * reference gate reads ONLY this. Reset at claim, advanced by the
+     * SAO row task. */
+    atomic_int final_rows;
+    int in_use;         /* claimed by a frame in flight (not yet retired) */
     int is_anchor;      /* 1 for I/P anchors, 0 for reference B (pyramid lifetime) */
     /* collocated motion for TMVP, 16x16 granularity (top-left 4x4
      * of each region, spec mv storage reduction) */
@@ -94,6 +105,23 @@ struct n265_refpic {
 /* ctu.c-owned trial buffers (was ~180 KB of function-local statics). One
  * per row lane; see n265_scratch_new. */
 struct n265_scratch;
+
+/* D1 (T2 decision): the short-term RPS as it stood when the frame was
+ * DISPATCHED. The driver captures it in coding order, right after the
+ * reference lists are built and before anything else is dispatched;
+ * write_slice_header serializes it and never reads the DPB. That is what
+ * makes a slice header a pure function of the dispatch order rather than
+ * of whenever the entropy pass happens to run.
+ *
+ * Both lists are in the order 7.3.7 wants: negative POCs nearest first,
+ * then positive POCs nearest first. They are keyed on POC only - never
+ * on slot index - so the order cannot depend on which slot a picture
+ * happens to occupy. */
+struct n265_rps {
+    int nneg, npos;
+    int neg_poc[N265_DPB_SLOTS], pos_poc[N265_DPB_SLOTS];
+    uint8_t neg_used[N265_DPB_SLOTS], pos_used[N265_DPB_SLOTS];
+};
 
 /* The coding context (docs/threading-design.md sec 4, T0 audit).
  *
@@ -155,6 +183,14 @@ typedef struct n265_frame_work {
     struct n265_refpic *refl[2][N265_MAX_REF];
     int nref[2];
     int ref_valid;
+    struct n265_rps rps;    /* D1: snapshotted at dispatch */
+    /* D2: the TMVP collocated picture, resolved at dispatch. The coding
+     * path must not read `marked` off a live DPB slot - a later frame's
+     * dispatch can retire the picture while this one is still analysing
+     * it - so the choice and the POC it scales against are frozen here.
+     * NULL when there is no usable collocated picture. */
+    struct n265_refpic *col;
+    int col_poc;
 
     /* lookahead hand-off, frozen before the frame launches */
     float sc_ratio;         /* lookahead pcost/icost (P3) */

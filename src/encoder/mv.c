@@ -113,8 +113,12 @@ static int tmvp_mv(struct n265_frame_work *e, const pu_geo *g,
                    int list, int ref, mv_t *out)
 {
     int no_tmvp = no_tmvp_on();
-    const struct n265_refpic *col = e->refl[0][0];
-    if (!col || !col->valid || no_tmvp)
+    /* D2: the collocated picture and the POC it scales against were
+     * frozen at dispatch. The coding path must not read a live DPB
+     * slot's marking - a later frame's dispatch retires pictures while
+     * this one is still analysing. */
+    const struct n265_refpic *col = e->col;
+    if (!col || no_tmvp)
         return 0;
     int c16w = (e->pad_w + 15) >> 4;
     int i16 = -1;
@@ -149,7 +153,7 @@ static int tmvp_mv(struct n265_frame_work *e, const pu_geo *g,
         lc = 1;         /* N = collocated_from_l0_flag */
     mv_t v = { col->col_mv[4 * i16 + 2 * lc],
                col->col_mv[4 * i16 + 2 * lc + 1] };
-    int td = col->poc - col->col_ref[2 * i16 + lc];
+    int td = e->col_poc - col->col_ref[2 * i16 + lc];
     int tb = e->poc - e->refl[list][ref]->poc;
     td = td < -128 ? -128 : td > 127 ? 127 : td;
     tb = tb < -128 ? -128 : tb > 127 ? 127 : tb;

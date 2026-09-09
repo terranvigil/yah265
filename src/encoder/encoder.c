@@ -453,8 +453,59 @@ void n265_encoder_close(n265_encoder *e)
     free(e);
 }
 
+/* D1: capture the short-term RPS on the driver, in coding order, right
+ * after the reference lists are built and before anything else is
+ * dispatched. Everything it reads - `marked`, `poc`, the just-built
+ * lists - is driver-serial, so the snapshot is the set the SERIAL
+ * encoder's header writer would have seen: nothing between dispatch and
+ * the header write changes the marked set, which is the invariant T0a
+ * already relied on for the slot claim.
+ *
+ * Keyed on POC throughout. The enumeration walks slots because that is
+ * where the pictures live, but the ORDER is a full sort on POC and the
+ * output carries POCs, so slot identity cannot reach the bitstream. */
+static void snapshot_rps(n265_encoder *e, n265_frame_work *fw)
+{
+    struct n265_rps *r = &fw->rps;
+    r->nneg = r->npos = 0;
+    if (fw->slice_type == 2)
+        return;                 /* an IDR signals no short-term set */
+    for (int sl = 0; sl < N265_DPB_SLOTS; sl++) {
+        struct n265_refpic *p = &e->dpb[sl];
+        if (!p->marked)         /* every kept picture is listed; eviction
+                                 * is at mini-GOP ends */
+            continue;
+        int used = 0;
+        for (int l = 0; l < 2; l++)
+            for (int k = 0; k < fw->nref[l]; k++)
+                if (fw->refl[l][k] == p)
+                    used = 1;
+        if (p->poc < fw->poc) {
+            r->neg_poc[r->nneg] = p->poc;
+            r->neg_used[r->nneg++] = (uint8_t)used;
+        } else {
+            r->pos_poc[r->npos] = p->poc;
+            r->pos_used[r->npos++] = (uint8_t)used;
+        }
+    }
+    /* nearest first: negatives by descending POC, positives by ascending.
+     * POCs are unique among marked pictures (an IDR clears the set), so
+     * there is no tie for slot order to break. */
+    for (int i = 1; i < r->nneg; i++)
+        for (int k = i; k > 0 && r->neg_poc[k] > r->neg_poc[k - 1]; k--) {
+            int t = r->neg_poc[k]; r->neg_poc[k] = r->neg_poc[k - 1]; r->neg_poc[k - 1] = t;
+            uint8_t u = r->neg_used[k]; r->neg_used[k] = r->neg_used[k - 1]; r->neg_used[k - 1] = u;
+        }
+    for (int i = 1; i < r->npos; i++)
+        for (int k = i; k > 0 && r->pos_poc[k] < r->pos_poc[k - 1]; k--) {
+            int t = r->pos_poc[k]; r->pos_poc[k] = r->pos_poc[k - 1]; r->pos_poc[k - 1] = t;
+            uint8_t u = r->pos_used[k]; r->pos_used[k] = r->pos_used[k - 1]; r->pos_used[k - 1] = u;
+        }
+}
+
 static void write_slice_header(n265_encoder *e, n265_frame_work *fw)
 {
+    (void)e;
     bitstream_t *bs = &fw->rbsp;
     bs_put_bits(bs, 1, 1);          /* first_slice_segment_in_pic_flag */
     if (fw->slice_type == 2)
@@ -464,37 +515,24 @@ static void write_slice_header(n265_encoder *e, n265_frame_work *fw)
     if (fw->slice_type != 2) {
         bs_put_bits(bs, (uint32_t)(fw->poc & 255), 8); /* pic_order_cnt_lsb */
         bs_put_bits(bs, 0, 1);      /* short_term_ref_pic_set_sps_flag */
-        /* st_ref_pic_set(idx 0) inline: every valid DPB picture, negative
-         * POCs nearest first then positive nearest first; used_by_curr
-         * marks the ones in the current lists (docs/refstruct-design.md) */
-        int negs[N265_DPB_SLOTS], poss[N265_DPB_SLOTS], nn = 0, np = 0;
-        for (int sl = 0; sl < N265_DPB_SLOTS; sl++) {
-            if (!e->dpb[sl].valid) continue;   /* every kept picture is listed; eviction is at mini-GOP ends */
-            if (e->dpb[sl].poc < fw->poc) negs[nn++] = sl; else poss[np++] = sl;
-        }
-        for (int i = 1; i < nn; i++)      /* sort: nearest (largest POC) first */
-            for (int k = i; k > 0 && e->dpb[negs[k]].poc > e->dpb[negs[k - 1]].poc; k--) { int t = negs[k]; negs[k] = negs[k - 1]; negs[k - 1] = t; }
-        for (int i = 1; i < np; i++)      /* nearest (smallest POC) first */
-            for (int k = i; k > 0 && e->dpb[poss[k]].poc < e->dpb[poss[k - 1]].poc; k--) { int t = poss[k]; poss[k] = poss[k - 1]; poss[k - 1] = t; }
-        bs_put_ue(bs, (uint32_t)nn);      /* num_negative_pics */
-        bs_put_ue(bs, (uint32_t)np);      /* num_positive_pics */
+        /* st_ref_pic_set(idx 0) inline, serialized from the dispatch-time
+         * snapshot (D1). The writer does not touch the DPB: by the time
+         * it runs, frames after this one may have been dispatched and
+         * changed the marked set. */
+        const struct n265_rps *rp = &fw->rps;
+        bs_put_ue(bs, (uint32_t)rp->nneg);      /* num_negative_pics */
+        bs_put_ue(bs, (uint32_t)rp->npos);      /* num_positive_pics */
         int prev = fw->poc;
-        for (int i = 0; i < nn; i++) {
-            const struct n265_refpic *r = &e->dpb[negs[i]];
-            bs_put_ue(bs, (uint32_t)(prev - r->poc - 1));   /* delta_poc_s0_minus1 */
-            int used = 0;
-            for (int l = 0; l < 2; l++) for (int k = 0; k < fw->nref[l]; k++) if (fw->refl[l][k] == r) used = 1;
-            bs_put_bits(bs, (uint32_t)used, 1);            /* used_by_curr_pic_s0_flag */
-            prev = r->poc;
+        for (int i = 0; i < rp->nneg; i++) {
+            bs_put_ue(bs, (uint32_t)(prev - rp->neg_poc[i] - 1)); /* delta_poc_s0_minus1 */
+            bs_put_bits(bs, rp->neg_used[i], 1);   /* used_by_curr_pic_s0_flag */
+            prev = rp->neg_poc[i];
         }
         prev = fw->poc;
-        for (int i = 0; i < np; i++) {
-            const struct n265_refpic *r = &e->dpb[poss[i]];
-            bs_put_ue(bs, (uint32_t)(r->poc - prev - 1));   /* delta_poc_s1_minus1 */
-            int used = 0;
-            for (int l = 0; l < 2; l++) for (int k = 0; k < fw->nref[l]; k++) if (fw->refl[l][k] == r) used = 1;
-            bs_put_bits(bs, (uint32_t)used, 1);
-            prev = r->poc;
+        for (int i = 0; i < rp->npos; i++) {
+            bs_put_ue(bs, (uint32_t)(rp->pos_poc[i] - prev - 1)); /* delta_poc_s1_minus1 */
+            bs_put_bits(bs, rp->pos_used[i], 1);
+            prev = rp->pos_poc[i];
         }
         bs_put_bits(bs, getenv("N265_NO_TMVP") ? 0 : 1, 1);      /* slice_temporal_mvp_enabled_flag */
     }
@@ -964,8 +1002,11 @@ static void encode_frame(n265_encoder *e, n265_frame_work *fw,
 
     if (fw->mode != N265_MODE_PCM && !nonref) {
         /* Publish. The picture reconstructed directly into this slot, so
-         * all that is left is the border extension, the side data a later
-         * frame reads, and the valid flag that puts it in the next RPS. */
+         * all that is left is the border extension and the side data a
+         * later frame reads. The MARKING is not here any more: D2 puts it
+         * on the driver at dispatch, because a frame dispatched after
+         * this one has to see this picture in the DPB whether or not a
+         * single row of it has run. */
         struct n265_refpic *slot = fw->slot;
         for (int i = 0; i < 3; i++) {
             int w = i ? fw->pad_w / 2 : fw->pad_w;
@@ -1011,11 +1052,16 @@ static void encode_frame(n265_encoder *e, n265_frame_work *fw,
          * later frame can read the collocated range */
         memcpy(slot->ctu_dmin, fw->ctu_dmin, (size_t)fw->ctb_cols * fw->ctb_rows);
         memcpy(slot->ctu_dmax, fw->ctu_dmax, (size_t)fw->ctb_cols * fw->ctb_rows);
-        slot->poc = poc;
-        slot->valid = 1;
-        slot->is_anchor = fw->slice_type != 0;   /* I/P; a reference B is not */
-        e->ref_valid = 1;
+        /* The physical half of D2. Still all-or-nothing here, because
+         * the border extension and the side data above are whole-frame
+         * passes; T2/3 moves them into the SAO row task and this becomes
+         * the row-granular watermark the reference gate reads. Truthful
+         * either way: no row of this picture is readable by another
+         * frame before this point. */
+        atomic_store_explicit(&slot->final_rows, fw->ctb_rows,
+                              memory_order_release);
     }
+    (void)poc;
     fw->slot->in_use = 0;
     fw->slot = NULL;
     dump_recon_frame(e, fw);
@@ -1039,8 +1085,13 @@ void n265_build_lists(n265_encoder *e, n265_frame_work *fw, int poc,
      * L0 = past then future (for B); L1 = future then past (B only). */
     struct n265_refpic *past[N265_DPB_SLOTS], *fut[N265_DPB_SLOTS];
     int np = 0, nf = 0;
+    /* D2: `marked` is the DPB as the decoder sees it, and it is
+     * driver-serial. The sort below is a total order on POC - POCs are
+     * unique among marked pictures, since an IDR clears the set - so
+     * slot index never breaks a tie and list order cannot depend on
+     * which slot a picture occupies. */
     for (int sl = 0; sl < N265_DPB_SLOTS; sl++) {
-        if (!e->dpb[sl].valid) continue;
+        if (!e->dpb[sl].marked) continue;
         if (e->dpb[sl].poc < poc) past[np++] = &e->dpb[sl];
         else if (e->dpb[sl].poc > poc) fut[nf++] = &e->dpb[sl];
     }
@@ -1090,7 +1141,7 @@ static void build_plan(n265_encoder *e)
     e->plan_len = e->plan_pos = 0;
     if (la_is_idr(e, 0)) {
         e->gop_start_display = la->f[0].display_idx;
-        for (int sl = 0; sl < N265_DPB_SLOTS; sl++) e->dpb[sl].valid = 0;
+        for (int sl = 0; sl < N265_DPB_SLOTS; sl++) e->dpb[sl].marked = 0;
         e->ref_valid = 0;
         e->plan_li[0] = 0; e->plan_kind[0] = 2; e->plan_depth[0] = 0; e->plan_nonref[0] = 0;
         e->plan_len = 1; e->plan_pop = 1;
@@ -1169,16 +1220,16 @@ static void build_plan(n265_encoder *e)
 
 /* Claim the DPB slot this frame reconstructs into and point the
  * frame_work's recon planes at it. Same rule the pre-T0a store applied
- * after entropy: an invalid slot, else the first valid one that is not
- * in this frame's reference lists. `in_use` keeps two frames in flight
- * off the same slot (a no-op until T2). */
+ * after entropy: an unmarked slot, else the marked one with the oldest
+ * POC that is not in this frame's reference lists. `in_use` keeps two
+ * frames in flight off the same slot (a no-op until T2/3). */
 static void claim_slot(n265_encoder *e, n265_frame_work *fw)
 {
     struct n265_refpic *slot = NULL;
     if (fw->nonref || fw->mode == N265_MODE_PCM)
         slot = &e->scratch_pic[fw - e->fw];
     for (int sl = 0; sl < N265_DPB_SLOTS && !slot; sl++)
-        if (!e->dpb[sl].valid && !e->dpb[sl].in_use) slot = &e->dpb[sl];
+        if (!e->dpb[sl].marked && !e->dpb[sl].in_use) slot = &e->dpb[sl];
     for (int sl = 0; sl < N265_DPB_SLOTS && !slot; sl++) {
         if (e->dpb[sl].in_use) continue;
         int in_list = 0;
@@ -1189,11 +1240,16 @@ static void claim_slot(n265_encoder *e, n265_frame_work *fw)
     }
     if (!slot) slot = &e->dpb[0];
     slot->in_use = 1;
-    /* NOT cleared valid: when the pool is exhausted the picture being
-     * overwritten stays listed in this frame's RPS exactly as it did
-     * before the claim moved to dispatch (it is replaced at publish).
-     * That is a pre-existing DPB-pressure bug at --ref 3 --bframes 7,
-     * reproduced on purpose so T0a changes no bits. */
+    /* `marked` is NOT cleared: when the pool is exhausted the picture
+     * being overwritten stays listed in this frame's RPS exactly as it
+     * did before the claim moved to dispatch (it is replaced when this
+     * frame marks itself). That is a pre-existing DPB-pressure bug at
+     * --ref 3 --bframes 7, reproduced on purpose so the ladder changes
+     * no bits. */
+    /* Physical readiness starts empty: the sec 1 reference gate reads
+     * this watermark and nothing else, so it must not carry the previous
+     * occupant's. */
+    atomic_store_explicit(&slot->final_rows, 0, memory_order_release);
     fw->slot = slot;
     for (int i = 0; i < 3; i++) {
         fw->recon[i] = slot->plane[i];
@@ -1240,12 +1296,29 @@ static int drive_scheduler(n265_encoder *e, size_t *out_used, int *count)
     fw->la_pcost = f->pcost;
     fw->la_bw = la->bw;
     fw->la_bh = la->bh;
+    /* D1: freeze the RPS here, while the marked set is still the one the
+     * serial encoder's header writer would have seen. Before the claim,
+     * so the picture cannot appear in its own RPS. */
+    snapshot_rps(e, fw);
+    /* D2: the TMVP collocated picture is L0[0], frozen with the lists.
+     * The coding path reads fw->col, never a live DPB slot's marking. */
+    fw->col = (fw->slice_type != 2 && fw->nref[0] > 0) ? fw->refl[0][0] : NULL;
+    fw->col_poc = fw->col ? fw->col->poc : 0;
     /* Claim the DPB slot the picture reconstructs into, by the rule the
      * store used to apply after entropy. Nothing between here and there
-     * changes the valid set, so the choice is the one the pre-T0a
-     * encoder made; the slot stays valid = 0 until publish, so neither
-     * this frame's RPS nor its lists can see it. */
+     * changes the marked set, so the choice is the one the pre-T0a
+     * encoder made; the slot is not marked until the end of this
+     * dispatch step, so neither this frame's RPS nor its lists see it. */
     claim_slot(e, fw);
+    /* D2: mark now, on the driver, in coding order. Frame k+1's dispatch
+     * has to see this picture in the DPB whether or not a row of it has
+     * run; `final_rows` is what says whether the pixels exist. */
+    if (fw->mode != N265_MODE_PCM && !fw->nonref) {
+        fw->slot->poc = poc;
+        fw->slot->is_anchor = slice_type != 0;  /* I/P; a reference B is not */
+        fw->slot->marked = 1;
+        e->ref_valid = 1;
+    }
     e->rc_cls = n265_rc_class(slice_type, fw->nonref);
     e->rc_cplx = n265_rc_cplx(e, li, e->rc_cls);
     if (e->abr_on)
@@ -1261,15 +1334,18 @@ static int drive_scheduler(n265_encoder *e, size_t *out_used, int *count)
         /* the mini-GOP is done: reference B frames live only within it, and
          * only ref_max anchors carry into the next one. Retire the rest so
          * the DPB (and the next slice's RPS) hold exactly what is reusable. */
+        /* Retirement is driver-serial and keyed on POC: the trim below
+         * drops the SMALLEST POC each time, and POCs are unique among
+         * marked pictures, so slot index never decides who goes. */
         for (int sl = 0; sl < N265_DPB_SLOTS; sl++)
-            if (e->dpb[sl].valid && !e->dpb[sl].is_anchor) e->dpb[sl].valid = 0;
+            if (e->dpb[sl].marked && !e->dpb[sl].is_anchor) e->dpb[sl].marked = 0;
         int nanchor = 0;
-        for (int sl = 0; sl < N265_DPB_SLOTS; sl++) if (e->dpb[sl].valid) nanchor++;
+        for (int sl = 0; sl < N265_DPB_SLOTS; sl++) if (e->dpb[sl].marked) nanchor++;
         while (nanchor > e->ref_max) {
             int oldest = -1;
             for (int sl = 0; sl < N265_DPB_SLOTS; sl++)
-                if (e->dpb[sl].valid && (oldest < 0 || e->dpb[sl].poc < e->dpb[oldest].poc)) oldest = sl;
-            e->dpb[oldest].valid = 0; nanchor--;
+                if (e->dpb[sl].marked && (oldest < 0 || e->dpb[sl].poc < e->dpb[oldest].poc)) oldest = sl;
+            e->dpb[oldest].marked = 0; nanchor--;
         }
         return pop;
     }
