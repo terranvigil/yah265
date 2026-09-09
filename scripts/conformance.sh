@@ -42,6 +42,11 @@ trap 'rm -rf "$TMP"' EXIT
 pass=0
 fail=0
 
+# env assignments prefixed onto the encoder for the next run_vector call;
+# set by run_vector_env, cleared after. Deliberately unquoted where it is
+# expanded so the assignments split into separate words.
+VENV=""
+
 run_vector() {
     # $1 name  $2 WxH  $3 frames  $4 lavfi source  $5 encoder args
     # ("--pcm" makes the reference the source itself; anything else makes
@@ -57,11 +62,11 @@ run_vector() {
     fi
 
     # shellcheck disable=SC2086
-    "$N265" "$y4m" -o "$TMP/$name.hevc" $eargs \
+    env $VENV "$N265" "$y4m" -o "$TMP/$name.hevc" $eargs \
         --dump-recon "$TMP/$name.recon.yuv" 2>/dev/null || {
         echo "SUMMARY $name FAIL (encode)"; fail=$((fail+1)); return; }
     # shellcheck disable=SC2086
-    "$N265" "$y4m" -o "$TMP/$name.2.hevc" $eargs 2>/dev/null
+    env $VENV "$N265" "$y4m" -o "$TMP/$name.2.hevc" $eargs 2>/dev/null
     cmp -s "$TMP/$name.hevc" "$TMP/$name.2.hevc" || {
         echo "SUMMARY $name FAIL (determinism: two runs differ)"
         fail=$((fail+1)); return; }
@@ -111,6 +116,15 @@ run_vector() {
     pass=$((pass+1))
 }
 
+# same vector, with N265_* assignments in front of the encoder. SAO is off
+# by default since R7, so the sao() writer and the offset application are
+# only reachable this way and would otherwise go untested.
+run_vector_env() {
+    VENV=$1; shift
+    run_vector "$@"
+    VENV=""
+}
+
 # geometry coverage: CTB-aligned, unaligned (forced splits + conformance
 # window), tiny, tall/narrow, HD; QP sweep on the real path
 run_vector pcm_qcif       176x144  3  testsrc2  "--pcm"
@@ -138,6 +152,16 @@ run_vector inter_rect8    176x144 16  testsrc2  "--keyint 8 --qp 20"
 run_vector intra_ctu16    176x144  3  testsrc2  "--ctu 16"
 run_vector intra_ctu64    176x144  3  testsrc2  "--ctu 64"
 run_vector intra_ctu64c   210x122  3  testsrc2  "--ctu 64"
+# SAO: the filter is off by default (R7), so every path through
+# n265_sao_write and n265_sao_apply needs its type forced on here.
+run_vector_env "N265_SAO_TYPES=3 N265_SAO_CHROMA=0" \
+                          sao_full  176x144 12  testsrc2  "--keyint 6"
+run_vector_env "N265_SAO_TYPES=1" \
+                          sao_band  176x144 12  testsrc2  "--keyint 6"
+run_vector_env "N265_SAO_TYPES=2" \
+                          sao_edge  176x144 12  testsrc2  "--keyint 6"
+run_vector_env "N265_SAO_TYPES=3" \
+                          sao_crop  210x122 12  testsrc2  "--keyint 6 --ctu 64"
 if [ "$FAST" -eq 0 ]; then
     run_vector inter_cif   352x288 25  testsrc2  "--keyint 12"
     run_vector inter_b_cif 352x288 24  testsrc2  "--keyint 9"

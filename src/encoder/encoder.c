@@ -316,7 +316,7 @@ static void write_slice_header(n265_encoder *e)
         }
         bs_put_bits(bs, getenv("N265_NO_TMVP") ? 0 : 1, 1);      /* slice_temporal_mvp_enabled_flag */
     }
-    if (e->mode != N265_MODE_PCM) {
+    if (e->mode != N265_MODE_PCM && n265_sao_enabled()) {
         bs_put_bits(bs, 1, 1);      /* slice_sao_luma_flag */
         bs_put_bits(bs, 1, 1);      /* slice_sao_chroma_flag */
     }
@@ -596,11 +596,13 @@ static void encode_frame(n265_encoder *e, const uint8_t *const src[3],
             n265_analyze_ctu(e, i % e->ctb_cols, i / e->ctb_cols);
         e->rec_pos = 0;     /* rewind for the entropy pass */
         n265_deblock_frame(e);
-        n265_sao_analyze(e);
-        if (e->no_sao)
-            memset(e->sao, 0,
-                   (size_t)e->ctb_cols * e->ctb_rows * sizeof(sao_params));
-        n265_sao_apply(e);
+        if (n265_sao_enabled()) {
+            n265_sao_analyze(e);
+            if (e->no_sao)
+                memset(e->sao, 0,
+                       (size_t)e->ctb_cols * e->ctb_rows * sizeof(sao_params));
+            n265_sao_apply(e);
+        }
     }
 
     e->ent_qp_prev = e->qp;

@@ -12,7 +12,7 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 | `N265_RDOQ_UP` | 1 | src/encoder/rdoq.c:206 |
 | `N265_SKIP_THR` | 2 | src/encoder/ctu.c:401 |
 
-## instrument (41)
+## instrument (45)
 
 | knob | default | reader |
 |---|---|---|
@@ -39,11 +39,10 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 | `N265_MERGE_RD_N` | ? | src/encoder/ctu.c:1196 |
 | `N265_MERGE_TRACE` | ? | src/encoder/mv.c:239 |
 | `N265_ME_SATD` | 0 | src/encoder/ctu.c:1083 |
-| `N265_MODE_HIST` | ? | src/encoder/sao.c:364 |
+| `N265_MODE_HIST` | ? | src/encoder/sao.c:593 |
 | `N265_MVD_BITS` | 0 | src/encoder/ctu.c:1071 |
 | `N265_NO_AMP` | ? | src/encoder/encoder.c:121 |
 | `N265_NO_RECT` | ? | src/encoder/encoder.c:120 |
-| `N265_NO_SAO` | ? | src/encoder/encoder.c:125 |
 | `N265_NO_SPLIT` | ? | src/encoder/ctu.c:2910 |
 | `N265_PART_GATE` | 0 | src/encoder/ctu.c:524 |
 | `N265_PSY` | 0.0 | src/encoder/encoder.c:129 |
@@ -53,23 +52,29 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 | `N265_RDOQ_LAM` | 100 | src/encoder/rdoq.c:244 |
 | `N265_RECT_RANK` | 0 | src/encoder/ctu.c:554 |
 | `N265_RSKIP` | 0 | src/encoder/ctu.c:432 |
-| `N265_SAO_GATE` | 2 | src/encoder/sao.c:222 |
+| `N265_SAO_BIAS` | 100 | src/encoder/sao.c:176 |
+| `N265_SAO_CHROMA` | 1 | src/encoder/sao.c:321 |
+| `N265_SAO_GATE` | 2 | src/encoder/sao.c:353 |
+| `N265_SAO_QPLAM` | 0 | src/encoder/sao.c:166 |
+| `N265_SAO_TRACE` | ? | src/encoder/sao.c:438 |
+| `N265_SAO_TYPES` | 0 | src/encoder/sao.c:144 |
 | `N265_SBH_RD` | 2 | src/encoder/rdoq.c:190 |
 | `N265_SC_TRACE` | ? | src/encoder/la.c:242 |
 | `N265_SUBPEL_DEDUP` | 1 | src/encoder/mv.c:469 |
 
-## arm (11)
+## arm (12)
 
 | knob | default | reader |
 |---|---|---|
 | `N265_AQ` | ? | src/encoder/encoder.c:130 |
 | `N265_AQ_FLAT` | ? | src/encoder/encoder.c:524 |
-| `N265_BADAPT_THR` | ? | src/encoder/encoder.c:783 |
+| `N265_BADAPT_THR` | ? | src/encoder/encoder.c:785 |
 | `N265_FULLPEL` | ? | src/encoder/mv.c:466 |
 | `N265_LAMBDA` | ? | src/encoder/ctu.c:384 |
 | `N265_NO_AMVP` | ? | src/encoder/ctu.c:2351 |
 | `N265_NO_EARLYSKIP` | ? | src/encoder/ctu.c:2933 |
 | `N265_NO_GATES` | ? | src/encoder/ctu.c:2176 |
+| `N265_NO_SAO` | ? | src/encoder/encoder.c:125 |
 | `N265_NO_TMVP` | ? | src/encoder/encoder.c:317 |
 | `N265_OLD_BS` | ? | src/encoder/deblock.c:151 |
 | `N265_PB_STEP` | 0 | src/encoder/encoder.c:489 |
