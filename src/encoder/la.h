@@ -36,6 +36,10 @@ typedef struct n265_la {
     int bw, bh;             /* lowres 8x8 block grid */
     int depth;              /* target queue depth before draining */
     float sc_ema;           /* running pcost/icost EMA */
+    uint8_t *anchor_lowres; /* lowres luma of the last coded anchor */
+    int anchor_valid;
+    int16_t *pc_mv[8];      /* priced b-adapt: forward MVs per candidate */
+    int16_t *pc_bmv;        /* and the backward search's scratch */
 } n265_la;
 
 int n265_la_init(struct n265_encoder *e);
@@ -54,5 +58,16 @@ void n265_la_cutree(struct n265_encoder *e, int i);
 
 /* drop the front frame */
 void n265_la_pop(struct n265_encoder *e);
+
+/* remember this queued frame's lowres plane as the last coded anchor */
+void n265_la_set_anchor(struct n265_encoder *e, int i);
+
+/* the B-run length the priced mini-GOP comparison prefers, 1..maxa: the
+ * amortised lowres cost of coding `A` B frames under one anchor at
+ * distance A+1, minimised over A. Needs a valid anchor plane. */
+int n265_la_brun(struct n265_encoder *e, int maxa);
+
+/* the B-run length the anchor-prediction degradation rule allows */
+int n265_la_degrade(struct n265_encoder *e, int maxa, double thr);
 
 #endif

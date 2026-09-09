@@ -36,6 +36,18 @@ int n265_la_init(struct n265_encoder *e)
             if (!f->src[c])
                 return -1;
         }
+        if (i == 0) {
+            la->anchor_lowres = malloc((size_t)la->lw * la->lh);
+            if (!la->anchor_lowres)
+                return -1;
+            la->anchor_valid = 0;
+            size_t mvb = (size_t)la->bw * la->bh * 2 * sizeof(int16_t);
+            for (int k = 0; k < 8; k++)
+                if (!(la->pc_mv[k] = malloc(mvb)))
+                    return -1;
+            if (!(la->pc_bmv = malloc(mvb)))
+                return -1;
+        }
         f->lowres = malloc((size_t)la->lw * la->lh);
         int nb = la->bw * la->bh;
         f->icost = malloc((size_t)nb * sizeof(uint16_t));
@@ -60,6 +72,14 @@ void n265_la_free(struct n265_encoder *e)
         free(f->mv);
         free(f->prop);
     }
+    free(e->la.anchor_lowres);
+    e->la.anchor_lowres = NULL;
+    for (int k = 0; k < 8; k++) {
+        free(e->la.pc_mv[k]);
+        e->la.pc_mv[k] = NULL;
+    }
+    free(e->la.pc_bmv);
+    e->la.pc_bmv = NULL;
 }
 
 static uint32_t sad8(const uint8_t *a, int as, const uint8_t *b, int bs)
@@ -246,6 +266,207 @@ int n265_la_scenecut(struct n265_encoder *e, int i)
                 (double)f->pcost_sum / (double)(f->icost_sum ? f->icost_sum : 1),
                 cut);
     return cut;
+}
+
+void n265_la_set_anchor(struct n265_encoder *e, int i)
+{
+    n265_la *la = &e->la;
+    if (i < 0 || i >= la->count || !la->anchor_lowres)
+        return;
+    memcpy(la->anchor_lowres, la->f[i].lowres, (size_t)la->lw * la->lh);
+    la->anchor_valid = 1;
+}
+
+static uint32_t blk_sad_at(const n265_la *la, const uint8_t *cur,
+                           const uint8_t *ref, int x0, int y0, int mx, int my)
+{
+    int tx = x0 + mx, ty = y0 + my;
+    if (tx < 0 || ty < 0 || tx + 8 > la->lw || ty + 8 > la->lh)
+        return UINT32_MAX;
+    return sad8(cur + y0 * la->lw + x0, la->lw,
+                ref + ty * la->lw + tx, la->lw);
+}
+
+/* Cost of predicting lowres plane `cur` from `ref` over the queued frame
+ * span [lo, hi]: each block starts at `sign` x the co-located sum of the
+ * per-frame lowres MVs across that span (the linear-motion assumption the
+ * cu-tree propagation already makes) and is refined by the same small
+ * diamond n265_la_push uses. The +16 per-block floor matches pcost, so
+ * these numbers are comparable with each other and with pcost_sum. */
+static uint64_t pair_cost(const n265_la *la, const uint8_t *cur,
+                          const uint8_t *ref, int lo, int hi, int sign,
+                          int16_t *mvout)
+{
+    uint64_t sum = 0;
+    for (int by = 0; by < la->bh; by++)
+        for (int bx = 0; bx < la->bw; bx++) {
+            int b = by * la->bw + bx;
+            int x0 = bx * 8, y0 = by * 8;
+            if (x0 + 8 > la->lw)
+                x0 = la->lw - 8;
+            if (y0 + 8 > la->lh)
+                y0 = la->lh - 8;
+            int sx = 0, sy = 0;
+            for (int t = lo; t <= hi; t++) {
+                sx += la->f[t].mv[2 * b];
+                sy += la->f[t].mv[2 * b + 1];
+            }
+            int mx = sign * sx, my = sign * sy;
+            uint32_t best = blk_sad_at(la, cur, ref, x0, y0, mx, my);
+            if (best == UINT32_MAX) {
+                mx = my = 0;
+                best = blk_sad_at(la, cur, ref, x0, y0, 0, 0);
+            } else if (mx || my) {
+                uint32_t z = blk_sad_at(la, cur, ref, x0, y0, 0, 0);
+                if (z < best) {
+                    best = z;
+                    mx = my = 0;
+                }
+            }
+            for (int it = 0; it < 8; it++) {
+                int bmx = mx, bmy = my;
+                uint32_t bs = best;
+                static const int d[4][2] = {
+                    { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 }
+                };
+                for (int k = 0; k < 4; k++) {
+                    uint32_t s = blk_sad_at(la, cur, ref, x0, y0,
+                                            mx + d[k][0], my + d[k][1]);
+                    if (s < bs) {
+                        bs = s;
+                        bmx = mx + d[k][0];
+                        bmy = my + d[k][1];
+                    }
+                }
+                if (bmx == mx && bmy == my)
+                    break;
+                mx = bmx;
+                my = bmy;
+                best = bs;
+            }
+            if (mvout) {
+                mvout[2 * b] = (int16_t)mx;
+                mvout[2 * b + 1] = (int16_t)my;
+            }
+            sum += (uint64_t)best + 16;
+        }
+    return sum;
+}
+
+/* Cost of the same plane predicted BIDIRECTIONALLY, at the two searches'
+ * own winning vectors: the leaves of a mini-GOP are coded that way, and a
+ * unidirectional cost is the wrong price for them. No search of its own -
+ * one pass over the blocks averaging the two predictions. */
+static uint64_t bi_cost(const n265_la *la, const uint8_t *cur,
+                        const uint8_t *ra, const int16_t *mva,
+                        const uint8_t *rb, const int16_t *mvb)
+{
+    uint64_t sum = 0;
+    for (int by = 0; by < la->bh; by++)
+        for (int bx = 0; bx < la->bw; bx++) {
+            int b = by * la->bw + bx;
+            int x0 = bx * 8, y0 = by * 8;
+            if (x0 + 8 > la->lw)
+                x0 = la->lw - 8;
+            if (y0 + 8 > la->lh)
+                y0 = la->lh - 8;
+            int ax = x0 + mva[2 * b], ay = y0 + mva[2 * b + 1];
+            int bx2 = x0 + mvb[2 * b], by2 = y0 + mvb[2 * b + 1];
+            if (ax < 0 || ay < 0 || ax + 8 > la->lw || ay + 8 > la->lh ||
+                bx2 < 0 || by2 < 0 || bx2 + 8 > la->lw || by2 + 8 > la->lh)
+                return UINT64_MAX;      /* out of range: no bi price */
+            const uint8_t *c = cur + y0 * la->lw + x0;
+            const uint8_t *pa = ra + ay * la->lw + ax;
+            const uint8_t *pb = rb + by2 * la->lw + bx2;
+            uint32_t s = 0;
+            for (int y = 0; y < 8; y++)
+                for (int x = 0; x < 8; x++) {
+                    int p = (pa[y * la->lw + x] + pb[y * la->lw + x] + 1) >> 1;
+                    int d = c[y * la->lw + x] - p;
+                    s += (uint32_t)(d < 0 ? -d : d);
+                }
+            sum += (uint64_t)s + 16;
+        }
+    return sum;
+}
+
+/* How far the run can go before the anchor's own prediction falls apart,
+ * measured rather than guessed: extend while the lowres cost of predicting
+ * the candidate anchor from the LAST CODED ANCHOR stays within `thr` times
+ * that frame's own distance-1 cost. The quantity is a ratio of two costs of
+ * the same frame, so it carries no units and does not scale with resolution
+ * the way the mean |MV| rule does. */
+int n265_la_degrade(struct n265_encoder *e, int maxa, double thr)
+{
+    n265_la *la = &e->la;
+    if (maxa < 1)
+        return 0;
+    if (!la->anchor_valid || maxa >= la->count)
+        return maxa;
+    int trace = getenv("N265_BADAPT_TRACE") != NULL;
+    int A = 0;
+    for (int i = 1; i <= maxa; i++) {
+        A = i;
+        uint64_t far = pair_cost(la, la->f[i].lowres, la->anchor_lowres,
+                                 0, i, 1, NULL);
+        uint64_t near = la->f[i].pcost_sum ? la->f[i].pcost_sum : 1;
+        double r = (double)far / (double)near;
+        if (trace)
+            fprintf(stderr, "BDEG d=%d i=%d far=%llu near=%llu r=%.3f "
+                    "thr=%.3f %s\n", la->f[i].display_idx, i,
+                    (unsigned long long)far, (unsigned long long)near, r, thr,
+                    r > thr ? "END" : "extend");
+        if (r > thr)
+            break;
+    }
+    return A;
+}
+
+int n265_la_brun(struct n265_encoder *e, int maxa)
+{
+    n265_la *la = &e->la;
+    if (maxa < 1)
+        return 0;
+    if (!la->anchor_valid || maxa >= la->count || maxa > 7)
+        return maxa;
+    uint64_t fwd[8];
+    for (int k = 0; k <= maxa; k++)
+        fwd[k] = pair_cost(la, la->f[k].lowres, la->anchor_lowres, 0, k, 1,
+                           la->pc_mv[k]);
+    int trace = getenv("N265_BADAPT_TRACE") != NULL;
+    int best_a = 1;
+    double best_c = 0;
+    for (int A = 1; A <= maxa; A++) {
+        uint64_t c = fwd[A];
+        for (int k = 0; k < A; k++) {
+            uint64_t bwd = pair_cost(la, la->f[k].lowres, la->f[A].lowres,
+                                     k + 1, A, -1, la->pc_bmv);
+            uint64_t bi = bi_cost(la, la->f[k].lowres, la->anchor_lowres,
+                                  la->pc_mv[k], la->f[A].lowres, la->pc_bmv);
+            uint64_t leaf = fwd[k] < bwd ? fwd[k] : bwd;
+            if (bi < leaf)
+                leaf = bi;
+            c += leaf;
+            if (trace)
+                fprintf(stderr, "  BRUNleaf A=%d k=%d fwd=%llu bwd=%llu "
+                        "bi=%llu\n", A, k, (unsigned long long)fwd[k],
+                        (unsigned long long)bwd, (unsigned long long)bi);
+        }
+        double per = (double)c / (double)(A + 1);
+        /* ties go to the longer run: same predicted cost over more frames
+         * means fewer anchors for it */
+        if (A == 1 || per <= best_c) {
+            best_c = per;
+            best_a = A;
+        }
+        if (trace)
+            fprintf(stderr, "BRUN d=%d A=%d anchor=%llu per=%.1f\n",
+                    la->f[0].display_idx, A,
+                    (unsigned long long)fwd[A], per);
+    }
+    if (trace)
+        fprintf(stderr, "BRUN d=%d pick A=%d\n", la->f[0].display_idx, best_a);
+    return best_a;
 }
 
 void n265_la_cutree(struct n265_encoder *e, int i)

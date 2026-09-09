@@ -65,7 +65,8 @@ void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes,
                    int aq);
 void n265_set_crf(double crf) { g_crf = crf; }
 void n265_set_ref(int n) { g_ref = n < 1 ? 1 : n > N265_MAX_REF ? N265_MAX_REF : n; }
-void n265_set_badapt(int on) { g_badapt = on ? 1 : 0; }
+/* 0 off (fixed cadence), 1 the motion rule, 2 the priced mini-GOP */
+void n265_set_badapt(int on) { g_badapt = on < 0 ? 0 : on > 3 ? 3 : on; }
 
 void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes,
                    int aq)
@@ -710,14 +711,54 @@ static void build_plan(n265_encoder *e)
      * the first frame whose lookahead motion x inter/intra ratio says a far
      * bidirectional prediction will code badly (high-motion pans hurt as
      * deep B; foliage/texture with low motion do not). N265_BADAPT_THR the
-     * cutoff on (mean |lowres MV| per block) x (pcost/icost). */
+     * cutoff on (mean |lowres MV| per block) x (pcost/icost).
+     *
+     * The motion term is a count of LOWRES PIXELS, so the same physical pan
+     * reads 3-5x larger at 720p/1080p than at the CIF the cutoff was
+     * calibrated on, and the run collapses to one B frame on any HD clip
+     * that moves. N265_BADAPT_REFW scales it back to a fraction of the
+     * frame width: the term is multiplied by refw / lowres width, with
+     * refw the width the cutoff is taken to hold at. The scale is CLAMPED
+     * AT 1.0, so the normalisation can only ever relax the cutoff, never
+     * tighten it: everything at or below refw - the whole CIF half of the
+     * corpus, where the 0.35 was read - is byte-identical to the
+     * pre-2026-09-08 encoder, and only the clips whose motion the term was
+     * over-reading move. 0 turns it off (the pre-2026-09-08 encoder). */
     double bthr = 0.35; { const char *v = getenv("N265_BADAPT_THR"); if (v) bthr = atof(v); }
+    double refw = 128.0; { const char *v = getenv("N265_BADAPT_REFW"); if (v) refw = atof(v); }
+    double wscale = 1.0;
+    if (refw > 0.0 && la->lw > 0 && (double)la->lw > refw)
+        wscale = refw / (double)la->lw;
     int nb = la->bw * la->bh;
+    int trace = getenv("N265_BADAPT_TRACE") != NULL;
+    /* how far the key-frame edge lets the run go at all */
+    int keymax = maxa;
+    for (int i = 1; i <= maxa; i++) {
+        if (la_is_idr(e, i)) { keymax = i - 1; break; }
+    }
+    /* b-adapt 2: price the mini-GOP instead of ruling on motion. The run
+     * length is the one whose amortised lowres cost is lowest - one anchor
+     * predicted at distance A+1 plus A bidirectionally-predicted leaves,
+     * over A+1 frames. It has no calibrated constant in it. */
+    if (e->badapt == 3 && keymax >= 1) {
+        double dthr = 1.6;
+        { const char *v = getenv("N265_BADAPT_DEG"); if (v) dthr = atof(v); }
+        A = n265_la_degrade(e, keymax, dthr);
+    } else if (e->badapt == 2 && keymax >= 1) {
+        A = n265_la_brun(e, keymax);
+    } else
     for (int i = 1; i <= maxa; i++) {
         if (la_is_idr(e, i)) break;
         A = i;
         if (e->badapt) {
-            double m = (double)la->f[i].mvabs_sum / (nb ? nb : 1) * (double)la->f[i].sc_ratio;
+            double mv = (double)la->f[i].mvabs_sum / (nb ? nb : 1);
+            double m = mv * wscale * (double)la->f[i].sc_ratio;
+            if (trace)
+                fprintf(stderr, "BADAPT d=%d i=%d mv=%.3f ratio=%.3f "
+                        "scale=%.3f m=%.4f thr=%.4f %s\n",
+                        la->f[i].display_idx, i, mv,
+                        (double)la->f[i].sc_ratio, wscale, m, bthr,
+                        m > bthr ? "END" : "extend");
             if (m > bthr) break;    /* this frame ends the run (it is the anchor) */
         }
     }
@@ -758,6 +799,8 @@ static int drive_scheduler(n265_encoder *e, size_t *out_used, int *count)
      * only L0; B frames have both) */
     n265_build_lists(e, kind == 2 ? poc : poc, kind == 0, NULL);
     int slice_type = kind == 2 ? 2 : kind == 1 ? 1 : 0;
+    if (kind != 0)          /* the priced b-adapt prices against this plane */
+        n265_la_set_anchor(e, li);
     encode_frame(e, src, st, slice_type, poc, e->plan_nonref[e->plan_pos],
                  f->display_idx, e->plan_depth[e->plan_pos], out_used, count);
     e->plan_pos++;
