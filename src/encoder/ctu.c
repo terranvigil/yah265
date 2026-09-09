@@ -436,7 +436,12 @@ static int es_thr_pct(void)
 
 /* N265_RSKIP: stop the recursion where the no-split winner carried no
  * residual at all. 1 also requires that neither decoded neighbour went
- * deeper than this node; 2 drops that condition. */
+ * deeper than this node; 2 drops that condition. Measured and held
+ * twice: P1 refused it stacked on the CBF_FAST=3 it had just shipped,
+ * and R12 re-priced it on the R7 base at +0.14 mean BD for 1.050x
+ * foreman - which passes on the CQP band and fails at the pinned CRF
+ * point, where it costs +0.71 with two clips past the per-clip bar
+ * (docs/phase4-ladder.md R12). 0 is the default. */
 static int rskip_mode(void)
 {
     static int v = -1;
@@ -460,6 +465,23 @@ static int cbf_fast(void)
     if (v < 0) {
         const char *s = getenv("N265_CBF_FAST");
         v = s ? atoi(s) : 3;    /* stage 2, the one that priced (P1) */
+    }
+    return v;
+}
+
+/* N265_GATE_SCALE (phase 4, the ladder's P8): percent scale on the two
+ * economy gates the encoder has always had - the merge candidate's
+ * prediction SAD under n*n/8 prunes the AMVP search, under n*n/4 the
+ * intra arm. Both sit at a value that almost never fires
+ * (`N265_NO_GATES=1` costs 1.2% on foreman), so this is how they get
+ * re-derived against the band. 100 is the shipped rule, byte for byte. */
+static int gate_scale(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("N265_GATE_SCALE");
+        v = s ? atoi(s) : 100;
+        if (v < 1) v = 1;
     }
     return v;
 }
@@ -488,14 +510,17 @@ static int skip_exit(void)
  * 3 the decoded neighbourhood being inter with no luma coefficients.
  * 4 and 5 instead keep the 35-mode rank and gate only the RD trial,
  * on the ranked intra prediction being worse than the merge prediction
- * by 1.5x and by 1.0x in the SAD units both are measured in. 4 is the
- * default; 0 is the pre-P3 encoder. */
+ * by 1.5x and by 1.0x in the SAD units both are measured in. 5 is the
+ * default since R12 - P3 refused it on the per-clip bar (coastguard
+ * +1.59) and on the base R7 left it improves the band's mean, median
+ * and worst clip at both operating points; 4 is P3's shipped value and
+ * 0 the pre-P3 encoder. */
 static int intra_gate(void)
 {
     static int v = -1;
     if (v < 0) {
         const char *s = getenv("N265_INTRA_GATE");
-        v = s ? atoi(s) : 4;    /* the prefilter, the one that priced (P3) */
+        v = s ? atoi(s) : 5;    /* the prefilter at the tighter margin (R12) */
     }
     return v;
 }
@@ -1666,15 +1691,17 @@ static int intra_rd_mpm(void)
 /* N265_I_INTRA (phase 4, rung R11): the intra economy inside I slices
  * only, where there is no inter arm to gate against and every CU pays
  * the full search. 1 and 2 narrow the RD shortlist to two modes and to
- * one; 3 - the default - ranks the four 4x4 NxN luma blocks over the
- * 8x8 parent's own neighbourhood instead of all 35 modes; 4 is 2 and 3
- * together. 0 is the pre-R11 encoder, byte for byte. */
+ * one; 3 ranks the four 4x4 NxN luma blocks over the 8x8 parent's own
+ * neighbourhood instead of all 35 modes; 4 is 2 and 3 together. 0 is
+ * the default: 3 is quality-free but the clean timing pass reads it at
+ * 1.005x foreman against a byte-identical base, so there is nothing to
+ * buy at this keyint (docs/phase4-ladder.md R11). */
 static int i_intra(void)
 {
     static int v = -1;
     if (v < 0) {
         const char *s = getenv("N265_I_INTRA");
-        v = s ? atoi(s) : 3;
+        v = s ? atoi(s) : 0;
     }
     return v;
 }
@@ -2255,9 +2282,11 @@ static uint64_t analyze_cu(struct n265_encoder *e, int x0, int y0, int log2n)
             if (no_gates < 0)
                 no_gates = getenv("N265_NO_GATES") != NULL;
             int gate_amvp = !no_gates &&
-                            cand_plain_sad < (uint32_t)(n * n) / 8;
+                (uint64_t)cand_plain_sad * 800u <
+                    (uint64_t)(n * n) * (unsigned)gate_scale();
             int gate_intra = !no_gates &&
-                             cand_plain_sad < (uint32_t)(n * n) / 4;
+                (uint64_t)cand_plain_sad * 400u <
+                    (uint64_t)(n * n) * (unsigned)gate_scale();
             int gate_part = 0;
 
             /* merge candidate (and the forced-skip variant) */
