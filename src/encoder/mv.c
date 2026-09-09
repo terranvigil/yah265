@@ -9,6 +9,7 @@
 
 #include "encoder/mc.h"
 #include "encoder/mv.h"
+#include "encoder/refchk.h"
 #include "encoder/satd.h"
 
 /* is the 4x4 cell holding (x,y) an already-decoded inter block?
@@ -129,12 +130,16 @@ static int tmvp_mv(struct n265_frame_work *e, const pu_geo *g,
     int xbr = g->x + g->w, ybr = g->y + g->h;
     if (xbr < e->pad_w && ybr < e->pad_h &&
         (g->y >> e->ctb_log2) == (ybr >> e->ctb_log2)) {
+        /* G2 entry point: the collocated MV field is written by the
+         * publish task of the row the cell lies in */
+        n265_ref_wait(e, col, ybr);
         int t = (ybr >> 4) * c16w + (xbr >> 4);
         if (col->col_pred[t])
             i16 = t;
     }
     if (i16 < 0) {      /* centre: the prediction block's */
         int xc = g->x + g->w / 2, yc = g->y + g->h / 2;
+        n265_ref_wait(e, col, yc);
         int t = (yc >> 4) * c16w + (xc >> 4);
         if (col->col_pred[t])
             i16 = t;
@@ -403,10 +408,16 @@ uint32_t n265_mc_sad(struct n265_frame_work *e, int list, int ridx, int x0, int 
     if ((mv.x | mv.y) & 3) {    /* fractional: interpolate then SAD */
         uint8_t pred[64 * 64];
         int ix = x0 + (mv.x >> 2), iy = y0 + (mv.y >> 2);
+        /* G2 entry point: the 8-tap reaches 4 lines below the block, and
+         * n265_ref_hf's own coverage test wants the same line, so one
+         * bound serves both arms. */
+        int need = n265_ref_wait(e, ref, iy + h + 4);
         const uint8_t *rp = ref->plane[0] + iy * ref->stride[0] + ix;
-        n265_mc_luma_hf(pred, w, w, h, rp, ref->stride[0],
-                        n265_ref_hf(ref, ix, iy, w, h, mv.x & 3),
+        const int16_t *hf = n265_ref_hf(ref, ix, iy, w, h, mv.x & 3);
+        N265_REF_GUARD(e, ref, need, 0, n265_ref_hf_base(ref, mv.x & 3));
+        n265_mc_luma_hf(pred, w, w, h, rp, ref->stride[0], hf,
                         ref->hf_stride, mv.x & 3, mv.y & 3);
+        N265_REF_UNGUARD();
         uint32_t sad = 0;
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++) {
@@ -415,8 +426,14 @@ uint32_t n265_mc_sad(struct n265_frame_work *e, int list, int ridx, int x0, int 
             }
         return sad;
     }
+    int iy = y0 + (mv.y >> 2);
+    int need = n265_ref_wait(e, ref, iy + h - 1);
     const uint8_t *rp = ref->plane[0] +
-        (y0 + (mv.y >> 2)) * ref->stride[0] + x0 + (mv.x >> 2);
+        iy * ref->stride[0] + x0 + (mv.x >> 2);
+    N265_REF_GUARD(e, ref, need, 0, NULL);
+    N265_RC_TOUCH(rp);
+    N265_RC_TOUCH(rp + (h - 1) * ref->stride[0]);
+    N265_REF_UNGUARD();
     uint32_t sad = 0;
     for (int y = 0; y < h; y++)
         for (int x = 0; x < w; x++) {
@@ -436,10 +453,13 @@ static uint32_t mc_satd(struct n265_frame_work *e, int list, int ridx, int x0, i
     const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
     uint8_t pred[64 * 64];
     int ix = x0 + (mv.x >> 2), iy = y0 + (mv.y >> 2);
+    int need = n265_ref_wait(e, ref, iy + h + 4);   /* G2 entry point */
     const uint8_t *rp = ref->plane[0] + iy * ref->stride[0] + ix;
-    n265_mc_luma_hf(pred, w, w, h, rp, ref->stride[0],
-                    n265_ref_hf(ref, ix, iy, w, h, mv.x & 3),
+    const int16_t *hf = n265_ref_hf(ref, ix, iy, w, h, mv.x & 3);
+    N265_REF_GUARD(e, ref, need, 0, n265_ref_hf_base(ref, mv.x & 3));
+    n265_mc_luma_hf(pred, w, w, h, rp, ref->stride[0], hf,
                     ref->hf_stride, mv.x & 3, mv.y & 3);
+    N265_REF_UNGUARD();
     return n265_satd_wh(src, e->pad_stride[0], pred, w, w, h);
 }
 

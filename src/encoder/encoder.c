@@ -5,6 +5,7 @@
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
+#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -354,12 +355,18 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->ctb_cols = (e->pad_w + ctb - 1) >> e->ctb_log2;
     e->ctb_rows = (e->pad_h + ctb - 1) >> e->ctb_log2;
 
+    /* K, the frames in flight (sec 1). A pure scheduling knob: it moves
+     * no bits, only how much of the mini-GOP overlaps. */
+    { const char *v = getenv("N265_MAX_FRAME_WORK");
+      int k = v ? atoi(v) : 4;
+      e->K = k < 1 ? 1 : k > N265_MAX_FRAME_WORK ? N265_MAX_FRAME_WORK : k; }
+
     for (int i = 0; i < 3; i++) {
         int w = i ? e->pad_w / 2 : e->pad_w;
         int h = i ? e->pad_h / 2 : e->pad_h;
         e->pad_stride[i] = w;
         int pad = i ? N265_REF_PAD / 2 : N265_REF_PAD;
-        for (int sl = 0; sl < N265_DPB_SLOTS + N265_MAX_FRAME_WORK; sl++) {
+        for (int sl = 0; sl < N265_DPB_SLOTS + e->K; sl++) {
             struct n265_refpic *r = sl < N265_DPB_SLOTS
                 ? &e->dpb[sl] : &e->scratch_pic[sl - N265_DPB_SLOTS];
             r->stride[i] = w + 2 * pad;
@@ -385,17 +392,26 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         memset(e->dpb[sl].ctu_dmax, 0xff, nctu);
     }
     e->map_stride = e->pad_w >> 2;
-    for (int i = 0; i < N265_MAX_FRAME_WORK; i++)
+    for (int i = 0; i < e->K; i++)
         if (fw_open(e, &e->fw[i]) < 0)
             goto fail;
-    e->pool = ntp_open(g_threads > 0 ? g_threads : auto_threads());
+    {
+        int nt = g_threads > 0 ? g_threads : auto_threads();
+        /* Lanes, not workers: a worker that stalls on a reference row
+         * runs an older frame's task NESTED (G3), and the nested run
+         * needs its own row scratch. Nesting is bounded by the number of
+         * live jobs, so nt * K lanes is the ceiling. Their scratch is
+         * allocated on first use, because the nested lanes are rarely
+         * touched. */
+        e->pool = ntp_open(nt, e->K, nt * e->K);
+    }
     if (!e->pool)
         goto fail;
-    e->nlanes = ntp_threads(e->pool);
+    e->nlanes = ntp_lanes(e->pool);
     e->row = calloc((size_t)e->nlanes, sizeof(*e->row));
     if (!e->row)
         goto fail;
-    for (int i = 0; i < e->nlanes; i++)
+    for (int i = 0; i < ntp_threads(e->pool); i++)
         if (!(e->row[i].sc = n265_scratch_new()))
             goto fail;
     /* every cached knob and lazy table, initialized here, on this
@@ -408,7 +424,9 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     n265_rdoq_warm();
 
     size_t frame_bytes = (size_t)e->pad_w * e->pad_h * 3 / 2;
-    /* up to two coded frames (anchor + B) leave per call */
+    /* A whole mini-GOP leaves per call, and the ring grows if it has to
+     * (add_nal), so the payload pointers are patched from offsets at the
+     * end of the call rather than being taken before a realloc. */
     e->out_cap = 3 * nal_pack_bound(frame_bytes + 4096) + 4096;
     e->out = malloc(e->out_cap);
     if (!e->out)
@@ -427,7 +445,14 @@ void n265_encoder_close(n265_encoder *e)
 {
     if (!e)
         return;
-    for (int i = 0; i < N265_MAX_FRAME_WORK; i++)
+    if (getenv("N265_STALL_TRACE"))
+        fprintf(stderr, "STALL frames=%ld stalls=%ld %.3f/frame\n",
+                (long)atomic_load(&e->stall_frames),
+                (long)atomic_load(&e->ref_stalls),
+                atomic_load(&e->stall_frames)
+                    ? (double)atomic_load(&e->ref_stalls) /
+                      (double)atomic_load(&e->stall_frames) : 0.0);
+    for (int i = 0; i < e->K; i++)
         fw_close(&e->fw[i]);
     for (int i = 0; i < e->nlanes; i++)
         n265_scratch_free(e->row[i].sc);
@@ -439,6 +464,10 @@ void n265_encoder_close(n265_encoder *e)
         for (int sl = 0; sl < N265_MAX_FRAME_WORK; sl++)
             free(e->scratch_pic[sl].base[i]);
     }
+    for (int i = 0; i < 3; i++)
+        free(e->hdr_rbsp[i]);
+    for (size_t i = 0; i < sizeof(e->done) / sizeof(e->done[0]); i++)
+        free(e->done[i].buf);
     for (int sl = 0; sl < N265_DPB_SLOTS; sl++) {
         free(e->dpb[sl].col_pred);
         free(e->dpb[sl].col_mv);
@@ -580,15 +609,19 @@ static int hf_cache_on(void)
     return on;
 }
 
-static void build_hf_cache(n265_encoder *e, struct n265_refpic *r)
+/* Arm the cache on a freshly claimed slot: the buffers and the region it
+ * covers. Nothing is filled here - G4 makes the fill per row, inside the
+ * publish task, so that a row's cache exists before final_rows advances
+ * past it. Filling is safe there with no ref_wait of its own because the
+ * horizontal 8-tap reads only along its OWN line: the cache for row r
+ * publishes with row r, not with row r + 1. */
+static void hf_arm(n265_encoder *e, struct n265_refpic *r)
 {
     for (int i = 0; i < 3; i++)
         r->hf[i] = NULL;
     if (!hf_cache_on())
         return;
     int w = e->pad_w + 2 * N265_HF_PAD, h = e->pad_h + 2 * N265_HF_PAD;
-    int rs = r->stride[0];
-    const uint8_t *src = r->plane[0] - N265_HF_PAD * rs - N265_HF_PAD;
     r->hf_stride = w;
     for (int i = 0; i < 3; i++) {
         if (!r->hf_base[i]) {
@@ -599,13 +632,38 @@ static void build_hf_cache(n265_encoder *e, struct n265_refpic *r)
                 return;
             }
         }
-        n265_mc_luma_hplane(r->hf_base[i], w, w, h, src, rs, i + 1);
         r->hf[i] = r->hf_base[i] + N265_HF_PAD * w + N265_HF_PAD;
     }
     r->hf_x0 = -N265_HF_PAD;
     r->hf_x1 = e->pad_w + N265_HF_PAD;
     r->hf_y0 = -N265_HF_PAD;
     r->hf_y1 = e->pad_h + N265_HF_PAD;
+}
+
+/* The E1 cache for the luma lines CTB row r owns, plus the padding rows
+ * above (row 0) and below (the last row), which are replications of
+ * lines this row has just border-extended. */
+static void hf_fill_rows(n265_frame_work *fw, struct n265_refpic *r, int cy,
+                         int last)
+{
+    if (!r->hf[0])
+        return;
+    int ctb = 1 << fw->ctb_log2;
+    int w = fw->pad_w + 2 * N265_HF_PAD;
+    int rs = r->stride[0];
+    int y0 = cy * ctb, y1 = y0 + ctb;
+    if (y1 > fw->pad_h)
+        y1 = fw->pad_h;
+    if (cy == 0)
+        y0 = -N265_HF_PAD;
+    if (last)
+        y1 = fw->pad_h + N265_HF_PAD;
+    const uint8_t *src = r->plane[0] + y0 * rs - N265_HF_PAD;
+    N265_REF_OPEN_ALL();
+    for (int i = 0; i < 3; i++)
+        n265_mc_luma_hplane(r->hf[i] + (size_t)y0 * w - N265_HF_PAD, w,
+                            w, y1 - y0, src, rs, i + 1);
+    N265_REF_UNGUARD();
 }
 
 static void write_pcm_ctu(n265_frame_work *e, cabac_t *cb, cabac_ctx_t *part_mode,
@@ -633,16 +691,92 @@ static void write_pcm_ctu(n265_frame_work *e, cabac_t *cb, cabac_ctx_t *part_mod
     n265_cabac_start(cb, bs);
 }
 
-static void add_nal(n265_encoder *e, n265_frame_work *fw, int type,
-                    size_t *out_used, int *nnal)
+/* The deferred-NAL ring. Frames finish out of order under overlap, and a
+ * resource stall can force one to be joined long before the API call
+ * that owes it runs. So a joined frame's NALs are packed HERE, in coding
+ * order, and copied into the caller's buffer only when that call comes
+ * round; the driver is then free to run as far ahead as K allows without
+ * the API returning frames early. */
+static struct n265_done *done_slot(n265_encoder *e)
 {
-    size_t sz = nal_pack(e->out + *out_used, e->out_cap - *out_used,
-                         type, fw->rbsp.buf, fw->rbsp.bytes);
-    e->nal[*nnal].type = type;
-    e->nal[*nnal].payload = e->out + *out_used;
-    e->nal[*nnal].size = (int)sz;
-    (*nnal)++;
-    *out_used += sz;
+    int n = (int)(sizeof(e->done) / sizeof(e->done[0]));
+    struct n265_done *d = &e->done[(e->done_head + e->n_done) % n];
+    d->len = 0;
+    d->nnal = 0;
+    return d;
+}
+
+static void pack_nal(struct n265_done *d, int type, const uint8_t *rbsp,
+                     size_t len)
+{
+    if (d->nnal >= (int)(sizeof(d->type) / sizeof(d->type[0])))
+        return;
+    size_t need = d->len + nal_pack_bound(len) + 64;
+    if (need > d->cap) {
+        uint8_t *b = realloc(d->buf, need);
+        if (!b)
+            return;
+        d->buf = b;
+        d->cap = need;
+    }
+    size_t sz = nal_pack(d->buf + d->len, d->cap - d->len, type, rbsp, len);
+    d->type[d->nnal] = type;
+    d->size[d->nnal] = (int)sz;
+    d->nnal++;
+    d->len += sz;
+}
+
+/* Copy up to `max` joined frames into the caller's buffer, oldest first.
+ * The buffer grows, so payload POINTERS are patched from offsets at the
+ * end of the call rather than taken before a realloc that may move them. */
+static void emit_done(n265_encoder *e, int max, size_t *out_used, int *nnal)
+{
+    int n = (int)(sizeof(e->done) / sizeof(e->done[0]));
+    int cap_nal = (int)(sizeof(e->nal) / sizeof(e->nal[0]));
+    while (max-- > 0 && e->n_done > 0) {
+        struct n265_done *d = &e->done[e->done_head];
+        if (*nnal + d->nnal > cap_nal)
+            break;
+        if (*out_used + d->len > e->out_cap) {
+            size_t want = *out_used + d->len;
+            size_t cap = e->out_cap * 2 > want ? e->out_cap * 2 : want;
+            uint8_t *o = realloc(e->out, cap);
+            if (!o)
+                break;
+            e->out = o;
+            e->out_cap = cap;
+        }
+        memcpy(e->out + *out_used, d->buf, d->len);
+        size_t off = *out_used;
+        for (int i = 0; i < d->nnal; i++) {
+            e->nal[*nnal].type = d->type[i];
+            e->nal[*nnal].payload = NULL;   /* patched at end of call */
+            e->nal[*nnal].size = d->size[i];
+            e->nal_off[*nnal] = off;
+            off += (size_t)d->size[i];
+            (*nnal)++;
+        }
+        *out_used += d->len;
+        e->done_head = (e->done_head + 1) % n;
+        e->n_done--;
+    }
+}
+
+/* Stash a header RBSP written into fw->rbsp; it is packed when the frame
+ * that carries it retires, so it lands ahead of that frame's slice. */
+static void stash_header(n265_encoder *e, int type, n265_frame_work *fw)
+{
+    int i = e->nhdr;
+    if (i >= 3)
+        return;
+    uint8_t *b = realloc(e->hdr_rbsp[i], fw->rbsp.bytes + 1);
+    if (!b)
+        return;
+    memcpy(b, fw->rbsp.buf, fw->rbsp.bytes);
+    e->hdr_rbsp[i] = b;
+    e->hdr_len[i] = fw->rbsp.bytes;
+    e->hdr_type[i] = type;
+    e->nhdr = i + 1;
 }
 
 static void dump_planes(n265_frame_work *fw, FILE *f)
@@ -674,18 +808,113 @@ static void dump_recon_frame(n265_encoder *e, n265_frame_work *fw)
         dump_planes(fw, e->dump_decode);
 }
 
-/* encode one frame from the given source planes; appends NALs */
-/* The frame's task table (docs/threading-design.md sec 1). Indices:
+/* The exact reference stall (G2). The fast path is inline in
+ * encoder.h; this is what happens when it misses: count it, then run
+ * ready tasks of strictly OLDER frames until the watermark arrives. */
+struct ref_stall_ctx {
+    const struct n265_refpic *pic;
+    int need;
+};
+
+static int ref_stall_pred(void *ctx)
+{
+    struct ref_stall_ctx *w = ctx;
+    return n265_ref_have(w->pic) >= w->need;
+}
+
+void n265_ref_stall(n265_frame_work *e, const struct n265_refpic *pic,
+                    int need)
+{
+    n265_encoder *enc = e->enc;
+    atomic_fetch_add_explicit(&enc->ref_stalls, 1, memory_order_relaxed);
+    struct ref_stall_ctx w = { pic, need };
+    ntp_wait_older(enc->pool, ref_stall_pred, &w);
+}
+
+/* Publish CTB row `cy` of this frame's picture (G4). Everything a later
+ * frame can read from it is written HERE, before final_rows advances
+ * past the row: the row's border extension (and, on the first and last
+ * rows, the padding above and below it), the E1 half-pel cache for the
+ * row's lines, the TMVP motion field for the 16x16 cells the row covers,
+ * and the P2 per-CTU depth range. The whole-frame publish pass that used
+ * to do all of this after entropy is gone, and that deletion is the
+ * proof that nothing was missed: every write it did has a row that owns
+ * it now. */
+static void publish_row(n265_frame_work *fw, int cy)
+{
+    struct n265_refpic *slot = fw->slot;
+    int ctb = 1 << fw->ctb_log2;
+    int last = cy == fw->ctb_rows - 1;
+
+    if (fw->mode != N265_MODE_PCM && !fw->nonref) {
+        for (int i = 0; i < 3; i++) {
+            int sh = i ? 1 : 0;
+            int w = fw->pad_w >> sh, h = fw->pad_h >> sh;
+            int pad = i ? N265_REF_PAD / 2 : N265_REF_PAD;
+            int rs = slot->stride[i];
+            int y0 = (cy * ctb) >> sh;
+            int y1 = y0 + (ctb >> sh);
+            if (y1 > h)
+                y1 = h;
+            for (int y = y0; y < y1; y++) {
+                uint8_t *d = slot->plane[i] + y * rs;
+                memset(d - pad, d[0], (size_t)pad);
+                memset(d + w, d[w - 1], (size_t)pad);
+            }
+            if (cy == 0)
+                for (int y = 1; y <= pad; y++)
+                    memcpy(slot->plane[i] - y * rs - pad,
+                           slot->plane[i] - pad, (size_t)rs);
+            if (last)
+                for (int y = 1; y <= pad; y++)
+                    memcpy(slot->plane[i] + (h - 1 + y) * rs - pad,
+                           slot->plane[i] + (h - 1) * rs - pad, (size_t)rs);
+        }
+        hf_fill_rows(fw, slot, cy, last);
+        {
+            int c16w = (fw->pad_w + 15) >> 4;
+            int c16h = (fw->pad_h + 15) >> 4;
+            int r0 = (cy * ctb) >> 4;
+            int r1 = r0 + (ctb >> 4);
+            if (r1 > c16h)
+                r1 = c16h;
+            for (int y16 = r0; y16 < r1; y16++)
+                for (int cx = 0; cx < c16w; cx++) {
+                    int m = (y16 * 4) * fw->map_stride + cx * 4;
+                    int i16 = y16 * c16w + cx;
+                    if (fw->slice_type == 2 || fw->blk_intra[m]) {
+                        slot->col_pred[i16] = 0;
+                        continue;
+                    }
+                    slot->col_pred[i16] = fw->blk_pred[m];
+                    memcpy(slot->col_mv + 4 * i16, fw->blk_mv + 4 * m, 8);
+                    for (int l = 0; l < 2; l++)
+                        slot->col_ref[2 * i16 + l] = (fw->blk_pred[m] & (1 << l))
+                            ? (int16_t)fw->refl[l][fw->blk_ref[2 * m + l]]->poc : 0;
+                }
+        }
+        /* P2: carry this row's per-CTU depth range with the picture, so
+         * a later frame can read the collocated range */
+        memcpy(slot->ctu_dmin + (size_t)cy * fw->ctb_cols,
+               fw->ctu_dmin + (size_t)cy * fw->ctb_cols,
+               (size_t)fw->ctb_cols);
+        memcpy(slot->ctu_dmax + (size_t)cy * fw->ctb_cols,
+               fw->ctu_dmax + (size_t)cy * fw->ctb_cols,
+               (size_t)fw->ctb_cols);
+    }
+    atomic_store_explicit(&slot->final_rows, cy + 1, memory_order_release);
+}
+
+static void entropy_frame(n265_encoder *e, n265_frame_work *fw);
+
+/* The frame's task table (docs/threading-design.md sec 1, G4). Indices:
  * [0, R)      encode row r
  * [R, 2R)     QP-map fill + deblock row r
- * [2R, 3R)    SAO row r (only when the filter is on)
- * Entropy stays on the driver at T1: with one frame in flight there is
- * nothing for it to overlap with, and it needs the output ring. */
-struct frame_job {
-    n265_frame_work *fw;
-    n265_encoder *e;
-    int R, cols, snap_x, sao_on;
-};
+ * [2R, 3R)    SAO row r (when the filter is on) then PUBLISH row r
+ * 3R          entropy
+ * The third kind exists whether or not SAO does: the filter is off by
+ * default and the publish still has to happen per row. R is 0 on the PCM
+ * path, which is the entropy task alone. */
 
 /* Row r's CTB x may run when row r-1 has committed CTB x+1, the 2-CTB
  * WPP lag: intra's top-right neighbour and the estimator snapshot both
@@ -704,17 +933,32 @@ static int lag_pred(void *ctx)
 
 static int job_ready(void *ctx, int idx)
 {
-    struct frame_job *j = ctx;
-    struct n265_prog *p = j->fw->prog;
-    int R = j->R;
+    n265_frame_work *fw = ctx;
+    struct n265_prog *p = fw->prog;
+    int R = fw->job_R;
     if (idx < R) {
         int r = idx;
-        if (r == 0)
-            return 1;
-        int need = j->snap_x + 1 > 2 ? j->snap_x + 1 : 2;
-        if (need > j->cols) need = j->cols;
-        return atomic_load_explicit(&p->enc_prog[r - 1],
-                                    memory_order_acquire) >= need;
+        if (r > 0) {
+            int need = fw->job_snap_x + 1 > 2 ? fw->job_snap_x + 1 : 2;
+            if (need > fw->job_cols) need = fw->job_cols;
+            if (atomic_load_explicit(&p->enc_prog[r - 1],
+                                     memory_order_acquire) < need)
+                return 0;
+        }
+        /* G1: sec 1's row-start gate, demoted to a scheduling hint. It
+         * keeps a row from starting only to stall at its first motion
+         * probe; it guarantees NOTHING (the T2/3 reach table), the
+         * ref_wait at every read is what makes the row safe, and as a
+         * hint it cannot change bits. */
+        if (fw->ref_lag) {
+            int nr = r + fw->ref_lag;
+            if (nr > R) nr = R;
+            for (int l = 0; l < 2; l++)
+                for (int k = 0; k < fw->nref[l]; k++)
+                    if (n265_ref_have(fw->refl[l][k]) < nr)
+                        return 0;
+        }
+        return 1;
     }
     if (idx < 2 * R) {
         int r = idx - R;
@@ -722,32 +966,36 @@ static int job_ready(void *ctx, int idx)
         return atomic_load_explicit(&p->dbk_rows, memory_order_acquire) == r &&
                atomic_load_explicit(&p->enc_rows, memory_order_acquire) >= need;
     }
-    int r = idx - 2 * R;
-    int need = r + 2 < R ? r + 2 : R;
-    return atomic_load_explicit(&p->sao_rows, memory_order_acquire) == r &&
-           atomic_load_explicit(&p->dbk_rows, memory_order_acquire) >= need;
+    if (idx < 3 * R) {
+        int r = idx - 2 * R;
+        int need = r + 2 < R ? r + 2 : R;
+        return atomic_load_explicit(&p->pub_rows, memory_order_acquire) == r &&
+               atomic_load_explicit(&p->dbk_rows, memory_order_acquire) >= need;
+    }
+    return atomic_load_explicit(&p->pub_rows, memory_order_acquire) == R;
 }
 
 static void job_run(void *ctx, int lane, int idx)
 {
-    struct frame_job *j = ctx;
-    n265_frame_work *fw = j->fw;
-    n265_encoder *e = j->e;
+    n265_frame_work *fw = ctx;
+    n265_encoder *e = fw->enc;
     struct n265_prog *p = fw->prog;
-    int R = j->R;
+    int R = fw->job_R;
 
     if (idx < R) {
         int r = idx;
         n265_row_ctx *row = &e->row[lane];
+        if (!row->sc)       /* a nested lane, allocated on first use */
+            row->sc = n265_scratch_new();
         n265_row_begin(row, fw, r);
-        for (int cx = 0; cx < j->cols; cx++) {
+        for (int cx = 0; cx < fw->job_cols; cx++) {
             if (r > 0) {
-                int need = cx + 2 < j->cols ? cx + 2 : j->cols;
+                int need = cx + 2 < fw->job_cols ? cx + 2 : fw->job_cols;
                 struct lag_wait w = { p, r, need };
                 ntp_wait(e->pool, lag_pred, &w);
             }
             n265_analyze_ctu(&row->c, cx, r);
-            if (cx == j->snap_x)
+            if (cx == fw->job_snap_x)
                 memcpy(fw->est_snap + (size_t)r * CTX_COUNT, row->c.est_ctx,
                        CTX_COUNT * sizeof(cabac_ctx_t));
             atomic_store_explicit(&p->enc_prog[r], cx + 1,
@@ -769,19 +1017,29 @@ static void job_run(void *ctx, int lane, int idx)
         ntp_publish(e->pool);
         return;
     }
-    int r = idx - 2 * R;
-    if (e->no_sao)
-        memset(&fw->sao[r * fw->ctb_cols], 0,
-               (size_t)fw->ctb_cols * sizeof(sao_params));
-    n265_sao_row(fw, r);
-    atomic_store_explicit(&p->sao_rows, r + 1, memory_order_release);
-    ntp_publish(e->pool);
+    if (idx < 3 * R) {
+        int r = idx - 2 * R;
+        if (fw->job_sao_on) {
+            if (e->no_sao)
+                memset(&fw->sao[r * fw->ctb_cols], 0,
+                       (size_t)fw->ctb_cols * sizeof(sao_params));
+            n265_sao_row(fw, r);
+        }
+        publish_row(fw, r);
+        atomic_store_explicit(&p->pub_rows, r + 1, memory_order_release);
+        ntp_publish(e->pool);
+        return;
+    }
+    entropy_frame(e, fw);
 }
 
-static void encode_frame(n265_encoder *e, n265_frame_work *fw,
-                         size_t *out_used, int *count)
+/* Dispatch one frame: everything that is driver-serial by construction
+ * (the QP ladder, the AQ field, the headers, the record and estimator
+ * reset), then the frame's job onto the pool. The driver does NOT wait
+ * here - that is what makes frames overlap - and it does not touch the
+ * frame again until retire_frame joins the job. */
+static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
 {
-    size_t frame_out0 = *out_used;
     int slice_type = fw->slice_type, b_depth = fw->b_depth;
     int nonref = fw->nonref, poc = fw->poc;
     /* P2: no CTU of this picture has a decided depth range yet */
@@ -824,14 +1082,22 @@ static void encode_frame(n265_encoder *e, n265_frame_work *fw,
     fw->qp = q < 0 ? 0 : q > 51 ? 51 : q;
 
     if (e->frames_done == 0) {
-        n265_write_vps(fw); add_nal(e, fw, N265_NAL_VPS, out_used, count);
-        n265_write_sps(fw); add_nal(e, fw, N265_NAL_SPS, out_used, count);
-        n265_write_pps(fw); add_nal(e, fw, N265_NAL_PPS, out_used, count);
+        /* The headers are a pure function of config, so they are written
+         * here and packed when this frame retires: under overlap the
+         * output ring is walked in coding order, not in completion
+         * order, and the VPS/SPS/PPS have to lead the first slice. */
+        fw->emit_headers = 1;
+        e->nhdr = 0;
+        n265_write_vps(fw); stash_header(e, N265_NAL_VPS, fw);
+        n265_write_sps(fw); stash_header(e, N265_NAL_SPS, fw);
+        n265_write_pps(fw); stash_header(e, N265_NAL_PPS, fw);
     }
-
-    int last = fw->ctb_rows * fw->ctb_cols - 1;
-    cabac_t cb;
-
+    fw->nal_type = fw->slice_type == 2 ? N265_NAL_IDR_W_RADL
+                                       : (nonref ? 0 /* TRAIL_N */
+                                                 : 1 /* TRAIL_R */);
+    fw->rc_base = base;
+    fw->job_R = 0;
+    fw->ref_lag = 0;
     if (fw->mode != N265_MODE_PCM) {
         memset(fw->edge_map, 0, (size_t)fw->map_stride * (fw->pad_h >> 2));
         memset(fw->blk_intra, 0, (size_t)fw->map_stride * (fw->pad_h >> 2));
@@ -952,21 +1218,48 @@ static void encode_frame(n265_encoder *e, n265_frame_work *fw,
                                 : fw->slice_type == 1 ? n265_ctx_init_p[i]
                                                      : n265_ctx_init_b[i],
                                 fw->qp);
-        /* The row wavefront of threading-design sec 1 on the pool. The
-         * readiness predicates are the design's, verbatim; every thread
-         * count runs the same task set in the same data order. */
-        int R = fw->ctb_rows;
-        int snap_k = fw->ctb_cols > 1 ? 1 : 0;  /* the WPP geometry */
-        struct frame_job fj = { fw, e, R, fw->ctb_cols, snap_k,
-                                n265_sao_enabled() };
+        /* The row wavefront of threading-design sec 1 on the pool, plus
+         * the per-row publish (G4) and the entropy task. The readiness
+         * predicates are the design's; every thread count and every K
+         * runs the same task set in the same data order. */
+        fw->job_R = fw->ctb_rows;
+        fw->job_cols = fw->ctb_cols;
+        fw->job_snap_x = fw->ctb_cols > 1 ? 1 : 0;  /* the WPP geometry */
+        fw->job_sao_on = n265_sao_enabled();
+        /* G1's hint: LAG = 1 + ceil((merange + 5) / ctb_size), sec 1's
+         * own formula, kept as the row-start heuristic. */
+        fw->ref_lag = fw->slice_type == 2 ? 0
+            : 1 + ((57 + 5 + (1 << fw->ctb_log2) - 1) >> fw->ctb_log2);
         fw->qprev = fw->qp;
-        memset(fw->prog, 0, sizeof(*fw->prog) +
-                            (size_t)R * sizeof(atomic_int));
-        ntp_job job = { &fj, fj.sao_on ? 3 * R : 2 * R, job_ready, job_run,
-                        NULL };
-        ntp_run_job(e->pool, &job);
     }
 
+    memset(fw->prog, 0, sizeof(*fw->prog) +
+                        (size_t)fw->ctb_rows * sizeof(atomic_int));
+    fw->job.ctx = fw;
+    fw->job.ntask = 3 * fw->job_R + 1;      /* + the entropy task */
+    fw->job.ready = job_ready;
+    fw->job.run = job_run;
+    fw->job.impl = NULL;
+    fw->in_flight = 1;
+    e->inflight[e->n_inflight++] = fw;
+    (void)poc;
+    ntp_submit(e->pool, &fw->job);
+    e->frames_done++;
+    atomic_fetch_add_explicit(&e->stall_frames, 1, memory_order_relaxed);
+}
+
+/* The per-frame entropy task: slice header, then the CTU syntax replayed
+ * from the committed records through the real CABAC engine. Entropy
+ * tasks of different frames are mutually independent (contexts
+ * initialize per slice), so they parallelize across frames like any
+ * other pool work; the output ORDER is restored by the deferred-NAL ring
+ * at retirement, not here. */
+static void entropy_frame(n265_encoder *e, n265_frame_work *fw)
+{
+    cabac_t cb;
+    int last = fw->ctb_rows * fw->ctb_cols - 1;
+    int nonref = fw->nonref;
+    (void)nonref;
     fw->ent_qp_prev = fw->qp;
     fw->ent_parent_chroma = 0;
     fw->in_entropy = 1;
@@ -995,80 +1288,37 @@ static void encode_frame(n265_encoder *e, n265_frame_work *fw,
     }
     fw->in_entropy = 0;
     bs_align_zero(&fw->rbsp);
-    add_nal(e, fw, fw->slice_type == 2 ? N265_NAL_IDR_W_RADL
-                                  : (nonref ? 0 /* TRAIL_N */
-                                            : 1 /* TRAIL_R */),
-            out_used, count);
 
-    if (fw->mode != N265_MODE_PCM && !nonref) {
-        /* Publish. The picture reconstructed directly into this slot, so
-         * all that is left is the border extension and the side data a
-         * later frame reads. The MARKING is not here any more: D2 puts it
-         * on the driver at dispatch, because a frame dispatched after
-         * this one has to see this picture in the DPB whether or not a
-         * single row of it has run. */
-        struct n265_refpic *slot = fw->slot;
-        for (int i = 0; i < 3; i++) {
-            int w = i ? fw->pad_w / 2 : fw->pad_w;
-            int h = i ? fw->pad_h / 2 : fw->pad_h;
-            int pad = i ? N265_REF_PAD / 2 : N265_REF_PAD;
-            int rs = slot->stride[i];
-            for (int y = 0; y < h; y++) {
-                uint8_t *d = slot->plane[i] + y * rs;
-                memset(d - pad, d[0], (size_t)pad);
-                memset(d + w, d[w - 1], (size_t)pad);
-            }
-            for (int y = 1; y <= pad; y++) {
-                memcpy(slot->plane[i] - y * rs - pad,
-                       slot->plane[i] - pad, (size_t)rs);
-                memcpy(slot->plane[i] + (h - 1 + y) * rs - pad,
-                       slot->plane[i] + (h - 1) * rs - pad, (size_t)rs);
-            }
-        }
-        build_hf_cache(e, slot);
-        {
-            int c16w = (fw->pad_w + 15) >> 4;
-            int c16h = (fw->pad_h + 15) >> 4;
-            for (int cy = 0; cy < c16h; cy++)
-                for (int cx = 0; cx < c16w; cx++) {
-                    int m = (cy * 4) * fw->map_stride + cx * 4;
-                    int i16 = cy * c16w + cx;
-                    if (fw->slice_type == 2 || fw->blk_intra[m]) {
-                        slot->col_pred[i16] = 0;
-                        continue;
-                    }
-                    slot->col_pred[i16] = fw->blk_pred[m];
-                    memcpy(slot->col_mv + 4 * i16, fw->blk_mv + 4 * m, 8);
-                    for (int l = 0; l < 2; l++)
-                        slot->col_ref[2 * i16 + l] = (fw->blk_pred[m] & (1 << l))
-                            ? (int16_t)fw->refl[l][fw->blk_ref[2 * m + l]]->poc : 0;
-                }
-            slot->col_ref_poc[0] = fw->ref_valid ? fw->refl[0][0]->poc : 0;
-            slot->col_ref_poc[1] = (fw->slice_type == 0 && fw->refl[1][0])
-                                       ? fw->refl[1][0]->poc
-                                       : slot->col_ref_poc[0];
-        }
-        /* P2: carry this picture's per-CTU depth range with it, so a
-         * later frame can read the collocated range */
-        memcpy(slot->ctu_dmin, fw->ctu_dmin, (size_t)fw->ctb_cols * fw->ctb_rows);
-        memcpy(slot->ctu_dmax, fw->ctu_dmax, (size_t)fw->ctb_cols * fw->ctb_rows);
-        /* The physical half of D2. Still all-or-nothing here, because
-         * the border extension and the side data above are whole-frame
-         * passes; T2/3 moves them into the SAO row task and this becomes
-         * the row-granular watermark the reference gate reads. Truthful
-         * either way: no row of this picture is readable by another
-         * frame before this point. */
-        atomic_store_explicit(&slot->final_rows, fw->ctb_rows,
-                              memory_order_release);
-    }
-    (void)poc;
-    fw->slot->in_use = 0;
-    fw->slot = NULL;
+
+}
+
+/* Join the oldest frame in flight: wait for its job, pack its NALs into
+ * the deferred ring in CODING order, and hand its resources back. This
+ * is the only place the driver blocks on a frame, and it is where D3's
+ * stalls (a DPB slot, a lookahead source slot, a frame_work) resolve. */
+static void join_oldest(n265_encoder *e)
+{
+    if (e->n_inflight == 0)
+        return;
+    n265_frame_work *fw = e->inflight[0];
+    ntp_join(e->pool, &fw->job);
+    struct n265_done *d = done_slot(e);
+    if (fw->emit_headers)
+        for (int i = 0; i < e->nhdr; i++)
+            pack_nal(d, e->hdr_type[i], e->hdr_rbsp[i], e->hdr_len[i]);
+    pack_nal(d, fw->nal_type, fw->rbsp.buf, fw->rbsp.bytes);
+    e->n_done++;
     dump_recon_frame(e, fw);
+    /* D4: the actual bits are applied on the driver, in coding order. */
     if (e->abr_on || e->rc.trace)
-        n265_rc_done(e, e->rc_cls, e->rc_cplx, base,
-                     (double)(*out_used - frame_out0) * 8.0);
-    e->frames_done++;
+        n265_rc_done(e, fw->rc_cls, fw->rc_cplx, fw->rc_base,
+                     (double)d->len * 8.0);
+    fw->slot->in_use = 0;
+    fw->emit_headers = 0;
+    fw->in_flight = 0;
+    for (int i = 1; i < e->n_inflight; i++)
+        e->inflight[i - 1] = e->inflight[i];
+    e->n_inflight--;
 }
 
 /* Build the reference lists for the picture that follows POC `cur`
@@ -1218,20 +1468,42 @@ static void build_plan(n265_encoder *e)
     e->plan_pop = A + 1;
 }
 
+static void join_oldest(n265_encoder *e);
+
+/* D3: is this picture still being written, or still readable by a frame
+ * that has not retired? The list is driver-owned, so this is a plain
+ * read. */
+static int slot_busy(n265_encoder *e, const struct n265_refpic *s)
+{
+    if (s->in_use)
+        return 1;
+    for (int i = 0; i < e->n_inflight; i++) {
+        n265_frame_work *f = e->inflight[i];
+        if (f->col == s)
+            return 1;
+        for (int l = 0; l < 2; l++)
+            for (int k = 0; k < f->nref[l]; k++)
+                if (f->refl[l][k] == s)
+                    return 1;
+    }
+    return 0;
+}
+
 /* Claim the DPB slot this frame reconstructs into and point the
  * frame_work's recon planes at it. Same rule the pre-T0a store applied
  * after entropy: an unmarked slot, else the marked one with the oldest
- * POC that is not in this frame's reference lists. `in_use` keeps two
- * frames in flight off the same slot (a no-op until T2/3). */
+ * POC that is not in this frame's reference lists. The rule sees only
+ * `marked`, which is driver-serial, so the CHOICE is the serial
+ * encoder's; D3 then STALLS (retires frames) rather than re-routing, so
+ * slot identity still cannot reach the bitstream. */
 static void claim_slot(n265_encoder *e, n265_frame_work *fw)
 {
     struct n265_refpic *slot = NULL;
     if (fw->nonref || fw->mode == N265_MODE_PCM)
         slot = &e->scratch_pic[fw - e->fw];
     for (int sl = 0; sl < N265_DPB_SLOTS && !slot; sl++)
-        if (!e->dpb[sl].marked && !e->dpb[sl].in_use) slot = &e->dpb[sl];
+        if (!e->dpb[sl].marked) slot = &e->dpb[sl];
     for (int sl = 0; sl < N265_DPB_SLOTS && !slot; sl++) {
-        if (e->dpb[sl].in_use) continue;
         int in_list = 0;
         for (int l = 0; l < 2; l++)
             for (int k = 0; k < fw->nref[l]; k++)
@@ -1239,6 +1511,9 @@ static void claim_slot(n265_encoder *e, n265_frame_work *fw)
         if (!in_list && (!slot || e->dpb[sl].poc < slot->poc)) slot = &e->dpb[sl];
     }
     if (!slot) slot = &e->dpb[0];
+    /* D3: wait for the picture, never re-route to another one. */
+    while (e->n_inflight && slot_busy(e, slot))
+        join_oldest(e);
     slot->in_use = 1;
     /* `marked` is NOT cleared: when the pool is exhausted the picture
      * being overwritten stays listed in this frame's RPS exactly as it
@@ -1250,6 +1525,10 @@ static void claim_slot(n265_encoder *e, n265_frame_work *fw)
      * this watermark and nothing else, so it must not carry the previous
      * occupant's. */
     atomic_store_explicit(&slot->final_rows, 0, memory_order_release);
+    /* E1: arm the half-pel cache here, on the driver; the publish row
+     * task fills the lines it owns (G4). */
+    if (fw->mode != N265_MODE_PCM && !fw->nonref)
+        hf_arm(e, slot);
     fw->slot = slot;
     for (int i = 0; i < 3; i++) {
         fw->recon[i] = slot->plane[i];
@@ -1260,7 +1539,7 @@ static void claim_slot(n265_encoder *e, n265_frame_work *fw)
 /* Encode one frame from the plan (building it first if none is active).
  * Returns the number of source frames retired from the queue (0 until the
  * plan completes, then the whole mini-GOP). */
-static int drive_scheduler(n265_encoder *e, size_t *out_used, int *count)
+static int drive_scheduler(n265_encoder *e)
 {
     n265_la *la = &e->la;
     if (la->count == 0)
@@ -1268,11 +1547,17 @@ static int drive_scheduler(n265_encoder *e, size_t *out_used, int *count)
     if (e->plan_pos >= e->plan_len)
         build_plan(e);
 
+    /* K: a free frame_work, by joining the oldest in flight. This and
+     * the D3 stalls below are the only places the driver blocks. */
+    while (e->n_inflight >= e->K)
+        join_oldest(e);
+
     int li = e->plan_li[e->plan_pos];
     int kind = e->plan_kind[e->plan_pos];
     la_frame *f = &la->f[li];
     int poc = f->display_idx - e->gop_start_display;
-    n265_frame_work *fw = &e->fw[0];
+    n265_frame_work *fw = &e->fw[e->fw_next];
+    e->fw_next = e->fw_next + 1 >= e->K ? 0 : e->fw_next + 1;
 
     /* the queue slot IS the padded source (threading-design sec 4) */
     for (int i = 0; i < 3; i++)
@@ -1319,13 +1604,29 @@ static int drive_scheduler(n265_encoder *e, size_t *out_used, int *count)
         fw->slot->marked = 1;
         e->ref_valid = 1;
     }
-    e->rc_cls = n265_rc_class(slice_type, fw->nonref);
-    e->rc_cplx = n265_rc_cplx(e, li, e->rc_cls);
-    if (e->abr_on)
-        e->rc_rf = n265_rc_next(e, e->rc_cls, e->rc_cplx);
+    /* the collocated picture's own reference POCs, driver state that
+     * used to be written by the whole-frame publish pass */
+    fw->slot->col_ref_poc[0] = fw->ref_valid && fw->nref[0] > 0
+                                   ? fw->refl[0][0]->poc : 0;
+    fw->slot->col_ref_poc[1] = (fw->slice_type == 0 && fw->nref[1] > 0)
+                                   ? fw->refl[1][0]->poc
+                                   : fw->slot->col_ref_poc[0];
+    fw->rc_cls = n265_rc_class(slice_type, fw->nonref);
+    fw->rc_cplx = n265_rc_cplx(e, li, fw->rc_cls);
+    if (e->abr_on) {
+        /* D4 at D = 0: frame k's rate factor is solved from the ACTUAL
+         * bits of every frame before it, so the driver applies those
+         * first (rc_done runs in retire_frame, in coding order). ABR
+         * therefore does not overlap frames at D = 0 - by construction,
+         * and identically at every thread count - while CQP and CRF
+         * launch immediately and overlap fully. */
+        while (e->n_inflight)
+            join_oldest(e);
+        e->rc_rf = n265_rc_next(e, fw->rc_cls, fw->rc_cplx);
+    }
     if (kind != 0)          /* the priced b-adapt prices against this plane */
         n265_la_set_anchor(e, li);
-    encode_frame(e, fw, out_used, count);
+    dispatch_frame(e, fw);
     e->plan_pos++;
 
     if (e->plan_pos >= e->plan_len) {
@@ -1363,16 +1664,42 @@ int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
     int count = 0;
 
     if (pic) {
+        /* D3: n265_la_push is about to overwrite a recycled queue slot,
+         * and a frame_work aliases its source planes. Nothing may still
+         * be reading it. */
+        while (e->n_inflight)
+            join_oldest(e);
         const uint8_t *planes[3] = { pic->plane[0], pic->plane[1],
                                      pic->plane[2] };
         n265_la_push(e, planes, pic->stride);
         e->in_display_idx++;
+        /* One call codes a whole mini-GOP (the loop only exits when the
+         * mini-GOP-end pop brings the queue back under la_depth), so the
+         * overlap window is the mini-GOP, capped at K. */
         while (e->la.count > e->la_depth)
-            drive_scheduler(e, &out_used, &count);
+            drive_scheduler(e);
+        while (e->n_inflight)
+            join_oldest(e);
+        emit_done(e, INT_MAX, &out_used, &count);
     } else {
-        /* flush: one scheduler step per call until drained */
-        drive_scheduler(e, &out_used, &count);
+        /* Flush: the serial encoder took one scheduler step per call and
+         * returned that frame. So does this one - but it DISPATCHES
+         * ahead, up to K, so the tail of the sequence overlaps like the
+         * rest of it. Dispatching ahead is confined to the plan the
+         * driver has already built: plan building and la_pop sit at
+         * exactly the same point in the dispatch sequence they sat at
+         * serially, so every b-adapt, scenecut and cu-tree decision sees
+         * the queue it saw before. */
+        int ring = (int)(sizeof(e->done) / sizeof(e->done[0]));
+        while (e->la.count > 0 && e->n_inflight < e->K &&
+               e->n_done + e->n_inflight < ring - 2)
+            drive_scheduler(e);
+        if (e->n_done == 0 && e->n_inflight)
+            join_oldest(e);
+        emit_done(e, 1, &out_used, &count);
     }
+    for (int i = 0; i < count; i++)
+        e->nal[i].payload = e->out + e->nal_off[i];
 
     *nnal = count;
     return (int)out_used;

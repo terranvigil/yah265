@@ -184,6 +184,19 @@ run_vector thr4_cif    352x288 24  testsrc2  "--keyint 12 --bframes 5 --aq 1 --c
 run_vector thr12_cif   352x288 24  testsrc2  "--keyint 12 --bframes 5 --aq 1 --cutree 1 --threads 12"
 run_vector thr4_abr    352x288 24  testsrc2  "--keyint 12 --bitrate 400 --aq 1 --cutree 1 --threads 4"
 run_vector thr12_abr   352x288 24  testsrc2  "--keyint 12 --bitrate 400 --aq 1 --cutree 1 --threads 12"
+# T2/3: frames overlap. K = N265_MAX_FRAME_WORK is a scheduling knob and
+# cannot change bits, so the same content is coded at K = 1, the shipped
+# K = 4 and K = 8, at twelve threads, once per RC mode. The K = 1 cell is
+# the control: it is the T1 schedule (one frame in flight) running on the
+# T2 code, so a difference between it and its K = 4 sibling would be the
+# overlap changing bits, which is the thing the phase forbids.
+run_vector k4_t12_crf  352x288 24  testsrc2  "--keyint 12 --bframes 5 --crf 26 --aq 1 --cutree 1 --threads 12"
+run_vector_env "N265_MAX_FRAME_WORK=1" \
+           k1_t12_cif  352x288 24  testsrc2  "--keyint 12 --bframes 5 --aq 1 --cutree 1 --threads 12"
+run_vector_env "N265_MAX_FRAME_WORK=8" \
+           k8_t12_b7   352x288 24  testsrc2  "--keyint 12 --bframes 7 --aq 1 --cutree 1 --threads 12"
+run_vector_env "N265_MAX_FRAME_WORK=8" \
+           k8_t12_abr  352x288 24  testsrc2  "--keyint 12 --bitrate 400 --aq 1 --cutree 1 --threads 12"
 if [ "$FAST" -eq 0 ]; then
     run_vector thr4_720    1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 4"
     run_vector thr12_720   1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 12"

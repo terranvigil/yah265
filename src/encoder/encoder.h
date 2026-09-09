@@ -238,7 +238,10 @@ typedef struct n265_frame_work {
     struct n265_prog {
         atomic_int enc_rows;    /* CTB rows fully analyzed */
         atomic_int dbk_rows;    /* ...deblocked  */
-        atomic_int sao_rows;    /* ...SAO-filtered */
+        atomic_int pub_rows;    /* ...SAO-filtered, border-extended and
+                                 * PUBLISHED (the row's TMVP field, P2
+                                 * depths and E1 cache are written before
+                                 * this advances; G4) */
         atomic_int enc_prog[];  /* CTBs committed per row */
     } *prog;
     int qprev;                  /* qPY_PREV carried by the QP-map fill */
@@ -252,6 +255,18 @@ typedef struct n265_frame_work {
     /* the estimator state published after CTB 1 of each row, which the
      * row below initializes from (sec 2) */
     cabac_ctx_t *est_snap;  /* [ctb_rows][CTX_COUNT] */
+
+    /* ---- the frame's job on the pool (T2/3) ---- */
+    ntp_job job;
+    int in_flight;          /* dispatched, not yet retired */
+    int job_R;              /* CTB rows the task table covers (0 for PCM) */
+    int job_cols, job_snap_x, job_sao_on;
+    int ref_lag;            /* G1's row-start hint, in CTB rows */
+    int emit_headers;       /* this frame carries the VPS/SPS/PPS */
+    int nal_type;
+    /* rate control hand-off, frozen at dispatch (sec 3 rule 4) */
+    int rc_cls;
+    double rc_cplx, rc_base;
 
     /* ---- entropy, frame-level ---- */
     cabac_ctx_t ctx[CTX_COUNT];
@@ -276,7 +291,10 @@ typedef struct n265_row_ctx {
     struct n265_scratch *sc;
 } n265_row_ctx;
 
-#define N265_MAX_FRAME_WORK 1   /* K of sec 1; grows at T2 */
+/* K of sec 1: how many frames may be in flight at once. The array is
+ * sized at the maximum; the live value is e->K, from N265_MAX_FRAME_WORK
+ * (default 4). It is a scheduling knob and cannot change bits. */
+#define N265_MAX_FRAME_WORK 8
 
 struct n265_encoder {
     n265_param param;
@@ -336,19 +354,135 @@ struct n265_encoder {
 
     uint8_t *out;           /* Annex-B output for the current call   */
     size_t out_cap;
-    n265_nal nal[8];
+    /* A whole mini-GOP can leave in one call, and the ring may grow, so
+     * the NAL payload pointers are patched from these offsets after the
+     * last frame of the call has been packed. */
+    n265_nal nal[N265_MAX_BFRAMES + 9];
+    size_t nal_off[N265_MAX_BFRAMES + 9];
     int frames_done;
     int in_display_idx;     /* next arriving picture's display index */
     int gop_start_display;  /* display index of the current IDR      */
 
     n265_frame_work fw[N265_MAX_FRAME_WORK];
+    int K;                  /* live frames in flight (N265_MAX_FRAME_WORK) */
+    int fw_next;            /* the frame_work slot the next dispatch takes */
+    /* the frames dispatched and not yet retired, in DISPATCH ORDER. The
+     * driver owns this list; it is what the deferred-NAL ring walks, and
+     * what D3's slot and source stalls test against. */
+    n265_frame_work *inflight[N265_MAX_FRAME_WORK];
+    int n_inflight;
+    /* the VPS/SPS/PPS RBSPs, generated at the first frame's dispatch and
+     * packed at its retirement so the NAL order is the serial one */
+    uint8_t *hdr_rbsp[3];
+    size_t hdr_len[3];
+    int hdr_type[3];
+    int nhdr;
+    /* The deferred-NAL ring proper: a frame is JOINED (its job finished,
+     * its NALs packed here, its slot and frame_work handed back) as soon
+     * as a resource stall needs it, but EMITTED only when the API call
+     * that owes it runs. That split is what lets n265_encoder_encode
+     * return exactly the frames the serial encoder returned per call
+     * while the driver runs as far ahead as K allows. */
+    struct n265_done {
+        uint8_t *buf;
+        size_t cap, len;
+        int nnal;
+        int type[4];
+        int size[4];
+    } done[LA_MAX + N265_MAX_FRAME_WORK + 4];
+    int n_done, done_head;
+    /* T2 stall census (N265_STALL_TRACE): reference reads that had to
+     * block, and frames dispatched, so the doc's table is per frame. */
+    atomic_long ref_stalls, stall_frames;
     ntp_pool *pool;
-    n265_row_ctx *row;      /* one lane per worker */
+    n265_row_ctx *row;      /* one lane per worker, plus the nested lanes */
     int nlanes;
 
     FILE *dump_decode;      /* decode-order recon tap (dec265 leg)   */
     FILE *dump_recon;       /* optional recon tap for the gate       */
 };
+
+/* --------------------------------------------------------------------
+ * The exact reference stall (T2 gate decision G2).
+ *
+ * Every read of a reference picture is guarded by ref_wait on the bottom
+ * LUMA line it touches, filter taps included. The row-start gate of
+ * sec 1 is only a scheduling hint now (G1); this is what makes the read
+ * safe, and it is why the threaded encoder can keep the design's "no
+ * vertical MV clamp" promise against a motion search whose reach
+ * composes along the raster (see the T2/3 refusal and its reach table).
+ *
+ * The fast path is one atomic load. It is an ACQUIRE load rather than a
+ * relaxed one on purpose: the pixels behind the watermark are published
+ * by the release store in the publish row task, and only the
+ * release/acquire pair makes reading them defined - a relaxed load here
+ * is a data race that TSan reports and that the gate does not carry.
+ * On aarch64 that is one LDAPR/LDAR, which is what the 1-thread delta
+ * measures.
+ * ------------------------------------------------------------------ */
+
+/* The published-row index a read whose bottom luma line is `line` needs.
+ * Lines above the picture come from the top border, written when row 0
+ * publishes; lines below it from the bottom border, written when the
+ * last row publishes. Clamping covers both. */
+static inline int n265_ref_need(const n265_frame_work *e, int line)
+{
+    if (line < 0)
+        line = 0;
+    else if (line >= e->pad_h)
+        line = e->pad_h - 1;
+    return (line >> e->ctb_log2) + 1;
+}
+
+static inline int n265_ref_have(const struct n265_refpic *p)
+{
+    return atomic_load_explicit((atomic_int *)&p->final_rows,
+                                memory_order_acquire);
+}
+
+/* encoder.c: the slow half - count the stall and run older work. */
+void n265_ref_stall(n265_frame_work *e, const struct n265_refpic *pic,
+                    int need);
+
+/* Guard a read of `pic` whose bottom luma line is `line`. Returns the
+ * published-row count the read is now covered by, which is what the
+ * REF_CHECK build turns into a hard bound on the lines the reader may
+ * actually touch. */
+static inline int n265_ref_wait(n265_frame_work *e,
+                                const struct n265_refpic *pic, int line)
+{
+    int need = n265_ref_need(e, line);
+    if (n265_ref_have(pic) < need)
+        n265_ref_stall(e, pic, need);
+    return need;
+}
+
+#ifdef N265_REF_CHECK
+#include "encoder/refchk.h"
+/* Arm the independent check: the reader may touch lines up to the last
+ * one `need` published rows cover, and no further. A read that reaches
+ * past it - or one that never armed a guard at all - aborts. */
+static inline void n265_ref_guard(const n265_frame_work *e,
+                                  const struct n265_refpic *pic, int need,
+                                  int c_idx, const int16_t *hf)
+{
+    long lastl = need >= e->ctb_rows
+        ? 1L << 30                      /* whole picture plus its borders */
+        : ((long)need << e->ctb_log2) - 1;
+    n265_refchk_open(pic->plane[c_idx], pic->stride[c_idx],
+                     c_idx ? (lastl >> 1) : lastl);
+    n265_refchk_open_hf(hf, pic->hf_stride, lastl);
+}
+#define N265_REF_GUARD(e, pic, need, c, hf) \
+    n265_ref_guard((e), (pic), (need), (c), (hf))
+#define N265_REF_UNGUARD()               n265_refchk_close()
+/* the publish path reads its OWN picture; those reads are not gated */
+#define N265_REF_OPEN_ALL()              n265_refchk_open_all()
+#else
+#define N265_REF_GUARD(e, pic, need, c, hf)  ((void)(need))
+#define N265_REF_UNGUARD()                   ((void)0)
+#define N265_REF_OPEN_ALL()                  ((void)0)
+#endif
 
 /* ctu.c: per-lane trial scratch */
 struct n265_scratch *n265_scratch_new(void);
@@ -437,6 +571,15 @@ static inline const int16_t *n265_ref_hf(const struct n265_refpic *r,
         y - 3 < r->hf_y0 || y + h + 4 > r->hf_y1)
         return NULL;
     return r->hf[fx - 1] + y * r->hf_stride + x;
+}
+
+/* The phase-fx cache plane's ORIGIN (picture (0,0)), which is what the
+ * REF_CHECK guard measures lines against; n265_ref_hf returns a pointer
+ * into it at the block. */
+static inline const int16_t *n265_ref_hf_base(const struct n265_refpic *r,
+                                              int fx)
+{
+    return fx ? r->hf[fx - 1] : NULL;
 }
 
 /* encoder.c, shared with ctu.c */
