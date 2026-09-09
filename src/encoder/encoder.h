@@ -6,9 +6,11 @@
 #ifndef N265_ENCODER_H
 #define N265_ENCODER_H
 
+#include <stdatomic.h>
 #include <stdio.h>
 
 #include "yah265.h"
+#include "threadpool/ntp.h"
 #include "common/bitstream.h"
 #include "encoder/cabac.h"
 #include "encoder/la.h"
@@ -184,6 +186,19 @@ typedef struct n265_frame_work {
     size_t rec_len, rec_cap, rec_pos;
     struct n265_scratch *sc;
 
+    /* Row progress, shared by every lane working on this frame (a
+     * pointer, so the per-row shallow copy shares it rather than
+     * copying it). Watermarks only: a task asks whether it MAY run,
+     * never how far another one has got, so nothing here can reach a
+     * coding decision. */
+    struct n265_prog {
+        atomic_int enc_rows;    /* CTB rows fully analyzed */
+        atomic_int dbk_rows;    /* ...deblocked  */
+        atomic_int sao_rows;    /* ...SAO-filtered */
+        atomic_int enc_prog[];  /* CTBs committed per row */
+    } *prog;
+    int qprev;                  /* qPY_PREV carried by the QP-map fill */
+
     /* one record stream per CTB row: rows commit independently and the
      * entropy pass replays them in row order */
     struct n265_rrec {
@@ -218,7 +233,6 @@ typedef struct n265_row_ctx {
 } n265_row_ctx;
 
 #define N265_MAX_FRAME_WORK 1   /* K of sec 1; grows at T2 */
-#define N265_MAX_LANES 1        /* row lanes; grows at T1  */
 
 struct n265_encoder {
     n265_param param;
@@ -284,7 +298,9 @@ struct n265_encoder {
     int gop_start_display;  /* display index of the current IDR      */
 
     n265_frame_work fw[N265_MAX_FRAME_WORK];
-    n265_row_ctx row[N265_MAX_LANES];
+    ntp_pool *pool;
+    n265_row_ctx *row;      /* one lane per worker */
+    int nlanes;
 
     FILE *dump_decode;      /* decode-order recon tap (dec265 leg)   */
     FILE *dump_recon;       /* optional recon tap for the gate       */
@@ -298,6 +314,11 @@ void n265_scratch_free(struct n265_scratch *sc);
  * context, re-points the row-private storage, and seeds the estimator
  * contexts from the frame's carry-over state. */
 void n265_row_begin(n265_row_ctx *row, n265_frame_work *fw, int r);
+/* per-file knob warming, on the driver at open (T0 audit item 2) */
+void n265_ctu_warm(void);
+void n265_mv_warm(void);
+void n265_sao_warm(void);
+void n265_rdoq_warm(void);
 /* ...and hand back what the frame has to keep: the record stream the row
  * appended to and the estimator state the next row continues from. */
 void n265_row_end(n265_row_ctx *row, n265_frame_work *fw, int r);

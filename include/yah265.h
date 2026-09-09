@@ -97,6 +97,10 @@ YAH265_API void n265_set_ref(int n);
  * spans (measured from the lookahead) instead of always coding the maximum. */
 YAH265_API void n265_set_badapt(int on);
 
+/* Worker threads. 0 = one per online CPU. Output is byte-identical at
+ * every value (docs/threading-design.md). */
+YAH265_API void n265_set_threads(int n);
+
 /* NULL on invalid params or allocation failure. */
 YAH265_API n265_encoder *n265_encoder_open(const n265_param *p);
 

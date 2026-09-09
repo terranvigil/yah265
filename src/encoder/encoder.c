@@ -7,6 +7,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -45,6 +46,19 @@ static int g_badapt = 1;         /* adaptive B run length, default on */
 static int g_aq = 0;
 static int g_la_depth = 12;
 static int g_cutree = 0;
+static int g_threads = 0;       /* --threads; 0 = auto */
+
+void n265_set_threads(int n)
+{
+    g_threads = n < 0 ? 0 : n > 256 ? 256 : n;
+}
+
+/* auto: one worker per online CPU */
+static int auto_threads(void)
+{
+    long n = sysconf(_SC_NPROCESSORS_ONLN);
+    return n > 0 ? (int)n : 1;
+}
 
 void n265_set_la(int depth, int cutree);
 void n265_set_la(int depth, int cutree)
@@ -133,10 +147,12 @@ static int fw_open(n265_encoder *e, n265_frame_work *fw)
         !fw->blk_mv || !fw->blk_pred || !fw->blk_ref || !fw->blk_qp ||
         !fw->ctu_qp_off || !fw->ctu_qp_raw || !fw->sao)
         return -1;
+    fw->prog = calloc(1, sizeof(*fw->prog) +
+                         (size_t)e->ctb_rows * sizeof(atomic_int));
     fw->rrec = calloc((size_t)e->ctb_rows, sizeof(*fw->rrec));
     fw->est_snap = calloc((size_t)e->ctb_rows * CTX_COUNT,
                           sizeof(cabac_ctx_t));
-    if (!fw->rrec || !fw->est_snap)
+    if (!fw->rrec || !fw->est_snap || !fw->prog)
         return -1;
     for (int i = 0; i < 3; i++) {
         int w = i ? e->pad_w / 2 : e->pad_w;
@@ -177,6 +193,7 @@ static void fw_close(n265_frame_work *fw)
         free(fw->rrec[r].buf);
     free(fw->rrec);
     free(fw->est_snap);
+    free(fw->prog);
     bs_free(&fw->rbsp);
 }
 
@@ -304,9 +321,24 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     for (int i = 0; i < N265_MAX_FRAME_WORK; i++)
         if (fw_open(e, &e->fw[i]) < 0)
             goto fail;
-    for (int i = 0; i < N265_MAX_LANES; i++)
+    e->pool = ntp_open(g_threads > 0 ? g_threads : auto_threads());
+    if (!e->pool)
+        goto fail;
+    e->nlanes = ntp_threads(e->pool);
+    e->row = calloc((size_t)e->nlanes, sizeof(*e->row));
+    if (!e->row)
+        goto fail;
+    for (int i = 0; i < e->nlanes; i++)
         if (!(e->row[i].sc = n265_scratch_new()))
             goto fail;
+    /* every cached knob and lazy table, initialized here, on this
+     * thread, before a worker can be the one that writes it first */
+    n265_tables_init();
+    n265_tables_init_est();
+    n265_ctu_warm();
+    n265_mv_warm();
+    n265_sao_warm();
+    n265_rdoq_warm();
 
     size_t frame_bytes = (size_t)e->pad_w * e->pad_h * 3 / 2;
     /* up to two coded frames (anchor + B) leave per call */
@@ -317,8 +349,6 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     if (n265_la_init(e) < 0)
         goto fail;
     n265_rc_open(e);        /* after la_init: it needs the lowres geometry */
-    n265_tables_init();
-    n265_tables_init_est();
     return e;
 
 fail:
@@ -332,8 +362,10 @@ void n265_encoder_close(n265_encoder *e)
         return;
     for (int i = 0; i < N265_MAX_FRAME_WORK; i++)
         fw_close(&e->fw[i]);
-    for (int i = 0; i < N265_MAX_LANES; i++)
+    for (int i = 0; i < e->nlanes; i++)
         n265_scratch_free(e->row[i].sc);
+    free(e->row);
+    ntp_close(e->pool);
     for (int i = 0; i < 3; i++) {
         for (int sl = 0; sl < N265_DPB_SLOTS; sl++)
             free(e->dpb[sl].base[i]);
@@ -538,6 +570,109 @@ static void dump_recon_frame(n265_encoder *e, n265_frame_work *fw)
 }
 
 /* encode one frame from the given source planes; appends NALs */
+/* The frame's task table (docs/threading-design.md sec 1). Indices:
+ * [0, R)      encode row r
+ * [R, 2R)     QP-map fill + deblock row r
+ * [2R, 3R)    SAO row r (only when the filter is on)
+ * Entropy stays on the driver at T1: with one frame in flight there is
+ * nothing for it to overlap with, and it needs the output ring. */
+struct frame_job {
+    n265_frame_work *fw;
+    n265_encoder *e;
+    int R, cols, snap_x, sao_on;
+};
+
+/* Row r's CTB x may run when row r-1 has committed CTB x+1, the 2-CTB
+ * WPP lag: intra's top-right neighbour and the estimator snapshot both
+ * live under it. */
+struct lag_wait {
+    struct n265_prog *p;
+    int r, need;
+};
+
+static int lag_pred(void *ctx)
+{
+    struct lag_wait *w = ctx;
+    return atomic_load_explicit(&w->p->enc_prog[w->r - 1],
+                                memory_order_acquire) >= w->need;
+}
+
+static int job_ready(void *ctx, int idx)
+{
+    struct frame_job *j = ctx;
+    struct n265_prog *p = j->fw->prog;
+    int R = j->R;
+    if (idx < R) {
+        int r = idx;
+        if (r == 0)
+            return 1;
+        int need = j->snap_x + 1 > 2 ? j->snap_x + 1 : 2;
+        if (need > j->cols) need = j->cols;
+        return atomic_load_explicit(&p->enc_prog[r - 1],
+                                    memory_order_acquire) >= need;
+    }
+    if (idx < 2 * R) {
+        int r = idx - R;
+        int need = r + 2 < R ? r + 2 : R;
+        return atomic_load_explicit(&p->dbk_rows, memory_order_acquire) == r &&
+               atomic_load_explicit(&p->enc_rows, memory_order_acquire) >= need;
+    }
+    int r = idx - 2 * R;
+    int need = r + 2 < R ? r + 2 : R;
+    return atomic_load_explicit(&p->sao_rows, memory_order_acquire) == r &&
+           atomic_load_explicit(&p->dbk_rows, memory_order_acquire) >= need;
+}
+
+static void job_run(void *ctx, int lane, int idx)
+{
+    struct frame_job *j = ctx;
+    n265_frame_work *fw = j->fw;
+    n265_encoder *e = j->e;
+    struct n265_prog *p = fw->prog;
+    int R = j->R;
+
+    if (idx < R) {
+        int r = idx;
+        n265_row_ctx *row = &e->row[lane];
+        n265_row_begin(row, fw, r);
+        for (int cx = 0; cx < j->cols; cx++) {
+            if (r > 0) {
+                int need = cx + 2 < j->cols ? cx + 2 : j->cols;
+                struct lag_wait w = { p, r, need };
+                ntp_wait(e->pool, lag_pred, &w);
+            }
+            n265_analyze_ctu(&row->c, cx, r);
+            if (cx == j->snap_x)
+                memcpy(fw->est_snap + (size_t)r * CTX_COUNT, row->c.est_ctx,
+                       CTX_COUNT * sizeof(cabac_ctx_t));
+            atomic_store_explicit(&p->enc_prog[r], cx + 1,
+                                  memory_order_release);
+            ntp_publish(e->pool);
+        }
+        n265_row_end(row, fw, r);
+        /* rows complete in index order (a row's last CTB waits for the
+         * row above to be complete), so the count IS the watermark */
+        atomic_fetch_add_explicit(&p->enc_rows, 1, memory_order_release);
+        ntp_publish(e->pool);
+        return;
+    }
+    if (idx < 2 * R) {
+        int r = idx - R;
+        n265_qpmap_row(fw, r, &fw->qprev);
+        n265_deblock_row(fw, r);
+        atomic_store_explicit(&p->dbk_rows, r + 1, memory_order_release);
+        ntp_publish(e->pool);
+        return;
+    }
+    int r = idx - 2 * R;
+    if (e->no_sao)
+        memset(&fw->sao[r * fw->ctb_cols], 0,
+               (size_t)fw->ctb_cols * sizeof(sao_params));
+    n265_sao_row(fw, r);
+    atomic_store_explicit(&p->sao_rows, r + 1, memory_order_release);
+    ntp_publish(e->pool);
+}
+
 static void encode_frame(n265_encoder *e, n265_frame_work *fw,
                          size_t *out_used, int *count)
 {
@@ -712,42 +847,19 @@ static void encode_frame(n265_encoder *e, n265_frame_work *fw,
                                 : fw->slice_type == 1 ? n265_ctx_init_p[i]
                                                      : n265_ctx_init_b[i],
                                 fw->qp);
-        /* One row lane, one row at a time: the wavefront's serial
-         * schedule. The row handle is a copy of fw with the row-private
-         * storage swapped in (n265_row_begin). */
-        /* The row pipeline of threading-design sec 1, run serially: at
-         * step k, encode row k, resolve its QP map, deblock row k-2
-         * (deblock(r) waits for enc_rows >= r+2 because row r+1's intra
-         * prediction reads row r's last unfiltered line), and filter
-         * SAO row k-3 (sao(r) waits for dbk_rows >= r+2). T1 turns each
-         * of these into a pool task with exactly these predicates. */
-        n265_row_ctx *row = &e->row[0];
+        /* The row wavefront of threading-design sec 1 on the pool. The
+         * readiness predicates are the design's, verbatim; every thread
+         * count runs the same task set in the same data order. */
         int R = fw->ctb_rows;
-        int snap_x = fw->ctb_cols > 1 ? 1 : 0;
-        int qprev = fw->qp;
-        int sao_on = n265_sao_enabled();
-        for (int k = 0; k < R + 3; k++) {
-            if (k < R) {
-                n265_row_begin(row, fw, k);
-                for (int cx = 0; cx < fw->ctb_cols; cx++) {
-                    n265_analyze_ctu(&row->c, cx, k);
-                    if (cx == snap_x)
-                        memcpy(fw->est_snap + (size_t)k * CTX_COUNT,
-                               row->c.est_ctx,
-                               CTX_COUNT * sizeof(cabac_ctx_t));
-                }
-                n265_row_end(row, fw, k);
-                n265_qpmap_row(fw, k, &qprev);
-            }
-            if (k >= 2 && k - 2 < R)
-                n265_deblock_row(fw, k - 2);
-            if (sao_on && k >= 3 && k - 3 < R) {
-                if (e->no_sao)
-                    memset(&fw->sao[(k - 3) * fw->ctb_cols], 0,
-                           (size_t)fw->ctb_cols * sizeof(sao_params));
-                n265_sao_row(fw, k - 3);
-            }
-        }
+        int snap_k = fw->ctb_cols > 1 ? 1 : 0;  /* the WPP geometry */
+        struct frame_job fj = { fw, e, R, fw->ctb_cols, snap_k,
+                                n265_sao_enabled() };
+        fw->qprev = fw->qp;
+        memset(fw->prog, 0, sizeof(*fw->prog) +
+                            (size_t)R * sizeof(atomic_int));
+        ntp_job job = { &fj, fj.sao_on ? 3 * R : 2 * R, job_ready, job_run,
+                        NULL };
+        ntp_run_job(e->pool, &job);
     }
 
     fw->ent_qp_prev = fw->qp;

@@ -25,6 +25,46 @@
 
 static int *g_hist;
 static int g_nxn, g_2nx2n_min;
+
+/* Cached env knobs live at file scope so n265_ctu_warm() can initialize
+ * every one of them on the driver before any worker exists
+ * (docs/threading-design.md, T0 audit item 2). */
+static int mode_hist_on(void)
+{
+    static int v = -1;
+    if (v < 0) v = getenv("N265_MODE_HIST") != NULL;
+    return v;
+}
+static int no_gates_on(void)
+{
+    static int v = -1;
+    if (v < 0) v = getenv("N265_NO_GATES") != NULL;
+    return v;
+}
+static int no_amvp_on(void)
+{
+    static int v = -1;
+    if (v < 0) v = getenv("N265_NO_AMVP") != NULL;
+    return v;
+}
+static int no_split_on(void)
+{
+    static int v = -1;
+    if (v < 0) v = getenv("N265_NO_SPLIT") != NULL;
+    return v;
+}
+static int no_earlyskip_on(void)
+{
+    static int v = -1;
+    if (v < 0) v = getenv("N265_NO_EARLYSKIP") != NULL;
+    return v;
+}
+static int cb64_trace_on(void)
+{
+    static int v = -1;
+    if (v < 0) v = getenv("N265_CB64_TRACE") != NULL;
+    return v;
+}
 static void print_hist(void)
 {
     fprintf(stderr, "mode_hist:");
@@ -112,6 +152,22 @@ typedef struct part_cand {
     uint8_t pc[2][16 * 16];
 } part_cand;
 
+/* full encoder-state snapshot of a CU area, for split-vs-nosplit trials */
+typedef struct qt_snap {
+    uint8_t recon[64 * 64 * 3 / 2];
+    uint8_t maps[8][16 * 16];
+    int16_t mv[16 * 16 * 4];
+    int8_t ref[16 * 16 * 2];    /* the reference-index map (multi-ref, 2026-09-06) */
+    cabac_ctx_t est[CTX_COUNT];
+    int ent_qp_coded;
+    size_t rec_len;
+    /* the records this arm appended beyond rec_base (the other arm
+     * overwrites the shared tail, so content must be kept too) */
+    size_t rec_base;
+    size_t rec_copy_len;
+    uint8_t rec_copy[16384];
+} qt_snap;
+
 /* Per-row-lane trial scratch (docs/threading-design.md sec 4). These
  * were ~180 KB of function-local `static` buffers, which is exactly what
  * a row wavefront cannot have. The layout keeps each old static as its
@@ -126,6 +182,12 @@ struct n265_scratch {
     tb_ctx a_tl, a_tcb, a_tcr;      /* ...amvp candidate TBs */
     tb_ctx i_tl, i_tcb, i_tcr;      /* ...intra candidate TBs */
     part_cand pca, pcb;             /* ...the two partition candidates */
+    /* the quadtree's split-vs-nosplit snapshots, one set per recursion
+     * depth. These were `static` too, and they are the ones the T0 audit
+     * missed: with them shared, two encode rows in flight corrupt each
+     * other's record stream no matter how large the CTB lag is. */
+    qt_snap qt_pre[4], qt_won[4];
+    qt_snap qt_fpre, qt_fwon;   /* the depth-bound arm, depth 0 only */
 };
 
 struct n265_scratch *n265_scratch_new(void)
@@ -382,16 +444,16 @@ static int search_luma_mode_sub(struct n265_frame_work *e, int x0, int y0,
             }
         *cost_out = sad;
     }
-    static int hist[35], armed = -1;
-    if (armed < 0)
-        armed = getenv("N265_MODE_HIST") != NULL;
-    if (armed) {
+    static int hist[35];
+    if (mode_hist_on()) {
         hist[best_mode]++;
         static int registered;
         if (!registered) {
             registered = 1;
             atexit_hist(hist);
         }
+        /* diagnostic only: the counter itself is not thread-safe and is
+         * never written under a shipping configuration */
     }
     return best_mode;
 }
@@ -2313,13 +2375,10 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             int inc = est_skip_inc(e, x0, y0);
             /* economy gates: a very good merge prediction prunes the
              * expensive candidates (classic early-skip shape) */
-            static int no_gates = -1;
-            if (no_gates < 0)
-                no_gates = getenv("N265_NO_GATES") != NULL;
-            int gate_amvp = !no_gates &&
+            int gate_amvp = !no_gates_on() &&
                 (uint64_t)cand_plain_sad * 800u <
                     (uint64_t)(n * n) * (unsigned)gate_scale();
-            int gate_intra = !no_gates &&
+            int gate_intra = !no_gates_on() &&
                 (uint64_t)cand_plain_sad * 400u <
                     (uint64_t)(n * n) * (unsigned)gate_scale();
             int gate_part = 0;
@@ -2502,10 +2561,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                      (amot.mv[1].x == cand.mv[1].x &&
                       amot.mv[1].y == cand.mv[1].y && amot.ref[1] == cand.ref[1]));
             }
-            static int no_amvp = -1;
-            if (no_amvp < 0)
-                no_amvp = getenv("N265_NO_AMVP") != NULL;
-            if (!gate_amvp && !same_as_cand && !no_amvp) {
+            if (!gate_amvp && !same_as_cand && !no_amvp_on()) {
                 tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, amot,
                            a_tl);
                 tb_analyze(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c,
@@ -2806,10 +2862,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                 modes[i] = nmodes[i];
         }
         rec_u8(e, (unsigned)nxn);
-        static int hist_on = -1;
-        if (hist_on < 0)
-            hist_on = getenv("N265_MODE_HIST") != NULL;
-        if (hist_on) {
+        if (mode_hist_on()) {
             g_nxn += nxn;
             g_2nx2n_min += !nxn;
         }
@@ -2880,21 +2933,6 @@ static int decide_split(struct n265_frame_work *e, int x0, int y0, int log2n)
     return kids + (kids >> 4) < parent;
 }
 
-/* full encoder-state snapshot of a CU area, for split-vs-nosplit trials */
-typedef struct qt_snap {
-    uint8_t recon[64 * 64 * 3 / 2];
-    uint8_t maps[8][16 * 16];
-    int16_t mv[16 * 16 * 4];
-    int8_t ref[16 * 16 * 2];    /* the reference-index map (multi-ref, 2026-09-06) */
-    cabac_ctx_t est[CTX_COUNT];
-    int ent_qp_coded;
-    size_t rec_len;
-    /* the records this arm appended beyond rec_base (the other arm
-     * overwrites the shared tail, so content must be kept too) */
-    size_t rec_base;
-    size_t rec_copy_len;
-    uint8_t rec_copy[16384];
-} qt_snap;
 
 static uint8_t *snap_maps(struct n265_frame_work *e, int i)
 {
@@ -3032,12 +3070,12 @@ static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
      * thing a neighbourhood bound gets wrong when a moving picture
      * goes still. */
     if (depth_bound() && depth < e->db_lo) {
-        static qt_snap fpre, fwon;      /* only depth 0 uses these */
+        qt_snap *fpre = &e->sc->qt_fpre, *fwon = &e->sc->qt_fwon;
         uint64_t j_cu2 = UINT64_MAX;
         size_t rec_base2 = e->rec_len;
         if (depth_bound_ctb_skip() && log2n == e->ctb_log2 &&
             e->slice_type != 2 && e->ref_valid) {
-            qt_save(e, &fpre, x0, y0, n);
+            qt_save(e, fpre, x0, y0, n);
             uint32_t b0 = n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + split_inc],
                                        0);
             mot_t mlist[MAX_MERGE];
@@ -3058,9 +3096,9 @@ static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
                     e->ent_qp_coded ? e->cur_ctu_qp : N265_QP_INHERIT);
             set_blk(e, e->ct_depth, x0, y0, n, depth);
             j_cu2 = rd_j(cu_area_ssd(e, x0, y0, n), adv.bits + b0, lam);
-            qt_save(e, &fwon, x0, y0, n);
-            qt_save_records(e, &fwon, rec_base2);
-            qt_restore(e, &fpre, x0, y0, n);
+            qt_save(e, fwon, x0, y0, n);
+            qt_save_records(e, fwon, rec_base2);
+            qt_restore(e, fpre, x0, y0, n);
         }
         uint32_t b1 = n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + split_inc], 1);
         uint64_t js = (uint64_t)b1 * lam >> 16;
@@ -3069,16 +3107,13 @@ static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
             js += quadtree(e, x0 + (i & 1) * hh, y0 + (i >> 1) * hh,
                            log2n - 1, depth + 1);
         if (j_cu2 <= js) {
-            qt_restore(e, &fwon, x0, y0, n);
+            qt_restore(e, fwon, x0, y0, n);
             return j_cu2;
         }
         return js;
     }
 
-    static int no_split = -1;
-    if (no_split < 0)
-        no_split = getenv("N265_NO_SPLIT") != NULL;
-    if (no_split) {
+    if (no_split_on()) {
         uint32_t b0s = n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + split_inc], 0);
         uint64_t j = analyze_cu(e, x0, y0, log2n) +
                      ((uint64_t)b0s * lam >> 16);
@@ -3086,8 +3121,7 @@ static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
         return j;
     }
 
-    static qt_snap pre[4], won[4];      /* per recursion depth (0..3) */
-    qt_snap *sp = &pre[depth], *sw = &won[depth];
+    qt_snap *sp = &e->sc->qt_pre[depth], *sw = &e->sc->qt_won[depth];
 
     qt_save(e, sp, x0, y0, n);
 
@@ -3098,10 +3132,7 @@ static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
     set_blk(e, e->ct_depth, x0, y0, n, depth);
     /* early skip: a CLEAN whole-CU skip ends the trial (children could
      * only re-buy the same prediction with more syntax) */
-    static int no_es = -1;
-    if (no_es < 0)
-        no_es = getenv("N265_NO_EARLYSKIP") != NULL;
-    if (e->last_skip_clean && !no_es)
+    if (e->last_skip_clean && !no_earlyskip_on())
         return j_cu;
     /* P1 rskip: the no-split arm left no residual at all, so the four
      * children can only re-buy the same prediction with four sets of
@@ -3118,7 +3149,7 @@ static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
      * flat-TB inter candidates are not (max TB 32). RD it against the
      * intra/static outcome of arm 1 before trying the split. */
     if (log2n == 6 && e->slice_type != 2) {
-        qt_snap *ss = &won[depth];      /* reuse after the compare */
+        qt_snap *ss = &e->sc->qt_won[depth];    /* reuse after the compare */
         qt_save(e, ss, x0, y0, n);
         qt_save_records(e, ss, rec_base);
         qt_restore(e, sp, x0, y0, n);
@@ -3152,10 +3183,7 @@ static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
         uint64_t j_arm1 = j_cu;         /* R3 reads how far the merge
                                          * arms improve on the CU arm */
         if (j_skip < j_cu) {
-            static int cb64_trace = -1;
-            if (cb64_trace < 0)
-                cb64_trace = getenv("N265_CB64_TRACE") != NULL;
-            if (cb64_trace)
+            if (cb64_trace_on())
                 fprintf(stderr, "cb64skip poc=%d ctu=(%d,%d) midx=%d pred=%d mv0=(%d,%d) mv1=(%d,%d)\n",
                         e->poc, x0 >> 6, y0 >> 6, midx, mlist[midx].pred,
                         mlist[midx].mv[0].x, mlist[midx].mv[0].y,
@@ -3340,4 +3368,26 @@ void n265_analyze_ctu(struct n265_frame_work *e, int ctb_x, int ctb_y)
     }
     if (e->ent_qp_coded)
         e->ent_qp_prev = e->cur_ctu_qp;
+}
+
+/* Initialize every cached knob and lazily-built table on the driver, at
+ * encoder open, so a worker never performs the first write. Each of
+ * these is idempotent, so a race could not change bits - but it is a
+ * data race, and the TSan gate does not carry one. */
+void n265_ctu_warm(void)
+{
+    (void)mode_hist_on(); (void)no_gates_on(); (void)no_amvp_on();
+    (void)no_split_on(); (void)no_earlyskip_on(); (void)cb64_trace_on();
+    (void)skip_thr8(); (void)es_thr_pct(); (void)rskip_mode();
+    (void)cbf_fast(); (void)gate_scale(); (void)skip_exit();
+    (void)intra_gate(); (void)intra_pf_q8(); (void)part_gate();
+    (void)part_amp_margin(); (void)rect_rank(); (void)depth_bound();
+    (void)depth_bound_widen(); (void)depth_bound_local();
+    (void)depth_bound_ctb_skip(); (void)mvd_bits_on(); (void)me_satd_on();
+    (void)cb64_gate(); (void)cb64_amvp(); (void)b_intra_margin();
+    (void)bi_refine_iters(); (void)merge_rd_n(); (void)bi_gate();
+    (void)bi_gate_margin(); (void)intra_rd_n(); (void)intra_rd_mpm();
+    (void)i_intra();
+    for (int q = 0; q < 52; q++)
+        (void)n265_lambda_mode_q8(q);   /* fills its lazy table */
 }

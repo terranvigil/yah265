@@ -157,6 +157,13 @@ static int64_t score_params(const sao_stats *st, int type, int cop,
  * offset is a strict local smoother and cannot sharpen. A band offset
  * shifts every sample whose value lands in one of four bands whatever
  * its surroundings, which moves a level, not a gradient. */
+static int sao_hist_on(void)
+{
+    static int v = -1;
+    if (v < 0) v = getenv("N265_MODE_HIST") != NULL;
+    return v;
+}
+
 static int sao_types(void)
 {
     static int v = -1;
@@ -613,10 +620,7 @@ static void sao_analyze_row(struct n265_frame_work *e, int cy)
                         (long long)pd, (long long)ad,
                         (long long)pd0, (long long)ad0);
             }
-            static int hist_on = -1;
-            if (hist_on < 0)
-                hist_on = getenv("N265_MODE_HIST") != NULL;
-            if (hist_on) {
+            if (sao_hist_on()) {
                 static int cnt[3][3];
                 for (int c = 0; c < 3; c++)
                     cnt[c][p->type[c]]++;
@@ -766,4 +770,13 @@ void n265_sao_row(struct n265_frame_work *e, int cy)
 {
     sao_analyze_row(e, cy);
     sao_apply_row(e, cy);
+}
+
+/* Initialize every cached knob on the driver at encoder open; see
+ * n265_ctu_warm. */
+void n265_sao_warm(void)
+{
+    (void)sao_types(); (void)sao_qplam(); (void)sao_bias();
+    (void)sao_chroma_joint(); (void)sao_gate(); (void)sao_gate_share();
+    (void)sao_hist_on(); (void)sao_trace();
 }

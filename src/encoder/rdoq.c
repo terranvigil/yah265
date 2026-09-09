@@ -191,6 +191,33 @@ int n265_rdoq_sbh_on(void)
     return v;
 }
 
+/* Cached knobs at file scope so n265_rdoq_warm() can initialize them on
+ * the driver before any worker exists (T0 audit item 2). */
+static int rdoq_up_probe(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *s = getenv("N265_RDOQ_UP"); v = s ? atoi(s) : 1; }
+    return v;
+}
+static int rdoq_adapt(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *s = getenv("N265_RDOQ_ADAPT"); v = s ? atoi(s) : 0; }
+    return v;
+}
+static int rdoq_lam_pct(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *s = getenv("N265_RDOQ_LAM"); v = s ? atoi(s) : 100; }
+    return v;
+}
+static int rdoq_decimate(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *s = getenv("N265_DECIMATE"); v = s ? atoi(s) : 15; }
+    return v;
+}
+
 /* level_scale of 8.6.3 */
 static const int level_scale[6] = { 40, 45, 51, 57, 64, 72 };
 static const int quant_scale[6] = { 26214, 23302, 20560, 18396, 16384, 14564 };
@@ -200,11 +227,9 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
               uint32_t lam_q8)
 {
     n265_rdoq_init();
-    static int up_probe = -1;
     /* the away-from-zero level probe: -2.7% median BD-VMAF-NEG, 7/7 clips
      * (2026-09-07). On by default; N265_RDOQ_UP=0 restores the 3-candidate set. */
-    if (up_probe < 0) { const char *v = getenv("N265_RDOQ_UP"); up_probe = v ? atoi(v) : 1; }
-    static int adapt = -1;
+    int up_probe = rdoq_up_probe();
     /* context adaptation along the scan INSIDE the block (N265_RDOQ_ADAPT):
      * the sig/greater1/greater2/coded_sub_block states move as the real
      * coder would move them, on a private copy, so a long run of levels is
@@ -214,7 +239,7 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
      * what stays approximate is the last-position and sub-block-zero passes,
      * which run after the states have already moved. Nothing leaves the
      * block, so the slice contexts and determinism are untouched. */
-    if (adapt < 0) { const char *v = getenv("N265_RDOQ_ADAPT"); adapt = v ? atoi(v) : 0; }
+    int adapt = rdoq_adapt();
     int sbh_rd = n265_rdoq_sbh_on();
     cabac_ctx_t lctx[CTX_COUNT];
     const cabac_ctx_t *ctx0 = ctx;      /* the block's opening states */
@@ -240,8 +265,7 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
      * one lever in this file that trades rate for retained texture
      * directly; the rate-matched band then reads whether the bits are
      * better spent there or on a lower QP. */
-    static int lam_pct = -1;
-    if (lam_pct < 0) { const char *v = getenv("N265_RDOQ_LAM"); lam_pct = v ? atoi(v) : 100; }
+    int lam_pct = rdoq_lam_pct();
     double lam = (double)lam_q8 / 256.0 * parseval[log2n];
     if (lam_pct != 100)
         lam = lam * lam_pct / 100.0;
@@ -483,8 +507,7 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
      * so the optimum is broad between 15 and 25 and 15 is the default -
      * best median and best worst clip, and the more conservative of the
      * two on content the band does not cover. */
-    static int decimate = -1;
-    if (decimate < 0) { const char *v = getenv("N265_DECIMATE"); decimate = v ? atoi(v) : 15; }
+    int decimate = rdoq_decimate();
     double all_zero = 0;
     for (int i = 0; i < nn; i++) all_zero += (double)coef[i] * coef[i];
     if (best_s < 0 || all_zero <= best_total * (1.0 + decimate / 100.0))
@@ -556,4 +579,16 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
         }
     }
     return nz;
+}
+
+/* Initialize every cached knob and the lazy tables on the driver at
+ * encoder open; see n265_ctu_warm. */
+void n265_rdoq_warm(void)
+{
+    (void)n265_rdoq_sbh_on();
+    (void)rdoq_up_probe();
+    (void)rdoq_adapt();
+    (void)rdoq_lam_pct();
+    (void)rdoq_decimate();
+    n265_rdoq_init();       /* the cost tables and the parseval probe */
 }

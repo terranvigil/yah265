@@ -39,7 +39,7 @@ WORK="${WORK:-${TMPDIR:-/tmp}/determ_repeat.$$}"
 RUNS="${RUNS:-12}"
 FRAMES="${FRAMES:-120}"
 CLIPS="${CLIPS:-foreman_cif bus_cif stefan_cif park_joy_720p}"
-THREADS="${THREADS:-1}"          # single-threaded today; widen when threading lands
+THREADS="${THREADS:-1 2 4 12}"   # widened at T1 (threading-design sec 7)
 REFS="${REFS:-b0 b1}"           # bframes off/on, the configs that exist
 ARM="${ARM:-}"
 ARGS="${ARGS:-}"
@@ -74,7 +74,7 @@ for clip in $CLIPS; do
                 out="$WORK/r.hevc"; rm -f "$out"
                 # shellcheck disable=SC2086
                 env $ARM "$ENC" "$src" --frames "$FRAMES" --bframes "${r#b}" \
-                    --qp 26 --aq 1 --cutree 1 $ARGS -o "$out" >/dev/null 2>&1 || {
+                    --qp 26 --aq 1 --cutree 1 --threads "$t" $ARGS -o "$out" >/dev/null 2>&1 || {
                         echo "  ENCFAIL $clip ref$r t$t" >&2; aborted=1; break; }
                 # Guard the producer: two missing files have equal md5s.
                 [ -s "$out" ] || { echo "  EMPTY $clip ref$r t$t" >&2; aborted=1; break; }

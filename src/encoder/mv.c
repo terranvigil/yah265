@@ -82,14 +82,37 @@ static mv_t mv_scale(mv_t mv, int tb, int td)
  * (bottom-right, same CTB row) else C1 (center) in the collocated
  * picture (always l0[0], collocated_from_l0 == 1), listCol per
  * NoBackwardPredFlag, POC-distance scaling. */
+/* Cached knobs at file scope so n265_mv_warm() can initialize them on
+ * the driver before any worker exists (T0 audit item 2). */
+static int no_tmvp_on(void)
+{
+    static int v = -1;
+    if (v < 0) v = getenv("N265_NO_TMVP") != NULL;
+    return v;
+}
+static int merge_trace_disp(void)
+{
+    static int v = -2;
+    if (v == -2) { const char *s = getenv("N265_MERGE_TRACE"); v = s ? atoi(s) : -1; }
+    return v;
+}
+static int fullpel_on(void)
+{
+    static int v = -1;
+    if (v < 0) v = getenv("N265_FULLPEL") != NULL;
+    return v;
+}
+static int subpel_dedup(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *s = getenv("N265_SUBPEL_DEDUP"); v = s ? atoi(s) != 0 : 1; }
+    return v;
+}
+
 static int tmvp_mv(struct n265_frame_work *e, const pu_geo *g,
                    int list, int ref, mv_t *out)
 {
-    static int no_tmvp = -1;    /* diagnostic toggle, cached: this runs
-                                 * once per merge list and twice per AMVP
-                                 * derivation, which is a per-PU path */
-    if (no_tmvp < 0)
-        no_tmvp = getenv("N265_NO_TMVP") != NULL;
+    int no_tmvp = no_tmvp_on();
     const struct n265_refpic *col = e->refl[0][0];
     if (!col || !col->valid || no_tmvp)
         return 0;
@@ -241,11 +264,7 @@ int n265_merge_list_pu(struct n265_frame_work *e, const pu_geo *g, mot_t out[],
                 out[i].mv[1].x = out[i].mv[1].y = 0;
                 out[i].ref[1] = 0;
             }
-    static int trace_disp = -2;     /* cached: once per merge list */
-    if (trace_disp == -2) {
-        const char *s = getenv("N265_MERGE_TRACE");
-        trace_disp = s ? atoi(s) : -1;
-    }
+    int trace_disp = merge_trace_disp();
     if (trace_disp >= 0 && e->display_idx == trace_disp) {
         fprintf(stderr, "MRG disp=%d cu=(%d,%d,%dx%d) type=%d nref=%d/%d:", e->display_idx, x0, y0, nw, nh, e->slice_type, e->nref[0], e->nref[1]);
         for (int i = 0; i < n; i++) fprintf(stderr, " %d:p%d r%d/%d (%d,%d|%d,%d)", i, out[i].pred, out[i].ref[0], out[i].ref[1], out[i].mv[0].x, out[i].mv[0].y, out[i].mv[1].x, out[i].mv[1].y);
@@ -584,14 +603,8 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
     }
     /* subpel refinement: one half-pel round, one quarter-pel round,
      * SATD-costed (SAD favors the blur of interpolated phases) */
-    static int fullpel = -1;
-    if (fullpel < 0)
-        fullpel = getenv("N265_FULLPEL") != NULL;
-    static int dedup = -1;
-    if (dedup < 0) {
-        const char *v = getenv("N265_SUBPEL_DEDUP");
-        dedup = v ? atoi(v) != 0 : 1;
-    }
+    int fullpel = fullpel_on();
+    int dedup = subpel_dedup();
     /* N265_SUBME, the subme-2 ladder. 1 runs the quarter-pel square
      * only where the half-pel one moved: where it did not, the block's
      * best half-pel phase is the centre the round started at and the
@@ -660,4 +673,17 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
     }
     *best = cur;
     return best_sad;
+}
+
+/* Initialize every cached knob and lazy table on the driver at encoder
+ * open; see n265_ctu_warm. */
+void n265_mv_warm(void)
+{
+    (void)subme_mode();
+    (void)me_pattern();
+    (void)no_tmvp_on();
+    (void)merge_trace_disp();
+    (void)fullpel_on();
+    (void)subpel_dedup();
+    (void)qstep_q8(0);      /* fills its lazy table */
 }

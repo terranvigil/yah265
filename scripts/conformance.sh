@@ -167,7 +167,28 @@ run_vector_env "N265_SAO_TYPES=2" \
                           sao_edge  176x144 12  testsrc2  "--keyint 6"
 run_vector_env "N265_SAO_TYPES=3" \
                           sao_crop  210x122 12  testsrc2  "--keyint 6 --ctu 64"
+# Threaded cells: the same content at --threads 4 and 12, CQP and ABR,
+# with a B pyramid. run_vector already encodes each vector twice and
+# cmp's the two runs, so these carry the same-thread-count determinism
+# leg as well as the two-decoder leg.
+#
+# --bframes 5, not 7: at 7 the reorder depth reaches the DPB size this
+# encoder DECLARES in the SPS (sps_max_dec_pic_buffering_minus1 is
+# N265_DPB_SLOTS), dec265 then bumps pictures out before it can reorder
+# them and emits near-decode order, and the leg fails. ffmpeg decodes it
+# correctly, so the reconstruction is right and the declaration is
+# wrong. Pre-existing, unrelated to threading, logged in
+# docs/threading-design.md for the RPS torture set; fixing it moves the
+# SPS bytes of every stream, which no phase of the threading ladder is
+# allowed to do.
+run_vector thr4_cif    352x288 24  testsrc2  "--keyint 12 --bframes 5 --aq 1 --cutree 1 --threads 4"
+run_vector thr12_cif   352x288 24  testsrc2  "--keyint 12 --bframes 5 --aq 1 --cutree 1 --threads 12"
+run_vector thr4_abr    352x288 24  testsrc2  "--keyint 12 --bitrate 400 --aq 1 --cutree 1 --threads 4"
+run_vector thr12_abr   352x288 24  testsrc2  "--keyint 12 --bitrate 400 --aq 1 --cutree 1 --threads 12"
 if [ "$FAST" -eq 0 ]; then
+    run_vector thr4_720    1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 4"
+    run_vector thr12_720   1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 12"
+    run_vector thr12_720abr 1280x720 12 testsrc2 "--keyint 6 --bitrate 4000 --aq 1 --cutree 1 --threads 12"
     run_vector inter_cif   352x288 25  testsrc2  "--keyint 12"
     run_vector inter_b_cif 352x288 24  testsrc2  "--keyint 9"
     run_vector inter_b_smooth 176x144 16 gradients ""
