@@ -26,6 +26,24 @@ typedef struct n265_rc {
     double scale_n[RC_CLASSES]; /* observation weight behind each scale  */
     double w_avg;               /* running mean of the per-frame weight  */
     double w_n;
+    /* The MEASURED operating point: a running mean over EVERY coded frame
+     * of `bits x qscale(base rate factor)`. Same product the class scales
+     * are learned from, summed over frames instead of averaged as a
+     * per-frame ratio, and with the intra frames in it. See rc.c. */
+    double cplxr;
+    double cplxr_n;
+    double cplxr_mem;
+    double cplxr_seed;
+    int copen;                  /* the forced opening IDR is not evidence */
+    double copen_bits;          /* ...until a second intra frame arrives  */
+    int copen_held;
+    int meas;                   /* 0 restores the modelled operating point */
+    double mguard;              /* QP of model-vs-measurement slack     */
+    int tcap;                   /* horizon floored at the frame's own plan */
+    int ibrake;                 /* an intra frame's feedback may not spend */
+    int fbstep;                 /* the step bound rides the feedback, not rf */
+    int openi;                  /* the opening solve carries its intra share */
+    double fb_prev;             /* the feedback the last frame was given  */
     double total_bits;          /* bits emitted so far                   */
     double planned_bits;        /* bits the allocator planned for them   */
     long n_coded;
@@ -44,6 +62,7 @@ typedef struct n265_rc {
     double lvl_gain;            /* how fast the shared level follows  */
     double igain, imax;         /* integral gain and its bound        */
     double fbmax;               /* bound on both feedback terms       */
+    double fbup;                /* and its coarser-side rail          */
     int planerr;                /* P term reads the plan, not the budget */
     double open_step;           /* extra step allowed over the opening */
     int nblk;                   /* lowres 8x8 blocks per frame        */
@@ -66,5 +85,12 @@ int n265_rc_class(int slice_type, int nonref);
 
 /* the lookahead complexity of queued frame `i` for class `cls` */
 double n265_rc_cplx(struct n265_encoder *e, int i, int cls);
+
+/* Will queued frame `i` be coded as an IDR? The keyint and scene-cut half
+ * of encode_frame's own test, without the "no reference yet" clause, which
+ * is about the frame being dispatched and not about the ones behind it.
+ * Defined in encoder.c beside the test it mirrors; the rate control reads
+ * it to see the intra frames coming before it spends against them. */
+int n265_rc_future_idr(struct n265_encoder *e, int i);
 
 #endif
