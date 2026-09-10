@@ -149,14 +149,6 @@ static int64_t score_params(const sao_stats *st, int type, int cop,
     return g;
 }
 
-/* N265_SAO_TYPES: bitmask of the types the per-CTB analysis may pick -
- * 1 band, 2 edge, 3 both, 0 the filter off in the SPS. 3 is HEAD. The
- * two types are not the same animal: the syntax constrains an edge
- * offset's SIGN by category (8.7.3.2 - categories 1 and 2, the local
- * minima, may only be raised, categories 3 and 4 only lowered), so edge
- * offset is a strict local smoother and cannot sharpen. A band offset
- * shifts every sample whose value lands in one of four bands whatever
- * its surroundings, which moves a level, not a gradient. */
 static int sao_hist_on(void)
 {
     static int v = -1;
@@ -164,6 +156,17 @@ static int sao_hist_on(void)
     return v;
 }
 
+/* N265_SAO_TYPES: bitmask of the types the per-CTB analysis may pick -
+ * 1 band, 2 edge, 3 both, 0 the filter off in the SPS. 3 is HEAD. The
+ * two types are not the same animal: the syntax constrains an edge
+ * offset's SIGN by category (8.7.3.2 - categories 1 and 2, the local
+ * minima, may only be raised, categories 3 and 4 only lowered), so edge
+ * offset is a strict local smoother and cannot sharpen. A band offset
+ * shifts every sample whose value lands in one of four bands whatever
+ * its surroundings, which moves a level, not a gradient. Splitting the
+ * mask is what let the animation round price a band-only arm (1) apart
+ * from the whole filter, and the phase-4 ladder turn the whole filter
+ * off (0). */
 static int sao_types(void)
 {
     static int v = -1;

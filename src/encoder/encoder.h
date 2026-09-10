@@ -134,6 +134,19 @@ struct n265_rps {
     uint8_t neg_used[N265_DPB_SLOTS], pos_used[N265_DPB_SLOTS];
 };
 
+/* N265_CU_STATS buckets: coded luma area by the CU kind actually written */
+enum {
+    N265_CS_SKIP = 0,       /* cu_skip_flag                          */
+    N265_CS_MERGE,          /* merged 2Nx2N with residual            */
+    N265_CS_AMVP,           /* 2Nx2N with explicit motion            */
+    N265_CS_RECT,           /* 2NxN / Nx2N                           */
+    N265_CS_AMP,            /* the four asymmetric partitions        */
+    N265_CS_INTRA,          /* intra 2Nx2N                           */
+    N265_CS_INTRA_NXN,      /* intra NxN at the min CB               */
+    N265_CS_ZEROCBF,        /* of the above, inter CUs with no residual */
+    N265_CS_COUNT
+};
+
 /* The coding context (docs/threading-design.md sec 4, T0 audit).
  *
  * One instance per frame in flight, and one SHALLOW COPY per row lane.
@@ -177,6 +190,7 @@ typedef struct n265_frame_work {
      * level is picked to hold it. */
     int dpb_reorder, dpb_buffering;
     double psy;             /* N265_PSY: psychovisual energy strength */
+    int dbf_beta, dbf_tc;   /* slice_beta/tc_offset_div2, see n265_encoder */
 
     /* ---- per-frame: source, recon, slice ---- */
     const uint8_t *pad_plane[3];    /* the lookahead slot's padded source */
@@ -191,6 +205,16 @@ typedef struct n265_frame_work {
     int nonref;             /* this frame is not a reference */
     int display_idx;
     int b_depth;            /* pyramid layer (0 = anchor) */
+    /* N265_CU_STATS: per-frame coded-area shares by CU kind and TU leaf
+     * size, accumulated in the entropy pass (everything there is final).
+     * Per-frame_work, because entropy is a pool task and K frames can be
+     * in it at once; the CSV row is printed on the driver at retirement,
+     * so the rows come out in coding order whatever the schedule did.
+     * Output-neutral; off unless the variable is set. */
+    int cu_stats;
+    uint64_t cs_area[N265_CS_COUNT];
+    uint64_t cs_tu[4], cs_tu_cbf[4];
+    uint64_t cs_coef;       /* nonzero luma levels coded              */
     struct n265_refpic *refl[2][N265_MAX_REF];
     int nref[2];
     int ref_valid;
@@ -337,6 +361,13 @@ struct n265_encoder {
     int plan_len, plan_pos, plan_pop;
     int ctb_log2;
     int no_sao;
+    /* N265_DBF_BETA / N265_DBF_TC: slice_beta_offset_div2 and
+     * slice_tc_offset_div2, signalled through the PPS. Both shift the
+     * index into Table 8-12, so a negative offset filters less: fewer
+     * segments pass the d < beta test at all, and the ones that do are
+     * clipped to a smaller tC. Zero is the shipped default and the
+     * control block stays out of the PPS entirely. */
+    int dbf_beta, dbf_tc;
 
     int pad_w, pad_h;       /* dims padded up to a min-CB multiple  */
     int ctb_cols, ctb_rows;
@@ -445,13 +476,16 @@ struct n265_encoder {
     /* T2 stall census (N265_STALL_TRACE): reference reads that had to
      * block, and frames dispatched, so the doc's table is per frame. */
     atomic_long ref_stalls, stall_frames;
-    atomic_long mc_clips;   /* reference reads clipped (N265_STALL_TRACE) */
     ntp_pool *pool;
     n265_row_ctx *row;      /* one lane per worker, plus the nested lanes */
     int nlanes;
 
     FILE *dump_decode;      /* decode-order recon tap (dec265 leg)   */
     FILE *dump_recon;       /* optional recon tap for the gate       */
+
+    /* N265_CU_STATS: read once at open, copied into every frame_work.
+     * The counters themselves are per-frame (see n265_frame_work). */
+    int cu_stats;
 };
 
 /* --------------------------------------------------------------------
@@ -638,82 +672,14 @@ uint32_t n265_lambda_mode_q8(int qp);
 void n265_build_lists(struct n265_encoder *e, n265_frame_work *fw, int cur,
                       int is_b, struct n265_refpic *future);
 uint64_t n265_zorder(int x, int y, int pic_w, int ctb_log2);
-/* Reference plane border, luma samples. Sized so that a read which needs
- * clipping (n265_mc_clip) lies WHOLLY outside the picture: PAD >= h + 7
- * for the largest block plus the 8-tap's four lower taps, i.e. >= 71 at
- * h = 64. That is what makes the clip bit-exact against 8.5.3.3.2's
- * per-sample clip; see n265_mc_clip. */
-#define N265_REF_PAD 80
-/* The motion SEARCH's own vector clamp is a search-range decision, not a
- * safety one, so it keeps the range it has always had (the old pad, less
- * the 8-sample filter slop) and does not widen with the border. Widening
- * it would change which vectors the walk can reach, which is a quality
- * change and not this one. */
-#define N265_MV_RANGE_PAD 64
+#define N265_REF_PAD 64     /* reference plane border, luma samples */
 /* E1 cache border. n265_clamp_mv keeps integer positions inside
- * [-(N265_MV_RANGE_PAD - 8), pic + N265_MV_RANGE_PAD - 8), and the
- * vertical pass reads 3 rows above and 4 below, so 60 covers every
- * clamped MV. A clipped merge position outside it simply misses the
- * cache and interpolates from the plane, which is the same bytes. */
+ * [-(N265_REF_PAD - 8), pic + N265_REF_PAD - 8), and the vertical pass
+ * reads 3 rows above and 4 below, so 60 covers every clamped MV. A
+ * gathered window (n265_ref_win, for the unclamped merge and AMVP
+ * candidates) always misses the cache and interpolates from the copy,
+ * which is the same bytes. */
 #define N265_HF_PAD 60
-
-/* --------------------------------------------------------------------
- * The reference-read position clip (8.5.3.3.2).
- *
- * The spec clips every reference SAMPLE coordinate into the picture, so
- * motion compensation is defined for any motion vector at all. This
- * encoder emulates that clip with an edge-replicated border, which is
- * exact only while the read stays inside the border. The motion search
- * clamps its own candidates (n265_clamp_mv), but a MERGE or AMVP
- * candidate is not clamped and cannot be - the decoder derives it, so
- * the encoder must use exactly the vector the decoder will - and a
- * POC-scaled temporal candidate multiplies a neighbour's vector by the
- * reference-distance ratio, which at --ref 3 --bframes 7 can point it
- * thousands of lines away. Before this clip existed, such a candidate
- * read off the end of the reference allocation: garbage at one thread,
- * another frame's live buffer at twelve.
- *
- * Clipping the INTEGER position back into the border is bit-exact with
- * the per-sample clip. The border is a replication of the picture edge,
- * so every line in it is a copy of the same line; a read that gets
- * clipped is wholly outside the picture (the pad is sized for that), and
- * moving it within the border cannot change a sample it returns.
- * ------------------------------------------------------------------ */
-void n265_mc_clip_count(n265_frame_work *e);
-#ifdef N265_REF_CHECK
-void n265_mc_clip_outside(int lo, int hi, int dim, const char *axis);
-#endif
-
-static inline void n265_mc_clip(n265_frame_work *e, int c_idx, int w, int h,
-                                int *ix, int *iy)
-{
-    int pad = c_idx ? N265_REF_PAD / 2 : N265_REF_PAD;
-    /* taps the kernel reads outside the block: luma 8-tap 3 before and
-     * 4 after, chroma 4-tap 1 before and 2 after */
-    int lead = c_idx ? 1 : 3, trail = c_idx ? 2 : 4;
-    int pw = c_idx ? e->pad_w >> 1 : e->pad_w;
-    int ph = c_idx ? e->pad_h >> 1 : e->pad_h;
-    int lo_x = -(pad - lead), hi_x = pw + pad - trail - w;
-    int lo_y = -(pad - lead), hi_y = ph + pad - trail - h;
-    int cx = *ix < lo_x ? lo_x : *ix > hi_x ? hi_x : *ix;
-    int cy = *iy < lo_y ? lo_y : *iy > hi_y ? hi_y : *iy;
-    if (cx != *ix || cy != *iy) {
-#ifdef N265_REF_CHECK
-        /* The independent half of the exactness argument: a clip is only
-         * bit-exact if the read it moved never touched a real picture
-         * sample on that axis, so that every line (column) it fetched
-         * was the same replicated edge before and after. Asserted from
-         * the ORIGINAL span, taps included. */
-        if (cx != *ix)
-            n265_mc_clip_outside(*ix - lead, *ix + w - 1 + trail, pw, "x");
-        if (cy != *iy)
-            n265_mc_clip_outside(*iy - lead, *iy + h - 1 + trail, ph, "y");
-#endif
-        n265_mc_clip_count(e);
-        *ix = cx;
-        *iy = cy;
-    }
-}
 
 /* The cached horizontal intermediate for luma phase fx at integer
  * position (x, y) of a w x h block, or NULL when the cache cannot serve

@@ -14,10 +14,25 @@ void n265_fdct(int16_t *coef, const int16_t *resid, int log2n, int use_dst);
 
 /* Normative inverse path (8.6.3 dequant, 8.6.4 inverse transform); this is
  * the half that must match the decoder bit-exactly. */
-void n265_dequant(int16_t *dq, const int16_t *level, int log2n, int qp);
+/* nzw/nzh (optional) report the dequantised block's nonzero bounding box:
+ * every coefficient at x >= *nzw or y >= *nzh is zero. Feed them straight
+ * to n265_idct_add, which then skips the rows and columns that cannot
+ * contribute. Passing the full size is always correct, just slower. */
+void n265_dequant(int16_t *dq, const int16_t *level, int log2n, int qp,
+                  int *nzw, int *nzh);
 void n265_idct_add(uint8_t *dst, int dst_stride, const int16_t *dq,
                    int log2n, const uint8_t *pred, int pred_stride,
+                   int use_dst, int nzw, int nzh);
+
+/* The literal matrix-multiply forms of the pair above. They are the C
+ * reference the partial-butterfly kernels are checked against
+ * (tests/checkasm), not a path the encoder takes; the butterflies must
+ * reproduce them bit for bit. */
+void n265_fdct_ref(int16_t *coef, const int16_t *resid, int log2n,
                    int use_dst);
+void n265_idct_add_ref(uint8_t *dst, int dst_stride, const int16_t *dq,
+                       int log2n, const uint8_t *pred, int pred_stride,
+                       int use_dst);
 
 /* Encoder-side scalar quant (deadzone 1/3 intra, 1/6 inter); returns the
  * number of nonzero levels. */

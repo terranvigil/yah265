@@ -54,6 +54,25 @@ void n265_mc_luma_14(int16_t *dst, int n, const uint8_t *ref, int ref_stride,
 void n265_mc_chroma_14(int16_t *dst, int n, const uint8_t *ref,
                        int ref_stride, int fx, int fy);
 
+/* 8.5.3.3.2's reference fetch, which clips every coordinate into the
+ * picture. Our pictures carry a finite N265_REF_PAD border instead,
+ * which is only the same thing while the read stays inside it: merge and
+ * AMVP motion vectors are not clamped (only the search is), so a
+ * candidate inherited from a neighbour can reach past it. Returns the
+ * block origin the filter may read `hl` samples left/above and `hr`
+ * right/below of - the plane itself when the window is inside the
+ * border, else `tmp`, gathered with the spec's clipping. `tmp` holds
+ * (w + hl + hr) * (h + hl + hr) bytes; luma wants hl 3 / hr 4, chroma
+ * hl 1 / hr 2. */
+const uint8_t *n265_ref_win(const uint8_t *plane, int stride, int pic_w,
+                            int pic_h, int pad, int ix, int iy, int w,
+                            int h, int hl, int hr, uint8_t *tmp,
+                            int *out_stride, int *clipped);
+
+/* the largest window n265_ref_win can gather: a 64x64 luma PU with the
+ * 8-tap's 3-left/4-right halo */
+#define N265_REF_WIN_BYTES ((64 + 7) * (64 + 7))
+
 /* default bi combine: (a + b + 64) >> 7, clipped. a/b are packed w x h. */
 void n265_bi_avg_wh(uint8_t *dst, int dst_stride, const int16_t *a,
                     const int16_t *b, int w, int h);

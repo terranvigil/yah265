@@ -11,6 +11,13 @@ Speed multiple = our_time / x265_time (1.00 = parity, lower = faster).
 BD-rate (Y-PSNR) vs the matched arm; negative = we spend fewer bits at
 equal PSNR.
 
+Goal 1 is the single-threaded leg: ours at --threads 1 against the
+matched arm's --no-asm run. Goal 2 is the utilization leg, our_fps_auto
+against x265med_asm_fps_auto - both encoders at their own default thread
+configuration (ours auto since the T3 merge, x265 at default pools and
+frame threads). The BD encodes also run at our default, which the
+determinism gate makes bit-neutral.
+
 Timing rules (docs/instruments.md): output to /dev/null, median of
 NRUNS, sizes measured in a separate untimed pass.
 
@@ -29,11 +36,15 @@ import sys
 import tempfile
 import time
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
+import bdcompare as _bd
+_bd.SUBSAMPLE = 1
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 N265 = os.environ.get("N265", os.path.join(ROOT, "build/n265"))
 X265 = os.environ.get("X265", "x265")
 FFMPEG = os.environ.get("FFMPEG", "ffmpeg")
-HISTORY = os.path.join(ROOT, "docs/data/parity-history.csv")
+HISTORY = os.environ.get("BOARD_HISTORY", os.path.join(ROOT, "docs/data/parity-history.csv"))
 NRUNS = 3
 QPS = [22, 27, 32, 37]
 
@@ -183,17 +194,21 @@ def measure_clip(tmp, name, size, frames, src, bd_only):
     row = {"clip": name, "frames": frames}
 
     ours_pts = []
+    ours_neg = []       # (bits, VMAF-NEG): the leg the quality decisions use
     for qp in QPS:
         out = os.path.join(tmp, f"n_{name}_{qp}.hevc")
         rec = os.path.join(tmp, f"n_{name}_{qp}.yuv")
         run([N265, y4m, "-o", out, "--qp", str(qp),
              "--dump-recon", rec] + lim)
         ours_pts.append((os.path.getsize(out) * 8, psnr_y(rec, y4m, size)))
+        v = _bd.vmaf_of(out, y4m, tmp)
+        ours_neg.append((os.path.getsize(out) * 8, v["VMAF-NEG"] if v and "VMAF-NEG" in v else None))
 
     st = ["--pools", "none", "--frame-threads", "1", "--log-level", "error"]
     matched = [X265, "--input", y4m] + st + X265_MATCHED + lim
     medium = [X265, "--input", y4m] + st + lim
     x_pts = []
+    x_neg = []
     for qp in QPS:
         out = os.path.join(tmp, f"x_{name}_{qp}.hevc")
         run(matched + ["--qp", str(qp), "-o", out])
@@ -201,18 +216,39 @@ def measure_clip(tmp, name, size, frames, src, bd_only):
         run([FFMPEG, "-loglevel", "error", "-i", out, "-f", "rawvideo",
              dec, "-y"])
         x_pts.append((os.path.getsize(out) * 8, psnr_y(dec, y4m, size)))
+        v = _bd.vmaf_of(out, y4m, tmp)
+        x_neg.append((os.path.getsize(out) * 8, v["VMAF-NEG"] if v and "VMAF-NEG" in v else None))
     row["bd_rate_psnr_pct"] = round(bd_rate(x_pts, ours_pts), 2)
+    # BD-rate on VMAF-NEG against the same matched arm. PSNR and VMAF-NEG
+    # can disagree on purpose (SAO buys PSNR and pays VMAF-NEG, 2026-09-09);
+    # the band's decisions are made on VMAF-NEG, so the chart carries both.
+    if all(p[1] is not None for p in ours_neg + x_neg):
+        r = _bd.bd_rate([p[0] for p in x_neg], [p[1] for p in x_neg],
+                        [p[0] for p in ours_neg], [p[1] for p in ours_neg])
+        # the board's fixed QPs are not band-calibrated, so VMAF-NEG can
+        # saturate and the cubic fit degenerate (bus_cif read 1e56%);
+        # blank it rather than chart it, the band instrument is the
+        # authority on that leg
+        ok = isinstance(r, float) and math.isfinite(r) and abs(r) < 200
+        row["bd_rate_vmafneg_pct"] = round(r, 2) if ok else ""
+    else:
+        row["bd_rate_vmafneg_pct"] = ""
 
     if bd_only:
         # timing skipped (loaded machine); columns stay empty
         for k in ("our_fps", "x265m_noasm_fps", "x265m_asm_fps",
                   "mult_matched_g1", "mult_matched_g3", "x265med_noasm_fps",
-                  "x265med_asm_fps", "mult_medium_g1", "mult_medium_g3"):
+                  "x265med_asm_fps", "mult_medium_g1", "mult_medium_g3",
+                  "our_fps_auto", "x265med_asm_fps_auto"):
             row[k] = ""
         return row
 
     warm_file(y4m)
-    t_ours = time_cmd([N265, y4m, "-o", "/dev/null", "--qp", "27"] + lim)
+    # Goal 1 is single-thread by definition, so the timed leg says so
+    # explicitly - our default is auto since the T3 merge (2026-09-09) and
+    # x265's arm is already --pools none --frame-threads 1.
+    t_ours = time_cmd([N265, y4m, "-o", "/dev/null", "--qp", "27",
+                       "--threads", "1"] + lim)
     t_m_noasm = time_cmd(matched + ["--no-asm", "--qp", "27", "-o",
                                     "/dev/null"])
     t_m_asm = time_cmd(matched + ["--qp", "27", "-o", "/dev/null"])
@@ -228,6 +264,18 @@ def measure_clip(tmp, name, size, frames, src, bd_only):
     row["x265med_asm_fps"] = round(frames / t_med_asm, 2)
     row["mult_medium_g1"] = round(t_ours / t_med_noasm, 3)
     row["mult_medium_g3"] = round(t_ours / t_med_asm, 3)
+
+    # Goal 2, the utilization leg: both encoders at their own default
+    # thread configuration - ours at --threads 0 (one worker per online
+    # CPU), x265 medium at default pools and frame threads. Read as a wall
+    # ratio, x265med_asm_fps_auto / our_fps_auto. Determinism makes our
+    # auto run bit-identical to the --threads 1 one, so this measures
+    # scheduling only.
+    med_auto = [X265, "--input", y4m, "--log-level", "error"] + lim
+    t_ours_auto = time_cmd([N265, y4m, "-o", "/dev/null", "--qp", "27"] + lim)
+    t_med_auto = time_cmd(med_auto + ["--crf", "28", "-o", "/dev/null"])
+    row["our_fps_auto"] = round(frames / t_ours_auto, 2)
+    row["x265med_asm_fps_auto"] = round(frames / t_med_auto, 2)
     return row
 
 
@@ -248,8 +296,9 @@ def main():
     fields = ["date", "commit", "x265", "clip", "frames", "our_fps",
               "x265m_noasm_fps", "x265m_asm_fps", "mult_matched_g1",
               "mult_matched_g3", "x265med_noasm_fps", "x265med_asm_fps",
-              "mult_medium_g1", "mult_medium_g3", "bd_rate_psnr_pct",
-              "note"]
+              "mult_medium_g1", "mult_medium_g3", "our_fps_auto",
+              "x265med_asm_fps_auto", "bd_rate_psnr_pct",
+              "bd_rate_vmafneg_pct", "note"]
     os.makedirs(os.path.dirname(HISTORY), exist_ok=True)
     new = not os.path.exists(HISTORY)
 
@@ -272,12 +321,13 @@ def main():
                        commit=commit, x265=xv, note=note)
             wr.writerow(row)
             if bd_only:
-                print("{clip}: BD {bd_rate_psnr_pct}%".format(**row))
+                print("{clip}: BD-PSNR {bd_rate_psnr_pct}% BD-VMAF-NEG {bd_rate_vmafneg_pct}%".format(**row))
             else:
                 print("{clip}: ours {our_fps} fps | matched g1 "
                       "{mult_matched_g1}x g3 {mult_matched_g3}x | medium g1 "
-                      "{mult_medium_g1}x g3 {mult_medium_g3}x | BD "
-                      "{bd_rate_psnr_pct}%".format(**row))
+                      "{mult_medium_g1}x g3 {mult_medium_g3}x | auto "
+                      "{our_fps_auto} vs {x265med_asm_fps_auto} fps | BD "
+                      "{bd_rate_psnr_pct}% / NEG {bd_rate_vmafneg_pct}%".format(**row))
     print(f"appended to {os.path.relpath(HISTORY, ROOT)}")
 
 

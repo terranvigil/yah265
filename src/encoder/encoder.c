@@ -19,6 +19,7 @@
 #include "encoder/la.h"
 #include "encoder/mc.h"
 #include "encoder/rc.h"
+#include "encoder/satd.h"
 #include "encoder/sao.h"
 
 /* N265_LA_PROF: the lookahead's SERIAL FRACTION, which is what T3/2 has
@@ -202,6 +203,9 @@ static void fw_config(n265_encoder *e, n265_frame_work *fw)
     n265_dpb_requirement(e->bframes, e->ref_max, &fw->dpb_reorder,
                          &fw->dpb_buffering, NULL);
     fw->psy = e->psy;
+    fw->dbf_beta = e->dbf_beta;
+    fw->dbf_tc = e->dbf_tc;
+    fw->cu_stats = e->cu_stats;
     for (int i = 0; i < 3; i++)
         fw->pad_stride[i] = e->pad_stride[i];
 }
@@ -352,6 +356,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->keyint = e->mode == N265_MODE_PCM ? 1 : g_keyint;
     e->bframes = e->mode == N265_MODE_PCM ? 0 : g_bframes;
     e->no_sao = getenv("N265_NO_SAO") != NULL;      /* diagnostic */
+    e->cu_stats = getenv("N265_CU_STATS") != NULL;  /* diagnostic */
     /* RDOQ on by default (2026-09-06: -5.9% median BD-VMAF-NEG at matched
      * rate, 7/7 clips, worst -5.5%); N265_RDOQ=0 is the escape. */
     { const char *v = getenv("N265_RDOQ"); e->rdoq = v ? atoi(v) : 1; }
@@ -363,6 +368,14 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->qp_delta_on = e->mode != N265_MODE_PCM &&
                      (e->aq || e->cutree || e->qp_frac);
     e->scenecut = e->mode != N265_MODE_PCM;
+    /* deblocking offsets: both clamped to the spec's +-6, and both zero by
+     * default, which keeps the PPS control block out of the stream */
+    { const char *v = getenv("N265_DBF_BETA"); e->dbf_beta = v ? atoi(v) : 0; }
+    { const char *v = getenv("N265_DBF_TC"); e->dbf_tc = v ? atoi(v) : 0; }
+    if (e->dbf_beta < -6) e->dbf_beta = -6;
+    if (e->dbf_beta > 6) e->dbf_beta = 6;
+    if (e->dbf_tc < -6) e->dbf_tc = -6;
+    if (e->dbf_tc > 6) e->dbf_tc = 6;
     int align = e->mode == N265_MODE_PCM ? 16 : (1 << MIN_CB_LOG2);
     if (p->width < align || p->height < align)
         goto fail;
@@ -477,6 +490,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     n265_mv_warm();
     n265_sao_warm();
     n265_rdoq_warm();
+    n265_satd_warm();
 
     size_t frame_bytes = (size_t)e->pad_w * e->pad_h * 3 / 2;
     /* A whole mini-GOP leaves per call, and the ring grows if it has to
@@ -522,8 +536,6 @@ void n265_encoder_close(n265_encoder *e)
                 atomic_load(&e->stall_frames)
                     ? (double)atomic_load(&e->ref_stalls) /
                       (double)atomic_load(&e->stall_frames) : 0.0);
-        fprintf(stderr, "MCCLIP reads=%ld\n",
-                (long)atomic_load(&e->mc_clips));
     }
     for (int i = 0; i < e->K; i++)
         fw_close(&e->fw[i]);
@@ -737,7 +749,10 @@ static void hf_fill_rows(n265_frame_work *fw, struct n265_refpic *r, int cy,
     const uint8_t *src = r->plane[0] + y0 * rs - N265_HF_PAD;
     N265_REF_OPEN_ALL();
     for (int i = 0; i < 3; i++)
-        n265_mc_luma_hplane(r->hf[i] + (size_t)y0 * w - N265_HF_PAD, w,
+        /* ptrdiff_t, not size_t: y0 is -N265_HF_PAD on the first row
+         * and (size_t)(-60) * w wraps, which is UB even though the
+         * wrapped result addresses the right sample. */
+        n265_mc_luma_hplane(r->hf[i] + (ptrdiff_t)y0 * w - N265_HF_PAD, w,
                             w, y1 - y0, src, rs, i + 1);
     N265_REF_UNGUARD();
 }
@@ -905,14 +920,6 @@ void n265_ref_stall(n265_frame_work *e, const struct n265_refpic *pic,
     atomic_fetch_add_explicit(&enc->ref_stalls, 1, memory_order_relaxed);
     struct ref_stall_ctx w = { pic, need };
     ntp_wait_older(enc->pool, ref_stall_pred, &w);
-}
-
-/* n265_mc_clip's rare arm: a reference read whose motion vector points
- * past the replicated border. Counted so the trace can price it; the
- * clip itself is what makes the read defined. */
-void n265_mc_clip_count(n265_frame_work *e)
-{
-    atomic_fetch_add_explicit(&e->enc->mc_clips, 1, memory_order_relaxed);
 }
 
 /* Publish CTB row `cy` of this frame's picture (G4). Everything a later
@@ -1229,6 +1236,33 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
             int nctu = fw->ctb_cols * fw->ctb_rows;
             double *lv = malloc((size_t)nctu * sizeof(double));
             double avg = 0;
+            /* N265_AQ_FLOOR: a floor on the CTU variance the AQ field is
+             * built from. The term models masking, and masking is a
+             * property of content the eye can see; below the coding noise
+             * floor there is nothing to mask and nothing to hide, so a
+             * CTU flatter than the floor is not flatter for this purpose.
+             * Natural video has no such CTUs (film grain and sensor noise
+             * put a variance floor in every block); synthetic animation is
+             * full of them, and without a floor the field reads a
+             * perfectly flat fill as maximally masking-free and drives it
+             * many QP steps DOWN, buying bits for a region that codes to
+             * nothing while the outlines that carry the picture pay. 4 is
+             * a standard deviation of two luma levels: below it an 8-bit
+             * picture is flat to within the smallest step the quantiser
+             * reproduces. 0 is the pre-2026-09-09 behaviour and is
+             * exactly inert.
+             *
+             * The floor reaches the per-CTU term ONLY. The frame mean below
+             * it feeds a different term with a different job - the AQ_DC
+             * across-shot allocation - and there the unfloored mean is the
+             * right quantity: a black frame really is cheaper to code, and
+             * flooring it makes the complexity proxy worse. Measured: with
+             * the floor on both, the across-shot gate on ms_720p_50 went
+             * -16.92% to -16.08%; with it on the per-CTU field alone the
+             * gate holds. */
+            double vfloor = 4.0;
+            { const char *v = getenv("N265_AQ_FLOOR"); if (v) vfloor = atof(v); }
+            double avg_dc = 0;      /* the same field WITHOUT the floor */
             for (int cy = 0; cy < fw->ctb_rows; cy++)
                 for (int cx = 0; cx < fw->ctb_cols; cx++) {
                     int x0 = cx * ctb, y0 = cy * ctb;
@@ -1244,10 +1278,13 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                     int np = w * h;
                     double var = (double)s2 / np -
                         ((double)s1 / np) * ((double)s1 / np);
+                    avg_dc += log2((var < 0.0 ? 0.0 : var) + 1.0);
+                    if (var < vfloor) var = vfloor;
                     lv[cy * fw->ctb_cols + cx] = log2(var + 1.0);
                     avg += lv[cy * fw->ctb_cols + cx];
                 }
             avg /= nctu;
+            avg_dc /= nctu;
             /* Under CRF the frame mean of the AQ field is the across-frame /
              * across-shot allocation term (yah264 row 10, 2026-09-05): a busy
              * frame codes a little cheaper, a quiet one a little better. It
@@ -1257,7 +1294,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
              * it; the per-CTU part below stays centred on the frame. */
             if (e->crf_on || e->abr_on) {
                 const char *v = getenv("N265_AQ_DC"), *a = getenv("N265_AQ_ANCHOR");
-                double dc = (v ? atof(v) : 1.0) * (avg - (a ? atof(a) : 6.4));
+                double dc = (v ? atof(v) : 1.0) * (avg_dc - (a ? atof(a) : 6.4));
                 int dci = (int)lround(dc);
                 int nq = fw->qp + dci;
                 fw->qp = nq < 0 ? 0 : nq > 51 ? 51 : nq;
@@ -1279,6 +1316,23 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
              * clips are byte-identical under it and the worst moves 0.43. */
             double aqc = 3.0;
             { const char *v = getenv("N265_AQ_CLAMP"); if (v) aqc = atof(v); }
+            if (getenv("N265_AQ_TRACE")) {
+                /* the field the per-CTU term is built from: how far the
+                 * frame's log2-variance spread reaches, and how much of
+                 * it the clamp is already eating */
+                double mn = 1e9, mx = -1e9, sd = 0, lo = 0, hi = 0;
+                for (int i = 0; i < nctu; i++) {
+                    if (lv[i] < mn) mn = lv[i];
+                    if (lv[i] > mx) mx = lv[i];
+                    sd += (lv[i] - avg) * (lv[i] - avg);
+                    double o = e->aq_str * (lv[i] - avg);
+                    lo += o < -aqc;
+                    hi += o > aqc;
+                }
+                fprintf(stderr, "AQT,%d,%d,%d,%.3f,%.3f,%.3f,%.3f,%.4f,%.4f\n",
+                        fw->display_idx, slice_type, nctu, avg, mn, mx,
+                        sqrt(sd / nctu), lo / nctu, hi / nctu);
+            }
             for (int i = 0; i < nctu; i++) {
                 double off = e->aq_str * (lv[i] - avg);
                 if (off > aqc) off = aqc;
@@ -1382,6 +1436,12 @@ static void entropy_frame(n265_encoder *e, n265_frame_work *fw)
     fw->ent_qp_prev = fw->qp;
     fw->ent_parent_chroma = 0;
     fw->in_entropy = 1;
+    if (fw->cu_stats) {
+        memset(fw->cs_area, 0, sizeof fw->cs_area);
+        memset(fw->cs_tu, 0, sizeof fw->cs_tu);
+        memset(fw->cs_tu_cbf, 0, sizeof fw->cs_tu_cbf);
+        fw->cs_coef = 0;
+    }
     bs_reset(&fw->rbsp);
     write_slice_header(e, fw);
     n265_cabac_start(&cb, &fw->rbsp);
@@ -1428,6 +1488,36 @@ static void join_oldest(n265_encoder *e)
     pack_nal(d, fw->nal_type, fw->rbsp.buf, fw->rbsp.bytes);
     e->n_done++;
     dump_recon_frame(e, fw);
+    if (fw->cu_stats) {
+        /* one CSV row per frame: what the entropy pass actually wrote.
+         * Shares are of the coded luma area, so they sum to 1. Printed
+         * here, on the driver, so the rows come out in coding order
+         * however the entropy tasks were scheduled. */
+        double a = 0;
+        for (int i = 0; i < N265_CS_ZEROCBF; i++) a += (double)fw->cs_area[i];
+        if (a != (double)fw->pad_w * fw->pad_h)
+            fprintf(stderr, "CUS-BUG frame %d: area %.0f != %d\n",
+                    fw->display_idx, a, fw->pad_w * fw->pad_h);
+        if (a <= 0) a = 1;
+        double tu = 0;
+        for (int i = 0; i < 4; i++) tu += (double)fw->cs_tu[i];
+        if (tu <= 0) tu = 1;
+        fprintf(stderr,
+                "CUS,%d,%d,%d,%d,%zu,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,"
+                "%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%llu\n",
+                fw->display_idx, fw->slice_type, fw->b_depth, fw->qp,
+                d->len,
+                fw->cs_area[N265_CS_SKIP] / a, fw->cs_area[N265_CS_MERGE] / a,
+                fw->cs_area[N265_CS_AMVP] / a, fw->cs_area[N265_CS_RECT] / a,
+                fw->cs_area[N265_CS_AMP] / a, fw->cs_area[N265_CS_INTRA] / a,
+                fw->cs_area[N265_CS_INTRA_NXN] / a,
+                fw->cs_area[N265_CS_ZEROCBF] / a,
+                fw->cs_tu[0] / tu, fw->cs_tu[1] / tu, fw->cs_tu[2] / tu,
+                fw->cs_tu[3] / tu,
+                (double)(fw->cs_tu_cbf[0] + fw->cs_tu_cbf[1] +
+                         fw->cs_tu_cbf[2] + fw->cs_tu_cbf[3]) / tu,
+                (unsigned long long)fw->cs_coef);
+    }
     /* D4: the actual bits are applied on the driver, in coding order. */
     if (e->abr_on || e->rc.trace)
         n265_rc_done(e, fw->rc_cls, fw->rc_cplx, fw->rc_base,
@@ -1477,6 +1567,33 @@ void n265_build_lists(n265_encoder *e, n265_frame_work *fw, int poc,
     }
 }
 
+/* The minimum distance between the last key frame and a SCENECUT key
+ * frame, in display frames. `--keyint` still forces one on its own
+ * period; this only bounds how close together the detector may place
+ * them. Ours was 4 - one mini-GOP - which is a lower bound with no
+ * derivation, and on cut-out animation the detector reaches it: the
+ * lookahead's pcost/icost ratio sits near 1 on every frame that moves,
+ * so every anchor becomes an IDR (sita_toon: 30 of 120 frames intra,
+ * 65% of the file). x265's own default is auto = min(keyint/10, fps),
+ * i.e. 24-25 at keyint 250, and the same argument applies here: an IDR
+ * costs the whole prediction chain, so the detector has to be very sure
+ * before it may place one close to the last. N265_MIN_KEYINT sets it;
+ * 0 means the auto rule; 4 is the pre-2026-09-09 behaviour. */
+static int min_keyint(n265_encoder *e)
+{
+    static int v = -2;
+    if (v == -2) { const char *s = getenv("N265_MIN_KEYINT"); v = s ? atoi(s) : 4; }
+    int m = v;
+    if (m == 0) {
+        int fps = e->param.fps_den > 0
+                      ? (e->param.fps_num + e->param.fps_den / 2) / e->param.fps_den
+                      : 25;
+        m = e->keyint / 10;
+        if (fps < m) m = fps;
+    }
+    return m < 1 ? 1 : m;
+}
+
 /* Is the lookahead frame at index i a forced key frame (IDR)? keyint,
  * a scene cut, or the encoder's first frame. */
 static int la_is_idr(n265_encoder *e, int i)
@@ -1484,7 +1601,8 @@ static int la_is_idr(n265_encoder *e, int i)
     int d = e->la.f[i].display_idx;
     return e->mode == N265_MODE_PCM || e->keyint == 1 || (d % e->keyint) == 0 ||
            !e->ref_valid ||
-           (e->scenecut && d - e->gop_start_display >= 4 && n265_la_scenecut(e, i));
+           (e->scenecut && d - e->gop_start_display >= min_keyint(e) &&
+            n265_la_scenecut(e, i));
 }
 
 /* Emit the pyramid coding order for the B lookahead indices [blo, bhi],

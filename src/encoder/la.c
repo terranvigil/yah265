@@ -255,9 +255,27 @@ void n265_la_push(struct n265_encoder *e, const uint8_t *const plane[3],
     f->sc_ratio = (float)f->pcost_sum /
                   (float)(f->icost_sum ? f->icost_sum : 1);
     f->sc_ema = la->sc_ema;
-    la->sc_ema = la->sc_ema == 0.0f
-                     ? f->sc_ratio
-                     : 0.5f * la->sc_ema + 0.5f * f->sc_ratio;
+    /* N265_SC_HOLD: a HELD frame does not set the running level.
+     * sc_ema is the level the ratio has to spike over, and it is meant to
+     * be the shot's own inter difficulty. Limited animation holds a frame
+     * for two or three frames and then jumps, and a held frame predicts
+     * exactly - its pcost is the per-block floor, its ratio is near zero,
+     * and it carries no evidence at all about how hard the shot is to
+     * predict. Averaging those into the level drags it to a fraction of
+     * the moving frames' own ratio, after which every frame that moves
+     * clears 1.3x the level and reads as a cut. A frame whose mean lowres
+     * SAD is under one unit per 8x8 block is a repeat, not a measurement.
+     * On by default since 2026-09-09; 0 is the behaviour before it, and
+     * every clip in the corpus that is single-shot at 120 frames is
+     * byte-identical under either value. */
+    static int hold = -1;
+    if (hold < 0) { const char *v = getenv("N265_SC_HOLD"); hold = v ? atoi(v) : 1; }
+    int nblk = la->bw * la->bh;
+    int held = hold && f->pcost_sum < (uint64_t)nblk * 17;
+    if (!held)
+        la->sc_ema = la->sc_ema == 0.0f
+                         ? f->sc_ratio
+                         : 0.5f * la->sc_ema + 0.5f * f->sc_ratio;
     la->count++;
 }
 

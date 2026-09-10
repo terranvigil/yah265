@@ -47,13 +47,17 @@ fail=0
 # expanded so the assignments split into separate words.
 VENV=""
 
+# a full lavfi graph for the next run_vector, instead of the usual
+# "<source>=size=WxH:rate=25". Set by run_vector_graph, cleared after.
+VGRAPH=""
+
 run_vector() {
     # $1 name  $2 WxH  $3 frames  $4 lavfi source  $5 encoder args
     # ("--pcm" makes the reference the source itself; anything else makes
     # it the encoder's own reconstruction via --dump-recon)
     name=$1; size=$2; frames=$3; src=$4; eargs=$5
     y4m="$TMP/$name.y4m"
-    "$FFMPEG" -loglevel error -f lavfi -i "$src=size=$size:rate=25" \
+    "$FFMPEG" -loglevel error -f lavfi -i "${VGRAPH:-$src=size=$size:rate=25}" \
         -vf "noise=alls=12:allf=t+u" -frames:v "$frames" -pix_fmt yuv420p "$y4m" -y \
         2>/dev/null
     if [ ! -s "$y4m" ]; then
@@ -119,6 +123,15 @@ run_vector() {
 # same vector, with N265_* assignments in front of the encoder. SAO is off
 # by default since R7, so the sao() writer and the offset application are
 # only reachable this way and would otherwise go untested.
+# same vector, with a full lavfi graph as the source. The motion vectors
+# a pan produces are the point: nothing testsrc2 does on its own moves
+# far enough to reach past a reference's border.
+run_vector_graph() {
+    VGRAPH=$1; shift
+    run_vector "$@"
+    VGRAPH=""
+}
+
 run_vector_env() {
     VENV=$1; shift
     run_vector "$@"
@@ -154,6 +167,16 @@ run_vector inter_rect8    176x144 16  testsrc2  "--keyint 8 --qp 20"
 # with the PPS flag on even where AQ and cu-tree are off
 run_vector abr_cif       352x288 24  testsrc2  "--keyint 12 --bitrate 400 --aq 1 --cutree 1"
 run_vector abr_flat      176x144 16  testsrc2  "--keyint 8 --bitrate 200"
+# deblocking offsets: the PPS grows its control block
+# (deblocking_filter_control_present_flag with pps_beta_offset_div2 and
+# pps_tc_offset_div2), and both decoders have to shift the Table 8-12
+# lookups by the same amount we did. One vector per sign so a decoder that
+# ignores the offsets, or reads them with the wrong sign, cannot pass both.
+N265_DBF_BETA=-3 N265_DBF_TC=-3 \
+run_vector deblock_neg    176x144 16  testsrc2  "--keyint 8 --aq 1"
+N265_DBF_BETA=3 N265_DBF_TC=2 \
+run_vector deblock_pos    176x144 16  testsrc2  "--keyint 8 --aq 1"
+unset N265_DBF_BETA N265_DBF_TC
 run_vector intra_ctu16    176x144  3  testsrc2  "--ctu 16"
 run_vector intra_ctu64    176x144  3  testsrc2  "--ctu 64"
 run_vector intra_ctu64c   210x122  3  testsrc2  "--ctu 64"
@@ -205,6 +228,20 @@ run_vector_env "N265_MAX_FRAME_WORK=8" \
 run_vector b0_t12_cif  352x288 24  testsrc2  "--keyint 12 --bframes 0 --aq 1 --cutree 1 --threads 12"
 run_vector_env "N265_API_DEFER=1" \
            defer_t12_cif 352x288 24 testsrc2 "--keyint 12 --bframes 5 --aq 1 --cutree 1 --threads 12"
+# The right-edge reconstruction bug (2026-09-09). A fast horizontal pan
+# makes the motion search find a vector near the search range, and a
+# merge or AMVP candidate then carries it to a CU at the picture's right
+# edge, where it is NOT clamped - only the search is. 8.5.3.3.2 says the
+# decoder clips every reference coordinate into the picture, so the edge
+# sample repeats without limit; our pictures carry a finite
+# N265_REF_PAD border instead, and the read ran off the end of it into
+# the next row's LEFT border. Both decoders rejected the recon before
+# n265_ref_win landed. Reproduces at every thread count, so it gets one
+# cell at 1 and one at 12.
+run_vector_graph "testsrc2=size=176x144:rate=25,scroll=horizontal=0.4" \
+           pan_edge_t1  176x144 40 testsrc2 "--keyint 10 --bframes 3 --ref 3 --aq 1 --cutree 1 --threads 1"
+run_vector_graph "testsrc2=size=176x144:rate=25,scroll=horizontal=0.4" \
+           pan_edge_t12 176x144 40 testsrc2 "--keyint 10 --bframes 3 --ref 3 --aq 1 --cutree 1 --threads 12"
 # D4's observation lag. Unlike K this one IS bitstream-affecting, so it
 # gets a cell at one thread and at twelve: the stream must differ from
 # the D = 0 one and must not differ between thread counts.

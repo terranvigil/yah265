@@ -426,15 +426,19 @@ uint32_t n265_mc_sad(struct n265_frame_work *e, int list, int ridx, int x0, int 
     if ((mv.x | mv.y) & 3) {    /* fractional: interpolate then SAD */
         uint8_t pred[64 * 64];
         int ix = x0 + (mv.x >> 2), iy = y0 + (mv.y >> 2);
-        n265_mc_clip(e, 0, w, h, &ix, &iy);
         /* G2 entry point: the 8-tap reaches 4 lines below the block, and
          * n265_ref_hf's own coverage test wants the same line, so one
          * bound serves both arms. */
         int need = n265_ref_wait(e, ref, iy + h + 4);
-        const uint8_t *rp = ref->plane[0] + iy * ref->stride[0] + ix;
         const int16_t *hf = n265_ref_hf(ref, ix, iy, w, h, mv.x & 3);
         N265_REF_GUARD(e, ref, need, 0, n265_ref_hf_base(ref, mv.x & 3));
-        n265_mc_luma_hf(pred, w, w, h, rp, ref->stride[0], hf,
+        uint8_t win[N265_REF_WIN_BYTES];
+        int ws, wclip;
+        const uint8_t *rp = n265_ref_win(ref->plane[0], ref->stride[0],
+                                         e->pad_w, e->pad_h, N265_REF_PAD,
+                                         ix, iy, w, h, 3, 4, win, &ws,
+                                         &wclip);
+        n265_mc_luma_hf(pred, w, w, h, rp, ws, wclip ? NULL : hf,
                         ref->hf_stride, mv.x & 3, mv.y & 3);
         N265_REF_UNGUARD();
         uint32_t sad = 0;
@@ -446,18 +450,20 @@ uint32_t n265_mc_sad(struct n265_frame_work *e, int list, int ridx, int x0, int 
         return sad;
     }
     int ix = x0 + (mv.x >> 2), iy = y0 + (mv.y >> 2);
-    n265_mc_clip(e, 0, w, h, &ix, &iy);
     int need = n265_ref_wait(e, ref, iy + h - 1);
-    const uint8_t *rp = ref->plane[0] + iy * ref->stride[0] + ix;
     N265_REF_GUARD(e, ref, need, 0, NULL);
+    uint8_t win[N265_REF_WIN_BYTES];
+    int ws, wclip;
+    const uint8_t *rp = n265_ref_win(ref->plane[0], ref->stride[0],
+                                     e->pad_w, e->pad_h, N265_REF_PAD,
+                                     ix, iy, w, h, 0, 0, win, &ws, &wclip);
     N265_RC_TOUCH(rp);
-    N265_RC_TOUCH(rp + (h - 1) * ref->stride[0]);
+    N265_RC_TOUCH(rp + (h - 1) * ws);
     N265_REF_UNGUARD();
     uint32_t sad = 0;
     for (int y = 0; y < h; y++)
         for (int x = 0; x < w; x++) {
-            int d = src[y * e->pad_stride[0] + x] -
-                    rp[y * ref->stride[0] + x];
+            int d = src[y * e->pad_stride[0] + x] - rp[y * ws + x];
             sad += (uint32_t)(d < 0 ? -d : d);
         }
     return sad;
@@ -472,12 +478,15 @@ static uint32_t mc_satd(struct n265_frame_work *e, int list, int ridx, int x0, i
     const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
     uint8_t pred[64 * 64];
     int ix = x0 + (mv.x >> 2), iy = y0 + (mv.y >> 2);
-    n265_mc_clip(e, 0, w, h, &ix, &iy);
     int need = n265_ref_wait(e, ref, iy + h + 4);   /* G2 entry point */
-    const uint8_t *rp = ref->plane[0] + iy * ref->stride[0] + ix;
     const int16_t *hf = n265_ref_hf(ref, ix, iy, w, h, mv.x & 3);
     N265_REF_GUARD(e, ref, need, 0, n265_ref_hf_base(ref, mv.x & 3));
-    n265_mc_luma_hf(pred, w, w, h, rp, ref->stride[0], hf,
+    uint8_t win[N265_REF_WIN_BYTES];
+    int ws, wclip;
+    const uint8_t *rp = n265_ref_win(ref->plane[0], ref->stride[0],
+                                     e->pad_w, e->pad_h, N265_REF_PAD,
+                                     ix, iy, w, h, 3, 4, win, &ws, &wclip);
+    n265_mc_luma_hf(pred, w, w, h, rp, ws, wclip ? NULL : hf,
                     ref->hf_stride, mv.x & 3, mv.y & 3);
     N265_REF_UNGUARD();
     return n265_satd_wh(src, e->pad_stride[0], pred, w, w, h);
@@ -487,10 +496,10 @@ static uint32_t mc_satd(struct n265_frame_work *e, int list, int ridx, int x0, i
 void n265_clamp_mv(struct n265_frame_work *e, int x0, int y0, int w, int h,
                    mv_t *mv)
 {
-    int lo_x = -(x0 + N265_MV_RANGE_PAD - 8) * 4;
-    int hi_x = (e->pad_w + N265_MV_RANGE_PAD - 8 - (x0 + w)) * 4;
-    int lo_y = -(y0 + N265_MV_RANGE_PAD - 8) * 4;
-    int hi_y = (e->pad_h + N265_MV_RANGE_PAD - 8 - (y0 + h)) * 4;
+    int lo_x = -(x0 + N265_REF_PAD - 8) * 4;
+    int hi_x = (e->pad_w + N265_REF_PAD - 8 - (x0 + w)) * 4;
+    int lo_y = -(y0 + N265_REF_PAD - 8) * 4;
+    int hi_y = (e->pad_h + N265_REF_PAD - 8 - (y0 + h)) * 4;
     if (mv->x < lo_x) mv->x = (int16_t)lo_x;
     if (mv->x > hi_x) mv->x = (int16_t)hi_x;
     if (mv->y < lo_y) mv->y = (int16_t)lo_y;
