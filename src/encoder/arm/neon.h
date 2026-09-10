@@ -49,6 +49,22 @@ void n265_bi_avg_wh_neon(uint8_t *dst, int dst_stride, const int16_t *a,
 
 /* ---- transform (N265_ASM_DCT) -------------------------------------- */
 
+/* Shapes taken from the encoder, not from the spec tables (2026-09-10
+ * survey: foreman_cif 30 frames and park_joy_720p --preset fast 10 frames,
+ * with both entry points instrumented). 4x4, 4x4 DST, 8x8, 16x16 and
+ * 32x32, and nothing else - a transform block is square by construction
+ * and the DST only ever appears at 4x4 intra luma. Both strides were n in
+ * every one of the 2.7M calls surveyed, so the kernels take a general
+ * stride but are tuned for the packed block. What does vary is the idct's
+ * nzw/nzh bound: on CIF 61% of calls have nzh < n and 20% are DC only, so
+ * the bounded form is the common case and not the exception. */
+
+void n265_fdct_neon(int16_t *coef, const int16_t *resid, int log2n,
+                    int use_dst);
+void n265_idct_add_neon(uint8_t *dst, int dst_stride, const int16_t *dq,
+                        int log2n, const uint8_t *pred, int pred_stride,
+                        int use_dst, int nzw, int nzh);
+
 /* ---- satd (N265_ASM_SATD) ------------------------------------------ */
 
 #endif /* N265_NEON */

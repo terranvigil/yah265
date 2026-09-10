@@ -43,6 +43,26 @@ static void idct_opt_call(void *p)
                   c->nzw, c->nzh);
 }
 
+#if N265_NEON
+static void fdct_neon_call(void *p)
+{
+    struct tctx *c = p;
+    n265_fdct_neon(c->coef, c->resid, c->log2n, c->use_dst);
+}
+
+static void idct_neon_call(void *p)
+{
+    struct tctx *c = p;
+    n265_idct_add_neon(c->dst, 32, c->dq, c->log2n, c->pred, 32, c->use_dst,
+                       c->nzw, c->nzh);
+}
+#define FDCT_NEON fdct_neon_call
+#define IDCT_NEON idct_neon_call
+#else
+#define FDCT_NEON NULL
+#define IDCT_NEON NULL
+#endif
+
 /* the bounding box n265_dequant would have reported */
 static void dq_bbox(const int16_t *dq, int n, int *nzw, int *nzh)
 {
@@ -90,6 +110,253 @@ static void fill_dq(int16_t *d, int nn, int kind)
         d[p] = (int16_t)((int)(rnd() >> 18) - 8192);
     }
 }
+
+#if N265_NEON
+
+/* ---- the NEON leg ---------------------------------------------------
+ *
+ * n265_x_ref against n265_x_neon DIRECTLY: never through the dispatching
+ * entry point, which N265_ASM_OFF can turn into the C path underneath the
+ * harness. Every optimized call runs in a guard buffer, and every input
+ * buffer is guarded too, so a load that grabbed four samples where one
+ * was declared is caught at the block edge and not only at the far end of
+ * a page.
+ *
+ * The shape table is the ENCODER's, from the 2026-09-10 survey in
+ * src/encoder/arm/neon.h: five shapes, no more, and no rectangles. What
+ * varies instead is the idct's nonzero bound, which the survey found in
+ * its bounded form on the majority of calls, so every dq case is run
+ * three ways: at the true bounding box, at the full block, and at a bound
+ * between the two.
+ */
+
+static const struct { int log2n, use_dst; const char *name; } tshapes[] = {
+    { 2, 0, "4x4" }, { 2, 1, "4x4-dst" }, { 3, 0, "8x8" },
+    { 4, 0, "16x16" }, { 5, 0, "32x32" },
+};
+
+/* Residual kinds. 0-3 are the ones the C-fast leg above uses; 4-6 are the
+ * adversarial ends of the domain (the residual is src - pred on 8-bit
+ * samples, so |r| <= 255 and the extremes are exactly +-255). */
+static const char *rkind_name[] = {
+    "random", "flat-bright", "alternating +-255", "sparse",
+    "all +255", "all -255", "column ramp",
+};
+#define N_RKIND ((int)(sizeof(rkind_name) / sizeof(rkind_name[0])))
+
+static void fill_resid_ex(int16_t *r, int n, int kind)
+{
+    int nn = n * n;
+
+    if (kind < 4) {
+        fill_resid(r, nn, kind);
+        return;
+    }
+    if (kind == 4 || kind == 5) {
+        int16_t v = kind == 4 ? 255 : -255;
+        for (int i = 0; i < nn; i++)
+            r[i] = v;
+        return;
+    }
+    for (int y = 0; y < n; y++)
+        for (int x = 0; x < n; x++)
+            r[y * n + x] = (int16_t)(((x + y) & 1) ? 255 - 16 * x
+                                                  : -255 + 16 * y);
+}
+
+/* Coefficient kinds. dq comes out of n265_dequant already clipped to
+ * int16, so the extremes are the full int16 ends and the kernel has to
+ * hold them: that is what the stage-1 clip and the int32 accumulators are
+ * proved against. */
+static const char *ckind_name[] = {
+    "random", "alternating int16 ends", "dc only", "sparse",
+    "all +32767", "all -32768", "low-frequency corner", "empty",
+};
+#define N_CKIND ((int)(sizeof(ckind_name) / sizeof(ckind_name[0])))
+
+static void fill_dq_ex(int16_t *d, int n, int kind)
+{
+    int nn = n * n;
+
+    if (kind < 4) {
+        fill_dq(d, nn, kind);
+        return;
+    }
+    for (int i = 0; i < nn; i++)
+        d[i] = 0;
+    if (kind == 4 || kind == 5) {
+        int16_t v = kind == 4 ? 32767 : -32768;
+        for (int i = 0; i < nn; i++)
+            d[i] = v;
+    } else if (kind == 6) {
+        int c = n < 4 ? n : 4;
+        for (int y = 0; y < c; y++)
+            for (int x = 0; x < c; x++)
+                d[y * n + x] = (int16_t)((int)(rnd() >> 20) - 2048);
+    }
+}
+
+static int cmp16(const int16_t *ref, const int16_t *got, int nn,
+                 const char *what, const char *shape, const char *kind)
+{
+    for (int i = 0; i < nn; i++)
+        if (ref[i] != got[i]) {
+            printf("    %s MISMATCH %s / %s: [%d] ref %d neon %d\n",
+                   what, shape, kind, i, ref[i], got[i]);
+            return 1;
+        }
+    return 0;
+}
+
+static int cmp8(const uint8_t *ref, const uint8_t *got, int stride, int n,
+                const char *what, const char *shape, const char *kind,
+                int nzw, int nzh)
+{
+    for (int y = 0; y < n; y++)
+        for (int x = 0; x < n; x++)
+            if (ref[y * stride + x] != got[y * stride + x]) {
+                printf("    %s MISMATCH %s / %s (nzw %d nzh %d): (%d,%d) "
+                       "ref %d neon %d\n", what, shape, kind, nzw, nzh, x, y,
+                       ref[y * stride + x], got[y * stride + x]);
+                return 1;
+            }
+    return 0;
+}
+
+static int check_fdct_neon(void)
+{
+    int bad = 0;
+
+    for (unsigned s = 0; s < sizeof(tshapes) / sizeof(tshapes[0]); s++) {
+        int log2n = tshapes[s].log2n, use_dst = tshapes[s].use_dst;
+        int n = 1 << log2n, nn = n * n;
+        size_t rb = (size_t)nn * sizeof(int16_t);
+        int16_t *resid = ca_guard_alloc(rb);
+        int16_t *coef = ca_guard_alloc(rb);
+        int16_t ref[32 * 32], first[32 * 32];
+
+        for (int kind = 0; kind < N_RKIND && !bad; kind++) {
+            int reps = kind == 0 || kind == 3 ? 48 : 4;
+
+            for (int rep = 0; rep < reps; rep++) {
+                fill_resid_ex(resid, n, kind);
+                n265_fdct_ref(ref, resid, log2n, use_dst);
+
+                ca_guard_poison(coef, rb);
+                ca_guard_scramble(resid, rb);
+                n265_fdct_neon(coef, resid, log2n, use_dst);
+                bad += ca_guard_check(coef, rb, "fdct_neon coef");
+                bad += cmp16(ref, coef, nn, "fdct", tshapes[s].name,
+                             rkind_name[kind]);
+                memcpy(first, coef, rb);
+
+                /* read window: the same block with a different border must
+                 * give the same answer, or the kernel loaded outside it */
+                ca_guard_scramble(resid, rb);
+                memset(coef, 0, rb);
+                n265_fdct_neon(coef, resid, log2n, use_dst);
+                if (memcmp(first, coef, rb)) {
+                    printf("    fdct_neon %s / %s: READ past the block "
+                           "(border changed the result)\n", tshapes[s].name,
+                           rkind_name[kind]);
+                    bad++;
+                }
+                if (bad)
+                    break;
+            }
+        }
+        ca_guard_free(resid);
+        ca_guard_free(coef);
+        if (bad)
+            return bad;
+    }
+    return bad;
+}
+
+static int check_idct_neon(void)
+{
+    int bad = 0;
+
+    for (unsigned s = 0; s < sizeof(tshapes) / sizeof(tshapes[0]); s++) {
+        int log2n = tshapes[s].log2n, use_dst = tshapes[s].use_dst;
+        int n = 1 << log2n, nn = n * n;
+        size_t db = (size_t)nn * sizeof(int16_t);
+        int16_t *dq = ca_guard_alloc(db);
+
+        /* two stride shapes: the packed block the encoder always passes
+         * (survey: n in 2.7M calls), and a padded one so ca_check_pad has
+         * something to guard */
+        for (int sv = 0; sv < 2; sv++) {
+            int ds = sv ? n + 5 : n, ps = sv ? n + 3 : n;
+            size_t dbytes = (size_t)ds * n, pbytes = (size_t)ps * n;
+            uint8_t *dst = ca_guard_alloc(dbytes);
+            uint8_t *pred = ca_guard_alloc(pbytes);
+            uint8_t ref[37 * 32], first[37 * 32];
+
+            for (int kind = 0; kind < N_CKIND && !bad; kind++) {
+                int reps = kind == 0 || kind == 3 ? 32 : 4;
+
+                for (int rep = 0; rep < reps && !bad; rep++) {
+                    int bw, bh;
+
+                    fill_dq_ex(dq, n, kind);
+                    for (size_t i = 0; i < pbytes; i++)
+                        pred[i] = (uint8_t)(rnd() >> 24);
+                    dq_bbox(dq, n, &bw, &bh);
+                    memset(ref, CA_POISON, sizeof(ref));
+                    n265_idct_add_ref(ref, ds, dq, log2n, pred, ps, use_dst);
+
+                    /* the true box, the loose whole-block bound, and one
+                     * in between: all three have to reproduce the
+                     * reference, because a caller is free to over-report */
+                    for (int b = 0; b < 3; b++) {
+                        int nzw = b == 0 ? bw : b == 1 ? n
+                                              : (bw + n + 1) / 2;
+                        int nzh = b == 0 ? bh : b == 1 ? n
+                                              : (bh + n + 1) / 2;
+
+                        memset(dst, CA_POISON, dbytes);
+                        ca_guard_poison(dst, dbytes);
+                        ca_guard_scramble(pred, pbytes);
+                        n265_idct_add_neon(dst, ds, dq, log2n, pred, ps,
+                                           use_dst, nzw, nzh);
+                        bad += ca_guard_check(dst, dbytes, "idct_neon dst");
+                        bad += ca_check_pad(dst, ds, n, n, "idct_neon dst");
+                        bad += cmp8(ref, dst, ds, n, "idct", tshapes[s].name,
+                                    ckind_name[kind], nzw, nzh);
+                        if (bad)
+                            break;
+                        if (b)
+                            continue;
+                        memcpy(first, dst, dbytes);
+                        ca_guard_scramble(pred, pbytes);
+                        memset(dst, 0, dbytes);
+                        n265_idct_add_neon(dst, ds, dq, log2n, pred, ps,
+                                           use_dst, nzw, nzh);
+                        for (int y = 0; y < n; y++)
+                            if (memcmp(first + y * ds, dst + y * ds,
+                                       (size_t)n)) {
+                                printf("    idct_neon %s / %s: READ past the "
+                                       "block (border changed the result)\n",
+                                       tshapes[s].name, ckind_name[kind]);
+                                bad++;
+                                break;
+                            }
+                    }
+                }
+            }
+            ca_guard_free(dst);
+            ca_guard_free(pred);
+            if (bad) {
+                ca_guard_free(dq);
+                return bad;
+            }
+        }
+        ca_guard_free(dq);
+    }
+    return bad;
+}
+#endif /* N265_NEON */
 
 int check_transform(void)
 {
@@ -146,6 +413,10 @@ int check_transform(void)
             }
         }
     }
+#if N265_NEON
+    bad += check_fdct_neon();
+    bad += check_idct_neon();
+#endif
     if (bad)
         return bad;
 
@@ -157,9 +428,9 @@ int check_transform(void)
         fill_dq(c.dq, n * n, 0);
         c.nzw = c.nzh = n;
         snprintf(name, sizeof(name), "fdct %dx%d", n, n);
-        bench(name, fdct_ref_call, fdct_opt_call, NULL, &c, 20000);
+        bench(name, fdct_ref_call, fdct_opt_call, FDCT_NEON, &c, 20000);
         snprintf(name, sizeof(name), "idct_add %dx%d", n, n);
-        bench(name, idct_ref_call, idct_opt_call, NULL, &c, 20000);
+        bench(name, idct_ref_call, idct_opt_call, IDCT_NEON, &c, 20000);
         /* the shape the encoder actually hands it: a small low-frequency
          * corner, and DC alone */
         fill_dq(c.dq, n * n, 4);
@@ -168,19 +439,18 @@ int check_transform(void)
                 c.dq[y * n + x] = (int16_t)((int)(rnd() >> 20) - 2048);
         dq_bbox(c.dq, n, &c.nzw, &c.nzh);
         snprintf(name, sizeof(name), "idct_add %dx%d 4x4nz", n, n);
-        bench(name, idct_ref_call, idct_opt_call, NULL, &c, 20000);
+        bench(name, idct_ref_call, idct_opt_call, IDCT_NEON, &c, 20000);
         fill_dq(c.dq, n * n, 4);
         c.dq[0] = 1234;
         c.nzw = c.nzh = 1;
         snprintf(name, sizeof(name), "idct_add %dx%d dc", n, n);
-        bench(name, idct_ref_call, idct_opt_call, NULL, &c, 20000);
+        bench(name, idct_ref_call, idct_opt_call, IDCT_NEON, &c, 20000);
     }
     c.log2n = 2; c.use_dst = 1;
     fill_resid(c.resid, 16, 0);
     fill_dq(c.dq, 16, 0);
     c.nzw = c.nzh = 4;
-    bench("fdst 4x4", fdct_ref_call, fdct_opt_call, NULL, &c, 20000);
-    bench("idst_add 4x4", idct_ref_call, idct_opt_call, NULL, &c, 20000);
+    bench("fdst 4x4", fdct_ref_call, fdct_opt_call, FDCT_NEON, &c, 20000);
+    bench("idst_add 4x4", idct_ref_call, idct_opt_call, IDCT_NEON, &c, 20000);
     return 0;
 }
-
