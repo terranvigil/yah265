@@ -72,6 +72,17 @@ static void die(const char *fn, const char *what, long line, long last)
     abort();
 }
 
+/* n265_mc_clip's exactness proof: the span [lo, hi] the read would have
+ * touched must lie wholly outside [0, dim - 1], because only then is
+ * every sample it fetches the same replicated picture edge before and
+ * after the clip. */
+void n265_mc_clip_outside(int lo, int hi, int dim, const char *axis)
+{
+    if (hi >= 0 && lo <= dim - 1)
+        die(axis, "MC position clipped while the read still touched the "
+                  "picture (the pad is too small)", lo, hi);
+}
+
 void n265_refchk_touch(const uint8_t *p, const char *fn)
 {
     if (rc_mode == RC_OPEN)

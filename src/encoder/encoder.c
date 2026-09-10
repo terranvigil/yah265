@@ -522,6 +522,8 @@ void n265_encoder_close(n265_encoder *e)
                 atomic_load(&e->stall_frames)
                     ? (double)atomic_load(&e->ref_stalls) /
                       (double)atomic_load(&e->stall_frames) : 0.0);
+        fprintf(stderr, "MCCLIP reads=%ld\n",
+                (long)atomic_load(&e->mc_clips));
     }
     for (int i = 0; i < e->K; i++)
         fw_close(&e->fw[i]);
@@ -903,6 +905,14 @@ void n265_ref_stall(n265_frame_work *e, const struct n265_refpic *pic,
     atomic_fetch_add_explicit(&enc->ref_stalls, 1, memory_order_relaxed);
     struct ref_stall_ctx w = { pic, need };
     ntp_wait_older(enc->pool, ref_stall_pred, &w);
+}
+
+/* n265_mc_clip's rare arm: a reference read whose motion vector points
+ * past the replicated border. Counted so the trace can price it; the
+ * clip itself is what makes the read defined. */
+void n265_mc_clip_count(n265_frame_work *e)
+{
+    atomic_fetch_add_explicit(&e->enc->mc_clips, 1, memory_order_relaxed);
 }
 
 /* Publish CTB row `cy` of this frame's picture (G4). Everything a later

@@ -207,17 +207,19 @@ static void mc_pred_uni(struct n265_frame_work *e, int list, int ref, int c_idx,
     struct n265_refpic *r = e->refl[list][ref];
     int rs = r->stride[c_idx];
     if (c_idx) {
-        int dx = mv.x >> 3, dy = mv.y >> 3;
+        int cx = x0 + (mv.x >> 3), cy = y0 + (mv.y >> 3);
+        n265_mc_clip(e, c_idx, w, h, &cx, &cy);
         /* G2 entry point. The chroma 4-tap reaches two chroma lines
          * below the block, i.e. four luma lines; the bound is asked in
          * luma lines because that is what the watermark counts. */
-        int need = n265_ref_wait(e, r, ((y0 + dy + h + 2) << 1) + 1);
-        const uint8_t *rp = r->plane[c_idx] + (y0 + dy) * rs + x0 + dx;
+        int need = n265_ref_wait(e, r, ((cy + h + 2) << 1) + 1);
+        const uint8_t *rp = r->plane[c_idx] + cy * rs + cx;
         N265_REF_GUARD(e, r, need, c_idx, NULL);
         n265_mc_chroma_wh(dst, ds, w, h, rp, rs, mv.x & 7, mv.y & 7);
         N265_REF_UNGUARD();
     } else {
         int ix = x0 + (mv.x >> 2), iy = y0 + (mv.y >> 2);
+        n265_mc_clip(e, 0, w, h, &ix, &iy);
         int need = n265_ref_wait(e, r, iy + h + 4);     /* G2 entry point */
         const uint8_t *rp = r->plane[0] + iy * rs + ix;
         const int16_t *hf = n265_ref_hf(r, ix, iy, w, h, mv.x & 3);
@@ -234,14 +236,16 @@ static void mc_pred14(struct n265_frame_work *e, int list, int ref, int c_idx, i
     struct n265_refpic *r = e->refl[list][ref];
     int rs = r->stride[c_idx];
     if (c_idx) {
-        int dx = mv.x >> 3, dy = mv.y >> 3;
-        int need = n265_ref_wait(e, r, ((y0 + dy + h + 2) << 1) + 1);
-        const uint8_t *rp = r->plane[c_idx] + (y0 + dy) * rs + x0 + dx;
+        int cx = x0 + (mv.x >> 3), cy = y0 + (mv.y >> 3);
+        n265_mc_clip(e, c_idx, w, h, &cx, &cy);
+        int need = n265_ref_wait(e, r, ((cy + h + 2) << 1) + 1);
+        const uint8_t *rp = r->plane[c_idx] + cy * rs + cx;
         N265_REF_GUARD(e, r, need, c_idx, NULL);
         n265_mc_chroma_14_wh(dst, w, w, h, rp, rs, mv.x & 7, mv.y & 7);
         N265_REF_UNGUARD();
     } else {
         int ix = x0 + (mv.x >> 2), iy = y0 + (mv.y >> 2);
+        n265_mc_clip(e, 0, w, h, &ix, &iy);
         int need = n265_ref_wait(e, r, iy + h + 4);     /* G2 entry point */
         const uint8_t *rp = r->plane[0] + iy * rs + ix;
         const int16_t *hf = n265_ref_hf(r, ix, iy, w, h, mv.x & 3);
