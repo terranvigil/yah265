@@ -135,10 +135,15 @@ static uint32_t remaining_bits(int rem, int k)
     return (uint32_t)(bits + 1 + b) << 8;
 }
 
-/* bits (Q8) of the last_sig_coeff position (prefix contexts + suffix) */
-static uint32_t last_pos_bits(const cabac_ctx_t *ctx, int last_x, int last_y,
-                              int log2n, int c_idx)
+/* bits (Q8) of the last_sig_coeff position (prefix contexts + suffix).
+ * The x and y halves are independent sums over disjoint context families,
+ * so the cost of a position is one table lookup per axis. The last-
+ * position pass below asks for it once per significant coefficient, where
+ * building the two tables costs 2n evaluations for the whole block. */
+static void last_pos_tables(const cabac_ctx_t *ctx, int log2n, int c_idx,
+                            uint32_t *bx, uint32_t *by)
 {
+    int n = 1 << log2n;
     int cmax = (log2n << 1) - 1;
     int ctx_off, ctx_shift;
     if (c_idx == 0) {
@@ -148,18 +153,20 @@ static uint32_t last_pos_bits(const cabac_ctx_t *ctx, int last_x, int last_y,
         ctx_off = 15;
         ctx_shift = log2n - 2;
     }
-    uint32_t bits = 0;
-    int g[2] = { group_idx(last_x), group_idx(last_y) };
     int base[2] = { CTX_LAST_X, CTX_LAST_Y };
-    for (int d = 0; d < 2; d++) {
-        for (int i = 0; i < g[d]; i++)
-            bits += bin_cost(&ctx[base[d] + ctx_off + (i >> ctx_shift)], 1);
-        if (g[d] < cmax)
-            bits += bin_cost(&ctx[base[d] + ctx_off + (g[d] >> ctx_shift)], 0);
-        if (g[d] > 3)
-            bits += (uint32_t)((g[d] >> 1) - 1) << 8;
-    }
-    return bits;
+    uint32_t *out[2] = { bx, by };
+    for (int d = 0; d < 2; d++)
+        for (int v = 0; v < n; v++) {
+            int g = group_idx(v);
+            uint32_t bits = 0;
+            for (int i = 0; i < g; i++)
+                bits += bin_cost(&ctx[base[d] + ctx_off + (i >> ctx_shift)], 1);
+            if (g < cmax)
+                bits += bin_cost(&ctx[base[d] + ctx_off + (g >> ctx_shift)], 0);
+            if (g > 3)
+                bits += (uint32_t)((g >> 1) - 1) << 8;
+            out[d][v] = bits;
+        }
 }
 
 /* Sign-bit hiding decided by RD instead of by rule (N265_SBH_RD).
@@ -273,17 +280,35 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
     const uint8_t *sb_scan = n265_scan_sb[scan_idx][log2n - 2];
     const uint8_t *co_scan = n265_scan_coef[scan_idx];
     int sb_dim = n >> 2, num_sb = sb_dim * sb_dim;
+    /* scan position of the sub-block at (x, y): the right and below
+     * neighbours' coded flags were found by walking the whole scan table
+     * per sub-block, which is num_sb^2 steps for one lookup each */
+    uint8_t sb_at[8][8];
+    for (int t = 0; t < num_sb; t++)
+        sb_at[sb_scan[t] >> 4][sb_scan[t] & 15] = (uint8_t)t;
 
     /* 1. round-to-nearest levels, the candidates' upper bound; find the
-     * block's last significant position */
+     * block's last significant position. A coefficient below `czero`
+     * cannot reach level 1, which is most of them at any usable QP, so
+     * the 64-bit multiply only runs where it can produce something. The
+     * all-zero energy the block-drop test wants is accumulated here in
+     * the same raster order it used to be summed in, so the double adds
+     * land in the same order. */
     int16_t rtn[32 * 32];
     int any = 0;
+    double all_zero = 0;
+    int czero = (int)((((int64_t)1 << qbits) - add + q - 1) / q);
     for (int i = 0; i < nn; i++) {
         int c = coef[i] < 0 ? -coef[i] : coef[i];
+        all_zero += (double)coef[i] * coef[i];
+        if (c < czero) {
+            rtn[i] = 0;
+            continue;
+        }
         int l = (int)(((int64_t)c * q + add) >> qbits);
         if (l > 32767) l = 32767;
         rtn[i] = (int16_t)l;
-        any |= l != 0;
+        any = 1;
     }
     memset(level, 0, (size_t)nn * sizeof(int16_t));
     if (!any)
@@ -316,11 +341,8 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
     for (int s = last_s; s >= 0; s--) {
         int sx = (sb_scan[s] & 15) << 2, sy = (sb_scan[s] >> 4) << 2;
         int sb_x = sb_scan[s] & 15, sb_y = sb_scan[s] >> 4;
-        int csbf_right = 0, csbf_below = 0;
-        for (int t = 0; t < num_sb; t++) {
-            if ((sb_scan[t] & 15) == sb_x + 1 && (sb_scan[t] >> 4) == sb_y) csbf_right = csbf[t];
-            if ((sb_scan[t] & 15) == sb_x && (sb_scan[t] >> 4) == sb_y + 1) csbf_below = csbf[t];
-        }
+        int csbf_right = sb_x + 1 < sb_dim ? csbf[sb_at[sb_y][sb_x + 1]] : 0;
+        int csbf_below = sb_y + 1 < sb_dim ? csbf[sb_at[sb_y + 1][sb_x]] : 0;
         int prev_csbf = csbf_right | (csbf_below << 1);
         int ctx_set = ((s > 0 && c_idx == 0) ? 2 : 0) + (prev_sb_g1 ? 1 : 0);
         int g1_ctx = 1, n_g1 = 0, g2_done = 0, rice = 0, this_g1 = 0;
@@ -461,6 +483,8 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
      * chosen last backwards; making position p the last drops everything
      * after it (their distortion becomes d0, their rate vanishes) and
      * changes the last-position code. Accumulate the cost of the tail. */
+    uint32_t lastb_x[32], lastb_y[32];
+    last_pos_tables(ctx0, log2n, c_idx, lastb_x, lastb_y);
     double best_total = 1e300;
     int best_s = -1, best_c = -1;
     double tail_d = 0;          /* distortion of the dropped tail (coded zero) */
@@ -479,7 +503,7 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
                 if (scan_idx == 2) { int t = lx; lx = ly; ly = t; }
                 /* last_sig_coeff_x/y is coded before any of this block's
                  * other bins, so it is priced at the opening states */
-                double lastbits = last_pos_bits(ctx0, lx, ly, log2n, c_idx) / 256.0;
+                double lastbits = (lastb_x[lx] + lastb_y[ly]) / 256.0;
                 /* as the last, this coefficient's own sig flag is inferred */
                 /* as the last, this coefficient's own sig flag is no longer
                  * coded: take its sig=1 cost back out of the body */
@@ -508,8 +532,6 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
      * best median and best worst clip, and the more conservative of the
      * two on content the band does not cover. */
     int decimate = rdoq_decimate();
-    double all_zero = 0;
-    for (int i = 0; i < nn; i++) all_zero += (double)coef[i] * coef[i];
     if (best_s < 0 || all_zero <= best_total * (1.0 + decimate / 100.0))
         return 0;
 
