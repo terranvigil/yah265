@@ -138,6 +138,235 @@ static void gop_order(int lo, int hi, int *ord, int *n, int *nref)
     gop_order(mid + 1, hi, ord, n, nref);
 }
 
+/* N265_DPB_HOLD: hold every reference until the mini-GOP ends, which is
+ * what the encoder did before 2026-09-10, and declare the DPB by the old
+ * bound. The escape for the dispatch-time retirement below; 1 restores
+ * the pre-retirement encoder byte for byte. Default 0. */
+static int dpb_hold(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *s = n265_env("N265_DPB_HOLD"); v = s ? atoi(s) != 0 : 0; }
+    return v;
+}
+
+/* Which of the marked pictures at POCs `m[0..nm)` does a picture at POC
+ * `cur` reference? The POC-level mirror of n265_build_lists - L0 = past
+ * nearest first then, for a B, future nearest first; L1 = future then
+ * past; each list cut to ref_max - and it has to move whenever that
+ * function's list rule does, or the retirement below drops a picture a
+ * later frame still reads. `used[i]` is set for every m[i] that lands in
+ * either list. */
+static void ref_used(const int *m, int nm, int cur, int is_b, int ref_max,
+                     uint8_t *used)
+{
+    int past[N265_DPB_SLOTS + N265_MAX_BFRAMES + 2], np = 0;
+    int fut[N265_DPB_SLOTS + N265_MAX_BFRAMES + 2], nf = 0;
+    for (int i = 0; i < nm; i++) {
+        used[i] = 0;
+        if (m[i] < cur) past[np++] = i;
+        else if (m[i] > cur) fut[nf++] = i;
+    }
+    for (int i = 1; i < np; i++)
+        for (int k = i; k > 0 && m[past[k]] > m[past[k - 1]]; k--)
+            { int t = past[k]; past[k] = past[k - 1]; past[k - 1] = t; }
+    for (int i = 1; i < nf; i++)
+        for (int k = i; k > 0 && m[fut[k]] < m[fut[k - 1]]; k--)
+            { int t = fut[k]; fut[k] = fut[k - 1]; fut[k - 1] = t; }
+    int n0 = 0;
+    for (int i = 0; i < np && n0 < ref_max; i++, n0++) used[past[i]] = 1;
+    if (is_b) {
+        for (int i = 0; i < nf && n0 < ref_max; i++, n0++) used[fut[i]] = 1;
+        int n1 = 0;
+        for (int i = 0; i < nf && n1 < ref_max; i++, n1++) used[fut[i]] = 1;
+        for (int i = 0; i < np && n1 < ref_max; i++, n1++) used[past[i]] = 1;
+    }
+}
+
+/* ---- the DPB walk (Annex C.5.2) -------------------------------------
+ *
+ * `buffering` used to be a BOUND - (carried anchors + this anchor + the
+ * mini-GOP's reference Bs) + reorder + 1 - which over-declares by one to
+ * two buffers: it counts the referenced and the awaiting-output sets as
+ * disjoint, and it prices a structure that held every reference to the
+ * end of its mini-GOP. Since the retirement moved to dispatch the
+ * declaration is a WALK instead: the exact peak DPB fullness a decoder
+ * reaches on our streams.
+ *
+ * The walk is a breadth-first search over mini-GOP BOUNDARY STATES - the
+ * encoder's marked anchors and the decoder's DPB, both keyed on POC
+ * relative to the last anchor - with one transition per B-run length
+ * b-adapt can pick. That makes it exact over every sequence of run
+ * lengths rather than a sweep over a window of them, and it closes in a
+ * couple of hundred states at the widest (bframes 7, ref 3). A scene cut
+ * or a keyint edge only ever shortens a run or resets the DPB, so the
+ * transitions below cover them.
+ *
+ * The walk models the encoder as it is, which is why it is only used
+ * when the retirement is on: at --bframes 5 or more with --ref 3 the
+ * pre-retirement marking wants seven slots out of a pool of six and the
+ * claim then overwrites a picture that stays marked (the DPB-pressure
+ * bug T0a recorded). N265_DPB_HOLD keeps the old bound with the old
+ * behaviour. */
+/* DPBW_ENT bounds the marked set: ref_max carried anchors plus this
+ * mini-GOP's anchor and its reference Bs. DPBW_MAX bounds the decoder's
+ * DPB, which is those plus the pictures held only for output - at most
+ * `reorder` of them after bumping, plus the one just stored - so 18 is
+ * comfortably over the 11 the widest shape can reach. */
+#define DPBW_MAX (2 * (N265_MAX_BFRAMES + 2))
+#define DPBW_ENT (N265_MAX_REF + N265_MAX_BFRAMES + 2)
+
+struct dpbw_state {
+    int nanc, n;
+    int anc[N265_MAX_REF + 1];      /* marked anchor POCs, ascending */
+    int poc[DPBW_MAX];              /* the decoder's DPB, POC ascending */
+    uint8_t ref[DPBW_MAX], out[DPBW_MAX];
+};
+
+/* the pyramid coding order plan_brange emits, as POC offsets from the
+ * mini-GOP's own opening anchor, with the reference flag each entry
+ * carries. The twin of plan_brange; they move together. */
+static void dpbw_brange(int lo, int hi, int *poc, uint8_t *isref, int *n)
+{
+    if (lo > hi)
+        return;
+    int mid = (lo + hi) / 2;
+    poc[*n] = 1 + mid;
+    isref[*n] = (lo <= mid - 1) || (mid + 1 <= hi);
+    (*n)++;
+    dpbw_brange(lo, mid - 1, poc, isref, n);
+    dpbw_brange(mid + 1, hi, poc, isref, n);
+}
+
+/* Code one mini-GOP of `a` B frames out of boundary state `s` (whose
+ * previous anchor sits at POC 0), running the encoder's plan, its
+ * dispatch-time retirement and the decoder's C.5.2.2 / C.5.2.3 on the
+ * RPS that produces. Raises *peak (DPB fullness) and *mpeak (marked
+ * pictures) and writes the next boundary state, re-based on the new
+ * anchor. */
+static void dpbw_gop(const struct dpbw_state *s, int a, int ref_max, int R,
+                     struct dpbw_state *out, int *peak, int *mpeak)
+{
+    int ppoc[N265_MAX_BFRAMES + 2];
+    uint8_t pref[N265_MAX_BFRAMES + 2], panc[N265_MAX_BFRAMES + 2];
+    int pn = 0;
+    memset(panc, 0, sizeof panc);
+    ppoc[pn] = a + 1; pref[pn] = 1; panc[pn] = 1; pn++;
+    dpbw_brange(0, a - 1, ppoc, pref, &pn);
+
+    /* every picture this mini-GOP can hold marked: the anchors carried in
+     * and the plan's own references */
+    int epoc[DPBW_ENT], elast[DPBW_ENT];
+    uint8_t eanc[DPBW_ENT];
+    int pent[N265_MAX_BFRAMES + 2], ne = 0;
+    for (int i = 0; i < s->nanc; i++) {
+        epoc[ne] = s->anc[i]; eanc[ne] = 1; elast[ne] = -1; ne++;
+    }
+    for (int i = 0; i < pn; i++) {
+        pent[i] = -1;
+        if (!pref[i])
+            continue;
+        pent[i] = ne;
+        epoc[ne] = ppoc[i]; eanc[ne] = panc[i]; elast[ne] = -1; ne++;
+    }
+
+    /* lifetimes: the last coding index whose lists reach each picture */
+    int cur[DPBW_ENT], nc = 0;
+    for (int i = 0; i < s->nanc; i++) cur[nc++] = i;
+    for (int i = 0; i < pn; i++) {
+        int m[DPBW_ENT];
+        uint8_t used[DPBW_ENT];
+        for (int k = 0; k < nc; k++) m[k] = epoc[cur[k]];
+        ref_used(m, nc, ppoc[i], !panc[i], ref_max, used);
+        for (int k = 0; k < nc; k++) if (used[k]) elast[cur[k]] = i;
+        if (pent[i] >= 0) cur[nc++] = pent[i];
+    }
+    /* the anchors the mini-GOP end carries forward live to the end */
+    for (int r = 0; r < ref_max; r++) {
+        int best = -1;
+        for (int i = 0; i < ne; i++)
+            if (eanc[i] && elast[i] != INT_MAX &&
+                (best < 0 || epoc[i] > epoc[best]))
+                best = i;
+        if (best < 0)
+            break;
+        elast[best] = INT_MAX;
+    }
+
+    /* the coding pass, with the decoder walking beside it */
+    int dpoc[DPBW_MAX + 1], nd = s->n;
+    uint8_t dref[DPBW_MAX + 1], dout[DPBW_MAX + 1];
+    for (int i = 0; i < nd; i++) {
+        dpoc[i] = s->poc[i]; dref[i] = s->ref[i]; dout[i] = s->out[i];
+    }
+    nc = 0;
+    for (int i = 0; i < s->nanc; i++) cur[nc++] = i;
+    for (int i = 0; i < pn; i++) {
+        for (int k = 0; k < nc; )
+            if (elast[cur[k]] < i) cur[k] = cur[--nc];
+            else k++;
+        /* the RPS is exactly the marked set; anything it omits leaves the
+         * decoder's DPB as soon as it is no longer needed for output */
+        for (int d = 0; d < nd; d++) {
+            int in = 0;
+            for (int k = 0; k < nc && !in; k++)
+                if (epoc[cur[k]] == dpoc[d]) in = 1;
+            if (!in) dref[d] = 0;
+        }
+        for (int d = 0; d < nd; )
+            if (!dref[d] && !dout[d]) {
+                dpoc[d] = dpoc[nd - 1]; dref[d] = dref[nd - 1];
+                dout[d] = dout[--nd];
+            } else d++;
+        for (int pass = 0; pass < 2; pass++) {
+            if (pass) {                 /* store the current picture */
+                dpoc[nd] = ppoc[i]; dref[nd] = pref[i]; dout[nd] = 1; nd++;
+                if (nd > *peak) *peak = nd;
+            }
+            for (;;) {                  /* bumping, C.5.2.2 then C.5.2.3 */
+                int no = 0, b = -1;
+                for (int d = 0; d < nd; d++)
+                    if (dout[d]) { no++; if (b < 0 || dpoc[d] < dpoc[b]) b = d; }
+                if (no <= R || b < 0)
+                    break;
+                dout[b] = 0;
+                if (!dref[b]) {
+                    dpoc[b] = dpoc[nd - 1]; dref[b] = dref[nd - 1];
+                    dout[b] = dout[--nd];
+                }
+            }
+        }
+        if (pent[i] >= 0) cur[nc++] = pent[i];
+        if (nc > *mpeak) *mpeak = nc;
+    }
+
+    /* the mini-GOP end: reference Bs die here, anchors trim to ref_max */
+    for (int k = 0; k < nc; )
+        if (!eanc[cur[k]]) cur[k] = cur[--nc];
+        else k++;
+    while (nc > ref_max) {
+        int b = 0;
+        for (int k = 1; k < nc; k++) if (epoc[cur[k]] < epoc[cur[b]]) b = k;
+        cur[b] = cur[--nc];
+    }
+    memset(out, 0, sizeof *out);
+    out->nanc = nc;
+    for (int k = 0; k < nc; k++) out->anc[k] = epoc[cur[k]] - (a + 1);
+    for (int k = 1; k < nc; k++)        /* ascending, so the state is canonical */
+        for (int j = k; j > 0 && out->anc[j] < out->anc[j - 1]; j--)
+            { int t = out->anc[j]; out->anc[j] = out->anc[j - 1]; out->anc[j - 1] = t; }
+    out->n = nd;
+    for (int d = 0; d < nd; d++) {
+        out->poc[d] = dpoc[d] - (a + 1);
+        out->ref[d] = dref[d]; out->out[d] = dout[d];
+    }
+    for (int k = 1; k < nd; k++)
+        for (int j = k; j > 0 && out->poc[j] < out->poc[j - 1]; j--) {
+            int t = out->poc[j]; out->poc[j] = out->poc[j - 1]; out->poc[j - 1] = t;
+            uint8_t u = out->ref[j]; out->ref[j] = out->ref[j - 1]; out->ref[j - 1] = u;
+            u = out->out[j]; out->out[j] = out->out[j - 1]; out->out[j - 1] = u;
+        }
+}
+
 /* What the reference structure asks of a decoder's DPB (Annex C.5.2).
  *
  * `reorder` is exact. A picture is only ever reordered against its own
@@ -145,23 +374,26 @@ static void gop_order(int lo, int hi, int *ord, int *n, int *nref)
  * the next - so the deepest reorder is the largest count of pictures
  * that precede a picture in the plan's coding order and follow it in
  * display order, maximised over every B-run length b-adapt may pick.
+ * The retirement does not touch it.
  *
- * `buffering` bounds the peak DPB occupancy, the union of the pictures
- * marked for reference and the pictures still waiting to be output: at
- * most (carried anchors + this mini-GOP's anchor + its reference Bs),
- * capped by the encoder's own slot count, plus the reorder + 1 pictures
- * the bumping process can leave pending. That is one to two buffers
- * above the occupancy a C.5.2.2 walk of the actual coding order reaches
- * at every (bframes, ref) pair, and over-declaring is the safe
- * direction: it only means the reorder condition rather than DPB
- * fullness is what triggers output.
+ * `buffering` is the picture storage buffer count: the walk above under
+ * the shipped retirement, and the pre-2026-09-10 bound under
+ * N265_DPB_HOLD.
  *
- * The old declaration was N265_DPB_SLOTS with sps_max_num_reorder_pics =
- * bframes, which at --bframes 7 signals a reorder depth LARGER than the
- * buffer count. That is out of range by 7.4.3.2.1 and dec265 refuses the
- * stream. */
+ * `peak` stays the STRUCTURAL bound on the marked-picture count -
+ * carried anchors, this anchor, the mini-GOP's reference Bs - and not
+ * the walk's, deliberately. It arms claim_slot's slot preference, and
+ * the retirement can only ever lower the true peak, so the old bound
+ * stays sound; keeping it is what makes the retirement leave every slot
+ * CHOICE exactly where it was. `markpeak`, optional, is what the walk
+ * actually reaches.
+ *
+ * The declaration before the walk was N265_DPB_SLOTS with
+ * sps_max_num_reorder_pics = bframes, which at --bframes 7 signals a
+ * reorder depth LARGER than the buffer count. That is out of range by
+ * 7.4.3.2.1 and dec265 refuses the stream. */
 void n265_dpb_requirement(int bframes, int ref_max, int *reorder,
-                          int *buffering, int *peak)
+                          int *buffering, int *peak, int *markpeak)
 {
     int R = 0, nrefb = 0;
     for (int a = 0; a <= bframes; a++) {
@@ -179,13 +411,52 @@ void n265_dpb_requirement(int bframes, int ref_max, int *reorder,
         if (nref > nrefb)
             nrefb = nref;
     }
+    *reorder = R;
     int refs = ref_max + 1 + nrefb;
     if (peak)
         *peak = refs;           /* uncapped: how many slots can be marked */
-    if (refs > N265_DPB_SLOTS)
-        refs = N265_DPB_SLOTS;
-    *reorder = R;
-    *buffering = refs + R + 1;
+    if (markpeak)
+        *markpeak = refs > N265_DPB_SLOTS ? N265_DPB_SLOTS : refs;
+    int bound = (refs > N265_DPB_SLOTS ? N265_DPB_SLOTS : refs) + R + 1;
+    if (dpb_hold()) {
+        *buffering = bound;
+        return;
+    }
+    /* the BFS. 4096 boundary states is an order of magnitude over the
+     * widest shape; overflowing it falls back to the bound, which is the
+     * safe direction. */
+    enum { CAP = 4096 };
+    struct dpbw_state *seen = malloc((size_t)CAP * sizeof *seen);
+    if (!seen) {
+        *buffering = bound;
+        return;
+    }
+    int nseen = 1, head = 0, pk = 1, mpk = 1, over = 0;
+    memset(&seen[0], 0, sizeof seen[0]);
+    seen[0].nanc = 1;                   /* the IDR, marked and pending output */
+    seen[0].n = 1; seen[0].ref[0] = 1; seen[0].out[0] = 1;
+    while (head < nseen && !over) {
+        struct dpbw_state s = seen[head++];
+        for (int a = 0; a <= bframes; a++) {
+            struct dpbw_state nx;
+            dpbw_gop(&s, a, ref_max, R, &nx, &pk, &mpk);
+            int dup = 0;
+            for (int i = 0; i < nseen && !dup; i++)
+                if (!memcmp(&seen[i], &nx, sizeof nx)) dup = 1;
+            if (dup)
+                continue;
+            if (nseen >= CAP) { over = 1; break; }
+            seen[nseen++] = nx;
+        }
+    }
+    free(seen);
+    if (over) {                         /* unreached; the bound stands in */
+        *buffering = bound;
+        return;
+    }
+    if (markpeak)
+        *markpeak = mpk;
+    *buffering = pk;
 }
 
 /* Copy the immutable geometry and config into a frame_work. The ONE
@@ -207,8 +478,8 @@ static void fw_config(n265_encoder *e, n265_frame_work *fw)
     fw->rdoq = e->rdoq;
     fw->qp_delta_on = e->qp_delta_on;
     fw->bframes = e->bframes;
-    n265_dpb_requirement(e->bframes, e->ref_max, &fw->dpb_reorder,
-                         &fw->dpb_buffering, NULL);
+    fw->dpb_reorder = e->dpb_reorder;
+    fw->dpb_buffering = e->dpb_buffering;
     fw->psy = e->psy;
     fw->dbf_beta = e->dbf_beta;
     fw->dbf_tc = e->dbf_tc;
@@ -369,6 +640,18 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->ctb_log2 = e->mode == N265_MODE_PCM ? 4 : g_ctb_log2;
     e->keyint = e->mode == N265_MODE_PCM ? 1 : g_keyint;
     e->bframes = e->mode == N265_MODE_PCM ? 0 : g_bframes;
+    {   /* the DPB the reference structure needs, solved once: the walk
+         * is a BFS and costs a few hundred microseconds, so it must not
+         * ride along in fw_config once per frame_work. */
+        int markpeak = 0;
+        n265_dpb_requirement(e->bframes, e->ref_max, &e->dpb_reorder,
+                             &e->dpb_buffering, &e->dpb_peak, &markpeak);
+        if (n265_env("N265_DPB_TRACE"))
+            fprintf(stderr, "DPB bframes=%d ref=%d reorder=%d buffering=%d "
+                    "marked_peak=%d slot_peak=%d hold=%d\n", e->bframes,
+                    e->ref_max, e->dpb_reorder, e->dpb_buffering, markpeak,
+                    e->dpb_peak, dpb_hold());
+    }
     e->no_sao = n265_env("N265_NO_SAO") != NULL;      /* diagnostic */
     e->cu_stats = n265_env("N265_CU_STATS") != NULL;  /* diagnostic */
     /* RDOQ on by default (2026-09-06: -5.9% median BD-VMAF-NEG at matched
@@ -483,10 +766,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
          * - a picture in no RPS and no reference list - and which one it
          * takes is unobservable. At the shipping default (bframes 3,
          * ref 1) the peak is 3 of 6. */
-        int reorder, buffering, peak;
-        n265_dpb_requirement(e->bframes, e->ref_max, &reorder, &buffering,
-                             &peak);
-        e->slot_prefer = peak < N265_DPB_SLOTS;
+        e->slot_prefer = e->dpb_peak < N265_DPB_SLOTS;
     }
     e->defer_out = ntp_threads(e->pool) > 1 || e->api_defer;
     e->nlanes = ntp_lanes(e->pool);
@@ -1545,7 +1825,10 @@ static void join_oldest(n265_encoder *e)
 }
 
 /* Build the reference lists for the picture that follows POC `cur`
- * (or, with `future` set, for a B whose L1 starts at `future`): L0 = valid
+ * (or, with `future` set, for a B whose L1 starts at `future`). `ref_used`
+ * near the top of this file is the POC-level mirror of the rule below and
+ * is what the retirement's lifetimes are computed from; the two move
+ * together. L0 = valid
  * DPB pictures before cur, nearest first, up to ref_max; L1 = the future
  * picture then the past ones. A caller coding a B passes the past anchor
  * POC as `cur` so the L0 head is that anchor. */
@@ -1650,7 +1933,7 @@ static void plan_brange(n265_encoder *e, int blo, int bhi, int depth)
 }
 
 /* Build the coding-order plan for the mini-GOP at the front of the queue. */
-static void build_plan(n265_encoder *e)
+static void build_plan_order(n265_encoder *e)
 {
     n265_la *la = &e->la;
     e->plan_len = e->plan_pos = 0;
@@ -1731,6 +2014,79 @@ static void build_plan(n265_encoder *e)
     e->plan_len = 1;
     plan_brange(e, 0, A - 1, 1);
     e->plan_pop = A + 1;
+}
+
+/* Per picture, the last coding index in this plan whose reference lists
+ * reach it: the lifetime the dispatch-time retirement reads. The plan for
+ * the whole mini-GOP is known here, and every list in it is a function of
+ * POC and marking alone, so the walk below is exact - it IS
+ * n265_build_lists, run ahead of time over the plan's own marking.
+ *
+ * A picture the walk never lists is dead the moment the frame after its
+ * last use is dispatched. The exceptions are the anchors the mini-GOP end
+ * carries into the next plan (ref_max of them, this one's anchor
+ * included): they get INT_MAX, because the plan that would price their
+ * next use does not exist yet.
+ *
+ * Written onto the DPB pictures directly (they are driver-serial) and,
+ * for the frames this plan will mark, into plan_lastuse. */
+static void plan_lifetimes(n265_encoder *e)
+{
+    enum { EMAX = N265_DPB_SLOTS + N265_MAX_BFRAMES + 2 };
+    int epoc[EMAX], elast[EMAX], eslot[EMAX], epidx[EMAX], ne = 0;
+    uint8_t eanc[EMAX];
+
+    for (int sl = 0; sl < N265_DPB_SLOTS; sl++) {
+        if (!e->dpb[sl].marked)
+            continue;
+        epoc[ne] = e->dpb[sl].poc; eanc[ne] = (uint8_t)e->dpb[sl].is_anchor;
+        eslot[ne] = sl; epidx[ne] = -1; elast[ne] = -1; ne++;
+    }
+    for (int k = 0; k < e->plan_len; k++) {
+        e->plan_poc[k] = e->la.f[e->plan_li[k]].display_idx - e->gop_start_display;
+        e->plan_lastuse[k] = -1;
+        if (e->plan_nonref[k])
+            continue;               /* a leaf: never marked, never listed */
+        epoc[ne] = e->plan_poc[k]; eanc[ne] = e->plan_kind[k] != 0;
+        eslot[ne] = -1; epidx[ne] = k; elast[ne] = -1; ne++;
+    }
+
+    int cur[EMAX], nc = 0;
+    for (int i = 0; i < ne; i++)
+        if (eslot[i] >= 0) cur[nc++] = i;
+    for (int k = 0; k < e->plan_len; k++) {
+        int m[EMAX];
+        uint8_t used[EMAX];
+        for (int j = 0; j < nc; j++) m[j] = epoc[cur[j]];
+        ref_used(m, nc, e->plan_poc[k], e->plan_kind[k] == 0, e->ref_max, used);
+        for (int j = 0; j < nc; j++)
+            if (used[j]) elast[cur[j]] = k;
+        /* the picture joins the DPB at the end of its own dispatch step,
+         * which is why it can never appear in its own lists */
+        for (int i = 0; i < ne; i++)
+            if (epidx[i] == k) cur[nc++] = i;
+    }
+    /* what the mini-GOP end carries: the ref_max newest anchors */
+    for (int r = 0; r < e->ref_max; r++) {
+        int best = -1;
+        for (int i = 0; i < ne; i++)
+            if (eanc[i] && elast[i] != INT_MAX &&
+                (best < 0 || epoc[i] > epoc[best]))
+                best = i;
+        if (best < 0)
+            break;
+        elast[best] = INT_MAX;
+    }
+    for (int i = 0; i < ne; i++) {
+        if (eslot[i] >= 0) e->dpb[eslot[i]].last_use = elast[i];
+        else e->plan_lastuse[epidx[i]] = elast[i];
+    }
+}
+
+static void build_plan(n265_encoder *e)
+{
+    build_plan_order(e);
+    plan_lifetimes(e);
 }
 
 static void join_oldest(n265_encoder *e);
@@ -1885,6 +2241,26 @@ static int drive_scheduler(n265_encoder *e)
         n265_la_cutree(e, fw, li);
         if (e->la_prof) e->prof_cutree += prof_now() - t;
     }
+    /* Retire, here and driver-serially (D2), every marked picture no
+     * frame at or after this one in the plan references. The decoder's
+     * DPB is governed by the RPS we signal - a picture leaves it on the
+     * first RPS that omits it - so doing this at dispatch rather than at
+     * the mini-GOP end shortens both our occupancy and the signalled set,
+     * and takes the declared buffering (and with it the level) down with
+     * them.
+     *
+     * It moves syntax and not one decision. The lists built below are the
+     * ref_max nearest marked pictures on each side; a picture no
+     * remaining frame lists is, by construction, not among them for any
+     * of those frames, and dropping a non-prefix element of a
+     * nearest-first order leaves the prefix exactly where it was. D3
+     * covers the other half: the claim below may now take the slot of a
+     * picture a frame in flight is still reading, and `slot_busy` makes
+     * the driver stall on it rather than re-route. */
+    if (!dpb_hold())
+        for (int sl = 0; sl < N265_DPB_SLOTS; sl++)
+            if (e->dpb[sl].marked && e->dpb[sl].last_use < e->plan_pos)
+                e->dpb[sl].marked = 0;
     /* reference lists from the DPB around this frame's POC (anchors have
      * only L0; B frames have both) */
     n265_build_lists(e, fw, poc, kind == 0, NULL);
@@ -1926,6 +2302,7 @@ static int drive_scheduler(n265_encoder *e)
     if (fw->mode != N265_MODE_PCM && !fw->nonref) {
         fw->slot->poc = poc;
         fw->slot->is_anchor = slice_type != 0;  /* I/P; a reference B is not */
+        fw->slot->last_use = e->plan_lastuse[e->plan_pos];
         fw->slot->marked = 1;
         e->ref_valid = 1;
     }
@@ -1964,7 +2341,13 @@ static int drive_scheduler(n265_encoder *e)
         for (int i = 0; i < pop; i++) n265_la_pop(e);
         /* the mini-GOP is done: reference B frames live only within it, and
          * only ref_max anchors carry into the next one. Retire the rest so
-         * the DPB (and the next slice's RPS) hold exactly what is reusable. */
+         * the DPB (and the next slice's RPS) hold exactly what is reusable.
+         * Since the retirement moved to dispatch this is the TAIL of the
+         * same rule: the only pictures that can still be marked here are
+         * the ones whose last use was the plan's final frame, plus the
+         * carried anchors, and the trim below is a no-op on the carry set
+         * (it is already ref_max wide). Under N265_DPB_HOLD both halves
+         * are live and this is where every reference dies. */
         /* Retirement is driver-serial and keyed on POC: the trim below
          * drops the SMALLEST POC each time, and POCs are unique among
          * marked pictures, so slot index never decides who goes. */
