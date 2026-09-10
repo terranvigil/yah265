@@ -375,3 +375,18 @@ date,commit,x265,clip,frames,our_fps,x265m_noasm_fps,x265m_asm_fps,mult_matched_
 2026-09-10,f02a3cf,4.3+1-e9b8812,sintel_720p,120,2.84,7.4,26.97,2.609,9.508,7.51,30.87,2.649,10.883,13.31,197.61,-16.56,-14.16,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout"
 2026-09-10,f02a3cf,4.3+1-e9b8812,sita_flat_720p,120,14.45,25.46,78.36,1.762,5.423,23.45,72.38,1.623,5.009,45.53,279.03,-14.05,-20.55,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout"
 2026-09-10,f02a3cf,4.3+1-e9b8812,sita_toon_720p,120,2.51,8.96,24.39,3.57,9.719,11.9,35.4,4.744,14.109,9.44,147.41,-15.6,-14.91,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout"
+2026-09-10,a9ee9a2,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,,,-14.3,-24.93,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,,,-19.71,-24.79,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,,,-26.2,-32.62,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,,,-14.3,-28.76,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,,,-7.95,,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,,,-23.17,-29.66,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,,,-17.22,-25.9,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,,,-13.17,-31.7,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,,,-15.7,-22.27,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,,,-29.72,-33.2,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,,,-11.81,-19.24,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,,,-4.99,-29.23,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,,,-16.56,-14.16,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,sita_flat_720p,120,,,,,,,,,,,,-14.05,-20.55,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,sita_toon_720p,120,,,,,,,,,,,,-15.6,-14.91,
