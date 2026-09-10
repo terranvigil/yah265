@@ -635,6 +635,7 @@ void n265_scratch_free(struct n265_scratch *sc);
  * contexts from the frame's carry-over state. */
 void n265_row_begin(n265_row_ctx *row, n265_frame_work *fw, int r);
 /* per-file knob warming, on the driver at open (T0 audit item 2) */
+void n265_encoder_warm(void);
 void n265_ctu_warm(void);
 void n265_mv_warm(void);
 void n265_sao_warm(void);

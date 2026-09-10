@@ -60,6 +60,9 @@ typedef struct n265_la {
 int n265_la_init(struct n265_encoder *e);
 void n265_la_free(struct n265_encoder *e);
 
+/* per-file knob warming, on the driver at open; see n265_ctu_warm */
+void n265_la_warm(void);
+
 /* copy the picture in, build lowres + costs vs the previous queued frame */
 void n265_la_push(struct n265_encoder *e, const uint8_t *const plane[3],
                   const int stride[3]);

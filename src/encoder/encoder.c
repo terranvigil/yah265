@@ -781,6 +781,8 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * thread, before a worker can be the one that writes it first */
     n265_tables_init();
     n265_tables_init_est();
+    n265_encoder_warm();
+    n265_la_warm();
     n265_ctu_warm();
     n265_mv_warm();
     n265_sao_warm();
@@ -1882,11 +1884,27 @@ void n265_build_lists(n265_encoder *e, n265_frame_work *fw, int poc,
  * costs the whole prediction chain, so the detector has to be very sure
  * before it may place one close to the last. N265_MIN_KEYINT sets it;
  * 0 means the auto rule; 4 is the pre-2026-09-09 behaviour. */
-static int min_keyint(n265_encoder *e)
+/* the knob half, split out so the warm can reach it without an encoder */
+static int min_keyint_env(void)
 {
     static int v = -2;
     if (v == -2) { const char *s = n265_env("N265_MIN_KEYINT"); v = s ? atoi(s) : 4; }
-    int m = v;
+    return v;
+}
+
+/* This file's own three cached knobs. The others are warmed per-file
+ * above; these sit between a driver-side caller and a worker-side one
+ * (hf_arm runs under the publish task), so they get the same treatment.
+ * Defined here because min_keyint_env is, and declared in encoder.h so
+ * n265_encoder_open can call it beside the rest. */
+void n265_encoder_warm(void)
+{
+    (void)dpb_hold(); (void)hf_cache_on(); (void)min_keyint_env();
+}
+
+static int min_keyint(n265_encoder *e)
+{
+    int m = min_keyint_env();
     if (m == 0) {
         int fps = e->param.fps_den > 0
                       ? (e->param.fps_num + e->param.fps_den / 2) / e->param.fps_den
