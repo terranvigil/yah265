@@ -5,8 +5,10 @@
 
 #include <stdlib.h>
 
+#include "common/cpu.h"
 #include "encoder/satd.h"
 #include "encoder/preset.h"
+#include "encoder/arm/neon.h"   /* self-guarded */
 
 /* The 4x4 tile is unchanged. It was already the 8-add butterfly with the
  * abs-sum folded, and writing it out any other way measured 0.85x on the
@@ -126,7 +128,7 @@ static uint32_t satd8(const uint8_t *a, int as, const uint8_t *b, int bs)
  * leave 4x4 tiles for the strips. Everything else already ranks on the
  * 8x8 (SA8D-class) tile. This CHANGES the ranking metric, so it is an
  * arm and not an economy: 0 is the shipped tiling. */
-static int satd8_mixed(void)
+int n265_satd8_mixed(void)
 {
     static int v = -1;
     if (v < 0) { const char *s = n265_env("N265_SATD8"); v = s ? atoi(s) : 0; }
@@ -135,16 +137,20 @@ static int satd8_mixed(void)
 
 void n265_satd_warm(void)
 {
-    (void)satd8_mixed();
+    (void)n265_satd8_mixed();
 }
 
-uint32_t n265_satd_wh(const uint8_t *a, int a_stride, const uint8_t *b,
-                      int b_stride, int w, int h)
+/* The C path, exported so checkasm can time it against the NEON without
+ * going through the dispatch below - otherwise the bench's middle column
+ * would be the NEON a second time and the multiple it prints would be 1.
+ * Not a path any encoder call site takes directly. */
+uint32_t n265_satd_wh_c(const uint8_t *a, int a_stride, const uint8_t *b,
+                        int b_stride, int w, int h)
 {
     uint32_t sum = 0;
     if ((w & 7) || (h & 7)) {
-        int w8 = satd8_mixed() ? (w & ~7) : 0;
-        int h8 = satd8_mixed() ? (h & ~7) : 0;
+        int w8 = n265_satd8_mixed() ? (w & ~7) : 0;
+        int h8 = n265_satd8_mixed() ? (h & ~7) : 0;
         for (int y = 0; y < h8; y += 8)
             for (int x = 0; x < w8; x += 8)
                 sum += satd8(a + y * a_stride + x, a_stride,
@@ -166,8 +172,26 @@ uint32_t n265_satd_wh(const uint8_t *a, int a_stride, const uint8_t *b,
     return sum;
 }
 
+uint32_t n265_satd_wh(const uint8_t *a, int a_stride, const uint8_t *b,
+                      int b_stride, int w, int h)
+{
+#if N265_NEON
+    /* 4x4 is the one shape that is a single 4x4 tile, and a single tile
+     * is the one case where the vector form loses: its dependency chain
+     * (load, three butterfly stages, transpose, three more, abs, the
+     * pairwise reduction, the move back to a GPR) is longer than the
+     * whole scalar butterfly, and it measured 0.68x on checkasm --bench
+     * where every other shape measured 1.03x to 3.1x. Both paths are
+     * bit-exact, so this predicate moves time and nothing else. */
+    if (!(w == 4 && h == 4) && n265_asm_on(N265_ASM_SATD))
+        return n265_satd_wh_neon(a, a_stride, b, b_stride, w, h);
+#endif
+    return n265_satd_wh_c(a, a_stride, b, b_stride, w, h);
+}
+
 uint32_t n265_satd(const uint8_t *a, int a_stride, const uint8_t *b,
                    int b_stride, int n)
 {
     return n265_satd_wh(a, a_stride, b, b_stride, n, n);
 }
+

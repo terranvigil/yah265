@@ -51,6 +51,16 @@ void n265_bi_avg_wh_neon(uint8_t *dst, int dst_stride, const int16_t *a,
 
 /* ---- satd (N265_ASM_SATD) ------------------------------------------ */
 
+/* The two Hadamard tiles, exported so checkasm can compare each against
+ * its own loop-nest reference (n265_satd4_ref / n265_satd8_ref) and not
+ * only in aggregate, plus n265_satd_wh's whole w x h loop so that a call
+ * dispatches once instead of once per tile. The loop form reproduces the
+ * N265_SATD8 mixed tiling as well as the default one. */
+uint32_t n265_satd4_neon(const uint8_t *a, int as, const uint8_t *b, int bs);
+uint32_t n265_satd8_neon(const uint8_t *a, int as, const uint8_t *b, int bs);
+uint32_t n265_satd_wh_neon(const uint8_t *a, int as, const uint8_t *b,
+                           int bs, int w, int h);
+
 #endif /* N265_NEON */
 
 #endif /* N265_ARM_NEON_H */
