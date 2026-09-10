@@ -16,6 +16,7 @@
 
 #include "checkasm.h"
 
+#include "common/cpu.h"
 #include "encoder/satd.h"
 #include "encoder/arm/neon.h"   /* self-guarded; the family kernels land here */
 
@@ -364,6 +365,223 @@ static void bench_satd(void)
 }
 
 
+/* ---- SAD ------------------------------------------------------------
+ *
+ * The shape set, instrumented off the encoder rather than read off the PU
+ * table: n265_mc_sad (both arms) presents every luma PU shape the search
+ * reaches - 4, 8, 12, 16, 24, 32 and 64 on each side as the partition
+ * rules allow - the intra ranking presents the squares 4..32, mot_sad the
+ * squares 8..64, and the lookahead a flat 8x8 on the lowres plane. Every
+ * one of those is luma, so 4:2:0 puts nothing narrower than 4 here today.
+ *
+ * The odd widths below (1, 2, 3, 5, 6, 7) are here anyway, because THIS
+ * kernel is the one a later item points at a chroma plane, and a scalar
+ * tail that has never been run is a scalar tail that does not work. They
+ * cost a few milliseconds and they are the difference between the vector
+ * loop covering the block and the vector loop covering what it assumed.
+ */
+static const int sad_shapes[][2] = {
+    { 4, 4 }, { 8, 8 }, { 16, 16 }, { 32, 32 }, { 64, 64 },
+    { 8, 4 }, { 4, 8 }, { 16, 8 }, { 8, 16 }, { 32, 16 }, { 16, 32 },
+    { 16, 4 }, { 4, 16 }, { 12, 16 }, { 16, 12 }, { 24, 32 }, { 32, 24 },
+    { 8, 32 }, { 32, 8 }, { 48, 48 }, { 48, 64 }, { 64, 48 }, { 64, 16 },
+    { 12, 12 }, { 24, 24 }, { 20, 8 }, { 28, 12 }, { 36, 4 }, { 44, 20 },
+    { 1, 1 }, { 2, 2 }, { 3, 5 }, { 5, 3 }, { 6, 8 }, { 7, 9 }, { 2, 16 },
+    { 6, 16 }, { 9, 7 }, { 13, 3 }, { 17, 2 }, { 33, 1 }, { 64, 1 },
+};
+#define NSAD_SH ((int)(sizeof(sad_shapes) / sizeof(sad_shapes[0])))
+
+/* the SSD callers: tb_ssd on a TB (luma 4..32, chroma 4..16) and
+ * cu_area_ssd on a whole CU (luma 8..64, chroma 4..32), both square. The
+ * non-square and narrow entries are the same insurance as above. */
+static const int ssd_shapes[][2] = {
+    { 4, 4 }, { 8, 8 }, { 16, 16 }, { 32, 32 }, { 64, 64 },
+    { 2, 2 }, { 6, 6 }, { 12, 12 }, { 24, 24 }, { 48, 48 },
+    { 8, 16 }, { 16, 8 }, { 3, 7 }, { 7, 3 }, { 1, 64 }, { 64, 1 },
+    { 20, 20 }, { 33, 5 },
+};
+#define NSSD_SH ((int)(sizeof(ssd_shapes) / sizeof(ssd_shapes[0])))
+
+/* SAD and SSD are the same test with a different reduction, so one body:
+ * `which` picks it, and the two arms of SAD (base, DotProd) are two
+ * values of `arm` on the same body. */
+enum { RED_SAD, RED_SSD, RED_SSD_DOT };
+
+static uint64_t red_ref(int which, const uint8_t *a, int as, const uint8_t *b,
+                        int bs, int w, int h)
+{
+    if (which == RED_SAD)
+        return n265_sad_wh_c(a, as, b, bs, w, h);
+    return n265_ssd_wh_c(a, as, b, bs, w, h);
+}
+
+static uint64_t red_opt(int which, const uint8_t *a, int as, const uint8_t *b,
+                        int bs, int w, int h)
+{
+#if N265_NEON
+#if defined(__ARM_FEATURE_DOTPROD)
+    if (which == RED_SSD_DOT)
+        return n265_ssd_wh_dot_neon(a, as, b, bs, w, h);
+#endif
+    if (which == RED_SSD)
+        return n265_ssd_wh_neon(a, as, b, bs, w, h);
+    return n265_sad_wh_neon(a, as, b, bs, w, h);
+#else
+    if (which == RED_SAD)
+        return n265_sad_wh(a, as, b, bs, w, h);
+    return n265_ssd_wh(a, as, b, bs, w, h);
+#endif
+}
+
+static int check_reduction(const char *tag, int which, const int (*shapes)[2],
+                           int nsh)
+{
+    int bad = 0;
+
+    for (int s = 0; s < nsh && !bad; s++) {
+        int w = shapes[s][0], h = shapes[s][1];
+        for (int is = 0; is < 2 && !bad; is++) {
+            int as = is ? w + 5 : w;
+            int bs = is ? w + 13 : w;
+            size_t abytes = (size_t)as * h, bbytes = (size_t)bs * h;
+            uint8_t *a = ca_guard_alloc(abytes);
+            uint8_t *b = ca_guard_alloc(bbytes);
+            char what[56];
+
+            snprintf(what, sizeof(what), "%s %dx%d s%d", tag, w, h, is);
+            for (int kind = 0; kind < NKIND && !bad; kind++) {
+                for (int rep = 0; rep < 16 && !bad; rep++) {
+                    uint64_t r, o, o2;
+
+                    memset(a, CA_POISON, abytes);
+                    memset(b, CA_POISON, bbytes);
+                    fill_pair(a, as, b, bs, w, h, kind);
+                    ca_guard_poison(a, abytes);
+                    ca_guard_poison(b, bbytes);
+
+                    r = red_ref(which, a, as, b, bs, w, h);
+                    o = red_opt(which, a, as, b, bs, w, h);
+                    if (r != o) {
+                        printf("    %s MISMATCH kind %d: ref %llu opt %llu\n",
+                               what, kind, (unsigned long long)r,
+                               (unsigned long long)o);
+                        bad++;
+                        break;
+                    }
+                    bad += ca_guard_check(a, abytes, what);
+                    bad += ca_guard_check(b, bbytes, what);
+                    if (bad)
+                        break;
+
+                    ca_guard_scramble(a, abytes);
+                    ca_guard_scramble(b, bbytes);
+                    scramble_pad(a, as, w, h);
+                    scramble_pad(b, bs, w, h);
+                    o2 = red_opt(which, a, as, b, bs, w, h);
+                    if (o2 != o) {
+                        printf("    %s: result depends on bytes OUTSIDE "
+                               "the block (kind %d)\n", what, kind);
+                        bad++;
+                    }
+                }
+            }
+            ca_guard_free(a);
+            ca_guard_free(b);
+        }
+    }
+    return bad;
+}
+
+/* the maximum a 64x64 SSD can reach - every sample at the opposite clip -
+ * is 4096 * 65025 = 266342400, and the kernel's claim is that this is
+ * exact in u32. Check the number itself rather than trusting the
+ * arithmetic in the comment. */
+static int check_ssd_extreme(void)
+{
+    static uint8_t a[64 * 64], b[64 * 64];
+    uint64_t want = (uint64_t)64 * 64 * 255 * 255;
+    uint64_t got;
+
+    memset(a, 255, sizeof(a));
+    memset(b, 0, sizeof(b));
+    got = red_opt(RED_SSD, a, 64, b, 64, 64, 64);
+    if (got != want) {
+        printf("    ssd 64x64 saturating: want %llu got %llu\n",
+               (unsigned long long)want, (unsigned long long)got);
+        return 1;
+    }
+#if N265_NEON && defined(__ARM_FEATURE_DOTPROD)
+    if (n265_cpu_flags() & N265_CPU_DOTPROD) {
+        got = red_opt(RED_SSD_DOT, a, 64, b, 64, 64, 64);
+        if (got != want) {
+            printf("    ssd/dot 64x64 saturating: want %llu got %llu\n",
+                   (unsigned long long)want, (unsigned long long)got);
+            return 1;
+        }
+    }
+#endif
+    if (red_ref(RED_SSD, a, 64, b, 64, 64, 64) != want) {
+        printf("    ssd 64x64 saturating: the C reference is wrong too\n");
+        return 1;
+    }
+    return 0;
+}
+
+/* ---- bench, SAD and SSD --------------------------------------------- */
+
+struct rctx {
+    const uint8_t *a, *b;
+    int as, bs, w, h, which;
+    uint64_t sink;
+};
+
+static void red_ref_call(void *p)
+{
+    struct rctx *c = p;
+    c->sink += red_ref(c->which, c->a, c->as, c->b, c->bs, c->w, c->h);
+}
+
+static void red_opt_call(void *p)
+{
+    struct rctx *c = p;
+    c->sink += red_opt(c->which, c->a, c->as, c->b, c->bs, c->w, c->h);
+}
+
+static const int red_bench_shapes[][2] = {
+    { 4, 4 }, { 8, 4 }, { 4, 8 }, { 8, 8 }, { 16, 8 }, { 12, 16 },
+    { 16, 16 }, { 32, 32 }, { 64, 64 },
+};
+
+static void bench_reduction(const char *tag, int which)
+{
+    static uint8_t a[72 * 72], b[72 * 72];
+    struct rctx c;
+    int n = (int)(sizeof(red_bench_shapes) / sizeof(red_bench_shapes[0]));
+
+    fill_pair(a, 72, b, 72, 72, 72, 0);
+    c.a = a;
+    c.b = b;
+    c.as = 72;
+    c.bs = 72;
+    c.which = which;
+    c.sink = 0;
+    for (int i = 0; i < n; i++) {
+        char name[40];
+
+        c.w = red_bench_shapes[i][0];
+        c.h = red_bench_shapes[i][1];
+        snprintf(name, sizeof(name), "%s %dx%d", tag, c.w, c.h);
+        /* The reference IS the C path for these two - there is no third
+         * form - so the middle column is a control on the measurement and
+         * should read like the first. */
+#if N265_NEON
+        bench(name, red_ref_call, red_ref_call, red_opt_call, &c, 200000);
+#else
+        bench(name, red_ref_call, red_opt_call, NULL, &c, 200000);
+#endif
+    }
+}
+
 int check_satd(void)
 {
     int bad = check_satd_tiles();
@@ -373,6 +591,31 @@ int check_satd(void)
     bad = check_satd_wh();
     if (bad)
         return bad;
+    bad = check_reduction("sad", RED_SAD, sad_shapes, NSAD_SH);
+    if (bad)
+        return bad;
+    bad = check_reduction("ssd", RED_SSD, ssd_shapes, NSSD_SH);
+    if (bad)
+        return bad;
+#if N265_NEON && defined(__ARM_FEATURE_DOTPROD)
+    /* the second arm of the SSD, on a host that can run it. Both arms are
+     * held to the same C reference; a host without the extension reaches
+     * neither this check nor the arm. */
+    if (n265_cpu_flags() & N265_CPU_DOTPROD) {
+        bad = check_reduction("ssd/dot", RED_SSD_DOT, ssd_shapes, NSSD_SH);
+        if (bad)
+            return bad;
+    }
+#endif
+    bad = check_ssd_extreme();
+    if (bad)
+        return bad;
     bench_satd();
+    bench_reduction("sad", RED_SAD);
+    bench_reduction("ssd", RED_SSD);
+#if N265_NEON && defined(__ARM_FEATURE_DOTPROD)
+    if (n265_cpu_flags() & N265_CPU_DOTPROD)
+        bench_reduction("ssd/dot", RED_SSD_DOT);
+#endif
     return 0;
 }

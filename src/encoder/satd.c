@@ -195,3 +195,63 @@ uint32_t n265_satd(const uint8_t *a, int a_stride, const uint8_t *b,
     return n265_satd_wh(a, a_stride, b, b_stride, n, n);
 }
 
+/* ---- SAD and SSD -----------------------------------------------------
+ *
+ * Both were open-coded double loops at half a dozen call sites. Nothing
+ * about them was per-site: the same |a - b| and the same (a - b)^2 over a
+ * w x h block, at whatever pair of strides the caller had. Factoring them
+ * here is what lets one NEON kernel cover motion search, the intra
+ * ranking, the lookahead and the TB and CU distortion at once, and it is
+ * also what gives them a reference checkasm can hold the NEON to.
+ *
+ * The SSD accumulator is uint64_t at the boundary because the CALLERS sum
+ * many blocks into one, but the per-block sum itself is exact in 32 bits:
+ * (a - b)^2 <= 65025 and the largest block any caller passes is 64x64, so
+ * 4096 * 65025 = 266342400 < 2^32. The C keeps the u64 add per pixel
+ * anyway - it is the reference, and it is not on any hot path once the
+ * NEON is dispatched.
+ */
+
+uint32_t n265_sad_wh_c(const uint8_t *a, int as, const uint8_t *b, int bs,
+                       int w, int h)
+{
+    uint32_t sad = 0;
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++) {
+            int d = a[(size_t)y * as + x] - b[(size_t)y * bs + x];
+            sad += (uint32_t)(d < 0 ? -d : d);
+        }
+    return sad;
+}
+
+uint32_t n265_sad_wh(const uint8_t *a, int as, const uint8_t *b, int bs,
+                     int w, int h)
+{
+#if N265_NEON
+    if (n265_asm_on(N265_ASM_SATD))
+        return n265_sad_wh_neon(a, as, b, bs, w, h);
+#endif
+    return n265_sad_wh_c(a, as, b, bs, w, h);
+}
+
+uint64_t n265_ssd_wh_c(const uint8_t *a, int as, const uint8_t *b, int bs,
+                       int w, int h)
+{
+    uint64_t ssd = 0;
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++) {
+            int d = a[(size_t)y * as + x] - b[(size_t)y * bs + x];
+            ssd += (uint64_t)(d * d);
+        }
+    return ssd;
+}
+
+uint64_t n265_ssd_wh(const uint8_t *a, int as, const uint8_t *b, int bs,
+                     int w, int h)
+{
+#if N265_NEON
+    if (n265_asm_on(N265_ASM_SATD))
+        return n265_ssd_wh_neon(a, as, b, bs, w, h);
+#endif
+    return n265_ssd_wh_c(a, as, b, bs, w, h);
+}

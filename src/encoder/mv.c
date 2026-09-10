@@ -442,13 +442,7 @@ uint32_t n265_mc_sad(struct n265_frame_work *e, int list, int ridx, int x0, int 
         n265_mc_luma_hf(pred, w, w, h, rp, ws, wclip ? NULL : hf,
                         ref->hf_stride, mv.x & 3, mv.y & 3);
         N265_REF_UNGUARD();
-        uint32_t sad = 0;
-        for (int y = 0; y < h; y++)
-            for (int x = 0; x < w; x++) {
-                int d = src[y * e->pad_stride[0] + x] - pred[y * w + x];
-                sad += (uint32_t)(d < 0 ? -d : d);
-            }
-        return sad;
+        return n265_sad_wh(src, e->pad_stride[0], pred, w, w, h);
     }
     int ix = x0 + (mv.x >> 2), iy = y0 + (mv.y >> 2);
     int need = n265_ref_wait(e, ref, iy + h - 1);
@@ -461,13 +455,7 @@ uint32_t n265_mc_sad(struct n265_frame_work *e, int list, int ridx, int x0, int 
     N265_RC_TOUCH(rp);
     N265_RC_TOUCH(rp + (h - 1) * ws);
     N265_REF_UNGUARD();
-    uint32_t sad = 0;
-    for (int y = 0; y < h; y++)
-        for (int x = 0; x < w; x++) {
-            int d = src[y * e->pad_stride[0] + x] - rp[y * ws + x];
-            sad += (uint32_t)(d < 0 ? -d : d);
-        }
-    return sad;
+    return n265_sad_wh(src, e->pad_stride[0], rp, ws, w, h);
 }
 
 /* SATD of luma MC at mv: phase-aware cost for subpel refinement, where

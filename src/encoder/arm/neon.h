@@ -61,6 +61,22 @@ uint32_t n265_satd8_neon(const uint8_t *a, int as, const uint8_t *b, int bs);
 uint32_t n265_satd_wh_neon(const uint8_t *a, int as, const uint8_t *b,
                            int bs, int w, int h);
 
+/* The two plain block reductions the encoder's call sites were factored
+ * onto (src/encoder/satd.c): |a - b| summed, and (a - b)^2 summed. */
+uint32_t n265_sad_wh_neon(const uint8_t *a, int as, const uint8_t *b,
+                          int bs, int w, int h);
+uint64_t n265_ssd_wh_neon(const uint8_t *a, int as, const uint8_t *b,
+                          int bs, int w, int h);
+
+#if defined(__ARM_FEATURE_DOTPROD)
+/* The FEAT_DotProd arm of n265_ssd_wh_neon, which selects it at runtime
+ * on N265_CPU_DOTPROD (udot of a difference with itself is the sum of
+ * four squares). Exported so checkasm can check and time BOTH arms on a
+ * host that has the extension; not a dispatch site's entry point. */
+uint64_t n265_ssd_wh_dot_neon(const uint8_t *a, int as, const uint8_t *b,
+                              int bs, int w, int h);
+#endif
+
 #endif /* N265_NEON */
 
 #endif /* N265_ARM_NEON_H */

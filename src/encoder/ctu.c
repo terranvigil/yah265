@@ -399,12 +399,7 @@ static uint64_t tb_ssd(struct n265_frame_work *e, int c_idx, int x0, int y0,
 {
     int n = 1 << log2n;
     const uint8_t *src = e->pad_plane[c_idx] + y0 * e->pad_stride[c_idx] + x0;
-    uint64_t ssd = 0;
-    for (int y = 0; y < n; y++)
-        for (int x = 0; x < n; x++) {
-            int d = src[y * e->pad_stride[c_idx] + x] - tb->recon[y * n + x];
-            ssd += (uint64_t)(d * d);
-        }
+    uint64_t ssd = n265_ssd_wh(src, e->pad_stride[c_idx], tb->recon, n, n, n);
     /* the psychovisual term (psy.c): luma only, the same strength for every
      * candidate so it only ever re-ranks them */
     if (c_idx == 0 && e->psy > 0.0)
@@ -477,13 +472,7 @@ static int search_luma_mode_sub(struct n265_frame_work *e, int x0, int y0,
         const uint8_t *r = n265_use_filtered_refs(best_mode, log2n, 0)
                                ? refs_f : refs;
         n265_intra_pred(pred, n, r, log2n, best_mode, 0);
-        uint32_t sad = 0;
-        for (int y = 0; y < n; y++)
-            for (int x = 0; x < n; x++) {
-                int d = src[y * e->pad_stride[0] + x] - pred[y * n + x];
-                sad += (uint32_t)(d < 0 ? -d : d);
-            }
-        *cost_out = sad;
+        *cost_out = n265_sad_wh(src, e->pad_stride[0], pred, n, n, n);
     }
     static int hist[35];
     if (mode_hist_on()) {
@@ -1189,13 +1178,7 @@ static uint32_t mot_sad(struct n265_frame_work *e, int x0, int y0, int log2n,
     uint8_t pred[64 * 64];
     mc_pred(e, 0, x0, y0, n, mot, pred);
     const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
-    uint32_t sad = 0;
-    for (int y = 0; y < n; y++)
-        for (int x = 0; x < n; x++) {
-            int d = src[y * e->pad_stride[0] + x] - pred[y * n + x];
-            sad += (uint32_t)(d < 0 ? -d : d);
-        }
-    return sad;
+    return n265_sad_wh(src, e->pad_stride[0], pred, n, n, n);
 }
 
 /* SATD of the full-motion prediction (luma): the decision metric that
@@ -1999,12 +1982,11 @@ static uint64_t cu_area_ssd(struct n265_frame_work *e, int x0, int y0, int n)
         int sh = c ? 1 : 0;
         const uint8_t *src = e->pad_plane[c];
         const uint8_t *rec = e->recon[c];
-        for (int y = y0 >> sh; y < (y0 + n) >> sh; y++)
-            for (int x = x0 >> sh; x < (x0 + n) >> sh; x++) {
-                int d = src[y * e->pad_stride[c] + x] -
-                        rec[y * e->recon_stride[c] + x];
-                ssd += (uint64_t)(d * d);
-            }
+        ssd += n265_ssd_wh(src + (size_t)(y0 >> sh) * e->pad_stride[c] +
+                               (x0 >> sh), e->pad_stride[c],
+                           rec + (size_t)(y0 >> sh) * e->recon_stride[c] +
+                               (x0 >> sh), e->recon_stride[c],
+                           n >> sh, n >> sh);
     }
     return ssd;
 }

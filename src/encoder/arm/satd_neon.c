@@ -11,6 +11,7 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "common/cpu.h"
 #include "encoder/arm/neon.h"
 #include "encoder/satd.h"
 
@@ -336,6 +337,193 @@ uint32_t n265_satd_wh_neon(const uint8_t *a, int as, const uint8_t *b,
                                          b + (size_t)y * bs + x, bs));
     return (uint32_t)vget_lane_u64(s8, 0);
 }
+
+/* ---- SAD -------------------------------------------------------------
+ *
+ * sum |a - b| over a w x h block of u8. vabdq_u8 is the absolute
+ * difference exactly - it is unsigned, so it cannot overflow and it needs
+ * no sign handling at all - and the only question left is where the sum
+ * is allowed to live.
+ *
+ * vpadalq_u8 folds pairs of u8 into u16 lanes: at most 2 * 255 = 510 per
+ * lane per 16-byte chunk. The row accumulator below takes at most four
+ * such chunks (w <= 64) and then an 8- and a 4-wide tail, so it peaks
+ * below 2600, nowhere near 65535, and it is widened into u32 once per
+ * row. The w = 8 and w = 4 forms skip the per-row widen because their
+ * whole block fits one u16 accumulator: at w = 8 a lane takes one sample
+ * per row, so it holds any h up to 257 (65535 / 255) and the tallest
+ * block the encoder has is 64; the packed two-rows-per-vector form at
+ * w = 4 gives each lane every other row, so its bound is twice that.
+ * A 64x64 block totals at most 4096 * 255 = 1044480, exact in u32.
+ */
+uint32_t n265_sad_wh_neon(const uint8_t *a, int as, const uint8_t *b,
+                          int bs, int w, int h)
+{
+    uint32x4_t acc = vdupq_n_u32(0);
+    uint32_t rest = 0;
+
+    if (w == 8) {
+        /* 8x4, 8x8, 8x16, 8x32: 163168 of the 500000-odd n265_mc_sad
+         * calls on a CIF encode are 8x8 alone */
+        uint16x8_t r = vdupq_n_u16(0);
+        for (int y = 0; y < h; y++)
+            r = vabal_u8(r, vld1_u8(a + (size_t)y * as),
+                         vld1_u8(b + (size_t)y * bs));
+        return vaddvq_u32(vpaddlq_u16(r));
+    }
+    if (w == 4) {
+        /* two rows per vector: the 4-wide shapes are the ones where a
+         * half-empty register would cost half the throughput */
+        uint16x8_t r = vdupq_n_u16(0);
+        int y = 0;
+        for (; y + 2 <= h; y += 2)
+            r = vabal_u8(r,
+                         ld4x2(a + (size_t)y * as, a + (size_t)(y + 1) * as),
+                         ld4x2(b + (size_t)y * bs, b + (size_t)(y + 1) * bs));
+        for (; y < h; y++)
+            r = vabal_u8(r, ld4z(a + (size_t)y * as),
+                         ld4z(b + (size_t)y * bs));
+        return vaddvq_u32(vpaddlq_u16(r));
+    }
+    for (int y = 0; y < h; y++) {
+        const uint8_t *pa = a + (size_t)y * as;
+        const uint8_t *pb = b + (size_t)y * bs;
+        uint16x8_t r = vdupq_n_u16(0);
+        int x = 0;
+        for (; x + 16 <= w; x += 16)
+            r = vpadalq_u8(r, vabdq_u8(vld1q_u8(pa + x), vld1q_u8(pb + x)));
+        if (x + 8 <= w) {
+            r = vabal_u8(r, vld1_u8(pa + x), vld1_u8(pb + x));
+            x += 8;
+        }
+        if (x + 4 <= w) {
+            /* the 12-wide AMP quarter ends here, and ld4z reads exactly
+             * the four bytes the C reads: the upper half of the register
+             * is |0 - 0| and contributes nothing */
+            r = vabal_u8(r, ld4z(pa + x), ld4z(pb + x));
+            x += 4;
+        }
+        acc = vpadalq_u16(acc, r);
+        /* Every w the encoder passes is a multiple of four - the callers
+         * are all luma, so unlike bi_avg there is no 4:2:0 halving to
+         * produce a 2 or a 6 - but the kernel is not allowed to be wrong
+         * if one turns up, and a scalar tail costs nothing when it does
+         * not run. */
+        for (; x < w; x++) {
+            int d = pa[x] - pb[x];
+            rest += (uint32_t)(d < 0 ? -d : d);
+        }
+    }
+    return vaddvq_u32(acc) + rest;
+}
+
+/* ---- SSD -------------------------------------------------------------
+ *
+ * sum of (a - b)^2. vabdq_u8 gives |a - b| in [0, 255] and the square of
+ * the absolute difference is the square of the signed one, so going
+ * through the unsigned absolute difference loses nothing. vmull_u8 of it
+ * is at most 255 * 255 = 65025, which fits u16 exactly.
+ *
+ * vpadalq_u16 folds pairs of those into u32 lanes. The largest block any
+ * caller passes is 64x64 (cu_area_ssd at a CB64, luma), whose total is at
+ * most 4096 * 65025 = 266342400 < 2^32 - so not one u32 lane, and not
+ * even the horizontal sum of all four, can overflow. The whole reduction
+ * is exact in u32 and the widen to u64 happens once, at the return; the
+ * u64 in the signature is for the CALLERS, which sum many blocks.
+ */
+uint64_t n265_ssd_wh_neon(const uint8_t *a, int as, const uint8_t *b,
+                          int bs, int w, int h)
+{
+    uint32x4_t acc = vdupq_n_u32(0);
+    uint64_t rest = 0;
+
+#if defined(__ARM_FEATURE_DOTPROD)
+    /* The DotProd arm below is faster at every shape this kernel sees and
+     * twice as fast at the big ones (64x64: 158 ns against 318), because
+     * udot(acc, d, d) replaces two vmull_u8 and two vpadalq_u16 per
+     * sixteen bytes with one instruction. Both arms are bit-exact against
+     * the same C reference and checkasm holds both to it, so this
+     * selection moves time and nothing else. */
+    if (n265_cpu_flags() & N265_CPU_DOTPROD)
+        return n265_ssd_wh_dot_neon(a, as, b, bs, w, h);
+#endif
+
+    for (int y = 0; y < h; y++) {
+        const uint8_t *pa = a + (size_t)y * as;
+        const uint8_t *pb = b + (size_t)y * bs;
+        int x = 0;
+        for (; x + 16 <= w; x += 16) {
+            uint8x16_t d = vabdq_u8(vld1q_u8(pa + x), vld1q_u8(pb + x));
+            acc = vpadalq_u16(acc, vmull_u8(vget_low_u8(d), vget_low_u8(d)));
+            acc = vpadalq_u16(acc, vmull_high_u8(d, d));
+        }
+        if (x + 8 <= w) {
+            uint8x8_t d = vabd_u8(vld1_u8(pa + x), vld1_u8(pb + x));
+            acc = vpadalq_u16(acc, vmull_u8(d, d));
+            x += 8;
+        }
+        if (x + 4 <= w) {
+            uint8x8_t d = vabd_u8(ld4z(pa + x), ld4z(pb + x));
+            acc = vpadalq_u16(acc, vmull_u8(d, d));
+            x += 4;
+        }
+        for (; x < w; x++) {
+            int d = pa[x] - pb[x];
+            rest += (uint64_t)(d * d);
+        }
+    }
+    return (uint64_t)vaddvq_u32(acc) + rest;
+}
+
+#if defined(__ARM_FEATURE_DOTPROD)
+/* The FEAT_DotProd arm. udot(acc, d, d) IS the sum of four squares
+ * accumulated into a u32 lane, which is the whole of this kernel's inner
+ * step: one instruction where the base form needs two vmull_u8 and two
+ * vpadalq_u16 per sixteen bytes.
+ *
+ * The range claim is the same one, one stage shorter: each udot adds at
+ * most 4 * 65025 = 260100 to a lane, a 64x64 block has 256 sixteen-byte
+ * chunks, and 256 * 260100 = 66585600 per lane - a quarter of the
+ * 266342400 whole-block bound, all of it exact in u32.
+ *
+ * Selected at RUNTIME by n265_ssd_wh_neon on N265_CPU_DOTPROD, never by
+ * the compile-time macro alone: the macro says the compiler can emit the
+ * instruction, the feature word says this CPU can run it. Exported so
+ * checkasm checks and times BOTH arms on a host that has the extension.
+ */
+uint64_t n265_ssd_wh_dot_neon(const uint8_t *a, int as, const uint8_t *b,
+                              int bs, int w, int h)
+{
+    uint32x4_t acc = vdupq_n_u32(0);
+    uint32x2_t acc2 = vdup_n_u32(0);
+    uint64_t rest = 0;
+
+    for (int y = 0; y < h; y++) {
+        const uint8_t *pa = a + (size_t)y * as;
+        const uint8_t *pb = b + (size_t)y * bs;
+        int x = 0;
+        for (; x + 16 <= w; x += 16) {
+            uint8x16_t d = vabdq_u8(vld1q_u8(pa + x), vld1q_u8(pb + x));
+            acc = vdotq_u32(acc, d, d);
+        }
+        if (x + 8 <= w) {
+            uint8x8_t d = vabd_u8(vld1_u8(pa + x), vld1_u8(pb + x));
+            acc2 = vdot_u32(acc2, d, d);
+            x += 8;
+        }
+        if (x + 4 <= w) {
+            uint8x8_t d = vabd_u8(ld4z(pa + x), ld4z(pb + x));
+            acc2 = vdot_u32(acc2, d, d);
+            x += 4;
+        }
+        for (; x < w; x++) {
+            int d = pa[x] - pb[x];
+            rest += (uint64_t)(d * d);
+        }
+    }
+    return (uint64_t)vaddvq_u32(acc) + vaddv_u32(acc2) + rest;
+}
+#endif /* __ARM_FEATURE_DOTPROD */
 
 #else
 typedef int n265_satd_neon_unused_;      /* C wants a non-empty TU */
