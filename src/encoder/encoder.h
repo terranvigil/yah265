@@ -382,6 +382,11 @@ struct n265_encoder {
      * `rc` the ABR observation lag. This is what says whether the
      * overlap is capped by K or by the DPB. */
     int join_k, join_slot, join_src, join_rc;
+    /* N265_LA_PROF: driver wall seconds per lookahead stage, and the
+     * encode's own wall, so the serial fraction is a ratio of two
+     * measured numbers rather than a guess (T3/2). */
+    int la_prof;
+    double prof_t0, prof_push, prof_plan, prof_cutree;
     int frames_done;
     int in_display_idx;     /* next arriving picture's display index */
     int gop_start_display;  /* display index of the current IDR      */

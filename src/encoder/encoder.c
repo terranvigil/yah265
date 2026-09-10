@@ -8,6 +8,7 @@
 #include <limits.h>
 #include <math.h>
 #include <stdio.h>
+#include <time.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,6 +20,17 @@
 #include "encoder/mc.h"
 #include "encoder/rc.h"
 #include "encoder/sao.h"
+
+/* N265_LA_PROF: the lookahead's SERIAL FRACTION, which is what T3/2 has
+ * to move. Wall time the DRIVER spends inside each lookahead stage,
+ * against the wall time of the whole encode. Driver-side only, so the
+ * clock reads are a handful per frame and never inside a worker. */
+static double prof_now(void)
+{
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (double)t.tv_sec + 1e-9 * (double)t.tv_nsec;
+}
 
 const char *n265_version_str(void)
 {
@@ -419,6 +431,8 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         goto fail;
     /* A1/A2: defer output only where there is something to overlap. */
     e->api_defer = getenv("N265_API_DEFER") != NULL;
+    e->la_prof = getenv("N265_LA_PROF") != NULL;
+    e->prof_t0 = e->la_prof ? prof_now() : 0.0;
     {   /* T3/1: the slot preference, decided here from --bframes and
          * --ref alone. It is legal exactly while the marked set cannot
          * fill the pool, because then every claim finds an unmarked slot
@@ -475,6 +489,13 @@ void n265_encoder_close(n265_encoder *e)
      * flushing. Their jobs own the frame_works and the pool. */
     while (e->n_inflight)
         join_oldest(e);
+    if (e->la_prof) {
+        double wall = prof_now() - e->prof_t0;
+        double la = e->prof_push + e->prof_plan + e->prof_cutree;
+        fprintf(stderr, "LAPROF wall=%.3f push=%.3f plan=%.3f cutree=%.3f "
+                "la=%.3f serial=%.2f%%\n", wall, e->prof_push, e->prof_plan,
+                e->prof_cutree, la, wall > 0 ? 100.0 * la / wall : 0.0);
+    }
     if (getenv("N265_STALL_TRACE")) {
         fprintf(stderr, "JOIN k=%d slot=%d src=%d rc=%d\n",
                 e->join_k, e->join_slot, e->join_src, e->join_rc);
@@ -1615,7 +1636,11 @@ static int drive_scheduler(n265_encoder *e)
     if (la->count == 0)
         return 0;
     if (e->plan_pos >= e->plan_len)
+    {
+        double t = e->la_prof ? prof_now() : 0.0;
         build_plan(e);
+        if (e->la_prof) e->prof_plan += prof_now() - t;
+    }
 
     /* K: a free frame_work, by joining the oldest in flight. This and
      * the D3 stalls below are the only places the driver blocks. */
@@ -1637,7 +1662,11 @@ static int drive_scheduler(n265_encoder *e)
 
     memset(fw->ctu_qp_off, 0, (size_t)fw->ctb_cols * fw->ctb_rows);
     if (e->cutree)
+    {
+        double t = e->la_prof ? prof_now() : 0.0;
         n265_la_cutree(e, fw, li);
+        if (e->la_prof) e->prof_cutree += prof_now() - t;
+    }
     /* reference lists from the DPB around this frame's POC (anchors have
      * only L0; B frames have both) */
     n265_build_lists(e, fw, poc, kind == 0, NULL);
@@ -1754,7 +1783,11 @@ int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
         }
         const uint8_t *planes[3] = { pic->plane[0], pic->plane[1],
                                      pic->plane[2] };
-        n265_la_push(e, planes, pic->stride);
+        {
+            double t = e->la_prof ? prof_now() : 0.0;
+            n265_la_push(e, planes, pic->stride);
+            if (e->la_prof) e->prof_push += prof_now() - t;
+        }
         e->in_display_idx++;
         /* One call still codes a whole mini-GOP - the loop exits when the
          * mini-GOP-end pop brings the queue back under la_depth, and
