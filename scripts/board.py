@@ -3,6 +3,13 @@
 per clip to docs/data/parity-history.csv so progress charts over time.
 
 Two x265 arms, single-threaded:
+Three of our own legs since 2026-09-10: the default (medium) preset for
+both the timed and the BD columns, and `--preset fast` for one timed
+column and one BD column, so goal 1 can also be read AT ISO-QUALITY -
+`our_fps_fast` against `x265m_noasm_fps`, with
+`bd_rate_vmafneg_fast_pct` saying what that speed cost. Empty on every
+row written before the columns existed.
+
 - "matched": x265 configured down to our current featureset (kept in
   X265_MATCHED below; grows with the encoder until it equals medium) -
   the like-for-like progress line, and the BD-rate anchor.
@@ -204,6 +211,16 @@ def measure_clip(tmp, name, size, frames, src, bd_only):
         v = _bd.vmaf_of(out, y4m, tmp)
         ours_neg.append((os.path.getsize(out) * 8, v["VMAF-NEG"] if v and "VMAF-NEG" in v else None))
 
+    # the fast preset's own BD leg: the same four QPs against the same
+    # matched anchor, so the two BD columns differ only by the preset
+    fast_neg = []
+    for qp in QPS:
+        out = os.path.join(tmp, f"nf_{name}_{qp}.hevc")
+        run([N265, y4m, "-o", out, "--qp", str(qp), "--preset", "fast"] + lim)
+        v = _bd.vmaf_of(out, y4m, tmp)
+        fast_neg.append((os.path.getsize(out) * 8,
+                         v["VMAF-NEG"] if v and "VMAF-NEG" in v else None))
+
     st = ["--pools", "none", "--frame-threads", "1", "--log-level", "error"]
     matched = [X265, "--input", y4m] + st + X265_MATCHED + lim
     medium = [X265, "--input", y4m] + st + lim
@@ -233,13 +250,20 @@ def measure_clip(tmp, name, size, frames, src, bd_only):
         row["bd_rate_vmafneg_pct"] = round(r, 2) if ok else ""
     else:
         row["bd_rate_vmafneg_pct"] = ""
+    if all(p[1] is not None for p in fast_neg + x_neg):
+        r = _bd.bd_rate([p[0] for p in x_neg], [p[1] for p in x_neg],
+                        [p[0] for p in fast_neg], [p[1] for p in fast_neg])
+        ok = isinstance(r, float) and math.isfinite(r) and abs(r) < 200
+        row["bd_rate_vmafneg_fast_pct"] = round(r, 2) if ok else ""
+    else:
+        row["bd_rate_vmafneg_fast_pct"] = ""
 
     if bd_only:
         # timing skipped (loaded machine); columns stay empty
         for k in ("our_fps", "x265m_noasm_fps", "x265m_asm_fps",
                   "mult_matched_g1", "mult_matched_g3", "x265med_noasm_fps",
                   "x265med_asm_fps", "mult_medium_g1", "mult_medium_g3",
-                  "our_fps_auto", "x265med_asm_fps_auto"):
+                  "our_fps_auto", "x265med_asm_fps_auto", "our_fps_fast"):
             row[k] = ""
         return row
 
@@ -249,6 +273,10 @@ def measure_clip(tmp, name, size, frames, src, bd_only):
     # x265's arm is already --pools none --frame-threads 1.
     t_ours = time_cmd([N265, y4m, "-o", "/dev/null", "--qp", "27",
                        "--threads", "1"] + lim)
+    # goal 1 at iso-quality: the same leg with the fast preset, whose BD
+    # column above says what it gave up to get there
+    t_ours_fast = time_cmd([N265, y4m, "-o", "/dev/null", "--qp", "27",
+                            "--threads", "1", "--preset", "fast"] + lim)
     t_m_noasm = time_cmd(matched + ["--no-asm", "--qp", "27", "-o",
                                     "/dev/null"])
     t_m_asm = time_cmd(matched + ["--qp", "27", "-o", "/dev/null"])
@@ -256,6 +284,7 @@ def measure_clip(tmp, name, size, frames, src, bd_only):
                                      "/dev/null"])
     t_med_asm = time_cmd(medium + ["--crf", "28", "-o", "/dev/null"])
     row["our_fps"] = round(frames / t_ours, 2)
+    row["our_fps_fast"] = round(frames / t_ours_fast, 2)
     row["x265m_noasm_fps"] = round(frames / t_m_noasm, 2)
     row["x265m_asm_fps"] = round(frames / t_m_asm, 2)
     row["mult_matched_g1"] = round(t_ours / t_m_noasm, 3)
@@ -297,8 +326,8 @@ def main():
               "x265m_noasm_fps", "x265m_asm_fps", "mult_matched_g1",
               "mult_matched_g3", "x265med_noasm_fps", "x265med_asm_fps",
               "mult_medium_g1", "mult_medium_g3", "our_fps_auto",
-              "x265med_asm_fps_auto", "bd_rate_psnr_pct",
-              "bd_rate_vmafneg_pct", "note"]
+              "x265med_asm_fps_auto", "our_fps_fast", "bd_rate_psnr_pct",
+              "bd_rate_vmafneg_pct", "bd_rate_vmafneg_fast_pct", "note"]
     os.makedirs(os.path.dirname(HISTORY), exist_ok=True)
     new = not os.path.exists(HISTORY)
 
@@ -321,12 +350,14 @@ def main():
                        commit=commit, x265=xv, note=note)
             wr.writerow(row)
             if bd_only:
-                print("{clip}: BD-PSNR {bd_rate_psnr_pct}% BD-VMAF-NEG {bd_rate_vmafneg_pct}%".format(**row))
+                print("{clip}: BD-PSNR {bd_rate_psnr_pct}% BD-VMAF-NEG "
+                      "{bd_rate_vmafneg_pct}% | fast {bd_rate_vmafneg_fast_pct}%".format(**row))
             else:
                 print("{clip}: ours {our_fps} fps | matched g1 "
                       "{mult_matched_g1}x g3 {mult_matched_g3}x | medium g1 "
                       "{mult_medium_g1}x g3 {mult_medium_g3}x | auto "
-                      "{our_fps_auto} vs {x265med_asm_fps_auto} fps | BD "
+                      "{our_fps_auto} vs {x265med_asm_fps_auto} fps | fast "
+                      "{our_fps_fast} fps NEG {bd_rate_vmafneg_fast_pct}% | BD "
                       "{bd_rate_psnr_pct}% / NEG {bd_rate_vmafneg_pct}%".format(**row))
     print(f"appended to {os.path.relpath(HISTORY, ROOT)}")
 
