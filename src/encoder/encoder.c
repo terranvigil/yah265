@@ -375,7 +375,19 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     /* K, the frames in flight (sec 1). A pure scheduling knob: it moves
      * no bits, only how much of the mini-GOP overlaps. */
     { const char *v = getenv("N265_MAX_FRAME_WORK");
-      int k = v ? atoi(v) : 4;
+      /* T3/4's sweep. K is bounded in practice by the DPB slot pool, not
+       * by the frame_works: a frame in flight that is a REFERENCE holds a
+       * slot until it retires, and when the claim runs out of unmarked
+       * slots D3 stalls the driver. With a B pyramid only the anchors and
+       * the pyramid mid-points are references - two of every four frames
+       * at --bframes 3 - so six frames in flight fit; with --bframes 0
+       * every frame is a reference and six do not (114 slot stalls in 120
+       * frames, and 7% slower than four). Measured at eighteen threads,
+       * 120 frames: K = 6 against K = 4 is -13% wall on park_joy_720p,
+       * -14% on sintel_720p, -18% on sita_toon_720p, -6% on
+       * crowd_run_1080p and -6% on foreman_cif, and +35 MB at 1080p
+       * (198 -> 233, against sec 6's 300 MB ceiling). */
+      int k = v ? atoi(v) : (e->bframes >= 2 ? 6 : 4);
       e->K = k < 1 ? 1 : k > N265_MAX_FRAME_WORK ? N265_MAX_FRAME_WORK : k; }
     { const char *v = getenv("N265_RC_LAG");
       int d = v ? atoi(v) : 0;
@@ -1294,8 +1306,18 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
         fw->job_snap_x = fw->ctb_cols > 1 ? 1 : 0;  /* the WPP geometry */
         fw->job_sao_on = n265_sao_enabled();
         /* G1's hint: LAG = 1 + ceil((merange + 5) / ctb_size), sec 1's
-         * own formula, kept as the row-start heuristic. */
+         * own formula, kept as the row-start heuristic. N265_REF_LAG_HINT
+         * overrides it in CTB rows (0 = start a row as soon as its
+         * references have published anything at all, which is the
+         * loosest legal hint); it is a readiness predicate and cannot
+         * change bits, so it is a pure schedule knob for T3/4's sweep. */
+        static int hint = -2;
+        if (hint == -2) {
+            const char *v = getenv("N265_REF_LAG_HINT");
+            hint = v ? atoi(v) : -1;
+        }
         fw->ref_lag = fw->slice_type == 2 ? 0
+            : hint >= 0 ? hint
             : 1 + ((57 + 5 + (1 << fw->ctb_log2) - 1) >> fw->ctb_log2);
         fw->qprev = fw->qp;
     }

@@ -27,11 +27,10 @@ int n265_la_init(struct n265_encoder *e)
     la->bw = (la->lw + 7) / 8;
     la->bh = (la->lh + 7) / 8;
     la->depth = e->la_depth;
-    /* depth + 1 live slots, plus a free run long enough that the slot the
-     * next push takes cannot be one of the K frames still in flight
-     * (see la.h). Allocating exactly this is also why the default queue
-     * is smaller than it was at T2: 12 + 2 + 4 slots, not 24. */
-    la->cap = la->depth + 2 + e->K;
+    /* depth + 1 live slots, plus a free run longer than the slots the
+     * frames in flight can hold - K rounded up to a mini-GOP, because
+     * pops happen at mini-GOP ends (see la.h). */
+    la->cap = la->depth + 2 + e->K + e->bframes;
     if (la->cap > LA_MAX)
         la->cap = LA_MAX;
     for (int i = 0; i < la->cap; i++) {

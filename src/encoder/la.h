@@ -15,10 +15,14 @@
  * slot's source planes. n265_la_pop returns a slot to the BACK of that
  * run and n265_la_push takes one off the front, so a slot is not reused
  * until every other free one has been - which is what keeps D3's source
- * stall from firing on the frame that was just dispatched. LA_MAX bounds
- * depth + 2 + K; only `la->cap` slots are allocated. */
+ * stall from firing on the frame that was just dispatched.
+ *
+ * The run has to be longer than the number of slots the frames in flight
+ * hold. That is not K but K rounded up to a mini-GOP, because pops
+ * happen at mini-GOP ends: K + bframes bounds it. LA_MAX sizes the array
+ * for the worst case; only `la->cap` slots are allocated. */
 #define LA_DEPTH_MAX 20     /* --rc-lookahead clamp, unchanged since L1 */
-#define LA_MAX (LA_DEPTH_MAX + 2 + 8)   /* + N265_MAX_FRAME_WORK */
+#define LA_MAX (LA_DEPTH_MAX + 2 + 8 + 7)  /* + K + N265_MAX_BFRAMES */
 #define LA_MAX_CTUS 8160    /* 4K at CTB 32 */
 
 struct n265_encoder;
