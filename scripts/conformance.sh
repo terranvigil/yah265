@@ -197,6 +197,14 @@ run_vector_env "N265_MAX_FRAME_WORK=8" \
            k8_t12_b7   352x288 24  testsrc2  "--keyint 12 --bframes 7 --aq 1 --cutree 1 --threads 12"
 run_vector_env "N265_MAX_FRAME_WORK=8" \
            k8_t12_abr  352x288 24  testsrc2  "--keyint 12 --bitrate 400 --aq 1 --cutree 1 --threads 12"
+# T3/1: output is a prefix, so up to K frames stay in flight ACROSS API
+# calls. Two cells for the two ends of that contract: --bframes 0 at
+# twelve threads (the case it exists for - it used to overlap nothing but
+# the flush tail), and N265_API_DEFER, which holds each call's prefix back
+# until the deferred-NAL ring is half full. The bytes may not move.
+run_vector b0_t12_cif  352x288 24  testsrc2  "--keyint 12 --bframes 0 --aq 1 --cutree 1 --threads 12"
+run_vector_env "N265_API_DEFER=1" \
+           defer_t12_cif 352x288 24 testsrc2 "--keyint 12 --bframes 5 --aq 1 --cutree 1 --threads 12"
 # D4's observation lag. Unlike K this one IS bitstream-affecting, so it
 # gets a cell at one thread and at twelve: the stream must differ from
 # the D = 0 one and must not differ between thread counts.

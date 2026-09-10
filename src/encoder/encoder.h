@@ -358,8 +358,30 @@ struct n265_encoder {
     /* A whole mini-GOP can leave in one call, and the ring may grow, so
      * the NAL payload pointers are patched from these offsets after the
      * last frame of the call has been packed. */
-    n265_nal nal[N265_MAX_BFRAMES + 9];
-    size_t nal_off[N265_MAX_BFRAMES + 9];
+    /* A call can hand back a mini-GOP plus whatever the previous call
+     * left in flight (A1), so this is sized for two mini-GOPs and K plus
+     * the three headers. Overflowing it is not an error: emit_done stops
+     * where it runs out and the rest is the next call's prefix. */
+    n265_nal nal[2 * (N265_MAX_BFRAMES + 1) + N265_MAX_FRAME_WORK + 8];
+    size_t nal_off[2 * (N265_MAX_BFRAMES + 1) + N265_MAX_FRAME_WORK + 8];
+    /* A1/A2: output is a prefix of the completed frames and up to K stay
+     * in flight across calls. Off at one worker, where nothing overlaps
+     * and a call must return exactly what it returned before.
+     * `api_defer` is N265_API_DEFER, the gate knob that pushes the
+     * chunking to the far end of the contract (see n265_encoder_encode). */
+    int defer_out, api_defer;
+    /* T3/1: may claim_slot prefer an unmarked slot no frame in flight is
+     * still using, over the lowest-index one? Only where the reference
+     * structure CANNOT fill every slot, so that the claim never reaches
+     * the marked-slot fallback. See claim_slot for why that condition is
+     * exactly what makes the preference bit-neutral. */
+    int slot_prefer;
+    /* N265_STALL_TRACE's driver half: why the driver had to join a frame
+     * before it wanted to. `k` is K itself (the frame_work ran out),
+     * `slot` is D3's DPB-slot stall, `src` its lookahead-source twin,
+     * `rc` the ABR observation lag. This is what says whether the
+     * overlap is capped by K or by the DPB. */
+    int join_k, join_slot, join_src, join_rc;
     int frames_done;
     int in_display_idx;     /* next arriving picture's display index */
     int gop_start_display;  /* display index of the current IDR      */
@@ -511,7 +533,7 @@ void n265_row_end(n265_row_ctx *row, n265_frame_work *fw, int r);
 /* encoder.c: the DPB the reference structure needs at this --bframes /
  * --ref, in the SPS's own units (see the definition). */
 void n265_dpb_requirement(int bframes, int ref_max, int *reorder,
-                          int *buffering);
+                          int *buffering, int *peak);
 
 /* headers.c */
 void n265_write_vps(n265_frame_work *e);

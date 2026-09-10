@@ -64,7 +64,10 @@ static int auto_threads(void)
 void n265_set_la(int depth, int cutree);
 void n265_set_la(int depth, int cutree)
 {
-    g_la_depth = depth < 1 ? 1 : depth > LA_MAX - 4 ? LA_MAX - 4 : depth;
+    /* The clamp is LA_DEPTH_MAX, not the ring size: T3/1 grew the ring by
+     * the free run K needs, and the reachable lookahead must not move
+     * with it (that would change bits). */
+    g_la_depth = depth < 1 ? 1 : depth > LA_DEPTH_MAX ? LA_DEPTH_MAX : depth;
     g_cutree = cutree ? 1 : 0;
 }
 
@@ -138,7 +141,7 @@ static void gop_order(int lo, int hi, int *ord, int *n, int *nref)
  * buffer count. That is out of range by 7.4.3.2.1 and dec265 refuses the
  * stream. */
 void n265_dpb_requirement(int bframes, int ref_max, int *reorder,
-                          int *buffering)
+                          int *buffering, int *peak)
 {
     int R = 0, nrefb = 0;
     for (int a = 0; a <= bframes; a++) {
@@ -157,6 +160,8 @@ void n265_dpb_requirement(int bframes, int ref_max, int *reorder,
             nrefb = nref;
     }
     int refs = ref_max + 1 + nrefb;
+    if (peak)
+        *peak = refs;           /* uncapped: how many slots can be marked */
     if (refs > N265_DPB_SLOTS)
         refs = N265_DPB_SLOTS;
     *reorder = R;
@@ -183,7 +188,7 @@ static void fw_config(n265_encoder *e, n265_frame_work *fw)
     fw->qp_delta_on = e->qp_delta_on;
     fw->bframes = e->bframes;
     n265_dpb_requirement(e->bframes, e->ref_max, &fw->dpb_reorder,
-                         &fw->dpb_buffering);
+                         &fw->dpb_buffering, NULL);
     fw->psy = e->psy;
     for (int i = 0; i < 3; i++)
         fw->pad_stride[i] = e->pad_stride[i];
@@ -412,6 +417,20 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     }
     if (!e->pool)
         goto fail;
+    /* A1/A2: defer output only where there is something to overlap. */
+    e->api_defer = getenv("N265_API_DEFER") != NULL;
+    {   /* T3/1: the slot preference, decided here from --bframes and
+         * --ref alone. It is legal exactly while the marked set cannot
+         * fill the pool, because then every claim finds an unmarked slot
+         * - a picture in no RPS and no reference list - and which one it
+         * takes is unobservable. At the shipping default (bframes 3,
+         * ref 1) the peak is 3 of 6. */
+        int reorder, buffering, peak;
+        n265_dpb_requirement(e->bframes, e->ref_max, &reorder, &buffering,
+                             &peak);
+        e->slot_prefer = peak < N265_DPB_SLOTS;
+    }
+    e->defer_out = ntp_threads(e->pool) > 1 || e->api_defer;
     e->nlanes = ntp_lanes(e->pool);
     e->row = calloc((size_t)e->nlanes, sizeof(*e->row));
     if (!e->row)
@@ -446,17 +465,26 @@ fail:
     return NULL;
 }
 
+static void join_oldest(n265_encoder *e);
+
 void n265_encoder_close(n265_encoder *e)
 {
     if (!e)
         return;
-    if (getenv("N265_STALL_TRACE"))
+    /* A1: frames may still be in flight if the caller closed without
+     * flushing. Their jobs own the frame_works and the pool. */
+    while (e->n_inflight)
+        join_oldest(e);
+    if (getenv("N265_STALL_TRACE")) {
+        fprintf(stderr, "JOIN k=%d slot=%d src=%d rc=%d\n",
+                e->join_k, e->join_slot, e->join_src, e->join_rc);
         fprintf(stderr, "STALL frames=%ld stalls=%ld %.3f/frame\n",
                 (long)atomic_load(&e->stall_frames),
                 (long)atomic_load(&e->ref_stalls),
                 atomic_load(&e->stall_frames)
                     ? (double)atomic_load(&e->ref_stalls) /
                       (double)atomic_load(&e->stall_frames) : 0.0);
+    }
     for (int i = 0; i < e->K; i++)
         fw_close(&e->fw[i]);
     for (int i = 0; i < e->nlanes; i++)
@@ -1494,18 +1522,53 @@ static int slot_busy(n265_encoder *e, const struct n265_refpic *s)
     return 0;
 }
 
+/* D3, the source half: is the lookahead slot whose luma plane starts at
+ * `src` still aliased by a frame in flight? A frame_work's pad_plane
+ * points straight at the queue slot, and analysis reads it until the
+ * frame retires. */
+static int la_src_busy(n265_encoder *e, const uint8_t *src)
+{
+    for (int i = 0; i < e->n_inflight; i++)
+        if (e->inflight[i]->pad_plane[0] == src)
+            return 1;
+    return 0;
+}
+
 /* Claim the DPB slot this frame reconstructs into and point the
- * frame_work's recon planes at it. Same rule the pre-T0a store applied
- * after entropy: an unmarked slot, else the marked one with the oldest
- * POC that is not in this frame's reference lists. The rule sees only
- * `marked`, which is driver-serial, so the CHOICE is the serial
- * encoder's; D3 then STALLS (retires frames) rather than re-routing, so
- * slot identity still cannot reach the bitstream. */
+ * frame_work's recon planes at it. The picture goes in an UNMARKED slot
+ * where one exists - a picture no RPS and no reference list can see -
+ * and otherwise in the marked one with the oldest POC that is not in
+ * this frame's lists, which is what the pre-T0a store did after entropy.
+ *
+ * WHICH unmarked slot is scheduling, not a coding decision: an unmarked
+ * picture is in nobody's RPS and nobody's list, and D2 made every order
+ * that feeds the bitstream a function of POC rather than of slot index.
+ * T3/1 uses that (`e->slot_prefer`): it takes an unmarked slot no frame
+ * in flight is still WRITING or READING in preference to the
+ * lowest-index one, because the lowest-index rule handed frame k the
+ * slot frame k-1 was still reconstructing into and D3's stall then drained
+ * the pipeline on 39 of 40 frames at `--bframes 0`. When every unmarked
+ * slot is busy the serial choice stands and D3 stalls on it: the rule
+ * never re-routes to a MARKED slot to dodge a stall.
+ *
+ * The preference is armed only where the reference structure CANNOT fill
+ * the pool (peak marked count < N265_DPB_SLOTS, decided at open). Under
+ * DPB pressure the third branch below overwrites a picture that stays
+ * `marked` - the pre-existing bug T0a recorded - and then slot identity
+ * DOES reach the stream: at `--bframes 7 --ref 3` reversing the scan
+ * order alone moves the bitstream, at one thread and at twelve alike.
+ * The condition is exactly the one that keeps the third branch
+ * unreachable, so it is what makes the preference provably bit-neutral
+ * rather than merely observed to be. */
 static void claim_slot(n265_encoder *e, n265_frame_work *fw)
 {
     struct n265_refpic *slot = NULL;
     if (fw->nonref || fw->mode == N265_MODE_PCM)
         slot = &e->scratch_pic[fw - e->fw];
+    if (e->slot_prefer)
+        for (int sl = 0; sl < N265_DPB_SLOTS && !slot; sl++)
+            if (!e->dpb[sl].marked && !slot_busy(e, &e->dpb[sl]))
+                slot = &e->dpb[sl];
     for (int sl = 0; sl < N265_DPB_SLOTS && !slot; sl++)
         if (!e->dpb[sl].marked) slot = &e->dpb[sl];
     for (int sl = 0; sl < N265_DPB_SLOTS && !slot; sl++) {
@@ -1517,8 +1580,10 @@ static void claim_slot(n265_encoder *e, n265_frame_work *fw)
     }
     if (!slot) slot = &e->dpb[0];
     /* D3: wait for the picture, never re-route to another one. */
-    while (e->n_inflight && slot_busy(e, slot))
+    while (e->n_inflight && slot_busy(e, slot)) {
+        e->join_slot++;
         join_oldest(e);
+    }
     slot->in_use = 1;
     /* `marked` is NOT cleared: when the pool is exhausted the picture
      * being overwritten stays listed in this frame's RPS exactly as it
@@ -1554,8 +1619,10 @@ static int drive_scheduler(n265_encoder *e)
 
     /* K: a free frame_work, by joining the oldest in flight. This and
      * the D3 stalls below are the only places the driver blocks. */
-    while (e->n_inflight >= e->K)
+    while (e->n_inflight >= e->K) {
+        e->join_k++;
         join_oldest(e);
+    }
 
     int li = e->plan_li[e->plan_pos];
     int kind = e->plan_kind[e->plan_pos];
@@ -1627,8 +1694,10 @@ static int drive_scheduler(n265_encoder *e)
          * earlier frame, ABR does not overlap, and the loop is
          * bit-identical to the pre-T2 one; CQP and CRF launch
          * immediately and overlap fully either way. */
-        while (e->n_inflight > e->rc_lag)
+        while (e->n_inflight > e->rc_lag) {
+            e->join_rc++;
             join_oldest(e);
+        }
         e->rc_rf = n265_rc_next(e, fw->rc_cls, fw->rc_cplx);
         fw->rc_planned = e->rc.last_planned;
     }
@@ -1671,40 +1740,54 @@ int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
     size_t out_used = 0;
     int count = 0;
 
+    int ring = (int)(sizeof(e->done) / sizeof(e->done[0]));
     if (pic) {
-        /* D3: n265_la_push is about to overwrite a recycled queue slot,
-         * and a frame_work aliases its source planes. Nothing may still
-         * be reading it. */
-        while (e->n_inflight)
+        /* D3: n265_la_push takes the front of the queue's free run, and a
+         * frame_work in flight may still be reading those source planes.
+         * The stall is on THAT slot now, not on everything in flight: the
+         * free run is longer than K, so this is a guard rather than a
+         * drain (T3/1). */
+        const uint8_t *reuse = n265_la_next_src(e);
+        while (e->n_inflight && la_src_busy(e, reuse)) {
+            e->join_src++;
             join_oldest(e);
+        }
         const uint8_t *planes[3] = { pic->plane[0], pic->plane[1],
                                      pic->plane[2] };
         n265_la_push(e, planes, pic->stride);
         e->in_display_idx++;
-        /* One call codes a whole mini-GOP (the loop only exits when the
-         * mini-GOP-end pop brings the queue back under la_depth), so the
-         * overlap window is the mini-GOP, capped at K. */
+        /* One call still codes a whole mini-GOP - the loop exits when the
+         * mini-GOP-end pop brings the queue back under la_depth, and
+         * plan building, la_pop and the cu-tree sit at exactly the point
+         * in the dispatch sequence they sat at serially - but the call no
+         * longer WAITS for it. A1: the return is a prefix of the frames
+         * completed so far, in coding order, and up to K frames stay in
+         * flight across the call boundary. */
         while (e->la.count > e->la_depth)
             drive_scheduler(e);
-        while (e->n_inflight)
-            join_oldest(e);
-        emit_done(e, INT_MAX, &out_used, &count);
+        /* A2: at one worker nothing overlaps, so nothing is deferred and
+         * the call returns exactly what it returned before the API
+         * change - which is what keeps goal 1's timing and every 1-thread
+         * identity check untouched. */
+        if (!e->defer_out)
+            while (e->n_inflight)
+                join_oldest(e);
+        /* N265_API_DEFER holds the prefix back until the ring is half
+         * full: the "including none" end of A1, and the bytes it hands
+         * out must equal the default chunking's. */
+        emit_done(e, e->api_defer && e->n_done < ring / 2 ? 0 : INT_MAX,
+                  &out_used, &count);
     } else {
-        /* Flush: the serial encoder took one scheduler step per call and
-         * returned that frame. So does this one - but it DISPATCHES
-         * ahead, up to K, so the tail of the sequence overlaps like the
-         * rest of it. Dispatching ahead is confined to the plan the
-         * driver has already built: plan building and la_pop sit at
-         * exactly the same point in the dispatch sequence they sat at
-         * serially, so every b-adapt, scenecut and cu-tree decision sees
-         * the queue it saw before. */
-        int ring = (int)(sizeof(e->done) / sizeof(e->done[0]));
+        /* Flush drains in order (A1). It dispatches ahead up to K first,
+         * so the tail of the sequence overlaps like the rest of it, then
+         * returns every frame that has completed - at least one, so a
+         * caller's drain loop terminates. */
         while (e->la.count > 0 && e->n_inflight < e->K &&
                e->n_done + e->n_inflight < ring - 2)
             drive_scheduler(e);
         if (e->n_done == 0 && e->n_inflight)
             join_oldest(e);
-        emit_done(e, 1, &out_used, &count);
+        emit_done(e, e->defer_out ? INT_MAX : 1, &out_used, &count);
     }
     for (int i = 0; i < count; i++)
         e->nal[i].payload = e->out + e->nal_off[i];
