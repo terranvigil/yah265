@@ -7,6 +7,8 @@
 
 #include <stddef.h>
 
+#include "common/cpu.h"
+#include "encoder/arm/neon.h"
 #include "encoder/mc.h"
 #include "encoder/refchk.h"
 
@@ -389,14 +391,38 @@ void n265_mc_chroma_14(int16_t *dst, int n, const uint8_t *ref,
     n265_mc_chroma_14_wh(dst, n, n, n, ref, ref_stride, fx, fy);
 }
 
-void n265_bi_avg_wh(uint8_t *dst, int ds, const int16_t *a, const int16_t *b,
-                    int w, int h)
+/* the C reference the NEON kernel is checked against, kept callable so
+ * checkasm can compare `_ref` with `_neon` directly rather than through
+ * the dispatching entry point */
+void n265_bi_avg_wh_ref(uint8_t *dst, int ds, const int16_t *a,
+                        const int16_t *b, int w, int h)
 {
     for (int y = 0; y < h; y++)
         for (int x = 0; x < w; x++) {
             int v = (a[y * w + x] + b[y * w + x] + 64) >> 7;
             dst[y * ds + x] = (uint8_t)(v < 0 ? 0 : v > 255 ? 255 : v);
         }
+}
+
+void n265_bi_avg_wh(uint8_t *dst, int ds, const int16_t *a, const int16_t *b,
+                    int w, int h)
+{
+#if N265_NEON
+    /* Dispatch at the top of the entry point, after any N265_RC_TOUCH -
+     * there are none here, a and b being the caller's own int16
+     * intermediates rather than a guarded reference plane. See
+     * src/encoder/arm/neon.h for the convention.
+     *
+     * The shape test joins the class test because the kernel has no
+     * vector path below four samples wide: the 2-wide chroma blocks run
+     * its scalar tail and pay an out-of-line call for it, measured at
+     * 0.75x on 2x8. Both paths are bit-exact, so this moves time only. */
+    if (w >= 4 && n265_asm_on(N265_ASM_MC)) {
+        n265_bi_avg_wh_neon(dst, ds, a, b, w, h);
+        return;
+    }
+#endif
+    n265_bi_avg_wh_ref(dst, ds, a, b, w, h);
 }
 
 void n265_bi_avg(uint8_t *dst, const int16_t *a, const int16_t *b, int n)

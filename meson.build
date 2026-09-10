@@ -21,6 +21,7 @@ inc = include_directories('include', 'src')
 
 lib_sources = [
   'src/common/bitstream.c',
+  'src/common/cpu.c',
   'src/threadpool/ntp.c',
   'src/encoder/cabac.c',
   'src/encoder/tables.c',
@@ -44,6 +45,23 @@ lib_sources = [
   'src/encoder/preset.c',
   'src/encoder/encoder.c',
 ]
+
+# Phase 6, goal 3. NEON is baseline on aarch64 and this box's clang already
+# defaults to the host CPU, so there is no -march here on purpose: the only
+# thing the flag does is let the dispatch sites and src/encoder/arm/*
+# compile in. The C kernels stay first-class and stay where they are - the
+# _neon translation units only ADD entry points, one file per kernel family
+# so the family worktrees never touch the same TU and this list is written
+# once. Runtime detection (src/common/cpu.c) still decides, so a build for
+# aarch64 that runs somewhere without the optional extensions is fine.
+if cpu_family == 'aarch64'
+  add_project_arguments('-DN265_NEON=1', language : 'c')
+  lib_sources += [
+    'src/encoder/arm/transform_neon.c',
+    'src/encoder/arm/satd_neon.c',
+    'src/encoder/arm/mc_neon.c',
+  ]
+endif
 
 # Both linkage forms (yah264 lesson: plain library() made the CLI link
 # the dylib and cross a shared-library boundary on every hot call, worth

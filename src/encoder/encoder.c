@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "common/cpu.h"
 #include "encoder/deblock.h"
 #include "encoder/encoder.h"
 #include "encoder/est.h"
@@ -785,6 +786,11 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     n265_sao_warm();
     n265_rdoq_warm();
     n265_satd_warm();
+    /* the CPU feature word and the N265_ASM_OFF ablation mask, resolved
+     * here so the pthread_once and the n265_env read both happen on the
+     * driver thread; every NEON dispatch site then sees only the inlined
+     * acquire load */
+    n265_cpu_flags();
 
     size_t frame_bytes = (size_t)e->pad_w * e->pad_h * 3 / 2;
     /* A whole mini-GOP leaves per call, and the ring grows if it has to
