@@ -9,22 +9,27 @@ The encoder resolves its ~200 N265_* knobs through lazy function-local
 statics:
 
     static int v = -1;
-    if (v < 0) { const char *e = getenv("N265_FOO"); v = e ? atoi(e) : 1; }
+    if (v < 0) { const char *e = n265_env("N265_FOO"); v = e ? atoi(e) : 1; }
+
+The reader is `n265_env()` (src/encoder/preset.c) since 2026-09-10, which
+falls back to the preset table when the variable is unset; a handful of
+sites still call `getenv` directly. Both are gates and both are audited.
 
 Under GOP-parallel opens these first-touch on whichever worker gets there
 first. The races are benign same-value init, but a nonzero TSan floor hides
 the next real report -- the 4:4:4 MC border overflow (08-29) sat behind four
 of them. Two distinct failures:
 
-  TRAP  the resolved value still satisfies the guard, so the gate re-runs
-        getenv and REWRITES its static on EVERY call. A perpetual writer;
+  TRAP  the resolved value still satisfies the guard, so the gate re-reads
+        the environment and REWRITES its static on EVERY call. A perpetual writer;
         no warm can quiet it. (N265_WF_CAPK resolved "unset" to -2 under a
         `v < 0` guard and did exactly this.)
   COLD  latches correctly, but nothing resolves it on the main thread before
         the pool exists, so first touch races.
 
-Warmed means reachable from warm_lr_statics, ntp_pool_create or
-ntp_bg_create. A warm can only reach a gate through a CALLABLE function: a
+Warmed means reachable from one of the driver-thread warms n265_encoder_open
+runs before it submits a job (WARM_ROOTS below, which is where a new warm has
+to be named). A warm can only reach a gate through a CALLABLE function: a
 static resolved inline inside a hot function is unreachable by construction
 and has to be hoisted into an accessor first.
 
@@ -37,20 +42,31 @@ Exits nonzero if any TRAP is found. Run it after adding a knob.
 import re, sys, json, pathlib, subprocess
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-WARM_ROOTS = ["warm_lr_statics", "ntp_pool_create", "ntp_bg_create"]
+# The driver-thread warms n265_encoder_open runs before it submits a job,
+# plus the pthread_once behind n265_cpu_flags(), which open also touches
+# there. These are this encoder's names; yah264's were warm_lr_statics /
+# ntp_pool_create / ntp_bg_create and none of them exists here.
+WARM_ROOTS = ["n265_encoder_warm", "n265_la_warm", "n265_ctu_warm", "n265_mv_warm",
+              "n265_sao_warm", "n265_rdoq_warm", "n265_satd_warm",
+              "n265_cpu_flags_slow"]
 
-# functions whose getenv reads into a local each call: no shared static, so
-# no race, and warming them would be meaningless.
+# Functions whose env reads go into a LOCAL or into the encoder struct on
+# every call: no shared static, so no race, and warming them would be
+# meaningless. They land here because the verdict machinery keys off the
+# first `if (x < N)` in the body, and a function this long always has one.
+# Plus cpu_detect_once, whose one write is behind a pthread_once and not a
+# sentinel guard at all, and the warms themselves.
 NOT_A_GATE = {
-    "auto_threads", "la_depth_for", "wf_width_for", "la_chain_prop",
-    "rc_set_qp", "yah265_encoder_open", "yah265_encoder_close",
-    "cpu_detect_once", "mbt_oracle_init", "dpbp_open", "skor_init",
-    "mb_log_open", "blate_open", "trf_open", "tr_select",
-    "crf_aqabs_forced", "blk8_intra_dispatch", "warm_lr_statics",
+    "n265_encoder_open", "dispatch_frame", "build_plan_order", "seg_bs",
+    "maybe_qp_delta", "n265_la_degrade", "n265_la_brun", "n265_la_cutree",
+    "cpu_detect_once",
+    "n265_encoder_warm", "n265_ctu_warm", "n265_mv_warm", "n265_sao_warm",
+    "n265_rdoq_warm", "n265_satd_warm", "n265_la_warm",
 }
 
 FUNC   = re.compile(r"^(?:static\s+)?[A-Za-z_][\w \t*]*?\b(\w+)\s*\([^;]*?\)\s*$", re.M)
-KNOB   = re.compile(r'getenv\s*\(\s*"([^"]+)"')
+READER = r"(?:n265_env|getenv)"
+KNOB   = re.compile(READER + r'\s*\(\s*"([^"]+)"')
 GUARD  = re.compile(r"if\s*\(\s*(\w+)(?:\[\d+\])?\s*(<|<=|==|!=)\s*(-?\d+)\s*\)")
 TERN   = re.compile(r"(\w+)(?:\[\d+\])?\s*=\s*\w+\s*\?\s*(.+?)\s*:\s*(.+?)\s*;", re.S)
 ARRDEF = re.compile(r"\bint\s+(\w+)\[\d+\]\s*=\s*\{([^}]*)\}")
@@ -62,13 +78,26 @@ def functions(text):
 
     Brace-counted, so a one-line body is missed -- see the `{` check. That is
     deliberate: every gate in this tree is written multi-line.
+
+    Known limit: a static whose sentinel is not an integer literal is not
+    read as a guard at all (`static FILE *f = (FILE *)-1;`, `if (!tab[51])`),
+    so those gates do not appear in the census. Both instances in this tree
+    are warmed; add the form here before trusting the count.
     """
     lines = text.split("\n")
     i = 0
     while i < len(lines):
-        m = FUNC.match(lines[i])
-        if m and i + 1 < len(lines) and lines[i + 1].strip() == "{":
-            depth, j, started = 0, i + 1, False
+        # a signature may wrap: join continuation lines until the argument
+        # list closes, so n265_la_push(...) and its four wrapped arguments
+        # are one definition and not invisible.
+        sig, k = lines[i], i
+        while (sig.count("(") > sig.count(")") and k + 1 < len(lines)
+               and k - i < 8 and ";" not in sig):
+            k += 1
+            sig = sig + " " + lines[k].strip()
+        m = FUNC.match(sig)
+        if m and k + 1 < len(lines) and lines[k + 1].strip() == "{":
+            depth, j, started = 0, k + 1, False
             while j < len(lines):
                 depth += lines[j].count("{") - lines[j].count("}")
                 if lines[j].count("{"):
@@ -80,7 +109,8 @@ def functions(text):
             i = j + 1
             continue
         # one-liner: `void f(void) { ... }`
-        if m is None and "{" in lines[i] and "}" in lines[i] and "getenv" not in lines[i]:
+        if m is None and "{" in lines[i] and "}" in lines[i] \
+           and not re.search(READER, lines[i]):
             m2 = re.match(r"^(?:static\s+)?[\w ]+?\b(\w+)\s*\([^;]*?\)\s*\{", lines[i])
             if m2:
                 yield m2.group(1), i + 1, lines[i]
@@ -100,7 +130,7 @@ def satisfies(val, op, sent):
 
 
 def main():
-    files = sorted(subprocess.run(["grep", "-rl", "getenv", str(ROOT / "src")],
+    files = sorted(subprocess.run(["grep", "-rlE", READER, str(ROOT / "src")],
                                   capture_output=True, text=True).stdout.split())
     rows, allfuncs = [], {}
     for f in files:
