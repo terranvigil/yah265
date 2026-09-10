@@ -2,7 +2,7 @@
 
 BUILD ?= build
 
-.PHONY: build test conformance conformance-fast provenance asan determ determ-fast board board-quick clean
+.PHONY: build test conformance conformance-fast provenance asan determ determ-fast board board-quick clean checkasm-bench checkasm-asan
 
 build:
 	@[ -d $(BUILD) ] || meson setup $(BUILD)
@@ -11,6 +11,21 @@ build:
 test: build
 	meson test -C $(BUILD) --print-errorlogs
 	scripts/provenance_check.sh
+
+# The kernel benchmark tables (ref / c / neon ns per call). `make test`
+# runs checkasm for correctness only, which is what keeps it fast; this is
+# where the numbers a kernel item reports come from. Wants a quiet box.
+checkasm-bench: build
+	$(BUILD)/tests/checkasm --bench
+
+# checkasm under ASan+UBSan, part of the kernel item gate. The guard
+# buffers catch a stray read or write at the BLOCK edge and the sanitiser
+# catches it at the ALLOCATION edge; they miss different bugs, so a kernel
+# item runs both.
+checkasm-asan:
+	@[ -d build-asan ] || meson setup build-asan -Db_sanitize=address,undefined -Db_lundef=false
+	ninja -C build-asan tests/checkasm
+	build-asan/tests/checkasm
 
 conformance: build
 	N265=$(BUILD)/n265 scripts/conformance.sh

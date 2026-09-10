@@ -68,6 +68,7 @@ DEFAULT_OVERRIDES = {
     "N265_QP_FRAC": "= --bitrate",       # on with ABR, off otherwise
     "N265_AQ_FLOOR": "4",                # `if (v) vfloor = atof(v)`: the
                                          # literal is not last on the line
+    "N265_ASM_OFF": "unset",             # a class-name list, not a number
 }
 
 OVERRIDES = {

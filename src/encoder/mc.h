@@ -76,6 +76,10 @@ const uint8_t *n265_ref_win(const uint8_t *plane, int stride, int pic_w,
 /* default bi combine: (a + b + 64) >> 7, clipped. a/b are packed w x h. */
 void n265_bi_avg_wh(uint8_t *dst, int dst_stride, const int16_t *a,
                     const int16_t *b, int w, int h);
+/* the C reference of the above; checkasm compares `_ref` with `_neon`
+ * directly rather than through the dispatching entry point */
+void n265_bi_avg_wh_ref(uint8_t *dst, int dst_stride, const int16_t *a,
+                        const int16_t *b, int w, int h);
 void n265_bi_avg(uint8_t *dst, const int16_t *a, const int16_t *b, int n);
 
 #endif
