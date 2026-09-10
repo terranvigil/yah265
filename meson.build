@@ -41,6 +41,7 @@ lib_sources = [
   'src/encoder/deblock.c',
   'src/encoder/sao.c',
   'src/encoder/headers.c',
+  'src/encoder/preset.c',
   'src/encoder/encoder.c',
 ]
 

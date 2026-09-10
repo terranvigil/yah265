@@ -14,6 +14,7 @@
 
 #include "encoder/encoder.h"
 #include "encoder/la.h"
+#include "encoder/preset.h"
 
 int n265_la_init(struct n265_encoder *e)
 {
@@ -263,7 +264,7 @@ void n265_la_push(struct n265_encoder *e, const uint8_t *const plane[3],
      * every clip in the corpus that is single-shot at 120 frames is
      * byte-identical under either value. */
     static int hold = -1;
-    if (hold < 0) { const char *v = getenv("N265_SC_HOLD"); hold = v ? atoi(v) : 1; }
+    if (hold < 0) { const char *v = n265_env("N265_SC_HOLD"); hold = v ? atoi(v) : 1; }
     int nblk = la->bw * la->bh;
     int held = hold && f->pcost_sum < (uint64_t)nblk * 17;
     if (!held)
@@ -284,7 +285,7 @@ int n265_la_scenecut(struct n265_encoder *e, int i)
      * scene change */
     int cut = f->sc_ratio >= 0.75f &&
               (f->sc_ema == 0.0f || f->sc_ratio >= 1.3f * f->sc_ema);
-    if (getenv("N265_SC_TRACE"))
+    if (n265_env("N265_SC_TRACE"))
         fprintf(stderr, "sc d=%d p=%llu i=%llu ratio=%.2f cut=%d\n",
                 f->display_idx, (unsigned long long)f->pcost_sum,
                 (unsigned long long)f->icost_sum,
@@ -428,7 +429,7 @@ int n265_la_degrade(struct n265_encoder *e, int maxa, double thr)
         return 0;
     if (!la->anchor_valid || maxa >= la->count)
         return maxa;
-    int trace = getenv("N265_BADAPT_TRACE") != NULL;
+    int trace = n265_env("N265_BADAPT_TRACE") != NULL;
     int A = 0;
     for (int i = 1; i <= maxa; i++) {
         A = i;
@@ -458,7 +459,7 @@ int n265_la_brun(struct n265_encoder *e, int maxa)
     for (int k = 0; k <= maxa; k++)
         fwd[k] = pair_cost(la, la->f[k].lowres, la->anchor_lowres, 0, k, 1,
                            la->pc_mv[k]);
-    int trace = getenv("N265_BADAPT_TRACE") != NULL;
+    int trace = n265_env("N265_BADAPT_TRACE") != NULL;
     int best_a = 1;
     double best_c = 0;
     for (int A = 1; A <= maxa; A++) {
@@ -624,7 +625,7 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
     if (e->crf_on) {
         static int centre = -1;
         if (centre < 0) {
-            const char *v = getenv("N265_CT_CENTRE");
+            const char *v = n265_env("N265_CT_CENTRE");
             centre = v ? atoi(v) : 0;
         }
         if (!centre) {
@@ -661,7 +662,7 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
         int off = (int)(v > 0 ? v + 0.5f : v - 0.5f);
         fw->ctu_qp_off[k] = (int8_t)(off < -12 ? -12 : off > 12 ? 12 : off);
     }
-    if (getenv("N265_CT_TRACE")) {
+    if (n265_env("N265_CT_TRACE")) {
         int nz = 0, mn = 0;
         double fm = 0;
         for (int k = 0; k < e->ctb_cols * e->ctb_rows; k++) {

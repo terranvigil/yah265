@@ -17,6 +17,7 @@
 #include <string.h>
 
 #include "encoder/sao.h"
+#include "encoder/preset.h"
 
 static inline int clip3(int lo, int hi, int v)
 {
@@ -152,7 +153,7 @@ static int64_t score_params(const sao_stats *st, int type, int cop,
 static int sao_hist_on(void)
 {
     static int v = -1;
-    if (v < 0) v = getenv("N265_MODE_HIST") != NULL;
+    if (v < 0) v = n265_env("N265_MODE_HIST") != NULL;
     return v;
 }
 
@@ -171,7 +172,7 @@ static int sao_types(void)
 {
     static int v = -1;
     if (v < 0) {
-        const char *s = getenv("N265_SAO_TYPES");
+        const char *s = n265_env("N265_SAO_TYPES");
         v = s ? atoi(s) : 0;    /* R7: the filter is OFF by default. It
                                  * wins PSNR and loses VMAF-NEG on every
                                  * band read; see docs/phase4-ladder.md
@@ -193,7 +194,7 @@ static int sao_qplam(void)
 {
     static int v = -1;
     if (v < 0) {
-        const char *s = getenv("N265_SAO_QPLAM");
+        const char *s = n265_env("N265_SAO_QPLAM");
         v = s ? atoi(s) : 0;
     }
     return v;
@@ -203,7 +204,7 @@ static int sao_bias(void)
 {
     static int v = -1;
     if (v < 0) {
-        const char *s = getenv("N265_SAO_BIAS");
+        const char *s = n265_env("N265_SAO_BIAS");
         v = s ? atoi(s) : 100;
     }
     return v;
@@ -348,7 +349,7 @@ static int sao_chroma_joint(void)
 {
     static int v = -1;
     if (v < 0) {
-        const char *s = getenv("N265_SAO_CHROMA");
+        const char *s = n265_env("N265_SAO_CHROMA");
         v = s ? atoi(s) : 1;    /* R7: the joint decision is the correct
                                  * one; 0 is the pre-R7 accounting. Moot
                                  * unless N265_SAO_TYPES is non-zero. */
@@ -380,7 +381,7 @@ static int sao_gate(void)
 {
     static int v = -1;
     if (v < 0) {
-        const char *s = getenv("N265_SAO_GATE");
+        const char *s = n265_env("N265_SAO_GATE");
         v = s ? atoi(s) : 2;    /* nearly-clean CTBs, the mechanism-true
                                  * bound; see docs/phase4-ladder.md R6 */
     }
@@ -467,7 +468,7 @@ static FILE *sao_trace(void)
 {
     static FILE *f = (FILE *)-1;
     if (f == (FILE *)-1) {
-        const char *s = getenv("N265_SAO_TRACE");
+        const char *s = n265_env("N265_SAO_TRACE");
         f = s ? fopen(s, "w") : NULL;
         if (f)
             fprintf(f, "poc,qp,cqp,gated,merge,t0,t1,t2,jexpl,jleft,jup,"

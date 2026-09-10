@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include "encoder/deblock.h"
 #include "encoder/transform.h"
+#include "encoder/preset.h"
 
 /* Table 8-12 */
 static const uint8_t beta_tab[52] = {
@@ -148,7 +149,7 @@ static int seg_bs(const struct n265_frame_work *e, int x, int y, int vertical)
      * number of motion vectors -> 1; same pictures -> compare the vectors
      * that point at the same picture, both pairings when both point at
      * one picture twice */
-    if (getenv("N265_OLD_BS")) {            /* diagnostic: the list-based rule */
+    if (n265_env("N265_OLD_BS")) {          /* diagnostic: the list-based rule */
         if (e->blk_pred[pi] != e->blk_pred[qi]) return 1;
         for (int l = 0; l < 2; l++) {
             if (!(e->blk_pred[pi] & (1 << l))) continue;

@@ -15,6 +15,7 @@
 #include "encoder/records.h"
 #include "encoder/residual.h"
 #include "encoder/sao.h"
+#include "encoder/preset.h"
 
 static void mpm_list(struct n265_frame_work *e, int x0, int y0, int cand[3])
 {
@@ -124,7 +125,7 @@ static void maybe_qp_delta(struct n265_frame_work *e, const res_ops *ops,
         return;
     e->ent_qp_coded = 1;
     int delta = e->ent_ctu_qp - e->ent_qp_prev;
-    if (getenv("N265_QP_TRACE"))
+    if (n265_env("N265_QP_TRACE"))
         fprintf(stderr, "[%s %d->%d]", e->in_entropy ? "ENT" : "ana",
                 e->ent_qp_prev, e->ent_ctu_qp);
     int a = delta < 0 ? -delta : delta;

@@ -11,6 +11,7 @@
 #include "encoder/mv.h"
 #include "encoder/refchk.h"
 #include "encoder/satd.h"
+#include "encoder/preset.h"
 
 /* is the 4x4 cell holding (x,y) an already-decoded inter block?
  * Prediction-block availability (6.4.2): a neighbour inside the CURRENT
@@ -88,25 +89,25 @@ static mv_t mv_scale(mv_t mv, int tb, int td)
 static int no_tmvp_on(void)
 {
     static int v = -1;
-    if (v < 0) v = getenv("N265_NO_TMVP") != NULL;
+    if (v < 0) v = n265_env("N265_NO_TMVP") != NULL;
     return v;
 }
 static int merge_trace_disp(void)
 {
     static int v = -2;
-    if (v == -2) { const char *s = getenv("N265_MERGE_TRACE"); v = s ? atoi(s) : -1; }
+    if (v == -2) { const char *s = n265_env("N265_MERGE_TRACE"); v = s ? atoi(s) : -1; }
     return v;
 }
 static int fullpel_on(void)
 {
     static int v = -1;
-    if (v < 0) v = getenv("N265_FULLPEL") != NULL;
+    if (v < 0) v = n265_env("N265_FULLPEL") != NULL;
     return v;
 }
 static int subpel_dedup(void)
 {
     static int v = -1;
-    if (v < 0) { const char *s = getenv("N265_SUBPEL_DEDUP"); v = s ? atoi(s) != 0 : 1; }
+    if (v < 0) { const char *s = n265_env("N265_SUBPEL_DEDUP"); v = s ? atoi(s) != 0 : 1; }
     return v;
 }
 
@@ -495,7 +496,7 @@ static int subme_mode(void)
 {
     static int v = -1;
     if (v < 0) {
-        const char *s = getenv("N265_SUBME");
+        const char *s = n265_env("N265_SUBME");
         v = s ? atoi(s) : 0;
     }
     return v;
@@ -507,7 +508,7 @@ static int me_pattern(void)
 {
     static int v = -1;
     if (v < 0) {
-        const char *s = getenv("N265_ME_PATTERN");
+        const char *s = n265_env("N265_ME_PATTERN");
         v = s ? atoi(s) : 0;
     }
     return v;

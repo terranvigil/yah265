@@ -20,6 +20,7 @@
 #include "encoder/rc.h"
 #include "encoder/satd.h"
 #include "encoder/sao.h"
+#include "encoder/preset.h"
 
 const char *n265_version_str(void)
 {
@@ -316,35 +317,42 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * fractional base QP rides with it - see encode_frame. */
     e->abr_on = g_bitrate > 0.0 && e->mode != N265_MODE_PCM;
     e->abr_bitrate = g_bitrate * 1000.0;
-    { const char *v = getenv("N265_QP_FRAC");
+    { const char *v = n265_env("N265_QP_FRAC");
       e->qp_frac = v ? atoi(v) != 0 : e->abr_on; }
     if (e->abr_on)
         e->crf_on = 0;
     e->ref_max = e->mode == N265_MODE_PCM ? 1 : g_ref;
     e->badapt = g_badapt;
-    { const char *v = getenv("N265_CUTREE_STR"); e->cutree_str = v ? (float)atof(v) : 2.0f; }
+    { const char *v = n265_env("N265_CUTREE_STR"); e->cutree_str = v ? (float)atof(v) : 2.0f; }
     /* AQ 0.7 with the joint field rounded once (2026-09-07 sweep vs cu-tree
      * strength: 6/7 clips better, -0.9% mean BD-VMAF-NEG at matched rate;
      * AQ 0.4 and cu-tree 2.5 each bought median by giving bus back 2-3%).
      * N265_AQ_STR=1 N265_QP_ROUND1=0 restores the old field. */
-    { const char *v = getenv("N265_AQ_STR"); e->aq_str = v ? (float)atof(v) : 0.7f; }
-    { const char *v = getenv("N265_QP_ROUND1"); e->qp_round1 = v ? atoi(v) != 0 : 1; }
+    { const char *v = n265_env("N265_AQ_STR"); e->aq_str = v ? (float)atof(v) : 0.7f; }
+    { const char *v = n265_env("N265_QP_ROUND1"); e->qp_round1 = v ? atoi(v) != 0 : 1; }
     /* rectangular (2NxN/Nx2N) and asymmetric (2NxnU/D, nLx2N, nRx2N)
      * inter partitions. AMP rides on rect: the AMP trial is only entered
      * where a rectangular split already beat 2Nx2N, so turning rect off
      * turns AMP off with it. N265_NO_RECT / N265_NO_AMP are the escapes. */
-    e->rect = e->mode != N265_MODE_PCM && !getenv("N265_NO_RECT");
-    e->amp = e->rect && !getenv("N265_NO_AMP");
+    /* Both read a VALUE since the preset ladder landed (2026-09-10):
+     * `fast` turns rect off through the same table every other knob goes
+     * through, and a knob a preset sets has to stay overridable, which a
+     * presence-only reader cannot be. `N265_NO_RECT=1` is unchanged;
+     * `N265_NO_RECT=0` now means what it says. */
+    { const char *v = n265_env("N265_NO_RECT");
+      e->rect = e->mode != N265_MODE_PCM && !(v && atoi(v) != 0); }
+    { const char *v = n265_env("N265_NO_AMP");
+      e->amp = e->rect && !(v && atoi(v) != 0); }
     e->ctb_log2 = e->mode == N265_MODE_PCM ? 4 : g_ctb_log2;
     e->keyint = e->mode == N265_MODE_PCM ? 1 : g_keyint;
     e->bframes = e->mode == N265_MODE_PCM ? 0 : g_bframes;
-    e->no_sao = getenv("N265_NO_SAO") != NULL;      /* diagnostic */
-    e->cu_stats = getenv("N265_CU_STATS") != NULL;  /* diagnostic */
+    e->no_sao = n265_env("N265_NO_SAO") != NULL;      /* diagnostic */
+    e->cu_stats = n265_env("N265_CU_STATS") != NULL;  /* diagnostic */
     /* RDOQ on by default (2026-09-06: -5.9% median BD-VMAF-NEG at matched
      * rate, 7/7 clips, worst -5.5%); N265_RDOQ=0 is the escape. */
-    { const char *v = getenv("N265_RDOQ"); e->rdoq = v ? atoi(v) : 1; }
-    { const char *v = getenv("N265_PSY"); e->psy = v ? atof(v) : 0.0; }
-    e->aq = g_aq || getenv("N265_AQ") != NULL;      /* variance AQ */
+    { const char *v = n265_env("N265_RDOQ"); e->rdoq = v ? atoi(v) : 1; }
+    { const char *v = n265_env("N265_PSY"); e->psy = v ? atof(v) : 0.0; }
+    e->aq = g_aq || n265_env("N265_AQ") != NULL;      /* variance AQ */
     e->la_depth = e->mode == N265_MODE_PCM || !e->bframes ? g_la_depth
                                                           : g_la_depth;
     e->cutree = e->mode == N265_MODE_PCM ? 0 : g_cutree;
@@ -353,8 +361,8 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->scenecut = e->mode != N265_MODE_PCM;
     /* deblocking offsets: both clamped to the spec's +-6, and both zero by
      * default, which keeps the PPS control block out of the stream */
-    { const char *v = getenv("N265_DBF_BETA"); e->dbf_beta = v ? atoi(v) : 0; }
-    { const char *v = getenv("N265_DBF_TC"); e->dbf_tc = v ? atoi(v) : 0; }
+    { const char *v = n265_env("N265_DBF_BETA"); e->dbf_beta = v ? atoi(v) : 0; }
+    { const char *v = n265_env("N265_DBF_TC"); e->dbf_tc = v ? atoi(v) : 0; }
     if (e->dbf_beta < -6) e->dbf_beta = -6;
     if (e->dbf_beta > 6) e->dbf_beta = 6;
     if (e->dbf_tc < -6) e->dbf_tc = -6;
@@ -370,10 +378,10 @@ n265_encoder *n265_encoder_open(const n265_param *p)
 
     /* K, the frames in flight (sec 1). A pure scheduling knob: it moves
      * no bits, only how much of the mini-GOP overlaps. */
-    { const char *v = getenv("N265_MAX_FRAME_WORK");
+    { const char *v = n265_env("N265_MAX_FRAME_WORK");
       int k = v ? atoi(v) : 4;
       e->K = k < 1 ? 1 : k > N265_MAX_FRAME_WORK ? N265_MAX_FRAME_WORK : k; }
-    { const char *v = getenv("N265_RC_LAG");
+    { const char *v = n265_env("N265_RC_LAG");
       int d = v ? atoi(v) : 0;
       if (d < 0) d = 0;
       if (d > e->K - 1) d = e->K - 1;
@@ -464,7 +472,7 @@ void n265_encoder_close(n265_encoder *e)
 {
     if (!e)
         return;
-    if (getenv("N265_STALL_TRACE"))
+    if (n265_env("N265_STALL_TRACE"))
         fprintf(stderr, "STALL frames=%ld stalls=%ld %.3f/frame\n",
                 (long)atomic_load(&e->stall_frames),
                 (long)atomic_load(&e->ref_stalls),
@@ -582,7 +590,7 @@ static void write_slice_header(n265_encoder *e, n265_frame_work *fw)
             bs_put_bits(bs, rp->pos_used[i], 1);
             prev = rp->pos_poc[i];
         }
-        bs_put_bits(bs, getenv("N265_NO_TMVP") ? 0 : 1, 1);      /* slice_temporal_mvp_enabled_flag */
+        bs_put_bits(bs, n265_env("N265_NO_TMVP") ? 0 : 1, 1);      /* slice_temporal_mvp_enabled_flag */
     }
     if (fw->mode != N265_MODE_PCM && n265_sao_enabled()) {
         bs_put_bits(bs, 1, 1);      /* slice_sao_luma_flag */
@@ -598,7 +606,7 @@ static void write_slice_header(n265_encoder *e, n265_frame_work *fw)
         }
         if (fw->slice_type == 0)
             bs_put_bits(bs, 0, 1);  /* mvd_l1_zero_flag */
-        if (!getenv("N265_NO_TMVP")) {
+        if (!n265_env("N265_NO_TMVP")) {
             if (fw->slice_type == 0)
                 bs_put_bits(bs, 1, 1);  /* collocated_from_l0_flag */
             if (fw->nref[0] > 1)
@@ -622,7 +630,7 @@ static int hf_cache_on(void)
 {
     static int on = -1;
     if (on < 0) {
-        const char *v = getenv("N265_HFCACHE");
+        const char *v = n265_env("N265_HFCACHE");
         on = v ? atoi(v) != 0 : 1;
     }
     return on;
@@ -1084,14 +1092,14 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
         base = e->rc_rf;
     } else if (e->crf_on) {
         double shift = 0.0;
-        if (e->cutree) { const char *v = getenv("N265_CRF_SHIFT"); shift = v ? atof(v) : 5.4; }
+        if (e->cutree) { const char *v = n265_env("N265_CRF_SHIFT"); shift = v ? atof(v) : 5.4; }
         base = e->crf + shift;
     }
     /* the pyramid QP cascade: I anchors -3, P anchors +0, and each B layer
      * one step deeper than its parent (the reference B nearest the anchors
      * codes best, the leaves worst). N265_PB_STEP scales the per-layer
      * increment. */
-    double pb = 1.0; { const char *v = getenv("N265_PB_STEP"); if (v) pb = atof(v); }   /* live in CQP and CRF alike */
+    double pb = 1.0; { const char *v = n265_env("N265_PB_STEP"); if (v) pb = atof(v); }   /* live in CQP and CRF alike */
     int cascade = slice_type == 2 ? -3 : slice_type == 0 ? (int)lround(1 + b_depth * pb) : 0;
     /* The signalled base QP is an integer, so a control variable that only
      * moves it is quantised to 5-15% of the rate per step and cannot land on
@@ -1134,8 +1142,8 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
             memset(fw->ctu_qp_off, 0, (size_t)fw->ctb_cols * fw->ctb_rows);
             memset(fw->ctu_qp_raw, 0, (size_t)fw->ctb_cols * fw->ctb_rows * sizeof(float));
         }
-        if (e->aq && getenv("N265_AQ_FLAT"))
-            memset(fw->ctu_qp_off, (uint8_t)atoi(getenv("N265_AQ_FLAT")),
+        if (e->aq && n265_env("N265_AQ_FLAT"))
+            memset(fw->ctu_qp_off, (uint8_t)atoi(n265_env("N265_AQ_FLAT")),
                    (size_t)fw->ctb_cols * fw->ctb_rows);
         else if (e->aq) {
             int ctb = 1 << fw->ctb_log2;
@@ -1167,7 +1175,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
              * -16.92% to -16.08%; with it on the per-CTU field alone the
              * gate holds. */
             double vfloor = 4.0;
-            { const char *v = getenv("N265_AQ_FLOOR"); if (v) vfloor = atof(v); }
+            { const char *v = n265_env("N265_AQ_FLOOR"); if (v) vfloor = atof(v); }
             double avg_dc = 0;      /* the same field WITHOUT the floor */
             for (int cy = 0; cy < fw->ctb_rows; cy++)
                 for (int cx = 0; cx < fw->ctb_cols; cx++) {
@@ -1199,7 +1207,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
              * (N265_AQ_ANCHOR, default 6.4), so every base-keyed decision sees
              * it; the per-CTU part below stays centred on the frame. */
             if (e->crf_on || e->abr_on) {
-                const char *v = getenv("N265_AQ_DC"), *a = getenv("N265_AQ_ANCHOR");
+                const char *v = n265_env("N265_AQ_DC"), *a = n265_env("N265_AQ_ANCHOR");
                 double dc = (v ? atof(v) : 1.0) * (avg_dc - (a ? atof(a) : 6.4));
                 int dci = (int)lround(dc);
                 int nq = fw->qp + dci;
@@ -1221,8 +1229,8 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
              * is inert wherever the spread is small - four of the seven CIF
              * clips are byte-identical under it and the worst moves 0.43. */
             double aqc = 3.0;
-            { const char *v = getenv("N265_AQ_CLAMP"); if (v) aqc = atof(v); }
-            if (getenv("N265_AQ_TRACE")) {
+            { const char *v = n265_env("N265_AQ_CLAMP"); if (v) aqc = atof(v); }
+            if (n265_env("N265_AQ_TRACE")) {
                 /* the field the per-CTU term is built from: how far the
                  * frame's log2-variance spread reaches, and how much of
                  * it the clamp is already eating */
@@ -1274,7 +1282,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
             }
         }
 
-        if (getenv("N265_QP_TRACE"))
+        if (n265_env("N265_QP_TRACE"))
             fprintf(stderr, "QPT disp=%d type=%d qp=%d qf=%+.3f\n",
                     fw->display_idx, slice_type, fw->qp, qfrac);
         fw->ent_qp_prev = fw->qp;
@@ -1478,7 +1486,7 @@ void n265_build_lists(n265_encoder *e, n265_frame_work *fw, int poc,
 static int min_keyint(n265_encoder *e)
 {
     static int v = -2;
-    if (v == -2) { const char *s = getenv("N265_MIN_KEYINT"); v = s ? atoi(s) : 4; }
+    if (v == -2) { const char *s = n265_env("N265_MIN_KEYINT"); v = s ? atoi(s) : 4; }
     int m = v;
     if (m == 0) {
         int fps = e->param.fps_den > 0
@@ -1551,13 +1559,13 @@ static void build_plan(n265_encoder *e)
      * corpus, where the 0.35 was read - is byte-identical to the
      * pre-2026-09-08 encoder, and only the clips whose motion the term was
      * over-reading move. 0 turns it off (the pre-2026-09-08 encoder). */
-    double bthr = 0.35; { const char *v = getenv("N265_BADAPT_THR"); if (v) bthr = atof(v); }
-    double refw = 128.0; { const char *v = getenv("N265_BADAPT_REFW"); if (v) refw = atof(v); }
+    double bthr = 0.35; { const char *v = n265_env("N265_BADAPT_THR"); if (v) bthr = atof(v); }
+    double refw = 128.0; { const char *v = n265_env("N265_BADAPT_REFW"); if (v) refw = atof(v); }
     double wscale = 1.0;
     if (refw > 0.0 && la->lw > 0 && (double)la->lw > refw)
         wscale = refw / (double)la->lw;
     int nb = la->bw * la->bh;
-    int trace = getenv("N265_BADAPT_TRACE") != NULL;
+    int trace = n265_env("N265_BADAPT_TRACE") != NULL;
     /* how far the key-frame edge lets the run go at all */
     int keymax = maxa;
     for (int i = 1; i <= maxa; i++) {
@@ -1569,7 +1577,7 @@ static void build_plan(n265_encoder *e)
      * over A+1 frames. It has no calibrated constant in it. */
     if (e->badapt == 3 && keymax >= 1) {
         double dthr = 1.6;
-        { const char *v = getenv("N265_BADAPT_DEG"); if (v) dthr = atof(v); }
+        { const char *v = n265_env("N265_BADAPT_DEG"); if (v) dthr = atof(v); }
         A = n265_la_degrade(e, keymax, dthr);
     } else if (e->badapt == 2 && keymax >= 1) {
         A = n265_la_brun(e, keymax);

@@ -6,6 +6,7 @@
 #include <stdlib.h>
 
 #include "encoder/satd.h"
+#include "encoder/preset.h"
 
 /* The 4x4 tile is unchanged. It was already the 8-add butterfly with the
  * abs-sum folded, and writing it out any other way measured 0.85x on the
@@ -128,7 +129,7 @@ static uint32_t satd8(const uint8_t *a, int as, const uint8_t *b, int bs)
 static int satd8_mixed(void)
 {
     static int v = -1;
-    if (v < 0) { const char *s = getenv("N265_SATD8"); v = s ? atoi(s) : 0; }
+    if (v < 0) { const char *s = n265_env("N265_SATD8"); v = s ? atoi(s) : 0; }
     return v;
 }
 

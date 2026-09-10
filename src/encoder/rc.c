@@ -48,6 +48,7 @@
 
 #include "encoder/encoder.h"
 #include "encoder/rc.h"
+#include "encoder/preset.h"
 
 static double qscale_of_qp(double q)
 {
@@ -65,7 +66,7 @@ static double qp_of_qscale(double qs)
  * call site so scripts/knob_census.py can see the knob and its default. */
 static double abr_tunable(const char *name, double def)
 {
-    const char *v = getenv(name);
+    const char *v = n265_env(name);
     return v ? atof(v) : def;
 }
 
@@ -130,7 +131,7 @@ void n265_rc_open(struct n265_encoder *e)
         rc->nblk = 1;
     for (int i = 0; i < RC_CLASSES; i++)
         rc->scale_n[i] = 2.0;       /* prior weight, in frames */
-    rc->trace = getenv("N265_RC_TRACE") != NULL;
+    rc->trace = n265_env("N265_RC_TRACE") != NULL;
     rc->rf = 26.0;
 }
 

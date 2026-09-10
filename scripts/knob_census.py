@@ -39,9 +39,13 @@ SRC_DIRS = ["src", "cli"]
 INSTR_PAT = re.compile(
     r"(STAT|PROF|LOG|TRACE|DUMP|LED|CENSUS|PROBE|ORACLE|_REC$|_PLAY$|UNSAFE|"
     r"ETSTAT|SPLIT$|NOISE|DBG)")
-# getenv("N265_X") and the tunable helper abr_tunable("N265_X", default) are
-# both knob reads; the helper's default is its second argument.
-GETENV = re.compile(r'(?:getenv|abr_tunable)\("(N265_[A-Z0-9_]+)"')
+# getenv("N265_X"), the tunable helper abr_tunable("N265_X", default) and
+# n265_env("N265_X") - the preset-aware read every encoder site uses since
+# 2026-09-10 - are all knob reads; abr_tunable's default is its second
+# argument. n265_env returns the environment first and the selected
+# preset's table only where the variable is unset, so the default parsed
+# out of the C line below is still the shipped (medium) default.
+GETENV = re.compile(r'(?:getenv|abr_tunable|n265_env)\("(N265_[A-Z0-9_]+)"')
 TUNDEF = re.compile(r'abr_tunable\("N265_[A-Z0-9_]+",\s*(-?[0-9.]+)')
 # the common default idioms:  v = e ? atoi(e) : D;   and the guarded form
 # v = e ? (atoi(e) ? 1 : 0) : D;  -- in both, D is the value after the LAST

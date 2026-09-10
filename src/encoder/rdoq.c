@@ -36,6 +36,7 @@
 #include "encoder/transform.h"
 #include "encoder/tables.h"
 #include "encoder/est.h"
+#include "encoder/preset.h"
 
 /* -log2(p) tables in Q8 for the two symbols of every state, no adaptation */
 static uint16_t cost_mps[64], cost_lps[64];
@@ -194,7 +195,7 @@ static void last_pos_tables(const cabac_ctx_t *ctx, int log2n, int c_idx,
 int n265_rdoq_sbh_on(void)
 {
     static int v = -1;
-    if (v < 0) { const char *s = getenv("N265_SBH_RD"); v = s ? atoi(s) : 2; }
+    if (v < 0) { const char *s = n265_env("N265_SBH_RD"); v = s ? atoi(s) : 2; }
     return v;
 }
 
@@ -203,25 +204,25 @@ int n265_rdoq_sbh_on(void)
 static int rdoq_up_probe(void)
 {
     static int v = -1;
-    if (v < 0) { const char *s = getenv("N265_RDOQ_UP"); v = s ? atoi(s) : 1; }
+    if (v < 0) { const char *s = n265_env("N265_RDOQ_UP"); v = s ? atoi(s) : 1; }
     return v;
 }
 static int rdoq_adapt(void)
 {
     static int v = -1;
-    if (v < 0) { const char *s = getenv("N265_RDOQ_ADAPT"); v = s ? atoi(s) : 0; }
+    if (v < 0) { const char *s = n265_env("N265_RDOQ_ADAPT"); v = s ? atoi(s) : 0; }
     return v;
 }
 static int rdoq_lam_pct(void)
 {
     static int v = -1;
-    if (v < 0) { const char *s = getenv("N265_RDOQ_LAM"); v = s ? atoi(s) : 100; }
+    if (v < 0) { const char *s = n265_env("N265_RDOQ_LAM"); v = s ? atoi(s) : 100; }
     return v;
 }
 static int rdoq_decimate(void)
 {
     static int v = -1;
-    if (v < 0) { const char *s = getenv("N265_DECIMATE"); v = s ? atoi(s) : 15; }
+    if (v < 0) { const char *s = n265_env("N265_DECIMATE"); v = s ? atoi(s) : 15; }
     return v;
 }
 

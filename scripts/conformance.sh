@@ -241,6 +241,16 @@ run_vector_env "N265_RC_LAG=3" \
            lag3_t1_abr 352x288 24  testsrc2  "--keyint 12 --bitrate 400 --aq 1 --cutree 1 --threads 1"
 run_vector_env "N265_RC_LAG=3" \
            lag3_t12_abr 352x288 24 testsrc2  "--keyint 12 --bitrate 400 --aq 1 --cutree 1 --threads 12"
+# The preset ladder (2026-09-10). fast and slow are DEFAULT SOURCES, so
+# they reach syntax the shipped defaults never do - fast clears
+# amp_enabled_flag in the SPS and codes without the rectangular part
+# modes, slow raises the reference count and the B run - and a preset
+# must not be able to break cross-thread-count identity either. One cell
+# each at one thread and at twelve.
+run_vector fast_t1_cif  352x288 24 testsrc2 "--keyint 12 --preset fast --aq 1 --cutree 1 --threads 1"
+run_vector fast_t12_cif 352x288 24 testsrc2 "--keyint 12 --preset fast --aq 1 --cutree 1 --threads 12"
+run_vector slow_t1_cif  352x288 24 testsrc2 "--keyint 12 --preset slow --aq 1 --cutree 1 --threads 1"
+run_vector slow_t12_cif 352x288 24 testsrc2 "--keyint 12 --preset slow --aq 1 --cutree 1 --threads 12"
 if [ "$FAST" -eq 0 ]; then
     run_vector thr4_720    1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 4"
     run_vector thr12_720   1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 12"

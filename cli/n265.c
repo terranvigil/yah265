@@ -70,6 +70,9 @@ static void usage(void)
         "usage: n265 [options] <input.y4m|->\n"
         "  -o <file>       output Annex-B bitstream (default: out.hevc)\n"
         "  --frames <n>    encode at most n frames\n"
+        "  --preset <fast|medium|slow>  speed/quality point (default medium).\n"
+        "                  Sets the DEFAULTS of the tuning knobs; any flag or\n"
+        "                  N265_* variable you give yourself still wins.\n"
         "  --qp <n>        fixed QP (default 26)\n"
         "  --crf <f>       constant rate factor (base QP from f; overrides --qp)\n"
         "  --bitrate <k>   single-pass ABR at k kbit/s (overrides --crf)\n"
@@ -77,7 +80,7 @@ static void usage(void)
         "  --b-adapt <0|1> adaptive B run length from the lookahead (default 1)\n"
         "  (RDOQ is on; N265_RDOQ=0 turns it off, N265_PSY=F adds the psy term)\n"
         "  --pcm           phase-0 I_PCM mode (lossless, huge)\n"
-        "  --ctu <16|32|64>  coding tree block size (default 32)\n"
+        "  --ctu <16|32|64>  coding tree block size (default 64)\n"
         "  --keyint <n>    IDR period in frames (default 250)\n"
         "  --bframes <0..7> B frames between anchors, hierarchical (default 3)\n"
         "  --aq <0|1>      variance adaptive quantization (default 0)\n"
@@ -101,6 +104,9 @@ int main(int argc, char **argv)
     int lookahead = 12, cutree = 0;
     int threads = 0;
     const char *dump_decode_path = NULL;
+    const char *preset = NULL;
+    /* which structural flags the user gave: a preset supplies the rest */
+    int had_ref = 0, had_badapt = 0, had_bframes = 0, had_la = 0, had_ctu = 0;
 
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-o") && i + 1 < argc) {
@@ -114,17 +120,19 @@ int main(int argc, char **argv)
         } else if (!strcmp(argv[i], "--bitrate") && i + 1 < argc) {
             bitrate = atof(argv[++i]);
         } else if (!strcmp(argv[i], "--ref") && i + 1 < argc) {
-            nref = atoi(argv[++i]);
+            nref = atoi(argv[++i]); had_ref = 1;
         } else if (!strcmp(argv[i], "--b-adapt") && i + 1 < argc) {
-            badapt = atoi(argv[++i]);
+            badapt = atoi(argv[++i]); had_badapt = 1;
+        } else if (!strcmp(argv[i], "--preset") && i + 1 < argc) {
+            preset = argv[++i];
         } else if (!strcmp(argv[i], "--keyint") && i + 1 < argc) {
             keyint = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--bframes") && i + 1 < argc) {
-            bframes = atoi(argv[++i]);
+            bframes = atoi(argv[++i]); had_bframes = 1;
         } else if (!strcmp(argv[i], "--aq") && i + 1 < argc) {
             aq = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--rc-lookahead") && i + 1 < argc) {
-            lookahead = atoi(argv[++i]);
+            lookahead = atoi(argv[++i]); had_la = 1;
         } else if (!strcmp(argv[i], "--cutree") && i + 1 < argc) {
             cutree = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--dump-recon-decode") && i + 1 < argc) {
@@ -132,7 +140,7 @@ int main(int argc, char **argv)
         } else if (!strcmp(argv[i], "--threads") && i + 1 < argc) {
             threads = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--ctu") && i + 1 < argc) {
-            ctu = atoi(argv[++i]);
+            ctu = atoi(argv[++i]); had_ctu = 1;
         } else if (!strcmp(argv[i], "--pcm")) {
             pcm = 1;
         } else if (!strcmp(argv[i], "--dump-recon") && i + 1 < argc) {
@@ -171,6 +179,18 @@ int main(int argc, char **argv)
         fprintf(stderr, "n265: qp out of range 0..51\n");
         return 2;
     }
+    /* The preset is a default source and nothing else: it is selected
+     * before anything reads a knob, and every value it offers here is
+     * taken only where the command line was silent. */
+    if (preset && n265_set_preset(preset) < 0) {
+        fprintf(stderr, "n265: --preset must be fast, medium or slow\n");
+        return 2;
+    }
+    if (!had_ref)     nref = n265_preset_param("ref", nref);
+    if (!had_bframes) bframes = n265_preset_param("bframes", bframes);
+    if (!had_badapt)  badapt = n265_preset_param("b-adapt", badapt);
+    if (!had_la)      lookahead = n265_preset_param("rc-lookahead", lookahead);
+    if (!had_ctu)     ctu = n265_preset_param("ctu", ctu);
     if (ctu != 16 && ctu != 32 && ctu != 64) {
         fprintf(stderr, "n265: --ctu must be 16, 32 or 64\n");
         return 2;

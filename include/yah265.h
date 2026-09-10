@@ -101,6 +101,21 @@ YAH265_API void n265_set_badapt(int on);
  * every value (docs/threading-design.md). */
 YAH265_API void n265_set_threads(int n);
 
+/* Speed/quality preset: "fast", "medium" (the default) or "slow".
+ * Returns 0, or -1 for a name it does not know, in which case nothing
+ * changes. A preset only supplies DEFAULTS: it is read where a knob's
+ * environment variable is unset and where the caller has set no explicit
+ * value, so an explicit configuration always wins. medium is the
+ * shipped encoder byte for byte.
+ *
+ * Structural parameters (references, B frames, adaptive B, lookahead
+ * depth) belong to the caller, not to the library, so the preset only
+ * offers a value for them: ask with n265_preset_param() and pass what
+ * comes back to the setter if the user gave no flag of their own. Keys:
+ * "ref", "bframes", "b-adapt", "rc-lookahead". */
+YAH265_API int n265_set_preset(const char *name);
+YAH265_API int n265_preset_param(const char *key, int fallback);
+
 /* NULL on invalid params or allocation failure. */
 YAH265_API n265_encoder *n265_encoder_open(const n265_param *p);
 

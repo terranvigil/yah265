@@ -22,6 +22,7 @@
 #include "encoder/psy.h"
 #include "encoder/satd.h"
 #include "encoder/transform.h"
+#include "encoder/preset.h"
 
 static int *g_hist;
 static int g_nxn, g_2nx2n_min;
@@ -32,37 +33,37 @@ static int g_nxn, g_2nx2n_min;
 static int mode_hist_on(void)
 {
     static int v = -1;
-    if (v < 0) v = getenv("N265_MODE_HIST") != NULL;
+    if (v < 0) v = n265_env("N265_MODE_HIST") != NULL;
     return v;
 }
 static int no_gates_on(void)
 {
     static int v = -1;
-    if (v < 0) v = getenv("N265_NO_GATES") != NULL;
+    if (v < 0) v = n265_env("N265_NO_GATES") != NULL;
     return v;
 }
 static int no_amvp_on(void)
 {
     static int v = -1;
-    if (v < 0) v = getenv("N265_NO_AMVP") != NULL;
+    if (v < 0) v = n265_env("N265_NO_AMVP") != NULL;
     return v;
 }
 static int no_split_on(void)
 {
     static int v = -1;
-    if (v < 0) v = getenv("N265_NO_SPLIT") != NULL;
+    if (v < 0) v = n265_env("N265_NO_SPLIT") != NULL;
     return v;
 }
 static int no_earlyskip_on(void)
 {
     static int v = -1;
-    if (v < 0) v = getenv("N265_NO_EARLYSKIP") != NULL;
+    if (v < 0) v = n265_env("N265_NO_EARLYSKIP") != NULL;
     return v;
 }
 static int cb64_trace_on(void)
 {
     static int v = -1;
-    if (v < 0) v = getenv("N265_CB64_TRACE") != NULL;
+    if (v < 0) v = n265_env("N265_CB64_TRACE") != NULL;
     return v;
 }
 static void print_hist(void)
@@ -542,7 +543,7 @@ uint32_t n265_lambda_mode_q8(int qp)
     static uint32_t tab[52];
     if (!tab[51]) {
         for (int q = 0; q < 52; q++) {
-            double l = (getenv("N265_LAMBDA") ? atof(getenv("N265_LAMBDA")) : 0.68) * pow(2.0, (q - 12) / 3.0);
+            double l = (n265_env("N265_LAMBDA") ? atof(n265_env("N265_LAMBDA")) : 0.68) * pow(2.0, (q - 12) / 3.0);
             tab[q] = (uint32_t)(l * 256.0 + 0.5);
         }
     }
@@ -559,7 +560,7 @@ static int skip_thr8(void)
 {
     static int thr8 = -1;
     if (thr8 < 0) {
-        const char *v = getenv("N265_SKIP_THR");
+        const char *v = n265_env("N265_SKIP_THR");
         thr8 = v ? atoi(v) : 2;     /* strict: ~0.25/pixel; anything
                                      * looser must earn skip through the
                                      * residual-quantizes-to-zero test */
@@ -577,7 +578,7 @@ static int es_thr_pct(void)
 {
     static int v = -1;
     if (v < 0) {
-        const char *s = getenv("N265_ES_THR");
+        const char *s = n265_env("N265_ES_THR");
         v = s ? atoi(s) : 100;
     }
     return v;
@@ -595,7 +596,7 @@ static int rskip_mode(void)
 {
     static int v = -1;
     if (v < 0) {
-        const char *s = getenv("N265_RSKIP");
+        const char *s = n265_env("N265_RSKIP");
         v = s ? atoi(s) : 0;
     }
     return v;
@@ -612,7 +613,7 @@ static int cbf_fast(void)
 {
     static int v = -1;
     if (v < 0) {
-        const char *s = getenv("N265_CBF_FAST");
+        const char *s = n265_env("N265_CBF_FAST");
         v = s ? atoi(s) : 3;    /* stage 2, the one that priced (P1) */
     }
     return v;
@@ -628,7 +629,7 @@ static int gate_scale(void)
 {
     static int v = -1;
     if (v < 0) {
-        const char *s = getenv("N265_GATE_SCALE");
+        const char *s = n265_env("N265_GATE_SCALE");
         v = s ? atoi(s) : 100;
         if (v < 1) v = 1;
     }
@@ -645,7 +646,7 @@ static int skip_exit(void)
 {
     static int v = -1;
     if (v < 0) {
-        const char *s = getenv("N265_SKIP_EXIT");
+        const char *s = n265_env("N265_SKIP_EXIT");
         v = s ? atoi(s) : 0;
     }
     return v;
@@ -668,7 +669,7 @@ static int intra_gate(void)
 {
     static int v = -1;
     if (v < 0) {
-        const char *s = getenv("N265_INTRA_GATE");
+        const char *s = n265_env("N265_INTRA_GATE");
         v = s ? atoi(s) : 5;    /* the prefilter at the tighter margin (R12) */
     }
     return v;
@@ -723,7 +724,7 @@ static int part_gate(void)
 {
     static int v = -1;
     if (v < 0) {
-        const char *s = getenv("N265_PART_GATE");
+        const char *s = n265_env("N265_PART_GATE");
         v = s ? atoi(s) : 0;
     }
     return v;
@@ -753,7 +754,7 @@ static int rect_rank(void)
 {
     static int v = -1;
     if (v < 0) {
-        const char *s = getenv("N265_RECT_RANK");
+        const char *s = n265_env("N265_RECT_RANK");
         v = s ? atoi(s) : 0;
     }
     return v;
@@ -810,7 +811,7 @@ static int depth_bound(void)
 {
     static int v = -1;
     if (v < 0) {
-        const char *s = getenv("N265_DEPTH_BOUND");
+        const char *s = n265_env("N265_DEPTH_BOUND");
         v = s ? atoi(s) : 0;
     }
     return v;
@@ -1285,7 +1286,7 @@ static int mvd_bits_on(void)
 {
     static int on = -1;
     if (on < 0) {
-        const char *v = getenv("N265_MVD_BITS");
+        const char *v = n265_env("N265_MVD_BITS");
         on = v ? atoi(v) != 0 : 0;
     }
     return on;
@@ -1297,7 +1298,7 @@ static int me_satd_on(void)
 {
     static int on = -1;
     if (on < 0) {
-        const char *v = getenv("N265_ME_SATD");
+        const char *v = n265_env("N265_ME_SATD");
         on = v ? atoi(v) != 0 : 0;
     }
     return on;
@@ -1346,7 +1347,7 @@ static int cb64_gate(void)
 {
     static int v = -1;
     if (v < 0) {
-        const char *s = getenv("N265_CB64_GATE");
+        const char *s = n265_env("N265_CB64_GATE");
         v = s ? atoi(s) : 1;    /* the 60% improvement bound, which is
                                  * quality-free on the band (R3) */
     }
@@ -1360,7 +1361,7 @@ static int cb64_amvp(void)
 {
     static int on = -1;
     if (on < 0) {
-        const char *v = getenv("N265_CB64_AMVP");
+        const char *v = n265_env("N265_CB64_AMVP");
         on = v ? atoi(v) != 0 : 1;
     }
     return on;
@@ -1375,7 +1376,7 @@ static int b_intra_margin(void)
 {
     static int mg = -1;
     if (mg < 0) {
-        const char *v = getenv("N265_B_INTRA_MARGIN");
+        const char *v = n265_env("N265_B_INTRA_MARGIN");
         mg = v ? atoi(v) : 30;
         if (mg < 0)
             mg = 0;
@@ -1391,7 +1392,7 @@ static int bi_refine_iters(void)
 {
     static int it = -1;
     if (it < 0) {
-        const char *v = getenv("N265_BI_REFINE");
+        const char *v = n265_env("N265_BI_REFINE");
         it = v ? atoi(v) : 1;
         if (it > 4)
             it = 4;
@@ -1409,7 +1410,7 @@ static int merge_rd_n(void)
 {
     static int v = -1;
     if (v < 0) {
-        const char *s = getenv("N265_MERGE_RD_N");
+        const char *s = n265_env("N265_MERGE_RD_N");
         v = s ? atoi(s) : MAX_MERGE;
         if (v < 1)
             v = 1;
@@ -1438,7 +1439,7 @@ static int bi_gate(void)
 {
     static int v = -1;
     if (v < 0) {
-        const char *s = getenv("N265_BI_GATE");
+        const char *s = n265_env("N265_BI_GATE");
         v = s ? atoi(s) : 4;    /* the -5% margin, the one that priced */
     }
     return v;
@@ -1838,7 +1839,7 @@ static int intra_rd_n(void)
 {
     static int v = -1;
     if (v < 0) {
-        const char *s = getenv("N265_INTRA_RD_N");
+        const char *s = n265_env("N265_INTRA_RD_N");
         v = s ? atoi(s) : 3;
         if (v < 1) v = 1;
         if (v > INTRA_RD_MAX) v = INTRA_RD_MAX;
@@ -1849,7 +1850,7 @@ static int intra_rd_n(void)
 static int intra_rd_mpm(void)
 {
     static int v = -1;
-    if (v < 0) { const char *s = getenv("N265_INTRA_MPM"); v = s ? atoi(s) : 0; }
+    if (v < 0) { const char *s = n265_env("N265_INTRA_MPM"); v = s ? atoi(s) : 0; }
     return v;
 }
 
@@ -1865,7 +1866,7 @@ static int i_intra(void)
 {
     static int v = -1;
     if (v < 0) {
-        const char *s = getenv("N265_I_INTRA");
+        const char *s = n265_env("N265_I_INTRA");
         v = s ? atoi(s) : 0;
     }
     return v;
