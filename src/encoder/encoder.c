@@ -1619,6 +1619,20 @@ static int la_is_idr(n265_encoder *e, int i)
             n265_la_scenecut(e, i));
 }
 
+/* The keyint/scene-cut half of la_is_idr, for the rate control's look at
+ * the frames still queued (rc.h). The `!e->ref_valid` clause is left out on
+ * purpose: it says the frame being dispatched has nothing to predict from,
+ * which is a statement about the present and not about the window. */
+int n265_rc_future_idr(n265_encoder *e, int i)
+{
+    if (i < 0 || i >= e->la.count)
+        return 0;
+    int d = e->la.f[i].display_idx;
+    return e->keyint == 1 || (d % e->keyint) == 0 ||
+           (e->scenecut && d - e->gop_start_display >= min_keyint(e) &&
+            n265_la_scenecut(e, i));
+}
+
 /* Emit the pyramid coding order for the B lookahead indices [blo, bhi],
  * bracketed by already-coded references: the midpoint first (a reference if
  * it has children on either side), then its two halves. */
