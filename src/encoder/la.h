@@ -9,7 +9,20 @@
 
 #include <stdint.h>
 
-#define LA_MAX 24
+/* The queue holds `depth + 1` live frames plus a FREE RUN of recycled
+ * slots that a dispatched frame may still be reading: T3/1 leaves frames
+ * in flight across API calls and a frame_work aliases its lookahead
+ * slot's source planes. n265_la_pop returns a slot to the BACK of that
+ * run and n265_la_push takes one off the front, so a slot is not reused
+ * until every other free one has been - which is what keeps D3's source
+ * stall from firing on the frame that was just dispatched.
+ *
+ * The run has to be longer than the number of slots the frames in flight
+ * hold. That is not K but K rounded up to a mini-GOP, because pops
+ * happen at mini-GOP ends: K + bframes bounds it. LA_MAX sizes the array
+ * for the worst case; only `la->cap` slots are allocated. */
+#define LA_DEPTH_MAX 20     /* --rc-lookahead clamp, unchanged since L1 */
+#define LA_MAX (LA_DEPTH_MAX + 2 + 8 + 7)  /* + K + N265_MAX_BFRAMES */
 #define LA_MAX_CTUS 8160    /* 4K at CTB 32 */
 
 struct n265_encoder;
@@ -33,6 +46,7 @@ typedef struct la_frame {
 typedef struct n265_la {
     la_frame f[LA_MAX];
     int count;              /* queued, in display order f[0..count-1] */
+    int cap;                /* slots allocated: depth + 2 + K, <= LA_MAX */
     int lw, lh;             /* lowres dims */
     int bw, bh;             /* lowres 8x8 block grid */
     int depth;              /* target queue depth before draining */
@@ -58,8 +72,12 @@ int n265_la_scenecut(struct n265_encoder *e, int i);
 void n265_la_cutree(struct n265_encoder *e, struct n265_frame_work *fw,
                     int i);
 
-/* drop the front frame */
+/* drop the front frame; its buffers go to the back of the free run */
 void n265_la_pop(struct n265_encoder *e);
+
+/* the slot the next n265_la_push will write into (D3's source stall
+ * tests an in-flight frame_work's pad_plane against it) */
+const uint8_t *n265_la_next_src(struct n265_encoder *e);
 
 /* remember this queued frame's lowres plane as the last coded anchor */
 void n265_la_set_anchor(struct n265_encoder *e, int i);

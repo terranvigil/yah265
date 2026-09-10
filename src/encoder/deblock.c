@@ -166,8 +166,8 @@ static int seg_bs(const struct n265_frame_work *e, int x, int y, int vertical)
     int pp[2], pq[2], nmp = 0, nmq = 0;     /* the pictures (POCs) each block uses */
     const int16_t *mp[2], *mq[2];
     for (int l = 0; l < 2; l++) {
-        if (e->blk_pred[pi] & (1 << l)) { pp[nmp] = e->refl[l][e->blk_ref[2 * pi + l]]->poc; mp[nmp++] = e->blk_mv + 4 * pi + 2 * l; }
-        if (e->blk_pred[qi] & (1 << l)) { pq[nmq] = e->refl[l][e->blk_ref[2 * qi + l]]->poc; mq[nmq++] = e->blk_mv + 4 * qi + 2 * l; }
+        if (e->blk_pred[pi] & (1 << l)) { N265_SIDE_CHECK(e, e->refl[l][e->blk_ref[2 * pi + l]], e->ref_gen[l][e->blk_ref[2 * pi + l]], -1, "bS poc"); pp[nmp] = e->refl[l][e->blk_ref[2 * pi + l]]->poc; mp[nmp++] = e->blk_mv + 4 * pi + 2 * l; }
+        if (e->blk_pred[qi] & (1 << l)) { N265_SIDE_CHECK(e, e->refl[l][e->blk_ref[2 * qi + l]], e->ref_gen[l][e->blk_ref[2 * qi + l]], -1, "bS poc"); pq[nmq] = e->refl[l][e->blk_ref[2 * qi + l]]->poc; mq[nmq++] = e->blk_mv + 4 * qi + 2 * l; }
     }
 #define MVDIFF(a, b) ((a)[0] - (b)[0] <= -4 || (a)[0] - (b)[0] >= 4 || (a)[1] - (b)[1] <= -4 || (a)[1] - (b)[1] >= 4)
     if (np == 1)

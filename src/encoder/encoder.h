@@ -100,6 +100,17 @@ struct n265_refpic {
      * 0xff where nothing filled it. The collocated entry is the
      * temporal half of the depth bound. */
     uint8_t *ctu_dmin, *ctu_dmax;
+#ifdef N265_REF_CHECK
+    /* The side-data half of N265_REF_CHECK. `gen` counts claims of this
+     * slot (driver-serial, bumped in claim_slot); `row_gen[r]` carries
+     * the generation that published CTB row r's side data, 0 until it
+     * does. A reader that froze the generation at dispatch then proves
+     * BOTH halves independently of the call site's ref_wait: the row it
+     * touches was written, and it was written by the occupant it thinks
+     * it is reading. See n265_side_check. */
+    unsigned gen;
+    unsigned *row_gen;
+#endif
 };
 
 /* ctu.c-owned trial buffers (was ~180 KB of function-local statics). One
@@ -215,6 +226,12 @@ typedef struct n265_frame_work {
      * NULL when there is no usable collocated picture. */
     struct n265_refpic *col;
     int col_poc;
+#ifdef N265_REF_CHECK
+    /* the claim generation of every picture this frame may read side
+     * data from, frozen with the lists at dispatch */
+    unsigned ref_gen[2][N265_MAX_REF];
+    unsigned col_gen;
+#endif
 
     /* lookahead hand-off, frozen before the frame launches */
     float sc_ratio;         /* lookahead pcost/icost (P3) */
@@ -389,8 +406,35 @@ struct n265_encoder {
     /* A whole mini-GOP can leave in one call, and the ring may grow, so
      * the NAL payload pointers are patched from these offsets after the
      * last frame of the call has been packed. */
-    n265_nal nal[N265_MAX_BFRAMES + 9];
-    size_t nal_off[N265_MAX_BFRAMES + 9];
+    /* A call can hand back a mini-GOP plus whatever the previous call
+     * left in flight (A1), so this is sized for two mini-GOPs and K plus
+     * the three headers. Overflowing it is not an error: emit_done stops
+     * where it runs out and the rest is the next call's prefix. */
+    n265_nal nal[2 * (N265_MAX_BFRAMES + 1) + N265_MAX_FRAME_WORK + 8];
+    size_t nal_off[2 * (N265_MAX_BFRAMES + 1) + N265_MAX_FRAME_WORK + 8];
+    /* A1/A2: output is a prefix of the completed frames and up to K stay
+     * in flight across calls. Off at one worker, where nothing overlaps
+     * and a call must return exactly what it returned before.
+     * `api_defer` is N265_API_DEFER, the gate knob that pushes the
+     * chunking to the far end of the contract (see n265_encoder_encode). */
+    int defer_out, api_defer;
+    /* T3/1: may claim_slot prefer an unmarked slot no frame in flight is
+     * still using, over the lowest-index one? Only where the reference
+     * structure CANNOT fill every slot, so that the claim never reaches
+     * the marked-slot fallback. See claim_slot for why that condition is
+     * exactly what makes the preference bit-neutral. */
+    int slot_prefer;
+    /* N265_STALL_TRACE's driver half: why the driver had to join a frame
+     * before it wanted to. `k` is K itself (the frame_work ran out),
+     * `slot` is D3's DPB-slot stall, `src` its lookahead-source twin,
+     * `rc` the ABR observation lag. This is what says whether the
+     * overlap is capped by K or by the DPB. */
+    int join_k, join_slot, join_src, join_rc;
+    /* N265_LA_PROF: driver wall seconds per lookahead stage, and the
+     * encode's own wall, so the serial fraction is a ratio of two
+     * measured numbers rather than a guess (T3/2). */
+    int la_prof;
+    double prof_t0, prof_push, prof_plan, prof_cutree;
     int frames_done;
     int in_display_idx;     /* next arriving picture's display index */
     int gop_start_display;  /* display index of the current IDR      */
@@ -499,6 +543,40 @@ static inline int n265_ref_wait(n265_frame_work *e,
     return need;
 }
 
+/* --------------------------------------------------------------------
+ * The side-data half of the independent check (2026-09-10).
+ *
+ * N265_REF_CHECK guarded the reference PLANE and the E1 cache from
+ * inside the kernels and left the side-data arrays - the TMVP motion
+ * field, the P2 depth map - covered by nothing but the call site's own
+ * ref_wait, which is exactly the thing under suspicion. These two
+ * helpers close it from the data end: a read of side-data CTB row `row`
+ * of `pic` must find that row published AND find it published by the
+ * generation the reader froze at dispatch. The row index is computed
+ * from the ARRAY INDEX being read, never from the line the call site
+ * passed to ref_wait, so an off-by-one between the two shows up here.
+ * ------------------------------------------------------------------ */
+#ifdef N265_REF_CHECK
+void n265_side_check(const n265_frame_work *e, const struct n265_refpic *pic,
+                     unsigned gen, int row, const char *what);
+#define N265_SIDE_CHECK(e, pic, gen, row, what) \
+    n265_side_check((e), (pic), (gen), (row), (what))
+/* the generation frozen at dispatch for a picture in this frame's lists */
+static inline unsigned n265_gen_of(const n265_frame_work *e,
+                                   const struct n265_refpic *pic)
+{
+    if (pic == e->col)
+        return e->col_gen;
+    for (int l = 0; l < 2; l++)
+        for (int k = 0; k < e->nref[l]; k++)
+            if (e->refl[l][k] == pic)
+                return e->ref_gen[l][k];
+    return 0;   /* not in the frozen set at all: n265_side_check aborts */
+}
+#else
+#define N265_SIDE_CHECK(e, pic, gen, row, what) ((void)0)
+#endif
+
 #ifdef N265_REF_CHECK
 #include "encoder/refchk.h"
 /* Arm the independent check: the reader may touch lines up to the last
@@ -546,7 +624,7 @@ void n265_row_end(n265_row_ctx *row, n265_frame_work *fw, int r);
 /* encoder.c: the DPB the reference structure needs at this --bframes /
  * --ref, in the SPS's own units (see the definition). */
 void n265_dpb_requirement(int bframes, int ref_max, int *reorder,
-                          int *buffering);
+                          int *buffering, int *peak);
 
 /* headers.c */
 void n265_write_vps(n265_frame_work *e);
@@ -597,7 +675,10 @@ uint64_t n265_zorder(int x, int y, int pic_w, int ctb_log2);
 #define N265_REF_PAD 64     /* reference plane border, luma samples */
 /* E1 cache border. n265_clamp_mv keeps integer positions inside
  * [-(N265_REF_PAD - 8), pic + N265_REF_PAD - 8), and the vertical pass
- * reads 3 rows above and 4 below, so 60 covers every clamped MV. */
+ * reads 3 rows above and 4 below, so 60 covers every clamped MV. A
+ * gathered window (n265_ref_win, for the unclamped merge and AMVP
+ * candidates) always misses the cache and interpolates from the copy,
+ * which is the same bytes. */
 #define N265_HF_PAD 60
 
 /* The cached horizontal intermediate for luma phase fx at integer

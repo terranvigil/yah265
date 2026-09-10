@@ -213,8 +213,8 @@ static void mc_pred_uni(struct n265_frame_work *e, int list, int ref, int c_idx,
         int dx = mv.x >> 3, dy = mv.y >> 3;
         /* G2 entry point. The chroma 4-tap reaches two chroma lines
          * below the block, i.e. four luma lines; the bound is asked in
-         * luma lines because that is what the watermark counts. */
-        /* *2, not << 1: an unclamped chroma MV can put this line above
+         * luma lines because that is what the watermark counts.
+         * *2, not << 1: an unclamped chroma MV can put this line above
          * the picture, and shifting a negative is undefined (UBSan
          * catches it on park_joy at t12). n265_ref_need clamps it. */
         int need = n265_ref_wait(e, r, (y0 + dy + h + 2) * 2 + 1);
@@ -3410,12 +3410,17 @@ static void depth_bounds(struct n265_frame_work *e, int ctb_x, int ctb_y)
                 const struct n265_refpic *p = e->refl[l][r];
                 if (!p || !p->ctu_dmin)
                     continue;
+                /* p->poc is a live DPB slot's scalar */
+                N265_SIDE_CHECK(e, p, e->ref_gen[l][r], -1, "depth near poc");
                 if (!near || abs(p->poc - e->poc) < abs(near->poc - e->poc))
                     near = p;
             }
         int k = ctb_y * e->ctb_cols + ctb_x;
         if (near)       /* G2 entry point: the depth map publishes per row */
             n265_ref_wait(e, near, ctb_y << e->ctb_log2);
+        if (near)
+            N265_SIDE_CHECK(e, near, n265_gen_of(e, near), ctb_y,
+                            "P2 depth map");
         if (near && near->ctu_dmin[k] != 0xff) {
             if (near->ctu_dmin[k] < lo) lo = near->ctu_dmin[k];
             if (near->ctu_dmax[k] > hi) hi = near->ctu_dmax[k];

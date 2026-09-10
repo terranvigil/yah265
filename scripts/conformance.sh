@@ -220,6 +220,14 @@ run_vector_env "N265_MAX_FRAME_WORK=8" \
            k8_t12_b7   352x288 24  testsrc2  "--keyint 12 --bframes 7 --aq 1 --cutree 1 --threads 12"
 run_vector_env "N265_MAX_FRAME_WORK=8" \
            k8_t12_abr  352x288 24  testsrc2  "--keyint 12 --bitrate 400 --aq 1 --cutree 1 --threads 12"
+# T3/1: output is a prefix, so up to K frames stay in flight ACROSS API
+# calls. Two cells for the two ends of that contract: --bframes 0 at
+# twelve threads (the case it exists for - it used to overlap nothing but
+# the flush tail), and N265_API_DEFER, which holds each call's prefix back
+# until the deferred-NAL ring is half full. The bytes may not move.
+run_vector b0_t12_cif  352x288 24  testsrc2  "--keyint 12 --bframes 0 --aq 1 --cutree 1 --threads 12"
+run_vector_env "N265_API_DEFER=1" \
+           defer_t12_cif 352x288 24 testsrc2 "--keyint 12 --bframes 5 --aq 1 --cutree 1 --threads 12"
 # The right-edge reconstruction bug (2026-09-09). A fast horizontal pan
 # makes the motion search find a vector near the search range, and a
 # merge or AMVP candidate then carries it to a CU at the picture's right
@@ -251,6 +259,16 @@ run_vector fast_t1_cif  352x288 24 testsrc2 "--keyint 12 --preset fast --aq 1 --
 run_vector fast_t12_cif 352x288 24 testsrc2 "--keyint 12 --preset fast --aq 1 --cutree 1 --threads 12"
 run_vector slow_t1_cif  352x288 24 testsrc2 "--keyint 12 --preset slow --aq 1 --cutree 1 --threads 1"
 run_vector slow_t12_cif 352x288 24 testsrc2 "--keyint 12 --preset slow --aq 1 --cutree 1 --threads 12"
+# 2026-09-10: the corner that spent the whole ladder reading off the end of
+# the reference allocation. CTB 16 makes the coding blocks small enough that
+# a merge candidate is nearly always a neighbour's decided vector, --ref 3
+# with --bframes 7 gives tmvp_mv's POC scaling its widest distance ratios,
+# and the product points far outside the picture. The decoder clips such a
+# read to the picture edge (8.5.3.3.2); before n265_mc_clip this encoder did
+# not, and its reconstruction stopped matching either decoder. The cell is
+# here to keep the three agreeing, at one thread and at twelve.
+run_vector ctu16_r3_b7_t1  352x288 24 testsrc2 "--keyint 12 --ctu 16 --ref 3 --bframes 7 --aq 1 --cutree 1 --threads 1"
+run_vector ctu16_r3_b7_t12 352x288 24 testsrc2 "--keyint 12 --ctu 16 --ref 3 --bframes 7 --aq 1 --cutree 1 --threads 12"
 if [ "$FAST" -eq 0 ]; then
     run_vector thr4_720    1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 4"
     run_vector thr12_720   1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 12"

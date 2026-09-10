@@ -79,8 +79,21 @@ void ntp_wait(ntp_pool *p, ntp_pred_fn pred, void *ctx);
  * driver runs no tasks. */
 void ntp_wait_older(ntp_pool *p, ntp_pred_fn pred, void *ctx);
 
-/* Inside a running task: publish progress and wake anything waiting.
- * The publish itself is the caller's (an atomic store); this only wakes. */
+/* Inside a running task: publish progress and wake what can use it. The
+ * publish itself is the caller's (an atomic store); these only wake.
+ *
+ * Two entry points, because the two wake channels cost very different
+ * amounts and the caller knows which one it needs. ntp_publish is for
+ * progress that can only satisfy a MILESTONE predicate - the per-CTB
+ * publish inside a row - and it wakes milestone waiters only.
+ * ntp_publish_task is for progress that can also make a TASK claimable -
+ * a row watermark, or the CTB that puts the row below over its lag - and
+ * it wakes one idle worker as well. Calling ntp_publish where
+ * ntp_publish_task is needed loses parallelism (a task sits claimable
+ * with nobody awake to take it until the next task completes); calling
+ * ntp_publish_task everywhere is correct but pays a wake per CTB.
+ * Neither can change what a task reads, so neither can change bits. */
 void ntp_publish(ntp_pool *p);
+void ntp_publish_task(ntp_pool *p);
 
 #endif

@@ -28,7 +28,13 @@ int n265_la_init(struct n265_encoder *e)
     la->bw = (la->lw + 7) / 8;
     la->bh = (la->lh + 7) / 8;
     la->depth = e->la_depth;
-    for (int i = 0; i < LA_MAX; i++) {
+    /* depth + 1 live slots, plus a free run longer than the slots the
+     * frames in flight can hold - K rounded up to a mini-GOP, because
+     * pops happen at mini-GOP ends (see la.h). */
+    la->cap = la->depth + 2 + e->K + e->bframes;
+    if (la->cap > LA_MAX)
+        la->cap = LA_MAX;
+    for (int i = 0; i < la->cap; i++) {
         la_frame *f = &la->f[i];
         for (int c = 0; c < 3; c++) {
             int w = c ? e->pad_w / 2 : e->pad_w;
@@ -680,9 +686,18 @@ void n265_la_pop(struct n265_encoder *e)
 {
     n265_la *la = &e->la;
     la_frame tmp = la->f[0];
-    memmove(&la->f[0], &la->f[1],
-            (size_t)(la->count - 1) * sizeof(la_frame));
-    la->f[la->count - 1] = tmp;     /* recycle the buffers */
-    la->f[la->count - 1].valid = 0;
+    /* Shift the WHOLE ring, live frames and free run alike, so the
+     * recycled slot lands at the BACK of the free run rather than under
+     * the next push. A frame that was just dispatched is still reading
+     * its source planes (T3/1), and reusing them here is what used to
+     * force the driver to drain before every la_push. */
+    memmove(&la->f[0], &la->f[1], (size_t)(la->cap - 1) * sizeof(la_frame));
+    tmp.valid = 0;
+    la->f[la->cap - 1] = tmp;
     la->count--;
+}
+
+const uint8_t *n265_la_next_src(struct n265_encoder *e)
+{
+    return e->la.f[e->la.count].src[0];
 }

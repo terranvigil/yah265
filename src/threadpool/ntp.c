@@ -35,14 +35,27 @@ struct jslot {
     int cap;
     int ndone;
     int active;
+    /* T3/3: the lowest index that is still T_PENDING. `claim` starts its
+     * scan here instead of at 0, so the done prefix of a job - which is
+     * most of it for most of a frame's life - costs nothing. Tasks
+     * complete roughly in index order, so this is the whole rescan. */
+    int first_pending;
     uint64_t seq;               /* dispatch order; 0 is "the driver" */
+};
+
+/* T3/3: a per-worker wake slot (sec 1: "per-worker wake slots (a
+ * pool-wide broadcast cost 5%)"). A worker with nothing to claim sleeps
+ * on ITS OWN condvar and is woken one at a time off a LIFO stack, so
+ * making one task claimable wakes one thread rather than eighteen. */
+struct wslot {
+    pthread_cond_t cv;
+    int woken;
 };
 
 struct ntp_pool {
     pthread_t *th;
     int nthreads;
     pthread_mutex_t mu;
-    pthread_cond_t work;        /* a task may have become claimable */
     pthread_cond_t done;        /* a task finished (job progress, waits) */
     int quit;
 
@@ -56,14 +69,32 @@ struct ntp_pool {
     int *lane_free;
     int nlane_free;
 
-    /* How many WORKERS are parked: on `work` with nothing claimable, or
-     * on `done` inside a milestone wait. A progress publish that nobody
-     * is parked for is a mutex round trip for nothing, and the row
-     * wavefront publishes once per CTB. The driver is deliberately not
-     * counted - it is woken by the task-completion broadcast, which
-     * always takes the lock, and counting it would keep `parked` at 1
-     * for the whole job and defeat the check. */
-    atomic_int parked;
+    /* Per-worker wake slots and the LIFO stack of idle worker indices.
+     * LIFO because the most recently parked worker is the one whose
+     * cache is warmest. */
+    struct wslot *ws;
+    int *idle;
+    int nidle;
+
+    /* The two park counts, kept apart because they are woken by
+     * different things and a publish that nobody is waiting for must not
+     * touch the lock - the row wavefront publishes once per CTB.
+     *
+     * `n_idle` is workers in the claim region: from the moment one
+     * decides to look for work to the moment it has either found some or
+     * parked. It is bumped BEFORE the readiness scan on purpose: that
+     * and the seq_cst fence in ntp_publish_task are the two halves of a
+     * store-load pair, so whichever comes first in the total order, one
+     * side sees the other and no wake is lost.
+     *
+     * `n_wait` is workers inside a milestone wait (ntp_wait /
+     * ntp_wait_older), which are woken by a broadcast because their
+     * predicates are opaque to the pool.
+     *
+     * The driver is in neither: it is woken by the task-completion
+     * broadcast, which always takes the lock, and counting it would pin
+     * a count above zero for the whole job and defeat both checks. */
+    atomic_int n_idle, n_wait;
 };
 
 /* The job this thread is currently running a task of, in dispatch order.
@@ -71,7 +102,21 @@ struct ntp_pool {
  * seq >= 1, a driver-side ntp_wait_older claims nothing. */
 static _Thread_local uint64_t tls_seq;
 
+struct warg { ntp_pool *p; int me; };
 static void *worker(void *arg);
+
+/* mu held. Wake exactly one idle worker, if there is one. This is the
+ * whole of "per-worker wake slots": making a task claimable used to
+ * broadcast to every parked thread, which then contended on this mutex
+ * to discover that one of them had the work. */
+static void wake_one(ntp_pool *p)
+{
+    if (p->nidle <= 0)
+        return;
+    int w = p->idle[--p->nidle];
+    p->ws[w].woken = 1;
+    pthread_cond_signal(&p->ws[w].cv);
+}
 
 ntp_pool *ntp_open(int nthreads, int max_jobs, int max_lanes)
 {
@@ -87,14 +132,18 @@ ntp_pool *ntp_open(int nthreads, int max_jobs, int max_lanes)
     p->nthreads = nthreads;
     p->next_seq = 1;
     pthread_mutex_init(&p->mu, NULL);
-    pthread_cond_init(&p->work, NULL);
     pthread_cond_init(&p->done, NULL);
     p->njs = max_jobs;
     p->js = calloc((size_t)max_jobs, sizeof(*p->js));
     p->nlanes = max_lanes;
     p->lane_free = calloc((size_t)max_lanes, sizeof(int));
     p->th = calloc((size_t)nthreads, sizeof(pthread_t));
-    if (!p->js || !p->lane_free || !p->th) {
+    p->ws = calloc((size_t)nthreads, sizeof(*p->ws));
+    p->idle = calloc((size_t)nthreads, sizeof(int));
+    if (p->ws)
+        for (int i = 0; i < nthreads; i++)
+            pthread_cond_init(&p->ws[i].cv, NULL);
+    if (!p->js || !p->lane_free || !p->th || !p->ws || !p->idle) {
         p->nthreads = 0;
         ntp_close(p);
         return NULL;
@@ -104,13 +153,14 @@ ntp_pool *ntp_open(int nthreads, int max_jobs, int max_lanes)
         p->lane_free[i] = max_lanes - 1 - i;
     p->nlane_free = max_lanes;
     for (int i = 0; i < nthreads; i++) {
-        ntp_pool **a = malloc(sizeof(*a));
+        struct warg *a = malloc(sizeof(*a));
         if (!a) {
             p->nthreads = i;
             ntp_close(p);
             return NULL;
         }
-        *a = p;
+        a->p = p;
+        a->me = i;
         if (pthread_create(&p->th[i], NULL, worker, a) != 0) {
             free(a);
             p->nthreads = i;
@@ -127,17 +177,25 @@ void ntp_close(ntp_pool *p)
         return;
     pthread_mutex_lock(&p->mu);
     p->quit = 1;
-    pthread_cond_broadcast(&p->work);
+    for (int i = 0; i < p->nthreads; i++) {
+        p->ws[i].woken = 1;
+        pthread_cond_signal(&p->ws[i].cv);
+    }
+    p->nidle = 0;
+    pthread_cond_broadcast(&p->done);
     pthread_mutex_unlock(&p->mu);
     for (int i = 0; i < p->nthreads; i++)
         pthread_join(p->th[i], NULL);
     pthread_mutex_destroy(&p->mu);
-    pthread_cond_destroy(&p->work);
     pthread_cond_destroy(&p->done);
+    for (int i = 0; p->ws && i < p->nthreads; i++)
+        pthread_cond_destroy(&p->ws[i].cv);
     for (int i = 0; p->js && i < p->njs; i++)
         free(p->js[i].state);
     free(p->js);
     free(p->lane_free);
+    free(p->ws);
+    free(p->idle);
     free(p->th);
     free(p);
 }
@@ -179,7 +237,10 @@ static struct jslot *claim(ntp_pool *p, uint64_t limit, int *out_idx)
         if (best && s->seq > best->seq)
             continue;
         ntp_job *j = s->job;
-        for (int k = 0; k < j->ntask; k++)
+        while (s->first_pending < j->ntask &&
+               s->state[s->first_pending] != T_PENDING)
+            s->first_pending++;
+        for (int k = s->first_pending; k < j->ntask; k++)
             if (s->state[k] == T_PENDING && j->ready(j->ctx, k)) {
                 best = s;
                 *out_idx = k;
@@ -205,34 +266,47 @@ static void run_task(ntp_pool *p, struct jslot *js, int idx)
     js->state[idx] = T_DONE;
     js->ndone++;
     lane_give(p, lane);
-    /* a finished task can unblock both a claimable task and an in-task
-     * milestone wait */
-    pthread_cond_broadcast(&p->work);
+    /* A finished task can unblock both a claimable task and an in-task
+     * milestone wait. The claim side takes one worker (the chain in the
+     * worker loop spreads it if there is more than one task ready); the
+     * wait side is a broadcast because the predicates are opaque, and it
+     * is also what wakes the driver in ntp_join. */
+    wake_one(p);
     pthread_cond_broadcast(&p->done);
 }
 
 static void *worker(void *arg)
 {
-    ntp_pool *p = *(ntp_pool **)arg;
-    free(arg);
+    struct warg *a = arg;
+    ntp_pool *p = a->p;
+    int me = a->me;
+    free(a);
 
     pthread_mutex_lock(&p->mu);
     for (;;) {
         if (p->quit)
             break;
-        /* Park BEFORE testing readiness, so this and ntp_publish are the
-         * two halves of a store-load pair: whichever of the two seq_cst
-         * operations comes first in the total order, one side sees the
-         * other, and no wake can be lost. */
-        atomic_fetch_add(&p->parked, 1);
+        /* Count in BEFORE testing readiness, so this and the fence in
+         * ntp_publish_task are the two halves of a store-load pair:
+         * whichever of the two seq_cst operations comes first in the
+         * total order, one side sees the other, and no wake is lost. */
+        atomic_fetch_add(&p->n_idle, 1);
         int idx = 0;
         struct jslot *js = claim(p, UINT64_MAX, &idx);
         if (!js) {
-            pthread_cond_wait(&p->work, &p->mu);
-            atomic_fetch_sub(&p->parked, 1);
+            p->ws[me].woken = 0;
+            p->idle[p->nidle++] = me;
+            while (!p->ws[me].woken && !p->quit)
+                pthread_cond_wait(&p->ws[me].cv, &p->mu);
+            atomic_fetch_sub(&p->n_idle, 1);
             continue;
         }
-        atomic_fetch_sub(&p->parked, 1);
+        atomic_fetch_sub(&p->n_idle, 1);
+        /* Chain: a wake carries ONE worker, so a worker that found work
+         * hands the next one on before it disappears into a task. Worst
+         * case that is one spurious wake per task claimed, against one
+         * broadcast per CTB before. */
+        wake_one(p);
         run_task(p, js, idx);
     }
     pthread_mutex_unlock(&p->mu);
@@ -267,11 +341,12 @@ void ntp_submit(ntp_pool *p, ntp_job *job)
     }
     memset(js->state, T_PENDING, (size_t)job->ntask);
     js->ndone = 0;
+    js->first_pending = 0;
     js->job = job;
     js->seq = p->next_seq++;
     js->active = 1;
     job->impl = js;
-    pthread_cond_broadcast(&p->work);
+    wake_one(p);
     pthread_mutex_unlock(&p->mu);
 }
 
@@ -312,10 +387,10 @@ void ntp_wait(ntp_pool *p, ntp_pred_fn pred, void *ctx)
     if (spin_for(pred, ctx))
         return;
     pthread_mutex_lock(&p->mu);
-    atomic_fetch_add(&p->parked, 1);
+    atomic_fetch_add(&p->n_wait, 1);
     while (!pred(ctx))
         pthread_cond_wait(&p->done, &p->mu);
-    atomic_fetch_sub(&p->parked, 1);
+    atomic_fetch_sub(&p->n_wait, 1);
     pthread_mutex_unlock(&p->mu);
 }
 
@@ -335,33 +410,46 @@ void ntp_wait_older(ntp_pool *p, ntp_pred_fn pred, void *ctx)
             continue;
         }
         if (limit)
-            atomic_fetch_add(&p->parked, 1);
+            atomic_fetch_add(&p->n_wait, 1);
         pthread_cond_wait(&p->done, &p->mu);
         if (limit)
-            atomic_fetch_sub(&p->parked, 1);
+            atomic_fetch_sub(&p->n_wait, 1);
     }
     pthread_mutex_unlock(&p->mu);
 }
 
+/* Progress that can only satisfy a milestone predicate - the per-CTB
+ * publish inside a row. The publisher's half of the store-load pair: the
+ * progress store is a release, so a full fence is needed before reading
+ * the park counts or the two could miss each other. With nobody in a
+ * milestone wait this is two atomic operations and no lock, which is
+ * what keeps the per-CTB cost off the 1-thread leg entirely. */
 void ntp_publish(ntp_pool *p)
 {
-    /* Nobody is parked, so nobody can miss this. With one worker that is
-     * always true - a task cannot become claimable to a thread that is
-     * busy running this one, and no milestone wait can be outstanding -
-     * so the whole per-CTB cost disappears at --threads 1, which is the
-     * leg the ladder has to keep within noise of the serial encoder. */
-    /* the publisher's half of the pair: its progress store is a release,
-     * so a full fence is needed before reading `parked` or the two could
-     * both miss each other */
     atomic_thread_fence(memory_order_seq_cst);
-    if (atomic_load(&p->parked) == 0)
+    if (atomic_load(&p->n_wait) == 0)
         return;
     pthread_mutex_lock(&p->mu);
-    /* Both: progress unblocks in-task milestone waits (`done`) AND can
-     * make the next task claimable (`work`). Waking only `done` here was
-     * worth the whole wavefront - a row became claimable only when the
-     * row above FINISHED, so twelve threads ran one row at a time. */
     pthread_cond_broadcast(&p->done);
-    pthread_cond_broadcast(&p->work);
+    pthread_mutex_unlock(&p->mu);
+}
+
+/* Progress that can also make a TASK claimable - a row watermark, or the
+ * CTB that puts the row below over its lag. Both halves, and the claim
+ * half wakes exactly one worker. Waking nobody on the claim side was
+ * worth the whole wavefront once (T1): a row became claimable only when
+ * the row above FINISHED, so twelve threads ran one row at a time. */
+void ntp_publish_task(ntp_pool *p)
+{
+    atomic_thread_fence(memory_order_seq_cst);
+    int w = atomic_load(&p->n_wait) != 0;
+    int c = atomic_load(&p->n_idle) != 0;
+    if (!w && !c)
+        return;
+    pthread_mutex_lock(&p->mu);
+    if (w)
+        pthread_cond_broadcast(&p->done);
+    if (c)
+        wake_one(p);
     pthread_mutex_unlock(&p->mu);
 }

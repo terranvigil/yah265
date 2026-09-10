@@ -38,11 +38,17 @@ ENC="${ENC:-$ROOT/build/n265}"
 WORK="${WORK:-${TMPDIR:-/tmp}/determ_repeat.$$}"
 RUNS="${RUNS:-12}"
 FRAMES="${FRAMES:-120}"
-CLIPS="${CLIPS:-foreman_cif bus_cif stefan_cif park_joy_720p}"
+# sita_flat_720p joined the default set on 2026-09-10: its motion reach is
+# the largest measured (598 lines at CTB 16), which is what turned an
+# out-of-bounds reference read into visible non-determinism.
+CLIPS="${CLIPS:-foreman_cif bus_cif stefan_cif park_joy_720p sita_flat_720p}"
 THREADS="${THREADS:-1 2 4 12}"   # widened at T1 (threading-design sec 7)
 REFS="${REFS:-b0 b1}"           # bframes off/on, the configs that exist
 ARM="${ARM:-}"
-ARGS="${ARGS:-}"
+# ...and the default ARGS carry a CTB-16 pass with a deep reference
+# structure for the same reason: the encoder's default is CTB 32 and
+# --ref 1, so nothing in this battery had ever visited the corner.
+ARGS="${ARGS:---ctu 16 --ref 3}"
 
 mkdir -p "$WORK"
 trap 'rm -rf "$WORK"' EXIT
