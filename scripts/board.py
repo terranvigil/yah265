@@ -244,10 +244,15 @@ def measure_clip(tmp, name, size, frames, src, bd_only):
     if all(p[1] is not None for p in ours_neg + x_neg):
         r = _bd.bd_rate([p[0] for p in x_neg], [p[1] for p in x_neg],
                         [p[0] for p in ours_neg], [p[1] for p in ours_neg])
-        # the board's fixed QPs are not band-calibrated, so VMAF-NEG can
-        # saturate and the cubic fit degenerate (bus_cif read 1e56%);
-        # blank it rather than chart it, the band instrument is the
-        # authority on that leg
+        # The board's fixed QPs are not band-calibrated, so VMAF-NEG can
+        # saturate and the cubic fit degenerate (bus_cif read 1e56%, then
+        # 1e81% at bframes 7). Since 2026-09-10 bdcompare.bd_rate catches
+        # that itself and integrates a monotone fit instead, so the row is
+        # charted rather than blanked; this bar is the last-resort guard
+        # only. The band instrument is still the authority on the leg -
+        # the board's QPs put bus's top two points inside a hundredth of a
+        # VMAF-NEG point of each other, and no integrator recovers
+        # information that is not there.
         ok = isinstance(r, float) and math.isfinite(r) and abs(r) < 200
         row["bd_rate_vmafneg_pct"] = round(r, 2) if ok else ""
     else:

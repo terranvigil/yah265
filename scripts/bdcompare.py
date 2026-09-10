@@ -24,6 +24,9 @@ Templates use {src}, {q}, {out}. Examples:
       --b './baseline_n265 {src} --qp {q} -o {out}'
 
 BD sign: negative means config A uses fewer bits than B at equal quality.
+
+`--selftest` runs the BD integrator over recorded point sets and exits; no
+encodes, numpy only. `make test` runs it.
 """
 import argparse
 import concurrent.futures as fut
@@ -112,7 +115,28 @@ def _vmaf_models():
     return _MODELS
 
 
+# A degenerate cubic fit shows up as an absurd mean log-bitrate delta rather
+# than as an inf, so the guard is on the delta: 5.0 is a BD-rate outside
+# [-99.3%, +14741%], which no real sweep produces (the board's whole history
+# spans -44.5% to +17.9%), while bus_cif's saturated points read 183.
+_FIT_SANE_LOGDELTA = 5.0
+
+
 def bd_rate(r_ref, m_ref, r_test, m_test):
+    """BD-rate of test against ref over (rate, metric) points. Negative =
+    test spends fewer bits at equal quality.
+
+    Bjontegaard's cubic least-squares fit is the answer wherever it is well
+    conditioned, and it is what every number on the board and in the band
+    tables was read with. It is NOT well conditioned when the metric
+    saturates: with four points, the fit interpolates, and two points pinned
+    at VMAF-NEG 99.95 a hundredth apart across a 1.9x bitrate step force an
+    almost vertical segment whose integral over the overlap explodes -- the
+    board read 1.09e81% on bus_cif at fixed QPs 22/27/32/37, and blanked the
+    row rather than chart it. Where the fit degenerates, integrate a MONOTONE
+    piecewise cubic (PCHIP) through the same points instead: it cannot
+    oscillate between them, so the saturated top contributes its own tiny
+    quality span and nothing more. (2026-09-10, docs/instruments.md)"""
     import numpy as np
     deg = min(3, len(m_ref) - 1)
     f1 = np.polyfit(m_ref, np.log(r_ref), deg)
@@ -121,10 +145,163 @@ def bd_rate(r_ref, m_ref, r_test, m_test):
     if hi <= lo:
         return None
     xs = np.linspace(lo, hi, 100)
-    return (math.exp(np.mean(np.polyval(f2, xs) - np.polyval(f1, xs))) - 1) * 100
+    d = float(np.mean(np.polyval(f2, xs) - np.polyval(f1, xs)))
+    if not math.isfinite(d) or abs(d) > _FIT_SANE_LOGDELTA:
+        d = _bd_logdelta_pchip(r_ref, m_ref, r_test, m_test, lo, hi)
+    if d is None or not math.isfinite(d):
+        return None
+    return (math.exp(d) - 1) * 100
+
+
+def _pchip_edge(h0, h1, d0, d1):
+    """One-sided three-point end slope, clamped so the end interval keeps
+    the sign and the shape of the data (Fritsch-Carlson)."""
+    s = ((2 * h0 + h1) * d0 - h0 * d1) / (h0 + h1)
+    if s * d0 <= 0:
+        return 0.0
+    if d0 * d1 < 0 and abs(s) > abs(3 * d0):
+        return 3 * d0
+    return s
+
+
+def _pchip_slopes(x, y):
+    """Fritsch-Carlson shape-preserving slopes -- what scipy's
+    PchipInterpolator computes, written out because scipy is not a
+    dependency of this tree."""
+    import numpy as np
+    h = np.diff(x)
+    dl = np.diff(y) / h
+    m = np.zeros(len(y))
+    for i in range(1, len(y) - 1):
+        # zero at a sign change or a flat run, weighted harmonic mean else
+        if dl[i - 1] * dl[i] > 0:
+            w1, w2 = 2 * h[i] + h[i - 1], h[i] + 2 * h[i - 1]
+            m[i] = (w1 + w2) / (w1 / dl[i - 1] + w2 / dl[i])
+    if len(y) == 2:
+        m[0] = m[1] = dl[0]
+    else:
+        m[0] = _pchip_edge(h[0], h[1], dl[0], dl[1])
+        m[-1] = _pchip_edge(h[-1], h[-2], dl[-1], dl[-2])
+    return m
+
+
+def _pchip_eval(x, y, xs):
+    """The monotone cubic through (x, y), sampled at xs (inside [x0, xn])."""
+    import numpy as np
+    m = _pchip_slopes(x, y)
+    i = np.clip(np.searchsorted(x, xs) - 1, 0, len(x) - 2)
+    h = x[i + 1] - x[i]
+    t = (xs - x[i]) / h
+    t2 = t * t
+    t3 = t2 * t
+    return ((2 * t3 - 3 * t2 + 1) * y[i] + (t3 - 2 * t2 + t) * h * m[i]
+            + (-2 * t3 + 3 * t2) * y[i + 1] + (t3 - t2) * h * m[i + 1])
+
+
+def _pchip_curve(rate, metric):
+    """(quality, log-rate) sorted on quality, with repeated qualities
+    collapsed -- a fully pinned metric would otherwise divide by a zero
+    interval. None if fewer than two distinct qualities survive."""
+    import numpy as np
+    order = np.argsort(np.asarray(metric, dtype=float))
+    x = np.asarray(metric, dtype=float)[order]
+    y = np.log(np.asarray(rate, dtype=float)[order])
+    kx, ky = [], []
+    for xi, yi in zip(x, y):
+        if kx and xi - kx[-1] < 1e-9:
+            ky[-1] = (ky[-1] + yi) / 2
+            continue
+        kx.append(float(xi))
+        ky.append(float(yi))
+    if len(kx) < 2:
+        return None
+    return np.array(kx), np.array(ky)
+
+
+def _bd_logdelta_pchip(r_ref, m_ref, r_test, m_test, lo, hi):
+    """Mean log-bitrate delta over [lo, hi] under the monotone fit."""
+    import numpy as np
+    a = _pchip_curve(r_ref, m_ref)
+    b = _pchip_curve(r_test, m_test)
+    if a is None or b is None:
+        return None
+    lo = max(lo, a[0][0], b[0][0])
+    hi = min(hi, a[0][-1], b[0][-1])
+    if hi <= lo:
+        return None
+    xs = np.linspace(lo, hi, 1000)
+    return float(np.mean(_pchip_eval(b[0], b[1], xs)
+                         - _pchip_eval(a[0], a[1], xs)))
+
+
+def selftest():
+    """`bdcompare.py --selftest`: the BD integrator on the point set that
+    used to blow it up and on one that never did. No encodes, no ffmpeg,
+    numpy only; wired into `make test`. Exit 77 (meson's skip) without
+    numpy."""
+    try:
+        import numpy as np
+    except ImportError:
+        print("bdcompare selftest: no numpy, skipped")
+        return 77
+    bad = []
+
+    def check(ok, msg):
+        print(("  ok    " if ok else "  FAIL  ") + msg)
+        if not ok:
+            bad.append(msg)
+
+    # bus_cif at the board's fixed QPs 22/27/32/37, 120 frames, ab446a4:
+    # VMAF-NEG pins at 99.95 on the top two points, 0.016 apart across a
+    # 1.9x bitrate step. The cubic fit read 1.09e81% here and the row was
+    # blanked; the monotone fit reads about -19%.
+    xr = [1164704, 2385976, 4617544, 8661608]
+    xm = [85.936, 98.323, 99.946, 99.962]
+    orr = [1003640, 2111520, 4174480, 7987568]
+    om = [87.344, 98.953, 99.949, 99.963]
+    r = bd_rate(xr, xm, orr, om)
+    check(r is not None and math.isfinite(r), "saturated set yields a number")
+    check(r is not None and -60.0 < r < 0.0,
+          f"saturated set is sane: {r:.2f}%")
+
+    # foreman_cif, same QPs, same commit: top point 96.9, nowhere near
+    # saturation. The classic cubic must still be what comes out, to the
+    # precision the board prints, or the CSV time series has a step in it.
+    fxr = [360448, 714816, 1519328, 3444912]
+    fxm = [73.525, 85.743, 93.03, 96.912]
+    forr = [264216, 504448, 988560, 2000008]
+    fom = [72.133, 84.87, 92.59, 96.434]
+    f = bd_rate(fxr, fxm, forr, fom)
+    xs = np.linspace(max(min(fxm), min(fom)), min(max(fxm), max(fom)), 100)
+    classic = (math.exp(np.mean(
+        np.polyval(np.polyfit(fom, np.log(forr), 3), xs)
+        - np.polyval(np.polyfit(fxm, np.log(fxr), 3), xs))) - 1) * 100
+    check(f == classic,
+          f"well-conditioned set is still the plain cubic: {f:.4f}%")
+
+    # and the monotone fit is not a different instrument where the cubic
+    # is sound -- it just does not explode where the cubic does
+    lo = max(min(fxm), min(fom))
+    hi = min(max(fxm), max(fom))
+    d = _bd_logdelta_pchip(fxr, fxm, forr, fom, lo, hi)
+    p = (math.exp(d) - 1) * 100
+    check(abs(p - f) < 1.5, f"monotone fit agrees there: {p:.2f}%")
+
+    # the interpolant itself: through every node, monotone in between
+    x = np.array([0.0, 1.0, 2.0, 10.0])
+    y = np.array([0.0, 0.1, 0.2, 9.0])
+    check(bool(np.allclose(_pchip_eval(x, y, x), y)), "pchip hits its nodes")
+    xs = np.linspace(0.0, 10.0, 501)
+    check(bool(np.all(np.diff(_pchip_eval(x, y, xs)) >= -1e-12)),
+          "pchip stays monotone between them")
+
+    print("bdcompare selftest: " + ("FAILED" if bad else "passed"))
+    return 1 if bad else 0
 
 
 def main():
+    if "--selftest" in sys.argv:
+        sys.exit(selftest())
     ap = argparse.ArgumentParser()
     ap.add_argument("--a", required=True, help="encoder A command template")
     ap.add_argument("--b", required=True, help="encoder B command template (reference)")
