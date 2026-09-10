@@ -83,6 +83,8 @@ static void usage(void)
         "  --aq <0|1>      variance adaptive quantization (default 0)\n"
         "  --rc-lookahead <n>  lookahead depth in frames (default 12)\n"
         "  --cutree <0|1>  lookahead propagation QP offsets (default 0)\n"
+        "  --threads <n>   worker threads; 0 = one per online CPU (default 0).\n"
+        "                  Output is byte-identical at every value.\n"
         "  --dump-recon <file>  write reconstruction as raw YUV (the\n"
         "                  conformance gate compares decoders against it)\n"
         "  --version       print version\n");
@@ -97,6 +99,7 @@ int main(int argc, char **argv)
     double crf = -1.0, bitrate = 0.0;
     int nref = 1, badapt = 1;
     int lookahead = 12, cutree = 0;
+    int threads = 0;
     const char *dump_decode_path = NULL;
 
     for (int i = 1; i < argc; i++) {
@@ -126,6 +129,8 @@ int main(int argc, char **argv)
             cutree = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--dump-recon-decode") && i + 1 < argc) {
             dump_decode_path = argv[++i];
+        } else if (!strcmp(argv[i], "--threads") && i + 1 < argc) {
+            threads = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--ctu") && i + 1 < argc) {
             ctu = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--pcm")) {
@@ -177,6 +182,7 @@ int main(int argc, char **argv)
     n265_set_ref(nref);
     n265_set_badapt(badapt);
     n265_set_la(lookahead, cutree);
+    n265_set_threads(threads);
     n265_param p;
     n265_param_default(&p);
     p.width = y.w;

@@ -21,6 +21,7 @@ inc = include_directories('include', 'src')
 
 lib_sources = [
   'src/common/bitstream.c',
+  'src/threadpool/ntp.c',
   'src/encoder/cabac.c',
   'src/encoder/tables.c',
   'src/encoder/transform.c',
@@ -31,6 +32,7 @@ lib_sources = [
   'src/encoder/ctu.c',
   'src/encoder/entropy.c',
   'src/encoder/mc.c',
+  'src/encoder/refchk.c',
   'src/encoder/satd.c',
   'src/encoder/est.c',
   'src/encoder/la.c',

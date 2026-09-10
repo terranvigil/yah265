@@ -6,6 +6,7 @@
  */
 
 #include "encoder/mc.h"
+#include "encoder/refchk.h"
 
 static const int8_t luma_filt[4][8] = {
     {  0, 0,   0, 64,  0,   0, 0,  0 },
@@ -32,6 +33,10 @@ static inline uint8_t clip1(int v)
 void n265_mc_luma_wh(uint8_t *dst, int ds, int w, int h,
                      const uint8_t *ref, int ref_stride, int fx, int fy)
 {
+    /* the extreme lines this call reads, reported from inside the filter
+     * rather than from the caller's bound (refchk.h) */
+    N265_RC_TOUCH(ref + (fy ? -3 : 0) * ref_stride);
+    N265_RC_TOUCH(ref + (fy ? h + 3 : h - 1) * ref_stride);
     if (!fx && !fy) {
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
@@ -83,6 +88,8 @@ void n265_mc_luma_wh(uint8_t *dst, int ds, int w, int h,
 void n265_mc_luma_hplane(int16_t *dst, int ds, int w, int h,
                          const uint8_t *ref, int ref_stride, int fx)
 {
+    N265_RC_TOUCH(ref);
+    N265_RC_TOUCH(ref + (h - 1) * ref_stride);
     const int8_t *f = luma_filt[fx];
     for (int y = 0; y < h; y++)
         for (int x = 0; x < w; x++) {
@@ -105,6 +112,8 @@ void n265_mc_luma_hf(uint8_t *dst, int ds, int w, int h,
         n265_mc_luma_wh(dst, ds, w, h, ref, ref_stride, fx, fy);
         return;
     }
+    N265_RC_TOUCH16(hf + (fy ? -3 : 0) * hs);
+    N265_RC_TOUCH16(hf + (fy ? h + 3 : h - 1) * hs);
     if (!fy) {
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
@@ -129,6 +138,8 @@ void n265_mc_luma_14_hf(int16_t *dst, int ds, int w, int h,
         n265_mc_luma_14_wh(dst, ds, w, h, ref, ref_stride, fx, fy);
         return;
     }
+    N265_RC_TOUCH16(hf + (fy ? -3 : 0) * hs);
+    N265_RC_TOUCH16(hf + (fy ? h + 3 : h - 1) * hs);
     if (!fy) {
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
@@ -148,6 +159,8 @@ void n265_mc_luma_14_hf(int16_t *dst, int ds, int w, int h,
 void n265_mc_chroma_wh(uint8_t *dst, int ds, int w, int h,
                        const uint8_t *ref, int ref_stride, int fx, int fy)
 {
+    N265_RC_TOUCH(ref + (fy ? -1 : 0) * ref_stride);
+    N265_RC_TOUCH(ref + (fy ? h + 1 : h - 1) * ref_stride);
     if (!fx && !fy) {
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
@@ -199,6 +212,8 @@ void n265_mc_chroma_wh(uint8_t *dst, int ds, int w, int h,
 void n265_mc_luma_14_wh(int16_t *dst, int ds, int w, int h,
                         const uint8_t *ref, int ref_stride, int fx, int fy)
 {
+    N265_RC_TOUCH(ref + (fy ? -3 : 0) * ref_stride);
+    N265_RC_TOUCH(ref + (fy ? h + 3 : h - 1) * ref_stride);
     if (!fx && !fy) {
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
@@ -248,6 +263,8 @@ void n265_mc_luma_14_wh(int16_t *dst, int ds, int w, int h,
 void n265_mc_chroma_14_wh(int16_t *dst, int ds, int w, int h,
                           const uint8_t *ref, int ref_stride, int fx, int fy)
 {
+    N265_RC_TOUCH(ref + (fy ? -1 : 0) * ref_stride);
+    N265_RC_TOUCH(ref + (fy ? h + 1 : h - 1) * ref_stride);
     if (!fx && !fy) {
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)

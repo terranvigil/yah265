@@ -31,11 +31,24 @@ static inline uint8_t clip1(int v)
 static const int eo_dx[4] = { -1, 0, -1, 1 };
 static const int eo_dy[4] = { 0, -1, -1, -1 };
 
-static int eo_category(const uint8_t *p, int stride, int x, int y, int cls)
+/* One sample of the picture as SAO must see it: pre-SAO everywhere.
+ * Inside the CTB row being processed and below it that is the recon
+ * plane itself (rows below are deblocked and not yet SAO'd). The one
+ * line SAO has already rewritten is the last line of the row above, so
+ * `above` carries the copy taken before that row was applied
+ * (docs/threading-design.md sec 1). `ytop` is the band's first line. */
+static inline int sao_pix(const uint8_t *p, int stride, const uint8_t *above,
+                          int ytop, int x, int y)
 {
-    int c = p[y * stride + x];
-    int a = p[(y + eo_dy[cls]) * stride + x + eo_dx[cls]];
-    int b = p[(y - eo_dy[cls]) * stride + x - eo_dx[cls]];
+    return (above && y == ytop - 1) ? above[x] : p[y * stride + x];
+}
+
+static int eo_category(const uint8_t *p, int stride, const uint8_t *above,
+                       int ytop, int x, int y, int cls)
+{
+    int c = sao_pix(p, stride, above, ytop, x, y);
+    int a = sao_pix(p, stride, above, ytop, x + eo_dx[cls], y + eo_dy[cls]);
+    int b = sao_pix(p, stride, above, ytop, x - eo_dx[cls], y - eo_dy[cls]);
     if (c < a && c < b) return 1;
     if ((c < a && c == b) || (c == a && c < b)) return 2;
     if ((c > a && c == b) || (c == a && c > b)) return 3;
@@ -90,16 +103,17 @@ typedef struct sao_stats {
     int64_t en[4][5], ed[4][5];     /* edge: per class, per category */
 } sao_stats;
 
-static void collect_stats(const uint8_t *src, const uint8_t *rec,
-                          int stride, int x0, int y0, int w, int h,
-                          int pw, int ph, sao_stats *st)
+static void collect_stats(const uint8_t *src, int src_stride,
+                          const uint8_t *rec, int stride,
+                          const uint8_t *above, int ytop, int x0, int y0,
+                          int w, int h, int pw, int ph, sao_stats *st)
 {
     memset(st, 0, sizeof(*st));
     for (int y = y0; y < y0 + h; y++)
         for (int x = x0; x < x0 + w; x++) {
             int r = rec[y * stride + x];
             st->bn[r >> 3]++;
-            st->bd[r >> 3] += src[y * stride + x] - r;
+            st->bd[r >> 3] += src[y * src_stride + x] - r;
         }
     for (int cls = 0; cls < 4; cls++)
         for (int y = y0; y < y0 + h; y++) {
@@ -110,11 +124,11 @@ static void collect_stats(const uint8_t *src, const uint8_t *rec,
                 if (x + eo_dx[cls] < 0 || x - eo_dx[cls] < 0 ||
                     x + eo_dx[cls] >= pw || x - eo_dx[cls] >= pw)
                     continue;
-                int cat = eo_category(rec, stride, x, y, cls);
+                int cat = eo_category(rec, stride, above, ytop, x, y, cls);
                 if (cat) {
                     st->en[cls][cat]++;
                     st->ed[cls][cat] +=
-                        src[y * stride + x] - rec[y * stride + x];
+                        src[y * src_stride + x] - rec[y * stride + x];
                 }
             }
         }
@@ -133,6 +147,13 @@ static int64_t score_params(const sao_stats *st, int type, int cop,
         for (int i = 0; i < 4; i++)
             g += gain(st->en[cop][i + 1], st->ed[cop][i + 1], off[i]);
     return g;
+}
+
+static int sao_hist_on(void)
+{
+    static int v = -1;
+    if (v < 0) v = getenv("N265_MODE_HIST") != NULL;
+    return v;
 }
 
 /* N265_SAO_TYPES: bitmask of the types the per-CTB analysis may pick -
@@ -381,7 +402,7 @@ static int sao_gate_share(void)
 
 /* the share of this CTB's 4x4 cells carrying a luma coefficient, in
  * sixteenths, saturating at 16 */
-static int ctb_cbf_share(struct n265_encoder *e, int cx, int cy, int ctb)
+static int ctb_cbf_share(struct n265_frame_work *e, int cx, int cy, int ctb)
 {
     int x0 = cx * ctb, y0 = cy * ctb;
     int cw = (x0 + ctb > e->pad_w ? e->pad_w - x0 : ctb) >> 2;
@@ -411,8 +432,10 @@ static int params_all_off(const sao_params *p)
  * parameter set produces on this CTB, computed the way n265_sao_apply
  * will produce it - clipping included, neighbours unfiltered - so it can
  * be held against the stats model's prediction. */
-static int64_t true_dssd(const uint8_t *src, const uint8_t *rec,
-                         int stride, int x0, int y0, int w, int h,
+static int64_t true_dssd(const uint8_t *src, int src_stride,
+                         const uint8_t *rec, int stride,
+                         const uint8_t *above, int ytop, int x0, int y0,
+                         int w, int h,
                          int pw, int ph, int type, int cop,
                          const int8_t off[4])
 {
@@ -430,11 +453,11 @@ static int64_t true_dssd(const uint8_t *src, const uint8_t *rec,
                        y + eo_dy[cop] < ph && y - eo_dy[cop] < ph &&
                        x + eo_dx[cop] >= 0 && x - eo_dx[cop] >= 0 &&
                        x + eo_dx[cop] < pw && x - eo_dx[cop] < pw) {
-                int cat = eo_category(rec, stride, x, y, cop);
+                int cat = eo_category(rec, stride, above, ytop, x, y, cop);
                 if (cat)
                     nv = clip1(v + off[cat - 1]);
             }
-            int s = src[y * stride + x];
+            int s = src[y * src_stride + x];
             d += (int64_t)(nv - s) * (nv - s) - (int64_t)(v - s) * (v - s);
         }
     return d;
@@ -453,13 +476,13 @@ static FILE *sao_trace(void)
     return f;
 }
 
-void n265_sao_analyze(struct n265_encoder *e)
+static void sao_analyze_row(struct n265_frame_work *e, int cy)
 {
     int ctb = 1 << e->ctb_log2;
     int qplam = sao_qplam(), bias = sao_bias();
     uint32_t frame_lam = n265_lambda_mode_q8(e->qp);
     sao_stats st[3];
-    for (int cy = 0; cy < e->ctb_rows; cy++)
+    {
         for (int cx = 0; cx < e->ctb_cols; cx++) {
             sao_params *p = &e->sao[cy * e->ctb_cols + cx];
             uint32_t lam = frame_lam;
@@ -502,9 +525,10 @@ void n265_sao_analyze(struct n265_encoder *e)
                 int pw = e->pad_w >> sh, ph = e->pad_h >> sh;
                 int w = (x0 + (ctb >> sh) > pw) ? pw - x0 : ctb >> sh;
                 int h = (y0 + (ctb >> sh) > ph) ? ph - y0 : ctb >> sh;
-                collect_stats(e->pad_plane[c], e->recon[c],
-                              e->recon_stride[c], x0, y0, w, h, pw, ph,
-                              &st[c]);
+                collect_stats(e->pad_plane[c], e->pad_stride[c],
+                              e->recon[c], e->recon_stride[c],
+                              cy > 0 ? e->sao_line[c] : NULL, y0,
+                              x0, y0, w, h, pw, ph, &st[c]);
                 analyze_cand(&st[c], lam, &cand[c]);
             }
             if (sao_chroma_joint()) {
@@ -577,8 +601,10 @@ void n265_sao_analyze(struct n265_encoder *e)
                     int pw = e->pad_w >> sh, ph = e->pad_h >> sh;
                     int w = (x0 + (ctb >> sh) > pw) ? pw - x0 : ctb >> sh;
                     int h = (y0 + (ctb >> sh) > ph) ? ph - y0 : ctb >> sh;
-                    int64_t a = true_dssd(e->pad_plane[c], e->recon[c],
-                                          e->recon_stride[c], x0, y0, w, h,
+                    int64_t a = true_dssd(e->pad_plane[c], e->pad_stride[c],
+                                          e->recon[c], e->recon_stride[c],
+                                          cy > 0 ? e->sao_line[c] : NULL, y0,
+                                          x0, y0, w, h,
                                           pw, ph, p->type[c],
                                           p->class_or_pos[c], p->offset[c]);
                     pd += score_params(&st[c], p->type[c],
@@ -597,10 +623,7 @@ void n265_sao_analyze(struct n265_encoder *e)
                         (long long)pd, (long long)ad,
                         (long long)pd0, (long long)ad0);
             }
-            static int hist_on = -1;
-            if (hist_on < 0)
-                hist_on = getenv("N265_MODE_HIST") != NULL;
-            if (hist_on) {
+            if (sao_hist_on()) {
                 static int cnt[3][3];
                 for (int c = 0; c < 3; c++)
                     cnt[c][p->type[c]]++;
@@ -610,6 +633,7 @@ void n265_sao_analyze(struct n265_encoder *e)
                         cnt[2][0], cnt[2][1], cnt[2][2]);
             }
         }
+    }
 }
 
 static void write_offset_abs(cabac_t *cb, int abs_v)
@@ -621,7 +645,7 @@ static void write_offset_abs(cabac_t *cb, int abs_v)
         n265_cabac_bypass(cb, 0);
 }
 
-void n265_sao_write(struct n265_encoder *e, cabac_t *cb, int ctb_x,
+void n265_sao_write(struct n265_frame_work *e, cabac_t *cb, int ctb_x,
                     int ctb_y)
 {
     const sao_params *p = &e->sao[ctb_y * e->ctb_cols + ctb_x];
@@ -657,54 +681,105 @@ void n265_sao_write(struct n265_encoder *e, cabac_t *cb, int ctb_x,
     }
 }
 
-void n265_sao_apply(struct n265_encoder *e)
+/* Apply row cy's decided offsets in place, then publish. The pristine
+ * copy is only the band (SAO reads at most one line either side of a
+ * sample): the line above comes from sao_line[], saved before the row
+ * above was applied, and the line below is still pre-SAO in the recon
+ * plane because sao(cy+1) has not run. */
+static void sao_apply_row(struct n265_frame_work *e, int cy)
 {
     int ctb = 1 << e->ctb_log2;
     for (int c = 0; c < 3; c++) {
         int sh = c ? 1 : 0;
         int pw = e->pad_w >> sh, ph = e->pad_h >> sh;
         int stride = e->recon_stride[c];
-        size_t sz = (size_t)pw * ph;
-        memcpy(e->sao_tmp[c], e->recon[c], sz);
-        const uint8_t *in = e->sao_tmp[c];
+        int bh = ctb >> sh;
+        int y0 = (cy * ctb) >> sh;
+        int y1 = y0 + bh > ph ? ph : y0 + bh;
+        const uint8_t *above = cy > 0 ? e->sao_line[c] : NULL;
+        uint8_t *in = e->sao_tmp[c];        /* band copy, stride pw */
         uint8_t *out = e->recon[c];
 
-        for (int cy = 0; cy < e->ctb_rows; cy++)
-            for (int cx = 0; cx < e->ctb_cols; cx++) {
-                const sao_params *p = &e->sao[cy * e->ctb_cols + cx];
-                if (p->type[c] == SAO_OFF)
-                    continue;
-                int x0 = (cx * ctb) >> sh, y0 = (cy * ctb) >> sh;
-                int w = (x0 + (ctb >> sh) > pw) ? pw - x0 : ctb >> sh;
-                int h = (y0 + (ctb >> sh) > ph) ? ph - y0 : ctb >> sh;
-                if (p->type[c] == SAO_BAND) {
-                    int pos = p->class_or_pos[c];
-                    for (int y = y0; y < y0 + h; y++)
-                        for (int x = x0; x < x0 + w; x++) {
-                            int v = in[y * stride + x];
-                            int band = (v >> 3) - pos;
-                            if (band >= 0 && band < 4)
-                                out[y * stride + x] =
-                                    clip1(v + p->offset[c][band]);
-                        }
-                } else {
-                    int cls = p->class_or_pos[c];
-                    for (int y = y0; y < y0 + h; y++) {
-                        if (y + eo_dy[cls] < 0 || y - eo_dy[cls] < 0 ||
-                            y + eo_dy[cls] >= ph || y - eo_dy[cls] >= ph)
+        for (int y = y0; y < y1; y++)
+            memcpy(in + (size_t)(y - y0) * pw, out + (size_t)y * stride,
+                   (size_t)pw);
+
+        for (int cx = 0; cx < e->ctb_cols; cx++) {
+            const sao_params *p = &e->sao[cy * e->ctb_cols + cx];
+            if (p->type[c] == SAO_OFF)
+                continue;
+            int x0 = (cx * ctb) >> sh;
+            int w = (x0 + (ctb >> sh) > pw) ? pw - x0 : ctb >> sh;
+            if (p->type[c] == SAO_BAND) {
+                int pos = p->class_or_pos[c];
+                for (int y = y0; y < y1; y++)
+                    for (int x = x0; x < x0 + w; x++) {
+                        int v = in[(size_t)(y - y0) * pw + x];
+                        int band = (v >> 3) - pos;
+                        if (band >= 0 && band < 4)
+                            out[(size_t)y * stride + x] =
+                                clip1(v + p->offset[c][band]);
+                    }
+            } else {
+                int cls = p->class_or_pos[c];
+                for (int y = y0; y < y1; y++) {
+                    if (y + eo_dy[cls] < 0 || y - eo_dy[cls] < 0 ||
+                        y + eo_dy[cls] >= ph || y - eo_dy[cls] >= ph)
+                        continue;
+                    for (int x = x0; x < x0 + w; x++) {
+                        if (x + eo_dx[cls] < 0 || x - eo_dx[cls] < 0 ||
+                            x + eo_dx[cls] >= pw || x - eo_dx[cls] >= pw)
                             continue;
-                        for (int x = x0; x < x0 + w; x++) {
-                            if (x + eo_dx[cls] < 0 || x - eo_dx[cls] < 0 ||
-                                x + eo_dx[cls] >= pw || x - eo_dx[cls] >= pw)
-                                continue;
-                            int cat = eo_category(in, stride, x, y, cls);
-                            if (cat)
-                                out[y * stride + x] = clip1(
-                                    in[y * stride + x] +
-                                    p->offset[c][cat - 1]);
+                        /* neighbours: inside the band from the pristine
+                         * copy, one line above from sao_line, one line
+                         * below straight from the (still pre-SAO) recon */
+                        int px[3], k = 0;
+                        for (int d = -1; d <= 1; d++) {
+                            int yy = y + d * eo_dy[cls];
+                            int xx = x + d * eo_dx[cls];
+                            if (d == 0) { yy = y; xx = x; }
+                            px[k++] = (above && yy == y0 - 1) ? above[xx]
+                                : (yy >= y0 && yy < y1)
+                                    ? in[(size_t)(yy - y0) * pw + xx]
+                                    : out[(size_t)yy * stride + xx];
                         }
+                        /* the two neighbours are interchangeable in
+                         * every rule below, so their order does not
+                         * matter */
+                        int n0 = px[0], cc = px[1], n1 = px[2];
+                        int cat = 0;
+                        if (cc < n0 && cc < n1) cat = 1;
+                        else if ((cc < n0 && cc == n1) || (cc == n0 && cc < n1)) cat = 2;
+                        else if ((cc > n0 && cc == n1) || (cc == n0 && cc > n1)) cat = 3;
+                        else if (cc > n0 && cc > n1) cat = 4;
+                        if (cat)
+                            out[(size_t)y * stride + x] =
+                                clip1(cc + p->offset[c][cat - 1]);
                     }
                 }
             }
+        }
+        /* the next row's `above` is this band's last line, pre-SAO. It
+         * has to be taken AFTER the band is applied: `above` aliases
+         * this same buffer while the offsets are being applied. */
+        memcpy(e->sao_line[c], in + (size_t)(y1 - 1 - y0) * pw, (size_t)pw);
     }
+}
+
+/* One CTB row of the filter stage: decide this row's params against the
+ * deblocked picture, then apply them. Ready when deblock has covered
+ * rows cy and cy+1 (sec 1). */
+void n265_sao_row(struct n265_frame_work *e, int cy)
+{
+    sao_analyze_row(e, cy);
+    sao_apply_row(e, cy);
+}
+
+/* Initialize every cached knob on the driver at encoder open; see
+ * n265_ctu_warm. */
+void n265_sao_warm(void)
+{
+    (void)sao_types(); (void)sao_qplam(); (void)sao_bias();
+    (void)sao_chroma_joint(); (void)sao_gate(); (void)sao_gate_share();
+    (void)sao_hist_on(); (void)sao_trace();
 }

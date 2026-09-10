@@ -58,13 +58,13 @@ void n265_est_ops(res_ops *ops, est_state *st);
 void n265_tables_init_est(void);
 
 /* entropy.c: replay one CU's committed records through the estimator */
-struct n265_encoder;
-void n265_est_advance_cu(struct n265_encoder *e, est_state *st, int x0,
+struct n265_frame_work;
+void n265_est_advance_cu(struct n265_frame_work *e, est_state *st, int x0,
                          int y0, int log2n);
 
 /* entropy.c: part_mode for an inter CU (9.3.3.7, Table 9-34), shared by
  * the real emit and the mode decision's cost model */
-void n265_write_part_mode(struct n265_encoder *e, const res_ops *ops,
+void n265_write_part_mode(struct n265_frame_work *e, const res_ops *ops,
                           int log2n, int part);
 
 #endif

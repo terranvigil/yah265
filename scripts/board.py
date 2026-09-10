@@ -11,6 +11,13 @@ Speed multiple = our_time / x265_time (1.00 = parity, lower = faster).
 BD-rate (Y-PSNR) vs the matched arm; negative = we spend fewer bits at
 equal PSNR.
 
+Goal 1 is the single-threaded leg: ours at --threads 1 against the
+matched arm's --no-asm run. Goal 2 is the utilization leg, our_fps_auto
+against x265med_asm_fps_auto - both encoders at their own default thread
+configuration (ours auto since the T3 merge, x265 at default pools and
+frame threads). The BD encodes also run at our default, which the
+determinism gate makes bit-neutral.
+
 Timing rules (docs/instruments.md): output to /dev/null, median of
 NRUNS, sizes measured in a separate untimed pass.
 
@@ -231,12 +238,17 @@ def measure_clip(tmp, name, size, frames, src, bd_only):
         # timing skipped (loaded machine); columns stay empty
         for k in ("our_fps", "x265m_noasm_fps", "x265m_asm_fps",
                   "mult_matched_g1", "mult_matched_g3", "x265med_noasm_fps",
-                  "x265med_asm_fps", "mult_medium_g1", "mult_medium_g3"):
+                  "x265med_asm_fps", "mult_medium_g1", "mult_medium_g3",
+                  "our_fps_auto", "x265med_asm_fps_auto"):
             row[k] = ""
         return row
 
     warm_file(y4m)
-    t_ours = time_cmd([N265, y4m, "-o", "/dev/null", "--qp", "27"] + lim)
+    # Goal 1 is single-thread by definition, so the timed leg says so
+    # explicitly - our default is auto since the T3 merge (2026-09-09) and
+    # x265's arm is already --pools none --frame-threads 1.
+    t_ours = time_cmd([N265, y4m, "-o", "/dev/null", "--qp", "27",
+                       "--threads", "1"] + lim)
     t_m_noasm = time_cmd(matched + ["--no-asm", "--qp", "27", "-o",
                                     "/dev/null"])
     t_m_asm = time_cmd(matched + ["--qp", "27", "-o", "/dev/null"])
@@ -252,6 +264,18 @@ def measure_clip(tmp, name, size, frames, src, bd_only):
     row["x265med_asm_fps"] = round(frames / t_med_asm, 2)
     row["mult_medium_g1"] = round(t_ours / t_med_noasm, 3)
     row["mult_medium_g3"] = round(t_ours / t_med_asm, 3)
+
+    # Goal 2, the utilization leg: both encoders at their own default
+    # thread configuration - ours at --threads 0 (one worker per online
+    # CPU), x265 medium at default pools and frame threads. Read as a wall
+    # ratio, x265med_asm_fps_auto / our_fps_auto. Determinism makes our
+    # auto run bit-identical to the --threads 1 one, so this measures
+    # scheduling only.
+    med_auto = [X265, "--input", y4m, "--log-level", "error"] + lim
+    t_ours_auto = time_cmd([N265, y4m, "-o", "/dev/null", "--qp", "27"] + lim)
+    t_med_auto = time_cmd(med_auto + ["--crf", "28", "-o", "/dev/null"])
+    row["our_fps_auto"] = round(frames / t_ours_auto, 2)
+    row["x265med_asm_fps_auto"] = round(frames / t_med_auto, 2)
     return row
 
 
@@ -272,7 +296,8 @@ def main():
     fields = ["date", "commit", "x265", "clip", "frames", "our_fps",
               "x265m_noasm_fps", "x265m_asm_fps", "mult_matched_g1",
               "mult_matched_g3", "x265med_noasm_fps", "x265med_asm_fps",
-              "mult_medium_g1", "mult_medium_g3", "bd_rate_psnr_pct",
+              "mult_medium_g1", "mult_medium_g3", "our_fps_auto",
+              "x265med_asm_fps_auto", "bd_rate_psnr_pct",
               "bd_rate_vmafneg_pct", "note"]
     os.makedirs(os.path.dirname(HISTORY), exist_ok=True)
     new = not os.path.exists(HISTORY)
@@ -300,7 +325,8 @@ def main():
             else:
                 print("{clip}: ours {our_fps} fps | matched g1 "
                       "{mult_matched_g1}x g3 {mult_matched_g3}x | medium g1 "
-                      "{mult_medium_g1}x g3 {mult_medium_g3}x | BD "
+                      "{mult_medium_g1}x g3 {mult_medium_g3}x | auto "
+                      "{our_fps_auto} vs {x265med_asm_fps_auto} fps | BD "
                       "{bd_rate_psnr_pct}% / NEG {bd_rate_vmafneg_pct}%".format(**row))
     print(f"appended to {os.path.relpath(HISTORY, ROOT)}")
 

@@ -177,7 +177,47 @@ run_vector_env "N265_SAO_TYPES=2" \
                           sao_edge  176x144 12  testsrc2  "--keyint 6"
 run_vector_env "N265_SAO_TYPES=3" \
                           sao_crop  210x122 12  testsrc2  "--keyint 6 --ctu 64"
+# Threaded cells: the same content at --threads 4 and 12, CQP and ABR,
+# with a B pyramid. run_vector already encodes each vector twice and
+# cmp's the two runs, so these carry the same-thread-count determinism
+# leg as well as the two-decoder leg.
+#
+# The full pyramid, at one thread and at twelve. These could not exist
+# before the SPS fix: sps_max_num_reorder_pics was signalled as
+# `bframes` against sps_max_dec_pic_buffering_minus1 = N265_DPB_SLOTS,
+# so at --bframes 7 the declared reorder depth exceeded the declared
+# buffer count. That is out of range by 7.4.3.2.1 and dec265 refuses the
+# stream. Both fields now come from the reference structure itself.
+run_vector b7_t1_cif   352x288 24  testsrc2  "--keyint 12 --bframes 7 --aq 1 --cutree 1 --threads 1"
+run_vector b7_t12_cif  352x288 24  testsrc2  "--keyint 12 --bframes 7 --aq 1 --cutree 1 --threads 12"
+run_vector thr4_cif    352x288 24  testsrc2  "--keyint 12 --bframes 5 --aq 1 --cutree 1 --threads 4"
+run_vector thr12_cif   352x288 24  testsrc2  "--keyint 12 --bframes 5 --aq 1 --cutree 1 --threads 12"
+run_vector thr4_abr    352x288 24  testsrc2  "--keyint 12 --bitrate 400 --aq 1 --cutree 1 --threads 4"
+run_vector thr12_abr   352x288 24  testsrc2  "--keyint 12 --bitrate 400 --aq 1 --cutree 1 --threads 12"
+# T2/3: frames overlap. K = N265_MAX_FRAME_WORK is a scheduling knob and
+# cannot change bits, so the same content is coded at K = 1, the shipped
+# K = 4 and K = 8, at twelve threads, once per RC mode. The K = 1 cell is
+# the control: it is the T1 schedule (one frame in flight) running on the
+# T2 code, so a difference between it and its K = 4 sibling would be the
+# overlap changing bits, which is the thing the phase forbids.
+run_vector k4_t12_crf  352x288 24  testsrc2  "--keyint 12 --bframes 5 --crf 26 --aq 1 --cutree 1 --threads 12"
+run_vector_env "N265_MAX_FRAME_WORK=1" \
+           k1_t12_cif  352x288 24  testsrc2  "--keyint 12 --bframes 5 --aq 1 --cutree 1 --threads 12"
+run_vector_env "N265_MAX_FRAME_WORK=8" \
+           k8_t12_b7   352x288 24  testsrc2  "--keyint 12 --bframes 7 --aq 1 --cutree 1 --threads 12"
+run_vector_env "N265_MAX_FRAME_WORK=8" \
+           k8_t12_abr  352x288 24  testsrc2  "--keyint 12 --bitrate 400 --aq 1 --cutree 1 --threads 12"
+# D4's observation lag. Unlike K this one IS bitstream-affecting, so it
+# gets a cell at one thread and at twelve: the stream must differ from
+# the D = 0 one and must not differ between thread counts.
+run_vector_env "N265_RC_LAG=3" \
+           lag3_t1_abr 352x288 24  testsrc2  "--keyint 12 --bitrate 400 --aq 1 --cutree 1 --threads 1"
+run_vector_env "N265_RC_LAG=3" \
+           lag3_t12_abr 352x288 24 testsrc2  "--keyint 12 --bitrate 400 --aq 1 --cutree 1 --threads 12"
 if [ "$FAST" -eq 0 ]; then
+    run_vector thr4_720    1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 4"
+    run_vector thr12_720   1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 12"
+    run_vector thr12_720abr 1280x720 12 testsrc2 "--keyint 6 --bitrate 4000 --aq 1 --cutree 1 --threads 12"
     run_vector inter_cif   352x288 25  testsrc2  "--keyint 12"
     run_vector inter_b_cif 352x288 24  testsrc2  "--keyint 9"
     run_vector inter_b_smooth 176x144 16 gradients ""

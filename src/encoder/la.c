@@ -102,13 +102,20 @@ void n265_la_push(struct n265_encoder *e, const uint8_t *const plane[3],
     f->valid = 1;
     f->display_idx = e->in_display_idx;
 
+    /* Edge-replicate into the padded geometry here, once. encode_frame
+     * used to re-pad this into a second frame-sized buffer every frame;
+     * the queue slot IS the padded source now (threading-design sec 4). */
     for (int c = 0; c < 3; c++) {
         int w = c ? e->param.width / 2 : e->param.width;
         int h = c ? e->param.height / 2 : e->param.height;
-        int dst_stride = c ? e->pad_w / 2 : e->pad_w;
-        for (int y = 0; y < h; y++)
-            memcpy(f->src[c] + y * dst_stride, plane[c] + y * stride[c],
-                   (size_t)w);
+        int dw = c ? e->pad_w / 2 : e->pad_w;
+        int dh = c ? e->pad_h / 2 : e->pad_h;
+        for (int y = 0; y < dh; y++) {
+            const uint8_t *s = plane[c] + (y < h ? y : h - 1) * stride[c];
+            uint8_t *d = f->src[c] + y * dw;
+            memcpy(d, s, (size_t)w);
+            memset(d + w, s[w - 1], (size_t)(dw - w));
+        }
     }
 
     /* lowres: 2x2 mean over the padded width (edge rows repeat source) */
@@ -487,7 +494,7 @@ int n265_la_brun(struct n265_encoder *e, int maxa)
     return best_a;
 }
 
-void n265_la_cutree(struct n265_encoder *e, int i)
+void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
 {
     n265_la *la = &e->la;
     int nb = la->bw * la->bh;
@@ -650,18 +657,18 @@ void n265_la_cutree(struct n265_encoder *e, int i)
     }
     for (int k = 0; k < nctu; k++) {
         float v = raw[k] - mean;
-        e->ctu_qp_raw[k] = v;
+        fw->ctu_qp_raw[k] = v;
         int off = (int)(v > 0 ? v + 0.5f : v - 0.5f);
-        e->ctu_qp_off[k] = (int8_t)(off < -12 ? -12 : off > 12 ? 12 : off);
+        fw->ctu_qp_off[k] = (int8_t)(off < -12 ? -12 : off > 12 ? 12 : off);
     }
     if (getenv("N265_CT_TRACE")) {
         int nz = 0, mn = 0;
         double fm = 0;
         for (int k = 0; k < e->ctb_cols * e->ctb_rows; k++) {
-            nz += e->ctu_qp_off[k] != 0;
-            fm += e->ctu_qp_raw[k];
-            if (e->ctu_qp_off[k] < mn)
-                mn = e->ctu_qp_off[k];
+            nz += fw->ctu_qp_off[k] != 0;
+            fm += fw->ctu_qp_raw[k];
+            if (fw->ctu_qp_off[k] < mn)
+                mn = fw->ctu_qp_off[k];
         }
         fprintf(stderr, "[ct d%d cnt%d nz%d min%d raw%.2f fieldmean%.2f]",
                 f->display_idx, la->count, nz, mn, mean, fm / nctu);

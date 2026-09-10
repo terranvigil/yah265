@@ -16,7 +16,7 @@
 #include "encoder/residual.h"
 #include "encoder/sao.h"
 
-static void mpm_list(struct n265_encoder *e, int x0, int y0, int cand[3])
+static void mpm_list(struct n265_frame_work *e, int x0, int y0, int cand[3])
 {
     int a = INTRA_DC, b = INTRA_DC;
     if (x0 > 0 && e->blk_intra[(y0 >> 2) * e->map_stride + ((x0 - 1) >> 2)])
@@ -47,7 +47,7 @@ static void mpm_list(struct n265_encoder *e, int x0, int y0, int cand[3])
     }
 }
 
-static void write_luma_mode(struct n265_encoder *e, const res_ops *ops,
+static void write_luma_mode(struct n265_frame_work *e, const res_ops *ops,
                             int x0, int y0, int mode)
 {
     int cand[3];
@@ -74,7 +74,7 @@ static void write_luma_mode(struct n265_encoder *e, const res_ops *ops,
     }
 }
 
-static int map_at(struct n265_encoder *e, const uint8_t *map, int x, int y)
+static int map_at(struct n265_frame_work *e, const uint8_t *map, int x, int y)
 {
     return map[(y >> 2) * e->map_stride + (x >> 2)];
 }
@@ -117,7 +117,7 @@ static void write_mvd(const res_ops *ops, int mx, int my)
 /* cu_qp_delta_abs/sign at the first cbf TU of a quantization group
  * (QG == CTB): TU prefix cMax 5 (bin0 ctx 0, later bins ctx 1), EG0
  * escape, bypass sign */
-static void maybe_qp_delta(struct n265_encoder *e, const res_ops *ops,
+static void maybe_qp_delta(struct n265_frame_work *e, const res_ops *ops,
                            int any_cbf)
 {
     if (!e->qp_delta_on || !any_cbf || e->ent_qp_coded)
@@ -148,7 +148,7 @@ static void maybe_qp_delta(struct n265_encoder *e, const res_ops *ops,
         ops->bypass(ops->h, delta < 0);
 }
 
-static void replay_residual(struct n265_encoder *e, const res_ops *ops,
+static void replay_residual(struct n265_frame_work *e, const res_ops *ops,
                             int c_idx, int log2n, int mode)
 {
     int n = 1 << log2n;
@@ -165,7 +165,7 @@ static void replay_residual(struct n265_encoder *e, const res_ops *ops,
  * coded][cbf_cb][cbf_cr when log2ts > 2], then children or the leaf's
  * [cbf_l][levels l][levels cb][levels cr]. A CB8 split keeps chroma at
  * the parent, coded after the last luma child. */
-static void replay_tt(struct n265_encoder *e, const res_ops *ops, int mode,
+static void replay_tt(struct n265_frame_work *e, const res_ops *ops, int mode,
                       int x0, int y0, int log2ts, int depth, int pcb,
                       int pcr)
 {
@@ -251,7 +251,7 @@ static void write_merge_idx(const res_ops *ops, int idx)
  * and 1; bin 2 takes ctx 3 above the min CB (the min-CB ctx 2 cannot
  * occur here: MinCbLog2SizeY is 3, where the code is two bins and inter
  * NxN does not exist). Bin 3, the AMP up/down choice, is bypass. */
-void n265_write_part_mode(struct n265_encoder *e, const res_ops *ops,
+void n265_write_part_mode(struct n265_frame_work *e, const res_ops *ops,
                           int log2n, int part)
 {
     ops->bin(ops->h, CTX_PART_MODE + 0, part == PART_2Nx2N);
@@ -280,7 +280,7 @@ static void write_inter_idc(const res_ops *ops, int depth, int pw, int ph,
 }
 
 /* one PU's motion syntax; returns merge_flag */
-static int replay_pu(struct n265_encoder *e, const res_ops *ops, int log2n,
+static int replay_pu(struct n265_frame_work *e, const res_ops *ops, int log2n,
                      int pw, int ph)
 {
     unsigned flags = rd_u8(e);
@@ -315,7 +315,7 @@ static int replay_pu(struct n265_encoder *e, const res_ops *ops, int log2n,
     return 0;
 }
 
-static void replay_cu(struct n265_encoder *e, const res_ops *ops, int x0,
+static void replay_cu(struct n265_frame_work *e, const res_ops *ops, int x0,
                       int y0, int log2n)
 {
     int is_skip = map_at(e, e->blk_skip, x0, y0);
@@ -441,7 +441,7 @@ static void replay_cu(struct n265_encoder *e, const res_ops *ops, int x0,
         replay_residual(e, ops, 2, 2, modes[0]);
 }
 
-static void replay_quadtree(struct n265_encoder *e, const res_ops *ops,
+static void replay_quadtree(struct n265_frame_work *e, const res_ops *ops,
                             int x0, int y0, int log2n, int depth)
 {
     int n = 1 << log2n;
@@ -477,7 +477,7 @@ static void replay_quadtree(struct n265_encoder *e, const res_ops *ops,
     replay_cu(e, ops, x0, y0, log2n);
 }
 
-void n265_entropy_ctu(struct n265_encoder *e, cabac_t *cb, int ctb_x,
+void n265_entropy_ctu(struct n265_frame_work *e, cabac_t *cb, int ctb_x,
                       int ctb_y)
 {
     int q = e->qp + e->ctu_qp_off[ctb_y * e->ctb_cols + ctb_x];
@@ -497,7 +497,7 @@ void n265_entropy_ctu(struct n265_encoder *e, cabac_t *cb, int ctb_x,
 
 /* estimator advance: replay one CU's just-committed records through the
  * cost-model contexts (rec_pos must point at the CU's record start) */
-void n265_est_advance_cu(struct n265_encoder *e, est_state *st, int x0,
+void n265_est_advance_cu(struct n265_frame_work *e, est_state *st, int x0,
                          int y0, int log2n)
 {
     res_ops ops_s;

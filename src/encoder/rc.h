@@ -29,6 +29,15 @@ typedef struct n265_rc {
     double total_bits;          /* bits emitted so far                   */
     double planned_bits;        /* bits the allocator planned for them   */
     long n_coded;
+    /* D4's observation lag. A frame priced by n265_rc_next but whose
+     * n265_rc_done has not arrived yet contributes its PLANNED bits -
+     * the fair share the allocator handed it - to both feedback terms,
+     * instead of the actual bits nobody knows yet. At N265_RC_LAG = 0
+     * these are always zero, because rc_done runs before the next
+     * rc_next, and the loop is bit-identical to the pre-T2 one. */
+    double pend_bits;
+    long pend_n;
+    double last_planned;        /* the T the last rc_next handed out */
     /* constants (docs/instruments.md) */
     double qcomp, horizon, maxstep, scale_mem, w_mem;
     double rf_bias;             /* the integral term, in QP units      */
@@ -50,7 +59,7 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx);
 
 /* account for the frame just coded */
 void n265_rc_done(struct n265_encoder *e, int cls, double cplx, double rf_used,
-                  double bits);
+                  double bits, double planned);
 
 /* the class of a frame, from the fields encode_frame already carries */
 int n265_rc_class(int slice_type, int nonref);
