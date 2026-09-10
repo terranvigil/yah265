@@ -6,6 +6,8 @@
 
 #include <assert.h>
 
+#include "common/cpu.h"
+#include "encoder/arm/neon.h"
 #include "encoder/residual.h"
 #include "encoder/tables.h"
 
@@ -53,33 +55,116 @@ static void write_last_prefix(const res_ops *ops, int ctx_base, int g,
         ops->bin(ops->h, ctx_base + ctx_off + (g >> ctx_shift), 0);
 }
 
-/* sig_coeff_flag ctxInc (9.3.4.2.5); returns index into CTX_SIG..+41 */
-static int sig_ctx(int xc, int yc, int log2n, int c_idx, int scan_idx,
-                   int prev_csbf)
-{
-    if (log2n == 2) {
-        int base = n265_sig_ctx_map4x4[(yc << 2) | xc];
-        return c_idx ? 27 + base : base;
-    }
-    if (xc + yc == 0)
-        return c_idx ? 27 : 0;
+/* sig_coeff_flag ctxInc (9.3.4.2.5), split at the group boundary.
+ *
+ * The derivation has exactly one term that varies WITHIN a 4x4 group -
+ * the position term below, a function of (x, y) inside the group and of
+ * the right/below neighbour flags - and three that do not: the group's
+ * own +3, the TB size and scan offset, and the component. So the sixteen
+ * ctxIncs of a group are one fixed sixteen-byte pattern plus a scalar the
+ * caller works out once per group, and the per-coefficient switch the
+ * scalar form ran (over a loop that also carries an indirect call per
+ * bin) becomes a byte load. The patterns are spec-fixed; checkasm proves
+ * them against the literal 9.3.4.2.5 form. */
+uint8_t n265_sig_pat[3][5][16];
 
-    int xp = xc & 3, yp = yc & 3;
-    int base;
+static int sig_pos_term(int xp, int yp, int prev_csbf)
+{
     switch (prev_csbf) {
-    case 0: base = (xp + yp == 0) ? 2 : (xp + yp < 3) ? 1 : 0; break;
-    case 1: base = (yp == 0) ? 2 : (yp == 1) ? 1 : 0; break;
-    case 2: base = (xp == 0) ? 2 : (xp == 1) ? 1 : 0; break;
-    default: base = 2; break;
+    case 0: return (xp + yp == 0) ? 2 : (xp + yp < 3) ? 1 : 0;
+    case 1: return (yp == 0) ? 2 : (yp == 1) ? 1 : 0;
+    case 2: return (xp == 0) ? 2 : (xp == 1) ? 1 : 0;
+    default: return 2;
     }
-    if (c_idx == 0) {
-        if ((xc >> 2) + (yc >> 2) > 0)
-            base += 3;
-        base += (log2n == 3) ? (scan_idx == 0 ? 9 : 15) : 21;
-        return base;
+}
+
+void n265_residual_tables_init(void)
+{
+    static int done;
+    if (done)
+        return;
+    for (int k = 0; k < 3; k++)
+        for (int c = 0; c < 16; c++) {
+            int x = n265_scan_coef[k][c] & 15, y = n265_scan_coef[k][c] >> 4;
+            for (int p = 0; p < 4; p++)
+                n265_sig_pat[k][p][c] = (uint8_t)sig_pos_term(x, y, p);
+            /* the 4x4 TB's own map; (3,3) is the block's last position and
+             * is never coded, which is why the spec table has 15 entries */
+            n265_sig_pat[k][4][c] =
+                ((y << 2) | x) < 15 ? n265_sig_ctx_map4x4[(y << 2) | x] : 0;
+        }
+    done = 1;
+}
+
+/* the constant added to the pattern for one group (all of the ctxInc that
+ * does not vary within it); the DC coefficient of the whole TB is the one
+ * exception and the caller overrides it */
+static int sig_group_off(int log2n, int c_idx, int scan_idx, int sb_nonzero)
+{
+    if (log2n == 2)
+        return c_idx ? 27 : 0;
+    if (c_idx == 0)
+        return (sb_nonzero ? 3 : 0) +
+               ((log2n == 3) ? (scan_idx == 0 ? 9 : 15) : 21);
+    return 27 + ((log2n == 3) ? 9 : 12);
+}
+
+/* ---- the two elementwise passes and their dispatch ------------------ */
+
+void n265_csbf_map_ref(const int16_t *level, int log2n, uint8_t *out)
+{
+    int n = 1 << log2n, sb_dim = n >> 2;
+
+    for (int sby = 0; sby < sb_dim; sby++)
+        for (int sbx = 0; sbx < sb_dim; sbx++) {
+            unsigned nz = 0;
+            for (int y = 0; y < 4; y++)
+                for (int x = 0; x < 4; x++)
+                    nz |= (uint16_t)level[(sby * 4 + y) * n + sbx * 4 + x];
+            out[sby * sb_dim + sbx] = nz != 0;
+        }
+}
+
+void n265_csbf_map(const int16_t *level, int log2n, uint8_t *out)
+{
+#if N265_NEON
+    if (n265_asm_on(N265_ASM_QUANT)) {
+        n265_csbf_map_neon(level, log2n, out);
+        return;
     }
-    base += (log2n == 3) ? 9 : 12;
-    return 27 + base;
+#endif
+    n265_csbf_map_ref(level, log2n, out);
+}
+
+uint32_t n265_coeff_group_ref(const int16_t *grp, ptrdiff_t stride,
+                              int scan_idx, uint16_t *abs_out,
+                              uint32_t *neg_mask)
+{
+    const uint8_t *co = n265_scan_coef[scan_idx];
+    uint32_t sig = 0, neg = 0;
+
+    for (int c = 0; c < 16; c++) {
+        int v = grp[(co[c] >> 4) * stride + (co[c] & 15)];
+        /* unsigned negation so that -32768 gives 32768 and not UB; ARM
+         * ABS leaves the same 0x8000 in the lane, which is what makes the
+         * two paths bit-exact at that end of the domain */
+        abs_out[c] = v < 0 ? (uint16_t)(0u - (unsigned)v) : (uint16_t)v;
+        sig |= (uint32_t)(v != 0) << c;
+        neg |= (uint32_t)(v < 0) << c;
+    }
+    *neg_mask = neg;
+    return sig;
+}
+
+uint32_t n265_coeff_group(const int16_t *grp, ptrdiff_t stride, int scan_idx,
+                          uint16_t *abs_out, uint32_t *neg_mask)
+{
+#if N265_NEON
+    if (n265_asm_on(N265_ASM_QUANT))
+        return n265_coeff_group_neon(grp, stride, scan_idx, abs_out,
+                                     neg_mask);
+#endif
+    return n265_coeff_group_ref(grp, stride, scan_idx, abs_out, neg_mask);
 }
 
 /* coeff_abs_level_remaining: truncated-Rice prefix, EGk escape (ones-first
@@ -152,45 +237,34 @@ void n265_residual_coding(const res_ops *ops, const int16_t *level,
     const uint8_t *sb_scan = n265_scan_sb[scan_idx][log2n - 2];
     const uint8_t *co_scan = n265_scan_coef[scan_idx];
 
-    /* per-sub-block significance map, in scan order and again on the
-     * sub-block grid: the context derivation below wants the right and
-     * below neighbours of each sub-block, and finding them by walking
-     * the scan is quadratic in the sub-block count (4096 lookups for a
-     * 32x32 TB, on a path the mode decision runs per candidate). */
-    uint8_t csbf[64] = { 0 };
+    /* Per-sub-block significance on the sub-block GRID: the context
+     * derivation below wants the right and below neighbours of each
+     * sub-block, and finding them by walking the scan is quadratic in the
+     * sub-block count (4096 lookups for a 32x32 TB, on a path the mode
+     * decision runs per candidate). The grid is in raster order, so the
+     * scan-order flag is one indexed read where it is wanted and no
+     * second array is kept. */
     uint8_t csbf_xy[64] = { 0 };
-    for (int s = 0; s < num_sb; s++) {
-        int sbx = sb_scan[s] & 15, sby = sb_scan[s] >> 4;
-        int sx = sbx << 2, sy = sby << 2;
-        for (int c = 0; c < 16; c++) {
-            int x = sx + (co_scan[c] & 15), y = sy + (co_scan[c] >> 4);
-            if (level[y * n + x]) {
-                csbf[s] = 1;
-                break;
-            }
-        }
-        csbf_xy[sby * sb_dim + sbx] = csbf[s];
-    }
+    n265_csbf_map(level, log2n, csbf_xy);
 
     /* last significant position in scan order */
     int last_s = -1, last_c = -1;
-    for (int s = num_sb - 1; s >= 0 && last_s < 0; s--) {
-        if (!csbf[s])
-            continue;
-        for (int c = 15; c >= 0; c--) {
-            int sx = (sb_scan[s] & 15) << 2, sy = (sb_scan[s] >> 4) << 2;
-            int x = sx + (co_scan[c] & 15), y = sy + (co_scan[c] >> 4);
-            if (level[y * n + x]) {
-                last_s = s;
-                last_c = c;
-                break;
-            }
+    for (int s = num_sb - 1; s >= 0; s--)
+        if (csbf_xy[(sb_scan[s] >> 4) * sb_dim + (sb_scan[s] & 15)]) {
+            last_s = s;
+            break;
         }
-    }
     assert(last_s >= 0);
 
     int last_sx = (sb_scan[last_s] & 15) << 2;
     int last_sy = (sb_scan[last_s] >> 4) << 2;
+    for (int c = 15; c >= 0; c--) {
+        int x = last_sx + (co_scan[c] & 15), y = last_sy + (co_scan[c] >> 4);
+        if (level[y * n + x]) {
+            last_c = c;
+            break;
+        }
+    }
     int last_x = last_sx + (co_scan[last_c] & 15);
     int last_y = last_sy + (co_scan[last_c] >> 4);
     if (scan_idx == 2) {  /* vertical: swap */
@@ -220,8 +294,9 @@ void n265_residual_coding(const res_ops *ops, const int16_t *level,
     int prev_sb_g1 = 0;     /* any greater1==1 in previously coded CSB */
 
     for (int s = last_s; s >= 0; s--) {
-        int sx = (sb_scan[s] & 15) << 2, sy = (sb_scan[s] >> 4) << 2;
         int sb_x = sb_scan[s] & 15, sb_y = sb_scan[s] >> 4;
+        int sx = sb_x << 2, sy = sb_y << 2;
+        int csbf_s = csbf_xy[sb_y * sb_dim + sb_x];
 
         /* neighbor csbf for contexts: right and below sub-blocks */
         int csbf_right = sb_x + 1 < sb_dim
@@ -233,13 +308,28 @@ void n265_residual_coding(const res_ops *ops, const int16_t *level,
         int infer_sb_dc = 0;
         if (s < last_s && s > 0) {
             int inc = ((csbf_right || csbf_below) ? 1 : 0) + (c_idx ? 2 : 0);
-            ops->bin(ops->h, CTX_SIG_GROUP + inc, csbf[s]);
-            if (!csbf[s])
+            ops->bin(ops->h, CTX_SIG_GROUP + inc, csbf_s);
+            if (!csbf_s)
                 continue;
             infer_sb_dc = 1;
         }
         /* s == 0: csbf is inferred 1 by the decoder, so its significance
          * flags are always coded, even when the whole sub-block is zero. */
+
+        /* The group's sixteen levels in scan order, once: the significance
+         * the flag pass codes, and the magnitudes and signs the four level
+         * passes below all want. */
+        uint16_t abs_sc[16];
+        uint32_t neg_mask;
+        uint32_t sig_mask = n265_coeff_group(level + sy * n + sx, n, scan_idx,
+                                             abs_sc, &neg_mask);
+        const uint8_t *sig_pat = n265_sig_pat[scan_idx][log2n == 2 ? 4
+                                                                  : prev_csbf];
+        int sig_off = sig_group_off(log2n, c_idx, scan_idx, sb_x + sb_y > 0);
+        /* the TB's DC is the one coefficient outside the group pattern
+         * (9.3.4.2.5 gives it ctxInc 0, or 27 on chroma), and it can only
+         * be scan position 0 of sub-block 0 */
+        int dc_inc = c_idx ? 27 : 0;
 
         /* significance flags, reverse scan; last coeff inferred in its SB */
         int start_c = (s == last_s) ? last_c - 1 : 15;
@@ -248,29 +338,26 @@ void n265_residual_coding(const res_ops *ops, const int16_t *level,
             sig_pos[num_sig++] = last_c;
         }
         for (int c = start_c; c >= 0; c--) {
-            int x = sx + (co_scan[c] & 15), y = sy + (co_scan[c] >> 4);
-            int sig = level[y * n + x] != 0;
+            int sig = (int)((sig_mask >> c) & 1);
             if (c == 0 && infer_sb_dc && num_sig == 0) {
                 /* would-be-empty coded sub-block: DC inferred significant */
                 sig_pos[num_sig++] = 0;
                 break;
             }
-            int inc = sig_ctx(x, y, log2n, c_idx, scan_idx, prev_csbf);
+            int inc = (log2n > 2 && s == 0 && c == 0) ? dc_inc
+                                                      : sig_off + sig_pat[c];
             ops->bin(ops->h, CTX_SIG + inc, sig);
             if (sig)
                 sig_pos[num_sig++] = c;
         }
 
         /* level coding: greater1 (first 8), greater2 (first g1), signs,
-         * remaining. The four passes below all want each significant
-         * coefficient's magnitude and sign; fetch them once. */
+         * remaining. */
         int abs_v[16], neg_v[16];
         for (int i = 0; i < num_sig; i++) {
             int c = sig_pos[i];
-            int l = level[(sy + (co_scan[c] >> 4)) * n + sx +
-                          (co_scan[c] & 15)];
-            abs_v[i] = l < 0 ? -l : l;
-            neg_v[i] = l < 0;
+            abs_v[i] = abs_sc[c];
+            neg_v[i] = (int)((neg_mask >> c) & 1);
         }
         int ctx_set = ((s > 0 && c_idx == 0) ? 2 : 0) + (prev_sb_g1 ? 1 : 0);
         int g1_ctx = 1;

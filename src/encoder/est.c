@@ -10,6 +10,7 @@
 #include <math.h>
 
 #include "encoder/est.h"
+#include "encoder/residual.h"
 
 uint16_t n265_est_bits_mps[64], n265_est_bits_lps[64];
 const uint8_t n265_est_trans_mps[64] = {
@@ -36,6 +37,11 @@ void n265_tables_init_est(void)
         n265_est_bits_lps[s] = (uint16_t)lround(-log2(plps) * 256.0);
         n265_est_bits_mps[s] = (uint16_t)lround(-log2(1.0 - plps) * 256.0);
     }
+    /* the estimator's other constant table: residual_coding's per-group
+     * sig_coeff_flag patterns, which are derived from the scan tables
+     * n265_tables_init() has already built when the driver thread runs
+     * this at encoder open */
+    n265_residual_tables_init();
     done = 1;
 }
 

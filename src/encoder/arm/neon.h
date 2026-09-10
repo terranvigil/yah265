@@ -40,6 +40,7 @@
 
 #if N265_NEON
 
+#include <stddef.h>
 #include <stdint.h>
 
 /* ---- mc (N265_ASM_MC) ---------------------------------------------- */
@@ -131,6 +132,21 @@ uint64_t n265_ssd_wh_neon(const uint8_t *a, int as, const uint8_t *b,
 uint64_t n265_ssd_wh_dot_neon(const uint8_t *a, int as, const uint8_t *b,
                               int bs, int w, int h);
 #endif
+
+/* ---- coefficient costing (N265_ASM_QUANT) --------------------------
+ *
+ * residual_coding()'s two elementwise passes over a transform block's
+ * levels; src/encoder/residual.h has the contracts. Both are gathers over
+ * a 4x4 group, and the bin-by-bin context walk they feed is serial by
+ * construction and stays in C.
+ *
+ * `stride` is in int16 elements. The group kernel reads exactly four rows
+ * of four and nothing wider, so a group at the far edge of a block stays
+ * inside its own declared window. */
+void n265_csbf_map_neon(const int16_t *level, int log2n, uint8_t *out);
+uint32_t n265_coeff_group_neon(const int16_t *grp, ptrdiff_t stride,
+                               int scan_idx, uint16_t *abs_out,
+                               uint32_t *neg_mask);
 
 #endif /* N265_NEON */
 

@@ -25,4 +25,8 @@ void n265_deblock_row(struct n265_frame_work *e, int r);
  * with the slice QP). Runs before deblock(r). */
 void n265_qpmap_row(struct n265_frame_work *e, int r, int *prev);
 
+/* deblock's cached env knob, resolved on the driver thread at open with
+ * the other warms */
+void n265_deblock_warm(void);
+
 #endif
