@@ -47,6 +47,36 @@
 void n265_bi_avg_wh_neon(uint8_t *dst, int dst_stride, const int16_t *a,
                          const int16_t *b, int w, int h);
 
+/* The E1 cached-first-stage luma forms. These two take `hf` alone rather
+ * than the entry point's full argument list: the reference plane, its
+ * stride and fx are consumed by the fall-through ABOVE the dispatch (a
+ * NULL cache or fx == 0 is the plain form's business), so below it the
+ * kernel is a function of the cached int16 rows and fy. Precondition:
+ * hf != NULL, and the block is covered from 3 rows above to 4 below. */
+void n265_mc_luma_hf_neon(uint8_t *dst, int dst_stride, int w, int h,
+                          const int16_t *hf, int hf_stride, int fy);
+void n265_mc_luma_14_hf_neon(int16_t *dst, int dst_stride, int w, int h,
+                             const int16_t *hf, int hf_stride, int fy);
+
+/* the plain forms, and the whole-plane first stage they share their
+ * horizontal pass with */
+void n265_mc_luma_wh_neon(uint8_t *dst, int dst_stride, int w, int h,
+                          const uint8_t *ref, int ref_stride, int fx, int fy);
+void n265_mc_luma_14_wh_neon(int16_t *dst, int dst_stride, int w, int h,
+                             const uint8_t *ref, int ref_stride, int fx,
+                             int fy);
+void n265_mc_luma_hplane_neon(int16_t *dst, int dst_stride, int w, int h,
+                              const uint8_t *ref, int ref_stride, int fx);
+
+/* the chroma 4-tap eighth-pel forms. 4:2:0 halves every luma width, so
+ * these see w = 2 and w = 6 and h = 2, which no luma shape presents. */
+void n265_mc_chroma_wh_neon(uint8_t *dst, int dst_stride, int w, int h,
+                            const uint8_t *ref, int ref_stride, int fx,
+                            int fy);
+void n265_mc_chroma_14_wh_neon(int16_t *dst, int dst_stride, int w, int h,
+                               const uint8_t *ref, int ref_stride, int fx,
+                               int fy);
+
 /* ---- transform (N265_ASM_DCT) -------------------------------------- */
 
 /* ---- satd (N265_ASM_SATD) ------------------------------------------ */
