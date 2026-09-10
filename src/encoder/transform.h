@@ -19,6 +19,16 @@ void n265_idct_add(uint8_t *dst, int dst_stride, const int16_t *dq,
                    int log2n, const uint8_t *pred, int pred_stride,
                    int use_dst);
 
+/* The literal matrix-multiply forms of the pair above. They are the C
+ * reference the partial-butterfly kernels are checked against
+ * (tests/checkasm), not a path the encoder takes; the butterflies must
+ * reproduce them bit for bit. */
+void n265_fdct_ref(int16_t *coef, const int16_t *resid, int log2n,
+                   int use_dst);
+void n265_idct_add_ref(uint8_t *dst, int dst_stride, const int16_t *dq,
+                       int log2n, const uint8_t *pred, int pred_stride,
+                       int use_dst);
+
 /* Encoder-side scalar quant (deadzone 1/3 intra, 1/6 inter); returns the
  * number of nonzero levels. */
 int n265_quant(int16_t *level, const int16_t *coef, int log2n, int qp,
