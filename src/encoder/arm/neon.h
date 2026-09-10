@@ -132,6 +132,20 @@ uint64_t n265_ssd_wh_dot_neon(const uint8_t *a, int as, const uint8_t *b,
                               int bs, int w, int h);
 #endif
 
+/* ---- rdoq (N265_ASM_QUANT) ----------------------------------------- */
+
+/* The two elementwise pieces around the RDOQ lattice; the lattice itself
+ * is sequential in the CABAC state and stays on C. Shapes are the four
+ * square transform blocks, packed (stride n), same as the transform
+ * family: 4x4, 8x8, 16x16, 32x32 and nothing else. See rdoq_neon.c for
+ * the range proof that the C's int64 product fits int32 lanes and that
+ * the pairwise energy reduction gives the C's double bit for bit. */
+
+int n265_rdoq_rtn_neon(int16_t *rtn, double *all_zero, uint64_t *sb_nz,
+                       const int16_t *coef, int log2n, int q, int64_t add,
+                       int qbits, int czero);
+uint64_t n265_rdoq_sb_nz_neon(const int16_t *blk, int log2n);
+
 #endif /* N265_NEON */
 
 #endif /* N265_ARM_NEON_H */

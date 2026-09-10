@@ -32,6 +32,8 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include "common/cpu.h"
+#include "encoder/arm/neon.h"   /* self-guarded; nothing off aarch64 */
 #include "encoder/rdoq.h"
 #include "encoder/transform.h"
 #include "encoder/tables.h"
@@ -230,6 +232,80 @@ static int rdoq_decimate(void)
 static const int level_scale[6] = { 40, 45, 51, 57, 64, 72 };
 static const int quant_scale[6] = { 26214, 23302, 20560, 18396, 16384, 14564 };
 
+/* Pass 1 of the lattice: round-to-nearest levels, the block's coefficient
+ * energy, and the 4x4 occupancy of the levels. A coefficient below `czero`
+ * cannot reach level 1, which is most of them at any usable QP, so the
+ * 64-bit multiply only runs where it can produce something; the vector
+ * form drops that branch instead, which rdoq_neon.c proves is the same
+ * arithmetic. The energy was accumulated in raster order out of caution
+ * about the double adds; every partial sum is an exact integer below 2^53,
+ * so the order never mattered and the kernel is free to reduce pairwise. */
+int n265_rdoq_rtn_ref(int16_t *rtn, double *all_zero, uint64_t *sb_nz,
+                      const int16_t *coef, int log2n, int q, int64_t add,
+                      int qbits, int czero)
+{
+    int n = 1 << log2n, sb_dim = n >> 2;
+    double az = 0;
+    uint64_t m = 0;
+
+    for (int y = 0; y < n; y++) {
+        int sb_row = (y >> 2) * sb_dim;
+        for (int x = 0; x < n; x++) {
+            int i = y * n + x;
+            int c = coef[i] < 0 ? -coef[i] : coef[i];
+            az += (double)coef[i] * coef[i];
+            if (c < czero) {
+                rtn[i] = 0;
+                continue;
+            }
+            int l = (int)(((int64_t)c * q + add) >> qbits);
+            if (l > 32767) l = 32767;
+            rtn[i] = (int16_t)l;
+            m |= (uint64_t)1 << (sb_row + (x >> 2));
+        }
+    }
+    *all_zero = az;
+    *sb_nz = m;
+    return m != 0;
+}
+
+int n265_rdoq_rtn(int16_t *rtn, double *all_zero, uint64_t *sb_nz,
+                  const int16_t *coef, int log2n, int q, int64_t add,
+                  int qbits, int czero)
+{
+#if N265_NEON
+    if (n265_asm_on(N265_ASM_QUANT))
+        return n265_rdoq_rtn_neon(rtn, all_zero, sb_nz, coef, log2n, q,
+                                  add, qbits, czero);
+#endif
+    return n265_rdoq_rtn_ref(rtn, all_zero, sb_nz, coef, log2n, q, add,
+                             qbits, czero);
+}
+
+/* Which 4x4 sub-blocks of a packed n x n block hold a nonzero. */
+uint64_t n265_rdoq_sb_nz_ref(const int16_t *blk, int log2n)
+{
+    int n = 1 << log2n, sb_dim = n >> 2;
+    uint64_t m = 0;
+
+    for (int y = 0; y < n; y++) {
+        int sb_row = (y >> 2) * sb_dim;
+        for (int x = 0; x < n; x++)
+            if (blk[y * n + x])
+                m |= (uint64_t)1 << (sb_row + (x >> 2));
+    }
+    return m;
+}
+
+uint64_t n265_rdoq_sb_nz(const int16_t *blk, int log2n)
+{
+#if N265_NEON
+    if (n265_asm_on(N265_ASM_QUANT))
+        return n265_rdoq_sb_nz_neon(blk, log2n);
+#endif
+    return n265_rdoq_sb_nz_ref(blk, log2n);
+}
+
 int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
               int intra, int c_idx, int scan_idx, const cabac_ctx_t *ctx,
               uint32_t lam_q8)
@@ -288,29 +364,17 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
     for (int t = 0; t < num_sb; t++)
         sb_at[sb_scan[t] >> 4][sb_scan[t] & 15] = (uint8_t)t;
 
-    /* 1. round-to-nearest levels, the candidates' upper bound; find the
-     * block's last significant position. A coefficient below `czero`
-     * cannot reach level 1, which is most of them at any usable QP, so
-     * the 64-bit multiply only runs where it can produce something. The
-     * all-zero energy the block-drop test wants is accumulated here in
-     * the same raster order it used to be summed in, so the double adds
-     * land in the same order. */
+    /* 1. round-to-nearest levels, the candidates' upper bound, the
+     * all-zero energy the block-drop test is priced against, and the
+     * sub-block occupancy the two scans below use to skip empty
+     * sub-blocks whole. One pass over the block, and the only elementwise
+     * pass in this file (n265_rdoq_rtn_ref, dispatched). */
     int16_t rtn[32 * 32];
-    int any = 0;
     double all_zero = 0;
+    uint64_t sb_nz = 0;
     int czero = (int)((((int64_t)1 << qbits) - add + q - 1) / q);
-    for (int i = 0; i < nn; i++) {
-        int c = coef[i] < 0 ? -coef[i] : coef[i];
-        all_zero += (double)coef[i] * coef[i];
-        if (c < czero) {
-            rtn[i] = 0;
-            continue;
-        }
-        int l = (int)(((int64_t)c * q + add) >> qbits);
-        if (l > 32767) l = 32767;
-        rtn[i] = (int16_t)l;
-        any = 1;
-    }
+    int any = n265_rdoq_rtn(rtn, &all_zero, &sb_nz, coef, log2n, q, add,
+                            qbits, czero);
     memset(level, 0, (size_t)nn * sizeof(int16_t));
     if (!any)
         return 0;
@@ -330,8 +394,15 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
         memset(keep, 0, (size_t)nn);
     double sb_cost[64], sb_zero[64];
     int last_s = -1, last_c = -1;
+    /* The occupancy word pass 1 built: an empty sub-block cannot hold the
+     * last significant position, and on a 32x32 whose only levels are in
+     * the DC corner that is 63 of the 64 sub-blocks, walked 16 positions
+     * at a time before this bit test replaced them. */
     for (int s = num_sb - 1; s >= 0 && last_s < 0; s--) {
-        int sx = (sb_scan[s] & 15) << 2, sy = (sb_scan[s] >> 4) << 2;
+        int sb_x = sb_scan[s] & 15, sb_y = sb_scan[s] >> 4;
+        if (!((sb_nz >> (sb_y * sb_dim + sb_x)) & 1))
+            continue;
+        int sx = sb_x << 2, sy = sb_y << 2;
         for (int c = 15; c >= 0; c--) {
             int x = sx + (co_scan[c] & 15), y = sy + (co_scan[c] >> 4);
             if (rtn[y * n + x]) { last_s = s; last_c = c; break; }
@@ -553,8 +624,16 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
     }
 
     if (sbh_rd) {
+        /* SBH only qualifies a sub-block that holds a level, so the
+         * occupancy of the FINAL levels answers the whole first pass of
+         * the walk below for every empty one - and after the last-position
+         * pass most of them are empty. */
+        uint64_t lv_nz = n265_rdoq_sb_nz(level, log2n);
         for (int s = 0; s < num_sb; s++) {
-            int sx = (sb_scan[s] & 15) << 2, sy = (sb_scan[s] >> 4) << 2;
+            int sb_x = sb_scan[s] & 15, sb_y = sb_scan[s] >> 4;
+            if (!((lv_nz >> (sb_y * sb_dim + sb_x)) & 1))
+                continue;
+            int sx = sb_x << 2, sy = sb_y << 2;
             int first = -1, last = -1, sum = 0;
             for (int c = 0; c < 16; c++) {
                 int x = sx + (co_scan[c] & 15), y = sy + (co_scan[c] >> 4);

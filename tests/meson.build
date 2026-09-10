@@ -10,6 +10,7 @@ checkasm_sources = [
   'checkasm/transform.c',
   'checkasm/satd.c',
   'checkasm/mc.c',
+  'checkasm/rdoq.c',
 ]
 
 checkasm = executable('checkasm', checkasm_sources,
