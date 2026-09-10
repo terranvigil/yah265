@@ -424,6 +424,11 @@ n265_encoder *n265_encoder_open(const n265_param *p)
             goto fail;
         memset(e->dpb[sl].ctu_dmin, 0xff, nctu);
         memset(e->dpb[sl].ctu_dmax, 0xff, nctu);
+#ifdef N265_REF_CHECK
+        e->dpb[sl].row_gen = calloc((size_t)e->ctb_rows, sizeof(unsigned));
+        if (!e->dpb[sl].row_gen)
+            goto fail;
+#endif
     }
     e->map_stride = e->pad_w >> 2;
     for (int i = 0; i < e->K; i++)
@@ -540,6 +545,9 @@ void n265_encoder_close(n265_encoder *e)
         free(e->dpb[sl].col_ref);
         free(e->dpb[sl].ctu_dmin);
         free(e->dpb[sl].ctu_dmax);
+#ifdef N265_REF_CHECK
+        free(e->dpb[sl].row_gen);
+#endif
         for (int i = 0; i < 3; i++)
             free(e->dpb[sl].hf_base[i]);
     }
@@ -954,9 +962,15 @@ static void publish_row(n265_frame_work *fw, int cy)
                     }
                     slot->col_pred[i16] = fw->blk_pred[m];
                     memcpy(slot->col_mv + 4 * i16, fw->blk_mv + 4 * m, 8);
-                    for (int l = 0; l < 2; l++)
+                    for (int l = 0; l < 2; l++) {
+                        if (fw->blk_pred[m] & (1 << l))
+                            N265_SIDE_CHECK(fw,
+                                fw->refl[l][fw->blk_ref[2 * m + l]],
+                                fw->ref_gen[l][fw->blk_ref[2 * m + l]], -1,
+                                "publish col_ref poc");
                         slot->col_ref[2 * i16 + l] = (fw->blk_pred[m] & (1 << l))
                             ? (int16_t)fw->refl[l][fw->blk_ref[2 * m + l]]->poc : 0;
+                    }
                 }
         }
         /* P2: carry this row's per-CTU depth range with the picture, so
@@ -968,6 +982,12 @@ static void publish_row(n265_frame_work *fw, int cy)
                fw->ctu_dmax + (size_t)cy * fw->ctb_cols,
                (size_t)fw->ctb_cols);
     }
+#ifdef N265_REF_CHECK
+    /* before the release store, so an acquire load of final_rows makes
+     * this visible to the side-data check */
+    if (slot->row_gen)
+        slot->row_gen[cy] = slot->gen;
+#endif
     atomic_store_explicit(&slot->final_rows, cy + 1, memory_order_release);
 }
 
@@ -1650,6 +1670,13 @@ static void claim_slot(n265_encoder *e, n265_frame_work *fw)
     /* Physical readiness starts empty: the sec 1 reference gate reads
      * this watermark and nothing else, so it must not carry the previous
      * occupant's. */
+#ifdef N265_REF_CHECK
+    /* a new occupant: every reader that froze the old generation is now
+     * provably reading the wrong picture's side data */
+    slot->gen++;
+    if (slot->row_gen)
+        memset(slot->row_gen, 0, (size_t)fw->ctb_rows * sizeof(unsigned));
+#endif
     atomic_store_explicit(&slot->final_rows, 0, memory_order_release);
     /* E1: arm the half-pel cache here, on the driver; the publish row
      * task fills the lines it owns (G4). */
@@ -1725,6 +1752,12 @@ static int drive_scheduler(n265_encoder *e)
      * The coding path reads fw->col, never a live DPB slot's marking. */
     fw->col = (fw->slice_type != 2 && fw->nref[0] > 0) ? fw->refl[0][0] : NULL;
     fw->col_poc = fw->col ? fw->col->poc : 0;
+#ifdef N265_REF_CHECK
+    for (int l = 0; l < 2; l++)
+        for (int k = 0; k < N265_MAX_REF; k++)
+            fw->ref_gen[l][k] = k < fw->nref[l] ? fw->refl[l][k]->gen : 0;
+    fw->col_gen = fw->col ? fw->col->gen : 0;
+#endif
     /* Claim the DPB slot the picture reconstructs into, by the rule the
      * store used to apply after entropy. Nothing between here and there
      * changes the marked set, so the choice is the one the pre-T0a

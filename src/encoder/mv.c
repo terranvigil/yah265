@@ -134,6 +134,10 @@ static int tmvp_mv(struct n265_frame_work *e, const pu_geo *g,
          * publish task of the row the cell lies in */
         n265_ref_wait(e, col, ybr);
         int t = (ybr >> 4) * c16w + (xbr >> 4);
+        /* the check computes the owning CTB row from the CELL index, not
+         * from the line ref_wait was given */
+        N265_SIDE_CHECK(e, col, e->col_gen,
+                        (ybr >> 4) >> (e->ctb_log2 - 4), "tmvp C0");
         if (col->col_pred[t])
             i16 = t;
     }
@@ -141,6 +145,8 @@ static int tmvp_mv(struct n265_frame_work *e, const pu_geo *g,
         int xc = g->x + g->w / 2, yc = g->y + g->h / 2;
         n265_ref_wait(e, col, yc);
         int t = (yc >> 4) * c16w + (xc >> 4);
+        N265_SIDE_CHECK(e, col, e->col_gen,
+                        (yc >> 4) >> (e->ctb_log2 - 4), "tmvp C1");
         if (col->col_pred[t])
             i16 = t;
     }
@@ -159,6 +165,9 @@ static int tmvp_mv(struct n265_frame_work *e, const pu_geo *g,
     mv_t v = { col->col_mv[4 * i16 + 2 * lc],
                col->col_mv[4 * i16 + 2 * lc + 1] };
     int td = e->col_poc - col->col_ref[2 * i16 + lc];
+    /* a live DPB slot's poc, read from the coding path */
+    N265_SIDE_CHECK(e, e->refl[list][ref], e->ref_gen[list][ref], -1,
+                    "tmvp target ref poc");
     int tb = e->poc - e->refl[list][ref]->poc;
     td = td < -128 ? -128 : td > 127 ? 127 : td;
     tb = tb < -128 ? -128 : tb > 127 ? 127 : tb;
@@ -240,6 +249,10 @@ int n265_merge_list_pu(struct n265_frame_work *e, const pu_geo *g, mot_t out[],
                 continue;
             /* 8.5.3.2.4: added when the two reference pictures differ or
              * the two motion vectors differ */
+            N265_SIDE_CHECK(e, e->refl[0][out[i].ref[0]],
+                            e->ref_gen[0][out[i].ref[0]], -1, "bi-prune poc");
+            N265_SIDE_CHECK(e, e->refl[1][out[j].ref[1]],
+                            e->ref_gen[1][out[j].ref[1]], -1, "bi-prune poc");
             int p0 = e->refl[0][out[i].ref[0]]->poc, p1 = e->refl[1][out[j].ref[1]]->poc;
             if (p0 == p1 && out[i].mv[0].x == out[j].mv[1].x && out[i].mv[0].y == out[j].mv[1].y)
                 continue;
@@ -303,11 +316,16 @@ mot_t n265_merge_cand0(struct n265_frame_work *e, int x0, int y0, int nw, int nh
 static int amvp_take(struct n265_frame_work *e, int m, int list, int ref, int scaled,
                      mv_t *out)
 {
+    N265_SIDE_CHECK(e, e->refl[list][ref], e->ref_gen[list][ref], -1,
+                    "amvp target poc");
     int target_poc = e->refl[list][ref]->poc;
     for (int p = 0; p < 2; p++) {
         int ly = p ? !list : list;
         if (!(e->blk_pred[m] & (1 << ly)))
             continue;
+        N265_SIDE_CHECK(e, e->refl[ly][e->blk_ref[2 * m + ly]],
+                        e->ref_gen[ly][e->blk_ref[2 * m + ly]], -1,
+                        "amvp neighbour poc");
         int nb_poc = e->refl[ly][e->blk_ref[2 * m + ly]]->poc;
         int same = nb_poc == target_poc;
         if (!scaled && !same)

@@ -100,6 +100,17 @@ struct n265_refpic {
      * 0xff where nothing filled it. The collocated entry is the
      * temporal half of the depth bound. */
     uint8_t *ctu_dmin, *ctu_dmax;
+#ifdef N265_REF_CHECK
+    /* The side-data half of N265_REF_CHECK. `gen` counts claims of this
+     * slot (driver-serial, bumped in claim_slot); `row_gen[r]` carries
+     * the generation that published CTB row r's side data, 0 until it
+     * does. A reader that froze the generation at dispatch then proves
+     * BOTH halves independently of the call site's ref_wait: the row it
+     * touches was written, and it was written by the occupant it thinks
+     * it is reading. See n265_side_check. */
+    unsigned gen;
+    unsigned *row_gen;
+#endif
 };
 
 /* ctu.c-owned trial buffers (was ~180 KB of function-local statics). One
@@ -191,6 +202,12 @@ typedef struct n265_frame_work {
      * NULL when there is no usable collocated picture. */
     struct n265_refpic *col;
     int col_poc;
+#ifdef N265_REF_CHECK
+    /* the claim generation of every picture this frame may read side
+     * data from, frozen with the lists at dispatch */
+    unsigned ref_gen[2][N265_MAX_REF];
+    unsigned col_gen;
+#endif
 
     /* lookahead hand-off, frozen before the frame launches */
     float sc_ratio;         /* lookahead pcost/icost (P3) */
@@ -490,6 +507,40 @@ static inline int n265_ref_wait(n265_frame_work *e,
         n265_ref_stall(e, pic, need);
     return need;
 }
+
+/* --------------------------------------------------------------------
+ * The side-data half of the independent check (2026-09-10).
+ *
+ * N265_REF_CHECK guarded the reference PLANE and the E1 cache from
+ * inside the kernels and left the side-data arrays - the TMVP motion
+ * field, the P2 depth map - covered by nothing but the call site's own
+ * ref_wait, which is exactly the thing under suspicion. These two
+ * helpers close it from the data end: a read of side-data CTB row `row`
+ * of `pic` must find that row published AND find it published by the
+ * generation the reader froze at dispatch. The row index is computed
+ * from the ARRAY INDEX being read, never from the line the call site
+ * passed to ref_wait, so an off-by-one between the two shows up here.
+ * ------------------------------------------------------------------ */
+#ifdef N265_REF_CHECK
+void n265_side_check(const n265_frame_work *e, const struct n265_refpic *pic,
+                     unsigned gen, int row, const char *what);
+#define N265_SIDE_CHECK(e, pic, gen, row, what) \
+    n265_side_check((e), (pic), (gen), (row), (what))
+/* the generation frozen at dispatch for a picture in this frame's lists */
+static inline unsigned n265_gen_of(const n265_frame_work *e,
+                                   const struct n265_refpic *pic)
+{
+    if (pic == e->col)
+        return e->col_gen;
+    for (int l = 0; l < 2; l++)
+        for (int k = 0; k < e->nref[l]; k++)
+            if (e->refl[l][k] == pic)
+                return e->ref_gen[l][k];
+    return 0;   /* not in the frozen set at all: n265_side_check aborts */
+}
+#else
+#define N265_SIDE_CHECK(e, pic, gen, row, what) ((void)0)
+#endif
 
 #ifdef N265_REF_CHECK
 #include "encoder/refchk.h"
