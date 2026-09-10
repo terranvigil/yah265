@@ -178,6 +178,7 @@ struct n265_scratch {
     tb_ctx itt_l[4], itt_c[4][2];   /* commit_intra_tt's split arrangement */
     tb_ctx ctt_l[4], ctt_c[4][2];   /* commit_inter_tt's split arrangement */
     tb_ctx ird_l, ird_cb, ird_cr;   /* intra_rd_pick's candidate TBs */
+    tb_ctx ird_bl, ird_bcb, ird_bcr;   /* ...and the winner it keeps */
     tb_ctx m_tl, m_tcb, m_tcr;      /* analyze_cu: merge candidate TBs */
     tb_ctx a_tl, a_tcb, a_tcr;      /* ...amvp candidate TBs */
     tb_ctx i_tl, i_tcb, i_tcr;      /* ...intra candidate TBs */
@@ -873,8 +874,15 @@ static int want_skip(struct n265_frame_work *e, int x0, int y0, int log2n)
 /* transform tree for a 2Nx2N CU (intra or inter): records, per node,
  * [cbf_cb][cbf_cr] then per leaf [cbf_l][levels l][levels cb][levels cr].
  * A 64x64 CB splits into four 32x32 TUs (maxTB). */
+/* pre_l/pre_cb/pre_cr, when given, are the flat-TB analysis of this mode
+ * at this position that the caller already ran (intra_rd_pick's winner).
+ * The intra prediction reads e->recon and nothing between the two calls
+ * writes it, so re-running tb_analyze here would compute the same three
+ * blocks a second time - one fdct, one RDOQ and one inverse per
+ * component. NULL means analyse them here. */
 static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
-                       int log2ts)
+                       int log2ts, tb_ctx *pre_l, tb_ctx *pre_cb,
+                       tb_ctx *pre_cr)
 {
     int qp_c = n265_chroma_qp(e->cur_ctu_qp);
     int split = log2ts > 5;
@@ -929,20 +937,27 @@ static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
 
     /* flat arrangement (no frame commits yet) */
     tb_ctx tcb, tcr;
-    tb_analyze(e, 1, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, mot_zero, &tcb);
-    tb_analyze(e, 2, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, mot_zero, &tcr);
-    tb_analyze(e, 0, x0, y0, log2ts, e->cur_ctu_qp, mode, mot_zero, &tb);
-    tb_make_recon(0, log2ts, e->cur_ctu_qp, mode, &tb);
-    tb_make_recon(1, log2ts - 1, qp_c, mode, &tcb);
-    tb_make_recon(2, log2ts - 1, qp_c, mode, &tcr);
-    uint64_t d_flat = tb_ssd(e, 0, x0, y0, log2ts, &tb) +
-        tb_ssd(e, 1, x0 / 2, y0 / 2, log2ts - 1, &tcb) +
-        tb_ssd(e, 2, x0 / 2, y0 / 2, log2ts - 1, &tcr);
+    tb_ctx *ptb = &tb, *ptcb = &tcb, *ptcr = &tcr;
+    if (pre_l) {
+        ptb = pre_l; ptcb = pre_cb; ptcr = pre_cr;
+    } else {
+        tb_analyze(e, 1, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, mot_zero,
+                   ptcb);
+        tb_analyze(e, 2, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, mot_zero,
+                   ptcr);
+        tb_analyze(e, 0, x0, y0, log2ts, e->cur_ctu_qp, mode, mot_zero, ptb);
+        tb_make_recon(0, log2ts, e->cur_ctu_qp, mode, ptb);
+        tb_make_recon(1, log2ts - 1, qp_c, mode, ptcb);
+        tb_make_recon(2, log2ts - 1, qp_c, mode, ptcr);
+    }
+    uint64_t d_flat = tb_ssd(e, 0, x0, y0, log2ts, ptb) +
+        tb_ssd(e, 1, x0 / 2, y0 / 2, log2ts - 1, ptcb) +
+        tb_ssd(e, 2, x0 / 2, y0 / 2, log2ts - 1, ptcr);
     cabac_ctx_t local[CTX_COUNT];
     est_state st = { local, 0 };
     memcpy(local, e->est_ctx, sizeof(local));
     st.bits = 0;
-    est_tt_bits(e, &st, log2ts, mode, &tb, &tcb, &tcr);
+    est_tt_bits(e, &st, log2ts, mode, ptb, ptcb, ptcr);
     uint64_t j_flat = rd_j(d_flat, st.bits, lam);
 
     /* split arrangement: sequential, committing recon TU by TU */
@@ -1060,18 +1075,18 @@ static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
 
     if (j_flat <= j_split) {
         rec_u8(e, 0);
-        rec_u8(e, tcb.nz != 0);
-        rec_u8(e, tcr.nz != 0);
-        rec_u8(e, tb.nz != 0);
-        tb_commit(e, 0, x0, y0, log2ts, &tb);
-        if (tb.nz)
-            rec_levels(e, tb.level, n * n);
-        tb_commit(e, 1, x0 / 2, y0 / 2, log2ts - 1, &tcb);
-        if (tcb.nz)
-            rec_levels(e, tcb.level, (n / 2) * (n / 2));
-        tb_commit(e, 2, x0 / 2, y0 / 2, log2ts - 1, &tcr);
-        if (tcr.nz)
-            rec_levels(e, tcr.level, (n / 2) * (n / 2));
+        rec_u8(e, ptcb->nz != 0);
+        rec_u8(e, ptcr->nz != 0);
+        rec_u8(e, ptb->nz != 0);
+        tb_commit(e, 0, x0, y0, log2ts, ptb);
+        if (ptb->nz)
+            rec_levels(e, ptb->level, n * n);
+        tb_commit(e, 1, x0 / 2, y0 / 2, log2ts - 1, ptcb);
+        if (ptcb->nz)
+            rec_levels(e, ptcb->level, (n / 2) * (n / 2));
+        tb_commit(e, 2, x0 / 2, y0 / 2, log2ts - 1, ptcr);
+        if (ptcr->nz)
+            rec_levels(e, ptcr->level, (n / 2) * (n / 2));
         return;
     }
 
@@ -1885,7 +1900,10 @@ static int intra_sub_cands(struct n265_frame_work *e, int x0, int y0,
 
 /* RD-refine the intra luma mode over the SATD-ranked shortlist: only
  * mode-dependent bits (MPM, cbfs, residuals) enter the compare */
-static int intra_rd_pick(struct n265_frame_work *e, int x0, int y0, int log2n)
+/* out_l/out_cb/out_cr receive the winning mode's flat-TB analysis, which
+ * tt_analyze commits instead of computing again. */
+static int intra_rd_pick(struct n265_frame_work *e, int x0, int y0, int log2n,
+                         tb_ctx **out_l, tb_ctx **out_cb, tb_ctx **out_cr)
 {
     int cands[INTRA_RD_MAX + 3];
     int nk = intra_rd_n();
@@ -1913,6 +1931,8 @@ static int intra_rd_pick(struct n265_frame_work *e, int x0, int y0, int log2n)
     int qp_c = n265_chroma_qp(e->cur_ctu_qp);
     uint32_t lam = n265_lambda_mode_q8(e->cur_ctu_qp);
     tb_ctx *tl = &e->sc->ird_l, *tcb = &e->sc->ird_cb, *tcr = &e->sc->ird_cr;
+    tb_ctx *wl = &e->sc->ird_bl, *wcb = &e->sc->ird_bcb,
+           *wcr = &e->sc->ird_bcr;
     uint64_t best_j = UINT64_MAX;
     int best = cands[0];
     for (int k = 0; k < ncand; k++) {
@@ -1955,8 +1975,15 @@ static int intra_rd_pick(struct n265_frame_work *e, int x0, int y0, int log2n)
         if (j < best_j) {
             best_j = j;
             best = mode;
+            /* swap rather than copy: the loser's buffer becomes the next
+             * candidate's scratch */
+            tb_ctx *t;
+            t = wl; wl = tl; tl = t;
+            t = wcb; wcb = tcb; tcb = t;
+            t = wcr; wcr = tcr; tcr = t;
         }
     }
+    *out_l = wl; *out_cb = wcb; *out_cr = wcr;
     return best;
 }
 
@@ -2872,6 +2899,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
 
     int nxn = 0;
     int modes[4] = { 0, 0, 0, 0 };
+    tb_ctx *pre_l = NULL, *pre_cb = NULL, *pre_cr = NULL;
     if (log2n == MIN_CB_LOG2) {
         uint32_t cost2n;
         modes[0] = search_luma_mode(e, x0, y0, log2n, e->recon[0],
@@ -2906,7 +2934,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             g_2nx2n_min += !nxn;
         }
     } else if (log2n <= 5) {
-        modes[0] = intra_rd_pick(e, x0, y0, log2n);
+        modes[0] = intra_rd_pick(e, x0, y0, log2n, &pre_l, &pre_cb, &pre_cr);
     } else {
         modes[0] = search_luma_mode(e, x0, y0, 5, e->recon[0],
                                     e->recon_stride[0], NULL);
@@ -2914,7 +2942,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
 
     if (!nxn) {
         set_mode_map(e, x0, y0, n, modes[0]);
-        tt_analyze(e, modes[0], x0, y0, log2n);
+        tt_analyze(e, modes[0], x0, y0, log2n, pre_l, pre_cb, pre_cr);
         e->rec_pos = pos0;
         est_state adv = { e->est_ctx, 0 };
         n265_est_advance_cu(e, &adv, x0, y0, log2n);
