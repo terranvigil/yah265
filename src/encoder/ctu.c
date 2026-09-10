@@ -362,8 +362,10 @@ static void tb_make_recon(int c_idx, int log2n, int qp, int mode, tb_ctx *tb)
     int n = 1 << log2n;
     if (tb->nz) {
         int16_t dq[32 * 32];
-        n265_dequant(dq, tb->level, log2n, qp);
-        n265_idct_add(tb->recon, n, dq, log2n, tb->pred, n, use_dst);
+        int nzw, nzh;
+        n265_dequant(dq, tb->level, log2n, qp, &nzw, &nzh);
+        n265_idct_add(tb->recon, n, dq, log2n, tb->pred, n, use_dst,
+                      nzw, nzh);
     } else {
         memcpy(tb->recon, tb->pred, (size_t)n * n);
     }

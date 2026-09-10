@@ -68,7 +68,8 @@ void n265_fdct_ref(int16_t *coef, const int16_t *resid, int log2n,
             coef[i * n + j] = (int16_t)clip3(-32768, 32767, b[j * n + i]);
 }
 
-void n265_dequant(int16_t *dq, const int16_t *level, int log2n, int qp)
+void n265_dequant(int16_t *dq, const int16_t *level, int log2n, int qp,
+                  int *nzw, int *nzh)
 {
     /* 8.6.3 with flat scaling (m = 16) */
     static const int level_scale[6] = { 40, 45, 51, 57, 64, 72 };
@@ -76,10 +77,27 @@ void n265_dequant(int16_t *dq, const int16_t *level, int log2n, int qp)
     int bd_shift = BIT_DEPTH + log2n - 5;
     int64_t add = 1 << (bd_shift - 1);
     int64_t scale = (int64_t)level_scale[qp % 6] << (qp / 6);
-    for (int i = 0; i < n * n; i++) {
-        int64_t v = ((level[i] * scale * 16) + add) >> bd_shift;
-        dq[i] = (int16_t)(v < -32768 ? -32768 : v > 32767 ? 32767 : v);
-    }
+    int mx = 0, my = 0;
+    /* a zero level dequantises to add >> bd_shift, which is zero for every
+     * size (bd_shift >= 5), so the skip below is the same arithmetic. The
+     * bounding box it collects is what lets the inverse transform leave
+     * the empty rows and columns alone. */
+    for (int y = 0; y < n; y++)
+        for (int x = 0; x < n; x++) {
+            int i = y * n + x;
+            if (!level[i]) {
+                dq[i] = 0;
+                continue;
+            }
+            int64_t v = ((level[i] * scale * 16) + add) >> bd_shift;
+            dq[i] = (int16_t)(v < -32768 ? -32768 : v > 32767 ? 32767 : v);
+            if (dq[i]) {
+                if (x > mx) mx = x;
+                if (y > my) my = y;
+            }
+        }
+    if (nzw) *nzw = mx + 1;
+    if (nzh) *nzh = my + 1;
 }
 
 /* one inverse stage: out[j][i] = sum_k T[k][j] * in[k][i] (transposed
@@ -210,6 +228,60 @@ static inline void inv_dct_1d(int32_t *dst, int dstep, const int32_t *src,
     }
 }
 
+/* The same transform with a bound on the input: every src entry at index
+ * >= nc is zero (nc < n). Two things follow. A level whose odd
+ * coefficients all sit at or past nc contributes nothing and only mirrors
+ * E; below that, the odd loop stops at the last index under nc, and a
+ * zero coefficient inside the surviving range skips its row.
+ *
+ * This is a second function rather than a branch inside the one above
+ * because the bound is a run-time value: the loops here do not unroll,
+ * and folding them into the dense path cost that path 3x on 8x8 in the
+ * checkasm bench. Both forms compute the same sums, so both reproduce
+ * n265_idct_add_ref. */
+static inline void inv_dct_1d_nz(int32_t *dst, int dstep, const int32_t *src,
+                                 int sstep, int n, int shift, int clip,
+                                 int nc)
+{
+    int32_t e[32], o[16];
+    int32_t add = (int32_t)1 << (shift - 1);
+
+    e[0] = 64 * src[0];
+    for (int len = 1, lgstep = __builtin_ctz((unsigned)n) - 1; len < n;
+         len <<= 1, lgstep--) {
+        int stepi = 1 << lgstep;
+        int step = stepi * sstep, rs = 32 / (2 * len);
+        /* odd coefficients live at (2i+1)*stepi */
+        int nodd = ((nc + stepi - 1) >> lgstep) >> 1;
+        if (nodd > len)
+            nodd = len;
+        if (nodd <= 0) {
+            for (int j = 0; j < len; j++)
+                e[2 * len - 1 - j] = e[j];
+            continue;
+        }
+        for (int j = 0; j < len; j++)
+            o[j] = 0;
+        for (int i = 0; i < nodd; i++) {
+            int32_t c = src[(2 * i + 1) * step];
+            if (!c)
+                continue;
+            const int8_t *row = n265_tmatrix[(2 * i + 1) * rs];
+            for (int j = 0; j < len; j++)
+                o[j] += row[j] * c;
+        }
+        for (int j = len - 1; j >= 0; j--) {
+            int32_t ev = e[j];
+            e[j] = ev + o[j];
+            e[2 * len - 1 - j] = ev - o[j];
+        }
+    }
+    for (int j = 0; j < n; j++) {
+        int32_t v = (e[j] + add) >> shift;
+        dst[j * dstep] = clip ? clip3(-32768, 32767, v) : v;
+    }
+}
+
 /* DST-VII 4-point, forward (rows of dst4) and inverse (its columns),
  * factored to 8 multiplies instead of 16. */
 static inline void fwd_dst4_1d(int32_t *dst, int dstep, const int32_t *src,
@@ -289,14 +361,37 @@ void n265_fdct(int16_t *coef, const int16_t *resid, int log2n, int use_dst)
 }
 
 /* stage 1 transforms each coefficient column into b[x][y], stage 2 each
- * spatial row of that. b is written transposed for the same reason. */
+ * spatial row of that. b is written transposed for the same reason.
+ *
+ * nzw/nzh bound the coefficient block: every dq[y][x] with x >= nzw or
+ * y >= nzh is zero, which the scan already knows from the last
+ * significant position. A column past nzw transforms to zeros, so stage 1
+ * never runs it and stage 2's own bound never reads it. Each stage picks
+ * the dense kernel when its bound is the whole block, and at 4x4 and 8x8
+ * always: the unrolled dense form is 67 ns at 8x8 against 138 ns for the
+ * bounded one on a 4x4 corner, so below 16 the bound costs more than the
+ * work it removes. The whole-block DC case is caught before either. */
 #define IDCT_N(N)                                                       \
     do {                                                                \
-        for (int x = 0; x < (N); x++)                                   \
-            inv_dct_1d(b + x * (N), 1, a + x * (N), 1, N, 7, 1);         \
+        if (nzh >= (N) || (N) < 16)                                     \
+            for (int x = 0; x < nzw; x++)                               \
+                inv_dct_1d(b + x * (N), 1, a + x * (N), 1, N, 7, 1);     \
+        else                                                            \
+            for (int x = 0; x < nzw; x++)                               \
+                inv_dct_1d_nz(b + x * (N), 1, a + x * (N), 1, N, 7, 1,  \
+                              nzh);                                     \
+        /* the small-block stage 2 below reads the whole column, so the \
+         * rows stage 1 skipped have to be the zeros they stand for */  \
+        if ((N) < 16 && nzw < (N))                                      \
+            memset(b + nzw * (N), 0,                                    \
+                   (size_t)((N) - nzw) * (N) * sizeof(int32_t));        \
         for (int y = 0; y < (N); y++) {                                 \
             int32_t r[N];                                               \
-            inv_dct_1d(r, 1, b + y, N, N, 20 - BIT_DEPTH, 0);            \
+            if (nzw >= (N) || (N) < 16)                                 \
+                inv_dct_1d(r, 1, b + y, N, N, 20 - BIT_DEPTH, 0);       \
+            else                                                        \
+                inv_dct_1d_nz(r, 1, b + y, N, N, 20 - BIT_DEPTH, 0,     \
+                              nzw);                                     \
             for (int x = 0; x < (N); x++)                                \
                 dst[y * dst_stride + x] = (uint8_t)                      \
                     clip3(0, 255, pred[y * pred_stride + x] + r[x]);     \
@@ -305,14 +400,40 @@ void n265_fdct(int16_t *coef, const int16_t *resid, int log2n, int use_dst)
 
 void n265_idct_add(uint8_t *dst, int dst_stride, const int16_t *dq,
                    int log2n, const uint8_t *pred, int pred_stride,
-                   int use_dst)
+                   int use_dst, int nzw, int nzh)
 {
     int n = 1 << log2n;
     int32_t a[32 * 32], b[32 * 32];
 
-    /* a[x][k]: one coefficient column per row */
-    for (int y = 0; y < n; y++)
-        for (int x = 0; x < n; x++)
+    /* the DST-VII core has no mirror symmetry to exploit and is four
+     * points wide either way, so it runs the whole block */
+    if (use_dst) {
+        nzw = nzh = n;
+    } else {
+        if (nzw < 1) nzw = 1;
+        if (nzh < 1) nzh = 1;
+        if (nzw > n) nzw = n;
+        if (nzh > n) nzh = n;
+    }
+
+    /* DC only: both stages reduce to a constant, and the constant is the
+     * one the general path forms (E mirrors at every level, so stage 1
+     * emits clip16((64*dq0 + 64) >> 7) in every row and stage 2 turns
+     * that into (64*v + 2048) >> 12 in every column). */
+    if (!use_dst && nzw == 1 && nzh == 1) {
+        int32_t v = clip3(-32768, 32767, (64 * dq[0] + 64) >> 7);
+        int32_t r = (64 * v + 2048) >> 12;
+        for (int y = 0; y < n; y++)
+            for (int x = 0; x < n; x++)
+                dst[y * dst_stride + x] = (uint8_t)
+                    clip3(0, 255, pred[y * pred_stride + x] + r);
+        return;
+    }
+
+    /* a[x][k]: one coefficient column per row, only for the columns that
+     * can carry anything */
+    for (int x = 0; x < nzw; x++)
+        for (int y = 0; y < n; y++)
             a[x * n + y] = dq[y * n + x];
 
     if (use_dst) {

@@ -50,7 +50,7 @@ static void bench(const char *what, void (*ref)(void *), void (*opt)(void *),
 /* ---- transforms ---------------------------------------------------- */
 
 struct tctx {
-    int log2n, use_dst;
+    int log2n, use_dst, nzw, nzh;
     int16_t resid[32 * 32], coef[32 * 32], dq[32 * 32];
     uint8_t pred[32 * 32], dst[32 * 32];
 };
@@ -76,7 +76,22 @@ static void idct_ref_call(void *p)
 static void idct_opt_call(void *p)
 {
     struct tctx *c = p;
-    n265_idct_add(c->dst, 32, c->dq, c->log2n, c->pred, 32, c->use_dst);
+    n265_idct_add(c->dst, 32, c->dq, c->log2n, c->pred, 32, c->use_dst,
+                  c->nzw, c->nzh);
+}
+
+/* the bounding box n265_dequant would have reported */
+static void dq_bbox(const int16_t *dq, int n, int *nzw, int *nzh)
+{
+    int mx = 0, my = 0;
+    for (int y = 0; y < n; y++)
+        for (int x = 0; x < n; x++)
+            if (dq[y * n + x]) {
+                if (x > mx) mx = x;
+                if (y > my) my = y;
+            }
+    *nzw = mx + 1;
+    *nzh = my + 1;
 }
 
 /* residual/coefficient generators: uniform noise, flat (DC-heavy), the
@@ -137,22 +152,33 @@ static int check_transforms(void)
                 }
                 for (int rep = 0; rep < 64; rep++) {
                     uint8_t ref[32 * 32];
+                    int bw, bh;
                     fill_dq(c.dq, nn, kind);
                     for (int i = 0; i < nn; i++)
                         c.pred[i] = (uint8_t)(rnd() >> 24);
                     c.log2n = log2n; c.use_dst = use_dst;
+                    dq_bbox(c.dq, n, &bw, &bh);
                     n265_idct_add_ref(ref, 32, c.dq, log2n, c.pred, 32,
                                       use_dst);
-                    n265_idct_add(c.dst, 32, c.dq, log2n, c.pred, 32,
-                                  use_dst);
-                    for (int y = 0; y < n; y++)
-                        if (memcmp(ref + y * 32, c.dst + y * 32, (size_t)n)) {
-                            printf("    idct MISMATCH log2n %d dst %d "
-                                   "kind %d\n", log2n, use_dst, kind);
-                            bad++;
-                            rep = 64;
-                            break;
-                        }
+                    /* both the exact bounding box and the loose full-size
+                     * bound must reproduce the reference */
+                    for (int b = 0; b < 2; b++) {
+                        c.nzw = b ? n : bw;
+                        c.nzh = b ? n : bh;
+                        memset(c.dst, 0, sizeof(c.dst));
+                        idct_opt_call(&c);
+                        for (int y = 0; y < n; y++)
+                            if (memcmp(ref + y * 32, c.dst + y * 32,
+                                       (size_t)n)) {
+                                printf("    idct MISMATCH log2n %d dst %d "
+                                       "kind %d bbox %d\n", log2n, use_dst,
+                                       kind, !b);
+                                bad++;
+                                rep = 64;
+                                b = 2;
+                                break;
+                            }
+                    }
                 }
             }
         }
@@ -166,14 +192,30 @@ static int check_transforms(void)
         c.log2n = log2n; c.use_dst = 0;
         fill_resid(c.resid, n * n, 0);
         fill_dq(c.dq, n * n, 0);
+        c.nzw = c.nzh = n;
         snprintf(name, sizeof(name), "fdct %dx%d", n, n);
         bench(name, fdct_ref_call, fdct_opt_call, &c, 20000);
         snprintf(name, sizeof(name), "idct_add %dx%d", n, n);
+        bench(name, idct_ref_call, idct_opt_call, &c, 20000);
+        /* the shape the encoder actually hands it: a small low-frequency
+         * corner, and DC alone */
+        fill_dq(c.dq, n * n, 4);
+        for (int y = 0; y < 4 && y < n; y++)
+            for (int x = 0; x < 4 && x < n; x++)
+                c.dq[y * n + x] = (int16_t)((int)(rnd() >> 20) - 2048);
+        dq_bbox(c.dq, n, &c.nzw, &c.nzh);
+        snprintf(name, sizeof(name), "idct_add %dx%d 4x4nz", n, n);
+        bench(name, idct_ref_call, idct_opt_call, &c, 20000);
+        fill_dq(c.dq, n * n, 4);
+        c.dq[0] = 1234;
+        c.nzw = c.nzh = 1;
+        snprintf(name, sizeof(name), "idct_add %dx%d dc", n, n);
         bench(name, idct_ref_call, idct_opt_call, &c, 20000);
     }
     c.log2n = 2; c.use_dst = 1;
     fill_resid(c.resid, 16, 0);
     fill_dq(c.dq, 16, 0);
+    c.nzw = c.nzh = 4;
     bench("fdst 4x4", fdct_ref_call, fdct_opt_call, &c, 20000);
     bench("idst_add 4x4", idct_ref_call, idct_opt_call, &c, 20000);
     return 0;
