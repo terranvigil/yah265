@@ -2232,6 +2232,24 @@ static void set_cu_pred(struct n265_frame_work *e, int x0, int y0, int n,
     e->cu_pred_y0 = y0;
 }
 
+/* The same thing off an already-analysed whole-CU TB rather than a
+ * partition candidate: tl/tcb/tcr hold the 2Nx2N prediction this CU was
+ * priced with, and interpolation is position-invariant, so the RQT split
+ * arm's four children are crops of it. Without this they each re-run the
+ * 8-tap luma and 4-tap chroma filters over the same motion. */
+static void set_cu_pred_tb(struct n265_frame_work *e, int x0, int y0, int n,
+                           const tb_ctx *tl, const tb_ctx *tcb,
+                           const tb_ctx *tcr)
+{
+    e->cu_pred[0] = tl->pred;
+    e->cu_pred[1] = tcb->pred;
+    e->cu_pred[2] = tcr->pred;
+    e->cu_pred_stride[0] = n;
+    e->cu_pred_stride[1] = e->cu_pred_stride[2] = n >> 1;
+    e->cu_pred_x0 = x0;
+    e->cu_pred_y0 = y0;
+}
+
 static void clear_cu_pred(struct n265_frame_work *e)
 {
     e->cu_pred[0] = e->cu_pred[1] = e->cu_pred[2] = NULL;
@@ -2383,6 +2401,8 @@ static void commit_inter_cu(struct n265_frame_work *e, int x0, int y0,
     rec_u8(e, (unsigned)(any != 0));
     if (pred_src)
         set_cu_pred(e, x0, y0, n, pred_src);
+    else if (any && log2n <= 5 && tl)
+        set_cu_pred_tb(e, x0, y0, n, tl, tcb, tcr);
     if (any) {
         commit_inter_tt(e, d[0].mot, x0, y0, log2n, tl, tcb, tcr);
     } else {
