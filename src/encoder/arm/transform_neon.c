@@ -3,17 +3,778 @@
  * N265_ASM_DCT). One file per kernel family; see src/encoder/arm/neon.h for
  * the dispatch convention every kernel here follows.
  *
- * Empty on purpose: the transform family item fills it. It exists now so
- * meson.build is written once and the family worktrees never merge-conflict
- * on the build file.
+ * THE SHAPE OF THE VECTORISATION. A 2-D separable transform is 2N
+ * independent 1-D transforms, and the cheapest way to put NEON on one is
+ * to keep the 1-D butterfly EXACTLY as the C writes it and run four of
+ * them at once, one per lane. Lanes therefore index the independent
+ * transform (a column in stage 1, a row of the intermediate in stage 2)
+ * and never the length dimension, so no horizontal add ever appears and
+ * every coefficient multiply is a multiply-by-scalar into four lanes.
+ *
+ * That is also what makes bit-exactness a property rather than an
+ * argument: per lane, the sequence of int32 adds, subs, multiply-adds and
+ * rounding shifts is the same sequence, in the same order, that
+ * src/encoder/transform.c's fwd_dct_1d / inv_dct_1d perform on one
+ * scalar. The only reordering is the four-way accumulator split in the
+ * forward odd dot product, and two's-complement addition is associative,
+ * so the regrouped sum is the same integer (modulo 2^32, and the range
+ * notes on each kernel say we are nowhere near that).
+ *
+ * Between the two stages the data has to change which dimension is
+ * contiguous, which is one 4x4 int32 transpose per 4x4 tile. That is the
+ * whole cost of the layout, and it is why the intermediate buffer is
+ * written transposed rather than the stage-2 loads being strided.
+ *
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
 #if N265_NEON
 
 #include <arm_neon.h>
+#include <stddef.h>
+#include <string.h>
 
 #include "encoder/arm/neon.h"
+#include "encoder/tables.h"
+
+/* mirrors transform.c; the two would have to move together */
+#define BIT_DEPTH 8
+
+/* ---- helpers -------------------------------------------------------- */
+
+/* 4x4 int32 transpose: out[i] lane l = in[l] lane i. */
+static inline void tr4_s32(int32x4_t v[4])
+{
+    int32x4_t a0 = vtrn1q_s32(v[0], v[1]);
+    int32x4_t a1 = vtrn2q_s32(v[0], v[1]);
+    int32x4_t a2 = vtrn1q_s32(v[2], v[3]);
+    int32x4_t a3 = vtrn2q_s32(v[2], v[3]);
+    int64x2_t b0 = vreinterpretq_s64_s32(a0), b1 = vreinterpretq_s64_s32(a1);
+    int64x2_t b2 = vreinterpretq_s64_s32(a2), b3 = vreinterpretq_s64_s32(a3);
+
+    v[0] = vreinterpretq_s32_s64(vtrn1q_s64(b0, b2));
+    v[1] = vreinterpretq_s32_s64(vtrn1q_s64(b1, b3));
+    v[2] = vreinterpretq_s32_s64(vtrn2q_s64(b0, b2));
+    v[3] = vreinterpretq_s32_s64(vtrn2q_s64(b1, b3));
+}
+
+/* four unaligned bytes as four int32 lanes */
+static inline int32x4_t load4_u8(const uint8_t *p)
+{
+    uint32_t w;
+
+    memcpy(&w, p, 4);                       /* no alignment guarantee */
+    return vreinterpretq_s32_u32(
+        vmovl_u16(vget_low_u16(vmovl_u8(vreinterpret_u8_u32(vdup_n_u32(w))))));
+}
+
+/* four int32 lanes as four bytes, clipped. vqmovun_s32 saturates below at
+ * 0 and vqmovn_u16 above at 255, which is clip3(0, 255, v) exactly: both
+ * clips are the instruction's own and not a separate min/max. */
+static inline void store4_u8(uint8_t *p, int32x4_t v)
+{
+    uint16x4_t h = vqmovun_s32(v);
+    uint8x8_t b = vqmovn_u16(vcombine_u16(h, h));
+    uint32_t w = vget_lane_u32(vreinterpret_u32_u8(b), 0);
+
+    memcpy(p, &w, 4);
+}
+
+/* The C's `(s + (1 << (shift - 1))) >> shift` with a run-time shift.
+ * SRSHL by a negative amount is defined as exactly that: add the half-ulp,
+ * then shift right arithmetically. `sh` carries -shift in every lane, so
+ * this is the C expression verbatim and not a rounding of its own. */
+#define RSH(v, sh) vrshlq_s32((v), (sh))
+
+/* Matrix coefficients as vector LANES, not as duplicated scalars.
+ *
+ * This is the whole difference between a kernel that beats the C and one
+ * that ties it. n265_tmatrix is int8 in memory, and the obvious
+ * `vmlaq_n_s32(acc, o[k], row[k])` compiles to ldrsb + dup + mla - three
+ * instructions for four multiply-accumulates, and the dup sits on the
+ * critical path. Widening a whole row into int32 lanes once and then
+ * addressing it with the by-element form of MLA costs one load and a
+ * handful of widens per row, after which every multiply-accumulate is one
+ * instruction.
+ *
+ * Both forms were built side by side and benched alternately (loaded box,
+ * so read the pairs and not the absolutes): idct_add 32x32 3334 ns
+ * by-scalar against 1752 by-lane, 16x16 683 against 398. The forward
+ * gains far less - 1501 against 1446 at 32x32 - because its odd dot
+ * product already ran four independent accumulators, which hid the dup
+ * latency that the inverse's single-accumulator-per-output shape could
+ * not. Same bits out of both.
+ *
+ * A tmatrix row is 32 bytes, so reading 8 or 16 of them is always inside
+ * the table whatever the transform length is. */
+static inline void row4_s32(const int8_t *row, int32x4_t c[1])
+{
+    c[0] = vmovl_s16(vget_low_s16(vmovl_s8(vld1_s8(row))));
+}
+
+static inline void row8_s32(const int8_t *row, int32x4_t c[2])
+{
+    int16x8_t w = vmovl_s8(vld1_s8(row));
+
+    c[0] = vmovl_s16(vget_low_s16(w));
+    c[1] = vmovl_high_s16(w);
+}
+
+static inline void row16_s32(const int8_t *row, int32x4_t c[4])
+{
+    int8x16_t r = vld1q_s8(row);
+    int16x8_t lo = vmovl_s8(vget_low_s8(r)), hi = vmovl_high_s8(r);
+
+    c[0] = vmovl_s16(vget_low_s16(lo));
+    c[1] = vmovl_high_s16(lo);
+    c[2] = vmovl_s16(vget_low_s16(hi));
+    c[3] = vmovl_high_s16(hi);
+}
+
+/* acc = o[b] * c[0] + o[b+1] * c[1] + o[b+2] * c[2] + o[b+3] * c[3] */
+#define DOT4(o, b, cv) \
+    vmlaq_laneq_s32( \
+        vmlaq_laneq_s32( \
+            vmlaq_laneq_s32(vmulq_laneq_s32((o)[(b) + 0], (cv), 0), \
+                            (o)[(b) + 1], (cv), 1), \
+            (o)[(b) + 2], (cv), 2), \
+        (o)[(b) + 3], (cv), 3)
+
+/* o[b..b+3] += c * cv[0..3] */
+#define ACC4(o, b, c, cv) do { \
+    (o)[(b) + 0] = vmlaq_laneq_s32((o)[(b) + 0], (c), (cv), 0); \
+    (o)[(b) + 1] = vmlaq_laneq_s32((o)[(b) + 1], (c), (cv), 1); \
+    (o)[(b) + 2] = vmlaq_laneq_s32((o)[(b) + 2], (c), (cv), 2); \
+    (o)[(b) + 3] = vmlaq_laneq_s32((o)[(b) + 3], (c), (cv), 3); \
+} while (0)
+
+/* sum_k row[k] * o[k], k < h. The four partial sums are summed pairwise
+ * rather than in a single chain: two's-complement addition is
+ * associative, so the regrouped total is the same integer, and the range
+ * notes below say no partial sum can overflow on the way there either. */
+static inline int32x4_t fwd_odd_dot(const int32x4_t *o, const int8_t *row,
+                                    int h)
+{
+    int32x4_t cv[4], s0, s1;
+
+    switch (h) {
+    case 1:
+        return vmulq_n_s32(o[0], row[0]);
+    case 2:
+        return vmlaq_n_s32(vmulq_n_s32(o[0], row[0]), o[1], row[1]);
+    case 4:
+        row4_s32(row, cv);
+        return DOT4(o, 0, cv[0]);
+    case 8:
+        row8_s32(row, cv);
+        return vaddq_s32(DOT4(o, 0, cv[0]), DOT4(o, 4, cv[1]));
+    default:
+        row16_s32(row, cv);
+        s0 = vaddq_s32(DOT4(o, 0, cv[0]), DOT4(o, 4, cv[1]));
+        s1 = vaddq_s32(DOT4(o, 8, cv[2]), DOT4(o, 12, cv[3]));
+        return vaddq_s32(s0, s1);
+    }
+}
+
+/* o[j] += row[j] * c, j < len: the inverse's odd contribution, same
+ * accumulation and same order as the C's inner loop. */
+static inline void inv_odd_acc(int32x4_t *o, int32x4_t c, const int8_t *row,
+                               int len)
+{
+    int32x4_t cv[4];
+
+    switch (len) {
+    case 1:
+        o[0] = vmlaq_n_s32(o[0], c, row[0]);
+        return;
+    case 2:
+        o[0] = vmlaq_n_s32(o[0], c, row[0]);
+        o[1] = vmlaq_n_s32(o[1], c, row[1]);
+        return;
+    case 4:
+        row4_s32(row, cv);
+        ACC4(o, 0, c, cv[0]);
+        return;
+    case 8:
+        row8_s32(row, cv);
+        ACC4(o, 0, c, cv[0]);
+        ACC4(o, 4, c, cv[1]);
+        return;
+    default:
+        row16_s32(row, cv);
+        ACC4(o, 0, c, cv[0]);
+        ACC4(o, 4, c, cv[1]);
+        ACC4(o, 8, c, cv[2]);
+        ACC4(o, 12, c, cv[3]);
+        return;
+    }
+}
+
+/* ---- forward ------------------------------------------------------- */
+
+/*
+ * One 1-D forward DCT of length n on four columns at once. `e` holds the
+ * n inputs (one per lane) and is clobbered; `out` takes the n outputs.
+ * This is fwd_dct_1d() from transform.c with int32x4_t in place of
+ * int32_t and nothing else changed.
+ *
+ * RANGE. The domain is an 8-bit residual, |r| <= 255, because that is all
+ * src - pred can be; it is also the bound the C's own int32 accumulators
+ * need, so this kernel is exact wherever the C fast path is. Each level
+ * halves the length and doubles the magnitude, so entering the level of
+ * length `len` the sums obey |e| <= 255 * n / len and |o| <= 510 * n /
+ * len. An odd dot product there is at most (len / 2) * 90 * 510 * n / len
+ * = 22950 * n, i.e. 734K at n = 32 - independent of the level, which is
+ * the useful part. After `shift1 = log2n - 1` that leaves stage-1 outputs
+ * under 45900, and the same argument on stage 2 gives 90 * 45900 * n =
+ * 132M, with 64 * e[0] at 94M. Every one of those is inside int32 with
+ * four bits to spare, so the lane arithmetic never wraps and is exact
+ * rather than merely modular-exact.
+ *
+ * The four accumulators exist to break the multiply-accumulate dependency
+ * chain, which is the whole latency of the inner loop. Reassociating an
+ * int32 sum is exact in two's complement, and the bound above says no
+ * partial sum overflows on the way either.
+ */
+static inline void fwd_dct_1d_x4(int32x4_t *out, int32x4_t *e, int n,
+                                 int32x4_t sh)
+{
+    int32x4_t t[16], o[16];
+
+    for (int len = n, oscale = 1; len > 1; len >>= 1, oscale <<= 1) {
+        int h = len >> 1, rs = 32 / len;
+
+        for (int k = 0; k < h; k++) {
+            o[k] = vsubq_s32(e[k], e[len - 1 - k]);
+            t[k] = vaddq_s32(e[k], e[len - 1 - k]);
+        }
+        for (int i = 0; i < h; i++)
+            out[(2 * i + 1) * oscale] =
+                RSH(fwd_odd_dot(o, n265_tmatrix[(2 * i + 1) * rs], h), sh);
+        for (int k = 0; k < h; k++)
+            e[k] = t[k];
+    }
+    out[0] = RSH(vshlq_n_s32(e[0], 6), sh);
+}
+
+/* DST-VII 4-point forward, four columns at once; fwd_dst4_1d() verbatim.
+ * Every output is a combination of the four inputs with total weight
+ * 29 + 29 + 55 + 55 + 74 = 242, so with |x| <= 255 stage 1 stays under
+ * 61710 and, after shift1 = 1, hands stage 2 inputs under 30855 for a
+ * stage-2 bound of 7.5M. int32 throughout. */
+static inline void fwd_dst4_1d_x4(int32x4_t *out, const int32x4_t *x,
+                                  int32x4_t sh)
+{
+    int32x4_t c0 = vaddq_s32(x[0], x[3]);
+    int32x4_t c1 = vaddq_s32(x[1], x[3]);
+    int32x4_t c2 = vsubq_s32(x[0], x[1]);
+    int32x4_t c3 = vmulq_n_s32(x[2], 74);
+    int32x4_t m = vsubq_s32(vaddq_s32(x[0], x[1]), x[3]);
+
+    out[0] = RSH(vaddq_s32(vmlaq_n_s32(vmulq_n_s32(c0, 29), c1, 55), c3), sh);
+    out[1] = RSH(vmulq_n_s32(m, 74), sh);
+    out[2] = RSH(vsubq_s32(vmlaq_n_s32(vmulq_n_s32(c2, 29), c0, 55), c3), sh);
+    out[3] = RSH(vaddq_s32(vmlsq_n_s32(vmulq_n_s32(c2, 55), c1, 29), c3), sh);
+}
+
+/* Stage 1 down the columns, stage 2 across the rows of the result. `bt`
+ * holds the stage-1 output TRANSPOSED (bt[x][r] = the C's b[r][x]) so
+ * stage 2 loads four independent transforms contiguously, exactly as
+ * stage 1 loads four residual columns contiguously. */
+static inline void fdct_block(int16_t *coef, const int16_t *resid, int n,
+                              int use_dst, int shift1, int shift2)
+{
+    int32x4_t sh1 = vdupq_n_s32(-shift1), sh2 = vdupq_n_s32(-shift2);
+    int32_t bt[32 * 32];
+
+    for (int x0 = 0; x0 < n; x0 += 4) {
+        int32x4_t e[32], v[32], u[4];
+
+        for (int y = 0; y < n; y++)
+            e[y] = vmovl_s16(vld1_s16(resid + y * n + x0));
+        if (use_dst)
+            fwd_dst4_1d_x4(v, e, sh1);
+        else
+            fwd_dct_1d_x4(v, e, n, sh1);
+        for (int r0 = 0; r0 < n; r0 += 4) {
+            u[0] = v[r0]; u[1] = v[r0 + 1];
+            u[2] = v[r0 + 2]; u[3] = v[r0 + 3];
+            tr4_s32(u);
+            for (int i = 0; i < 4; i++)
+                vst1q_s32(bt + (x0 + i) * n + r0, u[i]);
+        }
+    }
+    for (int r0 = 0; r0 < n; r0 += 4) {
+        int32x4_t e[32], s[32], b[4];
+
+        for (int k = 0; k < n; k++)
+            e[k] = vld1q_s32(bt + k * n + r0);
+        if (use_dst)
+            fwd_dst4_1d_x4(s, e, sh2);
+        else
+            fwd_dct_1d_x4(s, e, n, sh2);
+        for (int j0 = 0; j0 < n; j0 += 4) {
+            b[0] = s[j0]; b[1] = s[j0 + 1];
+            b[2] = s[j0 + 2]; b[3] = s[j0 + 3];
+            tr4_s32(b);
+            /* vqmovn_s32 IS clip3(-32768, 32767, v): the saturation is the
+             * instruction's own, so the two paths agree on the values that
+             * saturate and not only on the ones that do not. */
+            for (int i = 0; i < 4; i++)
+                vst1_s16(coef + (r0 + i) * n + j0, vqmovn_s32(b[i]));
+        }
+    }
+}
+
+void n265_fdct_neon(int16_t *coef, const int16_t *resid, int log2n,
+                    int use_dst)
+{
+    int shift1 = log2n + BIT_DEPTH - 9, shift2 = log2n + 6;
+
+    if (use_dst) {
+        fdct_block(coef, resid, 4, 1, shift1, shift2);
+        return;
+    }
+    switch (log2n) {
+    case 2:  fdct_block(coef, resid, 4, 0, shift1, shift2); break;
+    case 3:  fdct_block(coef, resid, 8, 0, shift1, shift2); break;
+    case 4:  fdct_block(coef, resid, 16, 0, shift1, shift2); break;
+    default: fdct_block(coef, resid, 32, 0, shift1, shift2); break;
+    }
+}
+
+/* ---- inverse ------------------------------------------------------- */
+
+/*
+ * One 1-D inverse DCT of length n on four columns at once: inv_dct_1d()
+ * from transform.c, lane for lane.
+ *
+ * RANGE. The input is a dequantised coefficient, already clipped to int16
+ * by n265_dequant, so |c| <= 32768. The level of length `len` adds at
+ * most len * 90 * 32768 to e, and summing that over the levels 1, 2, ...,
+ * n/2 plus the 64 * src[0] seed gives |e| <= 90 * 32768 * (n - 1) + 64 *
+ * 32768 = 93.5M at n = 32. Stage 1 shifts by 7 and CLIPS to int16, so
+ * stage 2 sees at most 32768 again and carries the same bound. int32
+ * lanes hold both with more than four bits to spare, which is the
+ * headroom the C's int32 accumulators run on.
+ *
+ * `clip` selects the stage-1 narrowing: vqmovn_s32 saturates at exactly
+ * -32768 / 32767, so vmovl_s16(vqmovn_s32(v)) is clip3(-32768, 32767, v)
+ * and the saturating case is the instruction's own rather than an
+ * approximation of the C's ternary.
+ */
+static inline void inv_dct_1d_x4(int32x4_t *dst, const int32x4_t *src, int n,
+                                 int32x4_t sh, int clip)
+{
+    int32x4_t e[32], o[16];
+
+    e[0] = vshlq_n_s32(src[0], 6);
+    for (int len = 1; len < n; len <<= 1) {
+        int step = n / (2 * len), rs = 32 / (2 * len);
+
+        for (int j = 0; j < len; j++)
+            o[j] = vdupq_n_s32(0);
+        for (int i = 0; i < len; i++)
+            inv_odd_acc(o, src[(2 * i + 1) * step],
+                        n265_tmatrix[(2 * i + 1) * rs], len);
+        for (int j = len - 1; j >= 0; j--) {
+            int32x4_t ev = e[j];
+
+            e[j] = vaddq_s32(ev, o[j]);
+            e[2 * len - 1 - j] = vsubq_s32(ev, o[j]);
+        }
+    }
+    for (int j = 0; j < n; j++) {
+        int32x4_t v = RSH(e[j], sh);
+
+        dst[j] = clip ? vmovl_s16(vqmovn_s32(v)) : v;
+    }
+}
+
+/*
+ * The same transform under the C's bound: every src entry at index >= nc
+ * is zero. inv_dct_1d_nz() lane for lane, including the index arithmetic
+ * that decides how many odd coefficients survive at each level - that is
+ * a scalar decision about the LENGTH dimension and the lanes are the
+ * orthogonal one, so the bound needs no rounding up to the vector width.
+ * A coefficient zero in all four lanes is skipped, which is the C's
+ * `if (!c) continue` weakened to a four-lane test; adding zero is exact
+ * either way, so the two agree whatever the test decides.
+ */
+static inline void inv_dct_1d_x4_nz(int32x4_t *dst, const int32x4_t *src,
+                                    int n, int32x4_t sh, int clip, int nc)
+{
+    int32x4_t e[32], o[16];
+
+    e[0] = vshlq_n_s32(src[0], 6);
+    for (int len = 1, lgstep = __builtin_ctz((unsigned)n) - 1; len < n;
+         len <<= 1, lgstep--) {
+        int stepi = 1 << lgstep;
+        int rs = 32 / (2 * len);
+        int nodd = ((nc + stepi - 1) >> lgstep) >> 1;
+
+        if (nodd > len)
+            nodd = len;
+        if (nodd <= 0) {
+            for (int j = 0; j < len; j++)
+                e[2 * len - 1 - j] = e[j];
+            continue;
+        }
+        for (int j = 0; j < len; j++)
+            o[j] = vdupq_n_s32(0);
+        for (int i = 0; i < nodd; i++) {
+            int32x4_t c = src[(2 * i + 1) * stepi];
+
+            if (len >= 4 && vminvq_u32(vceqzq_s32(c)) == 0xffffffffu)
+                continue;               /* zero in all four lanes */
+            inv_odd_acc(o, c, n265_tmatrix[(2 * i + 1) * rs], len);
+        }
+        for (int j = len - 1; j >= 0; j--) {
+            int32x4_t ev = e[j];
+
+            e[j] = vaddq_s32(ev, o[j]);
+            e[2 * len - 1 - j] = vsubq_s32(ev, o[j]);
+        }
+    }
+    for (int j = 0; j < n; j++) {
+        int32x4_t v = RSH(e[j], sh);
+
+        dst[j] = clip ? vmovl_s16(vqmovn_s32(v)) : v;
+    }
+}
+
+/* DST-VII 4-point inverse, four columns at once; inv_dst4_1d() verbatim.
+ * Same total weight of 242 as the forward, so with |i| <= 32768 no sum
+ * exceeds 7.9M; stage 1 clips to int16, so stage 2 carries the same
+ * bound. int32 throughout. */
+static inline void inv_dst4_1d_x4(int32x4_t *out, const int32x4_t *in,
+                                  int32x4_t sh, int clip)
+{
+    int32x4_t c0 = vaddq_s32(in[0], in[2]);
+    int32x4_t c1 = vaddq_s32(in[2], in[3]);
+    int32x4_t c2 = vsubq_s32(in[0], in[3]);
+    int32x4_t c3 = vmulq_n_s32(in[1], 74);
+    int32x4_t m = vaddq_s32(vsubq_s32(in[0], in[2]), in[3]);
+    int32x4_t v[4];
+
+    v[0] = RSH(vaddq_s32(vmlaq_n_s32(vmulq_n_s32(c0, 29), c1, 55), c3), sh);
+    v[1] = RSH(vaddq_s32(vmlsq_n_s32(vmulq_n_s32(c2, 55), c1, 29), c3), sh);
+    v[2] = RSH(vmulq_n_s32(m, 74), sh);
+    v[3] = RSH(vsubq_s32(vmlaq_n_s32(vmulq_n_s32(c2, 29), c0, 55), c3), sh);
+    for (int j = 0; j < 4; j++)
+        out[j] = clip ? vmovl_s16(vqmovn_s32(v[j])) : v[j];
+}
+
+/* pred + residual clipped to a byte, four rows by four columns, the
+ * residual already transposed so c[i] is row y0 + i. */
+static inline void add_clip_4x4(uint8_t *dst, int ds, const uint8_t *pred,
+                                int ps, int y0, int x0, int32x4_t c[4])
+{
+    for (int i = 0; i < 4; i++) {
+        int32x4_t p = load4_u8(pred + (ptrdiff_t)(y0 + i) * ps + x0);
+
+        store4_u8(dst + (ptrdiff_t)(y0 + i) * ds + x0, vaddq_s32(p, c[i]));
+    }
+}
+
+/* eight columns at a time where there are eight: one store per row
+ * instead of two, which matters because the output stage is a third of
+ * this kernel's work at 16x16 and above. */
+static inline void add_clip_4x8(uint8_t *dst, int ds, const uint8_t *pred,
+                                int ps, int y0, int x0, int32x4_t lo[4],
+                                int32x4_t hi[4])
+{
+    for (int i = 0; i < 4; i++) {
+        uint16x8_t p = vmovl_u8(vld1_u8(pred + (ptrdiff_t)(y0 + i) * ps + x0));
+        int32x4_t pl = vreinterpretq_s32_u32(vmovl_u16(vget_low_u16(p)));
+        int32x4_t ph = vreinterpretq_s32_u32(vmovl_high_u16(p));
+        uint16x4_t a = vqmovun_s32(vaddq_s32(pl, lo[i]));
+        uint16x4_t b = vqmovun_s32(vaddq_s32(ph, hi[i]));
+
+        /* clip3(0, 255, v) again: saturate s32 -> u16 at 0, then u16 -> u8
+         * at 255. The upper u16 bound cannot fire first - the residual is
+         * under 2^24 - so neither clip can mask a value the C would keep. */
+        vst1_u8(dst + (ptrdiff_t)(y0 + i) * ds + x0,
+                vqmovn_u16(vcombine_u16(a, b)));
+    }
+}
+
+static inline void idct_block(uint8_t *dst, int ds, const int16_t *dq, int n,
+                              const uint8_t *pred, int ps, int use_dst,
+                              int nzw, int nzh)
+{
+    int32x4_t sh1 = vdupq_n_s32(-7);
+    int32x4_t sh2 = vdupq_n_s32(-(20 - BIT_DEPTH));
+    int16_t b[32 * 32];
+    int xg = (nzw + 3) & ~3;
+
+    /* stage 1: one lane per coefficient column. Columns at or past nzw are
+     * zero and transform to zeros, so a partly covered group of four is
+     * exact with no tail; only whole groups past xg are left out. */
+    for (int x0 = 0; x0 < xg; x0 += 4) {
+        int32x4_t e[32], v[32], u[4];
+
+        for (int y = 0; y < n; y++)
+            e[y] = vmovl_s16(vld1_s16(dq + y * n + x0));
+        if (use_dst)
+            inv_dst4_1d_x4(v, e, sh1, 1);
+        else if (nzh >= n || n < 16)
+            inv_dct_1d_x4(v, e, n, sh1, 1);
+        else
+            inv_dct_1d_x4_nz(v, e, n, sh1, 1, nzh);
+        /* b[x][j], written transposed so stage 2 loads contiguously. It is
+         * int16 because stage 1 clipped to int16: half the traffic, and
+         * the value is what the C's int32 b holds by definition of that
+         * clip. */
+        for (int j0 = 0; j0 < n; j0 += 4) {
+            u[0] = v[j0]; u[1] = v[j0 + 1];
+            u[2] = v[j0 + 2]; u[3] = v[j0 + 3];
+            tr4_s32(u);
+            for (int i = 0; i < 4; i++)
+                vst1_s16(b + (x0 + i) * n + j0, vqmovn_s32(u[i]));
+        }
+    }
+    /* the small-block stage 2 below reads every column, so the ones stage
+     * 1 skipped have to be the zeros they stand for. At 16 and 32 the
+     * bounded stage 2 reads only indices under nzw <= xg, and the rows
+     * past xg are never touched: inv_dct_1d_nz's largest index is
+     * (ceil(nc / stepi) - 1) * stepi, which is strictly below nc. */
+    if (n < 16 && xg < n)
+        memset(b + (size_t)xg * n, 0, (size_t)(n - xg) * n * sizeof(int16_t));
+
+    /* stage 2: one lane per spatial row. */
+    for (int y0 = 0; y0 < n; y0 += 4) {
+        int32x4_t e[32], r[32], c[4], c2[4];
+
+        for (int k = 0; k < n; k++)
+            e[k] = vmovl_s16(vld1_s16(b + k * n + y0));
+        if (use_dst)
+            inv_dst4_1d_x4(r, e, sh2, 0);
+        else if (nzw >= n || n < 16)
+            inv_dct_1d_x4(r, e, n, sh2, 0);
+        else
+            inv_dct_1d_x4_nz(r, e, n, sh2, 0, nzw);
+        if (n == 4) {
+            c[0] = r[0]; c[1] = r[1]; c[2] = r[2]; c[3] = r[3];
+            tr4_s32(c);
+            add_clip_4x4(dst, ds, pred, ps, y0, 0, c);
+            continue;
+        }
+        for (int x0 = 0; x0 < n; x0 += 8) {
+            c[0] = r[x0];      c[1] = r[x0 + 1];
+            c[2] = r[x0 + 2];  c[3] = r[x0 + 3];
+            c2[0] = r[x0 + 4]; c2[1] = r[x0 + 5];
+            c2[2] = r[x0 + 6]; c2[3] = r[x0 + 7];
+            tr4_s32(c);
+            tr4_s32(c2);
+            add_clip_4x8(dst, ds, pred, ps, y0, x0, c, c2);
+        }
+    }
+}
+
+/* Both stages collapse to a constant when only the DC coefficient can be
+ * nonzero, and it is the constant the general path forms: E mirrors at
+ * every level, so stage 1 emits clip16((64 * dq0 + 64) >> 7) in every row
+ * and stage 2 turns that into (64 * v + 2048) >> 12 in every column. Same
+ * reduction the C entry point makes; worth vectorising because at 32x32 it
+ * is 1024 clipped byte adds. |r| <= 64 * 32768 / 4096 = 512, so the whole
+ * add fits int16 lanes, and vqmovun_s16 is clip3(0, 255, .) for the same
+ * reason store4_u8's pair is. */
+static inline void idct_dc(uint8_t *dst, int ds, int32_t r, int n,
+                           const uint8_t *pred, int ps)
+{
+    int16x8_t rv = vdupq_n_s16((int16_t)r);
+
+    for (int y = 0; y < n; y++) {
+        const uint8_t *p = pred + (ptrdiff_t)y * ps;
+        uint8_t *d = dst + (ptrdiff_t)y * ds;
+
+        for (int x = 0; x < n; x += 8) {
+            int16x8_t s = vaddq_s16(
+                vreinterpretq_s16_u16(vmovl_u8(vld1_u8(p + x))), rv);
+
+            vst1_u8(d + x, vqmovun_s16(s));
+        }
+    }
+}
+
+void n265_idct_add_neon(uint8_t *dst, int dst_stride, const int16_t *dq,
+                        int log2n, const uint8_t *pred, int pred_stride,
+                        int use_dst, int nzw, int nzh)
+{
+    int n = 1 << log2n;
+
+    if (use_dst) {
+        nzw = nzh = n;
+    } else {
+        if (nzw < 1) nzw = 1;
+        if (nzh < 1) nzh = 1;
+        if (nzw > n) nzw = n;
+        if (nzh > n) nzh = n;
+    }
+
+    if (!use_dst && nzw == 1 && nzh == 1) {
+        int32_t v = (64 * dq[0] + 64) >> 7;
+        int32_t r;
+
+        v = v < -32768 ? -32768 : v > 32767 ? 32767 : v;
+        r = (64 * v + 2048) >> 12;
+        if (n >= 8) {
+            idct_dc(dst, dst_stride, r, n, pred, pred_stride);
+        } else {
+            int32x4_t rv = vdupq_n_s32(r);
+
+            for (int y = 0; y < 4; y++)
+                store4_u8(dst + (ptrdiff_t)y * dst_stride,
+                          vaddq_s32(load4_u8(pred + (ptrdiff_t)y *
+                                             pred_stride), rv));
+        }
+        return;
+    }
+
+    if (use_dst) {
+        idct_block(dst, dst_stride, dq, 4, pred, pred_stride, 1, 4, 4);
+        return;
+    }
+    switch (log2n) {
+    case 2:
+        idct_block(dst, dst_stride, dq, 4, pred, pred_stride, 0, nzw, nzh);
+        break;
+    case 3:
+        idct_block(dst, dst_stride, dq, 8, pred, pred_stride, 0, nzw, nzh);
+        break;
+    case 4:
+        idct_block(dst, dst_stride, dq, 16, pred, pred_stride, 0, nzw, nzh);
+        break;
+    default:
+        idct_block(dst, dst_stride, dq, 32, pred, pred_stride, 0, nzw, nzh);
+        break;
+    }
+}
+
+
+/* ---- quant / dequant (class N265_ASM_QUANT) ------------------------
+ *
+ * These two live here because they are the transform's other half and
+ * the family owns the file, but they carry their own class bit: the
+ * campaign prices dequant separately from the butterflies, and the
+ * shape survey found it at 1.3% of a foreman encode against the pair's
+ * 12%.
+ *
+ * Both C forms reach for int64 and neither needs to, which is the whole
+ * trick that makes four lanes possible instead of two.
+ */
+
+/* n265_dequant's arithmetic is `(level * S + add) >> bd_shift` with
+ * S = level_scale[qp % 6] << (qp / 6) * 16 <= 294912 and |level| <=
+ * 32768, so the product reaches 9.7e9 and the C carries it in int64.
+ * Split S at the shift instead - S = Sh * 2^bd + Sl - and
+ *
+ *     (level * S + add) >> bd == level * Sh + ((level * Sl + add) >> bd)
+ *
+ * exactly, for either sign, because the first term is a whole multiple
+ * of 2^bd and >> is floor division by it. Now every part is int32:
+ * Sh <= 294912 >> 5 = 9216 gives |level * Sh| <= 302M, Sl < 2^bd <= 256
+ * gives |level * Sl| <= 8.4M, and their sum is under 302M. Four lanes,
+ * not two.
+ *
+ * A zero level needs no special case: (0 + 2^(bd-1)) >> bd is 0, which
+ * is the C's early-out value, so the branch the C takes to skip the
+ * int64 multiply is arithmetic here and costs nothing.
+ *
+ * The bounding box comes out of the same pass. Per row, each lane
+ * contributes its own x where the result is nonzero and -1 where it is
+ * not; vmaxvq_s32 across the row gives the row's last nonzero column,
+ * and a row that has one is the last nonzero row so far. That is the C's
+ * mx / my exactly, including the all-zero block's mx = my = 0. */
+void n265_dequant_neon(int16_t *dq, const int16_t *level, int log2n, int qp,
+                       int *nzw, int *nzh)
+{
+    static const int level_scale[6] = { 40, 45, 51, 57, 64, 72 };
+    static const int32_t lane_id[4] = { 0, 1, 2, 3 };
+    int n = 1 << log2n;
+    int bd_shift = BIT_DEPTH + log2n - 5;        /* 5 .. 8 */
+    int32_t s = (int32_t)(((int64_t)level_scale[qp % 6] << (qp / 6)) * 16);
+    int32_t s_hi = s >> bd_shift, s_lo = s & ((1 << bd_shift) - 1);
+    int32x4_t addv = vdupq_n_s32(1 << (bd_shift - 1));
+    int32x4_t sh = vdupq_n_s32(-bd_shift);
+    int32x4_t none = vdupq_n_s32(-1);
+    int32x4_t ids = vld1q_s32(lane_id);
+    int mx = 0, my = 0;
+
+    for (int y = 0; y < n; y++) {
+        const int16_t *lp = level + (ptrdiff_t)y * n;
+        int16_t *dp = dq + (ptrdiff_t)y * n;
+        int32x4_t rowmax = none;
+        int r;
+
+        for (int x = 0; x < n; x += 4) {
+            int32x4_t l = vmovl_s16(vld1_s16(lp + x));
+            int32x4_t v = vaddq_s32(
+                vmulq_n_s32(l, s_hi),
+                vshlq_s32(vmlaq_n_s32(addv, l, s_lo), sh));
+
+            /* vqmovn_s32 is the C's clip to int16, saturation included */
+            vst1_s16(dp + x, vqmovn_s32(v));
+            rowmax = vmaxq_s32(rowmax,
+                               vbslq_s32(vceqzq_s32(v), none,
+                                         vaddq_s32(ids, vdupq_n_s32(x))));
+        }
+        r = vmaxvq_s32(rowmax);
+        if (r >= 0) {
+            my = y;
+            if (r > mx)
+                mx = r;
+        }
+    }
+    if (nzw) *nzw = mx + 1;
+    if (nzh) *nzh = my + 1;
+}
+
+/* n265_quant's int64 is unnecessary too. qbits = 21 + qp / 6 - log2n is
+ * in [16, 27], the deadzone add is 2^qbits / 3 <= 44.7M, |coef| <= 32768
+ * and quant_scale <= 26214, so |coef| * q + add <= 9.04e8 - inside int32
+ * with a bit to spare, and the shift, the 32767 clamp and the sign are
+ * all int32 from there. vabsq_s32 after the widen and not before it: the
+ * C negates an `int`, and |-32768| does not fit int16.
+ *
+ * The nonzero count is a lane accumulator (subtract the all-ones compare
+ * mask, which adds one) reduced once at the end, so the C's per-element
+ * `nz += l != 0` never becomes a branch. */
+int n265_quant_neon(int16_t *level, const int16_t *coef, int log2n, int qp,
+                    int intra)
+{
+    static const int quant_scale[6] = {
+        26214, 23302, 20560, 18396, 16384, 14564
+    };
+    int nn = 1 << (2 * log2n);                   /* 16 at least, so 8 fits */
+    int qbits = 21 + qp / 6 - log2n;
+    int32_t add = (int32_t)(((int64_t)1 << qbits) / (intra ? 3 : 6));
+    int q = quant_scale[qp % 6];
+    int32x4_t addv = vdupq_n_s32(add), sh = vdupq_n_s32(-qbits);
+    int32x4_t maxv = vdupq_n_s32(32767);
+    int32x4_t cnt = vdupq_n_s32(0);
+
+    for (int i = 0; i < nn; i += 8) {
+        int16x8_t c = vld1q_s16(coef + i);
+        int32x4_t cl = vmovl_s16(vget_low_s16(c)), ch = vmovl_high_s16(c);
+        int32x4_t ll = vminq_s32(
+            vshlq_s32(vmlaq_n_s32(addv, vabsq_s32(cl), q), sh), maxv);
+        int32x4_t lh = vminq_s32(
+            vshlq_s32(vmlaq_n_s32(addv, vabsq_s32(ch), q), sh), maxv);
+
+        cnt = vsubq_s32(cnt,
+                        vreinterpretq_s32_u32(vmvnq_u32(vceqzq_s32(ll))));
+        cnt = vsubq_s32(cnt,
+                        vreinterpretq_s32_u32(vmvnq_u32(vceqzq_s32(lh))));
+        /* |sign * l| <= 32767, so vqmovn_s32 never actually saturates
+         * here; it is the narrow, and the clamp above is the C's. */
+        vst1q_s16(level + i, vcombine_s16(
+            vqmovn_s32(vbslq_s32(vcltzq_s32(cl), vnegq_s32(ll), ll)),
+            vqmovn_s32(vbslq_s32(vcltzq_s32(ch), vnegq_s32(lh), lh))));
+    }
+    return vaddvq_s32(cnt);
+}
 
 #else
 typedef int n265_transform_neon_unused_;  /* C wants a non-empty TU */
