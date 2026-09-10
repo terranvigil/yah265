@@ -788,6 +788,8 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     n265_sao_warm();
     n265_rdoq_warm();
     n265_satd_warm();
+    n265_entropy_warm();
+    n265_deblock_warm();
     /* the CPU feature word and the N265_ASM_OFF ablation mask, resolved
      * here so the pthread_once and the n265_env read both happen on the
      * driver thread; every NEON dispatch site then sees only the inlined

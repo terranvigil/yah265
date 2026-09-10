@@ -115,6 +115,26 @@ static void write_mvd(const res_ops *ops, int mx, int my)
     }
 }
 
+/* Cached env knob at file scope so n265_entropy_warm() can resolve it on
+ * the driver thread. maybe_qp_delta() runs once per quantization group,
+ * so the uncached read was a getenv per QG: 0.7% of the encode's self
+ * time sat in __findenv_locked between this and deblock's own (the
+ * 2026-09-10 phase 6 profile). Output-neutral - the trace still prints
+ * exactly when the variable is set. */
+static int qp_trace = -1;
+
+static int qp_trace_on(void)
+{
+    if (qp_trace < 0)
+        qp_trace = n265_env("N265_QP_TRACE") != NULL;
+    return qp_trace;
+}
+
+void n265_entropy_warm(void)
+{
+    (void)qp_trace_on();
+}
+
 /* cu_qp_delta_abs/sign at the first cbf TU of a quantization group
  * (QG == CTB): TU prefix cMax 5 (bin0 ctx 0, later bins ctx 1), EG0
  * escape, bypass sign */
@@ -125,7 +145,7 @@ static void maybe_qp_delta(struct n265_frame_work *e, const res_ops *ops,
         return;
     e->ent_qp_coded = 1;
     int delta = e->ent_ctu_qp - e->ent_qp_prev;
-    if (n265_env("N265_QP_TRACE"))
+    if (qp_trace_on())
         fprintf(stderr, "[%s %d->%d]", e->in_entropy ? "ENT" : "ana",
                 e->ent_qp_prev, e->ent_ctu_qp);
     int a = delta < 0 ? -delta : delta;

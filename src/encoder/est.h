@@ -57,6 +57,10 @@ void n265_est_ops(res_ops *ops, est_state *st);
 
 void n265_tables_init_est(void);
 
+/* entropy.c: its cached env knob, resolved on the driver thread at open
+ * with the other warms */
+void n265_entropy_warm(void);
+
 /* entropy.c: replay one CU's committed records through the estimator */
 struct n265_frame_work;
 void n265_est_advance_cu(struct n265_frame_work *e, est_state *st, int x0,

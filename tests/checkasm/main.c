@@ -215,12 +215,14 @@ int check_transform(void);
 int check_satd(void);
 int check_mc(void);
 int check_rdoq(void);
+int check_cost(void);
 
 static const kernel_test tests[] = {
     { "transform", check_transform },
     { "satd", check_satd },
     { "mc", check_mc },
     { "rdoq", check_rdoq },
+    { "cost", check_cost },
     { NULL, NULL },
 };
 

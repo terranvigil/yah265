@@ -48,7 +48,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 # ntp_pool_create / ntp_bg_create and none of them exists here.
 WARM_ROOTS = ["n265_encoder_warm", "n265_la_warm", "n265_ctu_warm", "n265_mv_warm",
               "n265_sao_warm", "n265_rdoq_warm", "n265_satd_warm",
-              "n265_cpu_flags_slow"]
+              "n265_cpu_flags_slow", "n265_entropy_warm", "n265_deblock_warm"]
 
 # Functions whose env reads go into a LOCAL or into the encoder struct on
 # every call: no shared static, so no race, and warming them would be

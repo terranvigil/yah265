@@ -132,6 +132,26 @@ static int is_tu_edge(const struct n265_frame_work *e, int x, int y, int vertica
            (vertical ? 4 : 8);
 }
 
+/* Cached env knob at file scope so n265_deblock_warm() can resolve it on
+ * the driver thread. seg_bs() runs per 4-line segment of every edge in
+ * the frame, so the uncached read was a getenv per segment: 0.7% of the
+ * encode's self time sat in __findenv_locked between this and entropy's
+ * own (the 2026-09-10 phase 6 profile). Output-neutral - the diagnostic
+ * rule still fires exactly when the variable is set. */
+static int old_bs = -1;
+
+static int old_bs_on(void)
+{
+    if (old_bs < 0)
+        old_bs = n265_env("N265_OLD_BS") != NULL;
+    return old_bs;
+}
+
+void n265_deblock_warm(void)
+{
+    (void)old_bs_on();
+}
+
 /* boundary strength for the 4-line segment whose q-side starts at luma
  * (x,y) (8.7.2.4). The cbf leg applies to transform edges only; PU edges
  * inside a CU reach the motion legs below. */
@@ -149,7 +169,7 @@ static int seg_bs(const struct n265_frame_work *e, int x, int y, int vertical)
      * number of motion vectors -> 1; same pictures -> compare the vectors
      * that point at the same picture, both pairings when both point at
      * one picture twice */
-    if (n265_env("N265_OLD_BS")) {          /* diagnostic: the list-based rule */
+    if (old_bs_on()) {          /* diagnostic: the list-based rule */
         if (e->blk_pred[pi] != e->blk_pred[qi]) return 1;
         for (int l = 0; l < 2; l++) {
             if (!(e->blk_pred[pi] & (1 << l))) continue;
