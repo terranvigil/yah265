@@ -2,7 +2,7 @@
 
 BUILD ?= build
 
-.PHONY: build test conformance conformance-fast provenance asan board board-quick clean
+.PHONY: build test conformance conformance-fast provenance asan determ determ-fast board board-quick clean
 
 build:
 	@[ -d $(BUILD) ] || meson setup $(BUILD)
@@ -34,6 +34,17 @@ board-quick: build
 # speed milestone from phase 4 on)
 board-bd: build
 	scripts/board.py --bd-only
+
+# the sec 3 determinism matrix, crossed: CTB x SAO x RC x bframes x ref,
+# threads 1/2/4/12 with t12 five times, under eight spinners
+determ: build
+	ENC=$(BUILD)/n265 scripts/determ_gate.sh
+
+# one clip, CTB 16 and 64 only: the shape of the gate at a tenth the wall,
+# for use while bisecting. Not the gate.
+determ-fast: build
+	ENC=$(BUILD)/n265 CLIPS=sita_flat_720p CTBS='16 64' SAOS=off \
+	    RCS=cqp scripts/determ_gate.sh
 
 asan:
 	@[ -d build-asan ] || meson setup build-asan -Db_sanitize=address,undefined -Db_lundef=false

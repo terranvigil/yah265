@@ -212,6 +212,16 @@ run_vector_env "N265_RC_LAG=3" \
            lag3_t1_abr 352x288 24  testsrc2  "--keyint 12 --bitrate 400 --aq 1 --cutree 1 --threads 1"
 run_vector_env "N265_RC_LAG=3" \
            lag3_t12_abr 352x288 24 testsrc2  "--keyint 12 --bitrate 400 --aq 1 --cutree 1 --threads 12"
+# 2026-09-10: the corner that spent the whole ladder reading off the end of
+# the reference allocation. CTB 16 makes the coding blocks small enough that
+# a merge candidate is nearly always a neighbour's decided vector, --ref 3
+# with --bframes 7 gives tmvp_mv's POC scaling its widest distance ratios,
+# and the product points far outside the picture. The decoder clips such a
+# read to the picture edge (8.5.3.3.2); before n265_mc_clip this encoder did
+# not, and its reconstruction stopped matching either decoder. The cell is
+# here to keep the three agreeing, at one thread and at twelve.
+run_vector ctu16_r3_b7_t1  352x288 24 testsrc2 "--keyint 12 --ctu 16 --ref 3 --bframes 7 --aq 1 --cutree 1 --threads 1"
+run_vector ctu16_r3_b7_t12 352x288 24 testsrc2 "--keyint 12 --ctu 16 --ref 3 --bframes 7 --aq 1 --cutree 1 --threads 12"
 if [ "$FAST" -eq 0 ]; then
     run_vector thr4_720    1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 4"
     run_vector thr12_720   1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 12"
