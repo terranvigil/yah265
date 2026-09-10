@@ -68,8 +68,10 @@ struct n265_refpic {
     int poc;
     /* D2 (T2 decision): DPB membership as the DECODER sees it - the RPS,
      * the reference lists, eviction. Driver-serial: set at the end of
-     * this picture's own dispatch step, cleared by the mini-GOP-end
-     * retirement, both in coding order, so frame k+1's dispatch sees
+     * this picture's own dispatch step, cleared at the dispatch after
+     * this picture's last use in the mini-GOP plan (`last_use`, and at
+     * the mini-GOP end for the tail), both in coding order, so frame
+     * k+1's dispatch sees
      * frame k marked whether or not a single row of k has run. It says
      * nothing about whether the pixels exist yet; `final_rows` does. */
     int marked;
@@ -80,6 +82,15 @@ struct n265_refpic {
     atomic_int final_rows;
     int in_use;         /* claimed by a frame in flight (not yet retired) */
     int is_anchor;      /* 1 for I/P anchors, 0 for reference B (pyramid lifetime) */
+    /* The last coding index in the CURRENT mini-GOP plan that references
+     * this picture, or INT_MAX for one the plan carries into the next
+     * mini-GOP (an anchor inside ref_max). Driver-serial: rewritten for
+     * every marked picture when a plan is built, and set on the picture
+     * itself when it is marked. The dispatch-time retirement drops
+     * anything whose last use is behind the frame being dispatched, so
+     * neither the RPS nor the decoder's DPB carries a picture that
+     * nothing left in the plan can read (2026-09-10). */
+    int last_use;
     /* collocated motion for TMVP, 16x16 granularity (top-left 4x4
      * of each region, spec mv storage reduction) */
     uint8_t *col_pred;
@@ -358,6 +369,11 @@ struct n265_encoder {
      * reference flag. Built once per mini-GOP, then drained one per call. */
     int plan_li[LA_MAX], plan_depth[LA_MAX];
     uint8_t plan_kind[LA_MAX], plan_nonref[LA_MAX];
+    /* per entry, the picture's POC and the last coding index in this plan
+     * that references it - INT_MAX where the plan carries it forward. The
+     * lifetime is copied onto the DPB picture when the frame is marked;
+     * see n265_refpic.last_use. */
+    int plan_poc[LA_MAX], plan_lastuse[LA_MAX];
     int plan_len, plan_pos, plan_pop;
     int ctb_log2;
     int no_sao;
@@ -385,6 +401,12 @@ struct n265_encoder {
     int rect;
     int amp;
     int ref_max;            /* --ref: references per list wanted (1..N265_MAX_REF) */
+    /* n265_dpb_requirement, solved once at open and copied into every
+     * frame_work: sps_max_num_reorder_pics, the picture storage buffer
+     * count the level has to hold, and the largest marked-picture count
+     * the reference structure can reach (which is what arms
+     * `slot_prefer`). */
+    int dpb_reorder, dpb_buffering, dpb_peak;
     int badapt;             /* --b-adapt: shorten the B run on high-motion spans */
     float cutree_str;       /* N265_CUTREE_STR: cu-tree offset strength (default 2.0) */
     float aq_str;           /* N265_AQ_STR: per-CTU variance-AQ strength (default 0.7) */
@@ -624,7 +646,7 @@ void n265_row_end(n265_row_ctx *row, n265_frame_work *fw, int r);
 /* encoder.c: the DPB the reference structure needs at this --bframes /
  * --ref, in the SPS's own units (see the definition). */
 void n265_dpb_requirement(int bframes, int ref_max, int *reorder,
-                          int *buffering, int *peak);
+                          int *buffering, int *peak, int *markpeak);
 
 /* headers.c */
 void n265_write_vps(n265_frame_work *e);

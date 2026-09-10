@@ -269,6 +269,17 @@ run_vector slow_t12_cif 352x288 24 testsrc2 "--keyint 12 --preset slow --aq 1 --
 # here to keep the three agreeing, at one thread and at twelve.
 run_vector ctu16_r3_b7_t1  352x288 24 testsrc2 "--keyint 12 --ctu 16 --ref 3 --bframes 7 --aq 1 --cutree 1 --threads 1"
 run_vector ctu16_r3_b7_t12 352x288 24 testsrc2 "--keyint 12 --ctu 16 --ref 3 --bframes 7 --aq 1 --cutree 1 --threads 12"
+# 2026-09-10: the retirement moved to dispatch, so a picture leaves the
+# RPS - and with it the decoder's DPB - as soon as nothing left in the
+# mini-GOP plan reads it, and sps_max_dec_pic_buffering_minus1 became the
+# walked peak rather than a bound. This is the widest plan the retirement
+# has to get right: --bframes 7 at --ref 2, with a keyint that is NOT a
+# multiple of the run, so b-adapt and the key edge both cut mini-GOPs
+# short and the lifetimes differ from plan to plan. Retiring one frame
+# early is a missing reference, which is exactly what the two decoders
+# catch.
+run_vector dpb_retire_b7_t1  352x288 30 testsrc2 "--keyint 10 --bframes 7 --ref 2 --crf 26 --aq 1 --cutree 1 --threads 1"
+run_vector dpb_retire_b7_t12 352x288 30 testsrc2 "--keyint 10 --bframes 7 --ref 2 --crf 26 --aq 1 --cutree 1 --threads 12"
 if [ "$FAST" -eq 0 ]; then
     run_vector thr4_720    1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 4"
     run_vector thr12_720   1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 12"
