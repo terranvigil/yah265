@@ -64,7 +64,9 @@ QPS = [22, 27, 32, 37]
 # What still separates this from plain medium: --ref 1 and the lookahead
 # depth. (2026-09-07). keyint moved 60 -> 250 with our own default on
 # 2026-09-09, so the matched arm tracks it. (2026-09-09)
-X265_MATCHED = ["--keyint", "250", "--bframes", "3", "--b-adapt", "1",
+# bframes tracks our own default, which moved 3 -> 7 on 2026-09-10; the
+# arm mirrors OUR featureset, so it moves with it. (2026-09-10)
+X265_MATCHED = ["--keyint", "250", "--bframes", "7", "--b-adapt", "1",
                 "--rc-lookahead", "12", "--ref", "1", "--no-open-gop"]
 
 SYNTH_CLIPS = [

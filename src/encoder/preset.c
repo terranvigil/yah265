@@ -96,7 +96,8 @@ static const struct kv slow_par[] = {
      * Together -19.19 median / -21.61 mean against -16.83 / -16.59, at
      * about 1.5x the encode time. */
     { "ref",           "2" },
-    { "bframes",       "7" },
+    { "bframes",       "7" },   /* the default since 2026-09-10; kept
+                                 * so slow's structure reads whole     */
     { "rc-lookahead", "24" },
     { NULL, NULL }
 };

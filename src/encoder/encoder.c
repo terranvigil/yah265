@@ -43,7 +43,13 @@ static double g_bitrate = 0.0;   /* n265_set_bitrate, kbit/s; 0 = off */
 static int g_ctb_log2 = 6;
 static int g_keyint = 250;      /* x265 4.3's own default (2026-09-08) */
 
-static int g_bframes = 3;         /* hierarchical B default (2026-09-07) */
+/* The full hierarchical run. 3 shipped from 2026-09-07 until the preset
+ * ladder priced 7 inside both the fast and the slow chains and found it
+ * 2.2 BD points better for nothing on the clock; the corpus read that
+ * made it the default is the 2026-09-10 entry in
+ * docs/programme-from-yah264.md. `--bframes 3` restores the old encoder
+ * byte for byte. */
+static int g_bframes = 7;         /* hierarchical B default (2026-09-10) */
 static int g_ref = 1;            /* n265_set_ref */
 static int g_badapt = 1;         /* adaptive B run length, default on */
 static int g_aq = 0;
