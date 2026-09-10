@@ -15,6 +15,7 @@
 #include "encoder/encoder.h"
 #include "encoder/la.h"
 #include "encoder/preset.h"
+#include "encoder/satd.h"
 
 int n265_la_init(struct n265_encoder *e)
 {
@@ -89,15 +90,11 @@ void n265_la_free(struct n265_encoder *e)
     e->la.pc_bmv = NULL;
 }
 
+/* the lookahead's own name for the block SAD; the loop moved to
+ * n265_sad_wh (satd.c) when the family got a NEON form */
 static uint32_t sad8(const uint8_t *a, int as, const uint8_t *b, int bs)
 {
-    uint32_t s = 0;
-    for (int y = 0; y < 8; y++)
-        for (int x = 0; x < 8; x++) {
-            int d = a[y * as + x] - b[y * bs + x];
-            s += (uint32_t)(d < 0 ? -d : d);
-        }
-    return s;
+    return n265_sad_wh(a, as, b, bs, 8, 8);
 }
 
 /* N265_SC_HOLD: a HELD frame does not set the running level.
