@@ -157,7 +157,10 @@ static void fill_dq(int16_t *d, int nn, int kind)
  * harness. Every optimized call runs in a guard buffer, and every input
  * buffer is guarded too, so a load that grabbed four samples where one
  * was declared is caught at the block edge and not only at the far end of
- * a page.
+ * a page. The read whose value is DISCARDED gets past both of those, so
+ * every kernel here also gets a page-guard pass (checkasm.h): the same
+ * call against a mapping sized to its declared window with an unmapped
+ * page hard against it.
  *
  * The shape table is the ENCODER's, from the 2026-09-10 survey in
  * src/encoder/arm/neon.h: five shapes, no more, and no rectangles. What
@@ -260,9 +263,41 @@ static int cmp8(const uint8_t *ref, const uint8_t *got, int stride, int n,
     return 0;
 }
 
+/* fdct's declared windows are exactly n*n int16 each way: it reads the
+ * residual block and writes the coefficient block, with no stride and no
+ * halo anywhere in the signature. So the mapping IS the block, on the
+ * input and on the output both - the output because a store one vector
+ * too far past a 4x4 is the same clang widening in the other direction. */
+static void check_fdct_window(int log2n, int use_dst, int kind)
+{
+    int n = 1 << log2n;
+    size_t rb = (size_t)n * n * sizeof(int16_t);
+
+    for (int tail = 0; tail < 2; tail++) {
+        ca_pg gr, gc;
+        int16_t *resid = ca_pg_alloc(&gr, rb, tail);
+        int16_t *coef = ca_pg_alloc(&gc, rb, tail);
+        char what[96];
+
+        fill_resid_ex(resid, n, kind);
+        snprintf(what, sizeof(what), "fdct %dx%d%s / %s, %s edge", n, n,
+                 use_dst ? "-dst" : "", rkind_name[kind],
+                 tail ? "far" : "near");
+        ca_pg_arm(what);
+        n265_fdct_neon(coef, resid, log2n, use_dst);
+        ca_pg_disarm();
+        ca_pg_free(&gr);
+        ca_pg_free(&gc);
+    }
+}
+
 static int check_fdct_neon(void)
 {
     int bad = 0;
+
+    for (unsigned s = 0; s < sizeof(tshapes) / sizeof(tshapes[0]); s++)
+        for (int kind = 0; kind < N_RKIND; kind++)
+            check_fdct_window(tshapes[s].log2n, tshapes[s].use_dst, kind);
 
     for (unsigned s = 0; s < sizeof(tshapes) / sizeof(tshapes[0]); s++) {
         int log2n = tshapes[s].log2n, use_dst = tshapes[s].use_dst;
@@ -359,12 +394,60 @@ static void fill_level(int16_t *l, int n, int kind)
     }
 }
 
+/* dequant and quant are the same shape as fdct - n*n in, n*n out, no
+ * stride - so the mapping is the block on all four buffers. The level
+ * POPULATION is what varies here rather than the geometry: the dequant's
+ * early-out makes a sparse block a different path from a dense one, and a
+ * path that is only taken on sparse input is a path whose tail has never
+ * been page-guarded. Four qps rather than all 52: the scale steps with
+ * qp % 6 and qp / 6, the shift is tightest at 51, and the geometry the
+ * mapping is checking does not move with the value. */
+static void check_quant_window(int log2n, int kind, int qp)
+{
+    int n = 1 << log2n;
+    size_t bytes = (size_t)n * n * sizeof(int16_t);
+
+    for (int tail = 0; tail < 2; tail++) {
+        ca_pg gl, gd, gc;
+        int16_t *level = ca_pg_alloc(&gl, bytes, tail);
+        int16_t *dq = ca_pg_alloc(&gd, bytes, tail);
+        int16_t *coef = ca_pg_alloc(&gc, bytes, tail);
+        int nzw, nzh;
+        char what[96];
+
+        fill_level(level, n, kind);
+        memcpy(coef, level, bytes);
+        snprintf(what, sizeof(what), "dequant %dx%d / %s qp %d, %s edge",
+                 n, n, lkind_name[kind], qp, tail ? "far" : "near");
+        ca_pg_arm(what);
+        n265_dequant_neon(dq, level, log2n, qp, &nzw, &nzh);
+        n265_dequant_neon(dq, level, log2n, qp, NULL, NULL);
+        ca_pg_disarm();
+
+        snprintf(what, sizeof(what), "quant %dx%d / %s qp %d, %s edge",
+                 n, n, lkind_name[kind], qp, tail ? "far" : "near");
+        ca_pg_arm(what);
+        for (int intra = 0; intra < 2; intra++)
+            n265_quant_neon(level, coef, log2n, qp, intra);
+        ca_pg_disarm();
+        ca_pg_free(&gl);
+        ca_pg_free(&gd);
+        ca_pg_free(&gc);
+    }
+}
+
 /* Every qp the encoder can hand these, not a sample: the deadzone add and
  * the dequant scale both step with qp % 6 and qp / 6, and 51 is where the
  * shift and the clip are closest to their bounds. */
 static int check_quant_neon(void)
 {
     int bad = 0;
+    static const int pg_qp[] = { 0, 4, 30, 51 };
+
+    for (int log2n = 2; log2n <= 5; log2n++)
+        for (int kind = 0; kind < N_LKIND; kind++)
+            for (unsigned q = 0; q < sizeof(pg_qp) / sizeof(pg_qp[0]); q++)
+                check_quant_window(log2n, kind, pg_qp[q]);
 
     for (int log2n = 2; log2n <= 5 && !bad; log2n++) {
         int n = 1 << log2n, nn = n * n;
@@ -426,9 +509,63 @@ static int check_quant_neon(void)
     return bad;
 }
 
+/* idct_add is the one in this family with strides, so its two 8-bit
+ * windows stop at the last SAMPLE of the last row and not at the end of
+ * it: ca_pg_window. A read into an interior row's padding is what the
+ * scramble pass below is for; what this catches is the row after the
+ * last, and the vector that ran past the end of it. The coefficient block
+ * has no stride and is exactly n*n.
+ *
+ * The nonzero bound is the axis that matters here. The kernel is free to
+ * skip work outside nzw x nzh, so the bounded call and the full-block call
+ * are different code, and the bounded one is what the encoder presents on
+ * the majority of calls (the survey in src/encoder/arm/neon.h). */
+static void check_idct_window(int log2n, int use_dst, int kind, int pad)
+{
+    int n = 1 << log2n;
+    int ds = pad ? n + 5 : n, ps = pad ? n + 3 : n;
+    size_t qb = (size_t)n * n * sizeof(int16_t);
+    size_t dbytes = ca_pg_window(ds, n, n), pbytes = ca_pg_window(ps, n, n);
+
+    for (int tail = 0; tail < 2; tail++) {
+        ca_pg gq, gd, gp;
+        int16_t *dq = ca_pg_alloc(&gq, qb, tail);
+        uint8_t *dst = ca_pg_alloc(&gd, dbytes, tail);
+        uint8_t *pred = ca_pg_alloc(&gp, pbytes, tail);
+        int bw, bh;
+        char what[96];
+
+        fill_dq_ex(dq, n, kind);
+        ca_pg_fill(&gp, pbytes);
+        dq_bbox(dq, n, &bw, &bh);
+        for (int b = 0; b < 3; b++) {
+            int nzw = b == 0 ? bw : b == 1 ? n : (bw + n + 1) / 2;
+            int nzh = b == 0 ? bh : b == 1 ? n : (bh + n + 1) / 2;
+
+            snprintf(what, sizeof(what),
+                     "idct_add %dx%d%s / %s nz %dx%d s%d, %s edge", n, n,
+                     use_dst ? "-dst" : "", ckind_name[kind], nzw, nzh, pad,
+                     tail ? "far" : "near");
+            ca_pg_arm(what);
+            n265_idct_add_neon(dst, ds, dq, log2n, pred, ps, use_dst,
+                               nzw, nzh);
+            ca_pg_disarm();
+        }
+        ca_pg_free(&gq);
+        ca_pg_free(&gd);
+        ca_pg_free(&gp);
+    }
+}
+
 static int check_idct_neon(void)
 {
     int bad = 0;
+
+    for (unsigned s = 0; s < sizeof(tshapes) / sizeof(tshapes[0]); s++)
+        for (int kind = 0; kind < N_CKIND; kind++)
+            for (int pad = 0; pad < 2; pad++)
+                check_idct_window(tshapes[s].log2n, tshapes[s].use_dst,
+                                  kind, pad);
 
     for (unsigned s = 0; s < sizeof(tshapes) / sizeof(tshapes[0]); s++) {
         int log2n = tshapes[s].log2n, use_dst = tshapes[s].use_dst;

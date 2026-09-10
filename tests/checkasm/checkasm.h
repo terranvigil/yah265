@@ -1,10 +1,11 @@
 /*
  * checkasm.h - the shared harness: rng, timer, the bench line, and the
- * guard-buffer helpers every family check runs its optimized path through.
+ * guard-buffer and page-guard helpers every family check runs its
+ * optimized path through.
  *
  * Layout (split out of the single-file checkasm.c on 2026-09-10, phase 6):
  *
- *   checkasm.h    this file: rng, bench(), guard buffers
+ *   checkasm.h    this file: rng, bench(), guard buffers, page guard
  *   main.c        the test table and the CLI
  *   transform.c   check_transform()
  *   satd.c        check_satd()
@@ -91,5 +92,57 @@ int ca_guard_check(const void *blk, size_t bytes, const char *what);
  * border check cannot see because the padding is interior. */
 int ca_check_pad(const uint8_t *blk, int stride, int w, int h,
                  const char *what);
+
+/* ---- the page guard -------------------------------------------------
+ *
+ * The two nets above between them catch a read whose VALUE reaches the
+ * output. They do not catch one whose value is thrown away, and every
+ * family in this directory produces exactly that bug: a four-sample tail
+ * written as "load 4, duplicate, run the 8-lane op, store 4" compiles to
+ * a plain 16-byte `ldr q`, so the kernel reads four samples past the row,
+ * discards them, and passes the scramble check because the output cannot
+ * move. The sanitiser is quiet too, because the bytes are still inside
+ * the allocation.
+ *
+ * The page guard is the net that does not need the value: a mapping sized
+ * to EXACTLY the declared window with an unmapped page hard against it, so
+ * a read one byte too far faults whether or not anything is done with it.
+ * Each pass runs twice - `tail = 1` puts the window's last byte against
+ * the far page (an overread faults) and `tail = 0` puts its first byte
+ * against the near page (an underread faults).
+ *
+ * The window has to be the one the kernel DECLARES, sized per call: give
+ * it a spare row and the check is worth nothing. For a block read at a
+ * stride that window is ca_pg_window(), which stops at the last sample of
+ * the last row rather than at the end of that row - a read into an
+ * INTERIOR row's padding stays the scramble check's job, since the padding
+ * is mapped either way.
+ *
+ * A fault is a hard stop rather than a counted failure, so arm the handler
+ * with the shape's name and it is printed on the way out.
+ */
+typedef struct ca_pg {
+    uint8_t *map;
+    size_t maplen;
+    void *user;         /* the buffer the kernel is given */
+} ca_pg;
+
+/* `bytes` of read-write memory with PROT_NONE on both sides, placed so
+ * that the buffer ENDS at the far guard (tail = 1) or STARTS at the near
+ * one (tail = 0) */
+void *ca_pg_alloc(ca_pg *g, size_t bytes, int tail);
+void ca_pg_free(ca_pg *g);
+/* random bytes over the `bytes` of buffer the kernel is given */
+void ca_pg_fill(ca_pg *g, size_t bytes);
+/* catch SIGSEGV/SIGBUS and name `what` on the way out */
+void ca_pg_arm(const char *what);
+void ca_pg_disarm(void);
+
+/* the bytes a w x h block read at `stride` declares: through the last
+ * sample of the last row, and not one byte of that row's padding */
+static inline size_t ca_pg_window(int stride, int w, int h)
+{
+    return (size_t)(h - 1) * (size_t)stride + (size_t)w;
+}
 
 #endif /* N265_CHECKASM_H */

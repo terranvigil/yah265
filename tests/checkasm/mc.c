@@ -10,93 +10,17 @@
 #include "encoder/mc.h"
 #include "encoder/arm/neon.h"   /* self-guarded; the family kernels land here */
 
-/* ---- the page guard -------------------------------------------------
- *
- * checkasm.h's two nets between them catch a read whose VALUE reaches the
- * output. They do not catch one whose value is thrown away, and this
- * family produces exactly that bug: a four-sample tail written with an
- * eight-lane load and a four-lane store reads four samples it never uses,
- * passes the scramble check because the output cannot move, and passes
- * the sanitiser too because the bytes are still inside the allocation.
- * On a padded reference plane it is harmless. On n265_ref_win's gathered
- * `tmp` - which the clipped-MV path takes, and which holds only the
- * (w + 7) * (h + 7) bytes it actually gathered - it reads stack the
- * gather never wrote, so the filter output is whatever was left there;
- * at 64x64 the gather fills the caller's array exactly and the read is
- * past the array as well.
- *
- * So the family runs one pass per shape against a mapping with an
- * unmapped page on each side, and runs it twice: once with the window
- * butted against the far page (an overread faults) and once against the
- * near one (an underread faults). A fault is a hard stop rather than a
- * counted failure, so the handler names the shape on the way out.
+/* The page guard is checkasm.h's, and this family is why it exists: a
+ * four-sample tail written with an eight-lane load and a four-lane store
+ * reads four samples it never uses, passes the scramble check because the
+ * output cannot move, and passes the sanitiser because the bytes are still
+ * inside the allocation. On a padded reference plane it is harmless. On
+ * n265_ref_win's gathered `tmp` - which the clipped-MV path takes, and
+ * which holds only the (w + 7) * (h + 7) bytes it actually gathered - it
+ * reads stack the gather never wrote, so the filter output is whatever was
+ * left there; at 64x64 the gather fills the caller's array exactly and the
+ * read is past the array as well.
  */
-#include <signal.h>
-#include <sys/mman.h>
-#include <unistd.h>
-
-static char mc_pg_what[96];
-
-static void mc_pg_fault(int sig)
-{
-    (void)sig;
-    /* async-signal-safe: write(2) and _exit(2) only */
-    static const char msg[] =
-        "    checkasm mc: READ OUTSIDE THE DECLARED WINDOW: ";
-    ssize_t r = write(2, msg, sizeof(msg) - 1);
-    r += write(2, mc_pg_what, strlen(mc_pg_what));
-    r += write(2, "\n", 1);
-    (void)r;
-    _exit(1);
-}
-
-struct mc_pg {
-    uint8_t *map;
-    size_t maplen;
-    void *user;         /* the buffer the kernel is given */
-};
-
-/* `bytes` of read-write memory with PROT_NONE on both sides, placed so
- * that the buffer ends at the far guard (tail = 1) or starts at the near
- * one (tail = 0) */
-static void *mc_pg_alloc(struct mc_pg *g, size_t bytes, int tail)
-{
-    size_t pg = (size_t)sysconf(_SC_PAGESIZE);
-    size_t body = (bytes + pg - 1) / pg * pg;
-
-    g->maplen = body + 2 * pg;
-    g->map = mmap(NULL, g->maplen, PROT_READ | PROT_WRITE,
-                  MAP_PRIVATE | MAP_ANON, -1, 0);
-    if (g->map == MAP_FAILED) {
-        printf("    checkasm mc: mmap failed\n");
-        exit(2);
-    }
-    if (mprotect(g->map, pg, PROT_NONE) ||
-        mprotect(g->map + pg + body, pg, PROT_NONE)) {
-        printf("    checkasm mc: mprotect failed\n");
-        exit(2);
-    }
-    g->user = g->map + pg + (tail ? body - bytes : 0);
-    return g->user;
-}
-
-static void mc_pg_free(struct mc_pg *g)
-{
-    munmap(g->map, g->maplen);
-}
-
-static void mc_pg_arm(const char *what)
-{
-    snprintf(mc_pg_what, sizeof(mc_pg_what), "%s", what);
-    signal(SIGSEGV, mc_pg_fault);
-    signal(SIGBUS, mc_pg_fault);
-}
-
-static void mc_pg_disarm(void)
-{
-    signal(SIGSEGV, SIG_DFL);
-    signal(SIGBUS, SIG_DFL);
-}
 
 /* ---- bi_avg --------------------------------------------------------- */
 
@@ -193,19 +117,19 @@ static void check_bi_avg_window(int w, int h)
     uint8_t *dst = malloc((size_t)ds * h);
 
     for (int tail = 0; tail < 2; tail++) {
-        struct mc_pg ga, gb;
-        int16_t *a = mc_pg_alloc(&ga, nb, tail);
-        int16_t *b = mc_pg_alloc(&gb, nb, tail);
+        ca_pg ga, gb;
+        int16_t *a = ca_pg_alloc(&ga, nb, tail);
+        int16_t *b = ca_pg_alloc(&gb, nb, tail);
         char what[96];
 
         bi_fill(a, b, w * h, 0);
         snprintf(what, sizeof(what), "bi_avg %dx%d, %s edge", w, h,
                  tail ? "far" : "near");
-        mc_pg_arm(what);
+        ca_pg_arm(what);
         bi_opt(dst, ds, a, b, w, h);
-        mc_pg_disarm();
-        mc_pg_free(&ga);
-        mc_pg_free(&gb);
+        ca_pg_disarm();
+        ca_pg_free(&ga);
+        ca_pg_free(&gb);
     }
     free(dst);
 }
@@ -583,8 +507,8 @@ static void check_luma_hf_window(int w, int h, int bits14)
         size_t hb = (size_t)w * (h + up + down) * sizeof(int16_t);
 
         for (int tail = 0; tail < 2; tail++) {
-            struct mc_pg g;
-            int16_t *buf = mc_pg_alloc(&g, hb, tail);
+            ca_pg g;
+            int16_t *buf = ca_pg_alloc(&g, hb, tail);
             int16_t *hf = buf + (ptrdiff_t)up * w;
             char what[96];
 
@@ -592,13 +516,13 @@ static void check_luma_hf_window(int w, int h, int bits14)
                 buf[i] = (int16_t)(rnd() >> 16);
             snprintf(what, sizeof(what), "luma%s_hf %dx%d fy%d, %s edge",
                      bits14 ? "_14" : "", w, h, fy, tail ? "far" : "near");
-            mc_pg_arm(what);
+            ca_pg_arm(what);
             if (bits14)
                 hf14_opt((int16_t *)dst, ds, w, h, hf, w, fy);
             else
                 hf_opt(dst, ds, w, h, hf, w, fy);
-            mc_pg_disarm();
-            mc_pg_free(&g);
+            ca_pg_disarm();
+            ca_pg_free(&g);
         }
     }
     free(dst);
@@ -926,8 +850,8 @@ static void check_luma_plane_window(int kind, int w, int h, int fx, int fy)
                        ((kind == MC_K_WH || kind == MC_K_CWH) ? 1 : 2));
 
     for (int tail = 0; tail < 2; tail++) {
-        struct mc_pg g;
-        uint8_t *base = mc_pg_alloc(&g, pb, tail);
+        ca_pg g;
+        uint8_t *base = ca_pg_alloc(&g, pb, tail);
         uint8_t *org = base + (ptrdiff_t)hyl * rs + hxl;
         char what[96];
 
@@ -935,10 +859,10 @@ static void check_luma_plane_window(int kind, int w, int h, int fx, int fy)
             base[i] = (uint8_t)(rnd() >> 24);
         snprintf(what, sizeof(what), "%s %dx%d fx%d fy%d, %s edge",
                  mc_kind_name[kind], w, h, fx, fy, tail ? "far" : "near");
-        mc_pg_arm(what);
+        ca_pg_arm(what);
         mc_call_opt(kind, dst, ds, w, h, org, rs, fx, fy);
-        mc_pg_disarm();
-        mc_pg_free(&g);
+        ca_pg_disarm();
+        ca_pg_free(&g);
     }
     free(dst);
 }

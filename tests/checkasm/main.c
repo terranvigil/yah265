@@ -15,7 +15,10 @@
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
+#include <signal.h>
+#include <sys/mman.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "checkasm.h"
 
@@ -134,6 +137,69 @@ int ca_check_pad(const uint8_t *blk, int stride, int w, int h,
                 return 1;
             }
     return 0;
+}
+
+/* ---- the page guard -------------------------------------------------- */
+
+static char ca_pg_what[96];
+
+static void ca_pg_fault(int sig)
+{
+    (void)sig;
+    /* async-signal-safe: write(2) and _exit(2) only */
+    static const char msg[] =
+        "    checkasm: READ OUTSIDE THE DECLARED WINDOW: ";
+    ssize_t r = write(2, msg, sizeof(msg) - 1);
+    r += write(2, ca_pg_what, strlen(ca_pg_what));
+    r += write(2, "\n", 1);
+    (void)r;
+    _exit(1);
+}
+
+void *ca_pg_alloc(ca_pg *g, size_t bytes, int tail)
+{
+    size_t pg = (size_t)sysconf(_SC_PAGESIZE);
+    size_t body = (bytes + pg - 1) / pg * pg;
+
+    g->maplen = body + 2 * pg;
+    g->map = mmap(NULL, g->maplen, PROT_READ | PROT_WRITE,
+                  MAP_PRIVATE | MAP_ANON, -1, 0);
+    if (g->map == MAP_FAILED) {
+        printf("    checkasm: mmap failed\n");
+        exit(2);
+    }
+    if (mprotect(g->map, pg, PROT_NONE) ||
+        mprotect(g->map + pg + body, pg, PROT_NONE)) {
+        printf("    checkasm: mprotect failed\n");
+        exit(2);
+    }
+    g->user = g->map + pg + (tail ? body - bytes : 0);
+    return g->user;
+}
+
+void ca_pg_free(ca_pg *g)
+{
+    munmap(g->map, g->maplen);
+}
+
+void ca_pg_fill(ca_pg *g, size_t bytes)
+{
+    uint8_t *p = g->user;
+    for (size_t i = 0; i < bytes; i++)
+        p[i] = (uint8_t)(rnd() >> 24);
+}
+
+void ca_pg_arm(const char *what)
+{
+    snprintf(ca_pg_what, sizeof(ca_pg_what), "%s", what);
+    signal(SIGSEGV, ca_pg_fault);
+    signal(SIGBUS, ca_pg_fault);
+}
+
+void ca_pg_disarm(void)
+{
+    signal(SIGSEGV, SIG_DFL);
+    signal(SIGBUS, SIG_DFL);
 }
 
 /* ---- the table ------------------------------------------------------ */

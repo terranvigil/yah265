@@ -492,6 +492,88 @@ static int check_reduction(const char *tag, int which, const int (*shapes)[2],
     return bad;
 }
 
+/* ---- the page-guard pass -------------------------------------------
+ *
+ * A cost kernel writes nothing and returns one number, which is what makes
+ * it the worst case for the scramble check above: a load that grabs eight
+ * samples where four were declared moves the answer only if the extra
+ * lanes reach the reduction. Zero them, mask them, or throw the high half
+ * of the vector away - all of which a Hadamard tail does - and the read is
+ * invisible to every net in checkasm.h and to the sanitiser both.
+ *
+ * So every kernel in this family also runs against a mapping sized to
+ * ca_pg_window() of each input with an unmapped page hard against it, at
+ * the tight stride and the padded one, and in both orientations. The value
+ * population is not an axis here: none of these kernels branches on a
+ * sample, so one fill per shape covers the paths that exist.
+ */
+enum { PG_SATD4, PG_SATD8, PG_SATD_WH, PG_RED };
+
+static void pg_call(int which, const uint8_t *a, int as, const uint8_t *b,
+                    int bs, int w, int h)
+{
+    volatile uint64_t sink = 0;
+
+    switch (which) {
+#if N265_NEON
+    case PG_SATD4: sink = n265_satd4_neon(a, as, b, bs); break;
+    case PG_SATD8: sink = n265_satd8_neon(a, as, b, bs); break;
+#endif
+    case PG_SATD_WH: sink = satd_opt_wh(a, as, b, bs, w, h); break;
+    default: sink = red_opt(which - PG_RED, a, as, b, bs, w, h); break;
+    }
+    (void)sink;
+}
+
+static void check_window(const char *tag, int which, int w, int h)
+{
+    for (int is = 0; is < 2; is++) {
+        int as = is ? w + 5 : w, bs = is ? w + 13 : w;
+        size_t abytes = ca_pg_window(as, w, h);
+        size_t bbytes = ca_pg_window(bs, w, h);
+
+        for (int tail = 0; tail < 2; tail++) {
+            ca_pg ga, gb;
+            uint8_t *a = ca_pg_alloc(&ga, abytes, tail);
+            uint8_t *b = ca_pg_alloc(&gb, bbytes, tail);
+            char what[80];
+
+            ca_pg_fill(&ga, abytes);
+            ca_pg_fill(&gb, bbytes);
+            snprintf(what, sizeof(what), "%s %dx%d s%d, %s edge", tag, w, h,
+                     is, tail ? "far" : "near");
+            ca_pg_arm(what);
+            pg_call(which, a, as, b, bs, w, h);
+            ca_pg_disarm();
+            ca_pg_free(&ga);
+            ca_pg_free(&gb);
+        }
+    }
+}
+
+static void check_windows(void)
+{
+#if N265_NEON
+    check_window("satd4 tile", PG_SATD4, 4, 4);
+    check_window("satd8 tile", PG_SATD8, 8, 8);
+#endif
+    for (int s = 0; s < NSATD_SH; s++)
+        check_window("satd", PG_SATD_WH, satd_shapes[s][0],
+                     satd_shapes[s][1]);
+    for (int s = 0; s < NSAD_SH; s++)
+        check_window("sad", PG_RED + RED_SAD, sad_shapes[s][0],
+                     sad_shapes[s][1]);
+    for (int s = 0; s < NSSD_SH; s++)
+        check_window("ssd", PG_RED + RED_SSD, ssd_shapes[s][0],
+                     ssd_shapes[s][1]);
+#if N265_NEON && defined(__ARM_FEATURE_DOTPROD)
+    if (n265_cpu_flags() & N265_CPU_DOTPROD)
+        for (int s = 0; s < NSSD_SH; s++)
+            check_window("ssd/dot", PG_RED + RED_SSD_DOT, ssd_shapes[s][0],
+                         ssd_shapes[s][1]);
+#endif
+}
+
 /* the maximum a 64x64 SSD can reach - every sample at the opposite clip -
  * is 4096 * 65025 = 266342400, and the kernel's claim is that this is
  * exact in u32. Check the number itself rather than trusting the
@@ -584,7 +666,10 @@ static void bench_reduction(const char *tag, int which)
 
 int check_satd(void)
 {
-    int bad = check_satd_tiles();
+    int bad;
+
+    check_windows();
+    bad = check_satd_tiles();
 
     if (bad)
         return bad;
