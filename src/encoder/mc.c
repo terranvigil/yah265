@@ -93,6 +93,18 @@ void n265_mc_luma_wh(uint8_t *dst, int ds, int w, int h,
      * rather than from the caller's bound (refchk.h) */
     N265_RC_TOUCH(ref + (fy ? -3 : 0) * ref_stride);
     N265_RC_TOUCH(ref + (fy ? h + 3 : h - 1) * ref_stride);
+#if N265_NEON
+    if (n265_asm_on(N265_ASM_MC)) {
+        n265_mc_luma_wh_neon(dst, ds, w, h, ref, ref_stride, fx, fy);
+        return;
+    }
+#endif
+    n265_mc_luma_wh_ref(dst, ds, w, h, ref, ref_stride, fx, fy);
+}
+
+void n265_mc_luma_wh_ref(uint8_t *dst, int ds, int w, int h,
+                         const uint8_t *ref, int ref_stride, int fx, int fy)
+{
     if (!fx && !fy) {
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
@@ -146,6 +158,18 @@ void n265_mc_luma_hplane(int16_t *dst, int ds, int w, int h,
 {
     N265_RC_TOUCH(ref);
     N265_RC_TOUCH(ref + (h - 1) * ref_stride);
+#if N265_NEON
+    if (n265_asm_on(N265_ASM_MC)) {
+        n265_mc_luma_hplane_neon(dst, ds, w, h, ref, ref_stride, fx);
+        return;
+    }
+#endif
+    n265_mc_luma_hplane_ref(dst, ds, w, h, ref, ref_stride, fx);
+}
+
+void n265_mc_luma_hplane_ref(int16_t *dst, int ds, int w, int h,
+                             const uint8_t *ref, int ref_stride, int fx)
+{
     const int8_t *f = luma_filt[fx];
     for (int y = 0; y < h; y++)
         for (int x = 0; x < w; x++) {
@@ -159,17 +183,17 @@ void n265_mc_luma_hplane(int16_t *dst, int ds, int w, int h,
 /* The cached-first-stage forms. The plain path's horizontal-only branch
  * emits clip1((s + 32) >> 6) of exactly the value cached here, and its
  * 2-D branch runs the vertical filter over exactly these int16 rows, so
- * both arms below reproduce it bit for bit. */
-void n265_mc_luma_hf(uint8_t *dst, int ds, int w, int h,
-                     const uint8_t *ref, int ref_stride,
-                     const int16_t *hf, int hs, int fx, int fy)
+ * both arms below reproduce it bit for bit.
+ *
+ * The `_ref` twins below carry the arithmetic and take `hf` alone: by the
+ * time the entry point reaches them the reference plane, its stride and
+ * fx have all been consumed by the fall-through above, and the kernel is
+ * a function of the cached rows and fy only. That is the one place this
+ * family departs from neon.h's "same signature as the entry point" - it
+ * would mean three dead arguments on the hottest call in the encoder. */
+void n265_mc_luma_hf_ref(uint8_t *dst, int ds, int w, int h,
+                         const int16_t *hf, int hs, int fy)
 {
-    if (!fx || !hf) {
-        n265_mc_luma_wh(dst, ds, w, h, ref, ref_stride, fx, fy);
-        return;
-    }
-    N265_RC_TOUCH16(hf + (fy ? -3 : 0) * hs);
-    N265_RC_TOUCH16(hf + (fy ? h + 3 : h - 1) * hs);
     if (!fy) {
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
@@ -186,16 +210,28 @@ void n265_mc_luma_hf(uint8_t *dst, int ds, int w, int h,
         }
 }
 
-void n265_mc_luma_14_hf(int16_t *dst, int ds, int w, int h,
-                        const uint8_t *ref, int ref_stride,
-                        const int16_t *hf, int hs, int fx, int fy)
+void n265_mc_luma_hf(uint8_t *dst, int ds, int w, int h,
+                     const uint8_t *ref, int ref_stride,
+                     const int16_t *hf, int hs, int fx, int fy)
 {
     if (!fx || !hf) {
-        n265_mc_luma_14_wh(dst, ds, w, h, ref, ref_stride, fx, fy);
+        n265_mc_luma_wh(dst, ds, w, h, ref, ref_stride, fx, fy);
         return;
     }
     N265_RC_TOUCH16(hf + (fy ? -3 : 0) * hs);
     N265_RC_TOUCH16(hf + (fy ? h + 3 : h - 1) * hs);
+#if N265_NEON
+    if (n265_asm_on(N265_ASM_MC)) {
+        n265_mc_luma_hf_neon(dst, ds, w, h, hf, hs, fy);
+        return;
+    }
+#endif
+    n265_mc_luma_hf_ref(dst, ds, w, h, hf, hs, fy);
+}
+
+void n265_mc_luma_14_hf_ref(int16_t *dst, int ds, int w, int h,
+                            const int16_t *hf, int hs, int fy)
+{
     if (!fy) {
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
@@ -212,11 +248,42 @@ void n265_mc_luma_14_hf(int16_t *dst, int ds, int w, int h,
         }
 }
 
+void n265_mc_luma_14_hf(int16_t *dst, int ds, int w, int h,
+                        const uint8_t *ref, int ref_stride,
+                        const int16_t *hf, int hs, int fx, int fy)
+{
+    if (!fx || !hf) {
+        n265_mc_luma_14_wh(dst, ds, w, h, ref, ref_stride, fx, fy);
+        return;
+    }
+    N265_RC_TOUCH16(hf + (fy ? -3 : 0) * hs);
+    N265_RC_TOUCH16(hf + (fy ? h + 3 : h - 1) * hs);
+#if N265_NEON
+    if (n265_asm_on(N265_ASM_MC)) {
+        n265_mc_luma_14_hf_neon(dst, ds, w, h, hf, hs, fy);
+        return;
+    }
+#endif
+    n265_mc_luma_14_hf_ref(dst, ds, w, h, hf, hs, fy);
+}
+
 void n265_mc_chroma_wh(uint8_t *dst, int ds, int w, int h,
                        const uint8_t *ref, int ref_stride, int fx, int fy)
 {
     N265_RC_TOUCH(ref + (fy ? -1 : 0) * ref_stride);
     N265_RC_TOUCH(ref + (fy ? h + 1 : h - 1) * ref_stride);
+#if N265_NEON
+    if (n265_asm_on(N265_ASM_MC)) {
+        n265_mc_chroma_wh_neon(dst, ds, w, h, ref, ref_stride, fx, fy);
+        return;
+    }
+#endif
+    n265_mc_chroma_wh_ref(dst, ds, w, h, ref, ref_stride, fx, fy);
+}
+
+void n265_mc_chroma_wh_ref(uint8_t *dst, int ds, int w, int h,
+                           const uint8_t *ref, int ref_stride, int fx, int fy)
+{
     if (!fx && !fy) {
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
@@ -270,6 +337,18 @@ void n265_mc_luma_14_wh(int16_t *dst, int ds, int w, int h,
 {
     N265_RC_TOUCH(ref + (fy ? -3 : 0) * ref_stride);
     N265_RC_TOUCH(ref + (fy ? h + 3 : h - 1) * ref_stride);
+#if N265_NEON
+    if (n265_asm_on(N265_ASM_MC)) {
+        n265_mc_luma_14_wh_neon(dst, ds, w, h, ref, ref_stride, fx, fy);
+        return;
+    }
+#endif
+    n265_mc_luma_14_wh_ref(dst, ds, w, h, ref, ref_stride, fx, fy);
+}
+
+void n265_mc_luma_14_wh_ref(int16_t *dst, int ds, int w, int h,
+                            const uint8_t *ref, int ref_stride, int fx, int fy)
+{
     if (!fx && !fy) {
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
@@ -321,6 +400,19 @@ void n265_mc_chroma_14_wh(int16_t *dst, int ds, int w, int h,
 {
     N265_RC_TOUCH(ref + (fy ? -1 : 0) * ref_stride);
     N265_RC_TOUCH(ref + (fy ? h + 1 : h - 1) * ref_stride);
+#if N265_NEON
+    if (n265_asm_on(N265_ASM_MC)) {
+        n265_mc_chroma_14_wh_neon(dst, ds, w, h, ref, ref_stride, fx, fy);
+        return;
+    }
+#endif
+    n265_mc_chroma_14_wh_ref(dst, ds, w, h, ref, ref_stride, fx, fy);
+}
+
+void n265_mc_chroma_14_wh_ref(int16_t *dst, int ds, int w, int h,
+                              const uint8_t *ref, int ref_stride, int fx,
+                              int fy)
+{
     if (!fx && !fy) {
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)

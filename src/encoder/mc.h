@@ -15,14 +15,25 @@
  * blocks are the inter PU shapes (2NxN/Nx2N and the AMP quarters). */
 void n265_mc_luma_wh(uint8_t *dst, int dst_stride, int w, int h,
                      const uint8_t *ref, int ref_stride, int fx, int fy);
+void n265_mc_luma_wh_ref(uint8_t *dst, int dst_stride, int w, int h,
+                         const uint8_t *ref, int ref_stride, int fx, int fy);
 void n265_mc_chroma_wh(uint8_t *dst, int dst_stride, int w, int h,
                        const uint8_t *ref, int ref_stride, int fx, int fy);
+void n265_mc_chroma_wh_ref(uint8_t *dst, int dst_stride, int w, int h,
+                           const uint8_t *ref, int ref_stride, int fx,
+                           int fy);
 
 /* 14-bit intermediate variants for bi-prediction (no final rounding) */
 void n265_mc_luma_14_wh(int16_t *dst, int dst_stride, int w, int h,
                         const uint8_t *ref, int ref_stride, int fx, int fy);
+void n265_mc_luma_14_wh_ref(int16_t *dst, int dst_stride, int w, int h,
+                            const uint8_t *ref, int ref_stride, int fx,
+                            int fy);
 void n265_mc_chroma_14_wh(int16_t *dst, int dst_stride, int w, int h,
                           const uint8_t *ref, int ref_stride, int fx, int fy);
+void n265_mc_chroma_14_wh_ref(int16_t *dst, int dst_stride, int w, int h,
+                              const uint8_t *ref, int ref_stride, int fx,
+                              int fy);
 
 /* E1: the same two luma predictors served off a cached horizontal first
  * stage. `hf` points at the block origin inside the phase-fx
@@ -37,12 +48,23 @@ void n265_mc_luma_hf(uint8_t *dst, int dst_stride, int w, int h,
 void n265_mc_luma_14_hf(int16_t *dst, int dst_stride, int w, int h,
                         const uint8_t *ref, int ref_stride,
                         const int16_t *hf, int hf_stride, int fx, int fy);
+/* the C references of the cached-first-stage forms, for the fx != 0 and
+ * hf != NULL case only - the other case is the entry point's own fall
+ * through to the plain form and never reaches a kernel. checkasm compares
+ * these with the `_neon` twins directly rather than through the
+ * dispatching entry point. */
+void n265_mc_luma_hf_ref(uint8_t *dst, int dst_stride, int w, int h,
+                         const int16_t *hf, int hf_stride, int fy);
+void n265_mc_luma_14_hf_ref(int16_t *dst, int dst_stride, int w, int h,
+                            const int16_t *hf, int hf_stride, int fy);
 
 /* Build one phase-fx horizontal intermediate plane (w x h at dst_stride)
  * from the integer plane, which must be readable 3 left and 4 right of
  * every column written. */
 void n265_mc_luma_hplane(int16_t *dst, int dst_stride, int w, int h,
                          const uint8_t *ref, int ref_stride, int fx);
+void n265_mc_luma_hplane_ref(int16_t *dst, int dst_stride, int w, int h,
+                             const uint8_t *ref, int ref_stride, int fx);
 
 /* square forms (dst stride == n) */
 void n265_mc_luma(uint8_t *dst, int n, const uint8_t *ref, int ref_stride,
