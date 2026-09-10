@@ -18,6 +18,7 @@
 #include "encoder/la.h"
 #include "encoder/mc.h"
 #include "encoder/rc.h"
+#include "encoder/satd.h"
 #include "encoder/sao.h"
 
 const char *n265_version_str(void)
@@ -439,6 +440,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     n265_mv_warm();
     n265_sao_warm();
     n265_rdoq_warm();
+    n265_satd_warm();
 
     size_t frame_bytes = (size_t)e->pad_w * e->pad_h * 3 / 2;
     /* A whole mini-GOP leaves per call, and the ring grows if it has to

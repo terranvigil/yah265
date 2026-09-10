@@ -18,4 +18,13 @@ uint32_t n265_satd_wh(const uint8_t *a, int a_stride, const uint8_t *b,
 uint32_t n265_satd(const uint8_t *a, int a_stride, const uint8_t *b,
                    int b_stride, int n);
 
+/* cache the N265_SATD8 arm on the driver before any worker exists */
+void n265_satd_warm(void);
+
+/* The loop-nest forms of the two tiles, kept as the C reference the
+ * unrolled butterflies are checked against (tests/checkasm). Not a path
+ * the encoder takes. */
+uint32_t n265_satd4_ref(const uint8_t *a, int as, const uint8_t *b, int bs);
+uint32_t n265_satd8_ref(const uint8_t *a, int as, const uint8_t *b, int bs);
+
 #endif
