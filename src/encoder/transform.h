@@ -28,6 +28,15 @@ void n265_idct_add(uint8_t *dst, int dst_stride, const int16_t *dq,
  * reference the partial-butterfly kernels are checked against
  * (tests/checkasm), not a path the encoder takes; the butterflies must
  * reproduce them bit for bit. */
+/* Same for the quant pair, which has no partial-butterfly fast form: the
+ * entry points above are a dispatch and these are the C they fall back
+ * to, so checkasm has something to compare a NEON kernel against that
+ * the ablation knob cannot quietly turn into the kernel itself. */
+void n265_dequant_ref(int16_t *dq, const int16_t *level, int log2n, int qp,
+                      int *nzw, int *nzh);
+int n265_quant_ref(int16_t *level, const int16_t *coef, int log2n, int qp,
+                   int intra);
+
 void n265_fdct_ref(int16_t *coef, const int16_t *resid, int log2n,
                    int use_dst);
 void n265_idct_add_ref(uint8_t *dst, int dst_stride, const int16_t *dq,

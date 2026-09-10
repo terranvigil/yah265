@@ -652,6 +652,130 @@ void n265_idct_add_neon(uint8_t *dst, int dst_stride, const int16_t *dq,
     }
 }
 
+
+/* ---- quant / dequant (class N265_ASM_QUANT) ------------------------
+ *
+ * These two live here because they are the transform's other half and
+ * the family owns the file, but they carry their own class bit: the
+ * campaign prices dequant separately from the butterflies, and the
+ * shape survey found it at 1.3% of a foreman encode against the pair's
+ * 12%.
+ *
+ * Both C forms reach for int64 and neither needs to, which is the whole
+ * trick that makes four lanes possible instead of two.
+ */
+
+/* n265_dequant's arithmetic is `(level * S + add) >> bd_shift` with
+ * S = level_scale[qp % 6] << (qp / 6) * 16 <= 294912 and |level| <=
+ * 32768, so the product reaches 9.7e9 and the C carries it in int64.
+ * Split S at the shift instead - S = Sh * 2^bd + Sl - and
+ *
+ *     (level * S + add) >> bd == level * Sh + ((level * Sl + add) >> bd)
+ *
+ * exactly, for either sign, because the first term is a whole multiple
+ * of 2^bd and >> is floor division by it. Now every part is int32:
+ * Sh <= 294912 >> 5 = 9216 gives |level * Sh| <= 302M, Sl < 2^bd <= 256
+ * gives |level * Sl| <= 8.4M, and their sum is under 302M. Four lanes,
+ * not two.
+ *
+ * A zero level needs no special case: (0 + 2^(bd-1)) >> bd is 0, which
+ * is the C's early-out value, so the branch the C takes to skip the
+ * int64 multiply is arithmetic here and costs nothing.
+ *
+ * The bounding box comes out of the same pass. Per row, each lane
+ * contributes its own x where the result is nonzero and -1 where it is
+ * not; vmaxvq_s32 across the row gives the row's last nonzero column,
+ * and a row that has one is the last nonzero row so far. That is the C's
+ * mx / my exactly, including the all-zero block's mx = my = 0. */
+void n265_dequant_neon(int16_t *dq, const int16_t *level, int log2n, int qp,
+                       int *nzw, int *nzh)
+{
+    static const int level_scale[6] = { 40, 45, 51, 57, 64, 72 };
+    static const int32_t lane_id[4] = { 0, 1, 2, 3 };
+    int n = 1 << log2n;
+    int bd_shift = BIT_DEPTH + log2n - 5;        /* 5 .. 8 */
+    int32_t s = (int32_t)(((int64_t)level_scale[qp % 6] << (qp / 6)) * 16);
+    int32_t s_hi = s >> bd_shift, s_lo = s & ((1 << bd_shift) - 1);
+    int32x4_t addv = vdupq_n_s32(1 << (bd_shift - 1));
+    int32x4_t sh = vdupq_n_s32(-bd_shift);
+    int32x4_t none = vdupq_n_s32(-1);
+    int32x4_t ids = vld1q_s32(lane_id);
+    int mx = 0, my = 0;
+
+    for (int y = 0; y < n; y++) {
+        const int16_t *lp = level + (ptrdiff_t)y * n;
+        int16_t *dp = dq + (ptrdiff_t)y * n;
+        int32x4_t rowmax = none;
+        int r;
+
+        for (int x = 0; x < n; x += 4) {
+            int32x4_t l = vmovl_s16(vld1_s16(lp + x));
+            int32x4_t v = vaddq_s32(
+                vmulq_n_s32(l, s_hi),
+                vshlq_s32(vmlaq_n_s32(addv, l, s_lo), sh));
+
+            /* vqmovn_s32 is the C's clip to int16, saturation included */
+            vst1_s16(dp + x, vqmovn_s32(v));
+            rowmax = vmaxq_s32(rowmax,
+                               vbslq_s32(vceqzq_s32(v), none,
+                                         vaddq_s32(ids, vdupq_n_s32(x))));
+        }
+        r = vmaxvq_s32(rowmax);
+        if (r >= 0) {
+            my = y;
+            if (r > mx)
+                mx = r;
+        }
+    }
+    if (nzw) *nzw = mx + 1;
+    if (nzh) *nzh = my + 1;
+}
+
+/* n265_quant's int64 is unnecessary too. qbits = 21 + qp / 6 - log2n is
+ * in [16, 27], the deadzone add is 2^qbits / 3 <= 44.7M, |coef| <= 32768
+ * and quant_scale <= 26214, so |coef| * q + add <= 9.04e8 - inside int32
+ * with a bit to spare, and the shift, the 32767 clamp and the sign are
+ * all int32 from there. vabsq_s32 after the widen and not before it: the
+ * C negates an `int`, and |-32768| does not fit int16.
+ *
+ * The nonzero count is a lane accumulator (subtract the all-ones compare
+ * mask, which adds one) reduced once at the end, so the C's per-element
+ * `nz += l != 0` never becomes a branch. */
+int n265_quant_neon(int16_t *level, const int16_t *coef, int log2n, int qp,
+                    int intra)
+{
+    static const int quant_scale[6] = {
+        26214, 23302, 20560, 18396, 16384, 14564
+    };
+    int nn = 1 << (2 * log2n);                   /* 16 at least, so 8 fits */
+    int qbits = 21 + qp / 6 - log2n;
+    int32_t add = (int32_t)(((int64_t)1 << qbits) / (intra ? 3 : 6));
+    int q = quant_scale[qp % 6];
+    int32x4_t addv = vdupq_n_s32(add), sh = vdupq_n_s32(-qbits);
+    int32x4_t maxv = vdupq_n_s32(32767);
+    int32x4_t cnt = vdupq_n_s32(0);
+
+    for (int i = 0; i < nn; i += 8) {
+        int16x8_t c = vld1q_s16(coef + i);
+        int32x4_t cl = vmovl_s16(vget_low_s16(c)), ch = vmovl_high_s16(c);
+        int32x4_t ll = vminq_s32(
+            vshlq_s32(vmlaq_n_s32(addv, vabsq_s32(cl), q), sh), maxv);
+        int32x4_t lh = vminq_s32(
+            vshlq_s32(vmlaq_n_s32(addv, vabsq_s32(ch), q), sh), maxv);
+
+        cnt = vsubq_s32(cnt,
+                        vreinterpretq_s32_u32(vmvnq_u32(vceqzq_s32(ll))));
+        cnt = vsubq_s32(cnt,
+                        vreinterpretq_s32_u32(vmvnq_u32(vceqzq_s32(lh))));
+        /* |sign * l| <= 32767, so vqmovn_s32 never actually saturates
+         * here; it is the narrow, and the clamp above is the C's. */
+        vst1q_s16(level + i, vcombine_s16(
+            vqmovn_s32(vbslq_s32(vcltzq_s32(cl), vnegq_s32(ll), ll)),
+            vqmovn_s32(vbslq_s32(vcltzq_s32(ch), vnegq_s32(lh), lh))));
+    }
+    return vaddvq_s32(cnt);
+}
+
 #else
 typedef int n265_transform_neon_unused_;  /* C wants a non-empty TU */
 #endif /* N265_NEON */

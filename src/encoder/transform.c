@@ -73,6 +73,18 @@ void n265_fdct_ref(int16_t *coef, const int16_t *resid, int log2n,
 void n265_dequant(int16_t *dq, const int16_t *level, int log2n, int qp,
                   int *nzw, int *nzh)
 {
+#if N265_NEON
+    if (n265_asm_on(N265_ASM_QUANT)) {
+        n265_dequant_neon(dq, level, log2n, qp, nzw, nzh);
+        return;
+    }
+#endif
+    n265_dequant_ref(dq, level, log2n, qp, nzw, nzh);
+}
+
+void n265_dequant_ref(int16_t *dq, const int16_t *level, int log2n, int qp,
+                      int *nzw, int *nzh)
+{
     /* 8.6.3 with flat scaling (m = 16) */
     static const int level_scale[6] = { 40, 45, 51, 57, 64, 72 };
     int n = 1 << log2n;
@@ -487,6 +499,16 @@ void n265_idct_add(uint8_t *dst, int dst_stride, const int16_t *dq,
 
 int n265_quant(int16_t *level, const int16_t *coef, int log2n, int qp,
                int intra)
+{
+#if N265_NEON
+    if (n265_asm_on(N265_ASM_QUANT))
+        return n265_quant_neon(level, coef, log2n, qp, intra);
+#endif
+    return n265_quant_ref(level, coef, log2n, qp, intra);
+}
+
+int n265_quant_ref(int16_t *level, const int16_t *coef, int log2n, int qp,
+                   int intra)
 {
     static const int quant_scale[6] = {
         26214, 23302, 20560, 18396, 16384, 14564

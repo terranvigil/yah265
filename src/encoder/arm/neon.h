@@ -65,6 +65,15 @@ void n265_idct_add_neon(uint8_t *dst, int dst_stride, const int16_t *dq,
                         int log2n, const uint8_t *pred, int pred_stride,
                         int use_dst, int nzw, int nzh);
 
+/* The transform's other half. Same file and same family, but its own
+ * class bit (N265_ASM_QUANT), because the campaign prices dequant
+ * separately from the butterflies. Same five square shapes, packed. */
+
+void n265_dequant_neon(int16_t *dq, const int16_t *level, int log2n, int qp,
+                       int *nzw, int *nzh);
+int n265_quant_neon(int16_t *level, const int16_t *coef, int log2n, int qp,
+                    int intra);
+
 /* ---- satd (N265_ASM_SATD) ------------------------------------------ */
 
 #endif /* N265_NEON */

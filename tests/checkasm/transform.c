@@ -43,6 +43,43 @@ static void idct_opt_call(void *p)
                   c->nzw, c->nzh);
 }
 
+struct qctx {
+    int log2n, qp, intra;
+    int16_t coef[32 * 32], level[32 * 32], dq[32 * 32];
+    int nzw, nzh, nz;
+};
+
+static void dequant_c_call(void *p)
+{
+    struct qctx *c = p;
+    n265_dequant_ref(c->dq, c->level, c->log2n, c->qp, &c->nzw, &c->nzh);
+}
+
+static void quant_c_call(void *p)
+{
+    struct qctx *c = p;
+    c->nz = n265_quant_ref(c->level, c->coef, c->log2n, c->qp, c->intra);
+}
+
+#if N265_NEON
+static void dequant_neon_call(void *p)
+{
+    struct qctx *c = p;
+    n265_dequant_neon(c->dq, c->level, c->log2n, c->qp, &c->nzw, &c->nzh);
+}
+
+static void quant_neon_call(void *p)
+{
+    struct qctx *c = p;
+    c->nz = n265_quant_neon(c->level, c->coef, c->log2n, c->qp, c->intra);
+}
+#define DEQ_NEON dequant_neon_call
+#define QNT_NEON quant_neon_call
+#else
+#define DEQ_NEON NULL
+#define QNT_NEON NULL
+#endif
+
 #if N265_NEON
 static void fdct_neon_call(void *p)
 {
@@ -273,6 +310,122 @@ static int check_fdct_neon(void)
     return bad;
 }
 
+/* Levels as the scan produces them, plus the ends of the int16 domain the
+ * dequant's clip is proved against: a level near +-32767 with qp 51 is
+ * what drives dq past the clip, and an all-zero block is what the
+ * bounding box has to report as 1x1 rather than 0x0. */
+static const char *lkind_name[] = {
+    "random small", "random full-range", "sparse", "empty",
+    "all +32767", "all -32768", "low-frequency corner", "one at the corner",
+};
+#define N_LKIND ((int)(sizeof(lkind_name) / sizeof(lkind_name[0])))
+
+static void fill_level(int16_t *l, int n, int kind)
+{
+    int nn = n * n;
+
+    for (int i = 0; i < nn; i++)
+        l[i] = 0;
+    switch (kind) {
+    case 0:
+        for (int i = 0; i < nn; i++)
+            l[i] = (int16_t)((int)(rnd() >> 26) - 32);
+        break;
+    case 1:
+        for (int i = 0; i < nn; i++)
+            l[i] = (int16_t)(rnd() >> 16);
+        break;
+    case 2:
+        for (int k = 0; k < 5; k++)
+            l[rnd() % (unsigned)nn] = (int16_t)((int)(rnd() >> 20) - 2048);
+        break;
+    case 3:
+        break;
+    case 4:
+    case 5:
+        for (int i = 0; i < nn; i++)
+            l[i] = kind == 4 ? 32767 : (int16_t)-32768;
+        break;
+    case 6: {
+        int c = n < 4 ? n : 4;
+        for (int y = 0; y < c; y++)
+            for (int x = 0; x < c; x++)
+                l[y * n + x] = (int16_t)((int)(rnd() >> 24) - 128);
+        break;
+    }
+    default:
+        l[nn - 1] = (int16_t)((int)(rnd() >> 24) - 128);
+        break;
+    }
+}
+
+/* Every qp the encoder can hand these, not a sample: the deadzone add and
+ * the dequant scale both step with qp % 6 and qp / 6, and 51 is where the
+ * shift and the clip are closest to their bounds. */
+static int check_quant_neon(void)
+{
+    int bad = 0;
+
+    for (int log2n = 2; log2n <= 5 && !bad; log2n++) {
+        int n = 1 << log2n, nn = n * n;
+        size_t bytes = (size_t)nn * sizeof(int16_t);
+        int16_t *level = ca_guard_alloc(bytes);
+        int16_t *dq = ca_guard_alloc(bytes);
+        int16_t *coef = ca_guard_alloc(bytes);
+        int16_t ref[32 * 32];
+        char shape[16];
+
+        snprintf(shape, sizeof(shape), "%dx%d", n, n);
+        for (int kind = 0; kind < N_LKIND && !bad; kind++) {
+            for (int qp = 0; qp <= 51 && !bad; qp++) {
+                int rw = 0, rh = 0, gw = 0, gh = 0, rn, gn;
+
+                /* ---- dequant ---- */
+                fill_level(level, n, kind);
+                n265_dequant_ref(ref, level, log2n, qp, &rw, &rh);
+                ca_guard_poison(dq, bytes);
+                ca_guard_scramble(level, bytes);
+                n265_dequant_neon(dq, level, log2n, qp, &gw, &gh);
+                bad += ca_guard_check(dq, bytes, "dequant_neon dq");
+                bad += cmp16(ref, dq, nn, "dequant", shape,
+                             lkind_name[kind]);
+                if (rw != gw || rh != gh) {
+                    printf("    dequant BOX %s / %s qp %d: ref %dx%d "
+                           "neon %dx%d\n", shape, lkind_name[kind], qp,
+                           rw, rh, gw, gh);
+                    bad++;
+                }
+                /* the NULL-pointer arm the header allows */
+                n265_dequant_neon(dq, level, log2n, qp, NULL, NULL);
+
+                /* ---- quant ---- */
+                for (int i = 0; i < nn; i++)
+                    coef[i] = level[i];
+                for (int intra = 0; intra < 2 && !bad; intra++) {
+                    rn = n265_quant_ref(ref, coef, log2n, qp, intra);
+                    ca_guard_poison(level, bytes);
+                    ca_guard_scramble(coef, bytes);
+                    gn = n265_quant_neon(level, coef, log2n, qp, intra);
+                    bad += ca_guard_check(level, bytes,
+                                          "quant_neon level");
+                    bad += cmp16(ref, level, nn, "quant", shape,
+                                 lkind_name[kind]);
+                    if (rn != gn) {
+                        printf("    quant NZ %s / %s qp %d intra %d: "
+                               "ref %d neon %d\n", shape, lkind_name[kind],
+                               qp, intra, rn, gn);
+                        bad++;
+                    }
+                }
+            }
+        }
+        ca_guard_free(level);
+        ca_guard_free(dq);
+        ca_guard_free(coef);
+    }
+    return bad;
+}
+
 static int check_idct_neon(void)
 {
     int bad = 0;
@@ -416,6 +569,7 @@ int check_transform(void)
 #if N265_NEON
     bad += check_fdct_neon();
     bad += check_idct_neon();
+    bad += check_quant_neon();
 #endif
     if (bad)
         return bad;
@@ -452,5 +606,32 @@ int check_transform(void)
     c.nzw = c.nzh = 4;
     bench("fdst 4x4", fdct_ref_call, fdct_opt_call, FDCT_NEON, &c, 20000);
     bench("idst_add 4x4", idct_ref_call, idct_opt_call, IDCT_NEON, &c, 20000);
+
+    /* quant and dequant have no reference distinct from their C form, so
+     * the first two columns are the same function - the C the dispatch
+     * falls back to, called directly - and the multiple is the number
+     * that matters (checkasm.h). Two level populations, because the C
+     * dequant's early-out makes a sparse block a different kernel from a
+     * dense one. */
+    {
+        static struct qctx q;
+        char name[40];
+
+        for (int log2n = 2; log2n <= 5; log2n++) {
+            int n = 1 << log2n;
+
+            q.log2n = log2n; q.qp = 30; q.intra = 1;
+            fill_level(q.level, n, 0);
+            memcpy(q.coef, q.level, sizeof(q.coef));
+            snprintf(name, sizeof(name), "dequant %dx%d dense", n, n);
+            bench(name, dequant_c_call, dequant_c_call, DEQ_NEON, &q, 20000);
+            snprintf(name, sizeof(name), "quant %dx%d", n, n);
+            bench(name, quant_c_call, quant_c_call, QNT_NEON, &q, 20000);
+            fill_level(q.level, n, 2);
+            memcpy(q.coef, q.level, sizeof(q.coef));
+            snprintf(name, sizeof(name), "dequant %dx%d sparse", n, n);
+            bench(name, dequant_c_call, dequant_c_call, DEQ_NEON, &q, 20000);
+        }
+    }
     return 0;
 }
