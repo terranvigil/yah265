@@ -1042,6 +1042,14 @@ static void job_run(void *ctx, int lane, int idx)
         if (!row->sc)       /* a nested lane, allocated on first use */
             row->sc = n265_scratch_new();
         n265_row_begin(row, fw, r);
+        /* The CTB count that puts the row BELOW over its lag, i.e. the
+         * one publish in this row that can make a task claimable
+         * (job_ready's own expression). Every other CTB can only satisfy
+         * a milestone wait, and saying so is what keeps the wake off the
+         * per-CTB path (T3/3). */
+        int open_at = fw->job_snap_x + 1 > 2 ? fw->job_snap_x + 1 : 2;
+        if (open_at > fw->job_cols)
+            open_at = fw->job_cols;
         for (int cx = 0; cx < fw->job_cols; cx++) {
             if (r > 0) {
                 int need = cx + 2 < fw->job_cols ? cx + 2 : fw->job_cols;
@@ -1054,13 +1062,16 @@ static void job_run(void *ctx, int lane, int idx)
                        CTX_COUNT * sizeof(cabac_ctx_t));
             atomic_store_explicit(&p->enc_prog[r], cx + 1,
                                   memory_order_release);
-            ntp_publish(e->pool);
+            if (cx + 1 == open_at)
+                ntp_publish_task(e->pool);
+            else
+                ntp_publish(e->pool);
         }
         n265_row_end(row, fw, r);
         /* rows complete in index order (a row's last CTB waits for the
          * row above to be complete), so the count IS the watermark */
         atomic_fetch_add_explicit(&p->enc_rows, 1, memory_order_release);
-        ntp_publish(e->pool);
+        ntp_publish_task(e->pool);
         return;
     }
     if (idx < 2 * R) {
@@ -1068,7 +1079,7 @@ static void job_run(void *ctx, int lane, int idx)
         n265_qpmap_row(fw, r, &fw->qprev);
         n265_deblock_row(fw, r);
         atomic_store_explicit(&p->dbk_rows, r + 1, memory_order_release);
-        ntp_publish(e->pool);
+        ntp_publish_task(e->pool);
         return;
     }
     if (idx < 3 * R) {
@@ -1080,8 +1091,10 @@ static void job_run(void *ctx, int lane, int idx)
             n265_sao_row(fw, r);
         }
         publish_row(fw, r);
+        /* This one also advances the picture's final_rows, which every
+         * OTHER frame's row-start hint and reference stall reads. */
         atomic_store_explicit(&p->pub_rows, r + 1, memory_order_release);
-        ntp_publish(e->pool);
+        ntp_publish_task(e->pool);
         return;
     }
     entropy_frame(e, fw);
