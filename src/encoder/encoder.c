@@ -678,7 +678,10 @@ static void hf_fill_rows(n265_frame_work *fw, struct n265_refpic *r, int cy,
     const uint8_t *src = r->plane[0] + y0 * rs - N265_HF_PAD;
     N265_REF_OPEN_ALL();
     for (int i = 0; i < 3; i++)
-        n265_mc_luma_hplane(r->hf[i] + (size_t)y0 * w - N265_HF_PAD, w,
+        /* ptrdiff_t, not size_t: y0 is -N265_HF_PAD on the first row
+         * and (size_t)(-60) * w wraps, which is UB even though the
+         * wrapped result addresses the right sample. */
+        n265_mc_luma_hplane(r->hf[i] + (ptrdiff_t)y0 * w - N265_HF_PAD, w,
                             w, y1 - y0, src, rs, i + 1);
     N265_REF_UNGUARD();
 }

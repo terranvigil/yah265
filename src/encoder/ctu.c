@@ -206,23 +206,34 @@ static void mc_pred_uni(struct n265_frame_work *e, int list, int ref, int c_idx,
 {
     struct n265_refpic *r = e->refl[list][ref];
     int rs = r->stride[c_idx];
+    uint8_t win[N265_REF_WIN_BYTES];
     if (c_idx) {
         int dx = mv.x >> 3, dy = mv.y >> 3;
         /* G2 entry point. The chroma 4-tap reaches two chroma lines
          * below the block, i.e. four luma lines; the bound is asked in
          * luma lines because that is what the watermark counts. */
-        int need = n265_ref_wait(e, r, ((y0 + dy + h + 2) << 1) + 1);
-        const uint8_t *rp = r->plane[c_idx] + (y0 + dy) * rs + x0 + dx;
+        /* *2, not << 1: an unclamped chroma MV can put this line above
+         * the picture, and shifting a negative is undefined (UBSan
+         * catches it on park_joy at t12). n265_ref_need clamps it. */
+        int need = n265_ref_wait(e, r, (y0 + dy + h + 2) * 2 + 1);
         N265_REF_GUARD(e, r, need, c_idx, NULL);
-        n265_mc_chroma_wh(dst, ds, w, h, rp, rs, mv.x & 7, mv.y & 7);
+        int ws, wclip;
+        const uint8_t *rp = n265_ref_win(r->plane[c_idx], rs, e->pad_w / 2,
+                                         e->pad_h / 2, N265_REF_PAD / 2,
+                                         x0 + dx, y0 + dy, w, h, 1, 2,
+                                         win, &ws, &wclip);
+        n265_mc_chroma_wh(dst, ds, w, h, rp, ws, mv.x & 7, mv.y & 7);
         N265_REF_UNGUARD();
     } else {
         int ix = x0 + (mv.x >> 2), iy = y0 + (mv.y >> 2);
         int need = n265_ref_wait(e, r, iy + h + 4);     /* G2 entry point */
-        const uint8_t *rp = r->plane[0] + iy * rs + ix;
         const int16_t *hf = n265_ref_hf(r, ix, iy, w, h, mv.x & 3);
         N265_REF_GUARD(e, r, need, 0, n265_ref_hf_base(r, mv.x & 3));
-        n265_mc_luma_hf(dst, ds, w, h, rp, rs, hf,
+        int ws, wclip;
+        const uint8_t *rp = n265_ref_win(r->plane[0], rs, e->pad_w, e->pad_h,
+                                         N265_REF_PAD, ix, iy, w, h, 3, 4,
+                                         win, &ws, &wclip);
+        n265_mc_luma_hf(dst, ds, w, h, rp, ws, wclip ? NULL : hf,
                         r->hf_stride, mv.x & 3, mv.y & 3);
         N265_REF_UNGUARD();
     }
@@ -233,20 +244,31 @@ static void mc_pred14(struct n265_frame_work *e, int list, int ref, int c_idx, i
 {
     struct n265_refpic *r = e->refl[list][ref];
     int rs = r->stride[c_idx];
+    uint8_t win[N265_REF_WIN_BYTES];
     if (c_idx) {
         int dx = mv.x >> 3, dy = mv.y >> 3;
-        int need = n265_ref_wait(e, r, ((y0 + dy + h + 2) << 1) + 1);
-        const uint8_t *rp = r->plane[c_idx] + (y0 + dy) * rs + x0 + dx;
+        /* *2, not << 1: an unclamped chroma MV can put this line above
+         * the picture, and shifting a negative is undefined (UBSan
+         * catches it on park_joy at t12). n265_ref_need clamps it. */
+        int need = n265_ref_wait(e, r, (y0 + dy + h + 2) * 2 + 1);
         N265_REF_GUARD(e, r, need, c_idx, NULL);
-        n265_mc_chroma_14_wh(dst, w, w, h, rp, rs, mv.x & 7, mv.y & 7);
+        int ws, wclip;
+        const uint8_t *rp = n265_ref_win(r->plane[c_idx], rs, e->pad_w / 2,
+                                         e->pad_h / 2, N265_REF_PAD / 2,
+                                         x0 + dx, y0 + dy, w, h, 1, 2,
+                                         win, &ws, &wclip);
+        n265_mc_chroma_14_wh(dst, w, w, h, rp, ws, mv.x & 7, mv.y & 7);
         N265_REF_UNGUARD();
     } else {
         int ix = x0 + (mv.x >> 2), iy = y0 + (mv.y >> 2);
         int need = n265_ref_wait(e, r, iy + h + 4);     /* G2 entry point */
-        const uint8_t *rp = r->plane[0] + iy * rs + ix;
         const int16_t *hf = n265_ref_hf(r, ix, iy, w, h, mv.x & 3);
         N265_REF_GUARD(e, r, need, 0, n265_ref_hf_base(r, mv.x & 3));
-        n265_mc_luma_14_hf(dst, w, w, h, rp, rs, hf,
+        int ws, wclip;
+        const uint8_t *rp = n265_ref_win(r->plane[0], rs, e->pad_w, e->pad_h,
+                                         N265_REF_PAD, ix, iy, w, h, 3, 4,
+                                         win, &ws, &wclip);
+        n265_mc_luma_14_hf(dst, w, w, h, rp, ws, wclip ? NULL : hf,
                            r->hf_stride, mv.x & 3, mv.y & 3);
         N265_REF_UNGUARD();
     }

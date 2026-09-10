@@ -43,11 +43,17 @@ void n265_refchk_touch16(const int16_t *p, const char *fn);
 
 #define N265_RC_TOUCH(p)    n265_refchk_touch((const uint8_t *)(p), __func__)
 #define N265_RC_TOUCH16(p)  n265_refchk_touch16((const int16_t *)(p), __func__)
+/* n265_ref_win's gather has already made the guarded reads and reported
+ * them; the kernel that follows reads the gathered copy, which is not
+ * the guarded plane, so the guard opens for it. The caller's UNGUARD
+ * still closes. */
+#define N265_REF_OPEN_ALL_KERNEL()  n265_refchk_open_all()
 
 #else
 
 #define N265_RC_TOUCH(p)    ((void)0)
 #define N265_RC_TOUCH16(p)  ((void)0)
+#define N265_REF_OPEN_ALL_KERNEL()  ((void)0)
 
 #endif
 

@@ -5,6 +5,8 @@
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
+#include <stddef.h>
+
 #include "encoder/mc.h"
 #include "encoder/refchk.h"
 
@@ -24,6 +26,58 @@ static const int8_t chroma_filt[8][4] = {
     { -2, 16, 54, -4 },
     { -2, 10, 58, -2 },
 };
+
+/* 8.5.3.3.2 fetches every reference sample at Clip3(0, pic - 1, ...):
+ * the edge sample repeats without limit. A picture here carries a finite
+ * N265_REF_PAD border instead, which is the same thing only while the
+ * read stays inside it. The motion SEARCH is clamped to that border
+ * (n265_clamp_mv), but a merge or AMVP candidate is inherited from a
+ * neighbour and is NOT clamped - the spec does not clamp it and a
+ * decoder does not have to - so a candidate can reach past the border,
+ * and the bytes after it are the next row's left border rather than the
+ * edge sample.
+ *
+ * Returns the block origin a filter may read `hl` samples left and above
+ * and `hr` right and below of: the plane itself whenever that whole
+ * window is inside the border (the common case, which copies nothing),
+ * otherwise `tmp`, gathered with the spec's clipping. `tmp` must hold
+ * (w + hl + hr) * (h + hl + hr) bytes.
+ *
+ * Under N265_REF_CHECK the gather reports the extreme lines it really
+ * reads - which are the clipped ones, never past the guard - and then
+ * opens the guard for the kernel, whose reads land in tmp. */
+const uint8_t *n265_ref_win(const uint8_t *plane, int stride, int pic_w,
+                            int pic_h, int pad, int ix, int iy, int w,
+                            int h, int hl, int hr, uint8_t *tmp,
+                            int *out_stride, int *clipped)
+{
+    if (ix - hl >= -pad && ix + w + hr <= pic_w + pad &&
+        iy - hl >= -pad && iy + h + hr <= pic_h + pad) {
+        *out_stride = stride;
+        *clipped = 0;
+        return plane + (ptrdiff_t)iy * stride + ix;
+    }
+    int tw = w + hl + hr, th = h + hl + hr;
+    int y_lo = iy - hl, y_hi = iy + h + hr - 1;
+    y_lo = y_lo < 0 ? 0 : y_lo > pic_h - 1 ? pic_h - 1 : y_lo;
+    y_hi = y_hi < 0 ? 0 : y_hi > pic_h - 1 ? pic_h - 1 : y_hi;
+    N265_RC_TOUCH(plane + (ptrdiff_t)y_lo * stride);
+    N265_RC_TOUCH(plane + (ptrdiff_t)y_hi * stride);
+    for (int y = 0; y < th; y++) {
+        int sy = iy - hl + y;
+        sy = sy < 0 ? 0 : sy > pic_h - 1 ? pic_h - 1 : sy;
+        const uint8_t *sp = plane + (ptrdiff_t)sy * stride;
+        for (int x = 0; x < tw; x++) {
+            int sx = ix - hl + x;
+            sx = sx < 0 ? 0 : sx > pic_w - 1 ? pic_w - 1 : sx;
+            tmp[y * tw + x] = sp[sx];
+        }
+    }
+    N265_REF_OPEN_ALL_KERNEL();
+    *out_stride = tw;
+    *clipped = 1;
+    return tmp + (ptrdiff_t)hl * tw + hl;
+}
 
 static inline uint8_t clip1(int v)
 {
