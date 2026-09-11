@@ -132,6 +132,30 @@ uint64_t n265_ssd_wh_dot_neon(const uint8_t *a, int as, const uint8_t *b,
                               int bs, int w, int h);
 #endif
 
+/* ---- intra (N265_ASM_INTRA) ---------------------------------------- */
+
+/* Shapes taken from the encoder (2026-09-10 survey, both entry points
+ * instrumented on foreman_cif 30 frames and park_joy_720p 10 frames at
+ * both presets): log2n 2..5 and nothing else - the encoder never predicts
+ * a 64x64 intra TB, because a TB is capped at 32 - and chroma reaches
+ * only log2n 2..4. What the survey settles is the MODE mix: the 35-mode
+ * ranking loop in ctu.c runs every mode on every candidate TB, so the
+ * modes come out very nearly uniform (planar 3.5-4.1%, DC 3.1-4.0%, the
+ * 33 angular modes the rest, and 39% of all calls are a NEGATIVE angle
+ * and so pay for the projected reference). The angular kernel is
+ * therefore the family, and the planar/DC arms are worth having only
+ * because they share the entry point.
+ *
+ * n265_intra_refs_neon has no vector width to speak of; see the head of
+ * intra_neon.c for what it does instead and why it is here. */
+
+void n265_intra_pred_neon(uint8_t *dst, int dst_stride, const uint8_t *refs,
+                          int log2n, int mode, int c_idx);
+void n265_intra_refs_neon(uint8_t *refs, const uint8_t *recon, int stride,
+                          int x0, int y0, int log2n,
+                          int pic_w, int pic_h, int ctb_log2);
+void n265_filter_refs_neon(uint8_t *out, const uint8_t *in, int log2n);
+
 #endif /* N265_NEON */
 
 #endif /* N265_ARM_NEON_H */

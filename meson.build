@@ -60,6 +60,7 @@ if cpu_family == 'aarch64'
     'src/encoder/arm/transform_neon.c',
     'src/encoder/arm/satd_neon.c',
     'src/encoder/arm/mc_neon.c',
+    'src/encoder/arm/intra_neon.c',
   ]
 endif
 

@@ -15,6 +15,12 @@ enum {
     /* angular 2..34 */
 };
 
+/* z-scan order key at 4x4 granularity: CTB raster index in the high bits,
+ * interleaved in-CTB coordinates below. pic_w is the padded width the CTB
+ * grid spans. Decode order is increasing in this key, which is how
+ * availability is decided. */
+uint64_t n265_zorder(int x, int y, int pic_w, int ctb_log2);
+
 /* Gather the 4n+1 reference samples for an NxN TB at plane position
  * (x0,y0), applying the unavailable-sample substitution (8.4.4.2.2).
  * Availability = inside the (padded) picture and earlier in z-scan
@@ -36,6 +42,20 @@ void n265_filter_refs(uint8_t *out, const uint8_t *in, int log2n);
 
 /* Whether mode/size/component uses the filtered references. */
 int n265_use_filtered_refs(int mode, int log2n, int c_idx);
+
+/* The C references the three entry points above dispatch away from, and
+ * what checkasm holds the NEON to. The entry points are a branch and a
+ * tail call; these three carry the spec text, so a reader after the
+ * algorithm reads them and not the dispatcher. Keeping them exported is
+ * also what stops the harness from becoming a tautology: with
+ * N265_ASM_OFF=intra the entry point IS the reference, and a check
+ * written against the entry point would then compare C against itself. */
+void n265_intra_refs_ref(uint8_t *refs, const uint8_t *recon, int stride,
+                         int x0, int y0, int log2n,
+                         int pic_w, int pic_h, int ctb_log2);
+void n265_filter_refs_ref(uint8_t *out, const uint8_t *in, int log2n);
+void n265_intra_pred_ref(uint8_t *dst, int dst_stride, const uint8_t *refs,
+                         int log2n, int mode, int c_idx);
 
 /* Any of the 35 modes; refs must already be the correct (un)filtered set.
  * c_idx gates the luma-only boundary filters. */
