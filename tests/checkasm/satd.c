@@ -492,6 +492,130 @@ static int check_reduction(const char *tag, int which, const int (*shapes)[2],
     return bad;
 }
 
+/* ---- per-row and per-column SAD ------------------------------------
+ *
+ * n265_sad_rowcol is the only kernel in this family that WRITES, so the
+ * guard buffers go around its two outputs as well as its two inputs: a
+ * column accumulator stored one vector too far is the failure mode the
+ * cost kernels cannot have, and the arrays are exactly n long with
+ * poison hard against the end of each.
+ *
+ * The shape set is the call site's, instrumented on foreman and park_joy
+ * at the shipping default: rect_proxy runs under the quadtree's
+ * log2n <= 5 arm on the 2Nx2N winner of an inter CU, so n is 8, 16 or
+ * 32 and nothing else. 4 and 64 are here because the kernel's strip
+ * ladder has a rung for each, and the odd widths because a vector loop
+ * that assumed a multiple of its own width is the classic way to be
+ * wrong on the one shape a caller adds later.
+ */
+static const int rowcol_shapes[] = {
+    8, 16, 32, 4, 64, 12, 20, 24, 48, 1, 2, 3, 5, 7, 9, 13, 17, 33,
+};
+#define NROWCOL_SH ((int)(sizeof(rowcol_shapes) / sizeof(rowcol_shapes[0])))
+
+static void rowcol_ref(const uint8_t *a, int as, const uint8_t *b, int bs,
+                       int n, uint32_t *row, uint32_t *col)
+{
+    n265_sad_rowcol_ref(a, as, b, bs, n, row, col);
+}
+
+static void rowcol_opt(const uint8_t *a, int as, const uint8_t *b, int bs,
+                       int n, uint32_t *row, uint32_t *col)
+{
+#if N265_NEON
+    n265_sad_rowcol_neon(a, as, b, bs, n, row, col);
+#else
+    n265_sad_rowcol(a, as, b, bs, n, row, col);
+#endif
+}
+
+static int rowcol_cmp(const char *what, int kind, const char *tag,
+                      const uint32_t *r, const uint32_t *o, int n)
+{
+    for (int i = 0; i < n; i++)
+        if (r[i] != o[i]) {
+            printf("    %s MISMATCH kind %d: %s[%d] ref %u opt %u\n",
+                   what, kind, tag, i, r[i], o[i]);
+            return 1;
+        }
+    return 0;
+}
+
+static int check_rowcol(void)
+{
+    int bad = 0;
+
+    for (int s = 0; s < NROWCOL_SH && !bad; s++) {
+        int n = rowcol_shapes[s];
+        for (int is = 0; is < 2 && !bad; is++) {
+            int as = is ? n + 5 : n;
+            int bs = is ? n + 13 : n;
+            size_t abytes = (size_t)as * n, bbytes = (size_t)bs * n;
+            size_t obytes = (size_t)n * sizeof(uint32_t);
+            uint8_t *a = ca_guard_alloc(abytes);
+            uint8_t *b = ca_guard_alloc(bbytes);
+            uint32_t *rr = ca_guard_alloc(obytes);
+            uint32_t *rc = ca_guard_alloc(obytes);
+            uint32_t *orow = ca_guard_alloc(obytes);
+            uint32_t *ocol = ca_guard_alloc(obytes);
+            uint32_t *o2row = ca_guard_alloc(obytes);
+            uint32_t *o2col = ca_guard_alloc(obytes);
+            char what[56];
+
+            snprintf(what, sizeof(what), "sad rowcol %dx%d s%d", n, n, is);
+            for (int kind = 0; kind < NKIND && !bad; kind++) {
+                for (int rep = 0; rep < 16 && !bad; rep++) {
+                    memset(a, CA_POISON, abytes);
+                    memset(b, CA_POISON, bbytes);
+                    fill_pair(a, as, b, bs, n, n, kind);
+                    ca_guard_poison(a, abytes);
+                    ca_guard_poison(b, bbytes);
+                    ca_guard_poison(orow, obytes);
+                    ca_guard_poison(ocol, obytes);
+
+                    rowcol_ref(a, as, b, bs, n, rr, rc);
+                    rowcol_opt(a, as, b, bs, n, orow, ocol);
+                    bad += rowcol_cmp(what, kind, "row", rr, orow, n);
+                    bad += rowcol_cmp(what, kind, "col", rc, ocol, n);
+                    if (bad)
+                        break;
+                    bad += ca_guard_check(a, abytes, what);
+                    bad += ca_guard_check(b, bbytes, what);
+                    bad += ca_guard_check(orow, obytes, what);
+                    bad += ca_guard_check(ocol, obytes, what);
+                    if (bad)
+                        break;
+
+                    /* the read window: nothing outside the block may
+                     * reach either output */
+                    ca_guard_scramble(a, abytes);
+                    ca_guard_scramble(b, bbytes);
+                    scramble_pad(a, as, n, n);
+                    scramble_pad(b, bs, n, n);
+                    ca_guard_poison(o2row, obytes);
+                    ca_guard_poison(o2col, obytes);
+                    rowcol_opt(a, as, b, bs, n, o2row, o2col);
+                    if (memcmp(o2row, orow, obytes) ||
+                        memcmp(o2col, ocol, obytes)) {
+                        printf("    %s: result depends on bytes OUTSIDE "
+                               "the block (kind %d)\n", what, kind);
+                        bad++;
+                    }
+                }
+            }
+            ca_guard_free(a);
+            ca_guard_free(b);
+            ca_guard_free(rr);
+            ca_guard_free(rc);
+            ca_guard_free(orow);
+            ca_guard_free(ocol);
+            ca_guard_free(o2row);
+            ca_guard_free(o2col);
+        }
+    }
+    return bad;
+}
+
 /* ---- the page-guard pass -------------------------------------------
  *
  * A cost kernel writes nothing and returns one number, which is what makes
@@ -507,7 +631,10 @@ static int check_reduction(const char *tag, int which, const int (*shapes)[2],
  * population is not an axis here: none of these kernels branches on a
  * sample, so one fill per shape covers the paths that exist.
  */
-enum { PG_SATD4, PG_SATD8, PG_SATD_WH, PG_RED };
+enum { PG_SATD4, PG_SATD8, PG_SATD_WH, PG_ROWCOL, PG_RED };
+
+/* the row/col kernel's outputs; the page guard is about its INPUTS */
+static uint32_t pg_row[64], pg_col[64];
 
 static void pg_call(int which, const uint8_t *a, int as, const uint8_t *b,
                     int bs, int w, int h)
@@ -520,6 +647,10 @@ static void pg_call(int which, const uint8_t *a, int as, const uint8_t *b,
     case PG_SATD8: sink = n265_satd8_neon(a, as, b, bs); break;
 #endif
     case PG_SATD_WH: sink = satd_opt_wh(a, as, b, bs, w, h); break;
+    case PG_ROWCOL:
+        rowcol_opt(a, as, b, bs, w, pg_row, pg_col);
+        sink = pg_row[0] + pg_col[0];
+        break;
     default: sink = red_opt(which - PG_RED, a, as, b, bs, w, h); break;
     }
     (void)sink;
@@ -566,6 +697,9 @@ static void check_windows(void)
     for (int s = 0; s < NSSD_SH; s++)
         check_window("ssd", PG_RED + RED_SSD, ssd_shapes[s][0],
                      ssd_shapes[s][1]);
+    for (int s = 0; s < NROWCOL_SH; s++)
+        check_window("sad rowcol", PG_ROWCOL, rowcol_shapes[s],
+                     rowcol_shapes[s]);
 #if N265_NEON && defined(__ARM_FEATURE_DOTPROD)
     if (n265_cpu_flags() & N265_CPU_DOTPROD)
         for (int s = 0; s < NSSD_SH; s++)
@@ -664,6 +798,58 @@ static void bench_reduction(const char *tag, int which)
     }
 }
 
+struct rcctx {
+    const uint8_t *a, *b;
+    int as, bs, n;
+    uint32_t *row, *col;
+};
+
+static void rowcol_ref_call(void *p)
+{
+    struct rcctx *c = p;
+    rowcol_ref(c->a, c->as, c->b, c->bs, c->n, c->row, c->col);
+}
+
+static void rowcol_opt_call(void *p)
+{
+    struct rcctx *c = p;
+    rowcol_opt(c->a, c->as, c->b, c->bs, c->n, c->row, c->col);
+}
+
+/* the call site's three shapes, and the two rungs above and below them */
+static const int rowcol_bench_shapes[] = { 4, 8, 16, 32, 64 };
+
+static void bench_rowcol(void)
+{
+    static uint8_t a[72 * 72], b[72 * 72];
+    static uint32_t row[64], col[64];
+    struct rcctx c;
+    int n = (int)(sizeof(rowcol_bench_shapes) /
+                  sizeof(rowcol_bench_shapes[0]));
+
+    fill_pair(a, 72, b, 72, 72, 72, 0);
+    c.a = a;
+    c.b = b;
+    c.as = 72;
+    c.bs = 72;
+    c.row = row;
+    c.col = col;
+    for (int i = 0; i < n; i++) {
+        char name[40];
+
+        c.n = rowcol_bench_shapes[i];
+        snprintf(name, sizeof(name), "sad rowcol %dx%d", c.n, c.n);
+        /* the reference IS the C path here too: the middle column is a
+         * control on the measurement and should read like the first */
+#if N265_NEON
+        bench(name, rowcol_ref_call, rowcol_ref_call, rowcol_opt_call, &c,
+              200000);
+#else
+        bench(name, rowcol_ref_call, rowcol_opt_call, NULL, &c, 200000);
+#endif
+    }
+}
+
 int check_satd(void)
 {
     int bad;
@@ -692,12 +878,16 @@ int check_satd(void)
             return bad;
     }
 #endif
+    bad = check_rowcol();
+    if (bad)
+        return bad;
     bad = check_ssd_extreme();
     if (bad)
         return bad;
     bench_satd();
     bench_reduction("sad", RED_SAD);
     bench_reduction("ssd", RED_SSD);
+    bench_rowcol();
 #if N265_NEON && defined(__ARM_FEATURE_DOTPROD)
     if (n265_cpu_flags() & N265_CPU_DOTPROD)
         bench_reduction("ssd/dot", RED_SSD_DOT);

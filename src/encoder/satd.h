@@ -55,6 +55,16 @@ uint32_t n265_sad_wh_c(const uint8_t *a, int as, const uint8_t *b, int bs,
 uint64_t n265_ssd_wh_c(const uint8_t *a, int as, const uint8_t *b, int bs,
                        int w, int h);
 
+/* Per-row and per-column sums of |a - b| over an n x n block: row[y] is
+ * the SAD of row y, col[x] the SAD of column x, and both arrays are n
+ * long. ctu.c's rect_proxy is the only caller; it passes n = 8, 16, 32.
+ * The _ref twin is the loop nest checkasm holds the NEON to, and the
+ * path a non-aarch64 build takes. */
+void n265_sad_rowcol(const uint8_t *a, int as, const uint8_t *b, int bs,
+                     int n, uint32_t *row, uint32_t *col);
+void n265_sad_rowcol_ref(const uint8_t *a, int as, const uint8_t *b, int bs,
+                         int n, uint32_t *row, uint32_t *col);
+
 /* The loop-nest forms of the two tiles, kept as the C reference the
  * unrolled butterflies are checked against (tests/checkasm). Not a path
  * the encoder takes. */

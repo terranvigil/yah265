@@ -124,6 +124,11 @@ uint32_t n265_sad_wh_neon(const uint8_t *a, int as, const uint8_t *b,
 uint64_t n265_ssd_wh_neon(const uint8_t *a, int as, const uint8_t *b,
                           int bs, int w, int h);
 
+/* The same absolute difference kept as two marginal sums instead of one
+ * total: row[y] and col[x] over an n x n block, for ctu.c's rect_proxy. */
+void n265_sad_rowcol_neon(const uint8_t *a, int as, const uint8_t *b,
+                          int bs, int n, uint32_t *row, uint32_t *col);
+
 #if defined(__ARM_FEATURE_DOTPROD)
 /* The FEAT_DotProd arm of n265_ssd_wh_neon, which selects it at runtime
  * on N265_CPU_DOTPROD (udot of a difference with itself is the sum of
