@@ -27,6 +27,14 @@
  * Sign-bit hiding is applied afterwards by the caller, as after the plain
  * quantiser.
  *
+ * The coefficient loop reads its context costs out of small tables built
+ * once per sub-block rather than deriving them per coefficient, and
+ * collapses the level-1 probe to constants. Every one of those is the same
+ * arithmetic on the same values, so the levels do not move; the form each
+ * replaced is kept under `-DN265_LAT_AUDIT` as an in-place
+ * `__builtin_trap()` compare, so a build with that define aborts on the
+ * first bit of disagreement. See docs/phase6-neon.md, round 5.
+ *
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 #include <math.h>
@@ -45,6 +53,12 @@ static uint16_t cost_mps[64], cost_lps[64];
 /* pixel SSD = coefficient SSD / parseval[log2n] (Q8 fixed point of 1/F) */
 static double parseval[6];
 static int inited;
+/* the position half of the sig_coeff_flag ctxInc, [scan][prev_csbf][c];
+ * see sig_ctx() and the lattice's per-sub-block table */
+static uint8_t sig_base_k[3][4][16];
+static uint8_t sig_dc_c[3];     /* the scan step that is (0, 0) */
+/* a scan step's offset from the corner of its sub-block, [scan][log2n-2][c] */
+static uint8_t scan_off[3][4][16];
 
 static void probe_parseval(void)
 {
@@ -80,6 +94,39 @@ void n265_rdoq_init(void)
         cost_mps[st] = (uint16_t)lround(-log2(1.0 - plps) * 256.0);
     }
     probe_parseval();
+    /* The switch in sig_ctx() below reads only the position INSIDE the 4x4
+     * sub-block and prev_csbf; everything it adds afterwards is constant
+     * over a sub-block. Build the position half once - 3 scans x 4
+     * prev_csbf x 16 steps, 192 bytes - so the lattice pays one byte load
+     * per coefficient instead of the switch. n265_tables_init() owns the
+     * scan this reads and is idempotent; the driver has already run it
+     * (encoder.c) by the time any worker gets here. */
+    n265_tables_init();
+    for (int sc = 0; sc < 3; sc++) {
+        const uint8_t *cs = n265_scan_coef[sc];
+        for (int c = 0; c < 16; c++)
+            if (cs[c] == 0)
+                sig_dc_c[sc] = (uint8_t)c;
+        for (int p = 0; p < 4; p++)
+            for (int c = 0; c < 16; c++) {
+                int xp = cs[c] & 15, yp = cs[c] >> 4, base;
+                switch (p) {
+                case 0: base = (xp + yp == 0) ? 2 : (xp + yp < 3) ? 1 : 0; break;
+                case 1: base = (yp == 0) ? 2 : (yp == 1) ? 1 : 0; break;
+                case 2: base = (xp == 0) ? 2 : (xp == 1) ? 1 : 0; break;
+                default: base = 2; break;
+                }
+                sig_base_k[sc][p][c] = (uint8_t)base;
+            }
+        /* and the step's own offset inside the block, so the coefficient
+         * loop adds a byte to its sub-block's corner instead of running
+         * y * n + x per position (n is a runtime value, so that was a real
+         * multiply). The largest entry is 3 * 32 + 3. */
+        for (int lg = 2; lg <= 5; lg++)
+            for (int c = 0; c < 16; c++)
+                scan_off[sc][lg - 2][c] =
+                    (uint8_t)(((cs[c] >> 4) << lg) + (cs[c] & 15));
+    }
     inited = 1;
 }
 
@@ -124,18 +171,24 @@ static int sig_ctx(int xc, int yc, int log2n, int c_idx, int scan_idx,
     return 27 + base;
 }
 
-/* bits (Q8) of coeff_abs_level_remaining = rem with Rice parameter k */
-static uint32_t remaining_bits(int rem, int k)
+/* bits of coeff_abs_level_remaining = rem with Rice parameter k.
+ *
+ * This counted whole bits and returned them in Q8, and every caller then
+ * divided by 256.0. `(uint32_t)v << 8` for the v this counts (under 64) is
+ * exact and `/ 256.0` takes it straight back, so the Q8 round trip was the
+ * identity on a small integer: the count is returned as the double it
+ * always became. */
+static inline double remaining_bits(int rem, int k)
 {
     if ((rem >> k) < 4)
-        return (uint32_t)((rem >> k) + 1 + k) << 8;
+        return (double)((rem >> k) + 1 + k);
     int v = rem - (4 << k), b = k + 1, bits = 4;
     while (v >= (1 << b)) {
         bits++;
         v -= 1 << b;
         b++;
     }
-    return (uint32_t)(bits + 1 + b) << 8;
+    return (double)(bits + 1 + b);
 }
 
 /* bits (Q8) of the last_sig_coeff position (prefix contexts + suffix).
@@ -355,6 +408,11 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
     int bd_shift = 8 + log2n - 5;
     int64_t dadd = 1 << (bd_shift - 1);
     int64_t dscale = (int64_t)level_scale[qp % 6] << (qp / 6);
+    /* (l * dscale) * 16 with the 16 folded in: dscale is at most 72 << 8
+     * and l at most 32767, so neither grouping reaches 2^34 and the two
+     * are the same int64 */
+    int64_t dq_k = dscale * 16;
+    int64_t dq1 = (dq_k + dadd) >> bd_shift;    /* the dequant of level 1 */
     /* lambda in coefficient-SSD units: J = SSD_coef / F + lam * bits, so
      * scale lambda by F and keep everything in coefficient SSD */
     /* N265_RDOQ_LAM scales the coefficient-decision lambda away from the
@@ -370,6 +428,7 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
 
     const uint8_t *sb_scan = n265_scan_sb[scan_idx][log2n - 2];
     const uint8_t *co_scan = n265_scan_coef[scan_idx];
+    const uint8_t *soff = scan_off[scan_idx][log2n - 2];
     int sb_dim = n >> 2, num_sb = sb_dim * sb_dim;
     /* scan position of the sub-block at (x, y): the right and below
      * neighbours' coded flags were found by walking the whole scan table
@@ -434,80 +493,252 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
         int g1_ctx = 1, n_g1 = 0, g2_done = 0, rice = 0, this_g1 = 0;
         double cost = 0, zero = 0;
         int start_c = (s == last_s) ? last_c : 15;
+        /* Everything the per-coefficient rate reads out of a context is a
+         * per-SUB-BLOCK constant, and the lattice was re-deriving it per
+         * coefficient (and, for greater1/greater2, per candidate). Build
+         * the three small tables once here.
+         *
+         *  - sig: for log2n > 2 the ctxInc is sig_base_k[scan][prev_csbf][c]
+         *    plus an offset that is fixed over the sub-block, so three
+         *    contexts cover every position in it; entry 3 is the block's DC
+         *    position, whose ctxInc is a special case of its own. 4x4 keeps
+         *    the sig_ctx() call: its map has nine values over sixteen
+         *    positions, so a table would cost more lookups than it saves.
+         *  - greater1: the context moves with g1_ctx (four values) and
+         *    nothing else inside the sub-block.
+         *  - greater2: one context for the whole sub-block.
+         *
+         * The entries are the same bin_cost(...) / 256.0 the coefficient
+         * loop computed, on the same context, so the doubles are identical
+         * bit for bit - this is a lookup moved, not an arithmetic changed.
+         * Under N265_RDOQ_ADAPT the states move along the scan, so the two
+         * entries a position actually reads are refreshed below; that costs
+         * the same bin_cost calls the old code made. */
+        double rs0[4], rs1[4], g1c[4][2], g2c[2];
+        int sctxk[4];
+        const uint8_t *sigk = NULL;
+        int dc_k = -1;
+        if (log2n > 2) {
+            int sb_add = c_idx == 0
+                ? ((sb_x + sb_y > 0) ? 3 : 0) +
+                  (log2n == 3 ? (scan_idx == 0 ? 9 : 15) : 21)
+                : 27 + (log2n == 3 ? 9 : 12);
+            sigk = sig_base_k[scan_idx][prev_csbf];
+            if (sb_x == 0 && sb_y == 0)
+                dc_k = sig_dc_c[scan_idx];
+            sctxk[0] = sb_add;
+            sctxk[1] = sb_add + 1;
+            sctxk[2] = sb_add + 2;
+            /* entry 3, the block's DC position, exists in one sub-block of
+             * the block and is not priced in the rest */
+            sctxk[3] = c_idx ? 27 : 0;
+            for (int k = 0; k < (dc_k >= 0 ? 4 : 3); k++) {
+                rs1[k] = bin_cost(&ctx[CTX_SIG + sctxk[k]], 1) / 256.0;
+                rs0[k] = bin_cost(&ctx[CTX_SIG + sctxk[k]], 0) / 256.0;
+            }
+        }
+        int g2_inc = CTX_G2 + ctx_set + (c_idx ? 4 : 0);
+        for (int k = 0; k < 4; k++) {
+            int inc = ctx_set * 4 + k + (c_idx ? 16 : 0);
+            g1c[k][0] = bin_cost(&ctx[CTX_G1 + inc], 0) / 256.0;
+            g1c[k][1] = bin_cost(&ctx[CTX_G1 + inc], 1) / 256.0;
+        }
+        g2c[0] = bin_cost(&ctx[g2_inc], 0) / 256.0;
+        g2c[1] = bin_cost(&ctx[g2_inc], 1) / 256.0;
+        int sb_base = sy * n + sx, is_last_sb = s == last_s;
         for (int c = start_c; c >= 0; c--) {
-            int x = sx + (co_scan[c] & 15), y = sy + (co_scan[c] >> 4);
-            int i = y * n + x;
+            int i = sb_base + soff[c];
             int ac = coef[i] < 0 ? -coef[i] : coef[i];
             int lmax = rtn[i];
             /* distortion of level l in coefficient units */
             double dz = (double)ac * ac;
             d0[i] = dz;
-            int sig_coded = !(s == last_s && c == last_c);   /* the last is inferred */
-            /* the 4x4 map has no entry for (3,3): that position is only ever
-             * the last coefficient, whose flag is inferred */
-            int sig_ctx_ok = !(log2n == 2 && (x & 3) == 3 && (y & 3) == 3);
+            int sig_coded = !(is_last_sb && c == last_c);   /* the last is inferred */
             double r_sig1 = 0.0, r_sig0 = 0.0;
             int sctx = -1;
-            if (sig_coded && sig_ctx_ok) {
-                sctx = sig_ctx(x, y, log2n, c_idx, scan_idx, prev_csbf);
-                r_sig1 = bin_cost(&ctx[CTX_SIG + sctx], 1) / 256.0;
-                r_sig0 = bin_cost(&ctx[CTX_SIG + sctx], 0) / 256.0;
+            if (sigk) {
+                if (sig_coded) {
+                    int k = c == dc_k ? 3 : sigk[c];
+                    sctx = sctxk[k];
+                    if (adapt) {
+                        rs1[k] = bin_cost(&ctx[CTX_SIG + sctx], 1) / 256.0;
+                        rs0[k] = bin_cost(&ctx[CTX_SIG + sctx], 0) / 256.0;
+                    }
+                    r_sig1 = rs1[k];
+                    r_sig0 = rs0[k];
+                }
+            } else {
+                /* 4x4: one sub-block at the block's corner, so the scan
+                 * step is the position. The map has no entry for (3,3):
+                 * that position is only ever the last coefficient, whose
+                 * flag is inferred */
+                int x = co_scan[c] & 15, y = co_scan[c] >> 4;
+                int sig_ctx_ok = !(x == 3 && y == 3);
+                if (sig_coded && sig_ctx_ok) {
+                    sctx = sig_ctx(x, y, log2n, c_idx, scan_idx, prev_csbf);
+                    r_sig1 = bin_cost(&ctx[CTX_SIG + sctx], 1) / 256.0;
+                    r_sig0 = bin_cost(&ctx[CTX_SIG + sctx], 0) / 256.0;
+                }
             }
-            rsig0[i] = sig_coded ? r_sig0 : 0.0;
-            rsig1[i] = sig_coded ? r_sig1 : 0.0;
-            double best = dz + lam * rsig0[i];
+            double rs = sig_coded ? r_sig0 : 0.0;
+            rsig0[i] = rs;
+            /* rsig1 is read by the last-position pass under N265_RDOQ_ADAPT
+             * and nowhere else; off it, that pass reprices the flag itself */
+            if (adapt)
+                rsig1[i] = sig_coded ? r_sig1 : 0.0;
+            double best = dz + lam * rs;
             int bestl = 0;
-            double bestd = dz, bestr = rsig0[i];
-            double jcand[4]; int lcand[4], ncand = 0;
-            jcand[ncand] = best; lcand[ncand] = 0; ncand++;
-            int lhi = lmax, llo = lmax - 1;
-            if (up_probe && lmax >= 1) lhi = lmax + 1;   /* away-from-zero probe */
-            if (lhi > 32767) lhi = 32767;
+            double bestd = dz, bestr = rs;
+            int hasg1 = n_g1 < 8, g1i = g1_ctx < 3 ? g1_ctx : 3;
+            if (adapt && hasg1) {
+                int inc = ctx_set * 4 + g1i + (c_idx ? 16 : 0);
+                g1c[g1i][0] = bin_cost(&ctx[CTX_G1 + inc], 0) / 256.0;
+                g1c[g1i][1] = bin_cost(&ctx[CTX_G1 + inc], 1) / 256.0;
+                if (!g2_done) {
+                    g2c[0] = bin_cost(&ctx[g2_inc], 0) / 256.0;
+                    g2c[1] = bin_cost(&ctx[g2_inc], 1) / 256.0;
+                }
+            }
+#ifdef N265_LAT_AUDIT
+            /* the pre-restructuring form, recomputed and compared bit for
+             * bit; scratch build only (-DN265_LAT_AUDIT) */
+            {
+                int x = sx + (co_scan[c] & 15), y = sy + (co_scan[c] >> 4);
+                if (i != y * n + x)
+                    __builtin_trap();
+                int a_ok = !(log2n == 2 && (x & 3) == 3 && (y & 3) == 3);
+                int a_sctx = -1;
+                double a_r1 = 0.0, a_r0 = 0.0;
+                if (sig_coded && a_ok) {
+                    a_sctx = sig_ctx(x, y, log2n, c_idx, scan_idx, prev_csbf);
+                    a_r1 = bin_cost(&ctx[CTX_SIG + a_sctx], 1) / 256.0;
+                    a_r0 = bin_cost(&ctx[CTX_SIG + a_sctx], 0) / 256.0;
+                }
+                if (a_sctx != sctx || memcmp(&a_r1, &r_sig1, sizeof a_r1) ||
+                    memcmp(&a_r0, &r_sig0, sizeof a_r0))
+                    __builtin_trap();
+                for (int k = 0; k < 4; k++) {
+                    int inc = ctx_set * 4 + k + (c_idx ? 16 : 0);
+                    double v0 = bin_cost(&ctx[CTX_G1 + inc], 0) / 256.0;
+                    double v1 = bin_cost(&ctx[CTX_G1 + inc], 1) / 256.0;
+                    if ((!adapt || (hasg1 && k == g1i)) &&
+                        (memcmp(&v0, &g1c[k][0], sizeof v0) ||
+                         memcmp(&v1, &g1c[k][1], sizeof v1)))
+                        __builtin_trap();
+                }
+                double w0 = bin_cost(&ctx[CTX_G2 + ctx_set + (c_idx ? 4 : 0)], 0) / 256.0;
+                double w1 = bin_cost(&ctx[CTX_G2 + ctx_set + (c_idx ? 4 : 0)], 1) / 256.0;
+                if ((!adapt || (hasg1 && !g2_done)) &&
+                    (memcmp(&w0, &g2c[0], sizeof w0) ||
+                     memcmp(&w1, &g2c[1], sizeof w1)))
+                    __builtin_trap();
+            }
+#endif
             /* N265_SBH_RD=2 also prices making a zero position significant,
              * so a parity fix can be spent on the coefficient nearest its
              * own rounding boundary rather than on one already coded. The
              * level is priced but never selected as the block's own. */
-            int probe_only = 0;
-            if (sbh_rd >= 2 && lmax == 0) { lhi = 1; llo = 1; probe_only = 1; }
-            for (int l = lhi; l >= 1 && l >= llo; l--) {
-                int64_t dq = (l * dscale * 16 + dadd) >> bd_shift;
-                double e = (double)ac - (double)dq;
+            if (sbh_rd >= 2 && lmax == 0) {
+                /* The l = 1 probe on a position the quantiser rounded to
+                 * zero, which is 77-85% of every position the lattice
+                 * visits (foreman 84.4%, park_joy 76.6% at qp 30). At l = 1
+                 * the whole candidate collapses to constants: the dequant
+                 * is the block's dq1; greater1 is charged its bin-0 cost
+                 * and greater2 is never reached, so base stays 1 while cap
+                 * is 2 and the escape is not coded; past the eighth
+                 * greater1 there is no greater1 bin either, base == cap == 1
+                 * and the escape is remaining_bits(0, rice), which is
+                 * 1 + rice bits. The terms are the same values added in the
+                 * same order as the general loop below, so J is the same
+                 * double. The candidate set is {0, 1} against bestl = 0, so
+                 * the parity scan has one answer and does not need running,
+                 * and dsel/rsel are the zero candidate's, which nothing
+                 * reads at a position whose lsel is 0. */
+                double e = (double)ac - (double)dq1;
                 double d = e * e;
-                /* rate: sig (unless inferred), greater1 (first 8), greater2
-                 * (first g1), sign (1 bypass), remaining */
                 double r = (sig_coded ? r_sig1 : 0.0) + 1.0;
-                int base = 1;
-                if (n_g1 < 8) {
-                    int inc = ctx_set * 4 + (g1_ctx < 3 ? g1_ctx : 3) + (c_idx ? 16 : 0);
-                    r += bin_cost(&ctx[CTX_G1 + inc], l > 1) / 256.0;
-                    base += l > 1;
-                    if (l > 1 && !g2_done) {
-                        r += bin_cost(&ctx[CTX_G2 + ctx_set + (c_idx ? 4 : 0)], l > 2) / 256.0;
-                        base += l > 2;
+                r += hasg1 ? g1c[g1i][0] : (double)(1 + rice);
+                double j = d + lam * r;     /* one statement, as below: a
+                                             * fused multiply-add is a
+                                             * contraction the compiler is
+                                             * allowed inside one and not
+                                             * across two */
+                lsel[i] = 0;
+                alt_cost[i] = j - best;
+                alt_lvl[i] = 1;
+#ifdef N265_LAT_AUDIT
+                {
+                    /* the general loop at l = 1, run as it was written */
+                    int64_t a_dq = (1 * dscale * 16 + dadd) >> bd_shift;
+                    double a_e = (double)ac - (double)a_dq;
+                    double a_d = a_e * a_e;
+                    double a_r = (sig_coded ? r_sig1 : 0.0) + 1.0;
+                    int a_base = 1;
+                    if (n_g1 < 8) {
+                        int inc = ctx_set * 4 + (g1_ctx < 3 ? g1_ctx : 3) + (c_idx ? 16 : 0);
+                        a_r += bin_cost(&ctx[CTX_G1 + inc], 0) / 256.0;
                     }
+                    int a_cap = 1 + (n_g1 < 8 ? 1 : 0);
+                    if (n_g1 >= 8 || a_base == a_cap)
+                        a_r += remaining_bits(0, rice);
+                    double a_j = a_d + lam * a_r;
+                    double a_alt = a_j - best;
+                    if (memcmp(&a_d, &d, sizeof a_d) ||
+                        memcmp(&a_r, &r, sizeof a_r) ||
+                        memcmp(&a_alt, &alt_cost[i], sizeof a_alt))
+                        __builtin_trap();
                 }
-                int cap = 1 + (n_g1 < 8 ? 1 : 0) + ((n_g1 < 8 && l > 1 && !g2_done) ? 1 : 0);
-                if (n_g1 >= 8 || base == cap)
-                    r += remaining_bits(l - base, rice) / 256.0;
-                double j = d + lam * r;
-                jcand[ncand] = j; lcand[ncand] = l; ncand++;
-                if (!probe_only && j < best) { best = j; bestl = l; bestd = d; bestr = r; }
-            }
-            lsel[i] = bestl;
-            dsel[i] = bestd;
-            rsel[i] = bestr;
-            if (sbh_rd) {
-                /* the cheapest already-priced level of the opposite parity:
-                 * what a sign-bit-hiding parity fix at this position costs */
-                double ac2 = 1e300;
-                int al = -1;
-                for (int t = 0; t < ncand; t++)
-                    if (((lcand[t] ^ bestl) & 1) && jcand[t] - best < ac2) {
-                        ac2 = jcand[t] - best;
-                        al = lcand[t];
+#endif
+            } else {
+                int lhi = lmax, llo = lmax - 1;
+                if (up_probe && lmax >= 1) lhi = lmax + 1;  /* away-from-zero probe */
+                if (lhi > 32767) lhi = 32767;
+                double jcand[4]; int lcand[4], ncand = 0;
+                jcand[ncand] = best; lcand[ncand] = 0; ncand++;
+                double r_s1 = sig_coded ? r_sig1 : 0.0;
+                for (int l = lhi; l >= 1 && l >= llo; l--) {
+                    int64_t dq = (l * dq_k + dadd) >> bd_shift;
+#ifdef N265_LAT_AUDIT
+                    if (dq != ((l * dscale * 16 + dadd) >> bd_shift))
+                        __builtin_trap();
+#endif
+                    double e = (double)ac - (double)dq;
+                    double d = e * e;
+                    /* rate: sig (unless inferred), greater1 (first 8), greater2
+                     * (first g1), sign (1 bypass), remaining */
+                    double r = r_s1 + 1.0;
+                    int base = 1;
+                    if (hasg1) {
+                        r += g1c[g1i][l > 1];
+                        base += l > 1;
+                        if (l > 1 && !g2_done) {
+                            r += g2c[l > 2];
+                            base += l > 2;
+                        }
                     }
-                alt_cost[i] = ac2;
-                alt_lvl[i] = al;
+                    int cap = 1 + (hasg1 ? 1 : 0) + ((hasg1 && l > 1 && !g2_done) ? 1 : 0);
+                    if (!hasg1 || base == cap)
+                        r += remaining_bits(l - base, rice);
+                    double j = d + lam * r;
+                    jcand[ncand] = j; lcand[ncand] = l; ncand++;
+                    if (j < best) { best = j; bestl = l; bestd = d; bestr = r; }
+                }
+                lsel[i] = bestl;
+                dsel[i] = bestd;
+                rsel[i] = bestr;
+                if (sbh_rd) {
+                    /* the cheapest already-priced level of the opposite parity:
+                     * what a sign-bit-hiding parity fix at this position costs */
+                    double ac2 = 1e300;
+                    int al = -1;
+                    for (int t = 0; t < ncand; t++)
+                        if (((lcand[t] ^ bestl) & 1) && jcand[t] - best < ac2) {
+                            ac2 = jcand[t] - best;
+                            al = lcand[t];
+                        }
+                    alt_cost[i] = ac2;
+                    alt_lvl[i] = al;
+                }
             }
             if (adapt) {
                 /* the bins this decision commits, on the local copy, in the
