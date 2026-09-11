@@ -112,12 +112,23 @@ struct n265_refpic {
      * census read every reference 1.1 to 67 times per cached pixel, so
      * the vertical pass runs once per reference and every uni candidate
      * that lands on a cached phase is a copy. Built on top of hf[] and
-     * so NULL whenever that is, and NULL per plane for a phase this run
-     * does not cache (N265_HF2). The int16 (bi) form is not served: it
-     * wants the unrounded value. */
+     * so NULL whenever that is, and NULL per plane for a phase this
+     * picture does not cache - which since round 4 is a per-reference
+     * decision taken from measured traffic (N265_HF2). */
     uint8_t *hf2_base[12];
     uint8_t *hf2[12];           /* (fy - 1) * 4 + fx */
+    /* Round 4: the same plane for the 14-bit (bi) form, holding the
+     * UNROUNDED int16 that n265_mc_luma_14_hf would have written. Twice
+     * the bytes of the u8 plane for a fifth of the traffic, so the same
+     * traffic rule arms it against a higher bar. Indexed like hf2[]. */
+    int16_t *hf2w_base[12];
+    int16_t *hf2w[12];
     int hf2_stride;
+    /* The region the 2-D planes cover. Set on EVERY claim, armed or not:
+     * the traffic tally asks "would a plane have served this window?"
+     * and that question must have the same answer whether or not the
+     * plane is there, or the measurement depends on the decision it
+     * feeds. Empty (x0 == x1) when the E1 cache is off. */
     int hf2_x0, hf2_x1, hf2_y0, hf2_y1;
     /* P2: the coding-tree depth range this picture used, per CTU;
      * 0xff where nothing filled it. The collocated entry is the
@@ -186,8 +197,8 @@ enum {
  *    makes cur_ctu_qp, the record cursor and the CU-scoped fields
  *    row-private for free.
  *
- * The only pointers a row copy re-points are est_ctx, the record buffer
- * and the scratch; see n265_row_begin. */
+ * The only pointers a row copy re-points are est_ctx, the record buffer,
+ * the scratch and (round 4) the MC traffic line; see n265_row_begin. */
 typedef struct n265_frame_work {
     struct n265_encoder *enc;
 
@@ -238,6 +249,21 @@ typedef struct n265_frame_work {
     uint64_t cs_area[N265_CS_COUNT];
     uint64_t cs_tu[4], cs_tu_cbf[4];
     uint64_t cs_coef;       /* nonzero luma levels coded              */
+    /* Round 4: luma MC output samples this frame asked for at each
+     * fractional (fx, fy) INSIDE the 2-D cache region, i.e. what a
+     * phase plane would have served had one been armed - counted
+     * whether or not it was, so the number is a property of the content
+     * and not of the arming. [0..11] the 8-bit (uni) form, [12..23] the
+     * 14-bit (bi) one, in hf2[]'s (fy - 1) * 4 + fx order.
+     *
+     * `hf2_tr` is the lane's slice of `hf2_tr_rows` - one 24-entry row
+     * per CTB row plus one for the frame handle itself - so a row task
+     * writes only its own and no two lanes touch a line. n265_row_begin
+     * re-points it, the way it re-points est_ctx and the record buffer.
+     * The driver sums them in row order at retirement. */
+    uint64_t *hf2_tr;
+    uint64_t *hf2_tr_rows;
+    int code_idx;           /* this frame's coding index (driver-serial) */
     struct n265_refpic *refl[2][N265_MAX_REF];
     int nref[2];
     int ref_valid;
@@ -360,6 +386,17 @@ typedef struct n265_row_ctx {
  * sized at the maximum; the live value is e->K, from N265_MAX_FRAME_WORK
  * (default 4). It is a scheduling knob and cannot change bits. */
 #define N265_MAX_FRAME_WORK 8
+
+/* Round 4: the traffic window the 2-D phase planes are armed from, and
+ * the ring that holds it. The window ENDS at coding index k - K (the
+ * newest frame guaranteed retired when index k is dispatched) and runs
+ * back N265_HF2_WIN indices; eight is a whole mini-GOP at the default
+ * --bframes 7, so the reference / non-reference mix inside it is the
+ * sequence's rather than one position in the pyramid. The ring must
+ * outlive that span plus the K frames retired ahead of it, so it is
+ * sized well past K + WIN. */
+#define N265_HF2_WIN  8
+#define N265_HF2_HIST 32
 
 struct n265_encoder {
     n265_param param;
@@ -487,6 +524,37 @@ struct n265_encoder {
      * what D3's slot and source stalls test against. */
     n265_frame_work *inflight[N265_MAX_FRAME_WORK];
     int n_inflight;
+    /* Round 4, the traffic history the 2-D phase planes are armed from.
+     * One entry per CODING INDEX, not a running sum: the arming rule
+     * reads a fixed window of coding indices, so nothing depends on the
+     * order retirements happened to take or on how many frames were in
+     * flight when the reference was claimed. Every entry the rule reads
+     * is provably written, because a frame is dispatched only after
+     * n_inflight < K, which leaves every coding index at or below
+     * k - K joined. K does not depend on the thread count, so neither
+     * does the window, so neither does the mask. Output identity does
+     * not rest on that - a plane that is not armed is simply not there
+     * and n265_ref_2d returns NULL, so no arming can move a bit - but
+     * REPRODUCIBLE TIMING does, and a rule whose answer drifted with
+     * --threads could not be measured. `cidx` is stamped at retirement
+     * and checked on the read, so a ring slot not yet written reads as
+     * absent. */
+    struct n265_hf2_hist {
+        int cidx;           /* the coding index this entry holds, or -1 */
+        int is_ref;         /* this frame claimed a DPB slot */
+        uint64_t samp[24];  /* fw->hf2_tr, summed over the rows */
+    } hf2_hist[N265_HF2_HIST];
+    int hf2_code_n;         /* coding indices dispatched so far */
+    long hf2_area;          /* samples one 2-D plane covers */
+    unsigned hf2_mode;      /* N265_HF2: 0 off, 1 row, 2 all, 3 traffic */
+    int hf2_tpp;            /* N265_HF2_TPP, hundredths of a touch      */
+    int hf2_tpp14;          /* N265_HF2_TPP14                           */
+    int hf2_trace;
+    /* N265_HF2_TRACE only: the whole-encode totals the ring's window
+     * cannot carry, and how many references armed each plane. */
+    uint64_t hf2_armed[24];
+    uint64_t hf2_samp[24];
+    uint64_t hf2_nref;
     /* the VPS/SPS/PPS RBSPs, generated at the first frame's dispatch and
      * packed at its retirement so the NAL order is the serial one */
     uint8_t *hdr_rbsp[3];
@@ -619,7 +687,7 @@ static inline unsigned n265_gen_of(const n265_frame_work *e,
 static inline void n265_ref_guard(const n265_frame_work *e,
                                   const struct n265_refpic *pic, int need,
                                   int c_idx, const int16_t *hf,
-                                  const uint8_t *p2)
+                                  const uint8_t *p2, const int16_t *p2w)
 {
     long lastl = need >= e->ctb_rows
         ? 1L << 30                      /* whole picture plus its borders */
@@ -630,21 +698,28 @@ static inline void n265_ref_guard(const n265_frame_work *e,
     /* lastl - 4: the round-3 plane lags the reference by the four lines
      * its vertical filter reaches below each output line, so a watermark
      * that covers line L covers the 2-D plane only to L - 4. Asserting
-     * the tighter bound here is what proves the lag. */
+     * the tighter bound here is what proves the lag. Round 4's int16
+     * plane is filled in the same pass over the same rows, so it carries
+     * the same bound. */
     n265_refchk_open_p2(p2, pic->hf2_stride, lastl - 4);
+    n265_refchk_open_p214(p2w, pic->hf2_stride, lastl - 4);
 }
 #define N265_REF_GUARD(e, pic, need, c, hf) \
-    n265_ref_guard((e), (pic), (need), (c), (hf), NULL)
+    n265_ref_guard((e), (pic), (need), (c), (hf), NULL, NULL)
 /* the three luma sites that can be served straight out of the round-3
- * plane guard that plane too */
+ * u8 plane guard that plane too */
 #define N265_REF_GUARD2(e, pic, need, c, hf, p2) \
-    n265_ref_guard((e), (pic), (need), (c), (hf), (p2))
+    n265_ref_guard((e), (pic), (need), (c), (hf), (p2), NULL)
+/* ...and the bi site, which is served out of round 4's int16 plane */
+#define N265_REF_GUARD3(e, pic, need, c, hf, p2w) \
+    n265_ref_guard((e), (pic), (need), (c), (hf), NULL, (p2w))
 #define N265_REF_UNGUARD()               n265_refchk_close()
 /* the publish path reads its OWN picture; those reads are not gated */
 #define N265_REF_OPEN_ALL()              n265_refchk_open_all()
 #else
 #define N265_REF_GUARD(e, pic, need, c, hf)  ((void)(need))
 #define N265_REF_GUARD2(e, pic, need, c, hf, p2)  ((void)(need))
+#define N265_REF_GUARD3(e, pic, need, c, hf, p2w)  ((void)(need))
 #define N265_REF_UNGUARD()                   ((void)0)
 #define N265_REF_OPEN_ALL()                  ((void)0)
 #endif
@@ -772,6 +847,49 @@ static inline const uint8_t *n265_ref_2d_base(const struct n265_refpic *r,
     return fy ? r->hf2[(fy - 1) * 4 + fx] : NULL;
 }
 
+/* Round 4, part B: the same window in the 14-bit form, the unrounded
+ * int16 the bi path averages. Same coverage test - the two planes are
+ * filled over the same region from the same hf[] rows. */
+static inline const int16_t *n265_ref_2d14(const struct n265_refpic *r,
+                                           int x, int y, int w, int h,
+                                           int fx, int fy)
+{
+    if (!fy || !r->hf2w[(fy - 1) * 4 + fx])
+        return NULL;
+    if (x < r->hf2_x0 || x + w > r->hf2_x1 ||
+        y < r->hf2_y0 || y + h > r->hf2_y1)
+        return NULL;
+    return r->hf2w[(fy - 1) * 4 + fx] + (ptrdiff_t)y * r->hf2_stride + x;
+}
+
+static inline const int16_t *n265_ref_2d14_base(const struct n265_refpic *r,
+                                                int fx, int fy)
+{
+    return fy ? r->hf2w[(fy - 1) * 4 + fx] : NULL;
+}
+
+/* Round 4: tally one luma MC request against the phase it lands on, for
+ * the arming rule. The test is the COVERAGE test alone and never looks
+ * at whether a plane exists, so the count a frame reports is the same
+ * whatever this run armed - which is what stops the decision from being
+ * a function of itself. Row-private storage, so no atomics and no order.
+ *
+ * `is14` selects the bi form's half of the array; the two forms are
+ * counted apart because they want different planes and clear different
+ * bars (the int16 plane is twice the bytes for the same fill). */
+static inline void n265_hf2_tally(struct n265_frame_work *e,
+                                  const struct n265_refpic *r,
+                                  int x, int y, int w, int h,
+                                  int fx, int fy, int is14)
+{
+    if (!fy || !e->hf2_tr)
+        return;
+    if (x < r->hf2_x0 || x + w > r->hf2_x1 ||
+        y < r->hf2_y0 || y + h > r->hf2_y1)
+        return;
+    e->hf2_tr[(is14 ? 12 : 0) + (fy - 1) * 4 + fx] += (unsigned)(w * h);
+}
+
 /* The phase-fx cache plane's ORIGIN (picture (0,0)), which is what the
  * REF_CHECK guard measures lines against; n265_ref_hf returns a pointer
  * into it at the block. */
@@ -783,5 +901,7 @@ static inline const int16_t *n265_ref_hf_base(const struct n265_refpic *r,
 
 /* encoder.c, shared with ctu.c */
 void n265_encoder_set_dump(n265_encoder *e, FILE *f);
+/* round 4: resolve the 2-D phase-plane knobs into the encoder at open */
+void n265_hf2_knobs(n265_encoder *e);
 
 #endif

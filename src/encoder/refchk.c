@@ -27,6 +27,9 @@ static _Thread_local long rc_hf_last;
 static _Thread_local const uint8_t *rc_p2;
 static _Thread_local int rc_p2_stride;
 static _Thread_local long rc_p2_last;
+static _Thread_local const int16_t *rc_p2w;
+static _Thread_local int rc_p2w_stride;
+static _Thread_local long rc_p2w_last;
 
 void n265_refchk_open(const uint8_t *plane, int stride, long last)
 {
@@ -36,6 +39,7 @@ void n265_refchk_open(const uint8_t *plane, int stride, long last)
     rc_last = last;
     rc_hf = NULL;
     rc_p2 = NULL;
+    rc_p2w = NULL;
 }
 
 void n265_refchk_open_hf(const int16_t *plane, int stride, long last)
@@ -52,12 +56,20 @@ void n265_refchk_open_p2(const uint8_t *plane, int stride, long last)
     rc_p2_last = last;
 }
 
+void n265_refchk_open_p214(const int16_t *plane, int stride, long last)
+{
+    rc_p2w = plane;
+    rc_p2w_stride = stride;
+    rc_p2w_last = last;
+}
+
 void n265_refchk_close(void)
 {
     rc_mode = RC_CLOSED;
     rc_plane = NULL;
     rc_hf = NULL;
     rc_p2 = NULL;
+    rc_p2w = NULL;
 }
 
 void n265_refchk_open_all(void)
@@ -117,6 +129,18 @@ void n265_refchk_touch_p2(const uint8_t *p, const char *fn)
     if (line > rc_p2_last)
         die(fn, "round-3 plane read past the published watermark", line,
             rc_p2_last);
+}
+
+void n265_refchk_touch16_p2(const int16_t *p, const char *fn)
+{
+    if (rc_mode == RC_OPEN)
+        return;
+    if (rc_mode != RC_GUARD || !rc_p2w)
+        die(fn, "UNGUARDED round-4 int16 plane read", 0, -1);
+    long line = line_of((long)(p - rc_p2w), rc_p2w_stride);
+    if (line > rc_p2w_last)
+        die(fn, "round-4 int16 plane read past the published watermark",
+            line, rc_p2w_last);
 }
 
 /* The side-data half. `row` is the CTB row that owns the array element

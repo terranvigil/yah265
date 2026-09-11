@@ -48,6 +48,10 @@ void n265_mc_chroma_14_wh_ref(int16_t *dst, int dst_stride, int w, int h,
  * point is the hottest call in the encoder. */
 void n265_mc_luma_2d(uint8_t *dst, int dst_stride, int w, int h,
                      const uint8_t *p2, int p2_stride);
+/* Round 4: the bi path's copy, out of the int16 plane holding the
+ * UNROUNDED result n265_mc_luma_14_hf would have written. */
+void n265_mc_luma_2d_14(int16_t *dst, int dst_stride, int w, int h,
+                        const int16_t *p2, int p2_stride);
 
 void n265_mc_luma_hf(uint8_t *dst, int dst_stride, int w, int h,
                      const uint8_t *ref, int ref_stride,

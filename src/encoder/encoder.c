@@ -520,8 +520,14 @@ static int fw_open(n265_encoder *e, n265_frame_work *fw)
     fw->rrec = calloc((size_t)e->ctb_rows, sizeof(*fw->rrec));
     fw->est_snap = calloc((size_t)e->ctb_rows * CTX_COUNT,
                           sizeof(cabac_ctx_t));
-    if (!fw->rrec || !fw->est_snap || !fw->prog)
+    /* One 24-entry traffic line per CTB row, plus one at the end for the
+     * frame handle itself - which is what a tally taken off an uncopied
+     * n265_frame_work lands in, so no call site has to know. */
+    fw->hf2_tr_rows = calloc((size_t)(e->ctb_rows + 1) * 24,
+                             sizeof(uint64_t));
+    if (!fw->rrec || !fw->est_snap || !fw->prog || !fw->hf2_tr_rows)
         return -1;
+    fw->hf2_tr = fw->hf2_tr_rows + (size_t)e->ctb_rows * 24;
     for (int i = 0; i < 3; i++) {
         int w = i ? e->pad_w / 2 : e->pad_w;
         int bh = (1 << e->ctb_log2) >> (i ? 1 : 0);
@@ -561,6 +567,7 @@ static void fw_close(n265_frame_work *fw)
         free(fw->rrec[r].buf);
     free(fw->rrec);
     free(fw->est_snap);
+    free(fw->hf2_tr_rows);
     free(fw->prog);
     bs_free(&fw->rbsp);
 }
@@ -582,6 +589,7 @@ void n265_row_begin(n265_row_ctx *row, n265_frame_work *fw, int r)
     row->c.est_ctx = row->est;
     row->c.ent_qp_prev = fw->qp;
     row->c.sc = row->sc;
+    row->c.hf2_tr = fw->hf2_tr_rows + (size_t)r * 24;
     row->c.rec_buf = fw->rrec[r].buf;
     row->c.rec_cap = fw->rrec[r].cap;
     row->c.rec_len = 0;
@@ -795,6 +803,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * driver thread; every NEON dispatch site then sees only the inlined
      * acquire load */
     n265_cpu_flags();
+    n265_hf2_knobs(e);
 
     size_t frame_bytes = (size_t)e->pad_w * e->pad_h * 3 / 2;
     /* A whole mini-GOP leaves per call, and the ring grows if it has to
@@ -830,6 +839,30 @@ void n265_encoder_close(n265_encoder *e)
         fprintf(stderr, "LAPROF wall=%.3f push=%.3f plan=%.3f cutree=%.3f "
                 "la=%.3f serial=%.2f%%\n", wall, e->prof_push, e->prof_plan,
                 e->prof_cutree, la, wall > 0 ? 100.0 * la / wall : 0.0);
+    }
+    /* N265_HF2_TRACE: the round-4 traffic census, as the encoder itself
+     * measured it. One row per phase: the samples that landed inside the
+     * 2-D region in each form, the same as touches per cached pixel per
+     * reference (the round-3 census's own quantity), and how many
+     * references armed each plane. This is the instrument the arming
+     * threshold is read off; it is output-neutral. */
+    if (e->hf2_trace) {
+        double area = (double)(e->hf2_area > 0 ? e->hf2_area : 1);
+        double dn = (double)(e->hf2_nref ? e->hf2_nref : 1);
+        fprintf(stderr, "HF2 area=%ld refs=%llu frames=%d\n", e->hf2_area,
+                (unsigned long long)e->hf2_nref, e->hf2_code_n);
+        fprintf(stderr, "HF2 fx fy samples8 tpp8 armed8 samples14 tpp14 "
+                        "armed14\n");
+        for (int i = 0; i < 12; i++)
+            fprintf(stderr, "HF2ROW %d %d %llu %.3f %llu %llu %.3f %llu\n",
+                    i & 3, (i >> 2) + 1,
+                    (unsigned long long)e->hf2_samp[i],
+                    (double)e->hf2_samp[i] / (area * dn),
+                    (unsigned long long)e->hf2_armed[i],
+                    (unsigned long long)e->hf2_samp[i + 12],
+                    (double)e->hf2_samp[i + 12] / (area * dn),
+                    (unsigned long long)e->hf2_armed[i + 12]);
+        fflush(stderr);
     }
     if (n265_env("N265_STALL_TRACE")) {
         fprintf(stderr, "JOIN k=%d slot=%d src=%d rc=%d\n",
@@ -868,8 +901,10 @@ void n265_encoder_close(n265_encoder *e)
 #endif
         for (int i = 0; i < 3; i++)
             free(e->dpb[sl].hf_base[i]);
-        for (int i = 0; i < 12; i++)
+        for (int i = 0; i < 12; i++) {
             free(e->dpb[sl].hf2_base[i]);
+            free(e->dpb[sl].hf2w_base[i]);
+        }
     }
     n265_la_free(e);
     free(e->out);
@@ -1007,39 +1042,169 @@ static int hf_cache_on(void)
  * published, so that every uni candidate landing on a cached phase
  * copies instead of running the vertical 8-tap. The round-3 census
  * (docs/phase6-neon.md) counted 0.2 to 67 touches per cached pixel
- * depending on clip and preset, against a break-even near 1.05 once the
- * copy that replaces the filter is a load and a store. The fy = 2 row is
- * the part that clears that bar on every clip measured, and it is what
- * ships. Caching every fy is worth a further 1.12-1.20x at --preset
- * medium and is HELD, because the fill is a fixed twelve passes per
- * reference while the traffic that amortises it is content and not
- * geometry: sita_flat_720p serves 149 M samples against 226 M of fill
- * and reads 0.975x. Choosing per reference wants a measurement the
- * encoder does not take yet. N265_HF2=0 is the A/B arm and nothing
- * else: every value writes the same bytes. Off with the E1 cache, which
- * three planes in four are filtered from.
+ * depending on clip and preset, against a break-even near 1.25 once the
+ * copy that replaces the filter is a load and a store.
  *
- * One u8 plane of the padded picture per cached phase: at four, 0.8 MB
- * per reference at CIF, 4.7 at 720p, 9.9 at 1080p - against the 6 bytes
- * per padded pixel E1 already spends on its three int16 planes. Above
- * the cap the cache turns itself off rather than trade a working set for
- * a copy. */
+ * Round 3 shipped the fy = 2 row because that was the set the WORST clip
+ * admits, and held all twelve - worth 1.11-1.20x at --preset medium on
+ * six clips of seven - because it reads 0.975x on sita_flat_720p. That
+ * refusal was about the shape of the decision and not about the cache:
+ * the fill is a fixed twelve passes per reference picture while the
+ * traffic that amortises it is content, spanning 149 M samples to
+ * 5820 M over the corpus at one preset. Round 4 makes the set a
+ * per-reference decision taken from traffic the encoder measured on
+ * frames it has already coded, so every clip gets the set its own
+ * content pays for. N265_HF2 is still an A/B knob and nothing else:
+ * every value writes the same bytes. Off with the E1 cache, which three
+ * planes in four are filtered from.
+ *
+ * One u8 plane of the padded picture per cached phase, and one int16
+ * plane at twice that for a phase whose 14-bit (bi) traffic clears its
+ * own bar: at four u8 planes, 0.8 MB per reference at CIF, 4.7 at 720p,
+ * 9.9 at 1080p - against the 6 bytes per padded pixel E1 already spends
+ * on its three int16 planes. Above the cap the cache drops planes rather
+ * than trade a working set for a copy. */
 #define N265_HF2_MAX_BYTES (48u << 20)
 
-/* Which of the twelve fractional-fy planes to build, as a bit per plane
- * in the (fy - 1) * 4 + fx order the refpic stores them in. 1, the
- * default, is the fy = 2 row alone (planes 4..7); 2 is every fractional
- * fy, the arm held above; 0 is off. */
-static unsigned hf2_mask(void)
+/* ...and round 4's second bound, which is the one that bites. The first
+ * is per reference, and there are N265_DPB_SLOTS of those: at 1080p
+ * twelve u8 planes is 29.4 MB per reference and 176 MB over the pool,
+ * which takes peak RSS from 241 MB to 410 (and with the int16 planes on
+ * top, to 522) against sec 6's 300 MB ceiling. Measured, 20 frames of
+ * crowd_run_1080p at one thread.
+ *
+ * So the cache gets a budget for the WHOLE pool, spent evenly: 64 MB,
+ * which is what round 3's shipped default already cost at 1080p (four
+ * planes per reference, 9.8 MB each over six slots). At 1080p that is
+ * still four planes and the footprint does not move; at 720p the same
+ * bytes buy nine; at CIF they buy every plane the traffic earns, int16
+ * included, at 6.9 MB per reference. The budget is what makes the
+ * arming rule two-sided - traffic says WHICH phases, the budget says
+ * how many - and it is why a bigger picture gets fewer planes rather
+ * than a bigger working set. */
+#define N265_HF2_DPB_BYTES (64u << 20)
+
+/* N265_HF2: 0 off, 1 the fy = 2 row (round 3's default), 2 all twelve
+ * (round 3's held arm), 3 the traffic rule (the default since round 4).
+ * Resolved into the encoder at open rather than into a static, because
+ * the traffic rule reads two more knobs beside it and they belong
+ * together; hf2_knobs is what n265_encoder_warm touches. */
+static unsigned hf2_mode_env(void)
 {
     static int m = -1;      /* an int with the -1 sentinel every other
                              * gate uses, so env_gate_audit.py sees it */
     if (m < 0) {
         const char *v = n265_env("N265_HF2");
-        int k = v ? atoi(v) : 1;
-        m = k <= 0 ? 0 : k == 1 ? 0x0f0 : 0xfff;
+        int k = v ? atoi(v) : 3;
+        m = k < 0 ? 0 : k > 3 ? 3 : k;
     }
     return (unsigned)m;
+}
+
+/* The bar a phase has to clear to be filled, in HUNDREDTHS of a touch
+ * per cached pixel, so the whole decision is integer.
+ *
+ * Break-even is 125, not 100: the fill costs one vertical pass per
+ * cached pixel and a touch saves that pass MINUS the copy that replaces
+ * it, which round 3 measured at about a fifth of it (1 / 0.8 = 1.25).
+ * The round-3 census calibrates it at both ends - foreman at --preset
+ * fast serves 1.48 touches per pixel across all twelve and read 1.008x,
+ * sita_flat_720p serves 0.93 across the fy = 2 row and read 0.997x, and
+ * 0.66 across all twelve and read 0.975x - so 125 is where the sign
+ * changes and 150 is that with a fifth of margin on top. Taken from the
+ * census table, never swept on the band.
+ *
+ * The 14-bit plane is twice the bytes for the same fill arithmetic, so
+ * both the copy it saves and the store the fill makes are twice as wide:
+ * the saving per touch falls to about two thirds of a pass and the bar
+ * rises to 1 / 0.65 = 155, 190 with the same margin. */
+static int hf2_tpp_env(void)
+{
+    static int t = -1;
+    if (t < 0) {
+        const char *v = n265_env("N265_HF2_TPP");
+        int k = v ? atoi(v) : 150;
+        t = k < 1 ? 1 : k;
+    }
+    return t;
+}
+
+static int hf2_tpp14_env(void)
+{
+    static int t = -1;
+    if (t < 0) {
+        const char *v = n265_env("N265_HF2_TPP14");
+        int k = v ? atoi(v) : 190;
+        t = k < 1 ? 1 : k;
+    }
+    return t;
+}
+
+void n265_hf2_knobs(n265_encoder *e)
+{
+    e->hf2_mode = hf2_mode_env();
+    e->hf2_tpp = hf2_tpp_env();
+    e->hf2_tpp14 = hf2_tpp14_env();
+    e->hf2_trace = n265_env("N265_HF2_TRACE") != NULL;
+    for (int i = 0; i < N265_HF2_HIST; i++)
+        e->hf2_hist[i].cidx = -1;
+}
+
+/* Which planes to fill on the reference frame `k` is about to become, as
+ * a bit per plane in the (fy - 1) * 4 + fx order the refpic stores them
+ * in; bits 0..11 are the u8 planes and 12..23 the int16 ones.
+ *
+ * The window is the N265_HF2_WIN coding indices ending at k - K. Every
+ * one of them is retired: a frame is dispatched only once n_inflight is
+ * below K, so the joined prefix reaches at least k - K, and K is a
+ * scheduling constant that does not move with the thread count. So the
+ * set of frames this reads, and therefore the mask, is the same at one
+ * worker and at twelve. The output would be identical either way - an
+ * unarmed plane is simply absent and the caller filters instead - but
+ * the WALL would not, and a rule whose answer drifted with --threads
+ * could not be measured or reproduced.
+ *
+ * Inside the window, `samp` counts the luma MC output samples that fell
+ * inside a 2-D plane's region, and `nref` the reference pictures the
+ * window claimed. samp / (area * nref) is then touches per cached pixel
+ * per reference over its lifetime - the round-3 census's own quantity,
+ * since in steady state the references read inside a window and the ones
+ * claimed in it are the same population. Nothing here is float: the test
+ * is samp * 100 >= area * nref * bar.
+ *
+ * Before the window has an entry there is no measurement, and the answer
+ * is round 3's shipped default - the fy = 2 row, the set that never lost
+ * on any clip measured. */
+static unsigned hf2_traffic_mask(n265_encoder *e, int k)
+{
+    uint64_t samp[24] = { 0 };
+    uint64_t nref = 0;
+    int have = 0;
+    for (int i = 0; i < N265_HF2_WIN; i++) {
+        int c = k - e->K - i;
+        if (c < 0)
+            break;
+        struct n265_hf2_hist *hh = &e->hf2_hist[c % N265_HF2_HIST];
+        if (hh->cidx != c)      /* never written, or already overwritten */
+            continue;
+        have = 1;
+        nref += (unsigned)hh->is_ref;
+        for (int j = 0; j < 24; j++)
+            samp[j] += hh->samp[j];
+    }
+    if (!have || !nref || e->hf2_area <= 0)
+        return 0x0f0;
+    /* The two forms are priced apart and decided apart: they are
+     * independent stores of the same filter over the same hf[] rows, so
+     * an int16 plane needs no u8 plane beside it and vice versa. */
+    uint64_t bar = (uint64_t)e->hf2_area * nref;
+    unsigned mask = 0;
+    for (int j = 0; j < 24; j++) {
+        int t = j < 12 ? e->hf2_tpp : e->hf2_tpp14;
+        if (samp[j] * 100u >= bar * (unsigned)t)
+            mask |= 1u << j;
+    }
+    return mask;
 }
 
 /* Arm the cache on a freshly claimed slot: the buffers and the region it
@@ -1048,12 +1213,17 @@ static unsigned hf2_mask(void)
  * past it. Filling is safe there with no ref_wait of its own because the
  * horizontal 8-tap reads only along its OWN line: the cache for row r
  * publishes with row r, not with row r + 1. */
-static void hf_arm(n265_encoder *e, struct n265_refpic *r)
+static void hf_arm(n265_encoder *e, struct n265_refpic *r, int code_idx)
 {
     for (int i = 0; i < 3; i++)
         r->hf[i] = NULL;
-    for (int i = 0; i < 12; i++)
+    for (int i = 0; i < 12; i++) {
         r->hf2[i] = NULL;
+        r->hf2w[i] = NULL;
+    }
+    /* The covered region, which the traffic tally tests against whether
+     * or not anything is armed. Empty until the E1 cache proves out. */
+    r->hf2_x0 = r->hf2_x1 = r->hf2_y0 = r->hf2_y1 = 0;
     if (!hf_cache_on())
         return;
     int w = e->pad_w + 2 * N265_HF_PAD, h = e->pad_h + 2 * N265_HF_PAD;
@@ -1076,30 +1246,82 @@ static void hf_arm(n265_encoder *e, struct n265_refpic *r)
     r->hf_y0 = -N265_HF_PAD;
     r->hf_y1 = e->pad_h + N265_HF_PAD;
 
-    unsigned mask = hf2_mask();
-    if (!mask || (uint64_t)w * h * (unsigned)__builtin_popcount(mask)
-                     > N265_HF2_MAX_BYTES)
-        return;
+    /* Three rows short at the top and four at the bottom of hf[]'s
+     * region: those are the lines the vertical filter reads, and there
+     * is nothing above -N265_HF_PAD to read. Set before the planes are
+     * armed, because the tally's question is about the region and not
+     * about the planes. */
+    r->hf2_x0 = -N265_HF_PAD;
+    r->hf2_x1 = e->pad_w + N265_HF_PAD;
+    r->hf2_y0 = -N265_HF_PAD + 3;
+    r->hf2_y1 = e->pad_h + N265_HF_PAD - 4;
+    e->hf2_area = (long)w * h;
+
+    unsigned mask = e->hf2_mode == 0   ? 0u
+                  : e->hf2_mode == 1   ? 0x0f0u
+                  : e->hf2_mode == 2   ? 0xfffu
+                  : hf2_traffic_mask(e, code_idx);
+    /* The size gate: round 3's per-reference cap and round 4's pool
+     * budget, whichever binds. It drops planes instead of refusing the
+     * whole set, in a FIXED order - every u8 plane before any int16 one,
+     * low phase index before high - so a picture whose traffic earns
+     * everything still gets the u8 planes, which carry four to five
+     * times the touches for half the bytes. The order is fixed and not a
+     * function of the traffic, so the survivors stay a deterministic
+     * function of the mask. */
+    {
+        uint64_t cap = N265_HF2_DPB_BYTES / N265_DPB_SLOTS;
+        if (cap > N265_HF2_MAX_BYTES)
+            cap = N265_HF2_MAX_BYTES;
+        uint64_t bytes = 0;
+        for (int i = 0; i < 24; i++) {
+            if (!(mask & (1u << i)))
+                continue;
+            uint64_t sz = (uint64_t)w * h * (i >= 12 ? 2 : 1);
+            if (bytes + sz > cap)
+                mask &= ~(1u << i);
+            else
+                bytes += sz;
+        }
+    }
+    /* Give back what this claim did NOT earn. The planes are kept across
+     * claims so that a steady mask costs one malloc per plane per slot
+     * and nothing after, but a mask that moves would otherwise leave the
+     * union of every set the slot ever armed resident - which is how the
+     * pool budget above gets spent twice. Freeing the unselected ones
+     * makes the retained bytes exactly the armed bytes. */
+    for (int i = 0; i < 12; i++) {
+        if (!(mask & (1u << i)) && r->hf2_base[i]) {
+            free(r->hf2_base[i]);
+            r->hf2_base[i] = NULL;
+        }
+        if (!(mask & (1u << (i + 12))) && r->hf2w_base[i]) {
+            free(r->hf2w_base[i]);
+            r->hf2w_base[i] = NULL;
+        }
+    }
     for (int i = 0; i < 12; i++) {
         if (!(mask & (1u << i)))
             continue;
         if (!r->hf2_base[i]) {
             r->hf2_base[i] = malloc((size_t)w * h);
-            if (!r->hf2_base[i]) {   /* no cache is a slow path, not a fail */
-                for (int k = 0; k < 12; k++)
-                    r->hf2[k] = NULL;
-                return;
-            }
+            if (!r->hf2_base[i])    /* no cache is a slow path, not a fail */
+                break;
         }
         r->hf2[i] = r->hf2_base[i] + N265_HF_PAD * w + N265_HF_PAD;
+        e->hf2_armed[i]++;
     }
-    /* Three rows short at the top and four at the bottom of hf[]'s
-     * region: those are the lines the vertical filter reads, and there
-     * is nothing above -N265_HF_PAD to read. */
-    r->hf2_x0 = -N265_HF_PAD;
-    r->hf2_x1 = e->pad_w + N265_HF_PAD;
-    r->hf2_y0 = -N265_HF_PAD + 3;
-    r->hf2_y1 = e->pad_h + N265_HF_PAD - 4;
+    for (int i = 0; i < 12; i++) {
+        if (!(mask & (1u << (i + 12))))
+            continue;
+        if (!r->hf2w_base[i]) {
+            r->hf2w_base[i] = malloc((size_t)w * h * sizeof(int16_t));
+            if (!r->hf2w_base[i])
+                break;
+        }
+        r->hf2w[i] = r->hf2w_base[i] + N265_HF_PAD * w + N265_HF_PAD;
+        e->hf2_armed[i + 12]++;
+    }
 }
 
 /* The E1 cache for the luma lines CTB row r owns, plus the padding rows
@@ -1142,17 +1364,29 @@ static void hf_fill_rows(n265_frame_work *fw, struct n265_refpic *r, int cy,
         if (g1 > g0) {
             ptrdiff_t off = (ptrdiff_t)g0 * w - N265_HF_PAD;
             for (int i = 0; i < 12; i++) {
-                if (!r->hf2[i])
-                    continue;
                 int fx = i & 3, fy = (i >> 2) + 1;
-                if (!fx)    /* no horizontal stage to reuse: straight u8 */
-                    n265_mc_luma_wh(r->hf2[i] + off, w, w, g1 - g0,
-                                    r->plane[0] + (ptrdiff_t)g0 * rs
-                                        - N265_HF_PAD, rs, 0, fy);
-                else
-                    n265_mc_luma_hf(r->hf2[i] + off, w, w, g1 - g0,
-                                    r->plane[0], rs, r->hf[fx - 1] + off, w,
-                                    fx, fy);
+                if (r->hf2[i]) {
+                    if (!fx)  /* no horizontal stage to reuse: straight u8 */
+                        n265_mc_luma_wh(r->hf2[i] + off, w, w, g1 - g0,
+                                        r->plane[0] + (ptrdiff_t)g0 * rs
+                                            - N265_HF_PAD, rs, 0, fy);
+                    else
+                        n265_mc_luma_hf(r->hf2[i] + off, w, w, g1 - g0,
+                                        r->plane[0], rs,
+                                        r->hf[fx - 1] + off, w, fx, fy);
+                }
+                /* Round 4's int16 twin: the same filter over the same
+                 * rows, stopped one shift short of the u8 one. */
+                if (r->hf2w[i]) {
+                    if (!fx)
+                        n265_mc_luma_14_wh(r->hf2w[i] + off, w, w, g1 - g0,
+                                           r->plane[0] + (ptrdiff_t)g0 * rs
+                                               - N265_HF_PAD, rs, 0, fy);
+                    else
+                        n265_mc_luma_14_hf(r->hf2w[i] + off, w, w, g1 - g0,
+                                           r->plane[0], rs,
+                                           r->hf[fx - 1] + off, w, fx, fy);
+                }
             }
         }
     }
@@ -1920,6 +2154,23 @@ static void join_oldest(n265_encoder *e)
                          fw->cs_tu_cbf[2] + fw->cs_tu_cbf[3]) / tu,
                 (unsigned long long)fw->cs_coef);
     }
+    /* Round 4: the frame's traffic, summed over its row lanes and
+     * stamped with its coding index. Row-private lines summed in row
+     * order on the driver, so the total is the same integer at every
+     * thread count whatever order the lanes ran in. */
+    {
+        struct n265_hf2_hist *hh =
+            &e->hf2_hist[fw->code_idx % N265_HF2_HIST];
+        hh->cidx = fw->code_idx;
+        hh->is_ref = fw->mode != N265_MODE_PCM && !fw->nonref;
+        memset(hh->samp, 0, sizeof hh->samp);
+        for (int r = 0; r <= e->ctb_rows; r++)
+            for (int j = 0; j < 24; j++)
+                hh->samp[j] += fw->hf2_tr_rows[(size_t)r * 24 + j];
+        e->hf2_nref += (unsigned)hh->is_ref;     /* N265_HF2_TRACE only */
+        for (int j = 0; j < 24; j++)
+            e->hf2_samp[j] += hh->samp[j];
+    }
     /* D4: the actual bits are applied on the driver, in coding order. */
     if (e->abr_on || e->rc.trace)
         n265_rc_done(e, fw->rc_cls, fw->rc_cplx, fw->rc_base,
@@ -1999,7 +2250,8 @@ static int min_keyint_env(void)
  * n265_encoder_open can call it beside the rest. */
 void n265_encoder_warm(void)
 {
-    (void)dpb_hold(); (void)hf_cache_on(); (void)hf2_mask();
+    (void)dpb_hold(); (void)hf_cache_on(); (void)hf2_mode_env();
+    (void)hf2_tpp_env(); (void)hf2_tpp14_env();
     (void)min_keyint_env();
 }
 
@@ -2318,7 +2570,7 @@ static void claim_slot(n265_encoder *e, n265_frame_work *fw)
     /* E1: arm the half-pel cache here, on the driver; the publish row
      * task fills the lines it owns (G4). */
     if (fw->mode != N265_MODE_PCM && !fw->nonref)
-        hf_arm(e, slot);
+        hf_arm(e, slot, fw->code_idx);
     fw->slot = slot;
     for (int i = 0; i < 3; i++) {
         fw->recon[i] = slot->plane[i];
@@ -2420,6 +2672,12 @@ static int drive_scheduler(n265_encoder *e)
      * changes the marked set, so the choice is the one the pre-T0a
      * encoder made; the slot is not marked until the end of this
      * dispatch step, so neither this frame's RPS nor its lists see it. */
+    /* Round 4: the coding index this frame occupies. Driver-serial and
+     * dense, so it indexes both the traffic history and the window the
+     * arming rule reads back out of it. */
+    fw->code_idx = e->hf2_code_n++;
+    memset(fw->hf2_tr_rows, 0, (size_t)(e->ctb_rows + 1) * 24 *
+                               sizeof(uint64_t));
     claim_slot(e, fw);
     /* D2: mark now, on the driver, in coding order. Frame k+1's dispatch
      * has to see this picture in the DPB whether or not a row of it has
