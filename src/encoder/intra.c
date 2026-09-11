@@ -23,9 +23,16 @@ uint64_t n265_zorder(int x, int y, int pic_w, int ctb_log2)
     return ((uint64_t)(cy * ctb_cols + cx) << (2 * (ctb_log2 - 2))) | z;
 }
 
-void n265_intra_refs_ref(uint8_t *refs, const uint8_t *recon, int stride,
-                         int x0, int y0, int log2n,
-                         int pic_w, int pic_h, int ctb_log2)
+/* The spec text, literally: every one of the 4n+1 candidates asked about
+ * separately, and the substitution done by a scan. n265_intra_refs_ref
+ * below computes the same thing far more cheaply, which makes this the
+ * oracle and not the implementation - it is what checkasm holds the
+ * prefix argument to, and nothing on a hot path calls it. Do not fold the
+ * two together: the worth of the second implementation is that it was
+ * written from the spec and not from the fast one. */
+void n265_intra_refs_spec(uint8_t *refs, const uint8_t *recon, int stride,
+                          int x0, int y0, int log2n,
+                          int pic_w, int pic_h, int ctb_log2)
 {
     int n = 1 << log2n;
     int total = 4 * n + 1;
@@ -87,17 +94,135 @@ void n265_intra_refs_ref(uint8_t *refs, const uint8_t *recon, int stride,
         refs[i] = (uint8_t)val[i];
 }
 
+/* ---- the reference gather, as the encoder actually runs it ----------
+ *
+ * The spec form above asks, for each of the 4n+1 candidates, whether it is
+ * inside the picture and earlier in decode order, and decode order is
+ * n265_zorder(x, y) - a CTB raster index above interleaved in-CTB
+ * coordinates. That is up to 129 zorder evaluations per call, each a loop
+ * over the CTB's bits, and on the shape survey n265_intra_refs is called
+ * 80k times on 30 frames of foreman alone.
+ *
+ * All but a handful are unnecessary, because zorder is MONOTONE along a
+ * scan line. Fix y and increase x: within a 4x4 unit the key does not
+ * move; across a unit either cx is unchanged and rx rises by one, which
+ * raises the interleaved field (the rx bits sit at the even positions and
+ * the ry bits, unchanged, at the odd ones, so comparing two keys with
+ * equal ry reduces to comparing rx), or cx rises by one, which raises the
+ * raster index above a field that cannot carry. So zorder(x, y) is
+ * non-decreasing in x at fixed y, and by the same argument in y at fixed
+ * x. Availability is `zorder < cur`, so on the top row (fixed y0-1, x
+ * running up from x0) and on the left column (fixed x0-1, y running down
+ * from y0) the available samples are a PREFIX, and the length of that
+ * prefix is a binary search: six evaluations instead of 2n.
+ *
+ * The substitution then has a closed form rather than a scan. In the
+ * spec's walk order - up the left column from its bottom end, the corner,
+ * then along the top row - availability is
+ *
+ *     [2n - nl unavailable] [left nl-1 .. 0] [corner?] [top 0 .. nt-1]
+ *     [2n - nt unavailable]
+ *
+ * so the leading run takes the first available sample anywhere (the
+ * spec's forward search, and the spec form's seeding pass), and the two
+ * trailing gaps take the last value written before them. Which is what
+ * the code below writes directly.
+ *
+ * This began life in src/encoder/arm/intra_neon.c under N265_ASM_INTRA,
+ * because that is where the convention puts a fast path and where
+ * checkasm can hold it to the C. It never was a vector kernel - there is
+ * not one intrinsic in it - and leaving it there charged the win to NEON
+ * and left every other target paying 129 zorder calls. It is C now, on
+ * every build, and not ablatable.
+ */
+static int avail_prefix_x(int x0, int y, int lim, uint64_t cur, int pic_w,
+                          int ctb_log2)
+{
+    int lo = 0, hi = lim;
+
+    if (lim <= 0)
+        return 0;
+    while (lo < hi) {
+        int mid = (lo + hi + 1) / 2;
+        if (n265_zorder(x0 + mid - 1, y, pic_w, ctb_log2) < cur)
+            lo = mid;
+        else
+            hi = mid - 1;
+    }
+    return lo;
+}
+
+static int avail_prefix_y(int x, int y0, int lim, uint64_t cur, int pic_w,
+                          int ctb_log2)
+{
+    int lo = 0, hi = lim;
+
+    if (lim <= 0)
+        return 0;
+    while (lo < hi) {
+        int mid = (lo + hi + 1) / 2;
+        if (n265_zorder(x, y0 + mid - 1, pic_w, ctb_log2) < cur)
+            lo = mid;
+        else
+            hi = mid - 1;
+    }
+    return lo;
+}
+
+void n265_intra_refs_ref(uint8_t *refs, const uint8_t *recon, int stride,
+                         int x0, int y0, int log2n,
+                         int pic_w, int pic_h, int ctb_log2)
+{
+    int n = 1 << log2n;
+    uint64_t cur = n265_zorder(x0, y0, pic_w, ctb_log2);
+    int nt = 0, nl = 0, cav = 0, corner = 0, seed;
+
+    if (y0 > 0) {
+        int lim = pic_w - x0;
+        if (lim > 2 * n)
+            lim = 2 * n;
+        nt = avail_prefix_x(x0, y0 - 1, lim, cur, pic_w, ctb_log2);
+    }
+    if (x0 > 0) {
+        int lim = pic_h - y0;
+        if (lim > 2 * n)
+            lim = 2 * n;
+        nl = avail_prefix_y(x0 - 1, y0, lim, cur, pic_w, ctb_log2);
+        if (y0 > 0 &&
+            n265_zorder(x0 - 1, y0 - 1, pic_w, ctb_log2) < cur) {
+            cav = 1;
+            corner = recon[(size_t)(y0 - 1) * stride + x0 - 1];
+        }
+    }
+
+    if (!nt && !nl && !cav) {           /* nothing available: mid-grey */
+        memset(refs, 128, (size_t)(4 * n + 1));
+        return;
+    }
+
+    /* the left column, refs[2n+1 .. 4n], available for the first nl */
+    for (int k = 0; k < nl; k++)
+        refs[2 * n + 1 + k] = recon[(size_t)(y0 + k) * stride + x0 - 1];
+    /* the top row, refs[1 .. 2n], available for the first nt */
+    if (nt)
+        memcpy(refs + 1, recon + (size_t)(y0 - 1) * stride + x0, (size_t)nt);
+
+    /* first available in the spec's walk order */
+    seed = nl ? refs[2 * n + nl] : cav ? corner : refs[1];
+    /* the walk starts at 4n and runs down, so the unavailable tail of the
+     * left column is what the seed fills */
+    if (nl < 2 * n)
+        memset(refs + 2 * n + nl + 1, seed, (size_t)(2 * n - nl));
+    refs[0] = (uint8_t)(cav ? corner : nl ? refs[2 * n + 1] : seed);
+    if (nt < 2 * n)
+        memset(refs + nt + 1, nt ? refs[nt] : refs[0],
+               (size_t)(2 * n - nt));
+}
+
 void n265_intra_refs(uint8_t *refs, const uint8_t *recon, int stride,
                      int x0, int y0, int log2n,
                      int pic_w, int pic_h, int ctb_log2)
 {
-#if N265_NEON
-    if (n265_asm_on(N265_ASM_INTRA)) {
-        n265_intra_refs_neon(refs, recon, stride, x0, y0, log2n,
-                             pic_w, pic_h, ctb_log2);
-        return;
-    }
-#endif
     n265_intra_refs_ref(refs, recon, stride, x0, y0, log2n,
                         pic_w, pic_h, ctb_log2);
 }

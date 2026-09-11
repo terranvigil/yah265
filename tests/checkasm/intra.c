@@ -226,13 +226,8 @@ static void refs_opt(uint8_t *refs, const uint8_t *recon, int stride,
                      int x0, int y0, int log2n, int pic_w, int pic_h,
                      int ctb_log2)
 {
-#if N265_NEON
-    n265_intra_refs_neon(refs, recon, stride, x0, y0, log2n, pic_w, pic_h,
-                         ctb_log2);
-#else
-    n265_intra_refs(refs, recon, stride, x0, y0, log2n, pic_w, pic_h,
-                    ctb_log2);
-#endif
+    n265_intra_refs_ref(refs, recon, stride, x0, y0, log2n, pic_w, pic_h,
+                        ctb_log2);
 }
 
 static int check_refs(void)
@@ -278,8 +273,8 @@ static int check_refs(void)
                         ca_guard_poison(got, total);
                         ca_guard_poison(want, total);
 
-                        n265_intra_refs_ref(want, recon, stride, x0, y0,
-                                            log2n, pic_w, pic_h, ctb_log2);
+                        n265_intra_refs_spec(want, recon, stride, x0, y0,
+                                             log2n, pic_w, pic_h, ctb_log2);
                         refs_opt(got, recon, stride, x0, y0, log2n, pic_w,
                                  pic_h, ctb_log2);
                         if (memcmp(got, want, total)) {
@@ -436,11 +431,11 @@ struct rctx {
     int stride, x0, y0, log2n, pic_w, pic_h, ctb_log2;
 };
 
-static void refs_ref_call(void *v)
+static void refs_spec_call(void *v)
 {
     struct rctx *c = v;
-    n265_intra_refs_ref(c->refs, c->recon, c->stride, c->x0, c->y0,
-                        c->log2n, c->pic_w, c->pic_h, c->ctb_log2);
+    n265_intra_refs_spec(c->refs, c->recon, c->stride, c->x0, c->y0,
+                         c->log2n, c->pic_w, c->pic_h, c->ctb_log2);
 }
 
 static void refs_opt_call(void *v)
@@ -524,12 +519,10 @@ static void bench_intra(void)
             rc.x0 = 160;
             rc.y0 = 128;
             snprintf(name, sizeof(name), "intra_refs %d", 1 << log2n);
-#if N265_NEON
-            bench(name, refs_ref_call, refs_ref_call, refs_opt_call, &rc,
-                  200000);
-#else
-            bench(name, refs_ref_call, refs_opt_call, NULL, &rc, 200000);
-#endif
+            /* no NEON arm: the ref column is the spec walked literally
+             * and the c column is the prefix search the encoder runs, on
+             * every target. */
+            bench(name, refs_spec_call, refs_opt_call, NULL, &rc, 200000);
         }
         free(recon);
     }

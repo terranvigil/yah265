@@ -173,15 +173,10 @@ uint32_t n265_coeff_group_neon(const int16_t *grp, ptrdiff_t stride,
  * and so pay for the projected reference). The angular kernel is
  * therefore the family, and the planar/DC arms are worth having only
  * because they share the entry point.
- *
- * n265_intra_refs_neon has no vector width to speak of; see the head of
- * intra_neon.c for what it does instead and why it is here. */
+ */
 
 void n265_intra_pred_neon(uint8_t *dst, int dst_stride, const uint8_t *refs,
                           int log2n, int mode, int c_idx);
-void n265_intra_refs_neon(uint8_t *refs, const uint8_t *recon, int stride,
-                          int x0, int y0, int log2n,
-                          int pic_w, int pic_h, int ctb_log2);
 void n265_filter_refs_neon(uint8_t *out, const uint8_t *in, int log2n);
 
 #endif /* N265_NEON */

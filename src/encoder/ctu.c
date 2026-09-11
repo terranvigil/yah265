@@ -436,7 +436,14 @@ static int search_luma_mode_sub(struct n265_frame_work *e, int x0, int y0,
 
     n265_intra_refs(refs, ref_plane, ref_stride, x0, y0, log2n,
                     e->pad_w, e->pad_h, e->ctb_log2);
-    n265_filter_refs(refs_f, refs, log2n);
+    /* 8.4.4.2.3 never smooths a 4x4: n265_use_filtered_refs returns 0 for
+     * every mode at log2n 2, so the filtered copy below is written and
+     * never read. 4x4 is the size the mode search visits most (6336 of
+     * these calls in 30 frames of foreman at --preset fast), so the whole
+     * filter is skipped there. refs_f stays uninitialised in that case,
+     * which is sound because the same predicate guards every read of it. */
+    if (log2n > 2)
+        n265_filter_refs(refs_f, refs, log2n);
 
     int best_mode = 0;
     uint32_t best_cost = UINT32_MAX;
