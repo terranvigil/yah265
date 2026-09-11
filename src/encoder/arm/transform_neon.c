@@ -326,18 +326,97 @@ static inline void fdct_block(int16_t *coef, const int16_t *resid, int n,
     }
 }
 
+/*
+ * 4x4 and 8x8: the block IS the register file.
+ *
+ * The generic path above hands stage 1's output to stage 2 through an
+ * int32 buffer. That is the right shape at 16 and 32 - 256 or 1024 int32
+ * were never going to sit in 32 registers - and the wrong one here, where
+ * the whole intermediate is four or sixteen vectors. At these two sizes
+ * the round trip is real traffic, which is part of why round 1 measured
+ * 0.38-0.65x against a C path clang auto-vectorises and left both on C.
+ *
+ * This is the same kernel with the buffer deleted: `bt` is an array of
+ * vectors, every index into it is a constant once `n` is, and the only
+ * memory the transform touches is the residual it loads and the
+ * coefficients it stores. The lane assignment, the 1-D routine and the
+ * order of every add are the generic path's, so it is bit-exact for the
+ * same structural reason - and checkasm compares it against
+ * n265_fdct_ref at both sizes, DST included.
+ */
+static inline __attribute__((always_inline))
+void fdct_small(int16_t *coef, const int16_t *resid, int n, int use_dst,
+                int shift1, int shift2)
+{
+    int32x4_t sh1 = vdupq_n_s32(-shift1), sh2 = vdupq_n_s32(-shift2);
+    int32x4_t bt[8][2];         /* bt[x][r >> 2] lane r & 3 = the C's b[r][x] */
+
+    for (int x0 = 0; x0 < n; x0 += 4) {
+        int32x4_t e[8], v[8], u[4];
+
+        for (int y = 0; y < n; y++)
+            e[y] = vmovl_s16(vld1_s16(resid + y * n + x0));
+        if (use_dst)
+            fwd_dst4_1d_x4(v, e, sh1);
+        else
+            fwd_dct_1d_x4(v, e, n, sh1);
+        for (int r0 = 0; r0 < n; r0 += 4) {
+            u[0] = v[r0]; u[1] = v[r0 + 1];
+            u[2] = v[r0 + 2]; u[3] = v[r0 + 3];
+            tr4_s32(u);
+            for (int i = 0; i < 4; i++)
+                bt[x0 + i][r0 >> 2] = u[i];
+        }
+    }
+    for (int r0 = 0; r0 < n; r0 += 4) {
+        int32x4_t e[8], s[8], b[4];
+
+        for (int k = 0; k < n; k++)
+            e[k] = bt[k][r0 >> 2];
+        if (use_dst)
+            fwd_dst4_1d_x4(s, e, sh2);
+        else
+            fwd_dct_1d_x4(s, e, n, sh2);
+        for (int j0 = 0; j0 < n; j0 += 4) {
+            b[0] = s[j0]; b[1] = s[j0 + 1];
+            b[2] = s[j0 + 2]; b[3] = s[j0 + 3];
+            tr4_s32(b);
+            for (int i = 0; i < 4; i++)
+                vst1_s16(coef + (r0 + i) * n + j0, vqmovn_s32(b[i]));
+        }
+    }
+}
+
+/* One out-of-line function per size, and never inlined into the dispatch.
+ * An unrolled 8x8 with sixteen live vectors sitting in the same function
+ * as the generic kernel is a register allocation and an icache footprint
+ * the 16x16 and 32x32 paths would then pay for, and they are the whole
+ * value of the class. */
+static __attribute__((noinline))
+void fdct4_neon(int16_t *coef, const int16_t *resid, int use_dst,
+                int shift1, int shift2)
+{
+    fdct_small(coef, resid, 4, use_dst, shift1, shift2);
+}
+
+static __attribute__((noinline))
+void fdct8_neon(int16_t *coef, const int16_t *resid, int shift1, int shift2)
+{
+    fdct_small(coef, resid, 8, 0, shift1, shift2);
+}
+
 void n265_fdct_neon(int16_t *coef, const int16_t *resid, int log2n,
                     int use_dst)
 {
     int shift1 = log2n + BIT_DEPTH - 9, shift2 = log2n + 6;
 
     if (use_dst) {
-        fdct_block(coef, resid, 4, 1, shift1, shift2);
+        fdct4_neon(coef, resid, 1, shift1, shift2);
         return;
     }
     switch (log2n) {
-    case 2:  fdct_block(coef, resid, 4, 0, shift1, shift2); break;
-    case 3:  fdct_block(coef, resid, 8, 0, shift1, shift2); break;
+    case 2:  fdct4_neon(coef, resid, 0, shift1, shift2); break;
+    case 3:  fdct8_neon(coef, resid, shift1, shift2); break;
     case 4:  fdct_block(coef, resid, 16, 0, shift1, shift2); break;
     default: fdct_block(coef, resid, 32, 0, shift1, shift2); break;
     }
@@ -598,6 +677,88 @@ static inline void idct_dc(uint8_t *dst, int ds, int32_t r, int n,
     }
 }
 
+/* The inverse at 4x4 and 8x8, register-resident for the same reason as
+ * fdct_small: `b` is the stage-1 output, sixteen vectors at most, and it
+ * never leaves the register file. Stage 1 already clipped to int16 (the
+ * `clip` arm of inv_dct_1d_x4), so the generic path's narrow-to-int16
+ * store and widening reload are the identity on these values and dropping
+ * them changes nothing. The column bound is kept: a whole group of four
+ * columns at or past nzw transforms to zeros, and stage 2 here reads
+ * every column, so those groups are set to zero rather than skipped. */
+static inline __attribute__((always_inline))
+void idct_small(uint8_t *dst, int ds, const int16_t *dq, int n,
+                const uint8_t *pred, int ps, int use_dst, int nzw)
+{
+    int32x4_t sh1 = vdupq_n_s32(-7);
+    int32x4_t sh2 = vdupq_n_s32(-(20 - BIT_DEPTH));
+    int32x4_t b[8][2];          /* b[x][j >> 2] lane j & 3 = the C's b[x][j] */
+    int xg = (nzw + 3) & ~3;
+
+    for (int x0 = 0; x0 < n; x0 += 4) {
+        int32x4_t e[8], v[8], u[4];
+
+        if (x0 >= xg) {
+            for (int i = 0; i < 4; i++)
+                for (int g = 0; g < (n >> 2); g++)
+                    b[x0 + i][g] = vdupq_n_s32(0);
+            continue;
+        }
+        for (int y = 0; y < n; y++)
+            e[y] = vmovl_s16(vld1_s16(dq + y * n + x0));
+        if (use_dst)
+            inv_dst4_1d_x4(v, e, sh1, 1);
+        else
+            inv_dct_1d_x4(v, e, n, sh1, 1);
+        for (int j0 = 0; j0 < n; j0 += 4) {
+            u[0] = v[j0]; u[1] = v[j0 + 1];
+            u[2] = v[j0 + 2]; u[3] = v[j0 + 3];
+            tr4_s32(u);
+            for (int i = 0; i < 4; i++)
+                b[x0 + i][j0 >> 2] = u[i];
+        }
+    }
+    for (int y0 = 0; y0 < n; y0 += 4) {
+        int32x4_t e[8], r[8], c[4], c2[4];
+
+        for (int k = 0; k < n; k++)
+            e[k] = b[k][y0 >> 2];
+        if (use_dst)
+            inv_dst4_1d_x4(r, e, sh2, 0);
+        else
+            inv_dct_1d_x4(r, e, n, sh2, 0);
+        if (n == 4) {
+            c[0] = r[0]; c[1] = r[1]; c[2] = r[2]; c[3] = r[3];
+            tr4_s32(c);
+            add_clip_4x4(dst, ds, pred, ps, y0, 0, c);
+            continue;
+        }
+        for (int x0 = 0; x0 < n; x0 += 8) {
+            c[0] = r[x0];      c[1] = r[x0 + 1];
+            c[2] = r[x0 + 2];  c[3] = r[x0 + 3];
+            c2[0] = r[x0 + 4]; c2[1] = r[x0 + 5];
+            c2[2] = r[x0 + 6]; c2[3] = r[x0 + 7];
+            tr4_s32(c);
+            tr4_s32(c2);
+            add_clip_4x8(dst, ds, pred, ps, y0, x0, c, c2);
+        }
+    }
+}
+
+/* out of line, for the reason fdct4_neon gives */
+static __attribute__((noinline))
+void idct4_neon(uint8_t *dst, int ds, const int16_t *dq, const uint8_t *pred,
+                int ps, int use_dst, int nzw)
+{
+    idct_small(dst, ds, dq, 4, pred, ps, use_dst, nzw);
+}
+
+static __attribute__((noinline))
+void idct8_neon(uint8_t *dst, int ds, const int16_t *dq, const uint8_t *pred,
+                int ps, int nzw)
+{
+    idct_small(dst, ds, dq, 8, pred, ps, 0, nzw);
+}
+
 void n265_idct_add_neon(uint8_t *dst, int dst_stride, const int16_t *dq,
                         int log2n, const uint8_t *pred, int pred_stride,
                         int use_dst, int nzw, int nzh)
@@ -633,15 +794,15 @@ void n265_idct_add_neon(uint8_t *dst, int dst_stride, const int16_t *dq,
     }
 
     if (use_dst) {
-        idct_block(dst, dst_stride, dq, 4, pred, pred_stride, 1, 4, 4);
+        idct4_neon(dst, dst_stride, dq, pred, pred_stride, 1, 4);
         return;
     }
     switch (log2n) {
     case 2:
-        idct_block(dst, dst_stride, dq, 4, pred, pred_stride, 0, nzw, nzh);
+        idct4_neon(dst, dst_stride, dq, pred, pred_stride, 0, nzw);
         break;
     case 3:
-        idct_block(dst, dst_stride, dq, 8, pred, pred_stride, 0, nzw, nzh);
+        idct8_neon(dst, dst_stride, dq, pred, pred_stride, nzw);
         break;
     case 4:
         idct_block(dst, dst_stride, dq, 16, pred, pred_stride, 0, nzw, nzh);
