@@ -107,6 +107,18 @@ struct n265_refpic {
     int16_t *hf[3];
     int hf_stride;
     int hf_x0, hf_x1, hf_y0, hf_y1;     /* positions it covers */
+    /* Phase 6 round 3: the phase plane FINISHED, one u8 plane per cached
+     * fractional (fx, fy). E1 left the vertical 8-tap per candidate; the
+     * census read every reference 1.1 to 67 times per cached pixel, so
+     * the vertical pass runs once per reference and every uni candidate
+     * that lands on a cached phase is a copy. Built on top of hf[] and
+     * so NULL whenever that is, and NULL per plane for a phase this run
+     * does not cache (N265_HF2). The int16 (bi) form is not served: it
+     * wants the unrounded value. */
+    uint8_t *hf2_base[12];
+    uint8_t *hf2[12];           /* (fy - 1) * 4 + fx */
+    int hf2_stride;
+    int hf2_x0, hf2_x1, hf2_y0, hf2_y1;
     /* P2: the coding-tree depth range this picture used, per CTU;
      * 0xff where nothing filled it. The collocated entry is the
      * temporal half of the depth bound. */
@@ -606,7 +618,8 @@ static inline unsigned n265_gen_of(const n265_frame_work *e,
  * past it - or one that never armed a guard at all - aborts. */
 static inline void n265_ref_guard(const n265_frame_work *e,
                                   const struct n265_refpic *pic, int need,
-                                  int c_idx, const int16_t *hf)
+                                  int c_idx, const int16_t *hf,
+                                  const uint8_t *p2)
 {
     long lastl = need >= e->ctb_rows
         ? 1L << 30                      /* whole picture plus its borders */
@@ -614,14 +627,24 @@ static inline void n265_ref_guard(const n265_frame_work *e,
     n265_refchk_open(pic->plane[c_idx], pic->stride[c_idx],
                      c_idx ? (lastl >> 1) : lastl);
     n265_refchk_open_hf(hf, pic->hf_stride, lastl);
+    /* lastl - 4: the round-3 plane lags the reference by the four lines
+     * its vertical filter reaches below each output line, so a watermark
+     * that covers line L covers the 2-D plane only to L - 4. Asserting
+     * the tighter bound here is what proves the lag. */
+    n265_refchk_open_p2(p2, pic->hf2_stride, lastl - 4);
 }
 #define N265_REF_GUARD(e, pic, need, c, hf) \
-    n265_ref_guard((e), (pic), (need), (c), (hf))
+    n265_ref_guard((e), (pic), (need), (c), (hf), NULL)
+/* the three luma sites that can be served straight out of the round-3
+ * plane guard that plane too */
+#define N265_REF_GUARD2(e, pic, need, c, hf, p2) \
+    n265_ref_guard((e), (pic), (need), (c), (hf), (p2))
 #define N265_REF_UNGUARD()               n265_refchk_close()
 /* the publish path reads its OWN picture; those reads are not gated */
 #define N265_REF_OPEN_ALL()              n265_refchk_open_all()
 #else
 #define N265_REF_GUARD(e, pic, need, c, hf)  ((void)(need))
+#define N265_REF_GUARD2(e, pic, need, c, hf, p2)  ((void)(need))
 #define N265_REF_UNGUARD()                   ((void)0)
 #define N265_REF_OPEN_ALL()                  ((void)0)
 #endif
@@ -717,6 +740,36 @@ static inline const int16_t *n265_ref_hf(const struct n265_refpic *r,
         y - 3 < r->hf_y0 || y + h + 4 > r->hf_y1)
         return NULL;
     return r->hf[fx - 1] + y * r->hf_stride + x;
+}
+
+/* The finished block at luma phase (fx, fy) and integer position (x, y),
+ * or NULL when the round-3 plane cannot serve it: off, a phase this run
+ * does not cache, fy = 0, or a window outside the covered region. The plane holds
+ * exactly what the vertical pass would have written, so a caller that
+ * takes this pointer copies and is byte-identical to one that filters.
+ *
+ * The covered rows are three short at the top and four short at the
+ * bottom of what hf[] covers, because that is the window the vertical
+ * filter reads; n265_clamp_mv admits integer positions in
+ * [-(N265_REF_PAD - 8), pic + N265_REF_PAD - 8) = [-56, pic + 56), which
+ * fits inside it with a line to spare at each end. */
+static inline const uint8_t *n265_ref_2d(const struct n265_refpic *r,
+                                         int x, int y, int w, int h,
+                                         int fx, int fy)
+{
+    if (!fy || !r->hf2[(fy - 1) * 4 + fx])
+        return NULL;
+    if (x < r->hf2_x0 || x + w > r->hf2_x1 ||
+        y < r->hf2_y0 || y + h > r->hf2_y1)
+        return NULL;
+    return r->hf2[(fy - 1) * 4 + fx] + (ptrdiff_t)y * r->hf2_stride + x;
+}
+
+/* That plane's ORIGIN, for the REF_CHECK guard; NULL where there is none. */
+static inline const uint8_t *n265_ref_2d_base(const struct n265_refpic *r,
+                                              int fx, int fy)
+{
+    return fy ? r->hf2[(fy - 1) * 4 + fx] : NULL;
 }
 
 /* The phase-fx cache plane's ORIGIN (picture (0,0)), which is what the

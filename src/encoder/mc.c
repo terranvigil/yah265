@@ -6,6 +6,7 @@
  */
 
 #include <stddef.h>
+#include <string.h>
 
 #include "common/cpu.h"
 #include "encoder/arm/neon.h"
@@ -208,6 +209,32 @@ void n265_mc_luma_hf_ref(uint8_t *dst, int ds, int w, int h,
                 s += fv[k] * hf[(y + k - 3) * hs + x];
             dst[y * ds + x] = clip1((s + 2048) >> 12);
         }
+}
+
+/* Phase 6 round 3. No NEON dispatch: the row IS a copy, and a memcpy of
+ * a width the compiler can see is a load and a store. The switch is
+ * outside the row loop and covers the luma PU widths (4, 8, 12, 16, 24,
+ * 32, 48, 64; 2 and 6 are chroma, which this plane does not serve). */
+#define N265_2D_ROWS(n)                                                  \
+    for (int y = 0; y < h; y++)                                          \
+        memcpy(dst + (ptrdiff_t)y * ds, p2 + (ptrdiff_t)y * ps, (n))
+
+void n265_mc_luma_2d(uint8_t *dst, int ds, int w, int h,
+                     const uint8_t *p2, int ps)
+{
+    N265_RC_TOUCH_P2(p2);
+    N265_RC_TOUCH_P2(p2 + (ptrdiff_t)(h - 1) * ps);
+    switch (w) {
+    case 4:  N265_2D_ROWS(4);  return;
+    case 8:  N265_2D_ROWS(8);  return;
+    case 12: N265_2D_ROWS(12); return;
+    case 16: N265_2D_ROWS(16); return;
+    case 24: N265_2D_ROWS(24); return;
+    case 32: N265_2D_ROWS(32); return;
+    case 48: N265_2D_ROWS(48); return;
+    case 64: N265_2D_ROWS(64); return;
+    default: N265_2D_ROWS((size_t)w); return;
+    }
 }
 
 void n265_mc_luma_hf(uint8_t *dst, int ds, int w, int h,

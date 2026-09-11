@@ -432,15 +432,22 @@ uint32_t n265_mc_sad(struct n265_frame_work *e, int list, int ridx, int x0, int 
          * bound serves both arms. */
         int need = n265_ref_wait(e, ref, iy + h + 4);
         const int16_t *hf = n265_ref_hf(ref, ix, iy, w, h, mv.x & 3);
-        N265_REF_GUARD(e, ref, need, 0, n265_ref_hf_base(ref, mv.x & 3));
-        uint8_t win[N265_REF_WIN_BYTES];
-        int ws, wclip;
-        const uint8_t *rp = n265_ref_win(ref->plane[0], ref->stride[0],
-                                         e->pad_w, e->pad_h, N265_REF_PAD,
-                                         ix, iy, w, h, 3, 4, win, &ws,
-                                         &wclip);
-        n265_mc_luma_hf(pred, w, w, h, rp, ws, wclip ? NULL : hf,
-                        ref->hf_stride, mv.x & 3, mv.y & 3);
+        const uint8_t *p2 = n265_ref_2d(ref, ix, iy, w, h, mv.x & 3,
+                                        mv.y & 3);
+        N265_REF_GUARD2(e, ref, need, 0, n265_ref_hf_base(ref, mv.x & 3),
+                        n265_ref_2d_base(ref, mv.x & 3, mv.y & 3));
+        if (p2) {
+            n265_mc_luma_2d(pred, w, w, h, p2, ref->hf2_stride);
+        } else {
+            uint8_t win[N265_REF_WIN_BYTES];
+            int ws, wclip;
+            const uint8_t *rp = n265_ref_win(ref->plane[0], ref->stride[0],
+                                             e->pad_w, e->pad_h,
+                                             N265_REF_PAD, ix, iy, w, h,
+                                             3, 4, win, &ws, &wclip);
+            n265_mc_luma_hf(pred, w, w, h, rp, ws, wclip ? NULL : hf,
+                            ref->hf_stride, mv.x & 3, mv.y & 3);
+        }
         N265_REF_UNGUARD();
         return n265_sad_wh(src, e->pad_stride[0], pred, w, w, h);
     }
@@ -469,14 +476,21 @@ static uint32_t mc_satd(struct n265_frame_work *e, int list, int ridx, int x0, i
     int ix = x0 + (mv.x >> 2), iy = y0 + (mv.y >> 2);
     int need = n265_ref_wait(e, ref, iy + h + 4);   /* G2 entry point */
     const int16_t *hf = n265_ref_hf(ref, ix, iy, w, h, mv.x & 3);
-    N265_REF_GUARD(e, ref, need, 0, n265_ref_hf_base(ref, mv.x & 3));
-    uint8_t win[N265_REF_WIN_BYTES];
-    int ws, wclip;
-    const uint8_t *rp = n265_ref_win(ref->plane[0], ref->stride[0],
-                                     e->pad_w, e->pad_h, N265_REF_PAD,
-                                     ix, iy, w, h, 3, 4, win, &ws, &wclip);
-    n265_mc_luma_hf(pred, w, w, h, rp, ws, wclip ? NULL : hf,
-                    ref->hf_stride, mv.x & 3, mv.y & 3);
+    const uint8_t *p2 = n265_ref_2d(ref, ix, iy, w, h, mv.x & 3, mv.y & 3);
+    N265_REF_GUARD2(e, ref, need, 0, n265_ref_hf_base(ref, mv.x & 3),
+                    n265_ref_2d_base(ref, mv.x & 3, mv.y & 3));
+    if (p2) {
+        n265_mc_luma_2d(pred, w, w, h, p2, ref->hf2_stride);
+    } else {
+        uint8_t win[N265_REF_WIN_BYTES];
+        int ws, wclip;
+        const uint8_t *rp = n265_ref_win(ref->plane[0], ref->stride[0],
+                                         e->pad_w, e->pad_h, N265_REF_PAD,
+                                         ix, iy, w, h, 3, 4, win, &ws,
+                                         &wclip);
+        n265_mc_luma_hf(pred, w, w, h, rp, ws, wclip ? NULL : hf,
+                        ref->hf_stride, mv.x & 3, mv.y & 3);
+    }
     N265_REF_UNGUARD();
     return n265_satd_wh(src, e->pad_stride[0], pred, w, w, h);
 }
