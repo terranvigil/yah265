@@ -158,18 +158,32 @@ static void last_pos_tables(const cabac_ctx_t *ctx, int log2n, int c_idx,
     }
     int base[2] = { CTX_LAST_X, CTX_LAST_Y };
     uint32_t *out[2] = { bx, by };
-    for (int d = 0; d < 2; d++)
-        for (int v = 0; v < n; v++) {
-            int g = group_idx(v);
-            uint32_t bits = 0;
-            for (int i = 0; i < g; i++)
-                bits += bin_cost(&ctx[base[d] + ctx_off + (i >> ctx_shift)], 1);
-            if (g < cmax)
-                bits += bin_cost(&ctx[base[d] + ctx_off + (g >> ctx_shift)], 0);
+    for (int d = 0; d < 2; d++) {
+        /* A position's cost depends on v only through group_idx(v), and
+         * the prefix part of group g is the same sum group g+1 pays plus
+         * one more bin - a running total, not a fresh inner loop. Build
+         * the cmax+1 group costs once and read one per position: O(n +
+         * cmax) bin_cost calls for what used to be O(n * cmax), same
+         * arithmetic in the same order within each sum. cmax is 2*log2n-1,
+         * so 9 at 32x32. */
+        uint32_t tab[10];
+        uint32_t run = 0;       /* sum of the '1' prefix bins below g */
+
+        for (int g = 0; g <= cmax; g++) {
+            uint32_t bits = run;
+            if (g < cmax) {
+                const cabac_ctx_t *c =
+                    &ctx[base[d] + ctx_off + (g >> ctx_shift)];
+                bits += bin_cost(c, 0);
+                run += bin_cost(c, 1);
+            }
             if (g > 3)
                 bits += (uint32_t)((g >> 1) - 1) << 8;
-            out[d][v] = bits;
+            tab[g] = bits;
         }
+        for (int v = 0; v < n; v++)
+            out[d][v] = tab[group_idx(v)];
+    }
 }
 
 /* Sign-bit hiding decided by RD instead of by rule (N265_SBH_RD).
@@ -607,18 +621,22 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
     if (best_s < 0 || all_zero <= best_total * (1.0 + decimate / 100.0))
         return 0;
 
-    /* write the levels: everything after the chosen last is zero */
-    int nz = 0, past = 1;
-    for (int s = last_s; s >= 0; s--) {
+    /* write the levels. Everything after the chosen last is zero, and
+     * `level` has been zero since the memset after pass 1 and `keep` since
+     * its own; the walk therefore starts AT (best_s, best_c) instead of at
+     * (last_s, last_c), and the stretch between them - which on a block
+     * the last-position pass cuts hard is most of it - is skipped rather
+     * than rewritten with the values it already holds. */
+    int nz = 0;
+    for (int s = best_s; s >= 0; s--) {
         int sx = (sb_scan[s] & 15) << 2, sy = (sb_scan[s] >> 4) << 2;
-        int start_c = (s == last_s) ? last_c : 15;
+        int start_c = (s == best_s) ? best_c : 15;
         for (int c = start_c; c >= 0; c--) {
             int x = sx + (co_scan[c] & 15), y = sy + (co_scan[c] >> 4);
             int i = y * n + x;
-            if (s == best_s && c == best_c) past = 0;
-            int l = past ? 0 : lsel[i];
+            int l = lsel[i];
             level[i] = (int16_t)(coef[i] < 0 ? -l : l);
-            keep[i] = !past;
+            keep[i] = 1;
             nz += l != 0;
         }
     }

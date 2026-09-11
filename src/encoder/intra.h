@@ -43,16 +43,24 @@ void n265_filter_refs(uint8_t *out, const uint8_t *in, int log2n);
 /* Whether mode/size/component uses the filtered references. */
 int n265_use_filtered_refs(int mode, int log2n, int c_idx);
 
-/* The C references the three entry points above dispatch away from, and
- * what checkasm holds the NEON to. The entry points are a branch and a
- * tail call; these three carry the spec text, so a reader after the
- * algorithm reads them and not the dispatcher. Keeping them exported is
- * also what stops the harness from becoming a tautology: with
- * N265_ASM_OFF=intra the entry point IS the reference, and a check
- * written against the entry point would then compare C against itself. */
+/* The C references the entry points above dispatch away from, and what
+ * checkasm holds the NEON to. The entry points are a branch and a tail
+ * call; these carry the spec text, so a reader after the algorithm reads
+ * them and not the dispatcher. Keeping them exported is also what stops
+ * the harness from becoming a tautology: with N265_ASM_OFF=intra the
+ * entry point IS the reference, and a check written against the entry
+ * point would then compare C against itself.
+ *
+ * n265_intra_refs is the exception - it has no NEON arm, because the win
+ * over the spec's per-candidate availability test is a prefix search and
+ * not a vector one. Its oracle is n265_intra_refs_spec below, which is
+ * the spec walked literally and is called by nothing but checkasm. */
 void n265_intra_refs_ref(uint8_t *refs, const uint8_t *recon, int stride,
                          int x0, int y0, int log2n,
                          int pic_w, int pic_h, int ctb_log2);
+void n265_intra_refs_spec(uint8_t *refs, const uint8_t *recon, int stride,
+                          int x0, int y0, int log2n,
+                          int pic_w, int pic_h, int ctb_log2);
 void n265_filter_refs_ref(uint8_t *out, const uint8_t *in, int log2n);
 void n265_intra_pred_ref(uint8_t *dst, int dst_stride, const uint8_t *refs,
                          int log2n, int mode, int c_idx);
