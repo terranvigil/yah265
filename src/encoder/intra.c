@@ -5,14 +5,12 @@
 
 #include <string.h>
 
+#include "common/cpu.h"
 #include "encoder/intra.h"
+#include "encoder/arm/neon.h"   /* self-guarded */
 
 static inline int abs_int(int v) { return v < 0 ? -v : v; }
 
-/* z-scan order key at 4x4 granularity: CTB raster index in the high bits,
- * interleaved in-CTB coordinates below. pic_w is the padded width the CTB
- * grid spans. */
-uint64_t n265_zorder(int x, int y, int pic_w, int ctb_log2);
 uint64_t n265_zorder(int x, int y, int pic_w, int ctb_log2)
 {
     int ctb_cols = (pic_w + (1 << ctb_log2) - 1) >> ctb_log2;
@@ -25,9 +23,9 @@ uint64_t n265_zorder(int x, int y, int pic_w, int ctb_log2)
     return ((uint64_t)(cy * ctb_cols + cx) << (2 * (ctb_log2 - 2))) | z;
 }
 
-void n265_intra_refs(uint8_t *refs, const uint8_t *recon, int stride,
-                     int x0, int y0, int log2n,
-                     int pic_w, int pic_h, int ctb_log2)
+void n265_intra_refs_ref(uint8_t *refs, const uint8_t *recon, int stride,
+                         int x0, int y0, int log2n,
+                         int pic_w, int pic_h, int ctb_log2)
 {
     int n = 1 << log2n;
     int total = 4 * n + 1;
@@ -89,6 +87,21 @@ void n265_intra_refs(uint8_t *refs, const uint8_t *recon, int stride,
         refs[i] = (uint8_t)val[i];
 }
 
+void n265_intra_refs(uint8_t *refs, const uint8_t *recon, int stride,
+                     int x0, int y0, int log2n,
+                     int pic_w, int pic_h, int ctb_log2)
+{
+#if N265_NEON
+    if (n265_asm_on(N265_ASM_INTRA)) {
+        n265_intra_refs_neon(refs, recon, stride, x0, y0, log2n,
+                             pic_w, pic_h, ctb_log2);
+        return;
+    }
+#endif
+    n265_intra_refs_ref(refs, recon, stride, x0, y0, log2n,
+                        pic_w, pic_h, ctb_log2);
+}
+
 void n265_pred_dc(uint8_t *dst, int dst_stride, const uint8_t *refs,
                   int log2n, int filter_edges)
 {
@@ -113,7 +126,7 @@ void n265_pred_dc(uint8_t *dst, int dst_stride, const uint8_t *refs,
     }
 }
 
-void n265_filter_refs(uint8_t *out, const uint8_t *in, int log2n)
+void n265_filter_refs_ref(uint8_t *out, const uint8_t *in, int log2n)
 {
     int n = 1 << log2n;
     /* strong smoothing (8.4.4.2.3, enabled in the SPS): for 32x32 luma
@@ -149,6 +162,17 @@ void n265_filter_refs(uint8_t *out, const uint8_t *in, int log2n)
     for (int i = 2 * n + 2; i < 4 * n; i++)
         out[i] = (uint8_t)((in[i - 1] + 2 * in[i] + in[i + 1] + 2) >> 2);
     out[4 * n] = in[4 * n];
+}
+
+void n265_filter_refs(uint8_t *out, const uint8_t *in, int log2n)
+{
+#if N265_NEON
+    if (n265_asm_on(N265_ASM_INTRA)) {
+        n265_filter_refs_neon(out, in, log2n);
+        return;
+    }
+#endif
+    n265_filter_refs_ref(out, in, log2n);
 }
 
 int n265_use_filtered_refs(int mode, int log2n, int c_idx)
@@ -208,8 +232,17 @@ static void pred_angular(uint8_t *dst, int stride, const uint8_t *refs,
             r[i] = top[i];
         if (angle < 0) {
             /* spec ref[x] = p[-1][-1+((x*invAngle+128)>>8)]; our r[i] is
-             * spec ref[i+1] */
-            int last = ((n * angle) >> 5) - 1;
+             * spec ref[i+1]. The projection is needed down to r[last],
+             * which is the smallest index the row loop below reads
+             * (idx is smallest at y = n-1); the spec's own range runs one
+             * further, and that one entry is dead. Writing it anyway cost
+             * a read of left[15] at 4x4 in modes 11 and 25, eight bytes
+             * past the 4n+1 references the caller declares - harmless in
+             * the encoder, where the buffer is always the full 129 bytes
+             * and the value is discarded, but a genuine overread and one
+             * the checkasm page guard fires on. Output is unchanged
+             * either way: the entry is never read. */
+            int last = (n * angle) >> 5;
             for (int i = -2; i >= last; i--)
                 r[i] = left[(((i + 1) * inv_angle[mode] + 128) >> 8) - 1];
         }
@@ -230,7 +263,7 @@ static void pred_angular(uint8_t *dst, int stride, const uint8_t *refs,
         for (int i = 0; i < 2 * n; i++)
             r[i] = left[i];
         if (angle < 0) {
-            int last = ((n * angle) >> 5) - 1;
+            int last = (n * angle) >> 5;
             for (int i = -2; i >= last; i--)
                 r[i] = top[(((i + 1) * inv_angle[mode] + 128) >> 8) - 1];
         }
@@ -249,8 +282,8 @@ static void pred_angular(uint8_t *dst, int stride, const uint8_t *refs,
     }
 }
 
-void n265_intra_pred(uint8_t *dst, int dst_stride, const uint8_t *refs,
-                     int log2n, int mode, int c_idx)
+void n265_intra_pred_ref(uint8_t *dst, int dst_stride, const uint8_t *refs,
+                         int log2n, int mode, int c_idx)
 {
     if (mode == INTRA_PLANAR)
         pred_planar(dst, dst_stride, refs, log2n);
@@ -258,4 +291,26 @@ void n265_intra_pred(uint8_t *dst, int dst_stride, const uint8_t *refs,
         n265_pred_dc(dst, dst_stride, refs, log2n, c_idx == 0);
     else
         pred_angular(dst, dst_stride, refs, log2n, mode, c_idx);
+}
+
+void n265_intra_pred(uint8_t *dst, int dst_stride, const uint8_t *refs,
+                     int log2n, int mode, int c_idx)
+{
+#if N265_NEON
+    /* Everything except one shape. An angular mode of 18 or above walks
+     * the block in rows, which is what clang already auto-vectorises the
+     * C reference into, and at 8x8 the kernel's projected-reference setup
+     * is not amortised over the 64 samples: 0.92-0.97x, against 1.7-1.9x
+     * at 4x4 (the whole block is one q-register there), parity at 16x16
+     * and 1.10x at 32x32. Below 18 the C walks COLUMNS - a scattered byte
+     * store per sample - and the kernel writes rows into a scratch block
+     * and transposes it in 8x8 tiles, which is 2.1x at 8x8 rising to
+     * 5.8x at 32x32. Both paths are bit-exact, so the predicate moves
+     * time and nothing else. */
+    if (!(mode >= 18 && log2n == 3) && n265_asm_on(N265_ASM_INTRA)) {
+        n265_intra_pred_neon(dst, dst_stride, refs, log2n, mode, c_idx);
+        return;
+    }
+#endif
+    n265_intra_pred_ref(dst, dst_stride, refs, log2n, mode, c_idx);
 }

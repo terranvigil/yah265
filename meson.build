@@ -62,6 +62,7 @@ if cpu_family == 'aarch64'
     'src/encoder/arm/mc_neon.c',
     'src/encoder/arm/rdoq_neon.c',
     'src/encoder/arm/cost_neon.c',
+    'src/encoder/arm/intra_neon.c',
   ]
 endif
 
