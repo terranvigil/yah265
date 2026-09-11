@@ -44,17 +44,19 @@ static const struct kv fast_tab[] = {
      * return the value the default would have returned anyway. They
      * stay: a preset table says what the preset IS, not how it differs
      * from whatever medium happens to be this month, and a redundant
-     * entry costs one string compare. What fast still adds over the
-     * placed medium is SKIP_EXIT=1, INTRA_GATE=2, NO_RECT, SBH_RD=0 and
-     * `--ctu 32` in fast_par - and SKIP_EXIT is an arm the placement
-     * measured and refused AT MEDIUM's operating point, not everywhere.
+     * entry costs one string compare. Step 4 made NO_RECT a default
+     * too, so what fast still adds over the placed medium is
+     * SKIP_EXIT=1, INTRA_GATE=2, RECT_FLAT=0, SBH_RD=0 and `--ctu 32`
+     * in fast_par - and SKIP_EXIT is an arm the placement measured and
+     * refused AT MEDIUM's operating point, not everywhere.
      *
      * fast inherits two defaults it does not name: `N265_PART_GATE=2`
      * from step 2 and `N265_RECT_RANK=50` from step 3. Both are inert
      * under NO_RECT by construction - one gates entry to the
      * rectangular trials and the other ranks them, and NO_RECT deletes
      * both - and the cmp of `--preset fast` against the pre-placement
-     * binary proves that rather than arguing it. */
+     * binary proves that rather than arguing it. That cmp is also what
+     * `N265_RECT_FLAT=0` below keeps true. */
     /* the gates the ladder priced and held: each one costs BD at OUR
      * operating point and each buys more time per point than any tool
      * drop below it */
@@ -72,6 +74,15 @@ static const struct kv fast_tab[] = {
      * encode for 4.5 mean BD - the best block trade on the ladder */
     { "N265_NO_RECT",    "1" },
     { "N265_NO_AMP",     "1" },
+    /* ...and since step 4 medium HAS `NO_RECT`, what fast adds here is
+     * the ABSENCE of the flat-shaded exception. fast is the speed end
+     * and its own board columns (`our_fps_fast`,
+     * `bd_rate_vmafneg_fast_pct`) are charted at every milestone; the
+     * exception is worth 1.18x of the animation clips' wall there, so
+     * turning it on in fast is a quality change wanting its own band
+     * read and is not step 4's to make. Naming 0 is what keeps
+     * `--preset fast` byte-identical across step 4. */
+    { "N265_RECT_FLAT",  "0" },
     /* the last points to the iso-quality line. RDOQ itself stays on:
      * turning the lattice off is 17.6 BD points for 21% of the time,
      * where the RD-decided sign-bit hiding on top of it is 6.9 points
@@ -93,9 +104,10 @@ static const struct kv fast_tab[] = {
  * down the economy ladder spent 1.02 points of CQP and 2.53 of CRF band
  * median for 1.336x the single-thread wall, and step 3 re-walked it two
  * rungs further once the animation item paid for the fare - another
- * 1.94 CQP / 2.24 CRF for 1.151x, eight knobs in total. The encoder
- * that was medium is worth keeping reachable, so slow names the OLD
- * medium value of every knob either step moved. **`--preset slow` is
+ * 1.94 CQP / 2.24 CRF for 1.151x, eight knobs in total, and step 4 took
+ * the rectangular block itself for a ninth. The encoder that was medium
+ * is worth keeping reachable, so slow names the OLD medium value of
+ * every knob any of the three steps moved. **`--preset slow` is
  * the phase-5-exit medium, byte for byte** at the same structural flags
  * (verified by cmp of bitstream and --dump-recon on foreman_cif,
  * mobile_cif and park_joy_720p, CQP and CRF, against the pre-6b
@@ -103,7 +115,7 @@ static const struct kv fast_tab[] = {
  * it always was.
  *
  * Order follows the ladder in docs/phase6b-economy.md: step 2's six,
- * then step 3's two. */
+ * then step 3's two, then step 4's one. */
 static const struct kv slow_tab[] = {
     { "N265_CB64_AMVP",  "1" },   /* the 64x64 AMVP arm back on        */
     { "N265_RSKIP",      "0" },   /* recursion never stopped early     */
@@ -113,6 +125,11 @@ static const struct kv slow_tab[] = {
     { "N265_PART_GATE",  "0" },   /* rect entered unconditionally      */
     { "N265_RECT_RANK",  "0" },   /* both orientations fully searched  */
     { "N265_SUBME",      "0" },   /* the two-round subpel ladder       */
+    { "N265_NO_RECT",    "0" },   /* step 4: the rectangular splits on
+                                   * every frame, not the flat-typed
+                                   * ones alone. N265_RECT_FLAT needs no
+                                   * entry - it is inert wherever rect
+                                   * is already on                     */
     { NULL, NULL }
 };
 

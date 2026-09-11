@@ -735,6 +735,10 @@ void n265_scratch_free(struct n265_scratch *sc);
  * context, re-points the row-private storage, and seeds the estimator
  * contexts from the frame's carry-over state. */
 void n265_row_begin(n265_row_ctx *row, n265_frame_work *fw, int r);
+/* N265_RECT_FLAT (ctu.c): whether a flat-typed frame keeps the
+ * rectangular inter partitions where N265_NO_RECT deletes them
+ * everywhere else. Read on the driver, in dispatch_frame. */
+int n265_rect_flat(void);
 /* per-file knob warming, on the driver at open (T0 audit item 2) */
 void n265_encoder_warm(void);
 void n265_ctu_warm(void);

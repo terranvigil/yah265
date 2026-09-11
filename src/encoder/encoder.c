@@ -645,13 +645,20 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      *
      * N265_NO_AMP DEFAULTS TO 1 since 2026-09-11 (phase 6b): the
      * asymmetric orientations are 1.083x on the NEON binary for +0.18
-     * CQP / +0.76 CRF of band median, and medium is placed at an
-     * explicit quality budget now. Rect stays on at medium - dropping
-     * it too is 1.349x for +2.11 / +3.98, which spends the budget on
-     * one arm. `--preset slow` sets N265_NO_AMP=0 and gets AMP back;
-     * `--preset fast` still names both. */
+     * CQP / +0.76 CRF of band median.
+     *
+     * N265_NO_RECT DEFAULTS TO 1 since 2026-09-11 (phase 6b step 4).
+     * The rectangular block is the largest single economy left on the
+     * ladder - 1.303x at one thread and 1.346x at auto - for +1.47 CQP
+     * / +2.17 CRF of CIF-7 band median, which the budget covers. Step 3
+     * refused it on `sita_flat_720p` alone, where it cost 3.91 points
+     * of CQP BD and took the clip behind x265; that clip is flat-shaded
+     * animation, and on flat-shaded animation a CU on a drawn outline
+     * IS two motion fields, so the exception is N265_RECT_FLAT (ctu.c)
+     * and not a retreat. `--preset slow` sets N265_NO_RECT=0 and is the
+     * phase-5-exit medium; `--preset fast` still names it. */
     { const char *v = n265_env("N265_NO_RECT");
-      e->rect = e->mode != N265_MODE_PCM && !(v && atoi(v) != 0); }
+      e->rect = e->mode != N265_MODE_PCM && !(v ? atoi(v) != 0 : 1); }
     { const char *v = n265_env("N265_NO_AMP");
       e->amp = e->rect && !(v ? atoi(v) != 0 : 1); }
     e->ctb_log2 = e->mode == N265_MODE_PCM ? 4 : g_ctb_log2;
@@ -1868,6 +1875,17 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
     fw->flat_pct = n265_flat_gate() ? n265_la_flat_pct(fw) : 0;
     fw->flat = n265_flat_gate() && fw->flat_pct >= n265_flat_gate();
     fw->sao_mask = fw->mode == N265_MODE_PCM ? 0 : n265_sao_frame_mask(fw);
+    /* N265_RECT_FLAT (ctu.c): the second tool that reads the type. Both
+     * branches are written, because a frame_work is pooled and fw_config
+     * ran once. */
+    fw->rect = e->rect || (fw->mode != N265_MODE_PCM && fw->flat &&
+                           n265_rect_flat() != 0);
+    /* N265_FLAT_TRACE (diagnostic, output-neutral): the per-frame
+     * content type, which is what a clip-level census of the gate is
+     * read off. */
+    if (n265_env("N265_FLAT_TRACE"))
+        fprintf(stderr, "FLT,%d,%d,%d,%d,%d\n", fw->display_idx,
+                fw->slice_type, fw->flat_pct, fw->flat, fw->rect);
     if (fw->mode != N265_MODE_PCM) {
         memset(fw->edge_map, 0, (size_t)fw->map_stride * (fw->pad_h >> 2));
         memset(fw->blk_intra, 0, (size_t)fw->map_stride * (fw->pad_h >> 2));

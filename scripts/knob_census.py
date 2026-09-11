@@ -73,7 +73,9 @@ DEFAULT_OVERRIDES = {
     # `!(v ? atoi(v) != 0 : D)`, where D is not the last number on the
     # line. AMP is OFF by default since the phase 6b placement and a
     # census that renders it "?" hides the biggest of the new defaults.
-    "N265_NO_RECT": "0",                 # rect on
+    "N265_NO_RECT": "1",                 # rect off since step 4, except
+                                         # on a flat-typed frame - the
+                                         # exception is N265_RECT_FLAT
     "N265_NO_AMP": "1",                  # AMP off (phase 6b)
 }
 

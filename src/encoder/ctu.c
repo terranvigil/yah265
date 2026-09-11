@@ -808,6 +808,41 @@ static int rect_rank(void)
     return v;
 }
 
+/* N265_RECT_FLAT: keep 2NxN/Nx2N on a frame the content gate typed
+ * flat-shaded (la.h) even where N265_NO_RECT deletes them everywhere
+ * else. Read once per frame on the driver (dispatch_frame), so the
+ * answer is frozen before a row job exists and is the same at every
+ * thread count; AMP is NOT brought back with it, since N265_NO_AMP
+ * stays whatever the preset said. 1 ships with the step 4 default;
+ * 0 is plain `N265_NO_RECT=1` with no exception.
+ *
+ * The type is what makes this an exception rather than a retreat. On
+ * flat-shaded animation a CU on a drawn outline is literally two motion
+ * fields - the line and the fill it crosses - and that is the one
+ * population a two-PU split was invented for, while the fills either
+ * side of it are skips that cost the trial nothing. Everywhere else on
+ * the corpus the fills' own motion is the CU's motion and the split has
+ * nothing to explain, which is why `NO_RECT` is 1.303x for 1.47 points
+ * of CIF-7 median there and 3.91 points on `sita_flat_720p` alone.
+ *
+ * The gate is the animation item's, unchanged and re-read here: over
+ * the fifteen-clip corpus at 120 frames it fires on 120/120 frames of
+ * all three animation clips (per-frame flat share 45-100 on sintel,
+ * 54-89 on sita_flat, 13-26 on sita_toon) and on 0/120 of every natural
+ * clip, the closest being foreman at 6. So this exception costs nothing
+ * on twelve of fifteen clips and hands the other three the pre-step-4
+ * medium exactly, byte for byte (docs/phase6b-economy.md, step 4's
+ * identity table - it is proved by cmp, not argued from the gate). */
+int n265_rect_flat(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_RECT_FLAT");
+        v = s ? atoi(s) : 1;
+    }
+    return v;
+}
+
 /* Which way a two-PU split would cut, read off the 2Nx2N winner's own
  * residual. A CU that wants a horizontal boundary carries a residual
  * whose energy varies down the rows and not across the columns, because
@@ -3514,7 +3549,8 @@ void n265_ctu_warm(void)
     (void)skip_thr8(); (void)es_thr_pct(); (void)rskip_mode();
     (void)cbf_fast(); (void)gate_scale(); (void)skip_exit();
     (void)intra_gate(); (void)intra_pf_q8(); (void)part_gate();
-    (void)part_amp_margin(); (void)rect_rank(); (void)depth_bound();
+    (void)part_amp_margin(); (void)rect_rank(); (void)n265_rect_flat();
+    (void)depth_bound();
     (void)depth_bound_widen(); (void)depth_bound_local();
     (void)depth_bound_ctb_skip(); (void)mvd_bits_on(); (void)me_satd_on();
     (void)cb64_gate(); (void)cb64_amvp(); (void)b_intra_margin();
