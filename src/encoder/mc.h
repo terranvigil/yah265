@@ -42,6 +42,13 @@ void n265_mc_chroma_14_wh_ref(int16_t *dst, int dst_stride, int w, int h,
  * intermediates are the identical int16 values the plain path builds, so
  * the output is bit-identical either way. `hf` is read from 3 rows above
  * to 4 rows below the block. */
+/* Phase 6 round 3: the block is already in the reference's fy = 2 plane,
+ * so the "filter" is a copy. Its own entry point rather than an argument
+ * to n265_mc_luma_hf: the caller has already decided, and the hf entry
+ * point is the hottest call in the encoder. */
+void n265_mc_luma_2d(uint8_t *dst, int dst_stride, int w, int h,
+                     const uint8_t *p2, int p2_stride);
+
 void n265_mc_luma_hf(uint8_t *dst, int dst_stride, int w, int h,
                      const uint8_t *ref, int ref_stride,
                      const int16_t *hf, int hf_stride, int fx, int fy);

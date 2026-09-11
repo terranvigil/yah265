@@ -868,6 +868,8 @@ void n265_encoder_close(n265_encoder *e)
 #endif
         for (int i = 0; i < 3; i++)
             free(e->dpb[sl].hf_base[i]);
+        for (int i = 0; i < 12; i++)
+            free(e->dpb[sl].hf2_base[i]);
     }
     n265_la_free(e);
     free(e->out);
@@ -1001,6 +1003,45 @@ static int hf_cache_on(void)
     return on;
 }
 
+/* Phase 6 round 3: finish the phase plane while the reference is being
+ * published, so that every uni candidate landing on a cached phase
+ * copies instead of running the vertical 8-tap. The round-3 census
+ * (docs/phase6-neon.md) counted 0.2 to 67 touches per cached pixel
+ * depending on clip and preset, against a break-even near 1.05 once the
+ * copy that replaces the filter is a load and a store. The fy = 2 row is
+ * the part that clears that bar on every clip measured, and it is what
+ * ships. Caching every fy is worth a further 1.12-1.20x at --preset
+ * medium and is HELD, because the fill is a fixed twelve passes per
+ * reference while the traffic that amortises it is content and not
+ * geometry: sita_flat_720p serves 149 M samples against 226 M of fill
+ * and reads 0.975x. Choosing per reference wants a measurement the
+ * encoder does not take yet. N265_HF2=0 is the A/B arm and nothing
+ * else: every value writes the same bytes. Off with the E1 cache, which
+ * three planes in four are filtered from.
+ *
+ * One u8 plane of the padded picture per cached phase: at four, 0.8 MB
+ * per reference at CIF, 4.7 at 720p, 9.9 at 1080p - against the 6 bytes
+ * per padded pixel E1 already spends on its three int16 planes. Above
+ * the cap the cache turns itself off rather than trade a working set for
+ * a copy. */
+#define N265_HF2_MAX_BYTES (48u << 20)
+
+/* Which of the twelve fractional-fy planes to build, as a bit per plane
+ * in the (fy - 1) * 4 + fx order the refpic stores them in. 1, the
+ * default, is the fy = 2 row alone (planes 4..7); 2 is every fractional
+ * fy, the arm held above; 0 is off. */
+static unsigned hf2_mask(void)
+{
+    static int m = -1;      /* an int with the -1 sentinel every other
+                             * gate uses, so env_gate_audit.py sees it */
+    if (m < 0) {
+        const char *v = n265_env("N265_HF2");
+        int k = v ? atoi(v) : 1;
+        m = k <= 0 ? 0 : k == 1 ? 0x0f0 : 0xfff;
+    }
+    return (unsigned)m;
+}
+
 /* Arm the cache on a freshly claimed slot: the buffers and the region it
  * covers. Nothing is filled here - G4 makes the fill per row, inside the
  * publish task, so that a row's cache exists before final_rows advances
@@ -1011,10 +1052,14 @@ static void hf_arm(n265_encoder *e, struct n265_refpic *r)
 {
     for (int i = 0; i < 3; i++)
         r->hf[i] = NULL;
+    for (int i = 0; i < 12; i++)
+        r->hf2[i] = NULL;
     if (!hf_cache_on())
         return;
     int w = e->pad_w + 2 * N265_HF_PAD, h = e->pad_h + 2 * N265_HF_PAD;
     r->hf_stride = w;
+    r->hf2_stride = w;      /* set even when the 2-D planes do not arm:
+                             * n265_ref_guard reads it unconditionally */
     for (int i = 0; i < 3; i++) {
         if (!r->hf_base[i]) {
             r->hf_base[i] = malloc((size_t)w * h * sizeof(int16_t));
@@ -1030,6 +1075,31 @@ static void hf_arm(n265_encoder *e, struct n265_refpic *r)
     r->hf_x1 = e->pad_w + N265_HF_PAD;
     r->hf_y0 = -N265_HF_PAD;
     r->hf_y1 = e->pad_h + N265_HF_PAD;
+
+    unsigned mask = hf2_mask();
+    if (!mask || (uint64_t)w * h * (unsigned)__builtin_popcount(mask)
+                     > N265_HF2_MAX_BYTES)
+        return;
+    for (int i = 0; i < 12; i++) {
+        if (!(mask & (1u << i)))
+            continue;
+        if (!r->hf2_base[i]) {
+            r->hf2_base[i] = malloc((size_t)w * h);
+            if (!r->hf2_base[i]) {   /* no cache is a slow path, not a fail */
+                for (int k = 0; k < 12; k++)
+                    r->hf2[k] = NULL;
+                return;
+            }
+        }
+        r->hf2[i] = r->hf2_base[i] + N265_HF_PAD * w + N265_HF_PAD;
+    }
+    /* Three rows short at the top and four at the bottom of hf[]'s
+     * region: those are the lines the vertical filter reads, and there
+     * is nothing above -N265_HF_PAD to read. */
+    r->hf2_x0 = -N265_HF_PAD;
+    r->hf2_x1 = e->pad_w + N265_HF_PAD;
+    r->hf2_y0 = -N265_HF_PAD + 3;
+    r->hf2_y1 = e->pad_h + N265_HF_PAD - 4;
 }
 
 /* The E1 cache for the luma lines CTB row r owns, plus the padding rows
@@ -1058,6 +1128,34 @@ static void hf_fill_rows(n265_frame_work *fw, struct n265_refpic *r, int cy,
          * wrapped result addresses the right sample. */
         n265_mc_luma_hplane(r->hf[i] + (ptrdiff_t)y0 * w - N265_HF_PAD, w,
                             w, y1 - y0, src, rs, i + 1);
+    /* Round 3's vertical half, lagged four lines behind the horizontal
+     * one. Output line y wants source lines y-3..y+4 and this call has
+     * just reached line y1 - 1, so the rows that can be finished now end
+     * at y1 - 4; line y therefore publishes with the CTB row that
+     * contains y + 4. Every reader already waits for iy + h + 4 before
+     * it looks (the 8-tap's own bound, E1's too), which is exactly the
+     * row that finished line iy + h - 1 - and n265_ref_guard's
+     * `lastl - 4` proves it from the other end under N265_REF_CHECK. */
+    {
+        int g0 = cy == 0 ? -N265_HF_PAD + 3 : y0 - 4;
+        int g1 = y1 - 4;
+        if (g1 > g0) {
+            ptrdiff_t off = (ptrdiff_t)g0 * w - N265_HF_PAD;
+            for (int i = 0; i < 12; i++) {
+                if (!r->hf2[i])
+                    continue;
+                int fx = i & 3, fy = (i >> 2) + 1;
+                if (!fx)    /* no horizontal stage to reuse: straight u8 */
+                    n265_mc_luma_wh(r->hf2[i] + off, w, w, g1 - g0,
+                                    r->plane[0] + (ptrdiff_t)g0 * rs
+                                        - N265_HF_PAD, rs, 0, fy);
+                else
+                    n265_mc_luma_hf(r->hf2[i] + off, w, w, g1 - g0,
+                                    r->plane[0], rs, r->hf[fx - 1] + off, w,
+                                    fx, fy);
+            }
+        }
+    }
     N265_REF_UNGUARD();
 }
 
@@ -1894,14 +1992,15 @@ static int min_keyint_env(void)
     return v;
 }
 
-/* This file's own three cached knobs. The others are warmed per-file
+/* This file's own four cached knobs. The others are warmed per-file
  * above; these sit between a driver-side caller and a worker-side one
  * (hf_arm runs under the publish task), so they get the same treatment.
  * Defined here because min_keyint_env is, and declared in encoder.h so
  * n265_encoder_open can call it beside the rest. */
 void n265_encoder_warm(void)
 {
-    (void)dpb_hold(); (void)hf_cache_on(); (void)min_keyint_env();
+    (void)dpb_hold(); (void)hf_cache_on(); (void)hf2_mask();
+    (void)min_keyint_env();
 }
 
 static int min_keyint(n265_encoder *e)
