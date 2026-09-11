@@ -237,6 +237,32 @@ void n265_mc_luma_2d(uint8_t *dst, int ds, int w, int h,
     }
 }
 
+/* Round 4: the same copy out of the int16 plane, for the bi path. Twice
+ * the bytes per row, so the constant lengths are 2 * w; the reason for
+ * the switch is round 3's, that a memcpy whose length the compiler
+ * cannot see is a call into libc's general mover. */
+#define N265_2D_ROWS14(n)                                                \
+    for (int y = 0; y < h; y++)                                          \
+        memcpy(dst + (ptrdiff_t)y * ds, p2 + (ptrdiff_t)y * ps, (n))
+
+void n265_mc_luma_2d_14(int16_t *dst, int ds, int w, int h,
+                        const int16_t *p2, int ps)
+{
+    N265_RC_TOUCH16_P2(p2);
+    N265_RC_TOUCH16_P2(p2 + (ptrdiff_t)(h - 1) * ps);
+    switch (w) {
+    case 4:  N265_2D_ROWS14(8);   return;
+    case 8:  N265_2D_ROWS14(16);  return;
+    case 12: N265_2D_ROWS14(24);  return;
+    case 16: N265_2D_ROWS14(32);  return;
+    case 24: N265_2D_ROWS14(48);  return;
+    case 32: N265_2D_ROWS14(64);  return;
+    case 48: N265_2D_ROWS14(96);  return;
+    case 64: N265_2D_ROWS14(128); return;
+    default: N265_2D_ROWS14((size_t)w * 2); return;
+    }
+}
+
 void n265_mc_luma_hf(uint8_t *dst, int ds, int w, int h,
                      const uint8_t *ref, int ref_stride,
                      const int16_t *hf, int hs, int fx, int fy)

@@ -35,6 +35,8 @@ void n265_refchk_open_hf(const int16_t *plane, int stride, long last);
 /* ...and the round-3 2-D plane, which has its own watermark (four lines
  * behind the reference's, see n265_ref_guard). */
 void n265_refchk_open_p2(const uint8_t *plane, int stride, long last);
+/* ...and round 4's int16 twin of it, filled in the same pass. */
+void n265_refchk_open_p214(const int16_t *plane, int stride, long last);
 /* Back to "no reference read is allowed on this thread". */
 void n265_refchk_close(void);
 /* The publish path reads its OWN picture (border extension, the E1 cache
@@ -44,10 +46,13 @@ void n265_refchk_open_all(void);
 void n265_refchk_touch(const uint8_t *p, const char *fn);
 void n265_refchk_touch16(const int16_t *p, const char *fn);
 void n265_refchk_touch_p2(const uint8_t *p, const char *fn);
+void n265_refchk_touch16_p2(const int16_t *p, const char *fn);
 
 #define N265_RC_TOUCH(p)    n265_refchk_touch((const uint8_t *)(p), __func__)
 #define N265_RC_TOUCH16(p)  n265_refchk_touch16((const int16_t *)(p), __func__)
 #define N265_RC_TOUCH_P2(p) n265_refchk_touch_p2((const uint8_t *)(p), __func__)
+#define N265_RC_TOUCH16_P2(p) \
+    n265_refchk_touch16_p2((const int16_t *)(p), __func__)
 /* n265_ref_win's gather has already made the guarded reads and reported
  * them; the kernel that follows reads the gathered copy, which is not
  * the guarded plane, so the guard opens for it. The caller's UNGUARD
@@ -59,6 +64,7 @@ void n265_refchk_touch_p2(const uint8_t *p, const char *fn);
 #define N265_RC_TOUCH(p)    ((void)0)
 #define N265_RC_TOUCH16(p)  ((void)0)
 #define N265_RC_TOUCH_P2(p) ((void)0)
+#define N265_RC_TOUCH16_P2(p) ((void)0)
 #define N265_REF_OPEN_ALL_KERNEL()  ((void)0)
 
 #endif

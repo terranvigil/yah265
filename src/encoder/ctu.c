@@ -231,6 +231,7 @@ static void mc_pred_uni(struct n265_frame_work *e, int list, int ref, int c_idx,
         int need = n265_ref_wait(e, r, iy + h + 4);     /* G2 entry point */
         const int16_t *hf = n265_ref_hf(r, ix, iy, w, h, mv.x & 3);
         const uint8_t *p2 = n265_ref_2d(r, ix, iy, w, h, mv.x & 3, mv.y & 3);
+        n265_hf2_tally(e, r, ix, iy, w, h, mv.x & 3, mv.y & 3, 0);
         N265_REF_GUARD2(e, r, need, 0, n265_ref_hf_base(r, mv.x & 3),
                         n265_ref_2d_base(r, mv.x & 3, mv.y & 3));
         if (p2) {
@@ -271,13 +272,21 @@ static void mc_pred14(struct n265_frame_work *e, int list, int ref, int c_idx, i
         int ix = x0 + (mv.x >> 2), iy = y0 + (mv.y >> 2);
         int need = n265_ref_wait(e, r, iy + h + 4);     /* G2 entry point */
         const int16_t *hf = n265_ref_hf(r, ix, iy, w, h, mv.x & 3);
-        N265_REF_GUARD(e, r, need, 0, n265_ref_hf_base(r, mv.x & 3));
-        int ws, wclip;
-        const uint8_t *rp = n265_ref_win(r->plane[0], rs, e->pad_w, e->pad_h,
-                                         N265_REF_PAD, ix, iy, w, h, 3, 4,
-                                         win, &ws, &wclip);
-        n265_mc_luma_14_hf(dst, w, w, h, rp, ws, wclip ? NULL : hf,
-                           r->hf_stride, mv.x & 3, mv.y & 3);
+        const int16_t *p2 = n265_ref_2d14(r, ix, iy, w, h, mv.x & 3,
+                                          mv.y & 3);
+        n265_hf2_tally(e, r, ix, iy, w, h, mv.x & 3, mv.y & 3, 1);
+        N265_REF_GUARD3(e, r, need, 0, n265_ref_hf_base(r, mv.x & 3),
+                        n265_ref_2d14_base(r, mv.x & 3, mv.y & 3));
+        if (p2) {
+            n265_mc_luma_2d_14(dst, w, w, h, p2, r->hf2_stride);
+        } else {
+            int ws, wclip;
+            const uint8_t *rp = n265_ref_win(r->plane[0], rs, e->pad_w,
+                                             e->pad_h, N265_REF_PAD, ix, iy,
+                                             w, h, 3, 4, win, &ws, &wclip);
+            n265_mc_luma_14_hf(dst, w, w, h, rp, ws, wclip ? NULL : hf,
+                               r->hf_stride, mv.x & 3, mv.y & 3);
+        }
         N265_REF_UNGUARD();
     }
 }

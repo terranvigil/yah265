@@ -434,6 +434,7 @@ uint32_t n265_mc_sad(struct n265_frame_work *e, int list, int ridx, int x0, int 
         const int16_t *hf = n265_ref_hf(ref, ix, iy, w, h, mv.x & 3);
         const uint8_t *p2 = n265_ref_2d(ref, ix, iy, w, h, mv.x & 3,
                                         mv.y & 3);
+        n265_hf2_tally(e, ref, ix, iy, w, h, mv.x & 3, mv.y & 3, 0);
         N265_REF_GUARD2(e, ref, need, 0, n265_ref_hf_base(ref, mv.x & 3),
                         n265_ref_2d_base(ref, mv.x & 3, mv.y & 3));
         if (p2) {
@@ -477,6 +478,7 @@ static uint32_t mc_satd(struct n265_frame_work *e, int list, int ridx, int x0, i
     int need = n265_ref_wait(e, ref, iy + h + 4);   /* G2 entry point */
     const int16_t *hf = n265_ref_hf(ref, ix, iy, w, h, mv.x & 3);
     const uint8_t *p2 = n265_ref_2d(ref, ix, iy, w, h, mv.x & 3, mv.y & 3);
+    n265_hf2_tally(e, ref, ix, iy, w, h, mv.x & 3, mv.y & 3, 0);
     N265_REF_GUARD2(e, ref, need, 0, n265_ref_hf_base(ref, mv.x & 3),
                     n265_ref_2d_base(ref, mv.x & 3, mv.y & 3));
     if (p2) {
