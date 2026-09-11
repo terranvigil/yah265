@@ -255,3 +255,55 @@ uint64_t n265_ssd_wh(const uint8_t *a, int as, const uint8_t *b, int bs,
 #endif
     return n265_ssd_wh_c(a, as, b, bs, w, h);
 }
+
+/* ---- per-row and per-column SAD --------------------------------------
+ *
+ * ctu.c's rect_proxy ranks the two rectangular splits off the 2Nx2N
+ * winner's residual: it wants the n row sums and the n column sums of
+ * |src - pred| over the CU, and then the mean absolute deviation of each
+ * against their common mean. The reduction is the whole of that pass -
+ * the two deviation sums are 2n terms and cost nothing - so this is what
+ * the kernel covers, and the caller keeps the deviations.
+ *
+ * Both outputs are exact in u32 by a wide margin: a column sum is at most
+ * n * 255, 16320 at the largest CU the caller has, which is why the NEON
+ * can keep its column accumulators in u16 lanes for every n up to 257.
+ * The u32 array is the caller's, not the accumulator's.
+ *
+ * Square rather than w x h: rect_proxy is the only caller and a CU is
+ * square. Its shape set is 8, 16 and 32 and cannot be anything else -
+ * the rectangular-partition block lives under analyze_cu's log2n <= 5
+ * arm, and MIN_CB_LOG2 is 3 - which is what the row[32]/col[32] on the
+ * caller's stack has always rested on. An instrumented run over 300
+ * frames of foreman and 120 of park_joy at the shipping default agrees:
+ * 661019 calls, 68% of them n = 8, and not one n = 4 or n = 64.
+ */
+
+void n265_sad_rowcol_ref(const uint8_t *a, int as, const uint8_t *b, int bs,
+                         int n, uint32_t *row, uint32_t *col)
+{
+    for (int x = 0; x < n; x++)
+        col[x] = 0;
+    for (int y = 0; y < n; y++) {
+        uint32_t r = 0;
+        for (int x = 0; x < n; x++) {
+            int d = a[(size_t)y * as + x] - b[(size_t)y * bs + x];
+            uint32_t v = (uint32_t)(d < 0 ? -d : d);
+            r += v;
+            col[x] += v;
+        }
+        row[y] = r;
+    }
+}
+
+void n265_sad_rowcol(const uint8_t *a, int as, const uint8_t *b, int bs,
+                     int n, uint32_t *row, uint32_t *col)
+{
+#if N265_NEON
+    if (n265_asm_on(N265_ASM_SATD)) {
+        n265_sad_rowcol_neon(a, as, b, bs, n, row, col);
+        return;
+    }
+#endif
+    n265_sad_rowcol_ref(a, as, b, bs, n, row, col);
+}

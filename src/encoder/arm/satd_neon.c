@@ -417,6 +417,93 @@ uint32_t n265_sad_wh_neon(const uint8_t *a, int as, const uint8_t *b,
     return vaddvq_u32(acc) + rest;
 }
 
+/* ---- per-row and per-column SAD --------------------------------------
+ *
+ * rect_proxy's one pass over the CU (satd.c). The two marginal sums want
+ * opposite reductions of the same difference vector: a column sum
+ * accumulates lane by lane down the rows, a row sum folds the lanes of
+ * one row together.
+ *
+ * So the loop is over COLUMN STRIPS rather than rows. A strip holds its
+ * column accumulator in registers for the whole block - two u16x8 for a
+ * 16-wide strip - and pays for the row sums with one vaddlvq per row
+ * into the row array, which is at most 64 u32 and sits in L1. The other
+ * order would need n/8 column accumulators live at once and would spill
+ * every one of them on a 32-wide CU, which is where this kernel's calls
+ * carry the most pixels.
+ *
+ * The u16 column lanes are exact: a column of n samples sums to at most
+ * n * 255, so anything up to n = 257 fits. Row sums go to u32 because a
+ * strip contributes a u16 and several strips add.
+ */
+void n265_sad_rowcol_neon(const uint8_t *a, int as, const uint8_t *b,
+                          int bs, int n, uint32_t *row, uint32_t *col)
+{
+    int x = 0;
+
+    for (int y = 0; y < n; y++)
+        row[y] = 0;
+
+    for (; x + 16 <= n; x += 16) {
+        uint16x8_t c0 = vdupq_n_u16(0), c1 = vdupq_n_u16(0);
+
+        for (int y = 0; y < n; y++) {
+            uint8x16_t d = vabdq_u8(vld1q_u8(a + (size_t)y * as + x),
+                                    vld1q_u8(b + (size_t)y * bs + x));
+            row[y] += vaddlvq_u8(d);
+            c0 = vaddw_u8(c0, vget_low_u8(d));
+            c1 = vaddw_u8(c1, vget_high_u8(d));
+        }
+        vst1q_u32(col + x, vmovl_u16(vget_low_u16(c0)));
+        vst1q_u32(col + x + 4, vmovl_u16(vget_high_u16(c0)));
+        vst1q_u32(col + x + 8, vmovl_u16(vget_low_u16(c1)));
+        vst1q_u32(col + x + 12, vmovl_u16(vget_high_u16(c1)));
+    }
+    if (x + 8 <= n) {
+        /* the 8x8 CU, two thirds of the calls on a 720p encode at medium */
+        uint16x8_t c0 = vdupq_n_u16(0);
+
+        for (int y = 0; y < n; y++) {
+            uint8x8_t d = vabd_u8(vld1_u8(a + (size_t)y * as + x),
+                                  vld1_u8(b + (size_t)y * bs + x));
+            row[y] += vaddlv_u8(d);
+            c0 = vaddw_u8(c0, d);
+        }
+        vst1q_u32(col + x, vmovl_u16(vget_low_u16(c0)));
+        vst1q_u32(col + x + 4, vmovl_u16(vget_high_u16(c0)));
+        x += 8;
+    }
+    if (x + 4 <= n) {
+        /* ld4z reads exactly the four bytes the C reads; the upper half
+         * of the register is |0 - 0| and adds nothing to either sum */
+        uint16x8_t c0 = vdupq_n_u16(0);
+
+        for (int y = 0; y < n; y++) {
+            uint8x8_t d = vabd_u8(ld4z(a + (size_t)y * as + x),
+                                  ld4z(b + (size_t)y * bs + x));
+            row[y] += vaddlv_u8(d);
+            c0 = vaddw_u8(c0, d);
+        }
+        vst1q_u32(col + x, vmovl_u16(vget_low_u16(c0)));
+        x += 4;
+    }
+    /* A CU is a power of two of at least 8, so no caller reaches this -
+     * but the kernel is not allowed to be wrong if one ever does, and a
+     * tail costs nothing when it does not run. */
+    for (; x < n; x++) {
+        uint32_t c = 0;
+
+        for (int y = 0; y < n; y++) {
+            int d = a[(size_t)y * as + x] - b[(size_t)y * bs + x];
+            uint32_t v = (uint32_t)(d < 0 ? -d : d);
+
+            row[y] += v;
+            c += v;
+        }
+        col[x] = c;
+    }
+}
+
 /* ---- SSD -------------------------------------------------------------
  *
  * sum of (a - b)^2. vabdq_u8 gives |a - b| in [0, 255] and the square of

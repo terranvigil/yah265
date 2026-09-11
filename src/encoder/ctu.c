@@ -823,19 +823,10 @@ static void rect_proxy(struct n265_frame_work *e, int x0, int y0, int n,
     int ps = e->pad_stride[0];
     uint32_t row[32], col[32];
     uint64_t tot = 0;
-    for (int x = 0; x < n; x++)
-        col[x] = 0;
-    for (int y = 0; y < n; y++) {
-        uint32_t r = 0;
-        for (int x = 0; x < n; x++) {
-            int d = src[y * ps + x] - pred[y * n + x];
-            uint32_t a = (uint32_t)(d < 0 ? -d : d);
-            r += a;
-            col[x] += a;
-        }
-        row[y] = r;
-        tot += r;
-    }
+
+    n265_sad_rowcol(src, ps, pred, n, n, row, col);
+    for (int y = 0; y < n; y++)
+        tot += row[y];
     uint32_t mean = (uint32_t)(tot / (unsigned)n);
     uint64_t mr = 0, mc = 0;
     for (int i = 0; i < n; i++) {
