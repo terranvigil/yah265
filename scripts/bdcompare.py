@@ -76,7 +76,12 @@ def vmaf_of(bitstream, src_path, work):
     binary = os.environ.get("VMAF", "vmaf")
     margs, primary, plabel = _vmaf_models()
     sub = f"--subsample {SUBSAMPLE}" if SUBSAMPLE > 1 else ""
-    r = sh(f'{shlex.quote(binary)} -r "{src_path}" -d "{dec}" --json -o "{js}" {margs} {sub}')
+    # libvmaf's thread pool changes nothing but the wall: scores are
+    # identical to every digit at 1, 4 and 8 threads (park_joy 30 frames,
+    # 2026-09-11), and 8 threads read a 1080p point about 6x sooner.
+    # VMAF_THREADS overrides; 0 is libvmaf's single-threaded default.
+    thr = os.environ.get("VMAF_THREADS", "8")
+    r = sh(f'{shlex.quote(binary)} -r "{src_path}" -d "{dec}" --json -o "{js}" {margs} {sub} --threads {thr}')
     try:
         os.unlink(dec)
     except OSError:

@@ -107,6 +107,33 @@ def enc(tmpl, q, src, out):
     return os.path.getsize(out)
 
 
+def _content_json(out, src):
+    """Second memo, keyed by what the bitstream IS rather than which binary
+    wrote it. Every item re-measures "today" on a rebuilt binary, and every
+    identity arm reproduces a bitstream byte for byte; the per-binary memo
+    above misses all of those and re-reads VMAF (the slow half of an HD
+    point). The metric depends only on the bitstream, the source and the
+    model set, so that is the key."""
+    if not _CACHE:
+        return None
+    h = hashlib.sha256()
+    with open(out, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    st = os.stat(src)
+    h.update(f"|{src}|{st.st_size}|{bd.SUBSAMPLE}|{bd._vmaf_models()[0]}".encode())
+    d = os.path.join(_CACHE, "vmaf")
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, h.hexdigest()[:24] + ".json")
+
+
+def _write_json(path, v):
+    tmp = path + f".{os.getpid()}.tmp"
+    with open(tmp, "w") as f:
+        json.dump(v, f)
+    os.replace(tmp, path)
+
+
 def vmaf_cached(tmpl, q, src, out, work):
     cb, cj = _cache_paths(tmpl, q, src)
     if cj and os.path.exists(cj):
@@ -114,12 +141,19 @@ def vmaf_cached(tmpl, q, src, out, work):
             return json.load(open(cj))
         except (OSError, ValueError):
             pass
-    v = bd.vmaf_of(out, src, work)
+    ck = _content_json(out, src)
+    v = None
+    if ck and os.path.exists(ck):
+        try:
+            v = json.load(open(ck))
+        except (OSError, ValueError):
+            v = None
+    if not v:
+        v = bd.vmaf_of(out, src, work)
+        if ck and v:
+            _write_json(ck, v)
     if cj and v:
-        tmp = cj + f".{os.getpid()}.tmp"
-        with open(tmp, "w") as f:
-            json.dump(v, f)
-        os.replace(tmp, cj)
+        _write_json(cj, v)
     return v
 
 
