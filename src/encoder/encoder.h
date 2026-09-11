@@ -300,6 +300,7 @@ typedef struct n265_frame_work {
     uint8_t *blk_qp;        /* per-4x4 actual QP (deblock, prediction) */
     int8_t *ctu_qp_off;     /* per-CTU QP offset map (AQ/cu-tree feed) */
     float *ctu_qp_raw;      /* per-CTU cu-tree offset before rounding  */
+    uint16_t *ctu_lam_q8;   /* per-CTU lambda multiplier, Q8 (256 = inert) */
     uint8_t *ctu_dmin, *ctu_dmax;   /* P2: per-CTU depth range used */
     struct sao_params *sao; /* per-CTB SAO decisions */
     uint8_t *sao_tmp[3];    /* one CTB row's pristine deblocked band */
@@ -307,6 +308,8 @@ typedef struct n265_frame_work {
 
     /* ---- row-private once a row copy exists ---- */
     int cur_ctu_qp;         /* QP of the CTU being analyzed */
+    uint32_t cur_ctu_lam_q8;     /* its lambda multiplier, Q8 (256 = inert) */
+    uint32_t cur_ctu_lam_sad_q8; /* the same in the SAD domain (its sqrt) */
     int db_lo, db_hi;       /* P2: depth range this quadtree may search */
     const uint8_t *cu_pred[3];      /* PU-by-PU MC result a partitioned
                                      * inter CU's TBs crop from; NULL for
@@ -461,6 +464,10 @@ struct n265_encoder {
     int dpb_reorder, dpb_buffering, dpb_peak;
     int badapt;             /* --b-adapt: shorten the B run on high-motion spans */
     float cutree_str;       /* N265_CUTREE_STR: cu-tree offset strength (default 2.0) */
+    float ct_qpw;           /* N265_CT_QPW: the share of the field that reaches the QP,
+                               on cutree_str's scale (default 2.0 = all of it) */
+    float ct_lambda;        /* N265_CT_LAMBDA: per-CTU lambda modulation from the same
+                               field, in QP units at strength 1 (default 0 = off) */
     float aq_str;           /* N265_AQ_STR: per-CTU variance-AQ strength (default 0.7) */
     int qp_round1;          /* N265_QP_ROUND1: round the cu-tree + AQ field once */
     int ref_valid;
@@ -592,6 +599,14 @@ struct n265_encoder {
      * The counters themselves are per-frame (see n265_frame_work). */
     int cu_stats;
 };
+
+/* The cu-tree field's raw per-CTU value carries cutree_str already, so the
+ * share of it that reaches the QP is the ratio of the two strengths: 1.0
+ * at the default, which leaves the offset map exactly where it was. */
+static inline double n265_ct_qp_scale(const struct n265_encoder *e)
+{
+    return e->cutree_str != 0.0f ? (double)e->ct_qpw / (double)e->cutree_str : 0.0;
+}
 
 /* --------------------------------------------------------------------
  * The exact reference stall (T2 gate decision G2).

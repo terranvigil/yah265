@@ -509,11 +509,12 @@ static int fw_open(n265_encoder *e, n265_frame_work *fw)
     fw->blk_qp = calloc(nblk, 1);
     fw->ctu_qp_off = calloc(nctu, 1);
     fw->ctu_qp_raw = calloc(nctu, sizeof(float));
+    fw->ctu_lam_q8 = calloc(nctu, sizeof(uint16_t));
     fw->sao = calloc(nctu, sizeof(sao_params));
     if (!fw->ctu_dmin || !fw->ctu_dmax || !fw->ct_depth || !fw->intra_mode ||
         !fw->edge_map || !fw->blk_intra || !fw->blk_skip || !fw->blk_cbf_y ||
         !fw->blk_mv || !fw->blk_pred || !fw->blk_ref || !fw->blk_qp ||
-        !fw->ctu_qp_off || !fw->ctu_qp_raw || !fw->sao)
+        !fw->ctu_qp_off || !fw->ctu_qp_raw || !fw->ctu_lam_q8 || !fw->sao)
         return -1;
     fw->prog = calloc(1, sizeof(*fw->prog) +
                          (size_t)e->ctb_rows * sizeof(atomic_int));
@@ -558,6 +559,7 @@ static void fw_close(n265_frame_work *fw)
     free(fw->blk_qp);
     free(fw->ctu_qp_off);
     free(fw->ctu_qp_raw);
+    free(fw->ctu_lam_q8);
     free(fw->sao);
     for (int i = 0; i < 3; i++) {
         free(fw->sao_tmp[i]);
@@ -627,6 +629,8 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->ref_max = e->mode == N265_MODE_PCM ? 1 : g_ref;
     e->badapt = g_badapt;
     { const char *v = n265_env("N265_CUTREE_STR"); e->cutree_str = v ? (float)atof(v) : 2.0f; }
+    { const char *v = n265_env("N265_CT_QPW"); e->ct_qpw = v ? (float)atof(v) : 2.0f; }
+    { const char *v = n265_env("N265_CT_LAMBDA"); e->ct_lambda = v ? (float)atof(v) : 0.0f; }
     /* AQ 0.7 with the joint field rounded once (2026-09-07 sweep vs cu-tree
      * strength: 6/7 clips better, -0.9% mean BD-VMAF-NEG at matched rate;
      * AQ 0.4 and cu-tree 2.5 each bought median by giving bus back 2-3%).
@@ -2030,13 +2034,16 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                         fw->display_idx, slice_type, nctu, avg, mn, mx,
                         sqrt(sd / nctu), lo / nctu, hi / nctu);
             }
+            /* N265_CT_QPW: the share of the cu-tree field that reaches the
+             * QP, on cutree_str's scale. 1.0 at the default. */
+            double ctqpw = n265_ct_qp_scale(e);
             for (int i = 0; i < nctu; i++) {
                 double off = e->aq_str * (lv[i] - avg);
                 if (off > aqc) off = aqc;
                 else if (off < -aqc) off = -aqc;
                 int o;
                 if (e->qp_round1) {
-                    off += fw->ctu_qp_raw[i];
+                    off += ctqpw * fw->ctu_qp_raw[i];
                     o = (int)(off > 0 ? off + 0.5 : off - 0.5);
                 } else {
                     o = (int)(off > 0 ? off + 0.5 : off - 0.5) +
@@ -2673,6 +2680,8 @@ static int drive_scheduler(n265_encoder *e)
         fw->pad_plane[i] = f->src[i];
 
     memset(fw->ctu_qp_off, 0, (size_t)fw->ctb_cols * fw->ctb_rows);
+    for (int k = 0; k < fw->ctb_cols * fw->ctb_rows; k++)
+        fw->ctu_lam_q8[k] = 256;    /* inert unless cu-tree writes it */
     if (e->cutree)
     {
         double t = e->la_prof ? prof_now() : 0.0;

@@ -747,23 +747,57 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
             }
         }
     }
+    /* N265_CT_QPW is the share of the field that reaches the QP. It is on
+     * cutree_str's scale, so the default 2.0 is a scale of 1 and the
+     * offset map is byte-for-byte what it was. (This rounding is the
+     * AQ-off path; with AQ on, encoder.c scales the raw field the same
+     * way and rounds it once with the variance term.) */
+    double qpw = n265_ct_qp_scale(e);
     for (int k = 0; k < nctu; k++) {
         float v = raw[k] - mean;
         fw->ctu_qp_raw[k] = v;
-        int off = (int)(v > 0 ? v + 0.5f : v - 0.5f);
+        double qv = qpw * v;
+        int off = (int)(qv > 0 ? qv + 0.5 : qv - 0.5);
         fw->ctu_qp_off[k] = (int8_t)(off < -12 ? -12 : off > 12 ? 12 : off);
+    }
+    /* N265_CT_LAMBDA reads the SAME field as a per-CTU lambda multiplier,
+     * at strength 1 and centred on the frame so it is independent of what
+     * the QP path above did with it. dev < 0 is a CTU the field wants at a
+     * lower QP; it gets the lambda that QP step would have carried, on the
+     * same 2^(d/3) slope, bounded by the offset map's own +-12. Frozen
+     * here, before the frame is scheduled, and read-only after it is
+     * (docs/threading-design.md rule 4). */
+    if (e->ct_lambda != 0.0f && e->cutree_str != 0.0f) {
+        double fm = 0;
+        for (int k = 0; k < nctu; k++)
+            fm += fw->ctu_qp_raw[k];
+        fm /= nctu;
+        for (int k = 0; k < nctu; k++) {
+            double d = e->ct_lambda *
+                ((double)fw->ctu_qp_raw[k] - fm) / (double)e->cutree_str;
+            if (d < -12.0) d = -12.0;
+            else if (d > 12.0) d = 12.0;
+            fw->ctu_lam_q8[k] = (uint16_t)lrint(256.0 * pow(2.0, d / 3.0));
+        }
+    } else {
+        for (int k = 0; k < nctu; k++)
+            fw->ctu_lam_q8[k] = 256;
     }
     if (n265_env("N265_CT_TRACE")) {
         int nz = 0, mn = 0;
+        int lmn = 65535, lmx = 0;
         double fm = 0;
         for (int k = 0; k < e->ctb_cols * e->ctb_rows; k++) {
             nz += fw->ctu_qp_off[k] != 0;
             fm += fw->ctu_qp_raw[k];
             if (fw->ctu_qp_off[k] < mn)
                 mn = fw->ctu_qp_off[k];
+            if (fw->ctu_lam_q8[k] < lmn) lmn = fw->ctu_lam_q8[k];
+            if (fw->ctu_lam_q8[k] > lmx) lmx = fw->ctu_lam_q8[k];
         }
-        fprintf(stderr, "[ct d%d cnt%d nz%d min%d raw%.2f fieldmean%.2f]",
-                f->display_idx, la->count, nz, mn, mean, fm / nctu);
+        fprintf(stderr, "[ct d%d cnt%d nz%d min%d raw%.2f fieldmean%.2f "
+                        "lam%d..%d]",
+                f->display_idx, la->count, nz, mn, mean, fm / nctu, lmn, lmx);
     }
 }
 

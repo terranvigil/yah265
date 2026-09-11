@@ -313,6 +313,18 @@ static void mc_pred(struct n265_frame_work *e, int c_idx, int x0, int y0,
     mc_pred_wh(e, c_idx, x0, y0, n, n, mot, dst, n);
 }
 
+/* The CTU's lambda: the QP table scaled by the cu-tree lambda multiplier
+ * (N265_CT_LAMBDA), so mode decision, the partition search and RDOQ all
+ * price against one number. 256 is the default and returns the table
+ * value untouched. */
+static inline uint32_t ctu_lam(const struct n265_frame_work *e, int qp)
+{
+    uint32_t l = n265_lambda_mode_q8(qp);
+    if (e->cur_ctu_lam_q8 == 256)
+        return l;
+    return (uint32_t)(((uint64_t)l * e->cur_ctu_lam_q8) >> 8);
+}
+
 static void tb_analyze(struct n265_frame_work *e, int c_idx, int x0, int y0,
                        int log2n, int qp, int mode, mot_t mot, tb_ctx *tb)
 {
@@ -362,7 +374,7 @@ static void tb_analyze(struct n265_frame_work *e, int c_idx, int x0, int y0,
     int sbh_done = 0;
     if (e->rdoq) {
         tb->nz = n265_rdoq(tb->level, coef, log2n, qp, !inter, c_idx, scan,
-                           e->est_ctx, n265_lambda_mode_q8(qp));
+                           e->est_ctx, ctu_lam(e, qp));
         sbh_done = n265_rdoq_sbh_on();      /* RDOQ hid the signs itself */
     } else {
         tb->nz = n265_quant(tb->level, coef, log2n, qp, !inter);
@@ -419,7 +431,7 @@ static uint64_t tb_ssd(struct n265_frame_work *e, int c_idx, int x0, int y0,
      * candidate so it only ever re-ranks them */
     if (c_idx == 0 && e->psy > 0.0)
         ssd += n265_psy_cost(src, e->pad_stride[0], tb->recon, n, n,
-                             n265_lambda_mode_q8(e->cur_ctu_qp), e->psy);
+                             ctu_lam(e, e->cur_ctu_qp), e->psy);
     return ssd;
 }
 
@@ -537,6 +549,16 @@ static int lambda_sad_q4(int qp)
         844, 948, 1064, 1194
     };
     return tab[qp < 0 ? 0 : qp > 51 ? 51 : qp];
+}
+
+/* the SAD-domain lambda is the square root of the RD one, so the CTU's
+ * multiplier enters it as its own square root (cur_ctu_lam_sad_q8) */
+static inline int ctu_lam_sad_q4(const struct n265_frame_work *e)
+{
+    int l = lambda_sad_q4(e->cur_ctu_qp);
+    if (e->cur_ctu_lam_sad_q8 == 256)
+        return l;
+    return (int)(((uint64_t)l * e->cur_ctu_lam_sad_q8) >> 8);
 }
 
 static uint32_t mot_sad(struct n265_frame_work *e, int x0, int y0, int log2n,
@@ -1006,7 +1028,7 @@ static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
      * so the split arm commits as it goes and restores on loss) */
     int n = 1 << log2ts;
     mark_cu_edges(e, x0, y0, n);
-    uint32_t lam = n265_lambda_mode_q8(e->cur_ctu_qp);
+    uint32_t lam = ctu_lam(e, e->cur_ctu_qp);
     int h = n >> 1;
     int child_chroma = log2ts > 3;
 
@@ -1745,7 +1767,7 @@ static void commit_inter_tt(struct n265_frame_work *e, mot_t mot, int x0,
 {
     int n = 1 << log2n;
     int qp_c = n265_chroma_qp(e->cur_ctu_qp);
-    uint32_t lam = n265_lambda_mode_q8(e->cur_ctu_qp);
+    uint32_t lam = ctu_lam(e, e->cur_ctu_qp);
     int h = n >> 1;
     int child_chroma = log2n > 3;
     tb_ctx *s_l = e->sc->ctt_l;
@@ -2004,7 +2026,7 @@ static int intra_rd_pick(struct n265_frame_work *e, int x0, int y0, int log2n,
         }
     }
     int qp_c = n265_chroma_qp(e->cur_ctu_qp);
-    uint32_t lam = n265_lambda_mode_q8(e->cur_ctu_qp);
+    uint32_t lam = ctu_lam(e, e->cur_ctu_qp);
     tb_ctx *tl = &e->sc->ird_l, *tcb = &e->sc->ird_cb, *tcr = &e->sc->ird_cr;
     tb_ctx *wl = &e->sc->ird_bl, *wcb = &e->sc->ird_bcb,
            *wcr = &e->sc->ird_bcr;
@@ -2068,7 +2090,7 @@ static uint64_t cu_area_ssd(struct n265_frame_work *e, int x0, int y0, int n)
     if (e->psy > 0.0)       /* the same psy term the TB candidates carry */
         ssd += n265_psy_cost(e->pad_plane[0] + y0 * e->pad_stride[0] + x0, e->pad_stride[0],
                              e->recon[0] + y0 * e->recon_stride[0] + x0, e->recon_stride[0],
-                             n, n265_lambda_mode_q8(e->cur_ctu_qp), e->psy);
+                             n, ctu_lam(e, e->cur_ctu_qp), e->psy);
     for (int c = 0; c < 3; c++) {
         int sh = c ? 1 : 0;
         const uint8_t *src = e->pad_plane[c];
@@ -2142,7 +2164,7 @@ static void mot_load(struct n265_frame_work *e, int x0, int y0, int n,
 static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
                           const mv_t start[2], pu_dec *d)
 {
-    int lam4 = lambda_sad_q4(e->cur_ctu_qp);
+    int lam4 = ctu_lam_sad_q4(e);
     int w = g->w, h = g->h;
     int no_bi = w + h == 12;    /* 8x4 and 4x8 PUs stay uni-predicted */
 
@@ -2429,7 +2451,7 @@ static uint64_t rd_part(struct n265_frame_work *e, int x0, int y0, int log2n,
     est_inter_cu_bits(e, &st, x0, y0, log2n, c->part, c->d, c->any, inc);
     if (c->any)
         est_tt_bits(e, &st, log2n, MODE_INTER, &c->tl, &c->tcb, &c->tcr);
-    return rd_j(d, st.bits, n265_lambda_mode_q8(e->cur_ctu_qp));
+    return rd_j(d, st.bits, ctu_lam(e, e->cur_ctu_qp));
 }
 
 /* commit an inter CU (any partition): maps, records, recon */
@@ -2527,11 +2549,11 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             uint64_t ssd = cu_area_ssd(e, x0, y0, n);
             e->last_skip_clean = ssd <= skip_clean_thr(e->cur_ctu_qp, n);
             e->last_cu_nores = 1;
-            return rd_j(ssd, adv.bits, n265_lambda_mode_q8(e->cur_ctu_qp));
+            return rd_j(ssd, adv.bits, ctu_lam(e, e->cur_ctu_qp));
         }
 
         if (log2n <= 5) {
-            uint32_t lam = n265_lambda_mode_q8(e->cur_ctu_qp);
+            uint32_t lam = ctu_lam(e, e->cur_ctu_qp);
             int inc = est_skip_inc(e, x0, y0);
             /* economy gates: a very good merge prediction prunes the
              * expensive candidates (classic early-skip shape) */
@@ -2626,7 +2648,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             mot_t amot = { { { 0, 0 }, { 0, 0 } }, 1 };
             int same_as_cand = 1;
             pu_geo pg = { x0, y0, n, x0, y0, n, n, 0, 0 };
-            int lam4 = lambda_sad_q4(e->cur_ctu_qp);
+            int lam4 = ctu_lam_sad_q4(e);
             if (!gate_amvp) {
                 /* per list: search every reference, keep the one whose
                  * SAD + lambda x (mvd + ref_idx) bits is lowest, and the
@@ -2980,7 +3002,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                 set_blk(e, e->blk_qp, x0, y0, n,
                         e->ent_qp_coded ? e->cur_ctu_qp : N265_QP_INHERIT);
                 return rd_j(cu_area_ssd(e, x0, y0, n), adv.bits,
-                            n265_lambda_mode_q8(e->cur_ctu_qp));
+                            ctu_lam(e, e->cur_ctu_qp));
             }
             /* intra wins: fall through to the intra section, which also
              * arbitrates NxN at min CB */
@@ -3043,7 +3065,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
         set_blk(e, e->blk_qp, x0, y0, n,
                 e->ent_qp_coded ? e->cur_ctu_qp : N265_QP_INHERIT);
         return rd_j(cu_area_ssd(e, x0, y0, n), adv.bits,
-                    n265_lambda_mode_q8(e->cur_ctu_qp));
+                    ctu_lam(e, e->cur_ctu_qp));
     }
 
     /* NxN: chroma at the parent, four 4x4 luma TUs with DST */
@@ -3072,7 +3094,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
     set_blk(e, e->blk_qp, x0, y0, n,
             e->ent_qp_coded ? e->cur_ctu_qp : N265_QP_INHERIT);
     return rd_j(cu_area_ssd(e, x0, y0, n), adv.bits,
-                n265_lambda_mode_q8(e->cur_ctu_qp));
+                ctu_lam(e, e->cur_ctu_qp));
 }
 
 static int decide_split(struct n265_frame_work *e, int x0, int y0, int log2n)
@@ -3187,7 +3209,7 @@ static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
 {
     int n = 1 << log2n;
     int inside = x0 + n <= e->pad_w && y0 + n <= e->pad_h;
-    uint32_t lam = n265_lambda_mode_q8(e->cur_ctu_qp);
+    uint32_t lam = ctu_lam(e, e->cur_ctu_qp);
 
     if (!inside && log2n > MIN_CB_LOG2) {
         uint64_t j = 0;
@@ -3509,8 +3531,12 @@ static void depth_bounds(struct n265_frame_work *e, int ctb_x, int ctb_y)
 
 void n265_analyze_ctu(struct n265_frame_work *e, int ctb_x, int ctb_y)
 {
-    int q = e->qp + e->ctu_qp_off[ctb_y * e->ctb_cols + ctb_x];
+    int ctb_k = ctb_y * e->ctb_cols + ctb_x;
+    int q = e->qp + e->ctu_qp_off[ctb_k];
     e->cur_ctu_qp = q < 0 ? 0 : q > 51 ? 51 : q;
+    e->cur_ctu_lam_q8 = e->ctu_lam_q8 ? e->ctu_lam_q8[ctb_k] : 256;
+    e->cur_ctu_lam_sad_q8 = e->cur_ctu_lam_q8 == 256 ? 256 :
+        (uint32_t)lrint(256.0 * sqrt((double)e->cur_ctu_lam_q8 / 256.0));
     e->ent_ctu_qp = e->cur_ctu_qp;
     e->ent_qp_coded = 0;
     clear_cu_pred(e);
