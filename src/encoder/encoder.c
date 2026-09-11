@@ -1002,9 +1002,13 @@ static void write_slice_header(n265_encoder *e, n265_frame_work *fw)
         }
         bs_put_bits(bs, n265_env("N265_NO_TMVP") ? 0 : 1, 1);      /* slice_temporal_mvp_enabled_flag */
     }
-    if (fw->mode != N265_MODE_PCM && n265_sao_enabled()) {
-        bs_put_bits(bs, 1, 1);      /* slice_sao_luma_flag */
-        bs_put_bits(bs, 1, 1);      /* slice_sao_chroma_flag */
+    if (fw->mode != N265_MODE_PCM && n265_sao_seq_enabled()) {
+        /* the content gate (N265_SAO_ANIM) answers per frame, so these
+         * are the per-frame answer and the SPS flag above is only "it
+         * may happen somewhere in this sequence" */
+        uint32_t on = fw->sao_mask != 0;
+        bs_put_bits(bs, on, 1);     /* slice_sao_luma_flag */
+        bs_put_bits(bs, on, 1);     /* slice_sao_chroma_flag */
     }
     if (fw->slice_type != 2) {
         int override = fw->nref[0] != 1 || (fw->slice_type == 0 && fw->nref[1] != 1);
@@ -1858,6 +1862,12 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
     fw->rc_base = base;
     fw->job_R = 0;
     fw->ref_lag = 0;
+    /* Type the frame's content here, on the driver, from its own source
+     * luma - so every decision below is frozen before a single row job
+     * exists and is the same at every thread count. */
+    fw->flat_pct = n265_flat_gate() ? n265_la_flat_pct(fw) : 0;
+    fw->flat = n265_flat_gate() && fw->flat_pct >= n265_flat_gate();
+    fw->sao_mask = fw->mode == N265_MODE_PCM ? 0 : n265_sao_frame_mask(fw);
     if (fw->mode != N265_MODE_PCM) {
         memset(fw->edge_map, 0, (size_t)fw->map_stride * (fw->pad_h >> 2));
         memset(fw->blk_intra, 0, (size_t)fw->map_stride * (fw->pad_h >> 2));
@@ -1960,6 +1970,31 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
              * clips are byte-identical under it and the worst moves 0.43. */
             double aqc = 3.0;
             { const char *v = n265_env("N265_AQ_CLAMP"); if (v) aqc = atof(v); }
+            /* N265_AQ_CLAMP_FLAT: the same bound on a frame the content
+             * gate typed flat-shaded (la.h), where the pathology the
+             * clamp exists for is not an outlier but the whole frame.
+             * The term models masking and is proportional to the frame's
+             * log2-variance SPREAD; on flat-shaded animation that spread
+             * is a constant fill against a drawn outline, so the term
+             * taxes the outlines - the only thing carrying the picture -
+             * to buy bits for fills that code to nothing. N265_AQ_FLOOR
+             * fixed the half of this that was the fill reading as
+             * maximally masking-free; the other half is that a flat fill
+             * offers an outline no masking at all, so there is no
+             * masking model left to apply. 0 ships: the per-CTU term is
+             * OFF on such a frame (the cu-tree field, summed after the
+             * clamp, is untouched). Set it to N265_AQ_CLAMP's value to
+             * restore the ungated behaviour. Worth, on the three
+             * animation clips at CQP/CRF against the SAO arm alone:
+             * sintel +2.39/-5.55 -> -10.20/-17.78, sita_toon
+             * -3.24/-4.62 -> -5.86/-7.06, sita_flat -2.41/-10.01 ->
+             * -3.37/-10.07. A bound of 1 is the runner-up and is 6.1
+             * CQP points worse on sintel. */
+            if (fw->flat) {
+                aqc = 0.0;
+                const char *v = n265_env("N265_AQ_CLAMP_FLAT");
+                if (v) aqc = atof(v);
+            }
             if (n265_env("N265_AQ_TRACE")) {
                 /* the field the per-CTU term is built from: how far the
                  * frame's log2-variance spread reaches, and how much of
@@ -2032,7 +2067,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
         fw->job_R = fw->ctb_rows;
         fw->job_cols = fw->ctb_cols;
         fw->job_snap_x = fw->ctb_cols > 1 ? 1 : 0;  /* the WPP geometry */
-        fw->job_sao_on = n265_sao_enabled();
+        fw->job_sao_on = fw->sao_mask != 0;
         /* G1's hint: LAG = 1 + ceil((merange + 5) / ctb_size), sec 1's
          * own formula, kept as the row-start heuristic. N265_REF_LAG_HINT
          * overrides it in CTB rows (0 = start a row as soon as its

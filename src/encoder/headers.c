@@ -142,7 +142,7 @@ void n265_write_sps(struct n265_frame_work *e)
      * part_mode codes 2NxN/Nx2N in three bins instead of two, so it must
      * track exactly what ctu.c/entropy.c assume */
     bs_put_bits(bs, e->amp != 0, 1);
-    bs_put_bits(bs, e->mode != N265_MODE_PCM && n265_sao_enabled(), 1);
+    bs_put_bits(bs, e->mode != N265_MODE_PCM && n265_sao_seq_enabled(), 1);
                                     /* sample_adaptive_offset_enabled_flag */
     if (e->mode == N265_MODE_PCM) {
         bs_put_bits(bs, 1, 1);      /* pcm_enabled_flag */

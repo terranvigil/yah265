@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "encoder/la.h"
 #include "encoder/sao.h"
 #include "encoder/preset.h"
 
@@ -181,9 +182,50 @@ static int sao_types(void)
     return v;
 }
 
-int n265_sao_enabled(void)
+/* N265_SAO_ANIM: what the content gate (n265_la_flat_pct, la.c) buys
+ * SAO. The value is the type mask a FLAT-TYPED frame's per-CTB analysis
+ * may pick from, in the same encoding as N265_SAO_TYPES - 1 band, 2
+ * edge, 3 both, 0 the gate off - OR'd with whatever N265_SAO_TYPES
+ * already allows everywhere, so the gate can only ever add a type to a
+ * frame and never take one away.
+ *
+ * SAO is off by default because on natural video it buys PSNR and pays
+ * VMAF-NEG (R7). Flat-shaded animation is the one content where the
+ * BAND offset has something real to correct: banding across a large
+ * constant fill is what a band offset is for, and it is the only
+ * artefact class a level shift can reach. So rather than one
+ * sequence-wide answer, each frame is typed and the answer follows the
+ * content.
+ *
+ * 1 (band only) ships. **3 is refused and the refusal is this knob's
+ * reason for existing**: adding the edge offset on exactly the content
+ * it was supposed to help costs sintel_720p 11.6 points of CQP BD-rate
+ * (+2.39 -> +9.25 on the pre-AQ arm) and takes all three animation
+ * clips backwards. 8.7.3.2 fixes an edge offset's sign by category, so
+ * it is a strict local smoother that cannot sharpen, and on a flat fill
+ * it has nothing to classify in the first place - no local minima, no
+ * local maxima. R7 reached the same finding on natural video; this is
+ * the same finding on the content that was its best remaining excuse. */
+static int sao_anim(void)
 {
-    return sao_types() != 0;
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_SAO_ANIM");
+        v = s ? atoi(s) : 1;    /* band offset only */
+        v &= 3;
+    }
+    return v;
+}
+
+int n265_sao_seq_enabled(void)
+{
+    return sao_types() != 0 || (n265_flat_gate() != 0 && sao_anim() != 0);
+}
+
+int n265_sao_frame_mask(const struct n265_frame_work *e)
+{
+    int base = sao_types();
+    return e->flat ? base | sao_anim() : base;
 }
 
 /* N265_SAO_QPLAM: 1 prices each CTB's candidates at that CTB's own
@@ -259,8 +301,8 @@ static void analyze_cand(const sao_stats *st, uint32_t lam, comp_cand *c)
 
 /* pick the RD-best explicit params for one component from its priced
  * candidates; returns dSSD + lambda*(param bits) relative to OFF */
-static int64_t pick_comp(const comp_cand *c, uint8_t *type, uint8_t *cop,
-                         int8_t off[4])
+static int64_t pick_comp(const comp_cand *c, int allow, uint8_t *type,
+                         uint8_t *cop, int8_t off[4])
 {
     int64_t best_band = c->band_j, best_edge = INT64_MAX;
     int best_cls = 0;
@@ -270,7 +312,6 @@ static int64_t pick_comp(const comp_cand *c, uint8_t *type, uint8_t *cop,
             best_cls = cls;
         }
 
-    int allow = sao_types();
     if (!(allow & 1)) best_band = INT64_MAX;
     if (!(allow & 2)) best_edge = INT64_MAX;
 
@@ -308,9 +349,8 @@ static int64_t pick_comp(const comp_cand *c, uint8_t *type, uint8_t *cop,
  * takes the best. It is the same search, read the way the syntax is
  * shaped. */
 static int64_t pick_chroma(const comp_cand *cb, const comp_cand *cr,
-                           sao_params *p)
+                           int allow, sao_params *p)
 {
-    int allow = sao_types();
     int64_t j_band = (allow & 1) ? cb->band_j + cr->band_j : INT64_MAX;
     int64_t j_edge = INT64_MAX;
     int best_cls = 0;
@@ -368,7 +408,24 @@ static int sao_chroma_joint(void)
  * four, eight or twelve of every sixteen 4x4 cells carry a luma
  * coefficient. 0 is the pre-R6 encoder, byte for byte.
  *
- * 2 is the default: it IMPROVES the band by 0.24 mean BD-VMAF-NEG while
+ * **0 is the default since 2026-09-11, and 2 was the default before
+ * it.** The gate can only act where SAO runs, and since R7 shipped
+ * N265_SAO_TYPES=0 the only frames where SAO runs are the ones the
+ * content gate types flat-shaded - which is exactly the content the
+ * gate gets wrong. Its premise is that a CTB carrying no luma residual
+ * reconstructs to its prediction, so the error in it is the reference's
+ * own and the reference's SAO already corrected it. On flat-shaded
+ * animation the CTBs with no residual ARE the flat fills, which is to
+ * say the only place a band offset had anything to do, and the premise
+ * does not cover the fill's own requantisation drift down a long P/B
+ * run. Measured on the three animation clips at CQP with the band-only
+ * gate on and the AQ arm off: sintel +2.79 -> +2.39, sita_toon -2.94 ->
+ * -3.24, sita_flat -0.90 -> -2.41, all three better with the gate OFF.
+ * R6's own +0.24 mean on the CIF band was measured against
+ * N265_SAO_TYPES=3, a configuration that has not shipped since R7;
+ * restore 2 with it.
+ *
+ * R6's reading, kept for that configuration: 2 IMPROVES the band by 0.24 mean BD-VMAF-NEG while
  * buying 1.038x foreman / 1.017x mobile. That the quality moves the
  * right way is not this rung's doing - the band keeps improving all the
  * way to SAO switched off entirely (-11.06 mean against the base's
@@ -382,8 +439,14 @@ static int sao_gate(void)
     static int v = -1;
     if (v < 0) {
         const char *s = n265_env("N265_SAO_GATE");
-        v = s ? atoi(s) : 2;    /* nearly-clean CTBs, the mechanism-true
-                                 * bound; see docs/phase4-ladder.md R6 */
+        v = s ? atoi(s) : 0;    /* 2026-09-11: the gate is only reachable
+                                 * where SAO runs, and at the shipped
+                                 * N265_SAO_TYPES=0 that is the
+                                 * flat-typed frames alone - where it
+                                 * LOSES. See the comment below and
+                                 * docs/programme-from-yah264.md. 2 is
+                                 * R6's value and the one to restore
+                                 * alongside N265_SAO_TYPES=3. */
     }
     return v;
 }
@@ -481,6 +544,7 @@ static void sao_analyze_row(struct n265_frame_work *e, int cy)
 {
     int ctb = 1 << e->ctb_log2;
     int qplam = sao_qplam(), bias = sao_bias();
+    int allow = e->sao_mask;
     uint32_t frame_lam = n265_lambda_mode_q8(e->qp);
     sao_stats st[3];
     {
@@ -533,12 +597,12 @@ static void sao_analyze_row(struct n265_frame_work *e, int cy)
                 analyze_cand(&st[c], lam, &cand[c]);
             }
             if (sao_chroma_joint()) {
-                j_expl += pick_comp(&cand[0], &p->type[0],
+                j_expl += pick_comp(&cand[0], allow, &p->type[0],
                                     &p->class_or_pos[0], p->offset[0]);
-                j_expl += pick_chroma(&cand[1], &cand[2], p);
+                j_expl += pick_chroma(&cand[1], &cand[2], allow, p);
             } else {
                 for (int c = 0; c < 3; c++)
-                    j_expl += pick_comp(&cand[c], &p->type[c],
+                    j_expl += pick_comp(&cand[c], allow, &p->type[c],
                                         &p->class_or_pos[c], p->offset[c]);
                 /* chroma shares one type (and eo class): coded once for cb;
                  * force cr to cb's type/class */
@@ -782,5 +846,6 @@ void n265_sao_warm(void)
 {
     (void)sao_types(); (void)sao_qplam(); (void)sao_bias();
     (void)sao_chroma_joint(); (void)sao_gate(); (void)sao_gate_share();
+    (void)sao_anim();
     (void)sao_hist_on(); (void)sao_trace();
 }

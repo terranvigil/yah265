@@ -17,6 +17,78 @@
 #include "encoder/preset.h"
 #include "encoder/satd.h"
 
+/* Share of whole 16x16 source luma blocks with variance under one, in
+ * percent. A variance under one is a standard deviation under a single
+ * luma level: a block that is one flat colour to within the smallest
+ * step the quantiser reproduces. The walk is over the DISPLAYED picture,
+ * not the coded one - conformance padding is replicated and therefore
+ * perfectly flat, and a picture 722 samples tall would otherwise get a
+ * row of blocks that are 14/16 padding and vote flat whatever the
+ * content is. Integer throughout: this has to be a bit-exact function of
+ * the source on every box.
+ *
+ * Per frame over the fifteen-clip corpus, 120 frames each (2026-09-11),
+ * the flattest natural frame reads 6.1% (foreman_cif) and the least flat
+ * animation frame reads 13.8% (sita_toon_720p), with the three animation
+ * clips' medians at 23.5 / 67.8 / 79.0 against 4.0 for the flattest
+ * natural median. The default threshold of 10 sits in that gap with no
+ * frame of any clip closer than a factor of 1.4 on the wrong side, which
+ * is what makes this a content TYPE and not a threshold fitted to a
+ * curve. */
+int n265_la_flat_pct(const struct n265_frame_work *fw)
+{
+    const uint8_t *p = fw->pad_plane[0];
+    int stride = fw->pad_stride[0];
+    int bw = fw->param.width >> 4, bh = fw->param.height >> 4;
+    if (bw <= 0 || bh <= 0)
+        return 0;
+    int flat = 0;
+    for (int by = 0; by < bh; by++)
+        for (int bx = 0; bx < bw; bx++) {
+            const uint8_t *b = p + (by << 4) * stride + (bx << 4);
+            uint32_t s1 = 0, s2 = 0;
+            int lo = 255, hi = 0;
+            for (int y = 0; y < 16; y++) {
+                const uint8_t *r = b + y * stride;
+                for (int x = 0; x < 16; x++) {
+                    int v = r[x];
+                    s1 += (uint32_t)v;
+                    s2 += (uint32_t)(v * v);
+                    if (v < lo) lo = v;
+                    if (v > hi) hi = v;
+                }
+                /* Exact early reject, and on natural video it fires on
+                 * the first row of nearly every block. For any mean,
+                 * one of the two extremes is at least (hi - lo) / 2
+                 * away from it, so 256 * var >= ((hi - lo) / 2)^2 and a
+                 * range of 32 or more cannot be a variance under one. */
+                if (hi - lo >= 32)
+                    break;
+            }
+            /* var < 1  <=>  256*s2 - s1^2 < 256*256 */
+            if (hi - lo < 32 &&
+                (uint64_t)s2 * 256u - (uint64_t)s1 * s1 < 65536u)
+                flat++;
+        }
+    return flat * 100 / (bw * bh);
+}
+
+/* N265_FLAT_GATE: the flat-block share, in percent, at or above which a
+ * frame is typed flat-shaded. 0 disables the type entirely and is the
+ * pre-2026-09-11 encoder, byte for byte; a value over 100 arms the SPS
+ * flag without ever firing, which is what the conformance vector for
+ * "SAO allowed in the sequence, off in every slice" uses. */
+int n265_flat_gate(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_FLAT_GATE");
+        v = s ? atoi(s) : 10;
+        if (v < 0) v = 0;
+    }
+    return v;
+}
+
 int n265_la_init(struct n265_encoder *e)
 {
     n265_la *la = &e->la;
@@ -125,6 +197,7 @@ static int sc_hold(void)
 void n265_la_warm(void)
 {
     (void)sc_hold();
+    (void)n265_flat_gate();
 }
 
 void n265_la_push(struct n265_encoder *e, const uint8_t *const plane[3],
