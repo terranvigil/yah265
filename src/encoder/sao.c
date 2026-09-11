@@ -105,18 +105,82 @@ typedef struct sao_stats {
     int64_t en[4][5], ed[4][5];     /* edge: per class, per category */
 } sao_stats;
 
+/* The band histogram, contract in sao.h. Written as four independent
+ * accumulator sets because the scalar form is a read-modify-write into a
+ * table indexed by the sample itself: on a flat fill every sample of the
+ * CTB lands in the SAME bin, so every iteration's load depends on the
+ * previous iteration's store and the loop runs at store-forwarding
+ * latency rather than throughput. That is the worst case for exactly the
+ * content the gate fires on. Four sets break the chain four ways and the
+ * merge at the end is 32 adds per block: 1.278s -> 1.199s on
+ * sita_flat_720p, 60 frames at --threads 1, three alternating pairs.
+ *
+ * A NEON twin under N265_ASM_SAO is REFUSED, and the arithmetic is why.
+ * NEON has no scatter, so a 32-bin histogram has to be written as 32
+ * one-hot compares per vector: per 16 samples that is 32 vceqq_u8 plus
+ * 32 count accumulates plus, for bd, two int16 accumulates each against
+ * a widened mask, about 12 operations per sample against the three this
+ * loop issues. The band index is the sample itself and there is no
+ * decomposition that removes the scatter - bd[b] = sum(src) - sum(rec)
+ * over the band still needs the per-band partition. The measurement
+ * agrees that there is nothing left to win: after the edge skip above,
+ * the whole SAO pass is 1.05x of sita_flat_720p's encode and 1.02x of
+ * sintel_720p's, so a kernel that beat this loop outright would move
+ * under 5% of the clip it was written for. Re-open it only if a future
+ * arm turns the edge offset back on somewhere, where the four
+ * classification passes ARE vector work. */
+void n265_sao_band_stats(const uint8_t *src, int src_stride,
+                         const uint8_t *rec, int rec_stride, int w,
+                         int h, int64_t bn[32], int64_t bd[32])
+{
+    int32_t n[4][32], d[4][32];
+    memset(n, 0, sizeof(n));
+    memset(d, 0, sizeof(d));
+    for (int y = 0; y < h; y++) {
+        const uint8_t *s = src + (size_t)y * src_stride;
+        const uint8_t *r = rec + (size_t)y * rec_stride;
+        int x = 0;
+        for (; x + 4 <= w; x += 4) {
+            int r0 = r[x], r1 = r[x + 1], r2 = r[x + 2], r3 = r[x + 3];
+            n[0][r0 >> 3]++; d[0][r0 >> 3] += s[x] - r0;
+            n[1][r1 >> 3]++; d[1][r1 >> 3] += s[x + 1] - r1;
+            n[2][r2 >> 3]++; d[2][r2 >> 3] += s[x + 2] - r2;
+            n[3][r3 >> 3]++; d[3][r3 >> 3] += s[x + 3] - r3;
+        }
+        for (; x < w; x++) {
+            int rv = r[x];
+            n[0][rv >> 3]++; d[0][rv >> 3] += s[x] - rv;
+        }
+    }
+    for (int b = 0; b < 32; b++) {
+        bn[b] += (int64_t)n[0][b] + n[1][b] + n[2][b] + n[3][b];
+        bd[b] += (int64_t)d[0][b] + d[1][b] + d[2][b] + d[3][b];
+    }
+}
+
+/* `allow` is the frame's type mask - N265_SAO_TYPES OR'd with what the
+ * content gate gives a flat-typed frame (N265_SAO_ANIM). The edge sweep
+ * is four whole-CTB passes of neighbour classification against one pass
+ * for the band histogram, and where the mask allows no edge offset
+ * nothing downstream ever reads en/ed: pick_comp and pick_chroma reject
+ * SAO_EDGE outright, so no CTB in the frame can carry that type, and the
+ * merge candidates score only types that are already in the frame.
+ * Skipping it there is bit-exact by construction. Since R7 shipped
+ * N265_SAO_TYPES=0 the band-only frames are the ONLY frames the filter
+ * runs on at all, so this is the whole of the SAO analysis cost on the
+ * content that fires. */
 static void collect_stats(const uint8_t *src, int src_stride,
                           const uint8_t *rec, int stride,
                           const uint8_t *above, int ytop, int x0, int y0,
-                          int w, int h, int pw, int ph, sao_stats *st)
+                          int w, int h, int pw, int ph, int allow,
+                          sao_stats *st)
 {
     memset(st, 0, sizeof(*st));
-    for (int y = y0; y < y0 + h; y++)
-        for (int x = x0; x < x0 + w; x++) {
-            int r = rec[y * stride + x];
-            st->bn[r >> 3]++;
-            st->bd[r >> 3] += src[y * src_stride + x] - r;
-        }
+    n265_sao_band_stats(src + (size_t)y0 * src_stride + x0, src_stride,
+                        rec + (size_t)y0 * stride + x0, stride, w, h,
+                        st->bn, st->bd);
+    if (!(allow & 2))
+        return;
     for (int cls = 0; cls < 4; cls++)
         for (int y = y0; y < y0 + h; y++) {
             if (y + eo_dy[cls] < 0 || y - eo_dy[cls] < 0 ||
@@ -265,7 +329,8 @@ typedef struct comp_cand {
     int8_t edge_off[4][4];
 } comp_cand;
 
-static void analyze_cand(const sao_stats *st, uint32_t lam, comp_cand *c)
+static void analyze_cand(const sao_stats *st, uint32_t lam, int allow,
+                         comp_cand *c)
 {
     const int64_t *bn = st->bn, *bd = st->bd;
     c->band_j = INT64_MAX;
@@ -287,6 +352,17 @@ static void analyze_cand(const sao_stats *st, uint32_t lam, comp_cand *c)
         }
     }
 
+    /* collect_stats leaves en/ed unfilled when the frame allows no edge
+     * offset, so nothing here may read them; pick_comp and pick_chroma
+     * both reject SAO_EDGE under the same test, so edge_j is never
+     * consulted either. Set it anyway rather than leave it undefined. */
+    if (!(allow & 2)) {
+        for (int cls = 0; cls < 4; cls++) {
+            c->edge_j[cls] = INT64_MAX;
+            memset(c->edge_off[cls], 0, 4);
+        }
+        return;
+    }
     for (int cls = 0; cls < 4; cls++) {
         const int64_t *en = st->en[cls], *ed = st->ed[cls];
         int8_t *o = c->edge_off[cls];
@@ -593,8 +669,8 @@ static void sao_analyze_row(struct n265_frame_work *e, int cy)
                 collect_stats(e->pad_plane[c], e->pad_stride[c],
                               e->recon[c], e->recon_stride[c],
                               cy > 0 ? e->sao_line[c] : NULL, y0,
-                              x0, y0, w, h, pw, ph, &st[c]);
-                analyze_cand(&st[c], lam, &cand[c]);
+                              x0, y0, w, h, pw, ph, allow, &st[c]);
+                analyze_cand(&st[c], lam, allow, &cand[c]);
             }
             if (sao_chroma_joint()) {
                 j_expl += pick_comp(&cand[0], allow, &p->type[0],
