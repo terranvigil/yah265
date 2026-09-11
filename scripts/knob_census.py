@@ -69,6 +69,12 @@ DEFAULT_OVERRIDES = {
     "N265_AQ_FLOOR": "4",                # `if (v) vfloor = atof(v)`: the
                                          # literal is not last on the line
     "N265_ASM_OFF": "unset",             # a class-name list, not a number
+    # the rect/AMP pair: guarded readers of the form
+    # `!(v ? atoi(v) != 0 : D)`, where D is not the last number on the
+    # line. AMP is OFF by default since the phase 6b placement and a
+    # census that renders it "?" hides the biggest of the new defaults.
+    "N265_NO_RECT": "0",                 # rect on
+    "N265_NO_AMP": "1",                  # AMP off (phase 6b)
 }
 
 OVERRIDES = {

@@ -8,8 +8,10 @@
  * the default encoder is the one every gate has always measured, byte
  * for byte.
  *
- * The tables are the phase-4 ladder read backwards. Every entry below is
- * an arm that ladder priced (docs/phase4-ladder.md, docs/instruments.md);
+ * The tables are the economy ladder read outwards from medium: fast is
+ * phase 4's ladder read forwards, slow is phase 6b's placement read
+ * backwards. Every entry below is an arm one of those ladders priced
+ * (docs/phase4-ladder.md, docs/phase6b-economy.md, docs/instruments.md);
  * nothing here is a value invented for the preset.
  */
 
@@ -36,6 +38,20 @@ struct kv {
  * being bought is not speed at a BD cost but the same BD as the
  * reference at less time. */
 static const struct kv fast_tab[] = {
+    /* Four of the entries below became the shipped default too when
+     * phase 6b placed medium (RSKIP, CBF_FAST, CB64_AMVP, BI_REFINE),
+     * so those lookups now return the value the default would have
+     * returned anyway. They stay: a preset table says what the preset
+     * IS, not how it differs from whatever medium happens to be this
+     * month, and a redundant entry costs one string compare. What fast
+     * still adds over the placed medium is SUBME=3, SKIP_EXIT=1,
+     * INTRA_GATE=2, NO_RECT, SBH_RD=0 and `--ctu 32` in fast_par - and
+     * the first two are arms the placement measured and refused AT
+     * MEDIUM's operating point, not everywhere.
+     *
+     * fast inherits the new `N265_PART_GATE=2` default without naming
+     * it, which is inert under NO_RECT by construction and proven so by
+     * cmp against the pre-placement binary on twelve cells. */
     /* the gates the ladder priced and held: each one costs BD at OUR
      * operating point and each buys more time per point than any tool
      * drop below it */
@@ -62,16 +78,32 @@ static const struct kv fast_tab[] = {
     { NULL, NULL }
 };
 
-/* slow: today's defaults plus the arms that were refused only on speed.
- * The table is EMPTY on purpose. Every knob-level candidate for it was
- * re-priced on this base and none of them buys quality any more - the
- * three shipped gates cost nothing to remove (`CBF_FAST=0` reads -15.99
- * median against the default's -16.83, and all three off together
- * -16.13), a wider intra RD shortlist is refused a third time
- * (`INTRA_RD_N=8`, -16.27), and a second bi-refinement sweep is a null
- * (`BI_REFINE=2`, -16.83 to the digit). What slow buys is structural,
- * and it is in slow_par below. Numbers in docs/phase4-ladder.md. */
+/* slow: the medium of 2026-09-10, exactly.
+ *
+ * The table was empty until phase 6b, because every knob-level candidate
+ * for slow had been re-priced and none of them bought quality any more
+ * (the three shipped gates cost nothing to remove, `INTRA_RD_N=8` was
+ * refused a third time, a second bi-refinement sweep was a null); what
+ * slow bought was structural and it is in slow_par below.
+ *
+ * Phase 6b changed that from the other side. Placing medium six knobs
+ * down the economy ladder spent 1.02 points of CQP and 2.53 of CRF band
+ * median for 1.336x the single-thread wall, and the encoder that was
+ * medium is worth keeping reachable - so slow now names the OLD medium
+ * value of every knob the placement moved. `--preset slow` is
+ * byte-identical to the pre-6b default at the same structural flags
+ * (verified by cmp of bitstream and --dump-recon on foreman_cif,
+ * mobile_cif and park_joy_720p, CQP and CRF), and with slow_par on top
+ * it is the strictly better encoder it always was.
+ *
+ * Order follows the ladder in docs/phase6b-economy.md. */
 static const struct kv slow_tab[] = {
+    { "N265_CB64_AMVP",  "1" },   /* the 64x64 AMVP arm back on        */
+    { "N265_RSKIP",      "0" },   /* recursion never stopped early     */
+    { "N265_BI_REFINE",  "1" },   /* one L0/L1 sweep                   */
+    { "N265_CBF_FAST",   "3" },   /* stage 2 alone                     */
+    { "N265_NO_AMP",     "0" },   /* asymmetric partitions back on     */
+    { "N265_PART_GATE",  "0" },   /* rect entered unconditionally      */
     { NULL, NULL }
 };
 

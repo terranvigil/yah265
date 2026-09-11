@@ -641,11 +641,19 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * `fast` turns rect off through the same table every other knob goes
      * through, and a knob a preset sets has to stay overridable, which a
      * presence-only reader cannot be. `N265_NO_RECT=1` is unchanged;
-     * `N265_NO_RECT=0` now means what it says. */
+     * `N265_NO_RECT=0` now means what it says.
+     *
+     * N265_NO_AMP DEFAULTS TO 1 since 2026-09-11 (phase 6b): the
+     * asymmetric orientations are 1.083x on the NEON binary for +0.18
+     * CQP / +0.76 CRF of band median, and medium is placed at an
+     * explicit quality budget now. Rect stays on at medium - dropping
+     * it too is 1.349x for +2.11 / +3.98, which spends the budget on
+     * one arm. `--preset slow` sets N265_NO_AMP=0 and gets AMP back;
+     * `--preset fast` still names both. */
     { const char *v = n265_env("N265_NO_RECT");
       e->rect = e->mode != N265_MODE_PCM && !(v && atoi(v) != 0); }
     { const char *v = n265_env("N265_NO_AMP");
-      e->amp = e->rect && !(v && atoi(v) != 0); }
+      e->amp = e->rect && !(v ? atoi(v) != 0 : 1); }
     e->ctb_log2 = e->mode == N265_MODE_PCM ? 4 : g_ctb_log2;
     e->keyint = e->mode == N265_MODE_PCM ? 1 : g_keyint;
     e->bframes = e->mode == N265_MODE_PCM ? 0 : g_bframes;

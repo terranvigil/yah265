@@ -513,7 +513,16 @@ void n265_clamp_mv(struct n265_frame_work *e, int x0, int y0, int w, int h,
 
 /* N265_SUBME (phase 4): how much of the subpel ladder each block gets.
  * 0 is the two-round half-pel/quarter-pel square this encoder has had
- * since phase 2. */
+ * since phase 2.
+ *
+ * Still 0 after phase 6b, and the reason is not the band. Mode 3 is
+ * 1.113x inside the placed medium and the CIF-7 median stays well
+ * inside the budget with it, but on the fifteen-clip corpus it takes
+ * `sintel_720p` from -0.47% to +0.67% BD-VMAF-NEG - a clip that is
+ * ahead of x265 today ending up behind it, which the placement's budget
+ * forbids outright. Its joint cost also exceeds its solo cost by about
+ * two thirds of a point in each mode (docs/phase6b-economy.md,
+ * point B). `--preset fast` still takes it. */
 static int subme_mode(void)
 {
     static int v = -1;

@@ -602,13 +602,19 @@ static int es_thr_pct(void)
  * and R12 re-priced it on the R7 base at +0.14 mean BD for 1.050x
  * foreman - which passes on the CQP band and fails at the pinned CRF
  * point, where it costs +0.71 with two clips past the per-clip bar
- * (docs/phase4-ladder.md R12). 0 is the default. */
+ * (docs/phase4-ladder.md R12).
+ *
+ * 2 is the default since 2026-09-11 (phase 6b, docs/phase6b-economy.md):
+ * re-priced on the NEON binary it is 1.045x for +0.20 CQP / +0.61 CRF of
+ * band median, and medium is placed at an explicit quality budget now
+ * rather than at R12's price rule. 0 is the pre-P1 encoder and what
+ * `--preset slow` sets. */
 static int rskip_mode(void)
 {
     static int v = -1;
     if (v < 0) {
         const char *s = n265_env("N265_RSKIP");
-        v = s ? atoi(s) : 0;
+        v = s ? atoi(s) : 2;    /* the unconditional form (P1/R12) */
     }
     return v;
 }
@@ -617,15 +623,18 @@ static int rskip_mode(void)
  * expensive ones. Two independent stages: the merge candidate's cbf
  * gating AMVP, intra and the partitions, and the AMVP candidate's cbf
  * gating intra and the partitions. 1 is the first stage, 2 is both,
- * 3 is the second alone, the default: stage 1 costs three times what
- * stage 2 does and buys less per point (docs/phase4-ladder.md). 0 is the
- * pre-P1 encoder. */
+ * 3 is the second alone: stage 1 costs three times what stage 2 does and
+ * buys less per point (docs/phase4-ladder.md). 0 is the pre-P1 encoder.
+ *
+ * 2 is the default since 2026-09-11 (phase 6b): both stages read 1.079x
+ * on the NEON binary for +0.37 CQP / +0.54 CRF of band median, the fifth
+ * cheapest arm on the re-priced ladder. 3 is what `--preset slow` sets. */
 static int cbf_fast(void)
 {
     static int v = -1;
     if (v < 0) {
         const char *s = n265_env("N265_CBF_FAST");
-        v = s ? atoi(s) : 3;    /* stage 2, the one that priced (P1) */
+        v = s ? atoi(s) : 2;    /* both stages (P1, re-priced 6b) */
     }
     return v;
 }
@@ -652,7 +661,17 @@ static int gate_scale(void)
  * is inside the quantiser floor, the CU's winner is decided and the
  * search - and the partitions behind it - are bought to lose. 1 and 2
  * are the bound in multiples of the clean-skip level; 3 drops the bound
- * and asks only that skip beat the merge candidate's own RD. */
+ * and asks only that skip beat the merge candidate's own RD.
+ *
+ * Still 0, and phase 6b is the second refusal. Alone on the NEON binary
+ * it is 1.088x; inside the placed medium it is **1.016x**, because
+ * `CBF_FAST=2` stage 1 already gates the AMVP search on the merge
+ * candidate reaching cbf 0 and `RSKIP=2` has stopped the recursion on
+ * the same population. 1.6% of the wall for +0.72 of CRF band median is
+ * a marginal price of 0.45, the worst trade on the ladder after
+ * `SBH_RD` (docs/phase6b-economy.md, point C). `--preset fast` still
+ * takes it: at fast's own operating point the population it gates is a
+ * different one. */
 static int skip_exit(void)
 {
     static int v = -1;
@@ -730,13 +749,18 @@ static int nb_inter_clean(struct n265_frame_work *e, int x0, int y0, int n)
  * candidate to have carried residual before rect is entered at all;
  * 3 also drops rect at the min CB, where its PUs are 8x4/4x8 and its
  * share per bit is highest; 4 is 3 with the AMP margin widened from 2%
- * to 8%. 0 is the pre-P4 encoder. */
+ * to 8%. 0 is the pre-P4 encoder.
+ *
+ * 2 is the default since 2026-09-11 (phase 6b). P4 refused it on the C
+ * binary at 1.020x; on the NEON binary it is 1.041x for +0.01 CQP /
+ * +0.53 CRF of band median - the fourth cheapest arm on the re-priced
+ * ladder. 0 is what `--preset slow` sets. */
 static int part_gate(void)
 {
     static int v = -1;
     if (v < 0) {
         const char *s = n265_env("N265_PART_GATE");
-        v = s ? atoi(s) : 0;
+        v = s ? atoi(s) : 2;    /* rect only where AMVP left residual */
     }
     return v;
 }
@@ -760,7 +784,19 @@ static int part_amp_margin(void)
  * proxy is a coin flip on the clip with the texture, the two-motion
  * proxies that are not do not cover enough of the population to pay,
  * and a wrong orientation costs about four times what the time it buys
- * is worth. Kept at 0 for re-pricing. */
+ * is worth at phase 4's price rule.
+ *
+ * Still 0, and phase 6b is the third refusal - on a clip the band
+ * cannot see. It is nearly free on the CIF seven (1.049x for -0.06 CQP
+ * / +0.77 CRF of band median) and it is the single worst arm on the
+ * ladder for flat-shaded animation: at CQP it alone takes
+ * `sita_toon_720p` from -0.44% to +0.22% BD-VMAF-NEG, two thirds of
+ * that clip's whole margin over x265, for a CQP band median that
+ * improves. The proxy reads the 2Nx2N residual's row-vs-column
+ * deviation, and animation's residual is edges on flat fills, where
+ * that statistic separates nothing. Kept at 0, and the next re-pricing
+ * of it needs an animation clip in the loop
+ * (docs/phase6b-economy.md). */
 static int rect_rank(void)
 {
     static int v = -1;
@@ -1359,15 +1395,19 @@ static int cb64_gate(void)
     return v;
 }
 
-/* AMVP 2Nx2N at the CB64 node (the quadtree's log2n == 6 arm set). On
- * since 2026-09-07: -0.38 median BD-VMAF-NEG on the CIF band at 1.06-1.09x
- * the encode time; N265_CB64_AMVP=0 is the escape. */
+/* AMVP 2Nx2N at the CB64 node (the quadtree's log2n == 6 arm set). It
+ * was on from 2026-09-07 (-0.38 median BD-VMAF-NEG on the CIF band at
+ * 1.06-1.09x) and is OFF by default since 2026-09-11 (phase 6b): on the
+ * NEON binary it is the one arm on the whole ladder that reads free in
+ * both modes - -0.01 mean BD over CQP and CRF, no clip past 0.2 - for
+ * 1.053x on all three timed clips. `--preset slow` sets it back to 1.
+ * Inert at `--ctu 32`, so the 1.053x is a medium-CTU number. */
 static int cb64_amvp(void)
 {
     static int on = -1;
     if (on < 0) {
         const char *v = n265_env("N265_CB64_AMVP");
-        on = v ? atoi(v) != 0 : 1;
+        on = v ? atoi(v) != 0 : 0;
     }
     return on;
 }
@@ -1389,16 +1429,18 @@ static int b_intra_margin(void)
     return mg;
 }
 
-/* number of L0/L1 refinement sweeps; N265_BI_REFINE=0 is the escape.
- * One sweep since 2026-09-07: -0.29 mean BD-VMAF-NEG on the CIF band
- * (6/7 clips, bus flat) at 1.05x the encode time. A second sweep buys
- * another 0.02 mean for another 4%, so one is where it stops paying. */
+/* number of L0/L1 refinement sweeps. One sweep from 2026-09-07 (-0.29
+ * mean BD-VMAF-NEG on the CIF band, 6/7 clips, bus flat, at 1.05x; a
+ * second sweep buys another 0.02 mean for another 4%). ZERO since
+ * 2026-09-11 (phase 6b): re-priced on the NEON binary the sweep is
+ * 1.037x for +0.21 CQP / +0.30 CRF of band median, which medium at an
+ * explicit budget no longer buys. `--preset slow` sets it back to 1. */
 static int bi_refine_iters(void)
 {
     static int it = -1;
     if (it < 0) {
         const char *v = n265_env("N265_BI_REFINE");
-        it = v ? atoi(v) : 1;
+        it = v ? atoi(v) : 0;
         if (it > 4)
             it = 4;
     }
