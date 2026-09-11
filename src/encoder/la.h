@@ -28,6 +28,22 @@
 struct n265_encoder;
 struct n265_frame_work;
 
+/* The content type (2026-09-11). Two tools want to know whether a frame
+ * is FLAT-SHADED - synthetic animation over large constant fills - and
+ * both give a different answer for it than for natural video: SAO's band
+ * offset, which is the only thing in the codec that addresses banding on
+ * a fill, and the per-CTU variance-AQ term, whose masking model that
+ * content breaks. The measure is the share of 16x16 source luma blocks
+ * whose variance is under one, in percent; `n265_flat_gate` is the share
+ * at or above which a frame is typed flat (N265_FLAT_GATE, 0 = never,
+ * which is also the pre-2026-09-11 encoder byte for byte).
+ *
+ * It is a pure function of the frame's own source luma plane and is
+ * evaluated on the driver before any row job for the frame exists, so
+ * every decision it feeds is byte-identical at every thread count. */
+int n265_la_flat_pct(const struct n265_frame_work *fw);
+int n265_flat_gate(void);
+
 typedef struct la_frame {
     float sc_ratio;         /* pcost/icost at push time */
     float sc_ema;           /* running ratio EMA before this frame */

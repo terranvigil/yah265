@@ -351,6 +351,9 @@ typedef struct n265_frame_work {
     int in_flight;          /* dispatched, not yet retired */
     int job_R;              /* CTB rows the task table covers (0 for PCM) */
     int job_cols, job_snap_x, job_sao_on;
+    int sao_mask;           /* SAO types this frame may pick (sao.h) */
+    int flat_pct, flat;     /* the content type (la.h): the flat-block
+                             * share and whether it clears the gate */
     int ref_lag;            /* G1's row-start hint, in CTB rows */
     int emit_headers;       /* this frame carries the VPS/SPS/PPS */
     int nal_type;

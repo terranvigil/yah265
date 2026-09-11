@@ -18,10 +18,19 @@ typedef struct sao_params {
                              * stored signed with the inferred sign applied */
 } sao_params;
 
-/* Is the filter enabled at all? N265_SAO_TYPES=0 disables it in the SPS,
- * so no slice flag and no sao() syntax is coded and neither the analysis
- * nor the application pass runs. */
-int n265_sao_enabled(void);
+/* May the filter be used ANYWHERE in this sequence? This is the SPS
+ * flag: N265_SAO_TYPES=0 with the content gate disarmed clears it, and
+ * then no slice flag and no sao() syntax is coded and neither the
+ * analysis nor the application pass ever runs. With the gate armed the
+ * flag is set even for a sequence no frame of which turns out to be
+ * flat, because nothing here can see the whole sequence in advance; the
+ * two slice flags below then carry the per-frame answer. */
+int n265_sao_seq_enabled(void);
+
+/* The SAO type mask this frame may pick from - 0 for the filter off
+ * over the whole frame. N265_SAO_TYPES everywhere, plus N265_SAO_ANIM
+ * on a frame the content gate (la.h) typed flat-shaded. */
+int n265_sao_frame_mask(const struct n265_frame_work *e);
 
 /* Decide and apply one CTB row's offsets (docs/threading-design.md
  * sec 1). Analysis and application both see the picture pre-SAO: the

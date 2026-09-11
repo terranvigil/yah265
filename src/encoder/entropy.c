@@ -508,7 +508,7 @@ void n265_entropy_ctu(struct n265_frame_work *e, cabac_t *cb, int ctb_x,
     res_ops ops_s;
     n265_real_ops(&ops_s, &re);
     const res_ops *ops = &ops_s;
-    if (n265_sao_enabled())
+    if (e->sao_mask)
         n265_sao_write(e, cb, ctb_x, ctb_y);
     replay_quadtree(e, ops, ctb_x << e->ctb_log2, ctb_y << e->ctb_log2,
                     e->ctb_log2, 0);

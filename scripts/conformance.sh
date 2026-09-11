@@ -50,6 +50,12 @@ VENV=""
 # a full lavfi graph for the next run_vector, instead of the usual
 # "<source>=size=WxH:rate=25". Set by run_vector_graph, cleared after.
 VGRAPH=""
+# Every vector's source is dithered so the encoder has residual to code.
+# A vector for the SAO CONTENT GATE cannot be: the gate types a frame by
+# how many 16x16 source blocks are flat to within one luma level, and
+# alls=12 noise leaves none anywhere. VNOISE lets those vectors ask for
+# the clean source instead.
+VNOISE=""
 
 run_vector() {
     # $1 name  $2 WxH  $3 frames  $4 lavfi source  $5 encoder args
@@ -58,7 +64,7 @@ run_vector() {
     name=$1; size=$2; frames=$3; src=$4; eargs=$5
     y4m="$TMP/$name.y4m"
     "$FFMPEG" -loglevel error -f lavfi -i "${VGRAPH:-$src=size=$size:rate=25}" \
-        -vf "noise=alls=12:allf=t+u" -frames:v "$frames" -pix_fmt yuv420p "$y4m" -y \
+        -vf "${VNOISE:-noise=alls=12:allf=t+u}" -frames:v "$frames" -pix_fmt yuv420p "$y4m" -y \
         2>/dev/null
     if [ ! -s "$y4m" ]; then
         echo "SUMMARY $name SKIP (source gen failed)"
@@ -138,6 +144,14 @@ run_vector_env() {
     VENV=""
 }
 
+# same vector with the dither turned off at the source
+run_vector_clean() {
+    VENV=$1; shift
+    VNOISE="null"
+    run_vector "$@"
+    VNOISE=""; VENV=""
+}
+
 # geometry coverage: CTB-aligned, unaligned (forced splits + conformance
 # window), tiny, tall/narrow, HD; QP sweep on the real path
 run_vector pcm_qcif       176x144  3  testsrc2  "--pcm"
@@ -190,6 +204,26 @@ run_vector_env "N265_SAO_TYPES=2" \
                           sao_edge  176x144 12  testsrc2  "--keyint 6"
 run_vector_env "N265_SAO_TYPES=3" \
                           sao_crop  210x122 12  testsrc2  "--keyint 6 --ctu 64"
+# The content gate (N265_FLAT_GATE, 2026-09-11) answers PER FRAME, so it
+# puts sample_adaptive_offset_enabled_flag and the two slice_sao_* flags
+# in states the type knob alone cannot reach: SPS on with every slice
+# off, and SPS on with the slices disagreeing inside one stream. The
+# dither has to come off the source for a flat block to survive to the
+# classifier at all, which is what run_vector_clean is for.
+#
+# testsrc2 at this size reads 22-29% flat blocks and drifts DOWN over
+# twelve frames, so 25 lands mid-drift and the mixed vector really does
+# switch the filter off part-way through the sequence; it also carries
+# --aq, because the same per-frame type moves the AQ clamp and that has
+# to reach both decoders through the QP field. (If a future ffmpeg moves
+# the drift, the vector still tests a legal stream, just a less
+# interesting one.)
+run_vector_clean "N265_FLAT_GATE=1" \
+                          sao_anim_on   176x144 12  smptebars "--keyint 6 --qp 34"
+run_vector_env "N265_FLAT_GATE=101" \
+                          sao_anim_off  176x144 12  testsrc2  "--keyint 6"
+run_vector_clean "N265_FLAT_GATE=25" \
+                          sao_anim_mix  176x144 12  testsrc2  "--keyint 6 --qp 34 --aq 1 --cutree 1"
 # Threaded cells: the same content at --threads 4 and 12, CQP and ABR,
 # with a B pyramid. run_vector already encodes each vector twice and
 # cmp's the two runs, so these carry the same-thread-count determinism
