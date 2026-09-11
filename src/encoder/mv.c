@@ -515,20 +515,28 @@ void n265_clamp_mv(struct n265_frame_work *e, int x0, int y0, int w, int h,
  * 0 is the two-round half-pel/quarter-pel square this encoder has had
  * since phase 2.
  *
- * Still 0 after phase 6b, and the reason is not the band. Mode 3 is
- * 1.113x inside the placed medium and the CIF-7 median stays well
- * inside the budget with it, but on the fifteen-clip corpus it takes
- * `sintel_720p` from -0.47% to +0.67% BD-VMAF-NEG - a clip that is
- * ahead of x265 today ending up behind it, which the placement's budget
- * forbids outright. Its joint cost also exceeds its solo cost by about
- * two thirds of a point in each mode (docs/phase6b-economy.md,
- * point B). `--preset fast` still takes it. */
+ * **3 is the shipped default since phase 6b step 3**: one subpel round,
+ * no quarter-pel square on the 8x4 and 4x8 PUs (R8). Step 2 refused it
+ * for one clip - it took `sintel_720p` from -0.47% to +0.67%
+ * BD-VMAF-NEG, a clip ahead of x265 ending up behind it - and the
+ * animation item then moved sintel to -17.78% under CRF and -10.20%
+ * under CQP, which is eleven times the margin the refusal turned on.
+ * Re-walked against that, mode 3 costs sintel 1.14 CQP / 0.86 CRF,
+ * `sita_toon_720p` 0.68 / 0.40, and `sita_flat_720p` nothing it can
+ * resolve (-3.13 -> -3.22 CQP, -9.21 -> -9.22 CRF), for 1.94 CQP and
+ * 2.24 CRF of CIF-7 band median and 1.111x of the wall on top of
+ * point A. All fifteen corpus clips stay ahead of x265 under CRF, worst
+ * `sita_toon_720p` -6.31% (docs/phase6b-economy.md, point B).
+ *
+ * The joint cost still exceeds the solo row by about two thirds of a
+ * point in each mode - the solo table understates this arm and any
+ * later ladder re-using that row should know it. */
 static int subme_mode(void)
 {
     static int v = -1;
     if (v < 0) {
         const char *s = n265_env("N265_SUBME");
-        v = s ? atoi(s) : 0;
+        v = s ? atoi(s) : 3;
     }
     return v;
 }

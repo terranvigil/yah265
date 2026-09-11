@@ -54,11 +54,11 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 | `N265_BADAPT_REFW` | ? | src/encoder/encoder.c:2390 |
 | `N265_BADAPT_THR` | ? | src/encoder/encoder.c:2389 |
 | `N265_BADAPT_TRACE` | ? | src/encoder/la.c:523 |
-| `N265_BI_GATE` | 4 | src/encoder/ctu.c:1490 |
-| `N265_BI_REFINE` | 0 | src/encoder/ctu.c:1442 |
-| `N265_B_INTRA_MARGIN` | 30 | src/encoder/ctu.c:1424 |
-| `N265_CB64_AMVP` | 0 | src/encoder/ctu.c:1409 |
-| `N265_CB64_GATE` | 1 | src/encoder/ctu.c:1391 |
+| `N265_BI_GATE` | 4 | src/encoder/ctu.c:1491 |
+| `N265_BI_REFINE` | 0 | src/encoder/ctu.c:1443 |
+| `N265_B_INTRA_MARGIN` | 30 | src/encoder/ctu.c:1425 |
+| `N265_CB64_AMVP` | 0 | src/encoder/ctu.c:1410 |
+| `N265_CB64_GATE` | 1 | src/encoder/ctu.c:1392 |
 | `N265_CB64_TRACE` | ? | src/encoder/ctu.c:66 |
 | `N265_CBF_FAST` | 2 | src/encoder/ctu.c:636 |
 | `N265_CRF_SHIFT` | 5.4 | src/encoder/encoder.c:1829 |
@@ -69,7 +69,7 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 | `N265_DBF_BETA` | 0 | src/encoder/encoder.c:687 |
 | `N265_DBF_TC` | 0 | src/encoder/encoder.c:688 |
 | `N265_DECIMATE` | 15 | src/encoder/rdoq.c:294 |
-| `N265_DEPTH_BOUND` | 0 | src/encoder/ctu.c:861 |
+| `N265_DEPTH_BOUND` | 0 | src/encoder/ctu.c:862 |
 | `N265_DPB_HOLD` | 0 | src/encoder/encoder.c:149 |
 | `N265_DPB_TRACE` | ? | src/encoder/encoder.c:666 |
 | `N265_ES_THR` | 100 | src/encoder/ctu.c:592 |
@@ -80,18 +80,18 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 | `N265_HF2_TRACE` | ? | src/encoder/encoder.c:1160 |
 | `N265_HFCACHE` | 1 | src/encoder/encoder.c:1047 |
 | `N265_INTRA_GATE` | 5 | src/encoder/ctu.c:702 |
-| `N265_INTRA_MPM` | 0 | src/encoder/ctu.c:1901 |
-| `N265_INTRA_RD_N` | 3 | src/encoder/ctu.c:1890 |
-| `N265_I_INTRA` | 0 | src/encoder/ctu.c:1917 |
+| `N265_INTRA_MPM` | 0 | src/encoder/ctu.c:1902 |
+| `N265_INTRA_RD_N` | 3 | src/encoder/ctu.c:1891 |
+| `N265_I_INTRA` | 0 | src/encoder/ctu.c:1918 |
 | `N265_LA_PROF` | 0.0 | src/encoder/encoder.c:778 |
 | `N265_MAX_FRAME_WORK` | ? | src/encoder/encoder.c:704 |
-| `N265_MERGE_RD_N` | ? | src/encoder/ctu.c:1461 |
+| `N265_MERGE_RD_N` | ? | src/encoder/ctu.c:1462 |
 | `N265_MERGE_TRACE` | -1 | src/encoder/mv.c:98 |
-| `N265_ME_PATTERN` | 0 | src/encoder/mv.c:542 |
-| `N265_ME_SATD` | 0 | src/encoder/ctu.c:1342 |
+| `N265_ME_PATTERN` | 0 | src/encoder/mv.c:550 |
+| `N265_ME_SATD` | 0 | src/encoder/ctu.c:1343 |
 | `N265_MIN_KEYINT` | 4 | src/encoder/encoder.c:2285 |
 | `N265_MODE_HIST` | ? | src/encoder/sao.c:157 |
-| `N265_MVD_BITS` | 0 | src/encoder/ctu.c:1330 |
+| `N265_MVD_BITS` | 0 | src/encoder/ctu.c:1331 |
 | `N265_NO_AMP` | 1 | src/encoder/encoder.c:655 |
 | `N265_NO_RECT` | 0 | src/encoder/encoder.c:653 |
 | `N265_NO_SPLIT` | ? | src/encoder/ctu.c:54 |
@@ -104,7 +104,7 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 | `N265_RC_TRACE` | ? | src/encoder/rc.c:152 |
 | `N265_RDOQ_ADAPT` | 0 | src/encoder/rdoq.c:282 |
 | `N265_RDOQ_LAM` | 100 | src/encoder/rdoq.c:288 |
-| `N265_RECT_RANK` | 0 | src/encoder/ctu.c:804 |
+| `N265_RECT_RANK` | 50 | src/encoder/ctu.c:805 |
 | `N265_REF_LAG_HINT` | -1 | src/encoder/encoder.c:2079 |
 | `N265_RSKIP` | 2 | src/encoder/ctu.c:616 |
 | `N265_SAO_ANIM` | 1 | src/encoder/sao.c:213 |
@@ -120,7 +120,7 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 | `N265_SC_TRACE` | ? | src/encoder/la.c:379 |
 | `N265_SKIP_EXIT` | 0 | src/encoder/ctu.c:679 |
 | `N265_STALL_TRACE` | ? | src/encoder/encoder.c:875 |
-| `N265_SUBME` | 0 | src/encoder/mv.c:530 |
+| `N265_SUBME` | 3 | src/encoder/mv.c:538 |
 | `N265_SUBPEL_DEDUP` | 1 | src/encoder/mv.c:110 |
 
 ## arm (12)

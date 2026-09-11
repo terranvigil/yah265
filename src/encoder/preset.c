@@ -38,20 +38,23 @@ struct kv {
  * being bought is not speed at a BD cost but the same BD as the
  * reference at less time. */
 static const struct kv fast_tab[] = {
-    /* Four of the entries below became the shipped default too when
-     * phase 6b placed medium (RSKIP, CBF_FAST, CB64_AMVP, BI_REFINE),
-     * so those lookups now return the value the default would have
-     * returned anyway. They stay: a preset table says what the preset
-     * IS, not how it differs from whatever medium happens to be this
-     * month, and a redundant entry costs one string compare. What fast
-     * still adds over the placed medium is SUBME=3, SKIP_EXIT=1,
-     * INTRA_GATE=2, NO_RECT, SBH_RD=0 and `--ctu 32` in fast_par - and
-     * the first two are arms the placement measured and refused AT
-     * MEDIUM's operating point, not everywhere.
+    /* Five of the entries below are the shipped default too: phase 6b
+     * placed medium in step 2 (RSKIP, CBF_FAST, CB64_AMVP, BI_REFINE)
+     * and re-walked the ladder in step 3 (SUBME), so those lookups now
+     * return the value the default would have returned anyway. They
+     * stay: a preset table says what the preset IS, not how it differs
+     * from whatever medium happens to be this month, and a redundant
+     * entry costs one string compare. What fast still adds over the
+     * placed medium is SKIP_EXIT=1, INTRA_GATE=2, NO_RECT, SBH_RD=0 and
+     * `--ctu 32` in fast_par - and SKIP_EXIT is an arm the placement
+     * measured and refused AT MEDIUM's operating point, not everywhere.
      *
-     * fast inherits the new `N265_PART_GATE=2` default without naming
-     * it, which is inert under NO_RECT by construction and proven so by
-     * cmp against the pre-placement binary on twelve cells. */
+     * fast inherits two defaults it does not name: `N265_PART_GATE=2`
+     * from step 2 and `N265_RECT_RANK=50` from step 3. Both are inert
+     * under NO_RECT by construction - one gates entry to the
+     * rectangular trials and the other ranks them, and NO_RECT deletes
+     * both - and the cmp of `--preset fast` against the pre-placement
+     * binary proves that rather than arguing it. */
     /* the gates the ladder priced and held: each one costs BD at OUR
      * operating point and each buys more time per point than any tool
      * drop below it */
@@ -88,15 +91,19 @@ static const struct kv fast_tab[] = {
  *
  * Phase 6b changed that from the other side. Placing medium six knobs
  * down the economy ladder spent 1.02 points of CQP and 2.53 of CRF band
- * median for 1.336x the single-thread wall, and the encoder that was
- * medium is worth keeping reachable - so slow now names the OLD medium
- * value of every knob the placement moved. `--preset slow` is
- * byte-identical to the pre-6b default at the same structural flags
+ * median for 1.336x the single-thread wall, and step 3 re-walked it two
+ * rungs further once the animation item paid for the fare - another
+ * 1.94 CQP / 2.24 CRF for 1.151x, eight knobs in total. The encoder
+ * that was medium is worth keeping reachable, so slow names the OLD
+ * medium value of every knob either step moved. **`--preset slow` is
+ * the phase-5-exit medium, byte for byte** at the same structural flags
  * (verified by cmp of bitstream and --dump-recon on foreman_cif,
- * mobile_cif and park_joy_720p, CQP and CRF), and with slow_par on top
- * it is the strictly better encoder it always was.
+ * mobile_cif and park_joy_720p, CQP and CRF, against the pre-6b
+ * binary), and with slow_par on top it is the strictly better encoder
+ * it always was.
  *
- * Order follows the ladder in docs/phase6b-economy.md. */
+ * Order follows the ladder in docs/phase6b-economy.md: step 2's six,
+ * then step 3's two. */
 static const struct kv slow_tab[] = {
     { "N265_CB64_AMVP",  "1" },   /* the 64x64 AMVP arm back on        */
     { "N265_RSKIP",      "0" },   /* recursion never stopped early     */
@@ -104,6 +111,8 @@ static const struct kv slow_tab[] = {
     { "N265_CBF_FAST",   "3" },   /* stage 2 alone                     */
     { "N265_NO_AMP",     "0" },   /* asymmetric partitions back on     */
     { "N265_PART_GATE",  "0" },   /* rect entered unconditionally      */
+    { "N265_RECT_RANK",  "0" },   /* both orientations fully searched  */
+    { "N265_SUBME",      "0" },   /* the two-round subpel ladder       */
     { NULL, NULL }
 };
 

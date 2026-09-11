@@ -780,29 +780,30 @@ static int part_amp_margin(void)
  * search is skipped: a larger margin runs both more often, and 0 is the
  * pre-P5 encoder.
  *
- * Measured and refused at 5, 20 and 50 (docs/phase4-ladder.md, R1). The
- * proxy is a coin flip on the clip with the texture, the two-motion
- * proxies that are not do not cover enough of the population to pay,
- * and a wrong orientation costs about four times what the time it buys
- * is worth at phase 4's price rule.
+ * Measured and refused at 5, 20 and 50 (docs/phase4-ladder.md, R1), and
+ * refused a third time in phase 6b step 2 on `sita_toon_720p`: the
+ * proxy reads the 2Nx2N residual's row-vs-column deviation and
+ * animation's residual is edges on flat fills, where that statistic
+ * separates nothing, so the arm alone took that clip from -0.44% to
+ * +0.22% BD-VMAF-NEG under CQP - two thirds of its whole margin over
+ * x265 - for a CQP band median that improved.
  *
- * Still 0, and phase 6b is the third refusal - on a clip the band
- * cannot see. It is nearly free on the CIF seven (1.049x for -0.06 CQP
- * / +0.77 CRF of band median) and it is the single worst arm on the
- * ladder for flat-shaded animation: at CQP it alone takes
- * `sita_toon_720p` from -0.44% to +0.22% BD-VMAF-NEG, two thirds of
- * that clip's whole margin over x265, for a CQP band median that
- * improves. The proxy reads the 2Nx2N residual's row-vs-column
- * deviation, and animation's residual is edges on flat fills, where
- * that statistic separates nothing. Kept at 0, and the next re-pricing
- * of it needs an animation clip in the loop
- * (docs/phase6b-economy.md). */
+ * **50 is the shipped default since phase 6b step 3.** What changed is
+ * not this proxy but the margin it was spending: the animation item
+ * gave `sita_toon_720p` 5.86 points of CQP room where it had 0.44, and
+ * against that the arm costs 0.46 there, 0.24 on `sita_flat_720p` and
+ * 0.08 on `sintel_720p`. The CIF seven read +0.13 CQP / +0.83 CRF of
+ * band median for 1.036x of the single-thread wall and 1.038x at auto
+ * threads (docs/phase6b-economy.md, point A). The third refusal was
+ * right on its own numbers and is still the reason the proxy is never
+ * to be trusted on flat fills; it was a margin call, and the margin
+ * moved. 0 is the pre-P5 encoder. */
 static int rect_rank(void)
 {
     static int v = -1;
     if (v < 0) {
         const char *s = n265_env("N265_RECT_RANK");
-        v = s ? atoi(s) : 0;
+        v = s ? atoi(s) : 50;
     }
     return v;
 }
