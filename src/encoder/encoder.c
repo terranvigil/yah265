@@ -632,16 +632,28 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     { const char *v = n265_env("N265_CT_QPW"); e->ct_qpw = v ? (float)atof(v) : 2.0f; }
     { const char *v = n265_env("N265_CT_LAMBDA"); e->ct_lambda = v ? (float)atof(v) : 0.0f; }
     /* N265_CT_FRAMEW (k_f): the share of the cu-tree field's FRAME MEAN the
-     * base QP carries under CRF, on cutree_str's scale. 1.0 ships (phase 7
-     * step 2): half the field's mean, the other half being what the fixed
-     * I/P/B cascade was already double-counting. Setting it to N265_CT_QPW's
-     * value is the pre-item encoder byte for byte, which is the escape. */
-    { const char *v = n265_env("N265_CT_FRAMEW"); e->ct_framew = v ? (float)atof(v) : 1.0f; }
+     * base QP carries under CRF, on cutree_str's scale, where N265_CT_QPW
+     * (k_b) is the share the per-CTU map carries. k_f == k_b is the term
+     * switched off and the pre-item encoder byte for byte, and it is the
+     * DEFAULT: 1.0 is worth 3.9 points of CIF-7 CRF band median with no clip
+     * in the thirteen worse, and phase 7 step 3 could not get the
+     * across-shot cost of it below +0.70% on ms_cif_30 (the whole table is
+     * in docs/phase7-modulation-design.md "Step 3 result"). It ships the day
+     * something does. */
+    { const char *v = n265_env("N265_CT_FRAMEW"); e->ct_framew = v ? (float)atof(v) : e->ct_qpw; }
     /* ...and on a flat-typed frame (la.h's content gate), where the field's
      * cross-frame reading is a content trade and not a double count: today's
      * form ships there, which is k_f = k_b. */
     { const char *v = n265_env("N265_CT_FRAMEW_FLAT");
       e->ct_framew_flat = v ? (float)atof(v) : e->ct_qpw; }
+    /* phase 7 step 3, both default-off until the multi-shot gate places
+     * them: a bound on the term, and a level taken over one shot. */
+    { const char *v = n265_env("N265_CT_FRAME_CLAMP");
+      e->ct_frame_clamp = v ? (float)atof(v) : 0.0f; }
+    { const char *v = n265_env("N265_CT_FRAME_SHOT");
+      e->ct_frame_shot = v ? atoi(v) != 0 : 0; }
+    { const char *v = n265_env("N265_CT_FRAME_UP");
+      e->ct_frame_up = v ? (float)atof(v) : -1.0f; }
     /* N265_PB_CASCADE=r,l places the B steps of the fixed cascade by hand
      * (referenced B, leaf) instead of the 1 + b_depth form. Unset is that
      * form, so the default is today's; CRF/ABR only, because the cascade
@@ -1865,13 +1877,13 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
      * fixed shift and only the DIFFERENTIAL survives; centring them would
      * throw the cross-frame allocation away. N265_CRF_SHIFT nets what is
      * left of that mean after the frame term below has taken k_f of it:
-     * 4.9 since phase 7 step 2, re-fitted so foreman at crf 28 lands within
-     * 1% of the pre-item bytes (52617 -> 52928, +0.59%); it was 5.4 =
-     * (1 - qcomp) * 13.5 at qcomp 0.6 while the map carried the whole mean,
-     * and it is 0 without cu-tree. BD at matched achieved bitrate does not
-     * depend on it; the crf-to-rate mapping does, and the board's timed leg
-     * and every recorded crf number read that mapping. The AQ frame-mean
-     * term lands on the base below, once the variances are known. */
+     * 5.4 = (1 - qcomp) * 13.5 at qcomp 0.6 with the term off, which is the
+     * default, and 0 without cu-tree. Any arm that arms k_f re-fits it (4.9
+     * at k_f 1, foreman crf 28 52617 -> 52928); BD at matched achieved
+     * bitrate does not depend on it, the crf-to-rate mapping does, and the
+     * board's timed leg and every recorded crf number read that mapping.
+     * The AQ frame-mean term lands on the base below, once the variances
+     * are known. */
     double base = e->qp_base;
     if (e->abr_on) {
         /* ABR: the base is the rate factor rc.c solved for this frame from
@@ -1879,7 +1891,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
         base = e->rc_rf;
     } else if (e->crf_on) {
         double shift = 0.0;
-        if (e->cutree) { const char *v = n265_env("N265_CRF_SHIFT"); shift = v ? atof(v) : 4.9; }
+        if (e->cutree) { const char *v = n265_env("N265_CRF_SHIFT"); shift = v ? atof(v) : 5.4; }
         base = e->crf + shift;
     }
     /* The cu-tree FRAME term (phase 7 step 2), derived from the field's own
@@ -1889,8 +1901,17 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
      * centred and there is no cross-frame term to place. It lands before the
      * rounding, so with the fractional path on it is carried over the CTUs
      * and without it, it rounds with the base. */
-    if ((e->crf_on || e->abr_on) && e->cutree)
-        base += n265_ct_frame_term(e, fw);
+    if ((e->crf_on || e->abr_on) && e->cutree) {
+        double ctf = n265_ct_frame_term(e, fw);
+        base += ctf;
+        /* N265_CT_TRACE (diagnostic, output-neutral): the term per frame,
+         * with the two means it came from. This is the instrument the clamp
+         * of step 3 was read off, per shot, rather than swept. */
+        if (n265_env("N265_CT_TRACE"))
+            fprintf(stderr, "CTF,%d,%d,%d,%d,%.3f,%.3f,%+.3f\n",
+                    fw->display_idx, slice_type, nonref, fw->flat,
+                    fw->ct_mean_raw, fw->ct_level, ctf);
+    }
     /* the pyramid QP cascade: I anchors -3, P anchors +0, and each B layer
      * one step deeper than its parent (the reference B nearest the anchors
      * codes best, the leaves worst). N265_PB_STEP scales the per-layer

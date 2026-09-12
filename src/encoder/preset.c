@@ -89,14 +89,6 @@ static const struct kv fast_tab[] = {
      * for 3-8% - and at this end of the ladder 6.9 is what is left to
      * spend. */
     { "N265_SBH_RD",     "0" },
-    /* ...and the cu-tree frame term phase 7 step 2 made a medium default.
-     * fast has its own board columns (`our_fps_fast`,
-     * `bd_rate_vmafneg_fast_pct`) and its own operating point, so a quality
-     * change there wants its own band read and is not step 2's to make.
-     * Naming the pre-item pair is what keeps `--preset fast` byte-identical
-     * across it (cmp on foreman_cif at `--preset fast --crf 28`). */
-    { "N265_CT_FRAMEW",  "2" },
-    { "N265_CRF_SHIFT",  "5.4" },
     { NULL, NULL }
 };
 
@@ -138,13 +130,6 @@ static const struct kv slow_tab[] = {
                                    * ones alone. N265_RECT_FLAT needs no
                                    * entry - it is inert wherever rect
                                    * is already on                     */
-    /* phase 7 step 2: the cu-tree frame term, and the operating-point
-     * shift re-fitted under it. The pair restores the pre-item CRF
-     * ladder, which is what keeps slow the phase-5-exit medium.
-     * N265_CT_FRAMEW_FLAT needs no entry - it is inert wherever k_f is
-     * already k_b                                                     */
-    { "N265_CT_FRAMEW",  "2" },
-    { "N265_CRF_SHIFT",  "5.4" },
     { NULL, NULL }
 };
 

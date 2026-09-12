@@ -770,9 +770,21 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
             use_level = v ? atoi(v) : 1;
         }
         if (use_level) {
-            double sum = 0;
-            int n = 0;
-            for (int k = 0; k < la->count; k++) {
+            /* N265_CT_FRAME_SHOT: take the level over this frame's side of
+             * the nearest scenecut in the window only. A window that
+             * straddles a cut otherwise averages two shots' levels into one
+             * term, so the frame is placed against content it does not
+             * reference - the propagation walk already stops at the cut. */
+            int lo = 0, hi = la->count;
+            if (e->ct_frame_shot) {
+                for (int k = i; k > 0; k--)
+                    if (n265_la_scenecut(e, k)) { lo = k; break; }
+                for (int k = i + 1; k < la->count; k++)
+                    if (n265_la_scenecut(e, k)) { hi = k; break; }
+            }
+            double sum = 0, all = 0;
+            int n = 0, nall = 0;
+            for (int k = lo; k < hi; k++) {
                 const la_frame *g = &la->f[k];
                 double acc = 0;
                 int cnt = 0;
@@ -783,12 +795,23 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
                     acc += log2f((ic + g->prop[b]) / ic);
                     cnt++;
                 }
+                all += -(double)e->cutree_str * acc / nb;   /* a leaf adds 0 */
+                nall++;
                 if (!cnt)
                     continue;   /* leaf frame: not part of the level */
                 sum += -(double)e->cutree_str * acc / nb;
                 n++;
             }
-            level = n ? sum / n : 0.0;
+            /* 2 (phase 7 step 3) takes the level over EVERY frame in the
+             * window, a leaf's zero included, instead of over the
+             * propagated-into ones. That makes the frame term zero-mean
+             * across the window by construction: it redistributes QP between
+             * the frames of a mini-GOP and moves not one bit between windows,
+             * and so not one between shots. 1 is step 2's form, whose
+             * window-average term is content-keyed and is what the
+             * multi-shot gate charged for. */
+            level = use_level >= 2 ? (nall ? all / nall : 0.0)
+                                   : (n ? sum / n : 0.0);
         }
     }
     fw->ct_level = level;

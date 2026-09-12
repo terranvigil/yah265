@@ -479,6 +479,12 @@ struct n265_encoder {
                                pre-item encoder, byte for byte */
     float ct_framew_flat;   /* N265_CT_FRAMEW_FLAT: the same on a flat-typed frame,
                                where today's form (= ct_qpw) ships */
+    float ct_frame_clamp;   /* N265_CT_FRAME_CLAMP: bound on the frame term, in QP
+                               steps (0 = unbounded) */
+    int ct_frame_shot;      /* N265_CT_FRAME_SHOT: take the window level over this
+                               frame's side of the nearest scenecut only */
+    float ct_frame_up;      /* N265_CT_FRAME_UP: bound on the term's positive side
+                               alone, in QP steps (negative = unbounded) */
     int pb_cascade_on;      /* N265_PB_CASCADE=r,l is in force (CRF/ABR only;
                                "auto" is the 1 + b_depth ladder) */
     int pb_cascade_r;       /* its referenced-B step */
@@ -645,9 +651,29 @@ static inline double n265_ct_frame_term(const struct n265_encoder *e,
      * level. Written as a difference so k_f == k_b is exactly 0.0 - the same
      * double, subtracted from itself - which is what makes the default
      * bitstream main's byte for byte. */
-    return (kf / (double)e->cutree_str - n265_ct_qp_scale(e)) *
-               (fw->ct_mean_raw - fw->ct_level) +
-           n265_ct_qp_scale(e) * fw->ct_mean_used;
+    double t = (kf / (double)e->cutree_str - n265_ct_qp_scale(e)) *
+                   (fw->ct_mean_raw - fw->ct_level) +
+               n265_ct_qp_scale(e) * fw->ct_mean_used;
+    /* N265_CT_FRAME_CLAMP (phase 7 step 3): a bound in QP steps on how far
+     * the term may move one frame. A leaf's term is proportional to its
+     * shot's OWN level, so unbounded it discounts a busy shot's leaves
+     * further than a quiet shot's and moves bits between shots in proportion
+     * to a distortion-domain estimate - which is what the multi-shot gate
+     * refused in step 2. 0 is unbounded, step 2's form. */
+    if (e->ct_frame_clamp > 0.0f) {
+        double c = (double)e->ct_frame_clamp;
+        if (t > c) t = c;
+        else if (t < -c) t = -c;
+    }
+    /* N265_CT_FRAME_UP bounds the POSITIVE side alone - how far the term may
+     * RAISE a frame's QP. The trace's finding: the term is positive on
+     * referenced frames and negative on leaves, and the shot that pays in the
+     * multi-shot gate is the most static one, whose leaves cannot use a lower
+     * QP and whose anchors carry the picture. 0 forbids the raise outright;
+     * negative is unbounded, the step 2 form. */
+    if (e->ct_frame_up >= 0.0f && t > (double)e->ct_frame_up)
+        t = (double)e->ct_frame_up;
+    return t;
 }
 
 /* --------------------------------------------------------------------
