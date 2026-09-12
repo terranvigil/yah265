@@ -42,7 +42,9 @@ def _exe_of(tmpl):
     """The encoder binary in a template, looking past a leading `env` and
     any VAR=value assignments in front of it."""
     toks = shlex.split(tmpl)
-    if toks and toks[0] == "env":
+    # a leading env by any path (`env`, `/usr/bin/env`): 2026-09-12 an arm
+    # written as `/usr/bin/env N265_X=1 build/n265` hashed the env binary
+    if toks and os.path.basename(toks[0]) == "env":
         toks = toks[1:]
     for t in toks:
         if "=" not in t or t.startswith("/") or t.startswith("."):
