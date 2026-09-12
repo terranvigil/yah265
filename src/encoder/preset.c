@@ -101,14 +101,15 @@ static const struct kv fast_tab[] = {
      * positive-side bound and its content gate need no entry, both being
      * inert with the term off, and the operating point never moved. */
     { "N265_CT_FRAMEW",  "2" },
-    /* phase 7 M1': the per-CTU AQ signal moved to `fine` at medium; the
-     * presets keep the variance signal so both stay the measurement
-     * anchors they were (fast: the speed point; slow: the phase-5 medium) */
+    /* phase 7 M1': the per-CTU AQ signal moved to `fine` at medium; fast
+     * keeps the variance signal so it stays the measurement anchor it is
+     * - the speed point, with its own charted board columns. slow kept
+     * the same pin until 2026-09-12 and inherits `fine` now */
     { "N265_AQ_SIGNAL",  "0" },
     { NULL, NULL }
 };
 
-/* slow: the medium of 2026-09-10, exactly.
+/* slow: the quality preset, re-placed 2026-09-12.
  *
  * The table was empty until phase 6b, because every knob-level candidate
  * for slow had been re-priced and none of them bought quality any more
@@ -116,22 +117,37 @@ static const struct kv fast_tab[] = {
  * refused a third time, a second bi-refinement sweep was a null); what
  * slow bought was structural and it is in slow_par below.
  *
- * Phase 6b changed that from the other side. Placing medium six knobs
- * down the economy ladder spent 1.02 points of CQP and 2.53 of CRF band
- * median for 1.336x the single-thread wall, and step 3 re-walked it two
- * rungs further once the animation item paid for the fare - another
- * 1.94 CQP / 2.24 CRF for 1.151x, eight knobs in total, and step 4 took
- * the rectangular block itself for a ninth. The encoder that was medium
- * is worth keeping reachable, so slow names the OLD medium value of
- * every knob any of the three steps moved. **`--preset slow` is
- * the phase-5-exit medium, byte for byte** at the same structural flags
- * (verified by cmp of bitstream and --dump-recon on foreman_cif,
- * mobile_cif and park_joy_720p, CQP and CRF, against the pre-6b
- * binary), and with slow_par on top it is the strictly better encoder
- * it always was.
+ * Phase 6b filled it from the other side. Placing medium nine knobs down
+ * the economy ladder in four steps made the OLD medium worth keeping
+ * reachable, so slow named the pre-6b value of every knob the placement
+ * moved and `--preset slow` WAS the phase-5-exit medium, byte for byte.
+ * That anchor priced every rung of the ladder, and it also cost slow the
+ * three things that pay only at two references per list - which is
+ * slow's own structure and no other preset's: the non-IDR intra
+ * placement, x265's slow window of 25, and the phase 7 quality
+ * mechanisms the table had to pin OFF (the cu-tree frame term, the
+ * `fine` AQ signal). So the anchor moved out of this table and into a
+ * recipe - docs/instruments.md, "The phase-5 medium recipe", twelve
+ * environment assignments plus `--ref 2 --bframes 7 --rc-lookahead 20`,
+ * cmp-verified on bitstream and --dump-recon against the old preset
+ * before this table was touched and again on the binary that ships it -
+ * and slow is the quality preset again.
+ *
+ * What that is worth on the CIF seven against x265 4.3 medium:
+ * -21.48 CQP / -21.84 CRF of band median against the old slow's
+ * -19.19 / -18.34 and today's medium's -16.11 / -13.46, 7/7 in both
+ * modes, HD-6 median -19.18 against -16.45 with all six ahead of medium
+ * where the old slow was 7.97 points behind it on touchdown_1080p, and
+ * ms_720p_50 4.72% ahead of medium where the old slow was 0.57%. It is
+ * 0.986x the old slow's single-thread wall, so none of it was bought
+ * with time. docs/phase7-gop-design.md, "slow re-placed".
  *
  * Order follows the ladder in docs/phase6b-economy.md: step 2's six,
- * then step 3's two, step 4's one, and step 6's one. */
+ * then step 3's two and step 4's one. Step 6's intra gate is no longer
+ * named - 5 and the inherited 7 are a tie the band cannot call at this
+ * operating point (median -21.45 against -21.48 CQP, -21.88 against
+ * -21.84 CRF) and 7 is 1.018x cheaper, so the pin went with the
+ * others. */
 static const struct kv slow_tab[] = {
     { "N265_CB64_AMVP",  "1" },   /* the 64x64 AMVP arm back on        */
     { "N265_RSKIP",      "0" },   /* recursion never stopped early     */
@@ -146,18 +162,13 @@ static const struct kv slow_tab[] = {
                                    * ones alone. N265_RECT_FLAT needs no
                                    * entry - it is inert wherever rect
                                    * is already on                     */
-    { "N265_INTRA_GATE", "5" },   /* step 6: the prefilter alone, so the
-                                   * intra arm is entered in a B slice
-                                   * as well as a P                    */
-    /* phase 7: the cu-tree frame term off, which is what keeps slow the
-     * phase-5-exit medium. N265_CT_FRAME_UP, N265_CT_UP_GATE and
-     * N265_CT_FRAMEW_FLAT need no entry - all three are inert wherever k_f
-     * is already k_b                                                  */
-    { "N265_CT_FRAMEW",  "2" },
-    /* phase 7 M1': the per-CTU AQ signal moved to `fine` at medium; the
-     * presets keep the variance signal so both stay the measurement
-     * anchors they were (fast: the speed point; slow: the phase-5 medium) */
-    { "N265_AQ_SIGNAL",  "0" },
+    /* the non-IDR intra picture, placed at a cut the IDR bound refuses.
+     * It is reachable only at two references per list, which is slow's
+     * own structure and no other preset's (docs/phase7-gop-design.md,
+     * "Step 2 follow-up"). `N265_INTRA_MIN` needs no entry: 4, the
+     * floor the IDR bound used to carry, is the one the placement
+     * wants                                                          */
+    { "N265_MIN_KEYINT", "0" },
     { NULL, NULL }
 };
 
@@ -176,23 +187,27 @@ static const struct kv fast_par[] = {
 };
 
 static const struct kv slow_par[] = {
-    /* A second reference per list (medium runs three), the full B
-     * pyramid, and the lookahead window cu-tree propagates over. On the
-     * CIF band, against the default: ref 2 is worth 1.40 median / 2.16
-     * mean, the B run another 0.25 median / 2.59 mean with the worst
-     * clip improving by five points, and the longer window 0.71 median.
-     * Together -19.19 median / -21.61 mean against -16.83 / -16.59, at
-     * about 1.5x the encode time. */
+    /* A second reference per list, the full B pyramid, and the lookahead
+     * window cu-tree propagates over. The reference count was re-priced
+     * at MEDIUM on 2026-09-12 and refused there (1.103x the wall for a
+     * median that improves and a mean that does not); it stays here
+     * because two of the three things the re-placement took are only
+     * reachable behind it - `la_is_nonidr_i` gates the intra placement
+     * on `ref_max >= 2`, and the deeper window has a second list entry
+     * to act through. slow's whole arm was re-measured with it:
+     * docs/phase7-gop-design.md, "slow re-placed". */
     { "ref",           "2" },
     { "bframes",       "7" },   /* the default since 2026-09-10; kept
                                  * so slow's structure reads whole     */
-    /* 20, not the 24 this line used to read. LA_DEPTH_MAX was 20 until
-     * 2026-09-12, so the 24 was clamped away and every measurement of
-     * `--preset slow` - including the phase-5-exit-medium identity above
-     * - was taken at 20. D3 raised the clamp to 32 for the opt-in deep
-     * window; naming 20 here is what keeps slow byte-identical across
-     * that raise. Re-price 24 as its own item if it is wanted. */
-    { "rc-lookahead", "20" },
+    /* 25, x265's own slow depth, and the one rung of the owner's ladder
+     * (fast 15, medium 20, slow 25) that measured well enough to ship:
+     * 20 -> 25 is 0.83 CQP / 0.62 CRF of CIF-7 band median and 0.38 of
+     * the HD-6 median for 1.002x the single-thread wall, with one clip
+     * behind its 20-frame arm (sita_toon_720p, -16.16 against -16.45)
+     * and multishot a wash. It is 25 frames of latency, which is what a
+     * quality preset is for. This line read 20 until the re-placement
+     * and 24 before that, when LA_DEPTH_MAX clamped the 24 away. */
+    { "rc-lookahead", "25" },
     { NULL, NULL }
 };
 
