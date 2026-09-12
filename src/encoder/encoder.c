@@ -119,6 +119,25 @@ void n265_encoder_set_dump(n265_encoder *e, FILE *f)
     e->dump_recon = f;
 }
 
+/* --shot-stats, which wins over N265_SHOT_STATS (the CLI is the explicit
+ * one, and the env is there so a script can arm the sidecar without
+ * rewriting the command). Called right after open, before any frame has
+ * retired, so no shot can be half-accumulated here. */
+void n265_encoder_set_shot_stats(n265_encoder *e, const char *path)
+{
+    if (!e)
+        return;
+    if (e->shot_f) {
+        fclose(e->shot_f);
+        e->shot_f = NULL;
+    }
+    if (path && *path) {
+        e->shot_f = fopen(path, "w");
+        if (!e->shot_f)
+            fprintf(stderr, "n265: cannot write --shot-stats %s\n", path);
+    }
+}
+
 void n265_encoder_set_dump_decode(n265_encoder *e, FILE *f);
 void n265_encoder_set_dump_decode(n265_encoder *e, FILE *f)
 {
@@ -793,6 +812,11 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->no_sao = n265_env("N265_NO_SAO") != NULL;      /* diagnostic */
     e->cu_stats = n265_env("N265_CU_STATS") != NULL;  /* diagnostic */
     e->cbit_trace = n265_env("N265_CBIT_TRACE") != NULL;   /* diagnostic */
+    /* N265_SHOT_STATS=file: the per-shot sidecar, the env half of
+     * --shot-stats (which overrides it). Opened here, on the driver, so
+     * no frame's retirement performs the first read. */
+    { const char *v = n265_env("N265_SHOT_STATS");
+      if (v && *v) e->shot_f = fopen(v, "w"); }
     /* RDOQ on by default (2026-09-06: -5.9% median BD-VMAF-NEG at matched
      * rate, 7/7 clips, worst -5.5%); N265_RDOQ=0 is the escape. */
     { const char *v = n265_env("N265_RDOQ"); e->rdoq = v ? atoi(v) : 1; }
@@ -992,6 +1016,8 @@ fail:
 }
 
 static void join_oldest(n265_encoder *e);
+static void shot_fold_upto(n265_encoder *e, int upto, int hard);
+static void shot_flush(n265_encoder *e);
 
 void n265_encoder_close(n265_encoder *e)
 {
@@ -1001,6 +1027,14 @@ void n265_encoder_close(n265_encoder *e)
      * flushing. Their jobs own the frame_works and the pool. */
     while (e->n_inflight)
         join_oldest(e);
+    /* --shot-stats: everything has retired, so the tail of the display
+     * order can be folded and the last shot written. */
+    if (e->shot_f) {
+        shot_fold_upto(e, e->shot_high, 1);
+        shot_flush(e);
+        fclose(e->shot_f);
+        e->shot_f = NULL;
+    }
     if (e->la_prof) {
         double wall = prof_now() - e->prof_t0;
         double la = e->prof_push + e->prof_plan + e->prof_cutree;
@@ -2534,6 +2568,105 @@ static void entropy_frame(n265_encoder *e, n265_frame_work *fw)
 
 }
 
+/* ---- the shot sidecar (--shot-stats / N265_SHOT_STATS) ----
+ *
+ * A SHOT is the run of pictures between the intra pictures the lookahead
+ * placed: an IDR (a scene cut it took, or the --keyint period) or a
+ * non-IDR I (the scene cut the IDR bound refused, la_is_nonidr_i). The
+ * first shot of the encode opens at "start" - its opener is the
+ * encoder's own first IDR and says nothing about the content.
+ *
+ * Everything here runs on the driver inside join_oldest and at close,
+ * reads only fields frozen at dispatch plus the frame's packed length,
+ * and writes nothing the encoder reads back. Output-neutral by
+ * construction, and the same file at every thread count.
+ */
+static void shot_flush(n265_encoder *e)
+{
+    static const char *const kind[] = { "start", "start", "idr", "intra" };
+    if (!e->shot_f || e->shot_n == 0)
+        return;
+    fprintf(e->shot_f,
+            "{\"v\":1,\"first\":%d,\"last\":%d,\"open\":\"%s\","
+            "\"frames\":{\"i\":%d,\"p\":%d,\"b_ref\":%d,\"b_leaf\":%d},"
+            "\"bytes\":%llu,\"qp_base_mean\":%.4f,\"complexity\":%.0f,"
+            "\"flat_frames\":%d}\n",
+            e->shot_first, e->shot_last, kind[e->shot_open],
+            e->shot_cnt[0], e->shot_cnt[1], e->shot_cnt[2], e->shot_cnt[3],
+            (unsigned long long)e->shot_bytes,
+            e->shot_qp_sum / (double)e->shot_n, e->shot_cplx, e->shot_flat);
+    fflush(e->shot_f);
+    e->shot_n = 0;
+}
+
+/* Fold one frame, in display order, into the shot being accumulated. */
+static void shot_fold(n265_encoder *e, const struct n265_shot_rec *r, int d)
+{
+    if (r->slice_type == 2 || e->shot_n == 0) {
+        int open = r->slice_type != 2 ? 1 : r->idr ? 2 : 3;
+        shot_flush(e);                  /* the previous shot ends here */
+        e->shot_open = e->shot_open == 0 ? 1 : open;
+        e->shot_first = d;
+        memset(e->shot_cnt, 0, sizeof e->shot_cnt);
+        e->shot_bytes = 0;
+        e->shot_qp_sum = e->shot_cplx = 0.0;
+        e->shot_flat = 0;
+    }
+    e->shot_cnt[r->slice_type == 2 ? 0 : r->slice_type == 1 ? 1
+                                       : r->nonref ? 3 : 2]++;
+    e->shot_bytes += r->bytes;
+    e->shot_qp_sum += r->qp_base;
+    e->shot_cplx += r->cplx;
+    e->shot_flat += r->flat != 0;
+    e->shot_last = d;
+    e->shot_n++;
+}
+
+/* Fold every buffered record with a display index below `upto`. `hard`
+ * folds across a hole (the drain at close); otherwise the walk stops at
+ * the first index that has not retired yet, which is what keeps the
+ * sidecar in display order. */
+static void shot_fold_upto(n265_encoder *e, int upto, int hard)
+{
+    while (e->shot_next < upto) {
+        struct n265_shot_rec *r = &e->shot_ring[e->shot_next % N265_SHOT_RING];
+        if (!r->present) {
+            if (!hard)
+                return;
+        } else {
+            r->present = 0;
+            shot_fold(e, r, e->shot_next);
+        }
+        e->shot_next++;
+    }
+}
+
+/* The tap itself: one retired frame, with the bytes its NALs packed to
+ * (the headers ride on the first frame, so the shot totals sum to the
+ * file). */
+static void shot_record(n265_encoder *e, const n265_frame_work *fw,
+                        size_t bytes)
+{
+    int d = fw->display_idx;
+    /* The reorder can never reach the ring's width, but a shortened ring
+     * would silently overwrite a frame instead of failing, so the guard
+     * folds what is there rather than trusting the bound. */
+    if (d >= e->shot_next + N265_SHOT_RING)
+        shot_fold_upto(e, d - N265_SHOT_RING + 1, 1);
+    struct n265_shot_rec *r = &e->shot_ring[d % N265_SHOT_RING];
+    r->slice_type = fw->slice_type;
+    r->idr = fw->idr;
+    r->nonref = fw->nonref;
+    r->flat = fw->flat;
+    r->qp_base = fw->rc_base;
+    r->cplx = fw->rc_cplx;
+    r->bytes = (uint64_t)bytes;
+    r->present = 1;
+    if (d >= e->shot_high)
+        e->shot_high = d + 1;
+    shot_fold_upto(e, e->shot_high, 0);
+}
+
 /* Join the oldest frame in flight: wait for its job, pack its NALs into
  * the deferred ring in CODING order, and hand its resources back. This
  * is the only place the driver blocks on a frame, and it is where D3's
@@ -2645,6 +2778,11 @@ static void join_oldest(n265_encoder *e)
         for (int j = 0; j < 24; j++)
             e->hf2_samp[j] += hh->samp[j];
     }
+    /* --shot-stats: the frame joins its shot here, re-sorted into
+     * display order; the shot's line is written when the next shot's
+     * opener folds (or at close, for the last one). */
+    if (e->shot_f)
+        shot_record(e, fw, d->len);
     /* D4: the actual bits are applied on the driver, in coding order. */
     if (e->abr_on || e->rc.trace)
         n265_rc_done(e, fw->rc_cls, fw->rc_cplx, fw->rc_base,

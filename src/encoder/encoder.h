@@ -460,6 +460,13 @@ typedef struct n265_row_ctx {
  * (default 4). It is a scheduling knob and cannot change bits. */
 #define N265_MAX_FRAME_WORK 8
 
+/* The shot sidecar's re-sort window: how far a retiring frame's display
+ * index may sit ahead of the oldest one not yet folded. Coding order
+ * reorders by at most a mini-GOP, and the whole lookahead window plus
+ * the frames in flight bounds that from well above; this is the `done`
+ * ring's own size, for the same reason. */
+#define N265_SHOT_RING (LA_MAX + N265_MAX_FRAME_WORK + 4)
+
 /* Round 4: the traffic window the 2-D phase planes are armed from, and
  * the ring that holds it. The window ENDS at coding index k - K (the
  * newest frame guaranteed retired when index k is dispatched) and runs
@@ -705,6 +712,30 @@ struct n265_encoder {
      * The counters themselves are per-frame (see n265_frame_work). */
     int cu_stats;
     int cbit_trace;         /* N265_CBIT_TRACE, the same way */
+
+    /* --shot-stats / N265_SHOT_STATS: the per-shot JSON Lines sidecar
+     * (docs/phase7-shot-design.md step 1). Frames retire in CODING
+     * order and a non-IDR I is its own mini-GOP's anchor, so a shot's
+     * opener can retire before leaves that belong to the shot before
+     * it; the ring below re-sorts retired frames into DISPLAY order and
+     * the accumulator folds them there. Nothing here is read back by
+     * the encoder: it is a pure tap on join_oldest, and the bitstream
+     * is byte-identical with the sidecar open or not. */
+    FILE *shot_f;
+    struct n265_shot_rec {
+        int present;
+        int slice_type, idr, nonref, flat;
+        double qp_base, cplx;
+        uint64_t bytes;
+    } shot_ring[N265_SHOT_RING];
+    int shot_next;          /* next display index to fold */
+    int shot_high;          /* one past the highest display index retired */
+    int shot_open;          /* 0 none yet, 1 "start", 2 "idr", 3 "intra" */
+    int shot_first, shot_last;
+    int shot_cnt[4];        /* i, p, b_ref, b_leaf */
+    int shot_n, shot_flat;
+    uint64_t shot_bytes;
+    double shot_qp_sum, shot_cplx;
 };
 
 /* The cu-tree field's raw per-CTU value carries cutree_str already, so the
@@ -1097,6 +1128,9 @@ static inline const int16_t *n265_ref_hf_base(const struct n265_refpic *r,
 
 /* encoder.c, shared with ctu.c */
 void n265_encoder_set_dump(n265_encoder *e, FILE *f);
+/* --shot-stats: the sidecar path, overriding N265_SHOT_STATS. NULL or
+ * the empty string turns it off. */
+void n265_encoder_set_shot_stats(n265_encoder *e, const char *path);
 /* round 4: resolve the 2-D phase-plane knobs into the encoder at open */
 void n265_hf2_knobs(n265_encoder *e);
 

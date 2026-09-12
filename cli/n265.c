@@ -13,6 +13,7 @@
 /* internal knobs, resolved from the library (not yet public API) */
 void n265_encoder_set_dump_decode(n265_encoder *e, FILE *f);
 void n265_encoder_set_dump(n265_encoder *e, FILE *f);
+void n265_encoder_set_shot_stats(n265_encoder *e, const char *path);
 
 typedef struct y4m_t {
     FILE *f;
@@ -100,13 +101,18 @@ static void usage(void)
         "                  Output is byte-identical at every value.\n"
         "  --dump-recon <file>  write reconstruction as raw YUV (the\n"
         "                  conformance gate compares decoders against it)\n"
+        "  --shot-stats <file>  per-shot JSON Lines sidecar, one object per\n"
+        "                  shot in display order (N265_SHOT_STATS=file does\n"
+        "                  the same). Output-neutral: the bitstream is\n"
+        "                  byte-identical with it on. Fields and the shot\n"
+        "                  definition: docs/instruments.md.\n"
         "  --version       print version\n");
 }
 
 int main(int argc, char **argv)
 {
     const char *in_path = NULL, *out_path = "out.hevc";
-    const char *dump_path = NULL;
+    const char *dump_path = NULL, *shot_path = NULL;
     long max_frames = -1;
     int qp = 26, pcm = 0, ctu = 64, keyint = 250, bframes = 7, aq = 1;
     double crf = -1.0, bitrate = 0.0;
@@ -161,6 +167,8 @@ int main(int argc, char **argv)
             pcm = 1;
         } else if (!strcmp(argv[i], "--dump-recon") && i + 1 < argc) {
             dump_path = argv[++i];
+        } else if (!strcmp(argv[i], "--shot-stats") && i + 1 < argc) {
+            shot_path = argv[++i];
         } else if (!strcmp(argv[i], "--version")) {
             printf("n265 %s\n", n265_version_str());
             return 0;
@@ -257,6 +265,8 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    if (shot_path)
+        n265_encoder_set_shot_stats(enc, shot_path);
     FILE *fdump = NULL;
     if (dump_path) {
         fdump = fopen(dump_path, "wb");

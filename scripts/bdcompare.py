@@ -91,7 +91,17 @@ def chroma_psnr_of(bitstream, src_path):
     return sum(vals) / 2.0
 
 
-def vmaf_of(bitstream, src_path, work):
+def vmaf_of(bitstream, src_path, work, per_frame=False):
+    # `per_frame` adds the PER-FRAME vmaf_neg list under "frames", in
+    # display order, off the same libvmaf run. shot_hull.py slices a
+    # per-shot mean out of it, and it has to be this call and not a
+    # second one: the temporal features make a frame's score depend on
+    # its neighbours, so a shot scored as its own clip is NOT the shot's
+    # score inside the sequence (multishot_bd.py averages the same
+    # whole-file per-frame array, which is what makes the two agree).
+    # Nothing else about the call moves, and the default is off, so
+    # every existing caller reads exactly what it read before.
+    #
     # Unique temp paths (NOT derived from the bitstream) so shared/cached
     # bitstreams don't collide across threads.
     fd, dec = tempfile.mkstemp(suffix=".dec.y4m", dir=work); os.close(fd)
@@ -112,7 +122,8 @@ def vmaf_of(bitstream, src_path, work):
         pass
     if r.returncode != 0:
         return None
-    pm = json.load(open(js))["pooled_metrics"]
+    doc = json.load(open(js))
+    pm = doc["pooled_metrics"]
     if primary not in pm:
         return None
     # Report the best available VMAF (v1 when YAH264_VMAF_MODEL is set) plus
@@ -121,6 +132,8 @@ def vmaf_of(bitstream, src_path, work):
     out = {plabel: pm[primary]["mean"]}
     if "vmaf_neg" in pm:
         out["VMAF-NEG"] = pm["vmaf_neg"]["mean"]
+    if per_frame and "vmaf_neg" in pm:
+        out["frames"] = [f["metrics"]["vmaf_neg"] for f in doc["frames"]]
     return out
 
 
