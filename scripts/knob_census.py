@@ -73,6 +73,9 @@ DEFAULT_OVERRIDES = {
                                          # a flat-typed frame too
     "N265_AQ_FLOOR": "4",                # `if (v) vfloor = atof(v)`: the
                                          # literal is not last on the line
+    # phase 7 M1': the float literal `0.0f` is not what the numeric idiom
+    # picks up; the signal's own `: 1` parses correctly and ships
+    "N265_AQ_FLAT_SIGN": "0",
     # phase 7 step 2. k_f ships at 1.0 (the literal carries an f suffix);
     # its flat-frame twin follows k_b, which is today's form; and the two
     # cascade knobs take "r,l" or "auto", not a number.

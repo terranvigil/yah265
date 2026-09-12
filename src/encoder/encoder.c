@@ -697,6 +697,13 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * AQ 0.4 and cu-tree 2.5 each bought median by giving bus back 2-3%).
      * N265_AQ_STR=1 N265_QP_ROUND1=0 restores the old field. */
     { const char *v = n265_env("N265_AQ_STR"); e->aq_str = v ? (float)atof(v) : 0.7f; }
+    /* N265_AQ_SIGNAL / N265_AQ_FLAT_SIGN: phase 7 item 2's M1'. The signal
+     * ships at 1 (2026-09-12) and `=0` is the pre-item encoder byte for
+     * byte; the flat-frame sign is refused and stays off. The AQ field
+     * below is where both act, and docs/phase7-psy-design.md "M1' result"
+     * carries the tables. */
+    { const char *v = n265_env("N265_AQ_SIGNAL"); e->aq_signal = v ? atoi(v) : 1; }
+    { const char *v = n265_env("N265_AQ_FLAT_SIGN"); e->aq_flat_sign = v ? (float)atof(v) : 0.0f; }
     { const char *v = n265_env("N265_QP_ROUND1"); e->qp_round1 = v ? atoi(v) != 0 : 1; }
     /* rectangular (2NxN/Nx2N) and asymmetric (2NxnU/D, nLx2N, nRx2N)
      * inter partitions. AMP rides on rect: the AMP trial is only entered
@@ -2124,6 +2131,51 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                     double var = (double)s2 / np -
                         ((double)s1 / np) * ((double)s1 / np);
                     avg_dc += log2((var < 0.0 ? 0.0 : var) + 1.0);
+                    /* N265_AQ_SIGNAL=1 (phase 7 M1'): the per-CTU signal
+                     * becomes `fine` - the CTU's full-resolution variance
+                     * minus what its 2x-down plane explains - in place of
+                     * the variance itself. The loss map (step 0) ranks the
+                     * metric's per-block loss at +0.42 / +0.52 with `fine`
+                     * on foreman / mobile against log2-variance's +0.37 /
+                     * +0.30, and `coarse` turned out to BE the variance
+                     * (+0.93 to +0.998 on every clip), so this is the one
+                     * signal in the design the shipped term does not
+                     * already carry. The 2x-down plane is the lookahead's
+                     * own 2x2 mean, (a+b+c+d+2)>>2 (la.c), recomputed here
+                     * rather than read from f->lowres because that plane is
+                     * built over the lookahead's own padded width and this
+                     * has to land on the CTU grid; it is 1/4 of the reads
+                     * the variance above already does, on the driver thread
+                     * before the frame is launched, so the frame's
+                     * decisions stay frozen (threading rule 4).
+                     *
+                     * The frame mean the AQ_DC term consumes (avg_dc above)
+                     * is deliberately NOT switched: it is a frame-level
+                     * complexity proxy, not a masking term, and the map
+                     * does not speak to it. */
+                    if (e->aq_signal) {
+                        int hw = w >> 1, hh = h >> 1;
+                        if (hw > 0 && hh > 0) {
+                            int ps = fw->pad_stride[0];
+                            int64_t t1 = 0, t2 = 0;
+                            for (int y = 0; y < hh; y++) {
+                                const uint8_t *p = fw->pad_plane[0] +
+                                    (size_t)(y0 + 2 * y) * ps + x0;
+                                for (int x = 0; x < hw; x++) {
+                                    int d = (p[2 * x] + p[2 * x + 1] +
+                                             p[2 * x + ps] + p[2 * x + ps + 1]
+                                             + 2) >> 2;
+                                    t1 += d;
+                                    t2 += d * d;
+                                }
+                            }
+                            int n2 = hw * hh;
+                            double v2 = (double)t2 / n2 -
+                                ((double)t1 / n2) * ((double)t1 / n2);
+                            var -= v2 < 0.0 ? 0.0 : v2;
+                        }
+                        if (var < 0.0) var = 0.0;
+                    }
                     if (var < vfloor) var = vfloor;
                     lv[cy * fw->ctb_cols + cx] = log2(var + 1.0);
                     avg += lv[cy * fw->ctb_cols + cx];
@@ -2181,10 +2233,29 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
              * -3.24/-4.62 -> -5.86/-7.06, sita_flat -2.41/-10.01 ->
              * -3.37/-10.07. A bound of 1 is the runner-up and is 6.1
              * CQP points worse on sintel. */
+            double aqs = e->aq_str;
             if (fw->flat) {
                 aqc = 0.0;
                 const char *v = n265_env("N265_AQ_CLAMP_FLAT");
                 if (v) aqc = atof(v);
+                /* N265_AQ_FLAT_SIGN (phase 7 M1'): the flat branch above is
+                 * a patch over a SIGN, and the loss map says which sign the
+                 * metric wants. On the animation clips the loss is
+                 * concentrated - 61% of sita_flat's in the worst decile of
+                 * blocks - and every signal ranks it above +0.8, so there is
+                 * something here for a per-CTU term to redistribute; what
+                 * the masking sign got wrong is that it TAXED the blocks
+                 * carrying the loss. Non-zero turns the term back on for a
+                 * flat-typed frame with the protecting sign (high signal ->
+                 * lower QP) at that strength, bounded by N265_AQ_CLAMP
+                 * rather than by N265_AQ_CLAMP_FLAT. 0 ships and is the
+                 * branch above untouched. */
+                if (e->aq_flat_sign != 0.0f) {
+                    aqs = -e->aq_flat_sign;
+                    aqc = 3.0;
+                    const char *c = n265_env("N265_AQ_CLAMP");
+                    if (c) aqc = atof(c);
+                }
             }
             if (n265_env("N265_AQ_TRACE")) {
                 /* the field the per-CTU term is built from: how far the
@@ -2195,7 +2266,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                     if (lv[i] < mn) mn = lv[i];
                     if (lv[i] > mx) mx = lv[i];
                     sd += (lv[i] - avg) * (lv[i] - avg);
-                    double o = e->aq_str * (lv[i] - avg);
+                    double o = aqs * (lv[i] - avg);
                     lo += o < -aqc;
                     hi += o > aqc;
                 }
@@ -2207,7 +2278,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
              * QP, on cutree_str's scale. 1.0 at the default. */
             double ctqpw = n265_ct_qp_scale(e);
             for (int i = 0; i < nctu; i++) {
-                double off = e->aq_str * (lv[i] - avg);
+                double off = aqs * (lv[i] - avg);
                 if (off > aqc) off = aqc;
                 else if (off < -aqc) off = -aqc;
                 int o;
