@@ -89,6 +89,13 @@ static const struct kv fast_tab[] = {
      * for 3-8% - and at this end of the ladder 6.9 is what is left to
      * spend. */
     { "N265_SBH_RD",     "0" },
+    /* ...and the cu-tree frame term phase 7 made a medium default. fast has
+     * its own board columns (`our_fps_fast`, `bd_rate_vmafneg_fast_pct`) and
+     * its own operating point, so a quality change there wants its own band
+     * read and is not this item's to make. k_f = k_b switches the term off,
+     * which is what keeps `--preset fast` byte-identical to main; the
+     * positive-side bound needs no entry, being inert with the term off. */
+    { "N265_CT_FRAMEW",  "2" },
     { NULL, NULL }
 };
 
@@ -130,6 +137,10 @@ static const struct kv slow_tab[] = {
                                    * ones alone. N265_RECT_FLAT needs no
                                    * entry - it is inert wherever rect
                                    * is already on                     */
+    /* phase 7: the cu-tree frame term off, which is what keeps slow the
+     * phase-5-exit medium. N265_CT_FRAME_UP and N265_CT_FRAMEW_FLAT need no
+     * entry - both are inert wherever k_f is already k_b              */
+    { "N265_CT_FRAMEW",  "2" },
     { NULL, NULL }
 };
 

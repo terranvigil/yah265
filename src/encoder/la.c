@@ -699,6 +699,7 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
             mean += v;
         }
     mean /= nctu;
+    float field_mean = mean;    /* the frame term reads this, before centring eats it */
     /* CRF leaves the field un-centred so the cross-frame differential
      * survives, and a fixed shift in the base nets "the" mean. There is no
      * one mean: a NON-REFERENCED frame receives no propagation at all, so
@@ -747,12 +748,92 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
             }
         }
     }
+    /* The window LEVEL: the mean over the frames in the lookahead window
+     * that receive propagation at all - the same quantity N265_CT_CENTRE=2
+     * nets against, computed here for the frame term instead.
+     *
+     * It exists because the field's frame mean carries two things at once.
+     * The deviation from this level is the frame-TYPE step (a leaf receives
+     * nothing, so its mean is zero and its deviation is the whole level),
+     * and that is what the fixed I/P/B cascade double-counts. The level
+     * itself is the SHOT's own complexity, which nothing else in the
+     * encoder supplies: scaling it down moves bits between shots, and the
+     * multi-shot gate refuses that (docs/phase7-modulation-design.md
+     * "Step 2 result"). k_f therefore re-weights the deviation and leaves
+     * the level alone. N265_CT_FRAME_LEVEL=0 is the whole-mean form, which
+     * is the arm that gate refused. */
+    double level = 0.0;
+    if ((e->crf_on || e->abr_on) && e->ct_framew != e->ct_qpw) {
+        static int use_level = -1;
+        if (use_level < 0) {
+            const char *v = n265_env("N265_CT_FRAME_LEVEL");
+            use_level = v ? atoi(v) : 1;
+        }
+        if (use_level) {
+            /* N265_CT_FRAME_SHOT: take the level over this frame's side of
+             * the nearest scenecut in the window only. A window that
+             * straddles a cut otherwise averages two shots' levels into one
+             * term, so the frame is placed against content it does not
+             * reference - the propagation walk already stops at the cut. */
+            int lo = 0, hi = la->count;
+            if (e->ct_frame_shot) {
+                for (int k = i; k > 0; k--)
+                    if (n265_la_scenecut(e, k)) { lo = k; break; }
+                for (int k = i + 1; k < la->count; k++)
+                    if (n265_la_scenecut(e, k)) { hi = k; break; }
+            }
+            double sum = 0, all = 0;
+            int n = 0, nall = 0;
+            for (int k = lo; k < hi; k++) {
+                const la_frame *g = &la->f[k];
+                double acc = 0;
+                int cnt = 0;
+                for (int b = 0; b < nb; b++) {
+                    if (g->prop[b] == 0.0f)
+                        continue;
+                    float ic = g->icost[b];
+                    acc += log2f((ic + g->prop[b]) / ic);
+                    cnt++;
+                }
+                all += -(double)e->cutree_str * acc / nb;   /* a leaf adds 0 */
+                nall++;
+                if (!cnt)
+                    continue;   /* leaf frame: not part of the level */
+                sum += -(double)e->cutree_str * acc / nb;
+                n++;
+            }
+            /* 2 (phase 7 step 3) takes the level over EVERY frame in the
+             * window, a leaf's zero included, instead of over the
+             * propagated-into ones. That makes the frame term zero-mean
+             * across the window by construction: it redistributes QP between
+             * the frames of a mini-GOP and moves not one bit between windows,
+             * and so not one between shots. 1 is step 2's form, whose
+             * window-average term is content-keyed and is what the
+             * multi-shot gate charged for. */
+            level = use_level >= 2 ? (nall ? all / nall : 0.0)
+                                   : (n ? sum / n : 0.0);
+        }
+    }
+    fw->ct_level = level;
     /* N265_CT_QPW is the share of the field that reaches the QP. It is on
      * cutree_str's scale, so the default 2.0 is a scale of 1 and the
      * offset map is byte-for-byte what it was. (This rounding is the
      * AQ-off path; with AQ on, encoder.c scales the raw field the same
      * way and rounds it once with the variance term.) */
     double qpw = n265_ct_qp_scale(e);
+    /* The frame term's two inputs (phase 7 step 2). Under CRF the field is
+     * left un-centred, so the per-CTU offsets below already carry k_b of the
+     * field's own frame mean - a second frame-type cascade on top of the
+     * fixed I/P/B steps - and one strength was scaling the cross-frame
+     * allocation and the within-frame spread together. Handing the two means
+     * to encoder.c lets it place the cross-frame half on purpose (k_f), where
+     * the frame's content type is known; it forms the term as a DIFFERENCE
+     * against what the map still carries, which is what makes k_f == k_b
+     * exactly zero - same expression, same double - so the default bitstream
+     * is main's byte for byte, rounding and the offset map's own +-12 clamp
+     * included. */
+    fw->ct_mean_raw = field_mean;
+    fw->ct_mean_used = mean;
     for (int k = 0; k < nctu; k++) {
         float v = raw[k] - mean;
         fw->ctu_qp_raw[k] = v;

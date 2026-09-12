@@ -300,6 +300,11 @@ typedef struct n265_frame_work {
     uint8_t *blk_qp;        /* per-4x4 actual QP (deblock, prediction) */
     int8_t *ctu_qp_off;     /* per-CTU QP offset map (AQ/cu-tree feed) */
     float *ctu_qp_raw;      /* per-CTU cu-tree offset before rounding  */
+    double ct_mean_raw;     /* the cu-tree field's own frame mean, QP units */
+    double ct_mean_used;    /* the mean the per-CTU map was centred on (0
+                             * under CRF, where the map stays un-centred)  */
+    double ct_level;        /* the lookahead window's own level: the mean over
+                             * the frames in it that receive propagation      */
     uint16_t *ctu_lam_q8;   /* per-CTU lambda multiplier, Q8 (256 = inert) */
     uint8_t *ctu_dmin, *ctu_dmax;   /* P2: per-CTU depth range used */
     struct sao_params *sao; /* per-CTB SAO decisions */
@@ -468,6 +473,25 @@ struct n265_encoder {
                                on cutree_str's scale (default 2.0 = all of it) */
     float ct_lambda;        /* N265_CT_LAMBDA: per-CTU lambda modulation from the same
                                field, in QP units at strength 1 (default 0 = off) */
+    float ct_framew;        /* N265_CT_FRAMEW: the share of the field's FRAME MEAN that
+                               reaches the base QP under CRF, on cutree_str's scale.
+                               1.0 ships (half the field's mean); k_f == ct_qpw is the
+                               pre-item encoder, byte for byte */
+    float ct_framew_flat;   /* N265_CT_FRAMEW_FLAT: the same on a flat-typed frame,
+                               where today's form (= ct_qpw) ships */
+    float ct_frame_clamp;   /* N265_CT_FRAME_CLAMP: bound on the frame term, in QP
+                               steps (0 = unbounded) */
+    int ct_frame_shot;      /* N265_CT_FRAME_SHOT: take the window level over this
+                               frame's side of the nearest scenecut only */
+    float ct_frame_up;      /* N265_CT_FRAME_UP: bound on the term's positive side
+                               alone, in QP steps (negative = unbounded) */
+    int pb_cascade_on;      /* N265_PB_CASCADE=r,l is in force (CRF/ABR only;
+                               "auto" is the 1 + b_depth ladder) */
+    int pb_cascade_r;       /* its referenced-B step */
+    int pb_cascade_l;       /* its leaf step */
+    int pb_cascade_flat_on; /* N265_PB_CASCADE_FLAT: the same on a flat-typed
+                               frame, where today's ladder ships */
+    int pb_cascade_flat_r, pb_cascade_flat_l;
     float aq_str;           /* N265_AQ_STR: per-CTU variance-AQ strength (default 0.7) */
     int qp_round1;          /* N265_QP_ROUND1: round the cu-tree + AQ field once */
     int ref_valid;
@@ -606,6 +630,50 @@ struct n265_encoder {
 static inline double n265_ct_qp_scale(const struct n265_encoder *e)
 {
     return e->cutree_str != 0.0f ? (double)e->ct_qpw / (double)e->cutree_str : 0.0;
+}
+
+/* The cu-tree FRAME term, in QP units, for one frame under CRF/ABR: k_f of
+ * the field's own frame mean, less whatever share of that mean the per-CTU
+ * map is still carrying (k_b of it, since under CRF the map is un-centred).
+ * k_f == k_b makes the two halves the same expression on the same double and
+ * the term exactly 0, which is why the default encoder is byte-identical.
+ * N265_CT_FRAMEW_FLAT is k_f on a flat-typed frame: the field's cross-frame
+ * reading is a content trade there (docs/phase7-modulation-design.md
+ * "Step 2 result"), so that branch keeps today's form by default. */
+static inline double n265_ct_frame_term(const struct n265_encoder *e,
+                                        const struct n265_frame_work *fw)
+{
+    if (e->cutree_str == 0.0f)
+        return 0.0;
+    double kf = fw->flat ? (double)e->ct_framew_flat : (double)e->ct_framew;
+    /* the weight DIFFERENCE, on the frame's deviation from the window level
+     * (la.c): k_f re-weights the frame-type step and never the shot's own
+     * level. Written as a difference so k_f == k_b is exactly 0.0 - the same
+     * double, subtracted from itself - which is what makes the default
+     * bitstream main's byte for byte. */
+    double t = (kf / (double)e->cutree_str - n265_ct_qp_scale(e)) *
+                   (fw->ct_mean_raw - fw->ct_level) +
+               n265_ct_qp_scale(e) * fw->ct_mean_used;
+    /* N265_CT_FRAME_CLAMP (phase 7 step 3): a bound in QP steps on how far
+     * the term may move one frame. A leaf's term is proportional to its
+     * shot's OWN level, so unbounded it discounts a busy shot's leaves
+     * further than a quiet shot's and moves bits between shots in proportion
+     * to a distortion-domain estimate - which is what the multi-shot gate
+     * refused in step 2. 0 is unbounded, step 2's form. */
+    if (e->ct_frame_clamp > 0.0f) {
+        double c = (double)e->ct_frame_clamp;
+        if (t > c) t = c;
+        else if (t < -c) t = -c;
+    }
+    /* N265_CT_FRAME_UP bounds the POSITIVE side alone - how far the term may
+     * RAISE a frame's QP. The trace's finding: the term is positive on
+     * referenced frames and negative on leaves, and the shot that pays in the
+     * multi-shot gate is the most static one, whose leaves cannot use a lower
+     * QP and whose anchors carry the picture. 0 forbids the raise outright;
+     * negative is unbounded, the step 2 form. */
+    if (e->ct_frame_up >= 0.0f && t > (double)e->ct_frame_up)
+        t = (double)e->ct_frame_up;
+    return t;
 }
 
 /* --------------------------------------------------------------------
