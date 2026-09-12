@@ -373,7 +373,8 @@ static void usage(void)
         "                  the content costs, so the level comes from size,\n"
         "                  DPB and frame rate and MaxBR is only REPORTED\n"
         "                  (--verbose prints it).\n"
-        "  --vui-timing    write vui_timing_info in the SPS from the y4m\n"
+        "  --vui-timing    write vui_timing_info in the SPS from the y4m (the\n"
+        "                  default since 2026-09-12); --no-vui-timing omits it\n"
         "                  frame rate, so a decoder can check the level's\n"
         "                  MaxLumaSr leg against the rate it was derived\n"
         "                  from. Off by default: it adds about a dozen\n"
@@ -392,7 +393,7 @@ int main(int argc, char **argv)
     int qp = 26, pcm = 0, ctu = 64, keyint = 250, bframes = 7, aq = 1;
     int lossless = 0;
     const char *level_str = NULL;   /* --level; NULL = derive it */
-    int high_tier = 0, vui_timing = 0, verbose = 0;
+    int high_tier = 0, vui_timing = 1, verbose = 0;   /* VUI timing on since 2026-09-12 */
     double crf = -1.0, bitrate = 0.0;
     int had_crf = 0;            /* --crf given: the ON switch, not crf >= 0 */
     int out_depth = 0;          /* --output-depth; 0 = the input's */
@@ -458,6 +459,8 @@ int main(int argc, char **argv)
             verbose = 1;
         } else if (!strcmp(argv[i], "--vui-timing")) {
             vui_timing = 1;
+        } else if (!strcmp(argv[i], "--no-vui-timing")) {
+            vui_timing = 0;
         } else if (!strcmp(argv[i], "--dump-recon") && i + 1 < argc) {
             dump_path = argv[++i];
         } else if (!strcmp(argv[i], "--shot-window") && i + 1 < argc) {

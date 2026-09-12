@@ -161,9 +161,10 @@ void n265_write_sps(struct n265_frame_work *e)
     bs_put_bits(bs, 0, 1);          /* long_term_ref_pics_present_flag */
     bs_put_bits(bs, e->mode != N265_MODE_PCM, 1);   /* sps_temporal_mvp */
     bs_put_bits(bs, e->mode != N265_MODE_PCM, 1);   /* strong smoothing */
-    /* vui_parameters_present_flag. Absent by default, which is what
-     * every stream this project has ever measured carries; --vui-timing
-     * turns it on (phase 8 item 7).
+    /* vui_parameters_present_flag. Present by default since 2026-09-12
+     * (the owner's call, after item 7 made the level depend on the frame
+     * rate); --no-vui-timing omits it, which is what every stream measured
+     * before that date carried.
      *
      * What it buys is the one thing a decoder cannot otherwise check
      * about the level: since item 7 the level is derived partly from the
@@ -171,9 +172,9 @@ void n265_write_sps(struct n265_frame_work *e)
      * conforming decoder has no frame rate in the stream to check it
      * against. What it costs is about a dozen bytes in every SPS (the
      * 76 bits of syntax, plus the emulation prevention a 32-bit
-     * num_units_in_tick of 1 forces), which is why it is off by default: flipping it would move every byte-identity cell
-     * in the project for a reason Annex A does not require, and the
-     * phase 8 invariant only excuses a move a table proves. */
+     * num_units_in_tick of 1 forces), which is why item 7 shipped it off. The owner took that cost on
+     * 2026-09-12; the recon and every VCL NAL are unchanged, which is the
+     * identity check from then on. */
     if (!e->vui_timing) {
         bs_put_bits(bs, 0, 1);      /* vui_parameters_present_flag */
     } else {

@@ -82,7 +82,8 @@ static int g_lossless = 0;      /* --lossless; n265_set_lossless */
  * band and gate runs. */
 static int g_level_idc = 0;     /* --level, as general_level_idc            */
 static int g_high_tier = 0;     /* --high-tier                              */
-static int g_vui_timing = 0;    /* --vui-timing: vui_timing_info in the SPS */
+static int g_vui_timing = 1;    /* vui_timing_info in the SPS; on since
+                                 * 2026-09-12 (owner), --no-vui-timing off */
 
 void n265_set_threads(int n)
 {
