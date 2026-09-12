@@ -191,7 +191,11 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx)
          * and its excess is what the integral term is for. */
         double W = 0.0;
         int n = 0;
-        for (int i = 0; i < e->la.count; i++) {
+        /* the WINDOW, not the queue: `--shot-window` can hold far more
+         * frames than `--rc-lookahead` asked for, and the opening fit is
+         * a statement about the window (la.h) */
+        int nview = n265_la_view(&e->la);
+        for (int i = 0; i < nview; i++) {
             int k = i == 0 ? cls : cadence_class(e, i);
             if (k == RC_I)
                 continue;
@@ -321,7 +325,8 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx)
     double pbits = hbits;
     if (rc->tcap) {
         double tmax = T;
-        for (int i = 1; i < e->la.count; i++) {
+        int nview = n265_la_view(&e->la);
+        for (int i = 1; i < nview; i++) {
             int k = n265_rc_future_idr(e, i) ? RC_I : cadence_class(e, i);
             double ti = rc->bits_per_frame *
                         rc_weight(rc, k, n265_rc_cplx(e, i, k)) / w_avg;

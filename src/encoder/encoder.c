@@ -68,6 +68,7 @@ static int g_badapt = 1;         /* adaptive B run length, default on */
 static int g_aq = 0;
 static int g_la_depth = 12;
 static int g_cutree = 0;
+static int g_shot_window = 0;   /* --shot-window; 0 = off */
 static int g_threads = 0;       /* --threads; 0 = auto */
 
 void n265_set_threads(int n)
@@ -90,6 +91,18 @@ void n265_set_la(int depth, int cutree)
      * with it (that would change bits). */
     g_la_depth = depth < 1 ? 1 : depth > LA_DEPTH_MAX ? LA_DEPTH_MAX : depth;
     g_cutree = cutree ? 1 : 0;
+}
+
+/* --shot-window N: the opt-in shot planner (phase 7 item 6 step 2).
+ * 0 is off and is the default, the board and every preset; N buys the
+ * lookahead queue N frames so the planner can see a whole shot, at N
+ * frames of latency and N slots of memory. The clamp is the same
+ * N265_MAX_SHOT_WINDOW the CLI names. */
+void n265_set_shot_window(int n);
+void n265_set_shot_window(int n)
+{
+    g_shot_window = n < 0 ? 0 : n > N265_MAX_SHOT_WINDOW
+                                    ? N265_MAX_SHOT_WINDOW : n;
 }
 
 void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes,
@@ -825,6 +838,45 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->la_depth = e->mode == N265_MODE_PCM || !e->bframes ? g_la_depth
                                                           : g_la_depth;
     e->cutree = e->mode == N265_MODE_PCM ? 0 : g_cutree;
+    /* --shot-window / N265_SHOT_WINDOW: the opt-in shot planner
+     * (docs/phase7-shot-design.md step 2). The CLI wins over the env,
+     * the way --shot-stats does, and the env half is what lets a script
+     * arm an arm without rewriting the command.
+     *
+     * CRF ONLY, checked rather than assumed. The plan moves the base QP
+     * across shots: under CQP the user named the quantiser and nothing
+     * may move it, and under ABR the rate loop
+     * already allocates across shots from measured bits and would spend
+     * the rest of the shot undoing the offset. Asked for anywhere else
+     * the mode says so and turns itself off, so nobody pays N frames of
+     * latency for a term that is not running. */
+    { int w = g_shot_window;
+      if (w == 0) { const char *v = n265_env("N265_SHOT_WINDOW");
+                    w = v ? atoi(v) : 0; }
+      if (w < 0) w = 0;
+      if (w > N265_MAX_SHOT_WINDOW) w = N265_MAX_SHOT_WINDOW;
+      if (w > 0 && !e->crf_on) {
+          fprintf(stderr, "n265: --shot-window needs --crf (the plan moves "
+                  "the base QP); the shot planner is off\n");
+          w = 0;
+      }
+      e->shot_window = w; }
+    /* k, and the bound on what one shot's offset may be. The form is
+     * rc.c's own complexity model read over a shot instead of a frame:
+     * bits go as (complexity)^qcomp, so holding quality level across two
+     * shots a factor r apart in complexity is (1 - qcomp) * log2(r) QP
+     * steps, and k says how much of that to take. The clamp is what
+     * keeps one anomalous shot - a black frame run, a hard cut into
+     * noise - from moving the base further than the band was ever
+     * measured over. */
+    { const char *v = n265_env("N265_SHOT_K"); e->shot_k = v ? atof(v) : 1.0; }
+    { const char *v = n265_env("N265_SHOT_CLAMP");
+      e->shot_clamp = v ? atof(v) : 2.0; }
+    /* How fast the level follows the shots already planned. It is a
+     * STREAMING level - it never looks past the window - so the first
+     * shot seeds it and takes no offset by construction. */
+    { const char *v = n265_env("N265_SHOT_EMA"); e->shot_ema = v ? atof(v) : 0.5; }
+    e->la_fill = e->shot_window > e->la_depth ? e->shot_window : e->la_depth;
     /* N265_QP_FRAC: carry the base QP's fraction and dither it over the CTUs
      * (the block at the end of dispatch_frame), which makes the achieved rate
      * continuous in whatever moves the base. It has to be decided here rather
@@ -2088,6 +2140,14 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
         if (e->cutree) { const char *v = n265_env("N265_CRF_SHIFT"); shift = v ? atof(v) : 5.4; }
         base = e->crf + shift;
     }
+    /* The SHOT plan (--shot-window, opt-in, CRF only): one offset for the
+     * whole shot, priced when the shot entered the window (shot_plan_at).
+     * It lands FIRST, before the cu-tree frame term and the AQ frame mean
+     * read the base, so those two keep working inside the shot exactly as
+     * they do at the default - the plan says where the shot sits, they
+     * say where each frame sits inside it. Exactly 0 with the mode off,
+     * so the default path is the arithmetic it has always been. */
+    base += fw->shot_off;
     /* The cu-tree FRAME term (phase 7 step 2), derived from the field's own
      * frame mean (n265_la_cutree left it in fw): what the lookahead measured
      * this frame to be worth to the ones that reference it, where the
@@ -2965,6 +3025,156 @@ static int la_is_nonidr_i(n265_encoder *e, int i)
            n265_la_scenecut(e, i);
 }
 
+/* ---- the shot plan (--shot-window, phase 7 item 6 step 2) ----
+ *
+ * The encoder allocates across FRAMES already: the cu-tree frame term
+ * and the AQ_DC frame mean both move the base QP inside the streaming
+ * window. What neither can do is allocate across a SHOT, because a shot
+ * is longer than the window - so a hard shot and an easy one next to it
+ * are each coded at the same CRF base whatever they are worth. The plan
+ * is one number per shot: with the shot (or as much of it as
+ * `--shot-window` holds) in the queue, price it with rc.c's own
+ * complexity model and offset the whole shot's base QP.
+ *
+ * The model is the one in rc.c's header: bits go as
+ * `(complexity / nblk)^qcomp`, so two shots a factor r apart in
+ * complexity sit `(1 - qcomp) * log2(r)` QP steps apart under that
+ * allocation, and `N265_SHOT_K` is the share of it taken. Positive on a
+ * shot HARDER than the level, so a hard shot is coded coarser and an
+ * easy one finer.
+ *
+ * That is x264's qcomp trade and NOT quality levelling, which is what
+ * the item wanted and what step 2 measured it against: the term is worth
+ * about 2% of across-shot BD-rate on both multi-shot suites and it makes
+ * the per-shot quality spread WIDER, not narrower. The levelling
+ * direction is the same expression at k < 0 and costs 3.0-3.4% of BD.
+ * The numbers are in docs/phase7-shot-design.md "Step 2 result"; the
+ * short version is that lookahead complexity is a bit-allocation signal
+ * and does not rank shots the way the metric does.
+ *
+ * `cplx_ref` is a running level over the shots already planned, seeded
+ * by the first one: nothing here looks past the window, so the mode is
+ * streaming-compatible and the first shot's offset is exactly zero.
+ *
+ * Three things it deliberately does NOT do. It does not touch the window
+ * anything else reads (n265_la_view): the queue is deeper, the cu-tree
+ * horizon, the b-adapt run and the rate control's walk are not, so the
+ * mode's only effect on the encoder is this offset. It does not reach
+ * `n265_planned_qp`, the b-adapt bits model, for the same reason - the
+ * run lengths it ranks are the ones the default picks. And it plans a
+ * shot ONCE, when the front of the queue first reaches it, so a frame's
+ * offset is a function of the queue at that moment and not of when the
+ * frame happens to be dispatched.
+ *
+ * The mean is taken over the shot's INTER frames, which is w_avg's rule
+ * in rc.c and for w_avg's reason: an intra frame is worth several
+ * ordinary frames and folding one in would read the shot as harder than
+ * its content is - the more so on a short shot, which is exactly where a
+ * plan is being asked for. */
+/* Does queued frame `i` OPEN a shot - is it an intra picture the
+ * lookahead will place there?
+ *
+ * At the front of the queue that is la_is_idr / la_is_nonidr_i outright,
+ * because the frame is the one about to be dispatched. Deeper in the
+ * queue their PRESENT-tense clauses do not apply: `!e->ref_valid` says
+ * the frame being dispatched has nothing to predict from, which is true
+ * of the whole window at the head of an encode and would read every
+ * queued frame as a cut - one-frame shots, and a level that is the
+ * opening IDR's intra cost. That is the same distinction rc.c draws in
+ * n265_rc_future_idr, which is the rule used here, plus the non-IDR I's
+ * own (`--ref 2` and up, so inert at the shipped default). */
+static int shot_is_opener(n265_encoder *e, int i)
+{
+    if (i == 0)
+        return la_is_idr(e, 0) || la_is_nonidr_i(e, 0);
+    if (e->mode == N265_MODE_PCM)
+        return 1;
+    if (n265_rc_future_idr(e, i))
+        return 1;
+    int d = e->la.f[i].display_idx;
+    if (d == force_nonidr_env())
+        return 1;
+    return e->ref_max >= 2 && e->scenecut &&
+           d - e->last_intra_display >= intra_min_env() &&
+           n265_la_scenecut(e, i);
+}
+
+static double shot_cplx_mean(n265_encoder *e, int lo, int hi)
+{
+    /* The opener is an intra picture where it opens a shot at all, and
+     * it is held out of the mean; a chunk of a shot longer than the
+     * window opens on an inter frame and counts it. A one-frame shot is
+     * the degenerate case where the opener IS the mean, and then it is
+     * priced as the intra frame it is. */
+    int opener = shot_is_opener(e, lo);
+    int first = opener && hi - lo > 1 ? lo + 1 : lo;
+    double sum = 0.0;
+    int n = 0;
+    for (int k = first; k < hi; k++) {
+        sum += n265_rc_cplx(e, k, opener && k == lo ? RC_I : RC_P);
+        n++;
+    }
+    return n > 0 ? sum / n : 0.0;
+}
+
+/* Plan the shot that starts at queue index `lo`: find where it ends -
+ * the next intra picture the lookahead would place, or the end of what
+ * the window holds, whichever comes first - price it, and write the
+ * offset onto every one of its frames that is in the queue. */
+static void shot_plan_at(n265_encoder *e, int lo)
+{
+    n265_la *la = &e->la;
+    int hi = la->count;
+    for (int k = lo + 1; k < la->count; k++)
+        if (shot_is_opener(e, k)) { hi = k; break; }
+    double cplx = shot_cplx_mean(e, lo, hi);
+    double off = 0.0;
+    if (e->shot_have_level && e->shot_level > 0.0 && cplx > 0.0) {
+        off = e->shot_k * (1.0 - e->rc.qcomp) * log2(cplx / e->shot_level);
+        if (off > e->shot_clamp)
+            off = e->shot_clamp;
+        else if (off < -e->shot_clamp)
+            off = -e->shot_clamp;
+    }
+    if (cplx > 0.0) {
+        if (!e->shot_have_level) {
+            e->shot_level = cplx;
+            e->shot_have_level = 1;
+        } else {
+            e->shot_level += (cplx - e->shot_level) * e->shot_ema;
+        }
+    }
+    for (int k = lo; k < hi; k++) {
+        la->f[k].shot_off = (float)off;
+        la->f[k].shot_planned = 1;
+    }
+    if (n265_env("N265_SHOT_TRACE"))
+        fprintf(stderr, "SHOT,%d,%d,%d,%.0f,%.0f,%+.4f\n",
+                la->f[lo].display_idx, hi - lo, la->count, cplx,
+                e->shot_level, off);
+}
+
+/* Plan far enough ahead that the mini-GOP about to be built is covered.
+ * The front of the queue is normally all it takes; the loop is for the
+ * plan whose anchor is the next shot's opening intra picture, where one
+ * mini-GOP straddles a cut and two shots have to be priced before it can
+ * be coded. */
+static void shot_plan(n265_encoder *e)
+{
+    n265_la *la = &e->la;
+    int need = e->bframes + 1;
+    if (need > la->count)
+        need = la->count;
+    for (int guard = 0; guard < need; guard++) {
+        int k = 0;
+        while (k < need && la->f[k].shot_planned)
+            k++;
+        if (k >= need)
+            return;
+        shot_plan_at(e, k);
+    }
+}
+
 /* The keyint/scene-cut half of la_is_idr, for the rate control's look at
  * the frames still queued (rc.h). The `!e->ref_valid` clause is left out on
  * purpose: it says the frame being dispatched has nothing to predict from,
@@ -3318,6 +3528,11 @@ static int drive_scheduler(n265_encoder *e)
     n265_la *la = &e->la;
     if (la->count == 0)
         return 0;
+    /* Ahead of the mini-GOP plan, because both read la_is_idr and
+     * build_plan_order moves what it reads (gop_start_display,
+     * last_intra_display) as it decides. Inert with the mode off. */
+    if (e->shot_window > 0)
+        shot_plan(e);
     if (e->plan_pos >= e->plan_len)
     {
         double t = e->la_prof ? prof_now() : 0.0;
@@ -3389,6 +3604,7 @@ static int drive_scheduler(n265_encoder *e)
     fw->display_idx = f->display_idx;
     fw->b_depth = e->plan_depth[e->plan_pos];
     fw->ref_valid = e->ref_valid;
+    fw->shot_off = e->shot_window > 0 ? (double)f->shot_off : 0.0;
     fw->sc_ratio = f->sc_ratio;     /* lookahead pcost/icost, P3 reads it */
     fw->la_mvabs = la->bw * la->bh
                        ? (float)f->mvabs_sum / (float)(la->bw * la->bh) : 0.0f;
@@ -3530,7 +3746,7 @@ int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
          * longer WAITS for it. A1: the return is a prefix of the frames
          * completed so far, in coding order, and up to K frames stay in
          * flight across the call boundary. */
-        while (e->la.count > e->la_depth)
+        while (e->la.count > e->la_fill)
             drive_scheduler(e);
         /* A2: at one worker nothing overlaps, so nothing is deferred and
          * the call returns exactly what it returned before the API
