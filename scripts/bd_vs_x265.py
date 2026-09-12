@@ -8,6 +8,11 @@ JOBS as band_at_rate.py.
 
     ARGS='--aq 1 --cutree 1' python3 scripts/bd_vs_x265.py
     ARGS='--crf {q} --aq 1 --cutree 1' KNOB=crf python3 scripts/bd_vs_x265.py
+
+A second column carries BD-rate on chroma PSNR off the same points: the metric
+is luma-only, so that column is the only thing that says whether an arm bought
+its luma number out of the chroma planes. The rule and the CIF-7 baseline are
+in docs/instruments.md under the band tool.
 """
 import json, os, re, statistics, subprocess, sys
 from concurrent.futures import ThreadPoolExecutor
@@ -40,13 +45,24 @@ def run(clip):
     return clip, r.stdout + r.stderr
 print(f"ours: {ours}\nx265: {ref}\n")
 res = {}
+chroma = {}
 with ThreadPoolExecutor(max_workers=JOBS) as ex:
     for clip, out in ex.map(run, clips):
         print(out.rstrip()); m = re.search(r"BD-rate\(VMAF-NEG\) ours vs x265: ([+-][\d.]+)%", out)
         if m: res[clip] = float(m.group(1))
+        # The chroma guard (docs/phase7-psy-design.md M3): VMAF is luma-only,
+        # so this column is what says whether an arm bought its luma number
+        # out of the chroma planes. A reading, never the flip.
+        mc = re.search(r"chromaPSNR ([+-][\d.]+)%", out)
+        if mc: chroma[clip] = float(mc.group(1))
 v = list(res.values())
 if v:
     print(f"\n=== BD-rate(VMAF-NEG) ours vs x265 medium at matched achieved bitrate ===")
     for c in clips:
-        if c in res: print(f"  {c:<18} {res[c]:+7.2f}%")
+        if c in res:
+            cs = f"   chromaPSNR {chroma[c]:+7.2f}%" if c in chroma else ""
+            print(f"  {c:<18} {res[c]:+7.2f}%{cs}")
     print(f"  median {statistics.median(v):+.2f}%   mean {statistics.mean(v):+.2f}%   worst {max(v):+.2f}%   ahead {sum(1 for x in v if x < 0)}/{len(v)}")
+    cv = [chroma[c] for c in clips if c in chroma]
+    if cv:
+        print(f"  chromaPSNR   median {statistics.median(cv):+.2f}%   mean {statistics.mean(cv):+.2f}%   worst {max(cv):+.2f}%   ahead {sum(1 for x in cv if x < 0)}/{len(cv)}")

@@ -2241,6 +2241,30 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
             }
         }
 
+        /* N265_QP_MAP_TRACE=file: the FINAL per-CTU offset map, one line per
+         * frame, after the AQ term, the cu-tree field and the
+         * fractional-base dither have all landed in it - which is the map
+         * the CTU, the deblock and SAO all read. Diagnostic and
+         * output-neutral; dispatch_frame runs on the driver thread, so the
+         * lines are serialised without a lock. scripts/vmaf_lossmap.py
+         * joins its blocks to this. */
+        {
+            const char *qmf = n265_env("N265_QP_MAP_TRACE");
+            if (qmf && *qmf) {
+                FILE *f = fopen(qmf, "a");
+                if (f) {
+                    int nq = fw->ctb_cols * fw->ctb_rows;
+                    fprintf(f, "QPM,%d,%d,%d,%d,%d,%d", fw->display_idx,
+                            slice_type, fw->qp, 1 << fw->ctb_log2, fw->ctb_cols,
+                            fw->ctb_rows);
+                    for (int i = 0; i < nq; i++)
+                        fprintf(f, ",%d", fw->ctu_qp_off[i]);
+                    fprintf(f, "\n");
+                    fclose(f);
+                }
+            }
+        }
+
         if (n265_env("N265_QP_TRACE"))
             fprintf(stderr, "QPT disp=%d type=%d qp=%d qf=%+.3f\n",
                     fw->display_idx, slice_type, fw->qp, qfrac);
