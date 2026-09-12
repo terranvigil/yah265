@@ -15,9 +15,14 @@
 /* Encode one transform block's levels (raster order, n*n int16) per
  * 7.3.8.11. Caller guarantees at least one nonzero level (cbf gates the
  * call). scan_idx: 0 diag, 1 horizontal, 2 vertical. ctx points at the
- * slice context array (tables.h layout). */
+ * slice context array (tables.h layout).
+ *
+ * `sbh` is sign_data_hiding_enabled_flag && !cu_transquant_bypass_flag
+ * (7.4.9.11): the writer's half of the condition is the per-sub-block
+ * scan-distance test below, and the per-stream and per-CU halves are the
+ * caller's. Under --lossless it is 0 everywhere. */
 void n265_residual_coding(const res_ops *ops, const int16_t *level,
-                          int log2n, int c_idx, int scan_idx);
+                          int log2n, int c_idx, int scan_idx, int sbh);
 
 /* ---- the coefficient-costing kernels (class N265_ASM_QUANT) --------
  *

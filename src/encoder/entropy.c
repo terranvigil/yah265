@@ -220,11 +220,11 @@ static void replay_residual(struct n265_frame_work *e, const res_ops *ops,
                 e->cbit_cnz += lv[i] != 0;
         e->cbit_bucket = c_idx == 0 ? N265_CB_Y
                        : c_idx == 1 ? N265_CB_CB : N265_CB_CR;
-        n265_residual_coding(ops, lv, log2n, c_idx, scan);
+        n265_residual_coding(ops, lv, log2n, c_idx, scan, !e->lossless);
         e->cbit_bucket = N265_CB_OTHER;
         return;
     }
-    n265_residual_coding(ops, lv, log2n, c_idx, scan);
+    n265_residual_coding(ops, lv, log2n, c_idx, scan, !e->lossless);
 }
 
 /* replay one 2Nx2N transform tree, general RQT form (maxTB 32, min TB 4,
@@ -395,6 +395,15 @@ static void replay_cu(struct n265_frame_work *e, const res_ops *ops, int x0,
 {
     int is_skip = map_at(e, e->blk_skip, x0, y0);
     int is_intra = map_at(e, e->blk_intra, x0, y0);
+
+    /* cu_transquant_bypass_flag (7.3.8.5), first syntax element of the
+     * coding unit and present whenever the PPS armed it. --lossless sets
+     * it on every CU, so this is one context-coded bin per CU whose MPS
+     * saturates within the first CTU and then costs about a hundredth of
+     * a bit. A mixed picture - bypass on the CUs that need it - would
+     * decide here and nowhere else; the TB path reads the same flag. */
+    if (e->lossless)
+        ops->bin(ops->h, CTX_CU_TQ_BYPASS, 1);
 
     if (e->slice_type != 2) {
         int inc = 0;
