@@ -136,24 +136,33 @@ def _write_json(path, v):
 
 def vmaf_cached(tmpl, q, src, out, work):
     cb, cj = _cache_paths(tmpl, q, src)
+    v = None
     if cj and os.path.exists(cj):
         try:
-            return json.load(open(cj))
+            v = json.load(open(cj))
         except (OSError, ValueError):
-            pass
+            v = None
     ck = _content_json(out, src)
-    v = None
-    if ck and os.path.exists(ck):
+    if not v and ck and os.path.exists(ck):
         try:
             v = json.load(open(ck))
         except (OSError, ValueError):
             v = None
     if not v:
         v = bd.vmaf_of(out, src, work)
-        if ck and v:
+    # The chroma guard's reading (docs/phase7-psy-design.md M3) lives in the
+    # same memo as the VMAF one, so a point cached before the guard existed
+    # gains it on its next touch and never re-reads VMAF for it. It is read
+    # off the same bitstream and cannot move a luma number.
+    if v and bd.CHROMA_KEY not in v:
+        c = bd.chroma_psnr_of(out, src)
+        if c is not None:
+            v[bd.CHROMA_KEY] = c
+    if v:
+        if ck:
             _write_json(ck, v)
-    if cj and v:
-        _write_json(cj, v)
+        if cj:
+            _write_json(cj, v)
     return v
 
 
@@ -185,9 +194,11 @@ def curve(tmpl, src, targets, work, label):
         v = vmaf_cached(tmpl, q, src, out, work)
         if not v or "VMAF-NEG" not in v:
             return None
-        pts.append((sz, v["VMAF-NEG"]))
+        c = v.get(bd.CHROMA_KEY)
+        pts.append((sz, v["VMAF-NEG"], c))
+        cs = f"  cPSNR {c:5.2f}" if isinstance(c, float) else ""
         print(f"    {label:<22} target {t:>9} -> q {q:3d}  {sz:>9} B  "
-              f"NEG {v['VMAF-NEG']:6.2f}", flush=True)
+              f"NEG {v['VMAF-NEG']:6.2f}{cs}", flush=True)
     return pts
 
 
@@ -213,8 +224,22 @@ def main():
     ra, ma = [p[0] for p in a], [p[1] for p in a]
     rb, mb = [p[0] for p in b], [p[1] for p in b]
     r = bd.bd_rate(rb, mb, ra, ma)
-    print(f"  {args.clip:<15} BD-rate(VMAF-NEG) {args.label_a} vs {args.label_b}: "
-          f"{r:+.2f}%" if isinstance(r, float) else f"  {args.clip}: {r}")
+    if not isinstance(r, float):
+        print(f"  {args.clip}: {r}")
+        return
+    line = (f"  {args.clip:<15} BD-rate(VMAF-NEG) {args.label_a} vs "
+            f"{args.label_b}: {r:+.2f}%")
+    # The chroma guard, on the same points: VMAF is luma-only, so an arm can
+    # win the luma reading by starving chroma and the band would call it
+    # quality. Skipped silently where ffmpeg gave no psnr line, which leaves
+    # the luma reading exactly as it was.
+    ca = [p[2] for p in a]
+    cbp = [p[2] for p in b]
+    if all(isinstance(x, float) for x in ca + cbp):
+        rc = bd.bd_rate(rb, cbp, ra, ca)
+        if isinstance(rc, float):
+            line += f"  chromaPSNR {rc:+.2f}%"
+    print(line)
 
 
 main()

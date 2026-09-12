@@ -35,6 +35,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -65,6 +66,29 @@ def psnr_of(bitstream, src_raw):
 
 
 SUBSAMPLE = 1   # compute VMAF on every Nth frame (set from --subsample); 1 = all
+
+CHROMA_KEY = "chromaPSNR"
+
+
+def chroma_psnr_of(bitstream, src_path):
+    """Mean of the cb and cr PSNR of a decoded bitstream against the source,
+    read the way scripts/board.py reads luma PSNR: ffmpeg's psnr filter with
+    FRAME-INDEX alignment (the corpus y4m rates differ from the rawvideo
+    default, so timestamp sync would compare the wrong frames) and
+    shortest=1, which stops at the truncated encode's length.
+
+    VMAF is luma-only, so chroma bits are the one thing an allocation term can
+    quietly steal from; this is the chroma guard's reading
+    (docs/phase7-psy-design.md M3). None if ffmpeg printed no psnr line."""
+    p = sh(f'ffmpeg -loglevel info -i {shlex.quote(bitstream)} '
+           f'-i {shlex.quote(src_path)} '
+           f'-lavfi "[0:v]settb=1/25,setpts=N[d];[1:v]settb=1/25,setpts=N[r];'
+           f'[d][r]psnr=shortest=1" -f null -')
+    m = re.search(r"psnr.*\bu:([0-9.]+|inf).*?\bv:([0-9.]+|inf)", p.stderr)
+    if not m:
+        return None
+    vals = [99.0 if g == "inf" else float(g) for g in m.groups()]
+    return sum(vals) / 2.0
 
 
 def vmaf_of(bitstream, src_path, work):
