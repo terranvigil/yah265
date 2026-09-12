@@ -109,6 +109,9 @@ OVERRIDES = {
     # ~3339): a pin and a ceiling over the resolved auto budget, not a
     # default-off feature waiting to be re-priced
     "N265_AUTO_THREADS": "instrument", "N265_AUTO_THREADS_MAX": "instrument",
+    # moot unless N265_CHROMA_W is set, so it is that arm's parameter and
+    # not a shipped default of its own
+    "N265_CHROMA_W_PCT": "arm",
 }
 
 # knobs whose nearest default-claim is correct but beyond the detector:

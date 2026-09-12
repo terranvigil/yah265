@@ -36,6 +36,61 @@ static int mode_hist_on(void)
     if (v < 0) v = n265_env("N265_MODE_HIST") != NULL;
     return v;
 }
+
+/* N265_CHROMA_W: the chroma distortion weight in the RD sums.
+ *
+ * Chroma is quantised at n265_chroma_qp(qp_y), which above luma QP 29 is
+ * a FINER quantiser than luma's (Table 8-10, no offsets). A cost that
+ * adds chroma SSD to luma SSD beside one luma lambda therefore
+ * under-prices chroma: a unit of chroma error costs the same J as a unit
+ * of luma error while the bits that would remove it are cheaper. The
+ * factor that makes the two quantisers comparable is the ratio of their
+ * squared step sizes, 2^((qp_y - qp_c) / 3) - and RDOQ already prices a
+ * chroma TB's coefficients against lambda(qp_c), which is
+ * lambda(qp_y) divided by exactly that ratio, so the mode decision is
+ * the one place in this encoder where the two quantisers are not
+ * reconciled with each other. Derived here from the two quantisers.
+ *
+ * Q8 and exact: qp_y - qp_c is 0..6 by construction, and the weight is
+ * inert (256) wherever the two QPs agree, which is every luma QP below
+ * 30 and so every high-rate point on the ladder. N265_CHROMA_W_PCT
+ * scales the weight's EXCESS over 1 (100 = the full derived weight), so
+ * a partial arm stays a single rounding of the same integer table.
+ * Unset, or 0, is main byte for byte. */
+static int chroma_w_on(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *s = n265_env("N265_CHROMA_W"); v = s ? atoi(s) : 0; }
+    return v;
+}
+static int chroma_w_pct(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *s = n265_env("N265_CHROMA_W_PCT"); v = s ? atoi(s) : 100; }
+    return v;
+}
+/* 256 * 2^(d / 3), d = qp_y - qp_c */
+static const uint16_t chroma_w_tab[7] = { 256, 323, 406, 512, 645, 813, 1024 };
+
+/* the CTU's chroma weight, Q8. One integer per CTU, read where the sums
+ * are built rather than per call. */
+static inline uint32_t chroma_w_q8(const struct n265_frame_work *e)
+{
+    return e->cur_chroma_w_q8;
+}
+static uint32_t chroma_w_for_qp(int qp_y)
+{
+    if (!chroma_w_on())
+        return 256;
+    int d = qp_y - n265_chroma_qp(qp_y);
+    if (d < 0) d = 0;
+    if (d > 6) d = 6;
+    uint32_t w = chroma_w_tab[d];
+    int pct = chroma_w_pct();
+    if (pct != 100)
+        w = 256 + (uint32_t)(((int64_t)((int)w - 256) * pct) / 100);
+    return w;
+}
 static int no_gates_on(void)
 {
     static int v = -1;
@@ -432,6 +487,9 @@ static uint64_t tb_ssd(struct n265_frame_work *e, int c_idx, int x0, int y0,
     if (c_idx == 0 && e->psy > 0.0)
         ssd += n265_psy_cost(src, e->pad_stride[0], tb->recon, n, n,
                              ctu_lam(e, e->cur_ctu_qp), e->psy);
+    /* the two quantisers reconciled (N265_CHROMA_W); inert at 256 */
+    if (c_idx && chroma_w_q8(e) != 256)
+        ssd = (ssd * chroma_w_q8(e)) >> 8;
     return ssd;
 }
 
@@ -2204,11 +2262,14 @@ static uint64_t cu_area_ssd(struct n265_frame_work *e, int x0, int y0, int n)
         int sh = c ? 1 : 0;
         const uint8_t *src = e->pad_plane[c];
         const uint8_t *rec = e->recon[c];
-        ssd += n265_ssd_wh(src + (size_t)(y0 >> sh) * e->pad_stride[c] +
-                               (x0 >> sh), e->pad_stride[c],
-                           rec + (size_t)(y0 >> sh) * e->recon_stride[c] +
-                               (x0 >> sh), e->recon_stride[c],
-                           n >> sh, n >> sh);
+        uint64_t s = n265_ssd_wh(src + (size_t)(y0 >> sh) * e->pad_stride[c] +
+                                     (x0 >> sh), e->pad_stride[c],
+                                 rec + (size_t)(y0 >> sh) * e->recon_stride[c] +
+                                     (x0 >> sh), e->recon_stride[c],
+                                 n >> sh, n >> sh);
+        if (c && chroma_w_q8(e) != 256)
+            s = (s * chroma_w_q8(e)) >> 8;
+        ssd += s;
     }
     return ssd;
 }
@@ -3704,6 +3765,7 @@ void n265_analyze_ctu(struct n265_frame_work *e, int ctb_x, int ctb_y)
     e->cur_ctu_lam_q8 = e->ctu_lam_q8 ? e->ctu_lam_q8[ctb_k] : 256;
     e->cur_ctu_lam_sad_q8 = e->cur_ctu_lam_q8 == 256 ? 256 :
         (uint32_t)lrint(256.0 * sqrt((double)e->cur_ctu_lam_q8 / 256.0));
+    e->cur_chroma_w_q8 = chroma_w_for_qp(e->cur_ctu_qp);
     e->ent_ctu_qp = e->cur_ctu_qp;
     e->ent_qp_coded = 0;
     clear_cu_pred(e);
@@ -3750,7 +3812,7 @@ void n265_ctu_warm(void)
     (void)cb64_gate(); (void)cb64_amvp(); (void)b_intra_margin();
     (void)bi_refine_iters(); (void)merge_rd_n(); (void)bi_gate();
     (void)bi_gate_margin(); (void)intra_rd_n(); (void)intra_rd_mpm();
-    (void)i_intra();
+    (void)i_intra(); (void)chroma_w_on(); (void)chroma_w_pct();
     for (int q = 0; q < 52; q++)
         (void)n265_lambda_mode_q8(q);   /* fills its lazy table */
 }
