@@ -2737,7 +2737,19 @@ static int la_is_idr(n265_encoder *e, int i)
  * reason that bound can now stand at x265's value: the cut is coded
  * where the window sees it, and nothing before it is thrown away. Far
  * enough from the last intra picture to be worth an intra frame at all
- * (N265_INTRA_MIN), and never where an IDR is already going. */
+ * (N265_INTRA_MIN), and never where an IDR is already going.
+ *
+ * Gated on ref_max >= 2 (2026-09-12, step 2 follow-up). The condition is
+ * structural and not content: with one reference per list the nearest
+ * past reference for everything after the cut is the intra picture
+ * itself, so keeping the pre-cut pictures marked buys a longer RPS and
+ * no prediction, and all the placement can move is which side of the cut
+ * a leaf's L1 sits on - measured at sintel_720p +0.19 CQP, a loss. At
+ * ref_max >= 2 a list is deep enough to hold a picture from the far side
+ * of the cut and the same arm pays on every clip that moves. The forced
+ * knob stays ABOVE the gate on purpose: it is a diagnostic and the
+ * conformance vectors' only way in, and the ref-1 column of the
+ * mechanism table is read through it. */
 static int la_is_nonidr_i(n265_encoder *e, int i)
 {
     if (e->mode == N265_MODE_PCM || la_is_idr(e, i))
@@ -2745,6 +2757,8 @@ static int la_is_nonidr_i(n265_encoder *e, int i)
     int d = e->la.f[i].display_idx;
     if (d == force_nonidr_env())
         return 1;
+    if (e->ref_max < 2)
+        return 0;
     return e->scenecut && d - e->last_intra_display >= intra_min_env() &&
            n265_la_scenecut(e, i);
 }
