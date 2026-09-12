@@ -13,10 +13,10 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 | `N265_ABR_SP` | 13.3 | src/encoder/rc.c:143 |
 | `N265_GATE_SCALE` | 100 | src/encoder/ctu.c:674 |
 | `N265_RDOQ` | 1 | src/encoder/encoder.c:748 |
-| `N265_RDOQ_UP` | 1 | src/encoder/rdoq.c:276 |
+| `N265_RDOQ_UP` | 1 | src/encoder/rdoq.c:278 |
 | `N265_SKIP_THR` | 2 | src/encoder/ctu.c:596 |
 
-## instrument (117)
+## instrument (119)
 
 | knob | default | reader |
 |---|---|---|
@@ -76,7 +76,9 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 | `N265_CU_STATS` | ? | src/encoder/encoder.c:745 |
 | `N265_DBF_BETA` | 0 | src/encoder/encoder.c:797 |
 | `N265_DBF_TC` | 0 | src/encoder/encoder.c:798 |
-| `N265_DECIMATE` | 15 | src/encoder/rdoq.c:294 |
+| `N265_DECGRAD_TRACE` | ? | src/encoder/rdoq.c:341 |
+| `N265_DECIMATE` | 15 | src/encoder/rdoq.c:296 |
+| `N265_DECIMATE_GRAD` | = N265_DECIMATE | src/encoder/rdoq.c:310 |
 | `N265_DEPTH_BOUND` | 0 | src/encoder/ctu.c:1019 |
 | `N265_DPB_HOLD` | 0 | src/encoder/encoder.c:149 |
 | `N265_DPB_TRACE` | ? | src/encoder/encoder.c:738 |
@@ -116,8 +118,8 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 | `N265_QP_TRACE` | ? | src/encoder/encoder.c:2268 |
 | `N265_RC_LAG` | 0 | src/encoder/encoder.c:829 |
 | `N265_RC_TRACE` | ? | src/encoder/rc.c:152 |
-| `N265_RDOQ_ADAPT` | 0 | src/encoder/rdoq.c:282 |
-| `N265_RDOQ_LAM` | 100 | src/encoder/rdoq.c:288 |
+| `N265_RDOQ_ADAPT` | 0 | src/encoder/rdoq.c:284 |
+| `N265_RDOQ_LAM` | 100 | src/encoder/rdoq.c:290 |
 | `N265_RECT_FLAT` | 1 | src/encoder/ctu.c:971 |
 | `N265_RECT_RANK` | 50 | src/encoder/ctu.c:936 |
 | `N265_REF_LAG_HINT` | -1 | src/encoder/encoder.c:2297 |
@@ -130,7 +132,7 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 | `N265_SAO_TRACE` | ? | src/encoder/sao.c:610 |
 | `N265_SAO_TYPES` | 0 | src/encoder/sao.c:240 |
 | `N265_SATD8` | 0 | src/encoder/satd.c:134 |
-| `N265_SBH_RD` | 2 | src/encoder/rdoq.c:267 |
+| `N265_SBH_RD` | 2 | src/encoder/rdoq.c:269 |
 | `N265_SC_HOLD` | 1 | src/encoder/la.c:191 |
 | `N265_SC_TRACE` | ? | src/encoder/la.c:379 |
 | `N265_SKIP_EXIT` | 0 | src/encoder/ctu.c:709 |

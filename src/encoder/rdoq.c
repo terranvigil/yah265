@@ -38,6 +38,8 @@
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 #include <math.h>
+#include <stdatomic.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "common/cpu.h"
@@ -293,6 +295,86 @@ static int rdoq_decimate(void)
     static int v = -1;
     if (v < 0) { const char *s = n265_env("N265_DECIMATE"); v = s ? atoi(s) : 15; }
     return v;
+}
+
+/* N265_DECIMATE_GRAD: the all-zero margin on a gradient-shaped block, in
+ * percent, where every other block keeps N265_DECIMATE. Unset is the
+ * sentinel below and means "the same margin everywhere", i.e. main byte
+ * for byte. See rdoq_grad_shape() for what counts as gradient-shaped and
+ * docs/phase7-psy-design.md M2 for why the two want different margins. */
+#define DECGRAD_OFF 1000000
+static int rdoq_decimate_grad(void)
+{
+    static int v, done;
+    if (!done) {
+        const char *s = n265_env("N265_DECIMATE_GRAD");
+        v = s ? atoi(s) : DECGRAD_OFF;
+        /* at -100 and below the threshold goes to zero or negative and
+         * the test inverts instead of relaxing */
+        if (v != DECGRAD_OFF && v < -99) v = -99;
+        done = 1;
+    }
+    return v;
+}
+
+/* N265_DECGRAD_TRACE (diagnostic, output-neutral): the population census
+ * the knob above acts on, printed once at exit. The counters are touched
+ * only when it is set. Read it with N265_DECIMATE_GRAD UNSET: the
+ * "by-margin" columns count what the margin in force did, so under an arm
+ * they describe the arm and not the population it was chosen against. */
+static atomic_ullong dg_n[2][6];
+enum { DG_TB, DG_ZERO, DG_MARGIN, DG_GRAD, DG_GRAD_MARGIN, DG_GRAD_LAT };
+static void dg_report(void)
+{
+    static const char *nm[6] = { "tb", "zeroed", "by-margin", "grad",
+                                 "grad-by-margin", "grad-lattice-zero" };
+    for (int p = 0; p < 2; p++) {
+        fprintf(stderr, "decgrad %s:", p ? "chroma" : "luma");
+        for (int k = 0; k < 6; k++)
+            fprintf(stderr, " %s=%llu", nm[k],
+                    (unsigned long long)atomic_load(&dg_n[p][k]));
+        fprintf(stderr, "\n");
+    }
+}
+static int rdoq_dg_trace(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        v = n265_env("N265_DECGRAD_TRACE") != NULL;
+        if (v) atexit(dg_report);
+    }
+    return v;
+}
+static inline void dg_bump(int p, int k)
+{
+    atomic_fetch_add_explicit(&dg_n[p][k], 1, memory_order_relaxed);
+}
+
+/* Is the arrangement RDOQ settled on gradient-shaped?
+ *
+ * Read off the levels alone, which is all the all-zero test has in hand:
+ * every surviving level sits in the DC sub-block, on its first row or
+ * first column, and at least one of them is not the DC. That is what a
+ * smooth ramp leaves in the residual - a separable transform sends
+ * `a*x + b*y` to (1,0) and (0,1) and nothing else - and it is the block
+ * whose last coefficients the decimate margin turns into a band. A
+ * DC-only block is excluded on purpose: dropping it shifts a flat patch,
+ * which is blocking and not banding, and the margin is right about it. */
+static int rdoq_grad_shape(const int *lsel, int n, int best_s, int best_c,
+                           const uint8_t *co_scan)
+{
+    if (best_s != 0)            /* sub-block scan 0 is the DC sub-block */
+        return 0;
+    int ac = 0;
+    for (int c = best_c; c >= 0; c--) {
+        int x = co_scan[c] & 15, y = co_scan[c] >> 4;
+        if (!lsel[y * n + x])
+            continue;
+        if (x && y)             /* off the first row and first column */
+            return 0;
+        ac += (x | y) != 0;     /* the DC alone is not a gradient */
+    }
+    return ac > 0;
 }
 
 /* level_scale of 8.6.3 */
@@ -847,9 +929,36 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
      * -7.87 / -8.97 / -8.82 median and -9.39 / -9.43 / -9.77 / -9.84 mean,
      * so the optimum is broad between 15 and 25 and 15 is the default -
      * best median and best worst clip, and the more conservative of the
-     * two on content the band does not cover. */
+     * two on content the band does not cover.
+     *
+     * The margin is right about a fine-scale block and wrong about a
+     * gradient one, which is what the broad optimum above is averaging:
+     * dropping a block's last low-frequency coefficients flattens a ramp
+     * into a band, and a band is coarse structure the metric reads (M2,
+     * docs/phase7-psy-design.md). N265_DECIMATE_GRAD gives the
+     * gradient-shaped arrangement its own margin; unset, both are
+     * N265_DECIMATE and nothing moves. */
     int decimate = rdoq_decimate();
-    if (best_s < 0 || all_zero <= best_total * (1.0 + decimate / 100.0))
+    if (best_s < 0)
+        return 0;
+    int dgrad = rdoq_decimate_grad(), trace = rdoq_dg_trace();
+    int grad = (dgrad != DECGRAD_OFF || trace)
+             ? rdoq_grad_shape(lsel, n, best_s, best_c, co_scan) : 0;
+    if (grad && dgrad != DECGRAD_OFF)
+        decimate = dgrad;
+    int zero = all_zero <= best_total * (1.0 + decimate / 100.0);
+    if (trace) {
+        int p = c_idx != 0;
+        dg_bump(p, DG_TB);
+        if (zero) dg_bump(p, DG_ZERO);
+        if (zero && all_zero > best_total) dg_bump(p, DG_MARGIN);
+        if (grad) {
+            dg_bump(p, DG_GRAD);
+            if (zero && all_zero > best_total) dg_bump(p, DG_GRAD_MARGIN);
+            if (all_zero <= best_total) dg_bump(p, DG_GRAD_LAT);
+        }
+    }
+    if (zero)
         return 0;
 
     /* write the levels. Everything after the chosen last is zero, and
@@ -941,5 +1050,7 @@ void n265_rdoq_warm(void)
     (void)rdoq_adapt();
     (void)rdoq_lam_pct();
     (void)rdoq_decimate();
+    (void)rdoq_decimate_grad();
+    (void)rdoq_dg_trace();
     n265_rdoq_init();       /* the cost tables and the parseval probe */
 }
