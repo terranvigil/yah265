@@ -44,7 +44,22 @@ enum {
 #define PART_IS_HORIZ(p) ((p) == PART_2NxN || (p) == PART_2NxnU || \
                           (p) == PART_2NxnD)
 #define PART_IS_AMP(p)   ((p) >= PART_2NxnU)
-#define N265_DPB_SLOTS 6
+/* The reference-picture pool, as an ARRAY BOUND. 11 since 2026-09-12
+ * (item dpbpool): the widest shape the CLI allows - `--ref 3 --bframes
+ * 15` - can hold eleven pictures marked at once (`n265_dpb_requirement`'s
+ * structural peak: ref_max carried anchors, this anchor, and the
+ * mini-GOP's seven reference Bs), and a pool smaller than the marked set
+ * sends `claim_slot`'s last branch over a picture still in the RPS.
+ *
+ * It is NOT how many slots an encode allocates or scans - that is
+ * `e->dpb_slots`, solved at open, and it is six wherever six suffice:
+ * every shape that shipped before this item, the deep window at `--ref 1`
+ * and `2` included. Those encodes run the same six-slot pool they always
+ * did, bit for bit and byte for byte of RSS. */
+#define N265_DPB_SLOTS 11
+/* The pool every shape ran before it was sized. Kept as the FLOOR so no
+ * shape that fit in six moves a slot choice. */
+#define N265_DPB_POOL_MIN 6
 /* blk_qp marker: this CU coded no cu_qp_delta, so its QP is whatever the
  * frame-serial qPY_PREV chain holds when the map fill reaches it
  * (n265_qpmap_row). Analysis cannot know that value under a row
@@ -531,8 +546,15 @@ struct n265_encoder {
      * frame_work: sps_max_num_reorder_pics, the picture storage buffer
      * count the level has to hold, and the largest marked-picture count
      * the reference structure can reach (which is what arms
-     * `slot_prefer`). */
-    int dpb_reorder, dpb_buffering, dpb_peak;
+     * `slot_prefer`). `dpb_slots` is the pool this shape runs: the floor
+     * (six) wherever the marked set fits in it, the structural peak
+     * where it does not. Every slot scan and every slot allocation in
+     * encoder.c is bounded by it, and N265_DPB_SLOTS only sizes arrays. */
+    int dpb_reorder, dpb_buffering, dpb_peak, dpb_slots;
+    /* N265_DPB_TRACE: claims that found no unmarked slot and overwrote a
+     * marked one (the T0a DPB-pressure branch). Driver-serial. The pool
+     * sizing above is what makes it zero on every shape it covers. */
+    long slot_overwrite;
     int badapt;             /* --b-adapt: shorten the B run on high-motion spans */
     float cutree_str;       /* N265_CUTREE_STR: cu-tree offset strength (default 2.0) */
     float ct_qpw;           /* N265_CT_QPW: the share of the field that reaches the QP,
@@ -941,7 +963,8 @@ int n265_planned_qp(const struct n265_encoder *e, int slice_type,
                     int b_depth, int nonref);
 
 void n265_dpb_requirement(int bframes, int ref_max, int *reorder,
-                          int *buffering, int *peak, int *markpeak);
+                          int *buffering, int *peak, int *markpeak,
+                          int *slots);
 
 /* headers.c */
 void n265_write_vps(n265_frame_work *e);
