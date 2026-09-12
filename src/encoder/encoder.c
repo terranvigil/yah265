@@ -750,6 +750,24 @@ n265_encoder *n265_encoder_open(const n265_param *p)
                     "marked_peak=%d slot_peak=%d hold=%d\n", e->bframes,
                     e->ref_max, e->dpb_reorder, e->dpb_buffering, markpeak,
                     e->dpb_peak, dpb_hold());
+        /* The pool is a fixed six pictures, and the walk says how many of
+         * them the structure holds MARKED at once. Where that reaches
+         * past the pool, claim_slot's last branch overwrites a picture
+         * that is still in the RPS - the DPB-pressure bug T0a recorded -
+         * and the encoder predicts from pixels the decoder does not have.
+         * Every shape reachable before the deep window peaks at six or
+         * below (bframes 0..7 x ref 1..3, the widest being bframes 7 at
+         * ref 3), so this refuses nothing that shipped; above bframes 7
+         * it refuses --ref 3 from bframes 8 up, where the peak is seven
+         * and eight. Growing the pool is the fix and is its own item: it
+         * moves every slot scan in this file, which is a bit-identity
+         * question of its own and not this mode's. */
+        if (markpeak > N265_DPB_SLOTS) {
+            fprintf(stderr, "n265: --bframes %d with --ref %d needs %d DPB "
+                    "slots and the pool is %d; lower --ref or --bframes\n",
+                    e->bframes, e->ref_max, markpeak, N265_DPB_SLOTS);
+            goto fail;
+        }
     }
     e->no_sao = n265_env("N265_NO_SAO") != NULL;      /* diagnostic */
     e->cu_stats = n265_env("N265_CU_STATS") != NULL;  /* diagnostic */

@@ -184,7 +184,13 @@ static const struct kv slow_par[] = {
     { "ref",           "2" },
     { "bframes",       "7" },   /* the default since 2026-09-10; kept
                                  * so slow's structure reads whole     */
-    { "rc-lookahead", "24" },
+    /* 20, not the 24 this line used to read. LA_DEPTH_MAX was 20 until
+     * 2026-09-12, so the 24 was clamped away and every measurement of
+     * `--preset slow` - including the phase-5-exit-medium identity above
+     * - was taken at 20. D3 raised the clamp to 32 for the opt-in deep
+     * window; naming 20 here is what keeps slow byte-identical across
+     * that raise. Re-price 24 as its own item if it is wanted. */
+    { "rc-lookahead", "20" },
     { NULL, NULL }
 };
 

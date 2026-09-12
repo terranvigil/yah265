@@ -21,8 +21,15 @@
  * hold. That is not K but K rounded up to a mini-GOP, because pops
  * happen at mini-GOP ends: K + bframes bounds it. LA_MAX sizes the array
  * for the worst case; only `la->cap` slots are allocated. */
-#define LA_DEPTH_MAX 20     /* --rc-lookahead clamp, unchanged since L1 */
-#define LA_MAX (LA_DEPTH_MAX + 2 + 8 + 7)  /* + K + N265_MAX_BFRAMES */
+/* The clamp is 32 since 2026-09-12 (phase 7 item 3, D3): the deep-window
+ * mode wants `--rc-lookahead 24 --bframes 15`, and 20 is what the
+ * streaming default of 12 was sized against. Nothing reaches past 12
+ * without asking - the default and the board never do - and raising the
+ * clamp moved exactly one shipped value: `--preset slow` asked for 24
+ * and had been silently getting 20 ever since it was written, so it now
+ * names 20 outright and stays the encoder it was measured as. */
+#define LA_DEPTH_MAX 32     /* --rc-lookahead clamp (20 before 2026-09-12) */
+#define LA_MAX (LA_DEPTH_MAX + 2 + 8 + 15)  /* + K + N265_MAX_BFRAMES */
 #define LA_MAX_CTUS 8160    /* 4K at CTB 32 */
 
 struct n265_encoder;
@@ -69,9 +76,14 @@ typedef struct n265_la {
     float sc_ema;           /* running pcost/icost EMA */
     uint8_t *anchor_lowres; /* lowres luma of the last coded anchor */
     int anchor_valid;
-    int16_t *pc_mv[8];      /* priced b-adapt: forward MVs per candidate */
+    /* One entry per candidate run length, so 1 + N265_MAX_BFRAMES of
+     * them; only `pc_n` are allocated (bframes + 1, never below the 8 the
+     * default shape has always taken, so the default footprint is the
+     * one it was). */
+    int pc_n;
+    int16_t *pc_mv[16];     /* priced b-adapt: forward MVs per candidate */
     int16_t *pc_bmv;        /* and the backward search's scratch */
-    uint32_t *pc_sad[8];    /* b-adapt 4: the same searches' PER-BLOCK SAD */
+    uint32_t *pc_sad[16];   /* b-adapt 4: the same searches' PER-BLOCK SAD */
     uint32_t *pc_bsad;      /* backward scratch */
     uint32_t *pc_bisad;     /* bidirectional scratch */
 } n265_la;

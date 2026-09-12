@@ -52,8 +52,12 @@ enum {
  * the markers. */
 #define N265_QP_INHERIT 0xff
 #define N265_MAX_REF 3
-#define N265_MAX_BFRAMES 7      /* --bframes clamp; also sizes the mini-GOP
-                                 * walk the SPS's DPB derivation runs */
+/* --bframes clamp; also sizes the mini-GOP walk the SPS's DPB derivation
+ * runs. 15 since 2026-09-12 (phase 7 item 3, D3): a mini-GOP of 16 is
+ * what the opt-in deep window is for. The default is still 7 and the
+ * pyramid ladder is still `1 + b_depth`, which extends from 2/3/4 to
+ * 2/3/4/5 on its own. */
+#define N265_MAX_BFRAMES 15
 
 /* The DPB picture: a padded, border-extended, fully filtered
  * reconstruction plus the side data a later frame reads from it. The

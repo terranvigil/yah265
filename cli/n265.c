@@ -84,9 +84,17 @@ static void usage(void)
         "  --pcm           phase-0 I_PCM mode (lossless, huge)\n"
         "  --ctu <16|32|64>  coding tree block size (default 64)\n"
         "  --keyint <n>    IDR period in frames (default 250)\n"
-        "  --bframes <0..7> B frames between anchors, hierarchical (default 7)\n"
+        "  --bframes <0..15> B frames between anchors, hierarchical (default 7).\n"
+        "                  Above 7 the window has to hold the mini-GOP, so\n"
+        "                  --rc-lookahead must be at least --bframes + 1.\n"
         "  --aq <0|1>      variance adaptive quantization (default 1)\n"
-        "  --rc-lookahead <n>  lookahead depth in frames (default 12)\n"
+        "  --rc-lookahead <1..32>  lookahead depth in frames (default 12).\n"
+        "                  Latency is the lookahead depth in frames; the\n"
+        "                  default 12 is the streaming setting. The deep\n"
+        "                  window (--rc-lookahead 24 --bframes 15) is an\n"
+        "                  opt-in mode: 24 frames of latency and a deeper\n"
+        "                  DPB, for static or drawn content\n"
+        "                  (docs/phase7-gop-design.md).\n"
         "  --cutree <0|1>  lookahead propagation QP offsets (default 1)\n"
         "  --threads <n>   worker threads; 0 = one per online CPU (default 0).\n"
         "                  Output is byte-identical at every value.\n"
@@ -198,6 +206,32 @@ int main(int argc, char **argv)
     if (!had_ctu)     ctu = n265_preset_param("ctu", ctu);
     if (ctu != 16 && ctu != 32 && ctu != 64) {
         fprintf(stderr, "n265: --ctu must be 16, 32 or 64\n");
+        return 2;
+    }
+    /* Structural ranges, checked AFTER the preset has filled in what the
+     * command line left out, because a preset can set either of them.
+     * The numbers are N265_MAX_BFRAMES and LA_DEPTH_MAX; the CLI does not
+     * see the internal headers, so they are repeated here and in usage(). */
+    if (bframes < 0 || bframes > 15) {
+        fprintf(stderr, "n265: --bframes out of range 0..15\n");
+        return 2;
+    }
+    if (lookahead < 1 || lookahead > 32) {
+        fprintf(stderr, "n265: --rc-lookahead out of range 1..32\n");
+        return 2;
+    }
+    /* The window has to CONTAIN the run it is asked to plan: a mini-GOP
+     * of `bframes` leaves plus its anchor is bframes + 1 pictures, and
+     * the planner only ever extends a run as far as the queue reaches
+     * (`maxa = min(bframes, count - 1)`, build_plan_order). A window
+     * shallower than that silently shortens every mini-GOP instead of
+     * refusing, which is the one failure mode of a deep --bframes that
+     * looks like a quality result. */
+    if (lookahead < bframes + 1) {
+        fprintf(stderr, "n265: --rc-lookahead %d is too shallow for "
+                "--bframes %d: the window must hold the whole mini-GOP, so "
+                "--rc-lookahead must be at least %d\n",
+                lookahead, bframes, bframes + 1);
         return 2;
     }
     int ctb_log2 = ctu == 16 ? 4 : ctu == 32 ? 5 : 6;

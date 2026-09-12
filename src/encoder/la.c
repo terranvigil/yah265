@@ -123,7 +123,13 @@ int n265_la_init(struct n265_encoder *e)
             la->anchor_valid = 0;
             size_t mvb = (size_t)la->bw * la->bh * 2 * sizeof(int16_t);
             size_t sb = (size_t)la->bw * la->bh * sizeof(uint32_t);
-            for (int k = 0; k < 8; k++) {
+            /* one per candidate run length. The floor of 8 is what the
+             * default shape (bframes 7) has always allocated, so its
+             * footprint does not move; only --bframes above 7 pays. */
+            la->pc_n = e->bframes + 1 < 8 ? 8 : e->bframes + 1;
+            if (la->pc_n > N265_MAX_BFRAMES + 1)
+                la->pc_n = N265_MAX_BFRAMES + 1;
+            for (int k = 0; k < la->pc_n; k++) {
                 if (!(la->pc_mv[k] = malloc(mvb)))
                     return -1;
                 if (!(la->pc_sad[k] = malloc(sb)))
@@ -160,7 +166,7 @@ void n265_la_free(struct n265_encoder *e)
     }
     free(e->la.anchor_lowres);
     e->la.anchor_lowres = NULL;
-    for (int k = 0; k < 8; k++) {
+    for (int k = 0; k < N265_MAX_BFRAMES + 1; k++) {
         free(e->la.pc_mv[k]);
         e->la.pc_mv[k] = NULL;
         free(e->la.pc_sad[k]);
@@ -583,9 +589,9 @@ int n265_la_brun(struct n265_encoder *e, int maxa)
     n265_la *la = &e->la;
     if (maxa < 1)
         return 0;
-    if (!la->anchor_valid || maxa >= la->count || maxa > 7)
+    if (!la->anchor_valid || maxa >= la->count || maxa >= la->pc_n)
         return maxa;
-    uint64_t fwd[8];
+    uint64_t fwd[N265_MAX_BFRAMES + 1];
     for (int k = 0; k <= maxa; k++)
         fwd[k] = pair_cost(la, la->f[k].lowres, la->anchor_lowres, 0, k, 1,
                            la->pc_mv[k], NULL);
@@ -736,7 +742,7 @@ int n265_la_brun_bits(struct n265_encoder *e, int maxa)
     n265_la *la = &e->la;
     if (maxa < 1)
         return 0;
-    if (!la->anchor_valid || maxa >= la->count || maxa > 7)
+    if (!la->anchor_valid || maxa >= la->count || maxa >= la->pc_n)
         return maxa;
     int nb = la->bw * la->bh;
     log2q16_init();
@@ -749,7 +755,7 @@ int n265_la_brun_bits(struct n265_encoder *e, int maxa)
     int best_a = 1;
     double best_c = 0;
     for (int A = 1; A <= maxa; A++) {
-        int dep[8], nref[8];
+        int dep[N265_MAX_BFRAMES + 1], nref[N265_MAX_BFRAMES + 1];
         brun_depths(0, A - 1, 1, dep, nref);
         uint64_t anchor = blk_bits(la->pc_sad[A], nb, lt_p);
         uint64_t c = anchor;

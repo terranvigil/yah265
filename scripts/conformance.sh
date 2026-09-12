@@ -349,6 +349,19 @@ VENV=""
 # window at all.
 run_vector_graph "$NONIDR_CUT" \
            nonidr_cut_idr_t12 176x144 20 testsrc2 "--keyint 250 --bframes 7 --ref 2 --aq 1 --cutree 1 --threads 12"
+# 2026-09-12: the deep window (phase 7 item 3, D3), an OPT-IN mode the
+# default path never takes. --bframes 15 is a mini-GOP of 16 under a
+# five-level pyramid: the first structure in this suite whose reorder
+# depth is 4 rather than 3, whose leaves sit at cascade +5, and whose
+# declared buffering the walk has to solve at a run length nothing else
+# here produces. --b-adapt 0 is what makes the cell worth running - the
+# motion rule picks its own run length on a synthetic source, and this
+# vector exists to code the full-depth pyramid every time - and
+# --keyint 20 then cuts the second mini-GOP short at the key edge, so
+# the tail shape rides along. --ref 2 is the widest carried anchor set
+# the mode is priced at.
+run_vector deep_b15_t1  352x288 34 testsrc2 "--keyint 20 --bframes 15 --rc-lookahead 24 --ref 2 --b-adapt 0 --crf 26 --aq 1 --cutree 1 --threads 1"
+run_vector deep_b15_t12 352x288 34 testsrc2 "--keyint 20 --bframes 15 --rc-lookahead 24 --ref 2 --b-adapt 0 --crf 26 --aq 1 --cutree 1 --threads 12"
 if [ "$FAST" -eq 0 ]; then
     run_vector thr4_720    1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 4"
     run_vector thr12_720   1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 12"
