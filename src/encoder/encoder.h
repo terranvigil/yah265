@@ -418,7 +418,11 @@ struct n265_encoder {
     int abr_on;             /* n265_set_bitrate: the base is the ABR rate factor */
     double abr_bitrate;     /* bits per second                          */
     int qp_frac;            /* carry the base QP's fraction and spread it
-                             * over the CTUs (N265_QP_FRAC; on under ABR) */
+                             * over the CTUs (N265_QP_FRAC; on under ABR,
+                             * and under CRF where the cu-tree frame term
+                             * is live - phase 7 follow-up 1) */
+    int qp_frac_flat;       /* ...on a flat-typed frame too, where that term
+                             * is zero (N265_QP_FRAC_FLAT; refused arm)  */
     int qp_delta_on;        /* cu_qp_delta_enabled_flag */
     n265_rc rc;             /* rc.c state                               */
     double rc_rf;           /* the base rate factor for the current frame */

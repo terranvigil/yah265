@@ -622,8 +622,6 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * fractional base QP rides with it - see encode_frame. */
     e->abr_on = g_bitrate > 0.0 && e->mode != N265_MODE_PCM;
     e->abr_bitrate = g_bitrate * 1000.0;
-    { const char *v = n265_env("N265_QP_FRAC");
-      e->qp_frac = v ? atoi(v) != 0 : e->abr_on; }
     if (e->abr_on)
         e->crf_on = 0;
     e->ref_max = e->mode == N265_MODE_PCM ? 1 : g_ref;
@@ -735,6 +733,44 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->la_depth = e->mode == N265_MODE_PCM || !e->bframes ? g_la_depth
                                                           : g_la_depth;
     e->cutree = e->mode == N265_MODE_PCM ? 0 : g_cutree;
+    /* N265_QP_FRAC: carry the base QP's fraction and dither it over the CTUs
+     * (the block at the end of dispatch_frame), which makes the achieved rate
+     * continuous in whatever moves the base. It has to be decided here rather
+     * than next to abr_on, because its default reads e->cutree.
+     *
+     * ON under ABR since the rate control landed: rc.c solves a float rate
+     * factor and an integer base throws 5-15% of a step away.
+     *
+     * ON under CRF since phase 7 follow-up 1, but only where the cu-tree
+     * FRAME term is live. Under CRF the base carries three float quantities -
+     * N265_CRF_SHIFT, the AQ_DC frame term and the cu-tree frame term - and
+     * rounding them together makes the crf-to-rate mapping a staircase: with
+     * the frame term's raise forbidden the whole frame ladder moves in ONE
+     * integer step, so foreman at --crf 28 read 53326 bytes at shift 5.4 and
+     * 47335 at 5.5 with nothing in between, and the SAME encoder read a CIF-7
+     * band median of -10.66 at one shift and -9.65 at another. The fraction
+     * makes the shift a continuous control again. Gated on the frame term
+     * because that gate is also the item's escape: N265_CT_FRAMEW=2 turns the
+     * term off AND this with it, and is main byte for byte (the preset tables
+     * name it, so fast and slow are unchanged too).
+     *
+     * Under CQP the base is an integer with no term on it at all, so the
+     * fraction would be exactly 0 - but the default stays false there, so CQP
+     * is untouched by construction as well as by arithmetic. */
+    { const char *v = n265_env("N265_QP_FRAC");
+      /* the term is live only where k_f differs from k_b on some frame type
+       * (n265_ct_frame_term is written as that difference, exactly 0 when
+       * they match) */
+      int ctf_on = e->cutree && e->cutree_str != 0.0f &&
+                   (e->ct_framew != e->ct_qpw || e->ct_framew_flat != e->ct_qpw);
+      e->qp_frac = v ? atoi(v) != 0 : (e->abr_on || (e->crf_on && ctf_on)); }
+    /* N265_QP_FRAC_FLAT: whether a frame the content gate typed flat-shaded
+     * carries the fraction too, where the frame term is zero by default and
+     * there is nothing for the continuity to buy. 0 ships; 1 is the first
+     * form of the follow-up and the arm the three animation clips refused
+     * (sita_flat +1.52, sintel +1.23), kept for re-pricing. */
+    { const char *v = n265_env("N265_QP_FRAC_FLAT");
+      e->qp_frac_flat = v ? atoi(v) != 0 : 0; }
     e->qp_delta_on = e->mode != N265_MODE_PCM &&
                      (e->aq || e->cutree || e->qp_frac);
     e->scenecut = e->mode != N265_MODE_PCM;
@@ -1938,9 +1974,24 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
      * moves it is quantised to 5-15% of the rate per step and cannot land on
      * a size. Carry the base's fraction instead and spend it over the CTUs
      * below; qfrac is exactly 0 when the fractional path is off, which is
-     * what keeps CQP and CRF byte-identical to the pre-ABR encoder. */
+     * what keeps CQP and CRF byte-identical to the pre-ABR encoder.
+     *
+     * Under CRF the path is armed per FRAME, not per encode (phase 7
+     * follow-up 1): it is the cu-tree frame term that makes the base's
+     * fraction worth carrying, and on a frame the content gate typed
+     * flat-shaded the term is identically zero by default
+     * (N265_CT_FRAMEW_FLAT = k_b). Spending a fraction there would buy no
+     * continuity and still pay for the dither - measured, at +1.52 on
+     * sita_flat_720p and +1.23 on sintel_720p, which is the 2026-09-09
+     * refusal of QP_FRAC as a CRF default reappearing on exactly the clips
+     * that refused it. So the flat branch keeps the integer base and stays
+     * byte-identical to main, the way every other phase 7 term left it. */
+    int frac_on = e->qp_frac;
+    if (frac_on && e->crf_on && e->cutree && fw->flat && !e->qp_frac_flat &&
+        (double)e->ct_framew_flat == (double)e->ct_qpw)
+        frac_on = 0;
     int qi = (int)lround(base);
-    double qfrac = e->qp_frac ? base - (double)qi : 0.0;
+    double qfrac = frac_on ? base - (double)qi : 0.0;
     int q = qi + cascade;
     fw->qp = q < 0 ? 0 : q > 51 ? 51 : q;
 
@@ -2057,7 +2108,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                 int dci = (int)lround(dc);
                 int nq = fw->qp + dci;
                 fw->qp = nq < 0 ? 0 : nq > 51 ? 51 : nq;
-                if (e->qp_frac)
+                if (frac_on)
                     qfrac += dc - (double)dci;
             }
             /* per-CTU term at N265_AQ_STR. Default: round it on its own and
@@ -2144,7 +2195,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
          * The threshold is a pure function of the CTU raster index and the
          * frame counter - not of a running error - so it stays
          * position-independent and survives any future thread schedule. */
-        if (e->qp_frac && qfrac != 0.0) {
+        if (frac_on && qfrac != 0.0) {
             int nctu = fw->ctb_cols * fw->ctb_rows;
             for (int i = 0; i < nctu; i++) {
                 double d = (double)(i + 1) * 0.7548776662466927 +
