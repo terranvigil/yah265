@@ -65,22 +65,27 @@ lib_sources = [
 # once. Runtime detection (src/common/cpu.c) still decides, so a build for
 # aarch64 that runs somewhere without the optional extensions is fine.
 #
-# Phase 8 item 1 adds the depth test. Every kernel here is typed on
-# uint8_t and processes 16 samples a vector; a 10-bit build runs the C
-# reference for all of them, by not compiling the kernels at all rather
-# than by branching away from them, so there is no 16-bit lane path to
-# get wrong before item 3 writes one. N265_NEON is therefore the single
-# guard: undefined at 10-bit, so the dispatch sites compile out too.
-if cpu_family == 'aarch64' and is_8bit
+# Phase 8 item 1 added the depth test; item 3 makes it a PER-FAMILY one.
+# A kernel that processes 16 samples to a vector is not a 10-bit kernel,
+# so a family reaches the Main10 build only once its 16-bit lanes are
+# bit-exact with the C reference under a checkasm built at the same
+# depth - one family per commit, in the order the 10-bit profile asks
+# for. A family absent from this depth's list is not compiled, its
+# N265_NEON_<FAMILY> macro is undefined, and its dispatch sites do not
+# compile either: the C reference by construction, with nothing to
+# branch away from at run time.
+neon_families = []
+if cpu_family == 'aarch64'
+  if is_8bit
+    neon_families = ['transform', 'satd', 'mc', 'rdoq', 'cost', 'intra']
+  else
+    neon_families = ['transform', 'satd', 'rdoq', 'cost', 'intra', 'mc']   # the 10-bit list, grown one proved family at a time
+  endif
   add_project_arguments('-DN265_NEON=1', language : 'c')
-  lib_sources += [
-    'src/encoder/arm/transform_neon.c',
-    'src/encoder/arm/satd_neon.c',
-    'src/encoder/arm/mc_neon.c',
-    'src/encoder/arm/rdoq_neon.c',
-    'src/encoder/arm/cost_neon.c',
-    'src/encoder/arm/intra_neon.c',
-  ]
+  foreach f : neon_families
+    add_project_arguments('-DN265_NEON_' + f.to_upper() + '=1', language : 'c')
+    lib_sources += 'src/encoder/arm/' + f + '_neon.c'
+  endforeach
 endif
 
 # Both linkage forms (yah264 lesson: plain library() made the CLI link

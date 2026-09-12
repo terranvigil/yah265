@@ -44,10 +44,10 @@ static const int bi_dims[] = { 2, 4, 6, 8, 12, 16, 24, 32, 48, 64 };
  * would let N265_ASM_OFF turn this check into C against C without saying
  * so; on a host with no NEON the entry point is the only thing there is
  * and the check degenerates honestly. */
-static void bi_opt(uint8_t *dst, int ds, const int16_t *a, const int16_t *b,
+static void bi_opt(pixel *dst, int ds, const int16_t *a, const int16_t *b,
                    int w, int h)
 {
-#if N265_NEON
+#if N265_NEON_MC
     n265_bi_avg_wh_neon(dst, ds, a, b, w, h);
 #else
     n265_bi_avg_wh(dst, ds, a, b, w, h);
@@ -86,7 +86,7 @@ static void bi_fill(int16_t *a, int16_t *b, int n, int kind)
 }
 
 struct bctx {
-    uint8_t *dst;
+    pixel *dst;
     int16_t *a, *b;
     int w, h, ds;
 };
@@ -114,7 +114,7 @@ static void check_bi_avg_window(int w, int h)
 {
     size_t nb = (size_t)w * h * sizeof(int16_t);
     int ds = w + BI_PAD;
-    uint8_t *dst = malloc((size_t)ds * h);
+    pixel *dst = malloc((size_t)ds * h * sizeof(pixel));
 
     for (int tail = 0; tail < 2; tail++) {
         ca_pg ga, gb;
@@ -148,12 +148,12 @@ static int check_bi_avg(void)
             int ds = w + BI_PAD;
             size_t nn = (size_t)w * h;
             size_t ab_bytes = nn * sizeof(int16_t);
-            size_t d_bytes = (size_t)ds * h;
+            size_t d_bytes = (size_t)ds * h * sizeof(pixel);
             int16_t *a = ca_guard_alloc(ab_bytes);
             int16_t *b = ca_guard_alloc(ab_bytes);
-            uint8_t *dst = ca_guard_alloc(d_bytes);
-            uint8_t *ref = ca_guard_alloc(d_bytes);
-            uint8_t *alt = ca_guard_alloc(d_bytes);
+            pixel *dst = ca_guard_alloc(d_bytes);
+            pixel *ref = ca_guard_alloc(d_bytes);
+            pixel *alt = ca_guard_alloc(d_bytes);
             char what[48];
 
             snprintf(what, sizeof(what), "bi_avg %dx%d", w, h);
@@ -171,7 +171,7 @@ static int check_bi_avg(void)
 
                     for (int y = 0; y < h; y++)
                         if (memcmp(ref + (size_t)y * ds, dst + (size_t)y * ds,
-                                   (size_t)w)) {
+                                   (size_t)w * sizeof(pixel))) {
                             printf("    %s MISMATCH kind %d row %d\n", what,
                                    kind, y);
                             bad++;
@@ -182,12 +182,12 @@ static int check_bi_avg(void)
                     /* wrote past the block, or into the row padding, or
                      * scribbled on an input */
                     bad += ca_guard_check(dst, d_bytes, what);
-                    bad += ca_check_pad(dst, ds, w, h, what);
+                    bad += ca_check_pad_pix(dst, ds, w, h, what);
                     bad += ca_guard_check(a, ab_bytes, what);
                     bad += ca_guard_check(b, ab_bytes, what);
                     /* the reference has to respect the padding too, else
                      * the comparison above proves nothing */
-                    bad += ca_check_pad(ref, ds, w, h, "bi_avg ref");
+                    bad += ca_check_pad_pix(ref, ds, w, h, "bi_avg ref");
                     if (bad)
                         break;
 
@@ -231,7 +231,7 @@ static const int bi_bench_shapes[][2] = {
 static void bench_bi_avg(void)
 {
     static int16_t a[64 * 64], b[64 * 64];
-    static uint8_t dst[64 * 70];
+    static pixel dst[64 * 70];
     struct bctx c;
     int n = (int)(sizeof(bi_bench_shapes) / sizeof(bi_bench_shapes[0]));
 
@@ -247,7 +247,7 @@ static void bench_bi_avg(void)
         snprintf(name, sizeof(name), "bi_avg %dx%d", c.w, c.h);
         /* no C fast path distinct from the reference here, so the middle
          * column is a control: it should read the same as the first */
-#if N265_NEON
+#if N265_NEON_MC
         bench(name, bi_ref_call, bi_ref_call, bi_opt_call, &c, 200000);
 #else
         bench(name, bi_ref_call, bi_opt_call, NULL, &c, 200000);
@@ -357,10 +357,10 @@ static void hf_scramble(int16_t *hf, int hs, int w, int h)
     }
 }
 
-static void hf_opt(uint8_t *dst, int ds, int w, int h, const int16_t *hf,
+static void hf_opt(pixel *dst, int ds, int w, int h, const int16_t *hf,
                    int hs, int fy)
 {
-#if N265_NEON
+#if N265_NEON_MC
     n265_mc_luma_hf_neon(dst, ds, w, h, hf, hs, fy);
 #else
     n265_mc_luma_hf_ref(dst, ds, w, h, hf, hs, fy);
@@ -370,7 +370,7 @@ static void hf_opt(uint8_t *dst, int ds, int w, int h, const int16_t *hf,
 static void hf14_opt(int16_t *dst, int ds, int w, int h, const int16_t *hf,
                      int hs, int fy)
 {
-#if N265_NEON
+#if N265_NEON_MC
     n265_mc_luma_14_hf_neon(dst, ds, w, h, hf, hs, fy);
 #else
     n265_mc_luma_14_hf_ref(dst, ds, w, h, hf, hs, fy);
@@ -382,8 +382,8 @@ static void hf14_opt(int16_t *dst, int ds, int w, int h, const int16_t *hf,
  * rather than in the next row where it would hide */
 #define MC_PAD 5
 
-static int mc_cmp8(const uint8_t *ref, const uint8_t *got, int ds, int w,
-                   int h, const char *what, int kind)
+static int mc_cmp_pix(const pixel *ref, const pixel *got, int ds, int w,
+                      int h, const char *what, int kind)
 {
     for (int y = 0; y < h; y++)
         for (int x = 0; x < w; x++)
@@ -414,7 +414,7 @@ static int check_luma_hf_one(int w, int h, int hs_extra, int bits14)
 {
     int hs = w + hs_extra, ds = w + MC_PAD;
     size_t hb = hf_bytes(hs, h);
-    size_t esz = bits14 ? sizeof(int16_t) : sizeof(uint8_t);
+    size_t esz = bits14 ? sizeof(int16_t) : sizeof(pixel);
     size_t db = (size_t)ds * h * esz;
     int16_t *base = ca_guard_alloc(hb);
     int16_t *hf = base + (ptrdiff_t)HF_HALO_UP * hs;
@@ -444,9 +444,9 @@ static int check_luma_hf_one(int w, int h, int hs_extra, int bits14)
                     bad += mc_cmp16((int16_t *)ref, (int16_t *)dst, ds, w, h,
                                     what, kind);
                 } else {
-                    n265_mc_luma_hf_ref(ref, ds, w, h, hf, hs, fy);
-                    hf_opt(dst, ds, w, h, hf, hs, fy);
-                    bad += mc_cmp8(ref, dst, ds, w, h, what, kind);
+                    n265_mc_luma_hf_ref((pixel *)ref, ds, w, h, hf, hs, fy);
+                    hf_opt((pixel *)dst, ds, w, h, hf, hs, fy);
+                    bad += mc_cmp_pix((pixel *)ref, (pixel *)dst, ds, w, h, what, kind);
                 }
                 if (bad)
                     break;
@@ -468,13 +468,13 @@ static int check_luma_hf_one(int w, int h, int hs_extra, int bits14)
                 if (bits14)
                     hf14_opt((int16_t *)dst, ds, w, h, hf, hs, fy);
                 else
-                    hf_opt(dst, ds, w, h, hf, hs, fy);
+                    hf_opt((pixel *)dst, ds, w, h, hf, hs, fy);
                 hf_scramble(hf, hs, w, h);
                 memset(alt, CA_POISON, db);
                 if (bits14)
                     hf14_opt((int16_t *)alt, ds, w, h, hf, hs, fy);
                 else
-                    hf_opt(alt, ds, w, h, hf, hs, fy);
+                    hf_opt((pixel *)alt, ds, w, h, hf, hs, fy);
                 if (memcmp(dst, alt, db)) {
                     printf("    %s: output depends on samples OUTSIDE the "
                            "declared window (fy %d kind %d)\n", what, fy,
@@ -500,7 +500,8 @@ static int check_luma_hf_one(int w, int h, int hs_extra, int bits14)
 static void check_luma_hf_window(int w, int h, int bits14)
 {
     int ds = w + MC_PAD;
-    uint8_t *dst = malloc((size_t)ds * h * (bits14 ? 2 : 1));
+    uint8_t *dst = malloc((size_t)ds * h *
+                          (bits14 ? sizeof(int16_t) : sizeof(pixel)));
 
     for (int fy = 0; fy < 4; fy++) {
         int up = fy ? HF_HALO_UP : 0, down = fy ? HF_HALO_DOWN : 0;
@@ -520,7 +521,7 @@ static void check_luma_hf_window(int w, int h, int bits14)
             if (bits14)
                 hf14_opt((int16_t *)dst, ds, w, h, hf, w, fy);
             else
-                hf_opt(dst, ds, w, h, hf, w, fy);
+                hf_opt((pixel *)dst, ds, w, h, hf, w, fy);
             ca_pg_disarm();
             ca_pg_free(&g);
         }
@@ -551,7 +552,7 @@ static int check_luma_hf(void)
 }
 
 struct hfctx {
-    uint8_t *dst;
+    pixel *dst;
     int16_t *dst16;
     const int16_t *hf;
     int w, h, ds, hs, fy;
@@ -593,7 +594,7 @@ static void bench_luma_hf(void)
 {
     enum { HS = 128 };
     static int16_t plane[HS * (64 + 8)];
-    static uint8_t dst[64 * 70];
+    static pixel dst[64 * 70];
     static int16_t dst16[64 * 70];
     struct hfctx c;
 
@@ -611,14 +612,14 @@ static void bench_luma_hf(void)
         for (int fy = 0; fy < 4; fy += 2) {   /* the copy arm and a filter arm */
             c.fy = fy;
             snprintf(name, sizeof(name), "luma_hf %dx%d fy%d", c.w, c.h, fy);
-#if N265_NEON
+#if N265_NEON_MC
             bench(name, hf_ref_call, hf_ref_call, hf_opt_call, &c, 20000);
 #else
             bench(name, hf_ref_call, hf_opt_call, NULL, &c, 20000);
 #endif
             snprintf(name, sizeof(name), "luma_14_hf %dx%d fy%d", c.w, c.h,
                      fy);
-#if N265_NEON
+#if N265_NEON_MC
             bench(name, hf14_ref_call, hf14_ref_call, hf14_opt_call, &c,
                   20000);
 #else
@@ -677,7 +678,7 @@ static int mc_is_chroma(int kind)
 }
 
 static void mc_call_ref(int kind, void *dst, int ds, int w, int h,
-                        const uint8_t *ref, int rs, int fx, int fy)
+                        const pixel *ref, int rs, int fx, int fy)
 {
     if (kind == MC_K_WH)
         n265_mc_luma_wh_ref(dst, ds, w, h, ref, rs, fx, fy);
@@ -692,9 +693,9 @@ static void mc_call_ref(int kind, void *dst, int ds, int w, int h,
 }
 
 static void mc_call_opt(int kind, void *dst, int ds, int w, int h,
-                        const uint8_t *ref, int rs, int fx, int fy)
+                        const pixel *ref, int rs, int fx, int fy)
 {
-#if N265_NEON
+#if N265_NEON_MC
     if (kind == MC_K_WH)
         n265_mc_luma_wh_neon(dst, ds, w, h, ref, rs, fx, fy);
     else if (kind == MC_K_14WH)
@@ -723,7 +724,7 @@ static const int8_t cf_taps[8][4] = {
     { -2, 16, 54, -4 }, { -2, 10, 58, -2 },
 };
 
-static void mc_plane_fill(uint8_t *org, int rs, int w, int h, int hxl,
+static void mc_plane_fill(pixel *org, int rs, int w, int h, int hxl,
                           int hxr, int hyl, int hyr, int fx, int fy, int k,
                           int chroma)
 {
@@ -732,15 +733,15 @@ static void mc_plane_fill(uint8_t *org, int rs, int w, int h, int hxl,
     int nt = chroma ? 4 : 8;
 
     for (int r = -hyl; r < h + hyr; r++) {
-        uint8_t *p = org + (ptrdiff_t)r * rs;
+        pixel *p = org + (ptrdiff_t)r * rs;
         for (int c = -hxl; c < w + hxr; c++) {
             int sh = fh[((c % nt) + nt) % nt] < 0 ? -1 : 1;
             int sv = fv[((r % nt) + nt) % nt] < 0 ? -1 : 1;
             switch (k) {
-            case 0: p[c] = (uint8_t)(rnd() >> 24); break;
-            case 1: p[c] = (uint8_t)((rnd() & 1) ? 255 : 0); break;
-            case 2: p[c] = (uint8_t)(rnd() & 1 ? 254 : 1); break;
-            default: p[c] = (uint8_t)(sh * sv > 0 ? 255 : 0); break;
+            case 0: p[c] = ca_pix(); break;
+            case 1: p[c] = ca_pix_edge(); break;
+            case 2: p[c] = (pixel)(rnd() & 1 ? PIXEL_MAX - 1 : 1); break;
+            default: p[c] = (pixel)(sh * sv > 0 ? PIXEL_MAX : 0); break;
             }
         }
     }
@@ -751,15 +752,15 @@ static void mc_plane_fill(uint8_t *org, int rs, int w, int h, int hxl,
  * [0, hxl + w + hxr) of every row, so what is left over is the row
  * padding the extra stride adds - which is where a load that ran one
  * vector past the last column of a row lands. */
-static void mc_plane_scramble(uint8_t *base, size_t bytes, int rs, int w,
+static void mc_plane_scramble(pixel *base, size_t nsamp, int rs, int w,
                               int h, int hxl, int hxr, int hyl, int hyr)
 {
     int nrow = h + hyl + hyr, wcols = hxl + w + hxr;
 
-    ca_guard_scramble(base, bytes);
+    ca_guard_scramble(base, nsamp * sizeof(pixel));
     for (int r = 0; r < nrow; r++)
         for (int c = wcols; c < rs; c++)
-            base[(ptrdiff_t)r * rs + c] = (uint8_t)(rnd() >> 24);
+            base[(ptrdiff_t)r * rs + c] = ca_pix();
 }
 
 static int check_luma_plane_one(int kind, int w, int h, int fx, int fy,
@@ -769,13 +770,13 @@ static int check_luma_plane_one(int kind, int w, int h, int fx, int fy,
     mc_halo(kind, fx, fy, &hxl, &hxr, &hyl, &hyr);
     int rs = w + hxl + hxr + rs_extra;
     int nrow = h + hyl + hyr;
-    size_t pb = (size_t)rs * nrow;
+    size_t pb = (size_t)rs * nrow * sizeof(pixel);
     size_t esz = (kind == MC_K_WH || kind == MC_K_CWH)
-                     ? 1 : sizeof(int16_t);
+                     ? sizeof(pixel) : sizeof(int16_t);
     int ds = w + MC_PAD;
     size_t db = (size_t)ds * h * esz;
-    uint8_t *base = ca_guard_alloc(pb);
-    uint8_t *org = base + (ptrdiff_t)hyl * rs + hxl;
+    pixel *base = ca_guard_alloc(pb);
+    pixel *org = base + (ptrdiff_t)hyl * rs + hxl;
     uint8_t *dst = ca_guard_alloc(db);
     uint8_t *ref = ca_guard_alloc(db);
     uint8_t *alt = ca_guard_alloc(db);
@@ -796,7 +797,8 @@ static int check_luma_plane_one(int kind, int w, int h, int fx, int fy,
         for (int rep = 0; rep < reps && !bad; rep++) {
             mc_plane_fill(org, rs, w, h, hxl, hxr, hyl, hyr, fx, fy, k,
                           mc_is_chroma(kind));
-            mc_plane_scramble(base, pb, rs, w, h, hxl, hxr, hyl, hyr);
+            mc_plane_scramble(base, pb / sizeof(pixel), rs, w, h, hxl, hxr,
+                              hyl, hyr);
             ca_guard_poison(base, pb);
             memset(ref, CA_POISON, db);
             memset(dst, CA_POISON, db);
@@ -804,8 +806,10 @@ static int check_luma_plane_one(int kind, int w, int h, int fx, int fy,
 
             mc_call_ref(kind, ref, ds, w, h, org, rs, fx, fy);
             mc_call_opt(kind, dst, ds, w, h, org, rs, fx, fy);
-            if (esz == 1)
-                bad += mc_cmp8(ref, dst, ds, w, h, what, k);
+            if (esz == sizeof(pixel) &&
+                (kind == MC_K_WH || kind == MC_K_CWH))
+                bad += mc_cmp_pix((pixel *)ref, (pixel *)dst, ds, w, h,
+                                  what, k);
             else
                 bad += mc_cmp16((int16_t *)ref, (int16_t *)dst, ds, w, h,
                                 what, k);
@@ -821,7 +825,8 @@ static int check_luma_plane_one(int kind, int w, int h, int fx, int fy,
 
             memset(dst, CA_POISON, db);
             mc_call_opt(kind, dst, ds, w, h, org, rs, fx, fy);
-            mc_plane_scramble(base, pb, rs, w, h, hxl, hxr, hyl, hyr);
+            mc_plane_scramble(base, pb / sizeof(pixel), rs, w, h, hxl, hxr,
+                              hyl, hyr);
             memset(alt, CA_POISON, db);
             mc_call_opt(kind, alt, ds, w, h, org, rs, fx, fy);
             if (memcmp(dst, alt, db)) {
@@ -844,19 +849,19 @@ static void check_luma_plane_window(int kind, int w, int h, int fx, int fy)
     int hxl, hxr, hyl, hyr;
     mc_halo(kind, fx, fy, &hxl, &hxr, &hyl, &hyr);
     int rs = w + hxl + hxr;
-    size_t pb = (size_t)rs * (h + hyl + hyr);
+    size_t pb = (size_t)rs * (h + hyl + hyr) * sizeof(pixel);
     int ds = w + MC_PAD;
     void *dst = malloc((size_t)ds * h *
-                       ((kind == MC_K_WH || kind == MC_K_CWH) ? 1 : 2));
+                       ((kind == MC_K_WH || kind == MC_K_CWH)
+                            ? sizeof(pixel) : sizeof(int16_t)));
 
     for (int tail = 0; tail < 2; tail++) {
         ca_pg g;
-        uint8_t *base = ca_pg_alloc(&g, pb, tail);
-        uint8_t *org = base + (ptrdiff_t)hyl * rs + hxl;
+        pixel *base = ca_pg_alloc(&g, pb, tail);
+        pixel *org = base + (ptrdiff_t)hyl * rs + hxl;
         char what[96];
 
-        for (size_t i = 0; i < pb; i++)
-            base[i] = (uint8_t)(rnd() >> 24);
+        ca_pg_fill_pix(&g, pb / sizeof(pixel));
         snprintf(what, sizeof(what), "%s %dx%d fx%d fy%d, %s edge",
                  mc_kind_name[kind], w, h, fx, fy, tail ? "far" : "near");
         ca_pg_arm(what);
@@ -990,7 +995,7 @@ static int check_luma_plane(void)
 
 struct pctx {
     void *dst;
-    const uint8_t *ref;
+    const pixel *ref;
     int kind, w, h, ds, rs, fx, fy;
 };
 
@@ -1011,16 +1016,15 @@ static void p_opt_call(void *v)
 static void bench_luma_plane(void)
 {
     enum { RS = 1536 };
-    static uint8_t plane[RS * 120];
-    static uint8_t dst8[64 * 70];
+    static pixel plane[RS * 120];
+    static pixel dst8[64 * 70];
     static int16_t dst16[1400 * 34];
     struct pctx c;
     /* (fx, fy) picks the arm: 0,0 full-pel; 2,0 horizontal; 0,2 vertical;
      * 2,2 the 2-D pair the profile spends its time in */
     static const int arms[4][2] = { { 0, 0 }, { 2, 0 }, { 0, 2 }, { 2, 2 } };
 
-    for (size_t i = 0; i < sizeof(plane); i++)
-        plane[i] = (uint8_t)(rnd() >> 24);
+    ca_fill_pix(plane, sizeof(plane) / sizeof(plane[0]));
     c.ref = plane + 8 * RS + 8;
     c.rs = RS;
     for (int i = 0; i < NMC_BENCH; i++) {
@@ -1035,7 +1039,7 @@ static void bench_luma_plane(void)
             c.dst = dst8;
             snprintf(name, sizeof(name), "luma_wh %dx%d f%d%d", c.w, c.h,
                      c.fx, c.fy);
-#if N265_NEON
+#if N265_NEON_MC
             bench(name, p_ref_call, p_ref_call, p_opt_call, &c, 20000);
 #else
             bench(name, p_ref_call, p_opt_call, NULL, &c, 20000);
@@ -1044,7 +1048,7 @@ static void bench_luma_plane(void)
             c.dst = dst16;
             snprintf(name, sizeof(name), "luma_14_wh %dx%d f%d%d", c.w, c.h,
                      c.fx, c.fy);
-#if N265_NEON
+#if N265_NEON_MC
             bench(name, p_ref_call, p_ref_call, p_opt_call, &c, 20000);
 #else
             bench(name, p_ref_call, p_opt_call, NULL, &c, 20000);
@@ -1063,7 +1067,7 @@ static void bench_luma_plane(void)
         c.h = 32;
         c.ds = c.w;
         snprintf(name, sizeof(name), "luma_hplane %dx32", c.w);
-#if N265_NEON
+#if N265_NEON_MC
         bench(name, p_ref_call, p_ref_call, p_opt_call, &c, 20000);
 #else
         bench(name, p_ref_call, p_opt_call, NULL, &c, 20000);
@@ -1078,15 +1082,14 @@ static const int chroma_bench_shapes[][2] = {
 static void bench_chroma(void)
 {
     enum { RS = 96 };
-    static uint8_t plane[RS * 48];
-    static uint8_t dst8[32 * 40];
+    static pixel plane[RS * 48];
+    static pixel dst8[32 * 40];
     static int16_t dst16[32 * 40];
     struct pctx c;
     static const int arms[3][2] = { { 3, 0 }, { 0, 3 }, { 3, 5 } };
     int n = (int)(sizeof(chroma_bench_shapes) / sizeof(chroma_bench_shapes[0]));
 
-    for (size_t i = 0; i < sizeof(plane); i++)
-        plane[i] = (uint8_t)(rnd() >> 24);
+    ca_fill_pix(plane, sizeof(plane) / sizeof(plane[0]));
     c.ref = plane + 4 * RS + 4;
     c.rs = RS;
     for (int i = 0; i < n; i++) {
@@ -1101,7 +1104,7 @@ static void bench_chroma(void)
             c.dst = dst8;
             snprintf(name, sizeof(name), "chroma_wh %dx%d f%d%d", c.w, c.h,
                      c.fx, c.fy);
-#if N265_NEON
+#if N265_NEON_MC
             bench(name, p_ref_call, p_ref_call, p_opt_call, &c, 20000);
 #else
             bench(name, p_ref_call, p_opt_call, NULL, &c, 20000);
@@ -1110,7 +1113,7 @@ static void bench_chroma(void)
             c.dst = dst16;
             snprintf(name, sizeof(name), "chroma_14_wh %dx%d f%d%d", c.w, c.h,
                      c.fx, c.fy);
-#if N265_NEON
+#if N265_NEON_MC
             bench(name, p_ref_call, p_ref_call, p_opt_call, &c, 20000);
 #else
             bench(name, p_ref_call, p_opt_call, NULL, &c, 20000);

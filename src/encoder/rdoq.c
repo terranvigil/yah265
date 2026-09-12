@@ -432,7 +432,7 @@ int n265_rdoq_rtn(int16_t *rtn, double *all_zero, uint64_t *sb_nz,
                   const int16_t *coef, int log2n, int q, int64_t add,
                   int qbits, int czero)
 {
-#if N265_NEON
+#if N265_NEON_RDOQ
     if (n265_asm_on(N265_ASM_QUANT))
         return n265_rdoq_rtn_neon(rtn, all_zero, sb_nz, coef, log2n, q,
                                   add, qbits, czero);
@@ -458,7 +458,7 @@ uint64_t n265_rdoq_sb_nz_ref(const int16_t *blk, int log2n)
 
 uint64_t n265_rdoq_sb_nz(const int16_t *blk, int log2n)
 {
-#if N265_NEON
+#if N265_NEON_RDOQ
     if (n265_asm_on(N265_ASM_QUANT))
         return n265_rdoq_sb_nz_neon(blk, log2n);
 #endif

@@ -38,12 +38,42 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "common/pixel.h"   /* pixel, BIT_DEPTH, PIXEL_MAX */
+
 /* set by main() from the CLI; families bench only when it is nonzero */
 extern int ca_bench;
 
 /* xorshift32, one stream for the whole run so a failure reproduces */
 uint32_t rnd(void);
 double now_ns(void);
+
+/* ---- samples -------------------------------------------------------
+ *
+ * The harness is built at both depths since phase 8 item 3, and a
+ * SAMPLE is `pixel` - one byte at 8 bits, two at Main10 - so a family
+ * fills its blocks through these rather than with a byte at a time. The
+ * domain is the build's: 0 .. PIXEL_MAX, because that is all a kernel is
+ * ever handed and it is what the lane-headroom arguments in
+ * the arm kernels are proved against. Taking the TOP BIT_DEPTH bits
+ * of the stream means the 8-bit harness draws exactly the samples it
+ * drew before this existed (`rnd() >> 24`), so no 8-bit check changes
+ * what it tests. */
+static inline pixel ca_pix(void)
+{
+    return (pixel)(rnd() >> (32 - BIT_DEPTH));
+}
+
+static inline void ca_fill_pix(pixel *p, size_t n)
+{
+    for (size_t i = 0; i < n; i++)
+        p[i] = ca_pix();
+}
+
+/* a sample at one end of the domain, for the adversarial fills */
+static inline pixel ca_pix_edge(void)
+{
+    return (rnd() & 1) ? (pixel)PIXEL_MAX : (pixel)0;
+}
 
 /* The benchmark line. `neon` may be NULL, which prints the two-column form
  * kernels with no NEON yet have always printed; with it, the line is
@@ -89,9 +119,21 @@ int ca_guard_check(const void *blk, size_t bytes, const char *what);
 /* A destination written at `stride` leaves padding to the right of every
  * row that no kernel may touch. Pre-fill the whole block with CA_POISON,
  * run, then call this: it reports a write into the padding, which a plain
- * border check cannot see because the padding is interior. */
+ * border check cannot see because the padding is interior.
+ *
+ * It works in BYTES, so a pixel block passes `stride * sizeof(pixel)` and
+ * `w * sizeof(pixel)`; ca_check_pad_pix does that for you. A poisoned
+ * pixel is 0xa5a5 at Main10 and 0xa5 at 8 bits, and either way every
+ * byte of it is CA_POISON, so the byte-wise check is exact at both. */
 int ca_check_pad(const uint8_t *blk, int stride, int w, int h,
                  const char *what);
+
+static inline int ca_check_pad_pix(const pixel *blk, int stride, int w, int h,
+                                   const char *what)
+{
+    return ca_check_pad((const uint8_t *)blk, (int)(stride * sizeof(pixel)),
+                        (int)(w * sizeof(pixel)), h, what);
+}
 
 /* ---- the page guard -------------------------------------------------
  *
@@ -134,6 +176,11 @@ void *ca_pg_alloc(ca_pg *g, size_t bytes, int tail);
 void ca_pg_free(ca_pg *g);
 /* random bytes over the `bytes` of buffer the kernel is given */
 void ca_pg_fill(ca_pg *g, size_t bytes);
+/* the same for a sample buffer: `n` pixels in 0 .. PIXEL_MAX */
+static inline void ca_pg_fill_pix(ca_pg *g, size_t n)
+{
+    ca_fill_pix((pixel *)g->user, n);
+}
 /* catch SIGSEGV/SIGBUS and name `what` on the way out */
 void ca_pg_arm(const char *what);
 void ca_pg_disarm(void);
@@ -143,6 +190,12 @@ void ca_pg_disarm(void);
 static inline size_t ca_pg_window(int stride, int w, int h)
 {
     return (size_t)(h - 1) * (size_t)stride + (size_t)w;
+}
+
+/* the same window in BYTES for a block of samples */
+static inline size_t ca_pg_window_pix(int stride, int w, int h)
+{
+    return ca_pg_window(stride, w, h) * sizeof(pixel);
 }
 
 #endif /* N265_CHECKASM_H */

@@ -119,7 +119,7 @@ void n265_mc_luma_wh(pixel *dst, int ds, int w, int h,
      * rather than from the caller's bound (refchk.h) */
     N265_RC_TOUCH(ref + (fy ? -3 : 0) * ref_stride);
     N265_RC_TOUCH(ref + (fy ? h + 3 : h - 1) * ref_stride);
-#if N265_NEON
+#if N265_NEON_MC
     if (n265_asm_on(N265_ASM_MC)) {
         n265_mc_luma_wh_neon(dst, ds, w, h, ref, ref_stride, fx, fy);
         return;
@@ -184,7 +184,7 @@ void n265_mc_luma_hplane(int16_t *dst, int ds, int w, int h,
 {
     N265_RC_TOUCH(ref);
     N265_RC_TOUCH(ref + (h - 1) * ref_stride);
-#if N265_NEON
+#if N265_NEON_MC
     if (n265_asm_on(N265_ASM_MC)) {
         n265_mc_luma_hplane_neon(dst, ds, w, h, ref, ref_stride, fx);
         return;
@@ -300,7 +300,7 @@ void n265_mc_luma_hf(pixel *dst, int ds, int w, int h,
     }
     N265_RC_TOUCH16(hf + (fy ? -3 : 0) * hs);
     N265_RC_TOUCH16(hf + (fy ? h + 3 : h - 1) * hs);
-#if N265_NEON
+#if N265_NEON_MC
     if (n265_asm_on(N265_ASM_MC)) {
         n265_mc_luma_hf_neon(dst, ds, w, h, hf, hs, fy);
         return;
@@ -338,7 +338,7 @@ void n265_mc_luma_14_hf(int16_t *dst, int ds, int w, int h,
     }
     N265_RC_TOUCH16(hf + (fy ? -3 : 0) * hs);
     N265_RC_TOUCH16(hf + (fy ? h + 3 : h - 1) * hs);
-#if N265_NEON
+#if N265_NEON_MC
     if (n265_asm_on(N265_ASM_MC)) {
         n265_mc_luma_14_hf_neon(dst, ds, w, h, hf, hs, fy);
         return;
@@ -352,7 +352,7 @@ void n265_mc_chroma_wh(pixel *dst, int ds, int w, int h,
 {
     N265_RC_TOUCH(ref + (fy ? -1 : 0) * ref_stride);
     N265_RC_TOUCH(ref + (fy ? h + 1 : h - 1) * ref_stride);
-#if N265_NEON
+#if N265_NEON_MC
     if (n265_asm_on(N265_ASM_MC)) {
         n265_mc_chroma_wh_neon(dst, ds, w, h, ref, ref_stride, fx, fy);
         return;
@@ -417,7 +417,7 @@ void n265_mc_luma_14_wh(int16_t *dst, int ds, int w, int h,
 {
     N265_RC_TOUCH(ref + (fy ? -3 : 0) * ref_stride);
     N265_RC_TOUCH(ref + (fy ? h + 3 : h - 1) * ref_stride);
-#if N265_NEON
+#if N265_NEON_MC
     if (n265_asm_on(N265_ASM_MC)) {
         n265_mc_luma_14_wh_neon(dst, ds, w, h, ref, ref_stride, fx, fy);
         return;
@@ -481,7 +481,7 @@ void n265_mc_chroma_14_wh(int16_t *dst, int ds, int w, int h,
 {
     N265_RC_TOUCH(ref + (fy ? -1 : 0) * ref_stride);
     N265_RC_TOUCH(ref + (fy ? h + 1 : h - 1) * ref_stride);
-#if N265_NEON
+#if N265_NEON_MC
     if (n265_asm_on(N265_ASM_MC)) {
         n265_mc_chroma_14_wh_neon(dst, ds, w, h, ref, ref_stride, fx, fy);
         return;
@@ -583,7 +583,7 @@ void n265_bi_avg_wh_ref(pixel *dst, int ds, const int16_t *a,
 void n265_bi_avg_wh(pixel *dst, int ds, const int16_t *a, const int16_t *b,
                     int w, int h)
 {
-#if N265_NEON
+#if N265_NEON_MC
     /* Dispatch at the top of the entry point, after any N265_RC_TOUCH -
      * there are none here, a and b being the caller's own int16
      * intermediates rather than a guarded reference plane. See

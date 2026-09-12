@@ -202,7 +202,7 @@ static void group_ref_call(void *p)
                                   c->abs, &c->neg);
 }
 
-#if N265_NEON
+#if N265_NEON_COST
 static void csbf_neon_call(void *p)
 {
     struct cctx *c = p;
@@ -222,7 +222,7 @@ static void group_neon_call(void *p)
 #define GROUP_NEON NULL
 #endif
 
-#if N265_NEON
+#if N265_NEON_COST
 
 /* The TB shapes residual_coding actually sees. From the same 2026-09-10
  * survey: 4x4 through 32x32 luma, 4x4/8x8/16x16 chroma, and the two
@@ -445,7 +445,7 @@ static int check_group_neon(void)
     }
     return bad;
 }
-#endif /* N265_NEON */
+#endif /* N265_NEON_COST */
 
 int check_cost(void)
 {
@@ -454,7 +454,7 @@ int check_cost(void)
 
     n265_residual_tables_init();
     bad += check_sig_pat();
-#if N265_NEON
+#if N265_NEON_COST
     bad += check_csbf_neon();
     bad += check_group_neon();
 #endif

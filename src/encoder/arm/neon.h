@@ -5,15 +5,22 @@
  *
  *   - A NEON kernel is an exported function `n265_<kernel>_neon(...)` with
  *     the SAME signature as its C entry point `n265_<kernel>(...)`.
- *   - It is declared here, under `#if N265_NEON`, and defined in exactly one
- *     of src/encoder/arm/{transform,satd,mc}_neon.c. One file per family so
- *     the family worktrees never touch the same translation unit, and
+ *   - It is declared here, under `#if N265_NEON_<FAMILY>`, and defined in
+ *     exactly one of the src/encoder/arm family files. One file per family so the
+ *     family worktrees never touch the same translation unit, and
  *     meson.build never conflicts at merge.
+ *   - A FAMILY IS PER DEPTH (phase 8 item 3). meson compiles a family's
+ *     file, and defines its N265_NEON_<FAMILY>, only for the depths whose
+ *     lanes are proved: `pixel` is uint8_t at 8 bits and uint16_t at
+ *     Main10, so a kernel is written for BOTH widths or the family is
+ *     absent from the build that has no kernel, and its dispatch sites
+ *     compile out with it. That is why every signature below is typed on
+ *     `pixel` and never on uint8_t.
  *   - The C entry point keeps its body and dispatches at the TOP, after any
  *     N265_RC_TOUCH lines (those stay in the C entry point: the
  *     N265_REF_CHECK proof of docs/threading-design.md G2 reads them):
  *
- *         #if N265_NEON
+ *         #if N265_NEON_MC
  *             if (n265_asm_on(N265_ASM_MC))
  *                 return n265_foo_neon(...);
  *         #endif
@@ -38,14 +45,16 @@
 #ifndef N265_ARM_NEON_H
 #define N265_ARM_NEON_H
 
-#if N265_NEON
-
 #include <stddef.h>
 #include <stdint.h>
 
+#include "common/cpu.h"     /* N265_NEON_<FAMILY>, normalised to 0/1 */
+#include "common/pixel.h"
+
+#if N265_NEON_MC
 /* ---- mc (N265_ASM_MC) ---------------------------------------------- */
 
-void n265_bi_avg_wh_neon(uint8_t *dst, int dst_stride, const int16_t *a,
+void n265_bi_avg_wh_neon(pixel *dst, int dst_stride, const int16_t *a,
                          const int16_t *b, int w, int h);
 
 /* The E1 cached-first-stage luma forms. These two take `hf` alone rather
@@ -54,30 +63,33 @@ void n265_bi_avg_wh_neon(uint8_t *dst, int dst_stride, const int16_t *a,
  * NULL cache or fx == 0 is the plain form's business), so below it the
  * kernel is a function of the cached int16 rows and fy. Precondition:
  * hf != NULL, and the block is covered from 3 rows above to 4 below. */
-void n265_mc_luma_hf_neon(uint8_t *dst, int dst_stride, int w, int h,
+void n265_mc_luma_hf_neon(pixel *dst, int dst_stride, int w, int h,
                           const int16_t *hf, int hf_stride, int fy);
 void n265_mc_luma_14_hf_neon(int16_t *dst, int dst_stride, int w, int h,
                              const int16_t *hf, int hf_stride, int fy);
 
 /* the plain forms, and the whole-plane first stage they share their
  * horizontal pass with */
-void n265_mc_luma_wh_neon(uint8_t *dst, int dst_stride, int w, int h,
-                          const uint8_t *ref, int ref_stride, int fx, int fy);
+void n265_mc_luma_wh_neon(pixel *dst, int dst_stride, int w, int h,
+                          const pixel *ref, int ref_stride, int fx, int fy);
 void n265_mc_luma_14_wh_neon(int16_t *dst, int dst_stride, int w, int h,
-                             const uint8_t *ref, int ref_stride, int fx,
+                             const pixel *ref, int ref_stride, int fx,
                              int fy);
 void n265_mc_luma_hplane_neon(int16_t *dst, int dst_stride, int w, int h,
-                              const uint8_t *ref, int ref_stride, int fx);
+                              const pixel *ref, int ref_stride, int fx);
 
 /* the chroma 4-tap eighth-pel forms. 4:2:0 halves every luma width, so
  * these see w = 2 and w = 6 and h = 2, which no luma shape presents. */
-void n265_mc_chroma_wh_neon(uint8_t *dst, int dst_stride, int w, int h,
-                            const uint8_t *ref, int ref_stride, int fx,
+void n265_mc_chroma_wh_neon(pixel *dst, int dst_stride, int w, int h,
+                            const pixel *ref, int ref_stride, int fx,
                             int fy);
 void n265_mc_chroma_14_wh_neon(int16_t *dst, int dst_stride, int w, int h,
-                               const uint8_t *ref, int ref_stride, int fx,
+                               const pixel *ref, int ref_stride, int fx,
                                int fy);
 
+#endif /* N265_NEON_MC */
+
+#if N265_NEON_TRANSFORM
 /* ---- transform (N265_ASM_DCT) -------------------------------------- */
 
 /* Shapes taken from the encoder, not from the spec tables (2026-09-10
@@ -92,8 +104,8 @@ void n265_mc_chroma_14_wh_neon(int16_t *dst, int dst_stride, int w, int h,
 
 void n265_fdct_neon(int16_t *coef, const int16_t *resid, int log2n,
                     int use_dst);
-void n265_idct_add_neon(uint8_t *dst, int dst_stride, const int16_t *dq,
-                        int log2n, const uint8_t *pred, int pred_stride,
+void n265_idct_add_neon(pixel *dst, int dst_stride, const int16_t *dq,
+                        int log2n, const pixel *pred, int pred_stride,
                         int use_dst, int nzw, int nzh);
 
 /* The transform's other half. Same file and same family, but its own
@@ -105,6 +117,9 @@ void n265_dequant_neon(int16_t *dq, const int16_t *level, int log2n, int qp,
 int n265_quant_neon(int16_t *level, const int16_t *coef, int log2n, int qp,
                     int intra);
 
+#endif /* N265_NEON_TRANSFORM */
+
+#if N265_NEON_SATD
 /* ---- satd (N265_ASM_SATD) ------------------------------------------ */
 
 /* The two Hadamard tiles, exported so checkasm can compare each against
@@ -112,32 +127,38 @@ int n265_quant_neon(int16_t *level, const int16_t *coef, int log2n, int qp,
  * only in aggregate, plus n265_satd_wh's whole w x h loop so that a call
  * dispatches once instead of once per tile. The loop form reproduces the
  * N265_SATD8 mixed tiling as well as the default one. */
-uint32_t n265_satd4_neon(const uint8_t *a, int as, const uint8_t *b, int bs);
-uint32_t n265_satd8_neon(const uint8_t *a, int as, const uint8_t *b, int bs);
-uint32_t n265_satd_wh_neon(const uint8_t *a, int as, const uint8_t *b,
+uint32_t n265_satd4_neon(const pixel *a, int as, const pixel *b, int bs);
+uint32_t n265_satd8_neon(const pixel *a, int as, const pixel *b, int bs);
+uint32_t n265_satd_wh_neon(const pixel *a, int as, const pixel *b,
                            int bs, int w, int h);
 
 /* The two plain block reductions the encoder's call sites were factored
  * onto (src/encoder/satd.c): |a - b| summed, and (a - b)^2 summed. */
-uint32_t n265_sad_wh_neon(const uint8_t *a, int as, const uint8_t *b,
+uint32_t n265_sad_wh_neon(const pixel *a, int as, const pixel *b,
                           int bs, int w, int h);
-uint64_t n265_ssd_wh_neon(const uint8_t *a, int as, const uint8_t *b,
+uint64_t n265_ssd_wh_neon(const pixel *a, int as, const pixel *b,
                           int bs, int w, int h);
 
 /* The same absolute difference kept as two marginal sums instead of one
  * total: row[y] and col[x] over an n x n block, for ctu.c's rect_proxy. */
-void n265_sad_rowcol_neon(const uint8_t *a, int as, const uint8_t *b,
+void n265_sad_rowcol_neon(const pixel *a, int as, const pixel *b,
                           int bs, int n, uint32_t *row, uint32_t *col);
 
-#if defined(__ARM_FEATURE_DOTPROD)
+#if BIT_DEPTH == 8 && defined(__ARM_FEATURE_DOTPROD)
 /* The FEAT_DotProd arm of n265_ssd_wh_neon, which selects it at runtime
  * on N265_CPU_DOTPROD (udot of a difference with itself is the sum of
  * four squares). Exported so checkasm can check and time BOTH arms on a
- * host that has the extension; not a dispatch site's entry point. */
-uint64_t n265_ssd_wh_dot_neon(const uint8_t *a, int as, const uint8_t *b,
+ * host that has the extension; not a dispatch site's entry point.
+ * 8-BIT ONLY: udot is defined on byte lanes and has no 16-bit form
+ * outside SVE, so the Main10 SSD's widening multiply-accumulate is the
+ * fastest shape available to it. */
+uint64_t n265_ssd_wh_dot_neon(const pixel *a, int as, const pixel *b,
                               int bs, int w, int h);
 #endif
 
+#endif /* N265_NEON_SATD */
+
+#if N265_NEON_RDOQ
 /* ---- rdoq (N265_ASM_QUANT) ----------------------------------------- */
 
 /* The two elementwise pieces around the RDOQ lattice; the lattice itself
@@ -151,6 +172,9 @@ int n265_rdoq_rtn_neon(int16_t *rtn, double *all_zero, uint64_t *sb_nz,
                        const int16_t *coef, int log2n, int q, int64_t add,
                        int qbits, int czero);
 uint64_t n265_rdoq_sb_nz_neon(const int16_t *blk, int log2n);
+#endif /* N265_NEON_RDOQ */
+
+#if N265_NEON_COST
 /* ---- coefficient costing (N265_ASM_QUANT) --------------------------
  *
  * residual_coding()'s two elementwise passes over a transform block's
@@ -165,6 +189,9 @@ void n265_csbf_map_neon(const int16_t *level, int log2n, uint8_t *out);
 uint32_t n265_coeff_group_neon(const int16_t *grp, ptrdiff_t stride,
                                int scan_idx, uint16_t *abs_out,
                                uint32_t *neg_mask);
+#endif /* N265_NEON_COST */
+
+#if N265_NEON_INTRA
 /* ---- intra (N265_ASM_INTRA) ---------------------------------------- */
 
 /* Shapes taken from the encoder (2026-09-10 survey, both entry points
@@ -180,10 +207,10 @@ uint32_t n265_coeff_group_neon(const int16_t *grp, ptrdiff_t stride,
  * because they share the entry point.
  */
 
-void n265_intra_pred_neon(uint8_t *dst, int dst_stride, const uint8_t *refs,
+void n265_intra_pred_neon(pixel *dst, int dst_stride, const pixel *refs,
                           int log2n, int mode, int c_idx);
-void n265_filter_refs_neon(uint8_t *out, const uint8_t *in, int log2n);
+void n265_filter_refs_neon(pixel *out, const pixel *in, int log2n);
 
-#endif /* N265_NEON */
+#endif /* N265_NEON_INTRA */
 
 #endif /* N265_ARM_NEON_H */

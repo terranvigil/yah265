@@ -127,7 +127,7 @@ void n265_csbf_map_ref(const int16_t *level, int log2n, uint8_t *out)
 
 void n265_csbf_map(const int16_t *level, int log2n, uint8_t *out)
 {
-#if N265_NEON
+#if N265_NEON_COST
     if (n265_asm_on(N265_ASM_QUANT)) {
         n265_csbf_map_neon(level, log2n, out);
         return;
@@ -159,7 +159,7 @@ uint32_t n265_coeff_group_ref(const int16_t *grp, ptrdiff_t stride,
 uint32_t n265_coeff_group(const int16_t *grp, ptrdiff_t stride, int scan_idx,
                           uint16_t *abs_out, uint32_t *neg_mask)
 {
-#if N265_NEON
+#if N265_NEON_COST
     if (n265_asm_on(N265_ASM_QUANT))
         return n265_coeff_group_neon(grp, stride, scan_idx, abs_out,
                                      neg_mask);

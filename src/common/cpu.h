@@ -71,18 +71,54 @@ static inline uint32_t n265_cpu_flags(void)
  * Read through n265_env() once on the slow path and published by the same
  * release store as the feature word, so reading it after n265_cpu_flags()
  * has returned is race-free. */
+/* ---- which families this build has kernels for ----------------------
+ *
+ * meson defines one N265_NEON_<FAMILY> per family it compiles in, and
+ * the list is per DEPTH (phase 8 item 3): a family reaches a build only
+ * once its 16-bit lanes are proved bit-exact at that depth under a
+ * checkasm built at the same depth. Normalised to 0/1 here so a C
+ * expression can read them as well as the preprocessor can. */
+#ifndef N265_NEON
+#define N265_NEON 0
+#endif
+#ifndef N265_NEON_TRANSFORM
+#define N265_NEON_TRANSFORM 0
+#endif
+#ifndef N265_NEON_SATD
+#define N265_NEON_SATD 0
+#endif
+#ifndef N265_NEON_MC
+#define N265_NEON_MC 0
+#endif
+#ifndef N265_NEON_RDOQ
+#define N265_NEON_RDOQ 0
+#endif
+#ifndef N265_NEON_COST
+#define N265_NEON_COST 0
+#endif
+#ifndef N265_NEON_INTRA
+#define N265_NEON_INTRA 0
+#endif
+
+/* The classes any compiled-in family carries. A class is WIDER than a
+ * family - N265_ASM_QUANT is dequant/quant in the transform file, the
+ * RDOQ marshalling and the coefficient costing, three files - so this
+ * mask is not the gate. The gate is the per-site `#if N265_NEON_<FAMILY>`,
+ * which is a family-exact compile-time fact; this is the belt to that
+ * brace, so that a dispatch site which ever lost its guard still takes
+ * the C path in a build whose family was never ported, rather than
+ * feeding 16-bit samples to a kernel written for 16 lanes of 8. */
+#define N265_ASM_PORTED ( \
+    (N265_NEON_TRANSFORM ? (N265_ASM_DCT | N265_ASM_QUANT) : 0u) | \
+    (N265_NEON_SATD      ? (uint32_t)N265_ASM_SATD : 0u) | \
+    (N265_NEON_MC        ? (uint32_t)N265_ASM_MC : 0u) | \
+    (N265_NEON_RDOQ      ? (uint32_t)N265_ASM_QUANT : 0u) | \
+    (N265_NEON_COST      ? (uint32_t)N265_ASM_QUANT : 0u) | \
+    (N265_NEON_INTRA     ? (uint32_t)N265_ASM_INTRA : 0u))
+
 static inline int n265_asm_on(uint32_t cls)
 {
-    /* Phase 8 item 1: every kernel in src/encoder/arm/ is typed on
-     * uint8_t and processes 16 samples to a vector, so none of them is
-     * a 10-bit kernel. A build above 8 bits runs the C reference for
-     * every family, and it does so twice over: meson leaves the _neon
-     * translation units and -DN265_NEON out of that build entirely, so
-     * the dispatch sites do not compile in either. This test is the
-     * belt to that brace - if a site ever loses its #if, it still takes
-     * the C path rather than feeding 16-bit samples to an 8-bit kernel.
-     * Item 3 ports the families for 16-bit lanes and lifts it. */
-    if (BIT_DEPTH != 8)
+    if (!(cls & N265_ASM_PORTED))
         return 0;
     return (n265_cpu_flags() & N265_CPU_NEON) && !(n265_asm_off_ & cls);
 }

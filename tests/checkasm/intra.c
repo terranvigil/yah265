@@ -34,39 +34,41 @@
  * Random is the weakest. What the angular kernel can actually get wrong
  * is a lane whose accumulator is one bit too narrow, and the input that
  * says so is kind 1: every reference sample at a clip end, which drives
- * (32-f)*a + f*b to its bound of 32 * 255. Kind 3 is the one filter_refs
+ * (32-f)*a + f*b to its bound of 32 * PIXEL_MAX - and, at Main10,
+ * planar's four weighted terms to 2n * PIXEL_MAX + n = 65504, which is
+ * the tightest u16 claim in the family. Kind 3 is the one filter_refs
  * needs, a near-linear boundary, because that is the only input that
  * reaches the strong-smoothing branch at 32x32.
  */
 #define NKIND 5
 
-static void fill_refs(uint8_t *refs, int n, int kind)
+static void fill_refs(pixel *refs, int n, int kind)
 {
     int total = 4 * n + 1;
-    int a = (int)(rnd() >> 24), b = (int)(rnd() >> 24);
+    int a = (int)ca_pix(), b = (int)ca_pix();
 
     for (int i = 0; i < total; i++) {
         int v;
         switch (kind) {
-        case 0: v = (int)(rnd() >> 24); break;
-        case 1: v = (rnd() & 1) ? 255 : 0; break;
+        case 0: v = (int)ca_pix(); break;
+        case 1: v = (rnd() & 1) ? PIXEL_MAX : 0; break;
         case 2: v = a; break;                       /* flat */
         case 3:                                     /* near-linear ramp */
             v = a + ((b - a) * i) / total + (int)(rnd() % 3) - 1;
-            v = v < 0 ? 0 : v > 255 ? 255 : v;
+            v = v < 0 ? 0 : v > PIXEL_MAX ? PIXEL_MAX : v;
             break;
-        default: v = (i & 1) ? 255 : 0; break;      /* alternating */
+        default: v = (i & 1) ? PIXEL_MAX : 0; break;  /* alternating */
         }
-        refs[i] = (uint8_t)v;
+        refs[i] = (pixel)v;
     }
 }
 
 /* ---- n265_intra_pred ------------------------------------------------ */
 
-static void pred_opt(uint8_t *dst, int ds, const uint8_t *refs, int log2n,
+static void pred_opt(pixel *dst, int ds, const pixel *refs, int log2n,
                      int mode, int c_idx)
 {
-#if N265_NEON
+#if N265_NEON_INTRA
     n265_intra_pred_neon(dst, ds, refs, log2n, mode, c_idx);
 #else
     n265_intra_pred(dst, ds, refs, log2n, mode, c_idx);
@@ -86,10 +88,11 @@ static int check_pred(void)
          * eight on a four-wide row lands in padding ca_check_pad sees */
         for (int is = 0; is < 2 && !bad; is++) {
             int ds = is ? n + 13 : n;
-            size_t dbytes = (size_t)ds * n;
-            uint8_t *dst = ca_guard_alloc(dbytes);
-            uint8_t *ref = ca_guard_alloc(dbytes);
-            uint8_t *refs = ca_guard_alloc((size_t)total);
+            size_t dbytes = (size_t)ds * n * sizeof(pixel);
+            pixel *dst = ca_guard_alloc(dbytes);
+            pixel *ref = ca_guard_alloc(dbytes);
+            size_t rbytes = (size_t)total * sizeof(pixel);
+            pixel *refs = ca_guard_alloc(rbytes);
 
             for (int kind = 0; kind < NKIND && !bad; kind++) {
                 for (int mode = 0; mode < 35 && !bad; mode++) {
@@ -100,7 +103,7 @@ static int check_pred(void)
                                  "pred %dx%d mode %d c%d s%d k%d", n, n,
                                  mode, c_idx, is, kind);
                         fill_refs(refs, n, kind);
-                        ca_guard_poison(refs, (size_t)total);
+                        ca_guard_poison(refs, rbytes);
                         memset(dst, CA_POISON, dbytes);
                         memset(ref, CA_POISON, dbytes);
                         ca_guard_poison(dst, dbytes);
@@ -124,15 +127,15 @@ static int check_pred(void)
                         if (bad)
                             break;
                         bad += ca_guard_check(dst, dbytes, what);
-                        bad += ca_check_pad(dst, ds, n, n, what);
+                        bad += ca_check_pad_pix(dst, ds, n, n, what);
                         /* the kernel must not write its reference array */
-                        bad += ca_guard_check(refs, (size_t)total, what);
+                        bad += ca_guard_check(refs, rbytes, what);
                         if (bad)
                             break;
 
                         /* the answer must not depend on anything outside
                          * the 4n+1 references it was handed */
-                        ca_guard_scramble(refs, (size_t)total);
+                        ca_guard_scramble(refs, rbytes);
                         memset(dst, CA_POISON, dbytes);
                         pred_opt(dst, ds, refs, log2n, mode, c_idx);
                         for (int y = 0; y < n && !bad; y++)
@@ -158,9 +161,9 @@ static int check_pred(void)
 
 /* ---- n265_filter_refs ----------------------------------------------- */
 
-static void filt_opt(uint8_t *out, const uint8_t *in, int log2n)
+static void filt_opt(pixel *out, const pixel *in, int log2n)
 {
-#if N265_NEON
+#if N265_NEON_INTRA
     n265_filter_refs_neon(out, in, log2n);
 #else
     n265_filter_refs(out, in, log2n);
@@ -173,10 +176,10 @@ static int check_filter(void)
 
     for (int log2n = 2; log2n <= 5 && !bad; log2n++) {
         int n = 1 << log2n;
-        size_t total = (size_t)(4 * n + 1);
-        uint8_t *in = ca_guard_alloc(total);
-        uint8_t *out = ca_guard_alloc(total);
-        uint8_t *ref = ca_guard_alloc(total);
+        size_t total = (size_t)(4 * n + 1) * sizeof(pixel);
+        pixel *in = ca_guard_alloc(total);
+        pixel *out = ca_guard_alloc(total);
+        pixel *ref = ca_guard_alloc(total);
 
         for (int kind = 0; kind < NKIND && !bad; kind++) {
             for (int rep = 0; rep < 64 && !bad; rep++) {
@@ -222,7 +225,7 @@ static int check_filter(void)
  * CTB sizes, because the z-scan key - and so which neighbours count as
  * already decoded - is a function of ctb_log2.
  */
-static void refs_opt(uint8_t *refs, const uint8_t *recon, int stride,
+static void refs_opt(pixel *refs, const pixel *recon, int stride,
                      int x0, int y0, int log2n, int pic_w, int pic_h,
                      int ctb_log2)
 {
@@ -240,19 +243,18 @@ static int check_refs(void)
     for (int p = 0; p < 3 && !bad; p++) {
         int pic_w = planes[p][0], pic_h = planes[p][1];
         int stride = pic_w + 21;
-        size_t bytes = (size_t)stride * pic_h;
-        uint8_t *recon = ca_guard_alloc(bytes);
+        size_t bytes = (size_t)stride * pic_h * sizeof(pixel);
+        pixel *recon = ca_guard_alloc(bytes);
 
-        for (size_t i = 0; i < bytes; i++)
-            recon[i] = (uint8_t)(rnd() >> 24);
+        ca_fill_pix(recon, bytes / sizeof(pixel));
         ca_guard_poison(recon, bytes);
 
         for (int ctb_log2 = 4; ctb_log2 <= 6 && !bad; ctb_log2++) {
             for (int log2n = 2; log2n <= 5 && !bad; log2n++) {
                 int n = 1 << log2n;
-                size_t total = (size_t)(4 * n + 1);
-                uint8_t *got = ca_guard_alloc(total);
-                uint8_t *want = ca_guard_alloc(total);
+                size_t total = (size_t)(4 * n + 1) * sizeof(pixel);
+                pixel *got = ca_guard_alloc(total);
+                pixel *want = ca_guard_alloc(total);
 
                 for (int y0 = 0; y0 + n <= pic_h && !bad; y0 += n)
                     for (int x0 = 0; x0 + n <= pic_w && !bad; x0 += n) {
@@ -314,16 +316,16 @@ static void window_pred(void)
     for (int tail = 0; tail < 2; tail++)
         for (int log2n = 2; log2n <= 5; log2n++) {
             int n = 1 << log2n;
-            size_t total = (size_t)(4 * n + 1);
-            uint8_t dst[32 * 32];
+            size_t total = (size_t)(4 * n + 1) * sizeof(pixel);
+            pixel dst[32 * 32];
 
             for (int mode = 0; mode < 35; mode++)
                 for (int c_idx = 0; c_idx < 2; c_idx++) {
                     ca_pg g;
-                    uint8_t *refs = ca_pg_alloc(&g, total, tail);
+                    pixel *refs = ca_pg_alloc(&g, total, tail);
                     char what[80];
 
-                    ca_pg_fill(&g, total);
+                    ca_pg_fill_pix(&g, total / sizeof(pixel));
                     snprintf(what, sizeof(what),
                              "intra_pred %d mode %d c%d, %s edge", n, mode,
                              c_idx, tail ? "far" : "near");
@@ -340,13 +342,13 @@ static void window_filter(void)
     for (int tail = 0; tail < 2; tail++)
         for (int log2n = 2; log2n <= 5; log2n++) {
             int n = 1 << log2n;
-            size_t total = (size_t)(4 * n + 1);
-            uint8_t out[4 * 32 + 1];
+            size_t total = (size_t)(4 * n + 1) * sizeof(pixel);
+            pixel out[4 * 32 + 1];
             ca_pg g;
-            uint8_t *in = ca_pg_alloc(&g, total, tail);
+            pixel *in = ca_pg_alloc(&g, total, tail);
             char what[64];
 
-            ca_pg_fill(&g, total);
+            ca_pg_fill_pix(&g, total / sizeof(pixel));
             snprintf(what, sizeof(what), "filter_refs %d, %s edge", n,
                      tail ? "far" : "near");
             ca_pg_arm(what);
@@ -364,12 +366,12 @@ static void window_refs(void)
         for (int ctb_log2 = 4; ctb_log2 <= 6; ctb_log2++)
             for (int log2n = 2; log2n <= 5; log2n++) {
                 int n = 1 << log2n;
-                uint8_t refs[4 * 32 + 1];
-                size_t win = ca_pg_window(stride, pic_w, pic_h);
+                pixel refs[4 * 32 + 1];
+                size_t win = ca_pg_window_pix(stride, pic_w, pic_h);
                 ca_pg g;
-                uint8_t *recon = ca_pg_alloc(&g, win, tail);
+                pixel *recon = ca_pg_alloc(&g, win, tail);
 
-                ca_pg_fill(&g, win);
+                ca_pg_fill_pix(&g, win / sizeof(pixel));
                 for (int y0 = 0; y0 + n <= pic_h; y0 += n)
                     for (int x0 = 0; x0 + n <= pic_w; x0 += n) {
                         char what[80];
@@ -390,8 +392,8 @@ static void window_refs(void)
 /* ---- bench ----------------------------------------------------------- */
 
 struct pctx {
-    uint8_t *dst;
-    const uint8_t *refs;
+    pixel *dst;
+    const pixel *refs;
     int ds, log2n, mode;
 };
 
@@ -408,8 +410,8 @@ static void pred_opt_call(void *v)
 }
 
 struct fctx {
-    uint8_t *out;
-    const uint8_t *in;
+    pixel *out;
+    const pixel *in;
     int log2n;
 };
 
@@ -426,8 +428,8 @@ static void filt_opt_call(void *v)
 }
 
 struct rctx {
-    uint8_t *refs;
-    const uint8_t *recon;
+    pixel *refs;
+    const pixel *recon;
     int stride, x0, y0, log2n, pic_w, pic_h, ctb_log2;
 };
 
@@ -454,7 +456,7 @@ static const char *const bench_names[] = {
 
 static void bench_intra(void)
 {
-    uint8_t refs[4 * 32 + 1], dst[36 * 32], out[4 * 32 + 1];
+    pixel refs[4 * 32 + 1], dst[36 * 32], out[4 * 32 + 1];
     struct pctx pc;
     struct fctx fc;
 
@@ -471,7 +473,7 @@ static void bench_intra(void)
 
             pc.mode = bench_modes[m];
             snprintf(name, sizeof(name), "%s %d", bench_names[m], n);
-#if N265_NEON
+#if N265_NEON_INTRA
             bench(name, pred_ref_call, pred_ref_call, pred_opt_call, &pc,
                   200000);
 #else
@@ -487,7 +489,7 @@ static void bench_intra(void)
         fc.in = refs;
         fc.log2n = log2n;
         snprintf(name, sizeof(name), "filter_refs %d", 1 << log2n);
-#if N265_NEON
+#if N265_NEON_INTRA
         bench(name, filt_ref_call, filt_ref_call, filt_opt_call, &fc,
               400000);
 #else
@@ -496,13 +498,13 @@ static void bench_intra(void)
     }
     {
         int pic_w = 352, pic_h = 288, stride = 373;
-        uint8_t *recon = malloc((size_t)stride * pic_h);
+        pixel *recon = malloc((size_t)stride * pic_h * sizeof(pixel));
         struct rctx rc;
 
         if (!recon)
             return;
         for (size_t i = 0; i < (size_t)stride * pic_h; i++)
-            recon[i] = (uint8_t)(rnd() >> 24);
+            recon[i] = ca_pix();
         rc.refs = refs;
         rc.recon = recon;
         rc.stride = stride;

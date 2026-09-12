@@ -5,7 +5,7 @@
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
-#if N265_NEON
+#if N265_NEON_MC
 
 #include <arm_neon.h>
 #include <stddef.h>
@@ -13,12 +13,34 @@
 
 #include "encoder/arm/neon.h"
 
+/* The shifts of 8.5.3.3.3.2, the same expressions src/encoder/mc.c
+ * writes, duplicated here for the reason the tap tables are: the two
+ * translation units are meant to be independently readable. At 8 bits
+ * they fold to the literals this file used to spell out (0, 6, 32, 12,
+ * 2048) and at Main10 they are 2, 4, 8, 10, 512.
+ *
+ * Two of the folds are DEPTH-INVARIANT and are what let most of this
+ * file stay one body: shift1 + shift3 is 6 at every depth, so a
+ * one-stage filter's `(s + 32) >> 6` never moves, and a 2-D filter whose
+ * intermediate already carries shift1 finishes with `>> 6` into 14 bits
+ * at every depth too. What DOES move is the sample end of each pass:
+ * the accumulator width in (a horizontal 8-tap over 10-bit samples
+ * reaches 90024 and int16 will not hold it), and the clip out. */
+#define MC_SHIFT1   (BIT_DEPTH - 8)         /* 0 at 8 bits */
+#define MC_SHIFT3   (14 - BIT_DEPTH)        /* 6 at 8 bits */
+#define MC_ROUND3   (1 << (MC_SHIFT3 - 1))  /* 32 */
+#define MC_SHIFT23  (6 + MC_SHIFT3)         /* 12 */
+#define MC_ROUND23  (1 << (MC_SHIFT23 - 1)) /* 2048 */
+/* 8.5.3.3.4.2 default bi-prediction: shift = 15 - BitDepth, 7 at 8 bits */
+#define MC_SHIFT_BI (15 - BIT_DEPTH)
+
 /* The C form is
  *
- *     v = (a + b + 64) >> 7;  dst = clip3(0, 255, v)
+ *     v = (a + b + (1 << (14 - BitDepth))) >> (15 - BitDepth);
+ *     dst = clip3(0, PIXEL_MAX, v)
  *
  * on int16 inputs, so the sum needs 17 bits and the widening add is not
- * optional. The narrow reproduces the C EXACTLY rather than approximately:
+ * optional at either depth. The narrow reproduces the C EXACTLY rather than approximately:
  *
  *   vqrshrun_n_s32(sum, 7) is (sum + (1 << 6)) >> 7 as an arithmetic shift,
  *   i.e. the C expression verbatim, then saturated into u16. Its lower
@@ -31,13 +53,13 @@
  *   saturation and not a separate min/max, which is why the two paths agree
  *   on int16 min/max input and not merely on random input.
  */
-void n265_bi_avg_wh_neon(uint8_t *dst, int ds, const int16_t *a,
+void n265_bi_avg_wh_neon(pixel *dst, int ds, const int16_t *a,
                          const int16_t *b, int w, int h)
 {
     for (int y = 0; y < h; y++) {
         const int16_t *pa = a + (ptrdiff_t)y * w;
         const int16_t *pb = b + (ptrdiff_t)y * w;
-        uint8_t *pd = dst + (ptrdiff_t)y * ds;
+        pixel *pd = dst + (ptrdiff_t)y * ds;
         int x = 0;
 
         for (; x + 8 <= w; x += 8) {
@@ -45,18 +67,28 @@ void n265_bi_avg_wh_neon(uint8_t *dst, int ds, const int16_t *a,
             int16x8_t vb = vld1q_s16(pb + x);
             int32x4_t lo = vaddl_s16(vget_low_s16(va), vget_low_s16(vb));
             int32x4_t hi = vaddl_high_s16(va, vb);
-            uint16x8_t r = vcombine_u16(vqrshrun_n_s32(lo, 7),
-                                        vqrshrun_n_s32(hi, 7));
+            uint16x8_t r = vcombine_u16(vqrshrun_n_s32(lo, MC_SHIFT_BI),
+                                        vqrshrun_n_s32(hi, MC_SHIFT_BI));
+#if BIT_DEPTH == 8
             vst1_u8(pd + x, vqmovn_u16(r));
+#else
+            /* the u16 saturation is the C's `< 0 ? 0`; the upper clip is
+             * PIXEL_MAX and is a vmin, since no narrow's own bound is it */
+            vst1q_u16(pd + x, vminq_u16(r, vdupq_n_u16(PIXEL_MAX)));
+#endif
         }
         /* w = 4 and w = 12 leave a four-sample tail. Load and store FOUR,
          * never eight, or the guard border pays for it. */
         if (x + 4 <= w) {
             int32x4_t s = vaddl_s16(vld1_s16(pa + x), vld1_s16(pb + x));
-            uint16x4_t r = vqrshrun_n_s32(s, 7);
+            uint16x4_t r = vqrshrun_n_s32(s, MC_SHIFT_BI);
+#if BIT_DEPTH == 8
             uint8x8_t o = vqmovn_u16(vcombine_u16(r, r));
             uint32_t four = vget_lane_u32(vreinterpret_u32_u8(o), 0);
             memcpy(pd + x, &four, 4);   /* dst has no alignment guarantee */
+#else
+            vst1_u16(pd + x, vmin_u16(r, vdup_n_u16(PIXEL_MAX)));
+#endif
             x += 4;
         }
         /* CHROMA is why this scalar tail exists. The luma PU widths are
@@ -68,8 +100,8 @@ void n265_bi_avg_wh_neon(uint8_t *dst, int ds, const int16_t *a,
          * theoretical hazard - it is what the CIF conformance cells
          * caught the first time this landed. */
         for (; x < w; x++) {
-            int v = (pa[x] + pb[x] + 64) >> 7;
-            pd[x] = (uint8_t)(v < 0 ? 0 : v > 255 ? 255 : v);
+            int v = (pa[x] + pb[x] + (1 << (MC_SHIFT_BI - 1))) >> MC_SHIFT_BI;
+            pd[x] = (pixel)(v < 0 ? 0 : v > PIXEL_MAX ? PIXEL_MAX : v);
         }
     }
 }
@@ -175,9 +207,6 @@ static inline int32x4_t mc_vacc4(const int16_t *p, int hs, const int16_t *f)
 /* the two narrows, written once so the pair of kernels below cannot
  * drift apart; see the block comment above each kernel for why each one
  * is exact */
-#define MC_NARROW_U8(a0, a1)                                                 \
-    vqmovn_u16(vcombine_u16(vqrshrun_n_s32((a0), 12),                        \
-                            vqrshrun_n_s32((a1), 12)))
 #define MC_NARROW_S16(a0, a1)                                                \
     vcombine_s16(vshrn_n_s32((a0), 6), vshrn_n_s32((a1), 6))
 
@@ -189,6 +218,48 @@ static inline void mc_store4(uint8_t *dst, uint8x8_t v)
     uint32_t four = vget_lane_u32(vreinterpret_u32_u8(v), 0);
     memcpy(dst, &four, 4);
 }
+
+/* The SAMPLE-side stores of the 2-D tail, clip1((s + ROUND23) >> SHIFT23)
+ * from int32 accumulators. Written as macros because the two depths differ
+ * in the store width as well as in the clip, and every caller below
+ * wants both arms without a second copy of its loop.
+ *
+ * At 8 bits both clips are an instruction's own saturation - the s32
+ * narrow saturates at 0 (the C's `< 0 ? 0`), the u16 -> u8 narrow at 255
+ * - which is why the two paths agree at the ends of the range and not
+ * only in the middle. At Main10 the lower clip is still the narrow's;
+ * the upper one is PIXEL_MAX, which no narrow's own bound is, so it is a
+ * vmin. The u16 saturation at 65535 cannot bite first: the widest
+ * accumulator here is 3669928 and (s + 512) >> 10 of it is 3584. */
+#if BIT_DEPTH == 8
+#define MC_ST8_V(d, a0, a1)                                                  \
+    vst1_u8((d), vqmovn_u16(vcombine_u16(vqrshrun_n_s32((a0), MC_SHIFT23),   \
+                                         vqrshrun_n_s32((a1), MC_SHIFT23))))
+#define MC_ST4_V(d, a) do {                                                  \
+        uint16x4_t r_ = vqrshrun_n_s32((a), MC_SHIFT23);                     \
+        mc_store4((d), vqmovn_u16(vcombine_u16(r_, r_)));                    \
+    } while (0)
+#define MC_ST2_V(d, a) do {                                                  \
+        uint16x4_t r_ = vqrshrun_n_s32((a), MC_SHIFT23);                     \
+        uint8x8_t o_ = vqmovn_u16(vcombine_u16(r_, r_));                     \
+        uint16_t two_ = vget_lane_u16(vreinterpret_u16_u8(o_), 0);           \
+        memcpy((d), &two_, 2);                                               \
+    } while (0)
+#else
+#define MC_ST8_V(d, a0, a1)                                                  \
+    vst1q_u16((d), vminq_u16(vcombine_u16(vqrshrun_n_s32((a0), MC_SHIFT23),  \
+                                          vqrshrun_n_s32((a1), MC_SHIFT23)), \
+                             vdupq_n_u16(PIXEL_MAX)))
+#define MC_ST4_V(d, a)                                                       \
+    vst1_u16((d), vmin_u16(vqrshrun_n_s32((a), MC_SHIFT23),                  \
+                           vdup_n_u16(PIXEL_MAX)))
+#define MC_ST2_V(d, a) do {                                                  \
+        uint16x4_t r_ = vmin_u16(vqrshrun_n_s32((a), MC_SHIFT23),            \
+                                 vdup_n_u16(PIXEL_MAX));                     \
+        uint32_t two_ = vget_lane_u32(vreinterpret_u32_u16(r_), 0);          \
+        memcpy((d), &two_, 4);                                               \
+    } while (0)
+#endif
 
 /* the scalar guard both kernels end a row with. Every luma PU width is a
  * multiple of four, so this is a guard and not a path; it costs nothing
@@ -202,9 +273,9 @@ static inline int mc_vscalar(const int16_t *p, int hs, const int16_t *f,
     return s;
 }
 
-static inline uint8_t mc_clip1(int v)
+static inline pixel mc_clip1(int v)
 {
-    return (uint8_t)(v < 0 ? 0 : v > 255 ? 255 : v);
+    return (pixel)(v < 0 ? 0 : v > PIXEL_MAX ? PIXEL_MAX : v);
 }
 
 /* clip1((hf + 32) >> 6), and the 8-tap vertical form clip1((s + 2048) >> 12).
@@ -222,7 +293,7 @@ static inline uint8_t mc_clip1(int v)
  *       (s + 2048) >> 12 <= 896, well under 65535. The pair therefore
  *       computes clip1((s + 2048) >> 12) exactly.
  */
-void n265_mc_luma_hf_neon(uint8_t *dst, int ds, int w, int h,
+void n265_mc_luma_hf_neon(pixel *dst, int ds, int w, int h,
                           const int16_t *hf, int hs, int fy)
 {
     if (!fy) {
@@ -232,14 +303,30 @@ void n265_mc_luma_hf_neon(uint8_t *dst, int ds, int w, int h,
          * version - which clang unrolls - wins. */
         for (int y = 0; y < h; y++) {
             const int16_t *p = hf + (ptrdiff_t)y * hs;
-            uint8_t *pd = dst + (ptrdiff_t)y * ds;
+            pixel *pd = dst + (ptrdiff_t)y * ds;
             int x = 0;
+#if BIT_DEPTH == 8
             for (; x + 16 <= w; x += 16)
                 vst1q_u8(pd + x,
-                         vcombine_u8(vqrshrun_n_s16(vld1q_s16(p + x), 6),
-                                     vqrshrun_n_s16(vld1q_s16(p + x + 8), 6)));
+                         vcombine_u8(vqrshrun_n_s16(vld1q_s16(p + x),
+                                                    MC_SHIFT3),
+                                     vqrshrun_n_s16(vld1q_s16(p + x + 8),
+                                                    MC_SHIFT3)));
             for (; x + 8 <= w; x += 8)
-                vst1_u8(pd + x, vqrshrun_n_s16(vld1q_s16(p + x), 6));
+                vst1_u8(pd + x, vqrshrun_n_s16(vld1q_s16(p + x), MC_SHIFT3));
+#else
+            /* clip1((hf + 8) >> 4). vrshrq_n_s16 IS that rounding shift,
+             * in the lane, and the clip is the max/min pair because
+             * neither bound is a narrow's own at this width. The cached
+             * value is an int16 either way, so nothing widens. */
+            for (; x + 8 <= w; x += 8) {
+                int16x8_t t = vrshrq_n_s16(vld1q_s16(p + x), MC_SHIFT3);
+
+                t = vminq_s16(vmaxq_s16(t, vdupq_n_s16(0)),
+                              vdupq_n_s16(PIXEL_MAX));
+                vst1q_u16(pd + x, vreinterpretq_u16_s16(t));
+            }
+#endif
             if (x + 4 <= w) {
                 /* The four-lane tail goes through the s32 narrow, not
                  * vqrshrun_n_s16 on a vcombine_s16(v, v). The s16 form
@@ -256,13 +343,24 @@ void n265_mc_luma_hf_neon(uint8_t *dst, int ds, int w, int h,
                  * half to widen into. vqrshrun_n_s32(v, 6) is
                  * sat_u16((v + 32) >> 6) and vqmovn_u16 caps at 255,
                  * which is the same clip1((v + 32) >> 6). */
+#if BIT_DEPTH == 8
                 int32x4_t v = vmovl_s16(vld1_s16(p + x));
-                uint16x4_t r = vqrshrun_n_s32(v, 6);
+                uint16x4_t r = vqrshrun_n_s32(v, MC_SHIFT3);
                 mc_store4(pd + x, vqmovn_u16(vcombine_u16(r, r)));
+#else
+                /* four lanes loaded, four stored: at this width the
+                 * four-sample load IS a d-register and there is no dead
+                 * half for clang to widen into */
+                int16x4_t t = vrshr_n_s16(vld1_s16(p + x), MC_SHIFT3);
+
+                t = vmin_s16(vmax_s16(t, vdup_n_s16(0)),
+                             vdup_n_s16(PIXEL_MAX));
+                vst1_u16(pd + x, vreinterpret_u16_s16(t));
+#endif
                 x += 4;
             }
             for (; x < w; x++)
-                pd[x] = mc_clip1((p[x] + 32) >> 6);
+                pd[x] = mc_clip1((p[x] + MC_ROUND3) >> MC_SHIFT3);
         }
         return;
     }
@@ -271,46 +369,46 @@ void n265_mc_luma_hf_neon(uint8_t *dst, int ds, int w, int h,
     int y = 0;
     for (; y + 2 <= h; y += 2) {
         const int16_t *p = hf + (ptrdiff_t)y * hs;
-        uint8_t *d0 = dst + (ptrdiff_t)y * ds, *d1 = d0 + ds;
+        pixel *d0 = dst + (ptrdiff_t)y * ds, *d1 = d0 + ds;
         int x = 0;
         for (; x + 8 <= w; x += 8) {
             int32x4_t a[4];
             mc_vacc8x2(p + x, hs, f, a);
-            vst1_u8(d0 + x, MC_NARROW_U8(a[0], a[1]));
-            vst1_u8(d1 + x, MC_NARROW_U8(a[2], a[3]));
+            MC_ST8_V(d0 + x, a[0], a[1]);
+            MC_ST8_V(d1 + x, a[2], a[3]);
         }
         if (x + 4 <= w) {
             int32x4_t a[2];
             mc_vacc4x2(p + x, hs, f, a);
-            uint16x4_t r0 = vqrshrun_n_s32(a[0], 12);
-            uint16x4_t r1 = vqrshrun_n_s32(a[1], 12);
-            mc_store4(d0 + x, vqmovn_u16(vcombine_u16(r0, r0)));
-            mc_store4(d1 + x, vqmovn_u16(vcombine_u16(r1, r1)));
+            MC_ST4_V(d0 + x, a[0]);
+            MC_ST4_V(d1 + x, a[1]);
             x += 4;
         }
         for (; x < w; x++) {
-            d0[x] = mc_clip1((mc_vscalar(p, hs, f, x) + 2048) >> 12);
-            d1[x] = mc_clip1((mc_vscalar(p + hs, hs, f, x) + 2048) >> 12);
+            d0[x] = mc_clip1((mc_vscalar(p, hs, f, x) + MC_ROUND23)
+                             >> MC_SHIFT23);
+            d1[x] = mc_clip1((mc_vscalar(p + hs, hs, f, x) + MC_ROUND23)
+                             >> MC_SHIFT23);
         }
     }
     /* every luma PU height is even, so this is the same kind of guard as
      * the scalar column tail */
     for (; y < h; y++) {
         const int16_t *p = hf + (ptrdiff_t)y * hs;
-        uint8_t *pd = dst + (ptrdiff_t)y * ds;
+        pixel *pd = dst + (ptrdiff_t)y * ds;
         int x = 0;
         for (; x + 8 <= w; x += 8) {
             int32x4_t a[2];
             mc_vacc8(p + x, hs, f, a);
-            vst1_u8(pd + x, MC_NARROW_U8(a[0], a[1]));
+            MC_ST8_V(pd + x, a[0], a[1]);
         }
         if (x + 4 <= w) {
-            uint16x4_t r = vqrshrun_n_s32(mc_vacc4(p + x, hs, f), 12);
-            mc_store4(pd + x, vqmovn_u16(vcombine_u16(r, r)));
+            MC_ST4_V(pd + x, mc_vacc4(p + x, hs, f));
             x += 4;
         }
         for (; x < w; x++)
-            pd[x] = mc_clip1((mc_vscalar(p, hs, f, x) + 2048) >> 12);
+            pd[x] = mc_clip1((mc_vscalar(p, hs, f, x) + MC_ROUND23)
+                             >> MC_SHIFT23);
     }
 }
 
@@ -406,6 +504,13 @@ void n265_mc_luma_14_hf_neon(int16_t *dst, int ds, int w, int h,
     }
 }
 
+/* The sign pattern of Table 8-11, which is the same for all three
+ * luma phases and is what lets one kernel serve every phase at
+ * either depth. */
+static const int mc_tap_pos[4] = { 1, 3, 4, 6 };
+static const int mc_tap_neg[4] = { 0, 2, 5, 7 };
+
+#if BIT_DEPTH == 8
 /* ---- the u8 stages: horizontal, vertical, and the 2-D pair ------------
  *
  * The 8-tap over u8 samples is done in u16 lanes, not s16: the taps are
@@ -428,8 +533,6 @@ void n265_mc_luma_14_hf_neon(int16_t *dst, int ds, int w, int h,
  * because the FINAL value fits the lane even where a partial sum would
  * not have.
  */
-static const int mc_tap_pos[4] = { 1, 3, 4, 6 };
-static const int mc_tap_neg[4] = { 0, 2, 5, 7 };
 
 /* the eight tap magnitudes, splatted once per call rather than once per
  * eight samples */
@@ -595,7 +698,7 @@ static void mc_hblock_s16(int16_t *d, int ds, const uint8_t *p, int rs,
  * the C writes, and both of the C's clips as the instruction's own
  * saturation rather than a separate min/max, which is what makes the two
  * agree at the ends of the range and not only in the middle. */
-static void mc_hblock_u8(uint8_t *d, int ds, const uint8_t *p, int rs,
+static void mc_hblock_pix(uint8_t *d, int ds, const uint8_t *p, int rs,
                          int w, int h, const mc_taps *t, const int16_t *f)
 {
   for (int y = 0; y < h; y++, d += ds, p += rs) {
@@ -641,7 +744,7 @@ static void mc_vblock_s16(int16_t *d, int ds, const uint8_t *p, int rs,
   }
 }
 
-static void mc_vblock_u8(uint8_t *d, int ds, const uint8_t *p, int rs,
+static void mc_vblock_pix(uint8_t *d, int ds, const uint8_t *p, int rs,
                          int w, int h, const mc_taps *t, const int16_t *f)
 {
   for (int y = 0; y < h; y++, d += ds, p += rs) {
@@ -668,7 +771,7 @@ static void mc_vblock_u8(uint8_t *d, int ds, const uint8_t *p, int rs,
 /* The full-pel arm. An explicit vector loop, not memcpy per row: the call
  * costs more than the copy at these row lengths (measured 0.56x against
  * the C at 16x16 with memcpy, 1.27x with this). */
-static inline void mc_copy_u8(uint8_t *d, int ds, const uint8_t *p, int rs,
+static inline void mc_copy_pix(uint8_t *d, int ds, const uint8_t *p, int rs,
                               int w, int h)
 {
     for (int y = 0; y < h; y++, d += ds, p += rs) {
@@ -716,6 +819,230 @@ static inline void mc_copy_s16_shl6(int16_t *d, int ds, const uint8_t *p,
     }
 }
 
+#else   /* Main10: the same three stages, one lane width up ------------- */
+
+/* THE ACCUMULATOR IS THE WHOLE DIFFERENCE. A horizontal 8-tap over
+ * 10-bit samples reaches 88 * 1023 = 90024 on the positive taps and
+ * 24 * 1023 = 24552 on the negative ones, so the sign-split trick that
+ * carries the 8-bit stage in u16 lanes carries this one in u32 lanes:
+ * vmlal_u16 instead of vmlal_u8, four outputs to a vector instead of
+ * eight. The difference lies in [-24552, 90024], which int32 holds with
+ * a factor of 20000 to spare, so nothing here leans on modular
+ * arithmetic the way the 8-bit u16 subtraction does - the value simply
+ * fits.
+ *
+ * That is the cost of the depth in this family: two vectors where the
+ * 8-bit stage has one, and a narrow on the way out instead of a store.
+ * Everything downstream - the int16 intermediate, the vertical pass over
+ * it, and both of its narrows - is unchanged, because the intermediate
+ * is the SPEC's 14-bit value at both depths (shift1 sheds exactly the
+ * extra sample bits).
+ */
+typedef struct { uint16x8_t q[8]; } mc_taps;
+
+static inline void mc_taps_init(mc_taps *t, const int16_t *f)
+{
+    for (int k = 0; k < 8; k++)
+        t->q[k] = vdupq_n_u16((uint16_t)(f[k] < 0 ? -f[k] : f[k]));
+}
+
+/* exactly four samples (a d-register) and exactly two (four bytes). At
+ * this width vld1_u16 IS the four-sample load, so only the two-sample
+ * form needs the memcpy spelling. */
+static inline uint16x4_t mc_ld2_16(const pixel *p)
+{
+    uint32_t v;
+
+    memcpy(&v, p, 4);
+    return vreinterpret_u16_u32(vdup_n_u32(v));
+}
+
+#define MC_HSUM16(OFF)                                                       \
+    do {                                                                     \
+        for (int i = 0; i < 4; i++) {                                        \
+            int kp = mc_tap_pos[i], kn = mc_tap_neg[i];                      \
+            uint16x8_t vp = vld1q_u16(p + OFF(kp));                          \
+            uint16x8_t vn = vld1q_u16(p + OFF(kn));                          \
+            PL = vmlal_u16(PL, vget_low_u16(vp), vget_low_u16(t->q[kp]));    \
+            PH = vmlal_high_u16(PH, vp, t->q[kp]);                           \
+            NL = vmlal_u16(NL, vget_low_u16(vn), vget_low_u16(t->q[kn]));    \
+            NH = vmlal_high_u16(NH, vn, t->q[kn]);                           \
+        }                                                                    \
+        *lo = vreinterpretq_s32_u32(vsubq_u32(PL, NL));                      \
+        *hi = vreinterpretq_s32_u32(vsubq_u32(PH, NH));                      \
+    } while (0)
+
+#define MC_HSUM16_4(LD, OFF)                                                 \
+    do {                                                                     \
+        for (int i = 0; i < 4; i++) {                                        \
+            int kp = mc_tap_pos[i], kn = mc_tap_neg[i];                      \
+            P = vmlal_u16(P, LD(p + OFF(kp)), vget_low_u16(t->q[kp]));       \
+            N = vmlal_u16(N, LD(p + OFF(kn)), vget_low_u16(t->q[kn]));       \
+        }                                                                    \
+        return vreinterpretq_s32_u32(vsubq_u32(P, N));                       \
+    } while (0)
+
+#define MC_HCOL(k) (k)
+#define MC_VROW(k) ((ptrdiff_t)((k) - 3) * rs)
+
+static inline void mc_h8_32(const pixel *p, const mc_taps *t,
+                            int32x4_t *lo, int32x4_t *hi)
+{
+    uint32x4_t PL = vdupq_n_u32(0), PH = PL, NL = PL, NH = PL;
+    MC_HSUM16(MC_HCOL);
+}
+
+static inline int32x4_t mc_h4_32(const pixel *p, const mc_taps *t)
+{
+    uint32x4_t P = vdupq_n_u32(0), N = P;
+    MC_HSUM16_4(vld1_u16, MC_HCOL);
+}
+
+static inline void mc_v8_32(const pixel *p, int rs, const mc_taps *t,
+                            int32x4_t *lo, int32x4_t *hi)
+{
+    uint32x4_t PL = vdupq_n_u32(0), PH = PL, NL = PL, NH = PL;
+    MC_HSUM16(MC_VROW);
+}
+
+static inline int32x4_t mc_v4_32(const pixel *p, int rs, const mc_taps *t)
+{
+    uint32x4_t P = vdupq_n_u32(0), N = P;
+    MC_HSUM16_4(vld1_u16, MC_VROW);
+}
+
+static inline int mc_hscalar(const pixel *p, const int16_t *f)
+{
+    int s = 0;
+    for (int k = 0; k < 8; k++)
+        s += f[k] * p[k];
+    return s;
+}
+
+static inline int mc_vscalar_u8(const pixel *p, int rs, const int16_t *f)
+{
+    int s = 0;
+    for (int k = 0; k < 8; k++)
+        s += f[k] * p[(ptrdiff_t)(k - 3) * rs];
+    return s;
+}
+
+/* the four drivers, block at a time for the reason the 8-bit ones are:
+ * a row-at-a-time helper stops inlining and re-splats the taps per row */
+#define MC_BLOCK16(GET8, GET4, SCALAR, ST8, ST4, STS)                        \
+  do {                                                                       \
+    for (int y = 0; y < h; y++, d += ds, p += rs) {                          \
+        int x = 0;                                                           \
+        for (; x + 8 <= w; x += 8) {                                         \
+            int32x4_t lo, hi;                                                \
+            GET8;                                                            \
+            ST8;                                                             \
+        }                                                                    \
+        if (x + 4 <= w) {                                                    \
+            int32x4_t v = GET4;                                              \
+            ST4;                                                             \
+            x += 4;                                                          \
+        }                                                                    \
+        for (; x < w; x++) {                                                 \
+            int s = SCALAR;                                                  \
+            STS;                                                             \
+        }                                                                    \
+    }                                                                        \
+  } while (0)
+
+/* the horizontal stage, int16 out: the SPEC's 14-bit intermediate,
+ * (s >> shift1), which is what n265_mc_luma_hplane caches and what the
+ * 2-D temp holds. vshrn_n_s32 is the arithmetic shift and the narrow in
+ * one, and the value provably fits int16: 90024 >> 2 = 22506. */
+static void mc_hblock_s16(int16_t *d, int ds, const pixel *p, int rs,
+                          int w, int h, const mc_taps *t, const int16_t *f)
+{
+    MC_BLOCK16(mc_h8_32(p + x - 3, t, &lo, &hi), mc_h4_32(p + x - 3, t),
+               mc_hscalar(p + x - 3, f),
+               vst1q_s16(d + x, vcombine_s16(vshrn_n_s32(lo, MC_SHIFT1),
+                                             vshrn_n_s32(hi, MC_SHIFT1))),
+               vst1_s16(d + x, vshrn_n_s32(v, MC_SHIFT1)),
+               d[x] = (int16_t)(s >> MC_SHIFT1));
+}
+
+/* the same rounded and clipped: clip1((s + 32) >> 6), the fold that is
+ * depth-invariant (shift1 + shift3 = 6 at every depth) */
+static void mc_hblock_pix(pixel *d, int ds, const pixel *p, int rs,
+                          int w, int h, const mc_taps *t, const int16_t *f)
+{
+    MC_BLOCK16(mc_h8_32(p + x - 3, t, &lo, &hi), mc_h4_32(p + x - 3, t),
+               mc_hscalar(p + x - 3, f),
+               vst1q_u16(d + x, vminq_u16(
+                   vcombine_u16(vqrshrun_n_s32(lo, 6),
+                                vqrshrun_n_s32(hi, 6)),
+                   vdupq_n_u16(PIXEL_MAX))),
+               vst1_u16(d + x, vmin_u16(vqrshrun_n_s32(v, 6),
+                                        vdup_n_u16(PIXEL_MAX))),
+               d[x] = mc_clip1((s + 32) >> 6));
+}
+
+static void mc_vblock_s16(int16_t *d, int ds, const pixel *p, int rs,
+                          int w, int h, const mc_taps *t, const int16_t *f)
+{
+    MC_BLOCK16(mc_v8_32(p + x, rs, t, &lo, &hi), mc_v4_32(p + x, rs, t),
+               mc_vscalar_u8(p + x, rs, f),
+               vst1q_s16(d + x, vcombine_s16(vshrn_n_s32(lo, MC_SHIFT1),
+                                             vshrn_n_s32(hi, MC_SHIFT1))),
+               vst1_s16(d + x, vshrn_n_s32(v, MC_SHIFT1)),
+               d[x] = (int16_t)(s >> MC_SHIFT1));
+}
+
+static void mc_vblock_pix(pixel *d, int ds, const pixel *p, int rs,
+                          int w, int h, const mc_taps *t, const int16_t *f)
+{
+    MC_BLOCK16(mc_v8_32(p + x, rs, t, &lo, &hi), mc_v4_32(p + x, rs, t),
+               mc_vscalar_u8(p + x, rs, f),
+               vst1q_u16(d + x, vminq_u16(
+                   vcombine_u16(vqrshrun_n_s32(lo, 6),
+                                vqrshrun_n_s32(hi, 6)),
+                   vdupq_n_u16(PIXEL_MAX))),
+               vst1_u16(d + x, vmin_u16(vqrshrun_n_s32(v, 6),
+                                        vdup_n_u16(PIXEL_MAX))),
+               d[x] = mc_clip1((s + 32) >> 6));
+}
+
+/* The full-pel arm, and at this width it is a memcpy per row rather than
+ * a vector loop - the opposite of the 8-bit form's choice, and measured
+ * both ways: a 10-bit row is twice the bytes, so the eight-sample loop
+ * runs twice as many iterations and reads 0.56x against the C at 32x32,
+ * where memcpy of the same row reads 1.4x. (The 8-bit comment records
+ * the same experiment coming out the other way at its width; the C this
+ * is held to is a row loop clang turns into a wide copy either way.) */
+static inline void mc_copy_pix(pixel *d, int ds, const pixel *p, int rs,
+                               int w, int h)
+{
+    for (int y = 0; y < h; y++, d += ds, p += rs)
+        for (int x = 0; x < w; x++)
+            d[x] = p[x];
+}
+
+/* The 14-bit full-pel arm: (int16_t)(sample << shift3), 1023 << 4 =
+ * 16368, so the shifted sample lands inside int16 with nothing to
+ * truncate - the same claim the 8-bit form makes about 255 << 6.
+ *
+ * BOTH full-pel arms are written as the C loop at Main10, and that is a
+ * measured choice rather than laziness: at this sample width the arm is
+ * memory-bound, and nothing hand-written beats what clang emits for a
+ * row copy. The hand-vectorised form read 1.3-1.85x at 4 and 16 wide and
+ * 0.56-0.59x at 32 and 64, a memcpy per row read 0.63-0.78x everywhere,
+ * and the plain loop reads 0.99-1.22x across the whole shape set. The
+ * arm stays in the kernel so the dispatch is still one branch and the
+ * caller never has to know which shapes are worth it. */
+static inline void mc_copy_s16_shl6(int16_t *d, int ds, const pixel *p,
+                                    int rs, int w, int h)
+{
+    for (int y = 0; y < h; y++, d += ds, p += rs)
+        for (int x = 0; x < w; x++)
+            d[x] = (int16_t)(p[x] << MC_SHIFT3);
+}
+
+#endif  /* BIT_DEPTH */
+
 /* The 2-D form: the horizontal stage into an int16 temp of h + 7 rows,
  * then the vertical stage of the cached-first-stage kernels above over
  * exactly those rows. Same temp shape and same stride (w) as the C, so
@@ -723,8 +1050,20 @@ static inline void mc_copy_s16_shl6(int16_t *d, int ds, const uint8_t *p,
  * only thing left to match is the narrow. */
 #define MC_TMP_ROWS (64 + 7)
 
-static void mc_luma_2d_u8(uint8_t *dst, int ds, int w, int h,
-                          const uint8_t *ref, int rs, int fx, int fy)
+/* The 2-D drivers hold a (64 + 7) x 64 int16 temp - 9 KB of stack - and
+ * at Main10 clang inlines them into the entry point and then spills
+ * around it: measured on the checkasm bench, luma_14_wh 16x16 f22 reads
+ * 0.70x inlined and 1.26x out of line, and 32x32 0.88x against 1.33x.
+ * The 8-bit build does not show it and keeps the attribute off, because
+ * this file's 8-bit half may not move. */
+#if BIT_DEPTH == 8
+#define MC_2D_ATTR
+#else
+#define MC_2D_ATTR __attribute__((noinline))
+#endif
+
+static MC_2D_ATTR void mc_luma_2d_u8(pixel *dst, int ds, int w, int h,
+                          const pixel *ref, int rs, int fx, int fy)
 {
     int16_t tmp[MC_TMP_ROWS * 64];
     const int16_t *fh = mc_luma_filt[fx];
@@ -735,8 +1074,8 @@ static void mc_luma_2d_u8(uint8_t *dst, int ds, int w, int h,
     n265_mc_luma_hf_neon(dst, ds, w, h, tmp + (ptrdiff_t)3 * w, w, fy);
 }
 
-static void mc_luma_2d_s16(int16_t *dst, int ds, int w, int h,
-                           const uint8_t *ref, int rs, int fx, int fy)
+static MC_2D_ATTR void mc_luma_2d_s16(int16_t *dst, int ds, int w, int h,
+                           const pixel *ref, int rs, int fx, int fy)
 {
     int16_t tmp[MC_TMP_ROWS * 64];
     const int16_t *fh = mc_luma_filt[fx];
@@ -747,32 +1086,32 @@ static void mc_luma_2d_s16(int16_t *dst, int ds, int w, int h,
     n265_mc_luma_14_hf_neon(dst, ds, w, h, tmp + (ptrdiff_t)3 * w, w, fy);
 }
 
-void n265_mc_luma_wh_neon(uint8_t *dst, int ds, int w, int h,
-                          const uint8_t *ref, int rs, int fx, int fy)
+void n265_mc_luma_wh_neon(pixel *dst, int ds, int w, int h,
+                          const pixel *ref, int rs, int fx, int fy)
 {
     if (!fx && !fy) {
-        mc_copy_u8(dst, ds, ref, rs, w, h);
+        mc_copy_pix(dst, ds, ref, rs, w, h);
         return;
     }
     if (!fy) {
         const int16_t *f = mc_luma_filt[fx];
         mc_taps t;
         mc_taps_init(&t, f);
-        mc_hblock_u8(dst, ds, ref, rs, w, h, &t, f);
+        mc_hblock_pix(dst, ds, ref, rs, w, h, &t, f);
         return;
     }
     if (!fx) {
         const int16_t *f = mc_luma_filt[fy];
         mc_taps t;
         mc_taps_init(&t, f);
-        mc_vblock_u8(dst, ds, ref, rs, w, h, &t, f);
+        mc_vblock_pix(dst, ds, ref, rs, w, h, &t, f);
         return;
     }
     mc_luma_2d_u8(dst, ds, w, h, ref, rs, fx, fy);
 }
 
 void n265_mc_luma_14_wh_neon(int16_t *dst, int ds, int w, int h,
-                             const uint8_t *ref, int rs, int fx, int fy)
+                             const pixel *ref, int rs, int fx, int fy)
 {
     if (!fx && !fy) {
         mc_copy_s16_shl6(dst, ds, ref, rs, w, h);
@@ -801,7 +1140,7 @@ void n265_mc_luma_14_wh_neon(int16_t *dst, int ds, int w, int h,
  * instrumented on, both multiples of sixteen) and h is a CTB row. The
  * tails are kept anyway: nothing in the caller promises the width. */
 void n265_mc_luma_hplane_neon(int16_t *dst, int ds, int w, int h,
-                              const uint8_t *ref, int rs, int fx)
+                              const pixel *ref, int rs, int fx)
 {
     const int16_t *f = mc_luma_filt[fx];
     mc_taps t;
@@ -846,6 +1185,56 @@ static const int16_t mc_chroma_filt[8][4] = {
     { -2, 10, 58, -2 },
 };
 
+/* the 4-tap vertical over int16 rows, for the 2-D second stage */
+static inline void mc_cvacc8(const int16_t *p, int hs, const int16_t *f,
+                             int32x4_t a[2])
+{
+    a[0] = a[1] = vdupq_n_s32(0);
+    for (int k = 0; k < 4; k++) {
+        int16x8_t v = vld1q_s16(p + (ptrdiff_t)(k - 1) * hs);
+        a[0] = vmlal_n_s16(a[0], vget_low_s16(v), f[k]);
+        a[1] = vmlal_high_n_s16(a[1], v, f[k]);
+    }
+}
+
+static inline int32x4_t mc_cvacc4(const int16_t *p, int hs, const int16_t *f)
+{
+    int32x4_t a = vdupq_n_s32(0);
+    for (int k = 0; k < 4; k++)
+        a = vmlal_n_s16(a, vld1_s16(p + (ptrdiff_t)(k - 1) * hs), f[k]);
+    return a;
+}
+
+/* two lanes, for what a 6-wide block has left after the four-lane step
+ * and for a 2-wide one from the start. Two int16 loaded and splatted, not
+ * four loaded and half discarded: the temp holds exactly (h + 3) * w
+ * values and the last row's tail would be past it. */
+static inline int32x4_t mc_cvacc2(const int16_t *p, int hs, const int16_t *f)
+{
+    int32x4_t a = vdupq_n_s32(0);
+    for (int k = 0; k < 4; k++) {
+        int32_t two;
+        memcpy(&two, p + (ptrdiff_t)(k - 1) * hs, sizeof two);
+        a = vmlal_n_s16(a, vreinterpret_s16_s32(vdup_n_s32(two)), f[k]);
+    }
+    return a;
+}
+
+static inline int mc_cvscalar16(const int16_t *p, int hs, const int16_t *f)
+{
+    int s = 0;
+    for (int k = 0; k < 4; k++)
+        s += f[k] * p[(ptrdiff_t)(k - 1) * hs];
+    return s;
+}
+
+static inline void mc_emit2_s16(int16_t *d, int16x4_t v)
+{
+    uint32_t two = vget_lane_u32(vreinterpret_u32_s16(v), 0);
+    memcpy(d, &two, 4);
+}
+
+#if BIT_DEPTH == 8
 typedef struct { uint8x16_t q[4]; } mc_ctaps;
 
 static inline void mc_ctaps_init(mc_ctaps *t, const int16_t *f)
@@ -935,70 +1324,21 @@ static inline void mc_cv16(const uint8_t *p, int rs, const mc_ctaps *t,
     MC_CSUM16(MC_CROW);
 }
 
-/* the 4-tap vertical over int16 rows, for the 2-D second stage */
-static inline void mc_cvacc8(const int16_t *p, int hs, const int16_t *f,
-                             int32x4_t a[2])
-{
-    a[0] = a[1] = vdupq_n_s32(0);
-    for (int k = 0; k < 4; k++) {
-        int16x8_t v = vld1q_s16(p + (ptrdiff_t)(k - 1) * hs);
-        a[0] = vmlal_n_s16(a[0], vget_low_s16(v), f[k]);
-        a[1] = vmlal_high_n_s16(a[1], v, f[k]);
-    }
-}
-
-static inline int32x4_t mc_cvacc4(const int16_t *p, int hs, const int16_t *f)
-{
-    int32x4_t a = vdupq_n_s32(0);
-    for (int k = 0; k < 4; k++)
-        a = vmlal_n_s16(a, vld1_s16(p + (ptrdiff_t)(k - 1) * hs), f[k]);
-    return a;
-}
-
-/* two lanes, for what a 6-wide block has left after the four-lane step
- * and for a 2-wide one from the start. Two int16 loaded and splatted, not
- * four loaded and half discarded: the temp holds exactly (h + 3) * w
- * values and the last row's tail would be past it. */
-static inline int32x4_t mc_cvacc2(const int16_t *p, int hs, const int16_t *f)
-{
-    int32x4_t a = vdupq_n_s32(0);
-    for (int k = 0; k < 4; k++) {
-        int32_t two;
-        memcpy(&two, p + (ptrdiff_t)(k - 1) * hs, sizeof two);
-        a = vmlal_n_s16(a, vreinterpret_s16_s32(vdup_n_s32(two)), f[k]);
-    }
-    return a;
-}
-
-static inline int mc_cvscalar16(const int16_t *p, int hs, const int16_t *f)
-{
-    int s = 0;
-    for (int k = 0; k < 4; k++)
-        s += f[k] * p[(ptrdiff_t)(k - 1) * hs];
-    return s;
-}
-
 /* the four-lane rounded store, kept out of line of the macro above: the
  * s32 narrow rather than vqrshrun_n_s16 on a duplicated half, for the
  * reason spelled out at the luma four-lane tail */
-static inline void mc_emit4_u8(uint8_t *d, int16x4_t v)
+static inline void mc_emit4_pix(uint8_t *d, int16x4_t v)
 {
     uint16x4_t r = vqrshrun_n_s32(vmovl_s16(v), 6);
     mc_store4(d, vqmovn_u16(vcombine_u16(r, r)));
 }
 
-static inline void mc_emit2_u8(uint8_t *d, int16x4_t v)
+static inline void mc_emit2_pix(uint8_t *d, int16x4_t v)
 {
     uint16x4_t r = vqrshrun_n_s32(vmovl_s16(v), 6);
     uint8x8_t o = vqmovn_u16(vcombine_u16(r, r));
     uint16_t two = vget_lane_u16(vreinterpret_u16_u8(o), 0);
     memcpy(d, &two, 2);
-}
-
-static inline void mc_emit2_s16(int16_t *d, int16x4_t v)
-{
-    uint32_t two = vget_lane_u32(vreinterpret_u32_s16(v), 0);
-    memcpy(d, &two, 4);
 }
 
 /* ---- the chroma row drivers ------------------------------------------
@@ -1061,7 +1401,7 @@ static inline void mc_emit2_s16(int16_t *d, int16x4_t v)
 #define MC_CV_SCALAR                                                         \
     (t0 * p[x - rs] + t1 * p[x] + t2 * p[x + rs] + t3 * p[x + 2 * rs])
 
-static void mc_chblock_u8(uint8_t *d, int ds, const uint8_t *p, int rs,
+static void mc_chblock_pix(uint8_t *d, int ds, const uint8_t *p, int rs,
                           int w, int h, const mc_ctaps *t, const int16_t *f)
 {
     MC_CROW_BODY(mc_ch8(p + x - 1, t), mc_ch16(p + x - 1, t, &lo, &hi),
@@ -1069,7 +1409,7 @@ static void mc_chblock_u8(uint8_t *d, int ds, const uint8_t *p, int rs,
                  vst1_u8(d + x, vqrshrun_n_s16(v, 6)),
                  vst1q_u8(d + x, vcombine_u8(vqrshrun_n_s16(lo, 6),
                                              vqrshrun_n_s16(hi, 6))),
-                 mc_emit4_u8(d + x, v), mc_emit2_u8(d + x, v),
+                 mc_emit4_pix(d + x, v), mc_emit2_pix(d + x, v),
                  d[x] = mc_clip1((s + 32) >> 6));
 }
 
@@ -1084,7 +1424,7 @@ static void mc_chblock_s16(int16_t *d, int ds, const uint8_t *p, int rs,
                  d[x] = (int16_t)s);
 }
 
-static void mc_cvblock_u8(uint8_t *d, int ds, const uint8_t *p, int rs,
+static void mc_cvblock_pix(uint8_t *d, int ds, const uint8_t *p, int rs,
                           int w, int h, const mc_ctaps *t, const int16_t *f)
 {
     MC_CROW_BODY(mc_cv8(p + x, rs, t), mc_cv16(p + x, rs, t, &lo, &hi),
@@ -1092,7 +1432,7 @@ static void mc_cvblock_u8(uint8_t *d, int ds, const uint8_t *p, int rs,
                  vst1_u8(d + x, vqrshrun_n_s16(v, 6)),
                  vst1q_u8(d + x, vcombine_u8(vqrshrun_n_s16(lo, 6),
                                              vqrshrun_n_s16(hi, 6))),
-                 mc_emit4_u8(d + x, v), mc_emit2_u8(d + x, v),
+                 mc_emit4_pix(d + x, v), mc_emit2_pix(d + x, v),
                  d[x] = mc_clip1((s + 32) >> 6));
 }
 
@@ -1107,25 +1447,203 @@ static void mc_cvblock_s16(int16_t *d, int ds, const uint8_t *p, int rs,
                  d[x] = (int16_t)s);
 }
 
-void n265_mc_chroma_wh_neon(uint8_t *dst, int ds, int w, int h,
-                            const uint8_t *ref, int rs, int fx, int fy)
+#else   /* Main10 chroma: u32 accumulators, four outputs to a vector ---- */
+
+typedef struct { uint16x8_t q[4]; } mc_ctaps;
+
+static inline void mc_ctaps_init(mc_ctaps *t, const int16_t *f)
+{
+    for (int k = 0; k < 4; k++)
+        t->q[k] = vdupq_n_u16((uint16_t)(f[k] < 0 ? -f[k] : f[k]));
+}
+
+/* RANGE. The widest phase's positive taps total 74 and its negative ones
+ * 10, so the two accumulators reach 74 * 1023 = 75702 and 10230 and the
+ * difference lies in [-10230, 75702] - int32, with the same room the
+ * luma stage has. */
+#define MC_CSUM16_8(OFF)                                                     \
+    do {                                                                     \
+        uint16x8_t v1 = vld1q_u16(p + OFF(1)), v2 = vld1q_u16(p + OFF(2));   \
+        uint16x8_t v0 = vld1q_u16(p + OFF(0)), v3 = vld1q_u16(p + OFF(3));   \
+        uint32x4_t PL = vmull_u16(vget_low_u16(v1), vget_low_u16(t->q[1]));  \
+        uint32x4_t PH = vmull_high_u16(v1, t->q[1]);                         \
+        uint32x4_t NL = vmull_u16(vget_low_u16(v0), vget_low_u16(t->q[0]));  \
+        uint32x4_t NH = vmull_high_u16(v0, t->q[0]);                         \
+        PL = vmlal_u16(PL, vget_low_u16(v2), vget_low_u16(t->q[2]));         \
+        PH = vmlal_high_u16(PH, v2, t->q[2]);                                \
+        NL = vmlal_u16(NL, vget_low_u16(v3), vget_low_u16(t->q[3]));         \
+        NH = vmlal_high_u16(NH, v3, t->q[3]);                                \
+        *lo = vreinterpretq_s32_u32(vsubq_u32(PL, NL));                      \
+        *hi = vreinterpretq_s32_u32(vsubq_u32(PH, NH));                      \
+    } while (0)
+
+#define MC_CSUM16_4(LD, OFF)                                                 \
+    do {                                                                     \
+        uint32x4_t P = vmull_u16(LD(p + OFF(1)), vget_low_u16(t->q[1]));     \
+        uint32x4_t N = vmull_u16(LD(p + OFF(0)), vget_low_u16(t->q[0]));     \
+        P = vmlal_u16(P, LD(p + OFF(2)), vget_low_u16(t->q[2]));             \
+        N = vmlal_u16(N, LD(p + OFF(3)), vget_low_u16(t->q[3]));             \
+        return vreinterpretq_s32_u32(vsubq_u32(P, N));                       \
+    } while (0)
+
+#define MC_CCOL(k) (k)
+#define MC_CROW(k) ((ptrdiff_t)((k) - 1) * rs)
+
+static inline void mc_ch8_32(const pixel *p, const mc_ctaps *t,
+                             int32x4_t *lo, int32x4_t *hi)
+{
+    MC_CSUM16_8(MC_CCOL);
+}
+
+static inline int32x4_t mc_ch4_32(const pixel *p, const mc_ctaps *t)
+{
+    MC_CSUM16_4(vld1_u16, MC_CCOL);
+}
+
+/* two samples, four bytes: at the last tap offset a four-sample load
+ * would reach two past the row, which is the bug the 8-bit form's
+ * mc_ld2 exists to avoid and is just as real here. */
+static inline int32x4_t mc_ch2_32(const pixel *p, const mc_ctaps *t)
+{
+    MC_CSUM16_4(mc_ld2_16, MC_CCOL);
+}
+
+static inline void mc_cv8_32(const pixel *p, int rs, const mc_ctaps *t,
+                             int32x4_t *lo, int32x4_t *hi)
+{
+    MC_CSUM16_8(MC_CROW);
+}
+
+static inline int32x4_t mc_cv4_32(const pixel *p, int rs, const mc_ctaps *t)
+{
+    MC_CSUM16_4(vld1_u16, MC_CROW);
+}
+
+static inline int32x4_t mc_cv2_32(const pixel *p, int rs, const mc_ctaps *t)
+{
+    MC_CSUM16_4(mc_ld2_16, MC_CROW);
+}
+
+/* the two-sample stores, which are what makes this family worth shipping
+ * on chroma at all: 4:2:0 halving presents w = 2 and w = 6 (the AMP 4x16
+ * and 12x16 luma PUs give 2x8 and 6x8), and phase 6 measured the scalar
+ * remainder at about 5 ns a sample. */
+static inline void mc_emit2_pix(pixel *d, int32x4_t v)
+{
+    uint16x4_t r = vmin_u16(vqrshrun_n_s32(v, 6), vdup_n_u16(PIXEL_MAX));
+    uint32_t two = vget_lane_u32(vreinterpret_u32_u16(r), 0);
+
+    memcpy(d, &two, 4);
+}
+
+static inline void mc_emit2_s16_32(int16_t *d, int32x4_t v)
+{
+    int16x4_t n = vshrn_n_s32(v, MC_SHIFT1);
+    uint32_t two = vget_lane_u32(vreinterpret_u32_s16(n), 0);
+
+    memcpy(d, &two, 4);
+}
+
+#define MC_CBLOCK16(GET8, GET4, GET2, SCALAR, ST8, ST4, ST2, STS)            \
+  do {                                                                       \
+    const int t0 = f[0], t1 = f[1], t2 = f[2], t3 = f[3];                    \
+    for (int y = 0; y < h; y++, d += ds, p += rs) {                          \
+        int x = 0;                                                           \
+        for (; x + 8 <= w; x += 8) {                                         \
+            int32x4_t lo, hi;                                                \
+            GET8;                                                            \
+            ST8;                                                             \
+        }                                                                    \
+        if (x + 4 <= w) {                                                    \
+            int32x4_t v = GET4;                                              \
+            ST4;                                                             \
+            x += 4;                                                          \
+        }                                                                    \
+        if (x + 2 <= w) {                                                    \
+            int32x4_t v = GET2;                                              \
+            ST2;                                                             \
+            x += 2;                                                          \
+        }                                                                    \
+        for (; x < w; x++) {                                                 \
+            int s = SCALAR;                                                  \
+            STS;                                                             \
+        }                                                                    \
+    }                                                                        \
+  } while (0)
+
+#define MC_CH_SCALAR                                                         \
+    (t0 * p[x - 1] + t1 * p[x] + t2 * p[x + 1] + t3 * p[x + 2])
+#define MC_CV_SCALAR                                                         \
+    (t0 * p[x - rs] + t1 * p[x] + t2 * p[x + rs] + t3 * p[x + 2 * rs])
+
+#define MC_CST8_PIX                                                          \
+    vst1q_u16(d + x, vminq_u16(vcombine_u16(vqrshrun_n_s32(lo, 6),           \
+                                            vqrshrun_n_s32(hi, 6)),          \
+                               vdupq_n_u16(PIXEL_MAX)))
+#define MC_CST4_PIX                                                          \
+    vst1_u16(d + x, vmin_u16(vqrshrun_n_s32(v, 6), vdup_n_u16(PIXEL_MAX)))
+#define MC_CST8_S16                                                          \
+    vst1q_s16(d + x, vcombine_s16(vshrn_n_s32(lo, MC_SHIFT1),                \
+                                  vshrn_n_s32(hi, MC_SHIFT1)))
+#define MC_CST4_S16 vst1_s16(d + x, vshrn_n_s32(v, MC_SHIFT1))
+
+static void mc_chblock_pix(pixel *d, int ds, const pixel *p, int rs,
+                           int w, int h, const mc_ctaps *t, const int16_t *f)
+{
+    MC_CBLOCK16(mc_ch8_32(p + x - 1, t, &lo, &hi), mc_ch4_32(p + x - 1, t),
+                mc_ch2_32(p + x - 1, t), MC_CH_SCALAR,
+                MC_CST8_PIX, MC_CST4_PIX, mc_emit2_pix(d + x, v),
+                d[x] = mc_clip1((s + 32) >> 6));
+}
+
+static void mc_chblock_s16(int16_t *d, int ds, const pixel *p, int rs,
+                           int w, int h, const mc_ctaps *t, const int16_t *f)
+{
+    MC_CBLOCK16(mc_ch8_32(p + x - 1, t, &lo, &hi), mc_ch4_32(p + x - 1, t),
+                mc_ch2_32(p + x - 1, t), MC_CH_SCALAR,
+                MC_CST8_S16, MC_CST4_S16, mc_emit2_s16_32(d + x, v),
+                d[x] = (int16_t)(s >> MC_SHIFT1));
+}
+
+static void mc_cvblock_pix(pixel *d, int ds, const pixel *p, int rs,
+                           int w, int h, const mc_ctaps *t, const int16_t *f)
+{
+    MC_CBLOCK16(mc_cv8_32(p + x, rs, t, &lo, &hi), mc_cv4_32(p + x, rs, t),
+                mc_cv2_32(p + x, rs, t), MC_CV_SCALAR,
+                MC_CST8_PIX, MC_CST4_PIX, mc_emit2_pix(d + x, v),
+                d[x] = mc_clip1((s + 32) >> 6));
+}
+
+static void mc_cvblock_s16(int16_t *d, int ds, const pixel *p, int rs,
+                           int w, int h, const mc_ctaps *t, const int16_t *f)
+{
+    MC_CBLOCK16(mc_cv8_32(p + x, rs, t, &lo, &hi), mc_cv4_32(p + x, rs, t),
+                mc_cv2_32(p + x, rs, t), MC_CV_SCALAR,
+                MC_CST8_S16, MC_CST4_S16, mc_emit2_s16_32(d + x, v),
+                d[x] = (int16_t)(s >> MC_SHIFT1));
+}
+
+#endif  /* BIT_DEPTH */
+
+void n265_mc_chroma_wh_neon(pixel *dst, int ds, int w, int h,
+                            const pixel *ref, int rs, int fx, int fy)
 {
     if (!fx && !fy) {
-        mc_copy_u8(dst, ds, ref, rs, w, h);
+        mc_copy_pix(dst, ds, ref, rs, w, h);
         return;
     }
     if (!fy) {
         const int16_t *f = mc_chroma_filt[fx];
         mc_ctaps t;
         mc_ctaps_init(&t, f);
-        mc_chblock_u8(dst, ds, ref, rs, w, h, &t, f);
+        mc_chblock_pix(dst, ds, ref, rs, w, h, &t, f);
         return;
     }
     if (!fx) {
         const int16_t *f = mc_chroma_filt[fy];
         mc_ctaps t;
         mc_ctaps_init(&t, f);
-        mc_cvblock_u8(dst, ds, ref, rs, w, h, &t, f);
+        mc_cvblock_pix(dst, ds, ref, rs, w, h, &t, f);
         return;
     }
     /* 2-D: the horizontal stage into an int16 temp of h + 3 rows at
@@ -1141,32 +1659,29 @@ void n265_mc_chroma_wh_neon(uint8_t *dst, int ds, int w, int h,
     const int16_t *base = tmp + (ptrdiff_t)w;
     for (int y = 0; y < h; y++) {
         const int16_t *p = base + (ptrdiff_t)y * w;
-        uint8_t *d = dst + (ptrdiff_t)y * ds;
+        pixel *d = dst + (ptrdiff_t)y * ds;
         int x = 0;
         for (; x + 8 <= w; x += 8) {
             int32x4_t a[2];
             mc_cvacc8(p + x, w, fv, a);
-            vst1_u8(d + x, MC_NARROW_U8(a[0], a[1]));
+            MC_ST8_V(d + x, a[0], a[1]);
         }
         if (x + 4 <= w) {
-            uint16x4_t r = vqrshrun_n_s32(mc_cvacc4(p + x, w, fv), 12);
-            mc_store4(d + x, vqmovn_u16(vcombine_u16(r, r)));
+            MC_ST4_V(d + x, mc_cvacc4(p + x, w, fv));
             x += 4;
         }
         if (x + 2 <= w) {
-            uint16x4_t r = vqrshrun_n_s32(mc_cvacc2(p + x, w, fv), 12);
-            uint8x8_t o = vqmovn_u16(vcombine_u16(r, r));
-            uint16_t two = vget_lane_u16(vreinterpret_u16_u8(o), 0);
-            memcpy(d + x, &two, 2);
+            MC_ST2_V(d + x, mc_cvacc2(p + x, w, fv));
             x += 2;
         }
         for (; x < w; x++)
-            d[x] = mc_clip1((mc_cvscalar16(p + x, w, fv) + 2048) >> 12);
+            d[x] = mc_clip1((mc_cvscalar16(p + x, w, fv) + MC_ROUND23)
+                            >> MC_SHIFT23);
     }
 }
 
 void n265_mc_chroma_14_wh_neon(int16_t *dst, int ds, int w, int h,
-                               const uint8_t *ref, int rs, int fx, int fy)
+                               const pixel *ref, int rs, int fx, int fy)
 {
     if (!fx && !fy) {
         mc_copy_s16_shl6(dst, ds, ref, rs, w, h);
@@ -1218,4 +1733,4 @@ void n265_mc_chroma_14_wh_neon(int16_t *dst, int ds, int w, int h,
 
 #else
 typedef int n265_mc_neon_unused_;   /* C requires a non-empty translation unit */
-#endif /* N265_NEON */
+#endif /* N265_NEON_MC */

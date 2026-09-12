@@ -298,7 +298,7 @@ void n265_filter_refs_ref(pixel *out, const pixel *in, int log2n)
 
 void n265_filter_refs(pixel *out, const pixel *in, int log2n)
 {
-#if N265_NEON
+#if N265_NEON_INTRA
     if (n265_asm_on(N265_ASM_INTRA)) {
         n265_filter_refs_neon(out, in, log2n);
         return;
@@ -428,7 +428,7 @@ void n265_intra_pred_ref(pixel *dst, int dst_stride, const pixel *refs,
 void n265_intra_pred(pixel *dst, int dst_stride, const pixel *refs,
                      int log2n, int mode, int c_idx)
 {
-#if N265_NEON
+#if N265_NEON_INTRA
     /* Everything except one shape. An angular mode of 18 or above walks
      * the block in rows, which is what clang already auto-vectorises the
      * C reference into, and at 8x8 the kernel's projected-reference setup

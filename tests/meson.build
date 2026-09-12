@@ -6,30 +6,34 @@ test('bitstream', unit_bitstream)
 # adds its file here and one line to the table in main.c, and touches
 # nothing else.
 #
-# 8-BIT ONLY since phase 8 item 1. checkasm compares a NEON kernel
-# against its C reference, and there are no 16-bit-lane kernels to
-# compare until item 3 ports them: the 10-bit library runs pure C by
-# construction (the arm/ translation units are not in that build at
-# all), so a 10-bit checkasm would be C against C, which is the
-# tautology the harness exists to avoid. Item 3 builds it at 10 and adds
-# its own leg to the gate.
-checkasm_sources = [
-  'checkasm/main.c',
-  'checkasm/transform.c',
-  'checkasm/satd.c',
-  'checkasm/mc.c',
-  'checkasm/rdoq.c',
-  'checkasm/cost.c',
-  'checkasm/intra.c',
-]
-
-if is_8bit
-  checkasm = executable('checkasm', checkasm_sources,
-    dependencies : yah265_dep)
-  # no --bench: the meson test is the correctness leg and stays fast.
-  # `make checkasm-bench` is where the tables come from.
-  test('checkasm', checkasm)
+# Item 1 built this 8-BIT ONLY, because a 10-bit checkasm then had
+# nothing but C to compare against C, which is the tautology the harness
+# exists to avoid. Item 3 builds it at BOTH depths and makes the family
+# list per depth: at 8 bits every family, at 10 bits exactly the
+# families whose 16-bit lanes exist (meson.build's neon_families), so
+# the harness never runs a leg that cannot fail. The macro a family file
+# reads for its own presence is N265_CA_<FAMILY>, passed here rather than
+# project-wide: it decides which files are IN THIS BINARY, while
+# N265_NEON_<FAMILY> decides whether the NEON leg inside a compiled file
+# has a kernel to check.
+ca_families = ['transform', 'satd', 'mc', 'rdoq', 'cost', 'intra']
+if not is_8bit
+  ca_families = neon_families
 endif
+
+checkasm_sources = ['checkasm/main.c']
+checkasm_args = []
+foreach f : ca_families
+  checkasm_sources += 'checkasm/' + f + '.c'
+  checkasm_args += '-DN265_CA_' + f.to_upper() + '=1'
+endforeach
+
+checkasm = executable('checkasm', checkasm_sources,
+  c_args : checkasm_args,
+  dependencies : yah265_dep)
+# no --bench: the meson test is the correctness leg and stays fast.
+# `make checkasm-bench` is where the tables come from.
+test('checkasm', checkasm)
 
 # the BD integrator the board and the band both read through: a saturating
 # point set must give a finite number, a well-conditioned one must give the

@@ -175,7 +175,7 @@ uint32_t n265_satd_wh_c(const pixel *a, int a_stride, const pixel *b,
 uint32_t n265_satd_wh(const pixel *a, int a_stride, const pixel *b,
                       int b_stride, int w, int h)
 {
-#if N265_NEON
+#if N265_NEON_SATD
     /* 4x4 is the one shape that is a single 4x4 tile, and a single tile
      * is the one case where the vector form loses: its dependency chain
      * (load, three butterfly stages, transpose, three more, abs, the
@@ -227,7 +227,7 @@ uint32_t n265_sad_wh_c(const pixel *a, int as, const pixel *b, int bs,
 uint32_t n265_sad_wh(const pixel *a, int as, const pixel *b, int bs,
                      int w, int h)
 {
-#if N265_NEON
+#if N265_NEON_SATD
     if (n265_asm_on(N265_ASM_SATD))
         return n265_sad_wh_neon(a, as, b, bs, w, h);
 #endif
@@ -249,7 +249,7 @@ uint64_t n265_ssd_wh_c(const pixel *a, int as, const pixel *b, int bs,
 uint64_t n265_ssd_wh(const pixel *a, int as, const pixel *b, int bs,
                      int w, int h)
 {
-#if N265_NEON
+#if N265_NEON_SATD
     if (n265_asm_on(N265_ASM_SATD))
         return n265_ssd_wh_neon(a, as, b, bs, w, h);
 #endif
@@ -305,7 +305,7 @@ void n265_sad_rowcol_ref(const pixel *a, int as, const pixel *b, int bs,
 void n265_sad_rowcol(const pixel *a, int as, const pixel *b, int bs,
                      int n, uint32_t *row, uint32_t *col)
 {
-#if N265_NEON
+#if N265_NEON_SATD
     if (n265_asm_on(N265_ASM_SATD)) {
         n265_sad_rowcol_neon(a, as, b, bs, n, row, col);
         return;

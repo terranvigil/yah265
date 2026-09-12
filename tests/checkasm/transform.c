@@ -15,7 +15,7 @@
 struct tctx {
     int log2n, use_dst, nzw, nzh;
     int16_t resid[32 * 32], coef[32 * 32], dq[32 * 32];
-    uint8_t pred[32 * 32], dst[32 * 32];
+    pixel pred[32 * 32], dst[32 * 32];
 };
 
 static void fdct_ref_call(void *p)
@@ -61,7 +61,7 @@ static void quant_c_call(void *p)
     c->nz = n265_quant_ref(c->level, c->coef, c->log2n, c->qp, c->intra);
 }
 
-#if N265_NEON
+#if N265_NEON_TRANSFORM
 static void dequant_neon_call(void *p)
 {
     struct qctx *c = p;
@@ -80,7 +80,7 @@ static void quant_neon_call(void *p)
 #define QNT_NEON NULL
 #endif
 
-#if N265_NEON
+#if N265_NEON_TRANSFORM
 static void fdct_neon_call(void *p)
 {
     struct tctx *c = p;
@@ -117,18 +117,29 @@ static void dq_bbox(const int16_t *dq, int n, int *nzw, int *nzh)
 /* residual/coefficient generators: uniform noise, flat (DC-heavy), the
  * extremes the shift bounds are proved against, and sparse blocks with a
  * single nonzero, which is the case the zero-aware inverse special-cases */
+/* A residual is src - pred on samples of THIS build, so its domain is
+ * +-PIXEL_MAX: 255 at 8 bits and 1023 at Main10, which is what the
+ * forward transform's lane-headroom argument is written against. Each
+ * expression below folds to the 8-bit literal it replaced and draws the
+ * same number of words from the stream, so the 8-bit harness tests
+ * exactly what it tested before. */
+static int16_t ca_resid(void)
+{
+    return (int16_t)((int)(rnd() >> (31 - BIT_DEPTH)) - PIXEL_MAX);
+}
+
 static void fill_resid(int16_t *r, int nn, int kind)
 {
     for (int i = 0; i < nn; i++) {
         switch (kind) {
-        case 0: r[i] = (int16_t)((int)(rnd() >> 23) - 255); break;
-        case 1: r[i] = (int16_t)(200 + (int)(rnd() & 55)); break;
-        case 2: r[i] = (int16_t)((rnd() & 1) ? 255 : -255); break;
+        case 0: r[i] = ca_resid(); break;
+        case 1: r[i] = (int16_t)(PIXEL_MAX - 55 + (int)(rnd() & 55)); break;
+        case 2: r[i] = (int16_t)((rnd() & 1) ? PIXEL_MAX : -PIXEL_MAX); break;
         default: r[i] = 0; break;
         }
     }
     if (kind == 3)
-        r[rnd() % (unsigned)nn] = (int16_t)((int)(rnd() >> 23) - 255);
+        r[rnd() % (unsigned)nn] = ca_resid();
 }
 
 static void fill_dq(int16_t *d, int nn, int kind)
@@ -148,7 +159,7 @@ static void fill_dq(int16_t *d, int nn, int kind)
     }
 }
 
-#if N265_NEON
+#if N265_NEON_TRANSFORM
 
 /* ---- the NEON leg ---------------------------------------------------
  *
@@ -176,11 +187,12 @@ static const struct { int log2n, use_dst; const char *name; } tshapes[] = {
 };
 
 /* Residual kinds. 0-3 are the ones the C-fast leg above uses; 4-6 are the
- * adversarial ends of the domain (the residual is src - pred on 8-bit
- * samples, so |r| <= 255 and the extremes are exactly +-255). */
+ * adversarial ends of the domain (the residual is src - pred on this
+ * build's samples, so |r| <= PIXEL_MAX and the extremes are exactly
+ * +-PIXEL_MAX). */
 static const char *rkind_name[] = {
-    "random", "flat-bright", "alternating +-255", "sparse",
-    "all +255", "all -255", "column ramp",
+    "random", "flat-bright", "alternating +-max", "sparse",
+    "all +max", "all -max", "column ramp",
 };
 #define N_RKIND ((int)(sizeof(rkind_name) / sizeof(rkind_name[0])))
 
@@ -193,15 +205,17 @@ static void fill_resid_ex(int16_t *r, int n, int kind)
         return;
     }
     if (kind == 4 || kind == 5) {
-        int16_t v = kind == 4 ? 255 : -255;
+        int16_t v = (int16_t)(kind == 4 ? PIXEL_MAX : -PIXEL_MAX);
         for (int i = 0; i < nn; i++)
             r[i] = v;
         return;
     }
     for (int y = 0; y < n; y++)
-        for (int x = 0; x < n; x++)
-            r[y * n + x] = (int16_t)(((x + y) & 1) ? 255 - 16 * x
-                                                  : -255 + 16 * y);
+        for (int x = 0; x < n; x++) {
+            int step = 16 << BIT_DEPTH_SHIFT;
+            r[y * n + x] = (int16_t)(((x + y) & 1) ? PIXEL_MAX - step * x
+                                                   : -PIXEL_MAX + step * y);
+        }
 }
 
 /* Coefficient kinds. dq comes out of n265_dequant already clipped to
@@ -248,9 +262,9 @@ static int cmp16(const int16_t *ref, const int16_t *got, int nn,
     return 0;
 }
 
-static int cmp8(const uint8_t *ref, const uint8_t *got, int stride, int n,
-                const char *what, const char *shape, const char *kind,
-                int nzw, int nzh)
+static int cmp_pix(const pixel *ref, const pixel *got, int stride, int n,
+                   const char *what, const char *shape, const char *kind,
+                   int nzw, int nzh)
 {
     for (int y = 0; y < n; y++)
         for (int x = 0; x < n; x++)
@@ -401,7 +415,10 @@ static void fill_level(int16_t *l, int n, int kind)
  * path that is only taken on sparse input is a path whose tail has never
  * been page-guarded. Four qps rather than all 52: the scale steps with
  * qp % 6 and qp / 6, the shift is tightest at 51, and the geometry the
- * mapping is checking does not move with the value. */
+ * mapping is checking does not move with the value. At Main10 QpY starts
+ * at -QpBdOffsetY = -12, so N265_QP_MIN is in the list too: it is the
+ * value that only exists at this depth and the one a table left on the
+ * bare QP indexes out of bounds. */
 static void check_quant_window(int log2n, int kind, int qp)
 {
     int n = 1 << log2n;
@@ -438,11 +455,14 @@ static void check_quant_window(int log2n, int kind, int qp)
 
 /* Every qp the encoder can hand these, not a sample: the deadzone add and
  * the dequant scale both step with qp % 6 and qp / 6, and 51 is where the
- * shift and the clip are closest to their bounds. */
+ * shift and the clip are closest to their bounds. The sweep runs QpY's
+ * whole range at the build's depth - -12 .. 51 at Main10 - because the
+ * kernels index their tables with Qp' and a sign error there shows at the
+ * bottom of the ladder and nowhere else. */
 static int check_quant_neon(void)
 {
     int bad = 0;
-    static const int pg_qp[] = { 0, 4, 30, 51 };
+    static const int pg_qp[] = { N265_QP_MIN, 0, 4, 30, 51 };
 
     for (int log2n = 2; log2n <= 5; log2n++)
         for (int kind = 0; kind < N_LKIND; kind++)
@@ -460,7 +480,7 @@ static int check_quant_neon(void)
 
         snprintf(shape, sizeof(shape), "%dx%d", n, n);
         for (int kind = 0; kind < N_LKIND && !bad; kind++) {
-            for (int qp = 0; qp <= 51 && !bad; qp++) {
+            for (int qp = N265_QP_MIN; qp <= N265_QP_MAX && !bad; qp++) {
                 int rw = 0, rh = 0, gw = 0, gh = 0, rn, gn;
 
                 /* ---- dequant ---- */
@@ -509,9 +529,9 @@ static int check_quant_neon(void)
     return bad;
 }
 
-/* idct_add is the one in this family with strides, so its two 8-bit
+/* idct_add is the one in this family with strides, so its two sample
  * windows stop at the last SAMPLE of the last row and not at the end of
- * it: ca_pg_window. A read into an interior row's padding is what the
+ * it: ca_pg_window_pix, which is that window in bytes. A read into an interior row's padding is what the
  * scramble pass below is for; what this catches is the row after the
  * last, and the vector that ran past the end of it. The coefficient block
  * has no stride and is exactly n*n.
@@ -525,18 +545,19 @@ static void check_idct_window(int log2n, int use_dst, int kind, int pad)
     int n = 1 << log2n;
     int ds = pad ? n + 5 : n, ps = pad ? n + 3 : n;
     size_t qb = (size_t)n * n * sizeof(int16_t);
-    size_t dbytes = ca_pg_window(ds, n, n), pbytes = ca_pg_window(ps, n, n);
+    size_t dbytes = ca_pg_window_pix(ds, n, n);
+    size_t pbytes = ca_pg_window_pix(ps, n, n);
 
     for (int tail = 0; tail < 2; tail++) {
         ca_pg gq, gd, gp;
         int16_t *dq = ca_pg_alloc(&gq, qb, tail);
-        uint8_t *dst = ca_pg_alloc(&gd, dbytes, tail);
-        uint8_t *pred = ca_pg_alloc(&gp, pbytes, tail);
+        pixel *dst = ca_pg_alloc(&gd, dbytes, tail);
+        pixel *pred = ca_pg_alloc(&gp, pbytes, tail);
         int bw, bh;
         char what[96];
 
         fill_dq_ex(dq, n, kind);
-        ca_pg_fill(&gp, pbytes);
+        ca_pg_fill_pix(&gp, pbytes / sizeof(pixel));
         dq_bbox(dq, n, &bw, &bh);
         for (int b = 0; b < 3; b++) {
             int nzw = b == 0 ? bw : b == 1 ? n : (bw + n + 1) / 2;
@@ -578,10 +599,11 @@ static int check_idct_neon(void)
          * something to guard */
         for (int sv = 0; sv < 2; sv++) {
             int ds = sv ? n + 5 : n, ps = sv ? n + 3 : n;
-            size_t dbytes = (size_t)ds * n, pbytes = (size_t)ps * n;
-            uint8_t *dst = ca_guard_alloc(dbytes);
-            uint8_t *pred = ca_guard_alloc(pbytes);
-            uint8_t ref[37 * 32], first[37 * 32];
+            size_t dbytes = (size_t)ds * n * sizeof(pixel);
+            size_t pbytes = (size_t)ps * n * sizeof(pixel);
+            pixel *dst = ca_guard_alloc(dbytes);
+            pixel *pred = ca_guard_alloc(pbytes);
+            pixel ref[37 * 32], first[37 * 32];
 
             for (int kind = 0; kind < N_CKIND && !bad; kind++) {
                 int reps = kind == 0 || kind == 3 ? 32 : 4;
@@ -590,8 +612,7 @@ static int check_idct_neon(void)
                     int bw, bh;
 
                     fill_dq_ex(dq, n, kind);
-                    for (size_t i = 0; i < pbytes; i++)
-                        pred[i] = (uint8_t)(rnd() >> 24);
+                    ca_fill_pix(pred, pbytes / sizeof(pixel));
                     dq_bbox(dq, n, &bw, &bh);
                     memset(ref, CA_POISON, sizeof(ref));
                     n265_idct_add_ref(ref, ds, dq, log2n, pred, ps, use_dst);
@@ -611,8 +632,9 @@ static int check_idct_neon(void)
                         n265_idct_add_neon(dst, ds, dq, log2n, pred, ps,
                                            use_dst, nzw, nzh);
                         bad += ca_guard_check(dst, dbytes, "idct_neon dst");
-                        bad += ca_check_pad(dst, ds, n, n, "idct_neon dst");
-                        bad += cmp8(ref, dst, ds, n, "idct", tshapes[s].name,
+                        bad += ca_check_pad_pix(dst, ds, n, n,
+                                                "idct_neon dst");
+                        bad += cmp_pix(ref, dst, ds, n, "idct", tshapes[s].name,
                                     ckind_name[kind], nzw, nzh);
                         if (bad)
                             break;
@@ -625,7 +647,7 @@ static int check_idct_neon(void)
                                            use_dst, nzw, nzh);
                         for (int y = 0; y < n; y++)
                             if (memcmp(first + y * ds, dst + y * ds,
-                                       (size_t)n)) {
+                                       (size_t)n * sizeof(pixel))) {
                                 printf("    idct_neon %s / %s: READ past the "
                                        "block (border changed the result)\n",
                                        tshapes[s].name, ckind_name[kind]);
@@ -646,7 +668,7 @@ static int check_idct_neon(void)
     }
     return bad;
 }
-#endif /* N265_NEON */
+#endif /* N265_NEON_TRANSFORM */
 
 int check_transform(void)
 {
@@ -671,11 +693,10 @@ int check_transform(void)
                     }
                 }
                 for (int rep = 0; rep < 64; rep++) {
-                    uint8_t ref[32 * 32];
+                    pixel ref[32 * 32];
                     int bw, bh;
                     fill_dq(c.dq, nn, kind);
-                    for (int i = 0; i < nn; i++)
-                        c.pred[i] = (uint8_t)(rnd() >> 24);
+                    ca_fill_pix(c.pred, (size_t)nn);
                     c.log2n = log2n; c.use_dst = use_dst;
                     dq_bbox(c.dq, n, &bw, &bh);
                     n265_idct_add_ref(ref, 32, c.dq, log2n, c.pred, 32,
@@ -689,7 +710,7 @@ int check_transform(void)
                         idct_opt_call(&c);
                         for (int y = 0; y < n; y++)
                             if (memcmp(ref + y * 32, c.dst + y * 32,
-                                       (size_t)n)) {
+                                       (size_t)n * sizeof(pixel))) {
                                 printf("    idct MISMATCH log2n %d dst %d "
                                        "kind %d bbox %d\n", log2n, use_dst,
                                        kind, !b);
@@ -703,7 +724,7 @@ int check_transform(void)
             }
         }
     }
-#if N265_NEON
+#if N265_NEON_TRANSFORM
     bad += check_fdct_neon();
     bad += check_idct_neon();
     bad += check_quant_neon();

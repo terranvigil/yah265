@@ -71,7 +71,7 @@ void n265_fdct_ref(int16_t *coef, const int16_t *resid, int log2n,
 void n265_dequant(int16_t *dq, const int16_t *level, int log2n, int qp,
                   int *nzw, int *nzh)
 {
-#if N265_NEON
+#if N265_NEON_TRANSFORM
     if (n265_asm_on(N265_ASM_QUANT)) {
         n265_dequant_neon(dq, level, log2n, qp, nzw, nzh);
         return;
@@ -353,7 +353,7 @@ void n265_fdct(int16_t *coef, const int16_t *resid, int log2n, int use_dst)
     int shift1 = log2n + BIT_DEPTH - 9;
     int shift2 = log2n + 6;
 
-#if N265_NEON
+#if N265_NEON_TRANSFORM
     /* 16x16, 32x32 and the DST-VII 4x4. The NEON kernel is correct at
      * every size, but at 4x4 and 8x8 the DCT's two-stage layout costs more
      * in transposes than the vector butterfly saves against a C fast path
@@ -440,7 +440,7 @@ void n265_idct_add(pixel *dst, int dst_stride, const int16_t *dq,
     int n = 1 << log2n;
     int32_t a[32 * 32], b[32 * 32];
 
-#if N265_NEON
+#if N265_NEON_TRANSFORM
     /* Same predicate and the same reasons as n265_fdct above. The DCT at
      * 4x4 and 8x8 reads 0.52x and 0.49x register-resident and stays on C;
      * the DST-VII 4x4, which is the only shape use_dst ever names, is
@@ -508,7 +508,7 @@ void n265_idct_add(pixel *dst, int dst_stride, const int16_t *dq,
 int n265_quant(int16_t *level, const int16_t *coef, int log2n, int qp,
                int intra)
 {
-#if N265_NEON
+#if N265_NEON_TRANSFORM
     if (n265_asm_on(N265_ASM_QUANT))
         return n265_quant_neon(level, coef, log2n, qp, intra);
 #endif

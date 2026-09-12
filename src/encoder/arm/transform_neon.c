@@ -28,7 +28,7 @@
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
-#if N265_NEON
+#if N265_NEON_TRANSFORM
 
 #include <arm_neon.h>
 #include <stddef.h>
@@ -37,8 +37,16 @@
 #include "encoder/arm/neon.h"
 #include "encoder/tables.h"
 
-/* mirrors transform.c; the two would have to move together */
-#define BIT_DEPTH 8
+/* BIT_DEPTH, PIXEL_MAX and QP_BD_OFFSET come from common/pixel.h through
+ * neon.h: this file is compiled at every depth whose lanes it handles,
+ * and the constants below are the same expressions transform.c's C
+ * reference reads. Phase 8 item 3 - what the depth actually moves here is
+ * three shifts (the forward shift1, the inverse's second stage, the
+ * dequant's bdShift), the quantiser's Qp' index, and the width of a
+ * sample at the two ends where pred comes in and dst goes out. The
+ * butterflies themselves are int32 lanes over int16 coefficients and do
+ * not know the depth at all, which is why this family was the first one
+ * ported and why it keeps its whole 8-bit multiple at Main10. */
 
 /* ---- helpers -------------------------------------------------------- */
 
@@ -58,26 +66,40 @@ static inline void tr4_s32(int32x4_t v[4])
     v[3] = vreinterpretq_s32_s64(vtrn2q_s64(b1, b3));
 }
 
-/* four unaligned bytes as four int32 lanes */
-static inline int32x4_t load4_u8(const uint8_t *p)
+/* four unaligned samples as four int32 lanes */
+static inline int32x4_t load4_pix(const pixel *p)
 {
+#if BIT_DEPTH == 8
     uint32_t w;
 
     memcpy(&w, p, 4);                       /* no alignment guarantee */
     return vreinterpretq_s32_u32(
         vmovl_u16(vget_low_u16(vmovl_u8(vreinterpret_u8_u32(vdup_n_u32(w))))));
+#else
+    return vreinterpretq_s32_u32(vmovl_u16(vld1_u16(p)));
+#endif
 }
 
-/* four int32 lanes as four bytes, clipped. vqmovun_s32 saturates below at
- * 0 and vqmovn_u16 above at 255, which is clip3(0, 255, v) exactly: both
- * clips are the instruction's own and not a separate min/max. */
-static inline void store4_u8(uint8_t *p, int32x4_t v)
+/* four int32 lanes as four samples, clipped.
+ *
+ * At 8 bits vqmovun_s32 saturates below at 0 and vqmovn_u16 above at 255,
+ * which is clip3(0, 255, v) exactly: both clips are the instruction's own
+ * and not a separate min/max. At Main10 the upper bound is not a narrow's
+ * own, so it is one vmin: vqmovun_s32 gives max(0, min(65535, v)) and the
+ * vmin brings that to PIXEL_MAX, which is clip3(0, PIXEL_MAX, v) for
+ * every int32 v - the 65535 clamp can only fire above PIXEL_MAX and the
+ * vmin swallows it. */
+static inline void store4_pix(pixel *p, int32x4_t v)
 {
+#if BIT_DEPTH == 8
     uint16x4_t h = vqmovun_s32(v);
     uint8x8_t b = vqmovn_u16(vcombine_u16(h, h));
     uint32_t w = vget_lane_u32(vreinterpret_u32_u8(b), 0);
 
     memcpy(p, &w, 4);
+#else
+    vst1_u16(p, vmin_u16(vqmovun_s32(v), vdup_n_u16(PIXEL_MAX)));
+#endif
 }
 
 /* The C's `(s + (1 << (shift - 1))) >> shift` with a run-time shift.
@@ -218,18 +240,25 @@ static inline void inv_odd_acc(int32x4_t *o, int32x4_t c, const int8_t *row,
  * This is fwd_dct_1d() from transform.c with int32x4_t in place of
  * int32_t and nothing else changed.
  *
- * RANGE. The domain is an 8-bit residual, |r| <= 255, because that is all
+ * RANGE. The domain is a residual, |r| <= PIXEL_MAX, because that is all
  * src - pred can be; it is also the bound the C's own int32 accumulators
  * need, so this kernel is exact wherever the C fast path is. Each level
  * halves the length and doubles the magnitude, so entering the level of
  * length `len` the sums obey |e| <= 255 * n / len and |o| <= 510 * n /
- * len. An odd dot product there is at most (len / 2) * 90 * 510 * n / len
- * = 22950 * n, i.e. 734K at n = 32 - independent of the level, which is
- * the useful part. After `shift1 = log2n - 1` that leaves stage-1 outputs
- * under 45900, and the same argument on stage 2 gives 90 * 45900 * n =
- * 132M, with 64 * e[0] at 94M. Every one of those is inside int32 with
- * four bits to spare, so the lane arithmetic never wraps and is exact
- * rather than merely modular-exact.
+ * len at 8 bits. An odd dot product there is at most (len / 2) * 90 *
+ * 510 * n / len = 22950 * n, i.e. 734K at n = 32 - independent of the
+ * level, which is the useful part. After `shift1 = log2n - 1` that
+ * leaves stage-1 outputs under 45900, and the same argument on stage 2
+ * gives 90 * 45900 * n = 132M, with 64 * e[0] at 94M.
+ *
+ * At Main10 the residual is four times as large and shift1 is two
+ * larger (`log2n + BitDepth - 9`), so the pre-shift dot product goes to
+ * 2.94M and EVERYTHING AFTER IT IS UNMOVED: stage-1 outputs under 45900,
+ * stage 2 under 132M. The two moves cancel by construction - that is the
+ * property the whole depth rests on (docs/phase8-plan.md, item 2) - so
+ * one range argument covers both builds. Every one of those numbers is
+ * inside int32 with four bits to spare, so the lane arithmetic never
+ * wraps and is exact rather than merely modular-exact.
  *
  * The four accumulators exist to break the multiply-accumulate dependency
  * chain, which is the whole latency of the inner loop. Reassociating an
@@ -261,7 +290,9 @@ static inline void fwd_dct_1d_x4(int32x4_t *out, int32x4_t *e, int n,
  * Every output is a combination of the four inputs with total weight
  * 29 + 29 + 55 + 55 + 74 = 242, so with |x| <= 255 stage 1 stays under
  * 61710 and, after shift1 = 1, hands stage 2 inputs under 30855 for a
- * stage-2 bound of 7.5M. int32 throughout. */
+ * stage-2 bound of 7.5M. int32 throughout, and at Main10 the same
+ * cancellation as the DCT's: 247K before a shift1 of 3, the same 30855
+ * after it. */
 static inline void fwd_dst4_1d_x4(int32x4_t *out, const int32x4_t *x,
                                   int32x4_t sh)
 {
@@ -544,42 +575,54 @@ static inline void inv_dst4_1d_x4(int32x4_t *out, const int32x4_t *in,
         out[j] = clip ? vmovl_s16(vqmovn_s32(v[j])) : v[j];
 }
 
-/* pred + residual clipped to a byte, four rows by four columns, the
+/* pred + residual clipped to a sample, four rows by four columns, the
  * residual already transposed so c[i] is row y0 + i. */
-static inline void add_clip_4x4(uint8_t *dst, int ds, const uint8_t *pred,
+static inline void add_clip_4x4(pixel *dst, int ds, const pixel *pred,
                                 int ps, int y0, int x0, int32x4_t c[4])
 {
     for (int i = 0; i < 4; i++) {
-        int32x4_t p = load4_u8(pred + (ptrdiff_t)(y0 + i) * ps + x0);
+        int32x4_t p = load4_pix(pred + (ptrdiff_t)(y0 + i) * ps + x0);
 
-        store4_u8(dst + (ptrdiff_t)(y0 + i) * ds + x0, vaddq_s32(p, c[i]));
+        store4_pix(dst + (ptrdiff_t)(y0 + i) * ds + x0, vaddq_s32(p, c[i]));
     }
 }
 
 /* eight columns at a time where there are eight: one store per row
  * instead of two, which matters because the output stage is a third of
  * this kernel's work at 16x16 and above. */
-static inline void add_clip_4x8(uint8_t *dst, int ds, const uint8_t *pred,
+static inline void add_clip_4x8(pixel *dst, int ds, const pixel *pred,
                                 int ps, int y0, int x0, int32x4_t lo[4],
                                 int32x4_t hi[4])
 {
     for (int i = 0; i < 4; i++) {
+#if BIT_DEPTH == 8
         uint16x8_t p = vmovl_u8(vld1_u8(pred + (ptrdiff_t)(y0 + i) * ps + x0));
+#else
+        uint16x8_t p = vld1q_u16(pred + (ptrdiff_t)(y0 + i) * ps + x0);
+#endif
         int32x4_t pl = vreinterpretq_s32_u32(vmovl_u16(vget_low_u16(p)));
         int32x4_t ph = vreinterpretq_s32_u32(vmovl_high_u16(p));
         uint16x4_t a = vqmovun_s32(vaddq_s32(pl, lo[i]));
         uint16x4_t b = vqmovun_s32(vaddq_s32(ph, hi[i]));
 
+#if BIT_DEPTH == 8
         /* clip3(0, 255, v) again: saturate s32 -> u16 at 0, then u16 -> u8
          * at 255. The upper u16 bound cannot fire first - the residual is
          * under 2^24 - so neither clip can mask a value the C would keep. */
         vst1_u8(dst + (ptrdiff_t)(y0 + i) * ds + x0,
                 vqmovn_u16(vcombine_u16(a, b)));
+#else
+        /* and clip3(0, PIXEL_MAX, v) at Main10: the s32 -> u16 saturation
+         * is the lower half of it, the vmin the upper, exactly as in
+         * store4_pix. */
+        vst1q_u16(dst + (ptrdiff_t)(y0 + i) * ds + x0,
+                  vminq_u16(vcombine_u16(a, b), vdupq_n_u16(PIXEL_MAX)));
+#endif
     }
 }
 
-static inline void idct_block(uint8_t *dst, int ds, const int16_t *dq, int n,
-                              const uint8_t *pred, int ps, int use_dst,
+static inline void idct_block(pixel *dst, int ds, const int16_t *dq, int n,
+                              const pixel *pred, int ps, int use_dst,
                               int nzw, int nzh)
 {
     int32x4_t sh1 = vdupq_n_s32(-7);
@@ -654,25 +697,40 @@ static inline void idct_block(uint8_t *dst, int ds, const int16_t *dq, int n,
 /* Both stages collapse to a constant when only the DC coefficient can be
  * nonzero, and it is the constant the general path forms: E mirrors at
  * every level, so stage 1 emits clip16((64 * dq0 + 64) >> 7) in every row
- * and stage 2 turns that into (64 * v + 2048) >> 12 in every column. Same
- * reduction the C entry point makes; worth vectorising because at 32x32 it
- * is 1024 clipped byte adds. |r| <= 64 * 32768 / 4096 = 512, so the whole
- * add fits int16 lanes, and vqmovun_s16 is clip3(0, 255, .) for the same
- * reason store4_u8's pair is. */
-static inline void idct_dc(uint8_t *dst, int ds, int32_t r, int n,
-                           const uint8_t *pred, int ps)
+ * and stage 2 turns that into (64 * v + (1 << (19 - BitDepth))) >>
+ * (20 - BitDepth) in every column. Same reduction the C entry point
+ * makes; worth vectorising because at 32x32 it is 1024 clipped sample
+ * adds.
+ *
+ * int16 lanes hold the whole add at both depths: |r| <= 64 * 32768 >>
+ * (20 - BitDepth), which is 512 at 8 bits and 2048 at Main10, and the
+ * sample it is added to is at most PIXEL_MAX, so |s| <= 3071 either way.
+ * The clip differs, and only because the narrow's own bound is the right
+ * one at 8 bits (vqmovun_s16 saturates at 0 and 255) and is not at
+ * Main10, where it is a max/min pair. */
+static inline void idct_dc(pixel *dst, int ds, int32_t r, int n,
+                           const pixel *pred, int ps)
 {
     int16x8_t rv = vdupq_n_s16((int16_t)r);
 
     for (int y = 0; y < n; y++) {
-        const uint8_t *p = pred + (ptrdiff_t)y * ps;
-        uint8_t *d = dst + (ptrdiff_t)y * ds;
+        const pixel *p = pred + (ptrdiff_t)y * ps;
+        pixel *d = dst + (ptrdiff_t)y * ds;
 
         for (int x = 0; x < n; x += 8) {
+#if BIT_DEPTH == 8
             int16x8_t s = vaddq_s16(
                 vreinterpretq_s16_u16(vmovl_u8(vld1_u8(p + x))), rv);
 
             vst1_u8(d + x, vqmovun_s16(s));
+#else
+            int16x8_t s = vaddq_s16(
+                vreinterpretq_s16_u16(vld1q_u16(p + x)), rv);
+
+            s = vminq_s16(vmaxq_s16(s, vdupq_n_s16(0)),
+                          vdupq_n_s16(PIXEL_MAX));
+            vst1q_u16(d + x, vreinterpretq_u16_s16(s));
+#endif
         }
     }
 }
@@ -686,8 +744,8 @@ static inline void idct_dc(uint8_t *dst, int ds, int32_t r, int n,
  * columns at or past nzw transforms to zeros, and stage 2 here reads
  * every column, so those groups are set to zero rather than skipped. */
 static inline __attribute__((always_inline))
-void idct_small(uint8_t *dst, int ds, const int16_t *dq, int n,
-                const uint8_t *pred, int ps, int use_dst, int nzw)
+void idct_small(pixel *dst, int ds, const int16_t *dq, int n,
+                const pixel *pred, int ps, int use_dst, int nzw)
 {
     int32x4_t sh1 = vdupq_n_s32(-7);
     int32x4_t sh2 = vdupq_n_s32(-(20 - BIT_DEPTH));
@@ -746,21 +804,21 @@ void idct_small(uint8_t *dst, int ds, const int16_t *dq, int n,
 
 /* out of line, for the reason fdct4_neon gives */
 static __attribute__((noinline))
-void idct4_neon(uint8_t *dst, int ds, const int16_t *dq, const uint8_t *pred,
+void idct4_neon(pixel *dst, int ds, const int16_t *dq, const pixel *pred,
                 int ps, int use_dst, int nzw)
 {
     idct_small(dst, ds, dq, 4, pred, ps, use_dst, nzw);
 }
 
 static __attribute__((noinline))
-void idct8_neon(uint8_t *dst, int ds, const int16_t *dq, const uint8_t *pred,
+void idct8_neon(pixel *dst, int ds, const int16_t *dq, const pixel *pred,
                 int ps, int nzw)
 {
     idct_small(dst, ds, dq, 8, pred, ps, 0, nzw);
 }
 
-void n265_idct_add_neon(uint8_t *dst, int dst_stride, const int16_t *dq,
-                        int log2n, const uint8_t *pred, int pred_stride,
+void n265_idct_add_neon(pixel *dst, int dst_stride, const int16_t *dq,
+                        int log2n, const pixel *pred, int pred_stride,
                         int use_dst, int nzw, int nzh)
 {
     int n = 1 << log2n;
@@ -779,15 +837,15 @@ void n265_idct_add_neon(uint8_t *dst, int dst_stride, const int16_t *dq,
         int32_t r;
 
         v = v < -32768 ? -32768 : v > 32767 ? 32767 : v;
-        r = (64 * v + 2048) >> 12;
+        r = (64 * v + (1 << (19 - BIT_DEPTH))) >> (20 - BIT_DEPTH);
         if (n >= 8) {
             idct_dc(dst, dst_stride, r, n, pred, pred_stride);
         } else {
             int32x4_t rv = vdupq_n_s32(r);
 
             for (int y = 0; y < 4; y++)
-                store4_u8(dst + (ptrdiff_t)y * dst_stride,
-                          vaddq_s32(load4_u8(pred + (ptrdiff_t)y *
+                store4_pix(dst + (ptrdiff_t)y * dst_stride,
+                          vaddq_s32(load4_pix(pred + (ptrdiff_t)y *
                                              pred_stride), rv));
         }
         return;
@@ -827,17 +885,24 @@ void n265_idct_add_neon(uint8_t *dst, int dst_stride, const int16_t *dq,
  */
 
 /* n265_dequant's arithmetic is `(level * S + add) >> bd_shift` with
- * S = level_scale[qp % 6] << (qp / 6) * 16 <= 294912 and |level| <=
- * 32768, so the product reaches 9.7e9 and the C carries it in int64.
- * Split S at the shift instead - S = Sh * 2^bd + Sl - and
+ * S = level_scale[qP % 6] << (qP / 6) * 16 and |level| <= 32768, so the
+ * product reaches 9.7e9 at 8 bits (3.9e10 at Main10) and the C carries
+ * it in int64. Split S at the shift instead - S = Sh * 2^bd + Sl - and
  *
  *     (level * S + add) >> bd == level * Sh + ((level * Sl + add) >> bd)
  *
  * exactly, for either sign, because the first term is a whole multiple
- * of 2^bd and >> is floor division by it. Now every part is int32:
- * Sh <= 294912 >> 5 = 9216 gives |level * Sh| <= 302M, Sl < 2^bd <= 256
- * gives |level * Sl| <= 8.4M, and their sum is under 302M. Four lanes,
- * not two.
+ * of 2^bd and >> is floor division by it. Now every part is int32, and
+ * AT BOTH DEPTHS: the depth moves S and bd_shift together, by two bits
+ * of Qp' and two bits of BitDepth, so Sh does not move at all. 8 bits
+ * gives Sh <= 294912 >> 5 = 9216, Main10 gives 1179648 >> 7 = 9216, and
+ * either way |level * Sh| <= 302M; Sl < 2^bd <= 1024 gives
+ * |level * Sl| <= 33.6M, and the sum is under 336M. Four lanes, not two.
+ *
+ * `qp` arrives as QpY - the 8-bit-domain index, negative below zero at
+ * Main10 - and the spec's qP is Qp' (8.6.3), so the offset is added here
+ * exactly as n265_dequant_ref adds it. At 8 bits QP_BD_OFFSET is 0 and
+ * every expression below folds to the one that was here.
  *
  * A zero level needs no special case: (0 + 2^(bd-1)) >> bd is 0, which
  * is the C's early-out value, so the branch the C takes to skip the
@@ -854,8 +919,9 @@ void n265_dequant_neon(int16_t *dq, const int16_t *level, int log2n, int qp,
     static const int level_scale[6] = { 40, 45, 51, 57, 64, 72 };
     static const int32_t lane_id[4] = { 0, 1, 2, 3 };
     int n = 1 << log2n;
-    int bd_shift = BIT_DEPTH + log2n - 5;        /* 5 .. 8 */
-    int32_t s = (int32_t)(((int64_t)level_scale[qp % 6] << (qp / 6)) * 16);
+    int qpq = qp + QP_BD_OFFSET;                 /* Qp', 0 .. 63 */
+    int bd_shift = BIT_DEPTH + log2n - 5;        /* 5 .. 8, 7 .. 10 at 10 */
+    int32_t s = (int32_t)(((int64_t)level_scale[qpq % 6] << (qpq / 6)) * 16);
     int32_t s_hi = s >> bd_shift, s_lo = s & ((1 << bd_shift) - 1);
     int32x4_t addv = vdupq_n_s32(1 << (bd_shift - 1));
     int32x4_t sh = vdupq_n_s32(-bd_shift);
@@ -892,12 +958,18 @@ void n265_dequant_neon(int16_t *dq, const int16_t *level, int log2n, int qp,
     if (nzh) *nzh = my + 1;
 }
 
-/* n265_quant's int64 is unnecessary too. qbits = 21 + qp / 6 - log2n is
- * in [16, 27], the deadzone add is 2^qbits / 3 <= 44.7M, |coef| <= 32768
- * and quant_scale <= 26214, so |coef| * q + add <= 9.04e8 - inside int32
- * with a bit to spare, and the shift, the 32767 clamp and the sign are
- * all int32 from there. vabsq_s32 after the widen and not before it: the
- * C negates an `int`, and |-32768| does not fit int16.
+/* n265_quant's int64 is unnecessary too. qbits = 29 - BitDepth + qP / 6
+ * - log2n is in [16, 27] at 8 bits and [14, 27] at Main10 - the top is
+ * the same number, because Qp's twelve extra steps buy exactly the two
+ * bits BitDepth costs - so the deadzone add is 2^qbits / 3 <= 44.7M at
+ * both, |coef| <= 32768 and quant_scale <= 26214 give
+ * |coef| * q + add <= 9.04e8, inside int32 with a bit to spare, and the
+ * shift, the 32767 clamp and the sign are all int32 from there.
+ * vabsq_s32 after the widen and not before it: the C negates an `int`,
+ * and |-32768| does not fit int16.
+ *
+ * `qp` is QpY here too, and the table index is Qp': same substitution as
+ * the dequant above, and the same fold to the old expression at 8 bits.
  *
  * The nonzero count is a lane accumulator (subtract the all-ones compare
  * mask, which adds one) reduced once at the end, so the C's per-element
@@ -909,9 +981,10 @@ int n265_quant_neon(int16_t *level, const int16_t *coef, int log2n, int qp,
         26214, 23302, 20560, 18396, 16384, 14564
     };
     int nn = 1 << (2 * log2n);                   /* 16 at least, so 8 fits */
-    int qbits = 21 + qp / 6 - log2n;
+    int qpq = qp + QP_BD_OFFSET;                 /* Qp', 0 .. 63 */
+    int qbits = 29 - BIT_DEPTH + qpq / 6 - log2n;
     int32_t add = (int32_t)(((int64_t)1 << qbits) / (intra ? 3 : 6));
-    int q = quant_scale[qp % 6];
+    int q = quant_scale[qpq % 6];
     int32x4_t addv = vdupq_n_s32(add), sh = vdupq_n_s32(-qbits);
     int32x4_t maxv = vdupq_n_s32(32767);
     int32x4_t cnt = vdupq_n_s32(0);
@@ -939,4 +1012,4 @@ int n265_quant_neon(int16_t *level, const int16_t *coef, int log2n, int qp,
 
 #else
 typedef int n265_transform_neon_unused_;  /* C wants a non-empty TU */
-#endif /* N265_NEON */
+#endif /* N265_NEON_TRANSFORM */
