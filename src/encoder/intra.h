@@ -38,11 +38,20 @@ void n265_intra_refs(pixel *refs, const pixel *recon, int stride,
 void n265_pred_dc(pixel *dst, int dst_stride, const pixel *refs,
                   int log2n, int filter_edges);
 
-/* [1 2 1] reference smoothing (8.4.4.2.3), strong smoothing excluded
- * (disabled in the SPS). in and out may not alias. */
-void n265_filter_refs(pixel *out, const pixel *in, int log2n);
+/* [1 2 1] reference smoothing (8.4.4.2.3). in and out may not alias.
+ *
+ * `strong` arms the 32x32 bilinear rebuild (biIntFlag), whose conditions
+ * include `cIdx == 0` at EVERY chroma format - so it is 1 for luma and 0
+ * for chroma, and the argument exists because at 4:4:4 a chroma TB
+ * reaches 32x32 and would otherwise fall into the luma branch. The [1 2 1]
+ * run itself DOES apply to chroma at 4:4:4 (8.4.4.2.1 invokes the
+ * filtering when `cIdx == 0 || ChromaArrayType == 3`), which is what the
+ * caller's c_idx-for-filtering argument decides. */
+void n265_filter_refs(pixel *out, const pixel *in, int log2n, int strong);
 
-/* Whether mode/size/component uses the filtered references. */
+/* Whether mode/size/component uses the filtered references. `c_idx` here
+ * is the FILTERING component index: 0 for luma and, at 4:4:4, 0 for
+ * chroma too, since 8.4.4.2.1 gives chroma the luma process there. */
 int n265_use_filtered_refs(int mode, int log2n, int c_idx);
 
 /* The C references the entry points above dispatch away from, and what
@@ -63,7 +72,8 @@ void n265_intra_refs_ref(pixel *refs, const pixel *recon, int stride,
 void n265_intra_refs_spec(pixel *refs, const pixel *recon, int stride,
                           int x0, int y0, int log2n,
                           int pic_w, int pic_h, int ctb_log2);
-void n265_filter_refs_ref(pixel *out, const pixel *in, int log2n);
+void n265_filter_refs_ref(pixel *out, const pixel *in, int log2n,
+                          int strong);
 void n265_intra_pred_ref(pixel *dst, int dst_stride, const pixel *refs,
                          int log2n, int mode, int c_idx);
 

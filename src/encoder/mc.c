@@ -392,7 +392,11 @@ void n265_mc_chroma_wh_ref(pixel *dst, int ds, int w, int h,
             }
         return;
     }
-    int16_t tmp[(32 + 3) * 32];
+    /* The widest CHROMA block this encoder presents: 32x32 when the
+     * plane is halved (a 64x64 luma PU at 4:2:0) and 64x64 at 4:4:4,
+     * where a chroma block IS the luma block. The 4-tap vertical stage
+     * reads one row above and two below, so the temp is (h + 3) rows. */
+    int16_t tmp[(64 + 3) * 64];
     const int8_t *fh = chroma_filt[fx], *fv = chroma_filt[fy];
     for (int y = -1; y < h + 2; y++)
         for (int x = 0; x < w; x++) {
@@ -523,7 +527,7 @@ void n265_mc_chroma_14_wh_ref(int16_t *dst, int ds, int w, int h,
             }
         return;
     }
-    int16_t tmp[(32 + 3) * 32];
+    int16_t tmp[(64 + 3) * 64];     /* the widest chroma block; see above */
     const int8_t *fh = chroma_filt[fx], *fv = chroma_filt[fy];
     for (int y = -1; y < h + 2; y++)
         for (int x = 0; x < w; x++) {

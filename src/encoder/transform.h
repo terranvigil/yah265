@@ -50,7 +50,12 @@ void n265_idct_add_ref(pixel *dst, int dst_stride, const int16_t *dq,
 int n265_quant(int16_t *level, const int16_t *coef, int log2n, int qp,
                int intra);
 
-/* Chroma QP mapping for 4:2:0 (Table 8-10). */
-int n265_chroma_qp(int qp_y);
+/* Chroma QP mapping (8.6.1): Table 8-10 at ChromaArrayType 1 (4:2:0),
+ * Min(qPi, 51) at every other one - `c444` is ChromaArrayType == 3. The
+ * return is QpC in the 8-BIT DOMAIN, not Qp'C: the quantiser adds
+ * QpBdOffsetC itself and the chroma deblocking filter (8.7.2.5.5) does
+ * not, so returning the offset index would be silently right for one
+ * caller and silently wrong for the other. */
+int n265_chroma_qp(int qp_y, int c444);
 
 #endif

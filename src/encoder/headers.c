@@ -47,7 +47,7 @@ static int pick_level_idc(int w, int h, int dpb)
 }
 
 /* profile_tier_level with maxNumSubLayersMinus1 == 0 (7.3.3). */
-static void write_ptl(bitstream_t *bs, int w, int h, int dpb)
+static void write_ptl(bitstream_t *bs, int w, int h, int dpb, int c444)
 {
     bs_put_bits(bs, 0, 2);          /* general_profile_space */
     bs_put_bits(bs, 0, 1);          /* general_tier_flag: main */
@@ -77,14 +77,52 @@ static void write_ptl(bitstream_t *bs, int w, int h, int dpb)
      * Verified on the wire: dec265 reads profile_idc Main10 with
      * compatibility flag 2 alone, and ffprobe reads "Main 10" /
      * yuv420p10le. */
-    bs_put_bits(bs, BIT_DEPTH == 8 ? 1 : 2, 5);   /* general_profile_idc */
-    bs_put_bits(bs, BIT_DEPTH == 8 ? 0x60000000u : 0x20000000u, 32);
+    /* Phase 8 item 6a: at 4:4:4 the profile is the RANGE EXTENSION one,
+     * general_profile_idc 4 (A.3.5), and Main 4:4:4 / Main 4:4:4 10 are
+     * told apart by the constraint flags below and by nothing else. The
+     * compatibility word carries bit 4 alone: neither is decodable by a
+     * Main or Main10 decoder. */
+    bs_put_bits(bs, c444 ? 4 : (BIT_DEPTH == 8 ? 1 : 2), 5);
+    bs_put_bits(bs, c444 ? 0x08000000u
+                         : (BIT_DEPTH == 8 ? 0x60000000u : 0x20000000u), 32);
     bs_put_bits(bs, 1, 1);          /* general_progressive_source_flag */
     bs_put_bits(bs, 0, 1);          /* general_interlaced_source_flag */
     bs_put_bits(bs, 1, 1);          /* general_non_packed_constraint_flag */
     bs_put_bits(bs, 1, 1);          /* general_frame_only_constraint_flag */
-    bs_put_bits(bs, 0, 32);         /* general_reserved_zero_44bits... */
-    bs_put_bits(bs, 0, 12);         /* ...cont */
+    if (c444) {
+        /* The nine profile-specific constraint flags of A.3.5, which
+         * EXIST only for general_profile_idc 4..10 - at Main and Main10
+         * the same 44 bits are general_reserved_zero_43bits plus the
+         * reserved bit, which is why the branch below is a different
+         * SYNTAX and not a different value. Table A.2's rows for the two
+         * profiles this item emits:
+         *
+         *   Main 4:4:4     12bit 1, 10bit 1, 8bit 1, 422 0, 420 0,
+         *                  mono 0, intra 0, one-picture 0, lower-rate 1
+         *   Main 4:4:4 10  the same with 8bit 0
+         *
+         * The three "max N bit" flags are upper bounds the stream
+         * promises to stay inside, so an 8-bit stream sets all three and
+         * a Main10 one drops the 8-bit flag; the two chroma flags say the
+         * stream is NOT constrained to 4:2:2 or 4:2:0, which is the whole
+         * declaration. `lower_bit_rate` is the CpbBrVclFactor row this
+         * encoder's streams sit in and is 1 for both. */
+        bs_put_bits(bs, 1, 1);      /* general_max_12bit_constraint_flag */
+        bs_put_bits(bs, 1, 1);      /* general_max_10bit_constraint_flag */
+        bs_put_bits(bs, BIT_DEPTH == 8, 1); /* general_max_8bit_constraint */
+        bs_put_bits(bs, 0, 1);      /* general_max_422chroma_constraint */
+        bs_put_bits(bs, 0, 1);      /* general_max_420chroma_constraint */
+        bs_put_bits(bs, 0, 1);      /* general_max_monochrome_constraint */
+        bs_put_bits(bs, 0, 1);      /* general_intra_constraint_flag */
+        bs_put_bits(bs, 0, 1);      /* general_one_picture_only_constraint */
+        bs_put_bits(bs, 1, 1);      /* general_lower_bit_rate_constraint */
+        bs_put_bits(bs, 0, 32);     /* general_reserved_zero_34bits... */
+        bs_put_bits(bs, 0, 2);      /* ...cont */
+        bs_put_bits(bs, 0, 1);      /* general_inbld_flag / reserved bit */
+    } else {
+        bs_put_bits(bs, 0, 32);     /* general_reserved_zero_44bits... */
+        bs_put_bits(bs, 0, 12);     /* ...cont */
+    }
     bs_put_bits(bs, (uint32_t)pick_level_idc(w, h, dpb), 8);
 }
 
@@ -99,7 +137,8 @@ void n265_write_vps(struct n265_frame_work *e)
     bs_put_bits(bs, 0, 3);          /* vps_max_sub_layers_minus1 */
     bs_put_bits(bs, 1, 1);          /* vps_temporal_id_nesting_flag */
     bs_put_bits(bs, 0xffff, 16);    /* vps_reserved_0xffff_16bits */
-    write_ptl(bs, e->param.width, e->param.height, e->dpb_buffering);
+    write_ptl(bs, e->param.width, e->param.height, e->dpb_buffering,
+              e->c444);
     bs_put_bits(bs, 0, 1);          /* vps_sub_layer_ordering_info_present */
     bs_put_ue(bs, (uint32_t)(e->dpb_buffering - 1)); /* vps_max_dec_pic_buffering_minus1 */
     bs_put_ue(bs, (uint32_t)e->dpb_reorder);         /* vps_max_num_reorder_pics[0] */
@@ -123,17 +162,29 @@ void n265_write_sps(struct n265_frame_work *e)
     bs_put_bits(bs, 0, 4);          /* sps_video_parameter_set_id */
     bs_put_bits(bs, 0, 3);          /* sps_max_sub_layers_minus1 */
     bs_put_bits(bs, 1, 1);          /* sps_temporal_id_nesting_flag */
-    write_ptl(bs, e->param.width, e->param.height, e->dpb_buffering);
+    write_ptl(bs, e->param.width, e->param.height, e->dpb_buffering,
+              e->c444);
     bs_put_ue(bs, 0);               /* sps_seq_parameter_set_id */
-    bs_put_ue(bs, 1);               /* chroma_format_idc: 4:2:0 */
+    bs_put_ue(bs, (uint32_t)e->chroma_idc);   /* 1 = 4:2:0, 3 = 4:4:4 */
+    if (e->chroma_idc == 3) {
+        /* 7.3.2.2: 4:4:4 alone carries this, and 0 is what makes
+         * ChromaArrayType 3 rather than three separate monochrome
+         * planes. Leaving it out shifts every field after it - the
+         * picture size parsed as 87x0 and both decoders refused the
+         * stream, which is how it was found. */
+        bs_put_bits(bs, 0, 1);      /* separate_colour_plane_flag */
+    }
     bs_put_ue(bs, (uint32_t)e->pad_w);
     bs_put_ue(bs, (uint32_t)e->pad_h);
     if (crop_r || crop_b) {
+        /* The offsets are in CHROMA units (7.4.3.2: SubWidthC /
+         * SubHeightC times the offset is the luma crop), so at 4:4:4 the
+         * unit IS a luma sample and the shift is zero. */
         bs_put_bits(bs, 1, 1);      /* conformance_window_flag */
-        bs_put_ue(bs, 0);                       /* left, chroma units */
-        bs_put_ue(bs, (uint32_t)(crop_r / 2));  /* right */
-        bs_put_ue(bs, 0);                       /* top */
-        bs_put_ue(bs, (uint32_t)(crop_b / 2));  /* bottom */
+        bs_put_ue(bs, 0);                                /* left */
+        bs_put_ue(bs, (uint32_t)(crop_r >> e->csx));     /* right */
+        bs_put_ue(bs, 0);                                /* top */
+        bs_put_ue(bs, (uint32_t)(crop_b >> e->csy));     /* bottom */
     } else {
         bs_put_bits(bs, 0, 1);
     }

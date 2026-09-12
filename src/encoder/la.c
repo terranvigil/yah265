@@ -133,8 +133,8 @@ int n265_la_init(struct n265_encoder *e)
     for (int i = 0; i < la->cap; i++) {
         la_frame *f = &la->f[i];
         for (int c = 0; c < 3; c++) {
-            int w = c ? e->pad_w / 2 : e->pad_w;
-            int h = c ? e->pad_h / 2 : e->pad_h;
+            int w = c ? e->pad_w >> e->csx : e->pad_w;
+            int h = c ? e->pad_h >> e->csy : e->pad_h;
             f->src[c] = malloc((size_t)w * h * sizeof(pixel));
             if (!f->src[c])
                 return -1;
@@ -282,10 +282,10 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
      * used to re-pad this into a second frame-sized buffer every frame;
      * the queue slot IS the padded source now (threading-design sec 4). */
     for (int c = 0; c < 3; c++) {
-        int w = c ? e->param.width / 2 : e->param.width;
-        int h = c ? e->param.height / 2 : e->param.height;
-        int dw = c ? e->pad_w / 2 : e->pad_w;
-        int dh = c ? e->pad_h / 2 : e->pad_h;
+        int w = c ? e->param.width >> e->csx : e->param.width;
+        int h = c ? e->param.height >> e->csy : e->param.height;
+        int dw = c ? e->pad_w >> e->csx : e->pad_w;
+        int dh = c ? e->pad_h >> e->csy : e->pad_h;
         for (int y = 0; y < dh; y++) {
             const pixel *s = plane[c] + (y < h ? y : h - 1) * stride[c];
             pixel *d = f->src[c] + y * dw;

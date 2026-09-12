@@ -209,7 +209,8 @@ uint32_t n265_coeff_group_neon(const int16_t *grp, ptrdiff_t stride,
 
 void n265_intra_pred_neon(pixel *dst, int dst_stride, const pixel *refs,
                           int log2n, int mode, int c_idx);
-void n265_filter_refs_neon(pixel *out, const pixel *in, int log2n);
+void n265_filter_refs_neon(pixel *out, const pixel *in, int log2n,
+                           int strong);
 
 #endif /* N265_NEON_INTRA */
 

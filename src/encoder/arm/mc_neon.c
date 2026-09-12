@@ -1649,6 +1649,11 @@ void n265_mc_chroma_wh_neon(pixel *dst, int ds, int w, int h,
     /* 2-D: the horizontal stage into an int16 temp of h + 3 rows at
      * stride w - the same shape and the same values the C's tmp holds -
      * then the vertical stage over exactly those rows. */
+    /* 4:2:0 only, and that is enforced rather than assumed: a chroma
+     * block is at most 32x32 while the plane is halved, and at 4:4:4 it
+     * reaches 64x64 - so n265_encoder_open stands the whole MC class
+     * down for that format (phase 8 item 6a) and this driver is not
+     * reached there. Porting it is a later item. */
     int16_t tmp[(32 + 3) * 32];
     const int16_t *fh = mc_chroma_filt[fx], *fv = mc_chroma_filt[fy];
     mc_ctaps th;
@@ -1701,6 +1706,11 @@ void n265_mc_chroma_14_wh_neon(int16_t *dst, int ds, int w, int h,
         mc_cvblock_s16(dst, ds, ref, rs, w, h, &t, f);
         return;
     }
+    /* 4:2:0 only, and that is enforced rather than assumed: a chroma
+     * block is at most 32x32 while the plane is halved, and at 4:4:4 it
+     * reaches 64x64 - so n265_encoder_open stands the whole MC class
+     * down for that format (phase 8 item 6a) and this driver is not
+     * reached there. Porting it is a later item. */
     int16_t tmp[(32 + 3) * 32];
     const int16_t *fh = mc_chroma_filt[fx], *fv = mc_chroma_filt[fy];
     mc_ctaps th;

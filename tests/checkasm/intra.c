@@ -161,12 +161,12 @@ static int check_pred(void)
 
 /* ---- n265_filter_refs ----------------------------------------------- */
 
-static void filt_opt(pixel *out, const pixel *in, int log2n)
+static void filt_opt(pixel *out, const pixel *in, int log2n, int strong)
 {
 #if N265_NEON_INTRA
-    n265_filter_refs_neon(out, in, log2n);
+    n265_filter_refs_neon(out, in, log2n, strong);
 #else
-    n265_filter_refs(out, in, log2n);
+    n265_filter_refs(out, in, log2n, strong);
 #endif
 }
 
@@ -181,11 +181,17 @@ static int check_filter(void)
         pixel *out = ca_guard_alloc(total);
         pixel *ref = ca_guard_alloc(total);
 
+        /* `strong` gates the 32x32 bilinear rebuild, which is luma-only
+         * at every chroma format (biIntFlag carries cIdx == 0); both
+         * values are swept so the 4:4:4 chroma arm - a 32x32 chroma TB
+         * that must take the plain [1 2 1] run - is checked too. */
+        for (int strong = 0; strong < 2 && !bad; strong++)
         for (int kind = 0; kind < NKIND && !bad; kind++) {
             for (int rep = 0; rep < 64 && !bad; rep++) {
                 char what[48];
 
-                snprintf(what, sizeof(what), "filter_refs %d k%d", n, kind);
+                snprintf(what, sizeof(what), "filter_refs %d k%d s%d", n,
+                         kind, strong);
                 fill_refs(in, n, kind);
                 ca_guard_poison(in, total);
                 memset(out, CA_POISON, total);
@@ -193,8 +199,8 @@ static int check_filter(void)
                 ca_guard_poison(out, total);
                 ca_guard_poison(ref, total);
 
-                n265_filter_refs_ref(ref, in, log2n);
-                filt_opt(out, in, log2n);
+                n265_filter_refs_ref(ref, in, log2n, strong);
+                filt_opt(out, in, log2n, strong);
                 if (memcmp(out, ref, total)) {
                     for (size_t i = 0; i < total; i++)
                         if (out[i] != ref[i]) {
@@ -352,7 +358,7 @@ static void window_filter(void)
             snprintf(what, sizeof(what), "filter_refs %d, %s edge", n,
                      tail ? "far" : "near");
             ca_pg_arm(what);
-            filt_opt(out, in, log2n);
+            filt_opt(out, in, log2n, 1);
             ca_pg_disarm();
             ca_pg_free(&g);
         }
@@ -418,13 +424,13 @@ struct fctx {
 static void filt_ref_call(void *v)
 {
     struct fctx *c = v;
-    n265_filter_refs_ref(c->out, c->in, c->log2n);
+    n265_filter_refs_ref(c->out, c->in, c->log2n, 1);
 }
 
 static void filt_opt_call(void *v)
 {
     struct fctx *c = v;
-    filt_opt(c->out, c->in, c->log2n);
+    filt_opt(c->out, c->in, c->log2n, 1);
 }
 
 struct rctx {

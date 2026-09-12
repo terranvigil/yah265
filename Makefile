@@ -15,7 +15,7 @@ BUILD ?= build
 # keeps working.
 BUILD10 ?= build10
 
-.PHONY: build build8 build10 test smoke10 conformance conformance-fast conformance10 conformance10-fast provenance asan asan10 determ determ-fast determ10 board board-quick clean checkasm-bench checkasm-asan checkasm10-bench checkasm10-asan
+.PHONY: build build8 build10 test smoke10 conformance conformance-fast conformance10 conformance10-fast conformance444 conformance444-fast conformance444-10 conformance444-10-fast provenance asan asan10 asan444 determ determ-fast determ10 determ444 board board-quick clean checkasm-bench checkasm-asan checkasm10-bench checkasm10-asan
 
 build: build8 build10
 
@@ -86,6 +86,23 @@ conformance10: build
 conformance10-fast: build
 	N265_10=$(BUILD)/n265 scripts/conformance.sh --depth10 --fast
 
+# The 4:4:4 lists (phase 8 item 6a), one per depth. The chroma format is a
+# RUNTIME SPS property, so this is the same binary and the same library as
+# every target above; what selects it is the source's C tag (C444 /
+# C444p10). Its own list for the reason the Main10 one has its own: the
+# 4:2:0 pass counts are part of the invariant and may not move.
+conformance444: build
+	N265=$(BUILD)/n265 scripts/conformance.sh --csp444
+
+conformance444-fast: build
+	N265=$(BUILD)/n265 scripts/conformance.sh --csp444 --fast
+
+conformance444-10: build
+	N265_10=$(BUILD)/n265 scripts/conformance.sh --csp444 --depth10
+
+conformance444-10-fast: build
+	N265_10=$(BUILD)/n265 scripts/conformance.sh --csp444 --depth10 --fast
+
 provenance:
 	scripts/provenance_check.sh
 
@@ -128,6 +145,20 @@ determ-fast: build
 	ENC=$(BUILD)/n265 CLIPS=sita_flat_720p CTBS='16 64' SAOS=off \
 	    RCS=cqp scripts/determ_gate.sh
 
+# Determinism at 4:4:4 (phase 8 item 6a): one clip converted into a
+# scratch directory first, then the item gate's reduced shape - two thread
+# counts, repeated. CORPUS444 overrides where the converted clips go.
+CORPUS444 ?= $(TMPDIR)yah265-corpus444
+determ444: build
+	@mkdir -p $(CORPUS444)
+	@[ -s $(CORPUS444)/foreman_cif.y4m ] || \
+	    ffmpeg -loglevel error -i tests/corpus/foreman_cif.y4m \
+	        -pix_fmt yuv444p -strict -1 -f yuv4mpegpipe \
+	        $(CORPUS444)/foreman_cif.y4m -y
+	ENC=$(BUILD)/n265 CORPUS=$(CORPUS444) CLIPS=foreman_cif \
+	    THREADS="1 12" REFS=b1 RUNS=2 FRAMES=120 \
+	    ARGS="--crf 28 --ctu 32 --ref 3" scripts/determ_repeat.sh
+
 asan:
 	@[ -d build-asan ] || meson setup build-asan -Db_sanitize=address,undefined -Db_lundef=false
 	ninja -C build-asan
@@ -143,6 +174,15 @@ asan10:
 	@[ -d build-asan ] || meson setup build-asan -Db_sanitize=address,undefined -Db_lundef=false
 	ninja -C build-asan
 	N265_10=build-asan/n265 scripts/conformance.sh --depth10 --fast
+
+# The 4:4:4 vectors under ASan + UBSan, at both depths. Same tree as
+# `make asan`: build-asan instruments both libraries and its n265 links
+# both, and the chroma format needs no tree of its own at all.
+asan444:
+	@[ -d build-asan ] || meson setup build-asan -Db_sanitize=address,undefined -Db_lundef=false
+	ninja -C build-asan
+	N265=build-asan/n265 scripts/conformance.sh --csp444 --fast
+	N265_10=build-asan/n265 scripts/conformance.sh --csp444 --depth10 --fast
 
 clean:
 	rm -rf $(BUILD) $(BUILD10) build-asan build10-asan

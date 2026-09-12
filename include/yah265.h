@@ -88,9 +88,17 @@ typedef uint16_t n265_pixel;
 #define n265_version_str      N265_API(n265_version_str)
 #endif
 
-/* Chroma sampling of input pictures. Only 4:2:0 for now. */
+/* Chroma sampling of input pictures. The value IS chroma_format_idc
+ * (7.4.3.2), so the SPS field and the plane geometry read one number: 1 is
+ * 4:2:0 and 3 is 4:4:4. It is a RUNTIME property of the encoder and not a
+ * build option - unlike the sample width, the chroma format does not
+ * change the pixel type, so one library codes both.
+ *
+ * N265_CSP_I420 stays 0 as well, because it was the old enum's only value
+ * and a caller that memsets its n265_param must keep getting 4:2:0. */
 enum {
     N265_CSP_I420 = 0,
+    N265_CSP_I444 = 3,
 };
 
 typedef struct n265_param {

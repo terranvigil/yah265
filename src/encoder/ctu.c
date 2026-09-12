@@ -78,11 +78,11 @@ static inline uint32_t chroma_w_q8(const struct n265_frame_work *e)
 {
     return e->cur_chroma_w_q8;
 }
-static uint32_t chroma_w_for_qp(int qp_y)
+static uint32_t chroma_w_for_qp(int qp_y, int c444)
 {
     if (!chroma_w_on())
         return 256;
-    int d = qp_y - n265_chroma_qp(qp_y);
+    int d = qp_y - n265_chroma_qp(qp_y, c444);
     if (d < 0) d = 0;
     if (d > 6) d = 6;
     uint32_t w = chroma_w_tab[d];
@@ -122,6 +122,19 @@ static int chroma_pred(void)
     static int v = -1;
     if (v < 0) { const char *s = n265_env("N265_CHROMA_PRED"); v = s ? atoi(s) : 1; }
     return v;
+}
+
+/* The component index the INTRA FILTERING and SCAN clauses read.
+ * 8.4.4.2.1 invokes the reference-sample filtering when
+ * `cIdx == 0 || ChromaArrayType == 3`, and 7.4.9.11 gives the 8x8 block
+ * the mode-dependent scan under the same condition, so at 4:4:4 a chroma
+ * block takes the luma answer to both. Every other use of c_idx - the
+ * plane it addresses, the residual-coding contexts, the DC and angular
+ * BOUNDARY filters (which stay `cIdx == 0` at every format) - keeps the
+ * real index. At 4:2:0 this is the identity. */
+static inline int c_filt(const struct n265_frame_work *e, int c_idx)
+{
+    return e->c444 ? 0 : c_idx;
 }
 
 static int no_gates_on(void)
@@ -244,12 +257,17 @@ typedef struct part_cand {
     pu_dec d[2];
     tb_ctx tl, tcb, tcr;
     pixel py[32 * 32];          /* the PU-by-PU prediction of the CU */
-    pixel pc[2][16 * 16];
+    /* the chroma halves of it. 16x16 covers a 32x32 rectangular CU at
+     * 4:2:0; at 4:4:4 the chroma block IS the luma block, so 32x32. */
+    pixel pc[2][32 * 32];
 } part_cand;
 
 /* full encoder-state snapshot of a CU area, for split-vs-nosplit trials */
 typedef struct qt_snap {
-    pixel recon[64 * 64 * 3 / 2];
+    /* one CTB of all three planes: 3/2 the luma area at 4:2:0 and 3 times
+     * it at 4:4:4, so the worst case is sized here and the 4:2:0 encoder
+     * simply uses half of it */
+    pixel recon[64 * 64 * 3];
     uint8_t maps[8][16 * 16];
     int16_t mv[16 * 16 * 4];
     int8_t ref[16 * 16 * 2];    /* the reference-index map (multi-ref, 2026-09-06) */
@@ -260,7 +278,12 @@ typedef struct qt_snap {
      * overwrites the shared tail, so content must be kept too) */
     size_t rec_base;
     size_t rec_copy_len;
-    uint8_t rec_copy[16384];
+    /* An intra CB64's full record: the levels are int16 per coefficient,
+     * so one CTU is 8 KB of luma plus the chroma - 4 KB at 4:2:0 (two
+     * 32x32 blocks) and 16 KB at 4:4:4 (two 64x64 worth), plus the flag
+     * bytes. 40 KB covers the worst format with room; the assert below is
+     * what says so. */
+    uint8_t rec_copy[40960];
 } qt_snap;
 
 /* Per-row-lane trial scratch (docs/threading-design.md sec 4). These
@@ -304,21 +327,35 @@ static void mc_pred_uni(struct n265_frame_work *e, int list, int ref, int c_idx,
     int rs = r->stride[c_idx];
     pixel win[N265_REF_WIN_SAMPLES];
     if (c_idx) {
-        int dx = mv.x >> 3, dy = mv.y >> 3;
+        /* 8.5.3.2.9: mvCLX = mvLX * 2 / SubWidthC, so the chroma vector is
+         * the luma one at 4:2:0 (both in eighths of a chroma sample) and
+         * TWICE it at 4:4:4 - where a chroma sample is a luma sample, so
+         * the reachable fractional positions are the EVEN entries of
+         * Table 8-12 and the filter runs at quarter-pel on a full-size
+         * plane. *2 rather than << 1 because the vector goes negative and
+         * shifting a negative is undefined. */
+        int mvcx = e->csx ? mv.x : mv.x * 2;
+        int mvcy = e->csy ? mv.y : mv.y * 2;
+        int dx = mvcx >> 3, dy = mvcy >> 3;
         /* G2 entry point. The chroma 4-tap reaches two chroma lines
-         * below the block, i.e. four luma lines; the bound is asked in
-         * luma lines because that is what the watermark counts.
-         * *2, not << 1: an unclamped chroma MV can put this line above
-         * the picture, and shifting a negative is undefined (UBSan
-         * catches it on park_joy at t12). n265_ref_need clamps it. */
-        int need = n265_ref_wait(e, r, (y0 + dy + h + 2) * 2 + 1);
+         * below the block; the bound is asked in LUMA lines because that
+         * is what the watermark counts, so a chroma line becomes
+         * (1 << csy) luma lines and the last one of them is the bound.
+         * Multiplication, not a shift: an unclamped chroma MV can put
+         * this line above the picture and shifting a negative is
+         * undefined (UBSan catches it on park_joy at t12).
+         * n265_ref_need clamps it. */
+        int cl = 1 << e->csy;
+        int need = n265_ref_wait(e, r, (y0 + dy + h + 2) * cl + cl - 1);
         N265_REF_GUARD(e, r, need, c_idx, NULL);
         int ws, wclip;
-        const pixel *rp = n265_ref_win(r->plane[c_idx], rs, e->pad_w / 2,
-                                         e->pad_h / 2, N265_REF_PAD / 2,
+        const pixel *rp = n265_ref_win(r->plane[c_idx], rs,
+                                         e->pad_w >> e->csx,
+                                         e->pad_h >> e->csy,
+                                         N265_REF_PAD >> e->csx,
                                          x0 + dx, y0 + dy, w, h, 1, 2,
                                          win, &ws, &wclip);
-        n265_mc_chroma_wh(dst, ds, w, h, rp, ws, mv.x & 7, mv.y & 7);
+        n265_mc_chroma_wh(dst, ds, w, h, rp, ws, mvcx & 7, mvcy & 7);
         N265_REF_UNGUARD();
     } else {
         int ix = x0 + (mv.x >> 2), iy = y0 + (mv.y >> 2);
@@ -349,18 +386,21 @@ static void mc_pred14(struct n265_frame_work *e, int list, int ref, int c_idx, i
     int rs = r->stride[c_idx];
     pixel win[N265_REF_WIN_SAMPLES];
     if (c_idx) {
-        int dx = mv.x >> 3, dy = mv.y >> 3;
-        /* *2, not << 1: an unclamped chroma MV can put this line above
-         * the picture, and shifting a negative is undefined (UBSan
-         * catches it on park_joy at t12). n265_ref_need clamps it. */
-        int need = n265_ref_wait(e, r, (y0 + dy + h + 2) * 2 + 1);
+        /* the chroma vector of 8.5.3.2.9; see mc_pred_uni */
+        int mvcx = e->csx ? mv.x : mv.x * 2;
+        int mvcy = e->csy ? mv.y : mv.y * 2;
+        int dx = mvcx >> 3, dy = mvcy >> 3;
+        int cl = 1 << e->csy;
+        int need = n265_ref_wait(e, r, (y0 + dy + h + 2) * cl + cl - 1);
         N265_REF_GUARD(e, r, need, c_idx, NULL);
         int ws, wclip;
-        const pixel *rp = n265_ref_win(r->plane[c_idx], rs, e->pad_w / 2,
-                                         e->pad_h / 2, N265_REF_PAD / 2,
+        const pixel *rp = n265_ref_win(r->plane[c_idx], rs,
+                                         e->pad_w >> e->csx,
+                                         e->pad_h >> e->csy,
+                                         N265_REF_PAD >> e->csx,
                                          x0 + dx, y0 + dy, w, h, 1, 2,
                                          win, &ws, &wclip);
-        n265_mc_chroma_14_wh(dst, w, w, h, rp, ws, mv.x & 7, mv.y & 7);
+        n265_mc_chroma_14_wh(dst, w, w, h, rp, ws, mvcx & 7, mvcy & 7);
         N265_REF_UNGUARD();
     } else {
         int ix = x0 + (mv.x >> 2), iy = y0 + (mv.y >> 2);
@@ -423,24 +463,27 @@ static void tb_analyze(struct n265_frame_work *e, int c_idx, int x0, int y0,
                        int log2n, int qp, int mode, mot_t mot, tb_ctx *tb)
 {
     int inter = mode == MODE_INTER;
+    /* 8.6.4.2: the 4x4 DST-VII is LUMA-only at every chroma format, so a
+     * 4x4 chroma block at 4:4:4 takes the DCT like every other. */
     int use_dst = !inter && c_idx == 0 && log2n == 2;
     int n = 1 << log2n;
+    int cf = c_filt(e, c_idx);
     pixel *recon = e->recon[c_idx];
     int stride = e->recon_stride[c_idx];
     const pixel *src = e->pad_plane[c_idx] + y0 * e->pad_stride[c_idx] + x0;
-    int pic_w = c_idx ? e->pad_w / 2 : e->pad_w;
-    int pic_h = c_idx ? e->pad_h / 2 : e->pad_h;
-    int ctb_log2 = c_idx ? e->ctb_log2 - 1 : e->ctb_log2;
+    int pic_w = c_idx ? e->pad_w >> e->csx : e->pad_w;
+    int pic_h = c_idx ? e->pad_h >> e->csy : e->pad_h;
+    int ctb_log2 = c_idx ? e->ctb_log2 - e->csx : e->ctb_log2;
 
     if (inter) {
         if (e->cu_pred[c_idx]) {
             /* a partitioned CU predicts PU by PU once; every TB inside it
              * crops that instead of running whole-TB MC on one motion */
-            int sh = c_idx ? 1 : 0;
+            int shx = c_idx ? e->csx : 0, shy = c_idx ? e->csy : 0;
             int cs = e->cu_pred_stride[c_idx];
             const pixel *p = e->cu_pred[c_idx] +
-                (y0 - (e->cu_pred_y0 >> sh)) * cs +
-                (x0 - (e->cu_pred_x0 >> sh));
+                (y0 - (e->cu_pred_y0 >> shy)) * cs +
+                (x0 - (e->cu_pred_x0 >> shx));
             for (int y = 0; y < n; y++)
                 memcpy(tb->pred + y * n, p + y * cs,
                        (size_t)n * sizeof(pixel));
@@ -451,8 +494,8 @@ static void tb_analyze(struct n265_frame_work *e, int c_idx, int x0, int y0,
         pixel refs[4 * 32 + 1], refs_f[4 * 32 + 1];
         n265_intra_refs(refs, recon, stride, x0, y0, log2n, pic_w, pic_h,
                         ctb_log2);
-        if (n265_use_filtered_refs(mode, log2n, c_idx)) {
-            n265_filter_refs(refs_f, refs, log2n);
+        if (n265_use_filtered_refs(mode, log2n, cf)) {
+            n265_filter_refs(refs_f, refs, log2n, c_idx == 0);
             n265_intra_pred(tb->pred, n, refs_f, log2n, mode, c_idx);
         } else {
             n265_intra_pred(tb->pred, n, refs, log2n, mode, c_idx);
@@ -485,7 +528,7 @@ static void tb_analyze(struct n265_frame_work *e, int c_idx, int x0, int y0,
         return;
     }
     n265_fdct(coef, resid, log2n, use_dst);
-    int scan = inter ? 0 : n265_scan_idx(mode, log2n, c_idx);
+    int scan = inter ? 0 : n265_scan_idx(mode, log2n, cf);
     int sbh_done = 0;
     if (e->rdoq) {
         tb->nz = n265_rdoq(tb->level, coef, log2n, qp, !inter, c_idx, scan,
@@ -601,7 +644,7 @@ static int search_luma_mode_sub(struct n265_frame_work *e, int x0, int y0,
      * filter is skipped there. refs_f stays uninitialised in that case,
      * which is sound because the same predicate guards every read of it. */
     if (log2n > 2)
-        n265_filter_refs(refs_f, refs, log2n);
+        n265_filter_refs(refs_f, refs, log2n, 1);
 
     int best_mode = 0;
     uint32_t best_cost = UINT32_MAX;
@@ -1279,7 +1322,8 @@ static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
                        int log2ts, tb_ctx *pre_l, tb_ctx *pre_cb,
                        tb_ctx *pre_cr)
 {
-    int qp_c = n265_chroma_qp(e->cur_ctu_qp);
+    int qp_c = n265_chroma_qp(e->cur_ctu_qp, e->c444);
+    int csx = e->csx, csy = e->csy;
     int split = log2ts > 5;
     tb_ctx tb;
 
@@ -1296,11 +1340,12 @@ static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
         tb_ctx tcb, tcr;
         for (int i = 0; i < 4; i++) {
             int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
+            int cx1 = x1 >> csx, cy1 = y1 >> csy;
+            int log2c = log2ts - 1 - csx;
+            int carea = (h >> csx) * (h >> csy);
             mark_cu_edges(e, x1, y1, h);
-            tb_analyze(e, 1, x1 / 2, y1 / 2, log2ts - 2, qp_c, mode,
-                       mot_zero, &tcb);
-            tb_analyze(e, 2, x1 / 2, y1 / 2, log2ts - 2, qp_c, mode,
-                       mot_zero, &tcr);
+            tb_analyze(e, 1, cx1, cy1, log2c, qp_c, mode, mot_zero, &tcb);
+            tb_analyze(e, 2, cx1, cy1, log2c, qp_c, mode, mot_zero, &tcr);
             root_cb |= tcb.nz != 0;
             root_cr |= tcr.nz != 0;
             rec_u8(e, tcb.nz != 0);
@@ -1309,12 +1354,12 @@ static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
             rec_u8(e, (unsigned)cbf_l);
             if (cbf_l)
                 rec_levels(e, tb.level, h * h);
-            tb_recon(e, 1, x1 / 2, y1 / 2, log2ts - 2, qp_c, mode, &tcb);
+            tb_recon(e, 1, cx1, cy1, log2c, qp_c, mode, &tcb);
             if (tcb.nz)
-                rec_levels(e, tcb.level, (h / 2) * (h / 2));
-            tb_recon(e, 2, x1 / 2, y1 / 2, log2ts - 2, qp_c, mode, &tcr);
+                rec_levels(e, tcb.level, carea);
+            tb_recon(e, 2, cx1, cy1, log2c, qp_c, mode, &tcr);
             if (tcr.nz)
-                rec_levels(e, tcr.level, (h / 2) * (h / 2));
+                rec_levels(e, tcr.level, carea);
         }
         e->rec_buf[root_off] = (uint8_t)root_cb;
         e->rec_buf[root_off + 1] = (uint8_t)root_cr;
@@ -1328,7 +1373,16 @@ static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
     mark_cu_edges(e, x0, y0, n);
     uint32_t lam = ctu_lam(e, e->cur_ctu_qp);
     int h = n >> 1;
-    int child_chroma = log2ts > 3;
+    int cx0 = x0 >> csx, cy0 = y0 >> csy;
+    int log2c = log2ts - csx;           /* this node's chroma TB */
+    int cn_w = n >> csx, cn_h = n >> csy;
+    /* Does each luma child carry its own chroma, or does the node keep
+     * one chroma block for all four (7.3.8.10's blkIdx == 3 arm)? The
+     * merge exists only because a 4:2:0 chroma child of an 8x8 luma node
+     * would be 2x2, which is not a transform block; the condition is
+     * exactly "the child's chroma would be smaller than 4x4", and at
+     * 4:4:4 that never happens. Folds to `log2ts > 3` at 4:2:0. */
+    int child_chroma = (log2ts - 1 - csx) >= 2;
 
     /* flat arrangement (no frame commits yet) */
     tb_ctx tcb, tcr;
@@ -1336,18 +1390,16 @@ static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
     if (pre_l) {
         ptb = pre_l; ptcb = pre_cb; ptcr = pre_cr;
     } else {
-        tb_analyze(e, 1, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, mot_zero,
-                   ptcb);
-        tb_analyze(e, 2, x0 / 2, y0 / 2, log2ts - 1, qp_c, mode, mot_zero,
-                   ptcr);
+        tb_analyze(e, 1, cx0, cy0, log2c, qp_c, mode, mot_zero, ptcb);
+        tb_analyze(e, 2, cx0, cy0, log2c, qp_c, mode, mot_zero, ptcr);
         tb_analyze(e, 0, x0, y0, log2ts, e->cur_ctu_qp, mode, mot_zero, ptb);
         tb_make_recon(0, log2ts, e->cur_ctu_qp, mode, ptb);
-        tb_make_recon(1, log2ts - 1, qp_c, mode, ptcb);
-        tb_make_recon(2, log2ts - 1, qp_c, mode, ptcr);
+        tb_make_recon(1, log2c, qp_c, mode, ptcb);
+        tb_make_recon(2, log2c, qp_c, mode, ptcr);
     }
     uint64_t d_flat = tb_ssd(e, 0, x0, y0, log2ts, ptb) +
-        tb_ssd(e, 1, x0 / 2, y0 / 2, log2ts - 1, ptcb) +
-        tb_ssd(e, 2, x0 / 2, y0 / 2, log2ts - 1, ptcr);
+        tb_ssd(e, 1, cx0, cy0, log2c, ptcb) +
+        tb_ssd(e, 2, cx0, cy0, log2c, ptcr);
     cabac_ctx_t local[CTX_COUNT];
     est_state st = { local, 0 };
     memcpy(local, e->est_ctx, sizeof(local));
@@ -1356,18 +1408,17 @@ static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
     uint64_t j_flat = rd_j(e, d_flat, st.bits, lam);
 
     /* split arrangement: sequential, committing recon TU by TU */
-    pixel save_l[32 * 32], save_c[2][16 * 16];
-    pixel split_l[32 * 32], split_c[2][16 * 16];
+    pixel save_l[32 * 32], save_c[2][32 * 32];
+    pixel split_l[32 * 32], split_c[2][32 * 32];
     for (int y = 0; y < n; y++)
         memcpy(save_l + y * n,
                e->recon[0] + (y0 + y) * e->recon_stride[0] + x0,
                (size_t)n * sizeof(pixel));
     for (int c = 0; c < 2; c++)
-        for (int y = 0; y < n / 2; y++)
-            memcpy(save_c[c] + y * (n / 2),
-                   e->recon[c + 1] + (y0 / 2 + y) * e->recon_stride[c + 1] +
-                       x0 / 2,
-                   (size_t)(n / 2) * sizeof(pixel));
+        for (int y = 0; y < cn_h; y++)
+            memcpy(save_c[c] + y * cn_w,
+                   e->recon[c + 1] + (cy0 + y) * e->recon_stride[c + 1] + cx0,
+                   (size_t)cn_w * sizeof(pixel));
 
     tb_ctx *s_l = e->sc->itt_l;
     tb_ctx (*s_c)[2] = e->sc->itt_c;
@@ -1380,33 +1431,26 @@ static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
         tb_recon(e, 0, x1, y1, log2ts - 1, e->cur_ctu_qp, mode, &s_l[i]);
         d_split += tb_ssd(e, 0, x1, y1, log2ts - 1, &s_l[i]);
         if (child_chroma) {
-            tb_analyze(e, 1, x1 / 2, y1 / 2, log2ts - 2, qp_c, mode,
-                       mot_zero, &s_c[i][0]);
-            tb_recon(e, 1, x1 / 2, y1 / 2, log2ts - 2, qp_c, mode,
-                     &s_c[i][0]);
-            tb_analyze(e, 2, x1 / 2, y1 / 2, log2ts - 2, qp_c, mode,
-                       mot_zero, &s_c[i][1]);
-            tb_recon(e, 2, x1 / 2, y1 / 2, log2ts - 2, qp_c, mode,
-                     &s_c[i][1]);
-            d_split += tb_ssd(e, 1, x1 / 2, y1 / 2, log2ts - 2,
-                              &s_c[i][0]);
-            d_split += tb_ssd(e, 2, x1 / 2, y1 / 2, log2ts - 2,
-                              &s_c[i][1]);
+            int kx = x1 >> csx, ky = y1 >> csy, kl = log2ts - 1 - csx;
+            tb_analyze(e, 1, kx, ky, kl, qp_c, mode, mot_zero, &s_c[i][0]);
+            tb_recon(e, 1, kx, ky, kl, qp_c, mode, &s_c[i][0]);
+            tb_analyze(e, 2, kx, ky, kl, qp_c, mode, mot_zero, &s_c[i][1]);
+            tb_recon(e, 2, kx, ky, kl, qp_c, mode, &s_c[i][1]);
+            d_split += tb_ssd(e, 1, kx, ky, kl, &s_c[i][0]);
+            d_split += tb_ssd(e, 2, kx, ky, kl, &s_c[i][1]);
             root_cb |= s_c[i][0].nz != 0;
             root_cr |= s_c[i][1].nz != 0;
         }
     }
     if (!child_chroma) {
-        /* CB8: chroma stays a single 4x4 at the parent, predicted after
-         * the luma children per decode order */
-        tb_analyze(e, 1, x0 / 2, y0 / 2, 2, qp_c, mode, mot_zero,
-                   &s_c[0][0]);
-        tb_recon(e, 1, x0 / 2, y0 / 2, 2, qp_c, mode, &s_c[0][0]);
-        tb_analyze(e, 2, x0 / 2, y0 / 2, 2, qp_c, mode, mot_zero,
-                   &s_c[0][1]);
-        tb_recon(e, 2, x0 / 2, y0 / 2, 2, qp_c, mode, &s_c[0][1]);
-        d_split += tb_ssd(e, 1, x0 / 2, y0 / 2, 2, &s_c[0][0]);
-        d_split += tb_ssd(e, 2, x0 / 2, y0 / 2, 2, &s_c[0][1]);
+        /* CB8 at 4:2:0: chroma stays a single 4x4 at the parent,
+         * predicted after the luma children per decode order */
+        tb_analyze(e, 1, cx0, cy0, 2, qp_c, mode, mot_zero, &s_c[0][0]);
+        tb_recon(e, 1, cx0, cy0, 2, qp_c, mode, &s_c[0][0]);
+        tb_analyze(e, 2, cx0, cy0, 2, qp_c, mode, mot_zero, &s_c[0][1]);
+        tb_recon(e, 2, cx0, cy0, 2, qp_c, mode, &s_c[0][1]);
+        d_split += tb_ssd(e, 1, cx0, cy0, 2, &s_c[0][0]);
+        d_split += tb_ssd(e, 2, cx0, cy0, 2, &s_c[0][1]);
         root_cb = s_c[0][0].nz != 0;
         root_cr = s_c[0][1].nz != 0;
     }
@@ -1419,14 +1463,12 @@ static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
                save_l + y * n, (size_t)n * sizeof(pixel));
     }
     for (int c = 0; c < 2; c++)
-        for (int y = 0; y < n / 2; y++) {
-            memcpy(split_c[c] + y * (n / 2),
-                   e->recon[c + 1] + (y0 / 2 + y) * e->recon_stride[c + 1] +
-                       x0 / 2,
-                   (size_t)(n / 2) * sizeof(pixel));
-            memcpy(e->recon[c + 1] + (y0 / 2 + y) * e->recon_stride[c + 1] +
-                       x0 / 2,
-                   save_c[c] + y * (n / 2), (size_t)(n / 2) * sizeof(pixel));
+        for (int y = 0; y < cn_h; y++) {
+            memcpy(split_c[c] + y * cn_w,
+                   e->recon[c + 1] + (cy0 + y) * e->recon_stride[c + 1] + cx0,
+                   (size_t)cn_w * sizeof(pixel));
+            memcpy(e->recon[c + 1] + (cy0 + y) * e->recon_stride[c + 1] + cx0,
+                   save_c[c] + y * cn_w, (size_t)cn_w * sizeof(pixel));
         }
 
     memcpy(local, e->est_ctx, sizeof(local));
@@ -1453,15 +1495,16 @@ static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
                                      n265_scan_idx(mode, log2ts - 1, 0),
                                      !e->lossless);
             if (child_chroma) {
-                int sc = n265_scan_idx(mode, log2ts - 2, 1);
+                int kl = log2ts - 1 - csx;
+                int sc = n265_scan_idx(mode, kl, c_filt(e, 1));
                 if (s_c[i][0].nz)
-                    n265_residual_coding(&ops, s_c[i][0].level, log2ts - 2,
+                    n265_residual_coding(&ops, s_c[i][0].level, kl,
                                          1, sc, !e->lossless);
                 if (s_c[i][1].nz)
-                    n265_residual_coding(&ops, s_c[i][1].level, log2ts - 2,
+                    n265_residual_coding(&ops, s_c[i][1].level, kl,
                                          2, sc, !e->lossless);
             } else if (i == 3) {
-                int sc = n265_scan_idx(mode, 2, 1);
+                int sc = n265_scan_idx(mode, 2, c_filt(e, 1));
                 if (root_cb)
                     n265_residual_coding(&ops, s_c[0][0].level, 2, 1, sc,
                                          !e->lossless);
@@ -1481,12 +1524,12 @@ static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
         tb_commit(e, 0, x0, y0, log2ts, ptb);
         if (ptb->nz)
             rec_levels(e, ptb->level, n * n);
-        tb_commit(e, 1, x0 / 2, y0 / 2, log2ts - 1, ptcb);
+        tb_commit(e, 1, cx0, cy0, log2c, ptcb);
         if (ptcb->nz)
-            rec_levels(e, ptcb->level, (n / 2) * (n / 2));
-        tb_commit(e, 2, x0 / 2, y0 / 2, log2ts - 1, ptcr);
+            rec_levels(e, ptcb->level, cn_w * cn_h);
+        tb_commit(e, 2, cx0, cy0, log2c, ptcr);
         if (ptcr->nz)
-            rec_levels(e, ptcr->level, (n / 2) * (n / 2));
+            rec_levels(e, ptcr->level, cn_w * cn_h);
         return;
     }
 
@@ -1495,10 +1538,9 @@ static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
         memcpy(e->recon[0] + (y0 + y) * e->recon_stride[0] + x0,
                split_l + y * n, (size_t)n * sizeof(pixel));
     for (int c = 0; c < 2; c++)
-        for (int y = 0; y < n / 2; y++)
-            memcpy(e->recon[c + 1] + (y0 / 2 + y) * e->recon_stride[c + 1] +
-                       x0 / 2,
-                   split_c[c] + y * (n / 2), (size_t)(n / 2) * sizeof(pixel));
+        for (int y = 0; y < cn_h; y++)
+            memcpy(e->recon[c + 1] + (cy0 + y) * e->recon_stride[c + 1] + cx0,
+                   split_c[c] + y * cn_w, (size_t)cn_w * sizeof(pixel));
     rec_u8(e, 1);
     rec_u8(e, (unsigned)root_cb);
     rec_u8(e, (unsigned)root_cr);
@@ -1514,10 +1556,11 @@ static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
         if (s_l[i].nz)
             rec_levels(e, s_l[i].level, h * h);
         if (child_chroma) {
+            int ca = (h >> csx) * (h >> csy);
             if (s_c[i][0].nz)
-                rec_levels(e, s_c[i][0].level, (h / 2) * (h / 2));
+                rec_levels(e, s_c[i][0].level, ca);
             if (s_c[i][1].nz)
-                rec_levels(e, s_c[i][1].level, (h / 2) * (h / 2));
+                rec_levels(e, s_c[i][1].level, ca);
         } else if (i == 3) {
             if (root_cb)
                 rec_levels(e, s_c[0][0].level, 16);
@@ -1570,12 +1613,13 @@ static void skip_cu(struct n265_frame_work *e, int x0, int y0, int log2n,
     rec_u8(e, (unsigned)merge_idx);
     pixel pred[64 * 64];
     for (int c = 0; c < 3; c++) {
-        int sh = c ? 1 : 0;
-        mc_pred(e, c, x0 >> sh, y0 >> sh, n >> sh, mot, pred);
-        for (int y = 0; y < n >> sh; y++)
-            memcpy(e->recon[c] + ((y0 >> sh) + y) * e->recon_stride[c] +
-                       (x0 >> sh),
-                   pred + y * (n >> sh), (size_t)(n >> sh) * sizeof(pixel));
+        int shx = c ? e->csx : 0, shy = c ? e->csy : 0;
+        int cw = n >> shx, ch = n >> shy;
+        mc_pred_wh(e, c, x0 >> shx, y0 >> shy, cw, ch, mot, pred, cw);
+        for (int y = 0; y < ch; y++)
+            memcpy(e->recon[c] + ((y0 >> shy) + y) * e->recon_stride[c] +
+                       (x0 >> shx),
+                   pred + y * cw, (size_t)cw * sizeof(pixel));
     }
     set_blk(e, e->blk_intra, x0, y0, n, 0);
     set_blk(e, e->blk_skip, x0, y0, n, 1);
@@ -1611,10 +1655,12 @@ static uint32_t mot_satd_wh(struct n265_frame_work *e, int x0, int y0, int w,
 }
 
 /* CHROMA_NA: this PU has no chroma SATD to take. n265_satd_wh tiles 4x4
- * at best, so the chroma block needs both sides a multiple of 4, i.e.
- * both luma sides a multiple of 8. The 8x4 / 4x8 PUs (chroma 4x2) and
- * the AMP PUs of a 16x16 CB (chroma 8x2 / 2x8) are the exceptions, and
- * every caller below leaves those PUs' choice luma-only. */
+ * at best, so the CHROMA block needs both sides a multiple of 4 - which
+ * at 4:2:0 is both luma sides a multiple of 8 (the 8x4 / 4x8 PUs give
+ * chroma 4x2, the AMP PUs of a 16x16 CB give 8x2 / 2x8) and at 4:4:4 is
+ * both luma sides a multiple of 4, i.e. every PU this encoder has. The
+ * test is written on the chroma block so it says the same thing at both
+ * formats; every caller below leaves the exceptions' choice luma-only. */
 #define CHROMA_NA UINT32_MAX
 
 /* SATD of the full-motion prediction summed over Cb and Cr, for a PU
@@ -1622,10 +1668,11 @@ static uint32_t mot_satd_wh(struct n265_frame_work *e, int x0, int y0, int w,
 static uint32_t mot_satd_c(struct n265_frame_work *e, int x0, int y0, int w,
                            int h, mot_t mot)
 {
-    if ((w & 7) || (h & 7))
+    int cw = w >> e->csx, ch = h >> e->csy;
+    int cx = x0 >> e->csx, cy = y0 >> e->csy;
+    if ((cw & 3) || (ch & 3))
         return CHROMA_NA;
-    int cw = w >> 1, ch = h >> 1, cx = x0 >> 1, cy = y0 >> 1;
-    pixel pred[32 * 32];
+    pixel pred[64 * 64];
     uint32_t s = 0;
     for (int c = 1; c <= 2; c++) {
         mc_pred_wh(e, c, cx, cy, cw, ch, mot, pred, cw);
@@ -1643,8 +1690,9 @@ static uint32_t mot_satd_c(struct n265_frame_work *e, int x0, int y0, int w,
 static uint32_t mot_sad_c(struct n265_frame_work *e, int x0, int y0, int w,
                           int h, mot_t mot)
 {
-    int cw = w >> 1, ch = h >> 1, cx = x0 >> 1, cy = y0 >> 1;
-    pixel pred[32 * 32];
+    int cw = w >> e->csx, ch = h >> e->csy;
+    int cx = x0 >> e->csx, cy = y0 >> e->csy;
+    pixel pred[64 * 64];
     uint32_t s = 0;
     for (int c = 1; c <= 2; c++) {
         mc_pred_wh(e, c, cx, cy, cw, ch, mot, pred, cw);
@@ -2180,15 +2228,16 @@ static void est_tt_bits(struct n265_frame_work *e, est_state *st, int log2n,
     st->bits += n265_est_bin(&st->ctx[CTX_CBF_CHROMA + 0], tcr->nz != 0);
     if (!(inter && !tcb->nz && !tcr->nz))
         st->bits += n265_est_bin(&st->ctx[CTX_CBF_LUMA + 1], tl->nz != 0);
+    int log2c = log2n - e->csx;
     int scan_l = inter ? 0 : n265_scan_idx(mode, log2n, 0);
-    int scan_c = inter ? 0 : n265_scan_idx(mode, log2n - 1, 1);
+    int scan_c = inter ? 0 : n265_scan_idx(mode, log2c, c_filt(e, 1));
     if (tl->nz)
         n265_residual_coding(&ops, tl->level, log2n, 0, scan_l, !e->lossless);
     if (tcb->nz)
-        n265_residual_coding(&ops, tcb->level, log2n - 1, 1, scan_c,
+        n265_residual_coding(&ops, tcb->level, log2c, 1, scan_c,
                              !e->lossless);
     if (tcr->nz)
-        n265_residual_coding(&ops, tcr->level, log2n - 1, 2, scan_c,
+        n265_residual_coding(&ops, tcr->level, log2c, 2, scan_c,
                              !e->lossless);
 }
 
@@ -2201,10 +2250,16 @@ static void commit_inter_tt(struct n265_frame_work *e, mot_t mot, int x0,
                             tb_ctx *tcr)
 {
     int n = 1 << log2n;
-    int qp_c = n265_chroma_qp(e->cur_ctu_qp);
+    int qp_c = n265_chroma_qp(e->cur_ctu_qp, e->c444);
     uint32_t lam = ctu_lam(e, e->cur_ctu_qp);
     int h = n >> 1;
-    int child_chroma = log2n > 3;
+    int csx = e->csx, csy = e->csy;
+    int cx0 = x0 >> csx, cy0 = y0 >> csy;
+    int log2c = log2n - csx, log2cc = log2n - 1 - csx;
+    int cn_area = (n >> csx) * (n >> csy);
+    int ch_area = (h >> csx) * (h >> csy);
+    /* see tt_analyze: the 4:2:0-only chroma merge at the 8x8 node */
+    int child_chroma = log2cc >= 2;
     tb_ctx *s_l = e->sc->ctt_l;
     tb_ctx (*s_c)[2] = e->sc->ctt_c;
 
@@ -2218,14 +2273,15 @@ static void commit_inter_tt(struct n265_frame_work *e, mot_t mot, int x0,
         tb_make_recon(0, log2n - 1, e->cur_ctu_qp, MODE_INTER, &s_l[i]);
         d_split += tb_ssd(e, 0, x1, y1, log2n - 1, &s_l[i]);
         if (child_chroma) {
-            tb_analyze(e, 1, x1 / 2, y1 / 2, log2n - 2, qp_c, MODE_INTER,
-                       mot, &s_c[i][0]);
-            tb_analyze(e, 2, x1 / 2, y1 / 2, log2n - 2, qp_c, MODE_INTER,
-                       mot, &s_c[i][1]);
-            tb_make_recon(1, log2n - 2, qp_c, MODE_INTER, &s_c[i][0]);
-            tb_make_recon(2, log2n - 2, qp_c, MODE_INTER, &s_c[i][1]);
-            d_split += tb_ssd(e, 1, x1 / 2, y1 / 2, log2n - 2, &s_c[i][0]);
-            d_split += tb_ssd(e, 2, x1 / 2, y1 / 2, log2n - 2, &s_c[i][1]);
+            int kx = x1 >> csx, ky = y1 >> csy;
+            tb_analyze(e, 1, kx, ky, log2cc, qp_c, MODE_INTER, mot,
+                       &s_c[i][0]);
+            tb_analyze(e, 2, kx, ky, log2cc, qp_c, MODE_INTER, mot,
+                       &s_c[i][1]);
+            tb_make_recon(1, log2cc, qp_c, MODE_INTER, &s_c[i][0]);
+            tb_make_recon(2, log2cc, qp_c, MODE_INTER, &s_c[i][1]);
+            d_split += tb_ssd(e, 1, kx, ky, log2cc, &s_c[i][0]);
+            d_split += tb_ssd(e, 2, kx, ky, log2cc, &s_c[i][1]);
             root_cb |= s_c[i][0].nz != 0;
             root_cr |= s_c[i][1].nz != 0;
         }
@@ -2233,8 +2289,8 @@ static void commit_inter_tt(struct n265_frame_work *e, mot_t mot, int x0,
     if (!child_chroma) {
         root_cb = tcb->nz != 0;
         root_cr = tcr->nz != 0;
-        d_split += tb_ssd(e, 1, x0 / 2, y0 / 2, log2n - 1, tcb);
-        d_split += tb_ssd(e, 2, x0 / 2, y0 / 2, log2n - 1, tcr);
+        d_split += tb_ssd(e, 1, cx0, cy0, log2c, tcb);
+        d_split += tb_ssd(e, 2, cx0, cy0, log2c, tcr);
     }
 
     /* past maxTB the split is inferred and the flat arrangement does
@@ -2242,8 +2298,8 @@ static void commit_inter_tt(struct n265_frame_work *e, mot_t mot, int x0,
     int flat_ok = log2n <= 5;
     uint64_t d_flat = !flat_ok ? 0 :
         tb_ssd(e, 0, x0, y0, log2n, tl) +
-        tb_ssd(e, 1, x0 / 2, y0 / 2, log2n - 1, tcb) +
-        tb_ssd(e, 2, x0 / 2, y0 / 2, log2n - 1, tcr);
+        tb_ssd(e, 1, cx0, cy0, log2c, tcb) +
+        tb_ssd(e, 2, cx0, cy0, log2c, tcr);
 
     /* bits, both arrangements, on estimator copies */
     cabac_ctx_t local[CTX_COUNT];
@@ -2281,17 +2337,17 @@ static void commit_inter_tt(struct n265_frame_work *e, mot_t mot, int x0,
                                  !e->lossless);
         if (child_chroma) {
             if (s_c[i][0].nz)
-                n265_residual_coding(&ops, s_c[i][0].level, log2n - 2, 1,
+                n265_residual_coding(&ops, s_c[i][0].level, log2cc, 1,
                                      0, !e->lossless);
             if (s_c[i][1].nz)
-                n265_residual_coding(&ops, s_c[i][1].level, log2n - 2, 2,
+                n265_residual_coding(&ops, s_c[i][1].level, log2cc, 2,
                                      0, !e->lossless);
         } else if (i == 3) {
             if (tcb->nz)
-                n265_residual_coding(&ops, tcb->level, log2n - 1, 1, 0,
+                n265_residual_coding(&ops, tcb->level, log2c, 1, 0,
                                      !e->lossless);
             if (tcr->nz)
-                n265_residual_coding(&ops, tcr->level, log2n - 1, 2, 0,
+                n265_residual_coding(&ops, tcr->level, log2c, 2, 0,
                                      !e->lossless);
         }
     }
@@ -2305,12 +2361,12 @@ static void commit_inter_tt(struct n265_frame_work *e, mot_t mot, int x0,
         tb_commit(e, 0, x0, y0, log2n, tl);
         if (tl->nz)
             rec_levels(e, tl->level, n * n);
-        tb_commit(e, 1, x0 / 2, y0 / 2, log2n - 1, tcb);
+        tb_commit(e, 1, cx0, cy0, log2c, tcb);
         if (tcb->nz)
-            rec_levels(e, tcb->level, (n / 2) * (n / 2));
-        tb_commit(e, 2, x0 / 2, y0 / 2, log2n - 1, tcr);
+            rec_levels(e, tcb->level, cn_area);
+        tb_commit(e, 2, cx0, cy0, log2c, tcr);
         if (tcr->nz)
-            rec_levels(e, tcr->level, (n / 2) * (n / 2));
+            rec_levels(e, tcr->level, cn_area);
         return;
     }
 
@@ -2332,19 +2388,20 @@ static void commit_inter_tt(struct n265_frame_work *e, mot_t mot, int x0,
         if (s_l[i].nz)
             rec_levels(e, s_l[i].level, h * h);
         if (child_chroma) {
-            tb_commit(e, 1, x1 / 2, y1 / 2, log2n - 2, &s_c[i][0]);
+            int kx = x1 >> csx, ky = y1 >> csy;
+            tb_commit(e, 1, kx, ky, log2cc, &s_c[i][0]);
             if (s_c[i][0].nz)
-                rec_levels(e, s_c[i][0].level, (h / 2) * (h / 2));
-            tb_commit(e, 2, x1 / 2, y1 / 2, log2n - 2, &s_c[i][1]);
+                rec_levels(e, s_c[i][0].level, ch_area);
+            tb_commit(e, 2, kx, ky, log2cc, &s_c[i][1]);
             if (s_c[i][1].nz)
-                rec_levels(e, s_c[i][1].level, (h / 2) * (h / 2));
+                rec_levels(e, s_c[i][1].level, ch_area);
         } else if (i == 3) {
-            tb_commit(e, 1, x0 / 2, y0 / 2, log2n - 1, tcb);
+            tb_commit(e, 1, cx0, cy0, log2c, tcb);
             if (tcb->nz)
-                rec_levels(e, tcb->level, (n / 2) * (n / 2));
-            tb_commit(e, 2, x0 / 2, y0 / 2, log2n - 1, tcr);
+                rec_levels(e, tcb->level, cn_area);
+            tb_commit(e, 2, cx0, cy0, log2c, tcr);
             if (tcr->nz)
-                rec_levels(e, tcr->level, (n / 2) * (n / 2));
+                rec_levels(e, tcr->level, cn_area);
         }
     }
 }
@@ -2465,7 +2522,8 @@ static int intra_rd_pick(struct n265_frame_work *e, int x0, int y0, int log2n,
                 cands[ncand++] = mpm[i];
         }
     }
-    int qp_c = n265_chroma_qp(e->cur_ctu_qp);
+    int qp_c = n265_chroma_qp(e->cur_ctu_qp, e->c444);
+    int cx0 = x0 >> e->csx, cy0 = y0 >> e->csy, log2c = log2n - e->csx;
     uint32_t lam = ctu_lam(e, e->cur_ctu_qp);
     tb_ctx *tl = &e->sc->ird_l, *tcb = &e->sc->ird_cb, *tcr = &e->sc->ird_cr;
     tb_ctx *wl = &e->sc->ird_bl, *wcb = &e->sc->ird_bcb,
@@ -2480,17 +2538,15 @@ static int intra_rd_pick(struct n265_frame_work *e, int x0, int y0, int log2n,
                 dup = 1;
         if (dup)
             continue;
-        tb_analyze(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c, mode, mot_zero,
-                   tcb);
-        tb_analyze(e, 2, x0 / 2, y0 / 2, log2n - 1, qp_c, mode, mot_zero,
-                   tcr);
+        tb_analyze(e, 1, cx0, cy0, log2c, qp_c, mode, mot_zero, tcb);
+        tb_analyze(e, 2, cx0, cy0, log2c, qp_c, mode, mot_zero, tcr);
         tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, mode, mot_zero, tl);
         tb_make_recon(0, log2n, e->cur_ctu_qp, mode, tl);
-        tb_make_recon(1, log2n - 1, qp_c, mode, tcb);
-        tb_make_recon(2, log2n - 1, qp_c, mode, tcr);
+        tb_make_recon(1, log2c, qp_c, mode, tcb);
+        tb_make_recon(2, log2c, qp_c, mode, tcr);
         uint64_t d = tb_ssd(e, 0, x0, y0, log2n, tl) +
-            tb_ssd(e, 1, x0 / 2, y0 / 2, log2n - 1, tcb) +
-            tb_ssd(e, 2, x0 / 2, y0 / 2, log2n - 1, tcr);
+            tb_ssd(e, 1, cx0, cy0, log2c, tcb) +
+            tb_ssd(e, 2, cx0, cy0, log2c, tcr);
         cabac_ctx_t local[CTX_COUNT];
         memcpy(local, e->est_ctx, sizeof(local));
         est_state st = { local, 0 };
@@ -2503,12 +2559,12 @@ static int intra_rd_pick(struct n265_frame_work *e, int x0, int y0, int log2n,
         if (tl->nz)
             n265_residual_coding(&ops, tl->level, log2n, 0,
                                  n265_scan_idx(mode, log2n, 0), !e->lossless);
-        int sc = n265_scan_idx(mode, log2n - 1, 1);
+        int sc = n265_scan_idx(mode, log2c, c_filt(e, 1));
         if (tcb->nz)
-            n265_residual_coding(&ops, tcb->level, log2n - 1, 1, sc,
+            n265_residual_coding(&ops, tcb->level, log2c, 1, sc,
                                  !e->lossless);
         if (tcr->nz)
-            n265_residual_coding(&ops, tcr->level, log2n - 1, 2, sc,
+            n265_residual_coding(&ops, tcr->level, log2c, 2, sc,
                                  !e->lossless);
         uint64_t j = rd_j(e, d, st.bits, lam);
         if (j < best_j) {
@@ -2534,14 +2590,14 @@ static uint64_t cu_area_ssd(struct n265_frame_work *e, int x0, int y0, int n)
                              e->recon[0] + y0 * e->recon_stride[0] + x0, e->recon_stride[0],
                              n, ctu_lam(e, e->cur_ctu_qp), e->psy);
     for (int c = 0; c < 3; c++) {
-        int sh = c ? 1 : 0;
+        int shx = c ? e->csx : 0, shy = c ? e->csy : 0;
         const pixel *src = e->pad_plane[c];
         const pixel *rec = e->recon[c];
-        uint64_t s = n265_ssd_wh(src + (size_t)(y0 >> sh) * e->pad_stride[c] +
-                                     (x0 >> sh), e->pad_stride[c],
-                                 rec + (size_t)(y0 >> sh) * e->recon_stride[c] +
-                                     (x0 >> sh), e->recon_stride[c],
-                                 n >> sh, n >> sh);
+        uint64_t s = n265_ssd_wh(src + (size_t)(y0 >> shy) * e->pad_stride[c] +
+                                     (x0 >> shx), e->pad_stride[c],
+                                 rec + (size_t)(y0 >> shy) * e->recon_stride[c] +
+                                     (x0 >> shx), e->recon_stride[c],
+                                 n >> shx, n >> shy);
         if (c && chroma_w_q8(e) != 256)
             s = (s * chroma_w_q8(e)) >> 8;
         ssd += s;
@@ -2868,7 +2924,7 @@ static void set_cu_pred(struct n265_frame_work *e, int x0, int y0, int n,
     e->cu_pred[1] = c->pc[0];
     e->cu_pred[2] = c->pc[1];
     e->cu_pred_stride[0] = n;
-    e->cu_pred_stride[1] = e->cu_pred_stride[2] = n >> 1;
+    e->cu_pred_stride[1] = e->cu_pred_stride[2] = n >> e->csx;
     e->cu_pred_x0 = x0;
     e->cu_pred_y0 = y0;
 }
@@ -2886,7 +2942,7 @@ static void set_cu_pred_tb(struct n265_frame_work *e, int x0, int y0, int n,
     e->cu_pred[1] = tcb->pred;
     e->cu_pred[2] = tcr->pred;
     e->cu_pred_stride[0] = n;
-    e->cu_pred_stride[1] = e->cu_pred_stride[2] = n >> 1;
+    e->cu_pred_stride[1] = e->cu_pred_stride[2] = n >> e->csx;
     e->cu_pred_x0 = x0;
     e->cu_pred_y0 = y0;
 }
@@ -2962,33 +3018,36 @@ static void est_inter_cu_bits(struct n265_frame_work *e, est_state *st, int x0,
 static uint64_t rd_part(struct n265_frame_work *e, int x0, int y0, int log2n,
                         int inc, part_cand *c)
 {
-    int n = 1 << log2n, hn = n >> 1;
-    int qp_c = n265_chroma_qp(e->cur_ctu_qp);
+    int n = 1 << log2n;
+    int csx = e->csx, csy = e->csy;
+    int hn = n >> csx;
+    int cx0 = x0 >> csx, cy0 = y0 >> csy, log2c = log2n - csx;
+    int qp_c = n265_chroma_qp(e->cur_ctu_qp, e->c444);
     for (int p = 0; p < N265_NUM_PU(c->part); p++) {
         int px, py, pw, ph;
         n265_pu_rect(c->part, p, x0, y0, n, &px, &py, &pw, &ph);
         mc_pred_wh(e, 0, px, py, pw, ph, c->d[p].mot,
                    c->py + (py - y0) * n + (px - x0), n);
         for (int ci = 1; ci <= 2; ci++)
-            mc_pred_wh(e, ci, px / 2, py / 2, pw / 2, ph / 2, c->d[p].mot,
-                       c->pc[ci - 1] + ((py - y0) / 2) * hn + (px - x0) / 2,
+            mc_pred_wh(e, ci, px >> csx, py >> csy, pw >> csx, ph >> csy,
+                       c->d[p].mot,
+                       c->pc[ci - 1] + ((py - y0) >> csy) * hn +
+                           ((px - x0) >> csx),
                        hn);
     }
     set_cu_pred(e, x0, y0, n, c);
     tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, mot_zero,
                &c->tl);
-    tb_analyze(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c, MODE_INTER, mot_zero,
-               &c->tcb);
-    tb_analyze(e, 2, x0 / 2, y0 / 2, log2n - 1, qp_c, MODE_INTER, mot_zero,
-               &c->tcr);
+    tb_analyze(e, 1, cx0, cy0, log2c, qp_c, MODE_INTER, mot_zero, &c->tcb);
+    tb_analyze(e, 2, cx0, cy0, log2c, qp_c, MODE_INTER, mot_zero, &c->tcr);
     tb_make_recon(0, log2n, e->cur_ctu_qp, MODE_INTER, &c->tl);
-    tb_make_recon(1, log2n - 1, qp_c, MODE_INTER, &c->tcb);
-    tb_make_recon(2, log2n - 1, qp_c, MODE_INTER, &c->tcr);
+    tb_make_recon(1, log2c, qp_c, MODE_INTER, &c->tcb);
+    tb_make_recon(2, log2c, qp_c, MODE_INTER, &c->tcr);
     clear_cu_pred(e);
     c->any = c->tl.nz || c->tcb.nz || c->tcr.nz;
     uint64_t d = tb_ssd(e, 0, x0, y0, log2n, &c->tl) +
-        tb_ssd(e, 1, x0 / 2, y0 / 2, log2n - 1, &c->tcb) +
-        tb_ssd(e, 2, x0 / 2, y0 / 2, log2n - 1, &c->tcr);
+        tb_ssd(e, 1, cx0, cy0, log2c, &c->tcb) +
+        tb_ssd(e, 2, cx0, cy0, log2c, &c->tcr);
 
     cabac_ctx_t local[CTX_COUNT];
     memcpy(local, e->est_ctx, sizeof(local));
@@ -3138,8 +3197,8 @@ static void commit_inter_cu(struct n265_frame_work *e, int x0, int y0,
         commit_inter_tt(e, d[0].mot, x0, y0, log2n, tl, tcb, tcr);
     } else {
         tb_commit(e, 0, x0, y0, log2n, tl);
-        tb_commit(e, 1, x0 / 2, y0 / 2, log2n - 1, tcb);
-        tb_commit(e, 2, x0 / 2, y0 / 2, log2n - 1, tcr);
+        tb_commit(e, 1, x0 >> e->csx, y0 >> e->csy, log2n - e->csx, tcb);
+        tb_commit(e, 2, x0 >> e->csx, y0 >> e->csy, log2n - e->csx, tcr);
     }
     clear_cu_pred(e);
 }
@@ -3197,7 +3256,9 @@ static int merge_pick_sad(struct n265_frame_work *e, int x0, int y0,
 static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
 {
     int n = 1 << log2n;
-    int qp_c = n265_chroma_qp(e->cur_ctu_qp);
+    int qp_c = n265_chroma_qp(e->cur_ctu_qp, e->c444);
+    int csx = e->csx, csy = e->csy;
+    int cx0 = x0 >> csx, cy0 = y0 >> csy, log2c = log2n - csx;
     e->last_skip_clean = 0;
     e->last_cu_nores = 0;
     mark_cu_edges(e, x0, y0, n);
@@ -3261,13 +3322,11 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
 
             /* merge candidate (and the forced-skip variant) */
             tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, cand, m_tl);
-            tb_analyze(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c, MODE_INTER,
-                       cand, m_tcb);
-            tb_analyze(e, 2, x0 / 2, y0 / 2, log2n - 1, qp_c, MODE_INTER,
-                       cand, m_tcr);
+            tb_analyze(e, 1, cx0, cy0, log2c, qp_c, MODE_INTER, cand, m_tcb);
+            tb_analyze(e, 2, cx0, cy0, log2c, qp_c, MODE_INTER, cand, m_tcr);
             tb_make_recon(0, log2n, e->cur_ctu_qp, MODE_INTER, m_tl);
-            tb_make_recon(1, log2n - 1, qp_c, MODE_INTER, m_tcb);
-            tb_make_recon(2, log2n - 1, qp_c, MODE_INTER, m_tcr);
+            tb_make_recon(1, log2c, qp_c, MODE_INTER, m_tcb);
+            tb_make_recon(2, log2c, qp_c, MODE_INTER, m_tcr);
             int m_any = m_tl->nz || m_tcb->nz || m_tcr->nz;
             /* P1 CBF fast: the merge prediction already quantised to
              * nothing, so every remaining candidate can only re-buy the
@@ -3275,20 +3334,19 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             if ((cbf_fast() == 1 || cbf_fast() == 2) && !m_any)
                 gate_amvp = gate_intra = 1;
             uint64_t d_merge = tb_ssd(e, 0, x0, y0, log2n, m_tl) +
-                tb_ssd(e, 1, x0 / 2, y0 / 2, log2n - 1, m_tcb) +
-                tb_ssd(e, 2, x0 / 2, y0 / 2, log2n - 1, m_tcr);
+                tb_ssd(e, 1, cx0, cy0, log2c, m_tcb) +
+                tb_ssd(e, 2, cx0, cy0, log2c, m_tcr);
             /* forced skip: prediction only */
             uint64_t d_skip;
             {
                 tb_ctx t;
+                size_t ca = (size_t)(n >> csx) * (n >> csy);
                 memcpy(t.recon, m_tl->pred, (size_t)n * n * sizeof(pixel));
                 d_skip = tb_ssd(e, 0, x0, y0, log2n, &t);
-                memcpy(t.recon, m_tcb->pred,
-                       (size_t)(n / 2) * (n / 2) * sizeof(pixel));
-                d_skip += tb_ssd(e, 1, x0 / 2, y0 / 2, log2n - 1, &t);
-                memcpy(t.recon, m_tcr->pred,
-                       (size_t)(n / 2) * (n / 2) * sizeof(pixel));
-                d_skip += tb_ssd(e, 2, x0 / 2, y0 / 2, log2n - 1, &t);
+                memcpy(t.recon, m_tcb->pred, ca * sizeof(pixel));
+                d_skip += tb_ssd(e, 1, cx0, cy0, log2c, &t);
+                memcpy(t.recon, m_tcr->pred, ca * sizeof(pixel));
+                d_skip += tb_ssd(e, 2, cx0, cy0, log2c, &t);
             }
             est_state st;
             cabac_ctx_t local[CTX_COUNT];
@@ -3502,17 +3560,17 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             if (!gate_amvp && !same_as_cand && !no_amvp_on()) {
                 tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, amot,
                            a_tl);
-                tb_analyze(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c,
-                           MODE_INTER, amot, a_tcb);
-                tb_analyze(e, 2, x0 / 2, y0 / 2, log2n - 1, qp_c,
-                           MODE_INTER, amot, a_tcr);
+                tb_analyze(e, 1, cx0, cy0, log2c, qp_c, MODE_INTER, amot,
+                           a_tcb);
+                tb_analyze(e, 2, cx0, cy0, log2c, qp_c, MODE_INTER, amot,
+                           a_tcr);
                 tb_make_recon(0, log2n, e->cur_ctu_qp, MODE_INTER, a_tl);
-                tb_make_recon(1, log2n - 1, qp_c, MODE_INTER, a_tcb);
-                tb_make_recon(2, log2n - 1, qp_c, MODE_INTER, a_tcr);
+                tb_make_recon(1, log2c, qp_c, MODE_INTER, a_tcb);
+                tb_make_recon(2, log2c, qp_c, MODE_INTER, a_tcr);
                 a_any = a_tl->nz || a_tcb->nz || a_tcr->nz;
                 uint64_t d = tb_ssd(e, 0, x0, y0, log2n, a_tl) +
-                    tb_ssd(e, 1, x0 / 2, y0 / 2, log2n - 1, a_tcb) +
-                    tb_ssd(e, 2, x0 / 2, y0 / 2, log2n - 1, a_tcr);
+                    tb_ssd(e, 1, cx0, cy0, log2c, a_tcb) +
+                    tb_ssd(e, 2, cx0, cy0, log2c, a_tcr);
                 d_amvp = d;
                 /* the vector actually coded, not the per-list ME winner:
                  * the two are the same only until a bi refinement moves
@@ -3650,17 +3708,15 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             }
             }
             if (!gate_intra) {
-            tb_analyze(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c, imode,
-                       mot_zero, i_tcb);
-            tb_analyze(e, 2, x0 / 2, y0 / 2, log2n - 1, qp_c, imode,
-                       mot_zero, i_tcr);
+            tb_analyze(e, 1, cx0, cy0, log2c, qp_c, imode, mot_zero, i_tcb);
+            tb_analyze(e, 2, cx0, cy0, log2c, qp_c, imode, mot_zero, i_tcr);
             tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, imode, mot_zero, i_tl);
             tb_make_recon(0, log2n, e->cur_ctu_qp, imode, i_tl);
-            tb_make_recon(1, log2n - 1, qp_c, imode, i_tcb);
-            tb_make_recon(2, log2n - 1, qp_c, imode, i_tcr);
+            tb_make_recon(1, log2c, qp_c, imode, i_tcb);
+            tb_make_recon(2, log2c, qp_c, imode, i_tcr);
             uint64_t d_intra = tb_ssd(e, 0, x0, y0, log2n, i_tl) +
-                tb_ssd(e, 1, x0 / 2, y0 / 2, log2n - 1, i_tcb) +
-                tb_ssd(e, 2, x0 / 2, y0 / 2, log2n - 1, i_tcr);
+                tb_ssd(e, 1, cx0, cy0, log2c, i_tcb) +
+                tb_ssd(e, 2, cx0, cy0, log2c, i_tcr);
             memcpy(local, e->est_ctx, sizeof(local));
             st.ctx = local; st.bits = 0;
             st.bits += n265_est_bin(&local[CTX_CU_SKIP + inc], 0);
@@ -3682,12 +3738,12 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                     n265_residual_coding(&ops, i_tl->level, log2n, 0,
                                          n265_scan_idx(imode, log2n, 0),
                                          !e->lossless);
-                int sc = n265_scan_idx(imode, log2n - 1, 1);
+                int sc = n265_scan_idx(imode, log2c, c_filt(e, 1));
                 if (i_tcb->nz)
-                    n265_residual_coding(&ops, i_tcb->level, log2n - 1, 1,
+                    n265_residual_coding(&ops, i_tcb->level, log2c, 1,
                                          sc, !e->lossless);
                 if (i_tcr->nz)
-                    n265_residual_coding(&ops, i_tcr->level, log2n - 1, 2,
+                    n265_residual_coding(&ops, i_tcr->level, log2c, 2,
                                          sc, !e->lossless);
             }
             j_intra = rd_j(e, d_intra, st.bits, lam);
@@ -3894,10 +3950,49 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                     ctu_lam(e, e->cur_ctu_qp));
     }
 
-    /* NxN: chroma at the parent, four 4x4 luma TUs with DST */
+    /* NxN, and the one place the two formats need different code rather
+     * than a shifted constant.
+     *
+     * At 4:2:0 the four 4x4 luma TUs share ONE 4x4 chroma block at the
+     * parent (7.3.8.10's blkIdx == 3 arm), with one intra_chroma_pred_mode
+     * for the coding unit. At 4:4:4 each luma PB has its own chroma PB -
+     * 7.3.8.5 signals FOUR intra_chroma_pred_mode, one per 4x4 - and each
+     * of the four transform units codes its own 4x4 chroma pair with cbfs
+     * conditioned on the node's. The root cbfs precede the children in the
+     * record stream and are the OR of them, so they are patched in after
+     * the loop, exactly as tt_analyze's split arm does. */
     tb_ctx tcb, tcr, tl;
-    tb_analyze(e, 1, x0 / 2, y0 / 2, 2, qp_c, modes[0], mot_zero, &tcb);
-    tb_analyze(e, 2, x0 / 2, y0 / 2, 2, qp_c, modes[0], mot_zero, &tcr);
+    if (e->c444) {
+        size_t root_off = e->rec_len;
+        rec_u8(e, 0);
+        rec_u8(e, 0);
+        int root_cb = 0, root_cr = 0;
+        for (int i = 0; i < 4; i++) {
+            int px = x0 + (i & 1) * 4, py = y0 + (i >> 1) * 4;
+            set_mode_map(e, px, py, 4, modes[i]);
+            tb_analyze(e, 1, px, py, 2, qp_c, modes[i], mot_zero, &tcb);
+            tb_analyze(e, 2, px, py, 2, qp_c, modes[i], mot_zero, &tcr);
+            root_cb |= tcb.nz != 0;
+            root_cr |= tcr.nz != 0;
+            rec_u8(e, tcb.nz != 0);
+            rec_u8(e, tcr.nz != 0);
+            int cbf_l = tb_full(e, 0, px, py, 2, e->cur_ctu_qp, modes[i],
+                                &tl);
+            rec_u8(e, (unsigned)cbf_l);
+            if (cbf_l)
+                rec_levels(e, tl.level, 16);
+            tb_recon(e, 1, px, py, 2, qp_c, modes[i], &tcb);
+            if (tcb.nz)
+                rec_levels(e, tcb.level, 16);
+            tb_recon(e, 2, px, py, 2, qp_c, modes[i], &tcr);
+            if (tcr.nz)
+                rec_levels(e, tcr.level, 16);
+        }
+        e->rec_buf[root_off] = (uint8_t)root_cb;
+        e->rec_buf[root_off + 1] = (uint8_t)root_cr;
+    } else {
+    tb_analyze(e, 1, cx0, cy0, 2, qp_c, modes[0], mot_zero, &tcb);
+    tb_analyze(e, 2, cx0, cy0, 2, qp_c, modes[0], mot_zero, &tcr);
     rec_u8(e, tcb.nz != 0);
     rec_u8(e, tcr.nz != 0);
     for (int i = 0; i < 4; i++) {
@@ -3908,12 +4003,13 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
         if (cbf_l)
             rec_levels(e, tl.level, 16);
     }
-    tb_recon(e, 1, x0 / 2, y0 / 2, 2, qp_c, modes[0], &tcb);
+    tb_recon(e, 1, cx0, cy0, 2, qp_c, modes[0], &tcb);
     if (tcb.nz)
         rec_levels(e, tcb.level, 16);
-    tb_recon(e, 2, x0 / 2, y0 / 2, 2, qp_c, modes[0], &tcr);
+    tb_recon(e, 2, cx0, cy0, 2, qp_c, modes[0], &tcr);
     if (tcr.nz)
         rec_levels(e, tcr.level, 16);
+    }
     e->rec_pos = pos0;
     est_state adv = { e->est_ctx, 0 };
     n265_est_advance_cu(e, &adv, x0, y0, log2n);
@@ -3957,11 +4053,11 @@ static void qt_save(struct n265_frame_work *e, qt_snap *sn, int x0, int y0,
 {
     pixel *p = sn->recon;
     for (int c = 0; c < 3; c++) {
-        int sh = c ? 1 : 0;
-        for (int y = y0 >> sh; y < (y0 + n) >> sh; y++) {
-            memcpy(p, e->recon[c] + y * e->recon_stride[c] + (x0 >> sh),
-                   (size_t)(n >> sh) * sizeof(pixel));
-            p += n >> sh;
+        int shx = c ? e->csx : 0, shy = c ? e->csy : 0;
+        for (int y = y0 >> shy; y < (y0 + n) >> shy; y++) {
+            memcpy(p, e->recon[c] + y * e->recon_stride[c] + (x0 >> shx),
+                   (size_t)(n >> shx) * sizeof(pixel));
+            p += n >> shx;
         }
     }
     int cells = n >> 2;
@@ -3990,7 +4086,7 @@ static void qt_save_records(struct n265_frame_work *e, qt_snap *sn,
 {
     sn->rec_base = base;
     sn->rec_copy_len = e->rec_len - base;
-    /* worst case is an intra CB64's full record (~12.5 KB) */
+    /* the bound above; an intra CB64 at 4:4:4 is the worst case */
     assert(sn->rec_copy_len <= sizeof(sn->rec_copy));
     memcpy(sn->rec_copy, e->rec_buf + base, sn->rec_copy_len);
 }
@@ -4000,11 +4096,11 @@ static void qt_restore(struct n265_frame_work *e, const qt_snap *sn, int x0,
 {
     const pixel *p = sn->recon;
     for (int c = 0; c < 3; c++) {
-        int sh = c ? 1 : 0;
-        for (int y = y0 >> sh; y < (y0 + n) >> sh; y++) {
-            memcpy(e->recon[c] + y * e->recon_stride[c] + (x0 >> sh), p,
-                   (size_t)(n >> sh) * sizeof(pixel));
-            p += n >> sh;
+        int shx = c ? e->csx : 0, shy = c ? e->csy : 0;
+        for (int y = y0 >> shy; y < (y0 + n) >> shy; y++) {
+            memcpy(e->recon[c] + y * e->recon_stride[c] + (x0 >> shx), p,
+                   (size_t)(n >> shx) * sizeof(pixel));
+            p += n >> shx;
         }
     }
     int cells = n >> 2;
@@ -4456,7 +4552,7 @@ void n265_analyze_ctu(struct n265_frame_work *e, int ctb_x, int ctb_y)
     e->cur_ctu_lam_q8 = e->ctu_lam_q8 ? e->ctu_lam_q8[ctb_k] : 256;
     e->cur_ctu_lam_sad_q8 = e->cur_ctu_lam_q8 == 256 ? 256 :
         (uint32_t)lrint(256.0 * sqrt((double)e->cur_ctu_lam_q8 / 256.0));
-    e->cur_chroma_w_q8 = chroma_w_for_qp(e->cur_ctu_qp);
+    e->cur_chroma_w_q8 = chroma_w_for_qp(e->cur_ctu_qp, e->c444);
     e->ent_ctu_qp = e->cur_ctu_qp;
     e->ent_qp_coded = 0;
     clear_cu_pred(e);

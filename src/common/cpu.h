@@ -51,6 +51,15 @@ enum {
 extern _Atomic int n265_cpu_ready_;
 extern uint32_t n265_cpu_cached_;
 extern uint32_t n265_asm_off_;
+/* Classes the ENCODER refuses for its own configuration, as opposed to
+ * the ones a measurement asked for. Phase 8 item 6a is the first user:
+ * a 4:4:4 encode stands the MC class down because that family's chroma
+ * kernels are written for 4:2:0's half-size blocks. Set on the driver at
+ * encoder open, after n265_cpu_flags() has published the feature word and
+ * before any worker exists, which is the same discipline n265_asm_off_
+ * has. */
+extern uint32_t n265_asm_refuse_;
+void n265_asm_refuse(uint32_t cls);
 uint32_t n265_cpu_flags_slow(void);
 
 static inline uint32_t n265_cpu_flags(void)
@@ -120,7 +129,8 @@ static inline int n265_asm_on(uint32_t cls)
 {
     if (!(cls & N265_ASM_PORTED))
         return 0;
-    return (n265_cpu_flags() & N265_CPU_NEON) && !(n265_asm_off_ & cls);
+    return (n265_cpu_flags() & N265_CPU_NEON) &&
+           !((n265_asm_off_ | n265_asm_refuse_) & cls);
 }
 
 /* Human-readable list of the active features, into `buf` (NUL-terminated). */

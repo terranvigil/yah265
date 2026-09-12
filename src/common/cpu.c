@@ -58,8 +58,17 @@ static uint32_t detect_arm(void)
 
 uint32_t n265_cpu_cached_;
 uint32_t n265_asm_off_;
+uint32_t n265_asm_refuse_;
 _Atomic int n265_cpu_ready_;
 static pthread_once_t g_cpu_once = PTHREAD_ONCE_INIT;
+
+/* Stand a class down for this encoder's configuration. Driver-only, at
+ * open, before any worker exists; it is never cleared, because one
+ * encoder per process is what the API promises today. */
+void n265_asm_refuse(uint32_t cls)
+{
+    n265_asm_refuse_ |= cls;
+}
 
 static const struct { const char *name; uint32_t bit; } class_tbl[] = {
     { "dct", N265_ASM_DCT },     { "satd", N265_ASM_SATD },

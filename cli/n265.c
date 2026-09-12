@@ -112,6 +112,8 @@ typedef struct y4m_t {
     int w, h, fps_num, fps_den;
     int depth;              /* sample width the FILE carries: 8 or 10 */
     int out_depth;          /* sample width the ENCODER takes: 8 or 10 */
+    int csp;                /* N265_CSP_*, i.e. chroma_format_idc      */
+    int csx, csy;           /* log2 SubWidthC / SubHeightC             */
     size_t frame_bytes;     /* the y4m payload, as it sits on disk */
     uint8_t *frame;
     /* The 16-bit plane, where one is needed: the assembled little-endian
@@ -121,25 +123,36 @@ typedef struct y4m_t {
      * which is what keeps the 8-bit encoder byte-for-byte and
      * cycle-for-cycle the one that was measured. */
     uint16_t *pix16;
+    size_t nsamp;           /* samples in one picture, all three planes */
     const void *plane[3];   /* what the library is handed, once */
     long clipped;           /* samples above (1 << depth) - 1 in the file */
 } y4m_t;
 
 /* The C tag's depth, or -1 for a chroma sampling or sample width this
- * encoder does not do. 4:2:0 only, and within it 8 bits (the plain tag
- * and the three siting variants, which differ in chroma POSITION and not
- * in width) or 10 - `C420p10`, which is what ffmpeg writes for
- * yuv420p10le; `C420p10le` is taken as the same thing, since some writers
- * spell it that way. 420p12/p16 and 4:2:2 / 4:4:4 are later items, and
- * they are REFUSED rather than read as 8-bit, which is what the old
- * `strncmp(csp, "420", 3)` would have done with a C420p10 file. */
-static int y4m_csp_depth(const char *csp)
+ * encoder does not do; `*fmt` receives the chroma format (N265_CSP_*,
+ * which is chroma_format_idc).
+ *
+ * 4:2:0 and 4:4:4, each at 8 bits (the plain tag, and for 4:2:0 the three
+ * siting variants, which differ in chroma POSITION and not in width) or
+ * 10 - `C420p10` / `C444p10`, which is what ffmpeg writes for
+ * yuv420p10le / yuv444p10le; the `le` spelling is taken as the same
+ * thing, since some writers use it. 4:2:2, monochrome and 12/16-bit are
+ * later items and are REFUSED rather than read as something else, which
+ * is what a prefix match would have done. */
+static int y4m_csp_depth(const char *csp, int *fmt)
 {
+    *fmt = N265_CSP_I420;
     if (!strcmp(csp, "420") || !strcmp(csp, "420jpeg") ||
         !strcmp(csp, "420mpeg2") || !strcmp(csp, "420paldv"))
         return 8;
     if (!strcmp(csp, "420p10") || !strcmp(csp, "420p10le"))
         return 10;
+    *fmt = N265_CSP_I444;
+    if (!strcmp(csp, "444"))
+        return 8;
+    if (!strcmp(csp, "444p10") || !strcmp(csp, "444p10le"))
+        return 10;
+    *fmt = N265_CSP_I420;
     return -1;
 }
 
@@ -172,10 +185,18 @@ static int y4m_open(y4m_t *y, FILE *f)
     }
     if (y->w <= 0 || y->h <= 0)
         return -1;
-    y->depth = y4m_csp_depth(csp);
+    y->depth = y4m_csp_depth(csp, &y->csp);
     if (y->depth < 0) {
         fprintf(stderr, "n265: unsupported input format C%s "
-                "(4:2:0 at 8 or 10 bits only)\n", csp);
+                "(4:2:0 or 4:4:4, at 8 or 10 bits)\n", csp);
+        return -2;
+    }
+    y->csx = y->csy = y->csp == N265_CSP_I444 ? 0 : 1;
+    if ((y->w & 1) || (y->h & 1)) {
+        /* n265_encoder_open's own condition, checked here so the refusal
+         * names the picture instead of reading as an open failure. */
+        fprintf(stderr, "n265: %dx%d: the encoder needs even dimensions\n",
+                y->w, y->h);
         return -2;
     }
     /* The output depth defaults to the input's, which is the whole of the
@@ -200,23 +221,26 @@ static int y4m_open(y4m_t *y, FILE *f)
                 "made outside - ffmpeg -i in.y4m -pix_fmt yuv420p out.y4m.\n");
         return -2;
     }
-    y->frame_bytes = (size_t)y->w * y->h * 3 / 2 * (y->depth > 8 ? 2 : 1);
+    size_t luma = (size_t)y->w * (size_t)y->h;
+    size_t chroma = (size_t)(y->w >> y->csx) * (size_t)(y->h >> y->csy);
+    size_t nsamp = luma + 2 * chroma;
+    y->frame_bytes = nsamp * (y->depth > 8 ? 2 : 1);
     y->frame = malloc(y->frame_bytes);
     if (!y->frame)
         return -1;
-    size_t nsamp = (size_t)y->w * y->h * 3 / 2;
     if (y->out_depth == 8) {
         y->plane[0] = y->frame;
-        y->plane[1] = y->frame + (size_t)y->w * y->h;
-        y->plane[2] = y->frame + (size_t)y->w * y->h * 5 / 4;
+        y->plane[1] = y->frame + luma;
+        y->plane[2] = y->frame + luma + chroma;
     } else {
         y->pix16 = malloc(nsamp * sizeof(*y->pix16));
         if (!y->pix16)
             return -1;
         y->plane[0] = y->pix16;
-        y->plane[1] = y->pix16 + (size_t)y->w * y->h;
-        y->plane[2] = y->pix16 + (size_t)y->w * y->h * 5 / 4;
+        y->plane[1] = y->pix16 + luma;
+        y->plane[2] = y->pix16 + luma + chroma;
     }
+    y->nsamp = nsamp;
     return 0;
 }
 
@@ -232,7 +256,7 @@ static int y4m_read(y4m_t *y)
         return -1;
     if (y->out_depth == 8)
         return 1;               /* 8 in, 8 out: the file IS the picture */
-    size_t nsamp = (size_t)y->w * y->h * 3 / 2;
+    size_t nsamp = y->nsamp;
     if (y->depth == 8) {
         /* The --output-depth 10 upshift: a PURE LEFT SHIFT BY TWO, the
          * same arithmetic scripts/upshift10.sh gets out of ffmpeg's
@@ -272,9 +296,11 @@ static void usage(void)
 {
     fprintf(stderr,
         "usage: n265 [options] <input.y4m|->\n"
-        "  One binary, both profiles: the encoder is chosen from the input.\n"
-        "  A C420 y4m is coded Main (8-bit), a C420p10 one Main10, and no\n"
-        "  flag says so. See --output-depth.\n"
+        "  One binary, every profile: the encoder is chosen from the input.\n"
+        "  A C420 y4m is coded Main (8-bit), a C420p10 one Main10, a C444\n"
+        "  one Main 4:4:4 and a C444p10 one Main 4:4:4 10 - no flag says so.\n"
+        "  The chroma format is a runtime SPS property; only the sample\n"
+        "  width picks a library. See --output-depth.\n"
         "  -o <file>       output Annex-B bitstream (default: out.hevc)\n"
         "  --frames <n>    encode at most n frames\n"
         "  --output-depth <8|10>  code at this sample width (default: the\n"
@@ -548,6 +574,7 @@ int main(int argc, char **argv)
     a->param_default(&p);
     p.width = y.w;
     p.height = y.h;
+    p.csp = y.csp;
     p.fps_num = y.fps_num;
     p.fps_den = y.fps_den;
     n265_encoder *enc = a->encoder_open(&p);
@@ -585,7 +612,7 @@ int main(int argc, char **argv)
     while ((max_frames < 0 || n < max_frames) && (r = y4m_read(&y)) > 0) {
         n265_picture pic = {
             .plane = { y.plane[0], y.plane[1], y.plane[2] },
-            .stride = { y.w, y.w / 2, y.w / 2 },
+            .stride = { y.w, y.w >> y.csx, y.w >> y.csx },
             .pts = n,
         };
         n265_nal *nal;
@@ -631,11 +658,13 @@ int main(int argc, char **argv)
         fprintf(stderr, "n265: WARNING %ld input samples were above the "
                 "declared %d-bit range and were clamped\n", y.clipped,
                 y.depth);
+    const char *fmt = y.csp == N265_CSP_I444 ? "4:4:4" : "4:2:0";
     if (y.out_depth != y.depth)
-        fprintf(stderr, "n265: %ld frames, %dx%d %d-bit in, coded %d-bit "
-                "(upshifted by 2)\n", n, y.w, y.h, y.depth, y.out_depth);
+        fprintf(stderr, "n265: %ld frames, %dx%d %s %d-bit in, coded %d-bit "
+                "(upshifted by 2)\n", n, y.w, y.h, fmt, y.depth,
+                y.out_depth);
     else
-        fprintf(stderr, "n265: %ld frames, %dx%d %d-bit\n", n, y.w, y.h,
-                y.depth);
+        fprintf(stderr, "n265: %ld frames, %dx%d %s %d-bit\n", n, y.w, y.h,
+                fmt, y.depth);
     return 0;
 }
