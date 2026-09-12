@@ -15,7 +15,7 @@ BUILD ?= build
 # keeps working.
 BUILD10 ?= build10
 
-.PHONY: build build8 build10 test smoke10 conformance conformance-fast conformance10 conformance10-fast conformance444 conformance444-fast conformance444-10 conformance444-10-fast provenance asan asan10 asan444 determ determ-fast determ10 determ444 board board-quick clean checkasm-bench checkasm-asan checkasm10-bench checkasm10-asan
+.PHONY: build build8 build10 test smoke10 conformance conformance-fast conformance10 conformance10-fast conformance444 conformance444-fast conformance444-10 conformance444-10-fast conformance422 conformance422-fast conformance422-10 conformance422-10-fast provenance asan asan10 asan444 asan422 determ determ-fast determ10 determ444 determ422 board board-quick clean checkasm-bench checkasm-asan checkasm10-bench checkasm10-asan
 
 build: build8 build10
 
@@ -103,6 +103,22 @@ conformance444-10: build
 conformance444-10-fast: build
 	N265_10=$(BUILD)/n265 scripts/conformance.sh --csp444 --depth10 --fast
 
+# The 4:2:2 lists (phase 8 item 6b), one per depth, on the same binary
+# and the same library for the same reason: the chroma format is a
+# RUNTIME SPS property and the source's C tag (C422 / C422p10) selects
+# it. Both depths are Main 4:2:2 10 - Table A.2 has no 8-bit 4:2:2 row.
+conformance422: build
+	N265=$(BUILD)/n265 scripts/conformance.sh --csp422
+
+conformance422-fast: build
+	N265=$(BUILD)/n265 scripts/conformance.sh --csp422 --fast
+
+conformance422-10: build
+	N265_10=$(BUILD)/n265 scripts/conformance.sh --csp422 --depth10
+
+conformance422-10-fast: build
+	N265_10=$(BUILD)/n265 scripts/conformance.sh --csp422 --depth10 --fast
+
 provenance:
 	scripts/provenance_check.sh
 
@@ -159,6 +175,18 @@ determ444: build
 	    THREADS="1 12" REFS=b1 RUNS=2 FRAMES=120 \
 	    ARGS="--crf 28 --ctu 32 --ref 3" scripts/determ_repeat.sh
 
+# ...and the same at 4:2:2 (phase 8 item 6b).
+CORPUS422 ?= $(TMPDIR)yah265-corpus422
+determ422: build
+	@mkdir -p $(CORPUS422)
+	@[ -s $(CORPUS422)/foreman_cif.y4m ] || \
+	    ffmpeg -loglevel error -i tests/corpus/foreman_cif.y4m \
+	        -pix_fmt yuv422p -strict -1 -f yuv4mpegpipe \
+	        $(CORPUS422)/foreman_cif.y4m -y
+	ENC=$(BUILD)/n265 CORPUS=$(CORPUS422) CLIPS=foreman_cif \
+	    THREADS="1 12" REFS=b1 RUNS=2 FRAMES=120 \
+	    ARGS="--crf 28 --ctu 32 --ref 3" scripts/determ_repeat.sh
+
 asan:
 	@[ -d build-asan ] || meson setup build-asan -Db_sanitize=address,undefined -Db_lundef=false
 	ninja -C build-asan
@@ -183,6 +211,13 @@ asan444:
 	ninja -C build-asan
 	N265=build-asan/n265 scripts/conformance.sh --csp444 --fast
 	N265_10=build-asan/n265 scripts/conformance.sh --csp444 --depth10 --fast
+
+# ...and the 4:2:2 vectors, at both depths, on the same tree.
+asan422:
+	@[ -d build-asan ] || meson setup build-asan -Db_sanitize=address,undefined -Db_lundef=false
+	ninja -C build-asan
+	N265=build-asan/n265 scripts/conformance.sh --csp422 --fast
+	N265_10=build-asan/n265 scripts/conformance.sh --csp422 --depth10 --fast
 
 clean:
 	rm -rf $(BUILD) $(BUILD10) build-asan build10-asan

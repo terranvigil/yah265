@@ -146,13 +146,13 @@ typedef struct y4m_t {
  * encoder does not do; `*fmt` receives the chroma format (N265_CSP_*,
  * which is chroma_format_idc).
  *
- * 4:2:0 and 4:4:4, each at 8 bits (the plain tag, and for 4:2:0 the three
- * siting variants, which differ in chroma POSITION and not in width) or
- * 10 - `C420p10` / `C444p10`, which is what ffmpeg writes for
- * yuv420p10le / yuv444p10le; the `le` spelling is taken as the same
- * thing, since some writers use it. 4:2:2, monochrome and 12/16-bit are
- * later items and are REFUSED rather than read as something else, which
- * is what a prefix match would have done. */
+ * 4:2:0, 4:2:2 and 4:4:4, each at 8 bits (the plain tag, and for 4:2:0
+ * the three siting variants, which differ in chroma POSITION and not in
+ * width) or 10 - `C420p10` / `C422p10` / `C444p10`, which is what ffmpeg
+ * writes for yuv420p10le / yuv422p10le / yuv444p10le; the `le` spelling
+ * is taken as the same thing, since some writers use it. Monochrome and
+ * 12/16-bit are later items and are REFUSED rather than read as
+ * something else, which is what a prefix match would have done. */
 static int y4m_csp_depth(const char *csp, int *fmt)
 {
     *fmt = N265_CSP_I420;
@@ -160,6 +160,11 @@ static int y4m_csp_depth(const char *csp, int *fmt)
         !strcmp(csp, "420mpeg2") || !strcmp(csp, "420paldv"))
         return 8;
     if (!strcmp(csp, "420p10") || !strcmp(csp, "420p10le"))
+        return 10;
+    *fmt = N265_CSP_I422;
+    if (!strcmp(csp, "422"))
+        return 8;
+    if (!strcmp(csp, "422p10") || !strcmp(csp, "422p10le"))
         return 10;
     *fmt = N265_CSP_I444;
     if (!strcmp(csp, "444"))
@@ -202,10 +207,13 @@ static int y4m_open(y4m_t *y, FILE *f)
     y->depth = y4m_csp_depth(csp, &y->csp);
     if (y->depth < 0) {
         fprintf(stderr, "n265: unsupported input format C%s "
-                "(4:2:0 or 4:4:4, at 8 or 10 bits)\n", csp);
+                "(4:2:0, 4:2:2 or 4:4:4, at 8 or 10 bits)\n", csp);
         return -2;
     }
-    y->csx = y->csy = y->csp == N265_CSP_I444 ? 0 : 1;
+    /* log2 SubWidthC / SubHeightC. 4:2:2 is the format where the two
+     * differ: half the width, all of the height. */
+    y->csx = y->csp == N265_CSP_I444 ? 0 : 1;
+    y->csy = y->csp == N265_CSP_I420 ? 1 : 0;
     if ((y->w & 1) || (y->h & 1)) {
         /* n265_encoder_open's own condition, checked here so the refusal
          * names the picture instead of reading as an open failure. */
@@ -312,9 +320,10 @@ static void usage(void)
         "usage: n265 [options] <input.y4m|->\n"
         "  One binary, every profile: the encoder is chosen from the input.\n"
         "  A C420 y4m is coded Main (8-bit), a C420p10 one Main10, a C444\n"
-        "  one Main 4:4:4 and a C444p10 one Main 4:4:4 10 - no flag says so.\n"
-        "  The chroma format is a runtime SPS property; only the sample\n"
-        "  width picks a library. See --output-depth.\n"
+        "  one Main 4:4:4, a C444p10 one Main 4:4:4 10, and a C422 or\n"
+        "  C422p10 one Main 4:2:2 10 (Table A.2 has no 8-bit 4:2:2 profile)\n"
+        "  - no flag says so. The chroma format is a runtime SPS property;\n"
+        "  only the sample width picks a library. See --output-depth.\n"
         "  -o <file>       output Annex-B bitstream (default: out.hevc)\n"
         "  --frames <n>    encode at most n frames\n"
         "  --output-depth <8|10>  code at this sample width (default: the\n"
@@ -738,7 +747,8 @@ int main(int argc, char **argv)
         fprintf(stderr, "n265: WARNING %ld input samples were above the "
                 "declared %d-bit range and were clamped\n", y.clipped,
                 y.depth);
-    const char *fmt = y.csp == N265_CSP_I444 ? "4:4:4" : "4:2:0";
+    const char *fmt = y.csp == N265_CSP_I444 ? "4:4:4"
+                    : y.csp == N265_CSP_I422 ? "4:2:2" : "4:2:0";
     if (y.out_depth != y.depth)
         fprintf(stderr, "n265: %ld frames, %dx%d %s %d-bit in, coded %d-bit "
                 "(upshifted by 2)\n", n, y.w, y.h, fmt, y.depth,

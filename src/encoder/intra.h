@@ -33,6 +33,37 @@ void n265_intra_refs(pixel *refs, const pixel *recon, int stride,
                      int x0, int y0, int log2n,
                      int pic_w, int pic_h, int ctb_log2);
 
+/* The geometry the AVAILABILITY test runs in, which is not always the
+ * plane's own. 8.4.4.2.2 maps every chroma position UP by SubWidthC /
+ * SubHeightC and invokes 6.4.1 on the luma pair, so the z-scan order is
+ * a luma one.
+ *
+ * At 4:2:0 and 4:4:4 the chroma plane is a UNIFORM scaling of the luma
+ * one, and a z-scan key taken in chroma coordinates orders chroma
+ * positions exactly as the luma keys order their images (z-order is
+ * hierarchical, and a whole 4x4-unit block's keys are contiguous, so
+ * comparing the blocks by their first unit is the same comparison). Those
+ * two formats therefore pass zero shifts and the plane's own geometry,
+ * which is byte for byte the call the encoder made before 4:2:2 existed.
+ *
+ * 4:2:2 is where that breaks: the chroma CTB is half as wide as it is
+ * tall, no chroma-space z-scan describes it, and the second of a TU's two
+ * stacked chroma blocks has to see the first as available. So it passes
+ * shx 1 / shy 0 with the LUMA pic_w and ctb_log2, and every candidate's
+ * key is taken at (x << shx, y << shy). */
+typedef struct n265_zgeo {
+    int shx, shy;       /* log2 SubWidthC / SubHeightC of the mapping */
+    int pic_w;          /* the z-scan's picture width, in ITS units */
+    int ctb_log2;       /* ...and its CTB size */
+} n265_zgeo;
+
+/* n265_intra_refs with the availability geometry given apart from the
+ * plane's. `pic_w` / `pic_h` still bound the PLANE (an out-of-picture
+ * sample is unavailable whatever the z-scan says). */
+void n265_intra_refs_g(pixel *refs, const pixel *recon, int stride,
+                       int x0, int y0, int log2n, int pic_w, int pic_h,
+                       const n265_zgeo *z);
+
 /* DC prediction (8.4.4.2.5); filter_edges enables the luma <32x32 DC
  * boundary smoothing. */
 void n265_pred_dc(pixel *dst, int dst_stride, const pixel *refs,

@@ -60,6 +60,25 @@ extern const uint8_t n265_sig_ctx_map4x4[15];
 extern uint8_t n265_scan_coef[3][16];       /* coeff scan in a sub-block */
 extern uint8_t n265_scan_sb[3][4][64];      /* sub-block scan, log2TbSize 2..5 */
 
+/* Table 8-3, the 4:2:2 chroma intra mode remap. 8.4.3: when
+ * ChromaArrayType is 2, the mode X derived from intra_chroma_pred_mode
+ * and IntraPredModeY is replaced by the mode Y this table gives, and
+ * IntraPredModeC IS that replacement - so prediction (8.4.4.2) and the
+ * mode-dependent scan derivation (7.4.9.11) both read the mapped value
+ * and neither reads the luma one. The map exists because the 35 angles
+ * are defined on a SQUARE sample grid and a 4:2:2 chroma grid is half as
+ * wide as it is tall: a direction on the luma grid is a different mode
+ * number on the chroma one. Planar and DC are fixed points; the two
+ * extremes saturate. */
+extern const uint8_t n265_c422_mode_map[35];
+
+/* IntraPredModeC for a derived chroma mode, at the format in hand.
+ * MODE_INTER (-1) is a sentinel and passes through untouched. */
+static inline int n265_c422_mode(int c422, int mode)
+{
+    return c422 && mode >= 0 ? n265_c422_mode_map[mode] : mode;
+}
+
 /* scanIdx for an intra TB (residual coding semantics): MDCS applies to
  * 4x4 and luma 8x8 TBs. */
 static inline int n265_scan_idx(int mode, int log2n, int c_idx)

@@ -135,8 +135,19 @@ void n265_intra_refs_spec(pixel *refs, const pixel *recon, int stride,
  * and left every other target paying 129 zorder calls. It is C now, on
  * every build, and not ablatable.
  */
-static int avail_prefix_x(int x0, int y, int lim, uint64_t cur, int pic_w,
-                          int ctb_log2)
+/* the availability key of a PLANE position, mapped into the z-scan's own
+ * coordinates first (n265_zgeo). The shifts are 0 at every format but
+ * 4:2:2 chroma, where the mapping is the spec's SubWidthC / SubHeightC
+ * and the key is a luma one. Monotonicity along a scan line survives the
+ * mapping - it is a non-decreasing function of a non-decreasing one - so
+ * the prefix searches below are still binary searches. */
+static inline uint64_t zkey(int x, int y, const n265_zgeo *z)
+{
+    return n265_zorder(x << z->shx, y << z->shy, z->pic_w, z->ctb_log2);
+}
+
+static int avail_prefix_x(int x0, int y, int lim, uint64_t cur,
+                          const n265_zgeo *z)
 {
     int lo = 0, hi = lim;
 
@@ -144,7 +155,7 @@ static int avail_prefix_x(int x0, int y, int lim, uint64_t cur, int pic_w,
         return 0;
     while (lo < hi) {
         int mid = (lo + hi + 1) / 2;
-        if (n265_zorder(x0 + mid - 1, y, pic_w, ctb_log2) < cur)
+        if (zkey(x0 + mid - 1, y, z) < cur)
             lo = mid;
         else
             hi = mid - 1;
@@ -152,8 +163,8 @@ static int avail_prefix_x(int x0, int y, int lim, uint64_t cur, int pic_w,
     return lo;
 }
 
-static int avail_prefix_y(int x, int y0, int lim, uint64_t cur, int pic_w,
-                          int ctb_log2)
+static int avail_prefix_y(int x, int y0, int lim, uint64_t cur,
+                          const n265_zgeo *z)
 {
     int lo = 0, hi = lim;
 
@@ -161,7 +172,7 @@ static int avail_prefix_y(int x, int y0, int lim, uint64_t cur, int pic_w,
         return 0;
     while (lo < hi) {
         int mid = (lo + hi + 1) / 2;
-        if (n265_zorder(x, y0 + mid - 1, pic_w, ctb_log2) < cur)
+        if (zkey(x, y0 + mid - 1, z) < cur)
             lo = mid;
         else
             hi = mid - 1;
@@ -169,27 +180,26 @@ static int avail_prefix_y(int x, int y0, int lim, uint64_t cur, int pic_w,
     return lo;
 }
 
-void n265_intra_refs_ref(pixel *refs, const pixel *recon, int stride,
-                         int x0, int y0, int log2n,
-                         int pic_w, int pic_h, int ctb_log2)
+void n265_intra_refs_g(pixel *refs, const pixel *recon, int stride,
+                       int x0, int y0, int log2n, int pic_w, int pic_h,
+                       const n265_zgeo *z)
 {
     int n = 1 << log2n;
-    uint64_t cur = n265_zorder(x0, y0, pic_w, ctb_log2);
+    uint64_t cur = zkey(x0, y0, z);
     int nt = 0, nl = 0, cav = 0, corner = 0, seed;
 
     if (y0 > 0) {
         int lim = pic_w - x0;
         if (lim > 2 * n)
             lim = 2 * n;
-        nt = avail_prefix_x(x0, y0 - 1, lim, cur, pic_w, ctb_log2);
+        nt = avail_prefix_x(x0, y0 - 1, lim, cur, z);
     }
     if (x0 > 0) {
         int lim = pic_h - y0;
         if (lim > 2 * n)
             lim = 2 * n;
-        nl = avail_prefix_y(x0 - 1, y0, lim, cur, pic_w, ctb_log2);
-        if (y0 > 0 &&
-            n265_zorder(x0 - 1, y0 - 1, pic_w, ctb_log2) < cur) {
+        nl = avail_prefix_y(x0 - 1, y0, lim, cur, z);
+        if (y0 > 0 && zkey(x0 - 1, y0 - 1, z) < cur) {
             cav = 1;
             corner = recon[(size_t)(y0 - 1) * stride + x0 - 1];
         }
@@ -224,6 +234,15 @@ void n265_intra_refs_ref(pixel *refs, const pixel *recon, int stride,
         for (int k = nt; k < 2 * n; k++)
             refs[1 + k] = fill;
     }
+}
+
+/* the plane's own geometry, which is every caller but 4:2:2 chroma */
+void n265_intra_refs_ref(pixel *refs, const pixel *recon, int stride,
+                         int x0, int y0, int log2n,
+                         int pic_w, int pic_h, int ctb_log2)
+{
+    n265_zgeo z = { 0, 0, pic_w, ctb_log2 };
+    n265_intra_refs_g(refs, recon, stride, x0, y0, log2n, pic_w, pic_h, &z);
 }
 
 void n265_intra_refs(pixel *refs, const pixel *recon, int stride,

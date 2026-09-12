@@ -219,6 +219,13 @@ static void replay_residual(struct n265_frame_work *e, const res_ops *ops,
 {
     int n = 1 << log2n;
     const int16_t *lv = rd_levels(e, n * n);
+    /* Table 8-3 (8.4.3): the scan derivation reads IntraPredModeC, which
+     * at 4:2:2 is the REMAP of the derived mode and not the luma mode the
+     * record carries. 7.4.9.11 gives a 4x4 block the mode-dependent scan
+     * whatever its component is, so this reaches the common case and not
+     * only 4:4:4's 8x8 chroma. Identity at the other two formats. */
+    if (c_idx)
+        mode = n265_c422_mode(e->c422, mode);
     int scan = mode == MODE_INTER ? 0
                                   : n265_scan_idx(mode, log2n,
                                                   c_filt(e, c_idx));
@@ -254,28 +261,45 @@ static void replay_tt(struct n265_frame_work *e, const res_ops *ops, int mode,
 
     /* 7.3.8.8: the chroma cbfs are present when
      * `log2TrafoSize > 2 || ChromaArrayType == 3` - at 4:4:4 a 4x4 node
-     * has its own chroma pair, so the pair is signalled there too. */
+     * has its own chroma pair, so the pair is signalled there too.
+     *
+     * ...and at 4:2:2 each component carries TWO cbfs at this node, for
+     * the two stacked square blocks the unit is - but only where the
+     * blocks are actually HERE: `ChromaArrayType == 2 &&
+     * (!split_transform_flag || log2TrafoSize == 3)`. A split node above
+     * the 8x8 one codes its single cbf as the gate on its children and
+     * nothing else; the 8x8 node keeps the chroma itself, which is why it
+     * codes the pair even when it splits. */
     int has_chroma = log2ts > 2 || e->c444;
+    int pair = e->c422 && (!split || log2ts == 3);
     int log2c = log2ts - e->csx;        /* this node's chroma TB */
-    int cbf_cb = pcb, cbf_cr = pcr;
+    int cbf_cb = pcb, cbf_cr = pcr, cbf_cb2 = 0, cbf_cr2 = 0;
     if (has_chroma) {
         cbf_cb = (int)rd_u8(e);
+        cbf_cb2 = pair ? (int)rd_u8(e) : 0;
         cbf_cr = (int)rd_u8(e);
+        cbf_cr2 = pair ? (int)rd_u8(e) : 0;
         if (e->cbit_trace && e->in_entropy)
             e->cbit_bucket = N265_CB_CBF;
-        if (depth == 0 || pcb)
+        if (depth == 0 || pcb) {
             ops->bin(ops->h, CTX_CBF_CHROMA + depth, cbf_cb);
-        else
-            cbf_cb = 0;
-        if (depth == 0 || pcr)
+            if (pair)
+                ops->bin(ops->h, CTX_CBF_CHROMA + depth, cbf_cb2);
+        } else {
+            cbf_cb = cbf_cb2 = 0;
+        }
+        if (depth == 0 || pcr) {
             ops->bin(ops->h, CTX_CBF_CHROMA + depth, cbf_cr);
-        else
-            cbf_cr = 0;
+            if (pair)
+                ops->bin(ops->h, CTX_CBF_CHROMA + depth, cbf_cr2);
+        } else {
+            cbf_cr = cbf_cr2 = 0;
+        }
         if (e->cbit_trace && e->in_entropy) {
             e->cbit_bucket = N265_CB_OTHER;
             e->cbf_c_n[log2ts - 2]++;
-            e->cbf_c_cb[log2ts - 2] += cbf_cb != 0;
-            e->cbf_c_cr[log2ts - 2] += cbf_cr != 0;
+            e->cbf_c_cb[log2ts - 2] += (cbf_cb || cbf_cb2) != 0;
+            e->cbf_c_cr[log2ts - 2] += (cbf_cr || cbf_cr2) != 0;
         }
     }
 
@@ -290,17 +314,24 @@ static void replay_tt(struct n265_frame_work *e, const res_ops *ops, int mode,
         for (int i = 0; i < 4; i++) {
             int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
             /* every 4x4 child TU sees the parent's chroma cbfs in its
-             * transform_unit condition (7.3.8.10) */
-            if (chroma_at_parent && (cbf_cb || cbf_cr))
+             * transform_unit condition (7.3.8.10) - all four of them at
+             * 4:2:2, where the parent holds two blocks per component */
+            if (chroma_at_parent && (cbf_cb || cbf_cb2 || cbf_cr || cbf_cr2))
                 e->ent_parent_chroma = 1;
             replay_tt(e, ops, mode, x1, y1, log2ts - 1, depth + 1, cbf_cb,
                       cbf_cr);
             e->ent_parent_chroma = 0;
             if (chroma_at_parent && i == 3) {
+                /* 7.3.8.10's blkIdx == 3 arm, with its tIdx loop: the
+                 * unit's blocks in top-to-bottom order, cb's then cr's */
                 if (cbf_cb)
-                    replay_residual(e, ops, 1, log2ts - 1, m);
+                    replay_residual(e, ops, 1, log2c, m);
+                if (cbf_cb2)
+                    replay_residual(e, ops, 1, log2c, m);
                 if (cbf_cr)
-                    replay_residual(e, ops, 2, log2ts - 1, m);
+                    replay_residual(e, ops, 2, log2c, m);
+                if (cbf_cr2)
+                    replay_residual(e, ops, 2, log2c, m);
             }
         }
         return;
@@ -312,18 +343,23 @@ static void replay_tt(struct n265_frame_work *e, const res_ops *ops, int mode,
         e->cs_tu[log2ts - 2]++;
         e->cs_tu_cbf[log2ts - 2] += cbf_l != 0;
     }
-    if (mode == MODE_INTER && depth == 0 && !cbf_cb && !cbf_cr)
+    int any_c = cbf_cb || cbf_cb2 || cbf_cr || cbf_cr2;
+    if (mode == MODE_INTER && depth == 0 && !any_c)
         ;   /* cbf_luma inferred 1 */
     else
         ops->bin(ops->h, CTX_CBF_LUMA + (depth == 0), cbf_l);
-    maybe_qp_delta(e, ops, cbf_l || (has_chroma && (cbf_cb || cbf_cr)) ||
+    maybe_qp_delta(e, ops, cbf_l || (has_chroma && any_c) ||
                    e->ent_parent_chroma);
     if (cbf_l)
         replay_residual(e, ops, 0, log2ts, m);
     if (has_chroma) {
         if (cbf_cb)
             replay_residual(e, ops, 1, log2c, m);
+        if (cbf_cb2)
+            replay_residual(e, ops, 1, log2c, m);
         if (cbf_cr)
+            replay_residual(e, ops, 2, log2c, m);
+        if (cbf_cr2)
             replay_residual(e, ops, 2, log2c, m);
     }
 }
@@ -523,15 +559,24 @@ static void replay_cu(struct n265_frame_work *e, const res_ops *ops, int x0,
             ops->bypass_bits(ops->h, (uint32_t)idx_or_rem[i], 5);
         }
     }
-    /* 7.3.8.5: ONE intra_chroma_pred_mode for the coding unit at 4:2:0,
-     * and one per prediction block - so four at PART_NxN - when
-     * ChromaArrayType is 3. DM in every case. */
+    /* 7.3.8.5: ONE intra_chroma_pred_mode for the coding unit at 4:2:0
+     * and at 4:2:2, and one per prediction block - so four at PART_NxN -
+     * when ChromaArrayType is 3. DM in every case. */
     for (int i = 0; i < (e->c444 ? 4 : 1); i++)
         ops->bin(ops->h, CTX_CHROMA_MODE, 0);        /* DM */
 
-    int cbf_cb = (int)rd_u8(e), cbf_cr = (int)rd_u8(e);
+    /* the 8x8 node keeps the chroma, so the cbfs here are the unit's: one
+     * per component at 4:2:0 and 4:4:4, the stacked pair at 4:2:2 */
+    int cbf_cb = (int)rd_u8(e);
+    int cbf_cb2 = e->c422 ? (int)rd_u8(e) : 0;
+    int cbf_cr = (int)rd_u8(e);
+    int cbf_cr2 = e->c422 ? (int)rd_u8(e) : 0;
     ops->bin(ops->h, CTX_CBF_CHROMA + 0, cbf_cb);
+    if (e->c422)
+        ops->bin(ops->h, CTX_CBF_CHROMA + 0, cbf_cb2);
     ops->bin(ops->h, CTX_CBF_CHROMA + 0, cbf_cr);
+    if (e->c422)
+        ops->bin(ops->h, CTX_CBF_CHROMA + 0, cbf_cr2);
     if (e->c444) {
         /* each 4x4 transform unit carries its own chroma pair, with the
          * cbfs at trafoDepth 1 conditioned on the node's */
@@ -561,14 +606,22 @@ static void replay_cu(struct n265_frame_work *e, const res_ops *ops, int x0,
         int cbf_l = (int)rd_u8(e);
         ops->bin(ops->h, CTX_CBF_LUMA + 0, cbf_l);
         /* 4x4 luma TUs read the PARENT's chroma cbfs in their
-         * transform_unit condition (7.3.8.10), all four of them */
-        maybe_qp_delta(e, ops, cbf_l || cbf_cb || cbf_cr);
+         * transform_unit condition (7.3.8.10), all four of them - and at
+         * 4:2:2 that is four cbfs and not two */
+        maybe_qp_delta(e, ops, cbf_l || cbf_cb || cbf_cb2 || cbf_cr ||
+                       cbf_cr2);
         if (cbf_l)
             replay_residual(e, ops, 0, 2, modes[i]);
     }
+    /* the DM mode is the top-left PB's at every format; Table 8-3's remap
+     * happens inside replay_residual */
     if (cbf_cb)
         replay_residual(e, ops, 1, 2, modes[0]);
+    if (cbf_cb2)
+        replay_residual(e, ops, 1, 2, modes[0]);
     if (cbf_cr)
+        replay_residual(e, ops, 2, 2, modes[0]);
+    if (cbf_cr2)
         replay_residual(e, ops, 2, 2, modes[0]);
 }
 

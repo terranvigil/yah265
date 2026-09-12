@@ -50,12 +50,12 @@ static const int8_t chroma_filt[8][4] = {
  * reads - which are the clipped ones, never past the guard - and then
  * opens the guard for the kernel, whose reads land in tmp. */
 const pixel *n265_ref_win(const pixel *plane, int stride, int pic_w,
-                            int pic_h, int pad, int ix, int iy, int w,
-                            int h, int hl, int hr, pixel *tmp,
+                            int pic_h, int pad_x, int pad_y, int ix, int iy,
+                            int w, int h, int hl, int hr, pixel *tmp,
                             int *out_stride, int *clipped)
 {
-    if (ix - hl >= -pad && ix + w + hr <= pic_w + pad &&
-        iy - hl >= -pad && iy + h + hr <= pic_h + pad) {
+    if (ix - hl >= -pad_x && ix + w + hr <= pic_w + pad_x &&
+        iy - hl >= -pad_y && iy + h + hr <= pic_h + pad_y) {
         *out_stride = stride;
         *clipped = 0;
         return plane + (ptrdiff_t)iy * stride + ix;

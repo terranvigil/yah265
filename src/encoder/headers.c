@@ -20,7 +20,8 @@
  * signalled 720p50 at a level its own frame rate violates (Table A.7,
  * MaxLumaSr) and a PCM stream at a level admitting a tenth of its bit
  * rate. Both were wrong by a table, and both moved. */
-static void write_ptl(bitstream_t *bs, int level_idc, int tier, int c444)
+static void write_ptl(bitstream_t *bs, int level_idc, int tier,
+                      int chroma_idc)
 {
     bs_put_bits(bs, 0, 2);          /* general_profile_space */
     bs_put_bits(bs, (uint32_t)(tier != 0), 1);  /* general_tier_flag */
@@ -50,19 +51,21 @@ static void write_ptl(bitstream_t *bs, int level_idc, int tier, int c444)
      * Verified on the wire: dec265 reads profile_idc Main10 with
      * compatibility flag 2 alone, and ffprobe reads "Main 10" /
      * yuv420p10le. */
-    /* Phase 8 item 6a: at 4:4:4 the profile is the RANGE EXTENSION one,
-     * general_profile_idc 4 (A.3.5), and Main 4:4:4 / Main 4:4:4 10 are
-     * told apart by the constraint flags below and by nothing else. The
-     * compatibility word carries bit 4 alone: neither is decodable by a
-     * Main or Main10 decoder. */
-    bs_put_bits(bs, c444 ? 4 : (BIT_DEPTH == 8 ? 1 : 2), 5);
-    bs_put_bits(bs, c444 ? 0x08000000u
+    /* Phase 8 items 6a and 6b: at 4:4:4 and at 4:2:2 alike the profile is
+     * the RANGE EXTENSION one, general_profile_idc 4 (A.3.5), and the
+     * profiles this encoder emits there - Main 4:4:4, Main 4:4:4 10, and
+     * Main 4:2:2 10 at both depths - are told apart by the constraint
+     * flags below and by nothing else. The compatibility word carries bit
+     * 4 alone: none of them is decodable by a Main or Main10 decoder. */
+    int rext = chroma_idc != 1;
+    bs_put_bits(bs, rext ? 4 : (BIT_DEPTH == 8 ? 1 : 2), 5);
+    bs_put_bits(bs, rext ? 0x08000000u
                          : (BIT_DEPTH == 8 ? 0x60000000u : 0x20000000u), 32);
     bs_put_bits(bs, 1, 1);          /* general_progressive_source_flag */
     bs_put_bits(bs, 0, 1);          /* general_interlaced_source_flag */
     bs_put_bits(bs, 1, 1);          /* general_non_packed_constraint_flag */
     bs_put_bits(bs, 1, 1);          /* general_frame_only_constraint_flag */
-    if (c444) {
+    if (rext) {
         /* The nine profile-specific constraint flags of A.3.5, which
          * EXIST only for general_profile_idc 4..10 - at Main and Main10
          * the same 44 bits are general_reserved_zero_43bits plus the
@@ -73,17 +76,31 @@ static void write_ptl(bitstream_t *bs, int level_idc, int tier, int c444)
          *   Main 4:4:4     12bit 1, 10bit 1, 8bit 1, 422 0, 420 0,
          *                  mono 0, intra 0, one-picture 0, lower-rate 1
          *   Main 4:4:4 10  the same with 8bit 0
+         *   Main 4:2:2 10  12bit 1, 10bit 1, 8bit 0, 422 1, 420 0,
+         *                  mono 0, intra 0, one-picture 0, lower-rate 1
          *
          * The three "max N bit" flags are upper bounds the stream
-         * promises to stay inside, so an 8-bit stream sets all three and
-         * a Main10 one drops the 8-bit flag; the two chroma flags say the
-         * stream is NOT constrained to 4:2:2 or 4:2:0, which is the whole
-         * declaration. `lower_bit_rate` is the CpbBrVclFactor row this
-         * encoder's streams sit in and is 1 for both. */
+         * promises to stay inside, so an 8-bit 4:4:4 stream sets all
+         * three and a Main 4:4:4 10 one drops the 8-bit flag; the two
+         * chroma flags say which subsamplings the stream IS constrained
+         * to, and setting 422 alone is the whole difference between the
+         * 4:2:2 profile and the 4:4:4 ones.
+         *
+         * Table A.2 has NO 8-bit 4:2:2 row - the lowest 4:2:2 profile is
+         * Main 4:2:2 10 - so an 8-bit 4:2:2 stream is signalled as that,
+         * with max_8bit CLEAR. The flag is a constraint the stream
+         * declines to make and not a description of its sample width,
+         * and bit_depth 8 sits inside Main 4:2:2 10 already; x265 names
+         * the same profile main422-10 at both depths for the same
+         * reason.
+         *
+         * `lower_bit_rate` is the CpbBrVclFactor row this encoder's
+         * streams sit in and is 1 for all of them. */
         bs_put_bits(bs, 1, 1);      /* general_max_12bit_constraint_flag */
         bs_put_bits(bs, 1, 1);      /* general_max_10bit_constraint_flag */
-        bs_put_bits(bs, BIT_DEPTH == 8, 1); /* general_max_8bit_constraint */
-        bs_put_bits(bs, 0, 1);      /* general_max_422chroma_constraint */
+        bs_put_bits(bs, chroma_idc == 3 && BIT_DEPTH == 8, 1);
+                                    /* general_max_8bit_constraint_flag */
+        bs_put_bits(bs, chroma_idc == 2, 1); /* max_422chroma_constraint */
         bs_put_bits(bs, 0, 1);      /* general_max_420chroma_constraint */
         bs_put_bits(bs, 0, 1);      /* general_max_monochrome_constraint */
         bs_put_bits(bs, 0, 1);      /* general_intra_constraint_flag */
@@ -110,7 +127,7 @@ void n265_write_vps(struct n265_frame_work *e)
     bs_put_bits(bs, 0, 3);          /* vps_max_sub_layers_minus1 */
     bs_put_bits(bs, 1, 1);          /* vps_temporal_id_nesting_flag */
     bs_put_bits(bs, 0xffff, 16);    /* vps_reserved_0xffff_16bits */
-    write_ptl(bs, e->level_idc, e->level_tier, e->c444);
+    write_ptl(bs, e->level_idc, e->level_tier, e->chroma_idc);
     bs_put_bits(bs, 0, 1);          /* vps_sub_layer_ordering_info_present */
     bs_put_ue(bs, (uint32_t)(e->dpb_buffering - 1)); /* vps_max_dec_pic_buffering_minus1 */
     bs_put_ue(bs, (uint32_t)e->dpb_reorder);         /* vps_max_num_reorder_pics[0] */
@@ -134,9 +151,9 @@ void n265_write_sps(struct n265_frame_work *e)
     bs_put_bits(bs, 0, 4);          /* sps_video_parameter_set_id */
     bs_put_bits(bs, 0, 3);          /* sps_max_sub_layers_minus1 */
     bs_put_bits(bs, 1, 1);          /* sps_temporal_id_nesting_flag */
-    write_ptl(bs, e->level_idc, e->level_tier, e->c444);
+    write_ptl(bs, e->level_idc, e->level_tier, e->chroma_idc);
     bs_put_ue(bs, 0);               /* sps_seq_parameter_set_id */
-    bs_put_ue(bs, (uint32_t)e->chroma_idc);   /* 1 = 4:2:0, 3 = 4:4:4 */
+    bs_put_ue(bs, (uint32_t)e->chroma_idc);   /* 1 = 420, 2 = 422, 3 = 444 */
     if (e->chroma_idc == 3) {
         /* 7.3.2.2: 4:4:4 alone carries this, and 0 is what makes
          * ChromaArrayType 3 rather than three separate monochrome
@@ -150,7 +167,9 @@ void n265_write_sps(struct n265_frame_work *e)
     if (crop_r || crop_b) {
         /* The offsets are in CHROMA units (7.4.3.2: SubWidthC /
          * SubHeightC times the offset is the luma crop), so at 4:4:4 the
-         * unit IS a luma sample and the shift is zero. */
+         * unit IS a luma sample and both shifts are zero, and at 4:2:2
+         * the vertical one is - which is why the two axes read csx and
+         * csy apart rather than one number. */
         bs_put_bits(bs, 1, 1);      /* conformance_window_flag */
         bs_put_ue(bs, 0);                                /* left */
         bs_put_ue(bs, (uint32_t)(crop_r >> e->csx));     /* right */

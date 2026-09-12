@@ -575,6 +575,7 @@ static void fw_config(n265_encoder *e, n265_frame_work *fw)
     fw->csx = e->csx;
     fw->csy = e->csy;
     fw->c444 = e->c444;
+    fw->c422 = e->c422;
     fw->pad_w = e->pad_w;
     fw->pad_h = e->pad_h;
     fw->ctb_cols = e->ctb_cols;
@@ -741,7 +742,8 @@ void n265_row_end(n265_row_ctx *row, n265_frame_work *fw, int r)
 n265_encoder *n265_encoder_open(const n265_param *p)
 {
     if (!p || (p->width & 1) || (p->height & 1) ||
-        (p->csp != N265_CSP_I420 && p->csp != N265_CSP_I444))
+        (p->csp != N265_CSP_I420 && p->csp != N265_CSP_I422 &&
+         p->csp != N265_CSP_I444))
         return NULL;
 
     n265_encoder *e = calloc(1, sizeof(*e));
@@ -753,10 +755,11 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * chroma_format_idc (N265_CSP_I420 is 0 for source compatibility and
      * is mapped to 1 here). Everything downstream reads these four fields
      * and nothing re-derives the format from the picture. */
-    e->chroma_idc = p->csp == N265_CSP_I444 ? 3 : 1;
+    e->chroma_idc = p->csp == N265_CSP_I420 ? 1 : p->csp;
     e->csx = N265_CSX_OF(e->chroma_idc);
     e->csy = N265_CSY_OF(e->chroma_idc);
     e->c444 = e->chroma_idc == 3;
+    e->c422 = e->chroma_idc == 2;
     e->qp_base = g_qp;
     e->crf_on = g_crf_on;
     e->crf = g_crf;
@@ -1155,23 +1158,21 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         int w = i ? e->pad_w >> e->csx : e->pad_w;
         int h = i ? e->pad_h >> e->csy : e->pad_h;
         e->pad_stride[i] = w;
-        /* one border for both axes, as n265_ref_win also takes one: csx
-         * and csy are equal at every format this encoder codes (1 at
-         * 4:2:0, 0 at 4:4:4). 4:2:2, where they differ, is the item that
-         * has to split them - here and in n265_ref_win's signature. */
-        int pad = i ? N265_REF_PAD >> e->csx : N265_REF_PAD;
+        /* the border, per axis: one number until 4:2:2 split csx from
+         * csy (n265_ref_pad_x/y, and n265_ref_win's pair) */
+        int px = n265_ref_pad_x(i, e->csx), py = n265_ref_pad_y(i, e->csy);
         /* only the slots this shape runs: a picture is the pool's whole
          * cost, so a shape that needs six allocates six however wide the
          * array is */
         for (int sl = 0; sl < e->dpb_slots + e->K; sl++) {
             struct n265_refpic *r = sl < e->dpb_slots
                 ? &e->dpb[sl] : &e->scratch_pic[sl - e->dpb_slots];
-            r->stride[i] = w + 2 * pad;
-            r->base[i] = malloc((size_t)r->stride[i] * (h + 2 * pad)
+            r->stride[i] = w + 2 * px;
+            r->base[i] = malloc((size_t)r->stride[i] * (h + 2 * py)
                                 * sizeof(pixel));
             if (!r->base[i])
                 goto fail;
-            r->plane[i] = r->base[i] + pad * r->stride[i] + pad;
+            r->plane[i] = r->base[i] + py * r->stride[i] + px;
         }
     }
     for (int sl = 0; sl < e->dpb_slots; sl++) {
@@ -1261,12 +1262,23 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * chroma block is the luma block, up to 64x64. A kernel whose
      * correctness rests on a shape the caller no longer respects is not a
      * kernel, so the whole class stands down for this format and the C
-     * reference runs; porting it is a later item. The class is wider than
+     * reference runs; porting it is a later item.
+     *
+     * 4:2:2 (item 6b) stands it down for the same reason and by the
+     * OTHER half of the shape: the chroma widths there are 4:2:0's, but
+     * the heights are the luma ones, so a chroma block reaches 32 x 64
+     * and the same temp is short by a factor of two. The other five
+     * families need nothing at either format - transform, satd, cost,
+     * rdoq and intra take a width and a height or see only coefficients,
+     * and a 4:2:2 chroma block presents shapes 4:2:0 and 4:4:4 already
+     * run.
+     *
+     * The class is wider than
      * the chroma pair (it carries the luma interpolation and the bi
      * average too), so this costs more than it has to - and a class is
      * the unit the ablation knob and the accounting both work in, so it
      * is refused as a class rather than smuggled in as a shape gate. */
-    if (e->c444)
+    if (e->chroma_idc != 1)
         n265_asm_refuse(N265_ASM_MC);
     n265_hf2_knobs(e);
 
@@ -2086,7 +2098,8 @@ static void publish_row(n265_frame_work *fw, int cy)
         for (int i = 0; i < 3; i++) {
             int shx = i ? fw->csx : 0, shy = i ? fw->csy : 0;
             int w = fw->pad_w >> shx, h = fw->pad_h >> shy;
-            int pad = i ? N265_REF_PAD >> fw->csx : N265_REF_PAD;
+            int px = n265_ref_pad_x(i, fw->csx);
+            int py = n265_ref_pad_y(i, fw->csy);
             int rs = slot->stride[i];
             int y0 = (cy * ctb) >> shy;
             int y1 = y0 + (ctb >> shy);
@@ -2097,19 +2110,19 @@ static void publish_row(n265_frame_work *fw, int cy)
                 /* a SAMPLE fill: memset stops working the moment the
                  * pixel is wider than a byte */
                 pixel lf = d[0], rt = d[w - 1];
-                for (int x = 1; x <= pad; x++) {
+                for (int x = 1; x <= px; x++) {
                     d[-x] = lf;
                     d[w - 1 + x] = rt;
                 }
             }
             if (cy == 0)
-                for (int y = 1; y <= pad; y++)
-                    memcpy(slot->plane[i] - y * rs - pad,
-                           slot->plane[i] - pad, (size_t)rs * sizeof(pixel));
+                for (int y = 1; y <= py; y++)
+                    memcpy(slot->plane[i] - y * rs - px,
+                           slot->plane[i] - px, (size_t)rs * sizeof(pixel));
             if (last)
-                for (int y = 1; y <= pad; y++)
-                    memcpy(slot->plane[i] + (h - 1 + y) * rs - pad,
-                           slot->plane[i] + (h - 1) * rs - pad,
+                for (int y = 1; y <= py; y++)
+                    memcpy(slot->plane[i] + (h - 1 + y) * rs - px,
+                           slot->plane[i] + (h - 1) * rs - px,
                            (size_t)rs * sizeof(pixel));
         }
         hf_fill_rows(fw, slot, cy, last);

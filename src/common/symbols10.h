@@ -107,6 +107,7 @@
 #define n265_intra_pred_neon         n265_intra_pred_neon_10
 #define n265_intra_pred_ref          n265_intra_pred_ref_10
 #define n265_intra_refs              n265_intra_refs_10
+#define n265_intra_refs_g            n265_intra_refs_g_10
 #define n265_intra_refs_ref          n265_intra_refs_ref_10
 #define n265_intra_refs_spec         n265_intra_refs_spec_10
 #define n265_la_brun                 n265_la_brun_10
@@ -215,6 +216,7 @@
 #define n265_satd8_neon              n265_satd8_neon_10
 #define n265_satd8_ref               n265_satd8_ref_10
 #define n265_sbh_adjust              n265_sbh_adjust_10
+#define n265_c422_mode_map           n265_c422_mode_map_10
 #define n265_scan_coef               n265_scan_coef_10
 #define n265_scan_sb                 n265_scan_sb_10
 #define n265_scratch_free            n265_scratch_free_10

@@ -565,14 +565,14 @@ int n265_quant_ref(int16_t *level, const int16_t *coef, int log2n, int qp,
  * clip's only job at 4:2:0 is the -QpBdOffsetC floor. pps/slice/CU
  * chroma offsets are all zero today (headers.c), so `qp_y` arrives as
  * qPi already. */
-int n265_chroma_qp(int qp_y, int c444)
+int n265_chroma_qp(int qp_y, int chroma_idc)
 {
     /* Table 8-10 for 4:2:0, no offsets */
     static const int map[14] = {
         29, 30, 31, 32, 33, 33, 34, 34, 35, 35, 36, 36, 37, 37
     };
     int qpi = qp_y < -QP_BD_OFFSET ? -QP_BD_OFFSET : qp_y > 57 ? 57 : qp_y;
-    if (c444)
+    if (chroma_idc != 1)
         return qpi < 51 ? qpi : 51;     /* ChromaArrayType != 1: Min(qPi, 51) */
     if (qpi < 30)
         return qpi;

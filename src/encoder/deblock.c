@@ -260,7 +260,7 @@ static void deblock_chroma(struct n265_frame_work *e, int ly0, int ly1,
                 if (has_edge(e, x << csx, y << csy, 1) &&
                     seg_bs(e, x << csx, y << csy, 1) == 2) {
                     int q = n265_chroma_qp(seg_qp(e, x << csx, y << csy, 1),
-                                           e->c444);
+                                           e->chroma_idc);
                     int t = TC_AT(clip3(0, 53, q + 2 + to));
                     if (t)
                         chroma_segment(c + y * cs + x, 1, cs, t, nl);
@@ -270,7 +270,7 @@ static void deblock_chroma(struct n265_frame_work *e, int ly0, int ly1,
                 if (has_edge(e, x << csx, y << csy, 0) &&
                     seg_bs(e, x << csx, y << csy, 0) == 2) {
                     int q = n265_chroma_qp(seg_qp(e, x << csx, y << csy, 0),
-                                           e->c444);
+                                           e->chroma_idc);
                     int t = TC_AT(clip3(0, 53, q + 2 + to));
                     if (t)
                         chroma_segment(c + y * cs + x, cs, 1, t, stepx);

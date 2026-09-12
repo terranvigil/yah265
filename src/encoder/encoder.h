@@ -29,27 +29,31 @@ enum {
 #define MIN_CB_LOG2 3
 /* ---- the chroma format, a RUNTIME property (phase 8 item 6a) ---------
  *
- * `chroma_idc` is the SPS's chroma_format_idc itself: 1 for 4:2:0 and 3
- * for 4:4:4 (N265_CSP_* in the public header carry the same numbers).
- * Unlike the sample width, the chroma format does NOT change the pixel
- * type, so it is a field and not a build option and one library codes
- * both.
+ * `chroma_idc` is the SPS's chroma_format_idc itself: 1 for 4:2:0, 2 for
+ * 4:2:2 and 3 for 4:4:4 (N265_CSP_* in the public header carry the same
+ * numbers). Unlike the sample width, the chroma format does NOT change
+ * the pixel type, so it is a field and not a build option and one library
+ * codes all three.
  *
  * `csx` / `csy` are log2(SubWidthC) / log2(SubHeightC): a chroma position
  * is `luma >> csx`, a chroma plane is `pad_w >> csx` wide, and a chroma
  * transform block is `log2 luma - csx` on a side. At 4:2:0 both are 1 and
  * every expression that reads them folds back to the `/ 2` and `- 1` the
  * encoder wrote before this item, which is what makes the 4:2:0 output
- * byte-identical.
+ * byte-identical. 4:2:2 is the first format where the two DIFFER (1 and
+ * 0), so anything that read one for both axes - the reference border, the
+ * chroma CTB's z-scan - had to split them; item 6a named each of those.
  *
- * `c444` is ChromaArrayType == 3, and it is a SEPARATE predicate on
- * purpose: the spec conditions its format-dependent clauses on that and
- * not on the subsampling factors. The transform tree's chroma leaf
- * (7.3.8.8/7.3.8.10), the chroma QP mapping (8.6.1), the scan derivation
- * (7.4.9.11) and the reference-sample filtering (8.4.4.2.3) all read it.
+ * `c444` is ChromaArrayType == 3 and `c422` is ChromaArrayType == 2, and
+ * they are SEPARATE predicates on purpose: the spec conditions its
+ * format-dependent clauses on ChromaArrayType and not on the subsampling
+ * factors. The transform tree's chroma leaf (7.3.8.8/7.3.8.10), the
+ * chroma QP mapping (8.6.1), the scan derivation (7.4.9.11), the
+ * reference-sample filtering (8.4.4.2.3) and Table 8-3's chroma mode
+ * remap all read one or the other.
  */
 #define N265_CSX_OF(idc) ((idc) == 3 ? 0 : 1)
-#define N265_CSY_OF(idc) ((idc) == 3 ? 0 : 1)
+#define N265_CSY_OF(idc) ((idc) == 1 ? 1 : 0)
 
 /* Samples in one picture of this geometry: 3/2 * w * h at 4:2:0 and
  * 3 * w * h at 4:4:4. Every buffer bound that used to be written
@@ -306,6 +310,7 @@ typedef struct n265_frame_work {
     int chroma_idc;
     int csx, csy;
     int c444;
+    int c422;
     int pad_w, pad_h;       /* dims padded up to a min-CB multiple */
     int ctb_cols, ctb_rows;
     int map_stride;         /* in 4x4 units */
@@ -562,9 +567,10 @@ typedef struct n265_row_ctx {
 struct n265_encoder {
     n265_param param;
     int mode;
-    int chroma_idc;         /* chroma_format_idc: 1 = 4:2:0, 3 = 4:4:4 */
+    int chroma_idc;         /* chroma_format_idc: 1 = 420, 2 = 422, 3 = 444 */
     int csx, csy;           /* log2 SubWidthC / SubHeightC */
     int c444;               /* ChromaArrayType == 3 */
+    int c422;               /* ChromaArrayType == 2 */
     int qp_base;            /* configured QP (P anchors) */
     int crf_on;             /* n265_set_crf: base QP from crf, not qp_base */
     double crf;
@@ -1134,6 +1140,20 @@ void n265_build_lists(struct n265_encoder *e, n265_frame_work *fw, int cur,
                       int is_b, struct n265_refpic *future);
 uint64_t n265_zorder(int x, int y, int pic_w, int ctb_log2);
 #define N265_REF_PAD 64     /* reference plane border, luma samples */
+/* ...and what that border is on ONE plane, per axis. It was a single
+ * number until 4:2:2, where SubWidthC and SubHeightC differ: a chroma
+ * plane there is half as wide as the luma one and exactly as tall, so its
+ * border is half horizontally and whole vertically. n265_ref_win takes
+ * the pair for the same reason. At 4:2:0 and 4:4:4 the two are equal and
+ * this is the one expression that was written before. */
+static inline int n265_ref_pad_x(int c_idx, int csx)
+{
+    return c_idx ? N265_REF_PAD >> csx : N265_REF_PAD;
+}
+static inline int n265_ref_pad_y(int c_idx, int csy)
+{
+    return c_idx ? N265_REF_PAD >> csy : N265_REF_PAD;
+}
 /* E1 cache border. n265_clamp_mv keeps integer positions inside
  * [-(N265_REF_PAD - 8), pic + N265_REF_PAD - 8), and the vertical pass
  * reads 3 rows above and 4 below, so 60 covers every clamped MV. A

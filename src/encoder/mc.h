@@ -98,10 +98,12 @@ void n265_mc_chroma_14(int16_t *dst, int n, const pixel *ref,
  * right/below of - the plane itself when the window is inside the
  * border, else `tmp`, gathered with the spec's clipping. `tmp` holds
  * (w + hl + hr) * (h + hl + hr) SAMPLES; luma wants hl 3 / hr 4, chroma
- * hl 1 / hr 2. */
+ * hl 1 / hr 2. The border is given per AXIS: at 4:2:2 a chroma plane is
+ * half as wide as the luma one and exactly as tall, so its two borders
+ * differ and one number would have to be the smaller of them. */
 const pixel *n265_ref_win(const pixel *plane, int stride, int pic_w,
-                            int pic_h, int pad, int ix, int iy, int w,
-                            int h, int hl, int hr, pixel *tmp,
+                            int pic_h, int pad_x, int pad_y, int ix, int iy,
+                            int w, int h, int hl, int hr, pixel *tmp,
                             int *out_stride, int *clipped);
 
 /* the largest window n265_ref_win can gather: a 64x64 luma PU with the

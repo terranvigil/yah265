@@ -444,7 +444,8 @@ uint32_t n265_mc_sad(struct n265_frame_work *e, int list, int ridx, int x0, int 
             int ws, wclip;
             const pixel *rp = n265_ref_win(ref->plane[0], ref->stride[0],
                                              e->pad_w, e->pad_h,
-                                             N265_REF_PAD, ix, iy, w, h,
+                                             N265_REF_PAD, N265_REF_PAD,
+                                             ix, iy, w, h,
                                              3, 4, win, &ws, &wclip);
             n265_mc_luma_hf(pred, w, w, h, rp, ws, wclip ? NULL : hf,
                             ref->hf_stride, mv.x & 3, mv.y & 3);
@@ -459,7 +460,8 @@ uint32_t n265_mc_sad(struct n265_frame_work *e, int list, int ridx, int x0, int 
     int ws, wclip;
     const pixel *rp = n265_ref_win(ref->plane[0], ref->stride[0],
                                      e->pad_w, e->pad_h, N265_REF_PAD,
-                                     ix, iy, w, h, 0, 0, win, &ws, &wclip);
+                                     N265_REF_PAD, ix, iy, w, h, 0, 0, win,
+                                     &ws, &wclip);
     N265_RC_TOUCH(rp);
     N265_RC_TOUCH(rp + (h - 1) * ws);
     N265_REF_UNGUARD();
@@ -488,8 +490,8 @@ static uint32_t mc_satd(struct n265_frame_work *e, int list, int ridx, int x0, i
         int ws, wclip;
         const pixel *rp = n265_ref_win(ref->plane[0], ref->stride[0],
                                          e->pad_w, e->pad_h, N265_REF_PAD,
-                                         ix, iy, w, h, 3, 4, win, &ws,
-                                         &wclip);
+                                         N265_REF_PAD, ix, iy, w, h, 3, 4,
+                                         win, &ws, &wclip);
         n265_mc_luma_hf(pred, w, w, h, rp, ws, wclip ? NULL : hf,
                         ref->hf_stride, mv.x & 3, mv.y & 3);
     }

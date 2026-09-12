@@ -5,7 +5,7 @@
 # decode order == display order; when B-frames land, the display-order leg
 # must compare through ffmpeg only (dec265 -o emits decode order).
 #
-# usage: scripts/conformance.sh [--fast] [--depth10] [--csp444]
+# usage: scripts/conformance.sh [--fast] [--depth10] [--csp444|--csp422]
 # env: N265=path/to/n265  N265_10=path/to/n265-10
 #      DEC265=path/to/dec265  FFMPEG=path/to/ffmpeg
 #
@@ -21,6 +21,9 @@
 # selects it, exactly as the depth tag selects the library. Its own list
 # again, for the same reason the Main10 one is separate: the 4:2:0 pass
 # counts are part of the invariant and may not move.
+#
+# --csp422 (phase 8 item 6b) is the same arrangement for 4:2:2, which is
+# Main 4:2:2 10 at BOTH depths (Table A.2 has no 8-bit 4:2:2 profile).
 #
 # Since item 5a $N265 and $N265_10 are normally the SAME binary, because
 # build/n265 links both libraries and picks the encoder from the input's
@@ -41,6 +44,7 @@ for a in "$@"; do
     --fast)    FAST=1 ;;
     --depth10) DEPTH=10 ;;
     --csp444)  CSP=444 ;;
+    --csp422)  CSP=422 ;;
     *) echo "conformance: unknown option $a" >&2; exit 2 ;;
     esac
 done
@@ -67,24 +71,24 @@ command -v "$FFMPEG" >/dev/null 2>&1 || { echo "conformance: ffmpeg not found" >
 # The binary under test and the source format go together. The one CLI
 # reads the depth off the y4m tag, so the source format IS the leg
 # selector; SRCFMT is what decides which library runs.
-# -strict -1: neither yuv420p10le nor any 4:4:4 pixel format is a
-# registered y4m format, so ffmpeg refuses to write the tag without it.
-# The tags it then writes - C420p10, C444, C444p10 - are what the reader
-# accepts.
+# -strict -1: neither yuv420p10le nor any 4:2:2 or 4:4:4 pixel format is
+# a registered y4m format, so ffmpeg refuses to write the tag without it.
+# The tags it then writes - C420p10, C422, C422p10, C444, C444p10 - are
+# what the reader accepts.
 if [ "$DEPTH" = 10 ]; then
     ENC=$N265_10
-    if [ "$CSP" = 444 ]; then
-        SRCFMT="-pix_fmt yuv444p10le -strict -1 -f yuv4mpegpipe"
-    else
-        SRCFMT="-pix_fmt yuv420p10le -strict -1 -f yuv4mpegpipe"
-    fi
+    case "$CSP" in
+    444) SRCFMT="-pix_fmt yuv444p10le -strict -1 -f yuv4mpegpipe" ;;
+    422) SRCFMT="-pix_fmt yuv422p10le -strict -1 -f yuv4mpegpipe" ;;
+    *)   SRCFMT="-pix_fmt yuv420p10le -strict -1 -f yuv4mpegpipe" ;;
+    esac
 else
     ENC=$N265
-    if [ "$CSP" = 444 ]; then
-        SRCFMT="-pix_fmt yuv444p -strict -1 -f yuv4mpegpipe"
-    else
-        SRCFMT="-pix_fmt yuv420p"
-    fi
+    case "$CSP" in
+    444) SRCFMT="-pix_fmt yuv444p -strict -1 -f yuv4mpegpipe" ;;
+    422) SRCFMT="-pix_fmt yuv422p -strict -1 -f yuv4mpegpipe" ;;
+    *)   SRCFMT="-pix_fmt yuv420p" ;;
+    esac
 fi
 [ -x "$ENC" ] || { echo "conformance: $ENC not built" >&2; exit 1; }
 
@@ -244,6 +248,122 @@ run_vector_clean() {
     run_vector "$@"
     VNOISE=""; VENV=""
 }
+
+# ---------------------------------------------------------------------
+# The 4:2:2 list (phase 8 item 6b), run at BOTH depths from one place.
+# Unlike 4:4:4, the two depths are the SAME profile: Table A.2 has no
+# 8-bit 4:2:2 row, so an 8-bit stream is Main 4:2:2 10 with max_8bit
+# clear, and --csp422 --depth10 differs only in the sample width.
+#
+# What the cells cover, which is every clause the format moves:
+#   - the transform tree, where a chroma unit is TWO stacked square
+#     blocks with their own cbf, scan and residual (7.3.8.8's
+#     `cbf_cb[x0][y0 + (1 << (log2TrafoSize-1))]` and 7.3.8.10's tIdx
+#     loop), and where the 8x8 node keeps a stacked 4x4 PAIR at the
+#     parent. Low QP drives the tree deep enough to reach that pair
+#     everywhere; intra NxN is where it is signalled under one
+#     intra_chroma_pred_mode.
+#   - Table 8-3's chroma intra mode remap (8.4.3). It is an identity
+#     below mode 6 and a wrong table decodes anything whose chroma modes
+#     stay low, so the cells need real directional content and not only
+#     flat synthetic frames - hence the corpus clips and testsrc2's
+#     edges.
+#   - the lower chroma block predicted from the UPPER one's
+#     reconstruction (8.4.4.1 decodes the two in order), which only
+#     intra cells reach.
+#   - the chroma QP mapping, Min(qPi, 51) instead of Table 8-10 (8.6.1),
+#     which separates from 4:2:0's only above luma QP 29 - hence the QP
+#     ladder rather than one mid-range point.
+#   - 1/8-pel horizontal and 1/4-pel vertical chroma MC on a half-width,
+#     full-height plane (8.5.3.3.3.3), which every inter cell exercises
+#     and the pyramid cells exercise bi.
+#   - chroma deblocking on the 8-chroma-sample grid in BOTH directions,
+#     which here is 16 luma samples horizontally and EIGHT vertically.
+#   - SAO on half-width, full-height planes.
+# Both decoders are held bit-exact against the encoder's own
+# --dump-recon, with no allowance anywhere - the ctu-16 cell included.
+if [ "$CSP" = 422 ]; then
+    P=c422
+    [ "$DEPTH" = 10 ] && P=c422d10
+    # The QP ladder. QpC is Min(qPi, 51) here, so the mapping differs
+    # from 4:2:0's only above luma QP 29 and the top of the ladder is
+    # where a wrong table shows; QP 0 is where the tree goes deepest and
+    # the stacked 4x4 chroma pair is reached everywhere.
+    run_vector ${P}_qp0   176x144  3 testsrc2 "--qp 0  --keyint 1"
+    run_vector ${P}_qp22  176x144  5 testsrc2 "--qp 22 --keyint 1"
+    run_vector ${P}_qp51  176x144  3 testsrc2 "--qp 51 --keyint 1"
+    if [ "$DEPTH" = 10 ]; then
+        run_vector ${P}_qpm12 176x144 3 testsrc2 "--qp -12 --keyint 1"
+    fi
+    # intra only, CTB-aligned and with a conformance window - whose
+    # offsets are in CHROMA units, and at 4:2:2 those are half a luma
+    # sample across and a whole one down
+    run_vector ${P}_intra  176x144  5 testsrc2 "--keyint 1"
+    run_vector ${P}_crop   210x122  5 testsrc2 "--keyint 1"
+    # IPB with the pyramid at one thread and at twelve: the split chroma
+    # MC fractions, uni and bi, and run_vector's own two-run cmp carries
+    # determinism with each.
+    run_vector ${P}_ipb_t1  352x288 24 testsrc2 "--keyint 12 --bframes 7 --aq 1 --cutree 1 --threads 1"
+    run_vector ${P}_ipb_t12 352x288 24 testsrc2 "--keyint 12 --bframes 7 --aq 1 --cutree 1 --threads 12"
+    # the widest RPS and the deepest pyramid the encoder builds
+    run_vector ${P}_deep   352x288 34 testsrc2 "--keyint 20 --bframes 15 --rc-lookahead 24 --ref 3 --b-adapt 0 --crf 26 --aq 1 --cutree 1 --threads 1"
+    # CRF, and AQ + cu-tree: the fractional base QP writes cu_qp_delta at
+    # quantisation groups CQP never reaches, and every one of those QPs
+    # goes through the chroma mapping again
+    run_vector ${P}_crf    352x288 24 testsrc2 "--keyint 12 --bframes 5 --crf 26 --threads 1"
+    run_vector ${P}_aq     352x288 18 testsrc2 "--keyint 9 --aq 1 --cutree 1 --crf 28"
+    # non-zero deblock offsets, on a chroma grid whose HORIZONTAL edges
+    # this format moves from 16 luma samples to 8
+    N265_DBF_BETA=-3 N265_DBF_TC=-3 \
+    run_vector ${P}_dbf_neg 176x144 16 testsrc2 "--keyint 8 --aq 1"
+    # SAO on half-width, full-height planes, band and edge apart
+    run_vector_env "N265_SAO_TYPES=3" \
+                   ${P}_sao_full 176x144 12 testsrc2 "--keyint 6"
+    run_vector_env "N265_SAO_TYPES=1" \
+                   ${P}_sao_band 176x144 12 testsrc2 "--keyint 6 --qp 8"
+    run_vector_env "N265_SAO_TYPES=2" \
+                   ${P}_sao_edge 176x144 12 testsrc2 "--keyint 6 --qp 8"
+    # PCM and --lossless: the reference is the SOURCE for both, so each
+    # is a round trip. PCM writes chroma at the half-width plane size
+    # here, and a bypass block codes a chroma residual of twice 4:2:0's
+    # samples in two stacked pieces.
+    run_vector ${P}_pcm      176x144  3 testsrc2 "--pcm"
+    run_vector ${P}_lossless 176x144 12 testsrc2 "--keyint 6 --bframes 7 --lossless --threads 4"
+    # the two other transform-tree geometries: min CB == max CB == 16,
+    # and CTB 64, whose TU32 leaves make the chroma unit two 16x16
+    # blocks - the largest chroma transform block this format has
+    run_vector ${P}_ctu16  352x288 12 testsrc2 "--keyint 6 --ctu 16 --ref 3 --bframes 7 --aq 1 --cutree 1 --threads 12"
+    run_vector ${P}_ctu64  210x122  3 testsrc2 "--ctu 64"
+    # ...and one cell whose QP is high enough that the quadtree stays at
+    # depth 0 and the RQT keeps TU32 leaves, so the 16x16 chroma pair is
+    # a measurable share of the TU population rather than a rarity
+    run_vector ${P}_tu32   352x288  3 testsrc2 "--qp 42 --keyint 1 --ctu 64"
+    # The preset ladder. `slow` turns the rectangular and asymmetric
+    # inter partitions back on, and rd_part is the one place the chroma
+    # prediction is built PU BY PU - at 4:2:2 a PU's chroma is half as
+    # wide and as tall as its luma, a shape no other format presents;
+    # `fast` clears amp_enabled_flag in the SPS.
+    run_vector ${P}_slow_t4  352x288 20 testsrc2 "--keyint 10 --preset slow --qp 26 --threads 4"
+    run_vector ${P}_fast_t12 352x288 20 testsrc2 "--keyint 10 --preset fast --aq 1 --cutree 1 --threads 12"
+    # REAL CONTENT. There is no native 4:2:2 clip in tests/corpus - all
+    # fifteen are 8-bit 4:2:0 - so run_vector's own ffmpeg call
+    # interpolates the chroma VERTICALLY on the way in (swscale's default
+    # for yuv420p -> yuv422p). testsrc2 covers the syntax; only a natural
+    # clip drives the lookahead, the AQ variance field and the motion
+    # search on the statistics they were fitted against, and only real
+    # edges drive the intra mode histogram far enough up Table 8-3 to
+    # tell a wrong entry from a right one.
+    run_vector_file tests/corpus/foreman_cif.y4m \
+                   ${P}_foreman 352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 28 --aq 1 --cutree 1 --threads 4"
+    if [ "$FAST" -eq 0 ]; then
+        run_vector_file tests/corpus/mobile_cif.y4m \
+                   ${P}_mobile 352x288 16 testsrc2 "--keyint 8 --bframes 3 --qp 22 --aq 1 --threads 1"
+        run_vector ${P}_720_t12 1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 12"
+    fi
+    echo "conformance: $pass pass, $fail fail (4:2:2, $DEPTH-bit)"
+    [ "$fail" -eq 0 ]
+    exit
+fi
 
 # ---------------------------------------------------------------------
 # The 4:4:4 list (phase 8 item 6a), run at BOTH depths from one place:
