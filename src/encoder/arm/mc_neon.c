@@ -5,7 +5,7 @@
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
-#if N265_NEON
+#if N265_NEON_MC
 
 #include <arm_neon.h>
 #include <stddef.h>
@@ -1218,4 +1218,4 @@ void n265_mc_chroma_14_wh_neon(int16_t *dst, int ds, int w, int h,
 
 #else
 typedef int n265_mc_neon_unused_;   /* C requires a non-empty translation unit */
-#endif /* N265_NEON */
+#endif /* N265_NEON_MC */

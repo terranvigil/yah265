@@ -22,7 +22,7 @@
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
-#if N265_NEON
+#if N265_NEON_INTRA
 
 #include <arm_neon.h>
 #include <string.h>
@@ -469,4 +469,4 @@ void n265_filter_refs_neon(uint8_t *out, const uint8_t *in, int log2n)
     out[4 * n] = in[4 * n];
 }
 
-#endif /* N265_NEON */
+#endif /* N265_NEON_INTRA */

@@ -5,7 +5,7 @@
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
-#if N265_NEON
+#if N265_NEON_SATD
 
 #include <arm_neon.h>
 #include <stddef.h>
@@ -614,4 +614,4 @@ uint64_t n265_ssd_wh_dot_neon(const uint8_t *a, int as, const uint8_t *b,
 
 #else
 typedef int n265_satd_neon_unused_;      /* C wants a non-empty TU */
-#endif /* N265_NEON */
+#endif /* N265_NEON_SATD */

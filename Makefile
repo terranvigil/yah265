@@ -7,7 +7,7 @@ BUILD ?= build
 # below that names a binary names $(BUILD)'s.
 BUILD10 ?= build10
 
-.PHONY: build build8 build10 test smoke10 conformance conformance-fast conformance10 conformance10-fast provenance asan asan10 determ determ-fast determ10 board board-quick clean checkasm-bench checkasm-asan
+.PHONY: build build8 build10 test smoke10 conformance conformance-fast conformance10 conformance10-fast provenance asan asan10 determ determ-fast determ10 board board-quick clean checkasm-bench checkasm-asan checkasm10-bench checkasm10-asan
 
 build: build8 build10
 
@@ -45,6 +45,20 @@ checkasm-asan:
 	@[ -d build-asan ] || meson setup build-asan -Db_sanitize=address,undefined -Db_lundef=false
 	ninja -C build-asan tests/checkasm
 	build-asan/tests/checkasm
+
+# The same instrument at Main10 (phase 8 item 3). checkasm is built at
+# both depths now - `pixel` is uint8_t at 8 bits and uint16_t here, so a
+# kernel is a different kernel at each - and the 10-bit binary holds
+# exactly the families whose 16-bit lanes have been ported, which is why
+# it can print fewer families than the 8-bit one and still be complete.
+checkasm10-bench: build10
+	$(BUILD10)/tests/checkasm --bench
+
+checkasm10-asan:
+	@[ -d build10-asan ] || meson setup build10-asan -Dbit_depth=10 \
+	    -Db_sanitize=address,undefined -Db_lundef=false
+	ninja -C build10-asan tests/checkasm
+	build10-asan/tests/checkasm
 
 conformance: build
 	N265=$(BUILD)/n265 scripts/conformance.sh

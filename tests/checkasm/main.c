@@ -209,22 +209,54 @@ typedef struct kernel_test {
     int (*run)(void);   /* 0 = pass */
 } kernel_test;
 
-/* one line per family file; adding a family touches this file and
- * tests/meson.build, and nothing else */
+/* One line per family file; adding a family touches this file and
+ * tests/meson.build, and nothing else.
+ *
+ * Which files are IN this binary is a per-DEPTH question since phase 8
+ * item 3: `pixel` is uint8_t at 8 bits and uint16_t at Main10, and a
+ * family reaches a depth only once its lanes are proved there, so at 10
+ * bits the table holds exactly the families that have 16-bit kernels.
+ * tests/meson.build passes one N265_CA_<FAMILY> per file it compiles. A
+ * family whose file is absent is absent from the table too, rather than
+ * reporting an "ok" that ran nothing. */
+#if N265_CA_TRANSFORM
 int check_transform(void);
+#endif
+#if N265_CA_SATD
 int check_satd(void);
+#endif
+#if N265_CA_MC
 int check_mc(void);
+#endif
+#if N265_CA_RDOQ
 int check_rdoq(void);
+#endif
+#if N265_CA_COST
 int check_cost(void);
+#endif
+#if N265_CA_INTRA
 int check_intra(void);
+#endif
 
 static const kernel_test tests[] = {
+#if N265_CA_TRANSFORM
     { "transform", check_transform },
+#endif
+#if N265_CA_SATD
     { "satd", check_satd },
+#endif
+#if N265_CA_MC
     { "mc", check_mc },
+#endif
+#if N265_CA_RDOQ
     { "rdoq", check_rdoq },
+#endif
+#if N265_CA_COST
     { "cost", check_cost },
+#endif
+#if N265_CA_INTRA
     { "intra", check_intra },
+#endif
     { NULL, NULL },
 };
 
@@ -270,7 +302,7 @@ int main(int argc, char **argv)
     {
         char name[64];
         n265_cpu_name(n265_cpu_flags(), name, sizeof(name));
-        printf("checkasm: cpu %s\n", name);
+        printf("checkasm: cpu %s, %d-bit samples\n", name, BIT_DEPTH);
     }
     for (const kernel_test *t = tests; t->name; t++) {
         int r;
