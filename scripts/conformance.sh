@@ -362,6 +362,22 @@ run_vector_graph "$NONIDR_CUT" \
 # the mode is priced at.
 run_vector deep_b15_t1  352x288 34 testsrc2 "--keyint 20 --bframes 15 --rc-lookahead 24 --ref 2 --b-adapt 0 --crf 26 --aq 1 --cutree 1 --threads 1"
 run_vector deep_b15_t12 352x288 34 testsrc2 "--keyint 20 --bframes 15 --rc-lookahead 24 --ref 2 --b-adapt 0 --crf 26 --aq 1 --cutree 1 --threads 12"
+# 2026-09-12: --ref 3 above --bframes 7, which encoder open refused until
+# the pool was sized from the shape (item dpbpool). These are the two
+# shapes that refusal covered: --bframes 8, where the marked-picture peak
+# is seven, and --bframes 15, where it is eight and the pool runs eleven
+# slots - more than any other vector here allocates. They are the only
+# structures in this suite that carry three anchors AND a five-level
+# pyramid, so every list is at its widest - three entries per list, both
+# lists full on every B - and the RPS lists more pictures per slice than
+# anything else does. A pool one slot short reads here as a reference the
+# decoder does not have, which is what the two decoders catch.
+# --b-adapt 0 on the deep cell for the reason deep_b15 has it: the
+# full-depth pyramid every time.
+run_vector r3_b8_t1   352x288 30 testsrc2 "--keyint 12 --bframes 8 --rc-lookahead 20 --ref 3 --crf 26 --aq 1 --cutree 1 --threads 1"
+run_vector r3_b8_t12  352x288 30 testsrc2 "--keyint 12 --bframes 8 --rc-lookahead 20 --ref 3 --crf 26 --aq 1 --cutree 1 --threads 12"
+run_vector r3_b15_t1  352x288 34 testsrc2 "--keyint 20 --bframes 15 --rc-lookahead 24 --ref 3 --b-adapt 0 --crf 26 --aq 1 --cutree 1 --threads 1"
+run_vector r3_b15_t12 352x288 34 testsrc2 "--keyint 20 --bframes 15 --rc-lookahead 24 --ref 3 --b-adapt 0 --crf 26 --aq 1 --cutree 1 --threads 12"
 if [ "$FAST" -eq 0 ]; then
     run_vector thr4_720    1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 4"
     run_vector thr12_720   1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 12"

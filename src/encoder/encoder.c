@@ -389,6 +389,29 @@ static void dpbw_gop(const struct dpbw_state *s, int a, int ref_max, int R,
         }
 }
 
+/* The pool this shape runs (`e->dpb_slots`). `marked` is the largest
+ * marked-picture count the shape can reach under the live retirement,
+ * `refs` the structural bound on it.
+ *
+ * The floor wins wherever the marked set fits in it, which is every
+ * shape that shipped before the pool was sized - the deep window at
+ * --ref 1 and --ref 2 included - and that is what keeps their slot
+ * choices, and so their bitstreams, exactly where they were. Where the
+ * floor does not cover the shape the pool is the STRUCTURAL peak and not
+ * the walk's: the walk models one retirement, and a pool at the
+ * structural bound leaves claim_slot's overwrite branch unreachable
+ * under any of them. Claims see at most `refs - 1` marked pictures - the
+ * bound counts the claiming picture itself - so a pool of `refs` always
+ * has an unmarked slot to hand out.
+ *
+ * It is NOT clamped to N265_DPB_SLOTS: the array bound is the caller's
+ * to check, and a pool that does not fit the array has to be refused
+ * rather than silently run one slot short. */
+static int dpb_pool(int refs, int marked)
+{
+    return marked > N265_DPB_POOL_MIN ? refs : N265_DPB_POOL_MIN;
+}
+
 /* What the reference structure asks of a decoder's DPB (Annex C.5.2).
  *
  * `reorder` is exact. A picture is only ever reordered against its own
@@ -410,12 +433,16 @@ static void dpbw_gop(const struct dpbw_state *s, int a, int ref_max, int R,
  * CHOICE exactly where it was. `markpeak`, optional, is what the walk
  * actually reaches.
  *
+ * `slots`, optional, is the reference pool the shape runs (dpb_pool
+ * below). It is an encoder-side number and reaches no syntax element.
+ *
  * The declaration before the walk was N265_DPB_SLOTS with
  * sps_max_num_reorder_pics = bframes, which at --bframes 7 signals a
  * reorder depth LARGER than the buffer count. That is out of range by
  * 7.4.3.2.1 and dec265 refuses the stream. */
 void n265_dpb_requirement(int bframes, int ref_max, int *reorder,
-                          int *buffering, int *peak, int *markpeak)
+                          int *buffering, int *peak, int *markpeak,
+                          int *slots)
 {
     int R = 0, nrefb = 0;
     for (int a = 0; a <= bframes; a++) {
@@ -437,10 +464,17 @@ void n265_dpb_requirement(int bframes, int ref_max, int *reorder,
     int refs = ref_max + 1 + nrefb;
     if (peak)
         *peak = refs;           /* uncapped: how many slots can be marked */
+    /* Both used to be capped at the pool, which was a fixed six. The
+     * pool is sized from them now, so they report what the structure
+     * asks for and nothing clamps them. */
     if (markpeak)
-        *markpeak = refs > N265_DPB_SLOTS ? N265_DPB_SLOTS : refs;
-    int bound = (refs > N265_DPB_SLOTS ? N265_DPB_SLOTS : refs) + R + 1;
+        *markpeak = refs;
+    int bound = refs + R + 1;
     if (dpb_hold()) {
+        /* holding every reference to the mini-GOP end IS the structural
+         * bound, so it sizes its own pool */
+        if (slots)
+            *slots = dpb_pool(refs, refs);
         *buffering = bound;
         return;
     }
@@ -450,6 +484,8 @@ void n265_dpb_requirement(int bframes, int ref_max, int *reorder,
     enum { CAP = 4096 };
     struct dpbw_state *seen = malloc((size_t)CAP * sizeof *seen);
     if (!seen) {
+        if (slots)
+            *slots = dpb_pool(refs, refs);
         *buffering = bound;
         return;
     }
@@ -473,11 +509,15 @@ void n265_dpb_requirement(int bframes, int ref_max, int *reorder,
     }
     free(seen);
     if (over) {                         /* unreached; the bound stands in */
+        if (slots)
+            *slots = dpb_pool(refs, refs);
         *buffering = bound;
         return;
     }
     if (markpeak)
         *markpeak = mpk;
+    if (slots)
+        *slots = dpb_pool(refs, mpk);
     *buffering = pk;
 }
 
@@ -784,28 +824,26 @@ n265_encoder *n265_encoder_open(const n265_param *p)
          * ride along in fw_config once per frame_work. */
         int markpeak = 0;
         n265_dpb_requirement(e->bframes, e->ref_max, &e->dpb_reorder,
-                             &e->dpb_buffering, &e->dpb_peak, &markpeak);
+                             &e->dpb_buffering, &e->dpb_peak, &markpeak,
+                             &e->dpb_slots);
         if (n265_env("N265_DPB_TRACE"))
             fprintf(stderr, "DPB bframes=%d ref=%d reorder=%d buffering=%d "
-                    "marked_peak=%d slot_peak=%d hold=%d\n", e->bframes,
-                    e->ref_max, e->dpb_reorder, e->dpb_buffering, markpeak,
-                    e->dpb_peak, dpb_hold());
-        /* The pool is a fixed six pictures, and the walk says how many of
-         * them the structure holds MARKED at once. Where that reaches
-         * past the pool, claim_slot's last branch overwrites a picture
-         * that is still in the RPS - the DPB-pressure bug T0a recorded -
-         * and the encoder predicts from pixels the decoder does not have.
-         * Every shape reachable before the deep window peaks at six or
-         * below (bframes 0..7 x ref 1..3, the widest being bframes 7 at
-         * ref 3), so this refuses nothing that shipped; above bframes 7
-         * it refuses --ref 3 from bframes 8 up, where the peak is seven
-         * and eight. Growing the pool is the fix and is its own item: it
-         * moves every slot scan in this file, which is a bit-identity
-         * question of its own and not this mode's. */
-        if (markpeak > N265_DPB_SLOTS) {
+                    "marked_peak=%d slot_peak=%d slots=%d hold=%d\n",
+                    e->bframes, e->ref_max, e->dpb_reorder, e->dpb_buffering,
+                    markpeak, e->dpb_peak, e->dpb_slots, dpb_hold());
+        /* The pool used to be a fixed six pictures, and `--ref 3` above
+         * `--bframes 7` was refused here: the marked-picture peak reaches
+         * seven at bframes 8 and eight at bframes 10 and up, and past the
+         * pool claim_slot's last branch overwrites a picture still in the
+         * RPS (the DPB-pressure bug T0a recorded). The pool is sized from
+         * the shape now, so the refusal is gone and only the ARRAY bound
+         * is left to check - which the CLI's own ranges (--ref 1..3,
+         * --bframes 0..15) already keep inside N265_DPB_SLOTS. It stays
+         * as an assertion an API caller cannot walk past. */
+        if (e->dpb_slots > N265_DPB_SLOTS) {
             fprintf(stderr, "n265: --bframes %d with --ref %d needs %d DPB "
-                    "slots and the pool is %d; lower --ref or --bframes\n",
-                    e->bframes, e->ref_max, markpeak, N265_DPB_SLOTS);
+                    "slots and the pool holds %d; lower --ref or --bframes\n",
+                    e->bframes, e->ref_max, e->dpb_slots, N265_DPB_SLOTS);
             goto fail;
         }
     }
@@ -911,9 +949,12 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         int h = i ? e->pad_h / 2 : e->pad_h;
         e->pad_stride[i] = w;
         int pad = i ? N265_REF_PAD / 2 : N265_REF_PAD;
-        for (int sl = 0; sl < N265_DPB_SLOTS + e->K; sl++) {
-            struct n265_refpic *r = sl < N265_DPB_SLOTS
-                ? &e->dpb[sl] : &e->scratch_pic[sl - N265_DPB_SLOTS];
+        /* only the slots this shape runs: a picture is the pool's whole
+         * cost, so a shape that needs six allocates six however wide the
+         * array is */
+        for (int sl = 0; sl < e->dpb_slots + e->K; sl++) {
+            struct n265_refpic *r = sl < e->dpb_slots
+                ? &e->dpb[sl] : &e->scratch_pic[sl - e->dpb_slots];
             r->stride[i] = w + 2 * pad;
             r->base[i] = malloc((size_t)r->stride[i] * (h + 2 * pad));
             if (!r->base[i])
@@ -921,7 +962,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
             r->plane[i] = r->base[i] + pad * r->stride[i] + pad;
         }
     }
-    for (int sl = 0; sl < N265_DPB_SLOTS; sl++) {
+    for (int sl = 0; sl < e->dpb_slots; sl++) {
         int c16 = ((e->pad_w + 15) >> 4) * ((e->pad_h + 15) >> 4);
         e->dpb[sl].col_pred = calloc((size_t)c16, 1);
         e->dpb[sl].col_mv = calloc((size_t)c16, 8);
@@ -965,9 +1006,15 @@ n265_encoder *n265_encoder_open(const n265_param *p)
          * --ref alone. It is legal exactly while the marked set cannot
          * fill the pool, because then every claim finds an unmarked slot
          * - a picture in no RPS and no reference list - and which one it
-         * takes is unobservable. At the shipping default (bframes 3,
-         * ref 1) the peak is 3 of 6. */
-        e->slot_prefer = e->dpb_peak < N265_DPB_SLOTS;
+         * takes is unobservable. At the shipping default (bframes 7,
+         * ref 1) the peak is 5 of 6.
+         *
+         * Against the SIZED pool, and still the structural peak: where
+         * the pool is the floor the test is the one it always was, and
+         * where the pool is the peak itself the preference stays off -
+         * which is what it was at those shapes before they had a pool
+         * that fit them. Arming it there would cost one slot more. */
+        e->slot_prefer = e->dpb_peak < e->dpb_slots;
     }
     e->defer_out = ntp_threads(e->pool) > 1 || e->api_defer;
     e->nlanes = ntp_lanes(e->pool);
@@ -1066,6 +1113,9 @@ void n265_encoder_close(n265_encoder *e)
                     (unsigned long long)e->hf2_armed[i + 12]);
         fflush(stderr);
     }
+    if (n265_env("N265_DPB_TRACE"))
+        fprintf(stderr, "DPB slots=%d overwrite=%ld slot_stall=%d\n",
+                e->dpb_slots, e->slot_overwrite, e->join_slot);
     if (n265_env("N265_STALL_TRACE")) {
         fprintf(stderr, "JOIN k=%d slot=%d src=%d rc=%d\n",
                 e->join_k, e->join_slot, e->join_src, e->join_rc);
@@ -1082,6 +1132,9 @@ void n265_encoder_close(n265_encoder *e)
         n265_scratch_free(e->row[i].sc);
     free(e->row);
     ntp_close(e->pool);
+    /* the frees walk the WHOLE array, not `e->dpb_slots`: the encoder is
+     * calloc'd, an unused slot's pointers are NULL, and a close on the
+     * open path's `fail` can land before the pool was sized at all. */
     for (int i = 0; i < 3; i++) {
         for (int sl = 0; sl < N265_DPB_SLOTS; sl++)
             free(e->dpb[sl].base[i]);
@@ -1134,7 +1187,7 @@ static void snapshot_rps(n265_encoder *e, n265_frame_work *fw)
      * `used` below comes out 0, its lists being empty), but the pictures
      * the rest of the plan still needs have to survive it, and a picture
      * leaves the decoder's DPB on the first RPS that omits it. */
-    for (int sl = 0; sl < N265_DPB_SLOTS; sl++) {
+    for (int sl = 0; sl < e->dpb_slots; sl++) {
         struct n265_refpic *p = &e->dpb[sl];
         if (!p->marked)         /* every kept picture is listed; eviction
                                  * is at mini-GOP ends */
@@ -1282,7 +1335,9 @@ static int hf_cache_on(void)
 #define N265_HF2_MAX_BYTES (48u << 20)
 
 /* ...and round 4's second bound, which is the one that bites. The first
- * is per reference, and there are N265_DPB_SLOTS of those: at 1080p
+ * is per reference, and there are `e->dpb_slots` of those (six at every
+ * shape that shipped before the pool was sized, so the budget per
+ * reference is the one round 4 measured): at 1080p
  * twelve u8 planes is 29.4 MB per reference and 176 MB over the pool,
  * which takes peak RSS from 241 MB to 410 (and with the int16 planes on
  * top, to 522) against sec 6's 300 MB ceiling. Measured, 20 frames of
@@ -1485,7 +1540,7 @@ static void hf_arm(n265_encoder *e, struct n265_refpic *r, int code_idx)
      * function of the traffic, so the survivors stay a deterministic
      * function of the mask. */
     {
-        uint64_t cap = N265_HF2_DPB_BYTES / N265_DPB_SLOTS;
+        uint64_t cap = N265_HF2_DPB_BYTES / (unsigned)e->dpb_slots;
         if (cap > N265_HF2_MAX_BYTES)
             cap = N265_HF2_MAX_BYTES;
         uint64_t bytes = 0;
@@ -2817,7 +2872,7 @@ void n265_build_lists(n265_encoder *e, n265_frame_work *fw, int poc,
      * unique among marked pictures, since an IDR clears the set - so
      * slot index never breaks a tie and list order cannot depend on
      * which slot a picture occupies. */
-    for (int sl = 0; sl < N265_DPB_SLOTS; sl++) {
+    for (int sl = 0; sl < e->dpb_slots; sl++) {
         if (!e->dpb[sl].marked) continue;
         if (e->dpb[sl].poc < poc) past[np++] = &e->dpb[sl];
         else if (e->dpb[sl].poc > poc) fut[nf++] = &e->dpb[sl];
@@ -3002,7 +3057,7 @@ static void build_plan_order(n265_encoder *e)
     e->plan_len = e->plan_pos = 0;
     if (la_is_idr(e, 0)) {
         e->gop_start_display = e->last_intra_display = la->f[0].display_idx;
-        for (int sl = 0; sl < N265_DPB_SLOTS; sl++) e->dpb[sl].marked = 0;
+        for (int sl = 0; sl < e->dpb_slots; sl++) e->dpb[sl].marked = 0;
         e->ref_valid = 0;
         e->plan_li[0] = 0; e->plan_kind[0] = 2; e->plan_depth[0] = 0; e->plan_nonref[0] = 0;
         e->plan_len = 1; e->plan_pop = 1;
@@ -3142,7 +3197,7 @@ static void plan_lifetimes(n265_encoder *e)
     int epoc[EMAX], elast[EMAX], eslot[EMAX], epidx[EMAX], ne = 0;
     uint8_t eanc[EMAX];
 
-    for (int sl = 0; sl < N265_DPB_SLOTS; sl++) {
+    for (int sl = 0; sl < e->dpb_slots; sl++) {
         if (!e->dpb[sl].marked)
             continue;
         epoc[ne] = e->dpb[sl].poc; eanc[ne] = (uint8_t)e->dpb[sl].is_anchor;
@@ -3249,31 +3304,41 @@ static int la_src_busy(n265_encoder *e, const uint8_t *src)
  * never re-routes to a MARKED slot to dodge a stall.
  *
  * The preference is armed only where the reference structure CANNOT fill
- * the pool (peak marked count < N265_DPB_SLOTS, decided at open). Under
+ * the pool (peak marked count < e->dpb_slots, decided at open). Under
  * DPB pressure the third branch below overwrites a picture that stays
  * `marked` - the pre-existing bug T0a recorded - and then slot identity
  * DOES reach the stream: at `--bframes 7 --ref 3` reversing the scan
  * order alone moves the bitstream, at one thread and at twelve alike.
  * The condition is exactly the one that keeps the third branch
  * unreachable, so it is what makes the preference provably bit-neutral
- * rather than merely observed to be. */
+ * rather than merely observed to be.
+ *
+ * Every scan below is bounded by the SIZED pool and not by the array:
+ * a shape that runs six slots scans the same six it always did, in the
+ * same order, so its claims are the same claims. */
 static void claim_slot(n265_encoder *e, n265_frame_work *fw)
 {
     struct n265_refpic *slot = NULL;
     if (fw->nonref || fw->mode == N265_MODE_PCM)
         slot = &e->scratch_pic[fw - e->fw];
     if (e->slot_prefer)
-        for (int sl = 0; sl < N265_DPB_SLOTS && !slot; sl++)
+        for (int sl = 0; sl < e->dpb_slots && !slot; sl++)
             if (!e->dpb[sl].marked && !slot_busy(e, &e->dpb[sl]))
                 slot = &e->dpb[sl];
-    for (int sl = 0; sl < N265_DPB_SLOTS && !slot; sl++)
+    for (int sl = 0; sl < e->dpb_slots && !slot; sl++)
         if (!e->dpb[sl].marked) slot = &e->dpb[sl];
-    for (int sl = 0; sl < N265_DPB_SLOTS && !slot; sl++) {
-        int in_list = 0;
-        for (int l = 0; l < 2; l++)
-            for (int k = 0; k < fw->nref[l]; k++)
-                if (fw->refl[l][k] == &e->dpb[sl]) in_list = 1;
-        if (!in_list && (!slot || e->dpb[sl].poc < slot->poc)) slot = &e->dpb[sl];
+    if (!slot) {
+        /* nothing unmarked: the pressure branch. Counted, because the
+         * pool sizing above claims it cannot happen on any shape the
+         * pool covers and N265_DPB_TRACE is where that claim is read. */
+        e->slot_overwrite++;
+        for (int sl = 0; sl < e->dpb_slots && !slot; sl++) {
+            int in_list = 0;
+            for (int l = 0; l < 2; l++)
+                for (int k = 0; k < fw->nref[l]; k++)
+                    if (fw->refl[l][k] == &e->dpb[sl]) in_list = 1;
+            if (!in_list && (!slot || e->dpb[sl].poc < slot->poc)) slot = &e->dpb[sl];
+        }
     }
     if (!slot) slot = &e->dpb[0];
     /* D3: wait for the picture, never re-route to another one. */
@@ -3370,7 +3435,7 @@ static int drive_scheduler(n265_encoder *e)
      * picture a frame in flight is still reading, and `slot_busy` makes
      * the driver stall on it rather than re-route. */
     if (!dpb_hold())
-        for (int sl = 0; sl < N265_DPB_SLOTS; sl++)
+        for (int sl = 0; sl < e->dpb_slots; sl++)
             if (e->dpb[sl].marked && e->dpb[sl].last_use < e->plan_pos)
                 e->dpb[sl].marked = 0;
     /* reference lists from the DPB around this frame's POC (anchors have
@@ -3478,13 +3543,13 @@ static int drive_scheduler(n265_encoder *e)
         /* Retirement is driver-serial and keyed on POC: the trim below
          * drops the SMALLEST POC each time, and POCs are unique among
          * marked pictures, so slot index never decides who goes. */
-        for (int sl = 0; sl < N265_DPB_SLOTS; sl++)
+        for (int sl = 0; sl < e->dpb_slots; sl++)
             if (e->dpb[sl].marked && !e->dpb[sl].is_anchor) e->dpb[sl].marked = 0;
         int nanchor = 0;
-        for (int sl = 0; sl < N265_DPB_SLOTS; sl++) if (e->dpb[sl].marked) nanchor++;
+        for (int sl = 0; sl < e->dpb_slots; sl++) if (e->dpb[sl].marked) nanchor++;
         while (nanchor > e->ref_max) {
             int oldest = -1;
-            for (int sl = 0; sl < N265_DPB_SLOTS; sl++)
+            for (int sl = 0; sl < e->dpb_slots; sl++)
                 if (e->dpb[sl].marked && (oldest < 0 || e->dpb[sl].poc < e->dpb[oldest].poc)) oldest = sl;
             e->dpb[oldest].marked = 0; nanchor--;
         }
