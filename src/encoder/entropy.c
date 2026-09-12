@@ -135,6 +135,42 @@ void n265_entropy_warm(void)
     (void)qp_trace_on();
 }
 
+/* ---- N265_CBIT_TRACE: per-component bit attribution (diagnostic) ----
+ *
+ * A res_ops that forwards every bin to the real emitter and, on the way
+ * past, charges the estimator's -log2(p) for that bin to whichever
+ * component's syntax is open. The cost is read from the REAL context
+ * BEFORE the real engine updates it, so no mirror context array is
+ * needed and the attribution is exact for the bins actually written.
+ * Off unless the variable is set, and it never touches an output byte. */
+typedef struct {
+    res_ops inner;
+    struct n265_frame_work *e;
+} cbit_emit;
+
+static void cbit_bin(void *h, int ctx_idx, int bin)
+{
+    cbit_emit *t = h;
+    const cabac_ctx_t *c = &t->e->ctx[ctx_idx];
+    t->e->cbit[t->e->cbit_bucket] += bin == c->mps
+        ? n265_est_bits_mps[c->state] : n265_est_bits_lps[c->state];
+    t->inner.bin(t->inner.h, ctx_idx, bin);
+}
+
+static void cbit_bypass(void *h, int bin)
+{
+    cbit_emit *t = h;
+    t->e->cbit[t->e->cbit_bucket] += 256;
+    t->inner.bypass(t->inner.h, bin);
+}
+
+static void cbit_bypass_bits(void *h, uint32_t v, int n)
+{
+    cbit_emit *t = h;
+    t->e->cbit[t->e->cbit_bucket] += (uint64_t)n << 8;
+    t->inner.bypass_bits(t->inner.h, v, n);
+}
+
 /* cu_qp_delta_abs/sign at the first cbf TU of a quantization group
  * (QG == CTB): TU prefix cMax 5 (bin0 ctx 0, later bins ctx 1), EG0
  * escape, bypass sign */
@@ -178,6 +214,16 @@ static void replay_residual(struct n265_frame_work *e, const res_ops *ops,
     if (e->cu_stats && e->in_entropy && c_idx == 0)
         for (int i = 0; i < n * n; i++)
             e->cs_coef += lv[i] != 0;
+    if (e->cbit_trace && e->in_entropy) {
+        if (c_idx)
+            for (int i = 0; i < n * n; i++)
+                e->cbit_cnz += lv[i] != 0;
+        e->cbit_bucket = c_idx == 0 ? N265_CB_Y
+                       : c_idx == 1 ? N265_CB_CB : N265_CB_CR;
+        n265_residual_coding(ops, lv, log2n, c_idx, scan);
+        e->cbit_bucket = N265_CB_OTHER;
+        return;
+    }
     n265_residual_coding(ops, lv, log2n, c_idx, scan);
 }
 
@@ -199,6 +245,8 @@ static void replay_tt(struct n265_frame_work *e, const res_ops *ops, int mode,
     if (log2ts > 2) {
         cbf_cb = (int)rd_u8(e);
         cbf_cr = (int)rd_u8(e);
+        if (e->cbit_trace && e->in_entropy)
+            e->cbit_bucket = N265_CB_CBF;
         if (depth == 0 || pcb)
             ops->bin(ops->h, CTX_CBF_CHROMA + depth, cbf_cb);
         else
@@ -207,6 +255,12 @@ static void replay_tt(struct n265_frame_work *e, const res_ops *ops, int mode,
             ops->bin(ops->h, CTX_CBF_CHROMA + depth, cbf_cr);
         else
             cbf_cr = 0;
+        if (e->cbit_trace && e->in_entropy) {
+            e->cbit_bucket = N265_CB_OTHER;
+            e->cbf_c_n[log2ts - 2]++;
+            e->cbf_c_cb[log2ts - 2] += cbf_cb != 0;
+            e->cbf_c_cr[log2ts - 2] += cbf_cr != 0;
+        }
     }
 
     int m = mode == MODE_INTER ? MODE_INTER
@@ -507,6 +561,18 @@ void n265_entropy_ctu(struct n265_frame_work *e, cabac_t *cb, int ctb_x,
     real_emit re = { cb, e->ctx };
     res_ops ops_s;
     n265_real_ops(&ops_s, &re);
+    cbit_emit ce;
+    res_ops ops_t;
+    if (e->cbit_trace) {
+        ce.inner = ops_s;
+        ce.e = e;
+        ops_t.h = &ce;
+        ops_t.bin = cbit_bin;
+        ops_t.bypass = cbit_bypass;
+        ops_t.bypass_bits = cbit_bypass_bits;
+        ops_s = ops_t;
+        e->cbit_bucket = N265_CB_OTHER;
+    }
     const res_ops *ops = &ops_s;
     if (e->sao_mask)
         n265_sao_write(e, cb, ctb_x, ctb_y);

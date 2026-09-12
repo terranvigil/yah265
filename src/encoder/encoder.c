@@ -485,6 +485,7 @@ static void fw_config(n265_encoder *e, n265_frame_work *fw)
     fw->dbf_beta = e->dbf_beta;
     fw->dbf_tc = e->dbf_tc;
     fw->cu_stats = e->cu_stats;
+    fw->cbit_trace = e->cbit_trace;
     for (int i = 0; i < 3; i++)
         fw->pad_stride[i] = e->pad_stride[i];
 }
@@ -750,6 +751,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     }
     e->no_sao = n265_env("N265_NO_SAO") != NULL;      /* diagnostic */
     e->cu_stats = n265_env("N265_CU_STATS") != NULL;  /* diagnostic */
+    e->cbit_trace = n265_env("N265_CBIT_TRACE") != NULL;   /* diagnostic */
     /* RDOQ on by default (2026-09-06: -5.9% median BD-VMAF-NEG at matched
      * rate, 7/7 clips, worst -5.5%); N265_RDOQ=0 is the escape. */
     { const char *v = n265_env("N265_RDOQ"); e->rdoq = v ? atoi(v) : 1; }
@@ -2337,8 +2339,9 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
         }
 
         if (n265_env("N265_QP_TRACE"))
-            fprintf(stderr, "QPT disp=%d type=%d qp=%d qf=%+.3f\n",
-                    fw->display_idx, slice_type, fw->qp, qfrac);
+            fprintf(stderr, "QPT disp=%d type=%d depth=%d nonref=%d qp=%d "
+                    "qf=%+.3f\n", fw->display_idx, slice_type, fw->b_depth,
+                    fw->nonref, fw->qp, qfrac);
         fw->ent_qp_prev = fw->qp;
         fw->ent_parent_chroma = 0;
         fw->rec_len = 0;
@@ -2409,6 +2412,14 @@ static void entropy_frame(n265_encoder *e, n265_frame_work *fw)
         memset(fw->cs_tu, 0, sizeof fw->cs_tu);
         memset(fw->cs_tu_cbf, 0, sizeof fw->cs_tu_cbf);
         fw->cs_coef = 0;
+    }
+    if (fw->cbit_trace) {
+        memset(fw->cbit, 0, sizeof fw->cbit);
+        memset(fw->cbf_c_n, 0, sizeof fw->cbf_c_n);
+        memset(fw->cbf_c_cb, 0, sizeof fw->cbf_c_cb);
+        memset(fw->cbf_c_cr, 0, sizeof fw->cbf_c_cr);
+        fw->cbit_cnz = 0;
+        fw->cbit_bucket = N265_CB_OTHER;
     }
     bs_reset(&fw->rbsp);
     write_slice_header(e, fw);
@@ -2485,6 +2496,29 @@ static void join_oldest(n265_encoder *e)
                 (double)(fw->cs_tu_cbf[0] + fw->cs_tu_cbf[1] +
                          fw->cs_tu_cbf[2] + fw->cs_tu_cbf[3]) / tu,
                 (unsigned long long)fw->cs_coef);
+    }
+    if (fw->cbit_trace) {
+        /* one CSV row per frame: the coded size, and the bits inside it
+         * that carry each component. Printed on the driver beside the CUS
+         * row, in coding order, for the same reason. */
+        fprintf(stderr,
+                "CBIT,%d,%d,%d,%d,%d,%zu,%.1f,%.1f,%.1f,%.1f,%.1f,"
+                "%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu\n",
+                fw->display_idx, fw->slice_type, fw->b_depth, fw->nonref,
+                fw->qp, d->len,
+                fw->cbit[N265_CB_Y] / 256.0, fw->cbit[N265_CB_CB] / 256.0,
+                fw->cbit[N265_CB_CR] / 256.0, fw->cbit[N265_CB_CBF] / 256.0,
+                fw->cbit[N265_CB_OTHER] / 256.0,
+                (unsigned long long)fw->cbit_cnz,
+                (unsigned long long)fw->cbf_c_n[1],
+                (unsigned long long)fw->cbf_c_cb[1],
+                (unsigned long long)fw->cbf_c_cr[1],
+                (unsigned long long)fw->cbf_c_n[2],
+                (unsigned long long)fw->cbf_c_cb[2],
+                (unsigned long long)fw->cbf_c_cr[2],
+                (unsigned long long)fw->cbf_c_n[3],
+                (unsigned long long)fw->cbf_c_cb[3],
+                (unsigned long long)fw->cbf_c_cr[3]);
     }
     /* Round 4: the frame's traffic, summed over its row lanes and
      * stamped with its coding index. Row-private lines summed in row

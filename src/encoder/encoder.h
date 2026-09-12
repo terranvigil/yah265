@@ -181,6 +181,17 @@ enum {
     N265_CS_COUNT
 };
 
+/* N265_CBIT_TRACE buckets: the frame's coded bits charged to the syntax
+ * that carries each component (docs/phase7-psy-design.md, the chroma gap) */
+enum {
+    N265_CB_Y = 0,          /* luma residual_coding()                 */
+    N265_CB_CB,             /* cb residual_coding()                   */
+    N265_CB_CR,             /* cr residual_coding()                   */
+    N265_CB_CBF,            /* cbf_cb / cbf_cr                        */
+    N265_CB_OTHER,          /* everything else the replay writes      */
+    N265_CB_COUNT
+};
+
 /* The coding context (docs/threading-design.md sec 4, T0 audit).
  *
  * One instance per frame in flight, and one SHALLOW COPY per row lane.
@@ -249,6 +260,17 @@ typedef struct n265_frame_work {
     uint64_t cs_area[N265_CS_COUNT];
     uint64_t cs_tu[4], cs_tu_cbf[4];
     uint64_t cs_coef;       /* nonzero luma levels coded              */
+    /* N265_CBIT_TRACE: the entropy pass's own bits (Q8) charged per
+     * component, plus the chroma cbf population by transform-tree node
+     * size. The cost is read off the REAL context state before the real
+     * engine updates it, so the attribution is the estimator's -log2(p)
+     * of exactly the bins that were written. Diagnostic, output-neutral,
+     * off unless the variable is set. */
+    int cbit_trace;
+    int cbit_bucket;                /* bucket the next bin lands in */
+    uint64_t cbit[N265_CB_COUNT];
+    uint64_t cbf_c_n[4], cbf_c_cb[4], cbf_c_cr[4];  /* by log2ts - 2 */
+    uint64_t cbit_cnz;              /* nonzero chroma levels coded */
     /* Round 4: luma MC output samples this frame asked for at each
      * fractional (fx, fy) INSIDE the 2-D cache region, i.e. what a
      * phase plane would have served had one been armed - counted
@@ -316,6 +338,10 @@ typedef struct n265_frame_work {
     int cur_ctu_qp;         /* QP of the CTU being analyzed */
     uint32_t cur_ctu_lam_q8;     /* its lambda multiplier, Q8 (256 = inert) */
     uint32_t cur_ctu_lam_sad_q8; /* the same in the SAD domain (its sqrt) */
+    /* N265_CHROMA_W: this CTU's chroma distortion weight, Q8 (256 =
+     * inert). Derived once per CTU from cur_ctu_qp and its chroma QP;
+     * see chroma_w_for_qp in ctu.c. */
+    uint32_t cur_chroma_w_q8;
     int db_lo, db_hi;       /* P2: depth range this quadtree may search */
     const uint8_t *cu_pred[3];      /* PU-by-PU MC result a partitioned
                                      * inter CU's TBs crop from; NULL for
@@ -638,6 +664,7 @@ struct n265_encoder {
     /* N265_CU_STATS: read once at open, copied into every frame_work.
      * The counters themselves are per-frame (see n265_frame_work). */
     int cu_stats;
+    int cbit_trace;         /* N265_CBIT_TRACE, the same way */
 };
 
 /* The cu-tree field's raw per-CTU value carries cutree_str already, so the
