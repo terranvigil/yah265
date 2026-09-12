@@ -91,6 +91,39 @@ static uint32_t chroma_w_for_qp(int qp_y)
         w = 256 + (uint32_t)(((int64_t)((int)w - 256) * pct) / 100);
     return w;
 }
+/* N265_CHROMA_PRED (phase 7): how much of the candidate CHOICE carries a
+ * chroma term. The decomposition in docs/phase7-psy-design.md placed two
+ * thirds of bus's 0.8-0.9 dB chroma deficit in the chroma PREDICTION -
+ * chroma residual is under 1% of that stream, so the reconstruction IS
+ * the prediction - and every motion candidate in this encoder is chosen
+ * on luma alone. This adds the 4:2:0 planes' cost to the last few
+ * candidates of each arbitration, never to the search.
+ *
+ *   0  the pre-item encoder, byte for byte (the escape)
+ *   1  the merge shortlist, and the AMVP-vs-merge comparison with it
+ *   2  also a quarter-pel chroma re-rank of the search's final vector
+ *   3  also the uni/bi arbitration
+ *
+ * **1 is the medium default since 2026-09-12**, under N265_CPRED_GATE=2
+ * which is what made it affordable. The presets are pinned to 0 and stay
+ * byte for byte the pre-item encoder.
+ *
+ * The weight is 1.0 per chroma sample, i.e. the Cb and Cr costs are
+ * simply added to the luma one. N265_CHROMA_W's table is the ratio of
+ * the two quantisers' SQUARED step sizes and belongs to an SSD sum; a
+ * SATD or SAD is a magnitude, not a squared error, and the ratio does
+ * not transfer to it. The measurement that would set a weight here is
+ * already in the record: "The weight from each component's measured rate
+ * slope" reads the marginal exchange rate at 0.8-1.5 on every natural
+ * clip, nearest 1.0 where the gap is, and refuses a per-QP table by its
+ * own spread. 1.0 is what that leaves. */
+static int chroma_pred(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *s = n265_env("N265_CHROMA_PRED"); v = s ? atoi(s) : 1; }
+    return v;
+}
+
 static int no_gates_on(void)
 {
     static int v = -1;
@@ -1423,6 +1456,10 @@ static void set_mot_map(struct n265_frame_work *e, int x0, int y0, int n,
         }
 }
 
+static int cpred_trace(void);
+static void cpred_trace_pu(struct n265_frame_work *e, const pu_geo *g,
+                           mot_t mot);
+
 static void skip_cu(struct n265_frame_work *e, int x0, int y0, int log2n,
                     mot_t mot, int merge_idx)
 {
@@ -1440,6 +1477,10 @@ static void skip_cu(struct n265_frame_work *e, int x0, int y0, int log2n,
     set_blk(e, e->blk_intra, x0, y0, n, 0);
     set_blk(e, e->blk_skip, x0, y0, n, 1);
     set_blk(e, e->blk_cbf_y, x0, y0, n, 0);
+    if (cpred_trace()) {
+        pu_geo g = { x0, y0, n, x0, y0, n, n, 0, 0 };
+        cpred_trace_pu(e, &g, mot);
+    }
     set_mot_map(e, x0, y0, n, mot);
     set_mode_map(e, x0, y0, n, INTRA_DC);
 }
@@ -1464,6 +1505,128 @@ static uint32_t mot_satd_wh(struct n265_frame_work *e, int x0, int y0, int w,
     mc_pred_wh(e, 0, x0, y0, w, h, mot, pred, w);
     return n265_satd_wh(e->pad_plane[0] + y0 * e->pad_stride[0] + x0,
                         e->pad_stride[0], pred, w, w, h);
+}
+
+/* CHROMA_NA: this PU has no chroma SATD to take. n265_satd_wh tiles 4x4
+ * at best, so the chroma block needs both sides a multiple of 4, i.e.
+ * both luma sides a multiple of 8. The 8x4 / 4x8 PUs (chroma 4x2) and
+ * the AMP PUs of a 16x16 CB (chroma 8x2 / 2x8) are the exceptions, and
+ * every caller below leaves those PUs' choice luma-only. */
+#define CHROMA_NA UINT32_MAX
+
+/* SATD of the full-motion prediction summed over Cb and Cr, for a PU
+ * whose LUMA block is w x h at (x0, y0). */
+static uint32_t mot_satd_c(struct n265_frame_work *e, int x0, int y0, int w,
+                           int h, mot_t mot)
+{
+    if ((w & 7) || (h & 7))
+        return CHROMA_NA;
+    int cw = w >> 1, ch = h >> 1, cx = x0 >> 1, cy = y0 >> 1;
+    uint8_t pred[32 * 32];
+    uint32_t s = 0;
+    for (int c = 1; c <= 2; c++) {
+        mc_pred_wh(e, c, cx, cy, cw, ch, mot, pred, cw);
+        s += n265_satd_wh(e->pad_plane[c] + cy * e->pad_stride[c] + cx,
+                          e->pad_stride[c], pred, cw, cw, ch);
+    }
+    return s;
+}
+
+/* SAD twin of the above, for the arbitrations that rank in SAD. The
+ * chroma term has to be in the metric its call site ranks in: a SATD is
+ * two to four times a SAD on the same block, so mixing them would be a
+ * weight and not a term. No shape guard is needed - every SAD site below
+ * is a whole 2Nx2N coding block, so the chroma block is at least 4x4. */
+static uint32_t mot_sad_c(struct n265_frame_work *e, int x0, int y0, int w,
+                          int h, mot_t mot)
+{
+    int cw = w >> 1, ch = h >> 1, cx = x0 >> 1, cy = y0 >> 1;
+    uint8_t pred[32 * 32];
+    uint32_t s = 0;
+    for (int c = 1; c <= 2; c++) {
+        mc_pred_wh(e, c, cx, cy, cw, ch, mot, pred, cw);
+        s += n265_sad_wh(e->pad_plane[c] + cy * e->pad_stride[c] + cx,
+                         e->pad_stride[c], pred, cw, cw, ch);
+    }
+    return s;
+}
+
+/* N265_CPRED_W: the chroma term's weight in percent, 100 = w 1.0. Its
+ * reason for existing is 0, the LUMA-ONLY CONTROL: N265_CHROMA_PRED=2
+ * also re-ranks the search's final vector against its quarter-pel
+ * neighbours, and without this knob there is no way to say how much of
+ * that arm is the chroma term and how much is the re-rank. It is also
+ * the strength sweep if one is ever wanted. */
+static int cpred_w_pct(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *s = n265_env("N265_CPRED_W"); v = s ? atoi(s) : 100; }
+    return v;
+}
+
+/* N265_CPRED_GATE: which of the shortlist's candidates are allowed to
+ * cost a chroma MC. The full form (0) gives one to every entry at every
+ * quadtree depth on every trial, which is the 1.04-1.06x that refused
+ * N265_CHROMA_PRED=1 on the clock; these are the cheaper forms.
+ *
+ *   0  every shortlist entry (the priced, refused form: 1.06x / 1.04x)
+ *   1  the two best on luma only - a third candidate that is already
+ *      behind on luma is not going to be rescued by a term worth a
+ *      tenth to a fifth of the luma magnitude (1.031x / 1.021x)
+ *   2  the two best, and only where they are within 2% of each other on
+ *      luma: the chroma MC is bought only where it can change the
+ *      answer, which the misalignment trace put at 5.5-7.6% of PUs
+ *   3  the full form, skipped at the 8x8 coding block (1.040x / 1.026x)
+ *
+ * **2 ships, and it is both the cheapest and the best of the four**:
+ * 1.010x on foreman and mobile against 0's 1.06x / 1.04x, and a BETTER
+ * band than 0 in both modes (CIF-7 median -16.43 / -13.91 against 0's
+ * -16.21 / -13.78). Spending the term only where luma has not already
+ * decided is not only cheaper, it is also the term not being spent where
+ * it can only add noise. Moot unless N265_CHROMA_PRED is set. */
+static int cpred_gate(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *s = n265_env("N265_CPRED_GATE"); v = s ? atoi(s) : 2; }
+    return v;
+}
+
+/* the two smallest entries of cost[0..k-1], first index winning a tie,
+ * as the shortlist gates above need them. b[1] is k < 2's own b[0]. */
+static void two_best(const uint32_t *cost, int k, int b[2])
+{
+    b[0] = 0;
+    for (int i = 1; i < k; i++)
+        if (cost[i] < cost[b[0]])
+            b[0] = i;
+    b[1] = b[0];
+    for (int i = 0; i < k; i++)
+        if (i != b[0] && (b[1] == b[0] || cost[i] < cost[b[1]]))
+            b[1] = i;
+}
+
+/* the chroma term at w = 1.0, or 0 where the PU has no chroma tile */
+static inline uint32_t cpred_satd(struct n265_frame_work *e, int x0, int y0,
+                                  int w, int h, mot_t mot)
+{
+    int pct = cpred_w_pct();
+    if (!pct)
+        return 0;
+    uint32_t c = mot_satd_c(e, x0, y0, w, h, mot);
+    if (c == CHROMA_NA)
+        return 0;
+    return pct == 100 ? c : (uint32_t)(((uint64_t)c * pct) / 100);
+}
+
+/* the SAD twin of the above, for the sites that rank in SAD */
+static inline uint32_t cpred_sad(struct n265_frame_work *e, int x0, int y0,
+                                 int w, int h, mot_t mot)
+{
+    int pct = cpred_w_pct();
+    if (!pct)
+        return 0;
+    uint32_t c = mot_sad_c(e, x0, y0, w, h, mot);
+    return pct == 100 ? c : (uint32_t)(((uint64_t)c * pct) / 100);
 }
 
 /* --- estimator-side syntax costing (mirrors entropy.c) --- */
@@ -2338,16 +2501,44 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
     int w = g->w, h = g->h;
     int no_bi = w + h == 12;    /* 8x4 and 4x8 PUs stay uni-predicted */
 
+    int cp = chroma_pred();
+
     mot_t mlist[MAX_MERGE];
     n265_merge_list_pu(e, g, mlist, MAX_MERGE);
     int best_m = 0;
-    uint32_t best_mc = UINT32_MAX;
-    for (int i = 0; i < merge_rd_n(); i++) {
-        uint32_t c = mot_satd_wh(e, g->x, g->y, w, h, mlist[i]) +
-                     (uint32_t)(((i + 1) * lam4) >> 4);
-        if (c < best_mc) {
-            best_mc = c;
+    int nm = merge_rd_n();
+    uint32_t ml[MAX_MERGE];         /* luma cost incl. the index rate */
+    for (int i = 0; i < nm; i++) {
+        ml[i] = mot_satd_wh(e, g->x, g->y, w, h, mlist[i]) +
+                (uint32_t)(((i + 1) * lam4) >> 4);
+        if (ml[i] < ml[best_m])
             best_m = i;
+    }
+    uint32_t best_mc = ml[best_m];
+    int mg = cp >= 1 ? cpred_gate() : -1;
+    if (mg == 3 && g->cbn == (1 << MIN_CB_LOG2))
+        mg = -1;
+    if (mg == 1 || mg == 2) {
+        int b[2];
+        two_best(ml, nm, b);
+        if (b[1] != b[0] &&
+            !(mg == 2 && (uint64_t)ml[b[1]] * 100 > (uint64_t)ml[b[0]] * 102)) {
+            uint32_t c0 = ml[b[0]] + cpred_satd(e, g->x, g->y, w, h, mlist[b[0]]);
+            uint32_t c1 = ml[b[1]] + cpred_satd(e, g->x, g->y, w, h, mlist[b[1]]);
+            best_m = c1 < c0 ? b[1] : b[0];
+            best_mc = c1 < c0 ? c1 : c0;
+        } else {
+            best_mc = ml[best_m] +
+                cpred_satd(e, g->x, g->y, w, h, mlist[best_m]);
+        }
+    } else if (mg == 0) {
+        best_mc = UINT32_MAX;
+        for (int i = 0; i < nm; i++) {
+            uint32_t c = ml[i] + cpred_satd(e, g->x, g->y, w, h, mlist[i]);
+            if (c < best_mc) {
+                best_mc = c;
+                best_m = i;
+            }
         }
     }
 
@@ -2403,6 +2594,30 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
     amot.ref[1] = 0;
     amot.pred = 1;
     uint32_t acost = side[0];
+    /* the better uni candidate in LUMA, which is the unit bi_refine's
+     * gate walks in: the chroma term must not reach it, or the gate
+     * would hold a chroma-inclusive uni against a luma-only pair. */
+    uint32_t uni_l = side[0];
+    if (nl == 2 && side[1] < uni_l)
+        uni_l = side[1];
+    if (cp >= 3) {
+        /* the uni/bi arbitration, chroma-aware on the last three
+         * candidates only: the two per-list winners the reference
+         * ranking already produced, and the pair they form. The ranking
+         * that produced them stays luma - that is the search. */
+        if (side[0] != UINT32_MAX)
+            side[0] += cpred_satd(e, g->x, g->y, w, h, amot);
+        if (nl == 2 && side[1] != UINT32_MAX) {
+            mot_t u1;
+            u1.mv[0].x = u1.mv[0].y = 0;
+            u1.mv[1] = me[1];
+            u1.ref[0] = 0;
+            u1.ref[1] = bref[1];
+            u1.pred = 2;
+            side[1] += cpred_satd(e, g->x, g->y, w, h, u1);
+        }
+        acost = side[0];
+    }
     if (nl == 2) {
         if (side[1] < acost) {
             amot.mv[0].x = amot.mv[0].y = 0;
@@ -2426,16 +2641,60 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
                 /* `acost` is the better uni candidate in exactly the
                  * units bi_refine costs the pair in */
                 c = bi_refine(e, g, &bi, bp, lam4, 6,
-                              bi_gate() ? acost : UINT32_MAX);
+                              bi_gate() ? uni_l : UINT32_MAX);
             } else {
                 c = mot_satd_wh(e, g->x, g->y, w, h, bi) +
                     (uint32_t)(((uint64_t)mot_rate_q8(e, g, &bi, bp, 6) *
                                 lam4) >> 12);
             }
+            if (cp >= 3 && c != UINT32_MAX)
+                c += cpred_satd(e, g->x, g->y, w, h, bi);
             if (c < acost) {
                 amot = bi;
                 acost = c;
                 memcpy(mvp, bp, sizeof(bp));
+            }
+        }
+    }
+
+    if (cp >= 1 && cp < 3 && acost != UINT32_MAX)
+        acost += cpred_satd(e, g->x, g->y, w, h, amot);
+
+    if (cp >= 2 && acost != UINT32_MAX) {
+        /* The search's last ranking, re-run on chroma. A merge candidate
+         * cannot take this: its vector is what the index names, and a
+         * refined one is no longer codable as a merge. So the quarter-pel
+         * step belongs to the AMVP vector alone, and it is a CHOICE among
+         * five positions rather than a search - the ladder inside
+         * n265_me_search stays luma. */
+        static const int st[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 },
+                                      { 0, -1 } };
+        for (int l = 0; l < 2; l++) {
+            if (!(amot.pred & (1 << l)))
+                continue;
+            uint32_t best_q = acost;
+            mv_t bmv = amot.mv[l];
+            for (int i = 0; i < 4; i++) {
+                mot_t t = amot;
+                mv_t v = { (int16_t)(amot.mv[l].x + st[i][0]),
+                           (int16_t)(amot.mv[l].y + st[i][1]) };
+                mv_t vc = v;
+                n265_clamp_mv(e, g->x, g->y, w, h, &vc);
+                if (vc.x != v.x || vc.y != v.y)
+                    continue;
+                t.mv[l] = v;
+                uint32_t c = mot_satd_wh(e, g->x, g->y, w, h, t) +
+                    cpred_satd(e, g->x, g->y, w, h, t) +
+                    (uint32_t)(((uint64_t)mot_rate_q8(e, g, &t, mvp, 6) *
+                                lam4) >> 12);
+                if (c < best_q) {
+                    best_q = c;
+                    bmv = v;
+                }
+            }
+            if (bmv.x != amot.mv[l].x || bmv.y != amot.mv[l].y) {
+                amot.mv[l] = bmv;
+                acost = best_q;
             }
         }
     }
@@ -2624,6 +2883,90 @@ static uint64_t rd_part(struct n265_frame_work *e, int x0, int y0, int log2n,
     return rd_j(d, st.bits, ctu_lam(e, e->cur_ctu_qp));
 }
 
+/* N265_CPRED_TRACE: the misalignment read this item opened with. For
+ * every COMMITTED inter PU (the commit loop, so losing partitions and
+ * losing candidates are not counted), cost the luma-chosen vector's
+ * chroma SATD against the best chroma SATD over the same shortlist the
+ * choice was made from - the merge candidates the prefilter ranks, plus
+ * the four quarter-pel neighbours of the chosen vector - and print what
+ * the better chroma alternative would cost in luma. One CSV row per PU
+ * on stderr; run at --threads 1, the rows are not serialised. */
+static int cpred_trace(void)
+{
+    static int v = -1;
+    if (v < 0) v = n265_env("N265_CPRED_TRACE") != NULL;
+    return v;
+}
+
+static void cpred_trace_pu(struct n265_frame_work *e, const pu_geo *g,
+                           mot_t mot)
+{
+    int w = g->w, h = g->h;
+    uint32_t cc = mot_satd_c(e, g->x, g->y, w, h, mot);
+    if (cc == CHROMA_NA) {
+        fprintf(stderr, "CPRED,%d,%d,%d,na,0,0,0,0,0,0,0,0,0\n", e->poc, w, h);
+        return;
+    }
+    uint32_t lc = mot_satd_wh(e, g->x, g->y, w, h, mot);
+    uint32_t bc = cc, bl = lc;
+    int from = 0;       /* 1 = a merge candidate, 2 = a quarter-pel step */
+    /* and the JOINT winner, which is what an arm would actually pick:
+     * the shortlist entry minimising luma SATD + chroma SATD at w = 1 */
+    uint64_t jbest = (uint64_t)lc + cc;
+    uint32_t jl = lc, jc = cc;
+    int jfrom = 0;
+
+    mot_t cand[MAX_MERGE + 4];
+    int nc = 0, ncmerge;
+    n265_merge_list_pu(e, g, cand, MAX_MERGE);
+    nc = ncmerge = merge_rd_n();
+    static const int st[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+    for (int i = 0; i < 4; i++) {
+        mot_t t = mot;
+        int ok = 1;
+        for (int l = 0; l < 2; l++) {
+            if (!(t.pred & (1 << l)))
+                continue;
+            mv_t v = { (int16_t)(t.mv[l].x + st[i][0]),
+                       (int16_t)(t.mv[l].y + st[i][1]) };
+            mv_t vc = v;
+            n265_clamp_mv(e, g->x, g->y, w, h, &vc);
+            if (vc.x != v.x || vc.y != v.y)
+                ok = 0;
+            t.mv[l] = v;
+        }
+        if (ok)
+            cand[nc++] = t;
+    }
+    /* and the FREE read: the best chroma among the shortlist entries
+     * that cost no more than 2% of luma SATD over the chosen vector -
+     * the chroma this item could take without paying for it. */
+    uint32_t kc = cc, kl = lc;
+    uint64_t lcap = (uint64_t)lc * 102 / 100;
+    for (int i = 0; i < nc; i++) {
+        uint32_t c = mot_satd_c(e, g->x, g->y, w, h, cand[i]);
+        uint32_t l = mot_satd_wh(e, g->x, g->y, w, h, cand[i]);
+        int src = i < ncmerge ? 1 : 2;
+        if (c < bc) {
+            bc = c;
+            bl = l;
+            from = src;
+        }
+        if ((uint64_t)l + c < jbest) {
+            jbest = (uint64_t)l + c;
+            jl = l;
+            jc = c;
+            jfrom = src;
+        }
+        if (l <= lcap && c < kc) {
+            kc = c;
+            kl = l;
+        }
+    }
+    fprintf(stderr, "CPRED,%d,%d,%d,%u,%u,%u,%u,%d,%u,%u,%d,%u,%u\n", e->poc,
+            w, h, lc, cc, bc, bl, from, jl, jc, jfrom, kl, kc);
+}
+
 /* commit an inter CU (any partition): maps, records, recon */
 static void commit_inter_cu(struct n265_frame_work *e, int x0, int y0,
                             int log2n, int part, const pu_dec d[2], int any,
@@ -2662,6 +3005,12 @@ static void commit_inter_cu(struct n265_frame_work *e, int x0, int y0,
                 };
                 rec_levels(e, mvd, 2);
             }
+        if (cpred_trace()) {
+            pu_geo g = { x0, y0, n, px, py, pw, ph,
+                         p == 1 && !PART_IS_HORIZ(part),
+                         p == 1 && PART_IS_HORIZ(part) };
+            cpred_trace_pu(e, &g, d[p].mot);
+        }
         set_mot_map_wh(e, px, py, pw, ph, d[p].mot);
     }
     rec_u8(e, (unsigned)(any != 0));
@@ -2677,6 +3026,56 @@ static void commit_inter_cu(struct n265_frame_work *e, int x0, int y0,
         tb_commit(e, 2, x0 / 2, y0 / 2, log2n - 1, tcr);
     }
     clear_cu_pred(e);
+}
+
+/* The 2Nx2N merge shortlist's pick: luma SAD as always, plus the chroma
+ * SAD under N265_CHROMA_PRED. *luma comes back as the WINNER's luma-only
+ * SAD, because that number is not just this ranking's - the static-skip
+ * threshold, the economy gates and the intra prefilter all read it, and
+ * a chroma-inflated one would move gates this item is not about. */
+static int merge_pick_sad(struct n265_frame_work *e, int x0, int y0,
+                          int log2n, const mot_t *mlist, uint32_t *luma)
+{
+    int n = 1 << log2n, cp = chroma_pred(), k = merge_rd_n();
+    uint32_t sd[MAX_MERGE];
+    int midx = 0;
+    for (int i = 0; i < k; i++) {
+        sd[i] = mot_sad(e, x0, y0, log2n, mlist[i]);
+        if (sd[i] < sd[midx])
+            midx = i;
+    }
+    *luma = sd[midx];
+    if (cp < 1)
+        return midx;
+
+    int g = cpred_gate();
+    if (g == 3 && log2n == MIN_CB_LOG2)
+        return midx;
+    if (g == 1 || g == 2) {
+        int b[2];
+        two_best(sd, k, b);
+        if (b[1] == b[0])
+            return midx;
+        if (g == 2 && (uint64_t)sd[b[1]] * 100 > (uint64_t)sd[b[0]] * 102)
+            return midx;        /* luma has already decided this one */
+        uint32_t c0 = sd[b[0]] + cpred_sad(e, x0, y0, n, n, mlist[b[0]]);
+        uint32_t c1 = sd[b[1]] + cpred_sad(e, x0, y0, n, n, mlist[b[1]]);
+        /* the ties go the way the luma-only pick went */
+        int w = c1 < c0 ? b[1] : b[0];
+        *luma = sd[w];
+        return w;
+    }
+
+    uint32_t best = UINT32_MAX;
+    for (int i = 0; i < k; i++) {
+        uint32_t c = sd[i] + cpred_sad(e, x0, y0, n, n, mlist[i]);
+        if (c < best) {
+            best = c;
+            midx = i;
+            *luma = sd[i];
+        }
+    }
+    return midx;
 }
 
 static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
@@ -2697,15 +3096,8 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
         tb_ctx *i_tl = &e->sc->i_tl, *i_tcb = &e->sc->i_tcb, *i_tcr = &e->sc->i_tcr;
         mot_t mlist[MAX_MERGE];
         n265_merge_list(e, x0, y0, n, n, mlist, MAX_MERGE);
-        int midx = 0;
-        uint32_t cand_plain_sad = mot_sad(e, x0, y0, log2n, mlist[0]);
-        for (int i = 1; i < merge_rd_n(); i++) {
-            uint32_t sd = mot_sad(e, x0, y0, log2n, mlist[i]);
-            if (sd < cand_plain_sad) {
-                cand_plain_sad = sd;
-                midx = i;
-            }
-        }
+        uint32_t cand_plain_sad;
+        int midx = merge_pick_sad(e, x0, y0, log2n, mlist, &cand_plain_sad);
         mot_t cand = mlist[midx];
 
         /* strict static skip at the best merge candidate */
@@ -2863,10 +3255,13 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                      * decides bi against uni; N265_ME_SATD makes it the
                      * Hadamard cost the rect/AMP PU search already uses */
                     int ms = me_satd_on();
+                    int cp3 = chroma_pred() >= 3;
                     uint32_t s0 = ms ? mot_satd_wh(e, x0, y0, n, n, amot)
                                      : mot_sad(e, x0, y0, log2n, amot);
                     uint32_t s1 = ms ? mot_satd_wh(e, x0, y0, n, n, u1)
                                      : mot_sad(e, x0, y0, log2n, u1);
+                    /* the luma-only better uni, which is what bi_gate's
+                     * margin below is calibrated against */
                     if (mvd_bits_on()) {
                         s0 += (uint32_t)(((uint64_t)mot_rate_q8(e, &pg, &amot, mvp, 6) * lam4) >> 12);
                         s1 += (uint32_t)(((uint64_t)mot_rate_q8(e, &pg, &u1, mvp, 6) * lam4) >> 12);
@@ -2898,11 +3293,68 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                         if (mvd_bits_on())
                             sb += (uint32_t)(((uint64_t)mot_rate_q8(e, &pg, &bi, bp, 6) * lam4) >> 12);
                     }
+                    /* the chroma term goes on last, on the three
+                     * candidates this arbitration ranks and nothing the
+                     * gates above read - in the metric the site ranks in */
+                    if (cp3) {
+                        s0 += ms ? cpred_satd(e, x0, y0, n, n, amot)
+                                 : cpred_sad(e, x0, y0, n, n, amot);
+                        s1 += ms ? cpred_satd(e, x0, y0, n, n, u1)
+                                 : cpred_sad(e, x0, y0, n, n, u1);
+                        sb += ms ? cpred_satd(e, x0, y0, n, n, bi)
+                                 : cpred_sad(e, x0, y0, n, n, bi);
+                    }
                     if (s1 < s0 && s1 <= sb)
                         amot = u1;
                     else if (sb < s0) {
                         amot = bi;
                         memcpy(mvp, bp, sizeof(bp));
+                    }
+                }
+                if (chroma_pred() >= 2) {
+                    /* The search's last ranking, re-run with chroma in
+                     * it. Since phase 6b's B' the rect/AMP PU search
+                     * (search_pu) is entered on flat-typed frames only,
+                     * so on natural content THIS is where the AMVP
+                     * vector is settled and where the quarter-pel step
+                     * has to be taken. It is a choice among five
+                     * positions, not a search: the ladder inside
+                     * n265_me_search stays luma. Hadamard on both sides
+                     * even though the arbitration above ranks in SAD -
+                     * SAD cannot tell an interpolated phase's blur from
+                     * a misalignment, which is the whole reason the
+                     * subpel round is SATD-costed in mv.c. */
+                    static const int st[4][2] = { { 1, 0 }, { -1, 0 },
+                                                  { 0, 1 }, { 0, -1 } };
+                    for (int l = 0; l < 2; l++) {
+                        if (!(amot.pred & (1 << l)))
+                            continue;
+                        uint32_t bq = mot_satd_wh(e, x0, y0, n, n, amot) +
+                            cpred_satd(e, x0, y0, n, n, amot) +
+                            (uint32_t)(((uint64_t)mot_rate_q8(e, &pg, &amot,
+                                                              mvp, 6)
+                                        * lam4) >> 12);
+                        mv_t bmv = amot.mv[l];
+                        for (int i = 0; i < 4; i++) {
+                            mot_t t = amot;
+                            mv_t v = { (int16_t)(amot.mv[l].x + st[i][0]),
+                                       (int16_t)(amot.mv[l].y + st[i][1]) };
+                            mv_t vc = v;
+                            n265_clamp_mv(e, x0, y0, n, n, &vc);
+                            if (vc.x != v.x || vc.y != v.y)
+                                continue;
+                            t.mv[l] = v;
+                            uint32_t c = mot_satd_wh(e, x0, y0, n, n, t) +
+                                cpred_satd(e, x0, y0, n, n, t) +
+                                (uint32_t)(((uint64_t)mot_rate_q8(e, &pg, &t,
+                                                                  mvp, 6)
+                                            * lam4) >> 12);
+                            if (c < bq) {
+                                bq = c;
+                                bmv = v;
+                            }
+                        }
+                        amot.mv[l] = bmv;
                     }
                 }
                 same_as_cand = amot.pred == cand.pred &&
@@ -3491,12 +3943,9 @@ static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
                                        0);
             mot_t mlist[MAX_MERGE];
             n265_merge_list(e, x0, y0, n, n, mlist, MAX_MERGE);
-            int midx = 0;
-            uint32_t sd0 = mot_sad(e, x0, y0, log2n, mlist[0]);
-            for (int i = 1; i < merge_rd_n(); i++) {
-                uint32_t sd = mot_sad(e, x0, y0, log2n, mlist[i]);
-                if (sd < sd0) { sd0 = sd; midx = i; }
-            }
+            uint32_t sd0;      /* unused here; the pick is the point */
+            int midx = merge_pick_sad(e, x0, y0, log2n, mlist, &sd0);
+            (void)sd0;
             size_t pos0 = e->rec_len;
             mark_cu_edges(e, x0, y0, n);
             skip_cu(e, x0, y0, log2n, mlist[midx], midx);
@@ -3571,15 +4020,9 @@ static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
 
         mot_t mlist[MAX_MERGE];
         n265_merge_list(e, x0, y0, n, n, mlist, MAX_MERGE);
-        int midx = 0;
-        uint32_t sd0 = mot_sad(e, x0, y0, log2n, mlist[0]);
-        for (int i = 1; i < merge_rd_n(); i++) {
-            uint32_t sd = mot_sad(e, x0, y0, log2n, mlist[i]);
-            if (sd < sd0) {
-                sd0 = sd;
-                midx = i;
-            }
-        }
+        uint32_t sd0;          /* unused here; the pick is the point */
+        int midx = merge_pick_sad(e, x0, y0, log2n, mlist, &sd0);
+        (void)sd0;
         size_t pos0 = e->rec_len;
         mark_cu_edges(e, x0, y0, n);
         skip_cu(e, x0, y0, log2n, mlist[midx], midx);
@@ -3922,6 +4365,8 @@ void n265_ctu_warm(void)
     (void)bi_refine_iters(); (void)merge_rd_n(); (void)bi_gate();
     (void)bi_gate_margin(); (void)intra_rd_n(); (void)intra_rd_mpm();
     (void)i_intra(); (void)chroma_w_on(); (void)chroma_w_pct();
+    (void)chroma_pred(); (void)cpred_trace(); (void)cpred_w_pct();
+    (void)cpred_gate();
     for (int q = 0; q < 52; q++)
         (void)n265_lambda_mode_q8(q);   /* fills its lazy table */
 }

@@ -74,6 +74,11 @@ static const struct kv fast_tab[] = {
      * at 8% and 5% of the encode */
     { "N265_CB64_AMVP",  "0" },
     { "N265_BI_REFINE",  "0" },
+    /* the chroma term in the candidate choice is medium's, priced at
+     * 1.010x there (docs/phase7-psy-design.md, "The chroma prediction").
+     * fast has not been priced for it and is pinned off, which is what
+     * keeps its cmp against the pre-item binary true */
+    { "N265_CHROMA_PRED", "0" },
     /* the tools medium does not have. rect and AMP are 27% of the
      * encode for 4.5 mean BD - the best block trade on the ladder */
     { "N265_NO_RECT",    "1" },
@@ -149,6 +154,11 @@ static const struct kv fast_tab[] = {
  * -21.84 CRF) and 7 is 1.018x cheaper, so the pin went with the
  * others. */
 static const struct kv slow_tab[] = {
+    { "N265_CHROMA_PRED", "0" },  /* medium's chroma term, not priced
+                                   * here: slow runs rect, AMP and the
+                                   * CB64 arm, so its shortlist count is
+                                   * a different encoder. Pinned off,
+                                   * which keeps its cmp true          */
     { "N265_CB64_AMVP",  "1" },   /* the 64x64 AMVP arm back on        */
     { "N265_RSKIP",      "0" },   /* recursion never stopped early     */
     { "N265_BI_REFINE",  "1" },   /* one L0/L1 sweep                   */
