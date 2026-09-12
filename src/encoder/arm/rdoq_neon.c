@@ -22,7 +22,8 @@
  *
  * Bit-exactness, term by term:
  *
- *   ENERGY. Every term is coef^2 with |coef| <= 32768, so 0 <= term <=
+ *   ENERGY. Every term is coef^2 with |coef| <= 32768 at every depth, so
+ *   0 <= term <=
  *   2^30 and it is exact in int32. The block has at most 1024 of them, so
  *   the total is at most 2^40 - every partial sum, in any order, is an
  *   exact integer below 2^53 and therefore exactly representable in a
@@ -34,12 +35,18 @@
  *   raster order was insurance, not a requirement; this is the proof it
  *   was not needed.)
  *
- *   LEVELS. qbits = 21 + qp/6 - log2n with qp <= 51 and log2n in [2, 5],
- *   so qbits is in [16, 27]; add = (1 << qbits) / 3 or / 6, so add <
- *   2^27/3 < 4.5e7. |coef| <= 32768 and q = quant_scale[qp % 6] <= 26214,
- *   so |coef| * q <= 8.592e8 and |coef| * q + add <= 9.04e8 < 2^31. The
- *   C's int64 product never needed 64 bits: the whole expression fits
- *   int32 lanes, four at a time instead of two.
+ *   LEVELS. qbits = 29 - BitDepth + qP/6 - log2n with qP = Qp' in
+ *   [0, 51 + QpBdOffset] and log2n in [2, 5], so qbits is in [16, 27] at
+ *   8 bits and [14, 27] at Main10 - the same top, because Qp's twelve
+ *   extra steps buy exactly the two bits BitDepth costs. add =
+ *   (1 << qbits) / 3 or / 6, so add < 2^27/3 < 4.5e7 at both. |coef| <=
+ *   32768 (the forward transform clips to int16 at every depth) and
+ *   q = quant_scale[qP % 6] <= 26214, so |coef| * q <= 8.592e8 and
+ *   |coef| * q + add <= 9.04e8 < 2^31. The C's int64 product never needed
+ *   64 bits: the whole expression fits int32 lanes, four at a time
+ *   instead of two, AND IT FITS AT BOTH DEPTHS - this family never sees a
+ *   sample, only the int16 coefficients a depth-invariant transform
+ *   produced, so phase 8 item 3 moved no code in it at all.
  *
  *   THE DEADZONE BRANCH. The C skips the multiply when |coef| < czero,
  *   where czero = ceil(((1 << qbits) - add) / q). For |coef| <= czero - 1

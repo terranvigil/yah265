@@ -32,10 +32,17 @@ struct qparm { int q, qbits, czero; int64_t add; };
 
 static struct qparm qparm(int log2n, int qp, int intra)
 {
+    /* `qp` is QpY and the quantiser indexes Qp' (phase 8 item 2), so this
+     * is rdoq.c's derivation verbatim at whichever depth the harness is
+     * built for: qbits is 21 + qP/6 - log2n at 8 bits and two smaller at
+     * Main10 against a qP that is twelve larger, which is the same
+     * cancellation the forward transform's shift1 makes. */
+    int qpq = qp + QP_BD_OFFSET;
     struct qparm p;
-    p.qbits = 21 + qp / 6 - log2n;
+
+    p.qbits = 29 - BIT_DEPTH + qpq / 6 - log2n;
     p.add = ((int64_t)1 << p.qbits) / (intra ? 3 : 6);
-    p.q = ca_quant_scale[qp % 6];
+    p.q = ca_quant_scale[qpq % 6];
     p.czero = (int)((((int64_t)1 << p.qbits) - p.add + p.q - 1) / p.q);
     return p;
 }
@@ -84,7 +91,7 @@ static void fill_level(int16_t *lv, int nn, int kind)
     fill_coef(lv, nn, kind);
 }
 
-#if N265_NEON
+#if N265_NEON_RDOQ
 
 /* ---- correctness ---------------------------------------------------- */
 
@@ -103,7 +110,7 @@ static int cmp_rtn(const int16_t *ref, const int16_t *got, int nn,
 
 /* The declared windows are exactly n*n int16 on both buffers, with no
  * stride and no spare row, so an eight-lane load run once too far faults
- * whichever end it runs off. Four qps rather than all 52: qbits steps with
+ * whichever end it runs off. Five qps rather than all of them: qbits steps with
  * qp / 6 and the scale with qp % 6, and 51 is where the shift is widest -
  * the GEOMETRY the mapping checks does not move with the value. */
 static void check_rtn_window(int log2n, int kind, int qp)
@@ -144,7 +151,7 @@ static void check_rtn_window(int log2n, int kind, int qp)
 static int check_rdoq_neon(void)
 {
     int bad = 0;
-    static const int pg_qp[] = { 0, 4, 30, 51 };
+    static const int pg_qp[] = { N265_QP_MIN, 0, 4, 30, 51 };
 
     for (int log2n = 2; log2n <= 5; log2n++)
         for (int kind = 0; kind < N_CKIND; kind++)
@@ -162,7 +169,7 @@ static int check_rdoq_neon(void)
         snprintf(shape, sizeof(shape), "%dx%d", n, n);
         for (int kind = 0; kind < N_CKIND && !bad; kind++) {
             /* ---- rdoq_rtn: every qp the encoder can hand it ---- */
-            for (int qp = 0; qp <= 51 && !bad; qp++) {
+            for (int qp = N265_QP_MIN; qp <= N265_QP_MAX && !bad; qp++) {
                 for (int intra = 0; intra < 2 && !bad; intra++) {
                     struct qparm p = qparm(log2n, qp, intra);
                     double raz = 0, gaz = 0;
@@ -219,7 +226,7 @@ static int check_rdoq_neon(void)
     }
     return bad;
 }
-#endif /* N265_NEON */
+#endif /* N265_NEON_RDOQ */
 
 /* ---- bench ---------------------------------------------------------- */
 
@@ -244,7 +251,7 @@ static void sbnz_c_call(void *v)
     c->m = n265_rdoq_sb_nz_ref(c->coef, c->log2n);
 }
 
-#if N265_NEON
+#if N265_NEON_RDOQ
 static void rtn_neon_call(void *v)
 {
     struct rctx *c = v;
@@ -296,7 +303,7 @@ int check_rdoq(void)
             }
         }
     }
-#if N265_NEON
+#if N265_NEON_RDOQ
     bad += check_rdoq_neon();
 #endif
     if (bad)
