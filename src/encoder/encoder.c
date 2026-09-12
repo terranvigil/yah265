@@ -70,6 +70,7 @@ static int g_la_depth = 12;
 static int g_cutree = 0;
 static int g_shot_window = 0;   /* --shot-window; 0 = off */
 static int g_threads = 0;       /* --threads; 0 = auto */
+static int g_lossless = 0;      /* --lossless; n265_set_lossless */
 
 void n265_set_threads(int n)
 {
@@ -107,6 +108,10 @@ void n265_set_shot_window(int n)
 
 void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes,
                    int aq);
+/* --lossless. Declared in cli/n265.c the way the other CLI-only entry
+ * points are: include/yah265.h is another item's file this round. */
+void n265_set_lossless(int on);
+void n265_set_lossless(int on) { g_lossless = on != 0; }
 void n265_set_crf(double crf) { g_crf = crf; }
 void n265_set_bitrate(double kbps) { g_bitrate = kbps > 0.0 ? kbps : 0.0; }
 void n265_set_ref(int n) { g_ref = n < 1 ? 1 : n > N265_MAX_REF ? N265_MAX_REF : n; }
@@ -551,6 +556,7 @@ static void fw_config(n265_encoder *e, n265_frame_work *fw)
     fw->rect = e->rect;
     fw->amp = e->amp;
     fw->rdoq = e->rdoq;
+    fw->lossless = e->lossless;
     fw->qp_delta_on = e->qp_delta_on;
     fw->bframes = e->bframes;
     fw->dpb_reorder = e->dpb_reorder;
@@ -876,6 +882,41 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->la_depth = e->mode == N265_MODE_PCM || !e->bframes ? g_la_depth
                                                           : g_la_depth;
     e->cutree = e->mode == N265_MODE_PCM ? 0 : g_cutree;
+    /* ---- --lossless (phase 8 item 5b) ----
+     *
+     * transquant_bypass. A bypass CU has no quantiser at all (8.6.2: the
+     * coded level IS the residual sample), so every tool whose job is to
+     * decide what the quantiser throws away has nothing to decide and is
+     * turned off HERE, at open, rather than being left to no-op its way
+     * through the frame:
+     *
+     *   - rate control. ABR solves a rate factor and CRF a base QP; both
+     *     control bits by moving QP, and QP moves nothing in a bypass CU.
+     *     The rate is whatever the content costs, so both are refused and
+     *     the encode runs at the (irrelevant) fixed QP.
+     *   - RDOQ. It prices coefficients against lambda * the distortion
+     *     rounding them introduces, and bypass rounds nothing.
+     *   - sign-bit hiding. 7.4.9.11 makes signHidden depend on
+     *     !cu_transquant_bypass_flag, so it is off in the syntax by the
+     *     spec's own condition; the PPS flag goes down with it (every CU
+     *     here is bypass) and the encoder-side hider is not called.
+     *   - AQ, cu-tree and the fractional base QP: three ways of moving QP
+     *     per CTU or per frame. With no quantiser they only spend bits on
+     *     cu_qp_delta, so the PPS flag goes down too (qp_delta_on below
+     *     reads exactly these three).
+     *   - psy-rd. It rides on the SSD term, which is identically zero.
+     *
+     * PCM is the other lossless path and the two are exclusive: --pcm
+     * wins the flag, because its whole CTU writer bypasses this one. */
+    e->lossless = g_lossless && e->mode != N265_MODE_PCM;
+    if (e->lossless) {
+        e->abr_on = 0;
+        e->crf_on = 0;
+        e->rdoq = 0;
+        e->psy = 0.0;
+        e->aq = 0;
+        e->cutree = 0;
+    }
     /* --shot-window / N265_SHOT_WINDOW: the opt-in shot planner
      * (docs/phase7-shot-design.md step 2). The CLI wins over the env,
      * the way --shot-stats does, and the env half is what lets a script
@@ -945,7 +986,8 @@ n265_encoder *n265_encoder_open(const n265_param *p)
        * they match) */
       int ctf_on = e->cutree && e->cutree_str != 0.0f &&
                    (e->ct_framew != e->ct_qpw || e->ct_framew_flat != e->ct_qpw);
-      e->qp_frac = v ? atoi(v) != 0 : (e->abr_on || (e->crf_on && ctf_on)); }
+      e->qp_frac = v ? atoi(v) != 0 : (e->abr_on || (e->crf_on && ctf_on));
+      if (e->lossless) e->qp_frac = 0; }
     /* N265_QP_FRAC_FLAT: whether a frame the content gate typed flat-shaded
      * carries the fraction too, where the frame term is zero by default and
      * there is nothing for the continuity to buy. 0 ships; 1 is the first
@@ -1311,7 +1353,7 @@ static void write_slice_header(n265_encoder *e, n265_frame_work *fw)
         }
         bs_put_bits(bs, n265_env("N265_NO_TMVP") ? 0 : 1, 1);      /* slice_temporal_mvp_enabled_flag */
     }
-    if (fw->mode != N265_MODE_PCM && n265_sao_seq_enabled()) {
+    if (fw->mode != N265_MODE_PCM && !fw->lossless && n265_sao_seq_enabled()) {
         /* the content gate (N265_SAO_ANIM) answers per frame, so these
          * are the per-frame answer and the SPS flag above is only "it
          * may happen somewhere in this sequence" */
@@ -1338,7 +1380,11 @@ static void write_slice_header(n265_encoder *e, n265_frame_work *fw)
         bs_put_ue(bs, 5 - MAX_MERGE);   /* five_minus_max_num_merge_cand */
     }
     bs_put_se(bs, fw->qp - 26);      /* slice_qp_delta */
-    if (fw->mode != N265_MODE_PCM)
+    /* 7.3.6.1: present only where some in-loop filter is actually
+     * running - SAO on, or deblocking not disabled. PCM disables both in
+     * the PPS and so does --lossless (8.7.2/8.7.3 would leave every
+     * bypass sample unfiltered anyway), so both skip the flag. */
+    if (fw->mode != N265_MODE_PCM && !fw->lossless)
         bs_put_bits(bs, 1, 1);      /* slice_loop_filter_across_slices_enabled
                                      * (present because deblocking is on) */
     bs_align_one_then_zero(bs);     /* byte_alignment() */
@@ -2304,7 +2350,8 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
     fw->rc_base = base;
     fw->job_R = 0;
     fw->ref_lag = 0;
-    fw->sao_mask = fw->mode == N265_MODE_PCM ? 0 : n265_sao_frame_mask(fw);
+    fw->sao_mask = fw->mode == N265_MODE_PCM || fw->lossless
+                 ? 0 : n265_sao_frame_mask(fw);
     /* N265_RECT_FLAT (ctu.c): the second tool that reads the type. Both
      * branches are written, because a frame_work is pooled and fw_config
      * ran once. */

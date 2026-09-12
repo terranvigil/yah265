@@ -127,12 +127,27 @@ run_vector() {
         echo "SUMMARY $name FAIL (determinism: two runs differ)"
         fail=$((fail+1)); return; }
 
+    # The reference every decoder is held to. Normally it is the
+    # encoder's own reconstruction; for the two LOSSLESS modes - --pcm and
+    # --lossless (phase 8 item 5b) - it is the SOURCE, which makes each
+    # such vector a round-trip claim and not only an agreement one.
     case " $eargs " in
-    *" --pcm "*)
+    *" --pcm "*|*" --lossless "*)
         "$FFMPEG" -loglevel error -i "$y4m" -f rawvideo "$TMP/$name.src.yuv" -y
         ;;
     *)
         cp "$TMP/$name.recon.yuv" "$TMP/$name.src.yuv"
+        ;;
+    esac
+    # A --lossless run must ALSO have reconstructed the source itself, or
+    # the two decoders agreeing with the source would be agreeing with
+    # something the encoder never produced.
+    case " $eargs " in
+    *" --lossless "*)
+        if ! cmp -s "$TMP/$name.src.yuv" "$TMP/$name.recon.yuv"; then
+            echo "SUMMARY $name FAIL (encoder recon is not the source)"
+            fail=$((fail+1)); return
+        fi
         ;;
     esac
     "$FFMPEG" -loglevel error -i "$TMP/$name.hevc" -f rawvideo \
@@ -140,24 +155,26 @@ run_vector() {
     # ffmpeg and dec265 disagree on bounded chroma seam samples for
     # CTB-16 SAO streams (reproduced on x265 output too; recorded in
     # docs/instruments.md). dec265 stays bit-exact below; ffmpeg gets a
-    # small labeled chroma allowance only on ctu-16 vectors.
-    case "$eargs" in
-    *"--ctu 16"*)
+    # small labeled chroma allowance only on ctu-16 vectors - and NOT on a
+    # lossless one, where SAO is off at the sequence level and the seam
+    # the allowance covers does not exist.
+    ffallow=0
+    case "$eargs" in *"--ctu 16"*) ffallow=1 ;; esac
+    case " $eargs " in *" --lossless "*) ffallow=0 ;; esac
+    if [ "$ffallow" = 1 ]; then
         if ! python3 scripts/yuvdiff.py "$TMP/$name.src.yuv" \
                 "$TMP/$name.ff.yuv" --geometry "$size" \
                 --max-chroma-pct 1.0 --max-delta 16; then
             echo "SUMMARY $name FAIL (ffmpeg recon mismatch)"
             fail=$((fail+1)); return
         fi
-        ;;
-    *)
+    else
         if ! cmp -s "$TMP/$name.src.yuv" "$TMP/$name.ff.yuv"; then
             echo "SUMMARY $name FAIL (ffmpeg recon mismatch)"
             sed -n 1,3p "$TMP/$name.fferr" >&2
             fail=$((fail+1)); return
         fi
-        ;;
-    esac
+    fi
     if ! "$DEC265" -q -o "$TMP/$name.de.yuv" "$TMP/$name.hevc" \
             >/dev/null 2>"$TMP/$name.deerr" || [ ! -s "$TMP/$name.de.yuv" ]; then
         echo "SUMMARY $name FAIL (dec265 run failed)"
@@ -281,6 +298,22 @@ if [ "$DEPTH" = 10 ]; then
     # end, which is the leg that says the I/O and the header agree.
     run_vector m10_pcm     176x144  3  testsrc2  "--pcm"
     run_vector m10_pcm_crop 100x60  3  testsrc2  "--pcm"
+    # --lossless at Main10 (phase 8 item 5b). The depth is the point: a
+    # bypass residual runs -1023..1023 here against -255..255 at 8 bits,
+    # so coeff_abs_level_remaining reaches four more binary orders and its
+    # Golomb-Rice escape is exercised where the 8-bit list cannot reach
+    # it. The reference is the SOURCE, as for --pcm above, and the
+    # encoder's own recon is checked against it first.
+    run_vector m10_lossless_ipb_t1  352x288 24 testsrc2 "--keyint 12 --bframes 7 --lossless --threads 1"
+    run_vector m10_lossless_ipb_t12 352x288 24 testsrc2 "--keyint 12 --bframes 7 --lossless --threads 12"
+    run_vector m10_lossless_ctu16   176x144 12 testsrc2 "--keyint 6 --ctu 16 --lossless --ref 3 --bframes 7 --threads 4"
+    run_vector m10_lossless_crop    210x122  6 testsrc2 "--keyint 3 --lossless --ctu 64"
+    VENV="N265_MIN_KEYINT=0"
+    run_vector_graph "testsrc2=size=176x144:rate=25:duration=0.4[a];smptebars=size=176x144:rate=25:duration=0.4[b];[a][b]concat=n=2:v=1:a=0" \
+           m10_lossless_cut  176x144 20 testsrc2 "--keyint 250 --bframes 7 --ref 2 --lossless --threads 1"
+    VENV=""
+    run_vector_file tests/corpus/foreman_cif.y4m \
+           m10_lossless_foreman 352x288 16 testsrc2 "--keyint 8 --bframes 7 --lossless --threads 4"
     # REAL CONTENT, upshifted on the way in (the corpus is 8-bit 4:2:0
     # throughout - there is no native 10-bit y4m in tests/corpus). testsrc2
     # covers the syntax; only a natural clip drives the lookahead, the AQ
@@ -538,6 +571,32 @@ run_vector r3_b15_t12 352x288 34 testsrc2 "--keyint 20 --bframes 15 --rc-lookahe
 # else.
 run_vector shotwin_t1  352x288 34 testsrc2 "--keyint 12 --bframes 7 --shot-window 20 --crf 26 --aq 1 --cutree 1 --threads 1"
 run_vector shotwin_t12 352x288 34 testsrc2 "--keyint 12 --bframes 7 --shot-window 20 --crf 26 --aq 1 --cutree 1 --threads 12"
+# --lossless (phase 8 item 5b): transquant_bypass_enabled_flag in the PPS
+# and cu_transquant_bypass_flag on every CU, so the coded levels ARE the
+# residual samples and the reconstruction is the SOURCE. run_vector picks
+# the source as the reference for these, and checks the encoder's own
+# --dump-recon against it first, so each cell is a round trip: source ->
+# bitstream -> ffmpeg and dec265 -> source, byte for byte.
+#
+# What the four cells are for. The IPB pair puts bypass CUs on the P and
+# B paths with the full pyramid - inter prediction, merge, skip and the
+# forced TU32 quad at CB64 all reached - at one thread and at twelve, and
+# run_vector's own two-run cmp carries determinism with them. ctu16 walks
+# the other transform-tree geometry (min CB == max CB == 16) and is the
+# cell that says the SAO seam allowance is not being leaned on: SAO is off
+# at the sequence level in a lossless stream, so this one is held exact
+# through both decoders. The scenecut cell places a non-IDR intra picture
+# and its own short-term RPS inside a bypass sequence. The crop cell is
+# the conformance window, where the padded CTU column past the picture
+# edge has to reconstruct exactly like any other.
+run_vector lossless_ipb_t1  352x288 24 testsrc2 "--keyint 12 --bframes 7 --lossless --threads 1"
+run_vector lossless_ipb_t12 352x288 24 testsrc2 "--keyint 12 --bframes 7 --lossless --threads 12"
+run_vector lossless_ctu16   176x144 12 testsrc2 "--keyint 6 --ctu 16 --lossless --ref 3 --bframes 7 --threads 4"
+run_vector lossless_crop    210x122  6 testsrc2 "--keyint 3 --lossless --ctu 64"
+VENV="N265_MIN_KEYINT=0"
+run_vector_graph "testsrc2=size=176x144:rate=25:duration=0.4[a];smptebars=size=176x144:rate=25:duration=0.4[b];[a][b]concat=n=2:v=1:a=0" \
+           lossless_cut  176x144 20 testsrc2 "--keyint 250 --bframes 7 --ref 2 --lossless --threads 1"
+VENV=""
 if [ "$FAST" -eq 0 ]; then
     run_vector thr4_720    1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 4"
     run_vector thr12_720   1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 12"
@@ -554,6 +613,11 @@ if [ "$FAST" -eq 0 ]; then
     run_vector inter_cb64  352x288 20  testsrc2  "--keyint 10 --ctu 64 --qp 38"
     run_vector abr_720     1280x720 12 testsrc2  "--keyint 6 --bitrate 4000 --aq 1 --cutree 1"
     run_vector pcm_cif     352x288  5  testsrc2  "--pcm"
+    # real content, where the residual is not synthetic: the magnitudes a
+    # bypass block codes come from the picture, and testsrc2's do not look
+    # like a camera's.
+    run_vector_file tests/corpus/foreman_cif.y4m \
+           lossless_foreman 352x288 16 testsrc2 "--keyint 8 --bframes 7 --lossless --threads 4"
     run_vector intra_cif   352x288 10 testsrc2  ""
     run_vector intra_720   1280x720 3 testsrc2  ""
     run_vector intra_bars  176x144 30 smptebars ""

@@ -273,6 +273,12 @@ typedef struct n265_frame_work {
                              * which changes part_mode's binarization
                              * whether or not an AMP mode is chosen */
     int rdoq;               /* N265_RDOQ: RD-optimised quantisation */
+    /* --lossless: transquant_bypass_enabled_flag in the PPS and
+     * cu_transquant_bypass_flag on every CU, so the residual IS the coded
+     * level (8.6.2's bypass branch). The ONE predicate every site reads -
+     * the TB path, the entropy writer, the sign-hiding argument, both
+     * loop filters. */
+    int lossless;
     int qp_delta_on;        /* cu_qp_delta_enabled_flag: the ONE predicate
                              * the PPS and the entropy writer both read */
     int bframes;
@@ -522,6 +528,7 @@ struct n265_encoder {
     int qp_frac_flat;       /* ...on a flat-typed frame too, where that term
                              * is zero (N265_QP_FRAC_FLAT; refused arm)  */
     int qp_delta_on;        /* cu_qp_delta_enabled_flag */
+    int lossless;           /* --lossless (n265_set_lossless)           */
     n265_rc rc;             /* rc.c state                               */
     double rc_rf;           /* the base rate factor for the current frame */
     double rc_cplx;         /* its lookahead complexity                 */

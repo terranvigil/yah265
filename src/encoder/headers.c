@@ -167,8 +167,13 @@ void n265_write_sps(struct n265_frame_work *e)
      * part_mode codes 2NxN/Nx2N in three bins instead of two, so it must
      * track exactly what ctu.c/entropy.c assume */
     bs_put_bits(bs, e->amp != 0, 1);
-    bs_put_bits(bs, e->mode != N265_MODE_PCM && n265_sao_seq_enabled(), 1);
-                                    /* sample_adaptive_offset_enabled_flag */
+    /* sample_adaptive_offset_enabled_flag. Off under --lossless, and not
+     * because 8.7.3 forbids it: SAO's own bypass condition would leave
+     * every sample of every CU untouched here, so the filter can only
+     * spend sao() syntax to do nothing. Off at the SEQUENCE level is the
+     * cheapest way to say that, and it keeps the slice flags out too. */
+    bs_put_bits(bs, e->mode != N265_MODE_PCM && !e->lossless &&
+                    n265_sao_seq_enabled(), 1);
     if (e->mode == N265_MODE_PCM) {
         bs_put_bits(bs, 1, 1);      /* pcm_enabled_flag */
         bs_put_bits(bs, BIT_DEPTH - 1, 4);  /* pcm_sample_bit_depth_luma_minus1 */
@@ -197,7 +202,13 @@ void n265_write_pps(struct n265_frame_work *e)
     bs_put_bits(bs, 0, 1);          /* dependent_slice_segments_enabled_flag */
     bs_put_bits(bs, 0, 1);          /* output_flag_present_flag */
     bs_put_bits(bs, 0, 3);          /* num_extra_slice_header_bits */
-    bs_put_bits(bs, e->mode != N265_MODE_PCM, 1); /* sign_data_hiding */
+    /* sign_data_hiding_enabled_flag. 7.4.9.11 makes signHidden depend on
+     * !cu_transquant_bypass_flag, so under --lossless - where every CU is
+     * bypass - the tool is already inert by the spec's own condition.
+     * Signalling it off says the same thing in one place instead of
+     * leaving the reader to re-derive it per CU, and it is what the
+     * residual writer's `sbh` argument is passed. */
+    bs_put_bits(bs, e->mode != N265_MODE_PCM && !e->lossless, 1);
     bs_put_bits(bs, 0, 1);          /* cabac_init_present_flag */
     bs_put_ue(bs, 0);               /* num_ref_idx_l0_default_active_minus1 */
     bs_put_ue(bs, 0);               /* num_ref_idx_l1_default_active_minus1 */
@@ -215,11 +226,16 @@ void n265_write_pps(struct n265_frame_work *e)
     bs_put_bits(bs, 0, 1);          /* pps_slice_chroma_qp_offsets_present */
     bs_put_bits(bs, 0, 1);          /* weighted_pred_flag */
     bs_put_bits(bs, 0, 1);          /* weighted_bipred_flag */
-    bs_put_bits(bs, 0, 1);          /* transquant_bypass_enabled_flag */
+    bs_put_bits(bs, e->lossless != 0, 1); /* transquant_bypass_enabled_flag */
     bs_put_bits(bs, 0, 1);          /* tiles_enabled_flag */
     bs_put_bits(bs, 0, 1);          /* entropy_coding_sync_enabled_flag */
     bs_put_bits(bs, 1, 1);          /* pps_loop_filter_across_slices_enabled */
-    if (e->mode == N265_MODE_PCM) {
+    if (e->mode == N265_MODE_PCM || e->lossless) {
+        /* --lossless: 8.7.2's edge filter is skipped wherever
+         * cu_transquant_bypass_flag is 1 on either side of the edge, and
+         * here that is every edge in the picture. Disabling it in the PPS
+         * is the same output with no per-sample condition to get wrong,
+         * and it is what pcm_loop_filter_disabled_flag does for PCM. */
         bs_put_bits(bs, 1, 1);      /* deblocking_filter_control_present_flag */
         bs_put_bits(bs, 0, 1);      /* deblocking_filter_override_enabled */
         bs_put_bits(bs, 1, 1);      /* pps_deblocking_filter_disabled_flag */

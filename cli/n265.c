@@ -15,6 +15,7 @@ void n265_encoder_set_dump_decode(n265_encoder *e, FILE *f);
 void n265_encoder_set_dump(n265_encoder *e, FILE *f);
 void n265_encoder_set_shot_stats(n265_encoder *e, const char *path);
 void n265_set_shot_window(int n);
+void n265_set_lossless(int on);
 
 /* QpBdOffsetY (7-5). The CLI does not see src/common/pixel.h, so the one
  * derivation it needs is repeated here off the public N265_BIT_DEPTH. */
@@ -167,6 +168,13 @@ static void usage(void)
         "                  4 the bits model (docs/phase7-gop-design.md)\n"
         "  (RDOQ is on; N265_RDOQ=0 turns it off, N265_PSY=F adds the psy term)\n"
         "  --pcm           phase-0 I_PCM mode (lossless, huge)\n"
+        "  --lossless      mathematically lossless: transquant bypass on\n"
+        "                  every CU, so the reconstruction IS the source.\n"
+        "                  Turns off rate control, RDOQ, sign-bit hiding,\n"
+        "                  AQ, cu-tree, psy-rd and both loop filters (all\n"
+        "                  of them price against a quantiser there is not).\n"
+        "                  --qp/--crf/--bitrate are ignored; prediction and\n"
+        "                  mode decision still run, on bits alone.\n"
         "  --ctu <16|32|64>  coding tree block size (default 64)\n"
         "  --keyint <n>    IDR period in frames (default 250)\n"
         "  --bframes <0..15> B frames between anchors, hierarchical (default 7).\n"
@@ -210,6 +218,7 @@ int main(int argc, char **argv)
     const char *dump_path = NULL, *shot_path = NULL;
     long max_frames = -1;
     int qp = 26, pcm = 0, ctu = 64, keyint = 250, bframes = 7, aq = 1;
+    int lossless = 0;
     double crf = -1.0, bitrate = 0.0;
     int nref = 1, badapt = 1;
     int lookahead = 20, cutree = 1;   /* 20 since 2026-09-12 (x265 medium's
@@ -261,6 +270,8 @@ int main(int argc, char **argv)
             ctu = atoi(argv[++i]); had_ctu = 1;
         } else if (!strcmp(argv[i], "--pcm")) {
             pcm = 1;
+        } else if (!strcmp(argv[i], "--lossless")) {
+            lossless = 1;
         } else if (!strcmp(argv[i], "--dump-recon") && i + 1 < argc) {
             dump_path = argv[++i];
         } else if (!strcmp(argv[i], "--shot-window") && i + 1 < argc) {
@@ -354,7 +365,15 @@ int main(int argc, char **argv)
         return 2;
     }
     int ctb_log2 = ctu == 16 ? 4 : ctu == 32 ? 5 : 6;
+    /* --pcm is the phase-0 lossless path and --lossless the coded one;
+     * asking for both is a contradiction, not a stack. */
+    if (pcm && lossless) {
+        fprintf(stderr, "n265: --pcm and --lossless are two different "
+                "lossless modes; pick one\n");
+        return 2;
+    }
     n265_set_mode(pcm ? 1 : 0, qp, ctb_log2, keyint, bframes, aq);
+    n265_set_lossless(lossless);
     if (crf >= 0) n265_set_crf(crf);
     if (bitrate > 0) n265_set_bitrate(bitrate);
     n265_set_ref(nref);

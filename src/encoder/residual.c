@@ -229,7 +229,7 @@ void n265_sbh_adjust(int16_t *level, int log2n, int scan_idx)
 }
 
 void n265_residual_coding(const res_ops *ops, const int16_t *level,
-                          int log2n, int c_idx, int scan_idx)
+                          int log2n, int c_idx, int scan_idx, int sbh)
 {
     int n = 1 << log2n;
     int sb_dim = n >> 2;                    /* sub-blocks per side */
@@ -385,8 +385,13 @@ void n265_residual_coding(const res_ops *ops, const int16_t *level,
         }
         /* sign hiding: when the sub-block qualifies, the sign of the
          * first-in-scan significant coefficient (last entry of sig_pos)
-         * is inferred from the abs-sum parity and not coded */
-        int hidden = num_sig > 0 &&
+         * is inferred from the abs-sum parity and not coded. `sbh` is the
+         * rest of 7.4.9.11's condition, which the caller owns:
+         * sign_data_hiding_enabled_flag AND !cu_transquant_bypass_flag.
+         * A bypass block that dropped a sign here would desynchronise the
+         * decoder's parse from that sub-block on, because the decoder
+         * does NOT infer one. */
+        int hidden = sbh && num_sig > 0 &&
             sig_pos[0] - sig_pos[num_sig - 1] > 3;
         for (int i = 0; i < num_sig; i++) {
             if (hidden && i == num_sig - 1)

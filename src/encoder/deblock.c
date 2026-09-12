@@ -243,6 +243,13 @@ static int seg_qp(const struct n265_frame_work *e, int x, int y, int vertical)
  * row does can reach back. */
 void n265_deblock_row(struct n265_frame_work *e, int r)
 {
+    /* 8.7.2.5.3 / 8.7.2.5.7: where cu_transquant_bypass_flag is 1 for the
+     * coding unit a filtered sample belongs to, the filtered value is
+     * replaced by the unfiltered one. Under --lossless that holds for
+     * every sample in the picture, so the whole pass is the identity and
+     * the PPS says so (pps_deblocking_filter_disabled_flag). */
+    if (e->lossless)
+        return;
     pixel *luma = e->recon[0];
     int ls = e->recon_stride[0];
     /* 8.7.2.5.3: Q for beta is qP + 2*slice_beta_offset_div2, and for tC

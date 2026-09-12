@@ -41,7 +41,8 @@ enum {
     CTX_TSPLIT = 144,       /* 3: ctx = 5 - log2TrafoSize */
     CTX_CU_QP = 147,        /* 2: bin0, bins 1..4 */
     CTX_REF_IDX = 149,      /* 2: ref_idx_lX bins 0 and 1 */
-    CTX_COUNT = 151,
+    CTX_CU_TQ_BYPASS = 151, /* 1: cu_transquant_bypass_flag (--lossless) */
+    CTX_COUNT = 152,
 };
 
 /* initType 0 (I), 1 (P, cabac_init_flag 0), 2 (B, cabac_init_flag 0) */

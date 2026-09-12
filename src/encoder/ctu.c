@@ -220,6 +220,12 @@ typedef struct tb_ctx {
     pixel recon[32 * 32];
     int16_t level[32 * 32];
     int nz;
+    /* --lossless: this block took 8.6.2's transquant-bypass branch, so
+     * `level` holds the residual SAMPLES and not coefficients. Carried on
+     * the block rather than re-read from the encoder because
+     * tb_make_recon is handed a tb_ctx and nothing else - and a block
+     * that says what it is cannot be reconstructed the wrong way. */
+    int bypass;
 } tb_ctx;
 
 /* one PU's motion decision */
@@ -458,6 +464,26 @@ static void tb_analyze(struct n265_frame_work *e, int c_idx, int x0, int y0,
         for (int x = 0; x < n; x++)
             resid[y * n + x] = (int16_t)(src[y * e->pad_stride[c_idx] + x] -
                                          tb->pred[y * n + x]);
+    /* transquant bypass (8.6.2): no transform, no quantiser, and no
+     * sign-bit hiding (7.4.9.11 conditions it on the flag). The coded
+     * levels ARE the residual samples in raster position, which is what
+     * the decoder's `if (cu_transquant_bypass_flag) resSamples = r`
+     * branch reads them back as. The magnitudes stay small - -255..255 at
+     * 8 bits, -1023..1023 at Main10 - so nothing here comes near the
+     * 16-bit coefficient range residual_coding is written for, and
+     * coeff_abs_level_remaining's Golomb-Rice escape covers them.
+     * scan_idx is unchanged: 7.3.8.11 derives it from the prediction
+     * mode and the block size, bypass or not. */
+    tb->bypass = e->lossless;
+    if (e->lossless) {
+        int nz = 0;
+        for (int i = 0; i < n * n; i++) {
+            tb->level[i] = resid[i];
+            nz += resid[i] != 0;
+        }
+        tb->nz = nz;
+        return;
+    }
     n265_fdct(coef, resid, log2n, use_dst);
     int scan = inter ? 0 : n265_scan_idx(mode, log2n, c_idx);
     int sbh_done = 0;
@@ -478,6 +504,18 @@ static void tb_make_recon(int c_idx, int log2n, int qp, int mode, tb_ctx *tb)
     int inter = mode == MODE_INTER;
     int use_dst = !inter && c_idx == 0 && log2n == 2;
     int n = 1 << log2n;
+    if (tb->bypass) {
+        /* 8.6.5 with resSamples straight from the levels: pred + residual
+         * is the source sample, in range by construction (the residual is
+         * src - pred and src is a legal sample), so the clip is a no-op
+         * and is left out rather than written as a lie. A zero-cbf bypass
+         * block is one whose residual was identically zero, so the copy
+         * below is exact too - which is why `nz == 0` is safe to read as
+         * "the prediction IS the source" everywhere else in this file. */
+        for (int i = 0; i < n * n; i++)
+            tb->recon[i] = (pixel)(tb->pred[i] + tb->level[i]);
+        return;
+    }
     if (tb->nz) {
         int16_t dq[32 * 32];
         int nzw, nzh;
@@ -695,9 +733,29 @@ uint32_t n265_lambda_mode_q8(int qp)
     return tab[n265_qp_clip(qp) + QP_BD_OFFSET];
 }
 
-/* J = D + lambda * bits, with bits in Q8 and lambda in Q8 */
-static uint64_t rd_j(uint64_t ssd, uint32_t bits_q8, uint32_t lam_q8)
+/* J = D + lambda * bits, with bits in Q8 and lambda in Q8.
+ *
+ * --lossless makes this the one place the mode decision changes shape.
+ * Every arrangement that CODES its residual reconstructs the source
+ * exactly, so D is identically zero and J is bits alone. The arms that
+ * do NOT code their residual are the exception: a skip, and the whole-CU
+ * skip at CB64, reconstruct the prediction, and a prediction is only
+ * lossless where it happens to be exact. Those are not expensive
+ * candidates, they are ILLEGAL ones, so any nonzero D costs infinity
+ * rather than lambda's worth of bits.
+ *
+ * A skip whose prediction IS the source (D == 0, which is
+ * exactly the case tb_analyze reports as nz == 0) is still the cheapest
+ * arm there is and still wins.
+ *
+ * Every caller is a comparison against another J or against UINT64_MAX,
+ * and no caller sums two of these, so the sentinel cannot leak into an
+ * arithmetic result. */
+static uint64_t rd_j(const struct n265_frame_work *e, uint64_t ssd,
+                     uint32_t bits_q8, uint32_t lam_q8)
 {
+    if (e->lossless && ssd)
+        return UINT64_MAX;
     return ssd + (((uint64_t)bits_q8 * lam_q8) >> 16);
 }
 
@@ -1189,6 +1247,19 @@ static int want_skip(struct n265_frame_work *e, int x0, int y0, int log2n)
 {
     if (e->slice_type == 2)
         return 0;
+    /* Not under --lossless, for the same reason analyze_cu's static-skip
+     * arm is not: this is a prediction-SAD bound, and a quarter of a luma
+     * level per pixel is not zero. It matters more here than there,
+     * because at the CB64 node it is the ONLY path - analyze_cu's inter
+     * candidate set is `log2n <= 5` and a 64x64 CU that reaches it
+     * without the static skip falls through to the intra arm. Left in,
+     * this shortcut sent every quiet 64x64 block of a lossless P slice
+     * through a 64x64 INTRA CU and cost akiyo_cif 2.8x its bits. Off, the
+     * CB64 node runs its own skip / merge / AMVP arms and the split trial
+     * and the RD arbitration picks among them, with a lossy skip priced
+     * at infinity. */
+    if (e->lossless)
+        return 0;
     int n = 1 << log2n;
     mot_t cand = n265_merge_cand0(e, x0, y0, n, n);
     return mot_sad(e, x0, y0, log2n, cand) * 8u <=
@@ -1282,7 +1353,7 @@ static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
     memcpy(local, e->est_ctx, sizeof(local));
     st.bits = 0;
     est_tt_bits(e, &st, log2ts, mode, ptb, ptcb, ptcr);
-    uint64_t j_flat = rd_j(d_flat, st.bits, lam);
+    uint64_t j_flat = rd_j(e, d_flat, st.bits, lam);
 
     /* split arrangement: sequential, committing recon TU by TU */
     pixel save_l[32 * 32], save_c[2][16 * 16];
@@ -1379,25 +1450,28 @@ static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
                                     s_l[i].nz != 0);
             if (s_l[i].nz)
                 n265_residual_coding(&ops, s_l[i].level, log2ts - 1, 0,
-                                     n265_scan_idx(mode, log2ts - 1, 0));
+                                     n265_scan_idx(mode, log2ts - 1, 0),
+                                     !e->lossless);
             if (child_chroma) {
                 int sc = n265_scan_idx(mode, log2ts - 2, 1);
                 if (s_c[i][0].nz)
                     n265_residual_coding(&ops, s_c[i][0].level, log2ts - 2,
-                                         1, sc);
+                                         1, sc, !e->lossless);
                 if (s_c[i][1].nz)
                     n265_residual_coding(&ops, s_c[i][1].level, log2ts - 2,
-                                         2, sc);
+                                         2, sc, !e->lossless);
             } else if (i == 3) {
                 int sc = n265_scan_idx(mode, 2, 1);
                 if (root_cb)
-                    n265_residual_coding(&ops, s_c[0][0].level, 2, 1, sc);
+                    n265_residual_coding(&ops, s_c[0][0].level, 2, 1, sc,
+                                         !e->lossless);
                 if (root_cr)
-                    n265_residual_coding(&ops, s_c[0][1].level, 2, 2, sc);
+                    n265_residual_coding(&ops, s_c[0][1].level, 2, 2, sc,
+                                         !e->lossless);
             }
         }
     }
-    uint64_t j_split = rd_j(d_split, st.bits, lam);
+    uint64_t j_split = rd_j(e, d_split, st.bits, lam);
 
     if (j_flat <= j_split) {
         rec_u8(e, 0);
@@ -2109,11 +2183,13 @@ static void est_tt_bits(struct n265_frame_work *e, est_state *st, int log2n,
     int scan_l = inter ? 0 : n265_scan_idx(mode, log2n, 0);
     int scan_c = inter ? 0 : n265_scan_idx(mode, log2n - 1, 1);
     if (tl->nz)
-        n265_residual_coding(&ops, tl->level, log2n, 0, scan_l);
+        n265_residual_coding(&ops, tl->level, log2n, 0, scan_l, !e->lossless);
     if (tcb->nz)
-        n265_residual_coding(&ops, tcb->level, log2n - 1, 1, scan_c);
+        n265_residual_coding(&ops, tcb->level, log2n - 1, 1, scan_c,
+                             !e->lossless);
     if (tcr->nz)
-        n265_residual_coding(&ops, tcr->level, log2n - 1, 2, scan_c);
+        n265_residual_coding(&ops, tcr->level, log2n - 1, 2, scan_c,
+                             !e->lossless);
 }
 
 /* choose flat vs 4-TU split for an inter winner and commit records +
@@ -2180,7 +2256,7 @@ static void commit_inter_tt(struct n265_frame_work *e, mot_t mot, int x0,
         st.ctx = local; st.bits = 0;
         n265_est_ops(&ops, &st);
         est_tt_bits(e, &st, log2n, MODE_INTER, tl, tcb, tcr);
-        j_flat = rd_j(d_flat, st.bits, lam);
+        j_flat = rd_j(e, d_flat, st.bits, lam);
     }
 
     memcpy(local, e->est_ctx, sizeof(local));
@@ -2201,20 +2277,25 @@ static void commit_inter_tt(struct n265_frame_work *e, mot_t mot, int x0,
         }
         st.bits += n265_est_bin(&local[CTX_CBF_LUMA + 0], s_l[i].nz != 0);
         if (s_l[i].nz)
-            n265_residual_coding(&ops, s_l[i].level, log2n - 1, 0, 0);
+            n265_residual_coding(&ops, s_l[i].level, log2n - 1, 0, 0,
+                                 !e->lossless);
         if (child_chroma) {
             if (s_c[i][0].nz)
-                n265_residual_coding(&ops, s_c[i][0].level, log2n - 2, 1, 0);
+                n265_residual_coding(&ops, s_c[i][0].level, log2n - 2, 1,
+                                     0, !e->lossless);
             if (s_c[i][1].nz)
-                n265_residual_coding(&ops, s_c[i][1].level, log2n - 2, 2, 0);
+                n265_residual_coding(&ops, s_c[i][1].level, log2n - 2, 2,
+                                     0, !e->lossless);
         } else if (i == 3) {
             if (tcb->nz)
-                n265_residual_coding(&ops, tcb->level, log2n - 1, 1, 0);
+                n265_residual_coding(&ops, tcb->level, log2n - 1, 1, 0,
+                                     !e->lossless);
             if (tcr->nz)
-                n265_residual_coding(&ops, tcr->level, log2n - 1, 2, 0);
+                n265_residual_coding(&ops, tcr->level, log2n - 1, 2, 0,
+                                     !e->lossless);
         }
     }
-    uint64_t j_split = rd_j(d_split, st.bits, lam);
+    uint64_t j_split = rd_j(e, d_split, st.bits, lam);
 
     if (j_flat <= j_split) {
         rec_u8(e, 0);
@@ -2421,13 +2502,15 @@ static int intra_rd_pick(struct n265_frame_work *e, int x0, int y0, int log2n,
         st.bits += n265_est_bin(&local[CTX_CBF_LUMA + 1], tl->nz != 0);
         if (tl->nz)
             n265_residual_coding(&ops, tl->level, log2n, 0,
-                                 n265_scan_idx(mode, log2n, 0));
+                                 n265_scan_idx(mode, log2n, 0), !e->lossless);
         int sc = n265_scan_idx(mode, log2n - 1, 1);
         if (tcb->nz)
-            n265_residual_coding(&ops, tcb->level, log2n - 1, 1, sc);
+            n265_residual_coding(&ops, tcb->level, log2n - 1, 1, sc,
+                                 !e->lossless);
         if (tcr->nz)
-            n265_residual_coding(&ops, tcr->level, log2n - 1, 2, sc);
-        uint64_t j = rd_j(d, st.bits, lam);
+            n265_residual_coding(&ops, tcr->level, log2n - 1, 2, sc,
+                                 !e->lossless);
+        uint64_t j = rd_j(e, d, st.bits, lam);
         if (j < best_j) {
             best_j = j;
             best = mode;
@@ -2913,7 +2996,7 @@ static uint64_t rd_part(struct n265_frame_work *e, int x0, int y0, int log2n,
     est_inter_cu_bits(e, &st, x0, y0, log2n, c->part, c->d, c->any, inc);
     if (c->any)
         est_tt_bits(e, &st, log2n, MODE_INTER, &c->tl, &c->tcb, &c->tcr);
-    return rd_j(d, st.bits, ctu_lam(e, e->cur_ctu_qp));
+    return rd_j(e, d, st.bits, ctu_lam(e, e->cur_ctu_qp));
 }
 
 /* N265_CPRED_TRACE: the misalignment read this item opened with. For
@@ -3133,8 +3216,17 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
         int midx = merge_pick_sad(e, x0, y0, log2n, mlist, &cand_plain_sad);
         mot_t cand = mlist[midx];
 
-        /* strict static skip at the best merge candidate */
-        if (cand_plain_sad * 8u <= (uint32_t)(n * n * skip_thr8())) {
+        /* strict static skip at the best merge candidate.
+         *
+         * Not under --lossless: this arm COMMITS a skip on a prediction
+         * SAD bound and never looks at what it threw away, and a bound of
+         * a quarter of a luma level per pixel is not zero. Every skip
+         * there goes through the RD arbitration below instead, where a
+         * prediction that is not exactly the source costs infinity; where
+         * it IS exact the same skip is still what wins, at the price of
+         * having priced the merge candidate first. */
+        if (!e->lossless &&
+            cand_plain_sad * 8u <= (uint32_t)(n * n * skip_thr8())) {
             skip_cu(e, x0, y0, log2n, cand, midx);
             e->rec_pos = pos0;
             est_state adv = { e->est_ctx, 0 };
@@ -3144,7 +3236,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             uint64_t ssd = cu_area_ssd(e, x0, y0, n);
             e->last_skip_clean = ssd <= skip_clean_thr(e->cur_ctu_qp, n);
             e->last_cu_nores = 1;
-            return rd_j(ssd, adv.bits, ctu_lam(e, e->cur_ctu_qp));
+            return rd_j(e, ssd, adv.bits, ctu_lam(e, e->cur_ctu_qp));
         }
 
         if (log2n <= 5) {
@@ -3209,7 +3301,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             if (midx > 0 && MAX_MERGE > 2)
                 st.bits += 256u * (uint32_t)(midx < MAX_MERGE - 1 ? midx
                                                                   : midx - 1);
-            uint64_t j_skip = rd_j(d_skip, st.bits, lam);
+            uint64_t j_skip = rd_j(e, d_skip, st.bits, lam);
 
             /* merge bits */
             pu_dec pd[2];
@@ -3225,7 +3317,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                                   m_any, inc);
                 est_tt_bits(e, &st, log2n, MODE_INTER, m_tl, m_tcb,
                             m_tcr);
-                j_merge = rd_j(d_merge, st.bits, lam);
+                j_merge = rd_j(e, d_merge, st.bits, lam);
             }
 
             /* the merge-first skip exit: both merge arms are priced by
@@ -3446,7 +3538,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                 if (a_any)
                     est_tt_bits(e, &st, log2n, MODE_INTER, a_tl, a_tcb,
                                 a_tcr);
-                j_amvp = rd_j(d, st.bits, lam);
+                j_amvp = rd_j(e, d, st.bits, lam);
                 /* P1 CBF fast, second stage: the searched vector's
                  * residual quantised away too */
                 if (cbf_fast() >= 2 && !a_any)
@@ -3464,7 +3556,16 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
              * has reported its own evidence. */
             int floor_only = 0, or_on = 0, or_d1 = 0, or_iwin = 0;
             uint64_t or_dinter = 0, or_thr = 0, or_jinter = 0;
-            if (intra_gate() && !gate_intra && e->sc_ratio < 0.6f) {
+            /* ...and not under --lossless: every disjunct below is an
+             * argument about the QUANTISER FLOOR - the winning inter
+             * candidate's distortion already being inside qstep^2, so
+             * intra has no distortion left to buy. A bypass CU has no
+             * quantiser and no floor: its distortion is zero because it
+             * codes the residual, not because the residual was small, and
+             * the gate would fire on every CU of every B slice and delete
+             * the intra arm from the encoder. */
+            if (intra_gate() && !gate_intra && !e->lossless &&
+                e->sc_ratio < 0.6f) {
                 uint64_t j_inter = j_skip, d_inter = d_skip;
                 int iwin = 0;
                 if (j_merge < j_inter) { j_inter = j_merge; d_inter = d_merge; iwin = 1; }
@@ -3579,14 +3680,17 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                                         i_tl->nz != 0);
                 if (i_tl->nz)
                     n265_residual_coding(&ops, i_tl->level, log2n, 0,
-                                         n265_scan_idx(imode, log2n, 0));
+                                         n265_scan_idx(imode, log2n, 0),
+                                         !e->lossless);
                 int sc = n265_scan_idx(imode, log2n - 1, 1);
                 if (i_tcb->nz)
-                    n265_residual_coding(&ops, i_tcb->level, log2n - 1, 1, sc);
+                    n265_residual_coding(&ops, i_tcb->level, log2n - 1, 1,
+                                         sc, !e->lossless);
                 if (i_tcr->nz)
-                    n265_residual_coding(&ops, i_tcr->level, log2n - 1, 2, sc);
+                    n265_residual_coding(&ops, i_tcr->level, log2n - 1, 2,
+                                         sc, !e->lossless);
             }
-            j_intra = rd_j(d_intra, st.bits, lam);
+            j_intra = rd_j(e, d_intra, st.bits, lam);
             }
 
             /* pick the winner among the 2Nx2N candidates */
@@ -3723,7 +3827,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                 n265_est_advance_cu(e, &adv, x0, y0, log2n);
                 set_blk(e, e->blk_qp, x0, y0, n,
                         e->ent_qp_coded ? N265_QP_STORE(e->cur_ctu_qp) : N265_QP_INHERIT);
-                return rd_j(cu_area_ssd(e, x0, y0, n), adv.bits,
+                return rd_j(e, cu_area_ssd(e, x0, y0, n), adv.bits,
                             ctu_lam(e, e->cur_ctu_qp));
             }
             /* intra wins: fall through to the intra section, which also
@@ -3786,7 +3890,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
         n265_est_advance_cu(e, &adv, x0, y0, log2n);
         set_blk(e, e->blk_qp, x0, y0, n,
                 e->ent_qp_coded ? N265_QP_STORE(e->cur_ctu_qp) : N265_QP_INHERIT);
-        return rd_j(cu_area_ssd(e, x0, y0, n), adv.bits,
+        return rd_j(e, cu_area_ssd(e, x0, y0, n), adv.bits,
                     ctu_lam(e, e->cur_ctu_qp));
     }
 
@@ -3815,7 +3919,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
     n265_est_advance_cu(e, &adv, x0, y0, log2n);
     set_blk(e, e->blk_qp, x0, y0, n,
             e->ent_qp_coded ? N265_QP_STORE(e->cur_ctu_qp) : N265_QP_INHERIT);
-    return rd_j(cu_area_ssd(e, x0, y0, n), adv.bits,
+    return rd_j(e, cu_area_ssd(e, x0, y0, n), adv.bits,
                 ctu_lam(e, e->cur_ctu_qp));
 }
 
@@ -3997,7 +4101,7 @@ static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
             set_blk(e, e->blk_qp, x0, y0, n,
                     e->ent_qp_coded ? N265_QP_STORE(e->cur_ctu_qp) : N265_QP_INHERIT);
             set_blk(e, e->ct_depth, x0, y0, n, depth);
-            j_cu2 = rd_j(cu_area_ssd(e, x0, y0, n), adv.bits + b0, lam);
+            j_cu2 = rd_j(e, cu_area_ssd(e, x0, y0, n), adv.bits + b0, lam);
             qt_save(e, fwon, x0, y0, n);
             qt_save_records(e, fwon, rec_base2);
             qt_restore(e, fpre, x0, y0, n);
@@ -4074,7 +4178,7 @@ static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
         set_blk(e, e->blk_qp, x0, y0, n,
                 e->ent_qp_coded ? N265_QP_STORE(e->cur_ctu_qp) : N265_QP_INHERIT);
         set_blk(e, e->ct_depth, x0, y0, n, depth);
-        uint64_t j_skip = rd_j(cu_area_ssd(e, x0, y0, n),
+        uint64_t j_skip = rd_j(e, cu_area_ssd(e, x0, y0, n),
                                adv.bits + b0, lam);
         uint64_t j_arm1 = j_cu;         /* R3 reads how far the merge
                                          * arms improve on the CU arm */
@@ -4107,7 +4211,7 @@ static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
         set_blk(e, e->blk_qp, x0, y0, n,
                 e->ent_qp_coded ? N265_QP_STORE(e->cur_ctu_qp) : N265_QP_INHERIT);
         set_blk(e, e->ct_depth, x0, y0, n, depth);
-        uint64_t j_m = rd_j(cu_area_ssd(e, x0, y0, n), madv.bits + b0,
+        uint64_t j_m = rd_j(e, cu_area_ssd(e, x0, y0, n), madv.bits + b0,
                             lam);
         if (j_m < j_cu)
             j_cu = j_m;
@@ -4147,7 +4251,7 @@ static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
                 set_blk(e, e->blk_qp, x0, y0, n,
                         e->ent_qp_coded ? N265_QP_STORE(e->cur_ctu_qp) : N265_QP_INHERIT);
                 set_blk(e, e->ct_depth, x0, y0, n, depth);
-                j_a = rd_j(cu_area_ssd(e, x0, y0, n), aadv.bits + b0, lam);
+                j_a = rd_j(e, cu_area_ssd(e, x0, y0, n), aadv.bits + b0, lam);
             }
             if (j_a < j_cu)
                 j_cu = j_a;
