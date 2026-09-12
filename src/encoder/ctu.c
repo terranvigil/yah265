@@ -99,10 +99,14 @@ static uint32_t chroma_w_for_qp(int qp_y)
  * on luma alone. This adds the 4:2:0 planes' cost to the last few
  * candidates of each arbitration, never to the search.
  *
- *   0  today, byte for byte (the escape)
+ *   0  the pre-item encoder, byte for byte (the escape)
  *   1  the merge shortlist, and the AMVP-vs-merge comparison with it
  *   2  also a quarter-pel chroma re-rank of the search's final vector
  *   3  also the uni/bi arbitration
+ *
+ * **1 is the medium default since 2026-09-12**, under N265_CPRED_GATE=2
+ * which is what made it affordable. The presets are pinned to 0 and stay
+ * byte for byte the pre-item encoder.
  *
  * The weight is 1.0 per chroma sample, i.e. the Cb and Cr costs are
  * simply added to the luma one. N265_CHROMA_W's table is the ratio of
@@ -116,7 +120,7 @@ static uint32_t chroma_w_for_qp(int qp_y)
 static int chroma_pred(void)
 {
     static int v = -1;
-    if (v < 0) { const char *s = n265_env("N265_CHROMA_PRED"); v = s ? atoi(s) : 0; }
+    if (v < 0) { const char *s = n265_env("N265_CHROMA_PRED"); v = s ? atoi(s) : 1; }
     return v;
 }
 
@@ -1560,6 +1564,47 @@ static int cpred_w_pct(void)
     return v;
 }
 
+/* N265_CPRED_GATE: which of the shortlist's candidates are allowed to
+ * cost a chroma MC. The full form (0) gives one to every entry at every
+ * quadtree depth on every trial, which is the 1.04-1.06x that refused
+ * N265_CHROMA_PRED=1 on the clock; these are the cheaper forms.
+ *
+ *   0  every shortlist entry (the priced, refused form: 1.06x / 1.04x)
+ *   1  the two best on luma only - a third candidate that is already
+ *      behind on luma is not going to be rescued by a term worth a
+ *      tenth to a fifth of the luma magnitude (1.031x / 1.021x)
+ *   2  the two best, and only where they are within 2% of each other on
+ *      luma: the chroma MC is bought only where it can change the
+ *      answer, which the misalignment trace put at 5.5-7.6% of PUs
+ *   3  the full form, skipped at the 8x8 coding block (1.040x / 1.026x)
+ *
+ * **2 ships, and it is both the cheapest and the best of the four**:
+ * 1.010x on foreman and mobile against 0's 1.06x / 1.04x, and a BETTER
+ * band than 0 in both modes (CIF-7 median -16.43 / -13.91 against 0's
+ * -16.21 / -13.78). Spending the term only where luma has not already
+ * decided is not only cheaper, it is also the term not being spent where
+ * it can only add noise. Moot unless N265_CHROMA_PRED is set. */
+static int cpred_gate(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *s = n265_env("N265_CPRED_GATE"); v = s ? atoi(s) : 2; }
+    return v;
+}
+
+/* the two smallest entries of cost[0..k-1], first index winning a tie,
+ * as the shortlist gates above need them. b[1] is k < 2's own b[0]. */
+static void two_best(const uint32_t *cost, int k, int b[2])
+{
+    b[0] = 0;
+    for (int i = 1; i < k; i++)
+        if (cost[i] < cost[b[0]])
+            b[0] = i;
+    b[1] = b[0];
+    for (int i = 0; i < k; i++)
+        if (i != b[0] && (b[1] == b[0] || cost[i] < cost[b[1]]))
+            b[1] = i;
+}
+
 /* the chroma term at w = 1.0, or 0 where the PU has no chroma tile */
 static inline uint32_t cpred_satd(struct n265_frame_work *e, int x0, int y0,
                                   int w, int h, mot_t mot)
@@ -2461,15 +2506,39 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
     mot_t mlist[MAX_MERGE];
     n265_merge_list_pu(e, g, mlist, MAX_MERGE);
     int best_m = 0;
-    uint32_t best_mc = UINT32_MAX;
-    for (int i = 0; i < merge_rd_n(); i++) {
-        uint32_t c = mot_satd_wh(e, g->x, g->y, w, h, mlist[i]) +
-                     (uint32_t)(((i + 1) * lam4) >> 4);
-        if (cp >= 1)
-            c += cpred_satd(e, g->x, g->y, w, h, mlist[i]);
-        if (c < best_mc) {
-            best_mc = c;
+    int nm = merge_rd_n();
+    uint32_t ml[MAX_MERGE];         /* luma cost incl. the index rate */
+    for (int i = 0; i < nm; i++) {
+        ml[i] = mot_satd_wh(e, g->x, g->y, w, h, mlist[i]) +
+                (uint32_t)(((i + 1) * lam4) >> 4);
+        if (ml[i] < ml[best_m])
             best_m = i;
+    }
+    uint32_t best_mc = ml[best_m];
+    int mg = cp >= 1 ? cpred_gate() : -1;
+    if (mg == 3 && g->cbn == (1 << MIN_CB_LOG2))
+        mg = -1;
+    if (mg == 1 || mg == 2) {
+        int b[2];
+        two_best(ml, nm, b);
+        if (b[1] != b[0] &&
+            !(mg == 2 && (uint64_t)ml[b[1]] * 100 > (uint64_t)ml[b[0]] * 102)) {
+            uint32_t c0 = ml[b[0]] + cpred_satd(e, g->x, g->y, w, h, mlist[b[0]]);
+            uint32_t c1 = ml[b[1]] + cpred_satd(e, g->x, g->y, w, h, mlist[b[1]]);
+            best_m = c1 < c0 ? b[1] : b[0];
+            best_mc = c1 < c0 ? c1 : c0;
+        } else {
+            best_mc = ml[best_m] +
+                cpred_satd(e, g->x, g->y, w, h, mlist[best_m]);
+        }
+    } else if (mg == 0) {
+        best_mc = UINT32_MAX;
+        for (int i = 0; i < nm; i++) {
+            uint32_t c = ml[i] + cpred_satd(e, g->x, g->y, w, h, mlist[i]);
+            if (c < best_mc) {
+                best_mc = c;
+                best_m = i;
+            }
         }
     }
 
@@ -2967,16 +3036,43 @@ static void commit_inter_cu(struct n265_frame_work *e, int x0, int y0,
 static int merge_pick_sad(struct n265_frame_work *e, int x0, int y0,
                           int log2n, const mot_t *mlist, uint32_t *luma)
 {
-    int n = 1 << log2n, cp = chroma_pred(), midx = 0;
+    int n = 1 << log2n, cp = chroma_pred(), k = merge_rd_n();
+    uint32_t sd[MAX_MERGE];
+    int midx = 0;
+    for (int i = 0; i < k; i++) {
+        sd[i] = mot_sad(e, x0, y0, log2n, mlist[i]);
+        if (sd[i] < sd[midx])
+            midx = i;
+    }
+    *luma = sd[midx];
+    if (cp < 1)
+        return midx;
+
+    int g = cpred_gate();
+    if (g == 3 && log2n == MIN_CB_LOG2)
+        return midx;
+    if (g == 1 || g == 2) {
+        int b[2];
+        two_best(sd, k, b);
+        if (b[1] == b[0])
+            return midx;
+        if (g == 2 && (uint64_t)sd[b[1]] * 100 > (uint64_t)sd[b[0]] * 102)
+            return midx;        /* luma has already decided this one */
+        uint32_t c0 = sd[b[0]] + cpred_sad(e, x0, y0, n, n, mlist[b[0]]);
+        uint32_t c1 = sd[b[1]] + cpred_sad(e, x0, y0, n, n, mlist[b[1]]);
+        /* the ties go the way the luma-only pick went */
+        int w = c1 < c0 ? b[1] : b[0];
+        *luma = sd[w];
+        return w;
+    }
+
     uint32_t best = UINT32_MAX;
-    *luma = UINT32_MAX;
-    for (int i = 0; i < merge_rd_n(); i++) {
-        uint32_t sd = mot_sad(e, x0, y0, log2n, mlist[i]);
-        uint32_t c = cp >= 1 ? sd + cpred_sad(e, x0, y0, n, n, mlist[i]) : sd;
+    for (int i = 0; i < k; i++) {
+        uint32_t c = sd[i] + cpred_sad(e, x0, y0, n, n, mlist[i]);
         if (c < best) {
             best = c;
             midx = i;
-            *luma = sd;
+            *luma = sd[i];
         }
     }
     return midx;
@@ -4270,6 +4366,7 @@ void n265_ctu_warm(void)
     (void)bi_gate_margin(); (void)intra_rd_n(); (void)intra_rd_mpm();
     (void)i_intra(); (void)chroma_w_on(); (void)chroma_w_pct();
     (void)chroma_pred(); (void)cpred_trace(); (void)cpred_w_pct();
+    (void)cpred_gate();
     for (int q = 0; q < 52; q++)
         (void)n265_lambda_mode_q8(q);   /* fills its lazy table */
 }
