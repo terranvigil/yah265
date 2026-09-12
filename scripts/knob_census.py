@@ -112,6 +112,9 @@ OVERRIDES = {
     # moot unless N265_CHROMA_W is set, so it is that arm's parameter and
     # not a shipped default of its own
     "N265_CHROMA_W_PCT": "arm",
+    # same shape: moot unless N265_CHROMA_PRED is set. Its 0 is the
+    # luma-only CONTROL for that arm, which is what it exists for.
+    "N265_CPRED_W": "arm",
     # -1 is "no forced picture", which reads nonzero to the heuristic. It is
     # the diagnostic that puts a non-IDR I at a chosen display index, so the
     # conformance vectors can carry the picture kind through both decoders
