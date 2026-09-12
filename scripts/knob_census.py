@@ -112,6 +112,11 @@ OVERRIDES = {
     # moot unless N265_CHROMA_W is set, so it is that arm's parameter and
     # not a shipped default of its own
     "N265_CHROMA_W_PCT": "arm",
+    # -1 is "no forced picture", which reads nonzero to the heuristic. It is
+    # the diagnostic that puts a non-IDR I at a chosen display index, so the
+    # conformance vectors can carry the picture kind through both decoders
+    # on a source with no scene cut in it.
+    "N265_FORCE_NONIDR": "instrument",
 }
 
 # knobs whose nearest default-claim is correct but beyond the detector:

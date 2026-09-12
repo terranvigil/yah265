@@ -247,6 +247,12 @@ typedef struct n265_frame_work {
     int qp;                 /* this frame's slice QP */
     int poc;
     int slice_type;         /* 2 = I, 1 = P, 0 = B */
+    /* Is this picture an IRAP (an IDR)? Every I slice was one until the
+     * non-IDR intra picture landed, so the four places that mean IRAP -
+     * the RPS, the two IDR-only slice-header fields and the NAL type -
+     * read THIS, and everything else keeps reading `slice_type == 2`,
+     * which still means "coded without prediction". */
+    int idr;
     int nonref;             /* this frame is not a reference */
     int display_idx;
     int b_depth;            /* pyramid layer (0 = anchor) */
@@ -585,6 +591,11 @@ struct n265_encoder {
     int frames_done;
     int in_display_idx;     /* next arriving picture's display index */
     int gop_start_display;  /* display index of the current IDR      */
+    /* display index of the last INTRA picture, IDR or not: what the
+     * minimum distance between intra pictures (N265_INTRA_MIN) is
+     * measured from, where N265_MIN_KEYINT is measured from the IDR
+     * above. Equal to gop_start_display until a non-IDR I is placed. */
+    int last_intra_display;
 
     n265_frame_work fw[N265_MAX_FRAME_WORK];
     int K;                  /* live frames in flight (N265_MAX_FRAME_WORK) */

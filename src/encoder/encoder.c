@@ -1055,8 +1055,12 @@ static void snapshot_rps(n265_encoder *e, n265_frame_work *fw)
 {
     struct n265_rps *r = &fw->rps;
     r->nneg = r->npos = 0;
-    if (fw->slice_type == 2)
+    if (fw->idr)
         return;                 /* an IDR signals no short-term set */
+    /* A non-IDR I signals one: it references nothing itself (every
+     * `used` below comes out 0, its lists being empty), but the pictures
+     * the rest of the plan still needs have to survive it, and a picture
+     * leaves the decoder's DPB on the first RPS that omits it. */
     for (int sl = 0; sl < N265_DPB_SLOTS; sl++) {
         struct n265_refpic *p = &e->dpb[sl];
         if (!p->marked)         /* every kept picture is listed; eviction
@@ -1095,11 +1099,16 @@ static void write_slice_header(n265_encoder *e, n265_frame_work *fw)
     (void)e;
     bitstream_t *bs = &fw->rbsp;
     bs_put_bits(bs, 1, 1);          /* first_slice_segment_in_pic_flag */
-    if (fw->slice_type == 2)
+    if (fw->idr)
         bs_put_bits(bs, 0, 1);      /* no_output_of_prior_pics_flag (IRAP) */
     bs_put_ue(bs, 0);               /* slice_pic_parameter_set_id */
     bs_put_ue(bs, (uint32_t)fw->slice_type);
-    if (fw->slice_type != 2) {
+    /* 7.3.6.1 keys the POC and the RPS on the NAL type and not on the
+     * slice type: a non-IDR I picture carries both, and its
+     * slice_temporal_mvp_enabled_flag with them (an I slice parses no
+     * collocated syntax, so the flag only says its own motion field may
+     * be read later, and it is all-intra). */
+    if (!fw->idr) {
         bs_put_bits(bs, (uint32_t)(fw->poc & 255), 8); /* pic_order_cnt_lsb */
         bs_put_bits(bs, 0, 1);      /* short_term_ref_pic_set_sps_flag */
         /* st_ref_pic_set(idx 0) inline, serialized from the dispatch-time
@@ -2086,9 +2095,9 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
         n265_write_sps(fw); stash_header(e, N265_NAL_SPS, fw);
         n265_write_pps(fw); stash_header(e, N265_NAL_PPS, fw);
     }
-    fw->nal_type = fw->slice_type == 2 ? N265_NAL_IDR_W_RADL
-                                       : (nonref ? 0 /* TRAIL_N */
-                                                 : 1 /* TRAIL_R */);
+    fw->nal_type = fw->idr ? N265_NAL_IDR_W_RADL
+                           : (nonref ? 0 /* TRAIL_N */
+                                     : 1 /* TRAIL_R */);
     fw->rc_base = base;
     fw->job_R = 0;
     fw->ref_lag = 0;
@@ -2636,7 +2645,19 @@ void n265_build_lists(n265_encoder *e, n265_frame_work *fw, int poc,
  * i.e. 24-25 at keyint 250, and the same argument applies here: an IDR
  * costs the whole prediction chain, so the detector has to be very sure
  * before it may place one close to the last. N265_MIN_KEYINT sets it;
- * 0 means the auto rule; 4 is the pre-2026-09-09 behaviour. */
+ * 0 means the auto rule; 4 is the default and the pre-2026-09-09
+ * behaviour.
+ *
+ * Refused at 0 on 2026-09-09 because the bound had nothing to put at a
+ * suppressed cut, and REFUSED AGAIN on 2026-09-12 with the non-IDR
+ * intra picture built and conformant underneath it: at the shipped
+ * `--ref 1` a picture cannot cross the new kind either, the lists being
+ * one deep, so all it moves is which side of the cut a leaf's L1 sits
+ * on (sintel_720p +0.19 CQP / -0.08 CRF, sita_toon_720p +0.02 / -0.02,
+ * the other thirteen clips byte-identical). At `--ref 2` the same arm
+ * is worth -0.36 / -0.25 on sita_toon and -0.41 / -0.46 on sintel
+ * (CQP / CRF), which is the re-pricing lead.
+ * docs/phase7-gop-design.md "Step 2 result". */
 /* the knob half, split out so the warm can reach it without an encoder */
 static int min_keyint_env(void)
 {
@@ -2645,7 +2666,36 @@ static int min_keyint_env(void)
     return v;
 }
 
-/* This file's own four cached knobs. The others are warmed per-file
+/* The same distance for an INTRA PICTURE rather than for an IDR:
+ * N265_MIN_KEYINT bounds how close two IDRs may be, this bounds how
+ * close two intra pictures may be, and the gap between the two is where
+ * the non-IDR I lives. 4 - one mini-GOP - is the floor the IDR used to
+ * carry, kept here because it is the one with a derivation behind it: a
+ * cut closer to the last intra picture than the shortest run the
+ * scheduler can plan has nothing to save. At or above N265_MIN_KEYINT
+ * the non-IDR I can never be placed at all, which is why the shipped
+ * pair (4, 4) is the pre-item encoder byte for byte and why the picture
+ * kind reaches the bitstream only under `N265_MIN_KEYINT=0` or the
+ * forced knob below. */
+static int intra_min_env(void)
+{
+    static int v = -2;
+    if (v == -2) { const char *s = n265_env("N265_INTRA_MIN"); v = s ? atoi(s) : 4; }
+    return v;
+}
+
+/* N265_FORCE_NONIDR: diagnostic, and the conformance vectors' only way
+ * in. A non-IDR intra picture at this DISPLAY index whatever the
+ * detector says, so a synthetic source with no scene cut in it can still
+ * carry the picture kind through both decoders. -1 (unset) is off. */
+static int force_nonidr_env(void)
+{
+    static int v = -2;
+    if (v == -2) { const char *s = n265_env("N265_FORCE_NONIDR"); v = s ? atoi(s) : -1; }
+    return v;
+}
+
+/* This file's own cached knobs. The others are warmed per-file
  * above; these sit between a driver-side caller and a worker-side one
  * (hf_arm runs under the publish task), so they get the same treatment.
  * Defined here because min_keyint_env is, and declared in encoder.h so
@@ -2654,7 +2704,7 @@ void n265_encoder_warm(void)
 {
     (void)dpb_hold(); (void)hf_cache_on(); (void)hf2_mode_env();
     (void)hf2_tpp_env(); (void)hf2_tpp14_env();
-    (void)min_keyint_env();
+    (void)min_keyint_env(); (void)intra_min_env(); (void)force_nonidr_env();
 }
 
 static int min_keyint(n265_encoder *e)
@@ -2679,6 +2729,24 @@ static int la_is_idr(n265_encoder *e, int i)
            !e->ref_valid ||
            (e->scenecut && d - e->gop_start_display >= min_keyint(e) &&
             n265_la_scenecut(e, i));
+}
+
+/* Is the lookahead frame at index i a NON-IDR intra picture - an I slice
+ * coded as a trailing reference, keeping the POC line and the DPB? It
+ * takes the scene cuts the IDR bound above refuses, which is the whole
+ * reason that bound can now stand at x265's value: the cut is coded
+ * where the window sees it, and nothing before it is thrown away. Far
+ * enough from the last intra picture to be worth an intra frame at all
+ * (N265_INTRA_MIN), and never where an IDR is already going. */
+static int la_is_nonidr_i(n265_encoder *e, int i)
+{
+    if (e->mode == N265_MODE_PCM || la_is_idr(e, i))
+        return 0;
+    int d = e->la.f[i].display_idx;
+    if (d == force_nonidr_env())
+        return 1;
+    return e->scenecut && d - e->last_intra_display >= intra_min_env() &&
+           n265_la_scenecut(e, i);
 }
 
 /* The keyint/scene-cut half of la_is_idr, for the rate control's look at
@@ -2717,10 +2785,23 @@ static void build_plan_order(n265_encoder *e)
     n265_la *la = &e->la;
     e->plan_len = e->plan_pos = 0;
     if (la_is_idr(e, 0)) {
-        e->gop_start_display = la->f[0].display_idx;
+        e->gop_start_display = e->last_intra_display = la->f[0].display_idx;
         for (int sl = 0; sl < N265_DPB_SLOTS; sl++) e->dpb[sl].marked = 0;
         e->ref_valid = 0;
         e->plan_li[0] = 0; e->plan_kind[0] = 2; e->plan_depth[0] = 0; e->plan_nonref[0] = 0;
+        e->plan_len = 1; e->plan_pop = 1;
+        return;
+    }
+    /* The non-IDR I at the FRONT of the queue: a one-picture plan, the
+     * shape the "next frame is a key frame" case already had. Nothing
+     * else happens - the POC line continues (gop_start_display is still
+     * the IDR's), the DPB is not flushed, and the pictures the following
+     * mini-GOPs still want stay marked and ride this picture's RPS.
+     * Inside the queue it is an ANCHOR instead, which is where its value
+     * is: see the run below. */
+    if (la_is_nonidr_i(e, 0)) {
+        e->last_intra_display = la->f[0].display_idx;
+        e->plan_li[0] = 0; e->plan_kind[0] = 3; e->plan_depth[0] = 0; e->plan_nonref[0] = 0;
         e->plan_len = 1; e->plan_pop = 1;
         return;
     }
@@ -2752,10 +2833,18 @@ static void build_plan_order(n265_encoder *e)
         wscale = refw / (double)la->lw;
     int nb = la->bw * la->bh;
     int trace = n265_env("N265_BADAPT_TRACE") != NULL;
-    /* how far the key-frame edge lets the run go at all */
-    int keymax = maxa;
+    /* How far the key-frame edge lets the run go at all. An IDR opens the
+     * next plan, so the run has to stop BEFORE it; a non-IDR I is an
+     * anchor of this one, so the run may stop ON it - and then the leaves
+     * between the previous anchor and the cut carry it as their L1, which
+     * is the whole reason not flushing the DPB is worth anything. At
+     * --ref 1 it is the ONLY way a picture crosses the cut: the lists are
+     * one deep, so the nearest past reference after the cut is the intra
+     * picture itself whatever else is still marked. */
+    int keymax = maxa, inon = -1;
     for (int i = 1; i <= maxa; i++) {
         if (la_is_idr(e, i)) { keymax = i - 1; break; }
+        if (la_is_nonidr_i(e, i)) { keymax = inon = i; break; }
     }
     /* b-adapt 2: price the mini-GOP instead of ruling on motion. The run
      * length is the one whose amortised lowres cost is lowest - one anchor
@@ -2774,8 +2863,9 @@ static void build_plan_order(n265_encoder *e)
         A = n265_la_brun_bits(e, keymax);
     } else
     for (int i = 1; i <= maxa; i++) {
-        if (la_is_idr(e, i)) break;
+        if (la_is_idr(e, i)) break;     /* that frame opens the next plan */
         A = i;
+        if (i == inon) break;           /* ...this one IS this plan's anchor */
         if (e->badapt) {
             double mv = (double)la->f[i].mvabs_sum / (nb ? nb : 1);
             double m = mv * wscale * (double)la->f[i].sc_ratio;
@@ -2803,8 +2893,14 @@ static void build_plan_order(n265_encoder *e)
         e->plan_len = 1; e->plan_pop = 1;
         return;
     }
-    /* the anchor first, then the B pyramid between the anchors */
-    e->plan_li[0] = A; e->plan_kind[0] = 1; e->plan_depth[0] = 0; e->plan_nonref[0] = 0;
+    /* the anchor first, then the B pyramid between the anchors. The
+     * anchor is the intra picture itself where the run reached the cut,
+     * and a P otherwise (including where the run stopped short of a cut,
+     * which leaves the intra picture to open the next plan). */
+    int akind = A == inon ? 3 : 1;
+    if (akind == 3)
+        e->last_intra_display = la->f[A].display_idx;
+    e->plan_li[0] = A; e->plan_kind[0] = akind; e->plan_depth[0] = 0; e->plan_nonref[0] = 0;
     e->plan_len = 1;
     plan_brange(e, 0, A - 1, 1);
     e->plan_pop = A + 1;
@@ -2852,7 +2948,10 @@ static void plan_lifetimes(n265_encoder *e)
         int m[EMAX];
         uint8_t used[EMAX];
         for (int j = 0; j < nc; j++) m[j] = epoc[cur[j]];
-        ref_used(m, nc, e->plan_poc[k], e->plan_kind[k] == 0, e->ref_max, used);
+        if (e->plan_kind[k] >= 2)
+            memset(used, 0, (size_t)nc);    /* an intra picture lists nothing */
+        else
+            ref_used(m, nc, e->plan_poc[k], e->plan_kind[k] == 0, e->ref_max, used);
         for (int j = 0; j < nc; j++)
             if (used[j]) elast[cur[j]] = k;
         /* the picture joins the DPB at the end of its own dispatch step,
@@ -3059,10 +3158,16 @@ static int drive_scheduler(n265_encoder *e)
             if (e->dpb[sl].marked && e->dpb[sl].last_use < e->plan_pos)
                 e->dpb[sl].marked = 0;
     /* reference lists from the DPB around this frame's POC (anchors have
-     * only L0; B frames have both) */
-    n265_build_lists(e, fw, poc, kind == 0, NULL);
-    int slice_type = kind == 2 ? 2 : kind == 1 ? 1 : 0;
+     * only L0; B frames have both). An intra picture has none - which the
+     * IDR got for free, its DPB having just been flushed, and the non-IDR
+     * I has to be told. */
+    int slice_type = kind >= 2 ? 2 : kind == 1 ? 1 : 0;
+    if (slice_type == 2)
+        fw->nref[0] = fw->nref[1] = 0;
+    else
+        n265_build_lists(e, fw, poc, kind == 0, NULL);
     fw->slice_type = slice_type;
+    fw->idr = kind == 2;
     fw->poc = poc;
     fw->nonref = e->plan_nonref[e->plan_pos];
     fw->display_idx = f->display_idx;
