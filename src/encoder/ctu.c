@@ -693,7 +693,15 @@ static int gate_scale(void)
  * a marginal price of 0.45, the worst trade on the ladder after
  * `SBH_RD` (docs/phase6b-economy.md, point C). `--preset fast` still
  * takes it: at fast's own operating point the population it gates is a
- * different one. */
+ * different one.
+ *
+ * Third refusal, phase 6b step 5, on the phase 7 default: **1.026x
+ * foreman / 1.007x mobile** at `--threads 1`, reproducing step 2's
+ * in-company 1.016x geomean to the digit two placements later. Under the
+ * item's 1.03x bar on both clips, so no band was run. `RECT_RANK`,
+ * `SUBME` and `NO_RECT` all delete work and none of them puts back the
+ * work this gate needs to find; its increment on top of `INTRA_GATE=2`
+ * is 1.036x / 1.000x. */
 static int skip_exit(void)
 {
     static int v = -1;
@@ -716,7 +724,28 @@ static int skip_exit(void)
  * default since R12 - P3 refused it on the per-clip bar (coastguard
  * +1.59) and on the base R7 left it improves the band's mean, median
  * and worst clip at both operating points; 4 is P3's shipped value and
- * 0 the pre-P3 encoder. */
+ * 0 the pre-P3 encoder.
+ *
+ * **The family is not monotone in speed**, which phase 6b step 5
+ * measured and nothing before it says: 1, 2 and 3 gate the whole arm and
+ * run the full 35-mode rank AND the RD trial wherever the gate does not
+ * fire, while 4 and 5 keep the rank and gate only the trial. So 1 is
+ * SLOWER than the default - 0.881x foreman / 0.783x mobile - because the
+ * skip disjunct alone does not fire often enough to pay for the
+ * prefilter it gives up. 3 reads 1.159x / 1.081x against 2's 1.161x /
+ * 1.085x while gating strictly more, so it is dominated.
+ *
+ * **2 is refused a second time, on the per-clip bar.** On the phase 7
+ * default it is worth 1.154x / 1.082x (geomean 1.117x), two and a half
+ * times step 1's 1.044x, because steps 2-4 deleted the inter work it
+ * shares the encode with. It keeps both band medians inside the -8%
+ * floor at 7/7 ahead (CQP -13.65 -> -12.46, CRF -9.65 -> -9.41) and
+ * costs `foreman_cif` **5.33 points of CRF and 5.46 of CQP**, with
+ * coastguard, stefan and bus also past two points. Same population
+ * `NO_RECT` charged foreman 5.02 for in step 4: where the 2Nx2N vector
+ * does not explain the CU, rect is already gone and the intra ARM is
+ * what is left carrying it, so gating the arm leaves no answer at all.
+ * docs/phase6b-economy.md, step 5. */
 static int intra_gate(void)
 {
     static int v = -1;

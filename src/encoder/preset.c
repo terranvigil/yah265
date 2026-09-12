@@ -48,7 +48,11 @@ static const struct kv fast_tab[] = {
      * too, so what fast still adds over the placed medium is
      * SKIP_EXIT=1, INTRA_GATE=2, RECT_FLAT=0, SBH_RD=0 and `--ctu 32`
      * in fast_par - and SKIP_EXIT is an arm the placement measured and
-     * refused AT MEDIUM's operating point, not everywhere.
+     * refused AT MEDIUM's operating point, not everywhere. Step 5 then
+     * re-priced SKIP_EXIT and INTRA_GATE against the room phase 7 opened
+     * and refused both there again, on price and on the per-clip bar, so
+     * these two entries are what fast adds by twice-taken measurement
+     * rather than by inheritance.
      *
      * fast inherits two defaults it does not name: `N265_PART_GATE=2`
      * from step 2 and `N265_RECT_RANK=50` from step 3. Both are inert
