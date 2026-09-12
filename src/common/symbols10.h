@@ -121,6 +121,8 @@
 #define n265_la_set_anchor           n265_la_set_anchor_10
 #define n265_la_warm                 n265_la_warm_10
 #define n265_lambda_mode_q8          n265_lambda_mode_q8_10
+#define n265_level_parse             n265_level_parse_10
+#define n265_level_solve             n265_level_solve_10
 #define n265_mc_chroma               n265_mc_chroma_10
 #define n265_mc_chroma_14            n265_mc_chroma_14_10
 #define n265_mc_chroma_14_wh         n265_mc_chroma_14_wh_10
@@ -154,6 +156,7 @@
 #define n265_merge_list              n265_merge_list_10
 #define n265_merge_list_pu           n265_merge_list_pu_10
 #define n265_mv_warm                 n265_mv_warm_10
+#define n265_pcm_bits_per_frame      n265_pcm_bits_per_frame_10
 #define n265_planned_qp              n265_planned_qp_10
 #define n265_pred_dc                 n265_pred_dc_10
 #define n265_psy_cost                n265_psy_cost_10
@@ -214,8 +217,10 @@
 #define n265_scan_sb                 n265_scan_sb_10
 #define n265_scratch_free            n265_scratch_free_10
 #define n265_scratch_new             n265_scratch_new_10
+#define n265_set_level               n265_set_level_10
 #define n265_set_shot_window         n265_set_shot_window_10
 #define n265_set_lossless            n265_set_lossless_10
+#define n265_set_vui_timing          n265_set_vui_timing_10
 #define n265_sig_ctx_map4x4          n265_sig_ctx_map4x4_10
 #define n265_sig_pat                 n265_sig_pat_10
 #define n265_ssd_wh                  n265_ssd_wh_10

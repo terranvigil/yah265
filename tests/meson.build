@@ -2,6 +2,13 @@ unit_bitstream = executable('unit_bitstream', 'unit/bitstream_test.c',
   dependencies : yah265_dep)
 test('bitstream', unit_bitstream)
 
+# The Annex A level table, checked at every level's own bound and one
+# sample/frame/bit over it. It is the exhaustive half of the item 7 table
+# check; scripts/level_check.sh is the half that actually encodes.
+unit_level = executable('unit_level', 'unit/level_test.c',
+  dependencies : yah265_dep)
+test('level', unit_level)
+
 # One file per kernel family (checkasm.h has the layout): a family item
 # adds its file here and one line to the table in main.c, and touches
 # nothing else.

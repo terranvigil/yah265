@@ -15,6 +15,7 @@
 #include "common/bitstream.h"
 #include "encoder/cabac.h"
 #include "encoder/la.h"
+#include "encoder/level.h"
 #include "encoder/rc.h"
 #include "encoder/tables.h"
 
@@ -288,6 +289,11 @@ typedef struct n265_frame_work {
      * buffer count, i.e. sps_max_dec_pic_buffering_minus1 + 1, and the
      * level is picked to hold it. */
     int dpb_reorder, dpb_buffering;
+    /* general_level_idc and general_tier_flag, solved once at open from
+     * the whole of Annex A (src/encoder/level.c) and carried here so
+     * write_ptl writes a number rather than re-deriving one. */
+    int level_idc, level_tier;
+    int vui_timing;         /* --vui-timing: vui_timing_info in the SPS */
     double psy;             /* N265_PSY: psychovisual energy strength */
     int dbf_beta, dbf_tc;   /* slice_beta/tc_offset_div2, see n265_encoder */
 
@@ -579,6 +585,11 @@ struct n265_encoder {
      * where it does not. Every slot scan and every slot allocation in
      * encoder.c is bounded by it, and N265_DPB_SLOTS only sizes arrays. */
     int dpb_reorder, dpb_buffering, dpb_peak, dpb_slots;
+    /* Annex A, solved once at open (src/encoder/level.c): the level and
+     * the tier the SPS and the VPS carry, and every bound that drove
+     * them, which is what N265_LEVEL_TRACE prints. */
+    n265_level_out level;
+    int vui_timing;         /* --vui-timing: vui_timing_info in the SPS */
     /* N265_DPB_TRACE: claims that found no unmarked slot and overwrote a
      * marked one (the T0a DPB-pressure branch). Driver-serial. The pool
      * sizing above is what makes it zero on every shape it covers. */

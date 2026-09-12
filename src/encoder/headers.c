@@ -6,51 +6,24 @@
 #include "encoder/encoder.h"
 #include "encoder/sao.h"
 
-/* MaxDpbSize for a level (A.4.2) with maxDpbPicBuf = 6. A picture well
- * below the level's MaxLumaPs is granted more picture storage buffers,
- * which is how a deep pyramid pays for itself: the level rises until the
- * DPB the reference structure needs fits inside it. */
-static int max_dpb_size(int ps, int max_luma_ps)
-{
-    if (ps <= max_luma_ps >> 2)
-        return 16;
-    if (ps <= max_luma_ps >> 1)
-        return 12;
-    if ((int64_t)ps <= ((int64_t)max_luma_ps * 3) >> 2)
-        return 8;
-    return 6;
-}
-
-/* general_level_idc = level * 30. Picked from Table A.8's MaxLumaPs, the
- * per-dimension bound sqrt(MaxLumaPs * 8), and the DPB: A.4.2 requires
- * sps_max_dec_pic_buffering_minus1 < MaxDpbSize, so a level that fits the
- * picture but not the reference structure is not a legal choice.
- * Bitrate limits are ignored: phase 0's PCM payload exceeds every tier's
- * MaxBR by construction, which is recorded in docs/ideas.md and dies with
- * PCM. */
-static int pick_level_idc(int w, int h, int dpb)
-{
-    static const struct { int idc; int max_luma_ps; } lv[] = {
-        { 30,    36864 }, { 60,   122880 }, { 63,   245760 },
-        { 90,   552960 }, { 93,   983040 }, {120,  2228224 },
-        {150,  8912896 }, {180, 35651584 },
-    };
-    int ps = w * h;
-    for (unsigned i = 0; i < sizeof(lv) / sizeof(lv[0]); i++) {
-        int dim_ok = (int64_t)w * w <= (int64_t)lv[i].max_luma_ps * 8 &&
-                     (int64_t)h * h <= (int64_t)lv[i].max_luma_ps * 8;
-        if (ps <= lv[i].max_luma_ps && dim_ok &&
-            dpb <= max_dpb_size(ps, lv[i].max_luma_ps))
-            return lv[i].idc;
-    }
-    return 186; /* 6.2 */
-}
-
-/* profile_tier_level with maxNumSubLayersMinus1 == 0 (7.3.3). */
-static void write_ptl(bitstream_t *bs, int w, int h, int dpb)
+/* profile_tier_level with maxNumSubLayersMinus1 == 0 (7.3.3).
+ *
+ * The level and the tier are SOLVED once, at encoder open, from the whole
+ * of Annex A - MaxLumaPs and the per-dimension bound Sqrt(MaxLumaPs * 8),
+ * MaxDpbSize (A.4.2) against the declared buffering, MaxLumaSr from the
+ * source frame rate, and MaxBR by tier wherever the encoder knows the
+ * rate. src/encoder/level.c holds the tables and the derivation; this
+ * writer only spends the two numbers it produced.
+ *
+ * Until phase 8 item 7 the pick lived here and read the picture size and
+ * the DPB alone - eight of the thirteen levels, no rate leg - which
+ * signalled 720p50 at a level its own frame rate violates (Table A.7,
+ * MaxLumaSr) and a PCM stream at a level admitting a tenth of its bit
+ * rate. Both were wrong by a table, and both moved. */
+static void write_ptl(bitstream_t *bs, int level_idc, int tier)
 {
     bs_put_bits(bs, 0, 2);          /* general_profile_space */
-    bs_put_bits(bs, 0, 1);          /* general_tier_flag: main */
+    bs_put_bits(bs, (uint32_t)(tier != 0), 1);  /* general_tier_flag */
     /* Main (1) at 8 bits, Main10 (2) at 10. A Main stream is also
      * Main10-decodable so it sets both compatibility flags; a Main10
      * stream is not Main-decodable and sets only its own.
@@ -65,15 +38,15 @@ static void write_ptl(bitstream_t *bs, int w, int h, int dpb)
      *     profile_idc 4..10, so at Main and Main10 alike zeros are not a
      *     default, they are the syntax.
      *   - The level tables are profile-independent too. MaxLumaPs and the
-     *     DPB rule (A.4.2) are all pick_level_idc reads, and Table A.2's
-     *     CpbBrVclFactor / CpbBrNalFactor are 1000 / 1100 at Main AND at
-     *     Main10, so even the bit-rate leg this encoder does not consult
-     *     would not have moved. The debt is that it does not consult it
-     *     (docs/ideas.md) and that debt is the same at both depths.
-     *   - The VUI is absent (vui_parameters_present_flag 0 in the SPS),
-     *     so there is no depth field there to keep consistent with
-     *     bit_depth_luma_minus8. When a VUI lands it inherits the same
-     *     constant.
+     *     DPB rule (A.4.2) are what src/encoder/level.c reads, and Table
+     *     A.2's CpbBrVclFactor / CpbBrNalFactor are 1000 / 1100 at Main
+     *     AND at Main10, so the bit-rate leg item 7 added does not move
+     *     with the depth either. What DOES move with the depth is the
+     *     PCM payload, and level.c takes the sample width as an argument
+     *     for exactly that.
+     *   - The VUI is absent unless --vui-timing asks for it, and what it
+     *     then carries is the frame rate, which has no depth field to
+     *     keep consistent with bit_depth_luma_minus8.
      * Verified on the wire: dec265 reads profile_idc Main10 with
      * compatibility flag 2 alone, and ffprobe reads "Main 10" /
      * yuv420p10le. */
@@ -85,7 +58,7 @@ static void write_ptl(bitstream_t *bs, int w, int h, int dpb)
     bs_put_bits(bs, 1, 1);          /* general_frame_only_constraint_flag */
     bs_put_bits(bs, 0, 32);         /* general_reserved_zero_44bits... */
     bs_put_bits(bs, 0, 12);         /* ...cont */
-    bs_put_bits(bs, (uint32_t)pick_level_idc(w, h, dpb), 8);
+    bs_put_bits(bs, (uint32_t)level_idc, 8);   /* general_level_idc */
 }
 
 void n265_write_vps(struct n265_frame_work *e)
@@ -99,7 +72,7 @@ void n265_write_vps(struct n265_frame_work *e)
     bs_put_bits(bs, 0, 3);          /* vps_max_sub_layers_minus1 */
     bs_put_bits(bs, 1, 1);          /* vps_temporal_id_nesting_flag */
     bs_put_bits(bs, 0xffff, 16);    /* vps_reserved_0xffff_16bits */
-    write_ptl(bs, e->param.width, e->param.height, e->dpb_buffering);
+    write_ptl(bs, e->level_idc, e->level_tier);
     bs_put_bits(bs, 0, 1);          /* vps_sub_layer_ordering_info_present */
     bs_put_ue(bs, (uint32_t)(e->dpb_buffering - 1)); /* vps_max_dec_pic_buffering_minus1 */
     bs_put_ue(bs, (uint32_t)e->dpb_reorder);         /* vps_max_num_reorder_pics[0] */
@@ -123,7 +96,7 @@ void n265_write_sps(struct n265_frame_work *e)
     bs_put_bits(bs, 0, 4);          /* sps_video_parameter_set_id */
     bs_put_bits(bs, 0, 3);          /* sps_max_sub_layers_minus1 */
     bs_put_bits(bs, 1, 1);          /* sps_temporal_id_nesting_flag */
-    write_ptl(bs, e->param.width, e->param.height, e->dpb_buffering);
+    write_ptl(bs, e->level_idc, e->level_tier);
     bs_put_ue(bs, 0);               /* sps_seq_parameter_set_id */
     bs_put_ue(bs, 1);               /* chroma_format_idc: 4:2:0 */
     bs_put_ue(bs, (uint32_t)e->pad_w);
@@ -188,7 +161,46 @@ void n265_write_sps(struct n265_frame_work *e)
     bs_put_bits(bs, 0, 1);          /* long_term_ref_pics_present_flag */
     bs_put_bits(bs, e->mode != N265_MODE_PCM, 1);   /* sps_temporal_mvp */
     bs_put_bits(bs, e->mode != N265_MODE_PCM, 1);   /* strong smoothing */
-    bs_put_bits(bs, 0, 1);          /* vui_parameters_present_flag */
+    /* vui_parameters_present_flag. Absent by default, which is what
+     * every stream this project has ever measured carries; --vui-timing
+     * turns it on (phase 8 item 7).
+     *
+     * What it buys is the one thing a decoder cannot otherwise check
+     * about the level: since item 7 the level is derived partly from the
+     * FRAME RATE (Table A.7's MaxLumaSr), and without vui_timing_info a
+     * conforming decoder has no frame rate in the stream to check it
+     * against. What it costs is about a dozen bytes in every SPS (the
+     * 76 bits of syntax, plus the emulation prevention a 32-bit
+     * num_units_in_tick of 1 forces), which is why it is off by default: flipping it would move every byte-identity cell
+     * in the project for a reason Annex A does not require, and the
+     * phase 8 invariant only excuses a move a table proves. */
+    if (!e->vui_timing) {
+        bs_put_bits(bs, 0, 1);      /* vui_parameters_present_flag */
+    } else {
+        bs_put_bits(bs, 1, 1);      /* vui_parameters_present_flag */
+        /* vui_parameters (E.2.1), in order. Everything before the timing
+         * block is absent; field_seq_flag 0 and frame_field_info 0 say
+         * the same thing the PTL's progressive/frame-only constraint
+         * flags do. */
+        bs_put_bits(bs, 0, 1);      /* aspect_ratio_info_present_flag */
+        bs_put_bits(bs, 0, 1);      /* overscan_info_present_flag */
+        bs_put_bits(bs, 0, 1);      /* video_signal_type_present_flag */
+        bs_put_bits(bs, 0, 1);      /* chroma_loc_info_present_flag */
+        bs_put_bits(bs, 0, 1);      /* neutral_chroma_indication_flag */
+        bs_put_bits(bs, 0, 1);      /* field_seq_flag */
+        bs_put_bits(bs, 0, 1);      /* frame_field_info_present_flag */
+        bs_put_bits(bs, 0, 1);      /* default_display_window_flag */
+        bs_put_bits(bs, 1, 1);      /* vui_timing_info_present_flag */
+        /* The clock a picture is one tick of: num_units_in_tick /
+         * time_scale is the frame period, so the y4m's F<num>:<den>
+         * lands the other way round. */
+        bs_put_bits(bs, (uint32_t)e->param.fps_den, 32); /* vui_num_units_in_tick */
+        bs_put_bits(bs, (uint32_t)e->param.fps_num, 32); /* vui_time_scale */
+        bs_put_bits(bs, 0, 1);      /* vui_poc_proportional_to_timing_flag */
+        bs_put_bits(bs, 0, 1);      /* vui_hrd_parameters_present_flag: no
+                                     * HRD, so no CPB schedule is claimed */
+        bs_put_bits(bs, 0, 1);      /* bitstream_restriction_flag */
+    }
     bs_put_bits(bs, 0, 1);          /* sps_extension_present_flag */
     bs_rbsp_trailing(bs);
 }

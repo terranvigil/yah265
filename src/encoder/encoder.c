@@ -77,6 +77,12 @@ static int g_cutree = 0;
 static int g_shot_window = 0;   /* --shot-window; 0 = off */
 static int g_threads = 0;       /* --threads; 0 = auto */
 static int g_lossless = 0;      /* --lossless; n265_set_lossless */
+/* Annex A overrides (phase 8 item 7). 0 / 0 / 0 is "derive the level and
+ * the tier from the stream and write no VUI", which is what every board,
+ * band and gate runs. */
+static int g_level_idc = 0;     /* --level, as general_level_idc            */
+static int g_high_tier = 0;     /* --high-tier                              */
+static int g_vui_timing = 0;    /* --vui-timing: vui_timing_info in the SPS */
 
 void n265_set_threads(int n)
 {
@@ -119,6 +125,16 @@ void n265_set_crf(double crf) { g_crf = crf; g_crf_on = 1; }
  * points are: include/yah265.h is another item's file this round. */
 void n265_set_lossless(int on);
 void n265_set_lossless(int on) { g_lossless = on != 0; }
+/* --level / --high-tier / --vui-timing, declared the same way. `idc` is
+ * general_level_idc (level * 30); 0 leaves the level derived. */
+void n265_set_level(int idc, int high_tier);
+void n265_set_level(int idc, int high_tier)
+{
+    g_level_idc = idc;
+    g_high_tier = high_tier != 0;
+}
+void n265_set_vui_timing(int on);
+void n265_set_vui_timing(int on) { g_vui_timing = on != 0; }
 void n265_set_bitrate(double kbps) { g_bitrate = kbps > 0.0 ? kbps : 0.0; }
 void n265_set_ref(int n) { g_ref = n < 1 ? 1 : n > N265_MAX_REF ? N265_MAX_REF : n; }
 /* 0 off (fixed cadence), 1 the motion rule (the default), 2 the priced
@@ -567,6 +583,9 @@ static void fw_config(n265_encoder *e, n265_frame_work *fw)
     fw->bframes = e->bframes;
     fw->dpb_reorder = e->dpb_reorder;
     fw->dpb_buffering = e->dpb_buffering;
+    fw->level_idc = e->level.idc;
+    fw->level_tier = e->level.tier;
+    fw->vui_timing = e->vui_timing;
     fw->psy = e->psy;
     fw->dbf_beta = e->dbf_beta;
     fw->dbf_tc = e->dbf_tc;
@@ -1020,6 +1039,79 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     int ctb = 1 << e->ctb_log2;
     e->ctb_cols = (e->pad_w + ctb - 1) >> e->ctb_log2;
     e->ctb_rows = (e->pad_h + ctb - 1) >> e->ctb_log2;
+
+    /* ---- Annex A: the level and the tier (phase 8 item 7) ----
+     *
+     * Solved HERE, at open, and not in write_ptl, for two reasons: a
+     * refusal is only useful before the first frame is coded, and the
+     * numbers the trace prints are the ones the SPS will carry rather
+     * than a re-derivation of them.
+     *
+     * The picture the level is bounded by is the CODED one - pad_w by
+     * pad_h, which is what pic_width_in_luma_samples carries - and not
+     * the conformance-cropped one write_ptl used to be handed. The two
+     * differ only on a source that is not a multiple of the minimum CB,
+     * and there the cropped size understates the samples a decoder has
+     * to hold.
+     *
+     * The rate leg is a constraint only where the rate is KNOWN:
+     *
+     *   - ABR names it outright.
+     *   - I_PCM has it by construction: every CTB is one 16x16 I_PCM CU,
+     *     so the payload is the geometry times the sample width. This is
+     *     the "PCM exceeds every tier's MaxBR" debt in docs/ideas.md, and
+     *     what closes it is consulting Table A.7 instead of skipping it -
+     *     CIF PCM at 29.97 fps is 36.7 Mbit/s, which level 5.1 admits.
+     *   - Under CRF and CQP the rate is whatever the content costs. No
+     *     level can be derived from a number the encoder does not have,
+     *     so MaxBR is REPORTED (the trace's max_br) and not enforced,
+     *     which is what --help says. */
+    {
+        n265_level_req rq;
+        memset(&rq, 0, sizeof(rq));
+        rq.width = e->pad_w;
+        rq.height = e->pad_h;
+        rq.dpb = e->dpb_buffering;
+        rq.fps_num = p->fps_num;
+        rq.fps_den = p->fps_den;
+        rq.slice_segments = 1;          /* one slice segment per picture   */
+        rq.tile_rows = rq.tile_cols = 1;   /* tiles_enabled_flag is 0      */
+        rq.want_idc = g_level_idc;
+        rq.want_high_tier = g_high_tier;
+        if (e->mode == N265_MODE_PCM) {
+            double fps = p->fps_den > 0 ? (double)p->fps_num / p->fps_den : 0.0;
+            rq.bitrate = (double)n265_pcm_bits_per_frame(e->ctb_cols,
+                                                         e->ctb_rows,
+                                                         BIT_DEPTH) * fps;
+            rq.enforce_br = 1;
+        } else if (e->abr_on) {
+            rq.bitrate = e->abr_bitrate;
+            rq.enforce_br = 1;
+        }
+        if (n265_level_solve(&rq, &e->level) < 0) {
+            fprintf(stderr, "n265: %s\n", e->level.err);
+            goto fail;
+        }
+        if (n265_env("N265_LEVEL_TRACE")) {
+            const n265_level_out *L = &e->level;
+            fprintf(stderr,
+                    "LEVEL idc=%d level=%s tier=%s src=%s driver=%s "
+                    "pic=%dx%d ps=%lld max_luma_ps=%lld "
+                    "dpb=%d max_dpb=%d fps=%d/%d luma_sr=%lld "
+                    "max_luma_sr=%lld bitrate=%.0f max_br=%lld "
+                    "max_cpb=%lld br=%s%s\n",
+                    L->idc, L->name, L->tier ? "high" : "main",
+                    g_level_idc ? "--level" : "auto", L->driver,
+                    e->pad_w, e->pad_h, (long long)L->ps,
+                    (long long)L->max_luma_ps,
+                    e->dpb_buffering, L->max_dpb, p->fps_num, p->fps_den,
+                    (long long)L->luma_sr, (long long)L->max_luma_sr,
+                    rq.bitrate, (long long)L->max_br, (long long)L->max_cpb,
+                    rq.enforce_br ? "enforced" : "reported",
+                    L->tier_raised ? " tier_raised=1" : "");
+        }
+        e->vui_timing = g_vui_timing && p->fps_num > 0 && p->fps_den > 0;
+    }
 
     /* K, the frames in flight (sec 1). A pure scheduling knob: it moves
      * no bits, only how much of the mini-GOP overlaps. */

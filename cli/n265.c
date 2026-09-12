@@ -16,6 +16,14 @@ void n265_encoder_set_dump(n265_encoder *e, FILE *f);
 void n265_encoder_set_shot_stats(n265_encoder *e, const char *path);
 void n265_set_shot_window(int n);
 void n265_set_lossless(int on);
+/* Annex A overrides (phase 8 item 7). `idc` is general_level_idc
+ * (level * 30); 0 leaves the level derived from the stream. */
+void n265_set_level(int idc, int high_tier);
+void n265_set_vui_timing(int on);
+/* "4.1", "41" or "123" -> 123; 0 for a string that is not a level. Pure
+ * arithmetic over the Annex A table, so the 8-bit copy serves both
+ * libraries and the dispatch table does not carry it. */
+int n265_level_parse(const char *s);
 
 /* ---------------------------------------------------------------------
  * Both libraries, one command line (phase 8 item 5a).
@@ -45,6 +53,8 @@ void n265_set_ref_10(int n);
 void n265_set_badapt_10(int on);
 void n265_set_threads_10(int n);
 void n265_set_lossless_10(int on);
+void n265_set_level_10(int idc, int high_tier);
+void n265_set_vui_timing_10(int on);
 int  n265_set_preset_10(const char *name);
 int  n265_preset_param_10(const char *key, int fallback);
 n265_encoder *n265_encoder_open_10(const n265_param *p);
@@ -71,6 +81,8 @@ typedef struct n265_api {
     int  (*preset_param)(const char *, int);
     void (*set_shot_window)(int);
     void (*set_lossless)(int);
+    void (*set_level)(int, int);
+    void (*set_vui_timing)(int);
     n265_encoder *(*encoder_open)(const n265_param *);
     int  (*encoder_encode)(n265_encoder *, n265_nal **, int *,
                            const n265_picture *);
@@ -85,6 +97,7 @@ static const n265_api api8 = {
     8, n265_param_default, n265_set_mode, n265_set_la, n265_set_crf,
     n265_set_bitrate, n265_set_ref, n265_set_badapt, n265_set_threads,
     n265_set_preset, n265_preset_param, n265_set_shot_window, n265_set_lossless,
+    n265_set_level, n265_set_vui_timing,
     n265_encoder_open, n265_encoder_encode, n265_encoder_close,
     n265_version_str, n265_encoder_set_dump, n265_encoder_set_dump_decode,
     n265_encoder_set_shot_stats,
@@ -95,6 +108,7 @@ static const n265_api api10 = {
     n265_set_crf_10, n265_set_bitrate_10, n265_set_ref_10,
     n265_set_badapt_10, n265_set_threads_10, n265_set_preset_10,
     n265_preset_param_10, n265_set_shot_window_10, n265_set_lossless_10,
+    n265_set_level_10, n265_set_vui_timing_10,
     n265_encoder_open_10,
     n265_encoder_encode_10, n265_encoder_close_10, n265_version_str_10,
     n265_encoder_set_dump_10, n265_encoder_set_dump_decode_10,
@@ -341,6 +355,32 @@ static void usage(void)
         "                  the same). Output-neutral: the bitstream is\n"
         "                  byte-identical with it on. Fields and the shot\n"
         "                  definition: docs/instruments.md.\n"
+        "  --level <l>     signal this level instead of the derived one:\n"
+        "                  1, 2, 2.1 ... 6.2 (\"41\" also spells 4.1; the raw\n"
+        "                  idc is not a spelling). REFUSED when the stream\n"
+        "                  does not fit it - the picture size, the\n"
+        "                  per-dimension bound, the declared DPB, the frame\n"
+        "                  rate, or the bit rate where one is known. Left\n"
+        "                  off, the level is derived from all five (Annex A).\n"
+        "  --high-tier     signal the High tier. Only defined from level 4\n"
+        "                  up (A.4.1), so on a smaller picture it is what\n"
+        "                  takes the level to 4. Under --bitrate the tier\n"
+        "                  also rises on its own when no Main tier level\n"
+        "                  admits the target.\n"
+        "                  NOTE the bit-rate bound is ENFORCED only under\n"
+        "                  --bitrate and --pcm, where the encoder knows the\n"
+        "                  rate. Under --qp and --crf the rate is whatever\n"
+        "                  the content costs, so the level comes from size,\n"
+        "                  DPB and frame rate and MaxBR is only REPORTED\n"
+        "                  (--verbose prints it).\n"
+        "  --vui-timing    write vui_timing_info in the SPS from the y4m\n"
+        "                  frame rate, so a decoder can check the level's\n"
+        "                  MaxLumaSr leg against the rate it was derived\n"
+        "                  from. Off by default: it adds about a dozen\n"
+        "                  bytes to every SPS and Annex A does not ask for it.\n"
+        "  --verbose, -v   one line at open with the level and tier chosen\n"
+        "                  and every Annex A bound that drove them\n"
+        "                  (N265_LEVEL_TRACE=1 is the same line)\n"
         "  --version       print version\n");
 }
 
@@ -351,6 +391,8 @@ int main(int argc, char **argv)
     long max_frames = -1;
     int qp = 26, pcm = 0, ctu = 64, keyint = 250, bframes = 7, aq = 1;
     int lossless = 0;
+    const char *level_str = NULL;   /* --level; NULL = derive it */
+    int high_tier = 0, vui_timing = 0, verbose = 0;
     double crf = -1.0, bitrate = 0.0;
     int had_crf = 0;            /* --crf given: the ON switch, not crf >= 0 */
     int out_depth = 0;          /* --output-depth; 0 = the input's */
@@ -408,6 +450,14 @@ int main(int argc, char **argv)
             pcm = 1;
         } else if (!strcmp(argv[i], "--lossless")) {
             lossless = 1;
+        } else if (!strcmp(argv[i], "--level") && i + 1 < argc) {
+            level_str = argv[++i];
+        } else if (!strcmp(argv[i], "--high-tier")) {
+            high_tier = 1;
+        } else if (!strcmp(argv[i], "--verbose") || !strcmp(argv[i], "-v")) {
+            verbose = 1;
+        } else if (!strcmp(argv[i], "--vui-timing")) {
+            vui_timing = 1;
         } else if (!strcmp(argv[i], "--dump-recon") && i + 1 < argc) {
             dump_path = argv[++i];
         } else if (!strcmp(argv[i], "--shot-window") && i + 1 < argc) {
@@ -544,6 +594,33 @@ int main(int argc, char **argv)
         return 2;
     }
     a->set_lossless(lossless);
+    /* --level / --high-tier. The refusals that need the STREAM - a level
+     * too low for the picture, the rate or the DPB - are made at encoder
+     * open, where the derivation lives; the one made here is the only one
+     * that needs nothing but the string. */
+    {
+        int idc = 0;
+        if (level_str) {
+            idc = n265_level_parse(level_str);
+            if (!idc) {
+                fprintf(stderr, "n265: --level %s is not a level of Annex A "
+                        "(1, 2, 2.1, 3, 3.1, 4, 4.1, 5, 5.1, 5.2, 6, 6.1, "
+                        "6.2; \"41\" spells 4.1). The raw idc is not a "
+                        "spelling: 30 and 60 are each an idc AND a level "
+                        "written ten times.\n", level_str);
+                return 2;
+            }
+        }
+        a->set_level(idc, high_tier);
+    }
+    a->set_vui_timing(vui_timing);
+    /* --verbose is N265_LEVEL_TRACE by another name: one code path, one
+     * line, and a script that wants it without a flag sets the variable.
+     * setenv does not overwrite, so an explicit N265_LEVEL_TRACE=0 in the
+     * environment still turns it on - presence is what the encoder reads,
+     * as it does for every other trace. */
+    if (verbose)
+        setenv("N265_LEVEL_TRACE", "1", 0);
     n265_param p;
     a->param_default(&p);
     p.width = y.w;
