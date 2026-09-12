@@ -24,11 +24,13 @@
  *
  * Random is the weakest of these. The ones that matter are the extremes:
  * kind 1 puts every sample at a clip end, and kind 4 builds the exact
- * worst case for the Hadamard, a block whose difference is 255 times one
- * 2D basis function, which puts a single coefficient at 255 * n * n -
- * 16320 for the 8x8 tile and 4080 for the 4x4 - the top of the int16
- * range claim in satd_neon.c. If a lane were one bit too narrow that is
- * the input that says so.
+ * worst case for the Hadamard, a block whose difference is PIXEL_MAX
+ * times one 2D basis function, which puts a single coefficient at
+ * PIXEL_MAX * n * n - 16320 for the 8x8 tile and 4080 for the 4x4 at 8
+ * bits, 65472 and 16368 at Main10, which is exactly where satd_neon.c's
+ * second pass has to leave int16 behind. If a lane were one bit too
+ * narrow that is the input that says so, and it is the same input at
+ * both depths.
  */
 #define NKIND 6
 
@@ -38,43 +40,43 @@ static int had_sign(int k, int j)
     return (__builtin_popcount(k & j) & 1) ? -1 : 1;
 }
 
-static void fill_pair(uint8_t *a, int as, uint8_t *b, int bs, int w, int h,
+static void fill_pair(pixel *a, int as, pixel *b, int bs, int w, int h,
                       int kind)
 {
     int ky = (int)(rnd() & 7), kx = (int)(rnd() & 7);
 
     for (int y = 0; y < h; y++)
         for (int x = 0; x < w; x++) {
-            uint8_t va, vb;
+            pixel va, vb;
             switch (kind) {
             case 0:
-                va = (uint8_t)(rnd() >> 24);
-                vb = (uint8_t)(rnd() >> 24);
+                va = ca_pix();
+                vb = ca_pix();
                 break;
             case 1:     /* both ends of the range, every sample */
-                va = (uint8_t)((rnd() & 1) ? 255 : 0);
-                vb = (uint8_t)((rnd() & 1) ? 255 : 0);
+                va = ca_pix_edge();
+                vb = ca_pix_edge();
                 break;
             case 2:     /* identical: the near-skip case, sum 0 */
-                va = (uint8_t)(rnd() >> 24);
+                va = ca_pix();
                 vb = va;
                 break;
             case 3: {   /* encoder-typical: a small residual on a ramp */
-                int base = (x * 7 + y * 11 + (int)(rnd() & 15)) & 255;
+                int base = (x * 7 + y * 11 + (int)(rnd() & 15)) & PIXEL_MAX;
                 int d = (int)(rnd() % 9) - 4;
                 int v = base + d;
-                va = (uint8_t)base;
-                vb = (uint8_t)(v < 0 ? 0 : v > 255 ? 255 : v);
+                va = (pixel)base;
+                vb = (pixel)(v < 0 ? 0 : v > PIXEL_MAX ? PIXEL_MAX : v);
                 break;
             }
-            case 4: {   /* +/-255 on one 2D Hadamard basis function */
+            case 4: {   /* +/-PIXEL_MAX on one 2D Hadamard basis function */
                 int s = had_sign(ky, y & 7) * had_sign(kx, x & 7);
-                va = (uint8_t)(s > 0 ? 255 : 0);
-                vb = (uint8_t)(255 - va);
+                va = (pixel)(s > 0 ? PIXEL_MAX : 0);
+                vb = (pixel)(PIXEL_MAX - va);
                 break;
             }
             default:    /* solid maximum difference */
-                va = 255;
+                va = (pixel)PIXEL_MAX;
                 vb = 0;
                 break;
             }
@@ -111,7 +113,7 @@ static const int satd_shapes[][2] = {
 #define NSATD_SH ((int)(sizeof(satd_shapes) / sizeof(satd_shapes[0])))
 
 /* the C entry point's tiling, in the loop-nest tiles, both arms */
-static uint32_t satd_ref_wh(const uint8_t *a, int as, const uint8_t *b,
+static uint32_t satd_ref_wh(const pixel *a, int as, const pixel *b,
                             int bs, int w, int h)
 {
     uint32_t sum = 0;
@@ -140,10 +142,10 @@ static uint32_t satd_ref_wh(const uint8_t *a, int as, const uint8_t *b,
     return sum;
 }
 
-static uint32_t satd_opt_wh(const uint8_t *a, int as, const uint8_t *b,
+static uint32_t satd_opt_wh(const pixel *a, int as, const pixel *b,
                             int bs, int w, int h)
 {
-#if N265_NEON
+#if N265_NEON_SATD
     return n265_satd_wh_neon(a, as, b, bs, w, h);
 #else
     return n265_satd_wh(a, as, b, bs, w, h);
@@ -164,11 +166,11 @@ static uint32_t satd_opt_wh(const uint8_t *a, int as, const uint8_t *b,
  *     where four were declared): the padding is interior, so the border
  *     scramble cannot see it and it gets its own pass.
  */
-static void scramble_pad(uint8_t *p, int stride, int w, int h)
+static void scramble_pad(pixel *p, int stride, int w, int h)
 {
     for (int y = 0; y < h; y++)
         for (int x = w; x < stride; x++)
-            p[(size_t)y * stride + x] = (uint8_t)(rnd() >> 24);
+            p[(size_t)y * stride + x] = ca_pix();
 }
 
 static int check_satd_wh(void)
@@ -184,9 +186,10 @@ static int check_satd_wh(void)
         for (int is = 0; is < 2 && !bad; is++) {
             int as = is ? w + 5 : w;
             int bs = is ? w + 13 : w;
-            size_t abytes = (size_t)as * h, bbytes = (size_t)bs * h;
-            uint8_t *a = ca_guard_alloc(abytes);
-            uint8_t *b = ca_guard_alloc(bbytes);
+            size_t abytes = (size_t)as * h * sizeof(pixel);
+            size_t bbytes = (size_t)bs * h * sizeof(pixel);
+            pixel *a = ca_guard_alloc(abytes);
+            pixel *b = ca_guard_alloc(bbytes);
             char what[48];
 
             snprintf(what, sizeof(what), "satd %dx%d s%d", w, h, is);
@@ -249,14 +252,15 @@ static int check_satd_wh(void)
 static int check_satd_tiles(void)
 {
     int bad = 0;
-#if N265_NEON
+#if N265_NEON_SATD
     for (int t = 0; t < 2 && !bad; t++) {
         int n = t ? 8 : 4;
         for (int is = 0; is < 2 && !bad; is++) {
             int as = is ? n + 5 : n, bs = is ? n + 13 : n;
-            size_t abytes = (size_t)as * n, bbytes = (size_t)bs * n;
-            uint8_t *a = ca_guard_alloc(abytes);
-            uint8_t *b = ca_guard_alloc(bbytes);
+            size_t abytes = (size_t)as * n * sizeof(pixel);
+            size_t bbytes = (size_t)bs * n * sizeof(pixel);
+            pixel *a = ca_guard_alloc(abytes);
+            pixel *b = ca_guard_alloc(bbytes);
             char what[48];
 
             snprintf(what, sizeof(what), "satd%d tile s%d", n, is);
@@ -307,7 +311,7 @@ static int check_satd_tiles(void)
 /* ---- bench ---------------------------------------------------------- */
 
 struct sctx {
-    const uint8_t *a, *b;
+    const pixel *a, *b;
     int as, bs, w, h;
     uint32_t sink;
 };
@@ -324,7 +328,7 @@ static void satd_c_call(void *p)
     c->sink += n265_satd_wh_c(c->a, c->as, c->b, c->bs, c->w, c->h);
 }
 
-#if N265_NEON
+#if N265_NEON_SATD
 static void satd_neon_call(void *p)
 {
     struct sctx *c = p;
@@ -341,7 +345,7 @@ static const int satd_bench_shapes[][2] = {
 
 static void bench_satd(void)
 {
-    static uint8_t a[72 * 72], b[72 * 72];
+    static pixel a[72 * 72], b[72 * 72];
     struct sctx c;
     int n = (int)(sizeof(satd_bench_shapes) / sizeof(satd_bench_shapes[0]));
 
@@ -356,7 +360,7 @@ static void bench_satd(void)
         c.w = satd_bench_shapes[i][0];
         c.h = satd_bench_shapes[i][1];
         snprintf(name, sizeof(name), "satd %dx%d", c.w, c.h);
-#if N265_NEON
+#if N265_NEON_SATD
         bench(name, satd_ref_call, satd_c_call, satd_neon_call, &c, 40000);
 #else
         bench(name, satd_ref_call, satd_c_call, NULL, &c, 40000);
@@ -407,7 +411,7 @@ static const int ssd_shapes[][2] = {
  * values of `arm` on the same body. */
 enum { RED_SAD, RED_SSD, RED_SSD_DOT };
 
-static uint64_t red_ref(int which, const uint8_t *a, int as, const uint8_t *b,
+static uint64_t red_ref(int which, const pixel *a, int as, const pixel *b,
                         int bs, int w, int h)
 {
     if (which == RED_SAD)
@@ -415,11 +419,11 @@ static uint64_t red_ref(int which, const uint8_t *a, int as, const uint8_t *b,
     return n265_ssd_wh_c(a, as, b, bs, w, h);
 }
 
-static uint64_t red_opt(int which, const uint8_t *a, int as, const uint8_t *b,
+static uint64_t red_opt(int which, const pixel *a, int as, const pixel *b,
                         int bs, int w, int h)
 {
-#if N265_NEON
-#if defined(__ARM_FEATURE_DOTPROD)
+#if N265_NEON_SATD
+#if BIT_DEPTH == 8 && defined(__ARM_FEATURE_DOTPROD)
     if (which == RED_SSD_DOT)
         return n265_ssd_wh_dot_neon(a, as, b, bs, w, h);
 #endif
@@ -443,9 +447,10 @@ static int check_reduction(const char *tag, int which, const int (*shapes)[2],
         for (int is = 0; is < 2 && !bad; is++) {
             int as = is ? w + 5 : w;
             int bs = is ? w + 13 : w;
-            size_t abytes = (size_t)as * h, bbytes = (size_t)bs * h;
-            uint8_t *a = ca_guard_alloc(abytes);
-            uint8_t *b = ca_guard_alloc(bbytes);
+            size_t abytes = (size_t)as * h * sizeof(pixel);
+            size_t bbytes = (size_t)bs * h * sizeof(pixel);
+            pixel *a = ca_guard_alloc(abytes);
+            pixel *b = ca_guard_alloc(bbytes);
             char what[56];
 
             snprintf(what, sizeof(what), "%s %dx%d s%d", tag, w, h, is);
@@ -513,16 +518,16 @@ static const int rowcol_shapes[] = {
 };
 #define NROWCOL_SH ((int)(sizeof(rowcol_shapes) / sizeof(rowcol_shapes[0])))
 
-static void rowcol_ref(const uint8_t *a, int as, const uint8_t *b, int bs,
+static void rowcol_ref(const pixel *a, int as, const pixel *b, int bs,
                        int n, uint32_t *row, uint32_t *col)
 {
     n265_sad_rowcol_ref(a, as, b, bs, n, row, col);
 }
 
-static void rowcol_opt(const uint8_t *a, int as, const uint8_t *b, int bs,
+static void rowcol_opt(const pixel *a, int as, const pixel *b, int bs,
                        int n, uint32_t *row, uint32_t *col)
 {
-#if N265_NEON
+#if N265_NEON_SATD
     n265_sad_rowcol_neon(a, as, b, bs, n, row, col);
 #else
     n265_sad_rowcol(a, as, b, bs, n, row, col);
@@ -550,10 +555,11 @@ static int check_rowcol(void)
         for (int is = 0; is < 2 && !bad; is++) {
             int as = is ? n + 5 : n;
             int bs = is ? n + 13 : n;
-            size_t abytes = (size_t)as * n, bbytes = (size_t)bs * n;
+            size_t abytes = (size_t)as * n * sizeof(pixel);
+            size_t bbytes = (size_t)bs * n * sizeof(pixel);
             size_t obytes = (size_t)n * sizeof(uint32_t);
-            uint8_t *a = ca_guard_alloc(abytes);
-            uint8_t *b = ca_guard_alloc(bbytes);
+            pixel *a = ca_guard_alloc(abytes);
+            pixel *b = ca_guard_alloc(bbytes);
             uint32_t *rr = ca_guard_alloc(obytes);
             uint32_t *rc = ca_guard_alloc(obytes);
             uint32_t *orow = ca_guard_alloc(obytes);
@@ -636,13 +642,13 @@ enum { PG_SATD4, PG_SATD8, PG_SATD_WH, PG_ROWCOL, PG_RED };
 /* the row/col kernel's outputs; the page guard is about its INPUTS */
 static uint32_t pg_row[64], pg_col[64];
 
-static void pg_call(int which, const uint8_t *a, int as, const uint8_t *b,
+static void pg_call(int which, const pixel *a, int as, const pixel *b,
                     int bs, int w, int h)
 {
     volatile uint64_t sink = 0;
 
     switch (which) {
-#if N265_NEON
+#if N265_NEON_SATD
     case PG_SATD4: sink = n265_satd4_neon(a, as, b, bs); break;
     case PG_SATD8: sink = n265_satd8_neon(a, as, b, bs); break;
 #endif
@@ -660,17 +666,17 @@ static void check_window(const char *tag, int which, int w, int h)
 {
     for (int is = 0; is < 2; is++) {
         int as = is ? w + 5 : w, bs = is ? w + 13 : w;
-        size_t abytes = ca_pg_window(as, w, h);
-        size_t bbytes = ca_pg_window(bs, w, h);
+        size_t abytes = ca_pg_window_pix(as, w, h);
+        size_t bbytes = ca_pg_window_pix(bs, w, h);
 
         for (int tail = 0; tail < 2; tail++) {
             ca_pg ga, gb;
-            uint8_t *a = ca_pg_alloc(&ga, abytes, tail);
-            uint8_t *b = ca_pg_alloc(&gb, bbytes, tail);
+            pixel *a = ca_pg_alloc(&ga, abytes, tail);
+            pixel *b = ca_pg_alloc(&gb, bbytes, tail);
             char what[80];
 
-            ca_pg_fill(&ga, abytes);
-            ca_pg_fill(&gb, bbytes);
+            ca_pg_fill_pix(&ga, abytes / sizeof(pixel));
+            ca_pg_fill_pix(&gb, bbytes / sizeof(pixel));
             snprintf(what, sizeof(what), "%s %dx%d s%d, %s edge", tag, w, h,
                      is, tail ? "far" : "near");
             ca_pg_arm(what);
@@ -684,7 +690,7 @@ static void check_window(const char *tag, int which, int w, int h)
 
 static void check_windows(void)
 {
-#if N265_NEON
+#if N265_NEON_SATD
     check_window("satd4 tile", PG_SATD4, 4, 4);
     check_window("satd8 tile", PG_SATD8, 8, 8);
 #endif
@@ -700,7 +706,7 @@ static void check_windows(void)
     for (int s = 0; s < NROWCOL_SH; s++)
         check_window("sad rowcol", PG_ROWCOL, rowcol_shapes[s],
                      rowcol_shapes[s]);
-#if N265_NEON && defined(__ARM_FEATURE_DOTPROD)
+#if N265_NEON_SATD && BIT_DEPTH == 8 && defined(__ARM_FEATURE_DOTPROD)
     if (n265_cpu_flags() & N265_CPU_DOTPROD)
         for (int s = 0; s < NSSD_SH; s++)
             check_window("ssd/dot", PG_RED + RED_SSD_DOT, ssd_shapes[s][0],
@@ -708,25 +714,30 @@ static void check_windows(void)
 #endif
 }
 
-/* the maximum a 64x64 SSD can reach - every sample at the opposite clip -
- * is 4096 * 65025 = 266342400, and the kernel's claim is that this is
- * exact in u32. Check the number itself rather than trusting the
- * arithmetic in the comment. */
+/* The maximum a 64x64 SSD can reach - every sample at the opposite clip -
+ * is 4096 * 65025 = 266342400 at 8 bits, where the kernel's claim is that
+ * the u32 accumulator holds it, and 4096 * 1046529 = 4286222784 at
+ * Main10, where it is inside 2^32 by a fifth of a percent and the kernel
+ * therefore folds into u64 once a row. That second number is the whole
+ * reason the 16-bit form is shaped differently, so check the number
+ * itself rather than trusting the arithmetic in a comment. */
 static int check_ssd_extreme(void)
 {
-    static uint8_t a[64 * 64], b[64 * 64];
-    uint64_t want = (uint64_t)64 * 64 * 255 * 255;
+    static pixel a[64 * 64], b[64 * 64];
+    uint64_t want = (uint64_t)64 * 64 * PIXEL_MAX * PIXEL_MAX;
     uint64_t got;
 
-    memset(a, 255, sizeof(a));
-    memset(b, 0, sizeof(b));
+    for (int i = 0; i < 64 * 64; i++) {
+        a[i] = (pixel)PIXEL_MAX;
+        b[i] = 0;
+    }
     got = red_opt(RED_SSD, a, 64, b, 64, 64, 64);
     if (got != want) {
         printf("    ssd 64x64 saturating: want %llu got %llu\n",
                (unsigned long long)want, (unsigned long long)got);
         return 1;
     }
-#if N265_NEON && defined(__ARM_FEATURE_DOTPROD)
+#if N265_NEON_SATD && BIT_DEPTH == 8 && defined(__ARM_FEATURE_DOTPROD)
     if (n265_cpu_flags() & N265_CPU_DOTPROD) {
         got = red_opt(RED_SSD_DOT, a, 64, b, 64, 64, 64);
         if (got != want) {
@@ -746,7 +757,7 @@ static int check_ssd_extreme(void)
 /* ---- bench, SAD and SSD --------------------------------------------- */
 
 struct rctx {
-    const uint8_t *a, *b;
+    const pixel *a, *b;
     int as, bs, w, h, which;
     uint64_t sink;
 };
@@ -770,7 +781,7 @@ static const int red_bench_shapes[][2] = {
 
 static void bench_reduction(const char *tag, int which)
 {
-    static uint8_t a[72 * 72], b[72 * 72];
+    static pixel a[72 * 72], b[72 * 72];
     struct rctx c;
     int n = (int)(sizeof(red_bench_shapes) / sizeof(red_bench_shapes[0]));
 
@@ -790,7 +801,7 @@ static void bench_reduction(const char *tag, int which)
         /* The reference IS the C path for these two - there is no third
          * form - so the middle column is a control on the measurement and
          * should read like the first. */
-#if N265_NEON
+#if N265_NEON_SATD
         bench(name, red_ref_call, red_ref_call, red_opt_call, &c, 200000);
 #else
         bench(name, red_ref_call, red_opt_call, NULL, &c, 200000);
@@ -799,7 +810,7 @@ static void bench_reduction(const char *tag, int which)
 }
 
 struct rcctx {
-    const uint8_t *a, *b;
+    const pixel *a, *b;
     int as, bs, n;
     uint32_t *row, *col;
 };
@@ -821,7 +832,7 @@ static const int rowcol_bench_shapes[] = { 4, 8, 16, 32, 64 };
 
 static void bench_rowcol(void)
 {
-    static uint8_t a[72 * 72], b[72 * 72];
+    static pixel a[72 * 72], b[72 * 72];
     static uint32_t row[64], col[64];
     struct rcctx c;
     int n = (int)(sizeof(rowcol_bench_shapes) /
@@ -841,7 +852,7 @@ static void bench_rowcol(void)
         snprintf(name, sizeof(name), "sad rowcol %dx%d", c.n, c.n);
         /* the reference IS the C path here too: the middle column is a
          * control on the measurement and should read like the first */
-#if N265_NEON
+#if N265_NEON_SATD
         bench(name, rowcol_ref_call, rowcol_ref_call, rowcol_opt_call, &c,
               200000);
 #else
@@ -868,7 +879,7 @@ int check_satd(void)
     bad = check_reduction("ssd", RED_SSD, ssd_shapes, NSSD_SH);
     if (bad)
         return bad;
-#if N265_NEON && defined(__ARM_FEATURE_DOTPROD)
+#if N265_NEON_SATD && BIT_DEPTH == 8 && defined(__ARM_FEATURE_DOTPROD)
     /* the second arm of the SSD, on a host that can run it. Both arms are
      * held to the same C reference; a host without the extension reaches
      * neither this check nor the arm. */
@@ -888,7 +899,7 @@ int check_satd(void)
     bench_reduction("sad", RED_SAD);
     bench_reduction("ssd", RED_SSD);
     bench_rowcol();
-#if N265_NEON && defined(__ARM_FEATURE_DOTPROD)
+#if N265_NEON_SATD && BIT_DEPTH == 8 && defined(__ARM_FEATURE_DOTPROD)
     if (n265_cpu_flags() & N265_CPU_DOTPROD)
         bench_reduction("ssd/dot", RED_SSD_DOT);
 #endif

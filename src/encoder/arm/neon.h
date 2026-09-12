@@ -144,11 +144,14 @@ uint64_t n265_ssd_wh_neon(const pixel *a, int as, const pixel *b,
 void n265_sad_rowcol_neon(const pixel *a, int as, const pixel *b,
                           int bs, int n, uint32_t *row, uint32_t *col);
 
-#if defined(__ARM_FEATURE_DOTPROD)
+#if BIT_DEPTH == 8 && defined(__ARM_FEATURE_DOTPROD)
 /* The FEAT_DotProd arm of n265_ssd_wh_neon, which selects it at runtime
  * on N265_CPU_DOTPROD (udot of a difference with itself is the sum of
  * four squares). Exported so checkasm can check and time BOTH arms on a
- * host that has the extension; not a dispatch site's entry point. */
+ * host that has the extension; not a dispatch site's entry point.
+ * 8-BIT ONLY: udot is defined on byte lanes and has no 16-bit form
+ * outside SVE, so the Main10 SSD's widening multiply-accumulate is the
+ * fastest shape available to it. */
 uint64_t n265_ssd_wh_dot_neon(const pixel *a, int as, const pixel *b,
                               int bs, int w, int h);
 #endif
