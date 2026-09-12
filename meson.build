@@ -79,7 +79,7 @@ if cpu_family == 'aarch64'
   if is_8bit
     neon_families = ['transform', 'satd', 'mc', 'rdoq', 'cost', 'intra']
   else
-    neon_families = ['transform', 'satd', 'rdoq', 'cost']   # the 10-bit list, grown one proved family at a time
+    neon_families = ['transform', 'satd', 'rdoq', 'cost', 'intra']   # the 10-bit list, grown one proved family at a time
   endif
   add_project_arguments('-DN265_NEON=1', language : 'c')
   foreach f : neon_families
