@@ -65,7 +65,12 @@ DEFAULT_OVERRIDES = {
     "N265_SKIP_ORACLE_AT": "pre",        # pre | post | postr
     "N265_NTP_SPIN": "25",               # microseconds x 1000 inside
     "N265_HW": "off",                    # off | auto | videotoolbox (a string)
-    "N265_QP_FRAC": "= --bitrate",       # on with ABR, off otherwise
+    # phase 7 follow-up 1: on with ABR, and under CRF on every frame the
+    # cu-tree frame term is live on (so off under CQP, off under either
+    # escape, and off on a flat-typed frame, where the term is zero)
+    "N265_QP_FRAC": "= --bitrate or CRF+frame term",
+    "N265_QP_FRAC_FLAT": "0",            # refused arm: the fraction on
+                                         # a flat-typed frame too
     "N265_AQ_FLOOR": "4",                # `if (v) vfloor = atof(v)`: the
                                          # literal is not last on the line
     # phase 7 step 2. k_f ships at 1.0 (the literal carries an f suffix);
