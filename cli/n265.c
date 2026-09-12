@@ -88,9 +88,9 @@ static void usage(void)
         "                  Above 7 the window has to hold the mini-GOP, so\n"
         "                  --rc-lookahead must be at least --bframes + 1.\n"
         "  --aq <0|1>      variance adaptive quantization (default 1)\n"
-        "  --rc-lookahead <1..32>  lookahead depth in frames (default 12).\n"
-        "                  Latency is the lookahead depth in frames; the\n"
-        "                  default 12 is the streaming setting. The deep\n"
+        "  --rc-lookahead <1..32>  lookahead depth in frames (default 20,\n"
+        "                  x265 medium's own; 12 before 2026-09-12).\n"
+        "                  Latency is the lookahead depth in frames. The deep\n"
         "                  window (--rc-lookahead 24 --bframes 15) is an\n"
         "                  opt-in mode: 24 frames of latency and a deeper\n"
         "                  DPB, for static or drawn content\n"
@@ -111,7 +111,10 @@ int main(int argc, char **argv)
     int qp = 26, pcm = 0, ctu = 64, keyint = 250, bframes = 7, aq = 1;
     double crf = -1.0, bitrate = 0.0;
     int nref = 1, badapt = 1;
-    int lookahead = 12, cutree = 1;   /* on by default since 2026-09-12: every
+    int lookahead = 20, cutree = 1;   /* 20 since 2026-09-12 (x265 medium's
+                                     * own depth): the last window that
+                                     * clears every gate rule, docs/
+                                     * phase7-gop-design.md step 4 */   /* on by default since 2026-09-12: every
                                      * measured medium passes both, and the
                                      * bare CLI used to hand out the tools-only
                                      * encoder (docs/instruments.md, board) */

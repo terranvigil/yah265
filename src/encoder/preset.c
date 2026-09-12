@@ -170,6 +170,8 @@ static const struct kv fast_par[] = {
      * often taken at this resolution: 1.37-1.42x on the two CIF clips
      * for 0.10 of median BD. */
     { "ctu", "32" },
+    { "rc-lookahead", "12" },  /* fast keeps the 12-frame window until its own
+                                 * read (item fastla); medium moved to 20 */
     { NULL, NULL }
 };
 
