@@ -9,18 +9,21 @@
 # env: N265=path/to/n265  N265_10=path/to/n265-10
 #      DEC265=path/to/dec265  FFMPEG=path/to/ffmpeg
 #
-# --depth10 (phase 8 item 2) runs the MAIN10 list against the 10-bit
-# binary instead of the 8-bit one: the source is generated as C420p10,
-# the encoder is $N265_10, and both decoders are held to the same
-# bit-exact recon match. It is a SEPARATE list and not an addition to the
-# 8-bit one, so `make conformance` and `make conformance-fast` stay
-# exactly the runs they were - the 8-bit invariant includes their pass
-# count.
+# --depth10 (phase 8 item 2) runs the MAIN10 list: the source is
+# generated as C420p10 and both decoders are held to the same bit-exact
+# recon match. It is a SEPARATE list and not an addition to the 8-bit
+# one, so `make conformance` and `make conformance-fast` stay exactly the
+# runs they were - the 8-bit invariant includes their pass count.
+#
+# Since item 5a $N265 and $N265_10 are normally the SAME binary, because
+# build/n265 links both libraries and picks the encoder from the input's
+# bit depth; the two variables stay separate so a sanitiser tree or an
+# older binary can be pointed at one leg without the other.
 
 set -u
 
 N265=${N265:-build/n265}
-N265_10=${N265_10:-build10/n265-10}
+N265_10=${N265_10:-build/n265}
 FFMPEG=${FFMPEG:-ffmpeg}
 DEC265=${DEC265:-}
 FAST=0
@@ -52,10 +55,9 @@ if [ -z "$DEC265" ]; then
 fi
 command -v "$FFMPEG" >/dev/null 2>&1 || { echo "conformance: ffmpeg not found" >&2; exit 1; }
 
-# The binary under test and the source format go together: one library
-# per sample width, and since item 2 each refuses the other's input
-# outright, so a mismatch here fails loudly rather than measuring the
-# wrong thing.
+# The binary under test and the source format go together. The one CLI
+# reads the depth off the y4m tag, so the source format IS the leg
+# selector; SRCFMT is what decides which library runs.
 if [ "$DEPTH" = 10 ]; then
     ENC=$N265_10
     # -strict -1: yuv420p10le is not a registered y4m pixel format. The

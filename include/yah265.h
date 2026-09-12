@@ -49,6 +49,45 @@ typedef uint16_t n265_pixel;
 #error "N265_BIT_DEPTH must be 8 or 10"
 #endif
 
+/* The per-depth symbol namespace (phase 8 item 5a). Since one command
+ * line links BOTH libraries - n265 picks the encoder from the input's
+ * bit depth - the two cannot both export `n265_encoder_open`, so the
+ * Main10 library's public names carry a `_10` suffix.
+ *
+ * An external consumer sees NO change: it writes `n265_encoder_open`
+ * either way, and this header renames the call for it according to the
+ * N265_BIT_DEPTH it compiled with (nothing, for the installed 8-bit
+ * header). A consumer that wants BOTH libraries in one program is in
+ * n265's position and declares the suffixed entry points itself; that
+ * is what N265_API is published for.
+ *
+ * The library's internal symbols are namespaced the same way, by a
+ * force-included header that is not installed. */
+#define N265_API_PASTE(a, b) a ## b
+#define N265_API_EVAL(a, b)  N265_API_PASTE(a, b)
+#if N265_BIT_DEPTH == 8
+#  define N265_API(name) name
+#else
+#  define N265_API(name) N265_API_EVAL(name, N265_API_EVAL(_, N265_BIT_DEPTH))
+#endif
+
+#if N265_BIT_DEPTH != 8
+#define n265_param_default    N265_API(n265_param_default)
+#define n265_set_mode         N265_API(n265_set_mode)
+#define n265_set_la           N265_API(n265_set_la)
+#define n265_set_crf          N265_API(n265_set_crf)
+#define n265_set_bitrate      N265_API(n265_set_bitrate)
+#define n265_set_ref          N265_API(n265_set_ref)
+#define n265_set_badapt       N265_API(n265_set_badapt)
+#define n265_set_threads      N265_API(n265_set_threads)
+#define n265_set_preset       N265_API(n265_set_preset)
+#define n265_preset_param     N265_API(n265_preset_param)
+#define n265_encoder_open     N265_API(n265_encoder_open)
+#define n265_encoder_encode   N265_API(n265_encoder_encode)
+#define n265_encoder_close    N265_API(n265_encoder_close)
+#define n265_version_str      N265_API(n265_version_str)
+#endif
+
 /* Chroma sampling of input pictures. Only 4:2:0 for now. */
 enum {
     N265_CSP_I420 = 0,
@@ -80,8 +119,14 @@ typedef struct n265_nal {
     int size;               /* bytes, start code included               */
 } n265_nal;
 
+/* The planes are `void *` and not `n265_pixel *` so that ONE picture
+ * struct serves both libraries: the sample width is the library's, not
+ * the header's, and a caller that links both (n265 does) hands 8-bit
+ * planes to one and 16-bit planes to the other through the same type.
+ * A caller that links one library writes `n265_pixel *` as before and
+ * the conversion to void * is implicit in C. */
 typedef struct n265_picture {
-    const n265_pixel *plane[3];
+    const void *plane[3];   /* n265_pixel samples, the library's width */
     int stride[3];          /* in SAMPLES, not bytes */
     int64_t pts;
 } n265_picture;
@@ -101,8 +146,14 @@ YAH265_API void n265_set_mode(int mode, int qp, int ctb_log2, int keyint,
 YAH265_API void n265_set_la(int depth, int cutree);
 /* Constant rate factor: the per-frame base QP comes from `crf` (plus the
  * frame-type ladder, the cu-tree operating-point shift and the AQ frame-mean
- * term) instead of the fixed QP. crf < 0 turns it off (the default). Open
- * loop: no bits feedback. */
+ * term) instead of the fixed QP. Open loop: no bits feedback.
+ *
+ * CALLING IT AT ALL turns CRF on, at any value (phase 8 item 5a). It used
+ * to be gated on `crf >= 0`, which made the twelve QP steps below zero
+ * that Main10 pays for unreachable through CRF; the rate factor is a QpY
+ * and QpY runs from -QpBdOffsetY, so a negative one is a legal operating
+ * point and the RC clamps it to that floor like any other. CQP is what
+ * you get by NOT calling this. */
 YAH265_API void n265_set_crf(double crf);
 /* Average bitrate, in kbit/s: single-pass ABR. The base QP per frame comes
  * from a rate factor the encoder solves from the bits it has spent against

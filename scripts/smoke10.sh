@@ -13,11 +13,12 @@
 # it produced bytes, and that ffmpeg decodes the frames back out.
 #
 # usage: scripts/smoke10.sh
-# env: N265_10=path/to/n265-10  FFMPEG=path/to/ffmpeg
+# env: N265_10=path/to/n265 (the one CLI; it picks Main10 off the C420p10
+#      tag)  FFMPEG=path/to/ffmpeg
 
 set -u
 
-N265_10=${N265_10:-build10/n265-10}
+N265_10=${N265_10:-build/n265}
 FFMPEG=${FFMPEG:-ffmpeg}
 FRAMES=${FRAMES:-12}
 

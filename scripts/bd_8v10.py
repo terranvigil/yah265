@@ -34,7 +34,7 @@ import bd_at_rate as bar
 
 FRAMES = int(os.environ.get("FRAMES", "120"))
 N8 = os.environ.get("N265", "build/n265")
-N10 = os.environ.get("N265_10", "build10/n265-10")
+N10 = os.environ.get("N265_10", "build/n265")   # one binary, both depths
 SRC8 = os.environ.get("SRC8", "tests/corpus")
 SRC10 = os.environ.get("SRC10", "local/corpus10")
 ARGS = os.environ.get("ARGS", "--aq 1 --cutree 1")

@@ -51,7 +51,13 @@ void n265_param_default(n265_param *p)
 /* internal knobs the public API doesn't expose yet */
 static int g_mode = N265_MODE_INTRA;
 static int g_qp = 26;
-static double g_crf = -1.0;      /* n265_set_crf; < 0 = CQP */
+static double g_crf = -1.0;      /* n265_set_crf's rate factor (a QpY) */
+/* Whether n265_set_crf was called at all. It used to be `g_crf >= 0`, which
+ * is why --crf could not reach the twelve QP steps below zero that Main10
+ * pays for: the off sentinel and a legal operating point were the same
+ * number (phase 8 item 5a). The rate factor is a QpY, QpY runs from
+ * -QpBdOffsetY, and plan_qp clamps it there like any other. */
+static int g_crf_on = 0;
 static double g_bitrate = 0.0;   /* n265_set_bitrate, kbit/s; 0 = off */
 static int g_ctb_log2 = 6;
 static int g_keyint = 250;      /* x265 4.3's own default (2026-09-08) */
@@ -107,7 +113,7 @@ void n265_set_shot_window(int n)
 
 void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes,
                    int aq);
-void n265_set_crf(double crf) { g_crf = crf; }
+void n265_set_crf(double crf) { g_crf = crf; g_crf_on = 1; }
 void n265_set_bitrate(double kbps) { g_bitrate = kbps > 0.0 ? kbps : 0.0; }
 void n265_set_ref(int n) { g_ref = n < 1 ? 1 : n > N265_MAX_REF ? N265_MAX_REF : n; }
 /* 0 off (fixed cadence), 1 the motion rule (the default), 2 the priced
@@ -712,7 +718,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->param = *p;
     e->mode = g_mode;
     e->qp_base = g_qp;
-    e->crf_on = g_crf >= 0.0;
+    e->crf_on = g_crf_on;
     e->crf = g_crf;
     /* ABR overrides CRF: the rate factor is solved, not given. The
      * fractional base QP rides with it - see encode_frame. */

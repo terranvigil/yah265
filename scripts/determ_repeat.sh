@@ -36,9 +36,9 @@ set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ENC="${ENC:-$ROOT/build/n265}"
 # Where the clips live. The default is the 8-bit corpus; the Main10 leg
-# (phase 8 item 2) points this at a directory of upshifted clips and ENC
-# at build10/n265-10, because one library per sample width means the
-# binary and the source have to agree (scripts/upshift10.sh).
+# (phase 8 item 2) points this at a directory of upshifted clips and
+# leaves ENC alone, because since item 5a build/n265 reads the depth off
+# the y4m tag and picks the library itself (scripts/upshift10.sh).
 CORPUS="${CORPUS:-$ROOT/tests/corpus}"
 WORK="${WORK:-${TMPDIR:-/tmp}/determ_repeat.$$}"
 RUNS="${RUNS:-12}"

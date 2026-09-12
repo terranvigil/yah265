@@ -1,0 +1,246 @@
+/*
+ * symbols10.h - the Main10 library's internal symbol namespace.
+ *
+ * Phase 8 item 5a. One command line links BOTH encoder libraries, so
+ * every symbol either library defines with external linkage has to be
+ * unique across the pair: a name defined in both archives resolves to
+ * whichever archive the linker scanned first, which is an ordering
+ * accident and not a build error. The public API takes its suffix in
+ * include/yah265.h (N265_API); everything below is the INTERNAL side,
+ * force-included into every translation unit of the 10-bit library by
+ * meson (`-include`) so a 10-bit object both defines and references
+ * `<name>_10`. Nothing here reaches the 8-bit library, the CLI, or an
+ * installed header.
+ *
+ * The list is the union of the two archives' defined symbols minus the
+ * fourteen public ones, and it is checked rather than trusted:
+ * `scripts/symbol_check.sh` (a leg of `make test`) intersects the two
+ * archives and fails on any name they share, so a new non-static symbol
+ * that is added here and forgotten fails the gate instead of linking to
+ * the wrong depth's code.
+ *
+ * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
+ */
+
+#ifndef N265_SYMBOLS10_H
+#define N265_SYMBOLS10_H
+
+#if N265_BIT_DEPTH != 10
+#error "symbols10.h is the Main10 library's namespace; N265_BIT_DEPTH is not 10"
+#endif
+
+#define bs_align_one_then_zero       bs_align_one_then_zero_10
+#define bs_align_zero                bs_align_zero_10
+#define bs_free                      bs_free_10
+#define bs_init                      bs_init_10
+#define bs_put_bits                  bs_put_bits_10
+#define bs_put_se                    bs_put_se_10
+#define bs_put_ue                    bs_put_ue_10
+#define bs_rbsp_trailing             bs_rbsp_trailing_10
+#define bs_reset                     bs_reset_10
+#define n265_amvp                    n265_amvp_10
+#define n265_amvp_pu                 n265_amvp_pu_10
+#define n265_analyze_ctu             n265_analyze_ctu_10
+#define n265_asm_off_                n265_asm_off__10
+#define n265_bi_avg                  n265_bi_avg_10
+#define n265_bi_avg_wh               n265_bi_avg_wh_10
+#define n265_bi_avg_wh_neon          n265_bi_avg_wh_neon_10
+#define n265_bi_avg_wh_ref           n265_bi_avg_wh_ref_10
+#define n265_brun_trace              n265_brun_trace_10
+#define n265_build_lists             n265_build_lists_10
+#define n265_cabac_bin               n265_cabac_bin_10
+#define n265_cabac_bypass            n265_cabac_bypass_10
+#define n265_cabac_bypass_bits       n265_cabac_bypass_bits_10
+#define n265_cabac_ctx_init          n265_cabac_ctx_init_10
+#define n265_cabac_start             n265_cabac_start_10
+#define n265_cabac_terminate         n265_cabac_terminate_10
+#define n265_chroma_qp               n265_chroma_qp_10
+#define n265_clamp_mv                n265_clamp_mv_10
+#define n265_coeff_group             n265_coeff_group_10
+#define n265_coeff_group_neon        n265_coeff_group_neon_10
+#define n265_coeff_group_ref         n265_coeff_group_ref_10
+#define n265_cpu_cached_             n265_cpu_cached__10
+#define n265_cpu_flags_slow          n265_cpu_flags_slow_10
+#define n265_cpu_name                n265_cpu_name_10
+#define n265_cpu_ready_              n265_cpu_ready__10
+#define n265_csbf_map                n265_csbf_map_10
+#define n265_csbf_map_neon           n265_csbf_map_neon_10
+#define n265_csbf_map_ref            n265_csbf_map_ref_10
+#define n265_ctu_warm                n265_ctu_warm_10
+#define n265_ctx_init_b              n265_ctx_init_b_10
+#define n265_ctx_init_i              n265_ctx_init_i_10
+#define n265_ctx_init_p              n265_ctx_init_p_10
+#define n265_deblock_frame           n265_deblock_frame_10
+#define n265_deblock_row             n265_deblock_row_10
+#define n265_deblock_warm            n265_deblock_warm_10
+#define n265_dequant                 n265_dequant_10
+#define n265_dequant_neon            n265_dequant_neon_10
+#define n265_dequant_ref             n265_dequant_ref_10
+#define n265_dpb_requirement         n265_dpb_requirement_10
+#define n265_encoder_set_dump        n265_encoder_set_dump_10
+#define n265_encoder_set_dump_decode n265_encoder_set_dump_decode_10
+#define n265_encoder_set_shot_stats  n265_encoder_set_shot_stats_10
+#define n265_encoder_warm            n265_encoder_warm_10
+#define n265_entropy_ctu             n265_entropy_ctu_10
+#define n265_entropy_warm            n265_entropy_warm_10
+#define n265_env                     n265_env_10
+#define n265_est_advance_cu          n265_est_advance_cu_10
+#define n265_est_bits_lps            n265_est_bits_lps_10
+#define n265_est_bits_mps            n265_est_bits_mps_10
+#define n265_est_ops                 n265_est_ops_10
+#define n265_est_trans_lps           n265_est_trans_lps_10
+#define n265_est_trans_mps           n265_est_trans_mps_10
+#define n265_fdct                    n265_fdct_10
+#define n265_fdct_neon               n265_fdct_neon_10
+#define n265_fdct_ref                n265_fdct_ref_10
+#define n265_filter_refs             n265_filter_refs_10
+#define n265_filter_refs_neon        n265_filter_refs_neon_10
+#define n265_filter_refs_ref         n265_filter_refs_ref_10
+#define n265_flat_gate               n265_flat_gate_10
+#define n265_hf2_knobs               n265_hf2_knobs_10
+#define n265_idct_add                n265_idct_add_10
+#define n265_idct_add_neon           n265_idct_add_neon_10
+#define n265_idct_add_ref            n265_idct_add_ref_10
+#define n265_intra_pred              n265_intra_pred_10
+#define n265_intra_pred_neon         n265_intra_pred_neon_10
+#define n265_intra_pred_ref          n265_intra_pred_ref_10
+#define n265_intra_refs              n265_intra_refs_10
+#define n265_intra_refs_ref          n265_intra_refs_ref_10
+#define n265_intra_refs_spec         n265_intra_refs_spec_10
+#define n265_la_brun                 n265_la_brun_10
+#define n265_la_brun_bits            n265_la_brun_bits_10
+#define n265_la_cutree               n265_la_cutree_10
+#define n265_la_degrade              n265_la_degrade_10
+#define n265_la_flat_pct             n265_la_flat_pct_10
+#define n265_la_free                 n265_la_free_10
+#define n265_la_init                 n265_la_init_10
+#define n265_la_next_src             n265_la_next_src_10
+#define n265_la_pop                  n265_la_pop_10
+#define n265_la_push                 n265_la_push_10
+#define n265_la_scenecut             n265_la_scenecut_10
+#define n265_la_set_anchor           n265_la_set_anchor_10
+#define n265_la_warm                 n265_la_warm_10
+#define n265_lambda_mode_q8          n265_lambda_mode_q8_10
+#define n265_mc_chroma               n265_mc_chroma_10
+#define n265_mc_chroma_14            n265_mc_chroma_14_10
+#define n265_mc_chroma_14_wh         n265_mc_chroma_14_wh_10
+#define n265_mc_chroma_14_wh_neon    n265_mc_chroma_14_wh_neon_10
+#define n265_mc_chroma_14_wh_ref     n265_mc_chroma_14_wh_ref_10
+#define n265_mc_chroma_wh            n265_mc_chroma_wh_10
+#define n265_mc_chroma_wh_neon       n265_mc_chroma_wh_neon_10
+#define n265_mc_chroma_wh_ref        n265_mc_chroma_wh_ref_10
+#define n265_mc_luma                 n265_mc_luma_10
+#define n265_mc_luma_14              n265_mc_luma_14_10
+#define n265_mc_luma_14_hf           n265_mc_luma_14_hf_10
+#define n265_mc_luma_14_hf_neon      n265_mc_luma_14_hf_neon_10
+#define n265_mc_luma_14_hf_ref       n265_mc_luma_14_hf_ref_10
+#define n265_mc_luma_14_wh           n265_mc_luma_14_wh_10
+#define n265_mc_luma_14_wh_neon      n265_mc_luma_14_wh_neon_10
+#define n265_mc_luma_14_wh_ref       n265_mc_luma_14_wh_ref_10
+#define n265_mc_luma_2d              n265_mc_luma_2d_10
+#define n265_mc_luma_2d_14           n265_mc_luma_2d_14_10
+#define n265_mc_luma_hf              n265_mc_luma_hf_10
+#define n265_mc_luma_hf_neon         n265_mc_luma_hf_neon_10
+#define n265_mc_luma_hf_ref          n265_mc_luma_hf_ref_10
+#define n265_mc_luma_hplane          n265_mc_luma_hplane_10
+#define n265_mc_luma_hplane_neon     n265_mc_luma_hplane_neon_10
+#define n265_mc_luma_hplane_ref      n265_mc_luma_hplane_ref_10
+#define n265_mc_luma_wh              n265_mc_luma_wh_10
+#define n265_mc_luma_wh_neon         n265_mc_luma_wh_neon_10
+#define n265_mc_luma_wh_ref          n265_mc_luma_wh_ref_10
+#define n265_mc_sad                  n265_mc_sad_10
+#define n265_me_search               n265_me_search_10
+#define n265_merge_cand0             n265_merge_cand0_10
+#define n265_merge_list              n265_merge_list_10
+#define n265_merge_list_pu           n265_merge_list_pu_10
+#define n265_mv_warm                 n265_mv_warm_10
+#define n265_planned_qp              n265_planned_qp_10
+#define n265_pred_dc                 n265_pred_dc_10
+#define n265_psy_cost                n265_psy_cost_10
+#define n265_psy_energy              n265_psy_energy_10
+#define n265_qpmap_row               n265_qpmap_row_10
+#define n265_quant                   n265_quant_10
+#define n265_quant_neon              n265_quant_neon_10
+#define n265_quant_ref               n265_quant_ref_10
+#define n265_rc_class                n265_rc_class_10
+#define n265_rc_cplx                 n265_rc_cplx_10
+#define n265_rc_done                 n265_rc_done_10
+#define n265_rc_future_idr           n265_rc_future_idr_10
+#define n265_rc_next                 n265_rc_next_10
+#define n265_rc_open                 n265_rc_open_10
+#define n265_rdoq                    n265_rdoq_10
+#define n265_rdoq_init               n265_rdoq_init_10
+#define n265_rdoq_rtn                n265_rdoq_rtn_10
+#define n265_rdoq_rtn_neon           n265_rdoq_rtn_neon_10
+#define n265_rdoq_rtn_ref            n265_rdoq_rtn_ref_10
+#define n265_rdoq_sb_nz              n265_rdoq_sb_nz_10
+#define n265_rdoq_sb_nz_neon         n265_rdoq_sb_nz_neon_10
+#define n265_rdoq_sb_nz_ref          n265_rdoq_sb_nz_ref_10
+#define n265_rdoq_sbh_on             n265_rdoq_sbh_on_10
+#define n265_rdoq_warm               n265_rdoq_warm_10
+#define n265_real_ops                n265_real_ops_10
+#define n265_rect_flat               n265_rect_flat_10
+#define n265_ref_stall               n265_ref_stall_10
+#define n265_ref_win                 n265_ref_win_10
+#define n265_refchk_compiled_out     n265_refchk_compiled_out_10
+#define n265_residual_coding         n265_residual_coding_10
+#define n265_residual_tables_init    n265_residual_tables_init_10
+#define n265_row_begin               n265_row_begin_10
+#define n265_row_end                 n265_row_end_10
+#define n265_sad_rowcol              n265_sad_rowcol_10
+#define n265_sad_rowcol_neon         n265_sad_rowcol_neon_10
+#define n265_sad_rowcol_ref          n265_sad_rowcol_ref_10
+#define n265_sad_wh                  n265_sad_wh_10
+#define n265_sad_wh_c                n265_sad_wh_c_10
+#define n265_sad_wh_neon             n265_sad_wh_neon_10
+#define n265_sao_band_stats          n265_sao_band_stats_10
+#define n265_sao_frame_mask          n265_sao_frame_mask_10
+#define n265_sao_row                 n265_sao_row_10
+#define n265_sao_seq_enabled         n265_sao_seq_enabled_10
+#define n265_sao_warm                n265_sao_warm_10
+#define n265_sao_write               n265_sao_write_10
+#define n265_satd                    n265_satd_10
+#define n265_satd_warm               n265_satd_warm_10
+#define n265_satd_wh                 n265_satd_wh_10
+#define n265_satd_wh_c               n265_satd_wh_c_10
+#define n265_satd_wh_neon            n265_satd_wh_neon_10
+#define n265_satd4_neon              n265_satd4_neon_10
+#define n265_satd4_ref               n265_satd4_ref_10
+#define n265_satd8_mixed             n265_satd8_mixed_10
+#define n265_satd8_neon              n265_satd8_neon_10
+#define n265_satd8_ref               n265_satd8_ref_10
+#define n265_sbh_adjust              n265_sbh_adjust_10
+#define n265_scan_coef               n265_scan_coef_10
+#define n265_scan_sb                 n265_scan_sb_10
+#define n265_scratch_free            n265_scratch_free_10
+#define n265_scratch_new             n265_scratch_new_10
+#define n265_set_shot_window         n265_set_shot_window_10
+#define n265_sig_ctx_map4x4          n265_sig_ctx_map4x4_10
+#define n265_sig_pat                 n265_sig_pat_10
+#define n265_ssd_wh                  n265_ssd_wh_10
+#define n265_ssd_wh_c                n265_ssd_wh_c_10
+#define n265_ssd_wh_dot_neon         n265_ssd_wh_dot_neon_10
+#define n265_ssd_wh_neon             n265_ssd_wh_neon_10
+#define n265_tables_init             n265_tables_init_10
+#define n265_tables_init_est         n265_tables_init_est_10
+#define n265_tmatrix                 n265_tmatrix_10
+#define n265_use_filtered_refs       n265_use_filtered_refs_10
+#define n265_write_part_mode         n265_write_part_mode_10
+#define n265_write_pps               n265_write_pps_10
+#define n265_write_sps               n265_write_sps_10
+#define n265_write_vps               n265_write_vps_10
+#define n265_zorder                  n265_zorder_10
+#define nal_pack                     nal_pack_10
+#define nal_pack_bound               nal_pack_bound_10
+#define ntp_close                    ntp_close_10
+#define ntp_join                     ntp_join_10
+#define ntp_lanes                    ntp_lanes_10
+#define ntp_open                     ntp_open_10
+#define ntp_publish                  ntp_publish_10
+#define ntp_publish_task             ntp_publish_task_10
+#define ntp_submit                   ntp_submit_10
+#define ntp_threads                  ntp_threads_10
+#define ntp_wait                     ntp_wait_10
+#define ntp_wait_older               ntp_wait_older_10
+
+#endif /* N265_SYMBOLS10_H */

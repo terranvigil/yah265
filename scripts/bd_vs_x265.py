@@ -9,7 +9,7 @@ JOBS as band_at_rate.py.
     ARGS='--aq 1 --cutree 1' python3 scripts/bd_vs_x265.py
     ARGS='--crf {q} --aq 1 --cutree 1' KNOB=crf python3 scripts/bd_vs_x265.py
 
-DEPTH=10 runs the same leg at Main10: our `build10/n265-10` on the upshifted
+DEPTH=10 runs the same leg at Main10: our `build/n265` on the upshifted
 corpus in `local/corpus10/` (scripts/upshift10.sh), x265 with
 `--output-depth 10`, and both sides scored on 10-bit planes against the
 10-bit source. SRCDIR/N265 override the two paths it picks.
@@ -32,7 +32,7 @@ FRAMES = int(os.environ.get("FRAMES", "120"))
 DEPTH = int(os.environ.get("DEPTH", "8"))
 SRCDIR = os.environ.get("SRCDIR", "tests/corpus" if DEPTH == 8
                         else "local/corpus10")
-N = os.environ.get("N265", "build/n265" if DEPTH == 8 else "build10/n265-10")
+N = os.environ.get("N265", "build/n265")   # one binary, both depths (item 5a)
 X = os.environ.get("X265", "x265")
 ARGS = os.environ.get("ARGS", "--aq 1 --cutree 1")
 KNOB = os.environ.get("KNOB", "qp")            # qp | crf: which knob bd_at_rate bisects

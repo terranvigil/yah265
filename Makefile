@@ -1,10 +1,18 @@
 # One-word entry points for every gate. CI runs exactly these.
 
 BUILD ?= build
-# Phase 8 item 1: the pixel is a compile-time type, so there is one build
-# tree per depth. `build` is the 8-bit encoder - the measured one, the one
-# every gate, board and band reads - and `build10` is Main10's. Everything
-# below that names a binary names $(BUILD)'s.
+# Phase 8 item 1: the pixel is a compile-time type, so there is one
+# LIBRARY per depth. Item 5a makes the binary one again: every build tree
+# now compiles both libraries and `$(BUILD)/n265` links both and picks the
+# encoder from the input's bit depth, so every target below - 8-bit and
+# Main10 alike - names $(BUILD)'s binary.
+#
+# `build10` is still built and still tested. What it is now is the tree
+# whose TESTS are Main10: checkasm at 16-bit lanes (`make checkasm10-*`)
+# and the 10-bit unit tests, which is the one thing `-Dbit_depth=10` still
+# decides. Its `n265-10` is byte-for-byte the same command line as
+# `$(BUILD)/n265` and is kept only so an existing harness that names it
+# keeps working.
 BUILD10 ?= build10
 
 .PHONY: build build8 build10 test smoke10 conformance conformance-fast conformance10 conformance10-fast provenance asan asan10 determ determ-fast determ10 board board-quick clean checkasm-bench checkasm-asan checkasm10-bench checkasm10-asan
@@ -22,14 +30,15 @@ build10:
 test: build
 	meson test -C $(BUILD) --print-errorlogs
 	scripts/provenance_check.sh
+	scripts/symbol_check.sh $(BUILD) $(BUILD10)
 	$(MAKE) smoke10
 
 # The 10-bit leg of `make test`, and it is a SMOKE and not a correctness
 # claim: the Main10 binary encodes an upshifted synthetic clip without
 # crashing and ffmpeg decodes the result. What the samples are worth is
 # phase 8 item 2's question, under the recon-match gate on both decoders.
-smoke10: build10
-	N265_10=$(BUILD10)/n265-10 scripts/smoke10.sh
+smoke10: build
+	N265_10=$(BUILD)/n265 scripts/smoke10.sh
 
 # The kernel benchmark tables (ref / c / neon ns per call). `make test`
 # runs checkasm for correctness only, which is what keeps it fast; this is
@@ -67,14 +76,15 @@ conformance-fast: build
 	N265=$(BUILD)/n265 scripts/conformance.sh --fast
 
 # The Main10 list (phase 8 item 2): its own vectors, its own sources
-# (C420p10), the 10-bit binary, both decoders held bit-exact against
-# --dump-recon. Separate from the two above on purpose - their pass
-# counts are part of the 8-bit invariant and must not move.
+# (C420p10), both decoders held bit-exact against --dump-recon. Separate
+# from the two above on purpose - their pass counts are part of the 8-bit
+# invariant and must not move. Since item 5a it is the same binary that
+# runs them; the C420p10 tag is what selects the Main10 library.
 conformance10: build
-	N265_10=$(BUILD10)/n265-10 scripts/conformance.sh --depth10
+	N265_10=$(BUILD)/n265 scripts/conformance.sh --depth10
 
 conformance10-fast: build
-	N265_10=$(BUILD10)/n265-10 scripts/conformance.sh --depth10 --fast
+	N265_10=$(BUILD)/n265 scripts/conformance.sh --depth10 --fast
 
 provenance:
 	scripts/provenance_check.sh
@@ -108,7 +118,7 @@ determ10: build
 	@mkdir -p $(CORPUS10)
 	@[ -s $(CORPUS10)/foreman_cif.y4m ] || \
 	    scripts/upshift10.sh tests/corpus/foreman_cif.y4m $(CORPUS10)/foreman_cif.y4m
-	ENC=$(BUILD10)/n265-10 CORPUS=$(CORPUS10) CLIPS=foreman_cif \
+	ENC=$(BUILD)/n265 CORPUS=$(CORPUS10) CLIPS=foreman_cif \
 	    THREADS="1 12" REFS=b1 RUNS=3 FRAMES=120 \
 	    ARGS="--crf 28 --ctu 16 --ref 3" scripts/determ_repeat.sh
 
@@ -124,14 +134,15 @@ asan:
 	meson test -C build-asan --print-errorlogs
 	N265=build-asan/n265 scripts/conformance.sh --fast
 
-# The same instrument on the Main10 build: its own sanitiser tree, because
-# the depth is a BUILD option and not a runtime one, and then the Main10
-# conformance list through it.
+# The Main10 conformance list under ASan + UBSan. Item 5a collapses this
+# onto the SAME sanitiser tree `make asan` uses: build-asan compiles both
+# libraries and its n265 links both, so the 10-bit code is instrumented
+# there too and a second tree bought nothing. `make asan` is still the
+# 8-bit read and still says nothing about 10.
 asan10:
-	@[ -d build10-asan ] || meson setup build10-asan -Dbit_depth=10 \
-	    -Db_sanitize=address,undefined -Db_lundef=false
-	ninja -C build10-asan
-	N265_10=build10-asan/n265-10 scripts/conformance.sh --depth10 --fast
+	@[ -d build-asan ] || meson setup build-asan -Db_sanitize=address,undefined -Db_lundef=false
+	ninja -C build-asan
+	N265_10=build-asan/n265 scripts/conformance.sh --depth10 --fast
 
 clean:
 	rm -rf $(BUILD) $(BUILD10) build-asan build10-asan

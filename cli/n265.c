@@ -16,21 +16,108 @@ void n265_encoder_set_dump(n265_encoder *e, FILE *f);
 void n265_encoder_set_shot_stats(n265_encoder *e, const char *path);
 void n265_set_shot_window(int n);
 
-/* QpBdOffsetY (7-5). The CLI does not see src/common/pixel.h, so the one
- * derivation it needs is repeated here off the public N265_BIT_DEPTH. */
-#define N265_QP_BD_OFF  (6 * (N265_BIT_DEPTH - 8))
-#define N265_SAMPLE_MAX ((1 << N265_BIT_DEPTH) - 1)
+/* ---------------------------------------------------------------------
+ * Both libraries, one command line (phase 8 item 5a).
+ *
+ * The sample width is a compile-time type, so there are two encoder
+ * libraries and there always will be; what there is no longer is two
+ * command lines. n265 links both archives and picks the encoder from the
+ * INPUT: a C420 y4m goes to the 8-bit library, a C420p10 one to Main10,
+ * and --output-depth 10 puts 8-bit input through Main10 after an explicit
+ * upshift. The two are told apart by name - the Main10 library's symbols
+ * carry a _10 suffix (include/yah265.h's N265_API, and a force-included
+ * header for the internals) - and by nothing else: same header, same
+ * structs, same argument lists.
+ *
+ * This file is compiled at N265_BIT_DEPTH 8, so the header hands it the
+ * 8-bit names unsuffixed; the Main10 ones it declares here. n265_picture
+ * carries its planes as `const void *` for exactly this reason, so one
+ * struct and one dispatch table serve both widths.
+ * ------------------------------------------------------------------ */
+void n265_param_default_10(n265_param *p);
+void n265_set_mode_10(int mode, int qp, int ctb_log2, int keyint,
+                      int bframes, int aq);
+void n265_set_la_10(int depth, int cutree);
+void n265_set_crf_10(double crf);
+void n265_set_bitrate_10(double kbps);
+void n265_set_ref_10(int n);
+void n265_set_badapt_10(int on);
+void n265_set_threads_10(int n);
+int  n265_set_preset_10(const char *name);
+int  n265_preset_param_10(const char *key, int fallback);
+n265_encoder *n265_encoder_open_10(const n265_param *p);
+int  n265_encoder_encode_10(n265_encoder *e, n265_nal **nal, int *nnal,
+                            const n265_picture *pic);
+void n265_encoder_close_10(n265_encoder *e);
+const char *n265_version_str_10(void);
+void n265_encoder_set_dump_decode_10(n265_encoder *e, FILE *f);
+void n265_encoder_set_dump_10(n265_encoder *e, FILE *f);
+void n265_encoder_set_shot_stats_10(n265_encoder *e, const char *path);
+void n265_set_shot_window_10(int n);
+
+typedef struct n265_api {
+    int depth;                  /* the samples this table's library takes */
+    void (*param_default)(n265_param *);
+    void (*set_mode)(int, int, int, int, int, int);
+    void (*set_la)(int, int);
+    void (*set_crf)(double);
+    void (*set_bitrate)(double);
+    void (*set_ref)(int);
+    void (*set_badapt)(int);
+    void (*set_threads)(int);
+    int  (*set_preset)(const char *);
+    int  (*preset_param)(const char *, int);
+    void (*set_shot_window)(int);
+    n265_encoder *(*encoder_open)(const n265_param *);
+    int  (*encoder_encode)(n265_encoder *, n265_nal **, int *,
+                           const n265_picture *);
+    void (*encoder_close)(n265_encoder *);
+    const char *(*version_str)(void);
+    void (*set_dump)(n265_encoder *, FILE *);
+    void (*set_dump_decode)(n265_encoder *, FILE *);
+    void (*set_shot_stats)(n265_encoder *, const char *);
+} n265_api;
+
+static const n265_api api8 = {
+    8, n265_param_default, n265_set_mode, n265_set_la, n265_set_crf,
+    n265_set_bitrate, n265_set_ref, n265_set_badapt, n265_set_threads,
+    n265_set_preset, n265_preset_param, n265_set_shot_window,
+    n265_encoder_open, n265_encoder_encode, n265_encoder_close,
+    n265_version_str, n265_encoder_set_dump, n265_encoder_set_dump_decode,
+    n265_encoder_set_shot_stats,
+};
+
+static const n265_api api10 = {
+    10, n265_param_default_10, n265_set_mode_10, n265_set_la_10,
+    n265_set_crf_10, n265_set_bitrate_10, n265_set_ref_10,
+    n265_set_badapt_10, n265_set_threads_10, n265_set_preset_10,
+    n265_preset_param_10, n265_set_shot_window_10, n265_encoder_open_10,
+    n265_encoder_encode_10, n265_encoder_close_10, n265_version_str_10,
+    n265_encoder_set_dump_10, n265_encoder_set_dump_decode_10,
+    n265_encoder_set_shot_stats_10,
+};
+
+/* QpBdOffsetY (7-5), and the clip bound of Clip1Y. Runtime now, off the
+ * depth the ENCODER was selected at - the CLI no longer has a depth of
+ * its own. */
+#define N265_QP_BD_OFF(d)  (6 * ((d) - 8))
+#define N265_SAMPLE_MAX(d) ((1 << (d)) - 1)
 
 typedef struct y4m_t {
     FILE *f;
     int w, h, fps_num, fps_den;
     int depth;              /* sample width the FILE carries: 8 or 10 */
+    int out_depth;          /* sample width the ENCODER takes: 8 or 10 */
     size_t frame_bytes;     /* the y4m payload, as it sits on disk */
     uint8_t *frame;
-    /* What the library is handed. At 8 bits it IS `frame` - no copy, no
-     * second allocation, nothing in the read path - and at 10 it is a
-     * separate plane the reader assembles the little-endian pairs into. */
-    n265_pixel *pix;
+    /* The 16-bit plane, where one is needed: the assembled little-endian
+     * pairs of a C420p10 file, or an 8-bit file upshifted for Main10. At
+     * 8 in and 8 out it is NULL and the library is handed `frame`
+     * itself - no copy, no second allocation, nothing in the read path,
+     * which is what keeps the 8-bit encoder byte-for-byte and
+     * cycle-for-cycle the one that was measured. */
+    uint16_t *pix16;
+    const void *plane[3];   /* what the library is handed, once */
     long clipped;           /* samples above (1 << depth) - 1 in the file */
 } y4m_t;
 
@@ -52,10 +139,16 @@ static int y4m_csp_depth(const char *csp)
     return -1;
 }
 
+/* `y->out_depth` is read (the --output-depth request, 0 for "the
+ * input's") and then resolved; everything else in *y is set here.
+ * Returns 0, -1 for a malformed file (the caller says so), or -2 when it
+ * has already printed the reason itself. */
 static int y4m_open(y4m_t *y, FILE *f)
 {
     char line[1024];
+    int want_depth = y->out_depth;
     memset(y, 0, sizeof(*y));
+    y->out_depth = want_depth;
     y->f = f;
     y->fps_num = 25;
     y->fps_den = 1;
@@ -79,39 +172,47 @@ static int y4m_open(y4m_t *y, FILE *f)
     if (y->depth < 0) {
         fprintf(stderr, "n265: unsupported input format C%s "
                 "(4:2:0 at 8 or 10 bits only)\n", csp);
-        return -1;
+        return -2;
     }
-    /* One library per sample width (docs/instruments.md, "Builds and the
-     * bit depth"), so the depth has to MATCH. The 8-bit encoder cannot
-     * read 10-bit samples, and the Main10 encoder is no longer handed
-     * 8-bit ones silently upshifted the way item 1's smoke needed:
-     * that would let a 10-bit measurement be taken on SDR content nobody
-     * asked to convert, and it would hide the conversion from the record.
-     * Converting is one ffmpeg away; choosing the library from the input,
-     * and --output-depth, are phase 8 item 5's. */
-    if (y->depth != N265_BIT_DEPTH) {
-        fprintf(stderr, "n265: this is the %d-bit encoder and the input is "
-                "%d-bit (C%s).\n", N265_BIT_DEPTH, y->depth, csp);
-        if (N265_BIT_DEPTH == 8)
-            fprintf(stderr, "n265: encode it with n265-10, the Main10 "
-                    "binary.\n");
-        else
-            fprintf(stderr, "n265: convert it first - scripts/upshift10.sh "
-                    "in.y4m out.y4m, or ffmpeg -i in.y4m -pix_fmt "
-                    "yuv420p10le -strict -1 out.y4m.\n");
-        return -1;
+    /* The output depth defaults to the input's, which is the whole of the
+     * dispatch: a C420 file gets the 8-bit library and a C420p10 file gets
+     * Main10, and neither is a decision anybody has to type. --output-depth
+     * 10 is the one deliberate override - SDR content coded as a Main10
+     * stream, what x265's flag of the same name does - and it upshifts in
+     * the read loop below.
+     *
+     * The reverse is refused. There is no downshift here: dropping two bits
+     * is a dither-or-truncate choice that changes the picture before the
+     * encoder ever sees it, and a silent one would make a 10-bit source's
+     * 8-bit numbers look like a property of the encoder. Convert on
+     * purpose with ffmpeg if that is what is wanted. */
+    if (y->out_depth == 0)
+        y->out_depth = y->depth;
+    if (y->out_depth < y->depth) {
+        fprintf(stderr, "n265: --output-depth %d on %d-bit input (C%s): "
+                "there is no downshift path.\n", y->out_depth, y->depth, csp);
+        fprintf(stderr, "n265: dropping samples is a dither-or-truncate "
+                "choice about the PICTURE, not about the encoder, so it is "
+                "made outside - ffmpeg -i in.y4m -pix_fmt yuv420p out.y4m.\n");
+        return -2;
     }
     y->frame_bytes = (size_t)y->w * y->h * 3 / 2 * (y->depth > 8 ? 2 : 1);
     y->frame = malloc(y->frame_bytes);
     if (!y->frame)
         return -1;
-#if N265_BIT_DEPTH == 8
-    y->pix = y->frame;
-#else
-    y->pix = malloc((size_t)y->w * y->h * 3 / 2 * sizeof(*y->pix));
-    if (!y->pix)
-        return -1;
-#endif
+    size_t nsamp = (size_t)y->w * y->h * 3 / 2;
+    if (y->out_depth == 8) {
+        y->plane[0] = y->frame;
+        y->plane[1] = y->frame + (size_t)y->w * y->h;
+        y->plane[2] = y->frame + (size_t)y->w * y->h * 5 / 4;
+    } else {
+        y->pix16 = malloc(nsamp * sizeof(*y->pix16));
+        if (!y->pix16)
+            return -1;
+        y->plane[0] = y->pix16;
+        y->plane[1] = y->pix16 + (size_t)y->w * y->h;
+        y->plane[2] = y->pix16 + (size_t)y->w * y->h * 5 / 4;
+    }
     return 0;
 }
 
@@ -125,7 +226,24 @@ static int y4m_read(y4m_t *y)
         return -1;
     if (fread(y->frame, 1, y->frame_bytes, y->f) != y->frame_bytes)
         return -1;
-#if N265_BIT_DEPTH != 8
+    if (y->out_depth == 8)
+        return 1;               /* 8 in, 8 out: the file IS the picture */
+    size_t nsamp = (size_t)y->w * y->h * 3 / 2;
+    if (y->depth == 8) {
+        /* The --output-depth 10 upshift: a PURE LEFT SHIFT BY TWO, the
+         * same arithmetic scripts/upshift10.sh gets out of ffmpeg's
+         * format filter (sample * 4, not sample * 1023/255). It is what a
+         * Main10 stream of SDR content is, and it is what makes the
+         * Main10 encode of an 8-bit clip comparable with its 8-bit encode
+         * at the same QP: the residual is exactly four times, the forward
+         * transform sheds exactly two bits, and the coefficients that
+         * reach the quantiser are the same integers. It costs one pass
+         * over the frame and no latency - the picture is converted where
+         * it is read, not queued. */
+        for (size_t i = 0; i < nsamp; i++)
+            y->pix16[i] = (uint16_t)(y->frame[i] << 2);
+        return 1;
+    }
     /* 16-bit little-endian samples, assembled by hand rather than cast:
      * the byte order is the FILE's and not the host's, and the payload is
      * not guaranteed to be aligned for a uint16_t load. A sample above
@@ -134,17 +252,15 @@ static int y4m_read(y4m_t *y)
      * would read as a permanent residual and as a recon mismatch against
      * every decoder - so it is clamped here and counted, and the count is
      * reported once at the end rather than per sample. */
-    size_t nsamp = (size_t)y->w * y->h * 3 / 2;
     for (size_t i = 0; i < nsamp; i++) {
         unsigned v = (unsigned)y->frame[2 * i] |
                      ((unsigned)y->frame[2 * i + 1] << 8);
-        if (v > N265_SAMPLE_MAX) {
-            v = N265_SAMPLE_MAX;
+        if (v > (unsigned)N265_SAMPLE_MAX(y->depth)) {
+            v = (unsigned)N265_SAMPLE_MAX(y->depth);
             y->clipped++;
         }
-        y->pix[i] = (n265_pixel)v;
+        y->pix16[i] = (uint16_t)v;
     }
-#endif
     return 1;
 }
 
@@ -152,14 +268,27 @@ static void usage(void)
 {
     fprintf(stderr,
         "usage: n265 [options] <input.y4m|->\n"
+        "  One binary, both profiles: the encoder is chosen from the input.\n"
+        "  A C420 y4m is coded Main (8-bit), a C420p10 one Main10, and no\n"
+        "  flag says so. See --output-depth.\n"
         "  -o <file>       output Annex-B bitstream (default: out.hevc)\n"
         "  --frames <n>    encode at most n frames\n"
+        "  --output-depth <8|10>  code at this sample width (default: the\n"
+        "                  input's). 10 on 8-bit input is the deliberate\n"
+        "                  case: a Main10 stream of SDR content, upshifted\n"
+        "                  by a pure left shift of two as it is read - one\n"
+        "                  pass per frame, no added latency. 8 on 10-bit\n"
+        "                  input is refused: there is no downshift here.\n"
         "  --preset <fast|medium|slow>  speed/quality point (default medium).\n"
         "                  Sets the DEFAULTS of the tuning knobs; any flag or\n"
         "                  N265_* variable you give yourself still wins.\n"
         "  --qp <n>        fixed QP (default 26). Range 0..51 at 8 bits,\n"
         "                  -12..51 at Main10 (QpBdOffsetY, 7.4.3.3)\n"
-        "  --crf <f>       constant rate factor (base QP from f; overrides --qp)\n"
+        "  --crf <f>       constant rate factor (base QP from f; overrides\n"
+        "                  --qp). Same range as --qp, negative included at\n"
+        "                  Main10: giving the flag at all is what turns CRF\n"
+        "                  on, so --crf -6 is a rate factor and not an off\n"
+        "                  switch\n"
         "  --bitrate <k>   single-pass ABR at k kbit/s (overrides --crf)\n"
         "  --ref <n>       references per list, 1..3 (default 1)\n"
         "  --b-adapt <0-4> adaptive B run length from the lookahead: 0 fixed,\n"
@@ -211,6 +340,8 @@ int main(int argc, char **argv)
     long max_frames = -1;
     int qp = 26, pcm = 0, ctu = 64, keyint = 250, bframes = 7, aq = 1;
     double crf = -1.0, bitrate = 0.0;
+    int had_crf = 0;            /* --crf given: the ON switch, not crf >= 0 */
+    int out_depth = 0;          /* --output-depth; 0 = the input's */
     int nref = 1, badapt = 1;
     int lookahead = 20, cutree = 1;   /* 20 since 2026-09-12 (x265 medium's
                                      * own depth): the last window that
@@ -234,7 +365,9 @@ int main(int argc, char **argv)
         } else if (!strcmp(argv[i], "--qp") && i + 1 < argc) {
             qp = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--crf") && i + 1 < argc) {
-            crf = atof(argv[++i]);
+            crf = atof(argv[++i]); had_crf = 1;
+        } else if (!strcmp(argv[i], "--output-depth") && i + 1 < argc) {
+            out_depth = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--bitrate") && i + 1 < argc) {
             bitrate = atof(argv[++i]);
         } else if (!strcmp(argv[i], "--ref") && i + 1 < argc) {
@@ -286,37 +419,61 @@ int main(int argc, char **argv)
         return 2;
     }
 
+    if (out_depth != 0 && out_depth != 8 && out_depth != 10) {
+        fprintf(stderr, "n265: --output-depth must be 8 or 10\n");
+        return 2;
+    }
+
     FILE *fin = strcmp(in_path, "-") ? fopen(in_path, "rb") : stdin;
     if (!fin) {
         fprintf(stderr, "n265: cannot open %s: %s\n", in_path, strerror(errno));
         return 1;
     }
     y4m_t y;
-    if (y4m_open(&y, fin) < 0) {
-        fprintf(stderr, "n265: bad y4m input\n");
+    y.out_depth = out_depth;
+    int yr = y4m_open(&y, fin);
+    if (yr < 0) {
+        if (yr == -1)
+            fprintf(stderr, "n265: bad y4m input\n");
         return 1;
     }
+
+    /* The dispatch, and it is the whole of it: one table per library,
+     * selected by the width the pictures will carry. Everything after
+     * this point calls through `a` and does not know which encoder it
+     * is configuring. */
+    const n265_api *a = y.out_depth == 10 ? &api10 : &api8;
+    const int qp_bd_off = N265_QP_BD_OFF(a->depth);
 
     /* QpY runs -QpBdOffsetY..51 (7.4.3.3): 0..51 at 8 bits, -12..51 at
      * Main10, where the twelve extra steps are the finer quantisers the
      * two extra sample bits pay for and are the whole point of the
      * profile at the top of the ladder. */
-    if (qp < -N265_QP_BD_OFF || qp > 51) {
-        fprintf(stderr, "n265: qp out of range %d..51\n", -N265_QP_BD_OFF);
+    if (qp < -qp_bd_off || qp > 51) {
+        fprintf(stderr, "n265: qp out of range %d..51 at %d bits\n",
+                -qp_bd_off, a->depth);
+        return 2;
+    }
+    /* The rate factor is a QpY too, so it has the same floor. Below it the
+     * RC would clamp and quietly encode something else; above zero at 8
+     * bits this is the range it always had. */
+    if (had_crf && crf < -qp_bd_off) {
+        fprintf(stderr, "n265: --crf %g is below the %d-bit floor of %d "
+                "(QpBdOffsetY, 7.4.3.3)\n", crf, a->depth, -qp_bd_off);
         return 2;
     }
     /* The preset is a default source and nothing else: it is selected
      * before anything reads a knob, and every value it offers here is
      * taken only where the command line was silent. */
-    if (preset && n265_set_preset(preset) < 0) {
+    if (preset && a->set_preset(preset) < 0) {
         fprintf(stderr, "n265: --preset must be fast, medium or slow\n");
         return 2;
     }
-    if (!had_ref)     nref = n265_preset_param("ref", nref);
-    if (!had_bframes) bframes = n265_preset_param("bframes", bframes);
-    if (!had_badapt)  badapt = n265_preset_param("b-adapt", badapt);
-    if (!had_la)      lookahead = n265_preset_param("rc-lookahead", lookahead);
-    if (!had_ctu)     ctu = n265_preset_param("ctu", ctu);
+    if (!had_ref)     nref = a->preset_param("ref", nref);
+    if (!had_bframes) bframes = a->preset_param("bframes", bframes);
+    if (!had_badapt)  badapt = a->preset_param("b-adapt", badapt);
+    if (!had_la)      lookahead = a->preset_param("rc-lookahead", lookahead);
+    if (!had_ctu)     ctu = a->preset_param("ctu", ctu);
     if (ctu != 16 && ctu != 32 && ctu != 64) {
         fprintf(stderr, "n265: --ctu must be 16, 32 or 64\n");
         return 2;
@@ -354,28 +511,31 @@ int main(int argc, char **argv)
         return 2;
     }
     int ctb_log2 = ctu == 16 ? 4 : ctu == 32 ? 5 : 6;
-    n265_set_mode(pcm ? 1 : 0, qp, ctb_log2, keyint, bframes, aq);
-    if (crf >= 0) n265_set_crf(crf);
-    if (bitrate > 0) n265_set_bitrate(bitrate);
-    n265_set_ref(nref);
-    n265_set_badapt(badapt);
-    n265_set_la(lookahead, cutree);
-    n265_set_shot_window(shot_window);
-    n265_set_threads(threads);
+    a->set_mode(pcm ? 1 : 0, qp, ctb_log2, keyint, bframes, aq);
+    /* The flag decides, not the value: `crf >= 0` used to double as the
+     * off sentinel here, which is why the twelve QP steps Main10 pays for
+     * were reachable through --qp and not through --crf. */
+    if (had_crf) a->set_crf(crf);
+    if (bitrate > 0) a->set_bitrate(bitrate);
+    a->set_ref(nref);
+    a->set_badapt(badapt);
+    a->set_la(lookahead, cutree);
+    a->set_shot_window(shot_window);
+    a->set_threads(threads);
     n265_param p;
-    n265_param_default(&p);
+    a->param_default(&p);
     p.width = y.w;
     p.height = y.h;
     p.fps_num = y.fps_num;
     p.fps_den = y.fps_den;
-    n265_encoder *enc = n265_encoder_open(&p);
+    n265_encoder *enc = a->encoder_open(&p);
     if (!enc) {
         fprintf(stderr, "n265: encoder_open failed (dims %dx%d)\n", y.w, y.h);
         return 1;
     }
 
     if (shot_path)
-        n265_encoder_set_shot_stats(enc, shot_path);
+        a->set_shot_stats(enc, shot_path);
     FILE *fdump = NULL;
     if (dump_path) {
         fdump = fopen(dump_path, "wb");
@@ -384,13 +544,13 @@ int main(int argc, char **argv)
                     strerror(errno));
             return 1;
         }
-        n265_encoder_set_dump(enc, fdump);
+        a->set_dump(enc, fdump);
     }
     FILE *fdump2 = NULL;
     if (dump_decode_path) {
         fdump2 = fopen(dump_decode_path, "wb");
         if (fdump2)
-            n265_encoder_set_dump_decode(enc, fdump2);
+            a->set_dump_decode(enc, fdump2);
     }
     FILE *fout = fopen(out_path, "wb");
     if (!fout) {
@@ -402,15 +562,13 @@ int main(int argc, char **argv)
     int r = 0;
     while ((max_frames < 0 || n < max_frames) && (r = y4m_read(&y)) > 0) {
         n265_picture pic = {
-            .plane = { y.pix,
-                       y.pix + (size_t)y.w * y.h,
-                       y.pix + (size_t)y.w * y.h * 5 / 4 },
+            .plane = { y.plane[0], y.plane[1], y.plane[2] },
             .stride = { y.w, y.w / 2, y.w / 2 },
             .pts = n,
         };
         n265_nal *nal;
         int nnal;
-        int bytes = n265_encoder_encode(enc, &nal, &nnal, &pic);
+        int bytes = a->encoder_encode(enc, &nal, &nnal, &pic);
         if (bytes < 0) {
             fprintf(stderr, "n265: encode failed on frame %ld\n", n);
             return 1;
@@ -428,20 +586,18 @@ int main(int argc, char **argv)
     for (;;) {
         n265_nal *nal;
         int nnal;
-        int r2 = n265_encoder_encode(enc, &nal, &nnal, NULL);
+        int r2 = a->encoder_encode(enc, &nal, &nnal, NULL);
         if (r2 <= 0 && nnal == 0)
             break;
         for (int i = 0; i < nnal; i++)
             fwrite(nal[i].payload, 1, (size_t)nal[i].size, fout);
     }
-    n265_encoder_close(enc);
+    a->encoder_close(enc);
     if (fdump)
         fclose(fdump);
     if (fdump2)
         fclose(fdump2);
-#if N265_BIT_DEPTH != 8
-    free(y.pix);
-#endif
+    free(y.pix16);
     free(y.frame);
     if (fin != stdin)
         fclose(fin);
@@ -453,6 +609,11 @@ int main(int argc, char **argv)
         fprintf(stderr, "n265: WARNING %ld input samples were above the "
                 "declared %d-bit range and were clamped\n", y.clipped,
                 y.depth);
-    fprintf(stderr, "n265: %ld frames, %dx%d %d-bit\n", n, y.w, y.h, y.depth);
+    if (y.out_depth != y.depth)
+        fprintf(stderr, "n265: %ld frames, %dx%d %d-bit in, coded %d-bit "
+                "(upshifted by 2)\n", n, y.w, y.h, y.depth, y.out_depth);
+    else
+        fprintf(stderr, "n265: %ld frames, %dx%d %d-bit\n", n, y.w, y.h,
+                y.depth);
     return 0;
 }
