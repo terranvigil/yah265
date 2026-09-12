@@ -68,6 +68,13 @@ DEFAULT_OVERRIDES = {
     "N265_QP_FRAC": "= --bitrate",       # on with ABR, off otherwise
     "N265_AQ_FLOOR": "4",                # `if (v) vfloor = atof(v)`: the
                                          # literal is not last on the line
+    # phase 7 step 2. k_f ships at 1.0 (the literal carries an f suffix);
+    # its flat-frame twin follows k_b, which is today's form; and the two
+    # cascade knobs take "r,l" or "auto", not a number.
+    "N265_CT_FRAMEW": "1.0",
+    "N265_CT_FRAMEW_FLAT": "= N265_CT_QPW",
+    "N265_PB_CASCADE": "auto",
+    "N265_PB_CASCADE_FLAT": "auto",
     "N265_ASM_OFF": "unset",             # a class-name list, not a number
     # the rect/AMP pair: guarded readers of the form
     # `!(v ? atoi(v) != 0 : D)`, where D is not the last number on the
