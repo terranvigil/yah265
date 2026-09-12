@@ -655,6 +655,24 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * the step 2 form. */
     { const char *v = n265_env("N265_CT_FRAME_UP");
       e->ct_frame_up = v ? (float)atof(v) : 0.0f; }
+    /* N265_CT_UP_GATE (phase 7 follow-up 2): the content gate on that bound.
+     * The raise is released on a frame whose lookahead sc_ratio is ABOVE this
+     * threshold - a frame the previous picture does not already predict almost
+     * perfectly. 0 is the gate off, which is the bound above on its own; a
+     * threshold above every frame's ratio is the same thing, and a negative
+     * one releases the raise everywhere (that is N265_CT_FRAME_UP=1's
+     * encoder).
+     *
+     * 0.24 ships, and where it landed is the item's finding. The per-shot CTF
+     * trace on ms_cif_30 puts the static/moving split at 0.13 - the shot the
+     * raise was thought to cost runs 0.060-0.126 and no frame of any other
+     * shot reaches 0.114 - and a gate there reads the same across-shot cost as
+     * no gate at all. The raise charges on the low-ratio frame wherever it
+     * occurs, so the threshold that works sits well inside the moving shots
+     * and still gates two thirds of foreman
+     * (docs/phase7-modulation-design.md "Follow-up 2"). */
+    { const char *v = n265_env("N265_CT_UP_GATE");
+      e->ct_up_gate = v ? (float)atof(v) : 0.24f; }
     /* N265_PB_CASCADE=r,l places the B steps of the fixed cascade by hand
      * (referenced B, leaf) instead of the 1 + b_depth form. Unset is that
      * form, so the default is today's; CRF/ABR only, because the cascade
@@ -1921,6 +1939,16 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
      * at k_f 1, foreman crf 28 52617 -> 52928); BD at matched achieved
      * bitrate does not depend on it, the crf-to-rate mapping does, and the
      * board's timed leg and every recorded crf number read that mapping.
+     *
+     * It STAYS 5.4 through phase 7 follow-up 2, which is a refusal and not an
+     * oversight: with the base fractional the shift is no longer a neutral
+     * control on the across-shot leg. The content gate's own re-fit candidates
+     * all land foreman inside 1% (5.2 +0.32%, 5.25 +0.49%, 5.3 -0.97%) and
+     * read +0.43, +0.30 and +0.68 on ms_cif_30 against main, where the gate
+     * at 5.4 reads -0.05 - a 0.7% scatter, driven by the dither the base's
+     * fraction spends, that is larger than the effect being measured. Holding
+     * the operating point costs foreman 1.91% of its mapping and keeps every
+     * other number in the tree meaning what it says.
      * The AQ frame-mean term lands on the base below, once the variances
      * are known. */
     double base = e->qp_base;
@@ -1945,11 +1973,18 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
         base += ctf;
         /* N265_CT_TRACE (diagnostic, output-neutral): the term per frame,
          * with the two means it came from. This is the instrument the clamp
-         * of step 3 was read off, per shot, rather than swept. */
+         * of step 3 was read off, per shot, rather than swept.
+         *
+         * sc_ratio and the mean lowres |MV| joined it in follow-up 2, which
+         * is the read that CHOOSES a content gate: bucketed per shot, the
+         * three columns say which of them separates the frames a term costs
+         * on from the frames it pays on. On this corpus sc_ratio does, the
+         * window level does not, and |MV| has no resolution at CIF at all. */
         if (n265_env("N265_CT_TRACE"))
-            fprintf(stderr, "CTF,%d,%d,%d,%d,%.3f,%.3f,%+.3f\n",
+            fprintf(stderr, "CTF,%d,%d,%d,%d,%.3f,%.3f,%+.3f,%.4f,%.3f\n",
                     fw->display_idx, slice_type, nonref, fw->flat,
-                    fw->ct_mean_raw, fw->ct_level, ctf);
+                    fw->ct_mean_raw, fw->ct_level, ctf,
+                    (double)fw->sc_ratio, (double)fw->la_mvabs);
     }
     /* the pyramid QP cascade: I anchors -3, P anchors +0, and each B layer
      * one step deeper than its parent (the reference B nearest the anchors
@@ -2854,6 +2889,8 @@ static int drive_scheduler(n265_encoder *e)
     fw->b_depth = e->plan_depth[e->plan_pos];
     fw->ref_valid = e->ref_valid;
     fw->sc_ratio = f->sc_ratio;     /* lookahead pcost/icost, P3 reads it */
+    fw->la_mvabs = la->bw * la->bh
+                       ? (float)f->mvabs_sum / (float)(la->bw * la->bh) : 0.0f;
     fw->la_icost = f->icost;        /* the same field per CTU, R3 reads it */
     fw->la_pcost = f->pcost;
     fw->la_bw = la->bw;
