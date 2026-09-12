@@ -19,8 +19,14 @@ void n265_set_shot_window(int n);
 typedef struct y4m_t {
     FILE *f;
     int w, h, fps_num, fps_den;
-    size_t frame_bytes;
+    size_t frame_bytes;     /* the 8-bit y4m payload, as read */
     uint8_t *frame;
+    /* What the library is handed. At 8 bits it IS `frame` - no copy, no
+     * second allocation, nothing in the read path - and at 10 it is a
+     * separate plane the reader upshifts into, which is what a Main10
+     * stream of SDR content is. Reading 10-bit y4m (C420p10) is phase 8
+     * item 2's, along with everything else about the I/O. */
+    n265_pixel *pix;
 } y4m_t;
 
 static int y4m_open(y4m_t *y, FILE *f)
@@ -52,7 +58,16 @@ static int y4m_open(y4m_t *y, FILE *f)
     }
     y->frame_bytes = (size_t)y->w * y->h * 3 / 2;
     y->frame = malloc(y->frame_bytes);
-    return y->frame ? 0 : -1;
+    if (!y->frame)
+        return -1;
+#if N265_BIT_DEPTH == 8
+    y->pix = y->frame;
+#else
+    y->pix = malloc(y->frame_bytes * sizeof(*y->pix));
+    if (!y->pix)
+        return -1;
+#endif
+    return 0;
 }
 
 /* returns 1 on frame read, 0 on EOF, -1 on error */
@@ -63,7 +78,13 @@ static int y4m_read(y4m_t *y)
         return 0;
     if (strncmp(line, "FRAME", 5) != 0)
         return -1;
-    return fread(y->frame, 1, y->frame_bytes, y->f) == y->frame_bytes ? 1 : -1;
+    if (fread(y->frame, 1, y->frame_bytes, y->f) != y->frame_bytes)
+        return -1;
+#if N265_BIT_DEPTH != 8
+    for (size_t i = 0; i < y->frame_bytes; i++)
+        y->pix[i] = (n265_pixel)(y->frame[i] << (N265_BIT_DEPTH - 8));
+#endif
+    return 1;
 }
 
 static void usage(void)
@@ -315,9 +336,9 @@ int main(int argc, char **argv)
     int r = 0;
     while ((max_frames < 0 || n < max_frames) && (r = y4m_read(&y)) > 0) {
         n265_picture pic = {
-            .plane = { y.frame,
-                       y.frame + (size_t)y.w * y.h,
-                       y.frame + (size_t)y.w * y.h * 5 / 4 },
+            .plane = { y.pix,
+                       y.pix + (size_t)y.w * y.h,
+                       y.pix + (size_t)y.w * y.h * 5 / 4 },
             .stride = { y.w, y.w / 2, y.w / 2 },
             .pts = n,
         };
@@ -352,6 +373,9 @@ int main(int argc, char **argv)
         fclose(fdump);
     if (fdump2)
         fclose(fdump2);
+#if N265_BIT_DEPTH != 8
+    free(y.pix);
+#endif
     free(y.frame);
     if (fin != stdin)
         fclose(fin);

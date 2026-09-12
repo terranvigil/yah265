@@ -18,20 +18,20 @@ int n265_refchk_compiled_out;
 enum { RC_CLOSED = 0, RC_OPEN, RC_GUARD };
 
 static _Thread_local int rc_mode;
-static _Thread_local const uint8_t *rc_plane;
+static _Thread_local const pixel *rc_plane;
 static _Thread_local int rc_stride;
 static _Thread_local long rc_last;
 static _Thread_local const int16_t *rc_hf;
 static _Thread_local int rc_hf_stride;
 static _Thread_local long rc_hf_last;
-static _Thread_local const uint8_t *rc_p2;
+static _Thread_local const pixel *rc_p2;
 static _Thread_local int rc_p2_stride;
 static _Thread_local long rc_p2_last;
 static _Thread_local const int16_t *rc_p2w;
 static _Thread_local int rc_p2w_stride;
 static _Thread_local long rc_p2w_last;
 
-void n265_refchk_open(const uint8_t *plane, int stride, long last)
+void n265_refchk_open(const pixel *plane, int stride, long last)
 {
     rc_mode = RC_GUARD;
     rc_plane = plane;
@@ -49,7 +49,7 @@ void n265_refchk_open_hf(const int16_t *plane, int stride, long last)
     rc_hf_last = last;
 }
 
-void n265_refchk_open_p2(const uint8_t *plane, int stride, long last)
+void n265_refchk_open_p2(const pixel *plane, int stride, long last)
 {
     rc_p2 = plane;
     rc_p2_stride = stride;
@@ -96,7 +96,7 @@ static void die(const char *fn, const char *what, long line, long last)
     abort();
 }
 
-void n265_refchk_touch(const uint8_t *p, const char *fn)
+void n265_refchk_touch(const pixel *p, const char *fn)
 {
     if (rc_mode == RC_OPEN)
         return;
@@ -119,7 +119,7 @@ void n265_refchk_touch16(const int16_t *p, const char *fn)
             rc_hf_last);
 }
 
-void n265_refchk_touch_p2(const uint8_t *p, const char *fn)
+void n265_refchk_touch_p2(const pixel *p, const char *fn)
 {
     if (rc_mode == RC_OPEN)
         return;

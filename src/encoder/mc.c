@@ -37,21 +37,21 @@ static const int8_t chroma_filt[8][4] = {
  * (n265_clamp_mv), but a merge or AMVP candidate is inherited from a
  * neighbour and is NOT clamped - the spec does not clamp it and a
  * decoder does not have to - so a candidate can reach past the border,
- * and the bytes after it are the next row's left border rather than the
+ * and the samples after it are the next row's left border rather than the
  * edge sample.
  *
  * Returns the block origin a filter may read `hl` samples left and above
  * and `hr` right and below of: the plane itself whenever that whole
  * window is inside the border (the common case, which copies nothing),
  * otherwise `tmp`, gathered with the spec's clipping. `tmp` must hold
- * (w + hl + hr) * (h + hl + hr) bytes.
+ * (w + hl + hr) * (h + hl + hr) samples.
  *
  * Under N265_REF_CHECK the gather reports the extreme lines it really
  * reads - which are the clipped ones, never past the guard - and then
  * opens the guard for the kernel, whose reads land in tmp. */
-const uint8_t *n265_ref_win(const uint8_t *plane, int stride, int pic_w,
+const pixel *n265_ref_win(const pixel *plane, int stride, int pic_w,
                             int pic_h, int pad, int ix, int iy, int w,
-                            int h, int hl, int hr, uint8_t *tmp,
+                            int h, int hl, int hr, pixel *tmp,
                             int *out_stride, int *clipped)
 {
     if (ix - hl >= -pad && ix + w + hr <= pic_w + pad &&
@@ -69,7 +69,7 @@ const uint8_t *n265_ref_win(const uint8_t *plane, int stride, int pic_w,
     for (int y = 0; y < th; y++) {
         int sy = iy - hl + y;
         sy = sy < 0 ? 0 : sy > pic_h - 1 ? pic_h - 1 : sy;
-        const uint8_t *sp = plane + (ptrdiff_t)sy * stride;
+        const pixel *sp = plane + (ptrdiff_t)sy * stride;
         for (int x = 0; x < tw; x++) {
             int sx = ix - hl + x;
             sx = sx < 0 ? 0 : sx > pic_w - 1 ? pic_w - 1 : sx;
@@ -82,13 +82,38 @@ const uint8_t *n265_ref_win(const uint8_t *plane, int stride, int pic_w,
     return tmp + (ptrdiff_t)hl * tw + hl;
 }
 
-static inline uint8_t clip1(int v)
+/* 8.5.3.3.3.2's three shifts, as constants rather than as the literals
+ * the 8-bit encoder wrote out. shift1 is what the horizontal stage sheds
+ * on the way into the 14-bit intermediate, shift2 (6, depth-independent)
+ * what the vertical stage sheds, and shift3 what the final rounding
+ * sheds on the way back to a sample.
+ *
+ * Two of the folds below survive the widening untouched, which is why
+ * the 8-bit code could write them as literals in the first place:
+ * shift1 + shift3 == 6 at EVERY depth, so a one-stage filter's
+ * (s + 32) >> 6 is depth-independent, and so is a 2-D filter's
+ * (s + 2048) >> 12 when its intermediate has NOT been shifted. Folding
+ * two truncating shifts into one is exact - ((x >> a) + (1 << (b-1))) >> b
+ * equals (x + (1 << (a+b-1))) >> (a+b) for every x - so nothing here is
+ * an approximation. What forces shift1 to be spelt out at all is int16:
+ * an intermediate that is STORED has to be the 14-bit value the spec
+ * defines or it overflows at 10 bits, and everything downstream of a
+ * stored intermediate then shifts by the remainder. */
+#define MC_SHIFT1   (BIT_DEPTH - 8)         /* 0 at 8 bits */
+#define MC_SHIFT3   (14 - BIT_DEPTH)        /* 6 at 8 bits */
+#define MC_ROUND3   (1 << (MC_SHIFT3 - 1))  /* 32 */
+/* shift2 + shift3: the tail of a 2-D filter whose intermediate carries
+ * shift1 already. 12 and 2048 at 8 bits, which is what was written. */
+#define MC_SHIFT23  (6 + MC_SHIFT3)
+#define MC_ROUND23  (1 << (MC_SHIFT23 - 1))
+
+static inline pixel clip1(int v)
 {
-    return (uint8_t)(v < 0 ? 0 : v > 255 ? 255 : v);
+    return (pixel)(v < 0 ? 0 : v > PIXEL_MAX ? PIXEL_MAX : v);
 }
 
-void n265_mc_luma_wh(uint8_t *dst, int ds, int w, int h,
-                     const uint8_t *ref, int ref_stride, int fx, int fy)
+void n265_mc_luma_wh(pixel *dst, int ds, int w, int h,
+                     const pixel *ref, int ref_stride, int fx, int fy)
 {
     /* the extreme lines this call reads, reported from inside the filter
      * rather than from the caller's bound (refchk.h) */
@@ -103,8 +128,8 @@ void n265_mc_luma_wh(uint8_t *dst, int ds, int w, int h,
     n265_mc_luma_wh_ref(dst, ds, w, h, ref, ref_stride, fx, fy);
 }
 
-void n265_mc_luma_wh_ref(uint8_t *dst, int ds, int w, int h,
-                         const uint8_t *ref, int ref_stride, int fx, int fy)
+void n265_mc_luma_wh_ref(pixel *dst, int ds, int w, int h,
+                         const pixel *ref, int ref_stride, int fx, int fy)
 {
     if (!fx && !fy) {
         for (int y = 0; y < h; y++)
@@ -143,19 +168,19 @@ void n265_mc_luma_wh_ref(uint8_t *dst, int ds, int w, int h,
             int s = 0;
             for (int k = 0; k < 8; k++)
                 s += fh[k] * ref[y * ref_stride + x + k - 3];
-            tmp[(y + 3) * w + x] = (int16_t)s;
+            tmp[(y + 3) * w + x] = (int16_t)(s >> MC_SHIFT1);
         }
     for (int y = 0; y < h; y++)
         for (int x = 0; x < w; x++) {
             int s = 0;
             for (int k = 0; k < 8; k++)
                 s += fv[k] * tmp[(y + k) * w + x];
-            dst[y * ds + x] = clip1((s + 2048) >> 12);
+            dst[y * ds + x] = clip1((s + MC_ROUND23) >> MC_SHIFT23);
         }
 }
 
 void n265_mc_luma_hplane(int16_t *dst, int ds, int w, int h,
-                         const uint8_t *ref, int ref_stride, int fx)
+                         const pixel *ref, int ref_stride, int fx)
 {
     N265_RC_TOUCH(ref);
     N265_RC_TOUCH(ref + (h - 1) * ref_stride);
@@ -169,7 +194,7 @@ void n265_mc_luma_hplane(int16_t *dst, int ds, int w, int h,
 }
 
 void n265_mc_luma_hplane_ref(int16_t *dst, int ds, int w, int h,
-                             const uint8_t *ref, int ref_stride, int fx)
+                             const pixel *ref, int ref_stride, int fx)
 {
     const int8_t *f = luma_filt[fx];
     for (int y = 0; y < h; y++)
@@ -177,7 +202,7 @@ void n265_mc_luma_hplane_ref(int16_t *dst, int ds, int w, int h,
             int s = 0;
             for (int k = 0; k < 8; k++)
                 s += f[k] * ref[y * ref_stride + x + k - 3];
-            dst[y * ds + x] = (int16_t)s;
+            dst[y * ds + x] = (int16_t)(s >> MC_SHIFT1);
         }
 }
 
@@ -192,13 +217,14 @@ void n265_mc_luma_hplane_ref(int16_t *dst, int ds, int w, int h,
  * a function of the cached rows and fy only. That is the one place this
  * family departs from neon.h's "same signature as the entry point" - it
  * would mean three dead arguments on the hottest call in the encoder. */
-void n265_mc_luma_hf_ref(uint8_t *dst, int ds, int w, int h,
+void n265_mc_luma_hf_ref(pixel *dst, int ds, int w, int h,
                          const int16_t *hf, int hs, int fy)
 {
     if (!fy) {
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
-                dst[y * ds + x] = clip1((hf[y * hs + x] + 32) >> 6);
+                dst[y * ds + x] =
+                    clip1((hf[y * hs + x] + MC_ROUND3) >> MC_SHIFT3);
         return;
     }
     const int8_t *fv = luma_filt[fy];
@@ -207,7 +233,7 @@ void n265_mc_luma_hf_ref(uint8_t *dst, int ds, int w, int h,
             int s = 0;
             for (int k = 0; k < 8; k++)
                 s += fv[k] * hf[(y + k - 3) * hs + x];
-            dst[y * ds + x] = clip1((s + 2048) >> 12);
+            dst[y * ds + x] = clip1((s + MC_ROUND23) >> MC_SHIFT23);
         }
 }
 
@@ -217,10 +243,11 @@ void n265_mc_luma_hf_ref(uint8_t *dst, int ds, int w, int h,
  * 32, 48, 64; 2 and 6 are chroma, which this plane does not serve). */
 #define N265_2D_ROWS(n)                                                  \
     for (int y = 0; y < h; y++)                                          \
-        memcpy(dst + (ptrdiff_t)y * ds, p2 + (ptrdiff_t)y * ps, (n))
+        memcpy(dst + (ptrdiff_t)y * ds, p2 + (ptrdiff_t)y * ps,          \
+               (size_t)(n) * sizeof(pixel))
 
-void n265_mc_luma_2d(uint8_t *dst, int ds, int w, int h,
-                     const uint8_t *p2, int ps)
+void n265_mc_luma_2d(pixel *dst, int ds, int w, int h,
+                     const pixel *p2, int ps)
 {
     N265_RC_TOUCH_P2(p2);
     N265_RC_TOUCH_P2(p2 + (ptrdiff_t)(h - 1) * ps);
@@ -263,8 +290,8 @@ void n265_mc_luma_2d_14(int16_t *dst, int ds, int w, int h,
     }
 }
 
-void n265_mc_luma_hf(uint8_t *dst, int ds, int w, int h,
-                     const uint8_t *ref, int ref_stride,
+void n265_mc_luma_hf(pixel *dst, int ds, int w, int h,
+                     const pixel *ref, int ref_stride,
                      const int16_t *hf, int hs, int fx, int fy)
 {
     if (!fx || !hf) {
@@ -302,7 +329,7 @@ void n265_mc_luma_14_hf_ref(int16_t *dst, int ds, int w, int h,
 }
 
 void n265_mc_luma_14_hf(int16_t *dst, int ds, int w, int h,
-                        const uint8_t *ref, int ref_stride,
+                        const pixel *ref, int ref_stride,
                         const int16_t *hf, int hs, int fx, int fy)
 {
     if (!fx || !hf) {
@@ -320,8 +347,8 @@ void n265_mc_luma_14_hf(int16_t *dst, int ds, int w, int h,
     n265_mc_luma_14_hf_ref(dst, ds, w, h, hf, hs, fy);
 }
 
-void n265_mc_chroma_wh(uint8_t *dst, int ds, int w, int h,
-                       const uint8_t *ref, int ref_stride, int fx, int fy)
+void n265_mc_chroma_wh(pixel *dst, int ds, int w, int h,
+                       const pixel *ref, int ref_stride, int fx, int fy)
 {
     N265_RC_TOUCH(ref + (fy ? -1 : 0) * ref_stride);
     N265_RC_TOUCH(ref + (fy ? h + 1 : h - 1) * ref_stride);
@@ -334,8 +361,8 @@ void n265_mc_chroma_wh(uint8_t *dst, int ds, int w, int h,
     n265_mc_chroma_wh_ref(dst, ds, w, h, ref, ref_stride, fx, fy);
 }
 
-void n265_mc_chroma_wh_ref(uint8_t *dst, int ds, int w, int h,
-                           const uint8_t *ref, int ref_stride, int fx, int fy)
+void n265_mc_chroma_wh_ref(pixel *dst, int ds, int w, int h,
+                           const pixel *ref, int ref_stride, int fx, int fy)
 {
     if (!fx && !fy) {
         for (int y = 0; y < h; y++)
@@ -372,21 +399,21 @@ void n265_mc_chroma_wh_ref(uint8_t *dst, int ds, int w, int h,
             int s = 0;
             for (int k = 0; k < 4; k++)
                 s += fh[k] * ref[y * ref_stride + x + k - 1];
-            tmp[(y + 1) * w + x] = (int16_t)s;
+            tmp[(y + 1) * w + x] = (int16_t)(s >> MC_SHIFT1);
         }
     for (int y = 0; y < h; y++)
         for (int x = 0; x < w; x++) {
             int s = 0;
             for (int k = 0; k < 4; k++)
                 s += fv[k] * tmp[(y + k) * w + x];
-            dst[y * ds + x] = clip1((s + 2048) >> 12);
+            dst[y * ds + x] = clip1((s + MC_ROUND23) >> MC_SHIFT23);
         }
 }
 
 /* 14-bit outputs: 1-D keeps sum<<0 (values are sum of coef*sample, i.e.
  * sample<<6 scale); full-pel is sample<<6; 2-D second stage >>6. */
 void n265_mc_luma_14_wh(int16_t *dst, int ds, int w, int h,
-                        const uint8_t *ref, int ref_stride, int fx, int fy)
+                        const pixel *ref, int ref_stride, int fx, int fy)
 {
     N265_RC_TOUCH(ref + (fy ? -3 : 0) * ref_stride);
     N265_RC_TOUCH(ref + (fy ? h + 3 : h - 1) * ref_stride);
@@ -400,12 +427,13 @@ void n265_mc_luma_14_wh(int16_t *dst, int ds, int w, int h,
 }
 
 void n265_mc_luma_14_wh_ref(int16_t *dst, int ds, int w, int h,
-                            const uint8_t *ref, int ref_stride, int fx, int fy)
+                            const pixel *ref, int ref_stride, int fx, int fy)
 {
     if (!fx && !fy) {
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
-                dst[y * ds + x] = (int16_t)(ref[y * ref_stride + x] << 6);
+                dst[y * ds + x] =
+                    (int16_t)(ref[y * ref_stride + x] << MC_SHIFT3);
         return;
     }
     if (!fy) {
@@ -415,7 +443,7 @@ void n265_mc_luma_14_wh_ref(int16_t *dst, int ds, int w, int h,
                 int s = 0;
                 for (int k = 0; k < 8; k++)
                     s += f[k] * ref[y * ref_stride + x + k - 3];
-                dst[y * ds + x] = (int16_t)s;
+                dst[y * ds + x] = (int16_t)(s >> MC_SHIFT1);
             }
         return;
     }
@@ -426,7 +454,7 @@ void n265_mc_luma_14_wh_ref(int16_t *dst, int ds, int w, int h,
                 int s = 0;
                 for (int k = 0; k < 8; k++)
                     s += f[k] * ref[(y + k - 3) * ref_stride + x];
-                dst[y * ds + x] = (int16_t)s;
+                dst[y * ds + x] = (int16_t)(s >> MC_SHIFT1);
             }
         return;
     }
@@ -437,7 +465,7 @@ void n265_mc_luma_14_wh_ref(int16_t *dst, int ds, int w, int h,
             int s = 0;
             for (int k = 0; k < 8; k++)
                 s += fh[k] * ref[y * ref_stride + x + k - 3];
-            tmp[(y + 3) * w + x] = (int16_t)s;
+            tmp[(y + 3) * w + x] = (int16_t)(s >> MC_SHIFT1);
         }
     for (int y = 0; y < h; y++)
         for (int x = 0; x < w; x++) {
@@ -449,7 +477,7 @@ void n265_mc_luma_14_wh_ref(int16_t *dst, int ds, int w, int h,
 }
 
 void n265_mc_chroma_14_wh(int16_t *dst, int ds, int w, int h,
-                          const uint8_t *ref, int ref_stride, int fx, int fy)
+                          const pixel *ref, int ref_stride, int fx, int fy)
 {
     N265_RC_TOUCH(ref + (fy ? -1 : 0) * ref_stride);
     N265_RC_TOUCH(ref + (fy ? h + 1 : h - 1) * ref_stride);
@@ -463,13 +491,14 @@ void n265_mc_chroma_14_wh(int16_t *dst, int ds, int w, int h,
 }
 
 void n265_mc_chroma_14_wh_ref(int16_t *dst, int ds, int w, int h,
-                              const uint8_t *ref, int ref_stride, int fx,
+                              const pixel *ref, int ref_stride, int fx,
                               int fy)
 {
     if (!fx && !fy) {
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
-                dst[y * ds + x] = (int16_t)(ref[y * ref_stride + x] << 6);
+                dst[y * ds + x] =
+                    (int16_t)(ref[y * ref_stride + x] << MC_SHIFT3);
         return;
     }
     if (!fy) {
@@ -479,7 +508,7 @@ void n265_mc_chroma_14_wh_ref(int16_t *dst, int ds, int w, int h,
                 int s = 0;
                 for (int k = 0; k < 4; k++)
                     s += f[k] * ref[y * ref_stride + x + k - 1];
-                dst[y * ds + x] = (int16_t)s;
+                dst[y * ds + x] = (int16_t)(s >> MC_SHIFT1);
             }
         return;
     }
@@ -490,7 +519,7 @@ void n265_mc_chroma_14_wh_ref(int16_t *dst, int ds, int w, int h,
                 int s = 0;
                 for (int k = 0; k < 4; k++)
                     s += f[k] * ref[(y + k - 1) * ref_stride + x];
-                dst[y * ds + x] = (int16_t)s;
+                dst[y * ds + x] = (int16_t)(s >> MC_SHIFT1);
             }
         return;
     }
@@ -501,7 +530,7 @@ void n265_mc_chroma_14_wh_ref(int16_t *dst, int ds, int w, int h,
             int s = 0;
             for (int k = 0; k < 4; k++)
                 s += fh[k] * ref[y * ref_stride + x + k - 1];
-            tmp[(y + 1) * w + x] = (int16_t)s;
+            tmp[(y + 1) * w + x] = (int16_t)(s >> MC_SHIFT1);
         }
     for (int y = 0; y < h; y++)
         for (int x = 0; x < w; x++) {
@@ -512,25 +541,25 @@ void n265_mc_chroma_14_wh_ref(int16_t *dst, int ds, int w, int h,
         }
 }
 
-void n265_mc_luma(uint8_t *dst, int n, const uint8_t *ref, int ref_stride,
+void n265_mc_luma(pixel *dst, int n, const pixel *ref, int ref_stride,
                   int fx, int fy)
 {
     n265_mc_luma_wh(dst, n, n, n, ref, ref_stride, fx, fy);
 }
 
-void n265_mc_chroma(uint8_t *dst, int n, const uint8_t *ref, int ref_stride,
+void n265_mc_chroma(pixel *dst, int n, const pixel *ref, int ref_stride,
                     int fx, int fy)
 {
     n265_mc_chroma_wh(dst, n, n, n, ref, ref_stride, fx, fy);
 }
 
-void n265_mc_luma_14(int16_t *dst, int n, const uint8_t *ref, int ref_stride,
+void n265_mc_luma_14(int16_t *dst, int n, const pixel *ref, int ref_stride,
                      int fx, int fy)
 {
     n265_mc_luma_14_wh(dst, n, n, n, ref, ref_stride, fx, fy);
 }
 
-void n265_mc_chroma_14(int16_t *dst, int n, const uint8_t *ref,
+void n265_mc_chroma_14(int16_t *dst, int n, const pixel *ref,
                        int ref_stride, int fx, int fy)
 {
     n265_mc_chroma_14_wh(dst, n, n, n, ref, ref_stride, fx, fy);
@@ -539,17 +568,19 @@ void n265_mc_chroma_14(int16_t *dst, int n, const uint8_t *ref,
 /* the C reference the NEON kernel is checked against, kept callable so
  * checkasm can compare `_ref` with `_neon` directly rather than through
  * the dispatching entry point */
-void n265_bi_avg_wh_ref(uint8_t *dst, int ds, const int16_t *a,
+void n265_bi_avg_wh_ref(pixel *dst, int ds, const int16_t *a,
                         const int16_t *b, int w, int h)
 {
     for (int y = 0; y < h; y++)
         for (int x = 0; x < w; x++) {
-            int v = (a[y * w + x] + b[y * w + x] + 64) >> 7;
-            dst[y * ds + x] = (uint8_t)(v < 0 ? 0 : v > 255 ? 255 : v);
+            /* 8.5.3.3.4.2 default bi: shift = 15 - BitDepth, 7 at 8 */
+            int v = (a[y * w + x] + b[y * w + x] + (1 << (14 - BIT_DEPTH)))
+                    >> (15 - BIT_DEPTH);
+            dst[y * ds + x] = clip1(v);
         }
 }
 
-void n265_bi_avg_wh(uint8_t *dst, int ds, const int16_t *a, const int16_t *b,
+void n265_bi_avg_wh(pixel *dst, int ds, const int16_t *a, const int16_t *b,
                     int w, int h)
 {
 #if N265_NEON
@@ -570,7 +601,7 @@ void n265_bi_avg_wh(uint8_t *dst, int ds, const int16_t *a, const int16_t *b,
     n265_bi_avg_wh_ref(dst, ds, a, b, w, h);
 }
 
-void n265_bi_avg(uint8_t *dst, const int16_t *a, const int16_t *b, int n)
+void n265_bi_avg(pixel *dst, const int16_t *a, const int16_t *b, int n)
 {
     n265_bi_avg_wh(dst, n, a, b, n, n);
 }

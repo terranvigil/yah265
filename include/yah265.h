@@ -30,7 +30,26 @@ extern "C" {
 #define YAH265_VERSION_MINOR 0
 #define YAH265_VERSION_PATCH 1
 
-/* Chroma sampling of input pictures. Only 4:2:0 8-bit for now. */
+/* The sample width this library was built for: 8 (the default) or 10.
+ * There is one library per depth - meson's `bit_depth` option defines
+ * this project-wide and suffixes the 10-bit library and binary
+ * (`n265-10`) - so a caller includes this header once per library it
+ * links, and the picture it hands in carries samples of that width.
+ * Nothing here is defined when a consumer builds against the installed
+ * 8-bit header, which is why 8 is the default. */
+#ifndef N265_BIT_DEPTH
+#define N265_BIT_DEPTH 8
+#endif
+
+#if N265_BIT_DEPTH == 8
+typedef uint8_t n265_pixel;
+#elif N265_BIT_DEPTH == 10
+typedef uint16_t n265_pixel;
+#else
+#error "N265_BIT_DEPTH must be 8 or 10"
+#endif
+
+/* Chroma sampling of input pictures. Only 4:2:0 for now. */
 enum {
     N265_CSP_I420 = 0,
 };
@@ -62,8 +81,8 @@ typedef struct n265_nal {
 } n265_nal;
 
 typedef struct n265_picture {
-    const uint8_t *plane[3];
-    int stride[3];          /* in bytes */
+    const n265_pixel *plane[3];
+    int stride[3];          /* in SAMPLES, not bytes */
     int64_t pts;
 } n265_picture;
 

@@ -51,9 +51,13 @@ static void write_ptl(bitstream_t *bs, int w, int h, int dpb)
 {
     bs_put_bits(bs, 0, 2);          /* general_profile_space */
     bs_put_bits(bs, 0, 1);          /* general_tier_flag: main */
-    bs_put_bits(bs, 1, 5);          /* general_profile_idc: Main */
-    /* compatibility flags: Main (1) and Main 10 (2) can decode this */
-    bs_put_bits(bs, 0x60000000, 32);
+    /* Main (1) at 8 bits, Main10 (2) at 10. A Main stream is also
+     * Main10-decodable so it sets both compatibility flags; a Main10
+     * stream is not Main-decodable and sets only its own. Item 2 owns
+     * the rest of the Main10 header review - the level tables' sample
+     * rates, the constraint flags and the VUI. */
+    bs_put_bits(bs, BIT_DEPTH == 8 ? 1 : 2, 5);   /* general_profile_idc */
+    bs_put_bits(bs, BIT_DEPTH == 8 ? 0x60000000u : 0x20000000u, 32);
     bs_put_bits(bs, 1, 1);          /* general_progressive_source_flag */
     bs_put_bits(bs, 0, 1);          /* general_interlaced_source_flag */
     bs_put_bits(bs, 1, 1);          /* general_non_packed_constraint_flag */
@@ -112,8 +116,8 @@ void n265_write_sps(struct n265_frame_work *e)
     } else {
         bs_put_bits(bs, 0, 1);
     }
-    bs_put_ue(bs, 0);               /* bit_depth_luma_minus8 */
-    bs_put_ue(bs, 0);               /* bit_depth_chroma_minus8 */
+    bs_put_ue(bs, BIT_DEPTH - 8);   /* bit_depth_luma_minus8 */
+    bs_put_ue(bs, BIT_DEPTH - 8);   /* bit_depth_chroma_minus8 */
     bs_put_ue(bs, 4);               /* log2_max_pic_order_cnt_lsb_minus4 */
     bs_put_bits(bs, 0, 1);          /* sps_sub_layer_ordering_info_present */
     bs_put_ue(bs, (uint32_t)(e->dpb_buffering - 1)); /* sps_max_dec_pic_buffering_minus1 */
@@ -146,8 +150,8 @@ void n265_write_sps(struct n265_frame_work *e)
                                     /* sample_adaptive_offset_enabled_flag */
     if (e->mode == N265_MODE_PCM) {
         bs_put_bits(bs, 1, 1);      /* pcm_enabled_flag */
-        bs_put_bits(bs, 7, 4);      /* pcm_sample_bit_depth_luma_minus1 */
-        bs_put_bits(bs, 7, 4);      /* pcm_sample_bit_depth_chroma_minus1 */
+        bs_put_bits(bs, BIT_DEPTH - 1, 4);  /* pcm_sample_bit_depth_luma_minus1 */
+        bs_put_bits(bs, BIT_DEPTH - 1, 4);  /* pcm_sample_bit_depth_chroma_minus1 */
         bs_put_ue(bs, 1);           /* log2_min_pcm_luma_coding_block_size_minus3: 16 */
         bs_put_ue(bs, 0);           /* log2_diff_max_min_pcm_luma_coding_block_size */
         bs_put_bits(bs, 1, 1);      /* pcm_loop_filter_disabled_flag */

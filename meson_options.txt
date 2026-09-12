@@ -1,0 +1,7 @@
+# Phase 8 item 1. The sample width is a compile-time type, so the depth is
+# a build option and not a runtime flag: one library and one binary per
+# depth. 8 is the measured encoder - every board row, every band number and
+# every byte-identity anchor is an 8-bit bitstream - and the 8-bit build
+# must compile to exactly what it compiled to before the option existed.
+option('bit_depth', type : 'combo', choices : ['8', '10'], value : '8',
+       description : 'sample width of the encoder library (8 or Main10)')

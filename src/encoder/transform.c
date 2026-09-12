@@ -12,8 +12,6 @@
 #include "encoder/tables.h"
 #include "encoder/transform.h"
 
-#define BIT_DEPTH 8
-
 /* DST-VII 4x4 for intra luma 4x4 TBs (8.6.4.2) */
 static const int8_t dst4[4][4] = {
     { 29, 55, 74, 84 },
@@ -132,8 +130,8 @@ static void inv_stage(int32_t *out, const int32_t *in, int log2n, int shift,
         }
 }
 
-void n265_idct_add_ref(uint8_t *dst, int dst_stride, const int16_t *dq,
-                       int log2n, const uint8_t *pred, int pred_stride,
+void n265_idct_add_ref(pixel *dst, int dst_stride, const int16_t *dq,
+                       int log2n, const pixel *pred, int pred_stride,
                        int use_dst)
 {
     int n = 1 << log2n;
@@ -154,7 +152,7 @@ void n265_idct_add_ref(uint8_t *dst, int dst_stride, const int16_t *dq,
         for (int x = 0; x < n; x++) {
             int r = b[x * n + y];
             dst[y * dst_stride + x] =
-                (uint8_t)clip3(0, 255, pred[y * pred_stride + x] + r);
+                (pixel)clip3(0, PIXEL_MAX, pred[y * pred_stride + x] + r);
         }
 }
 
@@ -426,13 +424,13 @@ void n265_fdct(int16_t *coef, const int16_t *resid, int log2n, int use_dst)
                 inv_dct_1d_nz(r, 1, b + y, N, N, 20 - BIT_DEPTH, 0,     \
                               nzw);                                     \
             for (int x = 0; x < (N); x++)                                \
-                dst[y * dst_stride + x] = (uint8_t)                      \
-                    clip3(0, 255, pred[y * pred_stride + x] + r[x]);     \
+                dst[y * dst_stride + x] = (pixel)                        \
+                    clip3(0, PIXEL_MAX, pred[y * pred_stride + x] + r[x]); \
         }                                                               \
     } while (0)
 
-void n265_idct_add(uint8_t *dst, int dst_stride, const int16_t *dq,
-                   int log2n, const uint8_t *pred, int pred_stride,
+void n265_idct_add(pixel *dst, int dst_stride, const int16_t *dq,
+                   int log2n, const pixel *pred, int pred_stride,
                    int use_dst, int nzw, int nzh)
 {
     int n = 1 << log2n;
@@ -464,14 +462,16 @@ void n265_idct_add(uint8_t *dst, int dst_stride, const int16_t *dq,
     /* DC only: both stages reduce to a constant, and the constant is the
      * one the general path forms (E mirrors at every level, so stage 1
      * emits clip16((64*dq0 + 64) >> 7) in every row and stage 2 turns
-     * that into (64*v + 2048) >> 12 in every column). */
+     * that into (64*v + (1 << (19 - BitDepth))) >> (20 - BitDepth) in
+     * every column - 2048 and 12 at 8 bits). */
     if (!use_dst && nzw == 1 && nzh == 1) {
+        int sh2 = 20 - BIT_DEPTH;
         int32_t v = clip3(-32768, 32767, (64 * dq[0] + 64) >> 7);
-        int32_t r = (64 * v + 2048) >> 12;
+        int32_t r = (64 * v + (1 << (sh2 - 1))) >> sh2;
         for (int y = 0; y < n; y++)
             for (int x = 0; x < n; x++)
-                dst[y * dst_stride + x] = (uint8_t)
-                    clip3(0, 255, pred[y * pred_stride + x] + r);
+                dst[y * dst_stride + x] = (pixel)
+                    clip3(0, PIXEL_MAX, pred[y * pred_stride + x] + r);
         return;
     }
 
@@ -488,8 +488,8 @@ void n265_idct_add(uint8_t *dst, int dst_stride, const int16_t *dq,
             int32_t r[4];
             inv_dst4_1d(r, 1, b + y, 4, 20 - BIT_DEPTH, 0);
             for (int x = 0; x < 4; x++)
-                dst[y * dst_stride + x] = (uint8_t)
-                    clip3(0, 255, pred[y * pred_stride + x] + r[x]);
+                dst[y * dst_stride + x] = (pixel)
+                    clip3(0, PIXEL_MAX, pred[y * pred_stride + x] + r[x]);
         }
         return;
     }
@@ -518,7 +518,10 @@ int n265_quant_ref(int16_t *level, const int16_t *coef, int log2n, int qp,
         26214, 23302, 20560, 18396, 16384, 14564
     };
     int n = 1 << log2n;
-    int qbits = 21 + qp / 6 - log2n;    /* 14 + qp/6 + (15 - bd - log2n) */
+    /* 14 + qp/6 + (15 - BitDepth - log2n); 21 at 8 bits. The QP the
+     * scale is indexed by still owes a QpBdOffset term at 10 - that,
+     * and every other per-QP table, is phase 8 item 2's. */
+    int qbits = 29 - BIT_DEPTH + qp / 6 - log2n;
     int64_t add = ((int64_t)1 << qbits) / (intra ? 3 : 6);
     int q = quant_scale[qp % 6];
     int nz = 0;

@@ -26,15 +26,17 @@
 
 #include <stdint.h>
 
+#include "common/pixel.h"
+
 /* Arm the guard for the current reference read. `last` is the last line
  * index of that plane the reader may touch; anything above the plane
  * origin (the top border) is always allowed, because a picture with any
  * published row has published its top border. */
-void n265_refchk_open(const uint8_t *plane, int stride, long last);
+void n265_refchk_open(const pixel *plane, int stride, long last);
 void n265_refchk_open_hf(const int16_t *plane, int stride, long last);
 /* ...and the round-3 2-D plane, which has its own watermark (four lines
  * behind the reference's, see n265_ref_guard). */
-void n265_refchk_open_p2(const uint8_t *plane, int stride, long last);
+void n265_refchk_open_p2(const pixel *plane, int stride, long last);
 /* ...and round 4's int16 twin of it, filled in the same pass. */
 void n265_refchk_open_p214(const int16_t *plane, int stride, long last);
 /* Back to "no reference read is allowed on this thread". */
@@ -43,14 +45,14 @@ void n265_refchk_close(void);
  * fill); those reads are not gated and are bracketed by these. */
 void n265_refchk_open_all(void);
 
-void n265_refchk_touch(const uint8_t *p, const char *fn);
+void n265_refchk_touch(const pixel *p, const char *fn);
 void n265_refchk_touch16(const int16_t *p, const char *fn);
-void n265_refchk_touch_p2(const uint8_t *p, const char *fn);
+void n265_refchk_touch_p2(const pixel *p, const char *fn);
 void n265_refchk_touch16_p2(const int16_t *p, const char *fn);
 
-#define N265_RC_TOUCH(p)    n265_refchk_touch((const uint8_t *)(p), __func__)
+#define N265_RC_TOUCH(p)    n265_refchk_touch((const pixel *)(p), __func__)
 #define N265_RC_TOUCH16(p)  n265_refchk_touch16((const int16_t *)(p), __func__)
-#define N265_RC_TOUCH_P2(p) n265_refchk_touch_p2((const uint8_t *)(p), __func__)
+#define N265_RC_TOUCH_P2(p) n265_refchk_touch_p2((const pixel *)(p), __func__)
 #define N265_RC_TOUCH16_P2(p) \
     n265_refchk_touch16_p2((const int16_t *)(p), __func__)
 /* n265_ref_win's gather has already made the guarded reads and reported

@@ -17,6 +17,16 @@ threads_dep = dependency('threads')
 
 add_project_arguments('-D_GNU_SOURCE', language : 'c')
 
+# Phase 8 item 1: the sample width is a compile-time type (src/common/
+# pixel.h), so the depth is a build and not a runtime choice. The 8-bit
+# build is the measured encoder and must stay byte-identical, so it gets
+# the bare names it always had; the 10-bit build suffixes its library and
+# its binary (`n265-10`) so the two can sit in one prefix.
+bit_depth = get_option('bit_depth').to_int()
+add_project_arguments('-DN265_BIT_DEPTH=@0@'.format(bit_depth), language : 'c')
+depth_suffix = bit_depth == 8 ? '' : '-@0@'.format(bit_depth)
+is_8bit = bit_depth == 8
+
 inc = include_directories('include', 'src')
 
 lib_sources = [
@@ -54,7 +64,14 @@ lib_sources = [
 # so the family worktrees never touch the same TU and this list is written
 # once. Runtime detection (src/common/cpu.c) still decides, so a build for
 # aarch64 that runs somewhere without the optional extensions is fine.
-if cpu_family == 'aarch64'
+#
+# Phase 8 item 1 adds the depth test. Every kernel here is typed on
+# uint8_t and processes 16 samples a vector; a 10-bit build runs the C
+# reference for all of them, by not compiling the kernels at all rather
+# than by branching away from them, so there is no 16-bit lane path to
+# get wrong before item 3 writes one. N265_NEON is therefore the single
+# guard: undefined at 10-bit, so the dispatch sites compile out too.
+if cpu_family == 'aarch64' and is_8bit
   add_project_arguments('-DN265_NEON=1', language : 'c')
   lib_sources += [
     'src/encoder/arm/transform_neon.c',
@@ -72,7 +89,7 @@ endif
 # binaries the boards time - link the STATIC form; the shared form with
 # hidden visibility is what gets installed for external callers (the
 # ffmpeg wrapper).
-libyah265_both = both_libraries('yah265', lib_sources,
+libyah265_both = both_libraries('yah265' + depth_suffix, lib_sources,
   include_directories : inc,
   dependencies : [m_dep, threads_dep],
   version : meson.project_version(),
@@ -83,21 +100,28 @@ libyah265_both = both_libraries('yah265', lib_sources,
 libyah265 = libyah265_both.get_shared_lib()
 libyah265_static = libyah265_both.get_static_lib()
 
-install_headers('include/yah265.h')
+# One header, and it is depth-agnostic: N265_BIT_DEPTH defaults to 8
+# inside it, so an external consumer that links the 8-bit library needs
+# no define. A consumer of the 10-bit library defines it to 10. Installed
+# once, by the 8-bit build, so the two builds cannot clobber each other.
+if is_8bit
+  install_headers('include/yah265.h')
+endif
 
 pkg = import('pkgconfig')
 pkg.generate(libyah265,
-  name : 'yah265',
-  filebase : 'yah265',
+  name : 'yah265' + depth_suffix,
+  filebase : 'yah265' + depth_suffix,
   description : 'HEVC/H.265 encoder',
   url : 'https://github.com/terranvigil/yah265',
+  extra_cflags : is_8bit ? [] : ['-DN265_BIT_DEPTH=@0@'.format(bit_depth)],
   subdirs : '.')
 
 yah265_dep = declare_dependency(
   link_with : libyah265_static,
   include_directories : inc)
 
-n265 = executable('n265', 'cli/n265.c',
+n265 = executable('n265' + depth_suffix, 'cli/n265.c',
   dependencies : yah265_dep,
   install : true)
 

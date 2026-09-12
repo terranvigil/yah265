@@ -45,8 +45,8 @@ void n265_sao_row(struct n265_frame_work *e, int cy);
  * This is the whole of the SAO analysis pass on a band-only frame, which
  * since R7 is every frame the filter runs on at all. Plain C on purpose;
  * the refusal of a NEON twin, with its arithmetic, is in sao.c. */
-void n265_sao_band_stats(const uint8_t *src, int src_stride,
-                         const uint8_t *rec, int rec_stride, int w, int h,
+void n265_sao_band_stats(const pixel *src, int src_stride,
+                         const pixel *rec, int rec_stride, int w, int h,
                          int64_t bn[32], int64_t bd[32]);
 
 /* Write one CTB's sao() syntax (7.3.8.3). */

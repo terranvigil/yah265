@@ -10,6 +10,7 @@
 #include <stdio.h>
 
 #include "yah265.h"
+#include "common/pixel.h"
 #include "threadpool/ntp.h"
 #include "common/bitstream.h"
 #include "encoder/cabac.h"
@@ -81,8 +82,8 @@ enum {
  * slot stays `valid = 0` until publish, which is what keeps the picture
  * out of its own RPS and out of its own reference lists. */
 struct n265_refpic {
-    uint8_t *base[3];
-    uint8_t *plane[3];  /* origin inside the border */
+    pixel *base[3];
+    pixel *plane[3];    /* origin inside the border */
     int stride[3];
     int poc;
     /* D2 (T2 decision): DPB membership as the DECODER sees it - the RPS,
@@ -134,8 +135,8 @@ struct n265_refpic {
      * so NULL whenever that is, and NULL per plane for a phase this
      * picture does not cache - which since round 4 is a per-reference
      * decision taken from measured traffic (N265_HF2). */
-    uint8_t *hf2_base[12];
-    uint8_t *hf2[12];           /* (fy - 1) * 4 + fx */
+    pixel *hf2_base[12];
+    pixel *hf2[12];             /* (fy - 1) * 4 + fx */
     /* Round 4: the same plane for the 14-bit (bi) form, holding the
      * UNROUNDED int16 that n265_mc_luma_14_hf would have written. Twice
      * the bytes of the u8 plane for a fifth of the traffic, so the same
@@ -275,9 +276,9 @@ typedef struct n265_frame_work {
     int dbf_beta, dbf_tc;   /* slice_beta/tc_offset_div2, see n265_encoder */
 
     /* ---- per-frame: source, recon, slice ---- */
-    const uint8_t *pad_plane[3];    /* the lookahead slot's padded source */
+    const pixel *pad_plane[3];      /* the lookahead slot's padded source */
     int pad_stride[3];
-    uint8_t *recon[3];      /* aliases slot->plane[] */
+    pixel *recon[3];        /* aliases slot->plane[] */
     int recon_stride[3];
     struct n265_refpic *slot;       /* the DPB slot being reconstructed into */
 
@@ -381,8 +382,8 @@ typedef struct n265_frame_work {
     uint16_t *ctu_lam_q8;   /* per-CTU lambda multiplier, Q8 (256 = inert) */
     uint8_t *ctu_dmin, *ctu_dmax;   /* P2: per-CTU depth range used */
     struct sao_params *sao; /* per-CTB SAO decisions */
-    uint8_t *sao_tmp[3];    /* one CTB row's pristine deblocked band */
-    uint8_t *sao_line[3];   /* the row above's last line, pre-SAO */
+    pixel *sao_tmp[3];      /* one CTB row's pristine deblocked band */
+    pixel *sao_line[3];     /* the row above's last line, pre-SAO */
 
     /* ---- row-private once a row copy exists ---- */
     int cur_ctu_qp;         /* QP of the CTU being analyzed */
@@ -393,7 +394,7 @@ typedef struct n265_frame_work {
      * see chroma_w_for_qp in ctu.c. */
     uint32_t cur_chroma_w_q8;
     int db_lo, db_hi;       /* P2: depth range this quadtree may search */
-    const uint8_t *cu_pred[3];      /* PU-by-PU MC result a partitioned
+    const pixel *cu_pred[3];        /* PU-by-PU MC result a partitioned
                                      * inter CU's TBs crop from; NULL for
                                      * 2Nx2N */
     int cu_pred_stride[3];
@@ -945,7 +946,7 @@ static inline unsigned n265_gen_of(const n265_frame_work *e,
 static inline void n265_ref_guard(const n265_frame_work *e,
                                   const struct n265_refpic *pic, int need,
                                   int c_idx, const int16_t *hf,
-                                  const uint8_t *p2, const int16_t *p2w)
+                                  const pixel *p2, const int16_t *p2w)
 {
     long lastl = need >= e->ctb_rows
         ? 1L << 30                      /* whole picture plus its borders */
@@ -1096,9 +1097,9 @@ static inline const int16_t *n265_ref_hf(const struct n265_refpic *r,
  * filter reads; n265_clamp_mv admits integer positions in
  * [-(N265_REF_PAD - 8), pic + N265_REF_PAD - 8) = [-56, pic + 56), which
  * fits inside it with a line to spare at each end. */
-static inline const uint8_t *n265_ref_2d(const struct n265_refpic *r,
-                                         int x, int y, int w, int h,
-                                         int fx, int fy)
+static inline const pixel *n265_ref_2d(const struct n265_refpic *r,
+                                       int x, int y, int w, int h,
+                                       int fx, int fy)
 {
     if (!fy || !r->hf2[(fy - 1) * 4 + fx])
         return NULL;
@@ -1109,8 +1110,8 @@ static inline const uint8_t *n265_ref_2d(const struct n265_refpic *r,
 }
 
 /* That plane's ORIGIN, for the REF_CHECK guard; NULL where there is none. */
-static inline const uint8_t *n265_ref_2d_base(const struct n265_refpic *r,
-                                              int fx, int fy)
+static inline const pixel *n265_ref_2d_base(const struct n265_refpic *r,
+                                            int fx, int fy)
 {
     return fy ? r->hf2[(fy - 1) * 4 + fx] : NULL;
 }

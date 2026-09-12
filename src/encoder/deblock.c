@@ -27,19 +27,27 @@ static inline int clip3(int lo, int hi, int v)
 {
     return v < lo ? lo : v > hi ? hi : v;
 }
-static inline uint8_t clip1(int v)
+static inline pixel clip1(int v)
 {
-    return (uint8_t)(v < 0 ? 0 : v > 255 ? 255 : v);
+    return (pixel)(v < 0 ? 0 : v > PIXEL_MAX ? PIXEL_MAX : v);
 }
+
+/* 8.7.2.5.3: beta = beta' * (1 << (BitDepth - 8)) and tC likewise, so
+ * the two tables above are read through a scale that is 1 at 8 bits -
+ * which is why they were read straight. The QP the tables are INDEXED
+ * by still has to grow a QpBdOffset term; that is phase 8 item 2's,
+ * along with every other per-QP table. */
+#define BETA_AT(i)  (beta_tab[i] << BIT_DEPTH_SHIFT)
+#define TC_AT(i)    (tc_tab[i] << BIT_DEPTH_SHIFT)
 static inline int iabs(int v) { return v < 0 ? -v : v; }
 
 /* filter one 4-line luma segment across an edge; pix points at the first
  * q0 sample of the segment, xstride steps across the edge (p side is
  * -xstride), ystride steps along it. */
-static void luma_segment(uint8_t *pix, int xstride, int ystride, int beta,
+static void luma_segment(pixel *pix, int xstride, int ystride, int beta,
                          int tc)
 {
-    uint8_t *l0 = pix, *l3 = pix + 3 * ystride;
+    pixel *l0 = pix, *l3 = pix + 3 * ystride;
     int dp0 = iabs(l0[-3 * xstride] - 2 * l0[-2 * xstride] + l0[-xstride]);
     int dq0 = iabs(l0[2 * xstride] - 2 * l0[xstride] + l0[0]);
     int dp3 = iabs(l3[-3 * xstride] - 2 * l3[-2 * xstride] + l3[-xstride]);
@@ -50,7 +58,7 @@ static void luma_segment(uint8_t *pix, int xstride, int ystride, int beta,
 
     int strong = 1;
     for (int i = 0; i < 4; i += 3) {    /* lines 0 and 3 */
-        uint8_t *l = pix + i * ystride;
+        pixel *l = pix + i * ystride;
         int dpq = (i == 0) ? dp0 + dq0 : dp3 + dq3;
         if (!(2 * dpq < (beta >> 2) &&
               iabs(l[-4 * xstride] - l[-xstride]) + iabs(l[0] - l[3 * xstride])
@@ -63,7 +71,7 @@ static void luma_segment(uint8_t *pix, int xstride, int ystride, int beta,
     int deq = (dq0 + dq3) < ((beta + (beta >> 1)) >> 3);
 
     for (int i = 0; i < 4; i++) {
-        uint8_t *l = pix + i * ystride;
+        pixel *l = pix + i * ystride;
         int p3 = l[-4 * xstride], p2 = l[-3 * xstride];
         int p1 = l[-2 * xstride], p0 = l[-xstride];
         int q0 = l[0], q1 = l[xstride], q2 = l[2 * xstride];
@@ -102,11 +110,11 @@ static void luma_segment(uint8_t *pix, int xstride, int ystride, int beta,
     }
 }
 
-static void chroma_segment(uint8_t *pix, int xstride, int ystride, int tc,
+static void chroma_segment(pixel *pix, int xstride, int ystride, int tc,
                            int nlines)
 {
     for (int i = 0; i < nlines; i++) {
-        uint8_t *l = pix + i * ystride;
+        pixel *l = pix + i * ystride;
         int p1 = l[-2 * xstride], p0 = l[-xstride];
         int q0 = l[0], q1 = l[xstride];
         int delta = clip3(-tc, tc,
@@ -231,7 +239,7 @@ static int seg_qp(const struct n265_frame_work *e, int x, int y, int vertical)
  * row does can reach back. */
 void n265_deblock_row(struct n265_frame_work *e, int r)
 {
-    uint8_t *luma = e->recon[0];
+    pixel *luma = e->recon[0];
     int ls = e->recon_stride[0];
     /* 8.7.2.5.3: Q for beta is qP + 2*slice_beta_offset_div2, and for tC
      * qP + 2*(bS-1) + 2*slice_tc_offset_div2 */
@@ -248,8 +256,8 @@ void n265_deblock_row(struct n265_frame_work *e, int r)
                 if (bs) {
                     int q = seg_qp(e, x, y, 1);
                     luma_segment(luma + y * ls + x, 1, ls,
-                                 beta_tab[clip3(0, 51, q + bo)],
-                                 tc_tab[clip3(0, 53, q + 2 * (bs - 1) + to)]);
+                                 BETA_AT(clip3(0, 51, q + bo)),
+                                 TC_AT(clip3(0, 53, q + 2 * (bs - 1) + to)));
                 }
             }
     for (int y = y0 < 8 ? 8 : y0; y < y1; y += 8)
@@ -259,13 +267,13 @@ void n265_deblock_row(struct n265_frame_work *e, int r)
                 if (bs) {
                     int q = seg_qp(e, x, y, 0);
                     luma_segment(luma + y * ls + x, ls, 1,
-                                 beta_tab[clip3(0, 51, q + bo)],
-                                 tc_tab[clip3(0, 53, q + 2 * (bs - 1) + to)]);
+                                 BETA_AT(clip3(0, 51, q + bo)),
+                                 TC_AT(clip3(0, 53, q + 2 * (bs - 1) + to)));
                 }
             }
 
     for (int p = 1; p <= 2; p++) {
-        uint8_t *c = e->recon[p];
+        pixel *c = e->recon[p];
         int cs = e->recon_stride[p];
         int cw = e->pad_w / 2, ch = e->pad_h / 2;
         int cy0 = y0 / 2, cy1 = y1 / 2;
@@ -278,7 +286,7 @@ void n265_deblock_row(struct n265_frame_work *e, int r)
                 if (has_edge(e, 2 * x, 2 * y, 1) &&
                     seg_bs(e, 2 * x, 2 * y, 1) == 2) {
                     int q = n265_chroma_qp(seg_qp(e, 2 * x, 2 * y, 1));
-                    int t = tc_tab[clip3(0, 53, q + 2 + to)];
+                    int t = TC_AT(clip3(0, 53, q + 2 + to));
                     if (t)
                         chroma_segment(c + y * cs + x, 1, cs, t, 2);
                 }
@@ -287,7 +295,7 @@ void n265_deblock_row(struct n265_frame_work *e, int r)
                 if (has_edge(e, 2 * x, 2 * y, 0) &&
                     seg_bs(e, 2 * x, 2 * y, 0) == 2) {
                     int q = n265_chroma_qp(seg_qp(e, 2 * x, 2 * y, 0));
-                    int t = tc_tab[clip3(0, 53, q + 2 + to)];
+                    int t = TC_AT(clip3(0, 53, q + 2 + to));
                     if (t)
                         chroma_segment(c + y * cs + x, cs, 1, t, 2);
                 }
@@ -333,7 +341,7 @@ void n265_qpmap_row(struct n265_frame_work *e, int r, int *prev)
 
 void n265_deblock_frame(struct n265_frame_work *e)
 {
-    uint8_t *luma = e->recon[0];
+    pixel *luma = e->recon[0];
     int ls = e->recon_stride[0];
     /* 8.7.2.5.3: Q for beta is qP + 2*slice_beta_offset_div2, and for tC
      * qP + 2*(bS-1) + 2*slice_tc_offset_div2 */
@@ -347,8 +355,8 @@ void n265_deblock_frame(struct n265_frame_work *e)
                 if (bs) {
                     int q = seg_qp(e, x, y, 1);
                     luma_segment(luma + y * ls + x, 1, ls,
-                                 beta_tab[clip3(0, 51, q + bo)],
-                                 tc_tab[clip3(0, 53, q + 2 * (bs - 1) + to)]);
+                                 BETA_AT(clip3(0, 51, q + bo)),
+                                 TC_AT(clip3(0, 53, q + 2 * (bs - 1) + to)));
                 }
             }
     /* horizontal edges */
@@ -359,13 +367,13 @@ void n265_deblock_frame(struct n265_frame_work *e)
                 if (bs) {
                     int q = seg_qp(e, x, y, 0);
                     luma_segment(luma + y * ls + x, ls, 1,
-                                 beta_tab[clip3(0, 51, q + bo)],
-                                 tc_tab[clip3(0, 53, q + 2 * (bs - 1) + to)]);
+                                 BETA_AT(clip3(0, 51, q + bo)),
+                                 TC_AT(clip3(0, 53, q + 2 * (bs - 1) + to)));
                 }
             }
 
     for (int p = 1; p <= 2; p++) {
-        uint8_t *c = e->recon[p];
+        pixel *c = e->recon[p];
         int cs = e->recon_stride[p];
         int cw = e->pad_w / 2, ch = e->pad_h / 2;
         /* chroma edges on the 16-luma grid, bS 2 only. Two chroma lines
@@ -375,7 +383,7 @@ void n265_deblock_frame(struct n265_frame_work *e)
                 if (has_edge(e, 2 * x, 2 * y, 1) &&
                     seg_bs(e, 2 * x, 2 * y, 1) == 2) {
                     int q = n265_chroma_qp(seg_qp(e, 2 * x, 2 * y, 1));
-                    int t = tc_tab[clip3(0, 53, q + 2 + to)];
+                    int t = TC_AT(clip3(0, 53, q + 2 + to));
                     if (t)
                         chroma_segment(c + y * cs + x, 1, cs, t, 2);
                 }
@@ -384,7 +392,7 @@ void n265_deblock_frame(struct n265_frame_work *e)
                 if (has_edge(e, 2 * x, 2 * y, 0) &&
                     seg_bs(e, 2 * x, 2 * y, 0) == 2) {
                     int q = n265_chroma_qp(seg_qp(e, 2 * x, 2 * y, 0));
-                    int t = tc_tab[clip3(0, 53, q + 2 + to)];
+                    int t = TC_AT(clip3(0, 53, q + 2 + to));
                     if (t)
                         chroma_segment(c + y * cs + x, cs, 1, t, 2);
                 }

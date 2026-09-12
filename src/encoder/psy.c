@@ -18,7 +18,7 @@
 #include <stdlib.h>
 #include "encoder/psy.h"
 
-static uint32_t hadamard4_ac(const uint8_t *p, int stride)
+static uint32_t hadamard4_ac(const pixel *p, int stride)
 {
     int m[16], t[16];
     for (int y = 0; y < 4; y++) {
@@ -37,7 +37,7 @@ static uint32_t hadamard4_ac(const uint8_t *p, int stride)
     return sum;
 }
 
-uint32_t n265_psy_energy(const uint8_t *p, int stride, int n)
+uint32_t n265_psy_energy(const pixel *p, int stride, int n)
 {
     uint32_t e = 0;
     for (int y = 0; y < n; y += 4)
@@ -46,7 +46,7 @@ uint32_t n265_psy_energy(const uint8_t *p, int stride, int n)
     return e;
 }
 
-uint64_t n265_psy_cost(const uint8_t *src, int src_stride, const uint8_t *rec,
+uint64_t n265_psy_cost(const pixel *src, int src_stride, const pixel *rec,
                        int rec_stride, int n, uint32_t lam_q8, double strength)
 {
     if (strength <= 0.0)

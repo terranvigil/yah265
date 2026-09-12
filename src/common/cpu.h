@@ -14,6 +14,8 @@
 #include <stdatomic.h>
 #include <stdint.h>
 
+#include "common/pixel.h"
+
 /* Feature bits. NEON is architecturally mandatory on aarch64, so its bit
  * doubles as "this is an aarch64 host with a usable SIMD path". DotProd
  * and I8MM are optional extensions a kernel may want a second variant
@@ -71,6 +73,17 @@ static inline uint32_t n265_cpu_flags(void)
  * has returned is race-free. */
 static inline int n265_asm_on(uint32_t cls)
 {
+    /* Phase 8 item 1: every kernel in src/encoder/arm/ is typed on
+     * uint8_t and processes 16 samples to a vector, so none of them is
+     * a 10-bit kernel. A build above 8 bits runs the C reference for
+     * every family, and it does so twice over: meson leaves the _neon
+     * translation units and -DN265_NEON out of that build entirely, so
+     * the dispatch sites do not compile in either. This test is the
+     * belt to that brace - if a site ever loses its #if, it still takes
+     * the C path rather than feeding 16-bit samples to an 8-bit kernel.
+     * Item 3 ports the families for 16-bit lanes and lifts it. */
+    if (BIT_DEPTH != 8)
+        return 0;
     return (n265_cpu_flags() & N265_CPU_NEON) && !(n265_asm_off_ & cls);
 }
 

@@ -627,8 +627,8 @@ static int fw_open(n265_encoder *e, n265_frame_work *fw)
     for (int i = 0; i < 3; i++) {
         int w = i ? e->pad_w / 2 : e->pad_w;
         int bh = (1 << e->ctb_log2) >> (i ? 1 : 0);
-        fw->sao_tmp[i] = malloc((size_t)w * bh);
-        fw->sao_line[i] = malloc((size_t)w);
+        fw->sao_tmp[i] = malloc((size_t)w * bh * sizeof(pixel));
+        fw->sao_line[i] = malloc((size_t)w * sizeof(pixel));
         if (!fw->sao_tmp[i] || !fw->sao_line[i])
             return -1;
     }
@@ -1008,7 +1008,8 @@ n265_encoder *n265_encoder_open(const n265_param *p)
             struct n265_refpic *r = sl < e->dpb_slots
                 ? &e->dpb[sl] : &e->scratch_pic[sl - e->dpb_slots];
             r->stride[i] = w + 2 * pad;
-            r->base[i] = malloc((size_t)r->stride[i] * (h + 2 * pad));
+            r->base[i] = malloc((size_t)r->stride[i] * (h + 2 * pad)
+                                * sizeof(pixel));
             if (!r->base[i])
                 goto fail;
             r->plane[i] = r->base[i] + pad * r->stride[i] + pad;
@@ -1626,7 +1627,7 @@ static void hf_arm(n265_encoder *e, struct n265_refpic *r, int code_idx)
         if (!(mask & (1u << i)))
             continue;
         if (!r->hf2_base[i]) {
-            r->hf2_base[i] = malloc((size_t)w * h);
+            r->hf2_base[i] = malloc((size_t)w * h * sizeof(pixel));
             if (!r->hf2_base[i])    /* no cache is a slow path, not a fail */
                 break;
         }
@@ -1664,7 +1665,7 @@ static void hf_fill_rows(n265_frame_work *fw, struct n265_refpic *r, int cy,
         y0 = -N265_HF_PAD;
     if (last)
         y1 = fw->pad_h + N265_HF_PAD;
-    const uint8_t *src = r->plane[0] + y0 * rs - N265_HF_PAD;
+    const pixel *src = r->plane[0] + y0 * rs - N265_HF_PAD;
     N265_REF_OPEN_ALL();
     for (int i = 0; i < 3; i++)
         /* ptrdiff_t, not size_t: y0 is -N265_HF_PAD on the first row
@@ -1726,16 +1727,17 @@ static void write_pcm_ctu(n265_frame_work *e, cabac_t *cb, cabac_ctx_t *part_mod
 
     int x0 = ctb_x * ctb;
     int y0 = ctb_y * ctb;
-    const uint8_t *l = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
+    const pixel *l = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
+    /* pcm_sample_bit_depth_luma/chroma: we code samples at full depth */
     for (int y = 0; y < ctb; y++)
         for (int x = 0; x < ctb; x++)
-            bs_put_bits(bs, l[y * e->pad_stride[0] + x], 8);
+            bs_put_bits(bs, l[y * e->pad_stride[0] + x], BIT_DEPTH);
     for (int p = 1; p <= 2; p++) {
-        const uint8_t *c = e->pad_plane[p] +
+        const pixel *c = e->pad_plane[p] +
             (y0 / 2) * e->pad_stride[p] + x0 / 2;
         for (int y = 0; y < ctb / 2; y++)
             for (int x = 0; x < ctb / 2; x++)
-                bs_put_bits(bs, c[y * e->pad_stride[p] + x], 8);
+                bs_put_bits(bs, c[y * e->pad_stride[p] + x], BIT_DEPTH);
     }
     n265_cabac_start(cb, bs);
 }
@@ -1837,9 +1839,9 @@ static void dump_planes(n265_frame_work *fw, FILE *f)
         int w = i ? fw->param.width / 2 : fw->param.width;
         int h = i ? fw->param.height / 2 : fw->param.height;
         int stride = pcm ? fw->pad_stride[i] : fw->recon_stride[i];
-        const uint8_t *pl = pcm ? fw->pad_plane[i] : fw->recon[i];
+        const pixel *pl = pcm ? fw->pad_plane[i] : fw->recon[i];
         for (int y = 0; y < h; y++)
-            fwrite(pl + y * stride, 1, (size_t)w, f);
+            fwrite(pl + y * stride, sizeof(pixel), (size_t)w, f);
     }
 }
 
@@ -1906,18 +1908,24 @@ static void publish_row(n265_frame_work *fw, int cy)
             if (y1 > h)
                 y1 = h;
             for (int y = y0; y < y1; y++) {
-                uint8_t *d = slot->plane[i] + y * rs;
-                memset(d - pad, d[0], (size_t)pad);
-                memset(d + w, d[w - 1], (size_t)pad);
+                pixel *d = slot->plane[i] + y * rs;
+                /* a SAMPLE fill: memset stops working the moment the
+                 * pixel is wider than a byte */
+                pixel lf = d[0], rt = d[w - 1];
+                for (int x = 1; x <= pad; x++) {
+                    d[-x] = lf;
+                    d[w - 1 + x] = rt;
+                }
             }
             if (cy == 0)
                 for (int y = 1; y <= pad; y++)
                     memcpy(slot->plane[i] - y * rs - pad,
-                           slot->plane[i] - pad, (size_t)rs);
+                           slot->plane[i] - pad, (size_t)rs * sizeof(pixel));
             if (last)
                 for (int y = 1; y <= pad; y++)
                     memcpy(slot->plane[i] + (h - 1 + y) * rs - pad,
-                           slot->plane[i] + (h - 1) * rs - pad, (size_t)rs);
+                           slot->plane[i] + (h - 1) * rs - pad,
+                           (size_t)rs * sizeof(pixel));
         }
         hf_fill_rows(fw, slot, cy, last);
         {
@@ -2394,7 +2402,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                             int ps = fw->pad_stride[0];
                             int64_t t1 = 0, t2 = 0;
                             for (int y = 0; y < hh; y++) {
-                                const uint8_t *p = fw->pad_plane[0] +
+                                const pixel *p = fw->pad_plane[0] +
                                     (size_t)(y0 + 2 * y) * ps + x0;
                                 for (int x = 0; x < hw; x++) {
                                     int d = (p[2 * x] + p[2 * x + 1] +
@@ -3488,7 +3496,7 @@ static int slot_busy(n265_encoder *e, const struct n265_refpic *s)
  * `src` still aliased by a frame in flight? A frame_work's pad_plane
  * points straight at the queue slot, and analysis reads it until the
  * frame retires. */
-static int la_src_busy(n265_encoder *e, const uint8_t *src)
+static int la_src_busy(n265_encoder *e, const pixel *src)
 {
     for (int i = 0; i < e->n_inflight; i++)
         if (e->inflight[i]->pad_plane[0] == src)
@@ -3791,13 +3799,13 @@ int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
          * The stall is on THAT slot now, not on everything in flight: the
          * free run is longer than K, so this is a guard rather than a
          * drain (T3/1). */
-        const uint8_t *reuse = n265_la_next_src(e);
+        const pixel *reuse = n265_la_next_src(e);
         while (e->n_inflight && la_src_busy(e, reuse)) {
             e->join_src++;
             join_oldest(e);
         }
-        const uint8_t *planes[3] = { pic->plane[0], pic->plane[1],
-                                     pic->plane[2] };
+        const pixel *planes[3] = { pic->plane[0], pic->plane[1],
+                                   pic->plane[2] };
         {
             double t = e->la_prof ? prof_now() : 0.0;
             n265_la_push(e, planes, pic->stride);

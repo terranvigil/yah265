@@ -30,7 +30,7 @@ uint64_t n265_zorder(int x, int y, int pic_w, int ctb_log2)
  * prefix argument to, and nothing on a hot path calls it. Do not fold the
  * two together: the worth of the second implementation is that it was
  * written from the spec and not from the fast one. */
-void n265_intra_refs_spec(uint8_t *refs, const uint8_t *recon, int stride,
+void n265_intra_refs_spec(pixel *refs, const pixel *recon, int stride,
                           int x0, int y0, int log2n,
                           int pic_w, int pic_h, int ctb_log2)
 {
@@ -63,7 +63,7 @@ void n265_intra_refs_spec(uint8_t *refs, const uint8_t *recon, int stride,
             first = i;
     if (first < 0) {
         for (int i = 0; i < total; i++)
-            refs[i] = 128;
+            refs[i] = 1 << (BIT_DEPTH - 1);
         return;
     }
     /* spec order runs p[-1][2n-1] up the left col, corner, then top row;
@@ -91,7 +91,7 @@ void n265_intra_refs_spec(uint8_t *refs, const uint8_t *recon, int stride,
             val[order[k]] = val[order[k - 1]];
 
     for (int i = 0; i < total; i++)
-        refs[i] = (uint8_t)val[i];
+        refs[i] = (pixel)val[i];
 }
 
 /* ---- the reference gather, as the encoder actually runs it ----------
@@ -169,7 +169,7 @@ static int avail_prefix_y(int x, int y0, int lim, uint64_t cur, int pic_w,
     return lo;
 }
 
-void n265_intra_refs_ref(uint8_t *refs, const uint8_t *recon, int stride,
+void n265_intra_refs_ref(pixel *refs, const pixel *recon, int stride,
                          int x0, int y0, int log2n,
                          int pic_w, int pic_h, int ctb_log2)
 {
@@ -196,7 +196,8 @@ void n265_intra_refs_ref(uint8_t *refs, const uint8_t *recon, int stride,
     }
 
     if (!nt && !nl && !cav) {           /* nothing available: mid-grey */
-        memset(refs, 128, (size_t)(4 * n + 1));
+        for (int i = 0; i <= 4 * n; i++)
+            refs[i] = 1 << (BIT_DEPTH - 1);
         return;
     }
 
@@ -205,21 +206,27 @@ void n265_intra_refs_ref(uint8_t *refs, const uint8_t *recon, int stride,
         refs[2 * n + 1 + k] = recon[(size_t)(y0 + k) * stride + x0 - 1];
     /* the top row, refs[1 .. 2n], available for the first nt */
     if (nt)
-        memcpy(refs + 1, recon + (size_t)(y0 - 1) * stride + x0, (size_t)nt);
+        memcpy(refs + 1, recon + (size_t)(y0 - 1) * stride + x0,
+               (size_t)nt * sizeof(pixel));
 
     /* first available in the spec's walk order */
     seed = nl ? refs[2 * n + nl] : cav ? corner : refs[1];
     /* the walk starts at 4n and runs down, so the unavailable tail of the
      * left column is what the seed fills */
+    /* sample fills, not byte fills: memset stopped serving here the
+     * moment the pixel could be wider than a byte */
     if (nl < 2 * n)
-        memset(refs + 2 * n + nl + 1, seed, (size_t)(2 * n - nl));
-    refs[0] = (uint8_t)(cav ? corner : nl ? refs[2 * n + 1] : seed);
-    if (nt < 2 * n)
-        memset(refs + nt + 1, nt ? refs[nt] : refs[0],
-               (size_t)(2 * n - nt));
+        for (int k = nl; k < 2 * n; k++)
+            refs[2 * n + 1 + k] = (pixel)seed;
+    refs[0] = (pixel)(cav ? corner : nl ? refs[2 * n + 1] : seed);
+    if (nt < 2 * n) {
+        pixel fill = nt ? refs[nt] : refs[0];
+        for (int k = nt; k < 2 * n; k++)
+            refs[1 + k] = fill;
+    }
 }
 
-void n265_intra_refs(uint8_t *refs, const uint8_t *recon, int stride,
+void n265_intra_refs(pixel *refs, const pixel *recon, int stride,
                      int x0, int y0, int log2n,
                      int pic_w, int pic_h, int ctb_log2)
 {
@@ -227,12 +234,12 @@ void n265_intra_refs(uint8_t *refs, const uint8_t *recon, int stride,
                         pic_w, pic_h, ctb_log2);
 }
 
-void n265_pred_dc(uint8_t *dst, int dst_stride, const uint8_t *refs,
+void n265_pred_dc(pixel *dst, int dst_stride, const pixel *refs,
                   int log2n, int filter_edges)
 {
     int n = 1 << log2n;
-    const uint8_t *top = refs + 1;
-    const uint8_t *left = refs + 2 * n + 1;
+    const pixel *top = refs + 1;
+    const pixel *left = refs + 2 * n + 1;
     int sum = n;
     for (int i = 0; i < n; i++)
         sum += top[i] + left[i];
@@ -240,18 +247,18 @@ void n265_pred_dc(uint8_t *dst, int dst_stride, const uint8_t *refs,
 
     for (int y = 0; y < n; y++)
         for (int x = 0; x < n; x++)
-            dst[y * dst_stride + x] = (uint8_t)dc;
+            dst[y * dst_stride + x] = (pixel)dc;
 
     if (filter_edges && n < 32) {
-        dst[0] = (uint8_t)((left[0] + 2 * dc + top[0] + 2) >> 2);
+        dst[0] = (pixel)((left[0] + 2 * dc + top[0] + 2) >> 2);
         for (int x = 1; x < n; x++)
-            dst[x] = (uint8_t)((top[x] + 3 * dc + 2) >> 2);
+            dst[x] = (pixel)((top[x] + 3 * dc + 2) >> 2);
         for (int y = 1; y < n; y++)
-            dst[y * dst_stride] = (uint8_t)((left[y] + 3 * dc + 2) >> 2);
+            dst[y * dst_stride] = (pixel)((left[y] + 3 * dc + 2) >> 2);
     }
 }
 
-void n265_filter_refs_ref(uint8_t *out, const uint8_t *in, int log2n)
+void n265_filter_refs_ref(pixel *out, const pixel *in, int log2n)
 {
     int n = 1 << log2n;
     /* strong smoothing (8.4.4.2.3, enabled in the SPS): for 32x32 luma
@@ -259,16 +266,16 @@ void n265_filter_refs_ref(uint8_t *out, const uint8_t *in, int log2n)
      * bilinear interpolation of the three corners */
     if (n == 32) {
         int tl = in[0], tr = in[2 * n], bl = in[4 * n];
-        int thr = 1 << (8 - 5);
+        int thr = 1 << (BIT_DEPTH - 5);
         int flat_top = abs_int(tl + tr - 2 * in[n]) < thr;
         int flat_left = abs_int(tl + bl - 2 * in[2 * n + n]) < thr;
         if (flat_top && flat_left) {
-            out[0] = (uint8_t)tl;
+            out[0] = (pixel)tl;
             for (int i = 1; i <= 2 * n; i++)
-                out[i] = (uint8_t)(((2 * n - i) * tl + i * tr + n) /
+                out[i] = (pixel)(((2 * n - i) * tl + i * tr + n) /
                                    (2 * n));
             for (int i = 1; i <= 2 * n; i++)
-                out[2 * n + i] = (uint8_t)(((2 * n - i) * tl + i * bl + n) /
+                out[2 * n + i] = (pixel)(((2 * n - i) * tl + i * bl + n) /
                                            (2 * n));
             return;
         }
@@ -278,18 +285,18 @@ void n265_filter_refs_ref(uint8_t *out, const uint8_t *in, int log2n)
      * 2n+1..4n. Neighbors along the boundary of index i in the top row are
      * i-1 and i+1 with the corner before index 1; in the left column,
      * lower index = closer to the corner. */
-    out[0] = (uint8_t)((in[2 * n + 1] + 2 * in[0] + in[1] + 2) >> 2);
+    out[0] = (pixel)((in[2 * n + 1] + 2 * in[0] + in[1] + 2) >> 2);
     for (int i = 1; i < 2 * n; i++)
-        out[i] = (uint8_t)((in[i - 1] + 2 * in[i] + in[i + 1] + 2) >> 2);
+        out[i] = (pixel)((in[i - 1] + 2 * in[i] + in[i + 1] + 2) >> 2);
     out[2 * n] = in[2 * n];
-    out[2 * n + 1] = (uint8_t)((in[0] + 2 * in[2 * n + 1] +
+    out[2 * n + 1] = (pixel)((in[0] + 2 * in[2 * n + 1] +
                                 in[2 * n + 2] + 2) >> 2);
     for (int i = 2 * n + 2; i < 4 * n; i++)
-        out[i] = (uint8_t)((in[i - 1] + 2 * in[i] + in[i + 1] + 2) >> 2);
+        out[i] = (pixel)((in[i - 1] + 2 * in[i] + in[i + 1] + 2) >> 2);
     out[4 * n] = in[4 * n];
 }
 
-void n265_filter_refs(uint8_t *out, const uint8_t *in, int log2n)
+void n265_filter_refs(pixel *out, const pixel *in, int log2n)
 {
 #if N265_NEON
     if (n265_asm_on(N265_ASM_INTRA)) {
@@ -313,17 +320,17 @@ int n265_use_filtered_refs(int mode, int log2n, int c_idx)
     return dist > thres;
 }
 
-static void pred_planar(uint8_t *dst, int stride, const uint8_t *refs,
+static void pred_planar(pixel *dst, int stride, const pixel *refs,
                         int log2n)
 {
     int n = 1 << log2n;
-    const uint8_t *top = refs + 1;
-    const uint8_t *left = refs + 2 * n + 1;
+    const pixel *top = refs + 1;
+    const pixel *left = refs + 2 * n + 1;
     int tr = top[n];        /* p[nTbS][-1] */
     int bl = left[n];       /* p[-1][nTbS] */
     for (int y = 0; y < n; y++)
         for (int x = 0; x < n; x++)
-            dst[y * stride + x] = (uint8_t)(((n - 1 - x) * left[y] +
+            dst[y * stride + x] = (pixel)(((n - 1 - x) * left[y] +
                 (x + 1) * tr + (n - 1 - y) * top[x] + (y + 1) * bl + n) >>
                 (log2n + 1));
 }
@@ -339,20 +346,20 @@ static const int16_t inv_angle[35] = {
     0, 0, 0, 0
 };
 
-static void pred_angular(uint8_t *dst, int stride, const uint8_t *refs,
+static void pred_angular(pixel *dst, int stride, const pixel *refs,
                          int log2n, int mode, int c_idx)
 {
     int n = 1 << log2n;
-    const uint8_t *top = refs + 1;
-    const uint8_t *left = refs + 2 * n + 1;
+    const pixel *top = refs + 1;
+    const pixel *left = refs + 2 * n + 1;
     int corner = refs[0];
     int angle = intra_angle[mode];
-    uint8_t ref[4 * 32 + 2];    /* projected main reference */
-    uint8_t *r = ref + n + 1;   /* r[i], i in -n-1..2n */
+    pixel ref[4 * 32 + 2];    /* projected main reference */
+    pixel *r = ref + n + 1;   /* r[i], i in -n-1..2n */
     memset(ref, 0, sizeof(ref));
 
     if (mode >= 18) {           /* main = top */
-        r[-1] = (uint8_t)corner;
+        r[-1] = (pixel)corner;
         for (int i = 0; i < 2 * n; i++)
             r[i] = top[i];
         if (angle < 0) {
@@ -375,16 +382,16 @@ static void pred_angular(uint8_t *dst, int stride, const uint8_t *refs,
             int idx = ((y + 1) * angle) >> 5;
             int fact = ((y + 1) * angle) & 31;
             for (int x = 0; x < n; x++)
-                dst[y * stride + x] = (uint8_t)(((32 - fact) *
+                dst[y * stride + x] = (pixel)(((32 - fact) *
                     r[x + idx] + fact * r[x + idx + 1] + 16) >> 5);
         }
         if (mode == 26 && c_idx == 0 && n < 32)
             for (int y = 0; y < n; y++) {
                 int v = top[0] + ((left[y] - corner) >> 1);
-                dst[y * stride] = (uint8_t)(v < 0 ? 0 : v > 255 ? 255 : v);
+                dst[y * stride] = (pixel)(v < 0 ? 0 : v > PIXEL_MAX ? PIXEL_MAX : v);
             }
     } else {                    /* main = left, transposed walk */
-        r[-1] = (uint8_t)corner;
+        r[-1] = (pixel)corner;
         for (int i = 0; i < 2 * n; i++)
             r[i] = left[i];
         if (angle < 0) {
@@ -396,18 +403,18 @@ static void pred_angular(uint8_t *dst, int stride, const uint8_t *refs,
             int idx = ((x + 1) * angle) >> 5;
             int fact = ((x + 1) * angle) & 31;
             for (int y = 0; y < n; y++)
-                dst[y * stride + x] = (uint8_t)(((32 - fact) *
+                dst[y * stride + x] = (pixel)(((32 - fact) *
                     r[y + idx] + fact * r[y + idx + 1] + 16) >> 5);
         }
         if (mode == 10 && c_idx == 0 && n < 32)
             for (int x = 0; x < n; x++) {
                 int v = left[0] + ((top[x] - corner) >> 1);
-                dst[x] = (uint8_t)(v < 0 ? 0 : v > 255 ? 255 : v);
+                dst[x] = (pixel)(v < 0 ? 0 : v > PIXEL_MAX ? PIXEL_MAX : v);
             }
     }
 }
 
-void n265_intra_pred_ref(uint8_t *dst, int dst_stride, const uint8_t *refs,
+void n265_intra_pred_ref(pixel *dst, int dst_stride, const pixel *refs,
                          int log2n, int mode, int c_idx)
 {
     if (mode == INTRA_PLANAR)
@@ -418,7 +425,7 @@ void n265_intra_pred_ref(uint8_t *dst, int dst_stride, const uint8_t *refs,
         pred_angular(dst, dst_stride, refs, log2n, mode, c_idx);
 }
 
-void n265_intra_pred(uint8_t *dst, int dst_stride, const uint8_t *refs,
+void n265_intra_pred(pixel *dst, int dst_stride, const pixel *refs,
                      int log2n, int mode, int c_idx)
 {
 #if N265_NEON

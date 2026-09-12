@@ -24,10 +24,16 @@ static inline int clip3(int lo, int hi, int v)
 {
     return v < lo ? lo : v > hi ? hi : v;
 }
-static inline uint8_t clip1(int v)
+static inline pixel clip1(int v)
 {
-    return (uint8_t)(v < 0 ? 0 : v > 255 ? 255 : v);
+    return (pixel)(v < 0 ? 0 : v > PIXEL_MAX ? PIXEL_MAX : v);
 }
+
+/* 8.7.3: the band a sample falls in is (sample >> (BitDepth - 5)), which
+ * is the >> 3 the 8-bit filter wrote. The OFFSET scale the same clause
+ * defines - << (BitDepth - Min(BitDepth, 10)) - is 0 at 8 AND at 10, so
+ * there is nothing to spell out for it until a 12-bit profile exists. */
+#define SAO_BAND_SHIFT  (BIT_DEPTH - 5)
 
 /* edge-class neighbor steps: 0 horiz, 1 vert, 2 135deg, 3 45deg */
 static const int eo_dx[4] = { -1, 0, -1, 1 };
@@ -39,13 +45,13 @@ static const int eo_dy[4] = { 0, -1, -1, -1 };
  * line SAO has already rewritten is the last line of the row above, so
  * `above` carries the copy taken before that row was applied
  * (docs/threading-design.md sec 1). `ytop` is the band's first line. */
-static inline int sao_pix(const uint8_t *p, int stride, const uint8_t *above,
+static inline int sao_pix(const pixel *p, int stride, const pixel *above,
                           int ytop, int x, int y)
 {
     return (above && y == ytop - 1) ? above[x] : p[y * stride + x];
 }
 
-static int eo_category(const uint8_t *p, int stride, const uint8_t *above,
+static int eo_category(const pixel *p, int stride, const pixel *above,
                        int ytop, int x, int y, int cls)
 {
     int c = sao_pix(p, stride, above, ytop, x, y);
@@ -129,27 +135,32 @@ typedef struct sao_stats {
  * under 5% of the clip it was written for. Re-open it only if a future
  * arm turns the edge offset back on somewhere, where the four
  * classification passes ARE vector work. */
-void n265_sao_band_stats(const uint8_t *src, int src_stride,
-                         const uint8_t *rec, int rec_stride, int w,
+void n265_sao_band_stats(const pixel *src, int src_stride,
+                         const pixel *rec, int rec_stride, int w,
                          int h, int64_t bn[32], int64_t bd[32])
 {
     int32_t n[4][32], d[4][32];
     memset(n, 0, sizeof(n));
     memset(d, 0, sizeof(d));
     for (int y = 0; y < h; y++) {
-        const uint8_t *s = src + (size_t)y * src_stride;
-        const uint8_t *r = rec + (size_t)y * rec_stride;
+        const pixel *s = src + (size_t)y * src_stride;
+        const pixel *r = rec + (size_t)y * rec_stride;
         int x = 0;
         for (; x + 4 <= w; x += 4) {
             int r0 = r[x], r1 = r[x + 1], r2 = r[x + 2], r3 = r[x + 3];
-            n[0][r0 >> 3]++; d[0][r0 >> 3] += s[x] - r0;
-            n[1][r1 >> 3]++; d[1][r1 >> 3] += s[x + 1] - r1;
-            n[2][r2 >> 3]++; d[2][r2 >> 3] += s[x + 2] - r2;
-            n[3][r3 >> 3]++; d[3][r3 >> 3] += s[x + 3] - r3;
+            n[0][r0 >> SAO_BAND_SHIFT]++;
+            d[0][r0 >> SAO_BAND_SHIFT] += s[x] - r0;
+            n[1][r1 >> SAO_BAND_SHIFT]++;
+            d[1][r1 >> SAO_BAND_SHIFT] += s[x + 1] - r1;
+            n[2][r2 >> SAO_BAND_SHIFT]++;
+            d[2][r2 >> SAO_BAND_SHIFT] += s[x + 2] - r2;
+            n[3][r3 >> SAO_BAND_SHIFT]++;
+            d[3][r3 >> SAO_BAND_SHIFT] += s[x + 3] - r3;
         }
         for (; x < w; x++) {
             int rv = r[x];
-            n[0][rv >> 3]++; d[0][rv >> 3] += s[x] - rv;
+            n[0][rv >> SAO_BAND_SHIFT]++;
+            d[0][rv >> SAO_BAND_SHIFT] += s[x] - rv;
         }
     }
     for (int b = 0; b < 32; b++) {
@@ -169,9 +180,9 @@ void n265_sao_band_stats(const uint8_t *src, int src_stride,
  * N265_SAO_TYPES=0 the band-only frames are the ONLY frames the filter
  * runs on at all, so this is the whole of the SAO analysis cost on the
  * content that fires. */
-static void collect_stats(const uint8_t *src, int src_stride,
-                          const uint8_t *rec, int stride,
-                          const uint8_t *above, int ytop, int x0, int y0,
+static void collect_stats(const pixel *src, int src_stride,
+                          const pixel *rec, int stride,
+                          const pixel *above, int ytop, int x0, int y0,
                           int w, int h, int pw, int ph, int allow,
                           sao_stats *st)
 {
@@ -572,9 +583,9 @@ static int params_all_off(const sao_params *p)
  * parameter set produces on this CTB, computed the way n265_sao_apply
  * will produce it - clipping included, neighbours unfiltered - so it can
  * be held against the stats model's prediction. */
-static int64_t true_dssd(const uint8_t *src, int src_stride,
-                         const uint8_t *rec, int stride,
-                         const uint8_t *above, int ytop, int x0, int y0,
+static int64_t true_dssd(const pixel *src, int src_stride,
+                         const pixel *rec, int stride,
+                         const pixel *above, int ytop, int x0, int y0,
                          int w, int h,
                          int pw, int ph, int type, int cop,
                          const int8_t off[4])
@@ -586,7 +597,7 @@ static int64_t true_dssd(const uint8_t *src, int src_stride,
         for (int x = x0; x < x0 + w; x++) {
             int v = rec[y * stride + x], nv = v;
             if (type == SAO_BAND) {
-                int band = (v >> 3) - cop;
+                int band = (v >> SAO_BAND_SHIFT) - cop;
                 if (band >= 0 && band < 4)
                     nv = clip1(v + off[band]);
             } else if (y + eo_dy[cop] >= 0 && y - eo_dy[cop] >= 0 &&
@@ -837,13 +848,13 @@ static void sao_apply_row(struct n265_frame_work *e, int cy)
         int bh = ctb >> sh;
         int y0 = (cy * ctb) >> sh;
         int y1 = y0 + bh > ph ? ph : y0 + bh;
-        const uint8_t *above = cy > 0 ? e->sao_line[c] : NULL;
-        uint8_t *in = e->sao_tmp[c];        /* band copy, stride pw */
-        uint8_t *out = e->recon[c];
+        const pixel *above = cy > 0 ? e->sao_line[c] : NULL;
+        pixel *in = e->sao_tmp[c];          /* band copy, stride pw */
+        pixel *out = e->recon[c];
 
         for (int y = y0; y < y1; y++)
             memcpy(in + (size_t)(y - y0) * pw, out + (size_t)y * stride,
-                   (size_t)pw);
+                   (size_t)pw * sizeof(pixel));
 
         for (int cx = 0; cx < e->ctb_cols; cx++) {
             const sao_params *p = &e->sao[cy * e->ctb_cols + cx];
@@ -856,7 +867,7 @@ static void sao_apply_row(struct n265_frame_work *e, int cy)
                 for (int y = y0; y < y1; y++)
                     for (int x = x0; x < x0 + w; x++) {
                         int v = in[(size_t)(y - y0) * pw + x];
-                        int band = (v >> 3) - pos;
+                        int band = (v >> SAO_BAND_SHIFT) - pos;
                         if (band >= 0 && band < 4)
                             out[(size_t)y * stride + x] =
                                 clip1(v + p->offset[c][band]);
@@ -903,7 +914,8 @@ static void sao_apply_row(struct n265_frame_work *e, int cy)
         /* the next row's `above` is this band's last line, pre-SAO. It
          * has to be taken AFTER the band is applied: `above` aliases
          * this same buffer while the offsets are being applied. */
-        memcpy(e->sao_line[c], in + (size_t)(y1 - 1 - y0) * pw, (size_t)pw);
+        memcpy(e->sao_line[c], in + (size_t)(y1 - 1 - y0) * pw,
+               (size_t)pw * sizeof(pixel));
     }
 }
 

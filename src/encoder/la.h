@@ -9,6 +9,8 @@
 
 #include <stdint.h>
 
+#include "common/pixel.h"
+
 /* The queue holds `depth + 1` live frames plus a FREE RUN of recycled
  * slots that a dispatched frame may still be reading: T3/1 leaves frames
  * in flight across API calls and a frame_work aliases its lookahead
@@ -72,8 +74,16 @@ typedef struct la_frame {
     float sc_ema;           /* running ratio EMA before this frame */
     int valid;
     int display_idx;
-    uint8_t *src[3];        /* full-res source copy (pad_stride layout) */
-    uint8_t *lowres;        /* half-res luma                            */
+    pixel *src[3];          /* full-res source copy (pad_stride layout) */
+    /* Half-res luma, and a COST PROXY rather than a picture: nothing
+     * here is ever predicted from or reconstructed into, it only feeds
+     * SADs. So it carries 8-BIT VALUES at every bit depth - the 2x2 mean
+     * sheds BitDepth - 8 on the way in - and every constant fitted to it
+     * (the 8x8 intra floor, the dead-zone model's log2 SAD, the
+     * scenecut and b-adapt thresholds) keeps the units it was fitted in.
+     * The TYPE widens with the pixel so the plane can share the one set
+     * of SAD kernels; only the values stay narrow. */
+    pixel *lowres;
     uint16_t *icost;        /* per lowres-8x8 block intra cost proxy    */
     uint16_t *pcost;        /* inter cost vs previous display frame     */
     int16_t *mv;            /* lowres MV pairs (full-pel lowres units)  */
@@ -96,7 +106,7 @@ typedef struct n265_la {
     int bw, bh;             /* lowres 8x8 block grid */
     int depth;              /* target queue depth before draining */
     float sc_ema;           /* running pcost/icost EMA */
-    uint8_t *anchor_lowres; /* lowres luma of the last coded anchor */
+    pixel *anchor_lowres;   /* lowres luma of the last coded anchor */
     int anchor_valid;
     /* One entry per candidate run length, so 1 + N265_MAX_BFRAMES of
      * them; only `pc_n` are allocated (bframes + 1, never below the 8 the
@@ -133,7 +143,7 @@ void n265_la_warm(void);
 int n265_brun_trace(void);
 
 /* copy the picture in, build lowres + costs vs the previous queued frame */
-void n265_la_push(struct n265_encoder *e, const uint8_t *const plane[3],
+void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
                   const int stride[3]);
 
 /* scenecut test for queued frame index i (display order) */
@@ -149,7 +159,7 @@ void n265_la_pop(struct n265_encoder *e);
 
 /* the slot the next n265_la_push will write into (D3's source stall
  * tests an in-flight frame_work's pad_plane against it) */
-const uint8_t *n265_la_next_src(struct n265_encoder *e);
+const pixel *n265_la_next_src(struct n265_encoder *e);
 
 /* remember this queued frame's lowres plane as the last coded anchor */
 void n265_la_set_anchor(struct n265_encoder *e, int i);

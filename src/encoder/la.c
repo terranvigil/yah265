@@ -37,7 +37,7 @@
  * curve. */
 int n265_la_flat_pct(const struct n265_frame_work *fw)
 {
-    const uint8_t *p = fw->pad_plane[0];
+    const pixel *p = fw->pad_plane[0];
     int stride = fw->pad_stride[0];
     int bw = fw->param.width >> 4, bh = fw->param.height >> 4;
     if (bw <= 0 || bh <= 0)
@@ -45,11 +45,11 @@ int n265_la_flat_pct(const struct n265_frame_work *fw)
     int flat = 0;
     for (int by = 0; by < bh; by++)
         for (int bx = 0; bx < bw; bx++) {
-            const uint8_t *b = p + (by << 4) * stride + (bx << 4);
+            const pixel *b = p + (by << 4) * stride + (bx << 4);
             uint32_t s1 = 0, s2 = 0;
-            int lo = 255, hi = 0;
+            int lo = PIXEL_MAX, hi = 0;
             for (int y = 0; y < 16; y++) {
-                const uint8_t *r = b + y * stride;
+                const pixel *r = b + y * stride;
                 for (int x = 0; x < 16; x++) {
                     int v = r[x];
                     s1 += (uint32_t)v;
@@ -118,12 +118,13 @@ int n265_la_init(struct n265_encoder *e)
         for (int c = 0; c < 3; c++) {
             int w = c ? e->pad_w / 2 : e->pad_w;
             int h = c ? e->pad_h / 2 : e->pad_h;
-            f->src[c] = malloc((size_t)w * h);
+            f->src[c] = malloc((size_t)w * h * sizeof(pixel));
             if (!f->src[c])
                 return -1;
         }
         if (i == 0) {
-            la->anchor_lowres = malloc((size_t)la->lw * la->lh);
+            la->anchor_lowres = malloc((size_t)la->lw * la->lh
+                                       * sizeof(pixel));
             if (!la->anchor_lowres)
                 return -1;
             la->anchor_valid = 0;
@@ -146,7 +147,7 @@ int n265_la_init(struct n265_encoder *e)
             if (!(la->pc_bsad = malloc(sb)) || !(la->pc_bisad = malloc(sb)))
                 return -1;
         }
-        f->lowres = malloc((size_t)la->lw * la->lh);
+        f->lowres = malloc((size_t)la->lw * la->lh * sizeof(pixel));
         int nb = la->bw * la->bh;
         f->icost = malloc((size_t)nb * sizeof(uint16_t));
         f->pcost = malloc((size_t)nb * sizeof(uint16_t));
@@ -193,7 +194,7 @@ void n265_la_free(struct n265_encoder *e)
 
 /* the lookahead's own name for the block SAD; the loop moved to
  * n265_sad_wh (satd.c) when the family got a NEON form */
-static uint32_t sad8(const uint8_t *a, int as, const uint8_t *b, int bs)
+static uint32_t sad8(const pixel *a, int as, const pixel *b, int bs)
 {
     return n265_sad_wh(a, as, b, bs, 8, 8);
 }
@@ -247,7 +248,7 @@ void n265_la_warm(void)
     (void)n265_brun_trace();
 }
 
-void n265_la_push(struct n265_encoder *e, const uint8_t *const plane[3],
+void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
                   const int stride[3])
 {
     n265_la *la = &e->la;
@@ -269,10 +270,11 @@ void n265_la_push(struct n265_encoder *e, const uint8_t *const plane[3],
         int dw = c ? e->pad_w / 2 : e->pad_w;
         int dh = c ? e->pad_h / 2 : e->pad_h;
         for (int y = 0; y < dh; y++) {
-            const uint8_t *s = plane[c] + (y < h ? y : h - 1) * stride[c];
-            uint8_t *d = f->src[c] + y * dw;
-            memcpy(d, s, (size_t)w);
-            memset(d + w, s[w - 1], (size_t)(dw - w));
+            const pixel *s = plane[c] + (y < h ? y : h - 1) * stride[c];
+            pixel *d = f->src[c] + y * dw;
+            memcpy(d, s, (size_t)w * sizeof(pixel));
+            for (int x = w; x < dw; x++)     /* a sample fill, not a byte one */
+                d[x] = s[w - 1];
         }
     }
 
@@ -287,11 +289,14 @@ void n265_la_push(struct n265_encoder *e, const uint8_t *const plane[3],
                 sy = h1 = e->param.height - 1;
             if (sx >= e->param.width)
                 sx = w1 = e->param.width - 1;
-            const uint8_t *s = f->src[0];
+            const pixel *s = f->src[0];
             int ps = e->pad_w;
-            f->lowres[y * lw + x] = (uint8_t)((s[sy * ps + sx] +
-                s[sy * ps + w1] + s[h1 * ps + sx] + s[h1 * ps + w1] + 2) >>
-                2);
+            /* the mean, brought back to 8-bit magnitudes: the shift is
+             * 2 at 8 bits, which is the plain 2x2 mean it has always
+             * been (la.h says why the proxy stays narrow) */
+            f->lowres[y * lw + x] = (pixel)((s[sy * ps + sx] +
+                s[sy * ps + w1] + s[h1 * ps + sx] + s[h1 * ps + w1] +
+                (2 << BIT_DEPTH_SHIFT)) >> (2 + BIT_DEPTH_SHIFT));
         }
 
     /* per-8x8 costs */
@@ -304,7 +309,7 @@ void n265_la_push(struct n265_encoder *e, const uint8_t *const plane[3],
                 x0 = lw - 8;
             if (y0 + 8 > lh)
                 y0 = lh - 8;
-            const uint8_t *blk = f->lowres + y0 * lw + x0;
+            const pixel *blk = f->lowres + y0 * lw + x0;
             /* intra estimate: best of V/H/DC prediction from decoded-side
              * neighbors (the AC-energy proxy undercosts structure and
              * fires false scenecuts on grain). Falls back to AC energy
@@ -441,12 +446,13 @@ void n265_la_set_anchor(struct n265_encoder *e, int i)
     n265_la *la = &e->la;
     if (i < 0 || i >= la->count || !la->anchor_lowres)
         return;
-    memcpy(la->anchor_lowres, la->f[i].lowres, (size_t)la->lw * la->lh);
+    memcpy(la->anchor_lowres, la->f[i].lowres,
+           (size_t)la->lw * la->lh * sizeof(pixel));
     la->anchor_valid = 1;
 }
 
-static uint32_t blk_sad_at(const n265_la *la, const uint8_t *cur,
-                           const uint8_t *ref, int x0, int y0, int mx, int my)
+static uint32_t blk_sad_at(const n265_la *la, const pixel *cur,
+                           const pixel *ref, int x0, int y0, int mx, int my)
 {
     int tx = x0 + mx, ty = y0 + my;
     if (tx < 0 || ty < 0 || tx + 8 > la->lw || ty + 8 > la->lh)
@@ -465,8 +471,8 @@ static uint32_t blk_sad_at(const n265_la *la, const uint8_t *cur,
  * `sadout`, when given, takes the winning SAD PER BLOCK without that
  * floor: the bits model of `--b-adapt 4` is a per-block non-linearity and
  * cannot be applied to a sum. */
-static uint64_t pair_cost(const n265_la *la, const uint8_t *cur,
-                          const uint8_t *ref, int lo, int hi, int sign,
+static uint64_t pair_cost(const n265_la *la, const pixel *cur,
+                          const pixel *ref, int lo, int hi, int sign,
                           int16_t *mvout, uint32_t *sadout)
 {
     uint64_t sum = 0;
@@ -531,9 +537,9 @@ static uint64_t pair_cost(const n265_la *la, const uint8_t *cur,
  * own winning vectors: the leaves of a mini-GOP are coded that way, and a
  * unidirectional cost is the wrong price for them. No search of its own -
  * one pass over the blocks averaging the two predictions. */
-static uint64_t bi_cost(const n265_la *la, const uint8_t *cur,
-                        const uint8_t *ra, const int16_t *mva,
-                        const uint8_t *rb, const int16_t *mvb,
+static uint64_t bi_cost(const n265_la *la, const pixel *cur,
+                        const pixel *ra, const int16_t *mva,
+                        const pixel *rb, const int16_t *mvb,
                         uint32_t *sadout)
 {
     uint64_t sum = 0;
@@ -550,9 +556,9 @@ static uint64_t bi_cost(const n265_la *la, const uint8_t *cur,
             if (ax < 0 || ay < 0 || ax + 8 > la->lw || ay + 8 > la->lh ||
                 bx2 < 0 || by2 < 0 || bx2 + 8 > la->lw || by2 + 8 > la->lh)
                 return UINT64_MAX;      /* out of range: no bi price */
-            const uint8_t *c = cur + y0 * la->lw + x0;
-            const uint8_t *pa = ra + ay * la->lw + ax;
-            const uint8_t *pb = rb + by2 * la->lw + bx2;
+            const pixel *c = cur + y0 * la->lw + x0;
+            const pixel *pa = ra + ay * la->lw + ax;
+            const pixel *pb = rb + by2 * la->lw + bx2;
             uint32_t s = 0;
             for (int y = 0; y < 8; y++)
                 for (int x = 0; x < 8; x++) {
@@ -1134,7 +1140,7 @@ void n265_la_pop(struct n265_encoder *e)
     la->count--;
 }
 
-const uint8_t *n265_la_next_src(struct n265_encoder *e)
+const pixel *n265_la_next_src(struct n265_encoder *e)
 {
     return e->la.f[e->la.count].src[0];
 }

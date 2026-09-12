@@ -1,4 +1,5 @@
 /build/
+/build10/
 /builddir/
 /build-*/
 *.o

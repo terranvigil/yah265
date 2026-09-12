@@ -216,8 +216,8 @@ static void mark_pu_edge(struct n265_frame_work *e, int part, int x0, int y0,
 /* one component TB: predict + transform + quant (+SBH). recon and record
  * are separate so the inter skip/merge decision can look at nz first. */
 typedef struct tb_ctx {
-    uint8_t pred[32 * 32];
-    uint8_t recon[32 * 32];
+    pixel pred[32 * 32];
+    pixel recon[32 * 32];
     int16_t level[32 * 32];
     int nz;
 } tb_ctx;
@@ -237,13 +237,13 @@ typedef struct part_cand {
     int any;                    /* rqt_root_cbf */
     pu_dec d[2];
     tb_ctx tl, tcb, tcr;
-    uint8_t py[32 * 32];        /* the PU-by-PU prediction of the CU */
-    uint8_t pc[2][16 * 16];
+    pixel py[32 * 32];          /* the PU-by-PU prediction of the CU */
+    pixel pc[2][16 * 16];
 } part_cand;
 
 /* full encoder-state snapshot of a CU area, for split-vs-nosplit trials */
 typedef struct qt_snap {
-    uint8_t recon[64 * 64 * 3 / 2];
+    pixel recon[64 * 64 * 3 / 2];
     uint8_t maps[8][16 * 16];
     int16_t mv[16 * 16 * 4];
     int8_t ref[16 * 16 * 2];    /* the reference-index map (multi-ref, 2026-09-06) */
@@ -292,11 +292,11 @@ void n265_scratch_free(struct n265_scratch *sc)
 
 /* uni MC from one list at any quarter-pel MV into dst (w x h at ds) */
 static void mc_pred_uni(struct n265_frame_work *e, int list, int ref, int c_idx, int x0,
-                        int y0, int w, int h, mv_t mv, uint8_t *dst, int ds)
+                        int y0, int w, int h, mv_t mv, pixel *dst, int ds)
 {
     struct n265_refpic *r = e->refl[list][ref];
     int rs = r->stride[c_idx];
-    uint8_t win[N265_REF_WIN_BYTES];
+    pixel win[N265_REF_WIN_SAMPLES];
     if (c_idx) {
         int dx = mv.x >> 3, dy = mv.y >> 3;
         /* G2 entry point. The chroma 4-tap reaches two chroma lines
@@ -308,7 +308,7 @@ static void mc_pred_uni(struct n265_frame_work *e, int list, int ref, int c_idx,
         int need = n265_ref_wait(e, r, (y0 + dy + h + 2) * 2 + 1);
         N265_REF_GUARD(e, r, need, c_idx, NULL);
         int ws, wclip;
-        const uint8_t *rp = n265_ref_win(r->plane[c_idx], rs, e->pad_w / 2,
+        const pixel *rp = n265_ref_win(r->plane[c_idx], rs, e->pad_w / 2,
                                          e->pad_h / 2, N265_REF_PAD / 2,
                                          x0 + dx, y0 + dy, w, h, 1, 2,
                                          win, &ws, &wclip);
@@ -318,7 +318,7 @@ static void mc_pred_uni(struct n265_frame_work *e, int list, int ref, int c_idx,
         int ix = x0 + (mv.x >> 2), iy = y0 + (mv.y >> 2);
         int need = n265_ref_wait(e, r, iy + h + 4);     /* G2 entry point */
         const int16_t *hf = n265_ref_hf(r, ix, iy, w, h, mv.x & 3);
-        const uint8_t *p2 = n265_ref_2d(r, ix, iy, w, h, mv.x & 3, mv.y & 3);
+        const pixel *p2 = n265_ref_2d(r, ix, iy, w, h, mv.x & 3, mv.y & 3);
         n265_hf2_tally(e, r, ix, iy, w, h, mv.x & 3, mv.y & 3, 0);
         N265_REF_GUARD2(e, r, need, 0, n265_ref_hf_base(r, mv.x & 3),
                         n265_ref_2d_base(r, mv.x & 3, mv.y & 3));
@@ -326,7 +326,7 @@ static void mc_pred_uni(struct n265_frame_work *e, int list, int ref, int c_idx,
             n265_mc_luma_2d(dst, ds, w, h, p2, r->hf2_stride);
         } else {
             int ws, wclip;
-            const uint8_t *rp = n265_ref_win(r->plane[0], rs, e->pad_w,
+            const pixel *rp = n265_ref_win(r->plane[0], rs, e->pad_w,
                                              e->pad_h, N265_REF_PAD, ix, iy,
                                              w, h, 3, 4, win, &ws, &wclip);
             n265_mc_luma_hf(dst, ds, w, h, rp, ws, wclip ? NULL : hf,
@@ -341,7 +341,7 @@ static void mc_pred14(struct n265_frame_work *e, int list, int ref, int c_idx, i
 {
     struct n265_refpic *r = e->refl[list][ref];
     int rs = r->stride[c_idx];
-    uint8_t win[N265_REF_WIN_BYTES];
+    pixel win[N265_REF_WIN_SAMPLES];
     if (c_idx) {
         int dx = mv.x >> 3, dy = mv.y >> 3;
         /* *2, not << 1: an unclamped chroma MV can put this line above
@@ -350,7 +350,7 @@ static void mc_pred14(struct n265_frame_work *e, int list, int ref, int c_idx, i
         int need = n265_ref_wait(e, r, (y0 + dy + h + 2) * 2 + 1);
         N265_REF_GUARD(e, r, need, c_idx, NULL);
         int ws, wclip;
-        const uint8_t *rp = n265_ref_win(r->plane[c_idx], rs, e->pad_w / 2,
+        const pixel *rp = n265_ref_win(r->plane[c_idx], rs, e->pad_w / 2,
                                          e->pad_h / 2, N265_REF_PAD / 2,
                                          x0 + dx, y0 + dy, w, h, 1, 2,
                                          win, &ws, &wclip);
@@ -369,7 +369,7 @@ static void mc_pred14(struct n265_frame_work *e, int list, int ref, int c_idx, i
             n265_mc_luma_2d_14(dst, w, w, h, p2, r->hf2_stride);
         } else {
             int ws, wclip;
-            const uint8_t *rp = n265_ref_win(r->plane[0], rs, e->pad_w,
+            const pixel *rp = n265_ref_win(r->plane[0], rs, e->pad_w,
                                              e->pad_h, N265_REF_PAD, ix, iy,
                                              w, h, 3, 4, win, &ws, &wclip);
             n265_mc_luma_14_hf(dst, w, w, h, rp, ws, wclip ? NULL : hf,
@@ -381,7 +381,7 @@ static void mc_pred14(struct n265_frame_work *e, int list, int ref, int c_idx, i
 
 /* full motion (uni either list, or bi with the default average) */
 static void mc_pred_wh(struct n265_frame_work *e, int c_idx, int x0, int y0,
-                       int w, int h, mot_t mot, uint8_t *dst, int ds)
+                       int w, int h, mot_t mot, pixel *dst, int ds)
 {
     if (mot.pred == 3) {
         int16_t a[64 * 64], b[64 * 64];
@@ -396,7 +396,7 @@ static void mc_pred_wh(struct n265_frame_work *e, int c_idx, int x0, int y0,
 }
 
 static void mc_pred(struct n265_frame_work *e, int c_idx, int x0, int y0,
-                    int n, mot_t mot, uint8_t *dst)
+                    int n, mot_t mot, pixel *dst)
 {
     mc_pred_wh(e, c_idx, x0, y0, n, n, mot, dst, n);
 }
@@ -419,9 +419,9 @@ static void tb_analyze(struct n265_frame_work *e, int c_idx, int x0, int y0,
     int inter = mode == MODE_INTER;
     int use_dst = !inter && c_idx == 0 && log2n == 2;
     int n = 1 << log2n;
-    uint8_t *recon = e->recon[c_idx];
+    pixel *recon = e->recon[c_idx];
     int stride = e->recon_stride[c_idx];
-    const uint8_t *src = e->pad_plane[c_idx] + y0 * e->pad_stride[c_idx] + x0;
+    const pixel *src = e->pad_plane[c_idx] + y0 * e->pad_stride[c_idx] + x0;
     int pic_w = c_idx ? e->pad_w / 2 : e->pad_w;
     int pic_h = c_idx ? e->pad_h / 2 : e->pad_h;
     int ctb_log2 = c_idx ? e->ctb_log2 - 1 : e->ctb_log2;
@@ -432,16 +432,17 @@ static void tb_analyze(struct n265_frame_work *e, int c_idx, int x0, int y0,
              * crops that instead of running whole-TB MC on one motion */
             int sh = c_idx ? 1 : 0;
             int cs = e->cu_pred_stride[c_idx];
-            const uint8_t *p = e->cu_pred[c_idx] +
+            const pixel *p = e->cu_pred[c_idx] +
                 (y0 - (e->cu_pred_y0 >> sh)) * cs +
                 (x0 - (e->cu_pred_x0 >> sh));
             for (int y = 0; y < n; y++)
-                memcpy(tb->pred + y * n, p + y * cs, (size_t)n);
+                memcpy(tb->pred + y * n, p + y * cs,
+                       (size_t)n * sizeof(pixel));
         } else {
             mc_pred(e, c_idx, x0, y0, n, mot, tb->pred);
         }
     } else {
-        uint8_t refs[4 * 32 + 1], refs_f[4 * 32 + 1];
+        pixel refs[4 * 32 + 1], refs_f[4 * 32 + 1];
         n265_intra_refs(refs, recon, stride, x0, y0, log2n, pic_w, pic_h,
                         ctb_log2);
         if (n265_use_filtered_refs(mode, log2n, c_idx)) {
@@ -484,7 +485,7 @@ static void tb_make_recon(int c_idx, int log2n, int qp, int mode, tb_ctx *tb)
         n265_idct_add(tb->recon, n, dq, log2n, tb->pred, n, use_dst,
                       nzw, nzh);
     } else {
-        memcpy(tb->recon, tb->pred, (size_t)n * n);
+        memcpy(tb->recon, tb->pred, (size_t)n * n * sizeof(pixel));
     }
 }
 
@@ -493,10 +494,11 @@ static void tb_commit(struct n265_frame_work *e, int c_idx, int x0, int y0,
                       int log2n, tb_ctx *tb)
 {
     int n = 1 << log2n;
-    uint8_t *recon = e->recon[c_idx];
+    pixel *recon = e->recon[c_idx];
     int stride = e->recon_stride[c_idx];
     for (int y = 0; y < n; y++)
-        memcpy(recon + (y0 + y) * stride + x0, tb->recon + y * n, (size_t)n);
+        memcpy(recon + (y0 + y) * stride + x0, tb->recon + y * n,
+               (size_t)n * sizeof(pixel));
     if (c_idx == 0)
         set_blk(e, e->blk_cbf_y, x0, y0, n < 4 ? 4 : n, tb->nz != 0);
 }
@@ -513,7 +515,7 @@ static uint64_t tb_ssd(struct n265_frame_work *e, int c_idx, int x0, int y0,
                        int log2n, const tb_ctx *tb)
 {
     int n = 1 << log2n;
-    const uint8_t *src = e->pad_plane[c_idx] + y0 * e->pad_stride[c_idx] + x0;
+    const pixel *src = e->pad_plane[c_idx] + y0 * e->pad_stride[c_idx] + x0;
     uint64_t ssd = n265_ssd_wh(src, e->pad_stride[c_idx], tb->recon, n, n, n);
     /* the psychovisual term (psy.c): luma only, the same strength for every
      * candidate so it only ever re-ranks them */
@@ -542,15 +544,15 @@ static int tb_full(struct n265_frame_work *e, int c_idx, int x0, int y0,
  * optionally reports the nk best-ranked modes for RD refinement, and
  * optionally ranks only the `nsub` modes in `sub` instead of all 35 */
 static int search_luma_mode_sub(struct n265_frame_work *e, int x0, int y0,
-                                int log2n, const uint8_t *ref_plane,
+                                int log2n, const pixel *ref_plane,
                                 int ref_stride, uint32_t *cost_out,
                                 int topk[], int nk,
                                 const int *sub, int nsub)
 {
     int n = 1 << log2n;
-    const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
-    uint8_t refs[4 * 32 + 1], refs_f[4 * 32 + 1];
-    uint8_t pred[32 * 32];
+    const pixel *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
+    pixel refs[4 * 32 + 1], refs_f[4 * 32 + 1];
+    pixel pred[32 * 32];
 
     n265_intra_refs(refs, ref_plane, ref_stride, x0, y0, log2n,
                     e->pad_w, e->pad_h, e->ctb_log2);
@@ -571,7 +573,7 @@ static int search_luma_mode_sub(struct n265_frame_work *e, int x0, int y0,
     for (int i = 0; i < nkc; i++) { ck[i] = UINT32_MAX; mk[i] = i < 2 ? i : 26; }
     for (int mi = 0; mi < (sub ? nsub : 35); mi++) {
         int mode = sub ? sub[mi] : mi;
-        const uint8_t *r = n265_use_filtered_refs(mode, log2n, 0) ? refs_f
+        const pixel *r = n265_use_filtered_refs(mode, log2n, 0) ? refs_f
                                                                   : refs;
         n265_intra_pred(pred, n, r, log2n, mode, 0);
         /* rank by SATD (post-transform bits proxy); the reported cost
@@ -594,7 +596,7 @@ static int search_luma_mode_sub(struct n265_frame_work *e, int x0, int y0,
         for (int i = 0; i < nkc; i++)
             topk[i] = mk[i];
     if (cost_out) {
-        const uint8_t *r = n265_use_filtered_refs(best_mode, log2n, 0)
+        const pixel *r = n265_use_filtered_refs(best_mode, log2n, 0)
                                ? refs_f : refs;
         n265_intra_pred(pred, n, r, log2n, best_mode, 0);
         *cost_out = n265_sad_wh(src, e->pad_stride[0], pred, n, n, n);
@@ -614,7 +616,7 @@ static int search_luma_mode_sub(struct n265_frame_work *e, int x0, int y0,
 }
 
 static int search_luma_mode_k(struct n265_frame_work *e, int x0, int y0,
-                              int log2n, const uint8_t *ref_plane,
+                              int log2n, const pixel *ref_plane,
                               int ref_stride, uint32_t *cost_out,
                               int topk[], int nk)
 {
@@ -623,7 +625,7 @@ static int search_luma_mode_k(struct n265_frame_work *e, int x0, int y0,
 }
 
 static int search_luma_mode(struct n265_frame_work *e, int x0, int y0,
-                            int log2n, const uint8_t *ref_plane,
+                            int log2n, const pixel *ref_plane,
                             int ref_stride, uint32_t *cost_out)
 {
     return search_luma_mode_sub(e, x0, y0, log2n, ref_plane, ref_stride,
@@ -1074,9 +1076,9 @@ int n265_rect_flat(void)
  * so they are directly comparable, and it is one pass over the CU
  * against try_part's two full PU searches. */
 static void rect_proxy(struct n265_frame_work *e, int x0, int y0, int n,
-                       const uint8_t *pred, uint64_t *e_h, uint64_t *e_v)
+                       const pixel *pred, uint64_t *e_h, uint64_t *e_v)
 {
-    const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
+    const pixel *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
     int ps = e->pad_stride[0];
     uint32_t row[32], col[32];
     uint64_t tot = 0;
@@ -1258,17 +1260,18 @@ static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
     uint64_t j_flat = rd_j(d_flat, st.bits, lam);
 
     /* split arrangement: sequential, committing recon TU by TU */
-    uint8_t save_l[32 * 32], save_c[2][16 * 16];
-    uint8_t split_l[32 * 32], split_c[2][16 * 16];
+    pixel save_l[32 * 32], save_c[2][16 * 16];
+    pixel split_l[32 * 32], split_c[2][16 * 16];
     for (int y = 0; y < n; y++)
         memcpy(save_l + y * n,
-               e->recon[0] + (y0 + y) * e->recon_stride[0] + x0, (size_t)n);
+               e->recon[0] + (y0 + y) * e->recon_stride[0] + x0,
+               (size_t)n * sizeof(pixel));
     for (int c = 0; c < 2; c++)
         for (int y = 0; y < n / 2; y++)
             memcpy(save_c[c] + y * (n / 2),
                    e->recon[c + 1] + (y0 / 2 + y) * e->recon_stride[c + 1] +
                        x0 / 2,
-                   (size_t)(n / 2));
+                   (size_t)(n / 2) * sizeof(pixel));
 
     tb_ctx *s_l = e->sc->itt_l;
     tb_ctx (*s_c)[2] = e->sc->itt_c;
@@ -1314,19 +1317,20 @@ static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
     /* keep the split recon, restore the pre-CU state */
     for (int y = 0; y < n; y++) {
         memcpy(split_l + y * n,
-               e->recon[0] + (y0 + y) * e->recon_stride[0] + x0, (size_t)n);
+               e->recon[0] + (y0 + y) * e->recon_stride[0] + x0,
+               (size_t)n * sizeof(pixel));
         memcpy(e->recon[0] + (y0 + y) * e->recon_stride[0] + x0,
-               save_l + y * n, (size_t)n);
+               save_l + y * n, (size_t)n * sizeof(pixel));
     }
     for (int c = 0; c < 2; c++)
         for (int y = 0; y < n / 2; y++) {
             memcpy(split_c[c] + y * (n / 2),
                    e->recon[c + 1] + (y0 / 2 + y) * e->recon_stride[c + 1] +
                        x0 / 2,
-                   (size_t)(n / 2));
+                   (size_t)(n / 2) * sizeof(pixel));
             memcpy(e->recon[c + 1] + (y0 / 2 + y) * e->recon_stride[c + 1] +
                        x0 / 2,
-                   save_c[c] + y * (n / 2), (size_t)(n / 2));
+                   save_c[c] + y * (n / 2), (size_t)(n / 2) * sizeof(pixel));
         }
 
     memcpy(local, e->est_ctx, sizeof(local));
@@ -1390,12 +1394,12 @@ static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
     /* commit split: blit the saved split recon and write records */
     for (int y = 0; y < n; y++)
         memcpy(e->recon[0] + (y0 + y) * e->recon_stride[0] + x0,
-               split_l + y * n, (size_t)n);
+               split_l + y * n, (size_t)n * sizeof(pixel));
     for (int c = 0; c < 2; c++)
         for (int y = 0; y < n / 2; y++)
             memcpy(e->recon[c + 1] + (y0 / 2 + y) * e->recon_stride[c + 1] +
                        x0 / 2,
-                   split_c[c] + y * (n / 2), (size_t)(n / 2));
+                   split_c[c] + y * (n / 2), (size_t)(n / 2) * sizeof(pixel));
     rec_u8(e, 1);
     rec_u8(e, (unsigned)root_cb);
     rec_u8(e, (unsigned)root_cr);
@@ -1465,14 +1469,14 @@ static void skip_cu(struct n265_frame_work *e, int x0, int y0, int log2n,
 {
     int n = 1 << log2n;
     rec_u8(e, (unsigned)merge_idx);
-    uint8_t pred[64 * 64];
+    pixel pred[64 * 64];
     for (int c = 0; c < 3; c++) {
         int sh = c ? 1 : 0;
         mc_pred(e, c, x0 >> sh, y0 >> sh, n >> sh, mot, pred);
         for (int y = 0; y < n >> sh; y++)
             memcpy(e->recon[c] + ((y0 >> sh) + y) * e->recon_stride[c] +
                        (x0 >> sh),
-                   pred + y * (n >> sh), (size_t)(n >> sh));
+                   pred + y * (n >> sh), (size_t)(n >> sh) * sizeof(pixel));
     }
     set_blk(e, e->blk_intra, x0, y0, n, 0);
     set_blk(e, e->blk_skip, x0, y0, n, 1);
@@ -1490,9 +1494,9 @@ static uint32_t mot_sad(struct n265_frame_work *e, int x0, int y0, int log2n,
                         mot_t mot)
 {
     int n = 1 << log2n;
-    uint8_t pred[64 * 64];
+    pixel pred[64 * 64];
     mc_pred(e, 0, x0, y0, n, mot, pred);
-    const uint8_t *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
+    const pixel *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
     return n265_sad_wh(src, e->pad_stride[0], pred, n, n, n);
 }
 
@@ -1501,7 +1505,7 @@ static uint32_t mot_sad(struct n265_frame_work *e, int x0, int y0, int log2n,
 static uint32_t mot_satd_wh(struct n265_frame_work *e, int x0, int y0, int w,
                             int h, mot_t mot)
 {
-    uint8_t pred[64 * 64];
+    pixel pred[64 * 64];
     mc_pred_wh(e, 0, x0, y0, w, h, mot, pred, w);
     return n265_satd_wh(e->pad_plane[0] + y0 * e->pad_stride[0] + x0,
                         e->pad_stride[0], pred, w, w, h);
@@ -1522,7 +1526,7 @@ static uint32_t mot_satd_c(struct n265_frame_work *e, int x0, int y0, int w,
     if ((w & 7) || (h & 7))
         return CHROMA_NA;
     int cw = w >> 1, ch = h >> 1, cx = x0 >> 1, cy = y0 >> 1;
-    uint8_t pred[32 * 32];
+    pixel pred[32 * 32];
     uint32_t s = 0;
     for (int c = 1; c <= 2; c++) {
         mc_pred_wh(e, c, cx, cy, cw, ch, mot, pred, cw);
@@ -1541,7 +1545,7 @@ static uint32_t mot_sad_c(struct n265_frame_work *e, int x0, int y0, int w,
                           int h, mot_t mot)
 {
     int cw = w >> 1, ch = h >> 1, cx = x0 >> 1, cy = y0 >> 1;
-    uint8_t pred[32 * 32];
+    pixel pred[32 * 32];
     uint32_t s = 0;
     for (int c = 1; c <= 2; c++) {
         mc_pred_wh(e, c, cx, cy, cw, ch, mot, pred, cw);
@@ -1973,7 +1977,7 @@ static uint32_t bi_satd_fixed(struct n265_frame_work *e, int x0, int y0, int w,
                               mv_t mv)
 {
     int16_t a[64 * 64];
-    uint8_t pred[64 * 64];
+    pixel pred[64 * 64];
     mc_pred14(e, list, ref, 0, x0, y0, w, h, mv, a);
     n265_bi_avg_wh(pred, w, a, fix14, w, h);
     return n265_satd_wh(e->pad_plane[0] + y0 * e->pad_stride[0] + x0,
@@ -2423,8 +2427,8 @@ static uint64_t cu_area_ssd(struct n265_frame_work *e, int x0, int y0, int n)
                              n, ctu_lam(e, e->cur_ctu_qp), e->psy);
     for (int c = 0; c < 3; c++) {
         int sh = c ? 1 : 0;
-        const uint8_t *src = e->pad_plane[c];
-        const uint8_t *rec = e->recon[c];
+        const pixel *src = e->pad_plane[c];
+        const pixel *rec = e->recon[c];
         uint64_t s = n265_ssd_wh(src + (size_t)(y0 >> sh) * e->pad_stride[c] +
                                      (x0 >> sh), e->pad_stride[c],
                                  rec + (size_t)(y0 >> sh) * e->recon_stride[c] +
@@ -2456,9 +2460,9 @@ static uint64_t skip_clean_thr(int qp, int n)
  * the maps and then puts them back. */
 typedef struct mot_snap {
     int16_t mv[16 * 16 * 4];
-    uint8_t pred[16 * 16];
+    pixel pred[16 * 16];
     int8_t ref[16 * 16 * 2];
-    uint8_t intra[16 * 16];
+    pixel intra[16 * 16];
 } mot_snap;
 
 static void mot_save(struct n265_frame_work *e, int x0, int y0, int n,
@@ -3149,11 +3153,13 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             uint64_t d_skip;
             {
                 tb_ctx t;
-                memcpy(t.recon, m_tl->pred, (size_t)n * n);
+                memcpy(t.recon, m_tl->pred, (size_t)n * n * sizeof(pixel));
                 d_skip = tb_ssd(e, 0, x0, y0, log2n, &t);
-                memcpy(t.recon, m_tcb->pred, (size_t)(n / 2) * (n / 2));
+                memcpy(t.recon, m_tcb->pred,
+                       (size_t)(n / 2) * (n / 2) * sizeof(pixel));
                 d_skip += tb_ssd(e, 1, x0 / 2, y0 / 2, log2n - 1, &t);
-                memcpy(t.recon, m_tcr->pred, (size_t)(n / 2) * (n / 2));
+                memcpy(t.recon, m_tcr->pred,
+                       (size_t)(n / 2) * (n / 2) * sizeof(pixel));
                 d_skip += tb_ssd(e, 2, x0 / 2, y0 / 2, log2n - 1, &t);
             }
             est_state st;
@@ -3809,12 +3815,12 @@ static uint8_t *snap_maps(struct n265_frame_work *e, int i)
 static void qt_save(struct n265_frame_work *e, qt_snap *sn, int x0, int y0,
                     int n)
 {
-    uint8_t *p = sn->recon;
+    pixel *p = sn->recon;
     for (int c = 0; c < 3; c++) {
         int sh = c ? 1 : 0;
         for (int y = y0 >> sh; y < (y0 + n) >> sh; y++) {
             memcpy(p, e->recon[c] + y * e->recon_stride[c] + (x0 >> sh),
-                   (size_t)(n >> sh));
+                   (size_t)(n >> sh) * sizeof(pixel));
             p += n >> sh;
         }
     }
@@ -3852,12 +3858,12 @@ static void qt_save_records(struct n265_frame_work *e, qt_snap *sn,
 static void qt_restore(struct n265_frame_work *e, const qt_snap *sn, int x0,
                        int y0, int n)
 {
-    const uint8_t *p = sn->recon;
+    const pixel *p = sn->recon;
     for (int c = 0; c < 3; c++) {
         int sh = c ? 1 : 0;
         for (int y = y0 >> sh; y < (y0 + n) >> sh; y++) {
             memcpy(e->recon[c] + y * e->recon_stride[c] + (x0 >> sh), p,
-                   (size_t)(n >> sh));
+                   (size_t)(n >> sh) * sizeof(pixel));
             p += n >> sh;
         }
     }
@@ -4243,7 +4249,7 @@ static void depth_dump_features(struct n265_frame_work *e, int ctb_x,
     if (hw > 0 && hh > 0) {
         int64_t t1 = 0, t2 = 0;
         for (int y = 0; y < hh; y++) {
-            const uint8_t *p = e->pad_plane[0] + (size_t)(y0 + 2 * y) * ps + x0;
+            const pixel *p = e->pad_plane[0] + (size_t)(y0 + 2 * y) * ps + x0;
             for (int x = 0; x < hw; x++) {
                 int d = (p[2 * x] + p[2 * x + 1] +
                          p[2 * x + ps] + p[2 * x + ps + 1] + 2) >> 2;

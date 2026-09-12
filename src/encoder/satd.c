@@ -15,7 +15,7 @@
  * checkasm bench, so the only thing replaced in this file is the 8x8
  * tile. n265_satd4_ref below is this same function under the name the
  * checkasm reference dispatcher uses. */
-static uint32_t satd4(const uint8_t *a, int as, const uint8_t *b, int bs)
+static uint32_t satd4(const pixel *a, int as, const pixel *b, int bs)
 {
     int d[16], m[16];
     for (int y = 0; y < 4; y++)
@@ -38,14 +38,14 @@ static uint32_t satd4(const uint8_t *a, int as, const uint8_t *b, int bs)
     return (sum + 1) >> 1;
 }
 
-uint32_t n265_satd4_ref(const uint8_t *a, int as, const uint8_t *b, int bs)
+uint32_t n265_satd4_ref(const pixel *a, int as, const pixel *b, int bs)
 {
     return satd4(a, as, b, bs);
 }
 
 /* The loop-nest 8x8 Hadamard this file shipped before the butterfly
  * below replaced it: the reference checkasm checks against. */
-uint32_t n265_satd8_ref(const uint8_t *a, int as, const uint8_t *b, int bs)
+uint32_t n265_satd8_ref(const pixel *a, int as, const pixel *b, int bs)
 {
     int d[64], t;
     for (int y = 0; y < 8; y++)
@@ -100,11 +100,11 @@ uint32_t n265_satd8_ref(const uint8_t *a, int as, const uint8_t *b, int bs)
         (o)[3] = c3_ + c7_; (o)[7] = c3_ - c7_;                         \
     } while (0)
 
-static uint32_t satd8(const uint8_t *a, int as, const uint8_t *b, int bs)
+static uint32_t satd8(const pixel *a, int as, const pixel *b, int bs)
 {
     int d[64];
     for (int y = 0; y < 8; y++) {
-        const uint8_t *p = a + y * as, *q = b + y * bs;
+        const pixel *p = a + y * as, *q = b + y * bs;
         int r[8];
         HAD8(r, p[0] - q[0], p[1] - q[1], p[2] - q[2], p[3] - q[3],
              p[4] - q[4], p[5] - q[5], p[6] - q[6], p[7] - q[7]);
@@ -144,7 +144,7 @@ void n265_satd_warm(void)
  * going through the dispatch below - otherwise the bench's middle column
  * would be the NEON a second time and the multiple it prints would be 1.
  * Not a path any encoder call site takes directly. */
-uint32_t n265_satd_wh_c(const uint8_t *a, int a_stride, const uint8_t *b,
+uint32_t n265_satd_wh_c(const pixel *a, int a_stride, const pixel *b,
                         int b_stride, int w, int h)
 {
     uint32_t sum = 0;
@@ -172,7 +172,7 @@ uint32_t n265_satd_wh_c(const uint8_t *a, int a_stride, const uint8_t *b,
     return sum;
 }
 
-uint32_t n265_satd_wh(const uint8_t *a, int a_stride, const uint8_t *b,
+uint32_t n265_satd_wh(const pixel *a, int a_stride, const pixel *b,
                       int b_stride, int w, int h)
 {
 #if N265_NEON
@@ -189,7 +189,7 @@ uint32_t n265_satd_wh(const uint8_t *a, int a_stride, const uint8_t *b,
     return n265_satd_wh_c(a, a_stride, b, b_stride, w, h);
 }
 
-uint32_t n265_satd(const uint8_t *a, int a_stride, const uint8_t *b,
+uint32_t n265_satd(const pixel *a, int a_stride, const pixel *b,
                    int b_stride, int n)
 {
     return n265_satd_wh(a, a_stride, b, b_stride, n, n);
@@ -212,7 +212,7 @@ uint32_t n265_satd(const uint8_t *a, int a_stride, const uint8_t *b,
  * NEON is dispatched.
  */
 
-uint32_t n265_sad_wh_c(const uint8_t *a, int as, const uint8_t *b, int bs,
+uint32_t n265_sad_wh_c(const pixel *a, int as, const pixel *b, int bs,
                        int w, int h)
 {
     uint32_t sad = 0;
@@ -224,7 +224,7 @@ uint32_t n265_sad_wh_c(const uint8_t *a, int as, const uint8_t *b, int bs,
     return sad;
 }
 
-uint32_t n265_sad_wh(const uint8_t *a, int as, const uint8_t *b, int bs,
+uint32_t n265_sad_wh(const pixel *a, int as, const pixel *b, int bs,
                      int w, int h)
 {
 #if N265_NEON
@@ -234,7 +234,7 @@ uint32_t n265_sad_wh(const uint8_t *a, int as, const uint8_t *b, int bs,
     return n265_sad_wh_c(a, as, b, bs, w, h);
 }
 
-uint64_t n265_ssd_wh_c(const uint8_t *a, int as, const uint8_t *b, int bs,
+uint64_t n265_ssd_wh_c(const pixel *a, int as, const pixel *b, int bs,
                        int w, int h)
 {
     uint64_t ssd = 0;
@@ -246,7 +246,7 @@ uint64_t n265_ssd_wh_c(const uint8_t *a, int as, const uint8_t *b, int bs,
     return ssd;
 }
 
-uint64_t n265_ssd_wh(const uint8_t *a, int as, const uint8_t *b, int bs,
+uint64_t n265_ssd_wh(const pixel *a, int as, const pixel *b, int bs,
                      int w, int h)
 {
 #if N265_NEON
@@ -279,7 +279,7 @@ uint64_t n265_ssd_wh(const uint8_t *a, int as, const uint8_t *b, int bs,
  * 661019 calls, 68% of them n = 8, and not one n = 4 or n = 64.
  */
 
-void n265_sad_rowcol_ref(const uint8_t *a, int as, const uint8_t *b, int bs,
+void n265_sad_rowcol_ref(const pixel *a, int as, const pixel *b, int bs,
                          int n, uint32_t *row, uint32_t *col)
 {
     for (int x = 0; x < n; x++)
@@ -296,7 +296,7 @@ void n265_sad_rowcol_ref(const uint8_t *a, int as, const uint8_t *b, int bs,
     }
 }
 
-void n265_sad_rowcol(const uint8_t *a, int as, const uint8_t *b, int bs,
+void n265_sad_rowcol(const pixel *a, int as, const pixel *b, int bs,
                      int n, uint32_t *row, uint32_t *col)
 {
 #if N265_NEON

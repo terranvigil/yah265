@@ -8,31 +8,33 @@
 
 #include <stdint.h>
 
+#include "common/pixel.h"
+
 /* dst (w x h at dst_stride) from the integer-position ref pointer plus a
  * fractional phase: luma fx/fy in quarter-pel (0..3), chroma in
  * eighth-pel (0..7). The ref must be readable 3 above/left and 4
  * below/right of the block (padded planes guarantee it). Rectangular
  * blocks are the inter PU shapes (2NxN/Nx2N and the AMP quarters). */
-void n265_mc_luma_wh(uint8_t *dst, int dst_stride, int w, int h,
-                     const uint8_t *ref, int ref_stride, int fx, int fy);
-void n265_mc_luma_wh_ref(uint8_t *dst, int dst_stride, int w, int h,
-                         const uint8_t *ref, int ref_stride, int fx, int fy);
-void n265_mc_chroma_wh(uint8_t *dst, int dst_stride, int w, int h,
-                       const uint8_t *ref, int ref_stride, int fx, int fy);
-void n265_mc_chroma_wh_ref(uint8_t *dst, int dst_stride, int w, int h,
-                           const uint8_t *ref, int ref_stride, int fx,
+void n265_mc_luma_wh(pixel *dst, int dst_stride, int w, int h,
+                     const pixel *ref, int ref_stride, int fx, int fy);
+void n265_mc_luma_wh_ref(pixel *dst, int dst_stride, int w, int h,
+                         const pixel *ref, int ref_stride, int fx, int fy);
+void n265_mc_chroma_wh(pixel *dst, int dst_stride, int w, int h,
+                       const pixel *ref, int ref_stride, int fx, int fy);
+void n265_mc_chroma_wh_ref(pixel *dst, int dst_stride, int w, int h,
+                           const pixel *ref, int ref_stride, int fx,
                            int fy);
 
 /* 14-bit intermediate variants for bi-prediction (no final rounding) */
 void n265_mc_luma_14_wh(int16_t *dst, int dst_stride, int w, int h,
-                        const uint8_t *ref, int ref_stride, int fx, int fy);
+                        const pixel *ref, int ref_stride, int fx, int fy);
 void n265_mc_luma_14_wh_ref(int16_t *dst, int dst_stride, int w, int h,
-                            const uint8_t *ref, int ref_stride, int fx,
+                            const pixel *ref, int ref_stride, int fx,
                             int fy);
 void n265_mc_chroma_14_wh(int16_t *dst, int dst_stride, int w, int h,
-                          const uint8_t *ref, int ref_stride, int fx, int fy);
+                          const pixel *ref, int ref_stride, int fx, int fy);
 void n265_mc_chroma_14_wh_ref(int16_t *dst, int dst_stride, int w, int h,
-                              const uint8_t *ref, int ref_stride, int fx,
+                              const pixel *ref, int ref_stride, int fx,
                               int fy);
 
 /* E1: the same two luma predictors served off a cached horizontal first
@@ -46,25 +48,25 @@ void n265_mc_chroma_14_wh_ref(int16_t *dst, int dst_stride, int w, int h,
  * so the "filter" is a copy. Its own entry point rather than an argument
  * to n265_mc_luma_hf: the caller has already decided, and the hf entry
  * point is the hottest call in the encoder. */
-void n265_mc_luma_2d(uint8_t *dst, int dst_stride, int w, int h,
-                     const uint8_t *p2, int p2_stride);
+void n265_mc_luma_2d(pixel *dst, int dst_stride, int w, int h,
+                     const pixel *p2, int p2_stride);
 /* Round 4: the bi path's copy, out of the int16 plane holding the
  * UNROUNDED result n265_mc_luma_14_hf would have written. */
 void n265_mc_luma_2d_14(int16_t *dst, int dst_stride, int w, int h,
                         const int16_t *p2, int p2_stride);
 
-void n265_mc_luma_hf(uint8_t *dst, int dst_stride, int w, int h,
-                     const uint8_t *ref, int ref_stride,
+void n265_mc_luma_hf(pixel *dst, int dst_stride, int w, int h,
+                     const pixel *ref, int ref_stride,
                      const int16_t *hf, int hf_stride, int fx, int fy);
 void n265_mc_luma_14_hf(int16_t *dst, int dst_stride, int w, int h,
-                        const uint8_t *ref, int ref_stride,
+                        const pixel *ref, int ref_stride,
                         const int16_t *hf, int hf_stride, int fx, int fy);
 /* the C references of the cached-first-stage forms, for the fx != 0 and
  * hf != NULL case only - the other case is the entry point's own fall
  * through to the plain form and never reaches a kernel. checkasm compares
  * these with the `_neon` twins directly rather than through the
  * dispatching entry point. */
-void n265_mc_luma_hf_ref(uint8_t *dst, int dst_stride, int w, int h,
+void n265_mc_luma_hf_ref(pixel *dst, int dst_stride, int w, int h,
                          const int16_t *hf, int hf_stride, int fy);
 void n265_mc_luma_14_hf_ref(int16_t *dst, int dst_stride, int w, int h,
                             const int16_t *hf, int hf_stride, int fy);
@@ -73,18 +75,18 @@ void n265_mc_luma_14_hf_ref(int16_t *dst, int dst_stride, int w, int h,
  * from the integer plane, which must be readable 3 left and 4 right of
  * every column written. */
 void n265_mc_luma_hplane(int16_t *dst, int dst_stride, int w, int h,
-                         const uint8_t *ref, int ref_stride, int fx);
+                         const pixel *ref, int ref_stride, int fx);
 void n265_mc_luma_hplane_ref(int16_t *dst, int dst_stride, int w, int h,
-                             const uint8_t *ref, int ref_stride, int fx);
+                             const pixel *ref, int ref_stride, int fx);
 
 /* square forms (dst stride == n) */
-void n265_mc_luma(uint8_t *dst, int n, const uint8_t *ref, int ref_stride,
+void n265_mc_luma(pixel *dst, int n, const pixel *ref, int ref_stride,
                   int fx, int fy);
-void n265_mc_chroma(uint8_t *dst, int n, const uint8_t *ref, int ref_stride,
+void n265_mc_chroma(pixel *dst, int n, const pixel *ref, int ref_stride,
                     int fx, int fy);
-void n265_mc_luma_14(int16_t *dst, int n, const uint8_t *ref, int ref_stride,
+void n265_mc_luma_14(int16_t *dst, int n, const pixel *ref, int ref_stride,
                      int fx, int fy);
-void n265_mc_chroma_14(int16_t *dst, int n, const uint8_t *ref,
+void n265_mc_chroma_14(int16_t *dst, int n, const pixel *ref,
                        int ref_stride, int fx, int fy);
 
 /* 8.5.3.3.2's reference fetch, which clips every coordinate into the
@@ -95,24 +97,27 @@ void n265_mc_chroma_14(int16_t *dst, int n, const uint8_t *ref,
  * block origin the filter may read `hl` samples left/above and `hr`
  * right/below of - the plane itself when the window is inside the
  * border, else `tmp`, gathered with the spec's clipping. `tmp` holds
- * (w + hl + hr) * (h + hl + hr) bytes; luma wants hl 3 / hr 4, chroma
+ * (w + hl + hr) * (h + hl + hr) SAMPLES; luma wants hl 3 / hr 4, chroma
  * hl 1 / hr 2. */
-const uint8_t *n265_ref_win(const uint8_t *plane, int stride, int pic_w,
+const pixel *n265_ref_win(const pixel *plane, int stride, int pic_w,
                             int pic_h, int pad, int ix, int iy, int w,
-                            int h, int hl, int hr, uint8_t *tmp,
+                            int h, int hl, int hr, pixel *tmp,
                             int *out_stride, int *clipped);
 
 /* the largest window n265_ref_win can gather: a 64x64 luma PU with the
- * 8-tap's 3-left/4-right halo */
-#define N265_REF_WIN_BYTES ((64 + 7) * (64 + 7))
+ * 8-tap's 3-left/4-right halo. In SAMPLES since phase 8 item 1 - a
+ * caller declares `pixel win[N265_REF_WIN_SAMPLES]` and the width comes
+ * from the type. */
+#define N265_REF_WIN_SAMPLES ((64 + 7) * (64 + 7))
 
-/* default bi combine: (a + b + 64) >> 7, clipped. a/b are packed w x h. */
-void n265_bi_avg_wh(uint8_t *dst, int dst_stride, const int16_t *a,
+/* default bi combine: (a + b + offset) >> (15 - BitDepth), clipped -
+ * 64 and 7 at 8 bits. a/b are packed w x h. */
+void n265_bi_avg_wh(pixel *dst, int dst_stride, const int16_t *a,
                     const int16_t *b, int w, int h);
 /* the C reference of the above; checkasm compares `_ref` with `_neon`
  * directly rather than through the dispatching entry point */
-void n265_bi_avg_wh_ref(uint8_t *dst, int dst_stride, const int16_t *a,
+void n265_bi_avg_wh_ref(pixel *dst, int dst_stride, const int16_t *a,
                         const int16_t *b, int w, int h);
-void n265_bi_avg(uint8_t *dst, const int16_t *a, const int16_t *b, int n);
+void n265_bi_avg(pixel *dst, const int16_t *a, const int16_t *b, int n);
 
 #endif

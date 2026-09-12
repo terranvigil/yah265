@@ -1,16 +1,35 @@
 # One-word entry points for every gate. CI runs exactly these.
 
 BUILD ?= build
+# Phase 8 item 1: the pixel is a compile-time type, so there is one build
+# tree per depth. `build` is the 8-bit encoder - the measured one, the one
+# every gate, board and band reads - and `build10` is Main10's. Everything
+# below that names a binary names $(BUILD)'s.
+BUILD10 ?= build10
 
-.PHONY: build test conformance conformance-fast provenance asan determ determ-fast board board-quick clean checkasm-bench checkasm-asan
+.PHONY: build build8 build10 test smoke10 conformance conformance-fast provenance asan determ determ-fast board board-quick clean checkasm-bench checkasm-asan
 
-build:
+build: build8 build10
+
+build8:
 	@[ -d $(BUILD) ] || meson setup $(BUILD)
 	ninja -C $(BUILD)
+
+build10:
+	@[ -d $(BUILD10) ] || meson setup $(BUILD10) -Dbit_depth=10
+	ninja -C $(BUILD10)
 
 test: build
 	meson test -C $(BUILD) --print-errorlogs
 	scripts/provenance_check.sh
+	$(MAKE) smoke10
+
+# The 10-bit leg of `make test`, and it is a SMOKE and not a correctness
+# claim: the Main10 binary encodes an upshifted synthetic clip without
+# crashing and ffmpeg decodes the result. What the samples are worth is
+# phase 8 item 2's question, under the recon-match gate on both decoders.
+smoke10: build10
+	N265_10=$(BUILD10)/n265-10 scripts/smoke10.sh
 
 # The kernel benchmark tables (ref / c / neon ns per call). `make test`
 # runs checkasm for correctness only, which is what keeps it fast; this is
@@ -68,4 +87,4 @@ asan:
 	N265=build-asan/n265 scripts/conformance.sh --fast
 
 clean:
-	rm -rf $(BUILD) build-asan
+	rm -rf $(BUILD) $(BUILD10) build-asan
