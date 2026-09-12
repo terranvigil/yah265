@@ -83,9 +83,9 @@ static void usage(void)
         "  --ctu <16|32|64>  coding tree block size (default 64)\n"
         "  --keyint <n>    IDR period in frames (default 250)\n"
         "  --bframes <0..7> B frames between anchors, hierarchical (default 7)\n"
-        "  --aq <0|1>      variance adaptive quantization (default 0)\n"
+        "  --aq <0|1>      variance adaptive quantization (default 1)\n"
         "  --rc-lookahead <n>  lookahead depth in frames (default 12)\n"
-        "  --cutree <0|1>  lookahead propagation QP offsets (default 0)\n"
+        "  --cutree <0|1>  lookahead propagation QP offsets (default 1)\n"
         "  --threads <n>   worker threads; 0 = one per online CPU (default 0).\n"
         "                  Output is byte-identical at every value.\n"
         "  --dump-recon <file>  write reconstruction as raw YUV (the\n"
@@ -98,10 +98,13 @@ int main(int argc, char **argv)
     const char *in_path = NULL, *out_path = "out.hevc";
     const char *dump_path = NULL;
     long max_frames = -1;
-    int qp = 26, pcm = 0, ctu = 64, keyint = 250, bframes = 7, aq = 0;
+    int qp = 26, pcm = 0, ctu = 64, keyint = 250, bframes = 7, aq = 1;
     double crf = -1.0, bitrate = 0.0;
     int nref = 1, badapt = 1;
-    int lookahead = 12, cutree = 0;
+    int lookahead = 12, cutree = 1;   /* on by default since 2026-09-12: every
+                                     * measured medium passes both, and the
+                                     * bare CLI used to hand out the tools-only
+                                     * encoder (docs/instruments.md, board) */
     int threads = 0;
     const char *dump_decode_path = NULL;
     const char *preset = NULL;

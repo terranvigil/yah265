@@ -116,9 +116,12 @@ def corpus_clips():
 # own instrument, so the board's number IS the band's number (BD-rate on
 # VMAF-NEG at MATCHED ACHIEVED BITRATE on the scripts/ladders.json targets,
 # against x265 `--preset medium --crf`, memoised under ~/.cache/yah265-bd).
-# `--aq 1 --cutree 1` are NOT our defaults (both default 0, and `--crf 28`
-# with and without them differs by cmp: 53093 vs 113758 bytes on foreman),
-# so this says what the band says, verbatim.
+# The CLI defaults `--aq 1 --cutree 1` since 2026-09-12 (before that both
+# defaulted to 0, and `--crf 28` with and without them differs by cmp:
+# 53093 vs 113758 bytes on foreman). The CQP and timed legs below pass
+# `--aq 0 --cutree 0` EXPLICITLY so every row since the chart began keeps
+# its meaning (tools-only ours against x265's CQP, which has neither); the
+# CRF column is the one that reads the shipped default.
 CRF_ARGS = os.environ.get("BOARD_CRF_ARGS", "--crf {q} --aq 1 --cutree 1")
 # clips at a time inside bd_vs_x265; each clip's own ladder is serial
 BD_JOBS = os.environ.get("JOBS", "3")
@@ -260,7 +263,7 @@ def measure_clip(tmp, name, size, frames, src, bd_only):
     for qp in QPS:
         out = os.path.join(tmp, f"n_{name}_{qp}.hevc")
         rec = os.path.join(tmp, f"n_{name}_{qp}.yuv")
-        run([N265, y4m, "-o", out, "--qp", str(qp),
+        run([N265, y4m, "-o", out, "--qp", str(qp), "--aq", "0", "--cutree", "0",
              "--dump-recon", rec] + lim)
         ours_pts.append((os.path.getsize(out) * 8, psnr_y(rec, y4m, size)))
         v = _bd.vmaf_of(out, y4m, tmp)
@@ -271,7 +274,7 @@ def measure_clip(tmp, name, size, frames, src, bd_only):
     fast_neg = []
     for qp in QPS:
         out = os.path.join(tmp, f"nf_{name}_{qp}.hevc")
-        run([N265, y4m, "-o", out, "--qp", str(qp), "--preset", "fast"] + lim)
+        run([N265, y4m, "-o", out, "--qp", str(qp), "--aq", "0", "--cutree", "0", "--preset", "fast"] + lim)
         v = _bd.vmaf_of(out, y4m, tmp)
         fast_neg.append((os.path.getsize(out) * 8,
                          v["VMAF-NEG"] if v and "VMAF-NEG" in v else None))
@@ -331,11 +334,11 @@ def measure_clip(tmp, name, size, frames, src, bd_only):
     # Goal 1 is single-thread by definition, so the timed leg says so
     # explicitly - our default is auto since the T3 merge (2026-09-09) and
     # x265's arm is already --pools none --frame-threads 1.
-    t_ours = time_cmd([N265, y4m, "-o", "/dev/null", "--qp", "27",
+    t_ours = time_cmd([N265, y4m, "-o", "/dev/null", "--qp", "27", "--aq", "0", "--cutree", "0",
                        "--threads", "1"] + lim)
     # goal 1 at iso-quality: the same leg with the fast preset, whose BD
     # column above says what it gave up to get there
-    t_ours_fast = time_cmd([N265, y4m, "-o", "/dev/null", "--qp", "27",
+    t_ours_fast = time_cmd([N265, y4m, "-o", "/dev/null", "--qp", "27", "--aq", "0", "--cutree", "0",
                             "--threads", "1", "--preset", "fast"] + lim)
     t_m_noasm = time_cmd(matched + ["--no-asm", "--qp", "27", "-o",
                                     "/dev/null"])
@@ -361,7 +364,7 @@ def measure_clip(tmp, name, size, frames, src, bd_only):
     # auto run bit-identical to the --threads 1 one, so this measures
     # scheduling only.
     med_auto = [X265, "--input", y4m, "--log-level", "error"] + lim
-    t_ours_auto = time_cmd([N265, y4m, "-o", "/dev/null", "--qp", "27"] + lim)
+    t_ours_auto = time_cmd([N265, y4m, "-o", "/dev/null", "--qp", "27", "--aq", "0", "--cutree", "0"] + lim)
     t_med_auto = time_cmd(med_auto + ["--crf", "28", "-o", "/dev/null"])
     row["our_fps_auto"] = round(frames / t_ours_auto, 2)
     row["x265med_asm_fps_auto"] = round(frames / t_med_auto, 2)
