@@ -10,6 +10,10 @@ column and one BD column, so goal 1 can also be read AT ISO-QUALITY -
 `bd_rate_vmafneg_fast_pct` saying what that speed cost. Empty on every
 row written before the columns existed.
 
+A fourth BD column since 2026-09-11, `bd_rate_vmafneg_crf_pct`: the same
+quality question asked under CRF instead of fixed QP, and read by the
+band's own instrument rather than by anything here (see bd_crf below).
+
 - "matched": x265 configured down to our current featureset (kept in
   X265_MATCHED below; grows with the encoder until it equals medium) -
   the like-for-like progress line, and the BD-rate anchor.
@@ -35,6 +39,7 @@ usage: scripts/board.py [--quick] [--bd-only] [--synth] [--clips a,b] [--note TE
 
 import csv
 import datetime
+import json
 import math
 import os
 import re
@@ -99,6 +104,54 @@ def corpus_clips():
         h = re.search(r" H(\d+)", hdr).group(1)
         out.append((name, f"{w}x{h}", CORPUS_FRAMES, path))
     return out or None
+
+
+# The CRF leg (2026-09-11). Everything above encodes at a fixed QP, and
+# x265 forces AQ and cu-tree off in CQP mode, so the CQP columns compare us
+# against a reference with no adaptive quantisation and cannot see a
+# CRF-only change at all: the rows for d59e23f and 50fa1a8 reproduced
+# ff29576 to the digit while the CIF-7 CRF band median moved -8.10 to
+# -10.57. This column asks the same question under CRF, and does NOT ask it
+# with a second implementation - it runs scripts/bd_vs_x265.py, the band's
+# own instrument, so the board's number IS the band's number (BD-rate on
+# VMAF-NEG at MATCHED ACHIEVED BITRATE on the scripts/ladders.json targets,
+# against x265 `--preset medium --crf`, memoised under ~/.cache/yah265-bd).
+# `--aq 1 --cutree 1` are NOT our defaults (both default 0, and `--crf 28`
+# with and without them differs by cmp: 53093 vs 113758 bytes on foreman),
+# so this says what the band says, verbatim.
+CRF_ARGS = os.environ.get("BOARD_CRF_ARGS", "--crf {q} --aq 1 --cutree 1")
+# clips at a time inside bd_vs_x265; each clip's own ladder is serial
+BD_JOBS = os.environ.get("JOBS", "3")
+
+
+def bd_crf(names):
+    """{clip: BD-rate(VMAF-NEG) %} under CRF, from one run of
+    scripts/bd_vs_x265.py over every clip that has a band ladder. Parsed
+    from the per-clip lines that script's own summary is built from, so
+    the value written here and the value it prints are one float."""
+    ladders = json.load(open(os.path.join(ROOT, "scripts/ladders.json")))
+    sel = [n for n in names if n in ladders]
+    if not sel:
+        return {}
+    # N265 is deliberately NOT forced: bd_at_rate keys its memo on the
+    # command string, and the band runs the relative `build/n265`, so
+    # leaving bd_vs_x265's own default in place hits the shared cache.
+    env = dict(os.environ, KNOB="crf", ARGS=CRF_ARGS, CLIPS=",".join(sel),
+               FRAMES=str(CORPUS_FRAMES), JOBS=BD_JOBS)
+    print(f"CRF leg: bd_vs_x265 over {len(sel)} clip(s) at JOBS={BD_JOBS}",
+          flush=True)
+    p = subprocess.run([sys.executable,
+                        os.path.join(ROOT, "scripts/bd_vs_x265.py")],
+                       cwd=ROOT, env=env, capture_output=True, text=True)
+    out = p.stdout + p.stderr
+    res = {}
+    for m in re.finditer(r"^\s*(\S+)\s+BD-rate\(VMAF-NEG\) ours vs x265: "
+                         r"([+-][\d.]+)%", out, re.M):
+        res[m.group(1)] = float(m.group(2))
+    for n in sel:
+        if n not in res:
+            print(f"CRF leg: no value for {n}", flush=True)
+    return res
 
 
 def run(cmd, **kw):
@@ -334,7 +387,10 @@ def main():
               "mult_matched_g3", "x265med_noasm_fps", "x265med_asm_fps",
               "mult_medium_g1", "mult_medium_g3", "our_fps_auto",
               "x265med_asm_fps_auto", "our_fps_fast", "bd_rate_psnr_pct",
-              "bd_rate_vmafneg_pct", "bd_rate_vmafneg_fast_pct", "note"]
+              "bd_rate_vmafneg_pct", "bd_rate_vmafneg_fast_pct", "note",
+              # appended LAST so every column above keeps its position and
+              # every row written before 2026-09-11 stays byte-identical
+              "bd_rate_vmafneg_crf_pct"]
     os.makedirs(os.path.dirname(HISTORY), exist_ok=True)
     new = not os.path.exists(HISTORY)
 
@@ -346,6 +402,8 @@ def main():
     if "--clips" in sys.argv:
         only = sys.argv[sys.argv.index("--clips") + 1].split(",")
         clips = [c for c in clips if c[0] in only]
+    # one run for the whole board, so its JOBS parallelises across clips
+    crf = bd_crf([c[0] for c in clips])
     with tempfile.TemporaryDirectory() as tmp, \
          open(HISTORY, "a", newline="") as f:
         wr = csv.DictWriter(f, fieldnames=fields)
@@ -354,18 +412,21 @@ def main():
         for name, size, frames, src in clips:
             row = measure_clip(tmp, name, size, frames, src, bd_only)
             row.update(date=datetime.date.today().isoformat(),
-                       commit=commit, x265=xv, note=note)
+                       commit=commit, x265=xv, note=note,
+                       bd_rate_vmafneg_crf_pct=crf.get(name, ""))
             wr.writerow(row)
             if bd_only:
                 print("{clip}: BD-PSNR {bd_rate_psnr_pct}% BD-VMAF-NEG "
-                      "{bd_rate_vmafneg_pct}% | fast {bd_rate_vmafneg_fast_pct}%".format(**row))
+                      "{bd_rate_vmafneg_pct}% | fast {bd_rate_vmafneg_fast_pct}%"
+                      " | CRF {bd_rate_vmafneg_crf_pct}%".format(**row))
             else:
                 print("{clip}: ours {our_fps} fps | matched g1 "
                       "{mult_matched_g1}x g3 {mult_matched_g3}x | medium g1 "
                       "{mult_medium_g1}x g3 {mult_medium_g3}x | auto "
                       "{our_fps_auto} vs {x265med_asm_fps_auto} fps | fast "
                       "{our_fps_fast} fps NEG {bd_rate_vmafneg_fast_pct}% | BD "
-                      "{bd_rate_psnr_pct}% / NEG {bd_rate_vmafneg_pct}%".format(**row))
+                      "{bd_rate_psnr_pct}% / NEG {bd_rate_vmafneg_pct}% | CRF "
+                      "{bd_rate_vmafneg_crf_pct}%".format(**row))
     print(f"appended to {os.path.relpath(HISTORY, ROOT)}")
 
 

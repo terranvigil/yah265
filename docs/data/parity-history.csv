@@ -1,602 +1,602 @@
-date,commit,x265,clip,frames,our_fps,x265m_noasm_fps,x265m_asm_fps,mult_matched_g1,mult_matched_g3,x265med_noasm_fps,x265med_asm_fps,mult_medium_g1,mult_medium_g3,our_fps_auto,x265med_asm_fps_auto,our_fps_fast,bd_rate_psnr_pct,bd_rate_vmafneg_pct,bd_rate_vmafneg_fast_pct,note
-2026-08-25,b7e1fd4,4.2+1-e444744,synth_detail_cif,30,40.6,14.42,21.92,0.355,0.54,,,,,,,,65.66,,, all-intra matched basis
-2026-08-25,b7e1fd4,4.2+1-e444744,synth_smooth_cif,30,69.43,34.17,71.44,0.492,1.029,,,,,,,,-88.08,,, all-intra matched basis
-2026-08-25,b7e1fd4,4.2+1-e444744,synth_detail_720,10,5.38,1.91,3.3,0.355,0.615,,,,,,,,66.04,,, all-intra matched basis
-2026-08-25,b7e1fd4,4.2+1-e444744,synth_detail_cif,30,29.45,14.39,21.87,0.489,0.742,,,,,,,,45.08,,, all-intra matched basis
-2026-08-25,b7e1fd4,4.2+1-e444744,synth_smooth_cif,30,40.39,33.87,70.18,0.839,1.738,,,,,,,,-38.99,,, all-intra matched basis
-2026-08-25,b7e1fd4,4.2+1-e444744,synth_detail_720,10,4.03,1.9,3.31,0.471,0.821,,,,,,,,51.66,,, all-intra matched basis
-2026-08-25,cdce0a2,4.2+1-e444744,synth_detail_cif,30,65.74,13.69,20.85,0.208,0.317,,,,,,,,nan,,, all-intra matched basis
-2026-08-25,cdce0a2,4.2+1-e444744,synth_smooth_cif,30,69.23,32.93,69.35,0.476,1.002,,,,,,,,-78.16,,, all-intra matched basis
-2026-08-25,cdce0a2,4.2+1-e444744,synth_detail_720,10,8.84,1.83,3.18,0.207,0.359,,,,,,,,nan,,, all-intra matched basis
-2026-08-25,cdce0a2,4.2+1-e444744,synth_detail_cif,30,68.39,40.05,99.14,0.586,1.45,71.49,190.54,1.045,2.786,,,,nan,,,
-2026-08-25,cdce0a2,4.2+1-e444744,synth_smooth_cif,30,108.57,191.01,528.92,1.759,4.872,149.35,432.47,1.376,3.984,,,,141.69,,,
-2026-08-25,cdce0a2,4.2+1-e444744,synth_detail_720,10,9.06,7.32,16.72,0.808,1.846,9.33,23.78,1.03,2.625,,,,nan,,,
-2026-08-25,cdce0a2,4.2+1-e444744,synth_detail_cif,30,28.96,39.95,98.36,1.379,3.396,71.31,191.04,2.462,6.596,,,,107.51,,,
-2026-08-25,cdce0a2,4.2+1-e444744,synth_detail_cif,30,28.86,39.4,97.58,1.365,3.381,71.07,189.44,2.463,6.565,,,,107.51,,,
-2026-08-25,cdce0a2,4.2+1-e444744,synth_detail_cif,30,69.53,36.9,90.46,0.531,1.301,65.9,168.83,0.948,2.428,,,,117.37,,,
-2026-08-25,5c595c6,4.2+1-e444744,synth_detail_cif,30,23.81,34.63,85.37,1.454,3.586,61.62,164.22,2.588,6.897,,,,66.71,,,
-2026-08-25,5c595c6,4.2+1-e444744,synth_smooth_cif,30,158.74,156.22,444.9,0.984,2.803,132.86,379.06,0.837,2.388,,,,330.92,,,
-2026-08-25,5c595c6,4.2+1-e444744,synth_detail_720,10,3.37,6.76,15.04,2.007,4.462,8.68,21.65,2.574,6.423,,,,100.65,,,
-2026-08-25,5c595c6,4.2+1-e444744,synth_detail_cif,30,53.36,38.59,94.81,0.723,1.777,69.35,185.98,1.3,3.485,,,,66.71,,,
-2026-08-25,5c595c6,4.2+1-e444744,synth_smooth_cif,30,436.61,211.23,581.38,0.484,1.332,158.66,447.68,0.363,1.025,,,,70.6,,,
-2026-08-25,5c595c6,4.2+1-e444744,synth_detail_720,10,7.6,7.13,16.36,0.938,2.152,9.22,23.3,1.212,3.064,,,,100.65,,,
-2026-08-25,221dead,4.2+1-e444744,synth_detail_cif,30,55.26,39.89,97.81,0.722,1.77,71.43,189.72,1.293,3.433,,,,66.71,,,
-2026-08-25,221dead,4.2+1-e444744,synth_smooth_cif,30,392.14,201.44,559.8,0.514,1.428,152.78,431.07,0.39,1.099,,,,142.79,,,
-2026-08-25,221dead,4.2+1-e444744,synth_detail_720,10,7.72,7.3,16.5,0.946,2.137,9.3,23.18,1.205,3.002,,,,100.65,,,
-2026-08-25,d88a9cd,4.2+1-e444744,synth_detail_cif,30,57.62,40.54,99.82,0.704,1.733,72.83,194.61,1.264,3.378,,,,45.52,,,
-2026-08-25,d88a9cd,4.2+1-e444744,synth_smooth_cif,30,471.76,216.39,594.5,0.459,1.26,161.81,453.49,0.343,0.961,,,,31.75,,,
-2026-08-25,d88a9cd,4.2+1-e444744,synth_detail_720,10,7.96,7.49,16.98,0.94,2.133,9.57,24.16,1.201,3.035,,,,77.37,,,
-2026-08-25,b0ac8a5,4.2+1-e444744,synth_detail_cif,30,54.93,40.69,100.02,0.741,1.821,72.64,194.88,1.322,3.548,,,,43.68,,,
-2026-08-25,b0ac8a5,4.2+1-e444744,synth_smooth_cif,30,382.85,201.7,559.65,0.527,1.462,155.89,435.01,0.407,1.136,,,,169.42,,,
-2026-08-25,b0ac8a5,4.2+1-e444744,synth_detail_720,10,7.51,7.46,17.01,0.993,2.265,9.54,24.16,1.27,3.218,,,,74.52,,,
-2026-08-25,b0ac8a5,4.2+1-e444744,synth_detail_cif,30,54.23,40.4,99.59,0.745,1.836,72.39,194.65,1.335,3.589,,,,46.65,,,
-2026-08-25,b0ac8a5,4.2+1-e444744,synth_smooth_cif,30,433.54,220.68,587.42,0.509,1.355,161.14,453.93,0.372,1.047,,,,81.68,,,
-2026-08-25,b0ac8a5,4.2+1-e444744,synth_detail_720,10,7.57,7.44,16.98,0.983,2.242,9.48,24.04,1.252,3.175,,,,71.14,,,
-2026-08-25,b0ac8a5,4.2+1-e444744,synth_detail_cif,30,54.22,39.4,99.91,0.727,1.842,72.43,193.32,1.336,3.565,,,,46.65,,,
-2026-08-25,b0ac8a5,4.2+1-e444744,synth_smooth_cif,30,142.88,200.2,569.75,1.401,3.988,151.69,441.35,1.062,3.089,,,,387.48,,,
-2026-08-25,b0ac8a5,4.2+1-e444744,synth_detail_720,10,7.54,7.41,16.91,0.982,2.242,9.47,23.95,1.256,3.175,,,,71.64,,,
-2026-08-25,88eafc3,4.2+1-e444744,synth_detail_cif,30,55.36,45.63,112.21,0.824,2.027,71.82,194.11,1.297,3.507,,,,83.67,,,
-2026-08-25,88eafc3,4.2+1-e444744,synth_smooth_cif,30,113.35,203.16,554.73,1.792,4.894,157.72,439.05,1.391,3.873,,,,547.08,,,
-2026-08-25,88eafc3,4.2+1-e444744,synth_detail_720,10,7.29,7.56,16.47,1.036,2.259,9.02,22.89,1.237,3.139,,,,84.38,,,
-2026-08-25,57d607d,4.2+1-e444744,synth_detail_cif,30,50.79,43.07,105.8,0.848,2.083,68.11,183.59,1.341,3.615,,,,75.61,,,
-2026-08-25,57d607d,4.2+1-e444744,synth_smooth_cif,30,312.65,163.91,476.89,0.524,1.525,143.18,412.57,0.458,1.32,,,,-7.25,,,
-2026-08-25,57d607d,4.2+1-e444744,synth_detail_720,10,7.09,7.55,16.52,1.064,2.329,9.07,22.81,1.279,3.216,,,,76.0,,,
-2026-08-25,57d607d,4.2+1-e444744,synth_detail_cif,30,50.73,43.13,105.98,0.85,2.089,69.38,183.7,1.368,3.621,,,,82.91,,,
-2026-08-25,57d607d,4.2+1-e444744,synth_smooth_cif,30,122.51,195.96,544.46,1.6,4.444,154.52,427.77,1.261,3.492,,,,448.8,,,
-2026-08-25,57d607d,4.2+1-e444744,synth_detail_720,10,7.02,7.52,16.48,1.072,2.35,9.07,22.89,1.293,3.263,,,,75.33,,,
-2026-08-25,57d607d,4.2+1-e444744,synth_detail_cif,30,49.63,42.82,105.99,0.863,2.136,68.7,182.73,1.384,3.682,,,,85.56,,,
-2026-08-25,57d607d,4.2+1-e444744,synth_detail_cif,30,52.73,43.14,106.19,0.818,2.014,68.87,183.69,1.306,3.483,,,,83.69,,,
-2026-08-25,57d607d,4.2+1-e444744,synth_detail_cif,30,50.05,42.63,105.01,0.852,2.098,68.9,181.12,1.377,3.619,,,,81.44,,,
-2026-08-25,57d607d,4.2+1-e444744,synth_detail_cif,30,51.28,42.97,105.94,0.838,2.066,68.9,183.41,1.344,3.576,,,,73.37,,,
-2026-08-25,da8ab3b,4.2+1-e444744,synth_detail_cif,30,52.15,43.33,106.22,0.831,2.037,69.13,184.06,1.326,3.529,,,,73.37,,,
-2026-08-25,da8ab3b,4.2+1-e444744,synth_smooth_cif,30,104.68,182.33,507.92,1.742,4.852,134.09,270.44,1.281,2.583,,,,563.7,,,
-2026-08-25,da8ab3b,4.2+1-e444744,synth_detail_720,10,7.57,7.57,16.42,1.0,2.17,9.11,22.4,1.204,2.961,,,,72.11,,,
-2026-08-25,da8ab3b,4.2+1-e444744,synth_detail_cif,30,40.1,43.11,105.19,1.075,2.623,68.89,184.12,1.718,4.591,,,,36.73,,,
-2026-08-25,2183038,4.2+1-e444744,synth_detail_cif,30,38.95,44.09,108.28,1.132,2.78,70.14,186.62,1.801,4.791,,,,36.73,,,
-2026-08-25,2183038,4.2+1-e444744,synth_smooth_cif,30,99.35,191.58,535.04,1.928,5.385,155.33,434.86,1.563,4.377,,,,143.67,,,
-2026-08-25,2183038,4.2+1-e444744,synth_detail_720,10,5.58,7.73,16.96,1.386,3.039,9.26,23.47,1.66,4.207,,,,57.99,,,
-2026-08-25,2183038,4.2+1-e444744,synth_detail_cif,30,20.38,42.79,105.32,2.1,5.167,67.65,177.42,3.319,8.705,,,,-0.39,,,
-2026-08-25,2183038,4.2+1-e444744,synth_detail_cif,30,20.4,44.35,108.51,2.174,5.319,69.87,186.87,3.425,9.161,,,,-0.39,,,
-2026-08-25,2183038,4.2+1-e444744,synth_smooth_cif,30,149.88,194.47,559.35,1.298,3.732,153.99,436.86,1.027,2.915,,,,-34.49,,,
-2026-08-25,2183038,4.2+1-e444744,synth_detail_720,10,3.21,7.72,17.01,2.408,5.306,9.3,23.52,2.9,7.339,,,,12.99,,,
-2026-08-25,1437a9e,4.2+1-e444744,synth_detail_cif,30,21.49,44.45,110.46,2.068,5.139,71.35,189.39,3.319,8.811,,,,-0.39,,,
-2026-08-25,1437a9e,4.2+1-e444744,synth_detail_cif,30,29.0,45.61,111.48,1.573,3.845,68.97,189.85,2.379,6.547,,,,1.93,,,
-2026-08-25,1437a9e,4.2+1-e444744,synth_detail_cif,30,21.6,45.45,110.87,2.104,5.132,71.63,191.93,3.316,8.884,,,,0.67,,,
-2026-08-25,1437a9e,4.2+1-e444744,synth_detail_cif,30,28.81,45.23,111.29,1.57,3.863,71.54,192.05,2.483,6.666,,,,1.93,,,
-2026-08-25,1437a9e,4.2+1-e444744,synth_detail_cif,30,28.85,44.92,110.7,1.557,3.838,71.34,191.05,2.473,6.623,,,,1.72,,,
-2026-08-25,aa835e9,4.2+1-e444744,synth_detail_cif,30,27.62,45.37,111.46,1.642,4.035,71.84,192.23,2.601,6.959,,,,-5.38,,,
-2026-08-25,3a1dcc0,4.2+1-e444744,synth_detail_cif,30,26.59,43.31,108.01,1.629,4.063,69.85,186.5,2.627,7.015,,,,-5.38,,,
-2026-08-25,3a1dcc0,4.2+1-e444744,synth_smooth_cif,30,247.83,211.31,591.91,0.853,2.388,158.75,442.96,0.641,1.787,,,,18.85,,,
-2026-08-25,3a1dcc0,4.2+1-e444744,synth_detail_720,10,4.71,7.67,16.89,1.629,3.587,9.2,23.25,1.955,4.938,,,,10.91,,,
-2026-08-25,3a1dcc0,4.2+1-e444744,synth_detail_cif,30,27.49,45.18,111.38,1.643,4.051,71.81,191.87,2.612,6.978,,,,-5.38,,,
-2026-08-25,855c9bd,4.2+1-e444744,synth_detail_cif,30,27.47,45.19,110.82,1.645,4.034,71.72,191.64,2.611,6.976,,,,-5.38,,,
-2026-08-25,855c9bd,4.2+1-e444744,synth_smooth_cif,30,227.65,193.81,547.37,0.851,2.404,146.7,434.68,0.644,1.909,,,,0.35,,,
-2026-08-25,855c9bd,4.2+1-e444744,synth_detail_720,10,4.77,7.85,17.33,1.646,3.634,9.43,23.95,1.977,5.021,,,,10.91,,,
-2026-08-25,855c9bd,4.2+1-e444744,synth_detail_cif,30,15.92,45.81,112.15,2.877,7.043,72.21,194.1,4.535,12.19,,,,-4.93,,,
-2026-08-25,855c9bd,4.2+1-e444744,synth_detail_cif,30,25.47,45.74,112.18,1.796,4.404,72.22,193.26,2.835,7.588,,,,-5.2,,,
-2026-08-25,e9e5b70,4.2+1-e444744,synth_detail_cif,30,24.91,44.73,110.1,1.796,4.42,70.81,189.32,2.842,7.6,,,,-5.2,,,
-2026-08-25,e9e5b70,4.2+1-e444744,synth_smooth_cif,30,92.74,190.15,527.18,2.05,5.684,150.72,428.87,1.625,4.624,,,,-0.44,,,
-2026-08-25,e9e5b70,4.2+1-e444744,synth_detail_720,10,4.09,7.76,17.06,1.897,4.169,9.3,23.54,2.272,5.753,,,,8.86,,,
-2026-08-25,a0476e4,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,71.58,,,"first real-corpus BD rows (timing deferred, machine loaded)"
-2026-08-25,a0476e4,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,48.91,,,"first real-corpus BD rows (timing deferred, machine loaded)"
-2026-08-25,a0476e4,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,39.86,,,"first real-corpus BD rows (timing deferred, machine loaded)"
-2026-08-25,a0476e4,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,37.15,,,"first real-corpus BD rows (timing deferred, machine loaded)"
-2026-08-25,a0476e4,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,49.75,,,"first real-corpus BD rows (timing deferred, machine loaded)"
-2026-08-25,a0476e4,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,37.83,,,"first real-corpus BD rows (timing deferred, machine loaded)"
-2026-08-25,a0476e4,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,40.28,,,"first real-corpus BD rows (timing deferred, machine loaded)"
-2026-08-25,a0476e4,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,18.9,,,SAO lambda RD decision (was flat -64 bias)
-2026-08-25,a0476e4,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,28.28,,,SAO lambda RD decision (was flat -64 bias)
-2026-08-25,a0476e4,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,28.84,,,SAO lambda RD decision (was flat -64 bias)
-2026-08-25,a0476e4,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,25.33,,,SAO lambda RD decision (was flat -64 bias)
-2026-08-25,a0476e4,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,44.68,,,SAO lambda RD decision (was flat -64 bias)
-2026-08-25,a0476e4,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,24.26,,,SAO lambda RD decision (was flat -64 bias)
-2026-08-25,a0476e4,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,36.97,,,SAO lambda RD decision (was flat -64 bias)
-2026-08-25,96cad82,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,18.48,,,MV rate cost in motion search
-2026-08-25,96cad82,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,30.65,,,MV rate cost in motion search
-2026-08-25,96cad82,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,28.68,,,MV rate cost in motion search
-2026-08-25,96cad82,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,26.28,,,MV rate cost in motion search
-2026-08-25,96cad82,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,45.72,,,MV rate cost in motion search
-2026-08-25,96cad82,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,24.53,,,MV rate cost in motion search
-2026-08-25,96cad82,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,37.14,,,MV rate cost in motion search
-2026-08-25,96cad82,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,8.58,,,I-3 frame QP (retry on real corpus)
-2026-08-25,96cad82,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,26.8,,,I-3 frame QP (retry on real corpus)
-2026-08-25,96cad82,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,27.25,,,I-3 frame QP (retry on real corpus)
-2026-08-25,96cad82,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,26.7,,,I-3 frame QP (retry on real corpus)
-2026-08-25,96cad82,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,43.78,,,I-3 frame QP (retry on real corpus)
-2026-08-25,96cad82,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,22.5,,,I-3 frame QP (retry on real corpus)
-2026-08-25,96cad82,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,35.46,,,I-3 frame QP (retry on real corpus)
-2026-08-25,96cad82,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,8.03,,,"I-3 ladder kept, MV-search rate cost reverted"
-2026-08-25,96cad82,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,24.46,,,"I-3 ladder kept, MV-search rate cost reverted"
-2026-08-25,96cad82,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,27.32,,,"I-3 ladder kept, MV-search rate cost reverted"
-2026-08-25,96cad82,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,24.82,,,"I-3 ladder kept, MV-search rate cost reverted"
-2026-08-25,96cad82,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,41.76,,,"I-3 ladder kept, MV-search rate cost reverted"
-2026-08-25,96cad82,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,22.33,,,"I-3 ladder kept, MV-search rate cost reverted"
-2026-08-25,96cad82,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,35.48,,,"I-3 ladder kept, MV-search rate cost reverted"
-2026-08-25,988705f,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,7.53,,,default CTU 64 (matches x265)
-2026-08-25,988705f,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,23.77,,,default CTU 64 (matches x265)
-2026-08-25,988705f,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,26.68,,,default CTU 64 (matches x265)
-2026-08-25,988705f,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,24.02,,,default CTU 64 (matches x265)
-2026-08-25,988705f,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,41.54,,,default CTU 64 (matches x265)
-2026-08-25,988705f,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,21.75,,,default CTU 64 (matches x265)
-2026-08-25,988705f,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,33.94,,,default CTU 64 (matches x265)
-2026-08-25,ac231ff,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,6.2,,,SATD subpel refinement
-2026-08-25,ac231ff,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,21.8,,,SATD subpel refinement
-2026-08-25,ac231ff,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,26.46,,,SATD subpel refinement
-2026-08-25,ac231ff,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,23.44,,,SATD subpel refinement
-2026-08-25,ac231ff,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,39.47,,,SATD subpel refinement
-2026-08-25,ac231ff,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,20.91,,,SATD subpel refinement
-2026-08-25,ac231ff,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,33.36,,,SATD subpel refinement
-2026-08-25,3e57b8b,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,0.49,,,MaxNumMergeCand 2
-2026-08-25,3e57b8b,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,13.29,,,MaxNumMergeCand 2
-2026-08-25,3e57b8b,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,20.32,,,MaxNumMergeCand 2
-2026-08-25,3e57b8b,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,20.44,,,MaxNumMergeCand 2
-2026-08-25,3e57b8b,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,35.53,,,MaxNumMergeCand 2
-2026-08-25,3e57b8b,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,12.16,,,MaxNumMergeCand 2
-2026-08-25,3e57b8b,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,27.67,,,MaxNumMergeCand 2
-2026-08-25,69a8ed4,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,0.35,,,MaxNumMergeCand 3
-2026-08-25,69a8ed4,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,12.47,,,MaxNumMergeCand 3
-2026-08-25,69a8ed4,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,19.96,,,MaxNumMergeCand 3
-2026-08-25,69a8ed4,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,20.34,,,MaxNumMergeCand 3
-2026-08-25,69a8ed4,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,34.9,,,MaxNumMergeCand 3
-2026-08-25,69a8ed4,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,11.92,,,MaxNumMergeCand 3
-2026-08-25,69a8ed4,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,25.35,,,MaxNumMergeCand 3
-2026-08-25,69a8ed4,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,0.82,,,MaxNumMergeCand 4 probe
-2026-08-25,69a8ed4,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,12.25,,,MaxNumMergeCand 4 probe
-2026-08-25,69a8ed4,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,20.21,,,MaxNumMergeCand 4 probe
-2026-08-25,69a8ed4,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,20.39,,,MaxNumMergeCand 4 probe
-2026-08-25,69a8ed4,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,35.59,,,MaxNumMergeCand 4 probe
-2026-08-25,69a8ed4,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,12.26,,,MaxNumMergeCand 4 probe
-2026-08-25,69a8ed4,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,25.08,,,MaxNumMergeCand 4 probe
-2026-08-25,69a8ed4,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,0.82,,,MaxNumMergeCand 4 (combined-bi fixed)
-2026-08-25,69a8ed4,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,12.25,,,MaxNumMergeCand 4 (combined-bi fixed)
-2026-08-25,69a8ed4,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,20.21,,,MaxNumMergeCand 4 (combined-bi fixed)
-2026-08-25,69a8ed4,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,20.39,,,MaxNumMergeCand 4 (combined-bi fixed)
-2026-08-25,69a8ed4,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,35.59,,,MaxNumMergeCand 4 (combined-bi fixed)
-2026-08-25,69a8ed4,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,12.27,,,MaxNumMergeCand 4 (combined-bi fixed)
-2026-08-25,69a8ed4,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,25.07,,,MaxNumMergeCand 4 (combined-bi fixed)
-2026-08-25,69a8ed4,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,0.35,,,MaxNumMergeCand 3 (combined-bi fixed)
-2026-08-25,69a8ed4,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,12.47,,,MaxNumMergeCand 3 (combined-bi fixed)
-2026-08-25,69a8ed4,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,19.96,,,MaxNumMergeCand 3 (combined-bi fixed)
-2026-08-25,69a8ed4,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,20.34,,,MaxNumMergeCand 3 (combined-bi fixed)
-2026-08-25,69a8ed4,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,34.9,,,MaxNumMergeCand 3 (combined-bi fixed)
-2026-08-25,69a8ed4,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,11.92,,,MaxNumMergeCand 3 (combined-bi fixed)
-2026-08-25,69a8ed4,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,25.35,,,MaxNumMergeCand 3 (combined-bi fixed)
-2026-08-25,eaa16a0,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,-1.16,,,"B-slice AMVP: L1 + bi-pred ME candidates, spec AMVP scaling"
-2026-08-25,eaa16a0,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,0.97,,,"B-slice AMVP: L1 + bi-pred ME candidates, spec AMVP scaling"
-2026-08-25,eaa16a0,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,2.65,,,"B-slice AMVP: L1 + bi-pred ME candidates, spec AMVP scaling"
-2026-08-25,eaa16a0,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,5.86,,,"B-slice AMVP: L1 + bi-pred ME candidates, spec AMVP scaling"
-2026-08-25,eaa16a0,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,17.4,,,"B-slice AMVP: L1 + bi-pred ME candidates, spec AMVP scaling"
-2026-08-25,eaa16a0,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,3.6,,,"B-slice AMVP: L1 + bi-pred ME candidates, spec AMVP scaling"
-2026-08-25,eaa16a0,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,5.12,,,"B-slice AMVP: L1 + bi-pred ME candidates, spec AMVP scaling"
-2026-08-25,807974d,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,-1.12,,,TMVP (merge + AMVP temporal candidates)
-2026-08-25,807974d,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,0.07,,,TMVP (merge + AMVP temporal candidates)
-2026-08-25,807974d,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,0.6,,,TMVP (merge + AMVP temporal candidates)
-2026-08-25,807974d,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,3.92,,,TMVP (merge + AMVP temporal candidates)
-2026-08-25,807974d,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,4.09,,,TMVP (merge + AMVP temporal candidates)
-2026-08-25,807974d,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,2.19,,,TMVP (merge + AMVP temporal candidates)
-2026-08-25,807974d,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,4.43,,,TMVP (merge + AMVP temporal candidates)
-2026-08-25,86883b2,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,-1.67,,,SAO merge left/up
-2026-08-25,86883b2,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,0.02,,,SAO merge left/up
-2026-08-25,86883b2,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,0.53,,,SAO merge left/up
-2026-08-25,86883b2,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,3.53,,,SAO merge left/up
-2026-08-25,86883b2,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,4.09,,,SAO merge left/up
-2026-08-25,86883b2,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,1.8,,,SAO merge left/up
-2026-08-25,86883b2,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,3.95,,,SAO merge left/up
-2026-08-25,829d0db,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,-3.75,,,CB64 RD skip arm
-2026-08-25,829d0db,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,-0.46,,,CB64 RD skip arm
-2026-08-25,829d0db,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,0.5,,,CB64 RD skip arm
-2026-08-25,829d0db,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,3.48,,,CB64 RD skip arm
-2026-08-25,829d0db,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,3.55,,,CB64 RD skip arm
-2026-08-25,829d0db,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,1.77,,,CB64 RD skip arm
-2026-08-25,829d0db,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,3.93,,,CB64 RD skip arm
-2026-08-25,829d0db,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,-3.79,,,CB64 RD skip arm (qt_snap mv overflow fixed)
-2026-08-25,829d0db,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,-0.35,,,CB64 RD skip arm (qt_snap mv overflow fixed)
-2026-08-25,829d0db,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,0.44,,,CB64 RD skip arm (qt_snap mv overflow fixed)
-2026-08-25,829d0db,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,3.49,,,CB64 RD skip arm (qt_snap mv overflow fixed)
-2026-08-25,829d0db,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,3.71,,,CB64 RD skip arm (qt_snap mv overflow fixed)
-2026-08-25,829d0db,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,1.79,,,CB64 RD skip arm (qt_snap mv overflow fixed)
-2026-08-25,829d0db,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,3.8,,,CB64 RD skip arm (qt_snap mv overflow fixed)
-2026-08-25,43136a1,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,-3.79,,,CB64 merge-with-residual arm
-2026-08-25,43136a1,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,-0.53,,,CB64 merge-with-residual arm
-2026-08-25,43136a1,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,0.44,,,CB64 merge-with-residual arm
-2026-08-25,43136a1,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,3.49,,,CB64 merge-with-residual arm
-2026-08-25,43136a1,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,3.71,,,CB64 merge-with-residual arm
-2026-08-25,43136a1,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,1.79,,,CB64 merge-with-residual arm
-2026-08-25,43136a1,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,3.91,,,CB64 merge-with-residual arm
-2026-08-25,6b6e384,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,-4.81,,,two-round subpel refinement
-2026-08-25,6b6e384,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,-1.97,,,two-round subpel refinement
-2026-08-25,6b6e384,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,0.35,,,two-round subpel refinement
-2026-08-25,6b6e384,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,3.18,,,two-round subpel refinement
-2026-08-25,6b6e384,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,3.96,,,two-round subpel refinement
-2026-08-25,6b6e384,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,1.6,,,two-round subpel refinement
-2026-08-25,6b6e384,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,3.77,,,two-round subpel refinement
-2026-08-25,66cd894,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,-4.81,,,lowres intra estimate + spike-based scenecut
-2026-08-25,66cd894,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,-1.97,,,lowres intra estimate + spike-based scenecut
-2026-08-25,66cd894,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,0.35,,,lowres intra estimate + spike-based scenecut
-2026-08-25,66cd894,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,3.18,,,lowres intra estimate + spike-based scenecut
-2026-08-25,66cd894,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,3.96,,,lowres intra estimate + spike-based scenecut
-2026-08-25,66cd894,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,1.6,,,lowres intra estimate + spike-based scenecut
-2026-08-25,66cd894,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,3.77,,,lowres intra estimate + spike-based scenecut
-2026-08-25,66cd894,4.2+1-e444744,park_joy_720p,120,,,,,,,,,,,,,3.79,,,lowres intra estimate + spike-based scenecut
-2026-08-25,66cd894,4.2+1-e444744,ducks_720p,120,,,,,,,,,,,,,5.7,,,lowres intra estimate + spike-based scenecut
-2026-08-25,66cd894,4.2+1-e444744,in_to_tree_720p,120,,,,,,,,,,,,,-1.03,,,lowres intra estimate + spike-based scenecut
-2026-08-25,66cd894,4.2+1-e444744,crowd_run_1080p,120,,,,,,,,,,,,,5.36,,,lowres intra estimate + spike-based scenecut
-2026-08-25,fb7d92a,4.2+1-e444744,touchdown_1080p,120,,,,,,,,,,,,,2.1,,,lowres intra estimate + spike-based scenecut
-2026-08-25,fb7d92a,4.2+1-e444744,sintel_720p,120,,,,,,,,,,,,,-1.72,,,lowres intra estimate + spike-based scenecut
-2026-08-25,2b0d229,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,-3.78,,,lambda factor 0.85 -> 0.68
-2026-08-25,2b0d229,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,-3.65,,,lambda factor 0.85 -> 0.68
-2026-08-25,2b0d229,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,-1.04,,,lambda factor 0.85 -> 0.68
-2026-08-25,2b0d229,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,2.17,,,lambda factor 0.85 -> 0.68
-2026-08-25,2b0d229,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,3.12,,,lambda factor 0.85 -> 0.68
-2026-08-25,2b0d229,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,0.11,,,lambda factor 0.85 -> 0.68
-2026-08-25,2b0d229,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,2.72,,,lambda factor 0.85 -> 0.68
-2026-08-25,2b0d229,4.2+1-e444744,park_joy_720p,120,,,,,,,,,,,,,3.09,,,lambda factor 0.85 -> 0.68
-2026-08-25,2b0d229,4.2+1-e444744,ducks_720p,120,,,,,,,,,,,,,4.79,,,lambda factor 0.85 -> 0.68
-2026-08-25,2b0d229,4.2+1-e444744,in_to_tree_720p,120,,,,,,,,,,,,,-7.38,,,lambda factor 0.85 -> 0.68
-2026-08-26,2b0d229,4.2+1-e444744,crowd_run_1080p,120,,,,,,,,,,,,,3.99,,,lambda factor 0.85 -> 0.68
-2026-08-26,2b0d229,4.2+1-e444744,touchdown_1080p,120,,,,,,,,,,,,,0.45,,,lambda factor 0.85 -> 0.68
-2026-08-26,2b0d229,4.2+1-e444744,sintel_720p,120,,,,,,,,,,,,,-4.02,,,lambda factor 0.85 -> 0.68
-2026-09-06,24edca2,4.3+1-e9b8812,akiyo_cif,120,36.61,159.06,482.71,4.345,13.185,165.89,528.91,4.531,14.447,,,,-3.78,,,post-rename smoke
-2026-09-06,f0b4963,4.3+1-e9b8812,akiyo_cif,120,28.86,134.98,407.99,4.677,14.137,140.32,453.76,4.862,15.723,,,,-4.83,,,RDOQ default
-2026-09-07,f9c046a,4.3+1-e9b8812,akiyo_cif,120,33.09,156.95,478.15,4.742,14.448,161.29,518.62,4.874,15.671,,,,-10.9,,,pyramid+b-adapt default
-2026-09-07,e354d48,4.3+1-e9b8812,akiyo_cif,120,33.76,158.65,480.13,4.699,14.221,165.82,526.15,4.912,15.584,,,,-10.9,,,3-goal read
-2026-09-07,e354d48,4.3+1-e9b8812,foreman_cif,120,19.3,59.86,178.7,3.101,9.258,67.27,226.27,3.485,11.722,,,,-9.73,,,3-goal read
-2026-09-07,e354d48,4.3+1-e9b8812,mobile_cif,120,14.52,37.97,89.42,2.615,6.158,59.12,160.12,4.072,11.028,,,,-16.3,,,3-goal read
-2026-09-07,e354d48,4.3+1-e9b8812,stefan_cif,120,19.39,52.87,132.29,2.727,6.823,71.66,216.18,3.696,11.15,,,,-3.52,,,3-goal read
-2026-09-07,e354d48,4.3+1-e9b8812,bus_cif,120,13.36,39.46,101.55,2.955,7.603,46.91,145.46,3.512,10.891,,,,1.07,,,3-goal read
-2026-09-07,e354d48,4.3+1-e9b8812,tempete_cif,120,15.44,40.95,104.62,2.652,6.774,57.8,178.49,3.742,11.557,,,,-14.81,,,3-goal read
-2026-09-07,e354d48,4.3+1-e9b8812,coastguard_cif,120,13.91,36.82,98.51,2.647,7.081,45.67,144.99,3.283,10.422,,,,-8.75,,,3-goal read
-2026-09-07,e354d48,4.3+1-e9b8812,park_joy_720p,120,1.28,3.93,9.28,3.068,7.238,5.52,16.56,4.304,12.911,,,,1.01,,,3-goal read
-2026-09-07,e354d48,4.3+1-e9b8812,ducks_720p,120,1.3,3.25,8.32,2.508,6.416,4.28,13.47,3.303,10.389,,,,-8.36,,,3-goal read
-2026-09-07,e354d48,4.3+1-e9b8812,in_to_tree_720p,120,2.58,6.42,21.72,2.489,8.423,11.61,41.15,4.504,15.962,,,,-23.68,,,3-goal read
-2026-09-07,e354d48,4.3+1-e9b8812,crowd_run_1080p,120,0.64,1.81,4.65,2.829,7.274,2.46,7.89,3.846,12.326,,,,-0.02,,,3-goal read
-2026-09-07,e354d48,4.3+1-e9b8812,touchdown_1080p,120,1.15,2.8,9.09,2.433,7.907,4.2,15.0,3.65,13.045,,,,-5.7,,,3-goal read
-2026-09-07,e354d48,4.3+1-e9b8812,sintel_720p,120,2.98,9.6,35.64,3.227,11.98,8.38,31.7,2.818,10.654,,,,-3.74,,,3-goal read
-2026-09-07,ede0592,4.3+1-e9b8812,akiyo_cif,120,32.55,154.34,471.26,4.742,14.479,160.07,516.2,4.918,15.86,,,,-5.63,,,AQ 0.7 + round-once
-2026-09-07,ede0592,4.3+1-e9b8812,foreman_cif,120,18.63,54.58,166.5,2.93,8.937,64.63,217.4,3.469,11.669,,,,-8.31,,,AQ 0.7 + round-once
-2026-09-07,ede0592,4.3+1-e9b8812,mobile_cif,120,13.94,35.12,84.69,2.519,6.076,56.95,163.69,4.086,11.743,,,,-15.51,,,AQ 0.7 + round-once
-2026-09-07,ede0592,4.3+1-e9b8812,stefan_cif,120,19.69,52.77,133.86,2.68,6.798,73.13,220.45,3.714,11.195,,,,-2.06,,,AQ 0.7 + round-once
-2026-09-07,ede0592,4.3+1-e9b8812,bus_cif,120,13.75,39.34,102.96,2.862,7.491,47.86,148.1,3.482,10.774,,,,3.21,,,AQ 0.7 + round-once
-2026-09-07,ede0592,4.3+1-e9b8812,tempete_cif,120,15.86,41.21,107.2,2.598,6.758,59.66,183.6,3.761,11.573,,,,-13.8,,,AQ 0.7 + round-once
-2026-09-07,ede0592,4.3+1-e9b8812,coastguard_cif,120,14.51,37.26,100.26,2.568,6.912,47.51,150.31,3.275,10.363,,,,-9.81,,,AQ 0.7 + round-once
-2026-09-07,ede0592,4.3+1-e9b8812,park_joy_720p,120,1.35,3.97,9.56,2.931,7.065,5.67,17.14,4.191,12.665,,,,0.11,,,AQ 0.7 + round-once
-2026-09-07,ede0592,4.3+1-e9b8812,ducks_720p,120,1.37,3.34,8.74,2.439,6.383,4.44,14.06,3.246,10.273,,,,-10.21,,,AQ 0.7 + round-once
-2026-09-07,ede0592,4.3+1-e9b8812,in_to_tree_720p,120,2.63,5.93,20.54,2.252,7.8,11.81,42.03,4.484,15.961,,,,-22.2,,,AQ 0.7 + round-once
-2026-09-07,ede0592,4.3+1-e9b8812,crowd_run_1080p,120,0.65,1.81,4.76,2.766,7.266,2.49,7.75,3.795,11.837,,,,-0.22,,,AQ 0.7 + round-once
-2026-09-07,ede0592,4.3+1-e9b8812,touchdown_1080p,120,1.15,2.69,8.91,2.342,7.756,4.22,15.06,3.674,13.108,,,,-2.51,,,AQ 0.7 + round-once
-2026-09-07,ede0592,4.3+1-e9b8812,sintel_720p,120,2.98,8.4,29.34,2.82,9.848,8.3,31.35,2.786,10.521,,,,-15.0,,,AQ 0.7 + round-once
-2026-09-07,5b64471,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,,,,-8.52,,,rect + AMP inter partitions
-2026-09-07,5b64471,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,,,,-16.1,,,rect + AMP inter partitions
-2026-09-07,5b64471,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,,,,-19.45,,,rect + AMP inter partitions
-2026-09-07,5b64471,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,,,,-8.31,,,rect + AMP inter partitions
-2026-09-07,5b64471,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,,,,-3.12,,,rect + AMP inter partitions
-2026-09-07,5b64471,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,,,,-17.16,,,rect + AMP inter partitions
-2026-09-07,5b64471,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,,,,-11.51,,,rect + AMP inter partitions
-2026-09-07,5b64471,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,,,,-2.97,,,rect + AMP inter partitions
-2026-09-07,5b64471,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,,,,-11.16,,,rect + AMP inter partitions
-2026-09-07,5b64471,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,,,,-24.61,,,rect + AMP inter partitions
-2026-09-07,5b64471,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,,,,-5.38,,,rect + AMP inter partitions
-2026-09-07,5b64471,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,,,,-5.4,,,rect + AMP inter partitions
-2026-09-07,5b64471,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,,,,-17.35,,,rect + AMP inter partitions
-2026-09-07,21571a8,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,,,,-8.45,,,"B-frame mode decision (bi refine, B intra margin, CB64 AMVP)"
-2026-09-07,21571a8,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,,,,-16.78,,,"B-frame mode decision (bi refine, B intra margin, CB64 AMVP)"
-2026-09-07,21571a8,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,,,,-20.22,,,"B-frame mode decision (bi refine, B intra margin, CB64 AMVP)"
-2026-09-08,21571a8,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,,,,-9.01,,,"B-frame mode decision (bi refine, B intra margin, CB64 AMVP)"
-2026-09-08,21571a8,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,,,,-3.57,,,"B-frame mode decision (bi refine, B intra margin, CB64 AMVP)"
-2026-09-08,21571a8,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,,,,-17.39,,,"B-frame mode decision (bi refine, B intra margin, CB64 AMVP)"
-2026-09-08,21571a8,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,,,,-12.06,,,"B-frame mode decision (bi refine, B intra margin, CB64 AMVP)"
-2026-09-08,21571a8,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,,,,-3.38,,,"B-frame mode decision (bi refine, B intra margin, CB64 AMVP)"
-2026-09-08,21571a8,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,,,,-11.46,,,"B-frame mode decision (bi refine, B intra margin, CB64 AMVP)"
-2026-09-08,21571a8,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,,,,-25.1,,,"B-frame mode decision (bi refine, B intra margin, CB64 AMVP)"
-2026-09-08,21571a8,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,,,,-6.11,,,"B-frame mode decision (bi refine, B intra margin, CB64 AMVP)"
-2026-09-08,21571a8,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,,,,-6.53,,,"B-frame mode decision (bi refine, B intra margin, CB64 AMVP)"
-2026-09-08,21571a8,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,,,,-18.17,,,"B-frame mode decision (bi refine, B intra margin, CB64 AMVP)"
-2026-09-08,09ba8e2,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,,,,-13.63,,,SBH-RD parity fix + RD dct-decimate
-2026-09-08,09ba8e2,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,,,,-21.17,,,SBH-RD parity fix + RD dct-decimate
-2026-09-08,09ba8e2,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,,,,-26.39,,,SBH-RD parity fix + RD dct-decimate
-2026-09-08,09ba8e2,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,,,,-16.21,,,SBH-RD parity fix + RD dct-decimate
-2026-09-08,09ba8e2,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,,,,-10.92,,,SBH-RD parity fix + RD dct-decimate
-2026-09-08,09ba8e2,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,,,,-23.65,,,SBH-RD parity fix + RD dct-decimate
-2026-09-08,09ba8e2,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,,,,-18.93,,,SBH-RD parity fix + RD dct-decimate
-2026-09-08,09ba8e2,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,,,,-10.99,,,SBH-RD parity fix + RD dct-decimate
-2026-09-08,09ba8e2,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,,,,-18.28,,,SBH-RD parity fix + RD dct-decimate
-2026-09-08,09ba8e2,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,,,,-30.44,,,SBH-RD parity fix + RD dct-decimate
-2026-09-08,09ba8e2,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,,,,-12.95,,,SBH-RD parity fix + RD dct-decimate
-2026-09-08,09ba8e2,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,,,,-14.04,,,SBH-RD parity fix + RD dct-decimate
-2026-09-08,09ba8e2,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,,,,-19.71,,,SBH-RD parity fix + RD dct-decimate
-2026-09-08,5a9370a,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,,,,-13.63,,,phase 3 exit read; gate red on sintel_720p and touchdown_1080p
-2026-09-08,5a9370a,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,,,,-21.17,,,phase 3 exit read; gate red on sintel_720p and touchdown_1080p
-2026-09-08,5a9370a,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,,,,-26.39,,,phase 3 exit read; gate red on sintel_720p and touchdown_1080p
-2026-09-08,5a9370a,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,,,,-16.21,,,phase 3 exit read; gate red on sintel_720p and touchdown_1080p
-2026-09-08,5a9370a,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,,,,-10.92,,,phase 3 exit read; gate red on sintel_720p and touchdown_1080p
-2026-09-08,5a9370a,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,,,,-23.65,,,phase 3 exit read; gate red on sintel_720p and touchdown_1080p
-2026-09-08,5a9370a,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,,,,-18.93,,,phase 3 exit read; gate red on sintel_720p and touchdown_1080p
-2026-09-08,5a9370a,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,,,,-10.99,,,phase 3 exit read; gate red on sintel_720p and touchdown_1080p
-2026-09-08,5a9370a,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,,,,-18.28,,,phase 3 exit read; gate red on sintel_720p and touchdown_1080p
-2026-09-08,5a9370a,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,,,,-30.44,,,phase 3 exit read; gate red on sintel_720p and touchdown_1080p
-2026-09-08,5a9370a,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,,,,-12.95,,,phase 3 exit read; gate red on sintel_720p and touchdown_1080p
-2026-09-08,5a9370a,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,,,,-14.04,,,phase 3 exit read; gate red on sintel_720p and touchdown_1080p
-2026-09-08,5a9370a,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,,,,-19.71,,,phase 3 exit read; gate red on sintel_720p and touchdown_1080p
-2026-09-09,2eb5c3d,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,,,,-16.04,,,"b-adapt width normalisation + keyint 250 + AQ clamp; touchdown green, sintel still red"
-2026-09-09,2eb5c3d,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,,,,-22.9,,,"b-adapt width normalisation + keyint 250 + AQ clamp; touchdown green, sintel still red"
-2026-09-09,2eb5c3d,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,,,,-28.33,,,"b-adapt width normalisation + keyint 250 + AQ clamp; touchdown green, sintel still red"
-2026-09-09,2eb5c3d,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,,,,-17.34,,,"b-adapt width normalisation + keyint 250 + AQ clamp; touchdown green, sintel still red"
-2026-09-09,2eb5c3d,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,,,,-10.93,,,"b-adapt width normalisation + keyint 250 + AQ clamp; touchdown green, sintel still red"
-2026-09-09,2eb5c3d,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,,,,-25.28,,,"b-adapt width normalisation + keyint 250 + AQ clamp; touchdown green, sintel still red"
-2026-09-09,2eb5c3d,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,,,,-20.2,,,"b-adapt width normalisation + keyint 250 + AQ clamp; touchdown green, sintel still red"
-2026-09-09,2eb5c3d,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,,,,-14.41,,,"b-adapt width normalisation + keyint 250 + AQ clamp; touchdown green, sintel still red"
-2026-09-09,2eb5c3d,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,,,,-18.94,,,"b-adapt width normalisation + keyint 250 + AQ clamp; touchdown green, sintel still red"
-2026-09-09,2eb5c3d,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,,,,-31.93,,,"b-adapt width normalisation + keyint 250 + AQ clamp; touchdown green, sintel still red"
-2026-09-09,2eb5c3d,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,,,,-14.94,,,"b-adapt width normalisation + keyint 250 + AQ clamp; touchdown green, sintel still red"
-2026-09-09,2eb5c3d,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,,,,-18.91,,,"b-adapt width normalisation + keyint 250 + AQ clamp; touchdown green, sintel still red"
-2026-09-09,2eb5c3d,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,,,,-24.03,,,"b-adapt width normalisation + keyint 250 + AQ clamp; touchdown green, sintel still red"
-2026-09-09,df10982,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,,,,-14.18,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base
-2026-09-09,df10982,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,,,,-19.44,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base
-2026-09-09,df10982,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,,,,-26.32,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base
-2026-09-09,df10982,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,,,,-14.48,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base
-2026-09-09,df10982,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,,,,-8.11,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base
-2026-09-09,df10982,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,,,,-23.31,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base
-2026-09-09,df10982,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,,,,-17.31,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base
-2026-09-09,df10982,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,,,,-13.17,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base
-2026-09-09,df10982,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,,,,-15.74,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base
-2026-09-09,df10982,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,,,,-29.67,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base
-2026-09-09,df10982,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,,,,-11.85,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base
-2026-09-09,df10982,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,,,,-4.75,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base
-2026-09-09,df10982,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,,,,-15.93,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base
-2026-09-09,df10982,4.3+1-e9b8812,sita_flat_720p,120,,,,,,,,,,,,,-14.66,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base
-2026-09-09,df10982,4.3+1-e9b8812,sita_toon_720p,120,,,,,,,,,,,,,-15.61,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base
-2026-09-09,8dc381c,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,,,,-14.18,-24.1,,"merged standing, VMAF-NEG column"
-2026-09-09,8dc381c,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,,,,-19.44,-23.91,,"merged standing, VMAF-NEG column"
-2026-09-09,8dc381c,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,,,,-26.32,-32.68,,"merged standing, VMAF-NEG column"
-2026-09-09,8dc381c,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,,,,-14.48,-26.18,,"merged standing, VMAF-NEG column"
-2026-09-09,8dc381c,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,,,,-8.11,,,"merged standing, VMAF-NEG column"
-2026-09-09,8dc381c,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,,,,-23.31,-29.35,,"merged standing, VMAF-NEG column"
-2026-09-09,8dc381c,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,,,,-17.31,-26.1,,"merged standing, VMAF-NEG column"
-2026-09-09,8dc381c,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,,,,-13.17,-31.26,,"merged standing, VMAF-NEG column"
-2026-09-09,8dc381c,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,,,,-15.74,-22.3,,"merged standing, VMAF-NEG column"
-2026-09-09,8dc381c,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,,,,-29.67,-33.42,,"merged standing, VMAF-NEG column"
-2026-09-09,8dc381c,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,,,,-11.85,-19.12,,"merged standing, VMAF-NEG column"
-2026-09-09,8dc381c,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,,,,-4.75,-28.98,,"merged standing, VMAF-NEG column"
-2026-09-09,8dc381c,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,,,,-15.93,-13.01,,"merged standing, VMAF-NEG column"
-2026-09-09,8dc381c,4.3+1-e9b8812,sita_flat_720p,120,,,,,,,,,,,,,-14.66,-20.68,,"merged standing, VMAF-NEG column"
-2026-09-09,8dc381c,4.3+1-e9b8812,sita_toon_720p,120,,,,,,,,,,,,,-15.61,-14.74,,"merged standing, VMAF-NEG column"
-2026-09-10,f02a3cf,4.3+1-e9b8812,akiyo_cif,120,42.91,152.17,485.69,3.546,11.319,154.43,490.22,3.599,11.425,73.05,909.4,,-14.3,-24.93,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout"
-2026-09-10,f02a3cf,4.3+1-e9b8812,foreman_cif,120,16.55,52.9,163.87,3.197,9.902,62.82,210.41,3.796,12.714,31.74,485.45,,-19.71,-24.79,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout"
-2026-09-10,f02a3cf,4.3+1-e9b8812,mobile_cif,120,11.21,33.37,81.72,2.977,7.292,54.15,151.86,4.832,13.551,22.95,349.76,,-26.2,-32.62,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout"
-2026-09-10,f02a3cf,4.3+1-e9b8812,stefan_cif,120,15.74,50.97,131.05,3.239,8.328,70.7,211.73,4.493,13.455,28.84,485.75,,-14.3,-28.76,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout"
-2026-09-10,f02a3cf,4.3+1-e9b8812,bus_cif,120,9.95,35.47,102.87,3.565,10.338,46.73,144.86,4.696,14.559,19.35,361.96,,-7.95,,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout"
-2026-09-10,f02a3cf,4.3+1-e9b8812,tempete_cif,120,13.14,40.03,105.94,3.047,8.064,57.78,177.45,4.398,13.507,28.3,428.31,,-23.17,-29.66,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout"
-2026-09-10,f02a3cf,4.3+1-e9b8812,coastguard_cif,120,11.18,35.79,97.52,3.202,8.725,45.57,144.39,4.077,12.919,24.15,343.53,,-17.22,-25.9,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout"
-2026-09-10,f02a3cf,4.3+1-e9b8812,park_joy_720p,120,1.09,3.76,8.1,3.439,7.41,5.43,16.44,4.963,15.041,5.7,101.75,,-13.17,-31.7,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout"
-2026-09-10,f02a3cf,4.3+1-e9b8812,ducks_720p,120,1.02,3.18,8.33,3.115,8.167,4.35,13.9,4.261,13.623,6.02,85.06,,-15.7,-22.27,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout"
-2026-09-10,f02a3cf,4.3+1-e9b8812,in_to_tree_720p,120,2.2,5.86,20.53,2.66,9.311,11.53,40.86,5.228,18.535,15.01,237.58,,-29.72,-33.2,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout"
-2026-09-10,f02a3cf,4.3+1-e9b8812,crowd_run_1080p,120,0.52,1.78,4.67,3.423,8.972,2.43,7.51,4.66,14.426,3.75,63.3,,-11.81,-19.24,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout"
-2026-09-10,f02a3cf,4.3+1-e9b8812,touchdown_1080p,120,1.11,2.65,8.91,2.395,8.063,4.1,14.48,3.711,13.096,7.37,101.6,,-4.99,-29.23,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout"
-2026-09-10,f02a3cf,4.3+1-e9b8812,sintel_720p,120,2.84,7.4,26.97,2.609,9.508,7.51,30.87,2.649,10.883,13.31,197.61,,-16.56,-14.16,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout"
-2026-09-10,f02a3cf,4.3+1-e9b8812,sita_flat_720p,120,14.45,25.46,78.36,1.762,5.423,23.45,72.38,1.623,5.009,45.53,279.03,,-14.05,-20.55,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout"
-2026-09-10,f02a3cf,4.3+1-e9b8812,sita_toon_720p,120,2.51,8.96,24.39,3.57,9.719,11.9,35.4,4.744,14.109,9.44,147.41,,-15.6,-14.91,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout"
-2026-09-10,a9ee9a2,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,,,,-14.3,-24.93,,
-2026-09-10,a9ee9a2,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,,,,-19.71,-24.79,,
-2026-09-10,a9ee9a2,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,,,,-26.2,-32.62,,
-2026-09-10,a9ee9a2,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,,,,-14.3,-28.76,,
-2026-09-10,a9ee9a2,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,,,,-7.95,,,
-2026-09-10,a9ee9a2,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,,,,-23.17,-29.66,,
-2026-09-10,a9ee9a2,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,,,,-17.22,-25.9,,
-2026-09-10,a9ee9a2,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,,,,-13.17,-31.7,,
-2026-09-10,a9ee9a2,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,,,,-15.7,-22.27,,
-2026-09-10,a9ee9a2,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,,,,-29.72,-33.2,,
-2026-09-10,a9ee9a2,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,,,,-11.81,-19.24,,
-2026-09-10,a9ee9a2,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,,,,-4.99,-29.23,,
-2026-09-10,a9ee9a2,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,,,,-16.56,-14.16,,
-2026-09-10,a9ee9a2,4.3+1-e9b8812,sita_flat_720p,120,,,,,,,,,,,,,-14.05,-20.55,,
-2026-09-10,a9ee9a2,4.3+1-e9b8812,sita_toon_720p,120,,,,,,,,,,,,,-15.6,-14.91,,
-2026-09-10,9f4951c,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,,,,-14.3,-24.93,-13.49,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box
-2026-09-10,9f4951c,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,,,,-19.71,-24.79,-4.11,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box
-2026-09-10,9f4951c,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,,,,-26.2,-32.62,-22.84,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box
-2026-09-10,9f4951c,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,,,,-14.3,-28.76,-8.62,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box
-2026-09-10,9f4951c,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,,,,-7.95,,,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box
-2026-09-10,9f4951c,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,,,,-23.17,-29.66,-18.82,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box
-2026-09-10,9f4951c,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,,,,-17.22,-25.9,-10.72,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box
-2026-09-10,9f4951c,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,,,,-13.17,-31.7,-30.66,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box
-2026-09-10,9f4951c,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,,,,-15.7,-22.27,-3.88,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box
-2026-09-10,9f4951c,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,,,,-29.72,-33.2,-14.28,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box
-2026-09-10,9f4951c,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,,,,-11.81,-19.24,-3.3,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box
-2026-09-10,9f4951c,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,,,,-4.99,-29.23,-10.19,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box
-2026-09-10,9f4951c,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,,,,-16.56,-14.16,17.87,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box
-2026-09-10,9f4951c,4.3+1-e9b8812,sita_flat_720p,120,,,,,,,,,,,,,-14.05,-20.55,-12.73,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box
-2026-09-10,9f4951c,4.3+1-e9b8812,sita_toon_720p,120,,,,,,,,,,,,,-15.6,-14.91,-4.87,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box
-2026-09-10,2f14d92,4.3+1-e9b8812,akiyo_cif,120,82.11,154.63,498.69,1.883,6.074,162.32,514.17,1.977,6.262,196.68,943.41,342.3,-20.16,-28.19,-18.2,
-2026-09-10,2f14d92,4.3+1-e9b8812,foreman_cif,120,26.39,52.84,165.98,2.002,6.289,64.32,216.44,2.437,8.202,83.6,503.3,111.68,-23.82,-26.0,-4.13,
-2026-09-10,2f14d92,4.3+1-e9b8812,mobile_cif,120,16.4,34.19,84.12,2.085,5.13,56.24,161.57,3.43,9.854,55.89,374.89,57.78,-34.37,-40.33,-29.09,
-2026-09-10,2f14d92,4.3+1-e9b8812,stefan_cif,120,23.27,51.32,133.58,2.205,5.74,72.7,218.82,3.124,9.403,79.64,521.77,76.22,-16.53,-33.38,-14.87,
-2026-09-10,2f14d92,4.3+1-e9b8812,bus_cif,120,15.37,38.58,102.88,2.51,6.693,47.65,146.6,3.1,9.537,52.64,365.15,44.49,-7.95,,,
-2026-09-10,2f14d92,4.3+1-e9b8812,tempete_cif,120,19.96,39.76,105.68,1.992,5.294,58.58,180.85,2.935,9.06,65.19,432.2,74.82,-32.39,-36.1,-26.48,
-2026-09-10,2f14d92,4.3+1-e9b8812,coastguard_cif,120,16.44,35.66,97.81,2.17,5.951,46.72,147.87,2.842,8.997,57.33,346.26,59.51,-20.47,-29.7,-15.34,
-2026-09-10,2f14d92,4.3+1-e9b8812,park_joy_720p,120,1.53,3.88,9.59,2.536,6.268,5.68,17.16,3.713,11.222,11.29,101.19,4.76,-14.74,-44.5,-40.32,
-2026-09-10,2f14d92,4.3+1-e9b8812,ducks_720p,120,1.5,3.25,8.61,2.169,5.754,4.39,13.92,2.936,9.301,11.49,82.41,5.78,-17.85,-23.27,-6.41,
-2026-09-10,2f14d92,4.3+1-e9b8812,in_to_tree_720p,120,5.33,5.76,20.83,1.079,3.905,11.83,42.02,2.218,7.879,37.41,258.97,23.53,-37.25,-38.57,-19.45,
-2026-09-10,2f14d92,4.3+1-e9b8812,crowd_run_1080p,120,0.76,1.81,4.81,2.4,6.366,2.51,7.83,3.315,10.365,7.05,66.75,2.91,-13.87,-21.91,-5.66,
-2026-09-10,2f14d92,4.3+1-e9b8812,touchdown_1080p,120,1.91,2.64,8.99,1.38,4.701,4.21,15.01,2.204,7.851,17.1,111.91,8.98,-11.6,-29.21,-10.35,
-2026-09-10,2f14d92,4.3+1-e9b8812,sintel_720p,120,5.39,7.93,28.64,1.472,5.317,8.37,31.69,1.554,5.885,39.3,205.05,19.7,-19.14,-19.08,17.3,
-2026-09-10,2f14d92,4.3+1-e9b8812,sita_flat_720p,120,23.8,25.84,79.41,1.086,3.337,24.13,74.03,1.014,3.111,105.1,289.22,47.81,-16.71,-22.81,-12.36,
-2026-09-10,2f14d92,4.3+1-e9b8812,sita_toon_720p,120,4.26,8.7,24.43,2.041,5.733,12.16,36.34,2.854,8.529,25.18,156.28,10.2,-16.34,-17.1,-6.32,
-2026-09-10,b610f13,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,,,,-20.44,-28.46,-18.49,ABR yardstick fix + DPB dispatch retirement merged
-2026-09-10,b610f13,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,,,,-23.88,-26.07,-4.2,ABR yardstick fix + DPB dispatch retirement merged
-2026-09-10,b610f13,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,,,,-34.39,-40.36,-29.11,ABR yardstick fix + DPB dispatch retirement merged
-2026-09-10,b610f13,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,,,,-16.54,-33.39,-14.89,ABR yardstick fix + DPB dispatch retirement merged
-2026-09-10,b610f13,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,,,,-7.95,,,ABR yardstick fix + DPB dispatch retirement merged
-2026-09-10,b610f13,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,,,,-32.42,-36.14,-26.52,ABR yardstick fix + DPB dispatch retirement merged
-2026-09-10,b610f13,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,,,,-20.49,-29.72,-15.37,ABR yardstick fix + DPB dispatch retirement merged
-2026-09-10,b610f13,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,,,,-14.74,-44.5,-40.32,ABR yardstick fix + DPB dispatch retirement merged
-2026-09-10,b610f13,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,,,,-17.85,-23.27,-6.41,ABR yardstick fix + DPB dispatch retirement merged
-2026-09-10,b610f13,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,,,,-37.27,-38.59,-19.48,ABR yardstick fix + DPB dispatch retirement merged
-2026-09-10,b610f13,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,,,,-13.87,-21.91,-5.66,ABR yardstick fix + DPB dispatch retirement merged
-2026-09-10,b610f13,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,,,,-11.61,-29.22,-10.35,ABR yardstick fix + DPB dispatch retirement merged
-2026-09-10,b610f13,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,,,,-19.19,-19.13,17.25,ABR yardstick fix + DPB dispatch retirement merged
-2026-09-10,b610f13,4.3+1-e9b8812,sita_flat_720p,120,,,,,,,,,,,,,-16.74,-22.83,-12.38,ABR yardstick fix + DPB dispatch retirement merged
-2026-09-10,b610f13,4.3+1-e9b8812,sita_toon_720p,120,,,,,,,,,,,,,-16.35,-17.1,-6.32,ABR yardstick fix + DPB dispatch retirement merged
-2026-09-10,0ff617f,4.3+1-e9b8812,akiyo_cif,120,125.76,148.24,483.4,1.179,3.844,155.67,498.0,1.238,3.96,290.69,925.24,453.24,-20.44,-28.46,-18.49,
-2026-09-10,0ff617f,4.3+1-e9b8812,foreman_cif,120,40.12,51.43,161.09,1.282,4.015,63.2,214.03,1.575,5.334,123.69,496.94,150.48,-23.88,-26.07,-4.2,
-2026-09-10,0ff617f,4.3+1-e9b8812,mobile_cif,120,22.99,33.64,82.67,1.463,3.595,55.53,158.42,2.415,6.889,77.17,374.47,74.72,-34.39,-40.36,-29.11,
-2026-09-10,0ff617f,4.3+1-e9b8812,stefan_cif,120,32.58,50.88,132.12,1.562,4.055,72.15,217.51,2.215,6.677,109.22,517.68,97.39,-16.54,-33.39,-14.89,
-2026-09-10,0ff617f,4.3+1-e9b8812,bus_cif,120,21.41,37.8,102.14,1.765,4.771,46.44,147.09,2.169,6.87,70.23,365.45,57.04,-7.95,-18.93,-0.92,
-2026-09-10,0ff617f,4.3+1-e9b8812,tempete_cif,120,29.19,39.16,105.01,1.342,3.598,58.37,178.93,2.0,6.131,92.91,434.68,98.67,-32.42,-36.14,-26.52,
-2026-09-10,0ff617f,4.3+1-e9b8812,coastguard_cif,120,23.51,34.63,95.62,1.473,4.067,45.49,144.94,1.935,6.164,78.99,344.31,77.66,-20.49,-29.72,-15.37,
-2026-09-10,0ff617f,4.3+1-e9b8812,park_joy_720p,120,2.1,3.76,9.52,1.793,4.534,5.66,17.14,2.697,8.166,15.61,100.77,6.09,-14.74,-44.5,-40.32,
-2026-09-10,0ff617f,4.3+1-e9b8812,ducks_720p,120,2.11,3.24,8.6,1.535,4.074,4.39,13.9,2.079,6.588,16.35,82.14,7.59,-17.85,-23.27,-6.41,
-2026-09-10,0ff617f,4.3+1-e9b8812,in_to_tree_720p,120,8.39,5.73,20.76,0.683,2.475,11.79,41.95,1.405,5.001,56.54,254.66,32.48,-37.27,-38.59,-19.48,
-2026-09-10,0ff617f,4.3+1-e9b8812,crowd_run_1080p,120,1.09,1.81,4.8,1.66,4.409,2.51,7.81,2.299,7.168,10.46,67.02,3.86,-13.87,-21.91,-5.66,
-2026-09-10,0ff617f,4.3+1-e9b8812,touchdown_1080p,120,3.02,2.64,9.02,0.874,2.988,4.2,15.02,1.39,4.976,26.91,113.37,12.39,-11.61,-29.22,-10.35,
-2026-09-10,0ff617f,4.3+1-e9b8812,sintel_720p,120,8.97,7.92,28.72,0.883,3.202,8.37,31.6,0.933,3.523,64.01,205.12,29.6,-19.19,-19.13,17.25,
-2026-09-10,0ff617f,4.3+1-e9b8812,sita_flat_720p,120,32.48,25.81,79.76,0.795,2.455,24.23,74.03,0.746,2.279,130.85,291.11,60.29,-16.74,-22.83,-12.38,
-2026-09-10,0ff617f,4.3+1-e9b8812,sita_toon_720p,120,6.14,8.73,24.6,1.422,4.006,12.31,36.69,2.006,5.976,34.99,158.25,13.4,-16.35,-17.1,-6.32,
-2026-09-10,8061928,4.3+1-e9b8812,akiyo_cif,120,145.41,149.64,486.36,1.029,3.345,156.79,501.1,1.078,3.446,325.21,927.22,592.95,-20.44,-28.46,-18.49,
-2026-09-10,8061928,4.3+1-e9b8812,foreman_cif,120,44.53,51.59,159.88,1.159,3.59,62.98,211.01,1.414,4.739,135.7,498.51,175.52,-23.88,-26.07,-4.2,
-2026-09-10,8061928,4.3+1-e9b8812,mobile_cif,120,24.83,34.14,84.42,1.375,3.399,56.51,162.25,2.275,6.533,83.68,379.75,84.59,-34.39,-40.36,-29.11,
-2026-09-10,8061928,4.3+1-e9b8812,stefan_cif,120,36.6,51.32,133.51,1.402,3.648,72.24,219.99,1.974,6.011,119.83,519.35,110.91,-16.54,-33.39,-14.89,
-2026-09-10,8061928,4.3+1-e9b8812,bus_cif,120,23.77,38.27,102.61,1.61,4.317,47.6,147.92,2.003,6.223,77.24,364.95,65.25,-7.95,-18.93,-0.92,
-2026-09-10,8061928,4.3+1-e9b8812,tempete_cif,120,31.99,39.58,105.64,1.237,3.302,58.59,180.06,1.831,5.628,101.4,431.59,112.65,-32.42,-36.14,-26.52,
-2026-09-10,8061928,4.3+1-e9b8812,coastguard_cif,120,25.88,35.42,97.21,1.369,3.756,46.44,146.38,1.795,5.657,87.18,346.05,88.3,-20.49,-29.72,-15.37,
-2026-09-10,8061928,4.3+1-e9b8812,park_joy_720p,120,2.25,3.74,9.15,1.661,4.067,5.48,16.56,2.436,7.36,16.2,95.44,6.61,-14.74,-44.5,-40.32,
-2026-09-10,8061928,4.3+1-e9b8812,ducks_720p,120,2.27,3.15,8.52,1.386,3.744,4.33,13.43,1.905,5.903,17.25,78.14,8.1,-17.85,-23.27,-6.41,
-2026-09-10,8061928,4.3+1-e9b8812,in_to_tree_720p,120,9.38,5.68,20.19,0.605,2.152,11.54,41.01,1.23,4.371,63.14,249.65,38.85,-37.27,-38.59,-19.48,
-2026-09-10,8061928,4.3+1-e9b8812,crowd_run_1080p,120,1.16,1.8,4.79,1.554,4.131,2.5,7.81,2.155,6.733,11.31,66.51,4.22,-13.87,-21.91,-5.66,
-2026-09-10,8061928,4.3+1-e9b8812,touchdown_1080p,120,3.35,2.63,8.98,0.786,2.681,4.21,14.84,1.257,4.43,30.16,113.23,14.71,-11.61,-29.22,-10.35,
-2026-09-10,8061928,4.3+1-e9b8812,sintel_720p,120,10.41,7.91,28.66,0.76,2.752,8.37,31.62,0.804,3.037,75.44,204.48,36.7,-19.19,-19.13,17.25,
-2026-09-10,8061928,4.3+1-e9b8812,sita_flat_720p,120,37.52,25.81,79.27,0.688,2.113,24.19,73.89,0.645,1.969,153.27,286.75,79.86,-16.74,-22.83,-12.38,
-2026-09-10,8061928,4.3+1-e9b8812,sita_toon_720p,120,6.94,8.73,24.52,1.258,3.535,12.28,36.71,1.77,5.292,38.82,157.67,16.05,-16.35,-17.1,-6.32,
-2026-09-10,4502dfd,4.3+1-e9b8812,akiyo_cif,120,151.42,147.12,480.65,0.972,3.174,155.5,497.73,1.027,3.287,346.72,930.19,588.15,-20.44,-28.46,-18.49,
-2026-09-10,4502dfd,4.3+1-e9b8812,foreman_cif,120,47.97,51.34,160.49,1.07,3.346,62.85,210.56,1.31,4.39,146.02,499.29,181.33,-23.88,-26.07,-4.2,
-2026-09-10,4502dfd,4.3+1-e9b8812,mobile_cif,120,27.24,34.34,84.58,1.26,3.105,56.39,161.83,2.07,5.94,89.23,376.53,86.63,-34.39,-40.36,-29.11,
-2026-09-10,4502dfd,4.3+1-e9b8812,stefan_cif,120,39.44,51.46,133.69,1.305,3.39,72.96,219.72,1.85,5.572,127.63,517.94,117.0,-16.54,-33.39,-14.89,
-2026-09-10,4502dfd,4.3+1-e9b8812,bus_cif,120,25.64,38.71,103.16,1.51,4.023,47.83,147.44,1.865,5.75,81.67,365.27,68.18,-7.95,-18.93,-0.92,
-2026-09-10,4502dfd,4.3+1-e9b8812,tempete_cif,120,34.92,39.68,106.21,1.136,3.041,58.7,181.88,1.681,5.208,108.94,431.44,117.94,-32.42,-36.14,-26.52,
-2026-09-10,4502dfd,4.3+1-e9b8812,coastguard_cif,120,28.14,35.58,97.92,1.265,3.48,46.54,147.49,1.654,5.242,93.28,347.63,92.95,-20.49,-29.72,-15.37,
-2026-09-10,4502dfd,4.3+1-e9b8812,park_joy_720p,120,2.45,3.86,9.59,1.575,3.911,5.66,17.08,2.307,6.966,17.86,97.99,7.08,-14.74,-44.5,-40.32,
-2026-09-10,4502dfd,4.3+1-e9b8812,ducks_720p,120,2.43,3.16,8.26,1.301,3.398,4.27,13.35,1.756,5.49,18.43,77.95,8.6,-17.85,-23.27,-6.41,
-2026-09-10,4502dfd,4.3+1-e9b8812,in_to_tree_720p,120,9.98,5.69,20.61,0.57,2.064,11.74,41.87,1.176,4.194,69.09,253.69,39.47,-37.27,-38.59,-19.48,
-2026-09-10,4502dfd,4.3+1-e9b8812,crowd_run_1080p,120,1.27,1.82,4.84,1.439,3.827,2.52,7.9,1.994,6.237,12.39,67.7,4.46,-13.87,-21.91,-5.66,
-2026-09-10,4502dfd,4.3+1-e9b8812,touchdown_1080p,120,3.69,2.67,9.11,0.722,2.468,4.27,15.22,1.156,4.122,33.18,112.79,15.39,-11.61,-29.22,-10.35,
-2026-09-10,4502dfd,4.3+1-e9b8812,sintel_720p,120,11.2,7.96,28.94,0.711,2.585,8.46,31.94,0.756,2.853,81.74,208.32,38.08,-19.19,-19.13,17.25,
-2026-09-10,4502dfd,4.3+1-e9b8812,sita_flat_720p,120,38.98,26.18,80.61,0.672,2.068,24.54,74.91,0.63,1.922,157.27,289.94,80.49,-16.74,-22.83,-12.38,
-2026-09-10,4502dfd,4.3+1-e9b8812,sita_toon_720p,120,7.43,8.85,24.95,1.192,3.361,12.5,37.19,1.684,5.008,40.9,158.28,16.66,-16.35,-17.1,-6.32,
-2026-09-10,68fc641,4.3+1-e9b8812,akiyo_cif,120,170.63,154.97,502.49,0.908,2.945,163.33,524.65,0.957,3.075,382.08,955.87,628.14,-20.44,-28.46,-18.49,
-2026-09-10,68fc641,4.3+1-e9b8812,foreman_cif,120,57.02,53.81,169.15,0.944,2.966,64.79,218.47,1.136,3.831,162.84,507.98,190.87,-23.88,-26.07,-4.2,
-2026-09-10,68fc641,4.3+1-e9b8812,mobile_cif,120,30.98,34.77,85.38,1.122,2.756,57.1,164.46,1.843,5.308,98.75,379.51,91.09,-34.39,-40.36,-29.11,
-2026-09-10,68fc641,4.3+1-e9b8812,stefan_cif,120,43.62,51.65,134.14,1.184,3.075,72.95,219.54,1.672,5.033,138.8,521.47,118.1,-16.54,-33.39,-14.89,
-2026-09-10,68fc641,4.3+1-e9b8812,bus_cif,120,28.0,38.4,102.77,1.372,3.671,47.32,147.51,1.69,5.269,87.48,365.46,68.43,-7.95,-18.93,-0.92,
-2026-09-10,68fc641,4.3+1-e9b8812,tempete_cif,120,38.27,39.6,105.68,1.035,2.761,58.58,180.5,1.531,4.717,120.84,433.05,118.75,-32.42,-36.14,-26.52,
-2026-09-10,68fc641,4.3+1-e9b8812,coastguard_cif,120,31.32,35.5,97.45,1.133,3.111,46.45,147.0,1.483,4.693,102.64,346.5,93.3,-20.49,-29.72,-15.37,
-2026-09-10,68fc641,4.3+1-e9b8812,park_joy_720p,120,2.6,3.85,9.41,1.482,3.624,5.53,16.5,2.132,6.356,17.72,96.58,7.13,-14.74,-44.5,-40.32,
-2026-09-10,68fc641,4.3+1-e9b8812,ducks_720p,120,2.55,3.23,8.48,1.268,3.329,4.36,13.77,1.71,5.406,19.76,82.39,8.62,-17.85,-23.27,-6.41,
-2026-09-10,68fc641,4.3+1-e9b8812,in_to_tree_720p,120,10.45,5.6,20.66,0.536,1.976,11.6,41.02,1.11,3.924,69.73,245.51,40.03,-37.27,-38.59,-19.48,
-2026-09-11,68fc641,4.3+1-e9b8812,crowd_run_1080p,120,1.22,1.8,4.71,1.471,3.856,2.45,7.55,2.005,6.182,11.51,66.73,4.31,-13.87,-21.91,-5.66,
-2026-09-11,68fc641,4.3+1-e9b8812,touchdown_1080p,120,3.61,2.63,8.97,0.729,2.483,4.19,14.93,1.16,4.132,31.96,113.04,15.36,-11.61,-29.22,-10.35,
-2026-09-11,68fc641,4.3+1-e9b8812,sintel_720p,120,11.73,7.98,29.01,0.68,2.473,8.45,31.98,0.72,2.727,84.47,204.27,38.18,-19.19,-19.13,17.25,
-2026-09-11,68fc641,4.3+1-e9b8812,sita_flat_720p,120,38.6,25.8,79.18,0.668,2.051,24.1,73.64,0.624,1.908,158.09,291.09,81.37,-16.74,-22.83,-12.38,
-2026-09-11,68fc641,4.3+1-e9b8812,sita_toon_720p,120,7.47,8.67,24.42,1.161,3.271,12.25,36.52,1.64,4.891,41.81,156.75,16.41,-16.35,-17.1,-6.32,
-2026-09-11,9c7bd22,4.3+1-e9b8812,akiyo_cif,120,176.02,153.9,502.18,0.874,2.853,162.4,520.14,0.923,2.955,398.58,951.16,625.54,-20.44,-28.46,-18.49,
-2026-09-11,9c7bd22,4.3+1-e9b8812,foreman_cif,120,58.62,53.27,166.85,0.909,2.846,64.83,217.53,1.106,3.711,169.82,509.78,192.45,-23.88,-26.07,-4.2,
-2026-09-11,9c7bd22,4.3+1-e9b8812,mobile_cif,120,32.78,34.5,84.78,1.052,2.586,56.89,163.03,1.735,4.973,104.63,377.2,92.22,-34.39,-40.36,-29.11,
-2026-09-11,9c7bd22,4.3+1-e9b8812,stefan_cif,120,45.7,51.54,133.63,1.128,2.924,72.72,218.88,1.591,4.79,145.98,520.32,120.0,-16.54,-33.39,-14.89,
-2026-09-11,9c7bd22,4.3+1-e9b8812,bus_cif,120,29.52,38.46,102.83,1.303,3.483,47.54,147.61,1.61,5.0,92.95,365.45,69.85,-7.95,-18.93,-0.92,
-2026-09-11,9c7bd22,4.3+1-e9b8812,tempete_cif,120,40.99,39.63,105.56,0.967,2.575,58.51,180.33,1.427,4.4,127.23,433.66,121.54,-32.42,-36.14,-26.52,
-2026-09-11,9c7bd22,4.3+1-e9b8812,coastguard_cif,120,32.76,35.42,97.1,1.081,2.964,46.28,146.32,1.413,4.466,107.28,346.97,94.74,-20.49,-29.72,-15.37,
-2026-09-11,9c7bd22,4.3+1-e9b8812,park_joy_720p,120,2.72,3.77,9.43,1.386,3.465,5.61,16.94,2.061,6.225,19.65,100.68,7.04,-14.74,-44.5,-40.32,
-2026-09-11,9c7bd22,4.3+1-e9b8812,ducks_720p,120,2.66,3.21,8.28,1.209,3.117,4.28,13.49,1.611,5.082,20.29,70.02,8.93,-17.85,-23.27,-6.41,
-2026-09-11,9c7bd22,4.3+1-e9b8812,in_to_tree_720p,120,11.17,5.61,20.41,0.502,1.826,11.72,41.9,1.049,3.75,77.02,256.95,40.6,-37.27,-38.59,-19.48,
-2026-09-11,9c7bd22,4.3+1-e9b8812,crowd_run_1080p,120,1.3,1.8,4.78,1.378,3.664,2.49,7.76,1.906,5.952,12.48,67.18,4.45,-13.87,-21.91,-5.66,
-2026-09-11,9c7bd22,4.3+1-e9b8812,touchdown_1080p,120,3.73,2.67,8.99,0.716,2.412,4.2,14.95,1.126,4.012,33.07,113.94,15.58,-11.61,-29.22,-10.35,
-2026-09-11,9c7bd22,4.3+1-e9b8812,sintel_720p,120,11.74,8.0,28.95,0.681,2.466,8.49,31.93,0.723,2.72,84.62,204.37,38.28,-19.19,-19.13,17.25,
-2026-09-11,9c7bd22,4.3+1-e9b8812,sita_flat_720p,120,40.84,25.79,79.38,0.632,1.944,24.01,73.74,0.588,1.806,167.22,289.32,82.44,-16.74,-22.83,-12.38,
-2026-09-11,9c7bd22,4.3+1-e9b8812,sita_toon_720p,120,7.86,8.68,24.43,1.104,3.107,12.25,36.53,1.558,4.646,44.18,157.82,16.77,-16.35,-17.1,-6.32,
-2026-09-11,358db2f,4.3+1-e9b8812,akiyo_cif,120,238.39,147.98,488.51,0.621,2.049,155.79,505.49,0.654,2.12,518.33,933.85,600.97,-20.5,-29.56,-18.49,
-2026-09-11,358db2f,4.3+1-e9b8812,foreman_cif,120,82.26,52.55,165.17,0.639,2.008,64.21,216.5,0.781,2.632,210.15,491.85,190.74,-20.59,-24.51,-4.2,
-2026-09-11,358db2f,4.3+1-e9b8812,mobile_cif,120,42.25,34.36,84.71,0.813,2.005,56.92,163.63,1.347,3.873,133.43,377.21,90.54,-32.24,-39.14,-29.11,
-2026-09-11,358db2f,4.3+1-e9b8812,stefan_cif,120,58.07,51.71,134.52,0.89,2.316,72.88,220.26,1.255,3.793,178.36,517.03,120.59,-14.34,-29.62,-14.89,
-2026-09-11,358db2f,4.3+1-e9b8812,bus_cif,120,37.38,38.75,103.68,1.037,2.774,47.81,144.13,1.279,3.856,111.06,359.0,70.56,-6.03,-17.83,-0.92,
-2026-09-11,358db2f,4.3+1-e9b8812,tempete_cif,120,53.41,39.43,103.79,0.738,1.943,58.5,179.05,1.095,3.352,164.61,431.58,121.39,-30.53,-34.47,-26.52,
-2026-09-11,358db2f,4.3+1-e9b8812,coastguard_cif,120,40.84,35.76,98.22,0.876,2.405,46.61,146.86,1.142,3.596,124.55,345.91,95.92,-19.64,-28.64,-15.37,
-2026-09-11,358db2f,4.3+1-e9b8812,park_joy_720p,120,3.41,3.88,9.61,1.135,2.816,5.69,17.2,1.668,5.037,23.88,102.56,7.27,-13.6,-44.75,-40.32,
-2026-09-11,358db2f,4.3+1-e9b8812,ducks_720p,120,3.35,3.25,8.67,0.971,2.586,4.42,13.96,1.318,4.164,24.88,84.29,8.97,-17.36,-22.96,-6.41,
-2026-09-11,358db2f,4.3+1-e9b8812,in_to_tree_720p,120,16.35,5.77,20.92,0.353,1.279,11.85,42.23,0.724,2.582,103.33,255.75,41.43,-35.07,-35.99,-19.48,
-2026-09-11,358db2f,4.3+1-e9b8812,crowd_run_1080p,120,1.74,1.82,4.83,1.044,2.776,2.52,7.87,1.448,4.519,16.18,66.98,4.51,-12.42,-20.86,-5.66,
-2026-09-11,358db2f,4.3+1-e9b8812,touchdown_1080p,120,5.35,2.65,9.03,0.496,1.689,4.24,14.66,0.793,2.743,43.19,115.48,15.56,-8.98,-26.88,-10.35,
-2026-09-11,358db2f,4.3+1-e9b8812,sintel_720p,120,15.67,7.87,28.54,0.502,1.822,8.36,31.31,0.534,1.999,100.95,206.52,37.22,-16.17,-16.65,17.25,
-2026-09-11,358db2f,4.3+1-e9b8812,sita_flat_720p,120,47.15,25.81,79.69,0.547,1.69,24.31,73.83,0.516,1.566,180.25,288.0,82.84,-16.2,-22.25,-12.38,
-2026-09-11,358db2f,4.3+1-e9b8812,sita_toon_720p,120,9.52,8.72,24.46,0.916,2.57,12.23,36.64,1.285,3.849,49.61,157.83,16.86,-15.55,-16.49,-6.32,
-2026-09-11,1592a5e,4.3+1-e9b8812,akiyo_cif,120,266.53,148.6,484.19,0.558,1.817,157.13,502.65,0.59,1.886,589.54,937.23,614.37,-17.59,-27.17,-18.42,
-2026-09-11,1592a5e,4.3+1-e9b8812,foreman_cif,120,95.83,52.33,163.82,0.546,1.709,64.05,215.5,0.668,2.249,248.33,501.86,189.44,-17.4,-21.52,-4.17,
-2026-09-11,1592a5e,4.3+1-e9b8812,mobile_cif,120,48.85,34.42,84.67,0.705,1.733,56.79,163.31,1.163,3.343,152.4,375.65,92.31,-29.62,-36.13,-29.1,
-2026-09-11,1592a5e,4.3+1-e9b8812,stefan_cif,120,66.68,51.59,133.86,0.774,2.007,72.91,219.65,1.093,3.294,198.6,520.69,120.96,-11.82,-28.63,-14.89,
-2026-09-11,1592a5e,4.3+1-e9b8812,bus_cif,120,42.55,38.49,103.05,0.905,2.422,47.71,147.69,1.121,3.471,123.82,365.51,70.26,-3.72,-15.37,-0.92,
-2026-09-11,1592a5e,4.3+1-e9b8812,tempete_cif,120,63.96,39.78,106.16,0.622,1.66,58.77,181.14,0.919,2.832,192.17,433.33,122.71,-28.33,-32.97,-26.51,
-2026-09-11,1592a5e,4.3+1-e9b8812,coastguard_cif,120,50.23,35.59,97.78,0.709,1.947,46.56,147.17,0.927,2.93,150.36,347.59,96.55,-18.54,-27.6,-15.36,
-2026-09-11,1592a5e,4.3+1-e9b8812,park_joy_720p,120,3.93,3.85,9.58,0.981,2.438,5.66,17.12,1.441,4.357,27.05,102.42,7.25,-12.54,-44.29,-40.32,
-2026-09-11,1592a5e,4.3+1-e9b8812,ducks_720p,120,4.3,3.23,8.62,0.752,2.005,4.39,13.92,1.021,3.239,31.01,84.01,8.93,-17.04,-22.61,-6.41,
-2026-09-11,1592a5e,4.3+1-e9b8812,in_to_tree_720p,120,18.2,5.74,20.82,0.315,1.144,11.76,42.01,0.646,2.308,118.3,261.91,41.13,-33.42,-35.31,-19.47,
-2026-09-11,1592a5e,4.3+1-e9b8812,crowd_run_1080p,120,2.15,1.81,4.8,0.839,2.23,2.5,7.83,1.161,3.638,20.31,68.23,4.48,-10.7,-19.58,-5.66,
-2026-09-11,1592a5e,4.3+1-e9b8812,touchdown_1080p,120,6.49,2.64,9.0,0.406,1.387,4.21,15.04,0.649,2.317,53.45,115.82,15.36,-7.43,-25.6,-10.35,
-2026-09-11,1592a5e,4.3+1-e9b8812,sintel_720p,120,14.35,7.89,28.72,0.55,2.002,8.36,31.55,0.583,2.199,99.34,205.27,22.55,-19.07,-20.62,11.17,
-2026-09-11,1592a5e,4.3+1-e9b8812,sita_flat_720p,120,28.61,25.91,79.71,0.906,2.786,24.3,74.08,0.85,2.59,136.07,289.16,35.92,-13.39,-19.3,-12.44,
-2026-09-11,1592a5e,4.3+1-e9b8812,sita_toon_720p,120,8.62,8.74,24.63,1.014,2.856,12.33,36.78,1.43,4.264,50.01,157.68,12.34,-16.59,-18.71,-7.93,
-2026-09-11,7bbaed2,4.3+1-e9b8812,akiyo_cif,120,267.53,149.16,485.19,0.558,1.814,156.88,503.91,0.586,1.884,591.07,945.66,613.54,-17.59,-27.17,-18.42,
-2026-09-11,7bbaed2,4.3+1-e9b8812,foreman_cif,120,95.48,52.24,163.24,0.547,1.71,63.88,215.06,0.669,2.253,248.78,506.77,189.7,-17.4,-21.52,-4.17,
-2026-09-11,7bbaed2,4.3+1-e9b8812,mobile_cif,120,48.6,34.37,84.56,0.707,1.74,56.58,161.94,1.164,3.332,152.31,377.64,91.86,-29.62,-36.13,-29.1,
-2026-09-11,7bbaed2,4.3+1-e9b8812,stefan_cif,120,66.42,51.37,133.12,0.773,2.004,72.53,218.08,1.092,3.283,198.03,517.84,119.72,-11.82,-28.63,-14.89,
-2026-09-11,7bbaed2,4.3+1-e9b8812,bus_cif,120,42.58,38.5,103.07,0.904,2.42,47.7,147.07,1.12,3.454,123.34,365.61,70.15,-3.72,-15.37,-0.92,
-2026-09-11,7bbaed2,4.3+1-e9b8812,tempete_cif,120,63.73,39.76,105.69,0.624,1.658,58.75,180.43,0.922,2.831,191.81,434.07,122.39,-28.33,-32.97,-26.51,
-2026-09-11,7bbaed2,4.3+1-e9b8812,coastguard_cif,120,50.05,35.64,97.48,0.712,1.948,46.5,146.73,0.929,2.932,149.77,347.4,95.68,-18.54,-27.6,-15.36,
-2026-09-11,7bbaed2,4.3+1-e9b8812,park_joy_720p,120,3.95,3.85,9.56,0.975,2.421,5.65,17.12,1.431,4.336,27.19,101.88,7.23,-12.54,-44.29,-40.32,
-2026-09-11,7bbaed2,4.3+1-e9b8812,ducks_720p,120,4.29,3.22,8.58,0.752,2.0,4.38,13.9,1.021,3.239,30.79,82.82,8.9,-17.04,-22.61,-6.41,
-2026-09-11,7bbaed2,4.3+1-e9b8812,in_to_tree_720p,120,18.13,5.72,20.1,0.315,1.109,11.64,41.43,0.642,2.285,118.18,253.76,41.05,-33.42,-35.31,-19.47,
-2026-09-11,7bbaed2,4.3+1-e9b8812,crowd_run_1080p,120,2.14,1.8,4.77,0.84,2.23,2.47,7.7,1.155,3.598,19.92,66.98,4.45,-10.7,-19.58,-5.66,
-2026-09-11,7bbaed2,4.3+1-e9b8812,touchdown_1080p,120,6.44,2.57,8.83,0.4,1.372,4.15,14.83,0.644,2.304,52.24,115.3,15.06,-7.43,-25.6,-10.35,
-2026-09-11,7bbaed2,4.3+1-e9b8812,sintel_720p,120,17.75,7.76,28.4,0.437,1.6,8.29,31.46,0.467,1.772,118.39,208.05,36.07,-19.07,-20.62,11.17,
-2026-09-11,7bbaed2,4.3+1-e9b8812,sita_flat_720p,120,45.35,25.06,78.67,0.553,1.735,23.55,72.81,0.519,1.605,188.41,283.32,71.91,-13.39,-19.3,-12.44,
-2026-09-11,7bbaed2,4.3+1-e9b8812,sita_toon_720p,120,10.13,8.62,24.25,0.851,2.394,12.13,36.5,1.197,3.603,54.8,157.04,16.15,-16.59,-18.71,-7.93,
-2026-09-11,ff29576,4.3+1-e9b8812,akiyo_cif,120,288.39,149.4,488.84,0.518,1.695,157.42,505.8,0.546,1.754,678.89,948.19,614.7,-15.84,-25.62,-18.42,
-2026-09-11,ff29576,4.3+1-e9b8812,foreman_cif,120,114.64,52.42,164.6,0.457,1.436,63.89,214.52,0.557,1.871,306.81,505.93,189.21,-13.02,-17.67,-4.17,
-2026-09-11,ff29576,4.3+1-e9b8812,mobile_cif,120,59.87,34.05,84.83,0.569,1.417,56.73,163.97,0.948,2.739,188.28,376.92,91.41,-27.59,-34.15,-29.1,
-2026-09-11,ff29576,4.3+1-e9b8812,stefan_cif,120,81.37,51.65,134.36,0.635,1.651,72.91,219.78,0.896,2.701,239.08,522.55,120.79,-7.74,-24.55,-14.89,
-2026-09-11,ff29576,4.3+1-e9b8812,bus_cif,120,51.18,38.56,103.22,0.753,2.017,47.8,146.88,0.934,2.87,146.19,365.18,70.67,-0.71,-11.87,-0.92,
-2026-09-11,ff29576,4.3+1-e9b8812,tempete_cif,120,78.8,39.86,106.11,0.506,1.347,58.71,181.28,0.745,2.301,239.08,433.41,121.89,-26.84,-31.22,-26.51,
-2026-09-11,ff29576,4.3+1-e9b8812,coastguard_cif,120,63.87,35.62,98.14,0.558,1.536,46.61,148.12,0.73,2.319,189.79,347.78,96.32,-17.7,-27.43,-15.36,
-2026-09-11,ff29576,4.3+1-e9b8812,park_joy_720p,120,4.81,3.87,9.57,0.805,1.989,5.67,17.16,1.179,3.568,33.2,102.78,7.28,-11.1,-43.5,-40.32,
-2026-09-11,ff29576,4.3+1-e9b8812,ducks_720p,120,5.51,3.23,8.6,0.586,1.56,4.39,13.93,0.796,2.528,39.43,84.02,8.91,-16.32,-21.89,-6.41,
-2026-09-11,ff29576,4.3+1-e9b8812,in_to_tree_720p,120,20.27,5.74,20.84,0.283,1.028,11.77,42.0,0.581,2.072,137.83,254.1,41.15,-31.84,-33.07,-19.47,
-2026-09-11,ff29576,4.3+1-e9b8812,crowd_run_1080p,120,2.84,1.81,4.81,0.635,1.691,2.5,7.82,0.879,2.751,27.02,68.01,4.48,-8.34,-17.38,-5.66,
-2026-09-11,ff29576,4.3+1-e9b8812,touchdown_1080p,120,7.8,2.63,9.01,0.338,1.156,4.21,15.03,0.54,1.928,66.89,114.2,15.4,-5.18,-23.77,-10.35,
-2026-09-11,ff29576,4.3+1-e9b8812,sintel_720p,120,18.26,7.89,28.74,0.432,1.574,8.38,31.68,0.459,1.734,118.95,208.67,36.8,-19.07,-20.62,11.17,
-2026-09-11,ff29576,4.3+1-e9b8812,sita_flat_720p,120,47.53,25.99,79.44,0.547,1.671,24.26,74.22,0.51,1.562,187.94,288.21,73.41,-13.39,-19.3,-12.44,
-2026-09-11,ff29576,4.3+1-e9b8812,sita_toon_720p,120,10.39,8.74,24.65,0.842,2.373,12.33,36.77,1.187,3.54,54.91,158.39,16.47,-16.59,-18.71,-7.93,
-2026-09-11,d59e23f,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,,,,-15.84,-25.62,-18.42,
-2026-09-11,d59e23f,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,,,,-13.02,-17.67,-4.17,
-2026-09-11,d59e23f,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,,,,-27.59,-34.15,-29.1,
-2026-09-11,d59e23f,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,,,,-7.74,-24.55,-14.89,
-2026-09-11,d59e23f,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,,,,-0.71,-11.87,-0.92,
-2026-09-11,d59e23f,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,,,,-26.84,-31.22,-26.51,
-2026-09-11,d59e23f,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,,,,-17.7,-27.43,-15.36,
-2026-09-11,d59e23f,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,,,,-11.1,-43.5,-40.32,
-2026-09-11,d59e23f,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,,,,-16.32,-21.89,-6.41,
-2026-09-11,d59e23f,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,,,,-31.84,-33.07,-19.47,
-2026-09-11,d59e23f,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,,,,-8.34,-17.38,-5.66,
-2026-09-11,d59e23f,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,,,,-5.18,-23.77,-10.35,
-2026-09-11,d59e23f,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,,,,-19.07,-20.62,11.17,
-2026-09-11,d59e23f,4.3+1-e9b8812,sita_flat_720p,120,,,,,,,,,,,,,-13.39,-19.3,-12.44,
-2026-09-11,d59e23f,4.3+1-e9b8812,sita_toon_720p,120,,,,,,,,,,,,,-16.59,-18.71,-7.93,
-2026-09-11,50fa1a8,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,,,,-15.84,-25.62,-18.42,
-2026-09-11,50fa1a8,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,,,,-13.02,-17.67,-4.17,
-2026-09-11,50fa1a8,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,,,,-27.59,-34.15,-29.1,
-2026-09-11,50fa1a8,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,,,,-7.74,-24.55,-14.89,
-2026-09-11,50fa1a8,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,,,,-0.71,-11.87,-0.92,
-2026-09-11,50fa1a8,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,,,,-26.84,-31.22,-26.51,
-2026-09-11,50fa1a8,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,,,,-17.7,-27.43,-15.36,
-2026-09-11,50fa1a8,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,,,,-11.1,-43.5,-40.32,
-2026-09-11,50fa1a8,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,,,,-16.32,-21.89,-6.41,
-2026-09-11,50fa1a8,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,,,,-31.84,-33.07,-19.47,
-2026-09-11,50fa1a8,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,,,,-8.34,-17.38,-5.66,
-2026-09-11,50fa1a8,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,,,,-5.18,-23.77,-10.35,
-2026-09-11,50fa1a8,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,,,,-19.07,-20.62,11.17,
-2026-09-11,50fa1a8,4.3+1-e9b8812,sita_flat_720p,120,,,,,,,,,,,,,-13.39,-19.3,-12.44,
-2026-09-11,50fa1a8,4.3+1-e9b8812,sita_toon_720p,120,,,,,,,,,,,,,-16.59,-18.71,-7.93,
+date,commit,x265,clip,frames,our_fps,x265m_noasm_fps,x265m_asm_fps,mult_matched_g1,mult_matched_g3,x265med_noasm_fps,x265med_asm_fps,mult_medium_g1,mult_medium_g3,our_fps_auto,x265med_asm_fps_auto,our_fps_fast,bd_rate_psnr_pct,bd_rate_vmafneg_pct,bd_rate_vmafneg_fast_pct,note,bd_rate_vmafneg_crf_pct
+2026-08-25,b7e1fd4,4.2+1-e444744,synth_detail_cif,30,40.6,14.42,21.92,0.355,0.54,,,,,,,,65.66,,, all-intra matched basis,
+2026-08-25,b7e1fd4,4.2+1-e444744,synth_smooth_cif,30,69.43,34.17,71.44,0.492,1.029,,,,,,,,-88.08,,, all-intra matched basis,
+2026-08-25,b7e1fd4,4.2+1-e444744,synth_detail_720,10,5.38,1.91,3.3,0.355,0.615,,,,,,,,66.04,,, all-intra matched basis,
+2026-08-25,b7e1fd4,4.2+1-e444744,synth_detail_cif,30,29.45,14.39,21.87,0.489,0.742,,,,,,,,45.08,,, all-intra matched basis,
+2026-08-25,b7e1fd4,4.2+1-e444744,synth_smooth_cif,30,40.39,33.87,70.18,0.839,1.738,,,,,,,,-38.99,,, all-intra matched basis,
+2026-08-25,b7e1fd4,4.2+1-e444744,synth_detail_720,10,4.03,1.9,3.31,0.471,0.821,,,,,,,,51.66,,, all-intra matched basis,
+2026-08-25,cdce0a2,4.2+1-e444744,synth_detail_cif,30,65.74,13.69,20.85,0.208,0.317,,,,,,,,nan,,, all-intra matched basis,
+2026-08-25,cdce0a2,4.2+1-e444744,synth_smooth_cif,30,69.23,32.93,69.35,0.476,1.002,,,,,,,,-78.16,,, all-intra matched basis,
+2026-08-25,cdce0a2,4.2+1-e444744,synth_detail_720,10,8.84,1.83,3.18,0.207,0.359,,,,,,,,nan,,, all-intra matched basis,
+2026-08-25,cdce0a2,4.2+1-e444744,synth_detail_cif,30,68.39,40.05,99.14,0.586,1.45,71.49,190.54,1.045,2.786,,,,nan,,,,
+2026-08-25,cdce0a2,4.2+1-e444744,synth_smooth_cif,30,108.57,191.01,528.92,1.759,4.872,149.35,432.47,1.376,3.984,,,,141.69,,,,
+2026-08-25,cdce0a2,4.2+1-e444744,synth_detail_720,10,9.06,7.32,16.72,0.808,1.846,9.33,23.78,1.03,2.625,,,,nan,,,,
+2026-08-25,cdce0a2,4.2+1-e444744,synth_detail_cif,30,28.96,39.95,98.36,1.379,3.396,71.31,191.04,2.462,6.596,,,,107.51,,,,
+2026-08-25,cdce0a2,4.2+1-e444744,synth_detail_cif,30,28.86,39.4,97.58,1.365,3.381,71.07,189.44,2.463,6.565,,,,107.51,,,,
+2026-08-25,cdce0a2,4.2+1-e444744,synth_detail_cif,30,69.53,36.9,90.46,0.531,1.301,65.9,168.83,0.948,2.428,,,,117.37,,,,
+2026-08-25,5c595c6,4.2+1-e444744,synth_detail_cif,30,23.81,34.63,85.37,1.454,3.586,61.62,164.22,2.588,6.897,,,,66.71,,,,
+2026-08-25,5c595c6,4.2+1-e444744,synth_smooth_cif,30,158.74,156.22,444.9,0.984,2.803,132.86,379.06,0.837,2.388,,,,330.92,,,,
+2026-08-25,5c595c6,4.2+1-e444744,synth_detail_720,10,3.37,6.76,15.04,2.007,4.462,8.68,21.65,2.574,6.423,,,,100.65,,,,
+2026-08-25,5c595c6,4.2+1-e444744,synth_detail_cif,30,53.36,38.59,94.81,0.723,1.777,69.35,185.98,1.3,3.485,,,,66.71,,,,
+2026-08-25,5c595c6,4.2+1-e444744,synth_smooth_cif,30,436.61,211.23,581.38,0.484,1.332,158.66,447.68,0.363,1.025,,,,70.6,,,,
+2026-08-25,5c595c6,4.2+1-e444744,synth_detail_720,10,7.6,7.13,16.36,0.938,2.152,9.22,23.3,1.212,3.064,,,,100.65,,,,
+2026-08-25,221dead,4.2+1-e444744,synth_detail_cif,30,55.26,39.89,97.81,0.722,1.77,71.43,189.72,1.293,3.433,,,,66.71,,,,
+2026-08-25,221dead,4.2+1-e444744,synth_smooth_cif,30,392.14,201.44,559.8,0.514,1.428,152.78,431.07,0.39,1.099,,,,142.79,,,,
+2026-08-25,221dead,4.2+1-e444744,synth_detail_720,10,7.72,7.3,16.5,0.946,2.137,9.3,23.18,1.205,3.002,,,,100.65,,,,
+2026-08-25,d88a9cd,4.2+1-e444744,synth_detail_cif,30,57.62,40.54,99.82,0.704,1.733,72.83,194.61,1.264,3.378,,,,45.52,,,,
+2026-08-25,d88a9cd,4.2+1-e444744,synth_smooth_cif,30,471.76,216.39,594.5,0.459,1.26,161.81,453.49,0.343,0.961,,,,31.75,,,,
+2026-08-25,d88a9cd,4.2+1-e444744,synth_detail_720,10,7.96,7.49,16.98,0.94,2.133,9.57,24.16,1.201,3.035,,,,77.37,,,,
+2026-08-25,b0ac8a5,4.2+1-e444744,synth_detail_cif,30,54.93,40.69,100.02,0.741,1.821,72.64,194.88,1.322,3.548,,,,43.68,,,,
+2026-08-25,b0ac8a5,4.2+1-e444744,synth_smooth_cif,30,382.85,201.7,559.65,0.527,1.462,155.89,435.01,0.407,1.136,,,,169.42,,,,
+2026-08-25,b0ac8a5,4.2+1-e444744,synth_detail_720,10,7.51,7.46,17.01,0.993,2.265,9.54,24.16,1.27,3.218,,,,74.52,,,,
+2026-08-25,b0ac8a5,4.2+1-e444744,synth_detail_cif,30,54.23,40.4,99.59,0.745,1.836,72.39,194.65,1.335,3.589,,,,46.65,,,,
+2026-08-25,b0ac8a5,4.2+1-e444744,synth_smooth_cif,30,433.54,220.68,587.42,0.509,1.355,161.14,453.93,0.372,1.047,,,,81.68,,,,
+2026-08-25,b0ac8a5,4.2+1-e444744,synth_detail_720,10,7.57,7.44,16.98,0.983,2.242,9.48,24.04,1.252,3.175,,,,71.14,,,,
+2026-08-25,b0ac8a5,4.2+1-e444744,synth_detail_cif,30,54.22,39.4,99.91,0.727,1.842,72.43,193.32,1.336,3.565,,,,46.65,,,,
+2026-08-25,b0ac8a5,4.2+1-e444744,synth_smooth_cif,30,142.88,200.2,569.75,1.401,3.988,151.69,441.35,1.062,3.089,,,,387.48,,,,
+2026-08-25,b0ac8a5,4.2+1-e444744,synth_detail_720,10,7.54,7.41,16.91,0.982,2.242,9.47,23.95,1.256,3.175,,,,71.64,,,,
+2026-08-25,88eafc3,4.2+1-e444744,synth_detail_cif,30,55.36,45.63,112.21,0.824,2.027,71.82,194.11,1.297,3.507,,,,83.67,,,,
+2026-08-25,88eafc3,4.2+1-e444744,synth_smooth_cif,30,113.35,203.16,554.73,1.792,4.894,157.72,439.05,1.391,3.873,,,,547.08,,,,
+2026-08-25,88eafc3,4.2+1-e444744,synth_detail_720,10,7.29,7.56,16.47,1.036,2.259,9.02,22.89,1.237,3.139,,,,84.38,,,,
+2026-08-25,57d607d,4.2+1-e444744,synth_detail_cif,30,50.79,43.07,105.8,0.848,2.083,68.11,183.59,1.341,3.615,,,,75.61,,,,
+2026-08-25,57d607d,4.2+1-e444744,synth_smooth_cif,30,312.65,163.91,476.89,0.524,1.525,143.18,412.57,0.458,1.32,,,,-7.25,,,,
+2026-08-25,57d607d,4.2+1-e444744,synth_detail_720,10,7.09,7.55,16.52,1.064,2.329,9.07,22.81,1.279,3.216,,,,76.0,,,,
+2026-08-25,57d607d,4.2+1-e444744,synth_detail_cif,30,50.73,43.13,105.98,0.85,2.089,69.38,183.7,1.368,3.621,,,,82.91,,,,
+2026-08-25,57d607d,4.2+1-e444744,synth_smooth_cif,30,122.51,195.96,544.46,1.6,4.444,154.52,427.77,1.261,3.492,,,,448.8,,,,
+2026-08-25,57d607d,4.2+1-e444744,synth_detail_720,10,7.02,7.52,16.48,1.072,2.35,9.07,22.89,1.293,3.263,,,,75.33,,,,
+2026-08-25,57d607d,4.2+1-e444744,synth_detail_cif,30,49.63,42.82,105.99,0.863,2.136,68.7,182.73,1.384,3.682,,,,85.56,,,,
+2026-08-25,57d607d,4.2+1-e444744,synth_detail_cif,30,52.73,43.14,106.19,0.818,2.014,68.87,183.69,1.306,3.483,,,,83.69,,,,
+2026-08-25,57d607d,4.2+1-e444744,synth_detail_cif,30,50.05,42.63,105.01,0.852,2.098,68.9,181.12,1.377,3.619,,,,81.44,,,,
+2026-08-25,57d607d,4.2+1-e444744,synth_detail_cif,30,51.28,42.97,105.94,0.838,2.066,68.9,183.41,1.344,3.576,,,,73.37,,,,
+2026-08-25,da8ab3b,4.2+1-e444744,synth_detail_cif,30,52.15,43.33,106.22,0.831,2.037,69.13,184.06,1.326,3.529,,,,73.37,,,,
+2026-08-25,da8ab3b,4.2+1-e444744,synth_smooth_cif,30,104.68,182.33,507.92,1.742,4.852,134.09,270.44,1.281,2.583,,,,563.7,,,,
+2026-08-25,da8ab3b,4.2+1-e444744,synth_detail_720,10,7.57,7.57,16.42,1.0,2.17,9.11,22.4,1.204,2.961,,,,72.11,,,,
+2026-08-25,da8ab3b,4.2+1-e444744,synth_detail_cif,30,40.1,43.11,105.19,1.075,2.623,68.89,184.12,1.718,4.591,,,,36.73,,,,
+2026-08-25,2183038,4.2+1-e444744,synth_detail_cif,30,38.95,44.09,108.28,1.132,2.78,70.14,186.62,1.801,4.791,,,,36.73,,,,
+2026-08-25,2183038,4.2+1-e444744,synth_smooth_cif,30,99.35,191.58,535.04,1.928,5.385,155.33,434.86,1.563,4.377,,,,143.67,,,,
+2026-08-25,2183038,4.2+1-e444744,synth_detail_720,10,5.58,7.73,16.96,1.386,3.039,9.26,23.47,1.66,4.207,,,,57.99,,,,
+2026-08-25,2183038,4.2+1-e444744,synth_detail_cif,30,20.38,42.79,105.32,2.1,5.167,67.65,177.42,3.319,8.705,,,,-0.39,,,,
+2026-08-25,2183038,4.2+1-e444744,synth_detail_cif,30,20.4,44.35,108.51,2.174,5.319,69.87,186.87,3.425,9.161,,,,-0.39,,,,
+2026-08-25,2183038,4.2+1-e444744,synth_smooth_cif,30,149.88,194.47,559.35,1.298,3.732,153.99,436.86,1.027,2.915,,,,-34.49,,,,
+2026-08-25,2183038,4.2+1-e444744,synth_detail_720,10,3.21,7.72,17.01,2.408,5.306,9.3,23.52,2.9,7.339,,,,12.99,,,,
+2026-08-25,1437a9e,4.2+1-e444744,synth_detail_cif,30,21.49,44.45,110.46,2.068,5.139,71.35,189.39,3.319,8.811,,,,-0.39,,,,
+2026-08-25,1437a9e,4.2+1-e444744,synth_detail_cif,30,29.0,45.61,111.48,1.573,3.845,68.97,189.85,2.379,6.547,,,,1.93,,,,
+2026-08-25,1437a9e,4.2+1-e444744,synth_detail_cif,30,21.6,45.45,110.87,2.104,5.132,71.63,191.93,3.316,8.884,,,,0.67,,,,
+2026-08-25,1437a9e,4.2+1-e444744,synth_detail_cif,30,28.81,45.23,111.29,1.57,3.863,71.54,192.05,2.483,6.666,,,,1.93,,,,
+2026-08-25,1437a9e,4.2+1-e444744,synth_detail_cif,30,28.85,44.92,110.7,1.557,3.838,71.34,191.05,2.473,6.623,,,,1.72,,,,
+2026-08-25,aa835e9,4.2+1-e444744,synth_detail_cif,30,27.62,45.37,111.46,1.642,4.035,71.84,192.23,2.601,6.959,,,,-5.38,,,,
+2026-08-25,3a1dcc0,4.2+1-e444744,synth_detail_cif,30,26.59,43.31,108.01,1.629,4.063,69.85,186.5,2.627,7.015,,,,-5.38,,,,
+2026-08-25,3a1dcc0,4.2+1-e444744,synth_smooth_cif,30,247.83,211.31,591.91,0.853,2.388,158.75,442.96,0.641,1.787,,,,18.85,,,,
+2026-08-25,3a1dcc0,4.2+1-e444744,synth_detail_720,10,4.71,7.67,16.89,1.629,3.587,9.2,23.25,1.955,4.938,,,,10.91,,,,
+2026-08-25,3a1dcc0,4.2+1-e444744,synth_detail_cif,30,27.49,45.18,111.38,1.643,4.051,71.81,191.87,2.612,6.978,,,,-5.38,,,,
+2026-08-25,855c9bd,4.2+1-e444744,synth_detail_cif,30,27.47,45.19,110.82,1.645,4.034,71.72,191.64,2.611,6.976,,,,-5.38,,,,
+2026-08-25,855c9bd,4.2+1-e444744,synth_smooth_cif,30,227.65,193.81,547.37,0.851,2.404,146.7,434.68,0.644,1.909,,,,0.35,,,,
+2026-08-25,855c9bd,4.2+1-e444744,synth_detail_720,10,4.77,7.85,17.33,1.646,3.634,9.43,23.95,1.977,5.021,,,,10.91,,,,
+2026-08-25,855c9bd,4.2+1-e444744,synth_detail_cif,30,15.92,45.81,112.15,2.877,7.043,72.21,194.1,4.535,12.19,,,,-4.93,,,,
+2026-08-25,855c9bd,4.2+1-e444744,synth_detail_cif,30,25.47,45.74,112.18,1.796,4.404,72.22,193.26,2.835,7.588,,,,-5.2,,,,
+2026-08-25,e9e5b70,4.2+1-e444744,synth_detail_cif,30,24.91,44.73,110.1,1.796,4.42,70.81,189.32,2.842,7.6,,,,-5.2,,,,
+2026-08-25,e9e5b70,4.2+1-e444744,synth_smooth_cif,30,92.74,190.15,527.18,2.05,5.684,150.72,428.87,1.625,4.624,,,,-0.44,,,,
+2026-08-25,e9e5b70,4.2+1-e444744,synth_detail_720,10,4.09,7.76,17.06,1.897,4.169,9.3,23.54,2.272,5.753,,,,8.86,,,,
+2026-08-25,a0476e4,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,71.58,,,"first real-corpus BD rows (timing deferred, machine loaded)",
+2026-08-25,a0476e4,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,48.91,,,"first real-corpus BD rows (timing deferred, machine loaded)",
+2026-08-25,a0476e4,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,39.86,,,"first real-corpus BD rows (timing deferred, machine loaded)",
+2026-08-25,a0476e4,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,37.15,,,"first real-corpus BD rows (timing deferred, machine loaded)",
+2026-08-25,a0476e4,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,49.75,,,"first real-corpus BD rows (timing deferred, machine loaded)",
+2026-08-25,a0476e4,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,37.83,,,"first real-corpus BD rows (timing deferred, machine loaded)",
+2026-08-25,a0476e4,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,40.28,,,"first real-corpus BD rows (timing deferred, machine loaded)",
+2026-08-25,a0476e4,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,18.9,,,SAO lambda RD decision (was flat -64 bias),
+2026-08-25,a0476e4,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,28.28,,,SAO lambda RD decision (was flat -64 bias),
+2026-08-25,a0476e4,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,28.84,,,SAO lambda RD decision (was flat -64 bias),
+2026-08-25,a0476e4,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,25.33,,,SAO lambda RD decision (was flat -64 bias),
+2026-08-25,a0476e4,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,44.68,,,SAO lambda RD decision (was flat -64 bias),
+2026-08-25,a0476e4,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,24.26,,,SAO lambda RD decision (was flat -64 bias),
+2026-08-25,a0476e4,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,36.97,,,SAO lambda RD decision (was flat -64 bias),
+2026-08-25,96cad82,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,18.48,,,MV rate cost in motion search,
+2026-08-25,96cad82,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,30.65,,,MV rate cost in motion search,
+2026-08-25,96cad82,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,28.68,,,MV rate cost in motion search,
+2026-08-25,96cad82,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,26.28,,,MV rate cost in motion search,
+2026-08-25,96cad82,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,45.72,,,MV rate cost in motion search,
+2026-08-25,96cad82,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,24.53,,,MV rate cost in motion search,
+2026-08-25,96cad82,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,37.14,,,MV rate cost in motion search,
+2026-08-25,96cad82,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,8.58,,,I-3 frame QP (retry on real corpus),
+2026-08-25,96cad82,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,26.8,,,I-3 frame QP (retry on real corpus),
+2026-08-25,96cad82,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,27.25,,,I-3 frame QP (retry on real corpus),
+2026-08-25,96cad82,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,26.7,,,I-3 frame QP (retry on real corpus),
+2026-08-25,96cad82,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,43.78,,,I-3 frame QP (retry on real corpus),
+2026-08-25,96cad82,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,22.5,,,I-3 frame QP (retry on real corpus),
+2026-08-25,96cad82,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,35.46,,,I-3 frame QP (retry on real corpus),
+2026-08-25,96cad82,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,8.03,,,"I-3 ladder kept, MV-search rate cost reverted",
+2026-08-25,96cad82,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,24.46,,,"I-3 ladder kept, MV-search rate cost reverted",
+2026-08-25,96cad82,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,27.32,,,"I-3 ladder kept, MV-search rate cost reverted",
+2026-08-25,96cad82,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,24.82,,,"I-3 ladder kept, MV-search rate cost reverted",
+2026-08-25,96cad82,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,41.76,,,"I-3 ladder kept, MV-search rate cost reverted",
+2026-08-25,96cad82,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,22.33,,,"I-3 ladder kept, MV-search rate cost reverted",
+2026-08-25,96cad82,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,35.48,,,"I-3 ladder kept, MV-search rate cost reverted",
+2026-08-25,988705f,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,7.53,,,default CTU 64 (matches x265),
+2026-08-25,988705f,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,23.77,,,default CTU 64 (matches x265),
+2026-08-25,988705f,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,26.68,,,default CTU 64 (matches x265),
+2026-08-25,988705f,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,24.02,,,default CTU 64 (matches x265),
+2026-08-25,988705f,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,41.54,,,default CTU 64 (matches x265),
+2026-08-25,988705f,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,21.75,,,default CTU 64 (matches x265),
+2026-08-25,988705f,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,33.94,,,default CTU 64 (matches x265),
+2026-08-25,ac231ff,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,6.2,,,SATD subpel refinement,
+2026-08-25,ac231ff,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,21.8,,,SATD subpel refinement,
+2026-08-25,ac231ff,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,26.46,,,SATD subpel refinement,
+2026-08-25,ac231ff,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,23.44,,,SATD subpel refinement,
+2026-08-25,ac231ff,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,39.47,,,SATD subpel refinement,
+2026-08-25,ac231ff,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,20.91,,,SATD subpel refinement,
+2026-08-25,ac231ff,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,33.36,,,SATD subpel refinement,
+2026-08-25,3e57b8b,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,0.49,,,MaxNumMergeCand 2,
+2026-08-25,3e57b8b,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,13.29,,,MaxNumMergeCand 2,
+2026-08-25,3e57b8b,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,20.32,,,MaxNumMergeCand 2,
+2026-08-25,3e57b8b,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,20.44,,,MaxNumMergeCand 2,
+2026-08-25,3e57b8b,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,35.53,,,MaxNumMergeCand 2,
+2026-08-25,3e57b8b,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,12.16,,,MaxNumMergeCand 2,
+2026-08-25,3e57b8b,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,27.67,,,MaxNumMergeCand 2,
+2026-08-25,69a8ed4,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,0.35,,,MaxNumMergeCand 3,
+2026-08-25,69a8ed4,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,12.47,,,MaxNumMergeCand 3,
+2026-08-25,69a8ed4,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,19.96,,,MaxNumMergeCand 3,
+2026-08-25,69a8ed4,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,20.34,,,MaxNumMergeCand 3,
+2026-08-25,69a8ed4,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,34.9,,,MaxNumMergeCand 3,
+2026-08-25,69a8ed4,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,11.92,,,MaxNumMergeCand 3,
+2026-08-25,69a8ed4,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,25.35,,,MaxNumMergeCand 3,
+2026-08-25,69a8ed4,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,0.82,,,MaxNumMergeCand 4 probe,
+2026-08-25,69a8ed4,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,12.25,,,MaxNumMergeCand 4 probe,
+2026-08-25,69a8ed4,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,20.21,,,MaxNumMergeCand 4 probe,
+2026-08-25,69a8ed4,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,20.39,,,MaxNumMergeCand 4 probe,
+2026-08-25,69a8ed4,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,35.59,,,MaxNumMergeCand 4 probe,
+2026-08-25,69a8ed4,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,12.26,,,MaxNumMergeCand 4 probe,
+2026-08-25,69a8ed4,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,25.08,,,MaxNumMergeCand 4 probe,
+2026-08-25,69a8ed4,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,0.82,,,MaxNumMergeCand 4 (combined-bi fixed),
+2026-08-25,69a8ed4,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,12.25,,,MaxNumMergeCand 4 (combined-bi fixed),
+2026-08-25,69a8ed4,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,20.21,,,MaxNumMergeCand 4 (combined-bi fixed),
+2026-08-25,69a8ed4,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,20.39,,,MaxNumMergeCand 4 (combined-bi fixed),
+2026-08-25,69a8ed4,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,35.59,,,MaxNumMergeCand 4 (combined-bi fixed),
+2026-08-25,69a8ed4,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,12.27,,,MaxNumMergeCand 4 (combined-bi fixed),
+2026-08-25,69a8ed4,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,25.07,,,MaxNumMergeCand 4 (combined-bi fixed),
+2026-08-25,69a8ed4,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,0.35,,,MaxNumMergeCand 3 (combined-bi fixed),
+2026-08-25,69a8ed4,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,12.47,,,MaxNumMergeCand 3 (combined-bi fixed),
+2026-08-25,69a8ed4,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,19.96,,,MaxNumMergeCand 3 (combined-bi fixed),
+2026-08-25,69a8ed4,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,20.34,,,MaxNumMergeCand 3 (combined-bi fixed),
+2026-08-25,69a8ed4,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,34.9,,,MaxNumMergeCand 3 (combined-bi fixed),
+2026-08-25,69a8ed4,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,11.92,,,MaxNumMergeCand 3 (combined-bi fixed),
+2026-08-25,69a8ed4,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,25.35,,,MaxNumMergeCand 3 (combined-bi fixed),
+2026-08-25,eaa16a0,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,-1.16,,,"B-slice AMVP: L1 + bi-pred ME candidates, spec AMVP scaling",
+2026-08-25,eaa16a0,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,0.97,,,"B-slice AMVP: L1 + bi-pred ME candidates, spec AMVP scaling",
+2026-08-25,eaa16a0,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,2.65,,,"B-slice AMVP: L1 + bi-pred ME candidates, spec AMVP scaling",
+2026-08-25,eaa16a0,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,5.86,,,"B-slice AMVP: L1 + bi-pred ME candidates, spec AMVP scaling",
+2026-08-25,eaa16a0,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,17.4,,,"B-slice AMVP: L1 + bi-pred ME candidates, spec AMVP scaling",
+2026-08-25,eaa16a0,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,3.6,,,"B-slice AMVP: L1 + bi-pred ME candidates, spec AMVP scaling",
+2026-08-25,eaa16a0,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,5.12,,,"B-slice AMVP: L1 + bi-pred ME candidates, spec AMVP scaling",
+2026-08-25,807974d,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,-1.12,,,TMVP (merge + AMVP temporal candidates),
+2026-08-25,807974d,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,0.07,,,TMVP (merge + AMVP temporal candidates),
+2026-08-25,807974d,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,0.6,,,TMVP (merge + AMVP temporal candidates),
+2026-08-25,807974d,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,3.92,,,TMVP (merge + AMVP temporal candidates),
+2026-08-25,807974d,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,4.09,,,TMVP (merge + AMVP temporal candidates),
+2026-08-25,807974d,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,2.19,,,TMVP (merge + AMVP temporal candidates),
+2026-08-25,807974d,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,4.43,,,TMVP (merge + AMVP temporal candidates),
+2026-08-25,86883b2,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,-1.67,,,SAO merge left/up,
+2026-08-25,86883b2,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,0.02,,,SAO merge left/up,
+2026-08-25,86883b2,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,0.53,,,SAO merge left/up,
+2026-08-25,86883b2,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,3.53,,,SAO merge left/up,
+2026-08-25,86883b2,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,4.09,,,SAO merge left/up,
+2026-08-25,86883b2,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,1.8,,,SAO merge left/up,
+2026-08-25,86883b2,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,3.95,,,SAO merge left/up,
+2026-08-25,829d0db,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,-3.75,,,CB64 RD skip arm,
+2026-08-25,829d0db,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,-0.46,,,CB64 RD skip arm,
+2026-08-25,829d0db,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,0.5,,,CB64 RD skip arm,
+2026-08-25,829d0db,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,3.48,,,CB64 RD skip arm,
+2026-08-25,829d0db,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,3.55,,,CB64 RD skip arm,
+2026-08-25,829d0db,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,1.77,,,CB64 RD skip arm,
+2026-08-25,829d0db,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,3.93,,,CB64 RD skip arm,
+2026-08-25,829d0db,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,-3.79,,,CB64 RD skip arm (qt_snap mv overflow fixed),
+2026-08-25,829d0db,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,-0.35,,,CB64 RD skip arm (qt_snap mv overflow fixed),
+2026-08-25,829d0db,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,0.44,,,CB64 RD skip arm (qt_snap mv overflow fixed),
+2026-08-25,829d0db,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,3.49,,,CB64 RD skip arm (qt_snap mv overflow fixed),
+2026-08-25,829d0db,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,3.71,,,CB64 RD skip arm (qt_snap mv overflow fixed),
+2026-08-25,829d0db,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,1.79,,,CB64 RD skip arm (qt_snap mv overflow fixed),
+2026-08-25,829d0db,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,3.8,,,CB64 RD skip arm (qt_snap mv overflow fixed),
+2026-08-25,43136a1,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,-3.79,,,CB64 merge-with-residual arm,
+2026-08-25,43136a1,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,-0.53,,,CB64 merge-with-residual arm,
+2026-08-25,43136a1,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,0.44,,,CB64 merge-with-residual arm,
+2026-08-25,43136a1,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,3.49,,,CB64 merge-with-residual arm,
+2026-08-25,43136a1,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,3.71,,,CB64 merge-with-residual arm,
+2026-08-25,43136a1,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,1.79,,,CB64 merge-with-residual arm,
+2026-08-25,43136a1,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,3.91,,,CB64 merge-with-residual arm,
+2026-08-25,6b6e384,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,-4.81,,,two-round subpel refinement,
+2026-08-25,6b6e384,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,-1.97,,,two-round subpel refinement,
+2026-08-25,6b6e384,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,0.35,,,two-round subpel refinement,
+2026-08-25,6b6e384,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,3.18,,,two-round subpel refinement,
+2026-08-25,6b6e384,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,3.96,,,two-round subpel refinement,
+2026-08-25,6b6e384,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,1.6,,,two-round subpel refinement,
+2026-08-25,6b6e384,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,3.77,,,two-round subpel refinement,
+2026-08-25,66cd894,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,-4.81,,,lowres intra estimate + spike-based scenecut,
+2026-08-25,66cd894,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,-1.97,,,lowres intra estimate + spike-based scenecut,
+2026-08-25,66cd894,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,0.35,,,lowres intra estimate + spike-based scenecut,
+2026-08-25,66cd894,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,3.18,,,lowres intra estimate + spike-based scenecut,
+2026-08-25,66cd894,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,3.96,,,lowres intra estimate + spike-based scenecut,
+2026-08-25,66cd894,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,1.6,,,lowres intra estimate + spike-based scenecut,
+2026-08-25,66cd894,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,3.77,,,lowres intra estimate + spike-based scenecut,
+2026-08-25,66cd894,4.2+1-e444744,park_joy_720p,120,,,,,,,,,,,,,3.79,,,lowres intra estimate + spike-based scenecut,
+2026-08-25,66cd894,4.2+1-e444744,ducks_720p,120,,,,,,,,,,,,,5.7,,,lowres intra estimate + spike-based scenecut,
+2026-08-25,66cd894,4.2+1-e444744,in_to_tree_720p,120,,,,,,,,,,,,,-1.03,,,lowres intra estimate + spike-based scenecut,
+2026-08-25,66cd894,4.2+1-e444744,crowd_run_1080p,120,,,,,,,,,,,,,5.36,,,lowres intra estimate + spike-based scenecut,
+2026-08-25,fb7d92a,4.2+1-e444744,touchdown_1080p,120,,,,,,,,,,,,,2.1,,,lowres intra estimate + spike-based scenecut,
+2026-08-25,fb7d92a,4.2+1-e444744,sintel_720p,120,,,,,,,,,,,,,-1.72,,,lowres intra estimate + spike-based scenecut,
+2026-08-25,2b0d229,4.2+1-e444744,akiyo_cif,120,,,,,,,,,,,,,-3.78,,,lambda factor 0.85 -> 0.68,
+2026-08-25,2b0d229,4.2+1-e444744,foreman_cif,120,,,,,,,,,,,,,-3.65,,,lambda factor 0.85 -> 0.68,
+2026-08-25,2b0d229,4.2+1-e444744,mobile_cif,120,,,,,,,,,,,,,-1.04,,,lambda factor 0.85 -> 0.68,
+2026-08-25,2b0d229,4.2+1-e444744,stefan_cif,120,,,,,,,,,,,,,2.17,,,lambda factor 0.85 -> 0.68,
+2026-08-25,2b0d229,4.2+1-e444744,bus_cif,120,,,,,,,,,,,,,3.12,,,lambda factor 0.85 -> 0.68,
+2026-08-25,2b0d229,4.2+1-e444744,tempete_cif,120,,,,,,,,,,,,,0.11,,,lambda factor 0.85 -> 0.68,
+2026-08-25,2b0d229,4.2+1-e444744,coastguard_cif,120,,,,,,,,,,,,,2.72,,,lambda factor 0.85 -> 0.68,
+2026-08-25,2b0d229,4.2+1-e444744,park_joy_720p,120,,,,,,,,,,,,,3.09,,,lambda factor 0.85 -> 0.68,
+2026-08-25,2b0d229,4.2+1-e444744,ducks_720p,120,,,,,,,,,,,,,4.79,,,lambda factor 0.85 -> 0.68,
+2026-08-25,2b0d229,4.2+1-e444744,in_to_tree_720p,120,,,,,,,,,,,,,-7.38,,,lambda factor 0.85 -> 0.68,
+2026-08-26,2b0d229,4.2+1-e444744,crowd_run_1080p,120,,,,,,,,,,,,,3.99,,,lambda factor 0.85 -> 0.68,
+2026-08-26,2b0d229,4.2+1-e444744,touchdown_1080p,120,,,,,,,,,,,,,0.45,,,lambda factor 0.85 -> 0.68,
+2026-08-26,2b0d229,4.2+1-e444744,sintel_720p,120,,,,,,,,,,,,,-4.02,,,lambda factor 0.85 -> 0.68,
+2026-09-06,24edca2,4.3+1-e9b8812,akiyo_cif,120,36.61,159.06,482.71,4.345,13.185,165.89,528.91,4.531,14.447,,,,-3.78,,,post-rename smoke,
+2026-09-06,f0b4963,4.3+1-e9b8812,akiyo_cif,120,28.86,134.98,407.99,4.677,14.137,140.32,453.76,4.862,15.723,,,,-4.83,,,RDOQ default,
+2026-09-07,f9c046a,4.3+1-e9b8812,akiyo_cif,120,33.09,156.95,478.15,4.742,14.448,161.29,518.62,4.874,15.671,,,,-10.9,,,pyramid+b-adapt default,
+2026-09-07,e354d48,4.3+1-e9b8812,akiyo_cif,120,33.76,158.65,480.13,4.699,14.221,165.82,526.15,4.912,15.584,,,,-10.9,,,3-goal read,
+2026-09-07,e354d48,4.3+1-e9b8812,foreman_cif,120,19.3,59.86,178.7,3.101,9.258,67.27,226.27,3.485,11.722,,,,-9.73,,,3-goal read,
+2026-09-07,e354d48,4.3+1-e9b8812,mobile_cif,120,14.52,37.97,89.42,2.615,6.158,59.12,160.12,4.072,11.028,,,,-16.3,,,3-goal read,
+2026-09-07,e354d48,4.3+1-e9b8812,stefan_cif,120,19.39,52.87,132.29,2.727,6.823,71.66,216.18,3.696,11.15,,,,-3.52,,,3-goal read,
+2026-09-07,e354d48,4.3+1-e9b8812,bus_cif,120,13.36,39.46,101.55,2.955,7.603,46.91,145.46,3.512,10.891,,,,1.07,,,3-goal read,
+2026-09-07,e354d48,4.3+1-e9b8812,tempete_cif,120,15.44,40.95,104.62,2.652,6.774,57.8,178.49,3.742,11.557,,,,-14.81,,,3-goal read,
+2026-09-07,e354d48,4.3+1-e9b8812,coastguard_cif,120,13.91,36.82,98.51,2.647,7.081,45.67,144.99,3.283,10.422,,,,-8.75,,,3-goal read,
+2026-09-07,e354d48,4.3+1-e9b8812,park_joy_720p,120,1.28,3.93,9.28,3.068,7.238,5.52,16.56,4.304,12.911,,,,1.01,,,3-goal read,
+2026-09-07,e354d48,4.3+1-e9b8812,ducks_720p,120,1.3,3.25,8.32,2.508,6.416,4.28,13.47,3.303,10.389,,,,-8.36,,,3-goal read,
+2026-09-07,e354d48,4.3+1-e9b8812,in_to_tree_720p,120,2.58,6.42,21.72,2.489,8.423,11.61,41.15,4.504,15.962,,,,-23.68,,,3-goal read,
+2026-09-07,e354d48,4.3+1-e9b8812,crowd_run_1080p,120,0.64,1.81,4.65,2.829,7.274,2.46,7.89,3.846,12.326,,,,-0.02,,,3-goal read,
+2026-09-07,e354d48,4.3+1-e9b8812,touchdown_1080p,120,1.15,2.8,9.09,2.433,7.907,4.2,15.0,3.65,13.045,,,,-5.7,,,3-goal read,
+2026-09-07,e354d48,4.3+1-e9b8812,sintel_720p,120,2.98,9.6,35.64,3.227,11.98,8.38,31.7,2.818,10.654,,,,-3.74,,,3-goal read,
+2026-09-07,ede0592,4.3+1-e9b8812,akiyo_cif,120,32.55,154.34,471.26,4.742,14.479,160.07,516.2,4.918,15.86,,,,-5.63,,,AQ 0.7 + round-once,
+2026-09-07,ede0592,4.3+1-e9b8812,foreman_cif,120,18.63,54.58,166.5,2.93,8.937,64.63,217.4,3.469,11.669,,,,-8.31,,,AQ 0.7 + round-once,
+2026-09-07,ede0592,4.3+1-e9b8812,mobile_cif,120,13.94,35.12,84.69,2.519,6.076,56.95,163.69,4.086,11.743,,,,-15.51,,,AQ 0.7 + round-once,
+2026-09-07,ede0592,4.3+1-e9b8812,stefan_cif,120,19.69,52.77,133.86,2.68,6.798,73.13,220.45,3.714,11.195,,,,-2.06,,,AQ 0.7 + round-once,
+2026-09-07,ede0592,4.3+1-e9b8812,bus_cif,120,13.75,39.34,102.96,2.862,7.491,47.86,148.1,3.482,10.774,,,,3.21,,,AQ 0.7 + round-once,
+2026-09-07,ede0592,4.3+1-e9b8812,tempete_cif,120,15.86,41.21,107.2,2.598,6.758,59.66,183.6,3.761,11.573,,,,-13.8,,,AQ 0.7 + round-once,
+2026-09-07,ede0592,4.3+1-e9b8812,coastguard_cif,120,14.51,37.26,100.26,2.568,6.912,47.51,150.31,3.275,10.363,,,,-9.81,,,AQ 0.7 + round-once,
+2026-09-07,ede0592,4.3+1-e9b8812,park_joy_720p,120,1.35,3.97,9.56,2.931,7.065,5.67,17.14,4.191,12.665,,,,0.11,,,AQ 0.7 + round-once,
+2026-09-07,ede0592,4.3+1-e9b8812,ducks_720p,120,1.37,3.34,8.74,2.439,6.383,4.44,14.06,3.246,10.273,,,,-10.21,,,AQ 0.7 + round-once,
+2026-09-07,ede0592,4.3+1-e9b8812,in_to_tree_720p,120,2.63,5.93,20.54,2.252,7.8,11.81,42.03,4.484,15.961,,,,-22.2,,,AQ 0.7 + round-once,
+2026-09-07,ede0592,4.3+1-e9b8812,crowd_run_1080p,120,0.65,1.81,4.76,2.766,7.266,2.49,7.75,3.795,11.837,,,,-0.22,,,AQ 0.7 + round-once,
+2026-09-07,ede0592,4.3+1-e9b8812,touchdown_1080p,120,1.15,2.69,8.91,2.342,7.756,4.22,15.06,3.674,13.108,,,,-2.51,,,AQ 0.7 + round-once,
+2026-09-07,ede0592,4.3+1-e9b8812,sintel_720p,120,2.98,8.4,29.34,2.82,9.848,8.3,31.35,2.786,10.521,,,,-15.0,,,AQ 0.7 + round-once,
+2026-09-07,5b64471,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,,,,-8.52,,,rect + AMP inter partitions,
+2026-09-07,5b64471,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,,,,-16.1,,,rect + AMP inter partitions,
+2026-09-07,5b64471,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,,,,-19.45,,,rect + AMP inter partitions,
+2026-09-07,5b64471,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,,,,-8.31,,,rect + AMP inter partitions,
+2026-09-07,5b64471,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,,,,-3.12,,,rect + AMP inter partitions,
+2026-09-07,5b64471,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,,,,-17.16,,,rect + AMP inter partitions,
+2026-09-07,5b64471,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,,,,-11.51,,,rect + AMP inter partitions,
+2026-09-07,5b64471,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,,,,-2.97,,,rect + AMP inter partitions,
+2026-09-07,5b64471,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,,,,-11.16,,,rect + AMP inter partitions,
+2026-09-07,5b64471,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,,,,-24.61,,,rect + AMP inter partitions,
+2026-09-07,5b64471,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,,,,-5.38,,,rect + AMP inter partitions,
+2026-09-07,5b64471,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,,,,-5.4,,,rect + AMP inter partitions,
+2026-09-07,5b64471,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,,,,-17.35,,,rect + AMP inter partitions,
+2026-09-07,21571a8,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,,,,-8.45,,,"B-frame mode decision (bi refine, B intra margin, CB64 AMVP)",
+2026-09-07,21571a8,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,,,,-16.78,,,"B-frame mode decision (bi refine, B intra margin, CB64 AMVP)",
+2026-09-07,21571a8,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,,,,-20.22,,,"B-frame mode decision (bi refine, B intra margin, CB64 AMVP)",
+2026-09-08,21571a8,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,,,,-9.01,,,"B-frame mode decision (bi refine, B intra margin, CB64 AMVP)",
+2026-09-08,21571a8,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,,,,-3.57,,,"B-frame mode decision (bi refine, B intra margin, CB64 AMVP)",
+2026-09-08,21571a8,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,,,,-17.39,,,"B-frame mode decision (bi refine, B intra margin, CB64 AMVP)",
+2026-09-08,21571a8,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,,,,-12.06,,,"B-frame mode decision (bi refine, B intra margin, CB64 AMVP)",
+2026-09-08,21571a8,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,,,,-3.38,,,"B-frame mode decision (bi refine, B intra margin, CB64 AMVP)",
+2026-09-08,21571a8,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,,,,-11.46,,,"B-frame mode decision (bi refine, B intra margin, CB64 AMVP)",
+2026-09-08,21571a8,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,,,,-25.1,,,"B-frame mode decision (bi refine, B intra margin, CB64 AMVP)",
+2026-09-08,21571a8,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,,,,-6.11,,,"B-frame mode decision (bi refine, B intra margin, CB64 AMVP)",
+2026-09-08,21571a8,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,,,,-6.53,,,"B-frame mode decision (bi refine, B intra margin, CB64 AMVP)",
+2026-09-08,21571a8,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,,,,-18.17,,,"B-frame mode decision (bi refine, B intra margin, CB64 AMVP)",
+2026-09-08,09ba8e2,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,,,,-13.63,,,SBH-RD parity fix + RD dct-decimate,
+2026-09-08,09ba8e2,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,,,,-21.17,,,SBH-RD parity fix + RD dct-decimate,
+2026-09-08,09ba8e2,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,,,,-26.39,,,SBH-RD parity fix + RD dct-decimate,
+2026-09-08,09ba8e2,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,,,,-16.21,,,SBH-RD parity fix + RD dct-decimate,
+2026-09-08,09ba8e2,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,,,,-10.92,,,SBH-RD parity fix + RD dct-decimate,
+2026-09-08,09ba8e2,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,,,,-23.65,,,SBH-RD parity fix + RD dct-decimate,
+2026-09-08,09ba8e2,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,,,,-18.93,,,SBH-RD parity fix + RD dct-decimate,
+2026-09-08,09ba8e2,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,,,,-10.99,,,SBH-RD parity fix + RD dct-decimate,
+2026-09-08,09ba8e2,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,,,,-18.28,,,SBH-RD parity fix + RD dct-decimate,
+2026-09-08,09ba8e2,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,,,,-30.44,,,SBH-RD parity fix + RD dct-decimate,
+2026-09-08,09ba8e2,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,,,,-12.95,,,SBH-RD parity fix + RD dct-decimate,
+2026-09-08,09ba8e2,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,,,,-14.04,,,SBH-RD parity fix + RD dct-decimate,
+2026-09-08,09ba8e2,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,,,,-19.71,,,SBH-RD parity fix + RD dct-decimate,
+2026-09-08,5a9370a,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,,,,-13.63,,,phase 3 exit read; gate red on sintel_720p and touchdown_1080p,
+2026-09-08,5a9370a,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,,,,-21.17,,,phase 3 exit read; gate red on sintel_720p and touchdown_1080p,
+2026-09-08,5a9370a,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,,,,-26.39,,,phase 3 exit read; gate red on sintel_720p and touchdown_1080p,
+2026-09-08,5a9370a,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,,,,-16.21,,,phase 3 exit read; gate red on sintel_720p and touchdown_1080p,
+2026-09-08,5a9370a,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,,,,-10.92,,,phase 3 exit read; gate red on sintel_720p and touchdown_1080p,
+2026-09-08,5a9370a,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,,,,-23.65,,,phase 3 exit read; gate red on sintel_720p and touchdown_1080p,
+2026-09-08,5a9370a,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,,,,-18.93,,,phase 3 exit read; gate red on sintel_720p and touchdown_1080p,
+2026-09-08,5a9370a,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,,,,-10.99,,,phase 3 exit read; gate red on sintel_720p and touchdown_1080p,
+2026-09-08,5a9370a,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,,,,-18.28,,,phase 3 exit read; gate red on sintel_720p and touchdown_1080p,
+2026-09-08,5a9370a,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,,,,-30.44,,,phase 3 exit read; gate red on sintel_720p and touchdown_1080p,
+2026-09-08,5a9370a,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,,,,-12.95,,,phase 3 exit read; gate red on sintel_720p and touchdown_1080p,
+2026-09-08,5a9370a,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,,,,-14.04,,,phase 3 exit read; gate red on sintel_720p and touchdown_1080p,
+2026-09-08,5a9370a,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,,,,-19.71,,,phase 3 exit read; gate red on sintel_720p and touchdown_1080p,
+2026-09-09,2eb5c3d,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,,,,-16.04,,,"b-adapt width normalisation + keyint 250 + AQ clamp; touchdown green, sintel still red",
+2026-09-09,2eb5c3d,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,,,,-22.9,,,"b-adapt width normalisation + keyint 250 + AQ clamp; touchdown green, sintel still red",
+2026-09-09,2eb5c3d,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,,,,-28.33,,,"b-adapt width normalisation + keyint 250 + AQ clamp; touchdown green, sintel still red",
+2026-09-09,2eb5c3d,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,,,,-17.34,,,"b-adapt width normalisation + keyint 250 + AQ clamp; touchdown green, sintel still red",
+2026-09-09,2eb5c3d,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,,,,-10.93,,,"b-adapt width normalisation + keyint 250 + AQ clamp; touchdown green, sintel still red",
+2026-09-09,2eb5c3d,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,,,,-25.28,,,"b-adapt width normalisation + keyint 250 + AQ clamp; touchdown green, sintel still red",
+2026-09-09,2eb5c3d,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,,,,-20.2,,,"b-adapt width normalisation + keyint 250 + AQ clamp; touchdown green, sintel still red",
+2026-09-09,2eb5c3d,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,,,,-14.41,,,"b-adapt width normalisation + keyint 250 + AQ clamp; touchdown green, sintel still red",
+2026-09-09,2eb5c3d,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,,,,-18.94,,,"b-adapt width normalisation + keyint 250 + AQ clamp; touchdown green, sintel still red",
+2026-09-09,2eb5c3d,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,,,,-31.93,,,"b-adapt width normalisation + keyint 250 + AQ clamp; touchdown green, sintel still red",
+2026-09-09,2eb5c3d,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,,,,-14.94,,,"b-adapt width normalisation + keyint 250 + AQ clamp; touchdown green, sintel still red",
+2026-09-09,2eb5c3d,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,,,,-18.91,,,"b-adapt width normalisation + keyint 250 + AQ clamp; touchdown green, sintel still red",
+2026-09-09,2eb5c3d,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,,,,-24.03,,,"b-adapt width normalisation + keyint 250 + AQ clamp; touchdown green, sintel still red",
+2026-09-09,df10982,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,,,,-14.18,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base,
+2026-09-09,df10982,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,,,,-19.44,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base,
+2026-09-09,df10982,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,,,,-26.32,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base,
+2026-09-09,df10982,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,,,,-14.48,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base,
+2026-09-09,df10982,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,,,,-8.11,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base,
+2026-09-09,df10982,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,,,,-23.31,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base,
+2026-09-09,df10982,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,,,,-17.31,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base,
+2026-09-09,df10982,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,,,,-13.17,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base,
+2026-09-09,df10982,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,,,,-15.74,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base,
+2026-09-09,df10982,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,,,,-29.67,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base,
+2026-09-09,df10982,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,,,,-11.85,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base,
+2026-09-09,df10982,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,,,,-4.75,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base,
+2026-09-09,df10982,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,,,,-15.93,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base,
+2026-09-09,df10982,4.3+1-e9b8812,sita_flat_720p,120,,,,,,,,,,,,,-14.66,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base,
+2026-09-09,df10982,4.3+1-e9b8812,sita_toon_720p,120,,,,,,,,,,,,,-15.61,,,phase-4 ladder merged (e4bbeb3): economy gates + SAO out of the SPS on the animation base,
+2026-09-09,8dc381c,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,,,,-14.18,-24.1,,"merged standing, VMAF-NEG column",
+2026-09-09,8dc381c,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,,,,-19.44,-23.91,,"merged standing, VMAF-NEG column",
+2026-09-09,8dc381c,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,,,,-26.32,-32.68,,"merged standing, VMAF-NEG column",
+2026-09-09,8dc381c,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,,,,-14.48,-26.18,,"merged standing, VMAF-NEG column",
+2026-09-09,8dc381c,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,,,,-8.11,,,"merged standing, VMAF-NEG column",
+2026-09-09,8dc381c,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,,,,-23.31,-29.35,,"merged standing, VMAF-NEG column",
+2026-09-09,8dc381c,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,,,,-17.31,-26.1,,"merged standing, VMAF-NEG column",
+2026-09-09,8dc381c,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,,,,-13.17,-31.26,,"merged standing, VMAF-NEG column",
+2026-09-09,8dc381c,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,,,,-15.74,-22.3,,"merged standing, VMAF-NEG column",
+2026-09-09,8dc381c,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,,,,-29.67,-33.42,,"merged standing, VMAF-NEG column",
+2026-09-09,8dc381c,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,,,,-11.85,-19.12,,"merged standing, VMAF-NEG column",
+2026-09-09,8dc381c,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,,,,-4.75,-28.98,,"merged standing, VMAF-NEG column",
+2026-09-09,8dc381c,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,,,,-15.93,-13.01,,"merged standing, VMAF-NEG column",
+2026-09-09,8dc381c,4.3+1-e9b8812,sita_flat_720p,120,,,,,,,,,,,,,-14.66,-20.68,,"merged standing, VMAF-NEG column",
+2026-09-09,8dc381c,4.3+1-e9b8812,sita_toon_720p,120,,,,,,,,,,,,,-15.61,-14.74,,"merged standing, VMAF-NEG column",
+2026-09-10,f02a3cf,4.3+1-e9b8812,akiyo_cif,120,42.91,152.17,485.69,3.546,11.319,154.43,490.22,3.599,11.425,73.05,909.4,,-14.3,-24.93,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout",
+2026-09-10,f02a3cf,4.3+1-e9b8812,foreman_cif,120,16.55,52.9,163.87,3.197,9.902,62.82,210.41,3.796,12.714,31.74,485.45,,-19.71,-24.79,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout",
+2026-09-10,f02a3cf,4.3+1-e9b8812,mobile_cif,120,11.21,33.37,81.72,2.977,7.292,54.15,151.86,4.832,13.551,22.95,349.76,,-26.2,-32.62,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout",
+2026-09-10,f02a3cf,4.3+1-e9b8812,stefan_cif,120,15.74,50.97,131.05,3.239,8.328,70.7,211.73,4.493,13.455,28.84,485.75,,-14.3,-28.76,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout",
+2026-09-10,f02a3cf,4.3+1-e9b8812,bus_cif,120,9.95,35.47,102.87,3.565,10.338,46.73,144.86,4.696,14.559,19.35,361.96,,-7.95,,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout",
+2026-09-10,f02a3cf,4.3+1-e9b8812,tempete_cif,120,13.14,40.03,105.94,3.047,8.064,57.78,177.45,4.398,13.507,28.3,428.31,,-23.17,-29.66,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout",
+2026-09-10,f02a3cf,4.3+1-e9b8812,coastguard_cif,120,11.18,35.79,97.52,3.202,8.725,45.57,144.39,4.077,12.919,24.15,343.53,,-17.22,-25.9,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout",
+2026-09-10,f02a3cf,4.3+1-e9b8812,park_joy_720p,120,1.09,3.76,8.1,3.439,7.41,5.43,16.44,4.963,15.041,5.7,101.75,,-13.17,-31.7,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout",
+2026-09-10,f02a3cf,4.3+1-e9b8812,ducks_720p,120,1.02,3.18,8.33,3.115,8.167,4.35,13.9,4.261,13.623,6.02,85.06,,-15.7,-22.27,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout",
+2026-09-10,f02a3cf,4.3+1-e9b8812,in_to_tree_720p,120,2.2,5.86,20.53,2.66,9.311,11.53,40.86,5.228,18.535,15.01,237.58,,-29.72,-33.2,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout",
+2026-09-10,f02a3cf,4.3+1-e9b8812,crowd_run_1080p,120,0.52,1.78,4.67,3.423,8.972,2.43,7.51,4.66,14.426,3.75,63.3,,-11.81,-19.24,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout",
+2026-09-10,f02a3cf,4.3+1-e9b8812,touchdown_1080p,120,1.11,2.65,8.91,2.395,8.063,4.1,14.48,3.711,13.096,7.37,101.6,,-4.99,-29.23,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout",
+2026-09-10,f02a3cf,4.3+1-e9b8812,sintel_720p,120,2.84,7.4,26.97,2.609,9.508,7.51,30.87,2.649,10.883,13.31,197.61,,-16.56,-14.16,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout",
+2026-09-10,f02a3cf,4.3+1-e9b8812,sita_flat_720p,120,14.45,25.46,78.36,1.762,5.423,23.45,72.38,1.623,5.009,45.53,279.03,,-14.05,-20.55,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout",
+2026-09-10,f02a3cf,4.3+1-e9b8812,sita_toon_720p,120,2.51,8.96,24.39,3.57,9.719,11.9,35.4,4.744,14.109,9.44,147.41,,-15.6,-14.91,,"merged threading ladder + the right-edge MC fix; timed leg at --threads 1, goal-2 columns at auto; box otherwise quiet but a sibling worktree held ~2 cores throughout",
+2026-09-10,a9ee9a2,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,,,,-14.3,-24.93,,,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,,,,-19.71,-24.79,,,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,,,,-26.2,-32.62,,,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,,,,-14.3,-28.76,,,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,,,,-7.95,,,,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,,,,-23.17,-29.66,,,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,,,,-17.22,-25.9,,,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,,,,-13.17,-31.7,,,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,,,,-15.7,-22.27,,,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,,,,-29.72,-33.2,,,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,,,,-11.81,-19.24,,,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,,,,-4.99,-29.23,,,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,,,,-16.56,-14.16,,,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,sita_flat_720p,120,,,,,,,,,,,,,-14.05,-20.55,,,
+2026-09-10,a9ee9a2,4.3+1-e9b8812,sita_toon_720p,120,,,,,,,,,,,,,-15.6,-14.91,,,
+2026-09-10,9f4951c,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,,,,-14.3,-24.93,-13.49,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box,
+2026-09-10,9f4951c,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,,,,-19.71,-24.79,-4.11,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box,
+2026-09-10,9f4951c,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,,,,-26.2,-32.62,-22.84,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box,
+2026-09-10,9f4951c,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,,,,-14.3,-28.76,-8.62,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box,
+2026-09-10,9f4951c,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,,,,-7.95,,,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box,
+2026-09-10,9f4951c,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,,,,-23.17,-29.66,-18.82,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box,
+2026-09-10,9f4951c,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,,,,-17.22,-25.9,-10.72,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box,
+2026-09-10,9f4951c,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,,,,-13.17,-31.7,-30.66,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box,
+2026-09-10,9f4951c,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,,,,-15.7,-22.27,-3.88,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box,
+2026-09-10,9f4951c,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,,,,-29.72,-33.2,-14.28,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box,
+2026-09-10,9f4951c,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,,,,-11.81,-19.24,-3.3,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box,
+2026-09-10,9f4951c,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,,,,-4.99,-29.23,-10.19,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box,
+2026-09-10,9f4951c,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,,,,-16.56,-14.16,17.87,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box,
+2026-09-10,9f4951c,4.3+1-e9b8812,sita_flat_720p,120,,,,,,,,,,,,,-14.05,-20.55,-12.73,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box,
+2026-09-10,9f4951c,4.3+1-e9b8812,sita_toon_720p,120,,,,,,,,,,,,,-15.6,-14.91,-4.87,the preset ladder: BD rows for the default (medium) and for --preset fast against the same matched arm; timed legs left for a quiet box,
+2026-09-10,2f14d92,4.3+1-e9b8812,akiyo_cif,120,82.11,154.63,498.69,1.883,6.074,162.32,514.17,1.977,6.262,196.68,943.41,342.3,-20.16,-28.19,-18.2,,
+2026-09-10,2f14d92,4.3+1-e9b8812,foreman_cif,120,26.39,52.84,165.98,2.002,6.289,64.32,216.44,2.437,8.202,83.6,503.3,111.68,-23.82,-26.0,-4.13,,
+2026-09-10,2f14d92,4.3+1-e9b8812,mobile_cif,120,16.4,34.19,84.12,2.085,5.13,56.24,161.57,3.43,9.854,55.89,374.89,57.78,-34.37,-40.33,-29.09,,
+2026-09-10,2f14d92,4.3+1-e9b8812,stefan_cif,120,23.27,51.32,133.58,2.205,5.74,72.7,218.82,3.124,9.403,79.64,521.77,76.22,-16.53,-33.38,-14.87,,
+2026-09-10,2f14d92,4.3+1-e9b8812,bus_cif,120,15.37,38.58,102.88,2.51,6.693,47.65,146.6,3.1,9.537,52.64,365.15,44.49,-7.95,,,,
+2026-09-10,2f14d92,4.3+1-e9b8812,tempete_cif,120,19.96,39.76,105.68,1.992,5.294,58.58,180.85,2.935,9.06,65.19,432.2,74.82,-32.39,-36.1,-26.48,,
+2026-09-10,2f14d92,4.3+1-e9b8812,coastguard_cif,120,16.44,35.66,97.81,2.17,5.951,46.72,147.87,2.842,8.997,57.33,346.26,59.51,-20.47,-29.7,-15.34,,
+2026-09-10,2f14d92,4.3+1-e9b8812,park_joy_720p,120,1.53,3.88,9.59,2.536,6.268,5.68,17.16,3.713,11.222,11.29,101.19,4.76,-14.74,-44.5,-40.32,,
+2026-09-10,2f14d92,4.3+1-e9b8812,ducks_720p,120,1.5,3.25,8.61,2.169,5.754,4.39,13.92,2.936,9.301,11.49,82.41,5.78,-17.85,-23.27,-6.41,,
+2026-09-10,2f14d92,4.3+1-e9b8812,in_to_tree_720p,120,5.33,5.76,20.83,1.079,3.905,11.83,42.02,2.218,7.879,37.41,258.97,23.53,-37.25,-38.57,-19.45,,
+2026-09-10,2f14d92,4.3+1-e9b8812,crowd_run_1080p,120,0.76,1.81,4.81,2.4,6.366,2.51,7.83,3.315,10.365,7.05,66.75,2.91,-13.87,-21.91,-5.66,,
+2026-09-10,2f14d92,4.3+1-e9b8812,touchdown_1080p,120,1.91,2.64,8.99,1.38,4.701,4.21,15.01,2.204,7.851,17.1,111.91,8.98,-11.6,-29.21,-10.35,,
+2026-09-10,2f14d92,4.3+1-e9b8812,sintel_720p,120,5.39,7.93,28.64,1.472,5.317,8.37,31.69,1.554,5.885,39.3,205.05,19.7,-19.14,-19.08,17.3,,
+2026-09-10,2f14d92,4.3+1-e9b8812,sita_flat_720p,120,23.8,25.84,79.41,1.086,3.337,24.13,74.03,1.014,3.111,105.1,289.22,47.81,-16.71,-22.81,-12.36,,
+2026-09-10,2f14d92,4.3+1-e9b8812,sita_toon_720p,120,4.26,8.7,24.43,2.041,5.733,12.16,36.34,2.854,8.529,25.18,156.28,10.2,-16.34,-17.1,-6.32,,
+2026-09-10,b610f13,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,,,,-20.44,-28.46,-18.49,ABR yardstick fix + DPB dispatch retirement merged,
+2026-09-10,b610f13,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,,,,-23.88,-26.07,-4.2,ABR yardstick fix + DPB dispatch retirement merged,
+2026-09-10,b610f13,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,,,,-34.39,-40.36,-29.11,ABR yardstick fix + DPB dispatch retirement merged,
+2026-09-10,b610f13,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,,,,-16.54,-33.39,-14.89,ABR yardstick fix + DPB dispatch retirement merged,
+2026-09-10,b610f13,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,,,,-7.95,,,ABR yardstick fix + DPB dispatch retirement merged,
+2026-09-10,b610f13,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,,,,-32.42,-36.14,-26.52,ABR yardstick fix + DPB dispatch retirement merged,
+2026-09-10,b610f13,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,,,,-20.49,-29.72,-15.37,ABR yardstick fix + DPB dispatch retirement merged,
+2026-09-10,b610f13,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,,,,-14.74,-44.5,-40.32,ABR yardstick fix + DPB dispatch retirement merged,
+2026-09-10,b610f13,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,,,,-17.85,-23.27,-6.41,ABR yardstick fix + DPB dispatch retirement merged,
+2026-09-10,b610f13,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,,,,-37.27,-38.59,-19.48,ABR yardstick fix + DPB dispatch retirement merged,
+2026-09-10,b610f13,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,,,,-13.87,-21.91,-5.66,ABR yardstick fix + DPB dispatch retirement merged,
+2026-09-10,b610f13,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,,,,-11.61,-29.22,-10.35,ABR yardstick fix + DPB dispatch retirement merged,
+2026-09-10,b610f13,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,,,,-19.19,-19.13,17.25,ABR yardstick fix + DPB dispatch retirement merged,
+2026-09-10,b610f13,4.3+1-e9b8812,sita_flat_720p,120,,,,,,,,,,,,,-16.74,-22.83,-12.38,ABR yardstick fix + DPB dispatch retirement merged,
+2026-09-10,b610f13,4.3+1-e9b8812,sita_toon_720p,120,,,,,,,,,,,,,-16.35,-17.1,-6.32,ABR yardstick fix + DPB dispatch retirement merged,
+2026-09-10,0ff617f,4.3+1-e9b8812,akiyo_cif,120,125.76,148.24,483.4,1.179,3.844,155.67,498.0,1.238,3.96,290.69,925.24,453.24,-20.44,-28.46,-18.49,,
+2026-09-10,0ff617f,4.3+1-e9b8812,foreman_cif,120,40.12,51.43,161.09,1.282,4.015,63.2,214.03,1.575,5.334,123.69,496.94,150.48,-23.88,-26.07,-4.2,,
+2026-09-10,0ff617f,4.3+1-e9b8812,mobile_cif,120,22.99,33.64,82.67,1.463,3.595,55.53,158.42,2.415,6.889,77.17,374.47,74.72,-34.39,-40.36,-29.11,,
+2026-09-10,0ff617f,4.3+1-e9b8812,stefan_cif,120,32.58,50.88,132.12,1.562,4.055,72.15,217.51,2.215,6.677,109.22,517.68,97.39,-16.54,-33.39,-14.89,,
+2026-09-10,0ff617f,4.3+1-e9b8812,bus_cif,120,21.41,37.8,102.14,1.765,4.771,46.44,147.09,2.169,6.87,70.23,365.45,57.04,-7.95,-18.93,-0.92,,
+2026-09-10,0ff617f,4.3+1-e9b8812,tempete_cif,120,29.19,39.16,105.01,1.342,3.598,58.37,178.93,2.0,6.131,92.91,434.68,98.67,-32.42,-36.14,-26.52,,
+2026-09-10,0ff617f,4.3+1-e9b8812,coastguard_cif,120,23.51,34.63,95.62,1.473,4.067,45.49,144.94,1.935,6.164,78.99,344.31,77.66,-20.49,-29.72,-15.37,,
+2026-09-10,0ff617f,4.3+1-e9b8812,park_joy_720p,120,2.1,3.76,9.52,1.793,4.534,5.66,17.14,2.697,8.166,15.61,100.77,6.09,-14.74,-44.5,-40.32,,
+2026-09-10,0ff617f,4.3+1-e9b8812,ducks_720p,120,2.11,3.24,8.6,1.535,4.074,4.39,13.9,2.079,6.588,16.35,82.14,7.59,-17.85,-23.27,-6.41,,
+2026-09-10,0ff617f,4.3+1-e9b8812,in_to_tree_720p,120,8.39,5.73,20.76,0.683,2.475,11.79,41.95,1.405,5.001,56.54,254.66,32.48,-37.27,-38.59,-19.48,,
+2026-09-10,0ff617f,4.3+1-e9b8812,crowd_run_1080p,120,1.09,1.81,4.8,1.66,4.409,2.51,7.81,2.299,7.168,10.46,67.02,3.86,-13.87,-21.91,-5.66,,
+2026-09-10,0ff617f,4.3+1-e9b8812,touchdown_1080p,120,3.02,2.64,9.02,0.874,2.988,4.2,15.02,1.39,4.976,26.91,113.37,12.39,-11.61,-29.22,-10.35,,
+2026-09-10,0ff617f,4.3+1-e9b8812,sintel_720p,120,8.97,7.92,28.72,0.883,3.202,8.37,31.6,0.933,3.523,64.01,205.12,29.6,-19.19,-19.13,17.25,,
+2026-09-10,0ff617f,4.3+1-e9b8812,sita_flat_720p,120,32.48,25.81,79.76,0.795,2.455,24.23,74.03,0.746,2.279,130.85,291.11,60.29,-16.74,-22.83,-12.38,,
+2026-09-10,0ff617f,4.3+1-e9b8812,sita_toon_720p,120,6.14,8.73,24.6,1.422,4.006,12.31,36.69,2.006,5.976,34.99,158.25,13.4,-16.35,-17.1,-6.32,,
+2026-09-10,8061928,4.3+1-e9b8812,akiyo_cif,120,145.41,149.64,486.36,1.029,3.345,156.79,501.1,1.078,3.446,325.21,927.22,592.95,-20.44,-28.46,-18.49,,
+2026-09-10,8061928,4.3+1-e9b8812,foreman_cif,120,44.53,51.59,159.88,1.159,3.59,62.98,211.01,1.414,4.739,135.7,498.51,175.52,-23.88,-26.07,-4.2,,
+2026-09-10,8061928,4.3+1-e9b8812,mobile_cif,120,24.83,34.14,84.42,1.375,3.399,56.51,162.25,2.275,6.533,83.68,379.75,84.59,-34.39,-40.36,-29.11,,
+2026-09-10,8061928,4.3+1-e9b8812,stefan_cif,120,36.6,51.32,133.51,1.402,3.648,72.24,219.99,1.974,6.011,119.83,519.35,110.91,-16.54,-33.39,-14.89,,
+2026-09-10,8061928,4.3+1-e9b8812,bus_cif,120,23.77,38.27,102.61,1.61,4.317,47.6,147.92,2.003,6.223,77.24,364.95,65.25,-7.95,-18.93,-0.92,,
+2026-09-10,8061928,4.3+1-e9b8812,tempete_cif,120,31.99,39.58,105.64,1.237,3.302,58.59,180.06,1.831,5.628,101.4,431.59,112.65,-32.42,-36.14,-26.52,,
+2026-09-10,8061928,4.3+1-e9b8812,coastguard_cif,120,25.88,35.42,97.21,1.369,3.756,46.44,146.38,1.795,5.657,87.18,346.05,88.3,-20.49,-29.72,-15.37,,
+2026-09-10,8061928,4.3+1-e9b8812,park_joy_720p,120,2.25,3.74,9.15,1.661,4.067,5.48,16.56,2.436,7.36,16.2,95.44,6.61,-14.74,-44.5,-40.32,,
+2026-09-10,8061928,4.3+1-e9b8812,ducks_720p,120,2.27,3.15,8.52,1.386,3.744,4.33,13.43,1.905,5.903,17.25,78.14,8.1,-17.85,-23.27,-6.41,,
+2026-09-10,8061928,4.3+1-e9b8812,in_to_tree_720p,120,9.38,5.68,20.19,0.605,2.152,11.54,41.01,1.23,4.371,63.14,249.65,38.85,-37.27,-38.59,-19.48,,
+2026-09-10,8061928,4.3+1-e9b8812,crowd_run_1080p,120,1.16,1.8,4.79,1.554,4.131,2.5,7.81,2.155,6.733,11.31,66.51,4.22,-13.87,-21.91,-5.66,,
+2026-09-10,8061928,4.3+1-e9b8812,touchdown_1080p,120,3.35,2.63,8.98,0.786,2.681,4.21,14.84,1.257,4.43,30.16,113.23,14.71,-11.61,-29.22,-10.35,,
+2026-09-10,8061928,4.3+1-e9b8812,sintel_720p,120,10.41,7.91,28.66,0.76,2.752,8.37,31.62,0.804,3.037,75.44,204.48,36.7,-19.19,-19.13,17.25,,
+2026-09-10,8061928,4.3+1-e9b8812,sita_flat_720p,120,37.52,25.81,79.27,0.688,2.113,24.19,73.89,0.645,1.969,153.27,286.75,79.86,-16.74,-22.83,-12.38,,
+2026-09-10,8061928,4.3+1-e9b8812,sita_toon_720p,120,6.94,8.73,24.52,1.258,3.535,12.28,36.71,1.77,5.292,38.82,157.67,16.05,-16.35,-17.1,-6.32,,
+2026-09-10,4502dfd,4.3+1-e9b8812,akiyo_cif,120,151.42,147.12,480.65,0.972,3.174,155.5,497.73,1.027,3.287,346.72,930.19,588.15,-20.44,-28.46,-18.49,,
+2026-09-10,4502dfd,4.3+1-e9b8812,foreman_cif,120,47.97,51.34,160.49,1.07,3.346,62.85,210.56,1.31,4.39,146.02,499.29,181.33,-23.88,-26.07,-4.2,,
+2026-09-10,4502dfd,4.3+1-e9b8812,mobile_cif,120,27.24,34.34,84.58,1.26,3.105,56.39,161.83,2.07,5.94,89.23,376.53,86.63,-34.39,-40.36,-29.11,,
+2026-09-10,4502dfd,4.3+1-e9b8812,stefan_cif,120,39.44,51.46,133.69,1.305,3.39,72.96,219.72,1.85,5.572,127.63,517.94,117.0,-16.54,-33.39,-14.89,,
+2026-09-10,4502dfd,4.3+1-e9b8812,bus_cif,120,25.64,38.71,103.16,1.51,4.023,47.83,147.44,1.865,5.75,81.67,365.27,68.18,-7.95,-18.93,-0.92,,
+2026-09-10,4502dfd,4.3+1-e9b8812,tempete_cif,120,34.92,39.68,106.21,1.136,3.041,58.7,181.88,1.681,5.208,108.94,431.44,117.94,-32.42,-36.14,-26.52,,
+2026-09-10,4502dfd,4.3+1-e9b8812,coastguard_cif,120,28.14,35.58,97.92,1.265,3.48,46.54,147.49,1.654,5.242,93.28,347.63,92.95,-20.49,-29.72,-15.37,,
+2026-09-10,4502dfd,4.3+1-e9b8812,park_joy_720p,120,2.45,3.86,9.59,1.575,3.911,5.66,17.08,2.307,6.966,17.86,97.99,7.08,-14.74,-44.5,-40.32,,
+2026-09-10,4502dfd,4.3+1-e9b8812,ducks_720p,120,2.43,3.16,8.26,1.301,3.398,4.27,13.35,1.756,5.49,18.43,77.95,8.6,-17.85,-23.27,-6.41,,
+2026-09-10,4502dfd,4.3+1-e9b8812,in_to_tree_720p,120,9.98,5.69,20.61,0.57,2.064,11.74,41.87,1.176,4.194,69.09,253.69,39.47,-37.27,-38.59,-19.48,,
+2026-09-10,4502dfd,4.3+1-e9b8812,crowd_run_1080p,120,1.27,1.82,4.84,1.439,3.827,2.52,7.9,1.994,6.237,12.39,67.7,4.46,-13.87,-21.91,-5.66,,
+2026-09-10,4502dfd,4.3+1-e9b8812,touchdown_1080p,120,3.69,2.67,9.11,0.722,2.468,4.27,15.22,1.156,4.122,33.18,112.79,15.39,-11.61,-29.22,-10.35,,
+2026-09-10,4502dfd,4.3+1-e9b8812,sintel_720p,120,11.2,7.96,28.94,0.711,2.585,8.46,31.94,0.756,2.853,81.74,208.32,38.08,-19.19,-19.13,17.25,,
+2026-09-10,4502dfd,4.3+1-e9b8812,sita_flat_720p,120,38.98,26.18,80.61,0.672,2.068,24.54,74.91,0.63,1.922,157.27,289.94,80.49,-16.74,-22.83,-12.38,,
+2026-09-10,4502dfd,4.3+1-e9b8812,sita_toon_720p,120,7.43,8.85,24.95,1.192,3.361,12.5,37.19,1.684,5.008,40.9,158.28,16.66,-16.35,-17.1,-6.32,,
+2026-09-10,68fc641,4.3+1-e9b8812,akiyo_cif,120,170.63,154.97,502.49,0.908,2.945,163.33,524.65,0.957,3.075,382.08,955.87,628.14,-20.44,-28.46,-18.49,,
+2026-09-10,68fc641,4.3+1-e9b8812,foreman_cif,120,57.02,53.81,169.15,0.944,2.966,64.79,218.47,1.136,3.831,162.84,507.98,190.87,-23.88,-26.07,-4.2,,
+2026-09-10,68fc641,4.3+1-e9b8812,mobile_cif,120,30.98,34.77,85.38,1.122,2.756,57.1,164.46,1.843,5.308,98.75,379.51,91.09,-34.39,-40.36,-29.11,,
+2026-09-10,68fc641,4.3+1-e9b8812,stefan_cif,120,43.62,51.65,134.14,1.184,3.075,72.95,219.54,1.672,5.033,138.8,521.47,118.1,-16.54,-33.39,-14.89,,
+2026-09-10,68fc641,4.3+1-e9b8812,bus_cif,120,28.0,38.4,102.77,1.372,3.671,47.32,147.51,1.69,5.269,87.48,365.46,68.43,-7.95,-18.93,-0.92,,
+2026-09-10,68fc641,4.3+1-e9b8812,tempete_cif,120,38.27,39.6,105.68,1.035,2.761,58.58,180.5,1.531,4.717,120.84,433.05,118.75,-32.42,-36.14,-26.52,,
+2026-09-10,68fc641,4.3+1-e9b8812,coastguard_cif,120,31.32,35.5,97.45,1.133,3.111,46.45,147.0,1.483,4.693,102.64,346.5,93.3,-20.49,-29.72,-15.37,,
+2026-09-10,68fc641,4.3+1-e9b8812,park_joy_720p,120,2.6,3.85,9.41,1.482,3.624,5.53,16.5,2.132,6.356,17.72,96.58,7.13,-14.74,-44.5,-40.32,,
+2026-09-10,68fc641,4.3+1-e9b8812,ducks_720p,120,2.55,3.23,8.48,1.268,3.329,4.36,13.77,1.71,5.406,19.76,82.39,8.62,-17.85,-23.27,-6.41,,
+2026-09-10,68fc641,4.3+1-e9b8812,in_to_tree_720p,120,10.45,5.6,20.66,0.536,1.976,11.6,41.02,1.11,3.924,69.73,245.51,40.03,-37.27,-38.59,-19.48,,
+2026-09-11,68fc641,4.3+1-e9b8812,crowd_run_1080p,120,1.22,1.8,4.71,1.471,3.856,2.45,7.55,2.005,6.182,11.51,66.73,4.31,-13.87,-21.91,-5.66,,
+2026-09-11,68fc641,4.3+1-e9b8812,touchdown_1080p,120,3.61,2.63,8.97,0.729,2.483,4.19,14.93,1.16,4.132,31.96,113.04,15.36,-11.61,-29.22,-10.35,,
+2026-09-11,68fc641,4.3+1-e9b8812,sintel_720p,120,11.73,7.98,29.01,0.68,2.473,8.45,31.98,0.72,2.727,84.47,204.27,38.18,-19.19,-19.13,17.25,,
+2026-09-11,68fc641,4.3+1-e9b8812,sita_flat_720p,120,38.6,25.8,79.18,0.668,2.051,24.1,73.64,0.624,1.908,158.09,291.09,81.37,-16.74,-22.83,-12.38,,
+2026-09-11,68fc641,4.3+1-e9b8812,sita_toon_720p,120,7.47,8.67,24.42,1.161,3.271,12.25,36.52,1.64,4.891,41.81,156.75,16.41,-16.35,-17.1,-6.32,,
+2026-09-11,9c7bd22,4.3+1-e9b8812,akiyo_cif,120,176.02,153.9,502.18,0.874,2.853,162.4,520.14,0.923,2.955,398.58,951.16,625.54,-20.44,-28.46,-18.49,,
+2026-09-11,9c7bd22,4.3+1-e9b8812,foreman_cif,120,58.62,53.27,166.85,0.909,2.846,64.83,217.53,1.106,3.711,169.82,509.78,192.45,-23.88,-26.07,-4.2,,
+2026-09-11,9c7bd22,4.3+1-e9b8812,mobile_cif,120,32.78,34.5,84.78,1.052,2.586,56.89,163.03,1.735,4.973,104.63,377.2,92.22,-34.39,-40.36,-29.11,,
+2026-09-11,9c7bd22,4.3+1-e9b8812,stefan_cif,120,45.7,51.54,133.63,1.128,2.924,72.72,218.88,1.591,4.79,145.98,520.32,120.0,-16.54,-33.39,-14.89,,
+2026-09-11,9c7bd22,4.3+1-e9b8812,bus_cif,120,29.52,38.46,102.83,1.303,3.483,47.54,147.61,1.61,5.0,92.95,365.45,69.85,-7.95,-18.93,-0.92,,
+2026-09-11,9c7bd22,4.3+1-e9b8812,tempete_cif,120,40.99,39.63,105.56,0.967,2.575,58.51,180.33,1.427,4.4,127.23,433.66,121.54,-32.42,-36.14,-26.52,,
+2026-09-11,9c7bd22,4.3+1-e9b8812,coastguard_cif,120,32.76,35.42,97.1,1.081,2.964,46.28,146.32,1.413,4.466,107.28,346.97,94.74,-20.49,-29.72,-15.37,,
+2026-09-11,9c7bd22,4.3+1-e9b8812,park_joy_720p,120,2.72,3.77,9.43,1.386,3.465,5.61,16.94,2.061,6.225,19.65,100.68,7.04,-14.74,-44.5,-40.32,,
+2026-09-11,9c7bd22,4.3+1-e9b8812,ducks_720p,120,2.66,3.21,8.28,1.209,3.117,4.28,13.49,1.611,5.082,20.29,70.02,8.93,-17.85,-23.27,-6.41,,
+2026-09-11,9c7bd22,4.3+1-e9b8812,in_to_tree_720p,120,11.17,5.61,20.41,0.502,1.826,11.72,41.9,1.049,3.75,77.02,256.95,40.6,-37.27,-38.59,-19.48,,
+2026-09-11,9c7bd22,4.3+1-e9b8812,crowd_run_1080p,120,1.3,1.8,4.78,1.378,3.664,2.49,7.76,1.906,5.952,12.48,67.18,4.45,-13.87,-21.91,-5.66,,
+2026-09-11,9c7bd22,4.3+1-e9b8812,touchdown_1080p,120,3.73,2.67,8.99,0.716,2.412,4.2,14.95,1.126,4.012,33.07,113.94,15.58,-11.61,-29.22,-10.35,,
+2026-09-11,9c7bd22,4.3+1-e9b8812,sintel_720p,120,11.74,8.0,28.95,0.681,2.466,8.49,31.93,0.723,2.72,84.62,204.37,38.28,-19.19,-19.13,17.25,,
+2026-09-11,9c7bd22,4.3+1-e9b8812,sita_flat_720p,120,40.84,25.79,79.38,0.632,1.944,24.01,73.74,0.588,1.806,167.22,289.32,82.44,-16.74,-22.83,-12.38,,
+2026-09-11,9c7bd22,4.3+1-e9b8812,sita_toon_720p,120,7.86,8.68,24.43,1.104,3.107,12.25,36.53,1.558,4.646,44.18,157.82,16.77,-16.35,-17.1,-6.32,,
+2026-09-11,358db2f,4.3+1-e9b8812,akiyo_cif,120,238.39,147.98,488.51,0.621,2.049,155.79,505.49,0.654,2.12,518.33,933.85,600.97,-20.5,-29.56,-18.49,,
+2026-09-11,358db2f,4.3+1-e9b8812,foreman_cif,120,82.26,52.55,165.17,0.639,2.008,64.21,216.5,0.781,2.632,210.15,491.85,190.74,-20.59,-24.51,-4.2,,
+2026-09-11,358db2f,4.3+1-e9b8812,mobile_cif,120,42.25,34.36,84.71,0.813,2.005,56.92,163.63,1.347,3.873,133.43,377.21,90.54,-32.24,-39.14,-29.11,,
+2026-09-11,358db2f,4.3+1-e9b8812,stefan_cif,120,58.07,51.71,134.52,0.89,2.316,72.88,220.26,1.255,3.793,178.36,517.03,120.59,-14.34,-29.62,-14.89,,
+2026-09-11,358db2f,4.3+1-e9b8812,bus_cif,120,37.38,38.75,103.68,1.037,2.774,47.81,144.13,1.279,3.856,111.06,359.0,70.56,-6.03,-17.83,-0.92,,
+2026-09-11,358db2f,4.3+1-e9b8812,tempete_cif,120,53.41,39.43,103.79,0.738,1.943,58.5,179.05,1.095,3.352,164.61,431.58,121.39,-30.53,-34.47,-26.52,,
+2026-09-11,358db2f,4.3+1-e9b8812,coastguard_cif,120,40.84,35.76,98.22,0.876,2.405,46.61,146.86,1.142,3.596,124.55,345.91,95.92,-19.64,-28.64,-15.37,,
+2026-09-11,358db2f,4.3+1-e9b8812,park_joy_720p,120,3.41,3.88,9.61,1.135,2.816,5.69,17.2,1.668,5.037,23.88,102.56,7.27,-13.6,-44.75,-40.32,,
+2026-09-11,358db2f,4.3+1-e9b8812,ducks_720p,120,3.35,3.25,8.67,0.971,2.586,4.42,13.96,1.318,4.164,24.88,84.29,8.97,-17.36,-22.96,-6.41,,
+2026-09-11,358db2f,4.3+1-e9b8812,in_to_tree_720p,120,16.35,5.77,20.92,0.353,1.279,11.85,42.23,0.724,2.582,103.33,255.75,41.43,-35.07,-35.99,-19.48,,
+2026-09-11,358db2f,4.3+1-e9b8812,crowd_run_1080p,120,1.74,1.82,4.83,1.044,2.776,2.52,7.87,1.448,4.519,16.18,66.98,4.51,-12.42,-20.86,-5.66,,
+2026-09-11,358db2f,4.3+1-e9b8812,touchdown_1080p,120,5.35,2.65,9.03,0.496,1.689,4.24,14.66,0.793,2.743,43.19,115.48,15.56,-8.98,-26.88,-10.35,,
+2026-09-11,358db2f,4.3+1-e9b8812,sintel_720p,120,15.67,7.87,28.54,0.502,1.822,8.36,31.31,0.534,1.999,100.95,206.52,37.22,-16.17,-16.65,17.25,,
+2026-09-11,358db2f,4.3+1-e9b8812,sita_flat_720p,120,47.15,25.81,79.69,0.547,1.69,24.31,73.83,0.516,1.566,180.25,288.0,82.84,-16.2,-22.25,-12.38,,
+2026-09-11,358db2f,4.3+1-e9b8812,sita_toon_720p,120,9.52,8.72,24.46,0.916,2.57,12.23,36.64,1.285,3.849,49.61,157.83,16.86,-15.55,-16.49,-6.32,,
+2026-09-11,1592a5e,4.3+1-e9b8812,akiyo_cif,120,266.53,148.6,484.19,0.558,1.817,157.13,502.65,0.59,1.886,589.54,937.23,614.37,-17.59,-27.17,-18.42,,
+2026-09-11,1592a5e,4.3+1-e9b8812,foreman_cif,120,95.83,52.33,163.82,0.546,1.709,64.05,215.5,0.668,2.249,248.33,501.86,189.44,-17.4,-21.52,-4.17,,
+2026-09-11,1592a5e,4.3+1-e9b8812,mobile_cif,120,48.85,34.42,84.67,0.705,1.733,56.79,163.31,1.163,3.343,152.4,375.65,92.31,-29.62,-36.13,-29.1,,
+2026-09-11,1592a5e,4.3+1-e9b8812,stefan_cif,120,66.68,51.59,133.86,0.774,2.007,72.91,219.65,1.093,3.294,198.6,520.69,120.96,-11.82,-28.63,-14.89,,
+2026-09-11,1592a5e,4.3+1-e9b8812,bus_cif,120,42.55,38.49,103.05,0.905,2.422,47.71,147.69,1.121,3.471,123.82,365.51,70.26,-3.72,-15.37,-0.92,,
+2026-09-11,1592a5e,4.3+1-e9b8812,tempete_cif,120,63.96,39.78,106.16,0.622,1.66,58.77,181.14,0.919,2.832,192.17,433.33,122.71,-28.33,-32.97,-26.51,,
+2026-09-11,1592a5e,4.3+1-e9b8812,coastguard_cif,120,50.23,35.59,97.78,0.709,1.947,46.56,147.17,0.927,2.93,150.36,347.59,96.55,-18.54,-27.6,-15.36,,
+2026-09-11,1592a5e,4.3+1-e9b8812,park_joy_720p,120,3.93,3.85,9.58,0.981,2.438,5.66,17.12,1.441,4.357,27.05,102.42,7.25,-12.54,-44.29,-40.32,,
+2026-09-11,1592a5e,4.3+1-e9b8812,ducks_720p,120,4.3,3.23,8.62,0.752,2.005,4.39,13.92,1.021,3.239,31.01,84.01,8.93,-17.04,-22.61,-6.41,,
+2026-09-11,1592a5e,4.3+1-e9b8812,in_to_tree_720p,120,18.2,5.74,20.82,0.315,1.144,11.76,42.01,0.646,2.308,118.3,261.91,41.13,-33.42,-35.31,-19.47,,
+2026-09-11,1592a5e,4.3+1-e9b8812,crowd_run_1080p,120,2.15,1.81,4.8,0.839,2.23,2.5,7.83,1.161,3.638,20.31,68.23,4.48,-10.7,-19.58,-5.66,,
+2026-09-11,1592a5e,4.3+1-e9b8812,touchdown_1080p,120,6.49,2.64,9.0,0.406,1.387,4.21,15.04,0.649,2.317,53.45,115.82,15.36,-7.43,-25.6,-10.35,,
+2026-09-11,1592a5e,4.3+1-e9b8812,sintel_720p,120,14.35,7.89,28.72,0.55,2.002,8.36,31.55,0.583,2.199,99.34,205.27,22.55,-19.07,-20.62,11.17,,
+2026-09-11,1592a5e,4.3+1-e9b8812,sita_flat_720p,120,28.61,25.91,79.71,0.906,2.786,24.3,74.08,0.85,2.59,136.07,289.16,35.92,-13.39,-19.3,-12.44,,
+2026-09-11,1592a5e,4.3+1-e9b8812,sita_toon_720p,120,8.62,8.74,24.63,1.014,2.856,12.33,36.78,1.43,4.264,50.01,157.68,12.34,-16.59,-18.71,-7.93,,
+2026-09-11,7bbaed2,4.3+1-e9b8812,akiyo_cif,120,267.53,149.16,485.19,0.558,1.814,156.88,503.91,0.586,1.884,591.07,945.66,613.54,-17.59,-27.17,-18.42,,
+2026-09-11,7bbaed2,4.3+1-e9b8812,foreman_cif,120,95.48,52.24,163.24,0.547,1.71,63.88,215.06,0.669,2.253,248.78,506.77,189.7,-17.4,-21.52,-4.17,,
+2026-09-11,7bbaed2,4.3+1-e9b8812,mobile_cif,120,48.6,34.37,84.56,0.707,1.74,56.58,161.94,1.164,3.332,152.31,377.64,91.86,-29.62,-36.13,-29.1,,
+2026-09-11,7bbaed2,4.3+1-e9b8812,stefan_cif,120,66.42,51.37,133.12,0.773,2.004,72.53,218.08,1.092,3.283,198.03,517.84,119.72,-11.82,-28.63,-14.89,,
+2026-09-11,7bbaed2,4.3+1-e9b8812,bus_cif,120,42.58,38.5,103.07,0.904,2.42,47.7,147.07,1.12,3.454,123.34,365.61,70.15,-3.72,-15.37,-0.92,,
+2026-09-11,7bbaed2,4.3+1-e9b8812,tempete_cif,120,63.73,39.76,105.69,0.624,1.658,58.75,180.43,0.922,2.831,191.81,434.07,122.39,-28.33,-32.97,-26.51,,
+2026-09-11,7bbaed2,4.3+1-e9b8812,coastguard_cif,120,50.05,35.64,97.48,0.712,1.948,46.5,146.73,0.929,2.932,149.77,347.4,95.68,-18.54,-27.6,-15.36,,
+2026-09-11,7bbaed2,4.3+1-e9b8812,park_joy_720p,120,3.95,3.85,9.56,0.975,2.421,5.65,17.12,1.431,4.336,27.19,101.88,7.23,-12.54,-44.29,-40.32,,
+2026-09-11,7bbaed2,4.3+1-e9b8812,ducks_720p,120,4.29,3.22,8.58,0.752,2.0,4.38,13.9,1.021,3.239,30.79,82.82,8.9,-17.04,-22.61,-6.41,,
+2026-09-11,7bbaed2,4.3+1-e9b8812,in_to_tree_720p,120,18.13,5.72,20.1,0.315,1.109,11.64,41.43,0.642,2.285,118.18,253.76,41.05,-33.42,-35.31,-19.47,,
+2026-09-11,7bbaed2,4.3+1-e9b8812,crowd_run_1080p,120,2.14,1.8,4.77,0.84,2.23,2.47,7.7,1.155,3.598,19.92,66.98,4.45,-10.7,-19.58,-5.66,,
+2026-09-11,7bbaed2,4.3+1-e9b8812,touchdown_1080p,120,6.44,2.57,8.83,0.4,1.372,4.15,14.83,0.644,2.304,52.24,115.3,15.06,-7.43,-25.6,-10.35,,
+2026-09-11,7bbaed2,4.3+1-e9b8812,sintel_720p,120,17.75,7.76,28.4,0.437,1.6,8.29,31.46,0.467,1.772,118.39,208.05,36.07,-19.07,-20.62,11.17,,
+2026-09-11,7bbaed2,4.3+1-e9b8812,sita_flat_720p,120,45.35,25.06,78.67,0.553,1.735,23.55,72.81,0.519,1.605,188.41,283.32,71.91,-13.39,-19.3,-12.44,,
+2026-09-11,7bbaed2,4.3+1-e9b8812,sita_toon_720p,120,10.13,8.62,24.25,0.851,2.394,12.13,36.5,1.197,3.603,54.8,157.04,16.15,-16.59,-18.71,-7.93,,
+2026-09-11,ff29576,4.3+1-e9b8812,akiyo_cif,120,288.39,149.4,488.84,0.518,1.695,157.42,505.8,0.546,1.754,678.89,948.19,614.7,-15.84,-25.62,-18.42,,-19.52
+2026-09-11,ff29576,4.3+1-e9b8812,foreman_cif,120,114.64,52.42,164.6,0.457,1.436,63.89,214.52,0.557,1.871,306.81,505.93,189.21,-13.02,-17.67,-4.17,,-12.94
+2026-09-11,ff29576,4.3+1-e9b8812,mobile_cif,120,59.87,34.05,84.83,0.569,1.417,56.73,163.97,0.948,2.739,188.28,376.92,91.41,-27.59,-34.15,-29.1,,-6.40
+2026-09-11,ff29576,4.3+1-e9b8812,stefan_cif,120,81.37,51.65,134.36,0.635,1.651,72.91,219.78,0.896,2.701,239.08,522.55,120.79,-7.74,-24.55,-14.89,,-5.37
+2026-09-11,ff29576,4.3+1-e9b8812,bus_cif,120,51.18,38.56,103.22,0.753,2.017,47.8,146.88,0.934,2.87,146.19,365.18,70.67,-0.71,-11.87,-0.92,,-6.68
+2026-09-11,ff29576,4.3+1-e9b8812,tempete_cif,120,78.8,39.86,106.11,0.506,1.347,58.71,181.28,0.745,2.301,239.08,433.41,121.89,-26.84,-31.22,-26.51,,-8.10
+2026-09-11,ff29576,4.3+1-e9b8812,coastguard_cif,120,63.87,35.62,98.14,0.558,1.536,46.61,148.12,0.73,2.319,189.79,347.78,96.32,-17.7,-27.43,-15.36,,-14.04
+2026-09-11,ff29576,4.3+1-e9b8812,park_joy_720p,120,4.81,3.87,9.57,0.805,1.989,5.67,17.16,1.179,3.568,33.2,102.78,7.28,-11.1,-43.5,-40.32,,-14.95
+2026-09-11,ff29576,4.3+1-e9b8812,ducks_720p,120,5.51,3.23,8.6,0.586,1.56,4.39,13.93,0.796,2.528,39.43,84.02,8.91,-16.32,-21.89,-6.41,,-15.42
+2026-09-11,ff29576,4.3+1-e9b8812,in_to_tree_720p,120,20.27,5.74,20.84,0.283,1.028,11.77,42.0,0.581,2.072,137.83,254.1,41.15,-31.84,-33.07,-19.47,,-20.59
+2026-09-11,ff29576,4.3+1-e9b8812,crowd_run_1080p,120,2.84,1.81,4.81,0.635,1.691,2.5,7.82,0.879,2.751,27.02,68.01,4.48,-8.34,-17.38,-5.66,,-12.55
+2026-09-11,ff29576,4.3+1-e9b8812,touchdown_1080p,120,7.8,2.63,9.01,0.338,1.156,4.21,15.03,0.54,1.928,66.89,114.2,15.4,-5.18,-23.77,-10.35,,-6.00
+2026-09-11,ff29576,4.3+1-e9b8812,sintel_720p,120,18.26,7.89,28.74,0.432,1.574,8.38,31.68,0.459,1.734,118.95,208.67,36.8,-19.07,-20.62,11.17,,-16.64
+2026-09-11,ff29576,4.3+1-e9b8812,sita_flat_720p,120,47.53,25.99,79.44,0.547,1.671,24.26,74.22,0.51,1.562,187.94,288.21,73.41,-13.39,-19.3,-12.44,,-9.22
+2026-09-11,ff29576,4.3+1-e9b8812,sita_toon_720p,120,10.39,8.74,24.65,0.842,2.373,12.33,36.77,1.187,3.54,54.91,158.39,16.47,-16.59,-18.71,-7.93,,-6.31
+2026-09-11,d59e23f,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,,,,-15.84,-25.62,-18.42,,-20.07
+2026-09-11,d59e23f,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,,,,-13.02,-17.67,-4.17,,-15.01
+2026-09-11,d59e23f,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,,,,-27.59,-34.15,-29.1,,-6.68
+2026-09-11,d59e23f,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,,,,-7.74,-24.55,-14.89,,-6.72
+2026-09-11,d59e23f,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,,,,-0.71,-11.87,-0.92,,-6.83
+2026-09-11,d59e23f,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,,,,-26.84,-31.22,-26.51,,-9.65
+2026-09-11,d59e23f,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,,,,-17.7,-27.43,-15.36,,-15.04
+2026-09-11,d59e23f,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,,,,-11.1,-43.5,-40.32,,-15.40
+2026-09-11,d59e23f,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,,,,-16.32,-21.89,-6.41,,-18.31
+2026-09-11,d59e23f,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,,,,-31.84,-33.07,-19.47,,-21.73
+2026-09-11,d59e23f,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,,,,-8.34,-17.38,-5.66,,-14.72
+2026-09-11,d59e23f,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,,,,-5.18,-23.77,-10.35,,-11.49
+2026-09-11,d59e23f,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,,,,-19.07,-20.62,11.17,,-16.64
+2026-09-11,d59e23f,4.3+1-e9b8812,sita_flat_720p,120,,,,,,,,,,,,,-13.39,-19.3,-12.44,,-9.22
+2026-09-11,d59e23f,4.3+1-e9b8812,sita_toon_720p,120,,,,,,,,,,,,,-16.59,-18.71,-7.93,,-6.31
+2026-09-11,50fa1a8,4.3+1-e9b8812,akiyo_cif,120,,,,,,,,,,,,,-15.84,-25.62,-18.42,,-19.44
+2026-09-11,50fa1a8,4.3+1-e9b8812,foreman_cif,120,,,,,,,,,,,,,-13.02,-17.67,-4.17,,-15.27
+2026-09-11,50fa1a8,4.3+1-e9b8812,mobile_cif,120,,,,,,,,,,,,,-27.59,-34.15,-29.1,,-7.47
+2026-09-11,50fa1a8,4.3+1-e9b8812,stefan_cif,120,,,,,,,,,,,,,-7.74,-24.55,-14.89,,-6.96
+2026-09-11,50fa1a8,4.3+1-e9b8812,bus_cif,120,,,,,,,,,,,,,-0.71,-11.87,-0.92,,-6.14
+2026-09-11,50fa1a8,4.3+1-e9b8812,tempete_cif,120,,,,,,,,,,,,,-26.84,-31.22,-26.51,,-10.57
+2026-09-11,50fa1a8,4.3+1-e9b8812,coastguard_cif,120,,,,,,,,,,,,,-17.7,-27.43,-15.36,,-15.58
+2026-09-11,50fa1a8,4.3+1-e9b8812,park_joy_720p,120,,,,,,,,,,,,,-11.1,-43.5,-40.32,,-15.07
+2026-09-11,50fa1a8,4.3+1-e9b8812,ducks_720p,120,,,,,,,,,,,,,-16.32,-21.89,-6.41,,-18.63
+2026-09-11,50fa1a8,4.3+1-e9b8812,in_to_tree_720p,120,,,,,,,,,,,,,-31.84,-33.07,-19.47,,-21.56
+2026-09-11,50fa1a8,4.3+1-e9b8812,crowd_run_1080p,120,,,,,,,,,,,,,-8.34,-17.38,-5.66,,-14.85
+2026-09-11,50fa1a8,4.3+1-e9b8812,touchdown_1080p,120,,,,,,,,,,,,,-5.18,-23.77,-10.35,,-12.68
+2026-09-11,50fa1a8,4.3+1-e9b8812,sintel_720p,120,,,,,,,,,,,,,-19.07,-20.62,11.17,,-16.64
+2026-09-11,50fa1a8,4.3+1-e9b8812,sita_flat_720p,120,,,,,,,,,,,,,-13.39,-19.3,-12.44,,-9.22
+2026-09-11,50fa1a8,4.3+1-e9b8812,sita_toon_720p,120,,,,,,,,,,,,,-16.59,-18.71,-7.93,,-6.31
