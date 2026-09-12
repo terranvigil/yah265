@@ -868,6 +868,11 @@ void n265_row_end(n265_row_ctx *row, n265_frame_work *fw, int r);
 
 /* encoder.c: the DPB the reference structure needs at this --bframes /
  * --ref, in the SPS's own units (see the definition). */
+/* the QP a frame of this kind will be coded at, for the lookahead's bits
+ * model (`--b-adapt 4`); defined beside dispatch_frame, which applies it */
+int n265_planned_qp(const struct n265_encoder *e, int slice_type,
+                    int b_depth, int nonref);
+
 void n265_dpb_requirement(int bframes, int ref_max, int *reorder,
                           int *buffering, int *peak, int *markpeak);
 

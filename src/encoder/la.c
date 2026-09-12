@@ -122,10 +122,16 @@ int n265_la_init(struct n265_encoder *e)
                 return -1;
             la->anchor_valid = 0;
             size_t mvb = (size_t)la->bw * la->bh * 2 * sizeof(int16_t);
-            for (int k = 0; k < 8; k++)
+            size_t sb = (size_t)la->bw * la->bh * sizeof(uint32_t);
+            for (int k = 0; k < 8; k++) {
                 if (!(la->pc_mv[k] = malloc(mvb)))
                     return -1;
+                if (!(la->pc_sad[k] = malloc(sb)))
+                    return -1;
+            }
             if (!(la->pc_bmv = malloc(mvb)))
+                return -1;
+            if (!(la->pc_bsad = malloc(sb)) || !(la->pc_bisad = malloc(sb)))
                 return -1;
         }
         f->lowres = malloc((size_t)la->lw * la->lh);
@@ -157,9 +163,15 @@ void n265_la_free(struct n265_encoder *e)
     for (int k = 0; k < 8; k++) {
         free(e->la.pc_mv[k]);
         e->la.pc_mv[k] = NULL;
+        free(e->la.pc_sad[k]);
+        e->la.pc_sad[k] = NULL;
     }
     free(e->la.pc_bmv);
     e->la.pc_bmv = NULL;
+    free(e->la.pc_bsad);
+    e->la.pc_bsad = NULL;
+    free(e->la.pc_bisad);
+    e->la.pc_bisad = NULL;
 }
 
 /* the lookahead's own name for the block SAD; the loop moved to
@@ -192,12 +204,30 @@ static int sc_hold(void)
     return hold;
 }
 
+static void log2q16_init(void);
+static int32_t brun_logT_q16(int qp);
+
+/* N265_BRUN_TRACE, hoisted into an accessor rather than read inline: a
+ * warm can only reach a gate through a callable function
+ * (scripts/env_gate_audit.py), and the trellis is priced per mini-GOP,
+ * where an uncached getenv is what the phase 6 profile charged for. */
+int n265_brun_trace(void)
+{
+    static int v = -1;
+    if (v < 0)
+        v = n265_env("N265_BRUN_TRACE") != NULL;
+    return v;
+}
+
 /* the driver resolves this file's knobs at open, before a worker can be
  * the one that writes them first; see n265_ctu_warm */
 void n265_la_warm(void)
 {
     (void)sc_hold();
     (void)n265_flat_gate();
+    log2q16_init();
+    (void)brun_logT_q16(32);
+    (void)n265_brun_trace();
 }
 
 void n265_la_push(struct n265_encoder *e, const uint8_t *const plane[3],
@@ -409,10 +439,14 @@ static uint32_t blk_sad_at(const n265_la *la, const uint8_t *cur,
  * per-frame lowres MVs across that span (the linear-motion assumption the
  * cu-tree propagation already makes) and is refined by the same small
  * diamond n265_la_push uses. The +16 per-block floor matches pcost, so
- * these numbers are comparable with each other and with pcost_sum. */
+ * these numbers are comparable with each other and with pcost_sum.
+ *
+ * `sadout`, when given, takes the winning SAD PER BLOCK without that
+ * floor: the bits model of `--b-adapt 4` is a per-block non-linearity and
+ * cannot be applied to a sum. */
 static uint64_t pair_cost(const n265_la *la, const uint8_t *cur,
                           const uint8_t *ref, int lo, int hi, int sign,
-                          int16_t *mvout)
+                          int16_t *mvout, uint32_t *sadout)
 {
     uint64_t sum = 0;
     for (int by = 0; by < la->bh; by++)
@@ -465,6 +499,8 @@ static uint64_t pair_cost(const n265_la *la, const uint8_t *cur,
                 mvout[2 * b] = (int16_t)mx;
                 mvout[2 * b + 1] = (int16_t)my;
             }
+            if (sadout)
+                sadout[b] = best;
             sum += (uint64_t)best + 16;
         }
     return sum;
@@ -476,7 +512,8 @@ static uint64_t pair_cost(const n265_la *la, const uint8_t *cur,
  * one pass over the blocks averaging the two predictions. */
 static uint64_t bi_cost(const n265_la *la, const uint8_t *cur,
                         const uint8_t *ra, const int16_t *mva,
-                        const uint8_t *rb, const int16_t *mvb)
+                        const uint8_t *rb, const int16_t *mvb,
+                        uint32_t *sadout)
 {
     uint64_t sum = 0;
     for (int by = 0; by < la->bh; by++)
@@ -502,6 +539,8 @@ static uint64_t bi_cost(const n265_la *la, const uint8_t *cur,
                     int d = c[y * la->lw + x] - p;
                     s += (uint32_t)(d < 0 ? -d : d);
                 }
+            if (sadout)
+                sadout[b] = s;
             sum += (uint64_t)s + 16;
         }
     return sum;
@@ -525,7 +564,7 @@ int n265_la_degrade(struct n265_encoder *e, int maxa, double thr)
     for (int i = 1; i <= maxa; i++) {
         A = i;
         uint64_t far = pair_cost(la, la->f[i].lowres, la->anchor_lowres,
-                                 0, i, 1, NULL);
+                                 0, i, 1, NULL, NULL);
         uint64_t near = la->f[i].pcost_sum ? la->f[i].pcost_sum : 1;
         double r = (double)far / (double)near;
         if (trace)
@@ -549,7 +588,7 @@ int n265_la_brun(struct n265_encoder *e, int maxa)
     uint64_t fwd[8];
     for (int k = 0; k <= maxa; k++)
         fwd[k] = pair_cost(la, la->f[k].lowres, la->anchor_lowres, 0, k, 1,
-                           la->pc_mv[k]);
+                           la->pc_mv[k], NULL);
     int trace = n265_env("N265_BADAPT_TRACE") != NULL;
     int best_a = 1;
     double best_c = 0;
@@ -557,9 +596,10 @@ int n265_la_brun(struct n265_encoder *e, int maxa)
         uint64_t c = fwd[A];
         for (int k = 0; k < A; k++) {
             uint64_t bwd = pair_cost(la, la->f[k].lowres, la->f[A].lowres,
-                                     k + 1, A, -1, la->pc_bmv);
+                                     k + 1, A, -1, la->pc_bmv, NULL);
             uint64_t bi = bi_cost(la, la->f[k].lowres, la->anchor_lowres,
-                                  la->pc_mv[k], la->f[A].lowres, la->pc_bmv);
+                                  la->pc_mv[k], la->f[A].lowres, la->pc_bmv,
+                                  NULL);
             uint64_t leaf = fwd[k] < bwd ? fwd[k] : bwd;
             if (bi < leaf)
                 leaf = bi;
@@ -583,6 +623,178 @@ int n265_la_brun(struct n265_encoder *e, int maxa)
     }
     if (trace)
         fprintf(stderr, "BRUN d=%d pick A=%d\n", la->f[0].display_idx, best_a);
+    return best_a;
+}
+
+/* --- the bits model (`--b-adapt 4`, docs/phase7-gop-design.md D1) --- */
+
+/* log2 in Q16, table-driven off the top eight mantissa bits. Integer end
+ * to end on purpose: the sum below runs over every lowres block of every
+ * candidate run of every mini-GOP, and an integer sum is both faster than
+ * libm and reproducible without depending on a libm's rounding. The
+ * truncation costs at most 2^-9 of a bit per block. */
+static int32_t g_log2q16[257];
+
+static void log2q16_init(void)
+{
+    if (g_log2q16[256])
+        return;                     /* log2(2) x 65536, never zero */
+    for (int i = 0; i <= 256; i++)
+        g_log2q16[i] = (int32_t)lround(log2(1.0 + i / 256.0) * 65536.0);
+}
+
+static int32_t log2_q16(uint32_t x)
+{
+    int e = 31 - __builtin_clz(x);              /* x >= 1 */
+    uint32_t m = e >= 8 ? (x >> (e - 8)) : (x << (8 - e));   /* 256..511 */
+    return (int32_t)(e << 16) + g_log2q16[m - 256];
+}
+
+/* The dead zone the model prices against, as log2 of a lowres 8x8 SAD.
+ *
+ * ctu.c admits a CLEAN SKIP - no residual coded at all - when a CU's
+ * distortion is under qstep^2/4 per pixel, scaled by N265_ES_THR percent
+ * (`skip_clean_thr`, read from the same env with the same default rather
+ * than reached into). A block the encoder would skip outright is a block
+ * this model must price at zero, so that admission IS the threshold; it
+ * only has to be carried into the lookahead's units:
+ *
+ *   per-pixel MSE bound     m = qstep^2 / 4 x pct/100
+ *   per-pixel |residual|    r = sqrt(m) = qstep/2 x sqrt(pct/100)
+ *   a lowres 8x8 block is 64 samples, each the 2x2 MEAN of the full-res
+ *   picture, and the residual a dead zone rules on is smooth at the
+ *   scale of a 2x2, so the mean carries it through undiminished:
+ *   T(qp) = 64 r = 32 x qstep x sqrt(pct/100).
+ *
+ * qstep = 2^((qp - 4)/6), ctu.c's own. Taking the 2x2 mean as lossless is
+ * the optimistic end of the conversion: a white residual would shrink by
+ * two and halve T. That factor is NOT free - it does not cancel, because
+ * the max(0, .) is the whole term - and it is the one number in the model
+ * that is asserted rather than measured. It is asserted from the
+ * encoder's own admission at the frame's own QP, which is the most the
+ * lookahead can know before the frame is coded. */
+static int32_t brun_logT_q16(int qp)
+{
+    static int pct = -1;
+    if (pct < 0) { const char *v = n265_env("N265_ES_THR"); pct = v ? atoi(v) : 100; }
+    double qstep = pow(2.0, (qp - 4) / 6.0);
+    double T = 32.0 * qstep * sqrt((double)pct / 100.0);
+    if (T < 1.0)
+        T = 1.0;
+    return (int32_t)lround(log2(T) * 65536.0);
+}
+
+/* Frame bits in Q16: sum over blocks of max(0, log2(sad / T)). A block
+ * under the dead zone is free, which is the term `--b-adapt 2` did not
+ * have; above it the price grows with the log of the residual, which is
+ * what a quantiser followed by an entropy coder does. A per-block syntax
+ * floor is deliberately absent: the block count is the same for every
+ * candidate and every frame, so a constant per block adds the same
+ * amount to every candidate's amortised price and cannot move the pick. */
+static uint64_t blk_bits(const uint32_t *sad, int nb, int32_t logT)
+{
+    uint64_t sum = 0;
+    for (int b = 0; b < nb; b++) {
+        uint32_t s = sad[b];
+        if (!s)
+            continue;
+        int32_t v = log2_q16(s) - logT;
+        if (v > 0)
+            sum += (uint64_t)v;
+    }
+    return sum;
+}
+
+/* The depth plan_brange (encoder.c) gives each leaf of a run of A, and
+ * whether it is referenced: the same midpoint recursion, mirrored here
+ * because the planner builds its arrays on the encoder and this runs
+ * before the plan exists. The leaf's depth is what sets its QP, and its
+ * QP is what sets its dead zone - the asymmetry the whole model is for. */
+static void brun_depths(int blo, int bhi, int depth, int *d, int *nref)
+{
+    if (blo > bhi)
+        return;
+    int mid = (blo + bhi) / 2;
+    d[mid] = depth;
+    nref[mid] = !((blo <= mid - 1) || (mid + 1 <= bhi));
+    brun_depths(blo, mid - 1, depth + 1, d, nref);
+    brun_depths(mid + 1, bhi, depth + 1, d, nref);
+}
+
+/* `--b-adapt 4`: the b-adapt 2 trellis with the per-block cost replaced
+ * by the bits proxy above, each frame priced at the QP it will actually
+ * be coded at (n265_planned_qp, encoder.c). The anchor sits at distance
+ * A + 1 and pays P's cascade; every leaf pays its own depth's, which is
+ * two to four QP higher, so its dead zone is wider and more of its blocks
+ * are free. That is the term that lets a long run win on static content
+ * where a residual sum always prefers the shortest prediction distance.
+ * Amortised over A + 1 frames and minimised over A, ties to the longer
+ * run, exactly as `--b-adapt 2`. N265_BRUN_TRACE prints the per-frame
+ * prediction for every candidate. */
+int n265_la_brun_bits(struct n265_encoder *e, int maxa)
+{
+    n265_la *la = &e->la;
+    if (maxa < 1)
+        return 0;
+    if (!la->anchor_valid || maxa >= la->count || maxa > 7)
+        return maxa;
+    int nb = la->bw * la->bh;
+    log2q16_init();
+    for (int k = 0; k <= maxa; k++)
+        pair_cost(la, la->f[k].lowres, la->anchor_lowres, 0, k, 1,
+                  la->pc_mv[k], la->pc_sad[k]);
+    int trace = n265_brun_trace();
+    int qp_p = n265_planned_qp(e, 1, 0, 0);
+    int32_t lt_p = brun_logT_q16(qp_p);
+    int best_a = 1;
+    double best_c = 0;
+    for (int A = 1; A <= maxa; A++) {
+        int dep[8], nref[8];
+        brun_depths(0, A - 1, 1, dep, nref);
+        uint64_t anchor = blk_bits(la->pc_sad[A], nb, lt_p);
+        uint64_t c = anchor;
+        if (trace)
+            fprintf(stderr, "BRUNB d=%d A=%d k=%d disp=%d type=1 qp=%d "
+                    "bits=%.2f\n", la->f[0].display_idx, A, A,
+                    la->f[A].display_idx, qp_p, anchor / 65536.0);
+        for (int k = 0; k < A; k++) {
+            int qp_b = n265_planned_qp(e, 0, dep[k], nref[k]);
+            int32_t lt_b = brun_logT_q16(qp_b);
+            pair_cost(la, la->f[k].lowres, la->f[A].lowres, k + 1, A, -1,
+                      la->pc_bmv, la->pc_bsad);
+            uint64_t bi = bi_cost(la, la->f[k].lowres, la->anchor_lowres,
+                                  la->pc_mv[k], la->f[A].lowres, la->pc_bmv,
+                                  la->pc_bisad);
+            uint64_t bf = blk_bits(la->pc_sad[k], nb, lt_b);
+            uint64_t bb = blk_bits(la->pc_bsad, nb, lt_b);
+            uint64_t leaf = bf < bb ? bf : bb;
+            if (bi != UINT64_MAX) {
+                uint64_t bbi = blk_bits(la->pc_bisad, nb, lt_b);
+                if (bbi < leaf)
+                    leaf = bbi;
+            }
+            c += leaf;
+            if (trace)
+                fprintf(stderr, "BRUNB d=%d A=%d k=%d disp=%d type=0 qp=%d "
+                        "dep=%d nref=%d fwd=%.2f bwd=%.2f bi=%.2f "
+                        "bits=%.2f\n", la->f[0].display_idx, A, k,
+                        la->f[k].display_idx, qp_b, dep[k], nref[k],
+                        bf / 65536.0, bb / 65536.0,
+                        bi == UINT64_MAX ? -1.0
+                                         : blk_bits(la->pc_bisad, nb, lt_b) / 65536.0,
+                        leaf / 65536.0);
+        }
+        double per = (double)c / 65536.0 / (double)(A + 1);
+        if (A == 1 || per <= best_c) {
+            best_c = per;
+            best_a = A;
+        }
+        if (trace)
+            fprintf(stderr, "BRUNBA d=%d A=%d total=%.2f per=%.2f\n",
+                    la->f[0].display_idx, A, c / 65536.0, per);
+    }
+    if (trace)
+        fprintf(stderr, "BRUNB d=%d pick A=%d\n", la->f[0].display_idx, best_a);
     return best_a;
 }
 

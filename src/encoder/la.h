@@ -71,6 +71,9 @@ typedef struct n265_la {
     int anchor_valid;
     int16_t *pc_mv[8];      /* priced b-adapt: forward MVs per candidate */
     int16_t *pc_bmv;        /* and the backward search's scratch */
+    uint32_t *pc_sad[8];    /* b-adapt 4: the same searches' PER-BLOCK SAD */
+    uint32_t *pc_bsad;      /* backward scratch */
+    uint32_t *pc_bisad;     /* bidirectional scratch */
 } n265_la;
 
 int n265_la_init(struct n265_encoder *e);
@@ -78,6 +81,10 @@ void n265_la_free(struct n265_encoder *e);
 
 /* per-file knob warming, on the driver at open; see n265_ctu_warm */
 void n265_la_warm(void);
+
+/* N265_BRUN_TRACE: price the bits trellis and print it, whatever rule is
+ * actually deciding the run (docs/instruments.md) */
+int n265_brun_trace(void);
 
 /* copy the picture in, build lowres + costs vs the previous queued frame */
 void n265_la_push(struct n265_encoder *e, const uint8_t *const plane[3],
@@ -105,6 +112,12 @@ void n265_la_set_anchor(struct n265_encoder *e, int i);
  * amortised lowres cost of coding `A` B frames under one anchor at
  * distance A+1, minimised over A. Needs a valid anchor plane. */
 int n265_la_brun(struct n265_encoder *e, int maxa);
+
+/* the same trellis priced in BITS rather than residual: each frame's
+ * blocks costed max(0, log2(sad / dead zone at that frame's planned QP)),
+ * which is the term that lets a long run win (docs/phase7-gop-design.md
+ * D1). Needs a valid anchor plane. */
+int n265_la_brun_bits(struct n265_encoder *e, int maxa);
 
 /* the B-run length the anchor-prediction degradation rule allows */
 int n265_la_degrade(struct n265_encoder *e, int maxa, double thr);

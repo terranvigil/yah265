@@ -97,8 +97,10 @@ void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes,
 void n265_set_crf(double crf) { g_crf = crf; }
 void n265_set_bitrate(double kbps) { g_bitrate = kbps > 0.0 ? kbps : 0.0; }
 void n265_set_ref(int n) { g_ref = n < 1 ? 1 : n > N265_MAX_REF ? N265_MAX_REF : n; }
-/* 0 off (fixed cadence), 1 the motion rule, 2 the priced mini-GOP */
-void n265_set_badapt(int on) { g_badapt = on < 0 ? 0 : on > 3 ? 3 : on; }
+/* 0 off (fixed cadence), 1 the motion rule (the default), 2 the priced
+ * mini-GOP, 3 the degradation ratio, 4 the priced mini-GOP in BITS.
+ * 2, 3 and 4 are refused arms kept for re-pricing (docs/ideas.md). */
+void n265_set_badapt(int on) { g_badapt = on < 0 ? 0 : on > 4 ? 4 : on; }
 
 void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes,
                    int aq)
@@ -1914,6 +1916,40 @@ static void job_run(void *ctx, int lane, int idx)
     entropy_frame(e, fw);
 }
 
+/* The QP a frame of this kind WILL be coded at, for the lookahead's bits
+ * model (`--b-adapt 4`, n265_la_brun_bits): the same base and the same
+ * fixed cascade dispatch_frame applies below, sitting next to it so the
+ * two are read together and move together.
+ *
+ * What it leaves out is everything that does not exist before the frame
+ * is typed - the cu-tree frame term, the AQ frame mean, the per-CTU
+ * offsets, the base's carried fraction and the flat branch. That is
+ * sound here because the model ranks candidate RUN LENGTHS against each
+ * other and the omitted terms are frame properties the run length does
+ * not choose; what the run length does choose is the CASCADE each leaf
+ * sits at, and the cascade is the whole of what this returns. Under ABR
+ * the base is the rate factor rc.c last solved, which is the only
+ * forward estimate the driver has. */
+int n265_planned_qp(const n265_encoder *e, int slice_type, int b_depth,
+                    int nonref)
+{
+    double base = e->qp_base;
+    if (e->abr_on) {
+        base = e->rc_rf;
+    } else if (e->crf_on) {
+        double shift = 0.0;
+        if (e->cutree) { const char *v = n265_env("N265_CRF_SHIFT"); shift = v ? atof(v) : 5.4; }
+        base = e->crf + shift;
+    }
+    double pb = 1.0; { const char *v = n265_env("N265_PB_STEP"); if (v) pb = atof(v); }
+    int cascade = slice_type == 2 ? -3
+                : slice_type == 0 ? (int)lround(1 + b_depth * pb) : 0;
+    if (slice_type == 0 && (e->crf_on || e->abr_on) && e->pb_cascade_on)
+        cascade = nonref ? e->pb_cascade_l : e->pb_cascade_r;
+    int q = (int)lround(base) + cascade;
+    return q < 0 ? 0 : q > 51 ? 51 : q;
+}
+
 /* Dispatch one frame: everything that is driver-serial by construction
  * (the QP ladder, the AQ field, the headers, the record and estimator
  * reset), then the frame's job onto the pool. The driver does NOT wait
@@ -2697,6 +2733,11 @@ static void build_plan_order(n265_encoder *e)
         A = n265_la_degrade(e, keymax, dthr);
     } else if (e->badapt == 2 && keymax >= 1) {
         A = n265_la_brun(e, keymax);
+    } else if (e->badapt == 4 && keymax >= 1) {
+        /* b-adapt 4: the same trellis priced in BITS rather than residual,
+         * every frame at its own planned QP, so a leaf's wider dead zone
+         * is visible to the comparison (docs/phase7-gop-design.md D1). */
+        A = n265_la_brun_bits(e, keymax);
     } else
     for (int i = 1; i <= maxa; i++) {
         if (la_is_idr(e, i)) break;
@@ -2713,6 +2754,16 @@ static void build_plan_order(n265_encoder *e)
             if (m > bthr) break;    /* this frame ends the run (it is the anchor) */
         }
     }
+    /* N265_BRUN_TRACE under a rule that is NOT the bits model: price the
+     * trellis anyway and throw the answer away. That is what lets the
+     * model's per-frame prediction be read against the frames the encoder
+     * actually coded, which is step 1's first measurement and the one
+     * that can close D1. Output-neutral - it writes only the priced
+     * b-adapt scratch, which no other rule reads - and it runs only with
+     * the variable set. */
+    if (e->badapt != 4 && keymax >= 1 && n265_brun_trace())
+        (void)n265_la_brun_bits(e, keymax);
+
     if (A == 0) {                       /* next frame is a key frame: front is a plain P */
         e->plan_li[0] = 0; e->plan_kind[0] = 1; e->plan_depth[0] = 0; e->plan_nonref[0] = 0;
         e->plan_len = 1; e->plan_pop = 1;
