@@ -369,6 +369,17 @@ def measure_clip(tmp, name, size, frames, src, bd_only):
 
 
 def main():
+    # an unknown flag used to mean "run the full timed board": an agent's
+    # --help started one on the real CSV (2026-09-11). Refuse anything not
+    # listed instead.
+    known = {"--quick", "--bd-only", "--synth", "--note", "--clips"}
+    argv = sys.argv[1:]
+    i = 0
+    while i < len(argv):
+        if argv[i] not in known:
+            sys.exit(f"board.py: unknown argument {argv[i]!r}; flags: "
+                     f"{' '.join(sorted(known))} (--note TEXT, --clips a,b)")
+        i += 2 if argv[i] in ("--note", "--clips") else 1
     quick = "--quick" in sys.argv
     bd_only = "--bd-only" in sys.argv
     synth = "--synth" in sys.argv
