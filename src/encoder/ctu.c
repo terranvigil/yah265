@@ -745,22 +745,102 @@ static int skip_exit(void)
  * `NO_RECT` charged foreman 5.02 for in step 4: where the 2Nx2N vector
  * does not explain the CU, rect is already gone and the intra ARM is
  * what is left carrying it, so gating the arm leaves no answer at all.
- * docs/phase6b-economy.md, step 5. */
+ * docs/phase6b-economy.md, step 5.
+ *
+ * **6 to 9 are step 6**, the search step 5 left open: the room between
+ * mode 5's margin and mode 2's disjunct. The oracle
+ * (`N265_INTRA_ORACLE`) measured the population first, and it says three
+ * things.
+ *
+ * One: **mode 2's quantiser-floor disjunct is not a filter.** It fires
+ * on every CU the family reaches that the skip disjunct has not already
+ * taken - 91.8% of foreman's population and 87.2% of coastguard's, with
+ * 98% of those at or under HALF the bound. Mode 2 never meant "gate
+ * where the inter side is at the floor"; it meant gate the arm
+ * everywhere, and no tighter floor recovers anything because the
+ * distribution has no shoulder to cut at.
+ *
+ * Two: **mode 5's prefilter is already the discriminator.** Split the
+ * population by whether the prefilter would gate the trial anyway and
+ * the intra trial wins 6.9% / 8.6% of the half it gates against 64.6% /
+ * 72.5% of the half it keeps. Inside what is left the trial usually
+ * WINS, so the ceiling of a trial-only gate is low: mode 6, which drops
+ * every trial mode 5 keeps, is bitstream-identical to mode 2 and is only
+ * 1.078x / 1.014x, under this item's own 1.05x bar.
+ *
+ * Three: **the slice type is the one feature that separates inside it**,
+ * and neither of the two the brief proposed does. The inter winner's
+ * kind reads 66.4% against 60.8% on foreman and the other way on
+ * coastguard; a size floor is the wrong sign on coastguard outright.
+ * The B slice reads 19.5% / 1.6% against P's 83.4% / 86.0%, because an
+ * intra CU in a B also pays `N265_B_INTRA_MARGIN`'s 30% for cutting the
+ * prediction chain.
+ *
+ * **7 is the default since 2026-09-11 (phase 6b step 6).** In the floor
+ * population of a B slice, on a frame not typed flat-shaded, the intra
+ * arm stands down - rank and trial both, because a condition that reads
+ * only the slice type can be decided where mode 2's disjunct is decided,
+ * above the rank, and the rank is a third of the arm's wall on this
+ * encoder rather than the quarter this comment used to claim. That is
+ * the whole of its margin over the ceiling: it gates 29% / 16% of the
+ * trials mode 6 gates and is FASTER than mode 6 on mobile.
+ * **1.065x foreman / 1.042x mobile, geomean 1.053x, for +0.02 CQP and
+ * +0.01 CRF of band median** with 7/7 ahead in both modes and a worst
+ * clip of foreman +0.31 CQP - one seventeenth of what mode 2 charged
+ * the same clip. Cheapest rung on the ladder by points per percent.
+ *
+ * The flat-shaded exception is step 4's, for step 4's reason: on a drawn
+ * outline over a fill the intra arm IS the answer, and without the
+ * exception `sita_toon_720p` pays 1.94 CQP where the CIF seven pay
+ * 0.02. With it, all three animation clips are byte-identical to the
+ * pre-step-6 encoder and all twelve natural ones are byte-identical to
+ * the gate with no exception (24 cells of `cmp`).
+ *
+ * 8 adds the trial wherever the ranked intra SAD is within an eighth of
+ * the merge SAD: 1.058x geomean for +0.42 CQP of band mean and
+ * `coastguard_cif` +1.27, a marginal price of 72 points per multiple
+ * against `SBH_RD`'s 5. Refused on price. 9 gates the trial in B slices
+ * at a quarter-margin; it cannot reach the rank, so it is strictly
+ * slower AND cheaper than 7, and 7 costs 0.31 on its worst clip. 6 is
+ * kept as the calibration point it is: it prices mode 2's quality
+ * exactly. docs/phase6b-economy.md, step 6. */
 static int intra_gate(void)
 {
     static int v = -1;
     if (v < 0) {
         const char *s = n265_env("N265_INTRA_GATE");
-        v = s ? atoi(s) : 5;    /* the prefilter at the tighter margin (R12) */
+        v = s ? atoi(s) : 7;    /* + the B-slice arm gate (6b step 6) */
     }
     return v;
 }
 
-/* modes 4 and 5: the prefilter's margin, in eighths of the merge
- * candidate's SAD */
+/* mode 4's prefilter margin, and every mode above it, in eighths of the
+ * merge candidate's SAD */
 static int intra_pf_q8(void)
 {
     return intra_gate() >= 5 ? 8 : 12;
+}
+
+/* N265_INTRA_ORACLE (trace, never a default; phase 6b step 6). Turns
+ * the intra-gate family off and runs the full arm - rank and RD trial -
+ * at every CU the family reaches, then prints one `IO,` line per CU on
+ * which mode 2's disjuncts WOULD have fired. The line carries what a
+ * gate could condition on (CU size, which inter candidate won, that
+ * winner's distortion against the quantiser floor, the prefilter's two
+ * SADs) next to the outcome the gate is trying to predict (whether the
+ * intra trial won the 2Nx2N RD comparison, and by how much), so
+ * P(intra wins | mode 2 fires) can be split by feature before a gate is
+ * designed rather than after. It CHANGES the bitstream by construction
+ * - it un-gates the shipped prefilter - so it is a measurement tool and
+ * never a default. */
+static int intra_oracle(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_INTRA_ORACLE");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
 }
 
 /* P3 mode 3: every decoded 4x4 along this CU's left and top edges is
@@ -2824,28 +2904,52 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
              * calls the frame intra-heavy - sc_ratio at or above 0.6,
              * just under the 0.75 scenecut bar - because that is the
              * content whose intra CUs are the coding. */
+            /* modes 6+ and the oracle carry the floor disjunct past the
+             * arm gate to the trial gate below, where the 35-mode rank
+             * has reported its own evidence. */
+            int floor_only = 0, or_on = 0, or_d1 = 0, or_iwin = 0;
+            uint64_t or_dinter = 0, or_thr = 0, or_jinter = 0;
             if (intra_gate() && !gate_intra && e->sc_ratio < 0.6f) {
                 uint64_t j_inter = j_skip, d_inter = d_skip;
-                if (j_merge < j_inter) { j_inter = j_merge; d_inter = d_merge; }
-                if (j_amvp < j_inter) { j_inter = j_amvp; d_inter = d_amvp; }
+                int iwin = 0;
+                if (j_merge < j_inter) { j_inter = j_merge; d_inter = d_merge; iwin = 1; }
+                if (j_amvp < j_inter) { j_inter = j_amvp; d_inter = d_amvp; iwin = 2; }
                 int g = 0;
+                uint64_t thr = skip_clean_thr(e->cur_ctu_qp, n);
                 /* the 2Nx2N winner is the skip: the neighbours' motion
                  * explains the block with no residual at all, and an
                  * intra CU there codes a prediction mode and a residual
                  * to say the same thing */
-                if (j_inter == j_skip)
-                    g = 1;
+                int d1 = (j_inter == j_skip);
                 /* the winning inter candidate's distortion is already at
                  * the quantiser floor (per-pixel MSE within qstep^2), so
                  * intra has no distortion left to buy and can only spend
                  * bits */
-                if ((intra_gate() == 2 || intra_gate() == 3) && !g &&
-                    d_inter <= 4 * skip_clean_thr(e->cur_ctu_qp, n))
+                int d2 = d_inter <= 4 * thr;
+                if (d1)
+                    g = 1;
+                if ((intra_gate() == 2 || intra_gate() == 3) && !g && d2)
                     g = 1;
                 /* and the neighbourhood agrees: no intra structure is
                  * arriving from either decoded edge */
                 if (intra_gate() == 3 && !g && nb_inter_clean(e, x0, y0, n))
                     g = 1;
+                floor_only = d2 && !d1;
+                /* modes 7 and 8 decide the B half of their gate off the
+                 * slice type alone, so it can stand where mode 2's
+                 * disjunct stands - before the 35-mode rank - and take
+                 * the rank with it. The bitstream is the same either
+                 * way: the rank's output is read only by the RD trial. */
+                if ((intra_gate() == 7 || intra_gate() == 8) && !g &&
+                    floor_only && e->slice_type == 0 && !e->flat)
+                    g = 1;
+                or_iwin = iwin;
+                if (intra_oracle()) {
+                    or_on = 1;
+                    or_d1 = d1;
+                    or_dinter = d_inter; or_thr = thr; or_jinter = j_inter;
+                    g = 0;
+                }
                 gate_intra = g;
             }
 
@@ -2856,17 +2960,38 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             if (!gate_intra) {
             imode = search_luma_mode(e, x0, y0, log2n, e->recon[0],
                                      e->recon_stride[0],
-                                     intra_gate() >= 4 ? &isad : NULL);
-            /* P3 modes 4 and 5: the 35-mode rank is the cheap half of
-             * the intra arm (3.8% of the encode against the RD trial's
-             * 10-14%) and it reports its winner's prediction SAD in the
-             * same units the merge candidate was ranked in. Where the
-             * best intra prediction is worse than the merge one by this
-             * margin, the RD trial is bought to lose. */
-            if (intra_gate() >= 4 && e->sc_ratio < 0.6f &&
+                                     intra_gate() >= 4 || intra_oracle()
+                                         ? &isad : NULL);
+            /* P3 modes 4 and up: the 35-mode rank is the cheaper half of
+             * the intra arm - about a third of what the arm costs on the
+             * post-NEON encoder, not the quarter P3 measured - and it
+             * reports its winner's prediction SAD in the same units the
+             * merge candidate was ranked in. Where the best intra
+             * prediction is worse than the merge one by this margin, the
+             * RD trial is bought to lose. */
+            if (!intra_oracle() && intra_gate() >= 4 && e->sc_ratio < 0.6f &&
                 (uint64_t)isad * 8u >
                     (uint64_t)cand_plain_sad * (unsigned)intra_pf_q8())
                 gate_intra = 1;
+            /* modes 6-9 (phase 6b step 6): the RD trial, and only the
+             * trial, on the half of mode 2's population the prefilter
+             * lets through. 6 is the ceiling - every such trial - and
+             * 7/8/9 are the subsets the oracle found. */
+            if (!intra_oracle() && intra_gate() >= 6 && floor_only &&
+                !gate_intra && e->sc_ratio < 0.6f &&
+                (intra_gate() == 6 || !e->flat)) {
+                int take = 1;
+                if (intra_gate() == 7)
+                    take = 0;       /* taken above, rank included */
+                else if (intra_gate() == 8)
+                    take = (uint64_t)isad * 8u >=
+                        (uint64_t)cand_plain_sad * 7u;
+                else if (intra_gate() == 9)
+                    take = e->slice_type == 0 &&
+                        (uint64_t)isad * 4u >= (uint64_t)cand_plain_sad * 3u;
+                if (take)
+                    gate_intra = 1;
+            }
             }
             if (!gate_intra) {
             tb_analyze(e, 1, x0 / 2, y0 / 2, log2n - 1, qp_c, imode,
@@ -2927,6 +3052,19 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                     j_intra_adm = j_intra * (uint64_t)(100 + mg) / 100;
             }
             if (j_intra_adm < best) { best = j_intra; kind = 3; }
+
+            if (or_on) {
+                /* IO,size,slice,codeidx,d1,iwin,d_inter,thr,isad,csad,
+                 *    j_inter,j_intra,intra_won */
+                fprintf(stderr,
+                        "IO,%d,%d,%d,%d,%d,%llu,%llu,%u,%u,%llu,%llu,%d\n",
+                        n, e->slice_type, e->code_idx, or_d1, or_iwin,
+                        (unsigned long long)or_dinter,
+                        (unsigned long long)or_thr,
+                        isad, cand_plain_sad,
+                        (unsigned long long)or_jinter,
+                        (unsigned long long)j_intra, kind == 3);
+            }
 
             /* rectangular and asymmetric partitions. Gated the way the
              * expensive candidates are: a static region (skip won, or the
@@ -3603,7 +3741,8 @@ void n265_ctu_warm(void)
     (void)no_split_on(); (void)no_earlyskip_on(); (void)cb64_trace_on();
     (void)skip_thr8(); (void)es_thr_pct(); (void)rskip_mode();
     (void)cbf_fast(); (void)gate_scale(); (void)skip_exit();
-    (void)intra_gate(); (void)intra_pf_q8(); (void)part_gate();
+    (void)intra_gate(); (void)intra_pf_q8(); (void)intra_oracle();
+    (void)part_gate();
     (void)part_amp_margin(); (void)rect_rank(); (void)n265_rect_flat();
     (void)depth_bound();
     (void)depth_bound_widen(); (void)depth_bound_local();

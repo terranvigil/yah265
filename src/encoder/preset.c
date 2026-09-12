@@ -127,7 +127,7 @@ static const struct kv fast_tab[] = {
  * it always was.
  *
  * Order follows the ladder in docs/phase6b-economy.md: step 2's six,
- * then step 3's two, then step 4's one. */
+ * then step 3's two, step 4's one, and step 6's one. */
 static const struct kv slow_tab[] = {
     { "N265_CB64_AMVP",  "1" },   /* the 64x64 AMVP arm back on        */
     { "N265_RSKIP",      "0" },   /* recursion never stopped early     */
@@ -142,6 +142,9 @@ static const struct kv slow_tab[] = {
                                    * ones alone. N265_RECT_FLAT needs no
                                    * entry - it is inert wherever rect
                                    * is already on                     */
+    { "N265_INTRA_GATE", "5" },   /* step 6: the prefilter alone, so the
+                                   * intra arm is entered in a B slice
+                                   * as well as a P                    */
     /* phase 7: the cu-tree frame term off, which is what keeps slow the
      * phase-5-exit medium. N265_CT_FRAME_UP, N265_CT_UP_GATE and
      * N265_CT_FRAMEW_FLAT need no entry - all three are inert wherever k_f
