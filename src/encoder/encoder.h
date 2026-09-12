@@ -196,6 +196,24 @@ enum {
     N265_CB_COUNT
 };
 
+/* N265_DEPTH_DUMP (phase 7 item 4, step 0): the per-CTU training record.
+ * Everything above `dmin` is a PRE-DECISION feature - it comes off the
+ * lookahead's lowres maps, the frame's own source luma or the AQ field,
+ * all of which are frozen before the CTU is analysed - and `dmin`/`dmax`
+ * are the depth range the unbounded quadtree actually used, which is the
+ * thing a bound has to predict. The instrument is inert: it only reads. */
+struct n265_depth_rec {
+    float ctqp;             /* the cu-tree field, QP units, before rounding */
+    float lvar;             /* log2(CTU source luma variance + 1)           */
+    float fine;             /* log2(var - var of the 2x-down plane + 1)     */
+    float ratio;            /* sum(pcost) / sum(icost) over the 16 blocks   */
+    float mvmean, mvspread; /* lowres |MV| mean and (max - min) over them   */
+    uint16_t imean, imax;   /* lowres intra cost, mean and max              */
+    uint16_t pmean, pmax;   /* lowres inter cost, mean and max              */
+    uint8_t qp;             /* the CTU's final QP                           */
+    uint8_t dmin, dmax;     /* the target                                   */
+};
+
 /* The coding context (docs/threading-design.md sec 4, T0 audit).
  *
  * One instance per frame in flight, and one SHALLOW COPY per row lane.
@@ -318,7 +336,14 @@ typedef struct n265_frame_work {
     float sc_ratio;         /* lookahead pcost/icost (P3) */
     float la_mvabs;         /* lookahead mean |MV| per lowres block (N265_CT_TRACE) */
     const uint16_t *la_icost, *la_pcost;
+    const int16_t *la_mv;   /* lowres MV pairs, same grid (N265_DEPTH_DUMP) */
     int la_bw, la_bh;
+
+    /* N265_DEPTH_DUMP: one record per coded CTU, filled by the row job
+     * into its own slot and written out on the driver at retirement, so
+     * the file is in raster order at every thread count. Allocated only
+     * when the knob is set; NULL is the shipping encoder. */
+    struct n265_depth_rec *dd_rec;
 
     /* ---- decision maps, frame-owned ---- */
     uint8_t *ct_depth;      /* 4x4-granularity coding-tree depth map */

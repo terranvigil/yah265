@@ -492,6 +492,21 @@ static void fw_config(n265_encoder *e, n265_frame_work *fw)
         fw->pad_stride[i] = e->pad_stride[i];
 }
 
+/* N265_DEPTH_DUMP=file (phase 7 item 4, step 0): where the per-CTU
+ * training records go. Read once on the driver at encoder open, with the
+ * other warms, so no row job ever performs the first read. Unset - the
+ * shipping encoder - leaves fw->dd_rec NULL and every site below is a
+ * NULL test. */
+static const char *depth_dump_file(void)
+{
+    static const char *f = (const char *)-1;
+    if (f == (const char *)-1) {
+        const char *s = n265_env("N265_DEPTH_DUMP");
+        f = (s && *s) ? s : NULL;
+    }
+    return f;
+}
+
 static int fw_open(n265_encoder *e, n265_frame_work *fw)
 {
     fw_config(e, fw);
@@ -514,6 +529,11 @@ static int fw_open(n265_encoder *e, n265_frame_work *fw)
     fw->ctu_qp_raw = calloc(nctu, sizeof(float));
     fw->ctu_lam_q8 = calloc(nctu, sizeof(uint16_t));
     fw->sao = calloc(nctu, sizeof(sao_params));
+    if (depth_dump_file()) {
+        fw->dd_rec = calloc(nctu, sizeof(struct n265_depth_rec));
+        if (!fw->dd_rec)
+            return -1;
+    }
     if (!fw->ctu_dmin || !fw->ctu_dmax || !fw->ct_depth || !fw->intra_mode ||
         !fw->edge_map || !fw->blk_intra || !fw->blk_skip || !fw->blk_cbf_y ||
         !fw->blk_mv || !fw->blk_pred || !fw->blk_ref || !fw->blk_qp ||
@@ -563,6 +583,7 @@ static void fw_close(n265_frame_work *fw)
     free(fw->ctu_qp_off);
     free(fw->ctu_qp_raw);
     free(fw->ctu_lam_q8);
+    free(fw->dd_rec);
     free(fw->sao);
     for (int i = 0; i < 3; i++) {
         free(fw->sao_tmp[i]);
@@ -2530,6 +2551,30 @@ static void join_oldest(n265_encoder *e)
     pack_nal(d, fw->nal_type, fw->rbsp.buf, fw->rbsp.bytes);
     e->n_done++;
     dump_recon_frame(e, fw);
+    /* N265_DEPTH_DUMP: the frame's per-CTU training records, in raster
+     * order. The row jobs filled their own slots; the write happens here,
+     * on the driver, in coding order, so the file is a pure function of
+     * the encode and not of the schedule. */
+    if (fw->dd_rec) {
+        FILE *df = fopen(depth_dump_file(), "a");
+        if (df) {
+            for (int cy = 0; cy < fw->ctb_rows; cy++)
+                for (int cx = 0; cx < fw->ctb_cols; cx++) {
+                    const struct n265_depth_rec *r =
+                        &fw->dd_rec[cy * fw->ctb_cols + cx];
+                    fprintf(df,
+                        "DD,%d,%d,%d,%d,%d,%d,%d,%d,%.3f,%.3f,%.3f,"
+                        "%u,%u,%u,%u,%.4f,%.2f,%.2f,%d,%d\n",
+                        fw->display_idx, fw->slice_type, fw->b_depth,
+                        fw->nonref, fw->flat, cx, cy, r->qp,
+                        r->ctqp, r->lvar, r->fine,
+                        r->imean, r->imax, r->pmean, r->pmax,
+                        r->ratio, r->mvmean, r->mvspread,
+                        r->dmin, r->dmax);
+                }
+            fclose(df);
+        }
+    }
     if (fw->cu_stats) {
         /* one CSV row per frame: what the entropy pass actually wrote.
          * Shares are of the coded luma area, so they sum to 1. Printed
@@ -2723,6 +2768,7 @@ void n265_encoder_warm(void)
     (void)dpb_hold(); (void)hf_cache_on(); (void)hf2_mode_env();
     (void)hf2_tpp_env(); (void)hf2_tpp14_env();
     (void)min_keyint_env(); (void)intra_min_env(); (void)force_nonidr_env();
+    (void)depth_dump_file();
 }
 
 static int min_keyint(n265_encoder *e)
@@ -3210,6 +3256,7 @@ static int drive_scheduler(n265_encoder *e)
                        ? (float)f->mvabs_sum / (float)(la->bw * la->bh) : 0.0f;
     fw->la_icost = f->icost;        /* the same field per CTU, R3 reads it */
     fw->la_pcost = f->pcost;
+    fw->la_mv = f->mv;              /* N265_DEPTH_DUMP only */
     fw->la_bw = la->bw;
     fw->la_bh = la->bh;
     /* D1: freeze the RPS here, while the marked set is still the one the

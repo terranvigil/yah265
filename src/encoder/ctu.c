@@ -3757,6 +3757,108 @@ static void depth_bounds(struct n265_frame_work *e, int ctb_x, int ctb_y)
     e->db_hi = hi + w < maxd ? hi + w : maxd;
 }
 
+/* N265_DEPTH_DUMP: this CTU's pre-decision features, into its own record
+ * slot. Every term comes off the lookahead's lowres maps, the frame's own
+ * source luma or the AQ field, all frozen before the frame launched, so
+ * the record is the same at every thread count and nothing here reads a
+ * decided value. Called after the quadtree only because that is where the
+ * target is known; the features do not depend on it.
+ *
+ * The variance and `fine` are recomputed here rather than read off the AQ
+ * pass: that pass keeps `lv[]` on its own stack, its content depends on
+ * N265_AQ_SIGNAL and N265_AQ_FLOOR, and it does not run at all with
+ * `--aq 0`. Recomputing costs one pass over the CTU's luma and is paid
+ * only when the instrument is on. The formulas are encoder.c's. */
+static void depth_dump_features(struct n265_frame_work *e, int ctb_x,
+                                int ctb_y)
+{
+    struct n265_depth_rec *r = &e->dd_rec[ctb_y * e->ctb_cols + ctb_x];
+    int ctb = 1 << e->ctb_log2;
+    int x0 = ctb_x << e->ctb_log2, y0 = ctb_y << e->ctb_log2;
+    int w = x0 + ctb > e->pad_w ? e->pad_w - x0 : ctb;
+    int h = y0 + ctb > e->pad_h ? e->pad_h - y0 : ctb;
+
+    r->qp = (uint8_t)e->cur_ctu_qp;
+    r->ctqp = e->ctu_qp_raw ? e->ctu_qp_raw[ctb_y * e->ctb_cols + ctb_x] : 0;
+
+    /* full-resolution variance, and the part of it the 2x-down plane does
+     * not explain (`fine`, phase 7 M1') */
+    int ps = e->pad_stride[0];
+    int64_t s1 = 0, s2 = 0;
+    for (int y = y0; y < y0 + h; y++)
+        for (int x = x0; x < x0 + w; x++) {
+            int v = e->pad_plane[0][(size_t)y * ps + x];
+            s1 += v;
+            s2 += (int64_t)v * v;
+        }
+    int np = w * h;
+    double var = np ? (double)s2 / np - ((double)s1 / np) * ((double)s1 / np)
+                    : 0.0;
+    if (var < 0.0) var = 0.0;
+    double fine = var;
+    int hw = w >> 1, hh = h >> 1;
+    if (hw > 0 && hh > 0) {
+        int64_t t1 = 0, t2 = 0;
+        for (int y = 0; y < hh; y++) {
+            const uint8_t *p = e->pad_plane[0] + (size_t)(y0 + 2 * y) * ps + x0;
+            for (int x = 0; x < hw; x++) {
+                int d = (p[2 * x] + p[2 * x + 1] +
+                         p[2 * x + ps] + p[2 * x + ps + 1] + 2) >> 2;
+                t1 += d;
+                t2 += (int64_t)d * d;
+            }
+        }
+        int n2 = hw * hh;
+        double v2 = (double)t2 / n2 - ((double)t1 / n2) * ((double)t1 / n2);
+        fine -= v2 < 0.0 ? 0.0 : v2;
+        if (fine < 0.0) fine = 0.0;
+    }
+    r->lvar = (float)log2(var + 1.0);
+    r->fine = (float)log2(fine + 1.0);
+
+    /* the lowres 8x8 blocks under the CTU - 16 of them at CTB 64, since a
+     * lowres block is 16 full-res pixels at any resolution */
+    r->imean = r->imax = r->pmean = r->pmax = 0;
+    r->ratio = -1.0f;
+    r->mvmean = r->mvspread = 0.0f;
+    if (e->la_icost && e->la_bw) {
+        int b0x = x0 >> 4, b0y = y0 >> 4, nb = ctb >> 4;
+        uint64_t ic = 0, pc = 0;
+        unsigned imax = 0, pmax = 0, cnt = 0;
+        uint64_t mvs = 0;
+        unsigned mvlo = ~0u, mvhi = 0;
+        for (int by = b0y; by < b0y + nb && by < e->la_bh; by++)
+            for (int bx = b0x; bx < b0x + nb && bx < e->la_bw; bx++) {
+                int b = by * e->la_bw + bx;
+                unsigned i = e->la_icost[b], p = e->la_pcost[b];
+                ic += i; pc += p;
+                if (i > imax) imax = i;
+                if (p > pmax) pmax = p;
+                if (e->la_mv) {
+                    int mx = e->la_mv[2 * b], my = e->la_mv[2 * b + 1];
+                    unsigned m = (unsigned)(abs(mx) + abs(my));
+                    mvs += m;
+                    if (m < mvlo) mvlo = m;
+                    if (m > mvhi) mvhi = m;
+                }
+                cnt++;
+            }
+        if (cnt) {
+            uint64_t im = ic / cnt, pm = pc / cnt;
+            r->imean = (uint16_t)(im > 65535 ? 65535 : im);
+            r->pmean = (uint16_t)(pm > 65535 ? 65535 : pm);
+            r->imax = (uint16_t)(imax > 65535 ? 65535 : imax);
+            r->pmax = (uint16_t)(pmax > 65535 ? 65535 : pmax);
+            if (ic)
+                r->ratio = (float)((double)pc / (double)ic);
+            if (e->la_mv) {
+                r->mvmean = (float)((double)mvs / cnt);
+                r->mvspread = (float)(mvhi - (mvlo == ~0u ? 0u : mvlo));
+            }
+        }
+    }
+}
+
 void n265_analyze_ctu(struct n265_frame_work *e, int ctb_x, int ctb_y)
 {
     int ctb_k = ctb_y * e->ctb_cols + ctb_x;
@@ -3772,7 +3874,7 @@ void n265_analyze_ctu(struct n265_frame_work *e, int ctb_x, int ctb_y)
     depth_bounds(e, ctb_x, ctb_y);
     (void)quadtree(e, ctb_x << e->ctb_log2, ctb_y << e->ctb_log2,
                    e->ctb_log2, 0);
-    if (depth_bound()) {    /* record what this CTU actually used */
+    if (depth_bound() || e->dd_rec) {  /* what this CTU actually used */
         int x0 = ctb_x << e->ctb_log2, y0 = ctb_y << e->ctb_log2;
         int n = 1 << e->ctb_log2;
         int xe = (x0 + n) >> 2, ye = (y0 + n) >> 2;
@@ -3786,8 +3888,15 @@ void n265_analyze_ctu(struct n265_frame_work *e, int ctb_x, int ctb_y)
                 if (d > hi) hi = d;
             }
         int k = ctb_y * e->ctb_cols + ctb_x;
-        e->ctu_dmin[k] = (uint8_t)(lo == 0xff ? 0 : lo);
-        e->ctu_dmax[k] = (uint8_t)hi;
+        if (depth_bound()) {
+            e->ctu_dmin[k] = (uint8_t)(lo == 0xff ? 0 : lo);
+            e->ctu_dmax[k] = (uint8_t)hi;
+        }
+        if (e->dd_rec) {
+            e->dd_rec[k].dmin = (uint8_t)(lo == 0xff ? 0 : lo);
+            e->dd_rec[k].dmax = (uint8_t)hi;
+            depth_dump_features(e, ctb_x, ctb_y);
+        }
     }
     if (e->ent_qp_coded)
         e->ent_qp_prev = e->cur_ctu_qp;
