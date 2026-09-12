@@ -73,6 +73,9 @@ DEFAULT_OVERRIDES = {
                                          # a flat-typed frame too
     "N265_AQ_FLOOR": "4",                # `if (v) vfloor = atof(v)`: the
                                          # literal is not last on the line
+    # phase 7 item 2 M2: unset is the shipped margin itself, through a
+    # sentinel the DEFVAL idiom cannot read
+    "N265_DECIMATE_GRAD": "= N265_DECIMATE",
     # phase 7 step 2. k_f ships at 1.0 (the literal carries an f suffix);
     # its flat-frame twin follows k_b, which is today's form; and the two
     # cascade knobs take "r,l" or "auto", not a number.
