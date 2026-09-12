@@ -284,6 +284,7 @@ typedef struct n265_frame_work {
 
     /* lookahead hand-off, frozen before the frame launches */
     float sc_ratio;         /* lookahead pcost/icost (P3) */
+    float la_mvabs;         /* lookahead mean |MV| per lowres block (N265_CT_TRACE) */
     const uint16_t *la_icost, *la_pcost;
     int la_bw, la_bh;
 
@@ -489,6 +490,9 @@ struct n265_encoder {
                                frame's side of the nearest scenecut only */
     float ct_frame_up;      /* N265_CT_FRAME_UP: bound on the term's positive side
                                alone, in QP steps (negative = unbounded) */
+    float ct_up_gate;       /* N265_CT_UP_GATE: the content gate on that bound -
+                               the raise is released on a frame whose lookahead
+                               sc_ratio is above this. 0 = gate off */
     int pb_cascade_on;      /* N265_PB_CASCADE=r,l is in force (CRF/ABR only;
                                "auto" is the 1 + b_depth ladder) */
     int pb_cascade_r;       /* its referenced-B step */
@@ -675,8 +679,26 @@ static inline double n265_ct_frame_term(const struct n265_encoder *e,
      * multi-shot gate is the most static one, whose leaves cannot use a lower
      * QP and whose anchors carry the picture. 0 forbids the raise outright;
      * negative is unbounded, the step 2 form. */
-    if (e->ct_frame_up >= 0.0f && t > (double)e->ct_frame_up)
-        t = (double)e->ct_frame_up;
+    double up = (double)e->ct_frame_up;
+    /* N265_CT_UP_GATE (phase 7 follow-up 2): the bound above is one answer for
+     * the whole encode, and the raise is worth 0.6 of band median where it
+     * does not cost. sc_ratio is the lookahead's own pcost/icost for this
+     * frame, low where the previous picture already predicts it; above the
+     * threshold the bound comes off, at or below it the bound stands.
+     *
+     * The threshold is NOT a static/moving split, which is what the item was
+     * briefed to build and what its own trace suggested. A gate that releases
+     * the raise on every shot but the most static one reads the same
+     * across-shot cost as no gate at all. What the raise charges for is the
+     * low-ratio FRAME wherever it occurs, which is why 0.24 still gates two
+     * thirds of a shot as busy as foreman.
+     *
+     * A flat-typed frame keeps its branch: the term is identically zero there
+     * by default, and no phase 7 term has moved that clip class. 0 = off. */
+    if (e->ct_up_gate != 0.0f && !fw->flat && fw->sc_ratio > e->ct_up_gate)
+        up = -1.0;
+    if (up >= 0.0 && t > up)
+        t = up;
     return t;
 }
 

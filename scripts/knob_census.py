@@ -80,6 +80,9 @@ DEFAULT_OVERRIDES = {
     "N265_CT_FRAMEW_FLAT": "= N265_CT_QPW",
     "N265_CT_FRAME_CLAMP": "0",          # unbounded; the literal carries an f
     "N265_CT_FRAME_UP": "0",             # no raise; likewise
+    # phase 7 follow-up 2: the content gate that releases that bound on a
+    # frame the previous picture does not already predict. Also an f literal.
+    "N265_CT_UP_GATE": "0.24",
     "N265_PB_CASCADE": "auto",
     "N265_PB_CASCADE_FLAT": "auto",
     "N265_ASM_OFF": "unset",             # a class-name list, not a number
