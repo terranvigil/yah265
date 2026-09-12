@@ -633,14 +633,11 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     { const char *v = n265_env("N265_CT_LAMBDA"); e->ct_lambda = v ? (float)atof(v) : 0.0f; }
     /* N265_CT_FRAMEW (k_f): the share of the cu-tree field's FRAME MEAN the
      * base QP carries under CRF, on cutree_str's scale, where N265_CT_QPW
-     * (k_b) is the share the per-CTU map carries. k_f == k_b is the term
-     * switched off and the pre-item encoder byte for byte, and it is the
-     * DEFAULT: 1.0 is worth 3.9 points of CIF-7 CRF band median with no clip
-     * in the thirteen worse, and phase 7 step 3 could not get the
-     * across-shot cost of it below +0.70% on ms_cif_30 (the whole table is
-     * in docs/phase7-modulation-design.md "Step 3 result"). It ships the day
-     * something does. */
-    { const char *v = n265_env("N265_CT_FRAMEW"); e->ct_framew = v ? (float)atof(v) : e->ct_qpw; }
+     * (k_b) is the share the per-CTU map carries. 1.0 ships (phase 7 step 2):
+     * half the field's mean, the other half being what the fixed I/P/B
+     * cascade was already double-counting. k_f == k_b switches the term off
+     * and is the pre-item encoder byte for byte, which is the escape. */
+    { const char *v = n265_env("N265_CT_FRAMEW"); e->ct_framew = v ? (float)atof(v) : 1.0f; }
     /* ...and on a flat-typed frame (la.h's content gate), where the field's
      * cross-frame reading is a content trade and not a double count: today's
      * form ships there, which is k_f = k_b. */
@@ -652,8 +649,14 @@ n265_encoder *n265_encoder_open(const n265_param *p)
       e->ct_frame_clamp = v ? (float)atof(v) : 0.0f; }
     { const char *v = n265_env("N265_CT_FRAME_SHOT");
       e->ct_frame_shot = v ? atoi(v) != 0 : 0; }
+    /* 0 ships (phase 7 step 3): the term may lower a frame's QP and never
+     * raise it. The raise is what the across-shot gate charges for - on the
+     * most static shot the leaves are nearly free and the anchors carry the
+     * picture - and forbidding it takes ms_cif_30 from +2.39% to +0.70%
+     * while the band keeps every point of its gain. Negative is unbounded,
+     * the step 2 form. */
     { const char *v = n265_env("N265_CT_FRAME_UP");
-      e->ct_frame_up = v ? (float)atof(v) : -1.0f; }
+      e->ct_frame_up = v ? (float)atof(v) : 0.0f; }
     /* N265_PB_CASCADE=r,l places the B steps of the fixed cascade by hand
      * (referenced B, leaf) instead of the 1 + b_depth form. Unset is that
      * form, so the default is today's; CRF/ABR only, because the cascade

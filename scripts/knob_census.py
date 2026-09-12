@@ -71,10 +71,10 @@ DEFAULT_OVERRIDES = {
     # phase 7 step 2. k_f ships at 1.0 (the literal carries an f suffix);
     # its flat-frame twin follows k_b, which is today's form; and the two
     # cascade knobs take "r,l" or "auto", not a number.
-    "N265_CT_FRAMEW": "= N265_CT_QPW",
+    "N265_CT_FRAMEW": "1.0",
     "N265_CT_FRAMEW_FLAT": "= N265_CT_QPW",
     "N265_CT_FRAME_CLAMP": "0",          # unbounded; the literal carries an f
-    "N265_CT_FRAME_UP": "-1",            # unbounded, likewise
+    "N265_CT_FRAME_UP": "0",             # no raise; likewise
     "N265_PB_CASCADE": "auto",
     "N265_PB_CASCADE_FLAT": "auto",
     "N265_ASM_OFF": "unset",             # a class-name list, not a number
