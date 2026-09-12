@@ -109,6 +109,11 @@ OVERRIDES = {
     # ~3339): a pin and a ceiling over the resolved auto budget, not a
     # default-off feature waiting to be re-priced
     "N265_AUTO_THREADS": "instrument", "N265_AUTO_THREADS_MAX": "instrument",
+    # -1 is "no forced picture", which reads nonzero to the heuristic. It is
+    # the diagnostic that puts a non-IDR I at a chosen display index, so the
+    # conformance vectors can carry the picture kind through both decoders
+    # on a source with no scene cut in it.
+    "N265_FORCE_NONIDR": "instrument",
 }
 
 # knobs whose nearest default-claim is correct but beyond the detector:

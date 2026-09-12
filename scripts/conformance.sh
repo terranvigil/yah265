@@ -314,6 +314,41 @@ run_vector ctu16_r3_b7_t12 352x288 24 testsrc2 "--keyint 12 --ctu 16 --ref 3 --b
 # catch.
 run_vector dpb_retire_b7_t1  352x288 30 testsrc2 "--keyint 10 --bframes 7 --ref 2 --crf 26 --aq 1 --cutree 1 --threads 1"
 run_vector dpb_retire_b7_t12 352x288 30 testsrc2 "--keyint 10 --bframes 7 --ref 2 --crf 26 --aq 1 --cutree 1 --threads 12"
+# 2026-09-12: the non-IDR intra picture. An I slice carried as a TRAIL_R,
+# so the POC line continues, the DPB is NOT flushed, and the picture
+# signals a short-term RPS of its own that uses none of the pictures it
+# lists - a shape nothing else in this suite produces. Two ways in, both
+# needed: the forced knob puts one mid-mini-GOP on a source with no cut
+# in it (deterministic, and the only way to place it at a chosen POC),
+# and the concat graph makes a REAL hard cut inside min-keyint, which is
+# the path the default takes. A decoder that drops the listed-but-unused
+# pictures at this picture, or that reads the POC as reset, loses the
+# reference the next mini-GOP predicts from, and the recon stops
+# matching - which is the whole gate. --keyint 250 keeps a periodic IDR
+# out of the way, and on the cut cells it is also what puts the auto
+# min-keyint (25 at 25 fps) above the cut; --ref 2 --bframes 7 makes the
+# carried set the widest it gets.
+run_vector_env "N265_FORCE_NONIDR=13" \
+           nonidr_forced_t1  352x288 24 testsrc2 "--keyint 250 --bframes 7 --ref 2 --crf 26 --aq 1 --cutree 1 --threads 1"
+run_vector_env "N265_FORCE_NONIDR=13" \
+           nonidr_forced_t12 352x288 24 testsrc2 "--keyint 250 --bframes 7 --ref 2 --crf 26 --aq 1 --cutree 1 --threads 12"
+NONIDR_CUT="testsrc2=size=176x144:rate=25:duration=0.4[a];smptebars=size=176x144:rate=25:duration=0.4[b];[a][b]concat=n=2:v=1:a=0"
+# (VENV around the graph form: the two wrappers set different variables
+# and run_vector reads both. N265_MIN_KEYINT=0 is what lets the detector
+# reach the new kind; the default 4 cannot place one.)
+VENV="N265_MIN_KEYINT=0"
+run_vector_graph "$NONIDR_CUT" \
+           nonidr_cut_t1  176x144 20 testsrc2 "--keyint 250 --bframes 7 --ref 2 --aq 1 --cutree 1 --threads 1"
+VENV="N265_MIN_KEYINT=0"
+run_vector_graph "$NONIDR_CUT" \
+           nonidr_cut_t12 176x144 20 testsrc2 "--keyint 250 --bframes 7 --ref 2 --aq 1 --cutree 1 --threads 12"
+VENV=""
+# ...and the same cut at the shipped bound, where it is an IDR instead.
+# Both structures have to be conformant on the same source, and this cell
+# is what says the two differ on a source that has a cut inside the
+# window at all.
+run_vector_graph "$NONIDR_CUT" \
+           nonidr_cut_idr_t12 176x144 20 testsrc2 "--keyint 250 --bframes 7 --ref 2 --aq 1 --cutree 1 --threads 12"
 if [ "$FAST" -eq 0 ]; then
     run_vector thr4_720    1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 4"
     run_vector thr12_720   1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 12"
