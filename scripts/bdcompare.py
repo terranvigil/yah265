@@ -67,6 +67,30 @@ def psnr_of(bitstream, src_raw):
 
 SUBSAMPLE = 1   # compute VMAF on every Nth frame (set from --subsample); 1 = all
 
+# Sample depth of the SOURCE and of the decode the metrics read (8 or 10), set
+# by bd_at_rate.py's --depth. It is not a property of the bitstream alone: a
+# Main10 stream decoded to yuv420p would be scored two bits narrower than the
+# source it is being compared against, which is a metric on content nobody
+# encoded. See docs/instruments.md, "The band at 10 bits".
+DEPTH = 8
+
+
+def _dec_pixfmt():
+    """(ffmpeg -pix_fmt, extra output flags) for a y4m decode at DEPTH.
+    yuv420p10le is not a registered y4m pixel format, so writing it needs
+    `-strict -1`; the tag that comes out is C420p10.
+
+    `-sws_dither none` matters only where the decode is NARROWER than the
+    stream - a Main10 bitstream scored in the 8-bit domain, which is the
+    8-vs-10 self-comparison. swscale dithers by default, and dither is
+    noise the encoder did not write; with it off the conversion is the
+    exact inverse of upshift10.sh's left shift by two (verified: the
+    upshifted corpus downshifts back to the original y4m byte for byte).
+    An 8-bit stream decoded to yuv420p converts nothing, so the flag
+    cannot move a number the 8-bit band ever read."""
+    return ("yuv420p10le", " -strict -1") if DEPTH > 8 else ("yuv420p", "")
+
+
 CHROMA_KEY = "chromaPSNR"
 
 
@@ -106,7 +130,9 @@ def vmaf_of(bitstream, src_path, work, per_frame=False):
     # bitstreams don't collide across threads.
     fd, dec = tempfile.mkstemp(suffix=".dec.y4m", dir=work); os.close(fd)
     fd, js = tempfile.mkstemp(suffix=".json", dir=work); os.close(fd)
-    sh(f'ffmpeg -v error -y -i "{bitstream}" -pix_fmt yuv420p "{dec}"')
+    pixfmt, strict = _dec_pixfmt()
+    sh(f'ffmpeg -v error -y -i "{bitstream}" -pix_fmt {pixfmt} '
+       f'-sws_dither none{strict} "{dec}"')
     binary = os.environ.get("VMAF", "vmaf")
     margs, primary, plabel = _vmaf_models()
     sub = f"--subsample {SUBSAMPLE}" if SUBSAMPLE > 1 else ""

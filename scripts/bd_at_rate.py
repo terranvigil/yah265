@@ -26,12 +26,17 @@ bd.SUBSAMPLE = 1
 # every lo/hi/final encode repeats a bisection point, so ~60% of the encodes
 # per clip are duplicates; and the reference arm is identical across every
 # one of our arms. Keyed by the exact command with {q} filled, the source
-# path and size, and a hash of the encoder binary named first in the
-# template (looking past a leading `env VAR=..`, so a rebuild of ours never
-# hits a stale entry), and every N265_* variable in the environment (arms
-# are selected by them; the command string alone cannot tell arms apart).
-# BD_CACHE names the directory (default ~/.cache/yah265-bd); BD_CACHE=0
-# disables it.
+# path and size, the SAMPLE DEPTH, and a hash of the encoder binary named
+# first in the template (looking past a leading `env VAR=..`, so a rebuild
+# of ours never hits a stale entry), and every N265_* variable in the
+# environment (arms are selected by them; the command string alone cannot
+# tell arms apart). BD_CACHE names the directory (default
+# ~/.cache/yah265-bd); BD_CACHE=0 disables it.
+#
+# The depth is in the key EXPLICITLY (phase 8 item 4), not left to the
+# source path that happens to differ: a 10-bit point must never be served
+# for an 8-bit one, and the depth changes what the METRIC read as well as
+# what the encoder wrote (bdcompare.DEPTH picks the decode format).
 _CACHE = os.environ.get("BD_CACHE", os.path.expanduser("~/.cache/yah265-bd"))
 if _CACHE == "0":
     _CACHE = None
@@ -74,10 +79,19 @@ def _bin_hash(tmpl):
     return _binhash[exe]
 
 
+def _depth_key():
+    """The depth term of both memo keys. EMPTY at 8, so every 8-bit entry
+    already in the cache keeps its key and the depth mode costs the 8-bit
+    band nothing; `d10|` at Main10, so a 10-bit point can never be served
+    for an 8-bit one even if the two ever named the same source."""
+    return "" if bd.DEPTH == 8 else f"d{bd.DEPTH}|"
+
+
 def _key(tmpl, q, src):
     cmd = tmpl.format(q=str(q), src=src, out="{out}")
     st = os.stat(src)
-    return hashlib.sha256(f"{cmd}|{src}|{st.st_size}|{_bin_hash(tmpl)}|"
+    return hashlib.sha256(f"{cmd}|{src}|{st.st_size}|{_depth_key()}"
+                          f"{_bin_hash(tmpl)}|"
                           f"{_env_key()}".encode()).hexdigest()[:24]
 
 
@@ -123,7 +137,8 @@ def _content_json(out, src):
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     st = os.stat(src)
-    h.update(f"|{src}|{st.st_size}|{bd.SUBSAMPLE}|{bd._vmaf_models()[0]}".encode())
+    h.update(f"|{src}|{st.st_size}|{_depth_key()}{bd.SUBSAMPLE}|"
+             f"{bd._vmaf_models()[0]}".encode())
     d = os.path.join(_CACHE, "vmaf")
     os.makedirs(d, exist_ok=True)
     return os.path.join(d, h.hexdigest()[:24] + ".json")
@@ -214,9 +229,17 @@ def main():
                     help="comma-separated target byte sizes")
     ap.add_argument("--label-a", default="A")
     ap.add_argument("--label-b", default="B")
+    ap.add_argument("--srcdir", default="tests/corpus",
+                    help="where the source y4m lives (local/corpus10 for the "
+                         "upshifted Main10 corpus)")
+    ap.add_argument("--depth", type=int, default=8, choices=(8, 10),
+                    help="sample depth of the source and of the decode the "
+                         "metrics read; in both memo keys")
     args = ap.parse_args()
 
-    src = f"tests/corpus/{args.clip}.y4m"
+    # before any encode or any key: the depth picks the decode format
+    bd.DEPTH = args.depth
+    src = os.path.join(args.srcdir, args.clip + ".y4m")
     targets = [int(x) for x in args.targets.split(",")]
     work = tempfile.mkdtemp(prefix="bdrate.")
     a = curve(args.a, src, targets, work, args.label_a)
@@ -244,4 +267,7 @@ def main():
     print(line)
 
 
-main()
+# guarded so the bisection and the encode memo can be imported
+# (scripts/bd_8v10.py); running the file is exactly what it was
+if __name__ == "__main__":
+    main()
