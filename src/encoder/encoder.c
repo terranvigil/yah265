@@ -119,7 +119,6 @@ void n265_set_crf(double crf) { g_crf = crf; g_crf_on = 1; }
  * points are: include/yah265.h is another item's file this round. */
 void n265_set_lossless(int on);
 void n265_set_lossless(int on) { g_lossless = on != 0; }
-void n265_set_crf(double crf) { g_crf = crf; }
 void n265_set_bitrate(double kbps) { g_bitrate = kbps > 0.0 ? kbps : 0.0; }
 void n265_set_ref(int n) { g_ref = n < 1 ? 1 : n > N265_MAX_REF ? N265_MAX_REF : n; }
 /* 0 off (fixed cadence), 1 the motion rule (the default), 2 the priced

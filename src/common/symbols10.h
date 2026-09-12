@@ -215,6 +215,7 @@
 #define n265_scratch_free            n265_scratch_free_10
 #define n265_scratch_new             n265_scratch_new_10
 #define n265_set_shot_window         n265_set_shot_window_10
+#define n265_set_lossless            n265_set_lossless_10
 #define n265_sig_ctx_map4x4          n265_sig_ctx_map4x4_10
 #define n265_sig_pat                 n265_sig_pat_10
 #define n265_ssd_wh                  n265_ssd_wh_10

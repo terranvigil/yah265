@@ -44,6 +44,7 @@ void n265_set_bitrate_10(double kbps);
 void n265_set_ref_10(int n);
 void n265_set_badapt_10(int on);
 void n265_set_threads_10(int n);
+void n265_set_lossless_10(int on);
 int  n265_set_preset_10(const char *name);
 int  n265_preset_param_10(const char *key, int fallback);
 n265_encoder *n265_encoder_open_10(const n265_param *p);
@@ -69,6 +70,7 @@ typedef struct n265_api {
     int  (*set_preset)(const char *);
     int  (*preset_param)(const char *, int);
     void (*set_shot_window)(int);
+    void (*set_lossless)(int);
     n265_encoder *(*encoder_open)(const n265_param *);
     int  (*encoder_encode)(n265_encoder *, n265_nal **, int *,
                            const n265_picture *);
@@ -82,7 +84,7 @@ typedef struct n265_api {
 static const n265_api api8 = {
     8, n265_param_default, n265_set_mode, n265_set_la, n265_set_crf,
     n265_set_bitrate, n265_set_ref, n265_set_badapt, n265_set_threads,
-    n265_set_preset, n265_preset_param, n265_set_shot_window,
+    n265_set_preset, n265_preset_param, n265_set_shot_window, n265_set_lossless,
     n265_encoder_open, n265_encoder_encode, n265_encoder_close,
     n265_version_str, n265_encoder_set_dump, n265_encoder_set_dump_decode,
     n265_encoder_set_shot_stats,
@@ -92,7 +94,8 @@ static const n265_api api10 = {
     10, n265_param_default_10, n265_set_mode_10, n265_set_la_10,
     n265_set_crf_10, n265_set_bitrate_10, n265_set_ref_10,
     n265_set_badapt_10, n265_set_threads_10, n265_set_preset_10,
-    n265_preset_param_10, n265_set_shot_window_10, n265_encoder_open_10,
+    n265_preset_param_10, n265_set_shot_window_10, n265_set_lossless_10,
+    n265_encoder_open_10,
     n265_encoder_encode_10, n265_encoder_close_10, n265_version_str_10,
     n265_encoder_set_dump_10, n265_encoder_set_dump_decode_10,
     n265_encoder_set_shot_stats_10,
@@ -540,15 +543,7 @@ int main(int argc, char **argv)
                 "lossless modes; pick one\n");
         return 2;
     }
-    n265_set_mode(pcm ? 1 : 0, qp, ctb_log2, keyint, bframes, aq);
-    n265_set_lossless(lossless);
-    if (crf >= 0) n265_set_crf(crf);
-    if (bitrate > 0) n265_set_bitrate(bitrate);
-    n265_set_ref(nref);
-    n265_set_badapt(badapt);
-    n265_set_la(lookahead, cutree);
-    n265_set_shot_window(shot_window);
-    n265_set_threads(threads);
+    a->set_lossless(lossless);
     n265_param p;
     a->param_default(&p);
     p.width = y.w;
