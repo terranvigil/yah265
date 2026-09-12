@@ -19,8 +19,19 @@
  *
  * The run has to be longer than the number of slots the frames in flight
  * hold. That is not K but K rounded up to a mini-GOP, because pops
- * happen at mini-GOP ends: K + bframes bounds it. LA_MAX sizes the array
- * for the worst case; only `la->cap` slots are allocated. */
+ * happen at mini-GOP ends: K + bframes bounds it. LA_MAX sizes the VIEW
+ * - the frames the decision machinery may read - for the worst case; the
+ * slot array itself is `la->cap` entries, allocated at open from the
+ * shape the encoder was opened with.
+ *
+ * The queue's FILL and its VIEW are two different numbers since the shot
+ * planner (2026-09-12, phase 7 item 6 step 2). `--shot-window N` makes
+ * the queue hold N frames so the planner can see a whole shot, while the
+ * view stays `depth + 1` - what `--rc-lookahead` asks for - so cu-tree,
+ * b-adapt and the rate control read exactly the window they read at the
+ * default, and the only thing the mode moves is the shot's own base-QP
+ * offset. At the default fill IS depth, the view IS the whole queue, and
+ * `n265_la_view` is `la->count` identically. */
 /* The clamp is 32 since 2026-09-12 (phase 7 item 3, D3): the deep-window
  * mode wants `--rc-lookahead 24 --bframes 15`, and 20 is what the
  * streaming default of 12 was sized against. Nothing reaches past 12
@@ -31,6 +42,11 @@
 #define LA_DEPTH_MAX 32     /* --rc-lookahead clamp (20 before 2026-09-12) */
 #define LA_MAX (LA_DEPTH_MAX + 2 + 8 + 15)  /* + K + N265_MAX_BFRAMES */
 #define LA_MAX_CTUS 8160    /* 4K at CTB 32 */
+/* `--shot-window`'s bound. Not a quality limit - it is a MEMORY one: the
+ * queue holds one padded source picture per slot, which is 3.1 MB at
+ * 1080p, so 300 slots is a gigabyte of lookahead and nothing about a
+ * shot plan gets better for holding ten seconds of one. */
+#define N265_MAX_SHOT_WINDOW 300
 
 struct n265_encoder;
 struct n265_frame_work;
@@ -64,12 +80,18 @@ typedef struct la_frame {
     float *prop;            /* cu-tree propagate-in accumulator         */
     uint64_t icost_sum, pcost_sum;
     uint64_t mvabs_sum;     /* sum |lowres MV| over blocks (motion magnitude) */
+    /* --shot-window: the base-QP offset the shot plan gave this frame,
+     * and whether a plan has seen it yet. Written on the driver when the
+     * frame's shot is planned, read at dispatch, and carried by la_pop's
+     * shift with the rest of the slot. Both are 0 with the mode off. */
+    float shot_off;
+    uint8_t shot_planned;
 } la_frame;
 
 typedef struct n265_la {
-    la_frame f[LA_MAX];
+    la_frame *f;            /* `cap` slots, allocated at open */
     int count;              /* queued, in display order f[0..count-1] */
-    int cap;                /* slots allocated: depth + 2 + K, <= LA_MAX */
+    int cap;                /* slots allocated: fill + 2 + K + bframes */
     int lw, lh;             /* lowres dims */
     int bw, bh;             /* lowres 8x8 block grid */
     int depth;              /* target queue depth before draining */
@@ -87,6 +109,18 @@ typedef struct n265_la {
     uint32_t *pc_bsad;      /* backward scratch */
     uint32_t *pc_bisad;     /* bidirectional scratch */
 } n265_la;
+
+/* The frames the decision machinery may read - cu-tree, the b-adapt run
+ * length, the rate control's window walk. It is `la->count` at every
+ * setting the board runs (the driver drains to `depth` before it
+ * dispatches, so the queue never holds more than depth + 1 there) and it
+ * is what holds `--shot-window`'s deeper queue OUT of every window term:
+ * the mode buys the planner a longer look and changes nothing else. */
+static inline int n265_la_view(const n265_la *la)
+{
+    int v = la->depth + 1;
+    return la->count < v ? la->count : v;
+}
 
 int n265_la_init(struct n265_encoder *e);
 void n265_la_free(struct n265_encoder *e);

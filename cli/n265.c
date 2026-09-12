@@ -14,6 +14,7 @@
 void n265_encoder_set_dump_decode(n265_encoder *e, FILE *f);
 void n265_encoder_set_dump(n265_encoder *e, FILE *f);
 void n265_encoder_set_shot_stats(n265_encoder *e, const char *path);
+void n265_set_shot_window(int n);
 
 typedef struct y4m_t {
     FILE *f;
@@ -101,6 +102,17 @@ static void usage(void)
         "                  Output is byte-identical at every value.\n"
         "  --dump-recon <file>  write reconstruction as raw YUV (the\n"
         "                  conformance gate compares decoders against it)\n"
+        "  --shot-window <n>  OPT-IN shot planner: buffer up to n frames so\n"
+        "                  the encoder can price a whole shot and offset its\n"
+        "                  base QP against the shots before it (0 = off, the\n"
+        "                  default; --crf only). LATENCY IS n FRAMES - 2.5 s\n"
+        "                  at 60 and 24 fps, 1 s at 60 and 60 fps - and the\n"
+        "                  queue holds n more source pictures, about 0.17\n"
+        "                  MiB each at CIF, 1.6 at 720p and 3.6 at 1080p, so\n"
+        "                  --shot-window 120 takes crowd_run_1080p from 357\n"
+        "                  to 717 MB of peak RSS. Max 300. What it buys and\n"
+        "                  what it costs the per-shot quality spread:\n"
+        "                  docs/phase7-shot-design.md.\n"
         "  --shot-stats <file>  per-shot JSON Lines sidecar, one object per\n"
         "                  shot in display order (N265_SHOT_STATS=file does\n"
         "                  the same). Output-neutral: the bitstream is\n"
@@ -125,6 +137,7 @@ int main(int argc, char **argv)
                                      * bare CLI used to hand out the tools-only
                                      * encoder (docs/instruments.md, board) */
     int threads = 0;
+    int shot_window = 0;        /* --shot-window; 0 = off, the default */
     const char *dump_decode_path = NULL;
     const char *preset = NULL;
     /* which structural flags the user gave: a preset supplies the rest */
@@ -167,6 +180,8 @@ int main(int argc, char **argv)
             pcm = 1;
         } else if (!strcmp(argv[i], "--dump-recon") && i + 1 < argc) {
             dump_path = argv[++i];
+        } else if (!strcmp(argv[i], "--shot-window") && i + 1 < argc) {
+            shot_window = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--shot-stats") && i + 1 < argc) {
             shot_path = argv[++i];
         } else if (!strcmp(argv[i], "--version")) {
@@ -231,6 +246,12 @@ int main(int argc, char **argv)
         fprintf(stderr, "n265: --rc-lookahead out of range 1..32\n");
         return 2;
     }
+    /* N265_MAX_SHOT_WINDOW, repeated here for the same reason the two
+     * above are: the CLI does not see the internal headers. */
+    if (shot_window < 0 || shot_window > 300) {
+        fprintf(stderr, "n265: --shot-window out of range 0..300\n");
+        return 2;
+    }
     /* The window has to CONTAIN the run it is asked to plan: a mini-GOP
      * of `bframes` leaves plus its anchor is bframes + 1 pictures, and
      * the planner only ever extends a run as far as the queue reaches
@@ -252,6 +273,7 @@ int main(int argc, char **argv)
     n265_set_ref(nref);
     n265_set_badapt(badapt);
     n265_set_la(lookahead, cutree);
+    n265_set_shot_window(shot_window);
     n265_set_threads(threads);
     n265_param p;
     n265_param_default(&p);

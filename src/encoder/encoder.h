@@ -446,6 +446,9 @@ typedef struct n265_frame_work {
     int rc_cls;
     double rc_cplx, rc_base;
     double rc_planned;      /* D4: the fair share rc_next handed this frame */
+    double shot_off;        /* --shot-window: this frame's shot plan, in QP
+                             * steps, already inside rc_base. 0 with the
+                             * mode off, which is every default encode. */
 
     /* ---- entropy, frame-level ---- */
     cabac_ctx_t ctx[CTX_COUNT];
@@ -609,6 +612,21 @@ struct n265_encoder {
     int bframes;
     int scenecut;
     int la_depth;
+    /* How many frames the queue FILLS to before the driver dispatches:
+     * `la_depth` at the default, `shot_window` where that is deeper. The
+     * two are different numbers only in the opt-in shot-planning mode,
+     * whose whole point is to hold a shot the 20-frame window cannot
+     * (la.h, docs/phase7-shot-design.md step 2). */
+    int la_fill;
+    /* --shot-window N / N265_SHOT_WINDOW: 0 = off, and off is the
+     * default, the board and every preset. Opt-in, CRF only, N frames of
+     * latency and N queue slots of memory. */
+    int shot_window;
+    double shot_k;          /* N265_SHOT_K: the offset's gain */
+    double shot_clamp;      /* N265_SHOT_CLAMP: |offset| bound, QP steps */
+    double shot_ema;        /* N265_SHOT_EMA: how fast the level follows */
+    double shot_level;      /* the running complexity level, per frame */
+    int shot_have_level;    /* seeded by the first shot planned */
     int cutree;
     n265_la la;             /* lookahead queue + stats               */
 

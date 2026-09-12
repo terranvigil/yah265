@@ -362,6 +362,7 @@ run_vector_graph "$NONIDR_CUT" \
 # the mode is priced at.
 run_vector deep_b15_t1  352x288 34 testsrc2 "--keyint 20 --bframes 15 --rc-lookahead 24 --ref 2 --b-adapt 0 --crf 26 --aq 1 --cutree 1 --threads 1"
 run_vector deep_b15_t12 352x288 34 testsrc2 "--keyint 20 --bframes 15 --rc-lookahead 24 --ref 2 --b-adapt 0 --crf 26 --aq 1 --cutree 1 --threads 12"
+<<<<<<< HEAD
 # 2026-09-12: --ref 3 above --bframes 7, which encoder open refused until
 # the pool was sized from the shape (item dpbpool). These are the two
 # shapes that refusal covered: --bframes 8, where the marked-picture peak
@@ -378,6 +379,17 @@ run_vector r3_b8_t1   352x288 30 testsrc2 "--keyint 12 --bframes 8 --rc-lookahea
 run_vector r3_b8_t12  352x288 30 testsrc2 "--keyint 12 --bframes 8 --rc-lookahead 20 --ref 3 --crf 26 --aq 1 --cutree 1 --threads 12"
 run_vector r3_b15_t1  352x288 34 testsrc2 "--keyint 20 --bframes 15 --rc-lookahead 24 --ref 3 --b-adapt 0 --crf 26 --aq 1 --cutree 1 --threads 1"
 run_vector r3_b15_t12 352x288 34 testsrc2 "--keyint 20 --bframes 15 --rc-lookahead 24 --ref 3 --b-adapt 0 --crf 26 --aq 1 --cutree 1 --threads 12"
+=======
+# 2026-09-12: the shot planner (phase 7 item 6 step 2), the other opt-in
+# mode the default path never takes. --shot-window 20 holds a queue far
+# deeper than --rc-lookahead asked for, which is new geometry for the
+# free run and for the flush, and --keyint 12 puts three shot openers in
+# 34 frames so several plans are priced and the base QP each one carries
+# lands in a real stream. CRF, because the mode refuses to run anywhere
+# else.
+run_vector shotwin_t1  352x288 34 testsrc2 "--keyint 12 --bframes 7 --shot-window 20 --crf 26 --aq 1 --cutree 1 --threads 1"
+run_vector shotwin_t12 352x288 34 testsrc2 "--keyint 12 --bframes 7 --shot-window 20 --crf 26 --aq 1 --cutree 1 --threads 12"
+>>>>>>> item-shotplan
 if [ "$FAST" -eq 0 ]; then
     run_vector thr4_720    1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 4"
     run_vector thr12_720   1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 12"

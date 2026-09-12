@@ -101,12 +101,18 @@ int n265_la_init(struct n265_encoder *e)
     la->bw = (la->lw + 7) / 8;
     la->bh = (la->lh + 7) / 8;
     la->depth = e->la_depth;
-    /* depth + 1 live slots, plus a free run longer than the slots the
+    /* fill + 1 live slots, plus a free run longer than the slots the
      * frames in flight can hold - K rounded up to a mini-GOP, because
-     * pops happen at mini-GOP ends (see la.h). */
-    la->cap = la->depth + 2 + e->K + e->bframes;
-    if (la->cap > LA_MAX)
-        la->cap = LA_MAX;
+     * pops happen at mini-GOP ends (see la.h). `e->la_fill` is the
+     * lookahead depth at the default and `--shot-window` where that is
+     * deeper: the SLOT ARRAY is sized from the shape the encoder was
+     * opened with rather than declared statically at the worst case, so
+     * the opt-in mode pays for its own queue and every default
+     * allocation is exactly the one it has always been. */
+    la->cap = e->la_fill + 2 + e->K + e->bframes;
+    la->f = calloc((size_t)la->cap, sizeof(la_frame));
+    if (!la->f)
+        return -1;
     for (int i = 0; i < la->cap; i++) {
         la_frame *f = &la->f[i];
         for (int c = 0; c < 3; c++) {
@@ -154,7 +160,10 @@ int n265_la_init(struct n265_encoder *e)
 
 void n265_la_free(struct n265_encoder *e)
 {
-    for (int i = 0; i < LA_MAX; i++) {
+    /* Reached from the open path's failure label too, where the slot
+     * array may be absent and the slots it holds half-filled: it is
+     * calloc'd, so every pointer below is either live or NULL. */
+    for (int i = 0; e->la.f && i < e->la.cap; i++) {
         la_frame *f = &e->la.f[i];
         for (int c = 0; c < 3; c++)
             free(f->src[c]);
@@ -164,6 +173,8 @@ void n265_la_free(struct n265_encoder *e)
         free(f->mv);
         free(f->prop);
     }
+    free(e->la.f);
+    e->la.f = NULL;
     free(e->la.anchor_lowres);
     e->la.anchor_lowres = NULL;
     for (int k = 0; k < N265_MAX_BFRAMES + 1; k++) {
@@ -244,6 +255,10 @@ void n265_la_push(struct n265_encoder *e, const uint8_t *const plane[3],
     la_frame *prev = la->count > 0 ? &la->f[la->count - 1] : NULL;
     f->valid = 1;
     f->display_idx = e->in_display_idx;
+    /* a recycled slot carries the last frame's plan; this one has none
+     * until the shot planner reaches it */
+    f->shot_off = 0.0f;
+    f->shot_planned = 0;
 
     /* Edge-replicate into the padded geometry here, once. encode_frame
      * used to re-pad this into a second frame-sized buffer every frame;
@@ -808,7 +823,11 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
 {
     n265_la *la = &e->la;
     int nb = la->bw * la->bh;
-    for (int k = 0; k < la->count; k++)
+    /* the WINDOW, not the queue: `--shot-window` holds more frames than
+     * `--rc-lookahead` asked for and the propagation horizon must not
+     * move with them (la.h) */
+    int nview = n265_la_view(la);
+    for (int k = 0; k < nview; k++)
         memset(la->f[k].prop, 0, (size_t)nb * sizeof(float));
 
     /* propagate along the real reference edges in reverse encode order:
@@ -818,7 +837,7 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
      * RECEIVE propagation. */
     int order[LA_MAX];
     int m = 0;
-    for (int k = 0; k < la->count; k++) {
+    for (int k = 0; k < nview; k++) {
         int rel = la->f[k].display_idx - e->gop_start_display;
         if ((rel & 1) == 0 || !e->bframes) {
             order[m++] = k;
@@ -841,7 +860,7 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
                 struct prop_tgt t = { k - 1, 0.5f, 0, 1 };
                 tgt[nt++] = t;
             }
-            if (k + 1 < la->count) {
+            if (k + 1 < nview) {
                 struct prop_tgt t = { k + 1, 0.5f, 1, 1 };
                 tgt[nt++] = t;
             }
@@ -946,7 +965,7 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
             } else {
                 double sum = 0;
                 int n = 0;
-                for (int k = 0; k < la->count; k++) {
+                for (int k = 0; k < nview; k++) {
                     const la_frame *g = &la->f[k];
                     double acc = 0;
                     int cnt = 0;
@@ -993,11 +1012,11 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
              * straddles a cut otherwise averages two shots' levels into one
              * term, so the frame is placed against content it does not
              * reference - the propagation walk already stops at the cut. */
-            int lo = 0, hi = la->count;
+            int lo = 0, hi = nview;
             if (e->ct_frame_shot) {
                 for (int k = i; k > 0; k--)
                     if (n265_la_scenecut(e, k)) { lo = k; break; }
-                for (int k = i + 1; k < la->count; k++)
+                for (int k = i + 1; k < nview; k++)
                     if (n265_la_scenecut(e, k)) { hi = k; break; }
             }
             double sum = 0, all = 0;

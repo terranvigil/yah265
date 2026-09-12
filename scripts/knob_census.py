@@ -117,6 +117,12 @@ OVERRIDES = {
     # conformance vectors can carry the picture kind through both decoders
     # on a source with no scene cut in it.
     "N265_FORCE_NONIDR": "instrument",
+    # the shot planner's three parameters (phase 7 item 6 step 2). Each
+    # resolves nonzero with no env and every one of them is moot unless
+    # --shot-window / N265_SHOT_WINDOW armed the mode, so they are that
+    # opt-in arm's parameters and not shipped defaults of their own -
+    # N265_CHROMA_W_PCT's case exactly.
+    "N265_SHOT_K": "arm", "N265_SHOT_CLAMP": "arm", "N265_SHOT_EMA": "arm",
 }
 
 # knobs whose nearest default-claim is correct but beyond the detector:
