@@ -501,6 +501,14 @@ struct n265_encoder {
                                frame, where today's ladder ships */
     int pb_cascade_flat_r, pb_cascade_flat_l;
     float aq_str;           /* N265_AQ_STR: per-CTU variance-AQ strength (default 0.7) */
+    int aq_signal;          /* N265_AQ_SIGNAL: 0 = log2(CTU variance), the
+                               shipped masking signal; 1 = log2(`fine`), the
+                               part of the variance its 2x-down plane does not
+                               explain (phase 7 M1') */
+    float aq_flat_sign;     /* N265_AQ_FLAT_SIGN: 0 = the per-CTU term stays
+                               off on a flat-typed frame (N265_AQ_CLAMP_FLAT);
+                               non-zero = on there with the PROTECTING sign,
+                               at this strength */
     int qp_round1;          /* N265_QP_ROUND1: round the cu-tree + AQ field once */
     int ref_valid;
 

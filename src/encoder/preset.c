@@ -101,6 +101,10 @@ static const struct kv fast_tab[] = {
      * positive-side bound and its content gate need no entry, both being
      * inert with the term off, and the operating point never moved. */
     { "N265_CT_FRAMEW",  "2" },
+    /* phase 7 M1': the per-CTU AQ signal moved to `fine` at medium; the
+     * presets keep the variance signal so both stay the measurement
+     * anchors they were (fast: the speed point; slow: the phase-5 medium) */
+    { "N265_AQ_SIGNAL",  "0" },
     { NULL, NULL }
 };
 
@@ -150,6 +154,10 @@ static const struct kv slow_tab[] = {
      * N265_CT_FRAMEW_FLAT need no entry - all three are inert wherever k_f
      * is already k_b                                                  */
     { "N265_CT_FRAMEW",  "2" },
+    /* phase 7 M1': the per-CTU AQ signal moved to `fine` at medium; the
+     * presets keep the variance signal so both stay the measurement
+     * anchors they were (fast: the speed point; slow: the phase-5 medium) */
+    { "N265_AQ_SIGNAL",  "0" },
     { NULL, NULL }
 };
 
