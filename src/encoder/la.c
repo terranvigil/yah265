@@ -17,10 +17,11 @@
 #include "encoder/preset.h"
 #include "encoder/satd.h"
 
-/* Share of whole 16x16 source luma blocks with variance under one, in
- * percent. A variance under one is a standard deviation under a single
- * luma level: a block that is one flat colour to within the smallest
- * step the quantiser reproduces. The walk is over the DISPLAYED picture,
+/* Share of whole 16x16 source luma blocks with variance under one 8-BIT
+ * luma level, in percent. A variance under one level is a standard
+ * deviation under a single luma level: a block that is one flat colour to
+ * within the smallest step the quantiser reproduces. The walk is over the
+ * DISPLAYED picture,
  * not the coded one - conformance padding is replicated and therefore
  * perfectly flat, and a picture 722 samples tall would otherwise get a
  * row of blocks that are 14/16 padding and vote flat whatever the
@@ -34,7 +35,21 @@
  * natural median. The default threshold of 10 sits in that gap with no
  * frame of any clip closer than a factor of 1.4 on the wrong side, which
  * is what makes this a content TYPE and not a threshold fitted to a
- * curve. */
+ * curve.
+ *
+ * At Main10 the UNIT is kept, not the number: "one luma level" stays one
+ * 8-BIT level, which is four sample steps at 10 bits, so the variance
+ * bound scales by 1 << (2 * BIT_DEPTH_SHIFT) and the range reject - which
+ * is a magnitude - by 1 << BIT_DEPTH_SHIFT. That is the only reading that
+ * makes an upshifted clip type the same frames flat as its 8-bit
+ * original, which is the property the corpus numbers above were measured
+ * under and the one that keeps the SAO content gate deciding the same
+ * way at both depths. Rescaling by the wrong power, or leaving the
+ * literals alone, would have made every 10-bit frame flat (the bound
+ * sixteen times too loose) or none of them (sixteen times too tight). */
+#define FLAT_RANGE_MAX  (32 << BIT_DEPTH_SHIFT)      /* 32 at 8, 128 at 10 */
+#define FLAT_VAR_BOUND  (65536ull << (2 * BIT_DEPTH_SHIFT))
+
 int n265_la_flat_pct(const struct n265_frame_work *fw)
 {
     const pixel *p = fw->pad_plane[0];
@@ -61,13 +76,15 @@ int n265_la_flat_pct(const struct n265_frame_work *fw)
                  * the first row of nearly every block. For any mean,
                  * one of the two extremes is at least (hi - lo) / 2
                  * away from it, so 256 * var >= ((hi - lo) / 2)^2 and a
-                 * range of 32 or more cannot be a variance under one. */
-                if (hi - lo >= 32)
+                 * range of 32 (of 128 at 10 bits) or more cannot be a
+                 * variance under one 8-bit level. */
+                if (hi - lo >= FLAT_RANGE_MAX)
                     break;
             }
-            /* var < 1  <=>  256*s2 - s1^2 < 256*256 */
-            if (hi - lo < 32 &&
-                (uint64_t)s2 * 256u - (uint64_t)s1 * s1 < 65536u)
+            /* var < T  <=>  256*s2 - s1^2 < 256*256*T, T one 8-bit level
+             * squared in native sample units */
+            if (hi - lo < FLAT_RANGE_MAX &&
+                (uint64_t)s2 * 256u - (uint64_t)s1 * s1 < FLAT_VAR_BOUND)
                 flat++;
         }
     return flat * 100 / (bw * bh);
@@ -700,6 +717,12 @@ static int32_t log2_q16(uint32_t x)
  * that is asserted rather than measured. It is asserted from the
  * encoder's own admission at the frame's own QP, which is the most the
  * lookahead can know before the frame is coded. */
+/* The `qp` here is the 8-BIT-DOMAIN QpY and must stay that way at
+ * Main10: the SADs this threshold is compared against are lowres ones,
+ * and the lowres plane carries 8-bit values at every depth (la.c's 2x2
+ * mean sheds BIT_DEPTH - 8 on the way in). Indexing qstep by Qp' here -
+ * which is right everywhere the quantity is a native sample - would make
+ * the dead zone four times too wide and collapse every --b-adapt 4 run. */
 static int32_t brun_logT_q16(int qp)
 {
     static int pct = -1;

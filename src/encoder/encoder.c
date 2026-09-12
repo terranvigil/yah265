@@ -1850,8 +1850,15 @@ static void dump_recon_frame(n265_encoder *e, n265_frame_work *fw)
     if (e->dump_recon) {
         /* display order: frames land at their display index (B frames
          * are encoded out of order, so seek) */
+        /* BYTES, and dump_planes writes sizeof(pixel) per sample, so the
+         * sample width belongs in here: at Main10 a frame is twice as
+         * long as its sample count, and without this every frame after
+         * the first landed at half its offset and a reordered B frame
+         * overwrote what was already there. The recon dump IS the
+         * conformance gate's reference, so this one is load-bearing. */
         long frame_bytes =
-            (long)e->param.width * e->param.height * 3 / 2;
+            (long)e->param.width * e->param.height * 3 / 2 *
+            (long)sizeof(pixel);
         fseek(e->dump_recon, (long)fw->display_idx * frame_bytes, SEEK_SET);
         dump_planes(fw, e->dump_recon);
     }
@@ -2146,7 +2153,7 @@ int n265_planned_qp(const n265_encoder *e, int slice_type, int b_depth,
     if (slice_type == 0 && (e->crf_on || e->abr_on) && e->pb_cascade_on)
         cascade = nonref ? e->pb_cascade_l : e->pb_cascade_r;
     int q = (int)lround(base) + cascade;
-    return q < 0 ? 0 : q > 51 ? 51 : q;
+    return n265_qp_clip(q);
 }
 
 /* Dispatch one frame: everything that is driver-serial by construction
@@ -2278,7 +2285,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
     int qi = (int)lround(base);
     double qfrac = frac_on ? base - (double)qi : 0.0;
     int q = qi + cascade;
-    fw->qp = q < 0 ? 0 : q > 51 ? 51 : q;
+    fw->qp = n265_qp_clip(q);
 
     if (e->frames_done == 0) {
         /* The headers are a pure function of config, so they are written
@@ -2355,8 +2362,15 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
              * the floor on both, the across-shot gate on ms_720p_50 went
              * -16.92% to -16.08%; with it on the per-CTU field alone the
              * gate holds. */
-            double vfloor = 4.0;
-            { const char *v = n265_env("N265_AQ_FLOOR"); if (v) vfloor = atof(v); }
+            /* A VARIANCE, so it scales by 1 << (2 * BIT_DEPTH_SHIFT) -
+             * 4 at 8 bits, 64 at Main10 - and the knob keeps its 8-bit
+             * meaning: two luma levels of standard deviation at whatever
+             * depth is being coded. Left at 4 the floor would never bind
+             * at 10 bits and the flat-fill pathology it exists for comes
+             * straight back. */
+            double vfloor = 4.0 * (double)(1 << (2 * BIT_DEPTH_SHIFT));
+            { const char *v = n265_env("N265_AQ_FLOOR");
+              if (v) vfloor = atof(v) * (double)(1 << (2 * BIT_DEPTH_SHIFT)); }
             double avg_dc = 0;      /* the same field WITHOUT the floor */
             for (int cy = 0; cy < fw->ctb_rows; cy++)
                 for (int cx = 0; cx < fw->ctb_cols; cx++) {
@@ -2373,7 +2387,13 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                     int np = w * h;
                     double var = (double)s2 / np -
                         ((double)s1 / np) * ((double)s1 / np);
-                    avg_dc += log2((var < 0.0 ? 0.0 : var) + 1.0);
+                    /* the +1 keeps log2 finite at a perfectly flat CTU,
+                     * and it is one SQUARED 8-bit level: scaling it with
+                     * the variance is what makes the whole field shift by
+                     * exactly 2 * BIT_DEPTH_SHIFT at Main10, which is
+                     * what the anchor below then subtracts back off. */
+                    avg_dc += log2((var < 0.0 ? 0.0 : var) +
+                                   (double)(1 << (2 * BIT_DEPTH_SHIFT)));
                     /* N265_AQ_SIGNAL=1 (phase 7 M1'): the per-CTU signal
                      * becomes `fine` - the CTU's full-resolution variance
                      * minus what its 2x-down plane explains - in place of
@@ -2420,7 +2440,8 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                         if (var < 0.0) var = 0.0;
                     }
                     if (var < vfloor) var = vfloor;
-                    lv[cy * fw->ctb_cols + cx] = log2(var + 1.0);
+                    lv[cy * fw->ctb_cols + cx] =
+                        log2(var + (double)(1 << (2 * BIT_DEPTH_SHIFT)));
                     avg += lv[cy * fw->ctb_cols + cx];
                 }
             avg /= nctu;
@@ -2431,13 +2452,21 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
              * goes on the BASE QP at its own strength (N265_AQ_DC, default
              * 1.0) against an absolute anchor in log2(variance) units
              * (N265_AQ_ANCHOR, default 6.4), so every base-keyed decision sees
-             * it; the per-CTU part below stays centred on the frame. */
+             * it; the per-CTU part below stays centred on the frame.
+             *
+             * The anchor is in log2(variance), so the depth term is
+             * ADDITIVE and not a scale: a variance sixteen times larger is
+             * four further up a log2 axis. Without the +4 every CRF and
+             * ABR frame of every 10-bit clip would take a flat +4 QP on
+             * its base - the largest single mis-calibration this item had
+             * to find, and one no conformance vector would have caught. */
             if (e->crf_on || e->abr_on) {
                 const char *v = n265_env("N265_AQ_DC"), *a = n265_env("N265_AQ_ANCHOR");
-                double dc = (v ? atof(v) : 1.0) * (avg_dc - (a ? atof(a) : 6.4));
+                double anchor = (a ? atof(a) : 6.4) + 2.0 * BIT_DEPTH_SHIFT;
+                double dc = (v ? atof(v) : 1.0) * (avg_dc - anchor);
                 int dci = (int)lround(dc);
                 int nq = fw->qp + dci;
-                fw->qp = nq < 0 ? 0 : nq > 51 ? 51 : nq;
+                fw->qp = n265_qp_clip(nq);
                 if (frac_on)
                     qfrac += dc - (double)dci;
             }

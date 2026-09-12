@@ -55,6 +55,14 @@ uint64_t n265_psy_cost(const pixel *src, int src_stride, const pixel *rec,
     uint32_t er = n265_psy_energy(rec, rec_stride, n);
     uint32_t d = es > er ? es - er : er - es;
     /* the Hadamard AC sum is ~ pixel-difference units x 2 per coefficient;
-     * scaled by lambda (Q8 -> real) like a rate term, at the strength */
-    return (uint64_t)((double)d * (double)lam_q8 / 256.0 * strength / 8.0);
+     * scaled by lambda (Q8 -> real) like a rate term, at the strength.
+     *
+     * The term joins an SSD sum, which grows by 1 << (2 * BIT_DEPTH_SHIFT)
+     * at Main10. `d` is a MAGNITUDE, so it carries one of those shifts,
+     * and lam_q8 - being a squared-domain lambda - carries both, so the
+     * product arrives one shift too strong. Taking it back out is what
+     * keeps a given N265_PSY the same perceptual weight at both depths;
+     * it folds away at 8 bits. */
+    return (uint64_t)((double)d * (double)lam_q8 / 256.0 * strength / 8.0)
+           >> BIT_DEPTH_SHIFT;
 }

@@ -50,4 +50,39 @@ typedef n265_pixel pixel;
  * by, and the one a deblocking tc/beta is scaled up by. */
 #define BIT_DEPTH_SHIFT (BIT_DEPTH - 8)
 
+/* ---------------------------------------------------------------------
+ * The QP convention (phase 8 item 2), because getting it wrong is a bug
+ * that only shows at the bottom of the ladder.
+ *
+ * EVERY `qp` variable in this encoder is the spec's QpY (or QpC): the
+ * 8-BIT-DOMAIN quantiser index, which runs `-QpBdOffsetY .. 51` and is
+ * therefore NEGATIVE below QP 0 at Main10. That is the number the user
+ * types at `--qp`, the number `slice_qp_delta` carries (7.4.7.1), and
+ * the number the deblocking filter indexes Table 8-12 with (8.7.2.5.3,
+ * where `qPL` is built from QpY and not from Qp'Y).
+ *
+ * Anything whose quantity scales with the QUANTISER STEP indexes its
+ * table with `qp + QP_BD_OFFSET` instead - the spec's Qp'Y, 0..63 - and
+ * that single substitution is exactly right for all of them, because a
+ * step, a lambda and a squared step are all powers of two in QP/6,
+ * QP/3 and QP/6 and QpBdOffset is 12 = 2*6 = 4*3. So the 8-bit table,
+ * extended upward by QP_BD_OFFSET entries of the same formula, IS the
+ * 10-bit table: no second calibration, no rescaling of a fitted number.
+ * ---------------------------------------------------------------- */
+
+/* QpY's inclusive range (7.4.3.3: init_qp_minus26 is in
+ * -(26 + QpBdOffsetY) .. +25, so SliceQpY reaches -QpBdOffsetY). */
+#define N265_QP_MIN     (-QP_BD_OFFSET)
+#define N265_QP_MAX     51
+
+/* Entries in a table indexed by Qp'Y = QpY + QP_BD_OFFSET: 52 at 8 bits,
+ * 64 at Main10. */
+#define N265_QP_TAB_N   (N265_QP_MAX + 1 + QP_BD_OFFSET)
+
+/* clip to QpY's range; the 8-bit build folds it to `q < 0 ? 0 : ...`. */
+static inline int n265_qp_clip(int q)
+{
+    return q < N265_QP_MIN ? N265_QP_MIN : q > N265_QP_MAX ? N265_QP_MAX : q;
+}
+
 #endif /* N265_PIXEL_H */

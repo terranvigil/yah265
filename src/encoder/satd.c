@@ -266,9 +266,15 @@ uint64_t n265_ssd_wh(const pixel *a, int as, const pixel *b, int bs,
  * the kernel covers, and the caller keeps the deviations.
  *
  * Both outputs are exact in u32 by a wide margin: a column sum is at most
- * n * 255, 16320 at the largest CU the caller has, which is why the NEON
- * can keep its column accumulators in u16 lanes for every n up to 257.
- * The u32 array is the caller's, not the accumulator's.
+ * n * PIXEL_MAX, 16320 at 8 bits at the largest CU the caller has, which
+ * is why the NEON can keep its column accumulators in u16 lanes for every
+ * n up to 257. The u32 array is the caller's, not the accumulator's.
+ * AT MAIN10 that headroom is mostly gone - n * 1023 is 65472 at n = 64,
+ * inside u16 by 63 - so the "up to 257" claim is an 8-BIT claim and the
+ * 10-bit kernels of phase 8 item 3 may not inherit it. Same warning
+ * applies to n265_ssd_wh's comment above: (a-b)^2 * 4096 is 4.286e9 at
+ * 10 bits against 2^32 = 4.295e9, which the C is safe from only because
+ * it already accumulates in u64.
  *
  * Square rather than w x h: rect_proxy is the only caller and a CU is
  * square. Its shape set is 8, 16 and 32 and cannot be anything else -

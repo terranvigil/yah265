@@ -16,18 +16,41 @@ void n265_encoder_set_dump(n265_encoder *e, FILE *f);
 void n265_encoder_set_shot_stats(n265_encoder *e, const char *path);
 void n265_set_shot_window(int n);
 
+/* QpBdOffsetY (7-5). The CLI does not see src/common/pixel.h, so the one
+ * derivation it needs is repeated here off the public N265_BIT_DEPTH. */
+#define N265_QP_BD_OFF  (6 * (N265_BIT_DEPTH - 8))
+#define N265_SAMPLE_MAX ((1 << N265_BIT_DEPTH) - 1)
+
 typedef struct y4m_t {
     FILE *f;
     int w, h, fps_num, fps_den;
-    size_t frame_bytes;     /* the 8-bit y4m payload, as read */
+    int depth;              /* sample width the FILE carries: 8 or 10 */
+    size_t frame_bytes;     /* the y4m payload, as it sits on disk */
     uint8_t *frame;
     /* What the library is handed. At 8 bits it IS `frame` - no copy, no
      * second allocation, nothing in the read path - and at 10 it is a
-     * separate plane the reader upshifts into, which is what a Main10
-     * stream of SDR content is. Reading 10-bit y4m (C420p10) is phase 8
-     * item 2's, along with everything else about the I/O. */
+     * separate plane the reader assembles the little-endian pairs into. */
     n265_pixel *pix;
+    long clipped;           /* samples above (1 << depth) - 1 in the file */
 } y4m_t;
+
+/* The C tag's depth, or -1 for a chroma sampling or sample width this
+ * encoder does not do. 4:2:0 only, and within it 8 bits (the plain tag
+ * and the three siting variants, which differ in chroma POSITION and not
+ * in width) or 10 - `C420p10`, which is what ffmpeg writes for
+ * yuv420p10le; `C420p10le` is taken as the same thing, since some writers
+ * spell it that way. 420p12/p16 and 4:2:2 / 4:4:4 are later items, and
+ * they are REFUSED rather than read as 8-bit, which is what the old
+ * `strncmp(csp, "420", 3)` would have done with a C420p10 file. */
+static int y4m_csp_depth(const char *csp)
+{
+    if (!strcmp(csp, "420") || !strcmp(csp, "420jpeg") ||
+        !strcmp(csp, "420mpeg2") || !strcmp(csp, "420paldv"))
+        return 8;
+    if (!strcmp(csp, "420p10") || !strcmp(csp, "420p10le"))
+        return 10;
+    return -1;
+}
 
 static int y4m_open(y4m_t *y, FILE *f)
 {
@@ -52,18 +75,40 @@ static int y4m_open(y4m_t *y, FILE *f)
     }
     if (y->w <= 0 || y->h <= 0)
         return -1;
-    if (strncmp(csp, "420", 3) != 0) {
-        fprintf(stderr, "n265: only 4:2:0 input supported (got C%s)\n", csp);
+    y->depth = y4m_csp_depth(csp);
+    if (y->depth < 0) {
+        fprintf(stderr, "n265: unsupported input format C%s "
+                "(4:2:0 at 8 or 10 bits only)\n", csp);
         return -1;
     }
-    y->frame_bytes = (size_t)y->w * y->h * 3 / 2;
+    /* One library per sample width (docs/instruments.md, "Builds and the
+     * bit depth"), so the depth has to MATCH. The 8-bit encoder cannot
+     * read 10-bit samples, and the Main10 encoder is no longer handed
+     * 8-bit ones silently upshifted the way item 1's smoke needed:
+     * that would let a 10-bit measurement be taken on SDR content nobody
+     * asked to convert, and it would hide the conversion from the record.
+     * Converting is one ffmpeg away; choosing the library from the input,
+     * and --output-depth, are phase 8 item 5's. */
+    if (y->depth != N265_BIT_DEPTH) {
+        fprintf(stderr, "n265: this is the %d-bit encoder and the input is "
+                "%d-bit (C%s).\n", N265_BIT_DEPTH, y->depth, csp);
+        if (N265_BIT_DEPTH == 8)
+            fprintf(stderr, "n265: encode it with n265-10, the Main10 "
+                    "binary.\n");
+        else
+            fprintf(stderr, "n265: convert it first - scripts/upshift10.sh "
+                    "in.y4m out.y4m, or ffmpeg -i in.y4m -pix_fmt "
+                    "yuv420p10le -strict -1 out.y4m.\n");
+        return -1;
+    }
+    y->frame_bytes = (size_t)y->w * y->h * 3 / 2 * (y->depth > 8 ? 2 : 1);
     y->frame = malloc(y->frame_bytes);
     if (!y->frame)
         return -1;
 #if N265_BIT_DEPTH == 8
     y->pix = y->frame;
 #else
-    y->pix = malloc(y->frame_bytes * sizeof(*y->pix));
+    y->pix = malloc((size_t)y->w * y->h * 3 / 2 * sizeof(*y->pix));
     if (!y->pix)
         return -1;
 #endif
@@ -81,8 +126,24 @@ static int y4m_read(y4m_t *y)
     if (fread(y->frame, 1, y->frame_bytes, y->f) != y->frame_bytes)
         return -1;
 #if N265_BIT_DEPTH != 8
-    for (size_t i = 0; i < y->frame_bytes; i++)
-        y->pix[i] = (n265_pixel)(y->frame[i] << (N265_BIT_DEPTH - 8));
+    /* 16-bit little-endian samples, assembled by hand rather than cast:
+     * the byte order is the FILE's and not the host's, and the payload is
+     * not guaranteed to be aligned for a uint16_t load. A sample above
+     * the declared depth is out of spec - the encoder clips its own
+     * reconstruction to PIXEL_MAX, so a source value it cannot represent
+     * would read as a permanent residual and as a recon mismatch against
+     * every decoder - so it is clamped here and counted, and the count is
+     * reported once at the end rather than per sample. */
+    size_t nsamp = (size_t)y->w * y->h * 3 / 2;
+    for (size_t i = 0; i < nsamp; i++) {
+        unsigned v = (unsigned)y->frame[2 * i] |
+                     ((unsigned)y->frame[2 * i + 1] << 8);
+        if (v > N265_SAMPLE_MAX) {
+            v = N265_SAMPLE_MAX;
+            y->clipped++;
+        }
+        y->pix[i] = (n265_pixel)v;
+    }
 #endif
     return 1;
 }
@@ -96,7 +157,8 @@ static void usage(void)
         "  --preset <fast|medium|slow>  speed/quality point (default medium).\n"
         "                  Sets the DEFAULTS of the tuning knobs; any flag or\n"
         "                  N265_* variable you give yourself still wins.\n"
-        "  --qp <n>        fixed QP (default 26)\n"
+        "  --qp <n>        fixed QP (default 26). Range 0..51 at 8 bits,\n"
+        "                  -12..51 at Main10 (QpBdOffsetY, 7.4.3.3)\n"
         "  --crf <f>       constant rate factor (base QP from f; overrides --qp)\n"
         "  --bitrate <k>   single-pass ABR at k kbit/s (overrides --crf)\n"
         "  --ref <n>       references per list, 1..3 (default 1)\n"
@@ -235,8 +297,12 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    if (qp < 0 || qp > 51) {
-        fprintf(stderr, "n265: qp out of range 0..51\n");
+    /* QpY runs -QpBdOffsetY..51 (7.4.3.3): 0..51 at 8 bits, -12..51 at
+     * Main10, where the twelve extra steps are the finer quantisers the
+     * two extra sample bits pay for and are the whole point of the
+     * profile at the top of the ladder. */
+    if (qp < -N265_QP_BD_OFF || qp > 51) {
+        fprintf(stderr, "n265: qp out of range %d..51\n", -N265_QP_BD_OFF);
         return 2;
     }
     /* The preset is a default source and nothing else: it is selected
@@ -383,6 +449,10 @@ int main(int argc, char **argv)
         fprintf(stderr, "n265: write failed: %s\n", strerror(errno));
         return 1;
     }
-    fprintf(stderr, "n265: %ld frames, %dx%d\n", n, y.w, y.h);
+    if (y.clipped)
+        fprintf(stderr, "n265: WARNING %ld input samples were above the "
+                "declared %d-bit range and were clamped\n", y.clipped,
+                y.depth);
+    fprintf(stderr, "n265: %ld frames, %dx%d %d-bit\n", n, y.w, y.h, y.depth);
     return 0;
 }

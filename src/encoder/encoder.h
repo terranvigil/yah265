@@ -67,6 +67,16 @@ enum {
  * wavefront; the fill can, and it is a pure function of the QP map and
  * the markers. */
 #define N265_QP_INHERIT 0xff
+/* ...and what it stores otherwise: the map is uint8_t and QpY goes
+ * NEGATIVE at Main10 (down to -QpBdOffsetY), so a block carries Qp' =
+ * QpY + QP_BD_OFFSET, 0..63, which leaves 0xff free at both depths and is
+ * the bare QpY at 8 bits. Everything that READS the map converts back,
+ * because the two consumers - deblocking's Table 8-12 index and the
+ * prediction of the next quantisation group - both want QpY.
+ * A bias is safe under the averaging deblock.c does: it is constant, and
+ * ((a+B) + (b+B) + 1) >> 1 is ((a+b+1) >> 1) + B exactly. */
+#define N265_QP_STORE(q) ((q) + QP_BD_OFFSET)
+#define N265_QP_LOAD(v)  ((int)(v) - QP_BD_OFFSET)
 #define N265_MAX_REF 3
 /* --bframes clamp; also sizes the mini-GOP walk the SPS's DPB derivation
  * runs. 15 since 2026-09-12 (phase 7 item 3, D3): a mini-GOP of 16 is
@@ -226,7 +236,7 @@ struct n265_depth_rec {
     float mvmean, mvspread; /* lowres |MV| mean and (max - min) over them   */
     uint16_t imean, imax;   /* lowres intra cost, mean and max              */
     uint16_t pmean, pmax;   /* lowres inter cost, mean and max              */
-    uint8_t qp;             /* the CTU's final QP                           */
+    int8_t qp;              /* the CTU's final QP (QpY, negative below 0 at Main10) */
     uint8_t dmin, dmax;     /* the target                                   */
 };
 

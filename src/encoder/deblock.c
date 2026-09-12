@@ -222,7 +222,11 @@ static int seg_qp(const struct n265_frame_work *e, int x, int y, int vertical)
     int qi = (y >> 2) * e->map_stride + (x >> 2);
     int pi = vertical ? (y >> 2) * e->map_stride + ((x - 1) >> 2)
                       : ((y - 1) >> 2) * e->map_stride + (x >> 2);
-    return (e->blk_qp[pi] + e->blk_qp[qi] + 1) >> 1;
+    /* qPL = ((QpQ + QpP + 1) >> 1) (8.7.2.5.3), in the 8-BIT DOMAIN: the
+     * spec builds it from QpY and not from Qp'Y, so the map's bias comes
+     * off here and the Table 8-12 index below is a plain QpY plus the
+     * slice offsets. */
+    return N265_QP_LOAD((e->blk_qp[pi] + e->blk_qp[qi] + 1) >> 1);
 }
 
 /* One CTB row's share of 8.7.2, in the order the row wavefront runs it
@@ -319,7 +323,7 @@ void n265_qpmap_row(struct n265_frame_work *e, int r, int *prev)
         by1 = bh;
     for (int cx = 0; cx < e->ctb_cols; cx++) {
         int q = e->qp + e->ctu_qp_off[r * e->ctb_cols + cx];
-        q = q < 0 ? 0 : q > 51 ? 51 : q;
+        q = n265_qp_clip(q);
         int bx0 = (cx * ctb) >> 2;
         int bx1 = ((cx + 1) * ctb) >> 2;
         int bw = e->pad_w >> 2;
@@ -330,7 +334,7 @@ void n265_qpmap_row(struct n265_frame_work *e, int r, int *prev)
             for (int bx = bx0; bx < bx1; bx++) {
                 uint8_t *v = &e->blk_qp[by * e->map_stride + bx];
                 if (*v == N265_QP_INHERIT)
-                    *v = (uint8_t)*prev;
+                    *v = (uint8_t)N265_QP_STORE(*prev);   /* prev is QpY */
                 else
                     coded = 1;
             }

@@ -53,9 +53,30 @@ static void write_ptl(bitstream_t *bs, int w, int h, int dpb)
     bs_put_bits(bs, 0, 1);          /* general_tier_flag: main */
     /* Main (1) at 8 bits, Main10 (2) at 10. A Main stream is also
      * Main10-decodable so it sets both compatibility flags; a Main10
-     * stream is not Main-decodable and sets only its own. Item 2 owns
-     * the rest of the Main10 header review - the level tables' sample
-     * rates, the constraint flags and the VUI. */
+     * stream is not Main-decodable and sets only its own.
+     *
+     * Item 2's review of the rest of the PTL for Main10, which ended in
+     * no change, and says so here rather than leaving the reader to
+     * re-derive it:
+     *   - The four source/packing flags below are profile-independent
+     *     (7.3.3). The 44 bits after them are general_reserved_zero_43bits
+     *     plus the reserved bit: the profile-specific constraint flags
+     *     (general_max_12bit_constraint_flag and the rest) exist only for
+     *     profile_idc 4..10, so at Main and Main10 alike zeros are not a
+     *     default, they are the syntax.
+     *   - The level tables are profile-independent too. MaxLumaPs and the
+     *     DPB rule (A.4.2) are all pick_level_idc reads, and Table A.2's
+     *     CpbBrVclFactor / CpbBrNalFactor are 1000 / 1100 at Main AND at
+     *     Main10, so even the bit-rate leg this encoder does not consult
+     *     would not have moved. The debt is that it does not consult it
+     *     (docs/ideas.md) and that debt is the same at both depths.
+     *   - The VUI is absent (vui_parameters_present_flag 0 in the SPS),
+     *     so there is no depth field there to keep consistent with
+     *     bit_depth_luma_minus8. When a VUI lands it inherits the same
+     *     constant.
+     * Verified on the wire: dec265 reads profile_idc Main10 with
+     * compatibility flag 2 alone, and ffprobe reads "Main 10" /
+     * yuv420p10le. */
     bs_put_bits(bs, BIT_DEPTH == 8 ? 1 : 2, 5);   /* general_profile_idc */
     bs_put_bits(bs, BIT_DEPTH == 8 ? 0x60000000u : 0x20000000u, 32);
     bs_put_bits(bs, 1, 1);          /* general_progressive_source_flag */

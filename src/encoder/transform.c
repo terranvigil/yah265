@@ -83,12 +83,16 @@ void n265_dequant(int16_t *dq, const int16_t *level, int log2n, int qp,
 void n265_dequant_ref(int16_t *dq, const int16_t *level, int log2n, int qp,
                       int *nzw, int *nzh)
 {
-    /* 8.6.3 with flat scaling (m = 16) */
+    /* 8.6.3 with flat scaling (m = 16). `qp` is QpY/QpC, the 8-bit-domain
+     * index; the scale table is indexed by qP = Qp' = qp + QpBdOffset and
+     * bdShift is BitDepth + Log2(nTbS) - 5. QP_BD_OFFSET is 0 at 8 bits,
+     * so this is the arithmetic the 8-bit encoder has always run. */
     static const int level_scale[6] = { 40, 45, 51, 57, 64, 72 };
+    int qpq = qp + QP_BD_OFFSET;
     int n = 1 << log2n;
     int bd_shift = BIT_DEPTH + log2n - 5;
     int64_t add = 1 << (bd_shift - 1);
-    int64_t scale = (int64_t)level_scale[qp % 6] << (qp / 6);
+    int64_t scale = (int64_t)level_scale[qpq % 6] << (qpq / 6);
     int mx = 0, my = 0;
     /* a zero level dequantises to add >> bd_shift, which is zero for every
      * size (bd_shift >= 5), so the skip below is the same arithmetic. The
@@ -518,12 +522,16 @@ int n265_quant_ref(int16_t *level, const int16_t *coef, int log2n, int qp,
         26214, 23302, 20560, 18396, 16384, 14564
     };
     int n = 1 << log2n;
-    /* 14 + qp/6 + (15 - BitDepth - log2n); 21 at 8 bits. The QP the
-     * scale is indexed by still owes a QpBdOffset term at 10 - that,
-     * and every other per-QP table, is phase 8 item 2's. */
-    int qbits = 29 - BIT_DEPTH + qp / 6 - log2n;
+    /* 14 + qP/6 + (15 - BitDepth - log2n); 21 at 8 bits. qP is Qp', the
+     * 8-bit-domain `qp` plus QpBdOffset, so at Main10 the two moves
+     * cancel: BIT_DEPTH costs 2 and QP_BD_OFFSET/6 returns 2, and a
+     * coefficient of a given magnitude quantises to the same level it
+     * would at 8 bits. That is the property the whole depth carries -
+     * the forward DCT's shift1 already shed the two extra sample bits. */
+    int qpq = qp + QP_BD_OFFSET;
+    int qbits = 29 - BIT_DEPTH + qpq / 6 - log2n;
     int64_t add = ((int64_t)1 << qbits) / (intra ? 3 : 6);
-    int q = quant_scale[qp % 6];
+    int q = quant_scale[qpq % 6];
     int nz = 0;
     for (int i = 0; i < n * n; i++) {
         int c = coef[i];
@@ -537,15 +545,31 @@ int n265_quant_ref(int16_t *level, const int16_t *coef, int log2n, int qp,
     return nz;
 }
 
+/* 8.6.1: qPiCb = Clip3(-QpBdOffsetC, 57, QpY + offsets), QpCb = Table
+ * 8-10 of that for 4:2:0, and the quantiser's index is Qp'Cb = QpCb +
+ * QpBdOffsetC. We return QpC, the 8-BIT-DOMAIN value, and not Qp'Cb,
+ * because the two callers want different things and only one of them
+ * wants the offset: n265_quant/n265_dequant add QP_BD_OFFSET themselves
+ * (as they do for luma), while the chroma deblocking filter indexes
+ * Table 8-12 with QpC + 2 + offsets and no QpBdOffset at all
+ * (8.7.2.5.5). Returning the offset index would have been silently
+ * right for the quantiser and silently wrong for the filter.
+ *
+ * The mapping's identity leg extends straight down through zero - for
+ * qPi < 30 QpC IS qPi - so every negative QpY maps to itself and the
+ * clip's only job at 4:2:0 is the -QpBdOffsetC floor. pps/slice/CU
+ * chroma offsets are all zero today (headers.c), so `qp_y` arrives as
+ * qPi already. */
 int n265_chroma_qp(int qp_y)
 {
     /* Table 8-10 for 4:2:0, no offsets */
     static const int map[14] = {
         29, 30, 31, 32, 33, 33, 34, 34, 35, 35, 36, 36, 37, 37
     };
-    if (qp_y < 30)
-        return qp_y;
-    if (qp_y <= 43)
-        return map[qp_y - 30];
-    return qp_y - 6;
+    int qpi = qp_y < -QP_BD_OFFSET ? -QP_BD_OFFSET : qp_y > 57 ? 57 : qp_y;
+    if (qpi < 30)
+        return qpi;
+    if (qpi <= 43)
+        return map[qpi - 30];
+    return qpi - 6;
 }

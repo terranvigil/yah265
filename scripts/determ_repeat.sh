@@ -35,6 +35,11 @@ set -u
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ENC="${ENC:-$ROOT/build/n265}"
+# Where the clips live. The default is the 8-bit corpus; the Main10 leg
+# (phase 8 item 2) points this at a directory of upshifted clips and ENC
+# at build10/n265-10, because one library per sample width means the
+# binary and the source have to agree (scripts/upshift10.sh).
+CORPUS="${CORPUS:-$ROOT/tests/corpus}"
 WORK="${WORK:-${TMPDIR:-/tmp}/determ_repeat.$$}"
 RUNS="${RUNS:-12}"
 FRAMES="${FRAMES:-120}"
@@ -55,7 +60,7 @@ trap 'rm -rf "$WORK"' EXIT
 
 fails=0; total=0
 for clip in $CLIPS; do
-    src="$ROOT/tests/corpus/$clip.y4m"
+    src="$CORPUS/$clip.y4m"
     [ -f "$src" ] || { echo "  skip $clip (no clip)"; continue; }
     for r in $REFS; do
         for t in $THREADS; do

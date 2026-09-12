@@ -52,7 +52,17 @@
 
 /* -log2(p) tables in Q8 for the two symbols of every state, no adaptation */
 static uint16_t cost_mps[64], cost_lps[64];
-/* pixel SSD = coefficient SSD / parseval[log2n] (Q8 fixed point of 1/F) */
+/* pixel SSD = coefficient SSD / parseval[log2n] (Q8 fixed point of 1/F).
+ *
+ * It is MEASURED through n265_fdct rather than derived, which is what
+ * makes it right at Main10 for free: the forward transform's shift1 is
+ * log2n + BitDepth - 9, so at 10 bits a residual four times as large
+ * produces the same coefficients, the measured ratio comes out 16 times
+ * smaller, and a coefficient error therefore converts to the 16-times
+ * larger pixel SSD that 10-bit samples really carry. The mode lambda
+ * handed in is 16 times larger too (n265_lambda_mode_q8 indexes by Qp'),
+ * so `lam` below - the product - is unchanged, and the lattice makes the
+ * same decisions on an upshifted clip that it made on the original. */
 static double parseval[6];
 static int inited;
 /* the position half of the sig_coeff_flag ctxInc, [scan][prev_csbf][c];
@@ -483,16 +493,22 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
     }
     int n = 1 << log2n;
     int nn = n * n;
-    int qbits = 21 + qp / 6 - log2n;
+    /* The same pair transform.c runs, and it has to BE the same pair or
+     * the lattice prices a quantiser the encoder does not use: qP is
+     * Qp' = qp + QpBdOffset, and both shifts read BIT_DEPTH (29 - BD and
+     * BD + log2n - 5). Both fold back to 21 and 8 + log2n - 5 at 8 bits. */
+    int qpq = qp + QP_BD_OFFSET;
+    int qbits = 29 - BIT_DEPTH + qpq / 6 - log2n;
     int64_t add = ((int64_t)1 << qbits) / (intra ? 3 : 6);
-    int q = quant_scale[qp % 6];
+    int q = quant_scale[qpq % 6];
     /* dequant of level l: (l * scale * 16 + dadd) >> bd_shift */
-    int bd_shift = 8 + log2n - 5;
+    int bd_shift = BIT_DEPTH + log2n - 5;
     int64_t dadd = 1 << (bd_shift - 1);
-    int64_t dscale = (int64_t)level_scale[qp % 6] << (qp / 6);
-    /* (l * dscale) * 16 with the 16 folded in: dscale is at most 72 << 8
-     * and l at most 32767, so neither grouping reaches 2^34 and the two
-     * are the same int64 */
+    int64_t dscale = (int64_t)level_scale[qpq % 6] << (qpq / 6);
+    /* (l * dscale) * 16 with the 16 folded in: dscale is at most
+     * 72 << (Qp'max / 6) - 72 << 8 at 8 bits, 72 << 10 at Main10 - and l
+     * at most 32767, so neither grouping reaches 2^36 and the two are the
+     * same int64 */
     int64_t dq_k = dscale * 16;
     int64_t dq1 = (dq_k + dadd) >> bd_shift;    /* the dequant of level 1 */
     /* lambda in coefficient-SSD units: J = SSD_coef / F + lam * bits, so

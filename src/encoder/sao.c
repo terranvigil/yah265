@@ -35,6 +35,26 @@ static inline pixel clip1(int v)
  * there is nothing to spell out for it until a 12-bit profile exists. */
 #define SAO_BAND_SHIFT  (BIT_DEPTH - 5)
 
+/* 7.4.9.3.2: sao_offset_abs runs 0 .. (1 << (Min(BitDepth, 10) - 5)) - 1,
+ * which is 7 at 8 bits and 31 at Main10, and that same value is the TR
+ * binarisation's cMax (9.3.3.2, cRiceParam 0). Two things ride on it and
+ * only one of them is a quality question.
+ *
+ * The SYNTAX one is not optional: a truncated-unary string that reaches
+ * cMax carries no terminating zero. Writing a magnitude of 7 at 10 bits
+ * against a decoder whose cMax is 31 emits seven ones and stops, the
+ * decoder keeps consuming bypass bins looking for the eighth, and the
+ * parse desynchronises from that CTB on. That is a broken stream and not
+ * a soft loss, and it is why this is a constant and not a literal.
+ *
+ * The other is range: because log2OffsetScale is 0 at both depths
+ * (above), the offset is applied in NATIVE sample units, so 31 at 10
+ * bits is 7.75 8-bit levels - very nearly the same correction the 8-bit
+ * filter gets, and a quarter of it if the range were left at 7. Both the
+ * candidate search and the rate model below therefore use this bound. */
+#define SAO_MIN_BD      (BIT_DEPTH < 10 ? BIT_DEPTH : 10)
+#define SAO_OFF_MAX     ((1 << (SAO_MIN_BD - 5)) - 1)
+
 /* edge-class neighbor steps: 0 horiz, 1 vert, 2 135deg, 3 45deg */
 static const int eo_dx[4] = { -1, 0, -1, 1 };
 static const int eo_dy[4] = { 0, -1, -1, -1 };
@@ -71,13 +91,13 @@ static int64_t gain(int64_t n, int64_t d, int o)
     return n * o * o - 2 * o * d;
 }
 
-/* rate of one coded offset: TU magnitude (|o|+1 bits, capped at 7) plus
- * a sign bit when the syntax carries one (band offsets; edge signs are
- * implied by the category) */
+/* rate of one coded offset: TR magnitude (|o|+1 bins, the last one
+ * dropped at cMax) plus a sign bit when the syntax carries one (band
+ * offsets; edge signs are implied by the category) */
 static int off_bits(int o, int sign)
 {
     int a = o < 0 ? -o : o;
-    int b = a >= 7 ? 7 : a + 1;
+    int b = a >= SAO_OFF_MAX ? SAO_OFF_MAX : a + 1;
     return a ? b + sign : b;
 }
 
@@ -352,7 +372,8 @@ static void analyze_cand(const sao_stats *st, uint32_t lam, int allow,
         int8_t o[4];
         for (int i = 0; i < 4; i++) {
             int64_t rd;
-            o[i] = (int8_t)best_offset(bn[pos + i], bd[pos + i], -7, 7,
+            o[i] = (int8_t)best_offset(bn[pos + i], bd[pos + i],
+                                       -SAO_OFF_MAX, SAO_OFF_MAX,
                                        lam, 1, &rd);
             g += rd;
         }
@@ -378,10 +399,10 @@ static void analyze_cand(const sao_stats *st, uint32_t lam, int allow,
         const int64_t *en = st->en[cls], *ed = st->ed[cls];
         int8_t *o = c->edge_off[cls];
         int64_t rd0, rd1, rd2, rd3;
-        o[0] = (int8_t)best_offset(en[1], ed[1], 0, 7, lam, 0, &rd0);
-        o[1] = (int8_t)best_offset(en[2], ed[2], 0, 7, lam, 0, &rd1);
-        o[2] = (int8_t)best_offset(en[3], ed[3], -7, 0, lam, 0, &rd2);
-        o[3] = (int8_t)best_offset(en[4], ed[4], -7, 0, lam, 0, &rd3);
+        o[0] = (int8_t)best_offset(en[1], ed[1], 0, SAO_OFF_MAX, lam, 0, &rd0);
+        o[1] = (int8_t)best_offset(en[2], ed[2], 0, SAO_OFF_MAX, lam, 0, &rd1);
+        o[2] = (int8_t)best_offset(en[3], ed[3], -SAO_OFF_MAX, 0, lam, 0, &rd2);
+        o[3] = (int8_t)best_offset(en[4], ed[4], -SAO_OFF_MAX, 0, lam, 0, &rd3);
         c->edge_j[cls] = rd0 + rd1 + rd2 + rd3 + (((int64_t)lam * 2) >> 8);
     }
 }
@@ -640,7 +661,7 @@ static void sao_analyze_row(struct n265_frame_work *e, int cy)
             uint32_t lam = frame_lam;
             if (qplam) {
                 int q = e->qp + e->ctu_qp_off[cy * e->ctb_cols + cx];
-                lam = n265_lambda_mode_q8(q < 0 ? 0 : q > 51 ? 51 : q);
+                lam = n265_lambda_mode_q8(n265_qp_clip(q));
             }
             if (bias != 100)
                 lam = (uint32_t)(((uint64_t)lam * (uint32_t)bias) / 100u);
@@ -790,10 +811,10 @@ static void sao_analyze_row(struct n265_frame_work *e, int cy)
 
 static void write_offset_abs(cabac_t *cb, int abs_v)
 {
-    /* TR cMax 7, all bypass */
+    /* TR cMax SAO_OFF_MAX (7 at 8 bits, 31 at Main10), all bypass */
     for (int i = 0; i < abs_v; i++)
         n265_cabac_bypass(cb, 1);
-    if (abs_v < 7)
+    if (abs_v < SAO_OFF_MAX)
         n265_cabac_bypass(cb, 0);
 }
 

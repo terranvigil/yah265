@@ -66,7 +66,7 @@ static double qscale_of_qp(double q)
 static double qp_of_qscale(double qs)
 {
     if (qs <= 0.0)
-        return 0.0;
+        return (double)N265_QP_MIN;   /* the finest QP there is */
     return 12.0 + 6.0 * log2(qs / 0.85);
 }
 
@@ -227,7 +227,8 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx)
             if (rc->openi && cls == RC_I && e->keyint > 0)
                 Wo += rc_weight(rc, RC_I, cplx) * (double)n / (double)e->keyint;
             double rf = qp_of_qscale(Wo / (rc->bits_per_frame * n));
-            rc->rf = rf < 0.0 ? 0.0 : rf > 51.0 ? 51.0 : rf;
+            rc->rf = rf < (double)N265_QP_MIN ? (double)N265_QP_MIN :
+                      rf > 51.0 ? 51.0 : rf;
         }
         rc->have_rf = 1;
         /* Seed the measured operating point from the fit, at the prior
@@ -466,8 +467,8 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx)
         else if (rf < rc->rf - step)
             rf = rc->rf - step;
     }
-    if (rf < 0.0)
-        rf = 0.0;
+    if (rf < (double)N265_QP_MIN)
+        rf = (double)N265_QP_MIN;
     else if (rf > 51.0)
         rf = 51.0;
     rc->rf = rf;

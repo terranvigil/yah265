@@ -556,13 +556,17 @@ static int me_pattern(void)
 /* quantiser step at qp, Q8: the unit the early-out bound is asked in,
  * because a prediction already inside the quantiser floor leaves the
  * pattern nothing to find */
+/* Indexed by Qp' = qp + QP_BD_OFFSET: the step is asked in SAMPLE units
+ * against a per-pixel SAD, so at Main10 it has to be four times the
+ * 8-bit step, and 2^((q-4)/6) doubles every six of q - QpBdOffsetY of
+ * 12 supplies exactly 2^2. */
 static uint32_t qstep_q8(int qp)
 {
-    static uint32_t tab[52];
-    if (!tab[51])
-        for (int q = 0; q < 52; q++)
+    static uint32_t tab[N265_QP_TAB_N];
+    if (!tab[N265_QP_TAB_N - 1])
+        for (int q = 0; q < N265_QP_TAB_N; q++)
             tab[q] = (uint32_t)(pow(2.0, (q - 4) / 6.0) * 256.0 + 0.5);
-    return tab[qp < 0 ? 0 : qp > 51 ? 51 : qp];
+    return tab[n265_qp_clip(qp) + QP_BD_OFFSET];
 }
 
 uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, int y0,

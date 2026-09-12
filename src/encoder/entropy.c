@@ -556,7 +556,7 @@ void n265_entropy_ctu(struct n265_frame_work *e, cabac_t *cb, int ctb_x,
                       int ctb_y)
 {
     int q = e->qp + e->ctu_qp_off[ctb_y * e->ctb_cols + ctb_x];
-    e->ent_ctu_qp = q < 0 ? 0 : q > 51 ? 51 : q;
+    e->ent_ctu_qp = n265_qp_clip(q);
     e->ent_qp_coded = 0;
     real_emit re = { cb, e->ctx };
     res_ops ops_s;

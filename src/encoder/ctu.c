@@ -632,16 +632,27 @@ static int search_luma_mode(struct n265_frame_work *e, int x0, int y0,
                                 cost_out, NULL, 0, NULL, 0);
 }
 
-/* SAD-domain lambda: sqrt(0.68 * 2^((qp-12)/3)), Q4 fixed point */
+/* SAD-domain lambda: sqrt(0.68 * 2^((q-12)/3)), Q4 fixed point, indexed
+ * by q = Qp' = qp + QP_BD_OFFSET.
+ *
+ * A SAD is a MAGNITUDE, so it grows by 1 << BIT_DEPTH_SHIFT at Main10
+ * and its lambda must too. sqrt(2^((q-12)/3)) doubles every six of q and
+ * QpBdOffsetY is 12, so indexing the SAME formula by the offset index
+ * multiplies it by exactly 2^(12/6) = 4 - the scale a 10-bit SAD wants -
+ * and no number here is refitted. Entries 52..63 are that formula
+ * continued; the first 52 are unchanged and are what the 8-bit build
+ * reads, since Qp' is qp there. */
 static int lambda_sad_q4(int qp)
 {
-    static const uint16_t tab[52] = {
+    static const uint16_t tab[64] = {
         3, 4, 4, 5, 5, 6, 7, 7, 8, 9, 10, 12, 13, 15, 17, 19,
         21, 24, 26, 30, 33, 37, 42, 47, 53, 59, 66, 75, 84, 94, 106, 118,
         133, 149, 168, 188, 211, 237, 266, 299, 335, 376, 422, 474, 532, 597, 670, 752,
-        844, 948, 1064, 1194
+        844, 948, 1064, 1194,
+        1340, 1505, 1689, 1896, 2128, 2388, 2681, 3009, 3378, 3791, 4256, 4777
     };
-    return tab[qp < 0 ? 0 : qp > 51 ? 51 : qp];
+    int q = n265_qp_clip(qp) + QP_BD_OFFSET;
+    return tab[q];
 }
 
 /* the SAD-domain lambda is the square root of the RD one, so the CTU's
@@ -662,18 +673,26 @@ static void est_tt_bits(struct n265_frame_work *e, est_state *st, int log2n,
 static void set_mot_map(struct n265_frame_work *e, int x0, int y0, int n,
                         mot_t mot);
 
-/* mode-decision lambda 0.68 * 2^((qp-12)/3), Q8 (shared with SAO;
- * N265_LAMBDA overrides the factor) */
+/* mode-decision lambda 0.68 * 2^((q-12)/3), Q8, indexed by q = Qp' =
+ * qp + QP_BD_OFFSET (shared with SAO; N265_LAMBDA overrides the factor).
+ *
+ * The distortion this lambda is added to is SSD in NATIVE sample units,
+ * which grows by 1 << (2 * BIT_DEPTH_SHIFT) at Main10 - 16 - and the
+ * lambda has to grow with it or every decision in the encoder gets the
+ * rate term four times too cheap. 2^((q-12)/3) quadruples every six of
+ * q, so the offset index supplies exactly 2^(12/3) = 16: the same table
+ * formula, twelve entries further along, and nothing refitted. The
+ * 8-bit build indexes 0..51 as it always has. */
 uint32_t n265_lambda_mode_q8(int qp)
 {
-    static uint32_t tab[52];
-    if (!tab[51]) {
-        for (int q = 0; q < 52; q++) {
+    static uint32_t tab[N265_QP_TAB_N];
+    if (!tab[N265_QP_TAB_N - 1]) {
+        for (int q = 0; q < N265_QP_TAB_N; q++) {
             double l = (n265_env("N265_LAMBDA") ? atof(n265_env("N265_LAMBDA")) : 0.68) * pow(2.0, (q - 12) / 3.0);
             tab[q] = (uint32_t)(l * 256.0 + 0.5);
         }
     }
-    return tab[qp < 0 ? 0 : qp > 51 ? 51 : qp];
+    return tab[n265_qp_clip(qp) + QP_BD_OFFSET];
 }
 
 /* J = D + lambda * bits, with bits in Q8 and lambda in Q8 */
@@ -682,6 +701,12 @@ static uint64_t rd_j(uint64_t ssd, uint32_t bits_q8, uint32_t lam_q8)
     return ssd + (((uint64_t)bits_q8 * lam_q8) >> 16);
 }
 
+/* Eight times the per-pixel SAD a CU may carry and still be taken as a
+ * static skip. The knob is stated in 8-BIT LUMA LEVELS, which is the unit
+ * it was fitted in and the unit the docs quote; the SAD it is compared
+ * against is in native samples, so the return is scaled up by
+ * BIT_DEPTH_SHIFT (a no-op at 8 bits) rather than the knob being
+ * redefined per depth. */
 static int skip_thr8(void)
 {
     static int thr8 = -1;
@@ -691,7 +716,7 @@ static int skip_thr8(void)
                                      * looser must earn skip through the
                                      * residual-quantizes-to-zero test */
     }
-    return thr8;
+    return thr8 << BIT_DEPTH_SHIFT;
 }
 
 /* P1, the early-out trio (docs/phase4-ladder.md). All three are off by
@@ -2443,9 +2468,13 @@ static uint64_t cu_area_ssd(struct n265_frame_work *e, int x0, int y0, int n)
 
 /* qstep^2 / 8: the per-pixel MSE below which a skip is "clean" and the
  * split trial cannot plausibly pay for its syntax */
+/* An SSD in native sample units against the square of the quantiser
+ * step, so the step is taken at Qp' = qp + QP_BD_OFFSET: at Main10 that
+ * is four times the 8-bit step, its square is sixteen times, and the SSD
+ * it is compared against is sixteen times too. */
 static uint64_t skip_clean_thr(int qp, int n)
 {
-    double qstep = pow(2.0, (qp - 4) / 6.0);
+    double qstep = pow(2.0, (qp + QP_BD_OFFSET - 4) / 6.0);
     return (uint64_t)((double)n * n * qstep * qstep / 4.0 *
                       es_thr_pct() / 100.0);
 }
@@ -3111,7 +3140,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             est_state adv = { e->est_ctx, 0 };
             n265_est_advance_cu(e, &adv, x0, y0, log2n);
             set_blk(e, e->blk_qp, x0, y0, n,
-                    e->ent_qp_coded ? e->cur_ctu_qp : N265_QP_INHERIT);
+                    e->ent_qp_coded ? N265_QP_STORE(e->cur_ctu_qp) : N265_QP_INHERIT);
             uint64_t ssd = cu_area_ssd(e, x0, y0, n);
             e->last_skip_clean = ssd <= skip_clean_thr(e->cur_ctu_qp, n);
             e->last_cu_nores = 1;
@@ -3122,13 +3151,20 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             uint32_t lam = ctu_lam(e, e->cur_ctu_qp);
             int inc = est_skip_inc(e, x0, y0);
             /* economy gates: a very good merge prediction prunes the
-             * expensive candidates (classic early-skip shape) */
+             * expensive candidates (classic early-skip shape). The bound
+             * is a SAD per pixel - n*n/8 and n*n/4 in 8-bit luma levels -
+             * so the right-hand side carries BIT_DEPTH_SHIFT; without it
+             * neither gate could ever fire at Main10 and the 1.2% they
+             * are worth would go quietly missing along with the decisions
+             * they make. */
             int gate_amvp = !no_gates_on() &&
                 (uint64_t)cand_plain_sad * 800u <
-                    (uint64_t)(n * n) * (unsigned)gate_scale();
+                    ((uint64_t)(n * n) * (unsigned)gate_scale()
+                     << BIT_DEPTH_SHIFT);
             int gate_intra = !no_gates_on() &&
                 (uint64_t)cand_plain_sad * 400u <
-                    (uint64_t)(n * n) * (unsigned)gate_scale();
+                    ((uint64_t)(n * n) * (unsigned)gate_scale()
+                     << BIT_DEPTH_SHIFT);
             int gate_part = 0;
 
             /* merge candidate (and the forced-skip variant) */
@@ -3686,7 +3722,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                 est_state adv = { e->est_ctx, 0 };
                 n265_est_advance_cu(e, &adv, x0, y0, log2n);
                 set_blk(e, e->blk_qp, x0, y0, n,
-                        e->ent_qp_coded ? e->cur_ctu_qp : N265_QP_INHERIT);
+                        e->ent_qp_coded ? N265_QP_STORE(e->cur_ctu_qp) : N265_QP_INHERIT);
                 return rd_j(cu_area_ssd(e, x0, y0, n), adv.bits,
                             ctu_lam(e, e->cur_ctu_qp));
             }
@@ -3749,7 +3785,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
         est_state adv = { e->est_ctx, 0 };
         n265_est_advance_cu(e, &adv, x0, y0, log2n);
         set_blk(e, e->blk_qp, x0, y0, n,
-                e->ent_qp_coded ? e->cur_ctu_qp : N265_QP_INHERIT);
+                e->ent_qp_coded ? N265_QP_STORE(e->cur_ctu_qp) : N265_QP_INHERIT);
         return rd_j(cu_area_ssd(e, x0, y0, n), adv.bits,
                     ctu_lam(e, e->cur_ctu_qp));
     }
@@ -3778,7 +3814,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
     est_state adv = { e->est_ctx, 0 };
     n265_est_advance_cu(e, &adv, x0, y0, log2n);
     set_blk(e, e->blk_qp, x0, y0, n,
-            e->ent_qp_coded ? e->cur_ctu_qp : N265_QP_INHERIT);
+            e->ent_qp_coded ? N265_QP_STORE(e->cur_ctu_qp) : N265_QP_INHERIT);
     return rd_j(cu_area_ssd(e, x0, y0, n), adv.bits,
                 ctu_lam(e, e->cur_ctu_qp));
 }
@@ -3959,7 +3995,7 @@ static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
             est_state adv = { e->est_ctx, 0 };
             n265_est_advance_cu(e, &adv, x0, y0, log2n);
             set_blk(e, e->blk_qp, x0, y0, n,
-                    e->ent_qp_coded ? e->cur_ctu_qp : N265_QP_INHERIT);
+                    e->ent_qp_coded ? N265_QP_STORE(e->cur_ctu_qp) : N265_QP_INHERIT);
             set_blk(e, e->ct_depth, x0, y0, n, depth);
             j_cu2 = rd_j(cu_area_ssd(e, x0, y0, n), adv.bits + b0, lam);
             qt_save(e, fwon, x0, y0, n);
@@ -4036,7 +4072,7 @@ static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
         est_state adv = { e->est_ctx, 0 };
         n265_est_advance_cu(e, &adv, x0, y0, log2n);
         set_blk(e, e->blk_qp, x0, y0, n,
-                e->ent_qp_coded ? e->cur_ctu_qp : N265_QP_INHERIT);
+                e->ent_qp_coded ? N265_QP_STORE(e->cur_ctu_qp) : N265_QP_INHERIT);
         set_blk(e, e->ct_depth, x0, y0, n, depth);
         uint64_t j_skip = rd_j(cu_area_ssd(e, x0, y0, n),
                                adv.bits + b0, lam);
@@ -4069,7 +4105,7 @@ static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
         est_state madv = { e->est_ctx, 0 };
         n265_est_advance_cu(e, &madv, x0, y0, log2n);
         set_blk(e, e->blk_qp, x0, y0, n,
-                e->ent_qp_coded ? e->cur_ctu_qp : N265_QP_INHERIT);
+                e->ent_qp_coded ? N265_QP_STORE(e->cur_ctu_qp) : N265_QP_INHERIT);
         set_blk(e, e->ct_depth, x0, y0, n, depth);
         uint64_t j_m = rd_j(cu_area_ssd(e, x0, y0, n), madv.bits + b0,
                             lam);
@@ -4109,7 +4145,7 @@ static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
                 est_state aadv = { e->est_ctx, 0 };
                 n265_est_advance_cu(e, &aadv, x0, y0, log2n);
                 set_blk(e, e->blk_qp, x0, y0, n,
-                        e->ent_qp_coded ? e->cur_ctu_qp : N265_QP_INHERIT);
+                        e->ent_qp_coded ? N265_QP_STORE(e->cur_ctu_qp) : N265_QP_INHERIT);
                 set_blk(e, e->ct_depth, x0, y0, n, depth);
                 j_a = rd_j(cu_area_ssd(e, x0, y0, n), aadv.bits + b0, lam);
             }
@@ -4227,7 +4263,7 @@ static void depth_dump_features(struct n265_frame_work *e, int ctb_x,
     int w = x0 + ctb > e->pad_w ? e->pad_w - x0 : ctb;
     int h = y0 + ctb > e->pad_h ? e->pad_h - y0 : ctb;
 
-    r->qp = (uint8_t)e->cur_ctu_qp;
+    r->qp = (int8_t)e->cur_ctu_qp;
     r->ctqp = e->ctu_qp_raw ? e->ctu_qp_raw[ctb_y * e->ctb_cols + ctb_x] : 0;
 
     /* full-resolution variance, and the part of it the 2x-down plane does
@@ -4312,7 +4348,7 @@ void n265_analyze_ctu(struct n265_frame_work *e, int ctb_x, int ctb_y)
 {
     int ctb_k = ctb_y * e->ctb_cols + ctb_x;
     int q = e->qp + e->ctu_qp_off[ctb_k];
-    e->cur_ctu_qp = q < 0 ? 0 : q > 51 ? 51 : q;
+    e->cur_ctu_qp = n265_qp_clip(q);
     e->cur_ctu_lam_q8 = e->ctu_lam_q8 ? e->ctu_lam_q8[ctb_k] : 256;
     e->cur_ctu_lam_sad_q8 = e->cur_ctu_lam_q8 == 256 ? 256 :
         (uint32_t)lrint(256.0 * sqrt((double)e->cur_ctu_lam_q8 / 256.0));
@@ -4373,6 +4409,6 @@ void n265_ctu_warm(void)
     (void)i_intra(); (void)chroma_w_on(); (void)chroma_w_pct();
     (void)chroma_pred(); (void)cpred_trace(); (void)cpred_w_pct();
     (void)cpred_gate();
-    for (int q = 0; q < 52; q++)
+    for (int q = N265_QP_MIN; q <= N265_QP_MAX; q++)
         (void)n265_lambda_mode_q8(q);   /* fills its lazy table */
 }

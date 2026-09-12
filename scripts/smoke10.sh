@@ -7,10 +7,10 @@
 # answered there by the recon-match gate on ffmpeg AND libde265 over the
 # conformance vectors.
 #
-# So: take an 8-bit 4:2:0 source (the CLI upshifts it by two bits on the
-# way in, which is what a Main10 stream of SDR content is), encode it
-# with the 10-bit binary, and require that the encode finishes, that it
-# produced bytes, and that ffmpeg decodes the frames back out.
+# So: take a 10-bit 4:2:0 source (C420p10 - since item 2 the Main10
+# binary refuses 8-bit input rather than upshifting it silently), encode
+# it with the 10-bit binary, and require that the encode finishes, that
+# it produced bytes, and that ffmpeg decodes the frames back out.
 #
 # usage: scripts/smoke10.sh
 # env: N265_10=path/to/n265-10  FFMPEG=path/to/ffmpeg
@@ -30,9 +30,11 @@ trap 'rm -rf "$TMP"' EXIT
 
 # 96x64 so the frame is neither CTB-aligned at 64 nor a single CTB, with
 # noise so there is residual to code rather than an all-skip stream.
+# -strict -1: yuv420p10le is not a registered y4m pixel format, and the
+# tag it then writes is C420p10, which is what the reader accepts.
 "$FFMPEG" -loglevel error -f lavfi -i "testsrc2=size=96x64:rate=25" \
-    -vf "noise=alls=12:allf=t+u" -frames:v "$FRAMES" -pix_fmt yuv420p \
-    "$TMP/in.y4m" -y 2>/dev/null
+    -vf "noise=alls=12:allf=t+u" -frames:v "$FRAMES" -pix_fmt yuv420p10le \
+    -strict -1 -f yuv4mpegpipe "$TMP/in.y4m" -y 2>/dev/null
 [ -s "$TMP/in.y4m" ] || { echo "smoke10: source gen failed; SKIP" >&2; exit 0; }
 
 "$N265_10" "$TMP/in.y4m" -o "$TMP/out.hevc" --qp 30 --frames "$FRAMES" \

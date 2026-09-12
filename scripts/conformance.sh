@@ -5,16 +5,33 @@
 # decode order == display order; when B-frames land, the display-order leg
 # must compare through ffmpeg only (dec265 -o emits decode order).
 #
-# usage: scripts/conformance.sh [--fast]
-# env: N265=path/to/n265  DEC265=path/to/dec265  FFMPEG=path/to/ffmpeg
+# usage: scripts/conformance.sh [--fast] [--depth10]
+# env: N265=path/to/n265  N265_10=path/to/n265-10
+#      DEC265=path/to/dec265  FFMPEG=path/to/ffmpeg
+#
+# --depth10 (phase 8 item 2) runs the MAIN10 list against the 10-bit
+# binary instead of the 8-bit one: the source is generated as C420p10,
+# the encoder is $N265_10, and both decoders are held to the same
+# bit-exact recon match. It is a SEPARATE list and not an addition to the
+# 8-bit one, so `make conformance` and `make conformance-fast` stay
+# exactly the runs they were - the 8-bit invariant includes their pass
+# count.
 
 set -u
 
 N265=${N265:-build/n265}
+N265_10=${N265_10:-build10/n265-10}
 FFMPEG=${FFMPEG:-ffmpeg}
 DEC265=${DEC265:-}
 FAST=0
-[ "${1:-}" = "--fast" ] && FAST=1
+DEPTH=8
+for a in "$@"; do
+    case "$a" in
+    --fast)    FAST=1 ;;
+    --depth10) DEPTH=10 ;;
+    *) echo "conformance: unknown option $a" >&2; exit 2 ;;
+    esac
+done
 
 # find dec265: env, PATH (Debian ships it as libde265-dec265), then the
 # sibling libde265 build
@@ -34,7 +51,21 @@ if [ -z "$DEC265" ]; then
     fi
 fi
 command -v "$FFMPEG" >/dev/null 2>&1 || { echo "conformance: ffmpeg not found" >&2; exit 1; }
-[ -x "$N265" ] || { echo "conformance: $N265 not built" >&2; exit 1; }
+
+# The binary under test and the source format go together: one library
+# per sample width, and since item 2 each refuses the other's input
+# outright, so a mismatch here fails loudly rather than measuring the
+# wrong thing.
+if [ "$DEPTH" = 10 ]; then
+    ENC=$N265_10
+    # -strict -1: yuv420p10le is not a registered y4m pixel format. The
+    # tag written is C420p10, which is what the reader accepts.
+    SRCFMT="-pix_fmt yuv420p10le -strict -1 -f yuv4mpegpipe"
+else
+    ENC=$N265
+    SRCFMT="-pix_fmt yuv420p"
+fi
+[ -x "$ENC" ] || { echo "conformance: $ENC not built" >&2; exit 1; }
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
@@ -57,26 +88,41 @@ VGRAPH=""
 # the clean source instead.
 VNOISE=""
 
+# An existing y4m file as the source for the next run_vector, instead of a
+# generated one. The 10-bit list uses it for the corpus clips - synthetic
+# testsrc2 is the right source for syntax coverage, but only real content
+# exercises the lookahead, the AQ field and the flat classifier on the
+# statistics they were fitted against. Set by run_vector_file; cleared
+# after. Empty on every 8-bit vector, which is why that list is
+# byte-for-byte the run it was.
+VFILE=""
+
 run_vector() {
     # $1 name  $2 WxH  $3 frames  $4 lavfi source  $5 encoder args
     # ("--pcm" makes the reference the source itself; anything else makes
     # it the encoder's own reconstruction via --dump-recon)
     name=$1; size=$2; frames=$3; src=$4; eargs=$5
     y4m="$TMP/$name.y4m"
-    "$FFMPEG" -loglevel error -f lavfi -i "${VGRAPH:-$src=size=$size:rate=25}" \
-        -vf "${VNOISE:-noise=alls=12:allf=t+u}" -frames:v "$frames" -pix_fmt yuv420p "$y4m" -y \
-        2>/dev/null
+    # shellcheck disable=SC2086
+    if [ -n "$VFILE" ]; then
+        "$FFMPEG" -loglevel error -i "$VFILE" -frames:v "$frames" $SRCFMT \
+            "$y4m" -y 2>/dev/null
+    else
+        "$FFMPEG" -loglevel error -f lavfi -i "${VGRAPH:-$src=size=$size:rate=25}" \
+            -vf "${VNOISE:-noise=alls=12:allf=t+u}" -frames:v "$frames" $SRCFMT "$y4m" -y \
+            2>/dev/null
+    fi
     if [ ! -s "$y4m" ]; then
         echo "SUMMARY $name SKIP (source gen failed)"
         return
     fi
 
     # shellcheck disable=SC2086
-    env $VENV "$N265" "$y4m" -o "$TMP/$name.hevc" $eargs \
+    env $VENV "$ENC" "$y4m" -o "$TMP/$name.hevc" $eargs \
         --dump-recon "$TMP/$name.recon.yuv" 2>/dev/null || {
         echo "SUMMARY $name FAIL (encode)"; fail=$((fail+1)); return; }
     # shellcheck disable=SC2086
-    env $VENV "$N265" "$y4m" -o "$TMP/$name.2.hevc" $eargs 2>/dev/null
+    env $VENV "$ENC" "$y4m" -o "$TMP/$name.2.hevc" $eargs 2>/dev/null
     cmp -s "$TMP/$name.hevc" "$TMP/$name.2.hevc" || {
         echo "SUMMARY $name FAIL (determinism: two runs differ)"
         fail=$((fail+1)); return; }
@@ -144,6 +190,15 @@ run_vector_env() {
     VENV=""
 }
 
+# same vector, with an existing y4m as the source. The conversion to the
+# list's depth happens in run_vector's own ffmpeg call, so one 8-bit
+# corpus clip serves both lists.
+run_vector_file() {
+    VFILE=$1; shift
+    run_vector "$@"
+    VFILE=""
+}
+
 # same vector with the dither turned off at the source
 run_vector_clean() {
     VENV=$1; shift
@@ -151,6 +206,102 @@ run_vector_clean() {
     run_vector "$@"
     VNOISE=""; VENV=""
 }
+
+# ---------------------------------------------------------------------
+# The Main10 list (phase 8 item 2). Separate from the 8-bit list on
+# purpose: `make conformance` and `make conformance-fast` have to stay
+# the runs they were, pass count included, because the 8-bit invariant
+# is read off them. What this list covers is the inheritance list of
+# item 1 - the QP range and every table indexed by it, the I/O, the
+# headers, the flat classifier - each put somewhere a decoder can see it.
+#
+# Both decoders are held BIT-EXACT against the encoder's own
+# --dump-recon, as at 8 bits. The one 8-bit vector with a labeled
+# allowance (--ctu 16, the ffmpeg/dec265 chroma SAO seam) has no 10-bit
+# sibling here: yuvdiff.py's allowance is byte-oriented and would have to
+# learn 16-bit samples first, and every other cell is exact anyway.
+if [ "$DEPTH" = 10 ]; then
+    # The QP LADDER, which is what the whole item is about: -12 is the
+    # bottom of QpY's range at Main10 (-QpBdOffsetY, 7.4.3.3) and exists
+    # only at this depth, 0 is where the 8-bit range starts, 22 is the
+    # middle and 51 the top. A table left indexed by the bare QP instead
+    # of Qp' desynchronises the dequantiser from the decoder's, and the
+    # two ends are where it shows first.
+    run_vector m10_qpm12   176x144  3  testsrc2  "--qp -12"
+    run_vector m10_qp0     176x144  3  testsrc2  "--qp 0"
+    run_vector m10_qp22    176x144  5  testsrc2  "--qp 22"
+    run_vector m10_qp51    176x144  3  testsrc2  "--qp 51"
+    # intra only, at two geometries: CTB-aligned and a conformance window
+    run_vector m10_intra   176x144  5  testsrc2  "--keyint 1"
+    run_vector m10_crop    210x122  5  testsrc2  "--keyint 1"
+    # IPB with the pyramid, one thread and twelve. The threaded cell is
+    # the row wavefront at its widest, and run_vector's own two-run cmp
+    # carries the same-thread-count determinism leg with it.
+    run_vector m10_ipb_t1  352x288 24  testsrc2  "--keyint 12 --bframes 7 --aq 1 --cutree 1 --threads 1"
+    run_vector m10_ipb_t12 352x288 24  testsrc2  "--keyint 12 --bframes 7 --aq 1 --cutree 1 --threads 12"
+    # the deep window at three references: the widest RPS and the
+    # deepest pyramid this encoder builds
+    run_vector m10_deep    352x288 34  testsrc2  "--keyint 20 --bframes 15 --rc-lookahead 24 --ref 3 --b-adapt 0 --crf 26 --aq 1 --cutree 1 --threads 1"
+    # CRF and ABR: the fractional base QP puts cu_qp_delta at quantisation
+    # groups the CQP path never reaches, and cu_qp_delta is one of the
+    # three fields that carry QpBdOffset
+    run_vector m10_crf     352x288 24  testsrc2  "--keyint 12 --bframes 5 --crf 26 --threads 1"
+    run_vector m10_abr     352x288 24  testsrc2  "--keyint 12 --bitrate 400 --aq 1 --cutree 1 --threads 4"
+    # AQ + cu-tree on their own, where the AQ variance floor and the
+    # log2-variance anchor both live
+    run_vector m10_aq      352x288 18  testsrc2  "--keyint 9 --aq 1 --cutree 1 --crf 28"
+    # deblocking offsets: both decoders have to shift the Table 8-12
+    # index by what we did AND scale beta/tC by 1 << (BitDepth - 8)
+    N265_DBF_BETA=-3 N265_DBF_TC=-3 \
+    run_vector m10_dbf_neg 176x144 16  testsrc2  "--keyint 8 --aq 1"
+    # SAO, explicitly: sao_offset_abs is cMax 31 at Main10 and cMax 7 at
+    # 8 bits, and a truncated-unary string written at the wrong cMax
+    # desynchronises the parse from that CTB on. Band and edge separately,
+    # because only one of them codes a sign.
+    run_vector_env "N265_SAO_TYPES=3" \
+                   m10_sao_full 176x144 12 testsrc2 "--keyint 6"
+    run_vector_env "N265_SAO_TYPES=1" \
+                   m10_sao_band 176x144 12 testsrc2 "--keyint 6 --qp 8"
+    run_vector_env "N265_SAO_TYPES=2" \
+                   m10_sao_edge 176x144 12 testsrc2 "--keyint 6 --qp 8"
+    # the content gate at 10 bits: the flat classifier reads the FULL-RES
+    # source, so it is the one lookahead term the 8-bit lowres proxy does
+    # not shield, and a mis-scaled bound would put the SPS flag and the
+    # two slice_sao_* flags in states the 8-bit encoder never picks.
+    run_vector_clean "N265_FLAT_GATE=25" \
+                   m10_flat_mix 176x144 12 testsrc2 "--keyint 6 --qp 34 --aq 1 --cutree 1"
+    # a real hard cut inside min-keyint: the scenecut path, which places a
+    # non-IDR intra picture and its own short-term RPS
+    VENV="N265_MIN_KEYINT=0"
+    run_vector_graph "testsrc2=size=176x144:rate=25:duration=0.4[a];smptebars=size=176x144:rate=25:duration=0.4[b];[a][b]concat=n=2:v=1:a=0" \
+                   m10_cut 176x144 20 testsrc2 "--keyint 250 --bframes 7 --ref 2 --aq 1 --cutree 1 --threads 1"
+    VENV=""
+    # PCM: pcm_sample_bit_depth_luma/chroma_minus1 at 10, samples written
+    # ten bits wide, and the reference is the SOURCE - lossless end to
+    # end, which is the leg that says the I/O and the header agree.
+    run_vector m10_pcm     176x144  3  testsrc2  "--pcm"
+    run_vector m10_pcm_crop 100x60  3  testsrc2  "--pcm"
+    # REAL CONTENT, upshifted on the way in (the corpus is 8-bit 4:2:0
+    # throughout - there is no native 10-bit y4m in tests/corpus). testsrc2
+    # covers the syntax; only a natural clip drives the lookahead, the AQ
+    # variance field and the motion search on the statistics they were
+    # fitted against, and only an animation clip types FLAT and so puts the
+    # SAO content gate in the state it spends its life in.
+    run_vector_file tests/corpus/foreman_cif.y4m \
+                   m10_foreman 352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 28 --aq 1 --cutree 1 --threads 4"
+    run_vector_file tests/corpus/mobile_cif.y4m \
+                   m10_mobile 352x288 16 testsrc2 "--keyint 8 --bframes 3 --qp 22 --aq 1 --threads 1"
+    if [ "$FAST" -eq 0 ]; then
+        run_vector_file tests/corpus/sintel_720p.y4m \
+                   m10_sintel 1280x720 12 testsrc2 "--keyint 6 --bframes 5 --crf 30 --aq 1 --cutree 1 --threads 12"
+        run_vector m10_720_t12 1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 12"
+        run_vector m10_ctu16   352x288 12 testsrc2 "--keyint 6 --ctu 16 --ref 3 --bframes 7 --aq 1 --cutree 1 --threads 12"
+        run_vector m10_ctu64   210x122  3 testsrc2 "--ctu 64"
+    fi
+    echo "conformance: $pass pass, $fail fail (Main10)"
+    [ "$fail" -eq 0 ]
+    exit
+fi
 
 # geometry coverage: CTB-aligned, unaligned (forced splits + conformance
 # window), tiny, tall/narrow, HD; QP sweep on the real path
