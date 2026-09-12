@@ -38,6 +38,8 @@
 #define bs_put_ue                    bs_put_ue_10
 #define bs_rbsp_trailing             bs_rbsp_trailing_10
 #define bs_reset                     bs_reset_10
+#define n265_asm_refuse              n265_asm_refuse_10
+#define n265_asm_refuse_             n265_asm_refuse__10
 #define n265_amvp                    n265_amvp_10
 #define n265_amvp_pu                 n265_amvp_pu_10
 #define n265_analyze_ctu             n265_analyze_ctu_10

@@ -229,6 +229,55 @@ static int seg_qp(const struct n265_frame_work *e, int x, int y, int vertical)
     return N265_QP_LOAD((e->blk_qp[pi] + e->blk_qp[qi] + 1) >> 1);
 }
 
+/* 8.7.2.3/8.7.2.4's chroma half, for the luma band [ly0, ly1).
+ *
+ * The grid is EIGHT CHROMA SAMPLES in both directions at every format -
+ * which is 16 luma at 4:2:0 and 8 luma at 4:4:4 - and only bS 2 (an intra
+ * block on either side) reaches the chroma filter at all. Each luma bS
+ * segment is four luma lines, so it covers `4 >> csy` chroma lines: two
+ * at 4:2:0 and four at 4:4:4, which is what `nl` is. The maps the bS and
+ * the QP come from are indexed in LUMA coordinates, so every lookup here
+ * shifts back up by csx/csy rather than the plane shifting down.
+ *
+ * At 4:2:0 every expression folds to the `2 *` and the `+= 2` that were
+ * written out before the format became a variable. */
+static void deblock_chroma(struct n265_frame_work *e, int ly0, int ly1,
+                           int to)
+{
+    int csx = e->csx, csy = e->csy;
+    int nl = 4 >> csy;                  /* chroma lines per bS segment */
+    int stepx = 4 >> csx;               /* chroma columns per bS segment */
+    int cw = e->pad_w >> csx, ch = e->pad_h >> csy;
+    int cy0 = ly0 >> csy, cy1 = ly1 >> csy;
+    if (cy1 > ch)
+        cy1 = ch;
+
+    for (int p = 1; p <= 2; p++) {
+        pixel *c = e->recon[p];
+        int cs = e->recon_stride[p];
+        for (int x = 8; x < cw; x += 8)
+            for (int y = cy0; y < cy1; y += nl)
+                if (has_edge(e, x << csx, y << csy, 1) &&
+                    seg_bs(e, x << csx, y << csy, 1) == 2) {
+                    int q = n265_chroma_qp(seg_qp(e, x << csx, y << csy, 1),
+                                           e->c444);
+                    int t = TC_AT(clip3(0, 53, q + 2 + to));
+                    if (t)
+                        chroma_segment(c + y * cs + x, 1, cs, t, nl);
+                }
+        for (int y = cy0 < 8 ? 8 : cy0; y < cy1; y += 8)
+            for (int x = 0; x < cw; x += stepx)
+                if (has_edge(e, x << csx, y << csy, 0) &&
+                    seg_bs(e, x << csx, y << csy, 0) == 2) {
+                    int q = n265_chroma_qp(seg_qp(e, x << csx, y << csy, 0),
+                                           e->c444);
+                    int t = TC_AT(clip3(0, 53, q + 2 + to));
+                    if (t)
+                        chroma_segment(c + y * cs + x, cs, 1, t, stepx);
+                }
+    }
+}
+
 /* One CTB row's share of 8.7.2, in the order the row wavefront runs it
  * (docs/threading-design.md sec 1): every vertical edge inside the band,
  * then the horizontal edge on the band's TOP boundary (between rows
@@ -283,34 +332,7 @@ void n265_deblock_row(struct n265_frame_work *e, int r)
                 }
             }
 
-    for (int p = 1; p <= 2; p++) {
-        pixel *c = e->recon[p];
-        int cs = e->recon_stride[p];
-        int cw = e->pad_w / 2, ch = e->pad_h / 2;
-        int cy0 = y0 / 2, cy1 = y1 / 2;
-        if (cy1 > ch)
-            cy1 = ch;
-        /* chroma edges on the 16-luma grid, bS 2 only. Two chroma lines
-         * share one luma bS segment, so check per 2-line half. */
-        for (int x = 8; x < cw; x += 8)
-            for (int y = cy0; y < cy1; y += 2)
-                if (has_edge(e, 2 * x, 2 * y, 1) &&
-                    seg_bs(e, 2 * x, 2 * y, 1) == 2) {
-                    int q = n265_chroma_qp(seg_qp(e, 2 * x, 2 * y, 1));
-                    int t = TC_AT(clip3(0, 53, q + 2 + to));
-                    if (t)
-                        chroma_segment(c + y * cs + x, 1, cs, t, 2);
-                }
-        for (int y = cy0 < 8 ? 8 : cy0; y < cy1; y += 8)
-            for (int x = 0; x < cw; x += 2)
-                if (has_edge(e, 2 * x, 2 * y, 0) &&
-                    seg_bs(e, 2 * x, 2 * y, 0) == 2) {
-                    int q = n265_chroma_qp(seg_qp(e, 2 * x, 2 * y, 0));
-                    int t = TC_AT(clip3(0, 53, q + 2 + to));
-                    if (t)
-                        chroma_segment(c + y * cs + x, cs, 1, t, 2);
-                }
-    }
+    deblock_chroma(e, y0, y1, to);
 }
 
 /* qPY_PREV (8.6.1) with entropy_coding_sync off is a frame-serial chain,
@@ -383,29 +405,5 @@ void n265_deblock_frame(struct n265_frame_work *e)
                 }
             }
 
-    for (int p = 1; p <= 2; p++) {
-        pixel *c = e->recon[p];
-        int cs = e->recon_stride[p];
-        int cw = e->pad_w / 2, ch = e->pad_h / 2;
-        /* chroma edges on the 16-luma grid, bS 2 only. Two chroma lines
-         * share one luma bS segment, so check per 2-line half. */
-        for (int x = 8; x < cw; x += 8)
-            for (int y = 0; y < ch; y += 2)
-                if (has_edge(e, 2 * x, 2 * y, 1) &&
-                    seg_bs(e, 2 * x, 2 * y, 1) == 2) {
-                    int q = n265_chroma_qp(seg_qp(e, 2 * x, 2 * y, 1));
-                    int t = TC_AT(clip3(0, 53, q + 2 + to));
-                    if (t)
-                        chroma_segment(c + y * cs + x, 1, cs, t, 2);
-                }
-        for (int y = 8; y < ch; y += 8)
-            for (int x = 0; x < cw; x += 2)
-                if (has_edge(e, 2 * x, 2 * y, 0) &&
-                    seg_bs(e, 2 * x, 2 * y, 0) == 2) {
-                    int q = n265_chroma_qp(seg_qp(e, 2 * x, 2 * y, 0));
-                    int t = TC_AT(clip3(0, 53, q + 2 + to));
-                    if (t)
-                        chroma_segment(c + y * cs + x, cs, 1, t, 2);
-                }
-    }
+    deblock_chroma(e, 0, e->pad_h, to);
 }

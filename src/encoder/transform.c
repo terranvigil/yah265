@@ -545,9 +545,14 @@ int n265_quant_ref(int16_t *level, const int16_t *coef, int log2n, int qp,
     return nz;
 }
 
-/* 8.6.1: qPiCb = Clip3(-QpBdOffsetC, 57, QpY + offsets), QpCb = Table
- * 8-10 of that for 4:2:0, and the quantiser's index is Qp'Cb = QpCb +
- * QpBdOffsetC. We return QpC, the 8-BIT-DOMAIN value, and not Qp'Cb,
+/* 8.6.1: qPiCb = Clip3(-QpBdOffsetC, 57, QpY + offsets), and then QpCb
+ * depends on the CHROMA FORMAT: Table 8-10 when ChromaArrayType is 1
+ * (4:2:0), and `Min(qPi, 51)` for every other ChromaArrayType - so at
+ * 4:4:4 chroma is quantised at the LUMA QP all the way up the ladder
+ * instead of being pulled 5 or 6 steps finer above luma QP 29. That is
+ * the spec's own statement that 4:4:4 chroma carries as much detail as
+ * luma and does not need the extra protection subsampled chroma gets.
+ * The quantiser's index is Qp'Cb = QpCb + QpBdOffsetC. We return QpC, the 8-BIT-DOMAIN value, and not Qp'Cb,
  * because the two callers want different things and only one of them
  * wants the offset: n265_quant/n265_dequant add QP_BD_OFFSET themselves
  * (as they do for luma), while the chroma deblocking filter indexes
@@ -560,13 +565,15 @@ int n265_quant_ref(int16_t *level, const int16_t *coef, int log2n, int qp,
  * clip's only job at 4:2:0 is the -QpBdOffsetC floor. pps/slice/CU
  * chroma offsets are all zero today (headers.c), so `qp_y` arrives as
  * qPi already. */
-int n265_chroma_qp(int qp_y)
+int n265_chroma_qp(int qp_y, int c444)
 {
     /* Table 8-10 for 4:2:0, no offsets */
     static const int map[14] = {
         29, 30, 31, 32, 33, 33, 34, 34, 35, 35, 36, 36, 37, 37
     };
     int qpi = qp_y < -QP_BD_OFFSET ? -QP_BD_OFFSET : qp_y > 57 ? 57 : qp_y;
+    if (c444)
+        return qpi < 51 ? qpi : 51;     /* ChromaArrayType != 1: Min(qPi, 51) */
     if (qpi < 30)
         return qpi;
     if (qpi <= 43)

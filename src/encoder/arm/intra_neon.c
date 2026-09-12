@@ -624,11 +624,11 @@ static void filt_run(pixel *out, const pixel *in, int first, int count)
         out[i] = (pixel)((in[i - 1] + 2 * in[i] + in[i + 1] + 2) >> 2);
 }
 
-void n265_filter_refs_neon(pixel *out, const pixel *in, int log2n)
+void n265_filter_refs_neon(pixel *out, const pixel *in, int log2n, int strong)
 {
     int n = 1 << log2n;
 
-    if (n == 32) {
+    if (strong && n == 32) {
         /* strong smoothing: three corners, a divide by 2n and a linear
          * ramp. Rare enough (it needs both boundaries near-linear) and
          * short enough that the C form is what runs. */

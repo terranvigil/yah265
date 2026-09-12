@@ -27,6 +27,42 @@ enum {
 };
 
 #define MIN_CB_LOG2 3
+/* ---- the chroma format, a RUNTIME property (phase 8 item 6a) ---------
+ *
+ * `chroma_idc` is the SPS's chroma_format_idc itself: 1 for 4:2:0 and 3
+ * for 4:4:4 (N265_CSP_* in the public header carry the same numbers).
+ * Unlike the sample width, the chroma format does NOT change the pixel
+ * type, so it is a field and not a build option and one library codes
+ * both.
+ *
+ * `csx` / `csy` are log2(SubWidthC) / log2(SubHeightC): a chroma position
+ * is `luma >> csx`, a chroma plane is `pad_w >> csx` wide, and a chroma
+ * transform block is `log2 luma - csx` on a side. At 4:2:0 both are 1 and
+ * every expression that reads them folds back to the `/ 2` and `- 1` the
+ * encoder wrote before this item, which is what makes the 4:2:0 output
+ * byte-identical.
+ *
+ * `c444` is ChromaArrayType == 3, and it is a SEPARATE predicate on
+ * purpose: the spec conditions its format-dependent clauses on that and
+ * not on the subsampling factors. The transform tree's chroma leaf
+ * (7.3.8.8/7.3.8.10), the chroma QP mapping (8.6.1), the scan derivation
+ * (7.4.9.11) and the reference-sample filtering (8.4.4.2.3) all read it.
+ */
+#define N265_CSX_OF(idc) ((idc) == 3 ? 0 : 1)
+#define N265_CSY_OF(idc) ((idc) == 3 ? 0 : 1)
+
+/* Samples in one picture of this geometry: 3/2 * w * h at 4:2:0 and
+ * 3 * w * h at 4:4:4. Every buffer bound that used to be written
+ * `w * h * 3 / 2` reads this instead, the recon dump's frame stride
+ * included - that one is load-bearing, since the dump IS the conformance
+ * gate's reference and a frame landing at the wrong offset is a silent
+ * mismatch (phase 8 item 2 learned it at the sample WIDTH). */
+static inline size_t n265_frame_samples(int w, int h, int csx, int csy)
+{
+    return (size_t)w * (size_t)h +
+           2u * (size_t)(w >> csx) * (size_t)(h >> csy);
+}
+
 #define MAX_MERGE 5     /* MaxNumMergeCand (5 since 2026-09-06: -0.36% mean, 4 of 4 clips at matched rate) */
 
 /* inter PartMode (7.4.9.5), in the order part_mode's binarization walks
@@ -266,6 +302,10 @@ typedef struct n265_frame_work {
     n265_param param;
     int mode;
     int ctb_log2;
+    /* chroma_format_idc and its derived geometry; see N265_CSX_OF */
+    int chroma_idc;
+    int csx, csy;
+    int c444;
     int pad_w, pad_h;       /* dims padded up to a min-CB multiple */
     int ctb_cols, ctb_rows;
     int map_stride;         /* in 4x4 units */
@@ -522,6 +562,9 @@ typedef struct n265_row_ctx {
 struct n265_encoder {
     n265_param param;
     int mode;
+    int chroma_idc;         /* chroma_format_idc: 1 = 4:2:0, 3 = 4:4:4 */
+    int csx, csy;           /* log2 SubWidthC / SubHeightC */
+    int c444;               /* ChromaArrayType == 3 */
     int qp_base;            /* configured QP (P anchors) */
     int crf_on;             /* n265_set_crf: base QP from crf, not qp_base */
     double crf;
@@ -980,7 +1023,7 @@ static inline void n265_ref_guard(const n265_frame_work *e,
         ? 1L << 30                      /* whole picture plus its borders */
         : ((long)need << e->ctb_log2) - 1;
     n265_refchk_open(pic->plane[c_idx], pic->stride[c_idx],
-                     c_idx ? (lastl >> 1) : lastl);
+                     c_idx ? (lastl >> e->csy) : lastl);
     n265_refchk_open_hf(hf, pic->hf_stride, lastl);
     /* lastl - 4: the round-3 plane lags the reference by the four lines
      * its vertical filter reaches below each output line, so a watermark

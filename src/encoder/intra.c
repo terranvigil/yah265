@@ -258,13 +258,15 @@ void n265_pred_dc(pixel *dst, int dst_stride, const pixel *refs,
     }
 }
 
-void n265_filter_refs_ref(pixel *out, const pixel *in, int log2n)
+void n265_filter_refs_ref(pixel *out, const pixel *in, int log2n, int strong)
 {
     int n = 1 << log2n;
     /* strong smoothing (8.4.4.2.3, enabled in the SPS): for 32x32 luma
      * with near-linear boundaries, the references are rebuilt by
-     * bilinear interpolation of the three corners */
-    if (n == 32) {
+     * bilinear interpolation of the three corners. biIntFlag carries
+     * `cIdx == 0` at every chroma format, so a 32x32 CHROMA block at
+     * 4:4:4 takes the [1 2 1] run below and not this. */
+    if (strong && n == 32) {
         int tl = in[0], tr = in[2 * n], bl = in[4 * n];
         int thr = 1 << (BIT_DEPTH - 5);
         int flat_top = abs_int(tl + tr - 2 * in[n]) < thr;
@@ -296,15 +298,15 @@ void n265_filter_refs_ref(pixel *out, const pixel *in, int log2n)
     out[4 * n] = in[4 * n];
 }
 
-void n265_filter_refs(pixel *out, const pixel *in, int log2n)
+void n265_filter_refs(pixel *out, const pixel *in, int log2n, int strong)
 {
 #if N265_NEON_INTRA
     if (n265_asm_on(N265_ASM_INTRA)) {
-        n265_filter_refs_neon(out, in, log2n);
+        n265_filter_refs_neon(out, in, log2n, strong);
         return;
     }
 #endif
-    n265_filter_refs_ref(out, in, log2n);
+    n265_filter_refs_ref(out, in, log2n, strong);
 }
 
 int n265_use_filtered_refs(int mode, int log2n, int c_idx)

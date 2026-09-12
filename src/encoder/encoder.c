@@ -571,6 +571,10 @@ static void fw_config(n265_encoder *e, n265_frame_work *fw)
     fw->param = e->param;
     fw->mode = e->mode;
     fw->ctb_log2 = e->ctb_log2;
+    fw->chroma_idc = e->chroma_idc;
+    fw->csx = e->csx;
+    fw->csy = e->csy;
+    fw->c444 = e->c444;
     fw->pad_w = e->pad_w;
     fw->pad_h = e->pad_h;
     fw->ctb_cols = e->ctb_cols;
@@ -657,14 +661,15 @@ static int fw_open(n265_encoder *e, n265_frame_work *fw)
         return -1;
     fw->hf2_tr = fw->hf2_tr_rows + (size_t)e->ctb_rows * 24;
     for (int i = 0; i < 3; i++) {
-        int w = i ? e->pad_w / 2 : e->pad_w;
-        int bh = (1 << e->ctb_log2) >> (i ? 1 : 0);
+        int w = i ? e->pad_w >> e->csx : e->pad_w;
+        int bh = (1 << e->ctb_log2) >> (i ? e->csy : 0);
         fw->sao_tmp[i] = malloc((size_t)w * bh * sizeof(pixel));
         fw->sao_line[i] = malloc((size_t)w * sizeof(pixel));
         if (!fw->sao_tmp[i] || !fw->sao_line[i])
             return -1;
     }
-    size_t frame_bytes = (size_t)e->pad_w * e->pad_h * 3 / 2;
+    size_t frame_bytes = n265_frame_samples(e->pad_w, e->pad_h, e->csx,
+                                            e->csy) * sizeof(pixel);
     if (bs_init(&fw->rbsp, frame_bytes + 4096) < 0)
         return -1;
     return 0;
@@ -735,7 +740,8 @@ void n265_row_end(n265_row_ctx *row, n265_frame_work *fw, int r)
 
 n265_encoder *n265_encoder_open(const n265_param *p)
 {
-    if (!p || (p->width & 1) || (p->height & 1) || p->csp != N265_CSP_I420)
+    if (!p || (p->width & 1) || (p->height & 1) ||
+        (p->csp != N265_CSP_I420 && p->csp != N265_CSP_I444))
         return NULL;
 
     n265_encoder *e = calloc(1, sizeof(*e));
@@ -743,6 +749,14 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         return NULL;
     e->param = *p;
     e->mode = g_mode;
+    /* The chroma format, once, from the caller's csp - which IS
+     * chroma_format_idc (N265_CSP_I420 is 0 for source compatibility and
+     * is mapped to 1 here). Everything downstream reads these four fields
+     * and nothing re-derives the format from the picture. */
+    e->chroma_idc = p->csp == N265_CSP_I444 ? 3 : 1;
+    e->csx = N265_CSX_OF(e->chroma_idc);
+    e->csy = N265_CSY_OF(e->chroma_idc);
+    e->c444 = e->chroma_idc == 3;
     e->qp_base = g_qp;
     e->crf_on = g_crf_on;
     e->crf = g_crf;
@@ -1138,10 +1152,14 @@ n265_encoder *n265_encoder_open(const n265_param *p)
       e->rc_lag = d; }
 
     for (int i = 0; i < 3; i++) {
-        int w = i ? e->pad_w / 2 : e->pad_w;
-        int h = i ? e->pad_h / 2 : e->pad_h;
+        int w = i ? e->pad_w >> e->csx : e->pad_w;
+        int h = i ? e->pad_h >> e->csy : e->pad_h;
         e->pad_stride[i] = w;
-        int pad = i ? N265_REF_PAD / 2 : N265_REF_PAD;
+        /* one border for both axes, as n265_ref_win also takes one: csx
+         * and csy are equal at every format this encoder codes (1 at
+         * 4:2:0, 0 at 4:4:4). 4:2:2, where they differ, is the item that
+         * has to split them - here and in n265_ref_win's signature. */
+        int pad = i ? N265_REF_PAD >> e->csx : N265_REF_PAD;
         /* only the slots this shape runs: a picture is the pool's whole
          * cost, so a shape that needs six allocates six however wide the
          * array is */
@@ -1236,9 +1254,24 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * driver thread; every NEON dispatch site then sees only the inlined
      * acquire load */
     n265_cpu_flags();
+    /* Phase 8 item 6a: the MC family's CHROMA kernels are written for
+     * 4:2:0's half-size blocks - their 2-D drivers hold an
+     * `int16_t tmp[(32 + 3) * 32]`, which is the widest chroma block a
+     * 64x64 luma PU can present when the plane is halved - and at 4:4:4 a
+     * chroma block is the luma block, up to 64x64. A kernel whose
+     * correctness rests on a shape the caller no longer respects is not a
+     * kernel, so the whole class stands down for this format and the C
+     * reference runs; porting it is a later item. The class is wider than
+     * the chroma pair (it carries the luma interpolation and the bi
+     * average too), so this costs more than it has to - and a class is
+     * the unit the ablation knob and the accounting both work in, so it
+     * is refused as a class rather than smuggled in as a shape gate. */
+    if (e->c444)
+        n265_asm_refuse(N265_ASM_MC);
     n265_hf2_knobs(e);
 
-    size_t frame_bytes = (size_t)e->pad_w * e->pad_h * 3 / 2;
+    size_t frame_bytes = n265_frame_samples(e->pad_w, e->pad_h, e->csx,
+                                            e->csy) * sizeof(pixel);
     /* A whole mini-GOP leaves per call, and the ring grows if it has to
      * (add_nal), so the payload pointers are patched from offsets at the
      * end of the call rather than being taken before a realloc. */
@@ -1879,9 +1912,9 @@ static void write_pcm_ctu(n265_frame_work *e, cabac_t *cb, cabac_ctx_t *part_mod
             bs_put_bits(bs, l[y * e->pad_stride[0] + x], BIT_DEPTH);
     for (int p = 1; p <= 2; p++) {
         const pixel *c = e->pad_plane[p] +
-            (y0 / 2) * e->pad_stride[p] + x0 / 2;
-        for (int y = 0; y < ctb / 2; y++)
-            for (int x = 0; x < ctb / 2; x++)
+            (y0 >> e->csy) * e->pad_stride[p] + (x0 >> e->csx);
+        for (int y = 0; y < ctb >> e->csy; y++)
+            for (int x = 0; x < ctb >> e->csx; x++)
                 bs_put_bits(bs, c[y * e->pad_stride[p] + x], BIT_DEPTH);
     }
     n265_cabac_start(cb, bs);
@@ -1981,8 +2014,8 @@ static void dump_planes(n265_frame_work *fw, FILE *f)
      * that plane set has the unpadded stride, not the DPB slot's. */
     int pcm = fw->mode == N265_MODE_PCM;
     for (int i = 0; i < 3; i++) {
-        int w = i ? fw->param.width / 2 : fw->param.width;
-        int h = i ? fw->param.height / 2 : fw->param.height;
+        int w = i ? fw->param.width >> fw->csx : fw->param.width;
+        int h = i ? fw->param.height >> fw->csy : fw->param.height;
         int stride = pcm ? fw->pad_stride[i] : fw->recon_stride[i];
         const pixel *pl = pcm ? fw->pad_plane[i] : fw->recon[i];
         for (int y = 0; y < h; y++)
@@ -2002,8 +2035,8 @@ static void dump_recon_frame(n265_encoder *e, n265_frame_work *fw)
          * overwrote what was already there. The recon dump IS the
          * conformance gate's reference, so this one is load-bearing. */
         long frame_bytes =
-            (long)e->param.width * e->param.height * 3 / 2 *
-            (long)sizeof(pixel);
+            (long)n265_frame_samples(e->param.width, e->param.height,
+                                     e->csx, e->csy) * (long)sizeof(pixel);
         fseek(e->dump_recon, (long)fw->display_idx * frame_bytes, SEEK_SET);
         dump_planes(fw, e->dump_recon);
     }
@@ -2051,12 +2084,12 @@ static void publish_row(n265_frame_work *fw, int cy)
 
     if (fw->mode != N265_MODE_PCM && !fw->nonref) {
         for (int i = 0; i < 3; i++) {
-            int sh = i ? 1 : 0;
-            int w = fw->pad_w >> sh, h = fw->pad_h >> sh;
-            int pad = i ? N265_REF_PAD / 2 : N265_REF_PAD;
+            int shx = i ? fw->csx : 0, shy = i ? fw->csy : 0;
+            int w = fw->pad_w >> shx, h = fw->pad_h >> shy;
+            int pad = i ? N265_REF_PAD >> fw->csx : N265_REF_PAD;
             int rs = slot->stride[i];
-            int y0 = (cy * ctb) >> sh;
-            int y1 = y0 + (ctb >> sh);
+            int y0 = (cy * ctb) >> shy;
+            int y1 = y0 + (ctb >> shy);
             if (y1 > h)
                 y1 = h;
             for (int y = y0; y < y1; y++) {

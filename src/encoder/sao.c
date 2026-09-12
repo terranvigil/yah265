@@ -693,11 +693,11 @@ static void sao_analyze_row(struct n265_frame_work *e, int cy)
             int64_t j_expl = 0;
             comp_cand cand[3];
             for (int c = 0; c < 3; c++) {
-                int sh = c ? 1 : 0;
-                int x0 = (cx * ctb) >> sh, y0 = (cy * ctb) >> sh;
-                int pw = e->pad_w >> sh, ph = e->pad_h >> sh;
-                int w = (x0 + (ctb >> sh) > pw) ? pw - x0 : ctb >> sh;
-                int h = (y0 + (ctb >> sh) > ph) ? ph - y0 : ctb >> sh;
+                int shx = c ? e->csx : 0, shy = c ? e->csy : 0;
+                int x0 = (cx * ctb) >> shx, y0 = (cy * ctb) >> shy;
+                int pw = e->pad_w >> shx, ph = e->pad_h >> shy;
+                int w = (x0 + (ctb >> shx) > pw) ? pw - x0 : ctb >> shx;
+                int h = (y0 + (ctb >> shy) > ph) ? ph - y0 : ctb >> shy;
                 collect_stats(e->pad_plane[c], e->pad_stride[c],
                               e->recon[c], e->recon_stride[c],
                               cy > 0 ? e->sao_line[c] : NULL, y0,
@@ -769,11 +769,11 @@ static void sao_analyze_row(struct n265_frame_work *e, int cy)
             if (tf) {
                 int64_t pd = 0, ad = 0, pd0 = 0, ad0 = 0;
                 for (int c = 0; c < 3; c++) {
-                    int sh = c ? 1 : 0;
-                    int x0 = (cx * ctb) >> sh, y0 = (cy * ctb) >> sh;
-                    int pw = e->pad_w >> sh, ph = e->pad_h >> sh;
-                    int w = (x0 + (ctb >> sh) > pw) ? pw - x0 : ctb >> sh;
-                    int h = (y0 + (ctb >> sh) > ph) ? ph - y0 : ctb >> sh;
+                    int shx = c ? e->csx : 0, shy = c ? e->csy : 0;
+                    int x0 = (cx * ctb) >> shx, y0 = (cy * ctb) >> shy;
+                    int pw = e->pad_w >> shx, ph = e->pad_h >> shy;
+                    int w = (x0 + (ctb >> shx) > pw) ? pw - x0 : ctb >> shx;
+                    int h = (y0 + (ctb >> shy) > ph) ? ph - y0 : ctb >> shy;
                     int64_t a = true_dssd(e->pad_plane[c], e->pad_stride[c],
                                           e->recon[c], e->recon_stride[c],
                                           cy > 0 ? e->sao_line[c] : NULL, y0,
@@ -863,11 +863,11 @@ static void sao_apply_row(struct n265_frame_work *e, int cy)
 {
     int ctb = 1 << e->ctb_log2;
     for (int c = 0; c < 3; c++) {
-        int sh = c ? 1 : 0;
-        int pw = e->pad_w >> sh, ph = e->pad_h >> sh;
+        int shx = c ? e->csx : 0, shy = c ? e->csy : 0;
+        int pw = e->pad_w >> shx, ph = e->pad_h >> shy;
         int stride = e->recon_stride[c];
-        int bh = ctb >> sh;
-        int y0 = (cy * ctb) >> sh;
+        int bh = ctb >> shy;
+        int y0 = (cy * ctb) >> shy;
         int y1 = y0 + bh > ph ? ph : y0 + bh;
         const pixel *above = cy > 0 ? e->sao_line[c] : NULL;
         pixel *in = e->sao_tmp[c];          /* band copy, stride pw */
@@ -881,8 +881,8 @@ static void sao_apply_row(struct n265_frame_work *e, int cy)
             const sao_params *p = &e->sao[cy * e->ctb_cols + cx];
             if (p->type[c] == SAO_OFF)
                 continue;
-            int x0 = (cx * ctb) >> sh;
-            int w = (x0 + (ctb >> sh) > pw) ? pw - x0 : ctb >> sh;
+            int x0 = (cx * ctb) >> shx;
+            int w = (x0 + (ctb >> shx) > pw) ? pw - x0 : ctb >> shx;
             if (p->type[c] == SAO_BAND) {
                 int pos = p->class_or_pos[c];
                 for (int y = y0; y < y1; y++)
