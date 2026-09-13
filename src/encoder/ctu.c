@@ -2748,16 +2748,37 @@ static uint32_t mot_rate_q8(struct n265_frame_work *e, const pu_geo *g,
     return b;
 }
 
-/* --- N265_SUBPEL_TRACE, the re-rank half (phase 10 item 1) --- */
+/* --- N265_SUBPEL_RATE (phase 10 item 1) --- */
 
-/* What a re-rank of the settled AMVP vector against its four
- * quarter-pel neighbours would COST, countable with no such re-rank in
- * the encoder: `cu` is the AMVP PUs whose vector reaches this site,
- * `lists` the per-list passes such a re-rank would make, `satd` the luma
- * SATDs it would buy - the centre plus the neighbours that survive the
- * clamp. Output-neutral, and the reason it exists is that the ladder
- * census in mv.c prices the search and this prices the arm on top of it.
- * `moved` is filled by the arm itself and stays zero without one. */
+/* The ladder's rate model is the CALLER's: `n265_me_search` is handed
+ * this closure under N265_SUBPEL_RATE 2/3 so that a subpel square ranks
+ * in the same units - the same mvd model, the same predictor pair, the
+ * same lambda - the arbitration that will own the vector ranks in. The
+ * scratch candidate's only moving part is the vector on `list`; the
+ * reference-index and inter-direction terms it also prices are constant
+ * across a square and cancel in the argmin, and are kept only so that
+ * the number is the site's own `mot_rate_q8` and not a second model. */
+struct me_rate_ctx {
+    struct n265_frame_work *e;
+    const pu_geo *g;
+    mot_t u;
+    mv_t up[2][2];
+    int list;
+    int base;
+};
+
+static uint32_t me_rate_bits(void *vctx, mv_t mv)
+{
+    struct me_rate_ctx *c = (struct me_rate_ctx *)vctx;
+    c->u.mv[c->list] = mv;
+    return mot_rate_q8(c->e, c->g, &c->u, c->up, c->base);
+}
+
+/* N265_SUBPEL_TRACE, the re-rank half: what arm 1 would cost, countable
+ * with the arm OFF. `cu` is AMVP PUs whose vector reaches the re-rank
+ * site, `lists` the per-list passes that site would make, `satd` the
+ * luma SATDs it would buy (the centre plus the in-bounds neighbours),
+ * `moved` how often it changes the vector when it is on. */
 enum { RR_CU, RR_LISTS, RR_SATD, RR_MOVED, RR_N };
 static atomic_ullong rr_n[RR_N];
 static void rr_report(void);
@@ -3403,17 +3424,23 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
                 n265_mc_sad(e, l, r, g->x, g->y, w, h, start[l]) <
                     n265_mc_sad(e, l, r, g->x, g->y, w, h, p[0]))
                 seed = start[l];
-            n265_me_search(e, l, r, g->x, g->y, w, h, seed, &mv);
             mot_t u;
             u.mv[0].x = u.mv[0].y = u.mv[1].x = u.mv[1].y = 0;
             u.ref[0] = u.ref[1] = 0;
             u.pred = (uint8_t)(1 << l);
-            u.mv[l] = mv;
             u.ref[l] = (int8_t)r;
             mv_t up[2][2] = { { { 0, 0 }, { 0, 0 } },
                               { { 0, 0 }, { 0, 0 } } };
             up[l][0] = p[0];
             up[l][1] = p[1];
+            struct me_rate_ctx rcx;
+            rcx.e = e; rcx.g = g; rcx.u = u;
+            rcx.list = l; rcx.base = 6;
+            memcpy(rcx.up, up, sizeof(up));
+            struct n265_me_rate rc = { me_rate_bits, &rcx, (uint32_t)lam4 };
+            n265_me_search(e, l, r, g->x, g->y, w, h, seed, &mv,
+                           n265_subpel_rate() >= 2 ? &rc : NULL);
+            u.mv[l] = mv;
             uint32_t c = mot_satd_wh(e, g->x, g->y, w, h, u) +
                 (uint32_t)(((uint64_t)mot_rate_q8(e, g, &u, up, 6) * lam4)
                            >> 12);
@@ -3500,13 +3527,15 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
     if (cp >= 1 && cp < 3 && acost != UINT32_MAX)
         acost += cpred_satd(e, g->x, g->y, w, h, amot);
 
-    if (cp >= 2 && acost != UINT32_MAX) {
-        /* The search's last ranking, re-run on chroma. A merge candidate
-         * cannot take this: its vector is what the index names, and a
-         * refined one is no longer codable as a merge. So the quarter-pel
-         * step belongs to the AMVP vector alone, and it is a CHOICE among
+    if ((cp >= 2 || n265_subpel_rate() == 1) && acost != UINT32_MAX) {
+        /* The search's last ranking, re-run. A merge candidate cannot
+         * take this: its vector is what the index names, and a refined
+         * one is no longer codable as a merge. So the quarter-pel step
+         * belongs to the AMVP vector alone, and it is a CHOICE among
          * five positions rather than a search - the ladder inside
-         * n265_me_search stays luma. */
+         * n265_me_search stays luma. `N265_SUBPEL_RATE == 1` is the same
+         * five positions without the chroma term; `acost` carries one
+         * only where `cp` put it there, so the two knobs compose. */
         static const int st[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 },
                                       { 0, -1 } };
         for (int l = 0; l < 2; l++) {
@@ -3524,7 +3553,7 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
                     continue;
                 t.mv[l] = v;
                 uint32_t c = mot_satd_wh(e, g->x, g->y, w, h, t) +
-                    cpred_satd(e, g->x, g->y, w, h, t) +
+                    (cp >= 2 ? cpred_satd(e, g->x, g->y, w, h, t) : 0) +
                     (uint32_t)(((uint64_t)mot_rate_q8(e, g, &t, mvp, 6) *
                                 lam4) >> 12);
                 if (c < best_q) {
@@ -4150,17 +4179,26 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                     for (int r = 0; r < e->nref[l]; r++) {
                         mv_t p[2], mv;
                         n265_amvp(e, l, r, x0, y0, n, n, p);
-                        uint32_t sad = n265_me_search(e, l, r, x0, y0, n, n, p[0], &mv);
                         mot_t u;
                         u.mv[0].x = u.mv[0].y = u.mv[1].x = u.mv[1].y = 0;
                         u.ref[0] = u.ref[1] = 0;
                         u.pred = (uint8_t)(1 << l);
-                        u.mv[l] = mv;
                         u.ref[l] = (int8_t)r;
                         mv_t up[2][2] = { { { 0, 0 }, { 0, 0 } },
                                           { { 0, 0 }, { 0, 0 } } };
                         up[l][0] = p[0];
                         up[l][1] = p[1];
+                        struct me_rate_ctx rcx;
+                        rcx.e = e; rcx.g = &pg; rcx.u = u;
+                        rcx.list = l; rcx.base = 4;
+                        memcpy(rcx.up, up, sizeof(up));
+                        struct n265_me_rate rc = { me_rate_bits, &rcx,
+                                                   (uint32_t)lam4 };
+                        uint32_t sad = n265_me_search(e, l, r, x0, y0, n, n,
+                                                      p[0], &mv,
+                                                      n265_subpel_rate() >= 2
+                                                          ? &rc : NULL);
+                        u.mv[l] = mv;
                         /* rate proxy (or the real syntax under
                          * N265_MVD_BITS), at lambda_sad. n265_me_search
                          * returns the FULL-PEL SAD, so the reference
@@ -4241,9 +4279,11 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                         memcpy(mvp, bp, sizeof(bp));
                     }
                 }
-                static const int st_rr[4][2] = { { 1, 0 }, { -1, 0 },
-                                                 { 0, 1 }, { 0, -1 } };
+                static const int st[4][2] = { { 1, 0 }, { -1, 0 },
+                                              { 0, 1 }, { 0, -1 } };
                 if (rr_trace()) {
+                    /* the census of what the re-rank costs, countable
+                     * with the arm OFF: the positions it would visit */
                     rr_bump(RR_CU, 1);
                     for (int l = 0; l < 2; l++) {
                         if (!(amot.pred & (1 << l)))
@@ -4251,8 +4291,8 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                         rr_bump(RR_LISTS, 1);
                         rr_bump(RR_SATD, 1);    /* the centre */
                         for (int i = 0; i < 4; i++) {
-                            mv_t v = { (int16_t)(amot.mv[l].x + st_rr[i][0]),
-                                       (int16_t)(amot.mv[l].y + st_rr[i][1]) };
+                            mv_t v = { (int16_t)(amot.mv[l].x + st[i][0]),
+                                       (int16_t)(amot.mv[l].y + st[i][1]) };
                             mv_t vc = v;
                             n265_clamp_mv(e, x0, y0, n, n, &vc);
                             if (vc.x == v.x && vc.y == v.y)
@@ -4260,26 +4300,35 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                         }
                     }
                 }
-                if (chroma_pred() >= 2) {
-                    /* The search's last ranking, re-run with chroma in
-                     * it. Since phase 6b's B' the rect/AMP PU search
-                     * (search_pu) is entered on flat-typed frames only,
-                     * so on natural content THIS is where the AMVP
-                     * vector is settled and where the quarter-pel step
-                     * has to be taken. It is a choice among five
-                     * positions, not a search: the ladder inside
-                     * n265_me_search stays luma. Hadamard on both sides
-                     * even though the arbitration above ranks in SAD -
-                     * SAD cannot tell an interpolated phase's blur from
-                     * a misalignment, which is the whole reason the
-                     * subpel round is SATD-costed in mv.c. */
-                    static const int st[4][2] = { { 1, 0 }, { -1, 0 },
-                                                  { 0, 1 }, { 0, -1 } };
+                if (chroma_pred() >= 2 || n265_subpel_rate() == 1) {
+                    /* The search's last ranking, re-run. Since phase 6b's
+                     * B' the rect/AMP PU search (search_pu) is entered on
+                     * flat-typed frames only, so on natural content THIS
+                     * is where the AMVP vector is settled and where the
+                     * quarter-pel step has to be taken. It is a choice
+                     * among five positions, not a search: the ladder
+                     * inside n265_me_search stays luma. Hadamard on both
+                     * sides even though the arbitration above ranks in
+                     * SAD - SAD cannot tell an interpolated phase's blur
+                     * from a misalignment, which is the whole reason the
+                     * subpel round is SATD-costed in mv.c.
+                     *
+                     * Two knobs reach this block and they are
+                     * independent. `N265_CHROMA_PRED >= 2` (phase 7) puts
+                     * the CHROMA cost of each position into the sum;
+                     * `N265_SUBPEL_RATE == 1` (phase 10 item 1) is the
+                     * same five positions on luma SATD + lambda x mvd
+                     * alone. The chroma item measured the second by
+                     * weighting the first's chroma term to zero
+                     * (`N265_CPRED_W=0`) and found it the larger of the
+                     * two; splitting it out is what makes it priceable
+                     * on a preset that does not run the chroma arm. */
+                    int cpr = chroma_pred() >= 2;
                     for (int l = 0; l < 2; l++) {
                         if (!(amot.pred & (1 << l)))
                             continue;
                         uint32_t bq = mot_satd_wh(e, x0, y0, n, n, amot) +
-                            cpred_satd(e, x0, y0, n, n, amot) +
+                            (cpr ? cpred_satd(e, x0, y0, n, n, amot) : 0) +
                             (uint32_t)(((uint64_t)mot_rate_q8(e, &pg, &amot,
                                                               mvp, 6)
                                         * lam4) >> 12);
@@ -4294,7 +4343,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                                 continue;
                             t.mv[l] = v;
                             uint32_t c = mot_satd_wh(e, x0, y0, n, n, t) +
-                                cpred_satd(e, x0, y0, n, n, t) +
+                                (cpr ? cpred_satd(e, x0, y0, n, n, t) : 0) +
                                 (uint32_t)(((uint64_t)mot_rate_q8(e, &pg, &t,
                                                                   mvp, 6)
                                             * lam4) >> 12);
@@ -4303,6 +4352,9 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                                 bmv = v;
                             }
                         }
+                        if (rr_trace() && (bmv.x != amot.mv[l].x ||
+                                           bmv.y != amot.mv[l].y))
+                            rr_bump(RR_MOVED, 1);
                         amot.mv[l] = bmv;
                     }
                 }

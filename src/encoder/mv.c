@@ -544,13 +544,39 @@ static int subme_mode(void)
     return v;
 }
 
-/* N265_SUBPEL_TRACE (phase 10 item 1, diagnostic and output-neutral):
- * what the subpel ladder costs, so that an arm which adds work to it has
- * a prediction before it is run. Counted per PU that ENTERS the ladder -
- * one per (list, reference) trial, not one per coding unit - and printed
- * once at exit. The counters are atomic so a multi-worker run still adds
- * up; nothing here is ordered, and the census is read at --threads 1. */
-enum { SP_PU, SP_SQ, SP_CAND, SP_SATD, SP_N };
+/* N265_SUBPEL_RATE (phase 10 item 1): the subpel ladder minimises pure
+ * SATD, so it takes whichever phase has the smallest Hadamard cost
+ * however many mvd bits that position costs, and at N265_SUBME=3 - the
+ * shipped medium - the last square it runs is the vector that gets
+ * coded. This is where lambda x mvd reaches it.
+ *
+ *   0  off. The ladder is what it has always been.
+ *   1  the POST-SEARCH re-rank: the AMVP vector against its four
+ *      quarter-pel neighbours on luma SATD + lambda x mvd, taken in
+ *      ctu.c where the vector is settled. Five luma SATDs per AMVP PU
+ *      per list. ctu.c owns this arm; the ladder does not see it.
+ *   2  the rate term inside the ladder's LAST round, each candidate
+ *      priced with its mvd bits as it is visited. No extra SATDs.
+ *   3  the rate term inside EVERY round.
+ *
+ * At N265_SUBME=3 `rounds` is 1, so 2 and 3 are the same code path and
+ * the same bitstream; they separate only on a two-round ladder
+ * (N265_SUBME 0/1/2/4, which is what `slower` runs). */
+int n265_subpel_rate(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_SUBPEL_RATE");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
+/* N265_SUBPEL_TRACE (diagnostic, output-neutral): what the ladder costs
+ * and what the rate term moves, so the clock has a prediction before an
+ * arm is run. Counted at --threads 1; the counters are atomic so a
+ * multi-worker run still adds up, but nothing here is ordered. */
+enum { SP_PU, SP_SQ, SP_CAND, SP_SATD, SP_RMOVE, SP_N };
 static atomic_ullong sp_n[SP_N];
 static void sp_report(void);
 static int sp_trace(void)
@@ -567,9 +593,10 @@ static void sp_report(void)
     unsigned long long pu = atomic_load(&sp_n[SP_PU]);
     double d = pu ? (double)pu : 1.0;
     fprintf(stderr, "subpeltrace ladder: pu=%llu squares=%llu cand=%llu"
-            " satd=%llu | per_pu squares=%.3f cand=%.3f satd=%.3f\n",
+            " satd=%llu rate_moved=%llu | per_pu squares=%.3f cand=%.3f"
+            " satd=%.3f\n",
             pu, atomic_load(&sp_n[SP_SQ]), atomic_load(&sp_n[SP_CAND]),
-            atomic_load(&sp_n[SP_SATD]),
+            atomic_load(&sp_n[SP_SATD]), atomic_load(&sp_n[SP_RMOVE]),
             atomic_load(&sp_n[SP_SQ]) / d, atomic_load(&sp_n[SP_CAND]) / d,
             atomic_load(&sp_n[SP_SATD]) / d);
 }
@@ -606,8 +633,15 @@ static uint32_t qstep_q8(int qp)
     return tab[n265_qp_clip(qp) + QP_BD_OFFSET];
 }
 
+/* the caller's lambda x mvd at this vector, in the ladder's SATD units */
+static inline uint32_t me_rate(const struct n265_me_rate *rc, mv_t mv)
+{
+    return (uint32_t)(((uint64_t)rc->bits_q8(rc->ctx, mv) * rc->lam4) >> 12);
+}
+
 uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, int y0,
-                        int w, int h, mv_t start, mv_t *best)
+                        int w, int h, mv_t start, mv_t *best,
+                        const struct n265_me_rate *rc)
 {
     mv_t cur = { (int16_t)((start.x >> 2) * 4), (int16_t)((start.y >> 2) * 4) };
     n265_clamp_mv(e, x0, y0, w, h, &cur);
@@ -737,12 +771,19 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
     int gate_q_move = sm == 1 || sm == 2 || sm == 3 || sm == 5;
     int gate_q_small = (sm == 2 || sm == 3 || sm == 5) && w + h == 12;
     int rounds = (sm == 3 || sm == 5 || sm == 6) ? 1 : 2;
+    /* N265_SUBPEL_RATE 2 and 3: lambda x mvd on every candidate the
+     * square visits, as it is visited. `best_satd` stays the PURE
+     * Hadamard cost of `cur` so that a step with the term and a step
+     * without it can carry the same number between them; the rate is
+     * added to both sides of the comparison inside the step. */
+    int sr = rc ? n265_subpel_rate() : 0;
     int trace = sp_trace();
     uint32_t best_satd = fullpel ? 0 : mc_satd(e, list, ridx, x0, y0, w, h, cur);
     if (trace && !fullpel)
         sp_bump(SP_PU, 1), sp_bump(SP_SATD, 1);
     for (int round = 0; round < (fullpel ? 0 : rounds); round++) {
         mv_t round_start = cur;
+        int rate_on = sr == 3 || (sr == 2 && round == rounds - 1);
         for (int step = 2; step >= 1; step--) {
             if (step == 1 && gate_q_small)
                 break;
@@ -751,8 +792,11 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
                 break;
             int sad_step = hsad && step == 2;
             mv_t b = cur;
-            uint32_t bs = sad_step
+            uint32_t b_d = sad_step
                 ? n265_mc_sad(e, list, ridx, x0, y0, w, h, cur) : best_satd;
+            uint32_t bs = b_d + (rate_on ? me_rate(rc, cur) : 0);
+            mv_t pb = cur;              /* the pure-metric argmin, trace only */
+            uint32_t pbs = b_d;
             if (trace)
                 sp_bump(SP_SQ, 1);
             for (int dy = -step; dy <= step; dy += step)
@@ -772,11 +816,19 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
                         if (!sad_step)
                             sp_bump(SP_SATD, 1);
                     }
-                    if (s < bs) {
-                        bs = s;
+                    uint32_t c = s + (rate_on ? me_rate(rc, t) : 0);
+                    if (c < bs) {
+                        bs = c;
+                        b_d = s;
                         b = t;
                     }
+                    if (trace && s < pbs) {
+                        pbs = s;
+                        pb = t;
+                    }
                 }
+            if (trace && rate_on && (pb.x != b.x || pb.y != b.y))
+                sp_bump(SP_RMOVE, 1);
             if (sad_step) {
                 /* the two steps rank in different metrics, so the
                  * quarter-pel square needs its centre re-costed */
@@ -788,7 +840,7 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
                 }
             } else {
                 cur = b;
-                best_satd = bs;
+                best_satd = b_d;
             }
         }
         /* A round that did not move the centre leaves the search in the
@@ -813,6 +865,7 @@ void n265_mv_warm(void)
     (void)merge_trace_disp();
     (void)fullpel_on();
     (void)subpel_dedup();
+    (void)n265_subpel_rate();
     (void)sp_trace();
     (void)qstep_q8(0);      /* fills its lazy table */
 }

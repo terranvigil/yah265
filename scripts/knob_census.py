@@ -131,6 +131,11 @@ OVERRIDES = {
     # offset, so it is that refused arm's parameter - N265_CHROMA_W_PCT's
     # case exactly.
     "N265_ABR_IOFF_MAX": "arm",
+    # phase 10 item 1: three forms of lambda x mvd on the subpel vector, all
+    # priced and all refused (the re-rank on the clock, the in-ladder form on
+    # bus's CRF cell). Default 0 and kept for re-pricing, which is what an
+    # arm is; the TRACE beside it is the instrument.
+    "N265_SUBPEL_RATE": "arm",
     # the lattice IS the shipped default (1) and the env is its escape; it
     # is catalogued in docs/instruments.md because value 2 - the
     # commit-only form, phase 9 step 2 - is an arm with a census behind

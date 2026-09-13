@@ -56,10 +56,30 @@ void n265_amvp_pu(struct n265_frame_work *e, int list, int ref,
 void n265_amvp(struct n265_frame_work *e, int list, int ref, int x0, int y0, int nw,
                int nh, mv_t mvp[2]);
 
+/* The caller's rate model, handed to the subpel ladder under
+ * N265_SUBPEL_RATE 2 and 3 (phase 10 item 1). `bits_q8` returns the
+ * syntax cost of coding `mv` on the caller's list in Q8 bits, in the
+ * caller's own model, so the ladder ranks in exactly the units the site
+ * that owns the vector arbitrates in; `lam4` is that site's lambda_sad
+ * at Q4 and the shift is the call sites' own (`bits * lam4 >> 12`).
+ * NULL - and at N265_SUBPEL_RATE 0 or 1 - leaves the ladder pure SATD. */
+struct n265_me_rate {
+    uint32_t (*bits_q8)(void *ctx, mv_t mv);
+    void *ctx;
+    uint32_t lam4;
+};
+
+/* N265_SUBPEL_RATE (phase 10 item 1): where lambda x mvd reaches the
+ * subpel vector. 0 off, 1 the post-search quarter-pel re-rank in ctu.c,
+ * 2 the rate term inside the ladder's LAST round, 3 inside every round.
+ * Defined in mv.c and read by ctu.c, which owns arm 1. */
+int n265_subpel_rate(void);
+
 /* Motion search on one reference list around the given start
- * (quarter-pel in/out). Returns the best cost. */
+ * (quarter-pel in/out). Returns the best cost. `rc` may be NULL. */
 uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, int y0,
-                        int w, int h, mv_t start, mv_t *best);
+                        int w, int h, mv_t start, mv_t *best,
+                        const struct n265_me_rate *rc);
 
 /* SAD of luma MC prediction at mv on one list. */
 uint32_t n265_mc_sad(struct n265_frame_work *e, int list, int ridx, int x0, int y0,
