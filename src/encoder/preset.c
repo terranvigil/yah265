@@ -108,8 +108,8 @@ static const struct kv fast_tab[] = {
  * ahead of x265 4.3 medium in CRF BD-VMAF-NEG - the per-clip leg read
  * against THE REFERENCE, not against our own previous default.
  *
- * It is `fast` plus two rungs and nothing else, so the table below is
- * fast_tab without `N265_INTRA_GATE` and `N265_SBH_RD`:
+ * It is `fast` plus two rungs, so the table below is fast_tab without
+ * `N265_INTRA_GATE` and `N265_SBH_RD`:
  *
  *   N265_SBH_RD     0 -> 2   1.01-1.03x at auto for +5.0 of CIF-7 CRF
  *                            band median
@@ -119,10 +119,31 @@ static const struct kv fast_tab[] = {
  *                            sita_toon_720p (+1.48 -> -3.06) ahead of
  *                            the reference
  *
- * It reads -12.62% CIF-7 / -14.39% HD-6 / -12.63% of 15-clip CRF band
- * median against x265 4.3 medium with all fifteen ahead, -15.29% CIF-7
- * CQP, multishot 7.8% (CIF) and 18.3% (720p) ahead of fast, and the
- * chroma guard better than fast on every clip of the fifteen.
+ * ...plus, since 2026-09-13 (phase 9 step 7, the owner's call), the two
+ * knobs that close plan goal 3's worst-clip leg:
+ *
+ *   N265_SKIP_EXIT  1 -> 2   the loosest static-skip exit
+ *   N265_RDOQ       1 -> 2   the commit-only lattice
+ *
+ * Priced to the end as a composition in step 5 (docs/phase9-goals-plan.md
+ * sec 10) and shipped in step 7 (sec 12). The pair is the only thing
+ * measured in phase 9 that puts every one of the fifteen clips under the
+ * 1.15x worst-clip bar - touchdown_1080p 1.24x -> 1.11x at a 0.76x
+ * median - with the plan's quality and compression legs still passing
+ * (worst dVMAF -0.06, worst dSIZE +0.31%, both on bus_cif). What it
+ * costs, and what the owner decided to spend, is band margin on the two
+ * CIF clips that had the least: stefan_cif and bus_cif go from 5-6
+ * points ahead of x265 medium to about a point behind, the 15-clip CRF
+ * median goes -12.63% -> -6.67%, and multishot is 5.3-5.9% behind this
+ * preset's previous recipe (still 1.7% and 16.9% ahead of x265 across
+ * shots). That recipe is one env list away and is named in
+ * docs/instruments.md.
+ *
+ * The step-1 recipe, the one the two rows above replace, read -12.62%
+ * CIF-7 / -14.39% HD-6 / -12.63% of 15-clip CRF band median against x265
+ * 4.3 medium with all fifteen ahead, -15.29% CIF-7 CQP, multishot 7.8%
+ * (CIF) and 18.3% (720p) ahead of fast, and the chroma guard better than
+ * fast on every clip of the fifteen.
  *
  * What it does NOT take, measured and refused in the same item: the
  * resolution-aware coding tree (`--ctu 64` at 720p and above) with the
@@ -138,7 +159,11 @@ static const struct kv fast_tab[] = {
 static const struct kv med_tab[] = {
     { "N265_RSKIP",      "2" },
     { "N265_CBF_FAST",   "2" },
-    { "N265_SKIP_EXIT",  "1" },
+    { "N265_SKIP_EXIT",  "2" },   /* step 7: the loosest exit bound    */
+    { "N265_RDOQ",       "2" },   /* step 7: the lattice on the commit
+                                   * path only. The compiled-in default
+                                   * is 1 and did not move, so fast,
+                                   * slow and slower are untouched     */
     { "N265_SUBME",      "3" },
     { "N265_CB64_AMVP",  "0" },
     { "N265_BI_REFINE",  "0" },
