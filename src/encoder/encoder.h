@@ -263,6 +263,90 @@ enum {
     N265_CB_COUNT
 };
 
+/* N265_CU_TRACE (phase 9 step 6a): one record per CODING-TREE NODE the
+ * quadtree visits, so that where the search spends its time can be read
+ * against what the CU it was spent on ended up being.
+ *
+ * The instrument only READS - every field below is a number the encoder
+ * had already computed, or a cycle count taken around code that runs
+ * either way - so the encode is byte-identical with the variable set and
+ * without it, which the item's gate verifies by `cmp` on three clips at
+ * both rate modes and both thread counts.
+ *
+ * Written by the row job into the node's own slot under its CTU, dumped
+ * on the driver at retirement in coding order, so the FILE is a pure
+ * function of the encode except for the cycle columns, which are what
+ * the census reads its shares off.
+ *
+ * `kind` is what analyze_cu decided at THIS node; whether the node is a
+ * final CU is the quadtree's business and `flags` bit 0 carries it, so
+ * the census reconstructs the tree from (x, y, log2n) in visit order.
+ *
+ * The layout is fixed and padding-free on purpose: scripts read it with
+ * one struct format and no C compiler. */
+struct n265_cu_rec {
+    uint32_t cyc_tot;       /* ticks in this node, children included   */
+    uint32_t cyc_kids;      /* ...of which the split arm's children    */
+    uint32_t cyc_merge;     /* the merge list, the pick and both merge
+                             * arms' TB analyses - the work no early
+                             * skip exit could avoid                   */
+    uint32_t cyc_amvp;      /* the AMVP search and its TB trial        */
+    uint32_t cyc_intra;     /* the 35-mode rank and the intra RD trial */
+    uint32_t cyc_part;      /* rect / AMP                              */
+    uint32_t cyc_pre;       /* the merge LIST and the SAD pick, inside
+                             * cyc_merge: the only work a static skip
+                             * commit still has to do, so it is what a
+                             * before-the-merge-arm predicate's saving
+                             * has to be net of                        */
+    uint32_t cand_sad;      /* the merge candidate's plain luma SAD    */
+    uint32_t static_thr;    /* n*n*N265_SKIP_THR, the static-skip bound,
+                             * in the eighths cand_sad*8 is tested
+                             * against                                 */
+    uint32_t d_skip;        /* the forced skip's three-component SSD   */
+    uint32_t thr_clean;     /* skip_clean_thr(qp, n), its bound        */
+    uint32_t icost, pcost;  /* the lookahead's sums over the node      */
+    float prop;             /* the cu-tree propagate-in, mean per block */
+    uint16_t x, y;          /* the node's luma origin in the picture   */
+    uint16_t nt_merge, nt_amvp, nt_intra, nt_part;  /* TB analyses run */
+    uint8_t log2n, depth;
+    uint8_t kind;           /* N265_CUT_*                              */
+    uint8_t flags;          /* N265_CUF_*                              */
+    uint8_t colskip;        /* percent of the node's 4x4 cells the
+                             * PREVIOUS FRAME IN CODING ORDER coded skip
+                             * at the same position; 255 = no previous */
+    uint8_t qp, slice_type, rsv;
+};
+
+enum {
+    N265_CUT_SKIP = 0,      /* the CU ends as a skip                   */
+    N265_CUT_MERGE,         /* merge with residual                     */
+    N265_CUT_AMVP,
+    N265_CUT_INTRA,
+    N265_CUT_PART,          /* a rectangular or asymmetric partition   */
+    N265_CUT_OUTSIDE,       /* the node is off the picture             */
+    N265_CUT_FRAME = 0xff   /* the per-frame header record             */
+};
+
+enum {
+    N265_CUF_SPLIT   = 1u,  /* the quadtree kept the SPLIT arm here    */
+    N265_CUF_STATIC  = 2u,  /* the strict static-skip exit took the CU
+                             * before a single TB was analysed         */
+    N265_CUF_GAMVP   = 4u,  /* the AMVP arm was gated away             */
+    N265_CUF_GINTRA  = 8u,  /* the intra arm was gated away            */
+    N265_CUF_CLEAN   = 16u, /* the winner was a CLEAN skip             */
+    N265_CUF_NORES   = 32u, /* the winner carried rqt_root_cbf 0       */
+    N265_CUF_FLAT    = 64u, /* the frame is typed flat                 */
+    N265_CUF_SKIPWIN = 128u /* j_skip <= j_merge at the point the
+                             * merge-first skip exit asks - the conjunct
+                             * N265_SKIP_EXIT carries, without which a
+                             * bound on d_skip alone reads far looser
+                             * than the gate it would go into           */
+};
+
+/* nodes per CTU: 1 + 4 + 16 + 64 covers a 64x64 coding tree down to the
+ * 8x8 minimum, which is every shape the quadtree can visit */
+#define N265_CU_REC_MAX 85
+
 /* N265_DEPTH_DUMP (phase 7 item 4, step 0): the per-CTU training record.
  * Everything above `dmin` is a PRE-DECISION feature - it comes off the
  * lookahead's lowres maps, the frame's own source luma or the AQ field,
@@ -445,6 +529,7 @@ typedef struct n265_frame_work {
     float la_mvabs;         /* lookahead mean |MV| per lowres block (N265_CT_TRACE) */
     const uint16_t *la_icost, *la_pcost;
     const int16_t *la_mv;   /* lowres MV pairs, same grid (N265_DEPTH_DUMP) */
+    const float *la_prop;   /* cu-tree propagate-in, same grid (N265_CU_TRACE) */
     int la_bw, la_bh;
 
     /* N265_DEPTH_DUMP: one record per coded CTU, filled by the row job
@@ -452,6 +537,13 @@ typedef struct n265_frame_work {
      * the file is in raster order at every thread count. Allocated only
      * when the knob is set; NULL is the shipping encoder. */
     struct n265_depth_rec *dd_rec;
+
+    /* N265_CU_TRACE: N265_CU_REC_MAX slots per CTU plus a count each,
+     * filled by the row job that owns the CTU and written out on the
+     * driver at retirement. NULL is the shipping encoder and every site
+     * that touches them is a NULL test. */
+    struct n265_cu_rec *cu_rec;
+    uint16_t *cu_rec_n;
 
     /* ---- decision maps, frame-owned ---- */
     uint8_t *ct_depth;      /* 4x4-granularity coding-tree depth map */
@@ -493,6 +585,11 @@ typedef struct n265_frame_work {
     int cu_pred_x0, cu_pred_y0;     /* luma origin of those planes */
     int last_skip_clean;    /* analyze_cu: skip won with low distortion */
     int last_cu_nores;      /* analyze_cu: the winner had rqt_root_cbf 0 */
+    /* N265_CU_TRACE, row-private: the CTU whose slots this lane is
+     * filling, the open node stack inside its quadtree, and which arm of
+     * analyze_cu the TB analyses arriving now belong to. */
+    int cu_ctu, cu_sp, cu_arm;
+    struct n265_cu_rec *cu_stk[8];
     cabac_ctx_t *est_ctx;   /* RD cost-model contexts (row-private) */
     uint8_t *rec_buf;       /* CTU record stream (records.h) */
     size_t rec_len, rec_cap, rec_pos;
@@ -879,6 +976,14 @@ struct n265_encoder {
      * The counters themselves are per-frame (see n265_frame_work). */
     int cu_stats;
     int cbit_trace;         /* N265_CBIT_TRACE, the same way */
+    /* N265_CU_TRACE: the census's output file, and the skip map of the
+     * PREVIOUS FRAME IN CODING ORDER. Both are driver-only - the map is
+     * copied out of each frame at retirement, where join_oldest has
+     * already serialised coding order - so the co-located-skip column is
+     * the same integer at one worker and at twelve. */
+    FILE *cu_trace_f;
+    uint8_t *cu_prev_skip;
+    int cu_prev_valid;
     /* N265_INTRA_GATE=10's history. `armed` says the frame ran the intra
      * arm over its floor population, so its J pair is a MEASUREMENT; a
      * frame the rule gated reports nothing and is skipped on the read,

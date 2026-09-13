@@ -618,6 +618,19 @@ static const char *depth_dump_file(void)
     return f;
 }
 
+/* N265_CU_TRACE=file (phase 9 step 6a): where the per-node census
+ * records go, same shape and same reason as the depth dump's. Unset
+ * leaves fw->cu_rec NULL and every site is a NULL test. */
+static const char *cu_trace_file(void)
+{
+    static const char *f = (const char *)-1;
+    if (f == (const char *)-1) {
+        const char *s = n265_env("N265_CU_TRACE");
+        f = (s && *s) ? s : NULL;
+    }
+    return f;
+}
+
 static int fw_open(n265_encoder *e, n265_frame_work *fw)
 {
     fw_config(e, fw);
@@ -643,6 +656,13 @@ static int fw_open(n265_encoder *e, n265_frame_work *fw)
     if (depth_dump_file()) {
         fw->dd_rec = calloc(nctu, sizeof(struct n265_depth_rec));
         if (!fw->dd_rec)
+            return -1;
+    }
+    if (cu_trace_file()) {
+        fw->cu_rec = calloc(nctu * N265_CU_REC_MAX,
+                            sizeof(struct n265_cu_rec));
+        fw->cu_rec_n = calloc(nctu, sizeof(uint16_t));
+        if (!fw->cu_rec || !fw->cu_rec_n)
             return -1;
     }
     if (!fw->ctu_dmin || !fw->ctu_dmax || !fw->ct_depth || !fw->intra_mode ||
@@ -700,6 +720,8 @@ static void fw_close(n265_frame_work *fw)
     free(fw->ctu_qp_raw);
     free(fw->ctu_lam_q8);
     free(fw->dd_rec);
+    free(fw->cu_rec);
+    free(fw->cu_rec_n);
     free(fw->sao);
     for (int i = 0; i < 3; i++) {
         free(fw->sao_tmp[i]);
@@ -1473,6 +1495,9 @@ void n265_encoder_close(n265_encoder *e)
                     ? (double)atomic_load(&e->ref_stalls) /
                       (double)atomic_load(&e->stall_frames) : 0.0);
     }
+    if (e->cu_trace_f)
+        fclose(e->cu_trace_f);
+    free(e->cu_prev_skip);
     for (int i = 0; i < e->K; i++)
         fw_close(&e->fw[i]);
     for (int i = 0; i < e->nlanes; i++)
@@ -3264,6 +3289,62 @@ static void join_oldest(n265_encoder *e)
             fclose(df);
         }
     }
+    /* N265_CU_TRACE: the frame's per-node census, in raster order, with
+     * the co-located-skip column resolved here against the previous
+     * frame in CODING order - which is the order join_oldest retires in,
+     * so the column is the same integer at every thread count. */
+    if (fw->cu_rec) {
+        if (!e->cu_trace_f)
+            e->cu_trace_f = fopen(cu_trace_file(), "ab");
+        if (e->cu_trace_f) {
+            struct n265_cu_rec h;
+            memset(&h, 0, sizeof(h));
+            h.kind = N265_CUT_FRAME;
+            h.cyc_tot = (uint32_t)fw->code_idx;
+            h.cyc_kids = (uint32_t)fw->poc;
+            h.cyc_merge = (uint32_t)fw->ctb_cols;
+            h.cyc_amvp = (uint32_t)fw->ctb_rows;
+            h.cyc_intra = (uint32_t)fw->display_idx;
+            h.slice_type = (uint8_t)fw->slice_type;
+            h.qp = (uint8_t)fw->qp;
+            h.log2n = (uint8_t)fw->ctb_log2;
+            h.flags = (uint8_t)(fw->flat ? N265_CUF_FLAT : 0);
+            fwrite(&h, sizeof(h), 1, e->cu_trace_f);
+            int cw = fw->pad_w >> 2, ch = fw->pad_h >> 2;
+            for (int k = 0; k < fw->ctb_cols * fw->ctb_rows; k++) {
+                int cnt = fw->cu_rec_n[k];
+                for (int i = 0; i < cnt; i++) {
+                    struct n265_cu_rec *r =
+                        &fw->cu_rec[k * N265_CU_REC_MAX + i];
+                    r->colskip = 255;
+                    if (e->cu_prev_valid && e->cu_prev_skip) {
+                        int cells = 1 << (r->log2n - 2), got = 0, tot = 0;
+                        for (int cy = r->y >> 2;
+                             cy < (r->y >> 2) + cells && cy < ch; cy++)
+                            for (int cx = r->x >> 2;
+                                 cx < (r->x >> 2) + cells && cx < cw; cx++) {
+                                got += e->cu_prev_skip[(size_t)cy *
+                                                       fw->map_stride + cx] != 0;
+                                tot++;
+                            }
+                        r->colskip = (uint8_t)(tot ? got * 100 / tot : 255);
+                    }
+                }
+                if (cnt)
+                    fwrite(&fw->cu_rec[k * N265_CU_REC_MAX],
+                           sizeof(struct n265_cu_rec), (size_t)cnt,
+                           e->cu_trace_f);
+            }
+            if (!e->cu_prev_skip)
+                e->cu_prev_skip = malloc((size_t)fw->map_stride *
+                                         (fw->pad_h >> 2));
+            if (e->cu_prev_skip && fw->blk_skip) {
+                memcpy(e->cu_prev_skip, fw->blk_skip,
+                       (size_t)fw->map_stride * (fw->pad_h >> 2));
+                e->cu_prev_valid = 1;
+            }
+        }
+    }
     if (fw->cu_stats) {
         /* one CSV row per frame: what the entropy pass actually wrote.
          * Shares are of the coded luma area, so they sum to 1. Printed
@@ -4181,6 +4262,7 @@ static int drive_scheduler(n265_encoder *e)
     fw->la_icost = f->icost;        /* the same field per CTU, R3 reads it */
     fw->la_pcost = f->pcost;
     fw->la_mv = f->mv;              /* N265_DEPTH_DUMP only */
+    fw->la_prop = f->prop;          /* N265_CU_TRACE only */
     fw->la_bw = la->bw;
     fw->la_bh = la->bh;
     /* D1: freeze the RPS here, while the marked set is still the one the

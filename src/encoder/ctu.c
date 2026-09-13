@@ -512,6 +512,111 @@ static inline uint32_t ctu_lam(const struct n265_frame_work *e, int qp)
     return (uint32_t)(((uint64_t)l * e->cur_ctu_lam_q8) >> 8);
 }
 
+/* N265_CU_TRACE (diagnostic, output-neutral): the census phase 9 step 6a
+ * is decided on - where the search spends its time on a clip that is
+ * mostly still, and whether what it spends it on is separable from what
+ * it gets back.
+ *
+ * Every column is a number the encoder had already computed (the merge
+ * candidate's SAD, the static-skip bound, the forced skip's distortion,
+ * the clean-skip bound, the lookahead's costs and cu-tree propagate) or
+ * a cycle count taken AROUND code that runs either way. Nothing here is
+ * read by a predicate and no branch depends on it, so the bitstream is
+ * the same with the variable set and without it.
+ *
+ * The clock is `cntvct_el0` on aarch64, whose `cntfrq_el0` on this box
+ * is 1 GHz - a tick is a nanosecond, and one 8x8 node is hundreds of
+ * them - and the read is cheap enough that a traced encode and a plain
+ * one are the same wall to the resolution of the harness
+ * (docs/phase9-goals-plan.md sec 11.1). PMCCNTR_EL0 is not readable from
+ * EL0 here, which is why this is the counter and not cycles; where the
+ * timebase is coarser the SHARES still hold, because the difference of
+ * two truncated reads is unbiased over the millions the census sums. */
+static inline uint64_t cu_tick(void)
+{
+#if defined(__aarch64__)
+    uint64_t v;
+    __asm__ volatile("mrs %0, cntvct_el0" : "=r"(v));
+    return v;
+#elif defined(__x86_64__) || defined(__i386__)
+    return (uint64_t)__builtin_ia32_rdtsc();
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+#endif
+}
+
+/* which arm of analyze_cu the TB analyses arriving now belong to. The
+ * COMMIT's transform tree is charged to the arm that won it, which is
+ * what makes the per-class counts read as "TB analyses by mode class". */
+enum { CU_ARM_MERGE = 0, CU_ARM_AMVP, CU_ARM_INTRA, CU_ARM_PART };
+
+#define CU_CUR(e) \
+    ((e)->cu_rec && (e)->cu_sp > 0 ? (e)->cu_stk[(e)->cu_sp - 1] : NULL)
+
+/* open this node's record and push it; NULL whenever the trace is off,
+ * which is every site's test */
+static struct n265_cu_rec *cu_open(struct n265_frame_work *e, int x0, int y0,
+                                   int log2n, int depth)
+{
+    if (!e->cu_rec || e->cu_sp >= (int)(sizeof(e->cu_stk) /
+                                        sizeof(e->cu_stk[0])))
+        return NULL;
+    int k = e->cu_ctu;
+    unsigned i = e->cu_rec_n[k];
+    if (i >= N265_CU_REC_MAX)
+        return NULL;
+    e->cu_rec_n[k] = (uint16_t)(i + 1);
+    struct n265_cu_rec *r = &e->cu_rec[(size_t)k * N265_CU_REC_MAX + i];
+    memset(r, 0, sizeof(*r));
+    r->x = (uint16_t)x0;
+    r->y = (uint16_t)y0;
+    r->log2n = (uint8_t)log2n;
+    r->depth = (uint8_t)depth;
+    r->kind = N265_CUT_OUTSIDE;
+    r->qp = (uint8_t)e->cur_ctu_qp;
+    r->slice_type = (uint8_t)e->slice_type;
+    if (e->flat)
+        r->flags |= N265_CUF_FLAT;
+    /* the lookahead's own view of the node: the 16x16 blocks it covers,
+     * or the one block it sits inside */
+    if (e->la_icost && e->la_bw) {
+        int n = 1 << log2n, nb = n >> 4;
+        if (nb < 1)
+            nb = 1;
+        uint64_t ic = 0, pc = 0;
+        double pr = 0;
+        int cnt = 0;
+        for (int by = y0 >> 4; by < (y0 >> 4) + nb && by < e->la_bh; by++)
+            for (int bx = x0 >> 4; bx < (x0 >> 4) + nb && bx < e->la_bw;
+                 bx++) {
+                int b = by * e->la_bw + bx;
+                ic += e->la_icost[b];
+                pc += e->la_pcost[b];
+                if (e->la_prop)
+                    pr += e->la_prop[b];
+                cnt++;
+            }
+        r->icost = (uint32_t)ic;
+        r->pcost = (uint32_t)pc;
+        r->prop = cnt ? (float)(pr / cnt) : 0.0f;
+    }
+    e->cu_stk[e->cu_sp++] = r;
+    return r;
+}
+
+static void cu_close(struct n265_frame_work *e, struct n265_cu_rec *r,
+                     uint64_t t0)
+{
+    if (!r)
+        return;
+    r->cyc_tot = (uint32_t)(cu_tick() - t0);
+    e->cu_sp--;
+    if (e->cu_sp > 0)
+        e->cu_stk[e->cu_sp - 1]->cyc_kids += r->cyc_tot;
+}
+
 /* N265_RDOQ_TRACE (diagnostic, output-neutral): the census phase 9 step 2
  * is decided on, before any commit-only lattice exists.
  *
@@ -753,6 +858,19 @@ static void tb_analyze_one(struct n265_frame_work *e, int c_idx, int x0,
                            tb_ctx *tb, size_t off, int *out_nz)
 {
     int inter = mode == MODE_INTER;
+    /* N265_CU_TRACE: one TB analysis, charged to the arm that asked for
+     * it. Luma and chroma both, which is what the CU's cost is made of. */
+    {
+        struct n265_cu_rec *cr = CU_CUR(e);
+        if (cr) {
+            uint16_t *p = e->cu_arm == CU_ARM_AMVP  ? &cr->nt_amvp
+                        : e->cu_arm == CU_ARM_INTRA ? &cr->nt_intra
+                        : e->cu_arm == CU_ARM_PART  ? &cr->nt_part
+                                                    : &cr->nt_merge;
+            if (*p < 65535)
+                (*p)++;
+        }
+    }
     /* 8.6.4.2: the 4x4 DST-VII is LUMA-only at every chroma format, so a
      * 4x4 chroma block at 4:4:4 or 4:2:2 takes the DCT like every other. */
     int use_dst = !inter && c_idx == 0 && log2n == 2;
@@ -3812,6 +3930,11 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
 
     size_t pos0 = e->rec_len;
 
+    struct n265_cu_rec *cr = CU_CUR(e);
+    uint64_t cu_t0 = cr ? cu_tick() : 0;
+    if (cr)
+        e->cu_arm = CU_ARM_MERGE;
+
     if (e->slice_type != 2) {
         /* one instance per row lane; analyze_cu shares them across
          * quadtree depths exactly as the statics did */
@@ -3823,6 +3946,13 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
         uint32_t cand_plain_sad;
         int midx = merge_pick_sad(e, x0, y0, log2n, mlist, &cand_plain_sad);
         mot_t cand = mlist[midx];
+        if (cr) {
+            cr->cyc_pre = (uint32_t)(cu_tick() - cu_t0);
+            cr->cand_sad = cand_plain_sad;
+            cr->static_thr = (uint32_t)(n * n * skip_thr8());
+            cr->thr_clean =
+                (uint32_t)skip_clean_thr(e->cur_ctu_qp, n);
+        }
 
         /* strict static skip at the best merge candidate.
          *
@@ -3844,6 +3974,13 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             uint64_t ssd = cu_area_ssd(e, x0, y0, n);
             e->last_skip_clean = ssd <= skip_clean_thr(e->cur_ctu_qp, n);
             e->last_cu_nores = 1;
+            if (cr) {
+                cr->kind = N265_CUT_SKIP;
+                cr->flags |= N265_CUF_STATIC | N265_CUF_NORES |
+                    (e->last_skip_clean ? N265_CUF_CLEAN : 0);
+                cr->d_skip = (uint32_t)(ssd > UINT32_MAX ? UINT32_MAX : ssd);
+                cr->cyc_merge = (uint32_t)(cu_tick() - cu_t0);
+            }
             return rd_j(e, ssd, adv.bits, ctu_lam(e, e->cur_ctu_qp));
         }
 
@@ -3936,6 +4073,23 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                  d_skip * (skip_exit() == 1 ? 4u : 1u) <=
                      skip_clean_thr(e->cur_ctu_qp, n)))
                 gate_amvp = 1;
+
+            /* N265_CU_TRACE: the merge arm is over. Everything above is
+             * work no early skip exit could avoid - it is what the exit
+             * would be decided ON - and everything below is what one
+             * would save. */
+            uint64_t cu_ta = 0;
+            if (cr) {
+                cu_ta = cu_tick();
+                if (j_skip <= j_merge)
+                    cr->flags |= N265_CUF_SKIPWIN;
+                cr->cyc_merge = (uint32_t)(cu_ta - cu_t0);
+                cr->d_skip = (uint32_t)(d_skip > UINT32_MAX ? UINT32_MAX
+                                                            : d_skip);
+                if (gate_amvp)
+                    cr->flags |= N265_CUF_GAMVP;
+                e->cu_arm = CU_ARM_AMVP;
+            }
 
             /* amvp candidate: per-list ME, then the best of uni-L0,
              * uni-L1, bi by prediction SAD carries to RD */
@@ -4149,6 +4303,12 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                 if (cbf_fast() >= 2 && !a_any)
                     gate_intra = gate_part = 1;
             }
+            if (cr) {
+                uint64_t t = cu_tick();
+                cr->cyc_amvp = (uint32_t)(t - cu_ta);
+                cu_ta = t;
+                e->cu_arm = CU_ARM_INTRA;
+            }
 
             /* P3: what the inter arms already proved decides whether
              * the intra arm is worth its 35-mode rank and its
@@ -4310,6 +4470,14 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             }
             j_intra = rd_j(e, d_intra, st.bits, lam);
             }
+            if (cr) {
+                uint64_t t = cu_tick();
+                cr->cyc_intra = (uint32_t)(t - cu_ta);
+                cu_ta = t;
+                if (gate_intra)
+                    cr->flags |= N265_CUF_GINTRA;
+                e->cu_arm = CU_ARM_PART;
+            }
 
             /* pick the winner among the 2Nx2N candidates */
             uint64_t best = j_skip;
@@ -4431,6 +4599,19 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                 }
             }
 
+            if (cr) {
+                cr->cyc_part = (uint32_t)(cu_tick() - cu_ta);
+                cr->kind = (uint8_t)(kind == 0 ? N265_CUT_SKIP :
+                                     kind == 1 ? N265_CUT_MERGE :
+                                     kind == 2 ? N265_CUT_AMVP :
+                                     kind == 3 ? N265_CUT_INTRA
+                                               : N265_CUT_PART);
+                /* the commit's transform tree belongs to the arm that
+                 * won it */
+                e->cu_arm = kind == 2 ? CU_ARM_AMVP :
+                            kind == 3 ? CU_ARM_INTRA :
+                            kind == 4 ? CU_ARM_PART : CU_ARM_MERGE;
+            }
             if (kind == 0) {
                 skip_cu(e, x0, y0, log2n, cand, midx);
                 e->last_skip_clean = d_skip <= skip_clean_thr(e->cur_ctu_qp, n);
@@ -4454,6 +4635,9 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                                      tcb, tcr, NULL);
             }
             if (kind != 3) {
+                if (cr)
+                    cr->flags |= (e->last_skip_clean ? N265_CUF_CLEAN : 0) |
+                        (e->last_cu_nores ? N265_CUF_NORES : 0);
                 e->rec_pos = pos0;
                 est_state adv = { e->est_ctx, 0 };
                 n265_est_advance_cu(e, &adv, x0, y0, log2n);
@@ -4468,6 +4652,10 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
     }
 
     /* intra */
+    if (cr) {
+        cr->kind = N265_CUT_INTRA;
+        e->cu_arm = CU_ARM_INTRA;
+    }
     set_blk(e, e->blk_intra, x0, y0, n, 1);
     set_blk(e, e->blk_skip, x0, y0, n, 0);
 
@@ -4517,6 +4705,10 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
     if (!nxn) {
         set_mode_map(e, x0, y0, n, modes[0]);
         tt_analyze(e, modes[0], x0, y0, log2n, pre_l, pre_cb, pre_cr);
+        /* an I slice, or a node above 32x32 in an inter slice: the inter
+         * arms never ran, so the whole node is the intra arm */
+        if (cr && !cr->cyc_merge)
+            cr->cyc_intra = (uint32_t)(cu_tick() - cu_t0);
         e->rec_pos = pos0;
         est_state adv = { e->est_ctx, 0 };
         n265_est_advance_cu(e, &adv, x0, y0, log2n);
@@ -4596,6 +4788,8 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
     rec_levels_c(e, &tcr, 2);
     }
     e->rdoq_commit = 0;
+    if (cr && !cr->cyc_merge)
+        cr->cyc_intra = (uint32_t)(cu_tick() - cu_t0);
     e->rec_pos = pos0;
     est_state adv = { e->est_ctx, 0 };
     n265_est_advance_cu(e, &adv, x0, y0, log2n);
@@ -4709,19 +4903,25 @@ static void qt_restore(struct n265_frame_work *e, const qt_snap *sn, int x0,
         memcpy(e->rec_buf + sn->rec_base, sn->rec_copy, sn->rec_copy_len);
 }
 
+static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
+                         int depth);
+
 /* RD quadtree: at each inside node try no-split (one CU) and split (four
  * children, recursively), keep the cheaper tree. Returns the committed
  * subtree's J. Boundary nodes recurse without a flag. */
-static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
-                         int depth)
+static uint64_t quadtree_inner(struct n265_frame_work *e, int x0, int y0,
+                               int log2n, int depth)
 {
     int n = 1 << log2n;
     int inside = x0 + n <= e->pad_w && y0 + n <= e->pad_h;
     uint32_t lam = ctu_lam(e, e->cur_ctu_qp);
+    struct n265_cu_rec *cr = CU_CUR(e);
 
     if (!inside && log2n > MIN_CB_LOG2) {
         uint64_t j = 0;
         int h = n >> 1;
+        if (cr)
+            cr->flags |= N265_CUF_SPLIT;
         for (int i = 0; i < 4; i++) {
             int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
             if (x1 < e->pad_w && y1 < e->pad_h)
@@ -4796,8 +4996,16 @@ static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
                            log2n - 1, depth + 1);
         if (j_cu2 <= js) {
             qt_restore(e, fwon, x0, y0, n);
+            /* the CTB-skip arm of the depth bound: a prediction-only
+             * whole-CTU skip that never entered analyze_cu */
+            if (cr) {
+                cr->kind = N265_CUT_SKIP;
+                cr->flags |= N265_CUF_STATIC | N265_CUF_NORES;
+            }
             return j_cu2;
         }
+        if (cr)
+            cr->flags |= N265_CUF_SPLIT;
         return js;
     }
 
@@ -4969,7 +5177,25 @@ static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
         qt_restore(e, sw, x0, y0, n);
         return j_cu;
     }
+    if (cr)
+        cr->flags |= N265_CUF_SPLIT;
     return j_split;
+}
+
+/* N265_CU_TRACE's node frame: one record per visited node, opened before
+ * the node's work and closed after it, so `cyc_tot` is the subtree and
+ * `cyc_kids` the part of it the split arm's children took. Off, this is
+ * one predicted branch per node. */
+static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
+                         int depth)
+{
+    if (!e->cu_rec)
+        return quadtree_inner(e, x0, y0, log2n, depth);
+    struct n265_cu_rec *r = cu_open(e, x0, y0, log2n, depth);
+    uint64_t t0 = cu_tick();
+    uint64_t j = quadtree_inner(e, x0, y0, log2n, depth);
+    cu_close(e, r, t0);
+    return j;
 }
 
 /* P2: the depth range this CTU's quadtree may search, from the decoded
@@ -5142,6 +5368,12 @@ void n265_analyze_ctu(struct n265_frame_work *e, int ctb_x, int ctb_y)
     e->ent_ctu_qp = e->cur_ctu_qp;
     e->ent_qp_coded = 0;
     clear_cu_pred(e);
+    if (e->cu_rec) {            /* N265_CU_TRACE: this CTU's own slots */
+        e->cu_ctu = ctb_k;
+        e->cu_rec_n[ctb_k] = 0;
+        e->cu_sp = 0;
+        e->cu_arm = CU_ARM_MERGE;
+    }
     depth_bounds(e, ctb_x, ctb_y);
     (void)quadtree(e, ctb_x << e->ctb_log2, ctb_y << e->ctb_log2,
                    e->ctb_log2, 0);
