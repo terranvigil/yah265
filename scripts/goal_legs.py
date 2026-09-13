@@ -9,8 +9,11 @@ passing four legs:
 
     median speed     <= 1.00x of x265's wall
     worst-clip speed  < 1.15x, the clip NAMED
-    quality           within 0.5 dVMAF-NEG
-    compression       within 1.0% dSIZE
+    quality           not more than 0.5 dVMAF-NEG BELOW x265, at equal bytes
+    compression       not more than 1.0% LARGER than x265, at equal quality
+
+The last two are ONE-SIDED and each is read at its own matched axis; see
+"the legs" below for why both of those words are load-bearing.
 
 | goal | tier                    | threads |
 |------|-------------------------|---------|
@@ -53,8 +56,11 @@ Usage (environment, the way the band tools take their arguments):
                                        wait for the box to reach it)
 
 Flags: --help, --no-csv (do not append to docs/data/goal-legs.csv),
---no-time (solve and score only; the wall columns stay empty). Anything
-else is refused, the way board.py refuses it.
+--no-time (solve and score only; the wall columns stay empty),
+--from-csv (re-print a run's tables and legs out of the CSV, reading
+nothing else: no encode, no metric, no stopwatch, so a row can be re-read
+while the box belongs to someone else). Anything else is refused, the way
+board.py refuses it.
 
 **Two binaries, on purpose.** The wall is read on `build-rel/n265`
 (`-Dbuildtype=release`, worth 2-3%; `make build-rel`) and the SOLVE runs
@@ -74,14 +80,24 @@ and a quiet box - the run refuses to start a timed leg above LOADMAX.
 What each column is read from, because they are not all the same encode:
 the CRF, byte and VMAF-NEG columns come from the band's single-threaded
 solve (a bitstream property, identical at any thread count on our side by
-the determinism gate); the wall columns come from each leg's own thread
-configuration. x265's bitstream does move with `--frame-threads`, so at
-the auto legs its wall is its own default configuration's at the SOLVED
-CRF number, which is the pinned operating point.
+the determinism gate); `dvmaf_eq_bytes` and `dsize_eq_vmaf_pct` come from
+that solve plus the reference's cached ladder and cost nothing; the wall
+columns come from each leg's own thread configuration. x265's bitstream
+does move with `--frame-threads`, so at the auto legs its wall is its own
+default configuration's at the SOLVED CRF number, which is the pinned
+operating point.
+
+**The solve is not free on a fresh worktree.** `bd_at_rate`'s encode memo
+is keyed on a hash of the binary, and two builds of the same source are
+different files, so only the metric half of the memo (keyed on the
+bitstream) survives a rebuild. On the board's own tree a solved clip is
+free; on a new one the bisection re-encodes about six points per clip and
+the VMAF is still served.
 """
 import csv
 import datetime
 import json
+import math
 import os
 import re
 import shutil
@@ -128,10 +144,13 @@ BAND_N265 = os.environ.get("BAND_N265", os.environ.get("N265", "build/n265"))
 # goal -> (thread configuration, pure C on both sides)
 GOALS = {1: ("t1", True), 2: ("auto", True), 3: ("auto", False)}
 
-# the four legs, in the plan's own words
+# The four legs, in the plan's own words, and ONE-SIDED: a goal is "as
+# good, at less time", so ahead on quality and smaller on size pass with
+# margin. DVMAF is a FLOOR on (ours - theirs); DSIZE a CEILING on how much
+# larger ours may be.
 BAR_MEDIAN = 1.00
 BAR_WORST = 1.15
-BAR_DVMAF = 0.5
+BAR_DVMAF = -0.5
 BAR_DSIZE = 1.0
 
 
@@ -161,8 +180,112 @@ def target_of(clip, ladders):
 
 def preset_args():
     """`--preset medium` is the default, so medium says nothing: the
-    template then IS the band's, and its memo entries are the board's."""
+    template then IS the band's."""
     return [] if PRESET == "medium" else ["--preset", PRESET]
+
+
+# ---------------------------------------------------------------- the legs
+#
+# The solved point is a matched TARGET, not a matched encode: both sides
+# bisect an INTEGER knob onto the same byte target and land on opposite
+# sides of it by up to 12%. A dVMAF read across that gap is not the
+# quality leg - it is "who spent more bits", which is the question the
+# dSIZE leg exists to ask separately. fast's stefan_cif is the case that
+# makes it plain: -1.60 dVMAF at -7.86% of the bytes.
+#
+# So each leg is read at ITS OWN matched axis, by interpolating the
+# reference's four-rung ladder - which `bd_at_rate`'s memo already holds,
+# at no cost - onto our solved point:
+#
+#   quality    dVMAF_eq_bytes  = our NEG - x265's NEG interpolated at OUR
+#                                bytes. Ours ahead is positive.
+#   size       dSIZE_eq_vmaf   = our bytes / x265's bytes interpolated at
+#                                OUR VMAF-NEG - 1. Ours larger is positive.
+#
+# **Read as theirs-at-ours, not ours-at-theirs**, and the reason is the
+# cache and not a preference: `bd_at_rate` keys its encode memo on a hash
+# of the encoder BINARY, and every build of ours is a different file (the
+# build path is in it), so our own four-rung ladder is only ever present
+# for the binary that wrote it - the band's binary is already gone from
+# this box - while x265 on PATH is one stable binary whose four rungs are
+# in the memo for all fifteen clips. Theirs-at-ours therefore costs
+# nothing on any box; ours-at-theirs would re-encode the whole ladder.
+# Six cells had enough of our own cached points to read BOTH directions:
+# they agree to a median of 0.05 dVMAF and 0.05% of size, worst 0.33 and
+# 2.56% (ducks_720p, whose three points span too little rate to fix the
+# quality-to-rate slope). The reference's four rungs are the better
+# conditioned curve as well as the free one.
+#
+# Both legs are ONE-SIDED, as the plan writes them: a goal is "as good at
+# less time", so being AHEAD on quality or SMALLER on size is a pass with
+# margin, never a failure. The bars are our quality not more than 0.5
+# below theirs, and our size not more than 1.0% above theirs.
+
+
+def _interp(xs, ys, x):
+    """Piecewise-linear y(x) on a monotone-x curve, extrapolating along
+    the nearest segment outside the span (flagged by the caller)."""
+    n = len(xs)
+    if n < 2:
+        return None, True
+    if x <= xs[0]:
+        i, out = 0, x < xs[0]
+    elif x >= xs[-1]:
+        i, out = n - 2, x > xs[-1]
+    else:
+        out = False
+        i = max(j for j in range(n - 1) if xs[j] <= x)
+    dx = xs[i + 1] - xs[i]
+    if dx == 0:
+        return ys[i], out
+    return ys[i] + (ys[i + 1] - ys[i]) * (x - xs[i]) / dx, out
+
+
+def ladder_points(tmpl, src):
+    """Every (bytes, VMAF-NEG) this arm already has in the memo, sorted by
+    bytes. CACHE-ONLY: it stats the encode blobs and reads the metric JSON
+    beside them, and runs neither the encoder nor ffmpeg. The metric memo
+    is keyed on the BITSTREAM (bd_at_rate._content_json), so a point keeps
+    its VMAF across rebuilds even though the encode memo does not."""
+    pts = {}
+    for q in range(0, 52):
+        cb, cj = bdr._cache_paths(tmpl, q, src)
+        if not (cb and os.path.exists(cb)):
+            continue
+        neg = None
+        for p in (cj, bdr._content_json(cb, src)):
+            if not (p and os.path.exists(p)):
+                continue
+            try:
+                d = json.load(open(p))
+            except (OSError, ValueError):
+                continue
+            if d and "VMAF-NEG" in d:
+                neg = d["VMAF-NEG"]
+                break
+        if neg is not None:
+            pts[os.path.getsize(cb)] = neg
+    return sorted(pts.items())
+
+
+def legs_at_matched_axes(our_bytes, our_neg, ref_pts):
+    """(dvmaf_eq_bytes, dsize_eq_vmaf_pct, flags) from the reference's
+    ladder. Rate is interpolated in LOG bytes, which is the axis a
+    rate-quality curve is straight in and the one BD-rate integrates."""
+    if len(ref_pts) < 2:
+        return None, None, "no ladder"
+    xb = [math.log(b) for b, _ in ref_pts]
+    yv = [v for _, v in ref_pts]
+    ref_neg, out_v = _interp(xb, yv, math.log(our_bytes))
+    ref_lb, out_s = _interp(yv, xb, our_neg)
+    flags = []
+    if out_v:
+        flags.append("vmaf-extrap")
+    if out_s:
+        flags.append("size-extrap")
+    dv = our_neg - ref_neg
+    ds = (our_bytes / math.exp(ref_lb) - 1.0) * 100.0
+    return dv, ds, ",".join(flags)
 
 
 def our_tmpl():
@@ -278,7 +401,7 @@ def load1():
 
 
 def main():
-    known = {"--help", "--no-csv", "--no-time"}
+    known = {"--help", "--no-csv", "--no-time", "--from-csv"}
     for a in sys.argv[1:]:
         if a not in known:
             sys.exit(f"goal_legs.py: unknown argument {a!r}; flags: "
@@ -291,6 +414,9 @@ def main():
     do_time = "--no-time" not in sys.argv
     if GOAL not in GOALS:
         sys.exit(f"goal_legs.py: GOAL must be one of {sorted(GOALS)}")
+    if "--from-csv" in sys.argv:
+        from_csv()
+        return
     tier, pure_c = GOALS[GOAL]
     t1 = tier == "t1"
 
@@ -393,6 +519,9 @@ def main():
         r = res[c]
         dsize = (r["ours"]["bytes"] / r["x265"]["bytes"] - 1.0) * 100.0
         dvmaf = r["ours"]["neg"] - r["x265"]["neg"]
+        dv_eq, ds_eq, flags = legs_at_matched_axes(
+            r["ours"]["bytes"], r["ours"]["neg"], ladder_points(x265_tmpl(),
+                                                               r["src"]))
         rows.append({
             "date": datetime.date.today().isoformat(), "commit": commit,
             "preset": PRESET, "goal": GOAL, "tier": "C" if pure_c else "simd",
@@ -407,86 +536,139 @@ def main():
             "our_wall_s": round(r["ours"]["wall"], 4) if "wall" in r["ours"] else "",
             "x265_wall_s": round(r["x265"]["wall"], 4) if "wall" in r["x265"] else "",
             "mult": round(r["mult"], 4) if "mult" in r else "",
+            # appended LAST so every column above keeps its position and
+            # every row written before these existed stays readable
+            "dvmaf_eq_bytes": round(dv_eq, 3) if dv_eq is not None else "",
+            "dsize_eq_vmaf_pct": round(ds_eq, 3) if ds_eq is not None else "",
         })
 
-    hdr = (f"{'clip':<18} {'ourCRF':>6} {'xCRF':>5} {'dSIZE%':>8} "
-           f"{'dVMAF':>7} {'ours s':>8} {'x265 s':>8} {'mult':>7}")
-    print(f"\n=== goal {GOAL}, preset {PRESET}, rung {RUNG}, {FRAMES} frames, "
+    report(rows, GOAL, PRESET, RUNG, FRAMES)
+    if do_csv:
+        append_csv(rows)
+    for c in res.values():
+        shutil.rmtree(c.get("work", ""), ignore_errors=True)
+
+
+def _f(w, k):
+    """A CSV field as a float, or None when the column is blank."""
+    v = w.get(k, "")
+    if v == "" or v is None:
+        return None
+    return float(v)
+
+
+def report(rows, goal, preset, rung, frames):
+    hdr = (f"{'clip':<18} {'ourCRF':>6} {'xCRF':>5} {'dVMAF@=B':>9} "
+           f"{'dSIZE@=V':>9} {'ours s':>8} {'x265 s':>8} {'mult':>7}")
+    print(f"\n=== goal {goal}, preset {preset}, rung {rung}, {frames} frames, "
           f"{len(rows)} clips ===")
+    print("    dVMAF@=B: ours minus x265's VMAF-NEG interpolated at OUR "
+          "bytes (ours ahead positive)")
+    print("    dSIZE@=V: ours over x265's bytes interpolated at OUR "
+          "VMAF-NEG (ours larger positive)")
     print(hdr)
     print("-" * len(hdr))
     for w in rows:
-        m = f"{w['mult']:.2f}x" if w["mult"] != "" else "-"
-        ow = f"{w['our_wall_s']:.3f}" if w["our_wall_s"] != "" else "-"
-        xw = f"{w['x265_wall_s']:.3f}" if w["x265_wall_s"] != "" else "-"
-        print(f"{w['clip']:<18} {w['our_crf']:>6} {w['x265_crf']:>5} "
-              f"{w['dsize_pct']:>+8.2f} {w['dvmafneg']:>+7.2f} {ow:>8} "
-              f"{xw:>8} {m:>7}")
+        m = _f(w, "mult")
+        ow, xw = _f(w, "our_wall_s"), _f(w, "x265_wall_s")
+        dv, ds = _f(w, "dvmaf_eq_bytes"), _f(w, "dsize_eq_vmaf_pct")
+        print(f"{w['clip']:<18} {int(w['our_crf']):>6} {int(w['x265_crf']):>5} "
+              f"{f'{dv:+.2f}' if dv is not None else '-':>9} "
+              f"{f'{ds:+.2f}' if ds is not None else '-':>9} "
+              f"{f'{ow:.3f}' if ow is not None else '-':>8} "
+              f"{f'{xw:.3f}' if xw is not None else '-':>8} "
+              f"{f'{m:.2f}x' if m is not None else '-':>7}")
 
-    print("\n--- the four legs ---")
-    mults = [w["mult"] for w in rows if w["mult"] != ""]
+    print("\n--- the four legs (one-sided, as the plan writes them) ---")
+    mults = [_f(w, "mult") for w in rows if _f(w, "mult") is not None]
     if mults:
         med = statistics.median(mults)
-        worst = max(rows, key=lambda w: w["mult"] if w["mult"] != "" else -1)
+        worst = max((w for w in rows if _f(w, "mult") is not None),
+                    key=lambda w: _f(w, "mult"))
         print(f"median speed   {med:5.2f}x  (bar <= {BAR_MEDIAN:.2f}x)  "
               f"{'PASS' if med <= BAR_MEDIAN else 'FAIL'}")
-        print(f"worst clip     {worst['mult']:5.2f}x  {worst['clip']}  "
+        print(f"worst clip     {_f(worst, 'mult'):5.2f}x  {worst['clip']}  "
               f"(bar < {BAR_WORST:.2f}x)  "
-              f"{'PASS' if worst['mult'] < BAR_WORST else 'FAIL'}")
+              f"{'PASS' if _f(worst, 'mult') < BAR_WORST else 'FAIL'}")
     else:
         print("median speed     -    not timed")
         print("worst clip       -    not timed")
-    bad_v = [w for w in rows if abs(w["dvmafneg"]) > BAR_DVMAF]
-    bad_s = [w for w in rows if abs(w["dsize_pct"]) > BAR_DSIZE]
 
-    def side(bad, key):
-        """Which way a failing leg failed. A leg is a BAR and not a
-        direction, so `+` is over it on our side and `-` under it; a
-        table of nothing but `+` on dVMAF is a comparison read where we
-        are ahead, not a quality regression, and it has to say so."""
-        up = sum(1 for w in bad if w[key] > 0)
-        return f" ({up} ours ahead, {len(bad) - up} behind)" if bad else ""
+    vs = [(w, _f(w, "dvmaf_eq_bytes")) for w in rows]
+    ss = [(w, _f(w, "dsize_eq_vmaf_pct")) for w in rows]
+    bad_v = [w for w, v in vs if v is not None and v < BAR_DVMAF]
+    bad_s = [w for w, v in ss if v is not None and v > BAR_DSIZE]
+    nv = [v for _, v in vs if v is not None]
+    ns = [v for _, v in ss if v is not None]
+    if nv:
+        ahead = sum(1 for v in nv if v > 0)
+        print(f"quality        {len(bad_v)}/{len(nv)} clips more than "
+              f"{-BAR_DVMAF:.1f} BELOW x265 at equal bytes  "
+              f"{'PASS' if not bad_v else 'FAIL'}"
+              f"   (median {statistics.median(nv):+.2f}, {ahead}/{len(nv)} "
+              f"ahead, worst {min(nv):+.2f})"
+              + ("   " + ", ".join(f"{w['clip']} {_f(w,'dvmaf_eq_bytes'):+.2f}"
+                                   for w in sorted(bad_v, key=lambda w:
+                                                   _f(w, "dvmaf_eq_bytes"))[:6])
+                 if bad_v else ""))
+    if ns:
+        smaller = sum(1 for v in ns if v < 0)
+        print(f"compression    {len(bad_s)}/{len(ns)} clips more than "
+              f"{BAR_DSIZE:.1f}% LARGER than x265 at equal quality  "
+              f"{'PASS' if not bad_s else 'FAIL'}"
+              f"   (median {statistics.median(ns):+.2f}%, {smaller}/{len(ns)} "
+              f"smaller, worst {max(ns):+.2f}%)"
+              + ("   " + ", ".join(
+                  f"{w['clip']} {_f(w, 'dsize_eq_vmaf_pct'):+.1f}%"
+                  for w in sorted(bad_s,
+                                  key=lambda w: -_f(w, "dsize_eq_vmaf_pct"))[:6])
+                 if bad_s else ""))
 
-    print(f"quality        {len(bad_v)}/{len(rows)} clips outside "
-          f"{BAR_DVMAF:.1f} dVMAF-NEG  "
-          f"{'PASS' if not bad_v else 'FAIL'}" + side(bad_v, "dvmafneg")
-          + ("   " + ", ".join(f"{w['clip']} {w['dvmafneg']:+.2f}"
-                               for w in sorted(bad_v, key=lambda w:
-                                               -abs(w["dvmafneg"]))[:6])
-             if bad_v else ""))
-    print(f"compression    {len(bad_s)}/{len(rows)} clips outside "
-          f"{BAR_DSIZE:.1f}% dSIZE  "
-          f"{'PASS' if not bad_s else 'FAIL'}"
-          + (f" ({sum(1 for w in bad_s if w['dsize_pct'] > 0)} ours larger, "
-             f"{sum(1 for w in bad_s if w['dsize_pct'] <= 0)} smaller)"
-             if bad_s else "")
-          + ("   " + ", ".join(f"{w['clip']} {w['dsize_pct']:+.1f}%"
-                               for w in sorted(bad_s, key=lambda w:
-                                               -abs(w["dsize_pct"]))[:6])
-             if bad_s else ""))
-    if bad_s:
-        print("               (a CRF step moves the achieved rate 5-15% at "
-              "these points and both sides solve onto the target\n"
-              "                independently, so this leg carries that "
-              "quantisation: docs/board-operating-point-pin.md,\n"
-              "                \"The dSIZE leg is not readable from this "
-              "instrument\". ABR or VBV is what makes it readable.)")
 
-    if do_csv:
-        fields = list(rows[0].keys())
-        new = not os.path.exists(CSV_PATH)
-        os.makedirs(os.path.dirname(CSV_PATH), exist_ok=True)
-        with open(CSV_PATH, "a", newline="") as f:
-            wr = csv.DictWriter(f, fieldnames=fields)
-            if new:
-                wr.writeheader()
-            for w in rows:
-                wr.writerow(w)
-        print(f"\nappended {len(rows)} row(s) to "
-              f"{os.path.relpath(CSV_PATH, ROOT)}")
+def append_csv(rows):
+    """Append, never rewrite - and never against a header that is not the
+    file's own: an older file keeps its column order and simply carries
+    blanks for columns it predates."""
+    os.makedirs(os.path.dirname(CSV_PATH), exist_ok=True)
+    fields = list(rows[0].keys())
+    new = not os.path.exists(CSV_PATH)
+    if not new:
+        with open(CSV_PATH, newline="") as f:
+            have = next(csv.reader(f), None)
+        if have:
+            fields = have + [k for k in rows[0] if k not in have]
+            if fields != have:
+                sys.exit(f"goal_legs.py: {CSV_PATH} is missing columns "
+                         f"{[k for k in fields if k not in have]}; it predates "
+                         f"them. Migrate the file (add the columns to the "
+                         f"header and to every row) before appending.")
+    with open(CSV_PATH, "a", newline="") as f:
+        wr = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
+        if new:
+            wr.writeheader()
+        for w in rows:
+            wr.writerow(w)
+    print(f"\nappended {len(rows)} row(s) to "
+          f"{os.path.relpath(CSV_PATH, ROOT)}")
 
-    for c in res.values():
-        shutil.rmtree(c.get("work", ""), ignore_errors=True)
+
+def from_csv():
+    """Re-print a run's tables from docs/data/goal-legs.csv: the most
+    recent block for this PRESET and GOAL. Reads nothing but the file -
+    no encode, no metric, no stopwatch - so a row can be re-read while
+    the box belongs to somebody else."""
+    with open(CSV_PATH, newline="") as f:
+        allrows = list(csv.DictReader(f))
+    sel = [w for w in allrows
+           if w["preset"] == PRESET and int(w["goal"]) == GOAL]
+    if not sel:
+        sys.exit(f"goal_legs.py: no rows for preset {PRESET} goal {GOAL} in "
+                 f"{os.path.relpath(CSV_PATH, ROOT)}")
+    last = (sel[-1]["date"], sel[-1]["commit"])
+    sel = [w for w in sel if (w["date"], w["commit"]) == last]
+    print(f"from {os.path.relpath(CSV_PATH, ROOT)}: {len(sel)} row(s), "
+          f"date {last[0]} commit {last[1]}")
+    report(sel, GOAL, PRESET, int(sel[0]["rung"]), int(sel[0]["frames"]))
 
 
 if __name__ == "__main__":
