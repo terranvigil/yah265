@@ -7,6 +7,7 @@
 
 #include <assert.h>
 #include <math.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -511,6 +512,176 @@ static inline uint32_t ctu_lam(const struct n265_frame_work *e, int qp)
     return (uint32_t)(((uint64_t)l * e->cur_ctu_lam_q8) >> 8);
 }
 
+/* N265_RDOQ_TRACE (diagnostic, output-neutral): the census phase 9 step 2
+ * is decided on, before any commit-only lattice exists.
+ *
+ * The lattice is the largest block of the single-thread wall and it runs
+ * on every TB of every mode-decision TRIAL. The commit-only form
+ * (x265's `--rdoq-level 1`) divides that cost by the number of trials per
+ * TB that is actually committed, and pays for it with whatever the plain
+ * quantiser's levels get wrong in the trials. Both halves are counted
+ * here on the SAME coefficients: the lattice's levels are the ones that
+ * ship, so nothing below moves a bit.
+ *
+ * Per TB trial it prices the arm the trials would run under
+ * `N265_RDOQ=2` - `n265_quant` plus `n265_sbh_adjust`, exactly the
+ * `e->rdoq == 0` path - against the lattice's own answer, in the units
+ * the CU decision compares: real pixel SSD against the source through
+ * dequant/IDCT, plus lambda times the estimator's bits for the cbf and
+ * residual_coding of those levels. What the census then reports is
+ *
+ *   (a) how often the two disagree at all, how often they disagree about
+ *       the cbf (zero vs nonzero, the one difference a CU ranking cannot
+ *       absorb), and how far apart their J is, bucketed - a trial whose
+ *       J moves by less than a tenth of a percent cannot reorder a CU
+ *       decision that is made on the sum of four to six of them;
+ *   (b) trials per COMMITTED TB, which is the factor the commit-only form
+ *       divides the lattice's cost by. Under 2 and the item has no
+ *       ceiling worth the risk;
+ *   (c) the share of lattice calls that end all-zero, which is the
+ *       cheap pre-test the trial side could keep.
+ *
+ * The counters are touched only when the variable is set; `perf` on the
+ * default path sees none of this. */
+static atomic_ullong rt_trial[2][4], rt_commit[2][4];
+static atomic_ullong rt_n[2][7];
+/* mean |dJ| / J is carried as a sum of parts per million so the report
+ * needs no floating-point accumulator shared between workers */
+static atomic_ullong rt_dj_ppm[2];
+enum { RT_LATZ, RT_PLNZ, RT_NZFLIP, RT_DIFF, RT_LATBET, RT_D1K, RT_D100 };
+
+static void rt_report(void)
+{
+    static const char *nm[7] = { "lat-zero", "plain-zero", "nz-flip",
+                                 "levels-differ", "lattice-better",
+                                 "dJ>0.1%", "dJ>1%" };
+    for (int p = 0; p < 2; p++) {
+        unsigned long long tr = 0, cm = 0;
+        for (int k = 0; k < 4; k++) {
+            tr += atomic_load(&rt_trial[p][k]);
+            cm += atomic_load(&rt_commit[p][k]);
+        }
+        fprintf(stderr, "rdoqtrace %s: trials=%llu commits=%llu per=%.3f",
+                p ? "chroma" : "luma", tr, cm,
+                cm ? (double)tr / (double)cm : 0.0);
+        for (int k = 0; k < 7; k++)
+            fprintf(stderr, " %s=%llu", nm[k], atomic_load(&rt_n[p][k]));
+        fprintf(stderr, " dJmean_ppm=%llu\n",
+                tr ? atomic_load(&rt_dj_ppm[p]) / tr : 0ull);
+        for (int k = 0; k < 4; k++)
+            fprintf(stderr, "rdoqtrace %s %2dx%-2d: trials=%llu commits=%llu"
+                    " per=%.3f\n", p ? "chroma" : "luma", 4 << k, 4 << k,
+                    atomic_load(&rt_trial[p][k]),
+                    atomic_load(&rt_commit[p][k]),
+                    atomic_load(&rt_commit[p][k])
+                        ? (double)atomic_load(&rt_trial[p][k]) /
+                          (double)atomic_load(&rt_commit[p][k]) : 0.0);
+    }
+}
+
+static int rdoq_trace(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        v = n265_env("N265_RDOQ_TRACE") != NULL;
+        if (v) atexit(rt_report);
+    }
+    return v;
+}
+
+/* the pixel SSD one arm's levels produce against the source, built the
+ * way tb_make_recon_one builds the committed recon */
+static uint64_t rt_ssd(int c_idx, int log2n, int qp, int use_dst,
+                       const pixel *pred, const int16_t *lv, int nz,
+                       const pixel *src, int sstride)
+{
+    (void)c_idx;
+    int n = 1 << log2n;
+    pixel rec[32 * 32];
+    if (nz) {
+        int16_t dq[32 * 32];
+        int nzw, nzh;
+        n265_dequant(dq, lv, log2n, qp, &nzw, &nzh);
+        n265_idct_add(rec, n, dq, log2n, pred, n, use_dst, nzw, nzh);
+    } else {
+        memcpy(rec, pred, (size_t)n * n * sizeof(pixel));
+    }
+    return n265_ssd_wh(src, sstride, rec, n, n, n);
+}
+
+/* ...and the bits, on a private copy of the block's opening contexts:
+ * the cbf this arm implies plus residual_coding of its levels. The cbf
+ * context is the depth-0 one for both arms, which is the same bin on
+ * both sides except where the arms disagree about it - and that
+ * disagreement is exactly what the nz-flip column counts. */
+static uint32_t rt_bits(struct n265_frame_work *e, int c_idx, int log2n,
+                        int scan, const int16_t *lv, int nz)
+{
+    cabac_ctx_t local[CTX_COUNT];
+    est_state st;
+    res_ops ops;
+    memcpy(local, e->est_ctx, sizeof(local));
+    st.ctx = local;
+    st.bits = 0;
+    n265_est_ops(&ops, &st);
+    st.bits += n265_est_bin(&local[(c_idx ? CTX_CBF_CHROMA : CTX_CBF_LUMA)],
+                            nz != 0);
+    if (nz)
+        n265_residual_coding(&ops, lv, log2n, c_idx, scan, !e->lossless);
+    return st.bits;
+}
+
+static void rt_tally(struct n265_frame_work *e, int c_idx, int log2n, int qp,
+                     int intra, int use_dst, int scan, const int16_t *coef,
+                     const pixel *pred, const int16_t *lat, int lat_nz,
+                     const pixel *src, int sstride)
+{
+    int p = c_idx != 0, k = log2n - 2;
+    int n = 1 << log2n;
+    int16_t pln[32 * 32];
+
+    atomic_fetch_add_explicit(&rt_trial[p][k], 1, memory_order_relaxed);
+    if (!lat_nz)
+        atomic_fetch_add_explicit(&rt_n[p][RT_LATZ], 1, memory_order_relaxed);
+
+    /* the trial-side arm of N265_RDOQ=2, run exactly as the e->rdoq == 0
+     * path runs it */
+    int pln_nz = n265_quant(pln, coef, log2n, qp, intra);
+    if (pln_nz)
+        n265_sbh_adjust(pln, log2n, scan);
+    if (!pln_nz)
+        atomic_fetch_add_explicit(&rt_n[p][RT_PLNZ], 1, memory_order_relaxed);
+    if ((lat_nz != 0) != (pln_nz != 0))
+        atomic_fetch_add_explicit(&rt_n[p][RT_NZFLIP], 1,
+                                  memory_order_relaxed);
+    if (memcmp(lat, pln, (size_t)n * n * sizeof(int16_t)))
+        atomic_fetch_add_explicit(&rt_n[p][RT_DIFF], 1, memory_order_relaxed);
+
+    uint32_t lam = ctu_lam(e, qp);
+    uint64_t jl = rt_ssd(c_idx, log2n, qp, use_dst, pred, lat, lat_nz, src,
+                         sstride)
+        + (((uint64_t)rt_bits(e, c_idx, log2n, scan, lat, lat_nz) *
+            lam) >> 16);
+    uint64_t jp = rt_ssd(c_idx, log2n, qp, use_dst, pred, pln, pln_nz, src,
+                         sstride)
+        + (((uint64_t)rt_bits(e, c_idx, log2n, scan, pln, pln_nz) *
+            lam) >> 16);
+    if (jl < jp)
+        atomic_fetch_add_explicit(&rt_n[p][RT_LATBET], 1,
+                                  memory_order_relaxed);
+    uint64_t d = jl > jp ? jl - jp : jp - jl;
+    uint64_t base = jp ? jp : 1;
+    uint64_t ppm = d > (UINT64_MAX / 1000000u) ? 1000000u
+                                               : d * 1000000u / base;
+    if (ppm > 1000000u)
+        ppm = 1000000u;
+    atomic_fetch_add_explicit(&rt_dj_ppm[p], ppm, memory_order_relaxed);
+    if (ppm > 1000)
+        atomic_fetch_add_explicit(&rt_n[p][RT_D1K], 1, memory_order_relaxed);
+    if (ppm > 10000)
+        atomic_fetch_add_explicit(&rt_n[p][RT_D100], 1, memory_order_relaxed);
+}
+
 /* one SQUARE block of a transform unit: the whole of it at 4:2:0 and
  * 4:4:4, and one of the stacked pair at 4:2:2. `off` is where in the
  * tb_ctx's buffers this block sits (0 or n*n) and `out_nz` which cbf it
@@ -610,6 +781,9 @@ static void tb_analyze_one(struct n265_frame_work *e, int c_idx, int x0,
     }
     if (*out_nz && !sbh_done)
         n265_sbh_adjust(level, log2n, scan);
+    if (e->rdoq && rdoq_trace())
+        rt_tally(e, c_idx, log2n, qp, !inter, use_dst, scan, coef, pred,
+                 level, *out_nz, src, e->pad_stride[c_idx]);
 }
 
 /* reconstruct ONE block of the unit into the TB's scratch buffer */
@@ -716,6 +890,12 @@ static void tb_commit(struct n265_frame_work *e, int c_idx, int x0, int y0,
                (size_t)n * sizeof(pixel));
     if (c_idx == 0)
         set_blk(e, e->blk_cbf_y, x0, y0, n < 4 ? 4 : n, tb->nz != 0);
+    /* the census denominator: a commit-only lattice runs once here, per
+     * BLOCK, which at 4:2:2 is the stacked pair and everywhere else the
+     * one block tb_analyze_one was called for */
+    if (e->rdoq && rdoq_trace())
+        atomic_fetch_add_explicit(&rt_commit[c_idx != 0][log2n - 2],
+                                  nsub_c(e, c_idx), memory_order_relaxed);
 }
 
 static void tb_recon(struct n265_frame_work *e, int c_idx, int x0, int y0,
@@ -4794,7 +4974,7 @@ void n265_ctu_warm(void)
     (void)bi_gate_margin(); (void)intra_rd_n(); (void)intra_rd_mpm();
     (void)i_intra(); (void)chroma_w_on(); (void)chroma_w_pct();
     (void)chroma_pred(); (void)cpred_trace(); (void)cpred_w_pct();
-    (void)cpred_gate();
+    (void)cpred_gate(); (void)rdoq_trace();
     for (int q = N265_QP_MIN; q <= N265_QP_MAX; q++)
         (void)n265_lambda_mode_q8(q);   /* fills its lazy table */
 }
