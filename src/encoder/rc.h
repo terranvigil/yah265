@@ -43,6 +43,29 @@ typedef struct n265_rc {
     int ibrake;                 /* an intra frame's feedback may not spend */
     int fbstep;                 /* the step bound rides the feedback, not rf */
     int openi;                  /* the opening solve carries its intra share */
+    /* The cu-tree FRAME term (encoder.h, n265_ct_frame_term) lands on the base
+     * AFTER this loop has answered, so a loop that has not been told it is
+     * controlling a number the encoder does not code at. At the default the
+     * term comes off the rate factor whole and the frame is coded at the base
+     * this loop solved; the measured LEVEL below is what the kept arms are
+     * written in. See n265_rc_next.
+     *
+     * `ctf_x` is the running mean of `bits x qscale(base) x 2^(-term/6)` and
+     * `ctf_c` the same mean of `bits x qscale(base)` alone, over the frames
+     * cplxr's mean is over, so `-6 log2(ctf_x / ctf_c)` is the level weighted
+     * by each frame's own share of the file - the identity that makes the
+     * spread cost no bits, rather than a mean over frames that a leaf costing
+     * nothing votes in. They carry their OWN observation count, which opens at
+     * one frame and not at the window's twenty: the level is the one quantity
+     * here that the first coded frame really does know better than the fit. */
+    double ctf_x, ctf_c;
+    double copen_x, copen_c;    /* the held opening IDR's halves of them */
+    double ctf_avg;             /* the frame-COUNT mean: the refused arm */
+    double ctf_lvl_n;           /* its own count */
+    double ctf_n;               /* observation weight behind ctf_x / ctf_c */
+    int ctf_comp;               /* 1 = the term off the base (ships); 0 = the
+                                   pre-fix loop, 2 = its level only, 3 = that
+                                   level as a frame-count mean */
     double fb_prev;             /* the feedback the last frame was given  */
     double total_bits;          /* bits emitted so far                   */
     double planned_bits;        /* bits the allocator planned for them   */
@@ -73,12 +96,16 @@ typedef struct n265_rc {
 void n265_rc_open(struct n265_encoder *e);
 
 /* the base rate factor for the frame about to be coded, in QP units.
- * `cls` is one of the RC_* classes, `cplx` its lookahead complexity. */
-double n265_rc_next(struct n265_encoder *e, int cls, double cplx);
+ * `cls` is one of the RC_* classes, `cplx` its lookahead complexity, and
+ * `ctf` the cu-tree frame term the caller will add to the base as soon as
+ * this returns - the loop answers in the units the frame is actually coded
+ * in, which is what makes the answer a control variable at all. */
+double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf);
 
-/* account for the frame just coded */
+/* account for the frame just coded. `rf_used` is the base it was CODED at,
+ * `ctf` the cu-tree frame term inside that base. */
 void n265_rc_done(struct n265_encoder *e, int cls, double cplx, double rf_used,
-                  double bits, double planned);
+                  double bits, double planned, double ctf);
 
 /* the class of a frame, from the fields encode_frame already carries */
 int n265_rc_class(int slice_type, int nonref);

@@ -514,6 +514,9 @@ typedef struct n265_frame_work {
     int rc_cls;
     double rc_cplx, rc_base;
     double rc_planned;      /* D4: the fair share rc_next handed this frame */
+    double rc_ctf;          /* the cu-tree frame term inside rc_base: the loop
+                             * is told it going in and reads it back out of
+                             * the coded frame (rc.c). 0 with cu-tree off. */
     double shot_off;        /* --shot-window: this frame's shot plan, in QP
                              * steps, already inside rc_base. 0 with the
                              * mode off, which is every default encode. */

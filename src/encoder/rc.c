@@ -40,6 +40,14 @@
  * over a horizon of `horizon` frames, which is what actually lands the
  * file on its target size.
  *
+ * One per-frame term does NOT land on top of it unchanged, and it is the
+ * exception that proves the rule: the cu-tree FRAME term (phase 7) is added
+ * to the base by the caller AFTER this loop has answered, so it moves the
+ * control variable rather than riding it, and no measurement in here absorbs
+ * it. The loop is told it and takes it back off, which is both the fix and a
+ * refusal - what the term was buying under ABR is real and is priced in
+ * docs/ideas.md. See the block by `rf`.
+ *
  * The opening is fitted from the lookahead window rather than guessed: at
  * the first frame the window's complexities are typed by the coding
  * cadence, priced with the prior scales, and the rate factor is solved so
@@ -131,6 +139,7 @@ void n265_rc_open(struct n265_encoder *e)
     rc->ibrake = (int)abr_tunable("N265_ABR_IBRAKE", 1);
     rc->fbstep = (int)abr_tunable("N265_ABR_FBSTEP", 1);
     rc->openi = (int)abr_tunable("N265_ABR_OPENI", 0);
+    rc->ctf_comp = (int)abr_tunable("N265_ABR_CTF", 1);
     /* Prior per-class scales: bits x qscale per lowres block per
      * (per-block complexity)^qcomp. Geometric means over 11 corpus clips x
      * QP 24/30/36 x 40 frames, read off N265_RC_TRACE on CQP encodes
@@ -175,9 +184,23 @@ static int cadence_class(struct n265_encoder *e, int i)
     return m == (bf + 1) / 2 ? RC_BREF : RC_B;
 }
 
-double n265_rc_next(struct n265_encoder *e, int cls, double cplx)
+double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
 {
     n265_rc *rc = &e->rc;
+
+    /* The frame-COUNT mean of the term: the first form of the level below,
+     * kept as the arm it was refused as. It leaves a third of the defect in
+     * place, because the term is ZERO on a leaf B - nothing propagates into a
+     * frame nothing references - and several QP negative on the frames that
+     * carry the file, so a mean over frames is dragged toward zero by the
+     * frames whose bits it does not describe: sita_toon_720p reads 0.979 /
+     * 0.982 / 0.983 / 0.983 here against the weighted level's numbers, with
+     * the feedback still pinned to its rail for eighty frames. */
+    if (rc->ctf_comp == 3) {
+        rc->ctf_avg += (ctf - rc->ctf_avg) / (rc->ctf_lvl_n + 1.0);
+        if (rc->ctf_lvl_n < 1000.0)
+            rc->ctf_lvl_n += 1.0;
+    }
 
     if (!rc->have_rf) {
         /* The lookahead-fitted opening: price the queued window at the prior
@@ -242,6 +265,22 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx)
          * opening IDR out of the mean until a second intra frame arrives
          * (see n265_rc_done) buys the same BD back and costs nothing. */
         rc->cplxr = qscale_of_qp(rc->rf) * rc->bits_per_frame;
+        /* The term's LEVEL is seeded at zero and at a weight of ONE frame.
+         * It is inert at the shipping default - the term comes off whole, so
+         * nothing reads the level - and it is the arms that made both halves
+         * of this choice. Zero, rather than this frame's own term: seeding
+         * from frame 0 cancels the term exactly on the opening IDR, which is
+         * the frame carrying the most negative term in the clip and the one
+         * the other 119 all reference (on akiyo_cif that codes the IDR at
+         * 28.9 instead of 22.6, 33k bits instead of 59k of a 233k file, and
+         * 11 points of ABR BD-rate). One frame, rather than the window's n:
+         * a level is what one coded frame is genuinely evidence about, which
+         * is the argument N265_ABR_LVL already makes for the class scales,
+         * and at the window's weight the opening runs twenty frames at a
+         * level it has the evidence to correct - 30% to 80% of opening error.
+         */
+        rc->ctf_x = rc->ctf_c = rc->cplxr;
+        rc->ctf_n = 1.0;
         rc->cplxr_n = rc->cplxr_seed > 0.0 ? rc->cplxr_seed
                                            : (n > 0 ? (double)n : 1.0);
         if (rc->cplxr_n > rc->cplxr_mem)
@@ -252,6 +291,12 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx)
     }
 
     double w = rc_weight(rc, cls, cplx);
+    /* the term's measured LEVEL, in QP: `-6 log2` of the file-weighted mean of
+     * `2^(-term/6)` (rc.h). Nothing in the shipped path rides on it - the
+     * default takes the whole term off - and it is what the kept arms are
+     * written in. */
+    double lvl_now = rc->ctf_x > 0.0 && rc->ctf_c > 0.0
+                         ? -6.0 * log2(rc->ctf_x / rc->ctf_c) : 0.0;
     /* The running mean of the frame weight is taken over INTER frames only.
      * It is the yardstick every frame's fair share is measured against, and
      * an I frame is worth several ordinary frames: folding one into the mean
@@ -460,7 +505,69 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx)
      * symmetric term. */
     if (rc->ibrake && cls == RC_I && fb < 0.0)
         fb = 0.0;
-    rf = base + fb;
+    /* The cu-tree frame term, taken off the answer.
+     *
+     * Everything above solves for the BASE the frame is coded at: the
+     * operating point is measured as `bits x qscale(that base)`, the opening
+     * fit prices the window at it, and the feedback closes the error against
+     * it. The encoder then adds the cu-tree frame term to what this returns
+     * (encoder.c, dispatch_frame), so without this line the loop's answer and
+     * the frame's base are two different numbers and the difference is a pure
+     * OPEN-LOOP error. It is not small and it is not zero-mean: under ABR the
+     * per-CTU field is CENTRED (la.c centres unless crf_on) and the term is
+     * then the field's whole frame mean, which on animation is -4 to -7.5 QP.
+     * sita_toon_720p opened at a fitted 20.60, coded its first IDR at 13.12 -
+     * 23 frames of budget on one frame - and then sat on its +6 feedback rail
+     * for the remaining 119 frames and still landed 48% over. (2026-09-12.
+     * The term reached ABR with the phase 7 frame term in d59e23f and grew
+     * again when --rc-lookahead went to 20 in 3d3d261, which deepens the
+     * propagation the mean is taken over. No item gate between the two ran the
+     * ABR leg.)
+     *
+     * The default takes the WHOLE term off, so the frame is coded at the rate
+     * factor this loop answered with and the ABR base is the one the ABR round
+     * measured and shipped. That is a refusal as much as a fix: the term's
+     * cross-frame allocation is worth real quality under ABR - main reads 6.6
+     * points more of CIF-7 ABR BD-rate with it - and it cannot be had at this
+     * loop's hands, because every form that keeps it (the arms below) either
+     * keeps the open-loop error or trades the same quality back through a
+     * noisier QP trajectory. Under CRF the term stays exactly as phase 7
+     * shipped it; what is refused is an ABR base nothing nets.
+     *
+     * `N265_ABR_CTF`, all four arms measured on this item (2026-09-12; the
+     * 15-clip table and the CIF-7 ABR BD are in
+     * docs/programme-from-yah264.md, "ABR rate accuracy"):
+     *
+     *   0 - the pre-fix loop: the term lands on the base and nothing in here
+     *       has heard of it. The regression, kept as the arm that reproduces
+     *       it: sita_toon_720p 1.485 of target, ducks_720p 1.105, sita_flat
+     *       2.349, a 43% opening median over the corpus.
+     *   1 - the default, above.
+     *   2 - only the term's LEVEL comes off, each frame keeping its deviation:
+     *       the allocation survives and the standing error does not. Refused
+     *       on the measurement, at both level seeds: 1.4% to 3.1% of rate
+     *       against the default's 0.7% to 1.2%, for a CIF-7 ABR BD of -3.75
+     *       against -4.56 (-5.86 seeding the level at frame 0's own term,
+     *       which cancels the opening IDR's allocation) - a spread inside this
+     *       instrument's own noise on four ABR points. What the deviation buys
+     *       is a QP trajectory 13 QP wide against 10.7, because the allocator
+     *       still prices the frame at `w` while the encoder codes it at
+     *       `rf + ctf`; pricing the plan at `w x 2^(-ctf/6)` too was built and
+     *       is worse on both legs, because N265_ABR_TCAP then floors the
+     *       horizon at the IDR's own inflated plan.
+     *   3 - the level as a frame-COUNT mean rather than a file-weighted one.
+     *       Refused twice over: the term is exactly zero on a leaf B (nothing
+     *       propagates into a frame nothing references), so a leaf costing 300
+     *       bits votes as loudly as the anchor carrying the file and the mean
+     *       reads a third of the level. */
+    double ctf_off = 0.0;
+    if (rc->ctf_comp == 1)
+        ctf_off = ctf;
+    else if (rc->ctf_comp == 2)
+        ctf_off = lvl_now;
+    else if (rc->ctf_comp == 3)
+        ctf_off = rc->ctf_avg;
+    rf = base + fb - ctf_off;
     if (!rc->fbstep) {
         if (rf > rc->rf + step)
             rf = rc->rf + step;
@@ -477,14 +584,14 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx)
     if (rc->trace)
         fprintf(stderr, "RC n=%ld cls=%d cplx=%.0f w=%.3g wavg=%.3g "
                 "T=%.0f corr=%.4f bias=%+.3f fb=%+.3f base=%.3f rf=%.3f "
-                "err=%.0f\n",
+                "ctf=%+.3f ctflvl=%+.3f err=%.0f\n",
                 rc->n_coded, cls, cplx, w, rc->w_avg, T, corr, rc->rf_bias,
-                fb, base, rf, err);
+                fb, base, rf, ctf, lvl_now, err);
     return rf;
 }
 
 void n265_rc_done(struct n265_encoder *e, int cls, double cplx, double rf_used,
-                  double bits, double planned)
+                  double bits, double planned, double ctf)
 {
     n265_rc *rc = &e->rc;
     if (rc->pend_n > 0) {
@@ -518,6 +625,11 @@ void n265_rc_done(struct n265_encoder *e, int cls, double cplx, double rf_used,
      * its own. Its memory is the sequence for the reason WMEM's is - a
      * window tracks the shot - and the running-mean form is w_avg's. */
     double c = bits * qscale_of_qp(rf_used);
+    /* the same mean with the frame's own cu-tree term folded in, so the ratio
+     * of the two is the term's file-weighted level (rc.h, n265_rc_next). It
+     * rides every branch below, hold included, because a level over a
+     * different frame set than cplxr's is not a level at all. */
+    double cx = c * exp2(-ctf / 6.0);
     if (rc->copen && cls == RC_I && rc->n_coded == 0) {
         /* The opening IDR is HELD, not counted.
          *
@@ -535,17 +647,27 @@ void n265_rc_done(struct n265_encoder *e, int cls, double cplx, double rf_used,
          * becomes the honest all-frames mean from there on, which is what
          * sita_flat needs and akiyo never asks for. */
         rc->copen_bits = c;
+        rc->copen_x = cx;
+        rc->copen_c = c;
         rc->copen_held = 1;
     } else {
         if (rc->copen_held && cls == RC_I) {
             rc->cplxr += (rc->copen_bits - rc->cplxr) / (rc->cplxr_n + 1.0);
             if (rc->cplxr_n < rc->cplxr_mem)
                 rc->cplxr_n += 1.0;
+            rc->ctf_x += (rc->copen_x - rc->ctf_x) / (rc->ctf_n + 1.0);
+            rc->ctf_c += (rc->copen_c - rc->ctf_c) / (rc->ctf_n + 1.0);
+            if (rc->ctf_n < rc->cplxr_mem)
+                rc->ctf_n += 1.0;
             rc->copen_held = 0;
         }
         rc->cplxr += (c - rc->cplxr) / (rc->cplxr_n + 1.0);
         if (rc->cplxr_n < rc->cplxr_mem)
             rc->cplxr_n += 1.0;
+        rc->ctf_x += (cx - rc->ctf_x) / (rc->ctf_n + 1.0);
+        rc->ctf_c += (c - rc->ctf_c) / (rc->ctf_n + 1.0);
+        if (rc->ctf_n < rc->cplxr_mem)
+            rc->ctf_n += 1.0;
     }
     rc->total_bits += bits;
     rc->n_coded++;

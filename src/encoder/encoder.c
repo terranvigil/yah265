@@ -2365,6 +2365,23 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
      * because the cu-tree frame term branches on it. */
     fw->flat_pct = n265_flat_gate() ? n265_la_flat_pct(fw) : 0;
     fw->flat = n265_flat_gate() && fw->flat_pct >= n265_flat_gate();
+    /* The cu-tree FRAME term, computed here rather than where it lands,
+     * because under ABR the rate control has to be told it BEFORE it answers:
+     * the term is added to the base below, so a loop that has not seen it is
+     * controlling a number the encoder does not code at (rc.c, the block that
+     * takes it back off). Nothing between here and its use moves it -
+     * it reads the lookahead's two means, the frame's type and the config -
+     * so hoisting it is the same double, and under CQP and CRF it is the same
+     * `if` producing the same value in the same order it always did. */
+    double ctf = (e->crf_on || e->abr_on) && e->cutree
+                     ? n265_ct_frame_term(e, fw) : 0.0;
+    fw->rc_ctf = ctf;
+    if (e->abr_on) {
+        /* D4's observation lag has already been drained by the caller; this
+         * is the frame's own solve, moved here so it sees `ctf`. */
+        e->rc_rf = n265_rc_next(e, fw->rc_cls, fw->rc_cplx, ctf);
+        fw->rc_planned = e->rc.last_planned;
+    }
     /* frame-type QP ladder (the matched reference applies its ip/pb
      * ratios in CQP mode too): I anchors lower, non-ref B higher */
     /* CRF (yah264's final form, written for this encoder): a constant base per
@@ -2417,7 +2434,6 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
      * rounding, so with the fractional path on it is carried over the CTUs
      * and without it, it rounds with the base. */
     if ((e->crf_on || e->abr_on) && e->cutree) {
-        double ctf = n265_ct_frame_term(e, fw);
         base += ctf;
         /* N265_CT_TRACE (diagnostic, output-neutral): the term per frame,
          * with the two means it came from. This is the instrument the clamp
@@ -3130,7 +3146,7 @@ static void join_oldest(n265_encoder *e)
     /* D4: the actual bits are applied on the driver, in coding order. */
     if (e->abr_on || e->rc.trace)
         n265_rc_done(e, fw->rc_cls, fw->rc_cplx, fw->rc_base,
-                     (double)d->len * 8.0, fw->rc_planned);
+                     (double)d->len * 8.0, fw->rc_planned, fw->rc_ctf);
     fw->slot->in_use = 0;
     fw->emit_headers = 0;
     fw->in_flight = 0;
@@ -3960,13 +3976,16 @@ static int drive_scheduler(n265_encoder *e)
          * contribute their PLANNED bits instead. At D = 0 that is every
          * earlier frame, ABR does not overlap, and the loop is
          * bit-identical to the pre-T2 one; CQP and CRF launch
-         * immediately and overlap fully either way. */
+         * immediately and overlap fully either way.
+         *
+         * The solve itself is in dispatch_frame, one call below: it needs the
+         * cu-tree frame term, which needs the frame's content type, and both
+         * are driver-serial there. The DRAIN stays here, ahead of it, because
+         * it is the lag's own statement about what the loop may observe. */
         while (e->n_inflight > e->rc_lag) {
             e->join_rc++;
             join_oldest(e);
         }
-        e->rc_rf = n265_rc_next(e, fw->rc_cls, fw->rc_cplx);
-        fw->rc_planned = e->rc.last_planned;
     }
     if (kind != 0)          /* the priced b-adapt prices against this plane */
         n265_la_set_anchor(e, li);
