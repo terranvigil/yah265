@@ -171,6 +171,17 @@ static const struct kv med_tab[] = {
     { "N265_NO_RECT",    "1" },
     { "N265_NO_AMP",     "1" },
     { "N265_RECT_FLAT",  "0" },
+    /* phase 10 item 3: the per-CTU AQ term back ON, with the PROTECTING
+     * sign and on the variance field, on a flat-typed frame whose outline
+     * share is under 3% - the content signal the 2026-09-12 refusal asked
+     * for. It reaches exactly one corpus clip (sintel_720p, -6.20 -> -12.21
+     * CRF and +0.84 -> -7.02 CQP) and leaves the other fourteen byte for
+     * byte, `sita_toon_720p` - the clip the ungated sign cost four points -
+     * included. The compiled-in defaults are 0 and ungated, so fast, slow
+     * and slower are untouched and `N265_AQ_FLAT_SIGN=0` is the escape.
+     * docs/phase10.md "Items 3-4". */
+    { "N265_AQ_FLAT_SIGN", "1.0" },
+    { "N265_AQ_FLAT_THR",  "3" },
     { NULL, NULL }
 };
 

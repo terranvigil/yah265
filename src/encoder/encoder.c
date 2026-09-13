@@ -278,6 +278,17 @@ static void ref_used(const int *m, int nm, int cur, int is_b, int ref_max,
 #define DPBW_MAX (2 * (N265_MAX_BFRAMES + 2))
 #define DPBW_ENT (N265_MAX_REF + N265_MAX_BFRAMES + 2)
 
+/* The `fine` value, in squared 8-bit levels, at or above which a CTU counts
+ * as carrying a drawn OUTLINE rather than a fill or a gradient - the content
+ * census N265_AQ_FLAT_THR gates the flat-frame protecting AQ sign on (phase
+ * 10 item 3). Four luma levels of within-2x2 standard deviation. It is not a
+ * sweep: on the three animation clips at 120 frames the share of CTUs over it
+ * separates the two content kinds with a factor of three of daylight between
+ * them - sintel_720p reads a median 1.4% and never passes 4.3%, sita_flat
+ * 20.2% and never falls below 10.5%, sita_toon 29.4% and never below 12.0% -
+ * and every natural clip is over 70%. docs/phase10.md "Items 3-4". */
+#define AQ_FLAT_HI 16.0
+
 struct dpbw_state {
     int nanc, n;
     int anc[N265_MAX_REF + 1];      /* marked anchor POCs, ascending */
@@ -2745,6 +2756,18 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
             int nctu = fw->ctb_cols * fw->ctb_rows;
             double *lv = malloc((size_t)nctu * sizeof(double));
             double avg = 0;
+            /* The flat-frame protecting sign's second field and its content
+             * census (N265_AQ_FLAT_THR, phase 10 item 3; see the flat branch
+             * below). Both are built only when the sign is armed, so at the
+             * shipped `N265_AQ_FLAT_SIGN=0` this is one pointer compare per
+             * frame and the field below is the one it has always been. */
+            double *lvv = lv;           /* log2(VARIANCE), the flat field */
+            double avg_v = 0;
+            long fine_hi = 0;           /* CTUs whose `fine` is outline-sized */
+            if (e->aq_flat_sign != 0.0f && e->aq_signal) {
+                lvv = malloc((size_t)nctu * sizeof(double));
+                if (!lvv) lvv = lv;
+            }
             /* N265_AQ_FLOOR: a floor on the CTU variance the AQ field is
              * built from. The term models masking, and masking is a
              * property of content the eye can see; below the coding noise
@@ -2801,6 +2824,17 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                      * what the anchor below then subtracts back off. */
                     avg_dc += log2((var < 0.0 ? 0.0 : var) +
                                    (double)(1 << (2 * BIT_DEPTH_SHIFT)));
+                    /* The VARIANCE field the flat branch's protecting sign
+                     * reads, taken here because two lines below `var` stops
+                     * being the variance. Same floor, same +1, same units as
+                     * `lv`; only the quantity differs. */
+                    if (lvv != lv) {
+                        double vv = var < 0.0 ? 0.0 : var;
+                        if (vv < vfloor) vv = vfloor;
+                        lvv[cy * fw->ctb_cols + cx] =
+                            log2(vv + (double)(1 << (2 * BIT_DEPTH_SHIFT)));
+                        avg_v += lvv[cy * fw->ctb_cols + cx];
+                    }
                     /* N265_AQ_SIGNAL=1 (phase 7 M1'): the per-CTU signal
                      * becomes `fine` - the CTU's full-resolution variance
                      * minus what its 2x-down plane explains - in place of
@@ -2846,6 +2880,17 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                         }
                         if (var < 0.0) var = 0.0;
                     }
+                    /* The content census the flat gate acts on, read on the
+                     * per-CTU signal itself and BEFORE the floor eats it:
+                     * how many CTUs of this frame carry outline-sized fine
+                     * detail. AQ_FLAT_HI is 16 squared 8-bit levels, four
+                     * levels of within-2x2 standard deviation, scaled to the
+                     * coded depth like every other variance here. It is a
+                     * count and touches nothing; the gate below is the only
+                     * reader. */
+                    if (e->aq_flat_sign != 0.0f &&
+                        var >= AQ_FLAT_HI * (double)(1 << (2 * BIT_DEPTH_SHIFT)))
+                        fine_hi++;
                     if (var < vfloor) var = vfloor;
                     lv[cy * fw->ctb_cols + cx] =
                         log2(var + (double)(1 << (2 * BIT_DEPTH_SHIFT)));
@@ -2853,6 +2898,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                 }
             avg /= nctu;
             avg_dc /= nctu;
+            if (lvv != lv) avg_v /= nctu;
             /* Under CRF the frame mean of the AQ field is the across-frame /
              * across-shot allocation term (yah264 row 10, 2026-09-05): a busy
              * frame codes a little cheaper, a quiet one a little better. It
@@ -2913,6 +2959,12 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
              * -3.37/-10.07. A bound of 1 is the runner-up and is 6.1
              * CQP points worse on sintel. */
             double aqs = e->aq_str;
+            /* which field the per-CTU term reads, and its mean. `lv` on
+             * every frame the encoder has ever coded; the flat branch below
+             * is the one place that can move it. */
+            const double *fld = lv;
+            double favg = avg;
+            double fshare = nctu ? 100.0 * (double)fine_hi / nctu : 0.0;
             if (fw->flat) {
                 aqc = 0.0;
                 const char *v = n265_env("N265_AQ_CLAMP_FLAT");
@@ -2929,11 +2981,41 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                  * lower QP) at that strength, bounded by N265_AQ_CLAMP
                  * rather than by N265_AQ_CLAMP_FLAT. 0 ships and is the
                  * branch above untouched. */
+                /* N265_AQ_FLAT_THR (phase 10 item 3): the CONTENT signal the
+                 * 2026-09-12 refusal asked for. The sign is worth six BD
+                 * points on sintel_720p and costs sita_toon_720p four, which
+                 * is a trade inside one content TYPE: both frames are flat
+                 * by the gate's own count, and what differs is what the
+                 * remaining area holds - sintel's is fill and soft gradient,
+                 * where the loss is banding and a lower QP is the cure;
+                 * sita_toon's is drawn OUTLINE, which the protecting sign
+                 * feeds at the fills' expense. `fine` separates the two
+                 * exactly (AQ_FLAT_HI above), so the sign applies only where
+                 * the frame's outline share is under this threshold, in
+                 * percent. The default is past 100 and is therefore the
+                 * ungated arm: a threshold nothing can reach.
+                 *
+                 * The armed branch also switches the FIELD to the variance.
+                 * That is not a second arm, it is the same root cause: on a
+                 * flat-typed frame `fine` is at or under the floor almost
+                 * everywhere (sintel's median CTU reads 0.01 squared levels),
+                 * so the shipped signal has no spread left to protect
+                 * anything WITH - which is why the refusal read +1.06 on
+                 * sintel with `fine` and -6.20 with the variance. Where the
+                 * gate does not fire the branch is the shipped one and the
+                 * frame is byte-identical. */
                 if (e->aq_flat_sign != 0.0f) {
-                    aqs = -e->aq_flat_sign;
-                    aqc = 3.0;
-                    const char *c = n265_env("N265_AQ_CLAMP");
-                    if (c) aqc = atof(c);
+                    double fthr = 1000.0;
+                    const char *t = n265_env("N265_AQ_FLAT_THR");
+                    if (t) fthr = atof(t);
+                    if (fshare < fthr) {
+                        aqs = -e->aq_flat_sign;
+                        aqc = 3.0;
+                        const char *c = n265_env("N265_AQ_CLAMP");
+                        if (c) aqc = atof(c);
+                        fld = lvv;
+                        favg = lvv == lv ? avg : avg_v;
+                    }
                 }
             }
             if (n265_env("N265_AQ_TRACE")) {
@@ -2942,22 +3024,27 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                  * it the clamp is already eating */
                 double mn = 1e9, mx = -1e9, sd = 0, lo = 0, hi = 0;
                 for (int i = 0; i < nctu; i++) {
-                    if (lv[i] < mn) mn = lv[i];
-                    if (lv[i] > mx) mx = lv[i];
-                    sd += (lv[i] - avg) * (lv[i] - avg);
-                    double o = aqs * (lv[i] - avg);
+                    if (fld[i] < mn) mn = fld[i];
+                    if (fld[i] > mx) mx = fld[i];
+                    sd += (fld[i] - favg) * (fld[i] - favg);
+                    double o = aqs * (fld[i] - favg);
                     lo += o < -aqc;
                     hi += o > aqc;
                 }
-                fprintf(stderr, "AQT,%d,%d,%d,%.3f,%.3f,%.3f,%.3f,%.4f,%.4f\n",
-                        fw->display_idx, slice_type, nctu, avg, mn, mx,
-                        sqrt(sd / nctu), lo / nctu, hi / nctu);
+                /* the last two columns joined on 2026-09-13: whether the
+                 * frame is flat-typed, and the outline share the flat gate
+                 * reads (0 unless N265_AQ_FLAT_SIGN arms the census) */
+                fprintf(stderr,
+                        "AQT,%d,%d,%d,%.3f,%.3f,%.3f,%.3f,%.4f,%.4f,%d,%.2f\n",
+                        fw->display_idx, slice_type, nctu, favg, mn, mx,
+                        sqrt(sd / nctu), lo / nctu, hi / nctu,
+                        fw->flat ? 1 : 0, fshare);
             }
             /* N265_CT_QPW: the share of the cu-tree field that reaches the
              * QP, on cutree_str's scale. 1.0 at the default. */
             double ctqpw = n265_ct_qp_scale(e);
             for (int i = 0; i < nctu; i++) {
-                double off = aqs * (lv[i] - avg);
+                double off = aqs * (fld[i] - favg);
                 if (off > aqc) off = aqc;
                 else if (off < -aqc) off = -aqc;
                 int o;
@@ -2970,6 +3057,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                 }
                 fw->ctu_qp_off[i] = (int8_t)(o < -12 ? -12 : o > 12 ? 12 : o);
             }
+            if (lvv != lv) free(lvv);
             free(lv);
         }
 
