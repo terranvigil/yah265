@@ -2782,12 +2782,13 @@ static uint32_t me_rate_bits(void *vctx, mv_t mv)
 enum { RR_CU, RR_LISTS, RR_SATD, RR_MOVED, RR_N };
 static atomic_ullong rr_n[RR_N];
 static void rr_report(void);
+static void rr_gate_report(void);
 static int rr_trace(void)
 {
     static int v = -1;
     if (v < 0) {
         v = n265_env("N265_SUBPEL_TRACE") != NULL;
-        if (v) atexit(rr_report);
+        if (v) { atexit(rr_report); atexit(rr_gate_report); }
     }
     return v;
 }
@@ -2804,6 +2805,192 @@ static void rr_report(void)
 static inline void rr_bump(int k, unsigned long long v)
 {
     atomic_fetch_add_explicit(&rr_n[k], v, memory_order_relaxed);
+}
+
+/* N265_SUBPEL_TRACE, the item-1b half: what the two cuts are worth,
+ * countable in ONE run with the arm on and `N265_SUBPEL_GATE` at 0.
+ * `free` is list passes whose five Hadamards are all already in
+ * `n265_me_keep` - the re-rank costs nothing there and is never gated -
+ * and `satd` is what the arm actually buys after the cache. The per-X
+ * columns are the gate sweep: how many passes each candidate percentage
+ * would remove, how many of those would have MOVED the vector (the
+ * quality the gate spends), and the SATDs left after it. */
+static const int rr_gx[4] = { 1, 2, 4, 8 };
+enum { GN_LISTS, GN_FREE, GN_RAW, GN_PAID, GN_SPLIT, GN_PUREMOVED,
+       GN_RATEMOVED, GN_N };
+enum { RG_CUT, RG_CUTMOVED, RG_SATD, RG_N };
+static atomic_ullong rr_gn[GN_N];
+static atomic_ullong rr_g[4][RG_N];
+static void rr_gate_report(void)
+{
+    unsigned long long li = atomic_load(&rr_gn[GN_LISTS]);
+    double d = li ? (double)li : 1.0;
+    unsigned long long s0 = atomic_load(&rr_gn[GN_RAW]);
+    double ds = s0 ? (double)s0 : 1.0;
+    unsigned long long mv = atomic_load(&rr_n[RR_MOVED]);
+    double dm = mv ? (double)mv : 1.0;
+    fprintf(stderr, "subpeltrace gate: lists=%llu free=%llu (%.1f%%)"
+            " moved=%llu satd_ungated=%llu satd_cached=%llu (%.1f%%)\n",
+            li, atomic_load(&rr_gn[GN_FREE]),
+            100.0 * atomic_load(&rr_gn[GN_FREE]) / d, mv, s0,
+            atomic_load(&rr_gn[GN_PAID]),
+            100.0 * atomic_load(&rr_gn[GN_PAID]) / ds);
+    {
+        unsigned long long sp = atomic_load(&rr_gn[GN_SPLIT]);
+        double dp = sp ? (double)sp : 1.0;
+        fprintf(stderr, "subpeltrace split: passes=%llu pure_moved=%llu"
+                " (%.1f%%) rate_moved=%llu (%.1f%%)\n", sp,
+                atomic_load(&rr_gn[GN_PUREMOVED]),
+                100.0 * atomic_load(&rr_gn[GN_PUREMOVED]) / dp,
+                atomic_load(&rr_gn[GN_RATEMOVED]),
+                100.0 * atomic_load(&rr_gn[GN_RATEMOVED]) / dp);
+    }
+    for (int i = 0; i < 4; i++)
+        fprintf(stderr, "subpeltrace gate X=%d: cut=%llu (%.1f%% of lists)"
+                " cut_moved=%llu (%.1f%% of moves) satd=%llu (%.1f%% of"
+                " ungated)\n",
+                rr_gx[i], atomic_load(&rr_g[i][RG_CUT]),
+                100.0 * atomic_load(&rr_g[i][RG_CUT]) / d,
+                atomic_load(&rr_g[i][RG_CUTMOVED]),
+                100.0 * atomic_load(&rr_g[i][RG_CUTMOVED]) / dm,
+                atomic_load(&rr_g[i][RG_SATD]),
+                100.0 * atomic_load(&rr_g[i][RG_SATD]) / ds);
+}
+static inline void gn_bump(int k, unsigned long long v)
+{
+    atomic_fetch_add_explicit(&rr_gn[k], v, memory_order_relaxed);
+}
+
+/* Arm 1's re-rank of one list's vector against its four quarter-pel
+ * neighbours (phase 10 item 1, made affordable in item 1b). Both sites
+ * that settle an AMVP vector call this, so the cache, the gate and the
+ * census are one piece of code and cannot drift apart.
+ *
+ * `cen` is the centre's cost in the site's units, or UINT32_MAX to have
+ * it built here. `keep` is what the ladder handed back on list `l`; its
+ * SQUARE MARGIN is what the gate reads and is meaningful either way,
+ * while its SATDs may be read as values only when `uni` - the settled
+ * vector is still the uni winner the ladder returned, so `mot_satd_wh`
+ * of this `mot_t` and `mc_satd` of that vector are the same number.
+ *
+ * A gated-off pass costs four clamps and nothing else - no Hadamard, no
+ * chroma MC, not even the mvd costs - which is what makes the gate worth
+ * having where the cache has not already made the pass free. */
+static mv_t subpel_rerank(struct n265_frame_work *e, const pu_geo *g,
+                          const mot_t *amot, mv_t mvp[2][2], int l, int lam4,
+                          int cpr, const struct n265_me_keep *keep, int uni,
+                          uint32_t cen, uint32_t *cost)
+{
+    const struct n265_me_keep *kv = uni ? keep : NULL;
+    static const int st[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+    int x0 = g->x, y0 = g->y, w = g->w, h = g->h;
+    mot_t t[4];
+    int ok[4];
+    for (int i = 0; i < 4; i++) {
+        mv_t v = { (int16_t)(amot->mv[l].x + st[i][0]),
+                   (int16_t)(amot->mv[l].y + st[i][1]) };
+        mv_t vc = v;
+        n265_clamp_mv(e, x0, y0, w, h, &vc);
+        ok[i] = vc.x == v.x && vc.y == v.y;
+        if (!ok[i])
+            continue;
+        t[i] = *amot;
+        t[i].mv[l] = v;
+    }
+
+    /* the SATDs this pass still has to buy, after the cache */
+    int cached_c = kv && kv->satd != UINT32_MAX;
+    int buy = cached_c ? 0 : 1;
+    for (int i = 0; i < 4; i++)
+        if (ok[i] && !(kv && kv->nb_valid && kv->nb[i] != UINT32_MAX))
+            buy++;
+    int free_pass = buy == 0;
+
+    /* The gate: the ladder's last square's own flatness. A pass with no
+     * margin to report, and a pass that costs nothing, are never cut. */
+    int marg = keep && keep->sq_valid && !free_pass;
+    int gate = n265_subpel_gate();
+    int cut = marg && (uint64_t)keep->sq_second * 100 >
+                      (uint64_t)keep->sq_best * (uint64_t)(100 + gate);
+    if (rr_trace()) {
+        gn_bump(GN_LISTS, 1);
+        gn_bump(GN_RAW, (unsigned long long)
+                (1 + !!ok[0] + !!ok[1] + !!ok[2] + !!ok[3]));
+        if (free_pass)
+            gn_bump(GN_FREE, 1);
+        if (!(gate && cut))
+            gn_bump(GN_PAID, (unsigned long long)buy);
+    }
+
+    *cost = cen;
+    if (gate && cut)
+        /* the centre goes uncosted too. The vector does not move, and
+         * the cost after an unmoved vector is the one the caller came in
+         * with - the only one it is allowed to read. */
+        return amot->mv[l];
+    /* `pc` is the centre's cost WITHOUT the rate term, which the census
+     * needs to say how much of this arm is the rate arbitration it was
+     * built to be and how much is quarter-pel refinement the N265_SUBME=3
+     * ladder skipped. Known only where this function built the centre. */
+    uint32_t pc = UINT32_MAX;
+    if (cen == UINT32_MAX) {
+        pc = (cached_c ? kv->satd : mot_satd_wh(e, x0, y0, w, h, *amot)) +
+            (cpr ? cpred_satd(e, x0, y0, w, h, *amot) : 0);
+        cen = pc + (uint32_t)(((uint64_t)mot_rate_q8(e, g, amot, mvp, 6)
+                               * lam4) >> 12);
+    }
+    *cost = cen;
+
+    uint32_t bq = cen, pbq = pc;
+    mv_t bmv = amot->mv[l], pbmv = amot->mv[l];
+    for (int i = 0; i < 4; i++) {
+        if (!ok[i])
+            continue;
+        uint32_t s = (kv && kv->nb_valid && kv->nb[i] != UINT32_MAX)
+            ? kv->nb[i] : mot_satd_wh(e, x0, y0, w, h, t[i]);
+        uint32_t sp = s + (cpr ? cpred_satd(e, x0, y0, w, h, t[i]) : 0);
+        uint32_t c = sp +
+            (uint32_t)(((uint64_t)mot_rate_q8(e, g, &t[i], mvp, 6) * lam4)
+                       >> 12);
+        if (c < bq) {
+            bq = c;
+            bmv = t[i].mv[l];
+        }
+        if (pc != UINT32_MAX && sp < pbq) {
+            pbq = sp;
+            pbmv = t[i].mv[l];
+        }
+    }
+    if (rr_trace()) {
+        int moved = bmv.x != amot->mv[l].x || bmv.y != amot->mv[l].y;
+        if (moved)
+            rr_bump(RR_MOVED, 1);
+        if (pc != UINT32_MAX) {
+            gn_bump(GN_SPLIT, 1);
+            if (pbmv.x != amot->mv[l].x || pbmv.y != amot->mv[l].y)
+                gn_bump(GN_PUREMOVED, 1);
+            if (bmv.x != pbmv.x || bmv.y != pbmv.y)
+                gn_bump(GN_RATEMOVED, 1);
+        }
+        for (int i = 0; i < 4; i++) {
+            int ci = marg && (uint64_t)keep->sq_second * 100 >
+                             (uint64_t)keep->sq_best *
+                             (uint64_t)(100 + rr_gx[i]);
+            if (ci) {
+                atomic_fetch_add_explicit(&rr_g[i][RG_CUT], 1,
+                                          memory_order_relaxed);
+                if (moved)
+                    atomic_fetch_add_explicit(&rr_g[i][RG_CUTMOVED], 1,
+                                              memory_order_relaxed);
+            } else {
+                atomic_fetch_add_explicit(&rr_g[i][RG_SATD],
+                                          (unsigned long long)buy,
+                                          memory_order_relaxed);
+            }
+        }
+    }
+    *cost = bq;
+    return bmv;
 }
 
 /* SATD of a bi prediction whose fixed list is already interpolated into
@@ -3407,6 +3594,14 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
     int8_t bref[2] = { 0, 0 };
     uint32_t side[2] = { UINT32_MAX, UINT32_MAX };
     int nl = e->slice_type == 0 ? 2 : 1;
+    /* what the winning reference's ladder already costed (phase 10 item
+     * 1b); this site's centre is free already - it is `acost` - so only
+     * the four neighbours and the gate's scale come out of here. */
+    int want_keep = n265_subpel_rate() == 1;
+    struct n265_me_keep keep[2];
+    keep[0].satd = keep[1].satd = UINT32_MAX;
+    keep[0].nb_valid = keep[1].nb_valid = 0;
+    keep[0].sq_valid = keep[1].sq_valid = 0;
     for (int l = 0; l < 2; l++) {
         mvp[l][0].x = mvp[l][0].y = mvp[l][1].x = mvp[l][1].y = 0;
         if (l >= nl)
@@ -3438,7 +3633,9 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
             rcx.list = l; rcx.base = 6;
             memcpy(rcx.up, up, sizeof(up));
             struct n265_me_rate rc = { me_rate_bits, &rcx, (uint32_t)lam4 };
+            struct n265_me_keep kp;
             n265_me_search(e, l, r, g->x, g->y, w, h, seed, &mv,
+                           want_keep ? &kp : NULL,
                            n265_subpel_rate() >= 2 ? &rc : NULL);
             u.mv[l] = mv;
             uint32_t c = mot_satd_wh(e, g->x, g->y, w, h, u) +
@@ -3450,6 +3647,8 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
                 bref[l] = (int8_t)r;
                 mvp[l][0] = p[0];
                 mvp[l][1] = p[1];
+                if (want_keep)
+                    keep[l] = kp;
             }
         }
     }
@@ -3536,31 +3735,16 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
          * n265_me_search stays luma. `N265_SUBPEL_RATE == 1` is the same
          * five positions without the chroma term; `acost` carries one
          * only where `cp` put it there, so the two knobs compose. */
-        static const int st[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 },
-                                      { 0, -1 } };
         for (int l = 0; l < 2; l++) {
             if (!(amot.pred & (1 << l)))
                 continue;
-            uint32_t best_q = acost;
-            mv_t bmv = amot.mv[l];
-            for (int i = 0; i < 4; i++) {
-                mot_t t = amot;
-                mv_t v = { (int16_t)(amot.mv[l].x + st[i][0]),
-                           (int16_t)(amot.mv[l].y + st[i][1]) };
-                mv_t vc = v;
-                n265_clamp_mv(e, g->x, g->y, w, h, &vc);
-                if (vc.x != v.x || vc.y != v.y)
-                    continue;
-                t.mv[l] = v;
-                uint32_t c = mot_satd_wh(e, g->x, g->y, w, h, t) +
-                    (cp >= 2 ? cpred_satd(e, g->x, g->y, w, h, t) : 0) +
-                    (uint32_t)(((uint64_t)mot_rate_q8(e, g, &t, mvp, 6) *
-                                lam4) >> 12);
-                if (c < best_q) {
-                    best_q = c;
-                    bmv = v;
-                }
-            }
+            int uni = amot.pred == (1u << l) &&
+                amot.mv[l].x == me[l].x && amot.mv[l].y == me[l].y &&
+                keep[l].satd != UINT32_MAX;
+            uint32_t best_q;
+            mv_t bmv = subpel_rerank(e, g, &amot, mvp, l, lam4, cp >= 2,
+                                     want_keep ? &keep[l] : NULL, uni,
+                                     acost, &best_q);
             if (bmv.x != amot.mv[l].x || bmv.y != amot.mv[l].y) {
                 amot.mv[l] = bmv;
                 acost = best_q;
@@ -4170,6 +4354,13 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             int same_as_cand = 1;
             pu_geo pg = { x0, y0, n, x0, y0, n, n, 0, 0 };
             int lam4 = ctu_lam_sad_q4(e);
+            /* what the winning reference's ladder already costed, for
+             * the arm-1 re-rank below (phase 10 item 1b) */
+            int want_keep = n265_subpel_rate() == 1;
+            struct n265_me_keep keep[2];
+            keep[0].satd = keep[1].satd = UINT32_MAX;
+            keep[0].nb_valid = keep[1].nb_valid = 0;
+            keep[0].sq_valid = keep[1].sq_valid = 0;
             if (!gate_amvp) {
                 /* per list: search every reference, keep the one whose
                  * SAD + lambda x (mvd + ref_idx) bits is lowest, and the
@@ -4194,8 +4385,10 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                         memcpy(rcx.up, up, sizeof(up));
                         struct n265_me_rate rc = { me_rate_bits, &rcx,
                                                    (uint32_t)lam4 };
+                        struct n265_me_keep kp;
                         uint32_t sad = n265_me_search(e, l, r, x0, y0, n, n,
                                                       p[0], &mv,
+                                                      want_keep ? &kp : NULL,
                                                       n265_subpel_rate() >= 2
                                                           ? &rc : NULL);
                         u.mv[l] = mv;
@@ -4209,7 +4402,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                         uint32_t c = d +
                             (uint32_t)(((uint64_t)mot_rate_q8(e, &pg, &u, up, 4)
                                         * lam4) >> 12);
-                        if (c < best_c) { best_c = c; me_mv[l] = mv; mvp[l][0] = p[0]; mvp[l][1] = p[1]; amot.ref[l] = (int8_t)r; }
+                        if (c < best_c) { best_c = c; me_mv[l] = mv; mvp[l][0] = p[0]; mvp[l][1] = p[1]; amot.ref[l] = (int8_t)r; if (want_keep) keep[l] = kp; }
                     }
                 }
                 amot.mv[0] = me_mv[0];
@@ -4327,35 +4520,22 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                     for (int l = 0; l < 2; l++) {
                         if (!(amot.pred & (1 << l)))
                             continue;
-                        uint32_t bq = mot_satd_wh(e, x0, y0, n, n, amot) +
-                            (cpr ? cpred_satd(e, x0, y0, n, n, amot) : 0) +
-                            (uint32_t)(((uint64_t)mot_rate_q8(e, &pg, &amot,
-                                                              mvp, 6)
-                                        * lam4) >> 12);
-                        mv_t bmv = amot.mv[l];
-                        for (int i = 0; i < 4; i++) {
-                            mot_t t = amot;
-                            mv_t v = { (int16_t)(amot.mv[l].x + st[i][0]),
-                                       (int16_t)(amot.mv[l].y + st[i][1]) };
-                            mv_t vc = v;
-                            n265_clamp_mv(e, x0, y0, n, n, &vc);
-                            if (vc.x != v.x || vc.y != v.y)
-                                continue;
-                            t.mv[l] = v;
-                            uint32_t c = mot_satd_wh(e, x0, y0, n, n, t) +
-                                (cpr ? cpred_satd(e, x0, y0, n, n, t) : 0) +
-                                (uint32_t)(((uint64_t)mot_rate_q8(e, &pg, &t,
-                                                                  mvp, 6)
-                                            * lam4) >> 12);
-                            if (c < bq) {
-                                bq = c;
-                                bmv = v;
-                            }
-                        }
-                        if (rr_trace() && (bmv.x != amot.mv[l].x ||
-                                           bmv.y != amot.mv[l].y))
-                            rr_bump(RR_MOVED, 1);
-                        amot.mv[l] = bmv;
+                        /* the ladder's Hadamards describe this centre
+                         * only while the settled vector is still the uni
+                         * winner it returned on this list; a bi centre
+                         * is the AVERAGE of two predictions and none of
+                         * them is its SATD. The scale the gate reads is
+                         * that list's own ladder SATD either way. */
+                        int uni = amot.pred == (1u << l) &&
+                            amot.mv[l].x == me_mv[l].x &&
+                            amot.mv[l].y == me_mv[l].y &&
+                            keep[l].satd != UINT32_MAX;
+                        uint32_t bq;
+                        amot.mv[l] = subpel_rerank(e, &pg, &amot, mvp, l, lam4,
+                                                   cpr,
+                                                   want_keep ? &keep[l] : NULL,
+                                                   uni, UINT32_MAX, &bq);
+                        (void)bq;   /* this site re-costs the CU below */
                     }
                 }
                 same_as_cand = amot.pred == cand.pred &&

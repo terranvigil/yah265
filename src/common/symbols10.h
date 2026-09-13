@@ -217,6 +217,7 @@
 #define n265_satd8_neon              n265_satd8_neon_10
 #define n265_satd8_ref               n265_satd8_ref_10
 #define n265_sbh_adjust              n265_sbh_adjust_10
+#define n265_subpel_gate             n265_subpel_gate_10
 #define n265_subpel_rate             n265_subpel_rate_10
 #define n265_c422_mode_map           n265_c422_mode_map_10
 #define n265_scan_coef               n265_scan_coef_10

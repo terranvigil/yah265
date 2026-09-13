@@ -75,10 +75,47 @@ struct n265_me_rate {
  * Defined in mv.c and read by ctu.c, which owns arm 1. */
 int n265_subpel_rate(void);
 
+/* N265_SUBPEL_GATE (phase 10 item 1b): percent. Where arm 1's re-rank
+ * would have to BUY its SATDs, spend them only where the ladder's own
+ * last square came out FLAT - its best two positions within X% of each
+ * other. 0 is ungated. Read by ctu.c. */
+int n265_subpel_gate(void);
+
+/* What the ladder's last square already knows, handed back so the
+ * N265_SUBPEL_RATE=1 re-rank does not buy it a second time (phase 10
+ * item 1b). The re-rank ranks the settled vector against its four
+ * quarter-pel neighbours on luma SATD, and where that vector is still
+ * the uni winner this ladder returned they are the same Hadamards of the
+ * same block against the same reference: `mot_satd_wh` of a uni `mot_t`
+ * is `mc_satd` of its list's vector, line for line.
+ *
+ * `satd` is the SATD at the RETURNED vector (UINT32_MAX under
+ * N265_FULLPEL, where the ladder never takes one). `nb` is indexed in
+ * the re-rank's own offset order - (1,0), (-1,0), (0,1), (0,-1) - and
+ * holds what the ladder's final QUARTER-pel square costed there,
+ * UINT32_MAX where the clamp dropped a position or the square never ran.
+ * It may be read only when `nb_valid`, which says the square was centred
+ * on the vector that came back - i.e. the square that did not move.
+ *
+ * `sq_best` and `sq_second` are the two smallest PURE Hadamards of that
+ * last square whatever its step, centre included - the flatness the gate
+ * reads - and `sq_valid` says the square ranked in SATD and had a
+ * runner-up to report. */
+struct n265_me_keep {
+    uint32_t satd;
+    uint32_t nb[4];
+    int nb_valid;
+    uint32_t sq_best, sq_second;
+    int sq_valid;
+};
+
 /* Motion search on one reference list around the given start
- * (quarter-pel in/out). Returns the best cost. `rc` may be NULL. */
+ * (quarter-pel in/out). Returns the best cost. `keep` and `rc` may both
+ * be NULL; passing `keep` costs four stores in the last square and
+ * changes nothing the search decides. */
 uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, int y0,
                         int w, int h, mv_t start, mv_t *best,
+                        struct n265_me_keep *keep,
                         const struct n265_me_rate *rc);
 
 /* SAD of luma MC prediction at mv on one list. */

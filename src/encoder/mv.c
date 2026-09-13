@@ -572,6 +572,43 @@ int n265_subpel_rate(void)
     return v;
 }
 
+/* N265_SUBPEL_GATE (phase 10 item 1b): the re-rank of arm 1 costs five
+ * luma SATDs per AMVP PU per list, +26-29% of the whole subpel Hadamard
+ * budget (docs/phase10.md sec 1.3), and 33-40% of it changes nothing.
+ * Two cuts bring the bill down and this is the second of them; the
+ * first, `struct n265_me_keep`, is not a knob because it is bit-exact.
+ *
+ * The shape is `N265_CPRED_GATE`'s, which took the chroma term from a
+ * refused 1.06x to a shipped 1.010x AND a better band by spending it
+ * only where luma had not already decided. Here what has already decided
+ * is the ladder's own last square: where its best two positions are far
+ * apart in SATD the block sits on a steep part of the subpel surface, no
+ * neighbour of the winner is within the mvd bit that separates them
+ * (lambda_sad is about five SAD units at qp 28, a fraction of a percent
+ * of a block's Hadamard), and nothing the re-rank can buy will move the
+ * vector. Where they are CLOSE the surface is flat, which is both where
+ * the rate term can win and where an unwalked quarter-pel neighbour can.
+ *
+ *   0  ungated: every pass, which is the form item 1 priced and refused
+ *      at 1.0305x.
+ *   X  buy the SATDs only where the ladder's last square reported a
+ *      runner-up within X% of its winner.
+ *
+ * A pass whose five Hadamards are already in `n265_me_keep` costs
+ * nothing to run and is never gated: the knob spends where spending is
+ * what hurts. */
+int n265_subpel_gate(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_SUBPEL_GATE");
+        v = s ? atoi(s) : 0;
+        if (v < 0)
+            v = 0;
+    }
+    return v;
+}
+
 /* N265_SUBPEL_TRACE (diagnostic, output-neutral): what the ladder costs
  * and what the rate term moves, so the clock has a prediction before an
  * arm is run. Counted at --threads 1; the counters are atomic so a
@@ -641,6 +678,7 @@ static inline uint32_t me_rate(const struct n265_me_rate *rc, mv_t mv)
 
 uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, int y0,
                         int w, int h, mv_t start, mv_t *best,
+                        struct n265_me_keep *keep,
                         const struct n265_me_rate *rc)
 {
     mv_t cur = { (int16_t)((start.x >> 2) * 4), (int16_t)((start.y >> 2) * 4) };
@@ -778,6 +816,14 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
      * added to both sides of the comparison inside the step. */
     int sr = rc ? n265_subpel_rate() : 0;
     int trace = sp_trace();
+    /* `n265_me_keep`: the last quarter-pel square's own Hadamards, kept
+     * for the arm-1 re-rank in ctu.c. `kq_c` is the square's centre, and
+     * the entries are only handed over if the square ended there. */
+    mv_t kq_c = { 0, 0 };
+    uint32_t kq[4] = { UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX };
+    int kq_set = 0;
+    uint32_t kb = 0, k2 = UINT32_MAX;   /* the last SATD square's top two */
+    int kb_set = 0;
     uint32_t best_satd = fullpel ? 0 : mc_satd(e, list, ridx, x0, y0, w, h, cur);
     if (trace && !fullpel)
         sp_bump(SP_PU, 1), sp_bump(SP_SATD, 1);
@@ -797,6 +843,16 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
             uint32_t bs = b_d + (rate_on ? me_rate(rc, cur) : 0);
             mv_t pb = cur;              /* the pure-metric argmin, trace only */
             uint32_t pbs = b_d;
+            int kq_here = keep && step == 1 && !sad_step;
+            if (kq_here) {
+                kq_c = cur;
+                kq_set = 1;
+                kq[0] = kq[1] = kq[2] = kq[3] = UINT32_MAX;
+            }
+            /* the square's flatness, in the PURE metric, so that the
+             * gate reads the same number with the rate term on or off */
+            int kt = keep && !sad_step;
+            uint32_t sq_b = b_d, sq_2 = UINT32_MAX;
             if (trace)
                 sp_bump(SP_SQ, 1);
             for (int dy = -step; dy <= step; dy += step)
@@ -816,6 +872,20 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
                         if (!sad_step)
                             sp_bump(SP_SATD, 1);
                     }
+                    if (kq_here && (!dx || !dy)) {
+                        /* the re-rank's four axis neighbours, in its
+                         * own order; the square's diagonals are its own */
+                        int ki = dy == 0 ? (dx > 0 ? 0 : 1) : (dy > 0 ? 2 : 3);
+                        kq[ki] = s;
+                    }
+                    if (kt) {
+                        if (s < sq_b) {
+                            sq_2 = sq_b;
+                            sq_b = s;
+                        } else if (s < sq_2) {
+                            sq_2 = s;
+                        }
+                    }
                     uint32_t c = s + (rate_on ? me_rate(rc, t) : 0);
                     if (c < bs) {
                         bs = c;
@@ -829,6 +899,11 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
                 }
             if (trace && rate_on && (pb.x != b.x || pb.y != b.y))
                 sp_bump(SP_RMOVE, 1);
+            if (kt && sq_2 != UINT32_MAX) {
+                kb = sq_b;
+                k2 = sq_2;
+                kb_set = 1;
+            }
             if (sad_step) {
                 /* the two steps rank in different metrics, so the
                  * quarter-pel square needs its centre re-costed */
@@ -851,6 +926,15 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
         if (dedup && cur.x == round_start.x && cur.y == round_start.y)
             break;
     }
+    if (keep) {
+        keep->satd = fullpel ? UINT32_MAX : best_satd;
+        keep->nb_valid = kq_set && kq_c.x == cur.x && kq_c.y == cur.y;
+        for (int i = 0; i < 4; i++)
+            keep->nb[i] = keep->nb_valid ? kq[i] : UINT32_MAX;
+        keep->sq_valid = kb_set;
+        keep->sq_best = kb;
+        keep->sq_second = k2;
+    }
     *best = cur;
     return best_sad;
 }
@@ -866,6 +950,7 @@ void n265_mv_warm(void)
     (void)fullpel_on();
     (void)subpel_dedup();
     (void)n265_subpel_rate();
+    (void)n265_subpel_gate();
     (void)sp_trace();
     (void)qstep_q8(0);      /* fills its lazy table */
 }
