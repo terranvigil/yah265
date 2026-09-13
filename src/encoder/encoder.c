@@ -597,6 +597,8 @@ static void fw_config(n265_encoder *e, n265_frame_work *fw)
     fw->dbf_tc = e->dbf_tc;
     fw->cu_stats = e->cu_stats;
     fw->cbit_trace = e->cbit_trace;
+    fw->iw_trace = e->iw_trace;
+    fw->iw_count = e->iw_trace;
     for (int i = 0; i < 3; i++)
         fw->pad_stride[i] = e->pad_stride[i];
 }
@@ -658,9 +660,13 @@ static int fw_open(n265_encoder *e, n265_frame_work *fw)
      * n265_frame_work lands in, so no call site has to know. */
     fw->hf2_tr_rows = calloc((size_t)(e->ctb_rows + 1) * 24,
                              sizeof(uint64_t));
-    if (!fw->rrec || !fw->est_snap || !fw->prog || !fw->hf2_tr_rows)
+    fw->iw_arm_rows = calloc((size_t)(e->ctb_rows + 1) * N265_IW_CNT,
+                             sizeof(uint64_t));
+    if (!fw->rrec || !fw->est_snap || !fw->prog || !fw->hf2_tr_rows ||
+        !fw->iw_arm_rows)
         return -1;
     fw->hf2_tr = fw->hf2_tr_rows + (size_t)e->ctb_rows * 24;
+    fw->iw_arm = fw->iw_arm_rows + (size_t)e->ctb_rows * N265_IW_CNT;
     for (int i = 0; i < 3; i++) {
         int w = i ? e->pad_w >> e->csx : e->pad_w;
         int bh = (1 << e->ctb_log2) >> (i ? e->csy : 0);
@@ -704,6 +710,7 @@ static void fw_close(n265_frame_work *fw)
     free(fw->rrec);
     free(fw->est_snap);
     free(fw->hf2_tr_rows);
+    free(fw->iw_arm_rows);
     free(fw->prog);
     bs_free(&fw->rbsp);
 }
@@ -726,6 +733,7 @@ void n265_row_begin(n265_row_ctx *row, n265_frame_work *fw, int r)
     row->c.ent_qp_prev = fw->qp;
     row->c.sc = row->sc;
     row->c.hf2_tr = fw->hf2_tr_rows + (size_t)r * 24;
+    row->c.iw_arm = fw->iw_arm_rows + (size_t)r * N265_IW_CNT;
     row->c.rec_buf = fw->rrec[r].buf;
     row->c.rec_cap = fw->rrec[r].cap;
     row->c.rec_len = 0;
@@ -912,6 +920,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->no_sao = n265_env("N265_NO_SAO") != NULL;      /* diagnostic */
     e->cu_stats = n265_env("N265_CU_STATS") != NULL;  /* diagnostic */
     e->cbit_trace = n265_env("N265_CBIT_TRACE") != NULL;   /* diagnostic */
+    e->iw_trace = n265_env("N265_INTRA_WIN_TRACE") != NULL; /* diagnostic */
     /* N265_SHOT_STATS=file: the per-shot sidecar, the env half of
      * --shot-stats (which overrides it). Opened here, on the driver, so
      * no frame's retirement performs the first read. */
@@ -3027,6 +3036,30 @@ static void shot_record(n265_encoder *e, const n265_frame_work *fw,
     shot_fold_upto(e, e->shot_high, 0);
 }
 
+/* The share of a finished picture whose final mode was intra, as a pair
+ * of 4x4-cell counts: `cells` every cell of the coded picture, `intra`
+ * the ones a CU coded intra. Read from `blk_intra`, the mode map the
+ * deblocker and the collocated publish already read, after the frame's
+ * row jobs have been joined - so it is an integer pair that does not
+ * move with the thread count. A PCM picture has no mode map and reports
+ * nothing. */
+static void n265_intra_share(n265_frame_work *fw, uint32_t *cells,
+                             uint32_t *intra)
+{
+    uint32_t nc = 0, ni = 0;
+    if (fw->mode != N265_MODE_PCM && fw->blk_intra) {
+        int cw = fw->pad_w >> 2, ch = fw->pad_h >> 2;
+        for (int y = 0; y < ch; y++) {
+            const uint8_t *r = fw->blk_intra + (size_t)y * fw->map_stride;
+            for (int x = 0; x < cw; x++)
+                ni += (r[x] != 0);
+        }
+        nc = (uint32_t)cw * (uint32_t)ch;
+    }
+    *cells = nc;
+    *intra = ni;
+}
+
 /* Join the oldest frame in flight: wait for its job, pack its NALs into
  * the deferred ring in CODING order, and hand its resources back. This
  * is the only place the driver blocks on a frame, and it is where D3's
@@ -3137,6 +3170,29 @@ static void join_oldest(n265_encoder *e)
         e->hf2_nref += (unsigned)hh->is_ref;     /* N265_HF2_TRACE only */
         for (int j = 0; j < 24; j++)
             e->hf2_samp[j] += hh->samp[j];
+    }
+    /* Step 3: the frame's own intra share, counted on the driver from
+     * the finished mode map. `blk_intra` is written by the row jobs and
+     * every one of them has been joined by the time we are here, so the
+     * pair of integers is the same at one worker and at twelve. */
+    if (e->iw_trace) {
+        uint32_t cells = 0, intra = 0;
+        uint64_t arm[N265_IW_CNT] = { 0 };
+        n265_intra_share(fw, &cells, &intra);
+        for (int r = 0; r <= e->ctb_rows; r++)
+            for (int j = 0; j < N265_IW_CNT; j++)
+                arm[j] += fw->iw_arm_rows[(size_t)r * N265_IW_CNT + j];
+        /* IW,display,coding,slice,depth,nonref,flat,cells,intra,pct,
+         *    reached,gated,ranks,trials,j_inter,j_saved,j_saved_pct */
+        fprintf(stderr, "IW,%d,%d,%d,%d,%d,%d,%u,%u,%.3f,"
+                        "%llu,%llu,%llu,%llu,%llu,%llu,%.4f\n",
+                fw->display_idx, fw->code_idx, fw->slice_type, fw->b_depth,
+                fw->nonref, fw->flat, cells, intra,
+                cells ? 100.0 * (double)intra / (double)cells : 0.0,
+                (unsigned long long)arm[0], (unsigned long long)arm[1],
+                (unsigned long long)arm[2], (unsigned long long)arm[3],
+                (unsigned long long)arm[4], (unsigned long long)arm[5],
+                arm[4] ? 100.0 * (double)arm[5] / (double)arm[4] : 0.0);
     }
     /* --shot-stats: the frame joins its shot here, re-sorted into
      * display order; the shot's line is written when the next shot's
@@ -3947,6 +4003,8 @@ static int drive_scheduler(n265_encoder *e)
      * arming rule reads back out of it. */
     fw->code_idx = e->hf2_code_n++;
     memset(fw->hf2_tr_rows, 0, (size_t)(e->ctb_rows + 1) * 24 *
+                               sizeof(uint64_t));
+    memset(fw->iw_arm_rows, 0, (size_t)(e->ctb_rows + 1) * N265_IW_CNT *
                                sizeof(uint64_t));
     claim_slot(e, fw);
     /* D2: mark now, on the driver, in coding order. Frame k+1's dispatch

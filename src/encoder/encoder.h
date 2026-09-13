@@ -404,6 +404,16 @@ typedef struct n265_frame_work {
      * The driver sums them in row order at retirement. */
     uint64_t *hf2_tr;
     uint64_t *hf2_tr_rows;
+    /* N265_INTRA_WIN_TRACE only, and laid out exactly like the traffic
+     * line above: four counters per CTB row - the CUs the intra-gate
+     * family reached, the ones where the arm stood down, the 35-mode
+     * ranks that ran and the RD trials that ran - so the arm's work can
+     * be split by slice type without a profiler and without the wall.
+     * Zero cost when the trace is off: the increments sit behind it. */
+    uint64_t *iw_arm;
+    uint64_t *iw_arm_rows;
+    int iw_trace;
+    int iw_count;           /* the counters above are live */
     int code_idx;           /* this frame's coding index (driver-serial) */
     struct n265_refpic *refl[2][N265_MAX_REF];
     int nref[2];
@@ -572,6 +582,11 @@ typedef struct n265_row_ctx {
  * sequence's rather than one position in the pyramid. The ring must
  * outlive that span plus the K frames retired ahead of it, so it is
  * sized well past K + WIN. */
+/* N265_INTRA_WIN_TRACE's per-row counters: reached, gated, ranks,
+ * trials, the inter J over the population and the J the intra arm saved
+ * inside the gateable half of it. */
+#define N265_IW_CNT   6
+
 #define N265_HF2_WIN  8
 #define N265_HF2_HIST 32
 
@@ -841,6 +856,12 @@ struct n265_encoder {
      * The counters themselves are per-frame (see n265_frame_work). */
     int cu_stats;
     int cbit_trace;         /* N265_CBIT_TRACE, the same way */
+    /* N265_INTRA_WIN_TRACE: one CSV row per frame at retirement carrying
+     * the share of the picture whose final mode was intra, which is the
+     * quantity an adaptive intra gate would condition on. Driver-side
+     * and output-neutral - unlike N265_INTRA_ORACLE, which un-gates the
+     * arm and changes the bitstream by construction. */
+    int iw_trace;
 
     /* --shot-stats / N265_SHOT_STATS: the per-shot JSON Lines sidecar
      * (docs/phase7-shot-design.md step 1). Frames retire in CODING

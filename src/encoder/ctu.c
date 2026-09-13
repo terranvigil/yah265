@@ -4161,6 +4161,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
              * has reported its own evidence. */
             int floor_only = 0, or_on = 0, or_d1 = 0, or_iwin = 0;
             uint64_t or_dinter = 0, or_thr = 0, or_jinter = 0;
+            uint64_t iw_jinter = 0;
             /* ...and not under --lossless: every disjunct below is an
              * argument about the QUANTISER FLOOR - the winning inter
              * candidate's distortion already being inside qstep^2, so
@@ -4205,6 +4206,12 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                     floor_only && e->slice_type == 0 && !e->flat)
                     g = 1;
                 or_iwin = iwin;
+                if (e->iw_count) {
+                    e->iw_arm[0]++;         /* CUs the family reached  */
+                    e->iw_arm[1] += (unsigned)(g != 0);
+                    e->iw_arm[4] += j_inter;
+                    iw_jinter = j_inter;
+                }
                 if (intra_oracle()) {
                     or_on = 1;
                     or_d1 = d1;
@@ -4219,6 +4226,8 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             int imode = 1;
             uint32_t isad = UINT32_MAX;
             if (!gate_intra) {
+            if (e->iw_count)
+                e->iw_arm[2]++;             /* 35-mode ranks run       */
             imode = search_luma_mode(e, x0, y0, log2n, e->recon[0],
                                      e->recon_stride[0],
                                      intra_gate() >= 4 || intra_oracle()
@@ -4255,6 +4264,8 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             }
             }
             if (!gate_intra) {
+            if (e->iw_count)
+                e->iw_arm[3]++;             /* RD trials run           */
             tb_analyze(e, 1, cx0, cy0, log2c, qp_c, imode, mot_zero, i_tcb);
             tb_analyze(e, 2, cx0, cy0, log2c, qp_c, imode, mot_zero, i_tcr);
             tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, imode, mot_zero, i_tl);
@@ -4308,6 +4319,17 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                     j_intra_adm = j_intra * (uint64_t)(100 + mg) / 100;
             }
             if (j_intra_adm < best) { best = j_intra; kind = 3; }
+
+            /* The J the intra arm SAVES in the population an adaptive
+             * gate would take - the floor half a P slice keeps today -
+             * against the J the inter arms would have settled for. The
+             * oracle calibrated this against mode 2 at about one BD
+             * point per percent of the frame's J, and it is the quantity
+             * the area share of intra does not carry: a clip can code a
+             * fifth of an anchor intra and win nothing by it. */
+            if (e->iw_count && floor_only && kind == 3 &&
+                iw_jinter > j_intra)
+                e->iw_arm[5] += iw_jinter - j_intra;
 
             if (or_on) {
                 /* IO,size,slice,codeidx,d1,iwin,d_inter,thr,isad,csad,
