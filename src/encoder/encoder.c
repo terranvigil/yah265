@@ -1169,6 +1169,44 @@ n265_encoder *n265_encoder_open(const n265_param *p)
        * crowd_run_1080p and -6% on foreman_cif, and +35 MB at 1080p
        * (198 -> 233, against sec 6's 300 MB ceiling). */
       int k = v ? atoi(v) : (e->bframes >= 2 ? 6 : 4);
+      /* Phase 9 step 4. Six frames fill the pool only where one frame's
+       * wavefront is wide enough to keep a fair share of the workers
+       * busy. A CTB-row wavefront on an R x C grid cannot run more than
+       * about min(R, (C + 1) / 2) rows at once (sec 1, and T1's scaling
+       * table, where CIF stopped at 1.53x for exactly this reason), so
+       * where TWO frames' worth of that bound still does not reach the
+       * worker count, the pool is starved by the pictures and not by the
+       * encoder: the step 4 census reads foreman_cif at 6.2 of 18 cores
+       * held and 65% of the pool parked, against 17.5 of 18 on
+       * touchdown_1080p.
+       *
+       * Eight frames in flight is where that ends - above it the DPB
+       * slot pool binds instead (the JOIN census flips from `k` to
+       * `slot` at 69-75 stalls in 120 frames and the wall stops moving),
+       * which is T3/4's ceiling and is why the bump is to 8 and not
+       * higher. Measured at eighteen threads, 120 frames, interleaved,
+       * against K = 6: the CIF seven 0.72x to 0.99x (median 0.786x,
+       * tempete 0.718x, foreman 0.784x), and the eight HD clips
+       * 0.99x to 1.06x, i.e. the arm is a LOSS above the bound - sintel
+       * +6.4%, sita_toon +1.9%. The predicate reproduces the sign on
+       * every cell measured, including `--ctu 64` (foreman 0.728x and
+       * bumped, sintel 1.050x and not) and `--threads 12` (foreman
+       * 0.766x and bumped, sintel 1.034x and not), which a threshold on
+       * the row count alone does not: at CTB 64 a 720p picture has
+       * twelve rows and would have been bumped into its own regression.
+       *
+       * K is a pure scheduling knob wherever N265_RC_LAG is 0 (the
+       * default), so this cannot move a bit; the identity set is the
+       * claim and N265_MAX_FRAME_WORK still overrides. `--bframes < 2`
+       * keeps 4: every frame is a reference there and the slot pool
+       * binds at four already (T3/4). */
+      if (!v && e->bframes >= 2) {
+          int nt = g_threads > 0 ? g_threads : auto_threads();
+          int cap = e->ctb_rows < (e->ctb_cols + 1) / 2
+                        ? e->ctb_rows : (e->ctb_cols + 1) / 2;
+          if (2 * cap <= nt)
+              k = 8;
+      }
       e->K = k < 1 ? 1 : k > N265_MAX_FRAME_WORK ? N265_MAX_FRAME_WORK : k; }
     { const char *v = n265_env("N265_RC_LAG");
       int d = v ? atoi(v) : 0;
