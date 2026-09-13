@@ -4,6 +4,7 @@
  */
 
 #include <math.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -543,6 +544,40 @@ static int subme_mode(void)
     return v;
 }
 
+/* N265_SUBPEL_TRACE (phase 10 item 1, diagnostic and output-neutral):
+ * what the subpel ladder costs, so that an arm which adds work to it has
+ * a prediction before it is run. Counted per PU that ENTERS the ladder -
+ * one per (list, reference) trial, not one per coding unit - and printed
+ * once at exit. The counters are atomic so a multi-worker run still adds
+ * up; nothing here is ordered, and the census is read at --threads 1. */
+enum { SP_PU, SP_SQ, SP_CAND, SP_SATD, SP_N };
+static atomic_ullong sp_n[SP_N];
+static void sp_report(void);
+static int sp_trace(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        v = n265_env("N265_SUBPEL_TRACE") != NULL;
+        if (v) atexit(sp_report);
+    }
+    return v;
+}
+static void sp_report(void)
+{
+    unsigned long long pu = atomic_load(&sp_n[SP_PU]);
+    double d = pu ? (double)pu : 1.0;
+    fprintf(stderr, "subpeltrace ladder: pu=%llu squares=%llu cand=%llu"
+            " satd=%llu | per_pu squares=%.3f cand=%.3f satd=%.3f\n",
+            pu, atomic_load(&sp_n[SP_SQ]), atomic_load(&sp_n[SP_CAND]),
+            atomic_load(&sp_n[SP_SATD]),
+            atomic_load(&sp_n[SP_SQ]) / d, atomic_load(&sp_n[SP_CAND]) / d,
+            atomic_load(&sp_n[SP_SATD]) / d);
+}
+static inline void sp_bump(int k, unsigned long long v)
+{
+    atomic_fetch_add_explicit(&sp_n[k], v, memory_order_relaxed);
+}
+
 /* N265_ME_PATTERN (phase 4): 0 the unit diamond, 1 the hexagon with a
  * diamond finish, 2 and 3 that plus an early-out on the seed. */
 static int me_pattern(void)
@@ -702,7 +737,10 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
     int gate_q_move = sm == 1 || sm == 2 || sm == 3 || sm == 5;
     int gate_q_small = (sm == 2 || sm == 3 || sm == 5) && w + h == 12;
     int rounds = (sm == 3 || sm == 5 || sm == 6) ? 1 : 2;
+    int trace = sp_trace();
     uint32_t best_satd = fullpel ? 0 : mc_satd(e, list, ridx, x0, y0, w, h, cur);
+    if (trace && !fullpel)
+        sp_bump(SP_PU, 1), sp_bump(SP_SATD, 1);
     for (int round = 0; round < (fullpel ? 0 : rounds); round++) {
         mv_t round_start = cur;
         for (int step = 2; step >= 1; step--) {
@@ -715,6 +753,8 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
             mv_t b = cur;
             uint32_t bs = sad_step
                 ? n265_mc_sad(e, list, ridx, x0, y0, w, h, cur) : best_satd;
+            if (trace)
+                sp_bump(SP_SQ, 1);
             for (int dy = -step; dy <= step; dy += step)
                 for (int dx = -step; dx <= step; dx += step) {
                     if (!dx && !dy)
@@ -727,6 +767,11 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
                     uint32_t s = sad_step
                         ? n265_mc_sad(e, list, ridx, x0, y0, w, h, t)
                         : mc_satd(e, list, ridx, x0, y0, w, h, t);
+                    if (trace) {
+                        sp_bump(SP_CAND, 1);
+                        if (!sad_step)
+                            sp_bump(SP_SATD, 1);
+                    }
                     if (s < bs) {
                         bs = s;
                         b = t;
@@ -738,6 +783,8 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
                 if (b.x != cur.x || b.y != cur.y) {
                     cur = b;
                     best_satd = mc_satd(e, list, ridx, x0, y0, w, h, cur);
+                    if (trace)
+                        sp_bump(SP_SATD, 1);
                 }
             } else {
                 cur = b;
@@ -766,5 +813,6 @@ void n265_mv_warm(void)
     (void)merge_trace_disp();
     (void)fullpel_on();
     (void)subpel_dedup();
+    (void)sp_trace();
     (void)qstep_q8(0);      /* fills its lazy table */
 }

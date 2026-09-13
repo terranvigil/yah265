@@ -2748,6 +2748,43 @@ static uint32_t mot_rate_q8(struct n265_frame_work *e, const pu_geo *g,
     return b;
 }
 
+/* --- N265_SUBPEL_TRACE, the re-rank half (phase 10 item 1) --- */
+
+/* What a re-rank of the settled AMVP vector against its four
+ * quarter-pel neighbours would COST, countable with no such re-rank in
+ * the encoder: `cu` is the AMVP PUs whose vector reaches this site,
+ * `lists` the per-list passes such a re-rank would make, `satd` the luma
+ * SATDs it would buy - the centre plus the neighbours that survive the
+ * clamp. Output-neutral, and the reason it exists is that the ladder
+ * census in mv.c prices the search and this prices the arm on top of it.
+ * `moved` is filled by the arm itself and stays zero without one. */
+enum { RR_CU, RR_LISTS, RR_SATD, RR_MOVED, RR_N };
+static atomic_ullong rr_n[RR_N];
+static void rr_report(void);
+static int rr_trace(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        v = n265_env("N265_SUBPEL_TRACE") != NULL;
+        if (v) atexit(rr_report);
+    }
+    return v;
+}
+static void rr_report(void)
+{
+    unsigned long long cu = atomic_load(&rr_n[RR_CU]);
+    double d = cu ? (double)cu : 1.0;
+    fprintf(stderr, "subpeltrace rerank: amvp_pu=%llu lists=%llu satd=%llu"
+            " moved=%llu | per_pu lists=%.3f satd=%.3f\n",
+            cu, atomic_load(&rr_n[RR_LISTS]), atomic_load(&rr_n[RR_SATD]),
+            atomic_load(&rr_n[RR_MOVED]),
+            atomic_load(&rr_n[RR_LISTS]) / d, atomic_load(&rr_n[RR_SATD]) / d);
+}
+static inline void rr_bump(int k, unsigned long long v)
+{
+    atomic_fetch_add_explicit(&rr_n[k], v, memory_order_relaxed);
+}
+
 /* SATD of a bi prediction whose fixed list is already interpolated into
  * fix14: only the moving list pays an MC. */
 static uint32_t bi_satd_fixed(struct n265_frame_work *e, int x0, int y0, int w,
@@ -4204,6 +4241,25 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                         memcpy(mvp, bp, sizeof(bp));
                     }
                 }
+                static const int st_rr[4][2] = { { 1, 0 }, { -1, 0 },
+                                                 { 0, 1 }, { 0, -1 } };
+                if (rr_trace()) {
+                    rr_bump(RR_CU, 1);
+                    for (int l = 0; l < 2; l++) {
+                        if (!(amot.pred & (1 << l)))
+                            continue;
+                        rr_bump(RR_LISTS, 1);
+                        rr_bump(RR_SATD, 1);    /* the centre */
+                        for (int i = 0; i < 4; i++) {
+                            mv_t v = { (int16_t)(amot.mv[l].x + st_rr[i][0]),
+                                       (int16_t)(amot.mv[l].y + st_rr[i][1]) };
+                            mv_t vc = v;
+                            n265_clamp_mv(e, x0, y0, n, n, &vc);
+                            if (vc.x == v.x && vc.y == v.y)
+                                rr_bump(RR_SATD, 1);
+                        }
+                    }
+                }
                 if (chroma_pred() >= 2) {
                     /* The search's last ranking, re-run with chroma in
                      * it. Since phase 6b's B' the rect/AMP PU search
@@ -5426,6 +5482,7 @@ void n265_ctu_warm(void)
     (void)bi_gate_margin(); (void)intra_rd_n(); (void)intra_rd_mpm();
     (void)i_intra(); (void)chroma_w_on(); (void)chroma_w_pct();
     (void)chroma_pred(); (void)cpred_trace(); (void)cpred_w_pct();
+    (void)rr_trace();
     (void)cpred_gate(); (void)rdoq_trace(); (void)rdoq_lat_sz();
     for (int q = N265_QP_MIN; q <= N265_QP_MAX; q++)
         (void)n265_lambda_mode_q8(q);   /* fills its lazy table */
