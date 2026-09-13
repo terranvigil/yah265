@@ -544,6 +544,11 @@ static inline uint32_t ctu_lam(const struct n265_frame_work *e, int qp)
  * The counters are touched only when the variable is set; `perf` on the
  * default path sees none of this. */
 static atomic_ullong rt_trial[2][4], rt_commit[2][4];
+/* the same disagreement columns per transform size: which sizes a
+ * partial arm (N265_RDOQ_LAT_SZ) should keep the lattice in during
+ * the trials is a question about where the two quantisers actually
+ * part company, not about where the calls are */
+static atomic_ullong rt_diff_sz[2][4], rt_dj_sz[2][4];
 static atomic_ullong rt_n[2][7];
 /* mean |dJ| / J is carried as a sum of parts per million so the report
  * needs no floating-point accumulator shared between workers */
@@ -568,14 +573,16 @@ static void rt_report(void)
             fprintf(stderr, " %s=%llu", nm[k], atomic_load(&rt_n[p][k]));
         fprintf(stderr, " dJmean_ppm=%llu\n",
                 tr ? atomic_load(&rt_dj_ppm[p]) / tr : 0ull);
-        for (int k = 0; k < 4; k++)
+        for (int k = 0; k < 4; k++) {
+            unsigned long long t = atomic_load(&rt_trial[p][k]);
+            unsigned long long c = atomic_load(&rt_commit[p][k]);
             fprintf(stderr, "rdoqtrace %s %2dx%-2d: trials=%llu commits=%llu"
-                    " per=%.3f\n", p ? "chroma" : "luma", 4 << k, 4 << k,
-                    atomic_load(&rt_trial[p][k]),
-                    atomic_load(&rt_commit[p][k]),
-                    atomic_load(&rt_commit[p][k])
-                        ? (double)atomic_load(&rt_trial[p][k]) /
-                          (double)atomic_load(&rt_commit[p][k]) : 0.0);
+                    " per=%.3f differ=%llu dJmean_ppm=%llu\n",
+                    p ? "chroma" : "luma", 4 << k, 4 << k, t, c,
+                    c ? (double)t / (double)c : 0.0,
+                    atomic_load(&rt_diff_sz[p][k]),
+                    t ? atomic_load(&rt_dj_sz[p][k]) / t : 0ull);
+        }
     }
 }
 
@@ -654,8 +661,10 @@ static void rt_tally(struct n265_frame_work *e, int c_idx, int log2n, int qp,
     if ((lat_nz != 0) != (pln_nz != 0))
         atomic_fetch_add_explicit(&rt_n[p][RT_NZFLIP], 1,
                                   memory_order_relaxed);
-    if (memcmp(lat, pln, (size_t)n * n * sizeof(int16_t)))
+    if (memcmp(lat, pln, (size_t)n * n * sizeof(int16_t))) {
         atomic_fetch_add_explicit(&rt_n[p][RT_DIFF], 1, memory_order_relaxed);
+        atomic_fetch_add_explicit(&rt_diff_sz[p][k], 1, memory_order_relaxed);
+    }
 
     uint32_t lam = ctu_lam(e, qp);
     uint64_t jl = rt_ssd(c_idx, log2n, qp, use_dst, pred, lat, lat_nz, src,
@@ -676,6 +685,7 @@ static void rt_tally(struct n265_frame_work *e, int c_idx, int log2n, int qp,
     if (ppm > 1000000u)
         ppm = 1000000u;
     atomic_fetch_add_explicit(&rt_dj_ppm[p], ppm, memory_order_relaxed);
+    atomic_fetch_add_explicit(&rt_dj_sz[p][k], ppm, memory_order_relaxed);
     if (ppm > 1000)
         atomic_fetch_add_explicit(&rt_n[p][RT_D1K], 1, memory_order_relaxed);
     if (ppm > 10000)
@@ -701,11 +711,27 @@ static void rt_tally(struct n265_frame_work *e, int c_idx, int log2n, int qp,
  * with the lattice outright on 52-89% of luma trials and disagrees about
  * the cbf on under 2%, so 3 is not built until the band says 2 gives back
  * too much. */
+/* N265_RDOQ_LAT_SZ: under N265_RDOQ=2, the transform sizes that KEEP the
+ * lattice in the TRIALS as well - a bitmask over log2n - 2, so bit 0 is
+ * 4x4, bit 1 8x8, bit 2 16x16 and bit 3 32x32. 0 is the whole commit-only
+ * mode and is what N265_RDOQ=2 means on its own. It exists because the
+ * two halves of the mode are not one trade: the per-size census says
+ * where the calls are, where the time is (a 32x32 call is 64 times a 4x4
+ * one) and where the two quantisers actually disagree, and those are
+ * three different places. Inert unless N265_RDOQ=2. */
+static int rdoq_lat_sz(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *s = n265_env("N265_RDOQ_LAT_SZ"); v = s ? atoi(s) : 0; }
+    return v;
+}
+
 static void tb_quant_one(struct n265_frame_work *e, int c_idx, int log2n,
                          int qp, int intra, int scan, const int16_t *coef,
                          int16_t *level, int *out_nz)
 {
-    int lat = e->rdoq && (e->rdoq < 2 || e->rdoq_commit);
+    int lat = e->rdoq && (e->rdoq < 2 || e->rdoq_commit ||
+                          ((rdoq_lat_sz() >> (log2n - 2)) & 1));
     int sbh_done = 0;
     if (lat) {
         *out_nz = n265_rdoq(level, coef, log2n, qp, intra, c_idx, scan,
@@ -5136,7 +5162,7 @@ void n265_ctu_warm(void)
     (void)bi_gate_margin(); (void)intra_rd_n(); (void)intra_rd_mpm();
     (void)i_intra(); (void)chroma_w_on(); (void)chroma_w_pct();
     (void)chroma_pred(); (void)cpred_trace(); (void)cpred_w_pct();
-    (void)cpred_gate(); (void)rdoq_trace();
+    (void)cpred_gate(); (void)rdoq_trace(); (void)rdoq_lat_sz();
     for (int q = N265_QP_MIN; q <= N265_QP_MAX; q++)
         (void)n265_lambda_mode_q8(q);   /* fills its lazy table */
 }
