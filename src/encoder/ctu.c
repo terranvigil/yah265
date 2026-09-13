@@ -332,6 +332,16 @@ typedef struct qt_snap {
  * across depths, and one instance per lane preserves that. */
 struct n265_scratch {
     tb_ctx itt_l[4], itt_c[4][2];   /* commit_intra_tt's split arrangement */
+    /* tt_analyze's chroma save/split recon. They live here rather than on
+     * that function's stack because they have to hold 4:4:4's 32x32 chroma
+     * block and 4:2:0 only ever writes 16x16 of each: as locals they were
+     * 4 KB of frame that the 4:2:0 encoder reserves on every call and
+     * three quarters never touches, and that alone was 0.5% of
+     * single-thread wall (docs/phase8-plan.md, "Phase 8 speed"). Sharing
+     * one instance per lane is safe on the same argument itt_l already
+     * makes: analyze_cu calls tt_analyze and returns through it, so a
+     * second invocation is never live while the first one is. */
+    pixel tt_save_c[2 * 32 * 32], tt_split_c[2 * 32 * 32];
     tb_ctx ctt_l[4], ctt_c[4][2];   /* commit_inter_tt's split arrangement */
     tb_ctx ird_l, ird_cb, ird_cr;   /* intra_rd_pick's candidate TBs */
     tb_ctx ird_bl, ird_bcb, ird_bcr;   /* ...and the winner it keeps */
@@ -1592,16 +1602,22 @@ static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
     est_tt_bits(e, &st, log2ts, mode, ptb, ptcb, ptcr);
     uint64_t j_flat = rd_j(e, d_flat, st.bits, lam);
 
-    /* split arrangement: sequential, committing recon TU by TU */
-    pixel save_l[32 * 32], save_c[2][32 * 32];
-    pixel split_l[32 * 32], split_c[2][32 * 32];
+    /* split arrangement: sequential, committing recon TU by TU.
+     *
+     * The luma pair stays on the stack; the chroma pair is the lane's
+     * (struct n265_scratch, and the note there), and the two planes are
+     * PACKED at this node's own chroma size rather than given a 32x32 slot
+     * each, so the copy loops below walk what they touch. */
+    int cpl = cn_w * cn_h;              /* the packed chroma plane */
+    pixel save_l[32 * 32], split_l[32 * 32];
+    pixel *save_c = e->sc->tt_save_c, *split_c = e->sc->tt_split_c;
     for (int y = 0; y < n; y++)
         memcpy(save_l + y * n,
                e->recon[0] + (y0 + y) * e->recon_stride[0] + x0,
                (size_t)n * sizeof(pixel));
     for (int c = 0; c < 2; c++)
         for (int y = 0; y < cn_h; y++)
-            memcpy(save_c[c] + y * cn_w,
+            memcpy(save_c + c * cpl + y * cn_w,
                    e->recon[c + 1] + (cy0 + y) * e->recon_stride[c + 1] + cx0,
                    (size_t)cn_w * sizeof(pixel));
 
@@ -1652,11 +1668,11 @@ static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
     }
     for (int c = 0; c < 2; c++)
         for (int y = 0; y < cn_h; y++) {
-            memcpy(split_c[c] + y * cn_w,
+            memcpy(split_c + c * cpl + y * cn_w,
                    e->recon[c + 1] + (cy0 + y) * e->recon_stride[c + 1] + cx0,
                    (size_t)cn_w * sizeof(pixel));
             memcpy(e->recon[c + 1] + (cy0 + y) * e->recon_stride[c + 1] + cx0,
-                   save_c[c] + y * cn_w, (size_t)cn_w * sizeof(pixel));
+                   save_c + c * cpl + y * cn_w, (size_t)cn_w * sizeof(pixel));
         }
 
     memcpy(local, e->est_ctx, sizeof(local));
@@ -1725,7 +1741,7 @@ static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
     for (int c = 0; c < 2; c++)
         for (int y = 0; y < cn_h; y++)
             memcpy(e->recon[c + 1] + (cy0 + y) * e->recon_stride[c + 1] + cx0,
-                   split_c[c] + y * cn_w, (size_t)cn_w * sizeof(pixel));
+                   split_c + c * cpl + y * cn_w, (size_t)cn_w * sizeof(pixel));
     rec_u8(e, 1);
     if (child_chroma) {
         rec_u8(e, (unsigned)root_cb);
