@@ -16,7 +16,7 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 | `N265_RDOQ_UP` | 1 | src/encoder/rdoq.c:288 |
 | `N265_SKIP_THR` | 2 | src/encoder/ctu.c:1424 |
 
-## instrument (142)
+## instrument (144)
 
 | knob | default | reader |
 |---|---|---|
@@ -31,6 +31,8 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 | `N265_ABR_IBRAKE` | 1 | src/encoder/rc.c:139 |
 | `N265_ABR_IGAIN` | 0.085 | src/encoder/rc.c:127 |
 | `N265_ABR_IMAX` | 8.0 | src/encoder/rc.c:128 |
+| `N265_ABR_IOFF` | 0.0 | src/encoder/rc.c:143 |
+| `N265_ABR_IOFF_CT` | 0.0 | src/encoder/rc.c:144 |
 | `N265_ABR_LVL` | 2.0 | src/encoder/rc.c:158 |
 | `N265_ABR_MEAS` | 1 | src/encoder/rc.c:133 |
 | `N265_ABR_MGUARD` | 0.0 | src/encoder/rc.c:134 |
@@ -163,12 +165,10 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 | `N265_SUBME` | 3 | src/encoder/mv.c:540 |
 | `N265_SUBPEL_DEDUP` | 1 | src/encoder/mv.c:110 |
 
-## arm (21)
+## arm (19)
 
 | knob | default | reader |
 |---|---|---|
-| `N265_ABR_IOFF` | 0.0 | src/encoder/rc.c:143 |
-| `N265_ABR_IOFF_CT` | 0.0 | src/encoder/rc.c:144 |
 | `N265_ABR_IOFF_MAX` | 6.0 | src/encoder/rc.c:145 |
 | `N265_AQ` | ? | src/encoder/encoder.c:968 |
 | `N265_AQ_FLAT` | ? | src/encoder/encoder.c:2740 |
