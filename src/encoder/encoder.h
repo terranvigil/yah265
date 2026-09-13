@@ -413,7 +413,14 @@ typedef struct n265_frame_work {
     uint64_t *iw_arm;
     uint64_t *iw_arm_rows;
     int iw_trace;
-    int iw_count;           /* the counters above are live */
+    /* the counters are also what N265_INTRA_GATE=10 measures itself
+     * with, so they run whenever either is on */
+    int iw_count;
+    /* N265_INTRA_GATE=10: decided on the driver at dispatch, from the
+     * retired window only, and frozen before a row job exists. 1 = this
+     * frame's floor population stands the intra arm down even though
+     * the slice is not a B. */
+    int iw_gate;
     int code_idx;           /* this frame's coding index (driver-serial) */
     struct n265_refpic *refl[2][N265_MAX_REF];
     int nref[2];
@@ -586,6 +593,16 @@ typedef struct n265_row_ctx {
  * trials, the inter J over the population and the J the intra arm saved
  * inside the gateable half of it. */
 #define N265_IW_CNT   6
+
+/* The adaptive intra gate's own history (N265_INTRA_GATE=10). One entry
+ * per coding index, stamped at retirement, read at dispatch over the
+ * window ending at k - K - the newest index guaranteed retired - exactly
+ * the way hf2_traffic_mask reads its traffic window and for exactly the
+ * same reason: K is a scheduling constant that does not move with
+ * --threads, so the set of frames the rule reads is the same at one
+ * worker and at twelve and the bitstream cannot drift with the thread
+ * count. The ring must outlive K + the window. */
+#define N265_IW_HIST  128
 
 #define N265_HF2_WIN  8
 #define N265_HF2_HIST 32
@@ -856,6 +873,22 @@ struct n265_encoder {
      * The counters themselves are per-frame (see n265_frame_work). */
     int cu_stats;
     int cbit_trace;         /* N265_CBIT_TRACE, the same way */
+    /* N265_INTRA_GATE=10's history. `armed` says the frame ran the intra
+     * arm over its floor population, so its J pair is a MEASUREMENT; a
+     * frame the rule gated reports nothing and is skipped on the read,
+     * which is what keeps the statistic from being blinded by its own
+     * gate: once the window holds no armed frame of the type the rule
+     * cannot fire, the next frame of that type measures again, and the
+     * duty cycle is the window's own length. */
+    struct n265_iw_hist {
+        int cidx;           /* the coding index this entry holds, or -1 */
+        int slice_type;
+        int armed;
+        uint64_t j_inter, j_saved;
+    } iw_hist[N265_IW_HIST];
+    int iw_adapt;           /* N265_INTRA_GATE == 10 */
+    int iw_win;             /* N265_INTRA_ADAPT_K, coding indices  */
+    int iw_thr;             /* N265_INTRA_ADAPT_THR, tenths of a % */
     /* N265_INTRA_WIN_TRACE: one CSV row per frame at retirement carrying
      * the share of the picture whose final mode was intra, which is the
      * quantity an adaptive intra gate would condition on. Driver-side

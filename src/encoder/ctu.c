@@ -4205,6 +4205,16 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                 if ((intra_gate() == 7 || intra_gate() == 8) && !g &&
                     floor_only && e->slice_type == 0 && !e->flat)
                     g = 1;
+                /* 10 (step 3): 7's population, plus the same floor
+                 * population of a frame the driver's adaptive rule has
+                 * armed - an anchor whose recent peers got so little J
+                 * out of the intra arm that the rank is not worth its
+                 * wall. `iw_gate` is decided in dispatch_frame, off
+                 * RETIRED frames only, so it is a property of the frame
+                 * and not of the schedule. */
+                if (intra_gate() == 10 && !g && floor_only && !e->flat &&
+                    (e->slice_type == 0 || e->iw_gate))
+                    g = 1;
                 or_iwin = iwin;
                 if (e->iw_count) {
                     e->iw_arm[0]++;         /* CUs the family reached  */
@@ -4251,7 +4261,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                 !gate_intra && e->sc_ratio < 0.6f &&
                 (intra_gate() == 6 || !e->flat)) {
                 int take = 1;
-                if (intra_gate() == 7)
+                if (intra_gate() == 7 || intra_gate() == 10)
                     take = 0;       /* taken above, rank included */
                 else if (intra_gate() == 8)
                     take = (uint64_t)isad * 8u >=

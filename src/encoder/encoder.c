@@ -598,7 +598,7 @@ static void fw_config(n265_encoder *e, n265_frame_work *fw)
     fw->cu_stats = e->cu_stats;
     fw->cbit_trace = e->cbit_trace;
     fw->iw_trace = e->iw_trace;
-    fw->iw_count = e->iw_trace;
+    fw->iw_count = e->iw_trace || e->iw_adapt;
     for (int i = 0; i < 3; i++)
         fw->pad_stride[i] = e->pad_stride[i];
 }
@@ -921,6 +921,19 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->cu_stats = n265_env("N265_CU_STATS") != NULL;  /* diagnostic */
     e->cbit_trace = n265_env("N265_CBIT_TRACE") != NULL;   /* diagnostic */
     e->iw_trace = n265_env("N265_INTRA_WIN_TRACE") != NULL; /* diagnostic */
+    /* N265_INTRA_GATE=10 (step 3): the intra gate keyed on what the
+     * encoder's own recent anchors got out of the intra arm. The mode
+     * lives in ctu.c; what the driver owns is the window and the
+     * threshold, and the per-frame answer computed in dispatch_frame. */
+    { const char *v = n265_env("N265_INTRA_GATE");
+      e->iw_adapt = v && atoi(v) == 10; }
+    { const char *v = n265_env("N265_INTRA_ADAPT_K");
+      int k = v ? atoi(v) : 32;
+      e->iw_win = k < 1 ? 1 : k > N265_IW_HIST - 16 ? N265_IW_HIST - 16 : k; }
+    { const char *v = n265_env("N265_INTRA_ADAPT_THR");
+      e->iw_thr = v ? atoi(v) : 100; }   /* tenths of a percent */
+    for (int i = 0; i < N265_IW_HIST; i++)
+        e->iw_hist[i].cidx = -1;
     /* N265_SHOT_STATS=file: the per-shot sidecar, the env half of
      * --shot-stats (which overrides it). Opened here, on the driver, so
      * no frame's retirement performs the first read. */
@@ -1697,6 +1710,51 @@ void n265_hf2_knobs(n265_encoder *e)
  * Before the window has an entry there is no measurement, and the answer
  * is round 3's shipped default - the fy = 2 row, the set that never lost
  * on any clip measured. */
+/* N265_INTRA_GATE=10 (phase 9 step 3): does the frame about to be
+ * dispatched at coding index `k` stand its intra arm down over the floor
+ * population even though it is not a B slice?
+ *
+ * The window is the `iw_win` coding indices ending at k - K, the newest
+ * index guaranteed retired when k is dispatched (hf2_traffic_mask's own
+ * argument, and the reason there is no wait here): a frame is dispatched
+ * only once n_inflight is below K, so the joined prefix reaches at least
+ * k - K, and K is a scheduling constant that does not move with
+ * --threads. Inside the window only frames of the SAME slice type that
+ * actually RAN the arm are read - a gated frame measures nothing - and
+ * the quantity is the J the intra arm saved over the population the rule
+ * would gate, as a share of the J the inter arms would have settled for.
+ * The share, not the count: docs/phase9-goals-plan.md sec 8 has the
+ * census that says the intra SHARE of a coded anchor does not separate
+ * the clips where the arm earns its wall from the ones where it does not,
+ * and the oracle's own calibration was in J (docs/instruments.md,
+ * N265_INTRA_ORACLE).
+ *
+ * With no armed frame of the type in the window there is no measurement
+ * and the answer is mode 7's - which is also what keeps the rule honest
+ * once it starts firing: a gated frame writes no measurement, so the
+ * window empties, the rule stops firing, and the next frame of that type
+ * measures again. The duty cycle is the window's own length and nothing
+ * has to schedule a probe. */
+static int iw_adapt_gate(n265_encoder *e, int k, int slice_type, int flat)
+{
+    uint64_t ji = 0, js = 0;
+    if (!e->iw_adapt || slice_type == 2 || flat)
+        return 0;
+    for (int i = 0; i < e->iw_win; i++) {
+        int c = k - e->K - i;
+        if (c < 0)
+            break;
+        struct n265_iw_hist *ih = &e->iw_hist[c % N265_IW_HIST];
+        if (ih->cidx != c || ih->slice_type != slice_type || !ih->armed)
+            continue;
+        ji += ih->j_inter;
+        js += ih->j_saved;
+    }
+    if (!ji)
+        return 0;
+    return js * 1000 < ji * (uint64_t)e->iw_thr;
+}
+
 static unsigned hf2_traffic_mask(n265_encoder *e, int k)
 {
     uint64_t samp[24] = { 0 };
@@ -2374,6 +2432,10 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
      * because the cu-tree frame term branches on it. */
     fw->flat_pct = n265_flat_gate() ? n265_la_flat_pct(fw) : 0;
     fw->flat = n265_flat_gate() && fw->flat_pct >= n265_flat_gate();
+    /* ...and, reading that type, whether the adaptive intra gate fires
+     * on this frame. Driver-serial, off the retired window only, frozen
+     * here for the same reason the type is. */
+    fw->iw_gate = iw_adapt_gate(e, fw->code_idx, slice_type, fw->flat);
     /* The cu-tree FRAME term, computed here rather than where it lands,
      * because under ABR the rate control has to be told it BEFORE it answers:
      * the term is added to the base below, so a loop that has not seen it is
@@ -3170,6 +3232,23 @@ static void join_oldest(n265_encoder *e)
         e->hf2_nref += (unsigned)hh->is_ref;     /* N265_HF2_TRACE only */
         for (int j = 0; j < 24; j++)
             e->hf2_samp[j] += hh->samp[j];
+    }
+    /* Step 3: the frame's J pair, stamped with its coding index for the
+     * adaptive gate to read back. Row-private counters summed in row
+     * order on the driver, so the pair is the same integer at every
+     * thread count whatever order the lanes ran in. */
+    if (e->iw_adapt) {
+        struct n265_iw_hist *ih = &e->iw_hist[fw->code_idx % N265_IW_HIST];
+        uint64_t ji = 0, js = 0;
+        for (int r = 0; r <= e->ctb_rows; r++) {
+            ji += fw->iw_arm_rows[(size_t)r * N265_IW_CNT + 4];
+            js += fw->iw_arm_rows[(size_t)r * N265_IW_CNT + 5];
+        }
+        ih->cidx = fw->code_idx;
+        ih->slice_type = fw->slice_type;
+        ih->armed = !fw->iw_gate && fw->mode != N265_MODE_PCM;
+        ih->j_inter = ji;
+        ih->j_saved = js;
     }
     /* Step 3: the frame's own intra share, counted on the driver from
      * the finished mode map. `blk_intra` is written by the row jobs and
