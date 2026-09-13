@@ -558,6 +558,12 @@ typedef struct n265_frame_work {
     /* frame-owned backing store the pointers above point at when this
      * instance is the FRAME's (a row copy re-points them) */
     cabac_ctx_t est_store[CTX_COUNT];   /* the slice-init contexts */
+    /* N265_SERIAL_PROF=2: the frame's own milestones, seconds since the
+     * encoder opened. Each is written by exactly one task (row 0, the
+     * last publish row, the entropy task) or by the driver, so they race
+     * with nothing and are never read by a predicate. LAST in the struct
+     * on purpose: an instrument must not move a hot field's offset. */
+    double t_disp, t_row0, t_rowlast, t_ent0, t_ent1;
 } n265_frame_work;
 
 /* One row lane. `c` is the coding handle the CTU walk is given: a
@@ -919,6 +925,15 @@ struct n265_encoder {
     int shot_n, shot_flat;
     uint64_t shot_bytes;
     double shot_qp_sum, shot_cplx;
+    /* N265_SERIAL_PROF (phase 9 step 4): the rest of the driver's own
+     * wall, so the serial share at auto threads is a measured number and
+     * not the residue of one. `prof_join` is the driver BLOCKED in
+     * ntp_join and is therefore NOT serial work - it is the pool's wall
+     * seen from the driver - and every other column is. LAST in the
+     * struct on purpose: an instrument must not move a hot field's
+     * offset. */
+    int sprof;
+    double prof_dispatch, prof_join, prof_retire, prof_emit;
 };
 
 /* The cu-tree field's raw per-CTU value carries cutree_str already, so the
