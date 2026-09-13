@@ -332,7 +332,10 @@ static void usage(void)
         "                  by a pure left shift of two as it is read - one\n"
         "                  pass per frame, no added latency. 8 on 10-bit\n"
         "                  input is refused: there is no downshift here.\n"
-        "  --preset <fast|medium|slow>  speed/quality point (default medium).\n"
+        "  --preset <fast|medium|slow|slower>  speed/quality point\n"
+        "                  (default medium, the point the project's goals are\n"
+        "                  read at: at or ahead of x265 medium on every\n"
+        "                  corpus clip, in less time).\n"
         "                  Sets the DEFAULTS of the tuning knobs; any flag or\n"
         "                  N265_* variable you give yourself still wins.\n"
         "  --qp <n>        fixed QP (default 26). Range 0..51 at 8 bits,\n"
@@ -568,7 +571,8 @@ int main(int argc, char **argv)
      * before anything reads a knob, and every value it offers here is
      * taken only where the command line was silent. */
     if (preset && a->set_preset(preset) < 0) {
-        fprintf(stderr, "n265: --preset must be fast, medium or slow\n");
+        fprintf(stderr, "n265: --preset must be fast, medium, slow or "
+                        "slower\n");
         return 2;
     }
     if (!had_ref)     nref = a->preset_param("ref", nref);

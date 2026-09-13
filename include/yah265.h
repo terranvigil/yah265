@@ -180,18 +180,24 @@ YAH265_API void n265_set_badapt(int on);
  * every value (docs/threading-design.md). */
 YAH265_API void n265_set_threads(int n);
 
-/* Speed/quality preset: "fast", "medium" (the default) or "slow".
- * Returns 0, or -1 for a name it does not know, in which case nothing
- * changes. A preset only supplies DEFAULTS: it is read where a knob's
- * environment variable is unset and where the caller has set no explicit
- * value, so an explicit configuration always wins. medium is the
- * shipped encoder byte for byte.
+/* Speed/quality preset: "fast", "medium" (the default), "slow" or
+ * "slower". Returns 0, or -1 for a name it does not know, in which case
+ * nothing changes. A preset only supplies DEFAULTS: it is read where a
+ * knob's environment variable is unset and where the caller has set no
+ * explicit value, so an explicit configuration always wins. medium is
+ * the shipped encoder byte for byte.
  *
- * Structural parameters (references, B frames, adaptive B, lookahead
- * depth) belong to the caller, not to the library, so the preset only
- * offers a value for them: ask with n265_preset_param() and pass what
- * comes back to the setter if the user gave no flag of their own. Keys:
- * "ref", "bframes", "b-adapt", "rc-lookahead". */
+ * The ladder shifted by role on 2026-09-13: "medium" is the point the
+ * project's goals are read at - at or ahead of x265 medium on every
+ * corpus clip, in less time - "slow" is what "medium" named before that
+ * date, and "slower" is what "slow" named.
+ *
+ * Structural parameters (coding tree size, references, B frames,
+ * adaptive B, lookahead depth) belong to the caller, not to the library,
+ * so the preset only offers a value for them: ask with
+ * n265_preset_param() and pass what comes back to the setter if the user
+ * gave no flag of their own. Keys: "ctu", "ref", "bframes", "b-adapt",
+ * "rc-lookahead". */
 YAH265_API int n265_set_preset(const char *name);
 YAH265_API int n265_preset_param(const char *key, int fallback);
 
