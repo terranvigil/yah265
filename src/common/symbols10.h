@@ -246,6 +246,8 @@
 #define ntp_join                     ntp_join_10
 #define ntp_lanes                    ntp_lanes_10
 #define ntp_open                     ntp_open_10
+#define ntp_prof_enable              ntp_prof_enable_10
+#define ntp_prof_read                ntp_prof_read_10
 #define ntp_publish                  ntp_publish_10
 #define ntp_publish_task             ntp_publish_task_10
 #define ntp_submit                   ntp_submit_10

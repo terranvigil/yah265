@@ -1235,8 +1235,14 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         goto fail;
     /* A1/A2: defer output only where there is something to overlap. */
     e->api_defer = n265_env("N265_API_DEFER") != NULL;
-    e->la_prof = n265_env("N265_LA_PROF") != NULL;
+    {
+        const char *v = n265_env("N265_SERIAL_PROF");
+        e->sprof = v ? atoi(v) : 0;
+    }
+    e->la_prof = n265_env("N265_LA_PROF") != NULL || e->sprof;
     e->prof_t0 = e->la_prof ? prof_now() : 0.0;
+    if (e->sprof)
+        ntp_prof_enable(e->pool);
     {   /* T3/1: the slot preference, decided here from --bframes and
          * --ref alone. It is legal exactly while the marked set cannot
          * fill the pool, because then every claim finds an unmarked slot
@@ -1349,6 +1355,48 @@ void n265_encoder_close(n265_encoder *e)
         fprintf(stderr, "LAPROF wall=%.3f push=%.3f plan=%.3f cutree=%.3f "
                 "la=%.3f serial=%.2f%%\n", wall, e->prof_push, e->prof_plan,
                 e->prof_cutree, la, wall > 0 ? 100.0 * la / wall : 0.0);
+    }
+    /* N265_SERIAL_PROF: the two halves of the census. SPROF is the
+     * DRIVER's own wall, split into the stages that are serial by
+     * construction plus the time it is merely blocked in ntp_join;
+     * SPOOL is what the workers did with the same wall. `serial` is
+     * every driver column except the block, which is the quantity
+     * Amdahl's rule is read off. */
+    if (e->sprof) {
+        double wall = prof_now() - e->prof_t0;
+        double ser = e->prof_push + e->prof_plan + e->prof_cutree +
+                     e->prof_dispatch + e->prof_retire + e->prof_emit;
+        int nf = e->frames_done > 0 ? e->frames_done : 1;
+        fprintf(stderr,
+                "SPROF wall=%.3f frames=%d push=%.3f plan=%.3f cutree=%.3f "
+                "dispatch=%.3f retire=%.3f emit=%.3f join=%.3f "
+                "serial=%.3f serial_pct=%.2f ms_per_frame=%.3f\n",
+                wall, e->frames_done, e->prof_push, e->prof_plan,
+                e->prof_cutree, e->prof_dispatch, e->prof_retire,
+                e->prof_emit, e->prof_join, ser,
+                wall > 0 ? 100.0 * ser / wall : 0.0, 1000.0 * ser / nf);
+        double busy = 0, stall = 0, sref = 0, park = 0, allpark = 0,
+               pwall = 0;
+        long tasks = 0;
+        ntp_prof_read(e->pool, &busy, &stall, &sref, &park, &allpark,
+                      &pwall, &tasks);
+        int nt = ntp_threads(e->pool);
+        /* `allpark` is the column the item turns on: wall seconds with
+         * every worker parked, which is the ONLY state in which the
+         * driver's serial work costs the encode anything. Driver work
+         * done while the pool has queued tasks costs one core, not the
+         * wall. */
+        fprintf(stderr,
+                "SPOOL threads=%d wall=%.3f busy=%.3f stall=%.3f "
+                "stall_ref=%.3f park=%.3f allpark=%.3f tasks=%ld "
+                "cores_held=%.2f cores_work=%.2f idle_pct=%.2f "
+                "allpark_pct=%.2f\n",
+                nt, pwall, busy, stall, sref, park, allpark, tasks,
+                pwall > 0 ? busy / pwall : 0.0,
+                pwall > 0 ? (busy - stall) / pwall : 0.0,
+                pwall > 0 && nt ? 100.0 * (1.0 - busy / (pwall * nt)) : 0.0,
+                pwall > 0 ? 100.0 * allpark / pwall : 0.0);
+        fflush(stderr);
     }
     /* N265_HF2_TRACE: the round-4 traffic census, as the encoder itself
      * measured it. One row per phase: the samples that landed inside the
@@ -2318,6 +2366,8 @@ static void job_run(void *ctx, int lane, int idx)
 
     if (idx < R) {
         int r = idx;
+        if (e->sprof >= 2 && r == 0)
+            fw->t_row0 = prof_now() - e->prof_t0;
         n265_row_ctx *row = &e->row[lane];
         if (!row->sc)       /* a nested lane, allocated on first use */
             row->sc = n265_scratch_new();
@@ -2374,10 +2424,16 @@ static void job_run(void *ctx, int lane, int idx)
         /* This one also advances the picture's final_rows, which every
          * OTHER frame's row-start hint and reference stall reads. */
         atomic_store_explicit(&p->pub_rows, r + 1, memory_order_release);
+        if (e->sprof >= 2 && r == R - 1)
+            fw->t_rowlast = prof_now() - e->prof_t0;
         ntp_publish_task(e->pool);
         return;
     }
+    if (e->sprof >= 2)
+        fw->t_ent0 = prof_now() - e->prof_t0;
     entropy_frame(e, fw);
+    if (e->sprof >= 2)
+        fw->t_ent1 = prof_now() - e->prof_t0;
 }
 
 /* The QP a frame of this kind WILL be coded at, for the lookahead's bits
@@ -2421,6 +2477,10 @@ int n265_planned_qp(const n265_encoder *e, int slice_type, int b_depth,
  * frame again until retire_frame joins the job. */
 static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
 {
+    if (e->sprof >= 2) {
+        fw->t_disp = prof_now() - e->prof_t0;
+        fw->t_row0 = fw->t_rowlast = fw->t_ent0 = fw->t_ent1 = 0.0;
+    }
     int slice_type = fw->slice_type, b_depth = fw->b_depth;
     int nonref = fw->nonref, poc = fw->poc;
     /* P2: no CTU of this picture has a decided depth range yet */
@@ -3131,7 +3191,10 @@ static void join_oldest(n265_encoder *e)
     if (e->n_inflight == 0)
         return;
     n265_frame_work *fw = e->inflight[0];
+    double t_j0 = e->la_prof ? prof_now() : 0.0;
     ntp_join(e->pool, &fw->job);
+    double t_j1 = e->la_prof ? prof_now() : 0.0;
+    if (e->la_prof) e->prof_join += t_j1 - t_j0;
     struct n265_done *d = done_slot(e);
     if (fw->emit_headers)
         for (int i = 0; i < e->nhdr; i++)
@@ -3288,6 +3351,22 @@ static void join_oldest(n265_encoder *e)
     for (int i = 1; i < e->n_inflight; i++)
         e->inflight[i - 1] = e->inflight[i];
     e->n_inflight--;
+    if (e->la_prof) {
+        double t = prof_now();
+        e->prof_retire += t - t_j1;
+        /* SFRM: the frame's critical path, one row per frame in CODING
+         * order. Every column is seconds since encoder open: when the
+         * driver dispatched it, when its first row started, when its
+         * last publish row finished, the entropy pass, and when the
+         * driver finished retiring it. */
+        if (e->sprof >= 2)
+            fprintf(stderr, "SFRM,%d,%d,%d,%d,%d,%.6f,%.6f,%.6f,%.6f,"
+                            "%.6f,%.6f,%.6f\n",
+                    fw->code_idx, fw->display_idx, fw->slice_type,
+                    fw->b_depth, fw->nonref, fw->t_disp, fw->t_row0,
+                    fw->t_rowlast, fw->t_ent0, fw->t_ent1,
+                    t_j1 - e->prof_t0, t - e->prof_t0);
+    }
 }
 
 /* Build the reference lists for the picture that follows POC `cur`
@@ -3973,6 +4052,14 @@ static int drive_scheduler(n265_encoder *e)
     n265_la *la = &e->la;
     if (la->count == 0)
         return 0;
+    /* The dispatch column is this function's own wall MINUS the stages
+     * that carry their own accumulator, so the columns partition the
+     * driver's time instead of overlapping it. `ds_ret` is where the
+     * single return below funnels through. */
+    double ds_t0 = e->la_prof ? prof_now() : 0.0;
+    double ds_sub0 = e->la_prof ? e->prof_plan + e->prof_cutree +
+                                  e->prof_join + e->prof_retire : 0.0;
+    int ds_ret = 0;
     /* Ahead of the mini-GOP plan, because both read la_is_idr and
      * build_plan_order moves what it reads (gop_start_display,
      * last_intra_display) as it decides. Inert with the mode off. */
@@ -4154,9 +4241,13 @@ static int drive_scheduler(n265_encoder *e)
                 if (e->dpb[sl].marked && (oldest < 0 || e->dpb[sl].poc < e->dpb[oldest].poc)) oldest = sl;
             e->dpb[oldest].marked = 0; nanchor--;
         }
-        return pop;
+        ds_ret = pop;
     }
-    return 0;
+    if (e->la_prof)
+        e->prof_dispatch += (prof_now() - ds_t0) -
+                            (e->prof_plan + e->prof_cutree + e->prof_join +
+                             e->prof_retire - ds_sub0);
+    return ds_ret;
 }
 
 int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
@@ -4208,8 +4299,12 @@ int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
         /* N265_API_DEFER holds the prefix back until the ring is half
          * full: the "including none" end of A1, and the bytes it hands
          * out must equal the default chunking's. */
-        emit_done(e, e->api_defer && e->n_done < ring / 2 ? 0 : INT_MAX,
-                  &out_used, &count);
+        {
+            double t = e->la_prof ? prof_now() : 0.0;
+            emit_done(e, e->api_defer && e->n_done < ring / 2 ? 0 : INT_MAX,
+                      &out_used, &count);
+            if (e->la_prof) e->prof_emit += prof_now() - t;
+        }
     } else {
         /* Flush drains in order (A1). It dispatches ahead up to K first,
          * so the tail of the sequence overlaps like the rest of it, then
@@ -4220,7 +4315,11 @@ int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
             drive_scheduler(e);
         if (e->n_done == 0 && e->n_inflight)
             join_oldest(e);
-        emit_done(e, e->defer_out ? INT_MAX : 1, &out_used, &count);
+        {
+            double t = e->la_prof ? prof_now() : 0.0;
+            emit_done(e, e->defer_out ? INT_MAX : 1, &out_used, &count);
+            if (e->la_prof) e->prof_emit += prof_now() - t;
+        }
     }
     for (int i = 0; i < count; i++)
         e->nal[i].payload = e->out + e->nal_off[i];

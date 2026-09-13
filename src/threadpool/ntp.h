@@ -96,4 +96,20 @@ void ntp_wait_older(ntp_pool *p, ntp_pred_fn pred, void *ctx);
 void ntp_publish(ntp_pool *p);
 void ntp_publish_task(ntp_pool *p);
 
+/* Phase 9 step 4's instrument: per-worker occupancy, output-neutral.
+ * Off unless enabled, and when off it costs one predictable branch per
+ * TASK (not per CTB) and nothing at all on the publish path. Nothing
+ * here is ever read by a readiness predicate, so it cannot change bits.
+ *
+ * Enable before the first submit. The read returns seconds summed over
+ * workers: `busy` inside a top-level task, `stall` inside a milestone
+ * wait that was not running a nested task, `park` asleep with nothing
+ * claimable, and `wall` since ntp_open. stall is a SUBSET of busy - a
+ * worker waiting on the row above still holds its task - so the work
+ * actually done is busy - stall. */
+void ntp_prof_enable(ntp_pool *p);
+void ntp_prof_read(const ntp_pool *p, double *busy, double *stall,
+                   double *stall_ref, double *park, double *allpark,
+                   double *wall, long *tasks);
+
 #endif

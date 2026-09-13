@@ -52,6 +52,23 @@ struct wslot {
     int woken;
 };
 
+/* Phase 9 step 4: per-worker occupancy, one cache line each so the
+ * accumulators of two workers never share one. Written only by the
+ * worker they belong to, read only after ntp_close's join or by the
+ * driver at close, so they need no atomics and no lock. */
+struct wprof {
+    double busy, stall, stall_ref, park;
+    long tasks;
+    char pad[64];
+};
+
+static double ntp_now(void)
+{
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (double)t.tv_sec + 1e-9 * (double)t.tv_nsec;
+}
+
 struct ntp_pool {
     pthread_t *th;
     int nthreads;
@@ -95,12 +112,46 @@ struct ntp_pool {
      * broadcast, which always takes the lock, and counting it would pin
      * a count above zero for the whole job and defeat both checks. */
     atomic_int n_idle, n_wait;
+
+    /* the instrument (ntp.h). `prof` is set before the first submit and
+     * never cleared, so a worker reads a value that was published before
+     * it had any work to do. */
+    int prof;
+    double t_open;
+    struct wprof *wp;
+    /* The decisive column of the step 4 census: wall seconds during which
+     * EVERY worker is parked, i.e. the pool has nothing claimable at all.
+     * That is the only state in which the driver's serial work is on the
+     * critical path; a driver busy while the pool has queued work costs
+     * nothing but its own core. Maintained under `mu`, where `nidle`
+     * already is. */
+    double allpark, allpark_t0;
 };
+
+/* mu held. Call after every change to p->nidle. */
+static void allpark_upd(ntp_pool *p, int was)
+{
+    if (!p->prof)
+        return;
+    int now = p->nidle >= p->nthreads;
+    if (now && !was)
+        p->allpark_t0 = ntp_now();
+    else if (was && !now)
+        p->allpark += ntp_now() - p->allpark_t0;
+}
 
 /* The job this thread is currently running a task of, in dispatch order.
  * 0 means "not inside a task" (the driver), and since every live job has
  * seq >= 1, a driver-side ntp_wait_older claims nothing. */
 static _Thread_local uint64_t tls_seq;
+
+/* Instrument-only thread state: which worker this is (-1 on the driver),
+ * how deep inside tasks it is, and the seconds it has spent running
+ * NESTED tasks, which is what a milestone wait subtracts to tell holding
+ * a task apart from doing work in one. */
+static _Thread_local int tls_me = -1;
+static _Thread_local int tls_depth;
+static _Thread_local double tls_nested;
 
 struct warg { ntp_pool *p; int me; };
 static void *worker(void *arg);
@@ -113,7 +164,9 @@ static void wake_one(ntp_pool *p)
 {
     if (p->nidle <= 0)
         return;
+    int was = p->nidle >= p->nthreads;
     int w = p->idle[--p->nidle];
+    allpark_upd(p, was);
     p->ws[w].woken = 1;
     pthread_cond_signal(&p->ws[w].cv);
 }
@@ -131,6 +184,8 @@ ntp_pool *ntp_open(int nthreads, int max_jobs, int max_lanes)
         return NULL;
     p->nthreads = nthreads;
     p->next_seq = 1;
+    p->t_open = ntp_now();
+    p->wp = calloc((size_t)nthreads, sizeof(*p->wp));
     pthread_mutex_init(&p->mu, NULL);
     pthread_cond_init(&p->done, NULL);
     p->njs = max_jobs;
@@ -143,7 +198,7 @@ ntp_pool *ntp_open(int nthreads, int max_jobs, int max_lanes)
     if (p->ws)
         for (int i = 0; i < nthreads; i++)
             pthread_cond_init(&p->ws[i].cv, NULL);
-    if (!p->js || !p->lane_free || !p->th || !p->ws || !p->idle) {
+    if (!p->js || !p->lane_free || !p->th || !p->ws || !p->idle || !p->wp) {
         p->nthreads = 0;
         ntp_close(p);
         return NULL;
@@ -181,7 +236,11 @@ void ntp_close(ntp_pool *p)
         p->ws[i].woken = 1;
         pthread_cond_signal(&p->ws[i].cv);
     }
-    p->nidle = 0;
+    {
+        int was = p->nidle >= p->nthreads;
+        p->nidle = 0;
+        allpark_upd(p, was);
+    }
     pthread_cond_broadcast(&p->done);
     pthread_mutex_unlock(&p->mu);
     for (int i = 0; i < p->nthreads; i++)
@@ -196,6 +255,7 @@ void ntp_close(ntp_pool *p)
     free(p->lane_free);
     free(p->ws);
     free(p->idle);
+    free(p->wp);
     free(p->th);
     free(p);
 }
@@ -259,9 +319,30 @@ static void run_task(ntp_pool *p, struct jslot *js, int idx)
     ntp_job *j = js->job;
     uint64_t saved = tls_seq;
     tls_seq = js->seq;
+    /* the instrument: a TOP-LEVEL task span is the worker being busy; a
+     * nested one is already inside the enclosing span, so it is charged
+     * back to the wait that claimed it instead of counted twice. */
+    int prof = p->prof && tls_me >= 0;
+    int top = 0;
+    double t0 = 0.0;
+    if (prof) {
+        top = tls_depth == 0;
+        t0 = ntp_now();
+        tls_depth++;
+    }
     pthread_mutex_unlock(&p->mu);
     j->run(j->ctx, lane, idx);
     pthread_mutex_lock(&p->mu);
+    if (prof) {
+        tls_depth--;
+        double d = ntp_now() - t0;
+        if (top) {
+            p->wp[tls_me].busy += d;
+            p->wp[tls_me].tasks++;
+        } else {
+            tls_nested += d;
+        }
+    }
     tls_seq = saved;
     js->state[idx] = T_DONE;
     js->ndone++;
@@ -281,6 +362,7 @@ static void *worker(void *arg)
     ntp_pool *p = a->p;
     int me = a->me;
     free(a);
+    tls_me = me;
 
     pthread_mutex_lock(&p->mu);
     for (;;) {
@@ -295,9 +377,21 @@ static void *worker(void *arg)
         struct jslot *js = claim(p, UINT64_MAX, &idx);
         if (!js) {
             p->ws[me].woken = 0;
-            p->idle[p->nidle++] = me;
+            {
+                int was = p->nidle >= p->nthreads;
+                p->idle[p->nidle++] = me;
+                allpark_upd(p, was);
+            }
+            /* The flag is captured HERE, not read again at the end: every
+             * worker parks once before the encoder has had a chance to
+             * enable the instrument, and an interval whose start was not
+             * stamped must not be accumulated when its end is. */
+            int pf = p->prof;
+            double tp = pf ? ntp_now() : 0.0;
             while (!p->ws[me].woken && !p->quit)
                 pthread_cond_wait(&p->ws[me].cv, &p->mu);
+            if (pf)
+                p->wp[me].park += ntp_now() - tp;
             atomic_fetch_sub(&p->n_idle, 1);
             continue;
         }
@@ -384,20 +478,48 @@ static int spin_for(ntp_pred_fn pred, void *ctx)
 
 void ntp_wait(ntp_pool *p, ntp_pred_fn pred, void *ctx)
 {
-    if (spin_for(pred, ctx))
+    /* This runs once per CTB of every row but the first, so the
+     * instrument-off path must touch NO thread-local: reading one on
+     * this path cost 5% of the one-thread wall when it was written
+     * unconditionally. `p->prof` is set before the first task and never
+     * cleared, so the short-circuit is stable for the whole encode. */
+    int prof = p->prof;
+    double t0 = 0.0, n0 = 0.0;
+    if (prof) {
+        prof = tls_me >= 0;
+        if (prof) { t0 = ntp_now(); n0 = tls_nested; }
+    }
+    if (spin_for(pred, ctx)) {
+        if (prof)
+            p->wp[tls_me].stall += ntp_now() - t0;
         return;
+    }
     pthread_mutex_lock(&p->mu);
     atomic_fetch_add(&p->n_wait, 1);
     while (!pred(ctx))
         pthread_cond_wait(&p->done, &p->mu);
     atomic_fetch_sub(&p->n_wait, 1);
     pthread_mutex_unlock(&p->mu);
+    if (prof)
+        p->wp[tls_me].stall += ntp_now() - t0 - (tls_nested - n0);
 }
 
 void ntp_wait_older(ntp_pool *p, ntp_pred_fn pred, void *ctx)
 {
-    if (spin_for(pred, ctx))
+    int prof = p->prof;                 /* as in ntp_wait: no TLS when off */
+    double t0 = 0.0, n0 = 0.0;
+    if (prof) {
+        prof = tls_me >= 0;
+        if (prof) { t0 = ntp_now(); n0 = tls_nested; }
+    }
+    if (spin_for(pred, ctx)) {
+        if (prof) {
+            double d = ntp_now() - t0;
+            p->wp[tls_me].stall += d;
+            p->wp[tls_me].stall_ref += d;
+        }
         return;
+    }
     uint64_t limit = tls_seq;   /* 0 on the driver: claims nothing */
     pthread_mutex_lock(&p->mu);
     for (;;) {
@@ -416,6 +538,11 @@ void ntp_wait_older(ntp_pool *p, ntp_pred_fn pred, void *ctx)
             atomic_fetch_sub(&p->n_wait, 1);
     }
     pthread_mutex_unlock(&p->mu);
+    if (prof) {
+        double d = ntp_now() - t0 - (tls_nested - n0);
+        p->wp[tls_me].stall += d;
+        p->wp[tls_me].stall_ref += d;
+    }
 }
 
 /* Progress that can only satisfy a milestone predicate - the per-CTB
@@ -452,4 +579,46 @@ void ntp_publish_task(ntp_pool *p)
     if (c)
         wake_one(p);
     pthread_mutex_unlock(&p->mu);
+}
+
+void ntp_prof_enable(ntp_pool *p)
+{
+    if (!p)
+        return;
+    pthread_mutex_lock(&p->mu);
+    p->prof = 1;
+    /* the pool is all-parked at open, so the interval the census cares
+     * about is already running when the encoder gets here */
+    if (p->nidle >= p->nthreads)
+        p->allpark_t0 = ntp_now();
+    pthread_mutex_unlock(&p->mu);
+}
+
+void ntp_prof_read(const ntp_pool *p, double *busy, double *stall,
+                   double *stall_ref, double *park, double *allpark,
+                   double *wall, long *tasks)
+{
+    double b = 0, s = 0, sr = 0, k = 0;
+    long n = 0;
+    for (int i = 0; p && i < p->nthreads; i++) {
+        b += p->wp[i].busy;
+        s += p->wp[i].stall;
+        sr += p->wp[i].stall_ref;
+        k += p->wp[i].park;
+        n += p->wp[i].tasks;
+    }
+    if (busy) *busy = b;
+    if (stall) *stall = s;
+    if (stall_ref) *stall_ref = sr;
+    if (park) *park = k;
+    if (allpark) {
+        /* the read happens on the driver with the pool quiescent, so an
+         * open interval is closed here rather than left out */
+        double a = p ? p->allpark : 0.0;
+        if (p && p->nidle >= p->nthreads)
+            a += ntp_now() - p->allpark_t0;
+        *allpark = a;
+    }
+    if (wall) *wall = p ? ntp_now() - p->t_open : 0.0;
+    if (tasks) *tasks = n;
 }
