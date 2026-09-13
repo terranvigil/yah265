@@ -319,6 +319,14 @@ typedef struct n265_frame_work {
                              * which changes part_mode's binarization
                              * whether or not an AMP mode is chosen */
     int rdoq;               /* N265_RDOQ: RD-optimised quantisation */
+    /* N265_RDOQ=2: the lattice runs on the COMMIT path only, and this is
+     * the predicate that says which path a tb_analyze_one call is on. It
+     * is set and cleared around the commit-side analyses in ctu.c, is
+     * per-frame-work state that never crosses a worker, and so splits
+     * trial from commit the same way on one thread and on twelve.
+     * Meaningless at N265_RDOQ 0 and 1, where the quantiser does not
+     * depend on it. */
+    int rdoq_commit;
     /* --lossless: transquant_bypass_enabled_flag in the PPS and
      * cu_transquant_bypass_flag on every CU, so the residual IS the coded
      * level (8.6.2's bypass branch). The ONE predicate every site reads -

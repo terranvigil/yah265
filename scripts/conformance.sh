@@ -843,6 +843,20 @@ VENV="N265_MIN_KEYINT=0"
 run_vector_graph "testsrc2=size=176x144:rate=25:duration=0.4[a];smptebars=size=176x144:rate=25:duration=0.4[b];[a][b]concat=n=2:v=1:a=0" \
            lossless_cut  176x144 20 testsrc2 "--keyint 250 --bframes 7 --ref 2 --lossless --threads 1"
 VENV=""
+# N265_RDOQ=2 (phase 9 step 2): the lattice on the commit path only, so
+# the levels a CU RECORDS are not the ones its trial chose. That makes
+# the encoder's own --dump-recon the claim under test - a commit that
+# rebuilt the recon from the wrong levels, or a cbf left over from the
+# trial, stops matching at the first CTU - and both decoders are what say
+# so. Two cells: the full pyramid with AQ and cu-tree at twelve threads,
+# which is where the merge / AMVP / partition winners are re-quantised at
+# their commit and where a merged 2Nx2N CU whose residual the lattice
+# takes away has to come out as a SKIP; and CTB 16 at one thread for the
+# other transform-tree geometry and the intra NxN commit.
+run_vector_env "N265_RDOQ=2" \
+           rdoq2_ipb_t12  352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 26 --aq 1 --cutree 1 --threads 12"
+run_vector_env "N265_RDOQ=2" \
+           rdoq2_ctu16_t1 176x144 16 testsrc2 "--keyint 8 --ctu 16 --bframes 5 --aq 1 --cutree 1 --threads 1"
 if [ "$FAST" -eq 0 ]; then
     run_vector thr4_720    1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 4"
     run_vector thr12_720   1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 12"

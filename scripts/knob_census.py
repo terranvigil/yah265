@@ -126,6 +126,12 @@ OVERRIDES = {
     # opt-in arm's parameters and not shipped defaults of their own -
     # N265_CHROMA_W_PCT's case exactly.
     "N265_SHOT_K": "arm", "N265_SHOT_CLAMP": "arm", "N265_SHOT_EMA": "arm",
+    # the lattice IS the shipped default (1) and the env is its escape; it
+    # is catalogued in docs/instruments.md because value 2 - the
+    # commit-only form, phase 9 step 2 - is an arm with a census behind
+    # it, and being named there is what the heuristic reads as
+    # "instrument".
+    "N265_RDOQ": "default",
 }
 
 # knobs whose nearest default-claim is correct but beyond the detector:

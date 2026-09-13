@@ -682,6 +682,42 @@ static void rt_tally(struct n265_frame_work *e, int c_idx, int log2n, int qp,
         atomic_fetch_add_explicit(&rt_n[p][RT_D100], 1, memory_order_relaxed);
 }
 
+/* The quantiser half of a TB analysis: which of the two quantisers this
+ * call is entitled to, and the sign hiding that goes with it.
+ *
+ * `N265_RDOQ=2` matches what x265 documents for `--rdoq-level 1`: the
+ * mode-decision TRIALS run the plain quantiser and the lattice runs once
+ * per TB on the COMMIT path, so the encoder pays for the largest block of
+ * its wall once per committed block instead of once per trial (the
+ * census in docs/phase9-lattice.md: 2.26-2.50 luma trials per committed
+ * TB at the pin). `e->rdoq_commit` is which of the two a call is; the
+ * commit path sets it around its own analyses and re-quantises the
+ * winners it was handed (tb_relattice below). At `N265_RDOQ` 0 and 1 the
+ * flag is not read and the quantiser is what it always was, which is what
+ * makes the default byte-identical.
+ *
+ * `N265_RDOQ=3` would also run the lattice in the final RD stage of the
+ * shortlist winner; the census says 2's trial-side arm already agrees
+ * with the lattice outright on 52-89% of luma trials and disagrees about
+ * the cbf on under 2%, so 3 is not built until the band says 2 gives back
+ * too much. */
+static void tb_quant_one(struct n265_frame_work *e, int c_idx, int log2n,
+                         int qp, int intra, int scan, const int16_t *coef,
+                         int16_t *level, int *out_nz)
+{
+    int lat = e->rdoq && (e->rdoq < 2 || e->rdoq_commit);
+    int sbh_done = 0;
+    if (lat) {
+        *out_nz = n265_rdoq(level, coef, log2n, qp, intra, c_idx, scan,
+                            e->est_ctx, ctu_lam(e, qp));
+        sbh_done = n265_rdoq_sbh_on();      /* RDOQ hid the signs itself */
+    } else {
+        *out_nz = n265_quant(level, coef, log2n, qp, intra);
+    }
+    if (*out_nz && !sbh_done)
+        n265_sbh_adjust(level, log2n, scan);
+}
+
 /* one SQUARE block of a transform unit: the whole of it at 4:2:0 and
  * 4:4:4, and one of the stacked pair at 4:2:2. `off` is where in the
  * tb_ctx's buffers this block sits (0 or n*n) and `out_nz` which cbf it
@@ -771,16 +807,7 @@ static void tb_analyze_one(struct n265_frame_work *e, int c_idx, int x0,
     }
     n265_fdct(coef, resid, log2n, use_dst);
     int scan = inter ? 0 : n265_scan_idx(mode, log2n, cf);
-    int sbh_done = 0;
-    if (e->rdoq) {
-        *out_nz = n265_rdoq(level, coef, log2n, qp, !inter, c_idx, scan,
-                            e->est_ctx, ctu_lam(e, qp));
-        sbh_done = n265_rdoq_sbh_on();      /* RDOQ hid the signs itself */
-    } else {
-        *out_nz = n265_quant(level, coef, log2n, qp, !inter);
-    }
-    if (*out_nz && !sbh_done)
-        n265_sbh_adjust(level, log2n, scan);
+    tb_quant_one(e, c_idx, log2n, qp, !inter, scan, coef, level, out_nz);
     if (e->rdoq && rdoq_trace())
         rt_tally(e, c_idx, log2n, qp, !inter, use_dst, scan, coef, pred,
                  level, *out_nz, src, e->pad_stride[c_idx]);
@@ -875,6 +902,65 @@ static void tb_make_recon(const struct n265_frame_work *e, int c_idx,
     if (nsub_c(e, c_idx) == 2)
         tb_make_recon_one(c_idx, log2n, qp, mode, tb, (size_t)n * n,
                           tb->nz2);
+}
+
+/* N265_RDOQ=2: one block of a WINNER carried out of a trial, re-quantised
+ * with the lattice and reconstructed from what the lattice chose.
+ *
+ * The trial built `tb->level` with the plain quantiser and `tb->recon`
+ * from those levels, so both are wrong for a block that is about to be
+ * committed - the decoder reconstructs from the LEVELS, and a recon built
+ * from other levels is what the deblock, SAO and every later prediction
+ * would then read. The PREDICTION is not wrong: it is the same samples
+ * whatever the quantiser did. So the residual and its transform are
+ * re-derived from `tb->pred` and the source - one fdct, not a second
+ * motion compensation or intra gather - the lattice runs once, and
+ * tb_make_recon_one rebuilds the recon from its levels.
+ *
+ * INTER only, and that is not an implementation shortcut: at 4:2:2 an
+ * INTRA unit's lower block predicts from the upper block's recon
+ * (tb_analyze's lend-and-restore), so changing the upper block's levels
+ * invalidates the lower block's stored prediction. The intra commit path
+ * therefore re-ANALYSES under `e->rdoq_commit` instead of re-quantising,
+ * which redoes the gather and is exact at every format. */
+static void tb_relattice_one(struct n265_frame_work *e, int c_idx, int x0,
+                             int y0, int log2n, int qp, int mode,
+                             tb_ctx *tb, size_t off, int *out_nz)
+{
+    int inter = mode == MODE_INTER;
+    int use_dst = !inter && c_idx == 0 && log2n == 2;
+    int n = 1 << log2n;
+    int ps = e->pad_stride[c_idx];
+    const pixel *pred = tb->pred + off;
+    int16_t *level = tb->level + off;
+    const pixel *src = e->pad_plane[c_idx] + (size_t)y0 * ps + x0;
+    int16_t resid[32 * 32], coef[32 * 32];
+
+    for (int y = 0; y < n; y++)
+        for (int x = 0; x < n; x++)
+            resid[y * n + x] = (int16_t)(src[(size_t)y * ps + x] -
+                                         pred[y * n + x]);
+    n265_fdct(coef, resid, log2n, use_dst);
+    int scan = inter ? 0 : n265_scan_idx(mode, log2n, c_filt(e, c_idx));
+    int sv = e->rdoq_commit;
+    e->rdoq_commit = 1;
+    tb_quant_one(e, c_idx, log2n, qp, !inter, scan, coef, level, out_nz);
+    e->rdoq_commit = sv;
+    tb_make_recon_one(c_idx, log2n, qp, mode, tb, off, *out_nz);
+}
+
+static void tb_relattice(struct n265_frame_work *e, int c_idx, int x0, int y0,
+                         int log2n, int qp, int mode, tb_ctx *tb)
+{
+    int n = 1 << log2n;
+    if (e->lossless)
+        return;                 /* 8.6.2: there is no quantiser to re-run */
+    if (c_idx)
+        mode = n265_c422_mode(e->c422, mode);
+    tb_relattice_one(e, c_idx, x0, y0, log2n, qp, mode, tb, 0, &tb->nz);
+    if (nsub_c(e, c_idx) == 2)
+        tb_relattice_one(e, c_idx, x0, y0 + n, log2n, qp, mode, tb,
+                         (size_t)n * n, &tb->nz2);
 }
 
 /* blit the scratch recon into the frame and mark the cbf map */
@@ -1696,9 +1782,9 @@ static int want_skip(struct n265_frame_work *e, int x0, int y0, int log2n)
  * writes it, so re-running tb_analyze here would compute the same three
  * blocks a second time - one fdct, one RDOQ and one inverse per
  * component. NULL means analyse them here. */
-static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
-                       int log2ts, tb_ctx *pre_l, tb_ctx *pre_cb,
-                       tb_ctx *pre_cr)
+static void tt_analyze_inner(struct n265_frame_work *e, int mode, int x0,
+                             int y0, int log2ts, tb_ctx *pre_l,
+                             tb_ctx *pre_cb, tb_ctx *pre_cr)
 {
     int qp_c = n265_chroma_qp(e->cur_ctu_qp, e->chroma_idc);
     int csx = e->csx, csy = e->csy;
@@ -1950,6 +2036,25 @@ static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
             rec_levels_c(e, &s_c[0][1], 2);
         }
     }
+}
+
+/* Everything tt_analyze runs is on the commit path - both arrangements
+ * are analysed here and one of them IS the coded block - so under
+ * N265_RDOQ=2 the whole of it is lattice work. intra_rd_pick's winner
+ * (`pre_l`) is not: it was analysed with the plain quantiser during the
+ * mode decision, and a 4:2:2 unit's stored prediction cannot be
+ * re-quantised in place (tb_relattice), so the flat arm re-analyses it
+ * here instead of reusing it. */
+static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
+                       int log2ts, tb_ctx *pre_l, tb_ctx *pre_cb,
+                       tb_ctx *pre_cr)
+{
+    int sv = e->rdoq_commit;
+    e->rdoq_commit = 1;
+    if (e->rdoq >= 2)
+        pre_l = pre_cb = pre_cr = NULL;
+    tt_analyze_inner(e, mode, x0, y0, log2ts, pre_l, pre_cb, pre_cr);
+    e->rdoq_commit = sv;
 }
 
 static void set_mot_map_wh(struct n265_frame_work *e, int x0, int y0, int w,
@@ -2623,9 +2728,9 @@ static void est_tt_bits(struct n265_frame_work *e, est_state *st, int log2n,
  * recon accordingly. Inter prediction is neighbor-free, so both
  * arrangements evaluate order-free. CB8 splits keep chroma at the
  * parent. */
-static void commit_inter_tt(struct n265_frame_work *e, mot_t mot, int x0,
-                            int y0, int log2n, tb_ctx *tl, tb_ctx *tcb,
-                            tb_ctx *tcr)
+static void commit_inter_tt_inner(struct n265_frame_work *e, mot_t mot,
+                                  int x0, int y0, int log2n, tb_ctx *tl,
+                                  tb_ctx *tcb, tb_ctx *tcr)
 {
     int n = 1 << log2n;
     int qp_c = n265_chroma_qp(e->cur_ctu_qp, e->chroma_idc);
@@ -2775,6 +2880,21 @@ static void commit_inter_tt(struct n265_frame_work *e, mot_t mot, int x0,
             rec_levels_c(e, tcr, log2c);
         }
     }
+}
+
+/* The split arrangement is analysed inside the commit, so under
+ * N265_RDOQ=2 its four children are lattice work; the flat arm's TBs were
+ * re-quantised by commit_inter_cu before it got here, so the two
+ * arrangements are compared on the same quantiser and the winner is the
+ * one that is coded. */
+static void commit_inter_tt(struct n265_frame_work *e, mot_t mot, int x0,
+                            int y0, int log2n, tb_ctx *tl, tb_ctx *tcb,
+                            tb_ctx *tcr)
+{
+    int sv = e->rdoq_commit;
+    e->rdoq_commit = 1;
+    commit_inter_tt_inner(e, mot, x0, y0, log2n, tl, tcb, tcr);
+    e->rdoq_commit = sv;
 }
 
 /* the three most probable modes for this position (9.3.3.6), the list the
@@ -3509,13 +3629,46 @@ static void cpred_trace_pu(struct n265_frame_work *e, const pu_geo *g,
             w, h, lc, cc, bc, bl, from, jl, jc, jfrom, kl, kc);
 }
 
-/* commit an inter CU (any partition): maps, records, recon */
-static void commit_inter_cu(struct n265_frame_work *e, int x0, int y0,
-                            int log2n, int part, const pu_dec d[2], int any,
-                            tb_ctx *tl, tb_ctx *tcb, tb_ctx *tcr,
-                            part_cand *pred_src)
+/* Commit an inter CU (any partition): maps, records, recon. Returns the
+ * rqt_root_cbf it actually coded, which is the `any` it was handed except
+ * under N265_RDOQ=2 - see below.
+ *
+ * Under N265_RDOQ=2 the TBs arriving here were quantised plainly by
+ * whichever trial won (the merge and AMVP candidates, or rd_part's
+ * partition), so the lattice runs on them HERE, before a single record
+ * byte is written. Three things follow from that and all three are done
+ * before `rec_u8`:
+ *
+ *  - `any` has to be re-derived. It can only fall: the lattice's first
+ *    pass is the plain quantiser's own rounding, so a block the plain
+ *    quantiser sent to zero the lattice sends to zero too (19 million
+ *    trials of the census, no exception), and a block it kept the lattice
+ *    may still drop. A stale `any = 1` over an all-zero transform tree
+ *    would code cbf_luma = 0 into a leaf where 7.3.8.8 INFERS it to 1.
+ *  - a merged 2Nx2N CU has no rqt_root_cbf at all (7.3.8.5 omits it and
+ *    infers 1), so one whose residual the lattice took away is not a
+ *    codable inter CU: it is a SKIP, and is coded as one.
+ *  - the caller's `e->last_cu_nores` is the returned value's, not the
+ *    trial's.
+ */
+static int commit_inter_cu(struct n265_frame_work *e, int x0, int y0,
+                           int log2n, int part, const pu_dec d[2], int any,
+                           tb_ctx *tl, tb_ctx *tcb, tb_ctx *tcr,
+                           part_cand *pred_src)
 {
     int n = 1 << log2n;
+    if (e->rdoq >= 2 && any && tl) {
+        int qp_c = n265_chroma_qp(e->cur_ctu_qp, e->chroma_idc);
+        int cx0 = x0 >> e->csx, cy0 = y0 >> e->csy, log2c = log2n - e->csx;
+        tb_relattice(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, tl);
+        tb_relattice(e, 1, cx0, cy0, log2c, qp_c, MODE_INTER, tcb);
+        tb_relattice(e, 2, cx0, cy0, log2c, qp_c, MODE_INTER, tcr);
+        any = tl->nz || tb_any(tcb) || tb_any(tcr);
+        if (!any && part == PART_2Nx2N && d[0].merge) {
+            skip_cu(e, x0, y0, log2n, d[0].mot, d[0].midx);
+            return 0;
+        }
+    }
     set_blk(e, e->blk_intra, x0, y0, n, 0);
     set_blk(e, e->blk_skip, x0, y0, n, 0);
     set_mode_map(e, x0, y0, n, INTRA_DC);
@@ -3568,6 +3721,7 @@ static void commit_inter_cu(struct n265_frame_work *e, int x0, int y0,
         tb_commit(e, 2, x0 >> e->csx, y0 >> e->csy, log2n - e->csx, tcr);
     }
     clear_cu_pred(e);
+    return any;
 }
 
 /* The 2Nx2N merge shortlist's pick: luma SAD as always, plus the chroma
@@ -4224,19 +4378,22 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                 e->last_skip_clean = d_skip <= skip_clean_thr(e->cur_ctu_qp, n);
                 e->last_cu_nores = 1;
             } else if (kind == 4) {
-                commit_inter_cu(e, x0, y0, log2n, pwin->part, pwin->d,
-                                pwin->any, &pwin->tl, &pwin->tcb,
-                                &pwin->tcr, pwin);
-                e->last_cu_nores = !pwin->any;
+                /* the commit's own rqt_root_cbf, which is the trial's
+                 * except where N265_RDOQ=2's lattice took the residual
+                 * away at the commit */
+                e->last_cu_nores =
+                    !commit_inter_cu(e, x0, y0, log2n, pwin->part, pwin->d,
+                                     pwin->any, &pwin->tl, &pwin->tcb,
+                                     &pwin->tcr, pwin);
             } else if (kind == 1 || kind == 2) {
                 tb_ctx *tl = kind == 1 ? m_tl : a_tl;
                 tb_ctx *tcb = kind == 1 ? m_tcb : a_tcb;
                 tb_ctx *tcr = kind == 1 ? m_tcr : a_tcr;
                 int any = kind == 1 ? m_any : a_any;
-                commit_inter_cu(e, x0, y0, log2n, PART_2Nx2N,
-                                kind == 1 ? &pd[0] : &pd[1], any, tl, tcb,
-                                tcr, NULL);
-                e->last_cu_nores = !any;
+                e->last_cu_nores =
+                    !commit_inter_cu(e, x0, y0, log2n, PART_2Nx2N,
+                                     kind == 1 ? &pd[0] : &pd[1], any, tl,
+                                     tcb, tcr, NULL);
             }
             if (kind != 3) {
                 e->rec_pos = pos0;
@@ -4321,8 +4478,12 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
      * of the four transform units codes its own 4x4 chroma pair with cbfs
      * conditioned on the node's. The root cbfs precede the children in the
      * record stream and are the OR of them, so they are patched in after
-     * the loop, exactly as tt_analyze's split arm does. */
+     * the loop, exactly as tt_analyze's split arm does.
+     *
+     * Every TB below is analysed and committed here, so the whole block is
+     * commit-path work: under N265_RDOQ=2 it is the lattice's. */
     tb_ctx tcb, tcr, tl;
+    e->rdoq_commit = 1;
     if (e->c444) {
         size_t root_off = e->rec_len;
         rec_u8(e, 0);
@@ -4376,6 +4537,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
     tb_recon(e, 2, cx0, cy0, 2, qp_c, modes[0], &tcr);
     rec_levels_c(e, &tcr, 2);
     }
+    e->rdoq_commit = 0;
     e->rec_pos = pos0;
     est_state adv = { e->est_ctx, 0 };
     n265_est_advance_cu(e, &adv, x0, y0, log2n);
