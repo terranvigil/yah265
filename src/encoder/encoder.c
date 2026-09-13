@@ -2570,11 +2570,16 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
     double ctf = (e->crf_on || e->abr_on) && e->cutree
                      ? n265_ct_frame_term(e, fw) : 0.0;
     fw->rc_ctf = ctf;
+    fw->rc_ioff = 0.0;
     if (e->abr_on) {
         /* D4's observation lag has already been drained by the caller; this
          * is the frame's own solve, moved here so it sees `ctf`. */
         e->rc_rf = n265_rc_next(e, fw->rc_cls, fw->rc_cplx, ctf);
         fw->rc_planned = e->rc.last_planned;
+        /* the planned intra offset is already inside the answer above (rc.c);
+         * it is carried on the frame so the measured operating point can take
+         * it back out when the frame retires */
+        fw->rc_ioff = e->rc.last_ioff;
     }
     /* frame-type QP ladder (the matched reference applies its ip/pb
      * ratios in CQP mode too): I anchors lower, non-ref B higher */
@@ -3463,7 +3468,8 @@ static void join_oldest(n265_encoder *e)
     /* D4: the actual bits are applied on the driver, in coding order. */
     if (e->abr_on || e->rc.trace)
         n265_rc_done(e, fw->rc_cls, fw->rc_cplx, fw->rc_base,
-                     (double)d->len * 8.0, fw->rc_planned, fw->rc_ctf);
+                     (double)d->len * 8.0, fw->rc_planned, fw->rc_ctf,
+                     fw->rc_ioff);
     fw->slot->in_use = 0;
     fw->emit_headers = 0;
     fw->in_flight = 0;

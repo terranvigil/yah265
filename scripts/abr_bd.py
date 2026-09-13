@@ -55,6 +55,14 @@ def enc(clip, kbps, side):
 
 
 jobs = [(c, k, s) for c in clips for k in ladders[c] for s in ("a", "b")]
+# Cut every source FIRST, on this thread. cut() writes one file per clip and
+# eight jobs share it, so cutting inside the pool is a race: a second thread
+# finds the file present-but-partial and hands the encoder a truncated y4m,
+# which is a missing output file forty seconds later. It only bites at JOBS
+# large enough to start several rates of the same clip at once, which is why
+# it survived until the phase 10 ABR round ran at JOBS=10.
+for c in clips:
+    cut(c)
 rows = []
 with ThreadPoolExecutor(max_workers=JOBS) as ex:
     for r in ex.map(lambda a: enc(*a), jobs):

@@ -126,6 +126,11 @@ OVERRIDES = {
     # opt-in arm's parameters and not shipped defaults of their own -
     # N265_CHROMA_W_PCT's case exactly.
     "N265_SHOT_K": "arm", "N265_SHOT_CLAMP": "arm", "N265_SHOT_EMA": "arm",
+    # phase 10 item 2: the bound on the planned intra QP offset. It resolves
+    # nonzero and is moot unless N265_ABR_IOFF / N265_ABR_IOFF_CT armed the
+    # offset, so it is that refused arm's parameter - N265_CHROMA_W_PCT's
+    # case exactly.
+    "N265_ABR_IOFF_MAX": "arm",
     # the lattice IS the shipped default (1) and the env is its escape; it
     # is catalogued in docs/instruments.md because value 2 - the
     # commit-only form, phase 9 step 2 - is an arm with a census behind
