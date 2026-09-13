@@ -13,6 +13,7 @@
 #include "encoder/residual.h"
 
 uint16_t n265_est_bits_mps[64], n265_est_bits_lps[64];
+uint32_t n265_est_step[64][2];
 const uint8_t n265_est_trans_mps[64] = {
      1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,15,16,
     17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,
@@ -36,6 +37,15 @@ void n265_tables_init_est(void)
         double plps = 0.5 * pow(alpha, s);
         n265_est_bits_lps[s] = (uint16_t)lround(-log2(plps) * 256.0);
         n265_est_bits_mps[s] = (uint16_t)lround(-log2(1.0 - plps) * 256.0);
+    }
+    /* and the packed step the inlined per-bin form reads: cost | next
+     * state | the state-0 LPS symbol swap, one word per (state, symbol) */
+    for (int s = 0; s < 64; s++) {
+        n265_est_step[s][0] = (uint32_t)n265_est_bits_mps[s] |
+                              ((uint32_t)n265_est_trans_mps[s] << 16);
+        n265_est_step[s][1] = (uint32_t)n265_est_bits_lps[s] |
+                              ((uint32_t)n265_est_trans_lps[s] << 16) |
+                              (s == 0 ? 1u << 24 : 0u);
     }
     /* the estimator's other constant table: residual_coding's per-group
      * sig_coeff_flag patterns, which are derived from the scan tables
@@ -69,4 +79,5 @@ void n265_est_ops(res_ops *ops, est_state *st)
     ops->bin = est_bin_cb;
     ops->bypass = est_bypass_cb;
     ops->bypass_bits = est_bypass_bits_cb;
+    ops->est = st;
 }

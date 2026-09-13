@@ -17,21 +17,23 @@
 extern uint16_t n265_est_bits_mps[64], n265_est_bits_lps[64];
 extern const uint8_t n265_est_trans_mps[64], n265_est_trans_lps[64];
 
+/* The three tables above folded into one, so a bin is a load and two
+ * byte stores instead of a branch over three loads: [state][bin != mps]
+ * packs the Q8 cost in bits 0-15, the next state in bits 16-23 and the
+ * valMps flip in bit 24. The flip is set only on the LPS of state 0,
+ * which is the one place 9.3.3.2.1 swaps the symbol, so the packed step
+ * is the same arithmetic on every input and no estimate moves.
+ * Built by n265_tables_init_est(). */
+extern uint32_t n265_est_step[64][2];
+
 /* bits (Q8) for coding `bin` in context state; updates the state exactly
  * as the arithmetic engine would */
 static inline uint32_t n265_est_bin(cabac_ctx_t *ctx, int bin)
 {
-    uint32_t b;
-    if (bin == ctx->mps) {
-        b = n265_est_bits_mps[ctx->state];
-        ctx->state = n265_est_trans_mps[ctx->state];
-    } else {
-        b = n265_est_bits_lps[ctx->state];
-        if (ctx->state == 0)
-            ctx->mps ^= 1;
-        ctx->state = n265_est_trans_lps[ctx->state];
-    }
-    return b;
+    uint32_t e = n265_est_step[ctx->state][bin != ctx->mps];
+    ctx->state = (uint8_t)(e >> 16);
+    ctx->mps ^= (uint8_t)(e >> 24);
+    return e & 0xffffu;
 }
 
 static inline uint32_t n265_est_bypass_bits(int n)
@@ -39,12 +41,20 @@ static inline uint32_t n265_est_bypass_bits(int n)
     return (uint32_t)n << 8;
 }
 
-/* emitter backend: the shared syntax walkers push bins through this */
+/* emitter backend: the shared syntax walkers push bins through this.
+ *
+ * `est` is the estimator's own state when this backend IS the estimator
+ * and NULL otherwise, including for the cbit wrapper that prices real
+ * bins. residual_coding reads it to take a straight-line instance of the
+ * same walk with the per-bin call inlined; nothing else may branch on
+ * it, because every other walker has one shape for both backends. */
+struct est_state;
 typedef struct res_ops {
     void *h;
     void (*bin)(void *h, int ctx_idx, int bin);
     void (*bypass)(void *h, int bin);
     void (*bypass_bits)(void *h, uint32_t v, int n);
+    struct est_state *est;
 } res_ops;
 
 /* estimator backend state */

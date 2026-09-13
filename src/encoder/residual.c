@@ -5,6 +5,7 @@
  */
 
 #include <assert.h>
+#include <string.h>
 
 #include "common/cpu.h"
 #include "encoder/arm/neon.h"
@@ -33,6 +34,7 @@ void n265_real_ops(res_ops *ops, real_emit *re)
     ops->bin = real_bin_cb;
     ops->bypass = real_bypass_cb;
     ops->bypass_bits = real_bypass_bits_cb;
+    ops->est = NULL;
 }
 
 /* last_sig_coeff group index: 0..3 direct, then log-spaced */
@@ -46,13 +48,72 @@ static int group_idx(int v)
 
 static const uint8_t min_in_group[10] = { 0, 1, 2, 3, 4, 6, 8, 12, 16, 24 };
 
-static void write_last_prefix(const res_ops *ops, int ctx_base, int g,
-                              int cmax, int ctx_off, int ctx_shift)
+/* ---- the two instances of the walk --------------------------------
+ *
+ * The syntax below is written once and compiled twice, on a parameter
+ * `est` that is a compile-time constant in each instance. The real
+ * emitter's instance is the one that was here before, bin by bin through
+ * the res_ops function pointers. The estimator's instance is the point
+ * of phase 9 step 2c: the same bins in the same order, but with the
+ * per-bin call inlined (n265_est_bin's packed step, est.h) and every
+ * BYPASS bin priced as a COUNT instead of a call, because a bypass bin
+ * costs exactly 256 in Q8 whatever it is. The estimator was 4-7% of the
+ * single-thread wall with the residual walk another 7-12% (docs/
+ * phase9-lattice.md), and 30% of the bins it charged were bypass ones
+ * that carried no information at all.
+ *
+ * BIT-EXACT, and by construction rather than by measurement: the same
+ * context array is stepped by the same function on the same bins in the
+ * same order, and the accumulator is a uint32 whose additions are
+ * associative, so deferring the bypass count to one shift at the end
+ * reaches the same digit. -DN265_EST_AUDIT runs BOTH instances from the
+ * same entry contexts on every call and traps on any difference in the
+ * total or in the 152 contexts. What is NOT done here, and cannot be:
+ * pricing the CONTEXT bins from a table frozen at sub-block entry. The
+ * estimator adapts its contexts inside a block exactly as the arithmetic
+ * engine does - sixteen sig_coeff_flag bins of a 4x4 group land on three
+ * contexts - so a frozen table is a different estimate, not a faster one.
+ */
+typedef struct { uint32_t bits, byp; } est_acc;
+
+/* the audit's own vacuity check: a scratch build with -DN265_EST_PERT=1
+ * moves every context bin's price by one Q8 unit and must trap at once.
+ * Zero, and compiled away, in every other build. */
+#ifndef N265_EST_PERT
+#define N265_EST_PERT 0
+#endif
+
+#define N265_AI __attribute__((always_inline)) static inline
+
+/* A context bin. `a` and `ectx` are NULL in the real emitter's instance,
+ * and every use of them sits inside the `if (est)` BODY - so they are
+ * never dereferenced there even in a build that does not fold the
+ * constant. */
+#define EMIT_BIN(idx, b)                                                \
+    do {                                                                \
+        if (est)                                                        \
+            a->bits += n265_est_bin(&ectx[(idx)], (b)) + N265_EST_PERT; \
+        else                                                            \
+            ops->bin(ops->h, (idx), (b));                               \
+    } while (0)
+#define EMIT_BYPN(v, n)                                                 \
+    do {                                                                \
+        if (est)                                                        \
+            a->byp += (uint32_t)(n);                                    \
+        else                                                            \
+            ops->bypass_bits(ops->h, (uint32_t)(v), (n));               \
+    } while (0)
+
+N265_AI void write_last_prefix(int est, const res_ops *ops,
+                               cabac_ctx_t *ectx, est_acc *a,
+                               int ctx_base, int g,
+                               int cmax, int ctx_off, int ctx_shift)
 {
+    int base = ctx_base + ctx_off;
     for (int i = 0; i < g; i++)
-        ops->bin(ops->h, ctx_base + ctx_off + (i >> ctx_shift), 1);
+        EMIT_BIN(base + (i >> ctx_shift), 1);
     if (g < cmax)
-        ops->bin(ops->h, ctx_base + ctx_off + (g >> ctx_shift), 0);
+        EMIT_BIN(base + (g >> ctx_shift), 0);
 }
 
 /* sig_coeff_flag ctxInc (9.3.4.2.5), split at the group boundary.
@@ -167,6 +228,23 @@ uint32_t n265_coeff_group(const int16_t *grp, ptrdiff_t stride, int scan_idx,
     return n265_coeff_group_ref(grp, stride, scan_idx, abs_out, neg_mask);
 }
 
+/* coeff_abs_level_remaining is bypass from end to end, so the estimator
+ * never needed the bins: its whole cost is the BIN COUNT times 256, and
+ * the count is what the writer below emits. Same arithmetic in the same
+ * order as write_remaining(), counted instead of pushed. */
+static inline int remaining_bin_count(int rem, int k)
+{
+    if ((rem >> k) < 4)
+        return (rem >> k) + 1 + k;
+    int v = rem - (4 << k), b = k + 1, bits = 4;
+    while (v >= (1 << b)) {
+        bits++;
+        v -= 1 << b;
+        b++;
+    }
+    return bits + 1 + b;
+}
+
 /* coeff_abs_level_remaining: truncated-Rice prefix, EGk escape (ones-first
  * form), all bypass */
 static void write_remaining(const res_ops *ops, int rem, int k)
@@ -228,8 +306,9 @@ void n265_sbh_adjust(int16_t *level, int log2n, int scan_idx)
     }
 }
 
-void n265_residual_coding(const res_ops *ops, const int16_t *level,
-                          int log2n, int c_idx, int scan_idx, int sbh)
+N265_AI void residual_walk(int est, const res_ops *ops, cabac_ctx_t *ectx,
+                           est_acc *a, const int16_t *level,
+                           int log2n, int c_idx, int scan_idx, int sbh)
 {
     int n = 1 << log2n;
     int sb_dim = n >> 2;                    /* sub-blocks per side */
@@ -282,14 +361,14 @@ void n265_residual_coding(const res_ops *ops, const int16_t *level,
         ctx_shift = log2n - 2;
     }
     int gx = group_idx(last_x), gy = group_idx(last_y);
-    write_last_prefix(ops, CTX_LAST_X, gx, cmax, ctx_off, ctx_shift);
-    write_last_prefix(ops, CTX_LAST_Y, gy, cmax, ctx_off, ctx_shift);
+    write_last_prefix(est, ops, ectx, a, CTX_LAST_X, gx, cmax, ctx_off,
+                      ctx_shift);
+    write_last_prefix(est, ops, ectx, a, CTX_LAST_Y, gy, cmax, ctx_off,
+                      ctx_shift);
     if (gx > 3)
-        ops->bypass_bits(ops->h, (uint32_t)(last_x - min_in_group[gx]),
-                         (gx >> 1) - 1);
+        EMIT_BYPN(last_x - min_in_group[gx], (gx >> 1) - 1);
     if (gy > 3)
-        ops->bypass_bits(ops->h, (uint32_t)(last_y - min_in_group[gy]),
-                         (gy >> 1) - 1);
+        EMIT_BYPN(last_y - min_in_group[gy], (gy >> 1) - 1);
 
     int prev_sb_g1 = 0;     /* any greater1==1 in previously coded CSB */
 
@@ -308,7 +387,7 @@ void n265_residual_coding(const res_ops *ops, const int16_t *level,
         int infer_sb_dc = 0;
         if (s < last_s && s > 0) {
             int inc = ((csbf_right || csbf_below) ? 1 : 0) + (c_idx ? 2 : 0);
-            ops->bin(ops->h, CTX_SIG_GROUP + inc, csbf_s);
+            EMIT_BIN(CTX_SIG_GROUP + inc, csbf_s);
             if (!csbf_s)
                 continue;
             infer_sb_dc = 1;
@@ -330,6 +409,9 @@ void n265_residual_coding(const res_ops *ops, const int16_t *level,
          * (9.3.4.2.5 gives it ctxInc 0, or 27 on chroma), and it can only
          * be scan position 0 of sub-block 0 */
         int dc_inc = c_idx ? 27 : 0;
+        /* the whole ctxInc except the pattern byte, added once */
+        int sig_base = CTX_SIG + sig_off;
+        int dc_sb = log2n > 2 && s == 0;
 
         /* significance flags, reverse scan; last coeff inferred in its SB */
         int start_c = (s == last_s) ? last_c - 1 : 15;
@@ -344,9 +426,9 @@ void n265_residual_coding(const res_ops *ops, const int16_t *level,
                 sig_pos[num_sig++] = 0;
                 break;
             }
-            int inc = (log2n > 2 && s == 0 && c == 0) ? dc_inc
-                                                      : sig_off + sig_pat[c];
-            ops->bin(ops->h, CTX_SIG + inc, sig);
+            int idx = (dc_sb && c == 0) ? CTX_SIG + dc_inc
+                                        : sig_base + sig_pat[c];
+            EMIT_BIN(idx, sig);
             if (sig)
                 sig_pos[num_sig++] = c;
         }
@@ -357,18 +439,23 @@ void n265_residual_coding(const res_ops *ops, const int16_t *level,
         for (int i = 0; i < num_sig; i++) {
             int c = sig_pos[i];
             abs_v[i] = abs_sc[c];
-            neg_v[i] = (int)((neg_mask >> c) & 1);
+            /* the estimator prices the sign pass by counting it and never
+             * reads a sign, so it does not gather one */
+            if (!est)
+                neg_v[i] = (int)((neg_mask >> c) & 1);
         }
         int ctx_set = ((s > 0 && c_idx == 0) ? 2 : 0) + (prev_sb_g1 ? 1 : 0);
         int g1_ctx = 1;
         int first_g1_idx = -1;
         int this_sb_g1 = 0;
         int n_g1 = num_sig < 8 ? num_sig : 8;
+        /* 9.3.4.2.6's ctxSet and the component offset are fixed over the
+         * sub-block; only greater1Ctx walks, and it walks 1,2,3 then
+         * sticks at 0 forever after the first greater1 */
+        int g1_base = CTX_G1 + ctx_set * 4 + (c_idx ? 16 : 0);
         for (int i = 0; i < n_g1; i++) {
             int g1 = abs_v[i] > 1;
-            int inc = ctx_set * 4 + (g1_ctx < 3 ? g1_ctx : 3) +
-                      (c_idx ? 16 : 0);
-            ops->bin(ops->h, CTX_G1 + inc, g1);
+            EMIT_BIN(g1_base + (g1_ctx < 3 ? g1_ctx : 3), g1);
             if (g1) {
                 this_sb_g1 = 1;
                 if (first_g1_idx < 0)
@@ -381,7 +468,7 @@ void n265_residual_coding(const res_ops *ops, const int16_t *level,
         int g2 = 0;
         if (first_g1_idx >= 0) {
             g2 = abs_v[first_g1_idx] > 2;
-            ops->bin(ops->h, CTX_G2 + ctx_set + (c_idx ? 4 : 0), g2);
+            EMIT_BIN(CTX_G2 + ctx_set + (c_idx ? 4 : 0), g2);
         }
         /* sign hiding: when the sub-block qualifies, the sign of the
          * first-in-scan significant coefficient (last entry of sig_pos)
@@ -393,10 +480,15 @@ void n265_residual_coding(const res_ops *ops, const int16_t *level,
          * does NOT infer one. */
         int hidden = sbh && num_sig > 0 &&
             sig_pos[0] - sig_pos[num_sig - 1] > 3;
-        for (int i = 0; i < num_sig; i++) {
-            if (hidden && i == num_sig - 1)
-                continue;
-            ops->bypass(ops->h, neg_v[i]);
+        if (est) {
+            /* every sign is one bypass bin, so the pass is its count */
+            a->byp += (uint32_t)(num_sig - (hidden ? 1 : 0));
+        } else {
+            for (int i = 0; i < num_sig; i++) {
+                if (hidden && i == num_sig - 1)
+                    continue;
+                ops->bypass(ops->h, neg_v[i]);
+            }
         }
         int rice = 0;
         for (int i = 0; i < num_sig; i++) {
@@ -412,11 +504,69 @@ void n265_residual_coding(const res_ops *ops, const int16_t *level,
                 cap += 1;
             int present = (i < 8) ? (base == cap) : 1;
             if (present) {
-                write_remaining(ops, abs_l - base, rice);
+                if (est)
+                    a->byp += (uint32_t)remaining_bin_count(abs_l - base,
+                                                            rice);
+                else
+                    write_remaining(ops, abs_l - base, rice);
                 if (abs_l > (3 << rice) && rice < 4)
                     rice++;
             }
         }
         prev_sb_g1 = this_sb_g1;
     }
+}
+
+#undef EMIT_BIN
+#undef EMIT_BYPN
+
+void n265_residual_coding(const res_ops *ops, const int16_t *level,
+                          int log2n, int c_idx, int scan_idx, int sbh)
+{
+    est_state *st = ops->est;
+
+    if (!st) {
+        residual_walk(0, ops, NULL, NULL, level, log2n, c_idx, scan_idx, sbh);
+        return;
+    }
+
+#ifdef N265_EST_AUDIT
+    /* In-place trap compare, the method docs/phase6-neon.md round 5 used
+     * for the lattice. The PRE-ITEM form is the est=0 instance driven
+     * through this backend's own callbacks, which for the estimator ARE
+     * est_bin_cb / est_bypass_cb: it is the code that shipped, bin for
+     * bin. Run it from the entry contexts, rewind, run the straight-line
+     * instance from the same entry contexts, and trap unless the Q8 total
+     * AND all 152 contexts agree. Scratch build only
+     * (-DN265_EST_AUDIT); nothing under it is compiled in a shipped
+     * binary. */
+    {
+        cabac_ctx_t save[CTX_COUNT], old_ctx[CTX_COUNT];
+        memcpy(save, st->ctx, sizeof save);
+        uint32_t b0 = st->bits;
+        residual_walk(0, ops, NULL, NULL, level, log2n, c_idx, scan_idx, sbh);
+        uint32_t old_bits = st->bits - b0;
+        memcpy(old_ctx, st->ctx, sizeof old_ctx);
+        memcpy(st->ctx, save, sizeof save);
+        st->bits = b0;
+        est_acc chk = { 0, 0 };
+        residual_walk(1, ops, st->ctx, &chk, level, log2n, c_idx, scan_idx,
+                      sbh);
+        uint32_t new_bits = chk.bits + (chk.byp << 8);
+#if N265_EST_PERT == 2
+        st->ctx[CTX_SIG].state ^= 1;    /* vacuity check of the ctx leg */
+#endif
+        if (new_bits != old_bits ||
+            memcmp(old_ctx, st->ctx, sizeof old_ctx) != 0)
+            __builtin_trap();
+        st->bits += new_bits;
+        return;
+    }
+#else
+    est_acc a = { 0, 0 };
+    residual_walk(1, ops, st->ctx, &a, level, log2n, c_idx, scan_idx, sbh);
+    /* the bypass count is folded once: 256 per bin, and uint32 addition
+     * is associative, so the digit is the one the per-call form reached */
+    st->bits += a.bits + (a.byp << 8);
+#endif
 }
