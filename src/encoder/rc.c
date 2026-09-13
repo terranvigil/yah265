@@ -140,6 +140,9 @@ void n265_rc_open(struct n265_encoder *e)
     rc->fbstep = (int)abr_tunable("N265_ABR_FBSTEP", 1);
     rc->openi = (int)abr_tunable("N265_ABR_OPENI", 0);
     rc->ctf_comp = (int)abr_tunable("N265_ABR_CTF", 1);
+    rc->ioff = abr_tunable("N265_ABR_IOFF", 0.0);
+    rc->ioff_ct = abr_tunable("N265_ABR_IOFF_CT", 0.0);
+    rc->ioff_max = abr_tunable("N265_ABR_IOFF_MAX", 6.0);
     /* Prior per-class scales: bits x qscale per lowres block per
      * (per-block complexity)^qcomp. Geometric means over 11 corpus clips x
      * QP 24/30/36 x 40 frames, read off N265_RC_TRACE on CQP encodes
@@ -169,6 +172,43 @@ void n265_rc_open(struct n265_encoder *e)
 static double rc_weight(n265_rc *rc, int cls, double cplx)
 {
     return rc->scale[cls] * rc->nblk * pow(cplx / rc->nblk, rc->qcomp);
+}
+
+/* The INTRA QP offset, in QP, for a frame of class `cls` whose cu-tree frame
+ * term is (or is estimated at) `ctf`. Positive means FINER: the frame is coded
+ * at `rf - ioff`.
+ *
+ * Zero on every inter frame, and zero at the compiled default, which is what
+ * makes this knob inert until it is armed. Two arms:
+ *
+ *   N265_ABR_IOFF     a constant, in QP. The honest form of the I-frame bonus
+ *                     the cu-tree frame term used to hand the opening IDR by
+ *                     accident (docs/ideas.md, "An intra QP offset the ABR
+ *                     loop pays for"): every intra frame, the same discount,
+ *                     and the allocator prices it.
+ *   N265_ABR_IOFF_CT  a share of the frame's own cu-tree term instead, taken
+ *                     on the FINER side only. The term's claim was that it
+ *                     knows which intra frames are worth referencing and by
+ *                     how much; this is that claim priced rather than stolen.
+ *                     The two add, so IOFF is the floor under the derived
+ *                     form when both are set.
+ *
+ * N265_ABR_IOFF_MAX bounds the sum, because an intra frame is ten to fifty
+ * frames of budget and a discount the model got wrong there is the most
+ * expensive mistake this loop can make (the argument N265_ABR_IBRAKE already
+ * makes about spending on intra). */
+static double rc_ioff(n265_rc *rc, int cls, double ctf)
+{
+    if (cls != RC_I)
+        return 0.0;
+    double o = rc->ioff;
+    if (rc->ioff_ct != 0.0 && ctf < 0.0)
+        o += rc->ioff_ct * -ctf;
+    if (o < 0.0)
+        o = 0.0;
+    if (o > rc->ioff_max)
+        o = rc->ioff_max;
+    return o;
 }
 
 /* the class the coding cadence will give queued frame `i`, for the opening
@@ -290,13 +330,29 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
                     n, rc->bits_per_frame, rc->rf);
     }
 
-    double w = rc_weight(rc, cls, cplx);
     /* the term's measured LEVEL, in QP: `-6 log2` of the file-weighted mean of
      * `2^(-term/6)` (rc.h). Nothing in the shipped path rides on it - the
      * default takes the whole term off - and it is what the kept arms are
-     * written in. */
+     * written in. It is also the only estimate the loop has of a FUTURE
+     * frame's term, which is what the derived arm's horizon floor prices with
+     * below. */
     double lvl_now = rc->ctf_x > 0.0 && rc->ctf_c > 0.0
                          ? -6.0 * log2(rc->ctf_x / rc->ctf_c) : 0.0;
+    /* The intra offset, and the gain the PLAN is written at.
+     *
+     * The frame will be coded `ioff` QP finer than the rate factor this loop
+     * answers with, so it will cost `2^(ioff/6)` times the bits the weight
+     * would otherwise predict. Multiplying the weight by exactly that is what
+     * "the allocator plans for it" means, and it is the whole difference
+     * between this and the cu-tree frame term: `w` is what prices the fair
+     * share T, the TCAP horizon and (through n265_rc_done) the measured
+     * operating point, so all three see the discount before it is spent. The
+     * base itself does not move - `w / T` is `w_avg / bits_per_frame`
+     * identically, and the gain cancels between them - which is the statement
+     * that the bonus is paid out of the OTHER frames' shares and not out of
+     * the loop's control of the file size. */
+    double ioff = rc_ioff(rc, cls, ctf);
+    double w = rc_weight(rc, cls, cplx) * exp2(ioff / 6.0);
     /* The running mean of the frame weight is taken over INTER frames only.
      * It is the yardstick every frame's fair share is measured against, and
      * an I frame is worth several ordinary frames: folding one into the mean
@@ -374,8 +430,13 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
         int nview = n265_la_view(&e->la);
         for (int i = 1; i < nview; i++) {
             int k = n265_rc_future_idr(e, i) ? RC_I : cadence_class(e, i);
+            /* the future intra frame's plan carries its offset too, priced at
+             * the measured level for the derived arm - the loop has no other
+             * estimate of a term it has not computed yet, and the floor this
+             * feeds is a reservation, not a payment */
             double ti = rc->bits_per_frame *
-                        rc_weight(rc, k, n265_rc_cplx(e, i, k)) / w_avg;
+                        rc_weight(rc, k, n265_rc_cplx(e, i, k)) *
+                        exp2(rc_ioff(rc, k, lvl_now) / 6.0) / w_avg;
             if (ti > tmax)
                 tmax = ti;
         }
@@ -567,7 +628,15 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
         ctf_off = lvl_now;
     else if (rc->ctf_comp == 3)
         ctf_off = rc->ctf_avg;
-    rf = base + fb - ctf_off;
+    /* ...and the intra offset, taken off LAST and outside the feedback. It is
+     * not a correction and the loop is not chasing it: the plan above was
+     * written at `w x 2^(ioff/6)`, so the bits it costs are already inside
+     * the fair share, inside the horizon floor and (through n265_rc_done)
+     * inside the operating point. N265_ABR_IBRAKE still governs the feedback
+     * alone, which is the right split - the loop may not SPEND on an intra
+     * frame to chase a surplus, and this is not the loop spending. */
+    rf = base + fb - ctf_off - ioff;
+    double rf_want = rf;
     if (!rc->fbstep) {
         if (rf > rc->rf + step)
             rf = rc->rf + step;
@@ -578,20 +647,28 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
         rf = (double)N265_QP_MIN;
     else if (rf > 51.0)
         rf = 51.0;
+    /* what the frame will actually be coded at is what the operating point has
+     * to take the offset back out of, so a bound that ate part of the discount
+     * hands back only what survived it */
+    rc->last_ioff = ioff - (rf - rf_want);
+    if (rc->last_ioff < 0.0)
+        rc->last_ioff = 0.0;
+    else if (rc->last_ioff > ioff)
+        rc->last_ioff = ioff;
     rc->rf = rf;
     rc->pend_bits += T;
     rc->pend_n++;
     if (rc->trace)
         fprintf(stderr, "RC n=%ld cls=%d cplx=%.0f w=%.3g wavg=%.3g "
                 "T=%.0f corr=%.4f bias=%+.3f fb=%+.3f base=%.3f rf=%.3f "
-                "ctf=%+.3f ctflvl=%+.3f err=%.0f\n",
+                "ctf=%+.3f ctflvl=%+.3f ioff=%.3f err=%.0f\n",
                 rc->n_coded, cls, cplx, w, rc->w_avg, T, corr, rc->rf_bias,
-                fb, base, rf, ctf, lvl_now, err);
+                fb, base, rf, ctf, lvl_now, rc->last_ioff, err);
     return rf;
 }
 
 void n265_rc_done(struct n265_encoder *e, int cls, double cplx, double rf_used,
-                  double bits, double planned, double ctf)
+                  double bits, double planned, double ctf, double ioff)
 {
     n265_rc *rc = &e->rc;
     if (rc->pend_n > 0) {
@@ -624,7 +701,25 @@ void n265_rc_done(struct n265_encoder *e, int cls, double cplx, double rf_used,
      * a 200-bit frame moves it by 200 bits' worth and a scene-cut IDR by
      * its own. Its memory is the sequence for the reason WMEM's is - a
      * window tracks the shot - and the running-mean form is w_avg's. */
-    double c = bits * qscale_of_qp(rf_used);
+    /* The measured operating point, with the planned intra offset taken back
+     * OUT of the base it is read at.
+     *
+     * The point is the rate factor that lands the budget: it solves
+     * `sum(bits) = N x bpf` where a frame coded at `rf - ioff` costs
+     * `X / qscale(rf - ioff)` = `X x 2^(ioff/6) / qscale(rf)`. So the mean
+     * this estimator wants is of `bits x qscale(rf)`, not of
+     * `bits x qscale(rf - ioff)` - the latter is the SAME number the frame
+     * would have produced with no offset at all, which is exactly the failure
+     * mode: an operating point blind to the discount reports that nothing has
+     * been spent, and the integral term spends the next hundred frames
+     * discovering otherwise. `qscale(rf_used + ioff)` is `qscale(rf)`, so this
+     * one addition is the whole of "the loop pays for it".
+     *
+     * The class scale above is NOT corrected the same way, and must not be:
+     * `obs` is the raw price of this frame's content at the quantiser it was
+     * really coded at, and the offset is put back on at weight-formation time
+     * in n265_rc_next. Correcting both would count it twice. */
+    double c = bits * qscale_of_qp(rf_used + ioff);
     /* the same mean with the frame's own cu-tree term folded in, so the ratio
      * of the two is the term's file-weighted level (rc.h, n265_rc_next). It
      * rides every branch below, hold included, because a level over a

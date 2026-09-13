@@ -66,6 +66,22 @@ typedef struct n265_rc {
     int ctf_comp;               /* 1 = the term off the base (ships); 0 = the
                                    pre-fix loop, 2 = its level only, 3 = that
                                    level as a frame-count mean */
+    /* The INTRA QP offset the allocator plans for (N265_ABR_IOFF, phase 10
+     * item 2). An intra frame is coded `ioff` QP FINER than the rate factor
+     * the loop would otherwise hand it, and the plan is written knowing it:
+     * the frame's weight is multiplied by `2^(ioff/6)`, which is exactly the
+     * bits the finer quantiser costs, so the fair share, the TCAP horizon and
+     * the measured operating point all price the frame at what it will really
+     * spend. That is the difference between this and the cu-tree frame term
+     * it replaces - the term moved the control variable behind the loop's
+     * back, and every QP of it was open-loop error.
+     *
+     * `ioff_ct` is the second arm: the offset derived from the frame's own
+     * cu-tree term instead of being a constant, since the term's whole claim
+     * was that it knows which frames are worth referencing. `ioff_max` caps
+     * both. */
+    double ioff, ioff_ct, ioff_max;
+    double last_ioff;           /* the offset inside the last answer */
     double fb_prev;             /* the feedback the last frame was given  */
     double total_bits;          /* bits emitted so far                   */
     double planned_bits;        /* bits the allocator planned for them   */
@@ -103,9 +119,12 @@ void n265_rc_open(struct n265_encoder *e);
 double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf);
 
 /* account for the frame just coded. `rf_used` is the base it was CODED at,
- * `ctf` the cu-tree frame term inside that base. */
+ * `ctf` the cu-tree frame term inside that base, and `ioff` the planned intra
+ * offset inside it - the one term the operating point has to take back OUT,
+ * because the point is the mean of `bits x qscale(base)` and the offset is a
+ * deliberate discount the plan has already paid for. */
 void n265_rc_done(struct n265_encoder *e, int cls, double cplx, double rf_used,
-                  double bits, double planned, double ctf);
+                  double bits, double planned, double ctf, double ioff);
 
 /* the class of a frame, from the fields encode_frame already carries */
 int n265_rc_class(int slice_type, int nonref);
