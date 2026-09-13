@@ -14,6 +14,16 @@ A fourth BD column since 2026-09-11, `bd_rate_vmafneg_crf_pct`: the same
 quality question asked under CRF instead of fixed QP, and read by the
 band's own instrument rather than by anything here (see bd_crf below).
 
+**BOTH preset names below changed meaning on 2026-09-13** (phase 9 step
+1, docs/phase9-goals-plan.md sec 7): the ladder shifted by role, so the
+default `medium` this board times is now the GOAL preset - roughly
+2x the wall of the medium every earlier row was taken on - and
+`--preset fast` is the old fast with two free tools unpinned. The row
+that carries the rename is a step on every one of these columns and is
+meant to be: the old medium is `--preset slow` and the old fast is
+`--preset fast N265_CT_FRAMEW=2 N265_AQ_SIGNAL=0` if a column ever has
+to be read back across it.
+
 - "matched": x265 configured down to our current featureset (kept in
   X265_MATCHED below; grows with the encoder until it equals medium) -
   the like-for-like progress line, and the BD-rate anchor.
