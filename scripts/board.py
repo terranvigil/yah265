@@ -22,15 +22,35 @@ Speed multiple = our_time / x265_time (1.00 = parity, lower = faster).
 BD-rate (Y-PSNR) vs the matched arm; negative = we spend fewer bits at
 equal PSNR.
 
-Goal 1 is the single-threaded leg: ours at --threads 1 against the
-matched arm's --no-asm run. Goal 2 is the utilization leg, our_fps_auto
-against x265med_asm_fps_auto - both encoders at their own default thread
-configuration (ours auto since the T3 merge, x265 at default pools and
-frame threads). The BD encodes also run at our default, which the
-determinism gate makes bit-neutral.
+The goal NAMES here are the plan's (docs/plan.md "Goals and legs"), and
+until 2026-09-12 two of them were not (phase 9 step 0). Goal 1 is the
+single-threaded pure-C leg: ours at `--threads 1` against the matched
+arm's `--no-asm` run, `mult_matched_g1`. **The auto column pair -
+`our_fps_auto` against `x265med_asm_fps_auto`, both encoders at their
+own default thread configuration - is the plan's GOAL 3**, the shipped
+tier at many threads; this file used to call it goal 2. The plan's goal
+2 is pure C at many threads and the board does not carry it at all.
+`mult_matched_g3` is not a plan goal either: it is single-thread SIMD
+against the matched arm, a progress line. The CSV column names are
+deliberately NOT changed - the chart reads them and every historical row
+is keyed to them - so a column spelled g3 and the plan's goal 3 remain
+two different things in this file.
+
+**The board is not the goal instrument.** Its timed legs run ours at
+`--qp 27 --aq 0 --cutree 0` against x265 at `--crf 28`, which is 1.4-1.6x
+the bytes on our side, so a multiple here is a progress line and not a
+goal leg. The plan's four legs - median speed, worst clip named, 0.5
+dVMAF-NEG, 1.0% dSIZE, all at ONE matched operating point - are read by
+`scripts/goal_legs.py`, which solves both encoders onto the same byte
+target per clip. The BD encodes run at our default thread count, which
+the determinism gate makes bit-neutral.
 
 Timing rules (docs/instruments.md): output to /dev/null, median of
-NRUNS, sizes measured in a separate untimed pass.
+NRUNS, sizes measured in a separate untimed pass. The timed binary is
+`build-rel/n265` (`make build-rel`, -O3) since 2026-09-12, worth 2-3% of
+the wall; `build/` stays `debugoptimized` for the sanitiser and
+determinism gates, and the two are byte-identical on the 12-cell cmp the
+switch was gated on. N265 overrides it.
 
 usage: scripts/board.py [--quick] [--bd-only] [--synth] [--clips a,b] [--note TEXT]
   --bd-only  skip timing (loaded machine); BD columns only
@@ -53,7 +73,9 @@ import bdcompare as _bd
 _bd.SUBSAMPLE = 1
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-N265 = os.environ.get("N265", os.path.join(ROOT, "build/n265"))
+_REL = os.path.join(ROOT, "build-rel/n265")
+N265 = os.environ.get("N265", _REL if os.path.exists(_REL)
+                      else os.path.join(ROOT, "build/n265"))
 X265 = os.environ.get("X265", "x265")
 FFMPEG = os.environ.get("FFMPEG", "ffmpeg")
 HISTORY = os.environ.get("BOARD_HISTORY", os.path.join(ROOT, "docs/data/parity-history.csv"))
@@ -357,12 +379,15 @@ def measure_clip(tmp, name, size, frames, src, bd_only):
     row["mult_medium_g1"] = round(t_ours / t_med_noasm, 3)
     row["mult_medium_g3"] = round(t_ours / t_med_asm, 3)
 
-    # Goal 2, the utilization leg: both encoders at their own default
-    # thread configuration - ours at --threads 0 (one worker per online
-    # CPU), x265 medium at default pools and frame threads. Read as a wall
-    # ratio, x265med_asm_fps_auto / our_fps_auto. Determinism makes our
+    # The plan's GOAL 3, the utilization leg (this comment said "goal 2"
+    # until phase 9 step 0): both encoders at their own default thread
+    # configuration - ours at --threads 0 (one worker per online CPU),
+    # x265 medium at default pools and frame threads. Read as a wall
+    # ratio, our_fps_auto / x265med_asm_fps_auto. Determinism makes our
     # auto run bit-identical to the --threads 1 one, so this measures
-    # scheduling only.
+    # scheduling only. The column names keep their g-numbers for the
+    # chart's sake; scripts/goal_legs.py is where the plan's legs are
+    # read, at a matched operating point this leg does not have.
     med_auto = [X265, "--input", y4m, "--log-level", "error"] + lim
     t_ours_auto = time_cmd([N265, y4m, "-o", "/dev/null", "--qp", "27", "--aq", "0", "--cutree", "0"] + lim)
     t_med_auto = time_cmd(med_auto + ["--crf", "28", "-o", "/dev/null"])
@@ -434,11 +459,15 @@ def main():
                       "{bd_rate_vmafneg_pct}% | fast {bd_rate_vmafneg_fast_pct}%"
                       " | CRF {bd_rate_vmafneg_crf_pct}%".format(**row))
             else:
-                print("{clip}: ours {our_fps} fps | matched g1 "
-                      "{mult_matched_g1}x g3 {mult_matched_g3}x | medium g1 "
-                      "{mult_medium_g1}x g3 {mult_medium_g3}x | auto "
-                      "{our_fps_auto} vs {x265med_asm_fps_auto} fps | fast "
-                      "{our_fps_fast} fps NEG {bd_rate_vmafneg_fast_pct}% | BD "
+                # the labels are the PLAN's goal numbers; the column
+                # names in brackets are the CSV's, which do not move
+                print("{clip}: ours {our_fps} fps | goal1 (C, t1) "
+                      "{mult_matched_g1}x vs matched, {mult_medium_g1}x vs "
+                      "medium | t1 SIMD progress [mult_matched_g3] "
+                      "{mult_matched_g3}x vs matched, {mult_medium_g3}x vs "
+                      "medium | goal3 (auto) {our_fps_auto} vs "
+                      "{x265med_asm_fps_auto} fps | fast {our_fps_fast} fps "
+                      "NEG {bd_rate_vmafneg_fast_pct}% | BD "
                       "{bd_rate_psnr_pct}% / NEG {bd_rate_vmafneg_pct}% | CRF "
                       "{bd_rate_vmafneg_crf_pct}%".format(**row))
     print(f"appended to {os.path.relpath(HISTORY, ROOT)}")

@@ -15,13 +15,25 @@ BUILD ?= build
 # keeps working.
 BUILD10 ?= build10
 
-.PHONY: build build8 build10 test smoke10 conformance conformance-fast conformance10 conformance10-fast conformance444 conformance444-fast conformance444-10 conformance444-10-fast conformance422 conformance422-fast conformance422-10 conformance422-10-fast provenance asan asan10 asan444 asan422 determ determ-fast determ10 determ444 determ422 board board-quick clean checkasm-bench checkasm-asan checkasm10-bench checkasm10-asan
+.PHONY: build build8 build10 build-rel test smoke10 conformance conformance-fast conformance10 conformance10-fast conformance444 conformance444-fast conformance444-10 conformance444-10-fast conformance422 conformance422-fast conformance422-10 conformance422-10-fast provenance asan asan10 asan444 asan422 determ determ-fast determ10 determ444 determ422 board board-quick goal-legs clean checkasm-bench checkasm-asan checkasm10-bench checkasm10-asan
 
 build: build8 build10
 
 build8:
 	@[ -d $(BUILD) ] || meson setup $(BUILD)
 	ninja -C $(BUILD)
+
+# The TIMED build (phase 9 step 0). meson's default here is
+# `debugoptimized` (-O2) and stays that way: the sanitiser trees, the
+# determinism gate and every correctness target want the assertions and
+# the frame pointers. -O3 is worth 2-3% of the wall on its own
+# (docs/phase9-goals-plan.md sec 2 (e)) and the two builds are
+# byte-identical on the 12-cell cmp the switch was gated on, so the
+# clock is read on this tree and correctness on $(BUILD).
+BUILDREL ?= build-rel
+build-rel:
+	@[ -d $(BUILDREL) ] || meson setup $(BUILDREL) -Dbuildtype=release
+	ninja -C $(BUILDREL)
 
 build10:
 	@[ -d $(BUILD10) ] || meson setup $(BUILD10) -Dbit_depth=10
@@ -123,12 +135,21 @@ provenance:
 	scripts/provenance_check.sh
 
 # append current goal numbers to docs/data/parity-history.csv (run at
-# every feature milestone; the user charts this until parity)
-board: build
+# every feature milestone; the user charts this until parity). The TIMED
+# legs read build-rel (release, -O3); the BD legs stay on build/n265 so
+# their memo keys are the band's.
+board: build build-rel
 	scripts/board.py
 
-board-quick: build
+board-quick: build build-rel
 	scripts/board.py --quick
+
+# The plan's four legs at one matched operating point (phase 9 step 0),
+# which is what the board's columns are NOT: PRESET / GOAL / CLIPS are
+# environment variables, see scripts/goal_legs.py --help. Wants a quiet
+# box; the solve half does not.
+goal-legs: build build-rel
+	scripts/goal_legs.py
 
 # BD-PSNR rows only, speed columns blank: the phase 3 form (quality work
 # doesn't move speed; the timed board runs at the phase exit and at every
