@@ -62,6 +62,13 @@ nothing else: no encode, no metric, no stopwatch, so a row can be re-read
 while the box belongs to someone else). Anything else is refused, the way
 board.py refuses it.
 
+**The arm is a column.** A row is keyed on the commit, so a run under
+`N265_DUP_FAST=1` used to be indistinguishable from the commit's default.
+The last column, `arm`, is every `N265_*` in the environment, sorted
+`K=V` joined by spaces and empty for the default; `--from-csv` re-prints
+the block for the arm IT is invoked under, and rows written before the
+column existed carry "", which is the default's own value.
+
 **Two binaries, on purpose.** The wall is read on `build-rel/n265`
 (`-Dbuildtype=release`, worth 2-3%; `make build-rel`) and the SOLVE runs
 the band's own `build/n265` so its memo keys match the band's and a clip
@@ -133,6 +140,24 @@ LOADMAX = float(os.environ.get("LOADMAX", "3.0"))
 LOADWAIT = float(os.environ.get("LOADWAIT", "600"))
 CSV_PATH = os.environ.get("GOAL_LEGS_CSV",
                           os.path.join(ROOT, "docs/data/goal-legs.csv"))
+
+# The ARM: every `N265_*` in the invoking environment, sorted, `K=V`
+# joined by spaces, empty for the default. A row is keyed on the commit,
+# and an arm is a knob set from OUTSIDE the binary, so without this
+# column `N265_DUP_FAST=1 goal_legs.py` and a plain run at the same
+# commit write rows that cannot be told apart and read as the commit's
+# default. Snapshotted before anything here builds an environment (the
+# per-goal `N265_ASM_OFF` goes into a COPY, and the `tier` column already
+# names it), so this is exactly what the caller set. `N265` and
+# `BAND_N265` are binary paths rather than knobs and do not match the
+# prefix.
+ARM = " ".join(f"{k}={v}" for k, v in sorted(os.environ.items())
+               if k.startswith("N265_"))
+
+# Columns added after rows had already been written: `append_csv`
+# migrates a file that predates them instead of refusing, and every
+# reader takes them with a default.
+OPTIONAL_COLUMNS = ("arm",)
 
 # the wall is read on the release tree; the solve runs the band's binary
 # so the memo keys are the band's (see the docstring)
@@ -438,6 +463,7 @@ def main():
     print(f"solve:  {our_tmpl()}")
     print(f"        {x265_tmpl()}")
     print(f"timed:  {TIMED_N265}   load {load1():.2f}")
+    print(f"arm:    {ARM if ARM else '(default: no N265_* set)'}")
     if missing:
         print(f"no ladder rung {RUNG}: {', '.join(missing)} (skipped)")
 
@@ -540,6 +566,10 @@ def main():
             # every row written before these existed stays readable
             "dvmaf_eq_bytes": round(dv_eq, 3) if dv_eq is not None else "",
             "dsize_eq_vmaf_pct": round(ds_eq, 3) if ds_eq is not None else "",
+            # the N265_* environment this arm ran under, LAST for the same
+            # reason the two columns above are: every older column keeps
+            # its position and every older row stays readable
+            "arm": ARM,
         })
 
     report(rows, GOAL, PRESET, RUNG, FRAMES)
@@ -625,6 +655,35 @@ def report(rows, goal, preset, rung, frames):
                  if bad_s else ""))
 
 
+def migrate_csv(missing):
+    """Give every existing row a blank cell for `missing`, in place.
+
+    Only ever called for OPTIONAL_COLUMNS, and it adds cells rather than
+    touching any: every value already in the file survives, in its own
+    column, in its own row. Written beside the file and renamed onto it
+    so an interrupted migration leaves the old file whole."""
+    with open(CSV_PATH, newline="") as f:
+        rows = list(csv.DictReader(f))
+        f.seek(0)
+        have = next(csv.reader(f), None) or []
+    fields = have + list(missing)
+    d = os.path.dirname(CSV_PATH) or "."
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".goal-legs.", suffix=".csv")
+    try:
+        with os.fdopen(fd, "w", newline="") as f:
+            wr = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
+            wr.writeheader()
+            for w in rows:
+                wr.writerow({k: w.get(k, "") for k in fields})
+        os.replace(tmp, CSV_PATH)
+    except BaseException:
+        os.unlink(tmp)
+        raise
+    print(f"migrated {os.path.relpath(CSV_PATH, ROOT)}: {len(rows)} row(s) "
+          f"given a blank {', '.join(missing)}")
+    return fields
+
+
 def append_csv(rows):
     """Append, never rewrite - and never against a header that is not the
     file's own: an older file keeps its column order and simply carries
@@ -637,11 +696,15 @@ def append_csv(rows):
             have = next(csv.reader(f), None)
         if have:
             fields = have + [k for k in rows[0] if k not in have]
-            if fields != have:
+            gap = [k for k in fields if k not in have]
+            if gap and all(k in OPTIONAL_COLUMNS for k in gap):
+                fields = migrate_csv(gap)
+                gap = []
+            if gap:
                 sys.exit(f"goal_legs.py: {CSV_PATH} is missing columns "
-                         f"{[k for k in fields if k not in have]}; it predates "
-                         f"them. Migrate the file (add the columns to the "
-                         f"header and to every row) before appending.")
+                         f"{gap}; it predates them. Migrate the file (add "
+                         f"the columns to the header and to every row) "
+                         f"before appending.")
     with open(CSV_PATH, "a", newline="") as f:
         wr = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
         if new:
@@ -656,7 +719,12 @@ def from_csv():
     """Re-print a run's tables from docs/data/goal-legs.csv: the most
     recent block for this PRESET and GOAL. Reads nothing but the file -
     no encode, no metric, no stopwatch - so a row can be re-read while
-    the box belongs to somebody else."""
+    the box belongs to somebody else.
+
+    A block is (date, commit, ARM): two runs of the same commit under
+    different `N265_*` are two runs, and rows written before the `arm`
+    column existed carry "" for it, which is what a default run writes,
+    so they re-print as they always did."""
     with open(CSV_PATH, newline="") as f:
         allrows = list(csv.DictReader(f))
     sel = [w for w in allrows
@@ -664,10 +732,19 @@ def from_csv():
     if not sel:
         sys.exit(f"goal_legs.py: no rows for preset {PRESET} goal {GOAL} in "
                  f"{os.path.relpath(CSV_PATH, ROOT)}")
-    last = (sel[-1]["date"], sel[-1]["commit"])
-    sel = [w for w in sel if (w["date"], w["commit"]) == last]
+    arm = [w for w in sel if (w.get("arm") or "") == ARM]
+    if not arm:
+        sys.exit(f"goal_legs.py: no rows for preset {PRESET} goal {GOAL} at "
+                 f"arm {ARM!r} in {os.path.relpath(CSV_PATH, ROOT)}; arms "
+                 f"present: "
+                 f"{sorted({(w.get('arm') or '') for w in sel})}")
+    sel = arm
+    last = (sel[-1]["date"], sel[-1]["commit"], sel[-1].get("arm") or "")
+    sel = [w for w in sel
+           if (w["date"], w["commit"], w.get("arm") or "") == last]
     print(f"from {os.path.relpath(CSV_PATH, ROOT)}: {len(sel)} row(s), "
-          f"date {last[0]} commit {last[1]}")
+          f"date {last[0]} commit {last[1]} arm "
+          f"{last[2] if last[2] else '(default)'}")
     report(sel, GOAL, PRESET, int(sel[0]["rung"]), int(sel[0]["frames"]))
 
 
