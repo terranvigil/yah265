@@ -2907,6 +2907,26 @@ static int rung_owns(const struct n265_me_keep *k, int uni, int cpr)
            uni && !cpr && k && k->rung_fired;
 }
 
+/* SATD of a bi prediction whose fixed list is already interpolated into
+ * fix14: only the moving list pays an MC.
+ *
+ * The average is `a[i] + b[i]` (8.5.3.3.4.2, and the NEON kernel adds the
+ * same way), so which of the two int16 buffers arrives as `a` cannot
+ * change a sample: this is `mot_satd_wh` of the same `mot_t` for half the
+ * interpolation, not an approximation of it. Phase 11 item 4 leans on
+ * exactly that. */
+static uint32_t bi_satd_fixed(struct n265_frame_work *e, int x0, int y0, int w,
+                              int h, const int16_t *fix14, int list, int ref,
+                              mv_t mv)
+{
+    int16_t a[64 * 64];
+    pixel pred[64 * 64];
+    mc_pred14(e, list, ref, 0, x0, y0, w, h, mv, a);
+    n265_bi_avg_wh(pred, w, a, fix14, w, h);
+    return n265_satd_wh(e->pad_plane[0] + y0 * e->pad_stride[0] + x0,
+                        e->pad_stride[0], pred, w, w, h);
+}
+
 /* Arm 1's re-rank of one list's vector against its four quarter-pel
  * neighbours (phase 10 item 1, made affordable in item 1b). Both sites
  * that settle an AMVP vector call this, so the cache, the gate and the
@@ -2987,8 +3007,32 @@ static mv_t subpel_rerank(struct n265_frame_work *e, const pu_geo *g,
      * built to be and how much is quarter-pel refinement the N265_SUBME=3
      * ladder skipped. Known only where this function built the centre. */
     uint32_t pc = UINT32_MAX;
+
+    /* phase 11 item 4 arm (c): the square's FIXED list does not move.
+     * Where the settled candidate is bi, all five positions predict from
+     * the same interpolation of list !l and differ only in list l's MC
+     * and the average, so `mot_satd_wh`'s second `mc_pred14` is the same
+     * filter over the same samples five times. Buy it once.
+     *
+     * This is the shape `bi_satd_fixed` already had for N265_BI_REFINE
+     * and which nothing on the re-rank path used (docs/phase11.md sec
+     * 2.9). It is ARITHMETICALLY the same number, not a cheaper metric:
+     * the item's claim is a cmp, not a band.
+     *
+     * `kv` is NULL on a bi pass, so the ladder's cache never supplies one
+     * of these five and the saving is the whole four MCs. */
+    int16_t fix[64 * 64];
+    int fixl = amot->pred == 3 &&
+        (cen == UINT32_MAX || ok[0] || ok[1] || ok[2] || ok[3]) ? !l : -1;
+    if (fixl >= 0)
+        mc_pred14(e, fixl, amot->ref[fixl], 0, x0, y0, w, h,
+                  amot->mv[fixl], fix);
+
     if (cen == UINT32_MAX) {
-        pc = (cached_c ? kv->satd : mot_satd_wh(e, x0, y0, w, h, *amot)) +
+        pc = (cached_c ? kv->satd
+              : fixl >= 0 ? bi_satd_fixed(e, x0, y0, w, h, fix, l,
+                                          amot->ref[l], amot->mv[l])
+              : mot_satd_wh(e, x0, y0, w, h, *amot)) +
             (cpr ? cpred_satd(e, x0, y0, w, h, *amot) : 0);
         cen = pc + (uint32_t)(((uint64_t)mot_rate_q8(e, g, amot, mvp, 6)
                                * lam4) >> 12);
@@ -3001,7 +3045,10 @@ static mv_t subpel_rerank(struct n265_frame_work *e, const pu_geo *g,
         if (!ok[i])
             continue;
         uint32_t s = (kv && kv->nb_valid && kv->nb[i] != UINT32_MAX)
-            ? kv->nb[i] : mot_satd_wh(e, x0, y0, w, h, t[i]);
+            ? kv->nb[i]
+            : fixl >= 0 ? bi_satd_fixed(e, x0, y0, w, h, fix, l,
+                                        t[i].ref[l], t[i].mv[l])
+            : mot_satd_wh(e, x0, y0, w, h, t[i]);
         uint32_t sp = s + (cpr ? cpred_satd(e, x0, y0, w, h, t[i]) : 0);
         uint32_t c = sp +
             (uint32_t)(((uint64_t)mot_rate_q8(e, g, &t[i], mvp, 6) * lam4)
@@ -3069,20 +3116,6 @@ static mv_t subpel_rerank(struct n265_frame_work *e, const pu_geo *g,
     }
     *cost = bq;
     return bmv;
-}
-
-/* SATD of a bi prediction whose fixed list is already interpolated into
- * fix14: only the moving list pays an MC. */
-static uint32_t bi_satd_fixed(struct n265_frame_work *e, int x0, int y0, int w,
-                              int h, const int16_t *fix14, int list, int ref,
-                              mv_t mv)
-{
-    int16_t a[64 * 64];
-    pixel pred[64 * 64];
-    mc_pred14(e, list, ref, 0, x0, y0, w, h, mv, a);
-    n265_bi_avg_wh(pred, w, a, fix14, w, h);
-    return n265_satd_wh(e->pad_plane[0] + y0 * e->pad_stride[0] + x0,
-                        e->pad_stride[0], pred, w, w, h);
 }
 
 /* Bi-prediction refinement (N265_BI_REFINE). Pairing the two independent
