@@ -902,12 +902,19 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
      * caps the whole thing at one round. 4 costs the half-pel square in
      * SAD and keeps the Hadamard for the quarter-pel one, so a round is
      * eight interpolations plus eight SADs instead of eight SATDs. 5 is
-     * 3 and 4 together, 6 the round cap on its own. */
+     * 3 and 4 together, 6 the round cap on its own. 7 is the HALF-PEL
+     * SQUARE ALONE: `rounds` counts half-pel-plus-quarter-pel PAIRS, so
+     * 3's "one round" still takes a quarter-pel square wherever the
+     * half-pel one moved, and 7 is the value that never takes one. It is
+     * the `veryfast` rung's lever (phase 13 C2), and it buys a smaller
+     * mvd as well as eight fewer interpolations, because the vector it
+     * settles on is a half-pel vector. */
     int sm = subme_mode();
     int hsad = sm == 4 || sm == 5;
     int gate_q_move = sm == 1 || sm == 2 || sm == 3 || sm == 5;
     int gate_q_small = (sm == 2 || sm == 3 || sm == 5) && w + h == 12;
-    int rounds = (sm == 3 || sm == 5 || sm == 6) ? 1 : 2;
+    int gate_q_all = sm == 7;
+    int rounds = (sm == 3 || sm == 5 || sm == 6 || sm == 7) ? 1 : 2;
     /* N265_SUBPEL_RATE 2 and 3: lambda x mvd on every candidate the
      * square visits, as it is visited. `best_satd` stays the PURE
      * Hadamard cost of `cur` so that a step with the term and a step
@@ -936,7 +943,7 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
         mv_t round_start = cur;
         int rate_on = sr == 3 || (sr == 2 && round == rounds - 1);
         for (int step = 2; step >= 1; step--) {
-            if (step == 1 && gate_q_small)
+            if (step == 1 && (gate_q_small || gate_q_all))
                 break;
             if (step == 1 && gate_q_move &&
                 cur.x == round_start.x && cur.y == round_start.y)

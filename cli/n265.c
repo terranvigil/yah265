@@ -102,6 +102,7 @@ void n265_set_hdr_meta_10(const uint32_t *md, int cll, int fall);
 void n265_set_hdr10_10(int hdr10, int cll_on, int atc);
 int  n265_set_preset_10(const char *name);
 int  n265_preset_param_10(const char *key, int fallback);
+const char *n265_preset_nearest_10(const char *name);
 n265_encoder *n265_encoder_open_10(const n265_param *p);
 int  n265_encoder_encode_10(n265_encoder *e, n265_nal **nal, int *nnal,
                             const n265_picture *pic);
@@ -125,6 +126,7 @@ typedef struct n265_api {
     void (*set_threads)(int);
     int  (*set_preset)(const char *);
     int  (*preset_param)(const char *, int);
+    const char *(*preset_nearest)(const char *);
     void (*set_shot_window)(int);
     void (*set_pass)(int, const char *);
     void (*set_lossless)(int);
@@ -156,7 +158,8 @@ typedef struct n265_api {
 static const n265_api api8 = {
     8, n265_param_default, n265_set_mode, n265_set_la, n265_set_crf,
     n265_set_bitrate, n265_set_ref, n265_set_badapt, n265_set_threads,
-    n265_set_preset, n265_preset_param, n265_set_shot_window, n265_set_pass,
+    n265_set_preset, n265_preset_param, n265_preset_nearest,
+    n265_set_shot_window, n265_set_pass,
     n265_set_lossless, n265_set_level, n265_set_vui_timing,
     n265_set_film_grain, n265_set_vbv, n265_set_rdoq_level,
     n265_set_chroma_qpoffs,
@@ -171,7 +174,8 @@ static const n265_api api10 = {
     10, n265_param_default_10, n265_set_mode_10, n265_set_la_10,
     n265_set_crf_10, n265_set_bitrate_10, n265_set_ref_10,
     n265_set_badapt_10, n265_set_threads_10, n265_set_preset_10,
-    n265_preset_param_10, n265_set_shot_window_10, n265_set_pass_10,
+    n265_preset_param_10, n265_preset_nearest_10,
+    n265_set_shot_window_10, n265_set_pass_10,
     n265_set_lossless_10, n265_set_level_10, n265_set_vui_timing_10,
     n265_set_film_grain_10, n265_set_vbv_10, n265_set_rdoq_level_10,
     n265_set_chroma_qpoffs_10,
@@ -400,7 +404,13 @@ static void usage(void)
         "                  by a pure left shift of two as it is read - one\n"
         "                  pass per frame, no added latency. 8 on 10-bit\n"
         "                  input is refused: there is no downshift here.\n"
-        "  --preset <fast|medium|slow|slower>  speed/quality point\n"
+        "  --preset <name>  speed/quality point, in x265's names.\n"
+        "                  Placed rungs, fastest first: veryfast, faster,\n"
+        "                  fast, medium (default), slow, slower. Each is\n"
+        "                  placed against the x265 preset of the SAME NAME\n"
+        "                  on all fifteen corpus clips (docs/phase13.md).\n"
+        "                  x265's other names are refused, naming the\n"
+        "                  nearest rung that is placed.\n"
         "                  (default medium, the point the project's goals are\n"
         "                  read at: at or ahead of x265 medium on every\n"
         "                  corpus clip, in less time).\n"
@@ -911,10 +921,27 @@ int main(int argc, char **argv)
     /* The preset is a default source and nothing else: it is selected
      * before anything reads a knob, and every value it offers here is
      * taken only where the command line was silent. */
-    if (preset && a->set_preset(preset) < 0) {
-        fprintf(stderr, "n265: --preset must be fast, medium, slow or "
-                        "slower\n");
-        return 2;
+    if (preset) {
+        int pr = a->set_preset(preset);
+        if (pr == -2) {
+            /* one of x265's ten names, with no table behind it: the rung
+             * has not been PLACED (docs/phase13.md C2), and naming a
+             * preset we have not measured against the x265 preset of the
+             * same name is the one thing the ladder exists to stop. Point
+             * at the nearest rung that has been. */
+            fprintf(stderr, "n265: --preset %s is one of x265's names but "
+                            "is not a placed rung of this encoder; the "
+                            "nearest placed rung is %s\n",
+                    preset, a->preset_nearest(preset));
+            return 2;
+        }
+        if (pr < 0) {
+            fprintf(stderr, "n265: --preset must be one of x265's names: "
+                            "ultrafast, superfast, veryfast, faster, fast, "
+                            "medium, slow, slower, veryslow, placebo (the "
+                            "placed rungs are printed by --help)\n");
+            return 2;
+        }
     }
     if (!had_ref)     nref = a->preset_param("ref", nref);
     if (!had_bframes) bframes = a->preset_param("bframes", bframes);

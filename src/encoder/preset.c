@@ -37,7 +37,8 @@
 #include "yah265.h"
 #include "encoder/preset.h"
 
-enum { PRESET_FAST = 0, PRESET_MEDIUM = 1, PRESET_SLOW = 2, PRESET_SLOWER = 3 };
+/* the rung index lives in `rungs` below; nothing outside this file
+ * names a preset by number any more */
 
 struct kv {
     const char *k;
@@ -100,6 +101,69 @@ static const struct kv fast_tab[] = {
      * which is why medium buys it back and the speed end keeps selling
      * it. */
     { "N265_SBH_RD",     "0" },
+    { NULL, NULL }
+};
+
+/* faster: `fast` with the mode decision's transform trials taken away
+ * (phase 13 A4/C2, 2026-09-14).
+ *
+ * The table is `fast_tab` spelled out again - not shared, for the reason
+ * every other table here is spelled out - plus exactly two rows, and the
+ * two are the mechanism this rung exists for:
+ *
+ *   N265_RD_PROXY 1   the inter shortlist ranked on SA8D + estimated
+ *                     bits, one transform per CU instead of two
+ *                     (docs/phase13.md, the A4 census)
+ *   N265_EST_MODE 1   the frozen-context residual bit estimate, which
+ *                     the band refused at medium and which belongs
+ *                     here: a rung already spending band for speed can
+ *                     afford it, and the cheaper the search the larger
+ *                     the coefficient path's share of it
+ *                     (docs/phase13.md, A1)
+ *
+ * Nothing else moves. `--ref` is 1 at every rung from `slow` down (the
+ * compiled-in default), so x265's "ref 2-3 at faster" has no lever here
+ * to pull. */
+static const struct kv faster_tab[] = {
+    { "N265_RSKIP",      "2" },
+    { "N265_CBF_FAST",   "2" },
+    { "N265_SKIP_EXIT",  "1" },
+    { "N265_SUBME",      "3" },
+    { "N265_CB64_AMVP",  "0" },
+    { "N265_BI_REFINE",  "0" },
+    { "N265_CHROMA_PRED", "0" },
+    { "N265_NO_RECT",    "1" },
+    { "N265_NO_AMP",     "1" },
+    { "N265_RECT_FLAT",  "0" },
+    { "N265_INTRA_GATE", "2" },
+    { "N265_SBH_RD",     "0" },
+    { "N265_RD_PROXY",   "1" },
+    { "N265_EST_MODE",   "1" },
+    { NULL, NULL }
+};
+
+/* veryfast: `faster` with the subpel ladder cut to its half-pel square,
+ * the intra rank in a B slice cut to its two non-directional modes, and
+ * the pyramid cut to four B frames. x265's veryfast drops b-intra
+ * outright and takes `ctu 32`; we are already at 32 everywhere, and
+ * keeping the arm with its cheap half is the version that can still win
+ * a CU where a B really does want intra. */
+static const struct kv vfast_tab[] = {
+    { "N265_RSKIP",      "2" },
+    { "N265_CBF_FAST",   "2" },
+    { "N265_SKIP_EXIT",  "1" },
+    { "N265_SUBME",      "7" },   /* one round, half-pel square only  */
+    { "N265_CB64_AMVP",  "0" },
+    { "N265_BI_REFINE",  "0" },
+    { "N265_CHROMA_PRED", "0" },
+    { "N265_NO_RECT",    "1" },
+    { "N265_NO_AMP",     "1" },
+    { "N265_RECT_FLAT",  "0" },
+    { "N265_INTRA_GATE", "2" },
+    { "N265_SBH_RD",     "0" },
+    { "N265_RD_PROXY",   "1" },
+    { "N265_EST_MODE",   "1" },
+    { "N265_INTRA_B_MODES", "1" },
     { NULL, NULL }
 };
 
@@ -284,6 +348,24 @@ static const struct kv fast_par[] = {
     { NULL, NULL }
 };
 
+/* faster's structure IS fast's: the rung was bought with the mode
+ * decision, not with the coding tree or the window. */
+static const struct kv faster_par[] = {
+    { "ctu", "32" },
+    { "rc-lookahead", "12" },
+    { NULL, NULL }
+};
+
+/* veryfast: the same tree and window, four B frames instead of seven.
+ * `ref` needs no entry - 1 is the compiled-in default and is what every
+ * rung from `slow` down already runs. */
+static const struct kv vfast_par[] = {
+    { "ctu", "32" },
+    { "rc-lookahead", "12" },
+    { "bframes", "4" },
+    { NULL, NULL }
+};
+
 /* medium's structure IS fast's: the goal preset was bought with two
  * knobs, not with the coding tree or the window. Spelled out rather than
  * shared with fast_par so that a later move of one is not silently a
@@ -321,7 +403,44 @@ static const struct kv slower_par[] = {
     { NULL, NULL }
 };
 
-static int g_preset = PRESET_MEDIUM;
+/* ---- the ladder, and x265's names for it (phase 13 C2/C3) ------------
+ *
+ * x265 prints ten preset names and users compare preset to preset, so
+ * every name we do not have is a comparison we lose by default. The two
+ * arrays below are the whole of the naming: `rungs` is what is PLACED -
+ * a rung earns a row here only by passing the four legs against the
+ * x265 preset of the same name, on every one of the fifteen corpus clips
+ * (docs/phase9-goals-plan.md sec 4, the rule medium was placed by) - and
+ * `x265_names` is the ladder those names sit on, fastest first, so that
+ * a name we know and have not placed can be refused with the nearest
+ * rung that IS placed rather than with "unknown".
+ *
+ * Adding a name here without the legs behind it would be the one thing
+ * this ladder is for undoing. */
+struct rung {
+    const char *name;
+    const struct kv *tab;
+    const struct kv *par;
+};
+
+static const struct rung rungs[] = {
+    { "veryfast", vfast_tab,  vfast_par  },
+    { "faster",   faster_tab, faster_par },
+    { "fast",     fast_tab,   fast_par   },
+    { "medium",   med_tab,    med_par    },
+    { "slow",     slow_tab,   slow_par   },
+    { "slower",   slower_tab, slower_par },
+};
+#define N_RUNGS ((int)(sizeof(rungs) / sizeof(rungs[0])))
+
+/* x265 4.3's own ladder, fastest first */
+static const char *const x265_names[] = {
+    "ultrafast", "superfast", "veryfast", "faster", "fast",
+    "medium", "slow", "slower", "veryslow", "placebo",
+};
+#define N_X265 ((int)(sizeof(x265_names) / sizeof(x265_names[0])))
+
+static int g_preset = 3;        /* medium: rungs[3] */
 
 static const char *lookup(const struct kv *t, const char *k)
 {
@@ -336,42 +455,58 @@ const char *n265_env(const char *name)
     const char *v = getenv(name);
     if (v)
         return v;
-    if (g_preset == PRESET_FAST)
-        return lookup(fast_tab, name);
-    if (g_preset == PRESET_MEDIUM)
-        return lookup(med_tab, name);
-    if (g_preset == PRESET_SLOW)
-        return lookup(slow_tab, name);
-    return lookup(slower_tab, name);
+    return lookup(rungs[g_preset].tab, name);
 }
 
+static int rung_of(const char *name)
+{
+    for (int i = 0; i < N_RUNGS; i++)
+        if (!strcmp(rungs[i].name, name))
+            return i;
+    return -1;
+}
+
+/* The placed rung nearest `name` on x265's ladder, or NULL when the name
+ * is not one of x265's at all. Ties - a name equidistant from a placed
+ * rung either side - go to the SLOWER one, because a user who asked for
+ * a speed we do not have is better served by being told about quality we
+ * do have than by being pointed at a rung that is not the speed either. */
+const char *n265_preset_nearest(const char *name)
+{
+    int at = -1;
+    if (!name)
+        return NULL;
+    for (int i = 0; i < N_X265; i++)
+        if (!strcmp(x265_names[i], name))
+            at = i;
+    if (at < 0)
+        return NULL;
+    for (int d = 0; d < N_X265; d++) {
+        if (at + d < N_X265 && rung_of(x265_names[at + d]) >= 0)
+            return x265_names[at + d];
+        if (at - d >= 0 && rung_of(x265_names[at - d]) >= 0)
+            return x265_names[at - d];
+    }
+    return NULL;
+}
+
+/* 0 placed, -1 not a name at all, -2 one of x265's names with no table.
+ * The caller tells the last two apart in its message. */
 int n265_set_preset(const char *name)
 {
+    int i;
     if (!name)
         return -1;
-    if (!strcmp(name, "fast"))
-        g_preset = PRESET_FAST;
-    else if (!strcmp(name, "medium"))
-        g_preset = PRESET_MEDIUM;
-    else if (!strcmp(name, "slow"))
-        g_preset = PRESET_SLOW;
-    else if (!strcmp(name, "slower"))
-        g_preset = PRESET_SLOWER;
-    else
-        return -1;
-    return 0;
+    i = rung_of(name);
+    if (i >= 0) {
+        g_preset = i;
+        return 0;
+    }
+    return n265_preset_nearest(name) ? -2 : -1;
 }
 
 int n265_preset_param(const char *key, int fallback)
 {
-    const char *v = NULL;
-    if (g_preset == PRESET_FAST)
-        v = lookup(fast_par, key);
-    else if (g_preset == PRESET_MEDIUM)
-        v = lookup(med_par, key);
-    else if (g_preset == PRESET_SLOW)
-        v = lookup(slow_par, key);
-    else
-        v = lookup(slower_par, key);
+    const char *v = lookup(rungs[g_preset].par, key);
     return v ? atoi(v) : fallback;
 }

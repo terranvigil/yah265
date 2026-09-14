@@ -88,6 +88,7 @@ typedef uint16_t n265_pixel;
 #define n265_set_hdr10        N265_API(n265_set_hdr10)
 #define n265_set_preset       N265_API(n265_set_preset)
 #define n265_preset_param     N265_API(n265_preset_param)
+#define n265_preset_nearest   N265_API(n265_preset_nearest)
 #define n265_encoder_open     N265_API(n265_encoder_open)
 #define n265_encoder_encode   N265_API(n265_encoder_encode)
 #define n265_encoder_close    N265_API(n265_encoder_close)
@@ -247,6 +248,12 @@ YAH265_API void n265_set_hdr10(int hdr10, int cll_on, int atc);
  * "rc-lookahead". */
 YAH265_API int n265_set_preset(const char *name);
 YAH265_API int n265_preset_param(const char *key, int fallback);
+
+/* The PLACED rung nearest `name` on x265's ten-name ladder, or NULL when
+ * `name` is not one of x265's at all. n265_set_preset returns -2 rather
+ * than -1 for a name this can answer, so a front end can refuse an
+ * unplaced rung by pointing at the nearest one we have. */
+YAH265_API const char *n265_preset_nearest(const char *name);
 
 /* NULL on invalid params or allocation failure. */
 YAH265_API n265_encoder *n265_encoder_open(const n265_param *p);
