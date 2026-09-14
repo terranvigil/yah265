@@ -4429,9 +4429,14 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
         if (cr) {
             cr->cyc_pre = (uint32_t)(cu_tick() - cu_t0);
             cr->cand_sad = cand_plain_sad;
+            /* both bounds are SQUARED sample quantities and both are
+             * sixteen times larger at Main10, where thr_clean at Qp' 63
+             * and n 64 reaches 3.4e9 - inside u32 by a fifth, and past
+             * it at N265_ES_THR above 125. Saturate the way d_skip
+             * below already does rather than wrap the column. */
             cr->static_thr = (uint32_t)(n * n * skip_thr8());
-            cr->thr_clean =
-                (uint32_t)skip_clean_thr(e->cur_ctu_qp, n);
+            uint64_t tc = skip_clean_thr(e->cur_ctu_qp, n);
+            cr->thr_clean = (uint32_t)(tc > UINT32_MAX ? UINT32_MAX : tc);
         }
 
         /* strict static skip at the best merge candidate.
@@ -5920,8 +5925,14 @@ static void depth_dump_features(struct n265_frame_work *e, int ctb_x,
         fine -= v2 < 0.0 ? 0.0 : v2;
         if (fine < 0.0) fine = 0.0;
     }
-    r->lvar = (float)log2(var + 1.0);
-    r->fine = (float)log2(fine + 1.0);
+    /* the +1 is ONE SQUARED 8-BIT LEVEL, as it is in encoder.c, so it
+     * scales with the variance it floors: 1 at 8 bits, 16 at Main10.
+     * Left at 1.0 the column read +4 against the 8-bit census of the
+     * same content on every flat CTU - which is exactly the population
+     * a flat gate fitted off this dump has to separate. Output-neutral;
+     * N265_DEPTH_DUMP is the only reader. */
+    r->lvar = (float)log2(var + (double)(1 << (2 * BIT_DEPTH_SHIFT)));
+    r->fine = (float)log2(fine + (double)(1 << (2 * BIT_DEPTH_SHIFT)));
 
     /* the lowres 8x8 blocks under the CTU - 16 of them at CTB 64, since a
      * lowres block is 16 full-res pixels at any resolution */
