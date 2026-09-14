@@ -8,6 +8,8 @@
 #include "encoder/encoder.h"
 #include "encoder/sao.h"
 #include "encoder/grain.h"
+#include "encoder/hash.h"
+#include "encoder/signal.h"
 
 /* profile_tier_level with maxNumSubLayersMinus1 == 0 (7.3.3).
  *
@@ -304,37 +306,115 @@ void n265_write_sps(struct n265_frame_work *e)
      * num_units_in_tick of 1 forces), which is why item 7 shipped it off. The owner took that cost on
      * 2026-09-12; the recon and every VCL NAL are unchanged, which is the
      * identity check from then on. */
-    if (!e->vui_timing) {
+    const n265_signal *sig = &e->sig;
+    if (!e->vui_timing && !n265_vui_needed(sig)) {
         bs_put_bits(bs, 0, 1);      /* vui_parameters_present_flag */
     } else {
         bs_put_bits(bs, 1, 1);      /* vui_parameters_present_flag */
-        /* vui_parameters (E.2.1), in order. Everything before the timing
-         * block is absent; field_seq_flag 0 and frame_field_info 0 say
-         * the same thing the PTL's progressive/frame-only constraint
-         * flags do. */
-        bs_put_bits(bs, 0, 1);      /* aspect_ratio_info_present_flag */
-        bs_put_bits(bs, 0, 1);      /* overscan_info_present_flag */
-        bs_put_bits(bs, 0, 1);      /* video_signal_type_present_flag */
-        bs_put_bits(bs, 0, 1);      /* chroma_loc_info_present_flag */
+        /* vui_parameters (E.2.1), in order. Everything here is
+         * PASS-THROUGH: the colour description, the aspect ratio and the
+         * display window describe the pictures the caller handed in and
+         * change no coded sample (phase 14 item 1, src/encoder/signal.h).
+         * A presence flag is 1 exactly where the caller named one of the
+         * fields under it, so a stream with no signalling flags carries
+         * the bits it always carried.
+         *
+         * field_seq_flag 0 and frame_field_info 0 say the same thing the
+         * PTL's progressive / frame-only constraint flags do, and
+         * neutral_chroma_indication stays 0: it is a claim about the
+         * SAMPLES, not about their meaning, and nothing here makes it. */
+        if (sig->sar_idc < 0) {
+            bs_put_bits(bs, 0, 1);  /* aspect_ratio_info_present_flag */
+        } else {
+            bs_put_bits(bs, 1, 1);
+            bs_put_bits(bs, (uint32_t)sig->sar_idc, 8); /* aspect_ratio_idc */
+            if (sig->sar_idc == 255) {          /* EXTENDED_SAR */
+                bs_put_bits(bs, (uint32_t)sig->sar_w, 16);  /* sar_width */
+                bs_put_bits(bs, (uint32_t)sig->sar_h, 16);  /* sar_height */
+            }
+        }
+        if (sig->overscan < 0) {
+            bs_put_bits(bs, 0, 1);  /* overscan_info_present_flag */
+        } else {
+            bs_put_bits(bs, 1, 1);
+            bs_put_bits(bs, (uint32_t)(sig->overscan != 0), 1);
+                                    /* overscan_appropriate_flag */
+        }
+        int cdesc = sig->colorprim >= 0 || sig->transfer >= 0 ||
+                    sig->colormatrix >= 0;
+        if (sig->videoformat < 0 && sig->full_range < 0 && !cdesc) {
+            bs_put_bits(bs, 0, 1);  /* video_signal_type_present_flag */
+        } else {
+            bs_put_bits(bs, 1, 1);
+            /* 5 is Unspecified (Table E.2) and is what the syntax infers
+             * when the whole block is absent, so it is what an unnamed
+             * video_format says here too. Same for the three colour
+             * fields at 2. */
+            bs_put_bits(bs, (uint32_t)(sig->videoformat < 0 ? 5
+                                       : sig->videoformat), 3);
+            bs_put_bits(bs, (uint32_t)(sig->full_range > 0), 1);
+            bs_put_bits(bs, (uint32_t)cdesc, 1);
+            if (cdesc) {
+                bs_put_bits(bs, (uint32_t)(sig->colorprim < 0 ? 2
+                                           : sig->colorprim), 8);
+                bs_put_bits(bs, (uint32_t)(sig->transfer < 0 ? 2
+                                           : sig->transfer), 8);
+                bs_put_bits(bs, (uint32_t)(sig->colormatrix < 0 ? 2
+                                           : sig->colormatrix), 8);
+            }
+        }
+        if (sig->chromaloc < 0) {
+            bs_put_bits(bs, 0, 1);  /* chroma_loc_info_present_flag */
+        } else {
+            bs_put_bits(bs, 1, 1);
+            /* One value for both fields: field_seq_flag is 0, so there is
+             * one field per picture and the bottom-field value describes
+             * nothing this encoder emits. x265 writes the pair the same
+             * way. */
+            bs_put_ue(bs, (uint32_t)sig->chromaloc);
+            bs_put_ue(bs, (uint32_t)sig->chromaloc);
+        }
         bs_put_bits(bs, 0, 1);      /* neutral_chroma_indication_flag */
         bs_put_bits(bs, 0, 1);      /* field_seq_flag */
         bs_put_bits(bs, 0, 1);      /* frame_field_info_present_flag */
-        bs_put_bits(bs, 0, 1);      /* default_display_window_flag */
-        bs_put_bits(bs, 1, 1);      /* vui_timing_info_present_flag */
-        /* The clock a picture is one tick of: num_units_in_tick /
-         * time_scale is the frame period, so the y4m's F<num>:<den>
-         * lands the other way round. */
-        bs_put_bits(bs, (uint32_t)e->param.fps_den, 32); /* vui_num_units_in_tick */
-        bs_put_bits(bs, (uint32_t)e->param.fps_num, 32); /* vui_time_scale */
-        bs_put_bits(bs, 0, 1);      /* vui_poc_proportional_to_timing_flag */
-        /* vui_hrd_parameters_present_flag. 0 without a VBV - no CPB
-         * schedule is enforced, so none is claimed, and that is the bit
-         * every stream before phase 12 item 2 carried. */
-        if (!e->hrd_on) {
-            bs_put_bits(bs, 0, 1);
+        if (!sig->win_on) {
+            bs_put_bits(bs, 0, 1);  /* default_display_window_flag */
         } else {
+            /* The offsets are in CHROMA units, exactly as the conformance
+             * window's are (7.4.3.2.1), and the flag takes LUMA samples -
+             * which is what x265 documents `--display-window` in and then
+             * writes unshifted, so at 4:2:0 an x265 window is twice the
+             * region it names. Ours divides; the CLI refuses an offset
+             * that is not a whole number of chroma samples rather than
+             * rounding one. */
             bs_put_bits(bs, 1, 1);
-            write_hrd(bs, e);
+            bs_put_ue(bs, (uint32_t)(sig->win_l >> e->csx));
+            bs_put_ue(bs, (uint32_t)(sig->win_r >> e->csx));
+            bs_put_ue(bs, (uint32_t)(sig->win_t >> e->csy));
+            bs_put_ue(bs, (uint32_t)(sig->win_b >> e->csy));
+        }
+        if (!e->vui_timing) {
+            /* the colour half alone: a stream that names --colorprim and
+             * nothing else still gets a VUI, and this is the bit that
+             * says the timing block is not in it */
+            bs_put_bits(bs, 0, 1);  /* vui_timing_info_present_flag */
+        } else {
+            bs_put_bits(bs, 1, 1);  /* vui_timing_info_present_flag */
+            /* The clock a picture is one tick of: num_units_in_tick /
+             * time_scale is the frame period, so the y4m's F<num>:<den>
+             * lands the other way round. */
+            bs_put_bits(bs, (uint32_t)e->param.fps_den, 32); /* vui_num_units_in_tick */
+            bs_put_bits(bs, (uint32_t)e->param.fps_num, 32); /* vui_time_scale */
+            bs_put_bits(bs, 0, 1);  /* vui_poc_proportional_to_timing_flag */
+            /* vui_hrd_parameters_present_flag. 0 without a VBV - no CPB
+             * schedule is enforced, so none is claimed, and that is the
+             * bit every stream before phase 12 item 2 carried. */
+            if (!e->hrd_on) {
+                bs_put_bits(bs, 0, 1);
+            } else {
+                bs_put_bits(bs, 1, 1);
+                write_hrd(bs, e);
+            }
         }
         bs_put_bits(bs, 0, 1);      /* bitstream_restriction_flag */
     }
@@ -539,5 +619,102 @@ void n265_write_hrd_sei(bitstream_t *bs, const n265_hrd_sei *v)
                                     /* au_cpb_removal_delay_minus1 */
     bs_put_bits(bs, v->dpb_delay, N265_HRD_DELAY_BITS);
     sei_wrap(bs, at, 1);
+    bs_rbsp_trailing(bs);
+}
+
+/* The HDR10 static metadata, and the alternative transfer characteristics
+ * beside it: mastering_display_colour_volume (D.2.28, payload type 137),
+ * content_light_level_info (D.2.35, type 144) and
+ * alternative_transfer_characteristics (D.2.38, type 147). Phase 14 item 1.
+ *
+ * All three in ONE prefix SEI NAL, in ascending payload type, for the
+ * reason the two HRD messages share one: an access unit's NAL count is
+ * bounded by the deferred ring (encoder.h), and three more NALs on an
+ * IRAP would buy nothing a decoder can see. D.2.1 puts no limit on the
+ * number of messages in a NAL.
+ *
+ * Every value is the caller's, unscaled and unchecked against the
+ * picture: the chromaticities are u(16) in units of 0.00002 and the
+ * luminances u(32) in units of 0.0001 cd/m2, which is what x265's
+ * --master-display string already carries, so a command line moves
+ * between the two encoders without arithmetic. The SEIs say what the
+ * MASTERING DISPLAY did; nothing here measures the content, and
+ * measuring it is the half this item deliberately does not do.
+ *
+ * The primaries go out in the order the syntax numbers them, which for
+ * HDR10 is green, blue, red - the order x265's G(x,y)B(x,y)R(x,y) spells
+ * and the order a value set copied off a mastering report is written in.
+ *
+ * Returns the RBSP length, and 0 when the configuration asks for NO
+ * message - `--max-cll 1,2 --no-cll` is such a configuration, and an
+ * empty RBSP would still be a NAL, whose single trailing byte a decoder
+ * reads as an SEI of payload type 128. Found exactly that way. */
+size_t n265_write_hdr_sei(bitstream_t *bs, const n265_signal *s)
+{
+    bs_reset(bs);
+    int hdr = n265_hdr10_on(s);     /* --hdr10 / --no-hdr10 and the rule
+                                     * that values alone arm it. --atc-sei
+                                     * is not part of that packet and is
+                                     * not gated on it. */
+    if (hdr && s->have_md) {
+        size_t at = bs->bytes;
+        for (int c = 0; c < 3; c++) {
+            bs_put_bits(bs, s->md_prim[c][0], 16);  /* display_primaries_x */
+            bs_put_bits(bs, s->md_prim[c][1], 16);  /* display_primaries_y */
+        }
+        bs_put_bits(bs, s->md_wp[0], 16);           /* white_point_x */
+        bs_put_bits(bs, s->md_wp[1], 16);           /* white_point_y */
+        bs_put_bits(bs, s->md_max, 32);  /* max_display_mastering_luminance */
+        bs_put_bits(bs, s->md_min, 32);  /* min_display_mastering_luminance */
+        sei_wrap(bs, at, 137);
+    }
+    if (hdr && s->have_cll && s->cll_on) {
+        size_t at = bs->bytes;
+        bs_put_bits(bs, (uint32_t)s->maxcll, 16);   /* max_content_light_level */
+        bs_put_bits(bs, (uint32_t)s->maxfall, 16);  /* max_pic_average_light_level */
+        sei_wrap(bs, at, 144);
+    }
+    if (s->atc >= 0) {
+        /* D.2.38: what an SDR decoder should assume the transfer
+         * characteristic is, when transfer_characteristics itself says
+         * HLG. One byte, and it is the only thing that lets an HLG stream
+         * tell a display it cannot reach what to do instead. */
+        size_t at = bs->bytes;
+        bs_put_bits(bs, (uint32_t)s->atc, 8);
+                                    /* preferred_transfer_characteristics */
+        sei_wrap(bs, at, 147);
+    }
+    if (!bs->bytes)
+        return 0;
+    bs_rbsp_trailing(bs);
+    return bs->bytes;
+}
+
+/* decoded_picture_hash (D.2.19), in a SUFFIX SEI NAL - the only suffix
+ * NAL this encoder writes. Phase 14 item 1.
+ *
+ * It is a suffix and not a prefix because the message is ABOUT the
+ * picture the access unit codes: 7.4.2.4.4 puts a suffix SEI after the
+ * last VCL NAL of its access unit, and D.3.19's value cannot be known
+ * before the picture is reconstructed anyway.
+ *
+ * `ncomp` is 3 wherever chroma_format_idc is not 0, which is every stream
+ * this encoder writes; the loop is written against the syntax rather than
+ * against that fact so a monochrome profile would only have to pass 1. */
+void n265_write_hash_sei(bitstream_t *bs, const n265_pic_hash *h, int ncomp)
+{
+    bs_reset(bs);
+    size_t at = bs->bytes;
+    bs_put_bits(bs, (uint32_t)h->type, 8);          /* hash_type */
+    for (int c = 0; c < ncomp; c++) {
+        if (h->type == N265_HASH_MD5)
+            for (int i = 0; i < 16; i++)
+                bs_put_bits(bs, h->md5[c][i], 8);   /* picture_md5 */
+        else if (h->type == N265_HASH_CRC)
+            bs_put_bits(bs, h->crc[c], 16);         /* picture_crc */
+        else
+            bs_put_bits(bs, h->checksum[c], 32);    /* picture_checksum */
+    }
+    sei_wrap(bs, at, 132);          /* SEI_TYPE_DECODED_PICTURE_HASH */
     bs_rbsp_trailing(bs);
 }

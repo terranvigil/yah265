@@ -106,6 +106,17 @@ static int g_fgc_denoise = 0;
 static double g_vbv_maxrate = 0.0;  /* --vbv-maxrate, kbit/s */
 static double g_vbv_bufsize = 0.0;  /* --vbv-bufsize, kbit   */
 static double g_vbv_init = 0.9;     /* --vbv-init, a fraction of the buffer */
+/* Pass-through signalling (phase 14 item 1): the decoded picture hash, the
+ * VUI's colour description and the HDR10 static metadata. The whole struct
+ * is OFF here - every field -1 or 0 - and off is what every board, band and
+ * gate leg runs, which is what makes "no flag, no byte moves" the item's
+ * identity claim. Nothing in it reaches a coding decision; see signal.h. */
+static n265_signal g_sig = {
+    .hash = 0, .sar_idc = -1, .sar_w = 0, .sar_h = 0, .overscan = -1,
+    .videoformat = -1, .full_range = -1, .colorprim = -1, .transfer = -1,
+    .colormatrix = -1, .chromaloc = -1, .win_on = 0,
+    .have_md = 0, .have_cll = 0, .hdr10 = -1, .cll_on = 1, .atc = -1,
+};
 
 void n265_set_threads(int n)
 {
@@ -201,6 +212,92 @@ void n265_set_vbv(double maxrate, double bufsize, double init)
     g_vbv_bufsize = bufsize;
     g_vbv_init = init;
 }
+/* ---- the pass-through signalling setters (phase 14 item 1) ----
+ *
+ * Six of them, one per group of flags, and every argument is already the
+ * SYNTAX ELEMENT: the CLI owns the string forms (signal.c's tables) and
+ * the library never sees a name. -1 means "not given" in every field that
+ * has an absence, which is what the SPS writer turns into a presence flag
+ * of 0. None of these reaches a coding decision; see signal.h. */
+
+/* --hash, in x265's numbering: 0 off, 1 MD5, 2 CRC, 3 checksum. */
+void n265_set_hash(int type);
+void n265_set_hash(int type)
+{
+    g_sig.hash = type >= 0 && type <= 3 ? type : 0;
+}
+
+/* the VUI's colour block: video_format, video_full_range_flag, the three
+ * colour description fields, chroma_sample_loc_type and the overscan flag
+ * (-1 for every one that was not given). */
+void n265_set_vui_colour(int videoformat, int full_range, int colorprim,
+                         int transfer, int colormatrix, int chromaloc,
+                         int overscan);
+void n265_set_vui_colour(int videoformat, int full_range, int colorprim,
+                         int transfer, int colormatrix, int chromaloc,
+                         int overscan)
+{
+    g_sig.videoformat = videoformat;
+    g_sig.full_range = full_range;
+    g_sig.colorprim = colorprim;
+    g_sig.transfer = transfer;
+    g_sig.colormatrix = colormatrix;
+    g_sig.chromaloc = chromaloc;
+    g_sig.overscan = overscan;
+}
+
+/* aspect_ratio_idc, and the explicit pair when it is 255 (EXTENDED_SAR). */
+void n265_set_vui_sar(int idc, int w, int h);
+void n265_set_vui_sar(int idc, int w, int h)
+{
+    g_sig.sar_idc = idc;
+    g_sig.sar_w = w;
+    g_sig.sar_h = h;
+}
+
+/* the default display window, in LUMA samples (the writer divides). */
+void n265_set_vui_window(int on, int l, int t, int r, int b);
+void n265_set_vui_window(int on, int l, int t, int r, int b)
+{
+    g_sig.win_on = on != 0;
+    g_sig.win_l = l;
+    g_sig.win_t = t;
+    g_sig.win_r = r;
+    g_sig.win_b = b;
+}
+
+/* the HDR10 static metadata. `md` is ten values in x265's own order -
+ * G(x,y) B(x,y) R(x,y) WP(x,y) L(max,min) - or NULL for no mastering
+ * display; cll < 0 is no content light level message. */
+void n265_set_hdr_meta(const uint32_t *md, int cll, int fall);
+void n265_set_hdr_meta(const uint32_t *md, int cll, int fall)
+{
+    g_sig.have_md = md != NULL;
+    if (md) {
+        for (int c = 0; c < 3; c++) {
+            g_sig.md_prim[c][0] = (uint16_t)md[2 * c];
+            g_sig.md_prim[c][1] = (uint16_t)md[2 * c + 1];
+        }
+        g_sig.md_wp[0] = (uint16_t)md[6];
+        g_sig.md_wp[1] = (uint16_t)md[7];
+        g_sig.md_max = md[8];
+        g_sig.md_min = md[9];
+    }
+    g_sig.have_cll = cll >= 0;
+    g_sig.maxcll = cll >= 0 ? cll : 0;
+    g_sig.maxfall = fall >= 0 ? fall : 0;
+}
+
+/* --hdr10 / --no-hdr10 (-1 leaves the auto rule), --cll / --no-cll, and
+ * --atc-sei (-1 for no message). */
+void n265_set_hdr10(int hdr10, int cll_on, int atc);
+void n265_set_hdr10(int hdr10, int cll_on, int atc)
+{
+    g_sig.hdr10 = hdr10;
+    g_sig.cll_on = cll_on != 0;
+    g_sig.atc = atc >= 0 && atc <= 255 ? atc : -1;
+}
+
 void n265_set_bitrate(double kbps) { g_bitrate = kbps > 0.0 ? kbps : 0.0; }
 /* Two-pass: 1 writes the stats sidecar, 2 plans from it, 3 does both (the
  * plan from the file it is about to replace). The path is the caller's and
@@ -759,6 +856,7 @@ static void fw_config(n265_encoder *e, n265_frame_work *fw)
     fw->level_idc = e->level.idc;
     fw->level_tier = e->level.tier;
     fw->vui_timing = e->vui_timing;
+    fw->sig = e->sig;
     fw->hrd_on = e->hrd_on;
     fw->hrd_bit_rate_scale = e->hrd_bit_rate_scale;
     fw->hrd_bit_rate_value = e->hrd_bit_rate_value;
@@ -1404,6 +1502,19 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         { const char *v = n265_env("N265_VBV_HRD");
           e->vbv_hrd = v ? atoi(v) != 0 : 1; }
         e->vui_timing = g_vui_timing && p->fps_num > 0 && p->fps_den > 0;
+        /* The pass-through signalling, as the setters left it (signal.h).
+         * It is copied whole and validated nowhere: every field is already
+         * a syntax element the CLI bounded, and there is nothing about the
+         * STREAM that could refuse one - a colour primary is a claim about
+         * the source, not about anything this encoder decides. */
+        e->sig = g_sig;
+        if (e->sig.hash) {
+            /* the scratch one picture's hash message is built in: 64 bytes
+             * holds the widest of the three (three 16-byte MD5s, the type
+             * byte and the message header). */
+            if (bs_init(&e->hash_bs, 64) < 0)
+                goto fail;
+        }
         /* hrd_parameters (E.2.2) in the VUI: the CPB schedule the clamp
          * enforces, scaled per E.2.3.
          *
@@ -1920,6 +2031,7 @@ void n265_encoder_close(n265_encoder *e)
         free(e->sc_hist[i].map);   /* phase 11 item 4's skip-map ring */
     n265_la_free(e);
     bs_free(&e->hrd_bs);
+    bs_free(&e->hash_bs);
     free(e->out);
     free(e);
 }
@@ -2596,6 +2708,32 @@ static void dump_planes(n265_frame_work *fw, FILE *f)
         const pixel *pl = pcm ? fw->pad_plane[i] : fw->recon[i];
         for (int y = 0; y < h; y++)
             fwrite(pl + y * stride, sizeof(pixel), (size_t)w, f);
+    }
+}
+
+/* The decoded picture hash of one finished frame (hash.h, D.3.19).
+ *
+ * It walks the CODED picture - pad_w x pad_h, the conformance window's
+ * padding included - and not what --dump-recon writes, because that is
+ * what pic_width_in_luma_samples says the picture is and what a decoder
+ * will have reconstructed. The two differ on exactly the vectors whose
+ * dimensions are not a multiple of the minimum coding block, and getting
+ * it wrong there would be invisible everywhere else.
+ *
+ * PCM writes no reconstruction and its decoded picture IS the padded
+ * source, which is the same exception dump_planes makes. */
+static void hash_frame(n265_encoder *e, n265_frame_work *fw,
+                       n265_pic_hash *h)
+{
+    int pcm = fw->mode == N265_MODE_PCM;
+    memset(h, 0, sizeof *h);
+    h->type = e->sig.hash - 1;      /* --hash is x265's numbering */
+    for (int i = 0; i < 3; i++) {
+        int w = i ? fw->pad_w >> fw->csx : fw->pad_w;
+        int hgt = i ? fw->pad_h >> fw->csy : fw->pad_h;
+        const pixel *pl = pcm ? fw->pad_plane[i] : fw->recon[i];
+        int stride = pcm ? fw->pad_stride[i] : fw->recon_stride[i];
+        n265_hash_plane(h, i, pl, stride, w, hgt);
     }
 }
 
@@ -3356,6 +3494,20 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
             fw->sei_len = fw->rbsp.bytes;
         }
     }
+    /* The HDR10 static metadata (phase 14 item 1), in EVERY IRAP access
+     * unit for the reason the grain SEI is: the messages persist to the
+     * end of the coded video sequence, an IDR opens a new one, and a
+     * decoder that random-accesses at a mid-stream IDR would otherwise
+     * have no mastering display to tone-map against. About 40 bytes a key
+     * frame, and zero without the flags. */
+    fw->hdr_sei_len = 0;
+    if (fw->idr && (n265_hdr10_on(&e->sig) || e->sig.atc >= 0) &&
+        n265_write_hdr_sei(&fw->rbsp, &e->sig) > 0) {
+        if (fw->rbsp.bytes <= sizeof fw->hdr_sei) {
+            memcpy(fw->hdr_sei, fw->rbsp.buf, fw->rbsp.bytes);
+            fw->hdr_sei_len = fw->rbsp.bytes;
+        }
+    }
     fw->nal_type = fw->idr ? N265_NAL_IDR_W_RADL
                            : (nonref ? 0 /* TRAIL_N */
                                      : 1 /* TRAIL_R */);
@@ -4084,9 +4236,24 @@ static void join_oldest(n265_encoder *e)
         n265_write_hrd_sei(&e->hrd_bs, &v);
         pack_nal(d, N265_NAL_PREFIX_SEI, e->hrd_bs.buf, e->hrd_bs.bytes);
     }
+    if (fw->hdr_sei_len)
+        pack_nal(d, N265_NAL_PREFIX_SEI, fw->hdr_sei, fw->hdr_sei_len);
     if (fw->sei_len)
         pack_nal(d, N265_NAL_PREFIX_SEI, fw->sei, fw->sei_len);
     pack_nal(d, fw->nal_type, fw->rbsp.buf, fw->rbsp.bytes);
+    /* --hash: the decoded picture hash, D.2.19. A SUFFIX SEI, so it comes
+     * AFTER the access unit's VCL NAL (7.4.2.4.4) - the only suffix NAL
+     * this encoder writes - and it is computed HERE, on the driver, off
+     * the finished reconstruction in coding order. That placement is the
+     * whole determinism argument: the recon is byte-identical at every
+     * thread count, the walk over it reads nothing else, so the message
+     * is too. */
+    if (e->sig.hash) {
+        n265_pic_hash h;
+        hash_frame(e, fw, &h);
+        n265_write_hash_sei(&e->hash_bs, &h, 3);
+        pack_nal(d, N265_NAL_SUFFIX_SEI, e->hash_bs.buf, e->hash_bs.bytes);
+    }
     e->n_done++;
     dump_recon_frame(e, fw);
     /* N265_DEPTH_DUMP: the frame's per-CTU training records, in raster

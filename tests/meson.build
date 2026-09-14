@@ -38,6 +38,16 @@ unit_hrd = executable('unit_hrd', 'unit/hrd_test.c',
   dependencies : yah265_dep)
 test('hrd', unit_hrd)
 
+# The decoded picture hash (phase 14 item 1): RFC 1321's own vectors
+# against the MD5 primitive, a known plane against three expected values
+# none of which this code produced, and the three signalling SEI writers
+# against hand-assembled messages. Pure arithmetic and pure syntax, no
+# encode; the decoder-side half is docs/phase14.md's ffmpeg verification
+# and scripts/hash_check.py.
+unit_hash = executable('unit_hash', 'unit/hash_test.c',
+  dependencies : yah265_dep)
+test('hash', unit_hash)
+
 # One file per kernel family (checkasm.h has the layout): a family item
 # adds its file here and one line to the table in main.c, and touches
 # nothing else.

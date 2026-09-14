@@ -65,6 +65,8 @@ lib_sources = [
   'src/encoder/deblock.c',
   'src/encoder/sao.c',
   'src/encoder/grain.c',
+  'src/encoder/hash.c',
+  'src/encoder/signal.c',
   'src/encoder/headers.c',
   'src/encoder/level.c',
   'src/encoder/preset.c',

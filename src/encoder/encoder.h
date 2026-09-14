@@ -15,8 +15,10 @@
 #include "common/bitstream.h"
 #include "encoder/cabac.h"
 #include "encoder/grain.h"
+#include "encoder/hash.h"
 #include "encoder/hrd.h"
 #include "encoder/la.h"
+#include "encoder/signal.h"
 #include "encoder/level.h"
 #include "encoder/rc.h"
 #include "encoder/twopass.h"
@@ -443,6 +445,11 @@ typedef struct n265_frame_work {
      * write_ptl writes a number rather than re-deriving one. */
     int level_idc, level_tier;
     int vui_timing;         /* --vui-timing: vui_timing_info in the SPS */
+    /* The pass-through signalling (signal.h): the VUI's colour
+     * description, the aspect ratio, the display window and the HDR10
+     * metadata. Copied here at dispatch like every other config field, so
+     * the SPS writer and the SEI builder read one struct and no global. */
+    n265_signal sig;
     /* hrd_parameters (E.2.2) in the VUI: the CPB schedule the VBV clamp
      * actually enforces, so a decoder can check it. 0 - the value every
      * stream before phase 12 item 2 carried - writes
@@ -698,6 +705,13 @@ typedef struct n265_frame_work {
      * before this frame's slice. */
     size_t sei_len;
     uint8_t sei[N265_FGC_SEI_MAX];
+    /* ...and the HDR10 static metadata beside it (phase 14 item 1): the
+     * mastering display, the content light level and the alternative
+     * transfer characteristic, all in ONE prefix SEI RBSP, in every IRAP
+     * access unit. 64 bytes holds the three messages with their headers
+     * three times over. */
+    size_t hdr_sei_len;
+    uint8_t hdr_sei[N265_HDR_SEI_MAX];
     int nal_type;
     /* rate control hand-off, frozen at dispatch (sec 3 rule 4) */
     int rc_cls;
@@ -940,6 +954,11 @@ struct n265_encoder {
      * them, which is what N265_LEVEL_TRACE prints. */
     n265_level_out level;
     int vui_timing;         /* --vui-timing: vui_timing_info in the SPS */
+    /* The pass-through signalling flags (signal.h), as the setters left
+     * them at open. Copied into every frame_work at dispatch; nothing
+     * here is read on a worker. */
+    n265_signal sig;
+    bitstream_t hash_bs;    /* the scratch the picture hash is built in */
     /* --film-grain / --film-grain-denoise (phase 12 item 3). OPT-IN and
      * nothing but: strength 0 is the default, and at 0 the estimator is
      * never opened, no picture is touched and no SEI is written, which is
@@ -1125,15 +1144,17 @@ struct n265_encoder {
         uint8_t *buf;
         size_t cap, len;
         int nnal;
-        /* SIX, not four: the first access unit of a stream with a VBV and
-         * a film grain SEI carries VPS, SPS, PPS, the HRD timing SEI (the
-         * buffering period and the pic_timing share one NAL), the grain
-         * SEI and the slice. pack_nal DROPS a NAL past this bound and says
-         * nothing, so a bound one short does not fail loudly - it silently
-         * loses the IDR slice and the stream decodes as "could not find
-         * ref with POC 0". Found exactly that way, 2026-09-14. */
-        int type[6];
-        int size[6];
+        /* EIGHT, not four: the first access unit of a stream with a VBV,
+         * a film grain SEI, HDR10 metadata and --hash carries VPS, SPS,
+         * PPS, the HRD timing SEI (the buffering period and the pic_timing
+         * share one NAL), the HDR metadata SEI (all three messages in one
+         * NAL), the grain SEI, the slice, and the hash SUFFIX SEI after
+         * it. pack_nal DROPS a NAL past this bound and says nothing, so a
+         * bound one short does not fail loudly - it silently loses the IDR
+         * slice and the stream decodes as "could not find ref with POC 0".
+         * Found exactly that way, 2026-09-14. */
+        int type[8];
+        int size[8];
     } done[LA_MAX + N265_MAX_FRAME_WORK + 4];
     int n_done, done_head;
     /* T2 stall census (N265_STALL_TRACE): reference reads that had to
@@ -1482,6 +1503,8 @@ void n265_dpb_requirement(int bframes, int ref_max, int *reorder,
 void n265_write_vps(n265_frame_work *e);
 void n265_write_fgc_sei(bitstream_t *bs, const n265_grain_model *m);
 void n265_write_hrd_sei(bitstream_t *bs, const n265_hrd_sei *v);
+size_t n265_write_hdr_sei(bitstream_t *bs, const n265_signal *s);
+void n265_write_hash_sei(bitstream_t *bs, const n265_pic_hash *h, int ncomp);
 void n265_write_sps(n265_frame_work *e);
 void n265_write_pps(n265_frame_work *e);
 
