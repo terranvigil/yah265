@@ -264,26 +264,81 @@ static inline void inv_odd_acc(int32x4_t *o, int32x4_t c, const int8_t *row,
  * chain, which is the whole latency of the inner loop. Reassociating an
  * int32 sum is exact in two's complement, and the bound above says no
  * partial sum overflows on the way either.
+ *
+ * THE STAGING ARRAY IS GONE, AND IT WAS NOT FREE (phase 13 A2). The C
+ * and round 1's kernel both wrote the level's even half to a `t[]` and
+ * copied it back into `e[]` after the odd dot products. `h` is a
+ * run-time value there, so clang lowers that copy to a CALL TO
+ * `_platform_memmove` - which the A2 census caught as the largest single
+ * memmove site in the encoder, 22-26% of all memmove samples on the
+ * three profile clips. The copy is unnecessary at any `h`: at step k the
+ * loop reads `e[k]` and `e[len - 1 - k]`, and `len - 1 - k >= h > k - 1`
+ * for every k < h, so no read ever lands on an index the loop has
+ * already written. Writing `e[k]` in place is the same integer in the
+ * same order with the staging removed.
  */
-static inline void fwd_dct_1d_x4(int32x4_t *out, int32x4_t *e, int n,
-                                 int32x4_t sh)
+static inline __attribute__((always_inline))
+void fwd_dct_1d_body(int32x4_t *out, int32x4_t *e, int n, int32x4_t sh)
 {
-    int32x4_t t[16], o[16];
+    int32x4_t o[16];
 
     for (int len = n, oscale = 1; len > 1; len >>= 1, oscale <<= 1) {
         int h = len >> 1, rs = 32 / len;
 
         for (int k = 0; k < h; k++) {
-            o[k] = vsubq_s32(e[k], e[len - 1 - k]);
-            t[k] = vaddq_s32(e[k], e[len - 1 - k]);
+            int32x4_t a = e[k], b = e[len - 1 - k];
+
+            o[k] = vsubq_s32(a, b);
+            e[k] = vaddq_s32(a, b);
         }
         for (int i = 0; i < h; i++)
             out[(2 * i + 1) * oscale] =
                 RSH(fwd_odd_dot(o, n265_tmatrix[(2 * i + 1) * rs], h), sh);
-        for (int k = 0; k < h; k++)
-            e[k] = t[k];
     }
     out[0] = RSH(vshlq_n_s32(e[0], 6), sh);
+}
+
+/*
+ * ONE INSTANCE PER LENGTH, and never inlined into the 2-D wrapper.
+ *
+ * Round 1 wrote a single routine with `n` as an argument, and the A2
+ * census says what that costs. With `n` run-time the level loop has a
+ * run-time trip count, every index into `e`, `o` and `out` is dynamic,
+ * the matrix row address is a multiply, and `fwd_odd_dot` dispatches
+ * through a switch on the run-time half-length at every one of its
+ * calls. The NEON dispatch only ever reaches this routine at 16 and 32
+ * (transform.c gates the class on `log2n >= 4 || use_dst`, and the DST
+ * has its own 4-point form), so there are exactly two instances to make
+ * and both of them fold: constant trip counts, constant `oscale` and
+ * `rs`, constant `n265_tmatrix` row addresses, and the switch resolved
+ * at every level.
+ *
+ * `noinline` for round 6's reason (docs/phase6-neon.md, round 6 part B):
+ * an unrolled 32-point butterfly sitting in the same function as the
+ * 16-point one makes both pay for the register allocation, and the
+ * wrapper's own `e`/`v` arrays are in memory either way.
+ */
+static __attribute__((noinline))
+void fwd_dct_1d_x4_16(int32x4_t *out, int32x4_t *e, int32x4_t sh)
+{
+    fwd_dct_1d_body(out, e, 16, sh);
+}
+
+static __attribute__((noinline))
+void fwd_dct_1d_x4_32(int32x4_t *out, int32x4_t *e, int32x4_t sh)
+{
+    fwd_dct_1d_body(out, e, 32, sh);
+}
+
+static inline __attribute__((always_inline))
+void fwd_dct_1d_x4(int32x4_t *out, int32x4_t *e, int n, int32x4_t sh)
+{
+    if (n == 16)
+        fwd_dct_1d_x4_16(out, e, sh);
+    else if (n == 32)
+        fwd_dct_1d_x4_32(out, e, sh);
+    else
+        fwd_dct_1d_body(out, e, n, sh);
 }
 
 /* DST-VII 4-point forward, four columns at once; fwd_dst4_1d() verbatim.
@@ -473,8 +528,9 @@ void n265_fdct_neon(int16_t *coef, const int16_t *resid, int log2n,
  * and the saturating case is the instruction's own rather than an
  * approximation of the C's ternary.
  */
-static inline void inv_dct_1d_x4(int32x4_t *dst, const int32x4_t *src, int n,
-                                 int32x4_t sh, int clip)
+static inline __attribute__((always_inline))
+void inv_dct_1d_body(int32x4_t *dst, const int32x4_t *src, int n,
+                     int32x4_t sh, int clip)
 {
     int32x4_t e[32], o[16];
 
@@ -501,6 +557,45 @@ static inline void inv_dct_1d_x4(int32x4_t *dst, const int32x4_t *src, int n,
     }
 }
 
+/* Same two instances, same reason, as the forward's (phase 13 A2): `n`
+ * and `clip` are both compile-time at every call site once the 2-D
+ * wrapper has its size, and with them the level loop unrolls, `step`,
+ * `rs` and the matrix row addresses fold, and `inv_odd_acc`'s switch on
+ * the run-time level width resolves. `clip` is a parameter of the
+ * instance and not of the call because stage 1 always clips and stage 2
+ * never does. */
+static __attribute__((noinline))
+void inv_dct_1d_x4_16(int32x4_t *dst, const int32x4_t *src, int32x4_t sh,
+                      int clip)
+{
+    if (clip)
+        inv_dct_1d_body(dst, src, 16, sh, 1);
+    else
+        inv_dct_1d_body(dst, src, 16, sh, 0);
+}
+
+static __attribute__((noinline))
+void inv_dct_1d_x4_32(int32x4_t *dst, const int32x4_t *src, int32x4_t sh,
+                      int clip)
+{
+    if (clip)
+        inv_dct_1d_body(dst, src, 32, sh, 1);
+    else
+        inv_dct_1d_body(dst, src, 32, sh, 0);
+}
+
+static inline __attribute__((always_inline))
+void inv_dct_1d_x4(int32x4_t *dst, const int32x4_t *src, int n,
+                   int32x4_t sh, int clip)
+{
+    if (n == 16)
+        inv_dct_1d_x4_16(dst, src, sh, clip);
+    else if (n == 32)
+        inv_dct_1d_x4_32(dst, src, sh, clip);
+    else
+        inv_dct_1d_body(dst, src, n, sh, clip);
+}
+
 /*
  * The same transform under the C's bound: every src entry at index >= nc
  * is zero. inv_dct_1d_nz() lane for lane, including the index arithmetic
@@ -511,8 +606,9 @@ static inline void inv_dct_1d_x4(int32x4_t *dst, const int32x4_t *src, int n,
  * `if (!c) continue` weakened to a four-lane test; adding zero is exact
  * either way, so the two agree whatever the test decides.
  */
-static inline void inv_dct_1d_x4_nz(int32x4_t *dst, const int32x4_t *src,
-                                    int n, int32x4_t sh, int clip, int nc)
+static inline __attribute__((always_inline))
+void inv_dct_1d_nz_body(int32x4_t *dst, const int32x4_t *src,
+                        int n, int32x4_t sh, int clip, int nc)
 {
     int32x4_t e[32], o[16];
 
@@ -551,6 +647,42 @@ static inline void inv_dct_1d_x4_nz(int32x4_t *dst, const int32x4_t *src,
 
         dst[j] = clip ? vmovl_s16(vqmovn_s32(v)) : v;
     }
+}
+
+/* The bounded form's two instances. `idct_block` only ever reaches it at
+ * 16 and 32 - below that it takes the unbounded form, which costs less
+ * than the bound's own index arithmetic - so the same two, and `nc` is
+ * the one thing here that stays run-time. */
+static __attribute__((noinline))
+void inv_dct_1d_x4_nz_16(int32x4_t *dst, const int32x4_t *src, int32x4_t sh,
+                         int clip, int nc)
+{
+    if (clip)
+        inv_dct_1d_nz_body(dst, src, 16, sh, 1, nc);
+    else
+        inv_dct_1d_nz_body(dst, src, 16, sh, 0, nc);
+}
+
+static __attribute__((noinline))
+void inv_dct_1d_x4_nz_32(int32x4_t *dst, const int32x4_t *src, int32x4_t sh,
+                         int clip, int nc)
+{
+    if (clip)
+        inv_dct_1d_nz_body(dst, src, 32, sh, 1, nc);
+    else
+        inv_dct_1d_nz_body(dst, src, 32, sh, 0, nc);
+}
+
+static inline __attribute__((always_inline))
+void inv_dct_1d_x4_nz(int32x4_t *dst, const int32x4_t *src, int n,
+                      int32x4_t sh, int clip, int nc)
+{
+    if (n == 16)
+        inv_dct_1d_x4_nz_16(dst, src, sh, clip, nc);
+    else if (n == 32)
+        inv_dct_1d_x4_nz_32(dst, src, sh, clip, nc);
+    else
+        inv_dct_1d_nz_body(dst, src, n, sh, clip, nc);
 }
 
 /* DST-VII 4-point inverse, four columns at once; inv_dst4_1d() verbatim.
