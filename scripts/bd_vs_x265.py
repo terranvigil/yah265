@@ -30,6 +30,14 @@ A second column carries BD-rate on chroma PSNR off the same points: the metric
 is luma-only, so that column is the only thing that says whether an arm bought
 its luma number out of the chroma planes. The rule and the CIF-7 baseline are
 in docs/instruments.md under the band tool.
+
+`--extra` (or EXTRA=1) is phase 13 B4's reporting mode: the SAME four
+matched-byte rungs read by six metrics instead of one - VMAF-NEG (the band's),
+VMAF (the default model, enhancement credit included), PSNR-Y, SSIM-Y,
+SSIM-U/V and MS-SSIM - with a `disagree` column that names every clip where
+VMAF-NEG and PSNR-Y point opposite ways and says which side SSIM-Y takes. It
+adds a decode and two filter runs per point and no term to either memo key,
+so the default columns reproduce to the digit with it on or off.
 """
 import json, os, re, statistics, subprocess, sys
 from concurrent.futures import ThreadPoolExecutor
@@ -49,6 +57,13 @@ X = os.environ.get("X265", "x265")
 ARGS = os.environ.get("ARGS", "--aq 1 --cutree 1")
 KNOB = os.environ.get("KNOB", "qp")            # qp | crf: which knob bd_at_rate bisects
 JOBS = int(os.environ.get("JOBS", "4"))
+# `--extra` (or EXTRA=1) is phase 13 B4's reporting mode: the same four
+# matched-byte rungs, read by six metrics instead of one, so a clip where
+# the band's metric and PSNR disagree says so on one line. It changes
+# nothing about the encodes, nothing about the ladders and nothing about
+# either memo key - the default mode's numbers reproduce to the digit with
+# it on or off, which is the gate this mode shipped under.
+EXTRA = "--extra" in sys.argv or os.environ.get("EXTRA", "0") != "0"
 ladders = json.load(open(os.path.join(HERE, "ladders.json")))
 sel = os.environ.get("CLIPS", "")
 clips = sel.split(",") if sel else list(ladders)
@@ -73,6 +88,8 @@ def run(clip):
            "--targets", ",".join(str(t) for t in targets_of(clip)),
            "--srcdir", SRCDIR, "--depth", str(DEPTH),
            "--label-a", "ours", "--label-b", "x265", "--a", ours, "--b", ref]
+    if EXTRA:
+        cmd.append("--extra")
     r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
     return clip, r.stdout + r.stderr
 FGC = int(os.environ.get("FGC", "0"))
@@ -81,6 +98,13 @@ print(f"depth: {DEPTH}  src: {SRCDIR}  FGC: {'synthesised' if FGC else 'not appl
 res = {}
 chroma = {}
 luma = {}
+# B4's six: the tag bd_at_rate prints, the column head, and what it means
+# when the number is NEGATIVE (always: ours spends fewer bits at the same
+# reading of that metric).
+EXTRA_COLS = [("bdVMAF", "VMAF"), ("bdPSNRY", "PSNR-Y"),
+              ("bdSSIMY", "SSIM-Y"), ("bdSSIMU", "SSIM-U"),
+              ("bdSSIMV", "SSIM-V"), ("bdMSSSIM", "MS-SSIM")]
+extra = {tag: {} for tag, _ in EXTRA_COLS}
 with ThreadPoolExecutor(max_workers=JOBS) as ex:
     for clip, out in ex.map(run, clips):
         print(out.rstrip()); m = re.search(r"BD-rate\(VMAF-NEG\) ours vs x265: ([+-][\d.]+)%", out)
@@ -95,6 +119,14 @@ with ThreadPoolExecutor(max_workers=JOBS) as ex:
         # itself the open question (phase 12 item 3).
         my = re.search(r"lumaPSNR ([+-][\d.]+)%", out)
         if my: luma[clip] = float(my.group(1))
+        if EXTRA:
+            for tag, _ in EXTRA_COLS:
+                # `sat` (the overlap window collapsed) is deliberately not
+                # matched here: the cell stays empty rather than carrying a
+                # number the instrument does not stand behind. `~` marks a
+                # thin window and rides along with the value.
+                me = re.search(rf"\b{tag} ([+-][\d.]+)%(~?)", out)
+                if me: extra[tag][clip] = (float(me.group(1)), me.group(2))
 v = list(res.values())
 if v:
     tag = "" if DEPTH == 8 else f" (Main10, {DEPTH}-bit)"
@@ -111,3 +143,40 @@ if v:
     cv = [chroma[c] for c in clips if c in chroma]
     if cv:
         print(f"  chromaPSNR   median {statistics.median(cv):+.2f}%   mean {statistics.mean(cv):+.2f}%   worst {max(cv):+.2f}%   ahead {sum(1 for x in cv if x < 0)}/{len(cv)}")
+if EXTRA and res:
+    have = [(tag, head) for tag, head in EXTRA_COLS if extra[tag]]
+    print("\n=== BD-rate by metric, same four matched-byte rungs "
+          "(negative = ours spends fewer bits at equal reading) ===")
+    print("    `sat` = the metric's overlap window collapsed on this clip, "
+          "no reading;\n    `~` = thin window, read the sign and not the "
+          "magnitude.")
+    print(f"  {'clip':<18} {'VMAF-NEG':>10}" +
+          "".join(f" {h:>10}" for _, h in have) + "   disagree")
+    for c in clips:
+        if c not in res:
+            continue
+        row = f"  {c:<18} {res[c]:>+10.2f}"
+        for tag, _ in have:
+            e = extra[tag].get(c)
+            row += f" {e[0]:>+9.2f}{e[1] or ' '}" if e else f" {'sat':>10}"
+        # The B4 question in one column: the band's metric says we are
+        # ahead (negative) and PSNR-Y says we are behind (positive), or
+        # the other way round. SSIM-Y is the tie-break and is named when
+        # it takes a side.
+        py = extra["bdPSNRY"].get(c)
+        sy = extra["bdSSIMY"].get(c)
+        flag = ""
+        if py is not None and (res[c] < 0) != (py[0] < 0):
+            flag = "NEG/PSNR-Y"
+            if sy is not None:
+                flag += "; SSIM-Y with " + ("NEG" if (sy[0] < 0) == (res[c] < 0)
+                                            else "PSNR-Y")
+        print(row + ("   " + flag if flag else ""))
+    srow = f"  {'median':<18} {statistics.median(list(res.values())):>+10.2f}"
+    arow = f"  {'ahead':<18} {sum(1 for x in res.values() if x < 0):>7}/{len(res)}"
+    for tag, _ in have:
+        vals = [extra[tag][c][0] for c in clips if c in extra[tag]]
+        srow += f" {statistics.median(vals):>+10.2f}"
+        arow += f" {sum(1 for x in vals if x < 0):>7}/{len(vals)}"
+    print(srow)
+    print(arow)
