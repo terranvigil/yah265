@@ -345,6 +345,83 @@ static const struct kv slower_tab[] = {
     { NULL, NULL }
 };
 
+/* veryslow: `slower` plus the ONE lever of x265's veryslow that measured
+ * as a gain here - the transform tree's third level. NOT PLACED; the
+ * table is what the measurement left, and docs/phase14.md "Item 5" is
+ * why.
+ *
+ * The table below is `slower_tab` spelled out again - not shared, for the
+ * reason every other table here is spelled out - plus two rows that name
+ * values `slower` already inherits from the compiled-in defaults, so that
+ * a later move of a default cannot quietly take the top rung's quantiser
+ * or its merge list away. Everything else x265 spends at this name was
+ * built, measured on the CRF band at `--preset slower`, and DROPPED:
+ *
+ *   --ref 4 / --ref 5   1.62x / 1.92x of the foreman single-thread wall
+ *                       and 1.43x / 1.76x of park_joy's, for a CIF-7 band
+ *                       median that gets WORSE (+0.16% / +0.25%, three of
+ *                       seven clips ahead). Only foreman gains. The phase
+ *                       7 record said the same thing one reference lower.
+ *   --bframes 8 with
+ *   --rc-lookahead 40   about four points of CIF-7 band median against
+ *                       x265 veryslow (+2.11% -> +6.37%). The deep
+ *                       window's own note already says the longer run
+ *                       costs band on top of the deeper window, and
+ *                       docs/instruments.md says depth is priced per
+ *                       preset and 24 already broke a clip's bar at
+ *                       medium. 40 is well past anything measured.
+ *   N265_SUBPEL_RATE 1
+ *   ungated             +0.18 of band median. Medium buys it GATED for a
+ *                       reason and this rung has no reason to buy it
+ *                       ungated.
+ *   --b-adapt 2         x265's own b-adapt at this name, and a refused
+ *                       arm here since phase 7.
+ */
+static const struct kv veryslow_tab[] = {
+    { "N265_CHROMA_PRED", "0" },
+    { "N265_CB64_AMVP",  "1" },
+    { "N265_RSKIP",      "0" },
+    { "N265_BI_REFINE",  "1" },
+    { "N265_CBF_FAST",   "3" },
+    { "N265_NO_AMP",     "0" },
+    { "N265_PART_GATE",  "0" },
+    { "N265_RECT_RANK",  "0" },
+    { "N265_SUBME",      "0" },
+    { "N265_NO_RECT",    "0" },
+    { "N265_MIN_KEYINT", "0" },
+    { "N265_RDOQ",       "1" },   /* the lattice in EVERY RD trial; the
+                                   * compiled-in default, named here     */
+    { "N265_MERGE_RD_N", "5" },   /* the whole merge list gets a trial;
+                                   * MAX_MERGE, named for the same reason */
+    { NULL, NULL }
+};
+
+/* placebo: veryslow with the transform tree's FOURTH level, which is the
+ * only thing left on x265's placebo column that this encoder has a lever
+ * for - `--merange` does not exist here, `--max-merge 5` and
+ * `--limit-refs 0` are already what we do, and `--ref 5` and the deeper
+ * window are the two the measurement refused at `veryslow`. NOT PLACED
+ * either. Depth 4 is the one lever on this rung that is NOT free: it is
+ * worth more than depth 3 on the CIF-7 median (-0.78% against -0.53%)
+ * and it takes mobile_cif backwards by 0.16%, which is what a 4x4
+ * transform of a busy inter residual costs in syntax. */
+static const struct kv placebo_tab[] = {
+    { "N265_CHROMA_PRED", "0" },
+    { "N265_CB64_AMVP",  "1" },
+    { "N265_RSKIP",      "0" },
+    { "N265_BI_REFINE",  "1" },
+    { "N265_CBF_FAST",   "3" },
+    { "N265_NO_AMP",     "0" },
+    { "N265_PART_GATE",  "0" },
+    { "N265_RECT_RANK",  "0" },
+    { "N265_SUBME",      "0" },
+    { "N265_NO_RECT",    "0" },
+    { "N265_MIN_KEYINT", "0" },
+    { "N265_RDOQ",       "1" },
+    { "N265_MERGE_RD_N", "5" },
+    { NULL, NULL }
+};
+
 /* CLI-level structural parameters. Same rule: the front end's own flag
  * wins where the user gave one. */
 
@@ -416,6 +493,31 @@ static const struct kv slower_par[] = {
     { NULL, NULL }
 };
 
+
+/* veryslow's and placebo's structure IS `slower`'s, plus the transform
+ * tree. Every other row x265 moves at these names - a fourth and fifth
+ * reference, eight B frames, a forty- and sixty-frame window - was built,
+ * measured and dropped; see veryslow_tab's comment for the numbers. */
+static const struct kv veryslow_par[] = {
+    { "ctu",             "64" },
+    { "ref",             "2" },
+    { "bframes",         "7" },
+    { "rc-lookahead",    "25" },
+    { "tu-inter-depth",  "3" },
+    { "tu-intra-depth",  "3" },
+    { NULL, NULL }
+};
+
+static const struct kv placebo_par[] = {
+    { "ctu",             "64" },
+    { "ref",             "2" },
+    { "bframes",         "7" },
+    { "rc-lookahead",    "25" },
+    { "tu-inter-depth",  "4" },
+    { "tu-intra-depth",  "4" },
+    { NULL, NULL }
+};
+
 /* ---- the ladder, and x265's names for it (phase 13 C2/C3) ------------
  *
  * x265 prints ten preset names and users compare preset to preset, so
@@ -470,6 +572,23 @@ static const struct rung rungs[] = {
     { "medium",   med_tab,    med_par,    1 },
     { "slow",     slow_tab,   slow_par,   1 },
     { "slower",   slower_tab, slower_par, 1 },
+    /* `veryslow` and `placebo` are present and NOT placed (2026-09-14,
+     * phase 14 item 5). The binding leg is the BAND, and it binds a long
+     * way above them: on the CRF band against the x265 preset of their
+     * own name, the best composition either could be given reads +2.11%
+     * and +3.78% of CIF-7 median with two of seven clips ahead, and the
+     * rule is every clip.
+     *
+     * The reason is not in these two tables. `--preset slow` reads
+     * +10.24% against x265 `slow` and `--preset slower` +1.18% against
+     * x265 `slower`, both with `placed = 1` they were given before C1's
+     * instrument existed and against x265 MEDIUM. Our ladder's top does
+     * not earn its own names yet, and a rung built on top of it inherits
+     * that. `--preset medium` still reads -6.65% with all seven ahead,
+     * which is the control this item ran to be sure the instrument and
+     * the corpus had not moved. docs/phase14.md, "Item 5". */
+    { "veryslow", veryslow_tab, veryslow_par, 0 },
+    { "placebo",  placebo_tab,  placebo_par,  0 },
 };
 #define N_RUNGS ((int)(sizeof(rungs) / sizeof(rungs[0])))
 

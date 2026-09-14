@@ -97,18 +97,22 @@ enum {
                           (p) == PART_2NxnD)
 #define PART_IS_AMP(p)   ((p) >= PART_2NxnU)
 /* The reference-picture pool, as an ARRAY BOUND. 11 since 2026-09-12
- * (item dpbpool): the widest shape the CLI allows - `--ref 3 --bframes
- * 15` - can hold eleven pictures marked at once (`n265_dpb_requirement`'s
- * structural peak: ref_max carried anchors, this anchor, and the
- * mini-GOP's seven reference Bs), and a pool smaller than the marked set
- * sends `claim_slot`'s last branch over a picture still in the RPS.
+ * (item dpbpool); 13 since 2026-09-14 (phase 14 item 5), when `--ref`
+ * gained 4 and 5 for the top two rungs. The widest shape the CLI allows -
+ * `--ref 5 --bframes 15` - would hold thirteen pictures marked at once
+ * (`n265_dpb_requirement`'s structural peak: ref_max carried anchors,
+ * this anchor, and the mini-GOP's seven reference Bs), and a pool smaller
+ * than the marked set sends `claim_slot`'s last branch over a picture
+ * still in the RPS. The level's own MaxDpbSize (A.4.2, level.c) is a
+ * SECOND bound and the one a decoder enforces: a shape that needs more
+ * pictures than the level holds raises the level or is refused there.
  *
  * It is NOT how many slots an encode allocates or scans - that is
  * `e->dpb_slots`, solved at open, and it is six wherever six suffice:
  * every shape that shipped before this item, the deep window at `--ref 1`
  * and `2` included. Those encodes run the same six-slot pool they always
  * did, bit for bit and byte for byte of RSS. */
-#define N265_DPB_SLOTS 11
+#define N265_DPB_SLOTS 13
 /* The pool every shape ran before it was sized. Kept as the FLOOR so no
  * shape that fit in six moves a slot choice. */
 #define N265_DPB_POOL_MIN 6
@@ -128,7 +132,7 @@ enum {
  * ((a+B) + (b+B) + 1) >> 1 is ((a+b+1) >> 1) + B exactly. */
 #define N265_QP_STORE(q) ((q) + QP_BD_OFFSET)
 #define N265_QP_LOAD(v)  ((int)(v) - QP_BD_OFFSET)
-#define N265_MAX_REF 3
+#define N265_MAX_REF 5
 /* --bframes clamp; also sizes the mini-GOP walk the SPS's DPB derivation
  * runs. 15 since 2026-09-12 (phase 7 item 3, D3): a mini-GOP of 16 is
  * what the opt-in deep window is for. The default is still 7 and the
@@ -420,6 +424,14 @@ typedef struct n265_frame_work {
     int amp;                /* asymmetric inter PUs; also the SPS flag,
                              * which changes part_mode's binarization
                              * whether or not an AMP mode is chosen */
+    /* max_transform_hierarchy_depth_inter / _intra, the SPS's own
+     * quantity: MaxTrafoDepth for a 2Nx2N CU (7.4.9.8). x265 spells the
+     * same thing `--tu-inter-depth N` with N = this + 1, so our historic
+     * 1 / 1 IS x265's `--tu-inter-depth 2 --tu-intra-depth 2` and not
+     * its default of 1. Both the analysis (ctu.c's tt_node,
+     * commit_inter_tt_node) and the replay (entropy.c's replay_tt) read
+     * these and nothing else. */
+    int tt_depth_inter, tt_depth_intra;
     int rdoq;               /* N265_RDOQ: RD-optimised quantisation */
     /* N265_RDOQ=2: the lattice runs on the COMMIT path only, and this is
      * the predicate that says which path a tb_analyze_one call is on. It
@@ -1036,6 +1048,7 @@ struct n265_encoder {
     struct n265_refpic scratch_pic[N265_MAX_FRAME_WORK];
     int rect;
     int amp;
+    int tt_depth_inter, tt_depth_intra;   /* --tu-inter-depth / --tu-intra-depth, minus 1 */
     int ref_max;            /* --ref: references per list wanted (1..N265_MAX_REF) */
     /* n265_dpb_requirement, solved once at open and copied into every
      * frame_work: sps_max_num_reorder_pics, the picture storage buffer

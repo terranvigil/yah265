@@ -321,6 +321,7 @@
 #define n265_set_shot_window         n265_set_shot_window_10
 #define n265_set_lossless            n265_set_lossless_10
 #define n265_set_rdoq_level          n265_set_rdoq_level_10
+#define n265_set_tu_depth            n265_set_tu_depth_10
 #define n265_set_chroma_qpoffs       n265_set_chroma_qpoffs_10
 #define n265_set_vui_timing          n265_set_vui_timing_10
 #define n265_sig_ctx_map4x4          n265_sig_ctx_map4x4_10

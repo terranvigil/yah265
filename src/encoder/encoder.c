@@ -470,6 +470,18 @@ void n265_set_pass(int pass, const char *stats)
     g_stats_path = stats;
 }
 void n265_set_ref(int n) { g_ref = n < 1 ? 1 : n > N265_MAX_REF ? N265_MAX_REF : n; }
+/* --tu-inter-depth / --tu-intra-depth, in X265'S numbering (1..4): the
+ * number of transform-tree LEVELS a 2Nx2N CU may use, which is the SPS's
+ * max_transform_hierarchy_depth_* plus one. -1 is "the flag was not
+ * given", which leaves the compiled-in 2 / 2 - every stream this project
+ * has ever written. docs/instruments.md, "The transform tree's depth". */
+static int g_tu_inter_depth = -1, g_tu_intra_depth = -1;
+void n265_set_tu_depth(int inter, int intra);
+void n265_set_tu_depth(int inter, int intra)
+{
+    g_tu_inter_depth = inter;
+    g_tu_intra_depth = intra;
+}
 /* 0 off (fixed cadence), 1 the motion rule (the default), 2 the priced
  * mini-GOP, 3 the degradation ratio, 4 the priced mini-GOP in BITS.
  * 2, 3 and 4 are refused arms kept for re-pricing (docs/ideas.md). */
@@ -1133,6 +1145,8 @@ static void fw_config(n265_encoder *e, n265_frame_work *fw)
     fw->map_stride = e->map_stride;
     fw->rect = e->rect;
     fw->amp = e->amp;
+    fw->tt_depth_inter = e->tt_depth_inter;
+    fw->tt_depth_intra = e->tt_depth_intra;
     fw->rdoq = e->rdoq;
     fw->lossless = e->lossless;
     fw->qp_delta_on = e->qp_delta_on;
@@ -1501,7 +1515,33 @@ n265_encoder *n265_encoder_open(const n265_param *p)
       e->rect = e->mode != N265_MODE_PCM && !(v ? atoi(v) != 0 : 1); }
     { const char *v = n265_env("N265_NO_AMP");
       e->amp = e->rect && !(v ? atoi(v) != 0 : 1); }
+    /* The residual quadtree's depth budget. The compiled-in 1 / 1 is what
+     * every stream before 2026-09-14 carried and is x265's
+     * `--tu-*-depth 2`, not its default of 1; the flag moves it and
+     * nothing else does. A PCM stream has no transform tree at all. */
+    e->tt_depth_inter = e->tt_depth_intra = 1;
+    if (e->mode != N265_MODE_PCM) {
+        if (g_tu_inter_depth > 0) e->tt_depth_inter = g_tu_inter_depth - 1;
+        if (g_tu_intra_depth > 0) e->tt_depth_intra = g_tu_intra_depth - 1;
+    } else {
+        e->tt_depth_inter = e->tt_depth_intra = 0;
+    }
     e->ctb_log2 = e->mode == N265_MODE_PCM ? 4 : g_ctb_log2;
+    /* 7.4.3.2.1 bounds max_transform_hierarchy_depth_* at
+     * CtbLog2SizeY - MinTbLog2SizeY, and a decoder enforces it: ffmpeg
+     * refuses an SPS that says 3 at `--ctu 16`. The CLI refuses a depth
+     * the user ASKED for that the coding tree cannot hold; what reaches
+     * here is a preset's depth against a coding tree the user changed
+     * under it, and that is clamped rather than refused - a rung is a
+     * source of defaults and `--ctu 16 --preset placebo` should code, not
+     * fail. */
+    {
+        int tt_max = e->ctb_log2 - 2;
+        if (e->tt_depth_inter > tt_max) e->tt_depth_inter = tt_max;
+        if (e->tt_depth_intra > tt_max) e->tt_depth_intra = tt_max;
+        if (e->tt_depth_inter < 0) e->tt_depth_inter = 0;
+        if (e->tt_depth_intra < 0) e->tt_depth_intra = 0;
+    }
     e->keyint = e->mode == N265_MODE_PCM ? 1 : g_keyint;
     e->open_gop = g_open_gop;
     e->radl = g_radl;

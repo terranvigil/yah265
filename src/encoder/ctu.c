@@ -338,18 +338,29 @@ typedef struct qt_snap {
  * recursively from quadtree and its candidate TBs were already shared
  * across depths, and one instance per lane preserves that. */
 struct n265_scratch {
-    tb_ctx itt_l[4], itt_c[4][2];   /* commit_intra_tt's split arrangement */
-    /* tt_analyze's chroma save/split recon. They live here rather than on
-     * that function's stack because they have to hold 4:4:4's 32x32 chroma
-     * block and 4:2:0 only ever writes 16x16 of each: as locals they were
-     * 4 KB of frame that the 4:2:0 encoder reserves on every call and
-     * three quarters never touches, and that alone was 0.5% of
-     * single-thread wall (docs/phase8-plan.md, "Phase 8 speed"). Sharing
-     * one instance per lane is safe on the same argument itt_l already
-     * makes: analyze_cu calls tt_analyze and returns through it, so a
-     * second invocation is never live while the first one is. */
-    pixel tt_save_c[2 * 32 * 32], tt_split_c[2 * 32 * 32];
-    tb_ctx ctt_l[4], ctt_c[4][2];   /* commit_inter_tt's split arrangement */
+    /* The transform tree's per-NODE scratch, indexed by trafoDepth.
+     *
+     * These were one set each, on the argument that "analyze_cu calls
+     * tt_analyze and returns through it, so a second invocation is never
+     * live while the first one is". Since 2026-09-14 that is no longer
+     * true: `--tu-inter-depth` / `--tu-intra-depth` make the transform
+     * tree RECURSIVE, so a node at depth 2 is live inside a node at depth
+     * 1 inside the root. One set per depth is what that costs, and the
+     * depth is bounded by the tree itself - maxTB 32 down to minTB 4 from
+     * a 64x64 CB is five levels and no format has a sixth.
+     *
+     * They live here rather than on the node's stack because they have to
+     * hold 4:4:4's 32x32 chroma block and 4:2:0 only ever writes 16x16 of
+     * each: as locals they were 4 KB of frame that the 4:2:0 encoder
+     * reserves on every call and three quarters never touches, and that
+     * alone was 0.5% of single-thread wall (docs/phase8-plan.md, "Phase 8
+     * speed") - and on the stack a five-deep recursion would reserve all
+     * five sets at once. */
+    tb_ctx tt_fl[5], tt_fcb[5], tt_fcr[5];   /* the flat arrangement      */
+    tb_ctx tt_pcb[5], tt_pcr[5];    /* the 8x8 node's own chroma, split arm */
+    /* the node's pre-split recon, restored when the flat arm wins */
+    pixel tt_save_l[5][32 * 32], tt_save_c[5][2 * 32 * 32];
+    tb_ctx ctt_l[5], ctt_cb[5], ctt_cr[5];  /* ...the inter tree's flat arm */
     tb_ctx ird_l, ird_cb, ird_cr;   /* intra_rd_pick's candidate TBs */
     tb_ctx ird_bl, ird_bcb, ird_bcr;   /* ...and the winner it keeps */
     tb_ctx m_tl, m_tcb, m_tcr;      /* analyze_cu: merge candidate TBs */
@@ -1220,6 +1231,36 @@ static void est_cbf_c(struct n265_frame_work *e, est_state *st, int depth,
                                  tb->nz2 != 0);
 }
 
+/* the same two bins from VALUES rather than from a block, which is what a
+ * transform-tree node needs for a child that split: the child's chroma
+ * cbf is then the OR of ITS children and there is no tb_ctx holding it.
+ * `npair` is 7.3.8.8's `pair` - two bins per component only where the
+ * unit's two stacked 4:2:2 blocks are actually at this node. */
+static void est_cbf_c_v(est_state *st, int depth, int v, int v2, int npair)
+{
+    st->bits += n265_est_bin(&st->ctx[CTX_CBF_CHROMA + depth], v != 0);
+    if (npair > 1)
+        st->bits += n265_est_bin(&st->ctx[CTX_CBF_CHROMA + depth], v2 != 0);
+}
+
+/* What a transform-tree node tells its parent: the chroma cbfs the parent
+ * has to price (and gate its children's on), and how many bins they are. */
+struct tt_cbf { int cb, cb2, cr, cr2, npair; };
+
+/* The residual quadtree's depth budget for a 2Nx2N CU: the SPS's
+ * max_transform_hierarchy_depth_inter / _intra, which IS MaxTrafoDepth
+ * there (7.4.9.8). x265 spells the same quantity `--tu-inter-depth N`
+ * with N = this + 1, so our historic 1 is its 2 and not its default.
+ *
+ * The NxN intra CU's IntraSplitFlag +1 is a different quantity and does
+ * not come through here: that tree is one forced split into four 4x4
+ * blocks, which is the minimum transform size, so it has nowhere left to
+ * go at any depth. */
+static int tt_maxdepth(const struct n265_frame_work *e, int mode)
+{
+    return mode == MODE_INTER ? e->tt_depth_inter : e->tt_depth_intra;
+}
+
 static void est_res_c(struct n265_frame_work *e, const res_ops *ops,
                       const tb_ctx *tb, int log2c, int c_idx, int scan)
 {
@@ -1430,8 +1471,8 @@ static inline int ctu_lam_sad_q4(const struct n265_frame_work *e)
 static uint32_t mot_sad(struct n265_frame_work *e, int x0, int y0, int log2n,
                         mot_t mot);
 static void est_tt_bits(struct n265_frame_work *e, est_state *st, int log2n,
-                        int mode, const tb_ctx *tl, const tb_ctx *tcb,
-                        const tb_ctx *tcr);
+                        int depth, int coded, int mode, const tb_ctx *tl,
+                        const tb_ctx *tcb, const tb_ctx *tcr);
 static void set_mot_map(struct n265_frame_work *e, int x0, int y0, int n,
                         mot_t mot);
 
@@ -2049,71 +2090,62 @@ static int want_skip(struct n265_frame_work *e, int x0, int y0, int log2n)
            (uint32_t)(n * n * skip_thr8());
 }
 
-/* transform tree for a 2Nx2N CU (intra or inter): records, per node,
- * [cbf_cb][cbf_cr] then per leaf [cbf_l][levels l][levels cb][levels cr].
- * A 64x64 CB splits into four 32x32 TUs (maxTB). */
-/* pre_l/pre_cb/pre_cr, when given, are the flat-TB analysis of this mode
+/* One node of a 2Nx2N CU's residual quadtree, at trafoDepth `depth`.
+ *
+ * Record layout per node: [split_transform_flag, where it is coded][the
+ * node's chroma cbfs, where the node has chroma], then the children or
+ * the leaf's [cbf_l][levels l][levels cb][levels cr]. A 64x64 CB's split
+ * into four 32x32 TUs is inferred (maxTB) and codes no flag; so is an
+ * 8x8 node's chroma, which stays at the parent and is coded after the
+ * last luma child (7.3.8.10's blkIdx == 3 arm).
+ *
+ * The node analyses the flat arrangement and - where the depth budget
+ * still allows one - the split arrangement, COMMITS the winner's recon
+ * and its records, advances `st` by the winner's estimated bits, and
+ * returns its distortion. Its own chroma cbfs go back to the caller in
+ * `*out`, because at a split node they are the OR of the children and
+ * only the parent can price them.
+ *
+ * Intra prediction reads the recon of everything coded before it, so the
+ * split arm commits child by child and the flat arm - analysed first, off
+ * the recon as it stood at entry - restores that recon when it wins. The
+ * edge map is restored with it: a child marks its own transform edges as
+ * it commits, and a losing split arm must not leave them behind.
+ *
+ * THE DEFERRED HEADER. This node's split flag and root chroma cbfs are
+ * CODED before its children and PRICED after them, because their values
+ * are not known until the children have decided. That is not a reordering
+ * the estimate can see: a header bin's context is indexed by this node's
+ * own size (CTX_TSPLIT + 5 - log2ts) or its own depth (CTX_CBF_CHROMA +
+ * depth), and every bin in the subtree below it is indexed by a smaller
+ * size or a deeper depth. No child bin and no header bin ever share a
+ * context, so the two orders give the same bits to the last one - which
+ * is what the default's byte-for-byte cmp checks.
+ *
+ * `st` NULL means "nobody above needs this subtree's bits", which is the
+ * forced-split root's case: a node that has no arrangement to choose
+ * between prices nothing, and a node that does builds its own estimator
+ * context from the frame's.
+ *
+ * pre_l/pre_cb/pre_cr, when given, are the flat-TB analysis of this mode
  * at this position that the caller already ran (intra_rd_pick's winner).
  * The intra prediction reads e->recon and nothing between the two calls
  * writes it, so re-running tb_analyze here would compute the same three
  * blocks a second time - one fdct, one RDOQ and one inverse per
- * component. NULL means analyse them here. */
-static void tt_analyze_inner(struct n265_frame_work *e, int mode, int x0,
-                             int y0, int log2ts, tb_ctx *pre_l,
-                             tb_ctx *pre_cb, tb_ctx *pre_cr)
+ * component. NULL means analyse them here, and only the root ever has
+ * them. */
+static uint64_t tt_node(struct n265_frame_work *e, int mode, int x0, int y0,
+                        int log2ts, int depth, tb_ctx *pre_l, tb_ctx *pre_cb,
+                        tb_ctx *pre_cr, est_state *st, struct tt_cbf *out)
 {
     int qp_cb = n265_chroma_qp_of(e, e->cur_ctu_qp, 1);
     int qp_cr = n265_chroma_qp_of(e, e->cur_ctu_qp, 2);
     int csx = e->csx, csy = e->csy;
-    int split = log2ts > 5;
-    tb_ctx tb;
-
-    if (split) {
-        /* children reconstruct sequentially (a child's chroma prediction
-         * reads the previous child's chroma recon), so the root cbfs -
-         * which precede the children in the record stream - are patched
-         * in after the loop. */
-        int h = 1 << (log2ts - 1);
-        size_t root_off = e->rec_len;
-        rec_u8(e, 0);
-        rec_u8(e, 0);
-        int root_cb = 0, root_cr = 0;
-        tb_ctx tcb, tcr;
-        for (int i = 0; i < 4; i++) {
-            int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
-            int cx1 = x1 >> csx, cy1 = y1 >> csy;
-            int log2c = log2ts - 1 - csx;
-            mark_cu_edges(e, x1, y1, h);
-            tb_analyze(e, 1, cx1, cy1, log2c, qp_cb, mode, mot_zero, &tcb);
-            tb_analyze(e, 2, cx1, cy1, log2c, qp_cr, mode, mot_zero, &tcr);
-            root_cb |= tb_any(&tcb);
-            root_cr |= tb_any(&tcr);
-            rec_cbf_c(e, &tcb);
-            rec_cbf_c(e, &tcr);
-            int cbf_l = tb_full(e, 0, x1, y1, log2ts - 1, e->cur_ctu_qp, mode, &tb);
-            rec_u8(e, (unsigned)cbf_l);
-            if (cbf_l)
-                rec_levels(e, tb.level, h * h);
-            tb_recon(e, 1, cx1, cy1, log2c, qp_cb, mode, &tcb);
-            rec_levels_c(e, &tcb, log2c);
-            tb_recon(e, 2, cx1, cy1, log2c, qp_cr, mode, &tcr);
-            rec_levels_c(e, &tcr, log2c);
-        }
-        e->rec_buf[root_off] = (uint8_t)root_cb;
-        e->rec_buf[root_off + 1] = (uint8_t)root_cr;
-        return;
-    }
-
-    /* <= 32: choose flat TU == CU vs four TUs with sequential intra
-     * prediction (each TU predicts from the recon of the previous ones,
-     * so the split arm commits as it goes and restores on loss) */
-    int n = 1 << log2ts;
-    mark_cu_edges(e, x0, y0, n);
-    uint32_t lam = ctu_lam(e, e->cur_ctu_qp);
-    int h = n >> 1;
+    int n = 1 << log2ts, h = n >> 1;
     int cx0 = x0 >> csx, cy0 = y0 >> csy;
     int log2c = log2ts - csx;           /* this node's chroma TB */
-    int cn_w = n >> csx, cn_h = n >> csy;
+    int cn_w = n >> csx, cn_h = n >> csy, cpl = cn_w * cn_h;
+    int has_chroma = log2ts > 2 || e->c444;
     /* Does each luma child carry its own chroma, or does the node keep
      * one chroma block for all four (7.3.8.10's blkIdx == 3 arm)? The
      * merge exists only because a 4:2:0 chroma child of an 8x8 luma node
@@ -2121,202 +2153,242 @@ static void tt_analyze_inner(struct n265_frame_work *e, int mode, int x0,
      * exactly "the child's chroma would be smaller than 4x4", and at
      * 4:4:4 that never happens. Folds to `log2ts > 3` at 4:2:0. */
     int child_chroma = (log2ts - 1 - csx) >= 2;
+    int forced = log2ts > 5;            /* past maxTB: split, no flag */
+    int coded = !forced && log2ts > 2 && depth < tt_maxdepth(e, mode);
+    int need = st != NULL || coded;
+    uint32_t lam = ctu_lam(e, e->cur_ctu_qp);
+    size_t off0 = e->rec_len;
+    cabac_ctx_t own[CTX_COUNT];
+    est_state ownst;
 
-    /* flat arrangement (no frame commits yet) */
-    tb_ctx tcb, tcr;
-    tb_ctx *ptb = &tb, *ptcb = &tcb, *ptcr = &tcr;
-    if (pre_l) {
-        ptb = pre_l; ptcb = pre_cb; ptcr = pre_cr;
-    } else {
-        tb_analyze(e, 1, cx0, cy0, log2c, qp_cb, mode, mot_zero, ptcb);
-        tb_analyze(e, 2, cx0, cy0, log2c, qp_cr, mode, mot_zero, ptcr);
-        tb_analyze(e, 0, x0, y0, log2ts, e->cur_ctu_qp, mode, mot_zero, ptb);
-        tb_make_recon(e, 0, log2ts, e->cur_ctu_qp, mode, ptb);
-        tb_make_recon(e, 1, log2c, qp_cb, mode, ptcb);
-        tb_make_recon(e, 2, log2c, qp_cr, mode, ptcr);
+    mark_cu_edges(e, x0, y0, n);
+    if (!st && coded) {
+        memcpy(own, e->est_ctx, sizeof(own));
+        ownst.ctx = own;
+        ownst.bits = 0;
+        st = &ownst;
     }
-    uint64_t d_flat = tb_ssd(e, 0, x0, y0, log2ts, ptb) +
-        tb_ssd(e, 1, cx0, cy0, log2c, ptcb) +
-        tb_ssd(e, 2, cx0, cy0, log2c, ptcr);
-    cabac_ctx_t local[CTX_COUNT];
-    est_state st = { local, 0 };
-    memcpy(local, e->est_ctx, sizeof(local));
-    st.bits = 0;
-    est_tt_bits(e, &st, log2ts, mode, ptb, ptcb, ptcr);
-    uint64_t j_flat = rd_j(e, d_flat, st.bits, lam);
 
-    /* split arrangement: sequential, committing recon TU by TU.
-     *
-     * The luma pair stays on the stack; the chroma pair is the lane's
-     * (struct n265_scratch, and the note there), and the two planes are
-     * PACKED at this node's own chroma size rather than given a 32x32 slot
-     * each, so the copy loops below walk what they touch. */
-    int cpl = cn_w * cn_h;              /* the packed chroma plane */
-    pixel save_l[32 * 32], split_l[32 * 32];
-    pixel *save_c = e->sc->tt_save_c, *split_c = e->sc->tt_split_c;
-    for (int y = 0; y < n; y++)
-        memcpy(save_l + y * n,
-               e->recon[0] + (y0 + y) * e->recon_stride[0] + x0,
-               (size_t)n * sizeof(pixel));
-    for (int c = 0; c < 2; c++)
-        for (int y = 0; y < cn_h; y++)
-            memcpy(save_c + c * cpl + y * cn_w,
-                   e->recon[c + 1] + (cy0 + y) * e->recon_stride[c + 1] + cx0,
-                   (size_t)cn_w * sizeof(pixel));
-
-    tb_ctx *s_l = e->sc->itt_l;
-    tb_ctx (*s_c)[2] = e->sc->itt_c;
-    uint64_t d_split = 0;
-    int root_cb = 0, root_cr = 0;
-    for (int i = 0; i < 4; i++) {
-        int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
-        tb_analyze(e, 0, x1, y1, log2ts - 1, e->cur_ctu_qp, mode, mot_zero,
-                   &s_l[i]);
-        tb_recon(e, 0, x1, y1, log2ts - 1, e->cur_ctu_qp, mode, &s_l[i]);
-        d_split += tb_ssd(e, 0, x1, y1, log2ts - 1, &s_l[i]);
-        if (child_chroma) {
-            int kx = x1 >> csx, ky = y1 >> csy, kl = log2ts - 1 - csx;
-            tb_analyze(e, 1, kx, ky, kl, qp_cb, mode, mot_zero, &s_c[i][0]);
-            tb_recon(e, 1, kx, ky, kl, qp_cb, mode, &s_c[i][0]);
-            tb_analyze(e, 2, kx, ky, kl, qp_cr, mode, mot_zero, &s_c[i][1]);
-            tb_recon(e, 2, kx, ky, kl, qp_cr, mode, &s_c[i][1]);
-            d_split += tb_ssd(e, 1, kx, ky, kl, &s_c[i][0]);
-            d_split += tb_ssd(e, 2, kx, ky, kl, &s_c[i][1]);
-            root_cb |= tb_any(&s_c[i][0]);
-            root_cr |= tb_any(&s_c[i][1]);
-        }
-    }
-    if (!child_chroma) {
-        /* The 8x8 node's chroma stays at the PARENT, predicted after the
-         * luma children per decode order: one 4x4 block at 4:2:0 and
-         * 7.3.8.8's stacked 4x4 pair at 4:2:2 (its second cbf is coded at
-         * this node even though the node is split - that is the
-         * `log2TrafoSize == 3` half of the condition). */
-        tb_analyze(e, 1, cx0, cy0, 2, qp_cb, mode, mot_zero, &s_c[0][0]);
-        tb_recon(e, 1, cx0, cy0, 2, qp_cb, mode, &s_c[0][0]);
-        tb_analyze(e, 2, cx0, cy0, 2, qp_cr, mode, mot_zero, &s_c[0][1]);
-        tb_recon(e, 2, cx0, cy0, 2, qp_cr, mode, &s_c[0][1]);
-        d_split += tb_ssd(e, 1, cx0, cy0, 2, &s_c[0][0]);
-        d_split += tb_ssd(e, 2, cx0, cy0, 2, &s_c[0][1]);
-        root_cb = tb_any(&s_c[0][0]);
-        root_cr = tb_any(&s_c[0][1]);
-    }
-    /* keep the split recon, restore the pre-CU state */
-    for (int y = 0; y < n; y++) {
-        memcpy(split_l + y * n,
-               e->recon[0] + (y0 + y) * e->recon_stride[0] + x0,
-               (size_t)n * sizeof(pixel));
-        memcpy(e->recon[0] + (y0 + y) * e->recon_stride[0] + x0,
-               save_l + y * n, (size_t)n * sizeof(pixel));
-    }
-    for (int c = 0; c < 2; c++)
-        for (int y = 0; y < cn_h; y++) {
-            memcpy(split_c + c * cpl + y * cn_w,
-                   e->recon[c + 1] + (cy0 + y) * e->recon_stride[c + 1] + cx0,
-                   (size_t)cn_w * sizeof(pixel));
-            memcpy(e->recon[c + 1] + (cy0 + y) * e->recon_stride[c + 1] + cx0,
-                   save_c + c * cpl + y * cn_w, (size_t)cn_w * sizeof(pixel));
-        }
-
-    memcpy(local, e->est_ctx, sizeof(local));
-    st.bits = 0;
-    {
-        res_ops ops;
-        n265_est_ops(&ops, &st);
-        st.bits += n265_est_bin(&local[CTX_TSPLIT + 5 - log2ts], 1);
-        if (child_chroma) {
-            /* one cbf per component at the parent: it gates the
-             * children and is not a block of its own */
-            st.bits += n265_est_bin(&local[CTX_CBF_CHROMA + 0], root_cb);
-            st.bits += n265_est_bin(&local[CTX_CBF_CHROMA + 0], root_cr);
+    /* ---- the flat arrangement, analysed off the recon as it stands and
+     * written to the frame only if it wins ---- */
+    uint64_t d_flat = 0, b_flat = 0, j_flat = UINT64_MAX;
+    cabac_ctx_t fctx[CTX_COUNT];
+    tb_ctx *ptb = &e->sc->tt_fl[depth];
+    tb_ctx *ptcb = &e->sc->tt_fcb[depth], *ptcr = &e->sc->tt_fcr[depth];
+    if (!forced) {
+        if (pre_l) {
+            ptb = pre_l; ptcb = pre_cb; ptcr = pre_cr;
         } else {
-            /* the 8x8 node keeps the chroma, so the cbfs coded here ARE
-             * the unit's - the pair of them at 4:2:2 */
-            est_cbf_c(e, &st, 0, &s_c[0][0]);
-            est_cbf_c(e, &st, 0, &s_c[0][1]);
+            if (has_chroma) {
+                tb_analyze(e, 1, cx0, cy0, log2c, qp_cb, mode, mot_zero, ptcb);
+                tb_analyze(e, 2, cx0, cy0, log2c, qp_cr, mode, mot_zero, ptcr);
+            } else {
+                ptcb->nz = ptcb->nz2 = ptcr->nz = ptcr->nz2 = 0;
+            }
+            tb_analyze(e, 0, x0, y0, log2ts, e->cur_ctu_qp, mode, mot_zero,
+                       ptb);
+            tb_make_recon(e, 0, log2ts, e->cur_ctu_qp, mode, ptb);
+            if (has_chroma) {
+                tb_make_recon(e, 1, log2c, qp_cb, mode, ptcb);
+                tb_make_recon(e, 2, log2c, qp_cr, mode, ptcr);
+            }
+        }
+        if (need) {
+            d_flat = tb_ssd(e, 0, x0, y0, log2ts, ptb);
+            if (has_chroma)
+                d_flat += tb_ssd(e, 1, cx0, cy0, log2c, ptcb) +
+                          tb_ssd(e, 2, cx0, cy0, log2c, ptcr);
+        }
+        if (st) {
+            est_state fst;
+            memcpy(fctx, st->ctx, sizeof(fctx));
+            fst.ctx = fctx;
+            fst.bits = 0;
+            est_tt_bits(e, &fst, log2ts, depth, coded, mode, ptb, ptcb, ptcr);
+            b_flat = fst.bits;
+            j_flat = rd_j(e, d_flat, b_flat, lam);
+        }
+    }
+
+    /* ---- the split arrangement ---- */
+    uint64_t d_split = 0, b_split = 0, j_split = UINT64_MAX;
+    cabac_ctx_t sctx[CTX_COUNT];
+    struct tt_cbf ch[4];
+    tb_ctx *pcb = &e->sc->tt_pcb[depth], *pcr = &e->sc->tt_pcr[depth];
+    int root_cb = 0, root_cr = 0;
+    size_t cbf_off = 0;
+    int cbn = child_chroma ? 1 : (e->c422 ? 2 : 1);   /* bytes per component */
+    pixel *save_l = e->sc->tt_save_l[depth], *save_c = e->sc->tt_save_c[depth];
+    uint8_t esave[8 * 8];
+    int em = n >> 2;
+
+    if (coded || forced) {
+        if (coded) {
+            /* what the split arm is about to overwrite, so a flat win can
+             * put it back: the recon of this node's area, and the
+             * transform edges the children will mark as they commit */
+            for (int y = 0; y < n; y++)
+                memcpy(save_l + y * n,
+                       e->recon[0] + (y0 + y) * e->recon_stride[0] + x0,
+                       (size_t)n * sizeof(pixel));
+            for (int c = 0; c < 2; c++)
+                for (int y = 0; y < cn_h; y++)
+                    memcpy(save_c + c * cpl + y * cn_w,
+                           e->recon[c + 1] + (cy0 + y) * e->recon_stride[c + 1]
+                           + cx0, (size_t)cn_w * sizeof(pixel));
+            for (int r = 0; r < em; r++)
+                memcpy(esave + r * em,
+                       e->edge_map + ((y0 >> 2) + r) * e->map_stride +
+                       (x0 >> 2), (size_t)em);
+            rec_u8(e, 1);
+        }
+        /* the header's own bytes are reserved and patched after the loop:
+         * the children write into the record stream as they decide */
+        cbf_off = e->rec_len;
+        for (int k = 0; k < 2 * cbn; k++)
+            rec_u8(e, 0);
+
+        est_state sst;
+        sst.ctx = sctx;
+        sst.bits = 0;
+        if (st) {
+            memcpy(sctx, st->ctx, sizeof(sctx));
         }
         for (int i = 0; i < 4; i++) {
-            if (child_chroma) {
-                if (root_cb)
-                    est_cbf_c(e, &st, 1, &s_c[i][0]);
-                if (root_cr)
-                    est_cbf_c(e, &st, 1, &s_c[i][1]);
+            int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
+            d_split += tt_node(e, mode, x1, y1, log2ts - 1, depth + 1, NULL,
+                               NULL, NULL, st ? &sst : NULL, &ch[i]);
+            root_cb |= ch[i].cb || ch[i].cb2;
+            root_cr |= ch[i].cr || ch[i].cr2;
+        }
+        if (!child_chroma) {
+            /* The 8x8 node's chroma stays at the PARENT, predicted after
+             * the luma children per decode order: one 4x4 block at 4:2:0
+             * and 7.3.8.8's stacked 4x4 pair at 4:2:2 (its second cbf is
+             * coded at this node even though the node is split - that is
+             * the `log2TrafoSize == 3` half of the condition). */
+            tb_analyze(e, 1, cx0, cy0, log2c, qp_cb, mode, mot_zero, pcb);
+            tb_recon(e, 1, cx0, cy0, log2c, qp_cb, mode, pcb);
+            tb_analyze(e, 2, cx0, cy0, log2c, qp_cr, mode, mot_zero, pcr);
+            tb_recon(e, 2, cx0, cy0, log2c, qp_cr, mode, pcr);
+            if (need)
+                d_split += tb_ssd(e, 1, cx0, cy0, log2c, pcb) +
+                           tb_ssd(e, 2, cx0, cy0, log2c, pcr);
+            rec_levels_c(e, pcb, log2c);
+            rec_levels_c(e, pcr, log2c);
+            if (st) {
+                res_ops ops;
+                int sc = c_scan_idx(e, mode, log2c);
+                n265_est_ops(&ops, &sst);
+                est_res_c(e, &ops, pcb, log2c, 1, sc);
+                est_res_c(e, &ops, pcr, log2c, 2, sc);
             }
-            st.bits += n265_est_bin(&local[CTX_CBF_LUMA + 0],
-                                    s_l[i].nz != 0);
-            if (s_l[i].nz)
-                n265_residual_coding(&ops, s_l[i].level, log2ts - 1, 0,
-                                     n265_scan_idx(mode, log2ts - 1, 0),
-                                     !e->lossless);
-            if (child_chroma) {
-                int kl = log2ts - 1 - csx;
-                int sc = c_scan_idx(e, mode, kl);
-                est_res_c(e, &ops, &s_c[i][0], kl, 1, sc);
-                est_res_c(e, &ops, &s_c[i][1], kl, 2, sc);
-            } else if (i == 3) {
-                int sc = c_scan_idx(e, mode, 2);
-                est_res_c(e, &ops, &s_c[0][0], 2, 1, sc);
-                est_res_c(e, &ops, &s_c[0][1], 2, 2, sc);
+        } else if (st) {
+            /* the children's own chroma cbfs, which are present only
+             * where this node's pair says so - which is why they are
+             * priced here and not by the child that codes them */
+            for (int i = 0; i < 4; i++) {
+                if (root_cb)
+                    est_cbf_c_v(&sst, depth + 1, ch[i].cb, ch[i].cb2,
+                                ch[i].npair);
+                if (root_cr)
+                    est_cbf_c_v(&sst, depth + 1, ch[i].cr, ch[i].cr2,
+                                ch[i].npair);
             }
         }
+        if (st) {
+            /* ...and the deferred header, see the note above */
+            if (coded)
+                sst.bits += n265_est_bin(&sctx[CTX_TSPLIT + 5 - log2ts], 1);
+            if (child_chroma) {
+                sst.bits += n265_est_bin(&sctx[CTX_CBF_CHROMA + depth],
+                                         root_cb);
+                sst.bits += n265_est_bin(&sctx[CTX_CBF_CHROMA + depth],
+                                         root_cr);
+            } else {
+                est_cbf_c(e, &sst, depth, pcb);
+                est_cbf_c(e, &sst, depth, pcr);
+            }
+            b_split = sst.bits;
+            j_split = rd_j(e, d_split, b_split, lam);
+        }
     }
-    uint64_t j_split = rd_j(e, d_split, st.bits, lam);
 
-    if (j_flat <= j_split) {
+    if (forced || (coded && j_split < j_flat)) {
+        /* the split arrangement: its recon and records are already in
+         * place; only the header it reserved is still blank */
+        if (child_chroma) {
+            e->rec_buf[cbf_off] = (uint8_t)root_cb;
+            e->rec_buf[cbf_off + 1] = (uint8_t)root_cr;
+            out->cb = root_cb; out->cb2 = 0;
+            out->cr = root_cr; out->cr2 = 0;
+            out->npair = 1;
+        } else {
+            /* the 8x8 node holds the chroma itself, so what it patches in
+             * is that block's own cbfs - the stacked pair at 4:2:2 */
+            uint8_t *q = e->rec_buf + cbf_off;
+            *q++ = (uint8_t)(pcb->nz != 0);
+            if (cbn > 1)
+                *q++ = (uint8_t)(pcb->nz2 != 0);
+            *q++ = (uint8_t)(pcr->nz != 0);
+            if (cbn > 1)
+                *q++ = (uint8_t)(pcr->nz2 != 0);
+            out->cb = pcb->nz != 0; out->cb2 = cbn > 1 && pcb->nz2 != 0;
+            out->cr = pcr->nz != 0; out->cr2 = cbn > 1 && pcr->nz2 != 0;
+            out->npair = cbn;
+        }
+        if (st) {
+            memcpy(st->ctx, sctx, sizeof(sctx));
+            st->bits += b_split;
+        }
+        return d_split;
+    }
+
+    /* the flat arrangement wins (or is the only one): unwind whatever the
+     * split arm committed and code the node as one transform unit */
+    if (coded) {
+        for (int y = 0; y < n; y++)
+            memcpy(e->recon[0] + (y0 + y) * e->recon_stride[0] + x0,
+                   save_l + y * n, (size_t)n * sizeof(pixel));
+        for (int c = 0; c < 2; c++)
+            for (int y = 0; y < cn_h; y++)
+                memcpy(e->recon[c + 1] + (cy0 + y) * e->recon_stride[c + 1] +
+                       cx0, save_c + c * cpl + y * cn_w,
+                       (size_t)cn_w * sizeof(pixel));
+        for (int r = 0; r < em; r++)
+            memcpy(e->edge_map + ((y0 >> 2) + r) * e->map_stride + (x0 >> 2),
+                   esave + r * em, (size_t)em);
+        e->rec_len = off0;
         rec_u8(e, 0);
+    }
+    if (has_chroma) {
         rec_cbf_c(e, ptcb);
         rec_cbf_c(e, ptcr);
-        rec_u8(e, ptb->nz != 0);
-        tb_commit(e, 0, x0, y0, log2ts, ptb);
-        if (ptb->nz)
-            rec_levels(e, ptb->level, n * n);
+    }
+    rec_u8(e, ptb->nz != 0);
+    tb_commit(e, 0, x0, y0, log2ts, ptb);
+    if (ptb->nz)
+        rec_levels(e, ptb->level, n * n);
+    if (has_chroma) {
         tb_commit(e, 1, cx0, cy0, log2c, ptcb);
         rec_levels_c(e, ptcb, log2c);
         tb_commit(e, 2, cx0, cy0, log2c, ptcr);
         rec_levels_c(e, ptcr, log2c);
-        return;
     }
-
-    /* commit split: blit the saved split recon and write records */
-    for (int y = 0; y < n; y++)
-        memcpy(e->recon[0] + (y0 + y) * e->recon_stride[0] + x0,
-               split_l + y * n, (size_t)n * sizeof(pixel));
-    for (int c = 0; c < 2; c++)
-        for (int y = 0; y < cn_h; y++)
-            memcpy(e->recon[c + 1] + (cy0 + y) * e->recon_stride[c + 1] + cx0,
-                   split_c + c * cpl + y * cn_w, (size_t)cn_w * sizeof(pixel));
-    rec_u8(e, 1);
-    if (child_chroma) {
-        rec_u8(e, (unsigned)root_cb);
-        rec_u8(e, (unsigned)root_cr);
-    } else {
-        rec_cbf_c(e, &s_c[0][0]);
-        rec_cbf_c(e, &s_c[0][1]);
+    out->cb = has_chroma && ptcb->nz != 0;
+    out->cb2 = has_chroma && e->c422 && ptcb->nz2 != 0;
+    out->cr = has_chroma && ptcr->nz != 0;
+    out->cr2 = has_chroma && e->c422 && ptcr->nz2 != 0;
+    out->npair = e->c422 ? 2 : 1;
+    if (st) {
+        memcpy(st->ctx, fctx, sizeof(fctx));
+        st->bits += b_flat;
     }
-    for (int i = 0; i < 4; i++) {
-        int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
-        mark_cu_edges(e, x1, y1, h);
-        set_blk(e, e->blk_cbf_y, x1, y1, h, s_l[i].nz != 0);
-        if (child_chroma) {
-            rec_cbf_c(e, &s_c[i][0]);
-            rec_cbf_c(e, &s_c[i][1]);
-        }
-        rec_u8(e, s_l[i].nz != 0);
-        if (s_l[i].nz)
-            rec_levels(e, s_l[i].level, h * h);
-        if (child_chroma) {
-            int kl = log2ts - 1 - csx;
-            rec_levels_c(e, &s_c[i][0], kl);
-            rec_levels_c(e, &s_c[i][1], kl);
-        } else if (i == 3) {
-            rec_levels_c(e, &s_c[0][0], 2);
-            rec_levels_c(e, &s_c[0][1], 2);
-        }
-    }
+    return d_flat;
 }
 
-/* Everything tt_analyze runs is on the commit path - both arrangements
- * are analysed here and one of them IS the coded block - so under
+/* Everything tt_analyze runs is on the commit path - every arrangement is
+ * analysed here and one of them IS the coded block - so under
  * N265_RDOQ=2 the whole of it is lattice work. intra_rd_pick's winner
  * (`pre_l`) is not: it was analysed with the plain quantiser during the
  * mode decision, and a 4:2:2 unit's stored prediction cannot be
@@ -2327,10 +2399,11 @@ static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
                        tb_ctx *pre_cr)
 {
     int sv = e->rdoq_commit;
+    struct tt_cbf out;
     e->rdoq_commit = 1;
     if (e->rdoq >= 2)
         pre_l = pre_cb = pre_cr = NULL;
-    tt_analyze_inner(e, mode, x0, y0, log2ts, pre_l, pre_cb, pre_cr);
+    tt_node(e, mode, x0, y0, log2ts, 0, pre_l, pre_cb, pre_cr, NULL, &out);
     e->rdoq_commit = sv;
 }
 
@@ -3334,199 +3407,282 @@ static uint32_t bi_refine(struct n265_frame_work *e, const pu_geo *g, mot_t *bi,
     return best;
 }
 
-/* residual + cbf bits of a flat (TU == CU) transform set */
+/* residual + cbf bits of a flat (TU == this node) transform set.
+ *
+ * `coded` is whether split_transform_flag is present at this node - it is
+ * NOT always, and the caller is the only one that can say: past maxTB and
+ * at the depth budget's floor the flag is inferred (7.3.8.8). `depth` is
+ * the node's trafoDepth, which decides two things the flat form used to
+ * assume were zero: whose job the chroma cbfs are (the PARENT's below
+ * depth 0, because their presence is gated on the parent's pair), and
+ * which cbf_luma context the leaf uses. */
 static void est_tt_bits(struct n265_frame_work *e, est_state *st, int log2n,
-                        int mode, const tb_ctx *tl, const tb_ctx *tcb,
-                        const tb_ctx *tcr)
+                        int depth, int coded, int mode, const tb_ctx *tl,
+                        const tb_ctx *tcb, const tb_ctx *tcr)
 {
     res_ops ops;
     n265_est_ops(&ops, st);
     int inter = mode == MODE_INTER;
-    st->bits += n265_est_bin(&st->ctx[CTX_TSPLIT + 5 - log2n], 0);
-    est_cbf_c(e, st, 0, tcb);
-    est_cbf_c(e, st, 0, tcr);
-    if (!(inter && !tb_any(tcb) && !tb_any(tcr)))
-        st->bits += n265_est_bin(&st->ctx[CTX_CBF_LUMA + 1], tl->nz != 0);
+    int has_chroma = log2n > 2 || e->c444;
+    if (coded)
+        st->bits += n265_est_bin(&st->ctx[CTX_TSPLIT + 5 - log2n], 0);
+    if (depth == 0 && has_chroma) {
+        est_cbf_c(e, st, 0, tcb);
+        est_cbf_c(e, st, 0, tcr);
+    }
+    if (!(inter && depth == 0 && !tb_any(tcb) && !tb_any(tcr)))
+        st->bits += n265_est_bin(&st->ctx[CTX_CBF_LUMA + (depth == 0)],
+                                 tl->nz != 0);
     int log2c = log2n - e->csx;
     int scan_l = inter ? 0 : n265_scan_idx(mode, log2n, 0);
-    int scan_c = c_scan_idx(e, mode, log2c);
     if (tl->nz)
         n265_residual_coding(&ops, tl->level, log2n, 0, scan_l, !e->lossless);
-    est_res_c(e, &ops, tcb, log2c, 1, scan_c);
-    est_res_c(e, &ops, tcr, log2c, 2, scan_c);
+    if (has_chroma) {
+        int scan_c = c_scan_idx(e, mode, log2c);
+        est_res_c(e, &ops, tcb, log2c, 1, scan_c);
+        est_res_c(e, &ops, tcr, log2c, 2, scan_c);
+    }
 }
 
-/* choose flat vs 4-TU split for an inter winner and commit records +
- * recon accordingly. Inter prediction is neighbor-free, so both
- * arrangements evaluate order-free. CB8 splits keep chroma at the
- * parent. */
-static void commit_inter_tt_inner(struct n265_frame_work *e, mot_t mot,
-                                  int x0, int y0, int log2n, tb_ctx *tl,
-                                  tb_ctx *tcb, tb_ctx *tcr)
+/* One node of an inter CU's residual quadtree, at trafoDepth `depth`.
+ *
+ * The same tree tt_node codes, with one difference that runs all the way
+ * through it: inter prediction is neighbour-free, so a node's children do
+ * not have to be reconstructed in order and a losing split arm needs no
+ * recon put back - the flat arrangement's own commit covers exactly the
+ * area the children wrote. What it DOES need back is the edge map, which
+ * is an OR and cannot be un-marked.
+ *
+ * `tl`/`tcb`/`tcr` are the caller's flat analysis of this node, which
+ * only the root has; deeper nodes analyse their own. `isplit` is
+ * 7.4.9.8's interSplitFlag: at `--tu-inter-depth 1` a non-2Nx2N inter CU
+ * infers a split at depth 0 rather than coding one.
+ *
+ * The deferred header and the `st == NULL` convention are tt_node's; the
+ * note there is the note here. */
+static uint64_t inter_tt_node(struct n265_frame_work *e, mot_t mot, int x0,
+                              int y0, int log2n, int depth, int isplit,
+                              tb_ctx *tl, tb_ctx *tcb, tb_ctx *tcr,
+                              est_state *st, struct tt_cbf *out)
 {
-    int n = 1 << log2n;
+    int n = 1 << log2n, h = n >> 1;
     int qp_cb = n265_chroma_qp_of(e, e->cur_ctu_qp, 1);
     int qp_cr = n265_chroma_qp_of(e, e->cur_ctu_qp, 2);
     uint32_t lam = ctu_lam(e, e->cur_ctu_qp);
-    int h = n >> 1;
     int csx = e->csx, csy = e->csy;
     int cx0 = x0 >> csx, cy0 = y0 >> csy;
-    int log2c = log2n - csx, log2cc = log2n - 1 - csx;
-    /* see tt_analyze: the chroma stays at the 8x8 node, as one 4x4 block
-     * at 4:2:0 and as 7.3.8.8's stacked pair at 4:2:2 */
-    int child_chroma = log2cc >= 2;
-    tb_ctx *s_l = e->sc->ctt_l;
-    tb_ctx (*s_c)[2] = e->sc->ctt_c;
+    int log2c = log2n - csx;
+    int has_chroma = log2n > 2 || e->c444;
+    /* see tt_node: the chroma stays at the 8x8 node, as one 4x4 block at
+     * 4:2:0 and as 7.3.8.8's stacked pair at 4:2:2 */
+    int child_chroma = (log2n - 1 - csx) >= 2;
+    int forced = log2n > 5 || (depth == 0 && isplit);
+    int coded = !forced && log2n > 2 && depth < tt_maxdepth(e, MODE_INTER);
+    int need = st != NULL || coded;
+    size_t off0 = e->rec_len;
+    cabac_ctx_t own[CTX_COUNT];
+    est_state ownst;
 
-    /* split arrangement */
-    uint64_t d_split = 0;
+    if (depth > 0)
+        mark_cu_edges(e, x0, y0, n);
+    if (!st && coded) {
+        memcpy(own, e->est_ctx, sizeof(own));
+        ownst.ctx = own;
+        ownst.bits = 0;
+        st = &ownst;
+    }
+
+    /* ---- the flat arrangement ---- */
+    uint64_t d_flat = 0, b_flat = 0, j_flat = UINT64_MAX;
+    cabac_ctx_t fctx[CTX_COUNT];
+    if (!tl) {
+        tl = &e->sc->ctt_l[depth];
+        tcb = &e->sc->ctt_cb[depth];
+        tcr = &e->sc->ctt_cr[depth];
+        if (!forced) {
+            if (has_chroma) {
+                tb_analyze(e, 1, cx0, cy0, log2c, qp_cb, MODE_INTER, mot, tcb);
+                tb_analyze(e, 2, cx0, cy0, log2c, qp_cr, MODE_INTER, mot, tcr);
+                tb_make_recon(e, 1, log2c, qp_cb, MODE_INTER, tcb);
+                tb_make_recon(e, 2, log2c, qp_cr, MODE_INTER, tcr);
+            } else {
+                tcb->nz = tcb->nz2 = tcr->nz = tcr->nz2 = 0;
+            }
+            tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, mot, tl);
+            tb_make_recon(e, 0, log2n, e->cur_ctu_qp, MODE_INTER, tl);
+        }
+    }
+    if (!forced) {
+        if (need) {
+            d_flat = tb_ssd(e, 0, x0, y0, log2n, tl);
+            if (has_chroma)
+                d_flat += tb_ssd(e, 1, cx0, cy0, log2c, tcb) +
+                          tb_ssd(e, 2, cx0, cy0, log2c, tcr);
+        }
+        if (st) {
+            est_state fst;
+            memcpy(fctx, st->ctx, sizeof(fctx));
+            fst.ctx = fctx;
+            fst.bits = 0;
+            est_tt_bits(e, &fst, log2n, depth, coded, MODE_INTER, tl, tcb,
+                        tcr);
+            b_flat = fst.bits;
+            j_flat = rd_j(e, d_flat, b_flat, lam);
+        }
+    }
+
+    /* ---- the split arrangement ---- */
+    uint64_t d_split = 0, b_split = 0, j_split = UINT64_MAX;
+    cabac_ctx_t sctx[CTX_COUNT];
+    struct tt_cbf ch[4];
     int root_cb = 0, root_cr = 0;
-    for (int i = 0; i < 4; i++) {
-        int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
-        tb_analyze(e, 0, x1, y1, log2n - 1, e->cur_ctu_qp, MODE_INTER, mot,
-                   &s_l[i]);
-        tb_make_recon(e, 0, log2n - 1, e->cur_ctu_qp, MODE_INTER, &s_l[i]);
-        d_split += tb_ssd(e, 0, x1, y1, log2n - 1, &s_l[i]);
-        if (child_chroma) {
-            int kx = x1 >> csx, ky = y1 >> csy;
-            tb_analyze(e, 1, kx, ky, log2cc, qp_cb, MODE_INTER, mot,
-                       &s_c[i][0]);
-            tb_analyze(e, 2, kx, ky, log2cc, qp_cr, MODE_INTER, mot,
-                       &s_c[i][1]);
-            tb_make_recon(e, 1, log2cc, qp_cb, MODE_INTER, &s_c[i][0]);
-            tb_make_recon(e, 2, log2cc, qp_cr, MODE_INTER, &s_c[i][1]);
-            d_split += tb_ssd(e, 1, kx, ky, log2cc, &s_c[i][0]);
-            d_split += tb_ssd(e, 2, kx, ky, log2cc, &s_c[i][1]);
-            root_cb |= tb_any(&s_c[i][0]);
-            root_cr |= tb_any(&s_c[i][1]);
+    size_t cbf_off = 0;
+    int cbn = child_chroma ? 1 : (e->c422 ? 2 : 1);
+    uint8_t esave[8 * 8];
+    int em = n >> 2;
+
+    if (coded || forced) {
+        if (coded) {
+            for (int r = 0; r < em; r++)
+                memcpy(esave + r * em,
+                       e->edge_map + ((y0 >> 2) + r) * e->map_stride +
+                       (x0 >> 2), (size_t)em);
+            rec_u8(e, 1);
         }
-    }
-    if (!child_chroma) {
-        root_cb = tb_any(tcb);
-        root_cr = tb_any(tcr);
-        d_split += tb_ssd(e, 1, cx0, cy0, log2c, tcb);
-        d_split += tb_ssd(e, 2, cx0, cy0, log2c, tcr);
-    }
+        cbf_off = e->rec_len;
+        for (int k = 0; k < 2 * cbn; k++)
+            rec_u8(e, 0);
 
-    /* past maxTB the split is inferred and the flat arrangement does
-     * not exist (CB64: forced 4x TU32) */
-    int flat_ok = log2n <= 5;
-    uint64_t d_flat = !flat_ok ? 0 :
-        tb_ssd(e, 0, x0, y0, log2n, tl) +
-        tb_ssd(e, 1, cx0, cy0, log2c, tcb) +
-        tb_ssd(e, 2, cx0, cy0, log2c, tcr);
-
-    /* bits, both arrangements, on estimator copies */
-    cabac_ctx_t local[CTX_COUNT];
-    est_state st;
-    res_ops ops;
-
-    uint64_t j_flat = UINT64_MAX;
-    if (flat_ok) {
-        memcpy(local, e->est_ctx, sizeof(local));
-        st.ctx = local; st.bits = 0;
-        n265_est_ops(&ops, &st);
-        est_tt_bits(e, &st, log2n, MODE_INTER, tl, tcb, tcr);
-        j_flat = rd_j(e, d_flat, st.bits, lam);
-    }
-
-    memcpy(local, e->est_ctx, sizeof(local));
-    st.ctx = local; st.bits = 0;
-    n265_est_ops(&ops, &st);
-    if (flat_ok)
-        st.bits += n265_est_bin(&local[CTX_TSPLIT + 5 - log2n], 1);
-    if (child_chroma) {
-        st.bits += n265_est_bin(&local[CTX_CBF_CHROMA + 0], root_cb);
-        st.bits += n265_est_bin(&local[CTX_CBF_CHROMA + 0], root_cr);
-    } else {
-        est_cbf_c(e, &st, 0, tcb);
-        est_cbf_c(e, &st, 0, tcr);
-    }
-    for (int i = 0; i < 4; i++) {
-        if (child_chroma) {
-            if (root_cb)
-                est_cbf_c(e, &st, 1, &s_c[i][0]);
-            if (root_cr)
-                est_cbf_c(e, &st, 1, &s_c[i][1]);
+        est_state sst;
+        sst.ctx = sctx;
+        sst.bits = 0;
+        if (st)
+            memcpy(sctx, st->ctx, sizeof(sctx));
+        for (int i = 0; i < 4; i++) {
+            int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
+            d_split += inter_tt_node(e, mot, x1, y1, log2n - 1, depth + 1, 0,
+                                     NULL, NULL, NULL, st ? &sst : NULL,
+                                     &ch[i]);
+            root_cb |= ch[i].cb || ch[i].cb2;
+            root_cr |= ch[i].cr || ch[i].cr2;
         }
-        st.bits += n265_est_bin(&local[CTX_CBF_LUMA + 0], s_l[i].nz != 0);
-        if (s_l[i].nz)
-            n265_residual_coding(&ops, s_l[i].level, log2n - 1, 0, 0,
-                                 !e->lossless);
-        if (child_chroma) {
-            est_res_c(e, &ops, &s_c[i][0], log2cc, 1, 0);
-            est_res_c(e, &ops, &s_c[i][1], log2cc, 2, 0);
-        } else if (i == 3) {
-            est_res_c(e, &ops, tcb, log2c, 1, 0);
-            est_res_c(e, &ops, tcr, log2c, 2, 0);
-        }
-    }
-    uint64_t j_split = rd_j(e, d_split, st.bits, lam);
-
-    if (j_flat <= j_split) {
-        rec_u8(e, 0);
-        rec_cbf_c(e, tcb);
-        rec_cbf_c(e, tcr);
-        rec_u8(e, tl->nz != 0);
-        tb_commit(e, 0, x0, y0, log2n, tl);
-        if (tl->nz)
-            rec_levels(e, tl->level, n * n);
-        tb_commit(e, 1, cx0, cy0, log2c, tcb);
-        rec_levels_c(e, tcb, log2c);
-        tb_commit(e, 2, cx0, cy0, log2c, tcr);
-        rec_levels_c(e, tcr, log2c);
-        return;
-    }
-
-    /* commit split: record layout mirrors replay_tt (which reads no
-     * split byte where the split is inferred past maxTB) */
-    if (flat_ok)
-        rec_u8(e, 1);
-    if (child_chroma) {
-        rec_u8(e, (unsigned)root_cb);
-        rec_u8(e, (unsigned)root_cr);
-    } else {
-        rec_cbf_c(e, tcb);
-        rec_cbf_c(e, tcr);
-    }
-    for (int i = 0; i < 4; i++) {
-        int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
-        mark_cu_edges(e, x1, y1, h);
-        if (child_chroma) {
-            rec_cbf_c(e, &s_c[i][0]);
-            rec_cbf_c(e, &s_c[i][1]);
-        }
-        rec_u8(e, s_l[i].nz != 0);
-        tb_commit(e, 0, x1, y1, log2n - 1, &s_l[i]);
-        if (s_l[i].nz)
-            rec_levels(e, s_l[i].level, h * h);
-        if (child_chroma) {
-            int kx = x1 >> csx, ky = y1 >> csy;
-            tb_commit(e, 1, kx, ky, log2cc, &s_c[i][0]);
-            rec_levels_c(e, &s_c[i][0], log2cc);
-            tb_commit(e, 2, kx, ky, log2cc, &s_c[i][1]);
-            rec_levels_c(e, &s_c[i][1], log2cc);
-        } else if (i == 3) {
+        if (!child_chroma) {
+            /* the 8x8 node's chroma is this node's own flat pair - the
+             * split is a LUMA split and the block does not move */
+            if (need)
+                d_split += tb_ssd(e, 1, cx0, cy0, log2c, tcb) +
+                           tb_ssd(e, 2, cx0, cy0, log2c, tcr);
             tb_commit(e, 1, cx0, cy0, log2c, tcb);
             rec_levels_c(e, tcb, log2c);
             tb_commit(e, 2, cx0, cy0, log2c, tcr);
             rec_levels_c(e, tcr, log2c);
+            if (st) {
+                res_ops ops;
+                n265_est_ops(&ops, &sst);
+                est_res_c(e, &ops, tcb, log2c, 1, 0);
+                est_res_c(e, &ops, tcr, log2c, 2, 0);
+            }
+        } else if (st) {
+            for (int i = 0; i < 4; i++) {
+                if (root_cb)
+                    est_cbf_c_v(&sst, depth + 1, ch[i].cb, ch[i].cb2,
+                                ch[i].npair);
+                if (root_cr)
+                    est_cbf_c_v(&sst, depth + 1, ch[i].cr, ch[i].cr2,
+                                ch[i].npair);
+            }
+        }
+        if (st) {
+            if (coded)
+                sst.bits += n265_est_bin(&sctx[CTX_TSPLIT + 5 - log2n], 1);
+            if (child_chroma) {
+                sst.bits += n265_est_bin(&sctx[CTX_CBF_CHROMA + depth],
+                                         root_cb);
+                sst.bits += n265_est_bin(&sctx[CTX_CBF_CHROMA + depth],
+                                         root_cr);
+            } else {
+                est_cbf_c(e, &sst, depth, tcb);
+                est_cbf_c(e, &sst, depth, tcr);
+            }
+            b_split = sst.bits;
+            j_split = rd_j(e, d_split, b_split, lam);
         }
     }
+
+    if (forced || (coded && j_split < j_flat)) {
+        if (child_chroma) {
+            e->rec_buf[cbf_off] = (uint8_t)root_cb;
+            e->rec_buf[cbf_off + 1] = (uint8_t)root_cr;
+            out->cb = root_cb; out->cb2 = 0;
+            out->cr = root_cr; out->cr2 = 0;
+            out->npair = 1;
+        } else {
+            uint8_t *q = e->rec_buf + cbf_off;
+            *q++ = (uint8_t)(tcb->nz != 0);
+            if (cbn > 1)
+                *q++ = (uint8_t)(tcb->nz2 != 0);
+            *q++ = (uint8_t)(tcr->nz != 0);
+            if (cbn > 1)
+                *q++ = (uint8_t)(tcr->nz2 != 0);
+            out->cb = tcb->nz != 0; out->cb2 = cbn > 1 && tcb->nz2 != 0;
+            out->cr = tcr->nz != 0; out->cr2 = cbn > 1 && tcr->nz2 != 0;
+            out->npair = cbn;
+        }
+        if (st) {
+            memcpy(st->ctx, sctx, sizeof(sctx));
+            st->bits += b_split;
+        }
+        return d_split;
+    }
+
+    if (coded) {
+        for (int r = 0; r < em; r++)
+            memcpy(e->edge_map + ((y0 >> 2) + r) * e->map_stride + (x0 >> 2),
+                   esave + r * em, (size_t)em);
+        e->rec_len = off0;
+        rec_u8(e, 0);
+    }
+    if (has_chroma) {
+        rec_cbf_c(e, tcb);
+        rec_cbf_c(e, tcr);
+    }
+    rec_u8(e, tl->nz != 0);
+    tb_commit(e, 0, x0, y0, log2n, tl);
+    if (tl->nz)
+        rec_levels(e, tl->level, n * n);
+    if (has_chroma) {
+        tb_commit(e, 1, cx0, cy0, log2c, tcb);
+        rec_levels_c(e, tcb, log2c);
+        tb_commit(e, 2, cx0, cy0, log2c, tcr);
+        rec_levels_c(e, tcr, log2c);
+    }
+    out->cb = has_chroma && tcb->nz != 0;
+    out->cb2 = has_chroma && e->c422 && tcb->nz2 != 0;
+    out->cr = has_chroma && tcr->nz != 0;
+    out->cr2 = has_chroma && e->c422 && tcr->nz2 != 0;
+    out->npair = e->c422 ? 2 : 1;
+    if (st) {
+        memcpy(st->ctx, fctx, sizeof(fctx));
+        st->bits += b_flat;
+    }
+    return d_flat;
 }
 
 /* The split arrangement is analysed inside the commit, so under
- * N265_RDOQ=2 its four children are lattice work; the flat arm's TBs were
+ * N265_RDOQ=2 its children are lattice work; the root's flat TBs were
  * re-quantised by commit_inter_cu before it got here, so the two
  * arrangements are compared on the same quantiser and the winner is the
  * one that is coded. */
 static void commit_inter_tt(struct n265_frame_work *e, mot_t mot, int x0,
-                            int y0, int log2n, tb_ctx *tl, tb_ctx *tcb,
-                            tb_ctx *tcr)
+                            int y0, int log2n, int part, tb_ctx *tl,
+                            tb_ctx *tcb, tb_ctx *tcr)
 {
     int sv = e->rdoq_commit;
+    struct tt_cbf out;
     e->rdoq_commit = 1;
-    commit_inter_tt_inner(e, mot, x0, y0, log2n, tl, tcb, tcr);
+    inter_tt_node(e, mot, x0, y0, log2n, 0,
+                  e->tt_depth_inter == 0 && part != PART_2Nx2N,
+                  tl, tcb, tcr, NULL, &out);
     e->rdoq_commit = sv;
 }
 
@@ -4185,7 +4341,8 @@ static uint64_t rd_part(struct n265_frame_work *e, int x0, int y0, int log2n,
     est_state st = { local, 0 };
     est_inter_cu_bits(e, &st, x0, y0, log2n, c->part, c->d, c->any, inc);
     if (c->any)
-        est_tt_bits(e, &st, log2n, MODE_INTER, &c->tl, &c->tcb, &c->tcr);
+        est_tt_bits(e, &st, log2n, 0, 1, MODE_INTER, &c->tl, &c->tcb,
+                    &c->tcr);
     return rd_j(e, d, st.bits, ctu_lam(e, e->cur_ctu_qp));
 }
 
@@ -4359,7 +4516,7 @@ static int commit_inter_cu(struct n265_frame_work *e, int x0, int y0,
     else if (any && log2n <= 5 && tl)
         set_cu_pred_tb(e, x0, y0, n, tl, tcb, tcr);
     if (any) {
-        commit_inter_tt(e, d[0].mot, x0, y0, log2n, tl, tcb, tcr);
+        commit_inter_tt(e, d[0].mot, x0, y0, log2n, part, tl, tcb, tcr);
     } else {
         tb_commit(e, 0, x0, y0, log2n, tl);
         tb_commit(e, 1, x0 >> e->csx, y0 >> e->csy, log2n - e->csx, tcb);
@@ -4846,7 +5003,7 @@ static void merge_trial(struct n265_frame_work *e, int x0, int y0, int log2n,
         memcpy(local, e->est_ctx, sizeof(local));
         est_state st = { local, 0 };
         est_inter_cu_bits(e, &st, x0, y0, log2n, PART_2Nx2N, pd, *m_any, inc);
-        est_tt_bits(e, &st, log2n, MODE_INTER, m_tl, m_tcb, m_tcr);
+        est_tt_bits(e, &st, log2n, 0, 1, MODE_INTER, m_tl, m_tcb, m_tcr);
         *j_merge = rd_j(e, *d_merge, st.bits, lam);
     }
 }
@@ -4878,7 +5035,7 @@ static void amvp_trial(struct n265_frame_work *e, int x0, int y0, int log2n,
     est_state st = { local, 0 };
     est_inter_cu_bits(e, &st, x0, y0, log2n, PART_2Nx2N, pd, *a_any, inc);
     if (*a_any)
-        est_tt_bits(e, &st, log2n, MODE_INTER, a_tl, a_tcb, a_tcr);
+        est_tt_bits(e, &st, log2n, 0, 1, MODE_INTER, a_tl, a_tcb, a_tcr);
     *j_amvp = rd_j(e, *d_amvp, st.bits, lam);
 }
 

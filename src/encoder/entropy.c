@@ -246,16 +246,24 @@ static void replay_residual(struct n265_frame_work *e, const res_ops *ops,
 }
 
 /* replay one 2Nx2N transform tree, general RQT form (maxTB 32, min TB 4,
- * MaxTrafoDepth 1). Record layout per node: [tsplit byte when the flag is
- * coded][cbf_cb][cbf_cr when log2ts > 2], then children or the leaf's
- * [cbf_l][levels l][levels cb][levels cr]. A CB8 split keeps chroma at
- * the parent, coded after the last luma child. */
+ * MaxTrafoDepth = the SPS's max_transform_hierarchy_depth_*). Record
+ * layout per node: [tsplit byte when the flag is coded][cbf_cb][cbf_cr
+ * when log2ts > 2], then children or the leaf's [cbf_l][levels l][levels
+ * cb][levels cr]. A CB8 split keeps chroma at the parent, coded after the
+ * last luma child.
+ *
+ * `isplit` is 7.4.9.8's interSplitFlag, which only the caller can know:
+ * at max_transform_hierarchy_depth_inter 0 a non-2Nx2N inter CU INFERS a
+ * split at depth 0 instead of coding one. It is 0 at every depth the
+ * project shipped before `--tu-inter-depth` existed. */
 static void replay_tt(struct n265_frame_work *e, const res_ops *ops, int mode,
                       int x0, int y0, int log2ts, int depth, int pcb,
-                      int pcr)
+                      int pcr, int isplit)
 {
-    int coded_flag = log2ts <= 5 && log2ts > 2 && depth == 0;
-    int split = log2ts > 5 ? 1 : coded_flag ? (int)rd_u8(e) : 0;
+    int maxd = mode == MODE_INTER ? e->tt_depth_inter : e->tt_depth_intra;
+    int forced = log2ts > 5 || (depth == 0 && isplit);
+    int coded_flag = !forced && log2ts <= 5 && log2ts > 2 && depth < maxd;
+    int split = forced ? 1 : coded_flag ? (int)rd_u8(e) : 0;
     if (coded_flag)
         ops->bin(ops->h, CTX_TSPLIT + 5 - log2ts, split);
 
@@ -319,7 +327,7 @@ static void replay_tt(struct n265_frame_work *e, const res_ops *ops, int mode,
             if (chroma_at_parent && (cbf_cb || cbf_cb2 || cbf_cr || cbf_cr2))
                 e->ent_parent_chroma = 1;
             replay_tt(e, ops, mode, x1, y1, log2ts - 1, depth + 1, cbf_cb,
-                      cbf_cr);
+                      cbf_cr, 0);
             e->ent_parent_chroma = 0;
             if (chroma_at_parent && i == 3) {
                 /* 7.3.8.10's blkIdx == 3 arm, with its tIdx loop: the
@@ -499,7 +507,8 @@ static void replay_cu(struct n265_frame_work *e, const res_ops *ops, int x0,
             }
             if (!root_cbf)
                 return;
-            replay_tt(e, ops, MODE_INTER, x0, y0, log2n, 0, 1, 1);
+            replay_tt(e, ops, MODE_INTER, x0, y0, log2n, 0, 1, 1,
+                      e->tt_depth_inter == 0 && part != PART_2Nx2N);
             return;
         }
     }
@@ -518,7 +527,7 @@ static void replay_cu(struct n265_frame_work *e, const res_ops *ops, int x0,
         int mode = map_at(e, e->intra_mode, x0, y0);
         write_luma_mode(e, ops, x0, y0, mode);
         ops->bin(ops->h, CTX_CHROMA_MODE, 0);    /* DM */
-        replay_tt(e, ops, mode, x0, y0, log2n, 0, 1, 1);
+        replay_tt(e, ops, mode, x0, y0, log2n, 0, 1, 1, 0);
         return;
     }
 

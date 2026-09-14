@@ -433,6 +433,12 @@ if [ "$CSP" = 422 ]; then
     # sample across and a whole one down
     run_vector ${P}_intra  176x144  5 testsrc2 "--keyint 1"
     run_vector ${P}_crop   210x122  5 testsrc2 "--keyint 1"
+    # ...and the same tree three and four levels deep (phase 14 item 5).
+    # The chroma half of the recursion is format-specific - whether a
+    # child carries its own chroma, and whether a node codes one cbf per
+    # component or the stacked 4x4 chroma pair - so each format checks it.
+    run_vector ${P}_tu3    176x144 16 testsrc2 "--keyint 8 --ctu 32 --bframes 5 --qp 30 --tu-inter-depth 3 --tu-intra-depth 3 --threads 1"
+    run_vector ${P}_tu4    176x144 16 testsrc2 "--keyint 8 --ctu 32 --bframes 5 --qp 30 --tu-inter-depth 4 --tu-intra-depth 4 --threads 4"
     # IPB with the pyramid at one thread and at twelve: the split chroma
     # MC fractions, uni and bi, and run_vector's own two-run cmp carries
     # determinism with each.
@@ -538,6 +544,12 @@ if [ "$CSP" = 444 ]; then
     # offsets are in CHROMA units, which at 4:4:4 are luma samples
     run_vector ${P}_intra  176x144  5 testsrc2 "--keyint 1"
     run_vector ${P}_crop   210x122  5 testsrc2 "--keyint 1"
+    # ...and the same tree three and four levels deep (phase 14 item 5).
+    # The chroma half of the recursion is format-specific - whether a
+    # child carries its own chroma, and whether a node codes one cbf per
+    # component or its own 4x4 chroma leaf - so each format checks it.
+    run_vector ${P}_tu3    176x144 16 testsrc2 "--keyint 8 --ctu 32 --bframes 5 --qp 30 --tu-inter-depth 3 --tu-intra-depth 3 --threads 1"
+    run_vector ${P}_tu4    176x144 16 testsrc2 "--keyint 8 --ctu 32 --bframes 5 --qp 30 --tu-inter-depth 4 --tu-intra-depth 4 --threads 4"
     # IPB with the pyramid at one thread and at twelve: quarter-pel
     # chroma MC on full-size planes, uni and bi, and run_vector's own
     # two-run cmp carries determinism with each.
@@ -1024,6 +1036,8 @@ run_vector lossless_ipb_t1  352x288 24 testsrc2 "--keyint 12 --bframes 7 --lossl
 run_vector lossless_ipb_t12 352x288 24 testsrc2 "--keyint 12 --bframes 7 --lossless --threads 12"
 run_vector lossless_ctu16   176x144 12 testsrc2 "--keyint 6 --ctu 16 --lossless --ref 3 --bframes 7 --threads 4"
 run_vector lossless_crop    210x122  6 testsrc2 "--keyint 3 --lossless --ctu 64"
+# the transquant-bypass path down a three-level tree (phase 14 item 5)
+run_vector lossless_tu3     352x288 12 testsrc2 "--keyint 6 --bframes 3 --lossless --tu-inter-depth 3 --tu-intra-depth 3 --threads 4"
 VENV="N265_MIN_KEYINT=0"
 run_vector_graph "testsrc2=size=176x144:rate=25:duration=0.4[a];smptebars=size=176x144:rate=25:duration=0.4[b];[a][b]concat=n=2:v=1:a=0" \
            lossless_cut  176x144 20 testsrc2 "--keyint 250 --bframes 7 --ref 2 --lossless --threads 1"
@@ -1067,6 +1081,40 @@ run_vector rdoqlvl2_t1  176x144 16 testsrc2 "--keyint 8 --ctu 16 --bframes 5 --a
 # the determinism leg as well.
 run_vector cbcrqpoffs_t12 352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 26 --aq 1 --cutree 1 --cbqpoffs -2 --crqpoffs 2 --threads 12"
 run_vector cbcrqpoffs_t1  176x144 16 testsrc2 "--keyint 8 --ctu 16 --bframes 5 --aq 1 --cutree 1 --cbqpoffs -6 --crqpoffs -3 --threads 1"
+
+# --tu-inter-depth / --tu-intra-depth (phase 14 item 5): the residual
+# quadtree's depth as a user knob. The default 2 is every stream this
+# project wrote before the flag existed and is covered by every vector
+# above; what needs its own is the RECURSION - depth 3 and 4 make a node
+# that split split again, which is the arrangement replay_tt had never
+# been asked to walk, and depth 1 is the other end, where a 2Nx2N CU
+# codes no split flag at all and a PARTITIONED inter CU infers one
+# (7.4.9.8's interSplitFlag). Both decoders are held bit-exact as always,
+# and the ctu-64 vector is the one that reaches trafoDepth 4.
+run_vector tudepth3_t1   352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 26 --aq 1 --cutree 1 --tu-inter-depth 3 --tu-intra-depth 3 --threads 1"
+run_vector tudepth3_t12  352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 26 --aq 1 --cutree 1 --tu-inter-depth 3 --tu-intra-depth 3 --threads 12"
+run_vector tudepth4_c64  352x288 20 testsrc2 "--keyint 10 --ctu 64 --bframes 7 --qp 30 --tu-inter-depth 4 --tu-intra-depth 4 --threads 4"
+run_vector tudepth1      352x288 20 testsrc2 "--keyint 10 --ctu 64 --bframes 5 --aq 1 --cutree 1 --tu-inter-depth 1 --tu-intra-depth 1 --threads 4"
+run_vector tudepth_mixed 176x144 16 testsrc2 "--keyint 8 --ctu 16 --bframes 5 --aq 1 --cutree 1 --tu-inter-depth 3 --tu-intra-depth 1 --threads 1"
+
+# The two rungs phase 14 item 5 built and REFUSED, spelled as the flags
+# they are rather than by name: `--preset veryslow` and `--preset placebo`
+# are not placed, so the name is refused, and the composition is still
+# worth a decoded stream. Each is `slower`'s table and structure with the
+# transform tree one and two levels deeper, on the 64 coding tree those
+# presets run - which is the arrangement the shorter vectors above do not
+# reach.
+run_vector rung_veryslow 352x288 24 testsrc2 "--preset slower --tu-inter-depth 3 --tu-intra-depth 3 --keyint 12 --crf 26 --aq 1 --cutree 1 --threads 4"
+run_vector rung_placebo  352x288 24 testsrc2 "--preset slower --tu-inter-depth 4 --tu-intra-depth 4 --keyint 12 --crf 26 --aq 1 --cutree 1 --threads 4"
+run_vector ref4_b8_t1    352x288 30 testsrc2 "--keyint 12 --bframes 8 --rc-lookahead 20 --ref 4 --crf 26 --aq 1 --cutree 1 --threads 1"
+run_vector ref5_b8_t12   352x288 30 testsrc2 "--keyint 12 --bframes 8 --rc-lookahead 20 --ref 5 --crf 26 --aq 1 --cutree 1 --threads 12"
+# The widest pairs are bounded by Annex A and not by us: sps_max_dec_pic_
+# buffering stops at 16, so `--ref 4 --bframes 15` (17) and `--ref 5
+# --bframes 11` and up (17, 18) are refused at encoder_open with the
+# message that says which. `--ref 4 --bframes 12` is legal (16) and is the
+# vector that walks the deepest pool - twelve marked pictures at once.
+run_vector ref4_b12_t1   352x288 34 testsrc2 "--keyint 20 --bframes 12 --rc-lookahead 24 --ref 4 --b-adapt 0 --crf 26 --aq 1 --cutree 1 --threads 1"
+
 # N265_DUP_FAST (phase 11 item 1): the fast path codes a whole picture as
 # skip toward the reference whose SOURCE is this picture's source, with
 # no arm running that could have chosen otherwise. Those CUs are syntax

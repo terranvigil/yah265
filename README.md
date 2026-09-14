@@ -115,14 +115,29 @@ what makes either number checkable; `docs/phase13.md`.
 `--preset` knows all ten names x265 prints and accepts the four we have
 placed - `fast`, `medium` (default), `slow`, `slower`. The other six are
 refused by name, pointing at the nearest rung we do have, rather than as
-an unknown option. Two rungs below `fast` were built and measured against
-the x265 preset of their own name and refused: `faster` (the SA8D-proxy
-mode decision plus the frozen bit estimator) wins the CRF band on all
-fifteen clips by a median of 10% and still loses three of the four legs -
-touchdown_1080p at 1.44x of x265 faster's wall, and bus_cif missing the
-quality and size bars by a hair - and `veryfast` loses the band itself on
-seven of the fifteen. Both are recorded with the binding leg in
-`docs/phase13.md`; neither is named in `--preset`.
+an unknown option. Four of the six were built and measured against the
+x265 preset of their own name and refused. Below `fast`: `faster` (the
+SA8D-proxy mode decision plus the frozen bit estimator) wins the CRF band
+on all fifteen clips by a median of 10% and still loses three of the four
+legs - touchdown_1080p at 1.44x of x265 faster's wall, and bus_cif
+missing the quality and size bars by a hair - and `veryfast` loses the
+band itself on seven of the fifteen (`docs/phase13.md`). Above `slower`:
+`veryslow` and `placebo` lose the band on five and four of the seven CIF
+clips,
+and the reason is upstream of them - `--preset slow` reads +10.24%
+against x265's own `slow` and `slower` +1.18% against x265's `slower`,
+while `medium` reads -6.65% against x265 medium with every clip ahead.
+Our ladder ABOVE medium does not yet earn its own names, and a rung built
+on top of it inherits that before it spends a lever (`docs/phase14.md`,
+item 5). None of the four is named in `--preset`.
+
+**Two flags came out of that item whatever the rungs did**:
+`--tu-inter-depth` / `--tu-intra-depth` (x265's names and numbering, 1..4,
+default 2) make the residual quadtree's depth a user option - the third
+level is worth half a point of CIF band median and one and a half points
+at 720p for 8-11% of the single-thread wall - and `--ref` now reaches 4
+and 5, which measured as 1.4-1.9x of the wall for no band and are there
+for a user who wants them rather than on a rung.
 
 Full campaign record: `docs/plan.md` (phases 0-13; phase 14's backlog is
 `docs/x265-feature-audit.md`), the per-phase docs under `docs/`, and the
