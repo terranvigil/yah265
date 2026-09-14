@@ -733,6 +733,7 @@ static void fw_close(n265_frame_work *fw)
     free(fw->dd_rec);
     free(fw->cu_rec);
     free(fw->cu_rec_n);
+    free(fw->sc_prop);          /* phase 11 item 4 */
     free(fw->sao);
     for (int i = 0; i < 3; i++) {
         free(fw->sao_tmp[i]);
@@ -967,6 +968,8 @@ n265_encoder *n265_encoder_open(const n265_param *p)
       e->iw_thr = v ? atoi(v) : 100; }   /* tenths of a percent */
     for (int i = 0; i < N265_IW_HIST; i++)
         e->iw_hist[i].cidx = -1;
+    for (int i = 0; i < N265_SC_HIST; i++)
+        e->sc_hist[i].cidx = -1;    /* phase 11 item 4 */
     /* N265_SHOT_STATS=file: the per-shot sidecar, the env half of
      * --shot-stats (which overrides it). Opened here, on the driver, so
      * no frame's retirement performs the first read. */
@@ -1544,6 +1547,8 @@ void n265_encoder_close(n265_encoder *e)
             free(e->dpb[sl].hf2w_base[i]);
         }
     }
+    for (int i = 0; i < N265_SC_HIST; i++)
+        free(e->sc_hist[i].map);   /* phase 11 item 4's skip-map ring */
     n265_la_free(e);
     free(e->out);
     free(e);
@@ -2584,6 +2589,70 @@ static uint64_t dup_bound(const n265_frame_work *fw,
  *
  * A picture that is not itself in a run (`dup_grp` 0 - an unarmed
  * encode, or the first frame after a queue drain) matches nothing. */
+/* N265_STATIC_COMMIT (phase 11 item 4): WHICH retired frame's coded-skip
+ * map this picture's static commit reads, resolved on the driver at
+ * dispatch and frozen before a row job exists - the same shape as
+ * dup_resolve above and for the same reason.
+ *
+ * Two rules, and the second is the one that makes the first usable.
+ *
+ * ELIGIBLE is the CLOSED window k - 8 - 15 .. k - 8, in coding indices.
+ * The upper end is the newest index retired at EVERY thread count;
+ * `e->K` would be newer and is not allowed, because K moves with
+ * --threads and this rule moves bits. The lower end is what keeps the
+ * RING from leaking the thread count back in - encoder.h, at
+ * N265_SC_WIN, has that argument, and it is the one this arm got wrong
+ * first time.
+ *
+ * NEAREST IN DISPLAY ORDER among the eligible, because coding order at
+ * --bframes 7 is not time. The census's feature is "the co-located CU of
+ * the previous frame was skip" (docs/phase9-goals-plan.md sec 11.4) and
+ * what makes that predict anything is temporal proximity, not the order
+ * the encoder happened to code in. The oldest eligible coding index is
+ * eight coding steps back; the nearest of the eligible set in display
+ * order is usually one or two frames away. Ties go to the larger coding
+ * index, so the answer is a pure function of the GOP structure. */
+static void sc_resolve(n265_encoder *e, n265_frame_work *fw)
+{
+    fw->sc_map = NULL;
+    if (!n265_static_commit() || fw->slice_type == 2 || !fw->ref_valid ||
+        fw->mode == N265_MODE_PCM || fw->lossless || !e->cutree ||
+        !fw->la_prop)
+        return;
+    int hi = fw->code_idx - N265_MAX_FRAME_WORK;
+    int lo = hi - (N265_SC_WIN - 1);
+    int best = -1, bd = 0;
+    for (int i = 0; i < N265_SC_HIST; i++) {
+        const struct n265_sc_hist *h = &e->sc_hist[i];
+        if (h->cidx < lo || h->cidx > hi || !h->map)
+            continue;
+        int d = h->didx > fw->display_idx ? h->didx - fw->display_idx
+                                          : fw->display_idx - h->didx;
+        if (best < 0 || d < bd || (d == bd && h->cidx > e->sc_hist[best].cidx)) {
+            best = i;
+            bd = d;
+        }
+    }
+    if (best < 0)
+        return;
+    /* the propagate conjunct, snapshotted here for the reason the field's
+     * comment gives: the array it is read off is the lookahead's own and
+     * the driver rewrites it as the window slides. */
+    int nb = fw->la_bw * fw->la_bh;
+    if (nb <= 0)
+        return;
+    if (fw->sc_prop_n != nb) {
+        free(fw->sc_prop);
+        fw->sc_prop = malloc((size_t)nb);
+        fw->sc_prop_n = fw->sc_prop ? nb : 0;
+    }
+    if (!fw->sc_prop)
+        return;
+    for (int b = 0; b < nb; b++)
+        fw->sc_prop[b] = fw->la_prop[b] == 0.0f;
+    fw->sc_map = e->sc_hist[best].map;
+}
+
 static void dup_resolve(n265_encoder *e, n265_frame_work *fw)
 {
     fw->dup_msk[0] = fw->dup_msk[1] = 0;
@@ -2706,6 +2775,9 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
      * references, which is the same kind of decision: driver-serial, off
      * data frozen before the frame launches, and read by every CTU. */
     dup_resolve(e, fw);
+    /* ...and WHICH retired frame's coded-skip map the static commit reads
+     * on this picture (phase 11 item 4). Same shape, same reason. */
+    sc_resolve(e, fw);
     /* ...and, reading that type, whether the adaptive intra gate fires
      * on this frame. Driver-serial, off the retired window only, frozen
      * here for the same reason the type is. */
@@ -3522,6 +3594,34 @@ static void join_oldest(n265_encoder *e)
                         r->dmin, r->dmax);
                 }
             fclose(df);
+        }
+    }
+    /* N265_STATIC_COMMIT (phase 11 item 4): stamp this frame's coded-skip
+     * map into the ring. Here, on the driver, where join_oldest has
+     * already serialised coding order, so the ring's contents are a pure
+     * function of the encode; sc_resolve then reads only the part of it
+     * that no thread count can change. */
+    if (n265_static_commit() && fw->blk_skip) {
+        size_t cells = (size_t)fw->map_stride * (fw->pad_h >> 2);
+        struct n265_sc_hist *sh = &e->sc_hist[fw->code_idx % N265_SC_HIST];
+        if (!sh->map || e->sc_cells != cells) {
+            /* the geometry is fixed for the encode; the test is here so a
+             * short read can never write past a map sized for another */
+            if (e->sc_cells != cells) {
+                for (int i = 0; i < N265_SC_HIST; i++) {
+                    free(e->sc_hist[i].map);
+                    e->sc_hist[i].map = NULL;
+                    e->sc_hist[i].cidx = -1;
+                }
+                e->sc_cells = cells;
+                sh = &e->sc_hist[fw->code_idx % N265_SC_HIST];
+            }
+            sh->map = malloc(cells);
+        }
+        if (sh->map) {
+            memcpy(sh->map, fw->blk_skip, cells);
+            sh->cidx = fw->code_idx;
+            sh->didx = fw->display_idx;
         }
     }
     /* N265_CU_TRACE: the frame's per-node census, in raster order, with

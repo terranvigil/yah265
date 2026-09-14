@@ -1429,6 +1429,65 @@ static int skip_thr8(void)
     return thr8 << BIT_DEPTH_SHIFT;
 }
 
+/* N265_STATIC_COMMIT (phase 11 item 4): the census's P3, the static
+ * commit re-derived, as a MULTIPLE of the strict static-skip bound. 0 is
+ * off and is the compiled-in default; the value is the multiplier the
+ * census swept (docs/phase9-goals-plan.md sec 11.5, PRED_B).
+ *
+ * Family B, which is the thing to be careful about: this is asked BEFORE
+ * the merge arm rather than after it, so it saves the WHOLE node - and
+ * every CU it catches that would not have ended as a skip is a CHANGED
+ * DECISION, not a candidate the RD lost. The strict exit above is safe
+ * at a quarter of a luma level per pixel and never fires at the goal
+ * preset's pins (0 of 2.9 million final CUs, sec 11.3); this one fires,
+ * and it is the two extra conjuncts that are supposed to pay for the
+ * bound being ten times looser:
+ *
+ *   - the co-located CU of the nearest RETIRED frame was all skip, and
+ *   - the cu-tree propagate-in over the node is exactly zero: nothing
+ *     downstream predicts from this block, so a decision taken wrongly
+ *     here does not travel.
+ *
+ * Neither is free of the other. The co-located skip alone is the WEAKEST
+ * feature the census measured and on in_to_tree_720p it is inverted (sec
+ * 11.4); the propagate alone separates about twice as well and in the
+ * same direction on all six clips. Together they are what takes the
+ * bound's false-catch area on touchdown from 19.0% at 10x to 1.2%. */
+static int static_commit(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_STATIC_COMMIT");
+        v = s ? atoi(s) : 0;
+        if (v < 0) v = 0;
+    }
+    return v;
+}
+
+int n265_static_commit(void)
+{
+    return static_commit();
+}
+
+/* N265_SC_CONJ: which of the two stand-downs the commit carries, as a
+ * bitmask - 1 the cu-tree propagate, 2 the co-located skip. 3, both, is
+ * the default and is P3 as the census wrote it. It exists because the
+ * two are not priced apart anywhere: sec 11.5 ranks the CONJUNCTION and
+ * the census's own map is one coding frame old, while the encoder can
+ * only read a map old enough to be retired at every thread count. This
+ * knob is what says which of those two facts the arm's catch rate is
+ * made of. */
+static int sc_conj(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_SC_CONJ");
+        v = s ? atoi(s) : 3;
+        if (v < 0 || v > 3) v = 3;
+    }
+    return v;
+}
+
 /* P1, the early-out trio (docs/phase4-ladder.md). All three are off by
  * default; each one reshapes a decision, so each is priced on the band
  * before it becomes a default. */
@@ -4283,6 +4342,62 @@ static int merge_pick_sad(struct n265_frame_work *e, int x0, int y0,
     return midx;
 }
 
+/* N265_STATIC_COMMIT's predicate, the census's P3 (sec 11.5, family B).
+ *
+ * Asked at the same site as the strict static-skip exit, before the merge
+ * arm, so a `1` here costs the node everything but the merge list and the
+ * SAD pick that produced `sad`. The three conjuncts, cheapest first:
+ *
+ *   1. the merge candidate's SAD is inside the multiplier's bound. The
+ *      bound is the strict one (`N265_SKIP_THR` eighths of a luma level
+ *      per pixel) times the knob, so 10 is 2.5 levels a pixel at the
+ *      default 2.
+ *   2. the cu-tree propagate-in over the node is exactly zero: no later
+ *      picture predicts from this block, so what this decision loses
+ *      cannot propagate. Read off the lookahead's 16x16 grid, which the
+ *      driver froze onto the frame before dispatch.
+ *   3. the co-located area was ALL skip in the retired frame nearest
+ *      this one in display order (sc_resolve picks it, on the driver at
+ *      dispatch). "All" and not a share: the census's column is the
+ *      share and its separation comes from the 100% bucket.
+ *
+ * The propagate test leads the map walk because it is O(1) at 32x32 and
+ * the map walk is O(n^2 / 16); on the population that reaches here the
+ * propagate conjunct is the one that fails most often. */
+static int sc_prop_zero(const struct n265_frame_work *e, int x0, int y0, int n)
+{
+    int nb = n >> 4;
+    if (nb < 1)
+        nb = 1;
+    for (int by = y0 >> 4; by < (y0 >> 4) + nb && by < e->la_bh; by++)
+        for (int bx = x0 >> 4; bx < (x0 >> 4) + nb && bx < e->la_bw; bx++)
+            if (!e->sc_prop[by * e->la_bw + bx])
+                return 0;
+    return 1;
+}
+
+static int sc_commit(const struct n265_frame_work *e, int x0, int y0, int n,
+                     uint32_t sad)
+{
+    int k = static_commit();
+    if (!k || !e->sc_map)
+        return 0;
+    if ((uint64_t)sad * 8u > (uint64_t)(n * n * skip_thr8()) * (unsigned)k)
+        return 0;
+    if ((sc_conj() & 1) && !sc_prop_zero(e, x0, y0, n))
+        return 0;
+    if (!(sc_conj() & 2))
+        return 1;
+    int cw = e->pad_w >> 2, ch = e->pad_h >> 2, seen = 0;
+    for (int cy = y0 >> 2; cy < (y0 >> 2) + (n >> 2) && cy < ch; cy++)
+        for (int cx = x0 >> 2; cx < (x0 >> 2) + (n >> 2) && cx < cw; cx++) {
+            if (!e->sc_map[(size_t)cy * e->map_stride + cx])
+                return 0;
+            seen = 1;
+        }
+    return seen;
+}
+
 static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
 {
     int n = 1 << log2n;
@@ -4329,7 +4444,8 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
          * it IS exact the same skip is still what wins, at the price of
          * having priced the merge candidate first. */
         if (!e->lossless &&
-            cand_plain_sad * 8u <= (uint32_t)(n * n * skip_thr8())) {
+            (cand_plain_sad * 8u <= (uint32_t)(n * n * skip_thr8()) ||
+             sc_commit(e, x0, y0, n, cand_plain_sad))) {
             skip_cu(e, x0, y0, log2n, cand, midx);
             e->rec_pos = pos0;
             est_state adv = { e->est_ctx, 0 };
@@ -5909,6 +6025,7 @@ void n265_ctu_warm(void)
     (void)no_split_on(); (void)no_earlyskip_on(); (void)cb64_trace_on();
     (void)skip_thr8(); (void)es_thr_pct(); (void)rskip_mode();
     (void)cbf_fast(); (void)gate_scale(); (void)skip_exit();
+    (void)static_commit(); (void)sc_conj();
     (void)intra_gate(); (void)intra_pf_q8(); (void)intra_oracle();
     (void)part_gate();
     (void)part_amp_margin(); (void)rect_rank(); (void)n265_rect_flat();

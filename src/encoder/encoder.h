@@ -537,8 +537,29 @@ typedef struct n265_frame_work {
     float la_mvabs;         /* lookahead mean |MV| per lowres block (N265_CT_TRACE) */
     const uint16_t *la_icost, *la_pcost;
     const int16_t *la_mv;   /* lowres MV pairs, same grid (N265_DEPTH_DUMP) */
-    const float *la_prop;   /* cu-tree propagate-in, same grid (N265_CU_TRACE) */
+    const float *la_prop;   /* cu-tree propagate-in, same grid (N265_CU_TRACE
+                             * and N265_STATIC_COMMIT's second conjunct) */
     int la_bw, la_bh;
+    /* N265_STATIC_COMMIT (phase 11 item 4): the coded-skip map of the
+     * retired frame nearest this one in DISPLAY order, resolved on the
+     * driver at dispatch and frozen before a row job exists. NULL where
+     * the arm is off or no entry qualifies, which is every CU's test. */
+    const uint8_t *sc_map;
+    /* ...and the propagate conjunct, as one byte per lookahead block:
+     * 1 where the cu-tree propagate-in is exactly zero.
+     *
+     * This is a COPY and it has to be. `la_prop` points into
+     * `la->f[i].prop`, and n265_la_cutree zeroes and recomputes every
+     * frame in the view each time the window slides - so a frame that is
+     * still coding when the next one is prepared has its propagate
+     * rewritten under it, and what a CU reads depends on how far ahead
+     * the driver got. At one worker it reads the frame's own values and
+     * at twelve it reads a later window's, which is a bitstream that
+     * moves with `--threads`. (The existing N265_CU_TRACE `prop` column
+     * reads the live array and has the same exposure; it is diagnostic
+     * and no branch depends on it, so it has never mattered.) */
+    uint8_t *sc_prop;
+    int sc_prop_n;
     /* The DUPLICATE path (phase 11 item 1, docs/phase11.md). `dup_grp`
      * and `dup_cum` are this frame's own entries in the lookahead's
      * duplicate chain (la.h).
@@ -743,6 +764,29 @@ typedef struct n265_row_ctx {
 
 #define N265_HF2_WIN  8
 #define N265_HF2_HIST 32
+
+/* N265_STATIC_COMMIT's ring of coded-skip maps (phase 11 item 4), and
+ * the window inside it the rule may read.
+ *
+ * The window is closed at BOTH ends, and the lower end is not
+ * bookkeeping - it is half the determinism argument. A ring keyed on
+ * `cidx % N265_SC_HIST` loses an old entry the moment the entry 32
+ * coding indices later is written, and HOW MANY entries have been
+ * written when frame k is dispatched depends on the thread count: at one
+ * worker the retired prefix runs to k - 1, at twelve it may stop at
+ * k - 8. An open-ended "everything at or below k - 8" therefore reads a
+ * DIFFERENT SET at the two, because the newest writes have destroyed
+ * different old entries - which is exactly what the first build of this
+ * arm did, and t1 and t12 disagreed on every clip.
+ *
+ * So the rule reads coding indices k - 8 - 15 .. k - 8 and nothing else.
+ * Every one of those is retired at every thread count (K <=
+ * N265_MAX_FRAME_WORK), and none of them can have been overwritten,
+ * because the entry that would do it is k + 9 and frame k has not been
+ * coded yet. N265_SC_HIST >= N265_SC_WIN + N265_MAX_FRAME_WORK + 1 is
+ * that second half, stated as a number. */
+#define N265_SC_HIST 32
+#define N265_SC_WIN  16
 
 struct n265_encoder {
     n265_param param;
@@ -1034,6 +1078,28 @@ struct n265_encoder {
     int iw_adapt;           /* N265_INTRA_GATE == 10 */
     int iw_win;             /* N265_INTRA_ADAPT_K, coding indices  */
     int iw_thr;             /* N265_INTRA_ADAPT_THR, tenths of a % */
+    /* N265_STATIC_COMMIT (phase 11 item 4): the coded-skip maps its
+     * co-located conjunct reads. One entry per coding index, written at
+     * retirement - where join_oldest has already serialised coding order
+     * - and read at DISPATCH, over the entries whose coding index is at
+     * or below k - N265_MAX_FRAME_WORK.
+     *
+     * The lag is the COMPILE-TIME maximum in flight and not `e->K`,
+     * which is the whole determinism argument and the one place this
+     * rule differs from hf2_traffic_mask's window. `e->K` moves with
+     * `--threads` (encoder.c, the T3/4 bump), and that is allowed there
+     * only because the traffic mask decides which half-pel planes to
+     * cache and a cache cannot move a bit. This rule DOES move bits, so
+     * it may only read a set that the thread count cannot change: at
+     * most K - 1 frames are in flight when a frame is dispatched and
+     * K <= N265_MAX_FRAME_WORK always, so coding index k - 8 is retired
+     * at every thread count and every K. */
+    struct n265_sc_hist {
+        int cidx;           /* the coding index this entry holds, or -1 */
+        int didx;           /* its display index, for the nearest pick  */
+        uint8_t *map;       /* per 4x4 cell, cu_skip_flag               */
+    } sc_hist[N265_SC_HIST];
+    size_t sc_cells;        /* map_stride * (pad_h >> 2), 0 until known */
     /* N265_INTRA_WIN_TRACE: one CSV row per frame at retirement carrying
      * the share of the picture whose final mode was intra, which is the
      * quantity an adaptive intra gate would condition on. Driver-side
@@ -1291,6 +1357,10 @@ void n265_row_begin(n265_row_ctx *row, n265_frame_work *fw, int r);
  * rectangular inter partitions where N265_NO_RECT deletes them
  * everywhere else. Read on the driver, in dispatch_frame. */
 int n265_rect_flat(void);
+/* N265_STATIC_COMMIT (ctu.c): the static commit's bound, as a multiple
+ * of the strict static-skip one; 0 is off. Read on the driver too, in
+ * sc_resolve, which is what decides whether the ring is kept at all. */
+int n265_static_commit(void);
 /* per-file knob warming, on the driver at open (T0 audit item 2) */
 void n265_encoder_warm(void);
 void n265_ctu_warm(void);
