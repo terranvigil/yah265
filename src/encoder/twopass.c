@@ -202,7 +202,7 @@ const n265_2p_frame *n265_2p_get(const n265_2p *tp, int d)
 }
 
 int n265_2p_solve(n265_2p *tp, double target, double qcomp, double clamp,
-                  double qp_min, double qp_max)
+                  double trust, double qp_min, double qp_max)
 {
     if (tp->n <= 0 || !(target > 0.0))
         return -1;
@@ -212,7 +212,7 @@ int n265_2p_solve(n265_2p *tp, double target, double qcomp, double clamp,
      * log2s, so the geometric mean is the unique level at which the
      * offsets sum to zero and the plan is a pure re-allocation. An
      * arithmetic mean would put a standing offset on the whole file that
-     * the rate-factor solve would then take straight back out - the same
+     * the level step below would then take straight back out - the same
      * quantity twice, once as an allocation and once as a level. */
     double lsum = 0.0;
     for (int i = 0; i < tp->n; i++) {
@@ -222,6 +222,7 @@ int n265_2p_solve(n265_2p *tp, double target, double qcomp, double clamp,
         lsum += log2(c);
     }
     double lbar = lsum / (double)tp->n;
+    double S = 0.0;
     for (int i = 0; i < tp->n; i++) {
         n265_2p_frame *r = &tp->fr[i];
         r->x = r->bits * n265_2p_qscale(r->qp);
@@ -240,44 +241,87 @@ int n265_2p_solve(n265_2p *tp, double target, double qcomp, double clamp,
             d = -clamp;
         r->d = d;
         r->pinned = 0;
-        r->plan_qp = 0.0;
-        r->plan_bits = 0.0;
+        S += r->x * exp2(-d / 6.0);
     }
     tp->qcomp = qcomp;
     tp->clamp = clamp;
+    tp->trust = trust;
     tp->target_bits = target;
-    /* The closed-form solve, with the frames the QP RANGE pins taken out
-     * and their bits taken off the target. A frame never unpins - pinning
-     * one can only raise the rate factor asked of the rest, which can only
-     * pin more - so the walk terminates, and 32 is a bound on it rather
-     * than a tolerance. */
+
+    /* Step 1: the rate factor, closed form, because qscale(rf) factors
+     * straight out of `sum X_i / (qscale(rf) 2^(d_i/6)) = target`. */
+    double rf = n265_2p_qp(S / target);
+    if (rf < qp_min)
+        rf = qp_min;
+    else if (rf > qp_max)
+        rf = qp_max;
+    tp->rf = rf;
+
+    /* Step 2: the TRUST RADIUS, and it is the whole of what the corpus
+     * forced (docs/phase12.md, Item 4).
+     *
+     * Every frame's rate curve here is a MEASUREMENT extrapolated by
+     * `bits(q) = X / qscale(q)`, and a measurement is only worth
+     * extrapolating near where it was taken. Far from the anchor the
+     * exponent is not 1 and on the cheap frames it is not even smooth:
+     * akiyo_cif codes display 8 at QP 28.7 for 720 bits in pass 1 - a
+     * picture whose residual quantises to almost nothing - and the same
+     * frame at QP 20.3 costs 12 328 bits. Seventeen times, where the model
+     * says 2.65. That is the dead zone, not a bad fit, and no exponent
+     * fixes it; the only defence is not to go there.
+     *
+     * So the ALLOCATION may move a frame at most `trust` QP from the
+     * quantiser pass 1 measured it at. The LEVEL below is not bounded,
+     * which is what keeps this from being a bound on hitting the target:
+     * the radius says the second pass may re-allocate a little around
+     * what the first pass found, and may re-level as far as it likes.
+     * trust <= 0 removes it and is the arm it is measured against. */
+    for (int i = 0; i < tp->n; i++) {
+        n265_2p_frame *r = &tp->fr[i];
+        double q = rf + r->d;
+        if (trust > 0.0) {
+            if (q > r->qp + trust)
+                q = r->qp + trust;
+            else if (q < r->qp - trust)
+                q = r->qp - trust;
+        }
+        r->plan_qp = q;
+    }
+
+    /* Step 3: ONE level shift over the whole file, solved exactly, and
+     * then the walk over the frames the QP range pins.
+     *
+     * `qscale(q + u)` is `qscale(q) 2^(u/6)`, so the bits of the whole
+     * plan scale by `2^(-u/6)` together and `u = 6 log2(P / target)` lands
+     * it on the target in closed form - no bisection, no tolerance, and no
+     * stopping rule that would have to be part of the determinism claim.
+     * The only iteration is over frames a QP bound fixes: their bits come
+     * off the target and the rest are re-levelled around them. A frame
+     * never unpins, so the walk is finite and 32 bounds it. */
     double fixed_bits = 0.0;
-    double rf = 0.0;
     for (int it = 0; it < 32; it++) {
-        double S = 0.0;
+        double P = 0.0;
         for (int i = 0; i < tp->n; i++)
             if (!tp->fr[i].pinned)
-                S += tp->fr[i].x * exp2(-tp->fr[i].d / 6.0);
-        if (!(S > 0.0))
+                P += tp->fr[i].x / n265_2p_qscale(tp->fr[i].plan_qp);
+        if (!(P > 0.0))
             break;                      /* every frame is at a bound */
         double rem = target - fixed_bits;
         if (rem < 1.0)
             rem = 1.0;
-        rf = n265_2p_qp(S / rem);
-        if (rf < qp_min)
-            rf = qp_min;
-        else if (rf > qp_max)
-            rf = qp_max;
+        double u = 6.0 * log2(P / rem);
         int moved = 0;
         for (int i = 0; i < tp->n; i++) {
             n265_2p_frame *r = &tp->fr[i];
             if (r->pinned)
                 continue;
-            double q = rf + r->d;
+            double q = r->plan_qp + u;
             if (q < qp_min || q > qp_max) {
                 r->plan_qp = q < qp_min ? qp_min : qp_max;
                 r->pinned = 1;
                 moved = 1;
+            } else {
+                r->plan_qp = q;
             }
         }
         if (!moved)
@@ -287,12 +331,9 @@ int n265_2p_solve(n265_2p *tp, double target, double qcomp, double clamp,
             if (tp->fr[i].pinned)
                 fixed_bits += tp->fr[i].x / n265_2p_qscale(tp->fr[i].plan_qp);
     }
-    tp->rf = rf;
     tp->plan_bits = 0.0;
     for (int i = 0; i < tp->n; i++) {
         n265_2p_frame *r = &tp->fr[i];
-        if (!r->pinned)
-            r->plan_qp = rf + r->d;
         r->plan_bits = r->x / n265_2p_qscale(r->plan_qp);
         tp->plan_bits += r->plan_bits;
     }

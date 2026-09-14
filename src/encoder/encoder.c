@@ -247,8 +247,13 @@ static int twopass_open(n265_encoder *e, const n265_param *p)
         { const char *v = n265_env("N265_2P_CLAMP"); if (v) clamp = atof(v); }
         if (clamp < 0.0)
             clamp = 0.0;
+        /* The trust radius, in QP: how far the ALLOCATION may move a frame
+         * from where pass 1 measured it (twopass.h). The level shift on top
+         * is unbounded, so this is not a bound on landing the target. */
+        double trust = 2.0;
+        { const char *v = n265_env("N265_2P_TRUST"); if (v) trust = atof(v); }
         double target = e->rc.bits_per_frame * (double)e->tp.n;
-        if (n265_2p_solve(&e->tp, target, qcomp, clamp,
+        if (n265_2p_solve(&e->tp, target, qcomp, clamp, trust,
                           (double)N265_QP_MIN, 51.0) < 0) {
             fprintf(stderr, "n265: --pass %d: the plan would not solve "
                     "(%d frames, %.0f bits)\n", g_pass, e->tp.n, target);
@@ -256,9 +261,9 @@ static int twopass_open(n265_encoder *e, const n265_param *p)
         }
         if (n265_env("N265_RC_TRACE") || n265_env("N265_2P_TRACE"))
             fprintf(stderr, "2P plan frames=%d target=%.0f planned=%.0f "
-                    "rf=%.3f qcomp=%.3f clamp=%.2f gain=%.3f\n",
+                    "rf=%.3f qcomp=%.3f clamp=%.2f trust=%.2f gain=%.3f\n",
                     e->tp.n, e->tp.target_bits, e->tp.plan_bits, e->tp.rf,
-                    qcomp, clamp, e->rc.tp_gain);
+                    qcomp, clamp, trust, e->rc.tp_gain);
     }
     if (g_pass == 1 || g_pass == 3) {
         if (n265_2p_open_write(&e->tp, g_stats_path, g_pass == 3,

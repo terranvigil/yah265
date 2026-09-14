@@ -232,6 +232,33 @@ run_vector_env() {
     VENV=""
 }
 
+# TWO-PASS (phase 12 item 4): the same vector, with a --pass 1 in front.
+#
+# The source is generated here and run_vector regenerates the identical
+# file from the same deterministic lavfi graph, so pass 1 and pass 2 see
+# the same pictures. run_vector then runs pass 2 TWICE and cmps the two
+# streams, which is the determinism leg for a planned encode: the plan is
+# read from the same file both times and the encode has to land on the
+# same bytes.
+run_vector_2p() {
+    # $1 name  $2 WxH  $3 frames  $4 lavfi source  $5 encoder args
+    n2p=$1; s2p=$2; f2p=$3; g2p=$4; a2p=$5
+    y2p="$TMP/$n2p.y4m"
+    st2p="$TMP/$n2p.stats"
+    "$FFMPEG" -loglevel error -f lavfi -i "$g2p=size=$s2p:rate=25" \
+        -vf "noise=alls=12:allf=t+u" -frames:v "$f2p" $SRCFMT "$y2p" -y \
+        2>/dev/null
+    if [ ! -s "$y2p" ]; then
+        echo "SUMMARY $n2p SKIP (source gen failed)"
+        return
+    fi
+    # shellcheck disable=SC2086
+    "$ENC" "$y2p" -o "$TMP/$n2p.p1.hevc" $a2p --pass 1 --stats "$st2p" \
+        2>/dev/null || {
+        echo "SUMMARY $n2p FAIL (pass 1)"; fail=$((fail+1)); return; }
+    run_vector "$n2p" "$s2p" "$f2p" "$g2p" "$a2p --pass 2 --stats $st2p"
+}
+
 # same vector, with an existing y4m as the source. The conversion to the
 # list's depth happens in run_vector's own ffmpeg call, so one 8-bit
 # corpus clip serves both lists.
@@ -638,6 +665,16 @@ run_vector abr_flat      176x144 16  testsrc2  "--keyint 8 --bitrate 200"
 # the vector carries a stream the buffer really constrained.
 run_vector vbv_abr       352x288 24  testsrc2  "--keyint 12 --bitrate 400 --vbv-maxrate 400 --vbv-bufsize 400 --aq 1 --cutree 1"
 run_vector vbv_crf       352x288 24  testsrc2  "--keyint 12 --crf 28 --vbv-maxrate 500 --vbv-bufsize 250 --aq 1 --cutree 1"
+# TWO-PASS (phase 12 item 4). Nothing new is on the WIRE - a planned
+# encode writes the same syntax an ABR one does, down to the fractional
+# base's cu_qp_delta dither - so what these two vectors check is that the
+# plan does not take the encoder anywhere the decoders cannot follow: the
+# per-frame base comes from a file instead of from the loop, and on
+# twopass_vbv it is then clamped by the buffer as well, which is the
+# composition this item claims and the one place two rate-control
+# mechanisms write the same quantiser.
+run_vector_2p twopass_abr 352x288 24  testsrc2  "--keyint 12 --bitrate 400 --aq 1 --cutree 1"
+run_vector_2p twopass_vbv 352x288 24  testsrc2  "--keyint 12 --bitrate 400 --vbv-maxrate 400 --vbv-bufsize 400 --aq 1 --cutree 1"
 # deblocking offsets: the PPS grows its control block
 # (deblocking_filter_control_present_flag with pps_beta_offset_div2 and
 # pps_tc_offset_div2), and both decoders have to shift the Table 8-12

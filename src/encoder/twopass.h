@@ -45,18 +45,30 @@
  * N265_2P_QCOMP = 1 every d_i is zero and pass 2 is exactly "re-level the
  * file", which is the arm the qcomp allocation is measured against.
  *
- * The file then has one free parameter, the rate factor, and the solve is
- * CLOSED FORM because qscale(rf) factors straight out:
+ * The file then has one free parameter, the rate factor, and it is CLOSED
+ * FORM because qscale(rf) factors straight out:
  *
  *     sum_i X_i / (qscale(rf) * 2^(d_i/6)) = target
  *     qscale(rf) = ( sum_i X_i * 2^(-d_i/6) ) / target
+ *
+ * And then the one thing the corpus forced: a TRUST RADIUS. The rate
+ * curve is a measurement extrapolated by 1/qscale, and far from the
+ * anchor that extrapolation is not merely inaccurate, it is the wrong
+ * shape - akiyo_cif codes display 8 at QP 28.7 for 720 bits and the same
+ * frame at QP 20.3 costs 12 328, seventeen times where the model says
+ * 2.65. So the ALLOCATION may move a frame at most N265_2P_TRUST QP from
+ * where pass 1 measured it, and the LEVEL is then solved on top of that,
+ * unbounded, in the same closed form (`qscale(q + u)` is
+ * `qscale(q) 2^(u/6)`, so `u = 6 log2(plan / target)` lands the file
+ * exactly). The radius bounds the re-allocation; it does not bound
+ * hitting the target.
  *
  * No bisection, no iteration to a tolerance, no floating-point search
  * whose stopping rule would have to be part of the determinism claim.
  * The only iteration is over frames the QP RANGE pins (a plan below
  * QpBdOffsetY or above 51 is not a plan): those are fixed at the bound,
- * their bits come out of the target, and the rest are re-solved. It is a
- * finite walk - a frame never unpins - and 32 rounds bounds it.
+ * their bits come out of the target, and the rest are re-levelled around
+ * them. It is a finite walk - a frame never unpins - and 32 bounds it.
  */
 
 #ifndef N265_TWOPASS_H
@@ -119,7 +131,7 @@ typedef struct n265_2p {
     int nblk, width, height;
     int solved;
     double rf;              /* the solved rate factor, QP units           */
-    double qcomp, clamp;
+    double qcomp, clamp, trust;
     double target_bits;     /* what the plan was solved onto              */
     double plan_bits;       /* what the plan actually sums to             */
     long miss;              /* frames coded that the stats do not describe */
@@ -144,7 +156,7 @@ int n265_2p_read(n265_2p *tp, const char *path, char *err, size_t errn);
 /* The solve above, over every frame read. Returns 0, or -1 on a file with
  * no frames or a target that is not a number of bits. */
 int n265_2p_solve(n265_2p *tp, double target_bits, double qcomp,
-                  double clamp, double qp_min, double qp_max);
+                  double clamp, double trust, double qp_min, double qp_max);
 
 /* The plan for the frame at display index `d`, or NULL: a pass-2 encode
  * that reaches a frame pass 1 never described falls back to the one-pass

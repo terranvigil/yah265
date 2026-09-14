@@ -81,7 +81,7 @@ static void test_parse(void)
     CHECK(tp.fr[2].nonref == 1 && tp.fr[2].flat == 1, "frame 2 flags");
     CHECK(NEAR(tp.fr[2].ctf, -3.9, 1e-9), "frame 2 ctf %g", tp.fr[2].ctf);
     /* the lookup is by DISPLAY index and the file is in coding order */
-    n265_2p_solve(&tp, 1e5, 1.0, 6.0, 0.0, 51.0);
+    n265_2p_solve(&tp, 1e5, 1.0, 6.0, 0.0, 0.0, 51.0);
     CHECK(n265_2p_get(&tp, 8) == &tp.fr[1], "display 8 is the second line");
     CHECK(n265_2p_get(&tp, 4) == &tp.fr[2], "display 4 is the third line");
     CHECK(n265_2p_get(&tp, 3) == NULL, "display 3 is not in the file");
@@ -184,7 +184,7 @@ static void test_sums_to_target(void)
     for (double qc = 0.0; qc <= 1.0001; qc += 0.25) {
         for (double tgt = 20000.0; tgt < 2e6; tgt *= 7.0) {
             mk(&tp, 6, bits, qp, cplx);
-            CHECK(n265_2p_solve(&tp, tgt, qc, 6.0, 0.0, 51.0) == 0,
+            CHECK(n265_2p_solve(&tp, tgt, qc, 6.0, 0.0, 0.0, 51.0) == 0,
                   "solve qcomp %g target %g", qc, tgt);
             CHECK(NEAR(plan_sum(&tp), tgt, tgt * 1e-9),
                   "qcomp %g target %g: plan sums to %g", qc, tgt,
@@ -214,7 +214,7 @@ static void test_qcomp_one_is_flat(void)
     double cplx[] = { 360000, 88000, 72000, 910000 };
     n265_2p tp;
     mk(&tp, 4, bits, qp, cplx);
-    n265_2p_solve(&tp, 8e4, 1.0, 6.0, 0.0, 51.0);
+    n265_2p_solve(&tp, 8e4, 1.0, 6.0, 0.0, 0.0, 51.0);
     for (int i = 0; i < tp.n; i++) {
         CHECK(NEAR(tp.fr[i].d, 0.0, 1e-12), "frame %d offset %g at qcomp 1",
               i, tp.fr[i].d);
@@ -237,7 +237,7 @@ static void test_reproduces_pass1(void)
         total += bits[i];
     n265_2p tp;
     mk(&tp, 5, bits, qp, cplx);
-    n265_2p_solve(&tp, total, 1.0, 6.0, 0.0, 51.0);
+    n265_2p_solve(&tp, total, 1.0, 6.0, 0.0, 0.0, 51.0);
     CHECK(NEAR(tp.rf, 28.0, 1e-9), "rate factor %g, expected 28", tp.rf);
     for (int i = 0; i < tp.n; i++)
         CHECK(NEAR(tp.fr[i].plan_bits, bits[i], bits[i] * 1e-9),
@@ -258,7 +258,7 @@ static void test_qcomp_direction_and_clamp(void)
     double cplx[] = { 10000, 40000, 160000, 640000 };
     n265_2p tp;
     mk(&tp, 4, bits, qp, cplx);
-    n265_2p_solve(&tp, 8e4, 0.6, 100.0, -12.0, 51.0);
+    n265_2p_solve(&tp, 8e4, 0.6, 100.0, 0.0, -12.0, 51.0);
     for (int i = 1; i < tp.n; i++)
         CHECK(tp.fr[i].plan_qp > tp.fr[i - 1].plan_qp,
               "frame %d (cplx %g) is not coarser than frame %d", i, cplx[i],
@@ -276,7 +276,7 @@ static void test_qcomp_direction_and_clamp(void)
 
     /* ...and the clamp bounds them, on both sides */
     mk(&tp, 4, bits, qp, cplx);
-    n265_2p_solve(&tp, 8e4, 0.6, 2.0, -12.0, 51.0);
+    n265_2p_solve(&tp, 8e4, 0.6, 2.0, 0.0, -12.0, 51.0);
     for (int i = 0; i < tp.n; i++)
         CHECK(fabs(tp.fr[i].d) <= 2.0 + 1e-9, "frame %d offset %g past the "
               "clamp", i, tp.fr[i].d);
@@ -297,7 +297,7 @@ static void test_qp_range(void)
     n265_2p tp;
 
     mk(&tp, 4, bits, qp, cplx);
-    n265_2p_solve(&tp, 10.0, 1.0, 6.0, 0.0, 51.0);      /* absurdly small */
+    n265_2p_solve(&tp, 10.0, 1.0, 6.0, 0.0, 0.0, 51.0);      /* absurdly small */
     for (int i = 0; i < tp.n; i++)
         CHECK(NEAR(tp.fr[i].plan_qp, 51.0, 1e-9),
               "frame %d planned at %g, not the coarsest quantiser there is",
@@ -315,7 +315,7 @@ static void test_qp_range(void)
      * under test is the walk and not which number bounds it. */
     double wide[] = { 1000.0, 4000.0, 16000.0, 64000.0 };
     mk(&tp, 4, bits, qp, wide);
-    n265_2p_solve(&tp, 266180.0, 0.6, 100.0, 19.0, 51.0);
+    n265_2p_solve(&tp, 266180.0, 0.6, 100.0, 0.0, 19.0, 51.0);
     CHECK(tp.fr[0].pinned && NEAR(tp.fr[0].plan_qp, 19.0, 1e-9),
           "the easiest frame is pinned at the floor (%g, pinned %d)",
           tp.fr[0].plan_qp, tp.fr[0].pinned);
@@ -326,7 +326,7 @@ static void test_qp_range(void)
     n265_2p_free(&tp);
 
     mk(&tp, 4, bits, qp, cplx);
-    n265_2p_solve(&tp, 1e12, 1.0, 6.0, 0.0, 51.0);      /* absurdly large */
+    n265_2p_solve(&tp, 1e12, 1.0, 6.0, 0.0, 0.0, 51.0);      /* absurdly large */
     for (int i = 0; i < tp.n; i++)
         CHECK(tp.fr[i].plan_qp >= -1e-9 && tp.fr[i].plan_qp <= 51.0 + 1e-9,
               "frame %d planned at %g", i, tp.fr[i].plan_qp);
@@ -334,7 +334,7 @@ static void test_qp_range(void)
 
     /* the 8-bit floor is 0 and Main10's is -12; both are the caller's */
     mk(&tp, 4, bits, qp, cplx);
-    n265_2p_solve(&tp, 1e12, 1.0, 6.0, -12.0, 51.0);
+    n265_2p_solve(&tp, 1e12, 1.0, 6.0, 0.0, -12.0, 51.0);
     for (int i = 0; i < tp.n; i++)
         CHECK(tp.fr[i].plan_qp >= -12.0 - 1e-9,
               "frame %d planned below QpBdOffsetY at %g", i,
@@ -351,7 +351,7 @@ static void test_degenerate(void)
     double cplx[] = { 360000 };
     n265_2p tp;
     mk(&tp, 1, bits, qp, cplx);
-    CHECK(n265_2p_solve(&tp, 40000.0, 0.6, 6.0, 0.0, 51.0) == 0, "one frame");
+    CHECK(n265_2p_solve(&tp, 40000.0, 0.6, 6.0, 0.0, 0.0, 51.0) == 0, "one frame");
     CHECK(NEAR(tp.fr[0].d, 0.0, 1e-12), "one frame IS the mean");
     CHECK(NEAR(tp.fr[0].plan_bits, 40000.0, 1e-3), "and takes the target");
     CHECK(tp.fr[0].plan_qp == tp.fr[0].plan_qp, "plan is a number");
@@ -361,7 +361,7 @@ static void test_degenerate(void)
     double q2[] = { 28.0, 28.0 };
     double c2[] = { 1.0, 360000 };      /* the rc_cplx floor */
     mk(&tp, 2, b2, q2, c2);
-    CHECK(n265_2p_solve(&tp, 40000.0, 0.6, 6.0, 0.0, 51.0) == 0, "floor");
+    CHECK(n265_2p_solve(&tp, 40000.0, 0.6, 6.0, 0.0, 0.0, 51.0) == 0, "floor");
     for (int i = 0; i < tp.n; i++)
         CHECK(tp.fr[i].plan_qp == tp.fr[i].plan_qp &&
               tp.fr[i].plan_bits == tp.fr[i].plan_bits,
@@ -371,7 +371,7 @@ static void test_degenerate(void)
 
     /* a target of zero is not a plan */
     mk(&tp, 1, bits, qp, cplx);
-    CHECK(n265_2p_solve(&tp, 0.0, 0.6, 6.0, 0.0, 51.0) < 0, "zero target");
+    CHECK(n265_2p_solve(&tp, 0.0, 0.6, 6.0, 0.0, 0.0, 51.0) < 0, "zero target");
     n265_2p_free(&tp);
 }
 
@@ -385,10 +385,10 @@ static void test_idempotent(void)
     double cplx[] = { 360000, 88000, 72000, 91000, 73000, 4000 };
     n265_2p a, b;
     mk(&a, 6, bits, qp, cplx);
-    n265_2p_solve(&a, 6e4, 0.6, 6.0, 0.0, 51.0);
+    n265_2p_solve(&a, 6e4, 0.6, 6.0, 0.0, 0.0, 51.0);
     mk(&b, 6, bits, qp, cplx);
-    n265_2p_solve(&b, 6e4, 0.6, 6.0, 0.0, 51.0);
-    n265_2p_solve(&b, 6e4, 0.6, 6.0, 0.0, 51.0);    /* and again, in place */
+    n265_2p_solve(&b, 6e4, 0.6, 6.0, 0.0, 0.0, 51.0);
+    n265_2p_solve(&b, 6e4, 0.6, 6.0, 0.0, 0.0, 51.0);    /* and again, in place */
     CHECK(memcmp(&a.rf, &b.rf, sizeof a.rf) == 0,
           "the rate factor is a pure function of the file");
     for (int i = 0; i < a.n; i++)
