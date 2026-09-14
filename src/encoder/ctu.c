@@ -1238,6 +1238,17 @@ static int tb_full(struct n265_frame_work *e, int c_idx, int x0, int y0,
 /* pick the luma mode by SAD over prediction from the given ref plane;
  * optionally reports the nk best-ranked modes for RD refinement, and
  * optionally ranks only the `nsub` modes in `sub` instead of all 35 */
+/* N265_INTRA_B_MODES: the B-slice intra rank cut to DC and planar */
+static int intra_b_modes(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_INTRA_B_MODES");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
 /* `satd_out`, where a caller asks for it, is the winner's own RANKING
  * cost - the Hadamard the 35-mode loop below already computed and threw
  * away. `cost_out` cannot stand in for it: that one is re-taken as a SAD
@@ -1269,6 +1280,19 @@ static int search_luma_mode_sub(struct n265_frame_work *e, int x0, int y0,
     if (log2n > 2)
         n265_filter_refs(refs_f, refs, log2n, 1);
 
+    /* N265_INTRA_B_MODES (phase 13 C2, the `veryfast` rung): in a B
+     * slice the 35-mode rank is the two non-directional modes and
+     * nothing else. x265's veryfast drops intra-in-B outright
+     * (`--no-b-intra`); this keeps the arm and takes its cheap
+     * half, so a B CU that really does want intra can still have it. An
+     * explicit candidate list from a caller wins - the NxN sub-rank and
+     * the I-slice neighbourhood rank pass one and are not B slices
+     * anyway. */
+    static const int dc_planar[2] = { INTRA_PLANAR, INTRA_DC };
+    if (!sub && e->slice_type == 0 && intra_b_modes()) {
+        sub = dc_planar;
+        nsub = 2;
+    }
     int best_mode = 0;
     uint32_t best_cost = UINT32_MAX;
     uint32_t ck[INTRA_RD_MAX];
@@ -4752,6 +4776,90 @@ static void px_tally(const uint64_t full[PX_NK],
         px_bump(PXC_GAPPMC, px_gap(full[bf], full[bc]));
 }
 
+/* The merge candidate's FULL trial: transform, quantise, reconstruct,
+ * and price the two arrangements its one prediction can carry - the skip
+ * (prediction only) and the merge with a residual.
+ *
+ * It is a function rather than straight-line code because the proxy runs
+ * it LATER and only sometimes: where the shortlist gives this CU to the
+ * merge arm. Two entry points into the same block have to be the same
+ * code or the mode is a second encoder. */
+static void merge_trial(struct n265_frame_work *e, int x0, int y0, int log2n,
+                        mot_t cand, int inc, uint32_t skip_bits,
+                        const pu_dec *pd, uint32_t lam, tb_ctx *m_tl,
+                        tb_ctx *m_tcb, tb_ctx *m_tcr, int *m_any,
+                        uint64_t *d_merge, uint64_t *d_skip,
+                        uint64_t *j_skip, uint64_t *j_merge)
+{
+    int n = 1 << log2n, csx = e->csx, csy = e->csy;
+    int cx0 = x0 >> csx, cy0 = y0 >> csy, log2c = log2n - csx;
+    int qp_cb = n265_chroma_qp_of(e, e->cur_ctu_qp, 1);
+    int qp_cr = n265_chroma_qp_of(e, e->cur_ctu_qp, 2);
+
+    tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, cand, m_tl);
+    tb_analyze(e, 1, cx0, cy0, log2c, qp_cb, MODE_INTER, cand, m_tcb);
+    tb_analyze(e, 2, cx0, cy0, log2c, qp_cr, MODE_INTER, cand, m_tcr);
+    tb_make_recon(e, 0, log2n, e->cur_ctu_qp, MODE_INTER, m_tl);
+    tb_make_recon(e, 1, log2c, qp_cb, MODE_INTER, m_tcb);
+    tb_make_recon(e, 2, log2c, qp_cr, MODE_INTER, m_tcr);
+    *m_any = m_tl->nz || tb_any(m_tcb) || tb_any(m_tcr);
+    *d_merge = tb_ssd(e, 0, x0, y0, log2n, m_tl) +
+        tb_ssd(e, 1, cx0, cy0, log2c, m_tcb) +
+        tb_ssd(e, 2, cx0, cy0, log2c, m_tcr);
+    /* forced skip: prediction only */
+    {
+        tb_ctx t;
+        size_t ca = (size_t)(n >> csx) * (n >> csy);
+        memcpy(t.recon, m_tl->pred, (size_t)n * n * sizeof(pixel));
+        *d_skip = tb_ssd(e, 0, x0, y0, log2n, &t);
+        memcpy(t.recon, m_tcb->pred, ca * sizeof(pixel));
+        *d_skip += tb_ssd(e, 1, cx0, cy0, log2c, &t);
+        memcpy(t.recon, m_tcr->pred, ca * sizeof(pixel));
+        *d_skip += tb_ssd(e, 2, cx0, cy0, log2c, &t);
+    }
+    *j_skip = rd_j(e, *d_skip, skip_bits, lam);
+    *j_merge = UINT64_MAX;
+    if (*m_any) {
+        cabac_ctx_t local[CTX_COUNT];
+        memcpy(local, e->est_ctx, sizeof(local));
+        est_state st = { local, 0 };
+        est_inter_cu_bits(e, &st, x0, y0, log2n, PART_2Nx2N, pd, *m_any, inc);
+        est_tt_bits(e, &st, log2n, MODE_INTER, m_tl, m_tcb, m_tcr);
+        *j_merge = rd_j(e, *d_merge, st.bits, lam);
+    }
+}
+
+/* the searched vector's full trial, the AMVP twin of merge_trial and
+ * factored for the same reason */
+static void amvp_trial(struct n265_frame_work *e, int x0, int y0, int log2n,
+                       mot_t amot, int inc, const pu_dec *pd, uint32_t lam,
+                       tb_ctx *a_tl, tb_ctx *a_tcb, tb_ctx *a_tcr,
+                       int *a_any, uint64_t *d_amvp, uint64_t *j_amvp)
+{
+    int csx = e->csx, csy = e->csy;
+    int cx0 = x0 >> csx, cy0 = y0 >> csy, log2c = log2n - csx;
+    int qp_cb = n265_chroma_qp_of(e, e->cur_ctu_qp, 1);
+    int qp_cr = n265_chroma_qp_of(e, e->cur_ctu_qp, 2);
+
+    tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, amot, a_tl);
+    tb_analyze(e, 1, cx0, cy0, log2c, qp_cb, MODE_INTER, amot, a_tcb);
+    tb_analyze(e, 2, cx0, cy0, log2c, qp_cr, MODE_INTER, amot, a_tcr);
+    tb_make_recon(e, 0, log2n, e->cur_ctu_qp, MODE_INTER, a_tl);
+    tb_make_recon(e, 1, log2c, qp_cb, MODE_INTER, a_tcb);
+    tb_make_recon(e, 2, log2c, qp_cr, MODE_INTER, a_tcr);
+    *a_any = a_tl->nz || tb_any(a_tcb) || tb_any(a_tcr);
+    *d_amvp = tb_ssd(e, 0, x0, y0, log2n, a_tl) +
+        tb_ssd(e, 1, cx0, cy0, log2c, a_tcb) +
+        tb_ssd(e, 2, cx0, cy0, log2c, a_tcr);
+    cabac_ctx_t local[CTX_COUNT];
+    memcpy(local, e->est_ctx, sizeof(local));
+    est_state st = { local, 0 };
+    est_inter_cu_bits(e, &st, x0, y0, log2n, PART_2Nx2N, pd, *a_any, inc);
+    if (*a_any)
+        est_tt_bits(e, &st, log2n, MODE_INTER, a_tl, a_tcb, a_tcr);
+    *j_amvp = rd_j(e, *d_amvp, st.bits, lam);
+}
+
 static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
 {
     int n = 1 << log2n;
@@ -4842,6 +4950,18 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             unsigned px_trials = 0;
             if (px_on)
                 px_bump(PXC_SEEN, 1);
+            /* A4's MODE. The proxy stands between the inter shortlist and
+             * the transform and nowhere else: it decides WHICH of the two
+             * inter arms is transformed, and everything after that - the
+             * intra arm, the partitions, the winner, the depth decision -
+             * is the real J it always was, in the SSD domain, on numbers
+             * this CU actually computed. That is why there is no proxy
+             * cost at the CU level for `quadtree` to compare: the proxy
+             * never leaves the shortlist. */
+            int px1 = rd_proxy() == 1;
+            int px_lam4 = ctu_lam_sad_q4(e);
+            uint64_t px_c_merge = UINT64_MAX, px_c_amvp = UINT64_MAX;
+            int px_iw = PX_MERGE;   /* which inter arm earns the trial */
             /* economy gates: a very good merge prediction prunes the
              * expensive candidates (classic early-skip shape). The bound
              * is a SAD per pixel - n*n/8 and n*n/4 in 8-bit luma levels -
@@ -4859,79 +4979,77 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                      << BIT_DEPTH_SHIFT);
             int gate_part = 0;
 
-            /* merge candidate (and the forced-skip variant) */
-            tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, cand, m_tl);
-            tb_analyze(e, 1, cx0, cy0, log2c, qp_cb, MODE_INTER, cand, m_tcb);
-            tb_analyze(e, 2, cx0, cy0, log2c, qp_cr, MODE_INTER, cand, m_tcr);
-            tb_make_recon(e, 0, log2n, e->cur_ctu_qp, MODE_INTER, m_tl);
-            tb_make_recon(e, 1, log2c, qp_cb, MODE_INTER, m_tcb);
-            tb_make_recon(e, 2, log2c, qp_cr, MODE_INTER, m_tcr);
-            int m_any = m_tl->nz || tb_any(m_tcb) || tb_any(m_tcr);
-            /* P1 CBF fast: the merge prediction already quantised to
-             * nothing, so every remaining candidate can only re-buy the
-             * same block with more syntax */
-            if ((cbf_fast() == 1 || cbf_fast() == 2) && !m_any)
-                gate_amvp = gate_intra = 1;
-            uint64_t d_merge = tb_ssd(e, 0, x0, y0, log2n, m_tl) +
-                tb_ssd(e, 1, cx0, cy0, log2c, m_tcb) +
-                tb_ssd(e, 2, cx0, cy0, log2c, m_tcr);
-            /* forced skip: prediction only */
-            uint64_t d_skip;
-            {
-                tb_ctx t;
-                size_t ca = (size_t)(n >> csx) * (n >> csy);
-                memcpy(t.recon, m_tl->pred, (size_t)n * n * sizeof(pixel));
-                d_skip = tb_ssd(e, 0, x0, y0, log2n, &t);
-                memcpy(t.recon, m_tcb->pred, ca * sizeof(pixel));
-                d_skip += tb_ssd(e, 1, cx0, cy0, log2c, &t);
-                memcpy(t.recon, m_tcr->pred, ca * sizeof(pixel));
-                d_skip += tb_ssd(e, 2, cx0, cy0, log2c, &t);
-            }
+            /* declared ahead of the merge arm because under the proxy the
+             * merge arm is DEFERRED past the AMVP search and these are
+             * what carry its result forward when it comes back */
             est_state st;
             cabac_ctx_t local[CTX_COUNT];
-
-            /* skip bits */
             uint32_t skip_bits = px_bits_skip(e, local, midx, inc);
-            st.ctx = local; st.bits = skip_bits;
-            uint64_t j_skip = rd_j(e, d_skip, st.bits, lam);
-            if (px_on) {
-                px_trials++;      /* the merge candidate's own trial */
-                uint32_t sy = px_satd_pred(e, x0, y0, n, m_tl->pred);
-                uint32_t sc = px_satd_pred_c(e, cx0, cy0, px_cw, px_ch,
-                                             m_tcb->pred, m_tcr->pred);
-                int l4 = ctu_lam_sad_q4(e);
-                px_prox[PXV_L][PX_MERGE] = px_j(sy, skip_bits, l4);
-                px_prox[PXV_C][PX_MERGE] = px_j(sy + sc, skip_bits, l4);
-            }
-
-            /* merge bits */
             pu_dec pd[2];
             memset(pd, 0, sizeof(pd));
             pd[0].mot = cand;
             pd[0].merge = 1;
             pd[0].midx = midx;
-            uint64_t j_merge = UINT64_MAX;
-            if (m_any) {
-                memcpy(local, e->est_ctx, sizeof(local));
-                st.ctx = local; st.bits = 0;
-                est_inter_cu_bits(e, &st, x0, y0, log2n, PART_2Nx2N, pd,
-                                  m_any, inc);
-                est_tt_bits(e, &st, log2n, MODE_INTER, m_tl, m_tcb,
-                            m_tcr);
-                j_merge = rd_j(e, d_merge, st.bits, lam);
-            }
+            int m_any = 0;
+            uint64_t d_merge = 0, d_skip = 0;
+            uint64_t j_skip = UINT64_MAX, j_merge = UINT64_MAX;
 
-            /* the merge-first skip exit: both merge arms are priced by
-             * now, and where the skip won on J with its distortion
-             * inside the quantiser floor, this CU's winner is already
-             * decided - the AMVP search cannot code less than nothing,
-             * and the rect/AMP trials are never entered on a CU the
-             * skip wins anyway. */
-            if (skip_exit() && !gate_amvp && j_skip <= j_merge &&
-                (skip_exit() >= 3 ||
-                 d_skip * (skip_exit() == 1 ? 4u : 1u) <=
-                     skip_clean_thr(e->cur_ctu_qp, n)))
-                gate_amvp = 1;
+            if (px1) {
+                /* the proxy's whole cost for this candidate: the
+                 * Hadamard of its prediction and the skip syntax that
+                 * can carry it. No transform, no quantiser, no
+                 * reconstruction, no residual bits - the residual is
+                 * what the commit decides, on the winner, once.
+                 *
+                 * Two gates below read this arm's TRIAL and are
+                 * therefore inert here, and they have to be: `cbf_fast`
+                 * asks whether the merge residual quantised away and
+                 * `skip_exit` asks whether the skip beat the merge on J,
+                 * and under the proxy neither question has been asked
+                 * yet when the AMVP search has to be entered. Both are
+                 * economies whose whole value was "do not run the
+                 * expensive candidate", and under the proxy the
+                 * expensive candidate is not run anyway: what follows
+                 * the shortlist is one motion search, not a transform.
+                 * A rung that wants the AMVP arm cut harder has
+                 * `N265_RSKIP`, `N265_SKIP_THR` and the static-skip
+                 * commit, all of which read `cand_plain_sad` and are
+                 * untouched. */
+                px_c_merge = px_j(mot_satd_wh(e, x0, y0, n, n, cand),
+                                  skip_bits, px_lam4);
+            } else {
+                /* merge candidate (and the forced-skip variant) */
+                merge_trial(e, x0, y0, log2n, cand, inc, skip_bits, pd, lam,
+                            m_tl, m_tcb, m_tcr, &m_any, &d_merge, &d_skip,
+                            &j_skip, &j_merge);
+                /* P1 CBF fast: the merge prediction already quantised to
+                 * nothing, so every remaining candidate can only re-buy
+                 * the same block with more syntax */
+                if ((cbf_fast() == 1 || cbf_fast() == 2) && !m_any)
+                    gate_amvp = gate_intra = 1;
+                if (px_on) {
+                    px_trials++;      /* the merge candidate's own trial */
+                    uint32_t sy = px_satd_pred(e, x0, y0, n, m_tl->pred);
+                    uint32_t sc = px_satd_pred_c(e, cx0, cy0, px_cw, px_ch,
+                                                 m_tcb->pred, m_tcr->pred);
+                    px_prox[PXV_L][PX_MERGE] = px_j(sy, skip_bits, px_lam4);
+                    px_prox[PXV_C][PX_MERGE] = px_j(sy + sc, skip_bits,
+                                                    px_lam4);
+                }
+
+                /* the merge-first skip exit: both merge arms are priced
+                 * by now, and where the skip won on J with its distortion
+                 * inside the quantiser floor, this CU's winner is already
+                 * decided - the AMVP search cannot code less than
+                 * nothing, and the rect/AMP trials are never entered on a
+                 * CU the skip wins anyway. */
+                if (skip_exit() && !gate_amvp && j_skip <= j_merge &&
+                    (skip_exit() >= 3 ||
+                     d_skip * (skip_exit() == 1 ? 4u : 1u) <=
+                         skip_clean_thr(e->cur_ctu_qp, n)))
+                    gate_amvp = 1;
+            }
+            st.ctx = local; st.bits = skip_bits;
 
             /* N265_CU_TRACE: the merge arm is over. Everything above is
              * work no early skip exit could avoid - it is what the exit
@@ -5160,25 +5278,14 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                      (amot.mv[1].x == cand.mv[1].x &&
                       amot.mv[1].y == cand.mv[1].y && amot.ref[1] == cand.ref[1]));
             }
-            if (!gate_amvp && !same_as_cand && !no_amvp_on()) {
-                tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, amot,
-                           a_tl);
-                tb_analyze(e, 1, cx0, cy0, log2c, qp_cb, MODE_INTER, amot,
-                           a_tcb);
-                tb_analyze(e, 2, cx0, cy0, log2c, qp_cr, MODE_INTER, amot,
-                           a_tcr);
-                tb_make_recon(e, 0, log2n, e->cur_ctu_qp, MODE_INTER, a_tl);
-                tb_make_recon(e, 1, log2c, qp_cb, MODE_INTER, a_tcb);
-                tb_make_recon(e, 2, log2c, qp_cr, MODE_INTER, a_tcr);
-                a_any = a_tl->nz || tb_any(a_tcb) || tb_any(a_tcr);
-                uint64_t d = tb_ssd(e, 0, x0, y0, log2n, a_tl) +
-                    tb_ssd(e, 1, cx0, cy0, log2c, a_tcb) +
-                    tb_ssd(e, 2, cx0, cy0, log2c, a_tcr);
-                d_amvp = d;
+            int amvp_ok = !gate_amvp && !same_as_cand && !no_amvp_on();
+            if (amvp_ok) {
                 /* the vector actually coded, not the per-list ME winner:
                  * the two are the same only until a bi refinement moves
                  * one of them, and a predictor picked for the other
-                 * vector would make the decoder rebuild a different MV */
+                 * vector would make the decoder rebuild a different MV.
+                 * Hoisted out of the trial because the proxy needs the
+                 * syntax before it knows whether the trial will run. */
                 for (int l = 0; l < 2; l++) {
                     if (!(amot.pred & (1 << l)))
                         continue;
@@ -5192,14 +5299,34 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                     pd[1].mvp[l][0] = mvp[l][0];
                     pd[1].mvp[l][1] = mvp[l][1];
                 }
-                memcpy(local, e->est_ctx, sizeof(local));
-                st.ctx = local; st.bits = 0;
-                est_inter_cu_bits(e, &st, x0, y0, log2n, PART_2Nx2N, &pd[1],
-                                  a_any, inc);
-                if (a_any)
-                    est_tt_bits(e, &st, log2n, MODE_INTER, a_tl, a_tcb,
-                                a_tcr);
-                j_amvp = rd_j(e, d, st.bits, lam);
+            }
+            if (px1) {
+                /* THE SHORTLIST DECISION. Both inter arms are priced in
+                 * the Hadamard domain and exactly one of them earns the
+                 * transform. Ties go to the merge arm, which is the
+                 * cheaper syntax and the one that can still turn into a
+                 * skip at the commit. */
+                if (amvp_ok)
+                    px_c_amvp =
+                        px_j(mot_satd_wh(e, x0, y0, n, n, amot),
+                             px_bits_inter(e, x0, y0, log2n, &pd[1], inc),
+                             lam4);
+                px_iw = px_c_amvp < px_c_merge ? PX_AMVP : PX_MERGE;
+                if (px_iw == PX_AMVP) {
+                    amvp_trial(e, x0, y0, log2n, amot, inc, &pd[1], lam,
+                               a_tl, a_tcb, a_tcr, &a_any, &d_amvp, &j_amvp);
+                    if (cbf_fast() >= 2 && !a_any)
+                        gate_intra = gate_part = 1;
+                } else {
+                    merge_trial(e, x0, y0, log2n, cand, inc, skip_bits, pd,
+                                lam, m_tl, m_tcb, m_tcr, &m_any, &d_merge,
+                                &d_skip, &j_skip, &j_merge);
+                    if (cbf_fast() >= 2 && !m_any)
+                        gate_intra = gate_part = 1;
+                }
+            } else if (amvp_ok) {
+                amvp_trial(e, x0, y0, log2n, amot, inc, &pd[1], lam,
+                           a_tl, a_tcb, a_tcr, &a_any, &d_amvp, &j_amvp);
                 if (px_on) {
                     px_trials++;
                     uint32_t sy = px_satd_pred(e, x0, y0, n, a_tl->pred);
@@ -5248,6 +5375,18 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                 if (j_merge < j_inter) { j_inter = j_merge; d_inter = d_merge; iwin = 1; }
                 if (j_amvp < j_inter) { j_inter = j_amvp; d_inter = d_amvp; iwin = 2; }
                 int g = 0;
+                /* Every disjunct below is an argument about what the
+                 * winning INTER candidate's own numbers say, so it needs
+                 * one. Under the proxy the arm that lost the shortlist
+                 * was never transformed and its J is the sentinel, which
+                 * is the intended reading - `d1` is "the skip won" and a
+                 * skip that was not priced did not - but a CU where
+                 * NOTHING inter was priced has no argument at all, and
+                 * `d_inter` would then be a zero that reads as "already
+                 * at the quantiser floor" and gates the intra arm away
+                 * on every such CU. */
+                if (j_inter == UINT64_MAX)
+                    goto intra_gate_done;
                 uint64_t thr = skip_clean_thr(e->cur_ctu_qp, n);
                 /* the 2Nx2N winner is the skip: the neighbours' motion
                  * explains the block with no residual at all, and an
@@ -5301,6 +5440,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                 }
                 gate_intra = g;
             }
+intra_gate_done: ;
 
             /* intra candidate (2Nx2N, SAD-ranked best mode) */
             uint64_t j_intra = UINT64_MAX;
@@ -6472,7 +6612,7 @@ void n265_ctu_warm(void)
     (void)chroma_pred(); (void)cpred_trace(); (void)cpred_w_pct();
     (void)rr_trace();
     (void)cpred_gate(); (void)rdoq_trace(); (void)rdoq_lat_sz();
-    (void)rd_proxy(); (void)px_census();
+    (void)rd_proxy(); (void)px_census(); (void)intra_b_modes();
     for (int q = N265_QP_MIN; q <= N265_QP_MAX; q++)
         (void)n265_lambda_mode_q8(q);   /* fills its lazy table */
 }
