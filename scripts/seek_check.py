@@ -84,7 +84,11 @@ def poc_lsb(rbsp, irap):
 
 
 def cut(d, want):
-    """Cut at the `want`th CRA. Returns (bytes, cra poc lsb, radl poc lsbs)."""
+    """Cut at the `want`th CRA.
+
+    Returns (bytes, cra poc lsb, radl count, kept count) - `kept` being
+    how many pictures a decoder starting here is required to OUTPUT: the
+    VCL NALs from the cut on, minus the RASL pictures it must discard."""
     ns = nals(d)
     first_vcl = next((k for k, (_, _, t) in enumerate(ns) if t <= VCL_MAX),
                      len(ns))
@@ -103,23 +107,23 @@ def cut(d, want):
         b = k
         while b > 0 and ns[b - 1][2] == PREFIX_SEI:
             b -= 1
-        # the RADL pictures of THIS CRA: they run until the next IRAP
-        radl = []
-        for _, po2, t2 in ns[k + 1:]:
+        # The leading pictures of THIS CRA run until the next IRAP. Only
+        # ITS RASL pictures are discarded: NoRaslOutputFlag is 1 for the
+        # CRA the decode starts at and 0 for every later one, so the
+        # later CRAs' RASL pictures decode and are output like any other
+        # leading picture (8.1.3).
+        radl = drop = 0
+        for _, _, t2 in ns[k + 1:]:
             if t2 in IRAP:
                 break
             if t2 in (RADL_N, RADL_R):
-                radl.append(poc_lsb(d[po2 + 2:po2 + 12], False))
-        return heads + d[ns[b][0]:], poc_lsb(d[po + 2:po + 12], True), radl
-    return None, None, None
-
-
-def wrapped(base, lsb):
-    """`lsb` as a POC near `base`, undoing the 8-bit wrap (8.3.1)."""
-    delta = (lsb - base) & 255
-    if delta >= 128:
-        delta -= 256
-    return base + delta
+                radl += 1
+            elif t2 in (RASL_N, RASL_R):
+                drop += 1
+        kept = sum(1 for _, _, t2 in ns[k:] if t2 <= VCL_MAX) - drop
+        return (heads + d[ns[b][0]:], poc_lsb(d[po + 2:po + 12], True),
+                radl, kept)
+    return None, None, None, None
 
 
 def frame_bytes(w, h, csp, depth):
@@ -163,16 +167,23 @@ def main():
               file=sys.stderr)
         return 2
     which = min(a.cra, ncra)
-    stream, cra, radl = cut(d, which)
+    stream, cra, radl, kept = cut(d, which)
 
     full = frames(a.full, fs)
-    # the first picture a decoder starting here outputs, in DISPLAY order.
-    # The POC line is continuous across a CRA, so a POC IS a display index
-    # in the full decode - which is the other half of what open GOP means.
-    start = min([wrapped(cra, r) for r in radl] + [cra])
-    if start < 0 or start >= len(full):
-        print(f"seek_check: CRA {which} at POC {cra} is outside the "
-              f"{len(full)}-frame decode", file=sys.stderr)
+    # What a decoder starting here has to output, counted off the CUT
+    # STREAM and not off any decoder: every picture from the CRA on,
+    # minus the RASL pictures 8.1.3 makes it discard. Those pictures are
+    # a contiguous run at the END of display order - the CRA's leading
+    # pictures are the display positions immediately before it and its
+    # trailing pictures everything after - so the reference is the tail
+    # of the full decode, and the count is what says where the tail
+    # starts. Counting rather than reading the CRA's POC is what keeps
+    # this right across the 8-bit pic_order_cnt_lsb wrap and across a
+    # mid-stream IDR, both of which break POC-as-display-index.
+    start = len(full) - kept
+    if start < 0:
+        print(f"seek_check: the cut stream has {kept} output pictures and "
+              f"the full decode only {len(full)}", file=sys.stderr)
         return 2
     want = full[start:]
 
@@ -194,8 +205,8 @@ def main():
     if got != want:
         n = sum(1 for x, y in zip(got, want) if x != y)
         print(f"seek_check: ffmpeg gave {len(got)} frames, wanted "
-              f"{len(want)} from display {start}; {n} differ",
-              file=sys.stderr)
+              f"{len(want)} from display {start}; {n} of the overlap "
+              f"differ", file=sys.stderr)
         return 1
 
     r = subprocess.run([a.dec265, "-q", "-o", deout, cutpath],
@@ -212,7 +223,7 @@ def main():
               f"dec265 -o emits decode order)", file=sys.stderr)
         return 1
 
-    print(f"seek_check: CRA {which}/{ncra} at POC {cra}, {len(radl)} RADL, "
+    print(f"seek_check: CRA {which}/{ncra} at POC lsb {cra}, {radl} RADL, "
           f"{len(want)} frames from display {start}, both decoders exact")
     return 0
 
