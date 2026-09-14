@@ -55,16 +55,53 @@ int n265_wp_trace(void)
 }
 
 /* The gain a weighted map has to show on the lowres plane before it is
- * signalled, as a right shift of the unweighted SAD: 6 is 1/64, about
- * 1.6%. Lower fires more often. */
+ * signalled, as a right shift of the unweighted SAD: 4 is 1/16, about
+ * 6.3%. A LARGER number is a smaller margin and fires more often.
+ *
+ * 4 rather than the 6 this shipped with first, and the evidence is a
+ * separation in the estimator's OWN statistic rather than a sweep
+ * against the band. Over 120 frames at medium, the gains of the maps
+ * that fired were: foreman_cif 1.7 / 3.1 / 4.5%, park_joy_720p 1.6 /
+ * 1.7 / 2.6 / 3.2 / 4.2% - and sintel_720p, which has real dissolves,
+ * 11.4% at its SMALLEST of twenty-three. Nothing on a clip without an
+ * illumination change reached 5% and nothing on a clip with one fell
+ * below 11%, so the margin belongs in the gap. At 1/64 the two grain
+ * and motion clips were signalling weights worth a couple of percent of
+ * lowres SAD and costing 0.6-0.8 of a BD point, which is the whole
+ * failure mode this test exists to prevent: a near-identity weight
+ * moves every sample by a level and turns blocks that would have been
+ * SKIP into blocks with a residual, and a lowres SAD cannot see that. */
 static int wp_gain_shift(void)
 {
     static int v = -1;
     if (v < 0) {
         const char *s = n265_env("N265_WP_GAIN");
-        v = s ? atoi(s) : 6;
+        v = s ? atoi(s) : 4;
         if (v < 0) v = 0;
         if (v > 20) v = 20;
+    }
+    return v;
+}
+
+/* The share of 8x8 lowres blocks a map must IMPROVE before it is
+ * signalled, in percent. See block_win_pct for what it is for.
+ *
+ * 40, and the calibration is two-sided from the only two-sided evidence
+ * the corpus has. Over 120 frames at medium, the win share of every map
+ * that fired: sita_flat_720p 31% - the one map in the corpus that HURT,
+ * and by ten BD points - against xfade_720p 43 and 47, sintel_720p 47 to
+ * 71, touchdown_1080p 88 to 94 and fade_cif 74 to 100. The gap is 31 to
+ * 43 and it is not wide; what makes 40 the right side of it is that the
+ * two numbers mean different things - below half the blocks, the map is
+ * not describing the picture's illumination at all. */
+static int wp_block_win(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_WP_WIN");
+        v = s ? atoi(s) : 40;
+        if (v < 0) v = 0;
+        if (v > 100) v = 100;
     }
     return v;
 }
@@ -226,6 +263,48 @@ static void sad_sweep(const pixel *cur, const pixel *ref, int n,
     }
 }
 
+/* The share of 8x8 lowres blocks the map actually IMPROVES, in percent.
+ *
+ * This is the test that separates an illumination change from a
+ * coincidence, and the total SAD cannot do it. An illumination change is
+ * GLOBAL: it moves every part of the picture the same way, so the right
+ * weight helps almost everywhere. A global linear map fitted across a
+ * SHOT CHANGE helps in a few places - it can align a large flat fill in
+ * one shot with a large flat fill in the other - and hurts in the rest,
+ * and it can still win the total while doing it, because the few places
+ * are large. On sita_flat_720p, which is flat-shaded animation with a
+ * cut at frame 2, exactly that map fired: scale 0.56, offset +37, a 14%
+ * gain in total lowres SAD, and 5.2% MORE bits for the clip at the same
+ * CRF. It made unrelated fills match, the mode decision believed the
+ * SATD, and blocks that should have been intra went inter with a DC
+ * residual everywhere.
+ *
+ * One extra pass over the two planes, after the offset sweep has chosen
+ * its candidate, and only on a map that has already passed the total. */
+static int block_win_pct(const pixel *cur, const pixel *ref, int lw, int lh,
+                         int w, int d, int o)
+{
+    int nb = 0, win = 0;
+    for (int by = 0; by + 8 <= lh; by += 8)
+        for (int bx = 0; bx + 8 <= lw; bx += 8) {
+            uint32_t su = 0, sw = 0;
+            for (int y = 0; y < 8; y++) {
+                const pixel *pc = cur + (size_t)(by + y) * lw + bx;
+                const pixel *pr = ref + (size_t)(by + y) * lw + bx;
+                for (int x = 0; x < 8; x++) {
+                    int du = pc[x] - pr[x];
+                    int dv = pc[x] - wp_map8(pr[x], w, d, o);
+                    su += (unsigned)(du < 0 ? -du : du);
+                    sw += (unsigned)(dv < 0 ? -dv : dv);
+                }
+            }
+            nb++;
+            if (sw < su)
+                win++;
+        }
+    return nb ? (int)((100L * win) / nb) : 100;
+}
+
 /* One (component, reference) candidate, before the denominator is
  * fixed: the real-valued map and the plane it was measured on. */
 struct cand {
@@ -349,10 +428,12 @@ void n265_wp_analyse(n265_encoder *e, n265_frame_work *fw)
                     continue;
                 if (ss.w[k] < bs) { bs = ss.w[k]; bk = k; }
             }
-            int fired = 0;
+            int fired = 0, bwin = -1;
             if (bk >= 0 && bs + (ss.un >> wp_gain_shift()) < ss.un) {
                 int o = (int)ol + bk - 2;
-                if (w != (1 << ld) || o != 0) {
+                bwin = block_win_pct(e->wp_cur[0], rp->wp_low[0],
+                                     e->la.lw, e->la.lh, w, ld, o);
+                if (bwin >= wp_block_win() && (w != (1 << ld) || o != 0)) {
                     wp->on[0] = 1;
                     wp->w[0] = w;
                     wp->o[0] = (int16_t)o;
@@ -362,13 +443,14 @@ void n265_wp_analyse(n265_encoder *e, n265_frame_work *fw)
             }
             if (n265_wp_trace())
                 fprintf(stderr,
-                        "WP poc=%d %s l%d r%d(poc=%d) luma scale=%.4f off=%.2f"
-                        " -> w=%d/%d o=%d sad %llu -> %llu  %s\n",
+                        "WP poc=%d %s l%d r%d(poc=%d) sc=%.3f luma scale=%.4f off=%.2f"
+                        " -> w=%d/%d o=%d sad %llu -> %llu win %d%%  %s\n",
                         fw->poc, fw->slice_type == 0 ? "B" : "P", l, r,
-                        rp->poc, cl[l][r].scale, cl[l][r].off, (int)w,
+                        rp->poc, (double)fw->sc_ratio,
+                        cl[l][r].scale, cl[l][r].off, (int)w,
                         1 << ld, (int)(bk >= 0 ? ol + bk - 2 : ol),
                         (unsigned long long)ss.un, (unsigned long long)bs,
-                        fired ? "FIRE" : "-");
+                        bwin, fired ? "FIRE" : "-");
 
             /* chroma. ONE flag covers Cb and Cr (7.3.6.3), so the two
              * are decided together on the sum of their SADs; signalling
@@ -404,7 +486,19 @@ void n265_wp_analyse(n265_encoder *e, n265_frame_work *fw)
             }
             if (!ok)
                 continue;
-            if (cwd + (cun >> wp_gain_shift()) < cun &&
+            /* the same block test as the luma half, over BOTH chroma
+             * planes together - one flag covers the pair, so one answer
+             * has to. Without it sita_flat_720p's shot-change map came
+             * back through the chroma door with the luma one refused. */
+            int cwin = -1;
+            if (cwd + (cun >> wp_gain_shift()) < cun) {
+                int n0 = block_win_pct(e->wp_cur[1], rp->wp_low[1],
+                                       e->wp_cw, e->wp_ch, cw[0], cd, co[0]);
+                int n1 = block_win_pct(e->wp_cur[2], rp->wp_low[2],
+                                       e->wp_cw, e->wp_ch, cw[1], cd, co[1]);
+                cwin = (n0 + n1) / 2;
+            }
+            if (cwin >= wp_block_win() &&
                 (cw[0] != (1 << cd) || cw[1] != (1 << cd) || co[0] || co[1])) {
                 wp->on[1] = wp->on[2] = 1;
                 wp->w[1] = cw[0];
@@ -415,11 +509,11 @@ void n265_wp_analyse(n265_encoder *e, n265_frame_work *fw)
                 if (n265_wp_trace())
                     fprintf(stderr,
                             "WP poc=%d %s l%d r%d chroma w=%d,%d/%d o=%d,%d"
-                            " sad %llu -> %llu  FIRE\n", fw->poc,
+                            " sad %llu -> %llu win %d%%  FIRE\n", fw->poc,
                             fw->slice_type == 0 ? "B" : "P", l, r,
                             cw[0], cw[1], 1 << cd, co[0], co[1],
                             (unsigned long long)cun,
-                            (unsigned long long)cwd);
+                            (unsigned long long)cwd, cwin);
             }
         }
 }
