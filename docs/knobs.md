@@ -4,7 +4,7 @@ Regenerate: `python3 scripts/knob_census.py`. CI check: `--check`.
 
 Tier meanings: **default** = shipped behaviour, the env is its escape; **instrument** = measurement machinery (catalogued in docs/instruments.md when it has produced a result); **arm** = default-off gate or kept refuted arm -- kept deliberately because a refuted arm retains its re-pricing value.
 
-## default (17)
+## default (18)
 
 | knob | default | reader |
 |---|---|---|
@@ -24,7 +24,8 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 | `N265_VBV_LOOKAHEAD` | 1 | src/encoder/encoder.c:1563 |
 | `N265_VBV_RESERVE` | 0.2 | src/encoder/encoder.c:1570 |
 | `N265_VBV_SAFE` | 0.85 | src/encoder/encoder.c:1556 |
-| `N265_WP_GAIN` | 6 | src/encoder/wp.c:64 |
+| `N265_WP_GAIN` | 4 | src/encoder/wp.c:78 |
+| `N265_WP_WIN` | 40 | src/encoder/wp.c:101 |
 
 ## instrument (160)
 
@@ -227,4 +228,4 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 | `N265_SUBPEL_RATE` | 0 | src/encoder/mv.c:608 |
 | `N265_WEIGHTB` | 0 | src/encoder/encoder.c:1479 |
 | `N265_WEIGHTP` | 0 | src/encoder/encoder.c:1477 |
-| `N265_WP_REFS` | ? | src/encoder/wp.c:80 |
+| `N265_WP_REFS` | ? | src/encoder/wp.c:117 |
