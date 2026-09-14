@@ -192,6 +192,17 @@ static const struct kv med_tab[] = {
      * docs/phase10.md "Items 3-4". */
     { "N265_AQ_FLAT_SIGN", "1.0" },
     { "N265_AQ_FLAT_THR",  "3" },
+    /* phase 11 item 1: a picture whose source is already in the DPB is
+     * coded all-skip toward it with the zero vector instead of being
+     * discovered CU by CU. Content-gated by construction - a clip with
+     * no duplicate frame never arms it and stays byte for byte what it
+     * was (twelve of the fifteen, five of them cmp-verified) - and on
+     * the three that do arm it, it is faster AND ahead on the band:
+     * sita_toon_720p 0.962x at one thread for -1.76 -> -2.21 CRF,
+     * sita_flat_720p 0.879x for -3.85 -> -4.08. The compiled-in default
+     * is 0, so fast, slow and slower are untouched and `N265_DUP_FAST=0`
+     * is the escape. docs/phase11.md. */
+    { "N265_DUP_FAST",   "1" },
     { NULL, NULL }
 };
 

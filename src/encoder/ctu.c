@@ -15,6 +15,7 @@
 #include "encoder/encoder.h"
 #include "encoder/est.h"
 #include "encoder/intra.h"
+#include "encoder/la.h"
 #include "encoder/mc.h"
 #include "encoder/mv.h"
 #include "encoder/records.h"
@@ -5210,6 +5211,79 @@ static void qt_restore(struct n265_frame_work *e, const qt_snap *sn, int x0,
 static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
                          int depth);
 
+/* N265_DUP_FAST (phase 11 item 1, docs/phase11.md): the whole of the arm.
+ *
+ * This frame's source is the source of the references in `e->dup_msk`,
+ * which the driver resolved at dispatch, so the picture the decoder
+ * should end up with is the one those references already hold: every CU
+ * skip, the zero vector, no residual, no split. There is nothing here to
+ * search and nothing to arbitrate - a split can only re-buy the same
+ * prediction with four sets of syntax, an explicit vector can only spell
+ * the zero one at greater length, and intra can only code from scratch
+ * what a copy already has.
+ *
+ * The candidate taken is the FIRST in the merge list that predicts this
+ * picture from copies of itself: a zero vector on every list it uses,
+ * and every one of those lists pointing inside the duplicate set. That
+ * admits the bi candidate where both sides are duplicates, which is not
+ * a concession - averaging two independent quantisations of one source
+ * is a better prediction than either, and it is what the encoder's own
+ * RD picks on a long hold. Leaving it out made the arm decline every CU
+ * of `sita_flat_720p` (docs/phase11.md sec 1.4). The ORDER is
+ * 8.5.3.2's, so the candidate is whatever the neighbourhood is already
+ * using, and on a picture coded this way throughout the search ends at
+ * index 0.
+ *
+ * What it may not do is invent syntax: a skip carries a merge index and
+ * nothing else, so where no candidate qualifies - the first CU of a
+ * B picture, which has no spatial neighbour and whose zero fill is bi
+ * toward references that may not both be duplicates - the node is handed
+ * back to the full analysis rather than coded as something it is not.
+ *
+ * Returns 0 when it declined, leaving every encoder state untouched. */
+static int dup_commit(struct n265_frame_work *e, int x0, int y0, int log2n,
+                      int depth, int split_inc, uint64_t *j_out)
+{
+    int n = 1 << log2n;
+    mot_t mlist[MAX_MERGE];
+    int k = n265_merge_list(e, x0, y0, n, n, mlist, MAX_MERGE);
+    int midx = -1;
+    for (int i = 0; i < k && midx < 0; i++) {
+        int ok = mlist[i].pred != 0;
+        for (int l = 0; l < 2 && ok; l++) {
+            if (!(mlist[i].pred & (1 << l)))
+                continue;
+            int r = mlist[i].ref[l];
+            ok = r >= 0 && ((e->dup_msk[l] >> r) & 1) &&
+                 mlist[i].mv[l].x == 0 && mlist[i].mv[l].y == 0;
+        }
+        if (ok)
+            midx = i;
+    }
+    if (midx < 0)
+        return 0;
+    uint32_t lam = ctu_lam(e, e->cur_ctu_qp);
+    /* the split flag this CU does not set, priced (and its context
+     * advanced) exactly where the no-split arms price it */
+    uint32_t b0 = log2n > MIN_CB_LOG2
+                      ? n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + split_inc], 0)
+                      : 0;
+    size_t pos0 = e->rec_len;
+    mark_cu_edges(e, x0, y0, n);
+    skip_cu(e, x0, y0, log2n, mlist[midx], midx);
+    e->rec_pos = pos0;
+    est_state adv = { e->est_ctx, 0 };
+    n265_est_advance_cu(e, &adv, x0, y0, log2n);
+    set_blk(e, e->blk_qp, x0, y0, n,
+            e->ent_qp_coded ? N265_QP_STORE(e->cur_ctu_qp) : N265_QP_INHERIT);
+    set_blk(e, e->ct_depth, x0, y0, n, depth);
+    uint64_t ssd = cu_area_ssd(e, x0, y0, n);
+    e->last_cu_nores = 1;
+    e->last_skip_clean = ssd <= skip_clean_thr(e->cur_ctu_qp, n);
+    *j_out = rd_j(e, ssd, adv.bits + b0, lam);
+    return 1;
+}
+
 /* RD quadtree: at each inside node try no-split (one CU) and split (four
  * children, recursively), keep the cheaper tree. Returns the committed
  * subtree's J. Boundary nodes recurse without a flag. */
@@ -5243,6 +5317,19 @@ static uint64_t quadtree_inner(struct n265_frame_work *e, int x0, int y0,
     if (y0 > 0)
         split_inc += e->ct_depth[((y0 - 1) >> 2) * e->map_stride +
                                  (x0 >> 2)] > depth;
+
+    /* the duplicate-frame path: this whole picture is already in the
+     * DPB, so the node is one skip and the recursion ends here */
+    if ((e->dup_msk[0] | e->dup_msk[1]) && n265_dup_fast()) {
+        uint64_t j;
+        if (dup_commit(e, x0, y0, log2n, depth, split_inc, &j)) {
+            if (cr) {
+                cr->kind = N265_CUT_SKIP;
+                cr->flags |= N265_CUF_STATIC | N265_CUF_NORES;
+            }
+            return j;
+        }
+    }
 
     if (log2n == MIN_CB_LOG2) {
         uint64_t j = analyze_cu(e, x0, y0, log2n);

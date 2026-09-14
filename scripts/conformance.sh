@@ -249,6 +249,20 @@ run_vector_clean() {
     VNOISE=""; VENV=""
 }
 
+# same vector on a source that is ANIMATION ON TWOS: the list's own
+# dither first, then half the frame rate and back, so each frame is
+# emitted twice and every other one is a byte-for-byte duplicate of its
+# predecessor. The order is what makes it a duplicate - a temporal
+# dither applied after the repeat would re-noise both copies - and the
+# duplication has to be in this filter chain rather than in the input
+# spec for exactly that reason.
+run_vector_dup() {
+    VENV=$1; shift
+    VNOISE="noise=alls=12:allf=t+u,fps=12.5,fps=25"
+    run_vector "$@"
+    VNOISE=""; VENV=""
+}
+
 # ---------------------------------------------------------------------
 # The 4:2:2 list (phase 8 item 6b), run at BOTH depths from one place.
 # Unlike 4:4:4, the two depths are the SAME profile: Table A.2 has no
@@ -857,6 +871,30 @@ run_vector_env "N265_RDOQ=2" \
            rdoq2_ipb_t12  352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 26 --aq 1 --cutree 1 --threads 12"
 run_vector_env "N265_RDOQ=2" \
            rdoq2_ctu16_t1 176x144 16 testsrc2 "--keyint 8 --ctu 16 --bframes 5 --aq 1 --cutree 1 --threads 1"
+# N265_DUP_FAST (phase 11 item 1): the fast path codes a whole picture as
+# skip toward the reference whose SOURCE is this picture's source, with
+# no arm running that could have chosen otherwise. Those CUs are syntax
+# in an arrangement nothing else on the list produces - a merge index
+# picked by a rule rather than by RD, on a picture whose quadtree never
+# splits and which codes no TU at all - and the claim is that both
+# decoders reconstruct the reference exactly. The source is the list's
+# own dithered testsrc2 decimated to half rate and repeated, which is
+# animation on twos: the noise comes FIRST in the chain, so what repeats
+# is a frame that already carries residual, and every other frame is a
+# byte-for-byte duplicate of the one before it.
+#
+# Three cells. The pyramid at one thread and at twelve is the shape the
+# arm was measured in and carries the determinism leg with it; it is also
+# where a duplicate that is itself a REFERENCE has to stay a full picture
+# in the DPB. The third walks CTB 16, the threshold form, and a picture
+# that is not a multiple of the CTB size, where the fast path commits at
+# a child node rather than at the CTB root.
+run_vector_dup "N265_DUP_FAST=1" \
+           dup_b7_t1      352x288 24 testsrc2 "--keyint 12 --bframes 7 --aq 1 --cutree 1 --threads 1"
+run_vector_dup "N265_DUP_FAST=1" \
+           dup_b7_t12     352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 26 --aq 1 --cutree 1 --threads 12"
+run_vector_dup "N265_DUP_FAST=1 N265_DUP_THR=0.5" \
+           dup_thr_ctu16  210x122 16 testsrc2 "--keyint 8 --ctu 16 --bframes 5 --aq 1 --cutree 1 --threads 4"
 if [ "$FAST" -eq 0 ]; then
     run_vector thr4_720    1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 4"
     run_vector thr12_720   1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 12"
