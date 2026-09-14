@@ -116,6 +116,63 @@ static void write_ptl(bitstream_t *bs, int level_idc, int tier,
     bs_put_bits(bs, (uint32_t)level_idc, 8);   /* general_level_idc */
 }
 
+/* hrd_parameters(commonInfPresentFlag = 1, maxNumSubLayersMinus1 = 0),
+ * E.2.2: the CPB schedule --vbv-maxrate and --vbv-bufsize actually enforce,
+ * so a decoder can check the stream against the buffer it was coded for
+ * instead of taking the encoder's word for it.
+ *
+ * One NAL HRD, one CPB, no sub-picture timing. The NAL half and not the VCL
+ * half because what this encoder emits is a NAL unit stream and
+ * CpbBrNalFactor is the factor level.c scales Table A.7 by; two schedules
+ * would be two claims to keep consistent for one stream.
+ *
+ * `cbr_flag = 0` is load-bearing and not a default. With it clear, C.2.2's
+ * arrival STOPS when the buffer is full instead of forcing filler data in,
+ * which is the one-sided constraint src/encoder/vbv.c plans against: the
+ * encoder may undershoot the rate as far as it likes and the buffer simply
+ * sits full. Setting it would promise a stream that always spends its rate,
+ * which this encoder does not write and could only keep by padding.
+ *
+ * WHAT IS NOT HERE: the buffering_period and pic_timing SEI messages. With
+ * NalHrdBpPresentFlag set, D.3.2 asks for a buffering period SEI at each
+ * IRAP and a pic_timing on every access unit, and both need a per-AU prefix
+ * NAL this encoder has no writer for yet. The VUI is the honest half that
+ * fits in this item: it declares the schedule the clamp enforces, both
+ * decoders parse it, and the delays it would need are derivable from the
+ * coding order whenever the SEI writer lands. docs/phase12.md, Item 2,
+ * says so as a debt rather than leaving it to be discovered. */
+static void write_hrd(bitstream_t *bs, const struct n265_frame_work *e)
+{
+    bs_put_bits(bs, 1, 1);          /* nal_hrd_parameters_present_flag */
+    bs_put_bits(bs, 0, 1);          /* vcl_hrd_parameters_present_flag */
+    bs_put_bits(bs, 0, 1);          /* sub_pic_hrd_params_present_flag */
+    bs_put_bits(bs, e->hrd_bit_rate_scale, 4);
+    bs_put_bits(bs, e->hrd_cpb_size_scale, 4);
+    /* the three delay lengths, in bits. They size fields only the SEI
+     * messages carry, so at 24 bits each they are the usual choice and
+     * cost nothing here. */
+    bs_put_bits(bs, 23, 5);         /* initial_cpb_removal_delay_length_m1 */
+    bs_put_bits(bs, 23, 5);         /* au_cpb_removal_delay_length_minus1 */
+    bs_put_bits(bs, 23, 5);         /* dpb_output_delay_length_minus1 */
+    /* the one sub-layer (sps_max_sub_layers_minus1 is 0 everywhere here) */
+    bs_put_bits(bs, 1, 1);          /* fixed_pic_rate_general_flag[0]: one
+                                     * picture per clock tick, which is what
+                                     * vui_num_units_in_tick above says and
+                                     * what the VBV's removal times assume.
+                                     * fixed_pic_rate_within_cvs_flag is
+                                     * inferred 1 with it, so the duration
+                                     * below is present and low_delay is
+                                     * inferred 0. */
+    bs_put_ue(bs, 0);               /* elemental_duration_in_tc_minus1[0] */
+    bs_put_ue(bs, 0);               /* cpb_cnt_minus1[0]: one schedule */
+    /* sub_layer_hrd_parameters(0), E.2.2. E.2.3:
+     *   BitRate[0] = (bit_rate_value_minus1 + 1) << (6 + bit_rate_scale)
+     *   CpbSize[0] = (cpb_size_value_minus1 + 1) << (4 + cpb_size_scale) */
+    bs_put_ue(bs, e->hrd_bit_rate_value - 1);
+    bs_put_ue(bs, e->hrd_cpb_size_value - 1);
+    bs_put_bits(bs, 0, 1);          /* cbr_flag[0] */
+}
+
 void n265_write_vps(struct n265_frame_work *e)
 {
     bitstream_t *bs = &e->rbsp;
@@ -266,8 +323,15 @@ void n265_write_sps(struct n265_frame_work *e)
         bs_put_bits(bs, (uint32_t)e->param.fps_den, 32); /* vui_num_units_in_tick */
         bs_put_bits(bs, (uint32_t)e->param.fps_num, 32); /* vui_time_scale */
         bs_put_bits(bs, 0, 1);      /* vui_poc_proportional_to_timing_flag */
-        bs_put_bits(bs, 0, 1);      /* vui_hrd_parameters_present_flag: no
-                                     * HRD, so no CPB schedule is claimed */
+        /* vui_hrd_parameters_present_flag. 0 without a VBV - no CPB
+         * schedule is enforced, so none is claimed, and that is the bit
+         * every stream before phase 12 item 2 carried. */
+        if (!e->hrd_on) {
+            bs_put_bits(bs, 0, 1);
+        } else {
+            bs_put_bits(bs, 1, 1);
+            write_hrd(bs, e);
+        }
         bs_put_bits(bs, 0, 1);      /* bitstream_restriction_flag */
     }
     bs_put_bits(bs, 0, 1);          /* sps_extension_present_flag */

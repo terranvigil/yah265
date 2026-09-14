@@ -622,6 +622,11 @@ static void fw_config(n265_encoder *e, n265_frame_work *fw)
     fw->level_idc = e->level.idc;
     fw->level_tier = e->level.tier;
     fw->vui_timing = e->vui_timing;
+    fw->hrd_on = e->hrd_on;
+    fw->hrd_bit_rate_scale = e->hrd_bit_rate_scale;
+    fw->hrd_bit_rate_value = e->hrd_bit_rate_value;
+    fw->hrd_cpb_size_scale = e->hrd_cpb_size_scale;
+    fw->hrd_cpb_size_value = e->hrd_cpb_size_value;
     fw->psy = e->psy;
     fw->dbf_beta = e->dbf_beta;
     fw->dbf_tc = e->dbf_tc;
@@ -1207,6 +1212,53 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         { const char *v = n265_env("N265_VBV_LOOKAHEAD"); if (v) vla = atoi(v); }
         n265_vbv_init(&e->vbv, maxrate, bufsize, g_vbv_init, fps, safe, vla);
         e->vbv_trace = n265_env("N265_VBV_TRACE") != NULL;
+        { const char *v = n265_env("N265_VBV_HRD");
+          e->vbv_hrd = v ? atoi(v) != 0 : 1; }
+        e->vui_timing = g_vui_timing && p->fps_num > 0 && p->fps_den > 0;
+        /* hrd_parameters (E.2.2) in the VUI: the CPB schedule the clamp
+         * enforces, scaled per E.2.3.
+         *
+         *   BitRate[0] = (bit_rate_value_minus1 + 1) << (6 + bit_rate_scale)
+         *   CpbSize[0] = (cpb_size_value_minus1 + 1) << (4 + cpb_size_scale)
+         *
+         * Both are rounded UP. A declared BitRate below the arrival rate
+         * the encoder planned against is a buffer that empties faster than
+         * the encoder believed, and a declared CpbSize below the buffer it
+         * planned against is one that overflows where the encoder capped -
+         * so in both directions the safe rounding is the one that gives the
+         * decoder at least what was assumed. The scale is the smallest that
+         * keeps the value inside 32 bits, which is the most precise
+         * representation E.2.3 has for the number, and it is a pure
+         * function of the two knobs: the same VBV writes the same bits.
+         *
+         * It is written only WITH a VBV. Without one the encoder enforces
+         * no schedule, and a stream is better carrying no HRD than an HRD
+         * nothing behind it keeps. */
+        e->hrd_on = e->vbv.on && e->vui_timing && e->vbv_hrd;
+        if (e->hrd_on) {
+            unsigned s = 0;
+            double v = e->vbv.maxrate;
+            while (s < 15 && ceil(v / (double)(1u << (6 + s))) > 2147483646.0)
+                s++;
+            e->hrd_bit_rate_scale = s;
+            e->hrd_bit_rate_value =
+                (unsigned)ceil(v / (double)(1u << (6 + s)));
+            if (e->hrd_bit_rate_value == 0)
+                e->hrd_bit_rate_value = 1;
+            e->hrd_bit_rate_bits = (int64_t)e->hrd_bit_rate_value <<
+                                   (6 + e->hrd_bit_rate_scale);
+            s = 0;
+            v = e->vbv.bufsize;
+            while (s < 15 && ceil(v / (double)(1u << (4 + s))) > 2147483646.0)
+                s++;
+            e->hrd_cpb_size_scale = s;
+            e->hrd_cpb_size_value =
+                (unsigned)ceil(v / (double)(1u << (4 + s)));
+            if (e->hrd_cpb_size_value == 0)
+                e->hrd_cpb_size_value = 1;
+            e->hrd_cpb_size_bits = (int64_t)e->hrd_cpb_size_value <<
+                                   (4 + e->hrd_cpb_size_scale);
+        }
     }
 
     /* ---- Annex A: the level and the tier (phase 8 item 7) ----
@@ -1265,9 +1317,19 @@ n265_encoder *n265_encoder_open(const n265_param *p)
          * maxrate is never below the target (refused at open above), and
          * the stream can reach it. */
         if (e->vbv.on) {
-            rq.bitrate = e->vbv.maxrate;
+            /* ...and it is the DECLARED pair that is bounded, not the raw
+             * knobs. E.2.3 can only express a rate as a scaled integer, and
+             * the HRD above rounds UP to stay safe, so a --vbv-maxrate
+             * sitting exactly on a level's MaxBR would be signalled a few
+             * hundred bit/s over it. A.4.2 bounds what the SPS SAYS, so the
+             * level is solved against that number and the two can never
+             * disagree. Without an HRD the raw knobs are what the clamp
+             * enforces and they are what is bounded. */
+            rq.bitrate = e->hrd_on ? (double)e->hrd_bit_rate_bits
+                                   : e->vbv.maxrate;
             rq.enforce_br = 1;
-            rq.cpb_size = (int64_t)e->vbv.bufsize;
+            rq.cpb_size = e->hrd_on ? e->hrd_cpb_size_bits
+                                    : (int64_t)e->vbv.bufsize;
         }
         if (n265_level_solve(&rq, &e->level) < 0) {
             fprintf(stderr, "n265: %s\n", e->level.err);
@@ -1291,7 +1353,6 @@ n265_encoder *n265_encoder_open(const n265_param *p)
                     rq.enforce_br ? "enforced" : "reported",
                     L->tier_raised ? " tier_raised=1" : "");
         }
-        e->vui_timing = g_vui_timing && p->fps_num > 0 && p->fps_den > 0;
     }
 
     /* K, the frames in flight (sec 1). A pure scheduling knob: it moves

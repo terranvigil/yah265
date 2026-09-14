@@ -285,7 +285,6 @@ double n265_vbv_crf_base(struct n265_encoder *e, int cls, double cplx,
                          double *dqp)
 {
     double d = vbv_dqp(e, cls, cplx, base, pred, allow);
-    *dqp = d;
     double q = base + d;
     if (q > 51.0)
         q = 51.0;

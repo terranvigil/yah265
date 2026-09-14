@@ -440,6 +440,13 @@ typedef struct n265_frame_work {
      * write_ptl writes a number rather than re-deriving one. */
     int level_idc, level_tier;
     int vui_timing;         /* --vui-timing: vui_timing_info in the SPS */
+    /* hrd_parameters (E.2.2) in the VUI: the CPB schedule the VBV clamp
+     * actually enforces, so a decoder can check it. 0 - the value every
+     * stream before phase 12 item 2 carried - writes
+     * vui_hrd_parameters_present_flag 0 and nothing after it. */
+    int hrd_on;
+    unsigned hrd_bit_rate_scale, hrd_bit_rate_value;    /* E.2.3's BitRate */
+    unsigned hrd_cpb_size_scale, hrd_cpb_size_value;    /* ...and CpbSize  */
     double psy;             /* N265_PSY: psychovisual energy strength */
     int dbf_beta, dbf_tc;   /* slice_beta/tc_offset_div2, see n265_encoder */
 
@@ -822,6 +829,20 @@ struct n265_encoder {
     n265_vbv vbv;
     int vbv_trace;          /* N265_VBV_TRACE: one row per frame, coding
                              * order, written at retirement */
+    int vbv_hrd;            /* N265_VBV_HRD: write hrd_parameters in the VUI
+                             * (default 1, and inert without the VUI) */
+    /* E.2.3's two scaled pairs, solved once at open from the VBV the clamp
+     * enforces and rounded UP - a declared BitRate below what the encoder
+     * assumed, or a declared CpbSize below the buffer it planned against,
+     * would be a claim the stream does not honour. */
+    int hrd_on;
+    unsigned hrd_bit_rate_scale, hrd_bit_rate_value;
+    unsigned hrd_cpb_size_scale, hrd_cpb_size_value;
+    /* ...and the same two decoded back out of E.2.3. That is what the SPS
+     * CLAIMS, so it is what A.4.2's MaxBR and MaxCPB have to admit - the
+     * rounding above can only ever push it up, and a --vbv-maxrate sitting
+     * exactly on a level's bound would otherwise be signalled over it. */
+    int64_t hrd_bit_rate_bits, hrd_cpb_size_bits;
     int qp_frac;            /* carry the base QP's fraction and spread it
                              * over the CTUs (N265_QP_FRAC; on under ABR,
                              * and under CRF where the cu-tree frame term
