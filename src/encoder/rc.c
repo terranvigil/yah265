@@ -224,6 +224,77 @@ static int cadence_class(struct n265_encoder *e, int i)
     return m == (bf + 1) / 2 ? RC_BREF : RC_B;
 }
 
+/* The VBV's per-frame clamp, in one place for both modes.
+ *
+ * `q_code` is the base the frame is ABOUT to be coded at - not the rate
+ * factor, the base: under ABR the encoder adds the cu-tree frame term back
+ * on after this loop answers, and the class scales are learned against the
+ * base, so the base is the only quantiser the bits model is calibrated in.
+ * The model's prediction there is `weight / qscale(base)`, and the buffer's
+ * answer is how many bits it can actually pay for at this removal and at
+ * every planned removal in the window behind it.
+ *
+ * When the prediction is over the allowance the base rises by exactly the
+ * ratio, `6 log2(pred / allow)`, which is the quantiser step that makes the
+ * model's own prediction equal the allowance. It is one step and not an
+ * iteration: the window's plans were priced at the OLD base, so raising it
+ * only leaves them conservative - every future frame will be cheaper than
+ * the reservation assumed, which errs on the side the buffer cares about.
+ *
+ * The window is walked in LOOKAHEAD order and removed in CODING order, and
+ * those differ inside a mini-GOP. The cumulative bound is what absorbs it:
+ * over a whole mini-GOP the two orders carry the same bits, so the
+ * reservation is exact at the GOP boundaries and off by at most a
+ * re-ordering inside one, which is smaller than the model error it is
+ * already carrying.
+ *
+ * Returns the QP to ADD to the base; *pred and *allow are the trace's. */
+static double vbv_dqp(struct n265_encoder *e, int cls, double cplx,
+                      double q_code, double *pred, double *allow)
+{
+    n265_rc *rc = &e->rc;
+    double p = rc_weight(rc, cls, cplx) / qscale_of_qp(q_code);
+    double fut[LA_MAX];
+    int nf = 0;
+    int nview = n265_la_view(&e->la);
+    for (int i = 1; i < nview && nf < LA_MAX; i++) {
+        int k = n265_rc_future_idr(e, i) ? RC_I : cadence_class(e, i);
+        fut[nf++] = rc_weight(rc, k, n265_rc_cplx(e, i, k)) /
+                    qscale_of_qp(q_code);
+    }
+    double a = n265_vbv_allow(&e->vbv, fut, nf);
+    *pred = p;
+    *allow = a;
+    if (!(p > a))
+        return 0.0;
+    e->vbv.clamped++;
+    return 6.0 * log2(p / a);
+}
+
+/* The same clamp under CRF, where there is no loop to fold it into: the
+ * rate factor stands as given and the buffer is the only thing that may
+ * move it, which is exactly x265's capped CRF. `base` is what the encoder
+ * has assembled so far - the CRF, the operating-point shift, the shot plan
+ * and the cu-tree frame term - because that is the number n265_rc_done
+ * learns the class scales against, and the prediction has to be made in the
+ * units the observation is taken in. The answer only ever goes UP: capped
+ * CRF never spends a fuller buffer on a finer quantiser, or the cap would
+ * be a target. */
+double n265_vbv_crf_base(struct n265_encoder *e, int cls, double cplx,
+                         double base, double *pred, double *allow,
+                         double *dqp)
+{
+    double d = vbv_dqp(e, cls, cplx, base, pred, allow);
+    *dqp = d;
+    double q = base + d;
+    if (q > 51.0)
+        q = 51.0;
+    if (q < (double)N265_QP_MIN)
+        q = (double)N265_QP_MIN;
+    *dqp = q - base;
+    return q;
+}
+
 double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
 {
     n265_rc *rc = &e->rc;
@@ -647,6 +718,36 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
         rf = (double)N265_QP_MIN;
     else if (rf > 51.0)
         rf = 51.0;
+    /* The VBV, LAST and one-sided.
+     *
+     * Everything above answers the question "what lands the file on its
+     * size"; this answers "what the decoder's buffer can pay for at this
+     * removal", and the second may only ever make the frame coarser. It is
+     * not folded into the feedback for the reason N265_ABR_IOFF is not: the
+     * loop is not chasing it, and the bits it does not spend here are a
+     * surplus the integral term will find and spend somewhere the buffer
+     * can afford - which is the whole point of a buffer.
+     *
+     * `rf + ctf` and not `rf`: the encoder adds the cu-tree frame term back
+     * on to get the base it codes at (encoder.c, dispatch_frame), and the
+     * bits model is calibrated in that base. At the shipping default
+     * `ctf_off` is the whole term, so this is `base + fb - ioff` either
+     * way; with N265_ABR_CTF 0 it is the term the loop never took off.
+     *
+     * Inert to the bit with --vbv-maxrate unset: `on` is 0 and nothing
+     * below this line runs. */
+    rc->last_vbv_pred = rc->last_vbv_allow = rc->last_vbv_dqp = 0.0;
+    if (e->vbv.on) {
+        double dq = vbv_dqp(e, cls, cplx, rf + ctf, &rc->last_vbv_pred,
+                            &rc->last_vbv_allow);
+        double rf0 = rf;
+        rf += dq;
+        if (rf > 51.0)
+            rf = 51.0;
+        else if (rf < (double)N265_QP_MIN)
+            rf = (double)N265_QP_MIN;
+        rc->last_vbv_dqp = rf - rf0;
+    }
     /* what the frame will actually be coded at is what the operating point has
      * to take the offset back out of, so a bound that ate part of the discount
      * hands back only what survived it */

@@ -17,6 +17,7 @@
 #include "encoder/la.h"
 #include "encoder/level.h"
 #include "encoder/rc.h"
+#include "encoder/vbv.h"
 #include "encoder/tables.h"
 
 struct sao_params;
@@ -694,6 +695,16 @@ typedef struct n265_frame_work {
                              * (N265_ABR_IOFF), which the measured operating
                              * point takes back out. 0 on inter frames, 0 at
                              * the default, 0 whenever ABR is off. */
+    /* The VBV's hand-off, frozen at dispatch with everything else here
+     * and spent at retirement, where the coded size is known and the
+     * trace line is written. All three are 0 with the mode off, which is
+     * every encode that does not name --vbv-maxrate. */
+    double vbv_pred;        /* bits the model predicted for this frame at the
+                             * base it was about to be coded at, BEFORE the
+                             * clamp */
+    double vbv_allow;       /* the most the buffer could pay for */
+    double vbv_dqp;         /* the QP the clamp added to the base; 0 where the
+                             * plan already fitted */
     double shot_off;      /* --shot-window: this frame's shot plan, in QP
                              * steps, already inside rc_base. 0 with the
                              * mode off, which is every default encode. */
@@ -800,6 +811,17 @@ struct n265_encoder {
     double crf;
     int abr_on;             /* n265_set_bitrate: the base is the ABR rate factor */
     double abr_bitrate;     /* bits per second                          */
+    /* --vbv-maxrate / --vbv-bufsize / --vbv-init: the hypothetical decoder
+     * buffer the encode is held inside (vbv.h). `on` is 0 unless both of
+     * the first two were named, and that zero is what every encode before
+     * phase 12 item 2 runs - the clamp, the level's CPB leg and the HRD in
+     * the VUI are all gated on it. Rides ABR and CRF alike: under ABR it
+     * is a second constraint on a loop that already has a target, under
+     * CRF it is x265's capped CRF, where the rate factor stands until the
+     * buffer says otherwise. */
+    n265_vbv vbv;
+    int vbv_trace;          /* N265_VBV_TRACE: one row per frame, coding
+                             * order, written at retirement */
     int qp_frac;            /* carry the base QP's fraction and spread it
                              * over the CTUs (N265_QP_FRAC; on under ABR,
                              * and under CRF where the cu-tree frame term

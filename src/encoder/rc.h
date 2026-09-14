@@ -95,6 +95,11 @@ typedef struct n265_rc {
     double pend_bits;
     long pend_n;
     double last_planned;        /* the T the last rc_next handed out */
+    /* The VBV's three columns for the last answer (vbv.h): the model's
+     * predicted bits at the base the frame was about to be coded at, the
+     * bits the buffer could pay for, and the QP the clamp added. All zero
+     * with --vbv-maxrate unset, which is every encode the mode is off in. */
+    double last_vbv_pred, last_vbv_allow, last_vbv_dqp;
     /* constants (docs/instruments.md) */
     double qcomp, horizon, maxstep, scale_mem, w_mem;
     double rf_bias;             /* the integral term, in QP units      */
@@ -131,6 +136,14 @@ int n265_rc_class(int slice_type, int nonref);
 
 /* the lookahead complexity of queued frame `i` for class `cls` */
 double n265_rc_cplx(struct n265_encoder *e, int i, int cls);
+
+/* Capped CRF's half of the VBV clamp: the base the frame may be coded at,
+ * given the base the CRF path assembled. Never finer than what it was
+ * given. `pred`, `allow` and `dqp` are the trace's columns. Under ABR the
+ * same clamp lives inside n265_rc_next, where the loop's own answer is. */
+double n265_vbv_crf_base(struct n265_encoder *e, int cls, double cplx,
+                         double base, double *pred, double *allow,
+                         double *dqp);
 
 /* Will queued frame `i` be coded as an IDR? The keyint and scene-cut half
  * of encode_frame's own test, without the "no reference yet" clause, which

@@ -20,9 +20,16 @@ typedef struct n265_level_req {
     int dpb;                /* sps_max_dec_pic_buffering_minus1 + 1       */
     int fps_num, fps_den;   /* the source frame rate, from the y4m        */
     double bitrate;         /* bits/s the stream carries, 0 = not known   */
-    int enforce_br;         /* 1: the rate is a CONSTRAINT (ABR, PCM);
+    int enforce_br;         /* 1: the rate is a CONSTRAINT (ABR, PCM, and
+                             * --vbv-maxrate, which is a rate the encoder
+                             * enforces whatever the mode);
                              * 0: it is reported and not enforced (CRF,
                              * CQP - the encoder does not know the rate)  */
+    /* --vbv-bufsize in bits: the CPB the encode is planned against and the
+     * HRD then declares, which Table A.6's MaxCPB bounds at the chosen
+     * tier. 0 - no VBV - leaves the leg out, which is how every stream
+     * before phase 12 item 2 was solved. */
+    int64_t cpb_size;
     int slice_segments;     /* slice segments per picture (1 today)       */
     int tile_rows, tile_cols;   /* 1, 1 today: tiles_enabled_flag is 0    */
     int want_idc;           /* --level as an idc (level * 30); 0 = auto   */

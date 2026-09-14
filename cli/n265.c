@@ -20,6 +20,9 @@ void n265_set_lossless(int on);
  * (level * 30); 0 leaves the level derived from the stream. */
 void n265_set_level(int idc, int high_tier);
 void n265_set_vui_timing(int on);
+/* The hypothetical decoder buffer (phase 12 item 2): kbit/s, kbit, and a
+ * fraction of the buffer. 0 / 0 is the mode off. */
+void n265_set_vbv(double maxrate, double bufsize, double init);
 /* "4.1", "41" or "123" -> 123; 0 for a string that is not a level. Pure
  * arithmetic over the Annex A table, so the 8-bit copy serves both
  * libraries and the dispatch table does not carry it. */
@@ -55,6 +58,7 @@ void n265_set_threads_10(int n);
 void n265_set_lossless_10(int on);
 void n265_set_level_10(int idc, int high_tier);
 void n265_set_vui_timing_10(int on);
+void n265_set_vbv_10(double maxrate, double bufsize, double init);
 int  n265_set_preset_10(const char *name);
 int  n265_preset_param_10(const char *key, int fallback);
 n265_encoder *n265_encoder_open_10(const n265_param *p);
@@ -83,6 +87,7 @@ typedef struct n265_api {
     void (*set_lossless)(int);
     void (*set_level)(int, int);
     void (*set_vui_timing)(int);
+    void (*set_vbv)(double, double, double);
     n265_encoder *(*encoder_open)(const n265_param *);
     int  (*encoder_encode)(n265_encoder *, n265_nal **, int *,
                            const n265_picture *);
@@ -97,7 +102,7 @@ static const n265_api api8 = {
     8, n265_param_default, n265_set_mode, n265_set_la, n265_set_crf,
     n265_set_bitrate, n265_set_ref, n265_set_badapt, n265_set_threads,
     n265_set_preset, n265_preset_param, n265_set_shot_window, n265_set_lossless,
-    n265_set_level, n265_set_vui_timing,
+    n265_set_level, n265_set_vui_timing, n265_set_vbv,
     n265_encoder_open, n265_encoder_encode, n265_encoder_close,
     n265_version_str, n265_encoder_set_dump, n265_encoder_set_dump_decode,
     n265_encoder_set_shot_stats,
@@ -108,7 +113,7 @@ static const n265_api api10 = {
     n265_set_crf_10, n265_set_bitrate_10, n265_set_ref_10,
     n265_set_badapt_10, n265_set_threads_10, n265_set_preset_10,
     n265_preset_param_10, n265_set_shot_window_10, n265_set_lossless_10,
-    n265_set_level_10, n265_set_vui_timing_10,
+    n265_set_level_10, n265_set_vui_timing_10, n265_set_vbv_10,
     n265_encoder_open_10,
     n265_encoder_encode_10, n265_encoder_close_10, n265_version_str_10,
     n265_encoder_set_dump_10, n265_encoder_set_dump_decode_10,
@@ -413,6 +418,21 @@ static void usage(void)
         "                  (--verbose prints it).\n"
         "  --vui-timing    write vui_timing_info in the SPS from the y4m (the\n"
         "                  default since 2026-09-12); --no-vui-timing omits it\n"
+        "  --vbv-maxrate <k>  hypothetical decoder buffer: the CPB arrival\n"
+        "                  rate in kbit/s. With --vbv-bufsize it holds the\n"
+        "                  encode inside a decoder buffer that never\n"
+        "                  underflows - under --bitrate as a second\n"
+        "                  constraint on the ABR loop, under --crf as\n"
+        "                  capped CRF, where the rate factor stands until\n"
+        "                  the buffer says otherwise. Both halves or\n"
+        "                  neither; refused under --qp, --pcm and\n"
+        "                  --lossless, which have no quantiser to move.\n"
+        "                  The rate and the buffer are ENFORCED against\n"
+        "                  the level's MaxBR and MaxCPB, and the schedule\n"
+        "                  is written as hrd_parameters in the VUI.\n"
+        "  --vbv-bufsize <k>  the CPB size in kbit (the other half).\n"
+        "  --vbv-init <f>  how full the buffer starts, as a fraction of\n"
+        "                  --vbv-bufsize in (0, 1]. Default 0.9.\n"
         "                  frame rate, so a decoder can check the level's\n"
         "                  MaxLumaSr leg against the rate it was derived\n"
         "                  from. Off by default: it adds about a dozen\n"
@@ -433,6 +453,9 @@ int main(int argc, char **argv)
     const char *level_str = NULL;   /* --level; NULL = derive it */
     int high_tier = 0, vui_timing = 1, verbose = 0;   /* VUI timing on since 2026-09-12 */
     double crf = -1.0, bitrate = 0.0;
+    /* --vbv-maxrate / --vbv-bufsize / --vbv-init; 0/0 is the mode off,
+     * which is every encode before phase 12 item 2. */
+    double vbv_maxrate = 0.0, vbv_bufsize = 0.0, vbv_init = 0.9;
     int had_crf = 0;            /* --crf given: the ON switch, not crf >= 0 */
     int out_depth = 0;          /* --output-depth; 0 = the input's */
     int nref = 1, badapt = 1;
@@ -499,6 +522,12 @@ int main(int argc, char **argv)
             vui_timing = 1;
         } else if (!strcmp(argv[i], "--no-vui-timing")) {
             vui_timing = 0;
+        } else if (!strcmp(argv[i], "--vbv-maxrate") && i + 1 < argc) {
+            vbv_maxrate = atof(argv[++i]);
+        } else if (!strcmp(argv[i], "--vbv-bufsize") && i + 1 < argc) {
+            vbv_bufsize = atof(argv[++i]);
+        } else if (!strcmp(argv[i], "--vbv-init") && i + 1 < argc) {
+            vbv_init = atof(argv[++i]);
         } else if (!strcmp(argv[i], "--dump-recon") && i + 1 < argc) {
             dump_path = argv[++i];
         } else if (!strcmp(argv[i], "--shot-window") && i + 1 < argc) {
@@ -656,6 +685,7 @@ int main(int argc, char **argv)
         a->set_level(idc, high_tier);
     }
     a->set_vui_timing(vui_timing);
+    a->set_vbv(vbv_maxrate, vbv_bufsize, vbv_init);
     /* --verbose is N265_LEVEL_TRACE by another name: one code path, one
      * line, and a script that wants it without a flag sets the variable.
      * setenv does not overwrite, so an explicit N265_LEVEL_TRACE=0 in the
