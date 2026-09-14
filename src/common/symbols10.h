@@ -264,6 +264,7 @@
 #define n265_set_vbv                 n265_set_vbv_10
 #define n265_set_shot_window         n265_set_shot_window_10
 #define n265_set_lossless            n265_set_lossless_10
+#define n265_set_rdoq_level          n265_set_rdoq_level_10
 #define n265_set_vui_timing          n265_set_vui_timing_10
 #define n265_sig_ctx_map4x4          n265_sig_ctx_map4x4_10
 #define n265_sig_pat                 n265_sig_pat_10

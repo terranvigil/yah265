@@ -51,6 +51,7 @@ Usage (environment, the way the band tools take their arguments):
     CLIPS   comma list                (default: every clip with a ladder)
     RUNG    1..4                      (default 2: which ladder rung is the pin)
     FRAMES  120       NRUNS  3        JOBS  3 (clips at a time, SOLVE only)
+    OURFLAGS  extra flags for OUR side only, solved AND timed (default none)
     N265 / X265 / BAND_N265 / BD_CACHE
     LOADMAX 3.0       LOADWAIT 600    (the quiet-box bar, and how long to
                                        wait for the box to reach it)
@@ -68,6 +69,15 @@ The last column, `arm`, is every `N265_*` in the environment, sorted
 `K=V` joined by spaces and empty for the default; `--from-csv` re-prints
 the block for the arm IT is invoked under, and rows written before the
 column existed carry "", which is the default's own value.
+
+**`OURFLAGS` is an arm too, and it has to be.** A knob that ships as a
+CLI FLAG cannot be set through the environment, so an arm like
+`--rdoq-level 0` would otherwise be unreachable here - and the reference
+ladder must not move with it, which is why the string goes on OUR side
+only, into the solve template and the timed command alike. It lands in
+the `arm` column as `OURFLAGS=<string>`, so a flag arm and an env arm are
+told apart the same way two env arms are, and a default run still writes
+the empty arm it always wrote.
 
 **Two binaries, on purpose.** The wall is read on `build-rel/n265`
 (`-Dbuildtype=release`, worth 2-3%; `make build-rel`) and the SOLVE runs
@@ -107,6 +117,7 @@ import json
 import math
 import os
 import re
+import shlex
 import shutil
 import statistics
 import subprocess
@@ -134,6 +145,12 @@ FRAMES = int(os.environ.get("FRAMES", "120"))
 NRUNS = int(os.environ.get("NRUNS", "3"))
 JOBS = int(os.environ.get("JOBS", "3"))
 RUNG = int(os.environ.get("RUNG", "2"))
+# Extra flags for OUR encoder, in both the solve and the clock. Split the
+# way a shell would - the templates are strings and the timed command is a
+# list, so the two halves have to agree - and empty by default, which is
+# every run before this existed.
+OURFLAGS = os.environ.get("OURFLAGS", "").strip()
+OURARGV = shlex.split(OURFLAGS)
 SRCDIR = os.environ.get("SRCDIR", "tests/corpus")
 X265 = os.environ.get("X265", "x265")
 LOADMAX = float(os.environ.get("LOADMAX", "3.0"))
@@ -151,8 +168,9 @@ CSV_PATH = os.environ.get("GOAL_LEGS_CSV",
 # names it), so this is exactly what the caller set. `N265` and
 # `BAND_N265` are binary paths rather than knobs and do not match the
 # prefix.
-ARM = " ".join(f"{k}={v}" for k, v in sorted(os.environ.items())
-               if k.startswith("N265_"))
+ARM = " ".join([f"{k}={v}" for k, v in sorted(os.environ.items())
+                if k.startswith("N265_")]
+               + ([f"OURFLAGS={' '.join(OURARGV)}"] if OURARGV else []))
 
 # Columns added after rows had already been written: `append_csv`
 # migrates a file that predates them instead of refusing, and every
@@ -205,8 +223,11 @@ def target_of(clip, ladders):
 
 def preset_args():
     """`--preset medium` is the default, so medium says nothing: the
-    template then IS the band's."""
-    return [] if PRESET == "medium" else ["--preset", PRESET]
+    template then IS the band's. OURFLAGS rides here, after the preset,
+    because that is the order a user writes it in and the order the
+    override rule is written for: the flag wins over the preset."""
+    p = [] if PRESET == "medium" else ["--preset", PRESET]
+    return p + OURARGV
 
 
 # ---------------------------------------------------------------- the legs

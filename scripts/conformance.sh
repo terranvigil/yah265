@@ -930,6 +930,17 @@ run_vector_env "N265_RDOQ=2" \
            rdoq2_ipb_t12  352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 26 --aq 1 --cutree 1 --threads 12"
 run_vector_env "N265_RDOQ=2" \
            rdoq2_ctu16_t1 176x144 16 testsrc2 "--keyint 8 --ctu 16 --bframes 5 --aq 1 --cutree 1 --threads 1"
+# --rdoq-level (2026-09-14): the same three quantisers, reached the way a
+# USER reaches them, and the two cells are the two ENDS - the flag's own
+# map onto N265_RDOQ is what they check, since the default list already
+# walks the middle (`--rdoq-level 1` IS `--preset medium`, byte for byte,
+# and the identity cmp says so rather than a vector). Level 0 is plain
+# quantisation everywhere, where sign-bit hiding and the all-zero margin
+# meet levels no lattice ever touched; level 2 is the lattice in every RD
+# trial, which is the compiled-in default reached from a medium command
+# line. One thread and twelve, so the flag carries the determinism leg.
+run_vector rdoqlvl0_t12 352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 26 --aq 1 --cutree 1 --rdoq-level 0 --threads 12"
+run_vector rdoqlvl2_t1  176x144 16 testsrc2 "--keyint 8 --ctu 16 --bframes 5 --aq 1 --cutree 1 --rdoq-level 2 --threads 1"
 # N265_DUP_FAST (phase 11 item 1): the fast path codes a whole picture as
 # skip toward the reference whose SOURCE is this picture's source, with
 # no arm running that could have chosen otherwise. Those CUs are syntax

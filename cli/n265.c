@@ -19,6 +19,9 @@ void n265_set_shot_window(int n);
  * 3 does both. The path outlives the encoder - it is argv. */
 void n265_set_pass(int pass, const char *stats);
 void n265_set_lossless(int on);
+/* --rdoq-level <0|1|2> (x265's numbering; docs/instruments.md says how it
+ * maps onto N265_RDOQ). -1 is "not given". */
+void n265_set_rdoq_level(int lvl);
 /* Annex A overrides (phase 8 item 7). `idc` is general_level_idc
  * (level * 30); 0 leaves the level derived from the stream. */
 void n265_set_level(int idc, int high_tier);
@@ -60,6 +63,7 @@ void n265_set_ref_10(int n);
 void n265_set_badapt_10(int on);
 void n265_set_threads_10(int n);
 void n265_set_lossless_10(int on);
+void n265_set_rdoq_level_10(int lvl);
 void n265_set_level_10(int idc, int high_tier);
 void n265_set_vui_timing_10(int on);
 void n265_set_film_grain_10(double strength, int denoise);
@@ -96,6 +100,7 @@ typedef struct n265_api {
     void (*set_vui_timing)(int);
     void (*set_film_grain)(double, int);
     void (*set_vbv)(double, double, double);
+    void (*set_rdoq_level)(int);
     n265_encoder *(*encoder_open)(const n265_param *);
     int  (*encoder_encode)(n265_encoder *, n265_nal **, int *,
                            const n265_picture *);
@@ -111,7 +116,7 @@ static const n265_api api8 = {
     n265_set_bitrate, n265_set_ref, n265_set_badapt, n265_set_threads,
     n265_set_preset, n265_preset_param, n265_set_shot_window, n265_set_pass,
     n265_set_lossless, n265_set_level, n265_set_vui_timing,
-    n265_set_film_grain, n265_set_vbv,
+    n265_set_film_grain, n265_set_vbv, n265_set_rdoq_level,
     n265_encoder_open, n265_encoder_encode, n265_encoder_close,
     n265_version_str, n265_encoder_set_dump, n265_encoder_set_dump_decode,
     n265_encoder_set_shot_stats,
@@ -123,7 +128,7 @@ static const n265_api api10 = {
     n265_set_badapt_10, n265_set_threads_10, n265_set_preset_10,
     n265_preset_param_10, n265_set_shot_window_10, n265_set_pass_10,
     n265_set_lossless_10, n265_set_level_10, n265_set_vui_timing_10,
-    n265_set_film_grain_10, n265_set_vbv_10,
+    n265_set_film_grain_10, n265_set_vbv_10, n265_set_rdoq_level_10,
     n265_encoder_open_10,
     n265_encoder_encode_10, n265_encoder_close_10, n265_version_str_10,
     n265_encoder_set_dump_10, n265_encoder_set_dump_decode_10,
@@ -365,7 +370,17 @@ static void usage(void)
         "  --b-adapt <0-4> adaptive B run length from the lookahead: 0 fixed,\n"
         "                  1 the motion rule (default), 2/3 refused priced arms,\n"
         "                  4 the bits model (docs/phase7-gop-design.md)\n"
-        "  (RDOQ is on; N265_RDOQ=0 turns it off, N265_PSY=F adds the psy term)\n"
+        "  --rdoq-level <0|1|2>  how much rate-distortion optimised\n"
+        "                  quantisation to run. x265's numbering, so that a\n"
+        "                  number carries over; ours is N265_RDOQ and counts\n"
+        "                  the same three encoders in another order\n"
+        "                  (docs/instruments.md).\n"
+        "                  0 off, plain quantisation everywhere\n"
+        "                  1 the final encode only (medium's default)\n"
+        "                  2 every RD decision (slow's and slower's default)\n"
+        "                  Left off, the preset picks; given, it wins over\n"
+        "                  the preset and over N265_RDOQ.\n"
+        "  (N265_PSY=F adds the psy term to the quantiser's distortion)\n"
         "  --pcm           phase-0 I_PCM mode (lossless, huge)\n"
         "  --lossless      mathematically lossless: transquant bypass on\n"
         "                  every CU, so the reconstruction IS the source.\n"
@@ -508,6 +523,9 @@ int main(int argc, char **argv)
                                      * encoder (docs/instruments.md, board) */
     int threads = 0;
     int shot_window = 0;        /* --shot-window; 0 = off, the default */
+    /* --rdoq-level: -1 is "not given", which leaves the preset (and the
+     * environment) in charge - the flag is an override, not a default. */
+    int rdoq_level = -1, had_rdoq = 0;
     const char *dump_decode_path = NULL;
     const char *preset = NULL;
     /* which structural flags the user gave: a preset supplies the rest */
@@ -548,6 +566,8 @@ int main(int argc, char **argv)
             threads = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--ctu") && i + 1 < argc) {
             ctu = atoi(argv[++i]); had_ctu = 1;
+        } else if (!strcmp(argv[i], "--rdoq-level") && i + 1 < argc) {
+            rdoq_level = atoi(argv[++i]); had_rdoq = 1;
         } else if (!strcmp(argv[i], "--pcm")) {
             pcm = 1;
         } else if (!strcmp(argv[i], "--lossless")) {
@@ -731,6 +751,18 @@ int main(int argc, char **argv)
         return 2;
     }
     a->set_lossless(lossless);
+    /* --rdoq-level. Range-checked here because nothing but the string is
+     * needed for it, and passed down as x265's number: the library owns
+     * the map onto its own knob (src/encoder/encoder.c,
+     * n265_set_rdoq_level). Left off, the preset chooses - medium 1,
+     * fast/slow/slower 2 - which is what makes this an override and not
+     * a default. */
+    if (had_rdoq && (rdoq_level < 0 || rdoq_level > 2)) {
+        fprintf(stderr, "n265: --rdoq-level must be 0 (off), 1 (final "
+                "encode only) or 2 (all RD decisions)\n");
+        return 2;
+    }
+    a->set_rdoq_level(rdoq_level);
     /* --level / --high-tier. The refusals that need the STREAM - a level
      * too low for the picture, the rate or the DPB - are made at encoder
      * open, where the derivation lives; the one made here is the only one

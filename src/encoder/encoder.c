@@ -81,6 +81,9 @@ static int g_pass = 0;
 static const char *g_stats_path = NULL;
 static int g_threads = 0;       /* --threads; 0 = auto */
 static int g_lossless = 0;      /* --lossless; n265_set_lossless */
+/* --rdoq-level; -1 is "the flag was not given", which is every encode
+ * before this item and every one that leaves the choice to the preset. */
+static int g_rdoq_level = -1;
 /* Annex A overrides (phase 8 item 7). 0 / 0 / 0 is "derive the level and
  * the tier from the stream and write no VUI", which is what every board,
  * band and gate runs. */
@@ -145,6 +148,25 @@ void n265_set_crf(double crf) { g_crf = crf; g_crf_on = 1; }
  * points are: include/yah265.h is another item's file this round. */
 void n265_set_lossless(int on);
 void n265_set_lossless(int on) { g_lossless = on != 0; }
+/* --rdoq-level <0|1|2>: the coefficient quantiser, in X265'S numbering,
+ * because that is the number a user arrives with. Ours is `N265_RDOQ` and
+ * it counts the same three encoders in a different order (the order they
+ * were BUILT in: no lattice, the lattice everywhere, the lattice at the
+ * commit). The map is here and nowhere else:
+ *
+ *   --rdoq-level 0   off, plain quantisation everywhere   N265_RDOQ=0
+ *   --rdoq-level 1   the lattice on the commit path only  N265_RDOQ=2
+ *   --rdoq-level 2   the lattice in every RD trial too    N265_RDOQ=1
+ *
+ * -1 is "not given", which is every encode that does not name the flag
+ * and is what leaves the environment and the preset table in charge. */
+void n265_set_rdoq_level(int lvl);
+void n265_set_rdoq_level(int lvl) { g_rdoq_level = lvl; }
+
+static int rdoq_level_map(int lvl)
+{
+    return lvl == 0 ? 0 : lvl == 1 ? 2 : 1;
+}
 /* --level / --high-tier / --vui-timing, declared the same way. `idc` is
  * general_level_idc (level * 30); 0 leaves the level derived. */
 void n265_set_level(int idc, int high_tier);
@@ -1115,8 +1137,16 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     { const char *v = n265_env("N265_SHOT_STATS");
       if (v && *v) e->shot_f = fopen(v, "w"); }
     /* RDOQ on by default (2026-09-06: -5.9% median BD-VMAF-NEG at matched
-     * rate, 7/7 clips, worst -5.5%); N265_RDOQ=0 is the escape. */
-    { const char *v = n265_env("N265_RDOQ"); e->rdoq = v ? atoi(v) : 1; }
+     * rate, 7/7 clips, worst -5.5%); N265_RDOQ=0 is the escape.
+     *
+     * `--rdoq-level` (n265_set_rdoq_level) is the user-facing half and it
+     * WINS where it was given - over the environment and over the preset
+     * table alike, the rule `--ctu` follows. It carries X265'S numbering,
+     * not this knob's; `rdoq_level_map` above is the one place the two
+     * meet. */
+    { const char *v = n265_env("N265_RDOQ");
+      e->rdoq = g_rdoq_level >= 0 ? rdoq_level_map(g_rdoq_level)
+                                  : v ? atoi(v) : 1; }
     { const char *v = n265_env("N265_PSY"); e->psy = v ? atof(v) : 0.0; }
     e->aq = g_aq || n265_env("N265_AQ") != NULL;      /* variance AQ */
     e->la_depth = e->mode == N265_MODE_PCM || !e->bframes ? g_la_depth
