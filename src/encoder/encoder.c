@@ -2950,6 +2950,18 @@ struct lag_wait {
     int r, need;
 };
 
+/* C4: the milestone key for "the two-CTB lag of row r of this frame".
+ * A per-CTB publish inside row r-1 can make exactly this predicate true
+ * and no other, so the waiter in row r and the publisher in row r-1 name
+ * the same key and the pool wakes nobody else. The frame is in the key
+ * through its progress block, which is per-frame-work and live for the
+ * whole of the frame's tasks; K frames are in flight and a stale pointer
+ * reused by a later frame can only cost a spurious wake. */
+static inline unsigned lag_key(const struct n265_prog *p, int r)
+{
+    return (unsigned)((uintptr_t)p >> 6) * 1103515245u + (unsigned)r;
+}
+
 static int lag_pred(void *ctx)
 {
     struct lag_wait *w = ctx;
@@ -3028,7 +3040,7 @@ static void job_run(void *ctx, int lane, int idx)
             if (r > 0) {
                 int need = cx + 2 < fw->job_cols ? cx + 2 : fw->job_cols;
                 struct lag_wait w = { p, r, need };
-                ntp_wait(e->pool, lag_pred, &w);
+                ntp_wait(e->pool, lag_key(p, r), lag_pred, &w);
             }
             n265_analyze_ctu(&row->c, cx, r);
             if (cx == fw->job_snap_x)
@@ -3036,16 +3048,20 @@ static void job_run(void *ctx, int lane, int idx)
                        CTX_COUNT * sizeof(cabac_ctx_t));
             atomic_store_explicit(&p->enc_prog[r], cx + 1,
                                   memory_order_release);
+            /* the key is the row BELOW's: this store is what its lag
+             * reads, and it is the only milestone this publish can move */
             if (cx + 1 == open_at)
-                ntp_publish_task(e->pool);
+                ntp_publish_task(e->pool, lag_key(p, r + 1));
             else
-                ntp_publish(e->pool);
+                ntp_publish(e->pool, lag_key(p, r + 1));
         }
         n265_row_end(row, fw, r);
         /* rows complete in index order (a row's last CTB waits for the
          * row above to be complete), so the count IS the watermark */
         atomic_fetch_add_explicit(&p->enc_rows, 1, memory_order_release);
-        ntp_publish_task(e->pool);
+        /* the row below's lag was already satisfied to the last column
+         * by the loop above; this watermark only makes a task claimable */
+        ntp_publish_task(e->pool, NTP_KEY_NONE);
         return;
     }
     if (idx < 2 * R) {
@@ -3053,7 +3069,7 @@ static void job_run(void *ctx, int lane, int idx)
         n265_qpmap_row(fw, r, &fw->qprev);
         n265_deblock_row(fw, r);
         atomic_store_explicit(&p->dbk_rows, r + 1, memory_order_release);
-        ntp_publish_task(e->pool);
+        ntp_publish_task(e->pool, NTP_KEY_NONE);
         return;
     }
     if (idx < 3 * R) {
@@ -3070,7 +3086,7 @@ static void job_run(void *ctx, int lane, int idx)
         atomic_store_explicit(&p->pub_rows, r + 1, memory_order_release);
         if (e->sprof >= 2 && r == R - 1)
             fw->t_rowlast = prof_now() - e->prof_t0;
-        ntp_publish_task(e->pool);
+        ntp_publish_task(e->pool, NTP_KEY_NONE);
         return;
     }
     if (e->sprof >= 2)

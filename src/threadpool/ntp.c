@@ -52,6 +52,29 @@ struct wslot {
     int woken;
 };
 
+/* C4: one milestone wake channel. `nwait` is the waiters parked on `cv`;
+ * it is the publisher's half of the store-load pair, so it is seq_cst on
+ * both sides. One cache line each: a publisher of channel i must not
+ * dirty the line channel j's publisher is reading. */
+struct nchan {
+    pthread_cond_t cv;
+    atomic_int nwait;
+    char pad[64];
+};
+
+/* The table is a power of two and is indexed by a multiplicative hash of
+ * the caller's key, because the keys the encoder hands us are dense in
+ * the row index and sparse in the frame. 256 channels against at most
+ * K x ctb_rows live milestones (8 x 34 on 1080p at CTB 32) keeps the
+ * collision rate low enough that the census reads one waiter per wake. */
+#define NTP_NCHAN 256
+#define NTP_CHAN_MASK (NTP_NCHAN - 1)
+
+static inline unsigned nchan_idx(unsigned key)
+{
+    return (key * 2654435761u >> 8) & NTP_CHAN_MASK;
+}
+
 /* Phase 9 step 4: per-worker occupancy, one cache line each so the
  * accumulators of two workers never share one. Written only by the
  * worker they belong to, read only after ntp_close's join or by the
@@ -118,6 +141,28 @@ struct ntp_pool {
      * broadcast, which always takes the lock, and counting it would pin
      * a count above zero for the whole job and defeat both checks. */
     atomic_int n_idle, n_wait;
+
+    /* C4: the milestone wake CHANNELS. `ntp_publish` runs once per CTB
+     * of every row but the first, and it used to take `mu` and broadcast
+     * `done` whenever ANY worker anywhere was in a milestone wait - on
+     * touchdown_1080p at eighteen threads that was 233 603 of 257 040
+     * publishes, each waking every waiting worker to re-check a
+     * predicate that was almost never its own (docs/phase13.md "C4").
+     *
+     * A per-CTB publish inside row r of one frame can satisfy exactly
+     * one milestone: the two-CTB lag of row r+1 of THAT frame. The
+     * caller knows that and now says so with a key; the pool hashes the
+     * key into a fixed table of channels and wakes only that one. A
+     * collision costs a spurious wake and nothing else, which is why the
+     * table is fixed-size and needs no lifetime rules.
+     *
+     * The channel condvars pair with the SAME `mu` as `done`, so the
+     * memory argument is the one that was already here: the publisher
+     * fences seq_cst after its release store and reads the channel's
+     * waiter count, the waiter bumps that count with a seq_cst RMW
+     * before re-checking the predicate under `mu`, and in the single
+     * total order one of the two sees the other. */
+    struct nchan *ch;
 
     /* the instrument (ntp.h). `prof` is set before the first submit and
      * never cleared, so a worker reads a value that was published before
@@ -201,10 +246,15 @@ ntp_pool *ntp_open(int nthreads, int max_jobs, int max_lanes)
     p->th = calloc((size_t)nthreads, sizeof(pthread_t));
     p->ws = calloc((size_t)nthreads, sizeof(*p->ws));
     p->idle = calloc((size_t)nthreads, sizeof(int));
+    p->ch = calloc((size_t)NTP_NCHAN, sizeof(*p->ch));
     if (p->ws)
         for (int i = 0; i < nthreads; i++)
             pthread_cond_init(&p->ws[i].cv, NULL);
-    if (!p->js || !p->lane_free || !p->th || !p->ws || !p->idle || !p->wp) {
+    if (p->ch)
+        for (int i = 0; i < NTP_NCHAN; i++)
+            pthread_cond_init(&p->ch[i].cv, NULL);
+    if (!p->js || !p->lane_free || !p->th || !p->ws || !p->idle || !p->wp ||
+        !p->ch) {
         p->nthreads = 0;
         ntp_close(p);
         return NULL;
@@ -255,12 +305,15 @@ void ntp_close(ntp_pool *p)
     pthread_cond_destroy(&p->done);
     for (int i = 0; p->ws && i < p->nthreads; i++)
         pthread_cond_destroy(&p->ws[i].cv);
+    for (int i = 0; p->ch && i < NTP_NCHAN; i++)
+        pthread_cond_destroy(&p->ch[i].cv);
     for (int i = 0; p->js && i < p->njs; i++)
         free(p->js[i].state);
     free(p->js);
     free(p->lane_free);
     free(p->ws);
     free(p->idle);
+    free(p->ch);
     free(p->wp);
     free(p->th);
     free(p);
@@ -482,7 +535,7 @@ static int spin_for(ntp_pred_fn pred, void *ctx)
     }
 }
 
-void ntp_wait(ntp_pool *p, ntp_pred_fn pred, void *ctx)
+void ntp_wait(ntp_pool *p, unsigned key, ntp_pred_fn pred, void *ctx)
 {
     /* This runs once per CTB of every row but the first, so the
      * instrument-off path must touch NO thread-local: reading one on
@@ -502,11 +555,18 @@ void ntp_wait(ntp_pool *p, ntp_pred_fn pred, void *ctx)
     }
     if (prof)
         p->wp[tls_me].blocked++;
+    /* C4: park on the key's OWN channel rather than on `done`. `done` is
+     * broadcast by every task completion and by ntp_publish_task, so a
+     * waiter here used to be woken by all of them; now it is woken by
+     * the one publisher whose progress its predicate reads. The
+     * predicate is still re-checked under `mu` before and after every
+     * sleep, so a spurious wake from a hash collision is free. */
+    struct nchan *c = &p->ch[nchan_idx(key)];
     pthread_mutex_lock(&p->mu);
-    atomic_fetch_add(&p->n_wait, 1);
+    atomic_fetch_add(&c->nwait, 1);
     while (!pred(ctx))
-        pthread_cond_wait(&p->done, &p->mu);
-    atomic_fetch_sub(&p->n_wait, 1);
+        pthread_cond_wait(&c->cv, &p->mu);
+    atomic_fetch_sub(&c->nwait, 1);
     pthread_mutex_unlock(&p->mu);
     if (prof)
         p->wp[tls_me].stall += ntp_now() - t0 - (tls_nested - n0);
@@ -559,17 +619,18 @@ void ntp_wait_older(ntp_pool *p, ntp_pred_fn pred, void *ctx)
  * the park counts or the two could miss each other. With nobody in a
  * milestone wait this is two atomic operations and no lock, which is
  * what keeps the per-CTB cost off the 1-thread leg entirely. */
-void ntp_publish(ntp_pool *p)
+void ntp_publish(ntp_pool *p, unsigned key)
 {
+    struct nchan *c = &p->ch[nchan_idx(key)];
     atomic_thread_fence(memory_order_seq_cst);
     if (p->prof && tls_me >= 0)
         p->wp[tls_me].pub++;
-    if (atomic_load(&p->n_wait) == 0)
+    if (atomic_load(&c->nwait) == 0)
         return;
     if (p->prof && tls_me >= 0)
         p->wp[tls_me].bcast++;
     pthread_mutex_lock(&p->mu);
-    pthread_cond_broadcast(&p->done);
+    pthread_cond_broadcast(&c->cv);
     pthread_mutex_unlock(&p->mu);
 }
 
@@ -578,18 +639,28 @@ void ntp_publish(ntp_pool *p)
  * half wakes exactly one worker. Waking nobody on the claim side was
  * worth the whole wavefront once (T1): a row became claimable only when
  * the row above FINISHED, so twelve threads ran one row at a time. */
-void ntp_publish_task(ntp_pool *p)
+void ntp_publish_task(ntp_pool *p, unsigned key)
 {
+    struct nchan *ch = key == NTP_KEY_NONE ? NULL
+                                           : &p->ch[nchan_idx(key)];
     atomic_thread_fence(memory_order_seq_cst);
     if (p->prof && tls_me >= 0)
         p->wp[tls_me].pub++;
+    /* Three wakes, because this form is called where the progress can
+     * satisfy all three: the key's milestone channel (the row below's
+     * lag), `done` for the CROSS-frame waiters of ntp_wait_older, and
+     * one idle worker for the task that has just become claimable. It
+     * runs once or twice per ROW, so its herd costs nothing. */
+    int m = ch && atomic_load(&ch->nwait) != 0;
     int w = atomic_load(&p->n_wait) != 0;
     int c = atomic_load(&p->n_idle) != 0;
-    if (!w && !c)
+    if (!m && !w && !c)
         return;
     if (p->prof && tls_me >= 0)
         p->wp[tls_me].bcast++;
     pthread_mutex_lock(&p->mu);
+    if (m)
+        pthread_cond_broadcast(&ch->cv);
     if (w)
         pthread_cond_broadcast(&p->done);
     if (c)

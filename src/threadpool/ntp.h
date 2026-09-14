@@ -71,7 +71,14 @@ void ntp_join(ntp_pool *p, ntp_job *job);
  * guarantees that by only ever claiming a task whose producer is
  * running or finished. This is the IN-FRAME form (the row wavefront). */
 typedef int (*ntp_pred_fn)(void *ctx);
-void ntp_wait(ntp_pool *p, ntp_pred_fn pred, void *ctx);
+
+/* `key` names the MILESTONE this wait is on, and it is the caller's
+ * promise that the only progress which can make `pred` true is published
+ * under the same key (phase 13 C4). The pool hashes it into a fixed
+ * channel table and wakes that channel alone; a hash collision costs a
+ * spurious wake and nothing else, and a key that does not match its
+ * publisher's is a hang, not a wrong answer. */
+void ntp_wait(ntp_pool *p, unsigned key, ntp_pred_fn pred, void *ctx);
 
 /* The CROSS-FRAME form: block until `pred(ctx)` is true, running ready
  * tasks of strictly older jobs for as long as it is not. Safe to call
@@ -93,8 +100,11 @@ void ntp_wait_older(ntp_pool *p, ntp_pred_fn pred, void *ctx);
  * with nobody awake to take it until the next task completes); calling
  * ntp_publish_task everywhere is correct but pays a wake per CTB.
  * Neither can change what a task reads, so neither can change bits. */
-void ntp_publish(ntp_pool *p);
-void ntp_publish_task(ntp_pool *p);
+/* The key a publish that can satisfy NO milestone predicate passes -
+ * the row watermarks, which only make tasks claimable. */
+#define NTP_KEY_NONE ((unsigned)-1)
+void ntp_publish(ntp_pool *p, unsigned key);
+void ntp_publish_task(ntp_pool *p, unsigned key);
 
 /* Phase 9 step 4's instrument: per-worker occupancy, output-neutral.
  * Off unless enabled, and when off it costs one predictable branch per
