@@ -1029,7 +1029,8 @@ static void usage(void)
         "                  back. Without it the SEI only adds grain to a\n"
         "                  picture that already has some.\n"
         "  --nr-intra <0-2000>  coefficient-domain noise reduction in intra\n"
-        "                  blocks (default 0, off). A per-coefficient-\n"
+        "                  blocks (--preset medium 100; fast, slow and\n"
+        "                  slower 0, off). A per-coefficient-\n"
         "                  POSITION offset, learned from the magnitudes this\n"
         "                  encode has already produced, taken off every\n"
         "                  coefficient toward zero before it is quantised. A\n"
@@ -1038,7 +1039,9 @@ static void usage(void)
         "                  structure and is left nearly alone. Opt-in: it\n"
         "                  changes the picture, and what it is worth depends\n"
         "                  on how noisy the source is (docs/phase14.md).\n"
-        "  --nr-inter <0-2000>  the same in inter blocks (default 0, off).\n"
+        "                  It overrides the preset and N265_NR_INTRA, so\n"
+        "                  --nr-intra 0 --nr-inter 0 is medium's escape.\n"
+        "  --nr-inter <0-2000>  the same in inter blocks (medium 100).\n"
         "  --mcstf         motion-compensated temporal filter on the SOURCE\n"
         "                  (default off). Every eighth picture - the ones a\n"
         "                  mini-GOP predicts from - is replaced by a weighted\n"
@@ -1204,8 +1207,12 @@ int main(int argc, char **argv)
     int high_tier = 0, vui_timing = 1, verbose = 0;   /* VUI timing on since 2026-09-12 */
     double film_grain = 0.0;    /* --film-grain: 0 = off, and off is the default */
     int fgc_denoise = 0;        /* --film-grain-denoise */
-    /* --nr-intra / --nr-inter: 0 / 0 = off, x265's default and ours */
-    int nr_intra = 0, nr_inter = 0;
+    /* --nr-intra / --nr-inter: -1 is "not given", which leaves the preset
+     * to choose - medium 100 / 100 since item 6b, fast/slow/slower 0 - so
+     * this is an override and not a default (the shape --rdoq-level has).
+     * `--nr-intra 0 --nr-inter 0` is still off and still wins. */
+    int nr_intra = -1, nr_inter = -1;
+    int had_nr_intra = 0, had_nr_inter = 0;
     /* --mcstf and its two: off, range 2, not selective - x265's defaults */
     int mcstf = 0, mcstf_range = 2, mcstf_selective = 0;
     int dither = 0;             /* --dither, only on the 10 -> 8 downshift */
@@ -1479,9 +1486,9 @@ int main(int argc, char **argv)
         } else if (!strcmp(argv[i], "--film-grain-denoise") && i + 1 < argc) {
             fgc_denoise = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--nr-intra") && i + 1 < argc) {
-            nr_intra = atoi(argv[++i]);
+            nr_intra = atoi(argv[++i]); had_nr_intra = 1;
         } else if (!strcmp(argv[i], "--nr-inter") && i + 1 < argc) {
-            nr_inter = atoi(argv[++i]);
+            nr_inter = atoi(argv[++i]); had_nr_inter = 1;
         } else if (!strcmp(argv[i], "--mcstf")) {
             mcstf = 1;
         } else if (!strcmp(argv[i], "--no-mcstf")) {
@@ -1913,7 +1920,12 @@ int main(int argc, char **argv)
     }
     a->set_vui_timing(vui_timing);
     a->set_film_grain(film_grain, fgc_denoise);
-    if (nr_intra < 0 || nr_intra > 2000 || nr_inter < 0 || nr_inter > 2000) {
+    /* Range-checked only where the user actually typed it: the -1 the two
+     * carry otherwise is this file's "not given" and is the value that
+     * leaves the choice to the preset (medium names 100 / 100 since item
+     * 6b). A negative the USER typed is still refused. */
+    if ((had_nr_intra && (nr_intra < 0 || nr_intra > 2000)) ||
+        (had_nr_inter && (nr_inter < 0 || nr_inter > 2000))) {
         fprintf(stderr, "n265: --nr-intra/--nr-inter take 0..2000 "
                 "(x265's range); 0 is off\n");
         return 2;

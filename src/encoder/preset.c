@@ -296,6 +296,19 @@ static const struct kv med_tab[] = {
      * backwards. The compiled-in default is 0, so fast and faster are
      * untouched and `--no-weightp` is the escape. */
     { "N265_WEIGHTP",    "1" },
+    /* phase 14 item 6b: the coefficient-domain denoise at x265's own
+     * lowest useful strength, both sides. Item 6 priced the whole sweep
+     * and 100 is the only arm in it with a clean shape - five clips of
+     * five better on BD-VMAF-NEG AND five of five better on PSNR-Y, none
+     * worse by any amount, where 300 costs ducks_720p 0.85 points and
+     * 1000 costs it 3.98. It is free on the clock (1.010x at CIF at
+     * strength 1000, the maximum; below the instrument at 100) because
+     * it is one pass over a transform block that was about to be read
+     * twice anyway. The compiled-in default is 0, so fast, slow and
+     * slower are untouched, and `--nr-intra 0 --nr-inter 0` is the
+     * escape. docs/phase14.md, "Item 6b". */
+    { "N265_NR_INTRA",   "100" },
+    { "N265_NR_INTER",   "100" },
     { NULL, NULL }
 };
 

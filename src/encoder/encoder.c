@@ -129,14 +129,19 @@ static int g_vui_timing = 1;    /* vui_timing_info in the SPS; on since
  * back. At 0 nothing here allocates, reads a picture or writes a byte. */
 static double g_film_grain = 0.0;
 static int g_fgc_denoise = 0;
-/* --nr-intra / --nr-inter (phase 14 item 6). 0 / 0 is off, is the
- * default, is x265's default, and is every preset, board and band leg
- * this encoder was measured with. The flag attenuates coefficients before
- * they are quantised, so a nonzero value moves every bitstream it touches
- * and there is nothing here that a default could be right about for two
- * clips at once: it is an opt-in tool for noisy sources. At 0 nothing
- * allocates and no quantiser call changes shape. */
-static int g_nr_intra = 0, g_nr_inter = 0;
+/* --nr-intra / --nr-inter (phase 14 item 6; re-placed into `medium` by
+ * item 6b, 2026-09-14). -1 / -1 is "NOT GIVEN", which hands the knob to
+ * `N265_NR_INTRA` / `N265_NR_INTER` and therefore to the preset table:
+ * `medium` names 100 / 100, `fast`, `slow` and `slower` name nothing and
+ * the compiled-in default under them is 0, which is off and is x265's
+ * default.
+ *
+ * The flag WINS where it was given - over the environment and over the
+ * preset alike, the rule `--rdoq-level` follows - so
+ * `--nr-intra 0 --nr-inter 0` is medium's escape and is the pre-6b
+ * medium byte for byte. At 0 nothing allocates and no quantiser call
+ * changes shape. */
+static int g_nr_intra = -1, g_nr_inter = -1;
 /* --mcstf / --mcstf-ref-range / --selective-mcstf (phase 14 item 6). Off,
  * range 2, not selective - x265's own defaults, and off is ours for the
  * same reason --film-grain-denoise is off: it changes the picture the
@@ -351,12 +356,16 @@ void n265_set_film_grain(double strength, int denoise)
  * noise reduction (nr.h). x265's range, x265's two-flag split, and the
  * clamp is silent at the top because 2000 is a strength and not a size -
  * asking for more is asking for the maximum, not for something the
- * encoder has no way to do. A negative value is off. */
+ * encoder has no way to do. A NEGATIVE value is "not given", not "off":
+ * it hands the knob back to the environment and the preset. The CLI
+ * refuses a negative the user typed, so the only caller that reaches that
+ * branch is one that left the flag off, and `--nr-intra 0` is still off
+ * and still wins over the preset. */
 void n265_set_nr(int intra, int inter);
 void n265_set_nr(int intra, int inter)
 {
-    g_nr_intra = intra < 0 ? 0 : intra > N265_NR_MAX ? N265_NR_MAX : intra;
-    g_nr_inter = inter < 0 ? 0 : inter > N265_NR_MAX ? N265_NR_MAX : inter;
+    g_nr_intra = intra < 0 ? -1 : intra > N265_NR_MAX ? N265_NR_MAX : intra;
+    g_nr_inter = inter < 0 ? -1 : inter > N265_NR_MAX ? N265_NR_MAX : inter;
 }
 
 /* --mcstf / --mcstf-ref-range / --selective-mcstf (mcstf.h). The range is
@@ -1767,15 +1776,33 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * the two allocations below are the ONLY memory the feature costs
      * when it is off: nothing, because neither runs.
      *
+     * Three doors, in the order every other knob here takes them: the
+     * FLAG where it was given (g_nr_* >= 0), then the environment, then
+     * the preset table - `medium` names 100 / 100 since item 6b and
+     * everything under it names nothing and falls through to 0. The env
+     * value is clamped rather than trusted, because unlike the flag's it
+     * has not been through the CLI's range check.
+     *
      * --lossless and --pcm reach no quantiser at all (the residual IS the
      * coded level), so there is nothing here for the flag to attenuate;
-     * it is refused by name rather than silently ignored. */
-    e->nr_intra = g_nr_intra;
-    e->nr_inter = g_nr_inter;
+     * it is refused by name where the user NAMED it, and silently dropped
+     * where it is only the preset's default - a default that cannot apply
+     * is not a refusal, and `--preset medium --lossless` must not print
+     * one on every encode. */
+    { const char *v = n265_env("N265_NR_INTRA"); e->nr_intra = v ? atoi(v) : 0;
+      if (g_nr_intra >= 0) e->nr_intra = g_nr_intra; }
+    { const char *v = n265_env("N265_NR_INTER"); e->nr_inter = v ? atoi(v) : 0;
+      if (g_nr_inter >= 0) e->nr_inter = g_nr_inter; }
+    if (e->nr_intra < 0) e->nr_intra = 0;
+    if (e->nr_inter < 0) e->nr_inter = 0;
+    if (e->nr_intra > N265_NR_MAX) e->nr_intra = N265_NR_MAX;
+    if (e->nr_inter > N265_NR_MAX) e->nr_inter = N265_NR_MAX;
     if ((e->nr_intra || e->nr_inter) &&
         (e->lossless || e->mode == N265_MODE_PCM)) {
-        fprintf(stderr, "n265: --nr-intra/--nr-inter attenuate transform "
-                "coefficients, and --lossless/--pcm code none; off\n");
+        if (g_nr_intra >= 0 || g_nr_inter >= 0 ||
+            getenv("N265_NR_INTRA") || getenv("N265_NR_INTER"))
+            fprintf(stderr, "n265: --nr-intra/--nr-inter attenuate transform "
+                    "coefficients, and --lossless/--pcm code none; off\n");
         e->nr_intra = e->nr_inter = 0;
     }
     if (e->nr_intra || e->nr_inter) {
