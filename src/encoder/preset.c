@@ -465,7 +465,7 @@ static const struct rung rungs[] = {
      * docs/phase13.md, "C2". The table stays for the same reason
      * veryfast's does, and the two binding clips are the same two the
      * project already has open items on. */
-    { "faster",   faster_tab, faster_par, 1 },
+    { "faster",   faster_tab, faster_par, 0 },
     { "fast",     fast_tab,   fast_par,   1 },
     { "medium",   med_tab,    med_par,    1 },
     { "slow",     slow_tab,   slow_par,   1 },
