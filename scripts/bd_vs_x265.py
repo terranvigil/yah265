@@ -62,9 +62,12 @@ def run(clip):
            "--label-a", "ours", "--label-b", "x265", "--a", ours, "--b", ref]
     r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
     return clip, r.stdout + r.stderr
-print(f"depth: {DEPTH}  src: {SRCDIR}\nours: {ours}\nx265: {ref}\n")
+FGC = int(os.environ.get("FGC", "0"))
+print(f"depth: {DEPTH}  src: {SRCDIR}  FGC: {'synthesised' if FGC else 'not applied'}"
+      f"\nours: {ours}\nx265: {ref}\n")
 res = {}
 chroma = {}
+luma = {}
 with ThreadPoolExecutor(max_workers=JOBS) as ex:
     for clip, out in ex.map(run, clips):
         print(out.rstrip()); m = re.search(r"BD-rate\(VMAF-NEG\) ours vs x265: ([+-][\d.]+)%", out)
@@ -74,15 +77,24 @@ with ThreadPoolExecutor(max_workers=JOBS) as ex:
         # out of the chroma planes. A reading, never the flip.
         mc = re.search(r"chromaPSNR ([+-][\d.]+)%", out)
         if mc: chroma[clip] = float(mc.group(1))
+        # Luma PSNR off the same points: the second metric a grain arm is
+        # argued on, since VMAF-NEG's reading of synthesised samples is
+        # itself the open question (phase 12 item 3).
+        my = re.search(r"lumaPSNR ([+-][\d.]+)%", out)
+        if my: luma[clip] = float(my.group(1))
 v = list(res.values())
 if v:
     tag = "" if DEPTH == 8 else f" (Main10, {DEPTH}-bit)"
     print(f"\n=== BD-rate(VMAF-NEG) ours vs x265 medium at matched achieved bitrate{tag} ===")
     for c in clips:
         if c in res:
+            ys = f"   lumaPSNR {luma[c]:+7.2f}%" if c in luma else ""
             cs = f"   chromaPSNR {chroma[c]:+7.2f}%" if c in chroma else ""
-            print(f"  {c:<18} {res[c]:+7.2f}%{cs}")
+            print(f"  {c:<18} {res[c]:+7.2f}%{ys}{cs}")
     print(f"  median {statistics.median(v):+.2f}%   mean {statistics.mean(v):+.2f}%   worst {max(v):+.2f}%   ahead {sum(1 for x in v if x < 0)}/{len(v)}")
+    yv = [luma[c] for c in clips if c in luma]
+    if yv:
+        print(f"  lumaPSNR     median {statistics.median(yv):+.2f}%   mean {statistics.mean(yv):+.2f}%   worst {max(yv):+.2f}%   ahead {sum(1 for x in yv if x < 0)}/{len(yv)}")
     cv = [chroma[c] for c in clips if c in chroma]
     if cv:
         print(f"  chromaPSNR   median {statistics.median(cv):+.2f}%   mean {statistics.mean(cv):+.2f}%   worst {max(cv):+.2f}%   ahead {sum(1 for x in cv if x < 0)}/{len(cv)}")

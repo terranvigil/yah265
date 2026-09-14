@@ -48,9 +48,47 @@ def sh(cmd):
     return subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
 
+# Phase 12 item 3, step 0: does the decode in the band SYNTHESISE H.274 film
+# grain, or not?
+#
+# ffmpeg's hevc decoder applies the film_grain_characteristics SEI by default
+# and stops applying it when it is asked to hand the parameters out as frame
+# side data instead (`-export_side_data film_grain`). So the band has two
+# honest readings of a stream that carries the SEI, and this switch names
+# which one is being taken:
+#
+#   FGC unset / 0  the SEI is parsed and NOT applied: the decoded planes are
+#                  what the encoder actually coded. This is what every band
+#                  reading before this item measured, and it stays the
+#                  default. The flag is output-neutral on a stream WITHOUT
+#                  the SEI, verified byte for byte (docs/phase12.md), which
+#                  is why it costs the existing memo nothing.
+#   FGC=1          grain is synthesised on output, scored against the
+#                  ORIGINAL source: the honest viewer question, and the only
+#                  reading under which a denoise-and-resynthesise arm can
+#                  win anything.
+#
+# The mode is part of both memo keys in bd_at_rate.py: one bitstream has two
+# different scores under it, so a cached point from one mode must never be
+# served to the other.
+FGC = int(os.environ.get("FGC", "0"))
+
+
+def fgc_dec_flags():
+    """ffmpeg input flags for the current FGC mode, as a list."""
+    return [] if FGC else ["-export_side_data", "film_grain"]
+
+
+def fgc_key():
+    """The mode's term in a memo key. EMPTY in the default mode so that
+    every entry cached before this item keeps its key."""
+    return "fgc|" if FGC else ""
+
+
 def decode_raw(path):
     import numpy as np
-    p = subprocess.run(["ffmpeg", "-v", "error", "-i", path, "-f", "rawvideo",
+    p = subprocess.run(["ffmpeg", "-v", "error"] + fgc_dec_flags() +
+                       ["-i", path, "-f", "rawvideo",
                         "-pix_fmt", "yuv420p", "-"], capture_output=True)
     return np.frombuffer(p.stdout, dtype=np.uint8)
 
@@ -92,6 +130,12 @@ def _dec_pixfmt():
 
 
 CHROMA_KEY = "chromaPSNR"
+# The luma PSNR off the SAME ffmpeg run as the chroma guard. It costs nothing
+# (the psnr filter prints y:, u: and v: on one line) and it is the second
+# metric phase 12 item 3 has to report: VMAF-NEG's reading of SYNTHESISED
+# grain is itself the open question, so a grain arm is argued on both numbers
+# or on neither.
+LUMA_KEY = "lumaPSNR"
 
 
 def chroma_psnr_of(bitstream, src_path):
@@ -104,7 +148,8 @@ def chroma_psnr_of(bitstream, src_path):
     VMAF is luma-only, so chroma bits are the one thing an allocation term can
     quietly steal from; this is the chroma guard's reading
     (docs/phase7-psy-design.md M3). None if ffmpeg printed no psnr line."""
-    p = sh(f'ffmpeg -loglevel info -i {shlex.quote(bitstream)} '
+    p = sh(f'ffmpeg -loglevel info {" ".join(fgc_dec_flags())} '
+           f'-i {shlex.quote(bitstream)} '
            f'-i {shlex.quote(src_path)} '
            f'-lavfi "[0:v]settb=1/25,setpts=N[d];[1:v]settb=1/25,setpts=N[r];'
            f'[d][r]psnr=shortest=1" -f null -')
@@ -113,6 +158,21 @@ def chroma_psnr_of(bitstream, src_path):
         return None
     vals = [99.0 if g == "inf" else float(g) for g in m.groups()]
     return sum(vals) / 2.0
+
+
+def yuv_psnr_of(bitstream, src_path):
+    """(lumaPSNR, chromaPSNR) off one psnr-filter run; either may be None."""
+    p = sh(f'ffmpeg -loglevel info {" ".join(fgc_dec_flags())} '
+           f'-i {shlex.quote(bitstream)} '
+           f'-i {shlex.quote(src_path)} '
+           f'-lavfi "[0:v]settb=1/25,setpts=N[d];[1:v]settb=1/25,setpts=N[r];'
+           f'[d][r]psnr=shortest=1" -f null -')
+    m = re.search(r"psnr.*\by:([0-9.]+|inf).*?\bu:([0-9.]+|inf)"
+                  r".*?\bv:([0-9.]+|inf)", p.stderr)
+    if not m:
+        return None, None
+    y, u, v = [99.0 if g == "inf" else float(g) for g in m.groups()]
+    return y, (u + v) / 2.0
 
 
 def vmaf_of(bitstream, src_path, work, per_frame=False):
@@ -131,8 +191,8 @@ def vmaf_of(bitstream, src_path, work, per_frame=False):
     fd, dec = tempfile.mkstemp(suffix=".dec.y4m", dir=work); os.close(fd)
     fd, js = tempfile.mkstemp(suffix=".json", dir=work); os.close(fd)
     pixfmt, strict = _dec_pixfmt()
-    sh(f'ffmpeg -v error -y -i "{bitstream}" -pix_fmt {pixfmt} '
-       f'-sws_dither none{strict} "{dec}"')
+    sh(f'ffmpeg -v error -y {" ".join(fgc_dec_flags())} -i "{bitstream}" '
+       f'-pix_fmt {pixfmt} -sws_dither none{strict} "{dec}"')
     binary = os.environ.get("VMAF", "vmaf")
     margs, primary, plabel = _vmaf_models()
     sub = f"--subsample {SUBSAMPLE}" if SUBSAMPLE > 1 else ""

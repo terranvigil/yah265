@@ -91,7 +91,7 @@ def _key(tmpl, q, src):
     cmd = tmpl.format(q=str(q), src=src, out="{out}")
     st = os.stat(src)
     return hashlib.sha256(f"{cmd}|{src}|{st.st_size}|{_depth_key()}"
-                          f"{_bin_hash(tmpl)}|"
+                          f"{bd.fgc_key()}{_bin_hash(tmpl)}|"
                           f"{_env_key()}".encode()).hexdigest()[:24]
 
 
@@ -137,7 +137,7 @@ def _content_json(out, src):
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     st = os.stat(src)
-    h.update(f"|{src}|{st.st_size}|{_depth_key()}{bd.SUBSAMPLE}|"
+    h.update(f"|{src}|{st.st_size}|{_depth_key()}{bd.fgc_key()}{bd.SUBSAMPLE}|"
              f"{bd._vmaf_models()[0]}".encode())
     d = os.path.join(_CACHE, "vmaf")
     os.makedirs(d, exist_ok=True)
@@ -171,10 +171,12 @@ def vmaf_cached(tmpl, q, src, out, work):
     # same memo as the VMAF one, so a point cached before the guard existed
     # gains it on its next touch and never re-reads VMAF for it. It is read
     # off the same bitstream and cannot move a luma number.
-    if v and bd.CHROMA_KEY not in v:
-        c = bd.chroma_psnr_of(out, src)
+    if v and (bd.CHROMA_KEY not in v or bd.LUMA_KEY not in v):
+        y, c = bd.yuv_psnr_of(out, src)
         if c is not None:
             v[bd.CHROMA_KEY] = c
+        if y is not None:
+            v[bd.LUMA_KEY] = y
     if v:
         if ck:
             _write_json(ck, v)
@@ -212,10 +214,12 @@ def curve(tmpl, src, targets, work, label):
         if not v or "VMAF-NEG" not in v:
             return None
         c = v.get(bd.CHROMA_KEY)
-        pts.append((sz, v["VMAF-NEG"], c))
+        y = v.get(bd.LUMA_KEY)
+        pts.append((sz, v["VMAF-NEG"], c, y))
         cs = f"  cPSNR {c:5.2f}" if isinstance(c, float) else ""
+        ys = f"  yPSNR {y:5.2f}" if isinstance(y, float) else ""
         print(f"    {label:<22} target {t:>9} -> q {q:3d}  {sz:>9} B  "
-              f"NEG {v['VMAF-NEG']:6.2f}{cs}", flush=True)
+              f"NEG {v['VMAF-NEG']:6.2f}{ys}{cs}", flush=True)
     return pts
 
 
@@ -258,6 +262,16 @@ def main():
     # win the luma reading by starving chroma and the band would call it
     # quality. Skipped silently where ffmpeg gave no psnr line, which leaves
     # the luma reading exactly as it was.
+    # Luma PSNR on the same points. VMAF-NEG is the metric the band decides
+    # on, but a feature that puts SYNTHESISED samples on the screen is one
+    # the two metrics are entitled to disagree about, so both are printed
+    # and both are argued (phase 12 item 3).
+    ya = [p[3] for p in a]
+    ybp = [p[3] for p in b]
+    if all(isinstance(x, float) for x in ya + ybp):
+        ry = bd.bd_rate(rb, ybp, ra, ya)
+        if isinstance(ry, float):
+            line += f"  lumaPSNR {ry:+.2f}%"
     ca = [p[2] for p in a]
     cbp = [p[2] for p in b]
     if all(isinstance(x, float) for x in ca + cbp):
