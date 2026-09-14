@@ -143,6 +143,15 @@ void n265_rc_open(struct n265_encoder *e)
     rc->ioff = abr_tunable("N265_ABR_IOFF", 0.0);
     rc->ioff_ct = abr_tunable("N265_ABR_IOFF_CT", 0.0);
     rc->ioff_max = abr_tunable("N265_ABR_IOFF_MAX", 6.0);
+    /* How much of this loop's own feedback a PLANNED frame still carries
+     * (twopass.h). The plan is written from what pass 1 really spent, so
+     * the second pass is not guessing and the feedback is a correction on
+     * a model error rather than the control itself - at gain 1 the loop
+     * fights its own plan, chasing a cumulative error the plan already
+     * accounts for, and the trajectory is the one-pass trajectory with
+     * extra steps. At 0 the plan is open loop and whatever the model gets
+     * wrong lands on the file size. The arms are in docs/phase12.md. */
+    rc->tp_gain = abr_tunable("N265_2P_GAIN", 0.25);
     /* Prior per-class scales: bits x qscale per lowres block per
      * (per-block complexity)^qcomp. Geometric means over 11 corpus clips x
      * QP 24/30/36 x 40 frames, read off N265_RC_TRACE on CQP encodes
@@ -464,7 +473,24 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
      * identically, and the gain cancels between them - which is the statement
      * that the bonus is paid out of the OTHER frames' shares and not out of
      * the loop's control of the file size. */
-    double ioff = rc_ioff(rc, cls, ctf);
+    /* THE SECOND PASS, and the whole of what it moves in here.
+     *
+     * `plan_ok` says a whole-file plan describes this frame (rc.h). Where
+     * it does, two quantities come from the plan instead of from the
+     * model: the frame's target, which is its own planned bits rather than
+     * a fair share of a flat budget, and the base, which is the quantiser
+     * the closed-form solve chose for it rather than the measured
+     * operating point. Everything else in this function runs unchanged,
+     * including the weight and the running means - they cost nothing, the
+     * trace reads them, and the VBV's predictor is learned off the same
+     * books either way.
+     *
+     * `N265_ABR_IOFF` is inert under a plan and that is deliberate: the
+     * intra frames' share of the file is not modelled in the second pass,
+     * it is measured, so an intra discount the allocator plans for is a
+     * correction to an estimate that is no longer being made. */
+    int twop = rc->plan_ok;
+    double ioff = twop ? 0.0 : rc_ioff(rc, cls, ctf);
     double w = rc_weight(rc, cls, cplx) * exp2(ioff / 6.0);
     /* The running mean of the frame weight is taken over INTER frames only.
      * It is the yardstick every frame's fair share is measured against, and
@@ -485,7 +511,8 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
     }
     double w_avg = rc->w_avg > 0.0 ? rc->w_avg : w;
 
-    double T = rc->bits_per_frame * w / w_avg;      /* the fair share */
+    double T = twop ? rc->plan_bits
+                    : rc->bits_per_frame * w / w_avg;  /* the fair share */
     rc->planned_bits += T;
     rc->last_planned = T;
 
@@ -509,9 +536,24 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
      * the expression it always was. */
     double seen = rc->total_bits + rc->pend_bits;
     double nseen = (double)rc->n_coded + (double)rc->pend_n;
-    double err = seen - (rc->planerr ? rc->planned_bits
-                                     : rc->bits_per_frame * nseen);
-    double errb = seen - rc->bits_per_frame * nseen;
+    /* Under a plan BOTH terms read the error against the PLAN, and this is
+     * the one place where `N265_ABR_PLANERR`'s refused shape is the right
+     * one. The flat budget is the reference in one pass because it is the
+     * only thing the loop knows whose zero is the file landing on its size;
+     * in two passes the plan is that thing - it sums to the target by
+     * construction - and it is the reference that does NOT fight the
+     * allocator, because the deviation from flat is the allocation. Aiming
+     * the feedback at the flat budget here would take back, over six
+     * frames, exactly what the whole-file solve just handed a hard shot.
+     *
+     * `planned_bits` already carries this frame's own T (added above), and
+     * the error is over the frames ALREADY accounted - the same nseen the
+     * budget form counts - so this frame's plan comes back off. */
+    double plan_seen = rc->planned_bits - T;
+    double err = seen - (twop ? plan_seen
+                              : (rc->planerr ? rc->planned_bits
+                                             : rc->bits_per_frame * nseen));
+    double errb = seen - (twop ? plan_seen : rc->bits_per_frame * nseen);
     /* The horizon is in FRAMES and the frame's share of it is `T / (bpf x
      * H)`, which the qscale solve then cancels - so the loop asks this one
      * frame to move `err * T / (bpf * H)` bits. On a frame worth more than
@@ -538,7 +580,25 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
      * than H frames of budget. N265_ABR_TCAP=0 restores the flat horizon. */
     double hbits = rc->bits_per_frame * rc->horizon;
     double pbits = hbits;
-    if (rc->tcap) {
+    if (rc->tcap && twop) {
+        /* The same reservation, made from the plan instead of from a
+         * cadence guess. In one pass the window has to be TYPED before it
+         * can be priced - the frames behind this one have not been through
+         * the typing walk - and the guess is what N265_ABR_TCAP is written
+         * around. In two passes there is nothing to guess: every queued
+         * frame's planned bits are already on the table, intra frames
+         * included, at their real coding type. */
+        double tmax = T;
+        int nview = n265_la_view(&e->la);
+        for (int i = 1; i < nview; i++) {
+            const n265_2p_frame *pf = n265_2p_get(&e->tp,
+                                                  e->la.f[i].display_idx);
+            if (pf && pf->plan_bits > tmax)
+                tmax = pf->plan_bits;
+        }
+        if (tmax > pbits)
+            pbits = tmax;
+    } else if (rc->tcap) {
         double tmax = T;
         int nview = n265_la_view(&e->la);
         for (int i = 1; i < nview; i++) {
@@ -586,6 +646,13 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
      * down twenty steps chasing bits that do not exist. The bound is what
      * keeps the recovery from being worse than the deficit. */
     double fb = 6.0 * log2(corr) + rc->rf_bias;
+    /* ...and under a plan the whole feedback is scaled before the rails,
+     * not after: what is being bounded is how far the loop may depart from
+     * a plan it has good reason to believe. The integrator keeps winding
+     * at its own gain, so a standing model error still gets closed - it
+     * just takes 1/gain as long to spend its rail. */
+    if (twop)
+        fb *= rc->tp_gain;
     if (fb > rc->fbup)
         fb = rc->fbup;
     else if (fb < -rc->fbmax)
@@ -626,8 +693,8 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
      * the lookahead window, it still hands out the fair shares, and its
      * class scales are what the window is priced at. It no longer sets the
      * operating point. `N265_ABR_MEAS=0` gives that back. */
-    double base = qp_of_qscale(w / T);
-    if (rc->meas && rc->cplxr > 0.0 && rc->bits_per_frame > 0.0) {
+    double base = twop ? rc->plan_qp : qp_of_qscale(w / T);
+    if (!twop && rc->meas && rc->cplxr > 0.0 && rc->bits_per_frame > 0.0) {
         double m = qp_of_qscale(rc->cplxr / rc->bits_per_frame);
         /* At MGUARD 0 the measured point IS the operating point. Above it
          * the model keeps the point and the measurement is only a rail on
@@ -802,9 +869,9 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
     if (rc->trace)
         fprintf(stderr, "RC n=%ld cls=%d cplx=%.0f w=%.3g wavg=%.3g "
                 "T=%.0f corr=%.4f bias=%+.3f fb=%+.3f base=%.3f rf=%.3f "
-                "ctf=%+.3f ctflvl=%+.3f ioff=%.3f err=%.0f\n",
+                "ctf=%+.3f ctflvl=%+.3f ioff=%.3f err=%.0f plan=%d\n",
                 rc->n_coded, cls, cplx, w, rc->w_avg, T, corr, rc->rf_bias,
-                fb, base, rf, ctf, lvl_now, rc->last_ioff, err);
+                fb, base, rf, ctf, lvl_now, rc->last_ioff, err, twop);
     return rf;
 }
 

@@ -17,6 +17,7 @@
 #include "encoder/la.h"
 #include "encoder/level.h"
 #include "encoder/rc.h"
+#include "encoder/twopass.h"
 #include "encoder/vbv.h"
 #include "encoder/tables.h"
 
@@ -704,6 +705,12 @@ typedef struct n265_frame_work {
     double rc_ctf;          /* the cu-tree frame term inside rc_base: the loop
                              * is told it going in and reads it back out of
                              * the coded frame (rc.c). 0 with cu-tree off. */
+    /* --pass 1's three lookahead columns, frozen here with everything else
+     * and spent at retirement. Summed at dispatch rather than read from the
+     * queue later, because the slot is recycled: by the time the frame
+     * retires its lowres planes may belong to a picture eight frames on.
+     * All three are 0 unless --pass 1 armed the sidecar. */
+    double st_icost, st_pcost, st_prop;
     double rc_ioff;         /* the planned intra QP offset inside rc_base
                              * (N265_ABR_IOFF), which the measured operating
                              * point takes back out. 0 on inter frames, 0 at
@@ -833,6 +840,11 @@ struct n265_encoder {
      * CRF it is x265's capped CRF, where the rate factor stands until the
      * buffer says otherwise. */
     n265_vbv vbv;
+    /* --pass / --stats (twopass.h, phase 12 item 4). `pass` 0 is every
+     * encode before this item and every encode that does not ask: nothing
+     * below reads a plan, nothing writes a sidecar, and the encoder is the
+     * one main ships. */
+    n265_2p tp;
     int vbv_trace;          /* N265_VBV_TRACE: one row per frame, coding
                              * order, written at retirement */
     int vbv_hrd;            /* N265_VBV_HRD: write hrd_parameters in the VUI

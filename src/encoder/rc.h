@@ -121,6 +121,27 @@ typedef struct n265_rc {
     double vdecay;              /* N265_VBV_DECAY: the slow side's rate */
     double cur_icplx;           /* the dispatching frame's intra cost, for
                                  * the intra-dominated test below */
+    /* --pass 2's plan for the frame being dispatched (twopass.h), stashed
+     * by the caller the way cur_icplx is rather than widening this
+     * function's argument list for a mode most encodes do not run.
+     *
+     * `plan_ok` 0 IS the one-pass loop, to the bit: every branch below
+     * that reads these is guarded on it, and it is 0 on every frame of
+     * every encode that did not ask for a second pass - and on a frame in
+     * a pass-2 encode that pass 1 never described, which falls back rather
+     * than inventing a plan.
+     *
+     * What the plan replaces is exactly two things: the fair share `T`,
+     * which becomes the frame's own planned bits, and the base, which
+     * becomes the quantiser the whole-file solve chose for it instead of
+     * the measured operating point. The class scales, the VBV's scales,
+     * the cu-tree term coming off the answer and the step bound are all
+     * untouched - the second pass moves where the base comes from, not
+     * what a base means. */
+    int plan_ok;
+    double plan_qp, plan_bits;
+    double tp_gain;             /* N265_2P_GAIN: how much of the loop's own
+                                 * feedback a planned frame still carries */
     /* constants (docs/instruments.md) */
     double qcomp, horizon, maxstep, scale_mem, w_mem;
     double rf_bias;             /* the integral term, in QP units      */

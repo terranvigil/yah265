@@ -15,6 +15,9 @@ void n265_encoder_set_dump_decode(n265_encoder *e, FILE *f);
 void n265_encoder_set_dump(n265_encoder *e, FILE *f);
 void n265_encoder_set_shot_stats(n265_encoder *e, const char *path);
 void n265_set_shot_window(int n);
+/* Two-pass (phase 12 item 4): 1 writes the stats sidecar, 2 plans from it,
+ * 3 does both. The path outlives the encoder - it is argv. */
+void n265_set_pass(int pass, const char *stats);
 void n265_set_lossless(int on);
 /* Annex A overrides (phase 8 item 7). `idc` is general_level_idc
  * (level * 30); 0 leaves the level derived from the stream. */
@@ -70,6 +73,7 @@ void n265_encoder_set_dump_decode_10(n265_encoder *e, FILE *f);
 void n265_encoder_set_dump_10(n265_encoder *e, FILE *f);
 void n265_encoder_set_shot_stats_10(n265_encoder *e, const char *path);
 void n265_set_shot_window_10(int n);
+void n265_set_pass_10(int pass, const char *stats);
 
 typedef struct n265_api {
     int depth;                  /* the samples this table's library takes */
@@ -84,6 +88,7 @@ typedef struct n265_api {
     int  (*set_preset)(const char *);
     int  (*preset_param)(const char *, int);
     void (*set_shot_window)(int);
+    void (*set_pass)(int, const char *);
     void (*set_lossless)(int);
     void (*set_level)(int, int);
     void (*set_vui_timing)(int);
@@ -101,7 +106,8 @@ typedef struct n265_api {
 static const n265_api api8 = {
     8, n265_param_default, n265_set_mode, n265_set_la, n265_set_crf,
     n265_set_bitrate, n265_set_ref, n265_set_badapt, n265_set_threads,
-    n265_set_preset, n265_preset_param, n265_set_shot_window, n265_set_lossless,
+    n265_set_preset, n265_preset_param, n265_set_shot_window, n265_set_pass,
+    n265_set_lossless,
     n265_set_level, n265_set_vui_timing, n265_set_vbv,
     n265_encoder_open, n265_encoder_encode, n265_encoder_close,
     n265_version_str, n265_encoder_set_dump, n265_encoder_set_dump_decode,
@@ -112,7 +118,8 @@ static const n265_api api10 = {
     10, n265_param_default_10, n265_set_mode_10, n265_set_la_10,
     n265_set_crf_10, n265_set_bitrate_10, n265_set_ref_10,
     n265_set_badapt_10, n265_set_threads_10, n265_set_preset_10,
-    n265_preset_param_10, n265_set_shot_window_10, n265_set_lossless_10,
+    n265_preset_param_10, n265_set_shot_window_10, n265_set_pass_10,
+    n265_set_lossless_10,
     n265_set_level_10, n265_set_vui_timing_10, n265_set_vbv_10,
     n265_encoder_open_10,
     n265_encoder_encode_10, n265_encoder_close_10, n265_version_str_10,
@@ -398,6 +405,15 @@ static void usage(void)
         "                  the same). Output-neutral: the bitstream is\n"
         "                  byte-identical with it on. Fields and the shot\n"
         "                  definition: docs/instruments.md.\n"
+        "  --pass <n>      TWO-PASS, opt-in, with --stats: 1 codes the clip\n"
+        "                  and writes a per-frame stats sidecar, 2 reads it\n"
+        "                  and plans the whole file before coding a frame,\n"
+        "                  3 does both (the plan comes from the file it then\n"
+        "                  replaces). Pass 2 needs --bitrate and the same\n"
+        "                  source; pass 1 may run any mode and any preset.\n"
+        "                  WHOLE-FILE ANALYSIS, so it is opt-in and absent\n"
+        "                  the encoder is byte-for-byte the one-pass one.\n"
+        "  --stats <file>  the sidecar --pass writes or reads.\n"
         "  --level <l>     signal this level instead of the derived one:\n"
         "                  1, 2, 2.1 ... 6.2 (\"41\" also spells 4.1; the raw\n"
         "                  idc is not a spelling). REFUSED when the stream\n"
@@ -447,6 +463,8 @@ int main(int argc, char **argv)
 {
     const char *in_path = NULL, *out_path = "out.hevc";
     const char *dump_path = NULL, *shot_path = NULL;
+    const char *stats_path = NULL;
+    int pass = 0;               /* --pass; 0 = off, the default */
     long max_frames = -1;
     int qp = 26, pcm = 0, ctu = 64, keyint = 250, bframes = 7, aq = 1;
     int lossless = 0;
@@ -534,6 +552,10 @@ int main(int argc, char **argv)
             shot_window = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--shot-stats") && i + 1 < argc) {
             shot_path = argv[++i];
+        } else if (!strcmp(argv[i], "--pass") && i + 1 < argc) {
+            pass = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--stats") && i + 1 < argc) {
+            stats_path = argv[++i];
         } else if (!strcmp(argv[i], "--version")) {
             printf("n265 %s\n", n265_version_str());
             return 0;
@@ -627,6 +649,23 @@ int main(int argc, char **argv)
     }
     /* N265_MAX_SHOT_WINDOW, repeated here for the same reason the two
      * above are: the CLI does not see the internal headers. */
+    /* --pass and --stats are one knob in two halves, the way the VBV's
+     * two are: a pass with no file is a pass that cannot do its job, and a
+     * file with no pass is a flag that does nothing. Both refusals are made
+     * here because neither needs the stream. */
+    if (pass < 0 || pass > 3) {
+        fprintf(stderr, "n265: --pass is 1 (write the stats), 2 (plan from "
+                "them) or 3 (both)\n");
+        return 2;
+    }
+    if (pass && !stats_path) {
+        fprintf(stderr, "n265: --pass %d needs --stats <file>\n", pass);
+        return 2;
+    }
+    if (stats_path && !pass) {
+        fprintf(stderr, "n265: --stats needs --pass 1, 2 or 3\n");
+        return 2;
+    }
     if (shot_window < 0 || shot_window > 300) {
         fprintf(stderr, "n265: --shot-window out of range 0..300\n");
         return 2;
@@ -656,6 +695,7 @@ int main(int argc, char **argv)
     a->set_badapt(badapt);
     a->set_la(lookahead, cutree);
     a->set_shot_window(shot_window);
+    a->set_pass(pass, stats_path);
     a->set_threads(threads);
     /* --pcm is the phase-0 lossless path and --lossless the coded one;
      * asking for both is a contradiction, not a stack. */
