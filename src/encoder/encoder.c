@@ -2544,6 +2544,142 @@ int n265_planned_qp(const n265_encoder *e, int slice_type, int b_depth,
     return n265_qp_clip(q);
 }
 
+/* The lowres samples one frame's distance is summed over, which is what
+ * the per-pixel threshold is expressed in: the cost loop walks bw x bh
+ * blocks of 64 lowres pixels and anchors the last row and column inside
+ * the plane, so a few pixels are counted twice and the divisor is the
+ * loop's own, not lw x lh. */
+static uint64_t dup_samples(const n265_encoder *e)
+{
+    return (uint64_t)e->la.bw * e->la.bh * 64;
+}
+
+/* The lowres distance between this frame and a reference, bounded from
+ * the chain's running totals (la.h): |cum_a - cum_b| is the sum of every
+ * consecutive step between them, which by the triangle inequality is at
+ * least their own distance. Exact (and zero) on an identical run. */
+static uint64_t dup_bound(const n265_frame_work *fw,
+                          const struct n265_refpic *p)
+{
+    return fw->dup_cum > p->dup_cum ? fw->dup_cum - p->dup_cum
+                                    : p->dup_cum - fw->dup_cum;
+}
+
+/* WHICH references hold this frame's own source - the whole of the
+ * decision, taken on the driver at dispatch (docs/phase11.md).
+ *
+ * The answer is a SET and not one reference. A picture in the middle of
+ * a long hold is the duplicate of the anchor behind it AND of the one in
+ * front, and the prediction that averages the two is not the same
+ * prediction as either: it averages two independent quantisations of one
+ * source, which is better than both and is what the encoder picks there
+ * on its own. Naming a single reference made the arm decline every CU on
+ * `sita_flat_720p`, where the leaves are bi (docs/phase11.md sec 1.4).
+ *
+ * EXACT membership first: a reference whose source IS this frame's
+ * source, by the chain's run id. `N265_DUP_THR` then ADDS the references
+ * whose bounded distance is inside the bar, so the threshold form is a
+ * superset of the strict one and the strict one is what a bar of zero
+ * leaves. `dup_l`/`dup_r` are the first member, for the census.
+ *
+ * A picture that is not itself in a run (`dup_grp` 0 - an unarmed
+ * encode, or the first frame after a queue drain) matches nothing. */
+static void dup_resolve(n265_encoder *e, n265_frame_work *fw)
+{
+    fw->dup_msk[0] = fw->dup_msk[1] = 0;
+    fw->dup_l = fw->dup_r = -1;
+    fw->dup_exact = 0;
+    if (!n265_dup_on() || fw->slice_type == 2 || !fw->ref_valid ||
+        !fw->dup_grp || fw->mode == N265_MODE_PCM || fw->lossless)
+        return;
+    uint64_t bar = (uint64_t)n265_dup_thr_q8() * dup_samples(e);
+    for (int l = 0; l < 2; l++)
+        for (int r = 0; r < fw->nref[l]; r++) {
+            int exact = fw->refl[l][r]->dup_grp == fw->dup_grp;
+            if (!exact && !(n265_dup_thr_q8() &&
+                            dup_bound(fw, fw->refl[l][r]) * 256u <= bar))
+                continue;
+            fw->dup_msk[l] |= 1u << r;
+            fw->dup_exact |= exact;
+            if (fw->dup_l < 0) {
+                fw->dup_l = l;
+                fw->dup_r = r;
+            }
+        }
+}
+
+/* N265_DUP_TRACE, the dispatch half (the retirement half is in
+ * join_oldest): one row per frame, output-neutral. `zsad` is the mean
+ * absolute lowres difference from the PREVIOUS DISPLAY frame, in 8-bit
+ * luma levels per pixel - the quantity the clip census is stated in -
+ * and each `ref` field is a reference's list, index, POC and the bound
+ * on its own distance from this frame, `X` where the two sources are
+ * identical. */
+static void dup_trace_dispatch(const n265_encoder *e,
+                               const n265_frame_work *fw)
+{
+    double ns = (double)dup_samples(e);
+    char refs[256];
+    int o = 0;
+    refs[0] = 0;
+    for (int l = 0; l < 2; l++)
+        for (int r = 0; r < fw->nref[l] && o < (int)sizeof refs - 40; r++) {
+            const struct n265_refpic *p = fw->refl[l][r];
+            int same = p->dup_grp == fw->dup_grp;
+            o += snprintf(refs + o, sizeof refs - o, ",L%d[%d]poc%d:%s%.4f",
+                          l, r, p->poc, same ? "X" : "",
+                          (double)dup_bound(fw, p) / ns);
+        }
+    fprintf(stderr, "DUP,%d,%d,%d,%d,%d,%d,%d,%.4f,%d,%d,%d,%u,%u%s\n",
+            fw->display_idx, fw->code_idx, fw->slice_type, fw->b_depth,
+            fw->nonref, fw->qp, fw->dup_grp, (double)fw->dup_zsad / ns,
+            fw->dup_l, fw->dup_r, fw->dup_exact, fw->dup_msk[0],
+            fw->dup_msk[1], refs);
+}
+
+/* N265_DUP_TRACE, the retirement half: how the frame was ACTUALLY coded,
+ * off the decision maps the row jobs left behind and the packed length.
+ * Written on the driver in coding order, reading nothing a row job could
+ * still be writing.
+ *
+ * `skip` is the share of the coded area with cu_skip_flag set; `zdup`
+ * the share coded skip with the ZERO vector on every list it uses and
+ * every one of those lists pointing at a duplicate - which is exactly
+ * what the arm commits, so on an armed frame it is the share the arm
+ * took and 1 - it is the share it handed back. On a frame with no
+ * duplicate at all the set is empty and `zdup` is 0 by construction. */
+static void dup_trace_retire(const n265_encoder *e,
+                             const n265_frame_work *fw, size_t bytes)
+{
+    unsigned long cells = 0, skip = 0, zdup = 0;
+    if (fw->slice_type != 2 && fw->blk_skip) {
+        int cw = fw->pad_w >> 2, ch = fw->pad_h >> 2;
+        for (int cy = 0; cy < ch; cy++)
+            for (int cx = 0; cx < cw; cx++) {
+                size_t m = (size_t)cy * fw->map_stride + cx;
+                cells++;
+                if (!fw->blk_skip[m])
+                    continue;
+                skip++;
+                int pred = fw->blk_pred[m], ok = pred != 0;
+                for (int l = 0; l < 2 && ok; l++) {
+                    if (!(pred & (1 << l)))
+                        continue;
+                    int r = fw->blk_ref[2 * m + l];
+                    ok = r >= 0 && (fw->dup_msk[l] >> r) & 1 &&
+                         fw->blk_mv[4 * m + 2 * l] == 0 &&
+                         fw->blk_mv[4 * m + 2 * l + 1] == 0;
+                }
+                zdup += ok;
+            }
+    }
+    double n = cells ? (double)cells : 1.0;
+    fprintf(stderr, "DUPR,%d,%d,%d,%d,%d,%d,%zu,%.4f,%.4f\n",
+            fw->display_idx, fw->code_idx, fw->slice_type, fw->dup_l,
+            fw->dup_r, fw->dup_exact, bytes, (double)skip / n,
+            (double)zdup / n);
+}
+
 /* Dispatch one frame: everything that is driver-serial by construction
  * (the QP ladder, the AQ field, the headers, the record and estimator
  * reset), then the frame's job onto the pool. The driver does NOT wait
@@ -2566,6 +2702,10 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
      * because the cu-tree frame term branches on it. */
     fw->flat_pct = n265_flat_gate() ? n265_la_flat_pct(fw) : 0;
     fw->flat = n265_flat_gate() && fw->flat_pct >= n265_flat_gate();
+    /* ...and whether this picture is a DUPLICATE of one of its own
+     * references, which is the same kind of decision: driver-serial, off
+     * data frozen before the frame launches, and read by every CTU. */
+    dup_resolve(e, fw);
     /* ...and, reading that type, whether the adaptive intra gate fires
      * on this frame. Driver-serial, off the retired window only, frozen
      * here for the same reason the type is. */
@@ -2703,6 +2843,8 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
     double qfrac = frac_on ? base - (double)qi : 0.0;
     int q = qi + cascade;
     fw->qp = n265_qp_clip(q);
+    if (n265_dup_trace())
+        dup_trace_dispatch(e, fw);
 
     if (e->frames_done == 0) {
         /* The headers are a pure function of config, so they are written
@@ -3548,6 +3690,8 @@ static void join_oldest(n265_encoder *e)
                 (unsigned long long)arm[4], (unsigned long long)arm[5],
                 arm[4] ? 100.0 * (double)arm[5] / (double)arm[4] : 0.0);
     }
+    if (n265_dup_trace())
+        dup_trace_retire(e, fw, d->len);
     /* --shot-stats: the frame joins its shot here, re-sorted into
      * display order; the shot's line is written when the next shot's
      * opener folds (or at close, for the last one). */
@@ -4251,6 +4395,10 @@ static void claim_slot(n265_encoder *e, n265_frame_work *fw)
     if (fw->mode != N265_MODE_PCM && !fw->nonref)
         hf_arm(e, slot, fw->code_idx);
     fw->slot = slot;
+    /* the source this picture is coded from, for the frames dispatched
+     * after it (la.h, the duplicate chain) */
+    slot->dup_grp = fw->dup_grp;
+    slot->dup_cum = fw->dup_cum;
     for (int i = 0; i < 3; i++) {
         fw->recon[i] = slot->plane[i];
         fw->recon_stride[i] = slot->stride[i];
@@ -4359,6 +4507,9 @@ static int drive_scheduler(n265_encoder *e)
     fw->la_prop = f->prop;          /* N265_CU_TRACE only */
     fw->la_bw = la->bw;
     fw->la_bh = la->bh;
+    fw->dup_grp = f->dup_grp;       /* the duplicate chain (la.h) */
+    fw->dup_cum = f->dup_cum;
+    fw->dup_zsad = f->zsad_sum;     /* N265_DUP_TRACE only */
     /* D1: freeze the RPS here, while the marked set is still the one the
      * serial encoder's header writer would have seen. Before the claim,
      * so the picture cannot appear in its own RPS. */

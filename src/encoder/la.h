@@ -90,6 +90,34 @@ typedef struct la_frame {
     float *prop;            /* cu-tree propagate-in accumulator         */
     uint64_t icost_sum, pcost_sum;
     uint64_t mvabs_sum;     /* sum |lowres MV| over blocks (motion magnitude) */
+    /* The DUPLICATE chain (phase 11 item 1). A frame identical to its
+     * reference in coding order is a picture whose coding is all-skip
+     * with the zero vector, but the lookahead only ever costs a frame
+     * against the PREVIOUS DISPLAY frame, and a reference in coding
+     * order is rarely that one. Identity is transitive, so the
+     * consecutive test is enough: `dup_grp` is the id of the run of
+     * byte-identical sources this frame belongs to - extended from the
+     * previous frame's run whenever the two sources compare equal - and
+     * two frames are identical iff they carry the same id. The id rides
+     * onto the DPB slot at claim, so the test at dispatch is an integer
+     * compare against each reference and costs nothing.
+     *
+     * `zsad_sum` is this frame's ZERO-VECTOR lowres SAD against the
+     * previous display frame, which is the value the lowres motion
+     * search starts from and is therefore already computed, and
+     * `dup_cum` its running total since the encode began. The L1
+     * triangle inequality makes the difference of two frames' totals an
+     * upper bound on the lowres distance between them, which is what the
+     * threshold form (N265_DUP_THR) tests; on an exact run the bound is
+     * zero and agrees with the id.
+     *
+     * `dup_grp` 0 is "no run", which a DPB slot that was never claimed
+     * carries and which therefore never matches. The full-resolution
+     * compare that extends a run runs only when the detector is armed
+     * and only where the lowres SAD is already exactly zero, so a clip
+     * without duplicates never pays for it. */
+    int dup_grp;
+    uint64_t zsad_sum, dup_cum;
     /* --shot-window: the base-QP offset the shot plan gave this frame,
      * and whether a plan has seen it yet. Written on the driver when the
      * frame's shot is planned, read at dispatch, and carried by la_pop's
@@ -108,6 +136,11 @@ typedef struct n265_la {
     float sc_ema;           /* running pcost/icost EMA */
     pixel *anchor_lowres;   /* lowres luma of the last coded anchor */
     int anchor_valid;
+    /* the duplicate chain's own state, kept on the queue rather than on
+     * the slots so it survives a queue that drains to empty: the last id
+     * handed out, and the running lowres total `dup_cum` continues from */
+    int dup_grp_next;
+    uint64_t dup_cum_last;
     /* One entry per candidate run length, so 1 + N265_MAX_BFRAMES of
      * them; only `pc_n` are allocated (bframes + 1, never below the 8 the
      * default shape has always taken, so the default footprint is the
@@ -141,6 +174,27 @@ void n265_la_warm(void);
 /* N265_BRUN_TRACE: price the bits trellis and print it, whatever rule is
  * actually deciding the run (docs/instruments.md) */
 int n265_brun_trace(void);
+
+/* The duplicate-frame path's four knobs (phase 11 item 1).
+ *
+ *  n265_dup_on     the DETECTOR runs: the lowres zero-vector SAD is
+ *                  tested for exact zero and, where it is, the sources
+ *                  are compared outright to extend the run. Armed by
+ *                  either of the two below, because the trace has to
+ *                  measure what the arm would decide on.
+ *  n265_dup_fast   N265_DUP_FAST: the ARM. A frame whose source is the
+ *                  source of one of its references is coded all-skip
+ *                  toward it with the zero vector.
+ *  n265_dup_thr_q8 N265_DUP_THR: the looser form, a bound on the lowres
+ *                  distance in 1/256 of an 8-bit luma level PER LOWRES
+ *                  PIXEL. 0 (the default) is the strict form, where only
+ *                  a byte-identical source arms the path.
+ *  n265_dup_trace  N265_DUP_TRACE: the census, output-neutral.
+ */
+int n265_dup_on(void);
+int n265_dup_fast(void);
+int n265_dup_thr_q8(void);
+int n265_dup_trace(void);
 
 /* copy the picture in, build lowres + costs vs the previous queued frame */
 void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],

@@ -254,6 +254,47 @@ int n265_brun_trace(void)
     return v;
 }
 
+/* The duplicate path's knobs; la.h says what each one is. The arm and
+ * the census both need the detector, so either one arms it. */
+int n265_dup_fast(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_DUP_FAST");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
+int n265_dup_trace(void)
+{
+    static int v = -1;
+    if (v < 0)
+        v = n265_env("N265_DUP_TRACE") != NULL;
+    return v;
+}
+
+/* the bound in 1/256 of an 8-bit luma level per lowres pixel */
+int n265_dup_thr_q8(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_DUP_THR");
+        double t = s ? atof(s) : 0.0;
+        if (t < 0.0)
+            t = 0.0;
+        if (t > 255.0)
+            t = 255.0;
+        v = (int)(t * 256.0 + 0.5);
+    }
+    return v;
+}
+
+int n265_dup_on(void)
+{
+    return n265_dup_fast() || n265_dup_trace();
+}
+
 /* the driver resolves this file's knobs at open, before a worker can be
  * the one that writes them first; see n265_ctu_warm */
 void n265_la_warm(void)
@@ -263,6 +304,30 @@ void n265_la_warm(void)
     log2q16_init();
     (void)brun_logT_q16(32);
     (void)n265_brun_trace();
+    (void)n265_dup_on();
+    (void)n265_dup_thr_q8();
+}
+
+/* the step the duplicate chain's running total takes where a frame had
+ * no predecessor to be measured against; see n265_la_push */
+#define DUP_BREAK ((uint64_t)1 << 42)
+
+/* Do two queued frames carry the same source, sample for sample? The
+ * padded planes are compared rather than the displayed ones: the padding
+ * is an edge replication of the source, so the two are equal exactly
+ * when the sources are, and the padded plane is one contiguous block.
+ * Called only where the lowres zero-vector SAD is already exactly zero,
+ * which on a clip without duplicates never happens. */
+static int src_identical(const struct n265_encoder *e, const la_frame *a,
+                         const la_frame *b)
+{
+    for (int c = 0; c < 3; c++) {
+        int w = c ? e->pad_w >> e->csx : e->pad_w;
+        int h = c ? e->pad_h >> e->csy : e->pad_h;
+        if (memcmp(a->src[c], b->src[c], (size_t)w * h * sizeof(pixel)))
+            return 0;
+    }
+    return 1;
 }
 
 void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
@@ -318,6 +383,7 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
 
     /* per-8x8 costs */
     f->icost_sum = f->pcost_sum = f->mvabs_sum = 0;
+    f->zsad_sum = 0;
     for (int by = 0; by < la->bh; by++)
         for (int bx = 0; bx < la->bw; bx++) {
             int b = by * la->bw + bx;
@@ -392,6 +458,10 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
                 int mx = 0, my = 0;
                 uint32_t best = sad8(blk, lw,
                                      prev->lowres + y0 * lw + x0, lw);
+                /* the search's own starting cost IS the zero-vector
+                 * distance the duplicate chain is built on: taken here,
+                 * before the diamond moves off it, for one add a block */
+                f->zsad_sum += best;
                 for (int it = 0; it < 8; it++) {
                     int bmx = mx, bmy = my;
                     uint32_t bs = best;
@@ -435,6 +505,31 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
         la->sc_ema = la->sc_ema == 0.0f
                          ? f->sc_ratio
                          : 0.5f * la->sc_ema + 0.5f * f->sc_ratio;
+    /* The duplicate chain (la.h). Only under the knob, and the source
+     * compare only where the lowres distance is already exactly zero -
+     * so a clip with no duplicate frames pays one branch per frame and a
+     * clip with them pays one memcmp per duplicate, against a whole
+     * picture's analysis. The running totals live on the queue so a
+     * queue that drained to empty does not restart them; a frame with no
+     * predecessor in the queue simply opens a new run, which is the
+     * conservative answer. */
+    f->dup_grp = 0;
+    /* A frame with no predecessor IN THE QUEUE was not measured against
+     * the one before it, so the running total may not be carried across
+     * the gap: the bound it licenses would read zero - "identical" - for
+     * a pair nothing compared. DUP_BREAK is a step larger than any bar
+     * `N265_DUP_THR` can express (255 levels over a 4K lowres plane is
+     * under 2^40), so every bound ACROSS the gap fails and every bound
+     * on one side of it is the offset-free one it was. */
+    f->dup_cum = la->dup_cum_last + (prev ? f->zsad_sum : DUP_BREAK);
+    if (n265_dup_on()) {
+        if (prev && f->zsad_sum == 0 && prev->dup_grp &&
+            src_identical(e, f, prev))
+            f->dup_grp = prev->dup_grp;
+        else
+            f->dup_grp = ++la->dup_grp_next;
+    }
+    la->dup_cum_last = f->dup_cum;
     la->count++;
 }
 
