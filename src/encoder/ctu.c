@@ -749,6 +749,12 @@ static uint32_t rt_bits(struct n265_frame_work *e, int c_idx, int log2n,
     return st.bits;
 }
 
+/* NOTE (phase 14 item 6): under --nr-intra/--nr-inter this census is
+ * comparing the lattice's ATTENUATED levels against the plain quantiser's
+ * un-attenuated ones, because the attenuation lives inside tb_quant_one
+ * and this arm re-quantises the caller's own coefficients. It is a
+ * diagnostic and it is output-neutral either way; read it with the noise
+ * reduction off, which is its default and the shape it was written for. */
 static void rt_tally(struct n265_frame_work *e, int c_idx, int log2n, int qp,
                      int intra, int use_dst, int scan, const int16_t *coef,
                      const pixel *pred, const int16_t *lat, int lat_nz,
