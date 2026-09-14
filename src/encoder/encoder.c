@@ -51,6 +51,19 @@ void n265_param_default(n265_param *p)
 /* internal knobs the public API doesn't expose yet */
 static int g_mode = N265_MODE_INTRA;
 static int g_qp = 26;
+static int g_met_psnr, g_met_ssim;   /* --psnr / --ssim */
+/* --repeat-headers / --aud / --eos / --eob / --info. All off. */
+static int g_repeat_hdr, g_aud, g_eos, g_eob, g_info;
+/* The rate-control exposure. The sentinels ARE the spec's own bounds and
+ * 1.0, so "not given" and "given the widest legal value" are the same
+ * thing and the default path is the arithmetic it always was. */
+static int g_qpmin = N265_QP_MIN, g_qpmax = N265_QP_MAX, g_qp_bounds;
+static double g_crf_min = -1e9, g_crf_max = 1e9;
+static int g_crf_bounds, g_strict_cbr;
+static double g_ausize_factor = 1.0;
+static const char *g_qpfile_path, *g_zones_spec;
+/* --idr-recovery-sei / --pic-struct / --hrd-concat / --temporal-layers */
+static int g_recovery_sei, g_hrd_concat, g_tlayers;
 static double g_crf = -1.0;      /* n265_set_crf's rate factor (a QpY) */
 /* Whether n265_set_crf was called at all. It used to be `g_crf >= 0`, which
  * is why --crf could not reach the twelve QP steps below zero that Main10
@@ -120,6 +133,7 @@ static n265_signal g_sig = {
     .videoformat = -1, .full_range = -1, .colorprim = -1, .transfer = -1,
     .colormatrix = -1, .chromaloc = -1, .win_on = 0,
     .have_md = 0, .have_cll = 0, .hdr10 = -1, .cll_on = 1, .atc = -1,
+    .pic_struct = -1,
 };
 
 void n265_set_threads(int n)
@@ -155,6 +169,78 @@ void n265_set_shot_window(int n)
     g_shot_window = n < 0 ? 0 : n > N265_MAX_SHOT_WINDOW
                                     ? N265_MAX_SHOT_WINDOW : n;
 }
+
+/* --psnr / --ssim (phase 14 item 4). Process-global like every other
+ * pre-open setter here; what they arm is a read-only tap at retirement,
+ * so a stream coded with them on is byte-for-byte the one coded without.
+ * The cost is one pass over the reconstruction and the source per frame,
+ * on the driver. */
+void n265_set_metrics(int psnr, int ssim);
+void n265_set_metrics(int psnr, int ssim)
+{
+    g_met_psnr = psnr != 0;
+    g_met_ssim = ssim != 0;
+}
+
+/* --repeat-headers / --aud / --eos / --eob / --info (phase 14 item 4).
+ * One setter for the five NAL-level switches: each one either adds a NAL
+ * to the stream or repeats one, and none of them touches a coded sample.
+ * Every one is OFF by default, --info included - x265 writes its
+ * identifying SEI by default and this does not, so that an identity cmp
+ * against an older binary keeps meaning what it says. */
+void n265_set_nal_opts(int repeat_headers, int aud, int eos, int eob,
+                       int info);
+void n265_set_nal_opts(int repeat_headers, int aud, int eos, int eob,
+                       int info)
+{
+    g_repeat_hdr = repeat_headers != 0;
+    g_aud = aud != 0;
+    g_eos = eos != 0;
+    g_eob = eob != 0;
+    g_info = info != 0;
+}
+
+/* --crf-min / --crf-max / --qpmin / --qpmax / --strict-cbr /
+ * --max-ausize-factor (phase 14 item 4). Sentinels: the two CRF bounds
+ * are +-1e9, the two QP bounds are the spec's own range, and the AU
+ * factor is 1. At those values nothing below is applied at all. */
+void n265_set_rc_bounds(double crf_min, double crf_max, int qpmin, int qpmax,
+                        int strict_cbr, double ausize_factor);
+void n265_set_rc_bounds(double crf_min, double crf_max, int qpmin, int qpmax,
+                        int strict_cbr, double ausize_factor)
+{
+    g_crf_min = crf_min;
+    g_crf_max = crf_max;
+    g_crf_bounds = crf_min > -1e8 || crf_max < 1e8;
+    g_qpmin = qpmin;
+    g_qpmax = qpmax;
+    g_qp_bounds = qpmin > N265_QP_MIN || qpmax < N265_QP_MAX;
+    g_strict_cbr = strict_cbr != 0;
+    g_ausize_factor = ausize_factor;
+}
+
+/* --qpfile / --zones. The path and the spec outlive the encoder (they are
+ * argv); both are PARSED at open, where a refusal can name the line. */
+/* --idr-recovery-sei / --pic-struct / --hrd-concat / --temporal-layers
+ * (phase 14 item 4). `pic_struct` is -1 for the flag absent. The first
+ * three are pure signalling; the last one is the only member of this
+ * group that changes a VCL NAL header, which is why it is gated on the
+ * conformance vectors and not just on an escape cmp. */
+void n265_set_sei_opts(int recovery_sei, int pic_struct, int hrd_concat,
+                       int temporal_layers);
+void n265_set_sei_opts(int recovery_sei, int pic_struct, int hrd_concat,
+                       int temporal_layers)
+{
+    g_recovery_sei = recovery_sei != 0;
+    g_sig.pic_struct = pic_struct;
+    g_hrd_concat = hrd_concat != 0;
+    g_tlayers = temporal_layers != 0;
+}
+
+void n265_set_qpfile(const char *path);
+void n265_set_qpfile(const char *path) { g_qpfile_path = path; }
+void n265_set_zones(const char *spec);
+void n265_set_zones(const char *spec) { g_zones_spec = spec; }
 
 void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes,
                    int aq);
@@ -468,6 +554,28 @@ void n265_encoder_set_shot_stats(n265_encoder *e, const char *path)
         if (!e->shot_f)
             fprintf(stderr, "n265: cannot write --shot-stats %s\n", path);
     }
+}
+
+/* --csv / --csv-log-level. Called right after open, before any frame has
+ * retired, so no row can be half-written here. A level above 0 without
+ * --psnr or --ssim still writes the type/QP/bits columns; the metric
+ * columns appear only where the metric was asked for, so a reader can
+ * tell an absent metric from a zero one by the header. */
+void n265_encoder_set_csv(n265_encoder *e, const char *path, int level)
+{
+    if (!e)
+        return;
+    n265_csv_close(&e->csv);
+    if (n265_csv_open(&e->csv, path, level, e->met.psnr, e->met.ssim) < 0)
+        fprintf(stderr, "n265: cannot write --csv %s\n", path);
+}
+
+long n265_encoder_metrics(n265_encoder *e, double out[6])
+{
+    if (!e || (!e->met.psnr && !e->met.ssim))
+        return 0;
+    n265_metrics_pooled(&e->met, out);
+    return e->met.frames;
 }
 
 void n265_encoder_set_dump_decode(n265_encoder *e, FILE *f);
@@ -900,6 +1008,8 @@ static void fw_config(n265_encoder *e, n265_frame_work *fw)
     fw->hrd_on = e->hrd_on;
     fw->hrd_bit_rate_scale = e->hrd_bit_rate_scale;
     fw->hrd_bit_rate_value = e->hrd_bit_rate_value;
+    fw->hrd_cbr = e->strict_cbr;
+    fw->tlayers_minus1 = e->tlayers ? 1 : 0;
     fw->hrd_cpb_size_scale = e->hrd_cpb_size_scale;
     fw->hrd_cpb_size_value = e->hrd_cpb_size_value;
     fw->psy = e->psy;
@@ -1103,6 +1213,23 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->csy = N265_CSY_OF(e->chroma_idc);
     e->c444 = e->chroma_idc == 3;
     e->c422 = e->chroma_idc == 2;
+    e->met.psnr = g_met_psnr;
+    e->met.ssim = g_met_ssim;
+    e->qpmin = g_qpmin;
+    e->qpmax = g_qpmax;
+    e->qp_bounds = g_qp_bounds;
+    e->crf_min = g_crf_min;
+    e->crf_max = g_crf_max;
+    e->crf_bounds = g_crf_bounds;
+    e->strict_cbr = g_strict_cbr;
+    e->ausize_factor = g_ausize_factor;
+    e->recovery_sei = g_recovery_sei;
+    e->tlayers = g_tlayers;
+    e->repeat_hdr = g_repeat_hdr;
+    e->aud = g_aud;
+    e->eos = g_eos;
+    e->eob = g_eob;
+    e->info = g_info;
     e->qp_base = g_qp;
     e->crf_on = g_crf_on;
     e->crf = g_crf;
@@ -1581,6 +1708,84 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         { const char *v = n265_env("N265_VBV_RESERVE"); if (v) reserve = atof(v); }
         n265_vbv_init(&e->vbv, maxrate, bufsize, g_vbv_init, fps, safe, vla,
                       reserve);
+        /* ---- the rate-control exposure (phase 14 item 4) ----
+         *
+         * Three of the six need a buffer or a rate control to mean
+         * anything, and every one of those is refused at open rather
+         * than ignored: a flag that quietly does nothing is worse than
+         * no flag, because the encode still finishes and the number
+         * still looks like a result. */
+        if (e->ausize_factor < 0.5 || e->ausize_factor > 1.0) {
+            fprintf(stderr, "n265: --max-ausize-factor is a fraction of the "
+                            "CPB in [0.5, 1.0]; %g is not\n",
+                    e->ausize_factor);
+            goto fail;
+        }
+        if (e->ausize_factor < 1.0) {
+            if (!e->vbv.on) {
+                fprintf(stderr, "n265: --max-ausize-factor bounds an access "
+                                "unit against the CPB, so it needs "
+                                "--vbv-maxrate and --vbv-bufsize\n");
+                goto fail;
+            }
+            e->vbv.au_cap = e->ausize_factor * e->vbv.bufsize;
+        }
+        if (e->strict_cbr && !(e->vbv.on && e->abr_on)) {
+            fprintf(stderr, "n265: --strict-cbr is the constant-rate form of "
+                            "ABR under a buffer: it needs --bitrate with "
+                            "--vbv-maxrate and --vbv-bufsize\n");
+            goto fail;
+        }
+        if (e->strict_cbr && bs_init(&e->fd_bs, 4096) < 0)
+            goto fail;
+        if (e->crf_bounds) {
+            if (!e->crf_on) {
+                fprintf(stderr, "n265: --crf-min and --crf-max bound the "
+                                "RATE FACTOR, so they need --crf. Under "
+                                "--bitrate the bounds on the loop's answer "
+                                "are --qpmin and --qpmax.\n");
+                goto fail;
+            }
+            if (e->crf_min > e->crf_max) {
+                fprintf(stderr, "n265: --crf-min %g is above --crf-max %g\n",
+                        e->crf_min, e->crf_max);
+                goto fail;
+            }
+        }
+        if (e->qpmin > e->qpmax) {
+            fprintf(stderr, "n265: --qpmin %d is above --qpmax %d\n",
+                    e->qpmin, e->qpmax);
+            goto fail;
+        }
+        if (e->qp_bounds && !(e->abr_on || e->crf_on)) {
+            fprintf(stderr, "n265: --qpmin and --qpmax bound what the rate "
+                            "control may choose; under --qp the quantiser "
+                            "is already yours\n");
+            goto fail;
+        }
+        if (g_qpfile_path && g_zones_spec) {
+            fprintf(stderr, "n265: --qpfile and --zones both pin a "
+                            "quantiser onto the timeline; pick one\n");
+            goto fail;
+        }
+        if (g_qpfile_path) {
+            char err[512] = "";
+            if (n265_qpfile_parse(&e->qpf, g_qpfile_path, err,
+                                  sizeof(err)) < 0) {
+                fprintf(stderr, "n265: --qpfile: %s\n", err);
+                goto fail;
+            }
+            e->qpf_on = 1;
+        }
+        if (g_zones_spec) {
+            char err[512] = "";
+            if (n265_zones_parse(&e->zones, g_zones_spec, err,
+                                 sizeof(err)) < 0) {
+                fprintf(stderr, "n265: %s\n", err);
+                goto fail;
+            }
+            e->zones_on = 1;
+        }
         e->vbv_trace = n265_env("N265_VBV_TRACE") != NULL;
         { const char *v = n265_env("N265_VBV_HRD");
           e->vbv_hrd = v ? atoi(v) != 0 : 1; }
@@ -1590,6 +1795,41 @@ n265_encoder *n265_encoder_open(const n265_param *p)
          * a syntax element the CLI bounded, and there is nothing about the
          * STREAM that could refuse one - a colour primary is a claim about
          * the source, not about anything this encoder decides. */
+        /* --aud: one byte per access unit, rewritten in place. --info:
+         * the version SEI is a constant, so it is built once here and
+         * packed by pointer wherever the parameter sets go. */
+        if (e->aud && bs_init(&e->aud_bs, 8) < 0)
+            goto fail;
+        if (e->info) {
+            if (bs_init(&e->info_bs, 128) < 0)
+                goto fail;
+            n265_write_info_sei(&e->info_bs, n265_version_str());
+        }
+        /* --idr-recovery-sei: the message is the same three fields at
+         * every IRAP, so it is built once here too. */
+        if (e->recovery_sei) {
+            if (bs_init(&e->rec_bs, 32) < 0)
+                goto fail;
+            n265_write_recovery_sei(&e->rec_bs);
+        }
+        /* --pic-struct rides the pic_timing message, which exists only
+         * where the HRD does. Refused rather than ignored: a --pic-struct
+         * that silently wrote nothing would look like a decoder that did
+         * not honour it. */
+        if (g_sig.pic_struct >= 0 && !e->vbv.on) {
+            fprintf(stderr, "n265: --pic-struct is a field of the pic_timing "
+                            "SEI, which this encoder writes only with a "
+                            "buffer: use --vbv-maxrate and --vbv-bufsize\n");
+            goto fail;
+        }
+        if (g_hrd_concat && !e->vbv.on) {
+            fprintf(stderr, "n265: --hrd-concat is a flag in the "
+                            "buffering_period SEI, which this encoder writes "
+                            "only with a buffer: use --vbv-maxrate and "
+                            "--vbv-bufsize\n");
+            goto fail;
+        }
+        e->hrd_concat = g_hrd_concat;
         e->sig = g_sig;
         if (e->sig.hash) {
             /* the scratch one picture's hash message is built in: 64 bytes
@@ -1977,6 +2217,20 @@ void n265_encoder_close(n265_encoder *e)
         fclose(e->shot_f);
         e->shot_f = NULL;
     }
+    /* --strict-cbr: say how much of the stream is padding. A run that
+     * needed none held the rate on its own; one that is a third filler is
+     * telling you the target is above what the content costs. */
+    if (e->strict_cbr)
+        fprintf(stderr, "n265: --strict-cbr: %ld filler bytes in %ld of %ld "
+                "access units\n", e->filler_bytes, e->filler_aus,
+                e->frames_out);
+    /* --csv: the summary row, once everything has retired. */
+    if (e->csv.f) {
+        n265_csv_summary(&e->csv, e->met_frames, e->met_bytes,
+                         (double)e->param.fps_num, (double)e->param.fps_den,
+                         &e->met);
+        n265_csv_close(&e->csv);
+    }
     /* --pass: the sidecar is finished (pass 3 renames its temporary onto
      * the file it read), and a pass-2 encode that outran its plan says so
      * once, here, rather than per frame. */
@@ -2129,6 +2383,12 @@ void n265_encoder_close(n265_encoder *e)
     n265_la_free(e);
     bs_free(&e->hrd_bs);
     bs_free(&e->hash_bs);
+    bs_free(&e->aud_bs);
+    bs_free(&e->info_bs);
+    bs_free(&e->rec_bs);
+    bs_free(&e->fd_bs);
+    n265_qpfile_free(&e->qpf);
+    n265_zones_free(&e->zones);
     free(e->out);
     free(e);
 }
@@ -2720,8 +2980,8 @@ static struct n265_done *done_slot(n265_encoder *e)
     return d;
 }
 
-static void pack_nal(struct n265_done *d, int type, const uint8_t *rbsp,
-                     size_t len)
+static void pack_nal_tid(struct n265_done *d, int type, int tid,
+                         const uint8_t *rbsp, size_t len)
 {
     if (d->nnal >= (int)(sizeof(d->type) / sizeof(d->type[0])))
         return;
@@ -2733,11 +2993,18 @@ static void pack_nal(struct n265_done *d, int type, const uint8_t *rbsp,
         d->buf = b;
         d->cap = need;
     }
-    size_t sz = nal_pack(d->buf + d->len, d->cap - d->len, type, rbsp, len);
+    size_t sz = nal_pack_tid(d->buf + d->len, d->cap - d->len, type, tid,
+                             rbsp, len);
     d->type[d->nnal] = type;
     d->size[d->nnal] = (int)sz;
     d->nnal++;
     d->len += sz;
+}
+
+static void pack_nal(struct n265_done *d, int type, const uint8_t *rbsp,
+                     size_t len)
+{
+    pack_nal_tid(d, type, 0, rbsp, len);
 }
 
 /* Copy up to `max` joined frames into the caller's buffer, oldest first.
@@ -2853,6 +3120,48 @@ static void dump_recon_frame(n265_encoder *e, n265_frame_work *fw)
     }
     if (e->dump_decode)
         dump_planes(fw, e->dump_decode);
+}
+
+/* --psnr / --ssim / --csv: the metric tap, at retirement, on the driver,
+ * in coding order. It reads the padded SOURCE the encoder coded (the
+ * cored picture under --film-grain-denoise, which is the honest
+ * reference for what this encode spent its bits on) and the finished
+ * reconstruction, and writes nothing the encoder reads back.
+ *
+ * `bytes` is the whole ACCESS UNIT - parameter sets, SEIs and the slice -
+ * because that is what the stream costs and what x265's CSV counts. */
+static void metrics_frame(n265_encoder *e, n265_frame_work *fw, size_t bytes)
+{
+    if (!e->met.psnr && !e->met.ssim && !e->csv.f)
+        return;
+    e->met_bytes += (double)bytes;
+    e->met_frames++;
+    if (e->met.psnr || e->met.ssim) {
+        const pixel *src[3] = { fw->pad_plane[0], fw->pad_plane[1],
+                                fw->pad_plane[2] };
+        const pixel *rec[3] = { fw->recon[0], fw->recon[1], fw->recon[2] };
+        n265_metrics_frame(&e->met, src, fw->pad_stride, rec,
+                           fw->recon_stride, e->param.width, e->param.height,
+                           e->csx, e->csy);
+    }
+    if (e->csv.f && e->csv.level >= 1) {
+        n265_csv_row r;
+        memset(&r, 0, sizeof(r));
+        r.poc = fw->display_idx;
+        r.order = fw->code_idx;
+        r.type = fw->slice_type == 2 ? 'I'
+               : fw->slice_type == 1 ? 'P'
+               : fw->nonref ? 'b' : 'B';
+        r.b_depth = fw->b_depth;
+        r.qp = fw->qp;
+        r.bits = (long)bytes * 8;
+        r.m = &e->met;
+        r.planned_bits = fw->rc_planned;
+        r.vbv_fill = e->vbv.on ? e->vbv.fill : 0.0;
+        r.vbv_dqp = fw->vbv_dqp;
+        r.flat = fw->flat;
+        n265_csv_frame(&e->csv, &r);
+    }
 }
 
 /* The exact reference stall (G2). The fast path is inline in
@@ -3537,6 +3846,19 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                                  base, &fw->vbv_pred, &fw->vbv_allow,
                                  &fw->vbv_dqp);
     }
+    /* --crf-max / --crf-min: the user's own bounds on the rate factor,
+     * and they are the LAST thing that may move it - after the buffer's
+     * clamp, because a ceiling the buffer then raised through would not
+     * be a ceiling. x265's semantics, and x265's warning with them:
+     * under a VBV a --crf-max low enough to fight the buffer is a way to
+     * ask for an underflow, and this encoder will report it rather than
+     * quietly raise the quantiser past the bound it was given. */
+    if (e->crf_on && e->crf_bounds) {
+        if (base > e->crf_max)
+            base = e->crf_max;
+        if (base < e->crf_min)
+            base = e->crf_min;
+    }
     /* the pyramid QP cascade: I anchors -3, P anchors +0, and each B layer
      * one step deeper than its parent (the reference B nearest the anchors
      * codes best, the leaves worst). N265_PB_STEP scales the per-layer
@@ -3576,14 +3898,58 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
     if (frac_on && e->crf_on && e->cutree && fw->flat && !e->qp_frac_flat &&
         (double)e->ct_framew_flat == (double)e->ct_qpw)
         frac_on = 0;
+    /* --zones and --qpfile: the user pinning a quantiser onto a range of
+     * the DISPLAY timeline, from outside the rate control.
+     *
+     * A forced QP is the FRAME's QP and not a base the cascade then moves:
+     * a user who writes `q=30` over a mini-GOP means thirty, and a ladder
+     * on top of it would code the leaves at thirty-four. So the cascade
+     * and the base's carried fraction both go to zero with it. `b=F` is
+     * the other shape - a bit MULTIPLIER - and it lands as the QP offset
+     * that buys the same bits, -6 log2 F, because there is no zone-aware
+     * allocator here to hand a second budget to. That is the cheap form
+     * and the docs say so: it moves the quantiser, not the plan, so the
+     * rest of the file does not give the bits back. */
+    double forced = 1e9;
+    if (e->zones_on) {
+        const n265_zone *z = n265_zones_at(&e->zones, fw->display_idx);
+        if (z && z->has_q)
+            forced = z->q;
+        else if (z && z->b != 1.0)
+            base -= 6.0 * log2(z->b);
+    }
+    if (e->qpf_on) {
+        const n265_qpent *qe = n265_qpfile_at(&e->qpf, fw->display_idx);
+        if (qe && qe->qp >= 0.0)
+            forced = qe->qp;
+    }
+    fw->qp_forced = 0;
+    if (forced < 1e8) {
+        base = forced;
+        cascade = 0;
+        frac_on = 0;
+        fw->qp_forced = 1;
+    }
     int qi = (int)lround(base);
     double qfrac = frac_on ? base - (double)qi : 0.0;
     int q = qi + cascade;
-    fw->qp = n265_qp_clip(q);
+    /* --qpmin / --qpmax: the hard bounds, after everything that decides.
+     * Applied only where the user narrowed the spec's own range, so the
+     * default path is the clip it always was. A forced QP is bounded too:
+     * the bounds are what the stream may contain, and a qpfile is not a
+     * licence to leave the range the encode was configured for. */
+    fw->qp = n265_qp_bound(e, q);
     if (n265_dup_trace())
         dup_trace_dispatch(e, fw);
 
-    if (e->frames_done == 0) {
+    /* --repeat-headers: VPS/SPS/PPS lead EVERY IRAP access unit, not just
+     * the first, so a receiver joining mid-stream - broadcast, RTP, an
+     * HLS segment boundary - has the parameter sets it needs. The three
+     * are a pure function of config here and never change mid-stream, so
+     * the repeat is the same three RBSPs and the stash below can be
+     * rewritten in place: dispatch and retirement both run on the driver,
+     * serially, and nothing between them reads the stash. */
+    if (e->frames_done == 0 || (e->repeat_hdr && fw->idr)) {
         /* The headers are a pure function of config, so they are written
          * here and packed when this frame retires: under overlap the
          * output ring is walked in coding order, not in completion
@@ -3621,6 +3987,10 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
             fw->hdr_sei_len = fw->rbsp.bytes;
         }
     }
+    /* --temporal-layers: the non-reference B leaves, and nothing else.
+     * A picture at TemporalId 1 may not be referenced by one at 0
+     * (7.4.2.2), and a leaf is by construction referenced by nothing. */
+    fw->tid = e->tlayers && fw->nonref && fw->slice_type == 0 ? 1 : 0;
     fw->nal_type = fw->idr ? N265_NAL_IDR_W_RADL
                            : (nonref ? 0 /* TRAIL_N */
                                      : 1 /* TRAIL_R */);
@@ -3819,13 +4189,13 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
              * ABR frame of every 10-bit clip would take a flat +4 QP on
              * its base - the largest single mis-calibration this item had
              * to find, and one no conformance vector would have caught. */
-            if (e->crf_on || e->abr_on) {
+            if ((e->crf_on || e->abr_on) && !fw->qp_forced) {
                 const char *v = n265_env("N265_AQ_DC"), *a = n265_env("N265_AQ_ANCHOR");
                 double anchor = (a ? atof(a) : 6.4) + 2.0 * BIT_DEPTH_SHIFT;
                 double dc = (v ? atof(v) : 1.0) * (avg_dc - anchor);
                 int dci = (int)lround(dc);
                 int nq = fw->qp + dci;
-                fw->qp = n265_qp_clip(nq);
+                fw->qp = n265_qp_bound(e, nq);
                 if (frac_on)
                     qfrac += dc - (double)dci;
             }
@@ -4266,6 +4636,14 @@ static void hrd_sei_values(n265_encoder *e, const n265_frame_work *fw,
     /* Only an IRAP opens a buffering period, and the only IRAP this
      * encoder writes is the IDR (a non-IDR I is a trailing picture). */
     v->bp = fw->idr;
+    v->ff_info = e->sig.pic_struct >= 0;
+    v->pic_struct = v->ff_info ? e->sig.pic_struct : 0;
+    /* --hrd-concat: on the FIRST key frame of the stream, which is what
+     * x265's flag says and the only place it means anything. It tells a
+     * decoder that this access unit was spliced onto something else, so
+     * C.2.3 reads the removal delay delta instead of a running clock the
+     * splice broke. */
+    v->concat = e->hrd_concat && v->bp && e->hrd_bp_code < 0;
     if (v->bp)
         e->hrd_cvs_code = fw->code_idx;
     /* C.2.3: clock ticks from the removal of the access unit that carried
@@ -4337,9 +4715,36 @@ static void join_oldest(n265_encoder *e)
     double t_j1 = e->la_prof ? prof_now() : 0.0;
     if (e->la_prof) e->prof_join += t_j1 - t_j0;
     struct n265_done *d = done_slot(e);
+    /* --eos: an end of sequence NAL closes every coded video sequence, and
+     * an IDR opens a new one - so the message belongs to the END of the
+     * PREVIOUS access unit and is written just ahead of this one's first
+     * NAL. The last CVS is closed in the flush, where the stream ends.
+     * end_of_seq_rbsp() has no syntax elements at all, so the NAL is its
+     * two-byte header and nothing else. */
+    if (e->eos && fw->idr && e->frames_out > 0)
+        pack_nal(d, N265_NAL_EOS, NULL, 0);
+    /* --aud: the access unit delimiter is the FIRST NAL of its access
+     * unit (7.4.2.4.4), ahead of the parameter sets. */
+    if (e->aud) {
+        n265_write_aud(&e->aud_bs, fw->slice_type == 2 ? 0
+                                 : fw->slice_type == 1 ? 1 : 2);
+        pack_nal(d, N265_NAL_AUD, e->aud_bs.buf, e->aud_bs.bytes);
+    }
     if (fw->emit_headers)
         for (int i = 0; i < e->nhdr; i++)
             pack_nal(d, e->hdr_type[i], e->hdr_rbsp[i], e->hdr_len[i]);
+    /* --idr-recovery-sei: one prefix SEI per IRAP, beside the parameter
+     * sets and ahead of the timing pair - a decoder that joins here reads
+     * "the recovery is immediate" before it reads anything about when to
+     * remove the picture. */
+    if (e->recovery_sei && fw->idr)
+        pack_nal(d, N265_NAL_PREFIX_SEI, e->rec_bs.buf, e->rec_bs.bytes);
+    /* --info: the version SEI goes wherever the parameter sets go, which
+     * is the first access unit and - under --repeat-headers - every IRAP,
+     * so a receiver that joins mid-stream learns the same thing about the
+     * encoder that one joining at the start does. */
+    if (e->info && fw->emit_headers)
+        pack_nal(d, N265_NAL_PREFIX_SEI, e->info_bs.buf, e->info_bs.bytes);
     /* 7.4.2.4.4: a prefix SEI follows the parameter sets of its access
      * unit and precedes the first VCL NAL of that unit. The HRD timing
      * pair leads the grain message, for the reason headers.c gives. */
@@ -4353,7 +4758,15 @@ static void join_oldest(n265_encoder *e)
         pack_nal(d, N265_NAL_PREFIX_SEI, fw->hdr_sei, fw->hdr_sei_len);
     if (fw->sei_len)
         pack_nal(d, N265_NAL_PREFIX_SEI, fw->sei, fw->sei_len);
-    pack_nal(d, fw->nal_type, fw->rbsp.buf, fw->rbsp.bytes);
+    /* --temporal-layers: the VCL NAL - and only the VCL NAL - carries the
+     * picture's TemporalId. 7.4.2.2 puts every parameter set, access unit
+     * delimiter, end of sequence and end of bitstream at TemporalId 0
+     * whatever the picture around them is, and a prefix SEI takes the
+     * TemporalId of its own access unit; ours are all written at a layer-0
+     * access unit (the parameter sets and the recovery point at an IRAP)
+     * or carry timing that applies to the whole stream, so 0 is right for
+     * them too. */
+    pack_nal_tid(d, fw->nal_type, fw->tid, fw->rbsp.buf, fw->rbsp.bytes);
     /* --hash: the decoded picture hash, D.2.19. A SUFFIX SEI, so it comes
      * AFTER the access unit's VCL NAL (7.4.2.4.4) - the only suffix NAL
      * this encoder writes - and it is computed HERE, on the driver, off
@@ -4367,8 +4780,46 @@ static void join_oldest(n265_encoder *e)
         n265_write_hash_sei(&e->hash_bs, &h, 3);
         pack_nal(d, N265_NAL_SUFFIX_SEI, e->hash_bs.buf, e->hash_bs.bytes);
     }
+    /* --strict-cbr: the padding half. Our CPB is E.2.3's cbr_flag = 0
+     * model, where arrival STOPS at a full buffer - which is what lets the
+     * mode ride CRF and be met by raising a quantiser alone. Strict CBR is
+     * the other flag: arrival never stops, so a frame that came in UNDER
+     * its share would overflow the buffer, and the only conforming way to
+     * spend the difference is filler data (NAL 38, D-less: a run of 0xFF
+     * and a stop bit).
+     *
+     * It is deliberately NOT met by making the picture worse. The bits
+     * exist to hold a constant arrival rate, not to buy quality, and an
+     * encoder that spent them inside the picture would be answering a
+     * transport question with a quantiser.
+     *
+     * Computed here, on the driver, in removal order, off the access
+     * unit's own size - so the padding is a pure function of the encode
+     * and comes out the same at every thread count. */
+    if (e->vbv.on && e->strict_cbr) {
+        double bits = (double)d->len * 8.0;
+        double over = e->vbv.fill - bits + e->vbv.inflow - e->vbv.bufsize;
+        if (over > 0.0) {
+            /* the NAL costs 4 bytes of start code, 2 of header and the
+             * stop byte before a single 0xFF is written, so ask for the
+             * remainder. Overshooting by a few bytes is harmless - the
+             * buffer ends less full, never fuller. */
+            long need = (long)ceil(over / 8.0) - 7;
+            if (need < 0)
+                need = 0;
+            bs_reset(&e->fd_bs);
+            for (long i = 0; i < need; i++)
+                bs_put_bits(&e->fd_bs, 0xff, 8);
+            bs_rbsp_trailing(&e->fd_bs);
+            pack_nal(d, N265_NAL_FD, e->fd_bs.buf, e->fd_bs.bytes);
+            e->filler_bytes += (long)need + 7;
+            e->filler_aus++;
+        }
+    }
     e->n_done++;
+    e->frames_out++;
     dump_recon_frame(e, fw);
+    metrics_frame(e, fw, d->len);
     /* N265_DEPTH_DUMP: the frame's per-CTU training records, in raster
      * order. The row jobs filled their own slots; the write happens here,
      * on the driver, in coding order, so the file is a pure function of
@@ -4795,6 +5246,14 @@ static int min_keyint(n265_encoder *e)
 static int la_is_idr(n265_encoder *e, int i)
 {
     int d = e->la.f[i].display_idx;
+    /* --qpfile: an `I` or `K` line forces a key frame here. It is the one
+     * type a file can ask for without asking the plan builder for a
+     * mini-GOP shape, which is why it is the one this encoder honours. */
+    if (e->qpf_on) {
+        const n265_qpent *qe = n265_qpfile_at(&e->qpf, d);
+        if (qe && qe->type == N265_QPF_IDR)
+            return 1;
+    }
     return e->mode == N265_MODE_PCM || e->keyint == 1 || (d % e->keyint) == 0 ||
            !e->ref_valid ||
            (e->scenecut && d - e->gop_start_display >= min_keyint(e) &&
@@ -4825,6 +5284,11 @@ static int la_is_nonidr_i(n265_encoder *e, int i)
     if (e->mode == N265_MODE_PCM || la_is_idr(e, i))
         return 0;
     int d = e->la.f[i].display_idx;
+    if (e->qpf_on) {
+        const n265_qpent *qe = n265_qpfile_at(&e->qpf, d);
+        if (qe && qe->type == N265_QPF_I)
+            return 1;
+    }
     if (d == force_nonidr_env())
         return 1;
     if (e->ref_max < 2)
@@ -4992,6 +5456,11 @@ int n265_rc_future_idr(n265_encoder *e, int i)
     if (i < 0 || i >= e->la.count)
         return 0;
     int d = e->la.f[i].display_idx;
+    if (e->qpf_on) {
+        const n265_qpent *qe = n265_qpfile_at(&e->qpf, d);
+        if (qe && qe->type == N265_QPF_IDR)
+            return 1;
+    }
     return e->keyint == 1 || (d % e->keyint) == 0 ||
            (e->scenecut && d - e->gop_start_display >= min_keyint(e) &&
             n265_la_scenecut(e, i));
@@ -5646,6 +6115,23 @@ int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
             drive_scheduler(e);
         if (e->n_done == 0 && e->n_inflight)
             join_oldest(e);
+        /* --eos / --eob: the trailing NALs, once, after the last access
+         * unit of the stream. They are their own ring slot, so they ride
+         * the same deferred path every other NAL rides and the caller's
+         * drain loop hands them out before it sees the empty return that
+         * ends it. EOS closes the last coded video sequence; EOB closes
+         * the bitstream and is the last NAL there is. Neither has any
+         * syntax elements. */
+        if (!e->tail_done && (e->eos || e->eob) && e->frames_out > 0 &&
+            e->la.count == 0 && e->n_inflight == 0 && e->n_done == 0) {
+            e->tail_done = 1;
+            struct n265_done *d = done_slot(e);
+            if (e->eos)
+                pack_nal(d, N265_NAL_EOS, NULL, 0);
+            if (e->eob)
+                pack_nal(d, N265_NAL_EOB, NULL, 0);
+            e->n_done++;
+        }
         {
             double t = e->la_prof ? prof_now() : 0.0;
             emit_done(e, e->defer_out ? INT_MAX : 1, &out_used, &count);

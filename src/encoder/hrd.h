@@ -59,6 +59,25 @@ typedef struct n265_hrd_sei {
     uint32_t init_offset;   /* initial_cpb_removal_offset[0]              */
     uint32_t cpb_delay;     /* AuCpbRemovalDelayVal, >= 1 (minus1 is coded) */
     uint32_t dpb_delay;     /* pic_dpb_output_delay                       */
+    /* Phase 14 item 4's two additions, AT THE END and both meaning
+     * "absent" at zero. Order matters here for a reason a unit test
+     * found: the five fields above are written positionally in
+     * tests/unit/hrd_test.c, and a field inserted among them silently
+     * renumbers every value in the message. A field whose absence is a
+     * NON-zero sentinel is the same hazard one step further on - a
+     * caller that zeroed the struct would write pic_struct 0, which is a
+     * different message and not no message - so the presence flag is its
+     * own field. */
+    int concat;             /* --hrd-concat: concatenation_flag in the
+                             * buffering period. It says this access unit
+                             * was spliced onto another stream, so C.2.3
+                             * reads the removal delay DELTA instead of a
+                             * running clock the splice broke. x265 sets
+                             * it on the first key frame; so does this. */
+    int ff_info;            /* --pic-struct: the VUI's
+                             * frame_field_info_present_flag is 1, so
+                             * pic_timing carries the three fields below */
+    int pic_struct;         /* Table D.2 */
 } n265_hrd_sei;
 
 #endif

@@ -26,7 +26,7 @@
  * MaxLumaSr) and a PCM stream at a level admitting a tenth of its bit
  * rate. Both were wrong by a table, and both moved. */
 static void write_ptl(bitstream_t *bs, int level_idc, int tier,
-                      int chroma_idc)
+                      int chroma_idc, int max_sub_layers_minus1)
 {
     bs_put_bits(bs, 0, 2);          /* general_profile_space */
     bs_put_bits(bs, (uint32_t)(tier != 0), 1);  /* general_tier_flag */
@@ -119,6 +119,20 @@ static void write_ptl(bitstream_t *bs, int level_idc, int tier,
         bs_put_bits(bs, 0, 12);     /* ...cont */
     }
     bs_put_bits(bs, (uint32_t)level_idc, 8);   /* general_level_idc */
+    /* profile_tier_level()'s sub-layer tail (7.3.3), present only when
+     * there is more than one sub-layer. --temporal-layers declares NO
+     * per-sub-layer profile or level: the sub-layers of this encoder's
+     * two-layer pyramid are the same profile at the same level, and
+     * 7.4.4 says an absent sub_layer_level_idc is inferred equal to the
+     * general one. What still has to be written is the reserved pair per
+     * unused sub-layer, because the syntax counts to eight. */
+    for (int i = 0; i < max_sub_layers_minus1; i++) {
+        bs_put_bits(bs, 0, 1);      /* sub_layer_profile_present_flag[i] */
+        bs_put_bits(bs, 0, 1);      /* sub_layer_level_present_flag[i]   */
+    }
+    if (max_sub_layers_minus1 > 0)
+        for (int i = max_sub_layers_minus1; i < 8; i++)
+            bs_put_bits(bs, 0, 2);  /* reserved_zero_2bits[i] */
 }
 
 /* hrd_parameters(commonInfPresentFlag = 1, maxNumSubLayersMinus1 = 0),
@@ -144,7 +158,8 @@ static void write_ptl(bitstream_t *bs, int level_idc, int tier,
  * (n265_write_hrd_sei, at the end of this file). The lengths and the SEIs
  * have to be read together - a message written at a width the SPS does not
  * declare parses as garbage - and 24 bits is what both halves assume. */
-static void write_hrd(bitstream_t *bs, const struct n265_frame_work *e)
+static void write_hrd(bitstream_t *bs, const struct n265_frame_work *e,
+                      int max_sub_layers_minus1)
 {
     bs_put_bits(bs, 1, 1);          /* nal_hrd_parameters_present_flag */
     bs_put_bits(bs, 0, 1);          /* vcl_hrd_parameters_present_flag */
@@ -160,7 +175,12 @@ static void write_hrd(bitstream_t *bs, const struct n265_frame_work *e)
     bs_put_bits(bs, 23, 5);         /* initial_cpb_removal_delay_length_m1 */
     bs_put_bits(bs, 23, 5);         /* au_cpb_removal_delay_length_minus1 */
     bs_put_bits(bs, 23, 5);         /* dpb_output_delay_length_minus1 */
-    /* the one sub-layer (sps_max_sub_layers_minus1 is 0 everywhere here) */
+    /* One entry PER SUB-LAYER (E.2.2's loop runs 0..maxNumSubLayersMinus1),
+     * and with --temporal-layers there are two. They carry the same
+     * schedule: the CPB this encoder plans against is the whole stream's,
+     * and a sub-layer-1-only decode is a smaller stream that the same
+     * buffer holds. */
+    for (int sl = 0; sl <= max_sub_layers_minus1; sl++) {
     bs_put_bits(bs, 1, 1);          /* fixed_pic_rate_general_flag[0]: one
                                      * picture per clock tick, which is what
                                      * vui_num_units_in_tick above says and
@@ -176,7 +196,14 @@ static void write_hrd(bitstream_t *bs, const struct n265_frame_work *e)
      *   CpbSize[0] = (cpb_size_value_minus1 + 1) << (4 + cpb_size_scale) */
     bs_put_ue(bs, e->hrd_bit_rate_value - 1);
     bs_put_ue(bs, e->hrd_cpb_size_value - 1);
-    bs_put_bits(bs, 0, 1);          /* cbr_flag[0] */
+    (void)sl;
+    /* --strict-cbr sets it: with it set, arrival never stops and the
+     * stream promises to spend its rate every frame, which is a promise
+     * only filler data can keep - and that is exactly what that mode
+     * writes (encoder.c, join_oldest). Absent the flag it stays 0 and
+     * the paragraph above is the whole story. */
+    bs_put_bits(bs, e->hrd_cbr ? 1 : 0, 1);     /* cbr_flag[0] */
+    }
 }
 
 void n265_write_vps(struct n265_frame_work *e)
@@ -187,10 +214,20 @@ void n265_write_vps(struct n265_frame_work *e)
     bs_put_bits(bs, 1, 1);          /* vps_base_layer_internal_flag */
     bs_put_bits(bs, 1, 1);          /* vps_base_layer_available_flag */
     bs_put_bits(bs, 0, 6);          /* vps_max_layers_minus1 */
-    bs_put_bits(bs, 0, 3);          /* vps_max_sub_layers_minus1 */
+    /* --temporal-layers: ONE extra sub-layer, holding the non-reference
+     * B leaves. Nothing else here is a sub-layer, and nothing else can
+     * be: a picture at TemporalId t may not be referenced by a picture at
+     * a lower one (7.4.2.2), and the leaves are the only pictures this
+     * pyramid never references.
+     *
+     * vps_temporal_id_nesting_flag stays 1 and is true rather than
+     * convenient: dropping sub-layer 1 leaves a decodable stream at every
+     * point, because nothing at layer 0 predicts from it. */
+    bs_put_bits(bs, (uint32_t)e->tlayers_minus1, 3); /* vps_max_sub_layers_m1 */
     bs_put_bits(bs, 1, 1);          /* vps_temporal_id_nesting_flag */
     bs_put_bits(bs, 0xffff, 16);    /* vps_reserved_0xffff_16bits */
-    write_ptl(bs, e->level_idc, e->level_tier, e->chroma_idc);
+    write_ptl(bs, e->level_idc, e->level_tier, e->chroma_idc,
+              e->tlayers_minus1);
     bs_put_bits(bs, 0, 1);          /* vps_sub_layer_ordering_info_present */
     bs_put_ue(bs, (uint32_t)(e->dpb_buffering - 1)); /* vps_max_dec_pic_buffering_minus1 */
     bs_put_ue(bs, (uint32_t)e->dpb_reorder);         /* vps_max_num_reorder_pics[0] */
@@ -212,9 +249,10 @@ void n265_write_sps(struct n265_frame_work *e)
 
     bs_reset(bs);
     bs_put_bits(bs, 0, 4);          /* sps_video_parameter_set_id */
-    bs_put_bits(bs, 0, 3);          /* sps_max_sub_layers_minus1 */
+    bs_put_bits(bs, (uint32_t)e->tlayers_minus1, 3); /* sps_max_sub_layers_m1 */
     bs_put_bits(bs, 1, 1);          /* sps_temporal_id_nesting_flag */
-    write_ptl(bs, e->level_idc, e->level_tier, e->chroma_idc);
+    write_ptl(bs, e->level_idc, e->level_tier, e->chroma_idc,
+              e->tlayers_minus1);
     bs_put_ue(bs, 0);               /* sps_seq_parameter_set_id */
     bs_put_ue(bs, (uint32_t)e->chroma_idc);   /* 1 = 420, 2 = 422, 3 = 444 */
     if (e->chroma_idc == 3) {
@@ -380,7 +418,14 @@ void n265_write_sps(struct n265_frame_work *e)
         }
         bs_put_bits(bs, 0, 1);      /* neutral_chroma_indication_flag */
         bs_put_bits(bs, 0, 1);      /* field_seq_flag */
-        bs_put_bits(bs, 0, 1);      /* frame_field_info_present_flag */
+        /* --pic-struct: with it, pic_timing carries pic_struct,
+         * source_scan_type and duplicate_flag (D.2.3), which is how
+         * pulldown and field repetition are signalled on a stream whose
+         * pictures are frames. The flag and the SEI move together: a
+         * decoder that reads one field width and gets another parses the
+         * rest of the message as noise. */
+        bs_put_bits(bs, sig->pic_struct >= 0, 1);
+                                    /* frame_field_info_present_flag */
         if (!sig->win_on) {
             bs_put_bits(bs, 0, 1);  /* default_display_window_flag */
         } else {
@@ -417,7 +462,7 @@ void n265_write_sps(struct n265_frame_work *e)
                 bs_put_bits(bs, 0, 1);
             } else {
                 bs_put_bits(bs, 1, 1);
-                write_hrd(bs, e);
+                write_hrd(bs, e, e->tlayers_minus1);
             }
         }
         bs_put_bits(bs, 0, 1);      /* bitstream_restriction_flag */
@@ -617,7 +662,7 @@ void n265_write_hrd_sei(bitstream_t *bs, const n265_hrd_sei *v)
         size_t at = bs->bytes;
         bs_put_ue(bs, 0);           /* bp_seq_parameter_set_id */
         bs_put_bits(bs, 0, 1);      /* irap_cpb_params_present_flag */
-        bs_put_bits(bs, 0, 1);      /* concatenation_flag */
+        bs_put_bits(bs, v->concat != 0, 1);  /* concatenation_flag */
         bs_put_bits(bs, 0, N265_HRD_DELAY_BITS);
                                     /* au_cpb_removal_delay_delta_minus1 */
         bs_put_bits(bs, v->init_delay, N265_HRD_DELAY_BITS);
@@ -626,6 +671,15 @@ void n265_write_hrd_sei(bitstream_t *bs, const n265_hrd_sei *v)
     }
     /* pic_timing(), payload type 1 */
     size_t at = bs->bytes;
+    if (v->ff_info) {
+        /* D.2.3, gated on the VUI's frame_field_info_present_flag. The
+         * scan type is 1 (progressive) because general_progressive_source
+         * _flag is 1 and the two have to agree; duplicate_flag 0 because
+         * nothing here repeats a picture it did not code. */
+        bs_put_bits(bs, (uint32_t)v->pic_struct, 4);   /* pic_struct */
+        bs_put_bits(bs, 1, 2);                         /* source_scan_type */
+        bs_put_bits(bs, 0, 1);                         /* duplicate_flag */
+    }
     bs_put_bits(bs, v->cpb_delay - 1, N265_HRD_DELAY_BITS);
                                     /* au_cpb_removal_delay_minus1 */
     bs_put_bits(bs, v->dpb_delay, N265_HRD_DELAY_BITS);
@@ -727,5 +781,73 @@ void n265_write_hash_sei(bitstream_t *bs, const n265_pic_hash *h, int ncomp)
             bs_put_bits(bs, h->checksum[c], 32);    /* picture_checksum */
     }
     sei_wrap(bs, at, 132);          /* SEI_TYPE_DECODED_PICTURE_HASH */
+    bs_rbsp_trailing(bs);
+}
+
+/* recovery_point (D.2.8), in a prefix SEI NAL. `--idr-recovery-sei`.
+ *
+ * At an IRAP that opens a coded video sequence the recovery is immediate,
+ * so recovery_poc_cnt is 0 and exact_match_flag is 1: a decoder that
+ * starts here gets pictures that are exactly what a decoder from the
+ * start of the stream would have. broken_link_flag is 0 because nothing
+ * here splices - that is --hrd-concat's question and it is asked in the
+ * buffering period, where C.2.3 reads it.
+ *
+ * It is what a random-access player looks for, and it becomes the message
+ * rather than a nicety once open GOP lands: with leading pictures that
+ * cannot be decoded, the recovery point is the first picture a joiner may
+ * output, and there is no other way to say which one that is. */
+void n265_write_recovery_sei(bitstream_t *bs)
+{
+    bs_reset(bs);
+    bs_put_se(bs, 0);               /* recovery_poc_cnt */
+    bs_put_bits(bs, 1, 1);          /* exact_match_flag */
+    bs_put_bits(bs, 0, 1);          /* broken_link_flag */
+    sei_wrap(bs, 0, 6);             /* SEI_TYPE_RECOVERY_POINT */
+    bs_rbsp_trailing(bs);
+}
+
+/* access_unit_delimiter_rbsp (7.3.2.5), the first NAL of an access unit
+ * when --aud is on. Its whole content is pic_type, u(3): 0 says the AU
+ * holds only I slices, 1 that it holds P or I, 2 that it holds B, P or I.
+ * It is advisory - a decoder needs none of it - and some transport
+ * muxers want the AU boundary spelled out rather than inferred from the
+ * first_slice_segment_in_pic_flag of the next VCL NAL. */
+void n265_write_aud(bitstream_t *bs, int pic_type)
+{
+    bs_reset(bs);
+    bs_put_bits(bs, (uint32_t)pic_type, 3);
+    bs_rbsp_trailing(bs);
+}
+
+/* user_data_unregistered (D.2.6), the "which build made this stream"
+ * message, in a prefix SEI NAL. The UUID is this project's own, fixed
+ * here for the life of the format: a reader that finds it knows the rest
+ * of the payload is a yah265 version string in ASCII and not somebody
+ * else's binary blob.
+ *
+ * Unlike x265's, ours is OFF by default. The reason is the identity cmp:
+ * turning it on would change every bitstream this encoder has ever
+ * written by one SEI, and an escape cmp against an older binary would
+ * then be a diff on every cell for a reason that has nothing to do with
+ * the change being gated. The audit's row records that x265's default is
+ * the other way and that the flip is the owner's call. */
+void n265_write_info_sei(bitstream_t *bs, const char *ver)
+{
+    /* yah265, 2026-09-14; a random 128-bit value, not derived from
+     * anything and not anyone else's. */
+    static const uint8_t uuid[16] = {
+        0x7a, 0xa4, 0x16, 0x3d, 0xc8, 0x5e, 0x4f, 0x71,
+        0x9d, 0x2c, 0x6b, 0x08, 0xe3, 0x51, 0xa7, 0x94,
+    };
+    bs_reset(bs);
+    for (int i = 0; i < 16; i++)
+        bs_put_bits(bs, uuid[i], 8);
+    /* The payload bytes are the version string WITHOUT its terminator:
+     * the message's length is what delimits it, so a NUL inside would be
+     * a byte a reader has to guess about. */
+    for (const char *p = ver; *p; p++)
+        bs_put_bits(bs, (uint8_t)*p, 8);
+    sei_wrap(bs, 0, 5);             /* SEI_TYPE_USER_DATA_UNREGISTERED */
     bs_rbsp_trailing(bs);
 }

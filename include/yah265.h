@@ -127,6 +127,10 @@ enum {
     N265_NAL_VPS        = 32,
     N265_NAL_SPS        = 33,
     N265_NAL_PPS        = 34,
+    N265_NAL_AUD        = 35,   /* --aud: one per access unit         */
+    N265_NAL_EOS        = 36,   /* --eos: closes a coded video seq    */
+    N265_NAL_EOB        = 37,   /* --eob: closes the bitstream        */
+    N265_NAL_FD         = 38,   /* --strict-cbr: filler data          */
     N265_NAL_PREFIX_SEI = 39,
     N265_NAL_SUFFIX_SEI = 40,
 };

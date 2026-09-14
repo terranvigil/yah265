@@ -104,14 +104,20 @@ void bs_rbsp_trailing(bitstream_t *bs)
 size_t nal_pack(uint8_t *dst, size_t dst_cap, int nal_type,
                 const uint8_t *rbsp, size_t rbsp_size)
 {
+    return nal_pack_tid(dst, dst_cap, nal_type, 0, rbsp, rbsp_size);
+}
+
+size_t nal_pack_tid(uint8_t *dst, size_t dst_cap, int nal_type, int tid,
+                    const uint8_t *rbsp, size_t rbsp_size)
+{
     /* 4-byte start code + 2-byte NAL header + EP'd payload.
      * NAL header: forbidden_zero_bit(1)=0, nal_unit_type(6),
-     * nuh_layer_id(6)=0, nuh_temporal_id_plus1(3)=1. */
+     * nuh_layer_id(6)=0, nuh_temporal_id_plus1(3)=tid+1. */
     size_t o = 0;
     (void)dst_cap;
     dst[o++] = 0; dst[o++] = 0; dst[o++] = 0; dst[o++] = 1;
     dst[o++] = (uint8_t)((nal_type & 0x3f) << 1);
-    dst[o++] = 0x01;
+    dst[o++] = (uint8_t)((tid & 0x07) + 1);
 
     int zeros = 0;
     for (size_t i = 0; i < rbsp_size; i++) {
