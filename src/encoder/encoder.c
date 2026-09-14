@@ -1357,31 +1357,26 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * driver thread; every NEON dispatch site then sees only the inlined
      * acquire load */
     n265_cpu_flags();
-    /* Phase 8 item 6a: the MC family's CHROMA kernels are written for
-     * 4:2:0's half-size blocks - their 2-D drivers hold an
-     * `int16_t tmp[(32 + 3) * 32]`, which is the widest chroma block a
-     * 64x64 luma PU can present when the plane is halved - and at 4:4:4 a
-     * chroma block is the luma block, up to 64x64. A kernel whose
-     * correctness rests on a shape the caller no longer respects is not a
-     * kernel, so the whole class stands down for this format and the C
-     * reference runs; porting it is a later item.
+    /* Phase 8 items 6a and 6b refused N265_ASM_MC as a class at every
+     * format but 4:2:0: the MC family's chroma 2-D drivers held an
+     * `int16_t tmp[(32 + 3) * 32]` - the widest chroma block a 64x64
+     * luma PU can present when the plane is halved - while 4:4:4 reaches
+     * 64x64 and 4:2:2 reaches 32x64, so a kernel's correctness rested on
+     * a shape the caller no longer respected.
      *
-     * 4:2:2 (item 6b) stands it down for the same reason and by the
-     * OTHER half of the shape: the chroma widths there are 4:2:0's, but
-     * the heights are the luma ones, so a chroma block reaches 32 x 64
-     * and the same temp is short by a factor of two. The other five
-     * families need nothing at either format - transform, satd, cost,
-     * rdoq and intra take a width and a height or see only coefficients,
-     * and a 4:2:2 chroma block presents shapes 4:2:0 and 4:4:4 already
-     * run.
+     * Phase 11 item 3 takes the refusal back, and what it had to write
+     * was the temp and nothing else. Every row driver under those
+     * kernels already walks an arbitrary w and h down to a two-lane step
+     * and a scalar remainder - that is what 4:2:0's w = 2 and w = 6
+     * bought - so the wider blocks needed no new lane path, only a wider
+     * temp, and it is now the format's rather than one size for all
+     * three (mc_neon.c, MC_CTMP_SMALL / MC_CTMP_WIDE: 4:2:0 keeps the
+     * frame it had and the wide arm is a function of its own). The class
+     * runs at every chroma format and nothing here stands it down.
      *
-     * The class is wider than
-     * the chroma pair (it carries the luma interpolation and the bi
-     * average too), so this costs more than it has to - and a class is
-     * the unit the ablation knob and the accounting both work in, so it
-     * is refused as a class rather than smuggled in as a shape gate. */
-    if (e->chroma_idc != 1)
-        n265_asm_refuse(N265_ASM_MC);
+     * The other five families never needed anything at either format:
+     * transform, satd, cost, rdoq and intra take a width and a height or
+     * see only coefficients. */
     n265_hf2_knobs(e);
 
     size_t frame_bytes = n265_frame_samples(e->pad_w, e->pad_h, e->csx,

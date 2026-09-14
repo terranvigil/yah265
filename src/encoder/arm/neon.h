@@ -78,8 +78,15 @@ void n265_mc_luma_14_wh_neon(int16_t *dst, int dst_stride, int w, int h,
 void n265_mc_luma_hplane_neon(int16_t *dst, int dst_stride, int w, int h,
                               const pixel *ref, int ref_stride, int fx);
 
-/* the chroma 4-tap eighth-pel forms. 4:2:0 halves every luma width, so
- * these see w = 2 and w = 6 and h = 2, which no luma shape presents. */
+/* The chroma 4-tap eighth-pel forms. 4:2:0 halves every luma width, so
+ * these see w = 2 and w = 6 and h = 2, which no luma shape presents;
+ * 4:4:4 hands them the luma table itself, to 64x64, and 4:2:2 the luma
+ * widths halved against the luma heights, to 32x64 (phase 11 item 3 -
+ * before it, n265_encoder_open stood the whole class down at both
+ * formats). Both ends of that range run the same row drivers: the
+ * 16/8/4/2-lane steps and the scalar remainder walk any w and h. What IS
+ * sized by the block is the 2-D temp, and it has two sizes rather than
+ * one so that a 4:2:0 call does not reserve 4:4:4's frame. */
 void n265_mc_chroma_wh_neon(pixel *dst, int dst_stride, int w, int h,
                             const pixel *ref, int ref_stride, int fx,
                             int fy);
