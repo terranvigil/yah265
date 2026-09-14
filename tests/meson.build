@@ -48,6 +48,17 @@ unit_hash = executable('unit_hash', 'unit/hash_test.c',
   dependencies : yah265_dep)
 test('hash', unit_hash)
 
+# Weighted prediction (phase 14 item 2): the pred_weight_table writer read
+# back field by field by a hand-written parser of 7.3.6.3, the chroma
+# offset through the DECODER's own derivation of it, 8.5.3.3.4.3 at hand
+# values, and the identity that the whole escape rests on - at w = 1 <<
+# denom the explicit clause IS the default prediction. Pure syntax and
+# pure arithmetic, no encode; the decoder-side half is the two fade
+# conformance vectors.
+unit_wp = executable('unit_wp', 'unit/wp_test.c',
+  dependencies : yah265_dep)
+test('wp', unit_wp)
+
 # One file per kernel family (checkasm.h has the layout): a family item
 # adds its file here and one line to the table in main.c, and touches
 # nothing else.

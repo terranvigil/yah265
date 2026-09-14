@@ -609,3 +609,111 @@ void n265_bi_avg(pixel *dst, const int16_t *a, const int16_t *b, int n)
 {
     n265_bi_avg_wh(dst, n, a, b, n, n);
 }
+
+/* ---- 8.5.3.3.4.3 ---------------------------------------------------
+ *
+ * log2Wd = denom + shift1, and o = offset << WpOffsetBdShift with
+ * sps_high_precision_offsets_enabled_flag 0 - which is what this encoder
+ * writes, so the offset is in 8-bit levels at every depth and the shift
+ * brings it to the sample's.
+ *
+ * The clause spells the uni form twice, once per list, and the two
+ * differ only in which weight is read; one function serves both, the
+ * caller having already chosen the list. The `log2Wd < 1` arm is
+ * unreachable at 8 and 10 bits - shift1 is 6 and 4 and denom is never
+ * negative - and is written anyway, because leaving it out would make
+ * the code read as if the condition were not in the spec. */
+void n265_wp_uni_wh_ref(pixel *dst, int ds, const int16_t *src, int w, int h,
+                        int wt, int off, int denom)
+{
+    int log2Wd = denom + MC_SHIFT3;
+    int o = off * (1 << BIT_DEPTH_SHIFT);
+    if (log2Wd >= 1) {
+        int rnd = 1 << (log2Wd - 1);
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+                dst[y * ds + x] =
+                    clip1(((src[y * w + x] * wt + rnd) >> log2Wd) + o);
+    } else {
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+                dst[y * ds + x] = clip1(src[y * w + x] * wt + o);
+    }
+}
+
+void n265_wp_uni_wh(pixel *dst, int ds, const int16_t *src, int w, int h,
+                    int wt, int off, int denom)
+{
+#if N265_NEON_MC
+    /* the shape test joins the class test for n265_bi_avg_wh's reason:
+     * below four samples wide the kernel is its own scalar tail and pays
+     * an out-of-line call for it */
+    if (w >= 4 && n265_asm_on(N265_ASM_MC)) {
+        n265_wp_uni_wh_neon(dst, ds, src, w, h, wt, off, denom);
+        return;
+    }
+#endif
+    n265_wp_uni_wh_ref(dst, ds, src, w, h, wt, off, denom);
+}
+
+void n265_wp_bi_wh_ref(pixel *dst, int ds, const int16_t *a, const int16_t *b,
+                       int w, int h, int w0, int o0, int w1, int o1,
+                       int denom)
+{
+    int log2Wd = denom + MC_SHIFT3;
+    /* ((o0 + o1 + 1) << log2Wd) of the clause, with the depth scale on
+     * the OFFSETS and not on the 1: the +1 is the rounding term of the
+     * >> (log2Wd + 1) that follows, not part of either offset. */
+    /* the shift is written as a MULTIPLY: the bracket is negative
+     * whenever the two offsets sum below -1, and shifting a negative
+     * left is undefined (UBSan catches it in checkasm-asan). */
+    int add = ((o0 + o1) * (1 << BIT_DEPTH_SHIFT) + 1) * (1 << log2Wd);
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++) {
+            int v = a[y * w + x] * w0 + b[y * w + x] * w1 + add;
+            dst[y * ds + x] = clip1(v >> (log2Wd + 1));
+        }
+}
+
+void n265_wp_bi_wh(pixel *dst, int ds, const int16_t *a, const int16_t *b,
+                   int w, int h, int w0, int o0, int w1, int o1, int denom)
+{
+#if N265_NEON_MC
+    if (w >= 4 && n265_asm_on(N265_ASM_MC)) {
+        n265_wp_bi_wh_neon(dst, ds, a, b, w, h, w0, o0, w1, o1, denom);
+        return;
+    }
+#endif
+    n265_wp_bi_wh_ref(dst, ds, a, b, w, h, w0, o0, w1, o1, denom);
+}
+
+/* The search's pixel-domain map; mc.h says why a cost function is
+ * allowed this and a reconstruction is not. */
+void n265_wp_pix_wh(pixel *dst, int ds, const pixel *src, int ss, int w,
+                    int h, int wt, int off, int denom)
+{
+#if N265_NEON_MC
+    if (w >= 4 && n265_asm_on(N265_ASM_MC)) {
+        n265_wp_pix_wh_neon(dst, ds, src, ss, w, h, wt, off, denom);
+        return;
+    }
+#endif
+    n265_wp_pix_wh_ref(dst, ds, src, ss, w, h, wt, off, denom);
+}
+
+void n265_wp_pix_wh_ref(pixel *dst, int ds, const pixel *src, int ss, int w,
+                        int h, int wt, int off, int denom)
+{
+    int o = off * (1 << BIT_DEPTH_SHIFT);
+    if (denom >= 1) {
+        int rnd = 1 << (denom - 1);
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+                dst[y * ds + x] =
+                    clip1(((src[y * ss + x] * wt + rnd) >> denom) + o);
+    } else {
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+                dst[y * ds + x] = clip1(src[y * ss + x] * wt + o);
+    }
+}

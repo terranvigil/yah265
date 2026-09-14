@@ -559,6 +559,13 @@ if [ "$CSP" = 444 ]; then
     # scripts/hash_check.py's independent implementation, which is the
     # reason that script exists.
     run_vector ${P}_hash_crc 352x288 16 testsrc2 "--keyint 8 --bframes 3 --crf 28 --aq 1 --cutree 1 --hash 2 --threads 4"
+    # Weighted prediction at 4:4:4 (phase 14 item 2). The chroma weight is
+    # applied to a chroma block that IS a luma block here, so the chroma
+    # MC runs at quarter-pel on a full-size plane and the weighted path
+    # sees block shapes the 4:2:0 vectors never present it - 64x64 among
+    # them, which is the widest thing the weighted kernel is ever handed.
+    run_vector_file tests/corpus/fade_cif.y4m \
+           ${P}_wp_fade 352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 28 --aq 1 --cutree 1 --weightp --weightb --threads 4"
     if [ "$FAST" -eq 0 ]; then
         run_vector_file tests/corpus/mobile_cif.y4m \
                    ${P}_mobile 352x288 16 testsrc2 "--keyint 8 --bframes 3 --qp 22 --aq 1 --threads 1"
@@ -677,6 +684,15 @@ if [ "$DEPTH" = 10 ]; then
     # that mis-parses one flag reaches the slice data with everything
     # shifted; both decoders are held bit-exact, and the hash leg above
     # adds the picture-level claim on top.
+    # Weighted prediction at Main10 (phase 14 item 2). The offsets are
+    # signalled in 8-BIT levels at every depth and 8.5.3.3.4.3 shifts
+    # them by WpOffsetBdShiftY at use, so a writer that scaled the offset
+    # itself - or a predictor that forgot to - produces a stream that
+    # parses and reconstructs a different picture. This is the vector
+    # that says it does not. fade_cif is upshifted on the way in, as
+    # every Main10 vector here is.
+    run_vector_file tests/corpus/fade_cif.y4m \
+           m10_wp_fade 352x288 32 testsrc2 "--keyint 12 --bframes 7 --crf 28 --aq 1 --cutree 1 --weightp --weightb --threads 4"
     run_vector m10_hdr10 352x288 24 testsrc2 "--keyint 8 --bframes 3 --crf 28 --aq 1 --cutree 1 --hash 1 --colorprim bt2020 --transfer smpte2084 --colormatrix bt2020nc --range limited --chromaloc 2 --sar 1:1 --master-display G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,5) --max-cll 1000,400 --threads 4"
     if [ "$FAST" -eq 0 ]; then
         run_vector_file tests/corpus/sintel_720p.y4m \
@@ -1065,6 +1081,29 @@ run_vector hash_md5      352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 26 -
 # the coded picture to be hidden. Everything here is signalling, so the
 # claim is that both decoders still reconstruct the same samples.
 run_vector vui_colour    210x122 12 testsrc2 "--keyint 6 --bframes 3 --qp 30 --colorprim bt709 --transfer bt709 --colormatrix bt709 --range full --videoformat pal --chromaloc 0 --overscan crop --sar 16:9 --display-window 2,2,4,4 --threads 4"
+# Weighted prediction (phase 14 item 2), on the clip the tool exists for.
+# fade_cif is foreman with a 40-frame fade to black and a 40-frame fade
+# back (scripts/fetch_corpus.sh), so the estimator FIRES here - on a clip
+# with no illumination ramp it declines and the vector would prove only
+# that the syntax parses.
+#
+# Two vectors because the two PPS flags put the table in DIFFERENT slice
+# types and reach different clauses of 8.5.3.3.4.3: `wp_fade` is
+# weighted_pred_flag alone, which is x265's default and ours, so every
+# weighted block is a UNI prediction in a P slice; `wp_fadeb` adds
+# weighted_bipred_flag, which is where the BI form runs and where a
+# decoder that reads the two lists' weights the wrong way round finally
+# disagrees with us. Both decoders reconstruct explicit WP, so both legs
+# of run_vector are real oracles here.
+#
+# The frame range starts at 0 and covers 32 frames, which at --keyint 12
+# puts an IRAP inside the fade-out: the reference a weighted P points at
+# is then a picture of a different brightness, which is the case the
+# whole estimator is about.
+run_vector_file tests/corpus/fade_cif.y4m \
+           wp_fade  352x288 32 testsrc2 "--keyint 12 --bframes 7 --crf 28 --aq 1 --cutree 1 --weightp --threads 4"
+run_vector_file tests/corpus/fade_cif.y4m \
+           wp_fadeb 352x288 32 testsrc2 "--keyint 8 --bframes 7 --ref 3 --crf 30 --aq 1 --cutree 1 --weightp --weightb --threads 12"
 run_vector fgc_sei       352x288 20 testsrc2 "--keyint 6 --bframes 3 --aq 1 --cutree 1 --film-grain 1.0 --threads 4"
 run_vector fgc_denoise   352x288 20 testsrc2 "--keyint 6 --bframes 3 --aq 1 --cutree 1 --film-grain 1.0 --film-grain-denoise 1 --threads 12"
 

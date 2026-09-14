@@ -375,9 +375,39 @@ void n265_scratch_free(struct n265_scratch *sc)
 }
 
 /* uni MC from one list at any quarter-pel MV into dst (w x h at ds) */
+static void mc_pred14(struct n265_frame_work *e, int list, int ref, int c_idx,
+                      int x0, int y0, int w, int h, mv_t mv, int16_t *dst);
+
+/* --weightp / --weightb: 8.5.3.3.4.3 weights the 14-BIT intermediate,
+ * before the final rounding, so a weighted uni prediction is the bi
+ * path's filter plus the explicit map and not the plain filter with a
+ * multiply after it. The two are different numbers at every fractional
+ * position, and the decoder computes the first one.
+ *
+ * Its own function, and not an arm inside mc_pred_uni, for the 8 KB of
+ * int16 it needs: a stack frame is reserved for the whole function, so
+ * putting the buffer in the caller would charge every UNWEIGHTED
+ * prediction in the encoder for a path it never takes. That is the
+ * trade docs/phase8-plan.md measured at half a percent of single-thread
+ * wall for 4 KB in tt_analyze. */
+static void mc_pred_uni_wp(struct n265_frame_work *e, int list, int ref,
+                           int c_idx, int x0, int y0, int w, int h, mv_t mv,
+                           pixel *dst, int ds, const n265_wp *wp)
+{
+    int16_t t[64 * 64];
+    mc_pred14(e, list, ref, c_idx, x0, y0, w, h, mv, t);
+    n265_wp_uni_wh(dst, ds, t, w, h, wp->w[c_idx], wp->o[c_idx],
+                   n265_wp_denom(e, c_idx));
+}
+
 static void mc_pred_uni(struct n265_frame_work *e, int list, int ref, int c_idx, int x0,
                         int y0, int w, int h, mv_t mv, pixel *dst, int ds)
 {
+    const n265_wp *wp = n265_wp_of(e, list, ref, c_idx);
+    if (wp) {
+        mc_pred_uni_wp(e, list, ref, c_idx, x0, y0, w, h, mv, dst, ds, wp);
+        return;
+    }
     struct n265_refpic *r = e->refl[list][ref];
     int rs = r->stride[c_idx];
     pixel win[N265_REF_WIN_SAMPLES];
@@ -492,7 +522,20 @@ static void mc_pred_wh(struct n265_frame_work *e, int c_idx, int x0, int y0,
         int16_t a[64 * 64], b[64 * 64];
         mc_pred14(e, 0, mot.ref[0], c_idx, x0, y0, w, h, mot.mv[0], a);
         mc_pred14(e, 1, mot.ref[1], c_idx, x0, y0, w, h, mot.mv[1], b);
-        n265_bi_avg_wh(dst, ds, a, b, w, h);
+        /* 8.5.3.3.4.3's bi form wherever EITHER list carries a weight;
+         * the other list then rides at the identity, which is what the
+         * decoder derives for a reference whose flag is 0. */
+        const n265_wp *w0 = n265_wp_of(e, 0, mot.ref[0], c_idx);
+        const n265_wp *w1 = n265_wp_of(e, 1, mot.ref[1], c_idx);
+        if (w0 || w1) {
+            int d = n265_wp_denom(e, c_idx);
+            n265_wp_bi_wh(dst, ds, a, b, w, h,
+                          w0 ? w0->w[c_idx] : 1 << d, w0 ? w0->o[c_idx] : 0,
+                          w1 ? w1->w[c_idx] : 1 << d, w1 ? w1->o[c_idx] : 0,
+                          d);
+        } else {
+            n265_bi_avg_wh(dst, ds, a, b, w, h);
+        }
     } else {
         int list = mot.pred == 2;
         mc_pred_uni(e, list, mot.ref[list], c_idx, x0, y0, w, h,
@@ -3027,12 +3070,28 @@ static int rung_owns(const struct n265_me_keep *k, int uni, int cpr)
  * exactly that. */
 static uint32_t bi_satd_fixed(struct n265_frame_work *e, int x0, int y0, int w,
                               int h, const int16_t *fix14, int list, int ref,
-                              mv_t mv)
+                              int oref, mv_t mv)
 {
     int16_t a[64 * 64];
     pixel pred[64 * 64];
     mc_pred14(e, list, ref, 0, x0, y0, w, h, mv, a);
-    n265_bi_avg_wh(pred, w, a, fix14, w, h);
+    /* the same combine `mc_pred_wh` would run for this pair. `fix14` is
+     * list !list's interpolation, so its weight is the one `oref` names
+     * on that list; getting the two the wrong way round would cost
+     * nothing visible at the identity and everything under a fade. */
+    const n265_wp *wm = n265_wp_of(e, list, ref, 0);
+    const n265_wp *wf = n265_wp_of(e, !list, oref, 0);
+    if (wm || wf) {
+        int d = n265_wp_denom(e, 0);
+        int mw = wm ? wm->w[0] : 1 << d, mo = wm ? wm->o[0] : 0;
+        int fw2 = wf ? wf->w[0] : 1 << d, fo = wf ? wf->o[0] : 0;
+        if (list == 0)
+            n265_wp_bi_wh(pred, w, a, fix14, w, h, mw, mo, fw2, fo, d);
+        else
+            n265_wp_bi_wh(pred, w, fix14, a, w, h, fw2, fo, mw, mo, d);
+    } else {
+        n265_bi_avg_wh(pred, w, a, fix14, w, h);
+    }
     return n265_satd_wh(e->pad_plane[0] + y0 * e->pad_stride[0] + x0,
                         e->pad_stride[0], pred, w, w, h);
 }
@@ -3141,7 +3200,8 @@ static mv_t subpel_rerank(struct n265_frame_work *e, const pu_geo *g,
     if (cen == UINT32_MAX) {
         pc = (cached_c ? kv->satd
               : fixl >= 0 ? bi_satd_fixed(e, x0, y0, w, h, fix, l,
-                                          amot->ref[l], amot->mv[l])
+                                          amot->ref[l], amot->ref[fixl],
+                                          amot->mv[l])
               : mot_satd_wh(e, x0, y0, w, h, *amot)) +
             (cpr ? cpred_satd(e, x0, y0, w, h, *amot) : 0);
         cen = pc + (uint32_t)(((uint64_t)mot_rate_q8(e, g, amot, mvp, 6)
@@ -3157,7 +3217,8 @@ static mv_t subpel_rerank(struct n265_frame_work *e, const pu_geo *g,
         uint32_t s = (kv && kv->nb_valid && kv->nb[i] != UINT32_MAX)
             ? kv->nb[i]
             : fixl >= 0 ? bi_satd_fixed(e, x0, y0, w, h, fix, l,
-                                        t[i].ref[l], t[i].mv[l])
+                                        t[i].ref[l], t[i].ref[fixl],
+                                        t[i].mv[l])
             : mot_satd_wh(e, x0, y0, w, h, t[i]);
         uint32_t sp = s + (cpr ? cpred_satd(e, x0, y0, w, h, t[i]) : 0);
         uint32_t c = sp +
@@ -3293,7 +3354,7 @@ static uint32_t bi_refine(struct n265_frame_work *e, const pu_geo *g, mot_t *bi,
                         continue;
                     t.mv[l] = v;
                     uint32_t c = bi_satd_fixed(e, x0, y0, w, h, fix, l,
-                                               bi->ref[l], v) +
+                                               bi->ref[l], bi->ref[o], v) +
                         (uint32_t)(((uint64_t)mot_rate_q8(e, g, &t, mvp, base)
                                     * lam4) >> 12);
                     if (c < best) {

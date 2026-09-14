@@ -88,6 +88,12 @@ static int g_rdoq_level = -1;
  * every encode before phase 13 B1 and every preset. */
 static int g_cb_qp_off = 0;
 static int g_cr_qp_off = 0;
+/* --weightp / --weightb. -1 is "the caller said nothing", which is
+ * what lets N265_WEIGHTP and the preset table supply the value; a
+ * flag always wins, in either direction, so --no-weightp is an
+ * escape from a preset that turns it on. */
+static int g_weightp = -1;
+static int g_weightb = -1;
 /* Annex A overrides (phase 8 item 7). 0 / 0 / 0 is "derive the level and
  * the tier from the stream and write no VUI", which is what every board,
  * band and gate runs. */
@@ -203,6 +209,14 @@ void n265_set_chroma_qpoffs(int cb, int cr)
 {
     g_cb_qp_off = cb < -12 ? -12 : cb > 12 ? 12 : cb;
     g_cr_qp_off = cr < -12 ? -12 : cr > 12 ? 12 : cr;
+}
+/* --weightp / --weightb: weighted_pred_flag and weighted_bipred_flag.
+ * -1 in either argument leaves that half to the knob and the preset. */
+void n265_set_weight(int weightp, int weightb);
+void n265_set_weight(int weightp, int weightb)
+{
+    g_weightp = weightp;
+    g_weightb = weightb;
 }
 /* --level / --high-tier / --vui-timing, declared the same way. `idc` is
  * general_level_idc (level * 30); 0 leaves the level derived. */
@@ -891,6 +905,10 @@ static void fw_config(n265_encoder *e, n265_frame_work *fw)
     fw->psy = e->psy;
     fw->dbf_beta = e->dbf_beta;
     fw->dbf_tc = e->dbf_tc;
+    /* the two PPS weighting flags, copied like every other config
+     * field so the header writer reads one struct and no global */
+    fw->weightp = e->weightp;
+    fw->weightb = e->weightb;
     fw->cb_qp_off = e->cb_qp_off;
     fw->cr_qp_off = e->cr_qp_off;
     fw->cu_stats = e->cu_stats;
@@ -1453,6 +1471,19 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     if (e->cb_qp_off > 12) e->cb_qp_off = 12;
     if (e->cr_qp_off < -12) e->cr_qp_off = -12;
     if (e->cr_qp_off > 12) e->cr_qp_off = 12;
+    /* --weightp / --weightb (phase 14 item 2). The flag first, then the
+     * knob, then the preset table behind n265_env - the order every
+     * other tuning value here uses. */
+    e->weightp = g_weightp >= 0 ? g_weightp != 0
+                 : (n265_env("N265_WEIGHTP")
+                    ? atoi(n265_env("N265_WEIGHTP")) != 0 : 0);
+    e->weightb = g_weightb >= 0 ? g_weightb != 0
+                 : (n265_env("N265_WEIGHTB")
+                    ? atoi(n265_env("N265_WEIGHTB")) != 0 : 0);
+    /* The phase-0 I_PCM path codes no inter picture at all, so a flag
+     * here would be one nothing in the stream reads. */
+    if (e->mode == N265_MODE_PCM)
+        e->weightp = e->weightb = 0;
     int align = e->mode == N265_MODE_PCM ? 16 : (1 << MIN_CB_LOG2);
     if (p->width < align || p->height < align)
         goto fail;
@@ -1907,6 +1938,34 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         goto fail;
     if (n265_la_init(e) < 0)
         goto fail;
+    /* --weightp / --weightb: the estimator's planes, after la_init for
+     * the same reason the rate control is - the lowres geometry is
+     * la_init's. Nothing is allocated with both flags off, so the
+     * default encoder's footprint does not move. */
+    if (e->weightp || e->weightb) {
+        e->wp_cw = (e->pad_w >> e->csx) / 2;
+        e->wp_ch = (e->pad_h >> e->csy) / 2;
+        if (e->wp_cw < 4) e->wp_cw = 4;
+        if (e->wp_ch < 4) e->wp_ch = 4;
+        size_t nl = (size_t)e->la.lw * e->la.lh * sizeof(pixel);
+        size_t nc = (size_t)e->wp_cw * e->wp_ch * sizeof(pixel);
+        for (int c = 0; c < 3; c++) {
+            e->wp_cur[c] = calloc(c ? nc : nl, 1);
+            if (!e->wp_cur[c])
+                goto fail;
+            /* every slot a picture can be stored in, the non-reference
+             * scratch included: `wp_slot_store` writes whatever slot the
+             * claim handed out and does not branch on which array it
+             * came from */
+            for (int sl = 0; sl < e->dpb_slots + e->K; sl++) {
+                struct n265_refpic *r = sl < e->dpb_slots
+                    ? &e->dpb[sl] : &e->scratch_pic[sl - e->dpb_slots];
+                r->wp_low[c] = calloc(c ? nc : nl, 1);
+                if (!r->wp_low[c])
+                    goto fail;
+            }
+        }
+    }
     n265_rc_open(e);        /* after la_init: it needs the lowres geometry */
     if (twopass_open(e, p) < 0)
         goto fail;
@@ -2059,10 +2118,15 @@ void n265_encoder_close(n265_encoder *e)
      * calloc'd, an unused slot's pointers are NULL, and a close on the
      * open path's `fail` can land before the pool was sized at all. */
     for (int i = 0; i < 3; i++) {
-        for (int sl = 0; sl < N265_DPB_SLOTS; sl++)
+        for (int sl = 0; sl < N265_DPB_SLOTS; sl++) {
             free(e->dpb[sl].base[i]);
-        for (int sl = 0; sl < N265_MAX_FRAME_WORK; sl++)
+            free(e->dpb[sl].wp_low[i]);
+        }
+        for (int sl = 0; sl < N265_MAX_FRAME_WORK; sl++) {
             free(e->scratch_pic[sl].base[i]);
+            free(e->scratch_pic[sl].wp_low[i]);
+        }
+        free(e->wp_cur[i]);
     }
     for (int i = 0; i < 3; i++)
         free(e->hdr_rbsp[i]);
@@ -2147,6 +2211,59 @@ static void snapshot_rps(n265_encoder *e, n265_frame_work *fw)
         }
 }
 
+/* 7.3.6.3. The table carries ONE luma denominator and one chroma
+ * denominator for both lists; the weights themselves are written as
+ * DELTAS from 1 << denominator, and the chroma offset is written as a
+ * delta from what the weight alone would have done to the neutral level
+ * (7.4.7.3's ChromaOffsetLX derivation, inverted here).
+ *
+ * The per-reference flag has a presence condition in the syntax -
+ * "unless the reference is this picture in another layer or at the same
+ * POC" - and neither half of it can be true in a single-layer stream
+ * where every reference has a POC of its own, so every flag is written.
+ * The condition is not implemented because it cannot fire, and saying so
+ * here is cheaper than code that is dead by construction.
+ *
+ * WpOffsetHalfRangeC is 128: sps_high_precision_offsets_enabled_flag is
+ * 0 (this encoder writes no SPS range extension), so both half-ranges
+ * are 1 << 7 whatever the bit depth, and the offsets are in 8-bit levels
+ * that 8.5.3.3.4.3 shifts up at use. */
+void n265_write_pred_weight_table(bitstream_t *bs,
+                                  const n265_frame_work *fw)
+{
+    int lists = fw->slice_type == 0 ? 2 : 1;
+    bs_put_ue(bs, (uint32_t)fw->wp_ldenom);     /* luma_log2_weight_denom */
+    /* delta_chroma_log2_weight_denom; ChromaLog2WeightDenom is the sum
+     * and 7.4.7.3 bounds it at 0..7, which the estimator's own choice
+     * already respects */
+    bs_put_se(bs, fw->wp_cdenom - fw->wp_ldenom);
+    for (int l = 0; l < lists; l++) {
+        for (int i = 0; i < fw->nref[l]; i++)
+            bs_put_bits(bs, fw->wp[l][i].on[0] != 0, 1); /* luma_weight_lX_flag */
+        for (int i = 0; i < fw->nref[l]; i++)
+            bs_put_bits(bs, fw->wp[l][i].on[1] != 0, 1); /* chroma_weight_lX_flag */
+        for (int i = 0; i < fw->nref[l]; i++) {
+            const n265_wp *wp = &fw->wp[l][i];
+            if (wp->on[0]) {
+                bs_put_se(bs, wp->w[0] - (1 << fw->wp_ldenom)); /* delta_luma_weight */
+                bs_put_se(bs, wp->o[0]);                        /* luma_offset */
+            }
+            if (wp->on[1])
+                for (int j = 0; j < 2; j++) {
+                    bs_put_se(bs, wp->w[j + 1] - (1 << fw->wp_cdenom));
+                                                /* delta_chroma_weight_lX */
+                    /* the inverse of 7.4.7.3: ChromaOffsetLX is
+                     * Clip3(-128, 127, 128 + delta - ((128 * w) >> d)),
+                     * and the clip is inert for an offset already inside
+                     * the range, which the estimator clamps it to. */
+                    int d = wp->o[j + 1] - 128 +
+                            ((128 * wp->w[j + 1]) >> fw->wp_cdenom);
+                    bs_put_se(bs, d);           /* delta_chroma_offset_lX */
+                }
+        }
+    }
+}
+
 static void write_slice_header(n265_encoder *e, n265_frame_work *fw)
 {
     (void)e;
@@ -2209,6 +2326,12 @@ static void write_slice_header(n265_encoder *e, n265_frame_work *fw)
             if (fw->nref[0] > 1)
                 bs_put_ue(bs, 0);       /* collocated_ref_idx: L0[0] */
         }
+        /* 7.3.6.3 pred_weight_table, present exactly where 7.3.6.1 puts
+         * it: a P slice under weighted_pred_flag, a B slice under
+         * weighted_bipred_flag. The table is fw->wp, derived at dispatch
+         * (src/encoder/wp.c). */
+        if (fw->wp_on)
+            n265_write_pred_weight_table(bs, fw);
         bs_put_ue(bs, 5 - MAX_MERGE);   /* five_minus_max_num_merge_cand */
     }
     bs_put_se(bs, fw->qp - 26);      /* slice_qp_delta */
@@ -5296,6 +5419,9 @@ static void claim_slot(n265_encoder *e, n265_frame_work *fw)
      * after it (la.h, the duplicate chain) */
     slot->dup_grp = fw->dup_grp;
     slot->dup_cum = fw->dup_cum;
+    /* ...and the lowres source the weight estimator will read off this
+     * picture when a later frame names it (encoder.h, n265_refpic) */
+    n265_wp_slot_store(e, slot);
     for (int i = 0; i < 3; i++) {
         fw->recon[i] = slot->plane[i];
         fw->recon_stride[i] = slot->stride[i];
@@ -5407,6 +5533,19 @@ static int drive_scheduler(n265_encoder *e)
     fw->dup_grp = f->dup_grp;       /* the duplicate chain (la.h) */
     fw->dup_cum = f->dup_cum;
     fw->dup_zsad = f->zsad_sum;     /* N265_DUP_TRACE only */
+    /* --weightp / --weightb (phase 14 item 2). The lowres planes are
+     * built for EVERY picture, I slices included: this frame carries no
+     * table but its source is what the frames that reference it will be
+     * weighted against. The table itself is derived here, on the driver,
+     * with the lists already frozen and nothing dispatched since - so it
+     * is a pure function of the sources and identical at every thread
+     * count. `wp_on` is the PPS flag that applies to this slice type:
+     * weighted_pred_flag governs P, weighted_bipred_flag governs B, and
+     * an I slice parses neither. */
+    n265_wp_build_cur(e, f);
+    fw->wp_on = (slice_type == 1 && e->weightp) ||
+                (slice_type == 0 && e->weightb);
+    n265_wp_analyse(e, fw);
     /* D1: freeze the RPS here, while the marked set is still the one the
      * serial encoder's header writer would have seen. Before the claim,
      * so the picture cannot appear in its own RPS. */

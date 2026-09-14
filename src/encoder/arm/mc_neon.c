@@ -1791,6 +1791,184 @@ void n265_mc_chroma_14_wh_neon(int16_t *dst, int ds, int w, int h,
     mc_chroma_2d_s16(dst, ds, w, h, ref, rs, fx, fy, tmp);
 }
 
+/* ---- 8.5.3.3.4.3, explicit weighted sample prediction ---------------
+ *
+ * Three kernels, one map: `(v * wt + round) >> shift` with an offset and
+ * a clip. The shift is a RUNTIME value here - log2Wd is the slice's own
+ * denominator plus shift1, and the denominator is whatever the estimator
+ * chose - so none of the narrowing intrinsics with an immediate shift
+ * can be used and the shift rides in a vector. vrshlq_s32 with a
+ * negative count is exactly the C's `(x + (1 << (s-1))) >> s` including
+ * on a negative x, and vshlq_s32 with a negative count is the plain
+ * arithmetic shift the bi form wants, its rounding term being folded
+ * into the offset already.
+ *
+ * The narrow out is vqmovun, whose saturation IS the C's lower clip at
+ * zero; the upper clip is PIXEL_MAX and is a separate vmin, because no
+ * narrow's own bound is PIXEL_MAX at either depth.
+ *
+ * The scalar tails are not optional. 4:2:0 halves every luma PU width,
+ * so w = 2 and w = 6 reach these kernels from the AMP shapes, and a
+ * four-lane tail at w = 2 writes two samples of the next block.
+ */
+
+static inline uint16x8_t wp_clip_u16(int32x4_t lo, int32x4_t hi)
+{
+    return vminq_u16(vcombine_u16(vqmovun_s32(lo), vqmovun_s32(hi)),
+                     vdupq_n_u16(PIXEL_MAX));
+}
+
+static inline void wp_store8(pixel *pd, uint16x8_t r)
+{
+#if BIT_DEPTH == 8
+    vst1_u8(pd, vqmovn_u16(r));
+#else
+    vst1q_u16(pd, r);
+#endif
+}
+
+static inline void wp_store4(pixel *pd, uint16x4_t r)
+{
+#if BIT_DEPTH == 8
+    uint8x8_t o = vqmovn_u16(vcombine_u16(r, r));
+    uint32_t four = vget_lane_u32(vreinterpret_u32_u8(o), 0);
+    memcpy(pd, &four, 4);       /* dst has no alignment guarantee */
+#else
+    vst1_u16(pd, r);
+#endif
+}
+
+static inline int wp_scalar(int v, int wt, int shift, int o)
+{
+    int r = shift >= 1 ? ((v * wt + (1 << (shift - 1))) >> shift) + o
+                       : v * wt + o;
+    return r < 0 ? 0 : r > PIXEL_MAX ? PIXEL_MAX : r;
+}
+
+void n265_wp_uni_wh_neon(pixel *dst, int ds, const int16_t *src, int w, int h,
+                         int wt, int off, int denom)
+{
+    int log2Wd = denom + MC_SHIFT3;
+    int o = off * (1 << BIT_DEPTH_SHIFT);
+    int16x4_t vw = vdup_n_s16((int16_t)wt);
+    int32x4_t vsh = vdupq_n_s32(-log2Wd);
+    int32x4_t vo = vdupq_n_s32(o);
+
+    for (int y = 0; y < h; y++) {
+        const int16_t *ps = src + (ptrdiff_t)y * w;
+        pixel *pd = dst + (ptrdiff_t)y * ds;
+        int x = 0;
+        for (; x + 8 <= w; x += 8) {
+            int16x8_t v = vld1q_s16(ps + x);
+            int32x4_t lo = vmull_s16(vget_low_s16(v), vw);
+            int32x4_t hi = vmull_high_s16(v, vcombine_s16(vw, vw));
+            lo = vaddq_s32(vrshlq_s32(lo, vsh), vo);
+            hi = vaddq_s32(vrshlq_s32(hi, vsh), vo);
+            wp_store8(pd + x, wp_clip_u16(lo, hi));
+        }
+        if (x + 4 <= w) {
+            int32x4_t v = vmull_s16(vld1_s16(ps + x), vw);
+            v = vaddq_s32(vrshlq_s32(v, vsh), vo);
+            wp_store4(pd + x, vmin_u16(vqmovun_s32(v),
+                                       vdup_n_u16(PIXEL_MAX)));
+            x += 4;
+        }
+        for (; x < w; x++)
+            pd[x] = (pixel)wp_scalar(ps[x], wt, log2Wd, o);
+    }
+}
+
+void n265_wp_bi_wh_neon(pixel *dst, int ds, const int16_t *a, const int16_t *b,
+                        int w, int h, int w0, int o0, int w1, int o1,
+                        int denom)
+{
+    int log2Wd = denom + MC_SHIFT3;
+    /* a MULTIPLY, not a shift: the bracket goes negative and shifting
+     * a negative left is undefined. See mc.c's twin. */
+    int add = ((o0 + o1) * (1 << BIT_DEPTH_SHIFT) + 1) * (1 << log2Wd);
+    int16x4_t v0 = vdup_n_s16((int16_t)w0), v1 = vdup_n_s16((int16_t)w1);
+    int16x8_t q0 = vcombine_s16(v0, v0), q1 = vcombine_s16(v1, v1);
+    int32x4_t vadd = vdupq_n_s32(add);
+    int32x4_t vsh = vdupq_n_s32(-(log2Wd + 1));
+
+    for (int y = 0; y < h; y++) {
+        const int16_t *pa = a + (ptrdiff_t)y * w;
+        const int16_t *pb = b + (ptrdiff_t)y * w;
+        pixel *pd = dst + (ptrdiff_t)y * ds;
+        int x = 0;
+        for (; x + 8 <= w; x += 8) {
+            int16x8_t va = vld1q_s16(pa + x), vb = vld1q_s16(pb + x);
+            int32x4_t lo = vmull_s16(vget_low_s16(va), v0);
+            lo = vmlal_s16(lo, vget_low_s16(vb), v1);
+            int32x4_t hi = vmull_high_s16(va, q0);
+            hi = vmlal_high_s16(hi, vb, q1);
+            lo = vshlq_s32(vaddq_s32(lo, vadd), vsh);
+            hi = vshlq_s32(vaddq_s32(hi, vadd), vsh);
+            wp_store8(pd + x, wp_clip_u16(lo, hi));
+        }
+        if (x + 4 <= w) {
+            int32x4_t s = vmull_s16(vld1_s16(pa + x), v0);
+            s = vmlal_s16(s, vld1_s16(pb + x), v1);
+            s = vshlq_s32(vaddq_s32(s, vadd), vsh);
+            wp_store4(pd + x, vmin_u16(vqmovun_s32(s),
+                                       vdup_n_u16(PIXEL_MAX)));
+            x += 4;
+        }
+        for (; x < w; x++) {
+            int v = (pa[x] * w0 + pb[x] * w1 + add) >> (log2Wd + 1);
+            pd[x] = (pixel)(v < 0 ? 0 : v > PIXEL_MAX ? PIXEL_MAX : v);
+        }
+    }
+}
+
+void n265_wp_pix_wh_neon(pixel *dst, int ds, const pixel *src, int ss, int w,
+                         int h, int wt, int off, int denom)
+{
+    int o = off * (1 << BIT_DEPTH_SHIFT);
+    int16x4_t vw = vdup_n_s16((int16_t)wt);
+    int16x8_t qw = vcombine_s16(vw, vw);
+    int32x4_t vsh = vdupq_n_s32(-denom);
+    int32x4_t vo = vdupq_n_s32(o);
+
+    for (int y = 0; y < h; y++) {
+        const pixel *ps = src + (ptrdiff_t)y * ss;
+        pixel *pd = dst + (ptrdiff_t)y * ds;
+        int x = 0;
+        for (; x + 8 <= w; x += 8) {
+#if BIT_DEPTH == 8
+            int16x8_t v = vreinterpretq_s16_u16(vmovl_u8(vld1_u8(ps + x)));
+#else
+            int16x8_t v = vreinterpretq_s16_u16(vld1q_u16(ps + x));
+#endif
+            int32x4_t lo = vmull_s16(vget_low_s16(v), vw);
+            int32x4_t hi = vmull_high_s16(v, qw);
+            /* denom can be 0, and vrshlq by 0 is the identity, which is
+             * what the C's `denom >= 1` arm degenerates to */
+            lo = vaddq_s32(vrshlq_s32(lo, vsh), vo);
+            hi = vaddq_s32(vrshlq_s32(hi, vsh), vo);
+            wp_store8(pd + x, wp_clip_u16(lo, hi));
+        }
+        if (x + 4 <= w) {
+#if BIT_DEPTH == 8
+            uint32_t four;
+            memcpy(&four, ps + x, 4);
+            uint16x4_t u = vget_low_u16(vmovl_u8(vreinterpret_u8_u32(
+                                            vdup_n_u32(four))));
+            int16x4_t v = vreinterpret_s16_u16(u);
+#else
+            int16x4_t v = vreinterpret_s16_u16(vld1_u16(ps + x));
+#endif
+            int32x4_t s = vaddq_s32(vrshlq_s32(vmull_s16(v, vw), vsh), vo);
+            wp_store4(pd + x, vmin_u16(vqmovun_s32(s),
+                                       vdup_n_u16(PIXEL_MAX)));
+            x += 4;
+        }
+        for (; x < w; x++)
+            pd[x] = (pixel)wp_scalar(ps[x], wt, denom, o);
+    }
+}
+
 #else
 typedef int n265_mc_neon_unused_;   /* C requires a non-empty translation unit */
+
 #endif /* N265_NEON_MC */

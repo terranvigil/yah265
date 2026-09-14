@@ -122,4 +122,44 @@ void n265_bi_avg_wh_ref(pixel *dst, int dst_stride, const int16_t *a,
                         const int16_t *b, int w, int h);
 void n265_bi_avg(pixel *dst, const int16_t *a, const int16_t *b, int n);
 
+/* ---- 8.5.3.3.4.3, explicit weighted sample prediction --------------
+ *
+ * Both forms take the weight at the table's denominator (LumaWeightLX /
+ * ChromaWeightLX, 7.4.7.3) and the offset in the syntax's own 8-bit
+ * levels; the depth shifts - log2Wd = denom + (14 - BitDepth) and
+ * WpOffsetBdShiftY - are applied here, so a caller passes what the
+ * pred_weight_table carries and nothing else.
+ *
+ * The inputs are the 14-bit intermediates, NOT rounded samples: the spec
+ * weights before the final rounding, and weighting a rounded sample is a
+ * different number at every fractional position. `a` and `b` are packed
+ * w x h, the shape the bi path already builds.
+ *
+ * At the identity (wt = 1 << denom, off = 0) both reduce EXACTLY to the
+ * default forms - the uni rounding, and n265_bi_avg_wh - which is what
+ * makes turning weighted_pred_flag on with an all-off table a no-op on
+ * the samples rather than a rounding change. */
+void n265_wp_uni_wh(pixel *dst, int ds, const int16_t *src, int w, int h,
+                    int wt, int off, int denom);
+void n265_wp_uni_wh_ref(pixel *dst, int ds, const int16_t *src, int w, int h,
+                        int wt, int off, int denom);
+void n265_wp_bi_wh(pixel *dst, int ds, const int16_t *a, const int16_t *b,
+                   int w, int h, int w0, int o0, int w1, int o1, int denom);
+void n265_wp_bi_wh_ref(pixel *dst, int ds, const int16_t *a, const int16_t *b,
+                       int w, int h, int w0, int o0, int w1, int o1,
+                       int denom);
+
+/* The SEARCH's form: the same map applied to an already-rounded sample
+ * block. It is EXACT at a full-pel position - shift1 cancels out of
+ * ((s << shift1) * wt + (1 << (log2Wd - 1))) >> log2Wd - and differs
+ * from the prediction only in the subpel rounding, which is the right
+ * trade for a cost function: a motion search is allowed to be
+ * approximate and a reconstruction is not. Using it keeps the search off
+ * the 14-bit path, where every candidate would pay a second buffer and a
+ * second pass. */
+void n265_wp_pix_wh(pixel *dst, int ds, const pixel *src, int ss, int w,
+                    int h, int wt, int off, int denom);
+void n265_wp_pix_wh_ref(pixel *dst, int ds, const pixel *src, int ss, int w,
+                        int h, int wt, int off, int denom);
+
 #endif

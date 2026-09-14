@@ -460,8 +460,16 @@ void n265_write_pps(struct n265_frame_work *e)
     bs_put_se(bs, e->cb_qp_off);    /* pps_cb_qp_offset */
     bs_put_se(bs, e->cr_qp_off);    /* pps_cr_qp_offset */
     bs_put_bits(bs, 0, 1);          /* pps_slice_chroma_qp_offsets_present */
-    bs_put_bits(bs, 0, 1);          /* weighted_pred_flag */
-    bs_put_bits(bs, 0, 1);          /* weighted_bipred_flag */
+    /* --weightp / --weightb (7.4.3.3.1). The pair is a SEQUENCE-level
+     * claim - "P slices may carry a pred_weight_table", "B slices may" -
+     * and every slice of that type then carries one whether or not
+     * anything fired, because the flag is what puts the table in the
+     * syntax. A table whose weights are all at their identity is
+     * arithmetically the unweighted prediction (mc.h), so the cost of a
+     * frame the estimator declined is the table's own handful of bits
+     * and not one coded sample. */
+    bs_put_bits(bs, e->weightp != 0, 1);    /* weighted_pred_flag */
+    bs_put_bits(bs, e->weightb != 0, 1);    /* weighted_bipred_flag */
     bs_put_bits(bs, e->lossless != 0, 1); /* transquant_bypass_enabled_flag */
     bs_put_bits(bs, 0, 1);          /* tiles_enabled_flag */
     bs_put_bits(bs, 0, 1);          /* entropy_coding_sync_enabled_flag */

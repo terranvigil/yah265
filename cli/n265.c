@@ -93,6 +93,7 @@ void n265_set_vui_timing_10(int on);
 void n265_set_film_grain_10(double strength, int denoise);
 void n265_set_vbv_10(double maxrate, double bufsize, double init);
 void n265_set_hash_10(int type);
+void n265_set_weight_10(int weightp, int weightb);
 void n265_set_vui_colour_10(int videoformat, int full_range, int colorprim,
                             int transfer, int colormatrix, int chromaloc,
                             int overscan);
@@ -136,6 +137,9 @@ typedef struct n265_api {
     void (*set_vbv)(double, double, double);
     void (*set_rdoq_level)(int);
     void (*set_chroma_qpoffs)(int, int);
+    /* --weightp / --weightb (phase 14 item 2): weighted_pred_flag and
+     * weighted_bipred_flag. -1 in either leaves that half to the preset. */
+    void (*set_weight)(int, int);
     /* the pass-through signalling setters (phase 14 item 1). They take
      * syntax elements, never names: the tables above turn the command
      * line's spellings into numbers once, before the dispatch. */
@@ -162,7 +166,7 @@ static const n265_api api8 = {
     n265_set_shot_window, n265_set_pass,
     n265_set_lossless, n265_set_level, n265_set_vui_timing,
     n265_set_film_grain, n265_set_vbv, n265_set_rdoq_level,
-    n265_set_chroma_qpoffs,
+    n265_set_chroma_qpoffs, n265_set_weight,
     n265_set_hash, n265_set_vui_colour, n265_set_vui_sar,
     n265_set_vui_window, n265_set_hdr_meta, n265_set_hdr10,
     n265_encoder_open, n265_encoder_encode, n265_encoder_close,
@@ -178,7 +182,7 @@ static const n265_api api10 = {
     n265_set_shot_window_10, n265_set_pass_10,
     n265_set_lossless_10, n265_set_level_10, n265_set_vui_timing_10,
     n265_set_film_grain_10, n265_set_vbv_10, n265_set_rdoq_level_10,
-    n265_set_chroma_qpoffs_10,
+    n265_set_chroma_qpoffs_10, n265_set_weight_10,
     n265_set_hash_10, n265_set_vui_colour_10, n265_set_vui_sar_10,
     n265_set_vui_window_10, n265_set_hdr_meta_10, n265_set_hdr10_10,
     n265_encoder_open_10,
@@ -562,6 +566,19 @@ static void usage(void)
         "  --vbv-bufsize <k>  the CPB size in kbit (the other half).\n"
         "  --vbv-init <f>  how full the buffer starts, as a fraction of\n"
         "                  --vbv-bufsize in (0, 1]. Default 0.9.\n"
+        "  -w, --weightp / --no-weightp\n"
+        "                  weighted prediction in P slices: the encoder\n"
+        "                  derives one explicit weight per reference from\n"
+        "                  the lookahead and signals it where it beats the\n"
+        "                  unweighted prediction. It is a tool for FADES\n"
+        "                  and lighting changes and does nothing elsewhere -\n"
+        "                  the estimator declines, and the cost is the\n"
+        "                  table's own handful of bits. On at --preset\n"
+        "                  medium and above, x265's default.\n"
+        "  --weightb / --no-weightb\n"
+        "                  the same in B slices. OFF by default, as in\n"
+        "                  x265: see docs/phase14.md for what it is worth\n"
+        "                  on the fade clips and what it costs elsewhere.\n"
         "  --hash <0-3>    decoded picture hash SEI, one suffix message per\n"
         "                  picture (H.265 D.2.19): 0 off (the default),\n"
         "                  1 MD5, 2 CRC, 3 checksum - x265's numbering. The\n"
@@ -679,6 +696,9 @@ int main(int argc, char **argv)
      * given" in every field that has an absence; give none of them and
      * nothing below reaches the stream. */
     int hash = 0;
+    /* --weightp / --weightb; -1 is "no flag given", which leaves the
+     * value to N265_WEIGHTP / N265_WEIGHTB and then to the preset */
+    int weightp = -1, weightb = -1;
     int sig_videoformat = -1, sig_range = -1, sig_overscan = -1;
     int sig_colorprim = -1, sig_transfer = -1, sig_colormatrix = -1;
     int sig_chromaloc = -1;
@@ -757,6 +777,14 @@ int main(int argc, char **argv)
             pcm = 1;
         } else if (!strcmp(argv[i], "--lossless")) {
             lossless = 1;
+        } else if (!strcmp(argv[i], "--weightp") || !strcmp(argv[i], "-w")) {
+            weightp = 1;
+        } else if (!strcmp(argv[i], "--no-weightp")) {
+            weightp = 0;
+        } else if (!strcmp(argv[i], "--weightb")) {
+            weightb = 1;
+        } else if (!strcmp(argv[i], "--no-weightb")) {
+            weightb = 0;
         } else if (!strcmp(argv[i], "--level") && i + 1 < argc) {
             level_str = argv[++i];
         } else if (!strcmp(argv[i], "--high-tier")) {
@@ -1071,6 +1099,7 @@ int main(int argc, char **argv)
     a->set_vui_timing(vui_timing);
     a->set_film_grain(film_grain, fgc_denoise);
     a->set_vbv(vbv_maxrate, vbv_bufsize, vbv_init);
+    a->set_weight(weightp, weightb);
     /* ---- the pass-through signalling (phase 14 item 1) ---- */
     if (hash < 0 || hash > 3) {
         fprintf(stderr, "n265: --hash is 0 (off), 1 (MD5), 2 (CRC) or "
