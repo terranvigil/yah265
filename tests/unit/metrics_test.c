@@ -37,7 +37,7 @@ static void make_planes(pixel *src, pixel *rec)
     for (int y = 0; y < H; y++) {
         for (int x = 0; x < W; x++) {
             int s = ((x * 7 + y * 13) & 0xff) << (BIT_DEPTH - 8);
-            int d = ((x * 5 + y * 3) % 17 - 8) << (BIT_DEPTH - 8);
+            int d = ((x * 5 + y * 3) % 17 - 8) * (1 << (BIT_DEPTH - 8)); /* a multiply, not a shift of a negative (UBSan) */
             int r = s + d;
             r = r < 0 ? 0 : r > PIXEL_MAX ? PIXEL_MAX : r;
             src[y * W + x] = (pixel)s;
