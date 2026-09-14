@@ -27,6 +27,10 @@ void n265_set_nal_opts(int repeat_headers, int aud, int eos, int eob,
                        int info);
 /* The options clause of that SEI, as the CLI resolved it. */
 void n265_set_info_opts(const char *opts);
+/* --no-fingerprint: the stream fingerprint (phase 14 item 10). ON by
+ * default, like --info and for the same reason, except that this one
+ * spends no bits and moves no sample at all. */
+void n265_set_fingerprint(int on);
 /* --crf-min / --crf-max / --qpmin / --qpmax / --strict-cbr /
  * --max-ausize-factor, and the two files. The sentinels are the widest
  * legal values, so "not given" costs nothing. */
@@ -160,6 +164,7 @@ void n265_set_nal_opts_10(int repeat_headers, int aud, int eos, int eob,
 void n265_set_info_opts_10(const char *opts);
 void n265_set_rc_bounds_10(double crf_min, double crf_max, int qpmin,
                            int qpmax, int strict_cbr, double ausize_factor);
+void n265_set_fingerprint_10(int on);
 void n265_set_sei_opts_10(int recovery_sei, int pic_struct, int hrd_concat,
                           int temporal_layers);
 void n265_set_qpfile_10(const char *path);
@@ -223,6 +228,7 @@ typedef struct n265_api {
     void (*set_zones)(const char *);
     void (*set_csv)(n265_encoder *, const char *, int);
     long (*metrics)(n265_encoder *, double *);
+    void (*set_fingerprint)(int);   /* --no-fingerprint (item 10) */
 } n265_api;
 
 static const n265_api api8 = {
@@ -242,7 +248,7 @@ static const n265_api api8 = {
     n265_set_metrics, n265_set_nal_opts, n265_set_info_opts,
     n265_set_rc_bounds,
     n265_set_sei_opts, n265_set_qpfile, n265_set_zones,
-    n265_encoder_set_csv, n265_encoder_metrics,
+    n265_encoder_set_csv, n265_encoder_metrics, n265_set_fingerprint,
 };
 
 static const n265_api api10 = {
@@ -266,6 +272,7 @@ static const n265_api api10 = {
     n265_set_rc_bounds_10,
     n265_set_sei_opts_10, n265_set_qpfile_10, n265_set_zones_10,
     n265_encoder_set_csv_10, n265_encoder_metrics_10,
+    n265_set_fingerprint_10,
 };
 
 /* QpBdOffsetY (7-5), and the clip bound of Clip1Y. Runtime now, off the
@@ -958,6 +965,12 @@ static void usage(void)
         "                  --crf the recon is unmoved and --dump-recon is\n"
         "                  a second escape; under --bitrate the message is\n"
         "                  bits the rate control spends, so it is not.\n"
+        "  --no-fingerprint  drop the stream fingerprint. It is ON by\n"
+        "                  default and it is the identifying mark that\n"
+        "                  survives having the SEIs stripped: a signature\n"
+        "                  in a merge_idx choice the syntax leaves open,\n"
+        "                  costing no bits and moving no sample.\n"
+        "                  scripts/fingerprint_check.py reads it back.\n"
         "  --psnr          report PSNR at the end of the run, pooled over\n"
         "                  every coded frame: per plane and a\n"
         "                  pixel-weighted average. Measured on the\n"
@@ -1352,6 +1365,7 @@ int main(int argc, char **argv)
      * to. `--no-info` is the escape, and an identity cmp against a
      * pre-item binary is run with it (CLAUDE.md, docs/instruments.md). */
     int repeat_hdr = 0, aud = 0, eos = 0, eob = 0, info = 1;
+    int fingerprint = 1;        /* on unless --no-fingerprint says not */
     /* The rate-control exposure. The sentinels ARE the widest legal
      * values, so an unnamed flag and a flag named at its widest are the
      * same thing and neither is applied. */
@@ -1511,6 +1525,10 @@ int main(int argc, char **argv)
             info = 1;
         } else if (!strcmp(argv[i], "--no-info")) {
             info = 0;
+        } else if (!strcmp(argv[i], "--fingerprint")) {
+            fingerprint = 1;
+        } else if (!strcmp(argv[i], "--no-fingerprint")) {
+            fingerprint = 0;
         } else if (!strcmp(argv[i], "--psnr")) {
             want_psnr = 1;
         } else if (!strcmp(argv[i], "--ssim")) {
@@ -2105,6 +2123,7 @@ int main(int argc, char **argv)
         a->set_info_opts(all);
     }
     a->set_nal_opts(repeat_hdr, aud, eos, eob, info);
+    a->set_fingerprint(fingerprint);
     /* The QP bounds are QpY values, so they carry the depth's floor the
      * way --qp and --crf do. The rest of the refusals need the STREAM -
      * whether there is a rate control to bound, whether there is a buffer

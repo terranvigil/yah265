@@ -563,6 +563,11 @@ typedef struct n265_frame_work {
      * above and for the same reason; the row prints on the driver. */
     int fp_census;
     uint64_t fpc[N265_FPC_COUNT];
+    /* The stream fingerprint (phase 14 item 10). `fp_poc_lsb` is the
+     * pic_order_cnt_lsb a reader will see, and it and the site's own
+     * position decide which signature bit the site carries - a running
+     * count would have made the stream depend on the schedule. */
+    int fp_on, fp_poc_lsb;
     uint64_t cs_area[N265_CS_COUNT];
     uint64_t cs_tu[4], cs_tu_cbf[4];
     uint64_t cs_coef;       /* nonzero luma levels coded              */
@@ -1453,6 +1458,7 @@ struct n265_encoder {
      * The counters themselves are per-frame (see n265_frame_work). */
     int cu_stats;
     int fp_census;      /* N265_FP_CENSUS, phase 14 item 10 */
+    int fp_on;          /* the stream fingerprint; --no-fingerprint drops it */
     int cbit_trace;         /* N265_CBIT_TRACE, the same way */
     /* N265_CU_TRACE: the census's output file, and the skip map of the
      * PREVIOUS FRAME IN CODING ORDER. Both are driver-only - the map is

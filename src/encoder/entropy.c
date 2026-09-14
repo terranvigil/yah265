@@ -11,6 +11,7 @@
 #include <stdlib.h>
 
 #include "encoder/encoder.h"
+#include "encoder/fp.h"
 #include "encoder/intra.h"
 #include "encoder/records.h"
 #include "encoder/residual.h"
@@ -372,6 +373,34 @@ static void replay_tt(struct n265_frame_work *e, const res_ops *ops, int mode,
     }
 }
 
+/* The stream fingerprint's one site (phase 14 item 10,
+ * docs/stream-fingerprint.md).
+ *
+ * merge_idx is truncated-unary with cMax MAX_MERGE-1, so of its five
+ * codings only the LAST TWO have the same length, and they differ in one
+ * bypass bin: the context-coded prefix is bit-for-bit the same and a
+ * bypass bin costs exactly one bit whichever way it goes. So where the
+ * merge candidate list holds the same motion at both of those indices -
+ * which a decoder builds the list and sees for itself - either index
+ * decodes to the same picture for the same number of bits, and which one
+ * is written is free to carry a bit of the signature.
+ *
+ * This runs in the REAL entropy pass only. That pass is the one whose
+ * order is the bitstream's, which is what lets the reader count sites
+ * the same way; the rate estimator replays the same records and must not
+ * advance the counter (it would cost nothing either way - the swap is
+ * bit-count neutral - but the count has to be the bitstream's).
+ *
+ * `e->fp_k` is per picture and the phase is keyed on pic_order_cnt_lsb,
+ * so nothing here depends on which frames are in flight. */
+static int fp_merge_idx(struct n265_frame_work *e, int idx, int site,
+                        int x0, int y0)
+{
+    if (!site || !e->fp_on || !e->in_entropy)
+        return idx;
+    return (MAX_MERGE - 2) + n265_fp_bit(e->fp_poc_lsb, x0, y0);
+}
+
 /* merge_idx: TU with cMax MAX_MERGE-1; first bin ctx-coded, the rest
  * bypass */
 static void write_merge_idx(const res_ops *ops, int idx)
@@ -418,13 +447,14 @@ static void write_inter_idc(const res_ops *ops, int depth, int pw, int ph,
 
 /* one PU's motion syntax; returns merge_flag */
 static int replay_pu(struct n265_frame_work *e, const res_ops *ops, int log2n,
-                     int pw, int ph)
+                     int px, int py, int pw, int ph)
 {
     unsigned flags = rd_u8(e);
     int merge = flags & 1;
     ops->bin(ops->h, CTX_MERGE_FLAG, merge);
     if (merge) {
-        write_merge_idx(ops, (int)(flags >> 3) & 7);
+        write_merge_idx(ops, fp_merge_idx(e, (int)(flags >> 3) & 7,
+                                          (int)(flags >> 6) & 1, px, py));
         return 1;
     }
     int pred = ((int)(flags >> 3) & 3) + 1;
@@ -475,7 +505,9 @@ static void replay_cu(struct n265_frame_work *e, const res_ops *ops, int x0,
             inc += map_at(e, e->blk_skip, x0, y0 - 1);
         ops->bin(ops->h, CTX_CU_SKIP + inc, is_skip);
         if (is_skip) {
-            write_merge_idx(ops, (int)rd_u8(e));
+            unsigned sk = rd_u8(e);
+            write_merge_idx(ops, fp_merge_idx(e, (int)(sk & 7),
+                                              (int)(sk >> 3) & 1, x0, y0));
             if (e->cu_stats && e->in_entropy)
                 e->cs_area[N265_CS_SKIP] += (uint64_t)1 << (2 * log2n);
             return;
@@ -488,7 +520,7 @@ static void replay_cu(struct n265_frame_work *e, const res_ops *ops, int x0,
             for (int p = 0; p < npu; p++) {
                 int px, py, pw, ph;
                 n265_pu_rect(part, p, x0, y0, 1 << log2n, &px, &py, &pw, &ph);
-                int m = replay_pu(e, ops, log2n, pw, ph);
+                int m = replay_pu(e, ops, log2n, px, py, pw, ph);
                 if (p == 0)
                     merge0 = m;
             }

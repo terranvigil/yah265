@@ -2501,34 +2501,39 @@ static int cpred_trace(void);
 static void cpred_trace_pu(struct n265_frame_work *e, const pu_geo *g,
                            mot_t mot);
 
-/* One committed merge PU's look at the candidate signature site (phase
- * 14 item 10, the census): does its candidate list hold a duplicate pair
- * anywhere, does it hold one at the LAST TWO indices - the only pair
- * whose two merge_idx codings are the same length - and did the
- * encoder's own pick land there. The third row is the budget. */
-static void fp_merge_look(struct n265_frame_work *e, const pu_geo *g, int midx)
+/* The census's (and later the fingerprint's) look at one committed
+ * merge PU: does its candidate list hold a duplicate pair, and is the
+ * free pair - the last two indices - among them. */
+static int fp_merge_look(struct n265_frame_work *e, const pu_geo *g, int midx)
 {
-    if (!e->fp_census)
-        return;
+    int usable = midx >= MAX_MERGE - 2;
+    if (!e->fp_census && !usable)
+        return 0;
     int dup34 = 0;
     int any = n265_merge_dups(e, g, &dup34);
-    e->fpc[N265_FPC_MERGE_PU]++;
-    if (any)
-        e->fpc[N265_FPC_DUPANY]++;
-    if (dup34) {
-        e->fpc[N265_FPC_DUP34]++;
-        if (midx >= MAX_MERGE - 2)
-            e->fpc[N265_FPC_DUP34_USED]++;
+    if (e->fp_census) {
+        e->fpc[N265_FPC_MERGE_PU]++;
+        if (any)
+            e->fpc[N265_FPC_DUPANY]++;
+        if (dup34) {
+            e->fpc[N265_FPC_DUP34]++;
+            if (usable)
+                e->fpc[N265_FPC_DUP34_USED]++;
+        }
     }
+    return usable && dup34;
 }
 
 static void skip_cu(struct n265_frame_work *e, int x0, int y0, int log2n,
                     mot_t mot, int merge_idx)
 {
     int n = 1 << log2n;
+    /* bit 3 of the skip record is the fingerprint site's "the last two
+     * merge candidates are the same motion" (phase 14 item 10); the
+     * index itself needs three bits and never more */
     pu_geo sg = { x0, y0, n, x0, y0, n, n, 0, 0 };
-    fp_merge_look(e, &sg, merge_idx);
-    rec_u8(e, (unsigned)merge_idx);
+    rec_u8(e, (unsigned)merge_idx |
+              ((unsigned)fp_merge_look(e, &sg, merge_idx) << 3));
     pixel pred[64 * 64];
     for (int c = 0; c < 3; c++) {
         int shx = c ? e->csx : 0, shy = c ? e->csy : 0;
@@ -4600,7 +4605,8 @@ static int commit_inter_cu(struct n265_frame_work *e, int x0, int y0,
             pu_geo g = { x0, y0, n, px, py, pw, ph,
                          p == 1 && !PART_IS_HORIZ(part),
                          p == 1 && PART_IS_HORIZ(part) };
-            fp_merge_look(e, &g, d[p].midx);
+            /* bit 6: the fingerprint site, beside the index in 3-5 */
+            f |= (unsigned)fp_merge_look(e, &g, d[p].midx) << 6;
         }
         rec_u8(e, f);
         if (!d[p].merge)

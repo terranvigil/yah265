@@ -254,6 +254,20 @@ void n265_set_info_opts(const char *opts)
     snprintf(g_info_opts, sizeof g_info_opts, "%s", opts);
 }
 
+/* --no-fingerprint (phase 14 item 10). Unlike every switch above, this
+ * one is ON by default: the fingerprint spends no bits and moves no
+ * sample, so there is nothing for it to cost, and a stream that cannot
+ * say what wrote it after a remux is the whole problem it exists for.
+ * The escape is here because an identity cmp against a binary from
+ * before the item has to be able to turn it off - that is the
+ * re-baselining rule in CLAUDE.md, beside --no-info and --no-weightp. */
+static int g_fingerprint = 1;
+void n265_set_fingerprint(int on);
+void n265_set_fingerprint(int on)
+{
+    g_fingerprint = on != 0;
+}
+
 /* --crf-min / --crf-max / --qpmin / --qpmax / --strict-cbr /
  * --max-ausize-factor (phase 14 item 4). Sentinels: the two CRF bounds
  * are +-1e9, the two QP bounds are the spec's own range, and the AU
@@ -1220,6 +1234,7 @@ static void fw_config(n265_encoder *e, n265_frame_work *fw)
     fw->cr_qp_off = e->cr_qp_off;
     fw->cu_stats = e->cu_stats;
     fw->fp_census = e->fp_census;
+    fw->fp_on = e->fp_on;
     memset(fw->fpc, 0, sizeof fw->fpc);
     fw->cbit_trace = e->cbit_trace;
     fw->iw_trace = e->iw_trace;
@@ -1455,6 +1470,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->eos = g_eos;
     e->eob = g_eob;
     e->info = g_info;
+    e->fp_on = g_fingerprint;
     e->qp_base = g_qp;
     e->crf_on = g_crf_on;
     e->crf = g_crf;
@@ -4917,6 +4933,9 @@ static void entropy_frame(n265_encoder *e, n265_frame_work *fw)
     fw->ent_qp_prev = fw->qp;
     fw->ent_parent_chroma = 0;
     fw->in_entropy = 1;
+    /* the fingerprint keys on the POC field a reader sees; an IDR
+     * signals none and 8.3.1 gives it 0 */
+    fw->fp_poc_lsb = fw->idr ? 0 : (fw->poc & 255);
     if (fw->cu_stats) {
         memset(fw->cs_area, 0, sizeof fw->cs_area);
         memset(fw->cs_tu, 0, sizeof fw->cs_tu);

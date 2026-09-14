@@ -55,6 +55,7 @@ lib_sources = [
   'src/encoder/psy.c',
   'src/encoder/ctu.c',
   'src/encoder/entropy.c',
+  'src/encoder/fp.c',
   'src/encoder/mc.c',
   'src/encoder/refchk.c',
   'src/encoder/satd.c',
