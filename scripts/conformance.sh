@@ -391,6 +391,12 @@ if [ "$CSP" = 422 ]; then
     # sample across and a whole one down
     run_vector ${P}_intra  176x144  5 testsrc2 "--keyint 1"
     run_vector ${P}_crop   210x122  5 testsrc2 "--keyint 1"
+    # ...and the same tree three and four levels deep (phase 14 item 5).
+    # The chroma half of the recursion is format-specific - whether a
+    # child carries its own chroma, and whether a node codes one cbf per
+    # component or the stacked 4x4 chroma pair - so each format checks it.
+    run_vector ${P}_tu3    176x144 16 testsrc2 "--keyint 8 --ctu 32 --bframes 5 --qp 30 --tu-inter-depth 3 --tu-intra-depth 3 --threads 1"
+    run_vector ${P}_tu4    176x144 16 testsrc2 "--keyint 8 --ctu 32 --bframes 5 --qp 30 --tu-inter-depth 4 --tu-intra-depth 4 --threads 4"
     # IPB with the pyramid at one thread and at twelve: the split chroma
     # MC fractions, uni and bi, and run_vector's own two-run cmp carries
     # determinism with each.
@@ -496,6 +502,12 @@ if [ "$CSP" = 444 ]; then
     # offsets are in CHROMA units, which at 4:4:4 are luma samples
     run_vector ${P}_intra  176x144  5 testsrc2 "--keyint 1"
     run_vector ${P}_crop   210x122  5 testsrc2 "--keyint 1"
+    # ...and the same tree three and four levels deep (phase 14 item 5).
+    # The chroma half of the recursion is format-specific - whether a
+    # child carries its own chroma, and whether a node codes one cbf per
+    # component or its own 4x4 chroma leaf - so each format checks it.
+    run_vector ${P}_tu3    176x144 16 testsrc2 "--keyint 8 --ctu 32 --bframes 5 --qp 30 --tu-inter-depth 3 --tu-intra-depth 3 --threads 1"
+    run_vector ${P}_tu4    176x144 16 testsrc2 "--keyint 8 --ctu 32 --bframes 5 --qp 30 --tu-inter-depth 4 --tu-intra-depth 4 --threads 4"
     # IPB with the pyramid at one thread and at twelve: quarter-pel
     # chroma MC on full-size planes, uni and bi, and run_vector's own
     # two-run cmp carries determinism with each.
@@ -970,6 +982,8 @@ run_vector lossless_ipb_t1  352x288 24 testsrc2 "--keyint 12 --bframes 7 --lossl
 run_vector lossless_ipb_t12 352x288 24 testsrc2 "--keyint 12 --bframes 7 --lossless --threads 12"
 run_vector lossless_ctu16   176x144 12 testsrc2 "--keyint 6 --ctu 16 --lossless --ref 3 --bframes 7 --threads 4"
 run_vector lossless_crop    210x122  6 testsrc2 "--keyint 3 --lossless --ctu 64"
+# the transquant-bypass path down a three-level tree (phase 14 item 5)
+run_vector lossless_tu3     352x288 12 testsrc2 "--keyint 6 --bframes 3 --lossless --tu-inter-depth 3 --tu-intra-depth 3 --threads 4"
 VENV="N265_MIN_KEYINT=0"
 run_vector_graph "testsrc2=size=176x144:rate=25:duration=0.4[a];smptebars=size=176x144:rate=25:duration=0.4[b];[a][b]concat=n=2:v=1:a=0" \
            lossless_cut  176x144 20 testsrc2 "--keyint 250 --bframes 7 --ref 2 --lossless --threads 1"
