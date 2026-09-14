@@ -62,6 +62,8 @@ static double g_crf_min = -1e9, g_crf_max = 1e9;
 static int g_crf_bounds, g_strict_cbr;
 static double g_ausize_factor = 1.0;
 static const char *g_qpfile_path, *g_zones_spec;
+/* --idr-recovery-sei / --pic-struct / --hrd-concat / --temporal-layers */
+static int g_recovery_sei, g_hrd_concat, g_tlayers;
 static double g_crf = -1.0;      /* n265_set_crf's rate factor (a QpY) */
 /* Whether n265_set_crf was called at all. It used to be `g_crf >= 0`, which
  * is why --crf could not reach the twelve QP steps below zero that Main10
@@ -131,6 +133,7 @@ static n265_signal g_sig = {
     .videoformat = -1, .full_range = -1, .colorprim = -1, .transfer = -1,
     .colormatrix = -1, .chromaloc = -1, .win_on = 0,
     .have_md = 0, .have_cll = 0, .hdr10 = -1, .cll_on = 1, .atc = -1,
+    .pic_struct = -1,
 };
 
 void n265_set_threads(int n)
@@ -218,6 +221,22 @@ void n265_set_rc_bounds(double crf_min, double crf_max, int qpmin, int qpmax,
 
 /* --qpfile / --zones. The path and the spec outlive the encoder (they are
  * argv); both are PARSED at open, where a refusal can name the line. */
+/* --idr-recovery-sei / --pic-struct / --hrd-concat / --temporal-layers
+ * (phase 14 item 4). `pic_struct` is -1 for the flag absent. The first
+ * three are pure signalling; the last one is the only member of this
+ * group that changes a VCL NAL header, which is why it is gated on the
+ * conformance vectors and not just on an escape cmp. */
+void n265_set_sei_opts(int recovery_sei, int pic_struct, int hrd_concat,
+                       int temporal_layers);
+void n265_set_sei_opts(int recovery_sei, int pic_struct, int hrd_concat,
+                       int temporal_layers)
+{
+    g_recovery_sei = recovery_sei != 0;
+    g_sig.pic_struct = pic_struct;
+    g_hrd_concat = hrd_concat != 0;
+    g_tlayers = temporal_layers != 0;
+}
+
 void n265_set_qpfile(const char *path);
 void n265_set_qpfile(const char *path) { g_qpfile_path = path; }
 void n265_set_zones(const char *spec);
@@ -976,6 +995,7 @@ static void fw_config(n265_encoder *e, n265_frame_work *fw)
     fw->hrd_bit_rate_scale = e->hrd_bit_rate_scale;
     fw->hrd_bit_rate_value = e->hrd_bit_rate_value;
     fw->hrd_cbr = e->strict_cbr;
+    fw->tlayers_minus1 = e->tlayers ? 1 : 0;
     fw->hrd_cpb_size_scale = e->hrd_cpb_size_scale;
     fw->hrd_cpb_size_value = e->hrd_cpb_size_value;
     fw->psy = e->psy;
@@ -1189,6 +1209,8 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->crf_bounds = g_crf_bounds;
     e->strict_cbr = g_strict_cbr;
     e->ausize_factor = g_ausize_factor;
+    e->recovery_sei = g_recovery_sei;
+    e->tlayers = g_tlayers;
     e->repeat_hdr = g_repeat_hdr;
     e->aud = g_aud;
     e->eos = g_eos;
@@ -1743,6 +1765,31 @@ n265_encoder *n265_encoder_open(const n265_param *p)
                 goto fail;
             n265_write_info_sei(&e->info_bs, n265_version_str());
         }
+        /* --idr-recovery-sei: the message is the same three fields at
+         * every IRAP, so it is built once here too. */
+        if (e->recovery_sei) {
+            if (bs_init(&e->rec_bs, 32) < 0)
+                goto fail;
+            n265_write_recovery_sei(&e->rec_bs);
+        }
+        /* --pic-struct rides the pic_timing message, which exists only
+         * where the HRD does. Refused rather than ignored: a --pic-struct
+         * that silently wrote nothing would look like a decoder that did
+         * not honour it. */
+        if (g_sig.pic_struct >= 0 && !e->vbv.on) {
+            fprintf(stderr, "n265: --pic-struct is a field of the pic_timing "
+                            "SEI, which this encoder writes only with a "
+                            "buffer: use --vbv-maxrate and --vbv-bufsize\n");
+            goto fail;
+        }
+        if (g_hrd_concat && !e->vbv.on) {
+            fprintf(stderr, "n265: --hrd-concat is a flag in the "
+                            "buffering_period SEI, which this encoder writes "
+                            "only with a buffer: use --vbv-maxrate and "
+                            "--vbv-bufsize\n");
+            goto fail;
+        }
+        e->hrd_concat = g_hrd_concat;
         e->sig = g_sig;
         if (e->sig.hash) {
             /* the scratch one picture's hash message is built in: 64 bytes
@@ -2298,6 +2345,7 @@ void n265_encoder_close(n265_encoder *e)
     bs_free(&e->hash_bs);
     bs_free(&e->aud_bs);
     bs_free(&e->info_bs);
+    bs_free(&e->rec_bs);
     bs_free(&e->fd_bs);
     n265_qpfile_free(&e->qpf);
     n265_zones_free(&e->zones);
@@ -2892,8 +2940,8 @@ static struct n265_done *done_slot(n265_encoder *e)
     return d;
 }
 
-static void pack_nal(struct n265_done *d, int type, const uint8_t *rbsp,
-                     size_t len)
+static void pack_nal_tid(struct n265_done *d, int type, int tid,
+                         const uint8_t *rbsp, size_t len)
 {
     if (d->nnal >= (int)(sizeof(d->type) / sizeof(d->type[0])))
         return;
@@ -2905,11 +2953,18 @@ static void pack_nal(struct n265_done *d, int type, const uint8_t *rbsp,
         d->buf = b;
         d->cap = need;
     }
-    size_t sz = nal_pack(d->buf + d->len, d->cap - d->len, type, rbsp, len);
+    size_t sz = nal_pack_tid(d->buf + d->len, d->cap - d->len, type, tid,
+                             rbsp, len);
     d->type[d->nnal] = type;
     d->size[d->nnal] = (int)sz;
     d->nnal++;
     d->len += sz;
+}
+
+static void pack_nal(struct n265_done *d, int type, const uint8_t *rbsp,
+                     size_t len)
+{
+    pack_nal_tid(d, type, 0, rbsp, len);
 }
 
 /* Copy up to `max` joined frames into the caller's buffer, oldest first.
@@ -3892,6 +3947,10 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
             fw->hdr_sei_len = fw->rbsp.bytes;
         }
     }
+    /* --temporal-layers: the non-reference B leaves, and nothing else.
+     * A picture at TemporalId 1 may not be referenced by one at 0
+     * (7.4.2.2), and a leaf is by construction referenced by nothing. */
+    fw->tid = e->tlayers && fw->nonref && fw->slice_type == 0 ? 1 : 0;
     fw->nal_type = fw->idr ? N265_NAL_IDR_W_RADL
                            : (nonref ? 0 /* TRAIL_N */
                                      : 1 /* TRAIL_R */);
@@ -4537,6 +4596,14 @@ static void hrd_sei_values(n265_encoder *e, const n265_frame_work *fw,
     /* Only an IRAP opens a buffering period, and the only IRAP this
      * encoder writes is the IDR (a non-IDR I is a trailing picture). */
     v->bp = fw->idr;
+    v->ff_info = e->sig.pic_struct >= 0;
+    v->pic_struct = v->ff_info ? e->sig.pic_struct : 0;
+    /* --hrd-concat: on the FIRST key frame of the stream, which is what
+     * x265's flag says and the only place it means anything. It tells a
+     * decoder that this access unit was spliced onto something else, so
+     * C.2.3 reads the removal delay delta instead of a running clock the
+     * splice broke. */
+    v->concat = e->hrd_concat && v->bp && e->hrd_bp_code < 0;
     if (v->bp)
         e->hrd_cvs_code = fw->code_idx;
     /* C.2.3: clock ticks from the removal of the access unit that carried
@@ -4626,6 +4693,12 @@ static void join_oldest(n265_encoder *e)
     if (fw->emit_headers)
         for (int i = 0; i < e->nhdr; i++)
             pack_nal(d, e->hdr_type[i], e->hdr_rbsp[i], e->hdr_len[i]);
+    /* --idr-recovery-sei: one prefix SEI per IRAP, beside the parameter
+     * sets and ahead of the timing pair - a decoder that joins here reads
+     * "the recovery is immediate" before it reads anything about when to
+     * remove the picture. */
+    if (e->recovery_sei && fw->idr)
+        pack_nal(d, N265_NAL_PREFIX_SEI, e->rec_bs.buf, e->rec_bs.bytes);
     /* --info: the version SEI goes wherever the parameter sets go, which
      * is the first access unit and - under --repeat-headers - every IRAP,
      * so a receiver that joins mid-stream learns the same thing about the
@@ -4645,7 +4718,15 @@ static void join_oldest(n265_encoder *e)
         pack_nal(d, N265_NAL_PREFIX_SEI, fw->hdr_sei, fw->hdr_sei_len);
     if (fw->sei_len)
         pack_nal(d, N265_NAL_PREFIX_SEI, fw->sei, fw->sei_len);
-    pack_nal(d, fw->nal_type, fw->rbsp.buf, fw->rbsp.bytes);
+    /* --temporal-layers: the VCL NAL - and only the VCL NAL - carries the
+     * picture's TemporalId. 7.4.2.2 puts every parameter set, access unit
+     * delimiter, end of sequence and end of bitstream at TemporalId 0
+     * whatever the picture around them is, and a prefix SEI takes the
+     * TemporalId of its own access unit; ours are all written at a layer-0
+     * access unit (the parameter sets and the recovery point at an IRAP)
+     * or carry timing that applies to the whole stream, so 0 is right for
+     * them too. */
+    pack_nal_tid(d, fw->nal_type, fw->tid, fw->rbsp.buf, fw->rbsp.bytes);
     /* --hash: the decoded picture hash, D.2.19. A SUFFIX SEI, so it comes
      * AFTER the access unit's VCL NAL (7.4.2.4.4) - the only suffix NAL
      * this encoder writes - and it is computed HERE, on the driver, off

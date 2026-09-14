@@ -84,7 +84,8 @@ static void parse_and_check(const bitstream_t *bs, const n265_hrd_sei *v)
         size_t start = r.pos;
         CHECK(ue(&r) == 0, "bp_seq_parameter_set_id must be 0");
         CHECK(u(&r, 1) == 0, "irap_cpb_params_present_flag must be 0");
-        CHECK(u(&r, 1) == 0, "concatenation_flag must be 0");
+        CHECK(u(&r, 1) == (uint32_t)(v->concat != 0),
+              "concatenation_flag must follow --hrd-concat");
         CHECK(u(&r, N265_HRD_DELAY_BITS) == 0,
               "au_cpb_removal_delay_delta_minus1 must be 0");
         uint32_t d = u(&r, N265_HRD_DELAY_BITS);
@@ -105,8 +106,20 @@ static void parse_and_check(const bitstream_t *bs, const n265_hrd_sei *v)
 
     uint32_t type, size = sei_hdr(&r, &type);
     CHECK(type == 1, "payload type %u, want 1 (pic timing)", type);
-    CHECK(size == 6, "pic timing payload %u bytes, want 6", size);
+    /* --pic-struct adds pic_struct u(4), source_scan_type u(2) and
+     * duplicate_flag u(1): seven bits, and the payload is byte-aligned
+     * afterwards only because D.2.1's alignment pads it. */
+    CHECK(size == (v->ff_info ? 7u : 6u),
+          "pic timing payload %u bytes, want %u", size, v->ff_info ? 7u : 6u);
     size_t start = r.pos;
+    if (v->ff_info) {
+        uint32_t ps = u(&r, 4), scan = u(&r, 2), dup = u(&r, 1);
+        CHECK(ps == (uint32_t)v->pic_struct, "pic_struct %u, want %d", ps,
+              v->pic_struct);
+        CHECK(scan == 1, "source_scan_type must be 1 (progressive), got %u",
+              scan);
+        CHECK(dup == 0, "duplicate_flag must be 0, got %u", dup);
+    }
     uint32_t cpb = u(&r, N265_HRD_DELAY_BITS) + 1;
     uint32_t dpb = u(&r, N265_HRD_DELAY_BITS);
     CHECK(cpb == v->cpb_delay, "au_cpb_removal_delay %u, want %u",
@@ -114,7 +127,13 @@ static void parse_and_check(const bitstream_t *bs, const n265_hrd_sei *v)
     CHECK(dpb == v->dpb_delay, "pic_dpb_output_delay %u, want %u",
           dpb, v->dpb_delay);
     /* 48 bits is already byte-aligned, so there is NO alignment field
-     * here: writing one would be a spurious byte the size does not cover. */
+     * here: writing one would be a spurious byte the size does not cover.
+     * With --pic-struct it is 55, and then there IS one. */
+    if (v->ff_info) {
+        CHECK(u(&r, 1) == 1, "payload alignment must start with a one");
+        while (r.pos % 8)
+            CHECK(u(&r, 1) == 0, "payload alignment must pad with zeros");
+    }
     CHECK(r.pos - start == (size_t)size * 8,
           "pic timing read %zu bits, payload says %u", r.pos - start,
           size * 8);
@@ -220,6 +239,30 @@ int main(void)
           "an all-ones pic timing AU is %zu bytes, not %zu",
           bs.bytes, sizeof want_pt);
     parse_and_check(&bs, &bigp);
+
+    /* 3b. phase 14 item 4's two additions, checked against the same
+     * hand-written parser: the concatenation flag in the buffering
+     * period, and the three frame/field fields in pic_timing. The second
+     * changes the payload SIZE, which is what makes it the one addition
+     * here that a decoder could mis-parse the rest of the message on. */
+    n265_hrd_sei cc = { 1, 81000, 9000, 1, 3, 1, 0, 0 };
+    n265_write_hrd_sei(&bs, &cc);
+    parse_and_check(&bs, &cc);
+    n265_hrd_sei ps = { 0, 0, 0, 1, 10, 0, 1, 7 };
+    n265_write_hrd_sei(&bs, &ps);
+    parse_and_check(&bs, &ps);
+    CHECK(bs.bytes == sizeof want_pt + 1,
+          "a pic timing AU with the frame/field fields is %zu bytes, not %zu",
+          bs.bytes, sizeof want_pt + 1);
+    /* ...and a ZEROED struct writes neither: the presence of the three
+     * fields is its own flag and not a sentinel value of pic_struct, so a
+     * caller that memsets gets the message it had before this item. */
+    n265_hrd_sei zero;
+    memset(&zero, 0, sizeof zero);
+    zero.cpb_delay = 1;
+    zero.dpb_delay = 10;
+    n265_write_hrd_sei(&bs, &zero);
+    check_bytes(&bs, want_pt, sizeof want_pt, "a zeroed struct is the old message");
 
     /* 4. a delay of one is the smallest the field can carry: the coded
      * value is minus1, so 1 is coded as 0 and 0 would be unrepresentable

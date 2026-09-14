@@ -460,6 +460,9 @@ typedef struct n265_frame_work {
     unsigned hrd_bit_rate_scale, hrd_bit_rate_value;    /* E.2.3's BitRate */
     unsigned hrd_cpb_size_scale, hrd_cpb_size_value;    /* ...and CpbSize  */
     int hrd_cbr;            /* --strict-cbr: E.2.3's cbr_flag[0]        */
+    int tlayers_minus1;     /* --temporal-layers: sps_max_sub_layers_m1 */
+    int tid;                /* this picture's TemporalId (0, or 1 on a
+                             * non-reference B leaf under the flag)     */
     double psy;             /* N265_PSY: psychovisual energy strength */
     int dbf_beta, dbf_tc;   /* slice_beta/tc_offset_div2, see n265_encoder */
     /* --cbqpoffs / --crqpoffs: pps_cb_qp_offset / pps_cr_qp_offset, the
@@ -1008,6 +1011,12 @@ struct n265_encoder {
      * is what keeps an identity cmp against an older binary meaningful.
      * x265 writes its --info SEI by DEFAULT; the audit's row says so. */
     int repeat_hdr, aud, eos, eob, info;
+    /* --idr-recovery-sei / --temporal-layers (phase 14 item 4). The
+     * recovery point is one prefix SEI per IRAP; the temporal layer puts
+     * the non-reference B leaves in sub-layer 1, which is the only
+     * bitstream change in this group that touches a VCL NAL HEADER. */
+    int recovery_sei, tlayers, hrd_concat;
+    bitstream_t rec_bs;
     /* The rate-control exposure (phase 14 item 4). Every one of these is
      * inert at its default: the QP bounds are the spec's own range and
      * are only APPLIED when the user narrowed one, the CRF bounds are
@@ -1773,6 +1782,8 @@ static inline int n265_qp_bound(const struct n265_encoder *e, int q)
 /* access_unit_delimiter_rbsp (7.3.2.5) and the user data unregistered SEI
  * that identifies the encoder (D.2.6). headers.c. */
 void n265_write_aud(bitstream_t *bs, int pic_type);
+/* recovery_point (D.2.8), the message a random-access player looks for. */
+void n265_write_recovery_sei(bitstream_t *bs);
 void n265_write_info_sei(bitstream_t *bs, const char *ver);
 /* The pooled metrics, for the caller's end-of-run line: psnr Y/U/V, the
  * pixel-weighted psnr average, SSIM-Y and SSIM in dB. Returns the number

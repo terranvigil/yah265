@@ -205,6 +205,7 @@
 #define n265_set_pass                n265_set_pass_10
 #define n265_set_qpfile              n265_set_qpfile_10
 #define n265_set_rc_bounds           n265_set_rc_bounds_10
+#define n265_set_sei_opts            n265_set_sei_opts_10
 #define n265_set_zones               n265_set_zones_10
 #define n265_vbv_allow               n265_vbv_allow_10
 #define n265_vbv_crf_base            n265_vbv_crf_base_10
@@ -317,6 +318,7 @@
 #define n265_write_info_sei          n265_write_info_sei_10
 #define n265_write_part_mode         n265_write_part_mode_10
 #define n265_write_pps               n265_write_pps_10
+#define n265_write_recovery_sei      n265_write_recovery_sei_10
 #define n265_write_sps               n265_write_sps_10
 #define n265_write_vps               n265_write_vps_10
 #define n265_zones_at                n265_zones_at_10
@@ -325,6 +327,7 @@
 #define n265_zorder                  n265_zorder_10
 #define nal_pack                     nal_pack_10
 #define nal_pack_bound               nal_pack_bound_10
+#define nal_pack_tid                 nal_pack_tid_10
 #define ntp_close                    ntp_close_10
 #define ntp_join                     ntp_join_10
 #define ntp_lanes                    ntp_lanes_10

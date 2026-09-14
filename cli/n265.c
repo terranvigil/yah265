@@ -30,6 +30,10 @@ void n265_set_nal_opts(int repeat_headers, int aud, int eos, int eob,
  * legal values, so "not given" costs nothing. */
 void n265_set_rc_bounds(double crf_min, double crf_max, int qpmin, int qpmax,
                         int strict_cbr, double ausize_factor);
+/* --idr-recovery-sei / --pic-struct / --hrd-concat / --temporal-layers.
+ * pic_struct is -1 for the flag absent. */
+void n265_set_sei_opts(int recovery_sei, int pic_struct, int hrd_concat,
+                       int temporal_layers);
 void n265_set_qpfile(const char *path);
 void n265_set_zones(const char *spec);
 void n265_encoder_set_csv(n265_encoder *e, const char *path, int level);
@@ -137,6 +141,8 @@ void n265_set_nal_opts_10(int repeat_headers, int aud, int eos, int eob,
                           int info);
 void n265_set_rc_bounds_10(double crf_min, double crf_max, int qpmin,
                            int qpmax, int strict_cbr, double ausize_factor);
+void n265_set_sei_opts_10(int recovery_sei, int pic_struct, int hrd_concat,
+                          int temporal_layers);
 void n265_set_qpfile_10(const char *path);
 void n265_set_zones_10(const char *spec);
 void n265_encoder_set_csv_10(n265_encoder *e, const char *path, int level);
@@ -185,6 +191,7 @@ typedef struct n265_api {
     void (*set_metrics)(int, int);
     void (*set_nal_opts)(int, int, int, int, int);
     void (*set_rc_bounds)(double, double, int, int, int, double);
+    void (*set_sei_opts)(int, int, int, int);
     void (*set_qpfile)(const char *);
     void (*set_zones)(const char *);
     void (*set_csv)(n265_encoder *, const char *, int);
@@ -205,7 +212,7 @@ static const n265_api api8 = {
     n265_version_str, n265_encoder_set_dump, n265_encoder_set_dump_decode,
     n265_encoder_set_shot_stats,
     n265_set_metrics, n265_set_nal_opts, n265_set_rc_bounds,
-    n265_set_qpfile, n265_set_zones,
+    n265_set_sei_opts, n265_set_qpfile, n265_set_zones,
     n265_encoder_set_csv, n265_encoder_metrics,
 };
 
@@ -225,7 +232,7 @@ static const n265_api api10 = {
     n265_encoder_set_dump_10, n265_encoder_set_dump_decode_10,
     n265_encoder_set_shot_stats_10,
     n265_set_metrics_10, n265_set_nal_opts_10, n265_set_rc_bounds_10,
-    n265_set_qpfile_10, n265_set_zones_10,
+    n265_set_sei_opts_10, n265_set_qpfile_10, n265_set_zones_10,
     n265_encoder_set_csv_10, n265_encoder_metrics_10,
 };
 
@@ -727,6 +734,36 @@ static void usage(void)
         "                  to 717 MB of peak RSS. Max 300. What it buys and\n"
         "                  what it costs the per-shot quality spread:\n"
         "                  docs/phase7-shot-design.md.\n"
+        "  Cheap SEIs and sub-layers. Signalling, except the last, which puts a\n"
+        "  temporal id in a VCL NAL header. All off by default.\n"
+        "  --idr-recovery-sei  a recovery point SEI (D.2.8) at every IRAP:\n"
+        "                  recovery_poc_cnt 0, exact_match 1. It is what a\n"
+        "                  random-access player looks for.\n"
+        "  --pic-struct <n>  Table D.2's pic_struct in the pic_timing SEI\n"
+        "                  (0 frame, 7 frame doubling, 8 frame tripling),\n"
+        "                  and with it frame_field_info_present_flag in the\n"
+        "                  VUI. It carries pulldown and field repetition.\n"
+        "                  Needs a buffer: pic_timing is written only where\n"
+        "                  the HRD is.\n"
+        "  --hrd-concat    the concatenation flag in the first key frame's\n"
+        "                  buffering period SEI: this access unit was\n"
+        "                  spliced onto another stream, so C.2.3 reads the\n"
+        "                  removal delay delta rather than a clock the\n"
+        "                  splice broke. Needs a buffer.\n"
+        "  --temporal-layers  put the NON-REFERENCE B leaves in temporal\n"
+        "                  sub-layer 1: nuh_temporal_id_plus1 2 on their\n"
+        "                  slice NALs, sps/vps_max_sub_layers_minus1 1, and\n"
+        "                  the profile_tier_level and hrd_parameters tails\n"
+        "                  that go with them. A player can then drop the\n"
+        "                  sub-layer and halve the frame rate without\n"
+        "                  parsing a slice. The leaves are the only\n"
+        "                  pictures that CAN go there - 7.4.2.2 forbids a\n"
+        "                  lower layer from referencing a higher one, and\n"
+        "                  a leaf is referenced by nothing.\n"
+        "  --scaling-list <s>  NOT IMPLEMENTED and refused by name; the\n"
+        "                  message says why (it is a quantiser item, not a\n"
+        "                  signalling one).\n"
+        "\n"
         "  Rate control, exposed. Every one of these is inert unless you name\n"
         "  it, and each is refused rather than ignored where the mode it\n"
         "  needs is absent.\n"
@@ -1035,6 +1072,10 @@ int main(int argc, char **argv)
     /* The rate-control exposure. The sentinels ARE the widest legal
      * values, so an unnamed flag and a flag named at its widest are the
      * same thing and neither is applied. */
+    /* --idr-recovery-sei / --pic-struct / --hrd-concat /
+     * --temporal-layers. All absent by default; pic_struct is -1 for
+     * "the flag was not given". */
+    int recovery_sei = 0, pic_struct = -1, hrd_concat = 0, tlayers = 0;
     double crf_lo = -1e9, crf_hi = 1e9;
     int qpmin = 0, qpmax = 51, strict_cbr = 0, had_qpmin = 0, had_qpmax = 0;
     double ausize_factor = 1.0;
@@ -1102,6 +1143,46 @@ int main(int argc, char **argv)
                         "(30, 30000/1001, 29.97)\n");
                 return 2;
             }
+        } else if (!strcmp(argv[i], "--idr-recovery-sei")) {
+            recovery_sei = 1;
+        } else if (!strcmp(argv[i], "--no-idr-recovery-sei")) {
+            recovery_sei = 0;
+        } else if (!strcmp(argv[i], "--pic-struct") && i + 1 < argc) {
+            pic_struct = atoi(argv[++i]);
+            if (pic_struct < 0 || pic_struct > 12) {
+                fprintf(stderr, "n265: --pic-struct is Table D.2's value "
+                        "0..12 (0 frame, 7 frame doubling, 8 frame "
+                        "tripling)\n");
+                return 2;
+            }
+        } else if (!strcmp(argv[i], "--hrd-concat")) {
+            hrd_concat = 1;
+        } else if (!strcmp(argv[i], "--temporal-layers")) {
+            tlayers = 1;
+        } else if (!strcmp(argv[i], "--no-temporal-layers")) {
+            tlayers = 0;
+        } else if (!strcmp(argv[i], "--scaling-list") && i + 1 < argc) {
+            /* Parsed and REFUSED, by name, with the reason. The SPS flag
+             * is two bits; what follows it is not. With
+             * scaling_list_enabled_flag set, a decoder dequantises with
+             * the default matrices of Tables 7-5 and 7-6, so this
+             * encoder's quantiser has to apply them too or every
+             * reconstruction stops matching every decoder - and that
+             * reaches the forward quantiser, the inverse, RDOQ's per
+             * coefficient rate-distortion and the NEON kernels of both.
+             * It is a quantiser item with a checkasm leg, not a cheap
+             * signalling one, and shipping the flag alone would fail the
+             * recon-match gate on its first vector. */
+            fprintf(stderr, "n265: --scaling-list is not implemented, and "
+                    "not because the SPS flag is hard: with "
+                    "scaling_list_enabled_flag set a decoder dequantises "
+                    "with the spec's default matrices, so the encoder's "
+                    "own quantiser has to apply them or the "
+                    "reconstruction stops matching every decoder. That "
+                    "reaches the forward quantiser, the inverse, RDOQ and "
+                    "the NEON kernels of both - a quantiser item with a "
+                    "checkasm leg. See docs/x265-feature-audit.md.\n");
+            return 2;
         } else if (!strcmp(argv[i], "--crf-min") && i + 1 < argc) {
             crf_lo = atof(argv[++i]);
         } else if (!strcmp(argv[i], "--crf-max") && i + 1 < argc) {
@@ -1605,6 +1686,7 @@ int main(int argc, char **argv)
                 a->depth);
         return 2;
     }
+    a->set_sei_opts(recovery_sei, pic_struct, hrd_concat, tlayers);
     a->set_rc_bounds(crf_lo, crf_hi, qpmin, qpmax, strict_cbr,
                      ausize_factor);
     a->set_qpfile(qpfile_path);

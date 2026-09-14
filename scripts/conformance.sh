@@ -1088,6 +1088,21 @@ run_vector nal_opts      352x288 24 testsrc2 "--keyint 6 --bframes 3 --qp 30 --r
 printf '0 I 26\n7 I\n13 I 30\n' > "$TMP/rc_qpfile.txt"
 run_vector rc_qpfile     352x288 20 testsrc2 "--keyint 100 --bframes 3 --crf 28 --qpfile $TMP/rc_qpfile.txt --threads 4"
 run_vector rc_cbr        352x288 24 testsrc2 "--keyint 8 --bframes 3 --bitrate 700 --vbv-maxrate 700 --vbv-bufsize 700 --strict-cbr --max-ausize-factor 0.6 --qpmin 20 --qpmax 44 --zones 0,7,q=32 --threads 4"
+# The cheap SEIs and the temporal sub-layer (phase 14 item 4). Four of the
+# five are signalling - a recovery point at every IRAP, three new fields
+# in pic_timing, one flag in the first buffering period - and the fifth is
+# not: --temporal-layers changes a VCL NAL HEADER and adds the sub-layer
+# tails to profile_tier_level and hrd_parameters, which are the two places
+# in this stream where getting the loop bound wrong shifts every bit after
+# it. The buffer is on because pic_struct and the concatenation flag live
+# in messages the HRD carries, so one vector reaches all five.
+#
+# The pyramid is what makes the temporal id worth checking: only the
+# NON-REFERENCE leaves go to sub-layer 1, and a decoder that saw a layer-0
+# picture predicting from a layer-1 one would be reading a stream that is
+# not conforming even though every sample in it is right.
+run_vector sei_layers    352x288 24 testsrc2 "--keyint 8 --bframes 3 --crf 28 --vbv-maxrate 900 --vbv-bufsize 900 --idr-recovery-sei --pic-struct 0 --hrd-concat --temporal-layers --threads 4"
+run_vector tlayers_only  352x288 20 testsrc2 "--keyint 10 --bframes 7 --qp 32 --temporal-layers --threads 12"
 
 if [ "$FAST" -eq 0 ]; then
     run_vector thr4_720    1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 4"
