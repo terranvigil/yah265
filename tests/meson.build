@@ -30,6 +30,13 @@ test('vbv', unit_vbv)
 unit_twopass = executable('unit_twopass', 'unit/twopass_test.c',
   dependencies : yah265_dep)
 test('twopass', unit_twopass)
+# The HRD timing SEIs (phase 12 item 5): the buffering_period and
+# pic_timing writer against a hand-computed message and a hand-written
+# parser of the same syntax table. Pure syntax, no encode; the CPB walk
+# behind the values is scripts/vbv_check.py's half.
+unit_hrd = executable('unit_hrd', 'unit/hrd_test.c',
+  dependencies : yah265_dep)
+test('hrd', unit_hrd)
 
 # One file per kernel family (checkasm.h has the layout): a family item
 # adds its file here and one line to the table in main.c, and touches

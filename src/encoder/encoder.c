@@ -1418,6 +1418,13 @@ n265_encoder *n265_encoder_open(const n265_param *p)
                 e->hrd_cpb_size_value = 1;
             e->hrd_cpb_size_bits = (int64_t)e->hrd_cpb_size_value <<
                                    (4 + e->hrd_cpb_size_scale);
+            /* the scratch the per-AU buffering_period + pic_timing pair is
+             * built in (hrd.h). Twenty bytes is the whole message on an
+             * IRAP; the writer grows it if a future one is longer. */
+            if (bs_init(&e->hrd_bs, 64) < 0)
+                goto fail;
+            e->hrd_bp_code = -1;    /* no preceding buffering period yet */
+            e->hrd_cvs_code = 0;
         }
     }
 
@@ -1883,6 +1890,7 @@ void n265_encoder_close(n265_encoder *e)
     for (int i = 0; i < N265_SC_HIST; i++)
         free(e->sc_hist[i].map);   /* phase 11 item 4's skip-map ring */
     n265_la_free(e);
+    bs_free(&e->hrd_bs);
     free(e->out);
     free(e);
 }
@@ -3942,6 +3950,85 @@ static void n265_intra_share(n265_frame_work *fw, uint32_t *cells,
     *intra = ni;
 }
 
+/* The buffering_period and pic_timing values for the access unit that is
+ * about to be packed. hrd.h states the four derivations and why each is
+ * what it is; this is where the plan's own numbers are spent.
+ *
+ * It runs on the DRIVER, inside join_oldest, in coding order, and reads
+ * nothing else: the coding index and the POC were fixed at dispatch, the
+ * reorder depth at open, and the CPB fill is the walk this same function
+ * drives one access unit at a time. So the message is a pure function of
+ * the plan and the coded sizes - byte-identical at one worker and at
+ * twelve, which is the property the determinism gate reads.
+ *
+ * It is deliberately NOT built at dispatch, where the grain SEI is built.
+ * The fill this AU is really removed against is only a number once every
+ * earlier AU has retired, and while N265_RC_LAG is 0 that is also true at
+ * dispatch, a lag would make the value stale there and correct here. */
+static void hrd_sei_values(n265_encoder *e, const n265_frame_work *fw,
+                           n265_hrd_sei *v)
+{
+    memset(v, 0, sizeof *v);
+    /* Only an IRAP opens a buffering period, and the only IRAP this
+     * encoder writes is the IDR (a non-IDR I is a trailing picture). */
+    v->bp = fw->idr;
+    if (v->bp)
+        e->hrd_cvs_code = fw->code_idx;
+    /* C.2.3: clock ticks from the removal of the access unit that carried
+     * the most recent PRECEDING buffering period. One picture per tick, so
+     * it is a difference of coding indices. */
+    int64_t cpb = (int64_t)fw->code_idx - e->hrd_bp_code;
+    if (cpb < 1)
+        cpb = 1;
+    if (cpb > N265_HRD_DELAY_MAX)
+        cpb = N265_HRD_DELAY_MAX;
+    v->cpb_delay = (uint32_t)cpb;
+    int64_t dpb = (int64_t)e->dpb_reorder + fw->poc
+                - ((int64_t)fw->code_idx - e->hrd_cvs_code);
+    if (dpb < 0)                /* the reorder bound is what forbids this */
+        dpb = 0;
+    if (dpb > N265_HRD_DELAY_MAX)
+        dpb = N265_HRD_DELAY_MAX;
+    v->dpb_delay = (uint32_t)dpb;
+    if (v->bp) {
+        /* The initial delay is the CPB fill this access unit is removed
+         * against, expressed as the time it takes to arrive at the
+         * DECLARED BitRate: a decoder that starts here waits exactly that
+         * long and then holds what the encoder's clamp assumed it held.
+         * Rounded UP, so the wait is never shorter than the fill the
+         * encoder planned against; the declared pair is itself rounded up
+         * (E.2.3, at open), so both roundings point the same way.
+         *
+         * At the first access unit the fill is --vbv-init * --vbv-bufsize
+         * exactly, which is where vbv.c starts its walk and what
+         * docs/phase12.md item 2 wrote down as this message's value. At a
+         * later IDR it is the fill the stream really arrives at, which is
+         * the only honest thing to say to a decoder that random-accesses
+         * there. */
+        double rate = (double)e->hrd_bit_rate_bits;
+        double fill = e->vbv.fill;
+        if (fill < 0.0)         /* an underflow is a fact; a negative wait
+                                 * is not. The cell is reported by
+                                 * scripts/vbv_check.py either way. */
+            fill = 0.0;
+        double full = floor(90000.0 * (double)e->hrd_cpb_size_bits / rate);
+        if (full < 1.0)
+            full = 1.0;
+        if (full > (double)N265_HRD_DELAY_MAX)
+            full = (double)N265_HRD_DELAY_MAX;
+        double del = ceil(90000.0 * fill / rate);
+        if (del < 1.0)          /* D.3.2: the delay shall not be 0 */
+            del = 1.0;
+        if (del > full)
+            del = full;
+        v->init_delay = (uint32_t)del;
+        /* D.3.2's pair sums to the time the CPB takes to fill, which is
+         * the bound the delay itself is read against. */
+        v->init_offset = (uint32_t)(full - del);
+        e->hrd_bp_code = fw->code_idx;
+    }
+}
+
 /* Join the oldest frame in flight: wait for its job, pack its NALs into
  * the deferred ring in CODING order, and hand its resources back. This
  * is the only place the driver blocks on a frame, and it is where D3's
@@ -3960,7 +4047,14 @@ static void join_oldest(n265_encoder *e)
         for (int i = 0; i < e->nhdr; i++)
             pack_nal(d, e->hdr_type[i], e->hdr_rbsp[i], e->hdr_len[i]);
     /* 7.4.2.4.4: a prefix SEI follows the parameter sets of its access
-     * unit and precedes the first VCL NAL of that unit. */
+     * unit and precedes the first VCL NAL of that unit. The HRD timing
+     * pair leads the grain message, for the reason headers.c gives. */
+    if (e->hrd_on) {
+        n265_hrd_sei v;
+        hrd_sei_values(e, fw, &v);
+        n265_write_hrd_sei(&e->hrd_bs, &v);
+        pack_nal(d, N265_NAL_PREFIX_SEI, e->hrd_bs.buf, e->hrd_bs.bytes);
+    }
     if (fw->sei_len)
         pack_nal(d, N265_NAL_PREFIX_SEI, fw->sei, fw->sei_len);
     pack_nal(d, fw->nal_type, fw->rbsp.buf, fw->rbsp.bytes);

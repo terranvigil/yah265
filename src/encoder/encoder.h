@@ -15,6 +15,7 @@
 #include "common/bitstream.h"
 #include "encoder/cabac.h"
 #include "encoder/grain.h"
+#include "encoder/hrd.h"
 #include "encoder/la.h"
 #include "encoder/level.h"
 #include "encoder/rc.h"
@@ -867,6 +868,15 @@ struct n265_encoder {
      * rounding above can only ever push it up, and a --vbv-maxrate sitting
      * exactly on a level's bound would otherwise be signalled over it. */
     int64_t hrd_bit_rate_bits, hrd_cpb_size_bits;
+    /* The HRD timing SEIs (hrd.h, phase 12 item 5), and the two coding
+     * indices they are counted from. Both are driver state, moved in
+     * CODING order inside join_oldest, which is what makes the messages a
+     * function of the plan and not of the schedule: `hrd_bp_code` is the
+     * coding index of the access unit that carried the most recent
+     * buffering period (-1 before the first), `hrd_cvs_code` the coding
+     * index of the IDR that opened the current coded video sequence. */
+    bitstream_t hrd_bs;     /* the scratch this AU's message is built in */
+    int hrd_bp_code, hrd_cvs_code;
     int qp_frac;            /* carry the base QP's fraction and spread it
                              * over the CTUs (N265_QP_FRAC; on under ABR,
                              * and under CRF where the cu-tree frame term
@@ -1115,14 +1125,15 @@ struct n265_encoder {
         uint8_t *buf;
         size_t cap, len;
         int nnal;
-        /* FIVE, not four: the first access unit of a stream with a film
-         * grain SEI carries VPS, SPS, PPS, the prefix SEI and the slice.
-         * pack_nal DROPS a NAL past this bound and says nothing, so a
-         * bound one short does not fail loudly - it silently loses the
-         * IDR slice and the stream decodes as "could not find ref with
-         * POC 0". Found exactly that way, 2026-09-14. */
-        int type[5];
-        int size[5];
+        /* SIX, not four: the first access unit of a stream with a VBV and
+         * a film grain SEI carries VPS, SPS, PPS, the HRD timing SEI (the
+         * buffering period and the pic_timing share one NAL), the grain
+         * SEI and the slice. pack_nal DROPS a NAL past this bound and says
+         * nothing, so a bound one short does not fail loudly - it silently
+         * loses the IDR slice and the stream decodes as "could not find
+         * ref with POC 0". Found exactly that way, 2026-09-14. */
+        int type[6];
+        int size[6];
     } done[LA_MAX + N265_MAX_FRAME_WORK + 4];
     int n_done, done_head;
     /* T2 stall census (N265_STALL_TRACE): reference reads that had to
@@ -1470,6 +1481,7 @@ void n265_dpb_requirement(int bframes, int ref_max, int *reorder,
 /* headers.c */
 void n265_write_vps(n265_frame_work *e);
 void n265_write_fgc_sei(bitstream_t *bs, const n265_grain_model *m);
+void n265_write_hrd_sei(bitstream_t *bs, const n265_hrd_sei *v);
 void n265_write_sps(n265_frame_work *e);
 void n265_write_pps(n265_frame_work *e);
 

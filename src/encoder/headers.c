@@ -136,14 +136,12 @@ static void write_ptl(bitstream_t *bs, int level_idc, int tier,
  * sits full. Setting it would promise a stream that always spends its rate,
  * which this encoder does not write and could only keep by padding.
  *
- * WHAT IS NOT HERE: the buffering_period and pic_timing SEI messages. With
- * NalHrdBpPresentFlag set, D.3.2 asks for a buffering period SEI at each
- * IRAP and a pic_timing on every access unit, and both need a per-AU prefix
- * NAL this encoder has no writer for yet. The VUI is the honest half that
- * fits in this item: it declares the schedule the clamp enforces, both
- * decoders parse it, and the delays it would need are derivable from the
- * coding order whenever the SEI writer lands. docs/phase12.md, Item 2,
- * says so as a debt rather than leaving it to be discovered. */
+ * The three delay LENGTHS below size fields this parameter set never
+ * carries: they are read by the buffering_period and pic_timing SEI
+ * messages, which item 2 left as a named debt and phase 12 item 5 wrote
+ * (n265_write_hrd_sei, at the end of this file). The lengths and the SEIs
+ * have to be read together - a message written at a width the SPS does not
+ * declare parses as garbage - and 24 bits is what both halves assume. */
 static void write_hrd(bitstream_t *bs, const struct n265_frame_work *e)
 {
     bs_put_bits(bs, 1, 1);          /* nal_hrd_parameters_present_flag */
@@ -152,8 +150,11 @@ static void write_hrd(bitstream_t *bs, const struct n265_frame_work *e)
     bs_put_bits(bs, e->hrd_bit_rate_scale, 4);
     bs_put_bits(bs, e->hrd_cpb_size_scale, 4);
     /* the three delay lengths, in bits. They size fields only the SEI
-     * messages carry, so at 24 bits each they are the usual choice and
-     * cost nothing here. */
+     * messages carry, so at 24 bits each they are the usual choice, they
+     * cost nothing here, and N265_HRD_DELAY_BITS is the other half of the
+     * same number. 24 bits of 90 kHz is 186 seconds of initial delay and
+     * 2^24 pictures of removal delay, which no encode this tree makes can
+     * reach. */
     bs_put_bits(bs, 23, 5);         /* initial_cpb_removal_delay_length_m1 */
     bs_put_bits(bs, 23, 5);         /* au_cpb_removal_delay_length_minus1 */
     bs_put_bits(bs, 23, 5);         /* dpb_output_delay_length_minus1 */
@@ -407,12 +408,44 @@ void n265_write_pps(struct n265_frame_work *e)
     bs_rbsp_trailing(bs);
 }
 
-/* film_grain_characteristics, D.2.20, inside a prefix SEI NAL (D.2.1).
+/* Close one sei_message() (D.2.1): the payload was written from byte `at`
+ * of the RBSP, and its SIZE has to PRECEDE it, so the payload is shifted up
+ * by the ff-coded header it turned out to need. `n265_fgc_payload_hdr` is
+ * how many bytes that is for the grain message, and its unit test names
+ * both halves.
  *
- * The payload's SIZE has to precede it, so the payload is written from
- * byte 0 of the RBSP and then shifted up by the two header bytes it
- * turned out to need. `n265_fgc_payload_hdr` is how many those are, and
- * the unit test names both halves.
+ * The room is made with the writer's own put, not by indexing past
+ * bs->bytes: that is what grows the buffer when the message lands near the
+ * end of it, and a memmove into a capacity nothing checked is the one way
+ * a syntax writer can be wrong without any decoder seeing it. */
+static void sei_wrap(bitstream_t *bs, size_t at, unsigned type)
+{
+    /* the payload is byte-aligned with a one and then zeros, and ONLY when
+     * it is not already aligned - an unconditional call would write a
+     * whole spurious byte. */
+    if (bs->acc_bits)
+        bs_align_one_then_zero(bs);
+    size_t n = bs->bytes - at;
+    size_t hdr = type / 255 + 1 + n / 255 + 1;
+    for (size_t i = 0; i < hdr; i++)
+        bs_put_bits(bs, 0, 8);
+    memmove(bs->buf + at + hdr, bs->buf + at, n);
+    size_t o = at;
+    unsigned t = type;
+    while (t >= 255) {
+        bs->buf[o++] = 255;
+        t -= 255;
+    }
+    bs->buf[o++] = (uint8_t)t;      /* last_payload_type_byte */
+    size_t left = n;
+    while (left >= 255) {
+        bs->buf[o++] = 255;
+        left -= 255;
+    }
+    bs->buf[o++] = (uint8_t)left;   /* last_payload_size_byte */
+}
+
+/* film_grain_characteristics, D.2.20, inside a prefix SEI NAL (D.2.1).
  *
  * What is NOT written and why: model_id 0 is frequency filtering, which
  * is the one model with a synthesiser in this project's measurement chain
@@ -447,23 +480,64 @@ void n265_write_fgc_sei(bitstream_t *bs, const n265_grain_model *m)
         }
     }
     bs_put_bits(bs, 1, 1);          /* ..._persistence_flag */
-    /* D.2.1: the payload is byte-aligned with a one and then zeros, and
-     * ONLY when it is not already aligned - an unconditional call would
-     * write a whole spurious byte. */
-    if (bs->acc_bits)
-        bs_align_one_then_zero(bs);
-
-    size_t n = bs->bytes;
-    size_t hdr = 1 + n / 255 + 1;   /* payload_type 19, then the size */
-    memmove(bs->buf + hdr, bs->buf, n);
-    size_t o = 0;
-    bs->buf[o++] = 19;              /* SEI_TYPE_FILM_GRAIN_CHARACTERISTICS */
-    size_t left = n;
-    while (left >= 255) {
-        bs->buf[o++] = 255;
-        left -= 255;
-    }
-    bs->buf[o++] = (uint8_t)left;
-    bs->bytes = hdr + n;
+    sei_wrap(bs, 0, 19);            /* SEI_TYPE_FILM_GRAIN_CHARACTERISTICS */
     bs_rbsp_trailing(bs);           /* rbsp_slice_segment_trailing / stop bit */
+}
+
+/* buffering_period (D.2.2) and pic_timing (D.2.3), in ONE prefix SEI NAL
+ * (D.2.1) per access unit. Phase 12 item 5; item 2 wrote the VUI's
+ * hrd_parameters and left these as a named debt.
+ *
+ * Both messages ride the same NAL, buffering period FIRST, because D.3.2's
+ * HRD initialises on the buffering period of the access unit it starts
+ * with: a decoder that has read the pic_timing of an AU before its
+ * buffering period has read a removal delay against a period it does not
+ * have yet. One NAL also keeps the deferred ring's bound at six NALs for
+ * an IRAP that carries a film grain SEI too (VPS, SPS, PPS, this, the
+ * grain SEI, the slice).
+ *
+ * The fields are all fixed-width u(v) at the lengths write_hrd declares,
+ * so the message is the SAME SIZE whatever the values are - which is what
+ * lets the CPB walk that produces those values be run at the access unit
+ * they describe without the size of the message it is about to add being
+ * unknown.
+ *
+ * What is NOT written, and why every one of them is an absence the VUI
+ * already implies:
+ *   - irap_cpb_params_present_flag 0: the alt delays exist for splicing a
+ *     CVS in where leading pictures are discarded, which nothing here
+ *     does. With sub_pic_hrd_params_present_flag 0 the flag is present and
+ *     must be written; with it 0 the four alt fields are absent.
+ *   - concatenation_flag 0: this AU is not spliced onto another stream, so
+ *     C.2.3's delta branch does not apply and au_cpb_removal_delay_delta
+ *     is not read. It is written as 1 (minus1 = 0) rather than left
+ *     meaningless, and it is inert.
+ *   - the VCL half of both messages: vcl_hrd_parameters_present_flag is 0
+ *     in the VUI, so only the NAL loop is present. One schedule, one CPB.
+ *   - pic_struct / source_scan_type / duplicate_flag: gated on
+ *     frame_field_info_present_flag, which the VUI writes as 0 for the
+ *     same reason the PTL carries the frame-only constraint flag.
+ *   - the du (sub-picture) delays: sub_pic_hrd_params_present_flag is 0. */
+void n265_write_hrd_sei(bitstream_t *bs, const n265_hrd_sei *v)
+{
+    bs_reset(bs);
+    if (v->bp) {
+        /* buffering_period(), payload type 0 */
+        size_t at = bs->bytes;
+        bs_put_ue(bs, 0);           /* bp_seq_parameter_set_id */
+        bs_put_bits(bs, 0, 1);      /* irap_cpb_params_present_flag */
+        bs_put_bits(bs, 0, 1);      /* concatenation_flag */
+        bs_put_bits(bs, 0, N265_HRD_DELAY_BITS);
+                                    /* au_cpb_removal_delay_delta_minus1 */
+        bs_put_bits(bs, v->init_delay, N265_HRD_DELAY_BITS);
+        bs_put_bits(bs, v->init_offset, N265_HRD_DELAY_BITS);
+        sei_wrap(bs, at, 0);
+    }
+    /* pic_timing(), payload type 1 */
+    size_t at = bs->bytes;
+    bs_put_bits(bs, v->cpb_delay - 1, N265_HRD_DELAY_BITS);
+                                    /* au_cpb_removal_delay_minus1 */
+    bs_put_bits(bs, v->dpb_delay, N265_HRD_DELAY_BITS);
+    sei_wrap(bs, at, 1);
+    bs_rbsp_trailing(bs);
 }
