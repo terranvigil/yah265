@@ -122,7 +122,8 @@ on all fifteen clips by a median of 10% and still loses three of the four
 legs - touchdown_1080p at 1.44x of x265 faster's wall, and bus_cif
 missing the quality and size bars by a hair - and `veryfast` loses the
 band itself on seven of the fifteen (`docs/phase13.md`). Above `slower`:
-`veryslow` and `placebo` lose the band on five of the seven CIF clips,
+`veryslow` and `placebo` lose the band on five and four of the seven CIF
+clips,
 and the reason is upstream of them - `--preset slow` reads +10.24%
 against x265's own `slow` and `slower` +1.18% against x265's `slower`,
 while `medium` reads -6.65% against x265 medium with every clip ahead.
