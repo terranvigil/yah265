@@ -2565,29 +2565,10 @@ static uint64_t dup_bound(const n265_frame_work *fw,
                                     : p->dup_cum - fw->dup_cum;
 }
 
-/* WHICH references hold this frame's own source - the whole of the
- * decision, taken on the driver at dispatch (docs/phase11.md).
- *
- * The answer is a SET and not one reference. A picture in the middle of
- * a long hold is the duplicate of the anchor behind it AND of the one in
- * front, and the prediction that averages the two is not the same
- * prediction as either: it averages two independent quantisations of one
- * source, which is better than both and is what the encoder picks there
- * on its own. Naming a single reference made the arm decline every CU on
- * `sita_flat_720p`, where the leaves are bi (docs/phase11.md sec 1.4).
- *
- * EXACT membership first: a reference whose source IS this frame's
- * source, by the chain's run id. `N265_DUP_THR` then ADDS the references
- * whose bounded distance is inside the bar, so the threshold form is a
- * superset of the strict one and the strict one is what a bar of zero
- * leaves. `dup_l`/`dup_r` are the first member, for the census.
- *
- * A picture that is not itself in a run (`dup_grp` 0 - an unarmed
- * encode, or the first frame after a queue drain) matches nothing. */
 /* N265_STATIC_COMMIT (phase 11 item 4): WHICH retired frame's coded-skip
  * map this picture's static commit reads, resolved on the driver at
  * dispatch and frozen before a row job exists - the same shape as
- * dup_resolve above and for the same reason.
+ * dup_resolve below and for the same reason.
  *
  * Two rules, and the second is the one that makes the first usable.
  *
@@ -2648,6 +2629,25 @@ static void sc_resolve(n265_encoder *e, n265_frame_work *fw)
     fw->sc_map = e->sc_hist[best].map;
 }
 
+/* WHICH references hold this frame's own source - the whole of the
+ * decision, taken on the driver at dispatch (docs/phase11.md).
+ *
+ * The answer is a SET and not one reference. A picture in the middle of
+ * a long hold is the duplicate of the anchor behind it AND of the one in
+ * front, and the prediction that averages the two is not the same
+ * prediction as either: it averages two independent quantisations of one
+ * source, which is better than both and is what the encoder picks there
+ * on its own. Naming a single reference made the arm decline every CU on
+ * `sita_flat_720p`, where the leaves are bi (docs/phase11.md sec 1.4).
+ *
+ * EXACT membership first: a reference whose source IS this frame's
+ * source, by the chain's run id. `N265_DUP_THR` then ADDS the references
+ * whose bounded distance is inside the bar, so the threshold form is a
+ * superset of the strict one and the strict one is what a bar of zero
+ * leaves. `dup_l`/`dup_r` are the first member, for the census.
+ *
+ * A picture that is not itself in a run (`dup_grp` 0 - an unarmed
+ * encode, or the first frame after a queue drain) matches nothing. */
 static void dup_resolve(n265_encoder *e, n265_frame_work *fw)
 {
     fw->dup_msk[0] = fw->dup_msk[1] = 0;
