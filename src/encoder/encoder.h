@@ -1222,17 +1222,30 @@ struct n265_encoder {
         uint8_t *buf;
         size_t cap, len;
         int nnal;
-        /* EIGHT, not four: the first access unit of a stream with a VBV,
-         * a film grain SEI, HDR10 metadata and --hash carries VPS, SPS,
-         * PPS, the HRD timing SEI (the buffering period and the pic_timing
-         * share one NAL), the HDR metadata SEI (all three messages in one
-         * NAL), the grain SEI, the slice, and the hash SUFFIX SEI after
-         * it. pack_nal DROPS a NAL past this bound and says nothing, so a
-         * bound one short does not fail loudly - it silently loses the IDR
-         * slice and the stream decodes as "could not find ref with POC 0".
-         * Found exactly that way, 2026-09-14. */
-        int type[8];
-        int size[8];
+        /* SIXTEEN. pack_nal DROPS a NAL past this bound and says
+         * nothing, so a bound one short does not fail loudly - it
+         * silently loses the IDR slice and the stream decodes as "could
+         * not find ref with POC 0". It was eight, and it was found too
+         * short TWICE by exactly that symptom: once at phase 14 item 1
+         * (VPS, SPS, PPS, the HRD timing pair, the HDR metadata, the
+         * grain SEI, the slice, the hash), and again at item 4, whose
+         * flags add five more NALs to the same access unit - the end of
+         * sequence, the access unit delimiter, the recovery point, the
+         * version SEI, and strict CBR's filler.
+         *
+         * The worst IRAP this encoder can write is now: EOS, AUD, VPS,
+         * SPS, PPS, recovery point, the HRD timing pair, the HDR
+         * metadata, the version SEI, the grain SEI, the slice, the hash
+         * suffix SEI, filler, EOB - fourteen. Sixteen leaves room for two
+         * more before the next item has to count again, and the cost is
+         * 64 bytes per ring slot.
+         *
+         * If a third item makes this list longer, make the bound a
+         * derived constant instead of raising it: the failure is silent
+         * by construction and no gate that runs one flag at a time can
+         * see it. The 10-bit all-flags smoke of item 4 is what found it. */
+        int type[16];
+        int size[16];
     } done[LA_MAX + N265_MAX_FRAME_WORK + 4];
     int n_done, done_head;
     /* T2 stall census (N265_STALL_TRACE): reference reads that had to

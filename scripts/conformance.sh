@@ -1103,6 +1103,16 @@ run_vector rc_cbr        352x288 24 testsrc2 "--keyint 8 --bframes 3 --bitrate 7
 # not conforming even though every sample in it is right.
 run_vector sei_layers    352x288 24 testsrc2 "--keyint 8 --bframes 3 --crf 28 --vbv-maxrate 900 --vbv-bufsize 900 --idr-recovery-sei --pic-struct 0 --hrd-concat --temporal-layers --threads 4"
 run_vector tlayers_only  352x288 20 testsrc2 "--keyint 10 --bframes 7 --qp 32 --temporal-layers --threads 12"
+# The WORST access unit this encoder can write, and it is a vector
+# because the failure mode is silent: pack_nal drops a NAL past the
+# deferred ring's per-frame bound and says nothing, so an IRAP one NAL
+# too long loses its SLICE and the stream decodes as "could not find ref
+# with POC 0". That bound has now been found short twice, at phase 14
+# items 1 and 4, and no gate that runs one flag at a time can see it.
+# Every NAL-producing flag at once: EOS, AUD, VPS, SPS, PPS, the recovery
+# point, the HRD timing pair, the HDR metadata, the version SEI, the
+# grain SEI, the slice, the hash suffix SEI, filler, EOB.
+run_vector all_nals      352x288 16 testsrc2 "--keyint 8 --bframes 3 --bitrate 700 --vbv-maxrate 700 --vbv-bufsize 700 --strict-cbr --repeat-headers --aud --eos --eob --info --idr-recovery-sei --pic-struct 0 --hrd-concat --temporal-layers --hash 1 --film-grain 1.0 --max-cll 1000,400 --threads 4"
 
 if [ "$FAST" -eq 0 ]; then
     run_vector thr4_720    1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 4"
