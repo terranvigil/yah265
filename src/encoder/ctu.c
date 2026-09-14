@@ -5348,6 +5348,45 @@ static int decide_split(struct n265_frame_work *e, int x0, int y0, int log2n)
 }
 
 
+/*
+ * The snapshot's row copy, with its length made a constant (phase 13 A2).
+ *
+ * Every copy qt_save and qt_restore make is a run of rows whose LENGTH is
+ * a power of two under 129 bytes: `cells` bytes for each of the eight
+ * 4x4-cell maps, `cells * 8` for the motion vectors, `cells * 2` for the
+ * reference indices, and `(n >> shx) * sizeof(pixel)` for a recon row.
+ * Nothing told the compiler that, so each one was `memcpy` with a
+ * run-time length - a call into `_platform_memmove` - and at a 64x64 CU
+ * the map rows alone are 128 calls of SIXTEEN BYTES per save. The A2
+ * census put `qt_save` and `qt_restore` together at 28-36% of the
+ * encoder's memmove samples, second only to the transform's staging copy.
+ *
+ * The switch is outside the row loop, so it costs one well-predicted
+ * branch per call and each arm copies a compile-time size that clang
+ * emits in line. Identical bytes to identical addresses: this is the same
+ * copy with the call removed, and the `default` arm is still the general
+ * one.
+ */
+static inline void qt_rows(uint8_t *d, ptrdiff_t ds, const uint8_t *s,
+                           ptrdiff_t ss, int rows, size_t bytes)
+{
+#define QT_ROWS_CASE(B)                                                 \
+    case (B):                                                           \
+        for (int y = 0; y < rows; y++)                                  \
+            memcpy(d + (ptrdiff_t)y * ds, s + (ptrdiff_t)y * ss, (B));  \
+        return;
+
+    switch (bytes) {
+    QT_ROWS_CASE(1)  QT_ROWS_CASE(2)  QT_ROWS_CASE(4)  QT_ROWS_CASE(8)
+    QT_ROWS_CASE(16) QT_ROWS_CASE(32) QT_ROWS_CASE(64) QT_ROWS_CASE(128)
+    default: break;
+    }
+#undef QT_ROWS_CASE
+
+    for (int y = 0; y < rows; y++)
+        memcpy(d + (ptrdiff_t)y * ds, s + (ptrdiff_t)y * ss, bytes);
+}
+
 static uint8_t *snap_maps(struct n265_frame_work *e, int i)
 {
     uint8_t *m[8];
@@ -5363,27 +5402,34 @@ static void qt_save(struct n265_frame_work *e, qt_snap *sn, int x0, int y0,
     pixel *p = sn->recon;
     for (int c = 0; c < 3; c++) {
         int shx = c ? e->csx : 0, shy = c ? e->csy : 0;
-        for (int y = y0 >> shy; y < (y0 + n) >> shy; y++) {
-            memcpy(p, e->recon[c] + y * e->recon_stride[c] + (x0 >> shx),
-                   (size_t)(n >> shx) * sizeof(pixel));
-            p += n >> shx;
-        }
+        int rows = ((y0 + n) >> shy) - (y0 >> shy);
+        size_t rb = (size_t)(n >> shx) * sizeof(pixel);
+
+        qt_rows((uint8_t *)p, (ptrdiff_t)rb,
+                (const uint8_t *)(e->recon[c] +
+                                  (size_t)(y0 >> shy) * e->recon_stride[c] +
+                                  (x0 >> shx)),
+                (ptrdiff_t)e->recon_stride[c] * (ptrdiff_t)sizeof(pixel),
+                rows, rb);
+        p += (size_t)rows * (n >> shx);
     }
     int cells = n >> 2;
     for (int i = 0; i < 8; i++)
-        for (int y = 0; y < cells; y++)
-            memcpy(sn->maps[i] + y * cells,
-                   snap_maps(e, i) + ((y0 >> 2) + y) * e->map_stride +
-                       (x0 >> 2),
-                   (size_t)cells);
-    for (int y = 0; y < cells; y++)
-        memcpy(sn->mv + y * cells * 2 * 2,
-               e->blk_mv + (((y0 >> 2) + y) * e->map_stride + (x0 >> 2)) * 4,
-               (size_t)cells * 4 * sizeof(int16_t));
-    for (int y = 0; y < cells; y++)
-        memcpy(sn->ref + y * cells * 2,
-               e->blk_ref + (((y0 >> 2) + y) * e->map_stride + (x0 >> 2)) * 2,
-               (size_t)cells * 2);
+        qt_rows(sn->maps[i], cells,
+                snap_maps(e, i) + (size_t)(y0 >> 2) * e->map_stride +
+                    (x0 >> 2),
+                e->map_stride, cells, (size_t)cells);
+    qt_rows((uint8_t *)sn->mv, (ptrdiff_t)cells * 4 * sizeof(int16_t),
+            (const uint8_t *)(e->blk_mv +
+                              ((size_t)(y0 >> 2) * e->map_stride +
+                               (x0 >> 2)) * 4),
+            (ptrdiff_t)e->map_stride * 4 * (ptrdiff_t)sizeof(int16_t),
+            cells, (size_t)cells * 4 * sizeof(int16_t));
+    qt_rows((uint8_t *)sn->ref, cells * 2,
+            (const uint8_t *)(e->blk_ref +
+                              ((size_t)(y0 >> 2) * e->map_stride +
+                               (x0 >> 2)) * 2),
+            (ptrdiff_t)e->map_stride * 2, cells, (size_t)cells * 2);
     memcpy(sn->est, e->est_ctx, sizeof(sn->est));
     sn->ent_qp_coded = e->ent_qp_coded;
     sn->rec_len = e->rec_len;
@@ -5406,25 +5452,31 @@ static void qt_restore(struct n265_frame_work *e, const qt_snap *sn, int x0,
     const pixel *p = sn->recon;
     for (int c = 0; c < 3; c++) {
         int shx = c ? e->csx : 0, shy = c ? e->csy : 0;
-        for (int y = y0 >> shy; y < (y0 + n) >> shy; y++) {
-            memcpy(e->recon[c] + y * e->recon_stride[c] + (x0 >> shx), p,
-                   (size_t)(n >> shx) * sizeof(pixel));
-            p += n >> shx;
-        }
+        int rows = ((y0 + n) >> shy) - (y0 >> shy);
+        size_t rb = (size_t)(n >> shx) * sizeof(pixel);
+
+        qt_rows((uint8_t *)(e->recon[c] +
+                            (size_t)(y0 >> shy) * e->recon_stride[c] +
+                            (x0 >> shx)),
+                (ptrdiff_t)e->recon_stride[c] * (ptrdiff_t)sizeof(pixel),
+                (const uint8_t *)p, (ptrdiff_t)rb, rows, rb);
+        p += (size_t)rows * (n >> shx);
     }
     int cells = n >> 2;
     for (int i = 0; i < 8; i++)
-        for (int y = 0; y < cells; y++)
-            memcpy(snap_maps(e, i) + ((y0 >> 2) + y) * e->map_stride +
-                       (x0 >> 2),
-                   sn->maps[i] + y * cells, (size_t)cells);
-    for (int y = 0; y < cells; y++)
-        memcpy(e->blk_mv + (((y0 >> 2) + y) * e->map_stride + (x0 >> 2)) * 4,
-               sn->mv + y * cells * 2 * 2,
-               (size_t)cells * 4 * sizeof(int16_t));
-    for (int y = 0; y < cells; y++)
-        memcpy(e->blk_ref + (((y0 >> 2) + y) * e->map_stride + (x0 >> 2)) * 2,
-               sn->ref + y * cells * 2, (size_t)cells * 2);
+        qt_rows(snap_maps(e, i) + (size_t)(y0 >> 2) * e->map_stride +
+                    (x0 >> 2),
+                e->map_stride, sn->maps[i], cells, cells, (size_t)cells);
+    qt_rows((uint8_t *)(e->blk_mv +
+                        ((size_t)(y0 >> 2) * e->map_stride + (x0 >> 2)) * 4),
+            (ptrdiff_t)e->map_stride * 4 * (ptrdiff_t)sizeof(int16_t),
+            (const uint8_t *)sn->mv,
+            (ptrdiff_t)cells * 4 * sizeof(int16_t), cells,
+            (size_t)cells * 4 * sizeof(int16_t));
+    qt_rows((uint8_t *)(e->blk_ref +
+                        ((size_t)(y0 >> 2) * e->map_stride + (x0 >> 2)) * 2),
+            (ptrdiff_t)e->map_stride * 2, (const uint8_t *)sn->ref,
+            cells * 2, cells, (size_t)cells * 2);
     memcpy(e->est_ctx, sn->est, sizeof(sn->est));
     e->ent_qp_coded = sn->ent_qp_coded;
     e->rec_len = sn->rec_len;
