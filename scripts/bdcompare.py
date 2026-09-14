@@ -194,6 +194,138 @@ def yuv_psnr_of(bitstream, src_path):
     return y, (u + v) / 2.0
 
 
+# ------------------------------------------------------- the extra metrics (B4)
+#
+# Phase 13 B4. The band decides on VMAF-NEG, which reads the Y plane and
+# nothing else; B0/B1 found three clips where our PSNR is behind x265 on
+# EVERY plane at equal bytes while VMAF-NEG is ahead. That is a question
+# about the METRICS, and it is only answerable by putting more than one of
+# them on the same four rungs. These are the extra readings, all off the
+# same bitstream the band already encoded and cached:
+#
+#   SSIM per plane   ffmpeg's `ssim` filter, which prints Y, U, V and All
+#                    on one line - a structural metric with a chroma half,
+#                    which is the one thing PSNR and VMAF-NEG between them
+#                    do not have.
+#   MS-SSIM          libvmaf's `float_ms_ssim` feature. The ffmpeg
+#                    `libvmaf` filter is NOT built on this box (checked:
+#                    `ffmpeg -filters` lists psnr, ssim, ssim360,
+#                    vmafmotion and xpsnr, and `-h filter=libvmaf` says
+#                    "Unknown filter"), so the feature is taken off the
+#                    standalone libvmaf binary this file already runs VMAF
+#                    through - as a SECOND run, deliberately. Putting
+#                    `--feature float_ms_ssim` on the FIRST one would change
+#                    `_vmaf_models()`'s string, and that string is a term of
+#                    bd_at_rate's content memo key: every cached point in
+#                    the tree would be invalidated for a number that does
+#                    not touch VMAF.
+#
+# libvmaf 3.2.0 here also carries `float_ssim`, `psnr_hvs`, `ciede` and
+# `cambi`; only ms_ssim is wired up, because the plane split is what B4
+# needs and ffmpeg's filter gives that and libvmaf's ssim does not.
+SSIM_Y_KEY = "ssimY"
+SSIM_U_KEY = "ssimU"
+SSIM_V_KEY = "ssimV"
+SSIM_ALL_KEY = "ssimAll"
+MS_SSIM_KEY = "msSSIM"
+EXTRA_KEYS = (SSIM_Y_KEY, SSIM_U_KEY, SSIM_V_KEY, SSIM_ALL_KEY, MS_SSIM_KEY)
+
+
+def planes_ssim_of(bitstream, src_path):
+    """(y, u, v, all) SSIM as RATIOS in [0, 1], or four Nones.
+
+    The same one ffmpeg call shape `planes_psnr_of` uses - FRAME-INDEX
+    alignment, because the corpus y4m rates differ from the rawvideo
+    default and timestamp sync would compare the wrong frames, and
+    shortest=1 to stop at the truncated encode's length. The filter's own
+    line is `SSIM Y:0.850557 (8.255233) U:... V:... All:...`; the
+    parenthesised numbers are the dB form and are recomputed by `ssim_db`
+    rather than parsed, so the memo holds the ratio and every reader picks
+    its own scale."""
+    p = sh(f'ffmpeg -loglevel info {" ".join(fgc_dec_flags())} '
+           f'-i {shlex.quote(bitstream)} '
+           f'-i {shlex.quote(src_path)} '
+           f'-lavfi "[0:v]settb=1/25,setpts=N[d];[1:v]settb=1/25,setpts=N[r];'
+           f'[d][r]ssim=shortest=1" -f null -')
+    m = re.search(r"SSIM Y:([0-9.]+|inf)\s*\([^)]*\)\s*U:([0-9.]+|inf)\s*"
+                  r"\([^)]*\)\s*V:([0-9.]+|inf)\s*\([^)]*\)\s*"
+                  r"All:([0-9.]+|inf)", p.stderr)
+    if not m:
+        return None, None, None, None
+    return tuple(1.0 if g == "inf" else float(g) for g in m.groups())
+
+
+# An SSIM of exactly 1 is infinite dB. Lossless is not in the band and
+# never will be (the ladders span VMAF-NEG 55-95), but a clamp costs
+# nothing and an inf in a polyfit costs the whole run.
+_SSIM_DB_CAP = 1.0 - 1e-8
+
+
+def ssim_db(x):
+    """SSIM on the dB scale, -10 log10(1 - SSIM): what ffmpeg's own filter
+    prints in parentheses, and the axis BD-rate is integrated on.
+
+    It is not cosmetic. Bjontegaard fits log-bitrate as a CUBIC in the
+    quality variable over four rungs, and raw SSIM crowds a 3x bitrate span
+    into the last hundredths of a bounded scale - the top rung of an easy
+    clip reads 0.988 against 0.975, so the fit spends its curvature on
+    rounding. On the dB scale the same four rungs are spread the way PSNR's
+    are, which is why every codec comparison that reports BD-SSIM reports
+    it this way."""
+    if x is None:
+        return None
+    return -10.0 * math.log10(1.0 - min(float(x), _SSIM_DB_CAP))
+
+
+def ms_ssim_of(bitstream, src_path, work):
+    """libvmaf's `float_ms_ssim`, pooled mean, or None.
+
+    A second libvmaf run over the same decode - see the note above for why
+    it is not folded into `vmaf_of`'s. `--no_prediction` means no model is
+    loaded, so this call cannot produce a VMAF number and cannot be
+    confused with one."""
+    fd, dec = tempfile.mkstemp(suffix=".msdec.y4m", dir=work); os.close(fd)
+    fd, js = tempfile.mkstemp(suffix=".ms.json", dir=work); os.close(fd)
+    pixfmt, strict = _dec_pixfmt()
+    sh(f'ffmpeg -v error -y {" ".join(fgc_dec_flags())} -i "{bitstream}" '
+       f'-pix_fmt {pixfmt} -sws_dither none{strict} "{dec}"')
+    binary = os.environ.get("VMAF", "vmaf")
+    sub = f"--subsample {SUBSAMPLE}" if SUBSAMPLE > 1 else ""
+    thr = os.environ.get("VMAF_THREADS", "8")
+    r = sh(f'{shlex.quote(binary)} -r "{src_path}" -d "{dec}" --json -o "{js}" '
+           f'--no_prediction --feature float_ms_ssim {sub} --threads {thr}')
+    try:
+        os.unlink(dec)
+    except OSError:
+        pass
+    if r.returncode != 0:
+        return None
+    try:
+        pm = json.load(open(js))["pooled_metrics"]
+    except (OSError, ValueError, KeyError):
+        return None
+    if "float_ms_ssim" not in pm:
+        return None
+    return pm["float_ms_ssim"]["mean"]
+
+
+def extras_of(bitstream, src_path, work):
+    """The B4 readings as a dict, ready to merge into a memo entry. Keys
+    whose ffmpeg or libvmaf run produced nothing are simply absent, which
+    leaves the point exactly as it was."""
+    out = {}
+    y, u, v, allp = planes_ssim_of(bitstream, src_path)
+    if y is not None:
+        out[SSIM_Y_KEY] = y
+        out[SSIM_U_KEY] = u
+        out[SSIM_V_KEY] = v
+        out[SSIM_ALL_KEY] = allp
+    ms = ms_ssim_of(bitstream, src_path, work)
+    if ms is not None:
+        out[MS_SSIM_KEY] = ms
+    return out
+
+
 def vmaf_of(bitstream, src_path, work, per_frame=False):
     # `per_frame` adds the PER-FRAME vmaf_neg list under "frames", in
     # display order, off the same libvmaf run. shot_hull.py slices a
@@ -441,6 +573,38 @@ def selftest():
     xs = np.linspace(0.0, 10.0, 501)
     check(bool(np.all(np.diff(_pchip_eval(x, y, xs)) >= -1e-12)),
           "pchip stays monotone between them")
+
+    # phase 13 B4: the SSIM dB scale, against ffmpeg's own parenthesised
+    # numbers off the `ssim` filter (foreman_cif, 12 frames, x265
+    # ultrafast crf 34: "Y:0.850557 (8.255233) U:0.922018 (11.080070)
+    # V:0.960733 (14.059669) All:0.880830 (9.238313)"). If this drifts the
+    # B4 columns are on a different axis from the filter's own report.
+    for ratio, db in ((0.850557, 8.255233), (0.922018, 11.080070),
+                      (0.960733, 14.059669), (0.880830, 9.238313)):
+        # 1e-3, not tighter: the ratio above is the filter's own printout
+        # rounded to six decimals, and its dB column was computed from the
+        # full-precision value, so the last digits cannot agree. The
+        # tolerance is four orders under the smallest BD-relevant move.
+        got = ssim_db(ratio)
+        check(abs(got - db) < 1e-3,
+              f"ssim_db({ratio}) = {got:.6f}, ffmpeg says {db}")
+    check(abs(ssim_db(1.0) - 80.0) < 1e-6,
+          "ssim_db clamps a pinned 1.0 to 80 dB instead of an inf")
+    # and the dB scale is strictly increasing, so BD-rate's overlap window
+    # and its sign mean on it what they mean on PSNR
+    ss = [ssim_db(x) for x in (0.80, 0.90, 0.95, 0.99, 0.999)]
+    check(all(b > a for a, b in zip(ss, ss[1:])), "ssim_db is increasing")
+
+    # the B4 regexes against the exact lines the two tools print
+    ff = ("[Parsed_ssim_4 @ 0x7c70224c0] SSIM Y:0.850557 (8.255233) "
+          "U:0.922018 (11.080070) V:0.960733 (14.059669) "
+          "All:0.880830 (9.238313)")
+    m = re.search(r"SSIM Y:([0-9.]+|inf)\s*\([^)]*\)\s*U:([0-9.]+|inf)\s*"
+                  r"\([^)]*\)\s*V:([0-9.]+|inf)\s*\([^)]*\)\s*"
+                  r"All:([0-9.]+|inf)", ff)
+    check(m is not None and [float(g) for g in m.groups()] ==
+          [0.850557, 0.922018, 0.960733, 0.880830],
+          "the ssim filter's line parses to four planes")
 
     print("bdcompare selftest: " + ("FAILED" if bad else "passed"))
     return 1 if bad else 0
