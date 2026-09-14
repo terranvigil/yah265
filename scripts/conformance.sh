@@ -669,6 +669,15 @@ if [ "$DEPTH" = 10 ]; then
                    m10_foreman 352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 28 --aq 1 --cutree 1 --threads 4"
     run_vector_file tests/corpus/mobile_cif.y4m \
                    m10_mobile 352x288 16 testsrc2 "--keyint 8 --bframes 3 --qp 22 --aq 1 --threads 1"
+    # The whole of phase 14 item 1 at once, at the depth HDR is actually
+    # delivered in: the decoded picture hash, the full colour description
+    # (BT.2100 PQ), and the two HDR10 static metadata SEIs REPEATED at
+    # every IRAP - which is what --keyint 8 over 24 frames is for. The SPS
+    # grows a VUI block that every field after it depends on, so a decoder
+    # that mis-parses one flag reaches the slice data with everything
+    # shifted; both decoders are held bit-exact, and the hash leg above
+    # adds the picture-level claim on top.
+    run_vector m10_hdr10 352x288 24 testsrc2 "--keyint 8 --bframes 3 --crf 28 --aq 1 --cutree 1 --hash 1 --colorprim bt2020 --transfer smpte2084 --colormatrix bt2020nc --range limited --chromaloc 2 --sar 1:1 --master-display G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,5) --max-cll 1000,400 --threads 4"
     if [ "$FAST" -eq 0 ]; then
         run_vector_file tests/corpus/sintel_720p.y4m \
                    m10_sintel 1280x720 12 testsrc2 "--keyint 6 --bframes 5 --crf 30 --aq 1 --cutree 1 --threads 12"

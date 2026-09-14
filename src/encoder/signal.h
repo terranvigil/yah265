@@ -42,6 +42,10 @@ enum {
     N265_VUI_NFIELD,
 };
 
+/* The three HDR10 messages share one prefix SEI RBSP: 24 + 4 + 1 payload
+ * bytes, two header bytes each and the trailing byte. 64 is triple. */
+#define N265_HDR_SEI_MAX    64
+
 typedef struct n265_signal {
     /* --hash: 0 off, else hash_type + 1 (x265's numbering: 1 MD5, 2 CRC,
      * 3 checksum). One suffix SEI per picture, D.2.19. */
@@ -91,6 +95,16 @@ int n265_sar_parse(const char *s, int *idc, int *w, int *h);
 
 /* "left,top,right,bottom" in LUMA samples. 0 on success. */
 int n265_window_parse(const char *s, int *l, int *t, int *r, int *b);
+
+/* x265's mastering display syntax, G(x,y)B(x,y)R(x,y)WP(x,y)L(max,min).
+ * Ten numbers into `v` in that order; 0 on success. */
+int n265_master_display_parse(const char *s, uint32_t v[10]);
+
+/* "cll,fall". 0 on success. */
+int n265_cll_parse(const char *s, int *cll, int *fall);
+
+/* Is any HDR10 metadata message going to be written? (the --hdr10 rule) */
+int n265_hdr10_on(const n265_signal *s);
 
 /* Does the VUI have to be present for this configuration, timing aside? */
 int n265_vui_needed(const n265_signal *s);

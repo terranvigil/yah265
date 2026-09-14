@@ -622,6 +622,74 @@ void n265_write_hrd_sei(bitstream_t *bs, const n265_hrd_sei *v)
     bs_rbsp_trailing(bs);
 }
 
+/* The HDR10 static metadata, and the alternative transfer characteristics
+ * beside it: mastering_display_colour_volume (D.2.28, payload type 137),
+ * content_light_level_info (D.2.35, type 144) and
+ * alternative_transfer_characteristics (D.2.38, type 147). Phase 14 item 1.
+ *
+ * All three in ONE prefix SEI NAL, in ascending payload type, for the
+ * reason the two HRD messages share one: an access unit's NAL count is
+ * bounded by the deferred ring (encoder.h), and three more NALs on an
+ * IRAP would buy nothing a decoder can see. D.2.1 puts no limit on the
+ * number of messages in a NAL.
+ *
+ * Every value is the caller's, unscaled and unchecked against the
+ * picture: the chromaticities are u(16) in units of 0.00002 and the
+ * luminances u(32) in units of 0.0001 cd/m2, which is what x265's
+ * --master-display string already carries, so a command line moves
+ * between the two encoders without arithmetic. The SEIs say what the
+ * MASTERING DISPLAY did; nothing here measures the content, and
+ * measuring it is the half this item deliberately does not do.
+ *
+ * The primaries go out in the order the syntax numbers them, which for
+ * HDR10 is green, blue, red - the order x265's G(x,y)B(x,y)R(x,y) spells
+ * and the order a value set copied off a mastering report is written in.
+ *
+ * Returns the RBSP length, and 0 when the configuration asks for NO
+ * message - `--max-cll 1,2 --no-cll` is such a configuration, and an
+ * empty RBSP would still be a NAL, whose single trailing byte a decoder
+ * reads as an SEI of payload type 128. Found exactly that way. */
+size_t n265_write_hdr_sei(bitstream_t *bs, const n265_signal *s)
+{
+    bs_reset(bs);
+    int hdr = n265_hdr10_on(s);     /* --hdr10 / --no-hdr10 and the rule
+                                     * that values alone arm it. --atc-sei
+                                     * is not part of that packet and is
+                                     * not gated on it. */
+    if (hdr && s->have_md) {
+        size_t at = bs->bytes;
+        for (int c = 0; c < 3; c++) {
+            bs_put_bits(bs, s->md_prim[c][0], 16);  /* display_primaries_x */
+            bs_put_bits(bs, s->md_prim[c][1], 16);  /* display_primaries_y */
+        }
+        bs_put_bits(bs, s->md_wp[0], 16);           /* white_point_x */
+        bs_put_bits(bs, s->md_wp[1], 16);           /* white_point_y */
+        bs_put_bits(bs, s->md_max, 32);  /* max_display_mastering_luminance */
+        bs_put_bits(bs, s->md_min, 32);  /* min_display_mastering_luminance */
+        sei_wrap(bs, at, 137);
+    }
+    if (hdr && s->have_cll && s->cll_on) {
+        size_t at = bs->bytes;
+        bs_put_bits(bs, (uint32_t)s->maxcll, 16);   /* max_content_light_level */
+        bs_put_bits(bs, (uint32_t)s->maxfall, 16);  /* max_pic_average_light_level */
+        sei_wrap(bs, at, 144);
+    }
+    if (s->atc >= 0) {
+        /* D.2.38: what an SDR decoder should assume the transfer
+         * characteristic is, when transfer_characteristics itself says
+         * HLG. One byte, and it is the only thing that lets an HLG stream
+         * tell a display it cannot reach what to do instead. */
+        size_t at = bs->bytes;
+        bs_put_bits(bs, (uint32_t)s->atc, 8);
+                                    /* preferred_transfer_characteristics */
+        sei_wrap(bs, at, 147);
+    }
+    if (!bs->bytes)
+        return 0;
+    bs_rbsp_trailing(bs);
+    return bs->bytes;
+}
+
 /* decoded_picture_hash (D.2.19), in a SUFFIX SEI NAL - the only suffix
  * NAL this encoder writes. Phase 14 item 1.
  *

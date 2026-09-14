@@ -17,7 +17,7 @@
  *  - the checksum's COORDINATE MASK, which is the only part of D.3.19
  *    that a plain sum would not have: two samples exchanged between
  *    positions leave the sum alone and must move the checksum.
- *  - the message's SYNTAX, byte for byte against a hand-assembled
+ *  - the three messages' SYNTAX, byte for byte against a hand-assembled
  *    reference and then through a hand-written reader over the same
  *    syntax table. A writer that puts the right fields in the wrong
  *    ORDER, or at the wrong WIDTH, still parses as something; it does
@@ -38,6 +38,7 @@
 #include "encoder/signal.h"
 
 void n265_write_hash_sei(bitstream_t *bs, const n265_pic_hash *h, int ncomp);
+size_t n265_write_hdr_sei(bitstream_t *bs, const n265_signal *s);
 
 static int fails;
 
@@ -254,6 +255,99 @@ static void test_hash_sei_syntax(void)
     bs_free(&bs);
 }
 
+static void test_hdr_sei_syntax(void)
+{
+    n265_signal s;
+    memset(&s, 0, sizeof s);
+    s.hdr10 = -1;
+    s.cll_on = 1;
+    s.atc = -1;
+    s.have_md = 1;
+    /* P3D65 at 1000 nits, x265's own P3D65x1000n0005 values */
+    const uint16_t prim[3][2] = { { 13250, 34500 }, { 7500, 3000 },
+                                  { 34000, 16000 } };
+    memcpy(s.md_prim, prim, sizeof prim);
+    s.md_wp[0] = 15635;
+    s.md_wp[1] = 16450;
+    s.md_max = 10000000;
+    s.md_min = 5;
+    s.have_cll = 1;
+    s.maxcll = 1000;
+    s.maxfall = 400;
+
+    bitstream_t bs;
+    bs_init(&bs, 128);
+    n265_write_hdr_sei(&bs, &s);
+
+    /* Hand-assembled, in the order the writer emits them: type 137 with
+     * 24 payload bytes (eight u(16) and two u(32)), then type 144 with 4,
+     * then the stop bit. Every number below is the value above written
+     * big-endian, which is what u(n) means. */
+    static const uint8_t want[] = {
+        137, 24,
+        0x33, 0xc2, 0x86, 0xc4,     /* G x, y */
+        0x1d, 0x4c, 0x0b, 0xb8,     /* B x, y */
+        0x84, 0xd0, 0x3e, 0x80,     /* R x, y */
+        0x3d, 0x13, 0x40, 0x42,     /* white point x, y */
+        0x00, 0x98, 0x96, 0x80,     /* max luminance, 1000 cd/m2 */
+        0x00, 0x00, 0x00, 0x05,     /* min luminance, 0.0005 cd/m2 */
+        144, 4,
+        0x03, 0xe8, 0x01, 0x90,     /* max CLL 1000, max FALL 400 */
+        0x80
+    };
+    CHECK(bs.bytes == sizeof want, "HDR SEI is %zu bytes, want %zu",
+          bs.bytes, sizeof want);
+    if (bs.bytes == sizeof want)
+        CHECK(!memcmp(bs.buf, want, sizeof want),
+              "HDR SEI bytes differ from the hand-assembled messages");
+
+    /* --no-cll drops the second message and keeps the first */
+    s.cll_on = 0;
+    n265_write_hdr_sei(&bs, &s);
+    CHECK(bs.bytes == 27, "with --no-cll the NAL is %zu bytes, want 27",
+          bs.bytes);
+    CHECK(bs.bytes > 1 && bs.buf[0] == 137, "the mastering display is gone");
+
+    /* --no-hdr10 drops both, and --atc-sei is NOT part of that packet */
+    s.cll_on = 1;
+    s.hdr10 = 0;
+    s.atc = 18;                 /* arib-std-b67, HLG */
+    n265_write_hdr_sei(&bs, &s);
+    static const uint8_t want_atc[] = { 147, 1, 18, 0x80 };
+    CHECK(bs.bytes == sizeof want_atc &&
+          !memcmp(bs.buf, want_atc, sizeof want_atc),
+          "with --no-hdr10 and --atc-sei 18 the NAL is %zu bytes",
+          bs.bytes);
+
+    /* --max-cll with --no-cll and nothing else asks for NO message, and
+     * an empty RBSP is still a NAL whose one trailing byte reads as an
+     * SEI of payload type 128. The writer says 0 and the caller writes
+     * nothing. */
+    n265_signal none;
+    memset(&none, 0, sizeof none);
+    none.hdr10 = -1;
+    none.cll_on = 0;
+    none.atc = -1;
+    none.have_cll = 1;
+    none.maxcll = 1;
+    CHECK(n265_write_hdr_sei(&bs, &none) == 0,
+          "an empty HDR configuration wrote %zu bytes", bs.bytes);
+
+    /* the auto rule: values alone arm the packet, and nothing at all
+     * writes nothing at all */
+    n265_signal empty;
+    memset(&empty, 0, sizeof empty);
+    empty.hdr10 = -1;
+    empty.cll_on = 1;
+    empty.atc = -1;
+    CHECK(!n265_hdr10_on(&empty), "--hdr10 armed with no values");
+    empty.have_cll = 1;
+    CHECK(n265_hdr10_on(&empty), "--max-cll did not arm the packet");
+    empty.hdr10 = 0;
+    CHECK(!n265_hdr10_on(&empty), "--no-hdr10 did not disarm the packet");
+    bs_free(&bs);
+}
+
 /* The value tables: index IS the code, and a dropped "reserved" entry
  * would shift everything after it. These are the codes of Tables E.2 to
  * E.5 read off the spec, not off the table under test. */
@@ -308,6 +402,22 @@ static void test_value_tables(void)
           t == 2 && r == 6 && b == 8, "--display-window l,t,r,b");
     CHECK(n265_window_parse("4,2,6", &l, &t, &r, &b) == -1, "three of four");
 
+    uint32_t md[10];
+    CHECK(n265_master_display_parse(
+              "G(13250,34500)B(7500,3000)R(34000,16000)"
+              "WP(15635,16450)L(10000000,5)", md) == 0 &&
+          md[0] == 13250 && md[5] == 16000 && md[8] == 10000000 &&
+          md[9] == 5, "--master-display in x265's syntax");
+    CHECK(n265_master_display_parse("G(1,2)B(3,4)R(5,6)WP(7,8)", md) == -1,
+          "a mastering display with no luminance");
+    CHECK(n265_master_display_parse(
+              "G(70000,1)B(3,4)R(5,6)WP(7,8)L(9,10)", md) == -1,
+          "a chromaticity past u(16)");
+
+    int cll, fall;
+    CHECK(n265_cll_parse("1000,400", &cll, &fall) == 0 && cll == 1000 &&
+          fall == 400, "--max-cll cll,fall");
+    CHECK(n265_cll_parse("1000", &cll, &fall) == -1, "--max-cll needs both");
 }
 
 int main(void)
@@ -316,6 +426,7 @@ int main(void)
     test_known_plane();
     test_checksum_is_positional();
     test_hash_sei_syntax();
+    test_hdr_sei_syntax();
     test_value_tables();
     if (fails)
         printf("hash_test: %d failure(s)\n", fails);

@@ -103,11 +103,11 @@ static int g_fgc_denoise = 0;
 static double g_vbv_maxrate = 0.0;  /* --vbv-maxrate, kbit/s */
 static double g_vbv_bufsize = 0.0;  /* --vbv-bufsize, kbit   */
 static double g_vbv_init = 0.9;     /* --vbv-init, a fraction of the buffer */
-/* Pass-through signalling (phase 14 item 1): the decoded picture hash and
- * the VUI's colour description. The whole struct is OFF
- * here - every field -1 or 0 - and off is what every board, band and gate
- * leg runs, which is what makes "no flag, no byte moves" the item's identity
- * claim. Nothing in it reaches a coding decision; see signal.h. */
+/* Pass-through signalling (phase 14 item 1): the decoded picture hash, the
+ * VUI's colour description and the HDR10 static metadata. The whole struct
+ * is OFF here - every field -1 or 0 - and off is what every board, band and
+ * gate leg runs, which is what makes "no flag, no byte moves" the item's
+ * identity claim. Nothing in it reaches a coding decision; see signal.h. */
 static n265_signal g_sig = {
     .hash = 0, .sar_idc = -1, .sar_w = 0, .sar_h = 0, .overscan = -1,
     .videoformat = -1, .full_range = -1, .colorprim = -1, .transfer = -1,
@@ -192,11 +192,11 @@ void n265_set_vbv(double maxrate, double bufsize, double init)
 }
 /* ---- the pass-through signalling setters (phase 14 item 1) ----
  *
- * One per group of flags, and every argument is already the SYNTAX
- * ELEMENT: the CLI owns the string forms (signal.c's tables) and the
- * library never sees a name. -1 means "not given" in every field that has
- * an absence, which is what the SPS writer turns into a presence flag of
- * 0. None of them reaches a coding decision; see signal.h. */
+ * Six of them, one per group of flags, and every argument is already the
+ * SYNTAX ELEMENT: the CLI owns the string forms (signal.c's tables) and
+ * the library never sees a name. -1 means "not given" in every field that
+ * has an absence, which is what the SPS writer turns into a presence flag
+ * of 0. None of these reaches a coding decision; see signal.h. */
 
 /* --hash, in x265's numbering: 0 off, 1 MD5, 2 CRC, 3 checksum. */
 void n265_set_hash(int type);
@@ -242,6 +242,38 @@ void n265_set_vui_window(int on, int l, int t, int r, int b)
     g_sig.win_t = t;
     g_sig.win_r = r;
     g_sig.win_b = b;
+}
+
+/* the HDR10 static metadata. `md` is ten values in x265's own order -
+ * G(x,y) B(x,y) R(x,y) WP(x,y) L(max,min) - or NULL for no mastering
+ * display; cll < 0 is no content light level message. */
+void n265_set_hdr_meta(const uint32_t *md, int cll, int fall);
+void n265_set_hdr_meta(const uint32_t *md, int cll, int fall)
+{
+    g_sig.have_md = md != NULL;
+    if (md) {
+        for (int c = 0; c < 3; c++) {
+            g_sig.md_prim[c][0] = (uint16_t)md[2 * c];
+            g_sig.md_prim[c][1] = (uint16_t)md[2 * c + 1];
+        }
+        g_sig.md_wp[0] = (uint16_t)md[6];
+        g_sig.md_wp[1] = (uint16_t)md[7];
+        g_sig.md_max = md[8];
+        g_sig.md_min = md[9];
+    }
+    g_sig.have_cll = cll >= 0;
+    g_sig.maxcll = cll >= 0 ? cll : 0;
+    g_sig.maxfall = fall >= 0 ? fall : 0;
+}
+
+/* --hdr10 / --no-hdr10 (-1 leaves the auto rule), --cll / --no-cll, and
+ * --atc-sei (-1 for no message). */
+void n265_set_hdr10(int hdr10, int cll_on, int atc);
+void n265_set_hdr10(int hdr10, int cll_on, int atc)
+{
+    g_sig.hdr10 = hdr10;
+    g_sig.cll_on = cll_on != 0;
+    g_sig.atc = atc >= 0 && atc <= 255 ? atc : -1;
 }
 
 void n265_set_bitrate(double kbps) { g_bitrate = kbps > 0.0 ? kbps : 0.0; }
@@ -3433,6 +3465,20 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
             fw->sei_len = fw->rbsp.bytes;
         }
     }
+    /* The HDR10 static metadata (phase 14 item 1), in EVERY IRAP access
+     * unit for the reason the grain SEI is: the messages persist to the
+     * end of the coded video sequence, an IDR opens a new one, and a
+     * decoder that random-accesses at a mid-stream IDR would otherwise
+     * have no mastering display to tone-map against. About 40 bytes a key
+     * frame, and zero without the flags. */
+    fw->hdr_sei_len = 0;
+    if (fw->idr && (n265_hdr10_on(&e->sig) || e->sig.atc >= 0) &&
+        n265_write_hdr_sei(&fw->rbsp, &e->sig) > 0) {
+        if (fw->rbsp.bytes <= sizeof fw->hdr_sei) {
+            memcpy(fw->hdr_sei, fw->rbsp.buf, fw->rbsp.bytes);
+            fw->hdr_sei_len = fw->rbsp.bytes;
+        }
+    }
     fw->nal_type = fw->idr ? N265_NAL_IDR_W_RADL
                            : (nonref ? 0 /* TRAIL_N */
                                      : 1 /* TRAIL_R */);
@@ -4161,6 +4207,8 @@ static void join_oldest(n265_encoder *e)
         n265_write_hrd_sei(&e->hrd_bs, &v);
         pack_nal(d, N265_NAL_PREFIX_SEI, e->hrd_bs.buf, e->hrd_bs.bytes);
     }
+    if (fw->hdr_sei_len)
+        pack_nal(d, N265_NAL_PREFIX_SEI, fw->hdr_sei, fw->hdr_sei_len);
     if (fw->sei_len)
         pack_nal(d, N265_NAL_PREFIX_SEI, fw->sei, fw->sei_len);
     pack_nal(d, fw->nal_type, fw->rbsp.buf, fw->rbsp.bytes);

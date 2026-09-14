@@ -48,6 +48,8 @@ const char * const *n265_vui_names(int field);
 int n265_vui_parse(int field, const char *s);
 int n265_sar_parse(const char *s, int *idc, int *w, int *h);
 int n265_window_parse(const char *s, int *l, int *t, int *r, int *b);
+int n265_master_display_parse(const char *s, uint32_t v[10]);
+int n265_cll_parse(const char *s, int *cll, int *fall);
 
 /* ---------------------------------------------------------------------
  * Both libraries, one command line (phase 8 item 5a).
@@ -87,6 +89,8 @@ void n265_set_vui_colour_10(int videoformat, int full_range, int colorprim,
                             int overscan);
 void n265_set_vui_sar_10(int idc, int w, int h);
 void n265_set_vui_window_10(int on, int l, int t, int r, int b);
+void n265_set_hdr_meta_10(const uint32_t *md, int cll, int fall);
+void n265_set_hdr10_10(int hdr10, int cll_on, int atc);
 int  n265_set_preset_10(const char *name);
 int  n265_preset_param_10(const char *key, int fallback);
 n265_encoder *n265_encoder_open_10(const n265_param *p);
@@ -126,6 +130,8 @@ typedef struct n265_api {
     void (*set_vui_colour)(int, int, int, int, int, int, int);
     void (*set_vui_sar)(int, int, int);
     void (*set_vui_window)(int, int, int, int, int);
+    void (*set_hdr_meta)(const uint32_t *, int, int);
+    void (*set_hdr10)(int, int, int);
     n265_encoder *(*encoder_open)(const n265_param *);
     int  (*encoder_encode)(n265_encoder *, n265_nal **, int *,
                            const n265_picture *);
@@ -143,7 +149,7 @@ static const n265_api api8 = {
     n265_set_lossless, n265_set_level, n265_set_vui_timing,
     n265_set_film_grain, n265_set_vbv,
     n265_set_hash, n265_set_vui_colour, n265_set_vui_sar,
-    n265_set_vui_window,
+    n265_set_vui_window, n265_set_hdr_meta, n265_set_hdr10,
     n265_encoder_open, n265_encoder_encode, n265_encoder_close,
     n265_version_str, n265_encoder_set_dump, n265_encoder_set_dump_decode,
     n265_encoder_set_shot_stats,
@@ -157,7 +163,7 @@ static const n265_api api10 = {
     n265_set_lossless_10, n265_set_level_10, n265_set_vui_timing_10,
     n265_set_film_grain_10, n265_set_vbv_10,
     n265_set_hash_10, n265_set_vui_colour_10, n265_set_vui_sar_10,
-    n265_set_vui_window_10,
+    n265_set_vui_window_10, n265_set_hdr_meta_10, n265_set_hdr10_10,
     n265_encoder_open_10,
     n265_encoder_encode_10, n265_encoder_close_10, n265_version_str_10,
     n265_encoder_set_dump_10, n265_encoder_set_dump_decode_10,
@@ -515,7 +521,7 @@ static void usage(void)
         "                  `ffmpeg -err_detect crccheck -v debug` verifies\n"
         "                  the MD5 form and says so per picture.\n"
         "\n"
-        "  VUI colour signalling. All of it is\n"
+        "  VUI colour signalling and HDR10 static metadata. All of it is\n"
         "  PASS-THROUGH: it describes the pictures you handed in, changes no\n"
         "  coded sample, and is absent unless you name the flag. Every value\n"
         "  flag takes x265's name or the bare number Annex E gives it.\n"
@@ -552,6 +558,32 @@ static void usage(void)
         "                  at 4:2:0 signals twice the region it was given.\n"
         "                  Distinct from the conformance window, which is\n"
         "                  this encoder's own padding crop.\n"
+        "  --master-display <s>  SMPTE ST 2086 mastering display colour\n"
+        "                  volume SEI (D.2.28), in x265's syntax:\n"
+        "                  G(x,y)B(x,y)R(x,y)WP(x,y)L(max,min). The eight\n"
+        "                  chromaticities are in units of 0.00002 (50000 is\n"
+        "                  1.0) and the two luminances in 0.0001 cd/m2, so\n"
+        "                  P3D65 at 1000 nits is\n"
+        "                  G(13250,34500)B(7500,3000)R(34000,16000)\n"
+        "                  WP(15635,16450)L(10000000,5).\n"
+        "  --max-cll <c,f> content light level SEI (D.2.35), \"cll,fall\" in\n"
+        "                  cd/m2. It says what the CONTENT reaches; nothing\n"
+        "                  here measures it, so both numbers are yours.\n"
+        "  --hdr10 / --no-hdr10  force the two messages above on or off.\n"
+        "                  Left alone, naming either one's values arms them,\n"
+        "                  which is x265's rule. They are written in EVERY\n"
+        "                  IRAP access unit, so a decoder joining at a\n"
+        "                  mid-stream key frame has them.\n"
+        "  --no-cll        drop the content light level message and keep\n"
+        "                  the mastering display\n"
+        "  --atc-sei <t>   alternative transfer characteristics SEI\n"
+        "                  (D.2.38): the transfer an SDR decoder should\n"
+        "                  assume instead. Same value table as --transfer;\n"
+        "                  it is how an HLG stream tells a display it\n"
+        "                  cannot reach what to do.\n"
+        "  NOTE the ENCODER-SIDE half of x265's HDR options is deliberately\n"
+        "  absent: --hdr10-opt is a block-level QP decision tuned to PQ\n"
+        "  content, and this item signals without deciding.\n"
         "  --verbose, -v   one line at open with the level and tier chosen\n"
         "                  and every Annex A bound that drove them\n"
         "                  (N265_LEVEL_TRACE=1 is the same line)\n"
@@ -603,6 +635,9 @@ int main(int argc, char **argv)
     int sig_chromaloc = -1;
     int sar_idc = -1, sar_w = 0, sar_h = 0;
     int win_on = 0, win_l = 0, win_t = 0, win_r = 0, win_b = 0;
+    uint32_t md[10];
+    int have_md = 0, maxcll = -1, maxfall = -1;
+    int hdr10 = -1, cll_on = 1, atc = -1;
     int had_crf = 0;            /* --crf given: the ON switch, not crf >= 0 */
     int out_depth = 0;          /* --output-depth; 0 = the input's */
     int nref = 1, badapt = 1;
@@ -718,6 +753,36 @@ int main(int argc, char **argv)
                 return 2;
             }
             win_on = 1;
+        } else if (!strcmp(argv[i], "--master-display") && i + 1 < argc) {
+            if (n265_master_display_parse(argv[++i], md) < 0) {
+                fprintf(stderr, "n265: --master-display is "
+                        "G(x,y)B(x,y)R(x,y)WP(x,y)L(max,min); the eight "
+                        "chromaticities are 0..65535 in units of "
+                        "0.00002\n");
+                return 2;
+            }
+            have_md = 1;
+        } else if (!strcmp(argv[i], "--max-cll") && i + 1 < argc) {
+            if (n265_cll_parse(argv[++i], &maxcll, &maxfall) < 0) {
+                fprintf(stderr, "n265: --max-cll is \"cll,fall\", both "
+                        "0..65535 cd/m2\n");
+                return 2;
+            }
+        } else if (!strcmp(argv[i], "--hdr10")) {
+            hdr10 = 1;
+        } else if (!strcmp(argv[i], "--no-hdr10")) {
+            hdr10 = 0;
+        } else if (!strcmp(argv[i], "--cll")) {
+            cll_on = 1;
+        } else if (!strcmp(argv[i], "--no-cll")) {
+            cll_on = 0;
+        } else if (!strcmp(argv[i], "--atc-sei") && i + 1 < argc) {
+            atc = n265_vui_parse(N265_VUI_TRANSFER, argv[++i]);
+            if (atc < 0) {
+                fprintf(stderr, "n265: --atc-sei takes a transfer "
+                        "characteristic, by name or by number\n");
+                return 2;
+            }
         } else if (!strcmp(argv[i], "--dump-recon") && i + 1 < argc) {
             dump_path = argv[++i];
         } else if (!strcmp(argv[i], "--shot-window") && i + 1 < argc) {
@@ -934,6 +999,8 @@ int main(int argc, char **argv)
                       sig_overscan);
     a->set_vui_sar(sar_idc, sar_w, sar_h);
     a->set_vui_window(win_on, win_l, win_t, win_r, win_b);
+    a->set_hdr_meta(have_md ? md : NULL, maxcll, maxfall);
+    a->set_hdr10(hdr10, cll_on, atc);
     /* --verbose is N265_LEVEL_TRACE by another name: one code path, one
      * line, and a script that wants it without a flag sets the variable.
      * setenv does not overwrite, so an explicit N265_LEVEL_TRACE=0 in the

@@ -84,6 +84,8 @@ typedef uint16_t n265_pixel;
 #define n265_set_vui_colour   N265_API(n265_set_vui_colour)
 #define n265_set_vui_sar      N265_API(n265_set_vui_sar)
 #define n265_set_vui_window   N265_API(n265_set_vui_window)
+#define n265_set_hdr_meta     N265_API(n265_set_hdr_meta)
+#define n265_set_hdr10        N265_API(n265_set_hdr10)
 #define n265_set_preset       N265_API(n265_set_preset)
 #define n265_preset_param     N265_API(n265_preset_param)
 #define n265_encoder_open     N265_API(n265_encoder_open)
@@ -188,10 +190,11 @@ YAH265_API void n265_set_threads(int n);
 
 /* ---- pass-through signalling (phase 14 item 1) ----
  *
- * NONE of these changes a coded sample: they fill in the VUI's colour
- * description, the sample aspect ratio, the default display window and
- * the decoded picture hash. Give none of them and the stream is byte for
- * byte the one this encoder wrote before they existed.
+ * Six setters, and NONE of them changes a coded sample: they fill in the
+ * VUI's colour description, the sample aspect ratio, the default display
+ * window, the HDR10 static metadata SEIs and the decoded picture hash.
+ * Give none of them and the stream is byte for byte the one this encoder
+ * wrote before they existed.
  *
  * Every argument is already the SYNTAX ELEMENT of ITU-T H.265 Annex E or
  * Annex D - a colour primary is Table E.3's number, not a name - so a
@@ -213,6 +216,16 @@ YAH265_API void n265_set_vui_sar(int idc, int w, int h);
 /* the default display window, in LUMA samples; the writer converts to the
  * chroma units the syntax is in. */
 YAH265_API void n265_set_vui_window(int on, int l, int t, int r, int b);
+/* `md` is ten values in x265's own --master-display order: G(x,y) B(x,y)
+ * R(x,y) WP(x,y) L(max,min), chromaticities in units of 0.00002 and
+ * luminances in 0.0001 cd/m2. NULL writes no mastering display; cll < 0
+ * writes no content light level. */
+YAH265_API void n265_set_hdr_meta(const uint32_t *md, int cll, int fall);
+/* hdr10: 1 forces the HDR10 messages on, 0 off, -1 leaves x265's rule
+ * (on iff either message has values). cll_on is the content light level
+ * message alone. atc is the alternative transfer characteristic (D.2.38),
+ * -1 for no message. */
+YAH265_API void n265_set_hdr10(int hdr10, int cll_on, int atc);
 
 /* Speed/quality preset: "fast", "medium" (the default), "slow" or
  * "slower". Returns 0, or -1 for a name it does not know, in which case

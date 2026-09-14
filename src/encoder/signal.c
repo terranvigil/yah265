@@ -168,6 +168,85 @@ int n265_window_parse(const char *s, int *l, int *t, int *r, int *b)
     return 0;
 }
 
+/* One "NAME(a,b)" group of x265's mastering display string. Returns the
+ * character after the group, or NULL. */
+static const char *md_group(const char *p, const char *tag, uint32_t *a,
+                            uint32_t *b)
+{
+    size_t n = strlen(tag);
+    while (*p == ' ')
+        p++;
+    if (strncmp(p, tag, n))
+        return NULL;
+    p += n;
+    if (*p++ != '(')
+        return NULL;
+    char *end;
+    unsigned long x = strtoul(p, &end, 10);
+    if (end == p || *end != ',')
+        return NULL;
+    p = end + 1;
+    unsigned long y = strtoul(p, &end, 10);
+    if (end == p || *end != ')')
+        return NULL;
+    *a = (uint32_t)x;
+    *b = (uint32_t)y;
+    return end + 1;
+}
+
+int n265_master_display_parse(const char *s, uint32_t v[10])
+{
+    if (!s)
+        return -1;
+    static const char * const tag[5] = { "G", "B", "R", "WP", "L" };
+    const char *p = s;
+    for (int i = 0; i < 5; i++) {
+        p = md_group(p, tag[i], &v[2 * i], &v[2 * i + 1]);
+        if (!p)
+            return -1;
+    }
+    while (*p == ' ')
+        p++;
+    if (*p)
+        return -1;
+    /* The four chromaticity pairs are u(16) in units of 0.00002, so 50000
+     * is 1.0 and anything above 65535 is not representable at all. The
+     * two luminances are u(32) in units of 0.0001 cd/m2, and a bound
+     * there would be a bound on the display and not on the syntax. */
+    for (int i = 0; i < 8; i++)
+        if (v[i] > 65535)
+            return -1;
+    return 0;
+}
+
+int n265_cll_parse(const char *s, int *cll, int *fall)
+{
+    if (!s)
+        return -1;
+    char *end;
+    long a = strtol(s, &end, 10);
+    if (end == s || *end != ',' || a < 0 || a > 65535)
+        return -1;
+    const char *p = end + 1;
+    long b = strtol(p, &end, 10);
+    if (end == p || *end || b < 0 || b > 65535)
+        return -1;
+    *cll = (int)a;
+    *fall = (int)b;
+    return 0;
+}
+
+int n265_hdr10_on(const n265_signal *s)
+{
+    /* x265's rule, and it is a sensible one: naming either message's
+     * values is what turns the packet on, and --hdr10 / --no-hdr10 is the
+     * override in both directions. With neither message's values given
+     * there is nothing to write and --hdr10 writes nothing. */
+    if (s->hdr10 == 0)
+        return 0;
+    return s->have_md || s->have_cll;
+}
+
 int n265_vui_needed(const n265_signal *s)
 {
     return s->sar_idc >= 0 || s->overscan >= 0 || s->videoformat >= 0 ||
