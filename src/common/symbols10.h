@@ -219,6 +219,9 @@
 #define n265_sbh_adjust              n265_sbh_adjust_10
 #define n265_subpel_gate             n265_subpel_gate_10
 #define n265_subpel_rate             n265_subpel_rate_10
+#define n265_subme_rung              n265_subme_rung_10
+#define n265_rung_gate               n265_rung_gate_10
+#define n265_rung_rerank             n265_rung_rerank_10
 #define n265_c422_mode_map           n265_c422_mode_map_10
 #define n265_scan_coef               n265_scan_coef_10
 #define n265_scan_sb                 n265_scan_sb_10

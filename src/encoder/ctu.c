@@ -2817,7 +2817,15 @@ static inline void rr_bump(int k, unsigned long long v)
  * quality the gate spends), and the SATDs left after it. */
 static const int rr_gx[4] = { 1, 2, 4, 8 };
 enum { GN_LISTS, GN_FREE, GN_RAW, GN_PAID, GN_SPLIT, GN_PUREMOVED,
-       GN_RATEMOVED, GN_N };
+       GN_RATEMOVED,
+       /* phase 11 item 2, the shadow cross-tab: uni passes the rung
+        * could speak for, whether it fired, and whether the vector it
+        * chose is the one the re-rank chose */
+       GN_RUUNI, GN_RUFIRE, GN_RUSAME, GN_RUMOVED, GN_RUMSAME,
+       /* the paid Hadamards split by uni/bi: a bi one is two MCs
+        * and an average, so a count of SATDs is not a count of
+        * work until it is split (item 1b sec 1b.1) */
+       GN_PAIDUNI, GN_PAIDBI, GN_PASSUNI, GN_PASSBI, GN_N };
 enum { RG_CUT, RG_CUTMOVED, RG_SATD, RG_ICUT, RG_ICUTMOVED,
        RG_ISATD, RG_N };
 static atomic_ullong rr_gn[GN_N];
@@ -2846,6 +2854,24 @@ static void rr_gate_report(void)
                 atomic_load(&rr_gn[GN_RATEMOVED]),
                 100.0 * atomic_load(&rr_gn[GN_RATEMOVED]) / dp);
     }
+    fprintf(stderr, "subpeltrace paid: uni_passes=%llu uni_satd=%llu"
+            " bi_passes=%llu bi_satd=%llu (a bi Hadamard is two MCs)\n",
+            atomic_load(&rr_gn[GN_PASSUNI]), atomic_load(&rr_gn[GN_PAIDUNI]),
+            atomic_load(&rr_gn[GN_PASSBI]), atomic_load(&rr_gn[GN_PAIDBI]));
+    if (n265_subme_rung()) {
+        unsigned long long un = atomic_load(&rr_gn[GN_RUUNI]);
+        unsigned long long fi = atomic_load(&rr_gn[GN_RUFIRE]);
+        unsigned long long mo = atomic_load(&rr_gn[GN_RUMOVED]);
+        double du = un ? (double)un : 1.0, dmo = mo ? (double)mo : 1.0;
+        fprintf(stderr, "subpeltrace rung-vs-rerank: uni_passes=%llu"
+                " rung_fired=%llu (%.1f%%) same_vector=%llu (%.1f%% of"
+                " uni) rerank_moved=%llu same_on_moved=%llu (%.1f%% of"
+                " moves)\n", un, fi, 100.0 * fi / du,
+                atomic_load(&rr_gn[GN_RUSAME]),
+                100.0 * atomic_load(&rr_gn[GN_RUSAME]) / du, mo,
+                atomic_load(&rr_gn[GN_RUMSAME]),
+                100.0 * atomic_load(&rr_gn[GN_RUMSAME]) / dmo);
+    }
     for (int i = 0; i < 4; i++)
         for (int p = 0; p < 2; p++) {
             int c0 = p ? RG_ICUT : RG_CUT, c1 = p ? RG_ICUTMOVED : RG_CUTMOVED;
@@ -2864,6 +2890,20 @@ static void rr_gate_report(void)
 static inline void gn_bump(int k, unsigned long long v)
 {
     atomic_fetch_add_explicit(&rr_gn[k], v, memory_order_relaxed);
+}
+
+/* phase 11 item 2: has the rung already done this list pass's work? On
+ * a UNI pass with no chroma term the rung ranked the same five positions
+ * in the same model - luma SATD + the caller's lambda x mvd, whose only
+ * difference from the re-rank's is a per-list constant that cancels in
+ * the argmin - so the second pass buys the same answer twice, and where
+ * the settled candidate is BI it buys it at two MCs a Hadamard. The
+ * shadow census (`N265_SUBME_RUNG < 0`) is what says how often "the
+ * same answer" is true rather than assumed. */
+static int rung_owns(const struct n265_me_keep *k, int uni, int cpr)
+{
+    return n265_subme_rung() > 0 && n265_rung_rerank() == 0 &&
+           uni && !cpr && k && k->rung_fired;
 }
 
 /* Arm 1's re-rank of one list's vector against its four quarter-pel
@@ -2928,8 +2968,11 @@ static mv_t subpel_rerank(struct n265_frame_work *e, const pu_geo *g,
                 (1 + !!ok[0] + !!ok[1] + !!ok[2] + !!ok[3]));
         if (free_pass)
             gn_bump(GN_FREE, 1);
-        if (!(gate && cut))
+        if (!(gate && cut)) {
             gn_bump(GN_PAID, (unsigned long long)buy);
+            gn_bump(uni ? GN_PAIDUNI : GN_PAIDBI, (unsigned long long)buy);
+            gn_bump(uni ? GN_PASSUNI : GN_PASSBI, 1);
+        }
     }
 
     *cost = cen;
@@ -2975,6 +3018,24 @@ static mv_t subpel_rerank(struct n265_frame_work *e, const pu_geo *g,
         int moved = bmv.x != amot->mv[l].x || bmv.y != amot->mv[l].y;
         if (moved)
             rr_bump(RR_MOVED, 1);
+        /* phase 11 item 2: on a uni pass the rung ranked the same five
+         * positions in the same units one call earlier. Under
+         * N265_SUBME_RUNG < 0 it did so without taking its answer, so
+         * this counts how much of the shipped arm a rung would carry. */
+        if (uni && keep) {
+            gn_bump(GN_RUUNI, 1);
+            if (keep->rung_fired)
+                gn_bump(GN_RUFIRE, 1);
+            int same = keep->rung_fired &&
+                keep->rung_mv.x == bmv.x && keep->rung_mv.y == bmv.y;
+            if (same)
+                gn_bump(GN_RUSAME, 1);
+            if (moved) {
+                gn_bump(GN_RUMOVED, 1);
+                if (same)
+                    gn_bump(GN_RUMSAME, 1);
+            }
+        }
         if (pc != UINT32_MAX) {
             gn_bump(GN_SPLIT, 1);
             if (pbmv.x != amot->mv[l].x || pbmv.y != amot->mv[l].y)
@@ -3613,11 +3674,12 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
     /* what the winning reference's ladder already costed (phase 10 item
      * 1b); this site's centre is free already - it is `acost` - so only
      * the four neighbours and the gate's scale come out of here. */
-    int want_keep = n265_subpel_rate() == 1;
+    int want_keep = n265_subpel_rate() == 1 || n265_subme_rung() != 0;
     struct n265_me_keep keep[2];
     keep[0].satd = keep[1].satd = UINT32_MAX;
     keep[0].nb_valid = keep[1].nb_valid = 0;
     keep[0].sq_valid = keep[1].sq_valid = 0;
+    keep[0].rung_fired = keep[1].rung_fired = 0;
     for (int l = 0; l < 2; l++) {
         mvp[l][0].x = mvp[l][0].y = mvp[l][1].x = mvp[l][1].y = 0;
         if (l >= nl)
@@ -3652,7 +3714,8 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
             struct n265_me_keep kp;
             n265_me_search(e, l, r, g->x, g->y, w, h, seed, &mv,
                            want_keep ? &kp : NULL,
-                           n265_subpel_rate() >= 2 ? &rc : NULL);
+                           n265_subpel_rate() >= 2 || n265_subme_rung()
+                               ? &rc : NULL);
             u.mv[l] = mv;
             uint32_t c = mot_satd_wh(e, g->x, g->y, w, h, u) +
                 (uint32_t)(((uint64_t)mot_rate_q8(e, g, &u, up, 6) * lam4)
@@ -3757,6 +3820,8 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
             int uni = amot.pred == (1u << l) &&
                 amot.mv[l].x == me[l].x && amot.mv[l].y == me[l].y &&
                 keep[l].satd != UINT32_MAX;
+            if (rung_owns(&keep[l], uni, cp >= 2))
+                continue;
             uint32_t best_q;
             mv_t bmv = subpel_rerank(e, g, &amot, mvp, l, lam4, cp >= 2,
                                      want_keep ? &keep[l] : NULL, uni,
@@ -4372,11 +4437,13 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             int lam4 = ctu_lam_sad_q4(e);
             /* what the winning reference's ladder already costed, for
              * the arm-1 re-rank below (phase 10 item 1b) */
-            int want_keep = n265_subpel_rate() == 1;
+            int want_keep = n265_subpel_rate() == 1 ||
+                            n265_subme_rung() != 0;
             struct n265_me_keep keep[2];
             keep[0].satd = keep[1].satd = UINT32_MAX;
             keep[0].nb_valid = keep[1].nb_valid = 0;
             keep[0].sq_valid = keep[1].sq_valid = 0;
+            keep[0].rung_fired = keep[1].rung_fired = 0;
             if (!gate_amvp) {
                 /* per list: search every reference, keep the one whose
                  * SAD + lambda x (mvd + ref_idx) bits is lowest, and the
@@ -4406,6 +4473,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                                                       p[0], &mv,
                                                       want_keep ? &kp : NULL,
                                                       n265_subpel_rate() >= 2
+                                                      || n265_subme_rung()
                                                           ? &rc : NULL);
                         u.mv[l] = mv;
                         /* rate proxy (or the real syntax under
@@ -4546,6 +4614,8 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                             amot.mv[l].x == me_mv[l].x &&
                             amot.mv[l].y == me_mv[l].y &&
                             keep[l].satd != UINT32_MAX;
+                        if (rung_owns(&keep[l], uni, cpr))
+                            continue;
                         uint32_t bq;
                         amot.mv[l] = subpel_rerank(e, &pg, &amot, mvp, l, lam4,
                                                    cpr,

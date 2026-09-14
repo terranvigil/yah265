@@ -81,6 +81,23 @@ int n265_subpel_rate(void);
  * other. 0 is ungated. Read by ctu.c. */
 int n265_subpel_gate(void);
 
+/* N265_SUBME_RUNG (phase 11 item 2): the subpel ladder's own quarter-pel
+ * rung - what the N265_SUBPEL_RATE=1 re-rank does, done inside
+ * `n265_me_search` on the SATDs the ladder already holds. 0 off, 1/2/3
+ * the three fire predicates, -1 the output-neutral SHADOW the census is
+ * read in. Defined in mv.c; ctu.c reads it to decide whether the ladder
+ * gets a rate model and whether its own re-rank still has work to do. */
+int n265_subme_rung(void);
+
+/* N265_RUNG_GATE (phase 11 item 2): signed percent, the same predicate
+ * on the same square `N265_SUBPEL_GATE` reads. */
+int n265_rung_gate(void);
+
+/* N265_RUNG_RERANK (phase 11 item 2): what the post-search re-rank does
+ * on a list pass the rung has already refined. 0 skips it (the speed
+ * form), 1 keeps it (the quality ceiling). */
+int n265_rung_rerank(void);
+
 /* What the ladder's last square already knows, handed back so the
  * N265_SUBPEL_RATE=1 re-rank does not buy it a second time (phase 10
  * item 1b). The re-rank ranks the settled vector against its four
@@ -100,13 +117,20 @@ int n265_subpel_gate(void);
  * `sq_best` and `sq_second` are the two smallest PURE Hadamards of that
  * last square whatever its step, centre included - the flatness the gate
  * reads - and `sq_valid` says the square ranked in SATD and had a
- * runner-up to report. */
+ * runner-up to report. *
+ * `rung_fired` says `N265_SUBME_RUNG` took its step on this pass, so on
+ * a UNI pass in the same units the re-rank above would re-run the same
+ * five positions to the same answer; `rung_mv` is the vector it chose,
+ * carried separately because in SHADOW mode the ladder does not take
+ * it. Both are zero when the rung is off. */
 struct n265_me_keep {
     uint32_t satd;
     uint32_t nb[4];
     int nb_valid;
     uint32_t sq_best, sq_second;
     int sq_valid;
+    int rung_fired;
+    mv_t rung_mv;
 };
 
 /* Motion search on one reference list around the given start

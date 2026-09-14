@@ -617,11 +617,85 @@ int n265_subpel_gate(void)
     return v;
 }
 
+/* N265_SUBME_RUNG (phase 11 item 2): the subpel rung the item-1b census
+ * named. Half of what the `N265_SUBPEL_RATE=1` re-rank buys is not the
+ * rate term at all - 42-50% of its moves are a strictly LOWER SATD than
+ * the centre, quarter-pel refinement the `N265_SUBME=3` ladder skipped
+ * at its `gate_q_move` break - and it is bought in a pass ABOVE the
+ * ladder that re-interpolates what the ladder had in registers and that
+ * pays a BI Hadamard (two MCs and an average) on the 40% of its passes
+ * whose settled candidate is bi. This puts the same step inside
+ * `n265_me_search`: after the ladder's last square, one more quarter-pel
+ * step around the settled centre, priced in the CALLER's rate model
+ * (`struct n265_me_rate`, the same units the re-rank uses - the model's
+ * `base` differs between the two sites and cancels in an argmin over one
+ * list's vectors), over the four axis Hadamards the ladder may already
+ * hold.
+ *
+ *   0   off.
+ *   1   fire where the ladder's last square MOVED, or where its top two
+ *       came out separated by more than `N265_RUNG_GATE`.
+ *   2   the gate alone: the re-rank's own shipped population.
+ *   3   every pass, ungated.
+ *   4   only where the ladder's square already holds all four Hadamards,
+ *       so the rung is the RANKING alone and buys no interpolation. It
+ *       is the rate half of the arm at zero Hadamards and none of the
+ *       refinement half; carried as the floor of the trade.
+ *  -1   SHADOW. The rung is computed and its answer handed back in
+ *       `n265_me_keep.rung_mv`, and the ladder does NOT take it, so the
+ *       bitstream is the arm-off one and the census can ask how many of
+ *       the re-rank's moves the rung reproduces exactly.
+ *
+ * It reaches the BI passes the way nothing above the ladder can: the bi
+ * candidate at this preset is the pair of per-list uni winners, so a
+ * rung that refines each winner refines the pair for one MC instead of
+ * two, before the pair is ever formed. */
+int n265_subme_rung(void)
+{
+    static int v = INT_MIN;
+    if (v == INT_MIN) {
+        const char *s = n265_env("N265_SUBME_RUNG");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
+/* N265_RUNG_GATE (phase 11 item 2): the rung's own copy of item 1b's
+ * predicate, read on the same square. Signed percent; the default is the
+ * sign and threshold that item shipped, so the rung's population is the
+ * re-rank's population unless it is asked for another one. */
+int n265_rung_gate(void)
+{
+    static int v = INT_MIN;
+    if (v == INT_MIN) {
+        const char *s = n265_env("N265_RUNG_GATE");
+        v = s ? atoi(s) : -2;
+    }
+    return v;
+}
+
+/* N265_RUNG_RERANK (phase 11 item 2): what `N265_SUBPEL_RATE=1`'s pass
+ * does on a list the rung already refined. 0, the speed form, skips it -
+ * on a UNI pass with no chroma term the two are the same five positions
+ * costed the same way, so the second pass is bought to change nothing.
+ * 1 keeps it, which is a SECOND quarter-pel step around the rung's
+ * answer and is the quality ceiling rather than a no-op. */
+int n265_rung_rerank(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_RUNG_RERANK");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
 /* N265_SUBPEL_TRACE (diagnostic, output-neutral): what the ladder costs
  * and what the rate term moves, so the clock has a prediction before an
  * arm is run. Counted at --threads 1; the counters are atomic so a
  * multi-worker run still adds up, but nothing here is ordered. */
-enum { SP_PU, SP_SQ, SP_CAND, SP_SATD, SP_RMOVE, SP_N };
+enum { SP_PU, SP_SQ, SP_CAND, SP_SATD, SP_RMOVE,
+       SP_RUNG, SP_RUFREE, SP_RUSATD, SP_RUMOVE, SP_RUCUT, SP_N };
 static atomic_ullong sp_n[SP_N];
 static void sp_report(void);
 static int sp_trace(void)
@@ -644,6 +718,23 @@ static void sp_report(void)
             atomic_load(&sp_n[SP_SATD]), atomic_load(&sp_n[SP_RMOVE]),
             atomic_load(&sp_n[SP_SQ]) / d, atomic_load(&sp_n[SP_CAND]) / d,
             atomic_load(&sp_n[SP_SATD]) / d);
+    if (n265_subme_rung()) {
+        unsigned long long fi = atomic_load(&sp_n[SP_RUNG]);
+        double df = fi ? (double)fi : 1.0;
+        fprintf(stderr, "subpeltrace rung: pu=%llu fired=%llu (%.1f%% of pu)"
+                " gated_off=%llu free=%llu (%.1f%% of fired) satd=%llu"
+                " (%.3f per fire, %.1f%% of ladder) moved=%llu (%.1f%%)\n",
+                pu, fi, 100.0 * fi / d, atomic_load(&sp_n[SP_RUCUT]),
+                atomic_load(&sp_n[SP_RUFREE]),
+                100.0 * atomic_load(&sp_n[SP_RUFREE]) / df,
+                atomic_load(&sp_n[SP_RUSATD]),
+                atomic_load(&sp_n[SP_RUSATD]) / df,
+                100.0 * atomic_load(&sp_n[SP_RUSATD]) /
+                    (atomic_load(&sp_n[SP_SATD]) ?
+                         (double)atomic_load(&sp_n[SP_SATD]) : 1.0),
+                atomic_load(&sp_n[SP_RUMOVE]),
+                100.0 * atomic_load(&sp_n[SP_RUMOVE]) / df);
+    }
 }
 static inline void sp_bump(int k, unsigned long long v)
 {
@@ -823,10 +914,15 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
      * without it can carry the same number between them; the rate is
      * added to both sides of the comparison inside the step. */
     int sr = rc ? n265_subpel_rate() : 0;
+    /* N265_SUBME_RUNG: inert without a rate model, since the whole rung
+     * is the rate term applied to a fifth position. */
+    int rung = rc ? n265_subme_rung() : 0;
     int trace = sp_trace();
     /* `n265_me_keep`: the last quarter-pel square's own Hadamards, kept
-     * for the arm-1 re-rank in ctu.c. `kq_c` is the square's centre, and
-     * the entries are only handed over if the square ended there. */
+     * for the arm-1 re-rank in ctu.c, and by the rung for its own step.
+     * `kq_c` is the square's centre, and the entries are only handed
+     * over if the square ended there. */
+    int kw = keep != NULL || rung != 0;
     mv_t kq_c = { 0, 0 };
     uint32_t kq[4] = { UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX };
     int kq_set = 0;
@@ -835,6 +931,7 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
     uint32_t best_satd = fullpel ? 0 : mc_satd(e, list, ridx, x0, y0, w, h, cur);
     if (trace && !fullpel)
         sp_bump(SP_PU, 1), sp_bump(SP_SATD, 1);
+    int last_moved = 0;         /* did the ladder's LAST square move it */
     for (int round = 0; round < (fullpel ? 0 : rounds); round++) {
         mv_t round_start = cur;
         int rate_on = sr == 3 || (sr == 2 && round == rounds - 1);
@@ -845,13 +942,14 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
                 cur.x == round_start.x && cur.y == round_start.y)
                 break;
             int sad_step = hsad && step == 2;
+            mv_t sq_start = cur;
             mv_t b = cur;
             uint32_t b_d = sad_step
                 ? n265_mc_sad(e, list, ridx, x0, y0, w, h, cur) : best_satd;
             uint32_t bs = b_d + (rate_on ? me_rate(rc, cur) : 0);
             mv_t pb = cur;              /* the pure-metric argmin, trace only */
             uint32_t pbs = b_d;
-            int kq_here = keep && step == 1 && !sad_step;
+            int kq_here = kw && step == 1 && !sad_step;
             if (kq_here) {
                 kq_c = cur;
                 kq_set = 1;
@@ -859,7 +957,7 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
             }
             /* the square's flatness, in the PURE metric, so that the
              * gate reads the same number with the rate term on or off */
-            int kt = keep && !sad_step;
+            int kt = kw && !sad_step;
             uint32_t sq_b = b_d, sq_2 = UINT32_MAX;
             if (trace)
                 sp_bump(SP_SQ, 1);
@@ -925,6 +1023,7 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
                 cur = b;
                 best_satd = b_d;
             }
+            last_moved = cur.x != sq_start.x || cur.y != sq_start.y;
         }
         /* A round that did not move the centre leaves the search in the
          * state it started in - same centre, same best cost - so the
@@ -934,7 +1033,83 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
         if (dedup && cur.x == round_start.x && cur.y == round_start.y)
             break;
     }
+    /* --- N265_SUBME_RUNG (phase 11 item 2) --- *
+     *
+     * One more quarter-pel step, around the centre the ladder settled
+     * on, ranked on the four AXIS neighbours - the re-rank's own five
+     * positions - in luma SATD + the caller's lambda x mvd. The square
+     * the ladder just walked may already hold all four Hadamards, in
+     * which case the step is the ranking alone and costs nothing; the
+     * common case at N265_SUBME=3 is that the quarter-pel square never
+     * ran at all (its `gate_q_move` break) and all four are bought.
+     *
+     * The gate is item 1b's predicate on item 1b's square and keeps its
+     * sign: a flat square means a quarter-pel step changes the Hadamard
+     * by almost nothing, so the move is worth almost nothing; a
+     * separated one means a neighbour that still wins, wins by a lot. */
+    mv_t rung_mv = cur;
+    int rung_fired = 0;
+    if (rung && !fullpel) {
+        int gx = n265_rung_gate();
+        int ax = gx < 0 ? -gx : gx;
+        int sep = kb_set && (uint64_t)k2 * 100 >
+                            (uint64_t)kb * (uint64_t)(100 + ax);
+        int cut = gx && kb_set && (gx > 0 ? sep : !sep);
+        /* a step whose Hadamards are all in hand is never gated off:
+         * the gate exists to stop the BUYING, not the ranking */
+        int kq_ok = kq_set && kq_c.x == cur.x && kq_c.y == cur.y;
+        int r = rung < 0 ? -rung : rung;   /* -N is N in shadow */
+        int fire = r == 4 ? kq_ok
+                 : r == 3 ? 1
+                 : (kq_ok || !cut || (r == 1 && last_moved));
+        if (fire) {
+            static const int ax4[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+            uint32_t bq = best_satd + me_rate(rc, cur), bd = best_satd;
+            mv_t bmv = cur;
+            int bought = 0;
+            for (int i = 0; i < 4; i++) {
+                mv_t t = { (int16_t)(cur.x + ax4[i][0]),
+                           (int16_t)(cur.y + ax4[i][1]) };
+                mv_t tc = t;
+                n265_clamp_mv(e, x0, y0, w, h, &tc);
+                if (tc.x != t.x || tc.y != t.y)
+                    continue;
+                int have = kq_ok && kq[i] != UINT32_MAX;
+                uint32_t s = have ? kq[i]
+                    : mc_satd(e, list, ridx, x0, y0, w, h, t);
+                if (!have)
+                    bought++;
+                uint32_t c = s + me_rate(rc, t);
+                if (c < bq) {
+                    bq = c;
+                    bd = s;
+                    bmv = t;
+                }
+            }
+            rung_mv = bmv;
+            rung_fired = 1;
+            if (trace) {
+                sp_bump(SP_RUNG, 1);
+                sp_bump(SP_RUSATD, (unsigned long long)bought);
+                if (!bought)
+                    sp_bump(SP_RUFREE, 1);
+                if (bmv.x != cur.x || bmv.y != cur.y)
+                    sp_bump(SP_RUMOVE, 1);
+            }
+            /* SHADOW: the answer is handed back and not taken, so the
+             * bitstream is the arm-off one and the census can ask what
+             * the rung would have done to a pass the re-rank owns. */
+            if (rung > 0 && (bmv.x != cur.x || bmv.y != cur.y)) {
+                cur = bmv;
+                best_satd = bd;
+            }
+        } else if (trace) {
+            sp_bump(SP_RUCUT, 1);
+        }
+    }
     if (keep) {
+        keep->rung_fired = rung_fired;
+        keep->rung_mv = rung_mv;
         keep->satd = fullpel ? UINT32_MAX : best_satd;
         keep->nb_valid = kq_set && kq_c.x == cur.x && kq_c.y == cur.y;
         for (int i = 0; i < 4; i++)
@@ -959,6 +1134,9 @@ void n265_mv_warm(void)
     (void)subpel_dedup();
     (void)n265_subpel_rate();
     (void)n265_subpel_gate();
+    (void)n265_subme_rung();
+    (void)n265_rung_gate();
+    (void)n265_rung_rerank();
     (void)sp_trace();
     (void)qstep_q8(0);      /* fills its lazy table */
 }
