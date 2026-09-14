@@ -528,9 +528,9 @@ void n265_fdct_neon(int16_t *coef, const int16_t *resid, int log2n,
  * and the saturating case is the instruction's own rather than an
  * approximation of the C's ternary.
  */
-static inline __attribute__((always_inline))
-void inv_dct_1d_body(int32x4_t *dst, const int32x4_t *src, int n,
-                     int32x4_t sh, int clip)
+static __attribute__((noinline))
+void inv_dct_1d_x4(int32x4_t *dst, const int32x4_t *src, int n,
+                   int32x4_t sh, int clip)
 {
     int32x4_t e[32], o[16];
 
@@ -557,44 +557,17 @@ void inv_dct_1d_body(int32x4_t *dst, const int32x4_t *src, int n,
     }
 }
 
-/* Same two instances, same reason, as the forward's (phase 13 A2): `n`
- * and `clip` are both compile-time at every call site once the 2-D
- * wrapper has its size, and with them the level loop unrolls, `step`,
- * `rs` and the matrix row addresses fold, and `inv_odd_acc`'s switch on
- * the run-time level width resolves. `clip` is a parameter of the
- * instance and not of the call because stage 1 always clips and stage 2
- * never does. */
-static __attribute__((noinline))
-void inv_dct_1d_x4_16(int32x4_t *dst, const int32x4_t *src, int32x4_t sh,
-                      int clip)
-{
-    if (clip)
-        inv_dct_1d_body(dst, src, 16, sh, 1);
-    else
-        inv_dct_1d_body(dst, src, 16, sh, 0);
-}
-
-static __attribute__((noinline))
-void inv_dct_1d_x4_32(int32x4_t *dst, const int32x4_t *src, int32x4_t sh,
-                      int clip)
-{
-    if (clip)
-        inv_dct_1d_body(dst, src, 32, sh, 1);
-    else
-        inv_dct_1d_body(dst, src, 32, sh, 0);
-}
-
-static inline __attribute__((always_inline))
-void inv_dct_1d_x4(int32x4_t *dst, const int32x4_t *src, int n,
-                   int32x4_t sh, int clip)
-{
-    if (n == 16)
-        inv_dct_1d_x4_16(dst, src, sh, clip);
-    else if (n == 32)
-        inv_dct_1d_x4_32(dst, src, sh, clip);
-    else
-        inv_dct_1d_body(dst, src, n, sh, clip);
-}
+/* THE INVERSE IS NOT SPECIALISED, and that is measured, not assumed.
+ * Both forms above were built per length the way the forward is, and the
+ * bench refused them at every size that matters: idct_add 16x16 411 ns
+ * against 465 specialised, 32x32 1776 against 1877, and the bounded
+ * 32x32 corner 470 against 516. The forward's level loop carries `o[h]`
+ * and shrinks `e` as it goes; the inverse's GROWS `e` to the full length
+ * and keeps `o[len]` beside it, so a fully unrolled 32-point inverse has
+ * 48 live vectors where the machine has 32 and the unrolling buys
+ * constants at the price of spills. The forward's two instances stay and
+ * the inverse keeps round 1's single run-time-length routine.
+ */
 
 /*
  * The same transform under the C's bound: every src entry at index >= nc
@@ -606,9 +579,9 @@ void inv_dct_1d_x4(int32x4_t *dst, const int32x4_t *src, int n,
  * `if (!c) continue` weakened to a four-lane test; adding zero is exact
  * either way, so the two agree whatever the test decides.
  */
-static inline __attribute__((always_inline))
-void inv_dct_1d_nz_body(int32x4_t *dst, const int32x4_t *src,
-                        int n, int32x4_t sh, int clip, int nc)
+static __attribute__((noinline))
+void inv_dct_1d_x4_nz(int32x4_t *dst, const int32x4_t *src,
+                      int n, int32x4_t sh, int clip, int nc)
 {
     int32x4_t e[32], o[16];
 
@@ -647,42 +620,6 @@ void inv_dct_1d_nz_body(int32x4_t *dst, const int32x4_t *src,
 
         dst[j] = clip ? vmovl_s16(vqmovn_s32(v)) : v;
     }
-}
-
-/* The bounded form's two instances. `idct_block` only ever reaches it at
- * 16 and 32 - below that it takes the unbounded form, which costs less
- * than the bound's own index arithmetic - so the same two, and `nc` is
- * the one thing here that stays run-time. */
-static __attribute__((noinline))
-void inv_dct_1d_x4_nz_16(int32x4_t *dst, const int32x4_t *src, int32x4_t sh,
-                         int clip, int nc)
-{
-    if (clip)
-        inv_dct_1d_nz_body(dst, src, 16, sh, 1, nc);
-    else
-        inv_dct_1d_nz_body(dst, src, 16, sh, 0, nc);
-}
-
-static __attribute__((noinline))
-void inv_dct_1d_x4_nz_32(int32x4_t *dst, const int32x4_t *src, int32x4_t sh,
-                         int clip, int nc)
-{
-    if (clip)
-        inv_dct_1d_nz_body(dst, src, 32, sh, 1, nc);
-    else
-        inv_dct_1d_nz_body(dst, src, 32, sh, 0, nc);
-}
-
-static inline __attribute__((always_inline))
-void inv_dct_1d_x4_nz(int32x4_t *dst, const int32x4_t *src, int n,
-                      int32x4_t sh, int clip, int nc)
-{
-    if (n == 16)
-        inv_dct_1d_x4_nz_16(dst, src, sh, clip, nc);
-    else if (n == 32)
-        inv_dct_1d_x4_nz_32(dst, src, sh, clip, nc);
-    else
-        inv_dct_1d_nz_body(dst, src, n, sh, clip, nc);
 }
 
 /* DST-VII 4-point inverse, four columns at once; inv_dst4_1d() verbatim.
