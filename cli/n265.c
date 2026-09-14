@@ -22,6 +22,10 @@ void n265_set_lossless(int on);
 /* --rdoq-level <0|1|2> (x265's numbering; docs/instruments.md says how it
  * maps onto N265_RDOQ). -1 is "not given". */
 void n265_set_rdoq_level(int lvl);
+/* --cbqpoffs / --crqpoffs <-12..12>: pps_cb_qp_offset and
+ * pps_cr_qp_offset, x265's names for the two PPS chroma QP offsets.
+ * 0 / 0 is the default and is every stream before phase 13 B1. */
+void n265_set_chroma_qpoffs(int cb, int cr);
 /* Annex A overrides (phase 8 item 7). `idc` is general_level_idc
  * (level * 30); 0 leaves the level derived from the stream. */
 void n265_set_level(int idc, int high_tier);
@@ -83,6 +87,7 @@ void n265_set_badapt_10(int on);
 void n265_set_threads_10(int n);
 void n265_set_lossless_10(int on);
 void n265_set_rdoq_level_10(int lvl);
+void n265_set_chroma_qpoffs_10(int cb, int cr);
 void n265_set_level_10(int idc, int high_tier);
 void n265_set_vui_timing_10(int on);
 void n265_set_film_grain_10(double strength, int denoise);
@@ -128,6 +133,7 @@ typedef struct n265_api {
     void (*set_film_grain)(double, int);
     void (*set_vbv)(double, double, double);
     void (*set_rdoq_level)(int);
+    void (*set_chroma_qpoffs)(int, int);
     /* the pass-through signalling setters (phase 14 item 1). They take
      * syntax elements, never names: the tables above turn the command
      * line's spellings into numbers once, before the dispatch. */
@@ -153,6 +159,7 @@ static const n265_api api8 = {
     n265_set_preset, n265_preset_param, n265_set_shot_window, n265_set_pass,
     n265_set_lossless, n265_set_level, n265_set_vui_timing,
     n265_set_film_grain, n265_set_vbv, n265_set_rdoq_level,
+    n265_set_chroma_qpoffs,
     n265_set_hash, n265_set_vui_colour, n265_set_vui_sar,
     n265_set_vui_window, n265_set_hdr_meta, n265_set_hdr10,
     n265_encoder_open, n265_encoder_encode, n265_encoder_close,
@@ -167,6 +174,7 @@ static const n265_api api10 = {
     n265_preset_param_10, n265_set_shot_window_10, n265_set_pass_10,
     n265_set_lossless_10, n265_set_level_10, n265_set_vui_timing_10,
     n265_set_film_grain_10, n265_set_vbv_10, n265_set_rdoq_level_10,
+    n265_set_chroma_qpoffs_10,
     n265_set_hash_10, n265_set_vui_colour_10, n265_set_vui_sar_10,
     n265_set_vui_window_10, n265_set_hdr_meta_10, n265_set_hdr10_10,
     n265_encoder_open_10,
@@ -427,6 +435,16 @@ static void usage(void)
         "                  Left off, the preset picks; given, it wins over\n"
         "                  the preset and over N265_RDOQ.\n"
         "  (N265_PSY=F adds the psy term to the quantiser's distortion)\n"
+        "  --cbqpoffs <n>  pps_cb_qp_offset, -12..12, default 0\n"
+        "  --crqpoffs <n>  pps_cr_qp_offset, -12..12, default 0\n"
+        "                  The chroma quantiser's offset from luma's, added\n"
+        "                  into qPi before Table 8-10 (8.6.1). NEGATIVE\n"
+        "                  spends more on chroma; positive moves those bits\n"
+        "                  to luma. Both stay 0 at every preset: measured at\n"
+        "                  the pin, our chroma-to-luma split is within half a\n"
+        "                  QP step of x265's on all fifteen corpus clips, so\n"
+        "                  there is nothing for a default to correct\n"
+        "                  (docs/phase13.md).\n"
         "  --pcm           phase-0 I_PCM mode (lossless, huge)\n"
         "  --lossless      mathematically lossless: transquant bypass on\n"
         "                  every CU, so the reconstruction IS the source.\n"
@@ -674,6 +692,11 @@ int main(int argc, char **argv)
     /* --rdoq-level: -1 is "not given", which leaves the preset (and the
      * environment) in charge - the flag is an override, not a default. */
     int rdoq_level = -1, had_rdoq = 0;
+    /* --cbqpoffs / --crqpoffs: 0 is both the default and "not given",
+     * and they are the same thing here - the offsets have no preset
+     * entry to defer to, so there is nothing for an unset flag to mean
+     * except zero. */
+    int cbqpoffs = 0, crqpoffs = 0;
     const char *dump_decode_path = NULL;
     const char *preset = NULL;
     /* which structural flags the user gave: a preset supplies the rest */
@@ -716,6 +739,10 @@ int main(int argc, char **argv)
             ctu = atoi(argv[++i]); had_ctu = 1;
         } else if (!strcmp(argv[i], "--rdoq-level") && i + 1 < argc) {
             rdoq_level = atoi(argv[++i]); had_rdoq = 1;
+        } else if (!strcmp(argv[i], "--cbqpoffs") && i + 1 < argc) {
+            cbqpoffs = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--crqpoffs") && i + 1 < argc) {
+            crqpoffs = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--pcm")) {
             pcm = 1;
         } else if (!strcmp(argv[i], "--lossless")) {
@@ -980,6 +1007,21 @@ int main(int argc, char **argv)
         return 2;
     }
     a->set_rdoq_level(rdoq_level);
+    /* --cbqpoffs / --crqpoffs. 7.4.3.3.1 bounds pps_cb_qp_offset and
+     * pps_cr_qp_offset at +-12 and x265 takes the same range, so a value
+     * outside it is refused rather than clamped: a clamp would encode
+     * something the user did not ask for and say nothing about it.
+     *
+     * NEGATIVE spends MORE on chroma; positive moves bits to luma, which
+     * the band's metric cannot see at all and which docs/instruments.md
+     * closes as a DEFAULT by design. As a user knob both directions are
+     * reachable, and this is the one place that says so. */
+    if (cbqpoffs < -12 || cbqpoffs > 12 || crqpoffs < -12 || crqpoffs > 12) {
+        fprintf(stderr, "n265: --cbqpoffs and --crqpoffs take -12..12 "
+                "(7.4.3.3.1); negative spends more on chroma\n");
+        return 2;
+    }
+    a->set_chroma_qpoffs(cbqpoffs, crqpoffs);
     /* --level / --high-tier. The refusals that need the STREAM - a level
      * too low for the picture, the rate or the DPB - are made at encoder
      * open, where the derivation lives; the one made here is the only one

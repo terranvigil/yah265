@@ -450,8 +450,15 @@ void n265_write_pps(struct n265_frame_work *e)
     } else {
         bs_put_bits(bs, 0, 1);      /* cu_qp_delta_enabled_flag */
     }
-    bs_put_se(bs, 0);               /* pps_cb_qp_offset */
-    bs_put_se(bs, 0);               /* pps_cr_qp_offset */
+    /* --cbqpoffs / --crqpoffs. 7.4.3.3.1 bounds both at +-12 and the
+     * encoder clamps there, so no value that reaches here is out of
+     * range; 0 / 0 is the default and writes the pair of se(v) zeroes
+     * every stream before phase 13 B1 carried. 8.6.1 puts them into qPi
+     * BEFORE Table 8-10, which is where the coding path puts them too
+     * (n265_chroma_qp_of), so the decoder's chroma QP and ours are the
+     * same number by the same derivation. */
+    bs_put_se(bs, e->cb_qp_off);    /* pps_cb_qp_offset */
+    bs_put_se(bs, e->cr_qp_off);    /* pps_cr_qp_offset */
     bs_put_bits(bs, 0, 1);          /* pps_slice_chroma_qp_offsets_present */
     bs_put_bits(bs, 0, 1);          /* weighted_pred_flag */
     bs_put_bits(bs, 0, 1);          /* weighted_bipred_flag */

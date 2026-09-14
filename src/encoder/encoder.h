@@ -459,6 +459,9 @@ typedef struct n265_frame_work {
     unsigned hrd_cpb_size_scale, hrd_cpb_size_value;    /* ...and CpbSize  */
     double psy;             /* N265_PSY: psychovisual energy strength */
     int dbf_beta, dbf_tc;   /* slice_beta/tc_offset_div2, see n265_encoder */
+    /* --cbqpoffs / --crqpoffs: pps_cb_qp_offset / pps_cr_qp_offset, the
+     * PPS half of the chroma quantiser's offset. See n265_encoder. */
+    int cb_qp_off, cr_qp_off;
 
     /* ---- per-frame: source, recon, slice ---- */
     const pixel *pad_plane[3];      /* the lookahead slot's padded source */
@@ -770,6 +773,29 @@ typedef struct n265_frame_work {
     double t_disp, t_row0, t_rowlast, t_ent0, t_ent1;
 } n265_frame_work;
 
+int n265_chroma_qp(int qp_y, int chroma_idc);   /* encoder/transform.h */
+
+/* QpC for ONE chroma component (8.6.1).
+ *
+ * The chroma offsets go into qPi BEFORE Table 8-10 and never after it -
+ * qPiCb = Clip3(-QpBdOffsetC, 57, QpY + pps_cb_qp_offset + ...), then
+ * QpCb = the table of that - so an offset does not simply shift the
+ * chroma QP by its own value: inside the table's flat stretch two
+ * different qPi map to one QpC. n265_chroma_qp does the Clip3 itself, so
+ * the sum is handed to it unclamped.
+ *
+ * `comp` is 1 for Cb and 2 for Cr, the component numbering every caller
+ * in ctu.c already passes to tb_analyze. The two planes take DIFFERENT
+ * QPs the moment the two offsets differ, which is why the coding path
+ * carries two values where it used to carry one. At the default offsets
+ * this is n265_chroma_qp(qp_y, chroma_idc), expression for expression. */
+static inline int n265_chroma_qp_of(const n265_frame_work *e, int qp_y,
+                                    int comp)
+{
+    return n265_chroma_qp(qp_y + (comp == 1 ? e->cb_qp_off : e->cr_qp_off),
+                          e->chroma_idc);
+}
+
 /* One row lane. `c` is the coding handle the CTU walk is given: a
  * shallow copy of the frame's n265_frame_work with the row-private
  * pointers swapped for this lane's storage. */
@@ -923,6 +949,15 @@ struct n265_encoder {
      * clipped to a smaller tC. Zero is the shipped default and the
      * control block stays out of the PPS entirely. */
     int dbf_beta, dbf_tc;
+    /* --cbqpoffs / --crqpoffs (x265's names): pps_cb_qp_offset and
+     * pps_cr_qp_offset, -12..12 each, 0 by default and 0 at every preset.
+     * The spec puts them into qPi BEFORE Table 8-10 (8.6.1), so what they
+     * move is the chroma QUANTISER itself and not a cost - which is the
+     * whole difference between these and N265_CHROMA_W. At 0 the
+     * derivation is the one that ran before they existed, expression for
+     * expression, and the PPS writes the same two se(v) zeroes it always
+     * wrote. */
+    int cb_qp_off, cr_qp_off;
 
     int pad_w, pad_h;       /* dims padded up to a min-CB multiple  */
     int ctb_cols, ctb_rows;

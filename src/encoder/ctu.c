@@ -84,6 +84,11 @@ static uint32_t chroma_w_for_qp(int qp_y, int chroma_idc)
 {
     if (!chroma_w_on())
         return 256;
+    /* Deliberately the UNOFFSET derivation, and it does not matter: the
+     * knob is off at every preset and in every gate (it was refused on
+     * the band, docs/phase7-psy-design.md), and the two planes would need
+     * two weights the moment --cbqpoffs and --crqpoffs disagreed. Anyone
+     * who turns both on together should re-derive this first. */
     int d = qp_y - n265_chroma_qp(qp_y, chroma_idc);
     if (d < 0) d = 0;
     if (d > 6) d = 6;
@@ -1990,7 +1995,8 @@ static void tt_analyze_inner(struct n265_frame_work *e, int mode, int x0,
                              int y0, int log2ts, tb_ctx *pre_l,
                              tb_ctx *pre_cb, tb_ctx *pre_cr)
 {
-    int qp_c = n265_chroma_qp(e->cur_ctu_qp, e->chroma_idc);
+    int qp_cb = n265_chroma_qp_of(e, e->cur_ctu_qp, 1);
+    int qp_cr = n265_chroma_qp_of(e, e->cur_ctu_qp, 2);
     int csx = e->csx, csy = e->csy;
     int split = log2ts > 5;
     tb_ctx tb;
@@ -2011,8 +2017,8 @@ static void tt_analyze_inner(struct n265_frame_work *e, int mode, int x0,
             int cx1 = x1 >> csx, cy1 = y1 >> csy;
             int log2c = log2ts - 1 - csx;
             mark_cu_edges(e, x1, y1, h);
-            tb_analyze(e, 1, cx1, cy1, log2c, qp_c, mode, mot_zero, &tcb);
-            tb_analyze(e, 2, cx1, cy1, log2c, qp_c, mode, mot_zero, &tcr);
+            tb_analyze(e, 1, cx1, cy1, log2c, qp_cb, mode, mot_zero, &tcb);
+            tb_analyze(e, 2, cx1, cy1, log2c, qp_cr, mode, mot_zero, &tcr);
             root_cb |= tb_any(&tcb);
             root_cr |= tb_any(&tcr);
             rec_cbf_c(e, &tcb);
@@ -2021,9 +2027,9 @@ static void tt_analyze_inner(struct n265_frame_work *e, int mode, int x0,
             rec_u8(e, (unsigned)cbf_l);
             if (cbf_l)
                 rec_levels(e, tb.level, h * h);
-            tb_recon(e, 1, cx1, cy1, log2c, qp_c, mode, &tcb);
+            tb_recon(e, 1, cx1, cy1, log2c, qp_cb, mode, &tcb);
             rec_levels_c(e, &tcb, log2c);
-            tb_recon(e, 2, cx1, cy1, log2c, qp_c, mode, &tcr);
+            tb_recon(e, 2, cx1, cy1, log2c, qp_cr, mode, &tcr);
             rec_levels_c(e, &tcr, log2c);
         }
         e->rec_buf[root_off] = (uint8_t)root_cb;
@@ -2055,12 +2061,12 @@ static void tt_analyze_inner(struct n265_frame_work *e, int mode, int x0,
     if (pre_l) {
         ptb = pre_l; ptcb = pre_cb; ptcr = pre_cr;
     } else {
-        tb_analyze(e, 1, cx0, cy0, log2c, qp_c, mode, mot_zero, ptcb);
-        tb_analyze(e, 2, cx0, cy0, log2c, qp_c, mode, mot_zero, ptcr);
+        tb_analyze(e, 1, cx0, cy0, log2c, qp_cb, mode, mot_zero, ptcb);
+        tb_analyze(e, 2, cx0, cy0, log2c, qp_cr, mode, mot_zero, ptcr);
         tb_analyze(e, 0, x0, y0, log2ts, e->cur_ctu_qp, mode, mot_zero, ptb);
         tb_make_recon(e, 0, log2ts, e->cur_ctu_qp, mode, ptb);
-        tb_make_recon(e, 1, log2c, qp_c, mode, ptcb);
-        tb_make_recon(e, 2, log2c, qp_c, mode, ptcr);
+        tb_make_recon(e, 1, log2c, qp_cb, mode, ptcb);
+        tb_make_recon(e, 2, log2c, qp_cr, mode, ptcr);
     }
     uint64_t d_flat = tb_ssd(e, 0, x0, y0, log2ts, ptb) +
         tb_ssd(e, 1, cx0, cy0, log2c, ptcb) +
@@ -2103,10 +2109,10 @@ static void tt_analyze_inner(struct n265_frame_work *e, int mode, int x0,
         d_split += tb_ssd(e, 0, x1, y1, log2ts - 1, &s_l[i]);
         if (child_chroma) {
             int kx = x1 >> csx, ky = y1 >> csy, kl = log2ts - 1 - csx;
-            tb_analyze(e, 1, kx, ky, kl, qp_c, mode, mot_zero, &s_c[i][0]);
-            tb_recon(e, 1, kx, ky, kl, qp_c, mode, &s_c[i][0]);
-            tb_analyze(e, 2, kx, ky, kl, qp_c, mode, mot_zero, &s_c[i][1]);
-            tb_recon(e, 2, kx, ky, kl, qp_c, mode, &s_c[i][1]);
+            tb_analyze(e, 1, kx, ky, kl, qp_cb, mode, mot_zero, &s_c[i][0]);
+            tb_recon(e, 1, kx, ky, kl, qp_cb, mode, &s_c[i][0]);
+            tb_analyze(e, 2, kx, ky, kl, qp_cr, mode, mot_zero, &s_c[i][1]);
+            tb_recon(e, 2, kx, ky, kl, qp_cr, mode, &s_c[i][1]);
             d_split += tb_ssd(e, 1, kx, ky, kl, &s_c[i][0]);
             d_split += tb_ssd(e, 2, kx, ky, kl, &s_c[i][1]);
             root_cb |= tb_any(&s_c[i][0]);
@@ -2119,10 +2125,10 @@ static void tt_analyze_inner(struct n265_frame_work *e, int mode, int x0,
          * 7.3.8.8's stacked 4x4 pair at 4:2:2 (its second cbf is coded at
          * this node even though the node is split - that is the
          * `log2TrafoSize == 3` half of the condition). */
-        tb_analyze(e, 1, cx0, cy0, 2, qp_c, mode, mot_zero, &s_c[0][0]);
-        tb_recon(e, 1, cx0, cy0, 2, qp_c, mode, &s_c[0][0]);
-        tb_analyze(e, 2, cx0, cy0, 2, qp_c, mode, mot_zero, &s_c[0][1]);
-        tb_recon(e, 2, cx0, cy0, 2, qp_c, mode, &s_c[0][1]);
+        tb_analyze(e, 1, cx0, cy0, 2, qp_cb, mode, mot_zero, &s_c[0][0]);
+        tb_recon(e, 1, cx0, cy0, 2, qp_cb, mode, &s_c[0][0]);
+        tb_analyze(e, 2, cx0, cy0, 2, qp_cr, mode, mot_zero, &s_c[0][1]);
+        tb_recon(e, 2, cx0, cy0, 2, qp_cr, mode, &s_c[0][1]);
         d_split += tb_ssd(e, 1, cx0, cy0, 2, &s_c[0][0]);
         d_split += tb_ssd(e, 2, cx0, cy0, 2, &s_c[0][1]);
         root_cb = tb_any(&s_c[0][0]);
@@ -3292,7 +3298,8 @@ static void commit_inter_tt_inner(struct n265_frame_work *e, mot_t mot,
                                   tb_ctx *tcb, tb_ctx *tcr)
 {
     int n = 1 << log2n;
-    int qp_c = n265_chroma_qp(e->cur_ctu_qp, e->chroma_idc);
+    int qp_cb = n265_chroma_qp_of(e, e->cur_ctu_qp, 1);
+    int qp_cr = n265_chroma_qp_of(e, e->cur_ctu_qp, 2);
     uint32_t lam = ctu_lam(e, e->cur_ctu_qp);
     int h = n >> 1;
     int csx = e->csx, csy = e->csy;
@@ -3315,12 +3322,12 @@ static void commit_inter_tt_inner(struct n265_frame_work *e, mot_t mot,
         d_split += tb_ssd(e, 0, x1, y1, log2n - 1, &s_l[i]);
         if (child_chroma) {
             int kx = x1 >> csx, ky = y1 >> csy;
-            tb_analyze(e, 1, kx, ky, log2cc, qp_c, MODE_INTER, mot,
+            tb_analyze(e, 1, kx, ky, log2cc, qp_cb, MODE_INTER, mot,
                        &s_c[i][0]);
-            tb_analyze(e, 2, kx, ky, log2cc, qp_c, MODE_INTER, mot,
+            tb_analyze(e, 2, kx, ky, log2cc, qp_cr, MODE_INTER, mot,
                        &s_c[i][1]);
-            tb_make_recon(e, 1, log2cc, qp_c, MODE_INTER, &s_c[i][0]);
-            tb_make_recon(e, 2, log2cc, qp_c, MODE_INTER, &s_c[i][1]);
+            tb_make_recon(e, 1, log2cc, qp_cb, MODE_INTER, &s_c[i][0]);
+            tb_make_recon(e, 2, log2cc, qp_cr, MODE_INTER, &s_c[i][1]);
             d_split += tb_ssd(e, 1, kx, ky, log2cc, &s_c[i][0]);
             d_split += tb_ssd(e, 2, kx, ky, log2cc, &s_c[i][1]);
             root_cb |= tb_any(&s_c[i][0]);
@@ -3572,7 +3579,8 @@ static int intra_rd_pick(struct n265_frame_work *e, int x0, int y0, int log2n,
                 cands[ncand++] = mpm[i];
         }
     }
-    int qp_c = n265_chroma_qp(e->cur_ctu_qp, e->chroma_idc);
+    int qp_cb = n265_chroma_qp_of(e, e->cur_ctu_qp, 1);
+    int qp_cr = n265_chroma_qp_of(e, e->cur_ctu_qp, 2);
     int cx0 = x0 >> e->csx, cy0 = y0 >> e->csy, log2c = log2n - e->csx;
     uint32_t lam = ctu_lam(e, e->cur_ctu_qp);
     tb_ctx *tl = &e->sc->ird_l, *tcb = &e->sc->ird_cb, *tcr = &e->sc->ird_cr;
@@ -3588,12 +3596,12 @@ static int intra_rd_pick(struct n265_frame_work *e, int x0, int y0, int log2n,
                 dup = 1;
         if (dup)
             continue;
-        tb_analyze(e, 1, cx0, cy0, log2c, qp_c, mode, mot_zero, tcb);
-        tb_analyze(e, 2, cx0, cy0, log2c, qp_c, mode, mot_zero, tcr);
+        tb_analyze(e, 1, cx0, cy0, log2c, qp_cb, mode, mot_zero, tcb);
+        tb_analyze(e, 2, cx0, cy0, log2c, qp_cr, mode, mot_zero, tcr);
         tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, mode, mot_zero, tl);
         tb_make_recon(e, 0, log2n, e->cur_ctu_qp, mode, tl);
-        tb_make_recon(e, 1, log2c, qp_c, mode, tcb);
-        tb_make_recon(e, 2, log2c, qp_c, mode, tcr);
+        tb_make_recon(e, 1, log2c, qp_cb, mode, tcb);
+        tb_make_recon(e, 2, log2c, qp_cr, mode, tcr);
         uint64_t d = tb_ssd(e, 0, x0, y0, log2n, tl) +
             tb_ssd(e, 1, cx0, cy0, log2c, tcb) +
             tb_ssd(e, 2, cx0, cy0, log2c, tcr);
@@ -4077,7 +4085,8 @@ static uint64_t rd_part(struct n265_frame_work *e, int x0, int y0, int log2n,
     int csx = e->csx, csy = e->csy;
     int hn = n >> csx;
     int cx0 = x0 >> csx, cy0 = y0 >> csy, log2c = log2n - csx;
-    int qp_c = n265_chroma_qp(e->cur_ctu_qp, e->chroma_idc);
+    int qp_cb = n265_chroma_qp_of(e, e->cur_ctu_qp, 1);
+    int qp_cr = n265_chroma_qp_of(e, e->cur_ctu_qp, 2);
     for (int p = 0; p < N265_NUM_PU(c->part); p++) {
         int px, py, pw, ph;
         n265_pu_rect(c->part, p, x0, y0, n, &px, &py, &pw, &ph);
@@ -4093,11 +4102,11 @@ static uint64_t rd_part(struct n265_frame_work *e, int x0, int y0, int log2n,
     set_cu_pred(e, x0, y0, n, c);
     tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, mot_zero,
                &c->tl);
-    tb_analyze(e, 1, cx0, cy0, log2c, qp_c, MODE_INTER, mot_zero, &c->tcb);
-    tb_analyze(e, 2, cx0, cy0, log2c, qp_c, MODE_INTER, mot_zero, &c->tcr);
+    tb_analyze(e, 1, cx0, cy0, log2c, qp_cb, MODE_INTER, mot_zero, &c->tcb);
+    tb_analyze(e, 2, cx0, cy0, log2c, qp_cr, MODE_INTER, mot_zero, &c->tcr);
     tb_make_recon(e, 0, log2n, e->cur_ctu_qp, MODE_INTER, &c->tl);
-    tb_make_recon(e, 1, log2c, qp_c, MODE_INTER, &c->tcb);
-    tb_make_recon(e, 2, log2c, qp_c, MODE_INTER, &c->tcr);
+    tb_make_recon(e, 1, log2c, qp_cb, MODE_INTER, &c->tcb);
+    tb_make_recon(e, 2, log2c, qp_cr, MODE_INTER, &c->tcr);
     clear_cu_pred(e);
     c->any = c->tl.nz || tb_any(&c->tcb) || tb_any(&c->tcr);
     uint64_t d = tb_ssd(e, 0, x0, y0, log2n, &c->tl) +
@@ -4226,11 +4235,12 @@ static int commit_inter_cu(struct n265_frame_work *e, int x0, int y0,
 {
     int n = 1 << log2n;
     if (e->rdoq >= 2 && any && tl) {
-        int qp_c = n265_chroma_qp(e->cur_ctu_qp, e->chroma_idc);
+        int qp_cb = n265_chroma_qp_of(e, e->cur_ctu_qp, 1);
+        int qp_cr = n265_chroma_qp_of(e, e->cur_ctu_qp, 2);
         int cx0 = x0 >> e->csx, cy0 = y0 >> e->csy, log2c = log2n - e->csx;
         tb_relattice(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, tl);
-        tb_relattice(e, 1, cx0, cy0, log2c, qp_c, MODE_INTER, tcb);
-        tb_relattice(e, 2, cx0, cy0, log2c, qp_c, MODE_INTER, tcr);
+        tb_relattice(e, 1, cx0, cy0, log2c, qp_cb, MODE_INTER, tcb);
+        tb_relattice(e, 2, cx0, cy0, log2c, qp_cr, MODE_INTER, tcr);
         any = tl->nz || tb_any(tcb) || tb_any(tcr);
         if (!any && part == PART_2Nx2N && d[0].merge) {
             skip_cu(e, x0, y0, log2n, d[0].mot, d[0].midx);
@@ -4401,7 +4411,8 @@ static int sc_commit(const struct n265_frame_work *e, int x0, int y0, int n,
 static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
 {
     int n = 1 << log2n;
-    int qp_c = n265_chroma_qp(e->cur_ctu_qp, e->chroma_idc);
+    int qp_cb = n265_chroma_qp_of(e, e->cur_ctu_qp, 1);
+    int qp_cr = n265_chroma_qp_of(e, e->cur_ctu_qp, 2);
     int csx = e->csx, csy = e->csy;
     int cx0 = x0 >> csx, cy0 = y0 >> csy, log2c = log2n - csx;
     e->last_skip_clean = 0;
@@ -4492,11 +4503,11 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
 
             /* merge candidate (and the forced-skip variant) */
             tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, cand, m_tl);
-            tb_analyze(e, 1, cx0, cy0, log2c, qp_c, MODE_INTER, cand, m_tcb);
-            tb_analyze(e, 2, cx0, cy0, log2c, qp_c, MODE_INTER, cand, m_tcr);
+            tb_analyze(e, 1, cx0, cy0, log2c, qp_cb, MODE_INTER, cand, m_tcb);
+            tb_analyze(e, 2, cx0, cy0, log2c, qp_cr, MODE_INTER, cand, m_tcr);
             tb_make_recon(e, 0, log2n, e->cur_ctu_qp, MODE_INTER, m_tl);
-            tb_make_recon(e, 1, log2c, qp_c, MODE_INTER, m_tcb);
-            tb_make_recon(e, 2, log2c, qp_c, MODE_INTER, m_tcr);
+            tb_make_recon(e, 1, log2c, qp_cb, MODE_INTER, m_tcb);
+            tb_make_recon(e, 2, log2c, qp_cr, MODE_INTER, m_tcr);
             int m_any = m_tl->nz || tb_any(m_tcb) || tb_any(m_tcr);
             /* P1 CBF fast: the merge prediction already quantised to
              * nothing, so every remaining candidate can only re-buy the
@@ -4790,13 +4801,13 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             if (!gate_amvp && !same_as_cand && !no_amvp_on()) {
                 tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, amot,
                            a_tl);
-                tb_analyze(e, 1, cx0, cy0, log2c, qp_c, MODE_INTER, amot,
+                tb_analyze(e, 1, cx0, cy0, log2c, qp_cb, MODE_INTER, amot,
                            a_tcb);
-                tb_analyze(e, 2, cx0, cy0, log2c, qp_c, MODE_INTER, amot,
+                tb_analyze(e, 2, cx0, cy0, log2c, qp_cr, MODE_INTER, amot,
                            a_tcr);
                 tb_make_recon(e, 0, log2n, e->cur_ctu_qp, MODE_INTER, a_tl);
-                tb_make_recon(e, 1, log2c, qp_c, MODE_INTER, a_tcb);
-                tb_make_recon(e, 2, log2c, qp_c, MODE_INTER, a_tcr);
+                tb_make_recon(e, 1, log2c, qp_cb, MODE_INTER, a_tcb);
+                tb_make_recon(e, 2, log2c, qp_cr, MODE_INTER, a_tcr);
                 a_any = a_tl->nz || tb_any(a_tcb) || tb_any(a_tcr);
                 uint64_t d = tb_ssd(e, 0, x0, y0, log2n, a_tl) +
                     tb_ssd(e, 1, cx0, cy0, log2c, a_tcb) +
@@ -4965,12 +4976,12 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             if (!gate_intra) {
             if (e->iw_count)
                 e->iw_arm[3]++;             /* RD trials run           */
-            tb_analyze(e, 1, cx0, cy0, log2c, qp_c, imode, mot_zero, i_tcb);
-            tb_analyze(e, 2, cx0, cy0, log2c, qp_c, imode, mot_zero, i_tcr);
+            tb_analyze(e, 1, cx0, cy0, log2c, qp_cb, imode, mot_zero, i_tcb);
+            tb_analyze(e, 2, cx0, cy0, log2c, qp_cr, imode, mot_zero, i_tcr);
             tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, imode, mot_zero, i_tl);
             tb_make_recon(e, 0, log2n, e->cur_ctu_qp, imode, i_tl);
-            tb_make_recon(e, 1, log2c, qp_c, imode, i_tcb);
-            tb_make_recon(e, 2, log2c, qp_c, imode, i_tcr);
+            tb_make_recon(e, 1, log2c, qp_cb, imode, i_tcb);
+            tb_make_recon(e, 2, log2c, qp_cr, imode, i_tcr);
             uint64_t d_intra = tb_ssd(e, 0, x0, y0, log2n, i_tl) +
                 tb_ssd(e, 1, cx0, cy0, log2c, i_tcb) +
                 tb_ssd(e, 2, cx0, cy0, log2c, i_tcr);
@@ -5271,8 +5282,8 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
         for (int i = 0; i < 4; i++) {
             int px = x0 + (i & 1) * 4, py = y0 + (i >> 1) * 4;
             set_mode_map(e, px, py, 4, modes[i]);
-            tb_analyze(e, 1, px, py, 2, qp_c, modes[i], mot_zero, &tcb);
-            tb_analyze(e, 2, px, py, 2, qp_c, modes[i], mot_zero, &tcr);
+            tb_analyze(e, 1, px, py, 2, qp_cb, modes[i], mot_zero, &tcb);
+            tb_analyze(e, 2, px, py, 2, qp_cr, modes[i], mot_zero, &tcr);
             root_cb |= tcb.nz != 0;
             root_cr |= tcr.nz != 0;
             rec_u8(e, tcb.nz != 0);
@@ -5282,10 +5293,10 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             rec_u8(e, (unsigned)cbf_l);
             if (cbf_l)
                 rec_levels(e, tl.level, 16);
-            tb_recon(e, 1, px, py, 2, qp_c, modes[i], &tcb);
+            tb_recon(e, 1, px, py, 2, qp_cb, modes[i], &tcb);
             if (tcb.nz)
                 rec_levels(e, tcb.level, 16);
-            tb_recon(e, 2, px, py, 2, qp_c, modes[i], &tcr);
+            tb_recon(e, 2, px, py, 2, qp_cr, modes[i], &tcr);
             if (tcr.nz)
                 rec_levels(e, tcr.level, 16);
             /* no second block here: 4:4:4 is the one format where a
@@ -5299,8 +5310,8 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
      * the parent - one 4x4 block at 4:2:0, 7.3.8.8's stacked 4x4 pair at
      * 4:2:2. The DM mode is the top-left PB's, which is modes[0], and at
      * 4:2:2 Table 8-3 remaps it inside tb_analyze. */
-    tb_analyze(e, 1, cx0, cy0, 2, qp_c, modes[0], mot_zero, &tcb);
-    tb_analyze(e, 2, cx0, cy0, 2, qp_c, modes[0], mot_zero, &tcr);
+    tb_analyze(e, 1, cx0, cy0, 2, qp_cb, modes[0], mot_zero, &tcb);
+    tb_analyze(e, 2, cx0, cy0, 2, qp_cr, modes[0], mot_zero, &tcr);
     rec_cbf_c(e, &tcb);
     rec_cbf_c(e, &tcr);
     for (int i = 0; i < 4; i++) {
@@ -5311,9 +5322,9 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
         if (cbf_l)
             rec_levels(e, tl.level, 16);
     }
-    tb_recon(e, 1, cx0, cy0, 2, qp_c, modes[0], &tcb);
+    tb_recon(e, 1, cx0, cy0, 2, qp_cb, modes[0], &tcb);
     rec_levels_c(e, &tcb, 2);
-    tb_recon(e, 2, cx0, cy0, 2, qp_c, modes[0], &tcr);
+    tb_recon(e, 2, cx0, cy0, 2, qp_cr, modes[0], &tcr);
     rec_levels_c(e, &tcr, 2);
     }
     e->rdoq_commit = 0;

@@ -84,6 +84,10 @@ static int g_lossless = 0;      /* --lossless; n265_set_lossless */
 /* --rdoq-level; -1 is "the flag was not given", which is every encode
  * before this item and every one that leaves the choice to the preset. */
 static int g_rdoq_level = -1;
+/* --cbqpoffs / --crqpoffs: pps_cb_qp_offset / pps_cr_qp_offset. 0 / 0 is
+ * every encode before phase 13 B1 and every preset. */
+static int g_cb_qp_off = 0;
+static int g_cr_qp_off = 0;
 /* Annex A overrides (phase 8 item 7). 0 / 0 / 0 is "derive the level and
  * the tier from the stream and write no VUI", which is what every board,
  * band and gate runs. */
@@ -177,6 +181,28 @@ void n265_set_rdoq_level(int lvl) { g_rdoq_level = lvl; }
 static int rdoq_level_map(int lvl)
 {
     return lvl == 0 ? 0 : lvl == 1 ? 2 : 1;
+}
+
+/* --cbqpoffs / --crqpoffs <-12..12>: pps_cb_qp_offset and
+ * pps_cr_qp_offset, under x265's names because that is the spelling a
+ * user arrives with. The range is the spec's own (7.4.3.3.1) and the CLI
+ * refuses anything outside it before this is called; the clamp here is
+ * what makes the library safe when something else calls it. 0 / 0 is the
+ * default, every preset, every board and band leg - and the encoder byte
+ * for byte, because at 0 the PPS writes the two se(v) zeroes it always
+ * wrote and every chroma QP derivation is the expression it always was.
+ *
+ * Which direction is which: NEGATIVE is a finer chroma quantiser, i.e.
+ * spend more on chroma. POSITIVE is the direction docs/instruments.md
+ * closes "by design, not by measurement" as a default, because it moves
+ * bits from chroma to luma and the band's metric cannot see chroma at
+ * all. The flag is a user knob, so both directions are reachable; what
+ * stays refused is shipping a positive one. */
+void n265_set_chroma_qpoffs(int cb, int cr);
+void n265_set_chroma_qpoffs(int cb, int cr)
+{
+    g_cb_qp_off = cb < -12 ? -12 : cb > 12 ? 12 : cb;
+    g_cr_qp_off = cr < -12 ? -12 : cr > 12 ? 12 : cr;
 }
 /* --level / --high-tier / --vui-timing, declared the same way. `idc` is
  * general_level_idc (level * 30); 0 leaves the level derived. */
@@ -865,6 +891,8 @@ static void fw_config(n265_encoder *e, n265_frame_work *fw)
     fw->psy = e->psy;
     fw->dbf_beta = e->dbf_beta;
     fw->dbf_tc = e->dbf_tc;
+    fw->cb_qp_off = e->cb_qp_off;
+    fw->cr_qp_off = e->cr_qp_off;
     fw->cu_stats = e->cu_stats;
     fw->cbit_trace = e->cbit_trace;
     fw->iw_trace = e->iw_trace;
@@ -1410,6 +1438,21 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     if (e->dbf_beta > 6) e->dbf_beta = 6;
     if (e->dbf_tc < -6) e->dbf_tc = -6;
     if (e->dbf_tc > 6) e->dbf_tc = 6;
+    /* the chroma quantiser offsets (phase 13 B1). The CLI flags set the
+     * globals; N265_CBQPOFFS / N265_CRQPOFFS reach the same two numbers
+     * from a script that cannot pass a flag, and the flag wins because it
+     * is read second. Both clamped to the spec's range whichever door
+     * they came through. */
+    e->cb_qp_off = g_cb_qp_off;
+    e->cr_qp_off = g_cr_qp_off;
+    { const char *v = n265_env("N265_CBQPOFFS");
+      if (v && !g_cb_qp_off) e->cb_qp_off = atoi(v); }
+    { const char *v = n265_env("N265_CRQPOFFS");
+      if (v && !g_cr_qp_off) e->cr_qp_off = atoi(v); }
+    if (e->cb_qp_off < -12) e->cb_qp_off = -12;
+    if (e->cb_qp_off > 12) e->cb_qp_off = 12;
+    if (e->cr_qp_off < -12) e->cr_qp_off = -12;
+    if (e->cr_qp_off > 12) e->cr_qp_off = 12;
     int align = e->mode == N265_MODE_PCM ? 16 : (1 << MIN_CB_LOG2);
     if (p->width < align || p->height < align)
         goto fail;

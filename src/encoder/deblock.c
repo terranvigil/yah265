@@ -259,8 +259,8 @@ static void deblock_chroma(struct n265_frame_work *e, int ly0, int ly1,
             for (int y = cy0; y < cy1; y += nl)
                 if (has_edge(e, x << csx, y << csy, 1) &&
                     seg_bs(e, x << csx, y << csy, 1) == 2) {
-                    int q = n265_chroma_qp(seg_qp(e, x << csx, y << csy, 1),
-                                           e->chroma_idc);
+                    int q = n265_chroma_qp_of(e, seg_qp(e, x << csx, y << csy, 1),
+                                             p);
                     int t = TC_AT(clip3(0, 53, q + 2 + to));
                     if (t)
                         chroma_segment(c + y * cs + x, 1, cs, t, nl);
@@ -269,8 +269,8 @@ static void deblock_chroma(struct n265_frame_work *e, int ly0, int ly1,
             for (int x = 0; x < cw; x += stepx)
                 if (has_edge(e, x << csx, y << csy, 0) &&
                     seg_bs(e, x << csx, y << csy, 0) == 2) {
-                    int q = n265_chroma_qp(seg_qp(e, x << csx, y << csy, 0),
-                                           e->chroma_idc);
+                    int q = n265_chroma_qp_of(e, seg_qp(e, x << csx, y << csy, 0),
+                                             p);
                     int t = TC_AT(clip3(0, 53, q + 2 + to));
                     if (t)
                         chroma_segment(c + y * cs + x, cs, 1, t, stepx);

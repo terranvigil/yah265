@@ -60,6 +60,9 @@ OFFCLAIM = re.compile(r'(?<!was )(?<!old )[Dd]efault(?:s)?\s+(?:is\s+|stays\s+)?
 # presence-only reader, a string enum, or a literal that is not the last
 # number on the line.
 DEFAULT_OVERRIDES = {
+    # `if (v && !g_cb_qp_off) e->cb_qp_off = atoi(v)`: the flag wins, and
+    # 0 is what both doors leave shut
+    "N265_CBQPOFFS": "0", "N265_CRQPOFFS": "0",
     "N265_TP_CORR": "= tp_plan_on",      # follows the 2-pass plan switch
     "N265_TP_DBG": "presence",           # any value arms it
     "N265_SKIP_ORACLE_AT": "pre",        # pre | post | postr
@@ -112,6 +115,10 @@ DEFAULT_OVERRIDES = {
 }
 
 OVERRIDES = {
+    # phase 13 B1: the environment door onto --cbqpoffs / --crqpoffs. Both
+    # are arms, not shipped defaults - 0 is the default at every preset and
+    # the measurement that keeps it there is in docs/phase13.md.
+    "N265_CBQPOFFS": "arm", "N265_CRQPOFFS": "arm",
     # phase 12 item 2. Both are moot unless --vbv-maxrate armed the mode,
     # but inside it they are the SHIPPED clamp and not arms waiting to be
     # re-priced: the safety fraction is what buys the zero-underflow gate

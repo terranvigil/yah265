@@ -999,6 +999,20 @@ run_vector_env "N265_RDOQ=2" \
 # line. One thread and twelve, so the flag carries the determinism leg.
 run_vector rdoqlvl0_t12 352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 26 --aq 1 --cutree 1 --rdoq-level 0 --threads 12"
 run_vector rdoqlvl2_t1  176x144 16 testsrc2 "--keyint 8 --ctu 16 --bframes 5 --aq 1 --cutree 1 --rdoq-level 2 --threads 1"
+# --cbqpoffs / --crqpoffs (phase 13 B1): the PPS chroma QP offsets, which
+# no stream on this list carried before - every one of them wrote
+# pps_cb_qp_offset 0 and pps_cr_qp_offset 0, so the two se(v) were never
+# read as anything but zero by either decoder. The cell takes the two in
+# OPPOSITE directions on purpose: the planes then run at different QPs
+# for the first time, which is exactly what the coding path was split to
+# allow, and a decoder that reads one offset for both planes - or reads
+# the offset AFTER Table 8-10 instead of into qPi before it - cannot
+# match the recon. Deblocking is in the claim too: 8.7.2.5.5 indexes the
+# chroma tC table with cQpPicOffset added, so the offsets move the filter
+# as well as the quantiser. One thread and twelve, so the pair carries
+# the determinism leg as well.
+run_vector cbcrqpoffs_t12 352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 26 --aq 1 --cutree 1 --cbqpoffs -2 --crqpoffs 2 --threads 12"
+run_vector cbcrqpoffs_t1  176x144 16 testsrc2 "--keyint 8 --ctu 16 --bframes 5 --aq 1 --cutree 1 --cbqpoffs -6 --crqpoffs -3 --threads 1"
 # N265_DUP_FAST (phase 11 item 1): the fast path codes a whole picture as
 # skip toward the reference whose SOURCE is this picture's source, with
 # no arm running that could have chosen otherwise. Those CUs are syntax
