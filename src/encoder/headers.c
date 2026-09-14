@@ -836,16 +836,23 @@ void n265_write_aud(bitstream_t *bs, int pic_type)
 /* user_data_unregistered (D.2.6), the "which build made this stream"
  * message, in a prefix SEI NAL. The UUID is this project's own, fixed
  * here for the life of the format: a reader that finds it knows the rest
- * of the payload is a yah265 version string in ASCII and not somebody
- * else's binary blob.
+ * of the payload is yah265's identification string in ASCII and not
+ * somebody else's binary blob.
  *
- * Unlike x265's, ours is OFF by default. The reason is the identity cmp:
- * turning it on would change every bitstream this encoder has ever
- * written by one SEI, and an escape cmp against an older binary would
- * then be a diff on every cell for a reason that has nothing to do with
- * the change being gated. The audit's row records that x265's default is
- * the other way and that the flip is the owner's call. */
-void n265_write_info_sei(bitstream_t *bs, const char *ver)
+ * The TEXT is the format the three siblings share
+ * (yah264's docs/stream-provenance.md):
+ *
+ *     <name> <version> - <codec> - Copyright <years> the <name> authors
+ *         - <url> - options: k=v ...
+ *
+ * one line, " - " between the fields, in that order. The copyright line
+ * is LICENSE's, so the string and the licence cannot drift apart, and the
+ * options clause is what the CLI resolved - the preset, the rate control
+ * it settled on, and the flags the run was given. It carries no clock, no
+ * path and no thread count: the payload is part of the bitstream, and a
+ * bitstream that changed with the wall clock or with `--threads` would
+ * break the two identities this encoder is gated on. */
+void n265_write_info_sei(bitstream_t *bs, const char *ver, const char *opts)
 {
     /* yah265, 2026-09-14; a random 128-bit value, not derived from
      * anything and not anyone else's. */
@@ -853,14 +860,26 @@ void n265_write_info_sei(bitstream_t *bs, const char *ver)
         0x7a, 0xa4, 0x16, 0x3d, 0xc8, 0x5e, 0x4f, 0x71,
         0x9d, 0x2c, 0x6b, 0x08, 0xe3, 0x51, 0xa7, 0x94,
     };
+    char s[1024];
+    int n = snprintf(s, sizeof s,
+                     "yah265 %s - H.265/HEVC encoder - Copyright 2026 the "
+                     "yah265 authors - https://github.com/terranvigil/yah265"
+                     "%s%s",
+                     ver, opts && *opts ? " - options: " : "",
+                     opts && *opts ? opts : "");
+    if (n < 0)
+        n = 0;
+    if (n > (int)sizeof s - 1)      /* truncated: snprintf returns what it
+                                     * WOULD have written */
+        n = (int)sizeof s - 1;
     bs_reset(bs);
     for (int i = 0; i < 16; i++)
         bs_put_bits(bs, uuid[i], 8);
-    /* The payload bytes are the version string WITHOUT its terminator:
-     * the message's length is what delimits it, so a NUL inside would be
-     * a byte a reader has to guess about. */
-    for (const char *p = ver; *p; p++)
-        bs_put_bits(bs, (uint8_t)*p, 8);
+    /* The payload bytes are the string WITHOUT its terminator: the
+     * message's length is what delimits it, so a NUL inside would be a
+     * byte a reader has to guess about. */
+    for (int i = 0; i < n; i++)
+        bs_put_bits(bs, (uint8_t)s[i], 8);
     sei_wrap(bs, 0, 5);             /* SEI_TYPE_USER_DATA_UNREGISTERED */
     bs_rbsp_trailing(bs);
 }

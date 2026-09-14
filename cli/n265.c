@@ -25,6 +25,8 @@ void n265_set_metrics(int psnr, int ssim);
  * all five are off by default. */
 void n265_set_nal_opts(int repeat_headers, int aud, int eos, int eob,
                        int info);
+/* The options clause of that SEI, as the CLI resolved it. */
+void n265_set_info_opts(const char *opts);
 /* --crf-min / --crf-max / --qpmin / --qpmax / --strict-cbr /
  * --max-ausize-factor, and the two files. The sentinels are the widest
  * legal values, so "not given" costs nothing. */
@@ -155,6 +157,7 @@ void n265_set_pass_10(int pass, const char *stats);
 void n265_set_metrics_10(int psnr, int ssim);
 void n265_set_nal_opts_10(int repeat_headers, int aud, int eos, int eob,
                           int info);
+void n265_set_info_opts_10(const char *opts);
 void n265_set_rc_bounds_10(double crf_min, double crf_max, int qpmin,
                            int qpmax, int strict_cbr, double ausize_factor);
 void n265_set_sei_opts_10(int recovery_sei, int pic_struct, int hrd_concat,
@@ -213,6 +216,7 @@ typedef struct n265_api {
     /* --psnr / --ssim / --csv (phase 14 item 4) */
     void (*set_metrics)(int, int);
     void (*set_nal_opts)(int, int, int, int, int);
+    void (*set_info_opts)(const char *);    /* item 9 */
     void (*set_rc_bounds)(double, double, int, int, int, double);
     void (*set_sei_opts)(int, int, int, int);
     void (*set_qpfile)(const char *);
@@ -235,7 +239,8 @@ static const n265_api api8 = {
     n265_encoder_open, n265_encoder_encode, n265_encoder_close,
     n265_version_str, n265_encoder_set_dump, n265_encoder_set_dump_decode,
     n265_encoder_set_shot_stats,
-    n265_set_metrics, n265_set_nal_opts, n265_set_rc_bounds,
+    n265_set_metrics, n265_set_nal_opts, n265_set_info_opts,
+    n265_set_rc_bounds,
     n265_set_sei_opts, n265_set_qpfile, n265_set_zones,
     n265_encoder_set_csv, n265_encoder_metrics,
 };
@@ -257,7 +262,8 @@ static const n265_api api10 = {
     n265_encoder_encode_10, n265_encoder_close_10, n265_version_str_10,
     n265_encoder_set_dump_10, n265_encoder_set_dump_decode_10,
     n265_encoder_set_shot_stats_10,
-    n265_set_metrics_10, n265_set_nal_opts_10, n265_set_rc_bounds_10,
+    n265_set_metrics_10, n265_set_nal_opts_10, n265_set_info_opts_10,
+    n265_set_rc_bounds_10,
     n265_set_sei_opts_10, n265_set_qpfile_10, n265_set_zones_10,
     n265_encoder_set_csv_10, n265_encoder_metrics_10,
 };
@@ -1194,6 +1200,92 @@ static void usage(void)
     } \
 } while (0)
 
+/* ---- the options clause of the identification SEI (phase 14 item 9) ----
+ *
+ * What goes in the payload is the preset, the rate control the CLI
+ * settled on, and the flags this run was actually given, in the order
+ * they were given. What stays out is anything that would make one
+ * command line write two different streams:
+ *
+ *   - no PATHS. An input name is not a coding option and would put a
+ *     working directory in the bitstream.
+ *   - no THREAD COUNT. `--threads 1` and `--threads 12` must produce the
+ *     same bytes; that identity is a gate (CLAUDE.md), and printing the
+ *     count would break it on every clip.
+ *   - no CLOCK, no environment. The env knobs are measurement ARMS and
+ *     the preset already names the ones a preset sets.
+ *   - nothing byte-neutral that only reports (`--psnr`, `--csv`,
+ *     `--dump-recon`): those are documented as costing the stream
+ *     nothing, and they must keep costing it nothing.
+ *
+ * The flags are collected from argv itself rather than from a table of
+ * option names, so this cannot drift as flags are added: the parse loop
+ * records how many tokens each iteration consumed, which is exactly the
+ * knowledge of "does this one take a value" the loop already has. */
+typedef struct {
+    char s[640];
+    size_t n;
+} optstr;
+
+static void opt_put(optstr *o, const char *key, const char *val)
+{
+    int n = snprintf(o->s + o->n, sizeof o->s - o->n, "%s%s%s%s",
+                     o->n ? " " : "", key, val ? "=" : "", val ? val : "");
+    if (n > 0 && (size_t)n < sizeof o->s - o->n)
+        o->n += (size_t)n;
+    else                        /* full: keep what fits and stop growing */
+        o->s[o->n] = '\0';
+}
+
+/* the three filters, by the option's name with its dashes stripped */
+static int opt_drop(const char *k)
+{
+    static const char * const drop[] = {
+        "o", "dump-recon", "dump-recon-decode", "csv", "csv-log-level",
+        "shot-stats", "psnr", "ssim", "verbose", "v", "threads",
+        "version", "help", "h",
+        /* the switch for this very message: naming a default must not
+         * change the stream, so `--info` and a default run write the
+         * same bytes and `--no-info` writes no message to name itself
+         * in */
+        "info", "no-info",
+        /* named in the resolved head instead, so they are not echoed
+         * twice */
+        "preset", "qp", "crf", "bitrate", NULL
+    };
+    for (int i = 0; drop[i]; i++)
+        if (!strcmp(k, drop[i]))
+            return 1;
+    return 0;
+}
+
+static int opt_drop_value(const char *k)
+{
+    /* the flag shapes the stream and its value is a file name */
+    return !strcmp(k, "qpfile") || !strcmp(k, "stats");
+}
+
+/* one iteration of the parse loop: argv[from] is the option and the loop
+ * left `to` at the last token it consumed for it. */
+static void opt_note(optstr *o, char **argv, int from, int to)
+{
+    const char *a = argv[from];
+    if (a[0] != '-' || !a[1])   /* the input file */
+        return;
+    const char *k = a + 1;
+    if (*k == '-')
+        k++;
+    if (!strcmp(k, "w"))        /* the only short alias that is a coding
+                                 * option; print the long name */
+        k = "weightp";
+    if (opt_drop(k))
+        return;
+    if (to > from && !opt_drop_value(k))
+        opt_put(o, k, argv[to]);
+    else
+        opt_put(o, k, NULL);
+}
+
 int main(int argc, char **argv)
 {
     const char *in_path = NULL, *out_path = "out.hevc";
@@ -1291,7 +1383,13 @@ int main(int argc, char **argv)
     /* which structural flags the user gave: a preset supplies the rest */
     int had_ref = 0, had_badapt = 0, had_bframes = 0, had_la = 0, had_ctu = 0;
 
+    optstr info_opts = { .s = "", .n = 0 };
+
     for (int i = 1; i < argc; i++) {
+        const int argi = i;     /* where this option started: the branch
+                                 * below moves `i` past its value, if it
+                                 * has one, and that is what opt_note
+                                 * reads instead of a table (item 9) */
         if (!strcmp(argv[i], "-o") && i + 1 < argc) {
             out_path = argv[++i];
         } else if (!strcmp(argv[i], "--frames") && i + 1 < argc) {
@@ -1601,6 +1699,7 @@ int main(int argc, char **argv)
             usage();
             return 2;
         }
+        opt_note(&info_opts, argv, argi, i);
     }
     if (!in_path) {
         usage();
@@ -1966,6 +2065,37 @@ int main(int argc, char **argv)
         return 2;
     }
     a->set_metrics(want_psnr, want_ssim);
+    /* The head of the options clause is what the run RESOLVED, ahead of
+     * the flags it was given: the preset (which is the whole of the
+     * knob state a preset sets - the payload names no env knob) and the
+     * rate control that won, --bitrate over --crf over --qp, with
+     * --lossless and --pcm having no quantiser to name at all. */
+    {
+        optstr head = { .s = "", .n = 0 };
+        char v[32];
+        opt_put(&head, "preset", preset ? preset : "none");
+        if (pcm) {
+            opt_put(&head, "rc", "pcm");
+        } else if (lossless) {
+            opt_put(&head, "rc", "lossless");
+        } else if (bitrate > 0.0) {
+            opt_put(&head, "rc", "abr");
+            snprintf(v, sizeof v, "%g", bitrate);
+            opt_put(&head, "bitrate", v);
+        } else if (had_crf) {
+            opt_put(&head, "rc", "crf");
+            snprintf(v, sizeof v, "%.2f", crf);
+            opt_put(&head, "crf", v);
+        } else {
+            opt_put(&head, "rc", "cqp");
+            snprintf(v, sizeof v, "%d", qp);
+            opt_put(&head, "qp", v);
+        }
+        char all[768];
+        snprintf(all, sizeof all, "%s%s%s", head.s, info_opts.n ? " " : "",
+                 info_opts.s);
+        a->set_info_opts(all);
+    }
     a->set_nal_opts(repeat_hdr, aud, eos, eob, info);
     /* The QP bounds are QpY values, so they carry the depth's floor the
      * way --qp and --crf do. The rest of the refusals need the STREAM -

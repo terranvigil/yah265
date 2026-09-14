@@ -54,6 +54,11 @@ static int g_qp = 26;
 static int g_met_psnr, g_met_ssim;   /* --psnr / --ssim */
 /* --repeat-headers / --aud / --eos / --eob / --info. All off. */
 static int g_repeat_hdr, g_aud, g_eos, g_eob, g_info;
+/* The options clause of the identification SEI, as the caller resolved it
+ * (the CLI builds it in `info_opts`). Copied into a fixed buffer: the
+ * argv it is built from outlives the encoder here, but a library caller's
+ * string need not, and the payload is composed at open. */
+static char g_info_opts[768];
 /* The rate-control exposure. The sentinels ARE the spec's own bounds and
  * 1.0, so "not given" and "given the widest legal value" are the same
  * thing and the default path is the arithmetic it always was. */
@@ -230,6 +235,21 @@ void n265_set_nal_opts(int repeat_headers, int aud, int eos, int eob,
     g_eos = eos != 0;
     g_eob = eob != 0;
     g_info = info != 0;
+}
+
+/* The options clause of the identification SEI (phase 14 item 9). The
+ * caller owns the wording; what this end promises is that the payload is
+ * a pure function of it, so two runs of one command line write the same
+ * bytes. NULL or empty writes the identification string without an
+ * options clause. */
+void n265_set_info_opts(const char *opts);
+void n265_set_info_opts(const char *opts)
+{
+    if (!opts) {
+        g_info_opts[0] = '\0';
+        return;
+    }
+    snprintf(g_info_opts, sizeof g_info_opts, "%s", opts);
 }
 
 /* --crf-min / --crf-max / --qpmin / --qpmax / --strict-cbr /
@@ -2075,9 +2095,9 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         if (e->aud && bs_init(&e->aud_bs, 8) < 0)
             goto fail;
         if (e->info) {
-            if (bs_init(&e->info_bs, 128) < 0)
+            if (bs_init(&e->info_bs, 1024) < 0)
                 goto fail;
-            n265_write_info_sei(&e->info_bs, n265_version_str());
+            n265_write_info_sei(&e->info_bs, n265_version_str(), g_info_opts);
         }
         /* --idr-recovery-sei: the message is the same three fields at
          * every IRAP, so it is built once here too. */

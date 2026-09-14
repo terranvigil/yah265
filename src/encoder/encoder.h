@@ -1965,7 +1965,8 @@ static inline int n265_qp_bound(const struct n265_encoder *e, int q)
 void n265_write_aud(bitstream_t *bs, int pic_type);
 /* recovery_point (D.2.8), the message a random-access player looks for. */
 void n265_write_recovery_sei(bitstream_t *bs);
-void n265_write_info_sei(bitstream_t *bs, const char *ver);
+void n265_write_info_sei(bitstream_t *bs, const char *ver,
+                         const char *opts);
 /* The pooled metrics, for the caller's end-of-run line: psnr Y/U/V, the
  * pixel-weighted psnr average, SSIM-Y and SSIM in dB. Returns the number
  * of frames measured, 0 when neither metric was asked for. */
