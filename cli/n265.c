@@ -22,6 +22,12 @@ void n265_set_lossless(int on);
 /* --rdoq-level <0|1|2> (x265's numbering; docs/instruments.md says how it
  * maps onto N265_RDOQ). -1 is "not given". */
 void n265_set_rdoq_level(int lvl);
+/* --tu-inter-depth / --tu-intra-depth <1..4> (x265's names and x265's
+ * numbering: the number of transform-tree LEVELS a 2Nx2N CU may use,
+ * which is the SPS's max_transform_hierarchy_depth_* plus one). -1 is
+ * "not given", which leaves the preset - and the compiled-in 2 / 2 that
+ * every stream before phase 14 item 5 carried - in charge. */
+void n265_set_tu_depth(int inter, int intra);
 /* --cbqpoffs / --crqpoffs <-12..12>: pps_cb_qp_offset and
  * pps_cr_qp_offset, x265's names for the two PPS chroma QP offsets.
  * 0 / 0 is the default and is every stream before phase 13 B1. */
@@ -87,6 +93,7 @@ void n265_set_badapt_10(int on);
 void n265_set_threads_10(int n);
 void n265_set_lossless_10(int on);
 void n265_set_rdoq_level_10(int lvl);
+void n265_set_tu_depth_10(int inter, int intra);
 void n265_set_chroma_qpoffs_10(int cb, int cr);
 void n265_set_level_10(int idc, int high_tier);
 void n265_set_vui_timing_10(int on);
@@ -135,6 +142,7 @@ typedef struct n265_api {
     void (*set_film_grain)(double, int);
     void (*set_vbv)(double, double, double);
     void (*set_rdoq_level)(int);
+    void (*set_tu_depth)(int, int);
     void (*set_chroma_qpoffs)(int, int);
     /* the pass-through signalling setters (phase 14 item 1). They take
      * syntax elements, never names: the tables above turn the command
@@ -162,7 +170,7 @@ static const n265_api api8 = {
     n265_set_shot_window, n265_set_pass,
     n265_set_lossless, n265_set_level, n265_set_vui_timing,
     n265_set_film_grain, n265_set_vbv, n265_set_rdoq_level,
-    n265_set_chroma_qpoffs,
+    n265_set_tu_depth, n265_set_chroma_qpoffs,
     n265_set_hash, n265_set_vui_colour, n265_set_vui_sar,
     n265_set_vui_window, n265_set_hdr_meta, n265_set_hdr10,
     n265_encoder_open, n265_encoder_encode, n265_encoder_close,
@@ -178,7 +186,7 @@ static const n265_api api10 = {
     n265_set_shot_window_10, n265_set_pass_10,
     n265_set_lossless_10, n265_set_level_10, n265_set_vui_timing_10,
     n265_set_film_grain_10, n265_set_vbv_10, n265_set_rdoq_level_10,
-    n265_set_chroma_qpoffs_10,
+    n265_set_tu_depth_10, n265_set_chroma_qpoffs_10,
     n265_set_hash_10, n265_set_vui_colour_10, n265_set_vui_sar_10,
     n265_set_vui_window_10, n265_set_hdr_meta_10, n265_set_hdr10_10,
     n265_encoder_open_10,
@@ -445,6 +453,15 @@ static void usage(void)
         "                  Left off, the preset picks; given, it wins over\n"
         "                  the preset and over N265_RDOQ.\n"
         "  (N265_PSY=F adds the psy term to the quantiser's distortion)\n"
+        "  --tu-inter-depth <1..4>  transform-tree levels an inter CU\n"
+        "                  may use; --tu-intra-depth the same for intra.\n"
+        "                  x265's names and x265's numbering, which is\n"
+        "                  the SPS max_transform_hierarchy_depth plus one.\n"
+        "                  1 codes no split flag at all (a partitioned\n"
+        "                  inter CU still infers one); 2 is our default\n"
+        "                  and every stream written before 2026-09-14;\n"
+        "                  3 and 4 are what x265 veryslow and placebo run.\n"
+        "                  Left off, the preset picks.\n"
         "  --cbqpoffs <n>  pps_cb_qp_offset, -12..12, default 0\n"
         "  --crqpoffs <n>  pps_cr_qp_offset, -12..12, default 0\n"
         "                  The chroma quantiser's offset from luma's, added\n"
@@ -702,6 +719,9 @@ int main(int argc, char **argv)
     /* --rdoq-level: -1 is "not given", which leaves the preset (and the
      * environment) in charge - the flag is an override, not a default. */
     int rdoq_level = -1, had_rdoq = 0;
+    /* --tu-inter-depth / --tu-intra-depth: -1 is "not given", the same
+     * override-not-default shape --rdoq-level has. */
+    int tu_inter = -1, tu_intra = -1, had_tui = 0, had_tua = 0;
     /* --cbqpoffs / --crqpoffs: 0 is both the default and "not given",
      * and they are the same thing here - the offsets have no preset
      * entry to defer to, so there is nothing for an unset flag to mean
@@ -749,6 +769,10 @@ int main(int argc, char **argv)
             ctu = atoi(argv[++i]); had_ctu = 1;
         } else if (!strcmp(argv[i], "--rdoq-level") && i + 1 < argc) {
             rdoq_level = atoi(argv[++i]); had_rdoq = 1;
+        } else if (!strcmp(argv[i], "--tu-inter-depth") && i + 1 < argc) {
+            tu_inter = atoi(argv[++i]); had_tui = 1;
+        } else if (!strcmp(argv[i], "--tu-intra-depth") && i + 1 < argc) {
+            tu_intra = atoi(argv[++i]); had_tua = 1;
         } else if (!strcmp(argv[i], "--cbqpoffs") && i + 1 < argc) {
             cbqpoffs = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--crqpoffs") && i + 1 < argc) {
@@ -948,6 +972,8 @@ int main(int argc, char **argv)
     if (!had_badapt)  badapt = a->preset_param("b-adapt", badapt);
     if (!had_la)      lookahead = a->preset_param("rc-lookahead", lookahead);
     if (!had_ctu)     ctu = a->preset_param("ctu", ctu);
+    if (!had_tui)     tu_inter = a->preset_param("tu-inter-depth", tu_inter);
+    if (!had_tua)     tu_intra = a->preset_param("tu-intra-depth", tu_intra);
     if (ctu != 16 && ctu != 32 && ctu != 64) {
         fprintf(stderr, "n265: --ctu must be 16, 32 or 64\n");
         return 2;
@@ -1034,6 +1060,36 @@ int main(int argc, char **argv)
         return 2;
     }
     a->set_rdoq_level(rdoq_level);
+    /* --tu-inter-depth / --tu-intra-depth. x265's range is 1..4 and so is
+     * this one; a value outside it is refused rather than clamped, for
+     * the reason the chroma offsets are. Left off, the preset chooses -
+     * 2 / 2 everywhere up to `slower`, which IS the tree every stream
+     * this project wrote before the flag existed. */
+    if ((tu_inter > 0 && (tu_inter < 1 || tu_inter > 4)) ||
+        (tu_intra > 0 && (tu_intra < 1 || tu_intra > 4))) {
+        fprintf(stderr, "n265: --tu-inter-depth / --tu-intra-depth must be "
+                "1..4 (levels of transform tree; 2 is the default)\n");
+        return 2;
+    }
+    /* ...and the coding tree's own bound. 7.4.3.2.1 puts
+     * max_transform_hierarchy_depth_* (which is the flag minus one) at
+     * CtbLog2SizeY - MinTbLog2SizeY, so `--ctu 16` admits 3 levels and
+     * `--ctu 32` four; ffmpeg refuses the SPS outright past that, which is
+     * how this was found. A depth the USER named is refused here rather
+     * than clamped, for the reason --cbqpoffs is; one a PRESET named is
+     * clamped at encoder open, so `--ctu 16 --preset placebo` still
+     * codes. */
+    {
+        int ctu_log2 = ctu == 16 ? 4 : ctu == 32 ? 5 : 6;
+        int tu_cap = ctu_log2 - 1;
+        if ((had_tui && tu_inter > tu_cap) || (had_tua && tu_intra > tu_cap)) {
+            fprintf(stderr, "n265: --tu-inter-depth / --tu-intra-depth above "
+                    "%d needs a coding tree larger than --ctu %d\n",
+                    tu_cap, ctu);
+            return 2;
+        }
+    }
+    a->set_tu_depth(tu_inter, tu_intra);
     /* --cbqpoffs / --crqpoffs. 7.4.3.3.1 bounds pps_cb_qp_offset and
      * pps_cr_qp_offset at +-12 and x265 takes the same range, so a value
      * outside it is refused rather than clamped: a clamp would encode

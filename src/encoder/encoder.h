@@ -416,6 +416,14 @@ typedef struct n265_frame_work {
     int amp;                /* asymmetric inter PUs; also the SPS flag,
                              * which changes part_mode's binarization
                              * whether or not an AMP mode is chosen */
+    /* max_transform_hierarchy_depth_inter / _intra, the SPS's own
+     * quantity: MaxTrafoDepth for a 2Nx2N CU (7.4.9.8). x265 spells the
+     * same thing `--tu-inter-depth N` with N = this + 1, so our historic
+     * 1 / 1 IS x265's `--tu-inter-depth 2 --tu-intra-depth 2` and not
+     * its default of 1. Both the analysis (ctu.c's tt_node,
+     * commit_inter_tt_node) and the replay (entropy.c's replay_tt) read
+     * these and nothing else. */
+    int tt_depth_inter, tt_depth_intra;
     int rdoq;               /* N265_RDOQ: RD-optimised quantisation */
     /* N265_RDOQ=2: the lattice runs on the COMMIT path only, and this is
      * the predicate that says which path a tb_analyze_one call is on. It
@@ -974,6 +982,7 @@ struct n265_encoder {
     struct n265_refpic scratch_pic[N265_MAX_FRAME_WORK];
     int rect;
     int amp;
+    int tt_depth_inter, tt_depth_intra;   /* --tu-inter-depth / --tu-intra-depth, minus 1 */
     int ref_max;            /* --ref: references per list wanted (1..N265_MAX_REF) */
     /* n265_dpb_requirement, solved once at open and copied into every
      * frame_work: sps_max_num_reorder_pics, the picture storage buffer

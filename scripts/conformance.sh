@@ -1013,6 +1013,22 @@ run_vector rdoqlvl2_t1  176x144 16 testsrc2 "--keyint 8 --ctu 16 --bframes 5 --a
 # the determinism leg as well.
 run_vector cbcrqpoffs_t12 352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 26 --aq 1 --cutree 1 --cbqpoffs -2 --crqpoffs 2 --threads 12"
 run_vector cbcrqpoffs_t1  176x144 16 testsrc2 "--keyint 8 --ctu 16 --bframes 5 --aq 1 --cutree 1 --cbqpoffs -6 --crqpoffs -3 --threads 1"
+
+# --tu-inter-depth / --tu-intra-depth (phase 14 item 5): the residual
+# quadtree's depth as a user knob. The default 2 is every stream this
+# project wrote before the flag existed and is covered by every vector
+# above; what needs its own is the RECURSION - depth 3 and 4 make a node
+# that split split again, which is the arrangement replay_tt had never
+# been asked to walk, and depth 1 is the other end, where a 2Nx2N CU
+# codes no split flag at all and a PARTITIONED inter CU infers one
+# (7.4.9.8's interSplitFlag). Both decoders are held bit-exact as always,
+# and the ctu-64 vector is the one that reaches trafoDepth 4.
+run_vector tudepth3_t1   352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 26 --aq 1 --cutree 1 --tu-inter-depth 3 --tu-intra-depth 3 --threads 1"
+run_vector tudepth3_t12  352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 26 --aq 1 --cutree 1 --tu-inter-depth 3 --tu-intra-depth 3 --threads 12"
+run_vector tudepth4_c64  352x288 20 testsrc2 "--keyint 10 --ctu 64 --bframes 7 --qp 30 --tu-inter-depth 4 --tu-intra-depth 4 --threads 4"
+run_vector tudepth1      352x288 20 testsrc2 "--keyint 10 --ctu 64 --bframes 5 --aq 1 --cutree 1 --tu-inter-depth 1 --tu-intra-depth 1 --threads 4"
+run_vector tudepth_mixed 176x144 16 testsrc2 "--keyint 8 --ctu 16 --bframes 5 --aq 1 --cutree 1 --tu-inter-depth 3 --tu-intra-depth 1 --threads 1"
+
 # N265_DUP_FAST (phase 11 item 1): the fast path codes a whole picture as
 # skip toward the reference whose SOURCE is this picture's source, with
 # no arm running that could have chosen otherwise. Those CUs are syntax
