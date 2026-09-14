@@ -21,6 +21,7 @@
 #include <arm_neon.h>
 
 #include "encoder/arm/neon.h"
+#include "encoder/tables.h"
 
 /* ---- n265_csbf_map --------------------------------------------------
  *
@@ -164,4 +165,88 @@ uint32_t n265_coeff_group_neon(const int16_t *grp, ptrdiff_t stride,
               vreinterpretq_u16_s16(vshrq_n_s16(v1, 15)), w)) << 8);
     *neg_mask = neg;
     return sig;
+}
+
+/* ---- n265_sbh_adjust ------------------------------------------------
+ *
+ * The sign-hiding parity fix, one 4x4 group at a time (the A2 census put
+ * it at 2.0-4.0% of one thread's wall, all of it scalar gathers). Per
+ * group the C wants four things - whether anything is nonzero, the first
+ * and last nonzero position IN SCAN ORDER, and the parity of the sum of
+ * magnitudes - and the group kernel above already produces the first
+ * three as a side effect of the permutation it does for residual_coding.
+ * This is that permutation reused: `scan_gidx` puts the 32-byte group in
+ * scan order, the significance mask falls out of the same lane-weight
+ * reduction, and then `first` is its count of trailing zeros and `last`
+ * its top set bit. No scan table is read per position, and a group that
+ * is entirely zero - the common case, RDOQ rounds 84% of positions to
+ * zero - costs two loads, a permute and a branch.
+ *
+ * PARITY. The C sums |level| and tests bit 0. This sums the SIGNED levels
+ * and tests bit 0, which is the same bit: |l| and l differ by a sign, and
+ * -x and x have the same parity for every integer x. The sum is taken in
+ * int32 lanes (pairwise widen, then a full reduction), so it is the exact
+ * sum and not a wrapped one; sixteen magnitudes of at most 32768 reach
+ * 524288 and nothing narrows.
+ *
+ * `want` is the sign of the FIRST nonzero, which the C reads back out of
+ * the level array. Here it is bit `first` of the sign mask the same
+ * reduction produces, so the group is touched exactly once.
+ *
+ * The one scalar table read left is `co_scan[last]`, to find the position
+ * the fix lands on; that happens only on a group that actually fires.
+ *
+ * Reads: four rows of four int16 per group at the block's stride, and
+ * nothing wider - the same window n265_coeff_group_neon declares.
+ */
+void n265_sbh_adjust_neon(int16_t *level, int log2n, int scan_idx)
+{
+    int n = 1 << log2n;
+    int sb_dim = n >> 2;
+    int num_sb = sb_dim * sb_dim;
+    const uint8_t *sb_scan = n265_scan_sb[scan_idx][log2n - 2];
+    const uint8_t *co_scan = n265_scan_coef[scan_idx];
+    uint8x16_t gi0 = vld1q_u8(scan_gidx[scan_idx][0]);
+    uint8x16_t gi1 = vld1q_u8(scan_gidx[scan_idx][1]);
+    uint16x8_t w = vld1q_u16(lane_bit);
+
+    for (int s = 0; s < num_sb; s++) {
+        int sx = (sb_scan[s] & 15) << 2, sy = (sb_scan[s] >> 4) << 2;
+        const int16_t *g = level + (size_t)sy * n + sx;
+        uint8x16x2_t tbl;
+        int16x8_t v0, v1;
+        uint32_t sig, neg;
+        int first, last, want, par;
+
+        tbl.val[0] = vreinterpretq_u8_s16(vcombine_s16(vld1_s16(g),
+                                                       vld1_s16(g + n)));
+        tbl.val[1] = vreinterpretq_u8_s16(
+            vcombine_s16(vld1_s16(g + 2 * n), vld1_s16(g + 3 * n)));
+
+        v0 = vreinterpretq_s16_u8(vqtbl2q_u8(tbl, gi0));
+        v1 = vreinterpretq_s16_u8(vqtbl2q_u8(tbl, gi1));
+
+        sig = vaddvq_u16(vandq_u16(vtstq_s16(v0, v0), w)) |
+              ((uint32_t)vaddvq_u16(vandq_u16(vtstq_s16(v1, v1), w)) << 8);
+        if (!sig)                       /* the C's `first < 0` */
+            continue;
+        first = __builtin_ctz(sig);
+        last = 31 - __builtin_clz(sig);
+        if (last - first <= 3)
+            continue;
+
+        par = vaddvq_s32(vpadalq_s16(vpaddlq_s16(v0), v1)) & 1;
+        neg = vaddvq_u16(vandq_u16(
+                  vreinterpretq_u16_s16(vshrq_n_s16(v0, 15)), w)) |
+              ((uint32_t)vaddvq_u16(vandq_u16(
+                  vreinterpretq_u16_s16(vshrq_n_s16(v1, 15)), w)) << 8);
+        want = (int)((neg >> first) & 1);
+        if (par != want) {
+            int lx = sx + (co_scan[last] & 15);
+            int ly = sy + (co_scan[last] >> 4);
+            int16_t *p = &level[(size_t)ly * n + lx];
+
+            *p += *p > 0 ? 1 : -1;
+        }
+    }
 }

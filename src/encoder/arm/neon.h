@@ -196,6 +196,10 @@ void n265_csbf_map_neon(const int16_t *level, int log2n, uint8_t *out);
 uint32_t n265_coeff_group_neon(const int16_t *grp, ptrdiff_t stride,
                                int scan_idx, uint16_t *abs_out,
                                uint32_t *neg_mask);
+
+/* The sign-hiding parity fix over every 4x4 group of a block, in place.
+ * Same per-group read window as the gather above. */
+void n265_sbh_adjust_neon(int16_t *level, int log2n, int scan_idx);
 #endif /* N265_NEON_COST */
 
 #if N265_NEON_INTRA
