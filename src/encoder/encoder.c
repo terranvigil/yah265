@@ -1112,6 +1112,17 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * loudly rather than written blind. */
     e->fgc_strength = g_film_grain;
     e->fgc_denoise = g_fgc_denoise;
+    /* --lossless and --pcm code the source exactly; coring the source
+     * first would make "lossless" a claim about a picture the user never
+     * handed us. The SEI itself is still allowed there - it changes no
+     * coded sample - but the denoise is refused, loudly, rather than
+     * quietly redefining what the mode means. */
+    if (e->fgc_denoise && (e->lossless || e->mode == N265_MODE_PCM)) {
+        fprintf(stderr, "n265: --film-grain-denoise codes a FILTERED "
+                "source, which --lossless/--pcm cannot mean; denoise off "
+                "(the SEI is still written)\n");
+        e->fgc_denoise = 0;
+    }
     if (e->fgc_strength > 0.0 && (BIT_DEPTH != 8 || e->chroma_idc != 1)) {
         fprintf(stderr, "n265: --film-grain needs 8-bit 4:2:0 (the only "
                 "shape the measurement chain can synthesise); off\n");

@@ -175,7 +175,16 @@ run_vector() {
         fi
         ;;
     esac
-    "$FFMPEG" -loglevel error -i "$TMP/$name.hevc" -f rawvideo \
+    # -export_side_data film_grain: ffmpeg's hevc decoder APPLIES an H.274
+    # film grain SEI by default, and this comparison is about the coded
+    # picture - what the encoder reconstructed - not about what a display
+    # pipeline would put on the screen. The flag hands the parameters out
+    # as side data instead of synthesising, which is byte-neutral on a
+    # stream without the SEI (proven, docs/phase12.md step 0) and is the
+    # only thing that makes a --film-grain vector's recon claim mean
+    # anything. dec265 ignores the message entirely and needs no flag.
+    "$FFMPEG" -loglevel error -export_side_data film_grain \
+        -i "$TMP/$name.hevc" -f rawvideo \
         "$TMP/$name.ff.yuv" -y 2>"$TMP/$name.fferr"
     # ffmpeg and dec265 disagree on bounded chroma seam samples for
     # CTB-16 SAO streams (reproduced on x265 output too; recorded in
@@ -908,6 +917,23 @@ run_vector_dup "N265_DUP_FAST=1" \
            dup_b7_t12     352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 26 --aq 1 --cutree 1 --threads 12"
 run_vector_dup "N265_DUP_FAST=1 N265_DUP_THR=0.5" \
            dup_thr_ctu16  210x122 16 testsrc2 "--keyint 8 --ctu 16 --bframes 5 --aq 1 --cutree 1 --threads 4"
+
+# --film-grain (phase 12 item 3). Two vectors in the FAST list, because the
+# SEI is the one thing this item puts in the bitstream and the claim about
+# it is exactly a conformance claim: both decoders parse the message and
+# BOTH reconstruct the coded picture bit-exactly - ffmpeg because it was
+# asked to hand the parameters out rather than synthesise, dec265 because
+# it ignores the message. A decoder that mis-parsed the message would fall
+# off the end of the SEI and take the rest of the access unit with it.
+#
+# The two shapes are the two that can break differently: several key
+# frames (so the message is REPEATED, once per IRAP, which is what the
+# persistence flag's scope requires) and the denoise arm (so the picture
+# the message describes is not the source). The noisy source every vector
+# already carries is what gives the estimator something to find.
+run_vector fgc_sei       352x288 20 testsrc2 "--keyint 6 --bframes 3 --aq 1 --cutree 1 --film-grain 1.0 --threads 4"
+run_vector fgc_denoise   352x288 20 testsrc2 "--keyint 6 --bframes 3 --aq 1 --cutree 1 --film-grain 1.0 --film-grain-denoise 1 --threads 12"
+
 if [ "$FAST" -eq 0 ]; then
     run_vector thr4_720    1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 4"
     run_vector thr12_720   1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 12"
