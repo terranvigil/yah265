@@ -57,6 +57,8 @@ void n265_set_film_grain(double strength, int denoise);
 /* --nr-intra / --nr-inter (phase 14 item 6): the coefficient-domain
  * noise reduction, 0..2000 each, 0 off. */
 void n265_set_nr(int intra, int inter);
+/* --mcstf / --mcstf-ref-range / --selective-mcstf (phase 14 item 6). */
+void n265_set_mcstf(int on, int range, int selective);
 /* The hypothetical decoder buffer (phase 12 item 2): kbit/s, kbit, and a
  * fraction of the buffer. 0 / 0 is the mode off. */
 void n265_set_vbv(double maxrate, double bufsize, double init);
@@ -118,6 +120,7 @@ void n265_set_level_10(int idc, int high_tier);
 void n265_set_vui_timing_10(int on);
 void n265_set_film_grain_10(double strength, int denoise);
 void n265_set_nr_10(int intra, int inter);
+void n265_set_mcstf_10(int on, int range, int selective);
 void n265_set_vbv_10(double maxrate, double bufsize, double init);
 void n265_set_hash_10(int type);
 void n265_set_gop_10(int open_gop, int radl);
@@ -176,6 +179,7 @@ typedef struct n265_api {
     void (*set_rdoq_level)(int);
     void (*set_chroma_qpoffs)(int, int);
     void (*set_nr)(int, int);       /* --nr-intra / --nr-inter (item 6) */
+    void (*set_mcstf)(int, int, int);   /* --mcstf and its two (item 6) */
     /* the pass-through signalling setters (phase 14 item 1). They take
      * syntax elements, never names: the tables above turn the command
      * line's spellings into numbers once, before the dispatch. */
@@ -212,7 +216,7 @@ static const n265_api api8 = {
     n265_set_shot_window, n265_set_pass,
     n265_set_lossless, n265_set_level, n265_set_vui_timing,
     n265_set_film_grain, n265_set_vbv, n265_set_rdoq_level,
-    n265_set_chroma_qpoffs, n265_set_nr,
+    n265_set_chroma_qpoffs, n265_set_nr, n265_set_mcstf,
     n265_set_hash, n265_set_gop, n265_set_vui_colour, n265_set_vui_sar,
     n265_set_vui_window, n265_set_hdr_meta, n265_set_hdr10,
     n265_encoder_open, n265_encoder_encode, n265_encoder_close,
@@ -231,7 +235,7 @@ static const n265_api api10 = {
     n265_set_shot_window_10, n265_set_pass_10,
     n265_set_lossless_10, n265_set_level_10, n265_set_vui_timing_10,
     n265_set_film_grain_10, n265_set_vbv_10, n265_set_rdoq_level_10,
-    n265_set_chroma_qpoffs_10, n265_set_nr_10,
+    n265_set_chroma_qpoffs_10, n265_set_nr_10, n265_set_mcstf_10,
     n265_set_hash_10, n265_set_gop_10, n265_set_vui_colour_10,
     n265_set_vui_sar_10,
     n265_set_vui_window_10, n265_set_hdr_meta_10, n265_set_hdr10_10,
@@ -940,6 +944,25 @@ static void usage(void)
         "                  changes the picture, and what it is worth depends\n"
         "                  on how noisy the source is (docs/phase14.md).\n"
         "  --nr-inter <0-2000>  the same in inter blocks (default 0, off).\n"
+        "  --mcstf         motion-compensated temporal filter on the SOURCE\n"
+        "                  (default off). Every eighth picture - the ones a\n"
+        "                  mini-GOP predicts from - is replaced by a weighted\n"
+        "                  average of itself and its motion-compensated\n"
+        "                  neighbours, so its own noise averages down while\n"
+        "                  its content does not. A neighbour counts less the\n"
+        "                  further away in time it is, less where its block\n"
+        "                  did not match, and less at any pixel where it\n"
+        "                  disagrees by more than noise could explain.\n"
+        "                  Costs --mcstf-ref-range frames of latency and a\n"
+        "                  full-resolution motion search on the filtered\n"
+        "                  pictures. For NOISY sources; on clean content the\n"
+        "                  average has nothing to take out.\n"
+        "  --mcstf-ref-range <1-4>  neighbours per side (default 2).\n"
+        "  --selective-mcstf  skip the filter on a picture whose measured\n"
+        "                  noise floor is under N265_MCSTF_CLEAN (default\n"
+        "                  0.75 luma levels, placed in the gap this corpus\n"
+        "                  has between its animation and its natural clips).\n"
+        "                  Default off.\n"
         "  --vbv-maxrate <k>  hypothetical decoder buffer: the CPB arrival\n"
         "                  rate in kbit/s. With --vbv-bufsize it holds the\n"
         "                  encode inside a decoder buffer that never\n"
@@ -1066,6 +1089,8 @@ int main(int argc, char **argv)
     int fgc_denoise = 0;        /* --film-grain-denoise */
     /* --nr-intra / --nr-inter: 0 / 0 = off, x265's default and ours */
     int nr_intra = 0, nr_inter = 0;
+    /* --mcstf and its two: off, range 2, not selective - x265's defaults */
+    int mcstf = 0, mcstf_range = 2, mcstf_selective = 0;
     double crf = -1.0, bitrate = 0.0;
     /* --vbv-maxrate / --vbv-bufsize / --vbv-init; 0/0 is the mode off,
      * which is every encode before phase 12 item 2. */
@@ -1321,6 +1346,16 @@ int main(int argc, char **argv)
             nr_intra = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--nr-inter") && i + 1 < argc) {
             nr_inter = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--mcstf")) {
+            mcstf = 1;
+        } else if (!strcmp(argv[i], "--no-mcstf")) {
+            mcstf = 0;
+        } else if (!strcmp(argv[i], "--mcstf-ref-range") && i + 1 < argc) {
+            mcstf_range = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--selective-mcstf")) {
+            mcstf_selective = 1;
+        } else if (!strcmp(argv[i], "--no-selective-mcstf")) {
+            mcstf_selective = 0;
         } else if (!strcmp(argv[i], "--vbv-maxrate") && i + 1 < argc) {
             vbv_maxrate = atof(argv[++i]);
         } else if (!strcmp(argv[i], "--vbv-bufsize") && i + 1 < argc) {
@@ -1691,6 +1726,17 @@ int main(int argc, char **argv)
         return 2;
     }
     a->set_nr(nr_intra, nr_inter);
+    /* x265 spells the range 0..4 and its 0 means the filter off. Here 0
+     * is refused by name instead: --mcstf with no neighbours is an
+     * identity filter that still costs the latency and the queue, and a
+     * flag that silently does nothing is the thing this project keeps
+     * refusing to ship. */
+    if (mcstf_range < 1 || mcstf_range > 4) {
+        fprintf(stderr, "n265: --mcstf-ref-range takes 1..4 neighbours "
+                "per side (x265 spells its 0 as --no-mcstf; so do we)\n");
+        return 2;
+    }
+    a->set_mcstf(mcstf, mcstf_range, mcstf_selective);
     a->set_vbv(vbv_maxrate, vbv_bufsize, vbv_init);
     /* ---- the pass-through signalling (phase 14 item 1) ---- */
     if (hash < 0 || hash > 3) {

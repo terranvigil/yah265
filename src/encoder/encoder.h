@@ -19,6 +19,7 @@
 #include "encoder/hrd.h"
 #include "encoder/la.h"
 #include "encoder/metrics.h"
+#include "encoder/mcstf.h"
 #include "encoder/nr.h"
 #include "encoder/signal.h"
 #include "encoder/level.h"
@@ -1112,6 +1113,13 @@ struct n265_encoder {
      * worker; the frame gets a frozen COPY of the offsets (fw->nr_off),
      * because the driver rewrites `nr->off` at every dispatch while
      * frames are still quantising. */
+    /* --mcstf / --mcstf-ref-range / --selective-mcstf (phase 14 item 6).
+     * NULL unless the flag was named; when it is, it is a queue in FRONT
+     * of the lookahead and the only thing in the encoder that knows about
+     * it is the input path (mcstf.h). Off is the default, x265's default
+     * too, and off is a NULL pointer and one predicate. */
+    n265_mcstf *mcstf;
+    int mcstf_range, mcstf_selective;
     int nr_intra, nr_inter;
     n265_nr *nr;
     n265_nr_hist *nr_hist;
