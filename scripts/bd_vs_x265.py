@@ -9,6 +9,18 @@ JOBS as band_at_rate.py.
     ARGS='--aq 1 --cutree 1' python3 scripts/bd_vs_x265.py
     ARGS='--crf {q} --aq 1 --cutree 1' KNOB=crf python3 scripts/bd_vs_x265.py
 
+X265PRESET names the reference rung (phase 13 C1): a rung of our ladder
+is placed against the SAME-NAMED x265 rung, because that is the
+comparison a user makes. The default is `medium` and it is spelled into
+the template exactly where the literal always stood, so the default's
+command string - and with it `bd_at_rate`'s encode memo key, which IS
+that string - is character for character the one every cached reference
+point was encoded under. The key gains the preset only when it is not
+medium.
+
+    ARGS='--preset faster --crf {q} --aq 1 --cutree 1' KNOB=crf \\
+        X265PRESET=faster python3 scripts/bd_vs_x265.py
+
 DEPTH=10 runs the same leg at Main10: our `build/n265` on the upshifted
 corpus in `local/corpus10/` (scripts/upshift10.sh), x265 with
 `--output-depth 10`, and both sides scored on 10-bit planes against the
@@ -53,7 +65,8 @@ ours = f"{N} {{src}} --frames {FRAMES} " + (ARGS if "{q}" in ARGS else f"--{KNOB
 # no-op here and is written anyway to say what the arm is; --output-depth
 # is the one that picks the Main10 encoder out of the 8+10+12 brew build.
 xdepth = "" if DEPTH == 8 else f" --input-depth {DEPTH} --output-depth {DEPTH}"
-ref = (f"{X} --preset medium --crf {{q}} --frames {FRAMES} --pools none "
+XPRESET = os.environ.get("X265PRESET", "medium")
+ref = (f"{X} --preset {XPRESET} --crf {{q}} --frames {FRAMES} --pools none "
        f"--frame-threads 1 --log-level none{xdepth} -o {{out}} {{src}}")
 def run(clip):
     cmd = ["python3", "scripts/bd_at_rate.py", "--clip", clip, "--frames", str(FRAMES),
@@ -85,7 +98,7 @@ with ThreadPoolExecutor(max_workers=JOBS) as ex:
 v = list(res.values())
 if v:
     tag = "" if DEPTH == 8 else f" (Main10, {DEPTH}-bit)"
-    print(f"\n=== BD-rate(VMAF-NEG) ours vs x265 medium at matched achieved bitrate{tag} ===")
+    print(f"\n=== BD-rate(VMAF-NEG) ours vs x265 {XPRESET} at matched achieved bitrate{tag} ===")
     for c in clips:
         if c in res:
             ys = f"   lumaPSNR {luma[c]:+7.2f}%" if c in luma else ""

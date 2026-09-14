@@ -52,8 +52,13 @@ Usage (environment, the way the band tools take their arguments):
     PRESET=medium python3 scripts/goal_legs.py            # all 15 clips
     PRESET=fast CLIPS=foreman_cif,park_joy_720p python3 scripts/goal_legs.py
     GOAL=2 python3 scripts/goal_legs.py     # the pure-C leg at auto threads
+    PRESET=faster X265PRESET=faster python3 scripts/goal_legs.py
 
     PRESET  medium | fast | slow ...  (default medium: the plan's goal preset)
+    X265PRESET  the x265 preset the legs are read AGAINST (default medium,
+                the plan's reference). Phase 13 C1: a rung of our ladder is
+                placed against the SAME-NAMED x265 rung, because that is
+                the comparison a user makes.
     GOAL    1 | 2 | 3                 (default 3)
     CLIPS   comma list                (default: every clip with a ladder)
     RUNG    1..4                      (default 2: which ladder rung is the pin)
@@ -76,6 +81,17 @@ The last column, `arm`, is every `N265_*` in the environment, sorted
 `K=V` joined by spaces and empty for the default; `--from-csv` re-prints
 the block for the arm IT is invoked under, and rows written before the
 column existed carry "", which is the default's own value.
+
+**`X265PRESET` is the reference's name, not an arm of ours** (phase 13
+C1). The ladder is placed rung against same-named rung, so the reference
+side of every leg has to be nameable; `medium` is the default and is
+spelled into the template exactly where `--preset medium` always stood,
+so the default's command string - and therefore `bd_at_rate`'s encode
+memo key, which IS that string - is character for character the one every
+existing row was solved under. The key gains the preset only when the
+preset is not medium, which is the only case where it must. It rides its
+own CSV column rather than `arm`: `arm` is what WE ran, and this is who
+we ran against.
 
 **`OURFLAGS` is an arm too, and it has to be.** A knob that ships as a
 CLI FLAG cannot be set through the environment, so an arm like
@@ -147,6 +163,11 @@ _bd.SUBSAMPLE = 1
 os.chdir(ROOT)
 
 PRESET = os.environ.get("PRESET", "medium")
+# C1: which x265 preset the legs are read against. medium is the plan's
+# reference and the default, and the default must be spelled into the
+# reference template exactly where the literal always was, or every memo
+# entry and every CSV row written before this existed becomes unreachable.
+X265PRESET = os.environ.get("X265PRESET", "medium")
 GOAL = int(os.environ.get("GOAL", "3"))
 FRAMES = int(os.environ.get("FRAMES", "120"))
 NRUNS = int(os.environ.get("NRUNS", "3"))
@@ -182,7 +203,7 @@ ARM = " ".join([f"{k}={v}" for k, v in sorted(os.environ.items())
 # Columns added after rows had already been written: `append_csv`
 # migrates a file that predates them instead of refusing, and every
 # reader takes them with a default.
-OPTIONAL_COLUMNS = ("arm", "dcb_eq_bytes", "dcr_eq_bytes")
+OPTIONAL_COLUMNS = ("arm", "dcb_eq_bytes", "dcr_eq_bytes", "x265_preset")
 
 # B0's chroma reading: how far below x265 either plane may sit at equal
 # bytes before the clip is named. 0.3 dB is the level the record calls
@@ -454,8 +475,10 @@ def our_tmpl():
 
 
 def x265_tmpl():
-    """bd_vs_x265.py's `ref` template, verbatim."""
-    return (f"{X265} --preset medium --crf {{q}} --frames {FRAMES} "
+    """bd_vs_x265.py's `ref` template, verbatim - with the preset name
+    where the `medium` literal stood, so X265PRESET=medium reproduces the
+    old string, and with it the old memo key, character for character."""
+    return (f"{X265} --preset {X265PRESET} --crf {{q}} --frames {FRAMES} "
             f"--pools none --frame-threads 1 --log-level none -o {{out}} "
             f"{{src}}")
 
@@ -475,7 +498,7 @@ def our_timed(q, src, t1, noasm):
 
 
 def x265_timed(q, src, t1, noasm):
-    cmd = [X265, "--preset", "medium", "--crf", str(q), "--frames",
+    cmd = [X265, "--preset", X265PRESET, "--crf", str(q), "--frames",
            str(FRAMES), "--log-level", "none"]
     if t1:
         cmd += ["--pools", "none", "--frame-threads", "1"]
@@ -596,7 +619,8 @@ def main():
                              "HEAD"], capture_output=True, text=True
                             ).stdout.strip()
     print(f"goal {GOAL} ({'pure C' if pure_c else 'as shipped'}, "
-          f"{'--threads 1' if t1 else 'auto threads'})   preset {PRESET}   "
+          f"{'--threads 1' if t1 else 'auto threads'})   preset {PRESET} "
+          f"vs x265 {X265PRESET}   "
           f"rung {RUNG}   {FRAMES} frames   commit {commit}")
     print(f"solve:  {our_tmpl()}")
     print(f"        {x265_tmpl()}")
@@ -721,9 +745,14 @@ def main():
             # ladder has no psnr to interpolate.
             "dcb_eq_bytes": round(dcb, 3) if dcb is not None else "",
             "dcr_eq_bytes": round(dcr, 3) if dcr is not None else "",
+            # C1: WHO we were read against. Appended last for the reason
+            # every column above it was. A row written before this existed
+            # carries "", which reads as medium, because medium is what
+            # every one of them was solved and timed against.
+            "x265_preset": X265PRESET,
         })
 
-    report(rows, GOAL, PRESET, RUNG, FRAMES)
+    report(rows, GOAL, PRESET, RUNG, FRAMES, X265PRESET)
     if do_csv:
         append_csv(rows)
     for c in res.values():
@@ -738,12 +767,12 @@ def _f(w, k):
     return float(v)
 
 
-def report(rows, goal, preset, rung, frames):
+def report(rows, goal, preset, rung, frames, xpreset="medium"):
     hdr = (f"{'clip':<18} {'ourCRF':>6} {'xCRF':>5} {'dVMAF@=B':>9} "
            f"{'dSIZE@=V':>9} {'dCb@=B':>7} {'dCr@=B':>7} {'ours s':>8} "
            f"{'x265 s':>8} {'mult':>7}")
-    print(f"\n=== goal {goal}, preset {preset}, rung {rung}, {frames} frames, "
-          f"{len(rows)} clips ===")
+    print(f"\n=== goal {goal}, preset {preset} vs x265 {xpreset}, rung "
+          f"{rung}, {frames} frames, {len(rows)} clips ===")
     print("    dVMAF@=B: ours minus x265's VMAF-NEG interpolated at OUR "
           "bytes (ours ahead positive)")
     print("    dSIZE@=V: ours over x265's bytes interpolated at OUR "
@@ -905,10 +934,13 @@ def from_csv():
     with open(CSV_PATH, newline="") as f:
         allrows = list(csv.DictReader(f))
     sel = [w for w in allrows
-           if w["preset"] == PRESET and int(w["goal"]) == GOAL]
+           if w["preset"] == PRESET and int(w["goal"]) == GOAL
+           # C1: a blank cell is a row written before the column existed,
+           # and every one of those was read against medium.
+           and (w.get("x265_preset") or "medium") == X265PRESET]
     if not sel:
-        sys.exit(f"goal_legs.py: no rows for preset {PRESET} goal {GOAL} in "
-                 f"{os.path.relpath(CSV_PATH, ROOT)}")
+        sys.exit(f"goal_legs.py: no rows for preset {PRESET} goal {GOAL} vs "
+                 f"x265 {X265PRESET} in {os.path.relpath(CSV_PATH, ROOT)}")
     arm = [w for w in sel if (w.get("arm") or "") == ARM]
     if not arm:
         sys.exit(f"goal_legs.py: no rows for preset {PRESET} goal {GOAL} at "
@@ -922,7 +954,8 @@ def from_csv():
     print(f"from {os.path.relpath(CSV_PATH, ROOT)}: {len(sel)} row(s), "
           f"date {last[0]} commit {last[1]} arm "
           f"{last[2] if last[2] else '(default)'}")
-    report(sel, GOAL, PRESET, int(sel[0]["rung"]), int(sel[0]["frames"]))
+    report(sel, GOAL, PRESET, int(sel[0]["rung"]), int(sel[0]["frames"]),
+           sel[0].get("x265_preset") or "medium")
 
 
 if __name__ == "__main__":
