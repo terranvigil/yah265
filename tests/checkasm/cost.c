@@ -186,6 +186,7 @@ struct cctx {
     int16_t level[32 * 32];
     uint8_t map[64];
     uint16_t abs[16];
+    int16_t seed[32 * 32];
     uint32_t neg, sig;
 };
 
@@ -202,6 +203,17 @@ static void group_ref_call(void *p)
                                   c->abs, &c->neg);
 }
 
+/* sbh_adjust is IN PLACE, so the bench cannot run the same buffer twice
+ * and get the same work: each call re-seeds from the untouched copy the
+ * context carries, which is one 2 KiB memcpy at 32x32 charged equally to
+ * every leg. */
+static void sbh_ref_call(void *p)
+{
+    struct cctx *c = p;
+    memcpy(c->level, c->seed, sizeof(c->level));
+    n265_sbh_adjust_ref(c->level, c->log2n, c->scan_idx);
+}
+
 #if N265_NEON_COST
 static void csbf_neon_call(void *p)
 {
@@ -215,11 +227,20 @@ static void group_neon_call(void *p)
     c->sig = n265_coeff_group_neon(c->level, 1 << c->log2n, c->scan_idx,
                                    c->abs, &c->neg);
 }
+
+static void sbh_neon_call(void *p)
+{
+    struct cctx *c = p;
+    memcpy(c->level, c->seed, sizeof(c->level));
+    n265_sbh_adjust_neon(c->level, c->log2n, c->scan_idx);
+}
 #define CSBF_NEON csbf_neon_call
 #define GROUP_NEON group_neon_call
+#define SBH_NEON sbh_neon_call
 #else
 #define CSBF_NEON NULL
 #define GROUP_NEON NULL
+#define SBH_NEON NULL
 #endif
 
 #if N265_NEON_COST
@@ -447,6 +468,124 @@ static int check_group_neon(void)
 }
 #endif /* N265_NEON_COST */
 
+#if N265_NEON_COST
+
+/* sbh_adjust's window is the whole block and nothing else - it reads four
+ * rows of four per group at the block stride and writes at most one
+ * element per group, all inside n*n. The mapping is therefore the block
+ * itself, and a kernel that loaded eight coefficients where four were
+ * declared faults on the last group of the last row. */
+static void check_sbh_window(int log2n, int scan_idx, int kind)
+{
+    int n = 1 << log2n;
+    size_t lb = (size_t)n * n * sizeof(int16_t);
+
+    for (int tail = 0; tail < 2; tail++) {
+        ca_pg gl;
+        int16_t *level = ca_pg_alloc(&gl, lb, tail);
+        char what[96];
+
+        fill_level(level, n, kind);
+        snprintf(what, sizeof(what), "sbh_adjust %dx%d scan %d / %s, %s edge",
+                 n, n, scan_idx, lkind_name[kind], tail ? "far" : "near");
+        ca_pg_arm(what);
+        n265_sbh_adjust_neon(level, log2n, scan_idx);
+        ca_pg_disarm();
+        ca_pg_free(&gl);
+    }
+}
+
+/* A population aimed at the two decisions the kernel makes that the
+ * generic level kinds hit only by accident: the `last - first <= 3` gate,
+ * where a group whose span is exactly 3 must be left alone and one whose
+ * span is exactly 4 must be considered, and the parity test, which has to
+ * see both answers at both signs of the first coefficient. Positions are
+ * chosen in SCAN order and written through the scan table, so the case is
+ * the same case under all three scans. */
+static void fill_span(int16_t *l, int n, int log2n, int scan_idx,
+                      int span, int par_bump, int neg_first)
+{
+    const uint8_t *sb_scan = n265_scan_sb[scan_idx][log2n - 2];
+    const uint8_t *co_scan = n265_scan_coef[scan_idx];
+    int sb_dim = n >> 2;
+
+    memset(l, 0, (size_t)n * n * sizeof(int16_t));
+    for (int s = 0; s < sb_dim * sb_dim; s++) {
+        int sx = (sb_scan[s] & 15) << 2, sy = (sb_scan[s] >> 4) << 2;
+        int first = (int)(rnd() % (unsigned)(16 - span));
+        int last = first + span;
+
+        for (int k = first; k <= last; k++) {
+            int x = sx + (co_scan[k] & 15), y = sy + (co_scan[k] >> 4);
+
+            if (k == first)
+                l[y * n + x] = neg_first ? -1 : 1;
+            else if (k == last)
+                l[y * n + x] = (int16_t)(1 + par_bump);
+            else
+                l[y * n + x] = (int16_t)(rnd() & 1 ? 0 : 3);
+        }
+    }
+}
+
+static int check_sbh_neon(void)
+{
+    int bad = 0;
+
+    for (int s = 0; s < N_TSIZE; s++)
+        for (int k = 0; k < 3; k++)
+            for (int kind = 0; kind < N_LKIND; kind++)
+                check_sbh_window(tsizes[s], k, kind);
+
+    for (int s = 0; s < N_TSIZE && !bad; s++) {
+        int log2n = tsizes[s], n = 1 << log2n, nn = n * n;
+        size_t lb = (size_t)nn * sizeof(int16_t);
+        int16_t *level = ca_guard_alloc(lb);
+        int16_t seed[32 * 32], ref[32 * 32];
+
+        for (int k = 0; k < 3 && !bad; k++) {
+            /* N_LKIND generic populations, then the span/parity sweep */
+            int cases = N_LKIND + 4 * 2 * 2;
+
+            for (int ci = 0; ci < cases && !bad; ci++) {
+                int reps = ci < N_LKIND ? 24 : 8;
+
+                for (int rep = 0; rep < reps && !bad; rep++) {
+                    if (ci < N_LKIND) {
+                        fill_level(seed, n, ci);
+                    } else {
+                        int t = ci - N_LKIND;
+
+                        fill_span(seed, n, log2n, k, 2 + (t >> 2),
+                                  (t >> 1) & 1, t & 1);
+                    }
+                    memcpy(ref, seed, lb);
+                    n265_sbh_adjust_ref(ref, log2n, k);
+
+                    memcpy(level, seed, lb);
+                    ca_guard_poison(level, lb);
+                    n265_sbh_adjust_neon(level, log2n, k);
+                    bad += ca_guard_check(level, lb, "sbh_adjust_neon level");
+                    if (memcmp(ref, level, lb)) {
+                        int at = -1;
+
+                        for (int i = 0; i < nn; i++)
+                            if (ref[i] != level[i]) { at = i; break; }
+                        printf("    sbh_adjust MISMATCH %dx%d scan %d case "
+                               "%d rep %d: (%d,%d) ref %d neon %d\n", n, n, k,
+                               ci, rep, at % n, at / n, ref[at], level[at]);
+                        bad++;
+                    }
+                }
+            }
+        }
+        ca_guard_free(level);
+    }
+    return bad;
+}
+
+#endif /* N265_NEON_COST */
+
 int check_cost(void)
 {
     struct cctx c;
@@ -457,6 +596,7 @@ int check_cost(void)
 #if N265_NEON_COST
     bad += check_csbf_neon();
     bad += check_group_neon();
+    bad += check_sbh_neon();
 #endif
     if (bad || !ca_bench)
         return bad;
@@ -480,6 +620,17 @@ int check_cost(void)
         fill_level(c.level, 16, 3);
         snprintf(what, sizeof(what), "coeff_group %s", sn[k]);
         bench(what, group_ref_call, group_ref_call, GROUP_NEON, &c, 40000);
+    }
+    for (int s = 0; s < 4; s++) {
+        char what[64];
+        c.log2n = 2 + s;
+        c.scan_idx = 0;
+        /* the encoder's population: a sparse low-frequency corner, which
+         * is what survives RDOQ */
+        fill_level(c.seed, 1 << c.log2n, 2);
+        snprintf(what, sizeof(what), "sbh_adjust %dx%d",
+                 1 << c.log2n, 1 << c.log2n);
+        bench(what, sbh_ref_call, sbh_ref_call, SBH_NEON, &c, 20000);
     }
     return bad;
 }

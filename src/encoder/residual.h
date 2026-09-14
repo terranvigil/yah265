@@ -70,5 +70,6 @@ void n265_real_ops(res_ops *ops, real_emit *re);
  * (grows one magnitude by 1 when parity disagrees). Run after quant and
  * before reconstruction. */
 void n265_sbh_adjust(int16_t *level, int log2n, int scan_idx);
+void n265_sbh_adjust_ref(int16_t *level, int log2n, int scan_idx);
 
 #endif
