@@ -62,10 +62,98 @@ clips_excerpt=(
     "sita_toon_720p   $base/y4m/sita_sings_the_blues_720p24.y4m.xz   8760  120  fa0ee26c3f170eac0e492ae53d399e412ca32fa6776b69f32013e50354c15e74  animation"
 )
 
+# generated: name  sha256  class.  The recipe is gen_one() below.
+#
+# The derf collection has no clip with a global illumination ramp, and a
+# fade is the regime weighted prediction exists for (phase 14 item 2), so
+# these two are SYNTHESISED from clips already in the corpus - and the
+# recipe is written here rather than in a note, so it can be re-run and
+# the pin can fail.
+#
+#   fade_cif     foreman_cif frames 0-119, a 40-frame linear fade to
+#                black over frames 20-59 and a 40-frame fade back over
+#                60-99. Built as two passes and concatenated, because a
+#                chained `fade=out,fade=in` is NOT that clip: each fade
+#                filter blacks out everything outside its own window, so
+#                the chain returns 120 black frames. (Measured: it does.)
+#   xfade_720p   park_joy_720p and in_to_tree_720p, 80 frames each, with
+#                an 0.8 s (40-frame) cross-fade centred on frame 60. The
+#                harder half of the regime: the mean moves globally, but
+#                the CONTENT is a mix of two pictures, so one weight per
+#                reference can only take the illumination part of it.
+#
+# Both pins are on ffmpeg 9.0.1's output. A different ffmpeg whose
+# fade/xfade rounding differs fails the pin rather than quietly handing
+# the band a different clip.
+clips_gen=(
+    "fade_cif     64690791f320fd81d6060643c54d1cf8935ea97bad2139bea5d21f921ddb5576  fade  1"
+    "xfade_720p   41b5de7b2ab3b352253ea55a68c3f4e08b5d34e5f451ce079d32c15da5671828  fade  2"
+)
+
 manifest="$dest/CLASSES"
 : > "$manifest"
 
 sha() { shasum -a 256 "$1" | awk '{print $1}'; }
+
+# the two recipes above, by name. Writes "$dest/$1.y4m".
+gen_one() {
+    local name="$1" tmp
+    tmp="$(mktemp -d "${TMPDIR:-/tmp}/n265gen.XXXXXX")"
+    case "$name" in
+    fade_cif)
+        ffmpeg -loglevel error -y -i "$dest/foreman_cif.y4m" \
+            -vf "select='between(n,0,59)',fade=t=out:s=20:n=40" \
+            -fps_mode vfr -frames:v 60 -pix_fmt yuv420p \
+            -f yuv4mpegpipe "$tmp/a.y4m"
+        ffmpeg -loglevel error -y -i "$dest/foreman_cif.y4m" \
+            -vf "select='between(n,60,119)',setpts=N/FRAME_RATE/TB,fade=t=in:s=0:n=40" \
+            -fps_mode vfr -frames:v 60 -pix_fmt yuv420p \
+            -f yuv4mpegpipe "$tmp/b.y4m"
+        printf "file '%s'\nfile '%s'\n" "$tmp/a.y4m" "$tmp/b.y4m" > "$tmp/cat.txt"
+        ffmpeg -loglevel error -y -f concat -safe 0 -i "$tmp/cat.txt" \
+            -fps_mode vfr -frames:v 120 -pix_fmt yuv420p \
+            -f yuv4mpegpipe "$dest/$name.y4m"
+        ;;
+    xfade_720p)
+        ffmpeg -loglevel error -y -i "$dest/park_joy_720p.y4m" \
+            -i "$dest/in_to_tree_720p.y4m" -filter_complex \
+            "[0:v]select='between(n,0,79)',setpts=N/FRAME_RATE/TB[a];\
+[1:v]select='between(n,0,79)',setpts=N/FRAME_RATE/TB[b];\
+[a][b]xfade=transition=fade:duration=0.8:offset=0.8,format=yuv420p" \
+            -fps_mode vfr -frames:v 120 -f yuv4mpegpipe "$dest/$name.y4m"
+        ;;
+    *) echo "  no recipe for $name" >&2; rm -rf "$tmp"; exit 1 ;;
+    esac
+    rm -rf "$tmp"
+}
+
+# name  sha256  class  tier(1 = always, 2 = --full, when its sources are here)
+generate() {
+    local name="$1" want="$2" class="$3"
+    local out="$dest/$name.y4m"
+    echo "$name $class" >> "$manifest"
+    if [ -f "$out" ]; then
+        echo "have  $name  [$class]"
+        return
+    fi
+    for c in "${caches[@]}"; do
+        if [ -f "$c/$name.y4m" ] && [ "$(sha "$c/$name.y4m")" = "$want" ]; then
+            echo "copy  $name  [$class]  (from $c)"
+            cp "$c/$name.y4m" "$out"
+            return
+        fi
+    done
+    echo "gen   $name  [$class]"
+    gen_one "$name"
+    local got
+    got="$(sha "$out")"
+    if [ "$got" != "$want" ]; then
+        echo "  hash mismatch for $name: got $got" >&2
+        echo "  (the recipe is ffmpeg's; 9.0.1 is what the pin was taken on)" >&2
+        rm -f "$out"
+        exit 1
+    fi
+}
 
 fetch_excerpt() {
     local name="$1" url="$2" first="$3" n="$4" want="$5" class="$6"
@@ -136,6 +224,13 @@ for row in "${clips[@]}"; do
     fetch "$c_name" "$c_url" "$c_want" "$c_class"
 done
 
+# tier 1 generated: foreman_cif is already here, so this one always can be
+for row in "${clips_gen[@]}"; do
+    read -r c_name c_want c_class c_tier <<< "$row"
+    [ "$c_tier" = 1 ] || continue
+    generate "$c_name" "$c_want" "$c_class"
+done
+
 if [ "$full" = 1 ]; then
     echo "-- tier 2 (--full) --"
     for row in "${clips_full[@]}"; do
@@ -145,6 +240,12 @@ if [ "$full" = 1 ]; then
     for row in "${clips_excerpt[@]}"; do
         read -r c_name c_url c_first c_n c_want c_class <<< "$row"
         fetch_excerpt "$c_name" "$c_url" "$c_first" "$c_n" "$c_want" "$c_class"
+    done
+    # ...and the generated clips whose SOURCES are tier 2
+    for row in "${clips_gen[@]}"; do
+        read -r c_name c_want c_class c_tier <<< "$row"
+        [ "$c_tier" = 2 ] || continue
+        generate "$c_name" "$c_want" "$c_class"
     done
 fi
 
