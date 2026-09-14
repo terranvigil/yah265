@@ -280,6 +280,22 @@ static const struct kv med_tab[] = {
      * is 0, so fast, slow and slower are untouched and `N265_DUP_FAST=0`
      * is the escape. docs/phase11.md. */
     { "N265_DUP_FAST",   "1" },
+    /* phase 14 item 2: weighted prediction in P slices, x265's own
+     * default at this rung and above. It is a CONTENT tool and the
+     * estimator is what keeps it free where the content is not there:
+     * over the fifteen non-fade corpus clips the gain test declines on
+     * every frame of eleven of them, and the CRF band moves by at most
+     * 0.04 of a point on any clip that is not a fade or a dissolve. What
+     * it buys is the two clips that are: fade_cif +11.47% -> -13.15%
+     * against x265 medium, a 24.6-point swing and the largest
+     * single-clip deficit this encoder had, and sintel_720p - a trailer,
+     * so real dissolves - -12.55% -> -17.33%. `N265_WEIGHTB` needs no
+     * entry: it is priced in docs/phase14.md and stays off, as it does
+     * in x265, because it costs 0.31 of a point on akiyo_cif for the
+     * table it writes in every B slice header and takes xfade_720p
+     * backwards. The compiled-in default is 0, so fast and faster are
+     * untouched and `--no-weightp` is the escape. */
+    { "N265_WEIGHTP",    "1" },
     { NULL, NULL }
 };
 
@@ -303,6 +319,15 @@ static const struct kv slow_tab[] = {
     { "N265_RECT_FLAT",  "1" },   /* rect on flat-typed frames         */
     { "N265_INTRA_GATE", "7" },
     { "N265_SBH_RD",     "2" },
+    /* phase 14 item 2, and the FIRST named exception to the paragraph
+     * above: `--preset slow` is no longer f243b33's medium byte for
+     * byte, because weighted prediction is a coding tool this encoder
+     * did not have then and a quality rung above the goal preset should
+     * not be missing what the goal preset has. The identity is one flag
+     * away - `--preset slow --no-weightp` is the old encoder, and on the
+     * eleven non-fade corpus clips it is that encoder anyway, the
+     * estimator having declined on every frame. */
+    { "N265_WEIGHTP",    "1" },
     { NULL, NULL }
 };
 
@@ -342,6 +367,7 @@ static const struct kv slower_tab[] = {
      * "Step 2 follow-up"). `N265_INTRA_MIN` needs no entry: 4, the floor
      * the IDR bound already carried, is the one the placement wants   */
     { "N265_MIN_KEYINT", "0" },
+    { "N265_WEIGHTP",    "1" },   /* phase 14 item 2; see med_tab */
     { NULL, NULL }
 };
 

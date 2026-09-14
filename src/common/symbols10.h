@@ -361,4 +361,26 @@
 #define ntp_wait                     ntp_wait_10
 #define ntp_wait_older               ntp_wait_older_10
 
+#define n265_weightb_on              n265_weightb_on_10
+#define n265_weightp_on              n265_weightp_on_10
+#define n265_wp_analyse              n265_wp_analyse_10
+#define n265_wp_bi_wh                n265_wp_bi_wh_10
+#define n265_wp_bi_wh_ref            n265_wp_bi_wh_ref_10
+#define n265_wp_build_cur            n265_wp_build_cur_10
+#define n265_wp_pix_wh               n265_wp_pix_wh_10
+#define n265_wp_slot_store           n265_wp_slot_store_10
+#define n265_wp_trace                n265_wp_trace_10
+#define n265_wp_uni_wh               n265_wp_uni_wh_10
+#define n265_wp_uni_wh_ref           n265_wp_uni_wh_ref_10
+
+#define n265_wp_fit                  n265_wp_fit_10
+#define n265_wp_denom_for            n265_wp_denom_for_10
+#define n265_wp_quant                n265_wp_quant_10
+#define n265_write_pred_weight_table n265_write_pred_weight_table_10
+
+#define n265_wp_uni_wh_neon          n265_wp_uni_wh_neon_10
+#define n265_wp_bi_wh_neon           n265_wp_bi_wh_neon_10
+#define n265_wp_pix_wh_neon          n265_wp_pix_wh_neon_10
+#define n265_wp_pix_wh_ref           n265_wp_pix_wh_ref_10
+
 #endif /* N265_SYMBOLS10_H */

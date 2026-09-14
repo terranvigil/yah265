@@ -81,6 +81,7 @@ typedef uint16_t n265_pixel;
 #define n265_set_badapt       N265_API(n265_set_badapt)
 #define n265_set_threads      N265_API(n265_set_threads)
 #define n265_set_hash         N265_API(n265_set_hash)
+#define n265_set_weight       N265_API(n265_set_weight)
 #define n265_set_vui_colour   N265_API(n265_set_vui_colour)
 #define n265_set_vui_sar      N265_API(n265_set_vui_sar)
 #define n265_set_vui_window   N265_API(n265_set_vui_window)
@@ -219,6 +220,17 @@ YAH265_API void n265_set_threads(int n);
  * The decoded picture hash is one suffix SEI per picture, D.2.19, taken
  * over the CODED picture: 0 off, then x265's numbering - 1 MD5, 2 CRC,
  * 3 checksum. It costs a pass over the reconstruction at retirement. */
+/* ---- weighted prediction (phase 14 item 2) ----
+ *
+ * weighted_pred_flag and weighted_bipred_flag, and with them the whole
+ * tool: the encoder derives one explicit weight per (list, reference)
+ * from the lookahead and writes a pred_weight_table where it beats the
+ * unweighted prediction. -1 in either argument leaves that half at its
+ * default, which is the preset's - x265 ships weightp on at medium and
+ * weightb off, and so does this. The P half is the one that costs a
+ * default; the B half is priced and off. */
+YAH265_API void n265_set_weight(int weightp, int weightb);
+
 YAH265_API void n265_set_hash(int type);
 YAH265_API void n265_set_vui_colour(int videoformat, int full_range,
                                      int colorprim, int transfer,

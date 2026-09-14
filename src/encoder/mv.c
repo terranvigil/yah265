@@ -421,11 +421,37 @@ void n265_amvp(struct n265_frame_work *e, int list, int ref, int x0, int y0,
     n265_amvp_pu(e, list, ref, &g, mvp);
 }
 
+/* The search's weighted cost, in its own frame for the 4 KB it needs:
+ * n265_mc_sad is the hottest call in the encoder and a stack frame is
+ * reserved whether or not the branch is taken, so a buffer left in the
+ * caller would be charged to every unweighted candidate on every clip.
+ * mc.h says why the search is allowed the pixel-domain map. */
+static uint32_t wp_sad(const pixel *src, int ss, const pixel *p, int ps,
+                       int w, int h, const n265_wp *wp, int denom)
+{
+    pixel wb[64 * 64];
+    n265_wp_pix_wh(wb, w, p, ps, w, h, wp->w[0], wp->o[0], denom);
+    return n265_sad_wh(src, ss, wb, w, w, h);
+}
+
+static uint32_t wp_satd(const pixel *src, int ss, const pixel *p, int ps,
+                        int w, int h, const n265_wp *wp, int denom)
+{
+    pixel wb[64 * 64];
+    n265_wp_pix_wh(wb, w, p, ps, w, h, wp->w[0], wp->o[0], denom);
+    return n265_satd_wh(src, ss, wb, w, w, h);
+}
+
 uint32_t n265_mc_sad(struct n265_frame_work *e, int list, int ridx, int x0, int y0,
                      int w, int h, mv_t mv)
 {
     const struct n265_refpic *ref = e->refl[list][ridx];
     const pixel *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
+    /* --weightp / --weightb: the SEARCH weights the rounded prediction
+     * rather than the 14-bit one (mc.h says why a cost function may).
+     * NULL on every frame the estimator declined, which is every frame
+     * of a clip with no fade, so this is a branch and nothing else. */
+    const n265_wp *wp = n265_wp_of(e, list, ridx, 0);
     if ((mv.x | mv.y) & 3) {    /* fractional: interpolate then SAD */
         pixel pred[64 * 64];
         int ix = x0 + (mv.x >> 2), iy = y0 + (mv.y >> 2);
@@ -453,6 +479,9 @@ uint32_t n265_mc_sad(struct n265_frame_work *e, int list, int ridx, int x0, int 
                             ref->hf_stride, mv.x & 3, mv.y & 3);
         }
         N265_REF_UNGUARD();
+        if (wp)
+            return wp_sad(src, e->pad_stride[0], pred, w, w, h, wp,
+                          n265_wp_denom(e, 0));
         return n265_sad_wh(src, e->pad_stride[0], pred, w, w, h);
     }
     int ix = x0 + (mv.x >> 2), iy = y0 + (mv.y >> 2);
@@ -467,6 +496,11 @@ uint32_t n265_mc_sad(struct n265_frame_work *e, int list, int ridx, int x0, int 
     N265_RC_TOUCH(rp);
     N265_RC_TOUCH(rp + (h - 1) * ws);
     N265_REF_UNGUARD();
+    /* at a full-pel position the pixel-domain map is not an
+     * approximation at all but the clause itself (mc.h) */
+    if (wp)
+        return wp_sad(src, e->pad_stride[0], rp, ws, w, h, wp,
+                      n265_wp_denom(e, 0));
     return n265_sad_wh(src, e->pad_stride[0], rp, ws, w, h);
 }
 
@@ -498,6 +532,10 @@ static uint32_t mc_satd(struct n265_frame_work *e, int list, int ridx, int x0, i
                         ref->hf_stride, mv.x & 3, mv.y & 3);
     }
     N265_REF_UNGUARD();
+    const n265_wp *wp = n265_wp_of(e, list, ridx, 0);
+    if (wp)
+        return wp_satd(src, e->pad_stride[0], pred, w, w, h, wp,
+                       n265_wp_denom(e, 0));
     return n265_satd_wh(src, e->pad_stride[0], pred, w, w, h);
 }
 

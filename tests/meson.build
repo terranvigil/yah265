@@ -57,6 +57,16 @@ unit_hash = executable('unit_hash', 'unit/hash_test.c',
   dependencies : yah265_dep)
 test('hash', unit_hash)
 
+# Weighted prediction (phase 14 item 2): the pred_weight_table writer read
+# back field by field by a hand-written parser of 7.3.6.3, the chroma
+# offset through the DECODER's own derivation of it, 8.5.3.3.4.3 at hand
+# values, and the identity that the whole escape rests on - at w = 1 <<
+# denom the explicit clause IS the default prediction. Pure syntax and
+# pure arithmetic, no encode; the decoder-side half is the two fade
+# conformance vectors.
+unit_wp = executable('unit_wp', 'unit/wp_test.c',
+  dependencies : yah265_dep)
+test('wp', unit_wp)
 # Open GOP (phase 14 item 3): the CRA prediction barrier and the
 # reference-list rule behind it, as a hand-written truth table out of
 # 7.4.2.2, a hand-computed mini-GOP straddling a CRA, and a sweep against

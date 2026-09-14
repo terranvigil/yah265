@@ -57,6 +57,18 @@
 void n265_bi_avg_wh_neon(pixel *dst, int dst_stride, const int16_t *a,
                          const int16_t *b, int w, int h);
 
+/* 8.5.3.3.4.3's three forms. The shift is a RUNTIME value (the slice's
+ * weight denominator plus shift1), which is why none of these can use a
+ * narrowing intrinsic with an immediate shift. Same signatures as their
+ * entry points. */
+void n265_wp_uni_wh_neon(pixel *dst, int ds, const int16_t *src, int w,
+                         int h, int wt, int off, int denom);
+void n265_wp_bi_wh_neon(pixel *dst, int ds, const int16_t *a,
+                        const int16_t *b, int w, int h, int w0, int o0,
+                        int w1, int o1, int denom);
+void n265_wp_pix_wh_neon(pixel *dst, int ds, const pixel *src, int ss,
+                         int w, int h, int wt, int off, int denom);
+
 /* The E1 cached-first-stage luma forms. These two take `hf` alone rather
  * than the entry point's full argument list: the reference plane, its
  * stride and fx are consumed by the fall-through ABOVE the dispatch (a

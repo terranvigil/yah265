@@ -1146,6 +1146,277 @@ static void bench_chroma(void)
     }
 }
 
+
+/* ---- weighted prediction (8.5.3.3.4.3) ------------------------------
+ *
+ * Three kernels with a RUNTIME shift, which is what makes them worth
+ * their own checks rather than a variation on bi_avg's: log2Wd is the
+ * slice's own weight denominator plus shift1, so a kernel that folded it
+ * into an immediate would be right at one denominator and wrong at the
+ * other seven. Every denominator 0..7 is swept, and the weight and
+ * offset are driven to the ENDS of the ranges 7.4.7.3 allows - the
+ * weight to (1 << d) - 128 and (1 << d) + 127, which goes NEGATIVE at
+ * small denominators, and the offset to -128 and 127 - because the
+ * saturating narrow is the only thing standing between those and a
+ * wrapped sample.
+ *
+ * The identity case is in the set on purpose. It is not a corner here,
+ * it is the case the whole feature's escape rests on: at w = 1 << d and
+ * o = 0 both forms have to reproduce the unweighted prediction, and a
+ * kernel that got the rounding of the runtime shift wrong fails exactly
+ * there and nowhere else. */
+
+struct wp_par { int wt, off, denom; };
+
+static void wp_fill_par(struct wp_par *p, int k)
+{
+    int d = k & 7;
+    p->denom = d;
+    switch (k >> 3) {
+    case 0: p->wt = 1 << d;          p->off = 0;    break;  /* the identity */
+    case 1: p->wt = (1 << d) + 127;  p->off = 127;  break;
+    case 2: p->wt = (1 << d) - 128;  p->off = -128; break;
+    case 3: p->wt = (1 << d) - 128;  p->off = 127;  break;
+    default: {
+        int lo = (1 << d) - 128, hi = (1 << d) + 127;
+        p->wt = lo + (int)(rnd() % (unsigned)(hi - lo + 1));
+        p->off = -128 + (int)(rnd() % 256u);
+        break;
+    }
+    }
+}
+#define NWP_PAR 40      /* five families x eight denominators */
+
+static void wp_uni_opt(pixel *dst, int ds, const int16_t *src, int w, int h,
+                       int wt, int off, int denom)
+{
+#if N265_NEON_MC
+    n265_wp_uni_wh_neon(dst, ds, src, w, h, wt, off, denom);
+#else
+    n265_wp_uni_wh(dst, ds, src, w, h, wt, off, denom);
+#endif
+}
+
+static void wp_bi_opt(pixel *dst, int ds, const int16_t *a, const int16_t *b,
+                      int w, int h, int w0, int o0, int w1, int o1, int denom)
+{
+#if N265_NEON_MC
+    n265_wp_bi_wh_neon(dst, ds, a, b, w, h, w0, o0, w1, o1, denom);
+#else
+    n265_wp_bi_wh(dst, ds, a, b, w, h, w0, o0, w1, o1, denom);
+#endif
+}
+
+static void wp_pix_opt(pixel *dst, int ds, const pixel *src, int ss, int w,
+                       int h, int wt, int off, int denom)
+{
+#if N265_NEON_MC
+    n265_wp_pix_wh_neon(dst, ds, src, ss, w, h, wt, off, denom);
+#else
+    n265_wp_pix_wh(dst, ds, src, ss, w, h, wt, off, denom);
+#endif
+}
+
+static int check_wp(void)
+{
+    int bad = 0;
+
+    for (int iw = 0; iw < NBI_DIM && !bad; iw++) {
+        for (int ih = 0; ih < NBI_DIM && !bad; ih++) {
+            int w = bi_dims[iw], h = bi_dims[ih];
+            int ds = w + BI_PAD;
+            size_t nn = (size_t)w * h;
+            size_t ab_bytes = nn * sizeof(int16_t);
+            size_t sp_bytes = nn * sizeof(pixel);
+            size_t d_bytes = (size_t)ds * h * sizeof(pixel);
+            int16_t *a = ca_guard_alloc(ab_bytes);
+            int16_t *b = ca_guard_alloc(ab_bytes);
+            pixel *sp = ca_guard_alloc(sp_bytes);
+            pixel *dst = ca_guard_alloc(d_bytes);
+            pixel *ref = ca_guard_alloc(d_bytes);
+            pixel *alt = ca_guard_alloc(d_bytes);
+            char what[64];
+
+            for (int k = 0; k < NWP_PAR && !bad; k++) {
+                struct wp_par p, q;
+                wp_fill_par(&p, k);
+                wp_fill_par(&q, (k + 13) % NWP_PAR);
+                q.denom = p.denom;      /* the table carries ONE denominator */
+                for (int kind = 0; kind < 4 && !bad; kind++) {
+                    bi_fill(a, b, (int)nn, kind);
+                    for (size_t i = 0; i < nn; i++)
+                        sp[i] = (pixel)(rnd() % (unsigned)(PIXEL_MAX + 1));
+
+                    /* uni */
+                    snprintf(what, sizeof(what), "wp_uni %dx%d d%d w%d o%d",
+                             w, h, p.denom, p.wt, p.off);
+                    memset(ref, CA_POISON, d_bytes);
+                    memset(dst, CA_POISON, d_bytes);
+                    ca_guard_poison(a, ab_bytes);
+                    ca_guard_poison(dst, d_bytes);
+                    n265_wp_uni_wh_ref(ref, ds, a, w, h, p.wt, p.off, p.denom);
+                    wp_uni_opt(dst, ds, a, w, h, p.wt, p.off, p.denom);
+                    for (int y = 0; y < h && !bad; y++)
+                        if (memcmp(ref + (size_t)y * ds, dst + (size_t)y * ds,
+                                   (size_t)w * sizeof(pixel))) {
+                            printf("    %s MISMATCH kind %d row %d\n", what,
+                                   kind, y);
+                            bad++;
+                        }
+                    bad += ca_guard_check(dst, d_bytes, what);
+                    bad += ca_check_pad_pix(dst, ds, w, h, what);
+                    bad += ca_guard_check(a, ab_bytes, what);
+                    if (bad) break;
+                    /* the declared read window is exactly w*h int16 */
+                    ca_guard_scramble(a, ab_bytes);
+                    memset(dst, CA_POISON, d_bytes);
+                    wp_uni_opt(dst, ds, a, w, h, p.wt, p.off, p.denom);
+                    ca_guard_scramble(a, ab_bytes);
+                    memset(alt, CA_POISON, d_bytes);
+                    wp_uni_opt(alt, ds, a, w, h, p.wt, p.off, p.denom);
+                    if (memcmp(dst, alt, d_bytes)) {
+                        printf("    %s: reads outside the block\n", what);
+                        bad++;
+                        break;
+                    }
+
+                    /* bi, with a DIFFERENT weight per list: a kernel that
+                     * applied one weight to both passes every symmetric
+                     * test there is */
+                    snprintf(what, sizeof(what), "wp_bi %dx%d d%d", w, h,
+                             p.denom);
+                    memset(ref, CA_POISON, d_bytes);
+                    memset(dst, CA_POISON, d_bytes);
+                    ca_guard_poison(a, ab_bytes);
+                    ca_guard_poison(b, ab_bytes);
+                    ca_guard_poison(dst, d_bytes);
+                    n265_wp_bi_wh_ref(ref, ds, a, b, w, h, p.wt, p.off,
+                                      q.wt, q.off, p.denom);
+                    wp_bi_opt(dst, ds, a, b, w, h, p.wt, p.off, q.wt, q.off,
+                              p.denom);
+                    for (int y = 0; y < h && !bad; y++)
+                        if (memcmp(ref + (size_t)y * ds, dst + (size_t)y * ds,
+                                   (size_t)w * sizeof(pixel))) {
+                            printf("    %s MISMATCH kind %d row %d\n", what,
+                                   kind, y);
+                            bad++;
+                        }
+                    bad += ca_guard_check(dst, d_bytes, what);
+                    bad += ca_check_pad_pix(dst, ds, w, h, what);
+                    bad += ca_guard_check(a, ab_bytes, what);
+                    bad += ca_guard_check(b, ab_bytes, what);
+                    if (bad) break;
+
+                    /* the search's pixel-domain form, whose source has a
+                     * stride of its own */
+                    snprintf(what, sizeof(what), "wp_pix %dx%d d%d", w, h,
+                             p.denom);
+                    memset(ref, CA_POISON, d_bytes);
+                    memset(dst, CA_POISON, d_bytes);
+                    ca_guard_poison(sp, sp_bytes);
+                    ca_guard_poison(dst, d_bytes);
+                    n265_wp_pix_wh_ref(ref, ds, sp, w, w, h, p.wt, p.off,
+                                       p.denom);
+                    wp_pix_opt(dst, ds, sp, w, w, h, p.wt, p.off, p.denom);
+                    for (int y = 0; y < h && !bad; y++)
+                        if (memcmp(ref + (size_t)y * ds, dst + (size_t)y * ds,
+                                   (size_t)w * sizeof(pixel))) {
+                            printf("    %s MISMATCH kind %d row %d\n", what,
+                                   kind, y);
+                            bad++;
+                        }
+                    bad += ca_guard_check(dst, d_bytes, what);
+                    bad += ca_check_pad_pix(dst, ds, w, h, what);
+                    bad += ca_guard_check(sp, sp_bytes, what);
+                }
+            }
+            ca_guard_free(a);
+            ca_guard_free(b);
+            ca_guard_free(sp);
+            ca_guard_free(dst);
+            ca_guard_free(ref);
+            ca_guard_free(alt);
+        }
+    }
+    return bad;
+}
+
+struct wctx {
+    pixel *dst;
+    const int16_t *a, *b;
+    const pixel *sp;
+    int w, h, ds;
+};
+
+static void wp_uni_ref_call(void *p)
+{
+    struct wctx *c = p;
+    n265_wp_uni_wh_ref(c->dst, c->ds, c->a, c->w, c->h, 70, -12, 6);
+}
+static void wp_uni_opt_call(void *p)
+{
+    struct wctx *c = p;
+    wp_uni_opt(c->dst, c->ds, c->a, c->w, c->h, 70, -12, 6);
+}
+static void wp_bi_ref_call(void *p)
+{
+    struct wctx *c = p;
+    n265_wp_bi_wh_ref(c->dst, c->ds, c->a, c->b, c->w, c->h, 70, -12, 58, 3, 6);
+}
+static void wp_bi_opt_call(void *p)
+{
+    struct wctx *c = p;
+    wp_bi_opt(c->dst, c->ds, c->a, c->b, c->w, c->h, 70, -12, 58, 3, 6);
+}
+static void wp_pix_ref_call(void *p)
+{
+    struct wctx *c = p;
+    n265_wp_pix_wh_ref(c->dst, c->ds, c->sp, c->w, c->w, c->h, 70, -12, 6);
+}
+static void wp_pix_opt_call(void *p)
+{
+    struct wctx *c = p;
+    wp_pix_opt(c->dst, c->ds, c->sp, c->w, c->w, c->h, 70, -12, 6);
+}
+
+static void bench_wp(void)
+{
+    static int16_t a[64 * 64], b[64 * 64];
+    static pixel sp[64 * 64];
+    static pixel dst[64 * 70];
+    struct wctx c;
+    int n = (int)(sizeof(bi_bench_shapes) / sizeof(bi_bench_shapes[0]));
+
+    bi_fill(a, b, 64 * 64, 0);
+    for (int i = 0; i < 64 * 64; i++)
+        sp[i] = (pixel)(rnd() % (unsigned)(PIXEL_MAX + 1));
+    c.a = a; c.b = b; c.sp = sp; c.dst = dst;
+    for (int i = 0; i < n; i++) {
+        char name[48];
+        c.w = bi_bench_shapes[i][0];
+        c.h = bi_bench_shapes[i][1];
+        c.ds = c.w + BI_PAD;
+        snprintf(name, sizeof(name), "wp_uni %dx%d", c.w, c.h);
+#if N265_NEON_MC
+        bench(name, wp_uni_ref_call, wp_uni_ref_call, wp_uni_opt_call, &c, 20000);
+#else
+        bench(name, wp_uni_ref_call, wp_uni_opt_call, NULL, &c, 20000);
+#endif
+        snprintf(name, sizeof(name), "wp_bi %dx%d", c.w, c.h);
+#if N265_NEON_MC
+        bench(name, wp_bi_ref_call, wp_bi_ref_call, wp_bi_opt_call, &c, 20000);
+#else
+        bench(name, wp_bi_ref_call, wp_bi_opt_call, NULL, &c, 20000);
+#endif
+        snprintf(name, sizeof(name), "wp_pix %dx%d", c.w, c.h);
+#if N265_NEON_MC
+        bench(name, wp_pix_ref_call, wp_pix_ref_call, wp_pix_opt_call, &c, 20000);
+#else
+        bench(name, wp_pix_ref_call, wp_pix_opt_call, NULL, &c, 20000);
+#endif
+    }
+}
+
 int check_mc(void)
 {
     int bad = check_bi_avg();
@@ -1155,11 +1426,14 @@ int check_mc(void)
         bad = check_luma_plane();
     if (!bad)
         bad = check_chroma();
+    if (!bad)
+        bad = check_wp();
     if (bad)
         return bad;
     bench_bi_avg();
     bench_luma_hf();
     bench_luma_plane();
     bench_chroma();
+    bench_wp();
     return 0;
 }

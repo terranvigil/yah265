@@ -27,6 +27,7 @@
 #include "encoder/rcfile.h"
 #include "encoder/twopass.h"
 #include "encoder/vbv.h"
+#include "encoder/wp.h"
 #include "encoder/tables.h"
 
 struct sao_params;
@@ -227,6 +228,15 @@ struct n265_refpic {
      * matches anything. */
     int dup_grp;
     uint64_t dup_cum;
+    /* --weightp / --weightb: this occupant's own lowres SOURCE planes,
+     * the three the weight estimator reads. Written at claim on the
+     * driver, for the same reason `dup_grp` is: the lookahead slot that
+     * held them is recycled behind a dispatched frame, so a frame that
+     * names this picture in a reference list three mini-GOPs later would
+     * otherwise be reading whatever source has since moved in. NULL
+     * unless one of the two flags is on, which is what keeps the default
+     * encoder's allocation exactly what it was. */
+    pixel *wp_low[3];
 #ifdef N265_REF_CHECK
     /* The side-data half of N265_REF_CHECK. `gen` counts claims of this
      * slot (driver-serial, bumped in claim_slot); `row_gen[r]` carries
@@ -602,6 +612,23 @@ typedef struct n265_frame_work {
      * NULL when there is no usable collocated picture. */
     struct n265_refpic *col;
     int col_poc;
+    /* 7.3.6.3's table, derived at dispatch (src/encoder/wp.c).
+     *
+     * `wp_on` is the PPS flag THAT APPLIES TO THIS SLICE TYPE -
+     * weighted_pred_flag for a P slice, weighted_bipred_flag for a B -
+     * and it is what says whether the slice header carries a
+     * pred_weight_table and whether 8.5.3.3.4.3 is the prediction. It is
+     * NOT `wp_any`: with the flag on and every weight at its identity
+     * the decoder still runs the explicit clause, which is arithmetically
+     * the default one (mc.h), so the samples agree and the syntax does
+     * not. `wp_any` says only whether anything actually fired, and the
+     * MC path reads it to skip the weighted kernels altogether. */
+    int wp_on, wp_any;
+    int wp_ldenom, wp_cdenom;
+    /* the two PPS flags themselves, copied from the encoder with the
+     * rest of the per-frame config: the PPS writer takes a frame_work */
+    int weightp, weightb;
+    n265_wp wp[2][N265_MAX_REF];
 #ifdef N265_REF_CHECK
     /* the claim generation of every picture this frame may read side
      * data from, frozen with the lists at dispatch */
@@ -1045,6 +1072,18 @@ struct n265_encoder {
      * never enter an RPS, a reference list, or the eviction rule - which
      * is what keeps the DPB pool pressure exactly what it was before the
      * current picture started claiming a slot. */
+    /* --weightp / --weightb: weighted_pred_flag and
+     * weighted_bipred_flag. Resolved at open from the setter, then
+     * N265_WEIGHTP / N265_WEIGHTB, then the preset table. x265 ships
+     * weightp on at medium and weightb off, and so do we. */
+    int weightp, weightb;
+    /* the lowres planes of the frame being dispatched, built once on the
+     * driver and copied onto its DPB slot at claim. Sized like the
+     * lookahead's lowres luma (la->lw x la->lh) and, for chroma, a 2x2
+     * mean of the chroma source. NULL with both flags off. */
+    pixel *wp_cur[3];
+    int wp_cw, wp_ch;
+
     struct n265_refpic scratch_pic[N265_MAX_FRAME_WORK];
     int rect;
     int amp;
@@ -1933,5 +1972,35 @@ void n265_write_info_sei(bitstream_t *bs, const char *ver);
 long n265_encoder_metrics(n265_encoder *e, double out[6]);
 /* round 4: resolve the 2-D phase-plane knobs into the encoder at open */
 void n265_hf2_knobs(n265_encoder *e);
+
+/* The explicit weighting that applies to this (list, reference,
+ * component) - or NULL, which every call takes on a frame the estimator
+ * declined and on every frame at all with --weightp off. `wp_any` is the
+ * one predicate in front of the array read, so a clip with no fade pays
+ * a load and a branch per prediction and nothing else.
+ *
+ * NULL means "the identity", not "no weighting is signalled": under
+ * weighted_pred_flag the decoder runs 8.5.3.3.4.3 for this block either
+ * way, and at the identity that clause IS the default prediction (mc.h),
+ * so taking the plain filter here is bit-exact and not an approximation. */
+static inline const n265_wp *n265_wp_of(const struct n265_frame_work *fw,
+                                        int list, int ref, int c_idx)
+{
+    if (!fw->wp_any)
+        return NULL;
+    const n265_wp *w = &fw->wp[list][ref];
+    return w->on[c_idx] ? w : NULL;
+}
+
+/* 7.3.6.3's writer, in encoder.c next to the slice header it belongs to.
+ * Exposed so tests/unit/wp_test.c can read one back field by field. */
+void n265_write_pred_weight_table(bitstream_t *bs,
+                                  const struct n265_frame_work *fw);
+
+/* the denominator the table carries for this component */
+static inline int n265_wp_denom(const struct n265_frame_work *fw, int c_idx)
+{
+    return c_idx ? fw->wp_cdenom : fw->wp_ldenom;
+}
 
 #endif
