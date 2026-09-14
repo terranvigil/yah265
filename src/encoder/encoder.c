@@ -1474,12 +1474,10 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     /* --weightp / --weightb (phase 14 item 2). The flag first, then the
      * knob, then the preset table behind n265_env - the order every
      * other tuning value here uses. */
-    e->weightp = g_weightp >= 0 ? g_weightp != 0
-                 : (n265_env("N265_WEIGHTP")
-                    ? atoi(n265_env("N265_WEIGHTP")) != 0 : 0);
-    e->weightb = g_weightb >= 0 ? g_weightb != 0
-                 : (n265_env("N265_WEIGHTB")
-                    ? atoi(n265_env("N265_WEIGHTB")) != 0 : 0);
+    { const char *v = n265_env("N265_WEIGHTP");
+      e->weightp = g_weightp >= 0 ? g_weightp != 0 : v ? atoi(v) != 0 : 0; }
+    { const char *v = n265_env("N265_WEIGHTB");
+      e->weightb = g_weightb >= 0 ? g_weightb != 0 : v ? atoi(v) != 0 : 0; }
     /* The phase-0 I_PCM path codes no inter picture at all, so a flag
      * here would be one nothing in the stream reads. */
     if (e->mode == N265_MODE_PCM)
