@@ -943,14 +943,21 @@ static void usage(void)
         "                  coded video sequence: before each IDR after the\n"
         "                  first, and at the end of the stream.\n"
         "  --eob           end of bitstream NAL (37), the last NAL there is.\n"
-        "  --info          a user data unregistered SEI (D.2.6) naming this\n"
-        "                  encoder and its version, wherever the parameter\n"
-        "                  sets go. x265 writes its own by DEFAULT and this\n"
-        "                  does not: turning it on would change every\n"
-        "                  bitstream by one SEI, and an identity cmp\n"
-        "                  against an older binary would then diff on every\n"
-        "                  cell for a reason unrelated to the change being\n"
-        "                  gated. --no-info is the escape either way.\n"
+        "  --info / --no-info  a user data unregistered SEI (D.2.6) naming\n"
+        "                  this encoder, its version, its licence, its URL\n"
+        "                  and the options this run resolved, wherever the\n"
+        "                  parameter sets go - so once per stream, and\n"
+        "                  under --repeat-headers once per IRAP, which is\n"
+        "                  what x265 does with the same pair. ON by\n"
+        "                  default, as x265's is. The payload carries no\n"
+        "                  clock, no path and no thread count, so one\n"
+        "                  command line writes one stream whatever it is\n"
+        "                  run on. --no-info drops the message, and that\n"
+        "                  is what a bitstream cmp against a binary older\n"
+        "                  than this default is run with. Under --qp and\n"
+        "                  --crf the recon is unmoved and --dump-recon is\n"
+        "                  a second escape; under --bitrate the message is\n"
+        "                  bits the rate control spends, so it is not.\n"
         "  --psnr          report PSNR at the end of the run, pooled over\n"
         "                  every coded frame: per plane and a\n"
         "                  pixel-weighted average. Measured on the\n"
@@ -1339,11 +1346,12 @@ int main(int argc, char **argv)
     long seek = 0;
     /* --psnr / --ssim / --csv / --csv-log-level. Off is the default and
      * off is byte-for-byte the encoder without them. */
-    /* --repeat-headers / --aud / --eos / --eob / --info. All off, --info
-     * included: x265 writes its identifying SEI by default and this does
-     * not, so that an identity cmp against an older binary keeps meaning
-     * what it says (docs/x265-feature-audit.md's row). */
-    int repeat_hdr = 0, aud = 0, eos = 0, eob = 0, info = 0;
+    /* --repeat-headers / --aud / --eos / --eob / --info. The first four
+     * are off; --info is ON since phase 14 item 9, which is x265's
+     * default too - a stream says what wrote it unless it is asked not
+     * to. `--no-info` is the escape, and an identity cmp against a
+     * pre-item binary is run with it (CLAUDE.md, docs/instruments.md). */
+    int repeat_hdr = 0, aud = 0, eos = 0, eob = 0, info = 1;
     /* The rate-control exposure. The sentinels ARE the widest legal
      * values, so an unnamed flag and a flag named at its widest are the
      * same thing and neither is applied. */

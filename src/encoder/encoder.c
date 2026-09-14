@@ -52,8 +52,10 @@ void n265_param_default(n265_param *p)
 static int g_mode = N265_MODE_INTRA;
 static int g_qp = 26;
 static int g_met_psnr, g_met_ssim;   /* --psnr / --ssim */
-/* --repeat-headers / --aud / --eos / --eob / --info. All off. */
-static int g_repeat_hdr, g_aud, g_eos, g_eob, g_info;
+/* --repeat-headers / --aud / --eos / --eob / --info. The first four are
+ * off; --info is ON since phase 14 item 9, which is x265's default too. */
+static int g_repeat_hdr, g_aud, g_eos, g_eob;
+static int g_info = 1;
 /* The options clause of the identification SEI, as the caller resolved it
  * (the CLI builds it in `info_opts`). Copied into a fixed buffer: the
  * argv it is built from outlives the encoder here, but a library caller's
@@ -222,9 +224,9 @@ void n265_set_metrics(int psnr, int ssim)
 /* --repeat-headers / --aud / --eos / --eob / --info (phase 14 item 4).
  * One setter for the five NAL-level switches: each one either adds a NAL
  * to the stream or repeats one, and none of them touches a coded sample.
- * Every one is OFF by default, --info included - x265 writes its
- * identifying SEI by default and this does not, so that an identity cmp
- * against an older binary keeps meaning what it says. */
+ * The first four are off by default; --info is on since phase 14 item 9,
+ * which is x265's default too, and `--no-info` is what an identity cmp
+ * against a pre-item binary is run with. */
 void n265_set_nal_opts(int repeat_headers, int aud, int eos, int eob,
                        int info);
 void n265_set_nal_opts(int repeat_headers, int aud, int eos, int eob,
@@ -2090,8 +2092,11 @@ n265_encoder *n265_encoder_open(const n265_param *p)
          * STREAM that could refuse one - a colour primary is a claim about
          * the source, not about anything this encoder decides. */
         /* --aud: one byte per access unit, rewritten in place. --info:
-         * the version SEI is a constant, so it is built once here and
-         * packed by pointer wherever the parameter sets go. */
+         * the identification SEI is a constant for the run - the options
+         * clause is resolved before open and nothing in the payload moves
+         * with a picture - so it is built once here and packed by pointer
+         * wherever the parameter sets go. That is also what makes it
+         * thread-invariant: no worker ever sees it. */
         if (e->aud && bs_init(&e->aud_bs, 8) < 0)
             goto fail;
         if (e->info) {
