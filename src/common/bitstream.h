@@ -30,6 +30,12 @@ void bs_rbsp_trailing(bitstream_t *bs);
 /* Wrap a finished RBSP into an Annex-B NAL (start code, header, emulation
  * prevention). Returns bytes written to dst. Caller sizes dst with
  * nal_pack_bound(). */
+/* `tid` is nuh_temporal_id_plus1 - 1, i.e. the TemporalId of the NAL. It
+ * is 0 on everything unless --temporal-layers put a non-reference B leaf
+ * in sub-layer 1; a parameter set, an AUD, an EOS and an EOB are all
+ * TemporalId 0 by 7.4.2.2 whatever the picture around them is. */
+size_t nal_pack_tid(uint8_t *dst, size_t dst_cap, int nal_type, int tid,
+                    const uint8_t *rbsp, size_t rbsp_size);
 size_t nal_pack(uint8_t *dst, size_t dst_cap, int nal_type,
                 const uint8_t *rbsp, size_t rbsp_size);
 size_t nal_pack_bound(size_t rbsp_size);

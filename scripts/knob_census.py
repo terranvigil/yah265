@@ -51,6 +51,30 @@ TUNDEF = re.compile(r'abr_tunable\("N265_[A-Z0-9_]+",\s*(-?[0-9.]+)')
 # v = e ? (atoi(e) ? 1 : 0) : D;  -- in both, D is the value after the LAST
 # colon on the statement, so take the final numeric-after-colon on the line.
 DEFVAL = re.compile(r':\s*(-?[0-9.]+)\s*;')
+
+# THE FOUR FORMS THE COLON IDIOM ABOVE CANNOT READ (2026-09-14). The audit
+# in docs/x265-feature-audit.md read sixty defaults off their call sites by
+# hand because the census printed `?` for them, so the forms are named here
+# and read mechanically instead:
+#   T  ternary on the env VALUE:  v ? (float)atof(v) : 0.7f
+#      -- the f suffix and the missing semicolon both defeat DEFVAL, and the
+#      literal can close on ')' or ',' instead. The true branch must actually
+#      CONSUME the env string (atof/atoi/strtod), which is what separates a
+#      value read from a presence test written as a ternary
+#      (`n265_env("N265_NO_TMVP") ? 0 : 1` is the flag's value, not the
+#      knob's default).
+#   G  guarded assignment:  double aqc = 3.0; ... if (v) aqc = atof(v);
+#      -- the default is the target's own initialisation, above the read or
+#      earlier on the same line. The nearest assignment wins and a
+#      non-literal one stops the walk (that is a symbolic default: an
+#      override's job).
+#   M  a macro literal after the colon:  v = s ? atoi(s) : MAX_MERGE
+#   P  presence: the read is a boolean (`!= NULL`, an if/&&/|| operand), so
+#      unset is OFF and any value arms it -- and its string cousin, where
+#      the value names a file (fopen / `v && *v`), printed as `unset`.
+NUMLIT = r'-?(?:\d+\.?\d*|\.\d+)'
+VALUE_READ = re.compile(r'\bato[fi]\b|\bstrto[dl]\b')
+MACRO_DEF = re.compile(r'^\s*#\s*define\s+([A-Z][A-Z0-9_]*)\s+\(?(-?[0-9]+)\)?\s*(?:/|$)')
 # "was default off" / "old default" are HISTORY, not claims about today
 OFFCLAIM = re.compile(r'(?<!was )(?<!old )[Dd]efault(?:s)?\s+(?:is\s+|stays\s+)?'
                       r'(OFF|off|0(?![.\d])|ON|on)\b')
@@ -112,6 +136,13 @@ DEFAULT_OVERRIDES = {
     "N265_VBV_SAFE": "0.85",             # the clamp's safety fraction
     "N265_VBV_LOOKAHEAD": "1",           # the window's reservation, on
     "N265_VBV_RESERVE": "0.2",           # the floor under that reservation
+    # symbolic defaults: the unset value is ANOTHER knob's, so no literal
+    # exists at the call site to read (2026-09-14).
+    "N265_2P_QCOMP": "= N265_ABR_QCOMP",  # `double qcomp = e->rc.qcomp;`
+    "N265_ABR_FBUP": "= N265_ABR_FBMAX",  # abr_tunable(..., rc->fbmax)
+    # `int k = v ? atoi(v) : (e->bframes >= 2 ? 6 : 4);`, nine lines under
+    # the read: two defaults, and which one ships depends on a flag
+    "N265_MAX_FRAME_WORK": "6 with --bframes >= 2, else 4",
 }
 
 OVERRIDES = {
@@ -186,6 +217,11 @@ OVERRIDES = {
     # it, and being named there is what the heuristic reads as
     # "instrument".
     "N265_RDOQ": "default",
+    # b-adapt 3's degrade threshold, readable since 2026-09-14 (1.6) and so
+    # no longer typed "arm" by a "?" default. It is moot unless --b-adapt 3
+    # armed the priced run-length rule, which is a refused arm, so it is
+    # that arm's parameter - N265_CHROMA_W_PCT's case exactly.
+    "N265_BADAPT_DEG": "arm",
 }
 
 # knobs whose nearest default-claim is correct but beyond the detector:
@@ -202,8 +238,120 @@ CLAIM_OK = {"N265_SUBPEL", "N265_ABR_CGUARD", "N265_GPU_RANGE",
             "N265_PART_IMPORTANT", "N265_PART_SLACK_X4"}
 
 
+def macro_table():
+    """#define NAME <int> across the tree: form M's lookup."""
+    out = {}
+    for d in SRC_DIRS + ["include"]:
+        root = os.path.join(ROOT, d)
+        if not os.path.isdir(root):
+            continue
+        for base, _, files in os.walk(root):
+            for f in files:
+                if not f.endswith((".c", ".h")):
+                    continue
+                for ln in open(os.path.join(base, f), errors="replace"):
+                    m = MACRO_DEF.match(ln)
+                    if m:
+                        out.setdefault(m.group(1), m.group(2))
+    return out
+
+
+def env_var(line, name, pos):
+    """the C variable the env pointer lands in, if the site names one."""
+    m = re.search(r'(\w+)\s*=\s*n265_env\("%s"\)' % re.escape(name),
+                  line[:pos + len(name) + 24])
+    return m.group(1) if m else None
+
+
+def ternary_default(win, name, var, macros):
+    """form T and form M: <cond> ? <reads the env> : <literal>."""
+    conds = []
+    if var:
+        conds.append(r'\b%s\b' % re.escape(var))
+    conds.append(r'n265_env\("%s"\)' % re.escape(name))
+    pat = (r'\s*\?(?P<t>[^;]*?):\s*\(?\s*'
+           r'(?P<d>' + NUMLIT + r'|[A-Z][A-Z0-9_]{2,})[fFuUlL]*\s*(?=[;,)}\]]|$)')
+    for c in conds:
+        for m in re.finditer(c + pat, win):
+            if not VALUE_READ.search(m.group("t")):
+                continue          # a presence test wearing a ternary
+            d = m.group("d")
+            if re.fullmatch(NUMLIT, d):
+                return d
+            if d in macros:
+                return macros[d]
+    return None
+
+
+def guarded_default(lines, i, pos, var):
+    """form G: `<type> t = LIT; ... if (v) t = atof(v);` - the default is the
+    target's nearest initialisation, which may sit earlier on the read's own
+    line. A non-literal initialisation stops the walk: that is a symbolic
+    default and belongs in DEFAULT_OVERRIDES."""
+    if not var:
+        return None
+    win = " ".join(lines[i:i + 3])
+    m = re.search(r'if\s*\(\s*%s\s*\)\s*\{?\s*([A-Za-z_][\w.>-]*)\s*=\s*'
+                  r'ato[fi]\s*\(\s*%s\s*\)' % (re.escape(var), re.escape(var)),
+                  win)
+    if not m:
+        return None
+    tgt = re.escape(m.group(1))
+    texts = [lines[i][:pos]] + [lines[j] for j in range(i - 1, max(-1, i - 16), -1)]
+    for text in texts:
+        for mm in re.finditer(r'\b%s\s*=\s*([^;]+);' % tgt, text):
+            rhs = mm.group(1).strip().rstrip("fFuUlL")
+            return rhs if re.fullmatch(NUMLIT, rhs) else None
+    return None
+
+
+def presence_default(lines, i, name, var):
+    """form P: unset is off. `unset` where the value names a file or a
+    string, `presence` where the read is a plain boolean."""
+    win = " ".join(lines[i:i + 3])
+    if var:
+        v = re.escape(var)
+        if (re.search(r'fopen\s*\(\s*%s\b' % v, win)
+                or re.search(r'\b%s\s*&&\s*\*\s*%s\b' % (v, v), win)
+                or re.search(r'strcmp\s*\(\s*%s\b' % v, win)):
+            return "unset"
+    env = r'n265_env\("%s"\)' % re.escape(name)
+    ln = lines[i]
+    if (re.search(env + r'\s*(?:!=\s*NULL|\|\||&&|\?)', ln)
+            or re.search(r'!\s*' + env, ln)
+            or re.search(r'(?:if|while)\s*\([^;]*' + env, ln)
+            or re.search(r'(?:\|\||&&)\s*' + env, ln)):
+        return "presence"
+    return None
+
+
+def rank(d):
+    return 0 if d == "?" else (1 if d in ("presence", "unset") else 2)
+
+
+def parse_default(lines, i, name, pos, macros):
+    ln = lines[i]
+    tm = TUNDEF.search(ln)
+    if tm:
+        return tm.group(1)
+    var = env_var(ln, name, pos)
+    win = ln[pos:] + " " + " ".join(lines[i + 1:i + 3])
+    d = ternary_default(win, name, var, macros)
+    if d is None:
+        d = guarded_default(lines, i, pos, var)
+    if d is None:
+        d = presence_default(lines, i, name, var)
+    if d is None:                       # the original colon idiom, last
+        dms = DEFVAL.findall(ln)
+        if not dms and i + 1 < len(lines):
+            dms = DEFVAL.findall(lines[i + 1])
+        d = dms[-1] if dms else "?"
+    return d
+
+
 def scan():
     knobs = {}
+    macros = macro_table()
     for d in SRC_DIRS:
         for base, _, files in os.walk(os.path.join(ROOT, d)):
             if ".claude" in base:
@@ -217,13 +365,7 @@ def scan():
                 for i, ln in enumerate(lines):
                     for m in GETENV.finditer(ln):     # two reads on one line are two knobs
                         name = m.group(1)
-                        dms = DEFVAL.findall(ln)
-                        if not dms and i + 1 < len(lines):
-                            dms = DEFVAL.findall(lines[i + 1])
-                        default = dms[-1] if dms else "?"
-                        tm = TUNDEF.search(ln)
-                        if tm:
-                            default = tm.group(1)
+                        default = parse_default(lines, i, name, m.start(), macros)
                         default = DEFAULT_OVERRIDES.get(name, default)
                         # nearest default-claim comment above (stale check). The
                         # scan stops at the previous knob's getenv AND at any
@@ -243,7 +385,9 @@ def scan():
                         e = knobs.setdefault(name, {"sites": [], "default": default,
                                                     "claim": claim})
                         e["sites"].append(f"{rel}:{i+1}")
-                        if e["default"] == "?" and default != "?":
+                        # a site that reads a VALUE outranks one that only
+                        # tests presence, which outranks no read at all
+                        if rank(default) > rank(e["default"]):
                             e["default"] = default
     return knobs
 
@@ -293,7 +437,11 @@ def generate(knobs, instr_doc):
                 "(catalogued in docs/instruments.md when it has produced a "
                 "result); **arm** = default-off gate or kept refuted arm -- "
                 "kept deliberately because a refuted arm retains its "
-                "re-pricing value.\n")
+                "re-pricing value.\n\nIn the default column, **presence** "
+                "means the reader is a boolean: unset is off and any value "
+                "arms it. **unset** means the value names a file or a "
+                "string and unset is off. `= N265_X` means the default is "
+                "another knob's resolved value.\n")
         for tier in ("default", "instrument", "arm"):
             f.write(f"\n## {tier} ({len(tiers[tier])})\n\n")
             f.write("| knob | default | reader |\n|---|---|---|\n")

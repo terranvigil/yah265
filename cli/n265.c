@@ -15,6 +15,29 @@ void n265_encoder_set_dump_decode(n265_encoder *e, FILE *f);
 void n265_encoder_set_dump(n265_encoder *e, FILE *f);
 void n265_encoder_set_shot_stats(n265_encoder *e, const char *path);
 void n265_set_shot_window(int n);
+/* --psnr / --ssim / --csv (phase 14 item 4). The metrics are a read-only
+ * tap at retirement, so a stream coded with them on is byte-for-byte the
+ * one coded without; the pooled numbers come back through
+ * n265_encoder_metrics for the end-of-run line. */
+void n265_set_metrics(int psnr, int ssim);
+/* --repeat-headers / --aud / --eos / --eob / --info: the five NAL-level
+ * switches. Each adds or repeats a NAL and none touches a coded sample;
+ * all five are off by default. */
+void n265_set_nal_opts(int repeat_headers, int aud, int eos, int eob,
+                       int info);
+/* --crf-min / --crf-max / --qpmin / --qpmax / --strict-cbr /
+ * --max-ausize-factor, and the two files. The sentinels are the widest
+ * legal values, so "not given" costs nothing. */
+void n265_set_rc_bounds(double crf_min, double crf_max, int qpmin, int qpmax,
+                        int strict_cbr, double ausize_factor);
+/* --idr-recovery-sei / --pic-struct / --hrd-concat / --temporal-layers.
+ * pic_struct is -1 for the flag absent. */
+void n265_set_sei_opts(int recovery_sei, int pic_struct, int hrd_concat,
+                       int temporal_layers);
+void n265_set_qpfile(const char *path);
+void n265_set_zones(const char *spec);
+void n265_encoder_set_csv(n265_encoder *e, const char *path, int level);
+long n265_encoder_metrics(n265_encoder *e, double out[6]);
 /* Two-pass (phase 12 item 4): 1 writes the stats sidecar, 2 plans from it,
  * 3 does both. The path outlives the encoder - it is argv. */
 void n265_set_pass(int pass, const char *stats);
@@ -114,6 +137,17 @@ void n265_encoder_set_dump_10(n265_encoder *e, FILE *f);
 void n265_encoder_set_shot_stats_10(n265_encoder *e, const char *path);
 void n265_set_shot_window_10(int n);
 void n265_set_pass_10(int pass, const char *stats);
+void n265_set_metrics_10(int psnr, int ssim);
+void n265_set_nal_opts_10(int repeat_headers, int aud, int eos, int eob,
+                          int info);
+void n265_set_rc_bounds_10(double crf_min, double crf_max, int qpmin,
+                           int qpmax, int strict_cbr, double ausize_factor);
+void n265_set_sei_opts_10(int recovery_sei, int pic_struct, int hrd_concat,
+                          int temporal_layers);
+void n265_set_qpfile_10(const char *path);
+void n265_set_zones_10(const char *spec);
+void n265_encoder_set_csv_10(n265_encoder *e, const char *path, int level);
+long n265_encoder_metrics_10(n265_encoder *e, double out[6]);
 
 typedef struct n265_api {
     int depth;                  /* the samples this table's library takes */
@@ -155,6 +189,15 @@ typedef struct n265_api {
     void (*set_dump)(n265_encoder *, FILE *);
     void (*set_dump_decode)(n265_encoder *, FILE *);
     void (*set_shot_stats)(n265_encoder *, const char *);
+    /* --psnr / --ssim / --csv (phase 14 item 4) */
+    void (*set_metrics)(int, int);
+    void (*set_nal_opts)(int, int, int, int, int);
+    void (*set_rc_bounds)(double, double, int, int, int, double);
+    void (*set_sei_opts)(int, int, int, int);
+    void (*set_qpfile)(const char *);
+    void (*set_zones)(const char *);
+    void (*set_csv)(n265_encoder *, const char *, int);
+    long (*metrics)(n265_encoder *, double *);
 } n265_api;
 
 static const n265_api api8 = {
@@ -170,6 +213,9 @@ static const n265_api api8 = {
     n265_encoder_open, n265_encoder_encode, n265_encoder_close,
     n265_version_str, n265_encoder_set_dump, n265_encoder_set_dump_decode,
     n265_encoder_set_shot_stats,
+    n265_set_metrics, n265_set_nal_opts, n265_set_rc_bounds,
+    n265_set_sei_opts, n265_set_qpfile, n265_set_zones,
+    n265_encoder_set_csv, n265_encoder_metrics,
 };
 
 static const n265_api api10 = {
@@ -188,6 +234,9 @@ static const n265_api api10 = {
     n265_encoder_encode_10, n265_encoder_close_10, n265_version_str_10,
     n265_encoder_set_dump_10, n265_encoder_set_dump_decode_10,
     n265_encoder_set_shot_stats_10,
+    n265_set_metrics_10, n265_set_nal_opts_10, n265_set_rc_bounds_10,
+    n265_set_sei_opts_10, n265_set_qpfile_10, n265_set_zones_10,
+    n265_encoder_set_csv_10, n265_encoder_metrics_10,
 };
 
 /* QpBdOffsetY (7-5), and the clip bound of Clip1Y. Runtime now, off the
@@ -215,6 +264,13 @@ typedef struct y4m_t {
     size_t nsamp;           /* samples in one picture, all three planes */
     const void *plane[3];   /* what the library is handed, once */
     long clipped;           /* samples above (1 << depth) - 1 in the file */
+    /* RAW input (--input-res): no container and no per-frame header, so
+     * the geometry a y4m header would have carried comes off the command
+     * line and a frame is exactly `frame_bytes` of planes. Everything
+     * after the open is shared with the y4m path - the same allocation,
+     * the same upshift, the same clamp - which is why this is a flag on
+     * the reader and not a second reader. */
+    int raw;
 } y4m_t;
 
 /* The C tag's depth, or -1 for a chroma sampling or sample width this
@@ -248,6 +304,154 @@ static int y4m_csp_depth(const char *csp, int *fmt)
         return 10;
     *fmt = N265_CSP_I420;
     return -1;
+}
+
+/* --input-csp: x265's spellings for the raw reader, and the bare number
+ * (chroma_format_idc) too, since that is what the value IS. Returns
+ * N265_CSP_*, or -1. i400 (monochrome) is refused by NAME rather than by
+ * falling off the end, because it is a format this encoder will
+ * eventually have and a shrug would read as a typo. */
+static int input_csp_parse(const char *s, int *mono)
+{
+    *mono = 0;
+    if (!strcmp(s, "i420") || !strcmp(s, "420") || !strcmp(s, "1"))
+        return N265_CSP_I420;
+    if (!strcmp(s, "i422") || !strcmp(s, "422") || !strcmp(s, "2"))
+        return N265_CSP_I422;
+    if (!strcmp(s, "i444") || !strcmp(s, "444") || !strcmp(s, "3"))
+        return N265_CSP_I444;
+    if (!strcmp(s, "i400") || !strcmp(s, "400") || !strcmp(s, "0"))
+        *mono = 1;
+    return -1;
+}
+
+/* x265 picks the raw reader off the `.yuv` extension; so does this, as a
+ * convenience on top of --input-res, which is the real switch. "-" is
+ * stdin and has no name to read. */
+static int is_raw_name(const char *path)
+{
+    size_t n = strlen(path);
+    return n >= 4 && (!strcmp(path + n - 4, ".yuv") ||
+                      !strcmp(path + n - 4, ".YUV"));
+}
+
+static int is_y4m_name(const char *path)
+{
+    size_t n = strlen(path);
+    return n >= 4 && (!strcmp(path + n - 4, ".y4m") ||
+                      !strcmp(path + n - 4, ".Y4M"));
+}
+
+/* --fps: "30", "29.97", "30000/1001" or "30000:1001". The rational forms
+ * are kept EXACTLY - 30000/1001 is not 29.97 to a decoder reading
+ * vui_time_scale - and a decimal is turned into one over a power of ten
+ * rather than into the nearest broadcast rate, because guessing that a
+ * user who typed 29.97 meant 30000/1001 is a guess about their content.
+ * Returns 0, or -1. */
+static int fps_parse(const char *s, int *num, int *den)
+{
+    const char *sep = strpbrk(s, "/:");
+    if (sep) {
+        long n = atol(s), d = atol(sep + 1);
+        if (n <= 0 || d <= 0)
+            return -1;
+        *num = (int)n;
+        *den = (int)d;
+        return 0;
+    }
+    const char *dot = strchr(s, '.');
+    if (!dot) {
+        long n = atol(s);
+        if (n <= 0)
+            return -1;
+        *num = (int)n;
+        *den = 1;
+        return 0;
+    }
+    int digits = 0;
+    long n = 0, d = 1;
+    for (const char *p = s; *p; p++) {
+        if (*p == '.')
+            continue;
+        if (*p < '0' || *p > '9')
+            return -1;
+        if (n > 100000000L)
+            return -1;
+        n = n * 10 + (*p - '0');
+        if (p > dot) {
+            d *= 10;
+            digits++;
+        }
+    }
+    if (n <= 0 || digits > 6)
+        return -1;
+    *num = (int)n;
+    *den = (int)d;
+    return 0;
+}
+
+/* The half of the open that does not care where the geometry came from:
+ * w/h/csp/depth/fps are already in *y, and `desc` names the format for
+ * the one refusal that has to print it. `y->out_depth` is read (the
+ * --output-depth request, 0 for "the input's") and then resolved.
+ * Returns 0, -1 on an allocation failure, -2 when it has already printed
+ * the reason itself. */
+static int src_geom(y4m_t *y, const char *desc)
+{
+    /* log2 SubWidthC / SubHeightC. 4:2:2 is the format where the two
+     * differ: half the width, all of the height. */
+    y->csx = y->csp == N265_CSP_I444 ? 0 : 1;
+    y->csy = y->csp == N265_CSP_I420 ? 1 : 0;
+    if ((y->w & 1) || (y->h & 1)) {
+        /* n265_encoder_open's own condition, checked here so the refusal
+         * names the picture instead of reading as an open failure. */
+        fprintf(stderr, "n265: %dx%d: the encoder needs even dimensions\n",
+                y->w, y->h);
+        return -2;
+    }
+    /* The output depth defaults to the input's, which is the whole of the
+     * dispatch: a C420 file gets the 8-bit library and a C420p10 file gets
+     * Main10, and neither is a decision anybody has to type. --output-depth
+     * 10 is the one deliberate override - SDR content coded as a Main10
+     * stream, what x265's flag of the same name does - and it upshifts in
+     * the read loop below.
+     *
+     * The reverse is refused. There is no downshift here: dropping two bits
+     * is a dither-or-truncate choice that changes the picture before the
+     * encoder ever sees it, and a silent one would make a 10-bit source's
+     * 8-bit numbers look like a property of the encoder. Convert on
+     * purpose with ffmpeg if that is what is wanted. */
+    if (y->out_depth == 0)
+        y->out_depth = y->depth;
+    if (y->out_depth < y->depth) {
+        fprintf(stderr, "n265: --output-depth %d on %d-bit input (%s): "
+                "there is no downshift path.\n", y->out_depth, y->depth, desc);
+        fprintf(stderr, "n265: dropping samples is a dither-or-truncate "
+                "choice about the PICTURE, not about the encoder, so it is "
+                "made outside - ffmpeg -i in.y4m -pix_fmt yuv420p out.y4m.\n");
+        return -2;
+    }
+    size_t luma = (size_t)y->w * (size_t)y->h;
+    size_t chroma = (size_t)(y->w >> y->csx) * (size_t)(y->h >> y->csy);
+    size_t nsamp = luma + 2 * chroma;
+    y->frame_bytes = nsamp * (y->depth > 8 ? 2 : 1);
+    y->frame = malloc(y->frame_bytes);
+    if (!y->frame)
+        return -1;
+    if (y->out_depth == 8) {
+        y->plane[0] = y->frame;
+        y->plane[1] = y->frame + luma;
+        y->plane[2] = y->frame + luma + chroma;
+    } else {
+        y->pix16 = malloc(nsamp * sizeof(*y->pix16));
+        if (!y->pix16)
+            return -1;
+        y->plane[0] = y->pix16;
+        y->plane[1] = y->pix16 + luma;
+        y->plane[2] = y->pix16 + luma + chroma;
+    }
+    y->nsamp = nsamp;
+    return 0;
 }
 
 /* `y->out_depth` is read (the --output-depth request, 0 for "the
@@ -285,59 +489,72 @@ static int y4m_open(y4m_t *y, FILE *f)
                 "(4:2:0, 4:2:2 or 4:4:4, at 8 or 10 bits)\n", csp);
         return -2;
     }
-    /* log2 SubWidthC / SubHeightC. 4:2:2 is the format where the two
-     * differ: half the width, all of the height. */
-    y->csx = y->csp == N265_CSP_I444 ? 0 : 1;
-    y->csy = y->csp == N265_CSP_I420 ? 1 : 0;
-    if ((y->w & 1) || (y->h & 1)) {
-        /* n265_encoder_open's own condition, checked here so the refusal
-         * names the picture instead of reading as an open failure. */
-        fprintf(stderr, "n265: %dx%d: the encoder needs even dimensions\n",
-                y->w, y->h);
-        return -2;
+    char desc[72];
+    snprintf(desc, sizeof(desc), "C%s", csp);
+    return src_geom(y, desc);
+}
+
+/* RAW planar input: the geometry is the caller's, checked by the caller,
+ * and there is nothing in the file to read before the first sample. */
+static int raw_open(y4m_t *y, FILE *f, int w, int h, int csp, int depth,
+                    int fps_num, int fps_den)
+{
+    int want_depth = y->out_depth;
+    memset(y, 0, sizeof(*y));
+    y->out_depth = want_depth;
+    y->f = f;
+    y->raw = 1;
+    y->w = w;
+    y->h = h;
+    y->csp = csp;
+    y->depth = depth;
+    y->fps_num = fps_num;
+    y->fps_den = fps_den;
+    const char *fmt = csp == N265_CSP_I444 ? "i444"
+                    : csp == N265_CSP_I422 ? "i422" : "i420";
+    char desc[72];
+    snprintf(desc, sizeof(desc), "raw %s at %d bits", fmt, depth);
+    return src_geom(y, desc);
+}
+
+/* --seek: drop the first `n` frames of the source without converting
+ * them. A regular file is stepped over with fseek and a pipe is read and
+ * thrown away, which is the only thing a pipe allows; either way the
+ * picture the encoder sees first is frame `n` of the source and its pts
+ * starts at 0, so the coded stream is the one you would get by trimming
+ * the input with ffmpeg. Returns 0, or -1 if the source ran out first
+ * (the caller says so). */
+static int src_skip(y4m_t *y, long n)
+{
+    char line[256];
+    for (long i = 0; i < n; i++) {
+        if (!y->raw) {
+            if (!fgets(line, sizeof(line), y->f))
+                return -1;
+            if (strncmp(line, "FRAME", 5) != 0)
+                return -1;
+        }
+        if (fseek(y->f, (long)y->frame_bytes, SEEK_CUR) != 0) {
+            /* not seekable (a pipe, or a file bigger than long): read it */
+            size_t left = y->frame_bytes;
+            while (left) {
+                size_t want = left < y->frame_bytes ? left : y->frame_bytes;
+                size_t got = fread(y->frame, 1, want, y->f);
+                if (got == 0)
+                    return -1;
+                left -= got;
+            }
+        }
     }
-    /* The output depth defaults to the input's, which is the whole of the
-     * dispatch: a C420 file gets the 8-bit library and a C420p10 file gets
-     * Main10, and neither is a decision anybody has to type. --output-depth
-     * 10 is the one deliberate override - SDR content coded as a Main10
-     * stream, what x265's flag of the same name does - and it upshifts in
-     * the read loop below.
-     *
-     * The reverse is refused. There is no downshift here: dropping two bits
-     * is a dither-or-truncate choice that changes the picture before the
-     * encoder ever sees it, and a silent one would make a 10-bit source's
-     * 8-bit numbers look like a property of the encoder. Convert on
-     * purpose with ffmpeg if that is what is wanted. */
-    if (y->out_depth == 0)
-        y->out_depth = y->depth;
-    if (y->out_depth < y->depth) {
-        fprintf(stderr, "n265: --output-depth %d on %d-bit input (C%s): "
-                "there is no downshift path.\n", y->out_depth, y->depth, csp);
-        fprintf(stderr, "n265: dropping samples is a dither-or-truncate "
-                "choice about the PICTURE, not about the encoder, so it is "
-                "made outside - ffmpeg -i in.y4m -pix_fmt yuv420p out.y4m.\n");
-        return -2;
-    }
-    size_t luma = (size_t)y->w * (size_t)y->h;
-    size_t chroma = (size_t)(y->w >> y->csx) * (size_t)(y->h >> y->csy);
-    size_t nsamp = luma + 2 * chroma;
-    y->frame_bytes = nsamp * (y->depth > 8 ? 2 : 1);
-    y->frame = malloc(y->frame_bytes);
-    if (!y->frame)
-        return -1;
-    if (y->out_depth == 8) {
-        y->plane[0] = y->frame;
-        y->plane[1] = y->frame + luma;
-        y->plane[2] = y->frame + luma + chroma;
-    } else {
-        y->pix16 = malloc(nsamp * sizeof(*y->pix16));
-        if (!y->pix16)
+    /* fseek past the end of a regular file SUCCEEDS, so the loop above
+     * cannot tell "skipped n frames" from "skipped off the end". One
+     * character answers it, and putting it back costs nothing. */
+    if (n > 0) {
+        int c = fgetc(y->f);
+        if (c == EOF)
             return -1;
-        y->plane[0] = y->pix16;
-        y->plane[1] = y->pix16 + luma;
-        y->plane[2] = y->pix16 + luma + chroma;
+        ungetc(c, y->f);
     }
-    y->nsamp = nsamp;
     return 0;
 }
 
@@ -345,12 +562,15 @@ static int y4m_open(y4m_t *y, FILE *f)
 static int y4m_read(y4m_t *y)
 {
     char line[256];
-    if (!fgets(line, sizeof(line), y->f))
-        return 0;
-    if (strncmp(line, "FRAME", 5) != 0)
-        return -1;
-    if (fread(y->frame, 1, y->frame_bytes, y->f) != y->frame_bytes)
-        return -1;
+    if (!y->raw) {
+        if (!fgets(line, sizeof(line), y->f))
+            return 0;
+        if (strncmp(line, "FRAME", 5) != 0)
+            return -1;
+    }
+    size_t got = fread(y->frame, 1, y->frame_bytes, y->f);
+    if (got != y->frame_bytes)
+        return got == 0 && y->raw ? 0 : -1;
     if (y->out_depth == 8)
         return 1;               /* 8 in, 8 out: the file IS the picture */
     size_t nsamp = y->nsamp;
@@ -392,7 +612,7 @@ static int y4m_read(y4m_t *y)
 static void usage(void)
 {
     fprintf(stderr,
-        "usage: n265 [options] <input.y4m|->\n"
+        "usage: n265 [options] <input.y4m|input.yuv|->\n"
         "  One binary, every profile: the encoder is chosen from the input.\n"
         "  A C420 y4m is coded Main (8-bit), a C420p10 one Main10, a C444\n"
         "  one Main 4:4:4, a C444p10 one Main 4:4:4 10, and a C422 or\n"
@@ -407,6 +627,28 @@ static void usage(void)
         "                  by a pure left shift of two as it is read - one\n"
         "                  pass per frame, no added latency. 8 on 10-bit\n"
         "                  input is refused: there is no downshift here.\n"
+        "  --seek <n>      drop the first n frames of the input. The\n"
+        "                  picture the encoder sees first is frame n of\n"
+        "                  the source and its pts starts at 0, so the\n"
+        "                  stream is the one you get by trimming the\n"
+        "                  input first. Both readers; a pipe is read\n"
+        "                  through, a file is seeked over.\n"
+        "\n"
+        "  RAW planar input, for a source with no y4m header. The reader is\n"
+        "  selected by --input-res (or by a .yuv name), and then the\n"
+        "  geometry a header would have carried has to be given in full -\n"
+        "  size, chroma format and frame rate - because a raw file says\n"
+        "  nothing about itself and a guess codes garbage without a word.\n"
+        "  --input-res <WxH>  picture size, e.g. 352x288\n"
+        "  --input-csp <c>  i420, i422 or i444 (or the chroma_format_idc\n"
+        "                  itself: 1, 2, 3). i400 is refused by name.\n"
+        "  --fps <N[/D]>   frame rate: 30, 30000/1001 or 29.97. A ratio is\n"
+        "                  kept exactly; a decimal becomes N/10^k and is\n"
+        "                  NOT rounded to the nearest broadcast rate.\n"
+        "  --input-depth <8|10>  sample width of the raw file (default 8).\n"
+        "                  10-bit is 16-bit little-endian samples, as\n"
+        "                  ffmpeg's yuv420p10le writes them.\n"
+        "\n"
         "  --preset <name>  speed/quality point, in x265's names.\n"
         "                  Rungs, fastest first: fast, medium (default),\n"
         "                  slow, slower. x265's other six names are\n"
@@ -502,6 +744,131 @@ static void usage(void)
         "                  to 717 MB of peak RSS. Max 300. What it buys and\n"
         "                  what it costs the per-shot quality spread:\n"
         "                  docs/phase7-shot-design.md.\n"
+        "  Cheap SEIs and sub-layers. Signalling, except the last, which puts a\n"
+        "  temporal id in a VCL NAL header. All off by default.\n"
+        "  --idr-recovery-sei  a recovery point SEI (D.2.8) at every IRAP:\n"
+        "                  recovery_poc_cnt 0, exact_match 1. It is what a\n"
+        "                  random-access player looks for.\n"
+        "  --pic-struct <n>  Table D.2's pic_struct in the pic_timing SEI\n"
+        "                  (0 frame, 7 frame doubling, 8 frame tripling),\n"
+        "                  and with it frame_field_info_present_flag in the\n"
+        "                  VUI. It carries pulldown and field repetition.\n"
+        "                  Needs a buffer: pic_timing is written only where\n"
+        "                  the HRD is.\n"
+        "  --hrd-concat    the concatenation flag in the first key frame's\n"
+        "                  buffering period SEI: this access unit was\n"
+        "                  spliced onto another stream, so C.2.3 reads the\n"
+        "                  removal delay delta rather than a clock the\n"
+        "                  splice broke. Needs a buffer.\n"
+        "  --temporal-layers  put the NON-REFERENCE B leaves in temporal\n"
+        "                  sub-layer 1: nuh_temporal_id_plus1 2 on their\n"
+        "                  slice NALs, sps/vps_max_sub_layers_minus1 1, and\n"
+        "                  the profile_tier_level and hrd_parameters tails\n"
+        "                  that go with them. A player can then drop the\n"
+        "                  sub-layer and halve the frame rate without\n"
+        "                  parsing a slice. The leaves are the only\n"
+        "                  pictures that CAN go there - 7.4.2.2 forbids a\n"
+        "                  lower layer from referencing a higher one, and\n"
+        "                  a leaf is referenced by nothing.\n"
+        "  --scaling-list <s>  NOT IMPLEMENTED and refused by name; the\n"
+        "                  message says why (it is a quantiser item, not a\n"
+        "                  signalling one).\n"
+        "\n"
+        "  Rate control, exposed. Every one of these is inert unless you name\n"
+        "  it, and each is refused rather than ignored where the mode it\n"
+        "  needs is absent.\n"
+        "  --crf-min <f>   floor the rate factor --crf may be coded at.\n"
+        "  --crf-max <f>   ...and cap it. Both bound the rate factor AFTER\n"
+        "                  the buffer's own clamp, which is what makes them\n"
+        "                  bounds: under --vbv-maxrate a --crf-max low\n"
+        "                  enough to fight the buffer is a way to ask for\n"
+        "                  an underflow, and this encoder reports that\n"
+        "                  rather than quietly coding past the bound.\n"
+        "                  --crf only; under --bitrate use --qpmin/--qpmax.\n"
+        "  --qpmin <n>     hard bounds on the frame QP the rate control may\n"
+        "  --qpmax <n>     choose, in QpY: 0..51 at 8 bits, -12..51 at\n"
+        "                  Main10. They bound\n"
+        "                  the LOOP's own answer too, so the integral winds\n"
+        "                  against a rate factor it can reach instead of\n"
+        "                  against a clamp applied behind its back.\n"
+        "  --strict-cbr    hold a CONSTANT rate under --bitrate with a VBV:\n"
+        "                  cbr_flag is signalled in the HRD and an access\n"
+        "                  unit that came in under its share is padded with\n"
+        "                  filler data (NAL 38) rather than by making the\n"
+        "                  picture worse. The padding is reported at the end\n"
+        "                  of the run; a run that needed none held the rate\n"
+        "                  on its own.\n"
+        "  --max-ausize-factor <f>  bound ONE access unit at f of the CPB,\n"
+        "                  0.5..1.0 (default 1.0, no bound). An oversized\n"
+        "                  AU is a hard failure in a hardware decoder\n"
+        "                  whatever the buffer says about its neighbours.\n"
+        "                  Needs --vbv-maxrate and --vbv-bufsize.\n"
+        "  --qpfile <file>  force frame types and QPs from a file, x264's\n"
+        "                  format: \"<display frame> <type> [<qp>]\" per\n"
+        "                  line, # for a comment. The types are I or K (a\n"
+        "                  key frame), i (a non-IDR intra picture) and - .\n"
+        "                  P, B and b are REFUSED by name: what they ask\n"
+        "                  for is a mini-GOP shape, and the run length\n"
+        "                  belongs to the plan builder, not to a file.\n"
+        "                  A forced QP is the FRAME's QP, not a base the\n"
+        "                  pyramid cascade then moves.\n"
+        "  --zones <spec>  x265's syntax: zones separated by /, each\n"
+        "                  \"start,end,q=N\" or \"start,end,b=F\", in DISPLAY\n"
+        "                  order. q=N pins the frame QP over the range;\n"
+        "                  b=F is a bit multiplier and lands as the QP\n"
+        "                  offset that buys the same bits, -6 log2 F -\n"
+        "                  it moves the quantiser, not the plan, so the\n"
+        "                  rest of the file does not give the bits back.\n"
+        "                  Overlapping zones are refused.\n"
+        "\n"
+        "  Bitstream-level NALs. None of them changes a coded sample and all\n"
+        "  of them are OFF by default; every one adds or repeats a NAL.\n"
+        "  --repeat-headers  VPS/SPS/PPS lead EVERY IRAP access unit, not\n"
+        "                  just the first, so a receiver joining mid-stream\n"
+        "                  (broadcast, RTP, an HLS segment) has them.\n"
+        "  --aud           access unit delimiter NAL (type 35) at the head\n"
+        "                  of every access unit; some transport muxers want\n"
+        "                  the boundary spelled out rather than inferred.\n"
+        "  --eos           end of sequence NAL (36) at the end of every\n"
+        "                  coded video sequence: before each IDR after the\n"
+        "                  first, and at the end of the stream.\n"
+        "  --eob           end of bitstream NAL (37), the last NAL there is.\n"
+        "  --info          a user data unregistered SEI (D.2.6) naming this\n"
+        "                  encoder and its version, wherever the parameter\n"
+        "                  sets go. x265 writes its own by DEFAULT and this\n"
+        "                  does not: turning it on would change every\n"
+        "                  bitstream by one SEI, and an identity cmp\n"
+        "                  against an older binary would then diff on every\n"
+        "                  cell for a reason unrelated to the change being\n"
+        "                  gated. --no-info is the escape either way.\n"
+        "  --psnr          report PSNR at the end of the run, pooled over\n"
+        "                  every coded frame: per plane and a\n"
+        "                  pixel-weighted average. Measured on the\n"
+        "                  encoder's OWN reconstruction against the\n"
+        "                  picture it coded - no decode - which is the\n"
+        "                  same samples a decoder puts on the screen,\n"
+        "                  because the conformance gate holds the two\n"
+        "                  bit-exact. The squared error is pooled over\n"
+        "                  frames and the logarithm taken once, which is\n"
+        "                  ffmpeg's pooling, so the number matches\n"
+        "                  `ffmpeg -lavfi psnr` to a hundredth of a dB.\n"
+        "                  Output-neutral: the bitstream is byte-identical\n"
+        "                  with it on.\n"
+        "  --ssim          the same for SSIM on the luma plane: 8x8\n"
+        "                  windows at stride 4, averaged over windows and\n"
+        "                  then over frames, which is ffmpeg's ssim\n"
+        "                  filter's arithmetic. Also reported in dB.\n"
+        "  --csv <file>    per-run or per-frame statistics as CSV.\n"
+        "  --csv-log-level <0|1|2>  0 (the default) writes one summary row\n"
+        "                  for the run; 1 adds a row per coded frame in\n"
+        "                  CODING order (POC, order, type, depth, QP,\n"
+        "                  bits, and the metrics above where they were\n"
+        "                  asked for); 2 adds the rate control's columns\n"
+        "                  (planned bits, VBV fill, VBV dQP, flat). The\n"
+        "                  bits column counts the whole access unit,\n"
+        "                  parameter sets and SEIs included. No elapsed\n"
+        "                  time or fps column, unlike x265's: a clock in\n"
+        "                  a log makes two runs of one encode differ.\n"
         "  --shot-stats <file>  per-shot JSON Lines sidecar, one object per\n"
         "                  shot in display order (N265_SHOT_STATS=file does\n"
         "                  the same). Output-neutral: the bitstream is\n"
@@ -701,6 +1068,32 @@ int main(int argc, char **argv)
     int hdr10 = -1, cll_on = 1, atc = -1;
     int had_crf = 0;            /* --crf given: the ON switch, not crf >= 0 */
     int out_depth = 0;          /* --output-depth; 0 = the input's */
+    /* RAW input (--input-res / --input-csp / --fps / --input-depth) and
+     * --seek. Every one of them is 0 / -1 for "not given": a y4m carries
+     * its own geometry and none of this is read on that path. */
+    int in_w = 0, in_h = 0, in_csp = -1, in_depth = 0;
+    int in_fps_num = 0, in_fps_den = 0;
+    long seek = 0;
+    /* --psnr / --ssim / --csv / --csv-log-level. Off is the default and
+     * off is byte-for-byte the encoder without them. */
+    /* --repeat-headers / --aud / --eos / --eob / --info. All off, --info
+     * included: x265 writes its identifying SEI by default and this does
+     * not, so that an identity cmp against an older binary keeps meaning
+     * what it says (docs/x265-feature-audit.md's row). */
+    int repeat_hdr = 0, aud = 0, eos = 0, eob = 0, info = 0;
+    /* The rate-control exposure. The sentinels ARE the widest legal
+     * values, so an unnamed flag and a flag named at its widest are the
+     * same thing and neither is applied. */
+    /* --idr-recovery-sei / --pic-struct / --hrd-concat /
+     * --temporal-layers. All absent by default; pic_struct is -1 for
+     * "the flag was not given". */
+    int recovery_sei = 0, pic_struct = -1, hrd_concat = 0, tlayers = 0;
+    double crf_lo = -1e9, crf_hi = 1e9;
+    int qpmin = 0, qpmax = 51, strict_cbr = 0, had_qpmin = 0, had_qpmax = 0;
+    double ausize_factor = 1.0;
+    const char *qpfile_path = NULL, *zones_spec = NULL;
+    int want_psnr = 0, want_ssim = 0, csv_level = -1;
+    const char *csv_path = NULL;
     int nref = 1, badapt = 1;
     int lookahead = 20, cutree = 1;   /* 20 since 2026-09-12 (x265 medium's
                                      * own depth): the last window that
@@ -735,6 +1128,123 @@ int main(int argc, char **argv)
             crf = atof(argv[++i]); had_crf = 1;
         } else if (!strcmp(argv[i], "--output-depth") && i + 1 < argc) {
             out_depth = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--input-res") && i + 1 < argc) {
+            const char *v = argv[++i];
+            if (sscanf(v, "%dx%d", &in_w, &in_h) != 2 || in_w <= 0 ||
+                in_h <= 0) {
+                fprintf(stderr, "n265: --input-res is WxH, e.g. 352x288\n");
+                return 2;
+            }
+        } else if (!strcmp(argv[i], "--input-csp") && i + 1 < argc) {
+            int mono = 0;
+            in_csp = input_csp_parse(argv[++i], &mono);
+            if (in_csp < 0) {
+                fprintf(stderr, mono
+                        ? "n265: --input-csp i400 (monochrome) is not a "
+                          "format this encoder codes yet; it is refused "
+                          "rather than read as 4:2:0\n"
+                        : "n265: --input-csp is i420, i422 or i444 (or the "
+                          "chroma_format_idc itself: 1, 2, 3)\n");
+                return 2;
+            }
+        } else if (!strcmp(argv[i], "--input-depth") && i + 1 < argc) {
+            in_depth = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--fps") && i + 1 < argc) {
+            if (fps_parse(argv[++i], &in_fps_num, &in_fps_den) < 0) {
+                fprintf(stderr, "n265: --fps is N, N/D or a decimal "
+                        "(30, 30000/1001, 29.97)\n");
+                return 2;
+            }
+        } else if (!strcmp(argv[i], "--idr-recovery-sei")) {
+            recovery_sei = 1;
+        } else if (!strcmp(argv[i], "--no-idr-recovery-sei")) {
+            recovery_sei = 0;
+        } else if (!strcmp(argv[i], "--pic-struct") && i + 1 < argc) {
+            pic_struct = atoi(argv[++i]);
+            if (pic_struct < 0 || pic_struct > 12) {
+                fprintf(stderr, "n265: --pic-struct is Table D.2's value "
+                        "0..12 (0 frame, 7 frame doubling, 8 frame "
+                        "tripling)\n");
+                return 2;
+            }
+        } else if (!strcmp(argv[i], "--hrd-concat")) {
+            hrd_concat = 1;
+        } else if (!strcmp(argv[i], "--temporal-layers")) {
+            tlayers = 1;
+        } else if (!strcmp(argv[i], "--no-temporal-layers")) {
+            tlayers = 0;
+        } else if (!strcmp(argv[i], "--scaling-list") && i + 1 < argc) {
+            /* Parsed and REFUSED, by name, with the reason. The SPS flag
+             * is two bits; what follows it is not. With
+             * scaling_list_enabled_flag set, a decoder dequantises with
+             * the default matrices of Tables 7-5 and 7-6, so this
+             * encoder's quantiser has to apply them too or every
+             * reconstruction stops matching every decoder - and that
+             * reaches the forward quantiser, the inverse, RDOQ's per
+             * coefficient rate-distortion and the NEON kernels of both.
+             * It is a quantiser item with a checkasm leg, not a cheap
+             * signalling one, and shipping the flag alone would fail the
+             * recon-match gate on its first vector. */
+            fprintf(stderr, "n265: --scaling-list is not implemented, and "
+                    "not because the SPS flag is hard: with "
+                    "scaling_list_enabled_flag set a decoder dequantises "
+                    "with the spec's default matrices, so the encoder's "
+                    "own quantiser has to apply them or the "
+                    "reconstruction stops matching every decoder. That "
+                    "reaches the forward quantiser, the inverse, RDOQ and "
+                    "the NEON kernels of both - a quantiser item with a "
+                    "checkasm leg. See docs/x265-feature-audit.md.\n");
+            return 2;
+        } else if (!strcmp(argv[i], "--crf-min") && i + 1 < argc) {
+            crf_lo = atof(argv[++i]);
+        } else if (!strcmp(argv[i], "--crf-max") && i + 1 < argc) {
+            crf_hi = atof(argv[++i]);
+        } else if (!strcmp(argv[i], "--qpmin") && i + 1 < argc) {
+            qpmin = atoi(argv[++i]); had_qpmin = 1;
+        } else if (!strcmp(argv[i], "--qpmax") && i + 1 < argc) {
+            qpmax = atoi(argv[++i]); had_qpmax = 1;
+        } else if (!strcmp(argv[i], "--strict-cbr")) {
+            strict_cbr = 1;
+        } else if (!strcmp(argv[i], "--max-ausize-factor") && i + 1 < argc) {
+            ausize_factor = atof(argv[++i]);
+        } else if (!strcmp(argv[i], "--qpfile") && i + 1 < argc) {
+            qpfile_path = argv[++i];
+        } else if (!strcmp(argv[i], "--zones") && i + 1 < argc) {
+            zones_spec = argv[++i];
+        } else if (!strcmp(argv[i], "--repeat-headers")) {
+            repeat_hdr = 1;
+        } else if (!strcmp(argv[i], "--no-repeat-headers")) {
+            repeat_hdr = 0;
+        } else if (!strcmp(argv[i], "--aud")) {
+            aud = 1;
+        } else if (!strcmp(argv[i], "--no-aud")) {
+            aud = 0;
+        } else if (!strcmp(argv[i], "--eos")) {
+            eos = 1;
+        } else if (!strcmp(argv[i], "--no-eos")) {
+            eos = 0;
+        } else if (!strcmp(argv[i], "--eob")) {
+            eob = 1;
+        } else if (!strcmp(argv[i], "--no-eob")) {
+            eob = 0;
+        } else if (!strcmp(argv[i], "--info")) {
+            info = 1;
+        } else if (!strcmp(argv[i], "--no-info")) {
+            info = 0;
+        } else if (!strcmp(argv[i], "--psnr")) {
+            want_psnr = 1;
+        } else if (!strcmp(argv[i], "--ssim")) {
+            want_ssim = 1;
+        } else if (!strcmp(argv[i], "--csv") && i + 1 < argc) {
+            csv_path = argv[++i];
+        } else if (!strcmp(argv[i], "--csv-log-level") && i + 1 < argc) {
+            csv_level = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--seek") && i + 1 < argc) {
+            seek = atol(argv[++i]);
+            if (seek < 0) {
+                fprintf(stderr, "n265: --seek takes a frame count\n");
+                return 2;
+            }
         } else if (!strcmp(argv[i], "--bitrate") && i + 1 < argc) {
             bitrate = atof(argv[++i]);
         } else if (!strcmp(argv[i], "--ref") && i + 1 < argc) {
@@ -903,12 +1413,77 @@ int main(int argc, char **argv)
         fprintf(stderr, "n265: cannot open %s: %s\n", in_path, strerror(errno));
         return 1;
     }
+    /* RAW or y4m, and the decision is made from the FLAGS and the name,
+     * never by sniffing: a raw file has no magic to sniff for, and a
+     * reader that guessed would code garbage silently on the one input
+     * that cannot say what it is. `--input-res` is the switch - x265
+     * takes the same decision off the `.yuv` extension, and that is
+     * honoured too so a plain `n265 clip.yuv --input-res ...` and the
+     * bare extension agree. */
+    if (is_y4m_name(in_path) &&
+        (in_w > 0 || in_csp >= 0 || in_depth || in_fps_num > 0)) {
+        fprintf(stderr, "n265: --input-res / --input-csp / --input-depth / "
+                "--fps describe RAW input; %s carries its own geometry\n",
+                in_path);
+        return 2;
+    }
+    int want_raw = in_w > 0 || is_raw_name(in_path);
     y4m_t y;
     y.out_depth = out_depth;
-    int yr = y4m_open(&y, fin);
+    int yr;
+    if (want_raw) {
+        /* A raw file says NOTHING about itself, so every property the y4m
+         * header would have carried has to be on the command line. Two of
+         * the three have no defensible default - a wrong size reads the
+         * planes at the wrong offsets and a wrong frame rate mis-states
+         * the level's MaxLumaSr leg - and the third, the chroma format,
+         * changes the size of a frame. Missing means refused, one message
+         * naming all of what is missing. */
+        const char *miss[4];
+        int nmiss = 0;
+        if (in_w <= 0)        miss[nmiss++] = "--input-res WxH";
+        if (in_csp < 0)       miss[nmiss++] = "--input-csp i420|i422|i444";
+        if (in_fps_num <= 0)  miss[nmiss++] = "--fps N[/D]";
+        if (nmiss) {
+            fprintf(stderr, "n265: raw input carries no header, so its "
+                    "geometry has to be given:");
+            for (int k = 0; k < nmiss; k++)
+                fprintf(stderr, " %s%s", miss[k], k + 1 < nmiss ? "," : "");
+            fprintf(stderr, "\n");
+            return 2;
+        }
+        if (in_depth == 0)
+            in_depth = 8;
+        if (in_depth != 8 && in_depth != 10) {
+            fprintf(stderr, "n265: --input-depth must be 8 or 10\n");
+            return 2;
+        }
+        yr = raw_open(&y, fin, in_w, in_h, in_csp, in_depth,
+                      in_fps_num, in_fps_den);
+    } else {
+        /* On a y4m the same four flags describe a file that describes
+         * itself, so they are refused rather than silently ignored: a
+         * --input-res that disagrees with the header is a mistake worth
+         * a message. */
+        if (in_w > 0 || in_csp >= 0 || in_depth || in_fps_num > 0) {
+            fprintf(stderr, "n265: --input-res / --input-csp / "
+                    "--input-depth / --fps describe RAW input; a y4m "
+                    "carries its own geometry\n");
+            return 2;
+        }
+        yr = y4m_open(&y, fin);
+    }
     if (yr < 0) {
         if (yr == -1)
-            fprintf(stderr, "n265: bad y4m input\n");
+            fprintf(stderr, want_raw ? "n265: cannot size the raw input\n"
+                                     : "n265: bad y4m input\n");
+        return 1;
+    }
+    /* --seek, after the open (the y4m header has to be read either way)
+     * and before anything is encoded. */
+    if (seek > 0 && src_skip(&y, seek) < 0) {
+        fprintf(stderr, "n265: --seek %ld runs past the end of %s\n",
+                seek, in_path);
         return 1;
     }
 
@@ -1095,6 +1670,45 @@ int main(int argc, char **argv)
                 "3 (checksum)\n");
         return 2;
     }
+    /* --csv-log-level without --csv is a flag that does nothing, and
+     * --csv without a level gets x265's own default of 0 (one summary
+     * row). The pair is refused the way --pass / --stats is. */
+    if (csv_level >= 0 && !csv_path) {
+        fprintf(stderr, "n265: --csv-log-level needs --csv <file>\n");
+        return 2;
+    }
+    if (csv_level < 0)
+        csv_level = 0;
+    if (csv_level > 2) {
+        fprintf(stderr, "n265: --csv-log-level is 0 (one summary row for "
+                "the run), 1 (a row per frame) or 2 (that, plus the rate "
+                "control's columns)\n");
+        return 2;
+    }
+    a->set_metrics(want_psnr, want_ssim);
+    a->set_nal_opts(repeat_hdr, aud, eos, eob, info);
+    /* The QP bounds are QpY values, so they carry the depth's floor the
+     * way --qp and --crf do. The rest of the refusals need the STREAM -
+     * whether there is a rate control to bound, whether there is a buffer
+     * to bound an access unit against - and are made at encoder open. */
+    /* Unnamed, the pair IS the depth's own QpY range, which is what
+     * makes it inert: the library applies the bounds only where one of
+     * them was narrowed. The floor is -QpBdOffsetY and not 0, so a
+     * Main10 encode's twelve extra steps stay reachable. */
+    if (!had_qpmin) qpmin = -qp_bd_off;
+    if (!had_qpmax) qpmax = 51;
+    if (qpmin < -qp_bd_off || qpmin > 51 || qpmax < -qp_bd_off ||
+        qpmax > 51) {
+        fprintf(stderr, "n265: --qpmin and --qpmax are QpY values, %d..51 "
+                "at %d bits (QpBdOffsetY, 7.4.3.3)\n", -qp_bd_off,
+                a->depth);
+        return 2;
+    }
+    a->set_sei_opts(recovery_sei, pic_struct, hrd_concat, tlayers);
+    a->set_rc_bounds(crf_lo, crf_hi, qpmin, qpmax, strict_cbr,
+                     ausize_factor);
+    a->set_qpfile(qpfile_path);
+    a->set_zones(zones_spec);
     a->set_hash(hash);
     /* --open-gop / --radl (phase 14 item 3). A RADL count past the
      * mini-GOP cannot be honoured - there are only ever `--bframes`
@@ -1162,6 +1776,8 @@ int main(int argc, char **argv)
 
     if (shot_path)
         a->set_shot_stats(enc, shot_path);
+    if (csv_path)
+        a->set_csv(enc, csv_path, csv_level);
     FILE *fdump = NULL;
     if (dump_path) {
         fdump = fopen(dump_path, "wb");
@@ -1217,6 +1833,22 @@ int main(int argc, char **argv)
             break;
         for (int i = 0; i < nnal; i++)
             fwrite(nal[i].payload, 1, (size_t)nal[i].size, fout);
+    }
+    /* --psnr / --ssim: the pooled numbers, before the encoder is closed
+     * and while it still holds them. The pooling is ffmpeg's - the mean
+     * squared error is summed over frames and the logarithm taken once -
+     * so these are the numbers `ffmpeg -i out.hevc -i source -lavfi psnr`
+     * prints, to a hundredth of a dB. */
+    if (want_psnr || want_ssim) {
+        double met[6];
+        long nmet = a->metrics(enc, met);
+        if (nmet > 0 && want_psnr)
+            fprintf(stderr, "n265: PSNR over %ld frames: y %.4f u %.4f "
+                    "v %.4f avg %.4f dB\n", nmet, met[0], met[1], met[2],
+                    met[3]);
+        if (nmet > 0 && want_ssim)
+            fprintf(stderr, "n265: SSIM-Y over %ld frames: %.6f (%.4f dB)\n",
+                    nmet, met[4], met[5]);
     }
     a->encoder_close(enc);
     if (fdump)

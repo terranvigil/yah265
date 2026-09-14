@@ -1121,8 +1121,61 @@ run_vector opengop_t12   352x288 26 testsrc2 "--keyint 24 --bframes 7 --ref 2 --
 # have decodes to garbage at the seek and to the right samples from the
 # start, which is exactly the bug only this leg can see.
 run_vector opengop_radl  352x288 26 testsrc2 "--keyint 8 --bframes 7 --ref 2 --crf 26 --aq 1 --cutree 1 --open-gop --radl 2 --threads 4"
+# open GOP and item 4's tooling together, which is the combination that
+# makes an ELEMENTARY stream seekable: --repeat-headers now puts the
+# parameter sets in front of every CRA and not only every IDR, so the
+# seek leg stops having to prepend them. --aud moves the access unit
+# boundary a NAL earlier and --temporal-layers puts the RASL leaves at
+# TemporalId 1, both of which the cut has to get right.
+run_vector opengop_tools 352x288 32 testsrc2 "--keyint 8 --bframes 7 --ref 3 --crf 26 --aq 1 --cutree 1 --open-gop --repeat-headers --aud --eos --temporal-layers --idr-recovery-sei --hash 1 --threads 4"
 run_vector fgc_sei       352x288 20 testsrc2 "--keyint 6 --bframes 3 --aq 1 --cutree 1 --film-grain 1.0 --threads 4"
 run_vector fgc_denoise   352x288 20 testsrc2 "--keyint 6 --bframes 3 --aq 1 --cutree 1 --film-grain 1.0 --film-grain-denoise 1 --threads 12"
+# The NAL-level switches (phase 14 item 4). Every one of them puts a NAL
+# in the stream that nothing else here writes - an access unit delimiter
+# (35), an end of sequence (36), an end of bitstream (37), a repeated
+# parameter set at a mid-stream IRAP, and a user data unregistered SEI -
+# and the claim is exactly a conformance claim: a decoder that stumbles
+# on one of them loses the access unit it sits in. --keyint 6 over 24
+# frames is what makes --repeat-headers and --eos do their work more than
+# once, which is where a "once at the start" bug would hide.
+run_vector nal_opts      352x288 24 testsrc2 "--keyint 6 --bframes 3 --qp 30 --repeat-headers --aud --eos --eob --info --threads 4"
+# The rate-control exposure (phase 14 item 4). Two of its nine put
+# something in the BITSTREAM and so are conformance claims rather than
+# arithmetic: --strict-cbr writes filler data NALs (38) and sets
+# cbr_flag in the HRD, which is a NAL type and a schedule flag nothing
+# else in this suite produces; --qpfile moves a key frame off the keyint
+# grid, which changes the POC line and the reference lists around it.
+# --zones rides with the first because it is the other way a quantiser
+# gets pinned from outside the loop, and a pinned QP that the AQ frame
+# mean then moved would decode fine and be wrong.
+printf '0 I 26\n7 I\n13 I 30\n' > "$TMP/rc_qpfile.txt"
+run_vector rc_qpfile     352x288 20 testsrc2 "--keyint 100 --bframes 3 --crf 28 --qpfile $TMP/rc_qpfile.txt --threads 4"
+run_vector rc_cbr        352x288 24 testsrc2 "--keyint 8 --bframes 3 --bitrate 700 --vbv-maxrate 700 --vbv-bufsize 700 --strict-cbr --max-ausize-factor 0.6 --qpmin 20 --qpmax 44 --zones 0,7,q=32 --threads 4"
+# The cheap SEIs and the temporal sub-layer (phase 14 item 4). Four of the
+# five are signalling - a recovery point at every IRAP, three new fields
+# in pic_timing, one flag in the first buffering period - and the fifth is
+# not: --temporal-layers changes a VCL NAL HEADER and adds the sub-layer
+# tails to profile_tier_level and hrd_parameters, which are the two places
+# in this stream where getting the loop bound wrong shifts every bit after
+# it. The buffer is on because pic_struct and the concatenation flag live
+# in messages the HRD carries, so one vector reaches all five.
+#
+# The pyramid is what makes the temporal id worth checking: only the
+# NON-REFERENCE leaves go to sub-layer 1, and a decoder that saw a layer-0
+# picture predicting from a layer-1 one would be reading a stream that is
+# not conforming even though every sample in it is right.
+run_vector sei_layers    352x288 24 testsrc2 "--keyint 8 --bframes 3 --crf 28 --vbv-maxrate 900 --vbv-bufsize 900 --idr-recovery-sei --pic-struct 0 --hrd-concat --temporal-layers --threads 4"
+run_vector tlayers_only  352x288 20 testsrc2 "--keyint 10 --bframes 7 --qp 32 --temporal-layers --threads 12"
+# The WORST access unit this encoder can write, and it is a vector
+# because the failure mode is silent: pack_nal drops a NAL past the
+# deferred ring's per-frame bound and says nothing, so an IRAP one NAL
+# too long loses its SLICE and the stream decodes as "could not find ref
+# with POC 0". That bound has now been found short twice, at phase 14
+# items 1 and 4, and no gate that runs one flag at a time can see it.
+# Every NAL-producing flag at once: EOS, AUD, VPS, SPS, PPS, the recovery
+# point, the HRD timing pair, the HDR metadata, the version SEI, the
+# grain SEI, the slice, the hash suffix SEI, filler, EOB.
+run_vector all_nals      352x288 16 testsrc2 "--keyint 8 --bframes 3 --bitrate 700 --vbv-maxrate 700 --vbv-bufsize 700 --strict-cbr --repeat-headers --aud --eos --eob --info --idr-recovery-sei --pic-struct 0 --hrd-concat --temporal-layers --hash 1 --film-grain 1.0 --max-cll 1000,400 --threads 4"
 
 if [ "$FAST" -eq 0 ]; then
     run_vector thr4_720    1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 4"

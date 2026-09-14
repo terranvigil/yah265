@@ -46,9 +46,13 @@ import tempfile
 VCL_MAX = 31
 RADL_N, RADL_R, RASL_N, RASL_R = 6, 7, 8, 9
 CRA_NUT = 21
+AUD = 35
 PREFIX_SEI = 39
 PARAM = (32, 33, 34)        # VPS, SPS, PPS
 IRAP = range(16, 24)
+# the non-VCL NALs that belong to the FRONT of an access unit (7.4.2.4.4),
+# so a cut at a picture takes them with it
+AU_HEAD = (AUD, PREFIX_SEI) + PARAM
 
 
 def nals(d):
@@ -105,8 +109,12 @@ def cut(d, want):
         if seen != want:
             continue
         b = k
-        while b > 0 and ns[b - 1][2] == PREFIX_SEI:
+        while b > 0 and ns[b - 1][2] in AU_HEAD:
             b -= 1
+        # ...and under --repeat-headers the access unit already carries
+        # the parameter sets, so prepending them again would only make a
+        # decoder parse the same three RBSPs twice
+        have_sets = any(t2 in PARAM for _, _, t2 in ns[b:k])
         # The leading pictures of THIS CRA run until the next IRAP. Only
         # ITS RASL pictures are discarded: NoRaslOutputFlag is 1 for the
         # CRA the decode starts at and 0 for every later one, so the
@@ -121,8 +129,8 @@ def cut(d, want):
             elif t2 in (RASL_N, RASL_R):
                 drop += 1
         kept = sum(1 for _, _, t2 in ns[k:] if t2 <= VCL_MAX) - drop
-        return (heads + d[ns[b][0]:], poc_lsb(d[po + 2:po + 12], True),
-                radl, kept)
+        return ((b"" if have_sets else heads) + d[ns[b][0]:],
+                poc_lsb(d[po + 2:po + 12], True), radl, kept)
     return None, None, None, None
 
 
