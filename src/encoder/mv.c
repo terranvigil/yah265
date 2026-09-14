@@ -298,6 +298,30 @@ int n265_merge_list_pu(struct n265_frame_work *e, const pu_geo *g, mot_t out[],
     return n;
 }
 
+/* Which pairs of the merge list are the SAME motion (phase 14 item 10).
+ * A decoder builds this list itself, so a duplicate pair is an
+ * equivalence it can prove from the syntax alone - no encoder cost is
+ * involved. `*dup34` is the pair the fingerprint rides, because
+ * merge_idx MAX_MERGE-2 and MAX_MERGE-1 are the only two indices whose
+ * truncated-unary binarisation has the same length AND the same
+ * context-coded prefix, so swapping them is free to the bit. The return
+ * is "some pair somewhere", for the census only. */
+int n265_merge_dups(struct n265_frame_work *e, const pu_geo *g, int *dup34)
+{
+    mot_t c[MAX_MERGE];
+    int n = n265_merge_list_pu(e, g, c, MAX_MERGE);
+    int any = 0;
+    *dup34 = 0;
+    for (int i = 0; i < n; i++)
+        for (int k = i + 1; k < n; k++)
+            if (same_motion(&c[i], &c[k])) {
+                any = 1;
+                if (i == MAX_MERGE - 2 && k == MAX_MERGE - 1)
+                    *dup34 = 1;
+            }
+    return any;
+}
+
 int n265_merge_list(struct n265_frame_work *e, int x0, int y0, int nw, int nh,
                     mot_t out[], int max)
 {
@@ -411,6 +435,11 @@ void n265_amvp_pu(struct n265_frame_work *e, int list, int ref,
         mvp[n].x = 0;
         mvp[n].y = 0;
         n++;
+    }
+    if (e->fp_census) {
+        e->fpc[N265_FPC_AMVP_PU]++;
+        if (mvp[0].x == mvp[1].x && mvp[0].y == mvp[1].y)
+            e->fpc[N265_FPC_AMVP_DUP]++;
     }
 }
 
@@ -992,6 +1021,8 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
             uint32_t b_d = sad_step
                 ? n265_mc_sad(e, list, ridx, x0, y0, w, h, cur) : best_satd;
             uint32_t bs = b_d + (rate_on ? me_rate(rc, cur) : 0);
+            uint32_t fpc_min = bs;      /* census: the square's argmin */
+            int fpc_n = 1;              /* how many positions hold it  */
             mv_t pb = cur;              /* the pure-metric argmin, trace only */
             uint32_t pbs = b_d;
             int kq_here = kw && step == 1 && !sad_step;
@@ -1038,6 +1069,14 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
                         }
                     }
                     uint32_t c = s + (rate_on ? me_rate(rc, t) : 0);
+                    if (e->fp_census) {
+                        if (c < fpc_min) {
+                            fpc_min = c;
+                            fpc_n = 1;
+                        } else if (c == fpc_min) {
+                            fpc_n++;
+                        }
+                    }
                     if (c < bs) {
                         bs = c;
                         b_d = s;
@@ -1048,6 +1087,11 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
                         pb = t;
                     }
                 }
+            if (e->fp_census) {
+                e->fpc[N265_FPC_SUBPEL_SQ]++;
+                if (fpc_n > 1)
+                    e->fpc[N265_FPC_SUBPEL_TIE]++;
+            }
             if (trace && rate_on && (pb.x != b.x || pb.y != b.y))
                 sp_bump(SP_RMOVE, 1);
             if (kt && sq_2 != UINT32_MAX) {

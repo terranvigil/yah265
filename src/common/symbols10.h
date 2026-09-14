@@ -171,6 +171,7 @@
 #define n265_me_search               n265_me_search_10
 #define n265_merge_cand0             n265_merge_cand0_10
 #define n265_merge_list              n265_merge_list_10
+#define n265_merge_dups             n265_merge_dups_10
 #define n265_merge_list_pu           n265_merge_list_pu_10
 #define n265_metrics_frame           n265_metrics_frame_10
 #define n265_metrics_pooled          n265_metrics_pooled_10

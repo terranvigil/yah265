@@ -271,6 +271,26 @@ struct n265_rps {
     uint8_t neg_used[N265_DPB_SLOTS], pos_used[N265_DPB_SLOTS];
 };
 
+/* N265_FP_CENSUS buckets (phase 14 item 10, the stream-fingerprint
+ * census): how often each candidate signature site is free to move, and
+ * whether a decoder could see that it was. Diagnostic only; every
+ * counter is per-frame_work, so the census reads the same at any thread
+ * count. */
+enum {
+    N265_FPC_MERGE_PU = 0,  /* merge/skip PUs committed                  */
+    N265_FPC_MERGE_RDTIE,   /* merge picks with >1 candidate at the min  */
+    N265_FPC_DUPANY,        /* merge lists with any duplicate pair       */
+    N265_FPC_DUP34,         /* merge lists with cand[3] == cand[4]       */
+    N265_FPC_DUP34_USED,    /* ...and the committed index is 3 or 4      */
+    N265_FPC_AMVP_PU,       /* AMVP candidate lists built                */
+    N265_FPC_AMVP_DUP,      /* ...whose two candidates are identical     */
+    N265_FPC_SUBPEL_SQ,     /* subpel squares evaluated                  */
+    N265_FPC_SUBPEL_TIE,    /* ...where the winner's cost was matched    */
+    N265_FPC_INTRA_PU,      /* luma intra mode ranks run                 */
+    N265_FPC_INTRA_TIE,     /* ...where the best SATD was matched        */
+    N265_FPC_COUNT
+};
+
 /* N265_CU_STATS buckets: coded luma area by the CU kind actually written */
 enum {
     N265_CS_SKIP = 0,       /* cu_skip_flag                          */
@@ -539,6 +559,10 @@ typedef struct n265_frame_work {
      * so the rows come out in coding order whatever the schedule did.
      * Output-neutral; off unless the variable is set. */
     int cu_stats;
+    /* N265_FP_CENSUS: phase 14 item 10. Per-frame_work like cs_area
+     * above and for the same reason; the row prints on the driver. */
+    int fp_census;
+    uint64_t fpc[N265_FPC_COUNT];
     uint64_t cs_area[N265_CS_COUNT];
     uint64_t cs_tu[4], cs_tu_cbf[4];
     uint64_t cs_coef;       /* nonzero luma levels coded              */
@@ -1428,6 +1452,7 @@ struct n265_encoder {
     /* N265_CU_STATS: read once at open, copied into every frame_work.
      * The counters themselves are per-frame (see n265_frame_work). */
     int cu_stats;
+    int fp_census;      /* N265_FP_CENSUS, phase 14 item 10 */
     int cbit_trace;         /* N265_CBIT_TRACE, the same way */
     /* N265_CU_TRACE: the census's output file, and the skip map of the
      * PREVIOUS FRAME IN CODING ORDER. Both are driver-only - the map is

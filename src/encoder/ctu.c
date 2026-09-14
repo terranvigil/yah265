@@ -1401,6 +1401,8 @@ static int search_luma_mode_sub(struct n265_frame_work *e, int x0, int y0,
     }
     int best_mode = 0;
     uint32_t best_cost = UINT32_MAX;
+    uint32_t fpc_best = UINT32_MAX;     /* census: the rank's argmin  */
+    int fpc_n = 0;
     uint32_t ck[INTRA_RD_MAX];
     int mk[INTRA_RD_MAX];
     int nkc = nk < 1 ? 1 : nk > INTRA_RD_MAX ? INTRA_RD_MAX : nk;
@@ -1421,10 +1423,23 @@ static int search_luma_mode_sub(struct n265_frame_work *e, int x0, int y0,
             }
             ck[p] = cost; mk[p] = mode;
         }
+        if (e->fp_census) {
+            if (cost < fpc_best) {
+                fpc_best = cost;
+                fpc_n = 1;
+            } else if (cost == fpc_best) {
+                fpc_n++;
+            }
+        }
         if (cost < best_cost) {
             best_cost = cost;
             best_mode = mode;
         }
+    }
+    if (e->fp_census) {
+        e->fpc[N265_FPC_INTRA_PU]++;
+        if (fpc_n > 1)
+            e->fpc[N265_FPC_INTRA_TIE]++;
     }
     if (topk)
         for (int i = 0; i < nkc; i++)
@@ -2486,10 +2501,33 @@ static int cpred_trace(void);
 static void cpred_trace_pu(struct n265_frame_work *e, const pu_geo *g,
                            mot_t mot);
 
+/* One committed merge PU's look at the candidate signature site (phase
+ * 14 item 10, the census): does its candidate list hold a duplicate pair
+ * anywhere, does it hold one at the LAST TWO indices - the only pair
+ * whose two merge_idx codings are the same length - and did the
+ * encoder's own pick land there. The third row is the budget. */
+static void fp_merge_look(struct n265_frame_work *e, const pu_geo *g, int midx)
+{
+    if (!e->fp_census)
+        return;
+    int dup34 = 0;
+    int any = n265_merge_dups(e, g, &dup34);
+    e->fpc[N265_FPC_MERGE_PU]++;
+    if (any)
+        e->fpc[N265_FPC_DUPANY]++;
+    if (dup34) {
+        e->fpc[N265_FPC_DUP34]++;
+        if (midx >= MAX_MERGE - 2)
+            e->fpc[N265_FPC_DUP34_USED]++;
+    }
+}
+
 static void skip_cu(struct n265_frame_work *e, int x0, int y0, int log2n,
                     mot_t mot, int merge_idx)
 {
     int n = 1 << log2n;
+    pu_geo sg = { x0, y0, n, x0, y0, n, n, 0, 0 };
+    fp_merge_look(e, &sg, merge_idx);
     rec_u8(e, (unsigned)merge_idx);
     pixel pred[64 * 64];
     for (int c = 0; c < 3; c++) {
@@ -4024,6 +4062,14 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
         if (ml[i] < ml[best_m])
             best_m = i;
     }
+    if (e->fp_census) {
+        int nt = 0;
+        for (int i = 0; i < nm; i++)
+            if (ml[i] == ml[best_m])
+                nt++;
+        if (nt > 1)
+            e->fpc[N265_FPC_MERGE_RDTIE]++;
+    }
     uint32_t best_mc = ml[best_m];
     int mg = cp >= 1 ? cpred_gate() : -1;
     if (mg == 3 && g->cbn == (1 << MIN_CB_LOG2))
@@ -4550,6 +4596,12 @@ static int commit_inter_cu(struct n265_frame_work *e, int x0, int y0,
             : (((unsigned)d[p].mvp_idx[0] << 1) |
                ((unsigned)(d[p].mot.pred - 1) << 3) |
                ((unsigned)d[p].mvp_idx[1] << 5));
+        if (d[p].merge) {
+            pu_geo g = { x0, y0, n, px, py, pw, ph,
+                         p == 1 && !PART_IS_HORIZ(part),
+                         p == 1 && PART_IS_HORIZ(part) };
+            fp_merge_look(e, &g, d[p].midx);
+        }
         rec_u8(e, f);
         if (!d[p].merge)
             for (int l = 0; l < 2; l++) {
@@ -4602,6 +4654,14 @@ static int merge_pick_sad(struct n265_frame_work *e, int x0, int y0,
         sd[i] = mot_sad(e, x0, y0, log2n, mlist[i]);
         if (sd[i] < sd[midx])
             midx = i;
+    }
+    if (e->fp_census) {
+        int nt = 0;
+        for (int i = 0; i < k; i++)
+            if (sd[i] == sd[midx])
+                nt++;
+        if (nt > 1)
+            e->fpc[N265_FPC_MERGE_RDTIE]++;
     }
     *luma = sd[midx];
     if (cp < 1)

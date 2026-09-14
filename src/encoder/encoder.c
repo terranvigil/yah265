@@ -1219,6 +1219,8 @@ static void fw_config(n265_encoder *e, n265_frame_work *fw)
     fw->cb_qp_off = e->cb_qp_off;
     fw->cr_qp_off = e->cr_qp_off;
     fw->cu_stats = e->cu_stats;
+    fw->fp_census = e->fp_census;
+    memset(fw->fpc, 0, sizeof fw->fpc);
     fw->cbit_trace = e->cbit_trace;
     fw->iw_trace = e->iw_trace;
     fw->iw_count = e->iw_trace || e->iw_adapt;
@@ -1399,10 +1401,17 @@ void n265_row_begin(n265_row_ctx *row, n265_frame_work *fw, int r)
     row->c.rec_cap = fw->rrec[r].cap;
     row->c.rec_len = 0;
     row->c.rec_pos = 0;
+    /* the census counts in the LANE and is summed back in row_end, so
+     * the row that starts from this copy does not re-count the frame's
+     * running totals (phase 14 item 10) */
+    memset(row->c.fpc, 0, sizeof row->c.fpc);
 }
 
 void n265_row_end(n265_row_ctx *row, n265_frame_work *fw, int r)
 {
+    if (fw->fp_census)
+        for (int i = 0; i < N265_FPC_COUNT; i++)
+            fw->fpc[i] += row->c.fpc[i];
     fw->rrec[r].buf = row->c.rec_buf;
     fw->rrec[r].cap = row->c.rec_cap;
     fw->rrec[r].len = row->c.rec_len;
@@ -1629,6 +1638,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     }
     e->no_sao = n265_env("N265_NO_SAO") != NULL;      /* diagnostic */
     e->cu_stats = n265_env("N265_CU_STATS") != NULL;  /* diagnostic */
+    e->fp_census = n265_env("N265_FP_CENSUS") != NULL; /* diagnostic */
     e->cbit_trace = n265_env("N265_CBIT_TRACE") != NULL;   /* diagnostic */
     e->iw_trace = n265_env("N265_INTRA_WIN_TRACE") != NULL; /* diagnostic */
     /* N265_INTRA_GATE=10 (step 3): the intra gate keyed on what the
@@ -4454,6 +4464,10 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
     fw->ref_lag = 0;
     fw->sao_mask = fw->mode == N265_MODE_PCM || fw->lossless
                  ? 0 : n265_sao_frame_mask(fw);
+    /* the census row is per FRAME and a frame_work is pooled, so the
+     * counters are cleared here and not in fw_config */
+    if (fw->fp_census)
+        memset(fw->fpc, 0, sizeof fw->fpc);
     /* N265_RECT_FLAT (ctu.c): the second tool that reads the type. Both
      * branches are written, because a frame_work is pooled and fw_config
      * ran once. */
@@ -5397,6 +5411,16 @@ static void join_oldest(n265_encoder *e)
                 e->cu_prev_valid = 1;
             }
         }
+    }
+    if (fw->fp_census) {
+        /* one CSV row per frame for the fingerprint census (phase 14
+         * item 10). Printed here, on the driver, so the rows come out in
+         * coding order however the tasks were scheduled. */
+        fprintf(stderr, "FPC,%d,%d,%d", fw->display_idx, fw->slice_type,
+                fw->qp);
+        for (int i = 0; i < N265_FPC_COUNT; i++)
+            fprintf(stderr, ",%llu", (unsigned long long)fw->fpc[i]);
+        fprintf(stderr, "\n");
     }
     if (fw->cu_stats) {
         /* one CSV row per frame: what the entropy pass actually wrote.
