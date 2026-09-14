@@ -432,7 +432,11 @@ static void usage(void)
         "                  on, so --crf -6 is a rate factor and not an off\n"
         "                  switch\n"
         "  --bitrate <k>   single-pass ABR at k kbit/s (overrides --crf)\n"
-        "  --ref <n>       references per list, 1..3 (default 1)\n"
+        "  --ref <n>       references per list, 1..5 (default 1;\n"
+        "                  `slower` runs 2, `veryslow` and `placebo` more).\n"
+        "                  The DPB the shape needs is solved from it and\n"
+        "                  the level raised to hold it; a shape the pool\n"
+        "                  cannot hold is refused and says so.\n"
         "  --b-adapt <0-4> adaptive B run length from the lookahead: 0 fixed,\n"
         "                  1 the motion rule (default), 2/3 refused priced arms,\n"
         "                  4 the bits model (docs/phase7-gop-design.md)\n"
@@ -486,7 +490,7 @@ static void usage(void)
         "                  Above 7 the window has to hold the mini-GOP, so\n"
         "                  --rc-lookahead must be at least --bframes + 1.\n"
         "  --aq <0|1>      variance adaptive quantization (default 1)\n"
-        "  --rc-lookahead <1..32>  lookahead depth in frames (default 20,\n"
+        "  --rc-lookahead <1..60>  lookahead depth in frames (default 20,\n"
         "                  x265 medium's own; 12 before 2026-09-12).\n"
         "                  Latency is the lookahead depth in frames. The deep\n"
         "                  window (--rc-lookahead 24 --bframes 15) is an\n"
@@ -986,8 +990,16 @@ int main(int argc, char **argv)
         fprintf(stderr, "n265: --bframes out of range 0..15\n");
         return 2;
     }
-    if (lookahead < 1 || lookahead > 32) {
-        fprintf(stderr, "n265: --rc-lookahead out of range 1..32\n");
+    /* 60 since 2026-09-14 (phase 14 item 5), where 32 was the ceiling
+     * that stopped `veryslow` and `placebo` naming x265's own windows of
+     * 40 and 60. The knob's cost is unchanged and is linear in the depth:
+     * N frames of input held before anything is coded (N/fps of latency)
+     * and `depth + 2 + K + bframes` slots of full-resolution source,
+     * about 3.6 MB a frame at 1080p. docs/instruments.md, "The deep
+     * window". A ceiling is not a recommendation: what each rung sets is
+     * priced in docs/phase14.md. */
+    if (lookahead < 1 || lookahead > 60) {
+        fprintf(stderr, "n265: --rc-lookahead out of range 1..60\n");
         return 2;
     }
     /* N265_MAX_SHOT_WINDOW, repeated here for the same reason the two

@@ -1029,6 +1029,15 @@ run_vector tudepth4_c64  352x288 20 testsrc2 "--keyint 10 --ctu 64 --bframes 7 -
 run_vector tudepth1      352x288 20 testsrc2 "--keyint 10 --ctu 64 --bframes 5 --aq 1 --cutree 1 --tu-inter-depth 1 --tu-intra-depth 1 --threads 4"
 run_vector tudepth_mixed 176x144 16 testsrc2 "--keyint 8 --ctu 16 --bframes 5 --aq 1 --cutree 1 --tu-inter-depth 3 --tu-intra-depth 1 --threads 1"
 
+run_vector ref4_b8_t1    352x288 30 testsrc2 "--keyint 12 --bframes 8 --rc-lookahead 20 --ref 4 --crf 26 --aq 1 --cutree 1 --threads 1"
+run_vector ref5_b8_t12   352x288 30 testsrc2 "--keyint 12 --bframes 8 --rc-lookahead 20 --ref 5 --crf 26 --aq 1 --cutree 1 --threads 12"
+# The widest pairs are bounded by Annex A and not by us: sps_max_dec_pic_
+# buffering stops at 16, so `--ref 4 --bframes 15` (17) and `--ref 5
+# --bframes 11` and up (17, 18) are refused at encoder_open with the
+# message that says which. `--ref 4 --bframes 12` is legal (16) and is the
+# vector that walks the deepest pool - twelve marked pictures at once.
+run_vector ref4_b12_t1   352x288 34 testsrc2 "--keyint 20 --bframes 12 --rc-lookahead 24 --ref 4 --b-adapt 0 --crf 26 --aq 1 --cutree 1 --threads 1"
+
 # N265_DUP_FAST (phase 11 item 1): the fast path codes a whole picture as
 # skip toward the reference whose SOURCE is this picture's source, with
 # no arm running that could have chosen otherwise. Those CUs are syntax
