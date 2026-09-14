@@ -285,11 +285,13 @@ double n265_vbv_crf_base(struct n265_encoder *e, int cls, double cplx,
                          double *dqp)
 {
     double d = vbv_dqp(e, cls, cplx, base, pred, allow);
+    /* `d` is never negative, so the only bound that can bite is the coarse
+     * end - and a base already below N265_QP_MIN is a Main10 operating
+     * point the ordinary QP clip handles, not something for a buffer to
+     * have an opinion about. */
     double q = base + d;
     if (q > 51.0)
         q = 51.0;
-    if (q < (double)N265_QP_MIN)
-        q = (double)N265_QP_MIN;
     *dqp = q - base;
     return q;
 }
@@ -740,11 +742,9 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
         double dq = vbv_dqp(e, cls, cplx, rf + ctf, &rc->last_vbv_pred,
                             &rc->last_vbv_allow);
         double rf0 = rf;
-        rf += dq;
+        rf += dq;           /* never negative: the clamp is one-sided */
         if (rf > 51.0)
             rf = 51.0;
-        else if (rf < (double)N265_QP_MIN)
-            rf = (double)N265_QP_MIN;
         rc->last_vbv_dqp = rf - rf0;
     }
     /* what the frame will actually be coded at is what the operating point has

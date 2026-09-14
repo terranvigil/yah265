@@ -104,9 +104,18 @@ DEFAULT_OVERRIDES = {
                                          # on a flat-typed frame - the
                                          # exception is N265_RECT_FLAT
     "N265_NO_AMP": "1",                  # AMP off (phase 6b)
+    # phase 12 item 2, both read as `v ? ... : D` through a separate `if (v)`
+    # the numeric idiom cannot see
+    "N265_VBV_SAFE": "0.85",             # the clamp's safety fraction
+    "N265_VBV_LOOKAHEAD": "1",           # the window's reservation, on
 }
 
 OVERRIDES = {
+    # phase 12 item 2. Both are moot unless --vbv-maxrate armed the mode,
+    # but inside it they are the SHIPPED clamp and not arms waiting to be
+    # re-priced: the safety fraction is what buys the zero-underflow gate
+    # and the reservation is what pays for an intra frame before it lands.
+    "N265_VBV_SAFE": "default", "N265_VBV_LOOKAHEAD": "default",
     "N265_MBT_REC": "instrument", "N265_MBT_PLAY": "instrument",
     "N265_REFENC_CACHE": "instrument",
     # both exist so a thread-count sweep never needs a rebuild (encoder.c

@@ -31,20 +31,21 @@ static const struct {
     long long max_luma_ps;
     long long max_luma_sr;
     long long max_br_main, max_br_high;
+    long long max_cpb_main, max_cpb_high;
 } T[] = {
-    {  30, "1",      36864,       552960,    128,      0 },
-    {  60, "2",     122880,      3686400,   1500,      0 },
-    {  63, "2.1",   245760,      7372800,   3000,      0 },
-    {  90, "3",     552960,     16588800,   6000,      0 },
-    {  93, "3.1",   983040,     33177600,  10000,      0 },
-    { 120, "4",    2228224,     66846720,  12000,  30000 },
-    { 123, "4.1",  2228224,    133693440,  20000,  50000 },
-    { 150, "5",    8912896,    267386880,  25000, 100000 },
-    { 153, "5.1",  8912896,    534773760,  40000, 160000 },
-    { 156, "5.2",  8912896,   1069547520,  60000, 240000 },
-    { 180, "6",   35651584,   1069547520,  60000, 240000 },
-    { 183, "6.1", 35651584,   2139095040, 120000, 480000 },
-    { 186, "6.2", 35651584,   4278190080, 240000, 800000 },
+    {  30, "1",      36864,       552960,    128,      0, 350,      0 },
+    {  60, "2",     122880,      3686400,   1500,      0, 1500,      0 },
+    {  63, "2.1",   245760,      7372800,   3000,      0, 3000,      0 },
+    {  90, "3",     552960,     16588800,   6000,      0, 6000,      0 },
+    {  93, "3.1",   983040,     33177600,  10000,      0, 10000,      0 },
+    { 120, "4",    2228224,     66846720,  12000,  30000, 12000,  30000 },
+    { 123, "4.1",  2228224,    133693440,  20000,  50000, 20000,  50000 },
+    { 150, "5",    8912896,    267386880,  25000, 100000, 25000, 100000 },
+    { 153, "5.1",  8912896,    534773760,  40000, 160000, 40000, 160000 },
+    { 156, "5.2",  8912896,   1069547520,  60000, 240000, 60000, 240000 },
+    { 180, "6",   35651584,   1069547520,  60000, 240000, 60000, 240000 },
+    { 183, "6.1", 35651584,   2139095040, 120000, 480000, 120000, 480000 },
+    { 186, "6.2", 35651584,   4278190080, 240000, 800000, 240000, 800000 },
 };
 #define NT ((int)(sizeof(T) / sizeof(T[0])))
 
@@ -257,6 +258,60 @@ static void test_br_reported(void)
           (long long)out.max_br);
 }
 
+/* ---- the CPB leg: MaxCPB (Table A.6), which arrives with --vbv-bufsize ----
+ *
+ * The companion of the rate leg, and it is out of the walk entirely at
+ * cpb_size 0 - which is every stream this encoder solved before phase 12
+ * item 2, and is what that invariant rests on. */
+static void test_cpb(void)
+{
+    for (int i = 0; i < NT; i++) {
+        n265_level_req rq;
+        n265_level_out out;
+        req_init(&rq);
+        rq.width = 352;
+        rq.height = 288;
+        rq.fps_num = 25;
+        /* exactly this row's Main tier CPB, with no rate leg on it, so the
+         * buffer is the only thing choosing */
+        rq.cpb_size = T[i].max_cpb_main * 1100;
+        CHECK(n265_level_solve(&rq, &out) == 0, "level %s: its own MaxCPB "
+              "refused", T[i].name);
+        CHECK(out.max_cpb >= rq.cpb_size,
+              "level %s: chosen max_cpb %lld under the stream's %lld",
+              T[i].name, (long long)out.max_cpb, (long long)rq.cpb_size);
+        /* one bit over the top row's High tier CPB is the ceiling */
+        if (i == NT - 1) {
+            rq.want_high_tier = 1;
+            rq.cpb_size = T[i].max_cpb_high * 1100 + 1;
+            CHECK(n265_level_solve(&rq, &out) < 0,
+                  "a CPB over 6.2 High tier was accepted at idc %d", out.idc);
+        }
+    }
+    n265_level_req rq;
+    n265_level_out out;
+    /* a buffer over an EXPLICIT level is refused by name */
+    req_init(&rq);
+    rq.width = 352;
+    rq.height = 288;
+    rq.fps_num = 25;
+    rq.want_idc = 93;                       /* level 3.1: 11 Mbit CPB */
+    rq.cpb_size = 11000001;
+    CHECK(n265_level_solve(&rq, &out) < 0 && strstr(out.err, "--vbv-bufsize"),
+          "a CPB over --level 3.1 was accepted (err %s)", out.err);
+    rq.cpb_size = 11000000;
+    CHECK(n265_level_solve(&rq, &out) == 0,
+          "level 3.1's own CPB was refused: %s", out.err);
+    /* ...and cpb_size 0 leaves the walk exactly where it was */
+    req_init(&rq);
+    rq.width = 352;
+    rq.height = 288;
+    rq.fps_num = 25;
+    rq.cpb_size = 0;
+    CHECK(n265_level_solve(&rq, &out) == 0 && out.idc == 60,
+          "no CPB moved CIF at 25 fps off idc 60 (to %d)", out.idc);
+}
+
 /* ---- --level parsing ---- */
 static void test_parse(void)
 {
@@ -316,6 +371,7 @@ int main(void)
     test_dpb();
     test_bitrate();
     test_br_reported();
+    test_cpb();
     test_parse();
     test_pcm();
     printf("%s\n", fails ? "FAILED" : "all level tests passed");
