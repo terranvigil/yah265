@@ -179,6 +179,15 @@
 #define n265_rc_future_idr           n265_rc_future_idr_10
 #define n265_rc_next                 n265_rc_next_10
 #define n265_rc_open                 n265_rc_open_10
+#define n265_2p_free                 n265_2p_free_10
+#define n265_2p_init                 n265_2p_init_10
+#define n265_2p_open_write           n265_2p_open_write_10
+#define n265_2p_read                 n265_2p_read_10
+#define n265_2p_solve                n265_2p_solve_10
+#define n265_2p_write                n265_2p_write_10
+#define n265_2p_close_write          n265_2p_close_write_10
+#define n265_2p_get                  n265_2p_get_10
+#define n265_set_pass                n265_set_pass_10
 #define n265_vbv_allow               n265_vbv_allow_10
 #define n265_vbv_crf_base            n265_vbv_crf_base_10
 #define n265_vbv_init                n265_vbv_init_10

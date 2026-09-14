@@ -75,6 +75,10 @@ static int g_aq = 0;
 static int g_la_depth = 12;
 static int g_cutree = 0;
 static int g_shot_window = 0;   /* --shot-window; 0 = off */
+/* --pass / --stats (phase 12 item 4, twopass.h). 0 is every encode that
+ * does not ask for a second pass, which is every encode before this item. */
+static int g_pass = 0;
+static const char *g_stats_path = NULL;
 static int g_threads = 0;       /* --threads; 0 = auto */
 static int g_lossless = 0;      /* --lossless; n265_set_lossless */
 /* Annex A overrides (phase 8 item 7). 0 / 0 / 0 is "derive the level and
@@ -176,6 +180,15 @@ void n265_set_vbv(double maxrate, double bufsize, double init)
     g_vbv_init = init;
 }
 void n265_set_bitrate(double kbps) { g_bitrate = kbps > 0.0 ? kbps : 0.0; }
+/* Two-pass: 1 writes the stats sidecar, 2 plans from it, 3 does both (the
+ * plan from the file it is about to replace). The path is the caller's and
+ * outlives the encoder, which is argv for the CLI. */
+void n265_set_pass(int pass, const char *stats);
+void n265_set_pass(int pass, const char *stats)
+{
+    g_pass = pass < 0 ? 0 : pass > 3 ? 3 : pass;
+    g_stats_path = stats;
+}
 void n265_set_ref(int n) { g_ref = n < 1 ? 1 : n > N265_MAX_REF ? N265_MAX_REF : n; }
 /* 0 off (fixed cadence), 1 the motion rule (the default), 2 the priced
  * mini-GOP, 3 the degradation ratio, 4 the priced mini-GOP in BITS.
@@ -197,6 +210,88 @@ void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes,
 void n265_encoder_set_dump(n265_encoder *e, FILE *f)
 {
     e->dump_recon = f;
+}
+
+/* ---- --pass / --stats: the two-pass sidecar and the plan (twopass.h) ----
+ *
+ * Runs LAST at open, after n265_la_init has fixed the lowres geometry and
+ * n265_rc_open has turned the bitrate into bits per frame: the plan needs
+ * the first to normalise a complexity and the second to have a target at
+ * all.
+ *
+ * Every refusal here is made at open and names its number. A second pass
+ * that silently plans from the wrong file is the failure mode this whole
+ * function exists to prevent - the encode would succeed, the rate would be
+ * wrong, and nothing would say why. */
+static int twopass_open(n265_encoder *e, const n265_param *p)
+{
+    n265_2p_init(&e->tp);
+    if (g_pass <= 0)
+        return 0;               /* the encoder main ships */
+    if (!g_stats_path || !*g_stats_path) {
+        fprintf(stderr, "n265: --pass %d needs --stats <file>\n", g_pass);
+        return -1;
+    }
+    e->tp.pass = g_pass;
+    int nblk = e->la.bw * e->la.bh;
+    if (nblk < 1)
+        nblk = 1;
+    if (g_pass >= 2) {
+        char err[512] = { 0 };
+        if (n265_2p_read(&e->tp, g_stats_path, err, sizeof err) < 0) {
+            fprintf(stderr, "n265: --pass %d: %s\n", g_pass, err);
+            return -1;
+        }
+        /* The target is the whole file the stats describe, not the frames
+         * this run happens to be handed: the plan is a statement about a
+         * sequence, and a pass 2 given half of it lands on half the bits by
+         * construction. Saying so is the caller's job; the encoder's is to
+         * plan the file it was told about. */
+        if (!e->abr_on || !(e->rc.bits_per_frame > 0.0)) {
+            fprintf(stderr, "n265: --pass %d needs --bitrate: a plan is a "
+                    "rate factor solved onto a target, and under --crf and "
+                    "--qp there is no target to solve onto\n", g_pass);
+            return -1;
+        }
+        if (e->tp.nblk != nblk) {
+            fprintf(stderr, "n265: --pass %d: %s was written at %d lowres "
+                    "blocks (%dx%d) and this encode has %d. The stats "
+                    "describe a different picture size.\n", g_pass,
+                    g_stats_path, e->tp.nblk, e->tp.width, e->tp.height,
+                    nblk);
+            return -1;
+        }
+        double qcomp = e->rc.qcomp;
+        { const char *v = n265_env("N265_2P_QCOMP"); if (v) qcomp = atof(v); }
+        double clamp = 6.0;
+        { const char *v = n265_env("N265_2P_CLAMP"); if (v) clamp = atof(v); }
+        if (clamp < 0.0)
+            clamp = 0.0;
+        /* The trust radius, in QP: how far the ALLOCATION may move a frame
+         * from where pass 1 measured it (twopass.h). The level shift on top
+         * is unbounded, so this is not a bound on landing the target. */
+        double trust = 2.0;
+        { const char *v = n265_env("N265_2P_TRUST"); if (v) trust = atof(v); }
+        double target = e->rc.bits_per_frame * (double)e->tp.n;
+        if (n265_2p_solve(&e->tp, target, qcomp, clamp, trust,
+                          (double)N265_QP_MIN, 51.0) < 0) {
+            fprintf(stderr, "n265: --pass %d: the plan would not solve "
+                    "(%d frames, %.0f bits)\n", g_pass, e->tp.n, target);
+            return -1;
+        }
+        if (n265_env("N265_RC_TRACE") || n265_env("N265_2P_TRACE"))
+            fprintf(stderr, "2P plan frames=%d target=%.0f planned=%.0f "
+                    "rf=%.3f qcomp=%.3f clamp=%.2f trust=%.2f gain=%.3f\n",
+                    e->tp.n, e->tp.target_bits, e->tp.plan_bits, e->tp.rf,
+                    qcomp, clamp, trust, e->rc.tp_gain);
+    }
+    if (g_pass == 1 || g_pass == 3) {
+        if (n265_2p_open_write(&e->tp, g_stats_path, g_pass == 3,
+                               p->width, p->height, p->fps_num, p->fps_den,
+                               nblk, n265_version_str()) < 0)
+            return -1;
+    }
+    return 0;
 }
 
 /* --shot-stats, which wins over N265_SHOT_STATS (the CLI is the explicit
@@ -1622,6 +1717,8 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     if (n265_la_init(e) < 0)
         goto fail;
     n265_rc_open(e);        /* after la_init: it needs the lowres geometry */
+    if (twopass_open(e, p) < 0)
+        goto fail;
     return e;
 
 fail:
@@ -1649,6 +1746,15 @@ void n265_encoder_close(n265_encoder *e)
         fclose(e->shot_f);
         e->shot_f = NULL;
     }
+    /* --pass: the sidecar is finished (pass 3 renames its temporary onto
+     * the file it read), and a pass-2 encode that outran its plan says so
+     * once, here, rather than per frame. */
+    n265_2p_close_write(&e->tp);
+    if (e->tp.miss > 0)
+        fprintf(stderr, "n265: --pass %d: %ld coded frames were not in the "
+                "stats file (%d frames); those fell back to the one-pass "
+                "loop\n", e->tp.pass, e->tp.miss, e->tp.n);
+    n265_2p_free(&e->tp);
     if (e->la_prof) {
         double wall = prof_now() - e->prof_t0;
         double la = e->prof_push + e->prof_plan + e->prof_cutree;
@@ -3026,6 +3132,22 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
         /* D4's observation lag has already been drained by the caller; this
          * is the frame's own solve, moved here so it sees `ctf`. */
         e->rc.cur_icplx = fw->rc_icplx;
+        /* --pass 2: the plan for THIS frame, looked up by display index -
+         * the one order both passes agree on, since a pass 1 at a different
+         * preset can pick different mini-GOP lengths (twopass.c). A frame
+         * the stats do not describe leaves plan_ok at 0 and takes the
+         * one-pass path, and is counted so close() can say it happened. */
+        e->rc.plan_ok = 0;
+        if (e->tp.pass >= 2) {
+            const n265_2p_frame *pf = n265_2p_get(&e->tp, fw->display_idx);
+            if (pf) {
+                e->rc.plan_qp = pf->plan_qp;
+                e->rc.plan_bits = pf->plan_bits;
+                e->rc.plan_ok = 1;
+            } else {
+                e->tp.miss++;
+            }
+        }
         e->rc_rf = n265_rc_next(e, fw->rc_cls, fw->rc_cplx, ctf);
         fw->rc_planned = e->rc.last_planned;
         /* the planned intra offset is already inside the answer above (rc.c);
@@ -4077,6 +4199,29 @@ static void join_oldest(n265_encoder *e)
         n265_rc_done(e, fw->rc_cls, fw->rc_cplx, fw->rc_base,
                      (double)d->len * 8.0, fw->rc_planned, fw->rc_ctf,
                      fw->rc_ioff);
+    /* --pass 1 (and --pass 3, which refreshes what it planned from): one
+     * line per frame in CODING order, which is retirement order. It reads
+     * only fields frozen at dispatch plus the packed length, writes nothing
+     * the encoder reads back, and runs on the driver - so the sidecar is
+     * the same file at one worker and at twelve, which is what lets the
+     * plan it feeds be a determinism claim rather than a hope. */
+    if (e->tp.out) {
+        n265_2p_frame r;
+        memset(&r, 0, sizeof r);
+        r.coding = fw->code_idx;
+        r.display = fw->display_idx;
+        r.slice_type = fw->slice_type;
+        r.nonref = fw->nonref;
+        r.flat = fw->flat;
+        r.qp = fw->rc_base;
+        r.bits = (double)d->len * 8.0;
+        r.cplx = fw->rc_cplx;
+        r.icost = fw->st_icost;
+        r.pcost = fw->st_pcost;
+        r.prop = fw->st_prop;
+        r.ctf = fw->rc_ctf;
+        n265_2p_write(&e->tp, &r);
+    }
     /* The buffer, moved by the ACCESS UNIT that just retired - d->len is
      * the whole AU, parameter sets and all, which is what a CPB removes.
      * Driver-serial and in coding order, which is the removal order, so the
@@ -4947,6 +5092,24 @@ static int drive_scheduler(n265_encoder *e)
     fw->rc_cls = n265_rc_class(slice_type, fw->nonref);
     fw->rc_cplx = n265_rc_cplx(e, li, fw->rc_cls);
     fw->rc_icplx = n265_rc_cplx(e, li, RC_I);
+    /* --pass 1's lookahead columns, read HERE and not at retirement: the
+     * queue slot is recycled behind a dispatched frame (la.h's free run),
+     * so by the time this picture's size is known its lowres planes may
+     * belong to a picture eight frames on. Driver-serial, after
+     * n265_la_cutree has filled `prop` for the window, and gated on the
+     * sidecar being armed so the default path does not walk the grid. */
+    fw->st_icost = fw->st_pcost = fw->st_prop = 0.0;
+    if (e->tp.pass == 1 || e->tp.pass == 3) {
+        const la_frame *lf = &e->la.f[li];
+        fw->st_icost = (double)lf->icost_sum;
+        fw->st_pcost = (double)lf->pcost_sum;
+        if (e->cutree && lf->prop) {
+            double ps = 0.0;
+            for (int b = 0; b < e->la.bw * e->la.bh; b++)
+                ps += (double)lf->prop[b];
+            fw->st_prop = ps;
+        }
+    }
     if (e->abr_on || e->vbv.on) {
         /* A VBV reads the buffer, and the buffer is only a number once
          * every earlier frame's SIZE is one. So capped CRF takes the same
