@@ -251,6 +251,7 @@
 #define n265_fgc_min                 n265_fgc_min_10
 #define n265_fgc_trace               n265_fgc_trace_10
 #define n265_write_fgc_sei           n265_write_fgc_sei_10
+#define n265_write_hrd_sei           n265_write_hrd_sei_10
 #define n265_set_vbv                 n265_set_vbv_10
 #define n265_set_shot_window         n265_set_shot_window_10
 #define n265_set_lossless            n265_set_lossless_10
