@@ -161,6 +161,12 @@ void n265_rc_open(struct n265_encoder *e)
         rc->nblk = 1;
     for (int i = 0; i < RC_CLASSES; i++)
         rc->scale_n[i] = 2.0;       /* prior weight, in frames */
+    /* the VBV's own per-class scale opens at the same priors and diverges
+     * from there (rc.h); its decay is per OBSERVATION OF ITS OWN CLASS, so
+     * on a 4-class cadence sixteen of them is about sixty frames */
+    rc->vdecay = abr_tunable("N265_VBV_DECAY", 0.0625);
+    for (int i = 0; i < RC_CLASSES; i++)
+        rc->vscale[i] = rc->scale[i];
     rc->trace = n265_env("N265_RC_TRACE") != NULL;
     rc->rf = 26.0;
 }
@@ -172,6 +178,29 @@ void n265_rc_open(struct n265_encoder *e)
 static double rc_weight(n265_rc *rc, int cls, double cplx)
 {
     return rc->scale[cls] * rc->nblk * pow(cplx / rc->nblk, rc->qcomp);
+}
+
+/* the same weight at the VBV's own scale (rc.h): same model, same
+ * complexity, an estimator that a cheap frame of another class cannot pull
+ * down. Never below the allocator's, so the clamp sees the worse of the
+ * two rather than a second opinion it might like better. */
+static double rc_vweight(n265_rc *rc, int cls, double cplx, double icplx)
+{
+    /* An inter frame the motion search does no better than intra on will be
+     * coded largely AS intra, which n265_rc_cplx says in the only way it
+     * can - by capping the complexity at the intra cost. Pricing that frame
+     * at its own class's scale is the single largest under-prediction this
+     * model makes: sita_flat_720p's shot change at display 18 is a P, it is
+     * predicted at 25 kbit and costs 156 kbit, and the whole factor of six
+     * is scale[RC_I] / scale[RC_P]. For the BUFFER, and only for the
+     * buffer, such a frame is priced as the intra frame it will be. The
+     * allocator is left alone: there the cap is the right answer, because
+     * what it allocates is a share and not a bound. */
+    if (cls != RC_I && icplx > 0.0 && cplx >= icplx)
+        cls = RC_I;
+    double w = rc->vscale[cls] * rc->nblk * pow(cplx / rc->nblk, rc->qcomp);
+    double a = rc_weight(rc, cls, cplx);
+    return w > a ? w : a;
 }
 
 /* The INTRA QP offset, in QP, for a frame of class `cls` whose cu-tree frame
@@ -250,16 +279,28 @@ static int cadence_class(struct n265_encoder *e, int i)
  *
  * Returns the QP to ADD to the base; *pred and *allow are the trace's. */
 static double vbv_dqp(struct n265_encoder *e, int cls, double cplx,
-                      double q_code, double *pred, double *allow)
+                      double icplx, double q_code, double *pred,
+                      double *allow)
 {
     n265_rc *rc = &e->rc;
-    double p = rc_weight(rc, cls, cplx) / qscale_of_qp(q_code);
+    double p = rc_vweight(rc, cls, cplx, icplx) / qscale_of_qp(q_code);
     double fut[LA_MAX];
     int nf = 0;
     int nview = n265_la_view(&e->la);
     for (int i = 1; i < nview && nf < LA_MAX; i++) {
         int k = n265_rc_future_idr(e, i) ? RC_I : cadence_class(e, i);
-        fut[nf++] = rc_weight(rc, k, n265_rc_cplx(e, i, k)) /
+        /* the window is priced at the ALLOCATOR's scale and not at the
+         * pessimistic one. The two estimators answer different questions:
+         * "can this frame be paid for NOW" wants the worse of them, and
+         * being wrong high there costs one quantiser step; "how much must
+         * be saved for the frames behind it" wants the mean, and being
+         * wrong high there reserves the whole buffer against frames that
+         * do not exist. On sintel_720p's black opening the pessimistic
+         * scale prices twenty queued frames at 200 kbit each against an
+         * 826 kbit buffer, the allowance floors, and thirteen frames are
+         * coded at QP 51 to save for frames that cost 312 bits. */
+        fut[nf++] = rc_vweight(rc, k, n265_rc_cplx(e, i, k),
+                               n265_rc_cplx(e, i, RC_I)) /
                     qscale_of_qp(q_code);
     }
     double a = n265_vbv_allow(&e->vbv, fut, nf);
@@ -281,10 +322,10 @@ static double vbv_dqp(struct n265_encoder *e, int cls, double cplx,
  * CRF never spends a fuller buffer on a finer quantiser, or the cap would
  * be a target. */
 double n265_vbv_crf_base(struct n265_encoder *e, int cls, double cplx,
-                         double base, double *pred, double *allow,
-                         double *dqp)
+                         double icplx, double base, double *pred,
+                         double *allow, double *dqp)
 {
-    double d = vbv_dqp(e, cls, cplx, base, pred, allow);
+    double d = vbv_dqp(e, cls, cplx, icplx, base, pred, allow);
     /* `d` is never negative, so the only bound that can bite is the coarse
      * end - and a base already below N265_QP_MIN is a Main10 operating
      * point the ordinary QP clip handles, not something for a buffer to
@@ -739,8 +780,8 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
      * below this line runs. */
     rc->last_vbv_pred = rc->last_vbv_allow = rc->last_vbv_dqp = 0.0;
     if (e->vbv.on) {
-        double dq = vbv_dqp(e, cls, cplx, rf + ctf, &rc->last_vbv_pred,
-                            &rc->last_vbv_allow);
+        double dq = vbv_dqp(e, cls, cplx, rc->cur_icplx, rf + ctf,
+                            &rc->last_vbv_pred, &rc->last_vbv_allow);
         double rf0 = rf;
         rf += dq;           /* never negative: the clamp is one-sided */
         if (rf > 51.0)
@@ -794,6 +835,13 @@ void n265_rc_done(struct n265_encoder *e, int cls, double cplx, double rf_used,
         rc->scale[cls] += (obs - rc->scale[cls]) / (rc->scale_n[cls] + 1.0);
         if (rc->scale_n[cls] < rc->scale_mem)
             rc->scale_n[cls] += 1.0;
+        /* ...and the VBV's, which takes neither the shared level nor a
+         * running mean: up at once, down slowly, and only from its own
+         * class (rc.h). */
+        if (obs > rc->vscale[cls])
+            rc->vscale[cls] = obs;
+        else
+            rc->vscale[cls] += (obs - rc->vscale[cls]) * rc->vdecay;
     }
     /* The measured operating point. Every coded frame counts, intra
      * included, and each counts for the bits it actually carried rather than

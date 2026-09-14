@@ -41,6 +41,11 @@ typedef struct n265_vbv {
                              * so the gap is the only thing standing
                              * between a model error and an underflow. */
     int lookahead;          /* reserve for the window's own plans too     */
+    double reserve;         /* the floor under that reservation, as a share
+                             * of the fill (N265_VBV_RESERVE). The k = 0
+                             * bound is a fact and is never floored; the
+                             * window's is a forecast and may not claim more
+                             * than 1 - reserve of the buffer. */
     double fill;            /* bits in the CPB at the next removal        */
     double min_fill;        /* the least post-removal fill seen           */
     long underflows;        /* removals that took the fill below zero     */
@@ -55,7 +60,7 @@ typedef struct n265_vbv {
 #define N265_VBV_MIN_ALLOW 1.0
 
 void n265_vbv_init(n265_vbv *v, double maxrate, double bufsize, double init,
-                   double fps, double safe, int lookahead);
+                   double fps, double safe, int lookahead, double reserve);
 
 /* The most bits the frame at the next removal may spend.
  *

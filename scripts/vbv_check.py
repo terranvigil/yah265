@@ -114,10 +114,14 @@ def walk(rows, maxrate, bufsize, init, fps):
 def cell(clip, mult, secs, base_rate):
     """One (clip, pair) cell. base_rate is bit/s."""
     fps = fps_of(clip)
-    maxrate = mult * base_rate
-    bufsize = secs * maxrate
-    extra = ["--vbv-maxrate", "%.0f" % (maxrate / 1000.0),
-             "--vbv-bufsize", "%.0f" % (bufsize / 1000.0),
+    # The knobs are kbit/s and kbit and the CLI rounds them, so the walk has
+    # to be re-derived from what the ENCODER was told and not from what this
+    # script wanted. Getting that backwards is a DESYNC on every row.
+    kbps = round(mult * base_rate / 1000.0)
+    kbit = round(secs * kbps)
+    maxrate = kbps * 1000.0
+    bufsize = kbit * 1000.0
+    extra = ["--vbv-maxrate", "%d" % kbps, "--vbv-bufsize", "%d" % kbit,
              "--vbv-init", INIT]
     if MODE == "abr":
         extra = ["--bitrate", "%.0f" % (base_rate / 1000.0)] + extra

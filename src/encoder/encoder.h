@@ -694,6 +694,12 @@ typedef struct n265_frame_work {
     /* rate control hand-off, frozen at dispatch (sec 3 rule 4) */
     int rc_cls;
     double rc_cplx, rc_base;
+    /* the frame's INTRA cost, for the VBV's predictor alone. n265_rc_cplx
+     * caps an inter frame's complexity at its intra cost, so the two are
+     * EQUAL exactly on a frame the motion search does no better than intra
+     * on - a shot change coded as a P - and that is the frame the per-class
+     * scale prices six times too cheap. rc.c reads the pair. */
+    double rc_icplx;
     double rc_planned;      /* D4: the fair share rc_next handed this frame */
     double rc_ctf;          /* the cu-tree frame term inside rc_base: the loop
                              * is told it going in and reads it back out of

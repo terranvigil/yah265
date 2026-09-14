@@ -1210,7 +1210,15 @@ n265_encoder *n265_encoder_open(const n265_param *p)
          * against. */
         int vla = 1;
         { const char *v = n265_env("N265_VBV_LOOKAHEAD"); if (v) vla = atoi(v); }
-        n265_vbv_init(&e->vbv, maxrate, bufsize, g_vbv_init, fps, safe, vla);
+        /* N265_VBV_RESERVE: the floor under that reservation, as a share of
+         * what the buffer actually holds. The k = 0 bound is a FACT and is
+         * never floored; the window's is a FORECAST about frames nobody has
+         * coded, and where the content turns over it can be wrong by two
+         * orders of magnitude in the expensive direction. See vbv.c. */
+        double reserve = 0.2;
+        { const char *v = n265_env("N265_VBV_RESERVE"); if (v) reserve = atof(v); }
+        n265_vbv_init(&e->vbv, maxrate, bufsize, g_vbv_init, fps, safe, vla,
+                      reserve);
         e->vbv_trace = n265_env("N265_VBV_TRACE") != NULL;
         { const char *v = n265_env("N265_VBV_HRD");
           e->vbv_hrd = v ? atoi(v) != 0 : 1; }
@@ -2959,6 +2967,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
     if (e->abr_on) {
         /* D4's observation lag has already been drained by the caller; this
          * is the frame's own solve, moved here so it sees `ctf`. */
+        e->rc.cur_icplx = fw->rc_icplx;
         e->rc_rf = n265_rc_next(e, fw->rc_cls, fw->rc_cplx, ctf);
         fw->rc_planned = e->rc.last_planned;
         /* the planned intra offset is already inside the answer above (rc.c);
@@ -3056,8 +3065,9 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
      * quantiser. The CRF value is the quality the user asked for and the
      * VBV is a ceiling on the damage, not a second target. */
     if (e->vbv.on && !e->abr_on) {
-        base = n265_vbv_crf_base(e, fw->rc_cls, fw->rc_cplx, base,
-                                 &fw->vbv_pred, &fw->vbv_allow, &fw->vbv_dqp);
+        base = n265_vbv_crf_base(e, fw->rc_cls, fw->rc_cplx, fw->rc_icplx,
+                                 base, &fw->vbv_pred, &fw->vbv_allow,
+                                 &fw->vbv_dqp);
     }
     /* the pyramid QP cascade: I anchors -3, P anchors +0, and each B layer
      * one step deeper than its parent (the reference B nearest the anchors
@@ -4861,6 +4871,7 @@ static int drive_scheduler(n265_encoder *e)
                                    : fw->slot->col_ref_poc[0];
     fw->rc_cls = n265_rc_class(slice_type, fw->nonref);
     fw->rc_cplx = n265_rc_cplx(e, li, fw->rc_cls);
+    fw->rc_icplx = n265_rc_cplx(e, li, RC_I);
     if (e->abr_on || e->vbv.on) {
         /* A VBV reads the buffer, and the buffer is only a number once
          * every earlier frame's SIZE is one. So capped CRF takes the same

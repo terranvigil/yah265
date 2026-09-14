@@ -29,9 +29,12 @@ static int fails;
 
 /* 1 Mbit/s, a one-second buffer, 25 fps: 40 000 bits arrive per frame
  * period and the buffer holds a million. */
+/* The reserve floor is 0 in these cases unless a test names it: the window
+ * reservation's own algebra is what most of them are about, and a floor
+ * would be a second thing moving. test_reserve_floor is where it is on. */
 static void v_init(n265_vbv *v, double init, double safe, int la)
 {
-    n265_vbv_init(v, 1e6, 1e6, init, 25.0, safe, la);
+    n265_vbv_init(v, 1e6, 1e6, init, 25.0, safe, la, 0.0);
 }
 
 static void test_open(void)
@@ -44,13 +47,13 @@ static void test_open(void)
     CHECK(v.underflows == 0 && v.clamped == 0, "counters open at zero");
 
     /* --vbv-init 1.5 would be a buffer fuller than it can be */
-    n265_vbv_init(&v, 1e6, 1e6, 1.5, 25.0, 1.0, 1);
+    n265_vbv_init(&v, 1e6, 1e6, 1.5, 25.0, 1.0, 1, 0.0);
     CHECK(NEAR(v.fill, 1e6), "init is capped at the buffer: %g", v.fill);
 
     /* either half missing is the mode off */
-    n265_vbv_init(&v, 0.0, 1e6, 0.9, 25.0, 1.0, 1);
+    n265_vbv_init(&v, 0.0, 1e6, 0.9, 25.0, 1.0, 1, 0.0);
     CHECK(!v.on, "no maxrate is off");
-    n265_vbv_init(&v, 1e6, 0.0, 0.9, 25.0, 1.0, 1);
+    n265_vbv_init(&v, 1e6, 0.0, 0.9, 25.0, 1.0, 1, 0.0);
     CHECK(!v.on, "no bufsize is off");
 }
 
@@ -113,7 +116,7 @@ static void test_allow_is_the_bound(void)
 
     /* an empty buffer still allows something, so the bits-to-QP solve
      * stays finite */
-    n265_vbv_init(&v, 1e6, 1e6, 0.0, 25.0, 1.0, 1);
+    n265_vbv_init(&v, 1e6, 1e6, 0.0, 25.0, 1.0, 1, 0.0);
     CHECK(n265_vbv_allow(&v, NULL, 0) >= N265_VBV_MIN_ALLOW,
           "the floor holds at an empty buffer");
 }
@@ -160,12 +163,38 @@ static void test_never_underflows_on_plan(void)
     CHECK(v.min_fill >= -1e-6, "min_fill %g", v.min_fill);
 }
 
+/* The floor under the window's reservation. A forecast may take the
+ * allowance down, but never below `reserve` of what the buffer holds -
+ * which is the guard against a window priced two orders of magnitude too
+ * high pinning the quantiser at its coarsest for frames that cost nothing.
+ * The k = 0 bound is a fact and is never floored by it. */
+static void test_reserve_floor(void)
+{
+    n265_vbv v;
+    double fut[3] = { 400000.0, 400000.0, 400000.0 };
+    /* without the floor the k = 3 bound is -180000 and the answer is the
+     * MIN_ALLOW floor (test_window_reservation); with a floor of 0.2 of a
+     * 900 000-bit fill it is 180 000. */
+    n265_vbv_init(&v, 1e6, 1e6, 0.9, 25.0, 1.0, 1, 0.2);
+    CHECK(NEAR(n265_vbv_allow(&v, fut, 3), 180000.0), "floored reservation");
+    /* a floor above the window's own answer cannot RAISE it past k = 0 */
+    n265_vbv_init(&v, 1e6, 1e6, 0.9, 25.0, 1.0, 1, 1.0);
+    CHECK(NEAR(n265_vbv_allow(&v, fut, 3), 900000.0),
+          "a floor of 1 is the reservation switched off");
+    /* ...and it never lifts the k = 0 bound itself: an empty buffer is an
+     * empty buffer whatever the forecast says */
+    n265_vbv_init(&v, 1e6, 1e6, 0.001, 25.0, 1.0, 1, 0.5);
+    CHECK(n265_vbv_allow(&v, fut, 3) <= 1000.0,
+          "the floor lifted the k = 0 bound");
+}
+
 int main(void)
 {
     test_open();
     test_walk();
     test_allow_is_the_bound();
     test_window_reservation();
+    test_reserve_floor();
     test_never_underflows_on_plan();
     if (fails)
         printf("%d failure(s)\n", fails);

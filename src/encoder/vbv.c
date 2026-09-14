@@ -7,7 +7,7 @@
 #include "encoder/vbv.h"
 
 void n265_vbv_init(n265_vbv *v, double maxrate, double bufsize, double init,
-                   double fps, double safe, int lookahead)
+                   double fps, double safe, int lookahead, double reserve)
 {
     v->on = maxrate > 0.0 && bufsize > 0.0;
     v->maxrate = maxrate;
@@ -17,6 +17,7 @@ void n265_vbv_init(n265_vbv *v, double maxrate, double bufsize, double init,
     v->inflow = maxrate * v->frame_dur;
     v->safe = safe;
     v->lookahead = lookahead;
+    v->reserve = reserve;
     /* The buffer is `init` full at the first removal, which is the same
      * statement as "the decoder waited init * bufsize / maxrate seconds
      * before decoding the first picture" - and it is the number the
@@ -35,12 +36,28 @@ double n265_vbv_allow(const n265_vbv *v, const double *future, int n)
     double lim = v->fill;               /* k = 0: this removal alone */
     if (v->lookahead && future) {
         double cum = 0.0;
+        double w = lim;
         for (int k = 1; k <= n; k++) {
             cum += future[k - 1];
             double l = v->fill + (double)k * v->inflow - cum;
-            if (l < lim)
-                lim = l;
+            if (l < w)
+                w = l;
         }
+        /* The reservation has a FLOOR, and it is not decoration. The window's
+         * plans are estimates of frames nobody has coded, and where the
+         * content turns over they can be wrong by two orders of magnitude in
+         * the expensive direction: sintel_720p's black opening is priced at
+         * 200 kbit a frame against an 826 kbit buffer, twenty frames of it
+         * sum to five buffers, and without this the allowance floors and
+         * thirteen frames are coded at QP 51 to save for frames that cost
+         * 312 bits each. The k = 0 bound is a FACT about the buffer and is
+         * never floored; this one is a forecast, and a forecast may not take
+         * more than `reserve` of what the buffer actually holds. */
+        double lo = v->reserve * v->fill;
+        if (w < lo)
+            w = lo;
+        if (w < lim)
+            lim = w;
     }
     lim *= v->safe;
     if (!(lim > N265_VBV_MIN_ALLOW))    /* also catches a NaN plan */
