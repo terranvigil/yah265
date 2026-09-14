@@ -93,6 +93,7 @@ void n265_set_vui_timing_10(int on);
 void n265_set_film_grain_10(double strength, int denoise);
 void n265_set_vbv_10(double maxrate, double bufsize, double init);
 void n265_set_hash_10(int type);
+void n265_set_gop_10(int open_gop, int radl);
 void n265_set_vui_colour_10(int videoformat, int full_range, int colorprim,
                             int transfer, int colormatrix, int chromaloc,
                             int overscan);
@@ -140,6 +141,7 @@ typedef struct n265_api {
      * syntax elements, never names: the tables above turn the command
      * line's spellings into numbers once, before the dispatch. */
     void (*set_hash)(int);
+    void (*set_gop)(int, int);      /* --open-gop / --radl (item 3) */
     void (*set_vui_colour)(int, int, int, int, int, int, int);
     void (*set_vui_sar)(int, int, int);
     void (*set_vui_window)(int, int, int, int, int);
@@ -163,7 +165,7 @@ static const n265_api api8 = {
     n265_set_lossless, n265_set_level, n265_set_vui_timing,
     n265_set_film_grain, n265_set_vbv, n265_set_rdoq_level,
     n265_set_chroma_qpoffs,
-    n265_set_hash, n265_set_vui_colour, n265_set_vui_sar,
+    n265_set_hash, n265_set_gop, n265_set_vui_colour, n265_set_vui_sar,
     n265_set_vui_window, n265_set_hdr_meta, n265_set_hdr10,
     n265_encoder_open, n265_encoder_encode, n265_encoder_close,
     n265_version_str, n265_encoder_set_dump, n265_encoder_set_dump_decode,
@@ -179,7 +181,8 @@ static const n265_api api10 = {
     n265_set_lossless_10, n265_set_level_10, n265_set_vui_timing_10,
     n265_set_film_grain_10, n265_set_vbv_10, n265_set_rdoq_level_10,
     n265_set_chroma_qpoffs_10,
-    n265_set_hash_10, n265_set_vui_colour_10, n265_set_vui_sar_10,
+    n265_set_hash_10, n265_set_gop_10, n265_set_vui_colour_10,
+    n265_set_vui_sar_10,
     n265_set_vui_window_10, n265_set_hdr_meta_10, n265_set_hdr10_10,
     n265_encoder_open_10,
     n265_encoder_encode_10, n265_encoder_close_10, n265_version_str_10,
@@ -464,7 +467,14 @@ static void usage(void)
         "                  --qp/--crf/--bitrate are ignored; prediction and\n"
         "                  mode decision still run, on bits alone.\n"
         "  --ctu <16|32|64>  coding tree block size (default 64)\n"
-        "  --keyint <n>    IDR period in frames (default 250)\n"
+        "  --keyint <n>    key frame period in frames (default 250)\n"
+        "  --open-gop      code the --keyint picture as a CRA, keeping the\n"
+        "                  pyramid that straddles it as leading pictures\n"
+        "                  (default; --no-open-gop for an IDR there). A\n"
+        "                  scene cut is an IDR either way.\n"
+        "  --radl <n>      of the CRA's leading pictures, how many are RADL\n"
+        "                  rather than RASL - decodable when the decode\n"
+        "                  starts at that CRA (default 0)\n"
         "  --bframes <0..15> B frames between anchors, hierarchical (default 7).\n"
         "                  Above 7 the window has to hold the mini-GOP, so\n"
         "                  --rc-lookahead must be at least --bframes + 1.\n"
@@ -679,6 +689,8 @@ int main(int argc, char **argv)
      * given" in every field that has an absence; give none of them and
      * nothing below reaches the stream. */
     int hash = 0;
+    /* open GOP (phase 14 item 3): on, which is x265's default too. */
+    int open_gop = 1, radl = 0;
     int sig_videoformat = -1, sig_range = -1, sig_overscan = -1;
     int sig_colorprim = -1, sig_transfer = -1, sig_colormatrix = -1;
     int sig_chromaloc = -1;
@@ -733,6 +745,12 @@ int main(int argc, char **argv)
             preset = argv[++i];
         } else if (!strcmp(argv[i], "--keyint") && i + 1 < argc) {
             keyint = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--open-gop")) {
+            open_gop = 1;
+        } else if (!strcmp(argv[i], "--no-open-gop")) {
+            open_gop = 0;
+        } else if (!strcmp(argv[i], "--radl") && i + 1 < argc) {
+            radl = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--bframes") && i + 1 < argc) {
             bframes = atoi(argv[++i]); had_bframes = 1;
         } else if (!strcmp(argv[i], "--aq") && i + 1 < argc) {
@@ -1078,6 +1096,20 @@ int main(int argc, char **argv)
         return 2;
     }
     a->set_hash(hash);
+    /* --open-gop / --radl (phase 14 item 3). A RADL count past the
+     * mini-GOP cannot be honoured - there are only ever `--bframes`
+     * leading pictures - so it is refused rather than silently capped. */
+    if (radl < 0 || radl > bframes) {
+        fprintf(stderr, "n265: --radl is 0..%d here (a CRA has at most "
+                "--bframes leading pictures)\n", bframes);
+        return 2;
+    }
+    if (radl && !open_gop) {
+        fprintf(stderr, "n265: --radl needs --open-gop (RADL pictures are "
+                "the leading pictures of a CRA)\n");
+        return 2;
+    }
+    a->set_gop(open_gop, radl);
     /* The default display window is signalled in CHROMA units (7.4.3.2.1)
      * and the flag takes pixels, so an offset that is not a whole number
      * of chroma samples cannot be written. x265 documents the same flag in

@@ -479,6 +479,22 @@ typedef struct n265_frame_work {
      * read THIS, and everything else keeps reading `slice_type == 2`,
      * which still means "coded without prediction". */
     int idr;
+    /* ...and the other IRAP this encoder writes since phase 14 item 3:
+     * a CRA (7.4.2.2). `idr` and `cra` are exclusive and `irap` is the
+     * disjunction, which is what the syntax keys on wherever the spec
+     * says IRAP rather than IDR - no_output_of_prior_pics_flag, the
+     * buffering period, the per-IRAP metadata SEIs. What a CRA does NOT
+     * do is reset the POC or empty the DPB, which is the whole of open
+     * GOP; the prediction barrier in encoder.c is what replaces the
+     * flush. */
+    int cra;
+    int irap;
+    /* This picture is a LEADING picture of the last CRA: it follows that
+     * CRA in decoding order and precedes it in output order. 0 neither,
+     * 1 RASL (may reference across the CRA, discarded on a seek to it),
+     * 2 RADL (may not, and so is decodable there). Frozen at dispatch
+     * with the lists, and it picks the NAL type and nothing else. */
+    int leading;
     int nonref;             /* this frame is not a reference */
     int display_idx;
     int b_depth;            /* pyramid layer (0 = anchor) */
@@ -1111,7 +1127,39 @@ struct n265_encoder {
     double prof_t0, prof_push, prof_plan, prof_cutree;
     int frames_done;
     int in_display_idx;     /* next arriving picture's display index */
-    int gop_start_display;  /* display index of the current IDR      */
+    int gop_start_display;  /* display index of the current KEY FRAME */
+    /* The POC origin: the display index the POC line is measured from.
+     * It moves at an IDR and at NOTHING ELSE, because 8.3.1 resets
+     * PicOrderCntMsb at an IDR and at nothing else. Until open GOP
+     * landed every key frame was an IDR and this was gop_start_display;
+     * a CRA moves that one (the min-keyint bound and the cu-tree parity
+     * both measure from the last key frame) and leaves this one alone,
+     * which IS the continuous POC open GOP is about. */
+    int poc_origin_display;
+    /* The prediction barrier the last CRA put down, in POC, or INT_MIN
+     * before the first one. A picture with POC below it may be listed
+     * only by a picture with POC below it - that is 8.3.2's RASL rule
+     * and, read the other way, the guarantee that no trailing picture
+     * of the CRA references anything the decoder does not have after a
+     * seek to it. Driver-serial, read by n265_build_lists and by the
+     * retirement's POC mirror, so it is a function of POC and marking
+     * alone like every other list rule here. */
+    int cra_poc;
+    /* The same two, as the LIST RULE reads them. They are cra_poc and
+     * radl_poc, except under N265_OPENGOP_NOBARRIER, which leaves them
+     * at INT_MIN and so writes a stream whose NAL types claim an open
+     * GOP while its trailing pictures predict across the CRA anyway.
+     * That is the exact non-conformance this item exists to avoid, and
+     * it is the negative control the seek check is armed against
+     * (docs/phase14.md item 3). Diagnostic only; never a shipped path. */
+    int cra_bar_poc, cra_bar_radl;
+    int open_gop;           /* --open-gop: a keyint picture is a CRA */
+    int radl;               /* --radl: leading pictures coded RADL   */
+    /* ...and the second barrier `--radl` puts down inside the first: a
+     * picture whose POC is at or above `radl_poc` and below `cra_poc`
+     * is a RADL, and may list only pictures at or above `radl_poc`.
+     * Equal to cra_poc (an empty band) when --radl is 0. */
+    int radl_poc;
     /* display index of the last INTRA picture, IDR or not: what the
      * minimum distance between intra pictures (N265_INTRA_MIN) is
      * measured from, where N265_MIN_KEYINT is measured from the IDR
@@ -1270,13 +1318,14 @@ struct n265_encoder {
     FILE *shot_f;
     struct n265_shot_rec {
         int present;
-        int slice_type, idr, nonref, flat;
+        int slice_type, idr, cra, nonref, flat;
         double qp_base, cplx;
         uint64_t bytes;
     } shot_ring[N265_SHOT_RING];
     int shot_next;          /* next display index to fold */
     int shot_high;          /* one past the highest display index retired */
-    int shot_open;          /* 0 none yet, 1 "start", 2 "idr", 3 "intra" */
+    int shot_open;          /* 0 none yet, 1 "start", 2 "idr", 3 "intra",
+                             * 4 "cra" */
     int shot_first, shot_last;
     int shot_cnt[4];        /* i, p, b_ref, b_leaf */
     int shot_n, shot_flat;
@@ -1583,6 +1632,15 @@ static inline void n265_pu_rect(int part, int idx, int x0, int y0, int n,
 uint32_t n265_lambda_mode_q8(int qp);
 void n265_build_lists(struct n265_encoder *e, n265_frame_work *fw, int cur,
                       int is_b, struct n265_refpic *future);
+/* The open-GOP prediction barrier and the POC-level mirror of the list
+ * rule (phase 14 item 3). Both are pure functions of POC - no encoder,
+ * no DPB, no dispatch order - which is what lets tests/unit/gop_test.c
+ * read them against a hand-computed mini-GOP, and what makes the
+ * retirement's answer provably the list builder's. encoder.c is their
+ * only caller inside the library. */
+int n265_cra_visible(int cra_poc, int radl_poc, int cur, int p);
+void n265_ref_used(int cra_poc, int radl_poc, const int *m, int nm, int cur,
+                   int is_b, int ref_max, uint8_t *used);
 uint64_t n265_zorder(int x, int y, int pic_w, int ctb_log2);
 #define N265_REF_PAD 64     /* reference plane border, luma samples */
 /* ...and what that border is on ONE plane, per axis. It was a single

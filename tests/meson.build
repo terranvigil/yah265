@@ -48,6 +48,17 @@ unit_hash = executable('unit_hash', 'unit/hash_test.c',
   dependencies : yah265_dep)
 test('hash', unit_hash)
 
+# Open GOP (phase 14 item 3): the CRA prediction barrier and the
+# reference-list rule behind it, as a hand-written truth table out of
+# 7.4.2.2, a hand-computed mini-GOP straddling a CRA, and a sweep against
+# a second implementation written from the prose. Pure POC arithmetic, no
+# encode; the decoder-side half is the seek check in
+# scripts/conformance.sh, which cuts a stream at a CRA and feeds both
+# decoders.
+unit_gop = executable('unit_gop', 'unit/gop_test.c',
+  dependencies : yah265_dep)
+test('gop', unit_gop)
+
 # One file per kernel family (checkasm.h has the layout): a family item
 # adds its file here and one line to the table in main.c, and touches
 # nothing else.
