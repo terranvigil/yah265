@@ -212,6 +212,13 @@ typedef struct y4m_t {
     size_t nsamp;           /* samples in one picture, all three planes */
     const void *plane[3];   /* what the library is handed, once */
     long clipped;           /* samples above (1 << depth) - 1 in the file */
+    /* RAW input (--input-res): no container and no per-frame header, so
+     * the geometry a y4m header would have carried comes off the command
+     * line and a frame is exactly `frame_bytes` of planes. Everything
+     * after the open is shared with the y4m path - the same allocation,
+     * the same upshift, the same clamp - which is why this is a flag on
+     * the reader and not a second reader. */
+    int raw;
 } y4m_t;
 
 /* The C tag's depth, or -1 for a chroma sampling or sample width this
@@ -245,6 +252,154 @@ static int y4m_csp_depth(const char *csp, int *fmt)
         return 10;
     *fmt = N265_CSP_I420;
     return -1;
+}
+
+/* --input-csp: x265's spellings for the raw reader, and the bare number
+ * (chroma_format_idc) too, since that is what the value IS. Returns
+ * N265_CSP_*, or -1. i400 (monochrome) is refused by NAME rather than by
+ * falling off the end, because it is a format this encoder will
+ * eventually have and a shrug would read as a typo. */
+static int input_csp_parse(const char *s, int *mono)
+{
+    *mono = 0;
+    if (!strcmp(s, "i420") || !strcmp(s, "420") || !strcmp(s, "1"))
+        return N265_CSP_I420;
+    if (!strcmp(s, "i422") || !strcmp(s, "422") || !strcmp(s, "2"))
+        return N265_CSP_I422;
+    if (!strcmp(s, "i444") || !strcmp(s, "444") || !strcmp(s, "3"))
+        return N265_CSP_I444;
+    if (!strcmp(s, "i400") || !strcmp(s, "400") || !strcmp(s, "0"))
+        *mono = 1;
+    return -1;
+}
+
+/* x265 picks the raw reader off the `.yuv` extension; so does this, as a
+ * convenience on top of --input-res, which is the real switch. "-" is
+ * stdin and has no name to read. */
+static int is_raw_name(const char *path)
+{
+    size_t n = strlen(path);
+    return n >= 4 && (!strcmp(path + n - 4, ".yuv") ||
+                      !strcmp(path + n - 4, ".YUV"));
+}
+
+static int is_y4m_name(const char *path)
+{
+    size_t n = strlen(path);
+    return n >= 4 && (!strcmp(path + n - 4, ".y4m") ||
+                      !strcmp(path + n - 4, ".Y4M"));
+}
+
+/* --fps: "30", "29.97", "30000/1001" or "30000:1001". The rational forms
+ * are kept EXACTLY - 30000/1001 is not 29.97 to a decoder reading
+ * vui_time_scale - and a decimal is turned into one over a power of ten
+ * rather than into the nearest broadcast rate, because guessing that a
+ * user who typed 29.97 meant 30000/1001 is a guess about their content.
+ * Returns 0, or -1. */
+static int fps_parse(const char *s, int *num, int *den)
+{
+    const char *sep = strpbrk(s, "/:");
+    if (sep) {
+        long n = atol(s), d = atol(sep + 1);
+        if (n <= 0 || d <= 0)
+            return -1;
+        *num = (int)n;
+        *den = (int)d;
+        return 0;
+    }
+    const char *dot = strchr(s, '.');
+    if (!dot) {
+        long n = atol(s);
+        if (n <= 0)
+            return -1;
+        *num = (int)n;
+        *den = 1;
+        return 0;
+    }
+    int digits = 0;
+    long n = 0, d = 1;
+    for (const char *p = s; *p; p++) {
+        if (*p == '.')
+            continue;
+        if (*p < '0' || *p > '9')
+            return -1;
+        if (n > 100000000L)
+            return -1;
+        n = n * 10 + (*p - '0');
+        if (p > dot) {
+            d *= 10;
+            digits++;
+        }
+    }
+    if (n <= 0 || digits > 6)
+        return -1;
+    *num = (int)n;
+    *den = (int)d;
+    return 0;
+}
+
+/* The half of the open that does not care where the geometry came from:
+ * w/h/csp/depth/fps are already in *y, and `desc` names the format for
+ * the one refusal that has to print it. `y->out_depth` is read (the
+ * --output-depth request, 0 for "the input's") and then resolved.
+ * Returns 0, -1 on an allocation failure, -2 when it has already printed
+ * the reason itself. */
+static int src_geom(y4m_t *y, const char *desc)
+{
+    /* log2 SubWidthC / SubHeightC. 4:2:2 is the format where the two
+     * differ: half the width, all of the height. */
+    y->csx = y->csp == N265_CSP_I444 ? 0 : 1;
+    y->csy = y->csp == N265_CSP_I420 ? 1 : 0;
+    if ((y->w & 1) || (y->h & 1)) {
+        /* n265_encoder_open's own condition, checked here so the refusal
+         * names the picture instead of reading as an open failure. */
+        fprintf(stderr, "n265: %dx%d: the encoder needs even dimensions\n",
+                y->w, y->h);
+        return -2;
+    }
+    /* The output depth defaults to the input's, which is the whole of the
+     * dispatch: a C420 file gets the 8-bit library and a C420p10 file gets
+     * Main10, and neither is a decision anybody has to type. --output-depth
+     * 10 is the one deliberate override - SDR content coded as a Main10
+     * stream, what x265's flag of the same name does - and it upshifts in
+     * the read loop below.
+     *
+     * The reverse is refused. There is no downshift here: dropping two bits
+     * is a dither-or-truncate choice that changes the picture before the
+     * encoder ever sees it, and a silent one would make a 10-bit source's
+     * 8-bit numbers look like a property of the encoder. Convert on
+     * purpose with ffmpeg if that is what is wanted. */
+    if (y->out_depth == 0)
+        y->out_depth = y->depth;
+    if (y->out_depth < y->depth) {
+        fprintf(stderr, "n265: --output-depth %d on %d-bit input (%s): "
+                "there is no downshift path.\n", y->out_depth, y->depth, desc);
+        fprintf(stderr, "n265: dropping samples is a dither-or-truncate "
+                "choice about the PICTURE, not about the encoder, so it is "
+                "made outside - ffmpeg -i in.y4m -pix_fmt yuv420p out.y4m.\n");
+        return -2;
+    }
+    size_t luma = (size_t)y->w * (size_t)y->h;
+    size_t chroma = (size_t)(y->w >> y->csx) * (size_t)(y->h >> y->csy);
+    size_t nsamp = luma + 2 * chroma;
+    y->frame_bytes = nsamp * (y->depth > 8 ? 2 : 1);
+    y->frame = malloc(y->frame_bytes);
+    if (!y->frame)
+        return -1;
+    if (y->out_depth == 8) {
+        y->plane[0] = y->frame;
+        y->plane[1] = y->frame + luma;
+        y->plane[2] = y->frame + luma + chroma;
+    } else {
+        y->pix16 = malloc(nsamp * sizeof(*y->pix16));
+        if (!y->pix16)
+            return -1;
+        y->plane[0] = y->pix16;
+        y->plane[1] = y->pix16 + luma;
+        y->plane[2] = y->pix16 + luma + chroma;
+    }
+    y->nsamp = nsamp;
+    return 0;
 }
 
 /* `y->out_depth` is read (the --output-depth request, 0 for "the
@@ -282,59 +437,72 @@ static int y4m_open(y4m_t *y, FILE *f)
                 "(4:2:0, 4:2:2 or 4:4:4, at 8 or 10 bits)\n", csp);
         return -2;
     }
-    /* log2 SubWidthC / SubHeightC. 4:2:2 is the format where the two
-     * differ: half the width, all of the height. */
-    y->csx = y->csp == N265_CSP_I444 ? 0 : 1;
-    y->csy = y->csp == N265_CSP_I420 ? 1 : 0;
-    if ((y->w & 1) || (y->h & 1)) {
-        /* n265_encoder_open's own condition, checked here so the refusal
-         * names the picture instead of reading as an open failure. */
-        fprintf(stderr, "n265: %dx%d: the encoder needs even dimensions\n",
-                y->w, y->h);
-        return -2;
+    char desc[72];
+    snprintf(desc, sizeof(desc), "C%s", csp);
+    return src_geom(y, desc);
+}
+
+/* RAW planar input: the geometry is the caller's, checked by the caller,
+ * and there is nothing in the file to read before the first sample. */
+static int raw_open(y4m_t *y, FILE *f, int w, int h, int csp, int depth,
+                    int fps_num, int fps_den)
+{
+    int want_depth = y->out_depth;
+    memset(y, 0, sizeof(*y));
+    y->out_depth = want_depth;
+    y->f = f;
+    y->raw = 1;
+    y->w = w;
+    y->h = h;
+    y->csp = csp;
+    y->depth = depth;
+    y->fps_num = fps_num;
+    y->fps_den = fps_den;
+    const char *fmt = csp == N265_CSP_I444 ? "i444"
+                    : csp == N265_CSP_I422 ? "i422" : "i420";
+    char desc[72];
+    snprintf(desc, sizeof(desc), "raw %s at %d bits", fmt, depth);
+    return src_geom(y, desc);
+}
+
+/* --seek: drop the first `n` frames of the source without converting
+ * them. A regular file is stepped over with fseek and a pipe is read and
+ * thrown away, which is the only thing a pipe allows; either way the
+ * picture the encoder sees first is frame `n` of the source and its pts
+ * starts at 0, so the coded stream is the one you would get by trimming
+ * the input with ffmpeg. Returns 0, or -1 if the source ran out first
+ * (the caller says so). */
+static int src_skip(y4m_t *y, long n)
+{
+    char line[256];
+    for (long i = 0; i < n; i++) {
+        if (!y->raw) {
+            if (!fgets(line, sizeof(line), y->f))
+                return -1;
+            if (strncmp(line, "FRAME", 5) != 0)
+                return -1;
+        }
+        if (fseek(y->f, (long)y->frame_bytes, SEEK_CUR) != 0) {
+            /* not seekable (a pipe, or a file bigger than long): read it */
+            size_t left = y->frame_bytes;
+            while (left) {
+                size_t want = left < y->frame_bytes ? left : y->frame_bytes;
+                size_t got = fread(y->frame, 1, want, y->f);
+                if (got == 0)
+                    return -1;
+                left -= got;
+            }
+        }
     }
-    /* The output depth defaults to the input's, which is the whole of the
-     * dispatch: a C420 file gets the 8-bit library and a C420p10 file gets
-     * Main10, and neither is a decision anybody has to type. --output-depth
-     * 10 is the one deliberate override - SDR content coded as a Main10
-     * stream, what x265's flag of the same name does - and it upshifts in
-     * the read loop below.
-     *
-     * The reverse is refused. There is no downshift here: dropping two bits
-     * is a dither-or-truncate choice that changes the picture before the
-     * encoder ever sees it, and a silent one would make a 10-bit source's
-     * 8-bit numbers look like a property of the encoder. Convert on
-     * purpose with ffmpeg if that is what is wanted. */
-    if (y->out_depth == 0)
-        y->out_depth = y->depth;
-    if (y->out_depth < y->depth) {
-        fprintf(stderr, "n265: --output-depth %d on %d-bit input (C%s): "
-                "there is no downshift path.\n", y->out_depth, y->depth, csp);
-        fprintf(stderr, "n265: dropping samples is a dither-or-truncate "
-                "choice about the PICTURE, not about the encoder, so it is "
-                "made outside - ffmpeg -i in.y4m -pix_fmt yuv420p out.y4m.\n");
-        return -2;
-    }
-    size_t luma = (size_t)y->w * (size_t)y->h;
-    size_t chroma = (size_t)(y->w >> y->csx) * (size_t)(y->h >> y->csy);
-    size_t nsamp = luma + 2 * chroma;
-    y->frame_bytes = nsamp * (y->depth > 8 ? 2 : 1);
-    y->frame = malloc(y->frame_bytes);
-    if (!y->frame)
-        return -1;
-    if (y->out_depth == 8) {
-        y->plane[0] = y->frame;
-        y->plane[1] = y->frame + luma;
-        y->plane[2] = y->frame + luma + chroma;
-    } else {
-        y->pix16 = malloc(nsamp * sizeof(*y->pix16));
-        if (!y->pix16)
+    /* fseek past the end of a regular file SUCCEEDS, so the loop above
+     * cannot tell "skipped n frames" from "skipped off the end". One
+     * character answers it, and putting it back costs nothing. */
+    if (n > 0) {
+        int c = fgetc(y->f);
+        if (c == EOF)
             return -1;
-        y->plane[0] = y->pix16;
-        y->plane[1] = y->pix16 + luma;
-        y->plane[2] = y->pix16 + luma + chroma;
+        ungetc(c, y->f);
     }
-    y->nsamp = nsamp;
     return 0;
 }
 
@@ -342,12 +510,15 @@ static int y4m_open(y4m_t *y, FILE *f)
 static int y4m_read(y4m_t *y)
 {
     char line[256];
-    if (!fgets(line, sizeof(line), y->f))
-        return 0;
-    if (strncmp(line, "FRAME", 5) != 0)
-        return -1;
-    if (fread(y->frame, 1, y->frame_bytes, y->f) != y->frame_bytes)
-        return -1;
+    if (!y->raw) {
+        if (!fgets(line, sizeof(line), y->f))
+            return 0;
+        if (strncmp(line, "FRAME", 5) != 0)
+            return -1;
+    }
+    size_t got = fread(y->frame, 1, y->frame_bytes, y->f);
+    if (got != y->frame_bytes)
+        return got == 0 && y->raw ? 0 : -1;
     if (y->out_depth == 8)
         return 1;               /* 8 in, 8 out: the file IS the picture */
     size_t nsamp = y->nsamp;
@@ -389,7 +560,7 @@ static int y4m_read(y4m_t *y)
 static void usage(void)
 {
     fprintf(stderr,
-        "usage: n265 [options] <input.y4m|->\n"
+        "usage: n265 [options] <input.y4m|input.yuv|->\n"
         "  One binary, every profile: the encoder is chosen from the input.\n"
         "  A C420 y4m is coded Main (8-bit), a C420p10 one Main10, a C444\n"
         "  one Main 4:4:4, a C444p10 one Main 4:4:4 10, and a C422 or\n"
@@ -404,6 +575,28 @@ static void usage(void)
         "                  by a pure left shift of two as it is read - one\n"
         "                  pass per frame, no added latency. 8 on 10-bit\n"
         "                  input is refused: there is no downshift here.\n"
+        "  --seek <n>      drop the first n frames of the input. The\n"
+        "                  picture the encoder sees first is frame n of\n"
+        "                  the source and its pts starts at 0, so the\n"
+        "                  stream is the one you get by trimming the\n"
+        "                  input first. Both readers; a pipe is read\n"
+        "                  through, a file is seeked over.\n"
+        "\n"
+        "  RAW planar input, for a source with no y4m header. The reader is\n"
+        "  selected by --input-res (or by a .yuv name), and then the\n"
+        "  geometry a header would have carried has to be given in full -\n"
+        "  size, chroma format and frame rate - because a raw file says\n"
+        "  nothing about itself and a guess codes garbage without a word.\n"
+        "  --input-res <WxH>  picture size, e.g. 352x288\n"
+        "  --input-csp <c>  i420, i422 or i444 (or the chroma_format_idc\n"
+        "                  itself: 1, 2, 3). i400 is refused by name.\n"
+        "  --fps <N[/D]>   frame rate: 30, 30000/1001 or 29.97. A ratio is\n"
+        "                  kept exactly; a decimal becomes N/10^k and is\n"
+        "                  NOT rounded to the nearest broadcast rate.\n"
+        "  --input-depth <8|10>  sample width of the raw file (default 8).\n"
+        "                  10-bit is 16-bit little-endian samples, as\n"
+        "                  ffmpeg's yuv420p10le writes them.\n"
+        "\n"
         "  --preset <name>  speed/quality point, in x265's names.\n"
         "                  Rungs, fastest first: fast, medium (default),\n"
         "                  slow, slower. x265's other six names are\n"
@@ -689,6 +882,12 @@ int main(int argc, char **argv)
     int hdr10 = -1, cll_on = 1, atc = -1;
     int had_crf = 0;            /* --crf given: the ON switch, not crf >= 0 */
     int out_depth = 0;          /* --output-depth; 0 = the input's */
+    /* RAW input (--input-res / --input-csp / --fps / --input-depth) and
+     * --seek. Every one of them is 0 / -1 for "not given": a y4m carries
+     * its own geometry and none of this is read on that path. */
+    int in_w = 0, in_h = 0, in_csp = -1, in_depth = 0;
+    int in_fps_num = 0, in_fps_den = 0;
+    long seek = 0;
     int nref = 1, badapt = 1;
     int lookahead = 20, cutree = 1;   /* 20 since 2026-09-12 (x265 medium's
                                      * own depth): the last window that
@@ -723,6 +922,39 @@ int main(int argc, char **argv)
             crf = atof(argv[++i]); had_crf = 1;
         } else if (!strcmp(argv[i], "--output-depth") && i + 1 < argc) {
             out_depth = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--input-res") && i + 1 < argc) {
+            const char *v = argv[++i];
+            if (sscanf(v, "%dx%d", &in_w, &in_h) != 2 || in_w <= 0 ||
+                in_h <= 0) {
+                fprintf(stderr, "n265: --input-res is WxH, e.g. 352x288\n");
+                return 2;
+            }
+        } else if (!strcmp(argv[i], "--input-csp") && i + 1 < argc) {
+            int mono = 0;
+            in_csp = input_csp_parse(argv[++i], &mono);
+            if (in_csp < 0) {
+                fprintf(stderr, mono
+                        ? "n265: --input-csp i400 (monochrome) is not a "
+                          "format this encoder codes yet; it is refused "
+                          "rather than read as 4:2:0\n"
+                        : "n265: --input-csp is i420, i422 or i444 (or the "
+                          "chroma_format_idc itself: 1, 2, 3)\n");
+                return 2;
+            }
+        } else if (!strcmp(argv[i], "--input-depth") && i + 1 < argc) {
+            in_depth = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--fps") && i + 1 < argc) {
+            if (fps_parse(argv[++i], &in_fps_num, &in_fps_den) < 0) {
+                fprintf(stderr, "n265: --fps is N, N/D or a decimal "
+                        "(30, 30000/1001, 29.97)\n");
+                return 2;
+            }
+        } else if (!strcmp(argv[i], "--seek") && i + 1 < argc) {
+            seek = atol(argv[++i]);
+            if (seek < 0) {
+                fprintf(stderr, "n265: --seek takes a frame count\n");
+                return 2;
+            }
         } else if (!strcmp(argv[i], "--bitrate") && i + 1 < argc) {
             bitrate = atof(argv[++i]);
         } else if (!strcmp(argv[i], "--ref") && i + 1 < argc) {
@@ -885,12 +1117,77 @@ int main(int argc, char **argv)
         fprintf(stderr, "n265: cannot open %s: %s\n", in_path, strerror(errno));
         return 1;
     }
+    /* RAW or y4m, and the decision is made from the FLAGS and the name,
+     * never by sniffing: a raw file has no magic to sniff for, and a
+     * reader that guessed would code garbage silently on the one input
+     * that cannot say what it is. `--input-res` is the switch - x265
+     * takes the same decision off the `.yuv` extension, and that is
+     * honoured too so a plain `n265 clip.yuv --input-res ...` and the
+     * bare extension agree. */
+    if (is_y4m_name(in_path) &&
+        (in_w > 0 || in_csp >= 0 || in_depth || in_fps_num > 0)) {
+        fprintf(stderr, "n265: --input-res / --input-csp / --input-depth / "
+                "--fps describe RAW input; %s carries its own geometry\n",
+                in_path);
+        return 2;
+    }
+    int want_raw = in_w > 0 || is_raw_name(in_path);
     y4m_t y;
     y.out_depth = out_depth;
-    int yr = y4m_open(&y, fin);
+    int yr;
+    if (want_raw) {
+        /* A raw file says NOTHING about itself, so every property the y4m
+         * header would have carried has to be on the command line. Two of
+         * the three have no defensible default - a wrong size reads the
+         * planes at the wrong offsets and a wrong frame rate mis-states
+         * the level's MaxLumaSr leg - and the third, the chroma format,
+         * changes the size of a frame. Missing means refused, one message
+         * naming all of what is missing. */
+        const char *miss[4];
+        int nmiss = 0;
+        if (in_w <= 0)        miss[nmiss++] = "--input-res WxH";
+        if (in_csp < 0)       miss[nmiss++] = "--input-csp i420|i422|i444";
+        if (in_fps_num <= 0)  miss[nmiss++] = "--fps N[/D]";
+        if (nmiss) {
+            fprintf(stderr, "n265: raw input carries no header, so its "
+                    "geometry has to be given:");
+            for (int k = 0; k < nmiss; k++)
+                fprintf(stderr, " %s%s", miss[k], k + 1 < nmiss ? "," : "");
+            fprintf(stderr, "\n");
+            return 2;
+        }
+        if (in_depth == 0)
+            in_depth = 8;
+        if (in_depth != 8 && in_depth != 10) {
+            fprintf(stderr, "n265: --input-depth must be 8 or 10\n");
+            return 2;
+        }
+        yr = raw_open(&y, fin, in_w, in_h, in_csp, in_depth,
+                      in_fps_num, in_fps_den);
+    } else {
+        /* On a y4m the same four flags describe a file that describes
+         * itself, so they are refused rather than silently ignored: a
+         * --input-res that disagrees with the header is a mistake worth
+         * a message. */
+        if (in_w > 0 || in_csp >= 0 || in_depth || in_fps_num > 0) {
+            fprintf(stderr, "n265: --input-res / --input-csp / "
+                    "--input-depth / --fps describe RAW input; a y4m "
+                    "carries its own geometry\n");
+            return 2;
+        }
+        yr = y4m_open(&y, fin);
+    }
     if (yr < 0) {
         if (yr == -1)
-            fprintf(stderr, "n265: bad y4m input\n");
+            fprintf(stderr, want_raw ? "n265: cannot size the raw input\n"
+                                     : "n265: bad y4m input\n");
+        return 1;
+    }
+    /* --seek, after the open (the y4m header has to be read either way)
+     * and before anything is encoded. */
+    if (seek > 0 && src_skip(&y, seek) < 0) {
+        fprintf(stderr, "n265: --seek %ld runs past the end of %s\n",
+                seek, in_path);
         return 1;
     }
 
