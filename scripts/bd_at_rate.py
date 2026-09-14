@@ -151,6 +151,24 @@ def _write_json(path, v):
     os.replace(tmp, path)
 
 
+# Phase 13 B4: the extra metrics (per-plane SSIM, MS-SSIM) are read only
+# when they are asked for. `--extra` sets this; nothing else in the tree
+# does, so the band, the board and the goal legs pay nothing for it.
+#
+# They add NO TERM to either memo key, and that is deliberate. Both keys
+# already name everything the extra readings are a function of - the
+# bitstream (by content, in `_content_json`) or the exact command and
+# binary that wrote it (in `_key`), the source, the sample depth and the
+# FGC decode mode. A key term would therefore fork the cache and force a
+# re-encode and a re-VMAF of the whole corpus to learn nothing new. What
+# happens instead is what B0's plane split did: a point cached before B4
+# existed GAINS the extra keys on its next touch in `--extra` mode and
+# keeps its VMAF-NEG to the digit. A point never touched in `--extra` mode
+# simply does not carry them, which is why every reader below tests for
+# their presence rather than assuming it.
+EXTRA = False
+
+
 def vmaf_cached(tmpl, q, src, out, work):
     cb, cj = _cache_paths(tmpl, q, src)
     v = None
@@ -185,6 +203,8 @@ def vmaf_cached(tmpl, q, src, out, work):
             v[bd.CR_KEY] = cr
         if y is not None:
             v[bd.LUMA_KEY] = y
+    if v and EXTRA and any(k not in v for k in bd.EXTRA_KEYS):
+        v.update(bd.extras_of(out, src, work))
     if v:
         if ck:
             _write_json(ck, v)
@@ -223,12 +243,77 @@ def curve(tmpl, src, targets, work, label):
             return None
         c = v.get(bd.CHROMA_KEY)
         y = v.get(bd.LUMA_KEY)
-        pts.append((sz, v["VMAF-NEG"], c, y))
+        # The whole memo entry rides along as a fifth element so a reader
+        # that wants a metric this function does not name (B4's SSIM pair,
+        # MS-SSIM) does not need a second pass over the cache. The first
+        # four stay exactly where they were.
+        pts.append((sz, v["VMAF-NEG"], c, y, v))
         cs = f"  cPSNR {c:5.2f}" if isinstance(c, float) else ""
         ys = f"  yPSNR {y:5.2f}" if isinstance(y, float) else ""
+        es = ""
+        if EXTRA and bd.SSIM_Y_KEY in v:
+            es += f"  ssimY {bd.ssim_db(v[bd.SSIM_Y_KEY]):5.2f}dB"
+        if EXTRA and bd.MS_SSIM_KEY in v:
+            es += f"  msSSIM {bd.ssim_db(v[bd.MS_SSIM_KEY]):5.2f}dB"
         print(f"    {label:<22} target {t:>9} -> q {q:3d}  {sz:>9} B  "
-              f"NEG {v['VMAF-NEG']:6.2f}{ys}{cs}", flush=True)
+              f"NEG {v['VMAF-NEG']:6.2f}{ys}{cs}{es}", flush=True)
     return pts
+
+
+# The `--extra` report: (tag, memo key, transform, minimum overlap span).
+# The tag is what bd_vs_x265.py greps for, so it is one token with no
+# spaces and no overlap with `BD-rate(VMAF-NEG)`.
+#
+# The span is the guard that keeps a PINNED metric out of the table, and
+# it is not hypothetical: on sintel_720p the V plane's SSIM runs
+# 0.998676 to 0.998791 across the WHOLE four-rung ladder - 0.27 dB of
+# overlap over a 3x bitrate span - and BD-rate over it reads +977%. That
+# is the saturation case docs/instruments.md already describes for
+# VMAF-NEG on the board, one metric further out: the monotone fallback
+# keeps the number finite but no integrator recovers information that was
+# never measured. Below the span the cell prints `sat` and carries no
+# number; between the span and twice it the number prints with a trailing
+# `~`, meaning "the direction is a reading, the magnitude is not".
+_SPAN_DB = 0.5          # dB metrics: PSNR-Y, the SSIM pair, MS-SSIM
+_SPAN_VMAF = 0.5        # VMAF points
+
+
+def _extra_specs():
+    vlabel = bd._vmaf_models()[2]          # "VMAF", or "VMAF-v1" if a v1
+    return [                               # model path is in the environment
+        ("bdVMAF", vlabel, None, _SPAN_VMAF),
+        ("bdPSNRY", bd.LUMA_KEY, None, _SPAN_DB),
+        ("bdSSIMY", bd.SSIM_Y_KEY, bd.ssim_db, _SPAN_DB),
+        ("bdSSIMU", bd.SSIM_U_KEY, bd.ssim_db, _SPAN_DB),
+        ("bdSSIMV", bd.SSIM_V_KEY, bd.ssim_db, _SPAN_DB),
+        ("bdMSSSIM", bd.MS_SSIM_KEY, bd.ssim_db, _SPAN_DB),
+    ]
+
+
+def extra_line(clip, a, b):
+    """One line of BD-rates on the B4 metrics, over the SAME four matched-byte
+    rungs the VMAF-NEG number above it was integrated on. A metric missing
+    from any of the eight points is left out rather than guessed at, and one
+    whose overlap window has collapsed is printed as `sat` rather than as a
+    number nobody should read."""
+    ra, rb = [p[0] for p in a], [p[0] for p in b]
+    out = []
+    for tag, key, tx, span in _extra_specs():
+        va = [p[4].get(key) for p in a]
+        vbp = [p[4].get(key) for p in b]
+        if not all(isinstance(x, float) for x in va + vbp):
+            continue
+        if tx:
+            va, vbp = [tx(x) for x in va], [tx(x) for x in vbp]
+        # the same overlap window bd_rate integrates over
+        w = min(max(va), max(vbp)) - max(min(va), min(vbp))
+        if w < span:
+            out.append(f"{tag} sat")
+            continue
+        r = bd.bd_rate(rb, vbp, ra, va)
+        if isinstance(r, float):
+            out.append(f"{tag} {r:+.2f}%" + ("~" if w < 2 * span else ""))
+    return f"  {clip:<15} EXTRA  " + "  ".join(out) if out else ""
 
 
 def main():
@@ -247,8 +332,17 @@ def main():
     ap.add_argument("--depth", type=int, default=8, choices=(8, 10),
                     help="sample depth of the source and of the decode the "
                          "metrics read; in both memo keys")
+    ap.add_argument("--extra", action="store_true",
+                    help="phase 13 B4: also read per-plane SSIM and MS-SSIM "
+                         "off the same points and print a second line of "
+                         "BD-rates on them, plus VMAF (the default model) "
+                         "and PSNR-Y. Costs a decode and a filter run per "
+                         "point the memo has not seen them for; adds no "
+                         "term to either memo key and cannot move VMAF-NEG")
     args = ap.parse_args()
 
+    global EXTRA
+    EXTRA = args.extra
     # before any encode or any key: the depth picks the decode format
     bd.DEPTH = args.depth
     src = os.path.join(args.srcdir, args.clip + ".y4m")
@@ -287,6 +381,10 @@ def main():
         if isinstance(rc, float):
             line += f"  chromaPSNR {rc:+.2f}%"
     print(line)
+    if EXTRA:
+        el = extra_line(args.clip, a, b)
+        if el:
+            print(el)
 
 
 # guarded so the bisection and the encode memo can be imported
