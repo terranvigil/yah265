@@ -312,6 +312,18 @@ run_vector_env() {
     VENV=""
 }
 
+# --output-depth 8 on a 10-BIT source (phase 14 item 6): the source is
+# generated at ten bits and the 8-bit binary encodes it, which is the one
+# combination where the picture the library sees is not the bytes the file
+# carries. Only the SOURCE format changes; the encoder, the decoders and
+# the recon comparison are the 8-bit list's own.
+run_vector_10in() {
+    _sf10=$SRCFMT
+    SRCFMT="-pix_fmt yuv420p10le -strict -1 -f yuv4mpegpipe"
+    run_vector "$@"
+    SRCFMT=$_sf10
+}
+
 # TWO-PASS (phase 12 item 4): the same vector, with a --pass 1 in front.
 #
 # The source is generated here and run_vector regenerates the identical
@@ -1158,6 +1170,14 @@ run_vector nr_inter      352x288 20 testsrc2 "--keyint 6 --bframes 3 --crf 26 --
 # of the mini-GOP, so the tail is ragged on both.
 run_vector mcstf_r2      352x288 23 testsrc2 "--keyint 8 --bframes 3 --qp 28 --aq 1 --cutree 1 --mcstf --threads 4"
 run_vector mcstf_r4sel   352x288 23 testsrc2 "--keyint 8 --bframes 7 --crf 30 --aq 1 --cutree 1 --mcstf --mcstf-ref-range 4 --selective-mcstf --threads 12"
+# The 10-to-8 downshift and --dither (phase 14 item 6). The stream is an
+# ordinary Main profile one - a decoder learns nothing new - so what
+# these two claim is the READER: that a 10-bit file reduced in the read
+# loop produces a picture the encoder reconstructs and both decoders
+# agree with, at both reductions. The dithered arm is the one that would
+# expose an off-by-one in the clamp, since 1023 + 3 overflows the byte.
+run_vector_10in down8       352x288 16 testsrc2 "--keyint 8 --bframes 3 --qp 28 --aq 1 --cutree 1 --output-depth 8 --threads 4"
+run_vector_10in down8_dith  352x288 16 testsrc2 "--keyint 8 --bframes 3 --qp 28 --aq 1 --cutree 1 --output-depth 8 --dither --threads 4"
 # The NAL-level switches (phase 14 item 4). Every one of them puts a NAL
 # in the stream that nothing else here writes - an access unit delimiter
 # (35), an end of sequence (36), an end of bitstream (37), a repeated
