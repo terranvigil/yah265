@@ -79,6 +79,10 @@
 #define n265_dequant_neon            n265_dequant_neon_10
 #define n265_dequant_ref             n265_dequant_ref_10
 #define n265_dpb_requirement         n265_dpb_requirement_10
+#define n265_dup_fast                n265_dup_fast_10
+#define n265_dup_on                  n265_dup_on_10
+#define n265_dup_thr_q8              n265_dup_thr_q8_10
+#define n265_dup_trace               n265_dup_trace_10
 #define n265_encoder_set_dump        n265_encoder_set_dump_10
 #define n265_encoder_set_dump_decode n265_encoder_set_dump_decode_10
 #define n265_encoder_set_shot_stats  n265_encoder_set_shot_stats_10

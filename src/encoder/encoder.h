@@ -205,6 +205,14 @@ struct n265_refpic {
      * 0xff where nothing filled it. The collocated entry is the
      * temporal half of the depth bound. */
     uint8_t *ctu_dmin, *ctu_dmax;
+    /* The SOURCE this picture was coded from, as the duplicate chain
+     * identifies it (la.h): the run id, and the running lowres total the
+     * threshold form measures a distance against. Written at claim, on
+     * the driver, so a frame dispatched later reads the occupant its
+     * lists name. 0 is a slot no armed encode has claimed and never
+     * matches anything. */
+    int dup_grp;
+    uint64_t dup_cum;
 #ifdef N265_REF_CHECK
     /* The side-data half of N265_REF_CHECK. `gen` counts claims of this
      * slot (driver-serial, bumped in claim_slot); `row_gen[r]` carries
@@ -531,6 +539,28 @@ typedef struct n265_frame_work {
     const int16_t *la_mv;   /* lowres MV pairs, same grid (N265_DEPTH_DUMP) */
     const float *la_prop;   /* cu-tree propagate-in, same grid (N265_CU_TRACE) */
     int la_bw, la_bh;
+    /* The DUPLICATE path (phase 11 item 1, docs/phase11.md). `dup_grp`
+     * and `dup_cum` are this frame's own entries in the lookahead's
+     * duplicate chain (la.h).
+     *
+     * `dup_msk[l]` is the SET of references in list l whose source is
+     * this frame's source, one bit per reference index, resolved on the
+     * driver at dispatch out of the lists and the slots' own ids - so
+     * every CTU reads a decision frozen before a row job existed. A set
+     * and not one reference, because a picture inside a long hold has
+     * duplicates on BOTH sides and the prediction that averages two of
+     * them is a real candidate the rule must be able to take (the
+     * census: sita_flat_720p is 105 duplicate transitions in seven runs,
+     * and its leaves are coded bi).
+     *
+     * `dup_l` / `dup_r` name the first of them, which is what the census
+     * measures the coded area against, and are -1 when the set is empty.
+     * `dup_exact` says at least one of them compared equal sample for
+     * sample rather than inside the threshold form's bound. */
+    int dup_grp;
+    uint64_t dup_cum, dup_zsad;
+    uint32_t dup_msk[2];
+    int dup_l, dup_r, dup_exact;
 
     /* N265_DEPTH_DUMP: one record per coded CTU, filled by the row job
      * into its own slot and written out on the driver at retirement, so
