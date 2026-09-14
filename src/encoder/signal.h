@@ -28,9 +28,19 @@
 
 #include <stdint.h>
 
-/* The three HDR10 messages share one prefix SEI RBSP: 24 + 4 + 1 payload
- * bytes, two header bytes each and the trailing byte. 64 is triple. */
-#define N265_HDR_SEI_MAX    64
+/* The value tables, in the order the syntax element numbers them: the
+ * INDEX of a name is the code it stands for, so the table is both the
+ * parser and the documentation. n265_vui_names() hands one out so the
+ * CLI's refusal can print it rather than keeping a second copy. */
+enum {
+    N265_VUI_COLORPRIM = 0,
+    N265_VUI_TRANSFER,
+    N265_VUI_COLORMATRIX,
+    N265_VUI_VIDEOFORMAT,
+    N265_VUI_RANGE,
+    N265_VUI_OVERSCAN,
+    N265_VUI_NFIELD,
+};
 
 typedef struct n265_signal {
     /* --hash: 0 off, else hash_type + 1 (x265's numbering: 1 MD5, 2 CRC,
@@ -66,5 +76,23 @@ typedef struct n265_signal {
     int atc;                /* --atc-sei: preferred_transfer_characteristics,
                              * -1 = no message                         */
 } n265_signal;
+
+/* The name table for one field, NULL-terminated, index == code. */
+const char * const *n265_vui_names(int field);
+
+/* A name from that table, or a bare number x265 would also take. -1 if it
+ * is neither, or if the number is outside the field's range. */
+int n265_vui_parse(int field, const char *s);
+
+/* "16:9" or a Table E.1 index; 0 (Unspecified) is a legal value and is
+ * what x265's `--sar 0` writes. Returns 0 on success and fills the three
+ * fields, -1 on a spelling that is neither. */
+int n265_sar_parse(const char *s, int *idc, int *w, int *h);
+
+/* "left,top,right,bottom" in LUMA samples. 0 on success. */
+int n265_window_parse(const char *s, int *l, int *t, int *r, int *b);
+
+/* Does the VUI have to be present for this configuration, timing aside? */
+int n265_vui_needed(const n265_signal *s);
 
 #endif

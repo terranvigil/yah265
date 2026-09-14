@@ -103,8 +103,8 @@ static int g_fgc_denoise = 0;
 static double g_vbv_maxrate = 0.0;  /* --vbv-maxrate, kbit/s */
 static double g_vbv_bufsize = 0.0;  /* --vbv-bufsize, kbit   */
 static double g_vbv_init = 0.9;     /* --vbv-init, a fraction of the buffer */
-/* Pass-through signalling (phase 14 item 1). The struct is the item's, and
- * this commit fills in one field of it: the decoded picture hash. It is OFF
+/* Pass-through signalling (phase 14 item 1): the decoded picture hash and
+ * the VUI's colour description. The whole struct is OFF
  * here - every field -1 or 0 - and off is what every board, band and gate
  * leg runs, which is what makes "no flag, no byte moves" the item's identity
  * claim. Nothing in it reaches a coding decision; see signal.h. */
@@ -193,14 +193,55 @@ void n265_set_vbv(double maxrate, double bufsize, double init)
 /* ---- the pass-through signalling setters (phase 14 item 1) ----
  *
  * One per group of flags, and every argument is already the SYNTAX
- * ELEMENT: the CLI owns the string forms and the library never sees a
- * name. None of them reaches a coding decision; see signal.h. */
+ * ELEMENT: the CLI owns the string forms (signal.c's tables) and the
+ * library never sees a name. -1 means "not given" in every field that has
+ * an absence, which is what the SPS writer turns into a presence flag of
+ * 0. None of them reaches a coding decision; see signal.h. */
 
 /* --hash, in x265's numbering: 0 off, 1 MD5, 2 CRC, 3 checksum. */
 void n265_set_hash(int type);
 void n265_set_hash(int type)
 {
     g_sig.hash = type >= 0 && type <= 3 ? type : 0;
+}
+
+/* the VUI's colour block: video_format, video_full_range_flag, the three
+ * colour description fields, chroma_sample_loc_type and the overscan flag
+ * (-1 for every one that was not given). */
+void n265_set_vui_colour(int videoformat, int full_range, int colorprim,
+                         int transfer, int colormatrix, int chromaloc,
+                         int overscan);
+void n265_set_vui_colour(int videoformat, int full_range, int colorprim,
+                         int transfer, int colormatrix, int chromaloc,
+                         int overscan)
+{
+    g_sig.videoformat = videoformat;
+    g_sig.full_range = full_range;
+    g_sig.colorprim = colorprim;
+    g_sig.transfer = transfer;
+    g_sig.colormatrix = colormatrix;
+    g_sig.chromaloc = chromaloc;
+    g_sig.overscan = overscan;
+}
+
+/* aspect_ratio_idc, and the explicit pair when it is 255 (EXTENDED_SAR). */
+void n265_set_vui_sar(int idc, int w, int h);
+void n265_set_vui_sar(int idc, int w, int h)
+{
+    g_sig.sar_idc = idc;
+    g_sig.sar_w = w;
+    g_sig.sar_h = h;
+}
+
+/* the default display window, in LUMA samples (the writer divides). */
+void n265_set_vui_window(int on, int l, int t, int r, int b);
+void n265_set_vui_window(int on, int l, int t, int r, int b)
+{
+    g_sig.win_on = on != 0;
+    g_sig.win_l = l;
+    g_sig.win_t = t;
+    g_sig.win_r = r;
+    g_sig.win_b = b;
 }
 
 void n265_set_bitrate(double kbps) { g_bitrate = kbps > 0.0 ? kbps : 0.0; }

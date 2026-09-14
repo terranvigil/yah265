@@ -263,6 +263,11 @@
  * they are declared in include/yah265.h and take their suffix from
  * N265_API like every other public entry point. A name in both places is
  * a macro redefinition and the compiler says so. */
+#define n265_vui_names               n265_vui_names_10
+#define n265_vui_parse               n265_vui_parse_10
+#define n265_sar_parse               n265_sar_parse_10
+#define n265_window_parse            n265_window_parse_10
+#define n265_vui_needed              n265_vui_needed_10
 #define n265_hash_plane              n265_hash_plane_10
 #define n265_md5                     n265_md5_10
 #define n265_write_hash_sei          n265_write_hash_sei_10

@@ -31,6 +31,24 @@ void n265_set_vbv(double maxrate, double bufsize, double init);
  * arithmetic over the Annex A table, so the 8-bit copy serves both
  * libraries and the dispatch table does not carry it. */
 int n265_level_parse(const char *s);
+/* The pass-through signalling flags' STRING forms (phase 14 item 1,
+ * src/encoder/signal.h): the value tables of Annex E with x265's
+ * spellings, and the four compound syntaxes. Depth-independent for the
+ * same reason n265_level_parse is, so the 8-bit copy serves both
+ * libraries and only the numeric SETTERS ride the dispatch table. */
+enum {
+    N265_VUI_COLORPRIM = 0,
+    N265_VUI_TRANSFER,
+    N265_VUI_COLORMATRIX,
+    N265_VUI_VIDEOFORMAT,
+    N265_VUI_RANGE,
+    N265_VUI_OVERSCAN,
+};
+const char * const *n265_vui_names(int field);
+int n265_vui_parse(int field, const char *s);
+int n265_sar_parse(const char *s, int *idc, int *w, int *h);
+int n265_window_parse(const char *s, int *l, int *t, int *r, int *b);
+
 /* ---------------------------------------------------------------------
  * Both libraries, one command line (phase 8 item 5a).
  *
@@ -64,6 +82,11 @@ void n265_set_vui_timing_10(int on);
 void n265_set_film_grain_10(double strength, int denoise);
 void n265_set_vbv_10(double maxrate, double bufsize, double init);
 void n265_set_hash_10(int type);
+void n265_set_vui_colour_10(int videoformat, int full_range, int colorprim,
+                            int transfer, int colormatrix, int chromaloc,
+                            int overscan);
+void n265_set_vui_sar_10(int idc, int w, int h);
+void n265_set_vui_window_10(int on, int l, int t, int r, int b);
 int  n265_set_preset_10(const char *name);
 int  n265_preset_param_10(const char *key, int fallback);
 n265_encoder *n265_encoder_open_10(const n265_param *p);
@@ -97,8 +120,12 @@ typedef struct n265_api {
     void (*set_film_grain)(double, int);
     void (*set_vbv)(double, double, double);
     /* the pass-through signalling setters (phase 14 item 1). They take
-     * syntax elements, never names. */
+     * syntax elements, never names: the tables above turn the command
+     * line's spellings into numbers once, before the dispatch. */
     void (*set_hash)(int);
+    void (*set_vui_colour)(int, int, int, int, int, int, int);
+    void (*set_vui_sar)(int, int, int);
+    void (*set_vui_window)(int, int, int, int, int);
     n265_encoder *(*encoder_open)(const n265_param *);
     int  (*encoder_encode)(n265_encoder *, n265_nal **, int *,
                            const n265_picture *);
@@ -115,7 +142,8 @@ static const n265_api api8 = {
     n265_set_preset, n265_preset_param, n265_set_shot_window, n265_set_pass,
     n265_set_lossless, n265_set_level, n265_set_vui_timing,
     n265_set_film_grain, n265_set_vbv,
-    n265_set_hash,
+    n265_set_hash, n265_set_vui_colour, n265_set_vui_sar,
+    n265_set_vui_window,
     n265_encoder_open, n265_encoder_encode, n265_encoder_close,
     n265_version_str, n265_encoder_set_dump, n265_encoder_set_dump_decode,
     n265_encoder_set_shot_stats,
@@ -128,7 +156,8 @@ static const n265_api api10 = {
     n265_preset_param_10, n265_set_shot_window_10, n265_set_pass_10,
     n265_set_lossless_10, n265_set_level_10, n265_set_vui_timing_10,
     n265_set_film_grain_10, n265_set_vbv_10,
-    n265_set_hash_10,
+    n265_set_hash_10, n265_set_vui_colour_10, n265_set_vui_sar_10,
+    n265_set_vui_window_10,
     n265_encoder_open_10,
     n265_encoder_encode_10, n265_encoder_close_10, n265_version_str_10,
     n265_encoder_set_dump_10, n265_encoder_set_dump_decode_10,
@@ -485,11 +514,68 @@ static void usage(void)
         "                  so any decoder can self-check our streams:\n"
         "                  `ffmpeg -err_detect crccheck -v debug` verifies\n"
         "                  the MD5 form and says so per picture.\n"
+        "\n"
+        "  VUI colour signalling. All of it is\n"
+        "  PASS-THROUGH: it describes the pictures you handed in, changes no\n"
+        "  coded sample, and is absent unless you name the flag. Every value\n"
+        "  flag takes x265's name or the bare number Annex E gives it.\n"
+        "  --colorprim <p> colour primaries: bt709, unknown, bt470m,\n"
+        "                  bt470bg, smpte170m, smpte240m, film, bt2020,\n"
+        "                  smpte428, smpte431, smpte432 (Table E.3)\n"
+        "  --transfer <t>  transfer characteristics: bt709, unknown,\n"
+        "                  bt470m, bt470bg, smpte170m, smpte240m, linear,\n"
+        "                  log100, log316, iec61966-2-4, bt1361e,\n"
+        "                  iec61966-2-1, bt2020-10, bt2020-12, smpte2084\n"
+        "                  (PQ), smpte428, arib-std-b67 (HLG) (Table E.4)\n"
+        "  --colormatrix <m>  matrix coefficients: gbr, bt709, unknown,\n"
+        "                  fcc, bt470bg, smpte170m, smpte240m, ycgco,\n"
+        "                  bt2020nc, bt2020c, smpte2085, chroma-derived-nc,\n"
+        "                  chroma-derived-c, ictcp, ipt-pq-c2 (Table E.5)\n"
+        "  --range <r>     limited or full luma and chroma range. Full-range\n"
+        "                  content decoded as limited is washed out, and\n"
+        "                  nothing but this flag says which it is.\n"
+        "  --videoformat <f>  component, pal, ntsc, secam, mac or unknown\n"
+        "  --chromaloc <n> chroma sample location 0..5 (E.2.1). 2 is what\n"
+        "                  BT.2020 and BT.2100 ask for.\n"
+        "  --overscan <o>  unknown (write nothing, the default), show or\n"
+        "                  crop: whether the cropped region is appropriate\n"
+        "                  to display using overscan\n"
+        "  --sar <w:h|n>   sample aspect ratio. A RATIO is written as\n"
+        "                  EXTENDED_SAR with the pair after it; a NUMBER is\n"
+        "                  the Table E.1 index 0..16. Anamorphic content\n"
+        "                  decodes at the wrong shape without it.\n"
+        "  --display-window <l,t,r,b>  overscan cropping region in PIXELS.\n"
+        "                  The syntax is in chroma samples, so the offsets\n"
+        "                  must be multiples of SubWidthC / SubHeightC and\n"
+        "                  are divided on the way out - x265 takes the same\n"
+        "                  flag in pixels and writes them unshifted, which\n"
+        "                  at 4:2:0 signals twice the region it was given.\n"
+        "                  Distinct from the conformance window, which is\n"
+        "                  this encoder's own padding crop.\n"
         "  --verbose, -v   one line at open with the level and tier chosen\n"
         "                  and every Annex A bound that drove them\n"
         "                  (N265_LEVEL_TRACE=1 is the same line)\n"
         "  --version       print version\n");
 }
+
+/* One VUI value flag, parsed the way x265 parses it: a name from the
+ * field's own table, or the bare number. A refusal prints the table
+ * rather than the shrug a lookup failure would otherwise be - the table
+ * lives in the library (src/encoder/signal.c) and is not copied here. */
+#define SIGARG(field, var) do { \
+    const char *v_ = argv[++i]; \
+    (var) = n265_vui_parse((field), v_); \
+    if ((var) < 0) { \
+        fprintf(stderr, "n265: %s %s is not a value of that field. The " \
+                "names are:", argv[i - 1], v_); \
+        const char * const *n_ = n265_vui_names(field); \
+        for (int k_ = 0; n_ && n_[k_]; k_++) \
+            fprintf(stderr, " %s", n_[k_]); \
+        fprintf(stderr, " - or the number itself (Annex E's tables " \
+                "number them in that order).\n"); \
+        return 2; \
+    } \
+} while (0)
 
 int main(int argc, char **argv)
 {
@@ -508,8 +594,15 @@ int main(int argc, char **argv)
     /* --vbv-maxrate / --vbv-bufsize / --vbv-init; 0/0 is the mode off,
      * which is every encode before phase 12 item 2. */
     double vbv_maxrate = 0.0, vbv_bufsize = 0.0, vbv_init = 0.9;
-    /* --hash (phase 14 item 1): 0 is off and off is the default. */
+    /* Pass-through signalling (phase 14 item 1). -1 is "the flag was not
+     * given" in every field that has an absence; give none of them and
+     * nothing below reaches the stream. */
     int hash = 0;
+    int sig_videoformat = -1, sig_range = -1, sig_overscan = -1;
+    int sig_colorprim = -1, sig_transfer = -1, sig_colormatrix = -1;
+    int sig_chromaloc = -1;
+    int sar_idc = -1, sar_w = 0, sar_h = 0;
+    int win_on = 0, win_l = 0, win_t = 0, win_r = 0, win_b = 0;
     int had_crf = 0;            /* --crf given: the ON switch, not crf >= 0 */
     int out_depth = 0;          /* --output-depth; 0 = the input's */
     int nref = 1, badapt = 1;
@@ -588,6 +681,43 @@ int main(int argc, char **argv)
             vbv_init = atof(argv[++i]);
         } else if (!strcmp(argv[i], "--hash") && i + 1 < argc) {
             hash = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--colorprim") && i + 1 < argc) {
+            SIGARG(N265_VUI_COLORPRIM, sig_colorprim);
+        } else if (!strcmp(argv[i], "--transfer") && i + 1 < argc) {
+            SIGARG(N265_VUI_TRANSFER, sig_transfer);
+        } else if (!strcmp(argv[i], "--colormatrix") && i + 1 < argc) {
+            SIGARG(N265_VUI_COLORMATRIX, sig_colormatrix);
+        } else if (!strcmp(argv[i], "--videoformat") && i + 1 < argc) {
+            SIGARG(N265_VUI_VIDEOFORMAT, sig_videoformat);
+        } else if (!strcmp(argv[i], "--range") && i + 1 < argc) {
+            SIGARG(N265_VUI_RANGE, sig_range);
+        } else if (!strcmp(argv[i], "--overscan") && i + 1 < argc) {
+            SIGARG(N265_VUI_OVERSCAN, sig_overscan);
+            /* "unknown" is the absence of the field and not a value of
+             * it, and the table's last entry is what says so. */
+            if (sig_overscan == 2)
+                sig_overscan = -1;
+        } else if (!strcmp(argv[i], "--chromaloc") && i + 1 < argc) {
+            sig_chromaloc = atoi(argv[++i]);
+            if (sig_chromaloc < 0 || sig_chromaloc > 5) {
+                fprintf(stderr, "n265: --chromaloc is 0..5 (E.2.1's "
+                        "chroma_sample_loc_type)\n");
+                return 2;
+            }
+        } else if (!strcmp(argv[i], "--sar") && i + 1 < argc) {
+            if (n265_sar_parse(argv[++i], &sar_idc, &sar_w, &sar_h) < 0) {
+                fprintf(stderr, "n265: --sar takes a ratio (\"16:9\") or a "
+                        "Table E.1 index 0..16\n");
+                return 2;
+            }
+        } else if (!strcmp(argv[i], "--display-window") && i + 1 < argc) {
+            if (n265_window_parse(argv[++i], &win_l, &win_t, &win_r,
+                                  &win_b) < 0) {
+                fprintf(stderr, "n265: --display-window is "
+                        "\"left,top,right,bottom\" in pixels\n");
+                return 2;
+            }
+            win_on = 1;
         } else if (!strcmp(argv[i], "--dump-recon") && i + 1 < argc) {
             dump_path = argv[++i];
         } else if (!strcmp(argv[i], "--shot-window") && i + 1 < argc) {
@@ -776,6 +906,34 @@ int main(int argc, char **argv)
         return 2;
     }
     a->set_hash(hash);
+    /* The default display window is signalled in CHROMA units (7.4.3.2.1)
+     * and the flag takes pixels, so an offset that is not a whole number
+     * of chroma samples cannot be written. x265 documents the same flag in
+     * pixels and then writes them unshifted, which at 4:2:0 signals twice
+     * the region it was given; refusing the odd offset is the honest half
+     * of matching that spelling. */
+    if (win_on) {
+        int sx = y.csx, sy = y.csy;
+        if ((win_l & ((1 << sx) - 1)) || (win_r & ((1 << sx) - 1)) ||
+            (win_t & ((1 << sy) - 1)) || (win_b & ((1 << sy) - 1))) {
+            fprintf(stderr, "n265: --display-window offsets are signalled "
+                    "in chroma samples, so at this chroma format the "
+                    "horizontal ones must be multiples of %d and the "
+                    "vertical ones of %d\n", 1 << sx, 1 << sy);
+            return 2;
+        }
+        if (win_l + win_r >= y.w || win_t + win_b >= y.h) {
+            fprintf(stderr, "n265: --display-window %d,%d,%d,%d leaves no "
+                    "picture inside %dx%d\n", win_l, win_t, win_r, win_b,
+                    y.w, y.h);
+            return 2;
+        }
+    }
+    a->set_vui_colour(sig_videoformat, sig_range, sig_colorprim,
+                      sig_transfer, sig_colormatrix, sig_chromaloc,
+                      sig_overscan);
+    a->set_vui_sar(sar_idc, sar_w, sar_h);
+    a->set_vui_window(win_on, win_l, win_t, win_r, win_b);
     /* --verbose is N265_LEVEL_TRACE by another name: one code path, one
      * line, and a script that wants it without a flag sets the variable.
      * setenv does not overwrite, so an explicit N265_LEVEL_TRACE=0 in the

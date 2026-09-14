@@ -81,6 +81,9 @@ typedef uint16_t n265_pixel;
 #define n265_set_badapt       N265_API(n265_set_badapt)
 #define n265_set_threads      N265_API(n265_set_threads)
 #define n265_set_hash         N265_API(n265_set_hash)
+#define n265_set_vui_colour   N265_API(n265_set_vui_colour)
+#define n265_set_vui_sar      N265_API(n265_set_vui_sar)
+#define n265_set_vui_window   N265_API(n265_set_vui_window)
 #define n265_set_preset       N265_API(n265_set_preset)
 #define n265_preset_param     N265_API(n265_preset_param)
 #define n265_encoder_open     N265_API(n265_encoder_open)
@@ -185,12 +188,32 @@ YAH265_API void n265_set_threads(int n);
 
 /* ---- pass-through signalling (phase 14 item 1) ----
  *
- * The decoded picture hash: one suffix SEI per picture, D.2.19, taken
- * over the CODED picture - 0 off, then x265's numbering, 1 MD5, 2 CRC,
- * 3 checksum. It changes no coded sample and costs one pass over the
- * reconstruction at retirement; give it and nothing else and the VCL
- * NALs are byte for byte the ones this encoder wrote before it. */
+ * NONE of these changes a coded sample: they fill in the VUI's colour
+ * description, the sample aspect ratio, the default display window and
+ * the decoded picture hash. Give none of them and the stream is byte for
+ * byte the one this encoder wrote before they existed.
+ *
+ * Every argument is already the SYNTAX ELEMENT of ITU-T H.265 Annex E or
+ * Annex D - a colour primary is Table E.3's number, not a name - so a
+ * caller that has a name parses it itself or uses n265 the binary, which
+ * accepts x265's spellings. -1 means "not given" in every field that has
+ * an absence, and an absent field's presence flag is 0.
+ *
+ * The decoded picture hash is one suffix SEI per picture, D.2.19, taken
+ * over the CODED picture: 0 off, then x265's numbering - 1 MD5, 2 CRC,
+ * 3 checksum. It costs a pass over the reconstruction at retirement. */
 YAH265_API void n265_set_hash(int type);
+YAH265_API void n265_set_vui_colour(int videoformat, int full_range,
+                                     int colorprim, int transfer,
+                                     int colormatrix, int chromaloc,
+                                     int overscan);
+/* aspect_ratio_idc, and the pair that follows it when it is 255
+ * (EXTENDED_SAR). -1 writes no aspect ratio at all. */
+YAH265_API void n265_set_vui_sar(int idc, int w, int h);
+/* the default display window, in LUMA samples; the writer converts to the
+ * chroma units the syntax is in. */
+YAH265_API void n265_set_vui_window(int on, int l, int t, int r, int b);
+
 /* Speed/quality preset: "fast", "medium" (the default), "slow" or
  * "slower". Returns 0, or -1 for a name it does not know, in which case
  * nothing changes. A preset only supplies DEFAULTS: it is read where a

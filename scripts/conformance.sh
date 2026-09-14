@@ -1024,6 +1024,13 @@ run_vector_dup "N265_DUP_FAST=1 N265_DUP_THR=0.5" \
 # DISPLAY order, so a hash taken from the wrong frame passes a count and
 # fails a comparison. run_vector's hash leg is what compares them.
 run_vector hash_md5      352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 26 --aq 1 --cutree 1 --hash 1 --threads 4"
+# ...and the VUI colour block without it, on a picture that also has a
+# CONFORMANCE window, so the two windows are in the same SPS and a
+# decoder has to keep them apart: the conformance window crops 210x122 up
+# to 216x128 and the default display window asks for six more pixels of
+# the coded picture to be hidden. Everything here is signalling, so the
+# claim is that both decoders still reconstruct the same samples.
+run_vector vui_colour    210x122 12 testsrc2 "--keyint 6 --bframes 3 --qp 30 --colorprim bt709 --transfer bt709 --colormatrix bt709 --range full --videoformat pal --chromaloc 0 --overscan crop --sar 16:9 --display-window 2,2,4,4 --threads 4"
 run_vector fgc_sei       352x288 20 testsrc2 "--keyint 6 --bframes 3 --aq 1 --cutree 1 --film-grain 1.0 --threads 4"
 run_vector fgc_denoise   352x288 20 testsrc2 "--keyint 6 --bframes 3 --aq 1 --cutree 1 --film-grain 1.0 --film-grain-denoise 1 --threads 12"
 

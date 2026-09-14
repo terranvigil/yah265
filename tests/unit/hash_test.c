@@ -35,6 +35,7 @@
 
 #include "common/bitstream.h"
 #include "encoder/hash.h"
+#include "encoder/signal.h"
 
 void n265_write_hash_sei(bitstream_t *bs, const n265_pic_hash *h, int ncomp);
 
@@ -253,12 +254,69 @@ static void test_hash_sei_syntax(void)
     bs_free(&bs);
 }
 
+/* The value tables: index IS the code, and a dropped "reserved" entry
+ * would shift everything after it. These are the codes of Tables E.2 to
+ * E.5 read off the spec, not off the table under test. */
+static void test_value_tables(void)
+{
+    static const struct { int field; const char *name; int code; } v[] = {
+        { N265_VUI_COLORPRIM,   "bt709",        1 },
+        { N265_VUI_COLORPRIM,   "unknown",      2 },
+        { N265_VUI_COLORPRIM,   "bt2020",       9 },
+        { N265_VUI_COLORPRIM,   "smpte432",    12 },
+        { N265_VUI_TRANSFER,    "bt709",        1 },
+        { N265_VUI_TRANSFER,    "bt2020-10",   14 },
+        { N265_VUI_TRANSFER,    "smpte2084",   16 },
+        { N265_VUI_TRANSFER,    "arib-std-b67",18 },
+        { N265_VUI_COLORMATRIX, "gbr",          0 },
+        { N265_VUI_COLORMATRIX, "bt709",        1 },
+        { N265_VUI_COLORMATRIX, "bt2020nc",     9 },
+        { N265_VUI_COLORMATRIX, "ictcp",       14 },
+        { N265_VUI_VIDEOFORMAT, "component",    0 },
+        { N265_VUI_VIDEOFORMAT, "pal",          1 },
+        { N265_VUI_VIDEOFORMAT, "unknown",      5 },
+        { N265_VUI_RANGE,       "limited",      0 },
+        { N265_VUI_RANGE,       "full",         1 },
+        { N265_VUI_OVERSCAN,    "show",         0 },
+        { N265_VUI_OVERSCAN,    "crop",         1 },
+        { N265_VUI_OVERSCAN,    "unknown",      2 },
+    };
+    for (size_t i = 0; i < sizeof v / sizeof v[0]; i++) {
+        int got = n265_vui_parse(v[i].field, v[i].name);
+        CHECK(got == v[i].code, "%s parses to %d, want %d", v[i].name, got,
+              v[i].code);
+    }
+    /* the numeric form x265 also takes, and its bounds */
+    CHECK(n265_vui_parse(N265_VUI_TRANSFER, "18") == 18, "numeric transfer");
+    CHECK(n265_vui_parse(N265_VUI_TRANSFER, "255") == 255, "u(8) bound");
+    CHECK(n265_vui_parse(N265_VUI_TRANSFER, "256") == -1, "u(8) overflow");
+    CHECK(n265_vui_parse(N265_VUI_VIDEOFORMAT, "8") == -1, "u(3) overflow");
+    CHECK(n265_vui_parse(N265_VUI_COLORPRIM, "bt709x") == -1,
+          "a name with a tail");
+
+    /* the compound syntaxes */
+    int idc = -1, w = 0, h = 0;
+    CHECK(n265_sar_parse("16:9", &idc, &w, &h) == 0 && idc == 255 &&
+          w == 16 && h == 9, "--sar 16:9 -> EXTENDED_SAR 16 9");
+    CHECK(n265_sar_parse("14", &idc, &w, &h) == 0 && idc == 14,
+          "--sar 14 -> the Table E.1 index");
+    CHECK(n265_sar_parse("17", &idc, &w, &h) == -1, "--sar 17 is not a row");
+    CHECK(n265_sar_parse("16:", &idc, &w, &h) == -1, "--sar 16: is not a pair");
+
+    int l, t, r, b;
+    CHECK(n265_window_parse("4,2,6,8", &l, &t, &r, &b) == 0 && l == 4 &&
+          t == 2 && r == 6 && b == 8, "--display-window l,t,r,b");
+    CHECK(n265_window_parse("4,2,6", &l, &t, &r, &b) == -1, "three of four");
+
+}
+
 int main(void)
 {
     test_md5_vectors();
     test_known_plane();
     test_checksum_is_positional();
     test_hash_sei_syntax();
+    test_value_tables();
     if (fails)
         printf("hash_test: %d failure(s)\n", fails);
     else
