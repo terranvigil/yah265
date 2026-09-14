@@ -54,6 +54,9 @@ void n265_set_chroma_qpoffs(int cb, int cr);
 void n265_set_level(int idc, int high_tier);
 void n265_set_vui_timing(int on);
 void n265_set_film_grain(double strength, int denoise);
+/* --nr-intra / --nr-inter (phase 14 item 6): the coefficient-domain
+ * noise reduction, 0..2000 each, 0 off. */
+void n265_set_nr(int intra, int inter);
 /* The hypothetical decoder buffer (phase 12 item 2): kbit/s, kbit, and a
  * fraction of the buffer. 0 / 0 is the mode off. */
 void n265_set_vbv(double maxrate, double bufsize, double init);
@@ -114,6 +117,7 @@ void n265_set_chroma_qpoffs_10(int cb, int cr);
 void n265_set_level_10(int idc, int high_tier);
 void n265_set_vui_timing_10(int on);
 void n265_set_film_grain_10(double strength, int denoise);
+void n265_set_nr_10(int intra, int inter);
 void n265_set_vbv_10(double maxrate, double bufsize, double init);
 void n265_set_hash_10(int type);
 void n265_set_gop_10(int open_gop, int radl);
@@ -171,6 +175,7 @@ typedef struct n265_api {
     void (*set_vbv)(double, double, double);
     void (*set_rdoq_level)(int);
     void (*set_chroma_qpoffs)(int, int);
+    void (*set_nr)(int, int);       /* --nr-intra / --nr-inter (item 6) */
     /* the pass-through signalling setters (phase 14 item 1). They take
      * syntax elements, never names: the tables above turn the command
      * line's spellings into numbers once, before the dispatch. */
@@ -207,7 +212,7 @@ static const n265_api api8 = {
     n265_set_shot_window, n265_set_pass,
     n265_set_lossless, n265_set_level, n265_set_vui_timing,
     n265_set_film_grain, n265_set_vbv, n265_set_rdoq_level,
-    n265_set_chroma_qpoffs,
+    n265_set_chroma_qpoffs, n265_set_nr,
     n265_set_hash, n265_set_gop, n265_set_vui_colour, n265_set_vui_sar,
     n265_set_vui_window, n265_set_hdr_meta, n265_set_hdr10,
     n265_encoder_open, n265_encoder_encode, n265_encoder_close,
@@ -226,7 +231,7 @@ static const n265_api api10 = {
     n265_set_shot_window_10, n265_set_pass_10,
     n265_set_lossless_10, n265_set_level_10, n265_set_vui_timing_10,
     n265_set_film_grain_10, n265_set_vbv_10, n265_set_rdoq_level_10,
-    n265_set_chroma_qpoffs_10,
+    n265_set_chroma_qpoffs_10, n265_set_nr_10,
     n265_set_hash_10, n265_set_gop_10, n265_set_vui_colour_10,
     n265_set_vui_sar_10,
     n265_set_vui_window_10, n265_set_hdr_meta_10, n265_set_hdr10_10,
@@ -924,6 +929,17 @@ static void usage(void)
         "                  spends nothing on grain and the decoder puts it\n"
         "                  back. Without it the SEI only adds grain to a\n"
         "                  picture that already has some.\n"
+        "  --nr-intra <0-2000>  coefficient-domain noise reduction in intra\n"
+        "                  blocks (default 0, off). A per-coefficient-\n"
+        "                  POSITION offset, learned from the magnitudes this\n"
+        "                  encode has already produced, taken off every\n"
+        "                  coefficient toward zero before it is quantised. A\n"
+        "                  position that is usually quiet is noise and is\n"
+        "                  attenuated; a position that is usually loud is\n"
+        "                  structure and is left nearly alone. Opt-in: it\n"
+        "                  changes the picture, and what it is worth depends\n"
+        "                  on how noisy the source is (docs/phase14.md).\n"
+        "  --nr-inter <0-2000>  the same in inter blocks (default 0, off).\n"
         "  --vbv-maxrate <k>  hypothetical decoder buffer: the CPB arrival\n"
         "                  rate in kbit/s. With --vbv-bufsize it holds the\n"
         "                  encode inside a decoder buffer that never\n"
@@ -1048,6 +1064,8 @@ int main(int argc, char **argv)
     int high_tier = 0, vui_timing = 1, verbose = 0;   /* VUI timing on since 2026-09-12 */
     double film_grain = 0.0;    /* --film-grain: 0 = off, and off is the default */
     int fgc_denoise = 0;        /* --film-grain-denoise */
+    /* --nr-intra / --nr-inter: 0 / 0 = off, x265's default and ours */
+    int nr_intra = 0, nr_inter = 0;
     double crf = -1.0, bitrate = 0.0;
     /* --vbv-maxrate / --vbv-bufsize / --vbv-init; 0/0 is the mode off,
      * which is every encode before phase 12 item 2. */
@@ -1299,6 +1317,10 @@ int main(int argc, char **argv)
             film_grain = atof(argv[++i]);
         } else if (!strcmp(argv[i], "--film-grain-denoise") && i + 1 < argc) {
             fgc_denoise = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--nr-intra") && i + 1 < argc) {
+            nr_intra = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--nr-inter") && i + 1 < argc) {
+            nr_inter = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--vbv-maxrate") && i + 1 < argc) {
             vbv_maxrate = atof(argv[++i]);
         } else if (!strcmp(argv[i], "--vbv-bufsize") && i + 1 < argc) {
@@ -1663,6 +1685,12 @@ int main(int argc, char **argv)
     }
     a->set_vui_timing(vui_timing);
     a->set_film_grain(film_grain, fgc_denoise);
+    if (nr_intra < 0 || nr_intra > 2000 || nr_inter < 0 || nr_inter > 2000) {
+        fprintf(stderr, "n265: --nr-intra/--nr-inter take 0..2000 "
+                "(x265's range); 0 is off\n");
+        return 2;
+    }
+    a->set_nr(nr_intra, nr_inter);
     a->set_vbv(vbv_maxrate, vbv_bufsize, vbv_init);
     /* ---- the pass-through signalling (phase 14 item 1) ---- */
     if (hash < 0 || hash > 3) {

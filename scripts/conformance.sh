@@ -711,6 +711,11 @@ if [ "$DEPTH" = 10 ]; then
     # the barrier and the NAL typing are depth-independent, and this is
     # what says the second dispatch table agrees.
     run_vector m10_opengop 352x288 26 testsrc2 "--keyint 8 --bframes 7 --ref 2 --crf 26 --aq 1 --cutree 1 --open-gop --threads 4"
+    # the noise reduction at Main10, where the coefficients are four
+    # times what they are at 8 bits and the estimator's reciprocal is
+    # therefore a quarter: it says the second dispatch table agrees and
+    # that nothing in the offset arithmetic assumed an 8-bit magnitude.
+    run_vector m10_nr      352x288 24 testsrc2 "--keyint 6 --bframes 3 --qp 24 --aq 1 --cutree 1 --nr-intra 1000 --nr-inter 1000 --threads 12"
     run_vector m10_hdr10 352x288 24 testsrc2 "--keyint 8 --bframes 3 --crf 28 --aq 1 --cutree 1 --hash 1 --colorprim bt2020 --transfer smpte2084 --colormatrix bt2020nc --range limited --chromaloc 2 --sar 1:1 --master-display G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,5) --max-cll 1000,400 --threads 4"
     if [ "$FAST" -eq 0 ]; then
         run_vector_file tests/corpus/sintel_720p.y4m \
@@ -1130,6 +1135,17 @@ run_vector opengop_radl  352x288 26 testsrc2 "--keyint 8 --bframes 7 --ref 2 --c
 run_vector opengop_tools 352x288 32 testsrc2 "--keyint 8 --bframes 7 --ref 3 --crf 26 --aq 1 --cutree 1 --open-gop --repeat-headers --aud --eos --temporal-layers --idr-recovery-sei --hash 1 --threads 4"
 run_vector fgc_sei       352x288 20 testsrc2 "--keyint 6 --bframes 3 --aq 1 --cutree 1 --film-grain 1.0 --threads 4"
 run_vector fgc_denoise   352x288 20 testsrc2 "--keyint 6 --bframes 3 --aq 1 --cutree 1 --film-grain 1.0 --film-grain-denoise 1 --threads 12"
+# --nr-intra / --nr-inter (phase 14 item 6): the coefficient-domain noise
+# reduction. It writes no syntax a decoder has to learn - it changes the
+# LEVELS - so what this vector actually claims is that the encoder's own
+# reconstruction still matches a decoder's after the attenuation, which
+# is the one way a quantiser-side filter breaks: an encoder that
+# attenuates on the analysis path and not on the commit path reconstructs
+# from coefficients it did not code. Run at twelve threads because the
+# tally is row-private and summed on the driver, and at --keyint 6 so the
+# intra half and the inter half both carry offsets by the end.
+run_vector nr_both       352x288 24 testsrc2 "--keyint 6 --bframes 3 --qp 24 --aq 1 --cutree 1 --nr-intra 1000 --nr-inter 1000 --threads 12"
+run_vector nr_inter      352x288 20 testsrc2 "--keyint 6 --bframes 3 --crf 26 --aq 1 --cutree 1 --nr-inter 400 --rdoq-level 0 --threads 4"
 # The NAL-level switches (phase 14 item 4). Every one of them puts a NAL
 # in the stream that nothing else here writes - an access unit delimiter
 # (35), an end of sequence (36), an end of bitstream (37), a repeated

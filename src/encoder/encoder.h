@@ -19,6 +19,7 @@
 #include "encoder/hrd.h"
 #include "encoder/la.h"
 #include "encoder/metrics.h"
+#include "encoder/nr.h"
 #include "encoder/signal.h"
 #include "encoder/level.h"
 #include "encoder/rc.h"
@@ -552,6 +553,22 @@ typedef struct n265_frame_work {
     uint64_t *iw_arm;
     uint64_t *iw_arm_rows;
     int iw_trace;
+    /* --nr-intra / --nr-inter (phase 14 item 6). Laid out exactly like
+     * the two lines above and for the same reason: `nr_tally` is the
+     * LANE's slice of `nr_rows` - one tally per CTB row plus one for the
+     * frame handle - so a row task writes only its own and no two lanes
+     * touch a cache line, and the driver sums them in ROW order at
+     * retirement. Integer sums, so the total is the same at one worker
+     * and at twelve whatever order the lanes ran in.
+     *
+     * `nr_off` is this frame's FROZEN offsets, a copy taken at dispatch:
+     * the driver's own table moves under every dispatch and a frame in
+     * flight must not see it move. `nr_on` is the single predicate every
+     * quantiser call reads, and it is 0 unless a strength was named. */
+    int nr_on;
+    uint16_t *nr_off;
+    n265_nr_tally *nr_tally;
+    n265_nr_tally *nr_rows;
     /* the counters are also what N265_INTRA_GATE=10 measures itself
      * with, so they run whenever either is on */
     int iw_count;
@@ -892,6 +909,24 @@ typedef struct n265_row_ctx {
 #define N265_SC_HIST 32
 #define N265_SC_WIN  16
 
+/* --nr-intra / --nr-inter's ring of finished-frame coefficient tallies
+ * (phase 14 item 6). The rule is sc_resolve's, shortened: a frame's
+ * tally is FOLDED into the running estimate at the dispatch of coding
+ * index cidx + N265_NR_LAG, and at that moment cidx is retired at every
+ * thread count, because a frame is dispatched only once n_inflight is
+ * below K and K never exceeds N265_MAX_FRAME_WORK. The fold is therefore
+ * in coding order, once per frame, over the same set of frames at one
+ * worker and at twelve - which is the whole of why the offsets a frame
+ * quantises with do not depend on --threads.
+ *
+ * The ring only has to hold an entry from its own retirement to that
+ * dispatch, which is at most LAG entries deep; 16 is the same power of
+ * two the rings above use and is twice what is needed. `cidx` is stamped
+ * and checked, so an entry that was never written reads as absent rather
+ * than as a stale frame's coefficients. */
+#define N265_NR_LAG  N265_MAX_FRAME_WORK
+#define N265_NR_HIST 16
+
 struct n265_encoder {
     n265_param param;
     int mode;
@@ -1065,6 +1100,21 @@ struct n265_encoder {
     int fgc_nacc;           /* pictures folded into the estimate */
     n265_grain_est *fgc_est;
     n265_grain_model fgc;
+    /* --nr-intra / --nr-inter (phase 14 item 6): the coefficient-domain
+     * noise reduction. Both default 0 and at 0 nothing below is
+     * allocated, no frame carries an offset table and tb_quant_one takes
+     * the branch it always took - which is what makes the escape
+     * byte-identical rather than merely equal.
+     *
+     * `nr` is the running estimate, owned by the driver. `nr_hist` is the
+     * ring above: a finished frame's tally lands in it at retirement and
+     * is folded LAG coding indices later. Neither is ever read by a row
+     * worker; the frame gets a frozen COPY of the offsets (fw->nr_off),
+     * because the driver rewrites `nr->off` at every dispatch while
+     * frames are still quantising. */
+    int nr_intra, nr_inter;
+    n265_nr *nr;
+    n265_nr_hist *nr_hist;
     /* N265_DPB_TRACE: claims that found no unmarked slot and overwrote a
      * marked one (the T0a DPB-pressure branch). Driver-serial. The pool
      * sizing above is what makes it zero on every shape it covers. */

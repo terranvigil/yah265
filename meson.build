@@ -50,6 +50,7 @@ lib_sources = [
   'src/encoder/intra.c',
   'src/encoder/residual.c',
   'src/encoder/rdoq.c',
+  'src/encoder/nr.c',
   'src/encoder/psy.c',
   'src/encoder/ctu.c',
   'src/encoder/entropy.c',

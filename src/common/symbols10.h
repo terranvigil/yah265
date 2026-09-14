@@ -270,6 +270,10 @@
 #define n265_scratch_new             n265_scratch_new_10
 #define n265_set_level               n265_set_level_10
 #define n265_set_film_grain          n265_set_film_grain_10
+#define n265_nr_fold                 n265_nr_fold_10
+#define n265_nr_offsets              n265_nr_offsets_10
+#define n265_nr_block                n265_nr_block_10
+#define n265_set_nr                  n265_set_nr_10
 #define n265_grain_open              n265_grain_open_10
 #define n265_grain_close             n265_grain_close_10
 #define n265_grain_accum             n265_grain_accum_10

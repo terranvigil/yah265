@@ -844,6 +844,22 @@ static void tb_quant_one(struct n265_frame_work *e, int c_idx, int log2n,
     int lat = e->rdoq && (e->rdoq < 2 || e->rdoq_commit ||
                           ((rdoq_lat_sz() >> (log2n - 2)) & 1));
     int sbh_done = 0;
+    /* --nr-intra / --nr-inter (phase 14 item 6, nr.h). The attenuation
+     * happens HERE, on the coefficients, BEFORE either quantiser sees
+     * them - which is the only placement that means the same thing under
+     * both. Putting it inside the lattice would make the RD decision
+     * price a coefficient the encoder had already decided to shrink, and
+     * the flag would then mean something different at every --rdoq-level.
+     *
+     * The tally is taken on the way past, on the coefficients as they
+     * arrived, into the LANE's own line. Nothing here is shared and
+     * nothing here is atomic. */
+    int16_t nrbuf[32 * 32];
+    if (e->nr_on && e->nr_tally) {
+        n265_nr_block(e->nr_off, e->nr_tally, nrbuf, coef, log2n,
+                      intra, c_idx != 0);
+        coef = nrbuf;
+    }
     if (lat) {
         *out_nz = n265_rdoq(level, coef, log2n, qp, intra, c_idx, scan,
                             e->est_ctx, ctu_lam(e, qp));

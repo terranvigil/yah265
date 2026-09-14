@@ -123,6 +123,14 @@ static int g_vui_timing = 1;    /* vui_timing_info in the SPS; on since
  * back. At 0 nothing here allocates, reads a picture or writes a byte. */
 static double g_film_grain = 0.0;
 static int g_fgc_denoise = 0;
+/* --nr-intra / --nr-inter (phase 14 item 6). 0 / 0 is off, is the
+ * default, is x265's default, and is every preset, board and band leg
+ * this encoder was measured with. The flag attenuates coefficients before
+ * they are quantised, so a nonzero value moves every bitstream it touches
+ * and there is nothing here that a default could be right about for two
+ * clips at once: it is an opt-in tool for noisy sources. At 0 nothing
+ * allocates and no quantiser call changes shape. */
+static int g_nr_intra = 0, g_nr_inter = 0;
 /* The hypothetical decoder buffer (phase 12 item 2). 0 / 0 is off and is
  * every encode the board, the band and every gate before this item ran;
  * naming both halves arms the clamp, the level's MaxCPB leg and the HRD in
@@ -317,6 +325,18 @@ void n265_set_film_grain(double strength, int denoise)
 {
     g_film_grain = strength > 0.0 ? (strength > 8.0 ? 8.0 : strength) : 0.0;
     g_fgc_denoise = denoise != 0;
+}
+
+/* --nr-intra <0..2000> / --nr-inter <0..2000>: the coefficient-domain
+ * noise reduction (nr.h). x265's range, x265's two-flag split, and the
+ * clamp is silent at the top because 2000 is a strength and not a size -
+ * asking for more is asking for the maximum, not for something the
+ * encoder has no way to do. A negative value is off. */
+void n265_set_nr(int intra, int inter);
+void n265_set_nr(int intra, int inter)
+{
+    g_nr_intra = intra < 0 ? 0 : intra > N265_NR_MAX ? N265_NR_MAX : intra;
+    g_nr_inter = inter < 0 ? 0 : inter > N265_NR_MAX ? N265_NR_MAX : inter;
 }
 
 /* --vbv-maxrate / --vbv-bufsize / --vbv-init. `maxrate` is kbit/s and
@@ -1205,6 +1225,17 @@ static int fw_open(n265_encoder *e, n265_frame_work *fw)
         return -1;
     fw->hf2_tr = fw->hf2_tr_rows + (size_t)e->ctb_rows * 24;
     fw->iw_arm = fw->iw_arm_rows + (size_t)e->ctb_rows * N265_IW_CNT;
+    /* --nr-intra/--nr-inter's row lines, and the frame's frozen offset
+     * table. Allocated only where the feature is armed - a tally is 43 KB
+     * and a 1080p frame has 34 CTB rows, so this is the one allocation in
+     * fw_open worth gating on a flag. */
+    if (e->nr) {
+        fw->nr_rows = calloc((size_t)(e->ctb_rows + 1), sizeof(*fw->nr_rows));
+        fw->nr_off = calloc(N265_NR_SLOTS, sizeof(*fw->nr_off));
+        if (!fw->nr_rows || !fw->nr_off)
+            return -1;
+        fw->nr_tally = fw->nr_rows + e->ctb_rows;
+    }
     for (int i = 0; i < 3; i++) {
         int w = i ? e->pad_w >> e->csx : e->pad_w;
         int bh = (1 << e->ctb_log2) >> (i ? e->csy : 0);
@@ -1252,6 +1283,8 @@ static void fw_close(n265_frame_work *fw)
     free(fw->est_snap);
     free(fw->hf2_tr_rows);
     free(fw->iw_arm_rows);
+    free(fw->nr_rows);
+    free(fw->nr_off);
     free(fw->prog);
     bs_free(&fw->rbsp);
 }
@@ -1275,6 +1308,8 @@ void n265_row_begin(n265_row_ctx *row, n265_frame_work *fw, int r)
     row->c.sc = row->sc;
     row->c.hf2_tr = fw->hf2_tr_rows + (size_t)r * 24;
     row->c.iw_arm = fw->iw_arm_rows + (size_t)r * N265_IW_CNT;
+    if (fw->nr_rows)
+        row->c.nr_tally = fw->nr_rows + r;
     row->c.rec_buf = fw->rrec[r].buf;
     row->c.rec_cap = fw->rrec[r].cap;
     row->c.rec_len = 0;
@@ -1629,6 +1664,34 @@ n265_encoder *n265_encoder_open(const n265_param *p)
             fprintf(stderr, "n265: --film-grain: out of memory; off\n");
             e->fgc_strength = 0.0;
             e->fgc_denoise = 0;
+        }
+    }
+    /* --nr-intra / --nr-inter. Armed only if one of them is nonzero, and
+     * the two allocations below are the ONLY memory the feature costs
+     * when it is off: nothing, because neither runs.
+     *
+     * --lossless and --pcm reach no quantiser at all (the residual IS the
+     * coded level), so there is nothing here for the flag to attenuate;
+     * it is refused by name rather than silently ignored. */
+    e->nr_intra = g_nr_intra;
+    e->nr_inter = g_nr_inter;
+    if ((e->nr_intra || e->nr_inter) &&
+        (e->lossless || e->mode == N265_MODE_PCM)) {
+        fprintf(stderr, "n265: --nr-intra/--nr-inter attenuate transform "
+                "coefficients, and --lossless/--pcm code none; off\n");
+        e->nr_intra = e->nr_inter = 0;
+    }
+    if (e->nr_intra || e->nr_inter) {
+        e->nr = calloc(1, sizeof(*e->nr));
+        e->nr_hist = calloc(N265_NR_HIST, sizeof(*e->nr_hist));
+        if (!e->nr || !e->nr_hist) {
+            fprintf(stderr, "n265: --nr-intra/--nr-inter: out of memory; "
+                    "off\n");
+            free(e->nr);
+            free(e->nr_hist);
+            e->nr = NULL;
+            e->nr_hist = NULL;
+            e->nr_intra = e->nr_inter = 0;
         }
     }
     /* N265_QP_FRAC: carry the base QP's fraction and dither it over the CTUs
@@ -2418,6 +2481,8 @@ void n265_encoder_close(n265_encoder *e)
     if (e->cu_trace_f)
         fclose(e->cu_trace_f);
     n265_grain_close(e->fgc_est);
+    free(e->nr);
+    free(e->nr_hist);
     free(e->cu_prev_skip);
     for (int i = 0; i < e->K; i++)
         fw_close(&e->fw[i]);
@@ -3800,6 +3865,32 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
      * on this frame. Driver-serial, off the retired window only, frozen
      * here for the same reason the type is. */
     fw->iw_gate = iw_adapt_gate(e, fw->code_idx, slice_type, fw->flat);
+    /* --nr-intra / --nr-inter, the driver half (nr.h, and encoder.h at
+     * N265_NR_LAG). Three steps, all of them here and none of them
+     * anywhere a worker can reach:
+     *
+     *  1. fold the tally of coding index k - LAG, which is retired at
+     *     every thread count, into the running estimate. Once per frame,
+     *     in coding order, over the same set at t1 and t12.
+     *  2. re-solve every offset from the estimate.
+     *  3. hand this frame a COPY, because the table is about to move
+     *     again under a frame that is still quantising.
+     *
+     * A frame whose whole category is still empty gets offsets of zero
+     * and is the quantiser this encoder has always had - which is what
+     * the first LAG frames of every encode are. */
+    fw->nr_on = 0;
+    if (e->nr) {
+        int done = fw->code_idx - N265_NR_LAG;
+        if (done >= 0) {
+            n265_nr_hist *nh = &e->nr_hist[done % N265_NR_HIST];
+            if (nh->valid && nh->cidx == done)
+                n265_nr_fold(e->nr, &nh->t);
+        }
+        n265_nr_offsets(e->nr, e->nr_intra, e->nr_inter);
+        memcpy(fw->nr_off, e->nr->off, N265_NR_SLOTS * sizeof(*fw->nr_off));
+        fw->nr_on = 1;
+    }
     /* The cu-tree FRAME term, computed here rather than where it lands,
      * because under ABR the rate control has to be told it BEFORE it answers:
      * the term is added to the base below, so a loop that has not seen it is
@@ -5124,6 +5215,25 @@ static void join_oldest(n265_encoder *e)
         for (int j = 0; j < 24; j++)
             e->hf2_samp[j] += hh->samp[j];
     }
+    /* --nr-intra / --nr-inter: the frame's coefficient tally, summed over
+     * its row lanes in ROW order and stamped with its coding index. It is
+     * not folded into the running estimate here - that happens LAG coding
+     * indices later, at a dispatch, which is what keeps the set of frames
+     * behind an offset table independent of the thread count (encoder.h
+     * at N265_NR_LAG). */
+    if (fw->nr_rows) {
+        n265_nr_hist *nh = &e->nr_hist[fw->code_idx % N265_NR_HIST];
+        nh->cidx = fw->code_idx;
+        nh->valid = 1;
+        memset(&nh->t, 0, sizeof nh->t);
+        for (int r = 0; r <= e->ctb_rows; r++) {
+            const n265_nr_tally *src = &fw->nr_rows[r];
+            for (int i = 0; i < N265_NR_SLOTS; i++)
+                nh->t.sum[i] += src->sum[i];
+            for (int c = 0; c < N265_NR_CATS; c++)
+                nh->t.cnt[c] += src->cnt[c];
+        }
+    }
     /* Step 3: the frame's J pair, stamped with its coding index for the
      * adaptive gate to read back. Row-private counters summed in row
      * order on the driver, so the pair is the same integer at every
@@ -6165,6 +6275,9 @@ static int drive_scheduler(n265_encoder *e)
                                sizeof(uint64_t));
     memset(fw->iw_arm_rows, 0, (size_t)(e->ctb_rows + 1) * N265_IW_CNT *
                                sizeof(uint64_t));
+    if (fw->nr_rows)
+        memset(fw->nr_rows, 0, (size_t)(e->ctb_rows + 1) *
+                               sizeof(*fw->nr_rows));
     claim_slot(e, fw);
     /* D2: mark now, on the driver, in coding order. Frame k+1's dispatch
      * has to see this picture in the DPB whether or not a row of it has
