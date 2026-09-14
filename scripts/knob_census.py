@@ -108,6 +108,7 @@ DEFAULT_OVERRIDES = {
     # the numeric idiom cannot see
     "N265_VBV_SAFE": "0.85",             # the clamp's safety fraction
     "N265_VBV_LOOKAHEAD": "1",           # the window's reservation, on
+    "N265_VBV_RESERVE": "0.2",           # the floor under that reservation
 }
 
 OVERRIDES = {
@@ -116,6 +117,7 @@ OVERRIDES = {
     # re-priced: the safety fraction is what buys the zero-underflow gate
     # and the reservation is what pays for an intra frame before it lands.
     "N265_VBV_SAFE": "default", "N265_VBV_LOOKAHEAD": "default",
+    "N265_VBV_RESERVE": "default", "N265_VBV_DECAY": "default",
     "N265_MBT_REC": "instrument", "N265_MBT_PLAY": "instrument",
     "N265_REFENC_CACHE": "instrument",
     # both exist so a thread-count sweep never needs a rebuild (encoder.c
