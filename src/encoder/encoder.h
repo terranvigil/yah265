@@ -18,6 +18,7 @@
 #include "encoder/hash.h"
 #include "encoder/hrd.h"
 #include "encoder/la.h"
+#include "encoder/metrics.h"
 #include "encoder/signal.h"
 #include "encoder/level.h"
 #include "encoder/rc.h"
@@ -1202,6 +1203,15 @@ struct n265_encoder {
     FILE *dump_decode;      /* decode-order recon tap (dec265 leg)   */
     FILE *dump_recon;       /* optional recon tap for the gate       */
 
+    /* --psnr / --ssim / --csv (phase 14 item 4). Another pure tap on
+     * join_oldest, in coding order, on the driver: the metrics read the
+     * reconstruction and the source and write nothing the encoder reads
+     * back, so the bitstream is byte-identical with any of them on. */
+    n265_metrics met;
+    n265_csv csv;
+    double met_bytes;       /* coded bytes, for the CSV's summary row */
+    long met_frames;
+
     /* N265_CU_STATS: read once at open, copied into every frame_work.
      * The counters themselves are per-frame (see n265_frame_work). */
     int cu_stats;
@@ -1709,6 +1719,13 @@ void n265_encoder_set_dump(n265_encoder *e, FILE *f);
 /* --shot-stats: the sidecar path, overriding N265_SHOT_STATS. NULL or
  * the empty string turns it off. */
 void n265_encoder_set_shot_stats(n265_encoder *e, const char *path);
+/* --csv <file> --csv-log-level <0|1|2> (phase 14 item 4). Called right
+ * after open, like the shot sidecar above. */
+void n265_encoder_set_csv(n265_encoder *e, const char *path, int level);
+/* The pooled metrics, for the caller's end-of-run line: psnr Y/U/V, the
+ * pixel-weighted psnr average, SSIM-Y and SSIM in dB. Returns the number
+ * of frames measured, 0 when neither metric was asked for. */
+long n265_encoder_metrics(n265_encoder *e, double out[6]);
 /* round 4: resolve the 2-D phase-plane knobs into the encoder at open */
 void n265_hf2_knobs(n265_encoder *e);
 

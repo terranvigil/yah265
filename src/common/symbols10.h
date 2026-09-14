@@ -68,6 +68,10 @@
 #define n265_csbf_map                n265_csbf_map_10
 #define n265_csbf_map_neon           n265_csbf_map_neon_10
 #define n265_csbf_map_ref            n265_csbf_map_ref_10
+#define n265_csv_close               n265_csv_close_10
+#define n265_csv_frame               n265_csv_frame_10
+#define n265_csv_open                n265_csv_open_10
+#define n265_csv_summary             n265_csv_summary_10
 #define n265_ctu_warm                n265_ctu_warm_10
 #define n265_ctx_init_b              n265_ctx_init_b_10
 #define n265_ctx_init_i              n265_ctx_init_i_10
@@ -83,6 +87,8 @@
 #define n265_dup_on                  n265_dup_on_10
 #define n265_dup_thr_q8              n265_dup_thr_q8_10
 #define n265_dup_trace               n265_dup_trace_10
+#define n265_encoder_metrics         n265_encoder_metrics_10
+#define n265_encoder_set_csv         n265_encoder_set_csv_10
 #define n265_encoder_set_dump        n265_encoder_set_dump_10
 #define n265_encoder_set_dump_decode n265_encoder_set_dump_decode_10
 #define n265_encoder_set_shot_stats  n265_encoder_set_shot_stats_10
@@ -165,6 +171,8 @@
 #define n265_merge_cand0             n265_merge_cand0_10
 #define n265_merge_list              n265_merge_list_10
 #define n265_merge_list_pu           n265_merge_list_pu_10
+#define n265_metrics_frame           n265_metrics_frame_10
+#define n265_metrics_pooled          n265_metrics_pooled_10
 #define n265_mv_warm                 n265_mv_warm_10
 #define n265_pcm_bits_per_frame      n265_pcm_bits_per_frame_10
 #define n265_planned_qp              n265_planned_qp_10
@@ -189,6 +197,7 @@
 #define n265_2p_write                n265_2p_write_10
 #define n265_2p_close_write          n265_2p_close_write_10
 #define n265_2p_get                  n265_2p_get_10
+#define n265_set_metrics             n265_set_metrics_10
 #define n265_set_pass                n265_set_pass_10
 #define n265_vbv_allow               n265_vbv_allow_10
 #define n265_vbv_crf_base            n265_vbv_crf_base_10

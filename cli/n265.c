@@ -15,6 +15,13 @@ void n265_encoder_set_dump_decode(n265_encoder *e, FILE *f);
 void n265_encoder_set_dump(n265_encoder *e, FILE *f);
 void n265_encoder_set_shot_stats(n265_encoder *e, const char *path);
 void n265_set_shot_window(int n);
+/* --psnr / --ssim / --csv (phase 14 item 4). The metrics are a read-only
+ * tap at retirement, so a stream coded with them on is byte-for-byte the
+ * one coded without; the pooled numbers come back through
+ * n265_encoder_metrics for the end-of-run line. */
+void n265_set_metrics(int psnr, int ssim);
+void n265_encoder_set_csv(n265_encoder *e, const char *path, int level);
+long n265_encoder_metrics(n265_encoder *e, double out[6]);
 /* Two-pass (phase 12 item 4): 1 writes the stats sidecar, 2 plans from it,
  * 3 does both. The path outlives the encoder - it is argv. */
 void n265_set_pass(int pass, const char *stats);
@@ -113,6 +120,9 @@ void n265_encoder_set_dump_10(n265_encoder *e, FILE *f);
 void n265_encoder_set_shot_stats_10(n265_encoder *e, const char *path);
 void n265_set_shot_window_10(int n);
 void n265_set_pass_10(int pass, const char *stats);
+void n265_set_metrics_10(int psnr, int ssim);
+void n265_encoder_set_csv_10(n265_encoder *e, const char *path, int level);
+long n265_encoder_metrics_10(n265_encoder *e, double out[6]);
 
 typedef struct n265_api {
     int depth;                  /* the samples this table's library takes */
@@ -153,6 +163,10 @@ typedef struct n265_api {
     void (*set_dump)(n265_encoder *, FILE *);
     void (*set_dump_decode)(n265_encoder *, FILE *);
     void (*set_shot_stats)(n265_encoder *, const char *);
+    /* --psnr / --ssim / --csv (phase 14 item 4) */
+    void (*set_metrics)(int, int);
+    void (*set_csv)(n265_encoder *, const char *, int);
+    long (*metrics)(n265_encoder *, double *);
 } n265_api;
 
 static const n265_api api8 = {
@@ -168,6 +182,7 @@ static const n265_api api8 = {
     n265_encoder_open, n265_encoder_encode, n265_encoder_close,
     n265_version_str, n265_encoder_set_dump, n265_encoder_set_dump_decode,
     n265_encoder_set_shot_stats,
+    n265_set_metrics, n265_encoder_set_csv, n265_encoder_metrics,
 };
 
 static const n265_api api10 = {
@@ -185,6 +200,7 @@ static const n265_api api10 = {
     n265_encoder_encode_10, n265_encoder_close_10, n265_version_str_10,
     n265_encoder_set_dump_10, n265_encoder_set_dump_decode_10,
     n265_encoder_set_shot_stats_10,
+    n265_set_metrics_10, n265_encoder_set_csv_10, n265_encoder_metrics_10,
 };
 
 /* QpBdOffsetY (7-5), and the clip bound of Clip1Y. Runtime now, off the
@@ -685,6 +701,34 @@ static void usage(void)
         "                  to 717 MB of peak RSS. Max 300. What it buys and\n"
         "                  what it costs the per-shot quality spread:\n"
         "                  docs/phase7-shot-design.md.\n"
+        "  --psnr          report PSNR at the end of the run, pooled over\n"
+        "                  every coded frame: per plane and a\n"
+        "                  pixel-weighted average. Measured on the\n"
+        "                  encoder's OWN reconstruction against the\n"
+        "                  picture it coded - no decode - which is the\n"
+        "                  same samples a decoder puts on the screen,\n"
+        "                  because the conformance gate holds the two\n"
+        "                  bit-exact. The squared error is pooled over\n"
+        "                  frames and the logarithm taken once, which is\n"
+        "                  ffmpeg's pooling, so the number matches\n"
+        "                  `ffmpeg -lavfi psnr` to a hundredth of a dB.\n"
+        "                  Output-neutral: the bitstream is byte-identical\n"
+        "                  with it on.\n"
+        "  --ssim          the same for SSIM on the luma plane: 8x8\n"
+        "                  windows at stride 4, averaged over windows and\n"
+        "                  then over frames, which is ffmpeg's ssim\n"
+        "                  filter's arithmetic. Also reported in dB.\n"
+        "  --csv <file>    per-run or per-frame statistics as CSV.\n"
+        "  --csv-log-level <0|1|2>  0 (the default) writes one summary row\n"
+        "                  for the run; 1 adds a row per coded frame in\n"
+        "                  CODING order (POC, order, type, depth, QP,\n"
+        "                  bits, and the metrics above where they were\n"
+        "                  asked for); 2 adds the rate control's columns\n"
+        "                  (planned bits, VBV fill, VBV dQP, flat). The\n"
+        "                  bits column counts the whole access unit,\n"
+        "                  parameter sets and SEIs included. No elapsed\n"
+        "                  time or fps column, unlike x265's: a clock in\n"
+        "                  a log makes two runs of one encode differ.\n"
         "  --shot-stats <file>  per-shot JSON Lines sidecar, one object per\n"
         "                  shot in display order (N265_SHOT_STATS=file does\n"
         "                  the same). Output-neutral: the bitstream is\n"
@@ -888,6 +932,10 @@ int main(int argc, char **argv)
     int in_w = 0, in_h = 0, in_csp = -1, in_depth = 0;
     int in_fps_num = 0, in_fps_den = 0;
     long seek = 0;
+    /* --psnr / --ssim / --csv / --csv-log-level. Off is the default and
+     * off is byte-for-byte the encoder without them. */
+    int want_psnr = 0, want_ssim = 0, csv_level = -1;
+    const char *csv_path = NULL;
     int nref = 1, badapt = 1;
     int lookahead = 20, cutree = 1;   /* 20 since 2026-09-12 (x265 medium's
                                      * own depth): the last window that
@@ -949,6 +997,14 @@ int main(int argc, char **argv)
                         "(30, 30000/1001, 29.97)\n");
                 return 2;
             }
+        } else if (!strcmp(argv[i], "--psnr")) {
+            want_psnr = 1;
+        } else if (!strcmp(argv[i], "--ssim")) {
+            want_ssim = 1;
+        } else if (!strcmp(argv[i], "--csv") && i + 1 < argc) {
+            csv_path = argv[++i];
+        } else if (!strcmp(argv[i], "--csv-log-level") && i + 1 < argc) {
+            csv_level = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--seek") && i + 1 < argc) {
             seek = atol(argv[++i]);
             if (seek < 0) {
@@ -1374,6 +1430,22 @@ int main(int argc, char **argv)
                 "3 (checksum)\n");
         return 2;
     }
+    /* --csv-log-level without --csv is a flag that does nothing, and
+     * --csv without a level gets x265's own default of 0 (one summary
+     * row). The pair is refused the way --pass / --stats is. */
+    if (csv_level >= 0 && !csv_path) {
+        fprintf(stderr, "n265: --csv-log-level needs --csv <file>\n");
+        return 2;
+    }
+    if (csv_level < 0)
+        csv_level = 0;
+    if (csv_level > 2) {
+        fprintf(stderr, "n265: --csv-log-level is 0 (one summary row for "
+                "the run), 1 (a row per frame) or 2 (that, plus the rate "
+                "control's columns)\n");
+        return 2;
+    }
+    a->set_metrics(want_psnr, want_ssim);
     a->set_hash(hash);
     /* The default display window is signalled in CHROMA units (7.4.3.2.1)
      * and the flag takes pixels, so an offset that is not a whole number
@@ -1427,6 +1499,8 @@ int main(int argc, char **argv)
 
     if (shot_path)
         a->set_shot_stats(enc, shot_path);
+    if (csv_path)
+        a->set_csv(enc, csv_path, csv_level);
     FILE *fdump = NULL;
     if (dump_path) {
         fdump = fopen(dump_path, "wb");
@@ -1482,6 +1556,22 @@ int main(int argc, char **argv)
             break;
         for (int i = 0; i < nnal; i++)
             fwrite(nal[i].payload, 1, (size_t)nal[i].size, fout);
+    }
+    /* --psnr / --ssim: the pooled numbers, before the encoder is closed
+     * and while it still holds them. The pooling is ffmpeg's - the mean
+     * squared error is summed over frames and the logarithm taken once -
+     * so these are the numbers `ffmpeg -i out.hevc -i source -lavfi psnr`
+     * prints, to a hundredth of a dB. */
+    if (want_psnr || want_ssim) {
+        double met[6];
+        long nmet = a->metrics(enc, met);
+        if (nmet > 0 && want_psnr)
+            fprintf(stderr, "n265: PSNR over %ld frames: y %.4f u %.4f "
+                    "v %.4f avg %.4f dB\n", nmet, met[0], met[1], met[2],
+                    met[3]);
+        if (nmet > 0 && want_ssim)
+            fprintf(stderr, "n265: SSIM-Y over %ld frames: %.6f (%.4f dB)\n",
+                    nmet, met[4], met[5]);
     }
     a->encoder_close(enc);
     if (fdump)

@@ -51,6 +51,7 @@ void n265_param_default(n265_param *p)
 /* internal knobs the public API doesn't expose yet */
 static int g_mode = N265_MODE_INTRA;
 static int g_qp = 26;
+static int g_met_psnr, g_met_ssim;   /* --psnr / --ssim */
 static double g_crf = -1.0;      /* n265_set_crf's rate factor (a QpY) */
 /* Whether n265_set_crf was called at all. It used to be `g_crf >= 0`, which
  * is why --crf could not reach the twelve QP steps below zero that Main10
@@ -154,6 +155,18 @@ void n265_set_shot_window(int n)
 {
     g_shot_window = n < 0 ? 0 : n > N265_MAX_SHOT_WINDOW
                                     ? N265_MAX_SHOT_WINDOW : n;
+}
+
+/* --psnr / --ssim (phase 14 item 4). Process-global like every other
+ * pre-open setter here; what they arm is a read-only tap at retirement,
+ * so a stream coded with them on is byte-for-byte the one coded without.
+ * The cost is one pass over the reconstruction and the source per frame,
+ * on the driver. */
+void n265_set_metrics(int psnr, int ssim);
+void n265_set_metrics(int psnr, int ssim)
+{
+    g_met_psnr = psnr != 0;
+    g_met_ssim = ssim != 0;
 }
 
 void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes,
@@ -456,6 +469,28 @@ void n265_encoder_set_shot_stats(n265_encoder *e, const char *path)
         if (!e->shot_f)
             fprintf(stderr, "n265: cannot write --shot-stats %s\n", path);
     }
+}
+
+/* --csv / --csv-log-level. Called right after open, before any frame has
+ * retired, so no row can be half-written here. A level above 0 without
+ * --psnr or --ssim still writes the type/QP/bits columns; the metric
+ * columns appear only where the metric was asked for, so a reader can
+ * tell an absent metric from a zero one by the header. */
+void n265_encoder_set_csv(n265_encoder *e, const char *path, int level)
+{
+    if (!e)
+        return;
+    n265_csv_close(&e->csv);
+    if (n265_csv_open(&e->csv, path, level, e->met.psnr, e->met.ssim) < 0)
+        fprintf(stderr, "n265: cannot write --csv %s\n", path);
+}
+
+long n265_encoder_metrics(n265_encoder *e, double out[6])
+{
+    if (!e || (!e->met.psnr && !e->met.ssim))
+        return 0;
+    n265_metrics_pooled(&e->met, out);
+    return e->met.frames;
 }
 
 void n265_encoder_set_dump_decode(n265_encoder *e, FILE *f);
@@ -1089,6 +1124,8 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->csy = N265_CSY_OF(e->chroma_idc);
     e->c444 = e->chroma_idc == 3;
     e->c422 = e->chroma_idc == 2;
+    e->met.psnr = g_met_psnr;
+    e->met.ssim = g_met_ssim;
     e->qp_base = g_qp;
     e->crf_on = g_crf_on;
     e->crf = g_crf;
@@ -1936,6 +1973,13 @@ void n265_encoder_close(n265_encoder *e)
         shot_flush(e);
         fclose(e->shot_f);
         e->shot_f = NULL;
+    }
+    /* --csv: the summary row, once everything has retired. */
+    if (e->csv.f) {
+        n265_csv_summary(&e->csv, e->met_frames, e->met_bytes,
+                         (double)e->param.fps_num, (double)e->param.fps_den,
+                         &e->met);
+        n265_csv_close(&e->csv);
     }
     /* --pass: the sidecar is finished (pass 3 renames its temporary onto
      * the file it read), and a pass-2 encode that outran its plan says so
@@ -2813,6 +2857,48 @@ static void dump_recon_frame(n265_encoder *e, n265_frame_work *fw)
     }
     if (e->dump_decode)
         dump_planes(fw, e->dump_decode);
+}
+
+/* --psnr / --ssim / --csv: the metric tap, at retirement, on the driver,
+ * in coding order. It reads the padded SOURCE the encoder coded (the
+ * cored picture under --film-grain-denoise, which is the honest
+ * reference for what this encode spent its bits on) and the finished
+ * reconstruction, and writes nothing the encoder reads back.
+ *
+ * `bytes` is the whole ACCESS UNIT - parameter sets, SEIs and the slice -
+ * because that is what the stream costs and what x265's CSV counts. */
+static void metrics_frame(n265_encoder *e, n265_frame_work *fw, size_t bytes)
+{
+    if (!e->met.psnr && !e->met.ssim && !e->csv.f)
+        return;
+    e->met_bytes += (double)bytes;
+    e->met_frames++;
+    if (e->met.psnr || e->met.ssim) {
+        const pixel *src[3] = { fw->pad_plane[0], fw->pad_plane[1],
+                                fw->pad_plane[2] };
+        const pixel *rec[3] = { fw->recon[0], fw->recon[1], fw->recon[2] };
+        n265_metrics_frame(&e->met, src, fw->pad_stride, rec,
+                           fw->recon_stride, e->param.width, e->param.height,
+                           e->csx, e->csy);
+    }
+    if (e->csv.f && e->csv.level >= 1) {
+        n265_csv_row r;
+        memset(&r, 0, sizeof(r));
+        r.poc = fw->display_idx;
+        r.order = fw->code_idx;
+        r.type = fw->slice_type == 2 ? 'I'
+               : fw->slice_type == 1 ? 'P'
+               : fw->nonref ? 'b' : 'B';
+        r.b_depth = fw->b_depth;
+        r.qp = fw->qp;
+        r.bits = (long)bytes * 8;
+        r.m = &e->met;
+        r.planned_bits = fw->rc_planned;
+        r.vbv_fill = e->vbv.on ? e->vbv.fill : 0.0;
+        r.vbv_dqp = fw->vbv_dqp;
+        r.flat = fw->flat;
+        n265_csv_frame(&e->csv, &r);
+    }
 }
 
 /* The exact reference stall (G2). The fast path is inline in
@@ -4329,6 +4415,7 @@ static void join_oldest(n265_encoder *e)
     }
     e->n_done++;
     dump_recon_frame(e, fw);
+    metrics_frame(e, fw, d->len);
     /* N265_DEPTH_DUMP: the frame's per-CTU training records, in raster
      * order. The row jobs filled their own slots; the write happens here,
      * on the driver, in coding order, so the file is a pure function of

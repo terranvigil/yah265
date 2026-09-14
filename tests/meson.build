@@ -48,6 +48,15 @@ unit_hash = executable('unit_hash', 'unit/hash_test.c',
   dependencies : yah265_dep)
 test('hash', unit_hash)
 
+# PSNR, SSIM and the CSV writer (phase 14 item 4). The two metric
+# reference numbers come from an independent walk of ffmpeg's own
+# definitions over the same synthetic planes, not from this code; the
+# encode-side half is the check against ffmpeg on a real clip recorded in
+# docs/instruments.md.
+unit_metrics = executable('unit_metrics', 'unit/metrics_test.c',
+  dependencies : yah265_dep)
+test('metrics', unit_metrics)
+
 # One file per kernel family (checkasm.h has the layout): a family item
 # adds its file here and one line to the table in main.c, and touches
 # nothing else.
