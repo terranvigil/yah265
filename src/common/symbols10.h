@@ -234,6 +234,8 @@
 #define n265_satd8_neon              n265_satd8_neon_10
 #define n265_satd8_ref               n265_satd8_ref_10
 #define n265_sbh_adjust              n265_sbh_adjust_10
+#define n265_sbh_adjust_neon         n265_sbh_adjust_neon_10
+#define n265_sbh_adjust_ref          n265_sbh_adjust_ref_10
 #define n265_static_commit           n265_static_commit_10
 #define n265_subpel_gate             n265_subpel_gate_10
 #define n265_subpel_rate             n265_subpel_rate_10

@@ -273,6 +273,17 @@ static void write_remaining(const res_ops *ops, int rem, int k)
 
 void n265_sbh_adjust(int16_t *level, int log2n, int scan_idx)
 {
+#if N265_NEON_COST
+    if (n265_asm_on(N265_ASM_QUANT)) {
+        n265_sbh_adjust_neon(level, log2n, scan_idx);
+        return;
+    }
+#endif
+    n265_sbh_adjust_ref(level, log2n, scan_idx);
+}
+
+void n265_sbh_adjust_ref(int16_t *level, int log2n, int scan_idx)
+{
     int n = 1 << log2n;
     int sb_dim = n >> 2;
     int num_sb = sb_dim * sb_dim;
