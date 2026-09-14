@@ -893,17 +893,35 @@ static const int hplane_h[] = { 1, 2, 8, 32 };
  * multiple of anything. */
 static const int guard_w[] = { 1, 2, 3, 5, 6, 7, 9, 11 };
 
-/* Every chroma block shape. 4:2:0 halves the luma PU in each dimension,
- * so this is the luma table halved - which is where 2, 6 and h = 2 come
- * from, the widths no luma shape has and the ones a four-lane-minimum
- * kernel gets wrong. The first three rows are what the instrumented CIF
- * and 720p encodes really emitted at both presets; the last row is the
- * halves of the CB64 partitions those pictures did not choose. */
+/* Every chroma block shape, at every chroma format the encoder codes.
+ *
+ * 4:2:0 halves the luma PU in each dimension, so the first block is the
+ * luma table halved - which is where 2, 6 and h = 2 come from, the
+ * widths no luma shape has and the ones a four-lane-minimum kernel gets
+ * wrong. Its first three rows are what the instrumented CIF and 720p
+ * encodes really emitted at both presets; its fourth is the halves of
+ * the CB64 partitions those pictures did not choose.
+ *
+ * 4:4:4 and 4:2:2 (phase 11 item 3, which is what lets the MC class run
+ * at those formats at all) add the shapes a halved plane cannot make. At
+ * 4:4:4 a chroma block IS the luma block, so the luma table is a chroma
+ * table: 64 in both dimensions, and the 64x16 / 16x64 / 64x48 / 48x64
+ * AMP partitions of a CB64. At 4:2:2 the width is halved and the height
+ * is not, so the shapes are the luma widths against the luma heights -
+ * 2x16 and 6x16 at the narrow end, 32x48 and 8x64 at the tall one. Only
+ * the shapes the 4:2:0 block does not already carry are repeated. */
 static const int chroma_shapes[][2] = {
+    /* 4:2:0: the luma table halved in both dimensions */
     { 2, 4 }, { 2, 8 }, { 4, 2 }, { 4, 4 }, { 4, 8 }, { 4, 16 },
     { 6, 8 }, { 8, 2 }, { 8, 4 }, { 8, 6 }, { 8, 8 }, { 8, 16 },
     { 12, 16 }, { 16, 4 }, { 16, 8 }, { 16, 12 }, { 16, 16 }, { 32, 32 },
     { 8, 32 }, { 16, 32 }, { 24, 32 }, { 32, 8 }, { 32, 16 }, { 32, 24 },
+    /* 4:4:4: the luma table itself - the CB64 row is what is new */
+    { 64, 64 }, { 64, 32 }, { 32, 64 }, { 64, 16 }, { 64, 48 },
+    { 16, 64 }, { 48, 64 },
+    /* 4:2:2: the luma widths halved, against the luma heights */
+    { 32, 48 }, { 8, 64 }, { 24, 64 }, { 16, 24 }, { 4, 32 }, { 12, 32 },
+    { 8, 12 }, { 2, 16 }, { 6, 16 },
 };
 #define NCHROMA_SHAPE                                                        \
     ((int)(sizeof(chroma_shapes) / sizeof(chroma_shapes[0])))
@@ -1075,16 +1093,22 @@ static void bench_luma_plane(void)
     }
 }
 
+/* 32x64 is 4:2:2's widest chroma block and 64x64 is 4:4:4's, so the
+ * table's tail is where the wide temp (mc_neon.c, MC_CTMP_WIDE) is
+ * timed against the C. */
 static const int chroma_bench_shapes[][2] = {
     { 2, 8 }, { 4, 4 }, { 6, 8 }, { 8, 8 }, { 16, 16 }, { 32, 32 },
+    { 32, 64 }, { 64, 64 },
 };
 
 static void bench_chroma(void)
 {
-    enum { RS = 96 };
-    static pixel plane[RS * 48];
-    static pixel dst8[32 * 40];
-    static int16_t dst16[32 * 40];
+    /* the plane holds the widest shape plus its halo, offset by four:
+     * 64 + 4 columns inside RS, and 64 + 4 + 2 rows */
+    enum { RS = 128 };
+    static pixel plane[RS * 80];
+    static pixel dst8[64 * (64 + MC_PAD)];
+    static int16_t dst16[64 * (64 + MC_PAD)];
     struct pctx c;
     static const int arms[3][2] = { { 3, 0 }, { 0, 3 }, { 3, 5 } };
     int n = (int)(sizeof(chroma_bench_shapes) / sizeof(chroma_bench_shapes[0]));

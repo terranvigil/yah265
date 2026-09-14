@@ -1625,36 +1625,30 @@ static void mc_cvblock_s16(int16_t *d, int ds, const pixel *p, int rs,
 
 #endif  /* BIT_DEPTH */
 
-void n265_mc_chroma_wh_neon(pixel *dst, int ds, int w, int h,
-                            const pixel *ref, int rs, int fx, int fy)
+/* ---- the chroma 2-D stage, and its two temps -------------------------
+ *
+ * The horizontal stage writes h + 3 rows at stride w, so the temp's
+ * bound is the widest CHROMA block the format presents: 32x32 while the
+ * plane is halved, 32x64 at 4:2:2 (4:2:0's widths, the luma heights) and
+ * 64x64 at 4:4:4, where a chroma block IS the luma block.
+ *
+ * There are two of them rather than one because a frame costs what it
+ * RESERVES and not what it touches (docs/phase8-plan.md, "Phase 8
+ * speed"): a single (64 + 3) x 64 temp would put 8 KB on the stack of
+ * every 4:2:0 call, which is the format twelve of the fifteen corpus
+ * clips are in. The common arm therefore keeps 4:2:0's temp and the wide
+ * one is its own out-of-line function with its own frame, reached only
+ * by a block no halved plane can produce. Both arms run the same body
+ * and are bit-exact with each other and with the C by construction.
+ */
+#define MC_CTMP_SMALL ((32 + 3) * 32)
+#define MC_CTMP_WIDE  ((64 + 3) * 64)
+#define MC_CHROMA_WIDE(w, h) ((w) > 32 || (h) > 32)
+
+static inline void mc_chroma_2d_pix(pixel *dst, int ds, int w, int h,
+                                    const pixel *ref, int rs, int fx,
+                                    int fy, int16_t *tmp)
 {
-    if (!fx && !fy) {
-        mc_copy_pix(dst, ds, ref, rs, w, h);
-        return;
-    }
-    if (!fy) {
-        const int16_t *f = mc_chroma_filt[fx];
-        mc_ctaps t;
-        mc_ctaps_init(&t, f);
-        mc_chblock_pix(dst, ds, ref, rs, w, h, &t, f);
-        return;
-    }
-    if (!fx) {
-        const int16_t *f = mc_chroma_filt[fy];
-        mc_ctaps t;
-        mc_ctaps_init(&t, f);
-        mc_cvblock_pix(dst, ds, ref, rs, w, h, &t, f);
-        return;
-    }
-    /* 2-D: the horizontal stage into an int16 temp of h + 3 rows at
-     * stride w - the same shape and the same values the C's tmp holds -
-     * then the vertical stage over exactly those rows. */
-    /* 4:2:0 only, and that is enforced rather than assumed: a chroma
-     * block is at most 32x32 while the plane is halved, and at 4:4:4 it
-     * reaches 64x64 - so n265_encoder_open stands the whole MC class
-     * down for that format (phase 8 item 6a) and this driver is not
-     * reached there. Porting it is a later item. */
-    int16_t tmp[(32 + 3) * 32];
     const int16_t *fh = mc_chroma_filt[fx], *fv = mc_chroma_filt[fy];
     mc_ctaps th;
 
@@ -1685,33 +1679,10 @@ void n265_mc_chroma_wh_neon(pixel *dst, int ds, int w, int h,
     }
 }
 
-void n265_mc_chroma_14_wh_neon(int16_t *dst, int ds, int w, int h,
-                               const pixel *ref, int rs, int fx, int fy)
+static inline void mc_chroma_2d_s16(int16_t *dst, int ds, int w, int h,
+                                    const pixel *ref, int rs, int fx,
+                                    int fy, int16_t *tmp)
 {
-    if (!fx && !fy) {
-        mc_copy_s16_shl6(dst, ds, ref, rs, w, h);
-        return;
-    }
-    if (!fy) {
-        const int16_t *f = mc_chroma_filt[fx];
-        mc_ctaps t;
-        mc_ctaps_init(&t, f);
-        mc_chblock_s16(dst, ds, ref, rs, w, h, &t, f);
-        return;
-    }
-    if (!fx) {
-        const int16_t *f = mc_chroma_filt[fy];
-        mc_ctaps t;
-        mc_ctaps_init(&t, f);
-        mc_cvblock_s16(dst, ds, ref, rs, w, h, &t, f);
-        return;
-    }
-    /* 4:2:0 only, and that is enforced rather than assumed: a chroma
-     * block is at most 32x32 while the plane is halved, and at 4:4:4 it
-     * reaches 64x64 - so n265_encoder_open stands the whole MC class
-     * down for that format (phase 8 item 6a) and this driver is not
-     * reached there. Porting it is a later item. */
-    int16_t tmp[(32 + 3) * 32];
     const int16_t *fh = mc_chroma_filt[fx], *fv = mc_chroma_filt[fy];
     mc_ctaps th;
 
@@ -1739,6 +1710,85 @@ void n265_mc_chroma_14_wh_neon(int16_t *dst, int ds, int w, int h,
         for (; x < w; x++)
             d[x] = (int16_t)(mc_cvscalar16(p + x, w, fv) >> 6);
     }
+}
+
+static __attribute__((noinline)) void
+mc_chroma_2d_pix_wide(pixel *dst, int ds, int w, int h, const pixel *ref,
+                      int rs, int fx, int fy)
+{
+    int16_t tmp[MC_CTMP_WIDE];
+    mc_chroma_2d_pix(dst, ds, w, h, ref, rs, fx, fy, tmp);
+}
+
+static __attribute__((noinline)) void
+mc_chroma_2d_s16_wide(int16_t *dst, int ds, int w, int h, const pixel *ref,
+                      int rs, int fx, int fy)
+{
+    int16_t tmp[MC_CTMP_WIDE];
+    mc_chroma_2d_s16(dst, ds, w, h, ref, rs, fx, fy, tmp);
+}
+
+void n265_mc_chroma_wh_neon(pixel *dst, int ds, int w, int h,
+                            const pixel *ref, int rs, int fx, int fy)
+{
+    if (!fx && !fy) {
+        mc_copy_pix(dst, ds, ref, rs, w, h);
+        return;
+    }
+    if (!fy) {
+        const int16_t *f = mc_chroma_filt[fx];
+        mc_ctaps t;
+        mc_ctaps_init(&t, f);
+        mc_chblock_pix(dst, ds, ref, rs, w, h, &t, f);
+        return;
+    }
+    if (!fx) {
+        const int16_t *f = mc_chroma_filt[fy];
+        mc_ctaps t;
+        mc_ctaps_init(&t, f);
+        mc_cvblock_pix(dst, ds, ref, rs, w, h, &t, f);
+        return;
+    }
+    /* 2-D: the horizontal stage into an int16 temp of h + 3 rows at
+     * stride w - the same shape and the same values the C's tmp holds -
+     * then the vertical stage over exactly those rows. The temp is the
+     * format's; see MC_CTMP_SMALL above. */
+    if (MC_CHROMA_WIDE(w, h)) {
+        mc_chroma_2d_pix_wide(dst, ds, w, h, ref, rs, fx, fy);
+        return;
+    }
+    int16_t tmp[MC_CTMP_SMALL];
+    mc_chroma_2d_pix(dst, ds, w, h, ref, rs, fx, fy, tmp);
+}
+
+void n265_mc_chroma_14_wh_neon(int16_t *dst, int ds, int w, int h,
+                               const pixel *ref, int rs, int fx, int fy)
+{
+    if (!fx && !fy) {
+        mc_copy_s16_shl6(dst, ds, ref, rs, w, h);
+        return;
+    }
+    if (!fy) {
+        const int16_t *f = mc_chroma_filt[fx];
+        mc_ctaps t;
+        mc_ctaps_init(&t, f);
+        mc_chblock_s16(dst, ds, ref, rs, w, h, &t, f);
+        return;
+    }
+    if (!fx) {
+        const int16_t *f = mc_chroma_filt[fy];
+        mc_ctaps t;
+        mc_ctaps_init(&t, f);
+        mc_cvblock_s16(dst, ds, ref, rs, w, h, &t, f);
+        return;
+    }
+    /* the format's temp; see MC_CTMP_SMALL above */
+    if (MC_CHROMA_WIDE(w, h)) {
+        mc_chroma_2d_s16_wide(dst, ds, w, h, ref, rs, fx, fy);
+        return;
+    }
+    int16_t tmp[MC_CTMP_SMALL];
+    mc_chroma_2d_s16(dst, ds, w, h, ref, rs, fx, fy, tmp);
 }
 
 #else
