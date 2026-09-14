@@ -52,12 +52,20 @@ extern _Atomic int n265_cpu_ready_;
 extern uint32_t n265_cpu_cached_;
 extern uint32_t n265_asm_off_;
 /* Classes the ENCODER refuses for its own configuration, as opposed to
- * the ones a measurement asked for. Phase 8 item 6a is the first user:
- * a 4:4:4 encode stands the MC class down because that family's chroma
- * kernels are written for 4:2:0's half-size blocks. Set on the driver at
- * encoder open, after n265_cpu_flags() has published the feature word and
- * before any worker exists, which is the same discipline n265_asm_off_
- * has. */
+ * the ones a measurement asked for. Set on the driver at encoder open,
+ * after n265_cpu_flags() has published the feature word and before any
+ * worker exists, which is the same discipline n265_asm_off_ has.
+ *
+ * Phase 8 item 6a was its first user and phase 11 item 3 removed it
+ * again: a 4:4:4 or 4:2:2 encode stood the MC class down because that
+ * family's chroma kernels held 4:2:0's temp, and those kernels now size
+ * the temp by the block they are handed. The word therefore has no
+ * writer at the moment, and the mechanism is kept: it is the one place a
+ * configuration can decline a whole class, which is what keeps
+ * N265_ASM_OFF measuring what a family is worth instead of a shape gate
+ * hidden inside a shared kernel. Its cost is the second load in
+ * n265_asm_on, priced at nothing in phase 8 (docs/phase8-plan.md,
+ * "Three arms measured to nothing"). */
 extern uint32_t n265_asm_refuse_;
 void n265_asm_refuse(uint32_t cls);
 uint32_t n265_cpu_flags_slow(void);
