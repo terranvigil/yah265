@@ -2818,7 +2818,8 @@ static inline void rr_bump(int k, unsigned long long v)
 static const int rr_gx[4] = { 1, 2, 4, 8 };
 enum { GN_LISTS, GN_FREE, GN_RAW, GN_PAID, GN_SPLIT, GN_PUREMOVED,
        GN_RATEMOVED, GN_N };
-enum { RG_CUT, RG_CUTMOVED, RG_SATD, RG_N };
+enum { RG_CUT, RG_CUTMOVED, RG_SATD, RG_ICUT, RG_ICUTMOVED,
+       RG_ISATD, RG_N };
 static atomic_ullong rr_gn[GN_N];
 static atomic_ullong rr_g[4][RG_N];
 static void rr_gate_report(void)
@@ -2846,15 +2847,19 @@ static void rr_gate_report(void)
                 100.0 * atomic_load(&rr_gn[GN_RATEMOVED]) / dp);
     }
     for (int i = 0; i < 4; i++)
-        fprintf(stderr, "subpeltrace gate X=%d: cut=%llu (%.1f%% of lists)"
-                " cut_moved=%llu (%.1f%% of moves) satd=%llu (%.1f%% of"
-                " ungated)\n",
-                rr_gx[i], atomic_load(&rr_g[i][RG_CUT]),
-                100.0 * atomic_load(&rr_g[i][RG_CUT]) / d,
-                atomic_load(&rr_g[i][RG_CUTMOVED]),
-                100.0 * atomic_load(&rr_g[i][RG_CUTMOVED]) / dm,
-                atomic_load(&rr_g[i][RG_SATD]),
-                100.0 * atomic_load(&rr_g[i][RG_SATD]) / ds);
+        for (int p = 0; p < 2; p++) {
+            int c0 = p ? RG_ICUT : RG_CUT, c1 = p ? RG_ICUTMOVED : RG_CUTMOVED;
+            int c2 = p ? RG_ISATD : RG_SATD;
+            fprintf(stderr, "subpeltrace gate X=%s%d: cut=%llu (%.1f%% of"
+                    " lists) cut_moved=%llu (%.1f%% of moves) satd=%llu"
+                    " (%.1f%% of ungated)\n", p ? "-" : "+", rr_gx[i],
+                    atomic_load(&rr_g[i][c0]),
+                    100.0 * atomic_load(&rr_g[i][c0]) / d,
+                    atomic_load(&rr_g[i][c1]),
+                    100.0 * atomic_load(&rr_g[i][c1]) / dm,
+                    atomic_load(&rr_g[i][c2]),
+                    100.0 * atomic_load(&rr_g[i][c2]) / ds);
+        }
 }
 static inline void gn_bump(int k, unsigned long long v)
 {
@@ -2907,11 +2912,16 @@ static mv_t subpel_rerank(struct n265_frame_work *e, const pu_geo *g,
     int free_pass = buy == 0;
 
     /* The gate: the ladder's last square's own flatness. A pass with no
-     * margin to report, and a pass that costs nothing, are never cut. */
+     * margin to report, and a pass that costs nothing, are never cut.
+     * `sep` is "the square SEPARATED its top two by more than |X|%"; a
+     * positive knob cuts those (the CPRED_GATE shape, refused) and a
+     * negative one cuts the rest. */
     int marg = keep && keep->sq_valid && !free_pass;
     int gate = n265_subpel_gate();
-    int cut = marg && (uint64_t)keep->sq_second * 100 >
-                      (uint64_t)keep->sq_best * (uint64_t)(100 + gate);
+    int ax = gate < 0 ? -gate : gate;
+    int sep = (uint64_t)(marg ? keep->sq_second : 0) * 100 >
+              (uint64_t)(marg ? keep->sq_best : 0) * (uint64_t)(100 + ax);
+    int cut = marg && (gate > 0 ? sep : !sep);
     if (rr_trace()) {
         gn_bump(GN_LISTS, 1);
         gn_bump(GN_RAW, (unsigned long long)
@@ -2973,19 +2983,25 @@ static mv_t subpel_rerank(struct n265_frame_work *e, const pu_geo *g,
                 gn_bump(GN_RATEMOVED, 1);
         }
         for (int i = 0; i < 4; i++) {
-            int ci = marg && (uint64_t)keep->sq_second * 100 >
+            /* both polarities of the same margin, in one run */
+            int si = marg && (uint64_t)keep->sq_second * 100 >
                              (uint64_t)keep->sq_best *
                              (uint64_t)(100 + rr_gx[i]);
-            if (ci) {
-                atomic_fetch_add_explicit(&rr_g[i][RG_CUT], 1,
-                                          memory_order_relaxed);
-                if (moved)
-                    atomic_fetch_add_explicit(&rr_g[i][RG_CUTMOVED], 1,
+            int pol[2] = { marg && si, marg && !si };   /* +X cut, -X cut */
+            int col[2][3] = { { RG_CUT, RG_CUTMOVED, RG_SATD },
+                              { RG_ICUT, RG_ICUTMOVED, RG_ISATD } };
+            for (int p = 0; p < 2; p++) {
+                if (pol[p]) {
+                    atomic_fetch_add_explicit(&rr_g[i][col[p][0]], 1,
                                               memory_order_relaxed);
-            } else {
-                atomic_fetch_add_explicit(&rr_g[i][RG_SATD],
-                                          (unsigned long long)buy,
-                                          memory_order_relaxed);
+                    if (moved)
+                        atomic_fetch_add_explicit(&rr_g[i][col[p][1]], 1,
+                                                  memory_order_relaxed);
+                } else {
+                    atomic_fetch_add_explicit(&rr_g[i][col[p][2]],
+                                              (unsigned long long)buy,
+                                              memory_order_relaxed);
+                }
             }
         }
     }

@@ -3,6 +3,7 @@
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
+#include <limits.h>
 #include <math.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -578,33 +579,40 @@ int n265_subpel_rate(void)
  * Two cuts bring the bill down and this is the second of them; the
  * first, `struct n265_me_keep`, is not a knob because it is bit-exact.
  *
- * The shape is `N265_CPRED_GATE`'s, which took the chroma term from a
- * refused 1.06x to a shipped 1.010x AND a better band by spending it
- * only where luma had not already decided. Here what has already decided
- * is the ladder's own last square: where its best two positions are far
- * apart in SATD the block sits on a steep part of the subpel surface, no
- * neighbour of the winner is within the mvd bit that separates them
- * (lambda_sad is about five SAD units at qp 28, a fraction of a percent
- * of a block's Hadamard), and nothing the re-rank can buy will move the
- * vector. Where they are CLOSE the surface is flat, which is both where
- * the rate term can win and where an unwalked quarter-pel neighbour can.
+ * The predicate is the ladder's own last square: how far apart its best
+ * two positions came out, which says whether the block sits on a flat
+ * part of the subpel surface or a steep one. The knob is SIGNED because
+ * both polarities were built and only one of them works.
  *
- *   0  ungated: every pass, which is the form item 1 priced and refused
- *      at 1.0305x.
- *   X  buy the SATDs only where the ladder's last square reported a
- *      runner-up within X% of its winner.
+ *   0   ungated: every pass, the form item 1 priced and refused at
+ *       1.0305x.
+ *  +X   `N265_CPRED_GATE`'s shape - spend only where the metric has NOT
+ *       already decided, i.e. only on the FLAT passes, the runner-up
+ *       within X% of the winner. **Measured and refused** (sec 1b.4):
+ *       at +1 it cuts 35% of the passes and gives back 95% of the band -
+ *       CIF-7 CRF median -6.49 -> -5.28 against main's -5.21.
+ *  -X   the INVERTED form, and the one that survives: spend only on the
+ *       SEPARATED passes, the runner-up more than X% behind.
+ *
+ * Why the inversion. `CPRED_GATE` gates a CHOICE between two candidates,
+ * so a tie is exactly where the extra term decides and a separation is
+ * where it cannot. This gates a REFINEMENT of one vector, and the two
+ * questions are not the same one. On a flat square a quarter-pel step
+ * changes the Hadamard by almost nothing, so the move the re-rank makes
+ * there is worth almost nothing in distortion; on a steep square a
+ * neighbour that still wins wins by a lot. The tie form therefore keeps
+ * precisely the worthless moves and buys out the valuable ones, which is
+ * what the band says in one line.
  *
  * A pass whose five Hadamards are already in `n265_me_keep` costs
- * nothing to run and is never gated: the knob spends where spending is
- * what hurts. */
+ * nothing to run and is never gated at either polarity: the knob spends
+ * where spending is what hurts. */
 int n265_subpel_gate(void)
 {
-    static int v = -1;
-    if (v < 0) {
+    static int v = INT_MIN;
+    if (v == INT_MIN) {
         const char *s = n265_env("N265_SUBPEL_GATE");
         v = s ? atoi(s) : 0;
-        if (v < 0)
-            v = 0;
     }
     return v;
 }

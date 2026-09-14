@@ -165,6 +165,16 @@ static const struct kv med_tab[] = {
                                    * is 1 and did not move, so fast,
                                    * slow and slower are untouched     */
     { "N265_SUBME",      "3" },
+    { "N265_SUBPEL_RATE", "1" },  /* item 1b: the post-search re-rank,
+                                   * which item 1 refused at 1.0305x    */
+    { "N265_SUBPEL_GATE", "-2" }, /* ...bought only where the ladder's
+                                   * last square SEPARATED its top two
+                                   * by more than 2%. The SIGN is the
+                                   * item: +2, the CPRED_GATE shape,
+                                   * gives back 95% of the band for the
+                                   * same clock. Compiled-in defaults
+                                   * are 0 and 0, so fast, slow and
+                                   * slower are untouched               */
     { "N265_CB64_AMVP",  "0" },
     { "N265_BI_REFINE",  "0" },
     { "N265_CHROMA_PRED", "0" },
