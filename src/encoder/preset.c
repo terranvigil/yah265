@@ -421,15 +421,28 @@ struct rung {
     const char *name;
     const struct kv *tab;
     const struct kv *par;
+    int placed;             /* 0 = built, measured and REFUSED */
 };
 
 static const struct rung rungs[] = {
-    { "veryfast", vfast_tab,  vfast_par  },
-    { "faster",   faster_tab, faster_par },
-    { "fast",     fast_tab,   fast_par   },
-    { "medium",   med_tab,    med_par    },
-    { "slow",     slow_tab,   slow_par   },
-    { "slower",   slower_tab, slower_par },
+    /* `veryfast` is present and NOT placed. It was built, measured and
+     * refused on 2026-09-14: on the CRF band against x265's own veryfast
+     * it reads a median of -1.70% with only 8 of the 15 clips ahead, and
+     * the placement rule is EVERY clip at or ahead. The seven behind are
+     * in_to_tree_720p +16.85%, mobile_cif +15.13%, stefan_cif +14.80%,
+     * bus_cif +10.72%, sintel_720p +6.29%, tempete_cif +5.33% and
+     * coastguard_cif +2.14%. It keeps its row
+     * rather than being deleted because a refuted arm keeps its
+     * re-pricing value - the levers are one line from being re-tried
+     * without the one the evidence points at - and because a row here is
+     * what lets the refusal say which rung was tried and failed rather
+     * than pretending the name is unknown. docs/phase13.md, "C2". */
+    { "veryfast", vfast_tab,  vfast_par,  0 },
+    { "faster",   faster_tab, faster_par, 1 },
+    { "fast",     fast_tab,   fast_par,   1 },
+    { "medium",   med_tab,    med_par,    1 },
+    { "slow",     slow_tab,   slow_par,   1 },
+    { "slower",   slower_tab, slower_par, 1 },
 };
 #define N_RUNGS ((int)(sizeof(rungs) / sizeof(rungs[0])))
 
@@ -458,10 +471,11 @@ const char *n265_env(const char *name)
     return lookup(rungs[g_preset].tab, name);
 }
 
+/* the index of a PLACED rung by name, or -1 */
 static int rung_of(const char *name)
 {
     for (int i = 0; i < N_RUNGS; i++)
-        if (!strcmp(rungs[i].name, name))
+        if (rungs[i].placed && !strcmp(rungs[i].name, name))
             return i;
     return -1;
 }
