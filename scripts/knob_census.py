@@ -79,6 +79,10 @@ DEFAULT_OVERRIDES = {
     # phase 7 M1': the float literal `0.0f` is not what the numeric idiom
     # picks up; the signal's own `: 1` parses correctly and ships
     "N265_AQ_FLAT_SIGN": "0",
+    # phase 10 item 3: the content gate on that sign. Unset is a threshold
+    # no frame's outline share can reach, i.e. the ungated arm - a sentinel
+    # the DEFVAL idiom cannot read.
+    "N265_AQ_FLAT_THR": "= ungated",
     # phase 7 step 2. k_f ships at 1.0 (the literal carries an f suffix);
     # its flat-frame twin follows k_b, which is today's form; and the two
     # cascade knobs take "r,l" or "auto", not a number.
@@ -136,6 +140,9 @@ OVERRIDES = {
     # bus's CRF cell). Default 0 and kept for re-pricing, which is what an
     # arm is; the TRACE beside it is the instrument.
     "N265_SUBPEL_RATE": "arm",
+    # phase 10 item 3: moot unless N265_AQ_FLAT_SIGN arms the sign, so it is
+    # that arm's parameter - N265_CHROMA_W_PCT's case exactly.
+    "N265_AQ_FLAT_THR": "arm",
     # the lattice IS the shipped default (1) and the env is its escape; it
     # is catalogued in docs/instruments.md because value 2 - the
     # commit-only form, phase 9 step 2 - is an arm with a census behind
