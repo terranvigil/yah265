@@ -451,6 +451,20 @@ static const struct rung rungs[] = {
      * what lets the refusal say which rung was tried and failed rather
      * than pretending the name is unknown. docs/phase13.md, "C2". */
     { "veryfast", vfast_tab,  vfast_par,  0 },
+    /* `faster` is present and NOT placed either, and for a different
+     * reason from veryfast's. It PASSES the band on every one of the
+     * fifteen - median -9.96% BD-VMAF-NEG against x265 faster, 15/15
+     * ahead - and it fails three of the four legs against that same
+     * preset, two of them on one clip:
+     *
+     *   median speed 0.81x            PASS
+     *   worst clip   touchdown_1080p 1.44x   (bar 1.15x)   FAIL
+     *   quality      bus_cif -0.56 dVMAF     (bar -0.5)    FAIL
+     *   compression  bus_cif +2.64%          (bar +1.0%)   FAIL
+     *
+     * docs/phase13.md, "C2". The table stays for the same reason
+     * veryfast's does, and the two binding clips are the same two the
+     * project already has open items on. */
     { "faster",   faster_tab, faster_par, 1 },
     { "fast",     fast_tab,   fast_par,   1 },
     { "medium",   med_tab,    med_par,    1 },
