@@ -8,6 +8,7 @@
 #include "encoder/encoder.h"
 #include "encoder/sao.h"
 #include "encoder/grain.h"
+#include "encoder/hash.h"
 
 /* profile_tier_level with maxNumSubLayersMinus1 == 0 (7.3.3).
  *
@@ -539,5 +540,34 @@ void n265_write_hrd_sei(bitstream_t *bs, const n265_hrd_sei *v)
                                     /* au_cpb_removal_delay_minus1 */
     bs_put_bits(bs, v->dpb_delay, N265_HRD_DELAY_BITS);
     sei_wrap(bs, at, 1);
+    bs_rbsp_trailing(bs);
+}
+
+/* decoded_picture_hash (D.2.19), in a SUFFIX SEI NAL - the only suffix
+ * NAL this encoder writes. Phase 14 item 1.
+ *
+ * It is a suffix and not a prefix because the message is ABOUT the
+ * picture the access unit codes: 7.4.2.4.4 puts a suffix SEI after the
+ * last VCL NAL of its access unit, and D.3.19's value cannot be known
+ * before the picture is reconstructed anyway.
+ *
+ * `ncomp` is 3 wherever chroma_format_idc is not 0, which is every stream
+ * this encoder writes; the loop is written against the syntax rather than
+ * against that fact so a monochrome profile would only have to pass 1. */
+void n265_write_hash_sei(bitstream_t *bs, const n265_pic_hash *h, int ncomp)
+{
+    bs_reset(bs);
+    size_t at = bs->bytes;
+    bs_put_bits(bs, (uint32_t)h->type, 8);          /* hash_type */
+    for (int c = 0; c < ncomp; c++) {
+        if (h->type == N265_HASH_MD5)
+            for (int i = 0; i < 16; i++)
+                bs_put_bits(bs, h->md5[c][i], 8);   /* picture_md5 */
+        else if (h->type == N265_HASH_CRC)
+            bs_put_bits(bs, h->crc[c], 16);         /* picture_crc */
+        else
+            bs_put_bits(bs, h->checksum[c], 32);    /* picture_checksum */
+    }
+    sei_wrap(bs, at, 132);          /* SEI_TYPE_DECODED_PICTURE_HASH */
     bs_rbsp_trailing(bs);
 }

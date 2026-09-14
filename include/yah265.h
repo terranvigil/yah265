@@ -80,6 +80,7 @@ typedef uint16_t n265_pixel;
 #define n265_set_ref          N265_API(n265_set_ref)
 #define n265_set_badapt       N265_API(n265_set_badapt)
 #define n265_set_threads      N265_API(n265_set_threads)
+#define n265_set_hash         N265_API(n265_set_hash)
 #define n265_set_preset       N265_API(n265_set_preset)
 #define n265_preset_param     N265_API(n265_preset_param)
 #define n265_encoder_open     N265_API(n265_encoder_open)
@@ -121,6 +122,7 @@ enum {
     N265_NAL_SPS        = 33,
     N265_NAL_PPS        = 34,
     N265_NAL_PREFIX_SEI = 39,
+    N265_NAL_SUFFIX_SEI = 40,
 };
 
 typedef struct n265_nal {
@@ -181,6 +183,14 @@ YAH265_API void n265_set_badapt(int on);
  * every value (docs/threading-design.md). */
 YAH265_API void n265_set_threads(int n);
 
+/* ---- pass-through signalling (phase 14 item 1) ----
+ *
+ * The decoded picture hash: one suffix SEI per picture, D.2.19, taken
+ * over the CODED picture - 0 off, then x265's numbering, 1 MD5, 2 CRC,
+ * 3 checksum. It changes no coded sample and costs one pass over the
+ * reconstruction at retirement; give it and nothing else and the VCL
+ * NALs are byte for byte the ones this encoder wrote before it. */
+YAH265_API void n265_set_hash(int type);
 /* Speed/quality preset: "fast", "medium" (the default), "slow" or
  * "slower". Returns 0, or -1 for a name it does not know, in which case
  * nothing changes. A preset only supplies DEFAULTS: it is read where a

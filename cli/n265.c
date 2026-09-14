@@ -31,7 +31,6 @@ void n265_set_vbv(double maxrate, double bufsize, double init);
  * arithmetic over the Annex A table, so the 8-bit copy serves both
  * libraries and the dispatch table does not carry it. */
 int n265_level_parse(const char *s);
-
 /* ---------------------------------------------------------------------
  * Both libraries, one command line (phase 8 item 5a).
  *
@@ -64,6 +63,7 @@ void n265_set_level_10(int idc, int high_tier);
 void n265_set_vui_timing_10(int on);
 void n265_set_film_grain_10(double strength, int denoise);
 void n265_set_vbv_10(double maxrate, double bufsize, double init);
+void n265_set_hash_10(int type);
 int  n265_set_preset_10(const char *name);
 int  n265_preset_param_10(const char *key, int fallback);
 n265_encoder *n265_encoder_open_10(const n265_param *p);
@@ -96,6 +96,9 @@ typedef struct n265_api {
     void (*set_vui_timing)(int);
     void (*set_film_grain)(double, int);
     void (*set_vbv)(double, double, double);
+    /* the pass-through signalling setters (phase 14 item 1). They take
+     * syntax elements, never names. */
+    void (*set_hash)(int);
     n265_encoder *(*encoder_open)(const n265_param *);
     int  (*encoder_encode)(n265_encoder *, n265_nal **, int *,
                            const n265_picture *);
@@ -112,6 +115,7 @@ static const n265_api api8 = {
     n265_set_preset, n265_preset_param, n265_set_shot_window, n265_set_pass,
     n265_set_lossless, n265_set_level, n265_set_vui_timing,
     n265_set_film_grain, n265_set_vbv,
+    n265_set_hash,
     n265_encoder_open, n265_encoder_encode, n265_encoder_close,
     n265_version_str, n265_encoder_set_dump, n265_encoder_set_dump_decode,
     n265_encoder_set_shot_stats,
@@ -124,6 +128,7 @@ static const n265_api api10 = {
     n265_preset_param_10, n265_set_shot_window_10, n265_set_pass_10,
     n265_set_lossless_10, n265_set_level_10, n265_set_vui_timing_10,
     n265_set_film_grain_10, n265_set_vbv_10,
+    n265_set_hash_10,
     n265_encoder_open_10,
     n265_encoder_encode_10, n265_encoder_close_10, n265_version_str_10,
     n265_encoder_set_dump_10, n265_encoder_set_dump_decode_10,
@@ -473,6 +478,13 @@ static void usage(void)
         "  --vbv-bufsize <k>  the CPB size in kbit (the other half).\n"
         "  --vbv-init <f>  how full the buffer starts, as a fraction of\n"
         "                  --vbv-bufsize in (0, 1]. Default 0.9.\n"
+        "  --hash <0-3>    decoded picture hash SEI, one suffix message per\n"
+        "                  picture (H.265 D.2.19): 0 off (the default),\n"
+        "                  1 MD5, 2 CRC, 3 checksum - x265's numbering. The\n"
+        "                  hash is of the CODED picture, padding included,\n"
+        "                  so any decoder can self-check our streams:\n"
+        "                  `ffmpeg -err_detect crccheck -v debug` verifies\n"
+        "                  the MD5 form and says so per picture.\n"
         "  --verbose, -v   one line at open with the level and tier chosen\n"
         "                  and every Annex A bound that drove them\n"
         "                  (N265_LEVEL_TRACE=1 is the same line)\n"
@@ -496,6 +508,8 @@ int main(int argc, char **argv)
     /* --vbv-maxrate / --vbv-bufsize / --vbv-init; 0/0 is the mode off,
      * which is every encode before phase 12 item 2. */
     double vbv_maxrate = 0.0, vbv_bufsize = 0.0, vbv_init = 0.9;
+    /* --hash (phase 14 item 1): 0 is off and off is the default. */
+    int hash = 0;
     int had_crf = 0;            /* --crf given: the ON switch, not crf >= 0 */
     int out_depth = 0;          /* --output-depth; 0 = the input's */
     int nref = 1, badapt = 1;
@@ -572,6 +586,8 @@ int main(int argc, char **argv)
             vbv_bufsize = atof(argv[++i]);
         } else if (!strcmp(argv[i], "--vbv-init") && i + 1 < argc) {
             vbv_init = atof(argv[++i]);
+        } else if (!strcmp(argv[i], "--hash") && i + 1 < argc) {
+            hash = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--dump-recon") && i + 1 < argc) {
             dump_path = argv[++i];
         } else if (!strcmp(argv[i], "--shot-window") && i + 1 < argc) {
@@ -753,6 +769,13 @@ int main(int argc, char **argv)
     a->set_vui_timing(vui_timing);
     a->set_film_grain(film_grain, fgc_denoise);
     a->set_vbv(vbv_maxrate, vbv_bufsize, vbv_init);
+    /* ---- the pass-through signalling (phase 14 item 1) ---- */
+    if (hash < 0 || hash > 3) {
+        fprintf(stderr, "n265: --hash is 0 (off), 1 (MD5), 2 (CRC) or "
+                "3 (checksum)\n");
+        return 2;
+    }
+    a->set_hash(hash);
     /* --verbose is N265_LEVEL_TRACE by another name: one code path, one
      * line, and a script that wants it without a flag sets the variable.
      * setenv does not overwrite, so an explicit N265_LEVEL_TRACE=0 in the

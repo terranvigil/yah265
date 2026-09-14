@@ -219,6 +219,47 @@ run_vector() {
         echo "SUMMARY $name FAIL (dec265 recon mismatch)"
         fail=$((fail+1)); return
     fi
+    # --hash (phase 14 item 1): the stream CLAIMS a hash of every decoded
+    # picture, so the vector is only worth running if something checks the
+    # claim. Three things do, and they fail on different bugs:
+    #
+    #   - scripts/hash_check.py recomputes all three of D.3.19's hashes
+    #     from the pictures FFMPEG decoded, with its own implementation of
+    #     the clause - the one checked against x265's own streams. It is
+    #     the only oracle that covers the CRC and the checksum forms.
+    #   - ffmpeg's own verification, which is live only under
+    #     `-err_detect crccheck` and only for MD5, and which reports a
+    #     disagreement as "mismatching checksum of plane N" at error
+    #     level. The negative control is in docs/phase14.md.
+    #   - dec265 -c, which parses the message and must not refuse the
+    #     stream. It is a no-regression leg and not an oracle: the check
+    #     is inert in the libde265 build this gate runs against (the
+    #     suffix SEI reaches it after the picture has left the queue).
+    #
+    # The geometry handed to the checker is the CODED picture, which is
+    # what D.3.19 hashes; every vector with --hash therefore has
+    # dimensions that are already a multiple of the minimum coding block,
+    # and ffmpeg's own check is what covers a padded one.
+    case " $eargs " in
+    *" --hash "*)
+        if ! python3 scripts/hash_check.py "$TMP/$name.hevc" \
+                "$TMP/$name.ff.yuv" --geometry "$size" --csp "$CSP" \
+                --depth "$DEPTH" >"$TMP/$name.hash" 2>&1; then
+            echo "SUMMARY $name FAIL (decoded picture hash)"
+            sed -n 1,2p "$TMP/$name.hash" >&2
+            fail=$((fail+1)); return
+        fi
+        if "$FFMPEG" -v debug -err_detect crccheck -i "$TMP/$name.hevc" \
+                -f null - 2>&1 | grep -q "mismatching checksum"; then
+            echo "SUMMARY $name FAIL (ffmpeg reports a hash mismatch)"
+            fail=$((fail+1)); return
+        fi
+        if ! "$DEC265" -q -c "$TMP/$name.hevc" >/dev/null 2>&1; then
+            echo "SUMMARY $name FAIL (dec265 -c refused the stream)"
+            fail=$((fail+1)); return
+        fi
+        ;;
+    esac
     echo "SUMMARY $name PASS"
     pass=$((pass+1))
 }
@@ -510,6 +551,14 @@ if [ "$CSP" = 444 ]; then
     # statistics they were fitted against.
     run_vector_file tests/corpus/foreman_cif.y4m \
                    ${P}_foreman 352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 28 --aq 1 --cutree 1 --threads 4"
+    # --hash 2, the CRC form (phase 14 item 1). At 4:4:4 because the hash
+    # is per COLOUR COMPONENT and the chroma planes are full size here, so
+    # a hash that walked a plane with 4:2:0's geometry would be wrong in a
+    # way the 4:2:0 vectors cannot show. The CRC form because ffmpeg only
+    # verifies MD5: on this vector the whole claim rests on
+    # scripts/hash_check.py's independent implementation, which is the
+    # reason that script exists.
+    run_vector ${P}_hash_crc 352x288 16 testsrc2 "--keyint 8 --bframes 3 --crf 28 --aq 1 --cutree 1 --hash 2 --threads 4"
     if [ "$FAST" -eq 0 ]; then
         run_vector_file tests/corpus/mobile_cif.y4m \
                    ${P}_mobile 352x288 16 testsrc2 "--keyint 8 --bframes 3 --qp 22 --aq 1 --threads 1"
@@ -968,6 +1017,13 @@ run_vector_dup "N265_DUP_FAST=1 N265_DUP_THR=0.5" \
 # persistence flag's scope requires) and the denoise arm (so the picture
 # the message describes is not the source). The noisy source every vector
 # already carries is what gives the estimator something to find.
+# --hash (phase 14 item 1): one suffix SEI per picture, which is a NAL
+# type nothing else in this suite writes and a message whose value the
+# decoders can check. The pyramid is what makes it worth running: the
+# messages are written in CODING order and the pictures are output in
+# DISPLAY order, so a hash taken from the wrong frame passes a count and
+# fails a comparison. run_vector's hash leg is what compares them.
+run_vector hash_md5      352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 26 --aq 1 --cutree 1 --hash 1 --threads 4"
 run_vector fgc_sei       352x288 20 testsrc2 "--keyint 6 --bframes 3 --aq 1 --cutree 1 --film-grain 1.0 --threads 4"
 run_vector fgc_denoise   352x288 20 testsrc2 "--keyint 6 --bframes 3 --aq 1 --cutree 1 --film-grain 1.0 --film-grain-denoise 1 --threads 12"
 
