@@ -166,6 +166,65 @@ control spends every bit the stream carries, so a mark that cost anything
 would show up there as a different size, a different QP trajectory and a
 different picture. It does not.
 
+## The escape, and how to tell which arm you are holding
+
+`--no-fingerprint` is a **passthrough**, not a rule: it writes the index
+the encoder's own mode decision committed, whatever that was. That is a
+stronger guarantee than "always the lower index" would be, and it is why
+the escape reproduces a pre-item binary byte for byte rather than
+approximately.
+
+Against a fresh build of `64f267b` (the commit before the item), 60
+frames, `--preset medium`, `--no-info` on both arms, AQ and cu-tree at
+their defaults:
+
+| clip | mode | 64f267b | `--no-fingerprint` | default | escape | recon | bytes the MARK moves |
+|---|---|---|---|---|---|---|---|
+| foreman_cif | `--qp 27` | 64529 | 64529 | 64529 | identical | identical | 54 |
+| foreman_cif | `--crf 28` | 29448 | 29448 | 29448 | identical | identical | 45 |
+| foreman_cif | `--bitrate 1500` | 373353 | 373353 | 373353 | identical | identical | 61 |
+| park_joy_720p | `--qp 27` | 2531215 | 2531215 | 2531215 | identical | identical | 331 |
+| park_joy_720p | `--crf 28` | 1043206 | 1043206 | 1043206 | identical | identical | 359 |
+| park_joy_720p | `--bitrate 1500` | 217185 | 217185 | 217185 | identical | identical | 281 |
+
+and identical again at `--preset fast` / `slow` / the compiled-in
+default, at `--threads` 1 / 12 / auto, with `--output-depth 10`, with
+`--ctu 64 --ref 3 --bframes 7`, under `--lossless`, and with the flag
+written before the input file rather than after it.
+
+**Did the pre-item encoder ever write the HIGH index at a duplicate
+pair?** No, on this evidence. `64f267b`'s own foreman streams write the
+last index 703 (CQP), 555 (CRF) and 1414 (ABR) times in 60 frames and
+`scripts/fingerprint_check.py` reads **0 marks** in all three - not one
+of those is a position where the last two candidates duplicate. That is
+what the cost model says it should do: `merge_idx` MAX_MERGE-2 and
+MAX_MERGE-1 are priced equally
+(`b += 256u * (midx < MAX_MERGE - 1 ? midx : midx - 1)`), and the first
+minimum wins. So the two possible escape semantics coincide here, and the
+passthrough is the one that is true by construction rather than by
+measurement.
+
+**If an escape cmp against an older binary fails**, check which arm you
+are actually holding before looking anywhere else:
+
+    python3 scripts/fingerprint_check.py <stream>
+
+A stream written with `--no-fingerprint` says `no fingerprint`; one
+written without it says `yah265 (HEVC)`. The two arms have the same byte
+count and the same recon, so `ls -l` and `--dump-recon` cannot tell them
+apart - which is the whole design - and a cmp of the ON arm against a
+pre-item binary looks exactly like a broken escape. On foreman_cif
+`--qp 27 --frames 60 --no-info` the ON arm first differs from `64f267b`
+at **byte 12914 of 64529**, with 54 bytes moved in all.
+
+Two more things that will not carry the flag. A binary older than the
+item REJECTS `--no-fingerprint` with the usage text and writes nothing,
+so a stale build cannot quietly produce a marked stream. And the switch
+is a CLI flag reaching a process-global setter through the API table: a
+harness that drives the library directly, rather than through
+`cli/n265.c`, never calls `n265_set_fingerprint` and gets the default,
+which is on.
+
 ## The gate
 
 | check | result |
