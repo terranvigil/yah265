@@ -1043,6 +1043,12 @@ run_vector tudepth4_c64  352x288 20 testsrc2 "--keyint 10 --ctu 64 --bframes 7 -
 run_vector tudepth1      352x288 20 testsrc2 "--keyint 10 --ctu 64 --bframes 5 --aq 1 --cutree 1 --tu-inter-depth 1 --tu-intra-depth 1 --threads 4"
 run_vector tudepth_mixed 176x144 16 testsrc2 "--keyint 8 --ctu 16 --bframes 5 --aq 1 --cutree 1 --tu-inter-depth 3 --tu-intra-depth 1 --threads 1"
 
+# The placed rungs of the ladder (phase 14 item 5), one vector each: a
+# rung is a composition of knobs and a structure, and a stream nobody
+# decoded is not a rung. `--ref 4` and `--ref 5` come with them, which is
+# what makes these also the DPB vectors for the two new reference counts.
+run_vector rung_veryslow 352x288 24 testsrc2 "--preset veryslow --keyint 12 --crf 26 --aq 1 --cutree 1 --threads 4"
+run_vector rung_placebo  352x288 24 testsrc2 "--preset placebo --keyint 12 --crf 26 --aq 1 --cutree 1 --threads 4"
 run_vector ref4_b8_t1    352x288 30 testsrc2 "--keyint 12 --bframes 8 --rc-lookahead 20 --ref 4 --crf 26 --aq 1 --cutree 1 --threads 1"
 run_vector ref5_b8_t12   352x288 30 testsrc2 "--keyint 12 --bframes 8 --rc-lookahead 20 --ref 5 --crf 26 --aq 1 --cutree 1 --threads 12"
 # The widest pairs are bounded by Annex A and not by us: sps_max_dec_pic_
