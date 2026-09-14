@@ -700,5 +700,9 @@ void n265_est_advance_cu(struct n265_frame_work *e, est_state *st, int x0,
 {
     res_ops ops_s;
     n265_est_ops(&ops_s, st);
+    /* The replay of a COMMITTED CU is not a trial: it is what keeps the
+     * estimator's contexts in step with the real coder's, so it adapts
+     * whatever N265_EST_MODE the trials price under (phase 13 A1). */
+    ops_s.frozen = 0;
     replay_cu(e, &ops_s, x0, y0, log2n);
 }

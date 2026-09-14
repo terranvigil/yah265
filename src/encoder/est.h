@@ -61,10 +61,12 @@ static inline uint32_t n265_est_bypass_bits(int n)
  * same walk with the per-bin call inlined; nothing else may branch on
  * it, because every other walker has one shape for both backends.
  *
- * `frozen` selects phase 13 A1's frozen-context instance of the residual
- * walk, and it is a property of the CALL and not of the estimator.
- * Nothing sets it yet: the walk and its census land here, the mode that
- * selects it lands next. 0 in the real emitter, always. */
+ * `frozen` is phase 13 A1's mode, and it is a property of the CALL and
+ * not of the estimator: n265_est_ops() copies n265_est_mode into it, so
+ * every trial that prices a TB gets the mode, and n265_est_advance_cu()
+ * clears it, because the replay of a COMMITTED CU is what keeps the
+ * estimator's contexts in step with the real coder's and must adapt
+ * whatever the trials do. 0 in the real emitter, always. */
 struct est_state;
 typedef struct res_ops {
     void *h;
@@ -82,6 +84,13 @@ typedef struct est_state {
 } est_state;
 
 void n265_est_ops(res_ops *ops, est_state *st);
+
+/* N265_EST_MODE (phase 13 A1): 0 = the adapting estimator, which is
+ * every encoder before 2026-09-14 and is byte-identical to it; 1 = the
+ * frozen-context one. Resolved on the driver thread by n265_est_warm()
+ * and read-only afterwards. */
+extern int n265_est_mode;
+void n265_est_warm(void);
 
 void n265_tables_init_est(void);
 

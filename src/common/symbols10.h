@@ -93,8 +93,10 @@
 #define n265_est_advance_cu          n265_est_advance_cu_10
 #define n265_est_bits_lps            n265_est_bits_lps_10
 #define n265_est_bits_mps            n265_est_bits_mps_10
+#define n265_est_mode                n265_est_mode_10
 #define n265_est_ops                 n265_est_ops_10
 #define n265_est_step                n265_est_step_10
+#define n265_est_warm                n265_est_warm_10
 #define n265_est_trans_lps           n265_est_trans_lps_10
 #define n265_est_trans_mps           n265_est_trans_mps_10
 #define n265_fdct                    n265_fdct_10
