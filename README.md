@@ -43,11 +43,33 @@ different about the clip is thousands of small 8x8 blocks that each carry
 a little real change (the crowd texture), and on those we run a
 rate-distortion optimised quantiser (RDOQ) that x265 medium does not run
 at all. That step is about a quarter of the clip's single-thread time and
-it is also part of why our pictures are better there (19 BD points ahead
-of x265 on that clip). The remaining levers are quality trades, priced
-and recorded in `docs/phase9-goals-plan.md` (sections 11 and 12) and
+it is also part of why our pictures are better there (12 BD points ahead
+of x265 on that clip at the shipped default, 15 with the quantiser turned
+up). The remaining levers are quality trades, priced and recorded in
+`docs/phase9-goals-plan.md` (sections 11 and 12) and
 `docs/phase9-lattice.md`; the clip is recorded at the bar rather than
 bought with more of the lead.
+
+**...and how to trade it yourself.** `--rdoq-level` hands that quantiser
+to the user, in x265's numbering so a number carries over: **0** turns
+RDOQ off, **1** is what `medium` runs (the lattice once per block, at the
+commit), **2** runs it in every rate-distortion decision, which is what
+`slow` and `slower` do. Given, it overrides the preset. On the fifteen
+clips at `--preset medium`, all cores, as shipped, against x265 medium:
+
+| arm | median speed | touchdown_1080p | CRF BD-VMAF-NEG median | worst clip |
+|---|--:|--:|--:|---|
+| default (`--rdoq-level 1`) | 0.74x | 1.14x | -7.8% | stefan_cif -0.5% |
+| `--rdoq-level 0` | **0.60x** | **0.99x** | +10.2% | sita_flat_720p +23.0% |
+| `--rdoq-level 2` | 0.81x | 1.25x | **-11.9%** | sita_toon_720p -3.2% |
+
+Level 0 is the one arm measured anywhere that puts touchdown_1080p under
+x265's own wall, and it is not free: the median clip goes from 7.8% ahead
+of the reference to 10.2% behind it, and only two of the fifteen stay
+ahead. Level 2 is the other direction - four more BD points of median for
+a tenth more time, the trade `--preset slow` makes by name. The
+per-clip tables, the single-thread clock and the across-shot numbers are
+in `docs/instruments.md` under `--rdoq-level`.
 
 Full campaign record: `docs/plan.md` (phases 0-12), the per-phase docs
 under `docs/`, and the refusal log in `docs/ideas.md`.

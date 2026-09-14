@@ -1144,9 +1144,8 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * table alike, the rule `--ctu` follows. It carries X265'S numbering,
      * not this knob's; `rdoq_level_map` above is the one place the two
      * meet. */
-    { const char *v = n265_env("N265_RDOQ");
-      e->rdoq = g_rdoq_level >= 0 ? rdoq_level_map(g_rdoq_level)
-                                  : v ? atoi(v) : 1; }
+    { const char *v = n265_env("N265_RDOQ"); e->rdoq = v ? atoi(v) : 1;
+      if (g_rdoq_level >= 0) e->rdoq = rdoq_level_map(g_rdoq_level); }
     { const char *v = n265_env("N265_PSY"); e->psy = v ? atof(v) : 0.0; }
     e->aq = g_aq || n265_env("N265_AQ") != NULL;      /* variance AQ */
     e->la_depth = e->mode == N265_MODE_PCM || !e->bframes ? g_la_depth
