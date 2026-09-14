@@ -18,6 +18,14 @@ unit_vbv = executable('unit_vbv', 'unit/vbv_test.c',
   dependencies : yah265_dep)
 test('vbv', unit_vbv)
 
+# The two-pass stats parser and the whole-file rate-factor solve
+# (src/encoder/twopass.c), checked as algebra for the same reason the VBV
+# is: the plan decides every frame's quantiser before a frame is coded, so
+# there is nothing in it an encode could tell you that arithmetic cannot.
+unit_twopass = executable('unit_twopass', 'unit/twopass_test.c',
+  dependencies : yah265_dep)
+test('twopass', unit_twopass)
+
 # One file per kernel family (checkasm.h has the layout): a family item
 # adds its file here and one line to the table in main.c, and touches
 # nothing else.

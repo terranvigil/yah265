@@ -60,6 +60,7 @@ lib_sources = [
   'src/encoder/la.c',
   'src/encoder/rc.c',
   'src/encoder/vbv.c',
+  'src/encoder/twopass.c',
   'src/encoder/mv.c',
   'src/encoder/deblock.c',
   'src/encoder/sao.c',
