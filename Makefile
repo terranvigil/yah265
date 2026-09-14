@@ -43,6 +43,10 @@ test: build
 	meson test -C $(BUILD) --print-errorlogs
 	scripts/provenance_check.sh
 	scripts/symbol_check.sh $(BUILD) $(BUILD10)
+	# no dark knobs, no ghost entries, no stale default comment. It is a
+	# second of wall and the census had drifted to sixty unread defaults
+	# before the audit caught it (docs/x265-feature-audit.md).
+	python3 scripts/knob_census.py --check
 	$(MAKE) smoke10
 
 # The 10-bit leg of `make test`, and it is a SMOKE and not a correctness

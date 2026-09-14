@@ -823,10 +823,20 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
         else if (rf < rc->rf - step)
             rf = rc->rf - step;
     }
-    if (rf < (double)N265_QP_MIN)
-        rf = (double)N265_QP_MIN;
-    else if (rf > 51.0)
-        rf = 51.0;
+    /* --qpmin / --qpmax narrow this: the loop's answer is bounded where
+     * the user bounded it, so the integral winds against a rate factor it
+     * can actually reach instead of against a clamp applied behind its
+     * back. Absent the flags the pair IS the spec's own range and this is
+     * the clip it always was. */
+    double rf_lo = (double)N265_QP_MIN, rf_hi = 51.0;
+    if (e->qp_bounds) {
+        rf_lo = (double)e->qpmin;
+        rf_hi = (double)e->qpmax;
+    }
+    if (rf < rf_lo)
+        rf = rf_lo;
+    else if (rf > rf_hi)
+        rf = rf_hi;
     /* The VBV, LAST and one-sided.
      *
      * Everything above answers the question "what lands the file on its

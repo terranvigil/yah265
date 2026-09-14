@@ -1,7 +1,11 @@
 /*
- * Deblocking filter (ITU-T H.265 8.7.2). QP is constant per slice for
- * now (the per-4x4 hooks arrive with cu_qp_delta); single reference, so
- * the different-ref bS leg cannot fire yet.
+ * Deblocking filter (ITU-T H.265 8.7.2). The QP the tables are indexed by
+ * is per 4x4 BLOCK, not per slice: n265_qpmap_row below resolves the
+ * cu_qp_delta markers into blk_qp one CTU row ahead of the filter, and
+ * seg_qp averages the two sides of the edge as 8.7.2.5.3 asks. The
+ * different-ref bS leg fires too: seg_bs derives bS 1 by reference
+ * PICTURE (POC) across both lists, bi-predicted both-pairings case
+ * included.
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 

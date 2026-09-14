@@ -51,6 +51,13 @@ typedef struct n265_signal {
      * 3 checksum). One suffix SEI per picture, D.2.19. */
     int hash;
 
+    /* --pic-struct (phase 14 item 4): the pic_timing field, and with it
+     * the VUI's frame_field_info_present_flag. -1 is the flag absent. It
+     * lives here rather than beside the VBV because it is pure
+     * signalling: it says how the decoder should present a picture and
+     * changes no coded sample. */
+    int pic_struct;
+
     /* ---- vui_parameters (E.2.1). -1 is "not given" throughout. ---- */
     int sar_idc;            /* aspect_ratio_idc; 255 is EXTENDED_SAR   */
     int sar_w, sar_h;       /* ...and its explicit pair                */

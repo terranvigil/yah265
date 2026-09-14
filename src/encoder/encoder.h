@@ -18,9 +18,11 @@
 #include "encoder/hash.h"
 #include "encoder/hrd.h"
 #include "encoder/la.h"
+#include "encoder/metrics.h"
 #include "encoder/signal.h"
 #include "encoder/level.h"
 #include "encoder/rc.h"
+#include "encoder/rcfile.h"
 #include "encoder/twopass.h"
 #include "encoder/vbv.h"
 #include "encoder/wp.h"
@@ -467,6 +469,10 @@ typedef struct n265_frame_work {
     int hrd_on;
     unsigned hrd_bit_rate_scale, hrd_bit_rate_value;    /* E.2.3's BitRate */
     unsigned hrd_cpb_size_scale, hrd_cpb_size_value;    /* ...and CpbSize  */
+    int hrd_cbr;            /* --strict-cbr: E.2.3's cbr_flag[0]        */
+    int tlayers_minus1;     /* --temporal-layers: sps_max_sub_layers_m1 */
+    int tid;                /* this picture's TemporalId (0, or 1 on a
+                             * non-reference B leaf under the flag)     */
     double psy;             /* N265_PSY: psychovisual energy strength */
     int dbf_beta, dbf_tc;   /* slice_beta/tc_offset_div2, see n265_encoder */
     /* --cbqpoffs / --crqpoffs: pps_cb_qp_offset / pps_cr_qp_offset, the
@@ -481,6 +487,10 @@ typedef struct n265_frame_work {
     struct n265_refpic *slot;       /* the DPB slot being reconstructed into */
 
     int qp;                 /* this frame's slice QP */
+    int qp_forced;          /* --qpfile / --zones q=N pinned it: the
+                             * cascade, the base's fraction and the AQ
+                             * frame mean are all off, because a user who
+                             * writes q=30 means thirty */
     int poc;
     int slice_type;         /* 2 = I, 1 = P, 0 = B */
     /* Is this picture an IRAP (an IDR)? Every I slice was one until the
@@ -489,6 +499,22 @@ typedef struct n265_frame_work {
      * read THIS, and everything else keeps reading `slice_type == 2`,
      * which still means "coded without prediction". */
     int idr;
+    /* ...and the other IRAP this encoder writes since phase 14 item 3:
+     * a CRA (7.4.2.2). `idr` and `cra` are exclusive and `irap` is the
+     * disjunction, which is what the syntax keys on wherever the spec
+     * says IRAP rather than IDR - no_output_of_prior_pics_flag, the
+     * buffering period, the per-IRAP metadata SEIs. What a CRA does NOT
+     * do is reset the POC or empty the DPB, which is the whole of open
+     * GOP; the prediction barrier in encoder.c is what replaces the
+     * flush. */
+    int cra;
+    int irap;
+    /* This picture is a LEADING picture of the last CRA: it follows that
+     * CRA in decoding order and precedes it in output order. 0 neither,
+     * 1 RASL (may reference across the CRA, discarded on a seek to it),
+     * 2 RADL (may not, and so is decodable there). Frozen at dispatch
+     * with the lists, and it picks the NAL type and nothing else. */
+    int leading;
     int nonref;             /* this frame is not a reference */
     int display_idx;
     int b_depth;            /* pyramid layer (0 = anchor) */
@@ -1033,6 +1059,39 @@ struct n265_encoder {
      * here is read on a worker. */
     n265_signal sig;
     bitstream_t hash_bs;    /* the scratch the picture hash is built in */
+    /* --repeat-headers / --aud / --eos / --eob / --info (phase 14 item 4):
+     * the NALs an access unit may carry besides its own. Every one of them
+     * is OFF by default, `--info` included, so the default bitstream is
+     * byte-for-byte the one this encoder wrote before they existed - which
+     * is what keeps an identity cmp against an older binary meaningful.
+     * x265 writes its --info SEI by DEFAULT; the audit's row says so. */
+    int repeat_hdr, aud, eos, eob, info;
+    /* --idr-recovery-sei / --temporal-layers (phase 14 item 4). The
+     * recovery point is one prefix SEI per IRAP; the temporal layer puts
+     * the non-reference B leaves in sub-layer 1, which is the only
+     * bitstream change in this group that touches a VCL NAL HEADER. */
+    int recovery_sei, tlayers, hrd_concat;
+    bitstream_t rec_bs;
+    /* The rate-control exposure (phase 14 item 4). Every one of these is
+     * inert at its default: the QP bounds are the spec's own range and
+     * are only APPLIED when the user narrowed one, the CRF bounds are
+     * only read under --crf, the AU cap is a fraction of 1, and strict
+     * CBR needs --bitrate and a VBV before it exists at all. */
+    int qpmin, qpmax, qp_bounds;
+    double crf_min, crf_max;
+    int crf_bounds;
+    int strict_cbr;
+    double ausize_factor;
+    n265_qpfile qpf;
+    n265_zones zones;
+    int qpf_on, zones_on;
+    bitstream_t fd_bs;      /* the filler data RBSP, rebuilt per AU */
+    long filler_bytes;      /* what strict CBR had to pad, in total */
+    long filler_aus;
+    bitstream_t aud_bs;     /* one byte, rewritten per access unit */
+    bitstream_t info_bs;    /* the version SEI, built once at open */
+    int tail_done;          /* the trailing EOS/EOB have been emitted */
+    long frames_out;        /* access units packed, for "not the first" */
     /* --film-grain / --film-grain-denoise (phase 12 item 3). OPT-IN and
      * nothing but: strength 0 is the default, and at 0 the estimator is
      * never opened, no picture is touched and no SEI is written, which is
@@ -1150,7 +1209,39 @@ struct n265_encoder {
     double prof_t0, prof_push, prof_plan, prof_cutree;
     int frames_done;
     int in_display_idx;     /* next arriving picture's display index */
-    int gop_start_display;  /* display index of the current IDR      */
+    int gop_start_display;  /* display index of the current KEY FRAME */
+    /* The POC origin: the display index the POC line is measured from.
+     * It moves at an IDR and at NOTHING ELSE, because 8.3.1 resets
+     * PicOrderCntMsb at an IDR and at nothing else. Until open GOP
+     * landed every key frame was an IDR and this was gop_start_display;
+     * a CRA moves that one (the min-keyint bound and the cu-tree parity
+     * both measure from the last key frame) and leaves this one alone,
+     * which IS the continuous POC open GOP is about. */
+    int poc_origin_display;
+    /* The prediction barrier the last CRA put down, in POC, or INT_MIN
+     * before the first one. A picture with POC below it may be listed
+     * only by a picture with POC below it - that is 8.3.2's RASL rule
+     * and, read the other way, the guarantee that no trailing picture
+     * of the CRA references anything the decoder does not have after a
+     * seek to it. Driver-serial, read by n265_build_lists and by the
+     * retirement's POC mirror, so it is a function of POC and marking
+     * alone like every other list rule here. */
+    int cra_poc;
+    /* The same two, as the LIST RULE reads them. They are cra_poc and
+     * radl_poc, except under N265_OPENGOP_NOBARRIER, which leaves them
+     * at INT_MIN and so writes a stream whose NAL types claim an open
+     * GOP while its trailing pictures predict across the CRA anyway.
+     * That is the exact non-conformance this item exists to avoid, and
+     * it is the negative control the seek check is armed against
+     * (docs/phase14.md item 3). Diagnostic only; never a shipped path. */
+    int cra_bar_poc, cra_bar_radl;
+    int open_gop;           /* --open-gop: a keyint picture is a CRA */
+    int radl;               /* --radl: leading pictures coded RADL   */
+    /* ...and the second barrier `--radl` puts down inside the first: a
+     * picture whose POC is at or above `radl_poc` and below `cra_poc`
+     * is a RADL, and may list only pictures at or above `radl_poc`.
+     * Equal to cra_poc (an empty band) when --radl is 0. */
+    int radl_poc;
     /* display index of the last INTRA picture, IDR or not: what the
      * minimum distance between intra pictures (N265_INTRA_MIN) is
      * measured from, where N265_MIN_KEYINT is measured from the IDR
@@ -1218,17 +1309,30 @@ struct n265_encoder {
         uint8_t *buf;
         size_t cap, len;
         int nnal;
-        /* EIGHT, not four: the first access unit of a stream with a VBV,
-         * a film grain SEI, HDR10 metadata and --hash carries VPS, SPS,
-         * PPS, the HRD timing SEI (the buffering period and the pic_timing
-         * share one NAL), the HDR metadata SEI (all three messages in one
-         * NAL), the grain SEI, the slice, and the hash SUFFIX SEI after
-         * it. pack_nal DROPS a NAL past this bound and says nothing, so a
-         * bound one short does not fail loudly - it silently loses the IDR
-         * slice and the stream decodes as "could not find ref with POC 0".
-         * Found exactly that way, 2026-09-14. */
-        int type[8];
-        int size[8];
+        /* SIXTEEN. pack_nal DROPS a NAL past this bound and says
+         * nothing, so a bound one short does not fail loudly - it
+         * silently loses the IDR slice and the stream decodes as "could
+         * not find ref with POC 0". It was eight, and it was found too
+         * short TWICE by exactly that symptom: once at phase 14 item 1
+         * (VPS, SPS, PPS, the HRD timing pair, the HDR metadata, the
+         * grain SEI, the slice, the hash), and again at item 4, whose
+         * flags add five more NALs to the same access unit - the end of
+         * sequence, the access unit delimiter, the recovery point, the
+         * version SEI, and strict CBR's filler.
+         *
+         * The worst IRAP this encoder can write is now: EOS, AUD, VPS,
+         * SPS, PPS, recovery point, the HRD timing pair, the HDR
+         * metadata, the version SEI, the grain SEI, the slice, the hash
+         * suffix SEI, filler, EOB - fourteen. Sixteen leaves room for two
+         * more before the next item has to count again, and the cost is
+         * 64 bytes per ring slot.
+         *
+         * If a third item makes this list longer, make the bound a
+         * derived constant instead of raising it: the failure is silent
+         * by construction and no gate that runs one flag at a time can
+         * see it. The 10-bit all-flags smoke of item 4 is what found it. */
+        int type[16];
+        int size[16];
     } done[LA_MAX + N265_MAX_FRAME_WORK + 4];
     int n_done, done_head;
     /* T2 stall census (N265_STALL_TRACE): reference reads that had to
@@ -1240,6 +1344,15 @@ struct n265_encoder {
 
     FILE *dump_decode;      /* decode-order recon tap (dec265 leg)   */
     FILE *dump_recon;       /* optional recon tap for the gate       */
+
+    /* --psnr / --ssim / --csv (phase 14 item 4). Another pure tap on
+     * join_oldest, in coding order, on the driver: the metrics read the
+     * reconstruction and the source and write nothing the encoder reads
+     * back, so the bitstream is byte-identical with any of them on. */
+    n265_metrics met;
+    n265_csv csv;
+    double met_bytes;       /* coded bytes, for the CSV's summary row */
+    long met_frames;
 
     /* N265_CU_STATS: read once at open, copied into every frame_work.
      * The counters themselves are per-frame (see n265_frame_work). */
@@ -1309,13 +1422,14 @@ struct n265_encoder {
     FILE *shot_f;
     struct n265_shot_rec {
         int present;
-        int slice_type, idr, nonref, flat;
+        int slice_type, idr, cra, nonref, flat;
         double qp_base, cplx;
         uint64_t bytes;
     } shot_ring[N265_SHOT_RING];
     int shot_next;          /* next display index to fold */
     int shot_high;          /* one past the highest display index retired */
-    int shot_open;          /* 0 none yet, 1 "start", 2 "idr", 3 "intra" */
+    int shot_open;          /* 0 none yet, 1 "start", 2 "idr", 3 "intra",
+                             * 4 "cra" */
     int shot_first, shot_last;
     int shot_cnt[4];        /* i, p, b_ref, b_leaf */
     int shot_n, shot_flat;
@@ -1622,6 +1736,15 @@ static inline void n265_pu_rect(int part, int idx, int x0, int y0, int n,
 uint32_t n265_lambda_mode_q8(int qp);
 void n265_build_lists(struct n265_encoder *e, n265_frame_work *fw, int cur,
                       int is_b, struct n265_refpic *future);
+/* The open-GOP prediction barrier and the POC-level mirror of the list
+ * rule (phase 14 item 3). Both are pure functions of POC - no encoder,
+ * no DPB, no dispatch order - which is what lets tests/unit/gop_test.c
+ * read them against a hand-computed mini-GOP, and what makes the
+ * retirement's answer provably the list builder's. encoder.c is their
+ * only caller inside the library. */
+int n265_cra_visible(int cra_poc, int radl_poc, int cur, int p);
+void n265_ref_used(int cra_poc, int radl_poc, const int *m, int nm, int cur,
+                   int is_b, int ref_max, uint8_t *used);
 uint64_t n265_zorder(int x, int y, int pic_w, int ctb_log2);
 #define N265_REF_PAD 64     /* reference plane border, luma samples */
 /* ...and what that border is on ONE plane, per axis. It was a single
@@ -1748,6 +1871,34 @@ void n265_encoder_set_dump(n265_encoder *e, FILE *f);
 /* --shot-stats: the sidecar path, overriding N265_SHOT_STATS. NULL or
  * the empty string turns it off. */
 void n265_encoder_set_shot_stats(n265_encoder *e, const char *path);
+/* --csv <file> --csv-log-level <0|1|2> (phase 14 item 4). Called right
+ * after open, like the shot sidecar above. */
+void n265_encoder_set_csv(n265_encoder *e, const char *path, int level);
+
+/* --qpmin / --qpmax, then the spec's own clip. The user's bounds are
+ * APPLIED only where one of them narrowed QpY's range, so at the default
+ * this is n265_qp_clip and the compiler sees that. Every place that
+ * finishes a frame's QP goes through here. */
+static inline int n265_qp_bound(const struct n265_encoder *e, int q)
+{
+    if (e->qp_bounds) {
+        if (q < e->qpmin)
+            q = e->qpmin;
+        if (q > e->qpmax)
+            q = e->qpmax;
+    }
+    return n265_qp_clip(q);
+}
+/* access_unit_delimiter_rbsp (7.3.2.5) and the user data unregistered SEI
+ * that identifies the encoder (D.2.6). headers.c. */
+void n265_write_aud(bitstream_t *bs, int pic_type);
+/* recovery_point (D.2.8), the message a random-access player looks for. */
+void n265_write_recovery_sei(bitstream_t *bs);
+void n265_write_info_sei(bitstream_t *bs, const char *ver);
+/* The pooled metrics, for the caller's end-of-run line: psnr Y/U/V, the
+ * pixel-weighted psnr average, SSIM-Y and SSIM in dB. Returns the number
+ * of frames measured, 0 when neither metric was asked for. */
+long n265_encoder_metrics(n265_encoder *e, double out[6]);
 /* round 4: resolve the 2-D phase-plane knobs into the encoder at open */
 void n265_hf2_knobs(n265_encoder *e);
 

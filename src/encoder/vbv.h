@@ -46,6 +46,11 @@ typedef struct n265_vbv {
                              * bound is a fact and is never floored; the
                              * window's is a forecast and may not claim more
                              * than 1 - reserve of the buffer. */
+    /* --max-ausize-factor: an absolute ceiling on ONE access unit, as a
+     * fraction of the buffer. 0 is the flag absent and no ceiling. It is
+     * applied inside n265_vbv_allow, so both the ABR loop and capped CRF
+     * read it without either of them knowing it exists. */
+    double au_cap;
     double fill;            /* bits in the CPB at the next removal        */
     double min_fill;        /* the least post-removal fill seen           */
     long underflows;        /* removals that took the fill below zero     */
