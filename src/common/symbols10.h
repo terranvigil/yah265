@@ -179,6 +179,9 @@
 #define n265_rc_future_idr           n265_rc_future_idr_10
 #define n265_rc_next                 n265_rc_next_10
 #define n265_rc_open                 n265_rc_open_10
+#define n265_vbv_allow               n265_vbv_allow_10
+#define n265_vbv_init                n265_vbv_init_10
+#define n265_vbv_update              n265_vbv_update_10
 #define n265_rdoq                    n265_rdoq_10
 #define n265_rdoq_init               n265_rdoq_init_10
 #define n265_rdoq_rtn                n265_rdoq_rtn_10

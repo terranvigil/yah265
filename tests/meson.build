@@ -9,6 +9,15 @@ unit_level = executable('unit_level', 'unit/level_test.c',
   dependencies : yah265_dep)
 test('level', unit_level)
 
+# The CPB fill arithmetic (src/encoder/vbv.c), checked as algebra: the walk
+# of C.2.2, the allowance being exactly the bound that keeps the fill
+# non-negative, and the window's cumulative reservation. The encode-side half
+# is scripts/vbv_check.py, which re-derives the same trajectory from the
+# coded picture sizes.
+unit_vbv = executable('unit_vbv', 'unit/vbv_test.c',
+  dependencies : yah265_dep)
+test('vbv', unit_vbv)
+
 # One file per kernel family (checkasm.h has the layout): a family item
 # adds its file here and one line to the table in main.c, and touches
 # nothing else.
