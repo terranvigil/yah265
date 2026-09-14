@@ -260,6 +260,36 @@ run_vector() {
         fi
         ;;
     esac
+    # --open-gop (phase 14 item 3): the stream CLAIMS its CRA pictures are
+    # random access points, and nothing above this line tests that claim -
+    # every check so far decodes from the start, which is the one case a
+    # CRA is indistinguishable from a trailing I picture in.
+    #
+    # So this leg cuts the stream at a CRA the way a player seeking to one
+    # does and feeds the result to both decoders: ffmpeg in output order
+    # byte for byte, dec265 as a multiset of frames because `-o` emits
+    # decode order. Both are held to the SAME reference the recon match
+    # above already agreed with, so a seek that matches it matches the
+    # encoder's own reconstruction. A trailing picture that predicted
+    # across the CRA, or a leading picture with the wrong NAL type, fails
+    # here and nowhere else; the negative control is N265_OPENGOP_NOBARRIER
+    # (docs/phase14.md item 3).
+    #
+    # Armed by the flag being NAMED, the way the hash leg is, and not by a
+    # CRA merely being present - open GOP is the default, so most of the
+    # list would otherwise pay for a second pair of decodes it has no
+    # question about.
+    case " $eargs " in
+    *" --open-gop "*)
+        if ! FFMPEG="$FFMPEG" DEC265="$DEC265" python3 scripts/seek_check.py \
+                "$TMP/$name.hevc" "$TMP/$name.ff.yuv" --geometry "$size" \
+                --csp "$CSP" --depth "$DEPTH" >"$TMP/$name.seek" 2>&1; then
+            echo "SUMMARY $name FAIL (seek to a CRA)"
+            sed -n 1,2p "$TMP/$name.seek" >&2
+            fail=$((fail+1)); return
+        fi
+        ;;
+    esac
     echo "SUMMARY $name PASS"
     pass=$((pass+1))
 }
@@ -677,6 +707,10 @@ if [ "$DEPTH" = 10 ]; then
     # that mis-parses one flag reaches the slice data with everything
     # shifted; both decoders are held bit-exact, and the hash leg above
     # adds the picture-level claim on top.
+    # open GOP at the depth HDR is delivered in, with the seek leg on it:
+    # the barrier and the NAL typing are depth-independent, and this is
+    # what says the second dispatch table agrees.
+    run_vector m10_opengop 352x288 26 testsrc2 "--keyint 8 --bframes 7 --ref 2 --crf 26 --aq 1 --cutree 1 --open-gop --threads 4"
     run_vector m10_hdr10 352x288 24 testsrc2 "--keyint 8 --bframes 3 --crf 28 --aq 1 --cutree 1 --hash 1 --colorprim bt2020 --transfer smpte2084 --colormatrix bt2020nc --range limited --chromaloc 2 --sar 1:1 --master-display G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,5) --max-cll 1000,400 --threads 4"
     if [ "$FAST" -eq 0 ]; then
         run_vector_file tests/corpus/sintel_720p.y4m \
@@ -1065,6 +1099,28 @@ run_vector hash_md5      352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 26 -
 # the coded picture to be hidden. Everything here is signalling, so the
 # claim is that both decoders still reconstruct the same samples.
 run_vector vui_colour    210x122 12 testsrc2 "--keyint 6 --bframes 3 --qp 30 --colorprim bt709 --transfer bt709 --colormatrix bt709 --range full --videoformat pal --chromaloc 0 --overscan crop --sar 16:9 --display-window 2,2,4,4 --threads 4"
+# --open-gop (phase 14 item 3): the CRA, its leading pictures and the
+# seek that is the whole point of them. Four vectors in the FAST list,
+# because run_vector's seek leg is the only check in this suite that
+# starts a decode anywhere but the beginning.
+#
+# The shapes are the ones that break differently. `--ref 3` FIRST,
+# because that is where the prediction barrier bites at all: at --ref 1
+# a trailing picture's nearest past reference is the CRA whatever else
+# is marked, so a barrier bug is invisible there and the vector would
+# pass an encoder that has none.
+run_vector opengop_ref3  352x288 32 testsrc2 "--keyint 8 --bframes 7 --ref 3 --crf 26 --aq 1 --cutree 1 --open-gop --threads 4"
+# the deep pyramid at one thread and at twelve: the leading pictures are
+# the mini-GOP's own B tree, so the RASL/RADL typing and the retirement
+# that keeps their references alive both ride the dispatch order.
+run_vector opengop_t1    352x288 26 testsrc2 "--keyint 24 --bframes 7 --ref 2 --crf 26 --aq 1 --cutree 1 --open-gop --threads 1"
+run_vector opengop_t12   352x288 26 testsrc2 "--keyint 24 --bframes 7 --ref 2 --crf 26 --aq 1 --cutree 1 --open-gop --threads 12"
+# --radl 2: two of the leading pictures may not reference across the CRA,
+# so a decoder seeking there outputs TWO MORE pictures than the CRA - in
+# front of it, in output order. A RADL that took a reference it may not
+# have decodes to garbage at the seek and to the right samples from the
+# start, which is exactly the bug only this leg can see.
+run_vector opengop_radl  352x288 26 testsrc2 "--keyint 8 --bframes 7 --ref 2 --crf 26 --aq 1 --cutree 1 --open-gop --radl 2 --threads 4"
 run_vector fgc_sei       352x288 20 testsrc2 "--keyint 6 --bframes 3 --aq 1 --cutree 1 --film-grain 1.0 --threads 4"
 run_vector fgc_denoise   352x288 20 testsrc2 "--keyint 6 --bframes 3 --aq 1 --cutree 1 --film-grain 1.0 --film-grain-denoise 1 --threads 12"
 
