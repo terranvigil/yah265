@@ -83,5 +83,18 @@ on every CIF clip for 1.3 points of luma. The goal legs now print the
 chroma level per plane at equal bytes beside the four luma legs, which is
 what makes either number checkable; `docs/phase13.md`.
 
+**The preset names are x265's, and the ones we do not have say so.**
+`--preset` knows all ten names x265 prints and accepts the four we have
+placed - `fast`, `medium` (default), `slow`, `slower`. The other six are
+refused by name, pointing at the nearest rung we do have, rather than as
+an unknown option. Two rungs below `fast` were built and measured against
+the x265 preset of their own name and refused: `faster` (the SA8D-proxy
+mode decision plus the frozen bit estimator) wins the CRF band on all
+fifteen clips by a median of 10% and still loses three of the four legs -
+touchdown_1080p at 1.44x of x265 faster's wall, and bus_cif missing the
+quality and size bars by a hair - and `veryfast` loses the band itself on
+seven of the fifteen. Both are recorded with the binding leg in
+`docs/phase13.md`; neither is named in `--preset`.
+
 Full campaign record: `docs/plan.md` (phases 0-12), the per-phase docs
 under `docs/`, and the refusal log in `docs/ideas.md`.
