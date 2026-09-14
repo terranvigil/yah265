@@ -146,6 +146,13 @@ DEFAULT_OVERRIDES = {
 }
 
 OVERRIDES = {
+    # phase 14 item 6: catalogued in docs/instruments.md because --mcstf's
+    # own section has to say what its constants are, which the heuristic
+    # then reads as "machinery". They are not: each one is the SHIPPED
+    # value of a filter constant and the env is its escape. Only the
+    # trace is an instrument.
+    "N265_MCSTF_SIGMA": "default", "N265_MCSTF_CLEAN": "default",
+    "N265_MCSTF_PERIOD": "default",
     # phase 13 B1: the environment door onto --cbqpoffs / --crqpoffs. Both
     # are arms, not shipped defaults - 0 is the default at every preset and
     # the measurement that keeps it there is in docs/phase13.md.

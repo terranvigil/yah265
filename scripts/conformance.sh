@@ -312,6 +312,18 @@ run_vector_env() {
     VENV=""
 }
 
+# --output-depth 8 on a 10-BIT source (phase 14 item 6): the source is
+# generated at ten bits and the 8-bit binary encodes it, which is the one
+# combination where the picture the library sees is not the bytes the file
+# carries. Only the SOURCE format changes; the encoder, the decoders and
+# the recon comparison are the 8-bit list's own.
+run_vector_10in() {
+    _sf10=$SRCFMT
+    SRCFMT="-pix_fmt yuv420p10le -strict -1 -f yuv4mpegpipe"
+    run_vector "$@"
+    SRCFMT=$_sf10
+}
+
 # TWO-PASS (phase 12 item 4): the same vector, with a --pass 1 in front.
 #
 # The source is generated here and run_vector regenerates the identical
@@ -727,6 +739,14 @@ if [ "$DEPTH" = 10 ]; then
     # the barrier and the NAL typing are depth-independent, and this is
     # what says the second dispatch table agrees.
     run_vector m10_opengop 352x288 26 testsrc2 "--keyint 8 --bframes 7 --ref 2 --crf 26 --aq 1 --cutree 1 --open-gop --threads 4"
+    # the noise reduction at Main10, where the coefficients are four
+    # times what they are at 8 bits and the estimator's reciprocal is
+    # therefore a quarter: it says the second dispatch table agrees and
+    # that nothing in the offset arithmetic assumed an 8-bit magnitude.
+    run_vector m10_nr      352x288 24 testsrc2 "--keyint 6 --bframes 3 --qp 24 --aq 1 --cutree 1 --nr-intra 1000 --nr-inter 1000 --threads 12"
+    # the source filter at Main10, where its weight tables are built at
+    # four times the sample scale and the queue holds 16-bit planes
+    run_vector m10_mcstf   352x288 23 testsrc2 "--keyint 8 --bframes 3 --qp 28 --aq 1 --cutree 1 --mcstf --threads 4"
     run_vector m10_hdr10 352x288 24 testsrc2 "--keyint 8 --bframes 3 --crf 28 --aq 1 --cutree 1 --hash 1 --colorprim bt2020 --transfer smpte2084 --colormatrix bt2020nc --range limited --chromaloc 2 --sar 1:1 --master-display G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,5) --max-cll 1000,400 --threads 4"
     if [ "$FAST" -eq 0 ]; then
         run_vector_file tests/corpus/sintel_720p.y4m \
@@ -1169,6 +1189,34 @@ run_vector opengop_radl  352x288 26 testsrc2 "--keyint 8 --bframes 7 --ref 2 --c
 run_vector opengop_tools 352x288 32 testsrc2 "--keyint 8 --bframes 7 --ref 3 --crf 26 --aq 1 --cutree 1 --open-gop --repeat-headers --aud --eos --temporal-layers --idr-recovery-sei --hash 1 --threads 4"
 run_vector fgc_sei       352x288 20 testsrc2 "--keyint 6 --bframes 3 --aq 1 --cutree 1 --film-grain 1.0 --threads 4"
 run_vector fgc_denoise   352x288 20 testsrc2 "--keyint 6 --bframes 3 --aq 1 --cutree 1 --film-grain 1.0 --film-grain-denoise 1 --threads 12"
+# --nr-intra / --nr-inter (phase 14 item 6): the coefficient-domain noise
+# reduction. It writes no syntax a decoder has to learn - it changes the
+# LEVELS - so what this vector actually claims is that the encoder's own
+# reconstruction still matches a decoder's after the attenuation, which
+# is the one way a quantiser-side filter breaks: an encoder that
+# attenuates on the analysis path and not on the commit path reconstructs
+# from coefficients it did not code. Run at twelve threads because the
+# tally is row-private and summed on the driver, and at --keyint 6 so the
+# intra half and the inter half both carry offsets by the end.
+run_vector nr_both       352x288 24 testsrc2 "--keyint 6 --bframes 3 --qp 24 --aq 1 --cutree 1 --nr-intra 1000 --nr-inter 1000 --threads 12"
+run_vector nr_inter      352x288 20 testsrc2 "--keyint 6 --bframes 3 --crf 26 --aq 1 --cutree 1 --nr-inter 400 --rdoq-level 0 --threads 4"
+# --mcstf (phase 14 item 6): the source filter. It writes no syntax at
+# all - it changes the PICTURE - so the claim is the one thing a queue in
+# front of the lookahead can break: that the encode still has exactly as
+# many pictures in it as the caller handed over, in display order, with
+# the last --mcstf-ref-range of them coming out of the flush. 23 frames
+# is deliberately not a multiple of the filter's own 8-picture cadence or
+# of the mini-GOP, so the tail is ragged on both.
+run_vector mcstf_r2      352x288 23 testsrc2 "--keyint 8 --bframes 3 --qp 28 --aq 1 --cutree 1 --mcstf --threads 4"
+run_vector mcstf_r4sel   352x288 23 testsrc2 "--keyint 8 --bframes 7 --crf 30 --aq 1 --cutree 1 --mcstf --mcstf-ref-range 4 --selective-mcstf --threads 12"
+# The 10-to-8 downshift and --dither (phase 14 item 6). The stream is an
+# ordinary Main profile one - a decoder learns nothing new - so what
+# these two claim is the READER: that a 10-bit file reduced in the read
+# loop produces a picture the encoder reconstructs and both decoders
+# agree with, at both reductions. The dithered arm is the one that would
+# expose an off-by-one in the clamp, since 1023 + 3 overflows the byte.
+run_vector_10in down8       352x288 16 testsrc2 "--keyint 8 --bframes 3 --qp 28 --aq 1 --cutree 1 --output-depth 8 --threads 4"
+run_vector_10in down8_dith  352x288 16 testsrc2 "--keyint 8 --bframes 3 --qp 28 --aq 1 --cutree 1 --output-depth 8 --dither --threads 4"
 # The NAL-level switches (phase 14 item 4). Every one of them puts a NAL
 # in the stream that nothing else here writes - an access unit delimiter
 # (35), an end of sequence (36), an end of bitstream (37), a repeated

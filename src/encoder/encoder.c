@@ -129,6 +129,20 @@ static int g_vui_timing = 1;    /* vui_timing_info in the SPS; on since
  * back. At 0 nothing here allocates, reads a picture or writes a byte. */
 static double g_film_grain = 0.0;
 static int g_fgc_denoise = 0;
+/* --nr-intra / --nr-inter (phase 14 item 6). 0 / 0 is off, is the
+ * default, is x265's default, and is every preset, board and band leg
+ * this encoder was measured with. The flag attenuates coefficients before
+ * they are quantised, so a nonzero value moves every bitstream it touches
+ * and there is nothing here that a default could be right about for two
+ * clips at once: it is an opt-in tool for noisy sources. At 0 nothing
+ * allocates and no quantiser call changes shape. */
+static int g_nr_intra = 0, g_nr_inter = 0;
+/* --mcstf / --mcstf-ref-range / --selective-mcstf (phase 14 item 6). Off,
+ * range 2, not selective - x265's own defaults, and off is ours for the
+ * same reason --film-grain-denoise is off: it changes the picture the
+ * encoder codes, it costs a motion search at full resolution, and what it
+ * is worth depends entirely on how noisy the source is. */
+static int g_mcstf = 0, g_mcstf_range = 2, g_mcstf_selective = 0;
 /* The hypothetical decoder buffer (phase 12 item 2). 0 / 0 is off and is
  * every encode the board, the band and every gate before this item ran;
  * naming both halves arms the clamp, the level's MaxCPB leg and the HRD in
@@ -331,6 +345,34 @@ void n265_set_film_grain(double strength, int denoise)
 {
     g_film_grain = strength > 0.0 ? (strength > 8.0 ? 8.0 : strength) : 0.0;
     g_fgc_denoise = denoise != 0;
+}
+
+/* --nr-intra <0..2000> / --nr-inter <0..2000>: the coefficient-domain
+ * noise reduction (nr.h). x265's range, x265's two-flag split, and the
+ * clamp is silent at the top because 2000 is a strength and not a size -
+ * asking for more is asking for the maximum, not for something the
+ * encoder has no way to do. A negative value is off. */
+void n265_set_nr(int intra, int inter);
+void n265_set_nr(int intra, int inter)
+{
+    g_nr_intra = intra < 0 ? 0 : intra > N265_NR_MAX ? N265_NR_MAX : intra;
+    g_nr_inter = inter < 0 ? 0 : inter > N265_NR_MAX ? N265_NR_MAX : inter;
+}
+
+/* --mcstf / --mcstf-ref-range / --selective-mcstf (mcstf.h). The range is
+ * clamped rather than refused at the top because x265's own range is
+ * 0..4 and 0 there means the same thing --no-mcstf means; the CLI is
+ * where 0 is turned into a refusal, so that "--mcstf --mcstf-ref-range 0"
+ * says what it is instead of silently costing two frames of latency for
+ * an identity filter. */
+void n265_set_mcstf(int on, int range, int selective);
+void n265_set_mcstf(int on, int range, int selective)
+{
+    g_mcstf = on != 0;
+    g_mcstf_range = range < 1 ? 1
+                  : range > N265_MCSTF_MAX_RANGE ? N265_MCSTF_MAX_RANGE
+                                                 : range;
+    g_mcstf_selective = selective != 0;
 }
 
 /* --vbv-maxrate / --vbv-bufsize / --vbv-init. `maxrate` is kbit/s and
@@ -1223,6 +1265,17 @@ static int fw_open(n265_encoder *e, n265_frame_work *fw)
         return -1;
     fw->hf2_tr = fw->hf2_tr_rows + (size_t)e->ctb_rows * 24;
     fw->iw_arm = fw->iw_arm_rows + (size_t)e->ctb_rows * N265_IW_CNT;
+    /* --nr-intra/--nr-inter's row lines, and the frame's frozen offset
+     * table. Allocated only where the feature is armed - a tally is 43 KB
+     * and a 1080p frame has 34 CTB rows, so this is the one allocation in
+     * fw_open worth gating on a flag. */
+    if (e->nr) {
+        fw->nr_rows = calloc((size_t)(e->ctb_rows + 1), sizeof(*fw->nr_rows));
+        fw->nr_off = calloc(N265_NR_SLOTS, sizeof(*fw->nr_off));
+        if (!fw->nr_rows || !fw->nr_off)
+            return -1;
+        fw->nr_tally = fw->nr_rows + e->ctb_rows;
+    }
     for (int i = 0; i < 3; i++) {
         int w = i ? e->pad_w >> e->csx : e->pad_w;
         int bh = (1 << e->ctb_log2) >> (i ? e->csy : 0);
@@ -1270,6 +1323,8 @@ static void fw_close(n265_frame_work *fw)
     free(fw->est_snap);
     free(fw->hf2_tr_rows);
     free(fw->iw_arm_rows);
+    free(fw->nr_rows);
+    free(fw->nr_off);
     free(fw->prog);
     bs_free(&fw->rbsp);
 }
@@ -1293,6 +1348,8 @@ void n265_row_begin(n265_row_ctx *row, n265_frame_work *fw, int r)
     row->c.sc = row->sc;
     row->c.hf2_tr = fw->hf2_tr_rows + (size_t)r * 24;
     row->c.iw_arm = fw->iw_arm_rows + (size_t)r * N265_IW_CNT;
+    if (fw->nr_rows)
+        row->c.nr_tally = fw->nr_rows + r;
     row->c.rec_buf = fw->rrec[r].buf;
     row->c.rec_cap = fw->rrec[r].cap;
     row->c.rec_len = 0;
@@ -1647,6 +1704,51 @@ n265_encoder *n265_encoder_open(const n265_param *p)
             fprintf(stderr, "n265: --film-grain: out of memory; off\n");
             e->fgc_strength = 0.0;
             e->fgc_denoise = 0;
+        }
+    }
+    /* --mcstf. The filter sits in front of the lookahead, so it is armed
+     * here and nothing downstream knows about it. --lossless and --pcm
+     * code the source exactly, and a filtered source is not the source:
+     * refused by name rather than quietly redefining what they mean, the
+     * same rule --film-grain-denoise takes. */
+    e->mcstf_range = g_mcstf_range;
+    e->mcstf_selective = g_mcstf_selective;
+    if (g_mcstf && (e->lossless || e->mode == N265_MODE_PCM)) {
+        fprintf(stderr, "n265: --mcstf codes a FILTERED source, which "
+                "--lossless/--pcm cannot mean; off\n");
+    } else if (g_mcstf) {
+        e->mcstf = n265_mcstf_open(e->param.width, e->param.height,
+                                   e->csx, e->csy, e->mcstf_range,
+                                   e->mcstf_selective);
+        if (!e->mcstf)
+            fprintf(stderr, "n265: --mcstf: out of memory; off\n");
+    }
+    /* --nr-intra / --nr-inter. Armed only if one of them is nonzero, and
+     * the two allocations below are the ONLY memory the feature costs
+     * when it is off: nothing, because neither runs.
+     *
+     * --lossless and --pcm reach no quantiser at all (the residual IS the
+     * coded level), so there is nothing here for the flag to attenuate;
+     * it is refused by name rather than silently ignored. */
+    e->nr_intra = g_nr_intra;
+    e->nr_inter = g_nr_inter;
+    if ((e->nr_intra || e->nr_inter) &&
+        (e->lossless || e->mode == N265_MODE_PCM)) {
+        fprintf(stderr, "n265: --nr-intra/--nr-inter attenuate transform "
+                "coefficients, and --lossless/--pcm code none; off\n");
+        e->nr_intra = e->nr_inter = 0;
+    }
+    if (e->nr_intra || e->nr_inter) {
+        e->nr = calloc(1, sizeof(*e->nr));
+        e->nr_hist = calloc(N265_NR_HIST, sizeof(*e->nr_hist));
+        if (!e->nr || !e->nr_hist) {
+            fprintf(stderr, "n265: --nr-intra/--nr-inter: out of memory; "
+                    "off\n");
+            free(e->nr);
+            free(e->nr_hist);
+            e->nr = NULL;
+            e->nr_hist = NULL;
+            e->nr_intra = e->nr_inter = 0;
         }
     }
     /* N265_QP_FRAC: carry the base QP's fraction and dither it over the CTUs
@@ -2475,6 +2577,9 @@ void n265_encoder_close(n265_encoder *e)
     if (e->cu_trace_f)
         fclose(e->cu_trace_f);
     n265_grain_close(e->fgc_est);
+    n265_mcstf_close(e->mcstf);
+    free(e->nr);
+    free(e->nr_hist);
     free(e->cu_prev_skip);
     for (int i = 0; i < e->K; i++)
         fw_close(&e->fw[i]);
@@ -3921,6 +4026,32 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
      * on this frame. Driver-serial, off the retired window only, frozen
      * here for the same reason the type is. */
     fw->iw_gate = iw_adapt_gate(e, fw->code_idx, slice_type, fw->flat);
+    /* --nr-intra / --nr-inter, the driver half (nr.h, and encoder.h at
+     * N265_NR_LAG). Three steps, all of them here and none of them
+     * anywhere a worker can reach:
+     *
+     *  1. fold the tally of coding index k - LAG, which is retired at
+     *     every thread count, into the running estimate. Once per frame,
+     *     in coding order, over the same set at t1 and t12.
+     *  2. re-solve every offset from the estimate.
+     *  3. hand this frame a COPY, because the table is about to move
+     *     again under a frame that is still quantising.
+     *
+     * A frame whose whole category is still empty gets offsets of zero
+     * and is the quantiser this encoder has always had - which is what
+     * the first LAG frames of every encode are. */
+    fw->nr_on = 0;
+    if (e->nr) {
+        int done = fw->code_idx - N265_NR_LAG;
+        if (done >= 0) {
+            n265_nr_hist *nh = &e->nr_hist[done % N265_NR_HIST];
+            if (nh->valid && nh->cidx == done)
+                n265_nr_fold(e->nr, &nh->t);
+        }
+        n265_nr_offsets(e->nr, e->nr_intra, e->nr_inter);
+        memcpy(fw->nr_off, e->nr->off, N265_NR_SLOTS * sizeof(*fw->nr_off));
+        fw->nr_on = 1;
+    }
     /* The cu-tree FRAME term, computed here rather than where it lands,
      * because under ABR the rate control has to be told it BEFORE it answers:
      * the term is added to the base below, so a loop that has not seen it is
@@ -5245,6 +5376,25 @@ static void join_oldest(n265_encoder *e)
         for (int j = 0; j < 24; j++)
             e->hf2_samp[j] += hh->samp[j];
     }
+    /* --nr-intra / --nr-inter: the frame's coefficient tally, summed over
+     * its row lanes in ROW order and stamped with its coding index. It is
+     * not folded into the running estimate here - that happens LAG coding
+     * indices later, at a dispatch, which is what keeps the set of frames
+     * behind an offset table independent of the thread count (encoder.h
+     * at N265_NR_LAG). */
+    if (fw->nr_rows) {
+        n265_nr_hist *nh = &e->nr_hist[fw->code_idx % N265_NR_HIST];
+        nh->cidx = fw->code_idx;
+        nh->valid = 1;
+        memset(&nh->t, 0, sizeof nh->t);
+        for (int r = 0; r <= e->ctb_rows; r++) {
+            const n265_nr_tally *src = &fw->nr_rows[r];
+            for (int i = 0; i < N265_NR_SLOTS; i++)
+                nh->t.sum[i] += src->sum[i];
+            for (int c = 0; c < N265_NR_CATS; c++)
+                nh->t.cnt[c] += src->cnt[c];
+        }
+    }
     /* Step 3: the frame's J pair, stamped with its coding index for the
      * adaptive gate to read back. Row-private counters summed in row
      * order on the driver, so the pair is the same integer at every
@@ -6302,6 +6452,9 @@ static int drive_scheduler(n265_encoder *e)
                                sizeof(uint64_t));
     memset(fw->iw_arm_rows, 0, (size_t)(e->ctb_rows + 1) * N265_IW_CNT *
                                sizeof(uint64_t));
+    if (fw->nr_rows)
+        memset(fw->nr_rows, 0, (size_t)(e->ctb_rows + 1) *
+                               sizeof(*fw->nr_rows));
     claim_slot(e, fw);
     /* D2: mark now, on the driver, in coding order. Frame k+1's dispatch
      * has to see this picture in the DPB whether or not a row of it has
@@ -6409,6 +6562,54 @@ static int drive_scheduler(n265_encoder *e)
     return ds_ret;
 }
 
+/* One picture into the lookahead, and the scheduling that follows it.
+ * Lifted out of n265_encoder_encode unchanged (phase 14 item 6) so that
+ * --mcstf's queue can drive it too: the filter holds pictures back and
+ * then hands them over one at a time, and every one of them has to go
+ * through exactly this - the source stall, the push, the display index,
+ * and the drain that codes whatever mini-GOP the push completed. */
+static void push_one(n265_encoder *e, const pixel *const planes[3],
+                     const int stride[3])
+{
+    /* D3: n265_la_push takes the front of the queue's free run, and a
+     * frame_work in flight may still be reading those source planes.
+     * The stall is on THAT slot now, not on everything in flight: the
+     * free run is longer than K, so this is a guard rather than a
+     * drain (T3/1). */
+    const pixel *reuse = n265_la_next_src(e);
+    while (e->n_inflight && la_src_busy(e, reuse)) {
+        e->join_src++;
+        join_oldest(e);
+    }
+    {
+        double t = e->la_prof ? prof_now() : 0.0;
+        n265_la_push(e, planes, stride);
+        if (e->la_prof) e->prof_push += prof_now() - t;
+    }
+    e->in_display_idx++;
+    /* One call still codes a whole mini-GOP - the loop exits when the
+     * mini-GOP-end pop brings the queue back under la_depth, and
+     * plan building, la_pop and the cu-tree sit at exactly the point
+     * in the dispatch sequence they sat at serially - but the call no
+     * longer WAITS for it. A1: the return is a prefix of the frames
+     * completed so far, in coding order, and up to K frames stay in
+     * flight across the call boundary. */
+    while (e->la.count > e->la_fill)
+        drive_scheduler(e);
+}
+
+/* --mcstf: hand the queue everything it will give back, one picture at a
+ * time. `flush` drains the tail. */
+static void mcstf_drive(n265_encoder *e, int flush)
+{
+    while (n265_mcstf_ready(e->mcstf, flush)) {
+        const pixel *pl[3];
+        int st[3];
+        n265_mcstf_pop(e->mcstf, pl, st);
+        push_one(e, pl, st);
+    }
+}
+
 int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
                         const n265_picture *pic)
 {
@@ -6421,33 +6622,22 @@ int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
 
     int ring = (int)(sizeof(e->done) / sizeof(e->done[0]));
     if (pic) {
-        /* D3: n265_la_push takes the front of the queue's free run, and a
-         * frame_work in flight may still be reading those source planes.
-         * The stall is on THAT slot now, not on everything in flight: the
-         * free run is longer than K, so this is a guard rather than a
-         * drain (T3/1). */
-        const pixel *reuse = n265_la_next_src(e);
-        while (e->n_inflight && la_src_busy(e, reuse)) {
-            e->join_src++;
-            join_oldest(e);
-        }
         const pixel *planes[3] = { pic->plane[0], pic->plane[1],
                                    pic->plane[2] };
-        {
-            double t = e->la_prof ? prof_now() : 0.0;
-            n265_la_push(e, planes, pic->stride);
-            if (e->la_prof) e->prof_push += prof_now() - t;
+        /* --mcstf (phase 14 item 6). With the filter on, the picture the
+         * caller just handed in is not the picture that goes into the
+         * lookahead: it goes into the filter's own queue, and what comes
+         * out is the picture `--mcstf-ref-range` steps behind it, with
+         * its neighbours averaged into it. Everything after that point -
+         * the lowres costs, the scenecut, cu-tree, the mode decision,
+         * the coded samples - sees one picture and only one. With the
+         * filter off this is the push it always was, in a function. */
+        if (e->mcstf) {
+            n265_mcstf_push(e->mcstf, planes, pic->stride);
+            mcstf_drive(e, 0);
+        } else {
+            push_one(e, planes, pic->stride);
         }
-        e->in_display_idx++;
-        /* One call still codes a whole mini-GOP - the loop exits when the
-         * mini-GOP-end pop brings the queue back under la_depth, and
-         * plan building, la_pop and the cu-tree sit at exactly the point
-         * in the dispatch sequence they sat at serially - but the call no
-         * longer WAITS for it. A1: the return is a prefix of the frames
-         * completed so far, in coding order, and up to K frames stay in
-         * flight across the call boundary. */
-        while (e->la.count > e->la_fill)
-            drive_scheduler(e);
         /* A2: at one worker nothing overlaps, so nothing is deferred and
          * the call returns exactly what it returned before the API
          * change - which is what keeps goal 1's timing and every 1-thread
@@ -6465,6 +6655,14 @@ int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
             if (e->la_prof) e->prof_emit += prof_now() - t;
         }
     } else {
+        /* --mcstf: the tail of the sequence is still inside the filter's
+         * queue. Push it through before the lookahead drains, so the
+         * encode has exactly as many pictures in it as the caller handed
+         * in. Idempotent - the queue empties once and reports empty on
+         * every later flush call, which is what a caller's drain loop
+         * does. */
+        if (e->mcstf)
+            mcstf_drive(e, 1);
         /* Flush drains in order (A1). It dispatches ahead up to K first,
          * so the tail of the sequence overlaps like the rest of it, then
          * returns every frame that has completed - at least one, so a

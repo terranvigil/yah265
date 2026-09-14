@@ -14,6 +14,15 @@ test('level', unit_level)
 unit_fgc = executable('unit_fgc', 'unit/fgc_test.c',
   dependencies : yah265_dep)
 test('fgc', unit_fgc)
+
+# The coefficient-domain noise reduction estimator (phase 14 item 6),
+# against a hand-written float reference of the same model. The encoder's
+# use of it is checked by a conformance vector and by the escape cmp;
+# nothing downstream prints the offset, so the ARITHMETIC has no oracle
+# anywhere else.
+unit_nr = executable('unit_nr', 'unit/nr_test.c',
+  dependencies : yah265_dep)
+test('nr', unit_nr)
 # The CPB fill arithmetic (src/encoder/vbv.c), checked as algebra: the walk
 # of C.2.2, the allowance being exactly the bound that keeps the fill
 # non-negative, and the window's cumulative reservation. The encode-side half

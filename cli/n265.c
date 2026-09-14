@@ -54,6 +54,11 @@ void n265_set_chroma_qpoffs(int cb, int cr);
 void n265_set_level(int idc, int high_tier);
 void n265_set_vui_timing(int on);
 void n265_set_film_grain(double strength, int denoise);
+/* --nr-intra / --nr-inter (phase 14 item 6): the coefficient-domain
+ * noise reduction, 0..2000 each, 0 off. */
+void n265_set_nr(int intra, int inter);
+/* --mcstf / --mcstf-ref-range / --selective-mcstf (phase 14 item 6). */
+void n265_set_mcstf(int on, int range, int selective);
 /* The hypothetical decoder buffer (phase 12 item 2): kbit/s, kbit, and a
  * fraction of the buffer. 0 / 0 is the mode off. */
 void n265_set_vbv(double maxrate, double bufsize, double init);
@@ -114,6 +119,8 @@ void n265_set_chroma_qpoffs_10(int cb, int cr);
 void n265_set_level_10(int idc, int high_tier);
 void n265_set_vui_timing_10(int on);
 void n265_set_film_grain_10(double strength, int denoise);
+void n265_set_nr_10(int intra, int inter);
+void n265_set_mcstf_10(int on, int range, int selective);
 void n265_set_vbv_10(double maxrate, double bufsize, double init);
 void n265_set_hash_10(int type);
 void n265_set_weight_10(int weightp, int weightb);
@@ -175,6 +182,8 @@ typedef struct n265_api {
     /* --weightp / --weightb (phase 14 item 2): weighted_pred_flag and
      * weighted_bipred_flag. -1 in either leaves that half to the preset. */
     void (*set_weight)(int, int);
+    void (*set_nr)(int, int);       /* --nr-intra / --nr-inter (item 6) */
+    void (*set_mcstf)(int, int, int);   /* --mcstf and its two (item 6) */
     /* the pass-through signalling setters (phase 14 item 1). They take
      * syntax elements, never names: the tables above turn the command
      * line's spellings into numbers once, before the dispatch. */
@@ -211,7 +220,7 @@ static const n265_api api8 = {
     n265_set_shot_window, n265_set_pass,
     n265_set_lossless, n265_set_level, n265_set_vui_timing,
     n265_set_film_grain, n265_set_vbv, n265_set_rdoq_level,
-    n265_set_chroma_qpoffs, n265_set_weight,
+    n265_set_chroma_qpoffs, n265_set_weight, n265_set_nr, n265_set_mcstf,
     n265_set_hash, n265_set_gop, n265_set_vui_colour, n265_set_vui_sar,
     n265_set_vui_window, n265_set_hdr_meta, n265_set_hdr10,
     n265_encoder_open, n265_encoder_encode, n265_encoder_close,
@@ -230,7 +239,8 @@ static const n265_api api10 = {
     n265_set_shot_window_10, n265_set_pass_10,
     n265_set_lossless_10, n265_set_level_10, n265_set_vui_timing_10,
     n265_set_film_grain_10, n265_set_vbv_10, n265_set_rdoq_level_10,
-    n265_set_chroma_qpoffs_10, n265_set_weight_10,
+    n265_set_chroma_qpoffs_10, n265_set_weight_10, n265_set_nr_10,
+    n265_set_mcstf_10,
     n265_set_hash_10, n265_set_gop_10, n265_set_vui_colour_10,
     n265_set_vui_sar_10,
     n265_set_vui_window_10, n265_set_hdr_meta_10, n265_set_hdr10_10,
@@ -265,6 +275,13 @@ typedef struct y4m_t {
      * which is what keeps the 8-bit encoder byte-for-byte and
      * cycle-for-cycle the one that was measured. */
     uint16_t *pix16;
+    /* The 8-bit plane on the DOWNSHIFT path (--output-depth 8 on 10-bit
+     * input, phase 14 item 6): the file carries 16-bit samples and the
+     * encoder takes 8-bit ones, so unlike every other combination there
+     * is no way to hand the library the bytes it was given. `dither`
+     * picks which of the two reductions runs (see y4m_read). */
+    uint8_t *pix8;
+    int dither;
     size_t nsamp;           /* samples in one picture, all three planes */
     const void *plane[3];   /* what the library is handed, once */
     long clipped;           /* samples above (1 << depth) - 1 in the file */
@@ -420,19 +437,20 @@ static int src_geom(y4m_t *y, const char *desc)
      * stream, what x265's flag of the same name does - and it upshifts in
      * the read loop below.
      *
-     * The reverse is refused. There is no downshift here: dropping two bits
-     * is a dither-or-truncate choice that changes the picture before the
-     * encoder ever sees it, and a silent one would make a 10-bit source's
-     * 8-bit numbers look like a property of the encoder. Convert on
-     * purpose with ffmpeg if that is what is wanted. */
+     * The REVERSE - 10-bit input coded at 8 - is the one x265's --dither
+     * exists for, and it landed here in phase 14 item 6. It is still a
+     * choice about the PICTURE and not about the encoder, so it is still
+     * only ever made when it is asked for by name: --output-depth 8 is
+     * required, there is no default that reaches it, and which of the two
+     * reductions runs is --dither's own answer. The audit's row said the
+     * prerequisite had to land before --dither could mean anything; this
+     * is that prerequisite. */
     if (y->out_depth == 0)
         y->out_depth = y->depth;
-    if (y->out_depth < y->depth) {
-        fprintf(stderr, "n265: --output-depth %d on %d-bit input (%s): "
-                "there is no downshift path.\n", y->out_depth, y->depth, desc);
-        fprintf(stderr, "n265: dropping samples is a dither-or-truncate "
-                "choice about the PICTURE, not about the encoder, so it is "
-                "made outside - ffmpeg -i in.y4m -pix_fmt yuv420p out.y4m.\n");
+    if (y->out_depth < y->depth && (y->out_depth != 8 || y->depth != 10)) {
+        fprintf(stderr, "n265: --output-depth %d on %d-bit input (%s): the "
+                "only downshift here is 10 to 8.\n", y->out_depth,
+                y->depth, desc);
         return -2;
     }
     size_t luma = (size_t)y->w * (size_t)y->h;
@@ -442,7 +460,17 @@ static int src_geom(y4m_t *y, const char *desc)
     y->frame = malloc(y->frame_bytes);
     if (!y->frame)
         return -1;
-    if (y->out_depth == 8) {
+    if (y->out_depth == 8 && y->depth > 8) {
+        /* the downshift: the file's samples are 16-bit and the library's
+         * are 8-bit, so there is a second plane and a conversion in the
+         * read loop. The only combination where that is true. */
+        y->pix8 = malloc(nsamp);
+        if (!y->pix8)
+            return -1;
+        y->plane[0] = y->pix8;
+        y->plane[1] = y->pix8 + luma;
+        y->plane[2] = y->pix8 + luma + chroma;
+    } else if (y->out_depth == 8) {
         y->plane[0] = y->frame;
         y->plane[1] = y->frame + luma;
         y->plane[2] = y->frame + luma + chroma;
@@ -575,8 +603,56 @@ static int y4m_read(y4m_t *y)
     size_t got = fread(y->frame, 1, y->frame_bytes, y->f);
     if (got != y->frame_bytes)
         return got == 0 && y->raw ? 0 : -1;
-    if (y->out_depth == 8)
+    if (y->out_depth == 8 && y->depth == 8)
         return 1;               /* 8 in, 8 out: the file IS the picture */
+    if (y->out_depth == 8) {
+        /* The DOWNSHIFT, 10 to 8 (phase 14 item 6).
+         *
+         * Plain, it is a right shift by two - the exact inverse of the
+         * upshift below, so a clip taken 8 -> 10 -> 8 comes back the
+         * picture it was, sample for sample. What it costs is the four
+         * input levels that map to one output level: a slow gradient
+         * that crossed them smoothly arrives as a staircase, and the
+         * eye finds a staircase on a flat wall at once.
+         *
+         * --dither is the answer to that, and it is the ORDERED one: a
+         * 2x2 matrix carrying each of the four discarded residues
+         * exactly once, added before the shift. Over any 2x2 it is
+         * EXACTLY mean-preserving - sum over k of floor((v + k) / 4) for
+         * k = 0..3 is v, identically - so the staircase becomes a
+         * dot pattern at the level the gradient really had, and no
+         * energy is added or lost. An error-diffusion dither would
+         * spread the residue further and look better still; it is also
+         * a serial dependence across the whole picture, which is a
+         * strange thing to put in front of an encoder that is otherwise
+         * a pure function of its input block by block.
+         *
+         * Both paths clamp: 1023 + 3 is 256 after the shift. */
+        static const unsigned bayer2[2][2] = { { 0, 2 }, { 3, 1 } };
+        size_t off = 0;
+        for (int c = 0; c < 3; c++) {
+            int pw = c ? y->w >> y->csx : y->w;
+            int ph = c ? y->h >> y->csy : y->h;
+            for (int py = 0; py < ph; py++) {
+                const uint8_t *r = y->frame + 2 * (off + (size_t)py * pw);
+                uint8_t *d = y->pix8 + off + (size_t)py * pw;
+                for (int px = 0; px < pw; px++) {
+                    unsigned v = (unsigned)r[2 * px] |
+                                 ((unsigned)r[2 * px + 1] << 8);
+                    if (v > 1023u) {
+                        v = 1023u;
+                        y->clipped++;
+                    }
+                    if (y->dither)
+                        v += bayer2[py & 1][px & 1];
+                    v >>= 2;
+                    d[px] = (uint8_t)(v > 255u ? 255u : v);
+                }
+            }
+            off += (size_t)pw * ph;
+        }
+        return 1;
+    }
     size_t nsamp = y->nsamp;
     if (y->depth == 8) {
         /* The --output-depth 10 upshift: a PURE LEFT SHIFT BY TWO, the
@@ -928,6 +1004,45 @@ static void usage(void)
         "                  spends nothing on grain and the decoder puts it\n"
         "                  back. Without it the SEI only adds grain to a\n"
         "                  picture that already has some.\n"
+        "  --nr-intra <0-2000>  coefficient-domain noise reduction in intra\n"
+        "                  blocks (default 0, off). A per-coefficient-\n"
+        "                  POSITION offset, learned from the magnitudes this\n"
+        "                  encode has already produced, taken off every\n"
+        "                  coefficient toward zero before it is quantised. A\n"
+        "                  position that is usually quiet is noise and is\n"
+        "                  attenuated; a position that is usually loud is\n"
+        "                  structure and is left nearly alone. Opt-in: it\n"
+        "                  changes the picture, and what it is worth depends\n"
+        "                  on how noisy the source is (docs/phase14.md).\n"
+        "  --nr-inter <0-2000>  the same in inter blocks (default 0, off).\n"
+        "  --mcstf         motion-compensated temporal filter on the SOURCE\n"
+        "                  (default off). Every eighth picture - the ones a\n"
+        "                  mini-GOP predicts from - is replaced by a weighted\n"
+        "                  average of itself and its motion-compensated\n"
+        "                  neighbours, so its own noise averages down while\n"
+        "                  its content does not. A neighbour counts less the\n"
+        "                  further away in time it is, less where its block\n"
+        "                  did not match, and less at any pixel where it\n"
+        "                  disagrees by more than noise could explain.\n"
+        "                  Costs --mcstf-ref-range frames of latency and a\n"
+        "                  full-resolution motion search on the filtered\n"
+        "                  pictures. For NOISY sources; on clean content the\n"
+        "                  average has nothing to take out.\n"
+        "  --mcstf-ref-range <1-4>  neighbours per side (default 2).\n"
+        "  --selective-mcstf  skip the filter on a picture whose measured\n"
+        "                  noise floor is under N265_MCSTF_CLEAN (default\n"
+        "                  1.5 luma levels, placed by the band). Default\n"
+        "                  off, as x265's is - but --mcstf without it loses\n"
+        "                  8 BD points on flat-shaded animation, so if you\n"
+        "                  are filtering a mixed library, name both.\n"
+        "  --dither        on the 10-bit-in, 8-bit-out path only: add a 2x2\n"
+        "                  ordered dither before dropping the two bits,\n"
+        "                  instead of truncating them. Exactly mean-\n"
+        "                  preserving over any 2x2, so a gradient arrives as\n"
+        "                  a dot pattern at the level it really had rather\n"
+        "                  than as a staircase. Needs --output-depth 8 on a\n"
+        "                  10-bit source; anywhere else it is refused by\n"
+        "                  name, because there is nothing to dither.\n"
         "  --vbv-maxrate <k>  hypothetical decoder buffer: the CPB arrival\n"
         "                  rate in kbit/s. With --vbv-bufsize it holds the\n"
         "                  encode inside a decoder buffer that never\n"
@@ -1065,6 +1180,11 @@ int main(int argc, char **argv)
     int high_tier = 0, vui_timing = 1, verbose = 0;   /* VUI timing on since 2026-09-12 */
     double film_grain = 0.0;    /* --film-grain: 0 = off, and off is the default */
     int fgc_denoise = 0;        /* --film-grain-denoise */
+    /* --nr-intra / --nr-inter: 0 / 0 = off, x265's default and ours */
+    int nr_intra = 0, nr_inter = 0;
+    /* --mcstf and its two: off, range 2, not selective - x265's defaults */
+    int mcstf = 0, mcstf_range = 2, mcstf_selective = 0;
+    int dither = 0;             /* --dither, only on the 10 -> 8 downshift */
     double crf = -1.0, bitrate = 0.0;
     /* --vbv-maxrate / --vbv-bufsize / --vbv-init; 0/0 is the mode off,
      * which is every encode before phase 12 item 2. */
@@ -1327,6 +1447,24 @@ int main(int argc, char **argv)
             film_grain = atof(argv[++i]);
         } else if (!strcmp(argv[i], "--film-grain-denoise") && i + 1 < argc) {
             fgc_denoise = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--nr-intra") && i + 1 < argc) {
+            nr_intra = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--nr-inter") && i + 1 < argc) {
+            nr_inter = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--mcstf")) {
+            mcstf = 1;
+        } else if (!strcmp(argv[i], "--no-mcstf")) {
+            mcstf = 0;
+        } else if (!strcmp(argv[i], "--mcstf-ref-range") && i + 1 < argc) {
+            mcstf_range = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--selective-mcstf")) {
+            mcstf_selective = 1;
+        } else if (!strcmp(argv[i], "--no-selective-mcstf")) {
+            mcstf_selective = 0;
+        } else if (!strcmp(argv[i], "--dither")) {
+            dither = 1;
+        } else if (!strcmp(argv[i], "--no-dither")) {
+            dither = 0;
         } else if (!strcmp(argv[i], "--vbv-maxrate") && i + 1 < argc) {
             vbv_maxrate = atof(argv[++i]);
         } else if (!strcmp(argv[i], "--vbv-bufsize") && i + 1 < argc) {
@@ -1507,6 +1645,19 @@ int main(int argc, char **argv)
                                      : "n265: bad y4m input\n");
         return 1;
     }
+    /* --dither, once the source's own depth is known. It is set AFTER
+     * the open because both openers memset the struct, and it is refused
+     * rather than ignored anywhere it would do nothing: a flag that is
+     * silently inert is the one thing about a command line that cannot
+     * be debugged from the output. */
+    if (dither && !(y.depth == 10 && y.out_depth == 8)) {
+        fprintf(stderr, "n265: --dither is the 10-bit to 8-bit reduction's "
+                "own choice; it needs --output-depth 8 on a 10-bit source "
+                "(this one is %d-bit in, %d-bit out)\n", y.depth,
+                y.out_depth);
+        return 2;
+    }
+    y.dither = dither;
     /* --seek, after the open (the y4m header has to be read either way)
      * and before anything is encoded. */
     if (seek > 0 && src_skip(&y, seek) < 0) {
@@ -1691,6 +1842,23 @@ int main(int argc, char **argv)
     }
     a->set_vui_timing(vui_timing);
     a->set_film_grain(film_grain, fgc_denoise);
+    if (nr_intra < 0 || nr_intra > 2000 || nr_inter < 0 || nr_inter > 2000) {
+        fprintf(stderr, "n265: --nr-intra/--nr-inter take 0..2000 "
+                "(x265's range); 0 is off\n");
+        return 2;
+    }
+    a->set_nr(nr_intra, nr_inter);
+    /* x265 spells the range 0..4 and its 0 means the filter off. Here 0
+     * is refused by name instead: --mcstf with no neighbours is an
+     * identity filter that still costs the latency and the queue, and a
+     * flag that silently does nothing is the thing this project keeps
+     * refusing to ship. */
+    if (mcstf_range < 1 || mcstf_range > 4) {
+        fprintf(stderr, "n265: --mcstf-ref-range takes 1..4 neighbours "
+                "per side (x265 spells its 0 as --no-mcstf; so do we)\n");
+        return 2;
+    }
+    a->set_mcstf(mcstf, mcstf_range, mcstf_selective);
     a->set_vbv(vbv_maxrate, vbv_bufsize, vbv_init);
     a->set_weight(weightp, weightb);
     /* ---- the pass-through signalling (phase 14 item 1) ---- */
@@ -1885,6 +2053,7 @@ int main(int argc, char **argv)
     if (fdump2)
         fclose(fdump2);
     free(y.pix16);
+    free(y.pix8);
     free(y.frame);
     if (fin != stdin)
         fclose(fin);
@@ -1900,8 +2069,9 @@ int main(int argc, char **argv)
                     : y.csp == N265_CSP_I422 ? "4:2:2" : "4:2:0";
     if (y.out_depth != y.depth)
         fprintf(stderr, "n265: %ld frames, %dx%d %s %d-bit in, coded %d-bit "
-                "(upshifted by 2)\n", n, y.w, y.h, fmt, y.depth,
-                y.out_depth);
+                "(%s)\n", n, y.w, y.h, fmt, y.depth, y.out_depth,
+                y.out_depth > y.depth ? "upshifted by 2"
+                : y.dither ? "ordered dither" : "truncated by 2");
     else
         fprintf(stderr, "n265: %ld frames, %dx%d %s %d-bit\n", n, y.w, y.h,
                 fmt, y.depth);
