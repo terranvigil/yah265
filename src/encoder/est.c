@@ -80,4 +80,5 @@ void n265_est_ops(res_ops *ops, est_state *st)
     ops->bypass = est_bypass_cb;
     ops->bypass_bits = est_bypass_bits_cb;
     ops->est = st;
+    ops->frozen = 0;        /* the mode is the next commit */
 }

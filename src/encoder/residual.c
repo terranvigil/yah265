@@ -35,6 +35,7 @@ void n265_real_ops(res_ops *ops, real_emit *re)
     ops->bypass = real_bypass_cb;
     ops->bypass_bits = real_bypass_bits_cb;
     ops->est = NULL;
+    ops->frozen = 0;
 }
 
 /* last_sig_coeff group index: 0..3 direct, then log-spaced */
@@ -68,13 +69,28 @@ static const uint8_t min_in_group[10] = { 0, 1, 2, 3, 4, 6, 8, 12, 16, 24 };
  * associative, so deferring the bypass count to one shift at the end
  * reaches the same digit. -DN265_EST_AUDIT runs BOTH instances from the
  * same entry contexts on every call and traps on any difference in the
- * total or in the 152 contexts. What is NOT done here, and cannot be:
- * pricing the CONTEXT bins from a table frozen at sub-block entry. The
- * estimator adapts its contexts inside a block exactly as the arithmetic
- * engine does - sixteen sig_coeff_flag bins of a 4x4 group land on three
- * contexts - so a frozen table is a different estimate, not a faster one.
+ * total or in the 152 contexts.
+ *
+ * THE THIRD INSTANCE (phase 13 A1, `est == EST_FROZEN`) is the thing
+ * phase 9 step 2c refused to do silently and this item does openly: the
+ * context bins are priced from the states the block was ENTERED with and
+ * the states are not written at all. Sixteen sig_coeff_flag bins of a
+ * 4x4 group land on three contexts, so this is a different estimate and
+ * a different bitstream - not a faster way to the same digit - which is
+ * why it is a MODE with a band behind it and not an optimisation. The
+ * reason to want it is that a price
+ * with no read-after-write on the context array is a price a vector
+ * kernel can compute sixteen at a time (A1b). The walk, the bin count
+ * and the bypass handling are IDENTICAL between the two estimator
+ * instances; only the lookup moves.
  */
 typedef struct { uint32_t bits, byp; } est_acc;
+
+/* the values of the walk's `est` parameter, a compile-time constant in
+ * each of the three instances */
+#define EST_REAL   0
+#define EST_ADAPT  1
+#define EST_FROZEN 2
 
 /* the audit's own vacuity check: a scratch build with -DN265_EST_PERT=1
  * moves every context bin's price by one Q8 unit and must trap at once.
@@ -91,7 +107,9 @@ typedef struct { uint32_t bits, byp; } est_acc;
  * constant. */
 #define EMIT_BIN(idx, b)                                                \
     do {                                                                \
-        if (est)                                                        \
+        if (est == EST_FROZEN)                                          \
+            a->bits += n265_est_cost(&ectx[(idx)], (b)) + N265_EST_PERT;\
+        else if (est)                                                   \
             a->bits += n265_est_bin(&ectx[(idx)], (b)) + N265_EST_PERT; \
         else                                                            \
             ops->bin(ops->h, (idx), (b));                               \
@@ -520,15 +538,154 @@ N265_AI void residual_walk(int est, const res_ops *ops, cabac_ctx_t *ectx,
 #undef EMIT_BIN
 #undef EMIT_BYPN
 
+/* ---- N265_EST_TRACE: the census behind the mode -------------------
+ *
+ * A scratch build (`-DN265_EST_TRACE`) that runs BOTH estimator
+ * instances on every trial's TB from the same entry contexts, keeps the
+ * ADAPTIVE answer (so the traced encode is byte for byte the default's,
+ * which is what makes the census a census of the shipped encoder's own
+ * blocks) and tallies how far the frozen one is from it. Per TB size and
+ * component, since the disagreement is a function of how many bins land
+ * on one context. Nothing under this is compiled into a shipped binary.
+ */
+#ifdef N265_EST_TRACE
+#include <stdatomic.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#define ET_NB 65            /* |rel| in 0.5% steps to 32%, then the tail */
+static _Atomic unsigned long long et_n[4][2], et_ad[4][2], et_fr[4][2],
+    et_absd[4][2], et_over[4][2], et_hist[4][2][ET_NB];
+
+static void et_report(void)
+{
+    static const char *sz[4] = { "4x4", "8x8", "16x16", "32x32" };
+    fprintf(stderr, "\n--- N265_EST_TRACE: frozen vs adapting residual "
+            "estimate, per transform block ---\n");
+    fprintf(stderr, "%-7s %-6s %10s %10s %10s %8s %8s %8s %8s %8s %8s\n",
+            "size", "comp", "blocks", "adapt_b", "frozen_b", "mean|d|",
+            "mean%", "p50%", "p90%", "p99%", "over%");
+    unsigned long long tn = 0, tad = 0, tfr = 0, tabs = 0, tov = 0;
+    unsigned long long th[ET_NB] = { 0 };
+    for (int k = 0; k < 4; k++)
+        for (int p = 0; p < 2; p++) {
+            unsigned long long n = et_n[k][p];
+            if (!n)
+                continue;
+            unsigned long long ad = et_ad[k][p], fr = et_fr[k][p];
+            unsigned long long ab = et_absd[k][p], ov = et_over[k][p];
+            unsigned long long h[ET_NB];
+            for (int i = 0; i < ET_NB; i++) {
+                h[i] = et_hist[k][p][i];
+                th[i] += h[i];
+            }
+            tn += n; tad += ad; tfr += fr; tabs += ab; tov += ov;
+            double pc[3];
+            const double want[3] = { 0.50, 0.90, 0.99 };
+            unsigned long long acc = 0;
+            int j = 0;
+            for (int i = 0; i < ET_NB && j < 3; i++) {
+                acc += h[i];
+                while (j < 3 && (double)acc >= want[j] * (double)n)
+                    pc[j++] = (i + 1) * 0.5;
+            }
+            while (j < 3)
+                pc[j++] = 99.0;
+            fprintf(stderr, "%-7s %-6s %10llu %10.0f %10.0f %8.2f %8.2f "
+                    "%8.1f %8.1f %8.1f %8.1f\n",
+                    sz[k], p ? "chroma" : "luma", n, ad / 256.0, fr / 256.0,
+                    (double)ab / n / 256.0,
+                    100.0 * (double)ab / (double)(ad ? ad : 1),
+                    pc[0], pc[1], pc[2], 100.0 * (double)ov / (double)n);
+        }
+    if (tn) {
+        double pc[3];
+        const double want[3] = { 0.50, 0.90, 0.99 };
+        unsigned long long acc = 0;
+        int j = 0;
+        for (int i = 0; i < ET_NB && j < 3; i++) {
+            acc += th[i];
+            while (j < 3 && (double)acc >= want[j] * (double)tn)
+                pc[j++] = (i + 1) * 0.5;
+        }
+        while (j < 3)
+            pc[j++] = 99.0;
+        fprintf(stderr, "%-7s %-6s %10llu %10.0f %10.0f %8.2f %8.2f %8.1f "
+                "%8.1f %8.1f %8.1f\n", "ALL", "", tn, tad / 256.0,
+                tfr / 256.0, (double)tabs / tn / 256.0,
+                100.0 * (double)tabs / (double)(tad ? tad : 1), pc[0], pc[1],
+                pc[2], 100.0 * (double)tov / (double)tn);
+        fprintf(stderr, "net frozen-adapt: %+.3f%% of all residual bits "
+                "(%.0f vs %.0f)\n",
+                100.0 * ((double)tfr - (double)tad) / (double)(tad ? tad : 1),
+                tfr / 256.0, tad / 256.0);
+    }
+}
+
+static void et_tally(int log2n, int c_idx, uint32_t ad, uint32_t fr)
+{
+    static atomic_int armed;
+    int k = log2n - 2, p = c_idx != 0;
+    if (!atomic_exchange_explicit(&armed, 1, memory_order_relaxed))
+        atexit(et_report);
+    long long d = (long long)fr - (long long)ad;
+    unsigned long long abs_d = d < 0 ? (unsigned long long)-d
+                                     : (unsigned long long)d;
+    double rel = ad ? 100.0 * (double)abs_d / (double)ad : 0.0;
+    int b = (int)(rel / 0.5);
+    if (b >= ET_NB)
+        b = ET_NB - 1;
+    atomic_fetch_add_explicit(&et_n[k][p], 1, memory_order_relaxed);
+    atomic_fetch_add_explicit(&et_ad[k][p], ad, memory_order_relaxed);
+    atomic_fetch_add_explicit(&et_fr[k][p], fr, memory_order_relaxed);
+    atomic_fetch_add_explicit(&et_absd[k][p], abs_d, memory_order_relaxed);
+    atomic_fetch_add_explicit(&et_over[k][p], d > 0, memory_order_relaxed);
+    atomic_fetch_add_explicit(&et_hist[k][p][b], 1, memory_order_relaxed);
+}
+#endif
+
 void n265_residual_coding(const res_ops *ops, const int16_t *level,
                           int log2n, int c_idx, int scan_idx, int sbh)
 {
     est_state *st = ops->est;
 
     if (!st) {
-        residual_walk(0, ops, NULL, NULL, level, log2n, c_idx, scan_idx, sbh);
+        residual_walk(EST_REAL, ops, NULL, NULL, level, log2n, c_idx,
+                      scan_idx, sbh);
         return;
     }
+
+    /* phase 13 A1: the frozen-context mode. The contexts are read and
+     * not written, so "the state at TB entry" needs no snapshot - the
+     * array IS the snapshot for the length of the block. */
+    if (ops->frozen) {
+        est_acc f = { 0, 0 };
+        residual_walk(EST_FROZEN, ops, st->ctx, &f, level, log2n, c_idx,
+                      scan_idx, sbh);
+        st->bits += f.bits + (f.byp << 8);
+        return;
+    }
+
+#ifdef N265_EST_TRACE
+    {
+        cabac_ctx_t entry[CTX_COUNT];
+        memcpy(entry, st->ctx, sizeof entry);
+        est_acc ad = { 0, 0 };
+        residual_walk(EST_ADAPT, ops, st->ctx, &ad, level, log2n, c_idx,
+                      scan_idx, sbh);
+        uint32_t a_bits = ad.bits + (ad.byp << 8);
+        cabac_ctx_t after[CTX_COUNT];
+        memcpy(after, st->ctx, sizeof after);
+        memcpy(st->ctx, entry, sizeof entry);
+        est_acc fz = { 0, 0 };
+        residual_walk(EST_FROZEN, ops, st->ctx, &fz, level, log2n, c_idx,
+                      scan_idx, sbh);
+        et_tally(log2n, c_idx, a_bits, fz.bits + (fz.byp << 8));
+        memcpy(st->ctx, after, sizeof after);
+        st->bits += a_bits;
+        return;
+    }
+#endif
 
 #ifdef N265_EST_AUDIT
     /* In-place trap compare, the method docs/phase6-neon.md round 5 used
@@ -544,14 +701,15 @@ void n265_residual_coding(const res_ops *ops, const int16_t *level,
         cabac_ctx_t save[CTX_COUNT], old_ctx[CTX_COUNT];
         memcpy(save, st->ctx, sizeof save);
         uint32_t b0 = st->bits;
-        residual_walk(0, ops, NULL, NULL, level, log2n, c_idx, scan_idx, sbh);
+        residual_walk(EST_REAL, ops, NULL, NULL, level, log2n, c_idx,
+                      scan_idx, sbh);
         uint32_t old_bits = st->bits - b0;
         memcpy(old_ctx, st->ctx, sizeof old_ctx);
         memcpy(st->ctx, save, sizeof save);
         st->bits = b0;
         est_acc chk = { 0, 0 };
-        residual_walk(1, ops, st->ctx, &chk, level, log2n, c_idx, scan_idx,
-                      sbh);
+        residual_walk(EST_ADAPT, ops, st->ctx, &chk, level, log2n, c_idx,
+                      scan_idx, sbh);
         uint32_t new_bits = chk.bits + (chk.byp << 8);
 #if N265_EST_PERT == 2
         st->ctx[CTX_SIG].state ^= 1;    /* vacuity check of the ctx leg */
@@ -564,7 +722,8 @@ void n265_residual_coding(const res_ops *ops, const int16_t *level,
     }
 #else
     est_acc a = { 0, 0 };
-    residual_walk(1, ops, st->ctx, &a, level, log2n, c_idx, scan_idx, sbh);
+    residual_walk(EST_ADAPT, ops, st->ctx, &a, level, log2n, c_idx, scan_idx,
+                  sbh);
     /* the bypass count is folded once: 256 per bin, and uint32 addition
      * is associative, so the digit is the one the per-call form reached */
     st->bits += a.bits + (a.byp << 8);

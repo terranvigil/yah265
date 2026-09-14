@@ -36,6 +36,18 @@ static inline uint32_t n265_est_bin(cabac_ctx_t *ctx, int bin)
     return e & 0xffffu;
 }
 
+/* The FROZEN form (phase 13 A1): the same Q8 price, read from the state
+ * the context is in NOW and leaving it there. `n265_est_bin` is the
+ * encoder's model of what the arithmetic engine will do next and adapts
+ * on every bin; this one is a price read off a snapshot, which is what
+ * `n265_rdoq`'s cost_mps / cost_lps already are for the lattice. Nothing
+ * calls it unless N265_EST_MODE is 1, and then only inside the residual
+ * walk of a TRIAL. See docs/phase13.md "A1". */
+static inline uint32_t n265_est_cost(const cabac_ctx_t *ctx, int bin)
+{
+    return n265_est_step[ctx->state][bin != ctx->mps] & 0xffffu;
+}
+
 static inline uint32_t n265_est_bypass_bits(int n)
 {
     return (uint32_t)n << 8;
@@ -47,7 +59,12 @@ static inline uint32_t n265_est_bypass_bits(int n)
  * and NULL otherwise, including for the cbit wrapper that prices real
  * bins. residual_coding reads it to take a straight-line instance of the
  * same walk with the per-bin call inlined; nothing else may branch on
- * it, because every other walker has one shape for both backends. */
+ * it, because every other walker has one shape for both backends.
+ *
+ * `frozen` selects phase 13 A1's frozen-context instance of the residual
+ * walk, and it is a property of the CALL and not of the estimator.
+ * Nothing sets it yet: the walk and its census land here, the mode that
+ * selects it lands next. 0 in the real emitter, always. */
 struct est_state;
 typedef struct res_ops {
     void *h;
@@ -55,6 +72,7 @@ typedef struct res_ops {
     void (*bypass)(void *h, int bin);
     void (*bypass_bits)(void *h, uint32_t v, int n);
     struct est_state *est;
+    int frozen;
 } res_ops;
 
 /* estimator backend state */

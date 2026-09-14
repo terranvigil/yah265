@@ -680,6 +680,7 @@ void n265_entropy_ctu(struct n265_frame_work *e, cabac_t *cb, int ctb_x,
         ops_t.bypass = cbit_bypass;
         ops_t.bypass_bits = cbit_bypass_bits;
         ops_t.est = NULL;       /* it wraps the REAL emitter; see est.h */
+        ops_t.frozen = 0;
         ops_s = ops_t;
         e->cbit_bucket = N265_CB_OTHER;
     }
