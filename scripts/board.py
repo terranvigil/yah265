@@ -103,6 +103,15 @@ QPS = [22, 27, 32, 37]
 # 2026-09-09, so the matched arm tracks it. (2026-09-09)
 # bframes tracks our own default, which moved 3 -> 7 on 2026-09-10; the
 # arm mirrors OUR featureset, so it moves with it. (2026-09-10)
+#
+# `--no-open-gop` STAYS, and since 2026-09-14 it is a continuity choice
+# and not a handicap: open GOP shipped that day (phase 14 item 3) and is
+# our default too, so the flag no longer mirrors a gap. What it mirrors
+# now is the board's own shape - 120 frames at keyint 250, where neither
+# encoder places a key frame after the first and the flag is inert on
+# both sides. Dropping it would rewrite the x265 command string, which is
+# the encode memo key, and re-encode every cached anchor to produce the
+# same bytes. It goes when the board's keyint does. (2026-09-14)
 X265_MATCHED = ["--keyint", "250", "--bframes", "7", "--b-adapt", "1",
                 "--rc-lookahead", "12", "--ref", "1", "--no-open-gop"]
 

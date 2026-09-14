@@ -561,6 +561,18 @@ int n265_cra_visible(int cra_poc, int radl_poc, int cur, int p)
  * nearest past reference after a CRA is the CRA whatever else is
  * marked), and from --ref 2 up the seek check fails on it.
  * docs/phase14.md item 3. */
+/* N265_OPENGOP_CUT: x265's own placement rule - every key frame becomes
+ * a CRA, scene cuts included - instead of ours, which takes the --keyint
+ * period only. The refusal and its numbers are in docs/phase14.md item
+ * 3. Read here beside the other open-GOP knob so both are warmed by
+ * n265_encoder_warm; the placement that uses it is la_is_cra. */
+static int la_is_cra_cut(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *s = n265_env("N265_OPENGOP_CUT"); v = s ? atoi(s) != 0 : 0; }
+    return v;
+}
+
 static int cra_nobarrier(void)
 {
     static int v = -1;
@@ -4873,6 +4885,7 @@ void n265_encoder_warm(void)
     (void)dpb_hold(); (void)hf_cache_on(); (void)hf2_mode_env();
     (void)hf2_tpp_env(); (void)hf2_tpp14_env();
     (void)min_keyint_env(); (void)intra_min_env(); (void)force_nonidr_env();
+    (void)la_is_cra_cut(); (void)cra_nobarrier();
     (void)depth_dump_file();
 }
 
@@ -4907,20 +4920,13 @@ static int la_is_key(n265_encoder *e, int i)
  * something because the mini-GOP straddling it keeps predicting across
  * it, and across a cut there is nothing to predict. (x265 differs here
  * and is worth writing down: under --open-gop its streams carry a CRA at
- * every key frame after the first, cuts included. N265_OPENGOP_CUT is that arm, priced in
- * docs/phase14.md.)
+ * every key frame after the first, cuts included. N265_OPENGOP_CUT, above, is that arm,
+ * priced in docs/phase14.md.)
  *
  * Never the first picture, which has no stream behind it to reference
  * and whose POC 0 a CRA cannot be. Never at `--keyint 1` or in PCM mode
  * either: with no leading pictures a CRA and an IDR code the same
  * samples, and all the CRA would do is deny the decoder a POC reset. */
-static int la_is_cra_cut(void)
-{
-    static int v = -1;
-    if (v < 0) { const char *s = n265_env("N265_OPENGOP_CUT"); v = s ? atoi(s) != 0 : 0; }
-    return v;
-}
-
 static int la_is_cra(n265_encoder *e, int i)
 {
     if (!e->open_gop || e->mode == N265_MODE_PCM || e->keyint <= 1 ||
