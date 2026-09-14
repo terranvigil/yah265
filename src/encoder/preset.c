@@ -296,19 +296,22 @@ static const struct kv med_tab[] = {
      * backwards. The compiled-in default is 0, so fast and faster are
      * untouched and `--no-weightp` is the escape. */
     { "N265_WEIGHTP",    "1" },
-    /* phase 14 item 6b: the coefficient-domain denoise at x265's own
-     * lowest useful strength, both sides. Item 6 priced the whole sweep
-     * and 100 is the only arm in it with a clean shape - five clips of
-     * five better on BD-VMAF-NEG AND five of five better on PSNR-Y, none
-     * worse by any amount, where 300 costs ducks_720p 0.85 points and
-     * 1000 costs it 3.98. It is free on the clock (1.010x at CIF at
-     * strength 1000, the maximum; below the instrument at 100) because
-     * it is one pass over a transform block that was about to be read
-     * twice anyway. The compiled-in default is 0, so fast, slow and
-     * slower are untouched, and `--nr-intra 0 --nr-inter 0` is the
-     * escape. docs/phase14.md, "Item 6b". */
-    { "N265_NR_INTRA",   "100" },
-    { "N265_NR_INTER",   "100" },
+    /* There is NO `N265_NR_INTRA` / `N265_NR_INTER` row, and item 6b is
+     * why that is worth saying out loud here. Item 6 recommended
+     * `--nr-intra 100 --nr-inter 100` for this table off a five-clip
+     * band; 6b built the arm, read it on the seventeen, and refused it.
+     * It clears all five goal-3 legs with room (0.73x median against
+     * today's 0.69x, every other reading equal or better) and it moves
+     * the 17-clip CRF median -7.81 -> -8.33 - and it costs
+     * `sintel_720p` **1.44** points and `sita_flat_720p` 0.35 against
+     * the item's 0.3 per-clip bar, monotonically in the strength, which
+     * is the tool doing what it does to content that has no noise in it
+     * to remove. It is also not free on this tree: 1.046x foreman_cif /
+     * 1.051x park_joy_720p / 1.095x touchdown_1080p at one thread.
+     *
+     * The two knobs exist so the next re-pricing is a row here and not a
+     * rebuild; the compiled-in default behind them is 0, which is off
+     * and is x265's default. docs/phase14.md, "Item 6b". */
     { NULL, NULL }
 };
 
