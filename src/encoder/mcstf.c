@@ -49,9 +49,25 @@ int n265_mcstf_sigma_q8(void)
 /* N265_MCSTF_CLEAN: --selective-mcstf's bar, in 8-bit luma levels, Q8.
  * Below this reading the picture is called clean and is not filtered.
  *
- * 0.75, and it is placed in a GAP the corpus has rather than argued
- * from the arithmetic. The reading (mcstf_noise) over all fifteen clips,
- * three pictures each, 8-bit:
+ * 1.5, AND IT IS PLACED BY THE BAND. 0.75 shipped first, placed in a gap
+ * the corpus has, and the band then said the gap was the wrong argument:
+ * the census separates clips that have capture noise from clips that do
+ * not, and what the filter needs to know is something narrower - where
+ * there is enough noise for a temporal average to beat what the
+ * quantiser was going to do anyway. Those are not the same line. At 0.75
+ * the filter arms on foreman_cif and costs it 1.35 BD points; at 1.5 it
+ * does not arm there at all, and on the five-clip read (docs/phase14.md,
+ * item 6) the arm becomes three clips better, two byte-identical and
+ * none worse, on VMAF-NEG and on PSNR-Y alike.
+ *
+ * The census is kept below because it is still the sanity check that the
+ * CLEAN end is unambiguous, and because it says where the bar is not: at
+ * 1.5, touchdown_1080p at 1.62 is the nearest clip above and is 8%
+ * away, which is a thin margin and is worth re-reading if a clip like it
+ * ever lands in the corpus.
+ *
+ * The reading (mcstf_noise) over all fifteen clips, three pictures each,
+ * 8-bit:
  *
  *   sintel_720p     0.00  sita_flat_720p  0.00  sita_toon_720p  0.56
  *   akiyo_cif       0.62  stefan_cif      0.81-0.94
@@ -60,11 +76,14 @@ int n265_mcstf_sigma_q8(void)
  *   bus_cif         2.56-2.88  ducks_720p 2.88-2.94  coastguard 3.25-3.38
  *   mobile_cif      4.62-4.88
  *
- * 0.62 to 0.81 is the widest gap in the bottom half of that list, so the
- * bar disarms exactly four clips - the two flat-shaded animations, the
- * third animation, and the head-and-shoulders clip whose background does
- * not move - and arms the eleven natural ones, the three the audit names
- * as grainy among them.
+ * At the shipped 1.5 the bar disarms the four animation and
+ * head-and-shoulders clips outright plus stefan, park_joy and foreman -
+ * seven of fifteen - and arms the eight that read above it, the two the
+ * band shows a gain on (ducks 2.9, crowd_run 2.3) among them. The
+ * reading is per PICTURE and not per clip, so a clip near the bar is
+ * partly armed: park_joy reads 1.06-1.12 on these three and is still
+ * worth -0.08 at 1.5 over 120 frames, which is the bar doing exactly
+ * what a per-picture gate should.
  *
  * Read it honestly: on a clip that is textured EVERYWHERE, a percentile
  * of a high-pass is a detail floor and not a noise floor, and mobile_cif
@@ -76,7 +95,7 @@ int n265_mcstf_clean_q8(void)
     static int v = -1;
     if (v < 0) {
         const char *s = n265_env("N265_MCSTF_CLEAN");
-        double d = s ? atof(s) : 0.75;
+        double d = s ? atof(s) : 1.5;
         if (d < 0.0)
             d = 0.0;
         if (d > 64.0)
