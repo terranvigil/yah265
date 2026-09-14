@@ -10,7 +10,7 @@ spec, GPL-2.0-or-later, every stream verified against independent decoders, ever
 performance claim reproducible from a Makefile target.
 
 Three goals, measured as x265-speed multiples at a matched operating point
-(quality within 0.5 dVMAF, size within 1.0%):
+(quality within 0.5 dVMAF, size within 1.0%, PSNR-Y within 1.0 dB):
 
 1. Pure C, single-threaded, both encoders no-asm: faster than x265.
 2. Pure C, multi-threaded: faster than x265.
@@ -18,16 +18,30 @@ Three goals, measured as x265-speed multiples at a matched operating point
 
 ## Results (2026-09-14, brew x265 4.3, 15 clips, `--preset medium` both sides)
 
-Each goal is read on four legs at one pinned operating point: median
+Each goal is read on five legs at one pinned operating point: median
 speed at or under x265's wall, the worst clip under 1.15x of it and named,
 quality within 0.5 VMAF-NEG at equal bytes, size within 1.0% at equal
-quality (`scripts/goal_legs.py`, `docs/data/goal-legs.csv`).
+quality, and PSNR-Y within 1.0 dB at equal bytes
+(`scripts/goal_legs.py`, `docs/data/goal-legs.csv`).
 
-| goal | tier | median speed | worst clip | quality | size | result |
-|---|---|--:|---|---|---|---|
-| 1 | pure C, 1 thread | 0.47x | sita_toon 0.80x | 15/15 ahead | 15/15 smaller | **met** |
-| 2 | pure C, all cores | 0.38x | sita_toon 0.55x | 15/15 ahead | 15/15 smaller | **met** |
-| 3 | as shipped, all cores | 0.74x | touchdown_1080p 1.16x | 15/15 ahead | 15/15 smaller | three legs met; the worst-clip leg at the bar |
+| goal | tier | median speed | worst clip | quality | size | PSNR-Y | result |
+|---|---|--:|---|---|---|---|---|
+| 1 | pure C, 1 thread | 0.47x | sita_toon 0.80x | 15/15 ahead | 15/15 smaller | 0/15 below the bar | **met** |
+| 2 | pure C, all cores | 0.38x | sita_toon 0.55x | 15/15 ahead | 15/15 smaller | 0/15 below the bar | **met** |
+| 3 | as shipped, all cores | 0.74x | touchdown_1080p 1.16x | 15/15 ahead | 15/15 smaller | 0/15 below the bar | four legs met; the worst-clip leg at the bar |
+
+The quality, size and PSNR-Y columns are properties of the bitstream and
+not of the clock, so one reading covers all three tiers: the three goals
+solve the same operating point and differ only in how it is timed.
+
+**The PSNR-Y leg is a floor, not a decision metric** (added 2026-09-14).
+The band still decides on VMAF-NEG; this leg is there so a VMAF-NEG gain
+can never be bought by letting measurable pixel accuracy slide. At the
+pinned point the median clip is 0.08 dB under x265 and the two worst are
+sita_flat_720p at -0.87 dB and bus_cif at -0.72 dB - inside the 1.0 dB
+bar, and recorded as debt against a tighter 0.5 dB line that gates
+nothing. Those two clips are also where the two metrics disagree most;
+`docs/phase13.md` B4 measured six metrics on the same rungs and says why.
 
 On the band, `medium` reads a CRF BD-VMAF-NEG of -7.8% against x265 medium
 with all fifteen clips ahead; `slow` and `slower` keep the larger leads
