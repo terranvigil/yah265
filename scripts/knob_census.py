@@ -143,6 +143,14 @@ OVERRIDES = {
     # phase 10 item 3: moot unless N265_AQ_FLAT_SIGN arms the sign, so it is
     # that arm's parameter - N265_CHROMA_W_PCT's case exactly.
     "N265_AQ_FLAT_THR": "arm",
+    # phase 11 item 2: the subpel rung, refused on the band at all three
+    # fire predicates and kept for re-pricing. N265_RUNG_GATE resolves
+    # nonzero (-2, item 1b's shipped sign) but is moot unless the rung is
+    # armed, so it is the arm's parameter and not a shipped default;
+    # N265_RUNG_RERANK likewise.
+    "N265_SUBME_RUNG": "arm",
+    "N265_RUNG_GATE": "arm",
+    "N265_RUNG_RERANK": "arm",
     # the lattice IS the shipped default (1) and the env is its escape; it
     # is catalogued in docs/instruments.md because value 2 - the
     # commit-only form, phase 9 step 2 - is an arm with a census behind
