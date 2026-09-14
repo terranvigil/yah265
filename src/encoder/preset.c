@@ -139,6 +139,19 @@ static const struct kv faster_tab[] = {
     { "N265_SBH_RD",     "0" },
     { "N265_RD_PROXY",   "1" },
     { "N265_EST_MODE",   "1" },
+    /* ...and the RE-PLACEMENT (2026-09-14). The first table above left
+     * fourteen of the fifteen clips ahead of x265 faster on the CRF band
+     * and one behind it - sintel_720p at +2.02% - and the rule is every
+     * clip. These two are medium's AQ-flat rows, and they are the
+     * narrowest thing in the encoder that reaches that clip: the term is
+     * armed only on a flat-typed frame whose outline share is under 3%.
+     * Verified as such HERE rather than assumed from medium's record -
+     * with the pair on and off at this preset, fourteen of the fifteen
+     * clips are byte for byte and sintel_720p is the one that moves. Not
+     * a value invented for this rung either: `medium` has carried it
+     * since phase 10 item 3. */
+    { "N265_AQ_FLAT_SIGN", "1.0" },
+    { "N265_AQ_FLAT_THR",  "3" },
     { NULL, NULL }
 };
 
