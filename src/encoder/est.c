@@ -8,9 +8,22 @@
  */
 
 #include <math.h>
+#include <stdlib.h>
 
 #include "encoder/est.h"
+#include "encoder/preset.h"
 #include "encoder/residual.h"
+
+int n265_est_mode;
+
+/* Resolved once, on the driver thread, with the other warms: every
+ * estimator call reads it and a getenv per trial would be the item's own
+ * cost twice over. */
+void n265_est_warm(void)
+{
+    const char *v = n265_env("N265_EST_MODE");
+    n265_est_mode = v ? atoi(v) : 0;
+}
 
 uint16_t n265_est_bits_mps[64], n265_est_bits_lps[64];
 uint32_t n265_est_step[64][2];
@@ -80,4 +93,5 @@ void n265_est_ops(res_ops *ops, est_state *st)
     ops->bypass = est_bypass_cb;
     ops->bypass_bits = est_bypass_bits_cb;
     ops->est = st;
+    ops->frozen = n265_est_mode;
 }

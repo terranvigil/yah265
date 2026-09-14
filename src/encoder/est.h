@@ -36,6 +36,18 @@ static inline uint32_t n265_est_bin(cabac_ctx_t *ctx, int bin)
     return e & 0xffffu;
 }
 
+/* The FROZEN form (phase 13 A1): the same Q8 price, read from the state
+ * the context is in NOW and leaving it there. `n265_est_bin` is the
+ * encoder's model of what the arithmetic engine will do next and adapts
+ * on every bin; this one is a price read off a snapshot, which is what
+ * `n265_rdoq`'s cost_mps / cost_lps already are for the lattice. Nothing
+ * calls it unless N265_EST_MODE is 1, and then only inside the residual
+ * walk of a TRIAL. See docs/phase13.md "A1". */
+static inline uint32_t n265_est_cost(const cabac_ctx_t *ctx, int bin)
+{
+    return n265_est_step[ctx->state][bin != ctx->mps] & 0xffffu;
+}
+
 static inline uint32_t n265_est_bypass_bits(int n)
 {
     return (uint32_t)n << 8;
@@ -47,7 +59,14 @@ static inline uint32_t n265_est_bypass_bits(int n)
  * and NULL otherwise, including for the cbit wrapper that prices real
  * bins. residual_coding reads it to take a straight-line instance of the
  * same walk with the per-bin call inlined; nothing else may branch on
- * it, because every other walker has one shape for both backends. */
+ * it, because every other walker has one shape for both backends.
+ *
+ * `frozen` is phase 13 A1's mode, and it is a property of the CALL and
+ * not of the estimator: n265_est_ops() copies n265_est_mode into it, so
+ * every trial that prices a TB gets the mode, and n265_est_advance_cu()
+ * clears it, because the replay of a COMMITTED CU is what keeps the
+ * estimator's contexts in step with the real coder's and must adapt
+ * whatever the trials do. 0 in the real emitter, always. */
 struct est_state;
 typedef struct res_ops {
     void *h;
@@ -55,6 +74,7 @@ typedef struct res_ops {
     void (*bypass)(void *h, int bin);
     void (*bypass_bits)(void *h, uint32_t v, int n);
     struct est_state *est;
+    int frozen;
 } res_ops;
 
 /* estimator backend state */
@@ -64,6 +84,13 @@ typedef struct est_state {
 } est_state;
 
 void n265_est_ops(res_ops *ops, est_state *st);
+
+/* N265_EST_MODE (phase 13 A1): 0 = the adapting estimator, which is
+ * every encoder before 2026-09-14 and is byte-identical to it; 1 = the
+ * frozen-context one. Resolved on the driver thread by n265_est_warm()
+ * and read-only afterwards. */
+extern int n265_est_mode;
+void n265_est_warm(void);
 
 void n265_tables_init_est(void);
 

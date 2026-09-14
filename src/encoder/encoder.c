@@ -1859,6 +1859,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * thread, before a worker can be the one that writes it first */
     n265_tables_init();
     n265_tables_init_est();
+    n265_est_warm();
     n265_encoder_warm();
     n265_la_warm();
     n265_ctu_warm();

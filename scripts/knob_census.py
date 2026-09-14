@@ -134,6 +134,10 @@ OVERRIDES = {
     # moot unless N265_CHROMA_W is set, so it is that arm's parameter and
     # not a shipped default of its own
     "N265_CHROMA_W_PCT": "arm",
+    # phase 13 A1: catalogued in docs/instruments.md because it has a
+    # result, but it is a default-off MODE refused on the band and kept
+    # for re-pricing at the lower rungs - an arm, not machinery
+    "N265_EST_MODE": "arm",
     # same shape: moot unless N265_CHROMA_PRED is set. Its 0 is the
     # luma-only CONTROL for that arm, which is what it exists for.
     "N265_CPRED_W": "arm",
