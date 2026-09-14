@@ -2081,7 +2081,7 @@ int main(int argc, char **argv)
     {
         optstr head = { .s = "", .n = 0 };
         char v[32];
-        opt_put(&head, "preset", preset ? preset : "none");
+        opt_put(&head, "preset", preset ? preset : "medium"); /* the effective preset: medium is the default, and provenance names what ran */
         if (pcm) {
             opt_put(&head, "rc", "pcm");
         } else if (lossless) {
