@@ -81,8 +81,18 @@ ours = f"{N} {{src}} --frames {FRAMES} " + (ARGS if "{q}" in ARGS else f"--{KNOB
 # is the one that picks the Main10 encoder out of the 8+10+12 brew build.
 xdepth = "" if DEPTH == 8 else f" --input-depth {DEPTH} --output-depth {DEPTH}"
 XPRESET = os.environ.get("X265PRESET", "medium")
+# X265ARGS appends to the REFERENCE arm, for the reads where the question
+# is about a structural parameter both encoders have to be asked the same
+# thing about - `--keyint 48` for the open-GOP read (phase 14 item 3),
+# where the default 250 never places a key frame inside 120 frames and
+# there is nothing to measure. Empty by default and CONCATENATED rather
+# than spliced, so the default command string stays character for
+# character the one every cached reference point was encoded under -
+# bd_at_rate's memo key IS that string.
+XARGS = os.environ.get("X265ARGS", "")
 ref = (f"{X} --preset {XPRESET} --crf {{q}} --frames {FRAMES} --pools none "
-       f"--frame-threads 1 --log-level none{xdepth} -o {{out}} {{src}}")
+       f"--frame-threads 1 --log-level none{xdepth}"
+       + (f" {XARGS}" if XARGS else "") + " -o {out} {src}")
 def run(clip):
     cmd = ["python3", "scripts/bd_at_rate.py", "--clip", clip, "--frames", str(FRAMES),
            "--targets", ",".join(str(t) for t in targets_of(clip)),

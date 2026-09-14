@@ -636,10 +636,15 @@ void n265_write_fgc_sei(bitstream_t *bs, const n265_grain_model *m)
  *
  * What is NOT written, and why every one of them is an absence the VUI
  * already implies:
- *   - irap_cpb_params_present_flag 0: the alt delays exist for splicing a
- *     CVS in where leading pictures are discarded, which nothing here
- *     does. With sub_pic_hrd_params_present_flag 0 the flag is present and
- *     must be written; with it 0 the four alt fields are absent.
+ *   - irap_cpb_params_present_flag 0: the alt delays are the ones a
+ *     decoder uses when it starts at an IRAP whose LEADING PICTURES it
+ *     discards, which since phase 14 item 3 is exactly what a seek to a
+ *     CRA does. Writing 0 is still conformant and still what x265 does:
+ *     without them such a decoder uses the base pair, which was computed
+ *     assuming the discarded pictures' bits arrive, so the initial delay
+ *     it waits is longer than it needs to be and never shorter. The flag
+ *     is present whatever sub_pic_hrd_params_present_flag says; with that
+ *     0, the four alt fields it would gate are absent.
  *   - concatenation_flag 0: this AU is not spliced onto another stream, so
  *     C.2.3's delta branch does not apply and au_cpb_removal_delay_delta
  *     is not read. It is written as 1 (minus1 = 0) rather than left

@@ -50,6 +50,7 @@
 #define n265_bi_avg_wh_ref           n265_bi_avg_wh_ref_10
 #define n265_brun_trace              n265_brun_trace_10
 #define n265_build_lists             n265_build_lists_10
+#define n265_cra_visible             n265_cra_visible_10
 #define n265_cabac_bin               n265_cabac_bin_10
 #define n265_cabac_bypass            n265_cabac_bypass_10
 #define n265_cabac_bypass_bits       n265_cabac_bypass_bits_10
@@ -192,6 +193,7 @@
 #define n265_rc_future_idr           n265_rc_future_idr_10
 #define n265_rc_next                 n265_rc_next_10
 #define n265_rc_open                 n265_rc_open_10
+#define n265_ref_used                n265_ref_used_10
 #define n265_2p_free                 n265_2p_free_10
 #define n265_2p_init                 n265_2p_init_10
 #define n265_2p_open_write           n265_2p_open_write_10

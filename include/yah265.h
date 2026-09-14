@@ -86,6 +86,7 @@ typedef uint16_t n265_pixel;
 #define n265_set_vui_window   N265_API(n265_set_vui_window)
 #define n265_set_hdr_meta     N265_API(n265_set_hdr_meta)
 #define n265_set_hdr10        N265_API(n265_set_hdr10)
+#define n265_set_gop          N265_API(n265_set_gop)
 #define n265_set_preset       N265_API(n265_set_preset)
 #define n265_preset_param     N265_API(n265_preset_param)
 #define n265_preset_nearest   N265_API(n265_preset_nearest)
@@ -123,7 +124,15 @@ typedef struct n265_param {
 enum {
     N265_NAL_TRAIL_N    = 0,
     N265_NAL_TRAIL_R    = 1,
+    /* the leading pictures of a CRA (open GOP). RADL is decodable when
+     * the decode starts at that CRA; RASL is not, and a decoder that
+     * starts there discards it. */
+    N265_NAL_RADL_N     = 6,
+    N265_NAL_RADL_R     = 7,
+    N265_NAL_RASL_N     = 8,
+    N265_NAL_RASL_R     = 9,
     N265_NAL_IDR_W_RADL = 19,
+    N265_NAL_CRA_NUT    = 21,
     N265_NAL_VPS        = 32,
     N265_NAL_SPS        = 33,
     N265_NAL_PPS        = 34,
@@ -231,6 +240,30 @@ YAH265_API void n265_set_hdr_meta(const uint32_t *md, int cll, int fall);
  * message alone. atc is the alternative transfer characteristic (D.2.38),
  * -1 for no message. */
 YAH265_API void n265_set_hdr10(int hdr10, int cll_on, int atc);
+
+/* ---- open GOP (phase 14 item 3) ----
+ *
+ * `open_gop` non-zero codes the `--keyint` picture as a CRA (7.4.2.2)
+ * instead of an IDR: the POC line does not reset, the DPB is not
+ * emptied, and the pictures the mini-GOP straddling it would otherwise
+ * have lost become its LEADING pictures. Random access still works - a
+ * decoder starting at the CRA discards the RASL pictures and outputs
+ * from the CRA - so what the flag buys is that the key frame no longer
+ * costs the pyramid around it. On by default, which is x265's default
+ * too; 0 is `--no-open-gop` and gives the closed GOP this encoder wrote
+ * before the flag existed, byte for byte.
+ *
+ * A scene cut stays an IDR either way. Nothing else changes: a CRA is
+ * placed at the `--keyint` period only, never at a cut, and never on
+ * the first picture (which has no stream behind it to reference).
+ *
+ * `radl` is how many of the CRA's leading pictures, counted back from
+ * the CRA in OUTPUT order, are coded as RADL rather than RASL: they may
+ * not reference across the CRA, so a decoder seeking to it can output
+ * them too. They cost bits - the pictures nearest the key frame are the
+ * ones with the most to gain from the past - so the default is 0, which
+ * is x265's default as well. */
+YAH265_API void n265_set_gop(int open_gop, int radl);
 
 /* Speed/quality preset: "fast", "medium" (the default), "slow" or
  * "slower". Returns 0, or -1 for a name it does not know, in which case
