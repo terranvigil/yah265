@@ -33,6 +33,11 @@ than on a running count for exactly that reason: every mark this script
 sees is independent, and the test is that the positions carrying a 1 are
 a subset of the signature's 1 bits.
 
+The tracing decoder is not cheap: it prints a line per syntax element,
+so a 720p clip is tens of millions of lines and minutes of wall. The mark
+accumulates fast - a CIF clip reads in 30-60 frames - so on HD pass
+`--frames`.
+
 usage: fingerprint_check.py [options] stream.265
 """
 

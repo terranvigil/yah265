@@ -136,6 +136,12 @@ holds every encode to `dec265` and `ffmpeg`. Nothing about the MARK
 depends on libde265: any HEVC decoder derives the same candidate list,
 because deriving it is what decoding a merge PU IS.
 
+One practical note: full tracing prints a line per syntax element, so a
+720p clip is tens of millions of lines and minutes of wall. The mark
+accumulates fast enough that it does not matter - 60 frames of CIF gives
+30 marks against a threshold of 20, and 60 frames of CIF Main10 gives 26
+- so on HD pass `--frames`.
+
 ## What it costs: nothing, measured
 
 `--preset medium`, 60 frames, `--threads 1`, `--no-info` on both arms so
@@ -173,6 +179,7 @@ different picture. It does not.
 | the verifier with every SEI stripped | reads it, and the identification line goes to `none` |
 | the verifier on `--no-fingerprint` | `no fingerprint`, 0 marks out of 745 merge PUs at the last index |
 | the verifier on x265 4.3's stream | `no fingerprint`, 0 marks out of 2222 |
+| the verifier on a Main10 stream | reads it: 26 marks, foreman_cif `--crf 28 --output-depth 10`, 60 frames |
 | ASan + UBSan on the fast conformance list | see docs/phase14.md |
 
 ## The sites that were measured and refused
