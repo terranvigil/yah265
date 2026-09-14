@@ -1238,11 +1238,20 @@ static int tb_full(struct n265_frame_work *e, int c_idx, int x0, int y0,
 /* pick the luma mode by SAD over prediction from the given ref plane;
  * optionally reports the nk best-ranked modes for RD refinement, and
  * optionally ranks only the `nsub` modes in `sub` instead of all 35 */
+/* `satd_out`, where a caller asks for it, is the winner's own RANKING
+ * cost - the Hadamard the 35-mode loop below already computed and threw
+ * away. `cost_out` cannot stand in for it: that one is re-taken as a SAD
+ * afterwards, because every gate reading it compares it against another
+ * SAD, and a SATD is two to four times a SAD on the same block. The
+ * SA8D-proxy mode decision (phase 13 A4) ranks the intra arm against the
+ * inter ones in the Hadamard domain and needs the number this loop
+ * actually minimised. Costs nothing: it is a store of a live variable. */
 static int search_luma_mode_sub(struct n265_frame_work *e, int x0, int y0,
                                 int log2n, const pixel *ref_plane,
                                 int ref_stride, uint32_t *cost_out,
                                 int topk[], int nk,
-                                const int *sub, int nsub)
+                                const int *sub, int nsub,
+                                uint32_t *satd_out)
 {
     int n = 1 << log2n;
     const pixel *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
@@ -1290,6 +1299,8 @@ static int search_luma_mode_sub(struct n265_frame_work *e, int x0, int y0,
     if (topk)
         for (int i = 0; i < nkc; i++)
             topk[i] = mk[i];
+    if (satd_out)
+        *satd_out = best_cost;
     if (cost_out) {
         const pixel *r = n265_use_filtered_refs(best_mode, log2n, 0)
                                ? refs_f : refs;
@@ -1316,7 +1327,7 @@ static int search_luma_mode_k(struct n265_frame_work *e, int x0, int y0,
                               int topk[], int nk)
 {
     return search_luma_mode_sub(e, x0, y0, log2n, ref_plane, ref_stride,
-                                cost_out, topk, nk, NULL, 0);
+                                cost_out, topk, nk, NULL, 0, NULL);
 }
 
 static int search_luma_mode(struct n265_frame_work *e, int x0, int y0,
@@ -1324,7 +1335,17 @@ static int search_luma_mode(struct n265_frame_work *e, int x0, int y0,
                             int ref_stride, uint32_t *cost_out)
 {
     return search_luma_mode_sub(e, x0, y0, log2n, ref_plane, ref_stride,
-                                cost_out, NULL, 0, NULL, 0);
+                                cost_out, NULL, 0, NULL, 0, NULL);
+}
+
+/* the same rank, with the winner's Hadamard kept (phase 13 A4) */
+static int search_luma_mode_s(struct n265_frame_work *e, int x0, int y0,
+                              int log2n, const pixel *ref_plane,
+                              int ref_stride, uint32_t *cost_out,
+                              uint32_t *satd_out)
+{
+    return search_luma_mode_sub(e, x0, y0, log2n, ref_plane, ref_stride,
+                                cost_out, NULL, 0, NULL, 0, satd_out);
 }
 
 /* SAD-domain lambda: sqrt(0.68 * 2^((q-12)/3)), Q4 fixed point, indexed
@@ -4408,6 +4429,329 @@ static int sc_commit(const struct n265_frame_work *e, int x0, int y0, int n,
     return seen;
 }
 
+/* ---- phase 13 A4: the SA8D proxy mode decision -----------------------
+ *
+ * What this replaces. Today every 2Nx2N candidate is priced by running
+ * the whole chain on it - forward transform, quantise, inverse, rebuild,
+ * SSD against the source, and a bit-exact walk of the residual syntax -
+ * and the winner is the lowest D + lambda x R. Three candidates a CU
+ * (the merge prediction, the searched AMVP vector, the best intra mode)
+ * means three of those chains, and two more where the rectangular
+ * partitions are entered. The proxy instead ranks candidates on the
+ * Hadamard of the PREDICTION residual plus an estimate of the mode and
+ * vector bits, and transforms exactly one block per CU, the winner's, at
+ * commit.
+ *
+ * The full trials are a large share of our quality at a given rate, and
+ * also of what a candidate costs. It is not a thing to do at medium -
+ * medium is the goal preset and its quality is the goal - so it is a
+ * MODE, off everywhere today, and it is what makes the rungs below
+ * `fast` possible (sec C).
+ *
+ * The domain. The proxy compares in the HADAMARD domain, not the SSD
+ * one, so its lambda is the SAD-domain lambda (`ctu_lam_sad_q4`, the
+ * square root of the mode one) and its rate is in the same Q8 the
+ * estimator already speaks. Mixing the two domains in one argmin would
+ * be a weight and not a comparison; every quantity below is one or the
+ * other and never a sum of both.
+ *
+ * What the proxy CANNOT see, and what is done about it. The prediction
+ * Hadamard is blind to what quantisation does - above all to a residual
+ * that quantises entirely away, which is the difference between a merge
+ * CU and a skip. So the proxy does not try to rank those two: the merge
+ * candidate is ONE prediction with one proxy cost, and skip against
+ * merge-with-residual is settled after the winner's transform has run,
+ * on the real J, where the numbers to settle it with already exist.
+ *
+ * Mode 2 is the census: every full trial still runs and decides, the
+ * proxy costs are computed beside them, and what is reported is how
+ * often the two argmins agree. The bitstream under mode 2 is the
+ * bitstream under mode 0, which is the census's own check.
+ */
+static int rd_proxy(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *s = n265_env("N265_RD_PROXY"); v = s ? atoi(s) : 0; }
+    return v;
+}
+
+enum { PX_MERGE = 0, PX_AMVP = 1, PX_INTRA = 2, PX_NK = 3 };
+/* Two proxy VARIANTS, because the census's whole job is to say which
+ * comparison the proxy can carry. `L` is luma alone; `C` adds the chroma Hadamard of the same predictions. They
+ * differ only where the two are not the same encoder: an inter
+ * prediction's chroma comes from the same motion as its luma, an intra
+ * one's comes from the DM mode off the neighbours, and a luma-only
+ * argmin therefore charges intra nothing for chroma it will have to
+ * code. Both are free here - the full trial has already built every
+ * prediction this reads. */
+enum { PXV_L = 0, PXV_C = 1, PXV_N = 2 };
+enum { PXC_SEEN,      /* CUs that reached the 2Nx2N shortlist          */
+       PXC_CU,        /* ...of those, the ones where all three were
+                       * actually priced, so an argmin exists both ways */
+       PXC_AGREE,     /* three-way, luma proxy                         */
+       PXC_AGREEC,    /* three-way, luma + chroma proxy                */
+       PXC_ICU,       /* CUs whose FULL winner is one of the two inter
+                       * arms and where both were priced: the
+                       * inter-shortlist question on its own            */
+       PXC_IAGREE,
+       PXC_IAGREEC,
+       PXC_FULLTRIAL, /* whole-CU transform trials the full path ran   */
+       PXC_PXTRIAL,   /* ...and the ones the proxy path would run      */
+       PXC_ITRIAL,    /* of the full ones, the intra arm's             */
+       PXC_ISATD,     /* the rank's Hadamard, summed...                */
+       PXC_ITSATD,    /* ...against the trial's own prediction's, to
+                       * prove the two are the same block              */
+       PXC_GAPPM,     /* sum over disagreements of the J gap, per mille */
+       PXC_GAPMAXPM,
+       PXC_GAPPMC,
+       PXC_IGAPPM,
+       PXC_N };
+static atomic_ullong px_n[PXC_N];
+static atomic_ullong px_conf[PX_NK][PX_NK];
+
+static inline void px_bump(int k, unsigned long long v)
+{
+    atomic_fetch_add_explicit(&px_n[k], v, memory_order_relaxed);
+}
+
+static void px_report(void)
+{
+    static const char *nm[PX_NK] = { "merge", "amvp", "intra" };
+    unsigned long long seen = atomic_load(&px_n[PXC_SEEN]);
+    unsigned long long cu = atomic_load(&px_n[PXC_CU]);
+    double d = cu ? (double)cu : 1.0;
+    unsigned long long ag = atomic_load(&px_n[PXC_AGREE]);
+    unsigned long long agc = atomic_load(&px_n[PXC_AGREEC]);
+    unsigned long long dis = cu - ag, disc = cu - agc;
+    fprintf(stderr, "rdproxy census: cus=%llu comparable=%llu (%.1f%%)"
+            " agree_luma=%llu (%.2f%%) agree_luma+chroma=%llu (%.2f%%)\n",
+            seen, cu, seen ? 100.0 * cu / seen : 0.0, ag, 100.0 * ag / d,
+            agc, 100.0 * agc / d);
+    fprintf(stderr, "rdproxy gap: disagreements=%llu mean=%.2f%% max=%.2f%%"
+            "  (full-RD J of the proxy's pick over the full winner's);"
+            " luma+chroma disagreements=%llu mean=%.2f%%\n",
+            dis, dis ? atomic_load(&px_n[PXC_GAPPM]) / (double)dis / 10.0
+                     : 0.0,
+            atomic_load(&px_n[PXC_GAPMAXPM]) / 10.0, disc,
+            disc ? atomic_load(&px_n[PXC_GAPPMC]) / (double)disc / 10.0 : 0.0);
+    {
+        unsigned long long icu = atomic_load(&px_n[PXC_ICU]);
+        double di = icu ? (double)icu : 1.0;
+        unsigned long long ia = atomic_load(&px_n[PXC_IAGREE]);
+        fprintf(stderr, "rdproxy inter-only: cus=%llu agree_luma=%llu"
+                " (%.2f%%) agree_luma+chroma=%llu (%.2f%%) gap_mean=%.2f%%"
+                "  (merge against amvp, on the CUs the full RD gave to an"
+                " inter arm)\n", icu, ia, 100.0 * ia / di,
+                atomic_load(&px_n[PXC_IAGREEC]),
+                100.0 * atomic_load(&px_n[PXC_IAGREEC]) / di,
+                icu - ia ? atomic_load(&px_n[PXC_IGAPPM]) /
+                           (double)(icu - ia) / 10.0 : 0.0);
+    }
+    unsigned long long ft = atomic_load(&px_n[PXC_FULLTRIAL]);
+    unsigned long long pt = atomic_load(&px_n[PXC_PXTRIAL]);
+    unsigned long long it = atomic_load(&px_n[PXC_ITRIAL]);
+    fprintf(stderr, "rdproxy trials: full=%llu (%.3f/cu) proxy=%llu"
+            " (%.3f/cu) ratio=%.3fx | intra_trials=%llu (%.3f/cu),"
+            " hybrid=%.3f/cu ratio=%.3fx\n", ft,
+            seen ? (double)ft / seen : 0.0, pt, seen ? (double)pt / seen : 0.0,
+            pt ? (double)ft / pt : 0.0, it, seen ? (double)it / seen : 0.0,
+            seen ? (double)(pt + it) / seen : 0.0,
+            pt + it ? (double)ft / (pt + it) : 0.0);
+    {
+        unsigned long long a = atomic_load(&px_n[PXC_ISATD]);
+        unsigned long long b = atomic_load(&px_n[PXC_ITSATD]);
+        fprintf(stderr, "rdproxy intra-satd check: rank=%llu trial_pred=%llu"
+                " ratio=%.4f  (the same block; 1.0000 says the rank's"
+                " Hadamard IS the trial's prediction)\n", a, b,
+                b ? (double)a / b : 0.0);
+    }
+    for (int f = 0; f < PX_NK; f++) {
+        unsigned long long row = 0;
+        for (int p = 0; p < PX_NK; p++)
+            row += atomic_load(&px_conf[f][p]);
+        fprintf(stderr, "rdproxy conf full=%-5s n=%-9llu", nm[f], row);
+        for (int p = 0; p < PX_NK; p++)
+            fprintf(stderr, "  proxy_%s=%.1f%%", nm[p],
+                    row ? 100.0 * atomic_load(&px_conf[f][p]) / row : 0.0);
+        fputc('\n', stderr);
+    }
+}
+
+static int px_census(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        v = rd_proxy() == 2;
+        if (v)
+            atexit(px_report);
+    }
+    return v;
+}
+
+/* J in the proxy's own domain: the prediction's Hadamard plus
+ * lambda_sad x the syntax that carries it. `bits` is Q8 (the
+ * estimator's) and `lam4` Q4 (the SAD lambda's), so the product is Q12
+ * and shifts back into Hadamard units - the same arithmetic the AMVP
+ * arbitration above has always used for its rate term. */
+static inline uint64_t px_j(uint32_t satd, uint32_t bits_q8, int lam4)
+{
+    return (uint64_t)satd + (((uint64_t)bits_q8 * (uint64_t)lam4) >> 12);
+}
+
+/* Hadamard of an already-computed whole-CU prediction against the
+ * source. `tb_ctx.pred` is n x n at stride n, which is what every caller
+ * of this holds. */
+static inline uint32_t px_satd_pred(struct n265_frame_work *e, int x0, int y0,
+                                    int n, const pixel *pred)
+{
+    return n265_satd_wh(e->pad_plane[0] + y0 * e->pad_stride[0] + x0,
+                        e->pad_stride[0], pred, n, n, n);
+}
+
+/* ...and of the same CU's two chroma predictions, summed. Every caller
+ * is a whole 2Nx2N coding block, so the chroma block is at least 4x4 and
+ * n265_satd_wh always has a tile; the guard is kept anyway so the
+ * function says what it needs rather than resting on its callers. */
+static inline uint32_t px_satd_pred_c(struct n265_frame_work *e, int cx0,
+                                      int cy0, int cw, int ch,
+                                      const pixel *pcb, const pixel *pcr)
+{
+    if ((cw & 3) || (ch & 3))
+        return 0;
+    return n265_satd_wh(e->pad_plane[1] + cy0 * e->pad_stride[1] + cx0,
+                        e->pad_stride[1], pcb, cw, cw, ch) +
+           n265_satd_wh(e->pad_plane[2] + cy0 * e->pad_stride[2] + cx0,
+                        e->pad_stride[2], pcr, cw, cw, ch);
+}
+
+/* skip syntax: the skip flag and the merge index, and nothing else. This
+ * is the rate the proxy charges the merge PREDICTION, because the
+ * cheapest syntax that can carry it is what a prediction's rate is; the
+ * residual's own rate belongs to the commit, which is where the residual
+ * is decided. Factored out of the j_skip site below so the two cannot
+ * drift. */
+static uint32_t px_bits_skip(struct n265_frame_work *e, cabac_ctx_t *local,
+                             int midx, int inc)
+{
+    memcpy(local, e->est_ctx, sizeof(cabac_ctx_t) * CTX_COUNT);
+    uint32_t b = n265_est_bin(&local[CTX_CU_SKIP + inc], 1);
+    b += n265_est_bin(&local[CTX_MERGE_IDX], midx > 0);
+    if (midx > 0 && MAX_MERGE > 2)
+        b += 256u * (uint32_t)(midx < MAX_MERGE - 1 ? midx : midx - 1);
+    return b;
+}
+
+/* the CU syntax of one 2Nx2N inter candidate with rqt_root_cbf 0: mode,
+ * reference indices, mvd, mvp flags */
+static uint32_t px_bits_inter(struct n265_frame_work *e, int x0, int y0,
+                              int log2n, const pu_dec *pd, int inc)
+{
+    cabac_ctx_t local[CTX_COUNT];
+    memcpy(local, e->est_ctx, sizeof(local));
+    est_state st = { local, 0 };
+    est_inter_cu_bits(e, &st, x0, y0, log2n, PART_2Nx2N, pd, 0, inc);
+    return st.bits;
+}
+
+/* ...and of the intra candidate: everything down to the chroma mode, the
+ * same prefix the full trial writes before it reaches the residual */
+static uint32_t px_bits_intra(struct n265_frame_work *e, int x0, int y0,
+                              int log2n, int imode, int inc)
+{
+    cabac_ctx_t local[CTX_COUNT];
+    memcpy(local, e->est_ctx, sizeof(local));
+    est_state st = { local, 0 };
+    st.bits += n265_est_bin(&local[CTX_CU_SKIP + inc], 0);
+    st.bits += n265_est_bin(&local[CTX_PRED_MODE], 1);
+    if (log2n == MIN_CB_LOG2)
+        st.bits += n265_est_bin(&local[CTX_PART_MODE], 1);
+    est_mpm_bits(e, &st, x0, y0, imode);
+    st.bits += n265_est_bin(&local[CTX_CHROMA_MODE], 0);
+    return st.bits;
+}
+
+/* the quality the proxy would have spent on one disagreement, in the
+ * full RD's own units: how much worse its pick is than the pick it
+ * displaced, per mille, saturated */
+static uint64_t px_gap(uint64_t best, uint64_t picked)
+{
+    uint64_t base = best ? best : 1;
+    uint64_t g = (picked - best) * 1000u / base;
+    return g > 1000000u ? 1000000u : g;
+}
+
+static void px_max(int k, uint64_t v)
+{
+    unsigned long long m = atomic_load(&px_n[k]);
+    while (v > m &&
+           !atomic_compare_exchange_weak_explicit(&px_n[k], &m, v,
+                                                  memory_order_relaxed,
+                                                  memory_order_relaxed))
+        ;
+}
+
+static int px_argmin(const uint64_t v[PX_NK], int k)
+{
+    int b = -1;
+    for (int i = 0; i < k; i++)
+        if (v[i] != UINT64_MAX && (b < 0 || v[i] < v[b]))
+            b = i;
+    return b;
+}
+
+/* one census row: the argmins, and what the full RD says each proxy's
+ * pick would have cost. UINT64_MAX on any side means that candidate was
+ * gated away and the CU is not comparable on that question. */
+static void px_tally(const uint64_t full[PX_NK],
+                     const uint64_t prox[PXV_N][PX_NK])
+{
+    /* the inter-shortlist question first, because it does not need the
+     * intra arm to have run: merge against amvp, on the CUs the full RD
+     * itself gave to one of them */
+    if (full[PX_MERGE] != UINT64_MAX && full[PX_AMVP] != UINT64_MAX &&
+        prox[PXV_L][PX_MERGE] != UINT64_MAX &&
+        prox[PXV_L][PX_AMVP] != UINT64_MAX) {
+        int bf = full[PX_MERGE] <= full[PX_AMVP] ? PX_MERGE : PX_AMVP;
+        if (full[PX_INTRA] == UINT64_MAX || full[bf] <= full[PX_INTRA]) {
+            int bl = prox[PXV_L][PX_MERGE] <= prox[PXV_L][PX_AMVP]
+                         ? PX_MERGE : PX_AMVP;
+            int bc = prox[PXV_C][PX_MERGE] <= prox[PXV_C][PX_AMVP]
+                         ? PX_MERGE : PX_AMVP;
+            px_bump(PXC_ICU, 1);
+            if (bl == bf)
+                px_bump(PXC_IAGREE, 1);
+            else
+                px_bump(PXC_IGAPPM, px_gap(full[bf], full[bl]));
+            if (bc == bf)
+                px_bump(PXC_IAGREEC, 1);
+        }
+    }
+
+    int bf = -1;
+    for (int i = 0; i < PX_NK; i++) {
+        if (full[i] == UINT64_MAX || prox[PXV_L][i] == UINT64_MAX ||
+            prox[PXV_C][i] == UINT64_MAX)
+            return;
+        if (bf < 0 || full[i] < full[bf])
+            bf = i;
+    }
+    int bl = px_argmin(prox[PXV_L], PX_NK);
+    int bc = px_argmin(prox[PXV_C], PX_NK);
+    px_bump(PXC_CU, 1);
+    atomic_fetch_add_explicit(&px_conf[bf][bl], 1, memory_order_relaxed);
+    if (bl == bf) {
+        px_bump(PXC_AGREE, 1);
+    } else {
+        uint64_t g = px_gap(full[bf], full[bl]);
+        px_bump(PXC_GAPPM, g);
+        px_max(PXC_GAPMAXPM, g);
+    }
+    if (bc == bf)
+        px_bump(PXC_AGREEC, 1);
+    else
+        px_bump(PXC_GAPPMC, px_gap(full[bf], full[bc]));
+}
+
 static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
 {
     int n = 1 << log2n;
@@ -4484,6 +4828,20 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
         if (log2n <= 5) {
             uint32_t lam = ctu_lam(e, e->cur_ctu_qp);
             int inc = est_skip_inc(e, x0, y0);
+            /* A4's census (N265_RD_PROXY=2). Every entry stays
+             * UINT64_MAX until its candidate is actually priced, and a
+             * CU with any of them still at the sentinel is not
+             * comparable and is not counted. Decides nothing: the
+             * bitstream under mode 2 is the bitstream under mode 0. */
+            uint64_t px_full[PX_NK] = { UINT64_MAX, UINT64_MAX, UINT64_MAX };
+            uint64_t px_prox[PXV_N][PX_NK] = {
+                { UINT64_MAX, UINT64_MAX, UINT64_MAX },
+                { UINT64_MAX, UINT64_MAX, UINT64_MAX } };
+            int px_cw = n >> csx, px_ch = n >> csy;
+            int px_on = px_census();
+            unsigned px_trials = 0;
+            if (px_on)
+                px_bump(PXC_SEEN, 1);
             /* economy gates: a very good merge prediction prunes the
              * expensive candidates (classic early-skip shape). The bound
              * is a SAD per pixel - n*n/8 and n*n/4 in 8-bit luma levels -
@@ -4533,14 +4891,18 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             cabac_ctx_t local[CTX_COUNT];
 
             /* skip bits */
-            memcpy(local, e->est_ctx, sizeof(local));
-            st.ctx = local; st.bits = 0;
-            st.bits += n265_est_bin(&local[CTX_CU_SKIP + inc], 1);
-            st.bits += n265_est_bin(&local[CTX_MERGE_IDX], midx > 0);
-            if (midx > 0 && MAX_MERGE > 2)
-                st.bits += 256u * (uint32_t)(midx < MAX_MERGE - 1 ? midx
-                                                                  : midx - 1);
+            uint32_t skip_bits = px_bits_skip(e, local, midx, inc);
+            st.ctx = local; st.bits = skip_bits;
             uint64_t j_skip = rd_j(e, d_skip, st.bits, lam);
+            if (px_on) {
+                px_trials++;      /* the merge candidate's own trial */
+                uint32_t sy = px_satd_pred(e, x0, y0, n, m_tl->pred);
+                uint32_t sc = px_satd_pred_c(e, cx0, cy0, px_cw, px_ch,
+                                             m_tcb->pred, m_tcr->pred);
+                int l4 = ctu_lam_sad_q4(e);
+                px_prox[PXV_L][PX_MERGE] = px_j(sy, skip_bits, l4);
+                px_prox[PXV_C][PX_MERGE] = px_j(sy + sc, skip_bits, l4);
+            }
 
             /* merge bits */
             pu_dec pd[2];
@@ -4838,6 +5200,15 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                     est_tt_bits(e, &st, log2n, MODE_INTER, a_tl, a_tcb,
                                 a_tcr);
                 j_amvp = rd_j(e, d, st.bits, lam);
+                if (px_on) {
+                    px_trials++;
+                    uint32_t sy = px_satd_pred(e, x0, y0, n, a_tl->pred);
+                    uint32_t sc = px_satd_pred_c(e, cx0, cy0, px_cw, px_ch,
+                                                 a_tcb->pred, a_tcr->pred);
+                    uint32_t b = px_bits_inter(e, x0, y0, log2n, &pd[1], inc);
+                    px_prox[PXV_L][PX_AMVP] = px_j(sy, b, lam4);
+                    px_prox[PXV_C][PX_AMVP] = px_j(sy + sc, b, lam4);
+                }
                 /* P1 CBF fast, second stage: the searched vector's
                  * residual quantised away too */
                 if (cbf_fast() >= 2 && !a_any)
@@ -4935,13 +5306,15 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             uint64_t j_intra = UINT64_MAX;
             int imode = 1;
             uint32_t isad = UINT32_MAX;
+            uint32_t isatd = UINT32_MAX;   /* the rank's own Hadamard */
             if (!gate_intra) {
             if (e->iw_count)
                 e->iw_arm[2]++;             /* 35-mode ranks run       */
-            imode = search_luma_mode(e, x0, y0, log2n, e->recon[0],
-                                     e->recon_stride[0],
-                                     intra_gate() >= 4 || intra_oracle()
-                                         ? &isad : NULL);
+            imode = search_luma_mode_s(e, x0, y0, log2n, e->recon[0],
+                                       e->recon_stride[0],
+                                       intra_gate() >= 4 || intra_oracle()
+                                           ? &isad : NULL,
+                                       px_on ? &isatd : NULL);
             /* P3 modes 4 and up: the 35-mode rank is the cheaper half of
              * the intra arm - about a third of what the arm costs on the
              * post-NEON encoder, not the quarter P3 measured - and it
@@ -5009,6 +5382,18 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                 est_res_c(e, &ops, i_tcr, log2c, 2, sc);
             }
             j_intra = rd_j(e, d_intra, st.bits, lam);
+            if (px_on) {
+                px_trials++;
+                px_bump(PXC_ITRIAL, 1);
+                uint32_t sc = px_satd_pred_c(e, cx0, cy0, px_cw, px_ch,
+                                             i_tcb->pred, i_tcr->pred);
+                uint32_t b = px_bits_intra(e, x0, y0, log2n, imode, inc);
+                int l4 = ctu_lam_sad_q4(e);
+                px_prox[PXV_L][PX_INTRA] = px_j(isatd, b, l4);
+                px_prox[PXV_C][PX_INTRA] = px_j(isatd + sc, b, l4);
+                px_bump(PXC_ISATD, isatd);
+                px_bump(PXC_ITSATD, px_satd_pred(e, x0, y0, n, i_tl->pred));
+            }
             }
             if (cr) {
                 uint64_t t = cu_tick();
@@ -5037,6 +5422,19 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                     j_intra_adm = j_intra * (uint64_t)(100 + mg) / 100;
             }
             if (j_intra_adm < best) { best = j_intra; kind = 3; }
+
+            /* A4's census reads the SHORTLIST, before the partitions:
+             * the three 2Nx2N predictions are the comparison the proxy
+             * would make. The merge entry is the better of its two
+             * arrangements, because under the proxy skip and merge are
+             * one prediction and which of them is coded is settled after
+             * the transform, not in the ranking. */
+            if (px_on) {
+                px_full[PX_MERGE] = j_skip < j_merge ? j_skip : j_merge;
+                px_full[PX_AMVP] = j_amvp;
+                px_full[PX_INTRA] = j_intra;
+                px_tally(px_full, px_prox);
+            }
 
             /* The J the intra arm SAVES in the population an adaptive
              * gate would take - the floor half a P slice keeps today -
@@ -5114,6 +5512,8 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                 cur->part = horiz ? PART_2NxN : PART_Nx2N;
                 memcpy(cur->d, horiz ? dh : dv, sizeof(cur->d));
                 uint64_t jr = rd_part(e, x0, y0, log2n, inc, cur);
+                if (px_on)
+                    px_trials++;
                 if (jr < best) {
                     best = jr;
                     kind = 4;
@@ -5131,6 +5531,8 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                         cur->part = ca <= cb ? a0 : a1;
                         memcpy(cur->d, ca <= cb ? da : db, sizeof(cur->d));
                         uint64_t ja = rd_part(e, x0, y0, log2n, inc, cur);
+                        if (px_on)
+                            px_trials++;
                         if (ja < best) {
                             best = ja;
                             pwin = cur;
@@ -5139,6 +5541,15 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                 }
             }
 
+            if (px_on) {
+                px_bump(PXC_FULLTRIAL, px_trials);
+                /* the proxy runs the chain ONCE, on the winner, at
+                 * commit - whatever the winner turned out to be. An
+                 * intra winner falls through to the intra section and is
+                 * re-analysed there in BOTH paths, so counting it once
+                 * here is the same count on both sides of the ratio. */
+                px_bump(PXC_PXTRIAL, 1);
+            }
             if (cr) {
                 cr->cyc_part = (uint32_t)(cu_tick() - cu_ta);
                 cr->kind = (uint8_t)(kind == 0 ? N265_CUT_SKIP :
@@ -5222,7 +5633,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                                              y0 + (i >> 1) * 4, log2n - 1,
                                              e->pad_plane[0],
                                              e->pad_stride[0], &c, NULL, 0,
-                                             nsub ? sub : NULL, nsub);
+                                             nsub ? sub : NULL, nsub, NULL);
             costn += c;
         }
         if (costn < cost2n) {
@@ -6061,6 +6472,7 @@ void n265_ctu_warm(void)
     (void)chroma_pred(); (void)cpred_trace(); (void)cpred_w_pct();
     (void)rr_trace();
     (void)cpred_gate(); (void)rdoq_trace(); (void)rdoq_lat_sz();
+    (void)rd_proxy(); (void)px_census();
     for (int q = N265_QP_MIN; q <= N265_QP_MAX; q++)
         (void)n265_lambda_mode_q8(q);   /* fills its lazy table */
 }
