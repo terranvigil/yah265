@@ -9,6 +9,12 @@ unit_level = executable('unit_level', 'unit/level_test.c',
   dependencies : yah265_dep)
 test('level', unit_level)
 
+# The film grain SEI writer (phase 12 item 3), against a hand-written
+# parser of the same syntax table. Pure syntax, no encode.
+unit_fgc = executable('unit_fgc', 'unit/fgc_test.c',
+  dependencies : yah265_dep)
+test('fgc', unit_fgc)
+
 # One file per kernel family (checkasm.h has the layout): a family item
 # adds its file here and one line to the table in main.c, and touches
 # nothing else.

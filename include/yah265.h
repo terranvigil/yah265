@@ -120,6 +120,7 @@ enum {
     N265_NAL_VPS        = 32,
     N265_NAL_SPS        = 33,
     N265_NAL_PPS        = 34,
+    N265_NAL_PREFIX_SEI = 39,
 };
 
 typedef struct n265_nal {

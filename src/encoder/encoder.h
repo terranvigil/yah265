@@ -14,6 +14,7 @@
 #include "threadpool/ntp.h"
 #include "common/bitstream.h"
 #include "encoder/cabac.h"
+#include "encoder/grain.h"
 #include "encoder/la.h"
 #include "encoder/level.h"
 #include "encoder/rc.h"
@@ -682,6 +683,11 @@ typedef struct n265_frame_work {
                              * share and whether it clears the gate */
     int ref_lag;            /* G1's row-start hint, in CTB rows */
     int emit_headers;       /* this frame carries the VPS/SPS/PPS */
+    /* The film grain SEI this access unit carries, already an RBSP, or
+     * length 0. Prefix SEI, so it is packed after the parameter sets and
+     * before this frame's slice. */
+    size_t sei_len;
+    uint8_t sei[N265_FGC_SEI_MAX];
     int nal_type;
     /* rate control hand-off, frozen at dispatch (sec 3 rule 4) */
     int rc_cls;
@@ -863,6 +869,18 @@ struct n265_encoder {
      * them, which is what N265_LEVEL_TRACE prints. */
     n265_level_out level;
     int vui_timing;         /* --vui-timing: vui_timing_info in the SPS */
+    /* --film-grain / --film-grain-denoise (phase 12 item 3). OPT-IN and
+     * nothing but: strength 0 is the default, and at 0 the estimator is
+     * never opened, no picture is touched and no SEI is written, which is
+     * what makes a knob-off encode byte-identical to one built without
+     * this code. The model is estimated once, on the driver, and written
+     * into every IRAP access unit with the persistence flag set. */
+    double fgc_strength;
+    int fgc_denoise;
+    int fgc_ready;          /* the model has been finalised */
+    int fgc_nacc;           /* pictures folded into the estimate */
+    n265_grain_est *fgc_est;
+    n265_grain_model fgc;
     /* N265_DPB_TRACE: claims that found no unmarked slot and overwrote a
      * marked one (the T0a DPB-pressure branch). Driver-serial. The pool
      * sizing above is what makes it zero on every shape it covers. */
@@ -1036,8 +1054,14 @@ struct n265_encoder {
         uint8_t *buf;
         size_t cap, len;
         int nnal;
-        int type[4];
-        int size[4];
+        /* FIVE, not four: the first access unit of a stream with a film
+         * grain SEI carries VPS, SPS, PPS, the prefix SEI and the slice.
+         * pack_nal DROPS a NAL past this bound and says nothing, so a
+         * bound one short does not fail loudly - it silently loses the
+         * IDR slice and the stream decodes as "could not find ref with
+         * POC 0". Found exactly that way, 2026-09-14. */
+        int type[5];
+        int size[5];
     } done[LA_MAX + N265_MAX_FRAME_WORK + 4];
     int n_done, done_head;
     /* T2 stall census (N265_STALL_TRACE): reference reads that had to
@@ -1384,6 +1408,7 @@ void n265_dpb_requirement(int bframes, int ref_max, int *reorder,
 
 /* headers.c */
 void n265_write_vps(n265_frame_work *e);
+void n265_write_fgc_sei(bitstream_t *bs, const n265_grain_model *m);
 void n265_write_sps(n265_frame_work *e);
 void n265_write_pps(n265_frame_work *e);
 

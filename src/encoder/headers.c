@@ -3,8 +3,11 @@
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
+#include <string.h>
+
 #include "encoder/encoder.h"
 #include "encoder/sao.h"
+#include "encoder/grain.h"
 
 /* profile_tier_level with maxNumSubLayersMinus1 == 0 (7.3.3).
  *
@@ -338,4 +341,65 @@ void n265_write_pps(struct n265_frame_work *e)
     bs_put_bits(bs, 0, 1);          /* slice_segment_header_extension_present */
     bs_put_bits(bs, 0, 1);          /* pps_extension_present_flag */
     bs_rbsp_trailing(bs);
+}
+
+/* film_grain_characteristics, D.2.20, inside a prefix SEI NAL (D.2.1).
+ *
+ * The payload's SIZE has to precede it, so the payload is written from
+ * byte 0 of the RBSP and then shifted up by the two header bytes it
+ * turned out to need. `n265_fgc_payload_hdr` is how many those are, and
+ * the unit test names both halves.
+ *
+ * What is NOT written and why: model_id 0 is frequency filtering, which
+ * is the one model with a synthesiser in this project's measurement chain
+ * (docs/phase12.md step 0), and it is also the one SMPTE RDD 5 defines.
+ * separate_colour_description_present_flag is 0, so the grain inherits
+ * the picture's own colour description, which is what it was measured
+ * off. blending_mode_id 0 is additive; multiplicative grain is a
+ * different estimate and this item does not make it. The persistence
+ * flag is 1: the SEI is written in every IRAP access unit, and one
+ * estimate holds for the coded video sequence it opens. */
+void n265_write_fgc_sei(bitstream_t *bs, const n265_grain_model *m)
+{
+    bs_reset(bs);
+    bs_put_bits(bs, 0, 1);          /* film_grain_characteristics_cancel_flag */
+    bs_put_bits(bs, 0, 2);          /* film_grain_model_id: 0 = freq filtering */
+    bs_put_bits(bs, 0, 1);          /* separate_colour_description_present */
+    bs_put_bits(bs, 0, 2);          /* blending_mode_id: 0 = additive */
+    bs_put_bits(bs, (uint32_t)m->log2_scale, 4);    /* log2_scale_factor */
+    for (int c = 0; c < 3; c++)
+        bs_put_bits(bs, m->comp[c] != 0, 1);        /* comp_model_present */
+    for (int c = 0; c < 3; c++) {
+        if (!m->comp[c])
+            continue;
+        bs_put_bits(bs, (uint32_t)(m->nival[c] - 1), 8);
+        bs_put_bits(bs, N265_FGC_NVALS - 1, 3);
+        for (int i = 0; i < m->nival[c]; i++) {
+            bs_put_bits(bs, m->lo[c][i], 8);
+            bs_put_bits(bs, m->hi[c][i], 8);
+            bs_put_se(bs, m->scale[c][i]);
+            bs_put_se(bs, m->hcut[c][i]);
+            bs_put_se(bs, m->vcut[c][i]);
+        }
+    }
+    bs_put_bits(bs, 1, 1);          /* ..._persistence_flag */
+    /* D.2.1: the payload is byte-aligned with a one and then zeros, and
+     * ONLY when it is not already aligned - an unconditional call would
+     * write a whole spurious byte. */
+    if (bs->acc_bits)
+        bs_align_one_then_zero(bs);
+
+    size_t n = bs->bytes;
+    size_t hdr = 1 + n / 255 + 1;   /* payload_type 19, then the size */
+    memmove(bs->buf + hdr, bs->buf, n);
+    size_t o = 0;
+    bs->buf[o++] = 19;              /* SEI_TYPE_FILM_GRAIN_CHARACTERISTICS */
+    size_t left = n;
+    while (left >= 255) {
+        bs->buf[o++] = 255;
+        left -= 255;
+    }
+    bs->buf[o++] = (uint8_t)left;
+    bs->bytes = hdr + n;
+    bs_rbsp_trailing(bs);           /* rbsp_slice_segment_trailing / stop bit */
 }

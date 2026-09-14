@@ -20,6 +20,7 @@ void n265_set_lossless(int on);
  * (level * 30); 0 leaves the level derived from the stream. */
 void n265_set_level(int idc, int high_tier);
 void n265_set_vui_timing(int on);
+void n265_set_film_grain(double strength, int denoise);
 /* "4.1", "41" or "123" -> 123; 0 for a string that is not a level. Pure
  * arithmetic over the Annex A table, so the 8-bit copy serves both
  * libraries and the dispatch table does not carry it. */
@@ -55,6 +56,7 @@ void n265_set_threads_10(int n);
 void n265_set_lossless_10(int on);
 void n265_set_level_10(int idc, int high_tier);
 void n265_set_vui_timing_10(int on);
+void n265_set_film_grain_10(double strength, int denoise);
 int  n265_set_preset_10(const char *name);
 int  n265_preset_param_10(const char *key, int fallback);
 n265_encoder *n265_encoder_open_10(const n265_param *p);
@@ -83,6 +85,7 @@ typedef struct n265_api {
     void (*set_lossless)(int);
     void (*set_level)(int, int);
     void (*set_vui_timing)(int);
+    void (*set_film_grain)(double, int);
     n265_encoder *(*encoder_open)(const n265_param *);
     int  (*encoder_encode)(n265_encoder *, n265_nal **, int *,
                            const n265_picture *);
@@ -97,7 +100,7 @@ static const n265_api api8 = {
     8, n265_param_default, n265_set_mode, n265_set_la, n265_set_crf,
     n265_set_bitrate, n265_set_ref, n265_set_badapt, n265_set_threads,
     n265_set_preset, n265_preset_param, n265_set_shot_window, n265_set_lossless,
-    n265_set_level, n265_set_vui_timing,
+    n265_set_level, n265_set_vui_timing, n265_set_film_grain,
     n265_encoder_open, n265_encoder_encode, n265_encoder_close,
     n265_version_str, n265_encoder_set_dump, n265_encoder_set_dump_decode,
     n265_encoder_set_shot_stats,
@@ -108,7 +111,7 @@ static const n265_api api10 = {
     n265_set_crf_10, n265_set_bitrate_10, n265_set_ref_10,
     n265_set_badapt_10, n265_set_threads_10, n265_set_preset_10,
     n265_preset_param_10, n265_set_shot_window_10, n265_set_lossless_10,
-    n265_set_level_10, n265_set_vui_timing_10,
+    n265_set_level_10, n265_set_vui_timing_10, n265_set_film_grain_10,
     n265_encoder_open_10,
     n265_encoder_encode_10, n265_encoder_close_10, n265_version_str_10,
     n265_encoder_set_dump_10, n265_encoder_set_dump_decode_10,
@@ -417,6 +420,23 @@ static void usage(void)
         "                  MaxLumaSr leg against the rate it was derived\n"
         "                  from. Off by default: it adds about a dozen\n"
         "                  bytes to every SPS and Annex A does not ask for it.\n"
+        "  --film-grain <s>  estimate the source's film grain and write the\n"
+        "                  film_grain_characteristics SEI (H.265 D.2.20), so a\n"
+        "                  decoder that implements H.274 re-synthesises grain\n"
+        "                  on output. OPT-IN and never a default: it changes\n"
+        "                  what a decoder puts on the screen. s is a multiplier\n"
+        "                  on the estimated grain std; 1.0 is the estimate as\n"
+        "                  measured, 0 is off. 8-bit 4:2:0 only - the only\n"
+        "                  synthesiser this project can measure through does\n"
+        "                  that shape and no other - and refused loudly\n"
+        "                  elsewhere. Latency: none. About twenty bytes per\n"
+        "                  key frame.\n"
+        "  --film-grain-denoise <0|1>  with --film-grain, also core the grain\n"
+        "                  out of the picture the encoder CODES (default 0).\n"
+        "                  This is the half that saves bits: the encoder\n"
+        "                  spends nothing on grain and the decoder puts it\n"
+        "                  back. Without it the SEI only adds grain to a\n"
+        "                  picture that already has some.\n"
         "  --verbose, -v   one line at open with the level and tier chosen\n"
         "                  and every Annex A bound that drove them\n"
         "                  (N265_LEVEL_TRACE=1 is the same line)\n"
@@ -432,6 +452,8 @@ int main(int argc, char **argv)
     int lossless = 0;
     const char *level_str = NULL;   /* --level; NULL = derive it */
     int high_tier = 0, vui_timing = 1, verbose = 0;   /* VUI timing on since 2026-09-12 */
+    double film_grain = 0.0;    /* --film-grain: 0 = off, and off is the default */
+    int fgc_denoise = 0;        /* --film-grain-denoise */
     double crf = -1.0, bitrate = 0.0;
     int had_crf = 0;            /* --crf given: the ON switch, not crf >= 0 */
     int out_depth = 0;          /* --output-depth; 0 = the input's */
@@ -499,6 +521,10 @@ int main(int argc, char **argv)
             vui_timing = 1;
         } else if (!strcmp(argv[i], "--no-vui-timing")) {
             vui_timing = 0;
+        } else if (!strcmp(argv[i], "--film-grain") && i + 1 < argc) {
+            film_grain = atof(argv[++i]);
+        } else if (!strcmp(argv[i], "--film-grain-denoise") && i + 1 < argc) {
+            fgc_denoise = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--dump-recon") && i + 1 < argc) {
             dump_path = argv[++i];
         } else if (!strcmp(argv[i], "--shot-window") && i + 1 < argc) {
@@ -656,6 +682,7 @@ int main(int argc, char **argv)
         a->set_level(idc, high_tier);
     }
     a->set_vui_timing(vui_timing);
+    a->set_film_grain(film_grain, fgc_denoise);
     /* --verbose is N265_LEVEL_TRACE by another name: one code path, one
      * line, and a script that wants it without a flag sets the variable.
      * setenv does not overwrite, so an explicit N265_LEVEL_TRACE=0 in the

@@ -84,6 +84,14 @@ static int g_level_idc = 0;     /* --level, as general_level_idc            */
 static int g_high_tier = 0;     /* --high-tier                              */
 static int g_vui_timing = 1;    /* vui_timing_info in the SPS; on since
                                  * 2026-09-12 (owner), --no-vui-timing off */
+/* --film-grain / --film-grain-denoise (phase 12 item 3). 0 / 0 is off, is
+ * the default, is every preset and is every board and band leg: the
+ * owner's standing rule is that an analysis mode is never a default, and
+ * film grain signalling is one - it changes what a DECODER puts on the
+ * screen, and it is only ever a win where the viewer wanted the grain
+ * back. At 0 nothing here allocates, reads a picture or writes a byte. */
+static double g_film_grain = 0.0;
+static int g_fgc_denoise = 0;
 
 void n265_set_threads(int n)
 {
@@ -136,6 +144,17 @@ void n265_set_level(int idc, int high_tier)
 }
 void n265_set_vui_timing(int on);
 void n265_set_vui_timing(int on) { g_vui_timing = on != 0; }
+/* --film-grain <strength>: 0 off, 1.0 the estimate as measured, anything
+ * else a multiplier on the estimated grain std. --film-grain-denoise
+ * additionally cores the grain out of the picture the encoder codes, which
+ * is the half that saves bits; the SEI alone only tells a decoder to add
+ * grain to a picture that already has some. */
+void n265_set_film_grain(double strength, int denoise);
+void n265_set_film_grain(double strength, int denoise)
+{
+    g_film_grain = strength > 0.0 ? (strength > 8.0 ? 8.0 : strength) : 0.0;
+    g_fgc_denoise = denoise != 0;
+}
 void n265_set_bitrate(double kbps) { g_bitrate = kbps > 0.0 ? kbps : 0.0; }
 void n265_set_ref(int n) { g_ref = n < 1 ? 1 : n > N265_MAX_REF ? N265_MAX_REF : n; }
 /* 0 off (fixed cadence), 1 the motion rule (the default), 2 the priced
@@ -1057,6 +1076,32 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * shot seeds it and takes no offset by construction. */
     { const char *v = n265_env("N265_SHOT_EMA"); e->shot_ema = v ? atof(v) : 0.5; }
     e->la_fill = e->shot_window > e->la_depth ? e->shot_window : e->la_depth;
+    /* --film-grain. The estimator is opened only where the flag asked for
+     * it, so an encode without the flag never reaches a line of grain.c.
+     *
+     * The chroma format gate is not a limitation of the SYNTAX - the SEI
+     * is defined for every format - but of what can be measured: the only
+     * synthesiser in this project's chain does 8-bit 4:2:0 and nothing
+     * else (docs/phase12.md step 0), so a model written for anything else
+     * would be a claim no gate in this tree can check. It is refused
+     * loudly rather than written blind. */
+    e->fgc_strength = g_film_grain;
+    e->fgc_denoise = g_fgc_denoise;
+    if (e->fgc_strength > 0.0 && (BIT_DEPTH != 8 || e->chroma_idc != 1)) {
+        fprintf(stderr, "n265: --film-grain needs 8-bit 4:2:0 (the only "
+                "shape the measurement chain can synthesise); off\n");
+        e->fgc_strength = 0.0;
+        e->fgc_denoise = 0;
+    }
+    if (e->fgc_strength > 0.0) {
+        e->fgc_est = n265_grain_open(e->param.width, e->param.height,
+                                     e->csx, e->csy);
+        if (!e->fgc_est) {
+            fprintf(stderr, "n265: --film-grain: out of memory; off\n");
+            e->fgc_strength = 0.0;
+            e->fgc_denoise = 0;
+        }
+    }
     /* N265_QP_FRAC: carry the base QP's fraction and dither it over the CTUs
      * (the block at the end of dispatch_frame), which makes the achieved rate
      * continuous in whatever moves the base. It has to be decided here rather
@@ -1506,6 +1551,7 @@ void n265_encoder_close(n265_encoder *e)
     }
     if (e->cu_trace_f)
         fclose(e->cu_trace_f);
+    n265_grain_close(e->fgc_est);
     free(e->cu_prev_skip);
     for (int i = 0; i < e->K; i++)
         fw_close(&e->fw[i]);
@@ -2924,6 +2970,19 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
         n265_write_sps(fw); stash_header(e, N265_NAL_SPS, fw);
         n265_write_pps(fw); stash_header(e, N265_NAL_PPS, fw);
     }
+    /* --film-grain: the SEI, in EVERY IRAP access unit. The persistence
+     * flag makes one message hold for the coded video sequence it opens,
+     * and an IDR opens a new one, so a stream with several key frames
+     * needs the message repeated and not just carried. About twenty bytes
+     * a key frame, and zero without the flag. */
+    fw->sei_len = 0;
+    if (e->fgc_strength > 0.0 && fw->idr && e->fgc_ready && e->fgc.present) {
+        n265_write_fgc_sei(&fw->rbsp, &e->fgc);
+        if (fw->rbsp.bytes <= sizeof fw->sei) {
+            memcpy(fw->sei, fw->rbsp.buf, fw->rbsp.bytes);
+            fw->sei_len = fw->rbsp.bytes;
+        }
+    }
     fw->nal_type = fw->idr ? N265_NAL_IDR_W_RADL
                            : (nonref ? 0 /* TRAIL_N */
                                      : 1 /* TRAIL_R */);
@@ -3564,6 +3623,10 @@ static void join_oldest(n265_encoder *e)
     if (fw->emit_headers)
         for (int i = 0; i < e->nhdr; i++)
             pack_nal(d, e->hdr_type[i], e->hdr_rbsp[i], e->hdr_len[i]);
+    /* 7.4.2.4.4: a prefix SEI follows the parameter sets of its access
+     * unit and precedes the first VCL NAL of that unit. */
+    if (fw->sei_len)
+        pack_nal(d, N265_NAL_PREFIX_SEI, fw->sei, fw->sei_len);
     pack_nal(d, fw->nal_type, fw->rbsp.buf, fw->rbsp.bytes);
     e->n_done++;
     dump_recon_frame(e, fw);

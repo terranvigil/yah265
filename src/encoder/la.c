@@ -306,6 +306,17 @@ void n265_la_warm(void)
     (void)n265_brun_trace();
     (void)n265_dup_on();
     (void)n265_dup_thr_q8();
+    /* --film-grain's gates. They are read on the driver and nowhere else,
+     * so nothing races them even unwarmed; they are warmed here because
+     * the audit's rule is about the CLASS and not about this knob's luck
+     * (scripts/env_gate_audit.py). */
+    (void)n265_fgc_pct();
+    (void)n265_fgc_frames();
+    (void)n265_fgc_chroma();
+    (void)n265_fgc_core();
+    (void)n265_fgc_ratio();
+    (void)n265_fgc_min();
+    (void)n265_fgc_trace();
 }
 
 /* the step the duplicate chain's running total takes where a frame had
@@ -357,6 +368,48 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
             memcpy(d, s, (size_t)w * sizeof(pixel));
             for (int x = w; x < dw; x++)     /* a sample fill, not a byte one */
                 d[x] = s[w - 1];
+        }
+    }
+
+    /* --film-grain (phase 12 item 3). The estimate is taken HERE, on the
+     * source as it arrived and before anything else has read it, and the
+     * denoise - which is the half that saves bits - is applied in the same
+     * place, so everything downstream (the lowres plane, the costs, the
+     * cu-tree, mode decision) sees exactly the picture that will be coded.
+     * Driver-serial and integer, so the model is a pure function of the
+     * source at every thread count.
+     *
+     * Off unless --film-grain asked for it, and at 0 this block is a
+     * single predicate on a field that is 0. */
+    if (e->fgc_strength > 0.0) {
+        const pixel *pl[3] = { f->src[0], f->src[1], f->src[2] };
+        int st[3] = { e->pad_w, e->pad_w >> e->csx, e->pad_w >> e->csx };
+        n265_grain_accum(e->fgc_est, pl, st);
+        if (!e->fgc_ready && ++e->fgc_nacc >= n265_fgc_frames()) {
+            n265_grain_finish(e->fgc_est, &e->fgc, e->fgc_strength,
+                              n265_fgc_chroma());
+            e->fgc_ready = 1;
+        }
+        if (e->fgc_denoise && e->fgc_ready && e->fgc.present) {
+            for (int c = 0; c < 3; c++) {
+                int w = c ? e->param.width >> e->csx : e->param.width;
+                int h = c ? e->param.height >> e->csy : e->param.height;
+                int dw = c ? e->pad_w >> e->csx : e->pad_w;
+                int dh = c ? e->pad_h >> e->csy : e->pad_h;
+                n265_grain_denoise(&e->fgc, f->src[c], dw, w, h, c);
+                /* the pad is an edge replication of the CODED picture, and
+                 * the coded picture just moved: redo it rather than leave
+                 * the filter's own edge behaviour standing in for it */
+                for (int y = 0; y < h; y++) {
+                    pixel *d = f->src[c] + (size_t)y * dw;
+                    for (int x = w; x < dw; x++)
+                        d[x] = d[w - 1];
+                }
+                for (int y = h; y < dh; y++)
+                    memcpy(f->src[c] + (size_t)y * dw,
+                           f->src[c] + (size_t)(h - 1) * dw,
+                           (size_t)dw * sizeof(pixel));
+            }
         }
     }
 
