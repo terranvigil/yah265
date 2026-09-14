@@ -15,6 +15,13 @@ passing four legs:
 The last two are ONE-SIDED and each is read at its own matched axis; see
 "the legs" below for why both of those words are load-bearing.
 
+A FIFTH reading is printed and recorded beside them and is NOT a leg
+(phase 13 B0): chroma PSNR per plane, ours minus x265's in dB at OUR
+bytes, with the count of clips more than 0.3 dB below on EITHER plane.
+VMAF-NEG is luma-only, so the four legs above cannot see chroma at all;
+this is the number the chroma items of phase 13 sec B ship against. No
+goal passes or fails on it - the owner decides when it becomes a leg.
+
 | goal | tier                    | threads |
 |------|-------------------------|---------|
 |  1   | pure C both sides       | 1       |
@@ -175,7 +182,13 @@ ARM = " ".join([f"{k}={v}" for k, v in sorted(os.environ.items())
 # Columns added after rows had already been written: `append_csv`
 # migrates a file that predates them instead of refusing, and every
 # reader takes them with a default.
-OPTIONAL_COLUMNS = ("arm",)
+OPTIONAL_COLUMNS = ("arm", "dcb_eq_bytes", "dcr_eq_bytes")
+
+# B0's chroma reading: how far below x265 either plane may sit at equal
+# bytes before the clip is named. 0.3 dB is the level the record calls
+# viewer-visible on saturated content (docs/phase13-plan.md sec B). It is
+# a REPORTING bar, not a leg: nothing here passes or fails on it.
+BAR_DCHROMA = -0.3
 
 # the wall is read on the release tree; the solve runs the band's binary
 # so the memo keys are the band's (see the docstring)
@@ -314,6 +327,104 @@ def ladder_points(tmpl, src):
     return sorted(pts.items())
 
 
+# ------------------------------------------------------ the chroma reading
+#
+# Phase 13 B0. VMAF-NEG reads the Y plane and nothing else, so all four legs
+# above are blind to what the encoder does with the other two, and the record
+# already names a LEVEL gap there rather than a regression: our chroma PSNR
+# sits 0.8-0.9 dB under x265's on bus at every matched rate
+# (docs/phase7-psy-design.md "The chroma gap"). This reads that level, per
+# plane, at the same pinned point, by the same interpolation the quality leg
+# uses - x265's Cb and Cr interpolated in LOG bytes onto OUR bytes - so the
+# number is "how far behind on chroma at the bits we actually spent" and not
+# "who spent more bits".
+#
+# It is INFORMATIONAL: it is printed and recorded, and no goal passes or
+# fails on it (the owner decides when it becomes a leg). Every chroma item
+# in sec B ships against it.
+#
+# Unlike the luma ladder, the plane split is not free: `chromaPSNR` in the
+# memo is the MEAN of the two and a mean cannot say which plane is behind, so
+# a point cached before B0 has to be re-read with ffmpeg once. Only the two
+# rungs the interpolation actually lands between are read, which is exactly
+# what `_interp` would have used out of the whole ladder, and the answer is
+# written back into the memo so no later run pays for it again.
+
+
+def _ladder_blobs(tmpl, src):
+    """[(bytes, blob, json)] for every point of this template already in the
+    encode memo, sorted by bytes. Stats files; runs nothing."""
+    out = {}
+    for q in range(0, 52):
+        cb, cj = bdr._cache_paths(tmpl, q, src)
+        if cb and os.path.exists(cb):
+            out[os.path.getsize(cb)] = (cb, cj)
+    return [(b, v[0], v[1]) for b, v in sorted(out.items())]
+
+
+def _planes_of(blob, cj, src):
+    """(Cb, Cr) dB for one cached bitstream, memoised beside it. Reads the
+    json first; only a point that predates the plane split costs an ffmpeg
+    run, and it pays it once for every later reader."""
+    ck = bdr._content_json(blob, src)
+    d = None
+    for p in (cj, ck):
+        if not (p and os.path.exists(p)):
+            continue
+        try:
+            j = json.load(open(p))
+        except (OSError, ValueError):
+            continue
+        if j and _bd.CB_KEY in j and _bd.CR_KEY in j:
+            return j[_bd.CB_KEY], j[_bd.CR_KEY]
+        if j and d is None:
+            d = j
+    y, u, v = _bd.planes_psnr_of(blob, src)
+    if u is None:
+        return None, None
+    d = dict(d or {})
+    d[_bd.CB_KEY], d[_bd.CR_KEY] = u, v
+    d[_bd.CHROMA_KEY] = (u + v) / 2.0
+    if y is not None:
+        d[_bd.LUMA_KEY] = y
+    for p in (cj, ck):
+        if p:
+            try:
+                bdr._write_json(p, d)
+            except OSError:
+                pass
+    return u, v
+
+
+def chroma_at_bytes(tmpl, src, our_bytes):
+    """x265's (Cb, Cr) dB interpolated onto OUR bytes off its cached ladder,
+    in LOG bytes, the axis the quality leg interpolates on.
+
+    Piecewise-linear interpolation reads ONE segment, so only the two rungs
+    that bracket our point are resolved - which is the same pair `_interp`
+    would have picked out of the full ladder, and the same answer."""
+    pts = _ladder_blobs(tmpl, src)
+    if len(pts) < 2:
+        return None, None, "no ladder"
+    xs = [math.log(b) for b, _, _ in pts]
+    x = math.log(our_bytes)
+    if x <= xs[0]:
+        i, out = 0, x < xs[0]
+    elif x >= xs[-1]:
+        i, out = len(xs) - 2, x > xs[-1]
+    else:
+        out = False
+        i = max(j for j in range(len(xs) - 1) if xs[j] <= x)
+    a = _planes_of(pts[i][1], pts[i][2], src)
+    b = _planes_of(pts[i + 1][1], pts[i + 1][2], src)
+    if a[0] is None or b[0] is None:
+        return None, None, "no psnr"
+    t = 0.0 if xs[i + 1] == xs[i] else (x - xs[i]) / (xs[i + 1] - xs[i])
+    cb = a[0] + (b[0] - a[0]) * t
+    cr = a[1] + (b[1] - a[1]) * t
+    return cb, cr, ("chroma-extrap" if out else "")
+
+
 def legs_at_matched_axes(our_bytes, our_neg, ref_pts):
     """(dvmaf_eq_bytes, dsize_eq_vmaf_pct, flags) from the reference's
     ladder. Rate is interpolated in LOG bytes, which is the axis a
@@ -402,7 +513,13 @@ def solve_clip(clip, target):
             sz = bdr.enc(tmpl, q, src, o)
             v = bdr.vmaf_cached(tmpl, q, src, o, work)
             neg = v.get("VMAF-NEG") if v else None
-            out[tag] = {"q": q, "bytes": sz, "neg": neg}
+            out[tag] = {"q": q, "bytes": sz, "neg": neg,
+                        # B0: our own solved point's two chroma planes come
+                        # out of the same memo entry the VMAF does, at no
+                        # extra ffmpeg run on any point touched since the
+                        # split landed
+                        "cb": v.get(_bd.CB_KEY) if v else None,
+                        "cr": v.get(_bd.CR_KEY) if v else None}
             if tag == "ours":
                 out["ours"]["bits_path"] = _keep(o, work)
         out["src"] = src
@@ -569,6 +686,13 @@ def main():
         dv_eq, ds_eq, flags = legs_at_matched_axes(
             r["ours"]["bytes"], r["ours"]["neg"], ladder_points(x265_tmpl(),
                                                                r["src"]))
+        # B0's fifth reading, on the same pinned point and the same axis
+        x_cb, x_cr, _cf = chroma_at_bytes(x265_tmpl(), r["src"],
+                                          r["ours"]["bytes"])
+        dcb = (r["ours"]["cb"] - x_cb
+               if x_cb is not None and r["ours"]["cb"] is not None else None)
+        dcr = (r["ours"]["cr"] - x_cr
+               if x_cr is not None and r["ours"]["cr"] is not None else None)
         rows.append({
             "date": datetime.date.today().isoformat(), "commit": commit,
             "preset": PRESET, "goal": GOAL, "tier": "C" if pure_c else "simd",
@@ -591,6 +715,12 @@ def main():
             # reason the two columns above are: every older column keeps
             # its position and every older row stays readable
             "arm": ARM,
+            # B0's chroma reading, appended after `arm` for that same
+            # reason: ours minus x265's, per plane, in dB at OUR bytes.
+            # Ours ahead is positive. Blank on a clip whose reference
+            # ladder has no psnr to interpolate.
+            "dcb_eq_bytes": round(dcb, 3) if dcb is not None else "",
+            "dcr_eq_bytes": round(dcr, 3) if dcr is not None else "",
         })
 
     report(rows, GOAL, PRESET, RUNG, FRAMES)
@@ -610,22 +740,28 @@ def _f(w, k):
 
 def report(rows, goal, preset, rung, frames):
     hdr = (f"{'clip':<18} {'ourCRF':>6} {'xCRF':>5} {'dVMAF@=B':>9} "
-           f"{'dSIZE@=V':>9} {'ours s':>8} {'x265 s':>8} {'mult':>7}")
+           f"{'dSIZE@=V':>9} {'dCb@=B':>7} {'dCr@=B':>7} {'ours s':>8} "
+           f"{'x265 s':>8} {'mult':>7}")
     print(f"\n=== goal {goal}, preset {preset}, rung {rung}, {frames} frames, "
           f"{len(rows)} clips ===")
     print("    dVMAF@=B: ours minus x265's VMAF-NEG interpolated at OUR "
           "bytes (ours ahead positive)")
     print("    dSIZE@=V: ours over x265's bytes interpolated at OUR "
           "VMAF-NEG (ours larger positive)")
+    print("    dCb/dCr@=B: ours minus x265's chroma PSNR (dB) interpolated "
+          "at OUR bytes (ours ahead positive)")
     print(hdr)
     print("-" * len(hdr))
     for w in rows:
         m = _f(w, "mult")
         ow, xw = _f(w, "our_wall_s"), _f(w, "x265_wall_s")
         dv, ds = _f(w, "dvmaf_eq_bytes"), _f(w, "dsize_eq_vmaf_pct")
+        dcb, dcr = _f(w, "dcb_eq_bytes"), _f(w, "dcr_eq_bytes")
         print(f"{w['clip']:<18} {int(w['our_crf']):>6} {int(w['x265_crf']):>5} "
               f"{f'{dv:+.2f}' if dv is not None else '-':>9} "
               f"{f'{ds:+.2f}' if ds is not None else '-':>9} "
+              f"{f'{dcb:+.2f}' if dcb is not None else '-':>7} "
+              f"{f'{dcr:+.2f}' if dcr is not None else '-':>7} "
               f"{f'{ow:.3f}' if ow is not None else '-':>8} "
               f"{f'{xw:.3f}' if xw is not None else '-':>8} "
               f"{f'{m:.2f}x' if m is not None else '-':>7}")
@@ -674,6 +810,26 @@ def report(rows, goal, preset, rung, frames):
                   for w in sorted(bad_s,
                                   key=lambda w: -_f(w, "dsize_eq_vmaf_pct"))[:6])
                  if bad_s else ""))
+
+    # The fifth reading (phase 13 B0). INFORMATIONAL: no PASS, no FAIL, and
+    # no goal turns on it. The bar is per PLANE and the count is of clips
+    # behind on EITHER, because a mean over two planes hides a clip that is
+    # level on one and behind on the other.
+    ch = [(w, _f(w, "dcb_eq_bytes"), _f(w, "dcr_eq_bytes")) for w in rows]
+    ch = [(w, b, r) for w, b, r in ch if b is not None and r is not None]
+    if ch:
+        bad_c = [(w, min(b, r)) for w, b, r in ch if min(b, r) < BAR_DCHROMA]
+        worst = min(ch, key=lambda t: min(t[1], t[2]))
+        mcb = statistics.median([b for _, b, _ in ch])
+        mcr = statistics.median([r for _, _, r in ch])
+        print(f"chroma         {len(bad_c)}/{len(ch)} clips more than "
+              f"{-BAR_DCHROMA:.1f} dB BELOW x265 on either plane   "
+              f"(worst {worst[0]['clip']} {worst[1]:+.2f} / {worst[2]:+.2f}, "
+              f"median {mcb:+.2f} / {mcr:+.2f})"
+              + ("   " + ", ".join(
+                  f"{w['clip']} {v:+.2f}"
+                  for w, v in sorted(bad_c, key=lambda t: t[1])[:8])
+                 if bad_c else ""))
 
 
 def migrate_csv(missing):

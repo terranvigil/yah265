@@ -136,6 +136,13 @@ CHROMA_KEY = "chromaPSNR"
 # grain is itself the open question, so a grain arm is argued on both numbers
 # or on neither.
 LUMA_KEY = "lumaPSNR"
+# The two chroma planes SEPARATELY (phase 13 B0). CHROMA_KEY is their mean and
+# a mean cannot say which plane is behind: bus's deficit against x265 is -0.86
+# on Cb and -0.96 on Cr, and the goal legs' chroma reading is per PLANE with
+# the bar on EITHER of them. Read off the same psnr line as the two above, so
+# a cached point that gains all four pays one ffmpeg run for them.
+CB_KEY = "cbPSNR"
+CR_KEY = "crPSNR"
 
 
 def chroma_psnr_of(bitstream, src_path):
@@ -160,8 +167,12 @@ def chroma_psnr_of(bitstream, src_path):
     return sum(vals) / 2.0
 
 
-def yuv_psnr_of(bitstream, src_path):
-    """(lumaPSNR, chromaPSNR) off one psnr-filter run; either may be None."""
+def planes_psnr_of(bitstream, src_path):
+    """(y, u, v) PSNR in dB off one psnr-filter run, or (None, None, None).
+
+    The one ffmpeg call every PSNR reading in this tree goes through: the
+    filter prints y:, u: and v: on the same line, so the plane split costs
+    nothing over the mean that `yuv_psnr_of` returns."""
     p = sh(f'ffmpeg -loglevel info {" ".join(fgc_dec_flags())} '
            f'-i {shlex.quote(bitstream)} '
            f'-i {shlex.quote(src_path)} '
@@ -170,8 +181,16 @@ def yuv_psnr_of(bitstream, src_path):
     m = re.search(r"psnr.*\by:([0-9.]+|inf).*?\bu:([0-9.]+|inf)"
                   r".*?\bv:([0-9.]+|inf)", p.stderr)
     if not m:
-        return None, None
+        return None, None, None
     y, u, v = [99.0 if g == "inf" else float(g) for g in m.groups()]
+    return y, u, v
+
+
+def yuv_psnr_of(bitstream, src_path):
+    """(lumaPSNR, chromaPSNR) off one psnr-filter run; either may be None."""
+    y, u, v = planes_psnr_of(bitstream, src_path)
+    if y is None:
+        return None, None
     return y, (u + v) / 2.0
 
 

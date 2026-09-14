@@ -171,10 +171,18 @@ def vmaf_cached(tmpl, q, src, out, work):
     # same memo as the VMAF one, so a point cached before the guard existed
     # gains it on its next touch and never re-reads VMAF for it. It is read
     # off the same bitstream and cannot move a luma number.
-    if v and (bd.CHROMA_KEY not in v or bd.LUMA_KEY not in v):
-        y, c = bd.yuv_psnr_of(out, src)
-        if c is not None:
-            v[bd.CHROMA_KEY] = c
+    # The two chroma planes are kept SEPARATELY beside their mean (phase 13
+    # B0): the goal legs' chroma reading puts its bar on EITHER plane and a
+    # mean cannot say which one is behind. A point cached before the split
+    # existed gains it on its next touch, off the same single ffmpeg run
+    # that already served the mean, and still never re-reads VMAF.
+    if v and any(k not in v for k in (bd.CHROMA_KEY, bd.LUMA_KEY,
+                                      bd.CB_KEY, bd.CR_KEY)):
+        y, u, cr = bd.planes_psnr_of(out, src)
+        if u is not None:
+            v[bd.CHROMA_KEY] = (u + cr) / 2.0
+            v[bd.CB_KEY] = u
+            v[bd.CR_KEY] = cr
         if y is not None:
             v[bd.LUMA_KEY] = y
     if v:
