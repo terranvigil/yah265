@@ -161,6 +161,12 @@ void n265_rc_open(struct n265_encoder *e)
         rc->nblk = 1;
     for (int i = 0; i < RC_CLASSES; i++)
         rc->scale_n[i] = 2.0;       /* prior weight, in frames */
+    /* the VBV's own per-class scale opens at the same priors and diverges
+     * from there (rc.h); its decay is per OBSERVATION OF ITS OWN CLASS, so
+     * on a 4-class cadence sixteen of them is about sixty frames */
+    rc->vdecay = abr_tunable("N265_VBV_DECAY", 0.0625);
+    for (int i = 0; i < RC_CLASSES; i++)
+        rc->vscale[i] = rc->scale[i];
     rc->trace = n265_env("N265_RC_TRACE") != NULL;
     rc->rf = 26.0;
 }
@@ -172,6 +178,29 @@ void n265_rc_open(struct n265_encoder *e)
 static double rc_weight(n265_rc *rc, int cls, double cplx)
 {
     return rc->scale[cls] * rc->nblk * pow(cplx / rc->nblk, rc->qcomp);
+}
+
+/* the same weight at the VBV's own scale (rc.h): same model, same
+ * complexity, an estimator that a cheap frame of another class cannot pull
+ * down. Never below the allocator's, so the clamp sees the worse of the
+ * two rather than a second opinion it might like better. */
+static double rc_vweight(n265_rc *rc, int cls, double cplx, double icplx)
+{
+    /* An inter frame the motion search does no better than intra on will be
+     * coded largely AS intra, which n265_rc_cplx says in the only way it
+     * can - by capping the complexity at the intra cost. Pricing that frame
+     * at its own class's scale is the single largest under-prediction this
+     * model makes: sita_flat_720p's shot change at display 18 is a P, it is
+     * predicted at 25 kbit and costs 156 kbit, and the whole factor of six
+     * is scale[RC_I] / scale[RC_P]. For the BUFFER, and only for the
+     * buffer, such a frame is priced as the intra frame it will be. The
+     * allocator is left alone: there the cap is the right answer, because
+     * what it allocates is a share and not a bound. */
+    if (cls != RC_I && icplx > 0.0 && cplx >= icplx)
+        cls = RC_I;
+    double w = rc->vscale[cls] * rc->nblk * pow(cplx / rc->nblk, rc->qcomp);
+    double a = rc_weight(rc, cls, cplx);
+    return w > a ? w : a;
 }
 
 /* The INTRA QP offset, in QP, for a frame of class `cls` whose cu-tree frame
@@ -222,6 +251,90 @@ static int cadence_class(struct n265_encoder *e, int i)
     if (m == 0)
         return RC_P;                /* the anchor of the mini-GOP */
     return m == (bf + 1) / 2 ? RC_BREF : RC_B;
+}
+
+/* The VBV's per-frame clamp, in one place for both modes.
+ *
+ * `q_code` is the base the frame is ABOUT to be coded at - not the rate
+ * factor, the base: under ABR the encoder adds the cu-tree frame term back
+ * on after this loop answers, and the class scales are learned against the
+ * base, so the base is the only quantiser the bits model is calibrated in.
+ * The model's prediction there is `weight / qscale(base)`, and the buffer's
+ * answer is how many bits it can actually pay for at this removal and at
+ * every planned removal in the window behind it.
+ *
+ * When the prediction is over the allowance the base rises by exactly the
+ * ratio, `6 log2(pred / allow)`, which is the quantiser step that makes the
+ * model's own prediction equal the allowance. It is one step and not an
+ * iteration: the window's plans were priced at the OLD base, so raising it
+ * only leaves them conservative - every future frame will be cheaper than
+ * the reservation assumed, which errs on the side the buffer cares about.
+ *
+ * The window is walked in LOOKAHEAD order and removed in CODING order, and
+ * those differ inside a mini-GOP. The cumulative bound is what absorbs it:
+ * over a whole mini-GOP the two orders carry the same bits, so the
+ * reservation is exact at the GOP boundaries and off by at most a
+ * re-ordering inside one, which is smaller than the model error it is
+ * already carrying.
+ *
+ * Returns the QP to ADD to the base; *pred and *allow are the trace's. */
+static double vbv_dqp(struct n265_encoder *e, int cls, double cplx,
+                      double icplx, double q_code, double *pred,
+                      double *allow)
+{
+    n265_rc *rc = &e->rc;
+    double p = rc_vweight(rc, cls, cplx, icplx) / qscale_of_qp(q_code);
+    double fut[LA_MAX];
+    int nf = 0;
+    int nview = n265_la_view(&e->la);
+    for (int i = 1; i < nview && nf < LA_MAX; i++) {
+        int k = n265_rc_future_idr(e, i) ? RC_I : cadence_class(e, i);
+        /* the window is priced at the ALLOCATOR's scale and not at the
+         * pessimistic one. The two estimators answer different questions:
+         * "can this frame be paid for NOW" wants the worse of them, and
+         * being wrong high there costs one quantiser step; "how much must
+         * be saved for the frames behind it" wants the mean, and being
+         * wrong high there reserves the whole buffer against frames that
+         * do not exist. On sintel_720p's black opening the pessimistic
+         * scale prices twenty queued frames at 200 kbit each against an
+         * 826 kbit buffer, the allowance floors, and thirteen frames are
+         * coded at QP 51 to save for frames that cost 312 bits. */
+        fut[nf++] = rc_vweight(rc, k, n265_rc_cplx(e, i, k),
+                               n265_rc_cplx(e, i, RC_I)) /
+                    qscale_of_qp(q_code);
+    }
+    double a = n265_vbv_allow(&e->vbv, fut, nf);
+    *pred = p;
+    *allow = a;
+    if (!(p > a))
+        return 0.0;
+    e->vbv.clamped++;
+    return 6.0 * log2(p / a);
+}
+
+/* The same clamp under CRF, where there is no loop to fold it into: the
+ * rate factor stands as given and the buffer is the only thing that may
+ * move it, which is exactly x265's capped CRF. `base` is what the encoder
+ * has assembled so far - the CRF, the operating-point shift, the shot plan
+ * and the cu-tree frame term - because that is the number n265_rc_done
+ * learns the class scales against, and the prediction has to be made in the
+ * units the observation is taken in. The answer only ever goes UP: capped
+ * CRF never spends a fuller buffer on a finer quantiser, or the cap would
+ * be a target. */
+double n265_vbv_crf_base(struct n265_encoder *e, int cls, double cplx,
+                         double icplx, double base, double *pred,
+                         double *allow, double *dqp)
+{
+    double d = vbv_dqp(e, cls, cplx, icplx, base, pred, allow);
+    /* `d` is never negative, so the only bound that can bite is the coarse
+     * end - and a base already below N265_QP_MIN is a Main10 operating
+     * point the ordinary QP clip handles, not something for a buffer to
+     * have an opinion about. */
+    double q = base + d;
+    if (q > 51.0)
+        q = 51.0;
+    *dqp = q - base;
+    return q;
 }
 
 double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
@@ -647,6 +760,34 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
         rf = (double)N265_QP_MIN;
     else if (rf > 51.0)
         rf = 51.0;
+    /* The VBV, LAST and one-sided.
+     *
+     * Everything above answers the question "what lands the file on its
+     * size"; this answers "what the decoder's buffer can pay for at this
+     * removal", and the second may only ever make the frame coarser. It is
+     * not folded into the feedback for the reason N265_ABR_IOFF is not: the
+     * loop is not chasing it, and the bits it does not spend here are a
+     * surplus the integral term will find and spend somewhere the buffer
+     * can afford - which is the whole point of a buffer.
+     *
+     * `rf + ctf` and not `rf`: the encoder adds the cu-tree frame term back
+     * on to get the base it codes at (encoder.c, dispatch_frame), and the
+     * bits model is calibrated in that base. At the shipping default
+     * `ctf_off` is the whole term, so this is `base + fb - ioff` either
+     * way; with N265_ABR_CTF 0 it is the term the loop never took off.
+     *
+     * Inert to the bit with --vbv-maxrate unset: `on` is 0 and nothing
+     * below this line runs. */
+    rc->last_vbv_pred = rc->last_vbv_allow = rc->last_vbv_dqp = 0.0;
+    if (e->vbv.on) {
+        double dq = vbv_dqp(e, cls, cplx, rc->cur_icplx, rf + ctf,
+                            &rc->last_vbv_pred, &rc->last_vbv_allow);
+        double rf0 = rf;
+        rf += dq;           /* never negative: the clamp is one-sided */
+        if (rf > 51.0)
+            rf = 51.0;
+        rc->last_vbv_dqp = rf - rf0;
+    }
     /* what the frame will actually be coded at is what the operating point has
      * to take the offset back out of, so a bound that ate part of the discount
      * hands back only what survived it */
@@ -694,6 +835,13 @@ void n265_rc_done(struct n265_encoder *e, int cls, double cplx, double rf_used,
         rc->scale[cls] += (obs - rc->scale[cls]) / (rc->scale_n[cls] + 1.0);
         if (rc->scale_n[cls] < rc->scale_mem)
             rc->scale_n[cls] += 1.0;
+        /* ...and the VBV's, which takes neither the shared level nor a
+         * running mean: up at once, down slowly, and only from its own
+         * class (rc.h). */
+        if (obs > rc->vscale[cls])
+            rc->vscale[cls] = obs;
+        else
+            rc->vscale[cls] += (obs - rc->vscale[cls]) * rc->vdecay;
     }
     /* The measured operating point. Every coded frame counts, intra
      * included, and each counts for the bits it actually carried rather than

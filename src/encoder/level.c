@@ -162,6 +162,16 @@ static int fits(const struct level_row *L, int tier,
         *why = "MaxBR";
         return 0;
     }
+    /* MaxCPB (Table A.6). The companion of the leg above, and it arrives
+     * with the same thing that makes a rate knowable: a VBV names the
+     * buffer the stream is coded against, so the level has to admit that
+     * buffer too. Nothing names it without --vbv-bufsize, and the leg is
+     * out of the walk entirely at 0 - which is why every level this
+     * encoder ever solved is the level it still solves. */
+    if (rq->cpb_size > 0 && rq->cpb_size > max_cpb_bits(L, tier)) {
+        *why = "MaxCPB";
+        return 0;
+    }
     *why = NULL;
     return 1;
 }
@@ -242,6 +252,14 @@ int n265_level_solve(const n265_level_req *rq, n265_level_out *out)
                          "CpbBrNalFactor 1100) and this stream carries %.0f",
                          L->name, tier ? "High" : "Main",
                          (long long)max_br_bits(L, tier), rq->bitrate);
+            else if (!strcmp(why, "MaxCPB"))
+                snprintf(out->err, sizeof(out->err),
+                         "--level %s %s tier admits a %lld bit CPB (Table "
+                         "A.6 x CpbBrNalFactor 1100) and --vbv-bufsize "
+                         "asks for %lld",
+                         L->name, tier ? "High" : "Main",
+                         (long long)max_cpb_bits(L, tier),
+                         (long long)rq->cpb_size);
             else
                 snprintf(out->err, sizeof(out->err),
                          "--level %s refuses this stream on %s", L->name, why);
@@ -285,7 +303,9 @@ int n265_level_solve(const n265_level_req *rq, n265_level_out *out)
              "%s: level 6.2 High tier is the ceiling",
              rq->width, rq->height,
              rq->fps_den ? (double)rq->fps_num / rq->fps_den : 0.0, rq->dpb,
-             rq->enforce_br && rq->bitrate > 0.0 ? " and this bit rate" : "");
+             rq->cpb_size > 0 ? " and this bit rate and CPB"
+                              : rq->enforce_br && rq->bitrate > 0.0
+                                    ? " and this bit rate" : "");
     return -1;
 }
 

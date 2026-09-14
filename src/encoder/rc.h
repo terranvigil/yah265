@@ -95,6 +95,32 @@ typedef struct n265_rc {
     double pend_bits;
     long pend_n;
     double last_planned;        /* the T the last rc_next handed out */
+    /* The VBV's three columns for the last answer (vbv.h): the model's
+     * predicted bits at the base the frame was about to be coded at, the
+     * bits the buffer could pay for, and the QP the clamp added. All zero
+     * with --vbv-maxrate unset, which is every encode the mode is off in. */
+    double last_vbv_pred, last_vbv_allow, last_vbv_dqp;
+    /* The VBV's OWN per-class scale, and the whole reason it is separate
+     * from `scale` above.
+     *
+     * `scale` is an ALLOCATOR's estimate and it is corrected by the shared
+     * LEVEL on every coded frame, whatever that frame's class - which is
+     * right for allocation, because the level is what the priors get most
+     * wrong and one frame is evidence about it. It is wrong for a buffer.
+     * sita_flat_720p codes 38 near-free leaf B frames between two scene-cut
+     * IDRs, and they drag scale[RC_I] from 30.3 to 10.6; the second IDR is
+     * then predicted at a third of what it costs, the clamp does not fire,
+     * and 627 kbit lands in a 282 kbit buffer.
+     *
+     * So this one is per class and per class ONLY, and it attacks fast and
+     * decays slowly: an expensive frame raises its class's scale at once,
+     * and cheap frames of OTHER classes cannot lower it at all. That is the
+     * asymmetry a buffer wants - being wrong high costs a quantiser step,
+     * being wrong low costs the stream. */
+    double vscale[RC_CLASSES];
+    double vdecay;              /* N265_VBV_DECAY: the slow side's rate */
+    double cur_icplx;           /* the dispatching frame's intra cost, for
+                                 * the intra-dominated test below */
     /* constants (docs/instruments.md) */
     double qcomp, horizon, maxstep, scale_mem, w_mem;
     double rf_bias;             /* the integral term, in QP units      */
@@ -131,6 +157,14 @@ int n265_rc_class(int slice_type, int nonref);
 
 /* the lookahead complexity of queued frame `i` for class `cls` */
 double n265_rc_cplx(struct n265_encoder *e, int i, int cls);
+
+/* Capped CRF's half of the VBV clamp: the base the frame may be coded at,
+ * given the base the CRF path assembled. Never finer than what it was
+ * given. `pred`, `allow` and `dqp` are the trace's columns. Under ABR the
+ * same clamp lives inside n265_rc_next, where the loop's own answer is. */
+double n265_vbv_crf_base(struct n265_encoder *e, int cls, double cplx,
+                         double icplx, double base, double *pred,
+                         double *allow, double *dqp);
 
 /* Will queued frame `i` be coded as an IDR? The keyint and scene-cut half
  * of encode_frame's own test, without the "no reference yet" clause, which

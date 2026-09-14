@@ -179,6 +179,10 @@
 #define n265_rc_future_idr           n265_rc_future_idr_10
 #define n265_rc_next                 n265_rc_next_10
 #define n265_rc_open                 n265_rc_open_10
+#define n265_vbv_allow               n265_vbv_allow_10
+#define n265_vbv_crf_base            n265_vbv_crf_base_10
+#define n265_vbv_init                n265_vbv_init_10
+#define n265_vbv_update              n265_vbv_update_10
 #define n265_rdoq                    n265_rdoq_10
 #define n265_rdoq_init               n265_rdoq_init_10
 #define n265_rdoq_rtn                n265_rdoq_rtn_10
@@ -247,6 +251,7 @@
 #define n265_fgc_min                 n265_fgc_min_10
 #define n265_fgc_trace               n265_fgc_trace_10
 #define n265_write_fgc_sei           n265_write_fgc_sei_10
+#define n265_set_vbv                 n265_set_vbv_10
 #define n265_set_shot_window         n265_set_shot_window_10
 #define n265_set_lossless            n265_set_lossless_10
 #define n265_set_vui_timing          n265_set_vui_timing_10

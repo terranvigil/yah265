@@ -18,6 +18,7 @@
 #include "encoder/la.h"
 #include "encoder/level.h"
 #include "encoder/rc.h"
+#include "encoder/vbv.h"
 #include "encoder/tables.h"
 
 struct sao_params;
@@ -440,6 +441,13 @@ typedef struct n265_frame_work {
      * write_ptl writes a number rather than re-deriving one. */
     int level_idc, level_tier;
     int vui_timing;         /* --vui-timing: vui_timing_info in the SPS */
+    /* hrd_parameters (E.2.2) in the VUI: the CPB schedule the VBV clamp
+     * actually enforces, so a decoder can check it. 0 - the value every
+     * stream before phase 12 item 2 carried - writes
+     * vui_hrd_parameters_present_flag 0 and nothing after it. */
+    int hrd_on;
+    unsigned hrd_bit_rate_scale, hrd_bit_rate_value;    /* E.2.3's BitRate */
+    unsigned hrd_cpb_size_scale, hrd_cpb_size_value;    /* ...and CpbSize  */
     double psy;             /* N265_PSY: psychovisual energy strength */
     int dbf_beta, dbf_tc;   /* slice_beta/tc_offset_div2, see n265_encoder */
 
@@ -692,6 +700,12 @@ typedef struct n265_frame_work {
     /* rate control hand-off, frozen at dispatch (sec 3 rule 4) */
     int rc_cls;
     double rc_cplx, rc_base;
+    /* the frame's INTRA cost, for the VBV's predictor alone. n265_rc_cplx
+     * caps an inter frame's complexity at its intra cost, so the two are
+     * EQUAL exactly on a frame the motion search does no better than intra
+     * on - a shot change coded as a P - and that is the frame the per-class
+     * scale prices six times too cheap. rc.c reads the pair. */
+    double rc_icplx;
     double rc_planned;      /* D4: the fair share rc_next handed this frame */
     double rc_ctf;          /* the cu-tree frame term inside rc_base: the loop
                              * is told it going in and reads it back out of
@@ -700,6 +714,16 @@ typedef struct n265_frame_work {
                              * (N265_ABR_IOFF), which the measured operating
                              * point takes back out. 0 on inter frames, 0 at
                              * the default, 0 whenever ABR is off. */
+    /* The VBV's hand-off, frozen at dispatch with everything else here
+     * and spent at retirement, where the coded size is known and the
+     * trace line is written. All three are 0 with the mode off, which is
+     * every encode that does not name --vbv-maxrate. */
+    double vbv_pred;        /* bits the model predicted for this frame at the
+                             * base it was about to be coded at, BEFORE the
+                             * clamp */
+    double vbv_allow;       /* the most the buffer could pay for */
+    double vbv_dqp;         /* the QP the clamp added to the base; 0 where the
+                             * plan already fitted */
     double shot_off;      /* --shot-window: this frame's shot plan, in QP
                              * steps, already inside rc_base. 0 with the
                              * mode off, which is every default encode. */
@@ -806,6 +830,31 @@ struct n265_encoder {
     double crf;
     int abr_on;             /* n265_set_bitrate: the base is the ABR rate factor */
     double abr_bitrate;     /* bits per second                          */
+    /* --vbv-maxrate / --vbv-bufsize / --vbv-init: the hypothetical decoder
+     * buffer the encode is held inside (vbv.h). `on` is 0 unless both of
+     * the first two were named, and that zero is what every encode before
+     * phase 12 item 2 runs - the clamp, the level's CPB leg and the HRD in
+     * the VUI are all gated on it. Rides ABR and CRF alike: under ABR it
+     * is a second constraint on a loop that already has a target, under
+     * CRF it is x265's capped CRF, where the rate factor stands until the
+     * buffer says otherwise. */
+    n265_vbv vbv;
+    int vbv_trace;          /* N265_VBV_TRACE: one row per frame, coding
+                             * order, written at retirement */
+    int vbv_hrd;            /* N265_VBV_HRD: write hrd_parameters in the VUI
+                             * (default 1, and inert without the VUI) */
+    /* E.2.3's two scaled pairs, solved once at open from the VBV the clamp
+     * enforces and rounded UP - a declared BitRate below what the encoder
+     * assumed, or a declared CpbSize below the buffer it planned against,
+     * would be a claim the stream does not honour. */
+    int hrd_on;
+    unsigned hrd_bit_rate_scale, hrd_bit_rate_value;
+    unsigned hrd_cpb_size_scale, hrd_cpb_size_value;
+    /* ...and the same two decoded back out of E.2.3. That is what the SPS
+     * CLAIMS, so it is what A.4.2's MaxBR and MaxCPB have to admit - the
+     * rounding above can only ever push it up, and a --vbv-maxrate sitting
+     * exactly on a level's bound would otherwise be signalled over it. */
+    int64_t hrd_bit_rate_bits, hrd_cpb_size_bits;
     int qp_frac;            /* carry the base QP's fraction and spread it
                              * over the CTUs (N265_QP_FRAC; on under ABR,
                              * and under CRF where the cu-tree frame term

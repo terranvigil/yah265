@@ -92,6 +92,13 @@ static int g_vui_timing = 1;    /* vui_timing_info in the SPS; on since
  * back. At 0 nothing here allocates, reads a picture or writes a byte. */
 static double g_film_grain = 0.0;
 static int g_fgc_denoise = 0;
+/* The hypothetical decoder buffer (phase 12 item 2). 0 / 0 is off and is
+ * every encode the board, the band and every gate before this item ran;
+ * naming both halves arms the clamp, the level's MaxCPB leg and the HRD in
+ * the VUI at once. */
+static double g_vbv_maxrate = 0.0;  /* --vbv-maxrate, kbit/s */
+static double g_vbv_bufsize = 0.0;  /* --vbv-bufsize, kbit   */
+static double g_vbv_init = 0.9;     /* --vbv-init, a fraction of the buffer */
 
 void n265_set_threads(int n)
 {
@@ -154,6 +161,19 @@ void n265_set_film_grain(double strength, int denoise)
 {
     g_film_grain = strength > 0.0 ? (strength > 8.0 ? 8.0 : strength) : 0.0;
     g_fgc_denoise = denoise != 0;
+}
+
+/* --vbv-maxrate / --vbv-bufsize / --vbv-init. `maxrate` is kbit/s and
+ * `bufsize` kbit, the units x265 names them in; `init` is a fraction of the
+ * buffer and is the only one with a default, because a buffer that starts
+ * full is a claim about a decoder nobody made. Validation is at OPEN, where
+ * the frame rate and the level are known and a refusal can name them. */
+void n265_set_vbv(double maxrate, double bufsize, double init);
+void n265_set_vbv(double maxrate, double bufsize, double init)
+{
+    g_vbv_maxrate = maxrate;
+    g_vbv_bufsize = bufsize;
+    g_vbv_init = init;
 }
 void n265_set_bitrate(double kbps) { g_bitrate = kbps > 0.0 ? kbps : 0.0; }
 void n265_set_ref(int n) { g_ref = n < 1 ? 1 : n > N265_MAX_REF ? N265_MAX_REF : n; }
@@ -622,6 +642,11 @@ static void fw_config(n265_encoder *e, n265_frame_work *fw)
     fw->level_idc = e->level.idc;
     fw->level_tier = e->level.tier;
     fw->vui_timing = e->vui_timing;
+    fw->hrd_on = e->hrd_on;
+    fw->hrd_bit_rate_scale = e->hrd_bit_rate_scale;
+    fw->hrd_bit_rate_value = e->hrd_bit_rate_value;
+    fw->hrd_cpb_size_scale = e->hrd_cpb_size_scale;
+    fw->hrd_cpb_size_value = e->hrd_cpb_size_value;
     fw->psy = e->psy;
     fw->dbf_beta = e->dbf_beta;
     fw->dbf_tc = e->dbf_tc;
@@ -1161,6 +1186,135 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->ctb_cols = (e->pad_w + ctb - 1) >> e->ctb_log2;
     e->ctb_rows = (e->pad_h + ctb - 1) >> e->ctb_log2;
 
+    /* ---- the hypothetical decoder buffer (phase 12 item 2) ----
+     *
+     * Configured here, before the level, because --vbv-maxrate is a rate
+     * the encoder ENFORCES whatever the mode - which is exactly the
+     * condition the level's rate leg asks for - and --vbv-bufsize is a CPB
+     * the level has to admit.
+     *
+     * Every refusal is at open and every one of them names its number. A
+     * VBV is a promise to a decoder, and the three ways to make it a
+     * promise nothing keeps are to name half of it, to name it with no
+     * quantiser the clamp can move (CQP, PCM, lossless), or to name a
+     * buffer that starts fuller than it is. */
+    {
+        double fps = p->fps_den > 0 ? (double)p->fps_num / p->fps_den : 0.0;
+        double maxrate = g_vbv_maxrate * 1000.0;
+        double bufsize = g_vbv_bufsize * 1000.0;
+        if ((g_vbv_maxrate > 0.0) != (g_vbv_bufsize > 0.0)) {
+            fprintf(stderr, "n265: --vbv-maxrate and --vbv-bufsize are one "
+                            "knob in two halves; name both or neither\n");
+            goto fail;
+        }
+        if (g_vbv_maxrate < 0.0 || g_vbv_bufsize < 0.0) {
+            fprintf(stderr, "n265: --vbv-maxrate and --vbv-bufsize are "
+                            "positive or absent\n");
+            goto fail;
+        }
+        if (maxrate > 0.0) {
+            if (!e->abr_on && !e->crf_on) {
+                fprintf(stderr, "n265: --vbv-maxrate needs a rate control "
+                                "with a quantiser to move: use --bitrate "
+                                "(ABR) or --crf (capped CRF). Under --qp, "
+                                "--pcm and --lossless the buffer is whatever "
+                                "the content costs.\n");
+                goto fail;
+            }
+            if (!(g_vbv_init > 0.0) || g_vbv_init > 1.0) {
+                fprintf(stderr, "n265: --vbv-init is a fraction of the "
+                                "buffer in (0, 1]; %g is not\n", g_vbv_init);
+                goto fail;
+            }
+            if (fps <= 0.0) {
+                fprintf(stderr, "n265: --vbv-maxrate needs a frame rate: the "
+                                "CPB's removal times are one per picture and "
+                                "this source declares none\n");
+                goto fail;
+            }
+            if (e->abr_on && maxrate < e->abr_bitrate) {
+                fprintf(stderr, "n265: --vbv-maxrate %.0f is below --bitrate "
+                                "%.0f: the buffer would be asked to hold a "
+                                "stream that never fits in it\n",
+                        maxrate / 1000.0, e->abr_bitrate / 1000.0);
+                goto fail;
+            }
+        }
+        /* N265_VBV_SAFE: the share of the strictly available bits a PLAN may
+         * claim. The clamp is applied to the bits model's PREDICTION and the
+         * coded frame is what actually leaves the buffer, so the gap is the
+         * only thing between a model error and an underflow - and the model
+         * is a per-class scale learned online, which is wrong by tens of
+         * percent on the frames after a cut. See docs/phase12.md, Item 2,
+         * for the corpus read the default is set from. */
+        double safe = 0.85;
+        { const char *v = n265_env("N265_VBV_SAFE"); if (v) safe = atof(v); }
+        /* N265_VBV_LOOKAHEAD: the window's own plans are reserved for, so a
+         * frame worth twenty frames of buffer seven frames away is saved
+         * for rather than discovered. 1 ships; 0 leaves the immediate
+         * bound alone and is the arm the cost of the reservation is read
+         * against. */
+        int vla = 1;
+        { const char *v = n265_env("N265_VBV_LOOKAHEAD"); if (v) vla = atoi(v); }
+        /* N265_VBV_RESERVE: the floor under that reservation, as a share of
+         * what the buffer actually holds. The k = 0 bound is a FACT and is
+         * never floored; the window's is a FORECAST about frames nobody has
+         * coded, and where the content turns over it can be wrong by two
+         * orders of magnitude in the expensive direction. See vbv.c. */
+        double reserve = 0.2;
+        { const char *v = n265_env("N265_VBV_RESERVE"); if (v) reserve = atof(v); }
+        n265_vbv_init(&e->vbv, maxrate, bufsize, g_vbv_init, fps, safe, vla,
+                      reserve);
+        e->vbv_trace = n265_env("N265_VBV_TRACE") != NULL;
+        { const char *v = n265_env("N265_VBV_HRD");
+          e->vbv_hrd = v ? atoi(v) != 0 : 1; }
+        e->vui_timing = g_vui_timing && p->fps_num > 0 && p->fps_den > 0;
+        /* hrd_parameters (E.2.2) in the VUI: the CPB schedule the clamp
+         * enforces, scaled per E.2.3.
+         *
+         *   BitRate[0] = (bit_rate_value_minus1 + 1) << (6 + bit_rate_scale)
+         *   CpbSize[0] = (cpb_size_value_minus1 + 1) << (4 + cpb_size_scale)
+         *
+         * Both are rounded UP. A declared BitRate below the arrival rate
+         * the encoder planned against is a buffer that empties faster than
+         * the encoder believed, and a declared CpbSize below the buffer it
+         * planned against is one that overflows where the encoder capped -
+         * so in both directions the safe rounding is the one that gives the
+         * decoder at least what was assumed. The scale is the smallest that
+         * keeps the value inside 32 bits, which is the most precise
+         * representation E.2.3 has for the number, and it is a pure
+         * function of the two knobs: the same VBV writes the same bits.
+         *
+         * It is written only WITH a VBV. Without one the encoder enforces
+         * no schedule, and a stream is better carrying no HRD than an HRD
+         * nothing behind it keeps. */
+        e->hrd_on = e->vbv.on && e->vui_timing && e->vbv_hrd;
+        if (e->hrd_on) {
+            unsigned s = 0;
+            double v = e->vbv.maxrate;
+            while (s < 15 && ceil(v / (double)(1u << (6 + s))) > 2147483646.0)
+                s++;
+            e->hrd_bit_rate_scale = s;
+            e->hrd_bit_rate_value =
+                (unsigned)ceil(v / (double)(1u << (6 + s)));
+            if (e->hrd_bit_rate_value == 0)
+                e->hrd_bit_rate_value = 1;
+            e->hrd_bit_rate_bits = (int64_t)e->hrd_bit_rate_value <<
+                                   (6 + e->hrd_bit_rate_scale);
+            s = 0;
+            v = e->vbv.bufsize;
+            while (s < 15 && ceil(v / (double)(1u << (4 + s))) > 2147483646.0)
+                s++;
+            e->hrd_cpb_size_scale = s;
+            e->hrd_cpb_size_value =
+                (unsigned)ceil(v / (double)(1u << (4 + s)));
+            if (e->hrd_cpb_size_value == 0)
+                e->hrd_cpb_size_value = 1;
+            e->hrd_cpb_size_bits = (int64_t)e->hrd_cpb_size_value <<
+                                   (4 + e->hrd_cpb_size_scale);
+        }
+    }
+
     /* ---- Annex A: the level and the tier (phase 8 item 7) ----
      *
      * Solved HERE, at open, and not in write_ptl, for two reasons: a
@@ -1209,6 +1363,28 @@ n265_encoder *n265_encoder_open(const n265_param *p)
             rq.bitrate = e->abr_bitrate;
             rq.enforce_br = 1;
         }
+        /* ...and --vbv-maxrate, which is the strongest form of "the rate is
+         * known": it is not a target the loop aims at but a ceiling the
+         * clamp enforces per frame, so it is the rate Table A.7 has to
+         * admit even under CRF, where nothing else about the rate is
+         * knowable. It replaces an ABR target rather than joining it -
+         * maxrate is never below the target (refused at open above), and
+         * the stream can reach it. */
+        if (e->vbv.on) {
+            /* ...and it is the DECLARED pair that is bounded, not the raw
+             * knobs. E.2.3 can only express a rate as a scaled integer, and
+             * the HRD above rounds UP to stay safe, so a --vbv-maxrate
+             * sitting exactly on a level's MaxBR would be signalled a few
+             * hundred bit/s over it. A.4.2 bounds what the SPS SAYS, so the
+             * level is solved against that number and the two can never
+             * disagree. Without an HRD the raw knobs are what the clamp
+             * enforces and they are what is bounded. */
+            rq.bitrate = e->hrd_on ? (double)e->hrd_bit_rate_bits
+                                   : e->vbv.maxrate;
+            rq.enforce_br = 1;
+            rq.cpb_size = e->hrd_on ? e->hrd_cpb_size_bits
+                                    : (int64_t)e->vbv.bufsize;
+        }
         if (n265_level_solve(&rq, &e->level) < 0) {
             fprintf(stderr, "n265: %s\n", e->level.err);
             goto fail;
@@ -1231,7 +1407,6 @@ n265_encoder *n265_encoder_open(const n265_param *p)
                     rq.enforce_br ? "enforced" : "reported",
                     L->tier_raised ? " tier_raised=1" : "");
         }
-        e->vui_timing = g_vui_timing && p->fps_num > 0 && p->fps_den > 0;
     }
 
     /* K, the frames in flight (sec 1). A pure scheduling knob: it moves
@@ -2835,15 +3010,24 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                      ? n265_ct_frame_term(e, fw) : 0.0;
     fw->rc_ctf = ctf;
     fw->rc_ioff = 0.0;
+    fw->vbv_pred = fw->vbv_allow = fw->vbv_dqp = 0.0;
     if (e->abr_on) {
         /* D4's observation lag has already been drained by the caller; this
          * is the frame's own solve, moved here so it sees `ctf`. */
+        e->rc.cur_icplx = fw->rc_icplx;
         e->rc_rf = n265_rc_next(e, fw->rc_cls, fw->rc_cplx, ctf);
         fw->rc_planned = e->rc.last_planned;
         /* the planned intra offset is already inside the answer above (rc.c);
          * it is carried on the frame so the measured operating point can take
          * it back out when the frame retires */
         fw->rc_ioff = e->rc.last_ioff;
+        /* ...and the VBV's three columns, which rc_next filled while it had
+         * the window in hand. They are diagnostics only - the clamp is
+         * already inside e->rc_rf - and they are what the trace prints when
+         * the frame retires and its real size is known. */
+        fw->vbv_pred = e->rc.last_vbv_pred;
+        fw->vbv_allow = e->rc.last_vbv_allow;
+        fw->vbv_dqp = e->rc.last_vbv_dqp;
     }
     /* frame-type QP ladder (the matched reference applies its ip/pb
      * ratios in CQP mode too): I anchors lower, non-ref B higher */
@@ -2912,6 +3096,25 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                     fw->display_idx, slice_type, nonref, fw->flat,
                     fw->ct_mean_raw, fw->ct_level, ctf,
                     (double)fw->sc_ratio, (double)fw->la_mvabs);
+    }
+    /* CAPPED CRF (phase 12 item 2): the buffer's clamp, and the last thing
+     * that may move the base.
+     *
+     * Under ABR the same clamp is inside n265_rc_next, where the loop's own
+     * answer is; under CRF there is no loop, so it lands here - after the
+     * shot plan and the cu-tree frame term, because `base` is only the
+     * number n265_rc_done learns the class scales against once both are on
+     * it, and the prediction has to be made in the units the observation is
+     * taken in. Before the cascade and before the rounding, because those
+     * are what turn a base into this frame's QP.
+     *
+     * It is one-sided: capped CRF never spends a full buffer on a finer
+     * quantiser. The CRF value is the quality the user asked for and the
+     * VBV is a ceiling on the damage, not a second target. */
+    if (e->vbv.on && !e->abr_on) {
+        base = n265_vbv_crf_base(e, fw->rc_cls, fw->rc_cplx, fw->rc_icplx,
+                                 base, &fw->vbv_pred, &fw->vbv_allow,
+                                 &fw->vbv_dqp);
     }
     /* the pyramid QP cascade: I anchors -3, P anchors +0, and each B layer
      * one step deeper than its parent (the reference B nearest the anchors
@@ -3855,11 +4058,28 @@ static void join_oldest(n265_encoder *e)
      * opener folds (or at close, for the last one). */
     if (e->shot_f)
         shot_record(e, fw, d->len);
-    /* D4: the actual bits are applied on the driver, in coding order. */
-    if (e->abr_on || e->rc.trace)
+    /* D4: the actual bits are applied on the driver, in coding order.
+     * Capped CRF joins ABR here: the clamp predicts from the class scales
+     * and the scales are learned nowhere else, so a CRF encode with a VBV
+     * has to keep the same books an ABR one does. */
+    if (e->abr_on || e->rc.trace || e->vbv.on)
         n265_rc_done(e, fw->rc_cls, fw->rc_cplx, fw->rc_base,
                      (double)d->len * 8.0, fw->rc_planned, fw->rc_ctf,
                      fw->rc_ioff);
+    /* The buffer, moved by the ACCESS UNIT that just retired - d->len is
+     * the whole AU, parameter sets and all, which is what a CPB removes.
+     * Driver-serial and in coding order, which is the removal order, so the
+     * trajectory is the same at one worker and at twelve. */
+    if (e->vbv.on) {
+        double fb = 0.0, fa = 0.0;
+        n265_vbv_update(&e->vbv, (double)d->len * 8.0, &fb, &fa);
+        if (e->vbv_trace)
+            /* VBV,coding,display,slice,pred,allow,bits,fill_in,fill_out,dqp */
+            fprintf(stderr, "VBV,%d,%d,%d,%.0f,%.0f,%.0f,%.1f,%.1f,%+.3f\n",
+                    fw->code_idx, fw->display_idx, fw->slice_type,
+                    fw->vbv_pred, fw->vbv_allow, (double)d->len * 8.0,
+                    fb, fa, fw->vbv_dqp);
+    }
     fw->slot->in_use = 0;
     fw->emit_headers = 0;
     fw->in_flight = 0;
@@ -4715,8 +4935,19 @@ static int drive_scheduler(n265_encoder *e)
                                    : fw->slot->col_ref_poc[0];
     fw->rc_cls = n265_rc_class(slice_type, fw->nonref);
     fw->rc_cplx = n265_rc_cplx(e, li, fw->rc_cls);
-    if (e->abr_on) {
-        /* D4: frame k's rate factor is solved from the ACTUAL bits of
+    fw->rc_icplx = n265_rc_cplx(e, li, RC_I);
+    if (e->abr_on || e->vbv.on) {
+        /* A VBV reads the buffer, and the buffer is only a number once
+         * every earlier frame's SIZE is one. So capped CRF takes the same
+         * drain ABR takes, for the same reason and with the same effect:
+         * frame k is dispatched only after every frame with a lower coding
+         * index has retired, the fill it clamps against is the fill a
+         * decoder will really see, and t1 and t12 walk the same
+         * trajectory. The cost is frame-level overlap, which capped CRF
+         * gives up and the wavefront inside a picture does not - the
+         * measured wall is in docs/phase12.md, Item 2.
+         *
+         * D4: frame k's rate factor is solved from the ACTUAL bits of
          * every frame with coding index <= k - 1 - D, so the driver
          * joins those first; rc_done runs inside join_oldest, on the
          * driver, in coding order. The frames still inside the lag

@@ -625,6 +625,19 @@ run_vector inter_rect8    176x144 16  testsrc2  "--keyint 8 --qp 20"
 # with the PPS flag on even where AQ and cu-tree are off
 run_vector abr_cif       352x288 24  testsrc2  "--keyint 12 --bitrate 400 --aq 1 --cutree 1"
 run_vector abr_flat      176x144 16  testsrc2  "--keyint 8 --bitrate 200"
+# VBV (phase 12 item 2), one vector per mode. What is new on the WIRE is
+# hrd_parameters in the SPS's VUI - nal_hrd_parameters_present_flag, the
+# two E.2.3 scaled pairs and cbr_flag - so these two are the only vectors
+# in the suite whose SPS a decoder can get wrong AFTER vui_timing_info and
+# still reach the slice data with everything shifted by a few bits. Both
+# decoders parse the whole VUI or the picture size they report is wrong,
+# which is how the 4:4:4 separate_colour_plane_flag omission was found.
+#
+# The buffers are deliberately tight (one second under ABR, half a second
+# of the cap under CRF) so the clamp actually fires inside 24 frames and
+# the vector carries a stream the buffer really constrained.
+run_vector vbv_abr       352x288 24  testsrc2  "--keyint 12 --bitrate 400 --vbv-maxrate 400 --vbv-bufsize 400 --aq 1 --cutree 1"
+run_vector vbv_crf       352x288 24  testsrc2  "--keyint 12 --crf 28 --vbv-maxrate 500 --vbv-bufsize 250 --aq 1 --cutree 1"
 # deblocking offsets: the PPS grows its control block
 # (deblocking_filter_control_present_flag with pps_beta_offset_div2 and
 # pps_tc_offset_div2), and both decoders have to shift the Table 8-12
