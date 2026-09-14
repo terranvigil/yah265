@@ -108,6 +108,10 @@ void ntp_publish_task(ntp_pool *p);
  * worker waiting on the row above still holds its task - so the work
  * actually done is busy - stall. */
 void ntp_prof_enable(ntp_pool *p);
+/* C4's wake census: publishes, the subset that reached the lock, and
+ * milestone waits with the subset that parked. Instrument only. */
+void ntp_prof_counts(const ntp_pool *p, long *pub, long *bcast,
+                     long *waits, long *blocked);
 void ntp_prof_read(const ntp_pool *p, double *busy, double *stall,
                    double *stall_ref, double *park, double *allpark,
                    double *wall, long *tasks);

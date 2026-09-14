@@ -1993,6 +1993,19 @@ void n265_encoder_close(n265_encoder *e)
                 pwall > 0 ? (busy - stall) / pwall : 0.0,
                 pwall > 0 && nt ? 100.0 * (1.0 - busy / (pwall * nt)) : 0.0,
                 pwall > 0 ? 100.0 * allpark / pwall : 0.0);
+        /* C4's wake census. The row wavefront publishes once per CTB and
+         * `ntp_publish` takes the pool mutex and BROADCASTS whenever any
+         * worker anywhere is in a milestone wait, so `bcast/pub` is how
+         * often a per-CTB publish reaches the lock, and `blocked/waits`
+         * how often the two-CTB lag outlasts the bounded spin. */
+        long pub = 0, bcast = 0, waits = 0, blocked = 0;
+        ntp_prof_counts(e->pool, &pub, &bcast, &waits, &blocked);
+        fprintf(stderr,
+                "SWAKE pub=%ld bcast=%ld bcast_pct=%.2f waits=%ld "
+                "blocked=%ld blocked_pct=%.2f\n",
+                pub, bcast, pub ? 100.0 * (double)bcast / (double)pub : 0.0,
+                waits, blocked,
+                waits ? 100.0 * (double)blocked / (double)waits : 0.0);
         fflush(stderr);
     }
     /* N265_HF2_TRACE: the round-4 traffic census, as the encoder itself

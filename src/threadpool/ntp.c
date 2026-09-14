@@ -59,6 +59,12 @@ struct wslot {
 struct wprof {
     double busy, stall, stall_ref, park;
     long tasks;
+    /* C4's wake census: how much of the per-CTB publish reaches the
+     * lock, and how much of the row lag gets past the bounded spin.
+     * `pub` counts every ntp_publish/ntp_publish_task, `bcast` the
+     * subset that took `mu` and broadcast, `waits` every milestone wait
+     * and `blocked` the subset that parked on the condvar. */
+    long pub, bcast, waits, blocked;
     char pad[64];
 };
 
@@ -487,13 +493,15 @@ void ntp_wait(ntp_pool *p, ntp_pred_fn pred, void *ctx)
     double t0 = 0.0, n0 = 0.0;
     if (prof) {
         prof = tls_me >= 0;
-        if (prof) { t0 = ntp_now(); n0 = tls_nested; }
+        if (prof) { t0 = ntp_now(); n0 = tls_nested; p->wp[tls_me].waits++; }
     }
     if (spin_for(pred, ctx)) {
         if (prof)
             p->wp[tls_me].stall += ntp_now() - t0;
         return;
     }
+    if (prof)
+        p->wp[tls_me].blocked++;
     pthread_mutex_lock(&p->mu);
     atomic_fetch_add(&p->n_wait, 1);
     while (!pred(ctx))
@@ -554,8 +562,12 @@ void ntp_wait_older(ntp_pool *p, ntp_pred_fn pred, void *ctx)
 void ntp_publish(ntp_pool *p)
 {
     atomic_thread_fence(memory_order_seq_cst);
+    if (p->prof && tls_me >= 0)
+        p->wp[tls_me].pub++;
     if (atomic_load(&p->n_wait) == 0)
         return;
+    if (p->prof && tls_me >= 0)
+        p->wp[tls_me].bcast++;
     pthread_mutex_lock(&p->mu);
     pthread_cond_broadcast(&p->done);
     pthread_mutex_unlock(&p->mu);
@@ -569,10 +581,14 @@ void ntp_publish(ntp_pool *p)
 void ntp_publish_task(ntp_pool *p)
 {
     atomic_thread_fence(memory_order_seq_cst);
+    if (p->prof && tls_me >= 0)
+        p->wp[tls_me].pub++;
     int w = atomic_load(&p->n_wait) != 0;
     int c = atomic_load(&p->n_idle) != 0;
     if (!w && !c)
         return;
+    if (p->prof && tls_me >= 0)
+        p->wp[tls_me].bcast++;
     pthread_mutex_lock(&p->mu);
     if (w)
         pthread_cond_broadcast(&p->done);
@@ -592,6 +608,22 @@ void ntp_prof_enable(ntp_pool *p)
     if (p->nidle >= p->nthreads)
         p->allpark_t0 = ntp_now();
     pthread_mutex_unlock(&p->mu);
+}
+
+void ntp_prof_counts(const ntp_pool *p, long *pub, long *bcast,
+                     long *waits, long *blocked)
+{
+    long a = 0, b = 0, c = 0, d = 0;
+    for (int i = 0; p && i < p->nthreads; i++) {
+        a += p->wp[i].pub;
+        b += p->wp[i].bcast;
+        c += p->wp[i].waits;
+        d += p->wp[i].blocked;
+    }
+    if (pub) *pub = a;
+    if (bcast) *bcast = b;
+    if (waits) *waits = c;
+    if (blocked) *blocked = d;
 }
 
 void ntp_prof_read(const ntp_pool *p, double *busy, double *stall,
