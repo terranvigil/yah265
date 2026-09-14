@@ -176,7 +176,12 @@ static void write_hrd(bitstream_t *bs, const struct n265_frame_work *e)
      *   CpbSize[0] = (cpb_size_value_minus1 + 1) << (4 + cpb_size_scale) */
     bs_put_ue(bs, e->hrd_bit_rate_value - 1);
     bs_put_ue(bs, e->hrd_cpb_size_value - 1);
-    bs_put_bits(bs, 0, 1);          /* cbr_flag[0] */
+    /* --strict-cbr sets it: with it set, arrival never stops and the
+     * stream promises to spend its rate every frame, which is a promise
+     * only filler data can keep - and that is exactly what that mode
+     * writes (encoder.c, join_oldest). Absent the flag it stays 0 and
+     * the paragraph above is the whole story. */
+    bs_put_bits(bs, e->hrd_cbr ? 1 : 0, 1);     /* cbr_flag[0] */
 }
 
 void n265_write_vps(struct n265_frame_work *e)

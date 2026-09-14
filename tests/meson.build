@@ -57,6 +57,13 @@ unit_metrics = executable('unit_metrics', 'unit/metrics_test.c',
   dependencies : yah265_dep)
 test('metrics', unit_metrics)
 
+# The --qpfile and --zones grammars (phase 14 item 4), and in particular
+# everything they REFUSE: a parser tested only on well-formed input is a
+# parser that accepts anything.
+unit_rcfile = executable('unit_rcfile', 'unit/rcfile_test.c',
+  dependencies : yah265_dep)
+test('rcfile', unit_rcfile)
+
 # One file per kernel family (checkasm.h has the layout): a family item
 # adds its file here and one line to the table in main.c, and touches
 # nothing else.

@@ -22,6 +22,7 @@
 #include "encoder/signal.h"
 #include "encoder/level.h"
 #include "encoder/rc.h"
+#include "encoder/rcfile.h"
 #include "encoder/twopass.h"
 #include "encoder/vbv.h"
 #include "encoder/tables.h"
@@ -458,6 +459,7 @@ typedef struct n265_frame_work {
     int hrd_on;
     unsigned hrd_bit_rate_scale, hrd_bit_rate_value;    /* E.2.3's BitRate */
     unsigned hrd_cpb_size_scale, hrd_cpb_size_value;    /* ...and CpbSize  */
+    int hrd_cbr;            /* --strict-cbr: E.2.3's cbr_flag[0]        */
     double psy;             /* N265_PSY: psychovisual energy strength */
     int dbf_beta, dbf_tc;   /* slice_beta/tc_offset_div2, see n265_encoder */
     /* --cbqpoffs / --crqpoffs: pps_cb_qp_offset / pps_cr_qp_offset, the
@@ -472,6 +474,10 @@ typedef struct n265_frame_work {
     struct n265_refpic *slot;       /* the DPB slot being reconstructed into */
 
     int qp;                 /* this frame's slice QP */
+    int qp_forced;          /* --qpfile / --zones q=N pinned it: the
+                             * cascade, the base's fraction and the AQ
+                             * frame mean are all off, because a user who
+                             * writes q=30 means thirty */
     int poc;
     int slice_type;         /* 2 = I, 1 = P, 0 = B */
     /* Is this picture an IRAP (an IDR)? Every I slice was one until the
@@ -1002,6 +1008,22 @@ struct n265_encoder {
      * is what keeps an identity cmp against an older binary meaningful.
      * x265 writes its --info SEI by DEFAULT; the audit's row says so. */
     int repeat_hdr, aud, eos, eob, info;
+    /* The rate-control exposure (phase 14 item 4). Every one of these is
+     * inert at its default: the QP bounds are the spec's own range and
+     * are only APPLIED when the user narrowed one, the CRF bounds are
+     * only read under --crf, the AU cap is a fraction of 1, and strict
+     * CBR needs --bitrate and a VBV before it exists at all. */
+    int qpmin, qpmax, qp_bounds;
+    double crf_min, crf_max;
+    int crf_bounds;
+    int strict_cbr;
+    double ausize_factor;
+    n265_qpfile qpf;
+    n265_zones zones;
+    int qpf_on, zones_on;
+    bitstream_t fd_bs;      /* the filler data RBSP, rebuilt per AU */
+    long filler_bytes;      /* what strict CBR had to pad, in total */
+    long filler_aus;
     bitstream_t aud_bs;     /* one byte, rewritten per access unit */
     bitstream_t info_bs;    /* the version SEI, built once at open */
     int tail_done;          /* the trailing EOS/EOB have been emitted */
@@ -1733,6 +1755,21 @@ void n265_encoder_set_shot_stats(n265_encoder *e, const char *path);
 /* --csv <file> --csv-log-level <0|1|2> (phase 14 item 4). Called right
  * after open, like the shot sidecar above. */
 void n265_encoder_set_csv(n265_encoder *e, const char *path, int level);
+
+/* --qpmin / --qpmax, then the spec's own clip. The user's bounds are
+ * APPLIED only where one of them narrowed QpY's range, so at the default
+ * this is n265_qp_clip and the compiler sees that. Every place that
+ * finishes a frame's QP goes through here. */
+static inline int n265_qp_bound(const struct n265_encoder *e, int q)
+{
+    if (e->qp_bounds) {
+        if (q < e->qpmin)
+            q = e->qpmin;
+        if (q > e->qpmax)
+            q = e->qpmax;
+    }
+    return n265_qp_clip(q);
+}
 /* access_unit_delimiter_rbsp (7.3.2.5) and the user data unregistered SEI
  * that identifies the encoder (D.2.6). headers.c. */
 void n265_write_aud(bitstream_t *bs, int pic_type);

@@ -25,6 +25,13 @@ void n265_set_metrics(int psnr, int ssim);
  * all five are off by default. */
 void n265_set_nal_opts(int repeat_headers, int aud, int eos, int eob,
                        int info);
+/* --crf-min / --crf-max / --qpmin / --qpmax / --strict-cbr /
+ * --max-ausize-factor, and the two files. The sentinels are the widest
+ * legal values, so "not given" costs nothing. */
+void n265_set_rc_bounds(double crf_min, double crf_max, int qpmin, int qpmax,
+                        int strict_cbr, double ausize_factor);
+void n265_set_qpfile(const char *path);
+void n265_set_zones(const char *spec);
 void n265_encoder_set_csv(n265_encoder *e, const char *path, int level);
 long n265_encoder_metrics(n265_encoder *e, double out[6]);
 /* Two-pass (phase 12 item 4): 1 writes the stats sidecar, 2 plans from it,
@@ -128,6 +135,10 @@ void n265_set_pass_10(int pass, const char *stats);
 void n265_set_metrics_10(int psnr, int ssim);
 void n265_set_nal_opts_10(int repeat_headers, int aud, int eos, int eob,
                           int info);
+void n265_set_rc_bounds_10(double crf_min, double crf_max, int qpmin,
+                           int qpmax, int strict_cbr, double ausize_factor);
+void n265_set_qpfile_10(const char *path);
+void n265_set_zones_10(const char *spec);
 void n265_encoder_set_csv_10(n265_encoder *e, const char *path, int level);
 long n265_encoder_metrics_10(n265_encoder *e, double out[6]);
 
@@ -173,6 +184,9 @@ typedef struct n265_api {
     /* --psnr / --ssim / --csv (phase 14 item 4) */
     void (*set_metrics)(int, int);
     void (*set_nal_opts)(int, int, int, int, int);
+    void (*set_rc_bounds)(double, double, int, int, int, double);
+    void (*set_qpfile)(const char *);
+    void (*set_zones)(const char *);
     void (*set_csv)(n265_encoder *, const char *, int);
     long (*metrics)(n265_encoder *, double *);
 } n265_api;
@@ -190,7 +204,8 @@ static const n265_api api8 = {
     n265_encoder_open, n265_encoder_encode, n265_encoder_close,
     n265_version_str, n265_encoder_set_dump, n265_encoder_set_dump_decode,
     n265_encoder_set_shot_stats,
-    n265_set_metrics, n265_set_nal_opts,
+    n265_set_metrics, n265_set_nal_opts, n265_set_rc_bounds,
+    n265_set_qpfile, n265_set_zones,
     n265_encoder_set_csv, n265_encoder_metrics,
 };
 
@@ -209,7 +224,8 @@ static const n265_api api10 = {
     n265_encoder_encode_10, n265_encoder_close_10, n265_version_str_10,
     n265_encoder_set_dump_10, n265_encoder_set_dump_decode_10,
     n265_encoder_set_shot_stats_10,
-    n265_set_metrics_10, n265_set_nal_opts_10,
+    n265_set_metrics_10, n265_set_nal_opts_10, n265_set_rc_bounds_10,
+    n265_set_qpfile_10, n265_set_zones_10,
     n265_encoder_set_csv_10, n265_encoder_metrics_10,
 };
 
@@ -711,6 +727,53 @@ static void usage(void)
         "                  to 717 MB of peak RSS. Max 300. What it buys and\n"
         "                  what it costs the per-shot quality spread:\n"
         "                  docs/phase7-shot-design.md.\n"
+        "  Rate control, exposed. Every one of these is inert unless you name\n"
+        "  it, and each is refused rather than ignored where the mode it\n"
+        "  needs is absent.\n"
+        "  --crf-min <f>   floor the rate factor --crf may be coded at.\n"
+        "  --crf-max <f>   ...and cap it. Both bound the rate factor AFTER\n"
+        "                  the buffer's own clamp, which is what makes them\n"
+        "                  bounds: under --vbv-maxrate a --crf-max low\n"
+        "                  enough to fight the buffer is a way to ask for\n"
+        "                  an underflow, and this encoder reports that\n"
+        "                  rather than quietly coding past the bound.\n"
+        "                  --crf only; under --bitrate use --qpmin/--qpmax.\n"
+        "  --qpmin <n>     hard bounds on the frame QP the rate control may\n"
+        "  --qpmax <n>     choose, in QpY: 0..51 at 8 bits, -12..51 at\n"
+        "                  Main10. They bound\n"
+        "                  the LOOP's own answer too, so the integral winds\n"
+        "                  against a rate factor it can reach instead of\n"
+        "                  against a clamp applied behind its back.\n"
+        "  --strict-cbr    hold a CONSTANT rate under --bitrate with a VBV:\n"
+        "                  cbr_flag is signalled in the HRD and an access\n"
+        "                  unit that came in under its share is padded with\n"
+        "                  filler data (NAL 38) rather than by making the\n"
+        "                  picture worse. The padding is reported at the end\n"
+        "                  of the run; a run that needed none held the rate\n"
+        "                  on its own.\n"
+        "  --max-ausize-factor <f>  bound ONE access unit at f of the CPB,\n"
+        "                  0.5..1.0 (default 1.0, no bound). An oversized\n"
+        "                  AU is a hard failure in a hardware decoder\n"
+        "                  whatever the buffer says about its neighbours.\n"
+        "                  Needs --vbv-maxrate and --vbv-bufsize.\n"
+        "  --qpfile <file>  force frame types and QPs from a file, x264's\n"
+        "                  format: \"<display frame> <type> [<qp>]\" per\n"
+        "                  line, # for a comment. The types are I or K (a\n"
+        "                  key frame), i (a non-IDR intra picture) and - .\n"
+        "                  P, B and b are REFUSED by name: what they ask\n"
+        "                  for is a mini-GOP shape, and the run length\n"
+        "                  belongs to the plan builder, not to a file.\n"
+        "                  A forced QP is the FRAME's QP, not a base the\n"
+        "                  pyramid cascade then moves.\n"
+        "  --zones <spec>  x265's syntax: zones separated by /, each\n"
+        "                  \"start,end,q=N\" or \"start,end,b=F\", in DISPLAY\n"
+        "                  order. q=N pins the frame QP over the range;\n"
+        "                  b=F is a bit multiplier and lands as the QP\n"
+        "                  offset that buys the same bits, -6 log2 F -\n"
+        "                  it moves the quantiser, not the plan, so the\n"
+        "                  rest of the file does not give the bits back.\n"
+        "                  Overlapping zones are refused.\n"
+        "\n"
         "  Bitstream-level NALs. None of them changes a coded sample and all\n"
         "  of them are OFF by default; every one adds or repeats a NAL.\n"
         "  --repeat-headers  VPS/SPS/PPS lead EVERY IRAP access unit, not\n"
@@ -969,6 +1032,13 @@ int main(int argc, char **argv)
      * not, so that an identity cmp against an older binary keeps meaning
      * what it says (docs/x265-feature-audit.md's row). */
     int repeat_hdr = 0, aud = 0, eos = 0, eob = 0, info = 0;
+    /* The rate-control exposure. The sentinels ARE the widest legal
+     * values, so an unnamed flag and a flag named at its widest are the
+     * same thing and neither is applied. */
+    double crf_lo = -1e9, crf_hi = 1e9;
+    int qpmin = 0, qpmax = 51, strict_cbr = 0, had_qpmin = 0, had_qpmax = 0;
+    double ausize_factor = 1.0;
+    const char *qpfile_path = NULL, *zones_spec = NULL;
     int want_psnr = 0, want_ssim = 0, csv_level = -1;
     const char *csv_path = NULL;
     int nref = 1, badapt = 1;
@@ -1032,6 +1102,22 @@ int main(int argc, char **argv)
                         "(30, 30000/1001, 29.97)\n");
                 return 2;
             }
+        } else if (!strcmp(argv[i], "--crf-min") && i + 1 < argc) {
+            crf_lo = atof(argv[++i]);
+        } else if (!strcmp(argv[i], "--crf-max") && i + 1 < argc) {
+            crf_hi = atof(argv[++i]);
+        } else if (!strcmp(argv[i], "--qpmin") && i + 1 < argc) {
+            qpmin = atoi(argv[++i]); had_qpmin = 1;
+        } else if (!strcmp(argv[i], "--qpmax") && i + 1 < argc) {
+            qpmax = atoi(argv[++i]); had_qpmax = 1;
+        } else if (!strcmp(argv[i], "--strict-cbr")) {
+            strict_cbr = 1;
+        } else if (!strcmp(argv[i], "--max-ausize-factor") && i + 1 < argc) {
+            ausize_factor = atof(argv[++i]);
+        } else if (!strcmp(argv[i], "--qpfile") && i + 1 < argc) {
+            qpfile_path = argv[++i];
+        } else if (!strcmp(argv[i], "--zones") && i + 1 < argc) {
+            zones_spec = argv[++i];
         } else if (!strcmp(argv[i], "--repeat-headers")) {
             repeat_hdr = 1;
         } else if (!strcmp(argv[i], "--no-repeat-headers")) {
@@ -1502,6 +1588,27 @@ int main(int argc, char **argv)
     }
     a->set_metrics(want_psnr, want_ssim);
     a->set_nal_opts(repeat_hdr, aud, eos, eob, info);
+    /* The QP bounds are QpY values, so they carry the depth's floor the
+     * way --qp and --crf do. The rest of the refusals need the STREAM -
+     * whether there is a rate control to bound, whether there is a buffer
+     * to bound an access unit against - and are made at encoder open. */
+    /* Unnamed, the pair IS the depth's own QpY range, which is what
+     * makes it inert: the library applies the bounds only where one of
+     * them was narrowed. The floor is -QpBdOffsetY and not 0, so a
+     * Main10 encode's twelve extra steps stay reachable. */
+    if (!had_qpmin) qpmin = -qp_bd_off;
+    if (!had_qpmax) qpmax = 51;
+    if (qpmin < -qp_bd_off || qpmin > 51 || qpmax < -qp_bd_off ||
+        qpmax > 51) {
+        fprintf(stderr, "n265: --qpmin and --qpmax are QpY values, %d..51 "
+                "at %d bits (QpBdOffsetY, 7.4.3.3)\n", -qp_bd_off,
+                a->depth);
+        return 2;
+    }
+    a->set_rc_bounds(crf_lo, crf_hi, qpmin, qpmax, strict_cbr,
+                     ausize_factor);
+    a->set_qpfile(qpfile_path);
+    a->set_zones(zones_spec);
     a->set_hash(hash);
     /* The default display window is signalled in CHROMA units (7.4.3.2.1)
      * and the flag takes pixels, so an offset that is not a whole number

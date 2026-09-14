@@ -29,11 +29,22 @@ void n265_vbv_init(n265_vbv *v, double maxrate, double bufsize, double init,
     v->min_fill = v->fill;
     v->underflows = 0;
     v->clamped = 0;
+    /* --max-ausize-factor's ceiling is set by the CALLER after this
+     * returns, so it is cleared here: every field of the struct has to be
+     * written by this function or a caller with one on the stack (the
+     * unit test) inherits whatever was there. */
+    v->au_cap = 0.0;
 }
 
 double n265_vbv_allow(const n265_vbv *v, const double *future, int n)
 {
     double lim = v->fill;               /* k = 0: this removal alone */
+    /* --max-ausize-factor. It bounds the SINGLE access unit and nothing
+     * else, so it lands before the cumulative window bound and can only
+     * tighten it: an oversized AU is a hard failure in a hardware decoder
+     * whatever the buffer says about the frames around it. */
+    if (v->au_cap > 0.0 && lim > v->au_cap)
+        lim = v->au_cap;
     if (v->lookahead && future) {
         double cum = 0.0;
         double w = lim;

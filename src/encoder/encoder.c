@@ -54,6 +54,14 @@ static int g_qp = 26;
 static int g_met_psnr, g_met_ssim;   /* --psnr / --ssim */
 /* --repeat-headers / --aud / --eos / --eob / --info. All off. */
 static int g_repeat_hdr, g_aud, g_eos, g_eob, g_info;
+/* The rate-control exposure. The sentinels ARE the spec's own bounds and
+ * 1.0, so "not given" and "given the widest legal value" are the same
+ * thing and the default path is the arithmetic it always was. */
+static int g_qpmin = N265_QP_MIN, g_qpmax = N265_QP_MAX, g_qp_bounds;
+static double g_crf_min = -1e9, g_crf_max = 1e9;
+static int g_crf_bounds, g_strict_cbr;
+static double g_ausize_factor = 1.0;
+static const char *g_qpfile_path, *g_zones_spec;
 static double g_crf = -1.0;      /* n265_set_crf's rate factor (a QpY) */
 /* Whether n265_set_crf was called at all. It used to be `g_crf >= 0`, which
  * is why --crf could not reach the twelve QP steps below zero that Main10
@@ -188,6 +196,32 @@ void n265_set_nal_opts(int repeat_headers, int aud, int eos, int eob,
     g_eob = eob != 0;
     g_info = info != 0;
 }
+
+/* --crf-min / --crf-max / --qpmin / --qpmax / --strict-cbr /
+ * --max-ausize-factor (phase 14 item 4). Sentinels: the two CRF bounds
+ * are +-1e9, the two QP bounds are the spec's own range, and the AU
+ * factor is 1. At those values nothing below is applied at all. */
+void n265_set_rc_bounds(double crf_min, double crf_max, int qpmin, int qpmax,
+                        int strict_cbr, double ausize_factor);
+void n265_set_rc_bounds(double crf_min, double crf_max, int qpmin, int qpmax,
+                        int strict_cbr, double ausize_factor)
+{
+    g_crf_min = crf_min;
+    g_crf_max = crf_max;
+    g_crf_bounds = crf_min > -1e8 || crf_max < 1e8;
+    g_qpmin = qpmin;
+    g_qpmax = qpmax;
+    g_qp_bounds = qpmin > N265_QP_MIN || qpmax < N265_QP_MAX;
+    g_strict_cbr = strict_cbr != 0;
+    g_ausize_factor = ausize_factor;
+}
+
+/* --qpfile / --zones. The path and the spec outlive the encoder (they are
+ * argv); both are PARSED at open, where a refusal can name the line. */
+void n265_set_qpfile(const char *path);
+void n265_set_qpfile(const char *path) { g_qpfile_path = path; }
+void n265_set_zones(const char *spec);
+void n265_set_zones(const char *spec) { g_zones_spec = spec; }
 
 void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes,
                    int aq);
@@ -941,6 +975,7 @@ static void fw_config(n265_encoder *e, n265_frame_work *fw)
     fw->hrd_on = e->hrd_on;
     fw->hrd_bit_rate_scale = e->hrd_bit_rate_scale;
     fw->hrd_bit_rate_value = e->hrd_bit_rate_value;
+    fw->hrd_cbr = e->strict_cbr;
     fw->hrd_cpb_size_scale = e->hrd_cpb_size_scale;
     fw->hrd_cpb_size_value = e->hrd_cpb_size_value;
     fw->psy = e->psy;
@@ -1146,6 +1181,14 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->c422 = e->chroma_idc == 2;
     e->met.psnr = g_met_psnr;
     e->met.ssim = g_met_ssim;
+    e->qpmin = g_qpmin;
+    e->qpmax = g_qpmax;
+    e->qp_bounds = g_qp_bounds;
+    e->crf_min = g_crf_min;
+    e->crf_max = g_crf_max;
+    e->crf_bounds = g_crf_bounds;
+    e->strict_cbr = g_strict_cbr;
+    e->ausize_factor = g_ausize_factor;
     e->repeat_hdr = g_repeat_hdr;
     e->aud = g_aud;
     e->eos = g_eos;
@@ -1603,6 +1646,84 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         { const char *v = n265_env("N265_VBV_RESERVE"); if (v) reserve = atof(v); }
         n265_vbv_init(&e->vbv, maxrate, bufsize, g_vbv_init, fps, safe, vla,
                       reserve);
+        /* ---- the rate-control exposure (phase 14 item 4) ----
+         *
+         * Three of the six need a buffer or a rate control to mean
+         * anything, and every one of those is refused at open rather
+         * than ignored: a flag that quietly does nothing is worse than
+         * no flag, because the encode still finishes and the number
+         * still looks like a result. */
+        if (e->ausize_factor < 0.5 || e->ausize_factor > 1.0) {
+            fprintf(stderr, "n265: --max-ausize-factor is a fraction of the "
+                            "CPB in [0.5, 1.0]; %g is not\n",
+                    e->ausize_factor);
+            goto fail;
+        }
+        if (e->ausize_factor < 1.0) {
+            if (!e->vbv.on) {
+                fprintf(stderr, "n265: --max-ausize-factor bounds an access "
+                                "unit against the CPB, so it needs "
+                                "--vbv-maxrate and --vbv-bufsize\n");
+                goto fail;
+            }
+            e->vbv.au_cap = e->ausize_factor * e->vbv.bufsize;
+        }
+        if (e->strict_cbr && !(e->vbv.on && e->abr_on)) {
+            fprintf(stderr, "n265: --strict-cbr is the constant-rate form of "
+                            "ABR under a buffer: it needs --bitrate with "
+                            "--vbv-maxrate and --vbv-bufsize\n");
+            goto fail;
+        }
+        if (e->strict_cbr && bs_init(&e->fd_bs, 4096) < 0)
+            goto fail;
+        if (e->crf_bounds) {
+            if (!e->crf_on) {
+                fprintf(stderr, "n265: --crf-min and --crf-max bound the "
+                                "RATE FACTOR, so they need --crf. Under "
+                                "--bitrate the bounds on the loop's answer "
+                                "are --qpmin and --qpmax.\n");
+                goto fail;
+            }
+            if (e->crf_min > e->crf_max) {
+                fprintf(stderr, "n265: --crf-min %g is above --crf-max %g\n",
+                        e->crf_min, e->crf_max);
+                goto fail;
+            }
+        }
+        if (e->qpmin > e->qpmax) {
+            fprintf(stderr, "n265: --qpmin %d is above --qpmax %d\n",
+                    e->qpmin, e->qpmax);
+            goto fail;
+        }
+        if (e->qp_bounds && !(e->abr_on || e->crf_on)) {
+            fprintf(stderr, "n265: --qpmin and --qpmax bound what the rate "
+                            "control may choose; under --qp the quantiser "
+                            "is already yours\n");
+            goto fail;
+        }
+        if (g_qpfile_path && g_zones_spec) {
+            fprintf(stderr, "n265: --qpfile and --zones both pin a "
+                            "quantiser onto the timeline; pick one\n");
+            goto fail;
+        }
+        if (g_qpfile_path) {
+            char err[512] = "";
+            if (n265_qpfile_parse(&e->qpf, g_qpfile_path, err,
+                                  sizeof(err)) < 0) {
+                fprintf(stderr, "n265: --qpfile: %s\n", err);
+                goto fail;
+            }
+            e->qpf_on = 1;
+        }
+        if (g_zones_spec) {
+            char err[512] = "";
+            if (n265_zones_parse(&e->zones, g_zones_spec, err,
+                                 sizeof(err)) < 0) {
+                fprintf(stderr, "n265: %s\n", err);
+                goto fail;
+            }
+            e->zones_on = 1;
+        }
         e->vbv_trace = n265_env("N265_VBV_TRACE") != NULL;
         { const char *v = n265_env("N265_VBV_HRD");
           e->vbv_hrd = v ? atoi(v) != 0 : 1; }
@@ -2009,6 +2130,13 @@ void n265_encoder_close(n265_encoder *e)
         fclose(e->shot_f);
         e->shot_f = NULL;
     }
+    /* --strict-cbr: say how much of the stream is padding. A run that
+     * needed none held the rate on its own; one that is a third filler is
+     * telling you the target is above what the content costs. */
+    if (e->strict_cbr)
+        fprintf(stderr, "n265: --strict-cbr: %ld filler bytes in %ld of %ld "
+                "access units\n", e->filler_bytes, e->filler_aus,
+                e->frames_out);
     /* --csv: the summary row, once everything has retired. */
     if (e->csv.f) {
         n265_csv_summary(&e->csv, e->met_frames, e->met_bytes,
@@ -2170,6 +2298,9 @@ void n265_encoder_close(n265_encoder *e)
     bs_free(&e->hash_bs);
     bs_free(&e->aud_bs);
     bs_free(&e->info_bs);
+    bs_free(&e->fd_bs);
+    n265_qpfile_free(&e->qpf);
+    n265_zones_free(&e->zones);
     free(e->out);
     free(e);
 }
@@ -3620,6 +3751,19 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                                  base, &fw->vbv_pred, &fw->vbv_allow,
                                  &fw->vbv_dqp);
     }
+    /* --crf-max / --crf-min: the user's own bounds on the rate factor,
+     * and they are the LAST thing that may move it - after the buffer's
+     * clamp, because a ceiling the buffer then raised through would not
+     * be a ceiling. x265's semantics, and x265's warning with them:
+     * under a VBV a --crf-max low enough to fight the buffer is a way to
+     * ask for an underflow, and this encoder will report it rather than
+     * quietly raise the quantiser past the bound it was given. */
+    if (e->crf_on && e->crf_bounds) {
+        if (base > e->crf_max)
+            base = e->crf_max;
+        if (base < e->crf_min)
+            base = e->crf_min;
+    }
     /* the pyramid QP cascade: I anchors -3, P anchors +0, and each B layer
      * one step deeper than its parent (the reference B nearest the anchors
      * codes best, the leaves worst). N265_PB_STEP scales the per-layer
@@ -3659,10 +3803,47 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
     if (frac_on && e->crf_on && e->cutree && fw->flat && !e->qp_frac_flat &&
         (double)e->ct_framew_flat == (double)e->ct_qpw)
         frac_on = 0;
+    /* --zones and --qpfile: the user pinning a quantiser onto a range of
+     * the DISPLAY timeline, from outside the rate control.
+     *
+     * A forced QP is the FRAME's QP and not a base the cascade then moves:
+     * a user who writes `q=30` over a mini-GOP means thirty, and a ladder
+     * on top of it would code the leaves at thirty-four. So the cascade
+     * and the base's carried fraction both go to zero with it. `b=F` is
+     * the other shape - a bit MULTIPLIER - and it lands as the QP offset
+     * that buys the same bits, -6 log2 F, because there is no zone-aware
+     * allocator here to hand a second budget to. That is the cheap form
+     * and the docs say so: it moves the quantiser, not the plan, so the
+     * rest of the file does not give the bits back. */
+    double forced = 1e9;
+    if (e->zones_on) {
+        const n265_zone *z = n265_zones_at(&e->zones, fw->display_idx);
+        if (z && z->has_q)
+            forced = z->q;
+        else if (z && z->b != 1.0)
+            base -= 6.0 * log2(z->b);
+    }
+    if (e->qpf_on) {
+        const n265_qpent *qe = n265_qpfile_at(&e->qpf, fw->display_idx);
+        if (qe && qe->qp >= 0.0)
+            forced = qe->qp;
+    }
+    fw->qp_forced = 0;
+    if (forced < 1e8) {
+        base = forced;
+        cascade = 0;
+        frac_on = 0;
+        fw->qp_forced = 1;
+    }
     int qi = (int)lround(base);
     double qfrac = frac_on ? base - (double)qi : 0.0;
     int q = qi + cascade;
-    fw->qp = n265_qp_clip(q);
+    /* --qpmin / --qpmax: the hard bounds, after everything that decides.
+     * Applied only where the user narrowed the spec's own range, so the
+     * default path is the clip it always was. A forced QP is bounded too:
+     * the bounds are what the stream may contain, and a qpfile is not a
+     * licence to leave the range the encode was configured for. */
+    fw->qp = n265_qp_bound(e, q);
     if (n265_dup_trace())
         dup_trace_dispatch(e, fw);
 
@@ -3909,13 +4090,13 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
              * ABR frame of every 10-bit clip would take a flat +4 QP on
              * its base - the largest single mis-calibration this item had
              * to find, and one no conformance vector would have caught. */
-            if (e->crf_on || e->abr_on) {
+            if ((e->crf_on || e->abr_on) && !fw->qp_forced) {
                 const char *v = n265_env("N265_AQ_DC"), *a = n265_env("N265_AQ_ANCHOR");
                 double anchor = (a ? atof(a) : 6.4) + 2.0 * BIT_DEPTH_SHIFT;
                 double dc = (v ? atof(v) : 1.0) * (avg_dc - anchor);
                 int dci = (int)lround(dc);
                 int nq = fw->qp + dci;
-                fw->qp = n265_qp_clip(nq);
+                fw->qp = n265_qp_bound(e, nq);
                 if (frac_on)
                     qfrac += dc - (double)dci;
             }
@@ -4478,6 +4659,42 @@ static void join_oldest(n265_encoder *e)
         n265_write_hash_sei(&e->hash_bs, &h, 3);
         pack_nal(d, N265_NAL_SUFFIX_SEI, e->hash_bs.buf, e->hash_bs.bytes);
     }
+    /* --strict-cbr: the padding half. Our CPB is E.2.3's cbr_flag = 0
+     * model, where arrival STOPS at a full buffer - which is what lets the
+     * mode ride CRF and be met by raising a quantiser alone. Strict CBR is
+     * the other flag: arrival never stops, so a frame that came in UNDER
+     * its share would overflow the buffer, and the only conforming way to
+     * spend the difference is filler data (NAL 38, D-less: a run of 0xFF
+     * and a stop bit).
+     *
+     * It is deliberately NOT met by making the picture worse. The bits
+     * exist to hold a constant arrival rate, not to buy quality, and an
+     * encoder that spent them inside the picture would be answering a
+     * transport question with a quantiser.
+     *
+     * Computed here, on the driver, in removal order, off the access
+     * unit's own size - so the padding is a pure function of the encode
+     * and comes out the same at every thread count. */
+    if (e->vbv.on && e->strict_cbr) {
+        double bits = (double)d->len * 8.0;
+        double over = e->vbv.fill - bits + e->vbv.inflow - e->vbv.bufsize;
+        if (over > 0.0) {
+            /* the NAL costs 4 bytes of start code, 2 of header and the
+             * stop byte before a single 0xFF is written, so ask for the
+             * remainder. Overshooting by a few bytes is harmless - the
+             * buffer ends less full, never fuller. */
+            long need = (long)ceil(over / 8.0) - 7;
+            if (need < 0)
+                need = 0;
+            bs_reset(&e->fd_bs);
+            for (long i = 0; i < need; i++)
+                bs_put_bits(&e->fd_bs, 0xff, 8);
+            bs_rbsp_trailing(&e->fd_bs);
+            pack_nal(d, N265_NAL_FD, e->fd_bs.buf, e->fd_bs.bytes);
+            e->filler_bytes += (long)need + 7;
+            e->filler_aus++;
+        }
+    }
     e->n_done++;
     e->frames_out++;
     dump_recon_frame(e, fw);
@@ -4908,6 +5125,14 @@ static int min_keyint(n265_encoder *e)
 static int la_is_idr(n265_encoder *e, int i)
 {
     int d = e->la.f[i].display_idx;
+    /* --qpfile: an `I` or `K` line forces a key frame here. It is the one
+     * type a file can ask for without asking the plan builder for a
+     * mini-GOP shape, which is why it is the one this encoder honours. */
+    if (e->qpf_on) {
+        const n265_qpent *qe = n265_qpfile_at(&e->qpf, d);
+        if (qe && qe->type == N265_QPF_IDR)
+            return 1;
+    }
     return e->mode == N265_MODE_PCM || e->keyint == 1 || (d % e->keyint) == 0 ||
            !e->ref_valid ||
            (e->scenecut && d - e->gop_start_display >= min_keyint(e) &&
@@ -4938,6 +5163,11 @@ static int la_is_nonidr_i(n265_encoder *e, int i)
     if (e->mode == N265_MODE_PCM || la_is_idr(e, i))
         return 0;
     int d = e->la.f[i].display_idx;
+    if (e->qpf_on) {
+        const n265_qpent *qe = n265_qpfile_at(&e->qpf, d);
+        if (qe && qe->type == N265_QPF_I)
+            return 1;
+    }
     if (d == force_nonidr_env())
         return 1;
     if (e->ref_max < 2)
@@ -5105,6 +5335,11 @@ int n265_rc_future_idr(n265_encoder *e, int i)
     if (i < 0 || i >= e->la.count)
         return 0;
     int d = e->la.f[i].display_idx;
+    if (e->qpf_on) {
+        const n265_qpent *qe = n265_qpfile_at(&e->qpf, d);
+        if (qe && qe->type == N265_QPF_IDR)
+            return 1;
+    }
     return e->keyint == 1 || (d % e->keyint) == 0 ||
            (e->scenecut && d - e->gop_start_display >= min_keyint(e) &&
             n265_la_scenecut(e, i));

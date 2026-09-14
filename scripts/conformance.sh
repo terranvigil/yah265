@@ -1076,6 +1076,18 @@ run_vector fgc_denoise   352x288 20 testsrc2 "--keyint 6 --bframes 3 --aq 1 --cu
 # frames is what makes --repeat-headers and --eos do their work more than
 # once, which is where a "once at the start" bug would hide.
 run_vector nal_opts      352x288 24 testsrc2 "--keyint 6 --bframes 3 --qp 30 --repeat-headers --aud --eos --eob --info --threads 4"
+# The rate-control exposure (phase 14 item 4). Two of its nine put
+# something in the BITSTREAM and so are conformance claims rather than
+# arithmetic: --strict-cbr writes filler data NALs (38) and sets
+# cbr_flag in the HRD, which is a NAL type and a schedule flag nothing
+# else in this suite produces; --qpfile moves a key frame off the keyint
+# grid, which changes the POC line and the reference lists around it.
+# --zones rides with the first because it is the other way a quantiser
+# gets pinned from outside the loop, and a pinned QP that the AQ frame
+# mean then moved would decode fine and be wrong.
+printf '0 I 26\n7 I\n13 I 30\n' > "$TMP/rc_qpfile.txt"
+run_vector rc_qpfile     352x288 20 testsrc2 "--keyint 100 --bframes 3 --crf 28 --qpfile $TMP/rc_qpfile.txt --threads 4"
+run_vector rc_cbr        352x288 24 testsrc2 "--keyint 8 --bframes 3 --bitrate 700 --vbv-maxrate 700 --vbv-bufsize 700 --strict-cbr --max-ausize-factor 0.6 --qpmin 20 --qpmax 44 --zones 0,7,q=32 --threads 4"
 
 if [ "$FAST" -eq 0 ]; then
     run_vector thr4_720    1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 4"

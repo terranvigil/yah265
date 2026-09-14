@@ -179,6 +179,9 @@
 #define n265_pred_dc                 n265_pred_dc_10
 #define n265_psy_cost                n265_psy_cost_10
 #define n265_psy_energy              n265_psy_energy_10
+#define n265_qpfile_at               n265_qpfile_at_10
+#define n265_qpfile_free             n265_qpfile_free_10
+#define n265_qpfile_parse            n265_qpfile_parse_10
 #define n265_qpmap_row               n265_qpmap_row_10
 #define n265_quant                   n265_quant_10
 #define n265_quant_neon              n265_quant_neon_10
@@ -200,6 +203,9 @@
 #define n265_set_metrics             n265_set_metrics_10
 #define n265_set_nal_opts            n265_set_nal_opts_10
 #define n265_set_pass                n265_set_pass_10
+#define n265_set_qpfile              n265_set_qpfile_10
+#define n265_set_rc_bounds           n265_set_rc_bounds_10
+#define n265_set_zones               n265_set_zones_10
 #define n265_vbv_allow               n265_vbv_allow_10
 #define n265_vbv_crf_base            n265_vbv_crf_base_10
 #define n265_vbv_init                n265_vbv_init_10
@@ -313,6 +319,9 @@
 #define n265_write_pps               n265_write_pps_10
 #define n265_write_sps               n265_write_sps_10
 #define n265_write_vps               n265_write_vps_10
+#define n265_zones_at                n265_zones_at_10
+#define n265_zones_free              n265_zones_free_10
+#define n265_zones_parse             n265_zones_parse_10
 #define n265_zorder                  n265_zorder_10
 #define nal_pack                     nal_pack_10
 #define nal_pack_bound               nal_pack_bound_10
