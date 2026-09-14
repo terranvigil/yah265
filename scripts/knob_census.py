@@ -151,6 +151,13 @@ OVERRIDES = {
     "N265_SUBME_RUNG": "arm",
     "N265_RUNG_GATE": "arm",
     "N265_RUNG_RERANK": "arm",
+    # phase 11 item 4: the static commit and its conjunct mask. SC_CONJ
+    # resolves nonzero, so the heuristic calls it a shipped default; it is
+    # moot unless N265_STATIC_COMMIT is armed, which makes it the arm's
+    # parameter and not a default of its own - the same correction
+    # N265_RUNG_GATE takes above.
+    "N265_STATIC_COMMIT": "arm",
+    "N265_SC_CONJ": "arm",
     # the lattice IS the shipped default (1) and the env is its escape; it
     # is catalogued in docs/instruments.md because value 2 - the
     # commit-only form, phase 9 step 2 - is an arm with a census behind
