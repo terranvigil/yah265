@@ -13,10 +13,13 @@ where it is not has a CRA that is not a random access point, whatever its
 NAL type says.
 
 So this script cuts the stream at a CRA the way a player seeking to one
-does - the access unit's prefix SEIs come with it, and the parameter sets
-from the head of the stream go in front, which is what a container hands
-a decoder on a seek and what --repeat-headers would put in the elementary
-stream itself - and feeds the result to BOTH decoders:
+does. The cut takes the whole access unit: its access unit delimiter and
+its prefix SEIs come with the picture. The parameter sets go in front
+ONLY when that access unit does not already carry them - under
+`--repeat-headers` it does, and an open-GOP stream written with that flag
+is seekable on its own; without it they come from the head of the stream,
+which is what a container hands a decoder on a seek. Then both decoders
+get the result:
 
   ffmpeg   compared in OUTPUT order, byte for byte, against the tail of
            the full decode.
