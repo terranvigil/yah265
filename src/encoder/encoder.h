@@ -995,6 +995,17 @@ struct n265_encoder {
      * here is read on a worker. */
     n265_signal sig;
     bitstream_t hash_bs;    /* the scratch the picture hash is built in */
+    /* --repeat-headers / --aud / --eos / --eob / --info (phase 14 item 4):
+     * the NALs an access unit may carry besides its own. Every one of them
+     * is OFF by default, `--info` included, so the default bitstream is
+     * byte-for-byte the one this encoder wrote before they existed - which
+     * is what keeps an identity cmp against an older binary meaningful.
+     * x265 writes its --info SEI by DEFAULT; the audit's row says so. */
+    int repeat_hdr, aud, eos, eob, info;
+    bitstream_t aud_bs;     /* one byte, rewritten per access unit */
+    bitstream_t info_bs;    /* the version SEI, built once at open */
+    int tail_done;          /* the trailing EOS/EOB have been emitted */
+    long frames_out;        /* access units packed, for "not the first" */
     /* --film-grain / --film-grain-denoise (phase 12 item 3). OPT-IN and
      * nothing but: strength 0 is the default, and at 0 the estimator is
      * never opened, no picture is touched and no SEI is written, which is
@@ -1722,6 +1733,10 @@ void n265_encoder_set_shot_stats(n265_encoder *e, const char *path);
 /* --csv <file> --csv-log-level <0|1|2> (phase 14 item 4). Called right
  * after open, like the shot sidecar above. */
 void n265_encoder_set_csv(n265_encoder *e, const char *path, int level);
+/* access_unit_delimiter_rbsp (7.3.2.5) and the user data unregistered SEI
+ * that identifies the encoder (D.2.6). headers.c. */
+void n265_write_aud(bitstream_t *bs, int pic_type);
+void n265_write_info_sei(bitstream_t *bs, const char *ver);
 /* The pooled metrics, for the caller's end-of-run line: psnr Y/U/V, the
  * pixel-weighted psnr average, SSIM-Y and SSIM in dB. Returns the number
  * of frames measured, 0 when neither metric was asked for. */

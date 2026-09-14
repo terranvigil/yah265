@@ -725,3 +725,48 @@ void n265_write_hash_sei(bitstream_t *bs, const n265_pic_hash *h, int ncomp)
     sei_wrap(bs, at, 132);          /* SEI_TYPE_DECODED_PICTURE_HASH */
     bs_rbsp_trailing(bs);
 }
+
+/* access_unit_delimiter_rbsp (7.3.2.5), the first NAL of an access unit
+ * when --aud is on. Its whole content is pic_type, u(3): 0 says the AU
+ * holds only I slices, 1 that it holds P or I, 2 that it holds B, P or I.
+ * It is advisory - a decoder needs none of it - and some transport
+ * muxers want the AU boundary spelled out rather than inferred from the
+ * first_slice_segment_in_pic_flag of the next VCL NAL. */
+void n265_write_aud(bitstream_t *bs, int pic_type)
+{
+    bs_reset(bs);
+    bs_put_bits(bs, (uint32_t)pic_type, 3);
+    bs_rbsp_trailing(bs);
+}
+
+/* user_data_unregistered (D.2.6), the "which build made this stream"
+ * message, in a prefix SEI NAL. The UUID is this project's own, fixed
+ * here for the life of the format: a reader that finds it knows the rest
+ * of the payload is a yah265 version string in ASCII and not somebody
+ * else's binary blob.
+ *
+ * Unlike x265's, ours is OFF by default. The reason is the identity cmp:
+ * turning it on would change every bitstream this encoder has ever
+ * written by one SEI, and an escape cmp against an older binary would
+ * then be a diff on every cell for a reason that has nothing to do with
+ * the change being gated. The audit's row records that x265's default is
+ * the other way and that the flip is the owner's call. */
+void n265_write_info_sei(bitstream_t *bs, const char *ver)
+{
+    /* yah265, 2026-09-14; a random 128-bit value, not derived from
+     * anything and not anyone else's. */
+    static const uint8_t uuid[16] = {
+        0x7a, 0xa4, 0x16, 0x3d, 0xc8, 0x5e, 0x4f, 0x71,
+        0x9d, 0x2c, 0x6b, 0x08, 0xe3, 0x51, 0xa7, 0x94,
+    };
+    bs_reset(bs);
+    for (int i = 0; i < 16; i++)
+        bs_put_bits(bs, uuid[i], 8);
+    /* The payload bytes are the version string WITHOUT its terminator:
+     * the message's length is what delimits it, so a NUL inside would be
+     * a byte a reader has to guess about. */
+    for (const char *p = ver; *p; p++)
+        bs_put_bits(bs, (uint8_t)*p, 8);
+    sei_wrap(bs, 0, 5);             /* SEI_TYPE_USER_DATA_UNREGISTERED */
+    bs_rbsp_trailing(bs);
+}

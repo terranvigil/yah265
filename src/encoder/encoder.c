@@ -52,6 +52,8 @@ void n265_param_default(n265_param *p)
 static int g_mode = N265_MODE_INTRA;
 static int g_qp = 26;
 static int g_met_psnr, g_met_ssim;   /* --psnr / --ssim */
+/* --repeat-headers / --aud / --eos / --eob / --info. All off. */
+static int g_repeat_hdr, g_aud, g_eos, g_eob, g_info;
 static double g_crf = -1.0;      /* n265_set_crf's rate factor (a QpY) */
 /* Whether n265_set_crf was called at all. It used to be `g_crf >= 0`, which
  * is why --crf could not reach the twelve QP steps below zero that Main10
@@ -167,6 +169,24 @@ void n265_set_metrics(int psnr, int ssim)
 {
     g_met_psnr = psnr != 0;
     g_met_ssim = ssim != 0;
+}
+
+/* --repeat-headers / --aud / --eos / --eob / --info (phase 14 item 4).
+ * One setter for the five NAL-level switches: each one either adds a NAL
+ * to the stream or repeats one, and none of them touches a coded sample.
+ * Every one is OFF by default, --info included - x265 writes its
+ * identifying SEI by default and this does not, so that an identity cmp
+ * against an older binary keeps meaning what it says. */
+void n265_set_nal_opts(int repeat_headers, int aud, int eos, int eob,
+                       int info);
+void n265_set_nal_opts(int repeat_headers, int aud, int eos, int eob,
+                       int info)
+{
+    g_repeat_hdr = repeat_headers != 0;
+    g_aud = aud != 0;
+    g_eos = eos != 0;
+    g_eob = eob != 0;
+    g_info = info != 0;
 }
 
 void n265_set_mode(int mode, int qp, int ctb_log2, int keyint, int bframes,
@@ -1126,6 +1146,11 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->c422 = e->chroma_idc == 2;
     e->met.psnr = g_met_psnr;
     e->met.ssim = g_met_ssim;
+    e->repeat_hdr = g_repeat_hdr;
+    e->aud = g_aud;
+    e->eos = g_eos;
+    e->eob = g_eob;
+    e->info = g_info;
     e->qp_base = g_qp;
     e->crf_on = g_crf_on;
     e->crf = g_crf;
@@ -1587,6 +1612,16 @@ n265_encoder *n265_encoder_open(const n265_param *p)
          * a syntax element the CLI bounded, and there is nothing about the
          * STREAM that could refuse one - a colour primary is a claim about
          * the source, not about anything this encoder decides. */
+        /* --aud: one byte per access unit, rewritten in place. --info:
+         * the version SEI is a constant, so it is built once here and
+         * packed by pointer wherever the parameter sets go. */
+        if (e->aud && bs_init(&e->aud_bs, 8) < 0)
+            goto fail;
+        if (e->info) {
+            if (bs_init(&e->info_bs, 128) < 0)
+                goto fail;
+            n265_write_info_sei(&e->info_bs, n265_version_str());
+        }
         e->sig = g_sig;
         if (e->sig.hash) {
             /* the scratch one picture's hash message is built in: 64 bytes
@@ -2133,6 +2168,8 @@ void n265_encoder_close(n265_encoder *e)
     n265_la_free(e);
     bs_free(&e->hrd_bs);
     bs_free(&e->hash_bs);
+    bs_free(&e->aud_bs);
+    bs_free(&e->info_bs);
     free(e->out);
     free(e);
 }
@@ -3629,7 +3666,14 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
     if (n265_dup_trace())
         dup_trace_dispatch(e, fw);
 
-    if (e->frames_done == 0) {
+    /* --repeat-headers: VPS/SPS/PPS lead EVERY IRAP access unit, not just
+     * the first, so a receiver joining mid-stream - broadcast, RTP, an
+     * HLS segment boundary - has the parameter sets it needs. The three
+     * are a pure function of config here and never change mid-stream, so
+     * the repeat is the same three RBSPs and the stash below can be
+     * rewritten in place: dispatch and retirement both run on the driver,
+     * serially, and nothing between them reads the stash. */
+    if (e->frames_done == 0 || (e->repeat_hdr && fw->idr)) {
         /* The headers are a pure function of config, so they are written
          * here and packed when this frame retires: under overlap the
          * output ring is walked in coding order, not in completion
@@ -4383,9 +4427,30 @@ static void join_oldest(n265_encoder *e)
     double t_j1 = e->la_prof ? prof_now() : 0.0;
     if (e->la_prof) e->prof_join += t_j1 - t_j0;
     struct n265_done *d = done_slot(e);
+    /* --eos: an end of sequence NAL closes every coded video sequence, and
+     * an IDR opens a new one - so the message belongs to the END of the
+     * PREVIOUS access unit and is written just ahead of this one's first
+     * NAL. The last CVS is closed in the flush, where the stream ends.
+     * end_of_seq_rbsp() has no syntax elements at all, so the NAL is its
+     * two-byte header and nothing else. */
+    if (e->eos && fw->idr && e->frames_out > 0)
+        pack_nal(d, N265_NAL_EOS, NULL, 0);
+    /* --aud: the access unit delimiter is the FIRST NAL of its access
+     * unit (7.4.2.4.4), ahead of the parameter sets. */
+    if (e->aud) {
+        n265_write_aud(&e->aud_bs, fw->slice_type == 2 ? 0
+                                 : fw->slice_type == 1 ? 1 : 2);
+        pack_nal(d, N265_NAL_AUD, e->aud_bs.buf, e->aud_bs.bytes);
+    }
     if (fw->emit_headers)
         for (int i = 0; i < e->nhdr; i++)
             pack_nal(d, e->hdr_type[i], e->hdr_rbsp[i], e->hdr_len[i]);
+    /* --info: the version SEI goes wherever the parameter sets go, which
+     * is the first access unit and - under --repeat-headers - every IRAP,
+     * so a receiver that joins mid-stream learns the same thing about the
+     * encoder that one joining at the start does. */
+    if (e->info && fw->emit_headers)
+        pack_nal(d, N265_NAL_PREFIX_SEI, e->info_bs.buf, e->info_bs.bytes);
     /* 7.4.2.4.4: a prefix SEI follows the parameter sets of its access
      * unit and precedes the first VCL NAL of that unit. The HRD timing
      * pair leads the grain message, for the reason headers.c gives. */
@@ -4414,6 +4479,7 @@ static void join_oldest(n265_encoder *e)
         pack_nal(d, N265_NAL_SUFFIX_SEI, e->hash_bs.buf, e->hash_bs.bytes);
     }
     e->n_done++;
+    e->frames_out++;
     dump_recon_frame(e, fw);
     metrics_frame(e, fw, d->len);
     /* N265_DEPTH_DUMP: the frame's per-CTU training records, in raster
@@ -5693,6 +5759,23 @@ int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
             drive_scheduler(e);
         if (e->n_done == 0 && e->n_inflight)
             join_oldest(e);
+        /* --eos / --eob: the trailing NALs, once, after the last access
+         * unit of the stream. They are their own ring slot, so they ride
+         * the same deferred path every other NAL rides and the caller's
+         * drain loop hands them out before it sees the empty return that
+         * ends it. EOS closes the last coded video sequence; EOB closes
+         * the bitstream and is the last NAL there is. Neither has any
+         * syntax elements. */
+        if (!e->tail_done && (e->eos || e->eob) && e->frames_out > 0 &&
+            e->la.count == 0 && e->n_inflight == 0 && e->n_done == 0) {
+            e->tail_done = 1;
+            struct n265_done *d = done_slot(e);
+            if (e->eos)
+                pack_nal(d, N265_NAL_EOS, NULL, 0);
+            if (e->eob)
+                pack_nal(d, N265_NAL_EOB, NULL, 0);
+            e->n_done++;
+        }
         {
             double t = e->la_prof ? prof_now() : 0.0;
             emit_done(e, e->defer_out ? INT_MAX : 1, &out_used, &count);

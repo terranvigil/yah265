@@ -1067,6 +1067,15 @@ run_vector hash_md5      352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 26 -
 run_vector vui_colour    210x122 12 testsrc2 "--keyint 6 --bframes 3 --qp 30 --colorprim bt709 --transfer bt709 --colormatrix bt709 --range full --videoformat pal --chromaloc 0 --overscan crop --sar 16:9 --display-window 2,2,4,4 --threads 4"
 run_vector fgc_sei       352x288 20 testsrc2 "--keyint 6 --bframes 3 --aq 1 --cutree 1 --film-grain 1.0 --threads 4"
 run_vector fgc_denoise   352x288 20 testsrc2 "--keyint 6 --bframes 3 --aq 1 --cutree 1 --film-grain 1.0 --film-grain-denoise 1 --threads 12"
+# The NAL-level switches (phase 14 item 4). Every one of them puts a NAL
+# in the stream that nothing else here writes - an access unit delimiter
+# (35), an end of sequence (36), an end of bitstream (37), a repeated
+# parameter set at a mid-stream IRAP, and a user data unregistered SEI -
+# and the claim is exactly a conformance claim: a decoder that stumbles
+# on one of them loses the access unit it sits in. --keyint 6 over 24
+# frames is what makes --repeat-headers and --eos do their work more than
+# once, which is where a "once at the start" bug would hide.
+run_vector nal_opts      352x288 24 testsrc2 "--keyint 6 --bframes 3 --qp 30 --repeat-headers --aud --eos --eob --info --threads 4"
 
 if [ "$FAST" -eq 0 ]; then
     run_vector thr4_720    1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 4"

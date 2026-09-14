@@ -198,6 +198,7 @@
 #define n265_2p_close_write          n265_2p_close_write_10
 #define n265_2p_get                  n265_2p_get_10
 #define n265_set_metrics             n265_set_metrics_10
+#define n265_set_nal_opts            n265_set_nal_opts_10
 #define n265_set_pass                n265_set_pass_10
 #define n265_vbv_allow               n265_vbv_allow_10
 #define n265_vbv_crf_base            n265_vbv_crf_base_10
@@ -286,6 +287,7 @@
 #define n265_cll_parse               n265_cll_parse_10
 #define n265_hdr10_on                n265_hdr10_on_10
 #define n265_vui_needed              n265_vui_needed_10
+#define n265_write_aud               n265_write_aud_10
 #define n265_write_hdr_sei           n265_write_hdr_sei_10
 #define n265_write_hash_sei          n265_write_hash_sei_10
 #define n265_write_fgc_sei           n265_write_fgc_sei_10
@@ -306,6 +308,7 @@
 #define n265_tables_init_est         n265_tables_init_est_10
 #define n265_tmatrix                 n265_tmatrix_10
 #define n265_use_filtered_refs       n265_use_filtered_refs_10
+#define n265_write_info_sei          n265_write_info_sei_10
 #define n265_write_part_mode         n265_write_part_mode_10
 #define n265_write_pps               n265_write_pps_10
 #define n265_write_sps               n265_write_sps_10

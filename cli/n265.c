@@ -20,6 +20,11 @@ void n265_set_shot_window(int n);
  * one coded without; the pooled numbers come back through
  * n265_encoder_metrics for the end-of-run line. */
 void n265_set_metrics(int psnr, int ssim);
+/* --repeat-headers / --aud / --eos / --eob / --info: the five NAL-level
+ * switches. Each adds or repeats a NAL and none touches a coded sample;
+ * all five are off by default. */
+void n265_set_nal_opts(int repeat_headers, int aud, int eos, int eob,
+                       int info);
 void n265_encoder_set_csv(n265_encoder *e, const char *path, int level);
 long n265_encoder_metrics(n265_encoder *e, double out[6]);
 /* Two-pass (phase 12 item 4): 1 writes the stats sidecar, 2 plans from it,
@@ -121,6 +126,8 @@ void n265_encoder_set_shot_stats_10(n265_encoder *e, const char *path);
 void n265_set_shot_window_10(int n);
 void n265_set_pass_10(int pass, const char *stats);
 void n265_set_metrics_10(int psnr, int ssim);
+void n265_set_nal_opts_10(int repeat_headers, int aud, int eos, int eob,
+                          int info);
 void n265_encoder_set_csv_10(n265_encoder *e, const char *path, int level);
 long n265_encoder_metrics_10(n265_encoder *e, double out[6]);
 
@@ -165,6 +172,7 @@ typedef struct n265_api {
     void (*set_shot_stats)(n265_encoder *, const char *);
     /* --psnr / --ssim / --csv (phase 14 item 4) */
     void (*set_metrics)(int, int);
+    void (*set_nal_opts)(int, int, int, int, int);
     void (*set_csv)(n265_encoder *, const char *, int);
     long (*metrics)(n265_encoder *, double *);
 } n265_api;
@@ -182,7 +190,8 @@ static const n265_api api8 = {
     n265_encoder_open, n265_encoder_encode, n265_encoder_close,
     n265_version_str, n265_encoder_set_dump, n265_encoder_set_dump_decode,
     n265_encoder_set_shot_stats,
-    n265_set_metrics, n265_encoder_set_csv, n265_encoder_metrics,
+    n265_set_metrics, n265_set_nal_opts,
+    n265_encoder_set_csv, n265_encoder_metrics,
 };
 
 static const n265_api api10 = {
@@ -200,7 +209,8 @@ static const n265_api api10 = {
     n265_encoder_encode_10, n265_encoder_close_10, n265_version_str_10,
     n265_encoder_set_dump_10, n265_encoder_set_dump_decode_10,
     n265_encoder_set_shot_stats_10,
-    n265_set_metrics_10, n265_encoder_set_csv_10, n265_encoder_metrics_10,
+    n265_set_metrics_10, n265_set_nal_opts_10,
+    n265_encoder_set_csv_10, n265_encoder_metrics_10,
 };
 
 /* QpBdOffsetY (7-5), and the clip bound of Clip1Y. Runtime now, off the
@@ -701,6 +711,26 @@ static void usage(void)
         "                  to 717 MB of peak RSS. Max 300. What it buys and\n"
         "                  what it costs the per-shot quality spread:\n"
         "                  docs/phase7-shot-design.md.\n"
+        "  Bitstream-level NALs. None of them changes a coded sample and all\n"
+        "  of them are OFF by default; every one adds or repeats a NAL.\n"
+        "  --repeat-headers  VPS/SPS/PPS lead EVERY IRAP access unit, not\n"
+        "                  just the first, so a receiver joining mid-stream\n"
+        "                  (broadcast, RTP, an HLS segment) has them.\n"
+        "  --aud           access unit delimiter NAL (type 35) at the head\n"
+        "                  of every access unit; some transport muxers want\n"
+        "                  the boundary spelled out rather than inferred.\n"
+        "  --eos           end of sequence NAL (36) at the end of every\n"
+        "                  coded video sequence: before each IDR after the\n"
+        "                  first, and at the end of the stream.\n"
+        "  --eob           end of bitstream NAL (37), the last NAL there is.\n"
+        "  --info          a user data unregistered SEI (D.2.6) naming this\n"
+        "                  encoder and its version, wherever the parameter\n"
+        "                  sets go. x265 writes its own by DEFAULT and this\n"
+        "                  does not: turning it on would change every\n"
+        "                  bitstream by one SEI, and an identity cmp\n"
+        "                  against an older binary would then diff on every\n"
+        "                  cell for a reason unrelated to the change being\n"
+        "                  gated. --no-info is the escape either way.\n"
         "  --psnr          report PSNR at the end of the run, pooled over\n"
         "                  every coded frame: per plane and a\n"
         "                  pixel-weighted average. Measured on the\n"
@@ -934,6 +964,11 @@ int main(int argc, char **argv)
     long seek = 0;
     /* --psnr / --ssim / --csv / --csv-log-level. Off is the default and
      * off is byte-for-byte the encoder without them. */
+    /* --repeat-headers / --aud / --eos / --eob / --info. All off, --info
+     * included: x265 writes its identifying SEI by default and this does
+     * not, so that an identity cmp against an older binary keeps meaning
+     * what it says (docs/x265-feature-audit.md's row). */
+    int repeat_hdr = 0, aud = 0, eos = 0, eob = 0, info = 0;
     int want_psnr = 0, want_ssim = 0, csv_level = -1;
     const char *csv_path = NULL;
     int nref = 1, badapt = 1;
@@ -997,6 +1032,26 @@ int main(int argc, char **argv)
                         "(30, 30000/1001, 29.97)\n");
                 return 2;
             }
+        } else if (!strcmp(argv[i], "--repeat-headers")) {
+            repeat_hdr = 1;
+        } else if (!strcmp(argv[i], "--no-repeat-headers")) {
+            repeat_hdr = 0;
+        } else if (!strcmp(argv[i], "--aud")) {
+            aud = 1;
+        } else if (!strcmp(argv[i], "--no-aud")) {
+            aud = 0;
+        } else if (!strcmp(argv[i], "--eos")) {
+            eos = 1;
+        } else if (!strcmp(argv[i], "--no-eos")) {
+            eos = 0;
+        } else if (!strcmp(argv[i], "--eob")) {
+            eob = 1;
+        } else if (!strcmp(argv[i], "--no-eob")) {
+            eob = 0;
+        } else if (!strcmp(argv[i], "--info")) {
+            info = 1;
+        } else if (!strcmp(argv[i], "--no-info")) {
+            info = 0;
         } else if (!strcmp(argv[i], "--psnr")) {
             want_psnr = 1;
         } else if (!strcmp(argv[i], "--ssim")) {
@@ -1446,6 +1501,7 @@ int main(int argc, char **argv)
         return 2;
     }
     a->set_metrics(want_psnr, want_ssim);
+    a->set_nal_opts(repeat_hdr, aud, eos, eob, info);
     a->set_hash(hash);
     /* The default display window is signalled in CHROMA units (7.4.3.2.1)
      * and the flag takes pixels, so an offset that is not a whole number
