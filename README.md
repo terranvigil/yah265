@@ -71,5 +71,17 @@ a tenth more time, the trade `--preset slow` makes by name. The
 per-clip tables, the single-thread clock and the across-shot numbers are
 in `docs/instruments.md` under `--rdoq-level`.
 
+**Chroma has its own two knobs, and its own reading.** `--cbqpoffs` and
+`--crqpoffs` are x265's chroma QP offsets by their own names, range and
+default: negative spends more on chroma, positive moves those bits to
+luma. They default to 0 and stay there on measurement - at the pinned
+operating point our chroma-to-luma distortion split is within 12% of
+x265's own on all fifteen clips at three rungs, under half a QP step, so
+there is nothing for a default to correct. What one BUYS is still worth
+knowing: `--cbqpoffs -1 --crqpoffs -1` is about ten BD points of chroma
+on every CIF clip for 1.3 points of luma. The goal legs now print the
+chroma level per plane at equal bytes beside the four luma legs, which is
+what makes either number checkable; `docs/phase13.md`.
+
 Full campaign record: `docs/plan.md` (phases 0-12), the per-phase docs
 under `docs/`, and the refusal log in `docs/ideas.md`.
