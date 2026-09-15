@@ -1235,6 +1235,7 @@ static void fw_config(n265_encoder *e, n265_frame_work *fw)
     fw->cu_stats = e->cu_stats;
     fw->fp_census = e->fp_census;
     fw->mereuse_trace = e->mereuse_trace;
+    fw->mereuse = e->mereuse;
     fw->fp_on = e->fp_on;
     memset(fw->fpc, 0, sizeof fw->fpc);
     fw->cbit_trace = e->cbit_trace;
@@ -1375,6 +1376,7 @@ static void fw_close(n265_frame_work *fw)
     free(fw->cu_rec);
     free(fw->cu_rec_n);
     free(fw->sc_prop);          /* phase 11 item 4 */
+    free(fw->la_mv_frozen);     /* N265_MEREUSE class C */
     free(fw->sao);
     for (int i = 0; i < 3; i++) {
         free(fw->sao_tmp[i]);
@@ -1661,6 +1663,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->cu_stats = n265_env("N265_CU_STATS") != NULL;  /* diagnostic */
     e->fp_census = n265_env("N265_FP_CENSUS") != NULL; /* diagnostic */
     e->mereuse_trace = n265_env("N265_MEREUSE_TRACE") != NULL; /* diagnostic */
+    { const char *v = n265_env("N265_MEREUSE"); e->mereuse = v ? atoi(v) : 0; }
     e->cbit_trace = n265_env("N265_CBIT_TRACE") != NULL;   /* diagnostic */
     e->iw_trace = n265_env("N265_INTRA_WIN_TRACE") != NULL; /* diagnostic */
     /* N265_INTRA_GATE=10 (step 3): the intra gate keyed on what the
@@ -6562,6 +6565,21 @@ static int drive_scheduler(n265_encoder *e)
     fw->la_prop = f->prop;          /* N265_CU_TRACE only */
     fw->la_bw = la->bw;
     fw->la_bh = la->bh;
+    /* N265_MEREUSE class C: freeze this frame's lowres MVs here, on the
+     * driver, while f->mv still holds them - the slot is reused once the
+     * frame retires, so a row job cannot read f->mv live and stay
+     * thread-count-invariant (the field's own comment). Same discipline
+     * as sc_prop above. */
+    if ((fw->mereuse & N265_MEREUSE_LOWRES) && la->bw * la->bh > 0) {
+        int nb2 = la->bw * la->bh * 2;
+        if (fw->la_mv_frozen_n != nb2) {
+            free(fw->la_mv_frozen);
+            fw->la_mv_frozen = malloc((size_t)nb2 * sizeof(int16_t));
+            fw->la_mv_frozen_n = fw->la_mv_frozen ? nb2 : 0;
+        }
+        if (fw->la_mv_frozen)
+            memcpy(fw->la_mv_frozen, f->mv, (size_t)nb2 * sizeof(int16_t));
+    }
     fw->dup_grp = f->dup_grp;       /* the duplicate chain (la.h) */
     fw->dup_cum = f->dup_cum;
     fw->dup_zsad = f->zsad_sum;     /* N265_DUP_TRACE only */

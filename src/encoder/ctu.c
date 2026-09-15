@@ -4086,6 +4086,45 @@ static mv_t mvr_lowres(struct n265_frame_work *e, int x0, int y0, int *ok)
     return u;
 }
 
+/* N265_MEREUSE class C: the co-located frozen lookahead lowres MV for a
+ * block at (x0,y0), upscaled to full-res quarter-pel, or 0 with the return
+ * false when none is reachable. Reads the frozen copy, so it is stable at
+ * any thread count. */
+static int mvr_lowres_frozen(struct n265_frame_work *e, int x0, int y0,
+                             mv_t *out)
+{
+    if (!e->la_mv_frozen || !e->la_bw)
+        return 0;
+    int bx = x0 >> 4, by = y0 >> 4;
+    if (bx >= e->la_bw || by >= e->la_bh)
+        return 0;
+    int b = by * e->la_bw + bx;
+    out->x = (int16_t)(e->la_mv_frozen[2 * b] << 3);
+    out->y = (int16_t)(e->la_mv_frozen[2 * b + 1] << 3);
+    return 1;
+}
+
+/* Take `cand` as the ME seed in place of *seed when its full-pel SAD is
+ * strictly lower - the exact shape search_pu's start[] competitor uses.
+ * *seed_sad caches the seed's SAD (UINT32_MAX means not yet costed) so a
+ * second candidate does not re-cost it. Candidates are clamped the way
+ * n265_me_search clamps its start. */
+static void mvr_seed(struct n265_frame_work *e, int l, int r, int x0, int y0,
+                     int w, int h, mv_t cand, mv_t *seed, uint32_t *seed_sad)
+{
+    mv_t c = cand;
+    n265_clamp_mv(e, x0, y0, w, h, &c);
+    if ((c.x >> 2) == (seed->x >> 2) && (c.y >> 2) == (seed->y >> 2))
+        return;                 /* same full-pel cell: nothing to decide */
+    if (*seed_sad == UINT32_MAX)
+        *seed_sad = n265_mc_sad(e, l, r, x0, y0, w, h, *seed);
+    uint32_t cs = n265_mc_sad(e, l, r, x0, y0, w, h, c);
+    if (cs < *seed_sad) {
+        *seed = c;
+        *seed_sad = cs;
+    }
+}
+
 /* one PU: the merge list against an AMVP search, both ranked by SATD of
  * the prediction plus lambda x a syntax proxy. The 2Nx2N winner's MVs
  * seed the search where they beat the AMVP predictor. */
@@ -4178,6 +4217,13 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
                 n265_mc_sad(e, l, r, g->x, g->y, w, h, start[l]) <
                     n265_mc_sad(e, l, r, g->x, g->y, w, h, p[0]))
                 seed = start[l];
+            if (e->mereuse & N265_MEREUSE_LOWRES) {
+                mv_t lo;
+                if (mvr_lowres_frozen(e, g->x, g->y, &lo)) {
+                    uint32_t ss = UINT32_MAX;
+                    mvr_seed(e, l, r, g->x, g->y, w, h, lo, &seed, &ss);
+                }
+            }
             if (e->mereuse_trace) {
                 if (mvr_prev_ok[l]) {
                     mv_t sc = n265_mv_poc_scale(mvr_prev[l],
@@ -5489,6 +5535,15 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                                 mvr_probe(e, N265_MVR_C_EVAL, l, r, x0, y0,
                                           n, n, lo, p[0]);
                         }
+                        mv_t seed = p[0];
+                        if (e->mereuse & N265_MEREUSE_LOWRES) {
+                            mv_t lo;
+                            if (mvr_lowres_frozen(e, x0, y0, &lo)) {
+                                uint32_t ss = UINT32_MAX;
+                                mvr_seed(e, l, r, x0, y0, n, n, lo, &seed,
+                                         &ss);
+                            }
+                        }
                         mot_t u;
                         u.mv[0].x = u.mv[0].y = u.mv[1].x = u.mv[1].y = 0;
                         u.ref[0] = u.ref[1] = 0;
@@ -5506,7 +5561,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                                                    (uint32_t)lam4 };
                         struct n265_me_keep kp;
                         uint32_t sad = n265_me_search(e, l, r, x0, y0, n, n,
-                                                      p[0], &mv,
+                                                      seed, &mv,
                                                       want_keep ? &kp : NULL,
                                                       n265_subpel_rate() >= 2
                                                       || n265_subme_rung()

@@ -322,6 +322,21 @@ enum {
     N265_MVR_COUNT
 };
 
+/* N265_MEREUSE (bitmask, default 0): the shipped MV-reuse arm. Each bit
+ * adds a reuse candidate as an extra seed competitor in the shape
+ * search_pu's start[] already uses - one full-pel SAD per candidate, taken
+ * as the seed only when strictly below the current best. me_search is
+ * untouched. Class B (the 2Nx2N start[]) is already wired unconditionally
+ * and needs no bit. */
+enum {
+    N265_MEREUSE_LOWRES  = 1,   /* class C: co-located lookahead lowres MV,
+                                 * upscaled; read from a frozen copy       */
+    N265_MEREUSE_PREVREF = 2,   /* class A: previous ref's winner, POC-
+                                 * scaled - RESERVED, not yet wired: the
+                                 * census shows it inert below --ref 2, so
+                                 * it has no lever at medium/slow           */
+};
+
 /* N265_CU_STATS buckets: coded luma area by the CU kind actually written */
 enum {
     N265_CS_SKIP = 0,       /* cu_skip_flag                          */
@@ -598,6 +613,13 @@ typedef struct n265_frame_work {
      * back on the driver, same discipline as fpc above. Output-neutral. */
     int mereuse_trace;
     uint64_t mvr[N265_MVR_COUNT];
+    /* N265_MEREUSE arm: the bitmask, and this frame's frozen lowres MVs.
+     * The copy is taken on the driver at dispatch (la_mv is a live
+     * sliding-window pointer; see its comment), so the arm reads stable
+     * data at any thread count. */
+    int mereuse;
+    int16_t *la_mv_frozen;
+    int la_mv_frozen_n;
     /* The stream fingerprint (phase 14 item 10). `fp_poc_lsb` is the
      * pic_order_cnt_lsb a reader will see, and it and the site's own
      * position decide which signature bit the site carries - a running
@@ -1494,6 +1516,7 @@ struct n265_encoder {
     int cu_stats;
     int fp_census;      /* N265_FP_CENSUS, phase 14 item 10 */
     int mereuse_trace;  /* N265_MEREUSE_TRACE, the MV-reuse census */
+    int mereuse;        /* N265_MEREUSE, the MV-reuse arm bitmask */
     int fp_on;          /* the stream fingerprint; --no-fingerprint drops it */
     int cbit_trace;         /* N265_CBIT_TRACE, the same way */
     /* N265_CU_TRACE: the census's output file, and the skip map of the
