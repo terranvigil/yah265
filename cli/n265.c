@@ -25,6 +25,12 @@ void n265_set_metrics(int psnr, int ssim);
  * all five are off by default. */
 void n265_set_nal_opts(int repeat_headers, int aud, int eos, int eob,
                        int info);
+/* The options clause of that SEI, as the CLI resolved it. */
+void n265_set_info_opts(const char *opts);
+/* --no-fingerprint: the stream fingerprint (phase 14 item 10). ON by
+ * default, like --info and for the same reason, except that this one
+ * spends no bits and moves no sample at all. */
+void n265_set_fingerprint(int on);
 /* --crf-min / --crf-max / --qpmin / --qpmax / --strict-cbr /
  * --max-ausize-factor, and the two files. The sentinels are the widest
  * legal values, so "not given" costs nothing. */
@@ -155,8 +161,10 @@ void n265_set_pass_10(int pass, const char *stats);
 void n265_set_metrics_10(int psnr, int ssim);
 void n265_set_nal_opts_10(int repeat_headers, int aud, int eos, int eob,
                           int info);
+void n265_set_info_opts_10(const char *opts);
 void n265_set_rc_bounds_10(double crf_min, double crf_max, int qpmin,
                            int qpmax, int strict_cbr, double ausize_factor);
+void n265_set_fingerprint_10(int on);
 void n265_set_sei_opts_10(int recovery_sei, int pic_struct, int hrd_concat,
                           int temporal_layers);
 void n265_set_qpfile_10(const char *path);
@@ -213,12 +221,14 @@ typedef struct n265_api {
     /* --psnr / --ssim / --csv (phase 14 item 4) */
     void (*set_metrics)(int, int);
     void (*set_nal_opts)(int, int, int, int, int);
+    void (*set_info_opts)(const char *);    /* item 9 */
     void (*set_rc_bounds)(double, double, int, int, int, double);
     void (*set_sei_opts)(int, int, int, int);
     void (*set_qpfile)(const char *);
     void (*set_zones)(const char *);
     void (*set_csv)(n265_encoder *, const char *, int);
     long (*metrics)(n265_encoder *, double *);
+    void (*set_fingerprint)(int);   /* --no-fingerprint (item 10) */
 } n265_api;
 
 static const n265_api api8 = {
@@ -235,9 +245,10 @@ static const n265_api api8 = {
     n265_encoder_open, n265_encoder_encode, n265_encoder_close,
     n265_version_str, n265_encoder_set_dump, n265_encoder_set_dump_decode,
     n265_encoder_set_shot_stats,
-    n265_set_metrics, n265_set_nal_opts, n265_set_rc_bounds,
+    n265_set_metrics, n265_set_nal_opts, n265_set_info_opts,
+    n265_set_rc_bounds,
     n265_set_sei_opts, n265_set_qpfile, n265_set_zones,
-    n265_encoder_set_csv, n265_encoder_metrics,
+    n265_encoder_set_csv, n265_encoder_metrics, n265_set_fingerprint,
 };
 
 static const n265_api api10 = {
@@ -257,9 +268,11 @@ static const n265_api api10 = {
     n265_encoder_encode_10, n265_encoder_close_10, n265_version_str_10,
     n265_encoder_set_dump_10, n265_encoder_set_dump_decode_10,
     n265_encoder_set_shot_stats_10,
-    n265_set_metrics_10, n265_set_nal_opts_10, n265_set_rc_bounds_10,
+    n265_set_metrics_10, n265_set_nal_opts_10, n265_set_info_opts_10,
+    n265_set_rc_bounds_10,
     n265_set_sei_opts_10, n265_set_qpfile_10, n265_set_zones_10,
     n265_encoder_set_csv_10, n265_encoder_metrics_10,
+    n265_set_fingerprint_10,
 };
 
 /* QpBdOffsetY (7-5), and the clip bound of Clip1Y. Runtime now, off the
@@ -937,14 +950,27 @@ static void usage(void)
         "                  coded video sequence: before each IDR after the\n"
         "                  first, and at the end of the stream.\n"
         "  --eob           end of bitstream NAL (37), the last NAL there is.\n"
-        "  --info          a user data unregistered SEI (D.2.6) naming this\n"
-        "                  encoder and its version, wherever the parameter\n"
-        "                  sets go. x265 writes its own by DEFAULT and this\n"
-        "                  does not: turning it on would change every\n"
-        "                  bitstream by one SEI, and an identity cmp\n"
-        "                  against an older binary would then diff on every\n"
-        "                  cell for a reason unrelated to the change being\n"
-        "                  gated. --no-info is the escape either way.\n"
+        "  --info / --no-info  a user data unregistered SEI (D.2.6) naming\n"
+        "                  this encoder, its version, its licence, its URL\n"
+        "                  and the options this run resolved, wherever the\n"
+        "                  parameter sets go - so once per stream, and\n"
+        "                  under --repeat-headers once per IRAP, which is\n"
+        "                  what x265 does with the same pair. ON by\n"
+        "                  default, as x265's is. The payload carries no\n"
+        "                  clock, no path and no thread count, so one\n"
+        "                  command line writes one stream whatever it is\n"
+        "                  run on. --no-info drops the message, and that\n"
+        "                  is what a bitstream cmp against a binary older\n"
+        "                  than this default is run with. Under --qp and\n"
+        "                  --crf the recon is unmoved and --dump-recon is\n"
+        "                  a second escape; under --bitrate the message is\n"
+        "                  bits the rate control spends, so it is not.\n"
+        "  --no-fingerprint  drop the stream fingerprint. It is ON by\n"
+        "                  default and it is the identifying mark that\n"
+        "                  survives having the SEIs stripped: a signature\n"
+        "                  in a merge_idx choice the syntax leaves open,\n"
+        "                  costing no bits and moving no sample.\n"
+        "                  scripts/fingerprint_check.py reads it back.\n"
         "  --psnr          report PSNR at the end of the run, pooled over\n"
         "                  every coded frame: per plane and a\n"
         "                  pixel-weighted average. Measured on the\n"
@@ -1029,7 +1055,8 @@ static void usage(void)
         "                  back. Without it the SEI only adds grain to a\n"
         "                  picture that already has some.\n"
         "  --nr-intra <0-2000>  coefficient-domain noise reduction in intra\n"
-        "                  blocks (default 0, off). A per-coefficient-\n"
+        "                  blocks (--preset medium 100; fast, slow and\n"
+        "                  slower 0, off). A per-coefficient-\n"
         "                  POSITION offset, learned from the magnitudes this\n"
         "                  encode has already produced, taken off every\n"
         "                  coefficient toward zero before it is quantised. A\n"
@@ -1038,7 +1065,9 @@ static void usage(void)
         "                  structure and is left nearly alone. Opt-in: it\n"
         "                  changes the picture, and what it is worth depends\n"
         "                  on how noisy the source is (docs/phase14.md).\n"
-        "  --nr-inter <0-2000>  the same in inter blocks (default 0, off).\n"
+        "                  It overrides the preset and N265_NR_INTRA, so\n"
+        "                  --nr-intra 0 --nr-inter 0 is medium's escape.\n"
+        "  --nr-inter <0-2000>  the same in inter blocks (medium 100).\n"
         "  --mcstf         motion-compensated temporal filter on the SOURCE\n"
         "                  (default off). Every eighth picture - the ones a\n"
         "                  mini-GOP predicts from - is replaced by a weighted\n"
@@ -1191,6 +1220,92 @@ static void usage(void)
     } \
 } while (0)
 
+/* ---- the options clause of the identification SEI (phase 14 item 9) ----
+ *
+ * What goes in the payload is the preset, the rate control the CLI
+ * settled on, and the flags this run was actually given, in the order
+ * they were given. What stays out is anything that would make one
+ * command line write two different streams:
+ *
+ *   - no PATHS. An input name is not a coding option and would put a
+ *     working directory in the bitstream.
+ *   - no THREAD COUNT. `--threads 1` and `--threads 12` must produce the
+ *     same bytes; that identity is a gate (CLAUDE.md), and printing the
+ *     count would break it on every clip.
+ *   - no CLOCK, no environment. The env knobs are measurement ARMS and
+ *     the preset already names the ones a preset sets.
+ *   - nothing byte-neutral that only reports (`--psnr`, `--csv`,
+ *     `--dump-recon`): those are documented as costing the stream
+ *     nothing, and they must keep costing it nothing.
+ *
+ * The flags are collected from argv itself rather than from a table of
+ * option names, so this cannot drift as flags are added: the parse loop
+ * records how many tokens each iteration consumed, which is exactly the
+ * knowledge of "does this one take a value" the loop already has. */
+typedef struct {
+    char s[640];
+    size_t n;
+} optstr;
+
+static void opt_put(optstr *o, const char *key, const char *val)
+{
+    int n = snprintf(o->s + o->n, sizeof o->s - o->n, "%s%s%s%s",
+                     o->n ? " " : "", key, val ? "=" : "", val ? val : "");
+    if (n > 0 && (size_t)n < sizeof o->s - o->n)
+        o->n += (size_t)n;
+    else                        /* full: keep what fits and stop growing */
+        o->s[o->n] = '\0';
+}
+
+/* the three filters, by the option's name with its dashes stripped */
+static int opt_drop(const char *k)
+{
+    static const char * const drop[] = {
+        "o", "dump-recon", "dump-recon-decode", "csv", "csv-log-level",
+        "shot-stats", "psnr", "ssim", "verbose", "v", "threads",
+        "version", "help", "h",
+        /* the switch for this very message: naming a default must not
+         * change the stream, so `--info` and a default run write the
+         * same bytes and `--no-info` writes no message to name itself
+         * in */
+        "info", "no-info",
+        /* named in the resolved head instead, so they are not echoed
+         * twice */
+        "preset", "qp", "crf", "bitrate", NULL
+    };
+    for (int i = 0; drop[i]; i++)
+        if (!strcmp(k, drop[i]))
+            return 1;
+    return 0;
+}
+
+static int opt_drop_value(const char *k)
+{
+    /* the flag shapes the stream and its value is a file name */
+    return !strcmp(k, "qpfile") || !strcmp(k, "stats");
+}
+
+/* one iteration of the parse loop: argv[from] is the option and the loop
+ * left `to` at the last token it consumed for it. */
+static void opt_note(optstr *o, char **argv, int from, int to)
+{
+    const char *a = argv[from];
+    if (a[0] != '-' || !a[1])   /* the input file */
+        return;
+    const char *k = a + 1;
+    if (*k == '-')
+        k++;
+    if (!strcmp(k, "w"))        /* the only short alias that is a coding
+                                 * option; print the long name */
+        k = "weightp";
+    if (opt_drop(k))
+        return;
+    if (to > from && !opt_drop_value(k))
+        opt_put(o, k, argv[to]);
+    else
+        opt_put(o, k, NULL);
+}
+
 int main(int argc, char **argv)
 {
     const char *in_path = NULL, *out_path = "out.hevc";
@@ -1204,8 +1319,12 @@ int main(int argc, char **argv)
     int high_tier = 0, vui_timing = 1, verbose = 0;   /* VUI timing on since 2026-09-12 */
     double film_grain = 0.0;    /* --film-grain: 0 = off, and off is the default */
     int fgc_denoise = 0;        /* --film-grain-denoise */
-    /* --nr-intra / --nr-inter: 0 / 0 = off, x265's default and ours */
-    int nr_intra = 0, nr_inter = 0;
+    /* --nr-intra / --nr-inter: -1 is "not given", which leaves the preset
+     * to choose - medium 100 / 100 since item 6b, fast/slow/slower 0 - so
+     * this is an override and not a default (the shape --rdoq-level has).
+     * `--nr-intra 0 --nr-inter 0` is still off and still wins. */
+    int nr_intra = -1, nr_inter = -1;
+    int had_nr_intra = 0, had_nr_inter = 0;
     /* --mcstf and its two: off, range 2, not selective - x265's defaults */
     int mcstf = 0, mcstf_range = 2, mcstf_selective = 0;
     int dither = 0;             /* --dither, only on the 10 -> 8 downshift */
@@ -1240,11 +1359,13 @@ int main(int argc, char **argv)
     long seek = 0;
     /* --psnr / --ssim / --csv / --csv-log-level. Off is the default and
      * off is byte-for-byte the encoder without them. */
-    /* --repeat-headers / --aud / --eos / --eob / --info. All off, --info
-     * included: x265 writes its identifying SEI by default and this does
-     * not, so that an identity cmp against an older binary keeps meaning
-     * what it says (docs/x265-feature-audit.md's row). */
-    int repeat_hdr = 0, aud = 0, eos = 0, eob = 0, info = 0;
+    /* --repeat-headers / --aud / --eos / --eob / --info. The first four
+     * are off; --info is ON since phase 14 item 9, which is x265's
+     * default too - a stream says what wrote it unless it is asked not
+     * to. `--no-info` is the escape, and an identity cmp against a
+     * pre-item binary is run with it (CLAUDE.md, docs/instruments.md). */
+    int repeat_hdr = 0, aud = 0, eos = 0, eob = 0, info = 1;
+    int fingerprint = 1;        /* on unless --no-fingerprint says not */
     /* The rate-control exposure. The sentinels ARE the widest legal
      * values, so an unnamed flag and a flag named at its widest are the
      * same thing and neither is applied. */
@@ -1284,7 +1405,13 @@ int main(int argc, char **argv)
     /* which structural flags the user gave: a preset supplies the rest */
     int had_ref = 0, had_badapt = 0, had_bframes = 0, had_la = 0, had_ctu = 0;
 
+    optstr info_opts = { .s = "", .n = 0 };
+
     for (int i = 1; i < argc; i++) {
+        const int argi = i;     /* where this option started: the branch
+                                 * below moves `i` past its value, if it
+                                 * has one, and that is what opt_note
+                                 * reads instead of a table (item 9) */
         if (!strcmp(argv[i], "-o") && i + 1 < argc) {
             out_path = argv[++i];
         } else if (!strcmp(argv[i], "--frames") && i + 1 < argc) {
@@ -1398,6 +1525,10 @@ int main(int argc, char **argv)
             info = 1;
         } else if (!strcmp(argv[i], "--no-info")) {
             info = 0;
+        } else if (!strcmp(argv[i], "--fingerprint")) {
+            fingerprint = 1;
+        } else if (!strcmp(argv[i], "--no-fingerprint")) {
+            fingerprint = 0;
         } else if (!strcmp(argv[i], "--psnr")) {
             want_psnr = 1;
         } else if (!strcmp(argv[i], "--ssim")) {
@@ -1479,9 +1610,9 @@ int main(int argc, char **argv)
         } else if (!strcmp(argv[i], "--film-grain-denoise") && i + 1 < argc) {
             fgc_denoise = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--nr-intra") && i + 1 < argc) {
-            nr_intra = atoi(argv[++i]);
+            nr_intra = atoi(argv[++i]); had_nr_intra = 1;
         } else if (!strcmp(argv[i], "--nr-inter") && i + 1 < argc) {
-            nr_inter = atoi(argv[++i]);
+            nr_inter = atoi(argv[++i]); had_nr_inter = 1;
         } else if (!strcmp(argv[i], "--mcstf")) {
             mcstf = 1;
         } else if (!strcmp(argv[i], "--no-mcstf")) {
@@ -1594,6 +1725,7 @@ int main(int argc, char **argv)
             usage();
             return 2;
         }
+        opt_note(&info_opts, argv, argi, i);
     }
     if (!in_path) {
         usage();
@@ -1913,7 +2045,12 @@ int main(int argc, char **argv)
     }
     a->set_vui_timing(vui_timing);
     a->set_film_grain(film_grain, fgc_denoise);
-    if (nr_intra < 0 || nr_intra > 2000 || nr_inter < 0 || nr_inter > 2000) {
+    /* Range-checked only where the user actually typed it: the -1 the two
+     * carry otherwise is this file's "not given" and is the value that
+     * leaves the choice to the preset (medium names 100 / 100 since item
+     * 6b). A negative the USER typed is still refused. */
+    if ((had_nr_intra && (nr_intra < 0 || nr_intra > 2000)) ||
+        (had_nr_inter && (nr_inter < 0 || nr_inter > 2000))) {
         fprintf(stderr, "n265: --nr-intra/--nr-inter take 0..2000 "
                 "(x265's range); 0 is off\n");
         return 2;
@@ -1954,7 +2091,39 @@ int main(int argc, char **argv)
         return 2;
     }
     a->set_metrics(want_psnr, want_ssim);
+    /* The head of the options clause is what the run RESOLVED, ahead of
+     * the flags it was given: the preset (which is the whole of the
+     * knob state a preset sets - the payload names no env knob) and the
+     * rate control that won, --bitrate over --crf over --qp, with
+     * --lossless and --pcm having no quantiser to name at all. */
+    {
+        optstr head = { .s = "", .n = 0 };
+        char v[32];
+        opt_put(&head, "preset", preset ? preset : "medium"); /* the effective preset: medium is the default, and provenance names what ran */
+        if (pcm) {
+            opt_put(&head, "rc", "pcm");
+        } else if (lossless) {
+            opt_put(&head, "rc", "lossless");
+        } else if (bitrate > 0.0) {
+            opt_put(&head, "rc", "abr");
+            snprintf(v, sizeof v, "%g", bitrate);
+            opt_put(&head, "bitrate", v);
+        } else if (had_crf) {
+            opt_put(&head, "rc", "crf");
+            snprintf(v, sizeof v, "%.2f", crf);
+            opt_put(&head, "crf", v);
+        } else {
+            opt_put(&head, "rc", "cqp");
+            snprintf(v, sizeof v, "%d", qp);
+            opt_put(&head, "qp", v);
+        }
+        char all[768];
+        snprintf(all, sizeof all, "%s%s%s", head.s, info_opts.n ? " " : "",
+                 info_opts.s);
+        a->set_info_opts(all);
+    }
     a->set_nal_opts(repeat_hdr, aud, eos, eob, info);
+    a->set_fingerprint(fingerprint);
     /* The QP bounds are QpY values, so they carry the depth's floor the
      * way --qp and --crf do. The rest of the refusals need the STREAM -
      * whether there is a rate control to bound, whether there is a buffer

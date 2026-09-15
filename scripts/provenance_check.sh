@@ -1,7 +1,11 @@
 #!/bin/sh
 # Machine-checkable half of the clean-room policy (CONTRIBUTING.md): fail
-# on GPL notices, x265/x264/HM attribution strings, or assembly files in
-# the shipped tree. Run before any DSP merge; cheap.
+# on x265/x264/HM attribution strings or assembly files in the shipped
+# tree. Run before any DSP merge; cheap. Until 2026-09-14 it also banned
+# GPL notices, which would flag an x265 or x264 header by its licence
+# block; the tree's own licence is GPL-2.0-or-later since 20d9415, so
+# that pattern would flag every SPDX line, and the attribution strings
+# carry the check alone now.
 
 set -u
 fail=0
@@ -10,8 +14,7 @@ fail=0
 files=$(git ls-files -- src include cli tests 2>/dev/null)
 [ -n "$files" ] || { echo "provenance: nothing tracked yet"; exit 0; }
 
-for pat in 'GNU General Public License' 'GPLv2' 'GPL-2' \
-           'x265 Project' 'MulticoreWare' 'VideoLAN' 'x264 project' \
+for pat in 'x265 Project' 'MulticoreWare' 'VideoLAN' 'x264 project' \
            'Fraunhofer' 'JCT-VC' 'HM Reference'; do
     hits=$(grep -l "$pat" $files 2>/dev/null)
     if [ -n "$hits" ]; then

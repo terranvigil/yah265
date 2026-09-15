@@ -15,6 +15,14 @@ unit_fgc = executable('unit_fgc', 'unit/fgc_test.c',
   dependencies : yah265_dep)
 test('fgc', unit_fgc)
 
+# The stream fingerprint's signature and site keying (phase 14 item 10),
+# against the identification SEI's UUID spelled out by hand and against
+# the verifier's own arithmetic written a second time. A fingerprint that
+# no longer matches the SEI names two different encoders.
+unit_fp = executable('unit_fp', 'unit/fp_test.c',
+  dependencies : yah265_dep)
+test('fp', unit_fp)
+
 # The coefficient-domain noise reduction estimator (phase 14 item 6),
 # against a hand-written float reference of the same model. The encoder's
 # use of it is checked by a conformance vector and by the escape cmp;

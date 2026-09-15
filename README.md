@@ -6,7 +6,8 @@ AI-driven development can get against x265.**
 
 Sibling of [yah264](../yah264), which met its pure-C speed-parity goals
 against x264. Same rules here, new codec: clean-room from the ITU-T H.265
-spec, GPL-2.0-or-later, every stream verified against independent decoders, every
+spec, GPL-2.0-or-later with a commercial licence beside it (the x264/x265
+arrangement; see LICENSE), every stream verified against independent decoders, every
 performance claim reproducible from a Makefile target.
 
 Three goals, measured as x265-speed multiples at a matched operating point

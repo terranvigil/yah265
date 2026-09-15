@@ -296,6 +296,22 @@ static const struct kv med_tab[] = {
      * backwards. The compiled-in default is 0, so fast and faster are
      * untouched and `--no-weightp` is the escape. */
     { "N265_WEIGHTP",    "1" },
+    /* There is NO `N265_NR_INTRA` / `N265_NR_INTER` row, and item 6b is
+     * why that is worth saying out loud here. Item 6 recommended
+     * `--nr-intra 100 --nr-inter 100` for this table off a five-clip
+     * band; 6b built the arm, read it on the seventeen, and refused it.
+     * It clears all five goal-3 legs with room (0.73x median against
+     * today's 0.69x, every other reading equal or better) and it moves
+     * the 17-clip CRF median -7.81 -> -8.33 - and it costs
+     * `sintel_720p` **1.44** points and `sita_flat_720p` 0.35 against
+     * the item's 0.3 per-clip bar, monotonically in the strength, which
+     * is the tool doing what it does to content that has no noise in it
+     * to remove. It is also not free on this tree: 1.046x foreman_cif /
+     * 1.051x park_joy_720p / 1.095x touchdown_1080p at one thread.
+     *
+     * The two knobs exist so the next re-pricing is a row here and not a
+     * rebuild; the compiled-in default behind them is 0, which is off
+     * and is x265's default. docs/phase14.md, "Item 6b". */
     { NULL, NULL }
 };
 

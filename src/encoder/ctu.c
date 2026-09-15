@@ -1401,6 +1401,8 @@ static int search_luma_mode_sub(struct n265_frame_work *e, int x0, int y0,
     }
     int best_mode = 0;
     uint32_t best_cost = UINT32_MAX;
+    uint32_t fpc_best = UINT32_MAX;     /* census: the rank's argmin  */
+    int fpc_n = 0;
     uint32_t ck[INTRA_RD_MAX];
     int mk[INTRA_RD_MAX];
     int nkc = nk < 1 ? 1 : nk > INTRA_RD_MAX ? INTRA_RD_MAX : nk;
@@ -1421,10 +1423,23 @@ static int search_luma_mode_sub(struct n265_frame_work *e, int x0, int y0,
             }
             ck[p] = cost; mk[p] = mode;
         }
+        if (e->fp_census) {
+            if (cost < fpc_best) {
+                fpc_best = cost;
+                fpc_n = 1;
+            } else if (cost == fpc_best) {
+                fpc_n++;
+            }
+        }
         if (cost < best_cost) {
             best_cost = cost;
             best_mode = mode;
         }
+    }
+    if (e->fp_census) {
+        e->fpc[N265_FPC_INTRA_PU]++;
+        if (fpc_n > 1)
+            e->fpc[N265_FPC_INTRA_TIE]++;
     }
     if (topk)
         for (int i = 0; i < nkc; i++)
@@ -2486,11 +2501,39 @@ static int cpred_trace(void);
 static void cpred_trace_pu(struct n265_frame_work *e, const pu_geo *g,
                            mot_t mot);
 
+/* The census's (and later the fingerprint's) look at one committed
+ * merge PU: does its candidate list hold a duplicate pair, and is the
+ * free pair - the last two indices - among them. */
+static int fp_merge_look(struct n265_frame_work *e, const pu_geo *g, int midx)
+{
+    int usable = midx >= MAX_MERGE - 2;
+    if (!e->fp_census && !usable)
+        return 0;
+    int dup34 = 0;
+    int any = n265_merge_dups(e, g, &dup34);
+    if (e->fp_census) {
+        e->fpc[N265_FPC_MERGE_PU]++;
+        if (any)
+            e->fpc[N265_FPC_DUPANY]++;
+        if (dup34) {
+            e->fpc[N265_FPC_DUP34]++;
+            if (usable)
+                e->fpc[N265_FPC_DUP34_USED]++;
+        }
+    }
+    return usable && dup34;
+}
+
 static void skip_cu(struct n265_frame_work *e, int x0, int y0, int log2n,
                     mot_t mot, int merge_idx)
 {
     int n = 1 << log2n;
-    rec_u8(e, (unsigned)merge_idx);
+    /* bit 3 of the skip record is the fingerprint site's "the last two
+     * merge candidates are the same motion" (phase 14 item 10); the
+     * index itself needs three bits and never more */
+    pu_geo sg = { x0, y0, n, x0, y0, n, n, 0, 0 };
+    rec_u8(e, (unsigned)merge_idx |
+              ((unsigned)fp_merge_look(e, &sg, merge_idx) << 3));
     pixel pred[64 * 64];
     for (int c = 0; c < 3; c++) {
         int shx = c ? e->csx : 0, shy = c ? e->csy : 0;
@@ -4024,6 +4067,14 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
         if (ml[i] < ml[best_m])
             best_m = i;
     }
+    if (e->fp_census) {
+        int nt = 0;
+        for (int i = 0; i < nm; i++)
+            if (ml[i] == ml[best_m])
+                nt++;
+        if (nt > 1)
+            e->fpc[N265_FPC_MERGE_RDTIE]++;
+    }
     uint32_t best_mc = ml[best_m];
     int mg = cp >= 1 ? cpred_gate() : -1;
     if (mg == 3 && g->cbn == (1 << MIN_CB_LOG2))
@@ -4550,6 +4601,13 @@ static int commit_inter_cu(struct n265_frame_work *e, int x0, int y0,
             : (((unsigned)d[p].mvp_idx[0] << 1) |
                ((unsigned)(d[p].mot.pred - 1) << 3) |
                ((unsigned)d[p].mvp_idx[1] << 5));
+        if (d[p].merge) {
+            pu_geo g = { x0, y0, n, px, py, pw, ph,
+                         p == 1 && !PART_IS_HORIZ(part),
+                         p == 1 && PART_IS_HORIZ(part) };
+            /* bit 6: the fingerprint site, beside the index in 3-5 */
+            f |= (unsigned)fp_merge_look(e, &g, d[p].midx) << 6;
+        }
         rec_u8(e, f);
         if (!d[p].merge)
             for (int l = 0; l < 2; l++) {
@@ -4602,6 +4660,14 @@ static int merge_pick_sad(struct n265_frame_work *e, int x0, int y0,
         sd[i] = mot_sad(e, x0, y0, log2n, mlist[i]);
         if (sd[i] < sd[midx])
             midx = i;
+    }
+    if (e->fp_census) {
+        int nt = 0;
+        for (int i = 0; i < k; i++)
+            if (sd[i] == sd[midx])
+                nt++;
+        if (nt > 1)
+            e->fpc[N265_FPC_MERGE_RDTIE]++;
     }
     *luma = sd[midx];
     if (cp < 1)

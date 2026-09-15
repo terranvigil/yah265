@@ -171,6 +171,9 @@
 #define n265_me_search               n265_me_search_10
 #define n265_merge_cand0             n265_merge_cand0_10
 #define n265_merge_list              n265_merge_list_10
+#define n265_fp_bit                  n265_fp_bit_10
+#define n265_fp_sig                  n265_fp_sig_10
+#define n265_merge_dups             n265_merge_dups_10
 #define n265_merge_list_pu           n265_merge_list_pu_10
 #define n265_metrics_frame           n265_metrics_frame_10
 #define n265_metrics_pooled          n265_metrics_pooled_10
@@ -202,7 +205,9 @@
 #define n265_2p_write                n265_2p_write_10
 #define n265_2p_close_write          n265_2p_close_write_10
 #define n265_2p_get                  n265_2p_get_10
+#define n265_set_info_opts           n265_set_info_opts_10
 #define n265_set_metrics             n265_set_metrics_10
+#define n265_set_fingerprint         n265_set_fingerprint_10
 #define n265_set_nal_opts            n265_set_nal_opts_10
 #define n265_set_pass                n265_set_pass_10
 #define n265_set_qpfile              n265_set_qpfile_10

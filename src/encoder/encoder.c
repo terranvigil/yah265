@@ -52,8 +52,15 @@ void n265_param_default(n265_param *p)
 static int g_mode = N265_MODE_INTRA;
 static int g_qp = 26;
 static int g_met_psnr, g_met_ssim;   /* --psnr / --ssim */
-/* --repeat-headers / --aud / --eos / --eob / --info. All off. */
-static int g_repeat_hdr, g_aud, g_eos, g_eob, g_info;
+/* --repeat-headers / --aud / --eos / --eob / --info. The first four are
+ * off; --info is ON since phase 14 item 9, which is x265's default too. */
+static int g_repeat_hdr, g_aud, g_eos, g_eob;
+static int g_info = 1;
+/* The options clause of the identification SEI, as the caller resolved it
+ * (the CLI builds it in `info_opts`). Copied into a fixed buffer: the
+ * argv it is built from outlives the encoder here, but a library caller's
+ * string need not, and the payload is composed at open. */
+static char g_info_opts[768];
 /* The rate-control exposure. The sentinels ARE the spec's own bounds and
  * 1.0, so "not given" and "given the widest legal value" are the same
  * thing and the default path is the arithmetic it always was. */
@@ -129,14 +136,19 @@ static int g_vui_timing = 1;    /* vui_timing_info in the SPS; on since
  * back. At 0 nothing here allocates, reads a picture or writes a byte. */
 static double g_film_grain = 0.0;
 static int g_fgc_denoise = 0;
-/* --nr-intra / --nr-inter (phase 14 item 6). 0 / 0 is off, is the
- * default, is x265's default, and is every preset, board and band leg
- * this encoder was measured with. The flag attenuates coefficients before
- * they are quantised, so a nonzero value moves every bitstream it touches
- * and there is nothing here that a default could be right about for two
- * clips at once: it is an opt-in tool for noisy sources. At 0 nothing
- * allocates and no quantiser call changes shape. */
-static int g_nr_intra = 0, g_nr_inter = 0;
+/* --nr-intra / --nr-inter (phase 14 item 6; re-placed into `medium` by
+ * item 6b, 2026-09-14). -1 / -1 is "NOT GIVEN", which hands the knob to
+ * `N265_NR_INTRA` / `N265_NR_INTER` and therefore to the preset table:
+ * `medium` names 100 / 100, `fast`, `slow` and `slower` name nothing and
+ * the compiled-in default under them is 0, which is off and is x265's
+ * default.
+ *
+ * The flag WINS where it was given - over the environment and over the
+ * preset alike, the rule `--rdoq-level` follows - so
+ * `--nr-intra 0 --nr-inter 0` is medium's escape and is the pre-6b
+ * medium byte for byte. At 0 nothing allocates and no quantiser call
+ * changes shape. */
+static int g_nr_intra = -1, g_nr_inter = -1;
 /* --mcstf / --mcstf-ref-range / --selective-mcstf (phase 14 item 6). Off,
  * range 2, not selective - x265's own defaults, and off is ours for the
  * same reason --film-grain-denoise is off: it changes the picture the
@@ -212,9 +224,9 @@ void n265_set_metrics(int psnr, int ssim)
 /* --repeat-headers / --aud / --eos / --eob / --info (phase 14 item 4).
  * One setter for the five NAL-level switches: each one either adds a NAL
  * to the stream or repeats one, and none of them touches a coded sample.
- * Every one is OFF by default, --info included - x265 writes its
- * identifying SEI by default and this does not, so that an identity cmp
- * against an older binary keeps meaning what it says. */
+ * The first four are off by default; --info is on since phase 14 item 9,
+ * which is x265's default too, and `--no-info` is what an identity cmp
+ * against a pre-item binary is run with. */
 void n265_set_nal_opts(int repeat_headers, int aud, int eos, int eob,
                        int info);
 void n265_set_nal_opts(int repeat_headers, int aud, int eos, int eob,
@@ -225,6 +237,35 @@ void n265_set_nal_opts(int repeat_headers, int aud, int eos, int eob,
     g_eos = eos != 0;
     g_eob = eob != 0;
     g_info = info != 0;
+}
+
+/* The options clause of the identification SEI (phase 14 item 9). The
+ * caller owns the wording; what this end promises is that the payload is
+ * a pure function of it, so two runs of one command line write the same
+ * bytes. NULL or empty writes the identification string without an
+ * options clause. */
+void n265_set_info_opts(const char *opts);
+void n265_set_info_opts(const char *opts)
+{
+    if (!opts) {
+        g_info_opts[0] = '\0';
+        return;
+    }
+    snprintf(g_info_opts, sizeof g_info_opts, "%s", opts);
+}
+
+/* --no-fingerprint (phase 14 item 10). Unlike every switch above, this
+ * one is ON by default: the fingerprint spends no bits and moves no
+ * sample, so there is nothing for it to cost, and a stream that cannot
+ * say what wrote it after a remux is the whole problem it exists for.
+ * The escape is here because an identity cmp against a binary from
+ * before the item has to be able to turn it off - that is the
+ * re-baselining rule in CLAUDE.md, beside --no-info and --no-weightp. */
+static int g_fingerprint = 1;
+void n265_set_fingerprint(int on);
+void n265_set_fingerprint(int on)
+{
+    g_fingerprint = on != 0;
 }
 
 /* --crf-min / --crf-max / --qpmin / --qpmax / --strict-cbr /
@@ -351,12 +392,16 @@ void n265_set_film_grain(double strength, int denoise)
  * noise reduction (nr.h). x265's range, x265's two-flag split, and the
  * clamp is silent at the top because 2000 is a strength and not a size -
  * asking for more is asking for the maximum, not for something the
- * encoder has no way to do. A negative value is off. */
+ * encoder has no way to do. A NEGATIVE value is "not given", not "off":
+ * it hands the knob back to the environment and the preset. The CLI
+ * refuses a negative the user typed, so the only caller that reaches that
+ * branch is one that left the flag off, and `--nr-intra 0` is still off
+ * and still wins over the preset. */
 void n265_set_nr(int intra, int inter);
 void n265_set_nr(int intra, int inter)
 {
-    g_nr_intra = intra < 0 ? 0 : intra > N265_NR_MAX ? N265_NR_MAX : intra;
-    g_nr_inter = inter < 0 ? 0 : inter > N265_NR_MAX ? N265_NR_MAX : inter;
+    g_nr_intra = intra < 0 ? -1 : intra > N265_NR_MAX ? N265_NR_MAX : intra;
+    g_nr_inter = inter < 0 ? -1 : inter > N265_NR_MAX ? N265_NR_MAX : inter;
 }
 
 /* --mcstf / --mcstf-ref-range / --selective-mcstf (mcstf.h). The range is
@@ -1188,6 +1233,9 @@ static void fw_config(n265_encoder *e, n265_frame_work *fw)
     fw->cb_qp_off = e->cb_qp_off;
     fw->cr_qp_off = e->cr_qp_off;
     fw->cu_stats = e->cu_stats;
+    fw->fp_census = e->fp_census;
+    fw->fp_on = e->fp_on;
+    memset(fw->fpc, 0, sizeof fw->fpc);
     fw->cbit_trace = e->cbit_trace;
     fw->iw_trace = e->iw_trace;
     fw->iw_count = e->iw_trace || e->iw_adapt;
@@ -1368,10 +1416,17 @@ void n265_row_begin(n265_row_ctx *row, n265_frame_work *fw, int r)
     row->c.rec_cap = fw->rrec[r].cap;
     row->c.rec_len = 0;
     row->c.rec_pos = 0;
+    /* the census counts in the LANE and is summed back in row_end, so
+     * the row that starts from this copy does not re-count the frame's
+     * running totals (phase 14 item 10) */
+    memset(row->c.fpc, 0, sizeof row->c.fpc);
 }
 
 void n265_row_end(n265_row_ctx *row, n265_frame_work *fw, int r)
 {
+    if (fw->fp_census)
+        for (int i = 0; i < N265_FPC_COUNT; i++)
+            fw->fpc[i] += row->c.fpc[i];
     fw->rrec[r].buf = row->c.rec_buf;
     fw->rrec[r].cap = row->c.rec_cap;
     fw->rrec[r].len = row->c.rec_len;
@@ -1415,6 +1470,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->eos = g_eos;
     e->eob = g_eob;
     e->info = g_info;
+    e->fp_on = g_fingerprint;
     e->qp_base = g_qp;
     e->crf_on = g_crf_on;
     e->crf = g_crf;
@@ -1598,6 +1654,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     }
     e->no_sao = n265_env("N265_NO_SAO") != NULL;      /* diagnostic */
     e->cu_stats = n265_env("N265_CU_STATS") != NULL;  /* diagnostic */
+    e->fp_census = n265_env("N265_FP_CENSUS") != NULL; /* diagnostic */
     e->cbit_trace = n265_env("N265_CBIT_TRACE") != NULL;   /* diagnostic */
     e->iw_trace = n265_env("N265_INTRA_WIN_TRACE") != NULL; /* diagnostic */
     /* N265_INTRA_GATE=10 (step 3): the intra gate keyed on what the
@@ -1767,15 +1824,33 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * the two allocations below are the ONLY memory the feature costs
      * when it is off: nothing, because neither runs.
      *
+     * Three doors, in the order every other knob here takes them: the
+     * FLAG where it was given (g_nr_* >= 0), then the environment, then
+     * the preset table - `medium` names 100 / 100 since item 6b and
+     * everything under it names nothing and falls through to 0. The env
+     * value is clamped rather than trusted, because unlike the flag's it
+     * has not been through the CLI's range check.
+     *
      * --lossless and --pcm reach no quantiser at all (the residual IS the
      * coded level), so there is nothing here for the flag to attenuate;
-     * it is refused by name rather than silently ignored. */
-    e->nr_intra = g_nr_intra;
-    e->nr_inter = g_nr_inter;
+     * it is refused by name where the user NAMED it, and silently dropped
+     * where it is only the preset's default - a default that cannot apply
+     * is not a refusal, and `--preset medium --lossless` must not print
+     * one on every encode. */
+    { const char *v = n265_env("N265_NR_INTRA"); e->nr_intra = v ? atoi(v) : 0;
+      if (g_nr_intra >= 0) e->nr_intra = g_nr_intra; }
+    { const char *v = n265_env("N265_NR_INTER"); e->nr_inter = v ? atoi(v) : 0;
+      if (g_nr_inter >= 0) e->nr_inter = g_nr_inter; }
+    if (e->nr_intra < 0) e->nr_intra = 0;
+    if (e->nr_inter < 0) e->nr_inter = 0;
+    if (e->nr_intra > N265_NR_MAX) e->nr_intra = N265_NR_MAX;
+    if (e->nr_inter > N265_NR_MAX) e->nr_inter = N265_NR_MAX;
     if ((e->nr_intra || e->nr_inter) &&
         (e->lossless || e->mode == N265_MODE_PCM)) {
-        fprintf(stderr, "n265: --nr-intra/--nr-inter attenuate transform "
-                "coefficients, and --lossless/--pcm code none; off\n");
+        if (g_nr_intra >= 0 || g_nr_inter >= 0 ||
+            getenv("N265_NR_INTRA") || getenv("N265_NR_INTER"))
+            fprintf(stderr, "n265: --nr-intra/--nr-inter attenuate transform "
+                    "coefficients, and --lossless/--pcm code none; off\n");
         e->nr_intra = e->nr_inter = 0;
     }
     if (e->nr_intra || e->nr_inter) {
@@ -2043,14 +2118,17 @@ n265_encoder *n265_encoder_open(const n265_param *p)
          * STREAM that could refuse one - a colour primary is a claim about
          * the source, not about anything this encoder decides. */
         /* --aud: one byte per access unit, rewritten in place. --info:
-         * the version SEI is a constant, so it is built once here and
-         * packed by pointer wherever the parameter sets go. */
+         * the identification SEI is a constant for the run - the options
+         * clause is resolved before open and nothing in the payload moves
+         * with a picture - so it is built once here and packed by pointer
+         * wherever the parameter sets go. That is also what makes it
+         * thread-invariant: no worker ever sees it. */
         if (e->aud && bs_init(&e->aud_bs, 8) < 0)
             goto fail;
         if (e->info) {
-            if (bs_init(&e->info_bs, 128) < 0)
+            if (bs_init(&e->info_bs, 1024) < 0)
                 goto fail;
-            n265_write_info_sei(&e->info_bs, n265_version_str());
+            n265_write_info_sei(&e->info_bs, n265_version_str(), g_info_opts);
         }
         /* --idr-recovery-sei: the message is the same three fields at
          * every IRAP, so it is built once here too. */
@@ -4402,6 +4480,10 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
     fw->ref_lag = 0;
     fw->sao_mask = fw->mode == N265_MODE_PCM || fw->lossless
                  ? 0 : n265_sao_frame_mask(fw);
+    /* the census row is per FRAME and a frame_work is pooled, so the
+     * counters are cleared here and not in fw_config */
+    if (fw->fp_census)
+        memset(fw->fpc, 0, sizeof fw->fpc);
     /* N265_RECT_FLAT (ctu.c): the second tool that reads the type. Both
      * branches are written, because a frame_work is pooled and fw_config
      * ran once. */
@@ -4851,6 +4933,9 @@ static void entropy_frame(n265_encoder *e, n265_frame_work *fw)
     fw->ent_qp_prev = fw->qp;
     fw->ent_parent_chroma = 0;
     fw->in_entropy = 1;
+    /* the fingerprint keys on the POC field a reader sees; an IDR
+     * signals none and 8.3.1 gives it 0 */
+    fw->fp_poc_lsb = fw->idr ? 0 : (fw->poc & 255);
     if (fw->cu_stats) {
         memset(fw->cs_area, 0, sizeof fw->cs_area);
         memset(fw->cs_tu, 0, sizeof fw->cs_tu);
@@ -5345,6 +5430,16 @@ static void join_oldest(n265_encoder *e)
                 e->cu_prev_valid = 1;
             }
         }
+    }
+    if (fw->fp_census) {
+        /* one CSV row per frame for the fingerprint census (phase 14
+         * item 10). Printed here, on the driver, so the rows come out in
+         * coding order however the tasks were scheduled. */
+        fprintf(stderr, "FPC,%d,%d,%d", fw->display_idx, fw->slice_type,
+                fw->qp);
+        for (int i = 0; i < N265_FPC_COUNT; i++)
+            fprintf(stderr, ",%llu", (unsigned long long)fw->fpc[i]);
+        fprintf(stderr, "\n");
     }
     if (fw->cu_stats) {
         /* one CSV row per frame: what the entropy pass actually wrote.

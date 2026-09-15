@@ -42,6 +42,12 @@ int n265_merge_list_pu(struct n265_frame_work *e, const pu_geo *g, mot_t out[],
 int n265_merge_list(struct n265_frame_work *e, int x0, int y0, int nw, int nh,
                     mot_t out[], int max);
 
+/* Duplicate pairs within the merge list (phase 14 item 10). Returns
+ * whether any pair of candidates is the same motion, and sets *dup34
+ * for the MAX_MERGE-2 / MAX_MERGE-1 pair, the only pair whose two
+ * merge_idx codings cost the same number of bits. */
+int n265_merge_dups(struct n265_frame_work *e, const pu_geo *g, int *dup34);
+
 /* out[0] of the list above */
 mot_t n265_merge_cand0(struct n265_frame_work *e, int x0, int y0, int nw,
                        int nh);
