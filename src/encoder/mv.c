@@ -82,6 +82,13 @@ static mv_t mv_scale(mv_t mv, int tb, int td)
     return r;
 }
 
+mv_t n265_mv_poc_scale(mv_t mv, int tb, int td)
+{
+    td = td < -128 ? -128 : td > 127 ? 127 : td;
+    tb = tb < -128 ? -128 : tb > 127 ? 127 : tb;
+    return mv_scale(mv, tb, td);
+}
+
 /* temporal MV prediction for target list X ref 0 (8.5.3.2.8): C0
  * (bottom-right, same CTB row) else C1 (center) in the collocated
  * picture (always l0[0], collocated_from_l0 == 1), listCol per

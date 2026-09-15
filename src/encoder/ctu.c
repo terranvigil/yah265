@@ -4044,6 +4044,48 @@ static void mot_load(struct n265_frame_work *e, int x0, int y0, int n,
     }
 }
 
+/* MV-reuse census (N265_MEREUSE_TRACE). Cost `cand` against `chosen` as
+ * ME seeds - both clamped the way n265_me_search clamps its start, so the
+ * SADs are exactly what the search would have started from - and bump the
+ * class-`base` counters (base is one of N265_MVR_{A,B,C}_EVAL).
+ * Output-neutral: nothing here reaches the bitstream. */
+static void mvr_probe(struct n265_frame_work *e, int base, int list, int ref,
+                      int x0, int y0, int w, int h, mv_t cand, mv_t chosen)
+{
+    mv_t c = cand, s = chosen;
+    n265_clamp_mv(e, x0, y0, w, h, &c);
+    n265_clamp_mv(e, x0, y0, w, h, &s);
+    uint32_t cs = n265_mc_sad(e, list, ref, x0, y0, w, h, c);
+    uint32_t ss = n265_mc_sad(e, list, ref, x0, y0, w, h, s);
+    e->mvr[base]++;
+    if (cs < ss) {
+        e->mvr[base + 1]++;
+        e->mvr[base + 2] += ss - cs;
+        e->mvr[base + 3] += ss;
+    }
+}
+
+/* class C: the co-located lookahead lowres MV for a w x h block at
+ * (x0,y0), upscaled to full-res quarter-pel (lowres pel = 2 full pel = 8
+ * qpel), or 0 with *ok=0 when no lowres MV is reachable. Reads the LIVE
+ * la_mv, which is only safe under the census's own threads-1 run; a
+ * shipped arm needs a frozen copy (docs/phase14-mvreuse.md). */
+static mv_t mvr_lowres(struct n265_frame_work *e, int x0, int y0, int *ok)
+{
+    mv_t z = { 0, 0 };
+    *ok = 0;
+    if (!e->la_mv || !e->la_bw)
+        return z;
+    int bx = x0 >> 4, by = y0 >> 4;
+    if (bx >= e->la_bw || by >= e->la_bh)
+        return z;
+    int b = by * e->la_bw + bx;
+    mv_t u = { (int16_t)(e->la_mv[2 * b] << 3),
+               (int16_t)(e->la_mv[2 * b + 1] << 3) };
+    *ok = 1;
+    return u;
+}
+
 /* one PU: the merge list against an AMVP search, both ranked by SATD of
  * the prediction plus lambda x a syntax proxy. The 2Nx2N winner's MVs
  * seed the search where they beat the AMVP predictor. */
@@ -4116,6 +4158,9 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
     keep[0].nb_valid = keep[1].nb_valid = 0;
     keep[0].sq_valid = keep[1].sq_valid = 0;
     keep[0].rung_fired = keep[1].rung_fired = 0;
+    /* MV-reuse census: the previous reference's winner in each list */
+    mv_t mvr_prev[2] = { { 0, 0 }, { 0, 0 } };
+    int mvr_prev_poc[2] = { 0, 0 }, mvr_prev_ok[2] = { 0, 0 };
     for (int l = 0; l < 2; l++) {
         mvp[l][0].x = mvp[l][0].y = mvp[l][1].x = mvp[l][1].y = 0;
         if (l >= nl)
@@ -4133,6 +4178,24 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
                 n265_mc_sad(e, l, r, g->x, g->y, w, h, start[l]) <
                     n265_mc_sad(e, l, r, g->x, g->y, w, h, p[0]))
                 seed = start[l];
+            if (e->mereuse_trace) {
+                if (mvr_prev_ok[l]) {
+                    mv_t sc = n265_mv_poc_scale(mvr_prev[l],
+                                                e->poc - e->refl[l][r]->poc,
+                                                e->poc - mvr_prev_poc[l]);
+                    mvr_probe(e, N265_MVR_A_EVAL, l, r, g->x, g->y, w, h,
+                              sc, seed);
+                }
+                if (start && ((start[l].x >> 2) != (p[0].x >> 2) ||
+                              (start[l].y >> 2) != (p[0].y >> 2)))
+                    mvr_probe(e, N265_MVR_B_EVAL, l, r, g->x, g->y, w, h,
+                              start[l], p[0]);
+                int cok;
+                mv_t lo = mvr_lowres(e, g->x, g->y, &cok);
+                if (cok)
+                    mvr_probe(e, N265_MVR_C_EVAL, l, r, g->x, g->y, w, h,
+                              lo, seed);
+            }
             mot_t u;
             u.mv[0].x = u.mv[0].y = u.mv[1].x = u.mv[1].y = 0;
             u.ref[0] = u.ref[1] = 0;
@@ -4153,6 +4216,11 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
                            n265_subpel_rate() >= 2 || n265_subme_rung()
                                ? &rc : NULL);
             u.mv[l] = mv;
+            if (e->mereuse_trace) {
+                mvr_prev[l] = mv;
+                mvr_prev_poc[l] = e->refl[l][r]->poc;
+                mvr_prev_ok[l] = 1;
+            }
             uint32_t c = mot_satd_wh(e, g->x, g->y, w, h, u) +
                 (uint32_t)(((uint64_t)mot_rate_q8(e, g, &u, up, 6) * lam4)
                            >> 12);
@@ -5400,11 +5468,27 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                 /* per list: search every reference, keep the one whose
                  * SAD + lambda x (mvd + ref_idx) bits is lowest, and the
                  * predictors of that reference */
+                mv_t mvr_prev1[2] = { { 0, 0 }, { 0, 0 } };
+                int mvr_prev1_poc[2] = { 0, 0 }, mvr_prev1_ok[2] = { 0, 0 };
                 for (int l = 0; l < (e->slice_type == 0 ? 2 : 1); l++) {
                     uint32_t best_c = UINT32_MAX;
                     for (int r = 0; r < e->nref[l]; r++) {
                         mv_t p[2], mv;
                         n265_amvp(e, l, r, x0, y0, n, n, p);
+                        if (e->mereuse_trace) {
+                            if (mvr_prev1_ok[l]) {
+                                mv_t sc = n265_mv_poc_scale(mvr_prev1[l],
+                                    e->poc - e->refl[l][r]->poc,
+                                    e->poc - mvr_prev1_poc[l]);
+                                mvr_probe(e, N265_MVR_A_EVAL, l, r, x0, y0,
+                                          n, n, sc, p[0]);
+                            }
+                            int cok;
+                            mv_t lo = mvr_lowres(e, x0, y0, &cok);
+                            if (cok)
+                                mvr_probe(e, N265_MVR_C_EVAL, l, r, x0, y0,
+                                          n, n, lo, p[0]);
+                        }
                         mot_t u;
                         u.mv[0].x = u.mv[0].y = u.mv[1].x = u.mv[1].y = 0;
                         u.ref[0] = u.ref[1] = 0;
@@ -5428,6 +5512,11 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                                                       || n265_subme_rung()
                                                           ? &rc : NULL);
                         u.mv[l] = mv;
+                        if (e->mereuse_trace) {
+                            mvr_prev1[l] = mv;
+                            mvr_prev1_poc[l] = e->refl[l][r]->poc;
+                            mvr_prev1_ok[l] = 1;
+                        }
                         /* rate proxy (or the real syntax under
                          * N265_MVD_BITS), at lambda_sad. n265_me_search
                          * returns the FULL-PEL SAD, so the reference

@@ -1234,6 +1234,7 @@ static void fw_config(n265_encoder *e, n265_frame_work *fw)
     fw->cr_qp_off = e->cr_qp_off;
     fw->cu_stats = e->cu_stats;
     fw->fp_census = e->fp_census;
+    fw->mereuse_trace = e->mereuse_trace;
     fw->fp_on = e->fp_on;
     memset(fw->fpc, 0, sizeof fw->fpc);
     fw->cbit_trace = e->cbit_trace;
@@ -1420,6 +1421,7 @@ void n265_row_begin(n265_row_ctx *row, n265_frame_work *fw, int r)
      * the row that starts from this copy does not re-count the frame's
      * running totals (phase 14 item 10) */
     memset(row->c.fpc, 0, sizeof row->c.fpc);
+    memset(row->c.mvr, 0, sizeof row->c.mvr);
 }
 
 void n265_row_end(n265_row_ctx *row, n265_frame_work *fw, int r)
@@ -1427,6 +1429,9 @@ void n265_row_end(n265_row_ctx *row, n265_frame_work *fw, int r)
     if (fw->fp_census)
         for (int i = 0; i < N265_FPC_COUNT; i++)
             fw->fpc[i] += row->c.fpc[i];
+    if (fw->mereuse_trace)
+        for (int i = 0; i < N265_MVR_COUNT; i++)
+            fw->mvr[i] += row->c.mvr[i];
     fw->rrec[r].buf = row->c.rec_buf;
     fw->rrec[r].cap = row->c.rec_cap;
     fw->rrec[r].len = row->c.rec_len;
@@ -1655,6 +1660,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->no_sao = n265_env("N265_NO_SAO") != NULL;      /* diagnostic */
     e->cu_stats = n265_env("N265_CU_STATS") != NULL;  /* diagnostic */
     e->fp_census = n265_env("N265_FP_CENSUS") != NULL; /* diagnostic */
+    e->mereuse_trace = n265_env("N265_MEREUSE_TRACE") != NULL; /* diagnostic */
     e->cbit_trace = n265_env("N265_CBIT_TRACE") != NULL;   /* diagnostic */
     e->iw_trace = n265_env("N265_INTRA_WIN_TRACE") != NULL; /* diagnostic */
     /* N265_INTRA_GATE=10 (step 3): the intra gate keyed on what the
@@ -4484,6 +4490,8 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
      * counters are cleared here and not in fw_config */
     if (fw->fp_census)
         memset(fw->fpc, 0, sizeof fw->fpc);
+    if (fw->mereuse_trace)
+        memset(fw->mvr, 0, sizeof fw->mvr);
     /* N265_RECT_FLAT (ctu.c): the second tool that reads the type. Both
      * branches are written, because a frame_work is pooled and fw_config
      * ran once. */
@@ -5439,6 +5447,16 @@ static void join_oldest(n265_encoder *e)
                 fw->qp);
         for (int i = 0; i < N265_FPC_COUNT; i++)
             fprintf(stderr, ",%llu", (unsigned long long)fw->fpc[i]);
+        fprintf(stderr, "\n");
+    }
+    if (fw->mereuse_trace) {
+        /* one row per frame, on the driver in coding order; the columns
+         * are the MVR enum in order (A_EVAL,A_WIN,A_DSUM,A_BSUM, then B,
+         * then C). Summed across frames by the census script. */
+        fprintf(stderr, "MVR,%d,%d,%d", fw->display_idx, fw->slice_type,
+                fw->qp);
+        for (int i = 0; i < N265_MVR_COUNT; i++)
+            fprintf(stderr, ",%llu", (unsigned long long)fw->mvr[i]);
         fprintf(stderr, "\n");
     }
     if (fw->cu_stats) {

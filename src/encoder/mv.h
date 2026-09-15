@@ -159,4 +159,9 @@ uint32_t n265_mc_sad(struct n265_frame_work *e, int list, int ridx, int x0, int 
 void n265_clamp_mv(struct n265_frame_work *e, int x0, int y0, int w, int h,
                    mv_t *mv);
 
+/* POC-distance MV scaling (8.5.3.2.8), exposed for the MV-reuse census:
+ * scale a vector found against a ref at temporal distance `td` to the ref
+ * at distance `tb`. */
+mv_t n265_mv_poc_scale(mv_t mv, int tb, int td);
+
 #endif

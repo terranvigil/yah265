@@ -291,6 +291,37 @@ enum {
     N265_FPC_COUNT
 };
 
+/* N265_MEREUSE_TRACE buckets (phase 14, the MV-reuse census): at every
+ * full-pel ME seed decision, each reuse candidate is costed at
+ * n265_mc_sad alongside the seed the search actually got, and this
+ * records how often it would have been the strictly better start and by
+ * how much. Diagnostic and output-neutral: nothing here reaches the
+ * bitstream. Per-frame_work like the fingerprint census, so it reads the
+ * same at any thread count. Three classes:
+ *  A - the winning MV of the PREVIOUS reference index in this list,
+ *      POC-scaled to the current ref (both the 2Nx2N and rect/AMP sites);
+ *  B - the 2Nx2N winner (search_pu's `start[]`), against the raw AMVP
+ *      predictor p[0]: this quantifies the competitor already wired, the
+ *      mechanism this item generalizes, so it has no site of its own;
+ *  C - the lookahead lowres MV for the co-located block, upscaled. Read
+ *      from the live `la_mv` (safe only under the census's threads-1
+ *      run; a shipped arm needs a frozen copy - see the doc). */
+enum {
+    N265_MVR_A_EVAL = 0,    /* class A candidate available and costed     */
+    N265_MVR_A_WIN,         /* ...and strictly below the chosen seed's SAD*/
+    N265_MVR_A_DSUM,        /* sum over wins of (seed_sad - cand_sad)     */
+    N265_MVR_A_BSUM,        /* sum over wins of seed_sad (for mean gain)  */
+    N265_MVR_B_EVAL,        /* start[] present and differs from p[0]      */
+    N265_MVR_B_WIN,         /* ...and start[] SAD strictly below p[0]'s   */
+    N265_MVR_B_DSUM,
+    N265_MVR_B_BSUM,
+    N265_MVR_C_EVAL,        /* lowres MV reachable for this block         */
+    N265_MVR_C_WIN,
+    N265_MVR_C_DSUM,
+    N265_MVR_C_BSUM,
+    N265_MVR_COUNT
+};
+
 /* N265_CU_STATS buckets: coded luma area by the CU kind actually written */
 enum {
     N265_CS_SKIP = 0,       /* cu_skip_flag                          */
@@ -563,6 +594,10 @@ typedef struct n265_frame_work {
      * above and for the same reason; the row prints on the driver. */
     int fp_census;
     uint64_t fpc[N265_FPC_COUNT];
+    /* N265_MEREUSE_TRACE: the MV-reuse census, per-frame_work and summed
+     * back on the driver, same discipline as fpc above. Output-neutral. */
+    int mereuse_trace;
+    uint64_t mvr[N265_MVR_COUNT];
     /* The stream fingerprint (phase 14 item 10). `fp_poc_lsb` is the
      * pic_order_cnt_lsb a reader will see, and it and the site's own
      * position decide which signature bit the site carries - a running
@@ -1458,6 +1493,7 @@ struct n265_encoder {
      * The counters themselves are per-frame (see n265_frame_work). */
     int cu_stats;
     int fp_census;      /* N265_FP_CENSUS, phase 14 item 10 */
+    int mereuse_trace;  /* N265_MEREUSE_TRACE, the MV-reuse census */
     int fp_on;          /* the stream fingerprint; --no-fingerprint drops it */
     int cbit_trace;         /* N265_CBIT_TRACE, the same way */
     /* N265_CU_TRACE: the census's output file, and the skip map of the

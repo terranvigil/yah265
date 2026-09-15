@@ -177,6 +177,7 @@
 #define n265_merge_list_pu           n265_merge_list_pu_10
 #define n265_metrics_frame           n265_metrics_frame_10
 #define n265_metrics_pooled          n265_metrics_pooled_10
+#define n265_mv_poc_scale            n265_mv_poc_scale_10
 #define n265_mv_warm                 n265_mv_warm_10
 #define n265_pcm_bits_per_frame      n265_pcm_bits_per_frame_10
 #define n265_planned_qp              n265_planned_qp_10
