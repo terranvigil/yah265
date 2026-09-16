@@ -31,6 +31,11 @@ void n265_set_info_opts(const char *opts);
  * default, like --info and for the same reason, except that this one
  * spends no bits and moves no sample at all. */
 void n265_set_fingerprint(int on);
+/* --show-config / --verbose (phase 14 item 13): the resolved
+ * configuration, one `n265 [info]: key : value` row at a time. Printed
+ * by the LIBRARY, which is where the preset table, the environment and
+ * Annex A have already been resolved into the values that will code. */
+void n265_show_config(const n265_encoder *e, FILE *f, int in_depth);
 /* --crf-min / --crf-max / --qpmin / --qpmax / --strict-cbr /
  * --max-ausize-factor, and the two files. The sentinels are the widest
  * legal values, so "not given" costs nothing. */
@@ -171,6 +176,7 @@ void n265_set_qpfile_10(const char *path);
 void n265_set_zones_10(const char *spec);
 void n265_encoder_set_csv_10(n265_encoder *e, const char *path, int level);
 long n265_encoder_metrics_10(n265_encoder *e, double out[6]);
+void n265_show_config_10(const n265_encoder *e, FILE *f, int in_depth);
 
 typedef struct n265_api {
     int depth;                  /* the samples this table's library takes */
@@ -229,6 +235,11 @@ typedef struct n265_api {
     void (*set_csv)(n265_encoder *, const char *, int);
     long (*metrics)(n265_encoder *, double *);
     void (*set_fingerprint)(int);   /* --no-fingerprint (item 10) */
+    /* --show-config / --verbose (item 13): the resolved configuration,
+     * printed by the library because the library is where it is resolved.
+     * The third argument is the INPUT file's sample width, which is the
+     * one row the encoder cannot know. */
+    void (*show_config)(const n265_encoder *, FILE *, int);
 } n265_api;
 
 static const n265_api api8 = {
@@ -249,6 +260,7 @@ static const n265_api api8 = {
     n265_set_rc_bounds,
     n265_set_sei_opts, n265_set_qpfile, n265_set_zones,
     n265_encoder_set_csv, n265_encoder_metrics, n265_set_fingerprint,
+    n265_show_config,
 };
 
 static const n265_api api10 = {
@@ -272,7 +284,7 @@ static const n265_api api10 = {
     n265_set_rc_bounds_10,
     n265_set_sei_opts_10, n265_set_qpfile_10, n265_set_zones_10,
     n265_encoder_set_csv_10, n265_encoder_metrics_10,
-    n265_set_fingerprint_10,
+    n265_set_fingerprint_10, n265_show_config_10,
 };
 
 /* QpBdOffsetY (7-5), and the clip bound of Clip1Y. Runtime now, off the
@@ -1195,9 +1207,16 @@ static void usage(void)
         "  NOTE the ENCODER-SIDE half of x265's HDR options is deliberately\n"
         "  absent: --hdr10-opt is a block-level QP decision tuned to PQ\n"
         "  content, and this item signals without deciding.\n"
-        "  --verbose, -v   one line at open with the level and tier chosen\n"
+        "  --verbose, -v   the RESOLVED configuration at open, one\n"
+        "                  \"n265 [info]: key : value\" row at a time - what\n"
+        "                  the preset, the flags and the N265_* environment\n"
+        "                  settled on, x265's log shape so the two read side\n"
+        "                  by side - and with it the level and tier chosen\n"
         "                  and every Annex A bound that drove them\n"
-        "                  (N265_LEVEL_TRACE=1 is the same line)\n"
+        "                  (N265_LEVEL_TRACE=1 is that second line alone)\n"
+        "  --show-config   the same table, then exit 0 without encoding.\n"
+        "                  Both go to stderr and neither moves a byte of the\n"
+        "                  stream; --show-config writes no output file.\n"
         "  --version       print version\n");
 }
 
@@ -1263,7 +1282,7 @@ static int opt_drop(const char *k)
     static const char * const drop[] = {
         "o", "dump-recon", "dump-recon-decode", "csv", "csv-log-level",
         "shot-stats", "psnr", "ssim", "verbose", "v", "threads",
-        "version", "help", "h",
+        "show-config", "version", "help", "h",
         /* the switch for this very message: naming a default must not
          * change the stream, so `--info` and a default run write the
          * same bytes and `--no-info` writes no message to name itself
@@ -1317,6 +1336,10 @@ int main(int argc, char **argv)
     int lossless = 0;
     const char *level_str = NULL;   /* --level; NULL = derive it */
     int high_tier = 0, vui_timing = 1, verbose = 0;   /* VUI timing on since 2026-09-12 */
+    /* --show-config (phase 14 item 13): print the resolved configuration
+     * and stop, for a script that wants the table and not an encode. The
+     * table itself is what --verbose prints on its way past. */
+    int show_config = 0;
     double film_grain = 0.0;    /* --film-grain: 0 = off, and off is the default */
     int fgc_denoise = 0;        /* --film-grain-denoise */
     /* --nr-intra / --nr-inter: -1 is "not given", which leaves the preset
@@ -1601,6 +1624,8 @@ int main(int argc, char **argv)
             high_tier = 1;
         } else if (!strcmp(argv[i], "--verbose") || !strcmp(argv[i], "-v")) {
             verbose = 1;
+        } else if (!strcmp(argv[i], "--show-config")) {
+            show_config = 1;
         } else if (!strcmp(argv[i], "--vui-timing")) {
             vui_timing = 1;
         } else if (!strcmp(argv[i], "--no-vui-timing")) {
@@ -2209,6 +2234,24 @@ int main(int argc, char **argv)
     if (!enc) {
         fprintf(stderr, "n265: encoder_open failed (dims %dx%d)\n", y.w, y.h);
         return 1;
+    }
+
+    /* --show-config / --verbose (phase 14 item 13). Here, because the
+     * table is what the encoder RESOLVED and the level, the tier and the
+     * DPB are solved inside the open above; before the output file is
+     * touched, because --show-config must not truncate the `-o` of a run
+     * it is not going to perform. stderr, because stdout may be the
+     * bitstream. */
+    if (verbose || show_config)
+        a->show_config(enc, stderr, y.depth);
+    if (show_config) {
+        a->encoder_close(enc);
+        if (fin != stdin)
+            fclose(fin);
+        free(y.pix16);
+        free(y.pix8);
+        free(y.frame);
+        return 0;
     }
 
     if (shot_path)
