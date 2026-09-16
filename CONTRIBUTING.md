@@ -2,9 +2,10 @@
 
 ## Clean-room policy (read before writing any encoder code)
 
-yah265 is an independent implementation. It is not derived from x265, x264, or
-any other GPL-licensed encoder, and it must stay that way so the project can
-ship under its own licence.
+yah265 is an independent implementation, written from the ITU-T H.265
+specification. It is not derived from x265, x264, or any other encoder. x265
+is used only as a benchmark: its released binary, described by its public
+options and its measured behavior.
 
 Rules:
 
