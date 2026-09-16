@@ -1523,10 +1523,29 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         if (!e->crf_legacy && fps > 0.0 && ref > 0.0)
             e->crf_dur = 6.0 * expo * log2(fps / ref);
     }
+    /* WHICH level the AQ frame mean is read against under CRF
+     * (encoder.h). 3 ships: the opening window, frozen for the file.
+     *
+     * The window is taken CAUSALLY - the first `dc_win` frames as they
+     * are dispatched - and not out of the lookahead queue, though the
+     * queue does hold their sources. The queue carries no log2-variance
+     * mean: that quantity is computed in dispatch_frame, in the same
+     * pass that builds the per-CTU field, so reading a FORWARD window
+     * level would mean a second full-plane variance pass on every frame
+     * of every encode. What it would buy is a different anchor for the
+     * first `dc_win` frames alone - from frame dc_win on the two forms
+     * are the same mean over the same frames - so it is not bought.
+     *
+     * dc_win defaults to 12, which is medium's `--rc-lookahead`: the
+     * window the level would have come out of. */
+    e->dc_anchor = 3;
+    { const char *v = n265_env("N265_CRF_DC_ANCHOR"); if (v) e->dc_anchor = atoi(v); }
     e->dc_lvl = 0.0;
     e->dc_n = 0.0;
     e->dc_mem = 1000.0;
     { const char *v = n265_env("N265_CRF_DC_MEM"); if (v) e->dc_mem = atof(v); }
+    e->dc_win = 12.0;
+    { const char *v = n265_env("N265_CRF_DC_WIN"); if (v) e->dc_win = atof(v); }
     /* ABR overrides CRF: the rate factor is solved, not given. The
      * fractional base QP rides with it - see encode_frame. */
     e->abr_on = g_bitrate > 0.0 && e->mode != N265_MODE_PCM;
@@ -4763,25 +4782,41 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                  * and the head of every encode sit on the crf number
                  * itself.
                  *
-                 * What it keeps is measured and is not all of it: the level
-                 * converges as 1/n, so while it is still converging it is
-                 * tracking the shot it is inside, and on the 600-to-690
-                 * frame across-shot suites that transient is 4.1-4.4% of
-                 * BD-rate against the absolute anchor (docs/phase14.md item
-                 * 11b). Turning the term off outright costs 8.8% and 18.7%
-                 * on the same suites, so this form keeps between a half and
-                 * four fifths of it, and it is the band's drifting clips -
-                 * fade_cif above all - that pay the rest.
+                 * WHICH level (N265_CRF_DC_ANCHOR, encoder.h) is the whole
+                 * of this term's second round, and the running mean above
+                 * is the form it REFUSED. A mean that is still converging
+                 * is a mean that tracks the shot it is inside, so it
+                 * high-passes the very allocation it exists to keep: it
+                 * cost 4.1-4.4% of the across-shot gate and five band
+                 * points on the one clip in the corpus that is nothing but
+                 * a drift (fade_cif). What ships instead is the OPENING
+                 * WINDOW frozen for the file - one constant per encode, so
+                 * every difference the absolute anchor gave survives to the
+                 * digit and only the level moves. Anchor 2 re-takes that
+                 * window at every I picture and is refused for the reason
+                 * N265_ABR_WMEM's memory is the sequence: a level that
+                 * re-seeds per shot makes every shot average out and the
+                 * across-shot allocation collapses.
                  *
                  * ABR keeps the absolute anchor: there the loop solves its
                  * own rate factor against a target and the term's level is
                  * absorbed by that solve, so moving it would move the
                  * trajectory without moving where the encode lands. The
                  * escape (N265_CRF_LEGACY=1) restores the anchor here. */
-                if (e->crf_on && !e->crf_legacy) {
-                    e->dc_lvl += (avg_dc - e->dc_lvl) / (e->dc_n + 1.0);
-                    if (e->dc_n < e->dc_mem)
-                        e->dc_n += 1.0;
+                if (e->crf_on && !e->crf_legacy && e->dc_anchor > 0) {
+                    /* anchor 2: an I picture opens a shot, so the window
+                     * is re-taken from it. slice_type 2 is that picture
+                     * whether it is an IDR or a CRA, and it is the same
+                     * boundary the shot sidecar cuts on. */
+                    if (e->dc_anchor == 2 && slice_type == 2)
+                        e->dc_n = 0.0;
+                    /* the running form (1) never stops accumulating; the
+                     * window forms (2, 3) stop at dc_win frames and hold */
+                    if (e->dc_anchor == 1 || e->dc_n < e->dc_win) {
+                        e->dc_lvl += (avg_dc - e->dc_lvl) / (e->dc_n + 1.0);
+                        if (e->dc_n < e->dc_mem)
+                            e->dc_n += 1.0;
+                    }
                     anchor = e->dc_lvl;
                 }
                 double dc = (v ? atof(v) : 1.0) * (avg_dc - anchor);
