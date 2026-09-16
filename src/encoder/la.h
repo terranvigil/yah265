@@ -185,10 +185,13 @@ int n265_brun_trace(void);
  *  n265_dup_fast   N265_DUP_FAST: the ARM. A frame whose source is the
  *                  source of one of its references is coded all-skip
  *                  toward it with the zero vector.
- *  n265_dup_thr_q8 N265_DUP_THR: the looser form, a bound on the lowres
- *                  distance in 1/256 of an 8-bit luma level PER LOWRES
- *                  PIXEL. 0 (the default) is the strict form, where only
- *                  a byte-identical source arms the path.
+ *  n265_dup_thr_q8 N265_DUP_THR, and --dup-threshold, which is the same
+ *                  knob spelled on the command line and beats the
+ *                  environment (phase 14 item 15): the looser form, a
+ *                  bound on the lowres distance in 1/256 of an 8-bit
+ *                  luma level PER LOWRES PIXEL. 0 (the default) is the
+ *                  strict form, where only a byte-identical source arms
+ *                  the path.
  *  n265_dup_trace  N265_DUP_TRACE: the census, output-neutral.
  */
 int n265_dup_on(void);

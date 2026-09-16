@@ -110,6 +110,44 @@ int n265_master_display_parse(const char *s, uint32_t v[10]);
 /* "cll,fall". 0 on success. */
 int n265_cll_parse(const char *s, int *cll, int *fall);
 
+/* ---- --video-signal-type-preset (phase 14 item 15) ------------------
+ *
+ * One NAME for a whole colour signalling set, and nothing but a name: it
+ * expands to the flags above and adds no syntax of its own. The table is
+ * x265's, taken from the pinned reference binary's own `--help` (brew
+ * x265 4.3+1-e9b8812), because the only reason this spelling exists is
+ * that a command line written for x265 should mean the same thing here.
+ *
+ * `v` is filled by field, indexed by N265_VUI_* for the six the VUI
+ * parser already names and by N265_VSP_CHROMALOC for the seventh. -1 is
+ * "this preset does not set that field" - the RGB sets leave chroma
+ * sample location absent, as x265 does - and no preset sets overscan.
+ *
+ * The optional `:<colour-volume>` suffix carries a mastering display
+ * volume, which is `--master-display`'s string and is parsed as one.
+ */
+#define N265_VSP_CHROMALOC  N265_VUI_NFIELD
+#define N265_VSP_NFIELD     (N265_VUI_NFIELD + 1)
+
+enum {
+    N265_VSP_OK             =  0,
+    N265_VSP_BAD_SYSTEM     = -1,   /* no such system-id */
+    N265_VSP_BAD_VOLUME     = -2,   /* no such colour-volume */
+    N265_VSP_VOLUME_SYSTEM  = -3,   /* a volume on a system that takes none */
+    N265_VSP_VOLUME_REFUSED = -4,   /* a volume we will not write; see `why` */
+};
+
+/* `s` is "<system-id>[:<colour-volume>]". On success `v` is filled as
+ * above, `md` and `*have_md` carry the volume if there was one, and 0 is
+ * returned. On a refusal the return is one of the codes above and `*why`
+ * is the reason where the table has one, else NULL. */
+int n265_vsp_parse(const char *s, int *v, uint32_t *md, int *have_md,
+                   const char **why);
+/* Row `i` of each table by name, NULL past the end, so a refusal can
+ * print the names without a second copy of them. */
+const char *n265_vsp_name(int i);
+const char *n265_vsp_volume_name(int i);
+
 /* Is any HDR10 metadata message going to be written? (the --hdr10 rule) */
 int n265_hdr10_on(const n265_signal *s);
 

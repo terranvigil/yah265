@@ -2725,6 +2725,18 @@ void n265_show_config(const n265_encoder *e, FILE *f, int in_depth)
                 e->hrd_on ? "signalled" : "off");
     else
         cfg_row(f, "vbv", "off");
+    /* the duplicate-frame path and the bound that arms its looser form
+     * (--dup-threshold / N265_DUP_THR, phase 14 item 15). It is printed
+     * here rather than left to the preset-knob rows below because the
+     * threshold is not a preset row: the flag and the env are the only
+     * two places it can come from, and a user who armed it wants to see
+     * that it arrived. */
+    if (n265_dup_fast())
+        cfg_row(f, "frame-dup", "on, threshold %.3f (%s)",
+                n265_dup_thr_q8() / 256.0,
+                n265_dup_thr_q8() ? "near-duplicate" : "exact match only");
+    else
+        cfg_row(f, "frame-dup", "off");
     cfg_row(f, "aq / cu-tree", "%s / %s", e->aq ? "on" : "off",
             e->cutree ? "on" : "off");
     cfg_row(f, "weightp / weightb", "%s / %s", e->weightp ? "on" : "off",

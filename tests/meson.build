@@ -102,6 +102,16 @@ unit_rcfile = executable('unit_rcfile', 'unit/rcfile_test.c',
   dependencies : yah265_dep)
 test('rcfile', unit_rcfile)
 
+# The two name tables of phase 14 item 15: --video-signal-type-preset's
+# colour sets and --tune's compositions, against the syntax element
+# values and the knob values written out by hand. A name table is the one
+# kind of code that ships with a typo and no symptom - a stream tagged
+# with the wrong colour description decodes, conforms and matches both
+# decoders bit for bit.
+unit_name = executable('unit_name', 'unit/name_test.c',
+  dependencies : yah265_dep)
+test('name', unit_name)
+
 # One file per kernel family (checkasm.h has the layout): a family item
 # adds its file here and one line to the table in main.c, and touches
 # nothing else.

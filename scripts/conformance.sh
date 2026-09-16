@@ -1310,7 +1310,20 @@ run_vector tlayers_only  352x288 20 testsrc2 "--keyint 10 --bframes 7 --qp 32 --
 # Every NAL-producing flag at once: EOS, AUD, VPS, SPS, PPS, the recovery
 # point, the HRD timing pair, the HDR metadata, the version SEI, the
 # grain SEI, the slice, the hash suffix SEI, filler, EOB.
-run_vector all_nals      352x288 16 testsrc2 "--keyint 8 --bframes 3 --bitrate 700 --vbv-maxrate 700 --vbv-bufsize 700 --strict-cbr --repeat-headers --aud --eos --eob --info --idr-recovery-sei --pic-struct 0 --hrd-concat --temporal-layers --hash 1 --film-grain 1.0 --max-cll 1000,400 --threads 4"
+# Phase 14 item 15 adds --video-signal-type-preset with a colour volume,
+# which makes the HDR10 message in that access unit its longest form -
+# mastering display AND content light level - and --dup-threshold, which
+# arms the near-duplicate path. --tune is NOT here: this vector names
+# --bframes 3, and zerolatency's window of 1 is refused against it by
+# design. It has a vector of its own below.
+run_vector all_nals      352x288 16 testsrc2 "--keyint 8 --bframes 3 --bitrate 700 --vbv-maxrate 700 --vbv-bufsize 700 --strict-cbr --repeat-headers --aud --eos --eob --info --idr-recovery-sei --pic-struct 0 --hrd-concat --temporal-layers --hash 1 --film-grain 1.0 --max-cll 1000,400 --video-signal-type-preset BT2100_PQ_YCC:P3D65x1000n0005 --dup-threshold 0.5 --threads 4"
+
+# -t/--tune zerolatency (phase 14 item 15): no B frames, a window of one,
+# no adaptive run length, no cu-tree and one frame in flight. Every one of
+# those is a knob with its own coverage; what this vector checks is that
+# the COMPOSITION decodes, because a tune is the one way a user reaches
+# all five at once without naming any of them.
+run_vector tune_zl       352x288 16 testsrc2 "--keyint 8 --tune zerolatency --threads 4"
 
 if [ "$FAST" -eq 0 ]; then
     run_vector thr4_720    1280x720 12 testsrc2 "--keyint 6 --bframes 5 --aq 1 --cutree 1 --threads 4"

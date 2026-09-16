@@ -23,4 +23,38 @@ const char *n265_preset_selected(void);
 int n265_preset_row(int i, const char **key, const char **val,
                     const char **env);
 
+/* ---- -t/--tune (phase 14 item 15) -----------------------------------
+ *
+ * The composition of the one tune this encoder accepts, and the reason
+ * for each of the four it refuses. The table lives beside the presets
+ * because that is what a tune is - a second name for a set of knob
+ * values - and in the library rather than in the CLI so a unit test can
+ * read it. `t` is filled by index; -1 is "this tune does not touch that
+ * knob", and the caller applies a value only where the command line did
+ * not already name one, so an explicit flag beats the tune and the tune
+ * beats the preset. */
+enum {
+    N265_TUNE_BFRAMES = 0,      /* --bframes */
+    N265_TUNE_LOOKAHEAD,        /* --rc-lookahead */
+    N265_TUNE_BADAPT,           /* --b-adapt */
+    N265_TUNE_CUTREE,           /* --cutree */
+    /* N265_MAX_FRAME_WORK: frames in flight. A scheduling knob that
+     * moves no bits (output is byte-identical at every thread count,
+     * which is a gate), so it is in the tune for its LATENCY and not for
+     * its rate. */
+    N265_TUNE_FRAMEWORK,
+    N265_TUNE_NFIELD
+};
+
+enum {
+    N265_TUNE_OK      =  0,
+    N265_TUNE_UNKNOWN = -1,     /* not one of x265's five names */
+    N265_TUNE_REFUSED = -2,     /* a name we know and will not do; `why` */
+};
+
+int n265_tune_parse(const char *name, int *t, const char **why);
+/* Row `i`'s name, NULL past the end: the refusal prints the five without
+ * keeping a second copy of them. */
+const char *n265_tune_name(int i);
+
 #endif /* N265_PRESET_H */

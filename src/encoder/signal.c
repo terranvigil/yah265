@@ -236,6 +236,157 @@ int n265_cll_parse(const char *s, int *cll, int *fall)
     return 0;
 }
 
+/* ---- --video-signal-type-preset: the name table (phase 14 item 15) ---
+ *
+ * x265's fourteen system-ids, spelled as its own `--help` spells them and
+ * carrying the values that help prints, on the pinned reference binary
+ * (4.3+1-e9b8812). Two of those rows look wrong and are kept anyway:
+ * BT2020_YCC_NCL names matrix_coeffs bt709 rather than bt2020nc, and
+ * BT2020_RGB names transfer smpte2084 with matrix bt2020nc, which is
+ * BT.2100 PQ and not an RGB set at all. They are x265's values and this
+ * flag is a SPELLING - a name that meant one thing in one encoder and
+ * another here would be worse than a name that carries a value the user
+ * can see and override. docs/phase14.md records both, and every one of
+ * the nine individual flags overrides the preset.
+ *
+ * The values are written as x265's own option strings and resolved
+ * through the value tables above, so this table cannot drift from them
+ * and a typo here is a parse failure rather than a wrong number on the
+ * wire. NULL is a field the preset leaves absent.
+ */
+static const struct vsp_row {
+    const char *name;
+    const char *colorprim, *transfer, *colormatrix, *range, *chromaloc;
+} vsp_sys[] = {
+    { "BT601_525",       "smpte170m", "smpte170m",    "smpte170m", "limited", "0" },
+    /* x265 spells the 625-line system "BT601_626"; the alias below is the
+     * spelling the system actually has, and both parse. */
+    { "BT601_626",       "bt470bg",   "smpte170m",    "bt470bg",   "limited", "0" },
+    { "BT601_625",       "bt470bg",   "smpte170m",    "bt470bg",   "limited", "0" },
+    { "BT709_YCC",       "bt709",     "bt709",        "bt709",     "limited", "0" },
+    { "BT709_RGB",       "bt709",     "bt709",        "gbr",       "limited", NULL },
+    { "BT2020_YCC_NCL",  "bt2020",    "bt2020-10",    "bt709",     "limited", "2" },
+    { "BT2020_RGB",      "bt2020",    "smpte2084",    "bt2020nc",  "limited", NULL },
+    { "BT2100_PQ_YCC",   "bt2020",    "smpte2084",    "bt2020nc",  "limited", "2" },
+    { "BT2100_PQ_ICTCP", "bt2020",    "smpte2084",    "ictcp",     "limited", "2" },
+    { "BT2100_PQ_RGB",   "bt2020",    "smpte2084",    "gbr",       "limited", NULL },
+    { "BT2100_HLG_YCC",  "bt2020",    "arib-std-b67", "bt2020nc",  "limited", "2" },
+    { "BT2100_HLG_RGB",  "bt2020",    "arib-std-b67", "gbr",       "limited", NULL },
+    { "FR709_RGB",       "bt709",     "bt709",        "gbr",       "full",    NULL },
+    { "FR2020_RGB",      "bt2020",    "bt2020-10",    "gbr",       "full",    NULL },
+    { "FRP3D65_YCC",     "smpte432",  "bt709",        "smpte170m", "full",    "1" },
+    { NULL, NULL, NULL, NULL, NULL, NULL }
+};
+
+/* The colour volumes, as `--master-display` strings.
+ *
+ * x265 allows one only beside the three BT2100_PQ_* systems, and that
+ * restriction is kept: a mastering display volume on an SDR system is a
+ * message about a display the content was never graded on.
+ *
+ * The third row is REFUSED rather than carried. x265's own table gives
+ * its red primary as (34000,146000), and display_primaries_y is u(16) in
+ * ST 2086 - 146000 does not fit, so there is no verbatim value to pass
+ * through, and the two candidates for what was meant (BT.2020's red at
+ * 14600, P3's at 16000) differ. Writing either would put an invented
+ * mastering volume in the stream under a name the user trusted.
+ */
+static const struct vsp_vol {
+    const char *name, *md, *why;
+} vsp_vol[] = {
+    { "P3D65x1000n0005",
+      "G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,5)",
+      NULL },
+    { "P3D65x4000n005",
+      "G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(40000000,50)",
+      NULL },
+    { "BT2100x108n0005", NULL,
+      "x265's table gives its red primary as (34000,146000) and "
+      "display_primaries_y is u(16) in ST 2086, so there is no value to "
+      "pass through; the two readings of what was meant - BT.2020's red "
+      "at 14600, P3's at 16000 - disagree, and guessing would put an "
+      "invented mastering volume in the stream. Name --master-display "
+      "with the volume you graded on." },
+    { NULL, NULL, NULL }
+};
+
+const char *n265_vsp_name(int i)
+{
+    if (i < 0 || i >= (int)(sizeof vsp_sys / sizeof vsp_sys[0]) - 1)
+        return NULL;
+    return vsp_sys[i].name;
+}
+
+const char *n265_vsp_volume_name(int i)
+{
+    if (i < 0 || i >= (int)(sizeof vsp_vol / sizeof vsp_vol[0]) - 1)
+        return NULL;
+    return vsp_vol[i].name;
+}
+
+/* one field of a row: the spelling through the value table, or -1 where
+ * the row leaves the field absent */
+static int vsp_field(int field, const char *s)
+{
+    return s ? n265_vui_parse(field, s) : -1;
+}
+
+int n265_vsp_parse(const char *s, int *v, uint32_t *md, int *have_md,
+                   const char **why)
+{
+    if (why)
+        *why = NULL;
+    if (!s || !*s || !v || !md || !have_md)
+        return N265_VSP_BAD_SYSTEM;
+
+    /* "<system-id>[:<colour-volume>]", split on the first colon */
+    char sys[64];
+    const char *colon = strchr(s, ':');
+    size_t n = colon ? (size_t)(colon - s) : strlen(s);
+    if (n == 0 || n >= sizeof sys)
+        return N265_VSP_BAD_SYSTEM;
+    memcpy(sys, s, n);
+    sys[n] = '\0';
+
+    const struct vsp_row *r = NULL;
+    for (int i = 0; vsp_sys[i].name; i++)
+        if (!strcmp(sys, vsp_sys[i].name))
+            r = &vsp_sys[i];
+    if (!r)
+        return N265_VSP_BAD_SYSTEM;
+
+    for (int i = 0; i < N265_VSP_NFIELD; i++)
+        v[i] = -1;
+    v[N265_VUI_COLORPRIM]   = vsp_field(N265_VUI_COLORPRIM, r->colorprim);
+    v[N265_VUI_TRANSFER]    = vsp_field(N265_VUI_TRANSFER, r->transfer);
+    v[N265_VUI_COLORMATRIX] = vsp_field(N265_VUI_COLORMATRIX, r->colormatrix);
+    v[N265_VUI_RANGE]       = vsp_field(N265_VUI_RANGE, r->range);
+    v[N265_VSP_CHROMALOC]   = r->chromaloc ? atoi(r->chromaloc) : -1;
+    *have_md = 0;
+
+    if (!colon)
+        return N265_VSP_OK;
+
+    /* the colour volume, and only on the three systems that take one */
+    if (strncmp(r->name, "BT2100_PQ", 9))
+        return N265_VSP_VOLUME_SYSTEM;
+    const struct vsp_vol *w = NULL;
+    for (int i = 0; vsp_vol[i].name; i++)
+        if (!strcmp(colon + 1, vsp_vol[i].name))
+            w = &vsp_vol[i];
+    if (!w)
+        return N265_VSP_BAD_VOLUME;
+    if (!w->md) {
+        if (why)
+            *why = w->why;
+        return N265_VSP_VOLUME_REFUSED;
+    }
+    if (n265_master_display_parse(w->md, md) < 0)
+        return N265_VSP_BAD_VOLUME;     /* unreachable: the table is ours */
+    *have_md = 1;
+    return N265_VSP_OK;
+}
+
 int n265_hdr10_on(const n265_signal *s)
 {
     /* x265's rule, and it is a sensible one: naming either message's

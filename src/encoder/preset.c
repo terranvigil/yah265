@@ -744,3 +744,106 @@ int n265_preset_param(const char *key, int fallback)
     const char *v = lookup(rungs[g_preset].par, key);
     return v ? atoi(v) : fallback;
 }
+
+/* ---- -t/--tune: one accepted name and four named refusals -----------
+ *
+ * Phase 14 item 15. x265 has five tunes and they are not one feature:
+ * one of them is a composition of flags this encoder already owns, and
+ * the other four each ask for something this project has not got or has
+ * decided against. A single verdict would flatten that, so each name is
+ * answered by name.
+ *
+ *   zerolatency - SHIPPED. Nothing in it is new: no B frames, a window
+ *                 of one, no adaptive run length, no cu-tree propagation
+ *                 (there is no window to propagate over), and one frame
+ *                 in flight. The last is bit-neutral by gate - output is
+ *                 byte-identical at every thread count - and is here
+ *                 because latency is what the name promises.
+ *   psnr, ssim  - REFUSED. Both are metric fitting: x265's psnr turns AQ
+ *                 and psy off because those tools cost PSNR while
+ *                 improving the picture. docs/phase7-psy-design.md
+ *                 closes that by argument and the band decides on
+ *                 VMAF-NEG, so a tune that trades the metric we read for
+ *                 one we do not would be shipping a worse encoder under
+ *                 a better number.
+ *   grain       - REFUSED, and it is NOT --film-grain: x265's tune grain
+ *                 is a rate-control shape (--ipratio, --pbratio, --qpstep,
+ *                 AQ and cu-tree off, SAO off, psy-rd 4.0, psy-rdoq
+ *                 10.0, constant VBV) built around --rc-grain, whose
+ *                 whole content is damping constants. Those come from a
+ *                 band read on a grain clip, which is phase 13 item D.
+ *   fastdecode  - REFUSED. Two of its five legs are tools this encoder
+ *                 does not let a user switch: there is no deblocking
+ *                 disable at all, and SAO has only a diagnostic env
+ *                 knob. A tune that silently delivered three of five
+ *                 would be worse than one that says which two are
+ *                 missing.
+ *
+ * The composition is here rather than in the CLI so it can be unit
+ * tested: a name table that expands to the wrong numbers is exactly the
+ * kind of thing no encode notices.
+ */
+static const struct tune_row {
+    const char *name, *alias;
+    int bframes, lookahead, badapt, cutree, framework;
+    const char *why;            /* NULL where the tune is accepted */
+} tunes[] = {
+    { "zerolatency", "zero-latency", 0, 1, 0, 0, 1, NULL },
+    { "psnr", NULL, -1, -1, -1, -1, -1,
+      "it is metric fitting: x265's psnr turns adaptive quantisation and "
+      "psy off because both cost PSNR while improving the picture. This "
+      "encoder's band decides on VMAF-NEG and "
+      "docs/phase7-psy-design.md closes metric fitting by argument, so "
+      "the tune would ship a worse encoder under a better number." },
+    { "ssim", NULL, -1, -1, -1, -1, -1,
+      "same reason as psnr: it fits the encoder to a metric this project "
+      "does not decide on (docs/phase7-psy-design.md). Name --ssim if "
+      "what you want is the number reported." },
+    { "grain", NULL, -1, -1, -1, -1, -1,
+      "it is not --film-grain. x265's tune grain is a rate-control shape "
+      "around --rc-grain, whose whole content is damping constants - how "
+      "much upward QP movement a grainy frame is allowed per frame - and "
+      "those come from a band read on a grain clip, which is phase 13 "
+      "item D. --film-grain (the SEI) and --film-grain-denoise are here "
+      "today and are a different tool." },
+    { "fastdecode", "fast-decode", -1, -1, -1, -1, -1,
+      "two of its five legs are not flags this encoder owns: there is no "
+      "deblocking-filter disable, and SAO has only a diagnostic env "
+      "knob, not a user switch. The three it could deliver "
+      "(--no-weightp, --no-weightb, no intra in B) would be a tune that "
+      "half worked. Name those directly if you want them." },
+    { NULL, NULL, 0, 0, 0, 0, 0, NULL }
+};
+
+const char *n265_tune_name(int i)
+{
+    if (i < 0 || i >= (int)(sizeof tunes / sizeof tunes[0]) - 1)
+        return NULL;
+    return tunes[i].name;
+}
+
+int n265_tune_parse(const char *name, int *t, const char **why)
+{
+    if (why)
+        *why = NULL;
+    if (!name || !t)
+        return N265_TUNE_UNKNOWN;
+    const struct tune_row *r = NULL;
+    for (int i = 0; tunes[i].name; i++)
+        if (!strcmp(name, tunes[i].name) ||
+            (tunes[i].alias && !strcmp(name, tunes[i].alias)))
+            r = &tunes[i];
+    if (!r)
+        return N265_TUNE_UNKNOWN;
+    if (r->why) {
+        if (why)
+            *why = r->why;
+        return N265_TUNE_REFUSED;
+    }
+    t[N265_TUNE_BFRAMES]   = r->bframes;
+    t[N265_TUNE_LOOKAHEAD] = r->lookahead;
+    t[N265_TUNE_BADAPT]    = r->badapt;
+    t[N265_TUNE_CUTREE]    = r->cutree;
+    t[N265_TUNE_FRAMEWORK] = r->framework;
+    return N265_TUNE_OK;
+}
