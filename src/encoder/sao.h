@@ -32,6 +32,11 @@ int n265_sao_seq_enabled(void);
  * on a frame the content gate (la.h) typed flat-shaded. */
 int n265_sao_frame_mask(const struct n265_frame_work *e);
 
+/* The sequence's two type masks, for the resolved-configuration table
+ * (phase 14 item 13): what every frame may pick from, and what the
+ * content gate adds on a flat-typed frame (0 where the gate is off). */
+void n265_sao_masks(int *base, int *flat);
+
 /* Decide and apply one CTB row's offsets (docs/threading-design.md
  * sec 1). Analysis and application both see the picture pre-SAO: the
  * one line SAO has already rewritten - the last line of the row above -

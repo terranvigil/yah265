@@ -659,6 +659,38 @@ const char *n265_env(const char *name)
     return lookup(rungs[g_preset].tab, name);
 }
 
+/* ---- reading the selected rung back out (phase 14 item 13) ----------
+ *
+ * `--show-config` and `--verbose` print what the run RESOLVED, and the
+ * knob half of that is this file's table. Both readers below are pure:
+ * they name the rung that is selected and walk its table in place. No row
+ * moves and no table is copied - a getter that reordered the ladder to
+ * print it would be a second source of truth for what a preset sets. */
+const char *n265_preset_selected(void)
+{
+    return rungs[g_preset].name;
+}
+
+/* Row `i` of the selected rung's table, 1 while there is one. `env`
+ * receives the environment's value for that key, or NULL where the
+ * environment is silent - which is exactly the condition n265_env uses to
+ * fall through to the table, so the caller can say which of the two won
+ * without re-deriving the rule. */
+int n265_preset_row(int i, const char **key, const char **val,
+                    const char **env)
+{
+    const struct kv *t = rungs[g_preset].tab;
+    for (int n = 0; t[n].k; n++) {
+        if (n != i)
+            continue;
+        *key = t[n].k;
+        *val = t[n].v;
+        *env = getenv(t[n].k);
+        return 1;
+    }
+    return 0;
+}
+
 /* the index of a PLACED rung by name, or -1 */
 static int rung_of(const char *name)
 {

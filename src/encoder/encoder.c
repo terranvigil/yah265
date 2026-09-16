@@ -7,6 +7,7 @@
 
 #include <limits.h>
 #include <math.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <time.h>
 #include <unistd.h>
@@ -2557,6 +2558,167 @@ n265_encoder *n265_encoder_open(const n265_param *p)
 fail:
     n265_encoder_close(e);
     return NULL;
+}
+
+/* ---- the resolved configuration (phase 14 item 13) -------------------
+ *
+ * What `--show-config` prints, and what `--verbose` prints on its way
+ * past: the configuration this run RESOLVED, after the preset, the flags
+ * and the N265_* environment have all had their say, in x265's own log
+ * shape - one `n265 [info]: key : value` line per row - so that the two
+ * encoders' logs read side by side. The 2026-09-16 parity check had to
+ * read ours out of src/encoder/preset.c because the binary said nothing;
+ * this is the row that answers it instead.
+ *
+ * It is printed from HERE and not from the command line because the
+ * command line does not know the answers. The level and the tier are
+ * solved at open out of the whole of Annex A; `--rdoq-level`,
+ * `--weightp` and every knob below them fall through the environment and
+ * then the preset table before they are a value; `--threads 0` resolves
+ * against the box. A table assembled from argv would print what was
+ * ASKED for, which is the question the parity check could already
+ * answer.
+ *
+ * Output-neutral by construction: it writes to the caller's stream (the
+ * CLI passes stderr, because stdout may be the bitstream), it reads
+ * fields and never writes one, and it leaves the identification SEI
+ * alone. The two say different things on purpose - the SEI names no
+ * thread count, because the same command line at one thread and at
+ * twelve must write the same bytes, and this table names it because a
+ * log is not a bitstream. */
+static void cfg_row(FILE *f, const char *key, const char *fmt, ...)
+{
+    va_list ap;
+    fprintf(f, "n265 [info]: %-22s : ", key);
+    va_start(ap, fmt);
+    vfprintf(f, fmt, ap);
+    va_end(ap);
+    fputc('\n', f);
+}
+
+/* the SAO type mask as a phrase: the encoding is N265_SAO_TYPES', 1 band,
+ * 2 edge, 3 both */
+static const char *cfg_sao_types(int mask)
+{
+    return (mask & 3) == 3 ? "band+edge" : (mask & 1) ? "band"
+                           : (mask & 2) ? "edge" : "none";
+}
+
+void n265_show_config(const n265_encoder *e, FILE *f, int in_depth);
+void n265_show_config(const n265_encoder *e, FILE *f, int in_depth)
+{
+    if (!e || !f)
+        return;
+    const n265_param *p = &e->param;
+    const char *chroma = e->chroma_idc == 3 ? "4:4:4"
+                       : e->chroma_idc == 2 ? "4:2:2" : "4:2:0";
+    /* A.3: 4:2:0 is Main / Main10 and everything else is the range
+     * extension profile, under the names write_ptl's constraint flags
+     * spell out (headers.c). */
+    const char *profile = e->chroma_idc == 3
+                              ? (BIT_DEPTH == 8 ? "Main 4:4:4" : "Main 4:4:4 10")
+                        : e->chroma_idc == 2 ? "Main 4:2:2 10"
+                        : (BIT_DEPTH == 8 ? "Main" : "Main10");
+    if (in_depth <= 0)
+        in_depth = BIT_DEPTH;
+
+    cfg_row(f, "encoder", "yah265 %s, %d-bit", n265_version_str(), BIT_DEPTH);
+    if (e->pad_w != p->width || e->pad_h != p->height)
+        cfg_row(f, "input", "%dx%d %s %d-bit, %d/%d fps (coded %dx%d)",
+                p->width, p->height, chroma, in_depth, p->fps_num,
+                p->fps_den, e->pad_w, e->pad_h);
+    else
+        cfg_row(f, "input", "%dx%d %s %d-bit, %d/%d fps", p->width,
+                p->height, chroma, in_depth, p->fps_num, p->fps_den);
+    cfg_row(f, "profile / level / tier", "%s / %s / %s", profile,
+            e->level.name, e->level.tier ? "high" : "main");
+    cfg_row(f, "preset", "%s", n265_preset_selected());
+    cfg_row(f, "ctu / min cu", "%d / %d", 1 << e->ctb_log2, 1 << MIN_CB_LOG2);
+    cfg_row(f, "tu depth inter / intra", "%d / %d", e->tt_depth_inter + 1,
+            e->tt_depth_intra + 1);
+    cfg_row(f, "refs", "%d per list", e->ref_max);
+    cfg_row(f, "bframes / b-adapt", "%d / %s", e->bframes,
+            e->badapt ? "on" : "off");
+    cfg_row(f, "rc-lookahead", "%d frames", e->la_depth);
+    cfg_row(f, "keyint / open-gop", "%d / %s", e->keyint,
+            e->open_gop ? "on" : "off");
+    if (e->mode == N265_MODE_PCM)
+        cfg_row(f, "rate control", "pcm (the phase-0 I_PCM path)");
+    else if (e->lossless)
+        cfg_row(f, "rate control", "lossless (transquant bypass)");
+    else if (e->abr_on)
+        cfg_row(f, "rate control", "abr, bitrate %.0f kbit/s",
+                e->abr_bitrate / 1000.0);
+    else if (e->crf_on)
+        cfg_row(f, "rate control", "crf %.2f", e->crf);
+    else
+        cfg_row(f, "rate control", "cqp, qp %d", e->qp_base);
+    if (e->vbv.on)
+        cfg_row(f, "vbv", "maxrate %.0f kbit/s, bufsize %.0f kbit, "
+                "init %.2f, hrd %s", e->vbv.maxrate / 1000.0,
+                e->vbv.bufsize / 1000.0, e->vbv.init,
+                e->hrd_on ? "signalled" : "off");
+    else
+        cfg_row(f, "vbv", "off");
+    cfg_row(f, "aq / cu-tree", "%s / %s", e->aq ? "on" : "off",
+            e->cutree ? "on" : "off");
+    cfg_row(f, "weightp / weightb", "%s / %s", e->weightp ? "on" : "off",
+            e->weightb ? "on" : "off");
+    /* N265_RDOQ's numbering, with x265's beside it: the two count the
+     * same three encoders in a different order and the map lives at
+     * rdoq_level_map. */
+    cfg_row(f, "rdoq", "%d (%s; --rdoq-level %d)", e->rdoq,
+            e->rdoq == 0 ? "off"
+            : e->rdoq == 2 ? "the lattice on the commit path only"
+                           : "the lattice in every RD trial",
+            rdoq_level_map(e->rdoq));
+    {
+        int base, flat;
+        n265_sao_masks(&base, &flat);
+        if (e->mode == N265_MODE_PCM || e->lossless)
+            /* 7.3.6.1's slice flags are not even coded there: a bypassed
+             * CU has nothing for a level shift to correct */
+            cfg_row(f, "sao", "off (every CU is coded bypass)");
+        else if (e->no_sao)
+            cfg_row(f, "sao", "off (N265_NO_SAO)");
+        else if (flat && (flat | base) != base)
+            cfg_row(f, "sao", "%s, %s on frames the content gate types "
+                    "flat-shaded", base ? cfg_sao_types(base) : "off",
+                    cfg_sao_types(base | flat));
+        else
+            cfg_row(f, "sao", "%s", base ? cfg_sao_types(base) : "off");
+    }
+    if (e->mode == N265_MODE_PCM || e->lossless)
+        cfg_row(f, "deblock", "off (disabled in the PPS: every edge is "
+                "bypassed)");
+    else
+        cfg_row(f, "deblock", "on, beta %d tc %d", e->dbf_beta, e->dbf_tc);
+    if (g_threads > 0)
+        cfg_row(f, "threads", "%d", g_threads);
+    else
+        cfg_row(f, "threads", "%d (auto: one worker per online CPU)",
+                auto_threads());
+    /* ...and the knob half of the preset, which is the half the parity
+     * check could not read at all. The value in force is the
+     * environment's where it named one and the table's otherwise, which
+     * is n265_env's own rule; both are printed where they disagree, so a
+     * measurement ARM is visible as an arm and not as a preset. */
+    {
+        const char *k, *v, *env;
+        int n = 0;
+        while (n265_preset_row(n, &k, &v, &env))
+            n++;
+        cfg_row(f, "preset knobs", "%d rows from `%s`", n,
+                n265_preset_selected());
+        for (int i = 0; n265_preset_row(i, &k, &v, &env); i++) {
+            char row[64];
+            snprintf(row, sizeof row, "  %s", k);
+            if (env)
+                cfg_row(f, row, "%s (env; the preset names %s)", env, v);
+            else
+                cfg_row(f, row, "%s", v);
+        }
+    }
 }
 
 static void join_oldest(n265_encoder *e);

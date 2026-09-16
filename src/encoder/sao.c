@@ -323,6 +323,17 @@ int n265_sao_frame_mask(const struct n265_frame_work *e)
     return e->flat ? base | sao_anim() : base;
 }
 
+/* The two masks `--show-config` prints (phase 14 item 13): what every
+ * frame's analysis may pick from, and what a frame the content gate types
+ * flat-shaded may pick from ON TOP of it. Read here rather than
+ * re-derived at the printer, so the table cannot name a default this file
+ * has moved. */
+void n265_sao_masks(int *base, int *flat)
+{
+    *base = sao_types();
+    *flat = n265_flat_gate() ? sao_anim() : 0;
+}
+
 /* N265_SAO_QPLAM: 1 prices each CTB's candidates at that CTB's own
  * QP-derived lambda rather than the frame's; 0 is HEAD.
  * N265_SAO_BIAS: percent scale on the SAO pricing lambda, 100 = HEAD.

@@ -182,6 +182,8 @@
 #define n265_pcm_bits_per_frame      n265_pcm_bits_per_frame_10
 #define n265_planned_qp              n265_planned_qp_10
 #define n265_pred_dc                 n265_pred_dc_10
+#define n265_preset_row              n265_preset_row_10
+#define n265_preset_selected         n265_preset_selected_10
 #define n265_psy_cost                n265_psy_cost_10
 #define n265_psy_energy              n265_psy_energy_10
 #define n265_qpfile_at               n265_qpfile_at_10
@@ -215,6 +217,7 @@
 #define n265_set_rc_bounds           n265_set_rc_bounds_10
 #define n265_set_sei_opts            n265_set_sei_opts_10
 #define n265_set_zones               n265_set_zones_10
+#define n265_show_config             n265_show_config_10
 #define n265_vbv_allow               n265_vbv_allow_10
 #define n265_vbv_crf_base            n265_vbv_crf_base_10
 #define n265_vbv_init                n265_vbv_init_10
@@ -246,6 +249,7 @@
 #define n265_sad_wh_neon             n265_sad_wh_neon_10
 #define n265_sao_band_stats          n265_sao_band_stats_10
 #define n265_sao_frame_mask          n265_sao_frame_mask_10
+#define n265_sao_masks               n265_sao_masks_10
 #define n265_sao_row                 n265_sao_row_10
 #define n265_sao_seq_enabled         n265_sao_seq_enabled_10
 #define n265_sao_warm                n265_sao_warm_10
