@@ -1063,6 +1063,30 @@ struct n265_encoder {
     int qp_base;            /* configured QP (P anchors) */
     int crf_on;             /* n265_set_crf: base QP from crf, not qp_base */
     double crf;
+    /* THE CRF AXIS (phase 14 item 11b, 2026-09-16). What a `--crf N`
+     * number buys is a mapping from that number to a base QP, and two
+     * terms of ours were not the ones a user who knows the knob from
+     * another encoder expects (docs/phase14.md item 11):
+     *
+     *   crf_legacy  N265_CRF_LEGACY=1, the escape: the pre-2026-09-16
+     *               mapping, byte for byte, for a stream that has to
+     *               reproduce or a number that was recorded on it.
+     *   crf_dur     the frame-DURATION term, in QP, constant for the
+     *               sequence because the frame rate is (computed at
+     *               open, below). CRF only - under ABR the loop solves
+     *               its own rate factor and the duration is already in
+     *               the bits per frame it solves against.
+     *   dc_lvl/_n/_mem  the causal running level the AQ frame mean is
+     *               taken against under CRF, in place of the absolute
+     *               anchor: the mean's FILE level is scale and comes
+     *               off, its frame-to-frame and shot-to-shot movement
+     *               is allocation and stays. Updated in dispatch order
+     *               on the driver thread, so it is one number per
+     *               encode whatever the thread count.
+     */
+    int crf_legacy;
+    double crf_dur;
+    double dc_lvl, dc_n, dc_mem;
     int abr_on;             /* n265_set_bitrate: the base is the ABR rate factor */
     double abr_bitrate;     /* bits per second                          */
     /* --vbv-maxrate / --vbv-bufsize / --vbv-init: the hypothetical decoder

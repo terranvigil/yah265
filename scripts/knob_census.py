@@ -146,6 +146,13 @@ DEFAULT_OVERRIDES = {
 }
 
 OVERRIDES = {
+    # phase 14 item 11b: catalogued in docs/instruments.md because the CRF
+    # axis section has to say what the mapping IS, which the heuristic then
+    # reads as "machinery". Three of them are the shipped mapping - the
+    # duration exponent, the rate it is zero at, and the level's memory -
+    # and the legacy switch is the escape, which is an arm.
+    "N265_CRF_DUR": "default", "N265_CRF_DUR_FPS": "default",
+    "N265_CRF_DC_MEM": "default", "N265_CRF_LEGACY": "arm",
     # phase 14 item 6: catalogued in docs/instruments.md because --mcstf's
     # own section has to say what its constants are, which the heuristic
     # then reads as "machinery". They are not: each one is the SHIPPED
