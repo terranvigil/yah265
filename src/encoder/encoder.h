@@ -1063,6 +1063,47 @@ struct n265_encoder {
     int qp_base;            /* configured QP (P anchors) */
     int crf_on;             /* n265_set_crf: base QP from crf, not qp_base */
     double crf;
+    /* THE CRF AXIS (phase 14 item 11b, 2026-09-16). What a `--crf N`
+     * number buys is a mapping from that number to a base QP, and two
+     * terms of ours were not the ones a user who knows the knob from
+     * another encoder expects (docs/phase14.md item 11):
+     *
+     *   crf_legacy  N265_CRF_LEGACY=1, the escape: the pre-2026-09-16
+     *               mapping, byte for byte, for a stream that has to
+     *               reproduce or a number that was recorded on it.
+     *   crf_dur     the frame-DURATION term, in QP, constant for the
+     *               sequence because the frame rate is (computed at
+     *               open, below). CRF only - under ABR the loop solves
+     *               its own rate factor and the duration is already in
+     *               the bits per frame it solves against.
+     *   dc_lvl/_n   the level the AQ frame mean is taken against under
+     *               CRF, in place of the absolute anchor: the mean's
+     *               FILE level is scale and comes off, its frame-to-
+     *               frame and shot-to-shot movement is allocation and
+     *               stays. Accumulated in dispatch order on the driver
+     *               thread, so it is one number per encode whatever the
+     *               thread count.
+     *   dc_anchor   WHICH level (N265_CRF_DC_ANCHOR), and it is the
+     *               whole of item 11b's second round:
+     *                 0 the absolute N265_AQ_ANCHOR (term 2 only)
+     *                 1 a running mean over the sequence, memory
+     *                   dc_mem - the first shipped form, refused: its
+     *                   1/n warm-up and its drift-tracking cost the
+     *                   band's drifting clips and 4.1-4.4% of the
+     *                   across-shot gate
+     *                 2 the mean over the OPENING WINDOW (dc_win
+     *                   frames), frozen, and re-taken at every I
+     *                   picture - a per-shot level
+     *                 3 the same opening window, frozen for the FILE:
+     *                   one constant for the whole encode, so every
+     *                   within-file allocation the absolute anchor gave
+     *                   survives exactly and only the level moves
+     *               docs/phase14.md item 11b has what each one measured.
+     */
+    int crf_legacy;
+    double crf_dur;
+    int dc_anchor;
+    double dc_lvl, dc_n, dc_mem, dc_win;
     int abr_on;             /* n265_set_bitrate: the base is the ABR rate factor */
     double abr_bitrate;     /* bits per second                          */
     /* --vbv-maxrate / --vbv-bufsize / --vbv-init: the hypothetical decoder

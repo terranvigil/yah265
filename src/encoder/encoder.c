@@ -1482,6 +1482,71 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->qp_base = g_qp;
     e->crf_on = g_crf_on;
     e->crf = g_crf;
+    /* The CRF axis (phase 14 item 11b): the terms that decide what a
+     * `--crf N` NUMBER buys, resolved once because neither moves inside
+     * an encode.
+     *
+     * N265_CRF_LEGACY=1 is the escape and turns both off, which is the
+     * pre-2026-09-16 mapping byte for byte (encoder.h).
+     *
+     * The FRAME-DURATION term. A CRF encode holds one quality over a
+     * SEQUENCE, and the same picture quality is worth a different
+     * quantiser depending on how long a picture is on screen: at 60
+     * frames a second each frame carries half the eye's time it carries
+     * at 30, so the sequence can afford a coarser quantiser per frame
+     * for the same quality per second. The behaviour a user's own crf
+     * numbers were calibrated against applies that as a power law on the
+     * quantiser SCALE - a reference duration over this frame's, to the
+     * 0.3 - and a quantiser scale is six QP steps per octave, so it is
+     * 6 x 0.3 = 1.8 QP per doubling of the frame rate. Ours reached only
+     * the bits per frame under ABR, the VUI and the level check, and
+     * that absence is the whole 2.4 QP the read set's 24 fps animation
+     * and its 59.94 fps 4K disagreed by (docs/phase14.md item 11,
+     * "Where it comes from", term 2).
+     *
+     * N265_CRF_DUR is the exponent (0 is the term off) and
+     * N265_CRF_DUR_FPS the rate it is zero at, which is also where the
+     * whole axis sits: moving it moves every clip's base by the same
+     * number of QP steps, and it is the pedestal this mapping was
+     * centred with. A source with no frame rate takes the param default
+     * and no term. */
+    e->crf_legacy = 0;
+    { const char *v = n265_env("N265_CRF_LEGACY"); if (v) e->crf_legacy = atoi(v) != 0; }
+    e->crf_dur = 0.0;
+    {
+        const char *k = n265_env("N265_CRF_DUR");
+        const char *r = n265_env("N265_CRF_DUR_FPS");
+        double expo = k ? atof(k) : 0.3;
+        double ref = r ? atof(r) : 25.0;
+        double fps = e->param.fps_den > 0
+                         ? (double)e->param.fps_num / (double)e->param.fps_den
+                         : 0.0;
+        if (!e->crf_legacy && fps > 0.0 && ref > 0.0)
+            e->crf_dur = 6.0 * expo * log2(fps / ref);
+    }
+    /* WHICH level the AQ frame mean is read against under CRF
+     * (encoder.h). 3 ships: the opening window, frozen for the file.
+     *
+     * The window is taken CAUSALLY - the first `dc_win` frames as they
+     * are dispatched - and not out of the lookahead queue, though the
+     * queue does hold their sources. The queue carries no log2-variance
+     * mean: that quantity is computed in dispatch_frame, in the same
+     * pass that builds the per-CTU field, so reading a FORWARD window
+     * level would mean a second full-plane variance pass on every frame
+     * of every encode. What it would buy is a different anchor for the
+     * first `dc_win` frames alone - from frame dc_win on the two forms
+     * are the same mean over the same frames - so it is not bought.
+     *
+     * dc_win defaults to 12, which is medium's `--rc-lookahead`: the
+     * window the level would have come out of. */
+    e->dc_anchor = 3;
+    { const char *v = n265_env("N265_CRF_DC_ANCHOR"); if (v) e->dc_anchor = atoi(v); }
+    e->dc_lvl = 0.0;
+    e->dc_n = 0.0;
+    e->dc_mem = 1000.0;
+    { const char *v = n265_env("N265_CRF_DC_MEM"); if (v) e->dc_mem = atof(v); }
+    e->dc_win = 12.0;
+    { const char *v = n265_env("N265_CRF_DC_WIN"); if (v) e->dc_win = atof(v); }
     /* ABR overrides CRF: the rate factor is solved, not given. The
      * fractional base QP rides with it - see encode_frame. */
     e->abr_on = g_bitrate > 0.0 && e->mode != N265_MODE_PCM;
@@ -4071,7 +4136,7 @@ int n265_planned_qp(const n265_encoder *e, int slice_type, int b_depth,
     } else if (e->crf_on) {
         double shift = 0.0;
         if (e->cutree) { const char *v = n265_env("N265_CRF_SHIFT"); shift = v ? atof(v) : 5.4; }
-        base = e->crf + shift;
+        base = e->crf + shift + e->crf_dur;
     }
     double pb = 1.0; { const char *v = n265_env("N265_PB_STEP"); if (v) pb = atof(v); }
     int cascade = slice_type == 2 ? -3
@@ -4422,7 +4487,13 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
     } else if (e->crf_on) {
         double shift = 0.0;
         if (e->cutree) { const char *v = n265_env("N265_CRF_SHIFT"); shift = v ? atof(v) : 5.4; }
-        base = e->crf + shift;
+        /* ...plus the frame-duration term (phase 14 item 11b), which is a
+         * property of the SEQUENCE and was resolved at open. It is a
+         * different quantity from the shift above and is kept separate
+         * from it: the shift nets the cu-tree field's mean and is zero
+         * without cu-tree, this says what a crf number is worth at this
+         * frame rate and rides every configuration. */
+        base = e->crf + shift + e->crf_dur;
     }
     /* The SHOT plan (--shot-window, opt-in, CRF only): one offset for the
      * whole shot, priced when the shot entered the window (shot_plan_at).
@@ -4850,6 +4921,66 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
             if ((e->crf_on || e->abr_on) && !fw->qp_forced) {
                 const char *v = n265_env("N265_AQ_DC"), *a = n265_env("N265_AQ_ANCHOR");
                 double anchor = (a ? atof(a) : 6.4) + 2.0 * BIT_DEPTH_SHIFT;
+                /* Under CRF the anchor is the FILE's own running level and
+                 * not an absolute one (phase 14 item 11b, 2026-09-16).
+                 *
+                 * The term is an allocation: a busy frame codes a little
+                 * cheaper, a quiet one a little better, and on a multi-shot
+                 * sequence that is worth 8-19% of across-shot BD-rate. What
+                 * it is NOT is a statement about where a crf number sits,
+                 * and against a fixed anchor it was one: a clip whose mean
+                 * log2-variance is four above the anchor took a flat +4 QP
+                 * on every frame of its base, so the same `--crf 26` was
+                 * nine QP apart between the flattest and the busiest clip
+                 * of the corpus while the reference encoder's own average
+                 * QP moved by three (docs/phase14.md item 11, term 1).
+                 * Reading the mean against a causal running mean OF ITSELF
+                 * keeps the differences the allocation is made of - frame
+                 * to frame, and shot to shot, where the running level is
+                 * the sequence and not the shot for the reason
+                 * N265_ABR_WMEM's memory is - and removes the file level,
+                 * which is the only part of it that was scale. It is
+                 * exactly zero on the first frame, so a single-frame encode
+                 * and the head of every encode sit on the crf number
+                 * itself.
+                 *
+                 * WHICH level (N265_CRF_DC_ANCHOR, encoder.h) is the whole
+                 * of this term's second round, and the running mean above
+                 * is the form it REFUSED. A mean that is still converging
+                 * is a mean that tracks the shot it is inside, so it
+                 * high-passes the very allocation it exists to keep: it
+                 * cost 4.1-4.4% of the across-shot gate and five band
+                 * points on the one clip in the corpus that is nothing but
+                 * a drift (fade_cif). What ships instead is the OPENING
+                 * WINDOW frozen for the file - one constant per encode, so
+                 * every difference the absolute anchor gave survives to the
+                 * digit and only the level moves. Anchor 2 re-takes that
+                 * window at every I picture and is refused for the reason
+                 * N265_ABR_WMEM's memory is the sequence: a level that
+                 * re-seeds per shot makes every shot average out and the
+                 * across-shot allocation collapses.
+                 *
+                 * ABR keeps the absolute anchor: there the loop solves its
+                 * own rate factor against a target and the term's level is
+                 * absorbed by that solve, so moving it would move the
+                 * trajectory without moving where the encode lands. The
+                 * escape (N265_CRF_LEGACY=1) restores the anchor here. */
+                if (e->crf_on && !e->crf_legacy && e->dc_anchor > 0) {
+                    /* anchor 2: an I picture opens a shot, so the window
+                     * is re-taken from it. slice_type 2 is that picture
+                     * whether it is an IDR or a CRA, and it is the same
+                     * boundary the shot sidecar cuts on. */
+                    if (e->dc_anchor == 2 && slice_type == 2)
+                        e->dc_n = 0.0;
+                    /* the running form (1) never stops accumulating; the
+                     * window forms (2, 3) stop at dc_win frames and hold */
+                    if (e->dc_anchor == 1 || e->dc_n < e->dc_win) {
+                        e->dc_lvl += (avg_dc - e->dc_lvl) / (e->dc_n + 1.0);
+                        if (e->dc_n < e->dc_mem)
+                            e->dc_n += 1.0;
+                    }
+                    anchor = e->dc_lvl;
+                }
                 double dc = (v ? atof(v) : 1.0) * (avg_dc - anchor);
                 int dci = (int)lround(dc);
                 int nq = fw->qp + dci;
