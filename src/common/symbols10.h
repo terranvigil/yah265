@@ -320,6 +320,14 @@
 #define n265_window_parse            n265_window_parse_10
 #define n265_master_display_parse    n265_master_display_parse_10
 #define n265_cll_parse               n265_cll_parse_10
+/* phase 14 item 15: the --video-signal-type-preset name table, the
+ * --tune compositions (--dup-threshold's setter is public API and is
+ * renamed by include/yah265.h's N265_API instead) */
+#define n265_vsp_parse               n265_vsp_parse_10
+#define n265_vsp_name                n265_vsp_name_10
+#define n265_vsp_volume_name         n265_vsp_volume_name_10
+#define n265_tune_parse              n265_tune_parse_10
+#define n265_tune_name               n265_tune_name_10
 #define n265_hdr10_on                n265_hdr10_on_10
 #define n265_vui_needed              n265_vui_needed_10
 #define n265_write_aud               n265_write_aud_10

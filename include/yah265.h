@@ -82,6 +82,7 @@ typedef uint16_t n265_pixel;
 #define n265_set_threads      N265_API(n265_set_threads)
 #define n265_set_hash         N265_API(n265_set_hash)
 #define n265_set_weight       N265_API(n265_set_weight)
+#define n265_set_dup_thr      N265_API(n265_set_dup_thr)
 #define n265_set_vui_colour   N265_API(n265_set_vui_colour)
 #define n265_set_vui_sar      N265_API(n265_set_vui_sar)
 #define n265_set_vui_window   N265_API(n265_set_vui_window)
@@ -230,6 +231,14 @@ YAH265_API void n265_set_threads(int n);
  * weightb off, and so does this. The P half is the one that costs a
  * default; the B half is priced and off. */
 YAH265_API void n265_set_weight(int weightp, int weightb);
+
+/* --dup-threshold (phase 14 item 15): the NEAR-duplicate bound for the
+ * frame-duplicate path, in 8-bit luma levels per lowres pixel. 0 is the
+ * strict form - only a byte-identical source arms the path - and is the
+ * default and every stream written before this flag existed. Negative is
+ * "not given", which leaves N265_DUP_THR and then that default in
+ * charge. docs/instruments.md says what the distance is measured on. */
+YAH265_API void n265_set_dup_thr(double thr);
 
 YAH265_API void n265_set_hash(int type);
 YAH265_API void n265_set_vui_colour(int videoformat, int full_range,

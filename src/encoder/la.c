@@ -274,9 +274,28 @@ int n265_dup_trace(void)
     return v;
 }
 
+/* --dup-threshold, when the command line gave one: 1/256 of a luma level
+ * per lowres pixel, negative for "not given". It is read before the env
+ * and is NOT cached, so a setter call cannot land behind a stale static;
+ * the CLI calls it once at open, before any worker exists. */
+static int g_dup_thr_q8 = -1;
+
+void n265_set_dup_thr(double thr)
+{
+    if (thr < 0.0) {
+        g_dup_thr_q8 = -1;
+        return;
+    }
+    if (thr > 255.0)
+        thr = 255.0;
+    g_dup_thr_q8 = (int)(thr * 256.0 + 0.5);
+}
+
 /* the bound in 1/256 of an 8-bit luma level per lowres pixel */
 int n265_dup_thr_q8(void)
 {
+    if (g_dup_thr_q8 >= 0)
+        return g_dup_thr_q8;
     static int v = -1;
     if (v < 0) {
         const char *s = n265_env("N265_DUP_THR");

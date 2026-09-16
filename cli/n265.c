@@ -103,6 +103,44 @@ int n265_window_parse(const char *s, int *l, int *t, int *r, int *b);
 int n265_master_display_parse(const char *s, uint32_t v[10]);
 int n265_cll_parse(const char *s, int *cll, int *fall);
 
+/* --video-signal-type-preset (phase 14 item 15): the name table for a
+ * whole colour signalling set, in src/encoder/signal.c beside the value
+ * tables it expands into. `v` is indexed by N265_VUI_* and by
+ * N265_VSP_CHROMALOC; -1 is a field the preset leaves alone. */
+#define N265_VSP_CHROMALOC  6           /* N265_VUI_NFIELD */
+#define N265_VSP_NFIELD     7
+enum {
+    N265_VSP_OK             =  0,
+    N265_VSP_BAD_SYSTEM     = -1,
+    N265_VSP_BAD_VOLUME     = -2,
+    N265_VSP_VOLUME_SYSTEM  = -3,
+    N265_VSP_VOLUME_REFUSED = -4,
+};
+int n265_vsp_parse(const char *s, int *v, uint32_t *md, int *have_md,
+                   const char **why);
+const char *n265_vsp_name(int i);
+const char *n265_vsp_volume_name(int i);
+
+/* -t/--tune (phase 14 item 15): one accepted name and four named
+ * refusals, in src/encoder/preset.c beside the presets. `t` is filled by
+ * index; -1 is a knob the tune does not touch, and the CLI applies a
+ * value only where the command line did not name one. */
+enum {
+    N265_TUNE_BFRAMES = 0,
+    N265_TUNE_LOOKAHEAD,
+    N265_TUNE_BADAPT,
+    N265_TUNE_CUTREE,
+    N265_TUNE_FRAMEWORK,
+    N265_TUNE_NFIELD
+};
+enum {
+    N265_TUNE_OK      =  0,
+    N265_TUNE_UNKNOWN = -1,
+    N265_TUNE_REFUSED = -2,
+};
+int n265_tune_parse(const char *name, int *t, const char **why);
+const char *n265_tune_name(int i);
+
 /* ---------------------------------------------------------------------
  * Both libraries, one command line (phase 8 item 5a).
  *
@@ -142,6 +180,7 @@ void n265_set_mcstf_10(int on, int range, int selective);
 void n265_set_vbv_10(double maxrate, double bufsize, double init);
 void n265_set_hash_10(int type);
 void n265_set_weight_10(int weightp, int weightb);
+void n265_set_dup_thr_10(double thr);
 void n265_set_gop_10(int open_gop, int radl);
 void n265_set_vui_colour_10(int videoformat, int full_range, int colorprim,
                             int transfer, int colormatrix, int chromaloc,
@@ -204,6 +243,9 @@ typedef struct n265_api {
     /* --weightp / --weightb (phase 14 item 2): weighted_pred_flag and
      * weighted_bipred_flag. -1 in either leaves that half to the preset. */
     void (*set_weight)(int, int);
+    /* --dup-threshold (item 15): the near-duplicate bound, negative for
+     * "not given". */
+    void (*set_dup_thr)(double);
     void (*set_nr)(int, int);       /* --nr-intra / --nr-inter (item 6) */
     void (*set_mcstf)(int, int, int);   /* --mcstf and its two (item 6) */
     /* the pass-through signalling setters (phase 14 item 1). They take
@@ -249,7 +291,8 @@ static const n265_api api8 = {
     n265_set_shot_window, n265_set_pass,
     n265_set_lossless, n265_set_level, n265_set_vui_timing,
     n265_set_film_grain, n265_set_vbv, n265_set_rdoq_level,
-    n265_set_tu_depth, n265_set_chroma_qpoffs, n265_set_weight, n265_set_nr,
+    n265_set_tu_depth, n265_set_chroma_qpoffs, n265_set_weight,
+    n265_set_dup_thr, n265_set_nr,
     n265_set_mcstf,
     n265_set_hash, n265_set_gop, n265_set_vui_colour, n265_set_vui_sar,
     n265_set_vui_window, n265_set_hdr_meta, n265_set_hdr10,
@@ -272,7 +315,7 @@ static const n265_api api10 = {
     n265_set_lossless_10, n265_set_level_10, n265_set_vui_timing_10,
     n265_set_film_grain_10, n265_set_vbv_10, n265_set_rdoq_level_10,
     n265_set_tu_depth_10, n265_set_chroma_qpoffs_10, n265_set_weight_10,
-    n265_set_nr_10, n265_set_mcstf_10,
+    n265_set_dup_thr_10, n265_set_nr_10, n265_set_mcstf_10,
     n265_set_hash_10, n265_set_gop_10, n265_set_vui_colour_10,
     n265_set_vui_sar_10,
     n265_set_vui_window_10, n265_set_hdr_meta_10, n265_set_hdr10_10,
@@ -777,6 +820,18 @@ static void usage(void)
         "                  corpus clip, in less time).\n"
         "                  Sets the DEFAULTS of the tuning knobs; any flag or\n"
         "                  N265_* variable you give yourself still wins.\n"
+        "  -t, --tune <name>  x265's five tune names, answered one at a\n"
+        "                  time. ACCEPTED: zerolatency (--bframes 0\n"
+        "                  --rc-lookahead 1 --b-adapt 0 --cutree 0 and one\n"
+        "                  frame in flight - a composition of knobs this\n"
+        "                  encoder already has, nothing new). REFUSED BY\n"
+        "                  NAME, each printing its own reason: psnr and\n"
+        "                  ssim (metric fitting, and the band decides on\n"
+        "                  VMAF-NEG), grain (it is --rc-grain's damping\n"
+        "                  constants, not --film-grain), fastdecode (two\n"
+        "                  of its five legs are not flags we own). A flag\n"
+        "                  you name yourself beats the tune, and the tune\n"
+        "                  beats the preset.\n"
         "  --qp <n>        fixed QP (default 26). Range 0..51 at 8 bits,\n"
         "                  -12..51 at Main10 (QpBdOffsetY, 7.4.3.3)\n"
         "  --crf <f>       constant rate factor (base QP from f; overrides\n"
@@ -864,6 +919,18 @@ static void usage(void)
         "                  DPB, for static or drawn content\n"
         "                  (docs/phase7-gop-design.md).\n"
         "  --cutree <0|1>  lookahead propagation QP offsets (default 1)\n"
+        "  --dup-threshold <f>  NEAR-duplicate bound for the frame\n"
+        "                  duplicate path, in 8-bit luma levels per lowres\n"
+        "                  pixel (default 0). 0 is the strict form and is\n"
+        "                  every stream this encoder has written: only a\n"
+        "                  source already in the DPB arms the path. Above\n"
+        "                  0 a frame within that distance of a reference\n"
+        "                  is coded all-skip toward it, which is what\n"
+        "                  reaches telecined and frame-doubled content,\n"
+        "                  where the repeat is not bit-exact. The distance\n"
+        "                  is NOT x265's PSNR threshold and its numbers do\n"
+        "                  not carry over; 0.25 and 0.5 are what the\n"
+        "                  corpus was measured at (docs/instruments.md).\n"
         "  --threads <n>   worker threads; 0 = one per online CPU (default 0).\n"
         "                  Output is byte-identical at every value.\n"
         "  --dump-recon <file>  write reconstruction as raw YUV (the\n"
@@ -905,6 +972,16 @@ static void usage(void)
         "                  pictures that CAN go there - 7.4.2.2 forbids a\n"
         "                  lower layer from referencing a higher one, and\n"
         "                  a leaf is referenced by nothing.\n"
+        "  --intra-refresh  NOT IMPLEMENTED and refused by name: a\n"
+        "                  periodic intra refresh is worth its recovery\n"
+        "                  point only if nothing in the refreshed region\n"
+        "                  reads an unrefreshed sample, and that reaches\n"
+        "                  mode decision (merge and AMVP candidates are\n"
+        "                  inherited, not clamped), constrained intra\n"
+        "                  prediction (which we do not have) and the plan\n"
+        "                  builder. Priced in docs/phase14.md item 15 and\n"
+        "                  left for its own item; the refusal prints the\n"
+        "                  whole reason.\n"
         "  --scaling-list <s>  NOT IMPLEMENTED and refused by name; the\n"
         "                  message says why (it is a quantiser item, not a\n"
         "                  signalling one).\n"
@@ -1154,6 +1231,24 @@ static void usage(void)
         "  PASS-THROUGH: it describes the pictures you handed in, changes no\n"
         "  coded sample, and is absent unless you name the flag. Every value\n"
         "  flag takes x265's name or the bare number Annex E gives it.\n"
+        "  --video-signal-type-preset <name[:volume]>  one name for a\n"
+        "                  whole colour signalling set, in x265's\n"
+        "                  spellings and with x265's values: BT601_525,\n"
+        "                  BT601_626 (BT601_625 is an alias), BT709_YCC,\n"
+        "                  BT709_RGB, BT2020_YCC_NCL, BT2020_RGB,\n"
+        "                  BT2100_PQ_YCC, BT2100_PQ_ICTCP, BT2100_PQ_RGB,\n"
+        "                  BT2100_HLG_YCC, BT2100_HLG_RGB, FR709_RGB,\n"
+        "                  FR2020_RGB, FRP3D65_YCC. It is a NAME TABLE and\n"
+        "                  nothing else: it expands into the flags below\n"
+        "                  and writes no syntax of its own. An individual\n"
+        "                  flag you give beside it WINS over the preset's\n"
+        "                  value (x265 discards it instead - a deliberate\n"
+        "                  divergence, docs/phase14.md). The optional\n"
+        "                  :volume is a mastering display, on the three\n"
+        "                  BT2100_PQ_* systems only: P3D65x1000n0005 or\n"
+        "                  P3D65x4000n005. x265's third volume is refused\n"
+        "                  by name - its red primary does not fit the\n"
+        "                  u(16) of ST 2086 - and the refusal says so.\n"
         "  --colorprim <p> colour primaries: bt709, unknown, bt470m,\n"
         "                  bt470bg, smpte170m, smpte240m, film, bt2020,\n"
         "                  smpte428, smpte431, smpte432 (Table E.3)\n"
@@ -1320,9 +1415,11 @@ static void opt_note(optstr *o, char **argv, int from, int to)
     const char *k = a + 1;
     if (*k == '-')
         k++;
-    if (!strcmp(k, "w"))        /* the only short alias that is a coding
-                                 * option; print the long name */
+    if (!strcmp(k, "w"))        /* the two short aliases that are coding
+                                 * options; print the long names */
         k = "weightp";
+    if (!strcmp(k, "t"))
+        k = "tune";
     if (opt_drop(k))
         return;
     if (to > from && !opt_drop_value(k))
@@ -1373,6 +1470,18 @@ int main(int argc, char **argv)
     int sig_videoformat = -1, sig_range = -1, sig_overscan = -1;
     int sig_colorprim = -1, sig_transfer = -1, sig_colormatrix = -1;
     int sig_chromaloc = -1;
+    /* --video-signal-type-preset: what the NAME asked for, kept apart
+     * from the nine individual flags above so the rule "an explicit flag
+     * wins" holds whichever order the two were given in. */
+    int vsp[N265_VSP_NFIELD], vsp_md_on = 0, had_vsp = 0;
+    uint32_t vsp_md[10];
+    /* -t/--tune: the composition, applied after the loop and only where
+     * the command line named nothing. -1 is a knob it does not touch. */
+    int tune[N265_TUNE_NFIELD] = { -1, -1, -1, -1, -1 };
+    int had_tune = 0, la_from_tune = 0;
+    /* --dup-threshold: negative is "not given", which leaves
+     * N265_DUP_THR and then the strict form in charge. */
+    double dup_thr = -1.0;
     int sar_idc = -1, sar_w = 0, sar_h = 0;
     int win_on = 0, win_l = 0, win_t = 0, win_r = 0, win_b = 0;
     uint32_t md[10];
@@ -1433,6 +1542,7 @@ int main(int argc, char **argv)
     const char *preset = NULL;
     /* which structural flags the user gave: a preset supplies the rest */
     int had_ref = 0, had_badapt = 0, had_bframes = 0, had_la = 0, had_ctu = 0;
+    int had_cutree = 0;
 
     optstr info_opts = { .s = "", .n = 0 };
 
@@ -1595,7 +1705,7 @@ int main(int argc, char **argv)
         } else if (!strcmp(argv[i], "--rc-lookahead") && i + 1 < argc) {
             lookahead = atoi(argv[++i]); had_la = 1;
         } else if (!strcmp(argv[i], "--cutree") && i + 1 < argc) {
-            cutree = atoi(argv[++i]);
+            cutree = atoi(argv[++i]); had_cutree = 1;
         } else if (!strcmp(argv[i], "--dump-recon-decode") && i + 1 < argc) {
             dump_decode_path = argv[++i];
         } else if (!strcmp(argv[i], "--threads") && i + 1 < argc) {
@@ -1682,6 +1792,107 @@ int main(int argc, char **argv)
              * it, and the table's last entry is what says so. */
             if (sig_overscan == 2)
                 sig_overscan = -1;
+        } else if (!strcmp(argv[i], "--video-signal-type-preset") &&
+                   i + 1 < argc) {
+            const char *why = NULL;
+            const char *v = argv[++i];
+            int rc = n265_vsp_parse(v, vsp, vsp_md, &vsp_md_on, &why);
+            if (rc != N265_VSP_OK) {
+                if (rc == N265_VSP_BAD_SYSTEM) {
+                    fprintf(stderr, "n265: --video-signal-type-preset %s "
+                            "is not a system-id. The names are:", v);
+                    for (int k = 0; n265_vsp_name(k); k++)
+                        fprintf(stderr, " %s", n265_vsp_name(k));
+                    fprintf(stderr, " - each of them x265's spelling and "
+                            "x265's values, and each expands to the nine "
+                            "colour flags, which override it.\n");
+                } else if (rc == N265_VSP_VOLUME_SYSTEM) {
+                    fprintf(stderr, "n265: --video-signal-type-preset %s "
+                            "takes no colour volume: a mastering display "
+                            "volume is carried only by the three "
+                            "BT2100_PQ_* systems, as in x265. Name "
+                            "--master-display if the content was graded "
+                            "on one anyway.\n", v);
+                } else if (rc == N265_VSP_BAD_VOLUME) {
+                    fprintf(stderr, "n265: --video-signal-type-preset: no "
+                            "such colour volume. The names are:");
+                    for (int k = 0; n265_vsp_volume_name(k); k++)
+                        fprintf(stderr, " %s", n265_vsp_volume_name(k));
+                    fprintf(stderr, "\n");
+                } else {
+                    fprintf(stderr, "n265: --video-signal-type-preset: "
+                            "that colour volume is refused by name - %s\n",
+                            why ? why : "no reason recorded");
+                }
+                return 2;
+            }
+            had_vsp = 1;
+        } else if ((!strcmp(argv[i], "--tune") || !strcmp(argv[i], "-t")) &&
+                   i + 1 < argc) {
+            const char *why = NULL;
+            const char *v = argv[++i];
+            int rc = n265_tune_parse(v, tune, &why);
+            if (rc == N265_TUNE_REFUSED) {
+                fprintf(stderr, "n265: --tune %s is refused BY NAME, and "
+                        "here is why: %s\n", v, why);
+                return 2;
+            }
+            if (rc != N265_TUNE_OK) {
+                fprintf(stderr, "n265: --tune %s is not one of x265's "
+                        "five names. They are:", v);
+                for (int k = 0; n265_tune_name(k); k++)
+                    fprintf(stderr, " %s", n265_tune_name(k));
+                fprintf(stderr, " - and only zerolatency is accepted here; "
+                        "ask for one of the other four by name and it "
+                        "prints its own reason.\n");
+                return 2;
+            }
+            had_tune = 1;
+        } else if (!strcmp(argv[i], "--intra-refresh")) {
+            /* Parsed and REFUSED, by name, with the reason - the same
+             * shape as --scaling-list above and for the same kind of
+             * reason: the flag is one bit and what stands behind it is
+             * not. Priced in phase 14 item 15 and left for its own item;
+             * docs/phase14.md has the whole reading.
+             *
+             * A refresh that is only half enforced is WORSE than no
+             * refresh: the stream would claim a recovery point that a
+             * decoder joining there cannot honour, and nothing in this
+             * encoder's gates would say so, because every one of them
+             * decodes from the start of the stream. */
+            fprintf(stderr, "n265: --intra-refresh is not implemented, "
+                    "and not because the intra column is hard. The "
+                    "refresh is only worth its recovery point if NOTHING "
+                    "in the refreshed region reads an unrefreshed "
+                    "sample, and three of this encoder's parts have to "
+                    "change for that: (1) the motion search's clamp "
+                    "bounds MC to the padded reference, but a merge or "
+                    "AMVP candidate is INHERITED and is deliberately not "
+                    "clamped (src/encoder/mc.c), so the bound has to "
+                    "move into mode decision, where it meets the merge "
+                    "index the stream fingerprint writes; (2) "
+                    "constrained intra prediction, which the refresh "
+                    "needs and which we do not have, makes reference "
+                    "availability depend on each neighbour's prediction "
+                    "mode - it is a PREFIX today, and the closed-form "
+                    "substitution and binary search in "
+                    "src/encoder/intra.c exist only because it is; "
+                    "(3) the plan builder has one kind of key picture, "
+                    "and a refresh period is a second. It is an item "
+                    "with its own gate - decode from the recovery point, "
+                    "not from the start - and not a flag. See "
+                    "docs/phase14.md item 15 and "
+                    "docs/x265-feature-audit.md.\n");
+            return 2;
+        } else if (!strcmp(argv[i], "--dup-threshold") && i + 1 < argc) {
+            dup_thr = atof(argv[++i]);
+            if (dup_thr < 0.0 || dup_thr > 255.0) {
+                fprintf(stderr, "n265: --dup-threshold is 0..255, in "
+                        "8-bit luma levels per lowres pixel; 0 (the "
+                        "default) is the strict form, where only an "
+                        "identical source arms the path\n");
+                return 2;
+            }
         } else if (!strcmp(argv[i], "--chromaloc") && i + 1 < argc) {
             sig_chromaloc = atoi(argv[++i]);
             if (sig_chromaloc < 0 || sig_chromaloc > 5) {
@@ -1909,6 +2120,34 @@ int main(int argc, char **argv)
             return 2;
         }
     }
+    /* -t/--tune, applied HERE: after the command line has been read, so
+     * an explicitly named flag keeps its value, and before the preset
+     * fallbacks below, so the tune beats the preset. The `had_` flags it
+     * sets are what carry both halves of that rule. */
+    if (had_tune) {
+        if (!had_bframes && tune[N265_TUNE_BFRAMES] >= 0) {
+            bframes = tune[N265_TUNE_BFRAMES]; had_bframes = 1;
+        }
+        if (!had_la && tune[N265_TUNE_LOOKAHEAD] >= 0) {
+            lookahead = tune[N265_TUNE_LOOKAHEAD]; had_la = 1;
+            la_from_tune = 1;
+        }
+        if (!had_badapt && tune[N265_TUNE_BADAPT] >= 0) {
+            badapt = tune[N265_TUNE_BADAPT]; had_badapt = 1;
+        }
+        if (!had_cutree && tune[N265_TUNE_CUTREE] >= 0)
+            cutree = tune[N265_TUNE_CUTREE];
+        /* The frames in flight. setenv does NOT overwrite, so an
+         * explicit N265_MAX_FRAME_WORK still wins - and this is the one
+         * leg of the tune that moves no bit: output is byte-identical at
+         * every thread count and at every K, which is a gate, so what it
+         * buys is latency and nothing else. */
+        if (tune[N265_TUNE_FRAMEWORK] >= 0) {
+            char k[16];
+            snprintf(k, sizeof k, "%d", tune[N265_TUNE_FRAMEWORK]);
+            setenv("N265_MAX_FRAME_WORK", k, 0);
+        }
+    }
     if (!had_ref)     nref = a->preset_param("ref", nref);
     if (!had_bframes) bframes = a->preset_param("bframes", bframes);
     if (!had_badapt)  badapt = a->preset_param("b-adapt", badapt);
@@ -1973,8 +2212,11 @@ int main(int argc, char **argv)
     if (lookahead < bframes + 1) {
         fprintf(stderr, "n265: --rc-lookahead %d is too shallow for "
                 "--bframes %d: the window must hold the whole mini-GOP, so "
-                "--rc-lookahead must be at least %d\n",
-                lookahead, bframes, bframes + 1);
+                "--rc-lookahead must be at least %d%s\n",
+                lookahead, bframes, bframes + 1,
+                la_from_tune ? " (the window of 1 is --tune zerolatency's; "
+                               "name --rc-lookahead yourself to widen it)"
+                             : "");
         return 2;
     }
     int ctb_log2 = ctu == 16 ? 4 : ctu == 32 ? 5 : 6;
@@ -2215,9 +2457,27 @@ int main(int argc, char **argv)
             return 2;
         }
     }
+    /* --video-signal-type-preset expands LAST and only into fields the
+     * command line left alone. x265 has the opposite rule - there the
+     * preset discards an individual flag given beside it - and this is a
+     * deliberate divergence, recorded in docs/phase14.md: a flag the
+     * user typed and the encoder then dropped is the worse of the two
+     * surprises, and the preset is a shorthand for those same flags. */
+    if (had_vsp) {
+        if (sig_colorprim < 0)   sig_colorprim   = vsp[N265_VUI_COLORPRIM];
+        if (sig_transfer < 0)    sig_transfer    = vsp[N265_VUI_TRANSFER];
+        if (sig_colormatrix < 0) sig_colormatrix = vsp[N265_VUI_COLORMATRIX];
+        if (sig_range < 0)       sig_range       = vsp[N265_VUI_RANGE];
+        if (sig_chromaloc < 0)   sig_chromaloc   = vsp[N265_VSP_CHROMALOC];
+        if (!have_md && vsp_md_on) {
+            memcpy(md, vsp_md, sizeof md);
+            have_md = 1;
+        }
+    }
     a->set_vui_colour(sig_videoformat, sig_range, sig_colorprim,
                       sig_transfer, sig_colormatrix, sig_chromaloc,
                       sig_overscan);
+    a->set_dup_thr(dup_thr);
     a->set_vui_sar(sar_idc, sar_w, sar_h);
     a->set_vui_window(win_on, win_l, win_t, win_r, win_b);
     a->set_hdr_meta(have_md ? md : NULL, maxcll, maxfall);
