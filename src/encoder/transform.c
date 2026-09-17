@@ -354,36 +354,20 @@ void n265_fdct(int16_t *coef, const int16_t *resid, int log2n, int use_dst)
     int shift2 = log2n + 6;
 
 #if N265_NEON_TRANSFORM
-    /* 4x4, 8x8, 16x16 and the DST-VII 4x4 - everything but 32x32.
-     *
-     * **This predicate was re-placed on the RELEASE tree's bench (phase
-     * 14 item 7).** Every number it used to carry came from
-     * `make checkasm-bench`, which builds at `-Dbuildtype=debugoptimized`
-     * (-O2, assertions on); the encoder is clocked on `build-rel` (-O3),
-     * and the C in this function is a loop nest clang vectorises MUCH
-     * better at -O3 than at -O2 while the NEON barely moves. Both
-     * columns, same box, same day, ns per call:
-     *
-     *      size      -O2 c    -O2 neon    -O3 c    -O3 neon
-     *      4x4        12.7       11.0       16.6       4.6
-     *      8x8        51.6       37.2       49.5      35.4
-     *      16x16     821.9      182.1      186.2     173.2
-     *      32x32    3160.1     1335.2     1148.7    1304.8
-     *
-     * So the gate the campaign has carried since round 1 is backwards on
-     * the binary that ships: at -O3 the NEON is 3.60x of the C at 4x4 and
-     * 1.40x at 8x8 - the two sizes it was gated AWAY from - and 0.88x at
-     * 32x32, the size it was gated TO, where the vector butterfly now
-     * LOSES to the compiler's. 16x16 is 1.08x and stays.
-     *
-     * (The inverse is a different function with a different answer and
-     * keeps its own predicate below: at -O3 `idct_add` is 0.49x at 4x4
-     * and 0.60x at 8x8, so its small sizes stay on C, which is why these
-     * two predicates are no longer one expression.)
-     *
-     * Every path is bit-exact, so the predicate moves time and nothing
-     * else. */
-    if (log2n <= 4 && n265_asm_on(N265_ASM_DCT)) {
+    /* 16x16, 32x32 and the DST-VII 4x4. The NEON kernel is correct at
+     * every size, but at 4x4 and 8x8 the DCT's two-stage layout costs more
+     * in transposes than the vector butterfly saves against a C fast path
+     * clang has already auto-vectorised. Round 6 rewrote both small sizes
+     * register-resident, with no intermediate buffer between the stages at
+     * all, and they still read 0.47x and 0.63x, so the size predicate
+     * stays: the transposes, and not the buffer, are what the small DCT
+     * cannot pay for. The DST-VII 4x4 is the shape that form does suit -
+     * no mirror symmetry to exploit, five constants, the whole block in
+     * four registers - and it went the other way: 10.3 ns of C against
+     * 4.8, where the old NEON form was 14.9. checkasm --bench; see
+     * docs/phase6-neon.md, round 6. Every path is bit-exact, so the
+     * predicate moves time and nothing else. */
+    if ((log2n >= 4 || use_dst) && n265_asm_on(N265_ASM_DCT)) {
         n265_fdct_neon(coef, resid, log2n, use_dst);
         return;
     }
@@ -457,16 +441,11 @@ void n265_idct_add(pixel *dst, int dst_stride, const int16_t *dq,
     int32_t a[32 * 32], b[32 * 32];
 
 #if N265_NEON_TRANSFORM
-    /* The INVERSE keeps the campaign's original predicate, and phase 14
-     * item 7 re-read it on the release tree rather than inheriting it:
-     * at -O3 `idct_add` is 0.49x of its C at 4x4 and 0.60x at 8x8 (it was
-     * 0.52x and 0.47x at -O2), 1.30x at 16x16 and 1.06x at 32x32, so the
-     * two small sizes stay on C and the two large ones stay on the
-     * kernel. It is the forward transform whose answer moved with the
-     * optimisation level, not this one - which is why the two predicates
-     * are now written out separately instead of sharing an expression.
-     * The DST-VII 4x4, the only shape `use_dst` ever names, is 24.4 ns of
-     * C against 5.3 and takes the kernel. */
+    /* Same predicate and the same reasons as n265_fdct above. The DCT at
+     * 4x4 and 8x8 reads 0.52x and 0.49x register-resident and stays on C;
+     * the DST-VII 4x4, which is the only shape use_dst ever names, is
+     * 20.4 ns of C against 5.2 (the old NEON form was 14.3) and does
+     * not. */
     if ((log2n >= 4 || use_dst) && n265_asm_on(N265_ASM_DCT)) {
         n265_idct_add_neon(dst, dst_stride, dq, log2n, pred, pred_stride,
                            use_dst, nzw, nzh);
