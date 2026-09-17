@@ -2820,6 +2820,159 @@ static int la_inter_pct(struct n265_frame_work *e, int x0, int y0, int n)
     return (int)(pc * 100u / ic);
 }
 
+/* N265_CB64_SKIPGATE (phase 14 item 17): the depth-0 residual gate at
+ * the 64x64 coding-tree node. The node's four arms - the CU arm, the
+ * whole-CU skip, merge-with-residual and the AMVP search - are followed
+ * by a split trial that re-analyses the whole node as four 32x32 trees,
+ * and at 2160p that split trial IS the encoder `--ctu 32` already is.
+ * Item 12 priced the ungated node at 1.29x the wall for fifteen points
+ * of BD-VMAF-NEG and refused it on the clock.
+ *
+ * The gate is the way back in. The CHEAPEST arm is run first - one merge
+ * candidate, its motion compensation and the SSD that follows - and
+ * where that prediction already explains the node, the node is decided:
+ * nothing the other three arms or the split trial can find is worth the
+ * syntax of finding it. The bound is the depth-0 residual against the
+ * clean-skip bound the 32x32 tree already uses, skip_clean_thr(qp, 64),
+ * in 1024ths.
+ *
+ * **It works and it does not pay, which is why nothing here is a
+ * default.** On Meridian 600 at the band's 7.46 MB rung the bounds
+ * 16 / 32 / 64 / 128 decide 64.4 / 76.2 / 88.3 / 93.8% of the 64x64
+ * nodes and disagree with the full search on 1.94 / 6.36 / 13.23 /
+ * 17.69% of what they decide. The QUALITY of that is nearly free at the
+ * tight end - VMAF-NEG moves -0.06 at 16 and -0.45 at 32 - and the CLOCK
+ * is not: single-thread CPU time against today's medium reads 1.206x /
+ * 1.141x / 1.105x / 1.049x, against a 1.10x bound, and 128 buys that
+ * 1.049x by giving back 29% of rate-equivalent. The reason is that at
+ * this node the decidability and the cost are ANTI-CORRELATED: a node
+ * whose depth-0 residual says "skip" is a node whose split trial was
+ * going to be four all-skip 32x32 trees.
+ *
+ * 0 is OFF and is item 12's ungated arm byte for byte, which is what
+ * every preset and every resolution runs: NO preset names this knob,
+ * because the 64x64 tree it gates is itself not a default at any
+ * resolution (item 12 refused the tree on the wall, item 17 refused the
+ * gate on the same leg). It is reached the way item 12's arm is, by
+ * asking for the tree: `N265_CB64_SKIPGATE=16 n265 --ctu 64 ...`. The
+ * tables are in docs/phase14.md, "Item 17".
+ *
+ * The bound is a FRACTION of the clean bound and not the clean bound
+ * itself because the population at 2160p sits a long way under it: 99.4%
+ * of the nodes are inside thr_clean/8 and the decision has no resolution
+ * there. The value is the whole rule, so the knob carries it. */
+static int cb64_skipgate(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_CB64_SKIPGATE");
+        v = s ? atoi(s) : 0;
+        if (v < 0)
+            v = 0;
+    }
+    return v;
+}
+
+/* ---- N265_CB64_PROF (phase 14 item 17) -----------------------------
+ *
+ * What the 64x64 coding-tree node actually does at 2160p, and what each
+ * of its arms costs. Diagnostic only: it reads state the node already
+ * computes, writes nothing back, and changes no bit. The counters are
+ * plain (not per-lane), so it is read at `--threads 1`.
+ *
+ * `d_skip` here is the whole-CU 64x64 skip arm's three-component SSD and
+ * `thr_clean` is skip_clean_thr(qp, 64) - the same bound the 32x32
+ * early-skip already uses - so the histogram's x axis is directly the
+ * bound a gate would be written in.
+ *
+ * ONE CAUTION on the tick columns, and it is the one that nearly shipped
+ * a dead arm: cu_tick() is cntvct_el0, a WALL counter, so on a loaded box
+ * an interval that spans a context switch is charged for it. That puts a
+ * flat floor under the CHEAP nodes and makes a cheap population look
+ * expensive - which is exactly the population a residual gate reaches.
+ * Read the COUNTS here and read the cost with CPU time. */
+#define CB64P_NB 26
+static struct cb64_prof {
+    uint64_t fired, rejected;       /* the gate's own coverage        */
+    uint64_t seen, early, blk;      /* 64x64 nodes: visited, exited at
+                                     * arm 1, reached the CB64 arms    */
+    uint64_t t_arm1, t_skip, t_merge, t_amvp, t_split;
+    uint64_t win[4];                /* arm1 / skip / merge-res / amvp  */
+    uint64_t split_won;
+    uint64_t b_n[CB64P_NB], b_win[CB64P_NB][4], b_split[CB64P_NB];
+    uint64_t b_tsplit[CB64P_NB], b_tmerge[CB64P_NB], b_t1[CB64P_NB];
+} g_cb64p;
+static int g_cb64p_on;
+
+/* log2 buckets on d_skip / thr_clean: bucket b is the ratio band
+ * [2^(b-17), 2^(b-16)), bucket 0 is an exactly zero residual. Nearly the
+ * whole population sits a long way UNDER the clean bound at 2160p, so a
+ * linear axis has no resolution where the decision is. */
+static int cb64p_bucket(uint64_t d, uint64_t thr)
+{
+    if (!thr)
+        thr = 1;
+    if (!d)
+        return 0;
+    uint64_t r = d * 65536u / thr;
+    if (!r)
+        return 1;
+    int b = 1;
+    while (r >>= 1)
+        b++;
+    if (b > CB64P_NB - 1)
+        b = CB64P_NB - 1;
+    return b;
+}
+
+static void cb64p_print(void)
+{
+    struct cb64_prof *g = &g_cb64p;
+    fprintf(stderr, "cb64prof gate fired=%llu rejected=%llu\n",
+            (unsigned long long)g->fired, (unsigned long long)g->rejected);
+    fprintf(stderr, "cb64prof seen=%llu early=%llu blk=%llu\n",
+            (unsigned long long)g->seen, (unsigned long long)g->early,
+            (unsigned long long)g->blk);
+    fprintf(stderr, "cb64prof ticks arm1=%llu skip=%llu merge=%llu "
+            "amvp=%llu split=%llu\n",
+            (unsigned long long)g->t_arm1, (unsigned long long)g->t_skip,
+            (unsigned long long)g->t_merge, (unsigned long long)g->t_amvp,
+            (unsigned long long)g->t_split);
+    fprintf(stderr, "cb64prof win arm1=%llu skip=%llu merge=%llu amvp=%llu "
+            "split=%llu\n",
+            (unsigned long long)g->win[0], (unsigned long long)g->win[1],
+            (unsigned long long)g->win[2], (unsigned long long)g->win[3],
+            (unsigned long long)g->split_won);
+    for (int i = 0; i < CB64P_NB; i++) {
+        if (!g->b_n[i])
+            continue;
+        fprintf(stderr, "cb64prof bucket %d n=%llu arm1=%llu skip=%llu "
+                "merge=%llu amvp=%llu split=%llu tsplit=%llu tmerge=%llu "
+                "t1=%llu\n",
+                i, (unsigned long long)g->b_n[i],
+                (unsigned long long)g->b_win[i][0],
+                (unsigned long long)g->b_win[i][1],
+                (unsigned long long)g->b_win[i][2],
+                (unsigned long long)g->b_win[i][3],
+                (unsigned long long)g->b_split[i],
+                (unsigned long long)g->b_tsplit[i],
+                (unsigned long long)g->b_tmerge[i],
+                (unsigned long long)g->b_t1[i]);
+    }
+}
+
+static int cb64_prof_on(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        v = n265_env("N265_CB64_PROF") != NULL;
+        if (v)
+            atexit(cb64p_print);
+        g_cb64p_on = v;
+    }
+    return v;
+}
+
 /* N265_CB64_GATE (R3): the AMVP arm at the 64x64 coding block runs a
  * whole-CTU PU search and, where that search prefers AMVP to merge, a
  * commit through the forced TU32 quad. It is 8% of the encode by A/B and
@@ -6572,6 +6725,49 @@ static int dup_commit(struct n265_frame_work *e, int x0, int y0, int log2n,
     return 1;
 }
 
+/* The depth-0 residual gate's trial (N265_CB64_SKIPGATE, phase 14 item
+ * 17). Exactly the whole-CU skip the CB64 arm set already runs, taken
+ * BEFORE the CU arm rather than after it, so a node the gate decides
+ * pays for one merge candidate and nothing else. Returns 1 with the
+ * node committed and its J in *j_out, or 0 having left the block dirty -
+ * the caller restores it from the snapshot the quadtree already took.
+ *
+ * A REJECT costs one merge list, one SAD pick, one 64x64 motion
+ * compensation and one SSD, and the arm set below then runs all four
+ * again. That duplicate is deliberate: re-using the trial's result would
+ * change the ungated path, and keeping the ungated path byte-identical to
+ * item 12's arm is what makes `=0` an escape. It lands on the third of
+ * the nodes the gate does not decide. */
+static int cb64_gate_try(struct n265_frame_work *e, int x0, int y0,
+                         int log2n, int depth, int split_inc, uint32_t lam,
+                         uint64_t *j_out)
+{
+    int n = 1 << log2n;
+    uint64_t thr = skip_clean_thr(e->cur_ctu_qp, n);
+    uint32_t b0 = n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + split_inc], 0);
+    mot_t mlist[MAX_MERGE];
+    n265_merge_list(e, x0, y0, n, n, mlist, MAX_MERGE);
+    uint32_t sd0;              /* unused here; the pick is the point */
+    int midx = merge_pick_sad(e, x0, y0, log2n, mlist, &sd0);
+    (void)sd0;
+    size_t pos0 = e->rec_len;
+    mark_cu_edges(e, x0, y0, n);
+    skip_cu(e, x0, y0, log2n, mlist[midx], midx);
+    e->rec_pos = pos0;
+    uint64_t ssd = cu_area_ssd(e, x0, y0, n);
+    if (ssd * 1024u > (uint64_t)cb64_skipgate() * thr)
+        return 0;
+    est_state adv = { e->est_ctx, 0 };
+    n265_est_advance_cu(e, &adv, x0, y0, log2n);
+    set_blk(e, e->blk_qp, x0, y0, n,
+            e->ent_qp_coded ? N265_QP_STORE(e->cur_ctu_qp) : N265_QP_INHERIT);
+    set_blk(e, e->ct_depth, x0, y0, n, depth);
+    e->last_cu_nores = 1;
+    e->last_skip_clean = ssd <= thr;
+    *j_out = rd_j(e, ssd, adv.bits + b0, lam);
+    return 1;
+}
+
 /* RD quadtree: at each inside node try no-split (one CU) and split (four
  * children, recursively), keep the cheaper tree. Returns the committed
  * subtree's J. Boundary nodes recurse without a flag. */
@@ -6582,6 +6778,12 @@ static uint64_t quadtree_inner(struct n265_frame_work *e, int x0, int y0,
     int inside = x0 + n <= e->pad_w && y0 + n <= e->pad_h;
     uint32_t lam = ctu_lam(e, e->cur_ctu_qp);
     struct n265_cu_rec *cr = CU_CUR(e);
+    /* N265_CB64_PROF, node-local: the bucket this node landed in, which
+     * of the node's arms held the best J when the split arm was reached,
+     * and the merge-with-residual arm's ticks. Zero work when off. */
+    const int pf = g_cb64p_on && log2n == 6;
+    int pf_b = -1, pf_who = -1;
+    uint64_t pf_tm = 0, pf_t1 = 0;
 
     if (!inside && log2n > MIN_CB_LOG2) {
         uint64_t j = 0;
@@ -6699,16 +6901,53 @@ static uint64_t quadtree_inner(struct n265_frame_work *e, int x0, int y0,
     qt_snap *sp = &e->sc->qt_pre[depth], *sw = &e->sc->qt_won[depth];
 
     qt_save(e, sp, x0, y0, n);
+    size_t rec_base = e->rec_len;
+
+    /* The depth-0 residual gate (N265_CB64_SKIPGATE, phase 14 item 17).
+     * It runs before the CU arm because the CU arm is a third of the
+     * node's work and wins two nodes in a thousand; where the gate
+     * fires, the node costs one merge candidate and the split trial
+     * never happens. Off (0) this is one predicted branch per node and
+     * the arms below are item 12's, byte for byte. */
+    /* ...and never under --lossless, for want_skip's reason: this arm
+     * COMMITS a skip on a distortion bound, and a bound is not zero. Off,
+     * the node runs its arms and the RD arbitration prices a lossy skip
+     * at infinity, which is the only correct answer there. */
+    if (log2n == 6 && e->slice_type != 2 && !e->lossless && cb64_skipgate()) {
+        uint64_t j_g;
+        if (cb64_gate_try(e, x0, y0, log2n, depth, split_inc, lam, &j_g)) {
+            if (g_cb64p_on)
+                g_cb64p.fired++;
+            if (cr) {
+                cr->kind = N265_CUT_SKIP;
+                cr->flags |= N265_CUF_NORES |
+                    (e->last_skip_clean ? N265_CUF_CLEAN : 0);
+            }
+            return j_g;
+        }
+        if (g_cb64p_on)
+            g_cb64p.rejected++;
+        qt_restore(e, sp, x0, y0, n);
+        e->rec_len = rec_base;
+    }
 
     /* arm 1: no split */
-    size_t rec_base = e->rec_len;
     uint32_t b0 = n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + split_inc], 0);
+    uint64_t pf_t0 = pf ? cu_tick() : 0;
     uint64_t j_cu = analyze_cu(e, x0, y0, log2n) + ((uint64_t)b0 * lam >> 16);
+    if (pf) {
+        pf_t1 = cu_tick() - pf_t0;
+        g_cb64p.t_arm1 += pf_t1;
+        g_cb64p.seen++;
+    }
     set_blk(e, e->ct_depth, x0, y0, n, depth);
     /* early skip: a CLEAN whole-CU skip ends the trial (children could
      * only re-buy the same prediction with more syntax) */
-    if (e->last_skip_clean && !no_earlyskip_on())
+    if (e->last_skip_clean && !no_earlyskip_on()) {
+        if (pf)
+            g_cb64p.early++;
         return j_cu;
+    }
     /* P1 rskip: the no-split arm left no residual at all, so the four
      * children can only re-buy the same prediction with four sets of
      * syntax. Mode 1 also asks that neither decoded neighbour went
@@ -6733,6 +6972,7 @@ static uint64_t quadtree_inner(struct n265_frame_work *e, int x0, int y0,
          * made; re-apply it so analysis tracks the entropy pass */
         (void)n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + split_inc], 0);
 
+        uint64_t pf_ts = pf ? cu_tick() : 0;
         mot_t mlist[MAX_MERGE];
         n265_merge_list(e, x0, y0, n, n, mlist, MAX_MERGE);
         uint32_t sd0;          /* unused here; the pick is the point */
@@ -6747,8 +6987,15 @@ static uint64_t quadtree_inner(struct n265_frame_work *e, int x0, int y0,
         set_blk(e, e->blk_qp, x0, y0, n,
                 e->ent_qp_coded ? N265_QP_STORE(e->cur_ctu_qp) : N265_QP_INHERIT);
         set_blk(e, e->ct_depth, x0, y0, n, depth);
-        uint64_t j_skip = rd_j(e, cu_area_ssd(e, x0, y0, n),
-                               adv.bits + b0, lam);
+        uint64_t d_sk = cu_area_ssd(e, x0, y0, n);
+        uint64_t j_skip = rd_j(e, d_sk, adv.bits + b0, lam);
+        if (pf) {
+            g_cb64p.t_skip += cu_tick() - pf_ts;
+            g_cb64p.blk++;
+            pf_b = cb64p_bucket(d_sk, skip_clean_thr(e->cur_ctu_qp, n));
+            g_cb64p.b_n[pf_b]++;
+            pf_who = 0;
+        }
         uint64_t j_arm1 = j_cu;         /* R3 reads how far the merge
                                          * arms improve on the CU arm */
         if (j_skip < j_cu) {
@@ -6758,11 +7005,14 @@ static uint64_t quadtree_inner(struct n265_frame_work *e, int x0, int y0,
                         mlist[midx].mv[0].x, mlist[midx].mv[0].y,
                         mlist[midx].mv[1].x, mlist[midx].mv[1].y);
             j_cu = j_skip;      /* current state is the skip */
+            if (pf)
+                pf_who = 1;
         } else {
             qt_restore(e, ss, x0, y0, n);   /* back to arm-1 outcome */
         }
 
         /* merge with residual (forced 4x TU32 tree) */
+        uint64_t pf_tm0 = pf ? cu_tick() : 0;
         qt_save(e, ss, x0, y0, n);
         qt_save_records(e, ss, rec_base);
         qt_restore(e, sp, x0, y0, n);
@@ -6782,10 +7032,17 @@ static uint64_t quadtree_inner(struct n265_frame_work *e, int x0, int y0,
         set_blk(e, e->ct_depth, x0, y0, n, depth);
         uint64_t j_m = rd_j(e, cu_area_ssd(e, x0, y0, n), madv.bits + b0,
                             lam);
-        if (j_m < j_cu)
+        if (j_m < j_cu) {
             j_cu = j_m;
-        else
+            if (pf)
+                pf_who = 2;
+        } else {
             qt_restore(e, ss, x0, y0, n);
+        }
+        if (pf) {
+            pf_tm = cu_tick() - pf_tm0;
+            g_cb64p.t_merge += pf_tm;
+        }
 
         /* AMVP 2Nx2N at 64x64 (N265_CB64_AMVP). The CB64 node had merge
          * and skip only, so a 64x64 region whose motion is not in the
@@ -6802,6 +7059,7 @@ static uint64_t quadtree_inner(struct n265_frame_work *e, int x0, int y0,
             amvp_gated = imp >= (cb64_gate() >= 2 ? 75 : 60);
         }
         if (cb64_amvp() && !amvp_gated) {
+            uint64_t pf_ta0 = pf ? cu_tick() : 0;
             qt_save(e, ss, x0, y0, n);
             qt_save_records(e, ss, rec_base);
             qt_restore(e, sp, x0, y0, n);
@@ -6822,10 +7080,15 @@ static uint64_t quadtree_inner(struct n265_frame_work *e, int x0, int y0,
                 set_blk(e, e->ct_depth, x0, y0, n, depth);
                 j_a = rd_j(e, cu_area_ssd(e, x0, y0, n), aadv.bits + b0, lam);
             }
-            if (j_a < j_cu)
+            if (j_a < j_cu) {
                 j_cu = j_a;
-            else
+                if (pf)
+                    pf_who = 3;
+            } else {
                 qt_restore(e, ss, x0, y0, n);
+            }
+            if (pf)
+                g_cb64p.t_amvp += cu_tick() - pf_ta0;
         }
     }
 
@@ -6848,13 +7111,33 @@ static uint64_t quadtree_inner(struct n265_frame_work *e, int x0, int y0,
     uint32_t b1 = n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + split_inc], 1);
     uint64_t j_split = (uint64_t)b1 * lam >> 16;
     int h = n >> 1;
+    uint64_t pf_tsp = pf ? cu_tick() : 0;
     for (int i = 0; i < 4; i++)
         j_split += quadtree(e, x0 + (i & 1) * h, y0 + (i >> 1) * h,
                             log2n - 1, depth + 1);
+    if (pf) {
+        pf_tsp = cu_tick() - pf_tsp;
+        g_cb64p.t_split += pf_tsp;
+        if (pf_b >= 0) {
+            g_cb64p.b_tsplit[pf_b] += pf_tsp;
+            g_cb64p.b_tmerge[pf_b] += pf_tm;
+            g_cb64p.b_t1[pf_b] += pf_t1;
+        }
+    }
 
     if (j_cu <= j_split) {
+        if (pf && pf_who >= 0) {
+            g_cb64p.win[pf_who]++;
+            if (pf_b >= 0)
+                g_cb64p.b_win[pf_b][pf_who]++;
+        }
         qt_restore(e, sw, x0, y0, n);
         return j_cu;
+    }
+    if (pf) {
+        g_cb64p.split_won++;
+        if (pf_b >= 0)
+            g_cb64p.b_split[pf_b]++;
     }
     if (cr)
         cr->flags |= N265_CUF_SPLIT;
@@ -7108,6 +7391,7 @@ void n265_ctu_warm(void)
     (void)depth_bound_widen(); (void)depth_bound_local();
     (void)depth_bound_ctb_skip(); (void)mvd_bits_on(); (void)me_satd_on();
     (void)cb64_gate(); (void)cb64_amvp(); (void)b_intra_margin();
+    (void)cb64_prof_on(); (void)cb64_skipgate();
     (void)bi_refine_iters(); (void)merge_rd_n(); (void)bi_gate();
     (void)bi_gate_margin(); (void)intra_rd_n(); (void)intra_rd_mpm();
     (void)i_intra(); (void)chroma_w_on(); (void)chroma_w_pct();
