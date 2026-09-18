@@ -1169,6 +1169,11 @@ struct n265_encoder {
     int plan_poc[LA_MAX], plan_lastuse[LA_MAX];
     int plan_len, plan_pos, plan_pop;
     int ctb_log2;
+    /* phase 14 item 17, the UHD rate switch's own record, for
+     * --show-config: `uhd_qp` is the planned base QP the switch read, or
+     * -1 where the switch did not apply, and `uhd_tree` is whether the
+     * 64x64 tree survived it. Neither is read by any coding decision. */
+    int uhd_qp, uhd_tree;
     int no_sao;
     /* N265_DBF_BETA / N265_DBF_TC: slice_beta_offset_div2 and
      * slice_tc_offset_div2, signalled through the PPS. Both shift the
@@ -1882,6 +1887,9 @@ void n265_row_end(n265_row_ctx *row, n265_frame_work *fw, int r);
  * --ref, in the SPS's own units (see the definition). */
 /* the QP a frame of this kind will be coded at, for the lookahead's bits
  * model (`--b-adapt 4`); defined beside dispatch_frame, which applies it */
+/* phase 14 item 17: the UHD rate switch's own record, for --show-config.
+ * `uhd_qp` is the planned base QP the switch read, or -1 where the
+ * switch did not apply; `uhd_tree` is whether the 64x64 tree survived. */
 int n265_planned_qp(const struct n265_encoder *e, int slice_type,
                     int b_depth, int nonref);
 

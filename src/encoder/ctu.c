@@ -2836,26 +2836,38 @@ static int la_inter_pct(struct n265_frame_work *e, int x0, int y0, int n)
  * clean-skip bound the 32x32 tree already uses, skip_clean_thr(qp, 64),
  * in 1024ths.
  *
- * **It works and it does not pay, which is why nothing here is a
- * default.** On Meridian 600 at the band's 7.46 MB rung the bounds
- * 16 / 32 / 64 / 128 decide 64.4 / 76.2 / 88.3 / 93.8% of the 64x64
- * nodes and disagree with the full search on 1.94 / 6.36 / 13.23 /
- * 17.69% of what they decide. The QUALITY of that is nearly free at the
- * tight end - VMAF-NEG moves -0.06 at 16 and -0.45 at 32 - and the CLOCK
- * is not: single-thread CPU time against today's medium reads 1.206x /
- * 1.141x / 1.105x / 1.049x, against a 1.10x bound, and 128 buys that
- * 1.049x by giving back 29% of rate-equivalent. The reason is that at
- * this node the decidability and the cost are ANTI-CORRELATED: a node
- * whose depth-0 residual says "skip" is a node whose split trial was
- * going to be four all-skip 32x32 trees.
+ * **The MECHANISM is settled and the VALUE is not.** At 64, on a quiet
+ * box, the pair is faster than the 32x32 tree it replaces - 0.921x at one
+ * thread and 0.922x at auto against today's medium - and worth -3.83% and
+ * -11.79% BD-VMAF-NEG on the two 4K sources. Read that against the
+ * CPU-TIME reading of the same arm, which was 1.105x and refused it: a
+ * gate that deletes a serialising pass at the root of every coding tree
+ * shortens the wall by more than it shortens the cycles, and the bar
+ * names the wall. So item 12's refusal is answered.
+ *
+ * 64 is nonetheless HELD as the default, because it is the loose end of
+ * the family: against x265 medium - which is the plan's yardstick - it is
+ * 4.5 points WORSE than today's medium on Meridian, and the pair the wall
+ * timed was 15.1% apart in bytes. 16 and 32 keep 15.3 and 12.7 of item
+ * 12's fifteen points where 64 keeps 5.0, and neither has been timed.
+ *
+ * The bound is LOOSE on purpose and it costs quality. On Meridian 600 at
+ * the band's 7.46 MB rung the bounds 16 / 32 / 64 / 128 decide 64.4 /
+ * 76.2 / 88.3 / 93.8% of the 64x64 nodes and disagree with the full
+ * search on 1.94 / 6.36 / 13.23 / 17.69% of what they decide, for
+ * VMAF-NEG -0.06 / -0.45 / -1.68 / -4.28 at the rung. 64 gives back
+ * eleven of the fifteen points item 12 measured on the ungated tree, and
+ * it is the value the clock forced when the clock was read as CPU time.
+ * The equal-bytes wall over 16 / 32 / 64 is what settles the value, and
+ * it is set up rather than run: scratch/wall4.sh, with the CRFs
+ * scratch/solve_eqb.py solves onto today's medium's own byte count. Until
+ * it reports, `medium`'s overlay names 32 provisionally.
  *
  * 0 is OFF and is item 12's ungated arm byte for byte, which is what
- * every preset and every resolution runs: NO preset names this knob,
- * because the 64x64 tree it gates is itself not a default at any
- * resolution (item 12 refused the tree on the wall, item 17 refused the
- * gate on the same leg). It is reached the way item 12's arm is, by
- * asking for the tree: `N265_CB64_SKIPGATE=16 n265 --ctu 64 ...`. The
- * tables are in docs/phase14.md, "Item 17".
+ * every rung from `veryfast` through `medium` runs below the UHD rule,
+ * what `slow` and `slower` run at every resolution, and what any
+ * explicit `--ctu 32` runs anywhere. The tables are in
+ * docs/phase14.md, "Item 17".
  *
  * The bound is a FRACTION of the clean bound and not the clean bound
  * itself because the population at 2160p sits a long way under it: 99.4%
