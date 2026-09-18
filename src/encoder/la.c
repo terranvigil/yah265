@@ -239,6 +239,62 @@ static int sc_hold(void)
     return hold;
 }
 
+/* N265_LA_MEPRED: start the lookahead's lowres search where the motion
+ * already is, instead of at the zero vector every time.
+ *
+ * `n265_la_push` runs a four-point diamond from (0,0) capped at eight
+ * iterations, so it reaches EIGHT LOWRES PIXELS - sixteen luma pixels -
+ * and no further. That is enough for CIF and for 60p video of ordinary
+ * motion, and it is not enough for 2160p, still less for 2160p carrying
+ * 24p motion in a 60p container: on `src_meridian_600` the exhaustive
+ * cost keeps falling out to +-32 lowres pixels, and until the search
+ * gets there the inter cost reads above the intra cost and the scenecut
+ * detector fires on a shot that never changed (docs/phase14.md item 18).
+ *
+ * The expensive answer is a wider pattern. The cheap one is a better
+ * STARTING POINT, and three are already to hand when the block is
+ * reached: the vector of the block to its LEFT, the vector of the block
+ * ABOVE it, and the vector THIS block had in the previous lookahead
+ * frame. Motion is spatially and temporally coherent, so each of them
+ * is usually within a diamond step or two of the answer, and a search
+ * seeded from one chains along the motion trail rather than walking out
+ * to it one lowres pixel at a time. The reach stops being the iteration
+ * cap and becomes the cap plus whatever the neighbours already found.
+ * `pair_cost` has always seeded itself this way; this is the same idea
+ * one level down.
+ *
+ * Every candidate is DEDUPLICATED against the zero vector and against
+ * the candidates before it, which is what keeps the clock flat: on
+ * static content, on a held frame and on a pulldown repeat the
+ * neighbours are all (0,0), every candidate collapses onto the zero
+ * vector that was already priced, and the block pays a handful of
+ * integer compares and not one extra SAD. Blocks that DO move pay four
+ * or five SADs against a diamond that was going to run its full eight
+ * iterations - thirty-three SADs - on exactly those blocks.
+ *
+ * Raster order, driver-side, integer: the left and top vectors are
+ * written before this block reads them and the temporal one belongs to
+ * a frame already pushed, so the answer is a pure function of the
+ * queued sources at every thread count. On by default; 0 is the
+ * pre-2026-09-18 search byte for byte. */
+/* the component-wise median of three, which is the spatial predictor
+ * every block-based codec forms and the one HEVC's own AMVP is a
+ * variation on. Written here rather than reached for because nothing
+ * else in this encoder needed one. */
+static inline int med3(int a, int b, int c)
+{
+    if (a > b) { int t = a; a = b; b = t; }
+    if (b > c) b = c;
+    return a > b ? a : b;
+}
+
+static int la_mepred(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *e = n265_env("N265_LA_MEPRED"); v = e ? atoi(e) : 1; }
+    return v;
+}
+
 static void log2q16_init(void);
 static int32_t brun_logT_q16(int qp);
 
@@ -319,6 +375,7 @@ int n265_dup_on(void)
 void n265_la_warm(void)
 {
     (void)sc_hold();
+    (void)la_mepred();
     (void)n265_flat_gate();
     log2q16_init();
     (void)brun_logT_q16(32);
@@ -534,6 +591,69 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
                  * distance the duplicate chain is built on: taken here,
                  * before the diamond moves off it, for one add a block */
                 f->zsad_sum += best;
+                /* N265_LA_MEPRED: the motion vector predictors. Left,
+                 * above, above-right, their component-wise median, and
+                 * this block's vector in the previous frame. The median
+                 * is formed only where all three spatial neighbours
+                 * exist; where they do not, the ones that do stand on
+                 * their own. */
+                if (la_mepred()) {
+                    int cand[5][2];
+                    int nc = 0;
+                    int have_l = bx > 0, have_t = by > 0;
+                    int have_tr = by > 0 && bx + 1 < la->bw;
+                    int lx = 0, ly = 0, tx0 = 0, ty0 = 0, rx = 0, ry = 0;
+                    if (have_l) {
+                        lx = f->mv[2 * (b - 1)];
+                        ly = f->mv[2 * (b - 1) + 1];
+                        cand[nc][0] = lx; cand[nc][1] = ly; nc++;
+                    }
+                    if (have_t) {
+                        tx0 = f->mv[2 * (b - la->bw)];
+                        ty0 = f->mv[2 * (b - la->bw) + 1];
+                        cand[nc][0] = tx0; cand[nc][1] = ty0; nc++;
+                    }
+                    if (have_tr) {
+                        rx = f->mv[2 * (b - la->bw + 1)];
+                        ry = f->mv[2 * (b - la->bw + 1) + 1];
+                        cand[nc][0] = rx; cand[nc][1] = ry; nc++;
+                    }
+                    if (have_l && have_t && have_tr) {
+                        cand[nc][0] = med3(lx, tx0, rx);
+                        cand[nc][1] = med3(ly, ty0, ry);
+                        nc++;
+                    }
+                    cand[nc][0] = prev->mv[2 * b];
+                    cand[nc][1] = prev->mv[2 * b + 1];
+                    nc++;
+                    for (int k = 0; k < nc; k++) {
+                        int cx = cand[k][0], cy = cand[k][1];
+                        /* the zero vector is already priced, and a
+                         * candidate the list has seen is already priced
+                         * too: on content that does not move this is
+                         * every one of them */
+                        if (!cx && !cy)
+                            continue;
+                        int seen = 0;
+                        for (int j = 0; j < k; j++)
+                            if (cand[j][0] == cx && cand[j][1] == cy) {
+                                seen = 1;
+                                break;
+                            }
+                        if (seen)
+                            continue;
+                        if (x0 + cx < 0 || y0 + cy < 0 ||
+                            x0 + cx + 8 > lw || y0 + cy + 8 > lh)
+                            continue;
+                        uint32_t s = sad8(blk, lw,
+                            prev->lowres + (y0 + cy) * lw + x0 + cx, lw);
+                        if (s < best) {
+                            best = s;
+                            mx = cx;
+                            my = cy;
+                        }
+                    }
+                }
                 for (int it = 0; it < 8; it++) {
                     int bmx = mx, bmy = my;
                     uint32_t bs = best;
