@@ -2515,6 +2515,19 @@ n265_encoder *n265_encoder_open(const n265_param *p)
                         ? e->ctb_rows : (e->ctb_cols + 1) / 2;
           if (2 * cap <= nt)
               k = 8;
+          /* Phase 14 item 17. Where the UHD overlay took the 64x64 tree
+           * (uhd_qp >= 0 says the switch decided, uhd_tree says which
+           * way) the wavefront has half the rows of the 32x32 tree it
+           * replaces and the pool parks five times as often on a cheap
+           * clip (bbb: 4.7% -> 23.1% idle). The bound above does not see
+           * it - 30 concurrent rows on paper against 18 workers - and
+           * eight frames in flight buys a quarter of the parked time
+           * back, which on the equal-bytes wall is bbb 1.097x -> 0.971x
+           * and Meridian 1.047x -> 1.026x against today's medium. Not
+           * for an explicit --ctu 64 or for slow/slower, which were not
+           * measured; N265_MAX_FRAME_WORK still overrides. */
+          if (e->uhd_qp >= 0 && e->uhd_tree)
+              k = 8;
       }
       e->K = k < 1 ? 1 : k > N265_MAX_FRAME_WORK ? N265_MAX_FRAME_WORK : k; }
     { const char *v = n265_env("N265_RC_LAG");
