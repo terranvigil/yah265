@@ -253,6 +253,12 @@ static const struct kv med_tab[] = {
                                    * are 0 and 0, so fast, slow and
                                    * slower are untouched               */
     { "N265_CB64_AMVP",  "0" },
+    /* the depth-0 residual gate at the 64x64 node: 0 here because at
+     * this rung the coding tree is 32 below UHD and there is no 64x64
+     * node to gate. The UHD overlay turns it on with the tree (item 17),
+     * and the compiled-in default is 0, so fast, slow and slower are
+     * untouched */
+    { "N265_CB64_SKIPGATE", "0" },
     { "N265_BI_REFINE",  "0" },
     { "N265_CHROMA_PRED", "0" },
     { "N265_NO_RECT",    "1" },
@@ -508,6 +514,70 @@ static const struct kv med_par[] = {
     { NULL, NULL }
 };
 
+/* ...except the coding tree on a UHD-class picture (phase 14 item 12,
+ * shipped with item 17's gate 2026-09-17). The row above was priced at
+ * CIF, 720p and 1080p and is right there; it was never read at 2160p,
+ * and at 2160p it is wrong. The reason is the tree's reach in PICTURE
+ * terms: a 32x32 tree over a 3840x2160 frame is 8160 trees whose largest
+ * node covers 0.02% of the picture, and 4K content's flat regions are
+ * far larger than that, so every one of them is re-signalled tree by
+ * tree. Item 16 counted the consequence: at the bottom rung our 2160p B
+ * slices are 99.5% skipped at 32x32 and `merge_idx` alone is 19-29% of
+ * the stream.
+ *
+ * Measured on two 4K sources - Meridian 600 frames and bbb_sunflower 300
+ * frames - the numbers are in docs/phase14.md "Item 12" for the tree and
+ * "Item 17" for the gate it ships with. Everything else about `medium`
+ * is untouched, this rung included: the window stays 12 at every
+ * resolution, and below the gate the bitstream is what main wrote, byte
+ * for byte.
+ *
+ * THE RULE is on luma AREA, not on height: `w * h >= 3840 * 1600`. A 4K
+ * scope master is delivered both ways - 3840x2160 with the bars coded
+ * and 3840x1608 with them cropped - and both are the same picture, so a
+ * height test would take the tree off the second one. 2560x1440 (3.7 M)
+ * and 1920x1080 (2.1 M) are well below it and are the 1080p refusal
+ * phase 9 step 1 made and item 12 re-read and kept. The measurement
+ * itself is at 3840x2160 only; the allowance is the same picture with
+ * its bars removed and nothing wider than that. */
+static const struct kv med_par_uhd[] = {
+    { "ctu", "64" },
+    { NULL, NULL }
+};
+
+/* ...and the knob that makes that tree affordable (phase 14 item 17).
+ * Item 12 refused the 64x64 node on the WALL: fifteen points of
+ * BD-VMAF-NEG for 1.29x at equal bytes. The gate runs the node's
+ * cheapest arm - one merge candidate, its motion compensation and the
+ * SSD after it - before any of the others, and where that depth-0
+ * residual is under a sixteenth of the clean-skip bound the node is
+ * decided there: no CU arm, no merge-with-residual, no AMVP search, and
+ * no split trial into four 32x32 trees.
+ *
+ * 64 is the bound the EQUAL-BYTES wall picked, and it is the only one of
+ * the three that cleared both bounds there: at --crf 19 against today's
+ * medium at --crf 21 on Meridian 600, 16 reads 1.136x at one thread and
+ * 1.160x at auto, 32 reads 1.053x and 1.139x, and 64 reads 0.945x and
+ * 1.017x. 16 and 32 keep more of the quality - 15.3 and 12.7 of item
+ * 12's fifteen points against 64's 5.0 - and neither can be afforded.
+ *
+ * What makes 64's quality cost payable is that the tree is no longer
+ * taken across the whole band: the rate switch in encoder.c only takes
+ * it at or above N265_UHD_QP, which is the half of the band where the
+ * per-rung read says the tree is ahead. Below it the encode is
+ * `--ctu 32` and this row is unreachable.
+ *
+ * It rides with the tree and only with the tree. Below the UHD rule the
+ * coding tree is 32, there is no 64x64 node and the knob is inert; at
+ * `slow` and `slower`, where the tree IS 64 at every resolution, there
+ * is no overlay and those two rungs are unmoved. The value is the bound
+ * in 1024ths of skip_clean_thr(qp, 64); ctu.c's N265_CB64_SKIPGATE
+ * comment is the rule. */
+static const struct kv med_tab_uhd[] = {
+    { "N265_CB64_SKIPGATE", "64" },
+    { NULL, NULL }
+};
+
 /* today's medium's structure, which is the front end's own defaults */
 static const struct kv slow_par[] = {
     { "ctu", "64" },
@@ -577,9 +647,23 @@ static const struct kv placebo_par[] = {
 struct rung {
     const char *name;
     const struct kv *tab;
+    /* Knob rows that REPLACE `tab`'s on a UHD-class picture - the env
+     * half of what par_uhd below is for the CLI's own parameters (phase
+     * 14 item 17). NULL where the rung has none. Read only after the
+     * front end has told this file the picture's size. */
+    const struct kv *tab_uhd;
     const struct kv *par;
+    /* Structural rows that REPLACE `par`'s on a UHD-class picture, or
+     * NULL where the rung has none (phase 14 item 12). It is an overlay
+     * and not a second table: a key absent here falls through to `par`,
+     * so a rung says only what resolution moves. */
+    const struct kv *par_uhd;
     int placed;             /* 0 = built, measured and REFUSED */
 };
+
+/* The UHD rule, in luma samples. See med_par_uhd for why it is an area
+ * and not a height. */
+#define N265_UHD_SAMPLES (3840L * 1600L)
 
 static const struct rung rungs[] = {
     /* `veryfast` is present and NOT placed. It was built, measured and
@@ -594,7 +678,7 @@ static const struct rung rungs[] = {
      * without the one the evidence points at - and because a row here is
      * what lets the refusal say which rung was tried and failed rather
      * than pretending the name is unknown. docs/phase13.md, "C2". */
-    { "veryfast", vfast_tab,  vfast_par,  0 },
+    { "veryfast", vfast_tab, NULL,  vfast_par, NULL,  0 },
     /* `faster` is present and NOT placed either, and for a different
      * reason from veryfast's. It PASSES the band on every one of the
      * fifteen - median -9.96% BD-VMAF-NEG against x265 faster, 15/15
@@ -609,11 +693,11 @@ static const struct rung rungs[] = {
      * docs/phase13.md, "C2". The table stays for the same reason
      * veryfast's does, and the two binding clips are the same two the
      * project already has open items on. */
-    { "faster",   faster_tab, faster_par, 0 },
-    { "fast",     fast_tab,   fast_par,   1 },
-    { "medium",   med_tab,    med_par,    1 },
-    { "slow",     slow_tab,   slow_par,   1 },
-    { "slower",   slower_tab, slower_par, 1 },
+    { "faster",   faster_tab, NULL, faster_par, NULL, 0 },
+    { "fast",     fast_tab, NULL,   fast_par, NULL,   1 },
+    { "medium",   med_tab, med_tab_uhd, med_par, med_par_uhd, 1 },
+    { "slow",     slow_tab, NULL,   slow_par, NULL,   1 },
+    { "slower",   slower_tab, NULL, slower_par, NULL, 1 },
     /* `veryslow` and `placebo` are present and NOT placed (2026-09-14,
      * phase 14 item 5). The binding leg is the BAND, and it binds a long
      * way above them: on the CRF band against the x265 preset of their
@@ -629,8 +713,8 @@ static const struct rung rungs[] = {
      * that. `--preset medium` still reads -6.65% with all seven ahead,
      * which is the control this item ran to be sure the instrument and
      * the corpus had not moved. docs/phase14.md, "Item 5". */
-    { "veryslow", veryslow_tab, veryslow_par, 0 },
-    { "placebo",  placebo_tab,  placebo_par,  0 },
+    { "veryslow", veryslow_tab, NULL, veryslow_par, NULL, 0 },
+    { "placebo",  placebo_tab, NULL,  placebo_par, NULL,  0 },
 };
 #define N_RUNGS ((int)(sizeof(rungs) / sizeof(rungs[0])))
 
@@ -642,6 +726,12 @@ static const char *const x265_names[] = {
 #define N_X265 ((int)(sizeof(x265_names) / sizeof(x265_names[0])))
 
 static int g_preset = 3;        /* medium: rungs[3] */
+
+/* Whether the picture this run is encoding is UHD-class. Set once by the
+ * front end (n265_preset_uhd) before the encoder is opened, because the
+ * geometry is the front end's to know; zero until it is, which is the
+ * resolution-blind answer every caller got before item 17. */
+static int g_uhd;
 
 static const char *lookup(const struct kv *t, const char *k)
 {
@@ -656,7 +746,25 @@ const char *n265_env(const char *name)
     const char *v = getenv(name);
     if (v)
         return v;
+    if (g_uhd && rungs[g_preset].tab_uhd) {
+        v = lookup(rungs[g_preset].tab_uhd, name);
+        if (v)
+            return v;
+    }
     return lookup(rungs[g_preset].tab, name);
+}
+
+/* The picture's size, told to the preset table once (phase 14 item 17).
+ * Some of what a rung offers is resolution-aware and the front end is
+ * where the geometry is known; this is the knob half of what
+ * n265_preset_param_res is for the CLI's own parameters, and it is a
+ * SETTER for the reason that one is not: a knob is read from deep inside
+ * the encoder, where the picture is not an argument. Zero for either
+ * dimension puts the table back to resolution-blind. */
+void n265_preset_uhd(int width, int height)
+{
+    g_uhd = width > 0 && height > 0 &&
+            (long)width * (long)height >= N265_UHD_SAMPLES;
 }
 
 /* ---- reading the selected rung back out (phase 14 item 13) ----------
@@ -685,6 +793,11 @@ int n265_preset_row(int i, const char **key, const char **val,
             continue;
         *key = t[n].k;
         *val = t[n].v;
+        if (g_uhd && rungs[g_preset].tab_uhd) {
+            const char *u = lookup(rungs[g_preset].tab_uhd, t[n].k);
+            if (u)
+                *val = u;       /* what the run RESOLVED (item 17) */
+        }
         *env = getenv(t[n].k);
         return 1;
     }
@@ -743,6 +856,26 @@ int n265_preset_param(const char *key, int fallback)
 {
     const char *v = lookup(rungs[g_preset].par, key);
     return v ? atoi(v) : fallback;
+}
+
+/* The same question asked about a picture of a known size (phase 14
+ * item 12). A rung's `par_uhd` overlay answers first where the picture
+ * is UHD-class and the overlay names the key; everything else falls
+ * through to the resolution-blind table above, so a caller that does not
+ * know its geometry - or one asking about a rung with no overlay - gets
+ * the answer it always got. Nothing here is a mode: this is still a
+ * source of DEFAULTS and the front end's own flag still wins. */
+int n265_preset_param_res(const char *key, int fallback, int width,
+                          int height)
+{
+    const struct kv *uhd = rungs[g_preset].par_uhd;
+    if (uhd && width > 0 && height > 0 &&
+        (long)width * (long)height >= N265_UHD_SAMPLES) {
+        const char *v = lookup(uhd, key);
+        if (v)
+            return atoi(v);
+    }
+    return n265_preset_param(key, fallback);
 }
 
 /* ---- -t/--tune: one accepted name and four named refusals -----------

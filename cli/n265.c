@@ -191,6 +191,9 @@ void n265_set_hdr_meta_10(const uint32_t *md, int cll, int fall);
 void n265_set_hdr10_10(int hdr10, int cll_on, int atc);
 int  n265_set_preset_10(const char *name);
 int  n265_preset_param_10(const char *key, int fallback);
+int  n265_preset_param_res_10(const char *key, int fallback, int w, int h);
+void n265_preset_uhd_10(int w, int h);
+void n265_set_uhd_tree_10(int on);
 const char *n265_preset_nearest_10(const char *name);
 n265_encoder *n265_encoder_open_10(const n265_param *p);
 int  n265_encoder_encode_10(n265_encoder *e, n265_nal **nal, int *nnal,
@@ -229,6 +232,17 @@ typedef struct n265_api {
     void (*set_threads)(int);
     int  (*set_preset)(const char *);
     int  (*preset_param)(const char *, int);
+    /* the same question about a picture of a known size (item 12):
+     * `medium`'s coding tree is 64 on a UHD-class picture and 32 below
+     * it, and the CLI is where the geometry is known. */
+    int  (*preset_param_res)(const char *, int, int, int);
+    /* ...and the same geometry told to the KNOB half of the table (item
+     * 17), which the encoder reads for itself. */
+    void (*preset_uhd)(int, int);
+    /* ...and whether the tree the preset just offered is the RESOLUTION
+     * rule's rather than the user's, which is what the rate switch at
+     * encoder open is allowed to move (item 17). */
+    void (*set_uhd_tree)(int);
     const char *(*preset_nearest)(const char *);
     void (*set_shot_window)(int);
     void (*set_pass)(int, const char *);
@@ -287,7 +301,8 @@ typedef struct n265_api {
 static const n265_api api8 = {
     8, n265_param_default, n265_set_mode, n265_set_la, n265_set_crf,
     n265_set_bitrate, n265_set_ref, n265_set_badapt, n265_set_threads,
-    n265_set_preset, n265_preset_param, n265_preset_nearest,
+    n265_set_preset, n265_preset_param, n265_preset_param_res,
+    n265_preset_uhd, n265_set_uhd_tree, n265_preset_nearest,
     n265_set_shot_window, n265_set_pass,
     n265_set_lossless, n265_set_level, n265_set_vui_timing,
     n265_set_film_grain, n265_set_vbv, n265_set_rdoq_level,
@@ -310,7 +325,8 @@ static const n265_api api10 = {
     10, n265_param_default_10, n265_set_mode_10, n265_set_la_10,
     n265_set_crf_10, n265_set_bitrate_10, n265_set_ref_10,
     n265_set_badapt_10, n265_set_threads_10, n265_set_preset_10,
-    n265_preset_param_10, n265_preset_nearest_10,
+    n265_preset_param_10, n265_preset_param_res_10,
+    n265_preset_uhd_10, n265_set_uhd_tree_10, n265_preset_nearest_10,
     n265_set_shot_window_10, n265_set_pass_10,
     n265_set_lossless_10, n265_set_level_10, n265_set_vui_timing_10,
     n265_set_film_grain_10, n265_set_vbv_10, n265_set_rdoq_level_10,
@@ -898,7 +914,26 @@ static void usage(void)
         "                  of them price against a quantiser there is not).\n"
         "                  --qp/--crf/--bitrate are ignored; prediction and\n"
         "                  mode decision still run, on bits alone.\n"
-        "  --ctu <16|32|64>  coding tree block size (default 64)\n"
+        "  --ctu <16|32|64>  coding tree block size. The compiled-in\n"
+        "                  default is 64 and every preset offers its own:\n"
+        "                  32 from `veryfast` through `medium`, 64 at\n"
+        "                  `slow` and above. `medium`'s 32 is\n"
+        "                  RESOLUTION-AWARE - on a UHD-class picture (luma\n"
+        "                  w*h at or above 3840*1600, so 2160p and the\n"
+        "                  scope crops of it) it offers 64 instead, and\n"
+        "                  with it the depth-0 residual gate that makes\n"
+        "                  the 64x64 node affordable there\n"
+        "                  (N265_CB64_SKIPGATE, docs/instruments.md): the\n"
+        "                  pair is worth four to twelve points of\n"
+        "                  BD-VMAF-NEG at 2160p for the same clock at one\n"
+        "                  thread and up to 1.10x at auto on a cheap clip.\n"
+        "                  The tree is taken only where the planned base\n"
+        "                  QP is at or above N265_UHD_QP (31); below it\n"
+        "                  medium codes its 32x32 tree. The gate rides with the\n"
+        "                  tree and only on that rung - `slow` and\n"
+        "                  `slower` code a 64x64 tree at every resolution\n"
+        "                  and are not gated. This flag overrides the\n"
+        "                  tree, at every resolution, and never the gate.\n"
         "  --keyint <n>    key frame period in frames (default 250)\n"
         "  --open-gop      code the --keyint picture as a CRA, keeping the\n"
         "                  pyramid that straddles it as leading pictures\n"
@@ -2148,13 +2183,34 @@ int main(int argc, char **argv)
             setenv("N265_MAX_FRAME_WORK", k, 0);
         }
     }
-    if (!had_ref)     nref = a->preset_param("ref", nref);
-    if (!had_bframes) bframes = a->preset_param("bframes", bframes);
-    if (!had_badapt)  badapt = a->preset_param("b-adapt", badapt);
-    if (!had_la)      lookahead = a->preset_param("rc-lookahead", lookahead);
-    if (!had_ctu)     ctu = a->preset_param("ctu", ctu);
-    if (!had_tui)     tu_inter = a->preset_param("tu-inter-depth", tu_inter);
-    if (!had_tua)     tu_intra = a->preset_param("tu-intra-depth", tu_intra);
+    /* The picture the preset is being asked about. Some of what it
+     * offers is resolution-aware (phase 14 items 12 and 17) and this is
+     * the only place that knows the geometry: the source has been opened,
+     * so the size is the FILE's, before any padding to the coding tree -
+     * which is the size the rule is written in and the one a user
+     * names. */
+    a->preset_uhd(y.w, y.h);
+    if (!had_ref)     nref = a->preset_param_res("ref", nref, y.w, y.h);
+    if (!had_bframes) bframes = a->preset_param_res("bframes", bframes,
+                                                    y.w, y.h);
+    if (!had_badapt)  badapt = a->preset_param_res("b-adapt", badapt,
+                                                   y.w, y.h);
+    if (!had_la)      lookahead = a->preset_param_res("rc-lookahead",
+                                                      lookahead, y.w, y.h);
+    /* item 17: remember whether the RESOLUTION rule is what moved the
+     * coding tree, by asking the same rung the resolution-blind way. A
+     * tree the user named is the user's and the rate switch leaves it
+     * alone; one the rule offered is the rule's and the switch may take
+     * it back down. */
+    int ctu_blind = a->preset_param("ctu", ctu), uhd_tree = 0;
+    if (!had_ctu) {
+        ctu = a->preset_param_res("ctu", ctu, y.w, y.h);
+        uhd_tree = ctu != ctu_blind;
+    }
+    if (!had_tui)     tu_inter = a->preset_param_res("tu-inter-depth",
+                                                     tu_inter, y.w, y.h);
+    if (!had_tua)     tu_intra = a->preset_param_res("tu-intra-depth",
+                                                     tu_intra, y.w, y.h);
     if (ctu != 16 && ctu != 32 && ctu != 64) {
         fprintf(stderr, "n265: --ctu must be 16, 32 or 64\n");
         return 2;
@@ -2221,6 +2277,8 @@ int main(int argc, char **argv)
     }
     int ctb_log2 = ctu == 16 ? 4 : ctu == 32 ? 5 : 6;
     a->set_mode(pcm ? 1 : 0, qp, ctb_log2, keyint, bframes, aq);
+    /* item 17, and it has to be after set_mode, which clears the flag */
+    a->set_uhd_tree(uhd_tree);
     /* The flag decides, not the value: `crf >= 0` used to double as the
      * off sentinel here, which is why the twelve QP steps Main10 pays for
      * were reachable through --qp and not through --crf. */
