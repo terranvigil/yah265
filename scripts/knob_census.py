@@ -164,6 +164,25 @@ OVERRIDES = {
     # are arms, not shipped defaults - 0 is the default at every preset and
     # the measurement that keeps it there is in docs/phase13.md.
     "N265_CBQPOFFS": "arm", "N265_CRQPOFFS": "arm",
+    # phase 14 item 20: the four consumer refits. Each is catalogued in
+    # docs/instruments.md because the item's account has to say what its
+    # constant IS, which the heuristic then reads as "machinery". They are
+    # not: each one is the SHIPPED value of a decision the lookahead makes
+    # - the b-adapt statistic's saturation and its motion gate, cu-tree's
+    # price for the motion it propagates along, and the scenecut's spike
+    # guard - and the env is the escape to the pre-item-20 rule.
+    "N265_BADAPT_MVCAP": "default", "N265_BADAPT_MVGATE": "default",
+    "N265_CT_MVRATE": "default", "N265_SC_SPIKE": "default",
+    # phase 14 item 21, and the same case as the four above: the scenecut's
+    # failure-share trigger with its own level guard, and the ABR model's
+    # price for the motion a prediction is fetched with. Each is the
+    # SHIPPED value of a decision, catalogued in docs/instruments.md
+    # because the item has to say what the constant is.
+    "N265_SC_FAILW": "default", "N265_SC_FAILW_SPIKE": "default",
+    "N265_RC_MVRATE": "default",
+    # ...and the two instruments the item is measured with, which resolve
+    # unset and would otherwise read as arms
+    "N265_LA_MVSTAT": "instrument", "N265_SC_FORCE": "instrument",
     # phase 12 item 2. Both are moot unless --vbv-maxrate armed the mode,
     # but inside it they are the SHIPPED clamp and not arms waiting to be
     # re-priced: the safety fraction is what buys the zero-underflow gate

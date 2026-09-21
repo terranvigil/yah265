@@ -71,6 +71,15 @@ int n265_flat_gate(void);
 
 typedef struct la_frame {
     float sc_ratio;         /* pcost/icost at push time */
+    /* The share of the frame's INTRA cost that sits on blocks where the
+     * lowres search failed to undercut intra at all (phase 14 item 21).
+     * `sc_ratio` is a sum ratio, so a minority of blocks that match very
+     * cheaply can carry a whole frame under the bar; this says how much
+     * of the picture, weighted by what intra would pay for it, inter
+     * prediction cannot do anything with - which is the question the
+     * scenecut is actually asking. */
+    float sc_failw;
+    float failw_lvl;        /* the running level sc_failw is read against */
     float sc_ema;           /* running ratio EMA before this frame */
     int valid;
     int display_idx;
@@ -86,10 +95,33 @@ typedef struct la_frame {
     pixel *lowres;
     uint16_t *icost;        /* per lowres-8x8 block intra cost proxy    */
     uint16_t *pcost;        /* inter cost vs previous display frame     */
+    /* the ZERO VECTOR's cost for the same block, in pcost's own units
+     * (SAD plus the per-block floor), so the pair says how much of the
+     * block's static residual the search actually removed. `zsad_sum`
+     * below is its frame total and was already taken for the duplicate
+     * chain; this is the per-block form `N265_LA_MVSTAT` reads, and it
+     * is what the item 21 take-apart's coherence and global-vector
+     * columns are computed against. On a frame with no reference it is
+     * the intra cost, which is what `pcost` is there too. */
+    uint16_t *zsad;
     int16_t *mv;            /* lowres MV pairs (full-pel lowres units)  */
     float *prop;            /* cu-tree propagate-in accumulator         */
     uint64_t icost_sum, pcost_sum;
     uint64_t mvabs_sum;     /* sum |lowres MV| over blocks (motion magnitude) */
+    /* the frame's motion in BITS on the exp-Golomb shape, summed over
+     * blocks: what the coder would pay to fetch the prediction this cost
+     * was measured with. `pcost_sum` is a bare distortion and an honest
+     * search buys distortion with vector length, so the rate control's
+     * complexity reads the pair (N265_RC_MVRATE, phase 14 item 21). */
+    uint64_t mvbits_sum;
+    /* The same sum with each block's L1 magnitude SATURATED at the reach
+     * the b-adapt run rule's cutoff was fitted at (N265_BADAPT_MVCAP,
+     * phase 14 item 20). The rule asks how much of the picture is moving
+     * fast, and a plain mean of an unbounded magnitude answers a
+     * different question once the search can reach past its old cap.
+     * N265_BADAPT_MVGATE drops the blocks whose vector bought nothing
+     * out of the same sum. */
+    uint64_t mvsat_sum;
     /* The DUPLICATE chain (phase 11 item 1). A frame identical to its
      * reference in coding order is a picture whose coding is all-skip
      * with the zero vector, but the lookahead only ever costs a frame
@@ -134,6 +166,7 @@ typedef struct n265_la {
     int bw, bh;             /* lowres 8x8 block grid */
     int depth;              /* target queue depth before draining */
     float sc_ema;           /* running pcost/icost EMA */
+    float failw_ema;        /* the same running level for sc_failw */
     pixel *anchor_lowres;   /* lowres luma of the last coded anchor */
     int anchor_valid;
     /* the duplicate chain's own state, kept on the queue rather than on

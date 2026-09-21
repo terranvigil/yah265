@@ -6615,7 +6615,10 @@ static void build_plan_order(n265_encoder *e)
         A = i;
         if (i == inon) break;           /* ...this one IS this plan's anchor */
         if (e->badapt) {
-            double mv = (double)la->f[i].mvabs_sum / (nb ? nb : 1);
+            /* the SATURATED mean, not the raw one: la.c's badapt_mvcap
+             * says why the cutoff has no meaning above the reach the
+             * search it was fitted against could see */
+            double mv = (double)la->f[i].mvsat_sum / (nb ? nb : 1);
             double m = mv * wscale * (double)la->f[i].sc_ratio;
             if (trace)
                 fprintf(stderr, "BADAPT d=%d i=%d mv=%.3f ratio=%.3f "
