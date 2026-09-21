@@ -94,7 +94,9 @@ typedef struct la_frame {
      * the b-adapt run rule's cutoff was fitted at (N265_BADAPT_MVCAP,
      * phase 14 item 20). The rule asks how much of the picture is moving
      * fast, and a plain mean of an unbounded magnitude answers a
-     * different question once the search can reach past its old cap. */
+     * different question once the search can reach past its old cap.
+     * N265_BADAPT_MVGATE drops the blocks whose vector bought nothing
+     * out of the same sum. */
     uint64_t mvsat_sum;
     /* The DUPLICATE chain (phase 11 item 1). A frame identical to its
      * reference in coding order is a picture whose coding is all-skip

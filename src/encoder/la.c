@@ -768,7 +768,7 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
                 int mx = 0, my = 0;
                 uint32_t best = sad8(blk, lw,
                                      prev->lowres + y0 * lw + x0, lw);
-                uint32_t zsad = best;
+                bzsad = best;          /* the zero vector's own SAD */
                 /* the search's own starting cost IS the zero-vector
                  * distance the duplicate chain is built on: taken here,
                  * before the diamond moves off it, for one add a block */
@@ -861,7 +861,7 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
                     my = bmy;
                     best = bs;
                 }
-                bzsad = zsad; bsadf = best;
+                bsadf = best;
                 uint32_t pc = best + 16;
                 f->pcost[b] = (uint16_t)(pc > 65535 ? 65535 : pc);
                 f->mv[2 * b] = (int16_t)mx;
@@ -1398,9 +1398,8 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
             int bx = b % la->bw, by = b / la->bw;
             for (int t = 0; t < nt; t++) {
                 la_frame *ref = &la->f[tgt[t].idx];
-                int mvx = f->mv[2 * b], mvy = f->mv[2 * b + 1];
-                mvx *= tgt[t].scale;
-                mvy *= tgt[t].scale;
+                int mvx = f->mv[2 * b] * tgt[t].scale;
+                int mvy = f->mv[2 * b + 1] * tgt[t].scale;
                 if (tgt[t].neg) {
                     mvx = -mvx;
                     mvy = -mvy;
