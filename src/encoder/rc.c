@@ -95,16 +95,68 @@ int n265_rc_class(int slice_type, int nonref)
     return nonref ? RC_B : RC_BREF;
 }
 
+/* N265_RC_MVRATE: what this model charges for the motion the frame's
+ * prediction is fetched with, in cost units per bit (phase 14 item 21).
+ *
+ * `pcost_sum` is a bare lowres SAD and the priors this model opens with -
+ * `N265_ABR_SI/SP/SBR/SB`, geometric means of `bits x qscale` per
+ * compressed complexity read off CQP traces - were fitted against a search
+ * that could not reach past eight lowres pixels. Item 19's predictors buy
+ * distortion with VECTOR LENGTH, so the same content now reports a smaller
+ * complexity while costing the coder the same bits, and the two halves of
+ * the model are no longer in the same units. It is not a uniform shift that
+ * a learned scale absorbs, and the asymmetry is the damage: `icost_sum` did
+ * not move, so the I-against-inter balance the priors carry is read in one
+ * domain on one side and another on the other, and on a clip whose two
+ * intra frames never let `scale[RC_I]` adapt it is never corrected.
+ * sita_flat_720p's opening window shows it in ONE frame - display 2 reads
+ * 1 661 907 against the old search and 143 129 against the honest one,
+ * eleven times cheaper, and the lookahead-fitted opening drops 1.14 QP with
+ * it on a clip whose flat frames cannot give the bits back.
+ *
+ * The frame the coder really codes pays for its motion. So the complexity
+ * is priced on SAD PLUS the vector's own bits on the exp-Golomb shape, the
+ * same D + lambda R `N265_CT_MVRATE` prices cu-tree's propagate fraction
+ * with and the same one every full-resolution search here uses. It is
+ * self-limiting: on content whose honest vectors are short - every clip the
+ * old search could already measure - it changes nothing, and it charges
+ * exactly the frames whose complexity fell because the search reached
+ * further.
+ *
+ * The INTRA complexity is untouched, because nothing fetches an intra
+ * prediction.
+ *
+ * 32 ships and the value is a THRESHOLD, not a slope: the term only ever
+ * moves a frame across the cap, and 32 is where sita_flat's display 2 goes
+ * back over its own intra cost (at 16 it does not, and the clip reads its
+ * unrefitted 1.713). 0 is the pre-item-21 complexity. */
+static int rc_mvrate(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *e = n265_env("N265_RC_MVRATE"); v = e ? atoi(e) : 32; }
+    return v;
+}
+
 double n265_rc_cplx(struct n265_encoder *e, int i, int cls)
 {
     const la_frame *f = &e->la.f[i];
     double ic = (double)f->icost_sum;
-    double pc = (double)f->pcost_sum;
+    double pc = (double)f->pcost_sum +
+                (double)rc_mvrate() * (double)f->mvbits_sum;
     if (cls == RC_I)
         return ic > 1.0 ? ic : 1.0;
     /* an inter frame whose motion search does worse than intra will be
      * coded largely as intra, so intra caps it */
-    double c = pc < ic ? pc : ic;
+    /* The charge lands on the CAP TEST and nowhere else. The cap is a
+     * CLASSIFICATION - "this frame will be coded largely as intra" - and a
+     * classification has to be made on the cost the coder really pays, the
+     * motion included. The VALUE, where the frame is not capped, stays the
+     * bare distortion the priors were fitted on, so the term is inert on
+     * every frame whose class it does not change: at rate 32 the whole
+     * seventeen-clip ABR table is main's to the digit except the two cells
+     * this item is about. Charging it into the value as well was measured
+     * and is not shipped (docs/phase14.md item 21). */
+    double c = pc < ic ? (double)f->pcost_sum : ic;
     return c > 1.0 ? c : 1.0;
 }
 

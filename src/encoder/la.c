@@ -168,9 +168,11 @@ int n265_la_init(struct n265_encoder *e)
         int nb = la->bw * la->bh;
         f->icost = malloc((size_t)nb * sizeof(uint16_t));
         f->pcost = malloc((size_t)nb * sizeof(uint16_t));
+        f->zsad = malloc((size_t)nb * sizeof(uint16_t));
         f->mv = malloc((size_t)nb * 2 * sizeof(int16_t));
         f->prop = malloc((size_t)nb * sizeof(float));
-        if (!f->lowres || !f->icost || !f->pcost || !f->mv || !f->prop)
+        if (!f->lowres || !f->icost || !f->pcost || !f->zsad || !f->mv ||
+            !f->prop)
             return -1;
     }
     return 0;
@@ -188,6 +190,7 @@ void n265_la_free(struct n265_encoder *e)
         free(f->lowres);
         free(f->icost);
         free(f->pcost);
+        free(f->zsad);
         free(f->mv);
         free(f->prop);
     }
@@ -413,6 +416,86 @@ static int ct_mvrate(void)
     static int v = -1;
     if (v < 0) { const char *e = n265_env("N265_CT_MVRATE"); v = e ? atoi(e) : 16; }
     return v;
+}
+
+/* N265_SC_FAILW: the share of a frame's INTRA cost, sitting on blocks the
+ * lowres search cannot undercut intra on at all, above which the detector
+ * calls a cut whatever the sum ratio says (phase 14 item 21).
+ *
+ * `sc_ratio` is a ratio of SUMS, and that is what item 19's search broke.
+ * A flat or repetitive picture gives a minority of blocks very cheap
+ * matches a long way from home - a cartoon's flat fields match any other
+ * flat field - and those few blocks carry the whole frame's sum under the
+ * 0.75 bar even where the picture genuinely changed. sintel_720p's cut at
+ * display 14 reads 1.16 against the old search and 0.76 against the honest
+ * one, and the guard the honest ratio then fails is the spike.
+ *
+ * The share below does not average: it asks how much of the picture,
+ * weighted by what intra would pay for it, inter prediction cannot do
+ * anything with. Measured, it is the one statistic that separates a cut
+ * from fast coherent motion once the search is honest (docs/phase14.md
+ * item 21 has the table):
+ *
+ *   Meridian's pulldown frames, which MUST NOT cut      0.063 - 0.073
+ *   Meridian display 311, a real cut                    0.690
+ *   sintel display 14, the cut item 19 lost             0.422
+ *   sintel display 118, the cut it kept                 0.397
+ *   sita_flat display 117, which must not cut           0.300
+ *
+ * The ABSOLUTE bar and the spike are untouched; this only ever ADDS a cut,
+ * and the frames it adds are the ones a ratio of sums cannot see.
+ *
+ * 0.40 ships. It is set from BELOW by sintel's 0.422 and from ABOVE by
+ * sita_flat_720p's display 117, which reads 0.300 and must not cut - main
+ * does not, and the arm that cuts there reads 7 points worse on that clip.
+ * Over the board's seventeen clips at `--crf 27` it moves ONE cut list:
+ * sintel gains display 14, which main has and item 19 lost. 0 is off and is
+ * the pre-item-21 detector. */
+static double sc_failw_bar(void)
+{
+    static double v = -1.0;
+    if (v < 0.0) { const char *e = n265_env("N265_SC_FAILW"); v = e ? atof(e) : 0.40; }
+    return v;
+}
+
+/* N265_SC_FAILW_SPIKE: how far above its own running level the failure
+ * share has to sit before the trigger above fires (phase 14 item 21).
+ *
+ * The same guard, for the same reason, the ratio's spike already carries: a
+ * FADE fails inter prediction on more of the picture every frame, so a bare
+ * bar on the share cuts in the middle of one (fade_cif gains cuts at
+ * display 56 and 64 around the cut at 60 that is real). A cut is a STEP in
+ * the share and a fade is a ramp, so the level separates them - the level
+ * rises with the ramp and the quotient stays near one, where sintel's cut
+ * at display 14 stands 2x over its own. */
+static double sc_failw_spike(void)
+{
+    static double v = -1.0;
+    if (v < 0.0) { const char *e = n265_env("N265_SC_FAILW_SPIKE"); v = e ? atof(e) : 1.6; }
+    return v;
+}
+
+/* N265_SC_FORCE (instrument): a comma-separated list of DISPLAY indices the
+ * detector must call a cut at, whatever it reads. It exists so a frame type
+ * can be moved on its own, with nothing else in the encoder changed, which
+ * is how item 21 priced the cut item 19 lost on sita_flat_720p. Never a
+ * shipped path. */
+static int sc_forced(int display_idx)
+{
+    const char *v = n265_env("N265_SC_FORCE");
+    if (!v || display_idx <= 0)
+        return 0;
+    for (const char *p = v; *p; ) {
+        int n = 0, got = 0;
+        while (*p >= '0' && *p <= '9') { n = n * 10 + (*p++ - '0'); got = 1; }
+        if (got && n == display_idx)
+            return 1;
+        while (*p && *p != ',')
+            p++;
+        if (*p == ',')
+            p++;
+    }
+    return 0;
 }
 
 /* N265_SC_SPIKE: how far above the running level a frame's cost ratio
@@ -690,9 +773,11 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
 
     /* per-8x8 costs */
     f->icost_sum = f->pcost_sum = f->mvabs_sum = f->mvsat_sum = 0;
+    f->mvbits_sum = 0;
     int mvcap = badapt_mvcap();
     int mvgate = badapt_mvgate();
     f->zsad_sum = 0;
+    uint64_t ifail_sum = 0;     /* the intra cost of the blocks inter loses */
     for (int by = 0; by < la->bh; by++)
         for (int bx = 0; bx < la->bw; bx++) {
             int b = by * la->bw + bx;
@@ -762,6 +847,7 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
             uint32_t bzsad = 0, bsadf = 0;
             if (!prev) {
                 f->pcost[b] = f->icost[b];
+                f->zsad[b] = f->icost[b];
                 f->mv[2 * b] = f->mv[2 * b + 1] = 0;
             } else {
                 /* small diamond at lowres, start at zero */
@@ -864,14 +950,22 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
                 bsadf = best;
                 uint32_t pc = best + 16;
                 f->pcost[b] = (uint16_t)(pc > 65535 ? 65535 : pc);
+                /* the same block priced with no search at all, in the same
+                 * units, for N265_LA_MVSTAT */
+                uint32_t zc = bzsad + 16;
+                f->zsad[b] = (uint16_t)(zc > 65535 ? 65535 : zc);
                 f->mv[2 * b] = (int16_t)mx;
                 f->mv[2 * b + 1] = (int16_t)my;
             }
             f->icost_sum += f->icost[b];
             f->pcost_sum += f->pcost[b];
+            if (prev && f->pcost[b] >= f->icost[b])
+                ifail_sum += f->icost[b];
             {
                 int l1 = abs(f->mv[2*b]) + abs(f->mv[2*b+1]);
                 f->mvabs_sum += (uint64_t)l1;
+                f->mvbits_sum += (uint64_t)(la_mvblen(f->mv[2*b]) +
+                                            la_mvblen(f->mv[2*b+1]));
                 if (mvcap > 0 && l1 > mvcap)
                     l1 = mvcap;
                 /* N265_BADAPT_MVGATE: a vector that bought nothing is
@@ -882,15 +976,115 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
                 f->mvsat_sum += (uint64_t)l1;
             }
         }
+    /* N265_LA_MVSTAT (instrument, phase 14 item 21): the statistics a
+     * scenecut rule could use to tell a true cut from fast COHERENT
+     * motion, both of which read the same low cost ratio once the search
+     * is honest. `coh` is the share of blocks whose vector sits within
+     * two lowres pixels of the frame's own median vector; `gcost` is the
+     * frame priced with every block forced onto that median (or onto the
+     * zero vector, whichever is cheaper), which is what the cost would be
+     * if the field had to be globally coherent. One extra SAD a block,
+     * paid only when the instrument is armed. */
+    if (prev && n265_env("N265_LA_MVSTAT")) {
+        int nb2 = la->bw * la->bh;
+        int16_t *xs = malloc((size_t)nb2 * sizeof(int16_t));
+        int16_t *ys = malloc((size_t)nb2 * sizeof(int16_t));
+        if (xs && ys) {
+            for (int b = 0; b < nb2; b++) {
+                xs[b] = f->mv[2 * b];
+                ys[b] = f->mv[2 * b + 1];
+            }
+            for (int i = 1; i < nb2; i++) {     /* insertion sort: an
+                                                 * instrument, not a path */
+                int16_t vx = xs[i], vy = ys[i];
+                int j = i - 1;
+                while (j >= 0 && xs[j] > vx) { xs[j + 1] = xs[j]; j--; }
+                xs[j + 1] = vx;
+                j = i - 1;
+                while (j >= 0 && ys[j] > vy) { ys[j + 1] = ys[j]; j--; }
+                ys[j + 1] = vy;
+            }
+            int medx = xs[nb2 / 2], medy = ys[nb2 / 2];
+            int coh = 0, fail = 0, smooth = 0;
+            uint64_t failw = 0, icw = 0;
+            uint64_t gcost = 0;
+            for (int by = 0; by < la->bh; by++)
+                for (int bx = 0; bx < la->bw; bx++) {
+                    int b = by * la->bw + bx;
+                    int dx = f->mv[2 * b] - medx, dy = f->mv[2 * b + 1] - medy;
+                    if (abs(dx) + abs(dy) <= 2)
+                        coh++;
+                    /* the share of the picture inter prediction FAILS on,
+                     * by count and weighted by what intra would pay: a
+                     * true cut is unpredictable where it is expensive, and
+                     * fast coherent motion is not */
+                    icw += f->icost[b];
+                    if (f->pcost[b] >= f->icost[b]) {
+                        fail++;
+                        failw += f->icost[b];
+                    }
+                    /* LOCAL smoothness: agreement with the neighbours that
+                     * were already written, which is a different question
+                     * from agreement with the frame's median */
+                    if (bx > 0 && by > 0) {
+                        int lx2 = f->mv[2 * (b - 1)], ly2 = f->mv[2 * (b - 1) + 1];
+                        int tx2 = f->mv[2 * (b - la->bw)];
+                        int ty2 = f->mv[2 * (b - la->bw) + 1];
+                        int sx = f->mv[2 * b] - ((lx2 + tx2) >> 1);
+                        int sy = f->mv[2 * b + 1] - ((ly2 + ty2) >> 1);
+                        if (abs(sx) + abs(sy) <= 2)
+                            smooth++;
+                    }
+                    int x0 = bx * 8, y0 = by * 8;
+                    if (x0 + 8 > la->lw) x0 = la->lw - 8;
+                    if (y0 + 8 > la->lh) y0 = la->lh - 8;
+                    const pixel *blk = f->lowres + y0 * la->lw + x0;
+                    uint32_t g = f->zsad[b] > 16 ? f->zsad[b] - 16u : 0u;
+                    if (x0 + medx >= 0 && y0 + medy >= 0 &&
+                        x0 + medx + 8 <= la->lw && y0 + medy + 8 <= la->lh) {
+                        uint32_t sm = sad8(blk, la->lw,
+                            prev->lowres + (y0 + medy) * la->lw + x0 + medx,
+                            la->lw);
+                        if (sm < g)
+                            g = sm;
+                    }
+                    gcost += g + 16u;
+                }
+            fprintf(stderr, "mvstat d=%d p=%llu i=%llu z=%llu g=%llu "
+                    "med=%d,%d coh=%.3f fail=%.3f failw=%.3f smooth=%.3f "
+                    "mvabs=%.3f\n", f->display_idx,
+                    (unsigned long long)f->pcost_sum,
+                    (unsigned long long)f->icost_sum,
+                    (unsigned long long)(f->zsad_sum + (uint64_t)nb2 * 16u),
+                    (unsigned long long)gcost, medx, medy,
+                    (double)coh / (double)nb2,
+                    (double)fail / (double)nb2,
+                    icw ? (double)failw / (double)icw : 0.0,
+                    (double)smooth / (double)nb2,
+                    (double)f->mvabs_sum / (double)nb2);
+        }
+        free(xs);
+        free(ys);
+    }
     f->sc_ratio = (float)f->pcost_sum /
                   (float)(f->icost_sum ? f->icost_sum : 1);
+    f->sc_failw = f->icost_sum ? (float)((double)ifail_sum /
+                                         (double)f->icost_sum) : 0.0f;
     f->sc_ema = la->sc_ema;
+    f->failw_lvl = la->failw_ema;
     int nblk = la->bw * la->bh;
     int held = sc_hold() && f->pcost_sum < (uint64_t)nblk * 17;
-    if (!held)
+    if (!held) {
         la->sc_ema = la->sc_ema == 0.0f
                          ? f->sc_ratio
                          : 0.5f * la->sc_ema + 0.5f * f->sc_ratio;
+        /* the same level, on the same frames, for the failure share: a
+         * fade fails on more of the picture every frame, so its level
+         * rises with it and the quotient stays near one */
+        la->failw_ema = la->failw_ema == 0.0f
+                            ? f->sc_failw
+                            : 0.5f * la->failw_ema + 0.5f * f->sc_failw;
+    }
     /* The duplicate chain (la.h). Only under the knob, and the source
      * compare only where the lowres distance is already exactly zero -
      * so a clip with no duplicate frames pays one branch per frame and a
@@ -931,12 +1125,22 @@ int n265_la_scenecut(struct n265_encoder *e, int i)
     int cut = f->sc_ratio >= 0.75f &&
               (f->sc_ema == 0.0f ||
                (double)f->sc_ratio >= sc_spike() * (double)f->sc_ema);
+    /* N265_SC_FAILW: the second, one-sided trigger. It may only ADD a cut
+     * the ratio of sums cannot see. */
+    double fwbar = sc_failw_bar();
+    if (!cut && fwbar > 0.0 && (double)f->sc_failw >= fwbar &&
+        (f->failw_lvl == 0.0f ||
+         (double)f->sc_failw >= sc_failw_spike() * (double)f->failw_lvl))
+        cut = 1;
+    if (!cut && sc_forced(f->display_idx))
+        cut = 1;
     if (n265_env("N265_SC_TRACE"))
-        fprintf(stderr, "sc d=%d p=%llu i=%llu ratio=%.2f cut=%d\n",
+        fprintf(stderr, "sc d=%d p=%llu i=%llu ratio=%.2f failw=%.3f "
+                "flvl=%.3f cut=%d\n",
                 f->display_idx, (unsigned long long)f->pcost_sum,
                 (unsigned long long)f->icost_sum,
                 (double)f->pcost_sum / (double)(f->icost_sum ? f->icost_sum : 1),
-                cut);
+                (double)f->sc_failw, (double)f->failw_lvl, cut);
     return cut;
 }
 
