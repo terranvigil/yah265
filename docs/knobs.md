@@ -42,7 +42,7 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_VBV_RESERVE` | 0.2 | src/encoder/encoder.c:2182 |
 | `N265_VBV_SAFE` | 0.85 | src/encoder/encoder.c:2168 |
 
-## instrument (180)
+## instrument (181)
 
 | knob | default | reader |
 |---|---|---|
@@ -204,6 +204,7 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_SAO_TYPES` | 0 | src/encoder/sao.c:271 |
 | `N265_SATD8` | 0 | src/encoder/satd.c:134 |
 | `N265_SBH_RD` | 2 | src/encoder/rdoq.c:279 |
+| `N265_SC_FORCE` | ? | src/encoder/la.c:485 |
 | `N265_SC_HOLD` | 1 | src/encoder/la.c:241 |
 | `N265_SC_TRACE` | presence | src/encoder/la.c:1137 |
 | `N265_SERIAL_PROF` | 0 | src/encoder/encoder.c:2599 |
@@ -227,7 +228,7 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_WP_TRACE` | 0 | src/encoder/wp.c:51 |
 | `N265_WP_WIN` | 40 | src/encoder/wp.c:101 |
 
-## arm (30)
+## arm (29)
 
 | knob | default | reader |
 |---|---|---|
@@ -254,7 +255,6 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_RUNG_GATE` | -2 | src/encoder/mv.c:745 |
 | `N265_RUNG_RERANK` | 0 | src/encoder/mv.c:761 |
 | `N265_SC_CONJ` | 3 | src/encoder/ctu.c:1656 |
-| `N265_SC_FORCE` | ? | src/encoder/la.c:485 |
 | `N265_SHOT_CLAMP` | 2.0 | src/encoder/encoder.c:1914 |
 | `N265_SHOT_EMA` | 0.5 | src/encoder/encoder.c:1919 |
 | `N265_SHOT_K` | 1.0 | src/encoder/encoder.c:1913 |
