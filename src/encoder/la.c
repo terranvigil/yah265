@@ -288,6 +288,180 @@ static inline int med3(int a, int b, int c)
     return a > b ? a : b;
 }
 
+/* N265_BADAPT_MVCAP: the saturation point of the b-adapt run rule's
+ * motion term, in lowres pixels of L1 block displacement (phase 14
+ * item 20).
+ *
+ * The rule in `build_plan_order` ends a B run when the mean lowres |MV|
+ * times pcost/icost clears `N265_BADAPT_THR`, and the 0.35 it compares
+ * was fitted against the search item 19 replaced. That search was a
+ * four-point diamond from the zero vector capped at eight iterations,
+ * each iteration one lowres pixel in one component, so the statistic it
+ * produced could NOT EXCEED EIGHT however fast the picture moved: the
+ * cutoff was fitted on a saturating mean and says nothing above its
+ * saturation point. The predictors removed the saturation, the mean
+ * grew by two to five times on the clips whose motion the old search
+ * could not reach (sintel 2.60 -> 13.62, sita_toon 0.75 -> 3.87), and a
+ * rule fitted on the bounded statistic fired on the unbounded one:
+ * xfade_720p went from 23 P frames to 35, and the `opengop_radl`
+ * conformance vector's run of seven B frames collapsed to one.
+ *
+ * So the term is saturated back, per block, before the mean is taken.
+ * That is not a scale factor on the cutoff: a scale moves the whole
+ * distribution and would end runs earlier on the clips whose motion the
+ * old search DID measure, where the rule was right. Saturation touches
+ * only the blocks that moved further than the old search could see.
+ *
+ * The value is MEASURED, and only its FORM is derived. Eight is the old
+ * diamond's own reach and the honest upper bound, but the old search
+ * rarely got there - it had to improve on every one of eight steps - so
+ * a cap at eight leaves most of the growth in. The P/B censuses against
+ * main and the eleven-clip corpus both pick 4 (docs/phase14.md item 20
+ * has every candidate from 8 down to 2 with its census); the clips
+ * whose field the old search could measure are unmoved by any of them,
+ * so the value is decided by the three 720p clips alone and the curve
+ * through them is steep. 0 is no saturation, which is item 19's rule
+ * and the pre-item-20 branch byte for byte.
+ *
+ * N265_BADAPT_MVGATE is the other half of this refit and answers the
+ * other question - whether the block moved at all - which the cap on
+ * its own cannot (the conformance vector needs a cap of 2 and
+ * stefan_cif loses 9% below 3).
+ *
+ * The VECTORS are not capped. `mvabs_sum` keeps the honest field for
+ * the trace, the cu-tree propagation still follows it, and the costs
+ * are untouched: this is the b-adapt run rule's statistic and nothing
+ * else's. */
+static int badapt_mvcap(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *e = n265_env("N265_BADAPT_MVCAP"); v = e ? atoi(e) : 4; }
+    return v;
+}
+
+/* N265_BADAPT_MVGATE: how much of a block's static residual its vector
+ * has to remove before the b-adapt run rule counts it as motion, in
+ * percent (phase 14 item 20).
+ *
+ * The cap above is a bound on how FAR a block may count. This is a
+ * statement about whether it moved at all, and the two catch different
+ * failures. A diamond that starts at the zero vector only leaves it by
+ * improving at every step, so under the old search a block with a
+ * nonzero vector had earned it. Seed the same diamond from a
+ * neighbour's vector and a block can end up far from the origin on a
+ * match that is worth almost nothing - a fit to noise, which on grain
+ * or on a dissolve is most of the picture. The run rule then reads a
+ * mean |MV| made of motion that is not there.
+ *
+ * So a block counts its displacement only if the search removed at
+ * least this share of the SAD the zero vector already had. Nothing else
+ * reads the gate: the vector stands, the cost stands, and only the
+ * b-adapt statistic is filtered.
+ *
+ * 20 ships. The `opengop_radl` conformance vector is what fixes the
+ * value: 26 frames of testsrc2 under `noise=alls=12`, where main's own
+ * term sits at 0.3391 against a 0.35 cutoff - a 3% margin - and item
+ * 19's search took it to 0.4553 and collapsed a run of seven B frames
+ * to one. The gate has to reach 15 before the run comes back and the
+ * seek to the CRA reads the pictures it recorded again; 20 is that with
+ * a margin, and it is the value at which stefan_cif, a real pan whose
+ * blocks all earn their vectors, is still unmoved. 0 is item 19's
+ * statistic. */
+static int badapt_mvgate(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *e = n265_env("N265_BADAPT_MVGATE"); v = e ? atoi(e) : 20; }
+    return v;
+}
+
+/* N265_CT_MVRATE: what cu-tree's propagation charges for the motion it
+ * propagates along, in cost units per bit (phase 14 item 20).
+ *
+ * The propagation deposits `(intra + in) * (1 - pcost/icost)` of a
+ * block's cost into the reference it came from: the fraction is how
+ * much of this block the reference supplies. `pcost` is a bare SAD, so
+ * the fraction is what an ORACLE would inherit, and item 19's search
+ * moved it a long way toward one - the propagated total rose 5% on
+ * foreman, 22% on xfade_720p, and the map's frame mean went with it.
+ * With cu-tree off item 19's regression on foreman, stefan and
+ * coastguard is not there at all; it is the map, and the map alone.
+ *
+ * The frame the encoder will really code is not coded by an oracle. It
+ * pays for its motion, and a block whose prediction needs a long vector
+ * inherits less than its SAD says because the bits that fetch it are
+ * part of its cost. So the fraction is priced on SAD PLUS the vector's
+ * own bits, on the exp-Golomb shape, which is the same D + lambda R
+ * every full-resolution search in this encoder already uses.
+ *
+ * Charged against the ORIGIN, not against a spatial predictor. The
+ * choice is measured (docs/phase14.md item 20: a predictor-relative
+ * term leaves xfade_720p at +7.04% where the origin-relative one reads
+ * +5.79%) and it has a reason - a crossfade's field is coherent noise,
+ * so it agrees with its neighbours and a predictor-relative term
+ * charges it nothing, while the origin is the only reference a blend
+ * cannot agree with. It also keeps the term monotone in |MV|, which is
+ * what the propagation is being asked about.
+ *
+ * 16 ships: the per-block floor `pcost` already carries, so one bit of
+ * motion is priced at one block's existence. 32 reads better on
+ * foreman and worse on bus_cif; 0 is the pre-item-20 fraction. The
+ * SEARCH is not touched - the vectors, the scenecut's ratio and the
+ * rate control's complexity are item 19's, which is what keeps the 4K
+ * reach this item is funded by. */
+static int ct_mvrate(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *e = n265_env("N265_CT_MVRATE"); v = e ? atoi(e) : 16; }
+    return v;
+}
+
+/* N265_SC_SPIKE: how far above the running level a frame's cost ratio
+ * has to sit before the scenecut detector will call it a cut (phase 14
+ * item 20).
+ *
+ * The detector cuts on `ratio >= 0.75 && ratio >= SPIKE * ema`. The
+ * second test is the one that does the work, and the 1.3 it was fitted
+ * with was fitted on a COMPRESSED scale. The old search's pcost carried
+ * the search's own failure - a large additive term the content had no
+ * say in - and an additive offset on both the frame and the level
+ * squeezes their ratio toward one. On sita_toon_720p the level sat at
+ * 1.0 and the hardest frame of the shot read 1.21, a spike of 1.21 that
+ * did not clear 1.3. Honestly measured the same level is 0.55 and the
+ * same frame 0.86, a spike of 1.56 - the frame did not change, the
+ * offset came off. With the offset off, 1.3 stops guarding: the branch
+ * cut at display 13, 25, 37, 49, 61, 73 and 85, the first frame
+ * `--min-keyint` allowed every time, where main cut five times on
+ * content.
+ *
+ * Solving `(r + c) / (L + c) = 1.3` for the honest r at sita_toon's own
+ * offset gives 1.81, and 1.8 ships. The corpus-wide re-derivation is
+ * weaker than that single clip - the offset is near zero on every clip
+ * the old search could measure, where 1.8 and 1.3 are the same rule -
+ * so the constant is carried by the clips that have an offset at all.
+ * 1.3 is the pre-item-20 detector. The ABSOLUTE bar is untouched: it is
+ * what takes 34 of Meridian's 38 intra pictures out, and it decides
+ * nothing this constant is asked about. */
+static double sc_spike(void)
+{
+    static double v = -1.0;
+    if (v < 0.0) { const char *e = n265_env("N265_SC_SPIKE"); v = e ? atof(e) : 1.8; }
+    return v;
+}
+
+/* the bit length of a magnitude on an exp-Golomb shape: two bits per
+ * doubling, nothing for zero. The same curve `n265_mv_bits` charges at
+ * full resolution, without the table. */
+static inline int la_mvblen(int v)
+{
+    unsigned a = (unsigned)(v < 0 ? -v : v);
+    return a ? 2 * (32 - __builtin_clz(a)) : 0;
+}
+
+static inline uint32_t la_mvcost(int w, int dx, int dy)
+{
+    return w ? (uint32_t)w * (uint32_t)(la_mvblen(dx) + la_mvblen(dy)) : 0u;
+}
+
 static int la_mepred(void)
 {
     static int v = -1;
@@ -511,7 +685,9 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
         }
 
     /* per-8x8 costs */
-    f->icost_sum = f->pcost_sum = f->mvabs_sum = 0;
+    f->icost_sum = f->pcost_sum = f->mvabs_sum = f->mvsat_sum = 0;
+    int mvcap = badapt_mvcap();
+    int mvgate = badapt_mvgate();
     f->zsad_sum = 0;
     for (int by = 0; by < la->bh; by++)
         for (int bx = 0; bx < la->bw; bx++) {
@@ -579,6 +755,7 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
             }
             f->icost[b] = (uint16_t)(ic > 65535 ? 65535 : ic);
 
+            uint32_t bzsad = 0, bsadf = 0;
             if (!prev) {
                 f->pcost[b] = f->icost[b];
                 f->mv[2 * b] = f->mv[2 * b + 1] = 0;
@@ -587,6 +764,7 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
                 int mx = 0, my = 0;
                 uint32_t best = sad8(blk, lw,
                                      prev->lowres + y0 * lw + x0, lw);
+                uint32_t zsad = best;
                 /* the search's own starting cost IS the zero-vector
                  * distance the duplicate chain is built on: taken here,
                  * before the diamond moves off it, for one add a block */
@@ -679,6 +857,7 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
                     my = bmy;
                     best = bs;
                 }
+                bzsad = zsad; bsadf = best;
                 uint32_t pc = best + 16;
                 f->pcost[b] = (uint16_t)(pc > 65535 ? 65535 : pc);
                 f->mv[2 * b] = (int16_t)mx;
@@ -686,7 +865,18 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
             }
             f->icost_sum += f->icost[b];
             f->pcost_sum += f->pcost[b];
-            f->mvabs_sum += abs(f->mv[2*b]) + abs(f->mv[2*b+1]);
+            {
+                int l1 = abs(f->mv[2*b]) + abs(f->mv[2*b+1]);
+                f->mvabs_sum += (uint64_t)l1;
+                if (mvcap > 0 && l1 > mvcap)
+                    l1 = mvcap;
+                /* N265_BADAPT_MVGATE: a vector that bought nothing is
+                 * not motion. */
+                if (mvgate > 0 && (uint64_t)(bzsad - bsadf) * 100u <
+                                      (uint64_t)mvgate * bzsad)
+                    l1 = 0;
+                f->mvsat_sum += (uint64_t)l1;
+            }
         }
     f->sc_ratio = (float)f->pcost_sum /
                   (float)(f->icost_sum ? f->icost_sum : 1);
@@ -735,7 +925,8 @@ int n265_la_scenecut(struct n265_encoder *e, int i)
      * its running level - a steady high ratio (grain, foliage) is not a
      * scene change */
     int cut = f->sc_ratio >= 0.75f &&
-              (f->sc_ema == 0.0f || f->sc_ratio >= 1.3f * f->sc_ema);
+              (f->sc_ema == 0.0f ||
+               (double)f->sc_ratio >= sc_spike() * (double)f->sc_ema);
     if (n265_env("N265_SC_TRACE"))
         fprintf(stderr, "sc d=%d p=%llu i=%llu ratio=%.2f cut=%d\n",
                 f->display_idx, (unsigned long long)f->pcost_sum,
@@ -1162,6 +1353,7 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
                 order[m++] = k - 1;
         }
     }
+    int mvrate = ct_mvrate();
     for (int oi = m - 1; oi >= 0; oi--) {
         int k = order[oi];
         if (k <= i)
@@ -1191,14 +1383,20 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
             continue;
         for (int b = 0; b < nb; b++) {
             float ic = f->icost[b], pc = f->pcost[b];
+            /* N265_CT_MVRATE: the propagate fraction is priced on the
+             * cost the CODER pays for this block - the vector's own bits
+             * included - and not on the lookahead's bare distortion. */
+            if (mvrate)
+                pc += (float)la_mvcost(mvrate, f->mv[2 * b], f->mv[2 * b + 1]);
             if (pc >= ic)
                 continue;
             float amount = (ic + f->prop[b]) * (1.0f - pc / ic);
             int bx = b % la->bw, by = b / la->bw;
             for (int t = 0; t < nt; t++) {
                 la_frame *ref = &la->f[tgt[t].idx];
-                int mvx = f->mv[2 * b] * tgt[t].scale;
-                int mvy = f->mv[2 * b + 1] * tgt[t].scale;
+                int mvx = f->mv[2 * b], mvy = f->mv[2 * b + 1];
+                mvx *= tgt[t].scale;
+                mvy *= tgt[t].scale;
                 if (tgt[t].neg) {
                     mvx = -mvx;
                     mvy = -mvy;

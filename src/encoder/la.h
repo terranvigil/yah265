@@ -90,6 +90,12 @@ typedef struct la_frame {
     float *prop;            /* cu-tree propagate-in accumulator         */
     uint64_t icost_sum, pcost_sum;
     uint64_t mvabs_sum;     /* sum |lowres MV| over blocks (motion magnitude) */
+    /* The same sum with each block's L1 magnitude SATURATED at the reach
+     * the b-adapt run rule's cutoff was fitted at (N265_BADAPT_MVCAP,
+     * phase 14 item 20). The rule asks how much of the picture is moving
+     * fast, and a plain mean of an unbounded magnitude answers a
+     * different question once the search can reach past its old cap. */
+    uint64_t mvsat_sum;
     /* The DUPLICATE chain (phase 11 item 1). A frame identical to its
      * reference in coding order is a picture whose coding is all-skip
      * with the zero vector, but the lookahead only ever costs a frame
