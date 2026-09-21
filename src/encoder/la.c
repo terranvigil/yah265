@@ -550,6 +550,10 @@ void n265_la_warm(void)
 {
     (void)sc_hold();
     (void)la_mepred();
+    (void)badapt_mvcap();
+    (void)badapt_mvgate();
+    (void)ct_mvrate();
+    (void)sc_spike();
     (void)n265_flat_gate();
     log2q16_init();
     (void)brun_logT_q16(32);
