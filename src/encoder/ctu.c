@@ -2864,7 +2864,7 @@ static int la_inter_pct(struct n265_frame_work *e, int x0, int y0, int n)
  * it reports, `medium`'s overlay names 32 provisionally.
  *
  * 0 is OFF and is item 12's ungated arm byte for byte, which is what
- * every rung from `veryfast` through `medium` runs below the UHD rule,
+ * every rung from `veryfast` through `medium` runs below the HD rule,
  * what `slow` and `slower` run at every resolution, and what any
  * explicit `--ctu 32` runs anywhere. The tables are in
  * docs/phase14.md, "Item 17".

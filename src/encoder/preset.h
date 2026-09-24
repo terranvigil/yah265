@@ -20,6 +20,10 @@ const char *n265_env(const char *name);
  * environment's value for that key (NULL where the environment is
  * silent, which is when the table's value is the one in force). */
 const char *n265_preset_selected(void);
+/* The resolution class n265_preset_uhd latched: 0 below HD, 1 HD-class
+ * (luma w*h >= 1920*800), 2 UHD-class (>= 3840*1600). The rate switch
+ * reads it to pick its threshold (phase 14 items 17 and 23). */
+int n265_preset_res_class(void);
 int n265_preset_row(int i, const char **key, const char **val,
                     const char **env);
 

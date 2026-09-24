@@ -86,7 +86,7 @@ static int g_ctb_log2 = 6;
  * the rate switch at open may take it back down to 32. An explicit
  * `--ctu` never sets this and is never switched. */
 static int g_uhd_tree = 0;
-static int uhd_tree_qp(void);
+static int uhd_tree_qp(int cls);
 /* The compiled-in threshold, in PLANNED BASE QP - which under CRF is not
  * the CRF number: n265_planned_qp adds N265_CRF_SHIFT (5.4 with cu-tree
  * on) and the frame-duration term, so `--crf 21` plans well above 21.
@@ -96,6 +96,10 @@ static int uhd_tree_qp(void);
  *
  * PROVISIONAL until scratch/place_threshold.sh has been run. */
 #define N265_UHD_QP_DEFAULT 31
+/* The same threshold for an HD-class picture (phase 14 item 22). The
+ * per-rung BD read would say 0 at 1080p; the clock places it instead.
+ * See uhd_tree_qp() and docs/phase14.md "Item 22". */
+#define N265_HD_QP_DEFAULT 31
 static int g_keyint = 250;      /* x265 4.3's own default (2026-09-08) */
 /* open GOP (phase 14 item 3): the --keyint picture is a CRA and not an
  * IDR, so the POC line and the DPB survive it and the mini-GOP that
@@ -1860,9 +1864,10 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * It fires only where the preset OFFERED the tree for the
      * resolution: an explicit `--ctu` is the user's and is never
      * switched. */
+    e->uhd_cls = n265_preset_res_class();
     if (g_uhd_tree && e->ctb_log2 == 6) {
         e->uhd_qp = n265_planned_qp(e, 1, 0, 0);
-        e->uhd_tree = e->uhd_qp >= uhd_tree_qp();
+        e->uhd_tree = e->uhd_qp >= uhd_tree_qp(e->uhd_cls);
         if (!e->uhd_tree) {
             e->ctb_log2 = 5;
             /* the tree only ever narrows here, so 7.4.3.2.1's bound can
@@ -1878,6 +1883,12 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     } else {
         e->uhd_qp = -1;
         e->uhd_tree = e->ctb_log2 == 6;
+        /* item 22: at HD the knob half of the overlay rides only with a
+         * tree the preset offered. An explicit --ctu 64 at 1080p is what
+         * it was before the HD rule existed, gate off; at UHD it keeps
+         * the gate, as it has since item 17 */
+        if (e->uhd_cls == 1)
+            n265_preset_uhd(0, 0);
     }
     /* --shot-window / N265_SHOT_WINDOW: the opt-in shot planner
      * (docs/phase7-shot-design.md step 2). The CLI wins over the env,
@@ -2526,7 +2537,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
            * and Meridian 1.047x -> 1.026x against today's medium. Not
            * for an explicit --ctu 64 or for slow/slower, which were not
            * measured; N265_MAX_FRAME_WORK still overrides. */
-          if (e->uhd_qp >= 0 && e->uhd_tree)
+          if (e->uhd_qp >= 0 && e->uhd_tree && e->uhd_cls == 2)
               k = 8;
       }
       e->K = k < 1 ? 1 : k > N265_MAX_FRAME_WORK ? N265_MAX_FRAME_WORK : k; }
@@ -2793,9 +2804,14 @@ void n265_show_config(const n265_encoder *e, FILE *f, int in_depth)
      * values of the same clip can resolve to different SPSs, and without
      * this row the only way to see why is to read preset.c. */
     if (e->uhd_qp >= 0)
-        cfg_row(f, "  uhd tree switch", "%s (planned qp %d %s %d)",
-                e->uhd_tree ? "64x64 tree" : "32x32 tree, as below UHD",
-                e->uhd_qp, e->uhd_tree ? ">=" : "<", uhd_tree_qp());
+        cfg_row(f, e->uhd_cls == 2 ? "  uhd tree switch"
+                                   : "  hd tree switch",
+                "%s (planned qp %d %s %d)",
+                e->uhd_tree ? "64x64 tree"
+                            : e->uhd_cls == 2 ? "32x32 tree, as below UHD"
+                                              : "32x32 tree, as below HD",
+                e->uhd_qp, e->uhd_tree ? ">=" : "<",
+                uhd_tree_qp(e->uhd_cls));
     cfg_row(f, "tu depth inter / intra", "%d / %d", e->tt_depth_inter + 1,
             e->tt_depth_intra + 1);
     cfg_row(f, "refs", "%d per list", e->ref_max);
@@ -4246,14 +4262,33 @@ static void job_run(void *ctx, int lane, int idx)
  * VMAF-NEG) and rung 3 is where it has turned (+0.08), so the switch
  * belongs between them. docs/phase14.md "Item 17" has the two QPs and
  * the arithmetic. */
-static int uhd_tree_qp(void)
+static int uhd_tree_qp(int cls)
 {
-    static int v = -1;
-    if (v < 0) {
-        const char *s = n265_env("N265_UHD_QP");
-        v = s ? atoi(s) : N265_UHD_QP_DEFAULT;
+    static int uhd = -1, hd = -1;
+    if (cls == 2) {
+        if (uhd < 0) {
+            const char *s = n265_env("N265_UHD_QP");
+            uhd = s ? atoi(s) : N265_UHD_QP_DEFAULT;
+        }
+        return uhd;
     }
-    return v;
+    /* N265_HD_QP (phase 14 item 22): the same threshold for an HD-class
+     * picture. The per-rung read would put it at 0: on the three
+     * Meridian 1080p probe windows the gated tree is ahead of today's
+     * medium at every rung (+0.02 to +16.8 VMAF-NEG). The clock does
+     * not. Where the tree is on and the gate rarely fires it is dearer
+     * than the 32x32 tree: Sol Levante 1080p 1.12-1.22x the one-thread
+     * wall, crowd_run_1080p 1.35x at one thread and 1.73x at auto, the
+     * last at the goal legs' own point, which plans 29. So the switch
+     * sits above 29, and below 33, the planned QP of the rung where
+     * today's medium starts falling behind x265 on Meridian (x265 crf
+     * 26's bytes on two windows of three). 31 is the midpoint, and it is
+     * also the UHD value. */
+    if (hd < 0) {
+        const char *s = n265_env("N265_HD_QP");
+        hd = s ? atoi(s) : N265_HD_QP_DEFAULT;
+    }
+    return hd;
 }
 
 int n265_planned_qp(const n265_encoder *e, int slice_type, int b_depth,

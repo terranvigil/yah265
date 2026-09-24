@@ -1174,6 +1174,9 @@ struct n265_encoder {
      * -1 where the switch did not apply, and `uhd_tree` is whether the
      * 64x64 tree survived it. Neither is read by any coding decision. */
     int uhd_qp, uhd_tree;
+    /* the resolution class the switch read its threshold for: 1 HD
+     * (N265_HD_QP, item 22), 2 UHD (N265_UHD_QP), 0 neither */
+    int uhd_cls;
     int no_sao;
     /* N265_DBF_BETA / N265_DBF_TC: slice_beta_offset_div2 and
      * slice_tc_offset_div2, signalled through the PPS. Both shift the

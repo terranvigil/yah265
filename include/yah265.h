@@ -311,9 +311,9 @@ YAH265_API int n265_set_preset(const char *name);
 YAH265_API int n265_preset_param(const char *key, int fallback);
 
 /* The same question about a picture of a known size. Some of what a
- * preset offers is resolution-aware - `medium` takes a 64x64 coding tree
- * on a UHD-class picture and a 32x32 one below it (phase 14 items 12 and
- * 17) - and a front end that knows its geometry should ask this instead.
+ * preset offers is resolution-aware - `medium` offers a 64x64 coding
+ * tree on an HD- or UHD-class picture and a 32x32 one below it (phase 14
+ * items 12, 17 and 22) - and a front end that knows its geometry should ask this instead.
  * Zero for either dimension means "unknown" and reads the
  * resolution-blind table, which is what n265_preset_param() is. */
 YAH265_API int n265_preset_param_res(const char *key, int fallback,
@@ -333,9 +333,9 @@ YAH265_API void n265_preset_uhd(int width, int height);
 /* Say that the coding tree just passed to n265_set_mode came from the
  * preset's RESOLUTION rule rather than from the caller, which is what
  * makes it eligible for the rate switch the encoder applies at open: a
- * 64x64 tree offered for a UHD-class picture is taken back down to 32
- * where the planned base QP says the encode sits in the half of the band
- * the big tree does not help (phase 14 item 17). A tree the caller named
+ * 64x64 tree offered for an HD- or UHD-class picture is taken back down
+ * to 32 where the planned base QP is under the class's threshold (phase
+ * 14 items 17 and 22). A tree the caller named
  * is never switched, so call this only when you did not name one.
  * n265_set_mode clears it, so call this AFTER n265_set_mode. */
 YAH265_API void n265_set_uhd_tree(int on);

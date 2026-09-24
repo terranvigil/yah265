@@ -254,7 +254,7 @@ static const struct kv med_tab[] = {
                                    * slower are untouched               */
     { "N265_CB64_AMVP",  "0" },
     /* the depth-0 residual gate at the 64x64 node: 0 here because at
-     * this rung the coding tree is 32 below UHD and there is no 64x64
+     * this rung the coding tree is 32 below HD and there is no 64x64
      * node to gate. The UHD overlay turns it on with the tree (item 17),
      * and the compiled-in default is 0, so fast, slow and slower are
      * untouched */
@@ -539,7 +539,14 @@ static const struct kv med_par[] = {
  * and 1920x1080 (2.1 M) are well below it and are the 1080p refusal
  * phase 9 step 1 made and item 12 re-read and kept. The measurement
  * itself is at 3840x2160 only; the allowance is the same picture with
- * its bars removed and nothing wider than that. */
+ * its bars removed and nothing wider than that.
+ *
+ * Since phase 14 item 22 the same row also answers on an HD-class
+ * picture (luma w*h >= 1920*800), with its own rate switch
+ * (N265_HD_QP). Item 12's reason holds one octave down too: on
+ * Meridian 1080p the 32x32 tree codes x265's crf-32 bytes at 63.0
+ * VMAF-NEG where the gated 64x64 tree codes them at 80.7. What held the
+ * row back at 1080p was the clock, and the switch is what pays it. */
 static const struct kv med_par_uhd[] = {
     { "ctu", "64" },
     { NULL, NULL }
@@ -567,7 +574,11 @@ static const struct kv med_par_uhd[] = {
  * per-rung read says the tree is ahead. Below it the encode is
  * `--ctu 32` and this row is unreachable.
  *
- * It rides with the tree and only with the tree. Below the UHD rule the
+ * The same row rides with the HD-class tree (item 22): the equal-bytes
+ * wall on Meridian 1080p reads it at 1.037x at x265 crf 23's bytes and
+ * 0.689x at crf 32's.
+ *
+ * It rides with the tree and only with the tree. Below the HD rule the
  * coding tree is 32, there is no 64x64 node and the knob is inert; at
  * `slow` and `slower`, where the tree IS 64 at every resolution, there
  * is no overlay and those two rungs are unmoved. The value is the bound
@@ -664,6 +675,22 @@ struct rung {
 /* The UHD rule, in luma samples. See med_par_uhd for why it is an area
  * and not a height. */
 #define N265_UHD_SAMPLES (3840L * 1600L)
+/* The HD rule (phase 14 item 22), the same allowance one octave down:
+ * 1920x1080 with its bars coded and 1920x800 with them cropped are the
+ * same picture. 1280x720 (0.92 M) is under it and stays on the 32x32
+ * tree whatever the rate. The overlays are the SAME rows at both classes;
+ * what differs is the planned QP the rate switch in encoder.c takes the
+ * tree at, so the class is kept rather than folded to a flag. */
+#define N265_HD_SAMPLES (1920L * 800L)
+
+/* 0 below HD, 1 HD-class, 2 UHD-class; 0 when either side is unknown */
+static int res_class(int width, int height)
+{
+    long a = (long)width * (long)height;
+    if (width <= 0 || height <= 0)
+        return 0;
+    return a >= N265_UHD_SAMPLES ? 2 : a >= N265_HD_SAMPLES ? 1 : 0;
+}
 
 static const struct rung rungs[] = {
     /* `veryfast` is present and NOT placed. It was built, measured and
@@ -727,10 +754,11 @@ static const char *const x265_names[] = {
 
 static int g_preset = 3;        /* medium: rungs[3] */
 
-/* Whether the picture this run is encoding is UHD-class. Set once by the
- * front end (n265_preset_uhd) before the encoder is opened, because the
- * geometry is the front end's to know; zero until it is, which is the
- * resolution-blind answer every caller got before item 17. */
+/* The resolution class of the picture this run is encoding (res_class:
+ * 0 below HD, 1 HD, 2 UHD). Set once by the front end (n265_preset_uhd)
+ * before the encoder is opened, because the geometry is the front end's
+ * to know; zero until it is, which is the resolution-blind answer every
+ * caller got before item 17. */
 static int g_uhd;
 
 static const char *lookup(const struct kv *t, const char *k)
@@ -763,8 +791,12 @@ const char *n265_env(const char *name)
  * dimension puts the table back to resolution-blind. */
 void n265_preset_uhd(int width, int height)
 {
-    g_uhd = width > 0 && height > 0 &&
-            (long)width * (long)height >= N265_UHD_SAMPLES;
+    g_uhd = res_class(width, height);
+}
+
+int n265_preset_res_class(void)
+{
+    return g_uhd;
 }
 
 /* ---- reading the selected rung back out (phase 14 item 13) ----------
@@ -869,8 +901,7 @@ int n265_preset_param_res(const char *key, int fallback, int width,
                           int height)
 {
     const struct kv *uhd = rungs[g_preset].par_uhd;
-    if (uhd && width > 0 && height > 0 &&
-        (long)width * (long)height >= N265_UHD_SAMPLES) {
+    if (uhd && res_class(width, height)) {
         const char *v = lookup(uhd, key);
         if (v)
             return atoi(v);
