@@ -24,6 +24,8 @@
 #include "encoder/satd.h"
 #include "encoder/sao.h"
 #include "encoder/preset.h"
+#include "encoder/ttrace.h"
+
 
 /* N265_LA_PROF: the lookahead's SERIAL FRACTION, which is what T3/2 has
  * to move. Wall time the DRIVER spends inside each lookahead stage,
@@ -96,10 +98,10 @@ static int uhd_tree_qp(int cls);
  *
  * PROVISIONAL until scratch/place_threshold.sh has been run. */
 #define N265_UHD_QP_DEFAULT 31
-/* The same threshold for an HD-class picture (phase 14 items 22 and 24).
- * The per-rung BD read would say 0 at 1080p; the clock places it instead.
- * See uhd_tree_qp() and docs/phase14.md "Item 24". */
-#define N265_HD_QP_DEFAULT 30
+/* The same threshold for an HD-class picture (phase 14 items 22, 24 and
+ * 25). The per-rung BD read would say 0 at 1080p; the clock places it
+ * instead. See uhd_tree_qp() and docs/phase14.md "Item 25". */
+#define N265_HD_QP_DEFAULT 27
 static int g_keyint = 250;      /* x265 4.3's own default (2026-09-08) */
 /* open GOP (phase 14 item 3): the --keyint picture is a CRA and not an
  * IDR, so the POC line and the DPB survive it and the mini-GOP that
@@ -1343,8 +1345,11 @@ static int fw_open(n265_encoder *e, n265_frame_work *fw)
         !fw->blk_mv || !fw->blk_pred || !fw->blk_ref || !fw->blk_qp ||
         !fw->ctu_qp_off || !fw->ctu_qp_raw || !fw->ctu_lam_q8 || !fw->sao)
         return -1;
+    /* enc_prog[] is three runs of ctb_rows: the per-row CTB count, the
+     * column a yielded row resumes at, and its "suspended" flag (item
+     * 25, ROW_CX / ROW_SUSP) */
     fw->prog = calloc(1, sizeof(*fw->prog) +
-                         (size_t)e->ctb_rows * sizeof(atomic_int));
+                         3 * (size_t)e->ctb_rows * sizeof(atomic_int));
     fw->rrec = calloc((size_t)e->ctb_rows, sizeof(*fw->rrec));
     fw->est_snap = calloc((size_t)e->ctb_rows * CTX_COUNT,
                           sizeof(cabac_ctx_t));
@@ -2475,6 +2480,8 @@ n265_encoder *n265_encoder_open(const n265_param *p)
 
     /* K, the frames in flight (sec 1). A pure scheduling knob: it moves
      * no bits, only how much of the mini-GOP overlaps. */
+    int tree_k = 0;
+    e->dpb_slots_hf = e->dpb_slots;
     { const char *v = n265_env("N265_MAX_FRAME_WORK");
       /* T3/4's sweep. K is bounded in practice by the DPB slot pool, not
        * by the frame_works: a frame in flight that is a REFERENCE holds a
@@ -2539,8 +2546,46 @@ n265_encoder *n265_encoder_open(const n265_param *p)
            * measured; N265_MAX_FRAME_WORK still overrides. */
           if (e->uhd_qp >= 0 && e->uhd_tree && e->uhd_cls == 2)
               k = 8;
+          /* Phase 14 item 25. The switched 64x64 tree at HD. */
+          if (e->uhd_qp >= 0 && e->uhd_tree && e->uhd_cls >= 1) {
+              const char *t = n265_env("N265_TREE_K");
+              if (t || e->uhd_cls == 1) {
+                  k = t ? atoi(t) : 12;
+                  tree_k = 1;
+              }
+          }
       }
+      /* The bit-moving history rules read coding index k - 8 as retired
+       * (encoder.h, N265_RETIRE_WIN), so K stays at or under it while
+       * one of them is on, whatever asked for more. */
+      if (k > N265_RETIRE_WIN && (n265_static_commit() || e->nr ||
+                                  e->iw_adapt))
+          k = N265_RETIRE_WIN;
       e->K = k < 1 ? 1 : k > N265_MAX_FRAME_WORK ? N265_MAX_FRAME_WORK : k; }
+    /* Item 25: a row short of its lag yields its worker after a bounded
+     * spin of this many nanoseconds (0: it holds the worker asleep, as
+     * before). On where one picture's wavefront is wide enough to keep a
+     * share of the pool busy - the complement of the K = 8 bump above -
+     * because that is where a parked row costs a worker the frames
+     * behind it could use. Measured at auto on the goal-3 points:
+     * park_joy_720p 0.86x, touchdown_1080p 0.87x, crowd_run_1080p 0.97x
+     * of main; on CIF, where the pictures starve the pool anyway, it read
+     * 1.00-1.02x and is off. A scheduling choice: it cannot move a bit. */
+    {
+        int nt = g_threads > 0 ? g_threads : auto_threads();
+        int cap = e->ctb_rows < (e->ctb_cols + 1) / 2
+                      ? e->ctb_rows : (e->ctb_cols + 1) / 2;
+        const char *v = n265_env("N265_ROW_YIELD");
+        e->row_yield = v ? atoi(v) : (nt > 1 && 2 * cap > nt ? 5000 : 0);
+        if (e->row_yield < 0)
+            e->row_yield = 0;
+    }
+    /* Item 25: more frames in flight need more pictures to write into. */
+    if (tree_k && e->K > 6 && e->dpb_peak < e->dpb_slots) {
+        const char *t = n265_env("N265_TREE_SLOTS");
+        int s = e->dpb_slots + (t ? atoi(t) : e->K - 6);
+        e->dpb_slots = s > N265_DPB_SLOTS ? N265_DPB_SLOTS : s;
+    }
     { const char *v = n265_env("N265_RC_LAG");
       int d = v ? atoi(v) : 0;
       if (d < 0) d = 0;
@@ -2600,7 +2645,13 @@ n265_encoder *n265_encoder_open(const n265_param *p)
          * live jobs, so nt * K lanes is the ceiling. Their scratch is
          * allocated on first use, because the nested lanes are rarely
          * touched. */
-        e->pool = ntp_open(nt, e->K, nt * e->K);
+        /* a yielded row keeps its lane, so with yields on every row of
+         * every frame in flight may hold one besides the nesting bound */
+        int nl = nt * e->K + (e->row_yield ? e->K * e->ctb_rows : 0);
+        e->pool = ntp_open(nt, e->K, nl);
+#ifdef N265_TTRACE
+        tt_open();
+#endif
     }
     if (!e->pool)
         goto fail;
@@ -3066,6 +3117,9 @@ void n265_encoder_close(n265_encoder *e)
         n265_scratch_free(e->row[i].sc);
     free(e->row);
     ntp_close(e->pool);
+#ifdef N265_TTRACE
+    tt_close();
+#endif
     /* the frees walk the WHOLE array, not `e->dpb_slots`: the encoder is
      * calloc'd, an unused slot's pointers are NULL, and a close on the
      * open path's `fail` can land before the pool was sized at all. */
@@ -3609,7 +3663,7 @@ static void hf_arm(n265_encoder *e, struct n265_refpic *r, int code_idx)
      * function of the traffic, so the survivors stay a deterministic
      * function of the mask. */
     {
-        uint64_t cap = N265_HF2_DPB_BYTES / (unsigned)e->dpb_slots;
+        uint64_t cap = N265_HF2_DPB_BYTES / (unsigned)e->dpb_slots_hf;
         if (cap > N265_HF2_MAX_BYTES)
             cap = N265_HF2_MAX_BYTES;
         uint64_t bytes = 0;
@@ -3977,7 +4031,9 @@ void n265_ref_stall(n265_frame_work *e, const struct n265_refpic *pic,
     n265_encoder *enc = e->enc;
     atomic_fetch_add_explicit(&enc->ref_stalls, 1, memory_order_relaxed);
     struct ref_stall_ctx w = { pic, need };
+    double tt_t0 = TT_NOW();
     ntp_wait_older(enc->pool, ref_stall_pred, &w);
+    TT_PUT(TT_RSTALL, 0, e->code_idx, need, 0, pic->poc, tt_t0, TT_NOW());
 }
 
 /* Publish CTB row `cy` of this frame's picture (G4). Everything a later
@@ -4111,6 +4167,30 @@ static int lag_pred(void *ctx)
                                 memory_order_acquire) >= w->need;
 }
 
+/* Item 25: a row that finds the row above short of its lag YIELDS its
+ * worker instead of holding it asleep (N265_ROW_YIELD). The column it
+ * stopped at and a "suspended" flag live in two more runs of enc_prog. */
+#define ROW_CX(fw, p, r)   (&(p)->enc_prog[(fw)->ctb_rows + (r)])
+#define ROW_SUSP(fw, p, r) (&(p)->enc_prog[2 * (fw)->ctb_rows + (r)])
+
+/* The bounded spin a yielding row takes before it gives its worker up:
+ * N265_ROW_YIELD nanoseconds, the value of the knob. 1 = the predicate
+ * came true. */
+static int row_spin(struct lag_wait *w, int ns_max)
+{
+    struct timespec t0, t1;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    for (;;) {
+        if (lag_pred(w))
+            return 1;
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        long ns = (long)((t1.tv_sec - t0.tv_sec) * 1000000000L +
+                         (t1.tv_nsec - t0.tv_nsec));
+        if (ns >= ns_max)
+            return 0;
+    }
+}
+
 static int job_ready(void *ctx, int idx)
 {
     n265_frame_work *fw = ctx;
@@ -4118,6 +4198,14 @@ static int job_ready(void *ctx, int idx)
     int R = fw->job_R;
     if (idx < R) {
         int r = idx;
+        int cx = atomic_load_explicit(ROW_CX(fw, p, r), memory_order_relaxed);
+        if (cx > 0) {
+            /* a yielded row: its next CTB's lag, nothing else (the
+             * reference hint was a row-START heuristic) */
+            int need = cx + 2 < fw->job_cols ? cx + 2 : fw->job_cols;
+            return atomic_load_explicit(&p->enc_prog[r - 1],
+                                        memory_order_acquire) >= need;
+        }
         if (r > 0) {
             int need = fw->job_snap_x + 1 > 2 ? fw->job_snap_x + 1 : 2;
             if (need > fw->job_cols) need = fw->job_cols;
@@ -4155,21 +4243,27 @@ static int job_ready(void *ctx, int idx)
     return atomic_load_explicit(&p->pub_rows, memory_order_acquire) == R;
 }
 
-static void job_run(void *ctx, int lane, int idx)
+static int job_run(void *ctx, int lane, int idx)
 {
     n265_frame_work *fw = ctx;
     n265_encoder *e = fw->enc;
     struct n265_prog *p = fw->prog;
     int R = fw->job_R;
 
+    double tt_t0 = TT_NOW();
     if (idx < R) {
         int r = idx;
-        if (e->sprof >= 2 && r == 0)
-            fw->t_row0 = prof_now() - e->prof_t0;
         n265_row_ctx *row = &e->row[lane];
-        if (!row->sc)       /* a nested lane, allocated on first use */
-            row->sc = n265_scratch_new();
-        n265_row_begin(row, fw, r);
+        int cx0 = atomic_load_explicit(ROW_CX(fw, p, r), memory_order_relaxed);
+        if (cx0 == 0) {
+            if (e->sprof >= 2 && r == 0)
+                fw->t_row0 = prof_now() - e->prof_t0;
+            if (!row->sc)       /* a nested lane, allocated on first use */
+                row->sc = n265_scratch_new();
+            n265_row_begin(row, fw, r);
+        } else {
+            atomic_store(ROW_SUSP(fw, p, r), 0);
+        }
         /* The CTB count that puts the row BELOW over its lag, i.e. the
          * one publish in this row that can make a task claimable
          * (job_ready's own expression). Every other CTB can only satisfy
@@ -4178,21 +4272,50 @@ static void job_run(void *ctx, int lane, int idx)
         int open_at = fw->job_snap_x + 1 > 2 ? fw->job_snap_x + 1 : 2;
         if (open_at > fw->job_cols)
             open_at = fw->job_cols;
-        for (int cx = 0; cx < fw->job_cols; cx++) {
+        int yield = e->row_yield;
+        for (int cx = cx0; cx < fw->job_cols; cx++) {
+            double tt_c0 = TT_NOW();
             if (r > 0) {
                 int need = cx + 2 < fw->job_cols ? cx + 2 : fw->job_cols;
                 struct lag_wait w = { p, r, need };
+                if (yield && !lag_pred(&w) && !row_spin(&w, yield)) {
+                    /* Suspended, then one more look: this store and the
+                     * publisher's fence-then-load of the flag are the two
+                     * halves of a store-load pair, so either the row above
+                     * sees the flag and wakes a claimer, or this load sees
+                     * its progress and the row carries on. */
+                    atomic_store(ROW_SUSP(fw, p, r), 1);
+                    if (!lag_pred(&w)) {
+                        atomic_store_explicit(ROW_CX(fw, p, r), cx,
+                                              memory_order_relaxed);
+                        TT_PUT(TT_TASK, 0, fw->code_idx, r, 1, 0, tt_t0,
+                               TT_NOW());
+                        return 1;
+                    }
+                    atomic_store(ROW_SUSP(fw, p, r), 0);
+                }
                 ntp_wait(e->pool, lag_key(p, r), lag_pred, &w);
             }
+            double tt_c1 = TT_NOW();
             n265_analyze_ctu(&row->c, cx, r);
+            TT_PUT(TT_CTU, 0, fw->code_idx, r, cx, 0, tt_c1, TT_NOW());
+            if (tt_c1 - tt_c0 > 2e-6)
+                TT_PUT(TT_LAG, 0, fw->code_idx, r, cx, 0, tt_c0, tt_c1);
             if (cx == fw->job_snap_x)
                 memcpy(fw->est_snap + (size_t)r * CTX_COUNT, row->c.est_ctx,
                        CTX_COUNT * sizeof(cabac_ctx_t));
             atomic_store_explicit(&p->enc_prog[r], cx + 1,
                                   memory_order_release);
             /* the key is the row BELOW's: this store is what its lag
-             * reads, and it is the only milestone this publish can move */
-            if (cx + 1 == open_at)
+             * reads, and it is the only milestone this publish can move.
+             * A row below that has yielded is a TASK to be claimed again,
+             * so its publish wakes a claimer. */
+            int wake = cx + 1 == open_at;
+            if (!wake && yield && r + 1 < R) {
+                atomic_thread_fence(memory_order_seq_cst);
+                wake = atomic_load(ROW_SUSP(fw, p, r + 1));
+            }
+            if (wake)
                 ntp_publish_task(e->pool, lag_key(p, r + 1));
             else
                 ntp_publish(e->pool, lag_key(p, r + 1));
@@ -4201,18 +4324,20 @@ static void job_run(void *ctx, int lane, int idx)
         /* rows complete in index order (a row's last CTB waits for the
          * row above to be complete), so the count IS the watermark */
         atomic_fetch_add_explicit(&p->enc_rows, 1, memory_order_release);
+        TT_PUT(TT_TASK, 0, fw->code_idx, r, 0, 0, tt_t0, TT_NOW());
         /* the row below's lag was already satisfied to the last column
          * by the loop above; this watermark only makes a task claimable */
         ntp_publish_task(e->pool, NTP_KEY_NONE);
-        return;
+        return 0;
     }
     if (idx < 2 * R) {
         int r = idx - R;
         n265_qpmap_row(fw, r, &fw->qprev);
         n265_deblock_row(fw, r);
         atomic_store_explicit(&p->dbk_rows, r + 1, memory_order_release);
+        TT_PUT(TT_TASK, 1, fw->code_idx, r, 0, 0, tt_t0, TT_NOW());
         ntp_publish_task(e->pool, NTP_KEY_NONE);
-        return;
+        return 0;
     }
     if (idx < 3 * R) {
         int r = idx - 2 * R;
@@ -4226,16 +4351,19 @@ static void job_run(void *ctx, int lane, int idx)
         /* This one also advances the picture's final_rows, which every
          * OTHER frame's row-start hint and reference stall reads. */
         atomic_store_explicit(&p->pub_rows, r + 1, memory_order_release);
+        TT_PUT(TT_TASK, 2, fw->code_idx, r, 0, 0, tt_t0, TT_NOW());
         if (e->sprof >= 2 && r == R - 1)
             fw->t_rowlast = prof_now() - e->prof_t0;
         ntp_publish_task(e->pool, NTP_KEY_NONE);
-        return;
+        return 0;
     }
     if (e->sprof >= 2)
         fw->t_ent0 = prof_now() - e->prof_t0;
     entropy_frame(e, fw);
+    TT_PUT(TT_TASK, 3, fw->code_idx, 0, 0, 0, tt_t0, TT_NOW());
     if (e->sprof >= 2)
         fw->t_ent1 = prof_now() - e->prof_t0;
+    return 0;
 }
 
 /* The QP a frame of this kind WILL be coded at, for the lookahead's bits
@@ -4272,20 +4400,20 @@ static int uhd_tree_qp(int cls)
         }
         return uhd;
     }
-    /* N265_HD_QP (phase 14 items 22 and 24): the same threshold for an
-     * HD-class picture. The per-rung read would put it at 0: on the
+    /* N265_HD_QP (phase 14 items 22, 24 and 25): the same threshold for
+     * an HD-class picture. The per-rung read would put it at 0: on the
      * Meridian 1080p probe windows the gated tree is ahead of today's
-     * medium at every rung. The clock does not. At auto threads the
-     * 64x64 tree's wavefront is half as many rows with twice the lag,
-     * and on content whose CTUs are dear that is the wall: with item
-     * 24's split gate crowd_run_1080p at the goal legs' point (planned
-     * 29) is 1.095x main at one thread and 1.46x at auto, 1.28x x265
-     * against the 1.15x worst-clip bar. So the switch sits above 29.
-     * 30 is the planned QP of the Meridian 1080p segment rung where
-     * today's medium falls behind x265 (x265 crf 29's bytes, ours crf
-     * 22 at 23% more bytes), and the only integer in (29, 30]. Item 22's
-     * 31 left that rung on the 32x32 tree: segment BD vs x265 +4.79%,
-     * and +0.85% at 30. docs/phase14.md "Item 24". */
+     * medium at every rung. The clock does not. Item 24 held it at 30
+     * because crowd_run_1080p's goal-3 point (planned 29) failed the
+     * 1.15x worst-clip bar on the tree at auto, 1.28x x265: the 64x64
+     * wavefront left the pool a third idle. Item 25's schedule (twelve
+     * frames in flight on the switched tree, reference frames claimed
+     * first, yielding rows) takes that cell to 0.92x, so 29 no longer
+     * bounds it. 27 is item 24's other measured value: Meridian 1080p
+     * segment -3.23% vs x265 (+0.85% at 30), and the highest QP below
+     * which the timed cells not yet read on the tree start to cross -
+     * touchdown_1080p's goal point and Sol Levante's matched points plan
+     * 25 and under. docs/phase14.md "Item 25". */
     if (hd < 0) {
         const char *s = n265_env("N265_HD_QP");
         hd = s ? atoi(s) : N265_HD_QP_DEFAULT;
@@ -4364,7 +4492,7 @@ static void sc_resolve(n265_encoder *e, n265_frame_work *fw)
         fw->mode == N265_MODE_PCM || fw->lossless || !e->cutree ||
         !fw->la_prop)
         return;
-    int hi = fw->code_idx - N265_MAX_FRAME_WORK;
+    int hi = fw->code_idx - N265_RETIRE_WIN;
     int lo = hi - (N265_SC_WIN - 1);
     int best = -1, bd = 0;
     for (int i = 0; i < N265_SC_HIST; i++) {
@@ -5374,15 +5502,34 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
     }
 
     memset(fw->prog, 0, sizeof(*fw->prog) +
-                        (size_t)fw->ctb_rows * sizeof(atomic_int));
+                        3 * (size_t)fw->ctb_rows * sizeof(atomic_int));
     fw->job.ctx = fw;
     fw->job.ntask = 3 * fw->job_R + 1;      /* + the entropy task */
     fw->job.ready = job_ready;
     fw->job.run = job_run;
     fw->job.impl = NULL;
+    /* Item 25: reference pictures are claimed ahead of non-reference
+     * ones. A claim order moves no bits (readiness decides when, never
+     * what is read); it shortens the chain later frames wait on. */
+    {
+        static int cp = -1;
+        if (cp < 0) {
+            const char *v = n265_env("N265_CLAIM_PRIO");
+            cp = v ? atoi(v) : 1;
+        }
+        fw->job.prio = cp && fw->nonref ? 1 : 0;
+    }
     fw->in_flight = 1;
     e->inflight[e->n_inflight++] = fw;
     (void)poc;
+#ifdef N265_TTRACE
+    TT_PUT(TT_DISP, (unsigned char)fw->slice_type, fw->code_idx, fw->job_R,
+           fw->nonref, fw->slot ? fw->slot->poc : -1, TT_NOW(), 0.0);
+    for (int l = 0; l < 2; l++)
+        for (int k = 0; k < fw->nref[l]; k++)
+            TT_PUT(TT_REF, 0, fw->code_idx, l, k, fw->refl[l][k]->poc,
+                   0.0, 0.0);
+#endif
     ntp_submit(e->pool, &fw->job);
     e->frames_done++;
     atomic_fetch_add_explicit(&e->stall_frames, 1, memory_order_relaxed);
@@ -5679,7 +5826,9 @@ static void join_oldest(n265_encoder *e)
         return;
     n265_frame_work *fw = e->inflight[0];
     double t_j0 = e->la_prof ? prof_now() : 0.0;
+    double tt_j0 = TT_NOW();
     ntp_join(e->pool, &fw->job);
+    TT_PUT(TT_JOIN, 0, fw->code_idx, 0, 0, 0, tt_j0, TT_NOW());
     double t_j1 = e->la_prof ? prof_now() : 0.0;
     if (e->la_prof) e->prof_join += t_j1 - t_j0;
     struct n265_done *d = done_slot(e);

@@ -35,14 +35,29 @@ typedef struct ntp_pool ntp_pool;
 typedef int (*ntp_ready_fn)(void *ctx, int idx);
 
 /* Run task `idx` on lane `lane` (0 .. ntp_lanes-1). Called with no lock
- * held. May block on a milestone via ntp_wait / ntp_wait_older. */
-typedef void (*ntp_run_fn)(void *ctx, int lane, int idx);
+ * held. May block on a milestone via ntp_wait / ntp_wait_older.
+ *
+ * Returns 0 when the task is done. A nonzero return YIELDS it (item 25):
+ * the task goes back to pending with its lane still bound to it, the
+ * worker is free for other work, and the task is claimed again - on the
+ * same lane, by whichever worker gets there - once `ready` says so. The
+ * task keeps its own place (the lane's scratch is its state); what it
+ * does next is its own business, so a yield cannot change what it
+ * reads. */
+typedef int (*ntp_run_fn)(void *ctx, int lane, int idx);
 
 typedef struct ntp_job {
     void *ctx;
     int ntask;
     ntp_ready_fn ready;
     ntp_run_fn run;
+    /* Claim class: a ready task of a job with a LOWER class is claimed
+     * before any task of a higher one, and within a class the oldest job
+     * goes first (item 25). 0 for every job keeps the pure oldest-first
+     * order. A nested claim (ntp_wait_older) ignores it: it is bounded
+     * to strictly older jobs, which is what the deadlock argument needs,
+     * and among those it still takes the oldest. */
+    int prio;
     /* set by ntp_submit */
     void *impl;
 } ntp_job;

@@ -143,9 +143,20 @@ DEFAULT_OVERRIDES = {
     # `int k = v ? atoi(v) : (e->bframes >= 2 ? 6 : 4);`, nine lines under
     # the read: two defaults, and which one ships depends on a flag
     "N265_MAX_FRAME_WORK": "6 with --bframes >= 2, else 4",
+    # phase 14 item 25: computed at open from the picture and the thread
+    # count, and the extra slots follow the frames in flight
+    "N265_ROW_YIELD": "5000 where 2 * min(rows, (cols + 1) / 2) > threads > 1, else 0",
+    "N265_TREE_SLOTS": "K - 6 (with the switched HD tree only)",
+    "N265_TASK_TRACE": "unset",
 }
 
 OVERRIDES = {
+    # phase 14 item 25: the schedule of the switched tree. Shipped values
+    # whose env is the escape; the task trace is compiled only under
+    # -DN265_TTRACE and is an instrument.
+    "N265_TREE_K": "default", "N265_TREE_SLOTS": "default",
+    "N265_ROW_YIELD": "default", "N265_CLAIM_PRIO": "default",
+    "N265_TASK_TRACE": "instrument",
     # phase 14 item 11b: catalogued in docs/instruments.md because the CRF
     # axis section has to say what the mapping IS, which the heuristic then
     # reads as "machinery". Three of them are the shipped mapping - the

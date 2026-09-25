@@ -77,6 +77,7 @@ lib_sources = [
   'src/encoder/level.c',
   'src/encoder/preset.c',
   'src/encoder/encoder.c',
+  'src/encoder/ttrace.c',
 ]
 
 # Phase 6, goal 3. NEON is baseline on aarch64 and this box's clang already

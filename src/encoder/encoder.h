@@ -979,8 +979,17 @@ typedef struct n265_row_ctx {
 
 /* K of sec 1: how many frames may be in flight at once. The array is
  * sized at the maximum; the live value is e->K, from N265_MAX_FRAME_WORK
- * (default 4). It is a scheduling knob and cannot change bits. */
-#define N265_MAX_FRAME_WORK 8
+ * (default 4). It is a scheduling knob and cannot change bits. Sixteen
+ * since phase 14 item 25: the 64x64 tree at HD wants twelve. */
+#define N265_MAX_FRAME_WORK 16
+
+/* The retirement window the bit-moving history rules read (the static
+ * commit's coded-skip maps, --nr's tally fold): coding index k - 8 is
+ * retired at every thread count because K never exceeds 8 while one of
+ * those rules is on (encoder.c clamps it). It was N265_MAX_FRAME_WORK
+ * itself until item 25 raised the array bound, and it keeps that value
+ * so their streams do not move. */
+#define N265_RETIRE_WIN 8
 
 /* The shot sidecar's re-sort window: how far a retiring frame's display
  * index may sit ahead of the oldest one not yet folded. Coding order
@@ -1033,7 +1042,7 @@ typedef struct n265_row_ctx {
  * Every one of those is retired at every thread count (K <=
  * N265_MAX_FRAME_WORK), and none of them can have been overwritten,
  * because the entry that would do it is k + 9 and frame k has not been
- * coded yet. N265_SC_HIST >= N265_SC_WIN + N265_MAX_FRAME_WORK + 1 is
+ * coded yet. N265_SC_HIST >= N265_SC_WIN + N265_RETIRE_WIN + 1 is
  * that second half, stated as a number. */
 #define N265_SC_HIST 32
 #define N265_SC_WIN  16
@@ -1053,7 +1062,7 @@ typedef struct n265_row_ctx {
  * two the rings above use and is twice what is needed. `cidx` is stamped
  * and checked, so an entry that was never written reads as absent rather
  * than as a stale frame's coefficients. */
-#define N265_NR_LAG  N265_MAX_FRAME_WORK
+#define N265_NR_LAG  N265_RETIRE_WIN
 #define N265_NR_HIST 16
 
 struct n265_encoder {
@@ -1236,6 +1245,12 @@ struct n265_encoder {
      * where it does not. Every slot scan and every slot allocation in
      * encoder.c is bounded by it, and N265_DPB_SLOTS only sizes arrays. */
     int dpb_reorder, dpb_buffering, dpb_peak, dpb_slots;
+    /* the pool before item 25 grew it: the half-pel cache budget is
+     * split over this count so the grown pool leaves it where it was */
+    int dpb_slots_hf;
+    /* N265_ROW_YIELD (item 25): the spin, in ns, before a row short of
+     * its lag yields its worker; 0 holds it, as before the item */
+    int row_yield;
     /* Annex A, solved once at open (src/encoder/level.c): the level and
      * the tier the SPS and the VPS carry, and every bound that drove
      * them, which is what N265_LEVEL_TRACE prints. */

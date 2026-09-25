@@ -32,6 +32,9 @@ enum { T_PENDING = 0, T_RUNNING, T_DONE };
 struct jslot {
     ntp_job *job;
     unsigned char *state;
+    /* the lane a YIELDED task keeps (-1: none). A yielded task's scratch
+     * is its state, so it resumes on the lane it left. */
+    int *lane_of;
     int cap;
     int ndone;
     int active;
@@ -307,8 +310,10 @@ void ntp_close(ntp_pool *p)
         pthread_cond_destroy(&p->ws[i].cv);
     for (int i = 0; p->ch && i < NTP_NCHAN; i++)
         pthread_cond_destroy(&p->ch[i].cv);
-    for (int i = 0; p->js && i < p->njs; i++)
+    for (int i = 0; p->js && i < p->njs; i++) {
         free(p->js[i].state);
+        free(p->js[i].lane_of);
+    }
     free(p->js);
     free(p->lane_free);
     free(p->ws);
@@ -349,18 +354,25 @@ static void lane_give(ntp_pool *p, int lane)
 static struct jslot *claim(ntp_pool *p, uint64_t limit, int *out_idx)
 {
     struct jslot *best = NULL;
+    /* the class only orders top-level claims; a nested one is oldest-first */
+    int cls = limit == UINT64_MAX;
     for (int i = 0; i < p->njs; i++) {
         struct jslot *s = &p->js[i];
         if (!s->active || s->seq >= limit)
             continue;
-        if (best && s->seq > best->seq)
-            continue;
+        if (best) {
+            int a = cls ? s->job->prio : 0, b = cls ? best->job->prio : 0;
+            if (a > b || (a == b && s->seq > best->seq))
+                continue;
+        }
         ntp_job *j = s->job;
         while (s->first_pending < j->ntask &&
                s->state[s->first_pending] != T_PENDING)
             s->first_pending++;
         for (int k = s->first_pending; k < j->ntask; k++)
-            if (s->state[k] == T_PENDING && j->ready(j->ctx, k)) {
+            if (s->state[k] == T_PENDING &&
+                (s->lane_of[k] >= 0 || p->nlane_free > 0) &&
+                j->ready(j->ctx, k)) {
                 best = s;
                 *out_idx = k;
                 break;
@@ -374,7 +386,11 @@ static struct jslot *claim(ntp_pool *p, uint64_t limit, int *out_idx)
 /* mu held on entry and on return. Runs the task with the lock dropped. */
 static void run_task(ntp_pool *p, struct jslot *js, int idx)
 {
-    int lane = lane_take(p);
+    int lane = js->lane_of[idx];
+    if (lane >= 0)
+        js->lane_of[idx] = -1;
+    else
+        lane = lane_take(p);
     ntp_job *j = js->job;
     uint64_t saved = tls_seq;
     tls_seq = js->seq;
@@ -390,7 +406,7 @@ static void run_task(ntp_pool *p, struct jslot *js, int idx)
         tls_depth++;
     }
     pthread_mutex_unlock(&p->mu);
-    j->run(j->ctx, lane, idx);
+    int yield = j->run(j->ctx, lane, idx);
     pthread_mutex_lock(&p->mu);
     if (prof) {
         tls_depth--;
@@ -403,6 +419,16 @@ static void run_task(ntp_pool *p, struct jslot *js, int idx)
         }
     }
     tls_seq = saved;
+    if (yield) {
+        /* back to pending, lane kept. Nothing became claimable and no
+         * milestone moved, so there is nobody to wake: the caller goes
+         * straight back to its own claim. */
+        js->state[idx] = T_PENDING;
+        js->lane_of[idx] = lane;
+        if (idx < js->first_pending)
+            js->first_pending = idx;
+        return;
+    }
     js->state[idx] = T_DONE;
     js->ndone++;
     lane_give(p, lane);
@@ -477,22 +503,32 @@ void ntp_submit(ntp_pool *p, ntp_job *job)
         }
     if (js && job->ntask > js->cap) {
         unsigned char *s = realloc(js->state, (size_t)job->ntask);
-        if (!s)
+        int *l = s ? realloc(js->lane_of, (size_t)job->ntask * sizeof(int))
+                   : NULL;
+        if (s)
+            js->state = s;
+        if (!l)
             js = NULL;
         else {
-            js->state = s;
+            js->lane_of = l;
             js->cap = job->ntask;
         }
     }
     if (!js) {      /* max_jobs contract broken, or out of memory: run it
                      * inline on this thread, which is still correct */
         pthread_mutex_unlock(&p->mu);
+        /* index order, one thread: every task's producers are done
+         * before it runs, so a yield cannot happen here; the loop is
+         * only there so one could not be dropped */
         for (int i = 0; i < job->ntask; i++)
-            job->run(job->ctx, 0, i);
+            while (job->run(job->ctx, 0, i))
+                ;
         job->impl = NULL;
         return;
     }
     memset(js->state, T_PENDING, (size_t)job->ntask);
+    for (int i = 0; i < job->ntask; i++)
+        js->lane_of[i] = -1;
     js->ndone = 0;
     js->first_pending = 0;
     js->job = job;
