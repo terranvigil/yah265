@@ -96,10 +96,10 @@ static int uhd_tree_qp(int cls);
  *
  * PROVISIONAL until scratch/place_threshold.sh has been run. */
 #define N265_UHD_QP_DEFAULT 31
-/* The same threshold for an HD-class picture (phase 14 item 22). The
- * per-rung BD read would say 0 at 1080p; the clock places it instead.
- * See uhd_tree_qp() and docs/phase14.md "Item 22". */
-#define N265_HD_QP_DEFAULT 31
+/* The same threshold for an HD-class picture (phase 14 items 22 and 24).
+ * The per-rung BD read would say 0 at 1080p; the clock places it instead.
+ * See uhd_tree_qp() and docs/phase14.md "Item 24". */
+#define N265_HD_QP_DEFAULT 30
 static int g_keyint = 250;      /* x265 4.3's own default (2026-09-08) */
 /* open GOP (phase 14 item 3): the --keyint picture is a CRA and not an
  * IDR, so the POC line and the DPB survive it and the mini-GOP that
@@ -4272,18 +4272,20 @@ static int uhd_tree_qp(int cls)
         }
         return uhd;
     }
-    /* N265_HD_QP (phase 14 item 22): the same threshold for an HD-class
-     * picture. The per-rung read would put it at 0: on the three
+    /* N265_HD_QP (phase 14 items 22 and 24): the same threshold for an
+     * HD-class picture. The per-rung read would put it at 0: on the
      * Meridian 1080p probe windows the gated tree is ahead of today's
-     * medium at every rung (+0.02 to +16.8 VMAF-NEG). The clock does
-     * not. Where the tree is on and the gate rarely fires it is dearer
-     * than the 32x32 tree: Sol Levante 1080p 1.12-1.22x the one-thread
-     * wall, crowd_run_1080p 1.35x at one thread and 1.73x at auto, the
-     * last at the goal legs' own point, which plans 29. So the switch
-     * sits above 29, and below 33, the planned QP of the rung where
-     * today's medium starts falling behind x265 on Meridian (x265 crf
-     * 26's bytes on two windows of three). 31 is the midpoint, and it is
-     * also the UHD value. */
+     * medium at every rung. The clock does not. At auto threads the
+     * 64x64 tree's wavefront is half as many rows with twice the lag,
+     * and on content whose CTUs are dear that is the wall: with item
+     * 24's split gate crowd_run_1080p at the goal legs' point (planned
+     * 29) is 1.095x main at one thread and 1.46x at auto, 1.28x x265
+     * against the 1.15x worst-clip bar. So the switch sits above 29.
+     * 30 is the planned QP of the Meridian 1080p segment rung where
+     * today's medium falls behind x265 (x265 crf 29's bytes, ours crf
+     * 22 at 23% more bytes), and the only integer in (29, 30]. Item 22's
+     * 31 left that rung on the 32x32 tree: segment BD vs x265 +4.79%,
+     * and +0.85% at 30. docs/phase14.md "Item 24". */
     if (hd < 0) {
         const char *s = n265_env("N265_HD_QP");
         hd = s ? atoi(s) : N265_HD_QP_DEFAULT;

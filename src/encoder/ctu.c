@@ -2989,6 +2989,29 @@ static int cb64_skipgate(void)
     return v;
 }
 
+/* N265_CB64_SPLITGATE (phase 14 item 24): the other side of the same
+ * question. Where the skip gate's trial REJECTS a 64x64 node and its
+ * depth-0 residual is at or above this bound - in 1024ths of
+ * skip_clean_thr(qp, 64), the skip gate's own unit - the node goes
+ * straight to the split arm: no CU arm, no merge-with-residual, no AMVP.
+ * The census it rests on (crowd_run_1080p, the goal legs' point): nodes
+ * whose residual is at or above the clean bound split 98.5% of the time,
+ * and the arms they skip are a third of the split trial's cost. Needs
+ * the skip gate on, because the residual is the skip gate's trial; 0 is
+ * OFF and is the pre-item encoder byte for byte. Never under --lossless,
+ * where the skip gate never runs. */
+static int cb64_splitgate(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_CB64_SPLITGATE");
+        v = s ? atoi(s) : 0;
+        if (v < 0)
+            v = 0;
+    }
+    return v;
+}
+
 /* ---- N265_CB64_PROF (phase 14 item 17) -----------------------------
  *
  * What the 64x64 coding-tree node actually does at 2160p, and what each
@@ -3010,6 +3033,7 @@ static int cb64_skipgate(void)
 #define CB64P_NB 26
 static struct cb64_prof {
     uint64_t fired, rejected;       /* the gate's own coverage        */
+    uint64_t split_gated;           /* item 24: sent straight to split */
     uint64_t seen, early, blk;      /* 64x64 nodes: visited, exited at
                                      * arm 1, reached the CB64 arms    */
     uint64_t t_arm1, t_skip, t_merge, t_amvp, t_split;
@@ -3044,8 +3068,9 @@ static int cb64p_bucket(uint64_t d, uint64_t thr)
 static void cb64p_print(void)
 {
     struct cb64_prof *g = &g_cb64p;
-    fprintf(stderr, "cb64prof gate fired=%llu rejected=%llu\n",
-            (unsigned long long)g->fired, (unsigned long long)g->rejected);
+    fprintf(stderr, "cb64prof gate fired=%llu rejected=%llu split_gated=%llu\n",
+            (unsigned long long)g->fired, (unsigned long long)g->rejected,
+            (unsigned long long)g->split_gated);
     fprintf(stderr, "cb64prof seen=%llu early=%llu blk=%llu\n",
             (unsigned long long)g->seen, (unsigned long long)g->early,
             (unsigned long long)g->blk);
@@ -6950,7 +6975,7 @@ static int dup_commit(struct n265_frame_work *e, int x0, int y0, int log2n,
  * the nodes the gate does not decide. */
 static int cb64_gate_try(struct n265_frame_work *e, int x0, int y0,
                          int log2n, int depth, int split_inc, uint32_t lam,
-                         uint64_t *j_out)
+                         uint64_t *j_out, uint64_t *ssd_out, uint64_t *thr_out)
 {
     int n = 1 << log2n;
     uint64_t thr = skip_clean_thr(e->cur_ctu_qp, n);
@@ -6965,6 +6990,8 @@ static int cb64_gate_try(struct n265_frame_work *e, int x0, int y0,
     skip_cu(e, x0, y0, log2n, mlist[midx], midx);
     e->rec_pos = pos0;
     uint64_t ssd = cu_area_ssd(e, x0, y0, n);
+    *ssd_out = ssd;
+    *thr_out = thr;
     if (ssd * 1024u > (uint64_t)cb64_skipgate() * thr)
         return 0;
     est_state adv = { e->est_ctx, 0 };
@@ -7124,8 +7151,9 @@ static uint64_t quadtree_inner(struct n265_frame_work *e, int x0, int y0,
      * the node runs its arms and the RD arbitration prices a lossy skip
      * at infinity, which is the only correct answer there. */
     if (log2n == 6 && e->slice_type != 2 && !e->lossless && cb64_skipgate()) {
-        uint64_t j_g;
-        if (cb64_gate_try(e, x0, y0, log2n, depth, split_inc, lam, &j_g)) {
+        uint64_t j_g, g_ssd = 0, g_thr = 0;
+        if (cb64_gate_try(e, x0, y0, log2n, depth, split_inc, lam, &j_g,
+                          &g_ssd, &g_thr)) {
             if (g_cb64p_on)
                 g_cb64p.fired++;
             if (cr) {
@@ -7139,6 +7167,25 @@ static uint64_t quadtree_inner(struct n265_frame_work *e, int x0, int y0,
             g_cb64p.rejected++;
         qt_restore(e, sp, x0, y0, n);
         e->rec_len = rec_base;
+        /* the split gate (N265_CB64_SPLITGATE, item 24): a residual this
+         * far above the clean bound is a node the full search splits, so
+         * the split trial runs alone, from the same restored state the
+         * split arm below starts from */
+        if (cb64_splitgate() &&
+            g_ssd * 1024u >= (uint64_t)cb64_splitgate() * g_thr) {
+            if (g_cb64p_on)
+                g_cb64p.split_gated++;
+            uint32_t b1g = n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + split_inc],
+                                        1);
+            uint64_t js = (uint64_t)b1g * lam >> 16;
+            int hg = n >> 1;
+            for (int i = 0; i < 4; i++)
+                js += quadtree(e, x0 + (i & 1) * hg, y0 + (i >> 1) * hg,
+                               log2n - 1, depth + 1);
+            if (cr)
+                cr->flags |= N265_CUF_SPLIT;
+            return js;
+        }
     }
 
     /* arm 1: no split */

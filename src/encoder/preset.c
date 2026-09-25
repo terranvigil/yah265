@@ -259,6 +259,9 @@ static const struct kv med_tab[] = {
      * and the compiled-in default is 0, so fast, slow and slower are
      * untouched */
     { "N265_CB64_SKIPGATE", "0" },
+    /* ...and its split side (item 24), 0 for the same reason; the HD
+     * overlay names it where the tree is taken at 1080p */
+    { "N265_CB64_SPLITGATE", "0" },
     { "N265_BI_REFINE",  "0" },
     { "N265_CHROMA_PRED", "0" },
     { "N265_NO_RECT",    "1" },
@@ -602,6 +605,22 @@ static const struct kv med_tab_uhd[] = {
     { NULL, NULL }
 };
 
+/* ...and at HD only, the split side of the same gate (phase 14 item 24).
+ * Where the skip gate's trial rejects a 64x64 node whose depth-0 residual
+ * is at or above 256/1024 of the clean bound, the node goes straight to
+ * the split. On crowd_run_1080p at one thread the tree's CPU over the
+ * 32x32 tree's goes 1.32x -> 1.11x at 256 (1.15x at 512, 1.17x at 1024,
+ * 1.23x at 2048), and on the three Meridian 1080p probe windows the
+ * pooled BD vs x265 is -6.77% ungated and -6.82% / -6.69% at 256 / 512:
+ * no measured quality cost at any of them, so the cheapest value read
+ * is the one named. Not measured at 2160p, so the UHD overlay does not
+ * carry it. ctu.c's N265_CB64_SPLITGATE comment has the census and
+ * docs/phase14.md "Item 24" the numbers. */
+static const struct kv med_tab_hd[] = {
+    { "N265_CB64_SPLITGATE", "256" },
+    { NULL, NULL }
+};
+
 /* today's medium's structure, which is the front end's own defaults */
 static const struct kv slow_par[] = {
     { "ctu", "64" },
@@ -683,6 +702,10 @@ struct rung {
      * so a rung says only what resolution moves. */
     const struct kv *par_uhd;
     int placed;             /* 0 = built, measured and REFUSED */
+    /* Knob rows that answer BEFORE tab_uhd's on an HD-class picture only
+     * (phase 14 item 24), for what was measured at 1080p and not at
+     * 2160p. NULL where the rung has none. */
+    const struct kv *tab_hd;
 };
 
 /* The UHD rule, in luma samples. See med_par_uhd for why it is an area
@@ -718,7 +741,7 @@ static const struct rung rungs[] = {
      * without the one the evidence points at - and because a row here is
      * what lets the refusal say which rung was tried and failed rather
      * than pretending the name is unknown. docs/phase13.md, "C2". */
-    { "veryfast", vfast_tab, NULL,  vfast_par, NULL,  0 },
+    { "veryfast", vfast_tab, NULL,  vfast_par, NULL,  0, NULL },
     /* `faster` is present and NOT placed either, and for a different
      * reason from veryfast's. It PASSES the band on every one of the
      * fifteen - median -9.96% BD-VMAF-NEG against x265 faster, 15/15
@@ -733,11 +756,12 @@ static const struct rung rungs[] = {
      * docs/phase13.md, "C2". The table stays for the same reason
      * veryfast's does, and the two binding clips are the same two the
      * project already has open items on. */
-    { "faster",   faster_tab, NULL, faster_par, NULL, 0 },
-    { "fast",     fast_tab, NULL,   fast_par, NULL,   1 },
-    { "medium",   med_tab, med_tab_uhd, med_par, med_par_uhd, 1 },
-    { "slow",     slow_tab, NULL,   slow_par, NULL,   1 },
-    { "slower",   slower_tab, NULL, slower_par, NULL, 1 },
+    { "faster",   faster_tab, NULL, faster_par, NULL, 0, NULL },
+    { "fast",     fast_tab, NULL,   fast_par, NULL,   1, NULL },
+    { "medium",   med_tab, med_tab_uhd, med_par, med_par_uhd, 1,
+      med_tab_hd },
+    { "slow",     slow_tab, NULL,   slow_par, NULL,   1, NULL },
+    { "slower",   slower_tab, NULL, slower_par, NULL, 1, NULL },
     /* `veryslow` and `placebo` are present and NOT placed (2026-09-14,
      * phase 14 item 5). The binding leg is the BAND, and it binds a long
      * way above them: on the CRF band against the x265 preset of their
@@ -753,8 +777,8 @@ static const struct rung rungs[] = {
      * that. `--preset medium` still reads -6.65% with all seven ahead,
      * which is the control this item ran to be sure the instrument and
      * the corpus had not moved. docs/phase14.md, "Item 5". */
-    { "veryslow", veryslow_tab, NULL, veryslow_par, NULL, 0 },
-    { "placebo",  placebo_tab, NULL,  placebo_par, NULL,  0 },
+    { "veryslow", veryslow_tab, NULL, veryslow_par, NULL, 0, NULL },
+    { "placebo",  placebo_tab, NULL,  placebo_par, NULL,  0, NULL },
 };
 #define N_RUNGS ((int)(sizeof(rungs) / sizeof(rungs[0])))
 
@@ -787,6 +811,11 @@ const char *n265_env(const char *name)
     const char *v = getenv(name);
     if (v)
         return v;
+    if (g_uhd == 1 && rungs[g_preset].tab_hd) {
+        v = lookup(rungs[g_preset].tab_hd, name);
+        if (v)
+            return v;
+    }
     if (g_uhd && rungs[g_preset].tab_uhd) {
         v = lookup(rungs[g_preset].tab_uhd, name);
         if (v)
@@ -842,6 +871,11 @@ int n265_preset_row(int i, const char **key, const char **val,
             const char *u = lookup(rungs[g_preset].tab_uhd, t[n].k);
             if (u)
                 *val = u;       /* what the run RESOLVED (item 17) */
+        }
+        if (g_uhd == 1 && rungs[g_preset].tab_hd) {
+            const char *u = lookup(rungs[g_preset].tab_hd, t[n].k);
+            if (u)
+                *val = u;       /* ...and at HD (item 24) */
         }
         *env = getenv(t[n].k);
         return 1;
