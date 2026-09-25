@@ -1355,6 +1355,97 @@ static int intra_b_modes(void)
     return v;
 }
 
+/* N265_INTRA_TRY_TRACE (parity item 3, the census): how much intra
+ * search each call site runs, by slice type and block size. One row per
+ * cell at exit: `IT,slice,site,size,calls,modes,rd`, where `modes` is
+ * the predictions the rank evaluated and `rd` the modes an RD stage then
+ * transformed. Sites: 0 the 2Nx2N arm's rank in an inter slice, 1
+ * intra_rd_pick's rank, 2 the min-CB 8x8 rank, 3 the NxN 4x4 ranks, 4
+ * the rank above 32x32, 5 an inter-slice CU the intra arm won (calls
+ * only). Relaxed atomic adds, so the sums are the same at every thread
+ * count; output-neutral. */
+enum { ITS_ARM, ITS_RDPICK, ITS_MIN8, ITS_NXN4, ITS_BIG, ITS_WON, ITS_N };
+static int g_itry_on;
+static uint64_t g_itry[3][ITS_N][5][3];
+
+static void itry_print(void)
+{
+    for (int s = 0; s < 3; s++)
+        for (int k = 0; k < ITS_N; k++)
+            for (int l = 0; l < 5; l++)
+                if (g_itry[s][k][l][0])
+                    fprintf(stderr, "IT,%c,%d,%d,%llu,%llu,%llu\n",
+                            "BPI"[s], k, 4 << l,
+                            (unsigned long long)g_itry[s][k][l][0],
+                            (unsigned long long)g_itry[s][k][l][1],
+                            (unsigned long long)g_itry[s][k][l][2]);
+}
+
+static int itry_on(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        v = n265_env("N265_INTRA_TRY_TRACE") != NULL;
+        if (v)
+            atexit(itry_print);
+        g_itry_on = v;
+    }
+    return v;
+}
+
+static void itry(const struct n265_frame_work *e, int site, int log2n,
+                 uint64_t calls, uint64_t modes, uint64_t rd)
+{
+    if (!g_itry_on)
+        return;
+    int s = e->slice_type < 0 ? 0 : e->slice_type > 2 ? 2 : e->slice_type;
+    int l = log2n - 2 < 0 ? 0 : log2n - 2 > 4 ? 4 : log2n - 2;
+    uint64_t *c = g_itry[s][site][l];
+    __atomic_fetch_add(&c[0], calls, __ATOMIC_RELAXED);
+    __atomic_fetch_add(&c[1], modes, __ATOMIC_RELAXED);
+    __atomic_fetch_add(&c[2], rd, __ATOMIC_RELAXED);
+}
+
+/* the split census: one `IS,` row per inter-slice node whose no-split
+ * winner was intra and whose split arm ran - what the node knew before
+ * the split (its SSD and bits, lambda, the neighbours' split context and
+ * the source's quadrant variances) beside what the split then did */
+static void itry_split(const struct n265_frame_work *e, int x0, int y0,
+                       int log2n, int split_inc, uint64_t ssd, uint32_t bits,
+                       uint32_t lam, uint64_t j_cu, uint64_t j_split)
+{
+    int n = 1 << log2n, h = n >> 1;
+    const pixel *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
+    uint64_t v[4];
+    for (int q = 0; q < 4; q++) {
+        const pixel *s = src + (q >> 1) * h * e->pad_stride[0] + (q & 1) * h;
+        uint64_t s1 = 0, s2 = 0;
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < h; x++) {
+                unsigned p = s[y * e->pad_stride[0] + x];
+                s1 += p;
+                s2 += p * p;
+            }
+        v[q] = (s2 * (uint64_t)(h * h) - s1 * s1) / ((uint64_t)h * h * h * h);
+    }
+    fprintf(stderr, "IS,%c,%d,%d,%d,%llu,%u,%u,%llu,%llu,%llu,%llu,%llu,%llu,%.3f,%d\n",
+            "BPI"[e->slice_type], n, e->cur_ctu_qp, split_inc,
+            (unsigned long long)ssd, bits, lam,
+            (unsigned long long)v[0], (unsigned long long)v[1],
+            (unsigned long long)v[2], (unsigned long long)v[3],
+            (unsigned long long)j_cu, (unsigned long long)j_split,
+            (double)e->sc_ratio, e->flat);
+}
+
+/* how many predictions a rank over (sub, nsub) evaluates */
+static int rank_nmodes(const struct n265_frame_work *e, const int *sub,
+                       int nsub)
+{
+    if (sub)
+        return nsub;
+    return e->slice_type == 0 && intra_b_modes() ? 2 : 35;
+}
+
 /* `satd_out`, where a caller asks for it, is the winner's own RANKING
  * cost - the Hadamard the 35-mode loop below already computed and threw
  * away. `cost_out` cannot stand in for it: that one is re-taken as a SAD
@@ -1481,16 +1572,6 @@ static int search_luma_mode(struct n265_frame_work *e, int x0, int y0,
 {
     return search_luma_mode_sub(e, x0, y0, log2n, ref_plane, ref_stride,
                                 cost_out, NULL, 0, NULL, 0, NULL);
-}
-
-/* the same rank, with the winner's Hadamard kept (phase 13 A4) */
-static int search_luma_mode_s(struct n265_frame_work *e, int x0, int y0,
-                              int log2n, const pixel *ref_plane,
-                              int ref_stride, uint32_t *cost_out,
-                              uint32_t *satd_out)
-{
-    return search_luma_mode_sub(e, x0, y0, log2n, ref_plane, ref_stride,
-                                cost_out, NULL, 0, NULL, 0, satd_out);
 }
 
 /* SAD-domain lambda: sqrt(0.68 * 2^((q-12)/3)), Q4 fixed point, indexed
@@ -1697,6 +1778,29 @@ static int rskip_mode(void)
         v = s ? atoi(s) : 2;    /* the unconditional form (P1/R12) */
     }
     return v;
+}
+
+/* N265_INTRA_RSKIP (parity item 3): stop the recursion where the
+ * no-split winner in an inter slice was intra. 1 at 16x16, 2 at 16x16
+ * and 32x32. 0 is main. */
+static int intra_rskip_mode(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_INTRA_RSKIP");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
+static int intra_rskip(const struct n265_frame_work *e, int log2n)
+{
+    int m = intra_rskip_mode();
+    if (!m || e->slice_type == 2 || !e->last_cu_intra)
+        return 0;
+    if (m == 3)
+        return log2n == 4 && e->sc_ratio >= 0.6f;
+    return log2n == 4 || (m >= 2 && log2n == 5);
 }
 
 /* N265_CBF_FAST: once a candidate quantises to nothing, stop trying the
@@ -4014,6 +4118,20 @@ static int i_intra(void)
     return v;
 }
 
+/* N265_INTER_NXN (parity item 3): the four 4x4 ranks an 8x8 intra CU
+ * runs in an INTER slice. 1 ranks them over the parent's neighbourhood,
+ * as N265_I_INTRA=3 does in I slices; 2 drops NxN in inter slices. 0 is
+ * main. */
+static int inter_nxn(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_INTER_NXN");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
 /* the modes a 4x4 RMD looks at when N265_I_INTRA >= 3: the parent 8x8's
  * own winner and its two angular neighbours, planar and DC, and the two
  * most probable modes, which cost two bins where a remainder costs six */
@@ -4041,12 +4159,40 @@ static int intra_sub_cands(struct n265_frame_work *e, int x0, int y0,
     return n;
 }
 
+/* What an inter-slice CU's intra arm already computed, handed to the
+ * intra section when the arm wins so it is not computed twice: the
+ * 35-mode rank (its winner, the winner's SAD and the RD shortlist) and
+ * the RD trial's three flat TBs at that winner. Both are functions of
+ * the same source, the same reference samples outside the CU and the
+ * same QP, so the second computation could only reproduce the first:
+ * the reuse is byte-identical by construction, and `N265_INTRA_REUSE=0`
+ * (recompute) is the check. */
+typedef struct intra_memo {
+    int ranked;             /* mode, top[] valid                     */
+    int mode;
+    int sad_ok;             /* sad valid (the rank was asked for it) */
+    uint32_t sad;
+    int top[INTRA_RD_MAX];
+    tb_ctx *tl, *tcb, *tcr; /* the trial at `mode`, or NULL          */
+} intra_memo;
+
+static int intra_reuse(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_INTRA_REUSE");
+        v = s ? atoi(s) : 1;
+    }
+    return v;
+}
+
 /* RD-refine the intra luma mode over the SATD-ranked shortlist: only
  * mode-dependent bits (MPM, cbfs, residuals) enter the compare */
 /* out_l/out_cb/out_cr receive the winning mode's flat-TB analysis, which
  * tt_analyze commits instead of computing again. */
 static int intra_rd_pick(struct n265_frame_work *e, int x0, int y0, int log2n,
-                         tb_ctx **out_l, tb_ctx **out_cb, tb_ctx **out_cr)
+                         tb_ctx **out_l, tb_ctx **out_cb, tb_ctx **out_cr,
+                         const intra_memo *im)
 {
     int cands[INTRA_RD_MAX + 3];
     int nk = intra_rd_n();
@@ -4055,8 +4201,14 @@ static int intra_rd_pick(struct n265_frame_work *e, int x0, int y0, int log2n,
     if (e->slice_type == 2 && i_intra() == 4)
         nk = 1;
     int ncand = nk;
-    search_luma_mode_k(e, x0, y0, log2n, e->recon[0], e->recon_stride[0],
-                       NULL, cands, nk);
+    if (im && im->ranked) {
+        for (int i = 0; i < nk; i++)
+            cands[i] = im->top[i];
+    } else {
+        search_luma_mode_k(e, x0, y0, log2n, e->recon[0],
+                           e->recon_stride[0], NULL, cands, nk);
+        itry(e, ITS_RDPICK, log2n, 1, (uint64_t)rank_nmodes(e, NULL, 0), 0);
+    }
     if (intra_rd_mpm()) {
         /* an MPM costs two bits where a remainder costs six, so a mode the
          * SATD prefilter ranked just outside can still win on J */
@@ -4088,12 +4240,21 @@ static int intra_rd_pick(struct n265_frame_work *e, int x0, int y0, int log2n,
                 dup = 1;
         if (dup)
             continue;
-        tb_analyze(e, 1, cx0, cy0, log2c, qp_cb, mode, mot_zero, tcb);
-        tb_analyze(e, 2, cx0, cy0, log2c, qp_cr, mode, mot_zero, tcr);
-        tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, mode, mot_zero, tl);
-        tb_make_recon(e, 0, log2n, e->cur_ctu_qp, mode, tl);
-        tb_make_recon(e, 1, log2c, qp_cb, mode, tcb);
-        tb_make_recon(e, 2, log2c, qp_cr, mode, tcr);
+        /* scratch this candidate writes, put back after the compare so
+         * the arm's buffers never become anyone's scratch */
+        tb_ctx *sl = tl, *scb = tcb, *scr = tcr;
+        int memo = im && im->tl && mode == im->mode;
+        if (memo) {
+            tl = im->tl; tcb = im->tcb; tcr = im->tcr;
+        } else {
+            itry(e, ITS_RDPICK, log2n, 0, 0, 1);
+            tb_analyze(e, 1, cx0, cy0, log2c, qp_cb, mode, mot_zero, tcb);
+            tb_analyze(e, 2, cx0, cy0, log2c, qp_cr, mode, mot_zero, tcr);
+            tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, mode, mot_zero, tl);
+            tb_make_recon(e, 0, log2n, e->cur_ctu_qp, mode, tl);
+            tb_make_recon(e, 1, log2c, qp_cb, mode, tcb);
+            tb_make_recon(e, 2, log2c, qp_cr, mode, tcr);
+        }
         uint64_t d = tb_ssd(e, 0, x0, y0, log2n, tl) +
             tb_ssd(e, 1, cx0, cy0, log2c, tcb) +
             tb_ssd(e, 2, cx0, cy0, log2c, tcr);
@@ -4122,6 +4283,8 @@ static int intra_rd_pick(struct n265_frame_work *e, int x0, int y0, int log2n,
             t = wl; wl = tl; tl = t;
             t = wcb; wcb = tcb; tcb = t;
             t = wcr; wcr = tcr; tcr = t;
+        } else if (memo) {
+            tl = sl; tcb = scb; tcr = scr;
         }
     }
     *out_l = wl; *out_cb = wcb; *out_cr = wcr;
@@ -5454,7 +5617,9 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
     int cx0 = x0 >> csx, cy0 = y0 >> csy, log2c = log2n - csx;
     e->last_skip_clean = 0;
     e->last_cu_nores = 0;
+    e->last_cu_intra = 0;
     mark_cu_edges(e, x0, y0, n);
+    intra_memo im = { 0 };
 
     size_t pos0 = e->rec_len;
 
@@ -6065,11 +6230,19 @@ intra_gate_done: ;
             if (!gate_intra) {
             if (e->iw_count)
                 e->iw_arm[2]++;             /* 35-mode ranks run       */
-            imode = search_luma_mode_s(e, x0, y0, log2n, e->recon[0],
-                                       e->recon_stride[0],
-                                       intra_gate() >= 4 || intra_oracle()
-                                           ? &isad : NULL,
-                                       px_on ? &isatd : NULL);
+            itry(e, ITS_ARM, log2n, 1, (uint64_t)rank_nmodes(e, NULL, 0), 0);
+            int want_sad = intra_gate() >= 4 || intra_oracle();
+            imode = search_luma_mode_sub(e, x0, y0, log2n, e->recon[0],
+                                         e->recon_stride[0],
+                                         want_sad ? &isad : NULL,
+                                         im.top, intra_rd_n(), NULL, 0,
+                                         px_on ? &isatd : NULL);
+            if (intra_reuse()) {
+                im.ranked = 1;
+                im.mode = imode;
+                im.sad_ok = want_sad;
+                im.sad = isad;
+            }
             /* P3 modes 4 and up: the 35-mode rank is the cheaper half of
              * the intra arm - about a third of what the arm costs on the
              * post-NEON encoder, not the quarter P3 measured - and it
@@ -6104,6 +6277,7 @@ intra_gate_done: ;
             if (!gate_intra) {
             if (e->iw_count)
                 e->iw_arm[3]++;             /* RD trials run           */
+            itry(e, ITS_ARM, log2n, 0, 0, 1);
             tb_analyze(e, 1, cx0, cy0, log2c, qp_cb, imode, mot_zero, i_tcb);
             tb_analyze(e, 2, cx0, cy0, log2c, qp_cr, imode, mot_zero, i_tcr);
             tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, imode, mot_zero, i_tl);
@@ -6137,6 +6311,9 @@ intra_gate_done: ;
                 est_res_c(e, &ops, i_tcr, log2c, 2, sc);
             }
             j_intra = rd_j(e, d_intra, st.bits, lam);
+            if (im.ranked) {
+                im.tl = i_tl; im.tcb = i_tcb; im.tcr = i_tcr;
+            }
             if (px_on) {
                 px_trials++;
                 px_bump(PXC_ITRIAL, 1);
@@ -6354,6 +6531,7 @@ intra_gate_done: ;
             }
             /* intra wins: fall through to the intra section, which also
              * arbitrates NxN at min CB */
+            itry(e, ITS_WON, log2n, 1, 0, 0);
         }
     }
 
@@ -6364,14 +6542,22 @@ intra_gate_done: ;
     }
     set_blk(e, e->blk_intra, x0, y0, n, 1);
     set_blk(e, e->blk_skip, x0, y0, n, 0);
+    e->last_cu_intra = 1;
 
     int nxn = 0;
     int modes[4] = { 0, 0, 0, 0 };
     tb_ctx *pre_l = NULL, *pre_cb = NULL, *pre_cr = NULL;
     if (log2n == MIN_CB_LOG2) {
         uint32_t cost2n;
-        modes[0] = search_luma_mode(e, x0, y0, log2n, e->recon[0],
-                                    e->recon_stride[0], &cost2n);
+        if (im.ranked && im.sad_ok) {
+            modes[0] = im.mode;
+            cost2n = im.sad;
+        } else {
+            modes[0] = search_luma_mode(e, x0, y0, log2n, e->recon[0],
+                                        e->recon_stride[0], &cost2n);
+            itry(e, ITS_MIN8, log2n, 1, (uint64_t)rank_nmodes(e, NULL, 0),
+                 0);
+        }
         uint32_t costn = 0;
         int nmodes[4];
         /* I slices, N265_I_INTRA >= 3: the four 4x4 ranks run over the
@@ -6382,7 +6568,13 @@ intra_gate_done: ;
         int sub[8], nsub = 0;
         if (e->slice_type == 2 && i_intra() >= 3)
             nsub = intra_sub_cands(e, x0, y0, modes[0], sub);
-        for (int i = 0; i < 4; i++) {
+        if (e->slice_type != 2 && inter_nxn() == 1)
+            nsub = intra_sub_cands(e, x0, y0, modes[0], sub);
+        int try_nxn = e->slice_type == 2 || inter_nxn() != 2;
+        if (try_nxn)
+            itry(e, ITS_NXN4, log2n - 1, 4,
+                 4u * (uint64_t)rank_nmodes(e, nsub ? sub : NULL, nsub), 0);
+        for (int i = 0; i < 4 && try_nxn; i++) {
             uint32_t c;
             nmodes[i] = search_luma_mode_sub(e, x0 + (i & 1) * 4,
                                              y0 + (i >> 1) * 4, log2n - 1,
@@ -6391,7 +6583,7 @@ intra_gate_done: ;
                                              nsub ? sub : NULL, nsub, NULL);
             costn += c;
         }
-        if (costn < cost2n) {
+        if (try_nxn && costn < cost2n) {
             nxn = 1;
             for (int i = 0; i < 4; i++)
                 modes[i] = nmodes[i];
@@ -6402,10 +6594,12 @@ intra_gate_done: ;
             g_2nx2n_min += !nxn;
         }
     } else if (log2n <= 5) {
-        modes[0] = intra_rd_pick(e, x0, y0, log2n, &pre_l, &pre_cb, &pre_cr);
+        modes[0] = intra_rd_pick(e, x0, y0, log2n, &pre_l, &pre_cb, &pre_cr,
+                                 &im);
     } else {
         modes[0] = search_luma_mode(e, x0, y0, 5, e->recon[0],
                                     e->recon_stride[0], NULL);
+        itry(e, ITS_BIG, log2n, 1, (uint64_t)rank_nmodes(e, NULL, 0), 0);
     }
 
     if (!nxn) {
@@ -6420,8 +6614,12 @@ intra_gate_done: ;
         n265_est_advance_cu(e, &adv, x0, y0, log2n);
         set_blk(e, e->blk_qp, x0, y0, n,
                 e->ent_qp_coded ? N265_QP_STORE(e->cur_ctu_qp) : N265_QP_INHERIT);
-        return rd_j(e, cu_area_ssd(e, x0, y0, n), adv.bits,
-                    ctu_lam(e, e->cur_ctu_qp));
+        uint64_t issd = cu_area_ssd(e, x0, y0, n);
+        if (g_itry_on) {
+            e->last_cu_ssd = issd;
+            e->last_cu_bits = adv.bits;
+        }
+        return rd_j(e, issd, adv.bits, ctu_lam(e, e->cur_ctu_qp));
     }
 
     /* NxN, and the one place the two formats need different code rather
@@ -6953,6 +7151,9 @@ static uint64_t quadtree_inner(struct n265_frame_work *e, int x0, int y0,
         g_cb64p.seen++;
     }
     set_blk(e, e->ct_depth, x0, y0, n, depth);
+    const int arm1_intra = e->last_cu_intra;
+    const uint64_t arm1_ssd = e->last_cu_ssd;
+    const uint32_t arm1_bits = e->last_cu_bits;
     /* early skip: a CLEAN whole-CU skip ends the trial (children could
      * only re-buy the same prediction with more syntax) */
     if (e->last_skip_clean && !no_earlyskip_on()) {
@@ -6969,6 +7170,8 @@ static uint64_t quadtree_inner(struct n265_frame_work *e, int x0, int y0,
      * so the rule stays where the full candidate set decided. */
     if (rskip_mode() && log2n <= 5 && e->last_cu_nores &&
         (rskip_mode() >= 2 || !split_inc))
+        return j_cu;
+    if (intra_rskip(e, log2n))
         return j_cu;
 
     /* 64x64 whole-CU skip: prediction-only, so it is legal where the
@@ -7137,6 +7340,9 @@ static uint64_t quadtree_inner(struct n265_frame_work *e, int x0, int y0,
         }
     }
 
+    if (g_itry_on && arm1_intra && e->slice_type != 2 && log2n <= 5)
+        itry_split(e, x0, y0, log2n, split_inc, arm1_ssd, arm1_bits, lam,
+                   j_cu, j_split);
     if (j_cu <= j_split) {
         if (pf && pf_who >= 0) {
             g_cb64p.win[pf_who]++;
@@ -7411,6 +7617,8 @@ void n265_ctu_warm(void)
     (void)rr_trace();
     (void)cpred_gate(); (void)rdoq_trace(); (void)rdoq_lat_sz();
     (void)rd_proxy(); (void)px_census(); (void)intra_b_modes();
+    (void)itry_on(); (void)intra_rskip_mode(); (void)intra_reuse();
+    (void)inter_nxn();
     for (int q = N265_QP_MIN; q <= N265_QP_MAX; q++)
         (void)n265_lambda_mode_q8(q);   /* fills its lazy table */
 }

@@ -286,6 +286,19 @@ static const struct kv med_tab[] = {
      * is 0, so fast, slow and slower are untouched and `N265_DUP_FAST=0`
      * is the escape. docs/phase11.md. */
     { "N265_DUP_FAST",   "1" },
+    /* parity item 3: the intra search an inter slice buys where it does
+     * not pay. NxN (four 4x4 luma PBs, picked on a SAD sum) is dropped
+     * at the 8x8 intra CU of a P or B slice, which is faster and ahead
+     * on every read (Sol Levante pooled -1.56%, Meridian -0.92%, CIF-7
+     * CRF median -1.10); and a 16x16 node whose no-split winner was
+     * intra ends its recursion on a frame the lookahead calls
+     * intra-heavy (sc_ratio >= 0.6), where the split wins 0.0-0.4% of
+     * the time. The CIF-7 band never reaches that ratio. Compiled-in
+     * defaults are 0, so fast, slow and slower are untouched and
+     * `N265_INTER_NXN=0 N265_INTRA_RSKIP=0` is the escape.
+     * docs/phase14.md "Item 23". */
+    { "N265_INTER_NXN",  "2" },
+    { "N265_INTRA_RSKIP", "3" },
     /* phase 14 item 2: weighted prediction in P slices, x265's own
      * default at this rung and above. It is a CONTENT tool and the
      * estimator is what keeps it free where the content is not there:
