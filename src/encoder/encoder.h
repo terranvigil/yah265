@@ -826,6 +826,9 @@ typedef struct n265_frame_work {
     int cu_pred_x0, cu_pred_y0;     /* luma origin of those planes */
     int last_skip_clean;    /* analyze_cu: skip won with low distortion */
     int last_cu_nores;      /* analyze_cu: the winner had rqt_root_cbf 0 */
+    int last_cu_intra;      /* analyze_cu: the winner was intra */
+    uint64_t last_cu_ssd;   /* ...and, under N265_INTRA_TRY_TRACE, its SSD */
+    uint32_t last_cu_bits;  /* ...and its estimated bits */
     /* N265_CU_TRACE, row-private: the CTU whose slots this lane is
      * filling, the open node stack inside its quadtree, and which arm of
      * analyze_cu the TB analyses arriving now belong to. */
