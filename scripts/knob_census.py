@@ -146,7 +146,7 @@ DEFAULT_OVERRIDES = {
     # phase 14 item 25: computed at open from the picture and the thread
     # count, and the extra slots follow the frames in flight
     "N265_ROW_YIELD": "5000 where 2 * min(rows, (cols + 1) / 2) > threads > 1, else 0",
-    "N265_TREE_SLOTS": "K - 6 (with the switched HD tree only)",
+    "N265_TREE_SLOTS": "K - 6 (with the switched HD or UHD tree only)",
     "N265_TASK_TRACE": "unset",
 }
 

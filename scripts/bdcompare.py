@@ -339,11 +339,24 @@ def vmaf_of(bitstream, src_path, work, per_frame=False):
     #
     # Unique temp paths (NOT derived from the bitstream) so shared/cached
     # bitstreams don't collide across threads.
-    fd, dec = tempfile.mkstemp(suffix=".dec.y4m", dir=work); os.close(fd)
     fd, js = tempfile.mkstemp(suffix=".json", dir=work); os.close(fd)
     pixfmt, strict = _dec_pixfmt()
-    sh(f'ffmpeg -v error -y {" ".join(fgc_dec_flags())} -i "{bitstream}" '
-       f'-pix_fmt {pixfmt} -sws_dither none{strict} "{dec}"')
+    dcmd = (f'ffmpeg -v error -y {" ".join(fgc_dec_flags())} -i "{bitstream}" '
+            f'-pix_fmt {pixfmt} -sws_dither none{strict} -f yuv4mpegpipe')
+    # BD_FIFO=1 (phase 14 item 26): the decode goes through a named pipe
+    # instead of a file, so a 2160p segment's point needs no disk for its
+    # decode (a 90 s 4K segment decodes to 67 GB). The bytes libvmaf
+    # reads are the same; only where they wait differs.
+    fifo = os.environ.get("BD_FIFO") == "1"
+    if fifo:
+        dec = tempfile.mktemp(suffix=".dec.y4m", dir=work)
+        os.mkfifo(dec)
+        dp = subprocess.Popen(f'{dcmd} "{dec}"', shell=True,
+                              stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL)
+    else:
+        fd, dec = tempfile.mkstemp(suffix=".dec.y4m", dir=work); os.close(fd)
+        sh(f'{dcmd} "{dec}"')
     binary = os.environ.get("VMAF", "vmaf")
     margs, primary, plabel = _vmaf_models()
     sub = f"--subsample {SUBSAMPLE}" if SUBSAMPLE > 1 else ""
@@ -353,6 +366,9 @@ def vmaf_of(bitstream, src_path, work, per_frame=False):
     # VMAF_THREADS overrides; 0 is libvmaf's single-threaded default.
     thr = os.environ.get("VMAF_THREADS", "8")
     r = sh(f'{shlex.quote(binary)} -r "{src_path}" -d "{dec}" --json -o "{js}" {margs} {sub} --threads {thr}')
+    if fifo:
+        if dp.wait() != 0 and r.returncode == 0:
+            r = subprocess.CompletedProcess(r.args, 1)
     try:
         os.unlink(dec)
     except OSError:
