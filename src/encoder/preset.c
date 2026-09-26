@@ -602,6 +602,11 @@ static const struct kv med_par_uhd[] = {
  * comment is the rule. */
 static const struct kv med_tab_uhd[] = {
     { "N265_CB64_SKIPGATE", "64" },
+    /* the split side (item 24's knob), measured at 2160p by item 26: on
+     * three 4K windows every per-rung delta against the tree without it
+     * is within 0.11 VMAF-NEG. At HD, tab_hd answers first with the same
+     * value. */
+    { "N265_CB64_SPLITGATE", "256" },
     { NULL, NULL }
 };
 
@@ -613,8 +618,8 @@ static const struct kv med_tab_uhd[] = {
  * 1.23x at 2048), and on the three Meridian 1080p probe windows the
  * pooled BD vs x265 is -6.77% ungated and -6.82% / -6.69% at 256 / 512:
  * no measured quality cost at any of them, so the cheapest value read
- * is the one named. Not measured at 2160p, so the UHD overlay does not
- * carry it. ctu.c's N265_CB64_SPLITGATE comment has the census and
+ * is the one named. Item 26 measured it at 2160p and the UHD overlay
+ * carries it too. ctu.c's N265_CB64_SPLITGATE comment has the census and
  * docs/phase14.md "Item 24" the numbers. */
 static const struct kv med_tab_hd[] = {
     { "N265_CB64_SPLITGATE", "256" },

@@ -96,8 +96,8 @@ static int uhd_tree_qp(int cls);
  * guessed; its placement is measured, not tuned. See uhd_tree_qp() and
  * docs/phase14.md "Item 17".
  *
- * PROVISIONAL until scratch/place_threshold.sh has been run. */
-#define N265_UHD_QP_DEFAULT 31
+ * Re-placed at 29 by phase 14 item 26 (uhd_tree_qp() has the bounds). */
+#define N265_UHD_QP_DEFAULT 29
 /* The same threshold for an HD-class picture (phase 14 items 22, 24 and
  * 25). The per-rung BD read would say 0 at 1080p; the clock places it
  * instead. See uhd_tree_qp() and docs/phase14.md "Item 25". */
@@ -2543,16 +2543,16 @@ n265_encoder *n265_encoder_open(const n265_param *p)
            * back, which on the equal-bytes wall is bbb 1.097x -> 0.971x
            * and Meridian 1.047x -> 1.026x against today's medium. Not
            * for an explicit --ctu 64 or for slow/slower, which were not
-           * measured; N265_MAX_FRAME_WORK still overrides. */
-          if (e->uhd_qp >= 0 && e->uhd_tree && e->uhd_cls == 2)
-              k = 8;
-          /* Phase 14 item 25. The switched 64x64 tree at HD. */
+           * measured; N265_MAX_FRAME_WORK still overrides. Item 26
+           * raised it to twelve, below. */
+          /* Phase 14 item 25. The switched 64x64 tree at HD, and since
+           * item 26 at UHD too: item 25 read twelve frames on the UHD
+           * tree at 0.900x of item 17's eight (Meridian 2160p, auto),
+           * identical across threads. */
           if (e->uhd_qp >= 0 && e->uhd_tree && e->uhd_cls >= 1) {
               const char *t = n265_env("N265_TREE_K");
-              if (t || e->uhd_cls == 1) {
-                  k = t ? atoi(t) : 12;
-                  tree_k = 1;
-              }
+              k = t ? atoi(t) : 12;
+              tree_k = 1;
           }
       }
       /* The bit-moving history rules read coding index k - 8 as retired
@@ -4389,7 +4389,17 @@ static int job_run(void *ctx, int lane, int idx)
  * is where the gated tree is still behind today's medium (-0.63 of
  * VMAF-NEG) and rung 3 is where it has turned (+0.08), so the switch
  * belongs between them. docs/phase14.md "Item 17" has the two QPs and
- * the arithmetic. */
+ * the arithmetic.
+ *
+ * Item 26 moved it 31 -> 29 with item 24's two bounds. The per-rung read
+ * on today's binary has the gated tree ahead of the 32x32 tree at every
+ * rung on Meridian 2160p (item 17's top-rung loss is gone), so the
+ * quality bound wants it low. The clock stops it: at matched bytes the
+ * tree (with the split gate and twelve frames in flight) holds main's
+ * wall at planned 29 (Meridian, 0.98x one thread, 0.95x auto) and loses
+ * it at 25 (Chimera, 1.07x / 1.02x) and 24 (Meridian, 1.11x one
+ * thread). 26-28 weren't timed; 29 is the lowest QP that was read
+ * passing. docs/phase14.md "Item 26". */
 static int uhd_tree_qp(int cls)
 {
     static int uhd = -1, hd = -1;
