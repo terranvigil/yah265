@@ -89,6 +89,11 @@ static int g_ctb_log2 = 6;
  * `--ctu` never sets this and is never switched. */
 static int g_uhd_tree = 0;
 static int uhd_tree_qp(int cls);
+/* phase 14 item 28: the ramp's gate strength for a planned base, in
+ * 1/65536ths: 0 at or below (switch - 0.5 - ramp), 1 at or above
+ * (switch - 0.5), linear between. */
+struct n265_encoder;
+static int tree_w16_of(const struct n265_encoder *e, double base);
 /* The compiled-in threshold, in PLANNED BASE QP - which under CRF is not
  * the CRF number: n265_planned_qp adds N265_CRF_SHIFT (5.4 with cu-tree
  * on) and the frame-duration term, so `--crf 21` plans well above 21.
@@ -96,7 +101,9 @@ static int uhd_tree_qp(int cls);
  * guessed; its placement is measured, not tuned. See uhd_tree_qp() and
  * docs/phase14.md "Item 17".
  *
- * Re-placed at 29 by phase 14 item 26 (uhd_tree_qp() has the bounds). */
+ * Re-placed at 29 by phase 14 item 26 (uhd_tree_qp() has the bounds).
+ * Since item 28 it is where the tree's gates reach full strength, not a
+ * switch: the tree is kept below it and the gates ramp (N265_TREE_RAMP). */
 #define N265_UHD_QP_DEFAULT 29
 /* The same threshold for an HD-class picture (phase 14 items 22, 24 and
  * 25). The per-rung BD read would say 0 at 1080p; the clock places it
@@ -1870,9 +1877,38 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * resolution: an explicit `--ctu` is the user's and is never
      * switched. */
     e->uhd_cls = n265_preset_res_class();
+    e->tree_w16 = 65536;
+    e->tree_ramp = 0.0;
+    e->tree_base = -1.0;
     if (g_uhd_tree && e->ctb_log2 == 6) {
         e->uhd_qp = n265_planned_qp(e, 1, 0, 0);
         e->uhd_tree = e->uhd_qp >= uhd_tree_qp(e->uhd_cls);
+        /* ---- the ramp (phase 14 item 28) ------------------------------
+         *
+         * The switch above is a cliff: one CRF step of 0.01 either side of
+         * it changed the SPS, and on Meridian 2160p the file by 78%. No
+         * per-encode choice of the coding tree can be continuous in the
+         * crf, because the tree is SPS syntax and the choice is binary.
+         * So where the preset offered the tree it is KEPT at every rate,
+         * and what moves with the rate is how hard the tree's two gates
+         * act: w = 0 splits every 64x64 node (the skip gate takes only an
+         * exact-zero residual and the split gate sends every other node
+         * to its four 32x32 children), w = 1 is items 17 and 24's gates,
+         * and w runs linearly in the FLOAT planned base over the R QP
+         * below the old switch point. At or above that point the gates
+         * are today's; below it the 32x32 decisions are taken inside a
+         * 64x64 CTU (N265_AQ_POOL keeps the AQ field on the 32x32 grid
+         * there). Deterministic and the same at every thread count: under
+         * CRF and CQP w is read once, here, off the same forward estimate
+         * the switch read; under ABR dispatch_frame re-reads it off the
+         * rate factor. 0 is the switch. */
+        { const char *v = n265_env("N265_TREE_RAMP");
+          e->tree_ramp = v ? atof(v) : 4.0; }
+        if (e->tree_ramp > 0.0) {
+            e->tree_base = n265_planned_base(e);
+            e->tree_w16 = tree_w16_of(e, e->tree_base);
+            e->uhd_tree = 1;
+        }
         if (!e->uhd_tree) {
             e->ctb_log2 = 5;
             /* the tree only ever narrows here, so 7.4.3.2.1's bound can
@@ -2073,6 +2109,25 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * (sita_flat +1.52, sintel +1.23), kept for re-pricing. */
     { const char *v = n265_env("N265_QP_FRAC_FLAT");
       e->qp_frac_flat = v ? atoi(v) != 0 : 0; }
+    /* N265_AQ_POOL (phase 14 item 28): the AQ field on a 32x32 grid on
+     * the 64x64 tree (see the offset loop in dispatch_frame), and only on
+     * a tree the preset offered: an explicit --ctu 64 is the user's and
+     * codes what it did before item 28, as at item 22 */
+    { const char *v = n265_env("N265_AQ_POOL");
+      e->aq_pool = (v ? atoi(v) != 0 : 1) && e->uhd_qp >= 0; }
+    /* N265_QP_TDITHER (phase 14 item 28): where a CRF frame codes an
+     * integer base (the flat branch above), round it against a
+     * per-frame threshold instead of at .5. lround made the crf-to-rate
+     * mapping a staircase on every flat-typed frame: the whole frame
+     * moved one QP where crf + shift + duration term crossed .5, so
+     * pedestrian_1080p read 4.2% apart across --crf 24.0999 -> 24.1 and
+     * bbb 2160p 11% across 27.62 -> 27.63. With the threshold spread
+     * over [0, 1) the share of flat frames that round up IS the
+     * fraction, so the rate is continuous in the crf and the frames
+     * stay uniform (no CTU dither, which is what the flat branch
+     * refused). 0 is lround, byte for byte. */
+    { const char *v = n265_env("N265_QP_TDITHER");
+      e->qp_tdither = (v ? atoi(v) != 0 : 1) && e->crf_on && !e->abr_on; }
     e->qp_delta_on = e->mode != N265_MODE_PCM &&
                      (e->aq || e->cutree || e->qp_frac);
     e->scenecut = e->mode != N265_MODE_PCM;
@@ -2854,7 +2909,17 @@ void n265_show_config(const n265_encoder *e, FILE *f, int in_depth)
     /* phase 14 item 17: WHY this encode has the tree it has. Two `--crf`
      * values of the same clip can resolve to different SPSs, and without
      * this row the only way to see why is to read preset.c. */
-    if (e->uhd_qp >= 0)
+    const char *ramp_row = e->uhd_cls == 2 ? "  uhd tree ramp"
+                                            : "  hd tree ramp";
+    if (e->uhd_qp >= 0 && e->tree_ramp > 0.0 && e->abr_on)
+        cfg_row(f, ramp_row, "64x64 tree, gates follow the rate factor "
+                "(full from %.1f, ramp %.1f)",
+                uhd_tree_qp(e->uhd_cls) - 0.5, e->tree_ramp);
+    else if (e->uhd_qp >= 0 && e->tree_ramp > 0.0)
+        cfg_row(f, ramp_row, "64x64 tree, gates at w %.3f (planned base "
+                "%.2f, full from %.1f, ramp %.1f)", e->tree_w16 / 65536.0,
+                e->tree_base, uhd_tree_qp(e->uhd_cls) - 0.5, e->tree_ramp);
+    else if (e->uhd_qp >= 0)
         cfg_row(f, e->uhd_cls == 2 ? "  uhd tree switch"
                                    : "  hd tree switch",
                 "%s (planned qp %d %s %d)",
@@ -4431,6 +4496,30 @@ static int uhd_tree_qp(int cls)
     return hd;
 }
 
+static int tree_w16_of(const n265_encoder *e, double base)
+{
+    double top = (double)uhd_tree_qp(e->uhd_cls) - 0.5;
+    double w = (base - (top - e->tree_ramp)) / e->tree_ramp;
+    if (w < 0.0) w = 0.0;
+    if (w > 1.0) w = 1.0;
+    return (int)lround(w * 65536.0);
+}
+
+/* The planned base before the cascade and the rounding: the float the
+ * item 28 ramp reads. Same terms as n265_planned_qp below. */
+double n265_planned_base(const n265_encoder *e)
+{
+    double base = e->qp_base;
+    if (e->abr_on) {
+        base = e->rc_rf;
+    } else if (e->crf_on) {
+        double shift = 0.0;
+        if (e->cutree) { const char *v = n265_env("N265_CRF_SHIFT"); shift = v ? atof(v) : 5.4; }
+        base = e->crf + shift + e->crf_dur;
+    }
+    return base;
+}
+
 int n265_planned_qp(const n265_encoder *e, int slice_type, int b_depth,
                     int nonref)
 {
@@ -4745,6 +4834,14 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
         }
         e->rc_rf = n265_rc_next(e, fw->rc_cls, fw->rc_cplx, ctf);
         fw->rc_planned = e->rc.last_planned;
+        /* item 28: under ABR there is no planned base at open (the rate
+         * factor is solved from the first window here), so the ramp's
+         * strength follows the rate factor frame by frame. It is
+         * continuous in it, so it cannot make a step of its own, and it
+         * is taken on the driver in dispatch order like the rate factor
+         * itself. The coding tree was already kept at open. */
+        if (e->tree_ramp > 0.0 && e->uhd_qp >= 0)
+            e->tree_w16 = tree_w16_of(e, e->rc_rf);
         /* the planned intra offset is already inside the answer above (rc.c);
          * it is carried on the frame so the measured operating point can take
          * it back out when the frame retires */
@@ -4757,6 +4854,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
         fw->vbv_allow = e->rc.last_vbv_allow;
         fw->vbv_dqp = e->rc.last_vbv_dqp;
     }
+    fw->tree_w16 = e->tree_w16;     /* item 28, fixed at open but ABR */
     /* frame-type QP ladder (the matched reference applies its ip/pb
      * ratios in CQP mode too): I anchors lower, non-ref B higher */
     /* CRF (yah264's final form, written for this encoder): a constant base per
@@ -4935,6 +5033,23 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
         fw->qp_forced = 1;
     }
     int qi = (int)lround(base);
+    /* item 28: the integer base of a CRF frame without the fraction is
+     * rounded against a threshold from a low-discrepancy sequence rather
+     * than at .5. The sequence runs PER FRAME CLASS (I, P, and each B
+     * depth), counted in coding order on the driver, so within every
+     * class the share of frames rounded up tracks the fraction however
+     * the classes interleave, and a class's heavy frames are not left
+     * to where one global sequence happens to put them. Coding order is
+     * the same at every thread count, so the thresholds are too. */
+    if (!frac_on && !fw->qp_forced && e->qp_tdither) {
+        int cls = slice_type == 2 ? 0 : slice_type == 1 ? 1
+                : 2 + (fw->b_depth < 1 ? 0 : fw->b_depth > 4 ? 3
+                                           : fw->b_depth - 1);
+        int n = ++e->tdither_n[cls];
+        double d = (double)n * 0.6180339887498949 + 0.5;
+        d -= floor(d);
+        qi = (int)floor(base + d);
+    }
     double qfrac = frac_on ? base - (double)qi : 0.0;
     int q = qi + cascade;
     /* --qpmin / --qpmax: the hard bounds, after everything that decides.
@@ -5063,7 +5178,17 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
         else if (e->aq) {
             int ctb = 1 << fw->ctb_log2;
             int nctu = fw->ctb_cols * fw->ctb_rows;
-            double *lv = malloc((size_t)nctu * sizeof(double));
+            /* N265_AQ_POOL (phase 14 item 28): on the 64x64 tree the AQ
+             * field is read on a 32x32 grid, the one the 32x32 tree reads,
+             * and each 64x64 CTU takes the offset whose rate matches its
+             * four quarters' (see the offset loop). At 1 the grid is the
+             * CTU, as before. */
+            int pool = e->aq_pool && fw->ctb_log2 == 6;
+            int g = pool ? 32 : ctb;
+            int gcols = pool ? (fw->pad_w + 31) >> 5 : fw->ctb_cols;
+            int grows = pool ? (fw->pad_h + 31) >> 5 : fw->ctb_rows;
+            int ng = gcols * grows;
+            double *lv = malloc((size_t)ng * sizeof(double));
             double avg = 0;
             /* The flat-frame protecting sign's second field and its content
              * census (N265_AQ_FLAT_THR, phase 10 item 3; see the flat branch
@@ -5074,7 +5199,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
             double avg_v = 0;
             long fine_hi = 0;           /* CTUs whose `fine` is outline-sized */
             if (e->aq_flat_sign != 0.0f && e->aq_signal) {
-                lvv = malloc((size_t)nctu * sizeof(double));
+                lvv = malloc((size_t)ng * sizeof(double));
                 if (!lvv) lvv = lv;
             }
             /* N265_AQ_FLOOR: a floor on the CTU variance the AQ field is
@@ -5111,11 +5236,11 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
             { const char *v = n265_env("N265_AQ_FLOOR");
               if (v) vfloor = atof(v) * (double)(1 << (2 * BIT_DEPTH_SHIFT)); }
             double avg_dc = 0;      /* the same field WITHOUT the floor */
-            for (int cy = 0; cy < fw->ctb_rows; cy++)
-                for (int cx = 0; cx < fw->ctb_cols; cx++) {
-                    int x0 = cx * ctb, y0 = cy * ctb;
-                    int w = x0 + ctb > fw->pad_w ? fw->pad_w - x0 : ctb;
-                    int h = y0 + ctb > fw->pad_h ? fw->pad_h - y0 : ctb;
+            for (int cy = 0; cy < grows; cy++)
+                for (int cx = 0; cx < gcols; cx++) {
+                    int x0 = cx * g, y0 = cy * g;
+                    int w = x0 + g > fw->pad_w ? fw->pad_w - x0 : g;
+                    int h = y0 + g > fw->pad_h ? fw->pad_h - y0 : g;
                     int64_t s1 = 0, s2 = 0;
                     for (int y = y0; y < y0 + h; y++)
                         for (int x = x0; x < x0 + w; x++) {
@@ -5140,9 +5265,9 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                     if (lvv != lv) {
                         double vv = var < 0.0 ? 0.0 : var;
                         if (vv < vfloor) vv = vfloor;
-                        lvv[cy * fw->ctb_cols + cx] =
+                        lvv[cy * gcols + cx] =
                             log2(vv + (double)(1 << (2 * BIT_DEPTH_SHIFT)));
-                        avg_v += lvv[cy * fw->ctb_cols + cx];
+                        avg_v += lvv[cy * gcols + cx];
                     }
                     /* N265_AQ_SIGNAL=1 (phase 7 M1'): the per-CTU signal
                      * becomes `fine` - the CTU's full-resolution variance
@@ -5201,13 +5326,13 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                         var >= AQ_FLAT_HI * (double)(1 << (2 * BIT_DEPTH_SHIFT)))
                         fine_hi++;
                     if (var < vfloor) var = vfloor;
-                    lv[cy * fw->ctb_cols + cx] =
+                    lv[cy * gcols + cx] =
                         log2(var + (double)(1 << (2 * BIT_DEPTH_SHIFT)));
-                    avg += lv[cy * fw->ctb_cols + cx];
+                    avg += lv[cy * gcols + cx];
                 }
-            avg /= nctu;
-            avg_dc /= nctu;
-            if (lvv != lv) avg_v /= nctu;
+            avg /= ng;
+            avg_dc /= ng;
+            if (lvv != lv) avg_v /= ng;
             /* Under CRF the frame mean of the AQ field is the across-frame /
              * across-shot allocation term (yah264 row 10, 2026-09-05): a busy
              * frame codes a little cheaper, a quiet one a little better. It
@@ -5333,7 +5458,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
              * is the one place that can move it. */
             const double *fld = lv;
             double favg = avg;
-            double fshare = nctu ? 100.0 * (double)fine_hi / nctu : 0.0;
+            double fshare = ng ? 100.0 * (double)fine_hi / ng : 0.0;
             if (fw->flat) {
                 aqc = 0.0;
                 const char *v = n265_env("N265_AQ_CLAMP_FLAT");
@@ -5392,7 +5517,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                  * frame's log2-variance spread reaches, and how much of
                  * it the clamp is already eating */
                 double mn = 1e9, mx = -1e9, sd = 0, lo = 0, hi = 0;
-                for (int i = 0; i < nctu; i++) {
+                for (int i = 0; i < ng; i++) {
                     if (fld[i] < mn) mn = fld[i];
                     if (fld[i] > mx) mx = fld[i];
                     sd += (fld[i] - favg) * (fld[i] - favg);
@@ -5405,17 +5530,41 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                  * reads (0 unless N265_AQ_FLAT_SIGN arms the census) */
                 fprintf(stderr,
                         "AQT,%d,%d,%d,%.3f,%.3f,%.3f,%.3f,%.4f,%.4f,%d,%.2f\n",
-                        fw->display_idx, slice_type, nctu, favg, mn, mx,
-                        sqrt(sd / nctu), lo / nctu, hi / nctu,
+                        fw->display_idx, slice_type, ng, favg, mn, mx,
+                        sqrt(sd / ng), lo / ng, hi / ng,
                         fw->flat ? 1 : 0, fshare);
             }
             /* N265_CT_QPW: the share of the cu-tree field that reaches the
              * QP, on cutree_str's scale. 1.0 at the default. */
             double ctqpw = n265_ct_qp_scale(e);
             for (int i = 0; i < nctu; i++) {
-                double off = aqs * (fld[i] - favg);
-                if (off > aqc) off = aqc;
-                else if (off < -aqc) off = -aqc;
+                double off;
+                if (pool) {
+                    /* the rate-equivalent pool: the one QP whose step
+                     * spends what the four quarters' steps would, bits
+                     * going as 2^(-qp/6). A plain mean of the log-variance
+                     * reads a mixed CTU as its busiest quarter and codes
+                     * the flat three a step or more coarser: on Meridian
+                     * 2160p at --crf 20.82 the tree with every node split
+                     * wrote 4.30 MB on the CTU's own field and 4.86 MB
+                     * pooled, against the 32x32 tree's 5.23 MB */
+                    int ccx = i % fw->ctb_cols, ccy = i / fw->ctb_cols;
+                    double s = 0.0;
+                    int n = 0;
+                    for (int sy = 2 * ccy; sy < 2 * ccy + 2 && sy < grows; sy++)
+                        for (int sx = 2 * ccx; sx < 2 * ccx + 2 && sx < gcols; sx++) {
+                            double o = aqs * (fld[sy * gcols + sx] - favg);
+                            if (o > aqc) o = aqc;
+                            else if (o < -aqc) o = -aqc;
+                            s += exp2(-o / 6.0);
+                            n++;
+                        }
+                    off = n ? -6.0 * log2(s / n) : 0.0;
+                } else {
+                    off = aqs * (fld[i] - favg);
+                    if (off > aqc) off = aqc;
+                    else if (off < -aqc) off = -aqc;
+                }
                 int o;
                 if (e->qp_round1) {
                     off += ctqpw * fw->ctu_qp_raw[i];

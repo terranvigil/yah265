@@ -181,6 +181,7 @@
 #define n265_mv_warm                 n265_mv_warm_10
 #define n265_pcm_bits_per_frame      n265_pcm_bits_per_frame_10
 #define n265_planned_qp              n265_planned_qp_10
+#define n265_planned_base            n265_planned_base_10
 #define n265_pred_dc                 n265_pred_dc_10
 #define n265_preset_res_class        n265_preset_res_class_10
 #define n265_preset_row              n265_preset_row_10

@@ -6992,7 +6992,10 @@ static int cb64_gate_try(struct n265_frame_work *e, int x0, int y0,
     uint64_t ssd = cu_area_ssd(e, x0, y0, n);
     *ssd_out = ssd;
     *thr_out = thr;
-    if (ssd * 1024u > (uint64_t)cb64_skipgate() * thr)
+    /* item 28: the ramp scales the bound; at w = 0 only an exact-zero
+     * residual passes */
+    if (ssd * 1024u * 65536u > (uint64_t)cb64_skipgate() *
+                               (uint64_t)e->tree_w16 * thr)
         return 0;
     est_state adv = { e->est_ctx, 0 };
     n265_est_advance_cu(e, &adv, x0, y0, log2n);
@@ -7172,7 +7175,8 @@ static uint64_t quadtree_inner(struct n265_frame_work *e, int x0, int y0,
          * the split trial runs alone, from the same restored state the
          * split arm below starts from */
         if (cb64_splitgate() &&
-            g_ssd * 1024u >= (uint64_t)cb64_splitgate() * g_thr) {
+            g_ssd * 1024u * 65536u >= (uint64_t)cb64_splitgate() *
+                                      (uint64_t)e->tree_w16 * g_thr) {
             if (g_cb64p_on)
                 g_cb64p.split_gated++;
             uint32_t b1g = n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + split_inc],
