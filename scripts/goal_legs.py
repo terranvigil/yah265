@@ -682,6 +682,9 @@ def main():
     t1 = tier == "t1"
 
     ladders = json.load(open(os.path.join(ROOT, "scripts/ladders.json")))
+    # clips outside tests/corpus (the 4K clip) keep their rungs apart, so
+    # the scripts that walk every ladders.json key never meet them
+    ladders.update(json.load(open(os.path.join(ROOT, "scripts/ladders_extra.json"))))
     sel = os.environ.get("CLIPS", "")
     clips = sel.split(",") if sel else list(ladders)
     missing = [c for c in clips if c not in ladders
