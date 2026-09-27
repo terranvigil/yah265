@@ -70,6 +70,9 @@ CSV = os.path.join(ROOT, "docs", "data", "vbr-longform.csv")
 MAXR = float(os.environ.get("MAXR", "1.5"))
 BUFR = float(os.environ.get("BUFR", "2.0"))
 ENC_THREADS = os.environ.get("ENC_THREADS", "6")
+# ours is byte-identical at every thread count, so a share smaller than
+# x265's anchors' can re-read our arm without re-encoding theirs
+OUR_THREADS = os.environ.get("OUR_THREADS", ENC_THREADS)
 VMAF_THREADS = os.environ.get("VMAF_THREADS", "5")
 VBV_INIT = 0.9
 
@@ -205,7 +208,7 @@ def enc_cmd(arm, mode, q, src, out):
     c += ["--aq", "1", "--cutree", "1"]
     if arm == "ours20":
         c += ["--rc-lookahead", "20"]
-    c += ["--threads", ENC_THREADS, "-o", out]
+    c += ["--threads", OUR_THREADS, "-o", out]
     return c
 
 

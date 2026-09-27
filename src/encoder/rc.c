@@ -179,7 +179,32 @@ void n265_rc_open(struct n265_encoder *e)
     rc->igain = abr_tunable("N265_ABR_IGAIN", 0.085);
     rc->imax = abr_tunable("N265_ABR_IMAX", 8.0);
     rc->fbmax = abr_tunable("N265_ABR_FBMAX", 6.0);
-    rc->fbup = abr_tunable("N265_ABR_FBUP", rc->fbmax);
+    /* THE VBR PROFILE (phase 14 item 29): under a buffer, two of this
+     * loop's constants take different defaults, and nothing else moves.
+     *
+     * The loop was tuned on 120-frame clips, where the file has to land
+     * inside a few seconds and a 6-frame horizon with a 6 QP rail is what
+     * does it. On a real title at 60 fps that horizon is a tenth of a
+     * second, and every heavy stretch pins the coarse rail: Meridian
+     * 720p at 181k codes ten seconds of its opening at QP 50, where the
+     * bits no longer answer the quantiser (240 frames of that content
+     * cost 59 kB at QP 51 against 81 kB at 45) and VMAF-NEG falls to 40.
+     * Under a VBV the buffer is what bounds a local overspend, so the
+     * coarse rail can be short: 1.5 QP over the measured operating point.
+     * The error it no longer brakes on is paid later, where the content
+     * is lighter and a QP is cheaper.
+     *
+     * The second is the intra offset from the frame's own cu-tree term
+     * (N265_ABR_IOFF_CT, below), which the allocator prices. It was
+     * refused for ABR on the CIF-7 BD, and it stays off there; on the
+     * long segments it is the part of the term's allocation the loop can
+     * have without losing the file size.
+     *
+     * Without --vbv-maxrate both keep their ABR defaults, so plain ABR,
+     * and CRF and CQP (which never reach this function's answer), are
+     * byte-identical to main. docs/phase14.md, item 29. */
+    int vbr = e->abr_on && e->vbv.on;
+    rc->fbup = abr_tunable("N265_ABR_FBUP", vbr ? 1.5 : rc->fbmax);
     rc->planerr = (int)abr_tunable("N265_ABR_PLANERR", 0);
     rc->w_mem = abr_tunable("N265_ABR_WMEM", 1000.0);
     rc->meas = (int)abr_tunable("N265_ABR_MEAS", 1);
@@ -193,7 +218,7 @@ void n265_rc_open(struct n265_encoder *e)
     rc->openi = (int)abr_tunable("N265_ABR_OPENI", 0);
     rc->ctf_comp = (int)abr_tunable("N265_ABR_CTF", 1);
     rc->ioff = abr_tunable("N265_ABR_IOFF", 0.0);
-    rc->ioff_ct = abr_tunable("N265_ABR_IOFF_CT", 0.0);
+    rc->ioff_ct = abr_tunable("N265_ABR_IOFF_CT", vbr ? 1.0 : 0.0);
     rc->ioff_max = abr_tunable("N265_ABR_IOFF_MAX", 6.0);
     /* How much of this loop's own feedback a PLANNED frame still carries
      * (twopass.h). The plan is written from what pass 1 really spent, so
