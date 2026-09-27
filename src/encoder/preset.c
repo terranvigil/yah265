@@ -318,6 +318,14 @@ static const struct kv med_tab[] = {
      * backwards. The compiled-in default is 0, so fast and faster are
      * untouched and `--no-weightp` is the escape. */
     { "N265_WEIGHTP",    "1" },
+    /* phase 14 item 30: the 2Nx2N merge pick prices the index it will
+     * write, as the PU search already does. At a high QP most CUs are
+     * skips and the index is most of what a skip costs: on the Meridian
+     * 720p window at QP 51 merge signalling was 70% of the stream. The
+     * compiled-in default is 0, so fast, slow and slower are untouched
+     * and `N265_MERGE_PICK_RATE=0` is the escape. docs/phase14.md
+     * "Item 30". */
+    { "N265_MERGE_PICK_RATE", "1" },
     /* There is NO `N265_NR_INTRA` / `N265_NR_INTER` row, and item 6b is
      * why that is worth saying out loud here. Item 6 recommended
      * `--nr-intra 100 --nr-inter 100` for this table off a five-clip

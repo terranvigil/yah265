@@ -158,12 +158,48 @@ typedef struct {
     struct n265_frame_work *e;
 } cbit_emit;
 
+static int cbit_class(const struct n265_frame_work *e, int ctx_idx)
+{
+    if (ctx_idx >= CTX_LAST_X && ctx_idx < CTX_SAO_MERGE)
+        return e->cbit_bucket == N265_CB_Y ? N265_SE_RESY : N265_SE_RESC;
+    if (ctx_idx < CTX_PART_MODE)
+        return N265_SE_SPLIT;
+    if (ctx_idx < CTX_PREV_INTRA)
+        return N265_SE_PMODE;
+    if (ctx_idx < CTX_CBF_LUMA)
+        return N265_SE_INTRA;
+    if (ctx_idx < CTX_LAST_X)
+        return N265_SE_CBF;
+    if (ctx_idx < CTX_CU_SKIP)
+        return N265_SE_SAO;
+    if (ctx_idx < CTX_PRED_MODE)
+        return N265_SE_SKIP;
+    if (ctx_idx == CTX_PRED_MODE)
+        return N265_SE_PMODE;
+    if (ctx_idx < CTX_RQT_ROOT_CBF)
+        return N265_SE_MERGE;
+    if (ctx_idx == CTX_RQT_ROOT_CBF)
+        return N265_SE_CBF;
+    if (ctx_idx < CTX_TSPLIT)
+        return N265_SE_MOTION;
+    if (ctx_idx < CTX_CU_QP)
+        return N265_SE_TSPLIT;
+    if (ctx_idx < CTX_REF_IDX)
+        return N265_SE_QP;
+    if (ctx_idx < CTX_CU_TQ_BYPASS)
+        return N265_SE_MOTION;
+    return N265_SE_OTHER;
+}
+
 static void cbit_bin(void *h, int ctx_idx, int bin)
 {
     cbit_emit *t = h;
     const cabac_ctx_t *c = &t->e->ctx[ctx_idx];
-    t->e->cbit[t->e->cbit_bucket] += bin == c->mps
+    uint64_t b = bin == c->mps
         ? n265_est_bits_mps[c->state] : n265_est_bits_lps[c->state];
+    t->e->cbit[t->e->cbit_bucket] += b;
+    t->e->cbit_se_last = cbit_class(t->e, ctx_idx);
+    t->e->cbit_se[t->e->cbit_se_last] += b;
     t->inner.bin(t->inner.h, ctx_idx, bin);
 }
 
@@ -171,6 +207,7 @@ static void cbit_bypass(void *h, int bin)
 {
     cbit_emit *t = h;
     t->e->cbit[t->e->cbit_bucket] += 256;
+    t->e->cbit_se[t->e->cbit_se_last] += 256;
     t->inner.bypass(t->inner.h, bin);
 }
 
@@ -178,6 +215,7 @@ static void cbit_bypass_bits(void *h, uint32_t v, int n)
 {
     cbit_emit *t = h;
     t->e->cbit[t->e->cbit_bucket] += (uint64_t)n << 8;
+    t->e->cbit_se[t->e->cbit_se_last] += (uint64_t)n << 8;
     t->inner.bypass_bits(t->inner.h, v, n);
 }
 
