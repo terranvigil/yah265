@@ -43,7 +43,6 @@
  * names 20 outright and stays the encoder it was measured as. */
 #define LA_DEPTH_MAX 32     /* --rc-lookahead clamp (20 before 2026-09-12) */
 #define LA_MAX (LA_DEPTH_MAX + 2 + 8 + 15)  /* + K + N265_MAX_BFRAMES */
-#define LA_MAX_CTUS 8160    /* 4K at CTB 32 */
 /* `--shot-window`'s bound. Not a quality limit - it is a MEMORY one: the
  * queue holds one padded source picture per slot, which is 3.1 MB at
  * 1080p, so 300 slots is a gigabyte of lookahead and nothing about a
