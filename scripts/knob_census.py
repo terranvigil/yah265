@@ -143,6 +143,11 @@ DEFAULT_OVERRIDES = {
     # take their own defaults; plain ABR keeps the old ones.
     "N265_ABR_FBUP": "1.5 under a VBV, else = N265_ABR_FBMAX",
     "N265_ABR_IOFF_CT": "1.0 under a VBV, else 0",
+    # phase 14 item 29 step 2: the brake and the flat-frame rule, ABR with
+    # a VBV only; the cut prediction, ABR only.
+    "N265_VBV_BRAKE": "1 under --bitrate with a VBV, else 0",
+    "N265_ABR_FLATC": "17.0 under a VBV, else 0",
+    "N265_VBV_SCPRED": "0.5 under --bitrate, else 1.0",
     # `int k = v ? atoi(v) : (e->bframes >= 2 ? 6 : 4);`, nine lines under
     # the read: two defaults, and which one ships depends on a flag
     "N265_MAX_FRAME_WORK": "6 with --bframes >= 2, else 4",

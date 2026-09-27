@@ -98,6 +98,7 @@
 #define n265_entropy_warm            n265_entropy_warm_10
 #define n265_env                     n265_env_10
 #define n265_est_advance_cu          n265_est_advance_cu_10
+#define n265_est_ctu_bits            n265_est_ctu_bits_10
 #define n265_est_bits_lps            n265_est_bits_lps_10
 #define n265_est_bits_mps            n265_est_bits_mps_10
 #define n265_est_mode                n265_est_mode_10

@@ -924,6 +924,21 @@ typedef struct n265_frame_work {
     double vbv_allow;       /* the most the buffer could pay for */
     double vbv_dqp;         /* the QP the clamp added to the base; 0 where the
                              * plan already fitted */
+    /* THE BRAKE (phase 14 item 29 step 2): the VBV's check inside the
+     * picture, ABR with a buffer only. `brk_cw` is the lookahead's
+     * complexity map as a per-row cumulative share of the picture (the
+     * whole picture sums to 1), written at dispatch. `brk_ca` and
+     * `brk_ce` are per-row cumulative estimated bits, as coded and at
+     * the unbraked QP, written by the row job CTU by CTU. The brake at
+     * CTU (r, c) reads only the wavefront staircase - row r - k's
+     * [0, c + k + 1) - which the lag has already made final, so its
+     * answer is the same at every thread count. See vbv_brake. */
+    int brk_on;
+    double brk_plan;        /* the frame's planned bits (the clamp's) */
+    double brk_lim;         /* the bits the buffer can pay for */
+    double brk_ratio;       /* coded bits per estimated bit, per class */
+    float *brk_cw, *brk_ca, *brk_ce;    /* nctu each, row-cumulative */
+    int8_t *brk_dq;         /* nctu: the QP the brake added to each CTU */
     double shot_off;      /* --shot-window: this frame's shot plan, in QP
                              * steps, already inside rc_base. 0 with the
                              * mode off, which is every default encode. */

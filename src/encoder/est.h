@@ -103,6 +103,13 @@ struct n265_frame_work;
 void n265_est_advance_cu(struct n265_frame_work *e, est_state *st, int x0,
                          int y0, int log2n);
 
+/* The committed CTU (ctb_x, ctb_y), whose records start at `rec_start`,
+ * priced through a COPY of the estimator's contexts: its Q8 bits, with no
+ * state of the analysis moved. The VBV brake's size estimate (phase 14
+ * item 29); SAO is not in it. */
+uint32_t n265_est_ctu_bits(struct n265_frame_work *e, int ctb_x, int ctb_y,
+                           size_t rec_start);
+
 /* entropy.c: part_mode for an inter CU (9.3.3.7, Table 9-34), shared by
  * the real emit and the mode decision's cost model */
 void n265_write_part_mode(struct n265_frame_work *e, const res_ops *ops,

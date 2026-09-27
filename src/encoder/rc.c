@@ -251,6 +251,15 @@ void n265_rc_open(struct n265_encoder *e)
      * from there (rc.h); its decay is per OBSERVATION OF ITS OWN CLASS, so
      * on a 4-class cadence sixteen of them is about sixty frames */
     rc->vdecay = abr_tunable("N265_VBV_DECAY", 0.0625);
+    /* the brake and the cut prediction are ABR-with-a-buffer only, so
+     * capped CRF keeps main's clamp to the bit (phase 14 item 29) */
+    rc->brake = e->abr_on && e->vbv.on
+                    ? (int)abr_tunable("N265_VBV_BRAKE", 1) : 0;
+    rc->brk_gain = abr_tunable("N265_VBV_BRAKE_K0", 0.05);
+    rc->flatc = e->abr_on && e->vbv.on ? abr_tunable("N265_ABR_FLATC", 17.0)
+                                       : 0.0;
+    rc->brk_fill = abr_tunable("N265_VBV_BRAKE_FILL", 0.9);
+    rc->scpred = e->abr_on ? abr_tunable("N265_VBV_SCPRED", 0.5) : 1.0;
     for (int i = 0; i < RC_CLASSES; i++)
         rc->vscale[i] = rc->scale[i];
     rc->trace = n265_env("N265_RC_TRACE") != NULL;
@@ -282,7 +291,7 @@ static double rc_vweight(n265_rc *rc, int cls, double cplx, double icplx)
      * buffer, such a frame is priced as the intra frame it will be. The
      * allocator is left alone: there the cap is the right answer, because
      * what it allocates is a share and not a bound. */
-    if (cls != RC_I && icplx > 0.0 && cplx >= icplx)
+    if (cls != RC_I && icplx > 0.0 && cplx >= rc->scpred * icplx)
         cls = RC_I;
     double w = rc->vscale[cls] * rc->nblk * pow(cplx / rc->nblk, rc->qcomp);
     double a = rc_weight(rc, cls, cplx);
@@ -1027,7 +1036,17 @@ void n265_rc_done(struct n265_encoder *e, int cls, double cplx, double rf_used,
      * rides every branch below, hold included, because a level over a
      * different frame set than cplxr's is not a level at all. */
     double cx = c * exp2(-ctf / 6.0);
-    if (rc->copen && cls == RC_I && rc->n_coded == 0) {
+    /* A frame at the lookahead's complexity floor - black, a still card -
+     * costs its few hundred bits of overhead at any quantiser, so `bits x
+     * qscale` there measures the quantiser and not the content. Chimera
+     * opens on five seconds of black: counted, they walk the operating
+     * point from 21.7 to 1.3 and the first picture after the cut is
+     * planned at QP 13 (phase 14 item 29). They still count as spending
+     * in the budget error below; they are only kept out of the point. */
+    int flat = rc->flatc > 0.0 && cplx < rc->flatc * rc->nblk;
+    if (flat) {
+        /* not evidence */
+    } else if (rc->copen && cls == RC_I && rc->n_coded == 0) {
         /* The opening IDR is HELD, not counted.
          *
          * It is forced - every sequence starts on one - so on its own it says
