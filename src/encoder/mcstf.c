@@ -12,6 +12,7 @@
 #include <string.h>
 
 #include "encoder/encoder.h"
+#include "encoder/mc.h"
 #include "encoder/mcstf.h"
 #include "encoder/preset.h"
 #include "encoder/satd.h"
@@ -128,6 +129,10 @@ int n265_mcstf_trace(void)
 
 /* ---- the queue ------------------------------------------------------ */
 
+/* the normal-shape table's reach: exp(-t^2 / 2) for t in 64ths of a
+ * width, out to four widths, past which a sample weighs nothing */
+#define N265_MCSTF_GN 256
+
 typedef struct mc_pic {
     pixel *buf[3];          /* the padded allocation                     */
     pixel *org[3];          /* sample (0, 0) of the displayed picture    */
@@ -162,6 +167,21 @@ struct n265_mcstf {
     int bw, bh;
     int last_filtered, last_noise_q8;
     uint16_t gauss[1 << 9]; /* the photometric weight, Q8, by |d|        */
+    /* the noise-adaptive weighting (model 2), resolved at open */
+    int model;
+    int keyint;
+    double qp;
+    double sharp;           /* photometric width, in noise deviations   */
+    double smin;            /* its floor, 8-bit levels                   */
+    double pic_cap;         /* the picture reading's cap, in deviations  */
+    double rho0, rho1;      /* the block-error knee and slope            */
+    double sub_thr;         /* subpel above this integer MAE, levels     */
+    double cut;             /* the one-sided ratio that calls a cut      */
+    int str_q8;             /* the neighbours' overall strength          */
+    double sigma_pic;       /* this picture's noise reading, levels      */
+    int last_side;          /* 0 both, 1 future only, 2 past only        */
+    uint32_t *bsad;         /* integer SAD per (neighbour, block)        */
+    uint16_t gnorm[N265_MCSTF_GN + 1]; /* exp(-t^2/2), Q8, t in 1/64 */
 };
 
 /* The temporal strengths, Q8, by distance in pictures. The further
@@ -206,8 +226,54 @@ static void pad_plane(pixel *org, int stride, int w, int h, int pad)
     }
 }
 
+/* a knob read once at open, on the driver: the value is the filter's for
+ * the whole encode */
+static double knob_clamp(double d, double lo, double hi)
+{
+    return d < lo ? lo : d > hi ? hi : d;
+}
+
+static void resolve_model2(n265_mcstf *m)
+{
+    const char *s;
+    s = n265_env("N265_MCSTF_MODEL");
+    m->model = s ? atoi(s) : 2;
+    s = n265_env("N265_MCSTF_SHARP");
+    m->sharp = knob_clamp(s ? atof(s) : 2.0, 0.0, 16.0);
+    s = n265_env("N265_MCSTF_SMIN");
+    m->smin = knob_clamp(s ? atof(s) : 0.25, 0.05, 16.0);
+    s = n265_env("N265_MCSTF_PICCAP");
+    m->pic_cap = knob_clamp(s ? atof(s) : 2.0, 0.0, 64.0);
+    s = n265_env("N265_MCSTF_RHO0");
+    m->rho0 = knob_clamp(s ? atof(s) : 2.0, 0.0, 1e6);
+    s = n265_env("N265_MCSTF_RHO1");
+    m->rho1 = knob_clamp(s ? atof(s) : 2.0, 0.01, 1e6);
+    s = n265_env("N265_MCSTF_SUBPEL");
+    m->sub_thr = s ? atof(s) : 2.0;
+    s = n265_env("N265_MCSTF_CUT");
+    m->cut = knob_clamp(s ? atof(s) : 3.0, 0.0, 1e6);
+    s = n265_env("N265_MCSTF_STR");
+    m->str_q8 = (int)(knob_clamp(s ? atof(s) : 1.0, 0.0, 4.0) * 256.0 + 0.5);
+    {
+        const char *r = n265_env("N265_MCSTF_QPREF");
+        const char *l = n265_env("N265_MCSTF_QPSLOPE");
+        double ref = r ? atof(r) : 32.0;
+        double slope = l ? atof(l) : 12.0;
+        /* the width opens by 2^((qp - ref) / slope), within a factor of
+         * four either way; slope 0 holds it at the reference */
+        double f = slope > 0.0 ? pow(2.0, (m->qp - ref) / slope) : 1.0;
+        m->sharp *= knob_clamp(f, 0.25, 4.0);
+    }
+    for (int t = 0; t <= N265_MCSTF_GN; t++) {
+        double x = t / 64.0;
+        double g = 256.0 * exp(-0.5 * x * x);
+        m->gnorm[t] = (uint16_t)(g + 0.5);
+    }
+    m->gnorm[N265_MCSTF_GN] = 0;
+}
+
 n265_mcstf *n265_mcstf_open(int w, int h, int csx, int csy, int range,
-                            int selective)
+                            int selective, double qp, int keyint)
 {
     const int pad = N265_MCSTF_PAD;
     n265_mcstf *m = calloc(1, sizeof(*m));
@@ -219,6 +285,8 @@ n265_mcstf *n265_mcstf_open(int w, int h, int csx, int csy, int range,
     m->csy = csy;
     m->range = range;
     m->selective = selective;
+    m->qp = qp;
+    m->keyint = keyint;
     m->cap = 2 * range + 1;
     m->cw = (w + N265_MCSTF_SUB - 1) / N265_MCSTF_SUB;
     m->ch = (h + N265_MCSTF_SUB - 1) / N265_MCSTF_SUB;
@@ -227,7 +295,9 @@ n265_mcstf *n265_mcstf_open(int w, int h, int csx, int csy, int range,
     m->p = calloc((size_t)m->cap, sizeof(*m->p));
     m->mv = calloc((size_t)m->bw * m->bh * 2 * m->cap, sizeof(*m->mv));
     m->berr = calloc((size_t)m->bw * m->bh * m->cap, sizeof(*m->berr));
-    if (!m->p || !m->mv || !m->berr) {
+    m->bsad = calloc((size_t)m->bw * m->bh * m->cap, sizeof(*m->bsad));
+    resolve_model2(m);
+    if (!m->p || !m->mv || !m->berr || !m->bsad) {
         n265_mcstf_close(m);
         return NULL;
     }
@@ -293,6 +363,7 @@ void n265_mcstf_close(n265_mcstf *m)
         free(m->out_buf[c]);
     free(m->mv);
     free(m->berr);
+    free(m->bsad);
     free(m);
 }
 
@@ -430,7 +501,7 @@ static int mcstf_noise(const n265_mcstf *m, const mc_pic *p)
  * direction, and the one a source filter should fail in. */
 static void mc_search(const n265_mcstf *m, const mc_pic *cur,
                       const mc_pic *ref, int bx, int by, int *mvx, int *mvy,
-                      unsigned *err)
+                      unsigned *err, unsigned *sad)
 {
     const int blk = N265_MCSTF_BLK, sub = N265_MCSTF_SUB;
     int x0 = bx * blk, y0 = by * blk;
@@ -484,6 +555,7 @@ static void mc_search(const n265_mcstf *m, const mc_pic *cur,
     *mvy = fdy;
     /* the block's mean absolute error, Q4, in the coded depth's units */
     *err = (best * 16u + (unsigned)(w * h) / 2u) / (unsigned)(w * h);
+    *sad = best;
 }
 
 /* the block-error weight, Q8: half at MC_BERR_HALF levels of mean
@@ -524,8 +596,8 @@ static void mcstf_filter(n265_mcstf *m, int ci)
         for (int by = 0; by < m->bh; by++)
             for (int bx = 0; bx < m->bw; bx++) {
                 int vx, vy;
-                unsigned e;
-                mc_search(m, cur, &m->p[nbi[k]], bx, by, &vx, &vy, &e);
+                unsigned e, sd;
+                mc_search(m, cur, &m->p[nbi[k]], bx, by, &vx, &vy, &e, &sd);
                 mv[((size_t)by * m->bw + bx) * 2] = (int16_t)vx;
                 mv[((size_t)by * m->bw + bx) * 2 + 1] = (int16_t)vy;
                 be[(size_t)by * m->bw + bx] =
@@ -575,6 +647,342 @@ static void mcstf_filter(n265_mcstf *m, int ci)
     }
 }
 
+/* ---- model 2: the noise-adaptive weighting ---------------------------
+ *
+ * The item-6 filter above weighs every picture with one photometric width
+ * (6 levels) and one block-error half-life, which is right for grain and
+ * wrong for a clean picture: on clean content a neighbour that disagrees
+ * by four levels is disagreeing about the PICTURE - a sub-sample shift, a
+ * slow zoom - and averaging it in is a blur. That is where foreman and
+ * the animations lost. Model 2 asks each block how much noise it has and
+ * sets the width from the answer, so a clean block is barely touched and
+ * a noisy one is filtered as hard as before.
+ *
+ * THE NOISE TERM. A block's noise deviation is bounded above by three
+ * readings, each of which can only overstate it, and the block takes the
+ * smallest:
+ *   - its own Laplacian (0.89 s on a flat noisy block, more on texture);
+ *   - its best neighbour's residual, which for a perfect match is two
+ *     pictures' noise, 2 s^2 per sample, and more for any mismatch;
+ *   - a multiple of the PICTURE's noise reading, the 25th-percentile
+ *     Laplacian the selective gate already takes, which caps a block that
+ *     is both textured and badly matched at what the flat areas of the
+ *     same picture say the sensor did.
+ * A block whose best neighbour matches it exactly reads zero - an exact
+ * repeat, a still background in a clean source - and its width falls to
+ * the floor, where a difference of one level already weighs nothing. So
+ * the drawn-on-twos repeats of limited animation stay exact repeats and
+ * the still-picture invariant holds by the same arithmetic as before.
+ *
+ * THE ERROR TERM. A neighbour's mean squared residual against what the
+ * noise alone would give, rho = mse / 2 s^2. Up to a knee (2) the
+ * residual is noise and the neighbour keeps its weight; past it the
+ * weight falls as 1 / (1 + (rho - knee) / slope), so a neighbour that
+ * matched the block no better than a different picture would counts for
+ * little and the per-sample width decides the rest.
+ *
+ * THE WIDTH. sharp * sqrt(2) * s, the spread of the difference of two
+ * noisy samples times a multiple, floored at a quarter level. The
+ * multiple opens with the operating point, doubling every 12 QP above
+ * 32: at a coarse quantiser the detail a wider average costs is detail
+ * the quantiser was going to take anyway.
+ *
+ * SUBPEL where the integer match is poor: a block whose integer mean
+ * absolute error is under 2 levels is already matched to within its
+ * noise and a fractional stage buys nothing but cost. Above it, a
+ * half-sample then a quarter-sample ring, with the codec's own 8-tap
+ * interpolation, and chroma rides the same vector at its own phase.
+ *
+ * CUTS. A picture whose nearest past neighbour matches three times worse
+ * than its nearest future one (or the reverse) sits at a cut, and the
+ * far side of the cut is dropped as a whole rather than left to the
+ * block weights; a period start (--keyint) takes the future only, since
+ * nothing before it will be predicted from what it becomes. */
+
+#define MC2_B N265_MCSTF_BLK
+
+/* the block's Laplacian noise reading, in its own plane's sample units:
+ * mean |4v - up - down - left - right| / 4 over the block's samples,
+ * divided by 0.892 (mcstf_noise says why that is the deviation) */
+static double blk_lap_sigma(const pixel *o, int st, int w, int h)
+{
+    uint64_t acc = 0;
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++) {
+            const pixel *v = o + (ptrdiff_t)y * st + x;
+            int d = 4 * (int)v[0] - (int)v[-st] - (int)v[st] -
+                    (int)v[-1] - (int)v[1];
+            acc += (uint64_t)(d < 0 ? -d : d);
+        }
+    return (double)acc / (4.0 * w * h) / 0.892;
+}
+
+static void pred_luma(const mc_pic *r, int x0, int y0, int mvx, int mvy,
+                      pixel *dst)
+{
+    const pixel *src = r->org[0] + (ptrdiff_t)(y0 + (mvy >> 2)) *
+                       r->stride[0] + x0 + (mvx >> 2);
+    n265_mc_luma_wh(dst, MC2_B, MC2_B, MC2_B, src, r->stride[0], mvx & 3,
+                    mvy & 3);
+}
+
+static void pred_chroma(const n265_mcstf *m, const mc_pic *r, int c, int x0,
+                        int y0, int mvx, int mvy, pixel *dst)
+{
+    /* always the whole block, whatever of it the picture keeps: the
+     * kernels want their own widths, and the pad covers the overhang */
+    const int bw = MC2_B >> m->csx, bh = MC2_B >> m->csy;
+    /* the luma vector in quarter samples is 2 >> cs eighths of a chroma
+     * sample per step: 4:2:0 reads it as eighths directly */
+    int ex = mvx * 2 >> m->csx, ey = mvy * 2 >> m->csy;
+    const pixel *src = r->org[c] + (ptrdiff_t)(y0 + (ey >> 3)) *
+                       r->stride[c] + x0 + (ex >> 3);
+    n265_mc_chroma_wh(dst, MC2_B, bw, bh, src, r->stride[c], ex & 7, ey & 7);
+}
+
+static unsigned sad_blk(const pixel *a, int as, const pixel *b, int bs,
+                        int w, int h)
+{
+    return n265_sad_wh(a, as, b, bs, w, h);
+}
+
+/* quarter-sample refinement around an integer vector, two rings; ties
+ * go to the shorter vector as in the integer stages */
+static void subpel_refine(const mc_pic *cur, const mc_pic *ref, int x0,
+                          int y0, int w, int h, int *mvx, int *mvy,
+                          unsigned *sad)
+{
+    pixel tmp[MC2_B * MC2_B];
+    const pixel *co = cur->org[0] + (ptrdiff_t)y0 * cur->stride[0] + x0;
+    int bx = *mvx, by = *mvy;
+    unsigned best = *sad;
+    for (int step = 2; step >= 1; step--) {
+        int cx = bx, cy = by;
+        for (int dy = -step; dy <= step; dy += step)
+            for (int dx = -step; dx <= step; dx += step) {
+                if (!dx && !dy)
+                    continue;
+                int vx = cx + dx, vy = cy + dy;
+                pred_luma(ref, x0, y0, vx, vy, tmp);
+                unsigned sd = sad_blk(co, cur->stride[0], tmp, MC2_B, w, h);
+                if (sd < best || (sd == best &&
+                                  vx * vx + vy * vy < bx * bx + by * by)) {
+                    best = sd;
+                    bx = vx;
+                    by = vy;
+                }
+            }
+    }
+    *mvx = bx;
+    *mvy = by;
+    *sad = best;
+}
+
+static void mcstf_filter2(n265_mcstf *m, int ci)
+{
+    const mc_pic *cur = &m->p[ci];
+    const int nblk = m->bw * m->bh;
+    const double lv = (double)(1 << (BIT_DEPTH - 8));   /* a level */
+    int nb = 0;
+    int nbi[2 * N265_MCSTF_MAX_RANGE];
+    int nbd[2 * N265_MCSTF_MAX_RANGE];
+    int nbs[2 * N265_MCSTF_MAX_RANGE];      /* -1 past, +1 future */
+
+    for (int d = 1; d <= m->range; d++) {
+        if (ci - d >= 0) {
+            nbi[nb] = ci - d;
+            nbs[nb] = -1;
+            nbd[nb++] = d;
+        }
+        if (ci + d < m->n) {
+            nbi[nb] = ci + d;
+            nbs[nb] = 1;
+            nbd[nb++] = d;
+        }
+    }
+
+    /* integer motion for every (neighbour, block), and the per-neighbour
+     * mean error the cut test reads */
+    double esum[2 * N265_MCSTF_MAX_RANGE];
+    for (int k = 0; k < nb; k++) {
+        int16_t *mv = m->mv + (size_t)k * nblk * 2;
+        uint32_t *bs = m->bsad + (size_t)k * nblk;
+        uint64_t tot = 0;
+        for (int by = 0; by < m->bh; by++)
+            for (int bx = 0; bx < m->bw; bx++) {
+                int vx, vy;
+                unsigned e, sd;
+                mc_search(m, cur, &m->p[nbi[k]], bx, by, &vx, &vy, &e, &sd);
+                mv[((size_t)by * m->bw + bx) * 2] = (int16_t)(vx * 4);
+                mv[((size_t)by * m->bw + bx) * 2 + 1] = (int16_t)(vy * 4);
+                bs[(size_t)by * m->bw + bx] = sd;
+                tot += sd;
+            }
+        esum[k] = (double)tot / ((double)m->w * m->h) / lv;
+    }
+
+    /* which side of the picture to keep */
+    int side = 0;
+    if (m->keyint > 0 && cur->display_idx % m->keyint == 0)
+        side = 1;
+    if (!side && m->cut > 0.0) {
+        double ep = -1.0, ef = -1.0;
+        for (int k = 0; k < nb; k++)
+            if (nbd[k] == 1) {
+                if (nbs[k] < 0)
+                    ep = esum[k];
+                else
+                    ef = esum[k];
+            }
+        if (ep >= 0.0 && ef >= 0.0) {
+            if (ep > m->cut * ef + 1.0)
+                side = 1;
+            else if (ef > m->cut * ep + 1.0)
+                side = 2;
+        }
+    }
+    m->last_side = side;
+    int use[2 * N265_MCSTF_MAX_RANGE];
+    for (int k = 0; k < nb; k++)
+        use[k] = !(side == 1 && nbs[k] < 0) && !(side == 2 && nbs[k] > 0);
+
+    m->sigma_pic = mcstf_noise(m, cur) / 256.0 / 0.892;
+    const double cap = m->pic_cap > 0.0 ? m->pic_cap * m->sigma_pic : 1e9;
+
+    pixel pl[2 * N265_MCSTF_MAX_RANGE][MC2_B * MC2_B];
+    pixel pc[2 * N265_MCSTF_MAX_RANGE][2][MC2_B * MC2_B];
+    int fk[2 * N265_MCSTF_MAX_RANGE];
+
+    for (int by = 0; by < m->bh; by++)
+        for (int bx = 0; bx < m->bw; bx++) {
+            const int x0 = bx * MC2_B, y0 = by * MC2_B;
+            const int w = MC2_B < m->w - x0 ? MC2_B : m->w - x0;
+            const int h = MC2_B < m->h - y0 ? MC2_B : m->h - y0;
+            const int npx = w * h;
+            const int cx0 = x0 >> m->csx, cy0 = y0 >> m->csy;
+            const int cw = (x0 + w + (1 << m->csx) - 1) / (1 << m->csx) - cx0;
+            const int chh = (y0 + h + (1 << m->csy) - 1) / (1 << m->csy) - cy0;
+            const pixel *co = cur->org[0] + (ptrdiff_t)y0 * cur->stride[0] + x0;
+            double sse[2 * N265_MCSTF_MAX_RANGE];
+            double ssec[2 * N265_MCSTF_MAX_RANGE][2];
+            double best = 1e30, bestc[2] = { 1e30, 1e30 };
+            int any = 0;
+            for (int k = 0; k < nb; k++) {
+                if (!use[k])
+                    continue;
+                any = 1;
+                const mc_pic *r = &m->p[nbi[k]];
+                int16_t *mv = m->mv + (size_t)k * nblk * 2 +
+                              ((size_t)by * m->bw + bx) * 2;
+                int vx = mv[0], vy = mv[1];
+                unsigned sd = m->bsad[(size_t)k * nblk +
+                                      (size_t)by * m->bw + bx];
+                if (m->sub_thr >= 0.0 &&
+                    (double)sd > m->sub_thr * lv * npx)
+                    subpel_refine(cur, r, x0, y0, w, h, &vx, &vy, &sd);
+                pred_luma(r, x0, y0, vx, vy, pl[k]);
+                sse[k] = (double)n265_ssd_wh(co, cur->stride[0], pl[k],
+                                             MC2_B, w, h);
+                if (sse[k] < best)
+                    best = sse[k];
+                for (int c = 1; c < 3; c++) {
+                    pred_chroma(m, r, c, cx0, cy0, vx, vy, pc[k][c - 1]);
+                    const pixel *cc = cur->org[c] +
+                        (ptrdiff_t)cy0 * cur->stride[c] + cx0;
+                    ssec[k][c - 1] = (double)n265_ssd_wh(
+                        cc, cur->stride[c], pc[k][c - 1], MC2_B, cw, chh);
+                    if (ssec[k][c - 1] < bestc[c - 1])
+                        bestc[c - 1] = ssec[k][c - 1];
+                }
+            }
+            if (!any) {
+                for (int c = 0; c < 3; c++) {
+                    int ox = c ? cx0 : x0, oy = c ? cy0 : y0;
+                    int ow = c ? cw : w, oh = c ? chh : h;
+                    for (int y = 0; y < oh; y++)
+                        memcpy(m->out[c] + (ptrdiff_t)(oy + y) *
+                               m->out_stride[c] + ox,
+                               cur->org[c] + (ptrdiff_t)(oy + y) *
+                               cur->stride[c] + ox,
+                               (size_t)ow * sizeof(pixel));
+                }
+                continue;
+            }
+            /* the block's noise deviation, luma, in sample units */
+            double s_lap = blk_lap_sigma(co, cur->stride[0], w, h);
+            double s_res = sqrt(best / (2.0 * npx));
+            double sb = s_lap < s_res ? s_lap : s_res;
+            if (sb > cap * lv)
+                sb = cap * lv;
+            /* the error term, per neighbour */
+            double den = 2.0 * sb * sb + 0.25 * lv * lv;
+            for (int k = 0; k < nb; k++) {
+                if (!use[k]) {
+                    fk[k] = 0;
+                    continue;
+                }
+                double rho = sse[k] / npx / den;
+                double f = rho <= m->rho0 ? 1.0
+                         : 1.0 / (1.0 + (rho - m->rho0) / m->rho1);
+                fk[k] = (int)(256.0 * f + 0.5);
+            }
+            for (int c = 0; c < 3; c++) {
+                double sc = sb;
+                const pixel *o;
+                int ost, ox, oy, ow, oh;
+                if (c) {
+                    ox = cx0; oy = cy0; ow = cw; oh = chh;
+                    o = cur->org[c] + (ptrdiff_t)oy * cur->stride[c] + ox;
+                    ost = cur->stride[c];
+                    double cl = blk_lap_sigma(o, ost, ow, oh);
+                    double cr = sqrt(bestc[c - 1] / (2.0 * ow * oh));
+                    sc = cl < cr ? cl : cr;
+                    if (sc > cap * lv)
+                        sc = cap * lv;
+                } else {
+                    ox = x0; oy = y0; ow = w; oh = h;
+                    o = co;
+                    ost = cur->stride[0];
+                }
+                double width = m->sharp * 1.41421356 * sc;
+                if (width < m->smin * lv)
+                    width = m->smin * lv;
+                /* t in 64ths of a width per sample of difference, Q16 */
+                uint32_t inv = (uint32_t)(64.0 * 65536.0 / width + 0.5);
+                pixel *d = m->out[c] + (ptrdiff_t)oy * m->out_stride[c] + ox;
+                for (int y = 0; y < oh; y++)
+                    for (int x = 0; x < ow; x++) {
+                        int org = o[(ptrdiff_t)y * ost + x];
+                        int wsum = 256, acc = 256 * org;
+                        for (int k = 0; k < nb; k++) {
+                            if (!fk[k])
+                                continue;
+                            int rv = c ? pc[k][c - 1][y * MC2_B + x]
+                                       : pl[k][y * MC2_B + x];
+                            int df = rv - org;
+                            if (df < 0)
+                                df = -df;
+                            uint64_t t = ((uint64_t)df * inv) >> 16;
+                            if (t >= N265_MCSTF_GN)
+                                continue;
+                            int wq = (mc_tstr[nbd[k]] * fk[k]) >> 8;
+                            wq = (wq * m->str_q8) >> 8;
+                            wq = (wq * m->gnorm[t]) >> 8;
+                            if (!wq)
+                                continue;
+                            acc += wq * rv;
+                            wsum += wq;
+                        }
+                        d[(ptrdiff_t)y * m->out_stride[c] + x] =
+                            (pixel)((acc + wsum / 2) / wsum);
+                    }
+            }
+        }
+    for (int c = 0; c < 3; c++)
+        pad_plane(m->out[c], m->out_stride[c], plane_w(m, c), plane_h(m, c),
+                  N265_MCSTF_PAD);
+}
+
 void n265_mcstf_pop(n265_mcstf *m, const pixel *plane[3], int stride[3])
 {
     int ci = m->out_pos;
@@ -588,7 +996,10 @@ void n265_mcstf_pop(n265_mcstf *m, const pixel *plane[3], int stride[3])
     }
     m->last_filtered = filt;
     if (filt) {
-        mcstf_filter(m, ci);
+        if (m->model >= 2)
+            mcstf_filter2(m, ci);
+        else
+            mcstf_filter(m, ci);
         for (int c = 0; c < 3; c++) {
             plane[c] = m->out[c];
             stride[c] = m->out_stride[c];
@@ -600,10 +1011,10 @@ void n265_mcstf_pop(n265_mcstf *m, const pixel *plane[3], int stride[3])
         }
     }
     if (n265_mcstf_trace())
-        fprintf(stderr, "mcstf %5d filt=%d noise=%.2f nb=%d\n",
+        fprintf(stderr, "mcstf %5d filt=%d noise=%.2f nb=%d side=%d\n",
                 cur->display_idx, filt,
                 m->last_noise_q8 < 0 ? -1.0 : m->last_noise_q8 / 256.0,
-                m->n - 1);
+                m->n - 1, filt ? m->last_side : -1);
     m->out_pos++;
 }
 

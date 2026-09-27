@@ -183,7 +183,10 @@ static int g_nr_intra = -1, g_nr_inter = -1;
  * same reason --film-grain-denoise is off: it changes the picture the
  * encoder codes, it costs a motion search at full resolution, and what it
  * is worth depends entirely on how noisy the source is. */
-static int g_mcstf = 0, g_mcstf_range = 2, g_mcstf_selective = 0;
+/* -1 on either is "no flag given": the filter's on/off and its range
+ * then come from N265_MCSTF / N265_MCSTF_RANGE and the preset table
+ * (phase 14 item 30), the way --weightp's does. */
+static int g_mcstf = -1, g_mcstf_range = -1, g_mcstf_selective = 0;
 /* The hypothetical decoder buffer (phase 12 item 2). 0 / 0 is off and is
  * every encode the board, the band and every gate before this item ran;
  * naming both halves arms the clamp, the level's MaxCPB leg and the HRD in
@@ -442,8 +445,9 @@ void n265_set_nr(int intra, int inter)
 void n265_set_mcstf(int on, int range, int selective);
 void n265_set_mcstf(int on, int range, int selective)
 {
-    g_mcstf = on != 0;
-    g_mcstf_range = range < 1 ? 1
+    g_mcstf = on < 0 ? -1 : on != 0;
+    g_mcstf_range = range < 0 ? -1
+                  : range < 1 ? 1
                   : range > N265_MCSTF_MAX_RANGE ? N265_MCSTF_MAX_RANGE
                                                  : range;
     g_mcstf_selective = selective != 0;
@@ -2012,15 +2016,47 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * code the source exactly, and a filtered source is not the source:
      * refused by name rather than quietly redefining what they mean, the
      * same rule --film-grain-denoise takes. */
+    int mcstf_on = g_mcstf;
+    if (mcstf_on < 0) {
+        const char *v = n265_env("N265_MCSTF");
+        mcstf_on = v ? atoi(v) != 0 : 0;
+    }
     e->mcstf_range = g_mcstf_range;
+    if (e->mcstf_range < 0) {
+        const char *v = n265_env("N265_MCSTF_RANGE");
+        int r = v ? atoi(v) : 2;
+        e->mcstf_range = r < 1 ? 1 : r > N265_MCSTF_MAX_RANGE
+                                           ? N265_MCSTF_MAX_RANGE : r;
+    }
     e->mcstf_selective = g_mcstf_selective;
-    if (g_mcstf && (e->lossless || e->mode == N265_MODE_PCM)) {
-        fprintf(stderr, "n265: --mcstf codes a FILTERED source, which "
-                "--lossless/--pcm cannot mean; off\n");
-    } else if (g_mcstf) {
+    e->mcstf_next_filt = 0;
+    {
+        const char *v = n265_env("N265_MCSTF_QPB");
+        e->mcstf_qpb = v ? atof(v) : 0.0;
+        v = n265_env("N265_MCSTF_QPB_I");
+        e->mcstf_qpb_i = v ? atoi(v) != 0 : 0;
+        v = n265_env("N265_MCSTF_CTF");
+        e->mcstf_ctf = (float)(v ? atof(v) : 1.0);
+        v = n265_env("N265_MCSTF_CTSC");
+        e->mcstf_ctsc = (float)(v ? atof(v) : 1.0);
+    }
+    if (mcstf_on && (e->lossless || e->mode == N265_MODE_PCM)) {
+        /* said only to a caller who asked by name: a preset's filter
+         * simply does not arm where the source must be coded exactly */
+        if (g_mcstf == 1)
+            fprintf(stderr, "n265: --mcstf codes a FILTERED source, which "
+                    "--lossless/--pcm cannot mean; off\n");
+    } else if (mcstf_on) {
+        /* the operating point the filter's width opens with, on the QP
+         * axis: a CRF lands about 5 QP above its number on a P anchor
+         * (N265_CRF_SHIFT's 5.4 with cu-tree), and a bitrate target has
+         * no QP until the rate control has run, so it takes the middle
+         * of the range the filter was tuned over */
+        double qp_est = e->crf_on ? e->crf + e->crf_dur + 5.0
+                      : e->abr_on ? 32.0 : (double)e->qp_base;
         e->mcstf = n265_mcstf_open(e->param.width, e->param.height,
                                    e->csx, e->csy, e->mcstf_range,
-                                   e->mcstf_selective);
+                                   e->mcstf_selective, qp_est, e->keyint);
         if (!e->mcstf)
             fprintf(stderr, "n265: --mcstf: out of memory; off\n");
     }
@@ -4929,6 +4965,12 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                     fw->ct_mean_raw, fw->ct_level, ctf,
                     (double)fw->sc_ratio, (double)fw->la_mvabs);
     }
+    /* --mcstf's coupling (phase 14 item 30): a filtered picture gets a
+     * finer quantiser. Its noise is gone, so what the bonus buys is
+     * picture, and it is paid back by every picture that predicts from
+     * it. An intra picture takes it only if N265_MCSTF_QPB_I says so. */
+    if (fw->mcstf_filt && (slice_type != 2 || e->mcstf_qpb_i))
+        base -= e->mcstf_qpb;
     /* CAPPED CRF (phase 12 item 2): the buffer's clamp, and the last thing
      * that may move the base.
      *
@@ -7327,6 +7369,7 @@ static int drive_scheduler(n265_encoder *e)
     fw->ref_valid = e->ref_valid;
     fw->shot_off = e->shot_window > 0 ? (double)f->shot_off : 0.0;
     fw->sc_ratio = f->sc_ratio;     /* lookahead pcost/icost, P3 reads it */
+    fw->mcstf_filt = f->mcstf_filt;
     fw->la_mvabs = la->bw * la->bh
                        ? (float)f->mvabs_sum / (float)(la->bw * la->bh) : 0.0f;
     fw->la_icost = f->icost;        /* the same field per CTU, R3 reads it */
@@ -7547,6 +7590,7 @@ static void mcstf_drive(n265_encoder *e, int flush)
         const pixel *pl[3];
         int st[3];
         n265_mcstf_pop(e->mcstf, pl, st);
+        e->mcstf_next_filt = n265_mcstf_last_filtered(e->mcstf);
         push_one(e, pl, st);
     }
 }

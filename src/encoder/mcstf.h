@@ -58,8 +58,11 @@
 /* Pad, in samples, on every side of every stored plane. It has to cover
  * the furthest the search can reach out of the picture: the coarse stage
  * reaches 8 coarse steps (32 samples), the refinement 4 more, and a
- * block is 16 wide. 48 covers it with room and keeps the rows aligned. */
-#define N265_MCSTF_PAD 48
+ * block is 16 wide. The weighting predicts a WHOLE 16x16 block with the
+ * 8-tap filter wherever the block starts, which adds the filter's 4
+ * samples of reach and a block that hangs up to 15 past the picture's
+ * edge: 64 covers that and keeps the rows aligned. */
+#define N265_MCSTF_PAD 64
 /* The coarse stage's subsampling, and its search radius IN COARSE STEPS.
  * 4 and 8 is +-32 samples, which at 720p is a fifth of the picture width
  * a second at 25 fps - past what a source filter has any business
@@ -73,9 +76,12 @@ typedef struct n265_mcstf n265_mcstf;
 
 /* Open the queue. `w`/`h` are the displayed luma size, `csx`/`csy` the
  * chroma shift, `range` the neighbours per side (1..4), `selective`
- * arms --selective-mcstf. Returns NULL on an allocation failure. */
+ * arms --selective-mcstf. `qp` is the encode's operating point on the
+ * QP axis (a CRF is passed as the QP it lands near), which sets how far
+ * the photometric width opens; `keyint` names the period starts, which
+ * take future neighbours only. Returns NULL on an allocation failure. */
 n265_mcstf *n265_mcstf_open(int w, int h, int csx, int csy, int range,
-                            int selective);
+                            int selective, double qp, int keyint);
 void n265_mcstf_close(n265_mcstf *m);
 
 /* Hand one source picture in, in the caller's own layout. It is copied,
