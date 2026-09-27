@@ -361,6 +361,29 @@ enum {
     N265_CB_COUNT
 };
 
+/* N265_CBIT_TRACE's second row (CBSE): the same bits by syntax element.
+ * A context-coded bin is classed by its context; a bypass bin goes to the
+ * class of the context-coded bin before it, which in this coder's syntax
+ * is always the element it belongs to (merge_idx, mvd, the intra modes,
+ * cu_qp_delta, the AMP bin, ref_idx and the residual's remainders all
+ * open with a context-coded bin). */
+enum {
+    N265_SE_SPLIT = 0,      /* split_cu_flag                          */
+    N265_SE_SKIP,           /* cu_skip_flag                           */
+    N265_SE_MERGE,          /* merge_flag, merge_idx                  */
+    N265_SE_PMODE,          /* pred_mode_flag, part_mode              */
+    N265_SE_MOTION,         /* inter_pred_idc, ref_idx, mvd, mvp flag */
+    N265_SE_INTRA,          /* intra luma and chroma modes            */
+    N265_SE_TSPLIT,         /* split_transform_flag                   */
+    N265_SE_CBF,            /* rqt_root_cbf, cbf_luma, cbf_cb/cr      */
+    N265_SE_QP,             /* cu_qp_delta                            */
+    N265_SE_RESY,           /* luma residual_coding()                 */
+    N265_SE_RESC,           /* chroma residual_coding()               */
+    N265_SE_SAO,            /* the CTU's SAO syntax                   */
+    N265_SE_OTHER,          /* cu_transquant_bypass_flag              */
+    N265_SE_COUNT
+};
+
 /* N265_CU_TRACE (phase 9 step 6a): one record per CODING-TREE NODE the
  * quadtree visits, so that where the search spends its time can be read
  * against what the CU it was spent on ended up being.
@@ -642,6 +665,8 @@ typedef struct n265_frame_work {
     uint64_t cbit[N265_CB_COUNT];
     uint64_t cbf_c_n[4], cbf_c_cb[4], cbf_c_cr[4];  /* by log2ts - 2 */
     uint64_t cbit_cnz;              /* nonzero chroma levels coded */
+    uint64_t cbit_se[N265_SE_COUNT];    /* the CBSE row, 1/256 bit */
+    int cbit_se_last;               /* class a bypass bin lands in */
     /* Round 4: luma MC output samples this frame asked for at each
      * fractional (fx, fy) INSIDE the 2-D cache region, i.e. what a
      * phase plane would have served had one been armed - counted

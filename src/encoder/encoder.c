@@ -5725,6 +5725,8 @@ static void entropy_frame(n265_encoder *e, n265_frame_work *fw)
         memset(fw->cbf_c_cr, 0, sizeof fw->cbf_c_cr);
         fw->cbit_cnz = 0;
         fw->cbit_bucket = N265_CB_OTHER;
+        memset(fw->cbit_se, 0, sizeof fw->cbit_se);
+        fw->cbit_se_last = N265_SE_OTHER;
     }
     bs_reset(&fw->rbsp);
     write_slice_header(e, fw);
@@ -6281,6 +6283,12 @@ static void join_oldest(n265_encoder *e)
                 (unsigned long long)fw->cbf_c_n[3],
                 (unsigned long long)fw->cbf_c_cb[3],
                 (unsigned long long)fw->cbf_c_cr[3]);
+        /* the same frame by syntax element (docs/instruments.md) */
+        fprintf(stderr, "CBSE,%d,%d,%d,%d,%zu", fw->display_idx,
+                fw->slice_type, fw->b_depth, fw->qp, d->len);
+        for (int i = 0; i < N265_SE_COUNT; i++)
+            fprintf(stderr, ",%.1f", fw->cbit_se[i] / 256.0);
+        fputc('\n', stderr);
     }
     /* Round 4: the frame's traffic, summed over its row lanes and
      * stamped with its coding index. Row-private lines summed in row
