@@ -139,7 +139,10 @@ DEFAULT_OVERRIDES = {
     # symbolic defaults: the unset value is ANOTHER knob's, so no literal
     # exists at the call site to read (2026-09-14).
     "N265_2P_QCOMP": "= N265_ABR_QCOMP",  # `double qcomp = e->rc.qcomp;`
-    "N265_ABR_FBUP": "= N265_ABR_FBMAX",  # abr_tunable(..., rc->fbmax)
+    # phase 14 item 29: the VBR profile. Under --bitrate with a VBV the two
+    # take their own defaults; plain ABR keeps the old ones.
+    "N265_ABR_FBUP": "1.5 under a VBV, else = N265_ABR_FBMAX",
+    "N265_ABR_IOFF_CT": "1.0 under a VBV, else 0",
     # `int k = v ? atoi(v) : (e->bframes >= 2 ? 6 : 4);`, nine lines under
     # the read: two defaults, and which one ships depends on a flag
     "N265_MAX_FRAME_WORK": "6 with --bframes >= 2, else 4",
