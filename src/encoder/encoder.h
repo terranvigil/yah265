@@ -488,6 +488,9 @@ typedef struct n265_frame_work {
     n265_param param;
     int mode;
     int ctb_log2;
+    /* phase 14 item 28: the 64x64 tree's gate strength in 1/65536ths,
+     * the ramp's w; 65536 is items 17/24's gates as they were */
+    int tree_w16;
     /* chroma_format_idc and its derived geometry; see N265_CSX_OF */
     int chroma_idc;
     int csx, csy;
@@ -1163,6 +1166,13 @@ struct n265_encoder {
                              * is live - phase 7 follow-up 1) */
     int qp_frac_flat;       /* ...on a flat-typed frame too, where that term
                              * is zero (N265_QP_FRAC_FLAT; refused arm)  */
+    int tdither_n[6];       /* item 28: frames each class has rounded */
+    int aq_pool;            /* AQ field on a 32x32 grid on the 64x64
+                             * tree, pooled at equal rate (N265_AQ_POOL,
+                             * phase 14 item 28)                        */
+    int qp_tdither;         /* round a whole-frame CRF base against a
+                             * per-frame threshold, not at .5
+                             * (N265_QP_TDITHER, phase 14 item 28)      */
     int qp_delta_on;        /* cu_qp_delta_enabled_flag */
     int lossless;           /* --lossless (n265_set_lossless)           */
     n265_rc rc;             /* rc.c state                               */
@@ -1186,6 +1196,10 @@ struct n265_encoder {
      * -1 where the switch did not apply, and `uhd_tree` is whether the
      * 64x64 tree survived it. Neither is read by any coding decision. */
     int uhd_qp, uhd_tree;
+    /* item 28: the ramp (N265_TREE_RAMP, in QP of planned base), the
+     * float base it read and the gate strength it resolved to */
+    double tree_ramp, tree_base;
+    int tree_w16;
     /* the resolution class the switch read its threshold for: 1 HD
      * (N265_HD_QP, item 22), 2 UHD (N265_UHD_QP), 0 neither */
     int uhd_cls;
@@ -1911,6 +1925,7 @@ void n265_row_end(n265_row_ctx *row, n265_frame_work *fw, int r);
 /* phase 14 item 17: the UHD rate switch's own record, for --show-config.
  * `uhd_qp` is the planned base QP the switch read, or -1 where the
  * switch did not apply; `uhd_tree` is whether the 64x64 tree survived. */
+double n265_planned_base(const struct n265_encoder *e);
 int n265_planned_qp(const struct n265_encoder *e, int slice_type,
                     int b_depth, int nonref);
 
