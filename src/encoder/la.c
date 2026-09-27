@@ -1635,7 +1635,11 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
     int ctb = 1 << e->ctb_log2;
     int blocks_per_ctb = ctb / 16;      /* lowres 8 = full 16 */
     int nctu = e->ctb_cols * e->ctb_rows;
-    float raw[LA_MAX_CTUS];
+    /* built in the frame's own per-CTU map, which is sized for the picture:
+     * a fixed stack array sized for 3840x2160 at CTB 32 overran on any
+     * larger picture (4096x2160 is 8704 CTUs) and aborted. Nothing reads
+     * the map before the centring below rewrites it in place. */
+    float *raw = fw->ctu_qp_raw;
     float mean = 0;
     for (int cy = 0; cy < e->ctb_rows; cy++)
         for (int cx = 0; cx < e->ctb_cols; cx++) {
@@ -1794,7 +1798,7 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
     fw->ct_mean_used = mean;
     for (int k = 0; k < nctu; k++) {
         float v = raw[k] - mean;
-        fw->ctu_qp_raw[k] = v;
+        raw[k] = v;
         double qv = qpw * v;
         int off = (int)(qv > 0 ? qv + 0.5 : qv - 0.5);
         fw->ctu_qp_off[k] = (int8_t)(off < -12 ? -12 : off > 12 ? 12 : off);
