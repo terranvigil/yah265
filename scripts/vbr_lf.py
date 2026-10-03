@@ -42,6 +42,18 @@ starting at 0.9 full and refilled maxrate/fps per picture, the same walk
 for both encoders; it is a comparison, not a conformance check.
 
     python3 scripts/vbr_lf.py seg meridian_720p ...      segment VBR, all arms
+    python3 scripts/vbr_lf.py segc meridian_720p ...     the same cell read
+                                                         from its first
+                                                         content frame
+
+Traits (docs/media-traits.md). The report prints each cell's flagged
+traits beside its number, from docs/data/media-traits.csv. A cell whose
+census row has a leading black or still run is also read from the first
+frame after it (`segc`, and `seg` runs it too unless SEG_CONTENT=0): the
+rest of the segment, at the cell's own kbit/s rungs, both encoders fed
+the same frames through the y4m feeder and scored against them. A change
+whose gain or loss sits only in the full reading of a flagged cell is
+reported as that, and judged on the content reading.
     python3 scripts/vbr_lf.py lf tears_1080p ...         long-form CRF and VBR
     python3 scripts/vbr_lf.py queue                      everything, in order
     python3 scripts/vbr_lf.py report                     tables + CSV
@@ -51,6 +63,7 @@ import hashlib, json, math, os, shlex, subprocess, sys, tempfile, time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 import bdcompare as bd                                           # noqa: E402
+import media_traits as traits                                    # noqa: E402
 
 TP = os.path.expanduser("~/media/throughput")
 TP_T7 = "<staging>/yah265/throughput"
@@ -155,7 +168,8 @@ def lf_master(title):
 def feed_sig(feed):
     """The feeder command as the memo sees it: masters by basename."""
     return " ".join(os.path.basename(x) if x.startswith("/") and
-                    x.endswith((".mov", ".mp4", ".mkv")) else x for x in feed)
+                    x.endswith((".mov", ".mp4", ".mkv", ".y4m")) else x
+                    for x in feed)
 
 
 def feeder_cmd(title, res):
@@ -396,11 +410,33 @@ def seg_rates(cell):
 def run_seg(cell, arms=("x265", "ours", "ours20")):
     memo = load_memo()
     c = seg_cell(cell)
-    print(f"seg {cell}: rates {seg_rates(cell)} kb/s, arms {arms}", flush=True)
+    print(f"seg {cell}: rates {seg_rates(cell)} kb/s, arms {arms}; traits "
+          f"[{traits.flags(cell)}]", flush=True)
     for arm in arms:
         for k in seg_rates(cell):
             point(memo, f"seg|{cell}|{arm}|vbr|{k}", arm, "vbr", k,
                   c["frames"], c["fps"], src=c["src"])
+    if os.environ.get("SEG_CONTENT", "1") != "0":
+        run_seg_content(cell, tuple(a for a in arms if a != "ours20"))
+
+
+def run_seg_content(cell, arms=("x265", "ours"), start=None):
+    """The cell from its first content frame to the end of the segment
+    (the census's lead_skip), at the cell's own kbit/s rungs."""
+    c = seg_cell(cell)
+    start = traits.lead_skip(cell) if start is None else start
+    if start <= 0:
+        return
+    n = c["frames"] - start
+    feed = ["python3", FEED, "y4m", "--src", c["src"], "--start", str(start),
+            "--count", str(n)]
+    memo = load_memo()
+    print(f"segc {cell}: frames {start}+{n} (after the leading run), rates "
+          f"{seg_rates(cell)} kb/s, arms {arms}", flush=True)
+    for arm in arms:
+        for k in seg_rates(cell):
+            point(memo, f"segc|{cell}|{start}|{arm}|vbr|{k}", arm, "vbr", k,
+                  n, c["fps"], feed=feed)
 
 
 def our_crf_guess(memo, cell, target, xq):
@@ -618,9 +654,10 @@ def report():
     rows = []
     print("## VBR on the matrix segments (maxrate %.1fx, bufsize %.1fx)\n"
           % (MAXR, BUFR))
-    print("| cell | CRF BD (matrix) | VBR BD ours (la 12) | VBR BD ours20 | "
-          "ours20 vs ours | rate err x265 | ours | ours20 | underflows x/o/o20 |")
-    print("|---|--:|--:|--:|--:|---|---|---|---|")
+    print("| cell | traits | CRF BD (matrix) | VBR BD ours (la 12) | "
+          "VBR BD ours20 | ours20 vs ours | rate err x265 | ours | ours20 | "
+          "underflows x/o/o20 |")
+    print("|---|---|--:|--:|--:|--:|---|---|---|---|")
     for t in SEG_TITLES:
         for r in SEG_RES:
             cell = f"{t}_{r}"
@@ -636,12 +673,24 @@ def report():
                 return f"{sum(e)/len(e):+.2f} ({min(e):+.1f}..{max(e):+.1f})"
             uf = "/".join(str(sum(r["underflows"] for r in z[2])) if z[2]
                           else "-" for z in (x, o, o2))
-            print(f"| {cell} | {seg_cell(cell)['crf_bd']:+.2f}% | "
+            print(f"| {cell} | {traits.flags(cell) or '-'} | "
+                  f"{seg_cell(cell)['crf_bd']:+.2f}% | "
                   f"{fmt(bdv(x, o))} | {fmt(bdv(x, o2))} | {fmt(bdv(o, o2))} | "
                   f"{err(x[2])} | {err(o[2])} | {err(o2[2])} | {uf} |")
             for z in (x, o, o2):
                 for rr in z[2]:
                     rows.append(("seg", cell, rr))
+            # the content reading of a flagged cell, beside the full one
+            for pc in sorted({"|".join(k.split("|")[:3]) for k in memo
+                              if k.startswith(f"segc|{cell}|")}):
+                st = pc.split("|")[2]
+                xc, oc = (pts(memo, pc + "|", a, "vbr") for a in
+                          ("x265", "ours"))
+                ufc = "/".join(str(sum(r["underflows"] for r in z[2]))
+                               if z[2] else "-" for z in (xc, oc)) + "/-"
+                print(f"| {cell} from frame {st} | content reading | | "
+                      f"{fmt(bdv(xc, oc))} | | | {err(xc[2])} | {err(oc[2])} "
+                      f"| | {ufc} |")
     print("\n### per rung\n")
     print("| cell | target kb/s | x265 kb/s / NEG | ours | ours20 |")
     print("|---|--:|---|---|---|")
@@ -661,9 +710,9 @@ def report():
                                  f"{rr['kbps']:.0f} / {rr['neg']:.2f}")
                 print(f"| {cell} | {k} | " + " | ".join(cells) + " |")
     print("\n## Long-form, 600 s excerpts, three rungs\n")
-    print("| cell | class (whole title) | CRF BD | VBR BD | "
+    print("| cell | class (whole title) | traits | CRF BD | VBR BD | "
           "VBR rate err x265 / ours | underflows x265 / ours |")
-    print("|---|---|--:|--:|---|---|")
+    print("|---|---|---|--:|--:|---|---|")
     for title in LF:
         for res in ("720p", "1080p", "2160p"):
             cell = f"{title}_{res}"
@@ -679,7 +728,8 @@ def report():
                 return f"{sum(e)/len(e):+.2f}"
             uf = " / ".join(str(sum(r["underflows"] for r in z[2])) if z[2]
                             else "-" for z in (xv, ov))
-            print(f"| {cell} | {LF[title]['cls']} | {fmt(bdv(xc, oc))} | "
+            print(f"| {cell} | {LF[title]['cls']} | "
+                  f"{traits.flags(cell) or '-'} | {fmt(bdv(xc, oc))} | "
                   f"{fmt(bdv(xv, ov))} | "
                   f"{err(xv[2])} / {err(ov[2])} | {uf} |")
             for z in (xc, oc, xv, ov):
@@ -740,6 +790,9 @@ def main():
     if cmd == "seg":
         for c in args:
             run_seg(c)
+    elif cmd == "segc":
+        for c in args:
+            run_seg_content(c)
     elif cmd == "lf":
         for c in args:
             run_lf(c)
