@@ -119,6 +119,24 @@ typedef struct n265_rc {
      * being wrong low costs the stream. */
     double vscale[RC_CLASSES];
     double vdecay;              /* N265_VBV_DECAY: the slow side's rate */
+    /* The brake (encoder.c, vbv_brake): ABR with a buffer only. The
+     * calibration is the retired frames' coded bits per estimated bit,
+     * per class, learned in coding order on the driver. */
+    int brake;                  /* N265_VBV_BRAKE */
+    double flatc;               /* N265_ABR_FLATC: a frame whose lookahead
+                                 * complexity per lowres block is under this
+                                 * is not evidence about the operating point
+                                 * (ABR with a buffer only) */
+    double brk_fill;            /* N265_VBV_BRAKE_FILL: the share of the
+                                 * buffer's fill the brake holds a picture
+                                 * to - a hard limit, not the clamp's plan */
+    double brk_ratio[RC_CLASSES];
+    double brk_gain;            /* N265_VBV_BRAKE_K0: prior weight on the
+                                 * plan in the projection, as a share */
+    double scpred;              /* N265_VBV_SCPRED: an inter frame whose
+                                 * complexity is at least this share of its
+                                 * intra cost is priced as intra, for the
+                                 * buffer, under ABR */
     double cur_icplx;           /* the dispatching frame's intra cost, for
                                  * the intra-dominated test below */
     /* --pass 2's plan for the frame being dispatched (twopass.h), stashed

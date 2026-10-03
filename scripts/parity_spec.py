@@ -169,6 +169,16 @@ def key_of(cell):
     return f"{cell[0]}/{cell[1]}/{cell[2]}"
 
 
+def traits_of(cell):
+    """The cell's flagged traits from the census (docs/media-traits.md),
+    '' for none and '?' where the census has no row."""
+    import media_traits
+    fn = cell[3][:-4]
+    if cell[0] == "S":
+        return media_traits.flags(f"tierS/{fn}")
+    return media_traits.flags("seg/" + re.sub(r"_\d+s$", "", fn))
+
+
 def y4m_info(path):
     """(width, height, fps, frames) off the header and the file size."""
     with open(path, "rb") as f:
@@ -474,7 +484,8 @@ def do_solve(args):
                 continue
             t0 = time.time()
             work = tempfile.mkdtemp(prefix="spec.", dir=WORK)
-            log(f"  {k}: {w}x{h} {frames} frames @ {fps:.3f}")
+            log(f"  {k}: {w}x{h} {frames} frames @ {fps:.3f}; traits "
+                f"[{traits_of(c)}]")
             rt = ref_tmpl(an, SOLVE_THREADS)
             ro = os.path.join(work, "ref.hevc")
             rb = bdr.enc(rt, REF_CRF, src, ro)
@@ -1060,6 +1071,14 @@ def write_report(date):
             L.append(f"| {cls} | {tier} | {med:+.2f} / {w['dv']:+.2f} | "
                      f"{wp['dp']:+.2f} | {w['title']} | {v}{part} |")
     L.append("")
+    fl = [(c, traits_of(c)) for c in CELLS if c[0] in tiers]
+    fl = [(c, t) for c, t in fl if t]
+    if fl:
+        L.append("Cells whose media carries a trait that can steer this "
+                 "reading (docs/media-traits.md; a result that sits only "
+                 "in such a trait is reported as that): " + "; ".join(
+                     f"{c[2]} {c[1]} {c[0]} [{t}]" for c, t in fl) + ".")
+        L.append("")
     L.append("Quality is read at the `def` anchor (x265 at its default "
              "threading, the point G2 and G3 are timed at). G1's anchor "
              "(one frame thread) is its own solve; its deltas are in the "

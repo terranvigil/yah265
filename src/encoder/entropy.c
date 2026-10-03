@@ -785,3 +785,27 @@ void n265_est_advance_cu(struct n265_frame_work *e, est_state *st, int x0,
     ops_s.frozen = 0;
     replay_cu(e, &ops_s, x0, y0, log2n);
 }
+
+uint32_t n265_est_ctu_bits(struct n265_frame_work *e, int ctb_x, int ctb_y,
+                           size_t rec_start)
+{
+    cabac_ctx_t local[CTX_COUNT];
+    memcpy(local, e->est_ctx, sizeof(local));
+    est_state st = { local, 0 };
+    res_ops ops_s;
+    n265_est_ops(&ops_s, &st);
+    ops_s.frozen = 0;
+    size_t pos = e->rec_pos;
+    int q = e->ent_ctu_qp, qc = e->ent_qp_coded, pc = e->ent_parent_chroma;
+    e->rec_pos = rec_start;
+    e->ent_ctu_qp = n265_qp_clip(e->qp + e->ctu_qp_off[ctb_y * e->ctb_cols +
+                                                       ctb_x]);
+    e->ent_qp_coded = 0;
+    replay_quadtree(e, &ops_s, ctb_x << e->ctb_log2, ctb_y << e->ctb_log2,
+                    e->ctb_log2, 0);
+    e->rec_pos = pos;
+    e->ent_ctu_qp = q;
+    e->ent_qp_coded = qc;
+    e->ent_parent_chroma = pc;
+    return st.bits;
+}
