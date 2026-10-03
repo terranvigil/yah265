@@ -159,6 +159,9 @@ DEFAULT_OVERRIDES = {
 }
 
 OVERRIDES = {
+    # phase 14 item 30: shipped by medium's table (compiled-in 0, so the
+    # other presets don't move); the env is the escape.
+    "N265_MERGE_PICK_RATE": "default",
     # phase 14 item 25: the schedule of the switched tree. Shipped values
     # whose env is the escape; the task trace is compiled only under
     # -DN265_TTRACE and is an instrument.
