@@ -29,20 +29,20 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_GATE_SCALE` | 100 | src/encoder/ctu.c:1837 |
 | `N265_LAMBDA` | 0.68 | src/encoder/ctu.c:1634 |
 | `N265_MCSTF_CLEAN` | 1.5 | src/encoder/mcstf.c:98 |
-| `N265_MCSTF_CUT` | 3.0 | src/encoder/mcstf.c:256 |
-| `N265_MCSTF_MODEL` | 2 | src/encoder/mcstf.c:240 |
+| `N265_MCSTF_CUT` | 3.0 | src/encoder/mcstf.c:257 |
+| `N265_MCSTF_MODEL` | 2 | src/encoder/mcstf.c:241 |
 | `N265_MCSTF_PERIOD` | 8 | src/encoder/mcstf.c:115 |
-| `N265_MCSTF_PICCAP` | 2.0 | src/encoder/mcstf.c:248 |
-| `N265_MCSTF_QPREF` | 32.0 | src/encoder/mcstf.c:261 |
-| `N265_MCSTF_QPSLOPE` | 12.0 | src/encoder/mcstf.c:262 |
-| `N265_MCSTF_RHO0` | 2.0 | src/encoder/mcstf.c:250 |
-| `N265_MCSTF_RHO1` | 2.0 | src/encoder/mcstf.c:252 |
-| `N265_MCSTF_S0` | 1.0 | src/encoder/mcstf.c:246 |
-| `N265_MCSTF_SHARP` | 2.0 | src/encoder/mcstf.c:242 |
+| `N265_MCSTF_PICCAP` | 2.0 | src/encoder/mcstf.c:249 |
+| `N265_MCSTF_QPREF` | 32.0 | src/encoder/mcstf.c:264 |
+| `N265_MCSTF_QPSLOPE` | 12.0 | src/encoder/mcstf.c:265 |
+| `N265_MCSTF_RHO0` | 2.0 | src/encoder/mcstf.c:251 |
+| `N265_MCSTF_RHO1` | 2.0 | src/encoder/mcstf.c:253 |
+| `N265_MCSTF_S0` | 1.0 | src/encoder/mcstf.c:247 |
+| `N265_MCSTF_SHARP` | 2.0 | src/encoder/mcstf.c:243 |
 | `N265_MCSTF_SIGMA` | 6.0 | src/encoder/mcstf.c:39 |
-| `N265_MCSTF_SMIN` | 0.25 | src/encoder/mcstf.c:244 |
-| `N265_MCSTF_STR` | 1.0 | src/encoder/mcstf.c:258 |
-| `N265_MCSTF_SUBPEL` | 2.0 | src/encoder/mcstf.c:254 |
+| `N265_MCSTF_SMIN` | 0.25 | src/encoder/mcstf.c:245 |
+| `N265_MCSTF_STR` | 1.0 | src/encoder/mcstf.c:261 |
+| `N265_MCSTF_SUBPEL` | 2.0 | src/encoder/mcstf.c:255 |
 | `N265_MERGE_PICK_RATE` | 0 | src/encoder/ctu.c:5133 |
 | `N265_PB_STEP` | 1.0 | src/encoder/encoder.c:4723 |
 | `N265_RC_MVRATE` | 32 | src/encoder/rc.c:136 |
@@ -265,7 +265,7 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_WP_TRACE` | 0 | src/encoder/wp.c:51 |
 | `N265_WP_WIN` | 40 | src/encoder/wp.c:101 |
 
-## arm (35)
+## arm (36)
 
 | knob | default | reader |
 |---|---|---|
@@ -285,6 +285,7 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_MCSTF` | 0 | src/encoder/encoder.c:2030 |
 | `N265_MCSTF_CTF` | 1.0 | src/encoder/encoder.c:2047 |
 | `N265_MCSTF_CTSC` | 1.0 | src/encoder/encoder.c:2049 |
+| `N265_MCSTF_DC` | 0 | src/encoder/mcstf.c:259 |
 | `N265_MCSTF_QPB` | 0.0 | src/encoder/encoder.c:2043 |
 | `N265_MCSTF_QPB_I` | 0 | src/encoder/encoder.c:2045 |
 | `N265_MCSTF_RANGE` | 2 | src/encoder/encoder.c:2035 |

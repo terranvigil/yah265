@@ -206,6 +206,9 @@ OVERRIDES = {
     "N265_MCSTF": "arm", "N265_MCSTF_RANGE": "arm",
     "N265_MCSTF_QPB": "arm", "N265_MCSTF_QPB_I": "arm",
     "N265_MCSTF_CTF": "arm", "N265_MCSTF_CTSC": "arm",
+    # the block's mean offset taken into the prediction: fixes fade_cif,
+    # costs xfade_720p 0.11 more; refused, kept as an arm
+    "N265_MCSTF_DC": "arm",
     # phase 13 B1: the environment door onto --cbqpoffs / --crqpoffs. Both
     # are arms, not shipped defaults - 0 is the default at every preset and
     # the measurement that keeps it there is in docs/phase13.md.

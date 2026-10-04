@@ -179,6 +179,7 @@ struct n265_mcstf {
     double sub_thr;         /* subpel above this integer MAE, levels     */
     double cut;             /* the one-sided ratio that calls a cut      */
     int str_q8;             /* the neighbours' overall strength          */
+    int dc;                 /* predictions take the block's mean offset  */
     double sigma_pic;       /* this picture's noise reading, levels      */
     int last_side;          /* 0 both, 1 future only, 2 past only        */
     uint32_t *bsad;         /* integer SAD per (neighbour, block)        */
@@ -255,6 +256,8 @@ static void resolve_model2(n265_mcstf *m)
     m->sub_thr = s ? atof(s) : 2.0;
     s = n265_env("N265_MCSTF_CUT");
     m->cut = knob_clamp(s ? atof(s) : 3.0, 0.0, 1e6);
+    s = n265_env("N265_MCSTF_DC");
+    m->dc = s ? atoi(s) != 0 : 0;
     s = n265_env("N265_MCSTF_STR");
     m->str_q8 = (int)(knob_clamp(s ? atof(s) : 1.0, 0.0, 4.0) * 256.0 + 0.5);
     {
@@ -792,7 +795,36 @@ static void subpel_refine(const mc_pic *cur, const mc_pic *ref, int x0,
     *sad = best;
 }
 
-static void mcstf_filter2(n265_mcstf *m, int ci)
+/* N265_MCSTF_DC: the prediction takes the block's mean difference
+ * before it is weighed. A fade or a light change moves every sample of
+ * a block by about the same amount; without this the residual reads it
+ * as mismatch and the average pulls the picture's brightness toward its
+ * neighbours'. On a noisy block that is not fading the offset is the
+ * mean of 256 noise samples, a sixteenth of a deviation. */
+static void dc_match(const pixel *o, int ost, pixel *p, int w, int h)
+{
+    int64_t so = 0, sp = 0;
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++) {
+            so += o[(ptrdiff_t)y * ost + x];
+            sp += p[y * MC2_B + x];
+        }
+    int64_t n = (int64_t)w * h;
+    int64_t d = so - sp;
+    int off = (int)(d >= 0 ? (d + n / 2) / n : -((-d + n / 2) / n));
+    if (!off)
+        return;
+    const int maxv = (1 << BIT_DEPTH) - 1;
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++) {
+            int v = p[y * MC2_B + x] + off;
+            p[y * MC2_B + x] = (pixel)(v < 0 ? 0 : v > maxv ? maxv : v);
+        }
+}
+
+/* returns 0 when the picture was under the clean floor and was copied,
+ * so the coupling does not treat a clean picture as a filtered one */
+static int mcstf_filter2(n265_mcstf *m, int ci)
 {
     const mc_pic *cur = &m->p[ci];
     const int nblk = m->bw * m->bh;
@@ -833,7 +865,7 @@ static void mcstf_filter2(n265_mcstf *m, int ci)
             pad_plane(m->out[c], m->out_stride[c], plane_w(m, c),
                       plane_h(m, c), N265_MCSTF_PAD);
         }
-        return;
+        return 0;
     }
 
     /* integer motion for every (neighbour, block), and the per-neighbour
@@ -913,6 +945,8 @@ static void mcstf_filter2(n265_mcstf *m, int ci)
                     (double)sd > m->sub_thr * lv * npx)
                     subpel_refine(cur, r, x0, y0, w, h, &vx, &vy, &sd);
                 pred_luma(r, x0, y0, vx, vy, pl[k]);
+                if (m->dc)
+                    dc_match(co, cur->stride[0], pl[k], w, h);
                 sse[k] = (double)n265_ssd_wh(co, cur->stride[0], pl[k],
                                              MC2_B, w, h);
                 if (sse[k] < best)
@@ -921,6 +955,8 @@ static void mcstf_filter2(n265_mcstf *m, int ci)
                     pred_chroma(m, r, c, cx0, cy0, vx, vy, pc[k][c - 1]);
                     const pixel *cc = cur->org[c] +
                         (ptrdiff_t)cy0 * cur->stride[c] + cx0;
+                    if (m->dc)
+                        dc_match(cc, cur->stride[c], pc[k][c - 1], cw, chh);
                     ssec[k][c - 1] = (double)n265_ssd_wh(
                         cc, cur->stride[c], pc[k][c - 1], MC2_B, cw, chh);
                     if (ssec[k][c - 1] < bestc[c - 1])
@@ -1023,6 +1059,7 @@ static void mcstf_filter2(n265_mcstf *m, int ci)
     for (int c = 0; c < 3; c++)
         pad_plane(m->out[c], m->out_stride[c], plane_w(m, c), plane_h(m, c),
                   N265_MCSTF_PAD);
+    return 1;
 }
 
 void n265_mcstf_pop(n265_mcstf *m, const pixel *plane[3], int stride[3])
@@ -1039,7 +1076,7 @@ void n265_mcstf_pop(n265_mcstf *m, const pixel *plane[3], int stride[3])
     m->last_filtered = filt;
     if (filt) {
         if (m->model >= 2)
-            mcstf_filter2(m, ci);
+            m->last_filtered = mcstf_filter2(m, ci);
         else
             mcstf_filter(m, ci);
         for (int c = 0; c < 3; c++) {
