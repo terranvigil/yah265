@@ -167,6 +167,7 @@ OVERRIDES = {
     # escape (0 is main's stream).
     "N265_VBR_LAG": "default", "N265_VBR_LAG_CAL": "default",
     "N265_VBR_LAG_PEND": "default", "N265_VBR_LAG_WARM": "default",
+    "N265_VBR_LAG_LOW": "default",
     # phase 14 item 30: shipped by medium's table (compiled-in 0, so the
     # other presets don't move); the env is the escape.
     "N265_MERGE_PICK_RATE": "default",

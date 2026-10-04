@@ -1568,6 +1568,15 @@ struct n265_encoder {
     int vbv_ecal_n[RC_CLASSES];
     double vbv_ecal_k;
     int rc_lag_warm;        /* frames coded at lag 0 before the lag */
+    /* N265_VBR_LAG_LOW: where the fill the lag plans against is under this
+     * share of the buffer, the frame is solved at lag 0 instead. The lag's
+     * blind spot is a picture inside it that costs several times its
+     * prediction (a P picture where the content turns), and it only hurts
+     * where the buffer has no room left to absorb one. The test reads the
+     * lag's own planned fill, so it is a function of coding order too. */
+    double rc_lag_low;
+    int rc_lag_now;         /* the lag the current solve was drained to */
+    long rc_lag_low_n;      /* frames that fell back to lag 0 */
     int fw_next;            /* the frame_work slot the next dispatch takes */
     /* the frames dispatched and not yet retired, in DISPATCH ORDER. The
      * driver owns this list; it is what the deferred-NAL ring walks, and

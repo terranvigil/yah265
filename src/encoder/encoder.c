@@ -2692,6 +2692,10 @@ n265_encoder *n265_encoder_open(const n265_param *p)
        * calibrated sizes rather than at their plans: on Chimera 720p at
        * 2015k the plans cost 0.33 VMAF-NEG at equal bytes against lag 0,
        * the calibrated sizes 0.10 */
+      { const char *l = n265_env("N265_VBR_LAG_LOW");
+        e->rc_lag_low = l ? atof(l) : 0.5; }
+      e->rc_lag_now = 0;
+      e->rc_lag_low_n = 0;
       { const char *q = n265_env("N265_VBR_LAG_PEND");
         e->rc.pend_use_est = d > 0 && e->vbv.on && (q ? atoi(q) : 1); }
       for (int i = 0; i < RC_CLASSES; i++) {
@@ -3095,8 +3099,13 @@ void n265_encoder_close(n265_encoder *e)
      * flushing. Their jobs own the frame_works and the pool. */
     while (e->n_inflight)
         join_oldest(e);
-    if (e->rc_defer)
+    if (e->rc_defer) {
         rc_apply_upto(e, e->hf2_code_n - 1);
+        if (e->vbv_trace)
+            fprintf(stderr, "VBRLAG,lag=%d,warm=%d,low_fallbacks=%ld,frames=%d\n",
+                    e->rc_lag, e->rc_lag_warm, e->rc_lag_low_n,
+                    e->hf2_code_n);
+    }
     /* --shot-stats: everything has retired, so the tail of the display
      * order can be folded and the last shot written. */
     if (e->shot_f) {
@@ -6213,7 +6222,7 @@ static double vbv_pend_est(const n265_encoder *e, int k)
 
 static double vbv_plan_fill(const n265_encoder *e, int k)
 {
-    int j0 = k - 1 - rc_lag_at(e, k);
+    int j0 = k - 1 - e->rc_lag_now;
     double f;
     if (j0 >= 0) {
         f = e->vbv_fa[j0 % (2 * N265_MAX_FRAME_WORK)];
@@ -7811,8 +7820,21 @@ static int drive_scheduler(n265_encoder *e)
             e->join_rc++;
             join_oldest(e);
         }
-        if (e->rc_defer)
+        if (e->rc_defer) {
             rc_apply_upto(e, fw->code_idx - 1 - lag);
+            e->rc_lag_now = lag;
+            if (lag > 0 && e->vbv.on && e->rc_lag_low > 0.0 &&
+                vbv_plan_fill(e, fw->code_idx) <
+                    e->rc_lag_low * e->vbv.bufsize) {
+                while (e->n_inflight > 0) {
+                    e->join_rc++;
+                    join_oldest(e);
+                }
+                rc_apply_upto(e, fw->code_idx - 1);
+                e->rc_lag_now = 0;
+                e->rc_lag_low_n++;
+            }
+        }
     }
     if (kind != 0)          /* the priced b-adapt prices against this plane */
         n265_la_set_anchor(e, li);
