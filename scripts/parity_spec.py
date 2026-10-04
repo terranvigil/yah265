@@ -62,6 +62,7 @@ import re
 import statistics
 import subprocess
 import sys
+import shutil
 import tempfile
 import time
 
@@ -420,6 +421,25 @@ def shim_ffmpeg(threads):
     os.environ["PATH"] = d + ":" + os.environ["PATH"]
 
 
+def rebind(k, pt, c):
+    """A point solved on another binary still holds when this binary
+    writes the same bitstream at the solved crf: a rebuild that moves no
+    stream (a docs merge, a knob that acts only under VBR) shouldn't cost
+    a re-solve. One untimed encode, before the quiet check, decides."""
+    work = tempfile.mkdtemp(prefix="rebind.", dir=WORK)
+    try:
+        out = os.path.join(work, "ours.hevc")
+        bdr.enc(our_tmpl(SOLVE_THREADS), _fmt_q(pt["ours_crf"]),
+                src_of(c), out)
+        same = os.path.exists(out) and md5_of(out) == pt["ours_md5"]
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    print(f"  {k}: solved on binary {pt['bin']}; this one writes "
+          f"{'the same' if same else 'a different'} stream at crf "
+          f"{_fmt_q(pt['ours_crf'])}", flush=True)
+    return same
+
+
 def add_supp(k, pt, src, frames, fps, log):
     """The 5.2a columns for both arms of a solved point. The bitstreams
     come back out of bd_at_rate's encode memo (a copy, no encode)."""
@@ -631,9 +651,10 @@ def do_time(args):
             k = f"{key_of(c)}/{'ft1' if g == 1 else 'def'}"
             if k not in pts:
                 sys.exit(f"parity_spec.py: {k} is not solved; run --solve")
-            if pts[k]["bin"] != bh:
+            if pts[k]["bin"] != bh and not rebind(k, pts[k], c):
                 sys.exit(f"parity_spec.py: {k} was solved on another "
-                         f"binary; re-run --solve")
+                         f"binary that writes a different stream; "
+                         f"re-run --solve")
             if pts[k]["src_bytes"] != os.path.getsize(src_of(c)):
                 sys.exit(f"parity_spec.py: {src_of(c)} changed size")
     # the quiet check is made ONCE, before the first run: the one-minute
