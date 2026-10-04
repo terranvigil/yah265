@@ -620,7 +620,9 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
     /* D4: the frames inside the observation lag are counted at their
      * planned bits. At lag 0 pend_bits and pend_n are zero and this is
      * the expression it always was. */
-    double seen = rc->total_bits + rc->pend_bits;
+    double seen = rc->total_bits +
+                  (rc->pend_use_est && rc->pend_n > 0 ? rc->pend_est
+                                                      : rc->pend_bits);
     double nseen = (double)rc->n_coded + (double)rc->pend_n;
     /* Under a plan BOTH terms read the error against the PLAN, and this is
      * the one place where `N265_ABR_PLANERR`'s refused shape is the right

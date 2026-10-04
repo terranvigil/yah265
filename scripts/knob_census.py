@@ -92,6 +92,10 @@ DEFAULT_OVERRIDES = {
     "N265_SKIP_ORACLE_AT": "pre",        # pre | post | postr
     "N265_NTP_SPIN": "25",               # microseconds x 1000 inside
     "N265_HW": "off",                    # off | auto | videotoolbox (a string)
+    # item vbrspeed: 7 under --bitrate with a VBV above one worker, 0 at
+    # one worker and in every other mode
+    "N265_VBR_LAG": "7 (VBR, threads > 1)",
+    "N265_VBR_LAG_WARM": "2 * (lag + 1)",   # frames at lag 0 first
     # phase 7 follow-up 1: on with ABR, and under CRF on every frame the
     # cu-tree frame term is live on (so off under CQP, off under either
     # escape, and off on a flat-typed frame, where the term is zero)
@@ -159,6 +163,11 @@ DEFAULT_OVERRIDES = {
 }
 
 OVERRIDES = {
+    # item vbrspeed: shipped above one worker under VBR; the env is the
+    # escape (0 is main's stream).
+    "N265_VBR_LAG": "default", "N265_VBR_LAG_CAL": "default",
+    "N265_VBR_LAG_PEND": "default", "N265_VBR_LAG_WARM": "default",
+    "N265_VBR_LAG_LOW": "default",
     # phase 14 item 30: shipped by medium's table (compiled-in 0, so the
     # other presets don't move); the env is the escape.
     "N265_MERGE_PICK_RATE": "default",

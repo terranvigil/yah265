@@ -30,7 +30,8 @@ VBR at x265's three CRF rates on both sides.
 Untimed. The box share is six threads: an encoder at six (ours --threads
 6; x265 --pools 6 --frame-threads 4, whose frame-thread count is the
 default's), then libvmaf at five and a one-thread decode. Ours is byte-
-identical at every thread count. x265's VBV output is NOT invariant to its
+identical at every thread count above one (at one, VBR codes at
+N265_VBR_LAG 0). x265's VBV output is NOT invariant to its
 pool size (300 frames of meridian_720p at 1000k: 406 466 bytes at pools 3,
 407 275 at pools 6, repeatable at each), so x265's untimed VBR anchors are
 the pools-6 streams and the timed night run's default-pool streams differ
@@ -83,8 +84,10 @@ CSV = os.path.join(ROOT, "docs", "data", "vbr-longform.csv")
 MAXR = float(os.environ.get("MAXR", "1.5"))
 BUFR = float(os.environ.get("BUFR", "2.0"))
 ENC_THREADS = os.environ.get("ENC_THREADS", "6")
-# ours is byte-identical at every thread count, so a share smaller than
-# x265's anchors' can re-read our arm without re-encoding theirs
+# ours is byte-identical at every thread count above one, so a share
+# smaller than x265's anchors' can re-read our arm without re-encoding
+# theirs. Not at ONE: under VBR one worker codes at N265_VBR_LAG 0 and
+# more than one at 7, which are different streams.
 OUR_THREADS = os.environ.get("OUR_THREADS", ENC_THREADS)
 VMAF_THREADS = os.environ.get("VMAF_THREADS", "5")
 VBV_INIT = 0.9

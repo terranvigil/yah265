@@ -1534,6 +1534,49 @@ struct n265_encoder {
      * can reach the bitstream at all: under ABR, K bounds the lag. At
      * the default 0, ABR frames do not overlap and K is inert. */
     int rc_lag;
+    /* N265_VBR_LAG: at a lag above 0 the books are kept by the lag and not
+     * by the join. A retiring frame's rate-control results are parked in
+     * `rc_ret`, keyed by coding index, and frame k's solve first applies
+     * every parked result with coding index <= k - 1 - lag, in order. The
+     * driver may have joined more frames than that by then (a K, slot or
+     * source stall, or the one-worker drain after every push), and with
+     * the books kept at the join those extra frames would reach the solve:
+     * the stream would then depend on the schedule. Kept by the lag, it is
+     * a function of coding order alone. The VBV the solve plans against is
+     * the fill after frame k - 1 - lag (`vbv_fa`), walked forward over the
+     * frames still inside the lag at their predicted sizes (`vbv_est`). At
+     * lag 0 none of this runs and the books are the join's, as before. */
+    int rc_defer;
+    int rc_applied;         /* coding indices below this are applied */
+    struct n265_rc_ret {
+        int cls, brk;
+        double cplx, rf_used, bits, planned, ctf, ioff, brk_x;
+    } rc_ret[2 * N265_MAX_FRAME_WORK];
+    double vbv_fa[2 * N265_MAX_FRAME_WORK];
+    double vbv_est[2 * N265_MAX_FRAME_WORK];
+    int vbv_cls[2 * N265_MAX_FRAME_WORK];
+    /* The clamp's prediction is pessimistic by design (rc.c, vscale: up at
+     * once, down slowly) and runs about twice the coded size. That is the
+     * right number for "can this frame be paid for", and the wrong one
+     * for the frames inside the lag: seven of them at twice their size
+     * walk the planned fill down by most of a buffer and the clamp fires
+     * on frames the buffer could pay for. So the walk takes each one at
+     * its prediction times this per-class calibration, the log of coded
+     * bits over predicted bits, learned from applied frames in coding
+     * order (N265_VBR_LAG_CAL is the step; 0 walks the raw prediction). */
+    double vbv_ecal[RC_CLASSES];
+    int vbv_ecal_n[RC_CLASSES];
+    double vbv_ecal_k;
+    int rc_lag_warm;        /* frames coded at lag 0 before the lag */
+    /* N265_VBR_LAG_LOW: where the fill the lag plans against is under this
+     * share of the buffer, the frame is solved at lag 0 instead. The lag's
+     * blind spot is a picture inside it that costs several times its
+     * prediction (a P picture where the content turns), and it only hurts
+     * where the buffer has no room left to absorb one. The test reads the
+     * lag's own planned fill, so it is a function of coding order too. */
+    double rc_lag_low;
+    int rc_lag_now;         /* the lag the current solve was drained to */
+    long rc_lag_low_n;      /* frames that fell back to lag 0 */
     int fw_next;            /* the frame_work slot the next dispatch takes */
     /* the frames dispatched and not yet retired, in DISPATCH ORDER. The
      * driver owns this list; it is what the deferred-NAL ring walks, and
