@@ -688,6 +688,7 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
     la_frame *prev = la->count > 0 ? &la->f[la->count - 1] : NULL;
     f->valid = 1;
     f->display_idx = e->in_display_idx;
+    f->mcstf_filt = e->mcstf_next_filt;
     /* a recycled slot carries the last frame's plan; this one has none
      * until the shot planner reaches it */
     f->shot_off = 0.0f;
@@ -1643,6 +1644,18 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
      * the map before the centring below rewrites it in place. */
     float *raw = fw->ctu_qp_raw;
     float mean = 0;
+    /* --mcstf's coupling (phase 14 item 31): a filtered picture carries
+     * less noise into every picture that predicts from it, so what it is
+     * worth to them is more than its lowres costs say, and a scene-cut
+     * anchor is the root of everything after it. Both take a stronger
+     * field. With the filter off `str` is cutree_str exactly. */
+    float str = e->cutree_str;
+    if (e->mcstf) {
+        if (f->mcstf_filt)
+            str *= e->mcstf_ctf;
+        else if (n265_la_scenecut(e, i))
+            str *= e->mcstf_ctsc;
+    }
     for (int cy = 0; cy < e->ctb_rows; cy++)
         for (int cx = 0; cx < e->ctb_cols; cx++) {
             float acc = 0;
@@ -1658,7 +1671,7 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
                     acc += log2f((ic + f->prop[b]) / ic);
                     cnt++;
                 }
-            float v = cnt ? -e->cutree_str * acc / cnt : 0;
+            float v = cnt ? -str * acc / cnt : 0;
             raw[cy * e->ctb_cols + cx] = v;
             mean += v;
         }

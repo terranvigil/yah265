@@ -752,6 +752,7 @@ typedef struct n265_frame_work {
 
     /* lookahead hand-off, frozen before the frame launches */
     float sc_ratio;         /* lookahead pcost/icost (P3) */
+    int mcstf_filt;         /* --mcstf filtered this picture (item 31) */
     float la_mvabs;         /* lookahead mean |MV| per lowres block (N265_CT_TRACE) */
     const uint16_t *la_icost, *la_pcost;
     const int16_t *la_mv;   /* lowres MV pairs, same grid (N265_DEPTH_DUMP) */
@@ -1379,6 +1380,17 @@ struct n265_encoder {
      * too, and off is a NULL pointer and one predicate. */
     n265_mcstf *mcstf;
     int mcstf_range, mcstf_selective;
+    /* The coupling (phase 14 item 31): whether the picture about to be
+     * pushed into the lookahead came out of the filter FILTERED, and what
+     * a filtered picture is given for it - a QP bonus on its base and a
+     * cu-tree strength multiplier, plus the multiplier a scene-cut anchor
+     * takes while the filter is on. All inert with the filter off: the
+     * flag is never set, and the scene-cut multiplier is read only when
+     * e->mcstf is live. */
+    int mcstf_next_filt;
+    double mcstf_qpb;
+    int mcstf_qpb_i;
+    float mcstf_ctf, mcstf_ctsc;
     int nr_intra, nr_inter;
     n265_nr *nr;
     n265_nr_hist *nr_hist;

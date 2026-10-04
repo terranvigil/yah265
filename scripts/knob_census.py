@@ -191,6 +191,24 @@ OVERRIDES = {
     # trace is an instrument.
     "N265_MCSTF_SIGMA": "default", "N265_MCSTF_CLEAN": "default",
     "N265_MCSTF_PERIOD": "default",
+    # phase 14 item 31: the per-block weighting's constants are --mcstf's
+    # shipped values (the env is the escape), like the three above. The
+    # environment door onto the filter and its range is an arm (off by
+    # default at every preset), and so is the coupling (a QP bonus and a
+    # cu-tree multiplier on filtered and scene-cut anchors): built, inert
+    # at its default, not yet screened.
+    "N265_MCSTF_MODEL": "default", "N265_MCSTF_SHARP": "default",
+    "N265_MCSTF_SMIN": "default", "N265_MCSTF_S0": "default",
+    "N265_MCSTF_PICCAP": "default", "N265_MCSTF_RHO0": "default",
+    "N265_MCSTF_RHO1": "default", "N265_MCSTF_SUBPEL": "default",
+    "N265_MCSTF_CUT": "default", "N265_MCSTF_STR": "default",
+    "N265_MCSTF_QPREF": "default", "N265_MCSTF_QPSLOPE": "default",
+    "N265_MCSTF": "arm", "N265_MCSTF_RANGE": "arm",
+    "N265_MCSTF_QPB": "arm", "N265_MCSTF_QPB_I": "arm",
+    "N265_MCSTF_CTF": "arm", "N265_MCSTF_CTSC": "arm",
+    # the block's mean offset taken into the prediction: fixes fade_cif,
+    # costs xfade_720p 0.11 more; refused, kept as an arm
+    "N265_MCSTF_DC": "arm",
     # phase 13 B1: the environment door onto --cbqpoffs / --crqpoffs. Both
     # are arms, not shipped defaults - 0 is the default at every preset and
     # the measurement that keeps it there is in docs/phase13.md.

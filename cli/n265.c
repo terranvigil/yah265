@@ -1486,8 +1486,9 @@ int main(int argc, char **argv)
      * `--nr-intra 0 --nr-inter 0` is still off and still wins. */
     int nr_intra = -1, nr_inter = -1;
     int had_nr_intra = 0, had_nr_inter = 0;
-    /* --mcstf and its two: off, range 2, not selective - x265's defaults */
-    int mcstf = 0, mcstf_range = 2, mcstf_selective = 0;
+    /* --mcstf and its two: -1 is "no flag given", which leaves on/off and
+     * the range to the preset (phase 14 item 31); not selective */
+    int mcstf = -1, mcstf_range = -1, mcstf_selective = 0;
     int dither = 0;             /* --dither, only on the 10 -> 8 downshift */
     double crf = -1.0, bitrate = 0.0;
     /* --vbv-maxrate / --vbv-bufsize / --vbv-init; 0/0 is the mode off,
@@ -2172,6 +2173,11 @@ int main(int argc, char **argv)
         }
         if (!had_cutree && tune[N265_TUNE_CUTREE] >= 0)
             cutree = tune[N265_TUNE_CUTREE];
+        /* --mcstf holds --mcstf-ref-range pictures back, which is
+         * latency, so the tune takes the preset's filter off unless the
+         * filter was named (phase 14 item 31) */
+        if (mcstf < 0 && tune[N265_TUNE_FRAMEWORK] >= 0)
+            mcstf = 0;
         /* The frames in flight. setenv does NOT overwrite, so an
          * explicit N265_MAX_FRAME_WORK still wins - and this is the one
          * leg of the tune that moves no bit: output is byte-identical at
@@ -2392,7 +2398,7 @@ int main(int argc, char **argv)
      * identity filter that still costs the latency and the queue, and a
      * flag that silently does nothing is the thing this project keeps
      * refusing to ship. */
-    if (mcstf_range < 1 || mcstf_range > 4) {
+    if (mcstf_range != -1 && (mcstf_range < 1 || mcstf_range > 4)) {
         fprintf(stderr, "n265: --mcstf-ref-range takes 1..4 neighbours "
                 "per side (x265 spells its 0 as --no-mcstf; so do we)\n");
         return 2;
