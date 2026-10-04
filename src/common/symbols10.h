@@ -202,6 +202,7 @@
 #define n265_rc_future_idr           n265_rc_future_idr_10
 #define n265_rc_next                 n265_rc_next_10
 #define n265_rc_open                 n265_rc_open_10
+#define n265_rc_warm                 n265_rc_warm_10
 #define n265_ref_used                n265_ref_used_10
 #define n265_2p_free                 n265_2p_free_10
 #define n265_2p_init                 n265_2p_init_10
@@ -385,6 +386,7 @@
 #define n265_weightb_on              n265_weightb_on_10
 #define n265_weightp_on              n265_weightp_on_10
 #define n265_wp_analyse              n265_wp_analyse_10
+#define n265_wp_warm                 n265_wp_warm_10
 #define n265_wp_bi_wh                n265_wp_bi_wh_10
 #define n265_wp_bi_wh_ref            n265_wp_bi_wh_ref_10
 #define n265_wp_build_cur            n265_wp_build_cur_10

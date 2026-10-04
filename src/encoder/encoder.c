@@ -2765,6 +2765,8 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     n265_satd_warm();
     n265_entropy_warm();
     n265_deblock_warm();
+    n265_rc_warm();
+    n265_wp_warm();
     /* the CPU feature word and the N265_ASM_OFF ablation mask, resolved
      * here so the pthread_once and the n265_env read both happen on the
      * driver thread; every NEON dispatch site then sees only the inlined
@@ -6706,6 +6708,7 @@ static int force_nonidr_env(void)
  * n265_encoder_open can call it beside the rest. */
 void n265_encoder_warm(void)
 {
+    (void)cu_trace_file();
     (void)dpb_hold(); (void)hf_cache_on(); (void)hf2_mode_env();
     (void)hf2_tpp_env(); (void)hf2_tpp14_env();
     (void)min_keyint_env(); (void)intra_min_env(); (void)force_nonidr_env();

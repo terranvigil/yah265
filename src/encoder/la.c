@@ -637,6 +637,8 @@ void n265_la_warm(void)
     (void)badapt_mvgate();
     (void)ct_mvrate();
     (void)sc_spike();
+    (void)sc_failw_bar();
+    (void)sc_failw_spike();
     (void)n265_flat_gate();
     log2q16_init();
     (void)brun_logT_q16(32);

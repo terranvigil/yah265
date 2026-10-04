@@ -1093,3 +1093,9 @@ void n265_rc_done(struct n265_encoder *e, int cls, double cplx, double rf_used,
                 cls, bits, rf_used, cplx, obs, rc->scale[cls], rc->cplxr,
                 rc->total_bits);
 }
+
+/* knob warming, on the driver at open; see n265_ctu_warm */
+void n265_rc_warm(void)
+{
+    (void)rc_mvrate();
+}

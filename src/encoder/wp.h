@@ -49,6 +49,7 @@ int n265_weightb_on(const struct n265_encoder *e);
 /* N265_WP_TRACE: one line per (frame, list, ref) the estimator looked
  * at, saying what it derived and whether it fired. Output-neutral. */
 int n265_wp_trace(void);
+void n265_wp_warm(void);
 
 /* The lowres planes the estimator reads. Built on the driver from the
  * lookahead slot's padded source, once per frame, into e->wp_cur[]; the

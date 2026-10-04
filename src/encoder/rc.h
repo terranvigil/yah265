@@ -212,4 +212,6 @@ double n265_vbv_crf_base(struct n265_encoder *e, int cls, double cplx,
  * it to see the intra frames coming before it spends against them. */
 int n265_rc_future_idr(struct n265_encoder *e, int i);
 
+void n265_rc_warm(void);
+
 #endif

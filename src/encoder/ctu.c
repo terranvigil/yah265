@@ -7688,7 +7688,7 @@ void n265_ctu_warm(void)
     (void)depth_bound_ctb_skip(); (void)mvd_bits_on(); (void)me_satd_on();
     (void)cb64_gate(); (void)cb64_amvp(); (void)b_intra_margin();
     (void)cb64_prof_on(); (void)cb64_skipgate();
-    (void)bi_refine_iters(); (void)merge_rd_n(); (void)merge_pick_rate(); (void)bi_gate();
+    (void)bi_refine_iters(); (void)merge_rd_n(); (void)merge_pick_rate(); (void)cb64_splitgate(); (void)bi_gate();
     (void)bi_gate_margin(); (void)intra_rd_n(); (void)intra_rd_mpm();
     (void)i_intra(); (void)chroma_w_on(); (void)chroma_w_pct();
     (void)chroma_pred(); (void)cpred_trace(); (void)cpred_w_pct();

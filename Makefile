@@ -47,6 +47,8 @@ test: build
 	# second of wall and the census had drifted to sixty unread defaults
 	# before the audit caught it (docs/x265-feature-audit.md).
 	python3 scripts/knob_census.py --check
+	# every lazily cached knob is read on the driver before a worker exists
+	python3 scripts/warm_check.py
 	$(MAKE) smoke10
 
 # The 10-bit leg of `make test`, and it is a SMOKE and not a correctness
