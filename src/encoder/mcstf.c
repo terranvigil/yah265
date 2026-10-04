@@ -173,6 +173,7 @@ struct n265_mcstf {
     double qp;
     double sharp;           /* photometric width, in noise deviations   */
     double smin;            /* its floor, 8-bit levels                   */
+    double s0;              /* the clean floor, deviation in levels      */
     double pic_cap;         /* the picture reading's cap, in deviations  */
     double rho0, rho1;      /* the block-error knee and slope            */
     double sub_thr;         /* subpel above this integer MAE, levels     */
@@ -242,6 +243,8 @@ static void resolve_model2(n265_mcstf *m)
     m->sharp = knob_clamp(s ? atof(s) : 2.0, 0.0, 16.0);
     s = n265_env("N265_MCSTF_SMIN");
     m->smin = knob_clamp(s ? atof(s) : 0.25, 0.05, 16.0);
+    s = n265_env("N265_MCSTF_S0");
+    m->s0 = knob_clamp(s ? atof(s) : 1.0, 0.0, 16.0);
     s = n265_env("N265_MCSTF_PICCAP");
     m->pic_cap = knob_clamp(s ? atof(s) : 2.0, 0.0, 64.0);
     s = n265_env("N265_MCSTF_RHO0");
@@ -681,11 +684,22 @@ static void mcstf_filter(n265_mcstf *m, int ci)
  * matched the block no better than a different picture would counts for
  * little and the per-sample width decides the rest.
  *
- * THE WIDTH. sharp * sqrt(2) * s, the spread of the difference of two
- * noisy samples times a multiple, floored at a quarter level. The
- * multiple opens with the operating point, doubling every 12 QP above
- * 32: at a coarse quantiser the detail a wider average costs is detail
- * the quantiser was going to take anyway.
+ * THE CLEAN FLOOR. Every deviation above, the block's and the
+ * picture's, has one level (N265_MCSTF_S0) taken out of it in quadrature
+ * before it is used: s' = sqrt(max(0, s^2 - 1)). A clean source still
+ * reads 0.6-0.8 of a level here, from fine texture and the source's own
+ * rounding, and that is picture, not noise. With the floor, a picture
+ * whose reading is under a level comes out of the filter exactly as it
+ * went in, and so does any block whose own reading is - which is what
+ * keeps clean CG and limited animation byte-identical to the filter off,
+ * and what the item-6 bar did by switching the whole picture. A grainy
+ * picture (3 levels) loses almost nothing to the floor.
+ *
+ * THE WIDTH. sharp * sqrt(2) * s', the spread of the difference of two
+ * noisy samples times a multiple. Under a quarter level the block is
+ * copied. The multiple opens with the operating point, doubling every
+ * 12 QP above 32: at a coarse quantiser the detail a wider average costs
+ * is detail the quantiser was going to take anyway.
  *
  * SUBPEL where the integer match is poor: a block whose integer mean
  * absolute error is under 2 levels is already matched to within its
@@ -801,6 +815,27 @@ static void mcstf_filter2(n265_mcstf *m, int ci)
         }
     }
 
+    /* the picture's reading first: under the clean floor nothing below
+     * can move a sample, so the motion search is not paid for */
+    m->sigma_pic = mcstf_noise(m, cur) / 256.0 / 0.892;
+    const double s0q = m->s0 * m->s0 * lv * lv;
+    const double cap = m->pic_cap > 0.0
+        ? m->pic_cap * sqrt(fmax(0.0, m->sigma_pic * m->sigma_pic * lv * lv
+                                      - s0q)) / lv
+        : 1e9;
+    if (cap * lv * m->sharp * 1.41421356 < m->smin * lv) {
+        m->last_side = 0;
+        for (int c = 0; c < 3; c++) {
+            for (int y = 0; y < plane_h(m, c); y++)
+                memcpy(m->out[c] + (ptrdiff_t)y * m->out_stride[c],
+                       cur->org[c] + (ptrdiff_t)y * cur->stride[c],
+                       (size_t)plane_w(m, c) * sizeof(pixel));
+            pad_plane(m->out[c], m->out_stride[c], plane_w(m, c),
+                      plane_h(m, c), N265_MCSTF_PAD);
+        }
+        return;
+    }
+
     /* integer motion for every (neighbour, block), and the per-neighbour
      * mean error the cut test reads */
     double esum[2 * N265_MCSTF_MAX_RANGE];
@@ -845,9 +880,6 @@ static void mcstf_filter2(n265_mcstf *m, int ci)
     int use[2 * N265_MCSTF_MAX_RANGE];
     for (int k = 0; k < nb; k++)
         use[k] = !(side == 1 && nbs[k] < 0) && !(side == 2 && nbs[k] > 0);
-
-    m->sigma_pic = mcstf_noise(m, cur) / 256.0 / 0.892;
-    const double cap = m->pic_cap > 0.0 ? m->pic_cap * m->sigma_pic : 1e9;
 
     pixel pl[2 * N265_MCSTF_MAX_RANGE][MC2_B * MC2_B];
     pixel pc[2 * N265_MCSTF_MAX_RANGE][2][MC2_B * MC2_B];
@@ -912,6 +944,7 @@ static void mcstf_filter2(n265_mcstf *m, int ci)
             double s_lap = blk_lap_sigma(co, cur->stride[0], w, h);
             double s_res = sqrt(best / (2.0 * npx));
             double sb = s_lap < s_res ? s_lap : s_res;
+            sb = sqrt(fmax(0.0, sb * sb - s0q));
             if (sb > cap * lv)
                 sb = cap * lv;
             /* the error term, per neighbour */
@@ -937,6 +970,7 @@ static void mcstf_filter2(n265_mcstf *m, int ci)
                     double cl = blk_lap_sigma(o, ost, ow, oh);
                     double cr = sqrt(bestc[c - 1] / (2.0 * ow * oh));
                     sc = cl < cr ? cl : cr;
+                    sc = sqrt(fmax(0.0, sc * sc - s0q));
                     if (sc > cap * lv)
                         sc = cap * lv;
                 } else {
@@ -945,11 +979,19 @@ static void mcstf_filter2(n265_mcstf *m, int ci)
                     ost = cur->stride[0];
                 }
                 double width = m->sharp * 1.41421356 * sc;
-                if (width < m->smin * lv)
-                    width = m->smin * lv;
+                pixel *d = m->out[c] + (ptrdiff_t)oy * m->out_stride[c] + ox;
+                /* under the floor the plane's block is clean: it is
+                 * copied, so a clean picture comes out of the filter
+                 * exactly as it went in */
+                if (width < m->smin * lv) {
+                    for (int y = 0; y < oh; y++)
+                        memcpy(d + (ptrdiff_t)y * m->out_stride[c],
+                               o + (ptrdiff_t)y * ost,
+                               (size_t)ow * sizeof(pixel));
+                    continue;
+                }
                 /* t in 64ths of a width per sample of difference, Q16 */
                 uint32_t inv = (uint32_t)(64.0 * 65536.0 / width + 0.5);
-                pixel *d = m->out[c] + (ptrdiff_t)oy * m->out_stride[c] + ox;
                 for (int y = 0; y < oh; y++)
                     for (int x = 0; x < ow; x++) {
                         int org = o[(ptrdiff_t)y * ost + x];
@@ -1011,10 +1053,12 @@ void n265_mcstf_pop(n265_mcstf *m, const pixel *plane[3], int stride[3])
         }
     }
     if (n265_mcstf_trace())
-        fprintf(stderr, "mcstf %5d filt=%d noise=%.2f nb=%d side=%d\n",
+        fprintf(stderr, "mcstf %5d filt=%d noise=%.2f nb=%d side=%d "
+                "sigma=%.2f\n",
                 cur->display_idx, filt,
                 m->last_noise_q8 < 0 ? -1.0 : m->last_noise_q8 / 256.0,
-                m->n - 1, filt ? m->last_side : -1);
+                m->n - 1, filt ? m->last_side : -1,
+                filt && m->model >= 2 ? m->sigma_pic : -1.0);
     m->out_pos++;
 }
 

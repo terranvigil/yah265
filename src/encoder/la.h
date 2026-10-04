@@ -80,7 +80,7 @@ typedef struct la_frame {
     float sc_failw;
     float failw_lvl;        /* the running level sc_failw is read against */
     float sc_ema;           /* running ratio EMA before this frame */
-    int mcstf_filt;         /* --mcstf filtered this picture (item 30) */
+    int mcstf_filt;         /* --mcstf filtered this picture (item 31) */
     int valid;
     int display_idx;
     pixel *src[3];          /* full-res source copy (pad_stride layout) */

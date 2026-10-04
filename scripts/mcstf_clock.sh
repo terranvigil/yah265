@@ -2,15 +2,18 @@
 # Copyright (c) 2026, the yah265 authors
 # SPDX-License-Identifier: GPL-2.0-or-later
 #
-# The clock for phase 14 item 30: what --mcstf costs at the goal preset.
+# The clock for phase 14 item 31: what --mcstf costs at the goal preset.
 # TIMED, so it wants the quiet box (load under 3) and nothing else
 # running; about 12 minutes on the M5 Max.
 #
 # Two arms on one binary, so nothing but the filter differs:
-#   on   the default (--preset medium, which arms the filter)
-#   off  N265_MCSTF=0, the knob escape (the flag would also land in the
-#        identification SEI's options; the knob moves nothing but the
-#        filter)
+#   on   N265_MCSTF=1, the environment door onto the filter at its
+#        defaults (the flag would also land in the identification SEI's
+#        options; the knob moves nothing but the filter)
+#   off  the default, filter off
+# All four clips are above the clean floor, so every "on" run pays the
+# filter's motion search. A clean clip (sita_toon, sunflower) pays only
+# the noise reading and is not worth a clock.
 # Four clips, CRF 28, at --threads 1 (goal 1's shape) and at auto
 # (goal 3's), three rounds with the arm order reversed on alternate
 # rounds, output to /dev/null, the one-minute load read before every run.
@@ -39,7 +42,7 @@ echo "clip,threads,arm,round,wall_s,load1" > "$CSV"
 run() {
     local clip=$1 thr=$2 arm=$3 r=$4 l t0 t1
     local -a env_arm=()
-    [ "$arm" = off ] && env_arm=(N265_MCSTF=0)
+    [ "$arm" = on ] && env_arm=(N265_MCSTF=1)
     l=$(load1)
     t0=$(perl -MTime::HiRes=time -e 'printf "%.6f", time')
     env ${env_arm[@]+"${env_arm[@]}"} "$BIN" "$clip" --frames $FRAMES --crf 28 \

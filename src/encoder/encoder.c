@@ -185,7 +185,7 @@ static int g_nr_intra = -1, g_nr_inter = -1;
  * is worth depends entirely on how noisy the source is. */
 /* -1 on either is "no flag given": the filter's on/off and its range
  * then come from N265_MCSTF / N265_MCSTF_RANGE and the preset table
- * (phase 14 item 30), the way --weightp's does. */
+ * (phase 14 item 31), the way --weightp's does. */
 static int g_mcstf = -1, g_mcstf_range = -1, g_mcstf_selective = 0;
 /* The hypothetical decoder buffer (phase 12 item 2). 0 / 0 is off and is
  * every encode the board, the band and every gate before this item ran;
@@ -5156,7 +5156,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                     fw->ct_mean_raw, fw->ct_level, ctf,
                     (double)fw->sc_ratio, (double)fw->la_mvabs);
     }
-    /* --mcstf's coupling (phase 14 item 30): a filtered picture gets a
+    /* --mcstf's coupling (phase 14 item 31): a filtered picture gets a
      * finer quantiser. Its noise is gone, so what the bonus buys is
      * picture, and it is paid back by every picture that predicts from
      * it. An intra picture takes it only if N265_MCSTF_QPB_I says so. */

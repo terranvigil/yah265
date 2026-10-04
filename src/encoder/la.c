@@ -1644,7 +1644,7 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
      * the map before the centring below rewrites it in place. */
     float *raw = fw->ctu_qp_raw;
     float mean = 0;
-    /* --mcstf's coupling (phase 14 item 30): a filtered picture carries
+    /* --mcstf's coupling (phase 14 item 31): a filtered picture carries
      * less noise into every picture that predicts from it, so what it is
      * worth to them is more than its lowres costs say, and a scene-cut
      * anchor is the root of everything after it. Both take a stronger
