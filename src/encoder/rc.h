@@ -94,6 +94,12 @@ typedef struct n265_rc {
      * rc_next, and the loop is bit-identical to the pre-T2 one. */
     double pend_bits;
     long pend_n;
+    /* N265_VBR_LAG_PEND: the frames inside the lag counted at their
+     * calibrated predicted sizes (encoder.c, vbv_plan_fill's walk) and not
+     * at their plans. Set by the encoder before each solve; on wherever
+     * the lag is, under a VBV. */
+    int pend_use_est;
+    double pend_est;
     double last_planned;        /* the T the last rc_next handed out */
     /* The VBV's three columns for the last answer (vbv.h): the model's
      * predicted bits at the base the frame was about to be coded at, the
