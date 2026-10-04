@@ -1339,6 +1339,10 @@ static int fw_open(n265_encoder *e, n265_frame_work *fw)
     fw->ctu_qp_raw = calloc(nctu, sizeof(float));
     fw->ctu_lam_q8 = calloc(nctu, sizeof(uint16_t));
     fw->sao = calloc(nctu, sizeof(sao_params));
+    fw->brk_cw = calloc(nctu, sizeof(float));
+    fw->brk_ca = calloc(nctu, sizeof(float));
+    fw->brk_ce = calloc(nctu, sizeof(float));
+    fw->brk_dq = calloc(nctu, 1);
     if (depth_dump_file()) {
         fw->dd_rec = calloc(nctu, sizeof(struct n265_depth_rec));
         if (!fw->dd_rec)
@@ -1354,7 +1358,8 @@ static int fw_open(n265_encoder *e, n265_frame_work *fw)
     if (!fw->ctu_dmin || !fw->ctu_dmax || !fw->ct_depth || !fw->intra_mode ||
         !fw->edge_map || !fw->blk_intra || !fw->blk_skip || !fw->blk_cbf_y ||
         !fw->blk_mv || !fw->blk_pred || !fw->blk_ref || !fw->blk_qp ||
-        !fw->ctu_qp_off || !fw->ctu_qp_raw || !fw->ctu_lam_q8 || !fw->sao)
+        !fw->ctu_qp_off || !fw->ctu_qp_raw || !fw->ctu_lam_q8 || !fw->sao ||
+        !fw->brk_cw || !fw->brk_ca || !fw->brk_ce || !fw->brk_dq)
         return -1;
     /* enc_prog[] is three runs of ctb_rows: the per-row CTB count, the
      * column a yielded row resumes at, and its "suspended" flag (item
@@ -1419,6 +1424,10 @@ static void fw_close(n265_frame_work *fw)
     free(fw->ctu_qp_off);
     free(fw->ctu_qp_raw);
     free(fw->ctu_lam_q8);
+    free(fw->brk_cw);
+    free(fw->brk_ca);
+    free(fw->brk_ce);
+    free(fw->brk_dq);
     free(fw->dd_rec);
     free(fw->cu_rec);
     free(fw->cu_rec_n);
@@ -2571,7 +2580,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
 
     /* K, the frames in flight (sec 1). A pure scheduling knob: it moves
      * no bits, only how much of the mini-GOP overlaps. */
-    int tree_k = 0;
+    int tree_k = 0, vbr_lag = 0;
     e->dpb_slots_hf = e->dpb_slots;
     { const char *v = n265_env("N265_MAX_FRAME_WORK");
       /* T3/4's sweep. K is bounded in practice by the DPB slot pool, not
@@ -2646,6 +2655,30 @@ n265_encoder *n265_encoder_open(const n265_param *p)
               tree_k = 1;
           }
       }
+      /* N265_VBR_LAG: under --bitrate with a VBV, frame k's rate factor is
+       * solved from the actual bits of the frames up to k - 1 - lag, and
+       * the frames inside the lag are counted at their plans (D4). At lag
+       * 0 the driver drains every frame before the next solve and VBR
+       * frames do not overlap at all: at auto threads the pool holds one
+       * picture and the wall is 1.7-2.5x CRF's on the 1080p segments. The
+       * lag needs lag + 1 frames in flight, so K is raised to it, which is
+       * a schedule choice; the lag itself moves bits. The default is on
+       * above one worker only, so the one-thread stream is main's; at
+       * every count above one the stream is the same, because the books
+       * are kept by the lag (encoder.h, rc_defer). An explicit value
+       * holds at one thread too. N265_RC_LAG, D4's own arm, overrides. */
+      vbr_lag = 0;
+      if (e->abr_on && e->vbv.on && !n265_env("N265_RC_LAG")) {
+          const char *t = n265_env("N265_VBR_LAG");
+          int nt = g_threads > 0 ? g_threads : auto_threads();
+          vbr_lag = t ? atoi(t) : nt > 1 ? 7 : 0;
+          if (vbr_lag < 0)
+              vbr_lag = 0;
+          if (vbr_lag > 0 && !v && k < vbr_lag + 1) {
+              k = vbr_lag + 1;
+              tree_k = 1;
+          }
+      }
       /* The bit-moving history rules read coding index k - 8 as retired
        * (encoder.h, N265_RETIRE_WIN), so K stays at or under it while
        * one of them is on, whatever asked for more. */
@@ -2678,10 +2711,33 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         e->dpb_slots = s > N265_DPB_SLOTS ? N265_DPB_SLOTS : s;
     }
     { const char *v = n265_env("N265_RC_LAG");
-      int d = v ? atoi(v) : 0;
+      int d = v ? atoi(v) : vbr_lag;
       if (d < 0) d = 0;
       if (d > e->K - 1) d = e->K - 1;
-      e->rc_lag = d; }
+      e->rc_lag = d;
+      e->rc_defer = d > 0;
+      e->rc_applied = 0;
+      /* the opening is coded at lag 0: the bits model has seen nothing
+       * yet, and seven frames planned on its priors drained a full buffer
+       * below zero on Chimera's first mini-GOP (11 underflows) */
+      { const char *w = n265_env("N265_VBR_LAG_WARM");
+        e->rc_lag_warm = w ? atoi(w) : 2 * (d + 1); }
+      { const char *c = n265_env("N265_VBR_LAG_CAL");
+        e->vbv_ecal_k = c ? atof(c) : 0.1; }
+      /* ...and the loop counts the frames inside the lag at those same
+       * calibrated sizes rather than at their plans: on Chimera 720p at
+       * 2015k the plans cost 0.33 VMAF-NEG at equal bytes against lag 0,
+       * the calibrated sizes 0.10 */
+      { const char *l = n265_env("N265_VBR_LAG_LOW");
+        e->rc_lag_low = l ? atof(l) : 0.5; }
+      e->rc_lag_now = 0;
+      e->rc_lag_low_n = 0;
+      { const char *q = n265_env("N265_VBR_LAG_PEND");
+        e->rc.pend_use_est = d > 0 && e->vbv.on && (q ? atoi(q) : 1); }
+      for (int i = 0; i < RC_CLASSES; i++) {
+          e->vbv_ecal[i] = 0.0;
+          e->vbv_ecal_n[i] = 0;
+      } }
 
     for (int i = 0; i < 3; i++) {
         int w = i ? e->pad_w >> e->csx : e->pad_w;
@@ -2792,6 +2848,8 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     n265_satd_warm();
     n265_entropy_warm();
     n265_deblock_warm();
+    n265_rc_warm();
+    n265_wp_warm();
     /* the CPU feature word and the N265_ASM_OFF ablation mask, resolved
      * here so the pthread_once and the n265_env read both happen on the
      * driver thread; every NEON dispatch site then sees only the inlined
@@ -3064,6 +3122,10 @@ void n265_show_config(const n265_encoder *e, FILE *f, int in_depth)
 }
 
 static void join_oldest(n265_encoder *e);
+static void rc_apply_upto(n265_encoder *e, int upto);
+static int rc_lag_at(const n265_encoder *e, int k);
+static double vbv_plan_fill(const n265_encoder *e, int k);
+static double vbv_pend_est(const n265_encoder *e, int k);
 static void shot_fold_upto(n265_encoder *e, int upto, int hard);
 static void shot_flush(n265_encoder *e);
 
@@ -3075,6 +3137,13 @@ void n265_encoder_close(n265_encoder *e)
      * flushing. Their jobs own the frame_works and the pool. */
     while (e->n_inflight)
         join_oldest(e);
+    if (e->rc_defer) {
+        rc_apply_upto(e, e->hf2_code_n - 1);
+        if (e->vbv_trace)
+            fprintf(stderr, "VBRLAG,lag=%d,warm=%d,low_fallbacks=%ld,frames=%d\n",
+                    e->rc_lag, e->rc_lag_warm, e->rc_lag_low_n,
+                    e->hf2_code_n);
+    }
     /* --shot-stats: everything has retired, so the tail of the display
      * order can be folded and the last shot written. */
     if (e->shot_f) {
@@ -4344,6 +4413,76 @@ static int job_ready(void *ctx, int idx)
     return atomic_load_explicit(&p->pub_rows, memory_order_acquire) == R;
 }
 
+/* THE BRAKE: the VBV's check inside a picture (phase 14 item 29 step 2).
+ *
+ * The clamp in rc.c sizes the picture before it starts, from a model; a
+ * picture the model gets wrong by a factor of five (a P picture at a cut)
+ * used to run to completion and overdraw the buffer. This re-reads the
+ * picture while it is being coded and raises the QP of the CTUs still to
+ * come when the running estimate says it will not fit.
+ *
+ * What it reads is the DETERMINISM argument. At CTU (r, c) the wavefront
+ * lag has already made final row r's own prefix [0, c) and row r - 1's
+ * [0, c + 2). One step further up the guarantee grows by ONE column, not
+ * two: row r - 1 has only STARTED column c + 1, which waited for row r - 2
+ * to finish [0, c + 3). So row r - k's final prefix is [0, c + k + 1), a
+ * staircase. Nothing else is read - not the rows running beside it, not a
+ * clock - so the answer is the same at one worker and at twelve, and no
+ * wait is added that the prediction dependencies did not already have.
+ * (The first build read [0, c + 2k), a CTU not yet final from k = 2 on,
+ * and two runs at --threads 2 wrote different streams.)
+ *
+ * The estimate is each committed CTU replayed through a copy of the
+ * estimator's contexts, times a per-class coded-bits-per-estimated-bit
+ * calibration learned from retired frames. The plan is the frame's clamped
+ * prediction spread over the CTUs by the lookahead's complexity map; the
+ * staircase's share of that map is how much of the picture has been paid
+ * for. The projection shrinks toward the plan by N265_VBV_BRAKE_K0 of a
+ * picture, so a handful of CTUs cannot fire it on noise.
+ *
+ * One-sided: it only ever raises a CTU's QP, and only when the remainder
+ * at the unbraked rate would not fit in what the buffer has left. The
+ * CTU's offset stays inside the +-12 every other writer keeps, which is
+ * what keeps cu_qp_delta legal against any neighbour. Returns the QP it
+ * added. */
+static int vbv_brake(n265_frame_work *fw, int r, int c)
+{
+    int C = fw->ctb_cols;
+    double ws = 0.0, as = 0.0, es = 0.0;
+    for (int k = 0; k <= r; k++) {
+        int n = k ? c + k + 1 : c;
+        if (n > C)
+            n = C;
+        if (n <= 0)
+            continue;
+        int i = (r - k) * C + n - 1;
+        ws += fw->brk_cw[i];
+        as += fw->brk_ca[i];
+        es += fw->brk_ce[i];
+    }
+    double k0 = fw->enc->rc.brk_gain;
+    double rate = (es + fw->brk_plan * k0) / (ws + k0);
+    double rem = (1.0 - ws) * rate;
+    if (rem <= 0.0)
+        return 0;
+    double avail = fw->brk_lim - as;
+    if (rem <= avail)
+        return 0;
+    double dq = avail > rem / 4096.0 ? 6.0 * log2(rem / avail) : 72.0;
+    int k = r * C + c;
+    int off = fw->ctu_qp_off[k];
+    int hi = 12;
+    if (hi > N265_QP_MAX - fw->qp)
+        hi = N265_QP_MAX - fw->qp;
+    int want = off + (int)floor(dq);
+    if (want > hi)
+        want = hi;
+    if (want <= off)
+        return 0;
+    fw->ctu_qp_off[k] = (int8_t)want;
+    return want - off;
+}
+
 static int job_run(void *ctx, int lane, int idx)
 {
     n265_frame_work *fw = ctx;
@@ -4398,7 +4537,21 @@ static int job_run(void *ctx, int lane, int idx)
                 ntp_wait(e->pool, lag_key(p, r), lag_pred, &w);
             }
             double tt_c1 = TT_NOW();
+            int bdq = 0;
+            size_t brec = row->c.rec_len;
+            if (fw->brk_on)
+                bdq = vbv_brake(fw, r, cx);
             n265_analyze_ctu(&row->c, cx, r);
+            if (fw->brk_on) {
+                int k = r * fw->ctb_cols + cx;
+                double b = (double)n265_est_ctu_bits(&row->c, cx, r, brec) /
+                           256.0 * fw->brk_ratio;
+                double pa = cx ? fw->brk_ca[k - 1] : 0.0;
+                double pe = cx ? fw->brk_ce[k - 1] : 0.0;
+                fw->brk_ca[k] = (float)(pa + b);
+                fw->brk_ce[k] = (float)(pe + b * exp2(bdq / 6.0));
+                fw->brk_dq[k] = (int8_t)bdq;
+            }
             TT_PUT(TT_CTU, 0, fw->code_idx, r, cx, 0, tt_c1, TT_NOW());
             if (tt_c1 - tt_c0 > 2e-6)
                 TT_PUT(TT_LAG, 0, fw->code_idx, r, cx, 0, tt_c0, tt_c1);
@@ -4868,6 +5021,14 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                 e->tp.miss++;
             }
         }
+        /* under the lag the buffer the solve and the brake plan against is
+         * the lag's, not whatever the joins have reached (rc_defer) */
+        double vbv_fill_join = e->vbv.fill;
+        if (e->rc_defer && e->vbv.on) {
+            e->vbv.fill = vbv_plan_fill(e, fw->code_idx);
+            if (e->rc.pend_use_est)
+                e->rc.pend_est = vbv_pend_est(e, fw->code_idx);
+        }
         e->rc_rf = n265_rc_next(e, fw->rc_cls, fw->rc_cplx, ctf);
         fw->rc_planned = e->rc.last_planned;
         /* item 28: under ABR there is no planned base at open (the rate
@@ -4889,6 +5050,36 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
         fw->vbv_pred = e->rc.last_vbv_pred;
         fw->vbv_allow = e->rc.last_vbv_allow;
         fw->vbv_dqp = e->rc.last_vbv_dqp;
+        /* The brake's three numbers, frozen here like the clamp's. The
+         * plan is the model's prediction at the base the frame is coded
+         * at, after the clamp; the limit is what the buffer can pay for.
+         * A class with no retired picture yet takes the estimator's own
+         * bits (a calibration of 1.0). */
+        if (e->vbv.on && e->rc.brake) {
+            int c = fw->rc_cls;
+            double ratio = e->rc.brk_ratio[c];
+            if (!(ratio > 0.0))     /* uncalibrated: the estimator's own */
+                ratio = 1.0;
+            fw->brk_plan = fw->vbv_pred * exp2(-fw->vbv_dqp / 6.0);
+            /* The brake is the backstop and not a second clamp: it holds
+             * the picture to what the buffer really holds, not to the
+             * clamp's allowance, which also reserves for the window. Held
+             * to the allowance it brakes a clamped picture on estimation
+             * noise alone - 215 pictures of Meridian 720p at 181k, and
+             * 7 VMAF-NEG in the window they sit in. */
+            fw->brk_lim = e->rc.brk_fill * e->vbv.fill;
+            if (fw->brk_lim < fw->vbv_allow)
+                fw->brk_lim = fw->vbv_allow;
+            fw->brk_ratio = ratio;
+            fw->brk_on = ratio > 0.0 && fw->brk_lim > 0.0 && e->qp_delta_on;
+        }
+        if (e->rc_defer && e->vbv.on) {
+            e->vbv_est[fw->code_idx % (2 * N265_MAX_FRAME_WORK)] =
+                fw->vbv_pred * exp2(-fw->vbv_dqp / 6.0);
+            e->vbv_cls[fw->code_idx % (2 * N265_MAX_FRAME_WORK)] =
+                fw->rc_cls;
+            e->vbv.fill = vbv_fill_join;
+        }
     }
     fw->tree_w16 = e->tree_w16;     /* item 28, fixed at open but ABR */
     /* frame-type QP ladder (the matched reference applies its ip/pb
@@ -5767,6 +5958,8 @@ static void entropy_frame(n265_encoder *e, n265_frame_work *fw)
         memset(fw->cbf_c_cr, 0, sizeof fw->cbf_c_cr);
         fw->cbit_cnz = 0;
         fw->cbit_bucket = N265_CB_OTHER;
+        memset(fw->cbit_se, 0, sizeof fw->cbit_se);
+        fw->cbit_se_last = N265_SE_OTHER;
     }
     bs_reset(&fw->rbsp);
     write_slice_header(e, fw);
@@ -6021,6 +6214,77 @@ static void hrd_sei_values(n265_encoder *e, const n265_frame_work *fw,
  * the deferred ring in CODING order, and hand its resources back. This
  * is the only place the driver blocks on a frame, and it is where D3's
  * stalls (a DPB slot, a lookahead source slot, a frame_work) resolve. */
+/* N265_VBR_LAG's books (encoder.h, rc_defer): apply every parked
+ * retirement with coding index <= upto, in coding order. Each one was
+ * joined by the drain that precedes the solve. */
+static int rc_lag_at(const n265_encoder *e, int k)
+{
+    return k < e->rc_lag_warm ? 0 : e->rc_lag;
+}
+
+static void rc_apply_upto(n265_encoder *e, int upto)
+{
+    for (; e->rc_applied <= upto; e->rc_applied++) {
+        int j = e->rc_applied % (2 * N265_MAX_FRAME_WORK);
+        const struct n265_rc_ret *rr = &e->rc_ret[j];
+        if (e->vbv.on && e->vbv_est[j] > 0.0 && rr->bits > 0.0) {
+            double x = log(rr->bits / e->vbv_est[j]);
+            double *c = &e->vbv_ecal[rr->cls];
+            *c = e->vbv_ecal_n[rr->cls]++ ? *c + e->vbv_ecal_k * (x - *c) : x;
+        }
+        if (rr->brk) {
+            double *pr = &e->rc.brk_ratio[rr->cls];
+            *pr = *pr > 0.0 ? 0.5 * *pr + 0.5 * rr->brk_x : rr->brk_x;
+        }
+        if (e->abr_on || e->rc.trace || e->vbv.on)
+            n265_rc_done(e, rr->cls, rr->cplx, rr->rf_used, rr->bits,
+                         rr->planned, rr->ctf, rr->ioff);
+    }
+}
+
+/* The fill frame k's solve plans against under the lag: the real fill
+ * after frame k - 1 - lag's removal, then each frame inside the lag taken
+ * out at the size its own solve predicted for it, with the inflow
+ * between removals. The same arithmetic as n265_vbv_update, unclamped
+ * below like it, so a predicted underflow reads as one. */
+static double vbv_est_cal(const n265_encoder *e, int j)
+{
+    int i = j % (2 * N265_MAX_FRAME_WORK);
+    int c = e->vbv_cls[i];
+    return e->vbv_est[i] * (e->vbv_ecal_k > 0.0 && e->vbv_ecal_n[c]
+                                ? exp(e->vbv_ecal[c]) : 1.0);
+}
+
+/* the calibrated sizes of the frames inside the lag, for the loop */
+static double vbv_pend_est(const n265_encoder *e, int k)
+{
+    double s = 0.0;
+    for (int j = e->rc_applied; j < k; j++)
+        s += vbv_est_cal(e, j);
+    return s;
+}
+
+static double vbv_plan_fill(const n265_encoder *e, int k)
+{
+    int j0 = k - 1 - e->rc_lag_now;
+    double f;
+    if (j0 >= 0) {
+        f = e->vbv_fa[j0 % (2 * N265_MAX_FRAME_WORK)];
+    } else {
+        f = e->vbv.init * e->vbv.bufsize;
+        if (f > e->vbv.bufsize)
+            f = e->vbv.bufsize;
+        j0 = -1;
+    }
+    for (int j = j0 + 1; j < k; j++) {
+        f -= vbv_est_cal(e, j);
+        f += e->vbv.inflow;
+        if (f > e->vbv.bufsize)
+            f = e->vbv.bufsize;
+    }
+    return f;
+}
+
 static void join_oldest(n265_encoder *e)
 {
     if (e->n_inflight == 0)
@@ -6323,6 +6587,12 @@ static void join_oldest(n265_encoder *e)
                 (unsigned long long)fw->cbf_c_n[3],
                 (unsigned long long)fw->cbf_c_cb[3],
                 (unsigned long long)fw->cbf_c_cr[3]);
+        /* the same frame by syntax element (docs/instruments.md) */
+        fprintf(stderr, "CBSE,%d,%d,%d,%d,%zu", fw->display_idx,
+                fw->slice_type, fw->b_depth, fw->qp, d->len);
+        for (int i = 0; i < N265_SE_COUNT; i++)
+            fprintf(stderr, ",%.1f", fw->cbit_se[i] / 256.0);
+        fputc('\n', stderr);
     }
     /* Round 4: the frame's traffic, summed over its row lanes and
      * stamped with its coding index. Row-private lines summed in row
@@ -6411,7 +6681,61 @@ static void join_oldest(n265_encoder *e)
      * Capped CRF joins ABR here: the clamp predicts from the class scales
      * and the scales are learned nowhere else, so a CRF encode with a VBV
      * has to keep the same books an ABR one does. */
-    if (e->abr_on || e->rc.trace || e->vbv.on)
+    /* the brake's calibration: this frame's coded bits per estimated
+     * bit, per class. Driver-serial and in coding order, like the rest. */
+    if (e->rc_defer)
+        e->rc_ret[fw->code_idx % (2 * N265_MAX_FRAME_WORK)].brk = 0;
+    if (e->rc.brake && fw->brk_on) {
+        double rb = 0.0;
+        for (int r = 0; r < fw->ctb_rows; r++)
+            rb += fw->brk_ca[r * fw->ctb_cols + fw->ctb_cols - 1];
+        rb /= fw->brk_ratio;    /* back to the estimator's own bits */
+        /* a near-empty picture (black, a still card) is all headers and
+         * says nothing about what a real one costs: 2.3 bits per estimated
+         * bit on Chimera's black opening IDR, 1.05 on the picture after */
+        if (rb > 0.05 * e->rc.bits_per_frame) {
+            double x = (double)d->len * 8.0 / rb;
+            if (e->rc_defer) {
+                struct n265_rc_ret *rr =
+                    &e->rc_ret[fw->code_idx % (2 * N265_MAX_FRAME_WORK)];
+                rr->brk = 1;
+                rr->brk_x = x;
+            } else {
+                double *pr = &e->rc.brk_ratio[fw->rc_cls];
+                *pr = *pr > 0.0 ? 0.5 * *pr + 0.5 * x : x;
+            }
+        }
+        if (e->vbv_trace && fw->brk_on) {
+            int nm = 0, mx = 0;
+            for (int k = 0; k < fw->ctb_cols * fw->ctb_rows; k++) {
+                nm += fw->brk_dq[k] != 0;
+                if (fw->brk_dq[k] > mx)
+                    mx = fw->brk_dq[k];
+            }
+            double est = 0.0;
+            for (int r = 0; r < fw->ctb_rows; r++)
+                est += fw->brk_ca[r * fw->ctb_cols + fw->ctb_cols - 1];
+            /* BRK,coding,display,plan,limit,bits,estimate,ratio,
+             * ctus_moved,max_dqp */
+            if (nm || (double)d->len * 8.0 > fw->brk_lim)
+                fprintf(stderr, "BRK,%d,%d,%.0f,%.0f,%.0f,%.0f,%.3f,%d,%d\n",
+                        fw->code_idx, fw->display_idx, fw->brk_plan,
+                        fw->brk_lim, (double)d->len * 8.0, est,
+                        fw->brk_ratio, nm, mx);
+        }
+    }
+    if (e->rc_defer) {
+        /* parked; the solve that is lag frames on applies it */
+        struct n265_rc_ret *rr =
+            &e->rc_ret[fw->code_idx % (2 * N265_MAX_FRAME_WORK)];
+        rr->cls = fw->rc_cls;
+        rr->cplx = fw->rc_cplx;
+        rr->rf_used = fw->rc_base;
+        rr->bits = (double)d->len * 8.0;
+        rr->planned = fw->rc_planned;
+        rr->ctf = fw->rc_ctf;
+        rr->ioff = fw->rc_ioff;
+    } else if (e->abr_on || e->rc.trace || e->vbv.on)
         n265_rc_done(e, fw->rc_cls, fw->rc_cplx, fw->rc_base,
                      (double)d->len * 8.0, fw->rc_planned, fw->rc_ctf,
                      fw->rc_ioff);
@@ -6445,6 +6769,7 @@ static void join_oldest(n265_encoder *e)
     if (e->vbv.on) {
         double fb = 0.0, fa = 0.0;
         n265_vbv_update(&e->vbv, (double)d->len * 8.0, &fb, &fa);
+        e->vbv_fa[fw->code_idx % (2 * N265_MAX_FRAME_WORK)] = fa;
         if (e->vbv_trace)
             /* VBV,coding,display,slice,pred,allow,bits,fill_in,fill_out,dqp */
             fprintf(stderr, "VBV,%d,%d,%d,%.0f,%.0f,%.0f,%.1f,%.1f,%+.3f\n",
@@ -6590,6 +6915,7 @@ static int force_nonidr_env(void)
  * n265_encoder_open can call it beside the rest. */
 void n265_encoder_warm(void)
 {
+    (void)cu_trace_file();
     (void)dpb_hold(); (void)hf_cache_on(); (void)hf2_mode_env();
     (void)hf2_tpp_env(); (void)hf2_tpp14_env();
     (void)min_keyint_env(); (void)intra_min_env(); (void)force_nonidr_env();
@@ -7460,6 +7786,39 @@ static int drive_scheduler(n265_encoder *e)
     fw->rc_cls = n265_rc_class(slice_type, fw->nonref);
     fw->rc_cplx = n265_rc_cplx(e, li, fw->rc_cls);
     fw->rc_icplx = n265_rc_cplx(e, li, RC_I);
+    /* the brake's plan map: where in the picture the lookahead says the
+     * bits will go, as a per-row cumulative share (encoder.h). Read here
+     * for the reason the pass-1 columns below are: the lowres planes are
+     * recycled behind a dispatched frame. */
+    fw->brk_on = 0;
+    if (e->abr_on && e->vbv.on && e->rc.brake) {
+        const la_frame *lf = &e->la.f[li];
+        int bpc = (1 << e->ctb_log2) / 16;
+        double tot = 0.0;
+        for (int cy = 0; cy < e->ctb_rows; cy++) {
+            double acc = 0.0;
+            for (int cx = 0; cx < e->ctb_cols; cx++) {
+                double s = 0.0;
+                for (int dy = 0; dy < bpc; dy++)
+                    for (int dx = 0; dx < bpc; dx++) {
+                        int bx = cx * bpc + dx, by = cy * bpc + dy;
+                        if (bx >= e->la.bw || by >= e->la.bh)
+                            continue;
+                        int b = by * e->la.bw + bx;
+                        double ic = lf->icost[b];
+                        double pc = fw->rc_cls == RC_I || !lf->pcost
+                                        ? ic : (double)lf->pcost[b];
+                        s += (pc < ic ? pc : ic) + 1.0;
+                    }
+                acc += s;
+                fw->brk_cw[cy * e->ctb_cols + cx] = (float)acc;
+            }
+            tot += acc;
+        }
+        if (tot > 0.0)
+            for (int k = 0; k < e->ctb_cols * e->ctb_rows; k++)
+                fw->brk_cw[k] = (float)(fw->brk_cw[k] / tot);
+    }
     /* --pass 1's lookahead columns, read HERE and not at retirement: the
      * queue slot is recycled behind a dispatched frame (la.h's free run),
      * so by the time this picture's size is known its lowres planes may
@@ -7502,9 +7861,25 @@ static int drive_scheduler(n265_encoder *e)
          * cu-tree frame term, which needs the frame's content type, and both
          * are driver-serial there. The DRAIN stays here, ahead of it, because
          * it is the lag's own statement about what the loop may observe. */
-        while (e->n_inflight > e->rc_lag) {
+        int lag = rc_lag_at(e, fw->code_idx);
+        while (e->n_inflight > lag) {
             e->join_rc++;
             join_oldest(e);
+        }
+        if (e->rc_defer) {
+            rc_apply_upto(e, fw->code_idx - 1 - lag);
+            e->rc_lag_now = lag;
+            if (lag > 0 && e->vbv.on && e->rc_lag_low > 0.0 &&
+                vbv_plan_fill(e, fw->code_idx) <
+                    e->rc_lag_low * e->vbv.bufsize) {
+                while (e->n_inflight > 0) {
+                    e->join_rc++;
+                    join_oldest(e);
+                }
+                rc_apply_upto(e, fw->code_idx - 1);
+                e->rc_lag_now = 0;
+                e->rc_lag_low_n++;
+            }
         }
     }
     if (kind != 0)          /* the priced b-adapt prices against this plane */

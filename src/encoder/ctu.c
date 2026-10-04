@@ -5117,21 +5117,48 @@ static int commit_inter_cu(struct n265_frame_work *e, int x0, int y0,
  * SAD, because that number is not just this ranking's - the static-skip
  * threshold, the economy gates and the intra prefilter all read it, and
  * a chroma-inflated one would move gates this item is not about. */
+/* N265_MERGE_PICK_RATE (phase 14 item 30): the 2Nx2N pick below ranked
+ * the merge list on SAD alone, so a candidate a few SAD units better won
+ * whatever its index cost. At a high QP most CUs are skips, the index is
+ * most of what a skip writes, and the list's later entries cost up to
+ * three bypass bins more than the first. 1 adds lambda x the index's bin
+ * count to the ranking, the way the PU search already prices it; 0 is
+ * the SAD-only pick. */
+static int merge_pick_rate(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_MERGE_PICK_RATE");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
 static int merge_pick_sad(struct n265_frame_work *e, int x0, int y0,
                           int log2n, const mot_t *mlist, uint32_t *luma)
 {
     int n = 1 << log2n, cp = chroma_pred(), k = merge_rd_n();
-    uint32_t sd[MAX_MERGE];
+    uint32_t sd[MAX_MERGE], rk[MAX_MERGE], rt[MAX_MERGE] = { 0 };
+    if (merge_pick_rate() == 1) {
+        int lam4 = ctu_lam_sad_q4(e);
+        for (int i = 0; i < k; i++) {
+            int bins = 1 + (i < MAX_MERGE - 1 ? i : i - 1);
+            uint64_t r = ((uint64_t)bins * (uint64_t)lam4) >> 4;
+            rt[i] = r > UINT32_MAX / 2 ? UINT32_MAX / 2 : (uint32_t)r;
+        }
+    }
     int midx = 0;
     for (int i = 0; i < k; i++) {
         sd[i] = mot_sad(e, x0, y0, log2n, mlist[i]);
-        if (sd[i] < sd[midx])
+        uint64_t c = (uint64_t)sd[i] + rt[i];
+        rk[i] = c > UINT32_MAX ? UINT32_MAX : (uint32_t)c;
+        if (rk[i] < rk[midx])
             midx = i;
     }
     if (e->fp_census) {
         int nt = 0;
         for (int i = 0; i < k; i++)
-            if (sd[i] == sd[midx])
+            if (rk[i] == rk[midx])
                 nt++;
         if (nt > 1)
             e->fpc[N265_FPC_MERGE_RDTIE]++;
@@ -5145,13 +5172,13 @@ static int merge_pick_sad(struct n265_frame_work *e, int x0, int y0,
         return midx;
     if (g == 1 || g == 2) {
         int b[2];
-        two_best(sd, k, b);
+        two_best(rk, k, b);
         if (b[1] == b[0])
             return midx;
-        if (g == 2 && (uint64_t)sd[b[1]] * 100 > (uint64_t)sd[b[0]] * 102)
+        if (g == 2 && (uint64_t)rk[b[1]] * 100 > (uint64_t)rk[b[0]] * 102)
             return midx;        /* luma has already decided this one */
-        uint32_t c0 = sd[b[0]] + cpred_sad(e, x0, y0, n, n, mlist[b[0]]);
-        uint32_t c1 = sd[b[1]] + cpred_sad(e, x0, y0, n, n, mlist[b[1]]);
+        uint32_t c0 = rk[b[0]] + cpred_sad(e, x0, y0, n, n, mlist[b[0]]);
+        uint32_t c1 = rk[b[1]] + cpred_sad(e, x0, y0, n, n, mlist[b[1]]);
         /* the ties go the way the luma-only pick went */
         int w = c1 < c0 ? b[1] : b[0];
         *luma = sd[w];
@@ -5160,7 +5187,7 @@ static int merge_pick_sad(struct n265_frame_work *e, int x0, int y0,
 
     uint32_t best = UINT32_MAX;
     for (int i = 0; i < k; i++) {
-        uint32_t c = sd[i] + cpred_sad(e, x0, y0, n, n, mlist[i]);
+        uint32_t c = rk[i] + cpred_sad(e, x0, y0, n, n, mlist[i]);
         if (c < best) {
             best = c;
             midx = i;
@@ -7661,7 +7688,7 @@ void n265_ctu_warm(void)
     (void)depth_bound_ctb_skip(); (void)mvd_bits_on(); (void)me_satd_on();
     (void)cb64_gate(); (void)cb64_amvp(); (void)b_intra_margin();
     (void)cb64_prof_on(); (void)cb64_skipgate();
-    (void)bi_refine_iters(); (void)merge_rd_n(); (void)bi_gate();
+    (void)bi_refine_iters(); (void)merge_rd_n(); (void)merge_pick_rate(); (void)cb64_splitgate(); (void)bi_gate();
     (void)bi_gate_margin(); (void)intra_rd_n(); (void)intra_rd_mpm();
     (void)i_intra(); (void)chroma_w_on(); (void)chroma_w_pct();
     (void)chroma_pred(); (void)cpred_trace(); (void)cpred_w_pct();

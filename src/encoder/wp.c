@@ -517,3 +517,11 @@ void n265_wp_analyse(n265_encoder *e, n265_frame_work *fw)
             }
         }
 }
+
+/* knob warming, on the driver at open; see n265_ctu_warm */
+void n265_wp_warm(void)
+{
+    (void)wp_gain_shift();
+    (void)wp_block_win();
+    (void)wp_max_refs();
+}

@@ -18,6 +18,7 @@
 
 #include "encoder/la.h"
 #include "encoder/sao.h"
+#include "encoder/est.h"
 #include "encoder/preset.h"
 
 static inline int clip3(int lo, int hi, int v)
@@ -820,24 +821,52 @@ static void sao_analyze_row(struct n265_frame_work *e, int cy)
     }
 }
 
+/* N265_CBIT_TRACE's SAO share: the writer below goes straight to the
+ * engine and not through a res_ops, so it charges its own bins here, off
+ * the context state before the engine updates it (the same -log2(p) the
+ * replay's wrapper reads). NULL when the trace is off. */
+static _Thread_local uint64_t *sao_acc;
+
+static void sao_bin(cabac_t *cb, cabac_ctx_t *ctx, int bin)
+{
+    if (sao_acc)
+        *sao_acc += bin == ctx->mps ? n265_est_bits_mps[ctx->state]
+                                    : n265_est_bits_lps[ctx->state];
+    n265_cabac_bin(cb, ctx, bin);
+}
+
+static void sao_bypass(cabac_t *cb, int bin)
+{
+    if (sao_acc)
+        *sao_acc += 256;
+    n265_cabac_bypass(cb, bin);
+}
+
+static void sao_bypass_bits(cabac_t *cb, uint32_t v, int n)
+{
+    if (sao_acc)
+        *sao_acc += (uint64_t)n << 8;
+    n265_cabac_bypass_bits(cb, v, n);
+}
+
 static void write_offset_abs(cabac_t *cb, int abs_v)
 {
     /* TR cMax SAO_OFF_MAX (7 at 8 bits, 31 at Main10), all bypass */
     for (int i = 0; i < abs_v; i++)
-        n265_cabac_bypass(cb, 1);
+        sao_bypass(cb, 1);
     if (abs_v < SAO_OFF_MAX)
-        n265_cabac_bypass(cb, 0);
+        sao_bypass(cb, 0);
 }
 
-void n265_sao_write(struct n265_frame_work *e, cabac_t *cb, int ctb_x,
-                    int ctb_y)
+static void sao_write_body(struct n265_frame_work *e, cabac_t *cb, int ctb_x,
+                           int ctb_y)
 {
     const sao_params *p = &e->sao[ctb_y * e->ctb_cols + ctb_x];
 
     if (ctb_x > 0)
-        n265_cabac_bin(cb, &e->ctx[CTX_SAO_MERGE], p->merge == 1);
+        sao_bin(cb, &e->ctx[CTX_SAO_MERGE], p->merge == 1);
     if (p->merge != 1 && ctb_y > 0)
-        n265_cabac_bin(cb, &e->ctx[CTX_SAO_MERGE], p->merge == 2);
+        sao_bin(cb, &e->ctx[CTX_SAO_MERGE], p->merge == 2);
     if (p->merge)
         return;
 
@@ -845,9 +874,9 @@ void n265_sao_write(struct n265_frame_work *e, cabac_t *cb, int ctb_x,
         if (c == 0 || c == 1) {
             /* sao_type_idx_(luma|chroma): bin0 ctx, bin1 bypass */
             int t = p->type[c];
-            n265_cabac_bin(cb, &e->ctx[CTX_SAO_TYPE], t != SAO_OFF);
+            sao_bin(cb, &e->ctx[CTX_SAO_TYPE], t != SAO_OFF);
             if (t != SAO_OFF)
-                n265_cabac_bypass(cb, t == SAO_EDGE);
+                sao_bypass(cb, t == SAO_EDGE);
         }
         int t = p->type[c];
         if (t == SAO_OFF)
@@ -857,12 +886,22 @@ void n265_sao_write(struct n265_frame_work *e, cabac_t *cb, int ctb_x,
         if (t == SAO_BAND) {
             for (int i = 0; i < 4; i++)
                 if (p->offset[c][i])
-                    n265_cabac_bypass(cb, p->offset[c][i] < 0);
-            n265_cabac_bypass_bits(cb, p->class_or_pos[c], 5);
+                    sao_bypass(cb, p->offset[c][i] < 0);
+            sao_bypass_bits(cb, p->class_or_pos[c], 5);
         } else if (c == 0 || c == 1) {
-            n265_cabac_bypass_bits(cb, p->class_or_pos[c], 2);
+            sao_bypass_bits(cb, p->class_or_pos[c], 2);
         }
     }
+}
+
+void n265_sao_write(struct n265_frame_work *e, cabac_t *cb, int ctb_x,
+                    int ctb_y)
+{
+    /* frames code in parallel on different workers, so the pointer is
+     * thread-local and set for exactly this CTU's call */
+    sao_acc = e->cbit_trace ? &e->cbit_se[N265_SE_SAO] : NULL;
+    sao_write_body(e, cb, ctb_x, ctb_y);
+    sao_acc = NULL;
 }
 
 /* Apply row cy's decided offsets in place, then publish. The pristine

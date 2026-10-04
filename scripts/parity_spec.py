@@ -62,6 +62,7 @@ import re
 import statistics
 import subprocess
 import sys
+import shutil
 import tempfile
 import time
 
@@ -167,6 +168,16 @@ def src_of(cell):
 
 def key_of(cell):
     return f"{cell[0]}/{cell[1]}/{cell[2]}"
+
+
+def traits_of(cell):
+    """The cell's flagged traits from the census (docs/media-traits.md),
+    '' for none and '?' where the census has no row."""
+    import media_traits
+    fn = cell[3][:-4]
+    if cell[0] == "S":
+        return media_traits.flags(f"tierS/{fn}")
+    return media_traits.flags("seg/" + re.sub(r"_\d+s$", "", fn))
 
 
 def y4m_info(path):
@@ -410,6 +421,25 @@ def shim_ffmpeg(threads):
     os.environ["PATH"] = d + ":" + os.environ["PATH"]
 
 
+def rebind(k, pt, c):
+    """A point solved on another binary still holds when this binary
+    writes the same bitstream at the solved crf: a rebuild that moves no
+    stream (a docs merge, a knob that acts only under VBR) shouldn't cost
+    a re-solve. One untimed encode, before the quiet check, decides."""
+    work = tempfile.mkdtemp(prefix="rebind.", dir=WORK)
+    try:
+        out = os.path.join(work, "ours.hevc")
+        bdr.enc(our_tmpl(SOLVE_THREADS), _fmt_q(pt["ours_crf"]),
+                src_of(c), out)
+        same = os.path.exists(out) and md5_of(out) == pt["ours_md5"]
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    print(f"  {k}: solved on binary {pt['bin']}; this one writes "
+          f"{'the same' if same else 'a different'} stream at crf "
+          f"{_fmt_q(pt['ours_crf'])}", flush=True)
+    return same
+
+
 def add_supp(k, pt, src, frames, fps, log):
     """The 5.2a columns for both arms of a solved point. The bitstreams
     come back out of bd_at_rate's encode memo (a copy, no encode)."""
@@ -474,7 +504,8 @@ def do_solve(args):
                 continue
             t0 = time.time()
             work = tempfile.mkdtemp(prefix="spec.", dir=WORK)
-            log(f"  {k}: {w}x{h} {frames} frames @ {fps:.3f}")
+            log(f"  {k}: {w}x{h} {frames} frames @ {fps:.3f}; traits "
+                f"[{traits_of(c)}]")
             rt = ref_tmpl(an, SOLVE_THREADS)
             ro = os.path.join(work, "ref.hevc")
             rb = bdr.enc(rt, REF_CRF, src, ro)
@@ -620,9 +651,10 @@ def do_time(args):
             k = f"{key_of(c)}/{'ft1' if g == 1 else 'def'}"
             if k not in pts:
                 sys.exit(f"parity_spec.py: {k} is not solved; run --solve")
-            if pts[k]["bin"] != bh:
+            if pts[k]["bin"] != bh and not rebind(k, pts[k], c):
                 sys.exit(f"parity_spec.py: {k} was solved on another "
-                         f"binary; re-run --solve")
+                         f"binary that writes a different stream; "
+                         f"re-run --solve")
             if pts[k]["src_bytes"] != os.path.getsize(src_of(c)):
                 sys.exit(f"parity_spec.py: {src_of(c)} changed size")
     # the quiet check is made ONCE, before the first run: the one-minute
@@ -1060,6 +1092,14 @@ def write_report(date):
             L.append(f"| {cls} | {tier} | {med:+.2f} / {w['dv']:+.2f} | "
                      f"{wp['dp']:+.2f} | {w['title']} | {v}{part} |")
     L.append("")
+    fl = [(c, traits_of(c)) for c in CELLS if c[0] in tiers]
+    fl = [(c, t) for c, t in fl if t]
+    if fl:
+        L.append("Cells whose media carries a trait that can steer this "
+                 "reading (docs/media-traits.md; a result that sits only "
+                 "in such a trait is reported as that): " + "; ".join(
+                     f"{c[2]} {c[1]} {c[0]} [{t}]" for c, t in fl) + ".")
+        L.append("")
     L.append("Quality is read at the `def` anchor (x265 at its default "
              "threading, the point G2 and G3 are timed at). G1's anchor "
              "(one frame thread) is its own solve; its deltas are in the "

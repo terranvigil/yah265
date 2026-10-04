@@ -361,6 +361,29 @@ enum {
     N265_CB_COUNT
 };
 
+/* N265_CBIT_TRACE's second row (CBSE): the same bits by syntax element.
+ * A context-coded bin is classed by its context; a bypass bin goes to the
+ * class of the context-coded bin before it, which in this coder's syntax
+ * is always the element it belongs to (merge_idx, mvd, the intra modes,
+ * cu_qp_delta, the AMP bin, ref_idx and the residual's remainders all
+ * open with a context-coded bin). */
+enum {
+    N265_SE_SPLIT = 0,      /* split_cu_flag                          */
+    N265_SE_SKIP,           /* cu_skip_flag                           */
+    N265_SE_MERGE,          /* merge_flag, merge_idx                  */
+    N265_SE_PMODE,          /* pred_mode_flag, part_mode              */
+    N265_SE_MOTION,         /* inter_pred_idc, ref_idx, mvd, mvp flag */
+    N265_SE_INTRA,          /* intra luma and chroma modes            */
+    N265_SE_TSPLIT,         /* split_transform_flag                   */
+    N265_SE_CBF,            /* rqt_root_cbf, cbf_luma, cbf_cb/cr      */
+    N265_SE_QP,             /* cu_qp_delta                            */
+    N265_SE_RESY,           /* luma residual_coding()                 */
+    N265_SE_RESC,           /* chroma residual_coding()               */
+    N265_SE_SAO,            /* the CTU's SAO syntax                   */
+    N265_SE_OTHER,          /* cu_transquant_bypass_flag              */
+    N265_SE_COUNT
+};
+
 /* N265_CU_TRACE (phase 9 step 6a): one record per CODING-TREE NODE the
  * quadtree visits, so that where the search spends its time can be read
  * against what the CU it was spent on ended up being.
@@ -642,6 +665,8 @@ typedef struct n265_frame_work {
     uint64_t cbit[N265_CB_COUNT];
     uint64_t cbf_c_n[4], cbf_c_cb[4], cbf_c_cr[4];  /* by log2ts - 2 */
     uint64_t cbit_cnz;              /* nonzero chroma levels coded */
+    uint64_t cbit_se[N265_SE_COUNT];    /* the CBSE row, 1/256 bit */
+    int cbit_se_last;               /* class a bypass bin lands in */
     /* Round 4: luma MC output samples this frame asked for at each
      * fractional (fx, fy) INSIDE the 2-D cache region, i.e. what a
      * phase plane would have served had one been armed - counted
@@ -925,6 +950,21 @@ typedef struct n265_frame_work {
     double vbv_allow;       /* the most the buffer could pay for */
     double vbv_dqp;         /* the QP the clamp added to the base; 0 where the
                              * plan already fitted */
+    /* THE BRAKE (phase 14 item 29 step 2): the VBV's check inside the
+     * picture, ABR with a buffer only. `brk_cw` is the lookahead's
+     * complexity map as a per-row cumulative share of the picture (the
+     * whole picture sums to 1), written at dispatch. `brk_ca` and
+     * `brk_ce` are per-row cumulative estimated bits, as coded and at
+     * the unbraked QP, written by the row job CTU by CTU. The brake at
+     * CTU (r, c) reads only the wavefront staircase - row r - k's
+     * [0, c + k + 1) - which the lag has already made final, so its
+     * answer is the same at every thread count. See vbv_brake. */
+    int brk_on;
+    double brk_plan;        /* the frame's planned bits (the clamp's) */
+    double brk_lim;         /* the bits the buffer can pay for */
+    double brk_ratio;       /* coded bits per estimated bit, per class */
+    float *brk_cw, *brk_ca, *brk_ce;    /* nctu each, row-cumulative */
+    int8_t *brk_dq;         /* nctu: the QP the brake added to each CTU */
     double shot_off;      /* --shot-window: this frame's shot plan, in QP
                              * steps, already inside rc_base. 0 with the
                              * mode off, which is every default encode. */
@@ -1506,6 +1546,49 @@ struct n265_encoder {
      * can reach the bitstream at all: under ABR, K bounds the lag. At
      * the default 0, ABR frames do not overlap and K is inert. */
     int rc_lag;
+    /* N265_VBR_LAG: at a lag above 0 the books are kept by the lag and not
+     * by the join. A retiring frame's rate-control results are parked in
+     * `rc_ret`, keyed by coding index, and frame k's solve first applies
+     * every parked result with coding index <= k - 1 - lag, in order. The
+     * driver may have joined more frames than that by then (a K, slot or
+     * source stall, or the one-worker drain after every push), and with
+     * the books kept at the join those extra frames would reach the solve:
+     * the stream would then depend on the schedule. Kept by the lag, it is
+     * a function of coding order alone. The VBV the solve plans against is
+     * the fill after frame k - 1 - lag (`vbv_fa`), walked forward over the
+     * frames still inside the lag at their predicted sizes (`vbv_est`). At
+     * lag 0 none of this runs and the books are the join's, as before. */
+    int rc_defer;
+    int rc_applied;         /* coding indices below this are applied */
+    struct n265_rc_ret {
+        int cls, brk;
+        double cplx, rf_used, bits, planned, ctf, ioff, brk_x;
+    } rc_ret[2 * N265_MAX_FRAME_WORK];
+    double vbv_fa[2 * N265_MAX_FRAME_WORK];
+    double vbv_est[2 * N265_MAX_FRAME_WORK];
+    int vbv_cls[2 * N265_MAX_FRAME_WORK];
+    /* The clamp's prediction is pessimistic by design (rc.c, vscale: up at
+     * once, down slowly) and runs about twice the coded size. That is the
+     * right number for "can this frame be paid for", and the wrong one
+     * for the frames inside the lag: seven of them at twice their size
+     * walk the planned fill down by most of a buffer and the clamp fires
+     * on frames the buffer could pay for. So the walk takes each one at
+     * its prediction times this per-class calibration, the log of coded
+     * bits over predicted bits, learned from applied frames in coding
+     * order (N265_VBR_LAG_CAL is the step; 0 walks the raw prediction). */
+    double vbv_ecal[RC_CLASSES];
+    int vbv_ecal_n[RC_CLASSES];
+    double vbv_ecal_k;
+    int rc_lag_warm;        /* frames coded at lag 0 before the lag */
+    /* N265_VBR_LAG_LOW: where the fill the lag plans against is under this
+     * share of the buffer, the frame is solved at lag 0 instead. The lag's
+     * blind spot is a picture inside it that costs several times its
+     * prediction (a P picture where the content turns), and it only hurts
+     * where the buffer has no room left to absorb one. The test reads the
+     * lag's own planned fill, so it is a function of coding order too. */
+    double rc_lag_low;
+    int rc_lag_now;         /* the lag the current solve was drained to */
+    long rc_lag_low_n;      /* frames that fell back to lag 0 */
     int fw_next;            /* the frame_work slot the next dispatch takes */
     /* the frames dispatched and not yet retired, in DISPATCH ORDER. The
      * driver owns this list; it is what the deferred-NAL ring walks, and
