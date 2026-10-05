@@ -203,6 +203,9 @@
 #define n265_rc_next                 n265_rc_next_10
 #define n265_rc_open                 n265_rc_open_10
 #define n265_rc_warm                 n265_rc_warm_10
+#define n265_szm_add                 n265_szm_add_10
+#define n265_szm_key                 n265_szm_key_10
+#define n265_szm_pred                n265_szm_pred_10
 #define n265_ref_used                n265_ref_used_10
 #define n265_2p_free                 n265_2p_free_10
 #define n265_2p_init                 n265_2p_init_10

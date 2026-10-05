@@ -270,6 +270,21 @@ OVERRIDES = {
     # offset, so it is that refused arm's parameter - N265_CHROMA_W_PCT's
     # case exactly.
     "N265_ABR_IOFF_MAX": "arm",
+    # item 32: the size model's constants (an arm, off) and the refused
+    # opening's
+    "N265_VBR_SZM_Z": "arm",
+    "N265_VBR_SZM_ZLAG": "arm", "N265_VBR_SZM_LAM": "arm",
+    "N265_VBR_SZM_STATIC": "arm", "N265_VBR_SZM_SIMPLE": "arm",
+    "N265_VBR_SZM_GMIN": "arm",
+    "N265_VBR_OPEN_AI": "arm",
+    "N265_VBR_OPEN_AP": "arm",
+    "N265_VBR_OPEN_ABR": "arm",
+    "N265_VBR_OPEN_AB": "arm",
+    "N265_VBR_OPEN_BI": "arm",
+    "N265_VBR_OPEN_BP": "arm",
+    "N265_VBR_OPEN_BBR": "arm",
+    "N265_VBR_OPEN_BB": "arm",
+    "N265_VBR_OPEN_G": "arm",
     # phase 10 item 1: three forms of lambda x mvd on the subpel vector, all
     # priced and all refused (the re-rank on the clock, the in-ladder form on
     # bus's CRF cell). Default 0 and kept for re-pricing, which is what an
