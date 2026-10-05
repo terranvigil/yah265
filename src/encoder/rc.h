@@ -18,6 +18,26 @@ enum {
     RC_CLASSES = 4
 };
 
+/* The size model (N265_VBR_SZM, phase 14 item 32). A frame's bits are
+ * predicted as
+ *
+ *   log2(bits / nblk) = a + b log2(cplx / nblk) + c (base / 6)
+ *
+ * with (a, b, c) fitted online, per frame type and pyramid depth and per
+ * content kind (static, simple, complex), from the frames already coded.
+ * Each fit is a ridge regression toward its parent's (the frame's RC
+ * class), with exponential forgetting; the parents ride toward the
+ * class's prior scale. `c` is the quantiser slope, fitted rather than
+ * assumed to be -1: on heavy content at low rate the bits halve over 12
+ * QP, not 6. */
+#define RC_SZK 10                /* I, P, B depth 1-4 x referenced/leaf */
+#define RC_SZC 3                 /* static, simple, complex */
+typedef struct n265_szfit {
+    double A[9], b[3];          /* decayed normal equations */
+    double n;                   /* observations taken */
+    double r2;                  /* decayed mean squared residual, log2 */
+} n265_szfit;
+
 typedef struct n265_rc {
     double bits_per_frame;      /* the ABR budget, bits per coded frame  */
     double rf;                  /* the rate factor, in QP units          */
@@ -166,6 +186,21 @@ typedef struct n265_rc {
     double plan_qp, plan_bits;
     double tp_gain;             /* N265_2P_GAIN: how much of the loop's own
                                  * feedback a planned frame still carries */
+    /* the size model (above): on under --bitrate with a VBV only */
+    int szm;
+    double szm_lam;             /* N265_VBR_SZM_LAM: forgetting factor */
+    double szm_z;               /* N265_VBR_SZM_Z: the clamp's margin, in
+                                 * residual standard deviations */
+    double szm_gmin;            /* N265_VBR_SZM_GMIN: the clamp's floor on
+                                 * the fitted quantiser slope */
+    double szm_zlag;            /* N265_VBR_SZM_ZLAG: the lag walk's */
+    double szm_static, szm_simple;  /* content thresholds, cost per block */
+    n265_szfit szp[RC_CLASSES];
+    n265_szfit szc[RC_SZK][RC_SZC];
+    int cur_szk;                /* the dispatching frame's type key */
+    /* step 3, N265_VBR_OPEN: the opening solved on a corpus prior */
+    int vopen;
+    double op_a[RC_CLASSES], op_b[RC_CLASSES], op_g;
     /* constants (docs/instruments.md) */
     double qcomp, horizon, maxstep, scale_mem, w_mem;
     double rf_bias;             /* the integral term, in QP units      */
@@ -217,6 +252,17 @@ double n265_vbv_crf_base(struct n265_encoder *e, int cls, double cplx,
  * Defined in encoder.c beside the test it mirrors; the rate control reads
  * it to see the intra frames coming before it spends against them. */
 int n265_rc_future_idr(struct n265_encoder *e, int i);
+
+/* the size model's key for a frame type and pyramid depth */
+int n265_szm_key(int slice_type, int depth, int nonref);
+/* its predicted bits for a frame of class `cls` and key `key` (-1: the
+ * class fit alone) at base `q`; *slope is d log2(bits) / d(q/6) and *sd
+ * the fit's residual standard deviation in log2, either may be NULL */
+double n265_szm_pred(const n265_rc *rc, int cls, int key, double cplx,
+                     double q, double *slope, double *sd);
+/* one coded frame */
+void n265_szm_add(n265_rc *rc, int cls, int key, double cplx, double q,
+                  double bits);
 
 void n265_rc_warm(void);
 

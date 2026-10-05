@@ -2377,6 +2377,9 @@ n265_encoder *n265_encoder_open(const n265_param *p)
             e->zones_on = 1;
         }
         e->vbv_trace = n265_env("N265_VBV_TRACE") != NULL;
+        e->sz_trace = n265_env("N265_SZ_TRACE") != NULL;   /* diagnostic */
+        { const char *v = n265_env("N265_VBR_OFFB");
+          e->vbr_offb = v ? atof(v) : 0.0; }
         { const char *v = n265_env("N265_VBV_HRD");
           e->vbv_hrd = v ? atoi(v) != 0 : 1; }
         e->vui_timing = g_vui_timing && p->fps_num > 0 && p->fps_den > 0;
@@ -3125,6 +3128,20 @@ static void join_oldest(n265_encoder *e);
 static void rc_apply_upto(n265_encoder *e, int upto);
 static int rc_lag_at(const n265_encoder *e, int k);
 static double vbv_plan_fill(const n265_encoder *e, int k);
+/* a frame inside the lag at the size model's prediction, raised by
+ * N265_VBR_SZM_ZLAG residual deviations: the walk is a forecast of the
+ * buffer, and the buffer wants the bad side of it (item 32) */
+static double szm_lag_est(n265_encoder *e, n265_frame_work *fw, double q)
+{
+    double sd;
+    double p = n265_szm_pred(&e->rc, fw->rc_cls, fw->szk, fw->rc_cplx, q,
+                             NULL, &sd);
+    /* the loop counts the frame at the bare prediction (vbv_pend_est); the
+     * buffer's walk takes the margin (vbv_plan_fill) */
+    e->vbv_mrg[fw->code_idx % (2 * N265_MAX_FRAME_WORK)] =
+        exp2(e->rc.szm_zlag * sd);
+    return p;
+}
 static double vbv_pend_est(const n265_encoder *e, int k);
 static void shot_fold_upto(n265_encoder *e, int upto, int hard);
 static void shot_flush(n265_encoder *e);
@@ -5005,6 +5022,8 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
         /* D4's observation lag has already been drained by the caller; this
          * is the frame's own solve, moved here so it sees `ctf`. */
         e->rc.cur_icplx = fw->rc_icplx;
+        fw->szk = n265_szm_key(slice_type, fw->b_depth, nonref);
+        e->rc.cur_szk = fw->szk;
         /* --pass 2: the plan for THIS frame, looked up by display index -
          * the one order both passes agree on, since a pass 1 at a different
          * preset can pick different mini-GOP lengths (twopass.c). A frame
@@ -5061,6 +5080,12 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
             if (!(ratio > 0.0))     /* uncalibrated: the estimator's own */
                 ratio = 1.0;
             fw->brk_plan = fw->vbv_pred * exp2(-fw->vbv_dqp / 6.0);
+            /* the size model's own prediction at the base the frame is
+             * coded at (item 32), not the clamp's pessimistic one */
+            if (e->rc.szm == 1)
+                fw->brk_plan = n265_szm_pred(&e->rc, fw->rc_cls, fw->szk,
+                                             fw->rc_cplx, e->rc_rf + ctf,
+                                             NULL, NULL);
             /* The brake is the backstop and not a second clamp: it holds
              * the picture to what the buffer really holds, not to the
              * clamp's allowance, which also reserves for the window. Held
@@ -5073,9 +5098,18 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
             fw->brk_ratio = ratio;
             fw->brk_on = ratio > 0.0 && fw->brk_lim > 0.0 && e->qp_delta_on;
         }
+        if (e->sz_trace) {
+            int c = fw->rc_cls;
+            fw->sz_mpred = e->vbv.on
+                ? n265_szm_pred(&e->rc, fw->rc_cls, fw->szk, fw->rc_cplx,
+                                e->rc_rf + ctf, NULL, NULL) : 0.0;
+            fw->sz_lagcal = e->vbv_ecal_k > 0.0 && e->vbv_ecal_n[c]
+                                ? exp(e->vbv_ecal[c]) : 1.0;
+        }
         if (e->rc_defer && e->vbv.on) {
             e->vbv_est[fw->code_idx % (2 * N265_MAX_FRAME_WORK)] =
-                fw->vbv_pred * exp2(-fw->vbv_dqp / 6.0);
+                e->rc.szm ? szm_lag_est(e, fw, e->rc_rf + ctf)
+                          : fw->vbv_pred * exp2(-fw->vbv_dqp / 6.0);
             e->vbv_cls[fw->code_idx % (2 * N265_MAX_FRAME_WORK)] =
                 fw->rc_cls;
             e->vbv.fill = vbv_fill_join;
@@ -5830,6 +5864,40 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
             }
         }
 
+        /* N265_VBR_OFFB (phase 14 item 32, step 2): under --bitrate with a
+         * VBV, the AQ and cu-tree offsets may not move the frame's real
+         * QP more than this far from the base the rate control planned.
+         * The real QP is read as the rate-equivalent mean of the final
+         * map (the one QP whose step spends what the CTUs' steps spend,
+         * bits going as 2^(-qp/6)), and the plan's share of the map is
+         * the base's carried fraction. Where the map drifts past the
+         * bound the whole map is shifted back to it, the fractional part
+         * spread over the CTUs on the same low-discrepancy sequence the
+         * fraction itself uses. 0 is off, which is main. */
+        if (e->vbr_offb > 0.0 && e->abr_on && e->vbv.on) {
+            int nctu = fw->ctb_cols * fw->ctb_rows;
+            for (int it = 0; it < 2 && nctu > 0; it++) {
+                double sm = 0.0;
+                for (int i = 0; i < nctu; i++)
+                    sm += exp2(-(double)fw->ctu_qp_off[i] / 6.0);
+                double drift = -6.0 * log2(sm / nctu) - qfrac;
+                double over = drift > e->vbr_offb ? drift - e->vbr_offb
+                            : drift < -e->vbr_offb ? drift + e->vbr_offb
+                                                   : 0.0;
+                if (over == 0.0)
+                    break;
+                for (int i = 0; i < nctu; i++) {
+                    double d = (double)(i + 1) * 0.7548776662466927 +
+                               (double)(e->frames_done + 1) *
+                                   0.5698402909980532;
+                    d -= floor(d);
+                    int o = fw->ctu_qp_off[i] - (int)floor(over + d);
+                    fw->ctu_qp_off[i] =
+                        (int8_t)(o < -12 ? -12 : o > 12 ? 12 : o);
+                }
+            }
+        }
+
         /* N265_QP_MAP_TRACE=file: the FINAL per-CTU offset map, one line per
          * frame, after the AQ term, the cu-tree field and the
          * fractional-base dither have all landed in it - which is the map
@@ -5854,6 +5922,13 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
             }
         }
 
+        if (e->sz_trace) {
+            int nq = fw->ctb_cols * fw->ctb_rows;
+            double s = 0.0;
+            for (int i = 0; i < nq; i++)
+                s += exp2(-(double)fw->ctu_qp_off[i] / 6.0);
+            fw->sz_eff = (nq ? -6.0 * log2(s / nq) : 0.0) - qfrac;
+        }
         if (n265_env("N265_QP_TRACE"))
             fprintf(stderr, "QPT disp=%d type=%d depth=%d nonref=%d qp=%d "
                     "qf=%+.3f\n", fw->display_idx, slice_type, fw->b_depth,
@@ -6236,6 +6311,9 @@ static void rc_apply_upto(n265_encoder *e, int upto)
             double *pr = &e->rc.brk_ratio[rr->cls];
             *pr = *pr > 0.0 ? 0.5 * *pr + 0.5 * rr->brk_x : rr->brk_x;
         }
+        if (e->abr_on && e->vbv.on)
+            n265_szm_add(&e->rc, rr->cls, rr->szk, rr->cplx, rr->rf_used,
+                         rr->bits);
         if (e->abr_on || e->rc.trace || e->vbv.on)
             n265_rc_done(e, rr->cls, rr->cplx, rr->rf_used, rr->bits,
                          rr->planned, rr->ctf, rr->ioff);
@@ -6251,6 +6329,8 @@ static double vbv_est_cal(const n265_encoder *e, int j)
 {
     int i = j % (2 * N265_MAX_FRAME_WORK);
     int c = e->vbv_cls[i];
+    if (e->rc.szm)          /* the size model is its own calibration */
+        return e->vbv_est[i];
     return e->vbv_est[i] * (e->vbv_ecal_k > 0.0 && e->vbv_ecal_n[c]
                                 ? exp(e->vbv_ecal[c]) : 1.0);
 }
@@ -6277,7 +6357,8 @@ static double vbv_plan_fill(const n265_encoder *e, int k)
         j0 = -1;
     }
     for (int j = j0 + 1; j < k; j++) {
-        f -= vbv_est_cal(e, j);
+        f -= vbv_est_cal(e, j) *
+             (e->rc.szm ? e->vbv_mrg[j % (2 * N265_MAX_FRAME_WORK)] : 1.0);
         f += e->vbv.inflow;
         if (f > e->vbv.bufsize)
             f = e->vbv.bufsize;
@@ -6729,16 +6810,21 @@ static void join_oldest(n265_encoder *e)
         struct n265_rc_ret *rr =
             &e->rc_ret[fw->code_idx % (2 * N265_MAX_FRAME_WORK)];
         rr->cls = fw->rc_cls;
+        rr->szk = fw->szk;
         rr->cplx = fw->rc_cplx;
         rr->rf_used = fw->rc_base;
         rr->bits = (double)d->len * 8.0;
         rr->planned = fw->rc_planned;
         rr->ctf = fw->rc_ctf;
         rr->ioff = fw->rc_ioff;
-    } else if (e->abr_on || e->rc.trace || e->vbv.on)
+    } else if (e->abr_on || e->rc.trace || e->vbv.on) {
+        if (e->abr_on && e->vbv.on)
+            n265_szm_add(&e->rc, fw->rc_cls, fw->szk, fw->rc_cplx,
+                         fw->rc_base, (double)d->len * 8.0);
         n265_rc_done(e, fw->rc_cls, fw->rc_cplx, fw->rc_base,
                      (double)d->len * 8.0, fw->rc_planned, fw->rc_ctf,
                      fw->rc_ioff);
+    }
     /* --pass 1 (and --pass 3, which refreshes what it planned from): one
      * line per frame in CODING order, which is retirement order. It reads
      * only fields frozen at dispatch plus the packed length, writes nothing
@@ -6766,6 +6852,17 @@ static void join_oldest(n265_encoder *e)
      * the whole AU, parameter sets and all, which is what a CPB removes.
      * Driver-serial and in coding order, which is the removal order, so the
      * trajectory is the same at one worker and at twelve. */
+    if (e->sz_trace)
+        /* SZ,coding,display,slice,depth,nonref,flat,flat_pct,cplx,icplx,
+         * nblk,base,qp,drift,bits,pred,dqp,lagcal,ctf,model; drift is the
+         * map's rate-equivalent mean less the base's carried fraction */
+        fprintf(stderr, "SZ,%d,%d,%d,%d,%d,%d,%d,%.0f,%.0f,%d,%.3f,%d,%.3f,"
+                        "%.0f,%.0f,%.3f,%.4f,%.3f,%.0f\n",
+                fw->code_idx, fw->display_idx, fw->slice_type, fw->b_depth,
+                fw->nonref, fw->flat, fw->flat_pct, fw->rc_cplx,
+                fw->rc_icplx, e->rc.nblk, fw->rc_base, fw->qp, fw->sz_eff,
+                (double)d->len * 8.0, fw->vbv_pred, fw->vbv_dqp,
+                fw->sz_lagcal, fw->rc_ctf, fw->sz_mpred);
     if (e->vbv.on) {
         double fb = 0.0, fa = 0.0;
         n265_vbv_update(&e->vbv, (double)d->len * 8.0, &fb, &fa);

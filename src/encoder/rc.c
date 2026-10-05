@@ -262,6 +262,44 @@ void n265_rc_open(struct n265_encoder *e)
     rc->scpred = e->abr_on ? abr_tunable("N265_VBV_SCPRED", 0.5) : 1.0;
     for (int i = 0; i < RC_CLASSES; i++)
         rc->vscale[i] = rc->scale[i];
+    /* the size model (rc.h): ABR with a buffer only, like the brake.
+     * 2 feeds it to the lag's books alone (the walk the clamp and the
+     * brake plan against, and the loop's count of the frames in flight);
+     * inert at one worker, where the lag is 0. 1 also prices the clamp
+     * and the brake's plan on it, and is refused: +1.94% BD-VMAF-NEG on
+     * Chimera 720p. Both are arms, off, which is main (docs/phase14.md,
+     * item 32). */
+    rc->szm = e->abr_on && e->vbv.on
+                  ? (int)abr_tunable("N265_VBR_SZM", 0) : 0;
+    rc->szm_lam = abr_tunable("N265_VBR_SZM_LAM", 0.9);
+    rc->szm_z = abr_tunable("N265_VBR_SZM_Z", 2.0);
+    /* one deviation in the lag's walk: at 0.5 the 0.5 s buffer cells
+     * of scripts/vbv_check.py underflow 10 times at two workers (main's
+     * calibrated walk: 15), at 1.0 none do; 1.0 costs Meridian 720p's
+     * low rungs 0.1-0.4 VMAF-NEG against 0.5 */
+    rc->szm_zlag = abr_tunable("N265_VBR_SZM_ZLAG", 1.0);
+    rc->szm_gmin = abr_tunable("N265_VBR_SZM_GMIN", 0.7);
+    rc->szm_static = abr_tunable("N265_VBR_SZM_STATIC", 17.0);
+    rc->szm_simple = abr_tunable("N265_VBR_SZM_SIMPLE", 150.0);
+    rc->cur_szk = -1;
+    /* the opening's corpus prior (step 3, REFUSED at the model and kept
+     * off): log2(bits / nblk) = a + b log2(cost / nblk) + g base / 6, per
+     * class, least squares over the seventeen corpus clips at three VBR
+     * rates each, static frames left out. On the three 720p segments,
+     * held out, it opens 7.0 QP from where the loop settles against the
+     * allocator prior's 7.8, and moves Chimera, which the prior opens
+     * right, 6 QP fine (docs/phase14.md, item 32). */
+    rc->vopen = e->abr_on && e->vbv.on
+                    ? (int)abr_tunable("N265_VBR_OPEN", 0) : 0;
+    rc->op_a[RC_I] = abr_tunable("N265_VBR_OPEN_AI", -7.027);
+    rc->op_a[RC_P] = abr_tunable("N265_VBR_OPEN_AP", 2.084);
+    rc->op_a[RC_BREF] = abr_tunable("N265_VBR_OPEN_ABR", -0.806);
+    rc->op_a[RC_B] = abr_tunable("N265_VBR_OPEN_AB", -1.238);
+    rc->op_b[RC_I] = abr_tunable("N265_VBR_OPEN_BI", 2.157);
+    rc->op_b[RC_P] = abr_tunable("N265_VBR_OPEN_BP", 1.249);
+    rc->op_b[RC_BREF] = abr_tunable("N265_VBR_OPEN_BBR", 1.374);
+    rc->op_b[RC_B] = abr_tunable("N265_VBR_OPEN_BB", 1.224);
+    rc->op_g = abr_tunable("N265_VBR_OPEN_G", -1.429);
     rc->trace = n265_env("N265_RC_TRACE") != NULL;
     rc->rf = 26.0;
 }
@@ -373,11 +411,68 @@ static int cadence_class(struct n265_encoder *e, int i)
  * already carrying.
  *
  * Returns the QP to ADD to the base; *pred and *allow are the trace's. */
+/* The clamp on the size model (N265_VBR_SZM, item 32). The frame is
+ * priced by its own fit, raised by `szm_z` residual deviations because a
+ * buffer wants the bad side of a forecast; the window behind it at its
+ * class fit, unbiased, because a reservation wants the mean. An inter
+ * frame whose complexity reaches `scpred` of its intra cost is priced at
+ * the worse of its own fit and the intra fit, as the old clamp prices it.
+ * The QP it adds is the fit's own: `6 log2(p / a)` over the fitted slope,
+ * so content whose bits stop answering the quantiser is raised by what it
+ * takes, not by the textbook step. */
+static double vbv_dqp_szm(struct n265_encoder *e, int cls, double cplx,
+                          double icplx, double q_code, double *pred,
+                          double *allow)
+{
+    n265_rc *rc = &e->rc;
+    double slope, sd;
+    double p = n265_szm_pred(rc, cls, rc->cur_szk, cplx, q_code, &slope,
+                             &sd);
+    if (cls != RC_I && icplx > 0.0 && cplx >= rc->scpred * icplx) {
+        double s2, d2;
+        double pi = n265_szm_pred(rc, RC_I, -1, cplx, q_code, &s2, &d2);
+        if (pi > p) {
+            p = pi;
+            slope = s2;
+            sd = d2;
+        }
+    }
+    p *= exp2(rc->szm_z * sd);
+    double fut[LA_MAX];
+    int nf = 0;
+    int nview = n265_la_view(&e->la);
+    for (int i = 1; i < nview && nf < LA_MAX; i++) {
+        int k = n265_rc_future_idr(e, i) ? RC_I : cadence_class(e, i);
+        double c = n265_rc_cplx(e, i, k), ic = n265_rc_cplx(e, i, RC_I);
+        double f = n265_szm_pred(rc, k, -1, c, q_code, NULL, NULL);
+        if (k != RC_I && ic > 0.0 && c >= rc->scpred * ic) {
+            double fi = n265_szm_pred(rc, RC_I, -1, c, q_code, NULL, NULL);
+            if (fi > f)
+                f = fi;
+        }
+        fut[nf++] = f;
+    }
+    double a = n265_vbv_allow(&e->vbv, fut, nf);
+    *pred = p;
+    *allow = a;
+    if (!(p > a))
+        return 0.0;
+    e->vbv.clamped++;
+    double g = -slope;
+    if (g < rc->szm_gmin)
+        g = rc->szm_gmin;
+    else if (g > 1.5)
+        g = 1.5;
+    return 6.0 * log2(p / a) / g;
+}
+
 static double vbv_dqp(struct n265_encoder *e, int cls, double cplx,
                       double icplx, double q_code, double *pred,
                       double *allow)
 {
     n265_rc *rc = &e->rc;
+    if (rc->szm == 1)
+        return vbv_dqp_szm(e, cls, cplx, icplx, q_code, pred, allow);
     double p = rc_vweight(rc, cls, cplx, icplx) / qscale_of_qp(q_code);
     double fut[LA_MAX];
     int nf = 0;
@@ -498,6 +593,35 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
             if (rc->openi && cls == RC_I && e->keyint > 0)
                 Wo += rc_weight(rc, RC_I, cplx) * (double)n / (double)e->keyint;
             double rf = qp_of_qscale(Wo / (rc->bits_per_frame * n));
+            /* N265_VBR_OPEN (item 32, step 3): under a buffer the opening
+             * is solved on the size model's corpus prior instead, so the
+             * window's lookahead costs are priced on a curve fitted to
+             * what frames of that cost really spend. The allocator's
+             * prior compresses cost by qcomp, which reads a light opening
+             * as dearer than it is and a heavy one as cheaper: Meridian
+             * 720p opened 8 QP coarse of where its loop settled, Sol
+             * Levante 6 QP fine. */
+            if (rc->vopen) {
+                double S = 0.0;
+                int m = 0;
+                for (int i = 0; i < nview; i++) {
+                    int k = i == 0 ? cls : cadence_class(e, i);
+                    if (k == RC_I)
+                        continue;
+                    double c = n265_rc_cplx(e, i, k) / rc->nblk;
+                    S += rc->nblk * exp2(rc->op_a[k] +
+                                         rc->op_b[k] * log2(c > 1.0 ? c : 1.0));
+                    m++;
+                }
+                if (m == 0) {
+                    double c = cplx / rc->nblk;
+                    S = rc->nblk * exp2(rc->op_a[cls] +
+                                        rc->op_b[cls] * log2(c > 1.0 ? c : 1.0));
+                    m = 1;
+                }
+                if (S > 0.0 && rc->op_g < 0.0)
+                    rf = 6.0 * log2(rc->bits_per_frame * m / S) / rc->op_g;
+            }
             rc->rf = rf < (double)N265_QP_MIN ? (double)N265_QP_MIN :
                       rf > 51.0 ? 51.0 : rf;
         }
@@ -1094,6 +1218,168 @@ void n265_rc_done(struct n265_encoder *e, int cls, double cplx, double rf_used,
                 "scale=%.4g cplxr=%.4g total=%.0f\n",
                 cls, bits, rf_used, cplx, obs, rc->scale[cls], rc->cplxr,
                 rc->total_bits);
+}
+
+/* ---- the size model (rc.h, N265_VBR_SZM) ---- */
+
+int n265_szm_key(int slice_type, int depth, int nonref)
+{
+    if (slice_type == 2)
+        return 0;
+    if (slice_type == 1)
+        return 1;
+    int d = depth < 1 ? 1 : depth > 4 ? 4 : depth;
+    return 2 + 2 * (d - 1) + (nonref ? 1 : 0);
+}
+
+static int szm_content(const n265_rc *rc, double cplx)
+{
+    double c = cplx / rc->nblk;
+    return c < rc->szm_static ? 0 : c < rc->szm_simple ? 1 : 2;
+}
+
+static void szm_x(const n265_rc *rc, double cplx, double q, double x[3])
+{
+    double c = cplx / rc->nblk;
+    x[0] = 1.0;
+    x[1] = log2(c > 1.0 ? c : 1.0);
+    x[2] = q / 6.0;
+}
+
+/* (A + diag(P)) t = b + diag(P) t0, by Gaussian elimination with partial
+ * pivoting; returns 0 and leaves t at t0 if the system is singular */
+static int szm_solve(const n265_szfit *f, const double P[3],
+                     const double t0[3], double t[3])
+{
+    double M[3][4];
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++)
+            M[i][j] = f->A[3 * i + j] + (i == j ? P[i] : 0.0);
+        M[i][3] = f->b[i] + P[i] * t0[i];
+    }
+    for (int c = 0; c < 3; c++) {
+        int pr = c;
+        for (int r = c + 1; r < 3; r++)
+            if (fabs(M[r][c]) > fabs(M[pr][c]))
+                pr = r;
+        if (!(fabs(M[pr][c]) > 1e-12)) {
+            for (int i = 0; i < 3; i++)
+                t[i] = t0[i];
+            return 0;
+        }
+        if (pr != c)
+            for (int j = 0; j < 4; j++) {
+                double tmp = M[c][j]; M[c][j] = M[pr][j]; M[pr][j] = tmp;
+            }
+        for (int r = 0; r < 3; r++) {
+            if (r == c)
+                continue;
+            double k = M[r][c] / M[c][c];
+            for (int j = c; j < 4; j++)
+                M[r][j] -= k * M[c][j];
+        }
+    }
+    for (int i = 0; i < 3; i++)
+        t[i] = M[i][3] / M[i][i];
+    return 1;
+}
+
+/* the class fit: a ridge toward the allocator's own model at the class's
+ * current scale, so a class with no frames coded yet predicts what the
+ * allocator would */
+static void szm_parent(const n265_rc *rc, int cls, double t[3])
+{
+    double t0[3] = { log2(rc->scale[cls]) - log2(0.85) + 2.0, rc->qcomp,
+                     -1.0 };
+    if (rc->vopen) {        /* step 3: the corpus prior (rc_open) */
+        t0[0] = rc->op_a[cls];
+        t0[1] = rc->op_b[cls];
+        t0[2] = rc->op_g;
+    }
+    static const double P[3] = { 0.01, 50.0, 50.0 };
+    const n265_szfit *f = &rc->szp[cls];
+    if (f->n < 1.0) {
+        for (int i = 0; i < 3; i++)
+            t[i] = t0[i];
+        return;
+    }
+    szm_solve(f, P, t0, t);
+}
+
+static const n265_szfit *szm_child(const n265_rc *rc, int key, double cplx)
+{
+    if (key < 0 || key >= RC_SZK)
+        return NULL;
+    const n265_szfit *f = &rc->szc[key][szm_content(rc, cplx)];
+    return f->n >= 1.0 ? f : NULL;
+}
+
+static void szm_theta(const n265_rc *rc, int cls, int key, double cplx,
+                      double t[3], double *r2)
+{
+    double tp[3];
+    szm_parent(rc, cls, tp);
+    const n265_szfit *f = szm_child(rc, key, cplx);
+    *r2 = rc->szp[cls].n >= 1.0 ? rc->szp[cls].r2 : 1.0;
+    if (!f) {
+        for (int i = 0; i < 3; i++)
+            t[i] = tp[i];
+        return;
+    }
+    static const double P[3] = { 0.0, 1.0, 1.0 };
+    szm_solve(f, P, tp, t);
+    if (f->n >= 4.0)
+        *r2 = f->r2;
+}
+
+double n265_szm_pred(const n265_rc *rc, int cls, int key, double cplx,
+                     double q, double *slope, double *sd)
+{
+    double t[3], x[3], r2;
+    szm_theta(rc, cls, key, cplx, t, &r2);
+    szm_x(rc, cplx, q, x);
+    double y = t[0] * x[0] + t[1] * x[1] + t[2] * x[2];
+    if (y > 40.0)
+        y = 40.0;
+    if (slope)
+        *slope = t[2];
+    if (sd)
+        *sd = sqrt(r2);
+    return rc->nblk * exp2(y);
+}
+
+static void szm_fold(n265_szfit *f, double lam, const double x[3], double y,
+                     double res)
+{
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++)
+            f->A[3 * i + j] = lam * f->A[3 * i + j] + x[i] * x[j];
+        f->b[i] = lam * f->b[i] + x[i] * y;
+    }
+    /* the residual is out of sample: the fit's error before it saw the
+     * frame, which is what a prediction will carry */
+    f->r2 = f->n >= 1.0 ? f->r2 + (1.0 - lam) * (res * res - f->r2)
+                        : res * res;
+    f->n += 1.0;
+}
+
+void n265_szm_add(n265_rc *rc, int cls, int key, double cplx, double q,
+                  double bits)
+{
+    if (!(bits > 0.0) || cls < 0 || cls >= RC_CLASSES)
+        return;
+    double x[3];
+    szm_x(rc, cplx, q, x);
+    double y = log2(bits / rc->nblk);
+    double tp[3], t[3], r2;
+    szm_parent(rc, cls, tp);
+    double rp = y - (tp[0] * x[0] + tp[1] * x[1] + tp[2] * x[2]);
+    szm_theta(rc, cls, key, cplx, t, &r2);
+    double rc_ = y - (t[0] * x[0] + t[1] * x[1] + t[2] * x[2]);
+    szm_fold(&rc->szp[cls], rc->szm_lam, x, y, rp);
+    if (key >= 0 && key < RC_SZK)
+        szm_fold(&rc->szc[key][szm_content(rc, cplx)], rc->szm_lam, x, y,
+                 rc_);
 }
 
 /* knob warming, on the driver at open; see n265_ctu_warm */

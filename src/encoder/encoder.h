@@ -965,6 +965,12 @@ typedef struct n265_frame_work {
     double brk_ratio;       /* coded bits per estimated bit, per class */
     float *brk_cw, *brk_ca, *brk_ce;    /* nctu each, row-cumulative */
     int8_t *brk_dq;         /* nctu: the QP the brake added to each CTU */
+    /* N265_SZ_TRACE (diagnostic, output-neutral): the rate-equivalent
+     * mean of the final per-CTU offset map less the base's carried
+     * fraction (its drift off the plan), the lag's per-class calibration
+     * at dispatch, and the size model's prediction at the coded base */
+    double sz_eff, sz_lagcal, sz_mpred;
+    int szk;                /* the size model's type key (rc.h) */
     double shot_off;      /* --shot-window: this frame's shot plan, in QP
                              * steps, already inside rc_base. 0 with the
                              * mode off, which is every default encode. */
@@ -1176,6 +1182,11 @@ struct n265_encoder {
      * below reads a plan, nothing writes a sidecar, and the encoder is the
      * one main ships. */
     n265_2p tp;
+    double vbr_offb;        /* N265_VBR_OFFB: the bound, in QP, on how far
+                             * the per-CTU offsets may move a VBR frame's
+                             * rate-equivalent QP off its planned base */
+    int sz_trace;           /* N265_SZ_TRACE: the size model's columns,
+                             * one row per frame at retirement */
     int vbv_trace;          /* N265_VBV_TRACE: one row per frame, coding
                              * order, written at retirement */
     int vbv_hrd;            /* N265_VBV_HRD: write hrd_parameters in the VUI
@@ -1561,11 +1572,12 @@ struct n265_encoder {
     int rc_defer;
     int rc_applied;         /* coding indices below this are applied */
     struct n265_rc_ret {
-        int cls, brk;
+        int cls, brk, szk;
         double cplx, rf_used, bits, planned, ctf, ioff, brk_x;
     } rc_ret[2 * N265_MAX_FRAME_WORK];
     double vbv_fa[2 * N265_MAX_FRAME_WORK];
     double vbv_est[2 * N265_MAX_FRAME_WORK];
+    double vbv_mrg[2 * N265_MAX_FRAME_WORK];   /* item 32: the walk's margin */
     int vbv_cls[2 * N265_MAX_FRAME_WORK];
     /* The clamp's prediction is pessimistic by design (rc.c, vscale: up at
      * once, down slowly) and runs about twice the coded size. That is the
