@@ -168,6 +168,9 @@ OVERRIDES = {
     "N265_VBR_LAG": "default", "N265_VBR_LAG_CAL": "default",
     "N265_VBR_LAG_PEND": "default", "N265_VBR_LAG_WARM": "default",
     "N265_VBR_LAG_LOW": "default",
+    # item 33: shipped (1.2 s); the env 0 is the escape. The guard is an
+    # arm, off.
+    "N265_VBR_LAG_BUFS": "default",
     # phase 14 item 30: shipped by medium's table (compiled-in 0, so the
     # other presets don't move); the env is the escape.
     "N265_MERGE_PICK_RATE": "default",

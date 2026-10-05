@@ -2677,6 +2677,15 @@ n265_encoder *n265_encoder_open(const n265_param *p)
           vbr_lag = t ? atoi(t) : nt > 1 ? 7 : 0;
           if (vbr_lag < 0)
               vbr_lag = 0;
+          /* N265_VBR_LAG_BUFS (item 33): the frames inside the lag are
+           * committed before the buffer has seen any of them, so a buffer
+           * shallower than this many seconds of maxrate codes at lag 0.
+           * An explicit N265_VBR_LAG holds whatever the buffer. */
+          { const char *b = n265_env("N265_VBR_LAG_BUFS");
+            double bs = b ? atof(b) : 1.2;
+            if (!t && vbr_lag > 0 && bs > 0.0 &&
+                g_vbv_bufsize < bs * g_vbv_maxrate)
+                vbr_lag = 0; }
           if (vbr_lag > 0 && !v && k < vbr_lag + 1) {
               k = vbr_lag + 1;
               tree_k = 1;
@@ -2733,6 +2742,12 @@ n265_encoder *n265_encoder_open(const n265_param *p)
        * the calibrated sizes 0.10 */
       { const char *l = n265_env("N265_VBR_LAG_LOW");
         e->rc_lag_low = l ? atof(l) : 0.5; }
+      { const char *g = n265_env("N265_VBR_LAG_GUARD");
+        e->rc_lag_guard = g ? atof(g) : 0.0;
+        g = n265_env("N265_VBR_LAG_GFLOOR");
+        e->rc_lag_gfloor = g ? atof(g) : 0.0;
+        g = n265_env("N265_VBR_LAG_GRAW");
+        e->rc_lag_graw = g ? atoi(g) : 0; }
       e->rc_lag_now = 0;
       e->rc_lag_low_n = 0;
       { const char *q = n265_env("N265_VBR_LAG_PEND");
@@ -6344,7 +6359,7 @@ static double vbv_pend_est(const n265_encoder *e, int k)
     return s;
 }
 
-static double vbv_plan_fill(const n265_encoder *e, int k)
+static double vbv_plan_fill_m(const n265_encoder *e, int k, double m)
 {
     int j0 = k - 1 - e->rc_lag_now;
     double f;
@@ -6357,13 +6372,30 @@ static double vbv_plan_fill(const n265_encoder *e, int k)
         j0 = -1;
     }
     for (int j = j0 + 1; j < k; j++) {
-        f -= vbv_est_cal(e, j) *
-             (e->rc.szm ? e->vbv_mrg[j % (2 * N265_MAX_FRAME_WORK)] : 1.0);
+        double b = vbv_est_cal(e, j) *
+                   (e->rc.szm ? e->vbv_mrg[j % (2 * N265_MAX_FRAME_WORK)]
+                              : 1.0);
+        /* the guard's upper size: never under the bare prediction, since
+         * the calibration can learn a long fade's tiny pictures and then
+         * read the frames where the content comes back at a twentieth of
+         * their cost (fade_cif, item 33) */
+        if (m != 1.0) {
+            double raw = e->vbv_est[j % (2 * N265_MAX_FRAME_WORK)];
+            b *= m;
+            if (e->rc_lag_graw && b < raw)
+                b = raw;
+        }
+        f -= b;
         f += e->vbv.inflow;
         if (f > e->vbv.bufsize)
             f = e->vbv.bufsize;
     }
     return f;
+}
+
+static double vbv_plan_fill(const n265_encoder *e, int k)
+{
+    return vbv_plan_fill_m(e, k, 1.0);
 }
 
 static void join_oldest(n265_encoder *e)
@@ -7966,9 +7998,13 @@ static int drive_scheduler(n265_encoder *e)
         if (e->rc_defer) {
             rc_apply_upto(e, fw->code_idx - 1 - lag);
             e->rc_lag_now = lag;
-            if (lag > 0 && e->vbv.on && e->rc_lag_low > 0.0 &&
-                vbv_plan_fill(e, fw->code_idx) <
-                    e->rc_lag_low * e->vbv.bufsize) {
+            if (lag > 0 && e->vbv.on &&
+                ((e->rc_lag_low > 0.0 &&
+                  vbv_plan_fill(e, fw->code_idx) <
+                      e->rc_lag_low * e->vbv.bufsize) ||
+                 (e->rc_lag_guard > 0.0 &&
+                  vbv_plan_fill_m(e, fw->code_idx, e->rc_lag_guard) <
+                      e->rc_lag_gfloor * e->vbv.bufsize))) {
                 while (e->n_inflight > 0) {
                     e->join_rc++;
                     join_oldest(e);

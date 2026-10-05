@@ -1601,6 +1601,12 @@ struct n265_encoder {
     double rc_lag_low;
     int rc_lag_now;         /* the lag the current solve was drained to */
     long rc_lag_low_n;      /* frames that fell back to lag 0 */
+    /* N265_VBR_LAG_GUARD / N265_VBR_LAG_GFLOOR (item 33): the same
+     * fallback, read against the walk with every frame inside the lag at
+     * GUARD times its calibrated size. Where that fill is under GFLOOR of
+     * the buffer the frame is solved at lag 0. 0 is off. */
+    double rc_lag_guard, rc_lag_gfloor;
+    int rc_lag_graw;        /* ...and never under the bare prediction */
     int fw_next;            /* the frame_work slot the next dispatch takes */
     /* the frames dispatched and not yet retired, in DISPATCH ORDER. The
      * driver owns this list; it is what the deferred-NAL ring walks, and
