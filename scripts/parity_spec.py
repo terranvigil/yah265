@@ -139,7 +139,7 @@ CELLS = [
     ("S", "1080p", "sunflower", "sunflower_1080p.y4m"),
     ("S", "1080p", "pedestrian", "pedestrian_1080p.y4m"),
     ("S", "1080p", "riverbed", "riverbed_1080p.y4m"),
-    ("S", "2160p", "meridian_2160p", "src_meridian_600.y4m"),
+    ("S", "2160p", "meridian_2160p", "src_meridian_modern_600.y4m"),
     ("S", "2160p", "bbb_2160p", "src_bbb4k_300.y4m"),
     # tier M: the ~/media/throughput segments (Meridian's is 90 s, not 120)
     ("M", "1080p", "chimera", "chimera_1080p_120s.y4m"),
