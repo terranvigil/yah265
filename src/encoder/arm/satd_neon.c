@@ -247,21 +247,31 @@ static inline uint64x1_t satd8_tile(const pixel *a, int as,
     }
 
 #if BIT_DEPTH == 8
-    /* pass 2: the same butterfly, now down what were the rows */
-    HAD8_V(q0, q1, q2, q3, q4, q5, q6, q7, r0, r1, r2, r3, r4, r5, r6, r7);
-
-    /* Two abs-sums folded at a time. vabaq_s16 would be one instruction
-     * fewer per pair but its accumulator is s16 and 64 * 16320 does not
-     * fit there; the pairwise widen is what keeps the claim exact. */
-    acc = vpadalq_u16(vpaddlq_u16(vreinterpretq_u16_s16(vabsq_s16(q0))),
-                      vreinterpretq_u16_s16(vabsq_s16(q1)));
-    acc = vpadalq_u16(acc, vreinterpretq_u16_s16(vabsq_s16(q2)));
-    acc = vpadalq_u16(acc, vreinterpretq_u16_s16(vabsq_s16(q3)));
-    acc = vpadalq_u16(acc, vreinterpretq_u16_s16(vabsq_s16(q4)));
-    acc = vpadalq_u16(acc, vreinterpretq_u16_s16(vabsq_s16(q5)));
-    acc = vpadalq_u16(acc, vreinterpretq_u16_s16(vabsq_s16(q6)));
-    acc = vpadalq_u16(acc, vreinterpretq_u16_s16(vabsq_s16(q7)));
+    /* Pass 2 without its last butterfly (phase 14 item 39). The last
+     * stage of HAD8 forms c_k + c_{k+4} and c_k - c_{k+4}, and
+     * |x + y| + |x - y| = 2 max(|x|, |y|) for any integers, so the
+     * tile's abs-sum is 2M with M the sum of four lane-wise maxima, and
+     * the C's (2M + 2) >> 2 is (M + 1) >> 1. |c| <= 4 * 2040 = 8160 here,
+     * so vabsq_s16 is exact and M is at most 32 * 8160 in u32. */
+    {
+        int16x8_t b0 = vaddq_s16(r0, r1), b1 = vsubq_s16(r0, r1);
+        int16x8_t b2 = vaddq_s16(r2, r3), b3 = vsubq_s16(r2, r3);
+        int16x8_t b4 = vaddq_s16(r4, r5), b5 = vsubq_s16(r4, r5);
+        int16x8_t b6 = vaddq_s16(r6, r7), b7 = vsubq_s16(r6, r7);
+        int16x8_t c0 = vaddq_s16(b0, b2), c2 = vsubq_s16(b0, b2);
+        int16x8_t c1 = vaddq_s16(b1, b3), c3 = vsubq_s16(b1, b3);
+        int16x8_t c4 = vaddq_s16(b4, b6), c6 = vsubq_s16(b4, b6);
+        int16x8_t c5 = vaddq_s16(b5, b7), c7 = vsubq_s16(b5, b7);
+#define MAXABS_(x, y) vreinterpretq_u16_s16(                               \
+            vmaxq_s16(vabsq_s16(x), vabsq_s16(y)))
+        acc = vpadalq_u16(vpaddlq_u16(MAXABS_(c0, c4)), MAXABS_(c1, c5));
+        acc = vpadalq_u16(acc, MAXABS_(c2, c6));
+        acc = vpadalq_u16(acc, MAXABS_(c3, c7));
+#undef MAXABS_
+    }
     p = vpaddlq_u32(acc);
+    s = vadd_u64(vget_low_u64(p), vget_high_u64(p));
+    return vshr_n_u64(vadd_u64(s, vdup_n_u64(1)), 1);   /* (M + 1) >> 1 */
 #else
     /* Main10 pass 2, in int32. |v| reaches 8 * 8184 = 65472 here, which
      * is outside int16 by a factor of two, so the eight transposed rows
@@ -290,9 +300,9 @@ static inline uint64x1_t satd8_tile(const pixel *a, int as,
         }
     }
     p = vpaddlq_u32(acc);
-#endif
     s = vadd_u64(vget_low_u64(p), vget_high_u64(p));
     return vshr_n_u64(vadd_u64(s, vdup_n_u64(2)), 2);   /* (sum + 2) >> 2 */
+#endif
 }
 
 uint32_t n265_satd8_neon(const pixel *a, int as, const pixel *b, int bs)
@@ -307,9 +317,10 @@ uint32_t n265_satd8_neon(const pixel *a, int as, const pixel *b, int bs)
  * are independent all the way to the reduction, where vpadalq_u16 and
  * vpaddlq_u32 keep them apart for free: u32 lanes 0-1 come from u16 lanes
  * 0-3 and u32 lanes 2-3 from u16 lanes 4-7, so the final u64 pair is
- * exactly the two tile sums. That matters because the C rounds PER TILE -
- * (sum + 1) >> 1 on each 4x4 - and a kernel that summed the pair first
- * and rounded once would be off by one on half the blocks.
+ * exactly the two tile sums. The C rounds PER TILE - (sum + 1) >> 1 on
+ * each 4x4 - and since item 39 the core returns each tile's value with
+ * that rounding already exact (see the pass-2 note inside), so a pair
+ * may be summed as it stands.
  */
 static inline uint64x2_t satd4_core(int16x8_t r0, int16x8_t r1,
                                     int16x8_t r2, int16x8_t r3)
@@ -326,19 +337,24 @@ static inline uint64x2_t satd4_core(int16x8_t r0, int16x8_t r1,
         r1 = F32_(vtrn1q_s32(S32_(t1), S32_(t3)));
         r3 = F32_(vtrn2q_s32(S32_(t1), S32_(t3)));
     }
-    HAD4_V(q0, q1, q2, q3, r0, r1, r2, r3);
+    /* Pass 2 without its last butterfly (phase 14 item 39). That stage
+     * forms s0 + s1 and s0 - s1, and |x + y| + |x - y| = 2 max(|x|, |y|)
+     * for any integers, so the tile's abs-sum is twice the sum of four
+     * lane-wise maxima. The C's (sum + 1) >> 1 of an even 2M is M, so the
+     * sum of maxima IS the rounded tile value and no rounding is left to
+     * do. |s|, |t| <= 2040 at 8 bits and 8184 at Main10: vabsq_s16 is
+     * exact at both. */
+    {
+        int16x8_t s0 = vaddq_s16(r0, r2), s1 = vaddq_s16(r1, r3);
+        int16x8_t t0 = vsubq_s16(r0, r2), t1 = vsubq_s16(r1, r3);
+        uint16x8_t m0 = vreinterpretq_u16_s16(
+            vmaxq_s16(vabsq_s16(s0), vabsq_s16(s1)));
+        uint16x8_t m1 = vreinterpretq_u16_s16(
+            vmaxq_s16(vabsq_s16(t0), vabsq_s16(t1)));
 
-    acc = vpadalq_u16(vpaddlq_u16(vreinterpretq_u16_s16(vabsq_s16(q0))),
-                      vreinterpretq_u16_s16(vabsq_s16(q1)));
-    acc = vpadalq_u16(acc, vreinterpretq_u16_s16(vabsq_s16(q2)));
-    acc = vpadalq_u16(acc, vreinterpretq_u16_s16(vabsq_s16(q3)));
-    return vpaddlq_u32(acc);            /* [tile in lanes 0-3, tile in 4-7] */
-}
-
-/* (sum + 1) >> 1 on each of the two tile sums */
-static inline uint64x2_t satd4_round(uint64x2_t p)
-{
-    return vshrq_n_u64(vaddq_u64(p, vdupq_n_u64(1)), 1);
+        acc = vpadalq_u16(vpaddlq_u16(m0), m1);
+    }
+    return vpaddlq_u32(acc);    /* [tile in lanes 0-3, tile in 4-7], rounded */
 }
 
 /* two tiles SIDE BY SIDE: the eight samples of a row are contiguous, so
@@ -378,7 +394,7 @@ static inline uint64x2_t satd4_one(const pixel *a, int as,
 
 uint32_t n265_satd4_neon(const pixel *a, int as, const pixel *b, int bs)
 {
-    return (uint32_t)vgetq_lane_u64(satd4_round(satd4_one(a, as, b, bs)), 0);
+    return (uint32_t)vgetq_lane_u64(satd4_one(a, as, b, bs), 0);
 }
 
 /* the 4x4 tiling of the sub-rectangle [x0, w) x [y0, h) */
@@ -393,12 +409,12 @@ static uint64x2_t satd4_region(const pixel *a, int as, const pixel *b,
          * does work */
         int y = y0;
         for (; y + 8 <= h; y += 8)
-            acc = vaddq_u64(acc, satd4_round(satd4_stk(
+            acc = vaddq_u64(acc, satd4_stk(
                 a + (size_t)y * as + x0, a + (size_t)(y + 4) * as + x0, as,
-                b + (size_t)y * bs + x0, b + (size_t)(y + 4) * bs + x0, bs)));
+                b + (size_t)y * bs + x0, b + (size_t)(y + 4) * bs + x0, bs));
         for (; y < h; y += 4)
-            acc = vaddq_u64(acc, satd4_round(satd4_one(
-                a + (size_t)y * as + x0, as, b + (size_t)y * bs + x0, bs)));
+            acc = vaddq_u64(acc, satd4_one(
+                a + (size_t)y * as + x0, as, b + (size_t)y * bs + x0, bs));
         return acc;
     }
     for (int y = y0; y < h; y += 4) {
@@ -407,10 +423,10 @@ static uint64x2_t satd4_region(const pixel *a, int as, const pixel *b,
         int x = x0;
         for (; x + 8 <= w; x += 8)
             acc = vaddq_u64(acc,
-                            satd4_round(satd4_ctg(pa + x, as, pb + x, bs)));
+                            satd4_ctg(pa + x, as, pb + x, bs));
         for (; x < w; x += 4)
             acc = vaddq_u64(acc,
-                            satd4_round(satd4_one(pa + x, as, pb + x, bs)));
+                            satd4_one(pa + x, as, pb + x, bs));
     }
     return acc;
 }
@@ -501,6 +517,54 @@ uint32_t n265_sad_wh_neon(const pixel *a, int as, const pixel *b,
             r = vabal_u8(r, ld4z(a + (size_t)y * as),
                          ld4z(b + (size_t)y * bs));
         return vaddvq_u32(vpaddlq_u16(r));
+    }
+    if ((w == 16 || w == 32 || w == 64) && h <= 64) {
+        /* The square and 2:1 shapes the motion search spends its SADs
+         * on, with the accumulators kept in u16 across the whole block
+         * instead of widened once per row (phase 14 item 39). A
+         * vpadalq_u8 adds at most 2 * 255 = 510 to a lane, and each of
+         * the four accumulators takes at most one chunk per row, so a
+         * lane holds at most 64 * 510 = 32640 at h <= 64: u16, with
+         * room. The four meet in u32. */
+        uint16x8_t r0 = vdupq_n_u16(0), r1 = vdupq_n_u16(0);
+        uint16x8_t r2 = vdupq_n_u16(0), r3 = vdupq_n_u16(0);
+
+        if (w == 16) {
+            int y = 0;
+            for (; y + 2 <= h; y += 2) {
+                const pixel *pa = a + (size_t)y * as;
+                const pixel *pb = b + (size_t)y * bs;
+                r0 = vpadalq_u8(r0, vabdq_u8(vld1q_u8(pa), vld1q_u8(pb)));
+                r1 = vpadalq_u8(r1, vabdq_u8(vld1q_u8(pa + as),
+                                             vld1q_u8(pb + bs)));
+            }
+            if (y < h)
+                r0 = vpadalq_u8(r0, vabdq_u8(vld1q_u8(a + (size_t)y * as),
+                                             vld1q_u8(b + (size_t)y * bs)));
+        } else if (w == 32) {
+            for (int y = 0; y < h; y++) {
+                const pixel *pa = a + (size_t)y * as;
+                const pixel *pb = b + (size_t)y * bs;
+                r0 = vpadalq_u8(r0, vabdq_u8(vld1q_u8(pa), vld1q_u8(pb)));
+                r1 = vpadalq_u8(r1, vabdq_u8(vld1q_u8(pa + 16),
+                                             vld1q_u8(pb + 16)));
+            }
+        } else {
+            for (int y = 0; y < h; y++) {
+                const pixel *pa = a + (size_t)y * as;
+                const pixel *pb = b + (size_t)y * bs;
+                r0 = vpadalq_u8(r0, vabdq_u8(vld1q_u8(pa), vld1q_u8(pb)));
+                r1 = vpadalq_u8(r1, vabdq_u8(vld1q_u8(pa + 16),
+                                             vld1q_u8(pb + 16)));
+                r2 = vpadalq_u8(r2, vabdq_u8(vld1q_u8(pa + 32),
+                                             vld1q_u8(pb + 32)));
+                r3 = vpadalq_u8(r3, vabdq_u8(vld1q_u8(pa + 48),
+                                             vld1q_u8(pb + 48)));
+            }
+        }
+        acc = vpadalq_u16(vpaddlq_u16(r0), r1);
+        acc = vpadalq_u16(vpadalq_u16(acc, r2), r3);
+        return vaddvq_u32(acc);
     }
     for (int y = 0; y < h; y++) {
         const pixel *pa = a + (size_t)y * as;
