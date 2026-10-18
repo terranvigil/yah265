@@ -943,10 +943,13 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
     for (int s = last_s; s >= 0; s--) {
         int sx = (sb_scan[s] & 15) << 2, sy = (sb_scan[s] >> 4) << 2;
         int start_c = (s == last_s) ? last_c : 15;
+        int sb_base = sy * n + sx;
         for (int c = start_c; c >= 0; c--) {
-            int x = sx + (co_scan[c] & 15), y = sy + (co_scan[c] >> 4);
-            int i = y * n + x;
+            /* the position through the step-offset table, as the lattice
+             * walks it; (x, y) only where a level is (item 39) */
+            int i = sb_base + soff[c];
             if (lsel[i]) {
+                int x = sx + (co_scan[c] & 15), y = sy + (co_scan[c] >> 4);
                 int lx = x, ly = y;
                 if (scan_idx == 2) { int t = lx; lx = ly; ly = t; }
                 /* last_sig_coeff_x/y is coded before any of this block's
@@ -1020,9 +1023,9 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
     for (int s = best_s; s >= 0; s--) {
         int sx = (sb_scan[s] & 15) << 2, sy = (sb_scan[s] >> 4) << 2;
         int start_c = (s == best_s) ? best_c : 15;
+        int sb_base = sy * n + sx;
         for (int c = start_c; c >= 0; c--) {
-            int x = sx + (co_scan[c] & 15), y = sy + (co_scan[c] >> 4);
-            int i = y * n + x;
+            int i = sb_base + soff[c];
             int l = lsel[i];
             level[i] = (int16_t)(coef[i] < 0 ? -l : l);
             keep[i] = 1;
