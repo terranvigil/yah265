@@ -1,0 +1,30 @@
+# yah265 scratch namespace -- the ONE place the prefixes are written down.
+#
+# Read by scripts/scratch.sh (shell harnesses), scripts/scratch.py (python
+# harnesses) and `make clean-scratch`. A scratch directory that is not
+# named here is a directory clean-scratch cannot find.
+#
+# Format: one field per line, "<kind> <value>".
+#
+#   ns      the live namespace. Every scratch directory the new harnesses
+#           create is "<ns><tag>.XXXXXXXX" under $TMPDIR, so clean-scratch
+#           matches one glob and can never reach anything that is not ours.
+#   legacy  a prefix the older scripts still pass to mkdtemp. Only
+#           distinctive names belong here. bdq_, abrbd_, calib. and
+#           bdrate. are left out on purpose: yah264 uses the same names,
+#           and a sweep must never touch another project's directories.
+#
+# NOT listed, on purpose: the bare "tmp." of an unnamed `mktemp -d`, and
+# "sc", "spec." and "supp." (shot_hull and parity_spec): too short or
+# too common to be a name.
+
+ns yah265-
+
+legacy n265gen.
+legacy goallegs.
+legacy bd8v10.
+legacy rebind.
+legacy shothull.
+legacy seekchk
+legacy perframe.
+legacy lossmap.
