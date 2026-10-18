@@ -151,6 +151,16 @@ different files, so only the metric half of the memo (keyed on the
 bitstream) survives a rebuild. On the board's own tree a solved clip is
 free; on a new one the bisection re-encodes about six points per clip and
 the VMAF is still served.
+
+**Instructions retired ride beside every wall.** Each timed run goes
+through `boxlib.measure` (`/usr/bin/time -l`), and the median count per
+arm lands in `our_instr` / `x265_instr`, printed as `instr x`. Load
+barely moves them, so a row read on a busy box still says whether ours
+does more or less work. INSTR=0 times with the bare stopwatch instead,
+the way every row before the column was timed; the wrapper adds one
+fork of `/usr/bin/time` to both arms alike. The timed leg holds the
+timing lock (docs/instruments.md), and the solve waits while somebody
+else's timed leg holds it.
 """
 import csv
 import datetime
@@ -171,6 +181,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 import bd_at_rate as bdr                                  # noqa: E402
 import bdcompare as _bd                                   # noqa: E402
+import boxlib                                             # noqa: E402
 
 _bd.SUBSAMPLE = 1
 # bd_at_rate's memo key is the command string with {src} filled, and the
@@ -201,6 +212,7 @@ SRCDIR = os.environ.get("SRCDIR", "tests/corpus")
 X265 = os.environ.get("X265", "x265")
 LOADMAX = float(os.environ.get("LOADMAX", "3.0"))
 LOADWAIT = float(os.environ.get("LOADWAIT", "600"))
+INSTR = os.environ.get("INSTR", "1") != "0"
 CSV_PATH = os.environ.get("GOAL_LEGS_CSV",
                           os.path.join(ROOT, "docs/data/goal-legs.csv"))
 
@@ -222,7 +234,8 @@ ARM = " ".join([f"{k}={v}" for k, v in sorted(os.environ.items())
 # migrates a file that predates them instead of refusing, and every
 # reader takes them with a default.
 OPTIONAL_COLUMNS = ("arm", "dcb_eq_bytes", "dcr_eq_bytes", "x265_preset",
-                    "dy_eq_bytes", "dssimy_eq_bytes")
+                    "dy_eq_bytes", "dssimy_eq_bytes", "our_instr",
+                    "x265_instr")
 
 # B0's chroma reading: how far below x265 either plane may sit at equal
 # bytes before the clip is named. 0.3 dB is the level the record calls
@@ -585,10 +598,21 @@ def warm_file(path):
 
 
 def wall(cmd, env):
+    """(seconds, instructions retired or None) for one run."""
+    if INSTR:
+        r = boxlib.measure(cmd, env=env)
+        if r["rc"] != 0:
+            raise subprocess.CalledProcessError(r["rc"], cmd)
+        return r["wall"], r["instr"]
     t0 = time.perf_counter()
     subprocess.run(cmd, env=env, stdout=subprocess.DEVNULL,
                    stderr=subprocess.DEVNULL, check=True)
-    return time.perf_counter() - t0
+    return time.perf_counter() - t0, None
+
+
+def _med(xs):
+    xs = [x for x in xs if x is not None]
+    return int(statistics.median(xs)) if xs else None
 
 
 def solve_clip(clip, target):
@@ -708,6 +732,7 @@ def main():
         print(f"no ladder rung {RUNG}: {', '.join(missing)} (skipped)")
 
     targets = {c: target_of(c, ladders) for c in clips}
+    boxlib.wait_untimed("goal_legs.py")
     print(f"\nsolving {len(clips)} clip(s) onto rung {RUNG} at JOBS={JOBS} "
           f"(memoised)", flush=True)
     res = {}
@@ -757,6 +782,8 @@ def main():
                      f"when it is quiet, or use --no-time.")
         print(f"\ntiming {len(clips)} clip(s), {NRUNS} interleaved rounds, "
               f"load {lv:.2f}", flush=True)
+        lock = boxlib.timing_lock(f"goal_legs G{GOAL} {PRESET}")
+        lock.__enter__()
         for c in clips:
             r = res[c]
             warm_file(r["src"])
@@ -772,12 +799,17 @@ def main():
                 else:
                     x.append(wall(xc, xe))
                     ours.append(wall(oc, oe))
-            r["ours"]["wall"] = statistics.median(ours)
-            r["x265"]["wall"] = statistics.median(x)
+            r["ours"]["wall"] = statistics.median(w for w, _ in ours)
+            r["x265"]["wall"] = statistics.median(w for w, _ in x)
+            r["ours"]["instr"] = _med(n for _, n in ours)
+            r["x265"]["instr"] = _med(n for _, n in x)
             r["mult"] = r["ours"]["wall"] / r["x265"]["wall"]
+            ir = (f"   instr {r['ours']['instr'] / r['x265']['instr']:5.2f}x"
+                  if r["ours"]["instr"] and r["x265"]["instr"] else "")
             print(f"  {c:<18} ours {r['ours']['wall']:7.3f} s   x265 "
-                  f"{r['x265']['wall']:7.3f} s   {r['mult']:5.2f}x",
+                  f"{r['x265']['wall']:7.3f} s   {r['mult']:5.2f}x{ir}",
                   flush=True)
+        lock.__exit__(None, None, None)
         print(f"load after: {load1():.2f}")
 
     rows = []
@@ -841,6 +873,10 @@ def main():
             # carry `ssimY` - it is never decoded for.
             "dy_eq_bytes": round(dy, 3) if dy is not None else "",
             "dssimy_eq_bytes": round(dsy, 3) if dsy is not None else "",
+            # instructions retired, median per arm, LAST for the same
+            # reason: blank on a row timed with INSTR=0 or not timed
+            "our_instr": r["ours"].get("instr") or "",
+            "x265_instr": r["x265"].get("instr") or "",
         })
 
     report(rows, GOAL, PRESET, RUNG, FRAMES, X265PRESET)
@@ -861,7 +897,8 @@ def _f(w, k):
 def report(rows, goal, preset, rung, frames, xpreset="medium"):
     hdr = (f"{'clip':<18} {'ourCRF':>6} {'xCRF':>5} {'dVMAF@=B':>9} "
            f"{'dSIZE@=V':>9} {'dCb@=B':>7} {'dCr@=B':>7} {'dY@=B':>7} "
-           f"{'dSSY@=B':>8} {'ours s':>8} {'x265 s':>8} {'mult':>7}")
+           f"{'dSSY@=B':>8} {'ours s':>8} {'x265 s':>8} {'mult':>7} "
+           f"{'instr x':>7}")
     print(f"\n=== goal {goal}, preset {preset} vs x265 {xpreset}, rung "
           f"{rung}, {frames} frames, {len(rows)} clips ===")
     print("    dVMAF@=B: ours minus x265's VMAF-NEG interpolated at OUR "
@@ -872,6 +909,8 @@ def report(rows, goal, preset, rung, frames, xpreset="medium"):
           "at OUR bytes (ours ahead positive)")
     print("    dY@=B: the same on PSNR-Y, which is the fifth leg; dSSY@=B "
           "the same on SSIM-Y in dB, which is a reading with no bar")
+    print("    instr x: ours over x265's instructions retired, medians of "
+          "the timed runs (load-proof; '-' on rows timed without it)")
     print(hdr)
     print("-" * len(hdr))
     for w in rows:
@@ -880,6 +919,8 @@ def report(rows, goal, preset, rung, frames, xpreset="medium"):
         dv, ds = _f(w, "dvmaf_eq_bytes"), _f(w, "dsize_eq_vmaf_pct")
         dcb, dcr = _f(w, "dcb_eq_bytes"), _f(w, "dcr_eq_bytes")
         dy, dsy = _f(w, "dy_eq_bytes"), _f(w, "dssimy_eq_bytes")
+        oi, xi = _f(w, "our_instr"), _f(w, "x265_instr")
+        ix = oi / xi if oi and xi else None
         print(f"{w['clip']:<18} {int(w['our_crf']):>6} {int(w['x265_crf']):>5} "
               f"{f'{dv:+.2f}' if dv is not None else '-':>9} "
               f"{f'{ds:+.2f}' if ds is not None else '-':>9} "
@@ -889,7 +930,8 @@ def report(rows, goal, preset, rung, frames, xpreset="medium"):
               f"{f'{dsy:+.2f}' if dsy is not None else '-':>8} "
               f"{f'{ow:.3f}' if ow is not None else '-':>8} "
               f"{f'{xw:.3f}' if xw is not None else '-':>8} "
-              f"{f'{m:.2f}x' if m is not None else '-':>7}")
+              f"{f'{m:.2f}x' if m is not None else '-':>7} "
+              f"{f'{ix:.2f}x' if ix is not None else '-':>7}")
 
     print("\n--- the legs (one-sided, as the plan writes them) ---")
     mults = [_f(w, "mult") for w in rows if _f(w, "mult") is not None]
