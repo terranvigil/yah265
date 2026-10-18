@@ -1628,6 +1628,68 @@ void n265_idct_add_neon(pixel *dst, int dst_stride, const int16_t *dq,
  * not; vmaxvq_s32 across the row gives the row's last nonzero column,
  * and a row that has one is the last nonzero row so far. That is the C's
  * mx / my exactly, including the all-zero block's mx = my = 0. */
+/* Phase 14 item 39: the dequant on eight lanes, int16 in, for rows of
+ * NV * 8 levels (NV a constant at each call, so every array below is
+ * registers). Sh <= 9216 and Sl < 2^bd <= 1024 are both int16, so each
+ * product is one widening multiply from the level as loaded; the sum is
+ * the split described above, in the same int32 bound. A row whose levels
+ * are all zero dequantises to zeros (the C's own skip), and after the
+ * lattice that is most rows, so it is stored without the arithmetic.
+ * The bounding box comes from an OR of the results: per row for nzh,
+ * per column chunk for nzw. */
+AI_ void deq_rows(int16_t *dq, const int16_t *level, const int NV,
+                  int16_t sh16, int16_t sl16, int32x4_t addv, int32x4_t sh,
+                  int *mx, int *my)
+{
+    static const uint16_t col_id[8] = { 1, 2, 3, 4, 5, 6, 7, 8 };
+    const int n = NV * 8;
+    int16x8_t z = vdupq_n_s16(0);
+    uint16x8_t cacc[4];
+
+    for (int k = 0; k < NV; k++)
+        cacc[k] = vdupq_n_u16(0);
+    for (int y = 0; y < n; y++) {
+        const int16_t *lp = level + (ptrdiff_t)y * n;
+        int16_t *dp = dq + (ptrdiff_t)y * n;
+        int16x8_t l[4];
+        uint16x8_t rowor = vdupq_n_u16(0);
+
+        for (int k = 0; k < NV; k++) {
+            l[k] = vld1q_s16(lp + 8 * k);
+            rowor = vorrq_u16(rowor, vreinterpretq_u16_s16(l[k]));
+        }
+        if (!vmaxvq_u16(rowor)) {
+            for (int k = 0; k < NV; k++)
+                vst1q_s16(dp + 8 * k, z);
+            continue;
+        }
+        rowor = vdupq_n_u16(0);
+        for (int k = 0; k < NV; k++) {
+            int32x4_t lo = vmlal_n_s16(addv, vget_low_s16(l[k]), sl16);
+            int32x4_t hi = vmlal_high_n_s16(addv, l[k], sl16);
+            int16x8_t v;
+
+            lo = vmlal_n_s16(vshlq_s32(lo, sh), vget_low_s16(l[k]), sh16);
+            hi = vmlal_high_n_s16(vshlq_s32(hi, sh), l[k], sh16);
+            /* vqmovn is the C's clip to int16, saturation included */
+            v = vqmovn_high_s32(vqmovn_s32(lo), hi);
+            vst1q_s16(dp + 8 * k, v);
+            cacc[k] = vorrq_u16(cacc[k], vreinterpretq_u16_s16(v));
+            rowor = vorrq_u16(rowor, vreinterpretq_u16_s16(v));
+        }
+        if (vmaxvq_u16(rowor))
+            *my = y;
+    }
+    for (int k = NV - 1; k >= 0; k--) {
+        int m = vmaxvq_u16(vandq_u16(vtstq_u16(cacc[k], cacc[k]),
+                                     vld1q_u16(col_id)));
+        if (m) {
+            *mx = 8 * k + m - 1;
+            break;
+        }
+    }
+}
+
 void n265_dequant_neon(int16_t *dq, const int16_t *level, int log2n, int qp,
                        int *nzw, int *nzh)
 {
@@ -1643,6 +1705,21 @@ void n265_dequant_neon(int16_t *dq, const int16_t *level, int log2n, int qp,
     int32x4_t none = vdupq_n_s32(-1);
     int32x4_t ids = vld1q_s32(lane_id);
     int mx = 0, my = 0;
+
+    if (n >= 8) {
+        /* item 39's eight-lane form, one instance per row width */
+        int16_t sh16 = (int16_t)s_hi, sl16 = (int16_t)s_lo;
+
+        if (n == 8)
+            deq_rows(dq, level, 1, sh16, sl16, addv, sh, &mx, &my);
+        else if (n == 16)
+            deq_rows(dq, level, 2, sh16, sl16, addv, sh, &mx, &my);
+        else
+            deq_rows(dq, level, 4, sh16, sl16, addv, sh, &mx, &my);
+        if (nzw) *nzw = mx + 1;
+        if (nzh) *nzh = my + 1;
+        return;
+    }
 
     for (int y = 0; y < n; y++) {
         const int16_t *lp = level + (ptrdiff_t)y * n;
@@ -1700,29 +1777,34 @@ int n265_quant_neon(int16_t *level, const int16_t *coef, int log2n, int qp,
     int qbits = 29 - BIT_DEPTH + qpq / 6 - log2n;
     int32_t add = (int32_t)(((int64_t)1 << qbits) / (intra ? 3 : 6));
     int q = quant_scale[qpq % 6];
-    int32x4_t addv = vdupq_n_s32(add), sh = vdupq_n_s32(-qbits);
-    int32x4_t maxv = vdupq_n_s32(32767);
-    int32x4_t cnt = vdupq_n_s32(0);
+    uint32x4_t addv = vdupq_n_u32((uint32_t)add);
+    int32x4_t sh = vdupq_n_s32(-qbits);
+    uint16x8_t cnt = vdupq_n_u16(0);
 
+    /* Phase 14 item 39: eight lanes from the int16 load, no widen of the
+     * input. vabsq_s16 wraps -32768 to itself, and READ AS UNSIGNED that
+     * is 32768 - the C's |c| exactly - so the magnitude is a u16 for every
+     * input. The widening unsigned multiply-accumulate forms |c| * q + add
+     * <= 9.04e8, inside u32 and inside int32 too, so after the logical
+     * shift the value read as signed is the same number, and vqmovn_s32's
+     * saturation at 32767 IS the C's clamp. The sign goes back on as
+     * (l ^ s) - s with s = c >> 15. The count is a u16 lane accumulator,
+     * at most 128 per lane at 32x32. */
     for (int i = 0; i < nn; i += 8) {
         int16x8_t c = vld1q_s16(coef + i);
-        int32x4_t cl = vmovl_s16(vget_low_s16(c)), ch = vmovl_high_s16(c);
-        int32x4_t ll = vminq_s32(
-            vshlq_s32(vmlaq_n_s32(addv, vabsq_s32(cl), q), sh), maxv);
-        int32x4_t lh = vminq_s32(
-            vshlq_s32(vmlaq_n_s32(addv, vabsq_s32(ch), q), sh), maxv);
+        uint16x8_t a = vreinterpretq_u16_s16(vabsq_s16(c));
+        uint32x4_t pl = vshlq_u32(vmlal_n_u16(addv, vget_low_u16(a),
+                                              (uint16_t)q), sh);
+        uint32x4_t ph = vshlq_u32(vmlal_high_n_u16(addv, a, (uint16_t)q),
+                                  sh);
+        int16x8_t l = vqmovn_high_s32(vqmovn_s32(vreinterpretq_s32_u32(pl)),
+                                      vreinterpretq_s32_u32(ph));
+        int16x8_t s = vshrq_n_s16(c, 15);
 
-        cnt = vsubq_s32(cnt,
-                        vreinterpretq_s32_u32(vmvnq_u32(vceqzq_s32(ll))));
-        cnt = vsubq_s32(cnt,
-                        vreinterpretq_s32_u32(vmvnq_u32(vceqzq_s32(lh))));
-        /* |sign * l| <= 32767, so vqmovn_s32 never actually saturates
-         * here; it is the narrow, and the clamp above is the C's. */
-        vst1q_s16(level + i, vcombine_s16(
-            vqmovn_s32(vbslq_s32(vcltzq_s32(cl), vnegq_s32(ll), ll)),
-            vqmovn_s32(vbslq_s32(vcltzq_s32(ch), vnegq_s32(lh), lh))));
+        cnt = vsubq_u16(cnt, vtstq_s16(l, l));
+        vst1q_s16(level + i, vsubq_s16(veorq_s16(l, s), s));
     }
-    return vaddvq_s32(cnt);
+    return (int)vaddlvq_u16(cnt);
 }
 
 #else
