@@ -437,30 +437,62 @@ static uint64x2_t satd4_region(const pixel *a, int as, const pixel *b,
  * so its NEON output has to equal its own C output and not the default
  * arm's.
  */
-uint32_t n265_satd_wh_neon(const pixel *a, int as, const pixel *b,
-                           int bs, int w, int h)
+/* the two general tilings, out of line so that the entry point below
+ * keeps the one-tile shapes free of their register pressure */
+static __attribute__((noinline))
+uint32_t satd_mixed(const pixel *a, int as, const pixel *b, int bs, int w,
+                    int h)
 {
     uint64x1_t s8 = vdup_n_u64(0);
     uint64x2_t s4 = vdupq_n_u64(0);
+    /* The N265_SATD8 arm only places 8x8 tiles where both sides reach
+     * eight, so below that it is not asked (item 39: it was two calls on
+     * every 4-wide and 4-tall block). */
+    int mixed = w >= 8 && h >= 8 && n265_satd8_mixed();
+    int w8 = mixed ? (w & ~7) : 0;
+    int h8 = mixed ? (h & ~7) : 0;
 
-    if ((w & 7) || (h & 7)) {
-        int w8 = n265_satd8_mixed() ? (w & ~7) : 0;
-        int h8 = n265_satd8_mixed() ? (h & ~7) : 0;
-        for (int y = 0; y < h8; y += 8)
-            for (int x = 0; x < w8; x += 8)
-                s8 = vadd_u64(s8, satd8_tile(a + (size_t)y * as + x, as,
-                                             b + (size_t)y * bs + x, bs));
-        if (h8 > 0 && w8 < w)
-            s4 = vaddq_u64(s4, satd4_region(a, as, b, bs, w8, 0, w, h8));
-        if (h8 < h)
-            s4 = vaddq_u64(s4, satd4_region(a, as, b, bs, 0, h8, w, h));
-        return (uint32_t)(vget_lane_u64(s8, 0) + vaddvq_u64(s4));
-    }
+    for (int y = 0; y < h8; y += 8)
+        for (int x = 0; x < w8; x += 8)
+            s8 = vadd_u64(s8, satd8_tile(a + (size_t)y * as + x, as,
+                                         b + (size_t)y * bs + x, bs));
+    if (h8 > 0 && w8 < w)
+        s4 = vaddq_u64(s4, satd4_region(a, as, b, bs, w8, 0, w, h8));
+    if (h8 < h)
+        s4 = vaddq_u64(s4, satd4_region(a, as, b, bs, 0, h8, w, h));
+    return (uint32_t)(vget_lane_u64(s8, 0) + vaddvq_u64(s4));
+}
+
+static __attribute__((noinline))
+uint32_t satd_grid8(const pixel *a, int as, const pixel *b, int bs, int w,
+                    int h)
+{
+    uint64x1_t s8 = vdup_n_u64(0);
+
     for (int y = 0; y < h; y += 8)
         for (int x = 0; x < w; x += 8)
             s8 = vadd_u64(s8, satd8_tile(a + (size_t)y * as + x, as,
                                          b + (size_t)y * bs + x, bs));
     return (uint32_t)vget_lane_u64(s8, 0);
+}
+
+uint32_t n265_satd_wh_neon(const pixel *a, int as, const pixel *b,
+                           int bs, int w, int h)
+{
+    /* the one- and two-tile shapes straight through (item 39): the
+     * general tilings' setup was half the instructions of an 8x8 call */
+    if (w == 8 && h == 8)
+        return (uint32_t)vget_lane_u64(satd8_tile(a, as, b, bs), 0);
+    if (w == 4 && h == 4)
+        return (uint32_t)vgetq_lane_u64(satd4_one(a, as, b, bs), 0);
+    if (w == 8 && h == 4)
+        return (uint32_t)vaddvq_u64(satd4_ctg(a, as, b, bs));
+    if (w == 4 && h == 8)
+        return (uint32_t)vaddvq_u64(satd4_stk(a, a + (size_t)4 * as, as, b,
+                                              b + (size_t)4 * bs, bs));
+    if ((w & 7) || (h & 7))
+        return satd_mixed(a, as, b, bs, w, h);
+    return satd_grid8(a, as, b, bs, w, h);
 }
 
 /* ---- SAD -------------------------------------------------------------

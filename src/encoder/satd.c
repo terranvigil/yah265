@@ -176,14 +176,11 @@ uint32_t n265_satd_wh(const pixel *a, int a_stride, const pixel *b,
                       int b_stride, int w, int h)
 {
 #if N265_NEON_SATD
-    /* 4x4 is the one shape that is a single 4x4 tile, and a single tile
-     * is the one case where the vector form loses: its dependency chain
-     * (load, three butterfly stages, transpose, three more, abs, the
-     * pairwise reduction, the move back to a GPR) is longer than the
-     * whole scalar butterfly, and it measured 0.68x on checkasm --bench
-     * where every other shape measured 1.03x to 3.1x. Both paths are
-     * bit-exact, so this predicate moves time and nothing else. */
-    if (!(w == 4 && h == 4) && n265_asm_on(N265_ASM_SATD))
+    /* Every shape. 4x4 stayed on C until phase 14 item 39 (0.68x on
+     * checkasm --bench); the vector entry then lost its per-call setup
+     * and a pass-2 stage, and reads 2.25x. Both paths are bit-exact, so
+     * the choice moves time and nothing else. */
+    if (n265_asm_on(N265_ASM_SATD))
         return n265_satd_wh_neon(a, a_stride, b, b_stride, w, h);
 #endif
     return n265_satd_wh_c(a, a_stride, b, b_stride, w, h);
