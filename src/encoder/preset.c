@@ -326,6 +326,12 @@ static const struct kv med_tab[] = {
      * and `N265_MERGE_PICK_RATE=0` is the escape. docs/phase14.md
      * "Item 30". */
     { "N265_MERGE_PICK_RATE", "1" },
+    /* phase 14 item 36, named at their compiled-in values: below the HD
+     * class the walk is the unit diamond and the b-adapt term holds at a
+     * 128-sample lowres width, as at every other rung. The UHD overlay,
+     * which the HD class reads too, is where they move. */
+    { "N265_ME_PATTERN", "0" },
+    { "N265_BADAPT_REFW", "128" },
     /* There is NO `N265_NR_INTRA` / `N265_NR_INTER` row, and item 6b is
      * why that is worth saying out loud here. Item 6 recommended
      * `--nr-intra 100 --nr-inter 100` for this table off a five-clip
@@ -610,6 +616,23 @@ static const struct kv med_par_uhd[] = {
  * comment is the rule. */
 static const struct kv med_tab_uhd[] = {
     { "N265_CB64_SKIPGATE", "64" },
+    /* phase 14 item 36, at HD and UHD (n265_env reads this table for
+     * both): the full-pel search walks the hexagon to 57 pels instead of
+     * the 24-step unit diamond, and the b-adapt motion term is normalised
+     * to a 320-sample lowres width instead of 128. The diamond stopped in
+     * a local minimum on fine texture at a far reference: on sunflower
+     * and tears an anchor eight frames out cost twice the bits of one
+     * four out, which no other tier D cell shows. At 128 the term was
+     * scaled down 7.5x at 1080p and the rule never ended a run there.
+     * Tier D against x265 medium: sunflower +18.68% -> +0.78%, tears
+     * +27.87% -> -2.09%, Sol Levante -12.11% -> -19.81%, every other HD
+     * and UHD cell level or ahead. Below the HD class the pair is not
+     * taken: on the CIF-7 band it costs bus_cif 1.57 and stefan_cif 1.14
+     * points, and at 720p sita_toon_720p goes from -5.11% to +5.71%.
+     * `N265_ME_PATTERN=0 N265_BADAPT_REFW=128` is the escape.
+     * docs/phase14.md "Item 36". */
+    { "N265_ME_PATTERN", "1" },
+    { "N265_BADAPT_REFW", "320" },
     /* the split side (item 24's knob), measured at 2160p by item 26: on
      * three 4K windows every per-rung delta against the tree without it
      * is within 0.11 VMAF-NEG. At HD, tab_hd answers first with the same
