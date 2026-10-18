@@ -374,12 +374,22 @@ static void build_ref(pixel *r, const pixel *main, const pixel *side,
     r[-1] = (pixel)corner;
 #if BIT_DEPTH == 8
     /* 2n is 8, 16, 32 or 64: vector copies rather than a libc call of a
-     * run-time length on every angular prediction (item 39) */
-    if (n == 4) {
+     * run-time length on every angular prediction (item 39). Spelled out
+     * per size: a loop of them is a copy idiom clang turns straight back
+     * into the memcpy call. */
+    switch (n) {
+    case 4:
         vst1_u8(r, vld1_u8(main));
-    } else {
-        for (int i = 0; i < 2 * n; i += 16)
-            vst1q_u8(r + i, vld1q_u8(main + i));
+        break;
+    case 8:
+        vst1q_u8(r, vld1q_u8(main));
+        break;
+    case 16:
+        vst1q_u8_x2(r, vld1q_u8_x2(main));
+        break;
+    default:
+        vst1q_u8_x4(r, vld1q_u8_x4(main));
+        break;
     }
 #else
     memcpy(r, main, (size_t)(2 * n) * sizeof(pixel));
@@ -493,12 +503,24 @@ static void pred_planar_neon(pixel *dst, int stride, const pixel *refs,
      * eight-lane pass and four of its lanes are computed and thrown away,
      * and a lane built out of an uninitialised table is a sanitiser
      * report waiting to happen even where the value cannot escape. */
-    for (int x = 0; x < n; x++) {
-        xw[x] = (uint16_t)(n - 1 - x);
-        base[x] = (uint16_t)((x + 1) * tr + n);
+    /* built eight lanes at a time (item 39): the scalar fill and the zero
+     * tail compiled to a loop and a bzero call per prediction. At n = 4
+     * lanes 4..7 hold n - 1 - x and (x + 1) * tr + n continued (wrapped
+     * modulo 2^16 for xw), defined values in lanes no store keeps. */
+    {
+        static const uint16_t ramp[8] = { 0, 1, 2, 3, 4, 5, 6, 7 };
+        uint16x8_t id = vld1q_u16(ramp);
+
+        for (int x = 0; x < (n < 8 ? 8 : n); x += 8) {
+            uint16x8_t xi = vaddq_u16(id, vdupq_n_u16((uint16_t)x));
+
+            vst1q_u16(xw + x, vsubq_u16(vdupq_n_u16((uint16_t)(n - 1)), xi));
+            vst1q_u16(base + x,
+                      vmlaq_n_u16(vdupq_n_u16((uint16_t)n),
+                                  vaddq_u16(xi, vdupq_n_u16(1)),
+                                  (uint16_t)tr));
+        }
     }
-    for (int x = n; x < 8; x++)
-        xw[x] = base[x] = 0;
     /* At n = 4 the row is eight lanes wide and only four are stored. The
      * extra lanes read top[4..7] and xw/base[4..7], all of which exist:
      * top has 2n = 8 samples and the two tables are 32 long. */
