@@ -67,8 +67,8 @@ bd = pl.bd
 TIER_D = os.environ.get("DEVSET_DIR", os.path.expanduser("~/media/tier_d"))
 CACHE = os.environ.get("DEVSET_CACHE",
                        os.path.expanduser("~/.cache/yah265-devset"))
-MAIN_BIN = os.environ.get("DEVSET_MAIN",
-                          os.path.expanduser("~/src/yah265/build-rel/n265"))
+# --ab's main: the binary --pin-main copied here, its commit beside it
+MAIN_BIN = os.environ.get("DEVSET_MAIN", os.path.join(CACHE, "main", "n265"))
 CORES = int(os.environ.get("DEVSET_CORES", "12"))
 CSV_PATH = os.path.join(ROOT, "docs/data/devset.csv")
 LOGS = os.path.join(ROOT, "scratch/devset")
@@ -78,6 +78,24 @@ LOGS = os.path.join(ROOT, "scratch/devset")
 pl.MEMO = os.path.join(CACHE, "memo.json")
 RESULTS = os.path.join(CACHE, "results.json")
 pl.SSIM_PASS = False                 # NEG and PSNR-Y only
+SCORES = os.path.join(CACHE, "scores.json")
+_score = pl.score
+
+
+def score_memo(cell, bitstream, wd, s=0, n=None, stride=1, psnr_only=False):
+    """parity_long's score, memoised on the bitstream's md5 and the frames
+    it is scored against: an arm that leaves a cell's stream alone pays
+    the encode and not the libvmaf run."""
+    k = "|".join((pl.file_md5(bitstream), pl.feed_sig(pl.feeder(cell, s, n)),
+                  str(stride), str(psnr_only), str(pl.SSIM_PASS)))
+    have = pl.jload(SCORES).get(k)
+    if have:
+        return have
+    return pl.jput(SCORES, k, _score(cell, bitstream, wd, s, n, stride,
+                                     psnr_only))
+
+
+pl.score = score_memo
 
 RUNGS = pl.RUNGS                     # 20/23/26/29/32
 REF_CRF = pl.REF_CRF                 # 28
@@ -104,9 +122,17 @@ CELLS = [
      "the speed cell: intra-heavy, 22 cuts a minute",
      "M/1080p/sollevante; M/2160p/sollevante"),
     ("D5", "720p", "chimera", "d5_chimera_720p.y4m", 719,
-     "~/media/throughput/chimera_720p_120s.y4m", 1020, True,
-     "VBR +19.6% BD on the 720p segment",
-     "every VBR curve on tiers M and L; L 720p"),
+     "~/media/throughput/chimera_720p_120s.y4m", 1020, False,
+     "720p live action; the tier M G1/G2 window of the segment",
+     "L 720p; M/1080p/chimera"),
+    # the 30 s window reads VBR level with x265 (+0.5%); the +19% gap is
+    # only on the whole segment, where x265 lands 14-15% under its
+    # targets. So D5's VBR ladder reads the segment, VBR only. The copy
+    # keeps the segment's file name, which is part of the memo keys.
+    ("D5v", "720p", "chimera_seg", "chimera_720p_120s.y4m", 2760,
+     "~/media/throughput/chimera_720p_120s.y4m", 0, "only",
+     "VBR +19.6% BD on the whole trimmed 720p segment",
+     "every VBR curve on tiers M and L"),
     ("D6", "720p", "lash1924", "d6_lash1924_720p.y4m", 300,
      "~/media/staging-y4m/lash1924-x10_720p.y4m", 2250, False,
      "film grain, 1280x960",
@@ -289,8 +315,14 @@ def run_task(task, cid, sig):
 # --------------------------------------------------------------- schedule
 
 
+# a quality task's share: its encode runs at PL_THREADS and its libvmaf at
+# VMAF_THREADS beside ffmpeg's decode, never both at once, so 5 of 12
+# leaves two one-thread speed lanes beside two quality tasks
+QW = int(os.environ.get("DEVSET_QW", "5"))
+
+
 def weight(task):
-    return 1 if task.startswith("speed_") else pl.THREADS
+    return 1 if task.startswith("speed_") else QW
 
 
 def cost(task, cell):
@@ -322,6 +354,10 @@ def plan(cells, sig, want_vbr, want_speed, want_ref_speed=True):
             add(d, cell, sig if d.startswith("ours") else ref_sig())
         todo.append((task, cell, s))
     for c in cells:
+        if c["vbr"] == "only":
+            if want_vbr:
+                add("ours_vbr", c, sig)
+            continue
         add("ours_crf", c, sig)
         if want_vbr and c["vbr"]:
             add("ours_vbr", c, sig)
@@ -368,8 +404,11 @@ def execute(todo, arms):
         if fails and not running:
             break
         used = sum(weight(t[0]) for t, _ in running.values())
+        # a ready speed task goes first: each is one long serial run, and
+        # left to the end they are the tail of the read
         cand = sorted((t for t in pending if ready(t)),
-                      key=lambda t: -cost(t[0], t[1]))
+                      key=lambda t: (not t[0].startswith("speed_"),
+                                     -cost(t[0], t[1])))
         for t in cand:
             w = weight(t[0])
             if used and used + w > CORES:
@@ -421,6 +460,11 @@ def read(cell, sig):
     g = lambda t, s: R.get(rkey(t, cell, s))           # noqa: E731
     rc, rv = g("ref_crf", ref_sig()), g("ref_vbr", ref_sig())
     oc, ov = g("ours_crf", sig), g("ours_vbr", sig)
+    # only the legs the cell is read on, whatever else the cache holds
+    if not cell["vbr"]:
+        rv = ov = None
+    if cell["vbr"] == "only":
+        oc = None
     out = {"id": cell["id"], "name": cell["name"]}
     out["bd_crf"] = bdn(rc, oc)
     out["bd_vbr"] = bdn(rv, ov)
@@ -560,6 +604,25 @@ def list_cells():
         print(f"    stands in for: {c['stands']}")
 
 
+def pin_main(exe):
+    """Copy a binary to the cache as --ab's main, its commit beside it."""
+    d = os.path.dirname(MAIN_BIN)
+    os.makedirs(d, exist_ok=True)
+    subprocess.run(["cp", exe, MAIN_BIN + ".tmp"], check=True)
+    os.replace(MAIN_BIN + ".tmp", MAIN_BIN)
+    with open(os.path.join(d, "main.txt"), "w") as fh:
+        fh.write(f"{ps.commit()} {bin_hash(MAIN_BIN)}\n")
+    print(f"devset: main pinned at {ps.commit()} ({bin_hash(MAIN_BIN)[:12]})")
+
+
+def main_commit():
+    try:
+        with open(os.path.join(os.path.dirname(MAIN_BIN), "main.txt")) as fh:
+            return fh.read().split()[0]
+    except (OSError, IndexError):
+        return "?"
+
+
 def check_files(cells):
     for c in cells:
         i = pl.info(c)
@@ -577,6 +640,8 @@ def main():
                     help="the arm against main, ours only")
     ap.add_argument("--base", default=MAIN_BIN)
     ap.add_argument("--base-arm", default="")
+    ap.add_argument("--pin-main", action="store_true",
+                    help="copy --bin to the cache as --ab's main")
     ap.add_argument("--cells", default="")
     ap.add_argument("--no-vbr", action="store_true")
     ap.add_argument("--no-speed", action="store_true")
@@ -603,6 +668,12 @@ def main():
     if a.list:
         list_cells()
         return
+    if a.pin_main:
+        pin_main(os.path.abspath(a.bin))
+        return
+    if a.ab and not os.path.exists(a.base):
+        sys.exit(f"devset: no main at {a.base}; on main, `make build-rel` "
+                 "then `scripts/devset.py --pin-main`, or pass --base")
 
     cells = [BY_ID[x] for x in a.cells.split(",")] if a.cells else ALL
     check_files(cells)
@@ -639,7 +710,9 @@ def main():
         os.path.dirname(os.path.dirname(exe))))
     if bsig:
         brows = [read(c, bsig) for c in cells]
-        print_table(brows, f"tier D, main ({bin_hash(os.path.abspath(a.base))[:12]})")
+        bc = main_commit() if os.path.abspath(a.base) == MAIN_BIN else "?"
+        print_table(brows, f"tier D, main {bc} "
+                    f"({bin_hash(os.path.abspath(a.base))[:12]})")
         print_table(rows, f"tier D, arm {lab} ({bin_hash(exe)[:12]})")
         print_ab(brows, rows, "arm against main")
     else:
