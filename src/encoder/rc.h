@@ -209,6 +209,22 @@ typedef struct n265_rc {
     double fbmax;               /* bound on both feedback terms       */
     double fbup;                /* and its coarser-side rail          */
     int planerr;                /* P term reads the plan, not the budget */
+    /* Phase 14 item 37, VBR only (--bitrate with a VBV). The slow form of
+     * the feedback: the cumulative error over a window that grows with the
+     * square root of the coded duration, in place of the six-frame horizon
+     * and its integral. 0 is the horizon loop. */
+    double fps;
+    double fbw;                 /* N265_VBR_FBW: window, seconds x sqrt(s) */
+    double fbt0;                /* N265_VBR_FBT0: the window's floor on t */
+    double fbg, fbgup;          /* gains under and over the target */
+    double ovw;                 /* N265_VBR_OVW: the window's cap, as a
+                                 * share of the buffer (0: no cap) */
+    int ctkeep;                 /* N265_VBR_CTKEEP: the cu-tree frame term
+                                 * rides the coded base, as under CRF, and
+                                 * the ledger reads each frame at its coded
+                                 * base less the term */
+    int vown;                   /* N265_VBV_OWN: the clamp prices at the
+                                 * allocator's scale (1 window, 2 frame) */
     double open_step;           /* extra step allowed over the opening */
     int nblk;                   /* lowres 8x8 blocks per frame        */
     int trace;

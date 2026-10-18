@@ -204,8 +204,50 @@ void n265_rc_open(struct n265_encoder *e)
      * and CRF and CQP (which never reach this function's answer), are
      * byte-identical to main. docs/phase14.md, item 29. */
     int vbr = e->abr_on && e->vbv.on;
-    rc->fbup = abr_tunable("N265_ABR_FBUP", vbr ? 1.5 : rc->fbmax);
+    /* capped VBR: a cap above the target, not a CBR-shaped VBV (item 37) */
+    int cvbr = vbr && !e->strict_cbr &&
+               e->vbv.maxrate > e->abr_bitrate * 1.0001;
+    /* ...and there, from item 37, the coarse rail is the fine one again:
+     * the slow feedback below rarely reaches it on long content, and on a
+     * 120-frame clip 1.5 QP was too little to bring the opening's
+     * overspend back (median rate error on the seventeen corpus clips at
+     * 1.5x / 2 s: 5.3% at 1.5, 3.1% at 6; main 6.7%) */
+    rc->fbup = abr_tunable("N265_ABR_FBUP",
+                           cvbr ? abr_tunable("N265_VBR_FBUP", rc->fbmax)
+                                : vbr ? 1.5 : rc->fbmax);
     rc->planerr = (int)abr_tunable("N265_ABR_PLANERR", 0);
+    /* Phase 14 item 37: capped VBR rides the CRF path with a slow level.
+     * Four changes, on together by default where the cap is above the
+     * target (maxrate over the bitrate, and not --strict-cbr), because a
+     * buffer with headroom above the target is what lets the level move
+     * slowly; a CBR-shaped VBV keeps the horizon loop it was tuned with.
+     *
+     *   N265_VBR_FBW 2     the feedback over a window that grows with the
+     *                      square root of the coded duration (n265_rc_next)
+     *   N265_VBR_OVW 0.75  ...capped at that share of the buffer, widened
+     *                      past six seconds in proportion to the time
+     *   N265_VBR_CTKEEP 1  the cu-tree frame term rides the coded base, as
+     *                      under CRF; the ledger reads the frame without it
+     *   N265_VBV_OWN 3     the clamp plans the frame and its window at each
+     *                      class's own scale, and guards the frame alone
+     *                      at the pessimistic one against the fill
+     *   N265_VBR_FBUP 6    (above) the item 29 rail back to the fine one;
+     *                      N265_ABR_FBUP, when set, still wins
+     *
+     * On the dev set's VBR cells (docs/phase14.md, item 37) they read
+     * -7.8% / -11.2% / -2.2% BD-VMAF-NEG against main on chimera 720p's
+     * two-minute segment, meridian 2160p and sollevante 1080p.
+     * `N265_VBR_FBW=0 N265_VBR_OVW=0 N265_VBR_CTKEEP=0 N265_VBV_OWN=0
+     * N265_VBR_FBUP=1.5` is main byte for byte. Plain ABR, a VBV with
+     * maxrate at the target, CRF, capped CRF and CQP never read them. */
+    rc->fps = fps;
+    rc->fbw = vbr ? abr_tunable("N265_VBR_FBW", cvbr ? 2.0 : 0.0) : 0.0;
+    rc->fbt0 = abr_tunable("N265_VBR_FBT0", 2.0);
+    rc->fbg = abr_tunable("N265_VBR_FBG", 16.0);
+    rc->fbgup = abr_tunable("N265_VBR_FBGUP", 12.0);
+    rc->ovw = vbr ? abr_tunable("N265_VBR_OVW", cvbr ? 0.75 : 0.0) : 0.0;
+    rc->ctkeep = vbr ? (int)abr_tunable("N265_VBR_CTKEEP", cvbr ? 1 : 0) : 0;
+    rc->vown = vbr ? (int)abr_tunable("N265_VBV_OWN", cvbr ? 3 : 0) : 0;
     rc->w_mem = abr_tunable("N265_ABR_WMEM", 1000.0);
     rc->meas = (int)abr_tunable("N265_ABR_MEAS", 1);
     rc->mguard = abr_tunable("N265_ABR_MGUARD", 0.0);
@@ -218,7 +260,8 @@ void n265_rc_open(struct n265_encoder *e)
     rc->openi = (int)abr_tunable("N265_ABR_OPENI", 0);
     rc->ctf_comp = (int)abr_tunable("N265_ABR_CTF", 1);
     rc->ioff = abr_tunable("N265_ABR_IOFF", 0.0);
-    rc->ioff_ct = abr_tunable("N265_ABR_IOFF_CT", vbr ? 1.0 : 0.0);
+    rc->ioff_ct = abr_tunable("N265_ABR_IOFF_CT",
+                                  vbr && !rc->ctkeep ? 1.0 : 0.0);
     rc->ioff_max = abr_tunable("N265_ABR_IOFF_MAX", 6.0);
     /* How much of this loop's own feedback a PLANNED frame still carries
      * (twopass.h). The plan is written from what pass 1 really spent, so
@@ -334,6 +377,15 @@ static double rc_vweight(n265_rc *rc, int cls, double cplx, double icplx)
     double w = rc->vscale[cls] * rc->nblk * pow(cplx / rc->nblk, rc->qcomp);
     double a = rc_weight(rc, cls, cplx);
     return w > a ? w : a;
+}
+
+/* The same weight at the allocator's own scale, with the intra-dominated
+ * test kept (N265_VBV_OWN, item 37). */
+static double rc_oweight(n265_rc *rc, int cls, double cplx, double icplx)
+{
+    if (cls != RC_I && icplx > 0.0 && cplx >= rc->scpred * icplx)
+        cls = RC_I;
+    return rc_weight(rc, cls, cplx);
 }
 
 /* The INTRA QP offset, in QP, for a frame of class `cls` whose cu-tree frame
@@ -473,7 +525,12 @@ static double vbv_dqp(struct n265_encoder *e, int cls, double cplx,
     n265_rc *rc = &e->rc;
     if (rc->szm == 1)
         return vbv_dqp_szm(e, cls, cplx, icplx, q_code, pred, allow);
-    double p = rc_vweight(rc, cls, cplx, icplx) / qscale_of_qp(q_code);
+    /* N265_VBV_OWN (item 37): price at the class's own measured scale and
+     * not at the buffer's pessimistic one. 1: the window behind the frame;
+     * 2: the frame as well. */
+    double p = (rc->vown >= 2 ? rc_oweight(rc, cls, cplx, icplx)
+                              : rc_vweight(rc, cls, cplx, icplx)) /
+               qscale_of_qp(q_code);
     double fut[LA_MAX];
     int nf = 0;
     int nview = n265_la_view(&e->la);
@@ -489,17 +546,35 @@ static double vbv_dqp(struct n265_encoder *e, int cls, double cplx,
          * scale prices twenty queued frames at 200 kbit each against an
          * 826 kbit buffer, the allowance floors, and thirteen frames are
          * coded at QP 51 to save for frames that cost 312 bits. */
-        fut[nf++] = rc_vweight(rc, k, n265_rc_cplx(e, i, k),
-                               n265_rc_cplx(e, i, RC_I)) /
+        fut[nf++] = (rc->vown ? rc_oweight(rc, k, n265_rc_cplx(e, i, k),
+                                           n265_rc_cplx(e, i, RC_I))
+                              : rc_vweight(rc, k, n265_rc_cplx(e, i, k),
+                                           n265_rc_cplx(e, i, RC_I))) /
                     qscale_of_qp(q_code);
     }
     double a = n265_vbv_allow(&e->vbv, fut, nf);
     *pred = p;
     *allow = a;
-    if (!(p > a))
+    double d = p > a ? 6.0 * log2(p / a) : 0.0;
+    /* 3: the plan and the guard apart. The frame and its window are priced
+     * at the class's own scale against the window's allowance - a
+     * trajectory, which wants the mean - and the frame alone at the
+     * pessimistic scale against what the buffer holds now - the underflow
+     * guard, which wants the bad side. The larger raise wins. */
+    if (rc->vown >= 3) {
+        double pg = rc_vweight(rc, cls, cplx, icplx) / qscale_of_qp(q_code);
+        double ag = n265_vbv_allow(&e->vbv, NULL, 0);
+        double dg = pg > ag ? 6.0 * log2(pg / ag) : 0.0;
+        if (dg > d) {
+            d = dg;
+            *pred = pg;
+            *allow = ag;
+        }
+    }
+    if (!(d > 0.0))
         return 0.0;
     e->vbv.clamped++;
-    return 6.0 * log2(p / a);
+    return d;
 }
 
 /* The same clamp under CRF, where there is no loop to fold it into: the
@@ -858,6 +933,35 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
      * down twenty steps chasing bits that do not exist. The bound is what
      * keeps the recovery from being worse than the deficit. */
     double fb = 6.0 * log2(corr) + rc->rf_bias;
+    /* N265_VBR_FBW (phase 14 item 37): the SLOW feedback. The horizon loop
+     * above answers the cumulative error over six frames of budget, a
+     * quarter of a second, so a VBR encode lands on its target at every
+     * instant and spends a two-minute title's bits wherever its next six
+     * frames happen to be. Here the same error is answered over a window
+     * that grows with the square root of the coded duration: an early
+     * error is answered within seconds, the same error late in a long
+     * encode is a small share of what has been spent and is answered
+     * gently. The level the loop rides is the measured operating point
+     * below, which moves slowly on its own; the integral is not used.
+     * Under a VBV the window may be capped to a share of the buffer
+     * (N265_VBR_OVW), widened past six seconds in proportion to the time
+     * coded, so the buffer, not the window, is what bounds a local
+     * overspend early on. */
+    if (rc->fbw > 0.0 && !twop) {
+        double bps = rc->bits_per_frame * rc->fps;
+        double t = rc->fps > 0.0 ? nseen / rc->fps : 0.0;
+        double win = rc->fbw * bps * sqrt(t > rc->fbt0 ? t : rc->fbt0);
+        if (rc->ovw > 0.0 && e->vbv.on) {
+            double cap = rc->ovw * e->vbv.bufsize;
+            if (t > 6.0)
+                cap *= t / 6.0;
+            if (win > cap)
+                win = cap;
+        }
+        fb = win > 0.0 ? (errb > 0.0 ? rc->fbgup : rc->fbg) * errb / win
+                       : 0.0;
+        rc->rf_bias = 0.0;
+    }
     /* ...and under a plan the whole feedback is scaled before the rails,
      * not after: what is being bounded is how far the loop may depart from
      * a plan it has good reason to believe. The integrator keeps winding
@@ -1014,7 +1118,9 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
      *       bits votes as loudly as the anchor carrying the file and the mean
      *       reads a third of the level. */
     double ctf_off = 0.0;
-    if (rc->ctf_comp == 1)
+    if (rc->ctkeep)
+        ctf_off = 0.0;      /* the term rides the coded base (item 37) */
+    else if (rc->ctf_comp == 1)
         ctf_off = ctf;
     else if (rc->ctf_comp == 2)
         ctf_off = lvl_now;
@@ -1156,7 +1262,11 @@ void n265_rc_done(struct n265_encoder *e, int cls, double cplx, double rf_used,
      * `obs` is the raw price of this frame's content at the quantiser it was
      * really coded at, and the offset is put back on at weight-formation time
      * in n265_rc_next. Correcting both would count it twice. */
-    double c = bits * qscale_of_qp(rf_used + ioff);
+    /* N265_VBR_CTKEEP (item 37): the frame was coded at the loop's level
+     * plus its cu-tree frame term, as a CRF frame is, so the ledger reads
+     * it at the level - its coded base less the term - and converges on
+     * the term-free level that spends the target. */
+    double c = bits * qscale_of_qp(rf_used + ioff - (rc->ctkeep ? ctf : 0.0));
     /* the same mean with the frame's own cu-tree term folded in, so the ratio
      * of the two is the term's file-weighted level (rc.h, n265_rc_next). It
      * rides every branch below, hold included, because a level over a

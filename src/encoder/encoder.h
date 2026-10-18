@@ -1601,6 +1601,14 @@ struct n265_encoder {
     double rc_lag_low;
     int rc_lag_now;         /* the lag the current solve was drained to */
     long rc_lag_low_n;      /* frames that fell back to lag 0 */
+    /* N265_VBR_LAG_POSTI (phase 14 item 37): the anchor after an intra
+     * frame, or after an anchor the clamp raised by POSTI_RAISE QP or
+     * more, is solved at lag 0. Coding-order state, set by the solve. */
+    int rc_posti;
+    double rc_posti_raise;
+    int rc_prev_anchor_i;   /* the last anchor solved was intra */
+    double rc_prev_anchor_dqp;  /* ...and the QP the clamp added to it */
+    long rc_posti_n;        /* anchors that took lag 0 for it */
     /* N265_VBR_LAG_GUARD / N265_VBR_LAG_GFLOOR (item 33): the same
      * fallback, read against the walk with every frame inside the lag at
      * GUARD times its calibrated size. Where that fill is under GFLOOR of
