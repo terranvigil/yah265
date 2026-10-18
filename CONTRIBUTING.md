@@ -12,10 +12,11 @@ Rules:
 1. Do not copy code from x265, x264, HM, or any other encoder into this
    repository, in any form, including transliteration into another style or
    language. Encoder code is written fresh for this repo. The exception is
-   yah264, our own encoder written under this same policy: its tooling
-   (build files, harness and measurement scripts, checkasm scaffolding) and
-   its encoder algorithms and code may be adapted here. This exception
-   doesn't extend to anything yah264 itself was not allowed to contain.
+   yah264, our own encoder written under this same policy. Its code may be
+   copied here directly: tooling (build files, harness and measurement
+   scripts, checkasm scaffolding) and encoder code and algorithms alike.
+   The exception doesn't cover anything yah264 itself wasn't allowed to
+   contain.
 2. Do not port the internal architecture of another encoder file by file.
    Reading another encoder's source and then writing "the same thing" from
    memory is a derivative work. Don't.
