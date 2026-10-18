@@ -1244,13 +1244,35 @@ def quality_rows(pts):
     return out
 
 
+LONG_MODES = (
+    ("--plan", "dry run of the whole table: every command, the encode "
+               "count and the estimated hours; nothing runs"),
+    ("--windows", "untimed: G1/G2 window matches (tiers M, L, lash)"),
+    ("--time-windows", "TIMED: G1/G2 on the windows"),
+    ("--ladder", "untimed: CRF and VBR ladders (tiers M and L)"),
+    ("--sweep", "untimed: the lookahead sweep (ours 12/20/30, x265 20)"),
+    ("--credits", "untimed: the end-credits rows (tier L, 1080p)"),
+    ("--vbr-wall", "TIMED: the VBR wall leg, G3 (tiers M and L)"),
+    ("--selftest-long", "check parity_long.py's tables and verdict lines"),
+)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     m = ap.add_mutually_exclusive_group(required=True)
     m.add_argument("--solve", action="store_true")
     m.add_argument("--time", action="store_true")
     m.add_argument("--report", action="store_true")
-    ap.add_argument("--tier", default="S", choices=("S", "M"))
+    # yah264's shape (scripts/parity_long.py): tiers L and C, the windowed
+    # G1/G2, the ladders, the VBR wall, the sweep, credits and the dry run
+    for flag, what in LONG_MODES:
+        m.add_argument(flag, action="store_true", help=what)
+    ap.add_argument("--tier", default="", choices=("", "S", "M", "L", "C"),
+                    help="S (the default for --solve/--time), M, L or C")
+    ap.add_argument("--modes", default="crf,vbr",
+                    help="--ladder/--sweep: crf, vbr or both")
+    ap.add_argument("--full", action="store_true",
+                    help="--plan: print every feeder command whole")
     ap.add_argument("--goals", default="3,2,1")
     ap.add_argument("--classes", default="")
     ap.add_argument("--cells", default="")
@@ -1274,6 +1296,14 @@ def main():
     global PLAIN_VMAF, LOADAVG
     PLAIN_VMAF = args.plain_vmaf
     LOADAVG = args.loadavg
+    mode = next((f[2:].replace("-", "_") for f, _ in LONG_MODES
+                 if getattr(args, f[2:].replace("-", "_"))), None)
+    if mode or args.report or args.tier in ("L", "C"):
+        import parity_long
+        return parity_long.run(args, mode or ("report" if args.report else
+                                              "solve" if args.solve else
+                                              "time"))
+    args.tier = args.tier or "S"
     if args.solve:
         do_solve(args)
     elif args.time:
