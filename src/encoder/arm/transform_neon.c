@@ -485,10 +485,205 @@ void fdct4_neon(int16_t *coef, const int16_t *resid, int use_dst,
     fdct_small(coef, resid, 4, use_dst, shift1, shift2);
 }
 
-static __attribute__((noinline))
-void fdct8_neon(int16_t *coef, const int16_t *resid, int shift1, int shift2)
+/* ---- the DCT at 4x4 and 8x8 in int16 lanes (phase 14 item 39) ------
+ *
+ * The int32 form above runs four transforms per vector, and at these two
+ * sizes that left both on C. These run eight (8x8) or four (4x4) per
+ * vector in int16 and widen only where a value can leave int16: every
+ * stage-1 butterfly sum and difference is an int16 add, every multiply
+ * is a widening int16 x constant into int32, and the rounding shift
+ * narrows straight back.
+ *
+ * RANGE. The residual is src - pred, |r| <= PIXEL_MAX (the checkasm
+ * domain, and every caller's). At 8 bits stage 1's sums are |e| <= 510,
+ * |EE| <= 1020 and |EE0 + EE1| <= 2040; at Main10 four times those, 8184
+ * at most, so all of them are int16. The pre-shift stage-1 outputs are
+ * bounded by 64 * 2040 = 130560 (the 64 rows), 119 * 1020 = 121380 (the
+ * 83/36 rows) and 232 * 510 = 118320 (the odd rows) at 8x8 and 8 bits,
+ * and the shift of 2 brings the largest to 32640. At 4x4 the same rows
+ * give 65280 and 60690 against a shift of 1: 32640 again. Main10
+ * multiplies each input by four and adds two to the shift, so the
+ * post-shift bound is unmoved. The stage-1 output is therefore exact in
+ * int16, which is the value the C's int32 `b` holds. Stage 2's butterfly
+ * sums of two such values are NOT int16, so stage 2 widens first
+ * (vaddl/vsubl) and runs in int32.
+ *
+ * Every sum below is the same integer the C's fwd_dct_1d forms. The
+ * grouping differs (the 4-point even part is written out instead of
+ * walked as levels), but nothing overflows, so integer addition is exact
+ * in any order. The rounding narrow is the C's (s + half) >> shift, and
+ * its saturating form is clip3(-32768, 32767, .): the instruction's own
+ * saturation, at both stages. */
+
+/* the 4x4 int16 transpose, in d registers */
+static inline void tr4_s16(int16x4_t v[4])
 {
-    fdct_small(coef, resid, 8, 0, shift1, shift2);
+    int16x4_t a0 = vtrn1_s16(v[0], v[1]), a1 = vtrn2_s16(v[0], v[1]);
+    int16x4_t a2 = vtrn1_s16(v[2], v[3]), a3 = vtrn2_s16(v[2], v[3]);
+    int32x2_t b0 = vreinterpret_s32_s16(a0), b1 = vreinterpret_s32_s16(a1);
+    int32x2_t b2 = vreinterpret_s32_s16(a2), b3 = vreinterpret_s32_s16(a3);
+
+    v[0] = vreinterpret_s16_s32(vtrn1_s32(b0, b2));
+    v[1] = vreinterpret_s16_s32(vtrn1_s32(b1, b3));
+    v[2] = vreinterpret_s16_s32(vtrn2_s32(b0, b2));
+    v[3] = vreinterpret_s16_s32(vtrn2_s32(b1, b3));
+}
+
+/* the 8x8 int16 transpose: pair on 16, then 32, then 64 */
+static inline void tr8_s16(int16x8_t v[8])
+{
+    int16x8_t t[8];
+    int32x4_t u[8];
+
+    for (int i = 0; i < 8; i += 2) {
+        t[i] = vtrn1q_s16(v[i], v[i + 1]);
+        t[i + 1] = vtrn2q_s16(v[i], v[i + 1]);
+    }
+    for (int i = 0; i < 8; i += 4) {
+        u[i] = vtrn1q_s32(vreinterpretq_s32_s16(t[i]),
+                          vreinterpretq_s32_s16(t[i + 2]));
+        u[i + 2] = vtrn2q_s32(vreinterpretq_s32_s16(t[i]),
+                              vreinterpretq_s32_s16(t[i + 2]));
+        u[i + 1] = vtrn1q_s32(vreinterpretq_s32_s16(t[i + 1]),
+                              vreinterpretq_s32_s16(t[i + 3]));
+        u[i + 3] = vtrn2q_s32(vreinterpretq_s32_s16(t[i + 1]),
+                              vreinterpretq_s32_s16(t[i + 3]));
+    }
+    for (int i = 0; i < 4; i++) {
+        int64x2_t a = vreinterpretq_s64_s32(u[i]);
+        int64x2_t b = vreinterpretq_s64_s32(u[i + 4]);
+
+        v[i] = vreinterpretq_s16_s64(vtrn1q_s64(a, b));
+        v[i + 4] = vreinterpretq_s16_s64(vtrn2q_s64(a, b));
+    }
+}
+
+#define FSH1_4 (BIT_DEPTH - 7)          /* log2n + BitDepth - 9 */
+#define FSH1_8 (BIT_DEPTH - 6)
+
+static __attribute__((noinline))
+void fdct4_s16(int16_t *coef, const int16_t *resid)
+{
+    int16x4_t r0 = vld1_s16(resid), r1 = vld1_s16(resid + 4);
+    int16x4_t r2 = vld1_s16(resid + 8), r3 = vld1_s16(resid + 12);
+    int16x4_t e0 = vadd_s16(r0, r3), e1 = vadd_s16(r1, r2);
+    int16x4_t o0 = vsub_s16(r0, r3), o1 = vsub_s16(r1, r2);
+    int16x4_t b[4], c[4];
+
+    /* stage 1, lanes = columns: b[k] lane x is the C's b[k][x] */
+    b[0] = vqrshrn_n_s32(vshll_n_s16(vadd_s16(e0, e1), 6), FSH1_4);
+    b[2] = vqrshrn_n_s32(vshll_n_s16(vsub_s16(e0, e1), 6), FSH1_4);
+    b[1] = vqrshrn_n_s32(vmlal_n_s16(vmull_n_s16(o0, 83), o1, 36), FSH1_4);
+    b[3] = vqrshrn_n_s32(vmlsl_n_s16(vmull_n_s16(o0, 36), o1, 83), FSH1_4);
+    tr4_s16(b);                         /* b[x], lanes = rows */
+    /* stage 2, lanes = rows: c[j] is column j of the coefficients */
+    {
+        int32x4_t e0w = vaddl_s16(b[0], b[3]), e1w = vaddl_s16(b[1], b[2]);
+        int32x4_t o0w = vsubl_s16(b[0], b[3]), o1w = vsubl_s16(b[1], b[2]);
+
+        c[0] = vqrshrn_n_s32(vshlq_n_s32(vaddq_s32(e0w, e1w), 6), 8);
+        c[2] = vqrshrn_n_s32(vshlq_n_s32(vsubq_s32(e0w, e1w), 6), 8);
+        c[1] = vqrshrn_n_s32(vmlaq_n_s32(vmulq_n_s32(o0w, 83), o1w, 36), 8);
+        c[3] = vqrshrn_n_s32(vmlsq_n_s32(vmulq_n_s32(o0w, 36), o1w, 83), 8);
+    }
+    tr4_s16(c);
+    vst1q_s16(coef, vcombine_s16(c[0], c[1]));
+    vst1q_s16(coef + 8, vcombine_s16(c[2], c[3]));
+}
+
+/* stage 1 of the 8-point DCT on one half (lo or hi) of eight int16
+ * vectors: the 4-point even rows on EE/EO, the odd rows on o */
+#define FDCT8_S1_HALF(b, e, o, MULL, MLAL, MLSL, SHLL) do {                \
+        int16x8_t ee0_ = vaddq_s16(e[0], e[3]);                            \
+        int16x8_t ee1_ = vaddq_s16(e[1], e[2]);                            \
+        int16x8_t eo0_ = vsubq_s16(e[0], e[3]);                            \
+        int16x8_t eo1_ = vsubq_s16(e[1], e[2]);                            \
+        (b)[0] = SHLL(vaddq_s16(ee0_, ee1_));                              \
+        (b)[4] = SHLL(vsubq_s16(ee0_, ee1_));                              \
+        (b)[2] = MLAL(MULL(eo0_, 83), eo1_, 36);                           \
+        (b)[6] = MLSL(MULL(eo0_, 36), eo1_, 83);                           \
+        (b)[1] = MLAL(MLAL(MLAL(MULL(o[0], 89), o[1], 75), o[2], 50),      \
+                      o[3], 18);                                           \
+        (b)[3] = MLSL(MLSL(MLSL(MULL(o[0], 75), o[1], 18), o[2], 89),      \
+                      o[3], 50);                                           \
+        (b)[5] = MLAL(MLAL(MLSL(MULL(o[0], 50), o[1], 89), o[2], 18),      \
+                      o[3], 75);                                           \
+        (b)[7] = MLSL(MLAL(MLSL(MULL(o[0], 18), o[1], 50), o[2], 75),      \
+                      o[3], 89);                                           \
+    } while (0)
+
+#define MULL_LO(v, c) vmull_n_s16(vget_low_s16(v), c)
+#define MLAL_LO(a, v, c) vmlal_n_s16(a, vget_low_s16(v), c)
+#define MLSL_LO(a, v, c) vmlsl_n_s16(a, vget_low_s16(v), c)
+#define SHLL_LO(v) vshll_n_s16(vget_low_s16(v), 6)
+#define MULL_HI(v, c) vmull_high_n_s16(v, c)
+#define MLAL_HI(a, v, c) vmlal_high_n_s16(a, v, c)
+#define MLSL_HI(a, v, c) vmlsl_high_n_s16(a, v, c)
+#define SHLL_HI(v) vshll_high_n_s16(v, 6)
+
+/* the 8-point DCT on int32 vectors (stage 2), one output per matrix row */
+static inline void fdct8_s32(int32x4_t out[8], const int32x4_t e[4],
+                             const int32x4_t o[4])
+{
+    int32x4_t ee0 = vaddq_s32(e[0], e[3]), ee1 = vaddq_s32(e[1], e[2]);
+    int32x4_t eo0 = vsubq_s32(e[0], e[3]), eo1 = vsubq_s32(e[1], e[2]);
+
+    out[0] = vshlq_n_s32(vaddq_s32(ee0, ee1), 6);
+    out[4] = vshlq_n_s32(vsubq_s32(ee0, ee1), 6);
+    out[2] = vmlaq_n_s32(vmulq_n_s32(eo0, 83), eo1, 36);
+    out[6] = vmlsq_n_s32(vmulq_n_s32(eo0, 36), eo1, 83);
+    out[1] = vmlaq_n_s32(vmlaq_n_s32(vmlaq_n_s32(vmulq_n_s32(o[0], 89),
+                                                 o[1], 75), o[2], 50),
+                         o[3], 18);
+    out[3] = vmlsq_n_s32(vmlsq_n_s32(vmlsq_n_s32(vmulq_n_s32(o[0], 75),
+                                                 o[1], 18), o[2], 89),
+                         o[3], 50);
+    out[5] = vmlaq_n_s32(vmlaq_n_s32(vmlsq_n_s32(vmulq_n_s32(o[0], 50),
+                                                 o[1], 89), o[2], 18),
+                         o[3], 75);
+    out[7] = vmlsq_n_s32(vmlaq_n_s32(vmlsq_n_s32(vmulq_n_s32(o[0], 18),
+                                                 o[1], 50), o[2], 75),
+                         o[3], 89);
+}
+
+static __attribute__((noinline))
+void fdct8_s16(int16_t *coef, const int16_t *resid)
+{
+    int16x8_t r[8], e[4], o[4], b[8];
+    int32x4_t lo[8], hi[8];
+
+    for (int y = 0; y < 8; y++)
+        r[y] = vld1q_s16(resid + y * 8);
+    for (int k = 0; k < 4; k++) {
+        e[k] = vaddq_s16(r[k], r[7 - k]);
+        o[k] = vsubq_s16(r[k], r[7 - k]);
+    }
+    /* stage 1, lanes = columns */
+    FDCT8_S1_HALF(lo, e, o, MULL_LO, MLAL_LO, MLSL_LO, SHLL_LO);
+    FDCT8_S1_HALF(hi, e, o, MULL_HI, MLAL_HI, MLSL_HI, SHLL_HI);
+    for (int k = 0; k < 8; k++)
+        b[k] = vcombine_s16(vqrshrn_n_s32(lo[k], FSH1_8),
+                            vqrshrn_n_s32(hi[k], FSH1_8));
+    tr8_s16(b);                         /* b[x], lanes = rows */
+    /* stage 2, lanes = rows, int32 from the first butterfly on */
+    {
+        int32x4_t el[4], ol[4], eh[4], oh[4];
+
+        for (int k = 0; k < 4; k++) {
+            el[k] = vaddl_s16(vget_low_s16(b[k]), vget_low_s16(b[7 - k]));
+            ol[k] = vsubl_s16(vget_low_s16(b[k]), vget_low_s16(b[7 - k]));
+            eh[k] = vaddl_high_s16(b[k], b[7 - k]);
+            oh[k] = vsubl_high_s16(b[k], b[7 - k]);
+        }
+        fdct8_s32(lo, el, ol);
+        fdct8_s32(hi, eh, oh);
+    }
+    for (int j = 0; j < 8; j++)
+        b[j] = vcombine_s16(vqrshrn_n_s32(lo[j], 9),
+                            vqrshrn_n_s32(hi[j], 9));
+    tr8_s16(b);
+    for (int y = 0; y < 8; y++)
+        vst1q_s16(coef + y * 8, b[y]);
 }
 
 void n265_fdct_neon(int16_t *coef, const int16_t *resid, int log2n,
@@ -501,8 +696,8 @@ void n265_fdct_neon(int16_t *coef, const int16_t *resid, int log2n,
         return;
     }
     switch (log2n) {
-    case 2:  fdct4_neon(coef, resid, 0, shift1, shift2); break;
-    case 3:  fdct8_neon(coef, resid, shift1, shift2); break;
+    case 2:  fdct4_s16(coef, resid); break;
+    case 3:  fdct8_s16(coef, resid); break;
     case 4:  fdct_block(coef, resid, 16, 0, shift1, shift2); break;
     default: fdct_block(coef, resid, 32, 0, shift1, shift2); break;
     }
@@ -879,11 +1074,140 @@ void idct4_neon(pixel *dst, int ds, const int16_t *dq, const pixel *pred,
     idct_small(dst, ds, dq, 4, pred, ps, use_dst, nzw);
 }
 
-static __attribute__((noinline))
-void idct8_neon(pixel *dst, int ds, const int16_t *dq, const pixel *pred,
-                int ps, int nzw)
+/* ---- the inverse DCT at 4x4 and 8x8 in int16 lanes (item 39) --------
+ *
+ * The forward's layout run backwards: dq rows in int16 lanes, widening
+ * multiplies into int32, a saturating rounding narrow after each stage.
+ *
+ * RANGE. Stage 1's narrow is the C's clip to int16 after the shift of 7,
+ * the instruction's own saturation. Stage 2's inputs are that clipped
+ * int16, and an 8-point output is at most 479 (the largest column sum of
+ * |T|) times 32768, 15.7M; the shift of 20 - BitDepth leaves 3833 at 8
+ * bits and 15330 at Main10. So stage 2's narrow never saturates, and the
+ * int16 value plus a sample stays inside int16 for the clip that
+ * follows. The 4-point column sum is 247, smaller still. */
+
+#define IDCT8_HALF(y, d, MULL, MLAL, MLSL, SHLL) do {                      \
+        int32x4_t d0s_ = SHLL(d[0]);                                       \
+        int32x4_t ee0_ = MLAL(d0s_, d[4], 64), ee1_ = MLSL(d0s_, d[4], 64); \
+        int32x4_t eo0_ = MLAL(MULL(d[2], 83), d[6], 36);                   \
+        int32x4_t eo1_ = MLSL(MULL(d[2], 36), d[6], 83);                   \
+        int32x4_t e_[4], o_[4];                                            \
+        e_[0] = vaddq_s32(ee0_, eo0_); e_[3] = vsubq_s32(ee0_, eo0_);      \
+        e_[1] = vaddq_s32(ee1_, eo1_); e_[2] = vsubq_s32(ee1_, eo1_);      \
+        o_[0] = MLAL(MLAL(MLAL(MULL(d[1], 89), d[3], 75), d[5], 50),       \
+                     d[7], 18);                                            \
+        o_[1] = MLSL(MLSL(MLSL(MULL(d[1], 75), d[3], 18), d[5], 89),       \
+                     d[7], 50);                                            \
+        o_[2] = MLAL(MLAL(MLSL(MULL(d[1], 50), d[3], 89), d[5], 18),       \
+                     d[7], 75);                                            \
+        o_[3] = MLSL(MLAL(MLSL(MULL(d[1], 18), d[3], 50), d[5], 75),       \
+                     d[7], 89);                                            \
+        for (int j_ = 0; j_ < 4; j_++) {                                   \
+            (y)[j_] = vaddq_s32(e_[j_], o_[j_]);                           \
+            (y)[7 - j_] = vsubq_s32(e_[j_], o_[j_]);                       \
+        }                                                                  \
+    } while (0)
+
+/* one 8-point inverse on eight int16 vectors, both halves, narrowed by
+ * SH with saturation */
+#define IDCT8_S16(out, d, SH) do {                                         \
+        int32x4_t lo_[8], hi_[8];                                          \
+        IDCT8_HALF(lo_, d, MULL_LO, MLAL_LO, MLSL_LO, SHLL_LO);            \
+        IDCT8_HALF(hi_, d, MULL_HI, MLAL_HI, MLSL_HI, SHLL_HI);            \
+        for (int k_ = 0; k_ < 8; k_++)                                     \
+            (out)[k_] = vcombine_s16(vqrshrn_n_s32(lo_[k_], SH),           \
+                                     vqrshrn_n_s32(hi_[k_], SH));          \
+    } while (0)
+
+/* eight int16 residuals added to eight samples, clipped to a sample */
+static inline void add_row8(pixel *d, const pixel *p, int16x8_t r)
 {
-    idct_small(dst, ds, dq, 8, pred, ps, 0, nzw);
+#if BIT_DEPTH == 8
+    int16x8_t s = vaddq_s16(vreinterpretq_s16_u16(vmovl_u8(vld1_u8(p))), r);
+
+    vst1_u8(d, vqmovun_s16(s));
+#else
+    int16x8_t s = vaddq_s16(vreinterpretq_s16_u16(vld1q_u16(p)), r);
+
+    s = vminq_s16(vmaxq_s16(s, vdupq_n_s16(0)), vdupq_n_s16(PIXEL_MAX));
+    vst1q_u16(d, vreinterpretq_u16_s16(s));
+#endif
+}
+
+/* the same for two 4-sample rows held in one vector */
+static inline void add_rows4x2(pixel *d0, pixel *d1, const pixel *p0,
+                               const pixel *p1, int16x8_t r)
+{
+#if BIT_DEPTH == 8
+    uint32_t w0, w1;
+    uint8x8_t pv;
+    uint8x8_t o;
+
+    memcpy(&w0, p0, 4);
+    memcpy(&w1, p1, 4);
+    pv = vreinterpret_u8_u64(vcreate_u64((uint64_t)w0 | ((uint64_t)w1 << 32)));
+    o = vqmovun_s16(vaddq_s16(vreinterpretq_s16_u16(vmovl_u8(pv)), r));
+    w0 = vget_lane_u32(vreinterpret_u32_u8(o), 0);
+    w1 = vget_lane_u32(vreinterpret_u32_u8(o), 1);
+    memcpy(d0, &w0, 4);
+    memcpy(d1, &w1, 4);
+#else
+    int16x8_t s = vaddq_s16(
+        vreinterpretq_s16_u16(vcombine_u16(vld1_u16(p0), vld1_u16(p1))), r);
+
+    s = vminq_s16(vmaxq_s16(s, vdupq_n_s16(0)), vdupq_n_s16(PIXEL_MAX));
+    vst1_u16(d0, vreinterpret_u16_s16(vget_low_s16(s)));
+    vst1_u16(d1, vreinterpret_u16_s16(vget_high_s16(s)));
+#endif
+}
+
+#define ISH2 (20 - BIT_DEPTH)
+
+/* 4-point inverse on four int16x4 vectors, narrowed by SH */
+#define IDCT4_S16(y, d, SH) do {                                           \
+        int32x4_t d0s_ = vshll_n_s16(d[0], 6);                             \
+        int32x4_t e0_ = vmlal_n_s16(d0s_, d[2], 64);                       \
+        int32x4_t e1_ = vmlsl_n_s16(d0s_, d[2], 64);                       \
+        int32x4_t o0_ = vmlal_n_s16(vmull_n_s16(d[1], 83), d[3], 36);      \
+        int32x4_t o1_ = vmlsl_n_s16(vmull_n_s16(d[1], 36), d[3], 83);      \
+        (y)[0] = vqrshrn_n_s32(vaddq_s32(e0_, o0_), SH);                   \
+        (y)[1] = vqrshrn_n_s32(vaddq_s32(e1_, o1_), SH);                   \
+        (y)[2] = vqrshrn_n_s32(vsubq_s32(e1_, o1_), SH);                   \
+        (y)[3] = vqrshrn_n_s32(vsubq_s32(e0_, o0_), SH);                   \
+    } while (0)
+
+static __attribute__((noinline))
+void idct4_s16(pixel *dst, int ds, const int16_t *dq, const pixel *pred,
+               int ps)
+{
+    int16x4_t d[4], y[4];
+
+    for (int k = 0; k < 4; k++)
+        d[k] = vld1_s16(dq + 4 * k);
+    IDCT4_S16(y, d, 7);                 /* y[j] lane x: the C's b[x][j] */
+    tr4_s16(y);                         /* y[x], lanes = rows */
+    IDCT4_S16(d, y, ISH2);              /* d[x'] lane y: residual column */
+    tr4_s16(d);                         /* residual rows */
+    add_rows4x2(dst, dst + ds, pred, pred + ps, vcombine_s16(d[0], d[1]));
+    add_rows4x2(dst + 2 * ds, dst + 3 * ds, pred + 2 * ps, pred + 3 * ps,
+                vcombine_s16(d[2], d[3]));
+}
+
+static __attribute__((noinline))
+void idct8_s16(pixel *dst, int ds, const int16_t *dq, const pixel *pred,
+               int ps)
+{
+    int16x8_t d[8], y[8];
+
+    for (int k = 0; k < 8; k++)
+        d[k] = vld1q_s16(dq + 8 * k);
+    IDCT8_S16(y, d, 7);
+    tr8_s16(y);
+    IDCT8_S16(d, y, ISH2);
+    tr8_s16(d);
+    for (int r = 0; r < 8; r++)
+        add_row8(dst + (ptrdiff_t)r * ds, pred + (ptrdiff_t)r * ps, d[r]);
 }
 
 void n265_idct_add_neon(pixel *dst, int dst_stride, const int16_t *dq,
@@ -926,10 +1250,10 @@ void n265_idct_add_neon(pixel *dst, int dst_stride, const int16_t *dq,
     }
     switch (log2n) {
     case 2:
-        idct4_neon(dst, dst_stride, dq, pred, pred_stride, 0, nzw);
+        idct4_s16(dst, dst_stride, dq, pred, pred_stride);
         break;
     case 3:
-        idct8_neon(dst, dst_stride, dq, pred, pred_stride, nzw);
+        idct8_s16(dst, dst_stride, dq, pred, pred_stride);
         break;
     case 4:
         idct_block(dst, dst_stride, dq, 16, pred, pred_stride, 0, nzw, nzh);

@@ -354,20 +354,13 @@ void n265_fdct(int16_t *coef, const int16_t *resid, int log2n, int use_dst)
     int shift2 = log2n + 6;
 
 #if N265_NEON_TRANSFORM
-    /* 16x16, 32x32 and the DST-VII 4x4. The NEON kernel is correct at
-     * every size, but at 4x4 and 8x8 the DCT's two-stage layout costs more
-     * in transposes than the vector butterfly saves against a C fast path
-     * clang has already auto-vectorised. Round 6 rewrote both small sizes
-     * register-resident, with no intermediate buffer between the stages at
-     * all, and they still read 0.47x and 0.63x, so the size predicate
-     * stays: the transposes, and not the buffer, are what the small DCT
-     * cannot pay for. The DST-VII 4x4 is the shape that form does suit -
-     * no mirror symmetry to exploit, five constants, the whole block in
-     * four registers - and it went the other way: 10.3 ns of C against
-     * 4.8, where the old NEON form was 14.9. checkasm --bench; see
-     * docs/phase6-neon.md, round 6. Every path is bit-exact, so the
-     * predicate moves time and nothing else. */
-    if ((log2n >= 4 || use_dst) && n265_asm_on(N265_ASM_DCT)) {
+    /* Every shape. Until phase 14 item 39 the DCT at 4x4 and 8x8 stayed
+     * on C: the int32 four-lane form read 0.47x and 0.63x of a C path
+     * clang auto-vectorises (docs/phase6-neon.md, round 6). Item 39's
+     * int16 forms run eight transforms per vector and replaced them
+     * (docs/phase14.md, "Item 39"). Every path is bit-exact, so the
+     * choice moves time and nothing else. */
+    if (n265_asm_on(N265_ASM_DCT)) {
         n265_fdct_neon(coef, resid, log2n, use_dst);
         return;
     }
@@ -441,12 +434,9 @@ void n265_idct_add(pixel *dst, int dst_stride, const int16_t *dq,
     int32_t a[32 * 32], b[32 * 32];
 
 #if N265_NEON_TRANSFORM
-    /* Same predicate and the same reasons as n265_fdct above. The DCT at
-     * 4x4 and 8x8 reads 0.52x and 0.49x register-resident and stays on C;
-     * the DST-VII 4x4, which is the only shape use_dst ever names, is
-     * 20.4 ns of C against 5.2 (the old NEON form was 14.3) and does
-     * not. */
-    if ((log2n >= 4 || use_dst) && n265_asm_on(N265_ASM_DCT)) {
+    /* Every shape, as n265_fdct above: the int16 4x4 and 8x8 forms of
+     * item 39 replaced the int32 ones that had left both on C. */
+    if (n265_asm_on(N265_ASM_DCT)) {
         n265_idct_add_neon(dst, dst_stride, dq, log2n, pred, pred_stride,
                            use_dst, nzw, nzh);
         return;
