@@ -89,11 +89,12 @@ profile() {
         item37)       echo "|N265_VBR_FBW=0 N265_VBR_OVW=0 N265_VBR_CTKEEP=0 N265_VBV_OWN=0 N265_VBR_FBUP=1.5";;
         item35)       echo "|N265_SC_JUMP=0";;  # item 35, scene-cut jump test
         item36)       echo "|N265_ME_PATTERN=0 N265_BADAPT_REFW=128";;  # item 36, hexagon walk + b-adapt width
+        item38)       echo "|N265_VBR_FBFINE=6 N265_VBR_SPENDFILL=0";;  # item 38, capped VBR spends its surplus with buffer room
         asmoff)       echo "|N265_ASM_OFF=all";;
         *) return 1;;
     esac
 }
-PROFILE_NAMES="info fingerprint weightp stream ship item22 item23 item24 item25 item25sched item26 item28 item29 item29s2 item30 vbrspeed item33 item35 item36 item37 asmoff"
+PROFILE_NAMES="info fingerprint weightp stream ship item22 item23 item24 item25 item25sched item26 item28 item29 item29s2 item30 vbrspeed item33 item35 item36 item37 item38 asmoff"
 
 # ---------------------------------------------------------------- one cell
 # Called back through xargs: identity_ab.sh --cell WORK LINE
