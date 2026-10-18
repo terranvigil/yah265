@@ -340,7 +340,8 @@ DEPS = {"ref_vbr": ["ref_crf"], "ours_crf": ["ref_crf"],
         "speed_ours_simd": ["ours_crf"]}
 
 
-def plan(cells, sig, want_vbr, want_speed, want_ref_speed=True):
+def plan(cells, sig, want_vbr, want_speed, want_ref_speed=True,
+         want_crf=True):
     """[(task, cell, sig)] still missing from RESULTS, deps included."""
     have = results()
     todo = []
@@ -358,7 +359,8 @@ def plan(cells, sig, want_vbr, want_speed, want_ref_speed=True):
             if want_vbr:
                 add("ours_vbr", c, sig)
             continue
-        add("ours_crf", c, sig)
+        if want_crf:
+            add("ours_crf", c, sig)
         if want_vbr and c["vbr"]:
             add("ours_vbr", c, sig)
         if want_speed:
@@ -645,6 +647,8 @@ def main():
     ap.add_argument("--cells", default="")
     ap.add_argument("--no-vbr", action="store_true")
     ap.add_argument("--no-speed", action="store_true")
+    ap.add_argument("--vbr-only", action="store_true",
+                    help="the VBR ladders alone (no CRF ladder, no speed)")
     ap.add_argument("--show", action="store_true")
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--record", action="store_true")
@@ -675,6 +679,10 @@ def main():
         sys.exit(f"devset: no main at {a.base}; on main, `make build-rel` "
                  "then `scripts/devset.py --pin-main`, or pass --base")
 
+    if a.vbr_only:
+        a.no_speed = True
+        if not a.cells:
+            a.cells = ",".join(c["id"] for c in ALL if c["vbr"])
     cells = [BY_ID[x] for x in a.cells.split(",")] if a.cells else ALL
     check_files(cells)
     exe = os.path.abspath(a.bin)
@@ -691,10 +699,11 @@ def main():
     wall = None
     if not a.show:
         todo = plan(cells, sig, not a.no_vbr, not a.no_speed,
-                    want_ref_speed=not a.ab)
+                    want_ref_speed=not a.ab, want_crf=not a.vbr_only)
         if bsig:
             todo += [t for t in plan(cells, bsig, not a.no_vbr,
-                                     not a.no_speed, want_ref_speed=False)
+                                     not a.no_speed, want_ref_speed=False,
+                                     want_crf=not a.vbr_only)
                      if t not in todo]
         print(f"devset: {len(todo)} tasks to run at {CORES} cores "
               f"(ours {bin_hash(exe)[:12]}"

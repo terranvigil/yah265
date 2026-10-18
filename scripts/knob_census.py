@@ -145,8 +145,14 @@ DEFAULT_OVERRIDES = {
     "N265_2P_QCOMP": "= N265_ABR_QCOMP",  # `double qcomp = e->rc.qcomp;`
     # phase 14 item 29: the VBR profile. Under --bitrate with a VBV the two
     # take their own defaults; plain ABR keeps the old ones.
-    "N265_ABR_FBUP": "1.5 under a VBV, else = N265_ABR_FBMAX",
-    "N265_ABR_IOFF_CT": "1.0 under a VBV, else 0",
+    "N265_ABR_FBUP": "= N265_ABR_FBMAX under capped VBR (item 37), 1.5 under another VBV, else = N265_ABR_FBMAX",
+    "N265_ABR_IOFF_CT": "1.0 under a VBV without N265_VBR_CTKEEP, else 0",
+    # phase 14 item 37: capped VBR (maxrate above the target, not
+    # --strict-cbr) rides the CRF path with a slow level
+    "N265_VBR_FBW": "2.0 under capped VBR, else 0",
+    "N265_VBR_OVW": "0.75 under capped VBR, else 0",
+    "N265_VBR_CTKEEP": "1 under capped VBR, else 0",
+    "N265_VBV_OWN": "3 under capped VBR, else 0",
     # phase 14 item 29 step 2: the brake and the flat-frame rule, ABR with
     # a VBV only; the cut prediction, ABR only.
     "N265_VBV_BRAKE": "1 under --bitrate with a VBV, else 0",
@@ -171,6 +177,10 @@ OVERRIDES = {
     # item 33: shipped (1.2 s); the env 0 is the escape. The guard is an
     # arm, off.
     "N265_VBR_LAG_BUFS": "default",
+    # item 37: shipped under capped VBR; the env 0 is the escape. The
+    # post-intra lag-0 rule is an arm, off.
+    "N265_VBR_FBW": "default", "N265_VBR_OVW": "default",
+    "N265_VBR_CTKEEP": "default", "N265_VBV_OWN": "default",
     # phase 14 item 30: shipped by medium's table (compiled-in 0, so the
     # other presets don't move); the env is the escape.
     "N265_MERGE_PICK_RATE": "default",

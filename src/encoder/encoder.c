@@ -2750,6 +2750,13 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         e->rc_lag_graw = g ? atoi(g) : 0; }
       e->rc_lag_now = 0;
       e->rc_lag_low_n = 0;
+      { const char *q = n265_env("N265_VBR_LAG_POSTI");
+        e->rc_posti = q ? atoi(q) : 0;
+        q = n265_env("N265_VBR_LAG_POSTI_RAISE");
+        e->rc_posti_raise = q ? atof(q) : 3.0; }
+      e->rc_prev_anchor_i = 0;
+      e->rc_prev_anchor_dqp = 0.0;
+      e->rc_posti_n = 0;
       { const char *q = n265_env("N265_VBR_LAG_PEND");
         e->rc.pend_use_est = d > 0 && e->vbv.on && (q ? atoi(q) : 1); }
       for (int i = 0; i < RC_CLASSES; i++) {
@@ -3172,9 +3179,10 @@ void n265_encoder_close(n265_encoder *e)
     if (e->rc_defer) {
         rc_apply_upto(e, e->hf2_code_n - 1);
         if (e->vbv_trace)
-            fprintf(stderr, "VBRLAG,lag=%d,warm=%d,low_fallbacks=%ld,frames=%d\n",
+            fprintf(stderr, "VBRLAG,lag=%d,warm=%d,low_fallbacks=%ld,"
+                    "posti=%ld,frames=%d\n",
                     e->rc_lag, e->rc_lag_warm, e->rc_lag_low_n,
-                    e->hf2_code_n);
+                    e->rc_posti_n, e->hf2_code_n);
     }
     /* --shot-stats: everything has retired, so the tail of the display
      * order can be folded and the last shot written. */
@@ -5084,6 +5092,10 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
         fw->vbv_pred = e->rc.last_vbv_pred;
         fw->vbv_allow = e->rc.last_vbv_allow;
         fw->vbv_dqp = e->rc.last_vbv_dqp;
+        if (slice_type != 0) {
+            e->rc_prev_anchor_i = slice_type == 2;
+            e->rc_prev_anchor_dqp = fw->vbv_dqp;
+        }
         /* The brake's three numbers, frozen here like the clamp's. The
          * plan is the model's prediction at the base the frame is coded
          * at, after the clamp; the limit is what the buffer can pay for.
@@ -7998,8 +8010,21 @@ static int drive_scheduler(n265_encoder *e)
         if (e->rc_defer) {
             rc_apply_upto(e, fw->code_idx - 1 - lag);
             e->rc_lag_now = lag;
+            /* N265_VBR_LAG_POSTI (item 37): the anchor after an intra
+             * frame is the one inter frame the size model cannot price -
+             * it refines a picture the buffer may have just raised far
+             * above it and codes much of it again - so it is solved
+             * against the measured sizes of every frame before it. So is
+             * the anchor after one the clamp raised. */
+            int posti = lag > 0 && e->vbv.on && e->rc_posti &&
+                        slice_type != 0 &&
+                        (e->rc_prev_anchor_i ||
+                         e->rc_prev_anchor_dqp >= e->rc_posti_raise);
+            if (posti)
+                e->rc_posti_n++;
             if (lag > 0 && e->vbv.on &&
-                ((e->rc_lag_low > 0.0 &&
+                (posti ||
+                 (e->rc_lag_low > 0.0 &&
                   vbv_plan_fill(e, fw->code_idx) <
                       e->rc_lag_low * e->vbv.bufsize) ||
                  (e->rc_lag_guard > 0.0 &&
