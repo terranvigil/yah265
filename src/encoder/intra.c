@@ -461,17 +461,13 @@ void n265_intra_pred(pixel *dst, int dst_stride, const pixel *refs,
                      int log2n, int mode, int c_idx)
 {
 #if N265_NEON_INTRA
-    /* Everything except one shape. An angular mode of 18 or above walks
-     * the block in rows, which is what clang already auto-vectorises the
-     * C reference into, and at 8x8 the kernel's projected-reference setup
-     * is not amortised over the 64 samples: 0.92-0.97x, against 1.7-1.9x
-     * at 4x4 (the whole block is one q-register there), parity at 16x16
-     * and 1.10x at 32x32. Below 18 the C walks COLUMNS - a scattered byte
-     * store per sample - and the kernel writes rows into a scratch block
-     * and transposes it in 8x8 tiles, which is 2.1x at 8x8 rising to
-     * 5.8x at 32x32. Both paths are bit-exact, so the predicate moves
-     * time and nothing else. */
-    if (!(mode >= 18 && log2n == 3) && n265_asm_on(N265_ASM_INTRA)) {
+    /* Every shape. 8x8 at an angular mode of 18 or above stayed on C
+     * until phase 14 item 39, at 0.92-0.97x of a row walk clang
+     * auto-vectorises; the kernel retires 15% fewer instructions there
+     * (340 against 400 a call) since its reference copy stopped being a
+     * libc call, so it takes the shape too. Both paths are bit-exact, so
+     * the predicate moves time and nothing else. */
+    if (n265_asm_on(N265_ASM_INTRA)) {
         n265_intra_pred_neon(dst, dst_stride, refs, log2n, mode, c_idx);
         return;
     }
