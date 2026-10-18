@@ -454,7 +454,9 @@ def scan():
     macros = macro_table()
     for d in SRC_DIRS:
         for base, _, files in os.walk(os.path.join(ROOT, d)):
-            if ".claude" in base:
+            # relative to ROOT: a tree that itself lives under a .claude
+            # worktree directory must still scan its own sources
+            if ".claude" in os.path.relpath(base, ROOT).split(os.sep):
                 continue
             for f in files:
                 if not f.endswith((".c", ".h", ".m")):
