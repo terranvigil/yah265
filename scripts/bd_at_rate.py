@@ -208,7 +208,10 @@ def vmaf_cached(tmpl, q, src, out, work):
     if v:
         if ck:
             _write_json(ck, v)
-        if cj:
+        # the per-binary memo has no model term in its key, so a NEG-only
+        # entry must not land there: a full run would read it and find no
+        # plain VMAF. An entry that came out of it full goes back full.
+        if cj and (not bd.NEG_ONLY or "VMAF" in v or "VMAF-v1" in v):
             _write_json(cj, v)
     return v
 
@@ -280,8 +283,10 @@ _SPAN_VMAF = 0.5        # VMAF points
 
 def _extra_specs():
     vlabel = bd._vmaf_models()[2]          # "VMAF", or "VMAF-v1" if a v1
-    return [                               # model path is in the environment
-        ("bdVMAF", vlabel, None, _SPAN_VMAF),
+    # model path is in the environment; under --neg-only there is no
+    # plain VMAF to integrate
+    plain = [] if bd.NEG_ONLY else [("bdVMAF", vlabel, None, _SPAN_VMAF)]
+    return plain + [
         ("bdPSNRY", bd.LUMA_KEY, None, _SPAN_DB),
         ("bdSSIMY", bd.SSIM_Y_KEY, bd.ssim_db, _SPAN_DB),
         ("bdSSIMU", bd.SSIM_U_KEY, bd.ssim_db, _SPAN_DB),
@@ -339,10 +344,15 @@ def main():
                          "and PSNR-Y. Costs a decode and a filter run per "
                          "point the memo has not seen them for; adds no "
                          "term to either memo key and cannot move VMAF-NEG")
+    ap.add_argument("--neg-only", action="store_true",
+                    help="score VMAF-NEG alone (BD_NEG_ONLY=1 does the "
+                         "same); its memo entries are keyed apart")
     args = ap.parse_args()
 
     global EXTRA
     EXTRA = args.extra
+    bd.NEG_ONLY = bd.NEG_ONLY or args.neg_only
+    bd.boxlib.wait_untimed("bd_at_rate.py")
     # before any encode or any key: the depth picks the decode format
     bd.DEPTH = args.depth
     src = os.path.join(args.srcdir, args.clip + ".y4m")

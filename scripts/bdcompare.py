@@ -27,6 +27,14 @@ BD sign: negative means config A uses fewer bits than B at equal quality.
 
 `--selftest` runs the BD integrator over recorded point sets and exits; no
 encodes, numpy only. `make test` runs it.
+
+`--subsample` defaults to 1 (every frame) since 2026-10-18: any stride
+aliases the mini-GOP (ours 8, x265 5), so a strided score reads a
+different frame-type mix on each side. `--neg-only` (or BD_NEG_ONLY=1 in
+the environment, which every importer of this module honours) scores
+VMAF-NEG alone, about 45% less libvmaf time. Its model string differs, and
+that string is a term of bd_at_rate's content memo key, so NEG-only
+points are memoised apart from full ones and no existing entry moves.
 """
 import argparse
 import concurrent.futures as fut
@@ -40,6 +48,9 @@ import shlex
 import subprocess
 import sys
 import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import boxlib                                             # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -392,13 +403,23 @@ def vmaf_of(bitstream, src_path, work, per_frame=False):
 
 _MODELS = None
 
+# VMAF-NEG alone. The model string is the same one parity_spec.py scores
+# with, so the two share memo entries; it is NOT the full set's string, so
+# a NEG-only entry can never be served where plain VMAF is expected.
+NEG_ONLY = os.environ.get("BD_NEG_ONLY", "0") == "1"
+NEG_MODELS = ("--model version=vmaf_v0.6.1neg:name=vmaf_neg", "vmaf_neg",
+              "VMAF-NEG")
+
 
 def _vmaf_models():
     """(model-args string, primary pooled key, report label). Prefers the v1
-    model from YAH264_VMAF_MODEL, mirroring bench.py; always adds NEG."""
+    model from YAH264_VMAF_MODEL, mirroring bench.py; always adds NEG.
+    Under NEG_ONLY, the NEG model alone."""
     global _MODELS
     if _MODELS is not None:
         return _MODELS
+    if NEG_ONLY:
+        return NEG_MODELS
     parts, primary, label = [], "vmaf", "VMAF"
     env_path = os.environ.get("YAH264_VMAF_MODEL")
     if env_path and os.path.exists(env_path):
@@ -643,16 +664,22 @@ def main():
                          "overrides --clips. See docs/corpus-broadening-plan.md")
     ap.add_argument("--frames", type=int, default=120)
     ap.add_argument("--vmaf", action="store_true", help="VMAF instead of PSNR")
-    ap.add_argument("--subsample", type=int, default=5,
-                    help="compute VMAF on every Nth frame (libvmaf --subsample); "
-                         "5-10 is ~Nx faster with negligible BD change")
+    ap.add_argument("--neg-only", action="store_true",
+                    help="with --vmaf: score VMAF-NEG alone (about 45%% "
+                         "less scoring time); same as BD_NEG_ONLY=1")
+    ap.add_argument("--subsample", type=int, default=1,
+                    help="compute VMAF on every Nth frame (libvmaf "
+                         "--subsample). Default 1: any stride aliases the "
+                         "mini-GOP, which differs between encoders")
     ap.add_argument("--jobs", type=int, default=16)
     ap.add_argument("--no-cache", dest="cache", action="store_false",
                     help="disable the persistent encode cache (on by default; a "
                          "fixed baseline binary is encoded once across sweeps)")
     args = ap.parse_args()
-    global SUBSAMPLE
+    global SUBSAMPLE, NEG_ONLY
     SUBSAMPLE = max(1, args.subsample)
+    NEG_ONLY = NEG_ONLY or args.neg_only
+    boxlib.wait_untimed("bdcompare.py")
 
     points = [int(q) for q in args.points.split(",")]
     if args.klass:
