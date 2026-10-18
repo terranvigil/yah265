@@ -11,9 +11,8 @@
 #           matches one glob and can never reach anything that is not ours.
 #   legacy  a prefix the older scripts still pass to mkdtemp. Only
 #           distinctive names belong here. bdq_, abrbd_, calib. and
-#           bdrate. are spelled the same in yah264, so a sweep here also
-#           takes yah264's leftovers of those names; only entries idle for
-#           a day go, which no live harness directory is.
+#           bdrate. are left out on purpose: yah264 uses the same names,
+#           and a sweep must never touch another project's directories.
 #
 # NOT listed, on purpose: the bare "tmp." of an unnamed `mktemp -d`, and
 # "sc", "spec." and "supp." (shot_hull and parity_spec): too short or
@@ -23,11 +22,7 @@ ns yah265-
 
 legacy n265gen.
 legacy goallegs.
-legacy bdq_
-legacy abrbd_
-legacy bdrate.
 legacy bd8v10.
-legacy calib.
 legacy rebind.
 legacy shothull.
 legacy seekchk
