@@ -80,6 +80,12 @@ typedef struct la_frame {
     float sc_failw;
     float failw_lvl;        /* the running level sc_failw is read against */
     float sc_ema;           /* running ratio EMA before this frame */
+    /* N265_SC_JUMP / N265_SC_FLOOR (phase 14 item 35): the ratios of the
+     * up to three frames pushed before this one, newest first, and the
+     * intra sum of the one just before it (-1 when there is none) */
+    float sc_rprev[3];
+    int sc_rn;
+    int64_t sc_prev_ic;
     int mcstf_filt;         /* --mcstf filtered this picture (item 31) */
     int valid;
     int display_idx;
@@ -167,6 +173,9 @@ typedef struct n265_la {
     int depth;              /* target queue depth before draining */
     float sc_ema;           /* running pcost/icost EMA */
     float failw_ema;        /* the same running level for sc_failw */
+    float sc_rhist[3];      /* the last pushed frames' ratios, newest first */
+    int sc_rn;
+    int64_t sc_last_ic;     /* the last pushed frame's intra sum, -1 = none */
     pixel *anchor_lowres;   /* lowres luma of the last coded anchor */
     int anchor_valid;
     /* the duplicate chain's own state, kept on the queue rather than on
