@@ -227,8 +227,8 @@ void n265_intra_refs_g(pixel *refs, const pixel *recon, int stride,
         refs[2 * n + 1 + k] = recon[(size_t)(y0 + k) * stride + x0 - 1];
     /* the top row, refs[1 .. 2n], available for the first nt */
     if (nt)
-        memcpy(refs + 1, recon + (size_t)(y0 - 1) * stride + x0,
-               (size_t)nt * sizeof(pixel));
+        n265_cpy(refs + 1, recon + (size_t)(y0 - 1) * stride + x0,
+                 (size_t)nt * sizeof(pixel));
 
     /* first available in the spec's walk order */
     seed = nl ? refs[2 * n + nl] : cav ? corner : refs[1];
