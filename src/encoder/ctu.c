@@ -1524,6 +1524,25 @@ static void itry_split(const struct n265_frame_work *e, int x0, int y0,
             (double)e->sc_ratio, e->flat);
 }
 
+/* N265_INTRA_FAST (phase 14 item 40): the inter-slice intra rank's
+ * coarse-to-fine form, as a mask over the CU size (bit 0 8x8, bit 1 16x16,
+ * bit 2 32x32, bit 3 4x4). 0 is main. */
+static int intra_fast_mask(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_INTRA_FAST");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
+static inline int intra_fast(int log2n)
+{
+    int m = intra_fast_mask();
+    return m && ((m >> (log2n == 2 ? 3 : log2n - 3)) & 1);
+}
+
 /* how many predictions a rank over (sub, nsub) evaluates */
 static int rank_nmodes(const struct n265_frame_work *e, const int *sub,
                        int nsub)
@@ -1585,8 +1604,25 @@ static int search_luma_mode_sub(struct n265_frame_work *e, int x0, int y0,
     int mk[INTRA_RD_MAX];
     int nkc = nk < 1 ? 1 : nk > INTRA_RD_MAX ? INTRA_RD_MAX : nk;
     for (int i = 0; i < nkc; i++) { ck[i] = UINT32_MAX; mk[i] = i < 2 ? i : 26; }
-    for (int mi = 0; mi < (sub ? nsub : 35); mi++) {
-        int mode = sub ? sub[mi] : mi;
+    /* N265_INTRA_FAST (phase 14 item 40): the 35-mode rank as a coarse
+     * pass over planar, DC and every fourth angle, then the angles either
+     * side of the best angle at distance 2, then at distance 1: 19 modes
+     * instead of 35. Only the full rank; a caller's own list is kept.
+     * Pictures under 1280 wide keep the full rank: on the CIF-7 band the
+     * coarse one cost coastguard_cif 0.63 and bus_cif 0.44 of a point. */
+    int fast = !sub && e->slice_type != 2 && e->pad_w >= 1280 &&
+               intra_fast(log2n);
+    int fl[40], nf = 0, stage = 0;
+    if (fast) {
+        fl[nf++] = INTRA_PLANAR;
+        fl[nf++] = INTRA_DC;
+        for (int m = 2; m <= 34; m += 4)
+            fl[nf++] = m;
+    }
+    int ba = -1;                        /* the best angle so far */
+    uint32_t bac = UINT32_MAX;
+    for (int mi = 0; mi < (fast ? nf : sub ? nsub : 35); mi++) {
+        int mode = fast ? fl[mi] : sub ? sub[mi] : mi;
         const pixel *r = n265_use_filtered_refs(mode, log2n, 0) ? refs_f
                                                                   : refs;
         n265_intra_pred(pred, n, r, log2n, mode, 0);
@@ -1612,6 +1648,26 @@ static int search_luma_mode_sub(struct n265_frame_work *e, int x0, int y0,
         if (cost < best_cost) {
             best_cost = cost;
             best_mode = mode;
+        }
+        if (fast) {
+            if (mode >= 2 && cost < bac) {
+                bac = cost;
+                ba = mode;
+            }
+            /* a stage is done: queue the next pair around the best angle,
+             * and go straight on to the stage after if neither is new */
+            while (mi == nf - 1 && stage < 2) {
+                int d = stage++ == 0 ? 2 : 1;
+                for (int sg = -1; sg <= 1; sg += 2) {
+                    int m = ba + sg * d, seen = 0;
+                    if (m < 2 || m > 34)
+                        continue;
+                    for (int q = 0; q < nf; q++)
+                        seen |= fl[q] == m;
+                    if (!seen)
+                        fl[nf++] = m;
+                }
+            }
         }
     }
     if (e->fp_census) {
@@ -1878,6 +1934,36 @@ static int intra_rskip_mode(void)
         v = s ? atoi(s) : 0;
     }
     return v;
+}
+
+/* N265_TT_SKIP_INTER / N265_TT_SKIP_INTRA (phase 14 item 40): the
+ * transform-tree nodes whose split arm the commit does not try, as a
+ * mask over log2n - 3 (bit 0 the 8x8 node, bit 1 16x16, bit 2 32x32).
+ * The split flag is still coded, as 0. 0 is main. */
+static int tt_skip_inter(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_TT_SKIP_INTER");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
+static int tt_skip_intra(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_TT_SKIP_INTRA");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
+static inline int tt_skip(int inter, int log2n)
+{
+    int m = inter ? tt_skip_inter() : tt_skip_intra();
+    return log2n >= 3 && ((m >> (log2n - 3)) & 1);
 }
 
 static int intra_rskip(const struct n265_frame_work *e, int log2n)
@@ -2404,6 +2490,7 @@ static uint64_t tt_node(struct n265_frame_work *e, int mode, int x0, int y0,
     int child_chroma = (log2ts - 1 - csx) >= 2;
     int forced = log2ts > 5;            /* past maxTB: split, no flag */
     int coded = !forced && log2ts > 2 && depth < tt_maxdepth(e, mode);
+    int tried = coded && !tt_skip(0, log2ts);
     int need = st != NULL || coded;
     uint32_t lam = ctu_lam(e, e->cur_ctu_qp);
     size_t off0 = e->rec_len;
@@ -2471,7 +2558,7 @@ static uint64_t tt_node(struct n265_frame_work *e, int mode, int x0, int y0,
     uint8_t esave[8 * 8];
     int em = n >> 2;
 
-    if (coded || forced) {
+    if (tried || forced) {
         if (coded) {
             /* what the split arm is about to overwrite, so a flat win can
              * put it back: the recon of this node's area, and the
@@ -2602,7 +2689,7 @@ static uint64_t tt_node(struct n265_frame_work *e, int mode, int x0, int y0,
     /* the flat arrangement wins (or is the only one): unwind whatever the
      * split arm committed and code the node as one transform unit */
 flat_wins:
-    if (coded) {
+    if (tried) {
         for (int y = 0; y < n; y++)
             n265_cpy(e->recon[0] + (y0 + y) * e->recon_stride[0] + x0,
                    save_l + y * n, (size_t)n * sizeof(pixel));
@@ -3993,6 +4080,7 @@ static uint64_t inter_tt_node(struct n265_frame_work *e, mot_t mot, int x0,
     int child_chroma = (log2n - 1 - csx) >= 2;
     int forced = log2n > 5 || (depth == 0 && isplit);
     int coded = !forced && log2n > 2 && depth < tt_maxdepth(e, MODE_INTER);
+    int tried = coded && !tt_skip(1, log2n);
     int need = st != NULL || coded;
     size_t off0 = e->rec_len;
     cabac_ctx_t own[CTX_COUNT];
@@ -4056,7 +4144,7 @@ static uint64_t inter_tt_node(struct n265_frame_work *e, mot_t mot, int x0,
     uint8_t esave[8 * 8];
     int em = n >> 2;
 
-    if (coded || forced) {
+    if (tried || forced) {
         if (coded) {
             for (int r = 0; r < em; r++)
                 n265_cpy(esave + r * em,
@@ -4164,7 +4252,7 @@ static uint64_t inter_tt_node(struct n265_frame_work *e, mot_t mot, int x0,
     }
 
 flat_wins:
-    if (coded) {
+    if (tried) {
         for (int r = 0; r < em; r++)
             n265_cpy(e->edge_map + ((y0 >> 2) + r) * e->map_stride + (x0 >> 2),
                    esave + r * em, (size_t)em);
@@ -7813,6 +7901,7 @@ void n265_ctu_warm(void)
     (void)depth_bound();
     (void)depth_bound_widen(); (void)depth_bound_local();
     (void)depth_bound_ctb_skip(); (void)mvd_bits_on(); (void)me_satd_on();
+    (void)tt_skip_inter(); (void)tt_skip_intra(); (void)intra_fast_mask();
     (void)cb64_gate(); (void)cb64_amvp(); (void)b_intra_margin();
     (void)cb64_prof_on(); (void)cb64_skipgate();
     (void)bi_refine_iters(); (void)merge_rd_n(); (void)merge_pick_rate(); (void)cb64_splitgate(); (void)bi_gate();
