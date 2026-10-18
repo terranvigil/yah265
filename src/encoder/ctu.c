@@ -337,6 +337,9 @@ typedef struct qt_snap {
  * own field so the SHARING is unchanged: analyze_cu is re-entered
  * recursively from quadtree and its candidate TBs were already shared
  * across depths, and one instance per lane preserves that. */
+/* how many predictions the CTU's MC cache keeps */
+#define MCC_N 8
+
 struct n265_scratch {
     /* The transform tree's per-NODE scratch, indexed by trafoDepth.
      *
@@ -373,6 +376,11 @@ struct n265_scratch {
      * other's record stream no matter how large the CTB lag is. */
     qt_snap qt_pre[4], qt_won[4];
     qt_snap qt_fpre, qt_fwon;   /* the depth-bound arm, depth 0 only */
+    /* the CTU's last few full-motion predictions (mc_pred_wh), emptied
+     * at every CTU (phase 14 item 40) */
+    struct mcc_key { int c, x, y, w, h; mot_t mot; } mcc_k[MCC_N];
+    pixel mcc_b[MCC_N][64 * 64];
+    int mcc_n, mcc_next;
 };
 
 struct n265_scratch *n265_scratch_new(void)
@@ -525,28 +533,102 @@ static void mc_pred14(struct n265_frame_work *e, int list, int ref, int c_idx, i
     }
 }
 
-/* full motion (uni either list, or bi with the default average) */
+static void mc_pred_wh_do(struct n265_frame_work *e, int c_idx, int x0,
+                          int y0, int w, int h, mot_t mot, pixel *dst,
+                          int ds);
+
+static inline int mcc_same(const struct mcc_key *k, int c_idx, int x0,
+                           int y0, int w, int h, const mot_t *m)
+{
+    if (k->c != c_idx || k->x != x0 || k->y != y0 || k->w != w ||
+        k->h != h || k->mot.pred != m->pred)
+        return 0;
+    for (int l = 0; l < 2; l++)
+        if ((m->pred >> l) & 1)
+            if (k->mot.ref[l] != m->ref[l] || k->mot.mv[l].x != m->mv[l].x ||
+                k->mot.mv[l].y != m->mv[l].y)
+                return 0;
+    return 1;
+}
+
+/* The CTU's prediction cache (phase 14 item 40). The mode decision asks
+ * for the same prediction more than once inside one CTU: the merge
+ * pick's winner again for the skip it commits, the 64x64 node's pick
+ * again after its gate, a trial's prediction again at its commit. The
+ * references and their weights do not change inside a picture, so a
+ * prediction asked twice is the same samples. mc_pred_get hands back the
+ * cached block itself, w samples a row, valid until the next prediction
+ * is asked for. Blocks of 8x8 and up only (mcc_ok), where a copy is a
+ * small share of the filter. */
+static inline int mcc_ok(const struct n265_frame_work *e, int w, int h)
+{
+    return w >= 8 && h >= 8 && e->sc;
+}
+
+static const pixel *mc_pred_get(struct n265_frame_work *e, int c_idx, int x0,
+                                int y0, int w, int h, mot_t mot)
+{
+    struct n265_scratch *sc = e->sc;
+    for (int i = 0; i < sc->mcc_n; i++)
+        if (mcc_same(&sc->mcc_k[i], c_idx, x0, y0, w, h, &mot))
+            return sc->mcc_b[i];
+    int i = sc->mcc_next;
+    sc->mcc_next = (i + 1) % MCC_N;
+    if (sc->mcc_n < MCC_N)
+        sc->mcc_n++;
+    mc_pred_wh_do(e, c_idx, x0, y0, w, h, mot, sc->mcc_b[i], w);
+    struct mcc_key *k = &sc->mcc_k[i];
+    k->c = c_idx; k->x = x0; k->y = y0; k->w = w; k->h = h; k->mot = mot;
+    return sc->mcc_b[i];
+}
+
+/* full motion (uni either list, or bi with the default average), through
+ * the cache above */
 static void mc_pred_wh(struct n265_frame_work *e, int c_idx, int x0, int y0,
                        int w, int h, mot_t mot, pixel *dst, int ds)
 {
+    if (!mcc_ok(e, w, h)) {
+        mc_pred_wh_do(e, c_idx, x0, y0, w, h, mot, dst, ds);
+        return;
+    }
+    const pixel *b = mc_pred_get(e, c_idx, x0, y0, w, h, mot);
+    for (int y = 0; y < h; y++)
+        n265_cpy(dst + (size_t)y * ds, b + (size_t)y * w,
+                 (size_t)w * sizeof(pixel));
+}
+
+/* the bi half, out of line for the 16 KB of int16 it needs: in the
+ * caller's frame every uni prediction paid the stack probe for it */
+static __attribute__((noinline)) void mc_pred_bi(struct n265_frame_work *e,
+                                                 int c_idx, int x0, int y0,
+                                                 int w, int h, mot_t mot,
+                                                 pixel *dst, int ds)
+{
+    int16_t a[64 * 64], b[64 * 64];
+    mc_pred14(e, 0, mot.ref[0], c_idx, x0, y0, w, h, mot.mv[0], a);
+    mc_pred14(e, 1, mot.ref[1], c_idx, x0, y0, w, h, mot.mv[1], b);
+    /* 8.5.3.3.4.3's bi form wherever EITHER list carries a weight;
+     * the other list then rides at the identity, which is what the
+     * decoder derives for a reference whose flag is 0. */
+    const n265_wp *w0 = n265_wp_of(e, 0, mot.ref[0], c_idx);
+    const n265_wp *w1 = n265_wp_of(e, 1, mot.ref[1], c_idx);
+    if (w0 || w1) {
+        int d = n265_wp_denom(e, c_idx);
+        n265_wp_bi_wh(dst, ds, a, b, w, h,
+                      w0 ? w0->w[c_idx] : 1 << d, w0 ? w0->o[c_idx] : 0,
+                      w1 ? w1->w[c_idx] : 1 << d, w1 ? w1->o[c_idx] : 0,
+                      d);
+    } else {
+        n265_bi_avg_wh(dst, ds, a, b, w, h);
+    }
+}
+
+static void mc_pred_wh_do(struct n265_frame_work *e, int c_idx, int x0,
+                          int y0, int w, int h, mot_t mot, pixel *dst,
+                          int ds)
+{
     if (mot.pred == 3) {
-        int16_t a[64 * 64], b[64 * 64];
-        mc_pred14(e, 0, mot.ref[0], c_idx, x0, y0, w, h, mot.mv[0], a);
-        mc_pred14(e, 1, mot.ref[1], c_idx, x0, y0, w, h, mot.mv[1], b);
-        /* 8.5.3.3.4.3's bi form wherever EITHER list carries a weight;
-         * the other list then rides at the identity, which is what the
-         * decoder derives for a reference whose flag is 0. */
-        const n265_wp *w0 = n265_wp_of(e, 0, mot.ref[0], c_idx);
-        const n265_wp *w1 = n265_wp_of(e, 1, mot.ref[1], c_idx);
-        if (w0 || w1) {
-            int d = n265_wp_denom(e, c_idx);
-            n265_wp_bi_wh(dst, ds, a, b, w, h,
-                          w0 ? w0->w[c_idx] : 1 << d, w0 ? w0->o[c_idx] : 0,
-                          w1 ? w1->w[c_idx] : 1 << d, w1 ? w1->o[c_idx] : 0,
-                          d);
-        } else {
-            n265_bi_avg_wh(dst, ds, a, b, w, h);
-        }
+        mc_pred_bi(e, c_idx, x0, y0, w, h, mot, dst, ds);
     } else {
         int list = mot.pred == 2;
         mc_pred_uni(e, list, mot.ref[list], c_idx, x0, y0, w, h,
@@ -1220,23 +1302,28 @@ static void tb_recon(struct n265_frame_work *e, int c_idx, int x0, int y0,
 /* SSD of a TB scratch recon against the source, the whole unit - the
  * stacked pair together at 4:2:2, since the pair IS the n x 2n area the
  * luma block presents. */
-static uint64_t tb_ssd(struct n265_frame_work *e, int c_idx, int x0, int y0,
-                       int log2n, const tb_ctx *tb)
+static uint64_t tb_ssd_px(struct n265_frame_work *e, int c_idx, int x0,
+                          int y0, int log2n, const pixel *rec)
 {
     int n = 1 << log2n;
     int rows = n * nsub_c(e, c_idx);
     const pixel *src = e->pad_plane[c_idx] + y0 * e->pad_stride[c_idx] + x0;
-    uint64_t ssd = n265_ssd_wh(src, e->pad_stride[c_idx], tb->recon, n, n,
-                               rows);
+    uint64_t ssd = n265_ssd_wh(src, e->pad_stride[c_idx], rec, n, n, rows);
     /* the psychovisual term (psy.c): luma only, the same strength for every
      * candidate so it only ever re-ranks them */
     if (c_idx == 0 && e->psy > 0.0)
-        ssd += n265_psy_cost(src, e->pad_stride[0], tb->recon, n, n,
+        ssd += n265_psy_cost(src, e->pad_stride[0], rec, n, n,
                              ctu_lam(e, e->cur_ctu_qp), e->psy);
     /* the two quantisers reconciled (N265_CHROMA_W); inert at 256 */
     if (c_idx && chroma_w_q8(e) != 256)
         ssd = (ssd * chroma_w_q8(e)) >> 8;
     return ssd;
+}
+
+static uint64_t tb_ssd(struct n265_frame_work *e, int c_idx, int x0, int y0,
+                       int log2n, const tb_ctx *tb)
+{
+    return tb_ssd_px(e, c_idx, x0, y0, log2n, tb->recon);
 }
 
 /* ---- one chroma unit's syntax, in the three places it is spent -------
@@ -2416,12 +2503,18 @@ static uint64_t tt_node(struct n265_frame_work *e, int mode, int x0, int y0,
         if (st) {
             n265_cpy(sctx, st->ctx, sizeof(sctx));
         }
+        /* inter_tt_node's early stop, for the same reason: the flat
+         * path below puts back the recon, the edge map and the record */
+        int can_stop = coded && st && !e->nr_on;
         for (int i = 0; i < 4; i++) {
             int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
             d_split += tt_node(e, mode, x1, y1, log2ts - 1, depth + 1, NULL,
                                NULL, NULL, st ? &sst : NULL, &ch[i]);
             root_cb |= ch[i].cb || ch[i].cb2;
             root_cr |= ch[i].cr || ch[i].cr2;
+            if (can_stop && i < 3 &&
+                rd_j(e, d_split, sst.bits, lam) >= j_flat)
+                goto flat_wins;
         }
         if (!child_chroma) {
             /* The 8x8 node's chroma stays at the PARENT, predicted after
@@ -2508,6 +2601,7 @@ static uint64_t tt_node(struct n265_frame_work *e, int mode, int x0, int y0,
 
     /* the flat arrangement wins (or is the only one): unwind whatever the
      * split arm committed and code the node as one transform unit */
+flat_wins:
     if (coded) {
         for (int y = 0; y < n; y++)
             n265_cpy(e->recon[0] + (y0 + y) * e->recon_stride[0] + x0,
@@ -2521,8 +2615,9 @@ static uint64_t tt_node(struct n265_frame_work *e, int mode, int x0, int y0,
             n265_cpy(e->edge_map + ((y0 >> 2) + r) * e->map_stride + (x0 >> 2),
                    esave + r * em, (size_t)em);
         e->rec_len = off0;
-        rec_u8(e, 0);
     }
+    if (coded)
+        rec_u8(e, 0);
     if (has_chroma) {
         rec_cbf_c(e, ptcb);
         rec_cbf_c(e, ptcr);
@@ -2659,15 +2754,36 @@ static void skip_cu(struct n265_frame_work *e, int x0, int y0, int log2n,
     set_mode_map(e, x0, y0, n, INTRA_DC);
 }
 
-/* SAD of the full-motion prediction (luma) */
+/* the uncached form, for a PU under 8x8 */
+static __attribute__((noinline)) uint32_t
+mot_sad_small(struct n265_frame_work *e, int x0, int y0, int n, mot_t mot,
+              const pixel *src)
+{
+    pixel pred[64 * 64];
+    mc_pred_wh_do(e, 0, x0, y0, n, n, mot, pred, n);
+    return n265_sad_wh(src, e->pad_stride[0], pred, n, n, n);
+}
+
+/* SAD of the full-motion prediction (luma), read off the CTU's cache */
 static uint32_t mot_sad(struct n265_frame_work *e, int x0, int y0, int log2n,
                         mot_t mot)
 {
     int n = 1 << log2n;
-    pixel pred[64 * 64];
-    mc_pred(e, 0, x0, y0, n, mot, pred);
     const pixel *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
-    return n265_sad_wh(src, e->pad_stride[0], pred, n, n, n);
+    if (mcc_ok(e, n, n))
+        return n265_sad_wh(src, e->pad_stride[0],
+                           mc_pred_get(e, 0, x0, y0, n, n, mot), n, n, n);
+    return mot_sad_small(e, x0, y0, n, mot, src);
+}
+
+static __attribute__((noinline)) uint32_t
+mot_satd_small(struct n265_frame_work *e, int x0, int y0, int w, int h,
+               mot_t mot)
+{
+    pixel pred[64 * 64];
+    mc_pred_wh_do(e, 0, x0, y0, w, h, mot, pred, w);
+    return n265_satd_wh(e->pad_plane[0] + y0 * e->pad_stride[0] + x0,
+                        e->pad_stride[0], pred, w, w, h);
 }
 
 /* SATD of the full-motion prediction (luma): the decision metric that
@@ -2675,10 +2791,11 @@ static uint32_t mot_sad(struct n265_frame_work *e, int x0, int y0, int log2n,
 static uint32_t mot_satd_wh(struct n265_frame_work *e, int x0, int y0, int w,
                             int h, mot_t mot)
 {
-    pixel pred[64 * 64];
-    mc_pred_wh(e, 0, x0, y0, w, h, mot, pred, w);
-    return n265_satd_wh(e->pad_plane[0] + y0 * e->pad_stride[0] + x0,
-                        e->pad_stride[0], pred, w, w, h);
+    if (mcc_ok(e, w, h))
+        return n265_satd_wh(e->pad_plane[0] + y0 * e->pad_stride[0] + x0,
+                            e->pad_stride[0],
+                            mc_pred_get(e, 0, x0, y0, w, h, mot), w, w, h);
+    return mot_satd_small(e, x0, y0, w, h, mot);
 }
 
 /* CHROMA_NA: this PU has no chroma SATD to take. n265_satd_wh tiles 4x4
@@ -3956,6 +4073,16 @@ static uint64_t inter_tt_node(struct n265_frame_work *e, mot_t mot, int x0,
         sst.bits = 0;
         if (st)
             n265_cpy(sctx, st->ctx, sizeof(sctx));
+        /* the split can only lose once its children so far already cost
+         * the flat arrangement's J: every term still to come (the other
+         * children, the chroma, the cbf and split bins) adds to both d
+         * and bits, and rd_j is monotone in each. So the rest is not
+         * analysed. Nothing the abandoned children wrote survives the
+         * flat path below (it restores the edge map and the record, and
+         * its commit covers the area), so the stream is the same; the NR
+         * tally is the one thing that would see fewer blocks, hence the
+         * guard. (phase 14 item 40) */
+        int can_stop = coded && st && !e->nr_on;
         for (int i = 0; i < 4; i++) {
             int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
             d_split += inter_tt_node(e, mot, x1, y1, log2n - 1, depth + 1, 0,
@@ -3963,6 +4090,9 @@ static uint64_t inter_tt_node(struct n265_frame_work *e, mot_t mot, int x0,
                                      &ch[i]);
             root_cb |= ch[i].cb || ch[i].cb2;
             root_cr |= ch[i].cr || ch[i].cr2;
+            if (can_stop && i < 3 &&
+                rd_j(e, d_split, sst.bits, lam) >= j_flat)
+                goto flat_wins;
         }
         if (!child_chroma) {
             /* the 8x8 node's chroma is this node's own flat pair - the
@@ -4033,13 +4163,15 @@ static uint64_t inter_tt_node(struct n265_frame_work *e, mot_t mot, int x0,
         return d_split;
     }
 
+flat_wins:
     if (coded) {
         for (int r = 0; r < em; r++)
             n265_cpy(e->edge_map + ((y0 >> 2) + r) * e->map_stride + (x0 >> 2),
                    esave + r * em, (size_t)em);
         e->rec_len = off0;
-        rec_u8(e, 0);
     }
+    if (coded)
+        rec_u8(e, 0);
     if (has_chroma) {
         rec_cbf_c(e, tcb);
         rec_cbf_c(e, tcr);
@@ -5591,7 +5723,7 @@ static void merge_trial(struct n265_frame_work *e, int x0, int y0, int log2n,
                         uint64_t *d_merge, uint64_t *d_skip,
                         uint64_t *j_skip, uint64_t *j_merge)
 {
-    int n = 1 << log2n, csx = e->csx, csy = e->csy;
+    int csx = e->csx, csy = e->csy;
     int cx0 = x0 >> csx, cy0 = y0 >> csy, log2c = log2n - csx;
     int qp_cb = n265_chroma_qp_of(e, e->cur_ctu_qp, 1);
     int qp_cr = n265_chroma_qp_of(e, e->cur_ctu_qp, 2);
@@ -5606,17 +5738,10 @@ static void merge_trial(struct n265_frame_work *e, int x0, int y0, int log2n,
     *d_merge = tb_ssd(e, 0, x0, y0, log2n, m_tl) +
         tb_ssd(e, 1, cx0, cy0, log2c, m_tcb) +
         tb_ssd(e, 2, cx0, cy0, log2c, m_tcr);
-    /* forced skip: prediction only */
-    {
-        tb_ctx t;
-        size_t ca = (size_t)(n >> csx) * (n >> csy);
-        n265_cpy(t.recon, m_tl->pred, (size_t)n * n * sizeof(pixel));
-        *d_skip = tb_ssd(e, 0, x0, y0, log2n, &t);
-        n265_cpy(t.recon, m_tcb->pred, ca * sizeof(pixel));
-        *d_skip += tb_ssd(e, 1, cx0, cy0, log2c, &t);
-        n265_cpy(t.recon, m_tcr->pred, ca * sizeof(pixel));
-        *d_skip += tb_ssd(e, 2, cx0, cy0, log2c, &t);
-    }
+    /* forced skip: prediction only, measured on the prediction itself */
+    *d_skip = tb_ssd_px(e, 0, x0, y0, log2n, m_tl->pred) +
+              tb_ssd_px(e, 1, cx0, cy0, log2c, m_tcb->pred) +
+              tb_ssd_px(e, 2, cx0, cy0, log2c, m_tcr->pred);
     *j_skip = rd_j(e, *d_skip, skip_bits, lam);
     *j_merge = UINT64_MAX;
     if (*m_any) {
@@ -7632,6 +7757,8 @@ void n265_analyze_ctu(struct n265_frame_work *e, int ctb_x, int ctb_y)
     e->ent_ctu_qp = e->cur_ctu_qp;
     e->ent_qp_coded = 0;
     clear_cu_pred(e);
+    if (e->sc)
+        e->sc->mcc_n = e->sc->mcc_next = 0;
     if (e->cu_rec) {            /* N265_CU_TRACE: this CTU's own slots */
         e->cu_ctu = ctb_k;
         e->cu_rec_n[ctb_k] = 0;

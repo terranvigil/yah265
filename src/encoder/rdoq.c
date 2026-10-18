@@ -543,7 +543,11 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
      * sub-block occupancy the two scans below use to skip empty
      * sub-blocks whole. One pass over the block, and the only elementwise
      * pass in this file (n265_rdoq_rtn_ref, dispatched). */
-    int16_t rtn[32 * 32];
+    /* Every per-position array is sized to the block (phase 14 item 39
+     * left them at 32x32): eleven of them made a 60 KB frame that the
+     * stack probe walked page by page on every call, and four of five
+     * calls are a 4x4 or an 8x8. */
+    int16_t rtn[nn];
     double all_zero = 0;
     uint64_t sb_nz = 0;
     int czero = (int)((((int64_t)1 << qbits) - add + q - 1) / q);
@@ -554,15 +558,15 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
         return 0;
 
     /* per-position bookkeeping in scan order within each sub-block */
-    double d0[32 * 32];          /* distortion of coding zero */
-    double dsel[32 * 32];        /* distortion of the chosen level */
-    double rsel[32 * 32];        /* rate (bits, real) of the chosen level incl. sig flag */
-    double rsig0[32 * 32];       /* rate of a sig_coeff_flag = 0 at this position */
-    double rsig1[32 * 32];       /* rate of a sig_coeff_flag = 1 (adapt mode) */
-    double alt_cost[32 * 32];    /* J penalty of the cheapest opposite-parity level */
-    int alt_lvl[32 * 32];        /* that level (SBH-RD mode) */
-    int lsel[32 * 32];           /* chosen |level| */
-    uint8_t keep[32 * 32];       /* survived the last-position pass */
+    double d0[nn];          /* distortion of coding zero */
+    double dsel[nn];        /* distortion of the chosen level */
+    double rsel[nn];        /* rate (bits, real) of the chosen level incl. sig flag */
+    double rsig0[nn];       /* rate of a sig_coeff_flag = 0 at this position */
+    double rsig1[nn];       /* rate of a sig_coeff_flag = 1 (adapt mode) */
+    double alt_cost[nn];    /* J penalty of the cheapest opposite-parity level */
+    int alt_lvl[nn];        /* that level (SBH-RD mode) */
+    int lsel[nn];           /* chosen |level| */
+    uint8_t keep[nn];       /* survived the last-position pass */
     int csbf[64] = { 0 };
     if (sbh_rd)
         memset(keep, 0, (size_t)nn);
