@@ -62,19 +62,27 @@ void n265_bi_avg_wh_neon(pixel *dst, int ds, const int16_t *a,
         pixel *pd = dst + (ptrdiff_t)y * ds;
         int x = 0;
 
+        /* Phase 14 item 39: the sum without the widen. vhaddq_s16 is
+         * floor((a + b) / 2) with no int16 overflow, and for s = a + b
+         * and r = 2^(SHIFT_BI - 1),
+         *
+         *     floor((s + r) / 2r) == floor((floor(s / 2) + r / 2) / r)
+         *
+         * because when s is odd the dropped half cannot carry an integer
+         * k + r/2 across a multiple of r. The right side is the rounding
+         * shift by SHIFT_BI - 1 of the halved sum, so one int16 lane does
+         * what the widened pair did. */
         for (; x + 8 <= w; x += 8) {
-            int16x8_t va = vld1q_s16(pa + x);
-            int16x8_t vb = vld1q_s16(pb + x);
-            int32x4_t lo = vaddl_s16(vget_low_s16(va), vget_low_s16(vb));
-            int32x4_t hi = vaddl_high_s16(va, vb);
-            uint16x8_t r = vcombine_u16(vqrshrun_n_s32(lo, MC_SHIFT_BI),
-                                        vqrshrun_n_s32(hi, MC_SHIFT_BI));
+            int16x8_t hs = vhaddq_s16(vld1q_s16(pa + x), vld1q_s16(pb + x));
 #if BIT_DEPTH == 8
-            vst1_u8(pd + x, vqmovn_u16(r));
+            /* sat_u8((h + 32) >> 6): the C's two clips are the narrow's */
+            vst1_u8(pd + x, vqrshrun_n_s16(hs, MC_SHIFT_BI - 1));
 #else
-            /* the u16 saturation is the C's `< 0 ? 0`; the upper clip is
-             * PIXEL_MAX and is a vmin, since no narrow's own bound is it */
-            vst1q_u16(pd + x, vminq_u16(r, vdupq_n_u16(PIXEL_MAX)));
+            int16x8_t v = vrshrq_n_s16(hs, MC_SHIFT_BI - 1);
+
+            v = vminq_s16(vmaxq_s16(v, vdupq_n_s16(0)),
+                          vdupq_n_s16(PIXEL_MAX));
+            vst1q_u16(pd + x, vreinterpretq_u16_s16(v));
 #endif
         }
         /* w = 4 and w = 12 leave a four-sample tail. Load and store FOUR,
