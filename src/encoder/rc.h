@@ -225,6 +225,16 @@ typedef struct n265_rc {
                                  * base less the term */
     int vown;                   /* N265_VBV_OWN: the clamp prices at the
                                  * allocator's scale (1 window, 2 frame) */
+    /* Phase 14 item 38, capped VBR only: where a surplus is spent. */
+    double fbspend;             /* N265_VBR_SPEND: exponent on the frame's
+                                 * complexity over the running mean that
+                                 * scales the finer-side feedback (0: off) */
+    double fbfine;              /* N265_VBR_FBFINE: the finer-side rail */
+    double spend_lo, spend_hi;  /* N265_VBR_SPENDFILL / _SPENDHI: the fill
+                                 * shares between which a surplus is spent
+                                 * from none to whole (0: off) */
+    double lcx_avg, lcx_n;      /* running mean of log per-block complexity
+                                 * over inter frames */
     double open_step;           /* extra step allowed over the opening */
     int nblk;                   /* lowres 8x8 blocks per frame        */
     int trace;

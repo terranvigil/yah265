@@ -248,6 +248,29 @@ void n265_rc_open(struct n265_encoder *e)
     rc->ovw = vbr ? abr_tunable("N265_VBR_OVW", cvbr ? 0.75 : 0.0) : 0.0;
     rc->ctkeep = vbr ? (int)abr_tunable("N265_VBR_CTKEEP", cvbr ? 1 : 0) : 0;
     rc->vown = vbr ? (int)abr_tunable("N265_VBV_OWN", cvbr ? 3 : 0) : 0;
+    /* Phase 14 item 38: where a capped-VBR surplus is spent. Two changes,
+     * on by default under capped VBR only.
+     *
+     *   N265_VBR_FBFINE 3     the finer-side rail of the feedback, 3 QP
+     *                         under the level instead of 6
+     *   N265_VBR_SPENDFILL 0.4  the finer-side feedback scales from whole
+     *                         at 0.8 of the buffer (N265_VBR_SPENDHI) to
+     *                         none at 0.4
+     *
+     * On chimera 720p's two-minute segment the slow feedback banked the
+     * surplus of an easy stretch, rode the 6 QP rail into the hard scene
+     * after it and ran the buffer to 0.7%. Every rung lands where it did
+     * or up to 1.2% lower; D5v reads -2.9% BD-VMAF-NEG against main and
+     * +6.30% against x265 (+9.73% before), D2 and D4 within 0.2
+     * (docs/phase14.md, item 38). `N265_VBR_FBFINE=6
+     * N265_VBR_SPENDFILL=0` is main byte for byte.
+     *
+     * N265_VBR_SPEND, the same feedback scaled by the frame's complexity
+     * over its running mean, is refused and kept as an arm (off). */
+    rc->fbspend = cvbr ? abr_tunable("N265_VBR_SPEND", 0.0) : 0.0;
+    rc->spend_lo = cvbr ? abr_tunable("N265_VBR_SPENDFILL", 0.4) : 0.0;
+    rc->spend_hi = abr_tunable("N265_VBR_SPENDHI", 0.8);
+    rc->fbfine = cvbr ? abr_tunable("N265_VBR_FBFINE", 3.0) : rc->fbmax;
     rc->w_mem = abr_tunable("N265_ABR_WMEM", 1000.0);
     rc->meas = (int)abr_tunable("N265_ABR_MEAS", 1);
     rc->mguard = abr_tunable("N265_ABR_MGUARD", 0.0);
@@ -971,8 +994,8 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
         fb *= rc->tp_gain;
     if (fb > rc->fbup)
         fb = rc->fbup;
-    else if (fb < -rc->fbmax)
-        fb = -rc->fbmax;
+    else if (fb < -rc->fbfine)
+        fb = -rc->fbfine;
 
     /* The operating point, and the whole of the sita_flat defect.
      *
@@ -1062,6 +1085,29 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
      * symmetric term. */
     if (rc->ibrake && cls == RC_I && fb < 0.0)
         fb = 0.0;
+    /* N265_VBR_SPEND (item 38): a surplus is spent where the content is
+     * hard enough to use it. Below the running mean of the per-block
+     * complexity the finer-side feedback is scaled by the ratio to that
+     * mean, raised to this exponent; at or above it the frame takes it
+     * whole. An easy stretch then banks its surplus instead of spending it
+     * on pictures whose quality has already saturated. */
+    /* N265_VBR_SPENDFILL (item 38): and only while the buffer has the room
+     * to pay for it. The finer-side feedback is scaled from whole at
+     * `spend_hi` of the buffer down to none at this share, so a surplus is
+     * not spent into a stretch the buffer then has to clamp. */
+    if (rc->spend_lo > 0.0 && fb < 0.0 && e->vbv.on && e->vbv.bufsize > 0.0) {
+        double f = e->vbv.fill / e->vbv.bufsize;
+        double s = (f - rc->spend_lo) / (rc->spend_hi - rc->spend_lo);
+        fb *= s < 0.0 ? 0.0 : s > 1.0 ? 1.0 : s;
+    }
+    if (rc->fbspend > 0.0 && cls != RC_I) {
+        double lc = log(cplx / rc->nblk > 1.0 ? cplx / rc->nblk : 1.0);
+        if (rc->lcx_n > 0.0 && fb < 0.0 && lc < rc->lcx_avg)
+            fb *= exp(rc->fbspend * (lc - rc->lcx_avg));
+        rc->lcx_avg += (lc - rc->lcx_avg) / (rc->lcx_n + 1.0);
+        if (rc->lcx_n < rc->w_mem)
+            rc->lcx_n += 1.0;
+    }
     /* The cu-tree frame term, taken off the answer.
      *
      * Everything above solves for the BASE the frame is coded at: the
