@@ -526,6 +526,28 @@ def flags(name):
     return "?" if r is None else r["flags"]
 
 
+# End credits of the long-form excerpts (PARITY-SPEC section 2): the first
+# credits frame and the last one inside the excerpt, excerpt-relative and the
+# same at every size. Taken from yah264's tier L table (last story frame + 1)
+# and its credits spans; bbb stops before its post-credits scene. No scan
+# finds credits, so these are a table, not a reduction.
+CREDITS = {"lf/tears_1080p": (12672, 14399), "lf/bbb_1080p": (13929, 17660),
+           "lf/sintel_1080p": (13178, 14399),
+           "lf/cosmos_1080p": (13724, 14399),
+           "lf/stem2_1080p": (12940, 14399),
+           "lf/meridian_1080p": (32887, 35963),
+           "lf/nocturne_1080p": (34320, 35999)}
+
+
+def credits(name):
+    """(credits_start, credits_end) of a title, or None where its excerpt
+    runs no credits (or the census has no row)."""
+    r = _resolve(name)
+    if r is None or not r.get("credits_start"):
+        return None
+    return int(r["credits_start"]), int(r["credits_end"])
+
+
 def lead_skip(name):
     """Frames before the content starts (the longer of the leading black
     and still runs); 0 when unflagged or unknown."""
@@ -541,7 +563,7 @@ COLS = ["name", "tier", "w", "h", "fps", "frames", "seconds", "lead_black",
         "black_share", "fades", "fade_frames", "xfades", "xfade_frames",
         "cuts", "cuts_per_min", "flat_share", "flat_share_nonblack",
         "lead_flat", "y_p01", "y_p50", "y_p99", "dark_share", "noise_sigma",
-        "flags"]
+        "flags", "credits_start", "credits_end"]
 
 
 def write_csv():
@@ -554,6 +576,7 @@ def write_csv():
             continue
         r = reduce(name, ser)
         r["tier"] = t["tier"]
+        r["credits_start"], r["credits_end"] = CREDITS.get(name, ("", ""))
         rows.append(r)
     os.makedirs(os.path.dirname(CSV_PATH), exist_ok=True)
     with open(CSV_PATH, "w", newline="") as f:

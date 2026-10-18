@@ -49,6 +49,8 @@ test: build
 	python3 scripts/knob_census.py --check
 	# every lazily cached knob is read on the driver before a worker exists
 	python3 scripts/warm_check.py
+	# the parity harness's cell tables, windows and verdict lines (no media)
+	python3 scripts/parity_spec.py --selftest-long
 	$(MAKE) smoke10
 
 # The 10-bit leg of `make test`, and it is a SMOKE and not a correctness
