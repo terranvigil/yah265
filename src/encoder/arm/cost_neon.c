@@ -222,6 +222,11 @@ void n265_sbh_adjust_neon(int16_t *level, int log2n, int scan_idx)
                                                        vld1_s16(g + n)));
         tbl.val[1] = vreinterpretq_u8_s16(
             vcombine_s16(vld1_s16(g + 2 * n), vld1_s16(g + 3 * n)));
+        /* the empty group before the permute, not after it (item 39):
+         * an OR and a max of the rows as loaded answer the same `first <
+         * 0` in a third of the instructions */
+        if (!vmaxvq_u8(vorrq_u8(tbl.val[0], tbl.val[1])))
+            continue;
 
         v0 = vreinterpretq_s16_u8(vqtbl2q_u8(tbl, gi0));
         v1 = vreinterpretq_s16_u8(vqtbl2q_u8(tbl, gi1));
