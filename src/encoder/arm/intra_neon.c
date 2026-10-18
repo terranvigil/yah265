@@ -168,7 +168,14 @@ static void ang_rows(pixel *out, int out_stride, const pixel *r, int n,
         uint8_t *o = out + (size_t)y * out_stride;
 
         if (f == 0) {
-            memcpy(o, p, (size_t)n);
+            /* n is 8, 16 or 32 here: vector copies, where a memcpy of a
+             * run-time length was a libc call per row (item 39) */
+            if (n == 8) {
+                vst1_u8(o, vld1_u8(p));
+            } else {
+                for (int x = 0; x < n; x += 16)
+                    vst1q_u8(o + x, vld1q_u8(p + x));
+            }
             continue;
         }
         {
@@ -365,7 +372,28 @@ static void build_ref(pixel *r, const pixel *main, const pixel *side,
                       int corner, int n, int angle, int inv)
 {
     r[-1] = (pixel)corner;
+#if BIT_DEPTH == 8
+    /* 2n is 8, 16, 32 or 64: vector copies rather than a libc call of a
+     * run-time length on every angular prediction (item 39). Spelled out
+     * per size: a loop of them is a copy idiom clang turns straight back
+     * into the memcpy call. */
+    switch (n) {
+    case 4:
+        vst1_u8(r, vld1_u8(main));
+        break;
+    case 8:
+        vst1q_u8(r, vld1q_u8(main));
+        break;
+    case 16:
+        vst1q_u8_x2(r, vld1q_u8_x2(main));
+        break;
+    default:
+        vst1q_u8_x4(r, vld1q_u8_x4(main));
+        break;
+    }
+#else
     memcpy(r, main, (size_t)(2 * n) * sizeof(pixel));
+#endif
     memset(r + 2 * n, 0, 17 * sizeof(pixel));
     if (angle < 0) {
         /* spec ref[x] = p[-1][-1 + ((x*invAngle + 128) >> 8)]; our r[i] is
@@ -475,12 +503,24 @@ static void pred_planar_neon(pixel *dst, int stride, const pixel *refs,
      * eight-lane pass and four of its lanes are computed and thrown away,
      * and a lane built out of an uninitialised table is a sanitiser
      * report waiting to happen even where the value cannot escape. */
-    for (int x = 0; x < n; x++) {
-        xw[x] = (uint16_t)(n - 1 - x);
-        base[x] = (uint16_t)((x + 1) * tr + n);
+    /* built eight lanes at a time (item 39): the scalar fill and the zero
+     * tail compiled to a loop and a bzero call per prediction. At n = 4
+     * lanes 4..7 hold n - 1 - x and (x + 1) * tr + n continued (wrapped
+     * modulo 2^16 for xw), defined values in lanes no store keeps. */
+    {
+        static const uint16_t ramp[8] = { 0, 1, 2, 3, 4, 5, 6, 7 };
+        uint16x8_t id = vld1q_u16(ramp);
+
+        for (int x = 0; x < (n < 8 ? 8 : n); x += 8) {
+            uint16x8_t xi = vaddq_u16(id, vdupq_n_u16((uint16_t)x));
+
+            vst1q_u16(xw + x, vsubq_u16(vdupq_n_u16((uint16_t)(n - 1)), xi));
+            vst1q_u16(base + x,
+                      vmlaq_n_u16(vdupq_n_u16((uint16_t)n),
+                                  vaddq_u16(xi, vdupq_n_u16(1)),
+                                  (uint16_t)tr));
+        }
     }
-    for (int x = n; x < 8; x++)
-        xw[x] = base[x] = 0;
     /* At n = 4 the row is eight lanes wide and only four are stored. The
      * extra lanes read top[4..7] and xw/base[4..7], all of which exist:
      * top has 2n = 8 samples and the two tables are 32 long. */
@@ -525,8 +565,23 @@ static void pred_dc_neon(pixel *dst, int stride, const pixel *refs,
     dc = (int)(sum >> (log2n + 1));
 
 #if BIT_DEPTH == 8
-    for (int y = 0; y < n; y++)
-        memset(dst + (size_t)y * stride, dc, (size_t)n);
+    /* a splat stored per row: memset of a run-time length was a libc
+     * call per row (item 39) */
+    {
+        uint8x16_t v = vdupq_n_u8((uint8_t)dc);
+
+        for (int y = 0; y < n; y++) {
+            uint8_t *d = dst + (size_t)y * stride;
+
+            if (n == 4)
+                st32u(d, vgetq_lane_u32(vreinterpretq_u32_u8(v), 0));
+            else if (n == 8)
+                vst1_u8(d, vget_low_u8(v));
+            else
+                for (int x = 0; x < n; x += 16)
+                    vst1q_u8(d + x, v);
+        }
+    }
 #else
     /* memset fills BYTES; a 10-bit DC is two of them and not necessarily
      * equal, so the fill is a store of a splat - and it is written as one

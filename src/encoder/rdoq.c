@@ -72,7 +72,10 @@ static uint8_t sig_dc_c[3];     /* the scan step that is (0, 0) */
 /* a scan step's offset from the corner of its sub-block, [scan][log2n-2][c] */
 static uint8_t scan_off[3][4][16];
 
-static void probe_parseval(void)
+/* out of line: inlined, its 4 KB of arrays sat in n265_rdoq_init's frame,
+ * which every lattice call enters, and the stack probe ran each time
+ * (phase 14 item 39) */
+static __attribute__((noinline)) void probe_parseval(void)
 {
     /* A fixed pseudo-random residual block per size; the ratio of squared
      * coefficient energy to squared residual energy is the transform's
@@ -644,6 +647,35 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
         g2c[0] = bin_cost(&ctx[g2_inc], 0) / 256.0;
         g2c[1] = bin_cost(&ctx[g2_inc], 1) / 256.0;
         int sb_base = sy * n + sx, is_last_sb = s == last_s;
+        /* A sub-block pass 1 left empty (phase 14 item 39). Every
+         * position in it has lmax == 0, so the decision is level 0 at
+         * every one, and the coder state the walk carries does not move.
+         * What survives of the general loop is what pass 2 and the
+         * sub-block test read: d0, rsig0, lsel and the two running sums,
+         * formed by the same statements in the same order, so the doubles
+         * are the same bits. What it drops is the sign-hiding pricing:
+         * alt_cost and alt_lvl are read only in a sub-block that ends up
+         * holding a level, and this one cannot (pass 2 only zeroes
+         * levels, and the parity fix only runs where one is already
+         * nonzero). Not under N265_RDOQ_ADAPT, whose context walk is per
+         * position, and not at 4x4, whose only sub-block is the last. */
+        if (!adapt && sigk && !is_last_sb &&
+            !((sb_nz >> (sb_y * sb_dim + sb_x)) & 1)) {
+            for (int c = 15; c >= 0; c--) {
+                int i = sb_base + soff[c];
+                int ac = coef[i] < 0 ? -coef[i] : coef[i];
+                double dz = (double)ac * ac;
+                double rs = rs0[c == dc_k ? 3 : sigk[c]];
+                double best = dz + lam * rs;
+
+                d0[i] = dz;
+                rsig0[i] = rs;
+                lsel[i] = 0;
+                cost += best;
+                zero += dz;
+            }
+            goto sb_whole;
+        }
         for (int c = start_c; c >= 0; c--) {
             int i = sb_base + soff[c];
             int ac = coef[i] < 0 ? -coef[i] : coef[i];
@@ -869,6 +901,7 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
             cost += best;
             zero += dz;
         }
+    sb_whole:
         /* 3. the sub-block as a whole: coded_sub_block_flag = 0 instead
          * (not for the last sub-block, whose flag is implied by the last
          * position, nor the DC sub-block, whose flag is inferred) */
@@ -910,10 +943,13 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
     for (int s = last_s; s >= 0; s--) {
         int sx = (sb_scan[s] & 15) << 2, sy = (sb_scan[s] >> 4) << 2;
         int start_c = (s == last_s) ? last_c : 15;
+        int sb_base = sy * n + sx;
         for (int c = start_c; c >= 0; c--) {
-            int x = sx + (co_scan[c] & 15), y = sy + (co_scan[c] >> 4);
-            int i = y * n + x;
+            /* the position through the step-offset table, as the lattice
+             * walks it; (x, y) only where a level is (item 39) */
+            int i = sb_base + soff[c];
             if (lsel[i]) {
+                int x = sx + (co_scan[c] & 15), y = sy + (co_scan[c] >> 4);
                 int lx = x, ly = y;
                 if (scan_idx == 2) { int t = lx; lx = ly; ly = t; }
                 /* last_sig_coeff_x/y is coded before any of this block's
@@ -987,9 +1023,9 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
     for (int s = best_s; s >= 0; s--) {
         int sx = (sb_scan[s] & 15) << 2, sy = (sb_scan[s] >> 4) << 2;
         int start_c = (s == best_s) ? best_c : 15;
+        int sb_base = sy * n + sx;
         for (int c = start_c; c >= 0; c--) {
-            int x = sx + (co_scan[c] & 15), y = sy + (co_scan[c] >> 4);
-            int i = y * n + x;
+            int i = sb_base + soff[c];
             int l = lsel[i];
             level[i] = (int16_t)(coef[i] < 0 ? -l : l);
             keep[i] = 1;

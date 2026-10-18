@@ -11,15 +11,26 @@
 
 static inline int abs_int(int v) { return v < 0 ? -v : v; }
 
+/* bits 0..7 of v to the even bit positions 0..14 */
+static inline uint32_t spread_bits8(uint32_t v)
+{
+    v &= 0xffu;
+    v = (v | (v << 4)) & 0x0f0fu;
+    v = (v | (v << 2)) & 0x3333u;
+    v = (v | (v << 1)) & 0x5555u;
+    return v;
+}
+
 uint64_t n265_zorder(int x, int y, int pic_w, int ctb_log2)
 {
     int ctb_cols = (pic_w + (1 << ctb_log2) - 1) >> ctb_log2;
     int cx = x >> ctb_log2, cy = y >> ctb_log2;
     uint32_t rx = (uint32_t)(x & ((1 << ctb_log2) - 1)) >> 2;
     uint32_t ry = (uint32_t)(y & ((1 << ctb_log2) - 1)) >> 2;
-    uint32_t z = 0;
-    for (int b = 0; b < ctb_log2 - 2; b++)
-        z |= ((rx >> b) & 1u) << (2 * b) | ((ry >> b) & 1u) << (2 * b + 1);
+    /* rx and ry are under 2^(ctb_log2 - 2), at most 16 (CTB 64), so the
+     * interleave is a fixed bit spread rather than a loop over the bits:
+     * the same key, without the loop on every availability probe */
+    uint32_t z = spread_bits8(rx) | (spread_bits8(ry) << 1);
     return ((uint64_t)(cy * ctb_cols + cx) << (2 * (ctb_log2 - 2))) | z;
 }
 
@@ -188,17 +199,28 @@ void n265_intra_refs_g(pixel *refs, const pixel *recon, int stride,
     uint64_t cur = zkey(x0, y0, z);
     int nt = 0, nl = 0, cav = 0, corner = 0, seed;
 
+    /* The first n of each run need no search (phase 14 item 39): the TB
+     * is an aligned n x n square, and the aligned square directly above
+     * it (or to its left) comes earlier in z-scan order - inside one CTB
+     * by the quadtree, and across a CTB edge by the raster above it. Only
+     * the above-right and below-left halves are searched. 4:2:2's mapped
+     * geometry is not a square z-scan, and a block wider than the CTB is
+     * not one square of it, so both search the whole run. */
+    int known = ((z->shx | z->shy) || log2n > z->ctb_log2) ? 0 : n;
+
     if (y0 > 0) {
-        int lim = pic_w - x0;
+        int lim = pic_w - x0, k;
         if (lim > 2 * n)
             lim = 2 * n;
-        nt = avail_prefix_x(x0, y0 - 1, lim, cur, z);
+        k = known < lim ? known : lim;
+        nt = k + avail_prefix_x(x0 + k, y0 - 1, lim - k, cur, z);
     }
     if (x0 > 0) {
-        int lim = pic_h - y0;
+        int lim = pic_h - y0, k;
         if (lim > 2 * n)
             lim = 2 * n;
-        nl = avail_prefix_y(x0 - 1, y0, lim, cur, z);
+        k = known < lim ? known : lim;
+        nl = k + avail_prefix_y(x0 - 1, y0 + k, lim - k, cur, z);
         if (y0 > 0 && zkey(x0 - 1, y0 - 1, z) < cur) {
             cav = 1;
             corner = recon[(size_t)(y0 - 1) * stride + x0 - 1];
@@ -216,8 +238,8 @@ void n265_intra_refs_g(pixel *refs, const pixel *recon, int stride,
         refs[2 * n + 1 + k] = recon[(size_t)(y0 + k) * stride + x0 - 1];
     /* the top row, refs[1 .. 2n], available for the first nt */
     if (nt)
-        memcpy(refs + 1, recon + (size_t)(y0 - 1) * stride + x0,
-               (size_t)nt * sizeof(pixel));
+        n265_cpy(refs + 1, recon + (size_t)(y0 - 1) * stride + x0,
+                 (size_t)nt * sizeof(pixel));
 
     /* first available in the spec's walk order */
     seed = nl ? refs[2 * n + nl] : cav ? corner : refs[1];
@@ -450,17 +472,13 @@ void n265_intra_pred(pixel *dst, int dst_stride, const pixel *refs,
                      int log2n, int mode, int c_idx)
 {
 #if N265_NEON_INTRA
-    /* Everything except one shape. An angular mode of 18 or above walks
-     * the block in rows, which is what clang already auto-vectorises the
-     * C reference into, and at 8x8 the kernel's projected-reference setup
-     * is not amortised over the 64 samples: 0.92-0.97x, against 1.7-1.9x
-     * at 4x4 (the whole block is one q-register there), parity at 16x16
-     * and 1.10x at 32x32. Below 18 the C walks COLUMNS - a scattered byte
-     * store per sample - and the kernel writes rows into a scratch block
-     * and transposes it in 8x8 tiles, which is 2.1x at 8x8 rising to
-     * 5.8x at 32x32. Both paths are bit-exact, so the predicate moves
-     * time and nothing else. */
-    if (!(mode >= 18 && log2n == 3) && n265_asm_on(N265_ASM_INTRA)) {
+    /* Every shape. 8x8 at an angular mode of 18 or above stayed on C
+     * until phase 14 item 39, at 0.92-0.97x of a row walk clang
+     * auto-vectorises; the kernel retires 15% fewer instructions there
+     * (340 against 400 a call) since its reference copy stopped being a
+     * libc call, so it takes the shape too. Both paths are bit-exact, so
+     * the predicate moves time and nothing else. */
+    if (n265_asm_on(N265_ASM_INTRA)) {
         n265_intra_pred_neon(dst, dst_stride, refs, log2n, mode, c_idx);
         return;
     }

@@ -776,7 +776,7 @@ static uint64_t rt_ssd(int c_idx, int log2n, int qp, int use_dst,
         n265_dequant(dq, lv, log2n, qp, &nzw, &nzh);
         n265_idct_add(rec, n, dq, log2n, pred, n, use_dst, nzw, nzh);
     } else {
-        memcpy(rec, pred, (size_t)n * n * sizeof(pixel));
+        n265_cpy(rec, pred, (size_t)n * n * sizeof(pixel));
     }
     return n265_ssd_wh(src, sstride, rec, n, n, n);
 }
@@ -792,7 +792,7 @@ static uint32_t rt_bits(struct n265_frame_work *e, int c_idx, int log2n,
     cabac_ctx_t local[CTX_COUNT];
     est_state st;
     res_ops ops;
-    memcpy(local, e->est_ctx, sizeof(local));
+    n265_cpy(local, e->est_ctx, sizeof(local));
     st.ctx = local;
     st.bits = 0;
     n265_est_ops(&ops, &st);
@@ -977,7 +977,7 @@ static void tb_analyze_one(struct n265_frame_work *e, int c_idx, int x0,
                 (y0 - (e->cu_pred_y0 >> shy)) * cs +
                 (x0 - (e->cu_pred_x0 >> shx));
             for (int y = 0; y < n; y++)
-                memcpy(pred + y * n, p + y * cs,
+                n265_cpy(pred + y * n, p + y * cs,
                        (size_t)n * sizeof(pixel));
         } else {
             mc_pred(e, c_idx, x0, y0, n, mot, pred);
@@ -1066,7 +1066,7 @@ static void tb_make_recon_one(int c_idx, int log2n, int qp, int mode,
         n265_dequant(dq, level, log2n, qp, &nzw, &nzh);
         n265_idct_add(rec, n, dq, log2n, pred, n, use_dst, nzw, nzh);
     } else {
-        memcpy(rec, pred, (size_t)n * n * sizeof(pixel));
+        n265_cpy(rec, pred, (size_t)n * n * sizeof(pixel));
     }
 }
 
@@ -1102,15 +1102,15 @@ static void tb_analyze(struct n265_frame_work *e, int c_idx, int x0, int y0,
         int rs = e->recon_stride[c_idx];
         tb_make_recon_one(c_idx, log2n, qp, mode, tb, 0, tb->nz);
         for (int y = 0; y < n; y++) {
-            memcpy(save + y * n, rec + (size_t)(y0 + y) * rs + x0,
+            n265_cpy(save + y * n, rec + (size_t)(y0 + y) * rs + x0,
                    (size_t)n * sizeof(pixel));
-            memcpy(rec + (size_t)(y0 + y) * rs + x0, tb->recon + y * n,
+            n265_cpy(rec + (size_t)(y0 + y) * rs + x0, tb->recon + y * n,
                    (size_t)n * sizeof(pixel));
         }
         tb_analyze_one(e, c_idx, x0, y0 + n, log2n, qp, mode, mot, tb,
                        (size_t)n * n, &tb->nz2);
         for (int y = 0; y < n; y++)
-            memcpy(rec + (size_t)(y0 + y) * rs + x0, save + y * n,
+            n265_cpy(rec + (size_t)(y0 + y) * rs + x0, save + y * n,
                    (size_t)n * sizeof(pixel));
         return;
     }
@@ -1198,7 +1198,7 @@ static void tb_commit(struct n265_frame_work *e, int c_idx, int x0, int y0,
     pixel *recon = e->recon[c_idx];
     int stride = e->recon_stride[c_idx];
     for (int y = 0; y < rows; y++)
-        memcpy(recon + (size_t)(y0 + y) * stride + x0, tb->recon + y * n,
+        n265_cpy(recon + (size_t)(y0 + y) * stride + x0, tb->recon + y * n,
                (size_t)n * sizeof(pixel));
     if (c_idx == 0)
         set_blk(e, e->blk_cbf_y, x0, y0, n < 4 ? 4 : n, tb->nz != 0);
@@ -2325,7 +2325,7 @@ static uint64_t tt_node(struct n265_frame_work *e, int mode, int x0, int y0,
 
     mark_cu_edges(e, x0, y0, n);
     if (!st && coded) {
-        memcpy(own, e->est_ctx, sizeof(own));
+        n265_cpy(own, e->est_ctx, sizeof(own));
         ownst.ctx = own;
         ownst.bits = 0;
         st = &ownst;
@@ -2363,7 +2363,7 @@ static uint64_t tt_node(struct n265_frame_work *e, int mode, int x0, int y0,
         }
         if (st) {
             est_state fst;
-            memcpy(fctx, st->ctx, sizeof(fctx));
+            n265_cpy(fctx, st->ctx, sizeof(fctx));
             fst.ctx = fctx;
             fst.bits = 0;
             est_tt_bits(e, &fst, log2ts, depth, coded, mode, ptb, ptcb, ptcr);
@@ -2390,16 +2390,16 @@ static uint64_t tt_node(struct n265_frame_work *e, int mode, int x0, int y0,
              * put it back: the recon of this node's area, and the
              * transform edges the children will mark as they commit */
             for (int y = 0; y < n; y++)
-                memcpy(save_l + y * n,
+                n265_cpy(save_l + y * n,
                        e->recon[0] + (y0 + y) * e->recon_stride[0] + x0,
                        (size_t)n * sizeof(pixel));
             for (int c = 0; c < 2; c++)
                 for (int y = 0; y < cn_h; y++)
-                    memcpy(save_c + c * cpl + y * cn_w,
+                    n265_cpy(save_c + c * cpl + y * cn_w,
                            e->recon[c + 1] + (cy0 + y) * e->recon_stride[c + 1]
                            + cx0, (size_t)cn_w * sizeof(pixel));
             for (int r = 0; r < em; r++)
-                memcpy(esave + r * em,
+                n265_cpy(esave + r * em,
                        e->edge_map + ((y0 >> 2) + r) * e->map_stride +
                        (x0 >> 2), (size_t)em);
             rec_u8(e, 1);
@@ -2414,7 +2414,7 @@ static uint64_t tt_node(struct n265_frame_work *e, int mode, int x0, int y0,
         sst.ctx = sctx;
         sst.bits = 0;
         if (st) {
-            memcpy(sctx, st->ctx, sizeof(sctx));
+            n265_cpy(sctx, st->ctx, sizeof(sctx));
         }
         for (int i = 0; i < 4; i++) {
             int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
@@ -2500,7 +2500,7 @@ static uint64_t tt_node(struct n265_frame_work *e, int mode, int x0, int y0,
             out->npair = cbn;
         }
         if (st) {
-            memcpy(st->ctx, sctx, sizeof(sctx));
+            n265_cpy(st->ctx, sctx, sizeof(sctx));
             st->bits += b_split;
         }
         return d_split;
@@ -2510,15 +2510,15 @@ static uint64_t tt_node(struct n265_frame_work *e, int mode, int x0, int y0,
      * split arm committed and code the node as one transform unit */
     if (coded) {
         for (int y = 0; y < n; y++)
-            memcpy(e->recon[0] + (y0 + y) * e->recon_stride[0] + x0,
+            n265_cpy(e->recon[0] + (y0 + y) * e->recon_stride[0] + x0,
                    save_l + y * n, (size_t)n * sizeof(pixel));
         for (int c = 0; c < 2; c++)
             for (int y = 0; y < cn_h; y++)
-                memcpy(e->recon[c + 1] + (cy0 + y) * e->recon_stride[c + 1] +
+                n265_cpy(e->recon[c + 1] + (cy0 + y) * e->recon_stride[c + 1] +
                        cx0, save_c + c * cpl + y * cn_w,
                        (size_t)cn_w * sizeof(pixel));
         for (int r = 0; r < em; r++)
-            memcpy(e->edge_map + ((y0 >> 2) + r) * e->map_stride + (x0 >> 2),
+            n265_cpy(e->edge_map + ((y0 >> 2) + r) * e->map_stride + (x0 >> 2),
                    esave + r * em, (size_t)em);
         e->rec_len = off0;
         rec_u8(e, 0);
@@ -2543,7 +2543,7 @@ static uint64_t tt_node(struct n265_frame_work *e, int mode, int x0, int y0,
     out->cr2 = has_chroma && e->c422 && ptcr->nz2 != 0;
     out->npair = e->c422 ? 2 : 1;
     if (st) {
-        memcpy(st->ctx, fctx, sizeof(fctx));
+        n265_cpy(st->ctx, fctx, sizeof(fctx));
         st->bits += b_flat;
     }
     return d_flat;
@@ -2644,7 +2644,7 @@ static void skip_cu(struct n265_frame_work *e, int x0, int y0, int log2n,
         int cw = n >> shx, ch = n >> shy;
         mc_pred_wh(e, c, x0 >> shx, y0 >> shy, cw, ch, mot, pred, cw);
         for (int y = 0; y < ch; y++)
-            memcpy(e->recon[c] + ((y0 >> shy) + y) * e->recon_stride[c] +
+            n265_cpy(e->recon[c] + ((y0 >> shy) + y) * e->recon_stride[c] +
                        (x0 >> shx),
                    pred + y * cw, (size_t)cw * sizeof(pixel));
     }
@@ -3762,7 +3762,7 @@ static uint32_t bi_refine(struct n265_frame_work *e, const pu_geo *g, mot_t *bi,
         if (c < best) {
             best = c;
             *bi = z;
-            memcpy(mvp, zp, sizeof(zp));
+            n265_cpy(mvp, zp, sizeof(zp));
         }
     }
 
@@ -3884,7 +3884,7 @@ static uint64_t inter_tt_node(struct n265_frame_work *e, mot_t mot, int x0,
     if (depth > 0)
         mark_cu_edges(e, x0, y0, n);
     if (!st && coded) {
-        memcpy(own, e->est_ctx, sizeof(own));
+        n265_cpy(own, e->est_ctx, sizeof(own));
         ownst.ctx = own;
         ownst.bits = 0;
         st = &ownst;
@@ -3919,7 +3919,7 @@ static uint64_t inter_tt_node(struct n265_frame_work *e, mot_t mot, int x0,
         }
         if (st) {
             est_state fst;
-            memcpy(fctx, st->ctx, sizeof(fctx));
+            n265_cpy(fctx, st->ctx, sizeof(fctx));
             fst.ctx = fctx;
             fst.bits = 0;
             est_tt_bits(e, &fst, log2n, depth, coded, MODE_INTER, tl, tcb,
@@ -3942,7 +3942,7 @@ static uint64_t inter_tt_node(struct n265_frame_work *e, mot_t mot, int x0,
     if (coded || forced) {
         if (coded) {
             for (int r = 0; r < em; r++)
-                memcpy(esave + r * em,
+                n265_cpy(esave + r * em,
                        e->edge_map + ((y0 >> 2) + r) * e->map_stride +
                        (x0 >> 2), (size_t)em);
             rec_u8(e, 1);
@@ -3955,7 +3955,7 @@ static uint64_t inter_tt_node(struct n265_frame_work *e, mot_t mot, int x0,
         sst.ctx = sctx;
         sst.bits = 0;
         if (st)
-            memcpy(sctx, st->ctx, sizeof(sctx));
+            n265_cpy(sctx, st->ctx, sizeof(sctx));
         for (int i = 0; i < 4; i++) {
             int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
             d_split += inter_tt_node(e, mot, x1, y1, log2n - 1, depth + 1, 0,
@@ -4027,7 +4027,7 @@ static uint64_t inter_tt_node(struct n265_frame_work *e, mot_t mot, int x0,
             out->npair = cbn;
         }
         if (st) {
-            memcpy(st->ctx, sctx, sizeof(sctx));
+            n265_cpy(st->ctx, sctx, sizeof(sctx));
             st->bits += b_split;
         }
         return d_split;
@@ -4035,7 +4035,7 @@ static uint64_t inter_tt_node(struct n265_frame_work *e, mot_t mot, int x0,
 
     if (coded) {
         for (int r = 0; r < em; r++)
-            memcpy(e->edge_map + ((y0 >> 2) + r) * e->map_stride + (x0 >> 2),
+            n265_cpy(e->edge_map + ((y0 >> 2) + r) * e->map_stride + (x0 >> 2),
                    esave + r * em, (size_t)em);
         e->rec_len = off0;
         rec_u8(e, 0);
@@ -4060,7 +4060,7 @@ static uint64_t inter_tt_node(struct n265_frame_work *e, mot_t mot, int x0,
     out->cr2 = has_chroma && e->c422 && tcr->nz2 != 0;
     out->npair = e->c422 ? 2 : 1;
     if (st) {
-        memcpy(st->ctx, fctx, sizeof(fctx));
+        n265_cpy(st->ctx, fctx, sizeof(fctx));
         st->bits += b_flat;
     }
     return d_flat;
@@ -4284,7 +4284,7 @@ static int intra_rd_pick(struct n265_frame_work *e, int x0, int y0, int log2n,
             tb_ssd(e, 1, cx0, cy0, log2c, tcb) +
             tb_ssd(e, 2, cx0, cy0, log2c, tcr);
         cabac_ctx_t local[CTX_COUNT];
-        memcpy(local, e->est_ctx, sizeof(local));
+        n265_cpy(local, e->est_ctx, sizeof(local));
         est_state st = { local, 0 };
         res_ops ops;
         n265_est_ops(&ops, &st);
@@ -4373,12 +4373,12 @@ static void mot_save(struct n265_frame_work *e, int x0, int y0, int n,
     int cells = n >> 2;
     for (int y = 0; y < cells; y++) {
         int m = ((y0 >> 2) + y) * e->map_stride + (x0 >> 2);
-        memcpy(sn->mv + y * cells * 4, e->blk_mv + 4 * m,
+        n265_cpy(sn->mv + y * cells * 4, e->blk_mv + 4 * m,
                (size_t)cells * 4 * sizeof(int16_t));
-        memcpy(sn->pred + y * cells, e->blk_pred + m, (size_t)cells);
-        memcpy(sn->ref + y * cells * 2, e->blk_ref + 2 * m,
+        n265_cpy(sn->pred + y * cells, e->blk_pred + m, (size_t)cells);
+        n265_cpy(sn->ref + y * cells * 2, e->blk_ref + 2 * m,
                (size_t)cells * 2);
-        memcpy(sn->intra + y * cells, e->blk_intra + m, (size_t)cells);
+        n265_cpy(sn->intra + y * cells, e->blk_intra + m, (size_t)cells);
     }
 }
 
@@ -4388,12 +4388,12 @@ static void mot_load(struct n265_frame_work *e, int x0, int y0, int n,
     int cells = n >> 2;
     for (int y = 0; y < cells; y++) {
         int m = ((y0 >> 2) + y) * e->map_stride + (x0 >> 2);
-        memcpy(e->blk_mv + 4 * m, sn->mv + y * cells * 4,
+        n265_cpy(e->blk_mv + 4 * m, sn->mv + y * cells * 4,
                (size_t)cells * 4 * sizeof(int16_t));
-        memcpy(e->blk_pred + m, sn->pred + y * cells, (size_t)cells);
-        memcpy(e->blk_ref + 2 * m, sn->ref + y * cells * 2,
+        n265_cpy(e->blk_pred + m, sn->pred + y * cells, (size_t)cells);
+        n265_cpy(e->blk_ref + 2 * m, sn->ref + y * cells * 2,
                (size_t)cells * 2);
-        memcpy(e->blk_intra + m, sn->intra + y * cells, (size_t)cells);
+        n265_cpy(e->blk_intra + m, sn->intra + y * cells, (size_t)cells);
     }
 }
 
@@ -4607,7 +4607,7 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
             struct me_rate_ctx rcx;
             rcx.e = e; rcx.g = g; rcx.u = u;
             rcx.list = l; rcx.base = 6;
-            memcpy(rcx.up, up, sizeof(up));
+            n265_cpy(rcx.up, up, sizeof(up));
             struct n265_me_rate rc = { me_rate_bits, &rcx, (uint32_t)lam4 };
             struct n265_me_keep kp;
             n265_me_search(e, l, r, g->x, g->y, w, h, seed, &mv,
@@ -4683,7 +4683,7 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
             bi.ref[1] = bref[1];
             bi.pred = 3;
             mv_t bp[2][2];
-            memcpy(bp, mvp, sizeof(bp));
+            n265_cpy(bp, mvp, sizeof(bp));
             uint32_t c;
             if (bi_refine_iters()) {
                 /* `acost` is the better uni candidate in exactly the
@@ -4700,7 +4700,7 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
             if (c < acost) {
                 amot = bi;
                 acost = c;
-                memcpy(mvp, bp, sizeof(bp));
+                n265_cpy(mvp, bp, sizeof(bp));
             }
         }
     }
@@ -4916,7 +4916,7 @@ static uint64_t rd_part(struct n265_frame_work *e, int x0, int y0, int log2n,
         tb_ssd(e, 2, cx0, cy0, log2c, &c->tcr);
 
     cabac_ctx_t local[CTX_COUNT];
-    memcpy(local, e->est_ctx, sizeof(local));
+    n265_cpy(local, e->est_ctx, sizeof(local));
     est_state st = { local, 0 };
     est_inter_cu_bits(e, &st, x0, y0, log2n, c->part, c->d, c->any, inc);
     if (c->any)
@@ -5457,7 +5457,7 @@ static inline uint32_t px_satd_pred_c(struct n265_frame_work *e, int cx0,
 static uint32_t px_bits_skip(struct n265_frame_work *e, cabac_ctx_t *local,
                              int midx, int inc)
 {
-    memcpy(local, e->est_ctx, sizeof(cabac_ctx_t) * CTX_COUNT);
+    n265_cpy(local, e->est_ctx, sizeof(cabac_ctx_t) * CTX_COUNT);
     uint32_t b = n265_est_bin(&local[CTX_CU_SKIP + inc], 1);
     b += n265_est_bin(&local[CTX_MERGE_IDX], midx > 0);
     if (midx > 0 && MAX_MERGE > 2)
@@ -5471,7 +5471,7 @@ static uint32_t px_bits_inter(struct n265_frame_work *e, int x0, int y0,
                               int log2n, const pu_dec *pd, int inc)
 {
     cabac_ctx_t local[CTX_COUNT];
-    memcpy(local, e->est_ctx, sizeof(local));
+    n265_cpy(local, e->est_ctx, sizeof(local));
     est_state st = { local, 0 };
     est_inter_cu_bits(e, &st, x0, y0, log2n, PART_2Nx2N, pd, 0, inc);
     return st.bits;
@@ -5483,7 +5483,7 @@ static uint32_t px_bits_intra(struct n265_frame_work *e, int x0, int y0,
                               int log2n, int imode, int inc)
 {
     cabac_ctx_t local[CTX_COUNT];
-    memcpy(local, e->est_ctx, sizeof(local));
+    n265_cpy(local, e->est_ctx, sizeof(local));
     est_state st = { local, 0 };
     st.bits += n265_est_bin(&local[CTX_CU_SKIP + inc], 0);
     st.bits += n265_est_bin(&local[CTX_PRED_MODE], 1);
@@ -5610,18 +5610,18 @@ static void merge_trial(struct n265_frame_work *e, int x0, int y0, int log2n,
     {
         tb_ctx t;
         size_t ca = (size_t)(n >> csx) * (n >> csy);
-        memcpy(t.recon, m_tl->pred, (size_t)n * n * sizeof(pixel));
+        n265_cpy(t.recon, m_tl->pred, (size_t)n * n * sizeof(pixel));
         *d_skip = tb_ssd(e, 0, x0, y0, log2n, &t);
-        memcpy(t.recon, m_tcb->pred, ca * sizeof(pixel));
+        n265_cpy(t.recon, m_tcb->pred, ca * sizeof(pixel));
         *d_skip += tb_ssd(e, 1, cx0, cy0, log2c, &t);
-        memcpy(t.recon, m_tcr->pred, ca * sizeof(pixel));
+        n265_cpy(t.recon, m_tcr->pred, ca * sizeof(pixel));
         *d_skip += tb_ssd(e, 2, cx0, cy0, log2c, &t);
     }
     *j_skip = rd_j(e, *d_skip, skip_bits, lam);
     *j_merge = UINT64_MAX;
     if (*m_any) {
         cabac_ctx_t local[CTX_COUNT];
-        memcpy(local, e->est_ctx, sizeof(local));
+        n265_cpy(local, e->est_ctx, sizeof(local));
         est_state st = { local, 0 };
         est_inter_cu_bits(e, &st, x0, y0, log2n, PART_2Nx2N, pd, *m_any, inc);
         est_tt_bits(e, &st, log2n, 0, 1, MODE_INTER, m_tl, m_tcb, m_tcr);
@@ -5652,7 +5652,7 @@ static void amvp_trial(struct n265_frame_work *e, int x0, int y0, int log2n,
         tb_ssd(e, 1, cx0, cy0, log2c, a_tcb) +
         tb_ssd(e, 2, cx0, cy0, log2c, a_tcr);
     cabac_ctx_t local[CTX_COUNT];
-    memcpy(local, e->est_ctx, sizeof(local));
+    n265_cpy(local, e->est_ctx, sizeof(local));
     est_state st = { local, 0 };
     est_inter_cu_bits(e, &st, x0, y0, log2n, PART_2Nx2N, pd, *a_any, inc);
     if (*a_any)
@@ -5938,7 +5938,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                         struct me_rate_ctx rcx;
                         rcx.e = e; rcx.g = &pg; rcx.u = u;
                         rcx.list = l; rcx.base = 4;
-                        memcpy(rcx.up, up, sizeof(up));
+                        n265_cpy(rcx.up, up, sizeof(up));
                         struct n265_me_rate rc = { me_rate_bits, &rcx,
                                                    (uint32_t)lam4 };
                         struct n265_me_keep kp;
@@ -5972,7 +5972,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                     mot_t u1 = { { { 0, 0 }, me_mv[1] }, 2, { 0, amot.ref[1] } };
                     mot_t bi = { { me_mv[0], me_mv[1] }, 3, { amot.ref[0], amot.ref[1] } };
                     mv_t bp[2][2];
-                    memcpy(bp, mvp, sizeof(bp));
+                    n265_cpy(bp, mvp, sizeof(bp));
                     /* SAD cannot tell the blur of a bi average from a
                      * misalignment, and this is the comparison that
                      * decides bi against uni; N265_ME_SATD makes it the
@@ -6031,7 +6031,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                         amot = u1;
                     else if (sb < s0) {
                         amot = bi;
-                        memcpy(mvp, bp, sizeof(bp));
+                        n265_cpy(mvp, bp, sizeof(bp));
                     }
                 }
                 static const int st[4][2] = { { 1, 0 }, { -1, 0 },
@@ -6339,7 +6339,7 @@ intra_gate_done: ;
             uint64_t d_intra = tb_ssd(e, 0, x0, y0, log2n, i_tl) +
                 tb_ssd(e, 1, cx0, cy0, log2c, i_tcb) +
                 tb_ssd(e, 2, cx0, cy0, log2c, i_tcr);
-            memcpy(local, e->est_ctx, sizeof(local));
+            n265_cpy(local, e->est_ctx, sizeof(local));
             st.ctx = local; st.bits = 0;
             st.bits += n265_est_bin(&local[CTX_CU_SKIP + inc], 0);
             st.bits += n265_est_bin(&local[CTX_PRED_MODE], 1);
@@ -6494,7 +6494,7 @@ intra_gate_done: ;
                     cv = try_part(e, x0, y0, n, PART_Nx2N, start, dv);
                 int horiz = ch <= cv;
                 cur->part = horiz ? PART_2NxN : PART_Nx2N;
-                memcpy(cur->d, horiz ? dh : dv, sizeof(cur->d));
+                n265_cpy(cur->d, horiz ? dh : dv, sizeof(cur->d));
                 uint64_t jr = rd_part(e, x0, y0, log2n, inc, cur);
                 if (px_on)
                     px_trials++;
@@ -6513,7 +6513,7 @@ intra_gate_done: ;
                         uint32_t ca = try_part(e, x0, y0, n, a0, start, da);
                         uint32_t cb = try_part(e, x0, y0, n, a1, start, db);
                         cur->part = ca <= cb ? a0 : a1;
-                        memcpy(cur->d, ca <= cb ? da : db, sizeof(cur->d));
+                        n265_cpy(cur->d, ca <= cb ? da : db, sizeof(cur->d));
                         uint64_t ja = rd_part(e, x0, y0, log2n, inc, cur);
                         if (px_on)
                             px_trials++;
@@ -6800,7 +6800,7 @@ static inline void qt_rows(uint8_t *d, ptrdiff_t ds, const uint8_t *s,
 #define QT_ROWS_CASE(B)                                                 \
     case (B):                                                           \
         for (int y = 0; y < rows; y++)                                  \
-            memcpy(d + (ptrdiff_t)y * ds, s + (ptrdiff_t)y * ss, (B));  \
+            n265_cpy(d + (ptrdiff_t)y * ds, s + (ptrdiff_t)y * ss, (B));  \
         return;
 
     switch (bytes) {
@@ -6811,7 +6811,7 @@ static inline void qt_rows(uint8_t *d, ptrdiff_t ds, const uint8_t *s,
 #undef QT_ROWS_CASE
 
     for (int y = 0; y < rows; y++)
-        memcpy(d + (ptrdiff_t)y * ds, s + (ptrdiff_t)y * ss, bytes);
+        n265_cpy(d + (ptrdiff_t)y * ds, s + (ptrdiff_t)y * ss, bytes);
 }
 
 static uint8_t *snap_maps(struct n265_frame_work *e, int i)
@@ -6857,7 +6857,7 @@ static void qt_save(struct n265_frame_work *e, qt_snap *sn, int x0, int y0,
                               ((size_t)(y0 >> 2) * e->map_stride +
                                (x0 >> 2)) * 2),
             (ptrdiff_t)e->map_stride * 2, cells, (size_t)cells * 2);
-    memcpy(sn->est, e->est_ctx, sizeof(sn->est));
+    n265_cpy(sn->est, e->est_ctx, sizeof(sn->est));
     sn->ent_qp_coded = e->ent_qp_coded;
     sn->rec_len = e->rec_len;
     sn->rec_copy_len = 0;
@@ -6870,7 +6870,7 @@ static void qt_save_records(struct n265_frame_work *e, qt_snap *sn,
     sn->rec_copy_len = e->rec_len - base;
     /* the bound above; an intra CB64 at 4:4:4 is the worst case */
     assert(sn->rec_copy_len <= sizeof(sn->rec_copy));
-    memcpy(sn->rec_copy, e->rec_buf + base, sn->rec_copy_len);
+    n265_cpy(sn->rec_copy, e->rec_buf + base, sn->rec_copy_len);
 }
 
 static void qt_restore(struct n265_frame_work *e, const qt_snap *sn, int x0,
@@ -6904,11 +6904,11 @@ static void qt_restore(struct n265_frame_work *e, const qt_snap *sn, int x0,
                         ((size_t)(y0 >> 2) * e->map_stride + (x0 >> 2)) * 2),
             (ptrdiff_t)e->map_stride * 2, (const uint8_t *)sn->ref,
             cells * 2, cells, (size_t)cells * 2);
-    memcpy(e->est_ctx, sn->est, sizeof(sn->est));
+    n265_cpy(e->est_ctx, sn->est, sizeof(sn->est));
     e->ent_qp_coded = sn->ent_qp_coded;
     e->rec_len = sn->rec_len;
     if (sn->rec_copy_len)
-        memcpy(e->rec_buf + sn->rec_base, sn->rec_copy, sn->rec_copy_len);
+        n265_cpy(e->rec_buf + sn->rec_base, sn->rec_copy, sn->rec_copy_len);
 }
 
 static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,

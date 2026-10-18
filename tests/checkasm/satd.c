@@ -392,6 +392,9 @@ static const int sad_shapes[][2] = {
     { 12, 12 }, { 24, 24 }, { 20, 8 }, { 28, 12 }, { 36, 4 }, { 44, 20 },
     { 1, 1 }, { 2, 2 }, { 3, 5 }, { 5, 3 }, { 6, 8 }, { 7, 9 }, { 2, 16 },
     { 6, 16 }, { 9, 7 }, { 13, 3 }, { 17, 2 }, { 33, 1 }, { 64, 1 },
+    /* item 39's u16-accumulator arm: odd heights at 16 (the two-row
+     * step's tail) and the tallest block at each of its three widths */
+    { 16, 1 }, { 16, 5 }, { 16, 64 }, { 32, 64 }, { 32, 3 }, { 64, 7 },
 };
 #define NSAD_SH ((int)(sizeof(sad_shapes) / sizeof(sad_shapes[0])))
 

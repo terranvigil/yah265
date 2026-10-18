@@ -346,32 +346,17 @@ static inline void inv_dst4_1d(int32_t *dst, int dstep, const int32_t *src,
         }                                                               \
     } while (0)
 
-void n265_fdct(int16_t *coef, const int16_t *resid, int log2n, int use_dst)
+/* The C bodies are out of line and the entry points only dispatch (phase
+ * 14 item 39): with 8 KB of int32 staging in the entry point's own frame,
+ * every call paid the stack probe for it, NEON path included. */
+static __attribute__((noinline))
+void fdct_c(int16_t *coef, const int16_t *resid, int log2n, int use_dst)
 {
     int n = 1 << log2n;
     int32_t a[32 * 32], b[32 * 32];
     int shift1 = log2n + BIT_DEPTH - 9;
     int shift2 = log2n + 6;
 
-#if N265_NEON_TRANSFORM
-    /* 16x16, 32x32 and the DST-VII 4x4. The NEON kernel is correct at
-     * every size, but at 4x4 and 8x8 the DCT's two-stage layout costs more
-     * in transposes than the vector butterfly saves against a C fast path
-     * clang has already auto-vectorised. Round 6 rewrote both small sizes
-     * register-resident, with no intermediate buffer between the stages at
-     * all, and they still read 0.47x and 0.63x, so the size predicate
-     * stays: the transposes, and not the buffer, are what the small DCT
-     * cannot pay for. The DST-VII 4x4 is the shape that form does suit -
-     * no mirror symmetry to exploit, five constants, the whole block in
-     * four registers - and it went the other way: 10.3 ns of C against
-     * 4.8, where the old NEON form was 14.9. checkasm --bench; see
-     * docs/phase6-neon.md, round 6. Every path is bit-exact, so the
-     * predicate moves time and nothing else. */
-    if ((log2n >= 4 || use_dst) && n265_asm_on(N265_ASM_DCT)) {
-        n265_fdct_neon(coef, resid, log2n, use_dst);
-        return;
-    }
-#endif
     for (int y = 0; y < n; y++)
         for (int x = 0; x < n; x++)
             a[x * n + y] = resid[y * n + x];
@@ -393,6 +378,23 @@ void n265_fdct(int16_t *coef, const int16_t *resid, int log2n, int use_dst)
     case 4: FDCT_N(16); break;
     default: FDCT_N(32); break;
     }
+}
+
+void n265_fdct(int16_t *coef, const int16_t *resid, int log2n, int use_dst)
+{
+#if N265_NEON_TRANSFORM
+    /* Every shape. Until phase 14 item 39 the DCT at 4x4 and 8x8 stayed
+     * on C: the int32 four-lane form read 0.47x and 0.63x of a C path
+     * clang auto-vectorises (docs/phase6-neon.md, round 6). Item 39's
+     * int16 forms run eight transforms per vector and replaced them
+     * (docs/phase14.md, "Item 39"). Every path is bit-exact, so the
+     * choice moves time and nothing else. */
+    if (n265_asm_on(N265_ASM_DCT)) {
+        n265_fdct_neon(coef, resid, log2n, use_dst);
+        return;
+    }
+#endif
+    fdct_c(coef, resid, log2n, use_dst);
 }
 
 /* stage 1 transforms each coefficient column into b[x][y], stage 2 each
@@ -433,25 +435,14 @@ void n265_fdct(int16_t *coef, const int16_t *resid, int log2n, int use_dst)
         }                                                               \
     } while (0)
 
-void n265_idct_add(pixel *dst, int dst_stride, const int16_t *dq,
-                   int log2n, const pixel *pred, int pred_stride,
-                   int use_dst, int nzw, int nzh)
+static __attribute__((noinline))
+void idct_add_c(pixel *dst, int dst_stride, const int16_t *dq, int log2n,
+                const pixel *pred, int pred_stride, int use_dst, int nzw,
+                int nzh)
 {
     int n = 1 << log2n;
     int32_t a[32 * 32], b[32 * 32];
 
-#if N265_NEON_TRANSFORM
-    /* Same predicate and the same reasons as n265_fdct above. The DCT at
-     * 4x4 and 8x8 reads 0.52x and 0.49x register-resident and stays on C;
-     * the DST-VII 4x4, which is the only shape use_dst ever names, is
-     * 20.4 ns of C against 5.2 (the old NEON form was 14.3) and does
-     * not. */
-    if ((log2n >= 4 || use_dst) && n265_asm_on(N265_ASM_DCT)) {
-        n265_idct_add_neon(dst, dst_stride, dq, log2n, pred, pred_stride,
-                           use_dst, nzw, nzh);
-        return;
-    }
-#endif
     /* the DST-VII core has no mirror symmetry to exploit and is four
      * points wide either way, so it runs the whole block */
     if (use_dst) {
@@ -503,6 +494,23 @@ void n265_idct_add(pixel *dst, int dst_stride, const int16_t *dq,
     case 4: IDCT_N(16); break;
     default: IDCT_N(32); break;
     }
+}
+
+void n265_idct_add(pixel *dst, int dst_stride, const int16_t *dq,
+                   int log2n, const pixel *pred, int pred_stride,
+                   int use_dst, int nzw, int nzh)
+{
+#if N265_NEON_TRANSFORM
+    /* Every shape, as n265_fdct above: the int16 4x4 and 8x8 forms of
+     * item 39 replaced the int32 ones that had left both on C. */
+    if (n265_asm_on(N265_ASM_DCT)) {
+        n265_idct_add_neon(dst, dst_stride, dq, log2n, pred, pred_stride,
+                           use_dst, nzw, nzh);
+        return;
+    }
+#endif
+    idct_add_c(dst, dst_stride, dq, log2n, pred, pred_stride, use_dst, nzw,
+               nzh);
 }
 
 int n265_quant(int16_t *level, const int16_t *coef, int log2n, int qp,

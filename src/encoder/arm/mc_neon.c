@@ -62,19 +62,27 @@ void n265_bi_avg_wh_neon(pixel *dst, int ds, const int16_t *a,
         pixel *pd = dst + (ptrdiff_t)y * ds;
         int x = 0;
 
+        /* Phase 14 item 39: the sum without the widen. vhaddq_s16 is
+         * floor((a + b) / 2) with no int16 overflow, and for s = a + b
+         * and r = 2^(SHIFT_BI - 1),
+         *
+         *     floor((s + r) / 2r) == floor((floor(s / 2) + r / 2) / r)
+         *
+         * because when s is odd the dropped half cannot carry an integer
+         * k + r/2 across a multiple of r. The right side is the rounding
+         * shift by SHIFT_BI - 1 of the halved sum, so one int16 lane does
+         * what the widened pair did. */
         for (; x + 8 <= w; x += 8) {
-            int16x8_t va = vld1q_s16(pa + x);
-            int16x8_t vb = vld1q_s16(pb + x);
-            int32x4_t lo = vaddl_s16(vget_low_s16(va), vget_low_s16(vb));
-            int32x4_t hi = vaddl_high_s16(va, vb);
-            uint16x8_t r = vcombine_u16(vqrshrun_n_s32(lo, MC_SHIFT_BI),
-                                        vqrshrun_n_s32(hi, MC_SHIFT_BI));
+            int16x8_t hs = vhaddq_s16(vld1q_s16(pa + x), vld1q_s16(pb + x));
 #if BIT_DEPTH == 8
-            vst1_u8(pd + x, vqmovn_u16(r));
+            /* sat_u8((h + 32) >> 6): the C's two clips are the narrow's */
+            vst1_u8(pd + x, vqrshrun_n_s16(hs, MC_SHIFT_BI - 1));
 #else
-            /* the u16 saturation is the C's `< 0 ? 0`; the upper clip is
-             * PIXEL_MAX and is a vmin, since no narrow's own bound is it */
-            vst1q_u16(pd + x, vminq_u16(r, vdupq_n_u16(PIXEL_MAX)));
+            int16x8_t v = vrshrq_n_s16(hs, MC_SHIFT_BI - 1);
+
+            v = vminq_s16(vmaxq_s16(v, vdupq_n_s16(0)),
+                          vdupq_n_s16(PIXEL_MAX));
+            vst1q_u16(pd + x, vreinterpretq_u16_s16(v));
 #endif
         }
         /* w = 4 and w = 12 leave a four-sample tail. Load and store FOUR,
@@ -293,9 +301,86 @@ static inline pixel mc_clip1(int v)
  *       (s + 2048) >> 12 <= 896, well under 65535. The pair therefore
  *       computes clip1((s + 2048) >> 12) exactly.
  */
+/* Four output rows by eight columns of the vertical pass, the taps a
+ * constant (phase 14 item 39). Eleven row loads serve four output rows
+ * where the two-row form takes nine for two, and with `fy` a constant at
+ * each instance the zero tap of the quarter positions drops out and the
+ * first tap is a multiply rather than an add to zero. The sum is the
+ * C's: int32 lanes, exact, and in any order (RANGE above). */
+#define MC_V_ATTR static inline __attribute__((always_inline))
+MC_V_ATTR void mc_v4x8(const int16_t *p, int hs, const int fy,
+                       int32x4_t a[8])
+{
+    const int16_t *f = mc_luma_filt[fy];
+    int16x8_t r[11];
+
+    for (int k = 0; k < 11; k++)
+        r[k] = vld1q_s16(p + (ptrdiff_t)(k - 3) * hs);
+    for (int o = 0; o < 4; o++) {
+        int32x4_t lo = vdupq_n_s32(0), hi = vdupq_n_s32(0);
+        int first = 1;
+
+        for (int k = 0; k < 8; k++) {
+            if (!f[k])
+                continue;
+            if (first) {
+                lo = vmull_n_s16(vget_low_s16(r[o + k]), f[k]);
+                hi = vmull_high_n_s16(r[o + k], f[k]);
+                first = 0;
+            } else {
+                lo = vmlal_n_s16(lo, vget_low_s16(r[o + k]), f[k]);
+                hi = vmlal_high_n_s16(hi, r[o + k], f[k]);
+            }
+        }
+        a[2 * o] = lo;
+        a[2 * o + 1] = hi;
+    }
+}
+
+/* the sample-side and 14-bit-side walks over w x h, both multiples of
+ * the block (8 and 4) - every luma PU shape but the 4- and 12-wide ones */
+MC_V_ATTR void mc_v_pix(pixel *dst, int ds, int w, int h, const int16_t *hf,
+                        int hs, const int fy)
+{
+    for (int y = 0; y < h; y += 4)
+        for (int x = 0; x < w; x += 8) {
+            int32x4_t a[8];
+            pixel *d = dst + (ptrdiff_t)y * ds + x;
+
+            mc_v4x8(hf + (ptrdiff_t)y * hs + x, hs, fy, a);
+            MC_ST8_V(d, a[0], a[1]);
+            MC_ST8_V(d + ds, a[2], a[3]);
+            MC_ST8_V(d + 2 * ds, a[4], a[5]);
+            MC_ST8_V(d + 3 * ds, a[6], a[7]);
+        }
+}
+
+MC_V_ATTR void mc_v_s16(int16_t *dst, int ds, int w, int h,
+                        const int16_t *hf, int hs, const int fy)
+{
+    for (int y = 0; y < h; y += 4)
+        for (int x = 0; x < w; x += 8) {
+            int32x4_t a[8];
+            int16_t *d = dst + (ptrdiff_t)y * ds + x;
+
+            mc_v4x8(hf + (ptrdiff_t)y * hs + x, hs, fy, a);
+            vst1q_s16(d, MC_NARROW_S16(a[0], a[1]));
+            vst1q_s16(d + ds, MC_NARROW_S16(a[2], a[3]));
+            vst1q_s16(d + 2 * ds, MC_NARROW_S16(a[4], a[5]));
+            vst1q_s16(d + 3 * ds, MC_NARROW_S16(a[6], a[7]));
+        }
+}
+
 void n265_mc_luma_hf_neon(pixel *dst, int ds, int w, int h,
                           const int16_t *hf, int hs, int fy)
 {
+    if (fy && !(w & 7) && !(h & 3)) {
+        switch (fy) {
+        case 1:  mc_v_pix(dst, ds, w, h, hf, hs, 1); return;
+        case 2:  mc_v_pix(dst, ds, w, h, hf, hs, 2); return;
+        default: mc_v_pix(dst, ds, w, h, hf, hs, 3); return;
+        }
+    }
     if (!fy) {
         /* Sixteen at a time, not eight. The body is three instructions
          * per eight samples, so at eight the loop's own increment and
@@ -430,6 +515,13 @@ void n265_mc_luma_hf_neon(pixel *dst, int ds, int w, int h,
 void n265_mc_luma_14_hf_neon(int16_t *dst, int ds, int w, int h,
                              const int16_t *hf, int hs, int fy)
 {
+    if (fy && !(w & 7) && !(h & 3)) {
+        switch (fy) {
+        case 1:  mc_v_s16(dst, ds, w, h, hf, hs, 1); return;
+        case 2:  mc_v_s16(dst, ds, w, h, hf, hs, 2); return;
+        default: mc_v_s16(dst, ds, w, h, hf, hs, 3); return;
+        }
+    }
     if (!fy) {
         /* An explicit vector copy, not memcpy per row: at w = 8 the call
          * is not inlined and the copy arm loses to the C outright. */

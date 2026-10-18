@@ -25,7 +25,9 @@
 #ifndef N265_PIXEL_H
 #define N265_PIXEL_H
 
+#include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "yah265.h"     /* n265_pixel: the same choice, public side */
 
@@ -83,6 +85,25 @@ typedef n265_pixel pixel;
 static inline int n265_qp_clip(int q)
 {
     return q < N265_QP_MIN ? N265_QP_MIN : q > N265_QP_MAX ? N265_QP_MAX : q;
+}
+
+/* A short copy whose length is a run-time value but almost always one of
+ * a handful of powers of two: a row of a block, a row of a map. memcpy
+ * of a run-time length is a libc call; each case below is a memcpy of a
+ * CONSTANT length, which the compiler emits as a few loads and stores.
+ * Same bytes either way (phase 14 item 39). */
+static inline void n265_cpy(void *d, const void *s, size_t bytes)
+{
+    switch (bytes) {
+    case 2:   memcpy(d, s, 2); break;
+    case 4:   memcpy(d, s, 4); break;
+    case 8:   memcpy(d, s, 8); break;
+    case 16:  memcpy(d, s, 16); break;
+    case 32:  memcpy(d, s, 32); break;
+    case 64:  memcpy(d, s, 64); break;
+    case 128: memcpy(d, s, 128); break;
+    default:  memcpy(d, s, bytes); break;
+    }
 }
 
 #endif /* N265_PIXEL_H */
