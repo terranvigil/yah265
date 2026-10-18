@@ -199,17 +199,28 @@ void n265_intra_refs_g(pixel *refs, const pixel *recon, int stride,
     uint64_t cur = zkey(x0, y0, z);
     int nt = 0, nl = 0, cav = 0, corner = 0, seed;
 
+    /* The first n of each run need no search (phase 14 item 39): the TB
+     * is an aligned n x n square, and the aligned square directly above
+     * it (or to its left) comes earlier in z-scan order - inside one CTB
+     * by the quadtree, and across a CTB edge by the raster above it. Only
+     * the above-right and below-left halves are searched. 4:2:2's mapped
+     * geometry is not a square z-scan, and a block wider than the CTB is
+     * not one square of it, so both search the whole run. */
+    int known = ((z->shx | z->shy) || log2n > z->ctb_log2) ? 0 : n;
+
     if (y0 > 0) {
-        int lim = pic_w - x0;
+        int lim = pic_w - x0, k;
         if (lim > 2 * n)
             lim = 2 * n;
-        nt = avail_prefix_x(x0, y0 - 1, lim, cur, z);
+        k = known < lim ? known : lim;
+        nt = k + avail_prefix_x(x0 + k, y0 - 1, lim - k, cur, z);
     }
     if (x0 > 0) {
-        int lim = pic_h - y0;
+        int lim = pic_h - y0, k;
         if (lim > 2 * n)
             lim = 2 * n;
-        nl = avail_prefix_y(x0 - 1, y0, lim, cur, z);
+        k = known < lim ? known : lim;
+        nl = k + avail_prefix_y(x0 - 1, y0 + k, lim - k, cur, z);
         if (y0 > 0 && zkey(x0 - 1, y0 - 1, z) < cur) {
             cav = 1;
             corner = recon[(size_t)(y0 - 1) * stride + x0 - 1];
