@@ -11,15 +11,26 @@
 
 static inline int abs_int(int v) { return v < 0 ? -v : v; }
 
+/* bits 0..7 of v to the even bit positions 0..14 */
+static inline uint32_t spread_bits8(uint32_t v)
+{
+    v &= 0xffu;
+    v = (v | (v << 4)) & 0x0f0fu;
+    v = (v | (v << 2)) & 0x3333u;
+    v = (v | (v << 1)) & 0x5555u;
+    return v;
+}
+
 uint64_t n265_zorder(int x, int y, int pic_w, int ctb_log2)
 {
     int ctb_cols = (pic_w + (1 << ctb_log2) - 1) >> ctb_log2;
     int cx = x >> ctb_log2, cy = y >> ctb_log2;
     uint32_t rx = (uint32_t)(x & ((1 << ctb_log2) - 1)) >> 2;
     uint32_t ry = (uint32_t)(y & ((1 << ctb_log2) - 1)) >> 2;
-    uint32_t z = 0;
-    for (int b = 0; b < ctb_log2 - 2; b++)
-        z |= ((rx >> b) & 1u) << (2 * b) | ((ry >> b) & 1u) << (2 * b + 1);
+    /* rx and ry are under 2^(ctb_log2 - 2), at most 16 (CTB 64), so the
+     * interleave is a fixed bit spread rather than a loop over the bits:
+     * the same key, without the loop on every availability probe */
+    uint32_t z = spread_bits8(rx) | (spread_bits8(ry) << 1);
     return ((uint64_t)(cy * ctb_cols + cx) << (2 * (ctb_log2 - 2))) | z;
 }
 
