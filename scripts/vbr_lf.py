@@ -9,7 +9,7 @@ sibling for the real titles, where a point is too big to cache as a
 bitstream: every point is encoded, measured and deleted, and only its
 numbers are kept (a memo, keyed by the full command and the binary).
 
-VBR, the shape (docs/parity-plan.md item 4). Both encoders get the same
+VBR, the shape (docs/parity-plan-matrix.md item 4). Both encoders get the same
 --bitrate k and the same buffer, --vbv-maxrate MAXR*k and --vbv-bufsize
 BUFR*k (1.5x and 2x by default). The ladder is five rates per segment
 cell, x265 medium's own CRF 20/23/26/29/32 bytes from the matrix

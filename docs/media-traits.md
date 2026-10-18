@@ -21,7 +21,7 @@ before the reading, not found after it.
 | segment | `~/media/throughput` (the matrix's nine cells) | each cell's own size |
 | probe | `~/media/probe` windows | sliced out of their segment's series (they're byte cuts of it) |
 | tier S | `<media>/tier_s` (the shared twelve) | each clip's own size |
-| long-form | the 600 s excerpts in `vbr_lf.py`'s table (docs/parity-plan.md) | 1080p geometry, through the long-form feeder |
+| long-form | the 600 s excerpts in `vbr_lf.py`'s table (docs/parity-plan-matrix.md) | 1080p geometry, through the long-form feeder |
 | corpus | `tests/corpus` (the seventeen) | each clip's own size |
 
 A long-form excerpt is read at 1080p only. Its lead and trail runs, cuts,
