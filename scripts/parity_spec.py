@@ -45,7 +45,9 @@ half in a night block:
 
 Selection: --tier S|M (default S), --goals 3,2,1, --classes CIF,720p,...,
 --cells foreman,bus (titles). Environment: N265 (default build-rel/n265),
-X265 (default x265 on PATH), SOLVE_THREADS, LOADMAX (3.0, the quiet bar),
+X265 (default x265 on PATH), SOLVE_THREADS, QUIET_MAX (150, the quiet bar
+in per-core percent of total box CPU, three 10 s windows; --loadavg falls
+back to the one-minute load against LOADMAX, 3.0),
 FEED_MARGIN (1.5, the spec's: the feeder alone must deliver at least
 this many times the faster encoder's fps, or the cell is FEEDER-BOUND and
 its ratio void; the same test decides whether a cell is timed at all).
@@ -70,6 +72,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 import bd_at_rate as bdr                                  # noqa: E402
 import bdcompare as bd                                    # noqa: E402
+import boxlib                                             # noqa: E402
 
 bd.SUBSAMPLE = 1                     # every frame, per the spec
 
@@ -88,6 +91,7 @@ REF_CRF = 28                         # x265 --help: "Default 28.0"
 # 2 + VMAF_THREADS=1 is three cores, one process at a time.
 SOLVE_THREADS = int(os.environ.get("SOLVE_THREADS", "2"))
 LOADMAX = float(os.environ.get("LOADMAX", "3.0"))
+LOADAVG = False                      # --loadavg: the old quiet check
 FEED_MARGIN = float(os.environ.get("FEED_MARGIN", "1.5"))
 TOL = 1.0                            # the spec's size bar, percent
 AIM = 0.5                            # what the fractional solve aims for
@@ -474,6 +478,7 @@ def do_solve(args):
         anchors.append("def")
     if 1 in goals:
         anchors.append("ft1")
+    boxlib.wait_untimed("parity_spec.py --solve")
     ensure_local_s(cells)
     shim_ffmpeg(SOLVE_THREADS)
     os.environ.setdefault("VMAF_THREADS", str(SOLVE_THREADS))
@@ -554,10 +559,24 @@ def load1():
 
 
 def wait_quiet(limit=300):
+    """(quiet, what was read). Total box CPU by default (owner rule:
+    quiet is judged on total CPU, not load average), retried until
+    `limit` seconds have passed; --loadavg reads the one-minute load
+    against LOADMAX the way this script did before."""
     t0 = time.time()
-    while load1() > LOADMAX and time.time() - t0 < limit:
-        time.sleep(10)
-    return load1()
+    if LOADAVG:
+        while load1() > LOADMAX and time.time() - t0 < limit:
+            time.sleep(10)
+        ld = load1()
+        return ld <= LOADMAX, (f"load {ld:.2f}", f"load {ld:.1f} (over "
+                                                f"{LOADMAX})")
+    while True:
+        ok, smp = boxlib.quiet()
+        if ok or time.time() - t0 >= limit:
+            break
+    return ok, (boxlib.fmt_quiet(ok, smp),
+                f"box CPU {max(smp or [0]):.0f}% (over "
+                f"{boxlib.QUIET_MAX:.0f}%)")
 
 
 def feed_fps(src, frames):
@@ -657,14 +676,14 @@ def do_time(args):
                          f"re-run --solve")
             if pts[k]["src_bytes"] != os.path.getsize(src_of(c)):
                 sys.exit(f"parity_spec.py: {src_of(c)} changed size")
-    # the quiet check is made ONCE, before the first run: the one-minute
-    # load after an all-core encode is our own, so a per-run check would
-    # read our previous arm and stall the block
-    start_load = wait_quiet()
-    quiet = start_load <= LOADMAX
+    # the quiet check is made ONCE, before the first run: the box CPU
+    # during the block is our own arms, so a per-run check would read our
+    # previous arm and stall the block
+    quiet, (qline, qnote) = wait_quiet()
     print(f"timed: {len(cells)} cells, goals {goals}, commit {cm}, "
-          f"x265 {ver}, load {start_load:.2f}"
-          f"{'' if quiet else ' (NOT QUIET)'}", flush=True)
+          f"x265 {ver}, {qline}", flush=True)
+    lock = boxlib.timing_lock("parity_spec.py --time")
+    lock.__enter__()
 
     feed = {}
     for c in cells:
@@ -789,8 +808,7 @@ def do_time(args):
                              f"void")
             if loud[ck]:
                 flags.append("not-quiet")
-                notes.append(f"load {start_load:.1f} (over {LOADMAX}) "
-                             f"when the block started")
+                notes.append(f"{qnote} when the block started")
             fok = (pt.get("ours_supp", {}).get("frames_ok")
                    and pt.get("ref_supp", {}).get("frames_ok"))
             if not fok:
@@ -849,6 +867,7 @@ def do_time(args):
                   f"x265 {f2(mr)} s  dsize {ds:+.2f}%  "
                   f"valid {rows[-1]['valid']}", flush=True)
         append_csv(CSV_PATH, COLUMNS, rows)
+    lock.__exit__(None, None, None)
     write_report(today)
 
 
@@ -1248,9 +1267,13 @@ def main():
                          "after it is not started")
     ap.add_argument("--date", default=datetime.date.today().isoformat(),
                     help="--report: the report's date")
+    ap.add_argument("--loadavg", action="store_true",
+                    help="--time: judge quiet on the one-minute load "
+                         "(LOADMAX) instead of total box CPU")
     args = ap.parse_args()
-    global PLAIN_VMAF
+    global PLAIN_VMAF, LOADAVG
     PLAIN_VMAF = args.plain_vmaf
+    LOADAVG = args.loadavg
     if args.solve:
         do_solve(args)
     elif args.time:
