@@ -130,6 +130,8 @@ int n265_la_init(struct n265_encoder *e)
     la->f = calloc((size_t)la->cap, sizeof(la_frame));
     if (!la->f)
         return -1;
+    la->sc_rn = 0;
+    la->sc_last_ic = -1;
     for (int i = 0; i < la->cap; i++) {
         la_frame *f = &la->f[i];
         for (int c = 0; c < 3; c++) {
@@ -475,6 +477,64 @@ static double sc_failw_spike(void)
     return v;
 }
 
+/* N265_SC_JUMP (default 0.10; 0 is the detector before it) and
+ * N265_SC_FLOOR (an arm, off), phase 14 item 35, ported from yah264.
+ * A cut must also be a JUMP: its ratio at least SC_JUMP above the
+ * largest of the three frames pushed before it, or its unpredictable
+ * share (1 - ratio) at most half of theirs. The max over three is for a
+ * pulldown cadence, where every other frame repeats and reads near zero.
+ *
+ * Our detector has no threshold that falls with the GOP's age, which is
+ * what admitted yah264's false cuts; ours cuts on a fixed bar (0.75) and
+ * a spike over a running level (N265_SC_SPIKE). It places no cut on
+ * sunflower or on chimera 2160p's first 300 frames. The spike still
+ * admits one false cut in a 24p-in-60p cadence: Meridian display 434
+ * reads 0.75 after 0.08 / 0.67 / 0.08, a car crossing the street with no
+ * change of shot, and the EMA averages the cadence's zeros into a level
+ * the 0.75 clears 1.8x over. The jump test takes it out (BD-VMAF-NEG
+ * -5.36% on the 120-frame window around it) and moves nothing else on
+ * the corpus, the multi-shot sequences or the tier S clips.
+ *
+ * SC_FLOOR is a minimum ratio, unless the frame's intra cost is over
+ * twice its predecessor's (a scene rising out of black). It is refused:
+ * our ratio is our own pcost/icost, and our real cuts read from 0.76
+ * (sintel display 14) up past 3, so any floor that would add a guard
+ * over the 0.75 bar removes a real cut. */
+static double sc_jump(void)
+{
+    static double v = -1.0;
+    if (v < 0.0) { const char *e = n265_env("N265_SC_JUMP"); v = e ? atof(e) : 0.10; if (v < 0.0) v = 0.0; }
+    return v;
+}
+
+static double sc_floor(void)
+{
+    static double v = -1.0;
+    if (v < 0.0) { const char *e = n265_env("N265_SC_FLOOR"); v = e ? atof(e) : 0.0; if (v < 0.0) v = 0.0; }
+    return v;
+}
+
+/* 1 when a cut candidate passes both guards (or both are off) */
+static int sc_jump_ok(const la_frame *f)
+{
+    double r = (double)f->sc_ratio;
+    double fl = sc_floor();
+    if (fl > 0.0 && r < fl && f->sc_prev_ic >= 0 &&
+        2 * f->sc_prev_ic >= (int64_t)f->icost_sum)
+        return 0;
+    double j = sc_jump();
+    if (j <= 0.0 || f->sc_rn <= 0)
+        return 1;
+    double m = (double)f->sc_rprev[0];
+    for (int k = 1; k < f->sc_rn; k++)
+        if ((double)f->sc_rprev[k] > m)
+            m = (double)f->sc_rprev[k];
+    /* or the unpredictable share at most half of theirs: a real cut out
+     * of content already near intra cannot climb far, but its headroom
+     * collapses */
+    return r - m >= j || 1.0 - m >= 2.0 * (1.0 - r);
+}
+
 /* N265_SC_FORCE (instrument): a comma-separated list of DISPLAY indices the
  * detector must call a cut at, whatever it reads. It exists so a frame type
  * can be moved on its own, with nothing else in the encoder changed, which
@@ -639,6 +699,8 @@ void n265_la_warm(void)
     (void)sc_spike();
     (void)sc_failw_bar();
     (void)sc_failw_spike();
+    (void)sc_jump();
+    (void)sc_floor();
     (void)n265_flat_gate();
     log2q16_init();
     (void)brun_logT_q16(32);
@@ -1075,6 +1137,18 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
                                          (double)f->icost_sum) : 0.0f;
     f->sc_ema = la->sc_ema;
     f->failw_lvl = la->failw_ema;
+    for (int k = 0; k < 3; k++)
+        f->sc_rprev[k] = la->sc_rhist[k];
+    f->sc_rn = la->sc_rn;
+    f->sc_prev_ic = la->sc_last_ic;
+    if (f->display_idx > 0 && f->icost_sum > 0) {
+        la->sc_rhist[2] = la->sc_rhist[1];
+        la->sc_rhist[1] = la->sc_rhist[0];
+        la->sc_rhist[0] = f->sc_ratio;
+        if (la->sc_rn < 3)
+            la->sc_rn++;
+    }
+    la->sc_last_ic = (int64_t)f->icost_sum;
     int nblk = la->bw * la->bh;
     int held = sc_hold() && f->pcost_sum < (uint64_t)nblk * 17;
     if (!held) {
@@ -1135,6 +1209,8 @@ int n265_la_scenecut(struct n265_encoder *e, int i)
         (f->failw_lvl == 0.0f ||
          (double)f->sc_failw >= sc_failw_spike() * (double)f->failw_lvl))
         cut = 1;
+    if (cut && !sc_jump_ok(f))
+        cut = 0;
     if (!cut && sc_forced(f->display_idx))
         cut = 1;
     if (n265_env("N265_SC_TRACE"))

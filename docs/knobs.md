@@ -6,20 +6,20 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 
 In the default column, **presence** means the reader is a boolean: unset is off and any value arms it. **unset** means the value names a file or a string and unset is off. `= N265_X` means the default is another knob's resolved value.
 
-## default (54)
+## default (55)
 
 | knob | default | reader |
 |---|---|---|
 | `N265_ABR_SB` | 1.7 | src/encoder/rc.c:243 |
 | `N265_ABR_SBR` | 4.0 | src/encoder/rc.c:242 |
 | `N265_ABR_SP` | 13.3 | src/encoder/rc.c:241 |
-| `N265_BADAPT_MVCAP` | 4 | src/encoder/la.c:341 |
-| `N265_BADAPT_MVGATE` | 20 | src/encoder/la.c:376 |
+| `N265_BADAPT_MVCAP` | 4 | src/encoder/la.c:343 |
+| `N265_BADAPT_MVGATE` | 20 | src/encoder/la.c:378 |
 | `N265_CLAIM_PRIO` | 1 | src/encoder/encoder.c:5999 |
 | `N265_CRF_DC_MEM` | 1000.0 | src/encoder/encoder.c:1602 |
 | `N265_CRF_DUR` | 0.3 | src/encoder/encoder.c:1572 |
 | `N265_CRF_DUR_FPS` | 25.0 | src/encoder/encoder.c:1573 |
-| `N265_CT_MVRATE` | 16 | src/encoder/la.c:417 |
+| `N265_CT_MVRATE` | 16 | src/encoder/la.c:419 |
 | `N265_FGC_CHROMA` | 1 | src/encoder/grain.c:133 |
 | `N265_FGC_CORE` | 1.0 | src/encoder/grain.c:143 |
 | `N265_FGC_FRAMES` | 1 | src/encoder/grain.c:121 |
@@ -49,9 +49,10 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_RDOQ` | 1 | src/encoder/encoder.c:1818 |
 | `N265_RDOQ_UP` | 1 | src/encoder/rdoq.c:288 |
 | `N265_ROW_YIELD` | 5000 where 2 * min(rows, (cols + 1) / 2) > threads > 1, else 0 | src/encoder/encoder.c:2714 |
-| `N265_SC_FAILW` | 0.40 | src/encoder/la.c:457 |
-| `N265_SC_FAILW_SPIKE` | 1.6 | src/encoder/la.c:474 |
-| `N265_SC_SPIKE` | 1.8 | src/encoder/la.c:530 |
+| `N265_SC_FAILW` | 0.40 | src/encoder/la.c:459 |
+| `N265_SC_FAILW_SPIKE` | 1.6 | src/encoder/la.c:476 |
+| `N265_SC_JUMP` | 0.10 | src/encoder/la.c:506 |
+| `N265_SC_SPIKE` | 1.8 | src/encoder/la.c:590 |
 | `N265_TREE_K` | 12 | src/encoder/encoder.c:2656 |
 | `N265_TREE_SLOTS` | K - 6 (with the switched HD or UHD tree only) | src/encoder/encoder.c:2721 |
 | `N265_VBR_LAG` | 7 (VBR, threads > 1) | src/encoder/encoder.c:2675 |
@@ -114,10 +115,10 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_ASM_OFF` | unset | src/common/cpu.c:110 |
 | `N265_BADAPT_REFW` | 128.0 | src/encoder/encoder.c:7416 |
 | `N265_BADAPT_THR` | 0.35 | src/encoder/encoder.c:7415 |
-| `N265_BADAPT_TRACE` | presence | src/encoder/la.c:1295 |
+| `N265_BADAPT_TRACE` | presence | src/encoder/la.c:1371 |
 | `N265_BI_GATE` | 4 | src/encoder/ctu.c:3238 |
 | `N265_BI_REFINE` | 0 | src/encoder/ctu.c:3190 |
-| `N265_BRUN_TRACE` | presence | src/encoder/la.c:566 |
+| `N265_BRUN_TRACE` | presence | src/encoder/la.c:626 |
 | `N265_B_INTRA_MARGIN` | 30 | src/encoder/ctu.c:3172 |
 | `N265_CB64_AMVP` | 0 | src/encoder/ctu.c:3157 |
 | `N265_CB64_GATE` | 1 | src/encoder/ctu.c:3139 |
@@ -134,15 +135,15 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_CRF_DC_ANCHOR` | 3 | src/encoder/encoder.c:1598 |
 | `N265_CRF_DC_WIN` | 12.0 | src/encoder/encoder.c:1604 |
 | `N265_CRF_SHIFT` | 5.4 | src/encoder/encoder.c:4738 |
-| `N265_CT_CENTRE` | 0 | src/encoder/la.c:1697 |
+| `N265_CT_CENTRE` | 0 | src/encoder/la.c:1773 |
 | `N265_CT_FRAMEW` | 1.0 | src/encoder/encoder.c:1622 |
 | `N265_CT_FRAMEW_FLAT` | = N265_CT_QPW | src/encoder/encoder.c:1626 |
 | `N265_CT_FRAME_CLAMP` | 0 | src/encoder/encoder.c:1630 |
-| `N265_CT_FRAME_LEVEL` | 1 | src/encoder/la.c:1746 |
+| `N265_CT_FRAME_LEVEL` | 1 | src/encoder/la.c:1822 |
 | `N265_CT_FRAME_SHOT` | 0 | src/encoder/encoder.c:1632 |
 | `N265_CT_FRAME_UP` | 0 | src/encoder/encoder.c:1640 |
 | `N265_CT_QPW` | 2.0 | src/encoder/encoder.c:1614 |
-| `N265_CT_TRACE` | presence | src/encoder/la.c:1844 |
+| `N265_CT_TRACE` | presence | src/encoder/la.c:1920 |
 | `N265_CT_UP_GATE` | 0.24 | src/encoder/encoder.c:1658 |
 | `N265_CUTREE_STR` | 2.0 | src/encoder/encoder.c:1613 |
 | `N265_CU_STATS` | presence | src/encoder/encoder.c:1784 |
@@ -156,10 +157,10 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_DEPTH_DUMP` | unset | src/encoder/encoder.c:1301 |
 | `N265_DPB_HOLD` | 0 | src/encoder/encoder.c:772 |
 | `N265_DPB_TRACE` | presence | src/encoder/encoder.c:1762 |
-| `N265_DUP_FAST` | 0 | src/encoder/la.c:576 |
-| `N265_DUP_THR` | 0.0 | src/encoder/la.c:614 |
-| `N265_DUP_TRACE` | presence | src/encoder/la.c:586 |
-| `N265_ES_THR` | 100 | src/encoder/la.c:1418 |
+| `N265_DUP_FAST` | 0 | src/encoder/la.c:636 |
+| `N265_DUP_THR` | 0.0 | src/encoder/la.c:674 |
+| `N265_DUP_TRACE` | presence | src/encoder/la.c:646 |
+| `N265_ES_THR` | 100 | src/encoder/la.c:1494 |
 | `N265_FGC_TRACE` | presence | src/encoder/grain.c:192 |
 | `N265_FLAT_GATE` | 10 | src/encoder/la.c:102 |
 | `N265_FLAT_TRACE` | presence | src/encoder/encoder.c:5440 |
@@ -185,8 +186,8 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_INTRA_TRY_TRACE` | presence | src/encoder/ctu.c:1389 |
 | `N265_INTRA_WIN_TRACE` | presence | src/encoder/encoder.c:1789 |
 | `N265_I_INTRA` | 0 | src/encoder/ctu.c:4142 |
-| `N265_LA_MEPRED` | 1 | src/encoder/la.c:551 |
-| `N265_LA_MVSTAT` | presence | src/encoder/la.c:991 |
+| `N265_LA_MEPRED` | 1 | src/encoder/la.c:611 |
+| `N265_LA_MVSTAT` | presence | src/encoder/la.c:1053 |
 | `N265_LA_PROF` | presence | src/encoder/encoder.c:2829 |
 | `N265_LEVEL_TRACE` | presence | src/encoder/encoder.c:2564 |
 | `N265_MAX_FRAME_WORK` | 6 with --bframes >= 2, else 4 | src/encoder/encoder.c:2588 |
@@ -236,9 +237,9 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_SAO_TYPES` | 0 | src/encoder/sao.c:272 |
 | `N265_SATD8` | 0 | src/encoder/satd.c:134 |
 | `N265_SBH_RD` | 2 | src/encoder/rdoq.c:279 |
-| `N265_SC_FORCE` | ? | src/encoder/la.c:485 |
-| `N265_SC_HOLD` | 1 | src/encoder/la.c:241 |
-| `N265_SC_TRACE` | presence | src/encoder/la.c:1140 |
+| `N265_SC_FORCE` | ? | src/encoder/la.c:545 |
+| `N265_SC_HOLD` | 1 | src/encoder/la.c:243 |
+| `N265_SC_TRACE` | presence | src/encoder/la.c:1216 |
 | `N265_SERIAL_PROF` | 0 | src/encoder/encoder.c:2826 |
 | `N265_SHOT_STATS` | unset | src/encoder/encoder.c:1808 |
 | `N265_SHOT_TRACE` | presence | src/encoder/encoder.c:7284 |
@@ -270,7 +271,7 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_WP_TRACE` | 0 | src/encoder/wp.c:51 |
 | `N265_WP_WIN` | 40 | src/encoder/wp.c:101 |
 
-## arm (54)
+## arm (55)
 
 | knob | default | reader |
 |---|---|---|
@@ -304,6 +305,7 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_RUNG_GATE` | -2 | src/encoder/mv.c:745 |
 | `N265_RUNG_RERANK` | 0 | src/encoder/mv.c:761 |
 | `N265_SC_CONJ` | 3 | src/encoder/ctu.c:1737 |
+| `N265_SC_FLOOR` | 0.0 | src/encoder/la.c:513 |
 | `N265_SHOT_CLAMP` | 2.0 | src/encoder/encoder.c:1979 |
 | `N265_SHOT_EMA` | 0.5 | src/encoder/encoder.c:1984 |
 | `N265_SHOT_K` | 1.0 | src/encoder/encoder.c:1978 |
