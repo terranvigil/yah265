@@ -144,6 +144,7 @@ void n265_satd_warm(void)
  * going through the dispatch below - otherwise the bench's middle column
  * would be the NEON a second time and the multiple it prints would be 1.
  * Not a path any encoder call site takes directly. */
+__attribute__((noinline))
 uint32_t n265_satd_wh_c(const pixel *a, int a_stride, const pixel *b,
                         int b_stride, int w, int h)
 {
@@ -209,6 +210,9 @@ uint32_t n265_satd(const pixel *a, int a_stride, const pixel *b,
  * NEON is dispatched.
  */
 
+/* out of line, as n265_satd_wh_c: inlined into its dispatcher it made the
+ * NEON path pay the C loop's register saves on every call (item 39) */
+__attribute__((noinline))
 uint32_t n265_sad_wh_c(const pixel *a, int as, const pixel *b, int bs,
                        int w, int h)
 {
@@ -231,6 +235,7 @@ uint32_t n265_sad_wh(const pixel *a, int as, const pixel *b, int bs,
     return n265_sad_wh_c(a, as, b, bs, w, h);
 }
 
+__attribute__((noinline))
 uint64_t n265_ssd_wh_c(const pixel *a, int as, const pixel *b, int bs,
                        int w, int h)
 {

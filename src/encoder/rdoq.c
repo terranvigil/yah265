@@ -72,7 +72,10 @@ static uint8_t sig_dc_c[3];     /* the scan step that is (0, 0) */
 /* a scan step's offset from the corner of its sub-block, [scan][log2n-2][c] */
 static uint8_t scan_off[3][4][16];
 
-static void probe_parseval(void)
+/* out of line: inlined, its 4 KB of arrays sat in n265_rdoq_init's frame,
+ * which every lattice call enters, and the stack probe ran each time
+ * (phase 14 item 39) */
+static __attribute__((noinline)) void probe_parseval(void)
 {
     /* A fixed pseudo-random residual block per size; the ratio of squared
      * coefficient energy to squared residual energy is the transform's
