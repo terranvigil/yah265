@@ -145,7 +145,8 @@ DEFAULT_OVERRIDES = {
     "N265_2P_QCOMP": "= N265_ABR_QCOMP",  # `double qcomp = e->rc.qcomp;`
     # phase 14 item 29: the VBR profile. Under --bitrate with a VBV the two
     # take their own defaults; plain ABR keeps the old ones.
-    "N265_ABR_FBUP": "= N265_ABR_FBMAX under capped VBR (item 37), 1.5 under another VBV, else = N265_ABR_FBMAX",
+    "N265_ABR_FBUP": "= N265_VBR_FBUP under capped VBR (item 37), 1.5 under another VBV, else = N265_ABR_FBMAX",
+    "N265_VBR_FBUP": "= N265_ABR_FBMAX (capped VBR only)",
     "N265_ABR_IOFF_CT": "1.0 under a VBV without N265_VBR_CTKEEP, else 0",
     # phase 14 item 37: capped VBR (maxrate above the target, not
     # --strict-cbr) rides the CRF path with a slow level
@@ -181,6 +182,7 @@ OVERRIDES = {
     # post-intra lag-0 rule is an arm, off.
     "N265_VBR_FBW": "default", "N265_VBR_OVW": "default",
     "N265_VBR_CTKEEP": "default", "N265_VBV_OWN": "default",
+    "N265_VBR_FBUP": "default",
     # phase 14 item 30: shipped by medium's table (compiled-in 0, so the
     # other presets don't move); the env is the escape.
     "N265_MERGE_PICK_RATE": "default",

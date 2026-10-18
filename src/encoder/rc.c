@@ -212,8 +212,9 @@ void n265_rc_open(struct n265_encoder *e)
      * 120-frame clip 1.5 QP was too little to bring the opening's
      * overspend back (median rate error on the seventeen corpus clips at
      * 1.5x / 2 s: 5.3% at 1.5, 3.1% at 6; main 6.7%) */
-    rc->fbup = abr_tunable("N265_ABR_FBUP", cvbr ? rc->fbmax
-                                           : vbr ? 1.5 : rc->fbmax);
+    rc->fbup = abr_tunable("N265_ABR_FBUP",
+                           cvbr ? abr_tunable("N265_VBR_FBUP", rc->fbmax)
+                                : vbr ? 1.5 : rc->fbmax);
     rc->planerr = (int)abr_tunable("N265_ABR_PLANERR", 0);
     /* Phase 14 item 37: capped VBR rides the CRF path with a slow level.
      * Four changes, on together by default where the cap is above the
@@ -230,14 +231,15 @@ void n265_rc_open(struct n265_encoder *e)
      *   N265_VBV_OWN 3     the clamp plans the frame and its window at each
      *                      class's own scale, and guards the frame alone
      *                      at the pessimistic one against the fill
-     *   N265_ABR_FBUP 6    (above) the item 29 rail back to the fine one
+     *   N265_VBR_FBUP 6    (above) the item 29 rail back to the fine one;
+     *                      N265_ABR_FBUP, when set, still wins
      *
      * On the dev set's VBR cells (docs/phase14.md, item 37) they read
      * -7.8% / -11.2% / -2.2% BD-VMAF-NEG against main on chimera 720p's
      * two-minute segment, meridian 2160p and sollevante 1080p.
      * `N265_VBR_FBW=0 N265_VBR_OVW=0 N265_VBR_CTKEEP=0 N265_VBV_OWN=0
-     * N265_ABR_FBUP=1.5` is main byte for byte. Plain ABR, CRF, capped CRF and CQP never read
-     * them. */
+     * N265_VBR_FBUP=1.5` is main byte for byte. Plain ABR, a VBV with
+     * maxrate at the target, CRF, capped CRF and CQP never read them. */
     rc->fps = fps;
     rc->fbw = vbr ? abr_tunable("N265_VBR_FBW", cvbr ? 2.0 : 0.0) : 0.0;
     rc->fbt0 = abr_tunable("N265_VBR_FBT0", 2.0);
