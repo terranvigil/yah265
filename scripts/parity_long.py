@@ -68,6 +68,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 import bdcompare as bd                                    # noqa: E402
 import bd_at_rate as bdr                                  # noqa: E402
+import boxlib                                             # noqa: E402
 import media_traits as mt                                 # noqa: E402
 
 
@@ -229,9 +230,16 @@ def full_geom(title, size):
     return w, even(w * nh / nw)
 
 
+def cname(title, cls):
+    """foreman_cif, tears_720p; a tier S title that names its size already
+    (bbb_2160p) keeps it once."""
+    sz = cls.lower() if cls == "CIF" else cls
+    return title if title.endswith("_" + sz) else f"{title}_{sz}"
+
+
 def _mk(tier, cls, title, size, **kw):
     c = dict(tier=tier, cls=cls, title=title, size=size,
-             key=f"{tier}/{cls}/{title}", name=f"{title}_{size}")
+             key=f"{tier}/{cls}/{title}", name=cname(title, cls))
     c.update(kw)
     return c
 
@@ -488,43 +496,31 @@ def timed_cmd(arm, goal, mode, q, out):
             arm_env(arm, pure_c))
 
 
-# macOS /usr/bin/time -l: three times on one line, then the rusage block;
-# "instructions retired" is printed on Apple silicon and is kept when there
-TIME_RE = {"real": re.compile(r"([\d.]+)\s+real\b"),
-           "user": re.compile(r"([\d.]+)\s+user\b"),
-           "sys": re.compile(r"([\d.]+)\s+sys\b"),
-           "maxrss": re.compile(r"(\d+)\s+maximum resident set size"),
-           "instr": re.compile(r"(\d+)\s+instructions retired")}
-
-
-def parse_time(rep):
-    got = {}
-    for k, rx in TIME_RE.items():
-        m = rx.search(rep)
-        got[k] = float(m.group(1)) if m else None
-    if got["real"] is None:
-        sys.exit("parity_long: /usr/bin/time -l printed no wall:\n"
-                 + rep[-400:])
-    return got
-
-
 def pipe_run(feed, enc, env, timed=False):
-    """feeder | encoder. A feeder failure is fatal even when the encoder
-    succeeded: an encoder fed a short stream reports a flattering wall."""
+    """feeder | encoder. Timed, the encoder runs under boxlib.measure (its
+    wall, CPU, instructions retired and peak RSS). A feeder failure is
+    fatal even when the encoder succeeded: an encoder fed a short stream
+    reports a flattering wall."""
     ferr = tempfile.TemporaryFile()
+    eerr = tempfile.TemporaryFile()
     t0 = time.monotonic()
     fp = subprocess.Popen(feed, stdout=subprocess.PIPE, stderr=ferr)
-    ep = subprocess.Popen((["/usr/bin/time", "-l"] if timed else []) + enc,
-                          stdin=fp.stdout, stdout=subprocess.DEVNULL,
-                          stderr=subprocess.PIPE, env=env)
-    fp.stdout.close()
-    _, eerr = ep.communicate()
+    if timed:
+        cost = boxlib.measure(enc, env=env, stdin=fp.stdout, stderr=eerr)
+        rc = cost["rc"]
+        fp.stdout.close()
+    else:
+        ep = subprocess.Popen(enc, stdin=fp.stdout, stdout=subprocess.DEVNULL,
+                              stderr=eerr, env=env)
+        fp.stdout.close()
+        rc = ep.wait()
     frc = fp.wait()
     wall = time.monotonic() - t0
-    etxt = eerr.decode(errors="replace")
-    if ep.returncode != 0:
+    eerr.seek(0)
+    etxt = eerr.read().decode(errors="replace")
+    if rc != 0:
         ferr.seek(0)
-        sys.exit(f"parity_long: encode failed ({ep.returncode}): "
+        sys.exit(f"parity_long: encode failed ({rc}): "
                  f"{shlex.join(enc[:6])} ...\n  {etxt[-600:]}\n  feeder: "
                  f"{ferr.read().decode(errors='replace')[-300:]}")
     if frc != 0:
@@ -534,7 +530,7 @@ def pipe_run(feed, enc, env, timed=False):
                  f"{ferr.read().decode(errors='replace')[-600:]}")
     out = {"pipe_wall": wall}
     if timed:
-        out.update(parse_time(etxt))
+        out.update(cost)
     return out
 
 
@@ -1076,7 +1072,6 @@ def cred_cell(title):
     sp = credits_span(title)
     if not sp:
         return None
-    base = [c for c in all_cells() if c["key"] == f"L/1080p/{title}"][0]
     p = staged_path(title, "1080p")
     if not p:
         return None
@@ -1085,7 +1080,6 @@ def cred_cell(title):
     c["key"] = f"cred/1080p/{title}"
     _INFO[c["key"]] = dict(w=w, h=h, fps=fps, frames=sp[1] - sp[0] + 1,
                            src="y4m", path=p, start=sp[0], master_start=0)
-    c["base"] = base
     return c
 
 
@@ -1172,11 +1166,11 @@ def credits_rows():
 
 
 def quiet_or_exit():
-    """parity_spec's quiet check, once, before the first timed run."""
-    ld = ps.wait_quiet()
-    q = ld <= ps.LOADMAX
-    print(f"  box: load {ld:.2f}" + ("" if q else " (NOT QUIET)"), flush=True)
-    return ld, q
+    """parity_spec's quiet check (total box CPU), once, before the first
+    timed run: during the block the CPU is our own arms."""
+    q, (line, note) = ps.wait_quiet()
+    print(f"  box: {line}", flush=True)
+    return note, q
 
 
 def feed_alone(cell, s, n, workers):
@@ -1202,8 +1196,8 @@ def leg(cell, arm, goal, mode, q, s, n, workers, wd):
     if size < 64:
         sys.exit(f"parity_long: {cell['name']}: the {arm} leg wrote {size} "
                  "bytes; nothing is recorded")
-    return dict(wall=r["real"], cpu=(r["user"] or 0) + (r["sys"] or 0),
-                rss=r["maxrss"], instr=r["instr"], bytes=size, md5=md5,
+    return dict(wall=r["wall"], cpu=(r["user"] or 0) + (r["sys"] or 0),
+                rss=r["rss"], instr=r["instr"], bytes=size, md5=md5,
                 load1=os.getloadavg()[0])
 
 
@@ -1350,7 +1344,7 @@ def do_time(args):
                              f"faster arm's {bound:.0f}; ratio void")
             if not quiet:
                 flags.append("not-quiet")
-                notes.append(f"load {ld:.1f} at the block's start")
+                notes.append(f"{ld} when the block started")
             if abs(ob / rb - 1) * 100 > ps.TOL:
                 flags.append("size-mismatch")
             if min(len(walls["ours"]), len(walls["ref"])) < 2 and not bound:
@@ -1487,10 +1481,11 @@ def do_vbr_wall(args):
                    "ref_err_pct": f"{100 * (kb['ref'] / k - 1):.2f}",
                    "feed_fps": f"{feed:.0f}",
                    "feeder_bound": "yes" if bound else "no",
-                   "load1": f"{ld:.2f}", "ours_md5": md5s["ours"][0],
+                   "load1": f"{os.getloadavg()[0]:.2f}",
+                   "ours_md5": md5s["ours"][0],
                    "ref_md5": md5s["ref"][0], "ours_bin": bin_hash(ps.N265),
                    "lookahead": f"ours {OUR_DEPTH} / x265 {REF_DEPTH}",
-                   "note": "" if quiet else "not quiet"}
+                   "note": "" if quiet else f"not quiet: {ld}"}
             ps.append_csv(ps.RUNS_PATH, ps.RUN_COLUMNS, [
                 dict(r, goal="VBR") for r in runs])
             ps.append_csv(VBRW_PATH, VBRW_COLS, [row])
@@ -1524,7 +1519,8 @@ def rate_model():
     pts = ps.load_points()
     got = {}
     for r in rows:
-        if r.get("valid") != "yes" or "window" in r.get("note", ""):
+        if r.get("valid") not in ("yes", "single-run") or \
+                "window" in r.get("note", ""):
             continue
         an = "ft1" if r["goal"] == "G1" else "def"
         pt = pts.get(f"{r['tier']}/{r['class']}/{r['title']}/{an}")
@@ -1623,6 +1619,8 @@ def do_plan(args):
     for c in cells:
         if c["kind"] == "spec":
             p = ps.src_of(c["spec_cell"])
+            if not os.path.exists(p):
+                p = os.path.join(ps.T7_TIER_S, c["spec_cell"][3])
             try:
                 w, h, fps, n = y4m_shape(p)
             except OSError:
@@ -1773,7 +1771,7 @@ def group_stats(rows):
     rs = sorted(ok, key=lambda r: num(r, "ratio"))
     return dict(med=med([num(r, "ratio") for r in rs]),
                 worst=num(rs[-1], "ratio"),
-                worst_cell=f"{rs[-1]['title']}_{rs[-1]['class']}",
+                worst_cell=cname(rs[-1]['title'], rs[-1]['class']),
                 single=any(r["valid"] == "single-run" for r in ok), n=len(ok))
 
 
@@ -2119,7 +2117,7 @@ def write_full_report(date):
         dv = sorted(rs, key=lambda r: num(r, "dvmafneg"))
         dp = sorted(rs, key=lambda r: num(r, "dpsnr_y"))
         mv = med([num(r, "dvmafneg") for r in rs])
-        worst = f"{dv[0]['title']}_{cls}"
+        worst = cname(dv[0]['title'], cls)
         why = []
         if mv < VMAF_BAR:
             why.append(f"median {mv:+.2f}")
@@ -2127,14 +2125,14 @@ def write_full_report(date):
                  or num(r, "dpsnr_y") < PSNR_FLOOR]
         if floor:
             why.append("floor: " + ", ".join(
-                f"{r['title']}_{cls} {num(r, 'dvmafneg'):+.2f} VMAF / "
+                f"{cname(r['title'], cls)} {num(r, 'dvmafneg'):+.2f} VMAF / "
                 f"{num(r, 'dpsnr_y'):+.2f} dB" for r in floor))
-            worst = f"{floor[0]['title']}_{cls}"
+            worst = cname(floor[0]['title'], cls)
         off = [r for r in rs if num(r, "dsize_pct") is not None
                and abs(num(r, "dsize_pct")) > ps.TOL]
         if off:
             why.append("size: " + ", ".join(
-                f"{r['title']}_{cls} {num(r, 'dsize_pct'):+.2f}%"
+                f"{cname(r['title'], cls)} {num(r, 'dsize_pct'):+.2f}%"
                 for r in off))
         n_all = sum(1 for c in cells if c["tier"] == tier and c["cls"] == cls)
         part = "" if len(rs) == n_all else f" ({len(rs)} of {n_all} cells)"
@@ -2187,7 +2185,7 @@ def write_full_report(date):
     L.append("| class | tier | dVMAF | dPSNR-Y | worst cell | verdict |")
     L.append("|---|---|---|---|---|---|")
     L += qual_lines
-    soft = sorted((num(r, "dvmafneg"), f"{r['title']}_{r['class']}",
+    soft = sorted((num(r, "dvmafneg"), cname(r['title'], r['class']),
                    r["tier"]) for r in rows if r["goal"] == "G3"
                   and num(r, "dvmafneg") is not None
                   and VMAF_FLOOR <= num(r, "dvmafneg") < VMAF_BAR)
@@ -2361,7 +2359,7 @@ def write_full_report(date):
                 best = (str(min(got, key=got.get))
                         if max(got.values()) - min(got.values()) > SWEEP_SPREAD
                         else "within spread")
-            L.append(f"| {title}_{cls} ({tier}) | {mode.upper()} | "
+            L.append(f"| {cname(title, cls)} ({tier}) | {mode.upper()} | "
                      + " | ".join(txt) + f" | {best} |")
 
     # VBR wall
@@ -2371,7 +2369,7 @@ def write_full_report(date):
         if c["tier"] not in ("M", "L"):
             continue
         v = legs.get((c["tier"], c["cls"], c["title"]))
-        nm = f"{c['title']}_{c['cls']}"
+        nm = c['name']
         if not v:
             vr.append(f"| {nm} | {c['tier']} | - | not measured | - | - | - "
                       "| - |")
@@ -2489,11 +2487,11 @@ def changed_lines(rows, date):
         o = old.get((r["tier"], r["class"], r["title"], r["goal"]))
         a, b = num(o, "ratio"), num(r, "ratio")
         if a is not None and b is not None and abs(b - a) >= 0.03:
-            moved.append((abs(b - a), f"- {r['title']}_{r['class']} "
+            moved.append((abs(b - a), f"- {cname(r['title'], r['class'])} "
                           f"{r['goal']} (tier {r['tier']}): {a:.2f} -> "
                           f"{b:.2f}"))
         elif o is None and b is not None:
-            moved.append((0, f"- {r['title']}_{r['class']} {r['goal']} "
+            moved.append((0, f"- {cname(r['title'], r['class'])} {r['goal']} "
                           f"(tier {r['tier']}): new, {b:.2f}"))
     return [f"Against {prev[-1]}:"] + (
         [m for _, m in sorted(moved, reverse=True)[:5]]
@@ -2504,13 +2502,13 @@ def invalid_lines(rows, cells, cur):
     out = []
     for r in rows:
         if r["valid"] not in ("yes", "single-run"):
-            out.append(f"- {r['title']}_{r['class']} {r['goal']} (tier "
+            out.append(f"- {cname(r['title'], r['class'])} {r['goal']} (tier "
                        f"{r['tier']}): {r['valid']}; {r.get('note', '')}")
-    one = sorted({f"{r['title']}_{r['class']} {r['goal']}" for r in rows
+    one = sorted({f"{cname(r['title'], r['class'])} {r['goal']}" for r in rows
                   if r["valid"] == "single-run"})
     if one:
         out.append("- From one run only: " + ", ".join(one) + ".")
-    untimed = sorted({f"{r['title']}_{r['class']}" for r in rows
+    untimed = sorted({cname(r['title'], r['class']) for r in rows
                       if r.get("note") == "not timed yet"})
     if untimed:
         out.append("- Solved and scored but not timed yet (quality only): "
@@ -2527,7 +2525,7 @@ def invalid_lines(rows, cells, cur):
         if gone:
             out.append(f"- Tier {tier}: {', '.join(gone)} not measured on any "
                        "cell.")
-    old_m = [f"{r['title']}_{r['class']} {r['goal']}" for r in rows
+    old_m = [f"{cname(r['title'], r['class'])} {r['goal']}" for r in rows
              if r["tier"] == "M" and r["goal"] in ("G1", "G2")
              and "window" not in r.get("note", "")
              and num(r, "ratio") is not None]
@@ -2553,6 +2551,13 @@ def run(args, mode):
         return selftest()
     if fn is None:
         sys.exit(f"parity_long: no mode {mode}")
+    label = f"parity_spec.py --{mode.replace('_', '-')}"
+    if mode in ("time", "time_windows", "vbr_wall"):
+        with boxlib.timing_lock(label):
+            return fn(args)
+    if mode != "plan":
+        # untimed work never starts inside somebody's timed leg
+        boxlib.wait_untimed(label)
     return fn(args)
 
 
