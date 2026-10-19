@@ -172,13 +172,17 @@ DEFAULT_OVERRIDES = {
     "N265_GOP_WINDOW": "(N + 1.5) x N265_GOP_LEN",
     "N265_GOP_CUTS": "1", "N265_GOP_VBV_IN": "0.5",
     "N265_GOP_VBV_OUT": "0.6", "N265_GOP_TRACE": "presence",
+    # phase 14 item 45: each instance seeks its own records on a file
+    "N265_GOP_SEEK": "1", "N265_GOP_RELIEF": "1",
+    "N265_GOP_K": "(--threads / N) + 1, at least 3",
 }
 
 OVERRIDES = {
     # phase 14 item 42: moot unless --gop-parallel armed the mode, so they
     # are that opt-in mode's parameters and not shipped defaults
     "N265_GOP_LEN": "arm", "N265_GOP_CUTS": "arm", "N265_GOP_WINDOW": "arm",
-    "N265_GOP_VBV_IN": "arm", "N265_GOP_VBV_OUT": "arm",
+    "N265_GOP_VBV_IN": "arm", "N265_GOP_VBV_OUT": "arm", "N265_GOP_SEEK": "arm",
+    "N265_GOP_RELIEF": "arm", "N265_GOP_K": "arm",
     # item vbrspeed: shipped above one worker under VBR; the env is the
     # escape (0 is main's stream).
     "N265_VBR_LAG": "default", "N265_VBR_LAG_CAL": "default",
