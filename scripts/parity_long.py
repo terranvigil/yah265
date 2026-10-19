@@ -1012,14 +1012,23 @@ def run_ladder(cell, modes, depths):
                          if mode == "vbr" else ""), flush=True)
 
 
+def split_modes(arg):
+    modes = ["crf", "vbr"] if arg == "both" else arg.split(",")
+    bad = [m for m in modes if m not in ("crf", "vbr")]
+    if bad:
+        sys.exit(f"parity_long: unknown --modes {','.join(bad)} "
+                 "(crf, vbr, crf,vbr or both)")
+    return modes
+
+
 def do_ladder(args):
-    modes = args.modes.split(",")
+    modes = split_modes(args.modes)
     for cell in select(args, ("M", "L")):
         run_ladder(cell, modes, (OUR_DEPTH,))
 
 
 def do_sweep(args):
-    modes = args.modes.split(",")
+    modes = split_modes(args.modes)
     want = set(SWEEP_CELLS)
     for cell in select(args, ("M", "L")):
         if cell["key"] in want:

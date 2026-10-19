@@ -1270,7 +1270,7 @@ def main():
     ap.add_argument("--tier", default="", choices=("", "S", "M", "L", "C"),
                     help="S (the default for --solve/--time), M, L or C")
     ap.add_argument("--modes", default="crf,vbr",
-                    help="--ladder/--sweep: crf, vbr or both")
+                    help="--ladder/--sweep: crf, vbr or crf,vbr (both is crf,vbr)")
     ap.add_argument("--full", action="store_true",
                     help="--plan: print every feeder command whole")
     ap.add_argument("--goals", default="3,2,1")
