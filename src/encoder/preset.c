@@ -327,9 +327,10 @@ static const struct kv med_tab[] = {
      * "Item 30". */
     { "N265_MERGE_PICK_RATE", "1" },
     /* phase 14 item 36, named at their compiled-in values: below the HD
-     * class the walk is the unit diamond and the b-adapt term holds at a
-     * 128-sample lowres width, as at every other rung. The UHD overlay,
-     * which the HD class reads too, is where they move. */
+     * class the b-adapt term holds at a 128-sample lowres width, as at
+     * every other rung, and below the 720p class the walk is the unit
+     * diamond. The UHD overlay, which the HD class reads too, moves both;
+     * med_tab_720 moves the walk (item 41). */
     { "N265_ME_PATTERN", "0" },
     { "N265_BADAPT_REFW", "128" },
     /* phase 14 item 40: the inter-slice intra rank coarse-to-fine, 19
@@ -345,6 +346,10 @@ static const struct kv med_tab[] = {
      * frames there still left D5v's VBR ladder +0.23 */
     { "N265_INTRA_FAST_W", "1920" },
     { "N265_TT_SKIP_INTER", "0" },
+    /* phase 14 item 41, at their compiled-in values: the fast-pan width
+     * is off below the 720p class, and med_tab_720 turns it on there */
+    { "N265_BADAPT_FASTW", "0" },
+    { "N265_BADAPT_MVMIN", "0" },
     /* There is NO `N265_NR_INTRA` / `N265_NR_INTER` row, and item 6b is
      * why that is worth saying out loud here. Item 6 recommended
      * `--nr-intra 100 --nr-inter 100` for this table off a five-clip
@@ -642,6 +647,8 @@ static const struct kv med_tab_uhd[] = {
      * and UHD cell level or ahead. Below the HD class the pair is not
      * taken: on the CIF-7 band it costs bus_cif 1.57 and stefan_cif 1.14
      * points, and at 720p sita_toon_720p goes from -5.11% to +5.71%.
+     * Item 41 found the 720p losses are the width's: the walk alone is
+     * level or ahead there, and med_tab_720 takes it at 720p.
      * `N265_ME_PATTERN=0 N265_BADAPT_REFW=128` is the escape.
      * docs/phase14.md "Item 36". */
     { "N265_ME_PATTERN", "1" },
@@ -674,6 +681,29 @@ static const struct kv med_tab_uhd[] = {
 static const struct kv med_tab_hd[] = {
     { "N265_CB64_SPLITGATE", "256" },
     { "N265_TT_SKIP_INTER", "0" },   /* item 40: UHD only */
+    { NULL, NULL }
+};
+
+/* ...and on a 720p-class picture below HD (luma w*h >= 1280*533, the HD
+ * rule's allowance one step down), the hexagon walk and a fast-pan end
+ * to the B run (phase 14 item 41). Item 36 kept its pair off 720p for
+ * sita_toon_720p (-5.11% -> +5.71%) and sintel_720p (-21.98% ->
+ * -19.09%). Both losses were the b-adapt width, not the walk: the walk
+ * alone reads sita_toon -5.21% and sintel -21.96%, and all seven 720p
+ * corpus clips are level or ahead. The width stays 128 here. What a 720p
+ * picture gets instead is a second width, 320, taken only by a frame
+ * whose mean lowres motion is at least 3 of the cap's 4. Chimera's pans
+ * read 3.5-4.0 there, sintel never passes 2.72 and sita_toon 1.6. Tier D
+ * against x265 medium: D5v (Chimera 720p, capped VBR) +6.30% -> +0.55%,
+ * D5 -0.42% -> -0.29%, D6 -19.12% -> -19.29%. The seven 720p corpus
+ * clips read what the walk alone reads. CIF stays on the diamond: the
+ * walk costs foreman_cif 0.64 and coastguard_cif 0.45 of a point there.
+ * `N265_ME_PATTERN=0 N265_BADAPT_FASTW=0` is the escape.
+ * docs/phase14.md "Item 41". */
+static const struct kv med_tab_720[] = {
+    { "N265_ME_PATTERN", "1" },
+    { "N265_BADAPT_FASTW", "320" },
+    { "N265_BADAPT_MVMIN", "3" },
     { NULL, NULL }
 };
 
@@ -762,6 +792,9 @@ struct rung {
      * (phase 14 item 24), for what was measured at 1080p and not at
      * 2160p. NULL where the rung has none. */
     const struct kv *tab_hd;
+    /* Knob rows that answer on a 720p-class picture below HD (phase 14
+     * item 41). NULL where the rung has none. */
+    const struct kv *tab_720;
 };
 
 /* The UHD rule, in luma samples. See med_par_uhd for why it is an area
@@ -774,6 +807,11 @@ struct rung {
  * what differs is the planned QP the rate switch in encoder.c takes the
  * tree at, so the class is kept rather than folded to a flag. */
 #define N265_HD_SAMPLES (1920L * 800L)
+/* The 720p rule (phase 14 item 41): the same allowance again, 1280x720
+ * with its bars coded and 1280x533 with them cropped. It is a flag beside
+ * the class and not a class value, because everything that reads the
+ * class (the tree switch and its rate rule) stays at 0 below HD. */
+#define N265_720_SAMPLES (1280L * 533L)
 
 /* 0 below HD, 1 HD-class, 2 UHD-class; 0 when either side is unknown */
 static int res_class(int width, int height)
@@ -797,7 +835,7 @@ static const struct rung rungs[] = {
      * without the one the evidence points at - and because a row here is
      * what lets the refusal say which rung was tried and failed rather
      * than pretending the name is unknown. docs/phase13.md, "C2". */
-    { "veryfast", vfast_tab, NULL,  vfast_par, NULL,  0, NULL },
+    { "veryfast", vfast_tab, NULL,  vfast_par, NULL,  0, NULL, NULL },
     /* `faster` is present and NOT placed either, and for a different
      * reason from veryfast's. It PASSES the band on every one of the
      * fifteen - median -9.96% BD-VMAF-NEG against x265 faster, 15/15
@@ -812,12 +850,12 @@ static const struct rung rungs[] = {
      * docs/phase13.md, "C2". The table stays for the same reason
      * veryfast's does, and the two binding clips are the same two the
      * project already has open items on. */
-    { "faster",   faster_tab, NULL, faster_par, NULL, 0, NULL },
-    { "fast",     fast_tab, NULL,   fast_par, NULL,   1, NULL },
+    { "faster",   faster_tab, NULL, faster_par, NULL, 0, NULL, NULL },
+    { "fast",     fast_tab, NULL,   fast_par, NULL,   1, NULL, NULL },
     { "medium",   med_tab, med_tab_uhd, med_par, med_par_uhd, 1,
-      med_tab_hd },
-    { "slow",     slow_tab, NULL,   slow_par, NULL,   1, NULL },
-    { "slower",   slower_tab, NULL, slower_par, NULL, 1, NULL },
+      med_tab_hd, med_tab_720 },
+    { "slow",     slow_tab, NULL,   slow_par, NULL,   1, NULL, NULL },
+    { "slower",   slower_tab, NULL, slower_par, NULL, 1, NULL, NULL },
     /* `veryslow` and `placebo` are present and NOT placed (2026-09-14,
      * phase 14 item 5). The binding leg is the BAND, and it binds a long
      * way above them: on the CRF band against the x265 preset of their
@@ -833,8 +871,8 @@ static const struct rung rungs[] = {
      * that. `--preset medium` still reads -6.65% with all seven ahead,
      * which is the control this item ran to be sure the instrument and
      * the corpus had not moved. docs/phase14.md, "Item 5". */
-    { "veryslow", veryslow_tab, NULL, veryslow_par, NULL, 0, NULL },
-    { "placebo",  placebo_tab, NULL,  placebo_par, NULL,  0, NULL },
+    { "veryslow", veryslow_tab, NULL, veryslow_par, NULL, 0, NULL, NULL },
+    { "placebo",  placebo_tab, NULL,  placebo_par, NULL,  0, NULL, NULL },
 };
 #define N_RUNGS ((int)(sizeof(rungs) / sizeof(rungs[0])))
 
@@ -853,6 +891,8 @@ static int g_preset = 3;        /* medium: rungs[3] */
  * to know; zero until it is, which is the resolution-blind answer every
  * caller got before item 17. */
 static int g_uhd;
+/* 1 on a picture of 720p area or more below HD (N265_720_SAMPLES) */
+static int g_720;
 
 static const char *lookup(const struct kv *t, const char *k)
 {
@@ -877,6 +917,11 @@ const char *n265_env(const char *name)
         if (v)
             return v;
     }
+    if (g_720 && rungs[g_preset].tab_720) {
+        v = lookup(rungs[g_preset].tab_720, name);
+        if (v)
+            return v;
+    }
     return lookup(rungs[g_preset].tab, name);
 }
 
@@ -890,6 +935,8 @@ const char *n265_env(const char *name)
 void n265_preset_uhd(int width, int height)
 {
     g_uhd = res_class(width, height);
+    g_720 = g_uhd == 0 && width > 0 && height > 0 &&
+            (long)width * (long)height >= N265_720_SAMPLES;
 }
 
 int n265_preset_res_class(void)
@@ -932,6 +979,11 @@ int n265_preset_row(int i, const char **key, const char **val,
             const char *u = lookup(rungs[g_preset].tab_hd, t[n].k);
             if (u)
                 *val = u;       /* ...and at HD (item 24) */
+        }
+        if (g_720 && rungs[g_preset].tab_720) {
+            const char *u = lookup(rungs[g_preset].tab_720, t[n].k);
+            if (u)
+                *val = u;       /* ...and at 720p (item 41) */
         }
         *env = getenv(t[n].k);
         return 1;

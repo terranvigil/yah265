@@ -7424,9 +7424,21 @@ static void build_plan_order(n265_encoder *e)
      * over-reading move. 0 turns it off (the pre-2026-09-08 encoder). */
     double bthr = 0.35; { const char *v = n265_env("N265_BADAPT_THR"); if (v) bthr = atof(v); }
     double refw = 128.0; { const char *v = n265_env("N265_BADAPT_REFW"); if (v) refw = atof(v); }
+    /* N265_BADAPT_FASTW / N265_BADAPT_MVMIN (phase 14 item 41): a second
+     * width, taken only by a frame whose saturated mean |lowres MV| is
+     * at least MVMIN. A fast pan - most blocks near N265_BADAPT_MVCAP -
+     * ends the run at the wider width; flat or slow content, where
+     * pcost/icost reads high because the intra cost is small, is ruled
+     * at REFW as before. The rule only ever ends MORE runs than REFW's:
+     * a frame REFW ends is still ended. 0 is off. */
+    double fastw = 0.0; { const char *v = n265_env("N265_BADAPT_FASTW"); if (v) fastw = atof(v); }
+    double mvmin = 0.0; { const char *v = n265_env("N265_BADAPT_MVMIN"); if (v) mvmin = atof(v); }
     double wscale = 1.0;
     if (refw > 0.0 && la->lw > 0 && (double)la->lw > refw)
         wscale = refw / (double)la->lw;
+    double fscale = 1.0;
+    if (fastw > 0.0 && la->lw > 0 && (double)la->lw > fastw)
+        fscale = fastw / (double)la->lw;
     int nb = la->bw * la->bh;
     int trace = n265_env("N265_BADAPT_TRACE") != NULL;
     /* How far the key-frame edge lets the run go at all. An IDR opens the
@@ -7474,13 +7486,17 @@ static void build_plan_order(n265_encoder *e)
              * search it was fitted against could see */
             double mv = (double)la->f[i].mvsat_sum / (nb ? nb : 1);
             double m = mv * wscale * (double)la->f[i].sc_ratio;
+            int end = m > bthr;
+            if (!end && fastw > 0.0 && mv >= mvmin &&
+                mv * fscale * (double)la->f[i].sc_ratio > bthr)
+                end = 1;
             if (trace)
                 fprintf(stderr, "BADAPT d=%d i=%d mv=%.3f ratio=%.3f "
                         "scale=%.3f m=%.4f thr=%.4f %s\n",
                         la->f[i].display_idx, i, mv,
                         (double)la->f[i].sc_ratio, wscale, m, bthr,
-                        m > bthr ? "END" : "extend");
-            if (m > bthr) break;    /* this frame ends the run (it is the anchor) */
+                        end ? "END" : "extend");
+            if (end) break;    /* this frame ends the run (it is the anchor) */
         }
     }
     /* N265_BRUN_TRACE under a rule that is NOT the bits model: price the
