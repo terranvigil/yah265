@@ -4660,7 +4660,8 @@ static int job_ready(void *ctx, int idx)
  * CTU's offset stays inside the +-12 every other writer keeps, which is
  * what keeps cu_qp_delta legal against any neighbour. Returns the QP it
  * added. */
-static int vbv_brake(n265_frame_work *fw, int r, int c)
+static int vbv_brake(n265_frame_work *fw, int r, int c, int *skip,
+                     double *rate_out)
 {
     int C = fw->ctb_cols;
     double ws = 0.0, as = 0.0, es = 0.0;
@@ -4678,17 +4679,29 @@ static int vbv_brake(n265_frame_work *fw, int r, int c)
     double k0 = fw->enc->rc.brk_gain;
     double rate = (es + fw->brk_plan * k0) / (ws + k0);
     double rem = (1.0 - ws) * rate;
+    *skip = 0;
+    *rate_out = rate;
     if (rem <= 0.0)
         return 0;
-    double avail = fw->brk_lim - as;
-    if (rem <= avail)
-        return 0;
-    double dq = avail > rem / 4096.0 ? 6.0 * log2(rem / avail) : 72.0;
     int k = r * C + c;
     int off = fw->ctu_qp_off[k];
     int hi = 12;
     if (hi > N265_QP_MAX - fw->qp)
         hi = N265_QP_MAX - fw->qp;
+    /* capped CRF's skip (item 47): the remainder at the most the brake
+     * can still add is more than the skip's limit leaves, so this CTU
+     * costs nothing instead. The projection's rate is left as it was. */
+    if (fw->brk_sk_on) {
+        double room = hi > off ? exp2(-(hi - off) / 6.0) : 1.0;
+        if (rem * room > fw->brk_slim - as) {
+            *skip = 1;
+            return 0;
+        }
+    }
+    double avail = fw->brk_lim - as;
+    if (rem <= avail)
+        return 0;
+    double dq = avail > rem / 4096.0 ? 6.0 * log2(rem / avail) : 72.0;
     int want = off + (int)floor(dq);
     if (want > hi)
         want = hi;
@@ -4752,11 +4765,14 @@ static int job_run(void *ctx, int lane, int idx)
                 ntp_wait(e->pool, lag_key(p, r), lag_pred, &w);
             }
             double tt_c1 = TT_NOW();
-            int bdq = 0;
+            int bdq = 0, bsk = 0;
+            double brate = 0.0;
             size_t brec = row->c.rec_len;
             if (fw->brk_on)
-                bdq = vbv_brake(fw, r, cx);
+                bdq = vbv_brake(fw, r, cx, &bsk, &brate);
+            row->c.brk_skip = bsk;
             n265_analyze_ctu(&row->c, cx, r);
+            row->c.brk_skip = 0;
             if (fw->brk_on) {
                 int k = r * fw->ctb_cols + cx;
                 double b = (double)n265_est_ctu_bits(&row->c, cx, r, brec) /
@@ -4764,8 +4780,16 @@ static int job_run(void *ctx, int lane, int idx)
                 double pa = cx ? fw->brk_ca[k - 1] : 0.0;
                 double pe = cx ? fw->brk_ce[k - 1] : 0.0;
                 fw->brk_ca[k] = (float)(pa + b);
-                fw->brk_ce[k] = (float)(pe + b * exp2(bdq / 6.0));
-                fw->brk_dq[k] = (int8_t)bdq;
+                /* a skipped CTU says nothing about what the picture costs,
+                 * so the unbraked column carries the projection's rate
+                 * over its share of the map instead */
+                if (bsk) {
+                    double pw = k % fw->ctb_cols ? fw->brk_cw[k - 1] : 0.0;
+                    fw->brk_ce[k] = (float)(pe + brate * (fw->brk_cw[k] - pw));
+                } else {
+                    fw->brk_ce[k] = (float)(pe + b * exp2(bdq / 6.0));
+                }
+                fw->brk_dq[k] = (int8_t)(bsk ? 99 : bdq);
             }
             TT_PUT(TT_CTU, 0, fw->code_idx, r, cx, 0, tt_c1, TT_NOW());
             if (tt_c1 - tt_c0 > 2e-6)
@@ -5431,6 +5455,56 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
         base = n265_vbv_crf_base(e, fw->rc_cls, fw->rc_cplx, fw->rc_icplx,
                                  base, &fw->vbv_pred, &fw->vbv_allow,
                                  &fw->vbv_dqp);
+        /* the brake (item 47), set up as ABR's is above: the plan is the
+         * clamp's prediction at the base the frame is coded at, the limit
+         * what the buffer holds. Capped CRF has no lag, so the fill is the
+         * one a decoder sees. */
+        if (e->rc.brake) {
+            /* A class with no retired picture yet borrows the largest
+             * calibration another class has, and with none at all takes
+             * N265_CCRF_BRK_R0. The estimator reads 3-26% under the coded
+             * size on the corpus openings (akiyo's I frame at QP 33 is the
+             * 26%), and at the estimator's own 1.0 the brake let three of
+             * the corpus's opening pictures through to an underflow. */
+            double ratio = e->rc.brk_ratio[fw->rc_cls];
+            if (!(ratio > 0.0)) {
+                ratio = 0.0;
+                for (int c = 0; c < RC_CLASSES; c++)
+                    if (e->rc.brk_ratio[c] > ratio)
+                        ratio = e->rc.brk_ratio[c];
+                if (!(ratio > 0.0))
+                    ratio = e->rc.ccrf_r0;
+            }
+            fw->brk_plan = fw->vbv_pred * exp2(-fw->vbv_dqp / 6.0);
+            fw->brk_lim = e->rc.brk_fill * e->vbv.fill;
+            if (fw->brk_lim < fw->vbv_allow)
+                fw->brk_lim = fw->vbv_allow;
+            if (e->vbv.seg_left == 0 && e->vbv.seg_floor > 0.0) {
+                double ex = e->vbv.fill + e->vbv.inflow - e->vbv.seg_floor;
+                if (ex < N265_VBV_MIN_ALLOW)
+                    ex = N265_VBV_MIN_ALLOW;
+                if (fw->brk_lim > ex)
+                    fw->brk_lim = ex;
+            }
+            fw->brk_ratio = ratio;
+            fw->brk_on = fw->brk_lim > 0.0 && e->qp_delta_on;
+            /* The skip (item 47), inter pictures only. It holds the
+             * picture to the buffer's hard limit, and where the clamp
+             * wanted more than QP 51 could give, to the clamp's own
+             * allowance: that frame is the window's reservation for a
+             * dearer one behind it (a key frame at the end of a stretch
+             * that is over the cap even at 51), and no quantiser can
+             * make it. */
+            if (fw->brk_on && e->rc.ccrf_skip && slice_type != 2) {
+                fw->brk_sk_on = 1;
+                fw->brk_slim = e->rc.ccrf_skfill * e->vbv.fill;
+                if (fw->brk_slim < fw->brk_lim)
+                    fw->brk_slim = fw->brk_lim;
+                if (e->rc.ccrf_sat_allow > 0.0 &&
+                    e->rc.ccrf_sat_allow < fw->brk_slim)
+                    fw->brk_slim = e->rc.ccrf_sat_allow;
+            }
+        }
     }
     /* --crf-max / --crf-min: the user's own bounds on the rate factor,
      * and they are the LAST thing that may move it - after the buffer's
@@ -5600,6 +5674,28 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
             memcpy(fw->hdr_sei, fw->rbsp.buf, fw->rbsp.bytes);
             fw->hdr_sei_len = fw->rbsp.bytes;
         }
+    }
+    /* Capped CRF's brake (item 47) holds the access unit, and the slice
+     * is not all of it where the parameter sets and the version SEI ride
+     * along: 2.9 kbit on a CIF stream's first picture, a third of a 0.5 s
+     * buffer at 16 kbit/s. The calibration absorbs the per-picture timing
+     * SEI from the second picture of a class on, but nothing it learns
+     * describes these, so they come off the limit here. */
+    if (fw->brk_on && !e->abr_on && fw->emit_headers) {
+        double ovh = 0.0;
+        for (int i = 0; i < e->nhdr; i++)
+            ovh += (double)e->hdr_len[i] + 6.0;
+        if (e->info)
+            ovh += (double)e->info_bs.bytes + 6.0;
+        if (e->recovery_sei && fw->irap)
+            ovh += (double)e->rec_bs.bytes + 6.0;
+        if (e->hrd_on)
+            ovh += 40.0;    /* the buffering period and pic timing pair */
+        ovh += (double)(fw->sei_len + fw->hdr_sei_len) + 12.0;
+        fw->brk_lim -= 8.0 * ovh;
+        fw->brk_slim -= 8.0 * ovh;
+        if (fw->brk_lim < N265_VBV_MIN_ALLOW)
+            fw->brk_lim = N265_VBV_MIN_ALLOW;
     }
     /* --temporal-layers: the non-reference B leaves, and nothing else.
      * A picture at TemporalId 1 may not be referenced by one at 0
@@ -7043,7 +7139,10 @@ static void join_oldest(n265_encoder *e)
         /* a near-empty picture (black, a still card) is all headers and
          * says nothing about what a real one costs: 2.3 bits per estimated
          * bit on Chimera's black opening IDR, 1.05 on the picture after */
-        if (rb > 0.05 * e->rc.bits_per_frame) {
+        /* capped CRF has no target rate to measure that by, so the
+         * buffer's inflow per frame stands in for it (item 47) */
+        double bpf = e->abr_on ? e->rc.bits_per_frame : e->vbv.inflow;
+        if (rb > 0.05 * bpf) {
             double x = (double)d->len * 8.0 / rb;
             if (e->rc_defer) {
                 struct n265_rc_ret *rr =
@@ -8245,7 +8344,9 @@ static int drive_scheduler(n265_encoder *e)
      * for the reason the pass-1 columns below are: the lowres planes are
      * recycled behind a dispatched frame. */
     fw->brk_on = 0;
-    if (e->abr_on && e->vbv.on && e->rc.brake) {
+    fw->brk_sk_on = 0;
+    fw->brk_skip = 0;
+    if (e->vbv.on && e->rc.brake) {
         const la_frame *lf = &e->la.f[li];
         int bpc = (1 << e->ctb_log2) / 16;
         double tot = 0.0;

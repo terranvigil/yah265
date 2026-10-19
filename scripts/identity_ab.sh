@@ -42,6 +42,7 @@
 #   ARM_A, ARM_B   NAME=VALUE env settings for the OLD / NEW side only
 #   FLAGS_A, FLAGS_B   extra CLI flags for the OLD / NEW side only
 #   MATRIX     full (default) or t1 (drop the threaded cells)
+#   CCRF=1     add the capped-CRF cells (phase 14 item 47)
 #   ONLY       extended regex on cell names; only matching cells run
 #   FRAMES     frames per cell (default 24)
 #   THREADED   thread count for the threaded cells (default 3)
@@ -95,11 +96,12 @@ profile() {
         item43)       echo "|N265_KEY_RESET=0";;   # item 43, --keyint counted from the last key frame
         item44)       echo "|N265_AQ2=0 N265_AQ_BPULL=0";;   # item 44, adaptive AQ gain + HD B pull
         item46)       echo "--rc-lookahead 12|N265_CRF_DC_WIN=12";;   # item 46, medium window 20 at 720p and up (CIF never moved; the flag moves slow, so medium cells only)
+        item47)       echo "|N265_CCRF_BRAKE=0 N265_CCRF_GUARD=1";;   # item 47, capped CRF's brake and guard (only the CCRF=1 cells move)
         asmoff)       echo "|N265_ASM_OFF=all";;
         *) return 1;;
     esac
 }
-PROFILE_NAMES="info fingerprint weightp stream ship item22 item23 item24 item25 item25sched item26 item28 item29 item29s2 item30 vbrspeed item33 item35 item36 item37 item38 item40 item41 item43 item44 item46 asmoff"
+PROFILE_NAMES="info fingerprint weightp stream ship item22 item23 item24 item25 item25sched item26 item28 item29 item29s2 item30 vbrspeed item33 item35 item36 item37 item38 item40 item41 item43 item44 item46 item47 asmoff"
 
 # ---------------------------------------------------------------- one cell
 # Called back through xargs: identity_ab.sh --cell WORK LINE
@@ -234,6 +236,14 @@ vbr:$st:--bitrate 600 --vbv-maxrate 900 --vbv-bufsize 1200
 vbr_buf05:$st:--bitrate 600 --vbv-maxrate 900 --vbv-bufsize 450
 fast:$mt:--preset fast --crf 28
 slow:$mt:--preset slow --crf 28"
+    # CCRF=1 adds capped CRF (item 47) on foreman at 1.2x / 1 s and at
+    # 1.0x / 0.5 s of its uncapped rate at crf 28 (141 kbit/s); off by
+    # default so the matrix stays the 28 cells older reads name
+    if [ "${CCRF:-0}" = 1 ]; then
+        rates="$rates
+ccrf:$fm:--crf 28 --vbv-maxrate 170 --vbv-bufsize 170
+ccrf_buf05:$fm:--crf 28 --vbv-maxrate 141 --vbv-bufsize 70"
+    fi
     printf '%s\n' "$rates" | while IFS=: read -r n clip args; do
         case "$args" in *--preset*) ;; *) args="--preset medium $args";; esac
         echo "$n|1|$clip|$F|$args"

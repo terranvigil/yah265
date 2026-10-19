@@ -317,14 +317,44 @@ void n265_rc_open(struct n265_encoder *e)
      * from there (rc.h); its decay is per OBSERVATION OF ITS OWN CLASS, so
      * on a 4-class cadence sixteen of them is about sixty frames */
     rc->vdecay = abr_tunable("N265_VBV_DECAY", 0.0625);
-    /* the brake and the cut prediction are ABR-with-a-buffer only, so
-     * capped CRF keeps main's clamp to the bit (phase 14 item 29) */
+    /* the cut prediction is ABR only; the brake was ABR-with-a-buffer only
+     * until phase 14 item 47 */
     rc->brake = e->abr_on && e->vbv.on
                     ? (int)abr_tunable("N265_VBV_BRAKE", 1) : 0;
+    /* Phase 14 item 47: capped CRF's buffer. The clamp prices a frame on
+     * the class scales, which a clip's opening I frame has not observed
+     * yet; a 2.9x miss there (chimera 720p's first picture, 1.18 Mbit
+     * against a 0.92 Mbit buffer) was an underflow nothing after it could
+     * undo. Four parts, on together under capped CRF:
+     *
+     *   N265_CCRF_BRAKE 1        the in-picture brake, which reads the
+     *                            picture as it is coded
+     *   N265_CCRF_BRAKE_FILL 0.8 ...holding it to that share of the fill
+     *   N265_CCRF_BRK_R0 1.25    its calibration before any class has one
+     *   N265_CCRF_GUARD 1.3      the frame alone priced at that margin
+     *                            over the model against the fill (rc.c,
+     *                            n265_vbv_crf_base)
+     *   N265_CCRF_SKIP 1         an inter CTU the brake cannot pay for at
+     *                            its last QP is coded as one skip
+     *
+     * `N265_CCRF_BRAKE=0 N265_CCRF_GUARD=1` is main byte for byte
+     * (docs/phase14.md, item 47). */
+    if (!e->abr_on && e->vbv.on)
+        rc->brake = (int)abr_tunable("N265_CCRF_BRAKE", 1);
+    rc->ccrf_r0 = abr_tunable("N265_CCRF_BRK_R0", 1.25);
+    rc->ccrf_skip = !e->abr_on && e->vbv.on
+                        ? (int)abr_tunable("N265_CCRF_SKIP", 1) : 0;
+    rc->ccrf_skfill = abr_tunable("N265_CCRF_SKIP_FILL", 0.8);
+    rc->ccrf_satq = abr_tunable("N265_CCRF_SKIP_SATQ", 51.0);
+    rc->ccrf_skwarm = abr_tunable("N265_CCRF_SKIP_WARM", 4.0);
+    rc->ccrf_guard = !e->abr_on && e->vbv.on
+                         ? abr_tunable("N265_CCRF_GUARD", 1.3) : 0.0;
     rc->brk_gain = abr_tunable("N265_VBV_BRAKE_K0", 0.05);
     rc->flatc = e->abr_on && e->vbv.on ? abr_tunable("N265_ABR_FLATC", 17.0)
                                        : 0.0;
     rc->brk_fill = abr_tunable("N265_VBV_BRAKE_FILL", 0.9);
+    if (!e->abr_on && e->vbv.on)
+        rc->brk_fill = abr_tunable("N265_CCRF_BRAKE_FILL", 0.8);
     rc->scpred = e->abr_on ? abr_tunable("N265_VBV_SCPRED", 0.5) : 1.0;
     for (int i = 0; i < RC_CLASSES; i++)
         rc->vscale[i] = rc->scale[i];
@@ -614,13 +644,60 @@ double n265_vbv_crf_base(struct n265_encoder *e, int cls, double cplx,
                          double *allow, double *dqp)
 {
     double d = vbv_dqp(e, cls, cplx, icplx, base, pred, allow);
+    /* N265_CCRF_GUARD (item 47): the frame alone, priced at the guard's
+     * margin over the model, against what the buffer holds now. Under
+     * CRF the buffer runs near empty for as long as the content wants
+     * more than the cap, and there a frame the model reads 1.2-1.7x low
+     * (a B picture behind a cut's I frame) is one the brake cannot hold:
+     * its +12 per CTU ran out on D5v's display 422 at 0.5 s. The window
+     * is left at the mean; only the frame that would empty the buffer
+     * pays the margin. */
+    if (e->rc.ccrf_guard > 1.0) {
+        n265_rc *rc = &e->rc;
+        double pg = rc_vweight(rc, cls, cplx, icplx) / qscale_of_qp(base) *
+                    rc->ccrf_guard;
+        double ag = n265_vbv_allow(&e->vbv, NULL, 0);
+        double dg = pg > ag ? 6.0 * log2(pg / ag) : 0.0;
+        if (dg > d) {
+            if (!(d > 0.0))
+                e->vbv.clamped++;
+            d = dg;
+            *pred = pg;
+            *allow = ag;
+        }
+    }
     /* `d` is never negative, so the only bound that can bite is the coarse
      * end - and a base already below N265_QP_MIN is a Main10 operating
      * point the ordinary QP clip handles, not something for a buffer to
      * have an opinion about. */
     double q = base + d;
-    if (q > 51.0)
+    /* item 47: where no quantiser makes the plan, the skip holds the
+     * frame to an allowance, and that one is solved with the window
+     * priced at the QP the frames will really get near the top, 51, and
+     * not at this frame's base: priced at the base, a window that is
+     * over the cap reserves against frames several times dearer than
+     * they will be coded, and the skip spent D7 bbb's 0.5 s cell 1.5
+     * VMAF-NEG on that. */
+    e->rc.ccrf_sat_allow = 0.0;
+    if (q > 51.0) {
         q = 51.0;
+        /* ...and only once every inter class has been observed a few
+         * times and the I class once: before that the window's prices
+         * are the corpus priors, and on D7 bbb's opening they had the
+         * skip take the first P picture down to 3.6 kbit with no
+         * underflow coming */
+        int warm = e->rc.scale_n[RC_I] >= 3.0;
+        for (int c = RC_P; c < RC_CLASSES; c++)
+            if (e->rc.scale_n[c] < 2.0 + e->rc.ccrf_skwarm)
+                warm = 0;
+        if (e->rc.ccrf_skip && warm) {
+            double p51, a51;
+            int keep = e->vbv.clamped;
+            vbv_dqp(e, cls, cplx, icplx, e->rc.ccrf_satq, &p51, &a51);
+            e->vbv.clamped = keep;
+            e->rc.ccrf_sat_allow = a51;
+        }
+    }
     *dqp = q - base;
     return q;
 }
