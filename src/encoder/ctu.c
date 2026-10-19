@@ -3259,6 +3259,29 @@ static int cb64_skipgate(void)
     return v;
 }
 
+/* N265_CB64_SKIPGATE_REF (phase 14 item 48): the same bound on a picture
+ * other pictures predict from (P and referenced B). A skip the gate
+ * commits there is copied forward into every frame that references it,
+ * where on a leaf it ends with the picture. Unset is the plain bound.
+ * An arm, not taken: 16 on referenced pictures buys 1.7 of the 4.9
+ * points the gate at 32 buys on Chimera 2160p, so the leaves carry it. */
+static int cb64_skipgate_ref(void)
+{
+    static int v = -2;
+    if (v == -2) {
+        const char *s = n265_env("N265_CB64_SKIPGATE_REF");
+        v = s ? atoi(s) : -1;
+        if (v < -1)
+            v = -1;
+    }
+    return v < 0 ? cb64_skipgate() : v;
+}
+
+static int cb64_gate_of(const struct n265_frame_work *e)
+{
+    return e->nonref ? cb64_skipgate() : cb64_skipgate_ref();
+}
+
 /* N265_CB64_SPLITGATE (phase 14 item 24): the other side of the same
  * question. Where the skip gate's trial REJECTS a 64x64 node and its
  * depth-0 residual is at or above this bound - in 1024ths of
@@ -7335,7 +7358,7 @@ static int cb64_gate_try(struct n265_frame_work *e, int x0, int y0,
     *thr_out = thr;
     /* item 28: the ramp scales the bound; at w = 0 only an exact-zero
      * residual passes */
-    if (ssd * 1024u * 65536u > (uint64_t)cb64_skipgate() *
+    if (ssd * 1024u * 65536u > (uint64_t)cb64_gate_of(e) *
                                (uint64_t)e->tree_w16 * thr)
         return 0;
     est_state adv = { e->est_ctx, 0 };
@@ -7504,7 +7527,7 @@ static uint64_t quadtree_inner(struct n265_frame_work *e, int x0, int y0,
      * COMMITS a skip on a distortion bound, and a bound is not zero. Off,
      * the node runs its arms and the RD arbitration prices a lossy skip
      * at infinity, which is the only correct answer there. */
-    if (log2n == 6 && e->slice_type != 2 && !e->lossless && cb64_skipgate()) {
+    if (log2n == 6 && e->slice_type != 2 && !e->lossless && cb64_gate_of(e)) {
         uint64_t j_g, g_ssd = 0, g_thr = 0;
         if (cb64_gate_try(e, x0, y0, log2n, depth, split_inc, lam, &j_g,
                           &g_ssd, &g_thr)) {
@@ -8016,7 +8039,7 @@ void n265_ctu_warm(void)
     (void)intra_fast_qp(); (void)intra_fast_step(); (void)tt_skip_qp();
     (void)intra_fast_w(); (void)intra_fast_flat();
     (void)cb64_gate(); (void)cb64_amvp(); (void)b_intra_margin();
-    (void)cb64_prof_on(); (void)cb64_skipgate();
+    (void)cb64_prof_on(); (void)cb64_skipgate(); (void)cb64_skipgate_ref();
     (void)bi_refine_iters(); (void)merge_rd_n(); (void)merge_pick_rate(); (void)cb64_splitgate(); (void)bi_gate();
     (void)bi_gate_margin(); (void)intra_rd_n(); (void)intra_rd_mpm();
     (void)i_intra(); (void)chroma_w_on(); (void)chroma_w_pct();

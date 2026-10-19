@@ -619,6 +619,20 @@ static const struct kv med_par_uhd[] = {
     { NULL, NULL }
 };
 
+/* ...and on a UHD-class picture only (phase 14 item 48), a second
+ * reference per list. Chimera 2160p trails x265 medium on its
+ * mid-segment stretch (frames 1200-1799) by +8.87% BD-VMAF-NEG under CRF
+ * and +7.78% under capped VBR, and two things carry nearly all of it:
+ * the 64x64 skip gate (med_tab_uhd) and the single reference. `--ref 2`
+ * alone takes the stretch to +2.28% / +1.84%, and with the gate at 32 to
+ * -2.65% / -2.81%. HD is not moved; it was not read here.
+ * `--ref 1` with `N265_CB64_SKIPGATE=64` is the escape.
+ * docs/phase14.md "Item 48". */
+static const struct kv med_par_4k[] = {
+    { "ref", "2" },
+    { NULL, NULL }
+};
+
 /* ...and the window on a 720p-class picture and up (phase 14 item 46).
  * The depth was swept at 8, 12, 16, 20, 30 and 40 on the dev set: 20
  * takes the CRF median -7.95 -> -9.07 for at most 1.8% more SIMD
@@ -667,7 +681,10 @@ static const struct kv med_par_720[] = {
  * in 1024ths of skip_clean_thr(qp, 64); ctu.c's N265_CB64_SKIPGATE
  * comment is the rule. */
 static const struct kv med_tab_uhd[] = {
-    { "N265_CB64_SKIPGATE", "64" },
+    /* phase 14 item 48: 32 at UHD (med_tab_hd keeps 64 at HD). See
+     * med_par_4k; on Chimera 2160p's mid-segment stretch the gate at 64
+     * costs 4.9 points of BD-VMAF-NEG against 32 by itself */
+    { "N265_CB64_SKIPGATE", "32" },
     /* phase 14 item 46, at HD and UHD: the CRF frame-DC level is read
      * over the first 20 frames, the window med_par_uhd sets there */
     { "N265_CRF_DC_WIN", "20" },
@@ -723,6 +740,7 @@ static const struct kv med_tab_uhd[] = {
  * carries it too. ctu.c's N265_CB64_SPLITGATE comment has the census and
  * docs/phase14.md "Item 24" the numbers. */
 static const struct kv med_tab_hd[] = {
+    { "N265_CB64_SKIPGATE", "64" },   /* item 48: UHD runs 32 */
     { "N265_CB64_SPLITGATE", "256" },
     { "N265_TT_SKIP_INTER", "0" },   /* item 40: UHD only */
     { NULL, NULL }
@@ -843,6 +861,9 @@ struct rung {
     /* Structural rows that REPLACE `par`'s on a 720p-class picture below
      * HD (phase 14 item 46). NULL where the rung has none. */
     const struct kv *par_720;
+    /* Structural rows that answer before `par_uhd`'s on a UHD-class
+     * picture only (phase 14 item 48). NULL where the rung has none. */
+    const struct kv *par_4k;
 };
 
 /* The UHD rule, in luma samples. See med_par_uhd for why it is an area
@@ -883,7 +904,7 @@ static const struct rung rungs[] = {
      * without the one the evidence points at - and because a row here is
      * what lets the refusal say which rung was tried and failed rather
      * than pretending the name is unknown. docs/phase13.md, "C2". */
-    { "veryfast", vfast_tab, NULL,  vfast_par, NULL,  0, NULL, NULL, NULL },
+    { "veryfast", vfast_tab, NULL,  vfast_par, NULL,  0, NULL, NULL, NULL, NULL },
     /* `faster` is present and NOT placed either, and for a different
      * reason from veryfast's. It PASSES the band on every one of the
      * fifteen - median -9.96% BD-VMAF-NEG against x265 faster, 15/15
@@ -898,12 +919,12 @@ static const struct rung rungs[] = {
      * docs/phase13.md, "C2". The table stays for the same reason
      * veryfast's does, and the two binding clips are the same two the
      * project already has open items on. */
-    { "faster",   faster_tab, NULL, faster_par, NULL, 0, NULL, NULL, NULL },
-    { "fast",     fast_tab, NULL,   fast_par, NULL,   1, NULL, NULL, NULL },
+    { "faster",   faster_tab, NULL, faster_par, NULL, 0, NULL, NULL, NULL, NULL },
+    { "fast",     fast_tab, NULL,   fast_par, NULL,   1, NULL, NULL, NULL, NULL },
     { "medium",   med_tab, med_tab_uhd, med_par, med_par_uhd, 1,
-      med_tab_hd, med_tab_720, med_par_720 },
-    { "slow",     slow_tab, NULL,   slow_par, NULL,   1, NULL, NULL, NULL },
-    { "slower",   slower_tab, NULL, slower_par, NULL, 1, NULL, NULL, NULL },
+      med_tab_hd, med_tab_720, med_par_720, med_par_4k },
+    { "slow",     slow_tab, NULL,   slow_par, NULL,   1, NULL, NULL, NULL, NULL },
+    { "slower",   slower_tab, NULL, slower_par, NULL, 1, NULL, NULL, NULL, NULL },
     /* `veryslow` and `placebo` are present and NOT placed (2026-09-14,
      * phase 14 item 5). The binding leg is the BAND, and it binds a long
      * way above them: on the CRF band against the x265 preset of their
@@ -919,8 +940,8 @@ static const struct rung rungs[] = {
      * that. `--preset medium` still reads -6.65% with all seven ahead,
      * which is the control this item ran to be sure the instrument and
      * the corpus had not moved. docs/phase14.md, "Item 5". */
-    { "veryslow", veryslow_tab, NULL, veryslow_par, NULL, 0, NULL, NULL, NULL },
-    { "placebo",  placebo_tab, NULL,  placebo_par, NULL,  0, NULL, NULL, NULL },
+    { "veryslow", veryslow_tab, NULL, veryslow_par, NULL, 0, NULL, NULL, NULL, NULL },
+    { "placebo",  placebo_tab, NULL,  placebo_par, NULL,  0, NULL, NULL, NULL, NULL },
 };
 #define N_RUNGS ((int)(sizeof(rungs) / sizeof(rungs[0])))
 
@@ -1105,6 +1126,12 @@ int n265_preset_param_res(const char *key, int fallback, int width,
 {
     const struct kv *uhd = rungs[g_preset].par_uhd;
     const struct kv *p720 = rungs[g_preset].par_720;
+    const struct kv *p4k = rungs[g_preset].par_4k;
+    if (p4k && res_class(width, height) == 2) {
+        const char *v = lookup(p4k, key);
+        if (v)
+            return atoi(v);
+    }
     if (uhd && res_class(width, height)) {
         const char *v = lookup(uhd, key);
         if (v)

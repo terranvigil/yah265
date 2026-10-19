@@ -271,6 +271,11 @@ void n265_rc_open(struct n265_encoder *e)
     rc->spend_lo = cvbr ? abr_tunable("N265_VBR_SPENDFILL", 0.4) : 0.0;
     rc->spend_hi = abr_tunable("N265_VBR_SPENDHI", 0.8);
     rc->fbfine = cvbr ? abr_tunable("N265_VBR_FBFINE", 3.0) : rc->fbmax;
+    /* Phase 14 item 48: the finer-side rail widens with the deficit
+     * (rc_next, N265_VBR_FBTRK). Capped VBR only; 0 is off. */
+    rc->fbtrk = cvbr ? abr_tunable("N265_VBR_FBTRK", 0.06) : 0.0;
+    rc->fbtrk_w = abr_tunable("N265_VBR_FBTRK_W", 0.04);
+    rc->fbtrk_max = abr_tunable("N265_VBR_FBTRK_MAX", 6.0);
     rc->w_mem = abr_tunable("N265_ABR_WMEM", 1000.0);
     rc->meas = (int)abr_tunable("N265_ABR_MEAS", 1);
     rc->mguard = abr_tunable("N265_ABR_MGUARD", 0.0);
@@ -1069,10 +1074,26 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
      * just takes 1/gain as long to spend its rail. */
     if (twop)
         fb *= rc->tp_gain;
+    /* N265_VBR_FBTRK (item 48): the finer-side rail widens back toward the
+     * coarse rail's width once the file is a real share under its target.
+     * At 3 QP a long easy stretch with the buffer full can leave a 4K
+     * encode 20% short a minute in, and the rail then spends the rest of
+     * the file walking back: Chimera 2160p's top rung landed 13% under.
+     * Below `fbtrk` of deficit the rail is item 38's; at `fbtrk + fbtrk_w`
+     * and beyond it is `fbtrk_max`. Only after the opening's two seconds,
+     * whose ratio is noise. 0 is item 38's rail at every deficit. */
+    double fine = rc->fbfine;
+    if (rc->fbtrk > 0.0 && rc->fbtrk_max > fine && rc->fps > 0.0 &&
+        nseen > 2.0 * rc->fps && rc->bits_per_frame > 0.0) {
+        double def = -errb / (rc->bits_per_frame * nseen);
+        double s = (def - rc->fbtrk) / (rc->fbtrk_w > 0.0 ? rc->fbtrk_w : 1e-9);
+        s = s < 0.0 ? 0.0 : s > 1.0 ? 1.0 : s;
+        fine += s * (rc->fbtrk_max - fine);
+    }
     if (fb > rc->fbup)
         fb = rc->fbup;
-    else if (fb < -rc->fbfine)
-        fb = -rc->fbfine;
+    else if (fb < -fine)
+        fb = -fine;
 
     /* The operating point, and the whole of the sita_flat defect.
      *

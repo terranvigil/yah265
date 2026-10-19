@@ -16,7 +16,7 @@ Per cell, ours at --preset medium (build-rel/n265 unless --bin):
   matched     ours solved onto x265 CRF 28's bytes within 1% (secant in
               log bytes, started from ours' own ladder): dVMAF-NEG,
               dPSNR-Y, dSIZE.
-  VBR ladder  D2, D4 and D5: five rungs at x265's achieved CRF-ladder
+  VBR ladder  D2, D4, D5v and D3v: five rungs at x265's achieved CRF-ladder
               rates, maxrate 1.5x, buffer 2x, both at 6 threads. BD and
               per-rung tracking.
   speed       --threads 1, untimed: instructions retired and user CPU,
@@ -133,6 +133,17 @@ CELLS = [
      "~/media/throughput/chimera_720p_120s.y4m", 0, "only",
      "VBR +19.6% BD on the whole trimmed 720p segment",
      "every VBR curve on tiers M and L"),
+    # the 2160p VBR cell (item 48). D3's own window (0-299, the hard
+    # opening) reads VBR -7.7% and doesn't show the segment's +2.8%; the
+    # mid-segment stretch does (+7.8%, and +8.9% under CRF). It is read
+    # in place from the segment, not cut: 600 frames are 7.5 GB. The
+    # title is part of the memo keys, so it keeps its probe name.
+    ("D3v", "2160p", "chimera_w", "chimera_2160p_120s.y4m", 600,
+     "~/media/throughput/chimera_2160p_120s.y4m", 1200, "only",
+     "VBR +7.8% BD, CRF +8.9%: the segment's mid-stretch",
+     "M/2160p/chimera VBR",
+     {"dir": os.path.expanduser("~/media/throughput"), "offset": 1200,
+      "limit": 600}),
     ("D6", "720p", "lash1924", "d6_lash1924_720p.y4m", 300,
      "~/media/staging-y4m/lash1924-x10_720p.y4m", 2250, False,
      "film grain, 1280x960",
@@ -153,6 +164,9 @@ def cell_of(row):
     c = pl._mk("D", cls, title, cls, kind="clip", file=fn, dir=TIER_D)
     c.update(id=cid, frames=frames, src=row[5], start=row[6], vbr=row[7],
              why=row[8], stands=row[9])
+    # a window read in place from a longer file, not cut to tier_d
+    if len(row) > 10:
+        c.update(row[10])
     return c
 
 
