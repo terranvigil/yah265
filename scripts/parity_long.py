@@ -104,6 +104,11 @@ PLAIN_VMAF = os.environ.get("PL_PLAIN_VMAF", "0") == "1"
 
 REF_CRF = ps.REF_CRF                       # 28, x265 --help
 RUNGS = (20, 23, 26, 29, 32)               # spec ladder recipe, both sides
+# PL_RUNGS picks a subset for a first-pass screen (e.g. "20,26,32"). The
+# rows are the same records the full ladder reuses, and a curve read with
+# fewer than five rungs is printed as a screen, never as the spec's BD.
+LAD_RUNGS = (tuple(int(q) for q in os.environ["PL_RUNGS"].split(","))
+             if os.environ.get("PL_RUNGS") else RUNGS)
 MAXR, BUFR = 1.5, 2.0
 OUR_DEPTH, REF_DEPTH = 20, 20              # medium's own lookahead on each side
 SWEEP_DEPTHS = (12, 20, 30)
@@ -963,7 +968,8 @@ def lad_key(cell, mode, arm, q, depth):
 
 def vbr_targets(cell, lad=None):
     lad = lad or jload(LAD_PATH)
-    rs = [lad.get(lad_key(cell, "crf", "ref", q, REF_DEPTH)) for q in RUNGS]
+    rs = [lad.get(lad_key(cell, "crf", "ref", q, REF_DEPTH))
+          for q in LAD_RUNGS]
     if not all(rs):
         return None
     return [int(round(r["kbps"])) for r in rs]
@@ -992,9 +998,9 @@ def run_ladder(cell, modes, depths):
     stride = STRIDE[cell["tier"]]
     for mode in modes:
         if mode == "crf":
-            qs = RUNGS
+            qs = LAD_RUNGS
         else:
-            for q in RUNGS:              # the targets come from these
+            for q in LAD_RUNGS:          # the targets come from these
                 ladder_rung(cell, "crf", "ref", q, REF_DEPTH, stride)
             qs = vbr_targets(cell)
         print(f"  {cell['name']} ({cell['tier']}) {mode.upper()}: rungs "
@@ -1006,7 +1012,10 @@ def run_ladder(cell, modes, depths):
                 ladder_rung(cell, mode, "ours", q, d, stride)
             c = curve(cell, mode, d)
             if c:
-                print(f"  {cell['name']} {mode.upper()} depth {d}/{REF_DEPTH}:"
+                print(f"  {cell['name']} {mode.upper()} depth {d}/{REF_DEPTH}"
+                      + ("" if c["n"] == len(RUNGS)
+                         else f" ({c['n']}-rung screen, not the spec's BD)")
+                      + ":"
                       f" BD-VMAF-NEG {c['bn']:+.2f}% (PSNR-Y {c['bp']:+.2f}%)"
                       + (f"; tracking ours {fmt_track(c['track_o'])}"
                          if mode == "vbr" else ""), flush=True)
@@ -1039,7 +1048,7 @@ def curve(cell, mode, depth=OUR_DEPTH, lad=None):
     """One BD curve of the current binaries: five rungs both sides at one
     stride, or None. Rows of another build of ours never count."""
     lad = lad if lad is not None else jload(LAD_PATH)
-    qs = list(RUNGS) if mode == "crf" else vbr_targets(cell, lad)
+    qs = list(LAD_RUNGS) if mode == "crf" else vbr_targets(cell, lad)
     if not qs:
         return None
     x = [lad.get(lad_key(cell, mode, "ref", q, REF_DEPTH)) for q in qs]
