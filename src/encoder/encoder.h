@@ -951,9 +951,10 @@ typedef struct n265_frame_work {
     double vbv_dqp;         /* the QP the clamp added to the base; 0 where the
                              * plan already fitted */
     /* THE BRAKE (phase 14 item 29 step 2): the VBV's check inside the
-     * picture, ABR with a buffer only. `brk_cw` is the lookahead's
-     * complexity map as a per-row cumulative share of the picture (the
-     * whole picture sums to 1), written at dispatch. `brk_ca` and
+     * picture, ABR with a buffer and (item 47) capped CRF. `brk_cw` is
+     * the lookahead's complexity map as a per-row cumulative share of the
+     * picture (the whole picture sums to 1), written at dispatch.
+     * `brk_ca` and
      * `brk_ce` are per-row cumulative estimated bits, as coded and at
      * the unbraked QP, written by the row job CTU by CTU. The brake at
      * CTU (r, c) reads only the wavefront staircase - row r - k's
@@ -965,6 +966,13 @@ typedef struct n265_frame_work {
     double brk_ratio;       /* coded bits per estimated bit, per class */
     float *brk_cw, *brk_ca, *brk_ce;    /* nctu each, row-cumulative */
     int8_t *brk_dq;         /* nctu: the QP the brake added to each CTU */
+    /* capped CRF's last resort (phase 14 item 47): where the brake has
+     * no QP left to add, an inter CTU whose remainder still cannot be
+     * paid for is coded as one skip. `brk_slim` is what the skip holds
+     * the picture to, `brk_sk_on` arms it for the frame, and `brk_skip`
+     * is set on the row's own copy for the one CTU it applies to. */
+    int brk_sk_on, brk_skip;
+    double brk_slim;
     /* N265_SZ_TRACE (diagnostic, output-neutral): the rate-equivalent
      * mean of the final per-CTU offset map less the base's carried
      * fraction (its drift off the plan), the lag's per-class calibration

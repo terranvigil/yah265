@@ -7266,6 +7266,41 @@ static int dup_commit(struct n265_frame_work *e, int x0, int y0, int log2n,
     return 1;
 }
 
+/* Capped CRF's skip (phase 14 item 47): the brake has no QP left and the
+ * picture's remainder still overruns what the buffer can pay for, so this
+ * node is one skip on the first merge candidate - whatever the
+ * neighbourhood already uses - with no residual and no split. The commit
+ * is dup_commit's without the duplicate test. Returns 0 only where the
+ * merge list is empty, which a P or B slice never makes it. */
+static int brk_skip_commit(struct n265_frame_work *e, int x0, int y0,
+                           int log2n, int depth, int split_inc,
+                           uint64_t *j_out)
+{
+    int n = 1 << log2n;
+    mot_t mlist[MAX_MERGE];
+    int k = n265_merge_list(e, x0, y0, n, n, mlist, MAX_MERGE);
+    if (k < 1)
+        return 0;
+    uint32_t lam = ctu_lam(e, e->cur_ctu_qp);
+    uint32_t b0 = log2n > MIN_CB_LOG2
+                      ? n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + split_inc], 0)
+                      : 0;
+    size_t pos0 = e->rec_len;
+    mark_cu_edges(e, x0, y0, n);
+    skip_cu(e, x0, y0, log2n, mlist[0], 0);
+    e->rec_pos = pos0;
+    est_state adv = { e->est_ctx, 0 };
+    n265_est_advance_cu(e, &adv, x0, y0, log2n);
+    set_blk(e, e->blk_qp, x0, y0, n,
+            e->ent_qp_coded ? N265_QP_STORE(e->cur_ctu_qp) : N265_QP_INHERIT);
+    set_blk(e, e->ct_depth, x0, y0, n, depth);
+    uint64_t ssd = cu_area_ssd(e, x0, y0, n);
+    e->last_cu_nores = 1;
+    e->last_skip_clean = ssd <= skip_clean_thr(e->cur_ctu_qp, n);
+    *j_out = rd_j(e, ssd, adv.bits + b0, lam);
+    return 1;
+}
+
 /* The depth-0 residual gate's trial (N265_CB64_SKIPGATE, phase 14 item
  * 17). Exactly the whole-CU skip the CB64 arm set already runs, taken
  * BEFORE the CU arm rather than after it, so a node the gate decides
@@ -7354,6 +7389,16 @@ static uint64_t quadtree_inner(struct n265_frame_work *e, int x0, int y0,
         split_inc += e->ct_depth[((y0 - 1) >> 2) * e->map_stride +
                                  (x0 >> 2)] > depth;
 
+    if (e->brk_skip) {
+        uint64_t j;
+        if (brk_skip_commit(e, x0, y0, log2n, depth, split_inc, &j)) {
+            if (cr) {
+                cr->kind = N265_CUT_SKIP;
+                cr->flags |= N265_CUF_NORES;
+            }
+            return j;
+        }
+    }
     /* the duplicate-frame path: this whole picture is already in the
      * DPB, so the node is one skip and the recursion ends here */
     if ((e->dup_msk[0] | e->dup_msk[1]) && n265_dup_fast()) {

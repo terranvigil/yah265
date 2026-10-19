@@ -145,10 +145,23 @@ typedef struct n265_rc {
      * being wrong low costs the stream. */
     double vscale[RC_CLASSES];
     double vdecay;              /* N265_VBV_DECAY: the slow side's rate */
-    /* The brake (encoder.c, vbv_brake): ABR with a buffer only. The
-     * calibration is the retired frames' coded bits per estimated bit,
-     * per class, learned in coding order on the driver. */
-    int brake;                  /* N265_VBV_BRAKE */
+    /* The brake (encoder.c, vbv_brake): ABR with a buffer, and capped CRF
+     * since item 47. The calibration is the retired frames' coded bits per
+     * estimated bit, per class, learned in coding order on the driver. */
+    int brake;                  /* N265_VBV_BRAKE, N265_CCRF_BRAKE */
+    double ccrf_r0;             /* N265_CCRF_BRK_R0: capped CRF's
+                                 * calibration before any class has one */
+    int ccrf_skip;              /* N265_CCRF_SKIP: capped CRF's skip */
+    double ccrf_skfill;         /* N265_CCRF_SKIP_FILL: the share of the
+                                 * fill the skip holds a picture to */
+    double ccrf_satq;           /* N265_CCRF_SKIP_SATQ: the QP a saturated
+                                 * frame's window is priced at */
+    double ccrf_skwarm;         /* N265_CCRF_SKIP_WARM: observations of
+                                 * each inter class before it */
+    double ccrf_sat_allow;      /* that window's allowance, 0 where the
+                                 * clamp was not saturated */
+    double ccrf_guard;          /* N265_CCRF_GUARD: capped CRF's margin on
+                                 * the frame alone against the fill */
     double flatc;               /* N265_ABR_FLATC: a frame whose lookahead
                                  * complexity per lowres block is under this
                                  * is not evidence about the operating point

@@ -159,6 +159,15 @@ DEFAULT_OVERRIDES = {
     "N265_VBV_BRAKE": "1 under --bitrate with a VBV, else 0",
     "N265_ABR_FLATC": "17.0 under a VBV, else 0",
     "N265_VBV_SCPRED": "0.5 under --bitrate, else 1.0",
+    # phase 14 item 47: capped CRF (--crf with a VBV) takes the brake, a
+    # guard margin on the frame alone, and an uncalibrated brake ratio
+    "N265_CCRF_BRAKE": "1 under capped CRF, else unread",
+    "N265_CCRF_BRAKE_FILL": "0.8 under capped CRF, else unread",
+    "N265_CCRF_BRK_R0": "1.25",
+    "N265_CCRF_GUARD": "1.3 under capped CRF, else 0",
+    "N265_CCRF_SKIP": "1 under capped CRF, else 0",
+    "N265_CCRF_SKIP_FILL": "0.8", "N265_CCRF_SKIP_SATQ": "51.0",
+    "N265_CCRF_SKIP_WARM": "4.0",
     # `int k = v ? atoi(v) : (e->bframes >= 2 ? 6 : 4);`, nine lines under
     # the read: two defaults, and which one ships depends on a flag
     "N265_MAX_FRAME_WORK": "6 with --bframes >= 2, else 4",
@@ -196,6 +205,13 @@ OVERRIDES = {
     "N265_VBR_FBW": "default", "N265_VBR_OVW": "default",
     "N265_VBR_CTKEEP": "default", "N265_VBV_OWN": "default",
     "N265_VBR_FBUP": "default",
+    # item 47: shipped under capped CRF; N265_CCRF_BRAKE=0
+    # N265_CCRF_GUARD=1 is main byte for byte.
+    "N265_CCRF_BRAKE": "default", "N265_CCRF_BRAKE_FILL": "default",
+    "N265_CCRF_BRK_R0": "default", "N265_CCRF_GUARD": "default",
+    "N265_CCRF_SKIP": "default",
+    "N265_CCRF_SKIP_FILL": "default", "N265_CCRF_SKIP_SATQ": "default",
+    "N265_CCRF_SKIP_WARM": "default",
     # phase 14 item 30: shipped by medium's table (compiled-in 0, so the
     # other presets don't move); the env is the escape.
     "N265_MERGE_PICK_RATE": "default",

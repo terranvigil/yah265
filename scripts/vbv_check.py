@@ -39,6 +39,8 @@ perfect stream and lied about it in the SEI, which is the whole question
 
     CLIPS=foreman_cif python3 scripts/vbv_check.py
     MODE=crf CRF=28 python3 scripts/vbv_check.py
+    MODE=crf CORPUS=~/media/tier_d CLIPS=chimera_720p_120s FRAMES=2760 \
+        PAIRS_CRF='1.0x0.5s,1.2x1.0s,1.5x2.0s' python3 scripts/vbv_check.py
     PAIRS='1.0x1.0s,1.0x0.5s,1.5x2.0s' JOBS=4 python3 scripts/vbv_check.py
     GOP=3 THREADS=6 JOBS=1 N265_GOP_LEN=40 python3 scripts/vbv_check.py
 
@@ -54,6 +56,10 @@ from concurrent.futures import ThreadPoolExecutor
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HERE = os.path.join(ROOT, "scripts")
+# CORPUS: where the clips are read from. A long segment that is not in
+# tests/corpus (the dev set's D5v, ~/media/tier_d) is named by its own
+# directory and file stem.
+CORPUS = os.environ.get("CORPUS", os.path.join(ROOT, "tests", "corpus"))
 FRAMES = int(os.environ.get("FRAMES", "120"))
 N = os.environ.get("N265", os.path.join(ROOT, "build", "n265"))
 ARGS = os.environ.get("ARGS", "--aq 1 --cutree 1")
@@ -80,7 +86,7 @@ clips = sel.split(",") if sel else list(ladders)
 
 
 def fps_of(clip):
-    with open(os.path.join(ROOT, "tests", "corpus", clip + ".y4m"), "rb") as f:
+    with open(os.path.join(CORPUS, clip + ".y4m"), "rb") as f:
         hdr = f.readline().decode("latin-1")
     m = re.search(r" F(\d+):(\d+)", hdr)
     return int(m.group(1)) / int(m.group(2)) if m else 30.0
@@ -100,7 +106,7 @@ def run(clip, extra, trace=True, keep=False):
     """Encode and return (bytes, stderr, path). The path is None unless
     `keep`, in which case the CALLER unlinks it - the SEI leg has to read
     the stream the encode actually wrote."""
-    src = os.path.join(ROOT, "tests", "corpus", clip + ".y4m")
+    src = os.path.join(CORPUS, clip + ".y4m")
     fd, out = tempfile.mkstemp(suffix=".hevc")
     os.close(fd)
     env = dict(os.environ)
