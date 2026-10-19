@@ -230,7 +230,8 @@ static const struct kv vfast_tab[] = {
  * whole distance back to today's medium - for HD quality the two rungs
  * above already deliver at 1.10-1.19x. The HD deficit at fast was never
  * `--ctu 32`; it was the two free tools and these two rungs. So the
- * coding tree stays 32 and the window 12 at every resolution (med_par),
+ * coding tree stays 32 and the window 12 at every resolution (med_par;
+ * from 720p up the window is 20 since item 46),
  * which is also what keeps a CIF picture's wavefront at nine rows
  * instead of five. */
 static const struct kv med_tab[] = {
@@ -361,6 +362,10 @@ static const struct kv med_tab[] = {
      * docs/phase14.md "Item 44". */
     { "N265_AQ2", "1" },
     { "N265_AQ_BPULL", "0" },
+    /* phase 14 item 46, at its compiled-in value: the CRF level window
+     * follows the window, so CIF keeps 12 and med_tab_720 and
+     * med_tab_uhd name 20 from 720p up */
+    { "N265_CRF_DC_WIN", "12" },
     /* There is NO `N265_NR_INTRA` / `N265_NR_INTER` row, and item 6b is
      * why that is worth saying out loud here. Item 6 recommended
      * `--nr-intra 100 --nr-inter 100` for this table off a five-clip
@@ -563,10 +568,11 @@ static const struct kv vfast_par[] = {
     { NULL, NULL }
 };
 
-/* medium's structure IS fast's: the goal preset was bought with two
- * knobs, not with the coding tree or the window. Spelled out rather than
- * shared with fast_par so that a later move of one is not silently a
- * move of both. */
+/* medium's structure IS fast's below the 720p class: the goal preset was
+ * bought with two knobs, not with the coding tree or the window. Spelled
+ * out rather than shared with fast_par so that a later move of one is not
+ * silently a move of both. From 720p up the window is 20 (med_par_uhd and
+ * med_par_720, phase 14 item 46). */
 static const struct kv med_par[] = {
     { "ctu", "32" },
     { "rc-lookahead", "12" },
@@ -608,6 +614,23 @@ static const struct kv med_par[] = {
  * row back at 1080p was the clock, and the switch is what pays it. */
 static const struct kv med_par_uhd[] = {
     { "ctu", "64" },
+    /* phase 14 item 46, at HD and UHD: see med_par_720 */
+    { "rc-lookahead", "20" },
+    { NULL, NULL }
+};
+
+/* ...and the window on a 720p-class picture and up (phase 14 item 46).
+ * The depth was swept at 8, 12, 16, 20, 30 and 40 on the dev set: 20
+ * takes the CRF median -7.95 -> -9.07 for at most 1.8% more SIMD
+ * instructions on any cell. 30 and 40 add nothing over it and cost 2160p
+ * 4-5%. With cu-tree off the depth moves no cell, so what the deeper
+ * window buys is the propagation horizon. CIF stays at 12: there it
+ * gives bus_cif 0.69 and akiyo_cif 0.55 of band back. The CRF level
+ * window (N265_CRF_DC_WIN) moves with it in med_tab_uhd and med_tab_720.
+ * `--rc-lookahead 12` with `N265_CRF_DC_WIN=12` is the escape.
+ * docs/phase14.md "Item 46". */
+static const struct kv med_par_720[] = {
+    { "rc-lookahead", "20" },
     { NULL, NULL }
 };
 
@@ -645,6 +668,9 @@ static const struct kv med_par_uhd[] = {
  * comment is the rule. */
 static const struct kv med_tab_uhd[] = {
     { "N265_CB64_SKIPGATE", "64" },
+    /* phase 14 item 46, at HD and UHD: the CRF frame-DC level is read
+     * over the first 20 frames, the window med_par_uhd sets there */
+    { "N265_CRF_DC_WIN", "20" },
     /* phase 14 item 36, at HD and UHD (n265_env reads this table for
      * both): the full-pel search walks the hexagon to 57 pels instead of
      * the 24-step unit diamond, and the b-adapt motion term is normalised
@@ -719,6 +745,7 @@ static const struct kv med_tab_hd[] = {
  * `N265_ME_PATTERN=0 N265_BADAPT_FASTW=0` is the escape.
  * docs/phase14.md "Item 41". */
 static const struct kv med_tab_720[] = {
+    { "N265_CRF_DC_WIN", "20" },   /* phase 14 item 46, see med_par_720 */
     { "N265_ME_PATTERN", "1" },
     { "N265_BADAPT_FASTW", "320" },
     { "N265_BADAPT_MVMIN", "3" },
@@ -813,6 +840,9 @@ struct rung {
     /* Knob rows that answer on a 720p-class picture below HD (phase 14
      * item 41). NULL where the rung has none. */
     const struct kv *tab_720;
+    /* Structural rows that REPLACE `par`'s on a 720p-class picture below
+     * HD (phase 14 item 46). NULL where the rung has none. */
+    const struct kv *par_720;
 };
 
 /* The UHD rule, in luma samples. See med_par_uhd for why it is an area
@@ -853,7 +883,7 @@ static const struct rung rungs[] = {
      * without the one the evidence points at - and because a row here is
      * what lets the refusal say which rung was tried and failed rather
      * than pretending the name is unknown. docs/phase13.md, "C2". */
-    { "veryfast", vfast_tab, NULL,  vfast_par, NULL,  0, NULL, NULL },
+    { "veryfast", vfast_tab, NULL,  vfast_par, NULL,  0, NULL, NULL, NULL },
     /* `faster` is present and NOT placed either, and for a different
      * reason from veryfast's. It PASSES the band on every one of the
      * fifteen - median -9.96% BD-VMAF-NEG against x265 faster, 15/15
@@ -868,12 +898,12 @@ static const struct rung rungs[] = {
      * docs/phase13.md, "C2". The table stays for the same reason
      * veryfast's does, and the two binding clips are the same two the
      * project already has open items on. */
-    { "faster",   faster_tab, NULL, faster_par, NULL, 0, NULL, NULL },
-    { "fast",     fast_tab, NULL,   fast_par, NULL,   1, NULL, NULL },
+    { "faster",   faster_tab, NULL, faster_par, NULL, 0, NULL, NULL, NULL },
+    { "fast",     fast_tab, NULL,   fast_par, NULL,   1, NULL, NULL, NULL },
     { "medium",   med_tab, med_tab_uhd, med_par, med_par_uhd, 1,
-      med_tab_hd, med_tab_720 },
-    { "slow",     slow_tab, NULL,   slow_par, NULL,   1, NULL, NULL },
-    { "slower",   slower_tab, NULL, slower_par, NULL, 1, NULL, NULL },
+      med_tab_hd, med_tab_720, med_par_720 },
+    { "slow",     slow_tab, NULL,   slow_par, NULL,   1, NULL, NULL, NULL },
+    { "slower",   slower_tab, NULL, slower_par, NULL, 1, NULL, NULL, NULL },
     /* `veryslow` and `placebo` are present and NOT placed (2026-09-14,
      * phase 14 item 5). The binding leg is the BAND, and it binds a long
      * way above them: on the CRF band against the x265 preset of their
@@ -889,8 +919,8 @@ static const struct rung rungs[] = {
      * that. `--preset medium` still reads -6.65% with all seven ahead,
      * which is the control this item ran to be sure the instrument and
      * the corpus had not moved. docs/phase14.md, "Item 5". */
-    { "veryslow", veryslow_tab, NULL, veryslow_par, NULL, 0, NULL, NULL },
-    { "placebo",  placebo_tab, NULL,  placebo_par, NULL,  0, NULL, NULL },
+    { "veryslow", veryslow_tab, NULL, veryslow_par, NULL, 0, NULL, NULL, NULL },
+    { "placebo",  placebo_tab, NULL,  placebo_par, NULL,  0, NULL, NULL, NULL },
 };
 #define N_RUNGS ((int)(sizeof(rungs) / sizeof(rungs[0])))
 
@@ -1074,8 +1104,15 @@ int n265_preset_param_res(const char *key, int fallback, int width,
                           int height)
 {
     const struct kv *uhd = rungs[g_preset].par_uhd;
+    const struct kv *p720 = rungs[g_preset].par_720;
     if (uhd && res_class(width, height)) {
         const char *v = lookup(uhd, key);
+        if (v)
+            return atoi(v);
+    }
+    if (p720 && res_class(width, height) == 0 && width > 0 && height > 0 &&
+        (long)width * (long)height >= N265_720_SAMPLES) {
+        const char *v = lookup(p720, key);
         if (v)
             return atoi(v);
     }

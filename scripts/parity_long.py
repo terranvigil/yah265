@@ -31,7 +31,7 @@ the ladder lane beside it), against x265 medium:
             every frame on tier M, every 3rd on tier L.
   VBR wall  G3 only: one rung per M and L cell at x265's CRF 28 achieved
             rate, 1.5x / 2x, two interleaved rounds, no size match.
-  sweep     ours at --rc-lookahead 12 (medium's own), 20 and 30 on six
+  sweep     ours at --rc-lookahead 12, 20 (medium's own) and 30 on six
             cells, CRF and VBR, against x265 at its default 20.
   credits   per title at 1080p, the credits span coded on its own: x265 at
             CRF 28 and ours at the cell's matched CRF, five rungs each side
@@ -105,7 +105,7 @@ PLAIN_VMAF = os.environ.get("PL_PLAIN_VMAF", "0") == "1"
 REF_CRF = ps.REF_CRF                       # 28, x265 --help
 RUNGS = (20, 23, 26, 29, 32)               # spec ladder recipe, both sides
 MAXR, BUFR = 1.5, 2.0
-OUR_DEPTH, REF_DEPTH = 12, 20              # medium's own lookahead on each side
+OUR_DEPTH, REF_DEPTH = 20, 20              # medium's own lookahead on each side
 SWEEP_DEPTHS = (12, 20, 30)
 SWEEP_SPREAD = 0.4                         # yah264's threaded-VBR run-to-run spread
 SWEEP_CELLS = [x for x in os.environ.get(
