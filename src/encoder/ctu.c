@@ -1537,10 +1537,60 @@ static int intra_fast_mask(void)
     return v;
 }
 
-static inline int intra_fast(int log2n)
+/* N265_INTRA_FAST_QP: the coarse rank only where the CTU's QP is at
+ * least this. N265_INTRA_FAST_STEP: the coarse pass's angle step (4, 2
+ * or 8); the refinement halves it down to 1. */
+static int intra_fast_qp(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_INTRA_FAST_QP");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
+static int intra_fast_step(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_INTRA_FAST_STEP");
+        v = s ? atoi(s) : 4;
+        if (v != 2 && v != 8)
+            v = 4;
+    }
+    return v;
+}
+
+/* N265_INTRA_FAST_W: the narrowest picture the coarse rank runs on.
+ * N265_INTRA_FAST_FLAT: the narrowest picture it runs on when the frame
+ * is flat-typed; 0 is every width the rank runs at. */
+static int intra_fast_w(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_INTRA_FAST_W");
+        v = s ? atoi(s) : 1280;
+    }
+    return v;
+}
+
+static int intra_fast_flat(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_INTRA_FAST_FLAT");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
+static inline int intra_fast(const struct n265_frame_work *e, int log2n)
 {
     int m = intra_fast_mask();
-    return m && ((m >> (log2n == 2 ? 3 : log2n - 3)) & 1);
+    return m && ((m >> (log2n == 2 ? 3 : log2n - 3)) & 1) &&
+           e->cur_ctu_qp >= intra_fast_qp() && e->pad_w >= intra_fast_w() &&
+           (!e->flat || e->pad_w >= intra_fast_flat());
 }
 
 /* how many predictions a rank over (sub, nsub) evaluates */
@@ -1608,17 +1658,18 @@ static int search_luma_mode_sub(struct n265_frame_work *e, int x0, int y0,
      * pass over planar, DC and every fourth angle, then the angles either
      * side of the best angle at distance 2, then at distance 1: 19 modes
      * instead of 35. Only the full rank; a caller's own list is kept.
-     * Pictures under 1280 wide keep the full rank: on the CIF-7 band the
-     * coarse one cost coastguard_cif 0.63 and bus_cif 0.44 of a point. */
-    int fast = !sub && e->slice_type != 2 && e->pad_w >= 1280 &&
-               intra_fast(log2n);
-    int fl[40], nf = 0, stage = 0;
+     * Narrow pictures keep the full rank (N265_INTRA_FAST_W): on the
+     * CIF-7 band the coarse one cost coastguard_cif 0.63 and bus_cif 0.44
+     * of a point, and at 720p sita_flat 2.42. */
+    int fast = !sub && e->slice_type != 2 && intra_fast(e, log2n);
+    int fl[40], nf = 0;
     if (fast) {
         fl[nf++] = INTRA_PLANAR;
         fl[nf++] = INTRA_DC;
-        for (int m = 2; m <= 34; m += 4)
+        for (int m = 2; m <= 34; m += intra_fast_step())
             fl[nf++] = m;
     }
+    int dist = intra_fast_step() / 2;
     int ba = -1;                        /* the best angle so far */
     uint32_t bac = UINT32_MAX;
     for (int mi = 0; mi < (fast ? nf : sub ? nsub : 35); mi++) {
@@ -1656,8 +1707,9 @@ static int search_luma_mode_sub(struct n265_frame_work *e, int x0, int y0,
             }
             /* a stage is done: queue the next pair around the best angle,
              * and go straight on to the stage after if neither is new */
-            while (mi == nf - 1 && stage < 2) {
-                int d = stage++ == 0 ? 2 : 1;
+            while (mi == nf - 1 && dist >= 1) {
+                int d = dist;
+                dist >>= 1;
                 for (int sg = -1; sg <= 1; sg += 2) {
                     int m = ba + sg * d, seen = 0;
                     if (m < 2 || m > 34)
@@ -1960,10 +2012,24 @@ static int tt_skip_intra(void)
     return v;
 }
 
-static inline int tt_skip(int inter, int log2n)
+/* N265_TT_SKIP_QP: the split skip only where the CTU's QP is at least
+ * this */
+static int tt_skip_qp(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_TT_SKIP_QP");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
+static inline int tt_skip(const struct n265_frame_work *e, int inter,
+                          int log2n)
 {
     int m = inter ? tt_skip_inter() : tt_skip_intra();
-    return log2n >= 3 && ((m >> (log2n - 3)) & 1);
+    return log2n >= 3 && ((m >> (log2n - 3)) & 1) &&
+           e->cur_ctu_qp >= tt_skip_qp();
 }
 
 static int intra_rskip(const struct n265_frame_work *e, int log2n)
@@ -2490,7 +2556,7 @@ static uint64_t tt_node(struct n265_frame_work *e, int mode, int x0, int y0,
     int child_chroma = (log2ts - 1 - csx) >= 2;
     int forced = log2ts > 5;            /* past maxTB: split, no flag */
     int coded = !forced && log2ts > 2 && depth < tt_maxdepth(e, mode);
-    int tried = coded && !tt_skip(0, log2ts);
+    int tried = coded && !tt_skip(e, 0, log2ts);
     int need = st != NULL || coded;
     uint32_t lam = ctu_lam(e, e->cur_ctu_qp);
     size_t off0 = e->rec_len;
@@ -4080,7 +4146,7 @@ static uint64_t inter_tt_node(struct n265_frame_work *e, mot_t mot, int x0,
     int child_chroma = (log2n - 1 - csx) >= 2;
     int forced = log2n > 5 || (depth == 0 && isplit);
     int coded = !forced && log2n > 2 && depth < tt_maxdepth(e, MODE_INTER);
-    int tried = coded && !tt_skip(1, log2n);
+    int tried = coded && !tt_skip(e, 1, log2n);
     int need = st != NULL || coded;
     size_t off0 = e->rec_len;
     cabac_ctx_t own[CTX_COUNT];
@@ -7902,6 +7968,8 @@ void n265_ctu_warm(void)
     (void)depth_bound_widen(); (void)depth_bound_local();
     (void)depth_bound_ctb_skip(); (void)mvd_bits_on(); (void)me_satd_on();
     (void)tt_skip_inter(); (void)tt_skip_intra(); (void)intra_fast_mask();
+    (void)intra_fast_qp(); (void)intra_fast_step(); (void)tt_skip_qp();
+    (void)intra_fast_w(); (void)intra_fast_flat();
     (void)cb64_gate(); (void)cb64_amvp(); (void)b_intra_margin();
     (void)cb64_prof_on(); (void)cb64_skipgate();
     (void)bi_refine_iters(); (void)merge_rd_n(); (void)merge_pick_rate(); (void)cb64_splitgate(); (void)bi_gate();

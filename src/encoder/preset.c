@@ -333,14 +333,17 @@ static const struct kv med_tab[] = {
     { "N265_ME_PATTERN", "0" },
     { "N265_BADAPT_REFW", "128" },
     /* phase 14 item 40: the inter-slice intra rank coarse-to-fine, 19
-     * modes of 35, for at most 0.11 of a point on any tier D cell. The
-     * compiled-in default is 0, so fast, slow and slower are untouched;
-     * `N265_INTRA_FAST=0` is the escape. The commit's 8x8 transform split
-     * is dropped on the HD and UHD classes only (the overlay below); this
-     * row keeps it below them. `N265_SUBPEL_AXIS` gets no row: it cost
-     * sunflower 0.48 of a point beside these two. docs/phase14.md
-     * "Item 40". */
+     * modes of 35, for at most 0.13 of a point on any tier D cell. The compiled-in default is 0, so fast,
+     * slow and slower are untouched; `N265_INTRA_FAST=0` is the escape.
+     * The commit's 16x16 transform split is dropped at UHD only (the
+     * overlay below); this row keeps it everywhere else.
+     * `N265_SUBPEL_AXIS` gets no row: it cost sunflower 0.48 of a point.
+     * docs/phase14.md "Item 40". */
     { "N265_INTRA_FAST", "15" },
+    /* ...on pictures 1920 wide and up. At 720p it cost sita_flat_720p
+     * 2.42 points and sita_toon_720p 0.70, and keeping it off flat-typed
+     * frames there still left D5v's VBR ladder +0.23 */
+    { "N265_INTRA_FAST_W", "1920" },
     { "N265_TT_SKIP_INTER", "0" },
     /* There is NO `N265_NR_INTRA` / `N265_NR_INTER` row, and item 6b is
      * why that is worth saying out loud here. Item 6 recommended
@@ -643,13 +646,12 @@ static const struct kv med_tab_uhd[] = {
      * docs/phase14.md "Item 36". */
     { "N265_ME_PATTERN", "1" },
     { "N265_BADAPT_REFW", "320" },
-    /* phase 14 item 40: the inter commit tries no transform split under
-     * an 8x8 node and, at UHD, none under a 16x16 one either (3; tab_hd
-     * answers 1 at HD). At 720p the 8x8 half cost chimera 0.30 of a
-     * point, so it stays above the HD class; the 32x32 half cost meridian
-     * 0.55 at UHD and is not taken anywhere. `N265_TT_SKIP_INTER=0` is
-     * the escape. */
-    { "N265_TT_SKIP_INTER", "3" },
+    /* phase 14 item 40, UHD only (tab_hd answers 0 at HD): the inter
+     * commit tries no transform split under a 16x16 node. The 8x8 node's
+     * split stays: without it meridian's VBR ladder gave 0.21 of a point,
+     * and at 1080p it cost sunflower 0.13; the 32x32 node's cost meridian
+     * 0.55. `N265_TT_SKIP_INTER=0` is the escape. */
+    { "N265_TT_SKIP_INTER", "2" },
     /* the split side (item 24's knob), measured at 2160p by item 26: on
      * three 4K windows every per-rung delta against the tree without it
      * is within 0.11 VMAF-NEG. At HD, tab_hd answers first with the same
@@ -671,7 +673,7 @@ static const struct kv med_tab_uhd[] = {
  * docs/phase14.md "Item 24" the numbers. */
 static const struct kv med_tab_hd[] = {
     { "N265_CB64_SPLITGATE", "256" },
-    { "N265_TT_SKIP_INTER", "1" },   /* item 40: the 8x8 node only */
+    { "N265_TT_SKIP_INTER", "0" },   /* item 40: UHD only */
     { NULL, NULL }
 };
 
