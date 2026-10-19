@@ -51,6 +51,17 @@ typedef struct n265_vbv {
      * applied inside n265_vbv_allow, so both the ABR loop and capped CRF
      * read it without either of them knowing it exists. */
     double au_cap;
+    /* A GOP-parallel segment (phase 14 item 42): the encode is one of
+     * several concatenated into one stream, so its LAST access unit is
+     * not the end of the buffer's story. `seg_floor` is the fill, in
+     * bits, the buffer must still hold at the next segment's first
+     * removal, and `seg_left` the removals left in this segment after the
+     * one being planned (-1: not a segment, or the segment the stream
+     * ends with). The next segment was planned assuming at most that
+     * fill, and the arithmetic is monotone in the fill, so a floor met
+     * here is a buffer that never underflows across the join. */
+    int seg_left;
+    double seg_floor;
     double fill;            /* bits in the CPB at the next removal        */
     double min_fill;        /* the least post-removal fill seen           */
     long underflows;        /* removals that took the fill below zero     */

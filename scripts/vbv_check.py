@@ -40,6 +40,7 @@ perfect stream and lied about it in the SEI, which is the whole question
     CLIPS=foreman_cif python3 scripts/vbv_check.py
     MODE=crf CRF=28 python3 scripts/vbv_check.py
     PAIRS='1.0x1.0s,1.0x0.5s,1.5x2.0s' JOBS=4 python3 scripts/vbv_check.py
+    GOP=3 THREADS=6 JOBS=1 N265_GOP_LEN=40 python3 scripts/vbv_check.py
 
 A pair is `<rate multiple>x<buffer seconds>`: the rate multiplies the leg's
 base rate (the ladder's rung 2 under ABR, the achieved rate under CRF) and
@@ -64,6 +65,14 @@ JOBS = int(os.environ.get("JOBS", "2"))
 THREADS = os.environ.get("THREADS", "")
 PAIRS = os.environ.get("PAIRS", "1.0x1.0s,1.0x0.5s,1.5x2.0s")
 VERBOSE = os.environ.get("VERBOSE", "") != ""
+# GOP=N: encode with --gop-parallel N (phase 14 item 42). A joined stream
+# is several encoders' work, so their traces interleave and none of them
+# describes the buffer the stream fills; the cell is walked from the
+# stream's own access unit sizes instead, which is the walk a decoder
+# makes. A joined stream carries no HRD timing SEI, so that walk is off.
+# Segments are --keyint frames by default and the clips are 120: set
+# N265_GOP_LEN (40, say) so a clip runs past one segment.
+GOP = os.environ.get("GOP", "")
 
 ladders = json.load(open(os.path.join(HERE, "ladders.json")))
 sel = os.environ.get("CLIPS", "")
@@ -100,6 +109,9 @@ def run(clip, extra, trace=True, keep=False):
     cmd = [N, src, "--frames", str(FRAMES)] + ARGS.split() + extra
     if THREADS:
         cmd += ["--threads", THREADS]
+    if GOP:
+        cmd += ["--gop-parallel", GOP] + ([] if THREADS else
+                                          ["--threads", "6"])
     cmd += ["-o", out]
     r = subprocess.run(cmd, capture_output=True, text=True, env=env)
     size = os.path.getsize(out)
@@ -125,14 +137,14 @@ def walk(rows, maxrate, bufsize, init, fps):
     desync = 0
     for r in rows:
         bits = r["bits"]
-        if abs(fill - r["fill_in"]) > 1.0:
+        if r["fill_in"] is not None and abs(fill - r["fill_in"]) > 1.0:
             desync += 1
         fill -= bits
         minfill = min(minfill, fill)
         if fill < 0.0:
             under += 1
         fill = min(fill + inflow, bufsize)
-        if abs(fill - r["fill_out"]) > 1.0:
+        if r["fill_out"] is not None and abs(fill - r["fill_out"]) > 1.0:
             desync += 1
     return minfill, under, desync
 
@@ -340,6 +352,11 @@ def cell(clip, mult, secs, base_rate):
                  fill_in=float(m.group(7)), fill_out=float(m.group(8)),
                  dqp=float(m.group(9)))
             for m in ROW.finditer(err)]
+    if GOP and sei_err is None:
+        # the joined stream's own sizes, in coding order (see GOP above)
+        rows = [dict(code=k, disp=k, slice=au["vcl"], pred=0.0, allow=0.0,
+                     bits=au["bytes"] * 8.0, fill_in=None, fill_out=None,
+                     dqp=0.0) for k, au in enumerate(aus)]
     if not rows:
         return dict(clip=clip, pair=(mult, secs),
                     err="no VBV rows in the trace")
@@ -351,7 +368,9 @@ def cell(clip, mult, secs, base_rate):
     sei_under = sei_mono = sei_bp = 0
     sei_minpct = 0.0
     sei_size = 0
-    if sei_err is None:
+    if GOP and sei_err is None:
+        sei_err = "off (a joined stream carries no HRD timing SEI)"
+    elif sei_err is None:
         try:
             if len(aus) != len(rows):
                 raise ValueError("%d access units, %d trace rows"
@@ -458,7 +477,9 @@ def main():
             bad += 1
             continue
         bad += r["under"] + r["desync"] + r["sei_mono"]
-        if r["sei_err"]:
+        if r["sei_err"] and GOP:
+            pass                    # no SEI leg on a joined stream
+        elif r["sei_err"]:
             bad += 1
             print("  SEI ERROR %-18s %.1fx/%.1fs  %s"
                   % (r["clip"], r["pair"][0], r["pair"][1], r["sei_err"]))
