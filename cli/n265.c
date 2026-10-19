@@ -4,9 +4,12 @@
  */
 
 #include <errno.h>
+#include <math.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "yah265.h"
 
@@ -968,6 +971,14 @@ static void usage(void)
         "                  corpus was measured at (docs/instruments.md).\n"
         "  --threads <n>   worker threads; 0 = one per online CPU (default 0).\n"
         "                  Output is byte-identical at every value.\n"
+        "  --gop-parallel <n>  code a long input as segments on n encoder\n"
+        "                  instances at once, --threads / n threads each,\n"
+        "                  joined at IDRs into one stream (0 = off, the\n"
+        "                  default). Only above one thread and past one\n"
+        "                  segment (--keyint frames); the stream is not\n"
+        "                  the serial one. No HRD timing SEI on a joined\n"
+        "                  stream; not with --pass, --qpfile, --zones,\n"
+        "                  --csv, --shot-stats or --hrd-concat.\n"
         "  --dump-recon <file>  write reconstruction as raw YUV (the\n"
         "                  conformance gate compares decoders against it)\n"
         "  --shot-window <n>  OPT-IN shot planner: buffer up to n frames so\n"
@@ -1418,6 +1429,9 @@ static int opt_drop(const char *k)
     static const char * const drop[] = {
         "o", "dump-recon", "dump-recon-decode", "csv", "csv-log-level",
         "shot-stats", "psnr", "ssim", "verbose", "v", "threads",
+        /* a schedule, like --threads: the identification SEI must not
+         * change with it */
+        "gop-parallel",
         "show-config", "version", "help", "h",
         /* the switch for this very message: naming a default must not
          * change the stream, so `--info` and a default run write the
@@ -1461,6 +1475,806 @@ static void opt_note(optstr *o, char **argv, int from, int to)
         opt_put(o, k, argv[to]);
     else
         opt_put(o, k, NULL);
+}
+
+/* ---------------------------------------------------------------------
+ * GOP-parallel encoding (phase 14 item 42, parity plan C10).
+ *
+ * `--gop-parallel N` cuts a long input into SEGMENTS, codes each one on
+ * its own encoder instance - N of them at a time, each with --threads / N
+ * worker threads - and joins their streams in order. Every segment opens
+ * on an IDR, because it is the first picture its instance codes, so the
+ * join is a closed GOP and the joined stream is one conformant bitstream:
+ * a decoder crossing it sees an IDR and nothing before it is referenced.
+ * Inside a segment nothing changes, open GOP included.
+ *
+ * Where a segment ends. A segment is at most `N265_GOP_LEN` frames (the
+ * keyint by default), so an instance never reaches its own keyint and
+ * the stream carries about as many intra pictures as the serial encode
+ * would. Inside the last 40% of that span the boundary goes on the
+ * strongest scene cut the reader finds there, which is where the serial
+ * encoder would have coded an IDR anyway; without one it falls on the
+ * span's end. The detector is the lookahead's shape on a coarser plane:
+ * the ratio of the motion-searched inter cost to the intra cost, a cut
+ * where inter fails to undercut intra, spikes over its running level and
+ * jumps over the three frames before it.
+ *
+ * The rate control. CRF and CQP are open loop: a segment is coded at the
+ * same rate factor the serial encode would use, and nothing else is
+ * needed. Under --bitrate one rate factor is carried across instances:
+ * segment k continues segment k - N's controller (its scales, its
+ * operating point, its rate factor), and its ledger is the bits really
+ * spent by every segment up to k - N plus the target for the segments
+ * still in flight between them, so the file still lands on its size.
+ * Under a VBV each segment after the first assumes `N265_GOP_VBV_IN` of
+ * the buffer at its first picture, and each one before the last must
+ * leave `N265_GOP_VBV_OUT` (at least as much) when it ends; the fill
+ * arithmetic is monotone, so the joined stream cannot underflow where
+ * every segment met its floor (src/encoder/vbv.h).
+ *
+ * What changes at a join. The parameter sets repeat (each instance writes
+ * its own, the same bytes); the identification SEI is written once, by
+ * the first segment, as in a serial stream; an --eob is kept on the last
+ * segment only. The HRD timing SEI is NOT written on a joined stream:
+ * each instance would count its removal delays from its own start.
+ * The buffer itself is honoured and scripts/vbv_check.py walks it from
+ * the stream's access unit sizes.
+ *
+ * When it engages. Only above one thread, and only when the input runs
+ * past one segment: an input that ends inside the first segment is coded
+ * by one instance with every thread, which is the serial encode byte for
+ * byte. Off unless asked for.
+ *
+ * Memory. The reader holds a window of input frames, `(N + 1.5) x` the
+ * segment length by default (N265_GOP_WINDOW overrides): the segments in
+ * flight plus the look-ahead the next boundary needs. It is the cost of
+ * reading a pipe in order while N instances consume it out of order. */
+
+void n265_encoder_set_segment(n265_encoder *e, double fill_in,
+                              double floor_out, int nframes);
+size_t n265_encoder_rc_size(void);
+int n265_encoder_rc_export(const n265_encoder *e, void *buf);
+int n265_encoder_rc_import(n265_encoder *e, const void *buf,
+                           double bits_before, long frames_before);
+int n265_encoder_rc_spent(const n265_encoder *e, double *bits, long *frames);
+void n265_encoder_set_segment_10(n265_encoder *e, double fill_in,
+                                 double floor_out, int nframes);
+size_t n265_encoder_rc_size_10(void);
+int n265_encoder_rc_export_10(const n265_encoder *e, void *buf);
+int n265_encoder_rc_import_10(n265_encoder *e, const void *buf,
+                              double bits_before, long frames_before);
+int n265_encoder_rc_spent_10(const n265_encoder *e, double *bits,
+                             long *frames);
+int n265_encoder_crf_anchor(const n265_encoder *e, double *lvl);
+int n265_encoder_set_crf_anchor(n265_encoder *e, double lvl);
+int n265_encoder_crf_anchor_10(const n265_encoder *e, double *lvl);
+int n265_encoder_set_crf_anchor_10(n265_encoder *e, double lvl);
+
+typedef struct gp_api {
+    void (*set_segment)(n265_encoder *, double, double, int);
+    size_t (*rc_size)(void);
+    int (*rc_export)(const n265_encoder *, void *);
+    int (*rc_import)(n265_encoder *, const void *, double, long);
+    int (*rc_spent)(const n265_encoder *, double *, long *);
+    int (*crf_anchor)(const n265_encoder *, double *);
+    int (*set_crf_anchor)(n265_encoder *, double);
+} gp_api;
+
+static const gp_api gp8 = {
+    n265_encoder_set_segment, n265_encoder_rc_size, n265_encoder_rc_export,
+    n265_encoder_rc_import, n265_encoder_rc_spent, n265_encoder_crf_anchor,
+    n265_encoder_set_crf_anchor,
+};
+static const gp_api gp10 = {
+    n265_encoder_set_segment_10, n265_encoder_rc_size_10,
+    n265_encoder_rc_export_10, n265_encoder_rc_import_10,
+    n265_encoder_rc_spent_10, n265_encoder_crf_anchor_10,
+    n265_encoder_set_crf_anchor_10,
+};
+
+typedef struct gp_seg {
+    int start, end;             /* input frames [start, end) */
+    int has_next;               /* a segment follows this one */
+    int threads;                /* the instance's worker threads */
+    uint8_t *buf;               /* the segment's Annex B bytes */
+    size_t sz, cap;
+    FILE *recon;                /* --dump-recon's per-segment planes */
+    double met[6];
+    long nmet;
+    unsigned char *rc;          /* the controller after the flush */
+    double rc_own;              /* bits this segment spent itself */
+    int done, err, written;
+} gp_seg;
+
+typedef struct gp_job {
+    const n265_api *a;
+    const gp_api *g;
+    n265_param p;
+    int W, K, T;                /* instances, threads each, total */
+    int L;                      /* the segment's most frames */
+    int cuts;                   /* boundaries on scene cuts */
+    long window;                /* input frames held at most */
+    int bps;                    /* bytes per sample handed to the library */
+    int pw[3], ph[3];           /* plane geometry, samples */
+    size_t psz[3];              /* plane bytes */
+    int abr, vbv, repeat_hdr, want_dump, want_met;
+    double bpf;                 /* ABR target bits per frame */
+    double vbv_in, vbv_out;
+    pthread_mutex_t lock;       /* everything below */
+    pthread_cond_t cv;
+    pthread_mutex_t open_lock;  /* encoder open/close, one at a time */
+    uint8_t **frm;              /* frame i's planes, or NULL */
+    long frm_cap;
+    long n_read, resident;
+    int eof;
+    gp_seg **seg;               /* each its own allocation: a worker
+                                 * holds its segment across a grow */
+    int nseg, seg_cap, final;   /* `final`: the last segment is known */
+    int next;                   /* the next segment to hand out */
+    int abort_;
+    /* the CRF opening level, published by segment 0 (0: not yet, 1: in
+     * `anchor`, -1: none to carry) */
+    int anchor_state;
+    double anchor;
+} gp_job;
+
+/* the knobs are read by name at the call, so the census can find them */
+static int gp_env_int(const char *v, int def)
+{
+    return v ? atoi(v) : def;
+}
+
+static double gp_env_num(const char *v, double def)
+{
+    return v ? atof(v) : def;
+}
+
+/* ---- the boundary detector (the reader's, on a coarse luma plane) ---- */
+
+typedef struct gp_sc {
+    int f, lw, lh, bw, bh;      /* downsample factor, plane, 8x8 blocks */
+    uint8_t *cur, *prev;
+    int have_prev;
+    double ema;                 /* the running level of the ratio */
+    double rprev[3];
+    int rn;
+} gp_sc;
+
+static int gp_sc_init(gp_sc *s, int w, int h)
+{
+    memset(s, 0, sizeof *s);
+    s->f = w > 2048 ? 8 : 4;
+    s->lw = w / s->f;
+    s->lh = h / s->f;
+    s->bw = s->lw / 8;
+    s->bh = s->lh / 8;
+    if (s->bw < 1 || s->bh < 1)
+        return -1;
+    s->cur = malloc((size_t)s->lw * s->lh);
+    s->prev = malloc((size_t)s->lw * s->lh);
+    return s->cur && s->prev ? 0 : -1;
+}
+
+static void gp_sc_free(gp_sc *s)
+{
+    free(s->cur);
+    free(s->prev);
+}
+
+static uint32_t gp_sad8(const uint8_t *a, const uint8_t *b, int st)
+{
+    uint32_t s = 0;
+    for (int y = 0; y < 8; y++, a += st, b += st)
+        for (int x = 0; x < 8; x++)
+            s += (uint32_t)abs((int)a[x] - (int)b[x]);
+    return s;
+}
+
+/* The cut ratio of the frame just pushed: inter cost over intra cost,
+ * both summed over the 8x8 blocks of the coarse plane, the inter cost
+ * per block never above the intra one (an encoder would code it intra).
+ * -1 for the first frame and for a picture with nothing to measure. */
+static double gp_sc_push(gp_sc *s, const void *luma, int stride, int bps)
+{
+    int f = s->f;
+    for (int y = 0; y < s->lh; y++)
+        for (int x = 0; x < s->lw; x++) {
+            uint32_t acc = 0;
+            for (int j = 0; j < f; j++) {
+                if (bps == 1) {
+                    const uint8_t *r = (const uint8_t *)luma +
+                                       (size_t)(y * f + j) * stride + x * f;
+                    for (int i = 0; i < f; i++)
+                        acc += r[i];
+                } else {
+                    const uint16_t *r = (const uint16_t *)luma +
+                                        (size_t)(y * f + j) * stride + x * f;
+                    for (int i = 0; i < f; i++)
+                        acc += r[i] >> 2;
+                }
+            }
+            s->cur[y * s->lw + x] = (uint8_t)(acc / (uint32_t)(f * f));
+        }
+    double ratio = -1.0;
+    if (s->have_prev) {
+        uint64_t ic = 0, pc = 0;
+        int st = s->lw;
+        for (int by = 0; by < s->bh; by++)
+            for (int bx = 0; bx < s->bw; bx++) {
+                int x0 = bx * 8, y0 = by * 8;
+                const uint8_t *c = s->cur + y0 * st + x0;
+                uint32_t sum = 0;
+                for (int y = 0; y < 8; y++)
+                    for (int x = 0; x < 8; x++)
+                        sum += c[y * st + x];
+                int m = (int)((sum + 32) >> 6);
+                uint32_t icb = 0;
+                for (int y = 0; y < 8; y++)
+                    for (int x = 0; x < 8; x++)
+                        icb += (uint32_t)abs((int)c[y * st + x] - m);
+                uint32_t best = UINT32_MAX;
+                for (int dy = -3; dy <= 3; dy++)
+                    for (int dx = -3; dx <= 3; dx++) {
+                        int px = x0 + dx, py = y0 + dy;
+                        if (px < 0 || py < 0 || px + 8 > s->lw ||
+                            py + 8 > s->lh)
+                            continue;
+                        uint32_t d = gp_sad8(c, s->prev + py * st + px, st);
+                        if (d < best)
+                            best = d;
+                    }
+                ic += icb + 64;     /* a block's floor, so flat is not 0/0 */
+                pc += (best < icb ? best : icb) + 64;
+            }
+        ratio = (double)pc / (double)ic;
+    }
+    uint8_t *t = s->prev;
+    s->prev = s->cur;
+    s->cur = t;
+    s->have_prev = 1;
+    return ratio;
+}
+
+/* the lookahead's three tests, on the ratio just measured */
+static int gp_sc_cut(gp_sc *s, double r)
+{
+    if (r < 0.0)
+        return 0;
+    int cut = r >= 0.75 && (s->ema == 0.0 || r >= 1.8 * s->ema);
+    if (cut && s->rn > 0) {
+        double m = s->rprev[0];
+        for (int k = 1; k < s->rn; k++)
+            if (s->rprev[k] > m)
+                m = s->rprev[k];
+        if (!(r - m >= 0.10 || 1.0 - m >= 2.0 * (1.0 - r)))
+            cut = 0;
+    }
+    /* a cut does not set the level it was measured against */
+    if (!cut)
+        s->ema = s->ema == 0.0 ? r : s->ema + 0.1 * (r - s->ema);
+    s->rprev[2] = s->rprev[1];
+    s->rprev[1] = s->rprev[0];
+    s->rprev[0] = r;
+    if (s->rn < 3)
+        s->rn++;
+    return cut;
+}
+
+/* ---- the segment table ---- */
+
+static int gp_seg_push(gp_job *j, int start, int end, int has_next)
+{
+    if (j->nseg == j->seg_cap) {
+        int nc = j->seg_cap ? 2 * j->seg_cap : 64;
+        gp_seg **t = realloc(j->seg, (size_t)nc * sizeof *t);
+        if (!t)
+            return -1;
+        j->seg = t;
+        j->seg_cap = nc;
+    }
+    gp_seg *s = calloc(1, sizeof *s);
+    if (!s)
+        return -1;
+    j->seg[j->nseg] = s;
+    s->threads = j->K;
+    s->start = start;
+    s->end = end;
+    s->has_next = has_next;
+    j->nseg++;
+    return 0;
+}
+
+static void gp_append(gp_seg *s, const uint8_t *d, size_t n)
+{
+    if (s->sz + n > s->cap) {
+        size_t nc = s->cap ? s->cap : 1 << 20;
+        while (s->sz + n > nc)
+            nc *= 2;
+        uint8_t *b = realloc(s->buf, nc);
+        if (!b) {
+            s->err = 1;
+            return;
+        }
+        s->buf = b;
+        s->cap = nc;
+    }
+    memcpy(s->buf + s->sz, d, n);
+    s->sz += n;
+}
+
+/* the NAL header's type, past an Annex B start code of 3 or 4 bytes */
+static int gp_nal_type(const n265_nal *n, int *hdr)
+{
+    const uint8_t *b = n->payload;
+    int o = n->size > 3 && b[2] == 1 ? 3 : 4;
+    *hdr = o;
+    return o < n->size ? (b[o] >> 1) & 0x3f : -1;
+}
+
+static void gp_put_nals(gp_job *j, gp_seg *s, int seg_idx, const n265_nal *nal,
+                        int nnal, int *first_au)
+{
+    for (int i = 0; i < nnal; i++) {
+        int o, t = gp_nal_type(&nal[i], &o);
+        /* the identification SEI, once per stream (or once per IRAP under
+         * --repeat-headers, which every segment then keeps): a prefix SEI
+         * whose first message is user_data_unregistered */
+        if (seg_idx > 0 && *first_au && !j->repeat_hdr &&
+            t == N265_NAL_PREFIX_SEI && o + 2 < nal[i].size &&
+            nal[i].payload[o + 2] == 5)
+            continue;
+        if (t == N265_NAL_EOB && s->has_next)
+            continue;
+        if (t >= 0 && t < 32)
+            *first_au = 0;
+        gp_append(s, nal[i].payload, (size_t)nal[i].size);
+    }
+}
+
+typedef struct gp_arg {
+    gp_job *j;
+} gp_arg;
+
+static void *gp_worker(void *arg)
+{
+    gp_job *j = ((gp_arg *)arg)->j;
+    const n265_api *a = j->a;
+    size_t rcsz = j->g->rc_size();
+    for (;;) {
+        pthread_mutex_lock(&j->lock);
+        while (!j->abort_ && j->next >= j->nseg && !j->final)
+            pthread_cond_wait(&j->cv, &j->lock);
+        if (j->abort_ || j->next >= j->nseg) {
+            pthread_mutex_unlock(&j->lock);
+            break;
+        }
+        int g = j->next++;
+        gp_seg *s = j->seg[g];
+        int start = s->start, end = s->end, has_next = s->has_next;
+        int nthr = s->threads;
+        /* ABR: continue segment g - W's controller, after every segment
+         * up to it has finished, so the ledger holds their real bits */
+        int pred = j->abr ? g - j->W : -1;
+        double bits_before = 0.0;
+        if (pred >= 0) {
+            for (int k = 0; k <= pred; k++)
+                while (!j->abort_ && !j->seg[k]->done)
+                    pthread_cond_wait(&j->cv, &j->lock);
+            for (int k = 0; k <= pred; k++)
+                bits_before += j->seg[k]->rc_own;
+            for (int k = pred + 1; k < g; k++)
+                bits_before += j->bpf * (j->seg[k]->end - j->seg[k]->start);
+        }
+        gp_seg *ps = pred >= 0 ? j->seg[pred] : NULL;
+        int abort_now = j->abort_;
+        pthread_mutex_unlock(&j->lock);
+        if (abort_now)
+            break;
+
+        pthread_mutex_lock(&j->open_lock);
+        a->set_threads(nthr);
+        n265_encoder *e = a->encoder_open(&j->p);
+        pthread_mutex_unlock(&j->open_lock);
+        if (!e) {
+            pthread_mutex_lock(&j->lock);
+            s->err = 1;
+            s->done = 1;
+            j->abort_ = 1;
+            pthread_cond_broadcast(&j->cv);
+            pthread_mutex_unlock(&j->lock);
+            break;
+        }
+        if (j->vbv && (g > 0 || has_next))
+            j->g->set_segment(e, g > 0 ? j->vbv_in : -1.0,
+                              has_next ? j->vbv_out : 0.0, end - start);
+        if (ps && ps->rc)
+            j->g->rc_import(e, ps->rc, bits_before, start);
+        if (j->want_dump) {
+            s->recon = tmpfile();
+            if (s->recon)
+                a->set_dump(e, s->recon);
+            else
+                s->err = 1;
+        }
+        /* CRF: the stream's opening level, from segment 0 (see above) */
+        if (g > 0) {
+            pthread_mutex_lock(&j->lock);
+            while (!j->abort_ && j->anchor_state == 0)
+                pthread_cond_wait(&j->cv, &j->lock);
+            int st = j->anchor_state;
+            double lvl = j->anchor;
+            pthread_mutex_unlock(&j->lock);
+            if (st > 0)
+                j->g->set_crf_anchor(e, lvl);
+        }
+        int first_au = 1;
+        for (int i = start; i < end && !s->err; i++) {
+            pthread_mutex_lock(&j->lock);
+            while (!j->abort_ && j->n_read <= i)
+                pthread_cond_wait(&j->cv, &j->lock);
+            uint8_t *f = j->frm[i];
+            int ab = j->abort_;
+            pthread_mutex_unlock(&j->lock);
+            if (ab || !f) {
+                s->err = 1;
+                break;
+            }
+            n265_picture pic = {
+                .plane = { f, f + j->psz[0], f + j->psz[0] + j->psz[1] },
+                .stride = { j->pw[0], j->pw[1], j->pw[2] },
+                .pts = i - start,
+            };
+            n265_nal *nal;
+            int nnal;
+            if (a->encoder_encode(e, &nal, &nnal, &pic) < 0) {
+                fprintf(stderr, "n265: encode failed on frame %d\n", i);
+                s->err = 1;
+                break;
+            }
+            gp_put_nals(j, s, g, nal, nnal, &first_au);
+            double lvl = 0.0;
+            int ast = g == 0 && j->anchor_state == 0
+                          ? j->g->crf_anchor(e, &lvl) : 0;
+            pthread_mutex_lock(&j->lock);
+            if (ast) {
+                j->anchor_state = ast;
+                j->anchor = lvl;
+            }
+            free(j->frm[i]);
+            j->frm[i] = NULL;
+            j->resident--;
+            pthread_cond_broadcast(&j->cv);
+            pthread_mutex_unlock(&j->lock);
+        }
+        while (!s->err) {
+            n265_nal *nal;
+            int nnal;
+            int r2 = a->encoder_encode(e, &nal, &nnal, NULL);
+            if (r2 <= 0 && nnal == 0)
+                break;
+            gp_put_nals(j, s, g, nal, nnal, &first_au);
+        }
+        if (g == 0) {
+            /* the window can close in the flush, or never (a segment
+             * shorter than it): publish whatever there is */
+            double lvl = 0.0;
+            int ast = j->g->crf_anchor(e, &lvl);
+            pthread_mutex_lock(&j->lock);
+            if (j->anchor_state == 0) {
+                j->anchor_state = ast > 0 ? 1 : -1;
+                j->anchor = lvl;
+            }
+            pthread_cond_broadcast(&j->cv);
+            pthread_mutex_unlock(&j->lock);
+        }
+        if (j->want_met)
+            s->nmet = a->metrics(e, s->met);
+        if (j->abr) {
+            s->rc = malloc(rcsz);
+            double spent = 0.0;
+            long fr = 0;
+            if (s->rc && j->g->rc_export(e, s->rc) < 0) {
+                free(s->rc);
+                s->rc = NULL;
+            }
+            if (j->g->rc_spent(e, &spent, &fr) == 0)
+                s->rc_own = spent - (pred >= 0 ? bits_before : 0.0);
+        }
+        pthread_mutex_lock(&j->open_lock);
+        a->encoder_close(e);
+        pthread_mutex_unlock(&j->open_lock);
+        pthread_mutex_lock(&j->lock);
+        s->done = 1;
+        if (s->err)
+            j->abort_ = 1;
+        pthread_cond_broadcast(&j->cv);
+        pthread_mutex_unlock(&j->lock);
+    }
+    return NULL;
+}
+
+/* write every finished segment that is next in order; the lock is held
+ * on entry and on return, and dropped around the writes */
+static int gp_flush(gp_job *j, int *next_out, FILE *fout, FILE *fdump)
+{
+    int bad = 0;
+    while (*next_out < j->nseg && j->seg[*next_out]->done) {
+        gp_seg *s = j->seg[*next_out];
+        pthread_mutex_unlock(&j->lock);
+        if (s->err)
+            bad = 1;
+        if (!bad && s->sz && fwrite(s->buf, 1, s->sz, fout) != s->sz)
+            bad = 1;
+        free(s->buf);
+        s->buf = NULL;
+        if (s->recon) {
+            if (!bad && fdump) {
+                char tmp[1 << 16];
+                size_t got;
+                rewind(s->recon);
+                while ((got = fread(tmp, 1, sizeof tmp, s->recon)) > 0)
+                    if (fwrite(tmp, 1, got, fdump) != got) {
+                        bad = 1;
+                        break;
+                    }
+            }
+            fclose(s->recon);
+            s->recon = NULL;
+        }
+        pthread_mutex_lock(&j->lock);
+        s->written = 1;
+        (*next_out)++;
+        if (bad) {
+            j->abort_ = 1;
+            pthread_cond_broadcast(&j->cv);
+            break;
+        }
+    }
+    return bad;
+}
+
+/* Decide the segment that starts at `b`, if the frames read allow it.
+ * `cut[i]` is 1 where frame i opens a new shot. Returns 1 when a segment
+ * was pushed. */
+static int gp_place(gp_job *j, const unsigned char *cut, int b)
+{
+    int L = j->L;
+    int lo = b + (L * 6 + 9) / 10;
+    long need = (long)b + L + L / 4 + 1;
+    if (!j->eof && j->n_read < need)
+        return 0;
+    if (j->eof && j->n_read - b <= L + L / 4) {
+        if (j->n_read > b)
+            gp_seg_push(j, b, (int)j->n_read, 0);
+        j->final = 1;
+        return 1;
+    }
+    int nb = b + L, at_cut = 0;
+    if (j->cuts)
+        for (int i = b + L; i >= lo; i--)
+            if (cut[i]) {
+                nb = i;
+                at_cut = 1;
+                break;
+            }
+    gp_seg_push(j, b, nb, 1);
+    if (getenv("N265_GOP_TRACE"))
+        fprintf(stderr, "GOP,%d,%d,%d,%s\n", j->nseg - 1, b, nb,
+                at_cut ? "cut" : "span");
+    return 1;
+}
+
+static int gp_run(const n265_api *a, y4m_t *y, const n265_param *p, int W,
+                  int T, int threads_arg, int keyint, long max_frames, int abr_on,
+                  double bitrate_kbps, int vbv_on, int repeat_hdr,
+                  FILE *fout, FILE *fdump, int want_met, long *nframes,
+                  double met[6], long *nmet, int *nseg_out, int *k_out)
+{
+    gp_job jb, *j = &jb;
+    memset(j, 0, sizeof *j);
+    j->a = a;
+    j->g = a->depth == 10 ? &gp10 : &gp8;
+    j->p = *p;
+    j->T = T;
+    j->W = W > T ? T : W;
+    j->K = T / j->W > 0 ? T / j->W : 1;
+    j->L = gp_env_int(getenv("N265_GOP_LEN"), keyint > 0 ? keyint : 250);
+    if (j->L < 16)
+        j->L = 16;
+    j->cuts = gp_env_int(getenv("N265_GOP_CUTS"), 1);
+    long win = (long)((j->W + 1.5) * j->L);
+    j->window = gp_env_int(getenv("N265_GOP_WINDOW"), (int)win);
+    if (j->window < 2L * j->L)
+        j->window = 2L * j->L;
+    j->bps = y->out_depth == 8 ? 1 : 2;
+    for (int c = 0; c < 3; c++) {
+        j->pw[c] = c ? y->w >> y->csx : y->w;
+        j->ph[c] = c ? y->h >> y->csy : y->h;
+        j->psz[c] = (size_t)j->pw[c] * j->ph[c] * j->bps;
+    }
+    j->abr = abr_on;
+    j->vbv = vbv_on;
+    j->repeat_hdr = repeat_hdr;
+    j->want_dump = fdump != NULL;
+    j->want_met = want_met;
+    double fps = p->fps_den > 0 ? (double)p->fps_num / p->fps_den : 25.0;
+    j->bpf = bitrate_kbps * 1000.0 / (fps > 0.0 ? fps : 25.0);
+    j->vbv_in = gp_env_num(getenv("N265_GOP_VBV_IN"), 0.5);
+    j->vbv_out = gp_env_num(getenv("N265_GOP_VBV_OUT"), 0.6);
+    if (j->vbv_out < j->vbv_in)
+        j->vbv_out = j->vbv_in;
+    pthread_mutex_init(&j->lock, NULL);
+    pthread_cond_init(&j->cv, NULL);
+    pthread_mutex_init(&j->open_lock, NULL);
+
+    gp_sc sc;
+    int sc_ok = j->cuts && gp_sc_init(&sc, y->w, y->h) == 0;
+    if (!sc_ok)
+        j->cuts = 0;
+    unsigned char *cut = NULL;
+    long cut_cap = 0;
+    size_t fbytes = j->psz[0] + j->psz[1] + j->psz[2];
+    pthread_t *tid = calloc((size_t)j->W, sizeof *tid);
+    gp_arg ga = { j };
+    int started = 0, rc = 0, next_out = 0, b = 0, r = 0;
+    long n = 0;
+
+    while (!rc) {
+        if (max_frames >= 0 && n >= max_frames)
+            r = 0;
+        else
+            r = y4m_read(y);
+        if (r < 0) {
+            fprintf(stderr, "n265: truncated input after frame %ld\n", n);
+            rc = 1;
+            break;
+        }
+        pthread_mutex_lock(&j->lock);
+        if (r > 0) {
+            while (!j->abort_ && j->resident >= j->window) {
+                gp_flush(j, &next_out, fout, fdump);
+                if (j->resident >= j->window && !j->abort_)
+                    pthread_cond_wait(&j->cv, &j->lock);
+            }
+            if (j->abort_) {
+                pthread_mutex_unlock(&j->lock);
+                rc = 1;
+                break;
+            }
+            if (n >= j->frm_cap || n >= cut_cap) {
+                long nc = j->frm_cap ? 2 * j->frm_cap : 4096;
+                uint8_t **nf = realloc(j->frm, (size_t)nc * sizeof *nf);
+                unsigned char *ncut = realloc(cut, (size_t)nc);
+                if (!nf || !ncut) {
+                    pthread_mutex_unlock(&j->lock);
+                    rc = 1;
+                    break;
+                }
+                memset(nf + j->frm_cap, 0,
+                       (size_t)(nc - j->frm_cap) * sizeof *nf);
+                memset(ncut + j->frm_cap, 0, (size_t)(nc - j->frm_cap));
+                j->frm = nf;
+                cut = ncut;
+                j->frm_cap = cut_cap = nc;
+            }
+            pthread_mutex_unlock(&j->lock);
+            uint8_t *f = malloc(fbytes);
+            if (!f) {
+                rc = 1;
+                break;
+            }
+            /* the reader's planes are contiguous per plane, at the
+             * strides the serial path hands the library */
+            uint8_t *d = f;
+            for (int c = 0; c < 3; c++) {
+                memcpy(d, y->plane[c], j->psz[c]);
+                d += j->psz[c];
+            }
+            if (j->cuts)
+                cut[n] = (unsigned char)gp_sc_cut(&sc,
+                              gp_sc_push(&sc, f, j->pw[0], j->bps));
+            pthread_mutex_lock(&j->lock);
+            j->frm[n] = f;
+            j->resident++;
+            n++;
+            j->n_read = n;
+        } else {
+            j->eof = 1;
+        }
+        /* place every segment the frames read so far decide */
+        int placed = 0;
+        while (!j->final && gp_place(j, cut, b)) {
+            placed = 1;
+            if (j->nseg)
+                b = j->seg[j->nseg - 1]->end;
+        }
+        if (placed && !started && j->nseg + j->final > 0) {
+            /* one segment and the input is over: the serial encode, on
+             * one instance at the thread count it was given; otherwise
+             * the HRD timing SEI comes off (see above), before any other
+             * thread exists to read the environment, and the workers
+             * start */
+            int single = j->final && j->nseg <= 1;
+            if (single && j->nseg)
+                j->seg[0]->threads = threads_arg;
+            if (!single && vbv_on)
+                setenv("N265_VBV_HRD", "0", 1);
+            int nw = single ? 1 : j->W;
+            for (int t = 0; t < nw; t++)
+                if (pthread_create(&tid[t], NULL, gp_worker, &ga) == 0)
+                    started++;
+        }
+        pthread_cond_broadcast(&j->cv);
+        if (gp_flush(j, &next_out, fout, fdump))
+            rc = 1;
+        int done_reading = j->eof;
+        pthread_mutex_unlock(&j->lock);
+        if (done_reading)
+            break;
+    }
+    pthread_mutex_lock(&j->lock);
+    if (rc) {
+        j->abort_ = 1;
+        j->final = 1;
+    }
+    pthread_cond_broadcast(&j->cv);
+    while (!rc && next_out < j->nseg) {
+        if (gp_flush(j, &next_out, fout, fdump)) {
+            rc = 1;
+            break;
+        }
+        if (next_out < j->nseg)
+            pthread_cond_wait(&j->cv, &j->lock);
+    }
+    pthread_mutex_unlock(&j->lock);
+    for (int t = 0; t < started; t++)
+        pthread_join(tid[t], NULL);
+
+    double sse[3] = { 0, 0, 0 }, ssim = 0.0;
+    long nm = 0;
+    for (int k = 0; k < j->nseg; k++) {
+        gp_seg *s = j->seg[k];
+        if (s->err)
+            rc = 1;
+        if (s->nmet > 0) {
+            for (int c = 0; c < 3; c++)
+                sse[c] += s->nmet * pow(10.0, -s->met[c] / 10.0);
+            ssim += s->nmet * s->met[4];
+            nm += s->nmet;
+        }
+        free(s->buf);
+        free(s->rc);
+        if (s->recon)
+            fclose(s->recon);
+        free(s);
+    }
+    /* the pooled numbers: the per-plane mean squared error, pooled over
+     * frames and logged once, which is what one instance reports too;
+     * the average weighs each plane by its samples, as the library's own
+     * pooling does */
+    if (nm > 0) {
+        for (int c = 0; c < 3; c++)
+            met[c] = -10.0 * log10(sse[c] / nm);
+        double w0 = (double)j->psz[0], w1 = (double)j->psz[1],
+               w2 = (double)j->psz[2];
+        met[3] = -10.0 * log10((w0 * sse[0] + w1 * sse[1] + w2 * sse[2]) /
+                               ((w0 + w1 + w2) * nm));
+        met[4] = ssim / nm;
+        met[5] = met[4] < 1.0 ? -10.0 * log10(1.0 - met[4]) : 100.0;
+    }
+    *nmet = nm;
+    for (long i = 0; i < n; i++)
+        free(j->frm[i]);
+    free(j->frm);
+    free(cut);
+    free(tid);
+    free(j->seg);
+    if (sc_ok)
+        gp_sc_free(&sc);
+    *nframes = n;
+    *nseg_out = j->nseg;
+    *k_out = j->nseg > 1 ? j->K : T;
+    return rc;
 }
 
 int main(int argc, char **argv)
@@ -1562,6 +2376,7 @@ int main(int argc, char **argv)
                                      * bare CLI used to hand out the tools-only
                                      * encoder (docs/instruments.md, board) */
     int threads = 0;
+    int gop_par = 0;            /* --gop-parallel; 0 = off, the default */
     int shot_window = 0;        /* --shot-window; 0 = off, the default */
     /* --rdoq-level: -1 is "not given", which leaves the preset (and the
      * environment) in charge - the flag is an override, not a default. */
@@ -1746,6 +2561,8 @@ int main(int argc, char **argv)
             dump_decode_path = argv[++i];
         } else if (!strcmp(argv[i], "--threads") && i + 1 < argc) {
             threads = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--gop-parallel") && i + 1 < argc) {
+            gop_par = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--ctu") && i + 1 < argc) {
             ctu = atoi(argv[++i]); had_ctu = 1;
         } else if (!strcmp(argv[i], "--rdoq-level") && i + 1 < argc) {
@@ -2560,6 +3377,85 @@ int main(int argc, char **argv)
     p.csp = y.csp;
     p.fps_num = y.fps_num;
     p.fps_den = y.fps_den;
+    /* --gop-parallel (phase 14 item 42): above one thread only, and not
+     * with the options that need one encoder to see the whole input */
+    if (gop_par > 1 && !show_config) {
+        long nt = threads > 0 ? threads : sysconf(_SC_NPROCESSORS_ONLN);
+        const char *hrd = getenv("N265_VBV_HRD");
+        int vbv_on = vbv_maxrate > 0.0 && vbv_bufsize > 0.0;
+        const char *why =
+            nt < 2 ? "it needs more than one thread"
+            : pass ? "--pass plans the whole input on one encoder"
+            : qpfile_path ? "--qpfile numbers frames from the stream's start"
+            : zones_spec ? "--zones numbers frames from the stream's start"
+            : csv_path ? "--csv is one encoder's log"
+            : shot_path ? "--shot-stats is one encoder's log"
+            : dump_decode_path ? "--dump-recon-decode is one encoder's log"
+            : hrd_concat ? "--hrd-concat splices one encoder's stream"
+            : vbv_on && hrd && atoi(hrd) ? "N265_VBV_HRD asks for the HRD "
+              "timing SEI, which a joined stream does not carry"
+            : NULL;
+        if (why) {
+            fprintf(stderr, "n265: --gop-parallel %d: coding serially, "
+                    "since %s\n", gop_par, why);
+        } else {
+            FILE *gout = fopen(out_path, "wb");
+            if (!gout) {
+                fprintf(stderr, "n265: cannot open %s: %s\n", out_path,
+                        strerror(errno));
+                return 1;
+            }
+            FILE *gdump = NULL;
+            if (dump_path) {
+                gdump = fopen(dump_path, "wb");
+                if (!gdump) {
+                    fprintf(stderr, "n265: cannot open %s: %s\n", dump_path,
+                            strerror(errno));
+                    return 1;
+                }
+            }
+            long gn = 0, gnm = 0;
+            double gmet[6] = { 0, 0, 0, 0, 0, 0 };
+            int gseg = 0, gk = 0;
+            int grc = gp_run(a, &y, &p, gop_par, (int)nt, threads, keyint,
+                             max_frames, bitrate > 0.0, bitrate, vbv_on,
+                             repeat_hdr, gout, gdump, want_psnr || want_ssim,
+                             &gn, gmet, &gnm, &gseg, &gk);
+            if (gdump)
+                fclose(gdump);
+            if (fclose(gout) != 0 && !grc) {
+                fprintf(stderr, "n265: write failed: %s\n", strerror(errno));
+                grc = 1;
+            }
+            if (grc)
+                return 1;
+            if (gnm > 0 && want_psnr)
+                fprintf(stderr, "n265: PSNR over %ld frames: y %.4f u %.4f "
+                        "v %.4f avg %.4f dB\n", gnm, gmet[0], gmet[1],
+                        gmet[2], gmet[3]);
+            if (gnm > 0 && want_ssim)
+                fprintf(stderr, "n265: SSIM-Y over %ld frames: %.6f (%.4f "
+                        "dB)\n", gnm, gmet[4], gmet[5]);
+            fprintf(stderr, "n265: gop-parallel: %d segment%s, %d instance%s "
+                    "x %d thread%s\n", gseg, gseg == 1 ? "" : "s",
+                    gseg > 1 ? (gop_par < nt ? gop_par : (int)nt) : 1,
+                    gseg > 1 ? "s" : "", gk, gk == 1 ? "" : "s");
+            free(y.pix16);
+            free(y.pix8);
+            free(y.frame);
+            if (fin != stdin)
+                fclose(fin);
+            if (y.clipped)
+                fprintf(stderr, "n265: WARNING %ld input samples were above "
+                        "the declared %d-bit range and were clamped\n",
+                        y.clipped, y.depth);
+            const char *gfmt = y.csp == N265_CSP_I444 ? "4:4:4"
+                             : y.csp == N265_CSP_I422 ? "4:2:2" : "4:2:0";
+            fprintf(stderr, "n265: %ld frames, %dx%d %s %d-bit\n", gn, y.w,
+                    y.h, gfmt, y.depth);
+            return 0;
+        }
+    }
     n265_encoder *enc = a->encoder_open(&p);
     if (!enc) {
         fprintf(stderr, "n265: encoder_open failed (dims %dx%d)\n", y.w, y.h);

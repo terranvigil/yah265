@@ -746,6 +746,153 @@ void n265_encoder_set_dump_decode(n265_encoder *e, FILE *f)
     e->dump_decode = f;
 }
 
+/* ---- GOP-parallel segments (phase 14 item 42) ----------------------
+ *
+ * The CLI may code a long input as several independent instances, each
+ * opening on an IDR, and join their streams. These calls make the join
+ * honest; each is made after open and before the first frame, and none
+ * of them is reached by an encode that is not segmented.
+ *
+ * n265_encoder_set_segment: the VBV half. `fill_in` is the share of the
+ * buffer this segment may assume at its first removal (< 0 leaves
+ * --vbv-init), and `floor_out` the share it must leave for the segment
+ * after it over its `nframes` frames (0: it ends the stream). The next
+ * segment assumes no more than this one leaves, and the fill arithmetic
+ * is monotone in the fill, so if every segment meets its floor the
+ * joined stream never underflows (vbv.h).
+ *
+ * n265_encoder_rc_export / _import / _spent: the ABR half, one rate
+ * factor carried across instances. A segment continues an earlier
+ * segment's controller - its scales, its operating point, its rate
+ * factor - instead of re-solving the opening, and its ledger is told
+ * the bits really spent before it (`bits_before` over `frames_before`
+ * frames), with whatever is still in flight counted at the target by the
+ * caller. The blob is opaque and only meaningful to the same build. */
+void n265_encoder_set_segment(n265_encoder *e, double fill_in,
+                              double floor_out, int nframes);
+void n265_encoder_set_segment(n265_encoder *e, double fill_in,
+                              double floor_out, int nframes)
+{
+    if (!e || e->hf2_code_n > 0 || !e->vbv.on)
+        return;
+    if (fill_in >= 0.0) {
+        e->vbv.init = fill_in;
+        e->vbv.fill = fill_in * e->vbv.bufsize;
+        if (e->vbv.fill > e->vbv.bufsize)
+            e->vbv.fill = e->vbv.bufsize;
+        e->vbv.min_fill = e->vbv.fill;
+    }
+    if (floor_out > 0.0 && nframes > 0) {
+        e->seg_n = nframes;
+        e->vbv.seg_floor = floor_out * e->vbv.bufsize;
+    }
+}
+
+/* n265_encoder_crf_anchor / _set_crf_anchor: the CRF half. Under CRF the
+ * AQ frame-mean term is read against the opening window's level, frozen
+ * for the file (N265_CRF_DC_ANCHOR 3, dispatch_frame). That level is a
+ * property of the STREAM's opening, so every segment after the first
+ * takes the first segment's instead of re-taking it from its own first
+ * pictures; a segment that re-anchored on its own content would hand
+ * every shot in it a different share of the file than the serial
+ * encode does. The getter answers 1 once the window has closed, 0 until
+ * then, and -1 where there is no frozen level to carry (not CRF, the
+ * legacy mapping, or another anchor form). */
+int n265_encoder_crf_anchor(const n265_encoder *e, double *lvl);
+int n265_encoder_crf_anchor(const n265_encoder *e, double *lvl)
+{
+    if (!e || !e->crf_on || e->crf_legacy || e->dc_anchor != 3)
+        return -1;
+    if (e->dc_n < e->dc_win)
+        return 0;
+    *lvl = e->dc_lvl;
+    return 1;
+}
+
+int n265_encoder_set_crf_anchor(n265_encoder *e, double lvl);
+int n265_encoder_set_crf_anchor(n265_encoder *e, double lvl)
+{
+    if (!e || e->hf2_code_n > 0 || !e->crf_on || e->crf_legacy ||
+        e->dc_anchor != 3)
+        return -1;
+    e->dc_lvl = lvl;
+    e->dc_n = e->dc_win;
+    return 0;
+}
+
+typedef struct n265_rc_blob {
+    uint32_t magic;
+    uint32_t size;
+    n265_rc rc;
+    double vbv_ecal[RC_CLASSES];
+    int vbv_ecal_n[RC_CLASSES];
+} n265_rc_blob;
+
+#define N265_RC_BLOB_MAGIC 0x6e324301u
+
+size_t n265_encoder_rc_size(void);
+size_t n265_encoder_rc_size(void)
+{
+    return sizeof(n265_rc_blob);
+}
+
+int n265_encoder_rc_export(const n265_encoder *e, void *buf);
+int n265_encoder_rc_export(const n265_encoder *e, void *buf)
+{
+    if (!e || !buf || !e->abr_on)
+        return -1;
+    n265_rc_blob *b = buf;
+    memset(b, 0, sizeof *b);
+    b->magic = N265_RC_BLOB_MAGIC;
+    b->size = (uint32_t)sizeof *b;
+    b->rc = e->rc;
+    memcpy(b->vbv_ecal, e->vbv_ecal, sizeof b->vbv_ecal);
+    memcpy(b->vbv_ecal_n, e->vbv_ecal_n, sizeof b->vbv_ecal_n);
+    return 0;
+}
+
+int n265_encoder_rc_spent(const n265_encoder *e, double *bits, long *frames);
+int n265_encoder_rc_spent(const n265_encoder *e, double *bits, long *frames)
+{
+    if (!e || !e->abr_on)
+        return -1;
+    *bits = e->rc.total_bits;
+    *frames = e->rc.n_coded;
+    return 0;
+}
+
+int n265_encoder_rc_import(n265_encoder *e, const void *buf,
+                           double bits_before, long frames_before);
+int n265_encoder_rc_import(n265_encoder *e, const void *buf,
+                           double bits_before, long frames_before)
+{
+    const n265_rc_blob *b = buf;
+    if (!e || !b || !e->abr_on || e->hf2_code_n > 0 || e->rc.n_coded > 0 ||
+        e->rc.have_rf || b->magic != N265_RC_BLOB_MAGIC ||
+        b->size != sizeof *b || !b->rc.have_rf)
+        return -1;
+    /* the controller's state is the exporter's; the constants it was
+     * opened with are the same run's and so the same values, but the
+     * per-instance switches are this instance's to keep */
+    n265_rc keep = e->rc;
+    e->rc = b->rc;
+    e->rc.trace = keep.trace;
+    e->rc.pend_use_est = keep.pend_use_est;
+    e->rc.pend_bits = 0.0;
+    e->rc.pend_n = 0;
+    e->rc.pend_est = 0.0;
+    e->rc.plan_ok = 0;
+    e->rc.cur_szk = -1;
+    /* the ledger: what was really spent before this segment, plus the
+     * caller's credit for the segments still in flight */
+    e->rc.total_bits = bits_before;
+    e->rc.n_coded = frames_before;
+    e->rc.planned_bits = (double)frames_before * e->rc.bits_per_frame;
+    memcpy(e->vbv_ecal, b->vbv_ecal, sizeof e->vbv_ecal);
+    memcpy(e->vbv_ecal_n, b->vbv_ecal_n, sizeof e->vbv_ecal_n);
+    return 0;
+}
+
 /* The coding order plan_brange emits for a B run [lo, hi], appended to
  * `ord` as display offsets, counting the ones that are references. It
  * lives beside the SPS's DPB derivation on purpose: if the pyramid shape
@@ -5038,6 +5185,11 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
      * `if` producing the same value in the same order it always did. */
     double ctf = (e->crf_on || e->abr_on) && e->cutree
                      ? n265_ct_frame_term(e, fw) : 0.0;
+    /* item 42: removals left in this segment after this one, for the
+     * VBV's exit floor (vbv.h); -1 off a segment */
+    e->vbv.seg_left = e->seg_n > 0 ? e->seg_n - 1 - fw->code_idx : -1;
+    if (e->vbv.seg_left < 0)
+        e->vbv.seg_left = -1;
     fw->rc_ctf = ctf;
     fw->rc_ioff = 0.0;
     fw->vbv_pred = fw->vbv_allow = fw->vbv_dqp = 0.0;
@@ -5122,6 +5274,16 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
             fw->brk_lim = e->rc.brk_fill * e->vbv.fill;
             if (fw->brk_lim < fw->vbv_allow)
                 fw->brk_lim = fw->vbv_allow;
+            /* item 42: a segment's LAST picture is held to the floor the
+             * next segment opens on, a fact and not a plan - it has no
+             * frames behind it to make up a miss (vbv.h) */
+            if (e->vbv.seg_left == 0 && e->vbv.seg_floor > 0.0) {
+                double ex = e->vbv.fill + e->vbv.inflow - e->vbv.seg_floor;
+                if (ex < N265_VBV_MIN_ALLOW)
+                    ex = N265_VBV_MIN_ALLOW;
+                if (fw->brk_lim > ex)
+                    fw->brk_lim = ex;
+            }
             fw->brk_ratio = ratio;
             fw->brk_on = ratio > 0.0 && fw->brk_lim > 0.0 && e->qp_delta_on;
         }

@@ -93,6 +93,13 @@
 #define n265_encoder_set_dump        n265_encoder_set_dump_10
 #define n265_encoder_set_dump_decode n265_encoder_set_dump_decode_10
 #define n265_encoder_set_shot_stats  n265_encoder_set_shot_stats_10
+#define n265_encoder_set_segment     n265_encoder_set_segment_10
+#define n265_encoder_rc_size         n265_encoder_rc_size_10
+#define n265_encoder_rc_export       n265_encoder_rc_export_10
+#define n265_encoder_rc_import       n265_encoder_rc_import_10
+#define n265_encoder_rc_spent        n265_encoder_rc_spent_10
+#define n265_encoder_crf_anchor      n265_encoder_crf_anchor_10
+#define n265_encoder_set_crf_anchor  n265_encoder_set_crf_anchor_10
 #define n265_encoder_warm            n265_encoder_warm_10
 #define n265_entropy_ctu             n265_entropy_ctu_10
 #define n265_entropy_warm            n265_entropy_warm_10

@@ -34,6 +34,8 @@ void n265_vbv_init(n265_vbv *v, double maxrate, double bufsize, double init,
      * written by this function or a caller with one on the stack (the
      * unit test) inherits whatever was there. */
     v->au_cap = 0.0;
+    v->seg_left = -1;
+    v->seg_floor = 0.0;
 }
 
 double n265_vbv_allow(const n265_vbv *v, const double *future, int n)
@@ -69,6 +71,24 @@ double n265_vbv_allow(const n265_vbv *v, const double *future, int n)
             w = lo;
         if (w < lim)
             lim = w;
+    }
+    /* The segment's exit (vbv.h). The removals between here and the
+     * segment's end are the window's own plans, and the join wants
+     * `seg_floor` left over after them, so this is the cumulative bound
+     * at k = seg_left with the floor as one more frame to pay for. It is
+     * NOT floored the way the window's forecast is: a join that lands
+     * under the floor is an underflow in the next segment's opening IDR,
+     * and the next segment cannot see it. Only once the end is inside the
+     * window - beyond it the plans that would price it are not there. */
+    if (v->seg_left >= 0 && v->seg_floor > 0.0 &&
+        (v->seg_left == 0 || (future && v->seg_left <= n))) {
+        double cum = 0.0;
+        for (int k = 0; k < v->seg_left; k++)
+            cum += future[k];
+        double l = v->fill + (double)(v->seg_left + 1) * v->inflow
+                 - v->seg_floor - cum;
+        if (l < lim)
+            lim = l;
     }
     lim *= v->safe;
     if (!(lim > N265_VBV_MIN_ALLOW))    /* also catches a NaN plan */

@@ -1642,6 +1642,11 @@ struct n265_encoder {
         uint64_t samp[24];  /* fw->hf2_tr, summed over the rows */
     } hf2_hist[N265_HF2_HIST];
     int hf2_code_n;         /* coding indices dispatched so far */
+    /* GOP-parallel (phase 14 item 42): the frames this instance will code
+     * when it is one segment of a joined stream that another segment
+     * follows (0: the whole stream, or its last segment). The VBV's exit
+     * floor reads it; nothing else does. */
+    int seg_n;
     long hf2_area;          /* samples one 2-D plane covers */
     unsigned hf2_mode;      /* N265_HF2: 0 off, 1 row, 2 all, 3 traffic */
     int hf2_tpp;            /* N265_HF2_TPP, hundredths of a touch      */
