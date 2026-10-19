@@ -6,7 +6,7 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 
 In the default column, **presence** means the reader is a boolean: unset is off and any value arms it. **unset** means the value names a file or a string and unset is off. `= N265_X` means the default is another knob's resolved value.
 
-## default (72)
+## default (71)
 
 | knob | default | reader |
 |---|---|---|
@@ -28,7 +28,6 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_FGC_RATIO` | 2.0 | src/encoder/grain.c:167 |
 | `N265_GATE_SCALE` | 100 | src/encoder/ctu.c:2076 |
 | `N265_INTRA_FAST` | 0 | src/encoder/ctu.c:1535 |
-| `N265_INTRA_FAST_STEP` | 4 | src/encoder/ctu.c:1558 |
 | `N265_INTRA_FAST_W` | 1280 | src/encoder/ctu.c:1573 |
 | `N265_LAMBDA` | 0.68 | src/encoder/ctu.c:1829 |
 | `N265_MCSTF_CLEAN` | 1.5 | src/encoder/mcstf.c:98 |
@@ -287,7 +286,7 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_WP_TRACE` | 0 | src/encoder/wp.c:51 |
 | `N265_WP_WIN` | 40 | src/encoder/wp.c:101 |
 
-## arm (64)
+## arm (65)
 
 | knob | default | reader |
 |---|---|---|
@@ -308,6 +307,7 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_INTRA_B_MODES` | 0 | src/encoder/ctu.c:1440 |
 | `N265_INTRA_FAST_FLAT` | 0 | src/encoder/ctu.c:1583 |
 | `N265_INTRA_FAST_QP` | 0 | src/encoder/ctu.c:1548 |
+| `N265_INTRA_FAST_STEP` | 4 | src/encoder/ctu.c:1558 |
 | `N265_MCSTF` | 0 | src/encoder/encoder.c:2030 |
 | `N265_MCSTF_CTF` | 1.0 | src/encoder/encoder.c:2047 |
 | `N265_MCSTF_CTSC` | 1.0 | src/encoder/encoder.c:2049 |

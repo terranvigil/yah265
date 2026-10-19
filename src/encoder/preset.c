@@ -334,8 +334,9 @@ static const struct kv med_tab[] = {
     { "N265_ME_PATTERN", "0" },
     { "N265_BADAPT_REFW", "128" },
     /* phase 14 item 40: the inter-slice intra rank coarse-to-fine, 19
-     * modes of 35, for at most 0.13 of a point on any tier D cell. The compiled-in default is 0, so fast,
-     * slow and slower are untouched; `N265_INTRA_FAST=0` is the escape.
+     * modes of 35, for at most 0.06 of a point on any tier D cell. The
+     * compiled-in default is 0, so fast, slow and slower are untouched;
+     * `N265_INTRA_FAST=0` is the escape.
      * The commit's 16x16 transform split is dropped at UHD only (the
      * overlay below); this row keeps it everywhere else.
      * `N265_SUBPEL_AXIS` gets no row: it cost sunflower 0.48 of a point.
