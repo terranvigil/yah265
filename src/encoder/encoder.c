@@ -1836,6 +1836,22 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     { const char *v = n265_env("N265_AQ_SIGNAL"); e->aq_signal = v ? atoi(v) : 1; }
     { const char *v = n265_env("N265_AQ_FLAT_SIGN"); e->aq_flat_sign = v ? (float)atof(v) : 0.0f; }
     { const char *v = n265_env("N265_QP_ROUND1"); e->qp_round1 = v ? atoi(v) != 0 : 1; }
+    /* N265_AQ2*: phase 14 item 44, yah264's adaptive AQ gain refitted on
+     * our field (see the offset loop in dispatch_frame) */
+    { const char *v = n265_env("N265_AQ2"); e->aq2 = v ? atoi(v) : 0; }
+    { const char *v = n265_env("N265_AQ2_FLAT"); e->aq2_flat = v ? atoi(v) : 0; }
+    { const char *v = n265_env("N265_AQ2_ABR"); e->aq2_abr = v ? atoi(v) : 1; }
+    { const char *v = n265_env("N265_AQ2_SREF"); e->aq2_sref = v ? atof(v) : 2.5; }
+    { const char *v = n265_env("N265_AQ2_MREF"); e->aq2_mref = v ? atof(v) : 0.0; }
+    { const char *v = n265_env("N265_AQ2_SPOW"); e->aq2_spow = v ? atof(v) : 1.0; }
+    { const char *v = n265_env("N265_AQ2_GMIN"); e->aq2_gmin = v ? atof(v) : 0.7; }
+    { const char *v = n265_env("N265_AQ2_GMAX"); e->aq2_gmax = v ? atof(v) : 1.0; }
+    { const char *v = n265_env("N265_AQ_BPULL"); e->aq_bpull = v ? atof(v) : 0.0; }
+    { const char *v = n265_env("N265_AQ_BPULL_NR"); e->aq_bpull_nr = v ? atoi(v) : 0; }
+    /* under a bitrate target the pull is its own knob: at 0.8 it cost
+     * meridian 2160p's VBR curve six points (item 44), so it is off there */
+    { const char *v = n265_env("N265_AQ_BPULL_ABR"); e->aq_bpull_abr = v ? atof(v) : 0.0; }
+    if (e->aq2_sref <= 0.0) e->aq2_sref = 2.5;
     /* rectangular (2NxN/Nx2N) and asymmetric (2NxnU/D, nLx2N, nRx2N)
      * inter partitions. AMP rides on rect: the AMP trial is only entered
      * where a rectangular split already beat 2Nx2N, so turning rect off
@@ -5866,7 +5882,15 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                     }
                     anchor = e->dc_lvl;
                 }
-                double dc = (v ? atof(v) : 1.0) * (avg_dc - anchor);
+                double dcs = v ? atof(v) : 1.0;
+                /* N265_AQ_BPULL (phase 14 item 44): yah264's B-frame pull,
+                 * the frame-level term a B takes on its own field's level.
+                 * Here every frame already carries its own DC, so the pull
+                 * is extra DC strength on a B (a non-reference B only with
+                 * N265_AQ_BPULL_NR). 0 is main. */
+                if (slice_type == 0 && (!e->aq_bpull_nr || fw->nonref))
+                    dcs += e->abr_on ? e->aq_bpull_abr : e->aq_bpull;
+                double dc = dcs * (avg_dc - anchor);
                 int dci = (int)lround(dc);
                 int nq = fw->qp + dci;
                 fw->qp = n265_qp_bound(e, nq);
@@ -5967,6 +5991,33 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                         favg = lvv == lv ? avg : avg_v;
                     }
                 }
+            }
+            /* N265_AQ2 (phase 14 item 44): yah264's adaptive gain. A frame
+             * whose CTUs all sit near one level has little masking contrast
+             * to exploit, and moving its few outliers by the full slope only
+             * shifts bits between blocks that look alike, so its strength
+             * eases with the field's spread: x = sd / sref, gain x^spow in
+             * [gmin, gmax]. On a reference frame a busy field keeps its
+             * gradient whatever its spread when mref > 0: x is at least the
+             * field's depth-free mean over mref. Not on a flat-typed frame
+             * (the flat branch above owns those) unless N265_AQ2_FLAT. */
+            if (e->aq2 && (!fw->flat || e->aq2_flat) &&
+                (!e->abr_on || e->aq2_abr)) {
+                double s2 = 0.0;
+                for (int i = 0; i < ng; i++)
+                    s2 += (fld[i] - favg) * (fld[i] - favg);
+                double x = (ng ? sqrt(s2 / ng) : 0.0) / e->aq2_sref;
+                double m = favg - 2.0 * BIT_DEPTH_SHIFT;
+                if (e->aq2_mref > 0.0 && !fw->nonref && m / e->aq2_mref > x)
+                    x = m / e->aq2_mref;
+                double gain = x > 0.0 ? pow(x, e->aq2_spow) : 0.0;
+                if (gain < e->aq2_gmin) gain = e->aq2_gmin;
+                if (gain > e->aq2_gmax) gain = e->aq2_gmax;
+                aqs *= gain;
+                if (n265_env("N265_AQ2_TRACE"))
+                    fprintf(stderr, "AQ2,%d,%d,%d,%.3f,%.3f,%.3f\n",
+                            fw->display_idx, slice_type, fw->nonref, favg,
+                            ng ? sqrt(s2 / ng) : 0.0, gain);
             }
             if (n265_env("N265_AQ_TRACE")) {
                 /* the field the per-CTU term is built from: how far the
