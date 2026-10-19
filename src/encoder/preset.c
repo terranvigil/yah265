@@ -626,7 +626,11 @@ static const struct kv med_par_uhd[] = {
  * the 64x64 skip gate (med_tab_uhd) and the single reference. `--ref 2`
  * alone takes the stretch to +2.28% / +1.84%, and with the gate at 32 to
  * -2.65% / -2.81%. HD is not moved; it was not read here.
- * `--ref 1` with `N265_CB64_SKIPGATE=64` is the escape.
+ *
+ * It is an ARM, off: the second reference costs 24% of the SIMD
+ * instructions at UHD (D3 goes over x265's count, 1.057), and gate 32
+ * with the capped-VBR deficit rail already takes the M/2160p chimera
+ * segment to -0.21% without it. `N265_UHD_REF2=1` turns this overlay on.
  * docs/phase14.md "Item 48". */
 static const struct kv med_par_4k[] = {
     { "ref", "2" },
@@ -681,9 +685,10 @@ static const struct kv med_par_720[] = {
  * in 1024ths of skip_clean_thr(qp, 64); ctu.c's N265_CB64_SKIPGATE
  * comment is the rule. */
 static const struct kv med_tab_uhd[] = {
-    /* phase 14 item 48: 32 at UHD (med_tab_hd keeps 64 at HD). See
-     * med_par_4k; on Chimera 2160p's mid-segment stretch the gate at 64
-     * costs 4.9 points of BD-VMAF-NEG against 32 by itself */
+    /* phase 14 item 48: 32 at UHD (med_tab_hd keeps 64 at HD). On
+     * Chimera 2160p's mid-segment stretch the gate at 64 costs 4.9
+     * points of BD-VMAF-NEG against 32, for 4.6% of the SIMD
+     * instructions. `N265_CB64_SKIPGATE=64` is the escape. */
     { "N265_CB64_SKIPGATE", "32" },
     /* phase 14 item 46, at HD and UHD: the CRF frame-DC level is read
      * over the first 20 frames, the window med_par_uhd sets there */
@@ -1127,7 +1132,8 @@ int n265_preset_param_res(const char *key, int fallback, int width,
     const struct kv *uhd = rungs[g_preset].par_uhd;
     const struct kv *p720 = rungs[g_preset].par_720;
     const struct kv *p4k = rungs[g_preset].par_4k;
-    if (p4k && res_class(width, height) == 2) {
+    const char *r2 = getenv("N265_UHD_REF2");
+    if (p4k && res_class(width, height) == 2 && r2 && atoi(r2) > 0) {
         const char *v = lookup(p4k, key);
         if (v)
             return atoi(v);
