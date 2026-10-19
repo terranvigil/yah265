@@ -333,6 +333,20 @@ static const struct kv med_tab[] = {
      * med_tab_720 moves the walk (item 41). */
     { "N265_ME_PATTERN", "0" },
     { "N265_BADAPT_REFW", "128" },
+    /* phase 14 item 40: the inter-slice intra rank coarse-to-fine, 19
+     * modes of 35, for at most 0.06 of a point on any tier D cell. The
+     * compiled-in default is 0, so fast, slow and slower are untouched;
+     * `N265_INTRA_FAST=0` is the escape.
+     * The commit's 16x16 transform split is dropped at UHD only (the
+     * overlay below); this row keeps it everywhere else.
+     * `N265_SUBPEL_AXIS` gets no row: it cost sunflower 0.48 of a point.
+     * docs/phase14.md "Item 40". */
+    { "N265_INTRA_FAST", "15" },
+    /* ...on pictures 1920 wide and up. At 720p it cost sita_flat_720p
+     * 2.42 points and sita_toon_720p 0.70, and keeping it off flat-typed
+     * frames there still left D5v's VBR ladder +0.23 */
+    { "N265_INTRA_FAST_W", "1920" },
+    { "N265_TT_SKIP_INTER", "0" },
     /* phase 14 item 41, at their compiled-in values: the fast-pan width
      * is off below the 720p class, and med_tab_720 turns it on there */
     { "N265_BADAPT_FASTW", "0" },
@@ -640,6 +654,12 @@ static const struct kv med_tab_uhd[] = {
      * docs/phase14.md "Item 36". */
     { "N265_ME_PATTERN", "1" },
     { "N265_BADAPT_REFW", "320" },
+    /* phase 14 item 40, UHD only (tab_hd answers 0 at HD): the inter
+     * commit tries no transform split under a 16x16 node. The 8x8 node's
+     * split stays: without it meridian's VBR ladder gave 0.21 of a point,
+     * and at 1080p it cost sunflower 0.13; the 32x32 node's cost meridian
+     * 0.55. `N265_TT_SKIP_INTER=0` is the escape. */
+    { "N265_TT_SKIP_INTER", "2" },
     /* the split side (item 24's knob), measured at 2160p by item 26: on
      * three 4K windows every per-rung delta against the tree without it
      * is within 0.11 VMAF-NEG. At HD, tab_hd answers first with the same
@@ -661,6 +681,7 @@ static const struct kv med_tab_uhd[] = {
  * docs/phase14.md "Item 24" the numbers. */
 static const struct kv med_tab_hd[] = {
     { "N265_CB64_SPLITGATE", "256" },
+    { "N265_TT_SKIP_INTER", "0" },   /* item 40: UHD only */
     { NULL, NULL }
 };
 

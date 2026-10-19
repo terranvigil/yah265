@@ -855,6 +855,20 @@ static inline void sp_bump(int k, unsigned long long v)
     atomic_fetch_add_explicit(&sp_n[k], v, memory_order_relaxed);
 }
 
+/* N265_SUBPEL_AXIS (phase 14 item 40): a subpel square walks its four
+ * axis positions and then the one diagonal between the better of each
+ * pair, five candidates instead of eight. A mask over the step: 2 the
+ * half-pel square, 1 the quarter-pel one. 0 is main. */
+static int subpel_axis(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_SUBPEL_AXIS");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
 /* N265_ME_PATTERN (phase 4): 0 the unit diamond, 1 the hexagon with a
  * diamond finish, 2 and 3 that plus an early-out on the seed. */
 static int me_pattern(void)
@@ -1084,10 +1098,29 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
             uint32_t sq_b = b_d, sq_2 = UINT32_MAX;
             if (trace)
                 sp_bump(SP_SQ, 1);
+            /* N265_SUBPEL_AXIS: the four axis positions first, then only
+             * the one diagonal between the better of each axis pair */
+            int axis = subpel_axis() & step;
+            uint32_t ax_c[4] = { UINT32_MAX, UINT32_MAX, UINT32_MAX,
+                                 UINT32_MAX };   /* -x, +x, -y, +y */
+            for (int pass = 0; pass < (axis ? 2 : 1); pass++)
             for (int dy = -step; dy <= step; dy += step)
                 for (int dx = -step; dx <= step; dx += step) {
                     if (!dx && !dy)
                         continue;
+                    if (axis) {
+                        int diag = dx && dy;
+                        if (pass == 0 && diag)
+                            continue;
+                        if (pass == 1) {
+                            if (!diag)
+                                continue;
+                            int wx = ax_c[1] < ax_c[0] ? step : -step;
+                            int wy = ax_c[3] < ax_c[2] ? step : -step;
+                            if (dx != wx || dy != wy)
+                                continue;
+                        }
+                    }
                     mv_t t = { (int16_t)(cur.x + dx), (int16_t)(cur.y + dy) };
                     mv_t tc = t;
                     n265_clamp_mv(e, x0, y0, w, h, &tc);
@@ -1116,6 +1149,8 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
                         }
                     }
                     uint32_t c = s + (rate_on ? me_rate(rc, t) : 0);
+                    if (axis && !(dx && dy))
+                        ax_c[dy ? (dy > 0 ? 3 : 2) : (dx > 0 ? 1 : 0)] = c;
                     if (e->fp_census) {
                         if (c < fpc_min) {
                             fpc_min = c;
@@ -1264,6 +1299,7 @@ void n265_mv_warm(void)
 {
     (void)subme_mode();
     (void)me_pattern();
+    (void)subpel_axis();
     (void)no_tmvp_on();
     (void)merge_trace_disp();
     (void)fullpel_on();

@@ -190,6 +190,14 @@ OVERRIDES = {
     # (compiled-in 0, so the other presets don't move); the env is the
     # escape.
     "N265_ME_PATTERN": "default",
+    # phase 14 item 40: the coarse intra rank (medium) and the HD/UHD 8x8
+    # inter split, shipped by medium's tables (compiled-in 0); the env is
+    # the escape. N265_TT_SKIP_INTRA and N265_SUBPEL_AXIS are refused arms.
+    "N265_INTRA_FAST": "default", "N265_TT_SKIP_INTER": "default",
+    "N265_INTRA_FAST_W": "default",
+    "N265_TT_SKIP_INTRA": "arm", "N265_SUBPEL_AXIS": "arm",
+    "N265_INTRA_FAST_QP": "arm", "N265_INTRA_FAST_STEP": "arm",
+    "N265_INTRA_FAST_FLAT": "arm", "N265_TT_SKIP_QP": "arm",
     # phase 14 item 25: the schedule of the switched tree. Shipped values
     # whose env is the escape; the task trace is compiled only under
     # -DN265_TTRACE and is an instrument.
