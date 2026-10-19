@@ -1447,6 +1447,17 @@ struct n265_encoder {
                                non-zero = on there with the PROTECTING sign,
                                at this strength */
     int qp_round1;          /* N265_QP_ROUND1: round the cu-tree + AQ field once */
+    /* phase 14 item 44, the adaptive AQ gain (yah264's aq-mode 2): the
+     * per-CTU strength times clamp((sd / sref)^spow, gmin, gmax), sd the
+     * frame's spread of the AQ field; on a reference frame x is at least
+     * (mean - depth) / mref when mref > 0 */
+    int aq2;                /* N265_AQ2: 0 off, 1 on */
+    int aq2_flat;           /* N265_AQ2_FLAT: also on flat-typed frames */
+    int aq2_abr;            /* N265_AQ2_ABR: also under a bitrate target */
+    double aq2_sref, aq2_mref, aq2_spow, aq2_gmin, aq2_gmax;
+    double aq_bpull;        /* N265_AQ_BPULL: extra frame-DC strength on B */
+    int aq_bpull_nr;        /* N265_AQ_BPULL_NR: only on non-reference B */
+    double aq_bpull_abr;    /* N265_AQ_BPULL_ABR: the pull under a bitrate target */
     int ref_valid;
 
     int aq;                 /* adaptive quantization on/off            */

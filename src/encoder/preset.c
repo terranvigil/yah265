@@ -351,6 +351,16 @@ static const struct kv med_tab[] = {
      * is off below the 720p class, and med_tab_720 turns it on there */
     { "N265_BADAPT_FASTW", "0" },
     { "N265_BADAPT_MVMIN", "0" },
+    /* phase 14 item 44: yah264's adaptive AQ gain (its aq-mode 2), refit
+     * on our field. The per-CTU strength eases on a frame whose field has
+     * little spread: gain sd / 2.5, held in [0.7, 1]. Not on flat-typed
+     * frames, where the flat branch owns the term. The compiled-in
+     * default is 0, so fast, slow and slower are untouched. The B pull is
+     * named here at its compiled-in 0 and set by the UHD overlay, which
+     * HD reads too. `N265_AQ2=0 N265_AQ_BPULL=0` is the escape.
+     * docs/phase14.md "Item 44". */
+    { "N265_AQ2", "1" },
+    { "N265_AQ_BPULL", "0" },
     /* There is NO `N265_NR_INTRA` / `N265_NR_INTER` row, and item 6b is
      * why that is worth saying out loud here. Item 6 recommended
      * `--nr-intra 100 --nr-inter 100` for this table off a five-clip
@@ -654,6 +664,13 @@ static const struct kv med_tab_uhd[] = {
      * docs/phase14.md "Item 36". */
     { "N265_ME_PATTERN", "1" },
     { "N265_BADAPT_REFW", "320" },
+    /* phase 14 item 44, at HD and UHD: a B frame takes 0.8 more frame-DC
+     * strength than its anchor (yah264's B pull; here every frame already
+     * carries its own DC). CRF only: under a bitrate target it cost
+     * meridian 2160p's VBR curve six points, so N265_AQ_BPULL_ABR stays
+     * 0. Below HD it is not taken: on the band it cost sintel_720p 0.94,
+     * stefan_cif 0.58 and sita_toon_720p 0.54 of a point. */
+    { "N265_AQ_BPULL", "0.8" },
     /* phase 14 item 40, UHD only (tab_hd answers 0 at HD): the inter
      * commit tries no transform split under a 16x16 node. The 8x8 node's
      * split stays: without it meridian's VBR ladder gave 0.21 of a point,
