@@ -2821,6 +2821,18 @@ n265_encoder *n265_encoder_open(const n265_param *p)
               tree_k = 1;
           }
       }
+      /* Phase 14 item 45: a ceiling on the default K, for an instance
+       * that has few workers and shares the box with others of its kind
+       * (--gop-parallel sets it). Every frame in flight holds its own
+       * picture buffers, so at two workers the twelve of the UHD tree
+       * cost 0.75 GB at 2160p and buy no work. The VBR lag below still
+       * raises K to what it needs, so no bit moves. */
+      if (!v) {
+          const char *c = n265_env("N265_K_CAP");
+          int cap = c ? atoi(c) : 0;
+          if (cap > 0 && k > cap)
+              k = cap;
+      }
       /* N265_VBR_LAG: under --bitrate with a VBV, frame k's rate factor is
        * solved from the actual bits of the frames up to k - 1 - lag, and
        * the frames inside the lag are counted at their plans (D4). At lag

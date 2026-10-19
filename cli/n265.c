@@ -9,6 +9,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#ifdef __APPLE__
+#include <malloc/malloc.h>
+#endif
+#include <sys/types.h>
 #include <unistd.h>
 
 #include "yah265.h"
@@ -978,7 +983,9 @@ static void usage(void)
         "                  segment (--keyint frames); the stream is not\n"
         "                  the serial one. No HRD timing SEI on a joined\n"
         "                  stream; not with --pass, --qpfile, --zones,\n"
-        "                  --csv, --shot-stats or --hrd-concat.\n"
+        "                  --csv, --shot-stats or --hrd-concat. A file is\n"
+        "                  read by each instance; a pipe is held in a\n"
+        "                  window of (n + 1.5) x --keyint frames.\n"
         "  --dump-recon <file>  write reconstruction as raw YUV (the\n"
         "                  conformance gate compares decoders against it)\n"
         "  --shot-window <n>  OPT-IN shot planner: buffer up to n frames so\n"
@@ -1525,10 +1532,19 @@ static void opt_note(optstr *o, char **argv, int from, int to)
  * by one instance with every thread, which is the serial encode byte for
  * byte. Off unless asked for.
  *
- * Memory. The reader holds a window of input frames, `(N + 1.5) x` the
- * segment length by default (N265_GOP_WINDOW overrides): the segments in
- * flight plus the look-ahead the next boundary needs. It is the cost of
- * reading a pipe in order while N instances consume it out of order. */
+ * Memory (phase 14 item 45). A regular file whose frames are records of
+ * one size (raw, or a y4m whose every frame header is a bare "FRAME") is
+ * read by each instance itself: it opens the file, seeks to its
+ * segment's first record and reads one frame at a time, so no picture is
+ * held outside the encoders. The boundary search then only needs the
+ * luma plane, which the reader reads on its own and downsamples; it keeps
+ * a byte per frame. A pipe, or a y4m with per-frame parameters, can only
+ * be read in order while N instances consume it out of order, so there
+ * the reader holds a window of input frames, `(N + 1.5) x` the segment
+ * length by default (N265_GOP_WINDOW overrides): the segments in flight
+ * plus the look-ahead the next boundary needs. `N265_GOP_SEEK=0` takes
+ * the window on a file too. The two read the same samples, so they code
+ * the same stream. */
 
 void n265_encoder_set_segment(n265_encoder *e, double fill_in,
                               double floor_out, int nframes);
@@ -1616,6 +1632,15 @@ typedef struct gp_job {
      * `anchor`, -1: none to carry) */
     int anchor_state;
     double anchor;
+    /* the seekable reader (item 45): each instance reads its own records */
+    int seek;
+    const char *path;
+    off_t base, rec;            /* the first record's offset, a record */
+    long total;                 /* records in the file past `base` */
+    const y4m_t *src;           /* the geometry an instance's reader copies */
+    long clipped;               /* the instances' clamp counts */
+    int relief;                 /* N265_GOP_RELIEF */
+    int kcap;                   /* N265_GOP_K: frames in flight, at most */
 } gp_job;
 
 /* the knobs are read by name at the call, so the census can find them */
@@ -1760,6 +1785,126 @@ static int gp_sc_cut(gp_sc *s, double r)
     return cut;
 }
 
+/* ---- the seekable reader (item 45) ---- */
+
+/* Is the input a file of fixed-size records from where it stands? Raw
+ * input is when its length divides; a y4m is when its first frame header
+ * is a bare "FRAME" and the rest divides by that record. Each instance's
+ * y4m_read still checks every header it reads, so a file that divides by
+ * accident fails loudly instead of coding the wrong samples. */
+static int gp_seekable(const y4m_t *y, off_t *base, off_t *rec, long *total)
+{
+    struct stat st;
+    int fd = fileno(y->f);
+    if (fd < 0 || fstat(fd, &st) != 0 || !S_ISREG(st.st_mode))
+        return 0;
+    off_t pos = ftello(y->f);
+    if (pos < 0 || st.st_size <= pos)
+        return 0;
+    off_t h = 0;
+    if (!y->raw) {
+        char line[256];
+        if (!fgets(line, sizeof line, y->f))
+            return 0;
+        int ok = !strcmp(line, "FRAME\n");
+        if (fseeko(y->f, pos, SEEK_SET) != 0 || !ok)
+            return 0;
+        h = 6;
+    }
+    off_t r = h + (off_t)y->frame_bytes;
+    if ((st.st_size - pos) % r)
+        return 0;
+    *base = pos;
+    *rec = r;
+    *total = (long)((st.st_size - pos) / r);
+    return 1;
+}
+
+/* An instance's own reader: the source's geometry and conversion, its
+ * own buffers and its own handle, standing at record `start`. */
+static int gp_reader_open(const gp_job *j, y4m_t *r, int start)
+{
+    const y4m_t *y = j->src;
+    memset(r, 0, sizeof *r);
+    r->w = y->w;
+    r->h = y->h;
+    r->fps_num = y->fps_num;
+    r->fps_den = y->fps_den;
+    r->depth = y->depth;
+    r->out_depth = y->out_depth;
+    r->csp = y->csp;
+    r->raw = y->raw;
+    r->dither = y->dither;
+    r->f = fopen(j->path, "rb");
+    if (!r->f)
+        return -1;
+    if (src_geom(r, "") != 0)
+        return -1;
+    return fseeko(r->f, j->base + (off_t)start * j->rec, SEEK_SET);
+}
+
+static void gp_reader_close(y4m_t *r)
+{
+    free(r->frame);
+    free(r->pix16);
+    free(r->pix8);
+    if (r->f)
+        fclose(r->f);
+    memset(r, 0, sizeof *r);
+}
+
+/* The luma plane of record `i`, converted as y4m_read converts it (so the
+ * boundary search sees the samples the window path saw), into y's own
+ * buffers; returns the plane, or NULL. The clamp is counted by the
+ * instances, which read every plane. */
+static const void *gp_scan_luma(const gp_job *j, y4m_t *y, long i)
+{
+    size_t luma = (size_t)y->w * y->h;
+    size_t lb = luma * (y->depth > 8 ? 2 : 1);
+    if (fseeko(y->f, j->base + (off_t)i * j->rec, SEEK_SET) != 0)
+        return NULL;
+    if (!y->raw) {
+        char line[8];
+        if (fread(line, 1, 6, y->f) != 6 || memcmp(line, "FRAME\n", 6))
+            return NULL;
+    }
+    if (fread(y->frame, 1, lb, y->f) != lb)
+        return NULL;
+    if (y->out_depth == 8 && y->depth == 8)
+        return y->frame;
+    if (y->out_depth == 8) {
+        static const unsigned bayer2[2][2] = { { 0, 2 }, { 3, 1 } };
+        for (int py = 0; py < y->h; py++) {
+            const uint8_t *r = y->frame + 2 * (size_t)py * y->w;
+            uint8_t *d = y->pix8 + (size_t)py * y->w;
+            for (int px = 0; px < y->w; px++) {
+                unsigned v = (unsigned)r[2 * px] |
+                             ((unsigned)r[2 * px + 1] << 8);
+                if (v > 1023u)
+                    v = 1023u;
+                if (y->dither)
+                    v += bayer2[py & 1][px & 1];
+                v >>= 2;
+                d[px] = (uint8_t)(v > 255u ? 255u : v);
+            }
+        }
+        return y->pix8;
+    }
+    if (y->depth == 8) {
+        for (size_t k = 0; k < luma; k++)
+            y->pix16[k] = (uint16_t)(y->frame[k] << 2);
+        return y->pix16;
+    }
+    for (size_t k = 0; k < luma; k++) {
+        unsigned v = (unsigned)y->frame[2 * k] |
+                     ((unsigned)y->frame[2 * k + 1] << 8);
+        if (v > (unsigned)N265_SAMPLE_MAX(y->depth))
+            v = (unsigned)N265_SAMPLE_MAX(y->depth);
+        y->pix16[k] = (uint16_t)v;
+    }
+    return y->pix16;
+}
+
 /* ---- the segment table ---- */
 
 static int gp_seg_push(gp_job *j, int start, int end, int has_next)
@@ -1829,6 +1974,18 @@ static void gp_put_nals(gp_job *j, gp_seg *s, int seg_idx, const n265_nal *nal,
             *first_au = 0;
         gp_append(s, nal[i].payload, (size_t)nal[i].size);
     }
+}
+
+/* Hand a closed instance's memory back. The allocator keeps what an
+ * encoder frees in the magazines of the threads that freed it, and the
+ * next instance's threads allocate fresh, so without this every segment
+ * after the first N adds its encoder's footprint to the peak. */
+static void gp_relief(int on)
+{
+#ifdef __APPLE__
+    if (on)
+        malloc_zone_pressure_relief(NULL, 0);
+#endif
 }
 
 typedef struct gp_arg {
@@ -1908,22 +2065,48 @@ static void *gp_worker(void *arg)
                 j->g->set_crf_anchor(e, lvl);
         }
         int first_au = 1;
+        y4m_t rd;
+        memset(&rd, 0, sizeof rd);
+        if (j->seek && gp_reader_open(j, &rd, start) != 0) {
+            fprintf(stderr, "n265: cannot read %s at frame %d\n", j->path,
+                    start);
+            s->err = 1;
+        }
         for (int i = start; i < end && !s->err; i++) {
-            pthread_mutex_lock(&j->lock);
-            while (!j->abort_ && j->n_read <= i)
-                pthread_cond_wait(&j->cv, &j->lock);
-            uint8_t *f = j->frm[i];
-            int ab = j->abort_;
-            pthread_mutex_unlock(&j->lock);
-            if (ab || !f) {
-                s->err = 1;
-                break;
-            }
             n265_picture pic = {
-                .plane = { f, f + j->psz[0], f + j->psz[0] + j->psz[1] },
                 .stride = { j->pw[0], j->pw[1], j->pw[2] },
                 .pts = i - start,
             };
+            if (j->seek) {
+                /* every record in [start, end) exists: a segment is only
+                 * placed over frames the reader has counted */
+                pthread_mutex_lock(&j->lock);
+                int ab = j->abort_;
+                pthread_mutex_unlock(&j->lock);
+                if (ab || y4m_read(&rd) <= 0) {
+                    if (!ab)
+                        fprintf(stderr, "n265: cannot read frame %d of "
+                                "%s\n", i, j->path);
+                    s->err = 1;
+                    break;
+                }
+                for (int c = 0; c < 3; c++)
+                    pic.plane[c] = rd.plane[c];
+            } else {
+                pthread_mutex_lock(&j->lock);
+                while (!j->abort_ && j->n_read <= i)
+                    pthread_cond_wait(&j->cv, &j->lock);
+                uint8_t *f = j->frm[i];
+                int ab = j->abort_;
+                pthread_mutex_unlock(&j->lock);
+                if (ab || !f) {
+                    s->err = 1;
+                    break;
+                }
+                pic.plane[0] = f;
+                pic.plane[1] = f + j->psz[0];
+                pic.plane[2] = f + j->psz[0] + j->psz[1];
+            }
             n265_nal *nal;
             int nnal;
             if (a->encoder_encode(e, &nal, &nnal, &pic) < 0) {
@@ -1940,11 +2123,19 @@ static void *gp_worker(void *arg)
                 j->anchor_state = ast;
                 j->anchor = lvl;
             }
-            free(j->frm[i]);
-            j->frm[i] = NULL;
-            j->resident--;
+            if (!j->seek) {
+                free(j->frm[i]);
+                j->frm[i] = NULL;
+                j->resident--;
+            }
             pthread_cond_broadcast(&j->cv);
             pthread_mutex_unlock(&j->lock);
+        }
+        if (j->seek) {
+            pthread_mutex_lock(&j->lock);
+            j->clipped += rd.clipped;
+            pthread_mutex_unlock(&j->lock);
+            gp_reader_close(&rd);
         }
         while (!s->err) {
             n265_nal *nal;
@@ -1982,6 +2173,7 @@ static void *gp_worker(void *arg)
         }
         pthread_mutex_lock(&j->open_lock);
         a->encoder_close(e);
+        gp_relief(j->relief);
         pthread_mutex_unlock(&j->open_lock);
         pthread_mutex_lock(&j->lock);
         s->done = 1;
@@ -2064,7 +2256,8 @@ static int gp_place(gp_job *j, const unsigned char *cut, int b)
     return 1;
 }
 
-static int gp_run(const n265_api *a, y4m_t *y, const n265_param *p, int W,
+static int gp_run(const n265_api *a, y4m_t *y, const char *in_path,
+                  const n265_param *p, int W,
                   int T, int threads_arg, int keyint, long max_frames, int abr_on,
                   double bitrate_kbps, int vbv_on, int repeat_hdr,
                   FILE *fout, FILE *fdump, int want_met, long *nframes,
@@ -2106,6 +2299,14 @@ static int gp_run(const n265_api *a, y4m_t *y, const n265_param *p, int W,
     pthread_mutex_init(&j->lock, NULL);
     pthread_cond_init(&j->cv, NULL);
     pthread_mutex_init(&j->open_lock, NULL);
+    j->src = y;
+    j->path = in_path;
+    j->relief = gp_env_int(getenv("N265_GOP_RELIEF"), 1);
+    j->kcap = gp_env_int(getenv("N265_GOP_K"), j->K + 1 > 3 ? j->K + 1 : 3);
+    j->seek = in_path && gp_env_int(getenv("N265_GOP_SEEK"), 1) &&
+              gp_seekable(y, &j->base, &j->rec, &j->total);
+    if (getenv("N265_GOP_TRACE"))
+        fprintf(stderr, "GOP,reader,%s\n", j->seek ? "seek" : "window");
 
     gp_sc sc;
     int sc_ok = j->cuts && gp_sc_init(&sc, y->w, y->h) == 0;
@@ -2122,6 +2323,8 @@ static int gp_run(const n265_api *a, y4m_t *y, const n265_param *p, int W,
     while (!rc) {
         if (max_frames >= 0 && n >= max_frames)
             r = 0;
+        else if (j->seek)
+            r = n < j->total;
         else
             r = y4m_read(y);
         if (r < 0) {
@@ -2130,7 +2333,36 @@ static int gp_run(const n265_api *a, y4m_t *y, const n265_param *p, int W,
             break;
         }
         pthread_mutex_lock(&j->lock);
-        if (r > 0) {
+        if (r > 0 && j->seek) {
+            /* the instances read the pictures; the boundary search needs
+             * the luma plane and keeps one byte per frame */
+            if (n >= cut_cap) {
+                long nc = cut_cap ? 2 * cut_cap : 4096;
+                unsigned char *ncut = realloc(cut, (size_t)nc);
+                if (!ncut) {
+                    pthread_mutex_unlock(&j->lock);
+                    rc = 1;
+                    break;
+                }
+                memset(ncut + cut_cap, 0, (size_t)(nc - cut_cap));
+                cut = ncut;
+                cut_cap = nc;
+            }
+            pthread_mutex_unlock(&j->lock);
+            if (j->cuts) {
+                const void *lu = gp_scan_luma(j, y, n);
+                if (!lu) {
+                    fprintf(stderr, "n265: cannot read frame %ld\n", n);
+                    rc = 1;
+                    break;
+                }
+                cut[n] = (unsigned char)gp_sc_cut(&sc,
+                              gp_sc_push(&sc, lu, j->pw[0], j->bps));
+            }
+            pthread_mutex_lock(&j->lock);
+            n++;
+            j->n_read = n;
+        } else if (r > 0) {
             while (!j->abort_ && j->resident >= j->window) {
                 gp_flush(j, &next_out, fout, fdump);
                 if (j->resident >= j->window && !j->abort_)
@@ -2199,6 +2431,13 @@ static int gp_run(const n265_api *a, y4m_t *y, const n265_param *p, int W,
                 j->seg[0]->threads = threads_arg;
             if (!single && vbv_on)
                 setenv("N265_VBV_HRD", "0", 1);
+            /* item 45: an instance's frames in flight follow its own
+             * workers, not the whole box's (a scheduling ceiling only) */
+            if (!single && j->kcap > 0) {
+                char kb[16];
+                snprintf(kb, sizeof kb, "%d", j->kcap);
+                setenv("N265_K_CAP", kb, 0);
+            }
             int nw = single ? 1 : j->W;
             for (int t = 0; t < nw; t++)
                 if (pthread_create(&tid[t], NULL, gp_worker, &ga) == 0)
@@ -2263,9 +2502,10 @@ static int gp_run(const n265_api *a, y4m_t *y, const n265_param *p, int W,
         met[5] = met[4] < 1.0 ? -10.0 * log10(1.0 - met[4]) : 100.0;
     }
     *nmet = nm;
-    for (long i = 0; i < n; i++)
+    for (long i = 0; i < n && j->frm; i++)
         free(j->frm[i]);
     free(j->frm);
+    y->clipped += j->clipped;
     free(cut);
     free(tid);
     free(j->seg);
@@ -3417,7 +3657,8 @@ int main(int argc, char **argv)
             long gn = 0, gnm = 0;
             double gmet[6] = { 0, 0, 0, 0, 0, 0 };
             int gseg = 0, gk = 0;
-            int grc = gp_run(a, &y, &p, gop_par, (int)nt, threads, keyint,
+            int grc = gp_run(a, &y, fin != stdin ? in_path : NULL, &p,
+                             gop_par, (int)nt, threads, keyint,
                              max_frames, bitrate > 0.0, bitrate, vbv_on,
                              repeat_hdr, gout, gdump, want_psnr || want_ssim,
                              &gn, gmet, &gnm, &gseg, &gk);
