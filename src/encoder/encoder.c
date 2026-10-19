@@ -7211,6 +7211,9 @@ static int force_nonidr_env(void)
     return v;
 }
 
+static int key_reset_env(void);
+static int key_defer_env(void);
+
 /* This file's own cached knobs. The others are warmed per-file
  * above; these sit between a driver-side caller and a worker-side one
  * (hf_arm runs under the publish task), so they get the same treatment.
@@ -7222,6 +7225,7 @@ void n265_encoder_warm(void)
     (void)dpb_hold(); (void)hf_cache_on(); (void)hf2_mode_env();
     (void)hf2_tpp_env(); (void)hf2_tpp14_env();
     (void)min_keyint_env(); (void)intra_min_env(); (void)force_nonidr_env();
+    (void)key_reset_env(); (void)key_defer_env();
     (void)la_is_cra_cut(); (void)cra_nobarrier();
     (void)depth_dump_file();
 }
@@ -7239,10 +7243,61 @@ static int min_keyint(n265_encoder *e)
     return m < 1 ? 1 : m;
 }
 
-/* Is the lookahead frame at index i a forced KEY FRAME? keyint, a scene
- * cut, or the encoder's first frame. Which NAL type it gets - IDR or, at
- * a keyint edge under open GOP, CRA - is the split below. */
-static int la_is_key(n265_encoder *e, int i)
+/* N265_KEY_RESET (phase 14 item 43): where the `--keyint` period is
+ * counted from. 1, the default: from the last KEY FRAME, so a scene cut
+ * restarts the period and the next periodic key frame lands a full
+ * keyint after the cut. 0: from display 0, the pre-item encoder byte for
+ * byte, where a cut at 420 is followed by the period's own key frame at
+ * 500 and the stream pays for a second intra picture 80 frames into the
+ * shot. On the Chimera segment that was three intra pictures in 2760
+ * frames, each 64-80 frames behind a cut. docs/phase14.md "Item 43". */
+static int key_reset_env(void)
+{
+    static int v = -2;
+    if (v == -2) { const char *s = n265_env("N265_KEY_RESET"); v = s ? atoi(s) : 1; }
+    return v;
+}
+
+/* The key-frame rule for queued frame i, with the period and the
+ * min-keyint distance counted from `origin`: the --qpfile `I`/`K`, PCM,
+ * --keyint 1, the period, and a scene cut. Everything but `!ref_valid`,
+ * which is a statement about the present (n265_rc_future_idr). */
+/* N265_KEY_DEFER (phase 14 item 43, an arm): a periodic key frame that
+ * has a scene cut queued within this many frames after it is moved onto
+ * the cut, so the period may run past --keyint by up to that much. 0, the
+ * default, keeps --keyint a hard maximum. Needs N265_KEY_RESET. */
+static int key_defer_env(void)
+{
+    static int v = -2;
+    if (v == -2) { const char *s = n265_env("N265_KEY_DEFER"); v = s ? atoi(s) : 0; }
+    return v;
+}
+
+static int key_period(n265_encoder *e, int i, int origin)
+{
+    int d = e->la.f[i].display_idx;
+    if (!key_reset_env())
+        return (d % e->keyint) == 0;
+    if (d - origin < e->keyint)
+        return 0;
+    int dfr = key_defer_env();
+    if (dfr <= 0 || !e->scenecut || d - origin >= e->keyint + dfr)
+        return 1;
+    /* the deferred key frame on the cut itself is the cut's IDR, not a
+     * CRA: the scene-cut clause takes it */
+    if (n265_la_scenecut(e, i))
+        return 0;
+    for (int k = i + 1; k < e->la.count; k++) {
+        int dk = e->la.f[k].display_idx;
+        if (dk - origin >= e->keyint + dfr)
+            break;
+        if (n265_la_scenecut(e, k))
+            return 0;
+    }
+    return 1;
+}
+
+static int key_rule(n265_encoder *e, int i, int origin)
 {
     int d = e->la.f[i].display_idx;
     /* --qpfile: an `I` or `K` line forces a key frame here. It is the one
@@ -7253,10 +7308,35 @@ static int la_is_key(n265_encoder *e, int i)
         if (qe && qe->type == N265_QPF_IDR)
             return 1;
     }
-    return e->mode == N265_MODE_PCM || e->keyint == 1 || (d % e->keyint) == 0 ||
-           !e->ref_valid ||
-           (e->scenecut && d - e->gop_start_display >= min_keyint(e) &&
+    return e->mode == N265_MODE_PCM || e->keyint == 1 ||
+           key_period(e, i, origin) ||
+           (e->scenecut && d - origin >= min_keyint(e) &&
             n265_la_scenecut(e, i));
+}
+
+/* The display index queued frame i counts its period from: the last key
+ * frame placed, moved on by every key frame queued ahead of i. Deeper in
+ * the queue a cut the front has not reached yet still restarts the count,
+ * so the rate control and the plan builder see the key frames the
+ * dispatch will place. With N265_KEY_RESET=0 it is gop_start_display,
+ * the pre-item rule. */
+static int key_origin(n265_encoder *e, int i)
+{
+    int o = e->gop_start_display;
+    if (!key_reset_env())
+        return o;
+    for (int k = 0; k < i; k++)
+        if (key_rule(e, k, o))
+            o = e->la.f[k].display_idx;
+    return o;
+}
+
+/* Is the lookahead frame at index i a forced KEY FRAME? keyint, a scene
+ * cut, or the encoder's first frame. Which NAL type it gets - IDR or, at
+ * a keyint edge under open GOP, CRA - is the split below. */
+static int la_is_key(n265_encoder *e, int i)
+{
+    return !e->ref_valid || key_rule(e, i, key_origin(e, i));
 }
 
 /* ...and is that key frame a CRA rather than an IDR (phase 14 item 3)?
@@ -7280,7 +7360,7 @@ static int la_is_cra(n265_encoder *e, int i)
     int d = e->la.f[i].display_idx;
     if (d <= 0)
         return 0;
-    if ((d % e->keyint) == 0)
+    if (key_period(e, i, key_origin(e, i)))
         return 1;
     return la_is_cra_cut() && la_is_key(e, i);
 }
@@ -7488,15 +7568,7 @@ int n265_rc_future_idr(n265_encoder *e, int i)
 {
     if (i < 0 || i >= e->la.count)
         return 0;
-    int d = e->la.f[i].display_idx;
-    if (e->qpf_on) {
-        const n265_qpent *qe = n265_qpfile_at(&e->qpf, d);
-        if (qe && qe->type == N265_QPF_IDR)
-            return 1;
-    }
-    return e->keyint == 1 || (d % e->keyint) == 0 ||
-           (e->scenecut && d - e->gop_start_display >= min_keyint(e) &&
-            n265_la_scenecut(e, i));
+    return key_rule(e, i, key_origin(e, i));
 }
 
 /* Emit the pyramid coding order for the B lookahead indices [blo, bhi],
