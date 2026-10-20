@@ -348,10 +348,13 @@ def info(cell):
         else:
             p = os.path.join(cell.get("dir", TIER_C_DIR), cell["file"])
         w, h, fps, n = y4m_shape(p)
+        # a window of a longer file, read in place (tier D's D3v)
+        off = cell.get("offset", 0)
+        n -= off
         if cell.get("limit"):
             n = min(n, cell["limit"])
-        d = dict(w=w, h=h, fps=fps, frames=n, src="y4m", path=p, start=0,
-                 master_start=0)
+        d = dict(w=w, h=h, fps=fps, frames=n, src="y4m", path=p, start=off,
+                 master_start=off)
     _INFO[k] = d
     return d
 

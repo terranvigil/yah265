@@ -8230,6 +8230,24 @@ static int drive_scheduler(n265_encoder *e)
         fw->nref[0] = fw->nref[1] = 0;
     else
         n265_build_lists(e, fw, poc, kind == 0, NULL);
+    /* N265_REF2_ROLE (phase 14 item 48, an arm): with more than one
+     * reference configured, which pictures use them. 1 keeps one per
+     * list on a non-reference picture, 2 on every B. The DPB and its
+     * retention are --ref's, so the shorter lists only mark the extra
+     * picture "not used by this one" in the RPS, and the slice header's
+     * num_ref_idx override carries the count. 0 is every picture. */
+    if (slice_type != 2 && e->ref_max > 1) {
+        static int role = -1;
+        if (role < 0) {
+            const char *v = n265_env("N265_REF2_ROLE");
+            role = v ? atoi(v) : 0;
+        }
+        if ((role == 1 && e->plan_nonref[e->plan_pos]) ||
+            (role == 2 && slice_type == 0))
+            for (int l = 0; l < 2; l++)
+                if (fw->nref[l] > 1)
+                    fw->nref[l] = 1;
+    }
     fw->slice_type = slice_type;
     fw->idr = kind == 2;
     fw->cra = kind == 4;

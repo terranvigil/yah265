@@ -97,11 +97,12 @@ profile() {
         item44)       echo "|N265_AQ2=0 N265_AQ_BPULL=0";;   # item 44, adaptive AQ gain + HD B pull
         item46)       echo "--rc-lookahead 12|N265_CRF_DC_WIN=12";;   # item 46, medium window 20 at 720p and up (CIF never moved; the flag moves slow, so medium cells only)
         item47)       echo "|N265_CCRF_BRAKE=0 N265_CCRF_GUARD=1";;   # item 47, capped CRF's brake and guard (only the CCRF=1 cells move)
+        item48)       echo "|N265_CB64_SKIPGATE=64 N265_VBR_FBTRK=0 N265_UHD_REF2=0";;   # item 48, UHD skip gate 32 + lite second reference, and capped VBR's deficit rail
         asmoff)       echo "|N265_ASM_OFF=all";;
         *) return 1;;
     esac
 }
-PROFILE_NAMES="info fingerprint weightp stream ship item22 item23 item24 item25 item25sched item26 item28 item29 item29s2 item30 vbrspeed item33 item35 item36 item37 item38 item40 item41 item43 item44 item46 item47 asmoff"
+PROFILE_NAMES="info fingerprint weightp stream ship item22 item23 item24 item25 item25sched item26 item28 item29 item29s2 item30 vbrspeed item33 item35 item36 item37 item38 item40 item41 item43 item44 item46 item47 item48 asmoff"
 
 # ---------------------------------------------------------------- one cell
 # Called back through xargs: identity_ab.sh --cell WORK LINE

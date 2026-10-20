@@ -243,6 +243,8 @@ typedef struct n265_rc {
                                  * complexity over the running mean that
                                  * scales the finer-side feedback (0: off) */
     double fbfine;              /* N265_VBR_FBFINE: the finer-side rail */
+    double fbtrk, fbtrk_w;      /* N265_VBR_FBTRK(_W): deficit where it widens */
+    double fbtrk_max;           /* N265_VBR_FBTRK_MAX: how far */
     double spend_lo, spend_hi;  /* N265_VBR_SPENDFILL / _SPENDHI: the fill
                                  * shares between which a surplus is spent
                                  * from none to whole (0: off) */
