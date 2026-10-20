@@ -260,6 +260,7 @@ static const struct kv med_tab[] = {
      * and the compiled-in default is 0, so fast, slow and slower are
      * untouched */
     { "N265_CB64_SKIPGATE", "0" },
+    { "N265_REF2_LITE", "0" },     /* item 48: 1 at UHD (med_tab_uhd) */
     /* ...and its split side (item 24), 0 for the same reason; the HD
      * overlay names it where the tree is taken at 1080p */
     { "N265_CB64_SPLITGATE", "0" },
@@ -627,11 +628,14 @@ static const struct kv med_par_uhd[] = {
  * alone takes the stretch to +2.28% / +1.84%, and with the gate at 32 to
  * -2.65% / -2.81%. HD is not moved; it was not read here.
  *
- * It is an ARM, off: the second reference costs 24% of the SIMD
- * instructions at UHD (D3 goes over x265's count, 1.057), and gate 32
- * with the capped-VBR deficit rail already takes the M/2160p chimera
- * segment to -0.21% without it. `N265_UHD_REF2=1` turns this overlay on.
- * docs/phase14.md "Item 48". */
+ * Searched in full, the second reference costs 24% of the SIMD
+ * instructions at UHD (D3 goes over x265's count, 1.057), and was taken
+ * back. It ships with the lite search on it (N265_REF2_LITE 1 in
+ * med_tab_uhd): the second reference's AMVP arm prices only the
+ * predictors and the first reference's winner scaled by distance. That
+ * keeps D3v at -1.22% (full search -2.84%, one reference +3.08%) for
+ * 3.6% more SIMD instructions than one reference on D3 and 0.1% on D2.
+ * `N265_UHD_REF2=0` is the escape. docs/phase14.md "Item 48". */
 static const struct kv med_par_4k[] = {
     { "ref", "2" },
     { NULL, NULL }
@@ -690,6 +694,8 @@ static const struct kv med_tab_uhd[] = {
      * points of BD-VMAF-NEG against 32, for 4.6% of the SIMD
      * instructions. `N265_CB64_SKIPGATE=64` is the escape. */
     { "N265_CB64_SKIPGATE", "32" },
+    /* phase 14 item 48: the second reference (med_par_4k) searched lite */
+    { "N265_REF2_LITE", "1" },
     /* phase 14 item 46, at HD and UHD: the CRF frame-DC level is read
      * over the first 20 frames, the window med_par_uhd sets there */
     { "N265_CRF_DC_WIN", "20" },
@@ -746,6 +752,7 @@ static const struct kv med_tab_uhd[] = {
  * docs/phase14.md "Item 24" the numbers. */
 static const struct kv med_tab_hd[] = {
     { "N265_CB64_SKIPGATE", "64" },   /* item 48: UHD runs 32 */
+    { "N265_REF2_LITE", "0" },        /* item 48: UHD only */
     { "N265_CB64_SPLITGATE", "256" },
     { "N265_TT_SKIP_INTER", "0" },   /* item 40: UHD only */
     { NULL, NULL }
@@ -1133,7 +1140,7 @@ int n265_preset_param_res(const char *key, int fallback, int width,
     const struct kv *p720 = rungs[g_preset].par_720;
     const struct kv *p4k = rungs[g_preset].par_4k;
     const char *r2 = getenv("N265_UHD_REF2");
-    if (p4k && res_class(width, height) == 2 && r2 && atoi(r2) > 0) {
+    if (p4k && res_class(width, height) == 2 && (!r2 || atoi(r2) > 0)) {
         const char *v = lookup(p4k, key);
         if (v)
             return atoi(v);

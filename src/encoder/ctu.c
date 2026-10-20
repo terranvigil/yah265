@@ -3282,6 +3282,70 @@ static int cb64_gate_of(const struct n265_frame_work *e)
     return e->nonref ? cb64_skipgate() : cb64_skipgate_ref();
 }
 
+/* N265_REF2_LITE (phase 14 item 48, an arm): the AMVP search on a second
+ * or later reference, made cheap. 1 prices only the candidates already in
+ * hand - the two predictors, the seed and the first reference's winner
+ * scaled by POC distance - and takes the lowest SAD as it is; 2 adds the
+ * eight full-pel neighbours of that winner. No subpel walk either way.
+ * 0 is the full search on every reference. */
+static int ref2_lite(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_REF2_LITE");
+        v = s ? atoi(s) : 0;
+        if (v < 0)
+            v = 0;
+    }
+    return v;
+}
+
+static uint32_t ref2_lite_search(struct n265_frame_work *e, int l, int r,
+                                 int x0, int y0, int w, int h,
+                                 const mv_t *cand, int nc, mv_t *out,
+                                 struct n265_me_keep *kp)
+{
+    uint32_t best = UINT32_MAX;
+    mv_t bm = cand[0];
+    n265_clamp_mv(e, x0, y0, w, h, &bm);
+    for (int i = 0; i < nc; i++) {
+        int dup = 0;
+        for (int k = 0; k < i; k++)
+            dup |= cand[k].x == cand[i].x && cand[k].y == cand[i].y;
+        if (dup)
+            continue;
+        mv_t m = cand[i];
+        n265_clamp_mv(e, x0, y0, w, h, &m);
+        uint32_t s = n265_mc_sad(e, l, r, x0, y0, w, h, m);
+        if (s < best) {
+            best = s;
+            bm = m;
+        }
+    }
+    if (ref2_lite() >= 2) {
+        mv_t c = { (int16_t)(bm.x & ~3), (int16_t)(bm.y & ~3) };
+        for (int dy = -4; dy <= 4; dy += 4)
+            for (int dx = -4; dx <= 4; dx += 4) {
+                mv_t m = { (int16_t)(c.x + dx), (int16_t)(c.y + dy) };
+                mv_t q = m;
+                n265_clamp_mv(e, x0, y0, w, h, &q);
+                if (q.x != m.x || q.y != m.y)
+                    continue;
+                uint32_t s = n265_mc_sad(e, l, r, x0, y0, w, h, m);
+                if (s < best) {
+                    best = s;
+                    bm = m;
+                }
+            }
+    }
+    *out = bm;
+    if (kp) {
+        kp->satd = UINT32_MAX;
+        kp->nb_valid = kp->sq_valid = kp->rung_fired = 0;
+    }
+    return best;
+}
+
 /* N265_CB64_SPLITGATE (phase 14 item 24): the other side of the same
  * question. Where the skip gate's trial REJECTS a 64x64 node and its
  * depth-0 residual is at or above this bound - in 1024ths of
@@ -4862,6 +4926,7 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
     /* MV-reuse census: the previous reference's winner in each list */
     mv_t mvr_prev[2] = { { 0, 0 }, { 0, 0 } };
     int mvr_prev_poc[2] = { 0, 0 }, mvr_prev_ok[2] = { 0, 0 };
+    mv_t r0mv[2] = { { 0, 0 }, { 0, 0 } };   /* N265_REF2_LITE */
     for (int l = 0; l < 2; l++) {
         mvp[l][0].x = mvp[l][0].y = mvp[l][1].x = mvp[l][1].y = 0;
         if (l >= nl)
@@ -4919,10 +4984,21 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
             n265_cpy(rcx.up, up, sizeof(up));
             struct n265_me_rate rc = { me_rate_bits, &rcx, (uint32_t)lam4 };
             struct n265_me_keep kp;
-            n265_me_search(e, l, r, g->x, g->y, w, h, seed, &mv,
-                           want_keep ? &kp : NULL,
-                           n265_subpel_rate() >= 2 || n265_subme_rung()
-                               ? &rc : NULL);
+            if (r > 0 && ref2_lite()) {
+                mv_t cd[4] = { p[0], p[1], seed,
+                               n265_mv_poc_scale(r0mv[l],
+                                   e->poc - e->refl[l][r]->poc,
+                                   e->poc - e->refl[l][0]->poc) };
+                (void)ref2_lite_search(e, l, r, g->x, g->y, w, h, cd, 4,
+                                       &mv, want_keep ? &kp : NULL);
+            } else {
+                n265_me_search(e, l, r, g->x, g->y, w, h, seed, &mv,
+                               want_keep ? &kp : NULL,
+                               n265_subpel_rate() >= 2 || n265_subme_rung()
+                                   ? &rc : NULL);
+            }
+            if (r == 0)
+                r0mv[l] = mv;
             u.mv[l] = mv;
             if (e->mereuse_trace) {
                 mvr_prev[l] = mv;
@@ -6200,6 +6276,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                  * predictors of that reference */
                 mv_t mvr_prev1[2] = { { 0, 0 }, { 0, 0 } };
                 int mvr_prev1_poc[2] = { 0, 0 }, mvr_prev1_ok[2] = { 0, 0 };
+                mv_t r0mv1[2] = { { 0, 0 }, { 0, 0 } };   /* REF2_LITE */
                 for (int l = 0; l < (e->slice_type == 0 ? 2 : 1); l++) {
                     uint32_t best_c = UINT32_MAX;
                     for (int r = 0; r < e->nref[l]; r++) {
@@ -6244,12 +6321,25 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                         struct n265_me_rate rc = { me_rate_bits, &rcx,
                                                    (uint32_t)lam4 };
                         struct n265_me_keep kp;
-                        uint32_t sad = n265_me_search(e, l, r, x0, y0, n, n,
-                                                      seed, &mv,
-                                                      want_keep ? &kp : NULL,
-                                                      n265_subpel_rate() >= 2
-                                                      || n265_subme_rung()
-                                                          ? &rc : NULL);
+                        uint32_t sad;
+                        if (r > 0 && ref2_lite()) {
+                            mv_t cd[4] = { p[0], p[1], seed,
+                                n265_mv_poc_scale(r0mv1[l],
+                                    e->poc - e->refl[l][r]->poc,
+                                    e->poc - e->refl[l][0]->poc) };
+                            sad = ref2_lite_search(e, l, r, x0, y0, n, n,
+                                                   cd, 4, &mv,
+                                                   want_keep ? &kp : NULL);
+                        } else {
+                            sad = n265_me_search(e, l, r, x0, y0, n, n,
+                                                 seed, &mv,
+                                                 want_keep ? &kp : NULL,
+                                                 n265_subpel_rate() >= 2
+                                                 || n265_subme_rung()
+                                                     ? &rc : NULL);
+                        }
+                        if (r == 0)
+                            r0mv1[l] = mv;
                         u.mv[l] = mv;
                         if (e->mereuse_trace) {
                             mvr_prev1[l] = mv;
@@ -8039,7 +8129,7 @@ void n265_ctu_warm(void)
     (void)intra_fast_qp(); (void)intra_fast_step(); (void)tt_skip_qp();
     (void)intra_fast_w(); (void)intra_fast_flat();
     (void)cb64_gate(); (void)cb64_amvp(); (void)b_intra_margin();
-    (void)cb64_prof_on(); (void)cb64_skipgate(); (void)cb64_skipgate_ref();
+    (void)cb64_prof_on(); (void)cb64_skipgate(); (void)cb64_skipgate_ref(); (void)ref2_lite();
     (void)bi_refine_iters(); (void)merge_rd_n(); (void)merge_pick_rate(); (void)cb64_splitgate(); (void)bi_gate();
     (void)bi_gate_margin(); (void)intra_rd_n(); (void)intra_rd_mpm();
     (void)i_intra(); (void)chroma_w_on(); (void)chroma_w_pct();
