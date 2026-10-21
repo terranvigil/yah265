@@ -276,10 +276,33 @@ void n265_rc_open(struct n265_encoder *e)
     rc->fbtrk = cvbr ? abr_tunable("N265_VBR_FBTRK", 0.06) : 0.0;
     rc->fbtrk_w = abr_tunable("N265_VBR_FBTRK_W", 0.04);
     rc->fbtrk_max = abr_tunable("N265_VBR_FBTRK_MAX", 6.0);
+    /* N265_VBR_VLVL (item 49): the share of each frame's clamp demand a
+     * running clamp level takes, capped VBR only; 0 is off (n265_rc_next). */
+    rc->vlvl_a = cvbr ? abr_tunable("N265_VBR_VLVL", 0.1) : 0.0;
+    rc->vlvl = 0.0;
+    /* N265_VBR_FILLQ (item 49): below `fillgoal` of the buffer every frame
+     * is raised in proportion to the shortfall, `fillq` QP at empty. With
+     * the whole-encode level (N265_VBR_CMEM) the loop no longer coarsens
+     * on its own over a hard minute, and the clamp's 20-frame window let
+     * Meridian 720p at 133k drain 397 kbit to 33 kbit over 200 frames and
+     * then meet a strobe of intra pictures at QP 51: 61 underflows at
+     * 1.5x / 2 s where main read none. At 6 it reads none, and the cell's
+     * BD improves (-3.95% -> -4.72%). 0 is off. */
+    rc->fillq = cvbr ? abr_tunable("N265_VBR_FILLQ", 6.0) : 0.0;
+    rc->fillgoal = abr_tunable("N265_VBR_FILLGOAL", 0.5);
     rc->w_mem = abr_tunable("N265_ABR_WMEM", 1000.0);
     rc->meas = (int)abr_tunable("N265_ABR_MEAS", 1);
     rc->mguard = abr_tunable("N265_ABR_MGUARD", 0.0);
-    rc->cplxr_mem = abr_tunable("N265_ABR_CMEM", 1000.0);
+    /* N265_VBR_CMEM (phase 14 item 49): under capped VBR the operating
+     * point's memory is the whole encode. At 1000 frames it is 17 s of a
+     * 60 fps title, so a ten-minute excerpt spent its bits evenly over
+     * every 17 s and lost what CRF's level holds across scenes: Meridian
+     * 720p's ten minutes read +2.41% BD-VMAF-NEG against x265 at 1000
+     * and +0.31% here. The slow feedback still lands the file.
+     * N265_ABR_CMEM, when set, wins; `N265_VBR_CMEM=1000` is main. */
+    rc->cplxr_mem = abr_tunable("N265_ABR_CMEM",
+                                cvbr ? abr_tunable("N265_VBR_CMEM", 1e6)
+                                     : 1000.0);
     rc->tcap = (int)abr_tunable("N265_ABR_TCAP", 1);
     rc->cplxr_seed = abr_tunable("N265_ABR_CSEED", 0.0);
     rc->copen = (int)abr_tunable("N265_ABR_COPEN", 1);
@@ -1319,9 +1342,41 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
      * below this line runs. */
     rc->last_vbv_pred = rc->last_vbv_allow = rc->last_vbv_dqp = 0.0;
     if (e->vbv.on) {
+        /* N265_VBR_VLVL (item 49): where the buffer runs near empty for a
+         * stretch, the clamp below makes each frame fit on its own, and the
+         * frame it raises most is the one predicted dearest: the P anchor.
+         * Meridian 720p's hard minutes coded their anchors 16 QP over the
+         * leaf B pictures that reference them, at VMAF-NEG 40-50 where our
+         * own CRF codes the same bytes at 77. The level is a running mean
+         * of what the clamp asks of the loop's answer, laid on every frame
+         * before the clamp, so a stretch the buffer can't pay for is paid
+         * for by every picture at once and the cascade survives. The clamp
+         * still answers what the level doesn't. */
+        if (rc->vlvl_a > 0.0) {
+            int nclamp = e->vbv.clamped;
+            double p0, a0;
+            double dq0 = vbv_dqp(e, cls, cplx, rc->cur_icplx, rf + ctf,
+                                 &p0, &a0);
+            e->vbv.clamped = nclamp;
+            rc->vlvl += rc->vlvl_a * (dq0 - rc->vlvl);
+            rf += rc->vlvl;
+            if (rf > 51.0)
+                rf = 51.0;
+        }
+        if (rc->fillq > 0.0 && rc->fillgoal > 0.0 && e->vbv.bufsize > 0.0) {
+            double sh = 1.0 - e->vbv.fill / (rc->fillgoal * e->vbv.bufsize);
+            if (sh > 0.0) {
+                rf += rc->fillq * (sh > 1.0 ? 1.0 : sh);
+                if (rf > 51.0)
+                    rf = 51.0;
+            }
+        }
+        /* the clamp's own raise only: the brake and the lag's estimate
+         * price the frame as `pred x 2^(-dqp/6)`, and pred is already at
+         * the level */
+        double rf0 = rf;
         double dq = vbv_dqp(e, cls, cplx, rc->cur_icplx, rf + ctf,
                             &rc->last_vbv_pred, &rc->last_vbv_allow);
-        double rf0 = rf;
         rf += dq;           /* never negative: the clamp is one-sided */
         if (rf > 51.0)
             rf = 51.0;

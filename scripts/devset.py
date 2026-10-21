@@ -156,6 +156,25 @@ CELLS = [
      "~/media/staging-y4m/tears-x10_1080p.y4m", 2250, False,
      "1920x858, odd height; long-form live action and CG",
      "L tears 720p-2160p; the odd-height cells (sintel, cosmos)"),
+    # the 3840x1714 tier L cell (item 49): the first of the excerpt's G1/G2
+    # windows, read in place from the staged excerpt (600 frames of 4K are
+    # 5.9 GB). Two scene cuts in a dark, grainy live-action stretch.
+    ("D9", "2160p", "tears_w", "tears-x10_2160p.y4m", 600,
+     "<staging>/yah264/y4m/tears-x10_2160p.y4m", 1752, False,
+     "3840x1714; L/2160p/tears CRF +2.58% on the 3-rung screen",
+     "L/2160p/tears; the UHD scope cells",
+     {"dir": "<staging>/yah264/y4m", "offset": 1752,
+      "limit": 600}),
+    # the 60 fps long-form VBR cell (item 49): three minutes of the Meridian
+    # excerpt from its first G1/G2 window, VBR only, read in place. The
+    # hard stretch inside it is where a near-empty buffer used to code the
+    # P anchors 16 QP over the leaf B pictures.
+    ("D10v", "720p", "meridian_w", "meridian-x10_720p.y4m", 10800,
+     "~/media/staging-y4m/meridian-x10_720p.y4m", 4582, "only",
+     "VBR +7.46% on the 3-rung screen; L/720p/meridian VBR +2.41%",
+     "L/720p/meridian VBR; the long 60 fps VBR cells",
+     {"dir": os.path.expanduser("~/media/staging-y4m"), "offset": 4582,
+      "limit": 10800}),
 ]
 
 

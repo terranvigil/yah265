@@ -6,13 +6,13 @@ Tier meanings: **default** = shipped behaviour, the env is its escape; **instrum
 
 In the default column, **presence** means the reader is a boolean: unset is off and any value arms it. **unset** means the value names a file or a string and unset is off. `= N265_X` means the default is another knob's resolved value.
 
-## default (89)
+## default (93)
 
 | knob | default | reader |
 |---|---|---|
-| `N265_ABR_SB` | 1.7 | src/encoder/rc.c:314 |
-| `N265_ABR_SBR` | 4.0 | src/encoder/rc.c:313 |
-| `N265_ABR_SP` | 13.3 | src/encoder/rc.c:312 |
+| `N265_ABR_SB` | 1.7 | src/encoder/rc.c:337 |
+| `N265_ABR_SBR` | 4.0 | src/encoder/rc.c:336 |
+| `N265_ABR_SP` | 13.3 | src/encoder/rc.c:335 |
 | `N265_AQ2_ABR` | 1 | src/encoder/encoder.c:1843 |
 | `N265_AQ2_GMAX` | 1.0 | src/encoder/encoder.c:1848 |
 | `N265_AQ2_GMIN` | 0.7 | src/encoder/encoder.c:1847 |
@@ -21,14 +21,14 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_BADAPT_MVCAP` | 4 | src/encoder/la.c:343 |
 | `N265_BADAPT_MVGATE` | 20 | src/encoder/la.c:378 |
 | `N265_CB64_SKIPGATE_REF` | -1 | src/encoder/ctu.c:3273 |
-| `N265_CCRF_BRAKE` | 1 under capped CRF, else unread | src/encoder/rc.c:348 |
-| `N265_CCRF_BRAKE_FILL` | 0.8 under capped CRF, else unread | src/encoder/rc.c:362 |
-| `N265_CCRF_BRK_R0` | 1.25 | src/encoder/rc.c:349 |
-| `N265_CCRF_GUARD` | 1.3 under capped CRF, else 0 | src/encoder/rc.c:356 |
-| `N265_CCRF_SKIP` | 1 under capped CRF, else 0 | src/encoder/rc.c:351 |
-| `N265_CCRF_SKIP_FILL` | 0.8 | src/encoder/rc.c:352 |
-| `N265_CCRF_SKIP_SATQ` | 51.0 | src/encoder/rc.c:353 |
-| `N265_CCRF_SKIP_WARM` | 4.0 | src/encoder/rc.c:354 |
+| `N265_CCRF_BRAKE` | 1 under capped CRF, else unread | src/encoder/rc.c:371 |
+| `N265_CCRF_BRAKE_FILL` | 0.8 under capped CRF, else unread | src/encoder/rc.c:385 |
+| `N265_CCRF_BRK_R0` | 1.25 | src/encoder/rc.c:372 |
+| `N265_CCRF_GUARD` | 1.3 under capped CRF, else 0 | src/encoder/rc.c:379 |
+| `N265_CCRF_SKIP` | 1 under capped CRF, else 0 | src/encoder/rc.c:374 |
+| `N265_CCRF_SKIP_FILL` | 0.8 | src/encoder/rc.c:375 |
+| `N265_CCRF_SKIP_SATQ` | 51.0 | src/encoder/rc.c:376 |
+| `N265_CCRF_SKIP_WARM` | 4.0 | src/encoder/rc.c:377 |
 | `N265_CLAIM_PRIO` | 1 | src/encoder/encoder.c:6332 |
 | `N265_CRF_DC_MEM` | 1000.0 | src/encoder/encoder.c:1749 |
 | `N265_CRF_DUR` | 0.3 | src/encoder/encoder.c:1719 |
@@ -74,6 +74,7 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_TREE_K` | 12 | src/encoder/encoder.c:2819 |
 | `N265_TREE_SLOTS` | K - 6 (with the switched HD or UHD tree only) | src/encoder/encoder.c:2896 |
 | `N265_TT_SKIP_INTER` | 0 | src/encoder/ctu.c:2000 |
+| `N265_VBR_CMEM` | 1 | src/encoder/rc.c:304 |
 | `N265_VBR_CTKEEP` | 1 under capped VBR, else 0 | src/encoder/rc.c:249 |
 | `N265_VBR_FBFINE` | 3.0 | src/encoder/rc.c:273 |
 | `N265_VBR_FBG` | 16.0 | src/encoder/rc.c:246 |
@@ -84,6 +85,8 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_VBR_FBTRK_W` | 0.04 | src/encoder/rc.c:277 |
 | `N265_VBR_FBUP` | = N265_ABR_FBMAX (capped VBR only) | src/encoder/rc.c:216 |
 | `N265_VBR_FBW` | 2.0 under capped VBR, else 0 | src/encoder/rc.c:244 |
+| `N265_VBR_FILLGOAL` | 0.5 | src/encoder/rc.c:292 |
+| `N265_VBR_FILLQ` | 6.0 | src/encoder/rc.c:291 |
 | `N265_VBR_LAG` | 7 (VBR, threads > 1) | src/encoder/encoder.c:2850 |
 | `N265_VBR_LAG_BUFS` | 1.2 | src/encoder/encoder.c:2859 |
 | `N265_VBR_LAG_CAL` | 0.1 | src/encoder/encoder.c:2912 |
@@ -94,7 +97,8 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_VBR_OVW` | 0.75 under capped VBR, else 0 | src/encoder/rc.c:248 |
 | `N265_VBR_SPENDFILL` | 0.4 | src/encoder/rc.c:271 |
 | `N265_VBR_SPENDHI` | 0.8 | src/encoder/rc.c:272 |
-| `N265_VBV_DECAY` | 0.0625 | src/encoder/rc.c:324 |
+| `N265_VBR_VLVL` | 0.1 | src/encoder/rc.c:281 |
+| `N265_VBV_DECAY` | 0.0625 | src/encoder/rc.c:347 |
 | `N265_VBV_LOOKAHEAD` | 1 | src/encoder/encoder.c:2454 |
 | `N265_VBV_OWN` | 3 under capped VBR, else 0 | src/encoder/rc.c:250 |
 | `N265_VBV_RESERVE` | 0.2 | src/encoder/encoder.c:2461 |
@@ -105,36 +109,36 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | knob | default | reader |
 |---|---|---|
 | `N265_2P_CLAMP` | 6.0 | src/encoder/encoder.c:672 |
-| `N265_2P_GAIN` | 0.25 | src/encoder/rc.c:302 |
+| `N265_2P_GAIN` | 0.25 | src/encoder/rc.c:325 |
 | `N265_2P_QCOMP` | = N265_ABR_QCOMP | src/encoder/encoder.c:670 |
 | `N265_2P_TRACE` | presence | src/encoder/encoder.c:687 |
 | `N265_2P_TRUST` | 2.0 | src/encoder/encoder.c:679 |
-| `N265_ABR_CMEM` | 1000.0 | src/encoder/rc.c:282 |
-| `N265_ABR_COPEN` | 1 | src/encoder/rc.c:285 |
-| `N265_ABR_CSEED` | 0.0 | src/encoder/rc.c:284 |
-| `N265_ABR_CTF` | 1 | src/encoder/rc.c:289 |
+| `N265_ABR_CMEM` | ? | src/encoder/rc.c:303 |
+| `N265_ABR_COPEN` | 1 | src/encoder/rc.c:308 |
+| `N265_ABR_CSEED` | 0.0 | src/encoder/rc.c:307 |
+| `N265_ABR_CTF` | 1 | src/encoder/rc.c:312 |
 | `N265_ABR_FBMAX` | 6.0 | src/encoder/rc.c:181 |
-| `N265_ABR_FBSTEP` | 1 | src/encoder/rc.c:287 |
+| `N265_ABR_FBSTEP` | 1 | src/encoder/rc.c:310 |
 | `N265_ABR_FBUP` | = N265_VBR_FBUP under capped VBR (item 37), 1.5 under another VBV, else = N265_ABR_FBMAX | src/encoder/rc.c:215 |
-| `N265_ABR_FLATC` | 17.0 under a VBV, else 0 | src/encoder/rc.c:358 |
+| `N265_ABR_FLATC` | 17.0 under a VBV, else 0 | src/encoder/rc.c:381 |
 | `N265_ABR_HORIZON` | 6.0 | src/encoder/rc.c:173 |
-| `N265_ABR_IBRAKE` | 1 | src/encoder/rc.c:286 |
+| `N265_ABR_IBRAKE` | 1 | src/encoder/rc.c:309 |
 | `N265_ABR_IGAIN` | 0.085 | src/encoder/rc.c:179 |
 | `N265_ABR_IMAX` | 8.0 | src/encoder/rc.c:180 |
-| `N265_ABR_IOFF` | 0.0 | src/encoder/rc.c:290 |
-| `N265_ABR_IOFF_CT` | 1.0 under a VBV without N265_VBR_CTKEEP, else 0 | src/encoder/rc.c:291 |
-| `N265_ABR_LVL` | 2.0 | src/encoder/rc.c:315 |
-| `N265_ABR_MEAS` | 1 | src/encoder/rc.c:280 |
-| `N265_ABR_MGUARD` | 0.0 | src/encoder/rc.c:281 |
-| `N265_ABR_OPENI` | 0 | src/encoder/rc.c:288 |
+| `N265_ABR_IOFF` | 0.0 | src/encoder/rc.c:313 |
+| `N265_ABR_IOFF_CT` | 1.0 under a VBV without N265_VBR_CTKEEP, else 0 | src/encoder/rc.c:314 |
+| `N265_ABR_LVL` | 2.0 | src/encoder/rc.c:338 |
+| `N265_ABR_MEAS` | 1 | src/encoder/rc.c:294 |
+| `N265_ABR_MGUARD` | 0.0 | src/encoder/rc.c:295 |
+| `N265_ABR_OPENI` | 0 | src/encoder/rc.c:311 |
 | `N265_ABR_OPENSTEP` | 6.0 | src/encoder/rc.c:178 |
 | `N265_ABR_PLANERR` | 0 | src/encoder/rc.c:218 |
 | `N265_ABR_QCOMP` | 0.6 | src/encoder/rc.c:172 |
-| `N265_ABR_SI` | 25.4 | src/encoder/rc.c:311 |
+| `N265_ABR_SI` | 25.4 | src/encoder/rc.c:334 |
 | `N265_ABR_SMEM` | 16.0 | src/encoder/rc.c:177 |
 | `N265_ABR_STEP` | 1.0 | src/encoder/rc.c:176 |
-| `N265_ABR_TCAP` | 1 | src/encoder/rc.c:283 |
-| `N265_ABR_WMEM` | 1000.0 | src/encoder/rc.c:279 |
+| `N265_ABR_TCAP` | 1 | src/encoder/rc.c:306 |
+| `N265_ABR_WMEM` | 1000.0 | src/encoder/rc.c:293 |
 | `N265_API_DEFER` | presence | src/encoder/encoder.c:3006 |
 | `N265_AQ2_TRACE` | presence | src/encoder/encoder.c:6125 |
 | `N265_AQ_ANCHOR` | 6.4 | src/encoder/encoder.c:5931 |
@@ -291,13 +295,13 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_TREE_RAMP` | 4.0 | src/encoder/encoder.c:2081 |
 | `N265_UHD_QP` | 29 | src/encoder/encoder.c:4901 |
 | `N265_VBR_OFFB` | 0.0 | src/encoder/encoder.c:2544 |
-| `N265_VBR_OPEN` | 0 | src/encoder/rc.c:394 |
-| `N265_VBR_SZM` | 0 | src/encoder/rc.c:374 |
-| `N265_VBV_BRAKE` | 1 under --bitrate with a VBV, else 0 | src/encoder/rc.c:328 |
-| `N265_VBV_BRAKE_FILL` | 0.9 | src/encoder/rc.c:360 |
-| `N265_VBV_BRAKE_K0` | 0.05 | src/encoder/rc.c:357 |
+| `N265_VBR_OPEN` | 0 | src/encoder/rc.c:417 |
+| `N265_VBR_SZM` | 0 | src/encoder/rc.c:397 |
+| `N265_VBV_BRAKE` | 1 under --bitrate with a VBV, else 0 | src/encoder/rc.c:351 |
+| `N265_VBV_BRAKE_FILL` | 0.9 | src/encoder/rc.c:383 |
+| `N265_VBV_BRAKE_K0` | 0.05 | src/encoder/rc.c:380 |
 | `N265_VBV_HRD` | 1 | src/encoder/encoder.c:2546 |
-| `N265_VBV_SCPRED` | 0.5 under --bitrate, else 1.0 | src/encoder/rc.c:363 |
+| `N265_VBV_SCPRED` | 0.5 under --bitrate, else 1.0 | src/encoder/rc.c:386 |
 | `N265_VBV_TRACE` | presence | src/encoder/encoder.c:2542 |
 | `N265_WEIGHTB` | 0 | src/encoder/encoder.c:2370 |
 | `N265_WEIGHTP` | 0 | src/encoder/encoder.c:2368 |
@@ -310,7 +314,7 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 
 | knob | default | reader |
 |---|---|---|
-| `N265_ABR_IOFF_MAX` | 6.0 | src/encoder/rc.c:293 |
+| `N265_ABR_IOFF_MAX` | 6.0 | src/encoder/rc.c:316 |
 | `N265_AQ` | presence | src/encoder/encoder.c:1984 |
 | `N265_AQ2` | 0 | src/encoder/encoder.c:1841 |
 | `N265_AQ2_FLAT` | 0 | src/encoder/encoder.c:1842 |
@@ -378,19 +382,19 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_VBR_LAG_GRAW` | 0 | src/encoder/encoder.c:2924 |
 | `N265_VBR_LAG_GUARD` | 0.0 | src/encoder/encoder.c:2920 |
 | `N265_VBR_LAG_POSTI` | 0 | src/encoder/encoder.c:2928 |
-| `N265_VBR_OPEN_AB` | -1.238 | src/encoder/rc.c:398 |
-| `N265_VBR_OPEN_ABR` | -0.806 | src/encoder/rc.c:397 |
-| `N265_VBR_OPEN_AI` | -7.027 | src/encoder/rc.c:395 |
-| `N265_VBR_OPEN_AP` | 2.084 | src/encoder/rc.c:396 |
-| `N265_VBR_OPEN_BB` | 1.224 | src/encoder/rc.c:402 |
-| `N265_VBR_OPEN_BBR` | 1.374 | src/encoder/rc.c:401 |
-| `N265_VBR_OPEN_BI` | 2.157 | src/encoder/rc.c:399 |
-| `N265_VBR_OPEN_BP` | 1.249 | src/encoder/rc.c:400 |
-| `N265_VBR_OPEN_G` | -1.429 | src/encoder/rc.c:403 |
+| `N265_VBR_OPEN_AB` | -1.238 | src/encoder/rc.c:421 |
+| `N265_VBR_OPEN_ABR` | -0.806 | src/encoder/rc.c:420 |
+| `N265_VBR_OPEN_AI` | -7.027 | src/encoder/rc.c:418 |
+| `N265_VBR_OPEN_AP` | 2.084 | src/encoder/rc.c:419 |
+| `N265_VBR_OPEN_BB` | 1.224 | src/encoder/rc.c:425 |
+| `N265_VBR_OPEN_BBR` | 1.374 | src/encoder/rc.c:424 |
+| `N265_VBR_OPEN_BI` | 2.157 | src/encoder/rc.c:422 |
+| `N265_VBR_OPEN_BP` | 1.249 | src/encoder/rc.c:423 |
+| `N265_VBR_OPEN_G` | -1.429 | src/encoder/rc.c:426 |
 | `N265_VBR_SPEND` | 0.0 | src/encoder/rc.c:270 |
-| `N265_VBR_SZM_GMIN` | 0.7 | src/encoder/rc.c:382 |
-| `N265_VBR_SZM_LAM` | 0.9 | src/encoder/rc.c:375 |
-| `N265_VBR_SZM_SIMPLE` | 150.0 | src/encoder/rc.c:384 |
-| `N265_VBR_SZM_STATIC` | 17.0 | src/encoder/rc.c:383 |
-| `N265_VBR_SZM_Z` | 2.0 | src/encoder/rc.c:376 |
-| `N265_VBR_SZM_ZLAG` | 1.0 | src/encoder/rc.c:381 |
+| `N265_VBR_SZM_GMIN` | 0.7 | src/encoder/rc.c:405 |
+| `N265_VBR_SZM_LAM` | 0.9 | src/encoder/rc.c:398 |
+| `N265_VBR_SZM_SIMPLE` | 150.0 | src/encoder/rc.c:407 |
+| `N265_VBR_SZM_STATIC` | 17.0 | src/encoder/rc.c:406 |
+| `N265_VBR_SZM_Z` | 2.0 | src/encoder/rc.c:399 |
+| `N265_VBR_SZM_ZLAG` | 1.0 | src/encoder/rc.c:404 |
