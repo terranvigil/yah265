@@ -280,6 +280,16 @@ void n265_rc_open(struct n265_encoder *e)
      * running clamp level takes, capped VBR only; 0 is off (n265_rc_next). */
     rc->vlvl_a = cvbr ? abr_tunable("N265_VBR_VLVL", 0.1) : 0.0;
     rc->vlvl = 0.0;
+    /* N265_VBR_FILLQ (item 49): below `fillgoal` of the buffer every frame
+     * is raised in proportion to the shortfall, `fillq` QP at empty. With
+     * the whole-encode level (N265_VBR_CMEM) the loop no longer coarsens
+     * on its own over a hard minute, and the clamp's 20-frame window let
+     * Meridian 720p at 133k drain 397 kbit to 33 kbit over 200 frames and
+     * then meet a strobe of intra pictures at QP 51: 61 underflows at
+     * 1.5x / 2 s where main read none. At 6 it reads none, and the cell's
+     * BD improves (-3.95% -> -4.72%). 0 is off. */
+    rc->fillq = cvbr ? abr_tunable("N265_VBR_FILLQ", 6.0) : 0.0;
+    rc->fillgoal = abr_tunable("N265_VBR_FILLGOAL", 0.5);
     rc->w_mem = abr_tunable("N265_ABR_WMEM", 1000.0);
     rc->meas = (int)abr_tunable("N265_ABR_MEAS", 1);
     rc->mguard = abr_tunable("N265_ABR_MGUARD", 0.0);
@@ -1352,6 +1362,14 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
             rf += rc->vlvl;
             if (rf > 51.0)
                 rf = 51.0;
+        }
+        if (rc->fillq > 0.0 && rc->fillgoal > 0.0 && e->vbv.bufsize > 0.0) {
+            double sh = 1.0 - e->vbv.fill / (rc->fillgoal * e->vbv.bufsize);
+            if (sh > 0.0) {
+                rf += rc->fillq * (sh > 1.0 ? 1.0 : sh);
+                if (rf > 51.0)
+                    rf = 51.0;
+            }
         }
         /* the clamp's own raise only: the brake and the lag's estimate
          * price the frame as `pred x 2^(-dqp/6)`, and pred is already at

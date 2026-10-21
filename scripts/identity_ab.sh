@@ -98,7 +98,7 @@ profile() {
         item46)       echo "--rc-lookahead 12|N265_CRF_DC_WIN=12";;   # item 46, medium window 20 at 720p and up (CIF never moved; the flag moves slow, so medium cells only)
         item47)       echo "|N265_CCRF_BRAKE=0 N265_CCRF_GUARD=1";;   # item 47, capped CRF's brake and guard (only the CCRF=1 cells move)
         item48)       echo "|N265_CB64_SKIPGATE=64 N265_VBR_FBTRK=0 N265_UHD_REF2=0";;   # item 48, UHD skip gate 32 + lite second reference, and capped VBR's deficit rail
-        item49)       echo "|N265_VBR_CMEM=1000 N265_VBR_VLVL=0";;   # item 49, capped VBR: the whole-encode operating point and the clamp level
+        item49)       echo "|N265_VBR_CMEM=1000 N265_VBR_VLVL=0 N265_VBR_FILLQ=0";;   # item 49, capped VBR: the whole-encode operating point, the clamp level and the fill-goal raise
         asmoff)       echo "|N265_ASM_OFF=all";;
         *) return 1;;
     esac

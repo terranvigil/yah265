@@ -247,6 +247,8 @@ typedef struct n265_rc {
     double fbtrk_max;           /* N265_VBR_FBTRK_MAX: how far */
     double vlvl_a;              /* N265_VBR_VLVL: the clamp level's rate (0.1), 0 off */
     double vlvl;                /* ...the level, in QP */
+    double fillq, fillgoal;     /* N265_VBR_FILLQ / _FILLGOAL: the raise at an
+                                 * empty buffer (6), and the fill share it starts at (0.5) */
     double spend_lo, spend_hi;  /* N265_VBR_SPENDFILL / _SPENDHI: the fill
                                  * shares between which a surplus is spent
                                  * from none to whole (0: off) */
