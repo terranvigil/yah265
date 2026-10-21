@@ -102,13 +102,35 @@ def _cache_paths(tmpl, q, src):
     return os.path.join(_CACHE, k + ".hevc"), os.path.join(_CACHE, k + ".json")
 
 
+def _src_fp(src):
+    """Three 64 KiB samples of the source (start, middle, end). The key
+    holds path and size only, and a re-staged excerpt can keep both while
+    its frames move (M/1080p/meridian served a stream of the old frames).
+    Kept beside the entry rather than in the key, so the entries written
+    before it stay valid."""
+    h = hashlib.sha256()
+    n = os.path.getsize(src)
+    with open(src, "rb") as f:
+        for off in (0, max(0, n // 2 - 32768), max(0, n - 65536)):
+            f.seek(off)
+            h.update(f.read(65536))
+    return h.hexdigest()[:16]
+
+
 def enc(tmpl, q, src, out):
     """Encode at q into `out`; returns the size. Served from the cache when
-    the same command on the same binary has run before."""
+    the same command on the same binary has run before on the same source
+    content (where the entry recorded it)."""
     cb, cj = _cache_paths(tmpl, q, src)
     if cb and os.path.exists(cb):
-        shutil.copyfile(cb, out)
-        return os.path.getsize(out)
+        try:
+            with open(cb + ".src") as f:
+                fresh = f.read().strip() == _src_fp(src)
+        except OSError:
+            fresh = True
+        if fresh:
+            shutil.copyfile(cb, out)
+            return os.path.getsize(out)
     r = subprocess.run(tmpl.format(q=str(q), src=src, out=out),
                        shell=True, capture_output=True)
     if not os.path.exists(out):
@@ -120,6 +142,9 @@ def enc(tmpl, q, src, out):
         tmp = cb + f".{os.getpid()}.tmp"
         shutil.copyfile(out, tmp)
         os.replace(tmp, cb)            # atomic: parallel arms may race here
+        with open(tmp, "w") as f:
+            f.write(_src_fp(src) + "\n")
+        os.replace(tmp, cb + ".src")
     return os.path.getsize(out)
 
 
