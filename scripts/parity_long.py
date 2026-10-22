@@ -101,6 +101,18 @@ VMAF_THREADS = os.environ.get("VMAF_THREADS", "4")
 FF_THREADS = os.environ.get("FF_THREADS", "2")
 SSIM_PASS = os.environ.get("PL_SSIM", "1") == "1"
 PLAIN_VMAF = os.environ.get("PL_PLAIN_VMAF", "0") == "1"
+# VMAF v1 rides beside VMAF-NEG v0.6.1 in the same pass (owner, 10-22: the
+# bar moves to v1 once the shared spec lands; scoring both now saves the
+# re-encode). It needs a float-enabled libvmaf; that build scores v0.6.1neg
+# frame for frame as the stock one does. PL_V1=0 scores v0 alone.
+V1_BIN = os.path.expanduser(os.environ.get(
+    "PL_V1_BIN", "~/.local/opt/vmaf-v1/bin/vmaf"))
+V1_DIR = os.path.expanduser(os.environ.get(
+    "PL_V1_DIR", "~/.local/share/vmaf/model/vmaf_v1.0.16"))
+V1_ON = os.environ.get("PL_V1", "1") == "1" and os.path.exists(V1_BIN)
+# per class, the viewing-distance models the spec may pick from
+V1_MODELS = {"2160p": ("1d5h_2160", "3d0h_2160")}
+V1_DEFAULT = ("3d0h", "5d0h")
 
 REF_CRF = ps.REF_CRF                       # 28, x265 --help
 RUNGS = (20, 23, 26, 29, 32)               # spec ladder recipe, both sides
@@ -619,14 +631,20 @@ def score(cell, bitstream, wd, s=0, n=None, stride=1, psnr_only=False):
         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     fp = subprocess.Popen(feed, stdout=subprocess.PIPE,
                           stderr=subprocess.DEVNULL)
+    v1 = ()
     if psnr_only:
         models = ["--no_prediction"]
     else:
         models = ["--model", "version=vmaf_v0.6.1neg:name=neg"]
         if PLAIN_VMAF or getattr(ps, "PLAIN_VMAF", False):
             models += ["--model", "version=vmaf_v0.6.1:name=vmaf"]
+        if V1_ON:
+            v1 = V1_MODELS.get(cell["cls"], V1_DEFAULT)
+            for m in v1:
+                models += ["--model", f"path={V1_DIR}/vmaf_v1.0.16_{m}.json"
+                                      f":name=v1_{m}"]
     v = subprocess.run(
-        ["vmaf", "--threads", VMAF_THREADS, "--subsample", str(stride),
+        [V1_BIN if v1 else "vmaf", "--threads", VMAF_THREADS, "--subsample", str(stride),
          "-r", "/dev/stdin", "-d", dfifo, "--json", "-o", j,
          "--feature", "psnr", "-q"] + models,
         stdin=fp.stdout, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -662,6 +680,13 @@ def score(cell, bitstream, wd, s=0, n=None, stride=1, psnr_only=False):
                    neg_low1=sum(low) / len(low) if low else None,
                    neg_first1s=sum(first) / len(first) if first else None,
                    vmaf=pooled["vmaf"]["mean"] if "vmaf" in pooled else None)
+        for m in v1:
+            pm = pooled[f"v1_{m}"]
+            out[f"v1_{m}"] = pm["mean"]
+            out[f"v1_{m}_hmean"] = pm.get("harmonic_mean")
+            out[f"v1_{m}_min"] = pm.get("min")
+        if v1:
+            out["v1_bin"] = "vmaf_v1.0.16 8-bit"
         if SSIM_PASS:
             out["ssim_yuv611"], out["frames_decoded"] = ssim_611(
                 feed, bitstream, wd)
@@ -992,6 +1017,7 @@ def ladder_rung(cell, mode, arm, q, depth, stride):
                                     "psnr_y", "frames", "frames_scored",
                                     "frames_ok", "stride", "md5", "enc_s",
                                     "date")}
+    rec.update({k_: v for k_, v in r.items() if k_.startswith("v1_")})
     rec.update(depth=depth, threads=THREADS, tier=cell["tier"])
     if mode == "vbr":
         rec.update(target=int(q), maxrate=int(round(MAXR * q)),
