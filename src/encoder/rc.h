@@ -245,6 +245,28 @@ typedef struct n265_rc {
     double fbfine;              /* N265_VBR_FBFINE: the finer-side rail */
     double fbtrk, fbtrk_w;      /* N265_VBR_FBTRK(_W): deficit where it widens */
     double fbtrk_max;           /* N265_VBR_FBTRK_MAX: how far */
+    /* Phase 14 item 50, capped VBR only: a deep deficit takes the recent
+     * operating point (rc_next, N265_VBR_DEFPT). */
+    double defpt;               /* N265_VBR_DEFPT: deficit where it starts (0: off) */
+    double defpt_rel;           /* N265_VBR_DEFPT_REL: deficit where it lets go */
+    double defpt_w;             /* N265_VBR_DEFPT_W: span above that to full weight */
+    int defpt_on;               /* ...latched: past defpt, until defpt_rel */
+    int defpt_rail;             /* N265_VBR_DEFPT_RAIL: the finer rail is
+                                 * fbtrk_max while latched */
+    double defpt_t0;            /* N265_VBR_DEFPT_T0: seconds coded before it may */
+    double defpt_slew;          /* N265_VBR_DEFPT_SLEW: finer-side pace, QP/s (0: none) */
+    double defpt_cap;           /* N265_VBR_DEFPT_CAP: finer-side move at most (0: none) */
+    double defpt_dq;            /* ...the move the last frame took */
+    double defpt_railq;         /* ...and the rail it rode */
+    double defpt_hold;          /* N265_VBR_DEFPT_HOLD: seconds after a floor
+                                 * frame it stands aside (0: never) */
+    double defpt_nf;            /* ...frames since the last floor frame */
+    double defpt_spend;         /* N265_VBR_DEFPT_SPEND: exponent on the frame's
+                                 * complexity under the mean (0: off) */
+    double dlc_avg, dlc_n;      /* ...its running mean of log per-block
+                                 * complexity, inter frames */
+    double cplxr_s, cplxr_sn;   /* the operating point's short-memory twin */
+    double cplxr_smem;          /* N265_VBR_DEFPT_MEM: its memory, frames */
     double vlvl_a;              /* N265_VBR_VLVL: the clamp level's rate (0.1), 0 off */
     double vlvl;                /* ...the level, in QP */
     double fillq, fillgoal;     /* N265_VBR_FILLQ / _FILLGOAL: the raise at an

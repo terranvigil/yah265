@@ -99,11 +99,12 @@ profile() {
         item47)       echo "|N265_CCRF_BRAKE=0 N265_CCRF_GUARD=1";;   # item 47, capped CRF's brake and guard (only the CCRF=1 cells move)
         item48)       echo "|N265_CB64_SKIPGATE=64 N265_VBR_FBTRK=0 N265_UHD_REF2=0";;   # item 48, UHD skip gate 32 + lite second reference, and capped VBR's deficit rail
         item49)       echo "|N265_VBR_CMEM=1000 N265_VBR_VLVL=0 N265_VBR_FILLQ=0";;   # item 49, capped VBR: the whole-encode operating point, the clamp level and the fill-goal raise
+        item50)       echo "|N265_VBR_DEFPT=0";;   # item 50, capped VBR: a deep deficit takes the 1000-frame operating point
         asmoff)       echo "|N265_ASM_OFF=all";;
         *) return 1;;
     esac
 }
-PROFILE_NAMES="info fingerprint weightp stream ship item22 item23 item24 item25 item25sched item26 item28 item29 item29s2 item30 vbrspeed item33 item35 item36 item37 item38 item40 item41 item43 item44 item46 item47 item48 item49 asmoff"
+PROFILE_NAMES="info fingerprint weightp stream ship item22 item23 item24 item25 item25sched item26 item28 item29 item29s2 item30 vbrspeed item33 item35 item36 item37 item38 item40 item41 item43 item44 item46 item47 item48 item49 item50 asmoff"
 
 # ---------------------------------------------------------------- one cell
 # Called back through xargs: identity_ab.sh --cell WORK LINE
