@@ -276,6 +276,28 @@ void n265_rc_open(struct n265_encoder *e)
     rc->fbtrk = cvbr ? abr_tunable("N265_VBR_FBTRK", 0.06) : 0.0;
     rc->fbtrk_w = abr_tunable("N265_VBR_FBTRK_W", 0.04);
     rc->fbtrk_max = abr_tunable("N265_VBR_FBTRK_MAX", 6.0);
+    /* N265_VBR_DEFPT (item 50): past this deficit, and only after
+     * `defpt_t0` seconds, the loop latches onto the short-memory operating
+     * point where it is finer, until the deficit is back to `defpt_rel`;
+     * its finer move is paced (_SLEW, QP/s) and capped (_CAP), and it
+     * stands aside for _HOLD seconds after a floor-complexity frame
+     * (n265_rc_next). Capped VBR only; 0 is off. */
+    rc->defpt = cvbr ? abr_tunable("N265_VBR_DEFPT", 0.08) : 0.0;
+    rc->defpt_w = abr_tunable("N265_VBR_DEFPT_W", 0.02);
+    rc->defpt_rel = abr_tunable("N265_VBR_DEFPT_REL", 0.05);
+    rc->defpt_on = 0;
+    rc->defpt_rail = (int)abr_tunable("N265_VBR_DEFPT_RAIL", 1);
+    rc->defpt_t0 = abr_tunable("N265_VBR_DEFPT_T0", 60.0);
+    rc->defpt_slew = abr_tunable("N265_VBR_DEFPT_SLEW", 0.25);
+    rc->defpt_cap = abr_tunable("N265_VBR_DEFPT_CAP", 6.0);
+    rc->defpt_dq = 0.0;
+    rc->defpt_railq = 0.0;
+    rc->defpt_hold = abr_tunable("N265_VBR_DEFPT_HOLD", 2.0);
+    rc->defpt_spend = abr_tunable("N265_VBR_DEFPT_SPEND", 0.0);
+    rc->dlc_avg = rc->dlc_n = 0.0;
+    rc->defpt_nf = 1e9;
+    rc->cplxr_smem = abr_tunable("N265_VBR_DEFPT_MEM", 1000.0);
+    rc->cplxr_s = rc->cplxr_sn = 0.0;
     /* N265_VBR_VLVL (item 49): the share of each frame's clamp demand a
      * running clamp level takes, capped VBR only; 0 is off (n265_rc_next). */
     rc->vlvl_a = cvbr ? abr_tunable("N265_VBR_VLVL", 0.1) : 0.0;
@@ -1113,6 +1135,40 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
         s = s < 0.0 ? 0.0 : s > 1.0 ? 1.0 : s;
         fine += s * (rc->fbtrk_max - fine);
     }
+    /* Item 50's hold. A run of floor-complexity frames (black, a still
+     * card) can't spend a surplus at any QP, so the deficit grows over it
+     * and the finer rail opens to 6 QP. The first pictures after the
+     * stretch then code 6 QP finer than the content's level, priced by a
+     * size model the stretch has walked down: stem2's still minute ends
+     * with B pictures predicted at 50 kbit coding 280-800 kbit, and the
+     * buffer underflows. While the deficit point is latched, for
+     * `defpt_hold` seconds after the last floor frame, neither the wide
+     * rail nor the point's move applies. It reads the frame's own
+     * lookahead complexity against the floor N265_ABR_FLATC keeps out of
+     * the operating point. */
+    if (rc->flatc > 0.0 && cplx < rc->flatc * rc->nblk)
+        rc->defpt_nf = 0.0;
+    else
+        rc->defpt_nf += 1.0;
+    int defpt_held = rc->defpt_on && rc->defpt_hold > 0.0 &&
+                     rc->defpt_nf < rc->defpt_hold * rc->fps;
+    if (defpt_held && fine > rc->fbfine)
+        fine = rc->fbfine;
+    /* ...and toward the whole of it while the deficit point (item 50)
+     * holds, at the same pace as the point's own move */
+    if (rc->defpt_on && !defpt_held && rc->defpt_rail &&
+        rc->fbtrk_max > fine) {
+        double r = rc->defpt_railq + (rc->defpt_slew > 0.0 && rc->fps > 0.0
+                                      ? rc->defpt_slew / rc->fps : 1e9);
+        if (r < fine)
+            r = fine;
+        if (r > rc->fbtrk_max)
+            r = rc->fbtrk_max;
+        rc->defpt_railq = r;
+        fine = r;
+    } else {
+        rc->defpt_railq = fine;
+    }
     if (fb > rc->fbup)
         fb = rc->fbup;
     else if (fb < -fine)
@@ -1164,6 +1220,51 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
             base = m - rc->mguard;
         else if (base > m + rc->mguard)
             base = m + rc->mguard;
+    }
+    /* N265_VBR_DEFPT (item 50): the whole-encode point (N265_VBR_CMEM) is
+     * the right level while the content keeps its mix, and a stale one
+     * when a title gets easier for minutes on end. stem2's second half
+     * codes at a point its harder first half set, the feedback sits on
+     * its 3 QP rail with the buffer full the whole way, and the file ends
+     * 8-12% short. Past `defpt` of deficit, after `defpt_t0` seconds, the
+     * loop latches: the base moves toward the 1000-frame point when that
+     * one is finer, in full from `defpt_rel + defpt_w` of deficit and
+     * fading to nothing at `defpt_rel`, where the latch lets go. While it
+     * holds, the finer-side rail opens to item 48's widest, at the same
+     * pace, and both stand aside after a floor-complexity frame (the hold,
+     * above). An encode that never runs `defpt` under after `defpt_t0`
+     * never latches and is the stream it was. */
+    double defpt_dq = 0.0;
+    if (rc->defpt > 0.0 && !twop && rc->fps > 0.0 && rc->cplxr_sn > 0.0 &&
+        rc->bits_per_frame > 0.0 && nseen > rc->defpt_t0 * rc->fps) {
+        double def = -errb / (rc->bits_per_frame * nseen);
+        if (def > rc->defpt)
+            rc->defpt_on = 1;
+        else if (def <= rc->defpt_rel)
+            rc->defpt_on = 0;
+        double want = 0.0;
+        if (rc->defpt_on) {
+            double s = (def - rc->defpt_rel) /
+                       (rc->defpt_w > 0.0 ? rc->defpt_w : 1e-9);
+            double ms = qp_of_qscale(rc->cplxr_s / rc->bits_per_frame);
+            if (ms < base)
+                want = (s > 1.0 ? 1.0 : s) * (ms - base);
+        }
+        /* The finer side moves at most `defpt_slew` QP a second and at
+         * most `defpt_cap` QP in all; the coarser side at once, so a
+         * latch never steps the base in one frame. */
+        if (defpt_held)
+            want = 0.0;
+        if (rc->defpt_cap > 0.0 && want < -rc->defpt_cap)
+            want = -rc->defpt_cap;
+        if (rc->defpt_slew > 0.0) {
+            double lo = rc->defpt_dq - rc->defpt_slew / rc->fps;
+            if (want < lo)
+                want = lo;
+        }
+        rc->defpt_dq = want;
+        defpt_dq = want;
+        base += defpt_dq;
     }
     /* The per-frame step is bounded so the rate factor cannot chase a single
      * odd frame, but the bound is relaxed over the opening: the priors set
@@ -1228,6 +1329,24 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
         rc->lcx_avg += (lc - rc->lcx_avg) / (rc->lcx_n + 1.0);
         if (rc->lcx_n < rc->w_mem)
             rc->lcx_n += 1.0;
+    }
+    /* N265_VBR_DEFPT_SPEND (item 50): what the latch spends goes where
+     * the content can use it. Below the running mean of the per-block
+     * complexity, the latch's finer move and the finer-side feedback are
+     * scaled by the ratio to that mean, raised to this exponent. The mean
+     * runs on every inter frame; it is read only while latched. */
+    if (rc->defpt_spend > 0.0 && cls != RC_I) {
+        double lc = log(cplx / rc->nblk > 1.0 ? cplx / rc->nblk : 1.0);
+        if (rc->defpt_on && rc->dlc_n > 0.0 && lc < rc->dlc_avg) {
+            double wgt = exp(rc->defpt_spend * (lc - rc->dlc_avg));
+            if (fb < 0.0)
+                fb *= wgt;
+            base -= defpt_dq * (1.0 - wgt);
+            defpt_dq *= wgt;
+        }
+        rc->dlc_avg += (lc - rc->dlc_avg) / (rc->dlc_n + 1.0);
+        if (rc->dlc_n < rc->cplxr_smem)
+            rc->dlc_n += 1.0;
     }
     /* The cu-tree frame term, taken off the answer.
      *
@@ -1396,9 +1515,10 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
     if (rc->trace)
         fprintf(stderr, "RC n=%ld cls=%d cplx=%.0f w=%.3g wavg=%.3g "
                 "T=%.0f corr=%.4f bias=%+.3f fb=%+.3f base=%.3f rf=%.3f "
-                "ctf=%+.3f ctflvl=%+.3f ioff=%.3f err=%.0f plan=%d\n",
+                "ctf=%+.3f ctflvl=%+.3f ioff=%.3f err=%.0f plan=%d dpt=%+.3f\n",
                 rc->n_coded, cls, cplx, w, rc->w_avg, T, corr, rc->rf_bias,
-                fb, base, rf, ctf, lvl_now, rc->last_ioff, err, twop);
+                fb, base, rf, ctf, lvl_now, rc->last_ioff, err, twop,
+                defpt_dq);
     return rf;
 }
 
@@ -1515,6 +1635,10 @@ void n265_rc_done(struct n265_encoder *e, int cls, double cplx, double rf_used,
         rc->cplxr += (c - rc->cplxr) / (rc->cplxr_n + 1.0);
         if (rc->cplxr_n < rc->cplxr_mem)
             rc->cplxr_n += 1.0;
+        /* the short-memory twin (N265_VBR_DEFPT); read nowhere else */
+        rc->cplxr_s += (c - rc->cplxr_s) / (rc->cplxr_sn + 1.0);
+        if (rc->cplxr_sn < rc->cplxr_smem)
+            rc->cplxr_sn += 1.0;
         rc->ctf_x += (cx - rc->ctf_x) / (rc->ctf_n + 1.0);
         rc->ctf_c += (c - rc->ctf_c) / (rc->ctf_n + 1.0);
         if (rc->ctf_n < rc->cplxr_mem)
