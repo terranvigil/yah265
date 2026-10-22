@@ -110,9 +110,24 @@ V1_BIN = os.path.expanduser(os.environ.get(
 V1_DIR = os.path.expanduser(os.environ.get(
     "PL_V1_DIR", "~/.local/share/vmaf/model/vmaf_v1.0.16"))
 V1_ON = os.environ.get("PL_V1", "1") == "1" and os.path.exists(V1_BIN)
-# per class, the viewing-distance models the spec may pick from
-V1_MODELS = {"2160p": ("1d5h_2160", "3d0h_2160")}
-V1_DEFAULT = ("3d0h", "5d0h")
+# the draft spec (yah264, 10-22, owner review pending): the gate model is
+# 1080p 3H, 4K 1.5H at 2160p, the _hfr twin at 50 fps and up; 4K 3H and
+# phone 5H ride along as information. Scored at 10 bits, both sides
+# converted up, as Netflix advises for SDR; v0 stays at 8 bits in its own
+# pass so every v0 figure keeps its meaning.
+V1_GATE = {"2160p": "1d5h_2160"}
+V1_INFO = ("3d0h_2160", "5d0h")
+
+
+def v1_models(cell):
+    gate = V1_GATE.get(cell["cls"], "3d0h")
+    hfr = fps_of(info(cell)) >= 49.9
+    out = []
+    for m in (gate,) + tuple(x for x in V1_INFO if x != gate):
+        path = (f"{V1_DIR}_hfr/vmaf_v1.0.16_hfr_{m}.json" if hfr
+                else f"{V1_DIR}/vmaf_v1.0.16_{m}.json")
+        out.append((m, path))
+    return out, gate, hfr
 
 REF_CRF = ps.REF_CRF                       # 28, x265 --help
 RUNGS = (20, 23, 26, 29, 32)               # spec ladder recipe, both sides
@@ -613,6 +628,56 @@ def ssim_611(feed, bitstream, wd):
     return (sum(vals) / len(vals) if vals else None), len(vals)
 
 
+def score_v1(cell, bitstream, wd, s, n, stride):
+    """VMAF v1 in a pass of its own: both sides converted to 10 bits
+    (yuv420p10le), the gate model and the informational ones together."""
+    models, gate, hfr = v1_models(cell)
+    feed = feeder(cell, s, n)
+    dfifo = _fifo(wd, "dec10.fifo")
+    j = os.path.join(wd, "v1.json")
+    up = ["-pix_fmt", "yuv420p10le", "-strict", "-1", "-f", "yuv4mpegpipe"]
+    dec = subprocess.Popen(
+        ["ffmpeg", "-v", "error", "-y", "-threads", FF_THREADS, "-i",
+         bitstream] + up + [dfifo],
+        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    fp = subprocess.Popen(feed, stdout=subprocess.PIPE,
+                          stderr=subprocess.DEVNULL)
+    cv = subprocess.Popen(["ffmpeg", "-v", "error", "-f", "yuv4mpegpipe",
+                           "-i", "-"] + up + ["-"],
+                          stdin=fp.stdout, stdout=subprocess.PIPE,
+                          stderr=subprocess.DEVNULL)
+    fp.stdout.close()
+    margs = []
+    for m, path in models:
+        margs += ["--model", f"path={path}:name=v1_{m}"]
+    v = subprocess.run(
+        [V1_BIN, "--threads", VMAF_THREADS, "--subsample", str(stride),
+         "-r", "/dev/stdin", "-d", dfifo, "--json", "-o", j, "-q"] + margs,
+        stdin=cv.stdout, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    cv.stdout.close()
+    cv.wait()
+    fp.wait()
+    if v.returncode != 0 and dec.poll() is None:
+        dec.kill()
+    dec.wait()
+    os.remove(dfifo)
+    if v.returncode != 0:
+        sys.exit(f"parity_long: vmaf v1 failed on {bitstream}\n  "
+                 f"{v.stderr.decode(errors='replace')[-600:]}")
+    with open(j) as f:
+        jj = json.load(f)
+    os.remove(j)
+    pooled = jj["pooled_metrics"]
+    out = {"v1_gate": gate, "v1_hfr": hfr, "v1_bits": 10,
+           "v1_frames": len(jj["frames"])}
+    for m, _ in models:
+        pm = pooled[f"v1_{m}"]
+        out[f"v1_{m}"] = pm["mean"]
+        out[f"v1_{m}_hmean"] = pm.get("harmonic_mean")
+        out[f"v1_{m}_min"] = pm.get("min")
+    return out
+
+
 def score(cell, bitstream, wd, s=0, n=None, stride=1, psnr_only=False):
     """VMAF-NEG, PSNR-Y and the 5.2a columns of a bitstream against the
     frames it was made from: the same feeder into libvmaf's stdin, the
@@ -631,20 +696,14 @@ def score(cell, bitstream, wd, s=0, n=None, stride=1, psnr_only=False):
         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     fp = subprocess.Popen(feed, stdout=subprocess.PIPE,
                           stderr=subprocess.DEVNULL)
-    v1 = ()
     if psnr_only:
         models = ["--no_prediction"]
     else:
         models = ["--model", "version=vmaf_v0.6.1neg:name=neg"]
         if PLAIN_VMAF or getattr(ps, "PLAIN_VMAF", False):
             models += ["--model", "version=vmaf_v0.6.1:name=vmaf"]
-        if V1_ON:
-            v1 = V1_MODELS.get(cell["cls"], V1_DEFAULT)
-            for m in v1:
-                models += ["--model", f"path={V1_DIR}/vmaf_v1.0.16_{m}.json"
-                                      f":name=v1_{m}"]
     v = subprocess.run(
-        [V1_BIN if v1 else "vmaf", "--threads", VMAF_THREADS, "--subsample", str(stride),
+        ["vmaf", "--threads", VMAF_THREADS, "--subsample", str(stride),
          "-r", "/dev/stdin", "-d", dfifo, "--json", "-o", j,
          "--feature", "psnr", "-q"] + models,
         stdin=fp.stdout, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -680,13 +739,8 @@ def score(cell, bitstream, wd, s=0, n=None, stride=1, psnr_only=False):
                    neg_low1=sum(low) / len(low) if low else None,
                    neg_first1s=sum(first) / len(first) if first else None,
                    vmaf=pooled["vmaf"]["mean"] if "vmaf" in pooled else None)
-        for m in v1:
-            pm = pooled[f"v1_{m}"]
-            out[f"v1_{m}"] = pm["mean"]
-            out[f"v1_{m}_hmean"] = pm.get("harmonic_mean")
-            out[f"v1_{m}_min"] = pm.get("min")
-        if v1:
-            out["v1_bin"] = "vmaf_v1.0.16 8-bit"
+        if V1_ON:
+            out.update(score_v1(cell, bitstream, wd, s, n, stride))
         if SSIM_PASS:
             out["ssim_yuv611"], out["frames_decoded"] = ssim_611(
                 feed, bitstream, wd)
