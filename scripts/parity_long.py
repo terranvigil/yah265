@@ -454,19 +454,22 @@ def rate_args(mode, q):
 
 
 # x265's threading per use. Its pictures move with --frame-threads and not
-# with --pools or --no-asm under CRF (parity_spec.py), so the untimed
-# anchors run at the box share with the timed leg's frame-thread count.
+# with the pool's size or --no-asm under CRF (parity_spec.py), so the
+# untimed `solve` anchor runs at the box share with the timed leg's
+# frame-thread count. Having no pool at all does move them at 720p and up
+# (1-2.5% fewer bytes on most titles, 11-16% on meridian, L windows
+# 10-22), so G1's anchor runs poolless exactly as its timed leg does.
 # Under VBV the pool size moves the bytes (vbr_lf.py), so a VBR ladder is
 # at --pools 6 on both untimed and every reading of it.
 REF_THREADS = {"solve": ["--frame-threads", "4"],
-               "solve_ft1": ["--frame-threads", "1"],
+               "solve_ft1": ["--pools", "none", "--frame-threads", "1"],
                "t1": ["--pools", "none", "--frame-threads", "1"],
                "def": []}
 
 
 def ref_cmd(out, mode, q, prof, purec=False):
     thr = list(REF_THREADS[prof])
-    if prof.startswith("solve"):
+    if prof == "solve":
         thr = ["--pools", str(THREADS)] + thr
     return ([ps.X265, "--input", "-", "--y4m", "--preset", "medium"]
             + rate_args(mode, q) + thr + (["--no-asm"] if purec else [])
