@@ -145,13 +145,15 @@ CELLS = [
     ("S", "1080p", "riverbed", "riverbed_1080p.y4m"),
     ("S", "2160p", "meridian_2160p", "src_meridian_modern_600.y4m"),
     ("S", "2160p", "bbb_2160p", "src_bbb4k_300.y4m"),
-    # tier M: the ~/media/throughput segments (Meridian's is 90 s, not 120)
-    ("M", "1080p", "chimera", "chimera_1080p_120s.y4m"),
-    ("M", "1080p", "sollevante", "sollevante_1080p_120s.y4m"),
-    ("M", "1080p", "meridian", "meridian_1080p_90s.y4m"),
-    ("M", "2160p", "chimera", "chimera_2160p_120s.y4m"),
-    ("M", "2160p", "sollevante", "sollevante_2160p_120s.y4m"),
-    ("M", "2160p", "meridian", "meridian_2160p_90s.y4m"),
+    # tier M: the ~/media/throughput segments (Meridian's is 90 s, not 120),
+    # cut at the spec's start frames past the openings (chimera 120,
+    # sollevante 193, meridian 1782); the frame is in the file name
+    ("M", "1080p", "chimera", "chimera_1080p_120s_from120.y4m"),
+    ("M", "1080p", "sollevante", "sollevante_1080p_120s_from193.y4m"),
+    ("M", "1080p", "meridian", "meridian_1080p_90s_from1782.y4m"),
+    ("M", "2160p", "chimera", "chimera_2160p_120s_from120.y4m"),
+    ("M", "2160p", "sollevante", "sollevante_2160p_120s_from193.y4m"),
+    ("M", "2160p", "meridian", "meridian_2160p_90s_from1782.y4m"),
 ]
 
 # the deviation rule: every departure from either encoder's defaults,

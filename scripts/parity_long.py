@@ -2083,8 +2083,9 @@ def write_full_report(date):
              "PSNR-Y behind,")
     L.append("and every cell's size is within 1%. Both encoders read the same "
              "8-bit")
-    L.append("4:2:0 Y4M frames on stdin. Lookahead: ours 12 / x265 20 (each "
-             "medium's own) unless a row says otherwise.")
+    L.append("4:2:0 Y4M frames on stdin. Lookahead: ours 20 at 720p and up, "
+             "12 at CIF / x265 20 (each medium's own) unless a row says "
+             "otherwise.")
     L.append("")
 
     def grp(cls, tier, goal=None):
