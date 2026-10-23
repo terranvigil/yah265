@@ -114,6 +114,9 @@ V1_ON = os.environ.get("PL_V1", "1") == "1" and os.path.exists(V1_BIN)
 # scores VMAF-NEG v0.6.1, for comparison with rows measured before it
 V0_ON = os.environ.get("PL_V0", "0") == "1" or not V1_ON
 GATE = "v1" if V1_ON else "neg"
+# both sides are 8-bit encodes scored at 10 bits; CAMBI must be told the
+# encode's depth or it reads the up-converted picture as a 10-bit encode
+V1_ENC_BITS = 8
 # the draft spec (yah264, 10-22, owner review pending): the gate model is
 # 1080p 3H, 4K 1.5H at 2160p, the _hfr twin at 50 fps and up; 4K 3H and
 # phone 5H ride along as information. Scored at 10 bits, both sides
@@ -633,7 +636,9 @@ def ssim_611(feed, bitstream, wd):
 
 
 def has_gate(r):
-    return ("v1_gate" in r) if GATE == "v1" else (r.get("neg") is not None)
+    if GATE == "v1":
+        return r.get("v1_cambi_enc_bits") == V1_ENC_BITS
+    return r.get("neg") is not None
 
 
 def gate_score(r):
@@ -662,7 +667,8 @@ def score_v1(cell, bitstream, wd, s, n, stride):
     fp.stdout.close()
     margs = []
     for m, path in models:
-        margs += ["--model", f"path={path}:name=v1_{m}"]
+        margs += ["--model", f"path={path}:name=v1_{m}"
+                  f":cambi.enc_bitdepth={V1_ENC_BITS}"]
     v = subprocess.run(
         [V1_BIN, "--threads", VMAF_THREADS, "--subsample", str(stride),
          "-r", "/dev/stdin", "-d", dfifo, "--json", "-o", j, "-q"] + margs,
@@ -682,6 +688,7 @@ def score_v1(cell, bitstream, wd, s, n, stride):
     os.remove(j)
     pooled = jj["pooled_metrics"]
     out = {"v1_gate": gate, "v1_hfr": hfr, "v1_bits": 10,
+           "v1_cambi_enc_bits": V1_ENC_BITS,
            "v1_frames": len(jj["frames"])}
     for m, _ in models:
         pm = pooled[f"v1_{m}"]
