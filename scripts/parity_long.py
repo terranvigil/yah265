@@ -110,6 +110,10 @@ V1_BIN = os.path.expanduser(os.environ.get(
 V1_DIR = os.path.expanduser(os.environ.get(
     "PL_V1_DIR", "~/.local/share/vmaf/model/vmaf_v1.0.16"))
 V1_ON = os.environ.get("PL_V1", "1") == "1" and os.path.exists(V1_BIN)
+# v1 alone decides the bar since the owner's word of 10-23; PL_V0=1 also
+# scores VMAF-NEG v0.6.1, for comparison with rows measured before it
+V0_ON = os.environ.get("PL_V0", "0") == "1" or not V1_ON
+GATE = "v1" if V1_ON else "neg"
 # the draft spec (yah264, 10-22, owner review pending): the gate model is
 # 1080p 3H, 4K 1.5H at 2160p, the _hfr twin at 50 fps and up; 4K 3H and
 # phone 5H ride along as information. Scored at 10 bits, both sides
@@ -628,6 +632,15 @@ def ssim_611(feed, bitstream, wd):
     return (sum(vals) / len(vals) if vals else None), len(vals)
 
 
+def has_gate(r):
+    return ("v1_gate" in r) if GATE == "v1" else (r.get("neg") is not None)
+
+
+def gate_score(r):
+    """The gate metric of a scored row: v1's gate model, or VMAF-NEG."""
+    return r[f"v1_{r['v1_gate']}"] if GATE == "v1" else r["neg"]
+
+
 def score_v1(cell, bitstream, wd, s, n, stride):
     """VMAF v1 in a pass of its own: both sides converted to 10 bits
     (yuv420p10le), the gate model and the informational ones together."""
@@ -696,7 +709,7 @@ def score(cell, bitstream, wd, s=0, n=None, stride=1, psnr_only=False):
         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     fp = subprocess.Popen(feed, stdout=subprocess.PIPE,
                           stderr=subprocess.DEVNULL)
-    if psnr_only:
+    if psnr_only or not V0_ON:
         models = ["--no_prediction"]
     else:
         models = ["--model", "version=vmaf_v0.6.1neg:name=neg"]
@@ -728,7 +741,7 @@ def score(cell, bitstream, wd, s=0, n=None, stride=1, psnr_only=False):
                                   pooled["psnr_cb"]["mean"],
                                   pooled["psnr_cr"]["mean"])
     ok = len(frames) == want
-    if not psnr_only:
+    if not psnr_only and V0_ON:
         neg = [fr["metrics"]["neg"] for fr in frames]
         low = sorted(neg)[:max(1, math.ceil(0.01 * len(neg)))]
         first = [fr["metrics"]["neg"] for fr in frames
@@ -739,6 +752,7 @@ def score(cell, bitstream, wd, s=0, n=None, stride=1, psnr_only=False):
                    neg_low1=sum(low) / len(low) if low else None,
                    neg_first1s=sum(first) / len(first) if first else None,
                    vmaf=pooled["vmaf"]["mean"] if "vmaf" in pooled else None)
+    if not psnr_only:
         if V1_ON:
             out.update(score_v1(cell, bitstream, wd, s, n, stride))
         if SSIM_PASS:
@@ -811,7 +825,7 @@ def measure(cell, arm, mode, q, s=0, n=None, prof="solve", depth=None,
     m = jload(MEMO).get(key)
     want_score = stride is not None
     if m and (not want_score or (m.get("stride") == stride and
-                                 ("neg" in m or psnr_only))):
+                                 (psnr_only or has_gate(m)))):
         return m
     wd = tempfile.mkdtemp(prefix="pl.", dir=ensure_work())
     try:
@@ -837,6 +851,7 @@ def measure(cell, arm, mode, q, s=0, n=None, prof="solve", depth=None,
     log(f"      {arm:<4} {mode} {ps._fmt_q(q):>7} -> {rec['bytes']:>11} B "
         f"{rec['kbps']:9.1f} kbit/s"
         + (f"  NEG {rec['neg']:.2f}" if "neg" in rec else "")
+        + (f"  v1 {gate_score(rec):.2f}" if "v1_gate" in rec else "")
         + (f"  PSNR-Y {rec['psnr_y']:.2f}" if "psnr_y" in rec else "")
         + f"  [{rec['enc_s']:.0f} s]")
     return rec
@@ -1063,7 +1078,7 @@ def vbr_targets(cell, lad=None):
 def ladder_rung(cell, mode, arm, q, depth, stride):
     k = lad_key(cell, mode, arm, q, depth)
     have = jload(LAD_PATH).get(k)
-    if have and have.get("stride") == stride:
+    if have and have.get("stride") == stride and has_gate(have):
         return have
     r = measure(cell, arm, mode, q, depth=depth if arm == "ours" else None,
                 stride=stride)
@@ -1102,7 +1117,10 @@ def run_ladder(cell, modes, depths):
                       + ("" if c["n"] == len(RUNGS)
                          else f" ({c['n']}-rung screen, not the spec's BD)")
                       + ":"
-                      f" BD-VMAF-NEG {c['bn']:+.2f}% (PSNR-Y {c['bp']:+.2f}%)"
+                      f" BD-{c['metric'].upper()} {c['bn']:+.2f}%"
+                      + (f" (NEG {c['bneg']:+.2f}%)" if c["bneg"] is not None
+                         and c["metric"] != "neg" else "")
+                      + f" (PSNR-Y {c['bp']:+.2f}%)"
                       + (f"; tracking ours {fmt_track(c['track_o'])}"
                          if mode == "vbr" else ""), flush=True)
 
@@ -1143,13 +1161,19 @@ def curve(cell, mode, depth=OUR_DEPTH, lad=None):
         return None
     if len({r["stride"] for r in x + o}) != 1:
         return None
-    bn = bd.bd_rate([r["kbps"] for r in x], [r["neg"] for r in x],
-                    [r["kbps"] for r in o], [r["neg"] for r in o])
+    if not all(has_gate(r) for r in x + o):
+        return None
+    bn = bd.bd_rate([r["kbps"] for r in x], [gate_score(r) for r in x],
+                    [r["kbps"] for r in o], [gate_score(r) for r in o])
+    bneg = (bd.bd_rate([r["kbps"] for r in x], [r["neg"] for r in x],
+                       [r["kbps"] for r in o], [r["neg"] for r in o])
+            if all(r.get("neg") is not None for r in x + o) else None)
     bp = bd.bd_rate([r["kbps"] for r in x], [r["psnr_y"] for r in x],
                     [r["kbps"] for r in o], [r["psnr_y"] for r in o])
     if bn is None:
         return None
-    c = {"bn": bn, "bp": bp, "n": len(qs), "stride": x[0]["stride"],
+    c = {"bn": bn, "bp": bp, "bneg": bneg, "metric": GATE, "n": len(qs),
+         "stride": x[0]["stride"],
          "rungs": qs, "frames_ok": all(r.get("frames_ok") for r in x + o)}
     if mode == "vbr":
         c["track_o"] = [100 * (r["kbps"] / q - 1) for r, q in zip(o, qs)]
