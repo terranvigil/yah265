@@ -444,7 +444,7 @@ static void check_quant_window(int log2n, int kind, int qp)
         snprintf(what, sizeof(what), "quant %dx%d / %s qp %d, %s edge",
                  n, n, lkind_name[kind], qp, tail ? "far" : "near");
         ca_pg_arm(what);
-        for (int intra = 0; intra < 2; intra++)
+        for (int intra = 0; intra < 3; intra++)   /* 2: N265_CDZ=2 */
             n265_quant_neon(level, coef, log2n, qp, intra);
         ca_pg_disarm();
         ca_pg_free(&gl);
@@ -504,7 +504,7 @@ static int check_quant_neon(void)
                 /* ---- quant ---- */
                 for (int i = 0; i < nn; i++)
                     coef[i] = level[i];
-                for (int intra = 0; intra < 2 && !bad; intra++) {
+                for (int intra = 0; intra < 3 && !bad; intra++) {
                     rn = n265_quant_ref(ref, coef, log2n, qp, intra);
                     ca_guard_poison(level, bytes);
                     ca_guard_scramble(coef, bytes);

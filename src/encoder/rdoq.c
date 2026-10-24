@@ -502,7 +502,7 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
      * BD + log2n - 5). Both fold back to 21 and 8 + log2n - 5 at 8 bits. */
     int qpq = qp + QP_BD_OFFSET;
     int qbits = 29 - BIT_DEPTH + qpq / 6 - log2n;
-    int64_t add = ((int64_t)1 << qbits) / (intra ? 3 : 6);
+    int64_t add = ((int64_t)1 << qbits) / (intra == 2 ? 2 : intra ? 3 : 6);
     int q = quant_scale[qpq % 6];
     /* dequant of level l: (l * scale * 16 + dadd) >> bd_shift */
     int bd_shift = BIT_DEPTH + log2n - 5;

@@ -1775,7 +1775,7 @@ int n265_quant_neon(int16_t *level, const int16_t *coef, int log2n, int qp,
     int nn = 1 << (2 * log2n);                   /* 16 at least, so 8 fits */
     int qpq = qp + QP_BD_OFFSET;                 /* Qp', 0 .. 63 */
     int qbits = 29 - BIT_DEPTH + qpq / 6 - log2n;
-    int32_t add = (int32_t)(((int64_t)1 << qbits) / (intra ? 3 : 6));
+    int32_t add = (int32_t)(((int64_t)1 << qbits) / (intra == 2 ? 2 : intra ? 3 : 6));
     int q = quant_scale[qpq % 6];
     uint32x4_t addv = vdupq_n_u32((uint32_t)add);
     int32x4_t sh = vdupq_n_s32(-qbits);

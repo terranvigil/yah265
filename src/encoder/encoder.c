@@ -140,10 +140,15 @@ static int g_lossless = 0;      /* --lossless; n265_set_lossless */
 /* --rdoq-level; -1 is "the flag was not given", which is every encode
  * before this item and every one that leaves the choice to the preset. */
 static int g_rdoq_level = -1;
-/* --cbqpoffs / --crqpoffs: pps_cb_qp_offset / pps_cr_qp_offset. 0 / 0 is
- * every encode before phase 13 B1 and every preset. */
+/* --cbqpoffs / --crqpoffs: pps_cb_qp_offset / pps_cr_qp_offset. A flag
+ * not given leaves them to N265_CBQPOFFS / N265_CRQPOFFS and the preset,
+ * which names -1 at medium from the 720p class up (phase 14 item 51) and
+ * 0 everywhere else. */
 static int g_cb_qp_off = 0;
 static int g_cr_qp_off = 0;
+/* whether the caller named each one; an unnamed offset is the preset's */
+static int g_cb_qp_given = 0;
+static int g_cr_qp_given = 0;
 /* --weightp / --weightb. -1 is "the caller said nothing", which is
  * what lets N265_WEIGHTP and the preset table supply the value; a
  * flag always wins, in either direction, so --no-weightp is an
@@ -373,10 +378,10 @@ static int rdoq_level_map(int lvl)
  * pps_cr_qp_offset, under x265's names because that is the spelling a
  * user arrives with. The range is the spec's own (7.4.3.3.1) and the CLI
  * refuses anything outside it before this is called; the clamp here is
- * what makes the library safe when something else calls it. 0 / 0 is the
- * default, every preset, every board and band leg - and the encoder byte
- * for byte, because at 0 the PPS writes the two se(v) zeroes it always
- * wrote and every chroma QP derivation is the expression it always was.
+ * what makes the library safe when something else calls it. At 0 / 0 the
+ * PPS writes the two se(v) zeroes it always wrote and every chroma QP
+ * derivation is the expression it always was. 100 in either argument is
+ * "not given", which leaves that half to the preset (phase 14 item 51).
  *
  * Which direction is which: NEGATIVE is a finer chroma quantiser, i.e.
  * spend more on chroma. POSITIVE is the direction docs/instruments.md
@@ -387,8 +392,12 @@ static int rdoq_level_map(int lvl)
 void n265_set_chroma_qpoffs(int cb, int cr);
 void n265_set_chroma_qpoffs(int cb, int cr)
 {
-    g_cb_qp_off = cb < -12 ? -12 : cb > 12 ? 12 : cb;
-    g_cr_qp_off = cr < -12 ? -12 : cr > 12 ? 12 : cr;
+    /* 100 is "not given" (the CLI's sentinel): that half is left to
+     * N265_CBQPOFFS / N265_CRQPOFFS and the preset table behind them */
+    g_cb_qp_given = cb != 100;
+    g_cr_qp_given = cr != 100;
+    g_cb_qp_off = !g_cb_qp_given ? 0 : cb < -12 ? -12 : cb > 12 ? 12 : cb;
+    g_cr_qp_off = !g_cr_qp_given ? 0 : cr < -12 ? -12 : cr > 12 ? 12 : cr;
 }
 /* --weightp / --weightb: weighted_pred_flag and weighted_bipred_flag.
  * -1 in either argument leaves that half to the knob and the preset. */
@@ -2355,9 +2364,9 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->cb_qp_off = g_cb_qp_off;
     e->cr_qp_off = g_cr_qp_off;
     { const char *v = n265_env("N265_CBQPOFFS");
-      if (v && !g_cb_qp_off) e->cb_qp_off = atoi(v); }
+      if (v && !g_cb_qp_given) e->cb_qp_off = atoi(v); }
     { const char *v = n265_env("N265_CRQPOFFS");
-      if (v && !g_cr_qp_off) e->cr_qp_off = atoi(v); }
+      if (v && !g_cr_qp_given) e->cr_qp_off = atoi(v); }
     if (e->cb_qp_off < -12) e->cb_qp_off = -12;
     if (e->cb_qp_off > 12) e->cb_qp_off = 12;
     if (e->cr_qp_off < -12) e->cr_qp_off = -12;

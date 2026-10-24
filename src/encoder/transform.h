@@ -45,8 +45,9 @@ void n265_idct_add_ref(pixel *dst, int dst_stride, const int16_t *dq,
                        int log2n, const pixel *pred, int pred_stride,
                        int use_dst);
 
-/* Encoder-side scalar quant (deadzone 1/3 intra, 1/6 inter); returns the
- * number of nonzero levels. */
+/* Encoder-side scalar quant; returns the number of nonzero levels.
+ * `intra` picks the rounding: 0 the inter deadzone (1/6 of a step), 1 the
+ * intra one (1/3), 2 plain rounding (1/2; N265_CDZ=2 on inter chroma). */
 int n265_quant(int16_t *level, const int16_t *coef, int log2n, int qp,
                int intra);
 

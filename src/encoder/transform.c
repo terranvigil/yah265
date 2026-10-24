@@ -538,7 +538,7 @@ int n265_quant_ref(int16_t *level, const int16_t *coef, int log2n, int qp,
      * the forward DCT's shift1 already shed the two extra sample bits. */
     int qpq = qp + QP_BD_OFFSET;
     int qbits = 29 - BIT_DEPTH + qpq / 6 - log2n;
-    int64_t add = ((int64_t)1 << qbits) / (intra ? 3 : 6);
+    int64_t add = ((int64_t)1 << qbits) / (intra == 2 ? 2 : intra ? 3 : 6);
     int q = quant_scale[qpq % 6];
     int nz = 0;
     for (int i = 0; i < n * n; i++) {

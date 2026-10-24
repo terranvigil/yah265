@@ -904,16 +904,16 @@ static void usage(void)
         "                  and every stream written before 2026-09-14;\n"
         "                  3 and 4 are what x265 veryslow and placebo run.\n"
         "                  Left off, the preset picks.\n"
-        "  --cbqpoffs <n>  pps_cb_qp_offset, -12..12, default 0\n"
-        "  --crqpoffs <n>  pps_cr_qp_offset, -12..12, default 0\n"
+        "  --cbqpoffs <n>  pps_cb_qp_offset, -12..12 (the preset's if not given)\n"
+        "  --crqpoffs <n>  pps_cr_qp_offset, -12..12 (the same)\n"
         "                  The chroma quantiser's offset from luma's, added\n"
         "                  into qPi before Table 8-10 (8.6.1). NEGATIVE\n"
         "                  spends more on chroma; positive moves those bits\n"
-        "                  to luma. Both stay 0 at every preset: measured at\n"
-        "                  the pin, our chroma-to-luma split is within half a\n"
-        "                  QP step of x265's on all fifteen corpus clips, so\n"
-        "                  there is nothing for a default to correct\n"
-        "                  (docs/phase13.md).\n"
+        "                  to luma. medium names -1 for both from the 720p\n"
+        "                  class up, where VMAF v1 scores chroma, and 0\n"
+        "                  below it; every other preset names 0\n"
+        "                  (docs/phase14.md item 51). A flag given, 0\n"
+        "                  included, wins over the preset.\n"
         "  --pcm           phase-0 I_PCM mode (lossless, huge)\n"
         "  --lossless      mathematically lossless: transquant bypass on\n"
         "                  every CU, so the reconstruction IS the source.\n"
@@ -2624,11 +2624,10 @@ int main(int argc, char **argv)
     /* --tu-inter-depth / --tu-intra-depth: -1 is "not given", the same
      * override-not-default shape --rdoq-level has. */
     int tu_inter = -1, tu_intra = -1, had_tui = 0, had_tua = 0;
-    /* --cbqpoffs / --crqpoffs: 0 is both the default and "not given",
-     * and they are the same thing here - the offsets have no preset
-     * entry to defer to, so there is nothing for an unset flag to mean
-     * except zero. */
-    int cbqpoffs = 0, crqpoffs = 0;
+    /* --cbqpoffs / --crqpoffs: "not given" is its own state, because
+     * medium names an offset from the 720p class up (phase 14 item 51)
+     * and an explicit 0 has to be able to undo it. */
+    int cbqpoffs = 0, crqpoffs = 0, had_cbq = 0, had_crq = 0;
     const char *dump_decode_path = NULL;
     const char *preset = NULL;
     /* which structural flags the user gave: a preset supplies the rest */
@@ -2812,9 +2811,9 @@ int main(int argc, char **argv)
         } else if (!strcmp(argv[i], "--tu-intra-depth") && i + 1 < argc) {
             tu_intra = atoi(argv[++i]); had_tua = 1;
         } else if (!strcmp(argv[i], "--cbqpoffs") && i + 1 < argc) {
-            cbqpoffs = atoi(argv[++i]);
+            cbqpoffs = atoi(argv[++i]); had_cbq = 1;
         } else if (!strcmp(argv[i], "--crqpoffs") && i + 1 < argc) {
-            crqpoffs = atoi(argv[++i]);
+            crqpoffs = atoi(argv[++i]); had_crq = 1;
         } else if (!strcmp(argv[i], "--pcm")) {
             pcm = 1;
         } else if (!strcmp(argv[i], "--lossless")) {
@@ -3417,7 +3416,10 @@ int main(int argc, char **argv)
                 "(7.4.3.3.1); negative spends more on chroma\n");
         return 2;
     }
-    a->set_chroma_qpoffs(cbqpoffs, crqpoffs);
+    /* a flag not given passes N265_QPOFFS_UNSET, so the preset's row
+     * (medium names -1 from 720p up, phase 14 item 51) stays in charge
+     * and an explicit 0 is an escape from it */
+    a->set_chroma_qpoffs(had_cbq ? cbqpoffs : 100, had_crq ? crqpoffs : 100);
     /* --level / --high-tier. The refusals that need the STREAM - a level
      * too low for the picture, the rate or the DPB - are made at encoder
      * open, where the derivation lives; the one made here is the only one
