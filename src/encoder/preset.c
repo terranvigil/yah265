@@ -367,6 +367,12 @@ static const struct kv med_tab[] = {
      * follows the window, so CIF keeps 12 and med_tab_720 and
      * med_tab_uhd name 20 from 720p up */
     { "N265_CRF_DC_WIN", "12" },
+    /* phase 14 item 51, at their compiled-in values: below the 720p
+     * class chroma keeps the inter deadzone and no PPS offset.
+     * med_tab_720 and med_tab_uhd name the v1 chroma pair. */
+    { "N265_CDZ", "0" },
+    { "N265_CBQPOFFS", "0" },
+    { "N265_CRQPOFFS", "0" },
     /* There is NO `N265_NR_INTRA` / `N265_NR_INTER` row, and item 6b is
      * why that is worth saying out loud here. Item 6 recommended
      * `--nr-intra 100 --nr-inter 100` for this table off a five-clip
@@ -736,6 +742,20 @@ static const struct kv med_tab_uhd[] = {
      * is within 0.11 VMAF-NEG. At HD, tab_hd answers first with the same
      * value. */
     { "N265_CB64_SPLITGATE", "256" },
+    /* phase 14 item 51, at HD and UHD (and med_tab_720 at 720p): VMAF
+     * v1 scores chroma and weighs it steeply, and Chimera was over the
+     * v1 bar. Inter chroma rounds at 1/3 instead of the 1/6 deadzone,
+     * and both chroma quantisers run one step finer than luma's
+     * (pps_cb_qp_offset and pps_cr_qp_offset -1). Chimera 1080p's cell
+     * goes +1.24% -> -4.67% BD-v1 under CRF, and every 720p-and-up tier
+     * D cell reads level or ahead but sunflower (+0.7 on three
+     * overlapping rungs). CIF is left alone: v1 reads no chroma at that
+     * size, and both halves cost foreman, mobile, stefan and tempete
+     * 2-4 points there. `N265_CDZ=0 N265_CBQPOFFS=0 N265_CRQPOFFS=0` is
+     * the escape. docs/phase14.md "Item 51". */
+    { "N265_CDZ", "1" },
+    { "N265_CBQPOFFS", "-1" },
+    { "N265_CRQPOFFS", "-1" },
     { NULL, NULL }
 };
 
@@ -779,6 +799,10 @@ static const struct kv med_tab_720[] = {
     { "N265_ME_PATTERN", "1" },
     { "N265_BADAPT_FASTW", "320" },
     { "N265_BADAPT_MVMIN", "3" },
+    /* phase 14 item 51, as med_tab_uhd names it for HD and UHD */
+    { "N265_CDZ", "1" },
+    { "N265_CBQPOFFS", "-1" },
+    { "N265_CRQPOFFS", "-1" },
     { NULL, NULL }
 };
 

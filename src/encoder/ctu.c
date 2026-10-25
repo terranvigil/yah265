@@ -979,6 +979,26 @@ static int rdoq_lat_sz(void)
     return v;
 }
 
+/* N265_CDZ (phase 14 item 51): the rounding an INTER chroma coefficient
+ * is quantised with. 0 is the inter deadzone, 1/6 of a step (main); 1
+ * rounds at 1/3, as intra does; 2 rounds at 1/2. It feeds the plain
+ * quantiser and the lattice's starting level alike, so under RDOQ 2 it
+ * moves the trials and the commit both.
+ *
+ * Why chroma: VMAF v1 scores chroma (its SpEED chroma feature), and the
+ * 1/6 deadzone zeroes the small inter chroma coefficients that carry the
+ * pale, low-contrast colour of live-action pictures. The level is still
+ * priced by the lattice; this only moves where its search starts and
+ * what a trial without the lattice keeps. Luma at 1/3 was read too and
+ * lost (docs/phase14.md item 51). medium takes 1 from the 720p class
+ * up; CIF stays at 0, where every clip but akiyo and bus lost. */
+static int chroma_dz(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *s = n265_env("N265_CDZ"); v = s ? atoi(s) : 0; }
+    return v;
+}
+
 static void tb_quant_one(struct n265_frame_work *e, int c_idx, int log2n,
                          int qp, int intra, int scan, const int16_t *coef,
                          int16_t *level, int *out_nz)
@@ -1002,12 +1022,15 @@ static void tb_quant_one(struct n265_frame_work *e, int c_idx, int log2n,
                       intra, c_idx != 0);
         coef = nrbuf;
     }
+    int rnd = intra;
+    if (c_idx && !intra)
+        rnd = chroma_dz();
     if (lat) {
-        *out_nz = n265_rdoq(level, coef, log2n, qp, intra, c_idx, scan,
+        *out_nz = n265_rdoq(level, coef, log2n, qp, rnd, c_idx, scan,
                             e->est_ctx, ctu_lam(e, qp));
         sbh_done = n265_rdoq_sbh_on();      /* RDOQ hid the signs itself */
     } else {
-        *out_nz = n265_quant(level, coef, log2n, qp, intra);
+        *out_nz = n265_quant(level, coef, log2n, qp, rnd);
     }
     if (*out_nz && !sbh_done)
         n265_sbh_adjust(level, log2n, scan);
@@ -8120,7 +8143,7 @@ void n265_ctu_warm(void)
     (void)cbf_fast(); (void)gate_scale(); (void)skip_exit();
     (void)static_commit(); (void)sc_conj();
     (void)intra_gate(); (void)intra_pf_q8(); (void)intra_oracle();
-    (void)part_gate();
+    (void)part_gate(); (void)chroma_dz();
     (void)part_amp_margin(); (void)rect_rank(); (void)n265_rect_flat();
     (void)depth_bound();
     (void)depth_bound_widen(); (void)depth_bound_local();
