@@ -117,6 +117,18 @@ GATE = "v1" if V1_ON else "neg"
 # both sides are 8-bit encodes scored at 10 bits; CAMBI must be told the
 # encode's depth or it reads the up-converted picture as a 10-bit encode
 V1_ENC_BITS = 8
+# v1 is scored at display resolution (owner rule 10-25): an encode smaller
+# than 1920x1080 in both dimensions is scaled up, bicubic and aspect kept,
+# to fit 1920x1080, both sides, with CAMBI told the coded size
+V1_DISP = (1920, 1080)
+
+
+def v1_upscaled(w, h):
+    return w < V1_DISP[0] and h < V1_DISP[1]
+
+
+def v1_disp_tag(w, h):
+    return "fit1080" if v1_upscaled(w, h) else "native"
 # the draft spec (yah264, 10-22, owner review pending): the gate model is
 # 1080p 3H, 4K 1.5H at 2160p, the _hfr twin at 50 fps and up; 4K 3H and
 # phone 5H ride along as information. Scored at 10 bits, both sides
@@ -635,9 +647,16 @@ def ssim_611(feed, bitstream, wd):
     return (sum(vals) / len(vals) if vals else None), len(vals)
 
 
-def has_gate(r):
+def has_gate(r, cell=None):
+    """A row scored the current way. A row from before the display rule
+    still counts where that rule doesn't scale (1080p and up)."""
     if GATE == "v1":
-        return r.get("v1_cambi_enc_bits") == V1_ENC_BITS
+        if r.get("v1_cambi_enc_bits") != V1_ENC_BITS:
+            return False
+        if "v1_disp" in r:
+            return True
+        return cell is not None and not v1_upscaled(info(cell)["w"],
+                                                    info(cell)["h"])
     return r.get("neg") is not None
 
 
@@ -653,7 +672,12 @@ def score_v1(cell, bitstream, wd, s, n, stride):
     feed = feeder(cell, s, n)
     dfifo = _fifo(wd, "dec10.fifo")
     j = os.path.join(wd, "v1.json")
-    up = ["-pix_fmt", "yuv420p10le", "-strict", "-1", "-f", "yuv4mpegpipe"]
+    i = info(cell)
+    w, h = i["w"], i["h"]
+    up = (["-vf", f"scale={V1_DISP[0]}:{V1_DISP[1]}:flags=bicubic"
+           ":force_original_aspect_ratio=decrease:force_divisible_by=2"]
+          if v1_upscaled(w, h) else [])
+    up += ["-pix_fmt", "yuv420p10le", "-strict", "-1", "-f", "yuv4mpegpipe"]
     dec = subprocess.Popen(
         ["ffmpeg", "-v", "error", "-y", "-threads", FF_THREADS, "-i",
          bitstream] + up + [dfifo],
@@ -668,7 +692,8 @@ def score_v1(cell, bitstream, wd, s, n, stride):
     margs = []
     for m, path in models:
         margs += ["--model", f"path={path}:name=v1_{m}"
-                  f":cambi.enc_bitdepth={V1_ENC_BITS}"]
+                  f":cambi.enc_bitdepth={V1_ENC_BITS}"
+                  f":cambi.enc_width={w}:cambi.enc_height={h}"]
     v = subprocess.run(
         [V1_BIN, "--threads", VMAF_THREADS, "--subsample", str(stride),
          "-r", "/dev/stdin", "-d", dfifo, "--json", "-o", j, "-q"] + margs,
@@ -688,7 +713,7 @@ def score_v1(cell, bitstream, wd, s, n, stride):
     os.remove(j)
     pooled = jj["pooled_metrics"]
     out = {"v1_gate": gate, "v1_hfr": hfr, "v1_bits": 10,
-           "v1_cambi_enc_bits": V1_ENC_BITS,
+           "v1_cambi_enc_bits": V1_ENC_BITS, "v1_disp": v1_disp_tag(w, h),
            "v1_frames": len(jj["frames"])}
     for m, _ in models:
         pm = pooled[f"v1_{m}"]
@@ -832,7 +857,7 @@ def measure(cell, arm, mode, q, s=0, n=None, prof="solve", depth=None,
     m = jload(MEMO).get(key)
     want_score = stride is not None
     if m and (not want_score or (m.get("stride") == stride and
-                                 (psnr_only or has_gate(m)))):
+                                 (psnr_only or has_gate(m, cell)))):
         return m
     wd = tempfile.mkdtemp(prefix="pl.", dir=ensure_work())
     try:
@@ -1085,7 +1110,7 @@ def vbr_targets(cell, lad=None):
 def ladder_rung(cell, mode, arm, q, depth, stride):
     k = lad_key(cell, mode, arm, q, depth)
     have = jload(LAD_PATH).get(k)
-    if have and have.get("stride") == stride and has_gate(have):
+    if have and have.get("stride") == stride and has_gate(have, cell):
         return have
     r = measure(cell, arm, mode, q, depth=depth if arm == "ours" else None,
                 stride=stride)
@@ -1168,7 +1193,7 @@ def curve(cell, mode, depth=OUR_DEPTH, lad=None):
         return None
     if len({r["stride"] for r in x + o}) != 1:
         return None
-    if not all(has_gate(r) for r in x + o):
+    if not all(has_gate(r, cell) for r in x + o):
         return None
     bn = bd.bd_rate([r["kbps"] for r in x], [gate_score(r) for r in x],
                     [r["kbps"] for r in o], [gate_score(r) for r in o])
