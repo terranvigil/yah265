@@ -990,8 +990,9 @@ static int rdoq_lat_sz(void)
  * pale, low-contrast colour of live-action pictures. The level is still
  * priced by the lattice; this only moves where its search starts and
  * what a trial without the lattice keeps. Luma at 1/3 was read too and
- * lost (docs/phase14.md item 51). medium takes 1 from the 720p class
- * up; CIF stays at 0, where every clip but akiyo and bus lost. */
+ * lost (docs/phase14.md item 51). medium takes 1 at every size: item
+ * 51 kept CIF at 0, where v1 read no chroma at the coded size, and item
+ * 52 took it there once v1 was scored at display size. */
 static int chroma_dz(void)
 {
     static int v = -1;
