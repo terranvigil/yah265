@@ -367,12 +367,21 @@ static const struct kv med_tab[] = {
      * follows the window, so CIF keeps 12 and med_tab_720 and
      * med_tab_uhd name 20 from 720p up */
     { "N265_CRF_DC_WIN", "12" },
-    /* phase 14 item 51, at their compiled-in values: below the 720p
-     * class chroma keeps the inter deadzone and no PPS offset.
-     * med_tab_720 and med_tab_uhd name the v1 chroma pair. */
-    { "N265_CDZ", "0" },
-    { "N265_CBQPOFFS", "0" },
-    { "N265_CRQPOFFS", "0" },
+    /* phase 14 item 52: below the 720p class too, inter chroma rounds
+     * at 1/3 and both chroma quantisers run one step finer than luma's.
+     * Item 51 kept CIF at 0/0 because v1 read no chroma at the coded
+     * size. v1 is scored at display size now (a picture under 1920x1080
+     * in both dimensions is scaled up to fit), and there it reads chroma
+     * and pays for it: the CIF-7 CRF median goes -6.58% -> -9.87% BD-v1,
+     * every clip ahead of main (bus -4.50 -> -12.05, coastguard -13.49
+     * -> -22.75). -2 here was mixed (mobile and tempete lose 0.2, the
+     * median gains 0.5) for up to 2.0 more points of PSNR-Y.
+     * `N265_CDZ=0 N265_CBQPOFFS=0 N265_CRQPOFFS=0` is the escape.
+     * med_tab_720 and med_tab_uhd name their own values.
+     * docs/phase14.md "Item 52". */
+    { "N265_CDZ", "1" },
+    { "N265_CBQPOFFS", "-1" },
+    { "N265_CRQPOFFS", "-1" },
     /* There is NO `N265_NR_INTRA` / `N265_NR_INTER` row, and item 6b is
      * why that is worth saying out loud here. Item 6 recommended
      * `--nr-intra 100 --nr-inter 100` for this table off a five-clip
@@ -749,10 +758,11 @@ static const struct kv med_tab_uhd[] = {
      * (pps_cb_qp_offset and pps_cr_qp_offset -1). Chimera 1080p's cell
      * goes +1.24% -> -4.67% BD-v1 under CRF, and every 720p-and-up tier
      * D cell reads level or ahead but sunflower (+0.7 on three
-     * overlapping rungs). CIF is left alone: v1 reads no chroma at that
-     * size, and both halves cost foreman, mobile, stefan and tempete
-     * 2-4 points there. `N265_CDZ=0 N265_CBQPOFFS=0 N265_CRQPOFFS=0` is
-     * the escape. docs/phase14.md "Item 51". */
+     * overlapping rungs. Item 52 took the pair to CIF (med_tab) and
+     * the offsets to -2 at 720p (med_tab_720), once v1 was scored at
+     * display size; 1080p and up are read at their coded size and keep
+     * -1. `N265_CDZ=0 N265_CBQPOFFS=0 N265_CRQPOFFS=0` is the escape.
+     * docs/phase14.md "Item 51". */
     { "N265_CDZ", "1" },
     { "N265_CBQPOFFS", "-1" },
     { "N265_CRQPOFFS", "-1" },
@@ -799,10 +809,18 @@ static const struct kv med_tab_720[] = {
     { "N265_ME_PATTERN", "1" },
     { "N265_BADAPT_FASTW", "320" },
     { "N265_BADAPT_MVMIN", "3" },
-    /* phase 14 item 51, as med_tab_uhd names it for HD and UHD */
+    /* phase 14 item 51's pair, with the offsets at -2 (item 52). A 720p
+     * picture is scaled up to 1080 lines before v1 scores it, and there
+     * the second step pays on every cell read, CRF and VBR alike:
+     * park_joy_720p -9.89% -> -11.38% (VBR -3.79 -> -5.40), Chimera
+     * 720p -10.30 -> -12.82 (VBR -12.09 -> -13.28), lash1924 -24.34 ->
+     * -25.64 (VBR -18.84 -> -20.28), for 0.4-1.9 points of PSNR-Y. -3
+     * still gains (another 1.1-2.4) at 1.7-2.3 more of PSNR-Y and is
+     * not taken. `N265_CBQPOFFS=-1 N265_CRQPOFFS=-1` is item 51's 720p
+     * stream. docs/phase14.md "Item 52". */
     { "N265_CDZ", "1" },
-    { "N265_CBQPOFFS", "-1" },
-    { "N265_CRQPOFFS", "-1" },
+    { "N265_CBQPOFFS", "-2" },
+    { "N265_CRQPOFFS", "-2" },
     { NULL, NULL }
 };
 

@@ -142,8 +142,9 @@ static int g_lossless = 0;      /* --lossless; n265_set_lossless */
 static int g_rdoq_level = -1;
 /* --cbqpoffs / --crqpoffs: pps_cb_qp_offset / pps_cr_qp_offset. A flag
  * not given leaves them to N265_CBQPOFFS / N265_CRQPOFFS and the preset,
- * which names -1 at medium from the 720p class up (phase 14 item 51) and
- * 0 everywhere else. */
+ * which at medium names -1 below the 720p class and at HD and up, and -2
+ * on a 720p-class picture (phase 14 items 51 and 52), and 0 at every
+ * other preset. */
 static int g_cb_qp_off = 0;
 static int g_cr_qp_off = 0;
 /* whether the caller named each one; an unnamed offset is the preset's */
