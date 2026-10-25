@@ -14,12 +14,18 @@ rungs), and swaps one feature at a time to x265's: the v1 gain from each
 swap is that feature's share of the gap at matched rate.
 
 Scoring is the parity pipeline's (parity_long.py score_v1): both sides at
-10 bits (yuv420p10le), CAMBI told the encode is 8-bit
-(cambi.enc_bitdepth=8), the 3d0h model below the UHD class and
-1d5h_2160 at it, every frame.
+10 bits (yuv420p10le), CAMBI told the encode is 8-bit and its coded size
+(cambi.enc_bitdepth=8, enc_width, enc_height), the 3d0h model below the
+UHD class and 1d5h_2160 at it (the _hfr twins at 50 fps and up), every
+frame. v1 is read at DISPLAY resolution (owner rule 10-25): a picture
+smaller than 1920x1080 in both dimensions is scaled up, bicubic and
+aspect kept, to fit 1920x1080, reference and decode alike. V1_NATIVE=1
+scores at the coded size instead. PSNR-Y is always read at the coded
+size, in a pass of its own.
 
     scripts/v1_ladder.py SRC.y4m [--arm LABEL] [--env N265_X=1 ...]
-                         [--vbr] [--rungs 20,23,26,29,32] [-- ours flags]
+                         [--vbr] [--rungs 20,23,26,29,32] [--frames N]
+                         [-- ours flags]
 
 --vbr runs both sides at x265's CRF rungs' achieved rates, with
 --vbv-maxrate 1.5x and --vbv-bufsize 2x. Encodes and scores are memoised
@@ -42,6 +48,8 @@ BIN = os.environ.get("BIN", os.path.join(ROOT, "build-rel", "n265"))
 FEATS = [("cambi", "cambi"), ("speed_chroma_uv", "chroma"),
          ("integer_adm3", "adm3"), ("integer_motion3", "motion3")]
 UHD = 3840 * 1600
+# the owner's display rule (10-25), as parity_long.py V1_DISP
+DISP = (1920, 1080)
 
 
 def geom(src):
@@ -60,17 +68,47 @@ def sha(path):
     return h.hexdigest()[:16]
 
 
-def ref10(src):
-    st = os.stat(src)
-    p = os.path.join(CACHE, "ref", f"{os.path.basename(src)[:-4]}."
-                     f"{st.st_size}.{int(st.st_mtime)}.p10.y4m")
-    if not os.path.exists(p):
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", src, "-pix_fmt",
-                        "yuv420p10le", "-strict", "-1", "-f", "yuv4mpegpipe",
-                        p + ".tmp"], check=True)
-        os.rename(p + ".tmp", p)
-    return p
+def ff_y4m(inp, frames, up, fifo):
+    """ffmpeg writing INP to FIFO as y4m: 10 bits when UP is set, scaled
+    to fit the display (parity_long.py score_v1's filter) when the picture
+    is smaller than it in both dimensions; native 8 bits otherwise."""
+    vf = []
+    if up == "fit":
+        vf = ["-vf", f"scale={DISP[0]}:{DISP[1]}:flags=bicubic"
+              ":force_original_aspect_ratio=decrease:force_divisible_by=2"]
+    pf = "yuv420p10le" if up else "yuv420p"
+    fr = ["-frames:v", str(frames)] if frames else []
+    return subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-threads", "2", "-i", inp]
+                            + fr + vf + ["-pix_fmt", pf, "-strict", "-1", "-f",
+                                         "yuv4mpegpipe", fifo], stdin=subprocess.DEVNULL)
+
+
+def vmaf_pass(src, bs, frames, up, args, wd, tag):
+    """One libvmaf run, reference and decode each fed by ffmpeg through a
+    fifo, so nothing scaled lands on disk."""
+    rf, df = os.path.join(wd, tag + ".r.fifo"), os.path.join(wd, tag + ".d.fifo")
+    for f in (rf, df):
+        if os.path.exists(f):
+            os.remove(f)
+        os.mkfifo(f)
+    vj = os.path.join(wd, tag + ".json")
+    pr = ff_y4m(src, frames, up, rf)
+    pd = ff_y4m(bs, None, up, df)
+    subprocess.run([V1, "--threads", THR, "-r", rf, "-d", df, "--json", "-o", vj, "-q"]
+                   + args, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    pr.wait()
+    pd.wait()
+    for f in (rf, df):
+        os.remove(f)
+    fr = json.load(open(vj))["frames"]
+    os.remove(vj)
+    return fr
+
+
+def disp_mode(w, h):
+    if os.environ.get("V1_NATIVE") == "1":
+        return "native"
+    return "fit" if w < DISP[0] and h < DISP[1] else "native"
 
 
 def rate_args(mode, q):
@@ -81,15 +119,18 @@ def rate_args(mode, q):
             "--vbv-bufsize", str(int(round(2 * k)))]
 
 
-def rung(src, enc, mode, q, env, flags, binh):
+def rung(src, enc, mode, q, env, flags, binh, frames=None):
     w, h, fps = geom(src)
+    fl = ["--frames", str(frames)] if frames else []
     if enc == "ours":
-        cmd = [BIN, src, "--preset", "medium", "--threads", THR] + rate_args(mode, q) + flags
+        cmd = [BIN, src, "--preset", "medium", "--threads", THR] + rate_args(mode, q) + fl + flags
     else:
-        cmd = ["x265", "--input", src, "--preset", "medium"] + rate_args(mode, q) + [
+        cmd = ["x265", "--input", src, "--preset", "medium"] + rate_args(mode, q) + fl + [
             "--pools", THR, "--frame-threads", "4", "--log-level", "error"]
+    dm = disp_mode(w, h)
     key = hashlib.sha256(json.dumps([cmd, sorted(env.items()), src,
-                                     binh if enc == "ours" else "x265"]).encode()).hexdigest()[:20]
+                                     binh if enc == "ours" else "x265",
+                                     "disp:" + dm]).encode()).hexdigest()[:20]
     js = os.path.join(CACHE, key + ".json")
     if os.path.exists(js):
         return json.load(open(js))
@@ -101,23 +142,13 @@ def rung(src, enc, mode, q, env, flags, binh):
     e.update(env)
     subprocess.run(cmd + ["-o", bs], env=e, check=True,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    fifo = os.path.join(CACHE, key + ".fifo")
-    if os.path.exists(fifo):
-        os.remove(fifo)
-    os.mkfifo(fifo)
-    dec = subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-threads", "2", "-i", bs,
-                            "-pix_fmt", "yuv420p10le", "-strict", "-1", "-f",
-                            "yuv4mpegpipe", fifo])
-    model = "vmaf_v1.0.16_1d5h_2160.json" if w * h >= UHD else "vmaf_v1.0.16_3d0h.json"
-    vj = os.path.join(CACHE, key + ".v.json")
-    subprocess.run([V1, "--threads", THR, "-r", ref10(src), "-d", fifo, "--json",
-                    "-o", vj, "-q", "--feature", "psnr", "--model",
-                    f"path={MD}/{model}:name=v1:cambi.enc_bitdepth=8"],
-                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    dec.wait()
-    os.remove(fifo)
-    fr = json.load(open(vj))["frames"]
-    os.remove(vj)
+    sub = (MD + "_hfr", "vmaf_v1.0.16_hfr_") if fps >= 49.9 else (MD, "vmaf_v1.0.16_")
+    model = os.path.join(sub[0], sub[1] + ("1d5h_2160" if w * h >= UHD else "3d0h") + ".json")
+    fr = vmaf_pass(src, bs, frames, dm if dm == "fit" else "10", [
+        "--model", f"path={model}:name=v1:cambi.enc_bitdepth=8"
+        f":cambi.enc_width={w}:cambi.enc_height={h}"], CACHE, key + ".v1")
+    fp = vmaf_pass(src, bs, frames, None, ["--no_prediction", "--feature", "psnr"],
+                   CACHE, key + ".ps")
     keys = list(fr[0]["metrics"])
     cols = {}
     for f, short in FEATS:
@@ -125,9 +156,9 @@ def rung(src, enc, mode, q, env, flags, binh):
                        and "_u_" not in k and "_v_" not in k][0]
     out = {"cmd": cmd, "env": env, "bytes": os.path.getsize(bs),
            "kbps": os.path.getsize(bs) * 8 / 1000 / (len(fr) / fps),
-           "model": model, "frames": len(fr),
+           "model": model, "disp": dm, "frames": len(fr),
            "v1": sum(x["metrics"]["v1"] for x in fr) / len(fr),
-           "psnr_y": sum(x["metrics"]["psnr_y"] for x in fr) / len(fr),
+           "psnr_y": sum(x["metrics"]["psnr_y"] for x in fp) / len(fp),
            "feat": {s: [x["metrics"][c] for x in fr] for s, c in cols.items()},
            "v1pf": [x["metrics"]["v1"] for x in fr]}
     os.remove(bs)
@@ -137,7 +168,7 @@ def rung(src, enc, mode, q, env, flags, binh):
 
 def load_model(name):
     import numpy as np
-    m = json.load(open(os.path.join(MD, name)))["model_dict"]
+    m = json.load(open(os.path.join(MD, name)))["model_dict"]  # name may be absolute
     lines = m["model"].split("\n")
     gamma = float([l for l in lines if l.startswith("gamma")][0].split()[1])
     rho = float([l for l in lines if l.startswith("rho")][0].split()[1])
@@ -162,7 +193,8 @@ def predict(M, X):
     """The model's per-frame score from raw features (frames x 4), with
     the model's chroma-from-luma correction: a chroma feature of exactly 0
     is replaced by C * (1 - adm3). SpEED chroma reads 0 on small pictures
-    (every CIF frame), so there v1 sees chroma only through ADM3."""
+    (every CIF frame at its coded size), so there v1 sees chroma only
+    through ADM3. Scaled to the display it reads chroma again."""
     import numpy as np
     X = X.copy()
     z = X[:, 1] == 0.0
@@ -222,18 +254,19 @@ def main():
     ap.add_argument("--env", action="append", default=[])
     ap.add_argument("--vbr", action="store_true")
     ap.add_argument("--rungs", default="20,23,26,29,32")
+    ap.add_argument("--frames", type=int, default=None)
     o = ap.parse_args(a)
     env = dict(kv.split("=", 1) for kv in o.env)
     binh = sha(BIN)
     rungs = [int(x) for x in o.rungs.split(",")]
-    xc = [rung(o.src, "x265", "crf", q, {}, [], binh) for q in rungs]
+    xc = [rung(o.src, "x265", "crf", q, {}, [], binh, o.frames) for q in rungs]
     if o.vbr:
         rates = [int(round(r["kbps"])) for r in xc]
-        ref = [rung(o.src, "x265", "vbr", k, {}, [], binh) for k in rates]
-        ours = [rung(o.src, "ours", "vbr", k, env, flags, binh) for k in rates]
+        ref = [rung(o.src, "x265", "vbr", k, {}, [], binh, o.frames) for k in rates]
+        ours = [rung(o.src, "ours", "vbr", k, env, flags, binh, o.frames) for k in rates]
     else:
         ref = xc
-        ours = [rung(o.src, "ours", "crf", q, env, flags, binh) for q in rungs]
+        ours = [rung(o.src, "ours", "crf", q, env, flags, binh, o.frames) for q in rungs]
     R = lambda s: [r["kbps"] for r in s]
     M = lambda s, k: [r[k] for r in s]
     bv = bd_rate(R(ref), M(ref, "v1"), R(ours), M(ours, "v1"))
