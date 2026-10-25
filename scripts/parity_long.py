@@ -655,8 +655,12 @@ def has_gate(r, cell=None):
             return False
         if "v1_disp" in r:
             return True
-        return cell is not None and not v1_upscaled(info(cell)["w"],
-                                                    info(cell)["h"])
+        if cell is None:
+            return False
+        if "file" not in cell and cell.get("kind") != "y4m":
+            # the report's spec cells carry no source; the class says it
+            return cell.get("cls") in ("1080p", "2160p")
+        return not v1_upscaled(info(cell)["w"], info(cell)["h"])
     return r.get("neg") is not None
 
 
