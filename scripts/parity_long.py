@@ -114,6 +114,7 @@ V1_ON = os.environ.get("PL_V1", "1") == "1" and os.path.exists(V1_BIN)
 # scores VMAF-NEG v0.6.1, for comparison with rows measured before it
 V0_ON = os.environ.get("PL_V0", "0") == "1" or not V1_ON
 GATE = "v1" if V1_ON else "neg"
+MNAME = "VMAF v1" if GATE == "v1" else "VMAF-NEG"
 # both sides are 8-bit encodes scored at 10 bits; CAMBI must be told the
 # encode's depth or it reads the up-converted picture as a 10-bit encode
 V1_ENC_BITS = 8
@@ -999,23 +1000,24 @@ def do_point(cell, anchor, force=False, log=print):
             best = (best[0], best[1], abs(best[1] / target - 1))
     ours = measure(cell, "ours", "crf", best[0], stride=1, log=log)
     ds = (ours["bytes"] / target - 1) * 100
+    gs = lambda r: gate_score(r) if has_gate(r, cell) else None
     pt = {"tier": cell["tier"], "class": cell["cls"], "title": cell["title"],
           "anchor": anchor, "src": i["path"], "src_kind": i["src"],
           "src_bytes": os.path.getsize(i["path"]), "start": i["start"],
           "size": f"{i['w']}x{i['h']}", "frames": i["frames"],
           "fps": fps_of(i), "ref_crf": ref_crf, "ref_bytes": ref["bytes"],
-          "ref_md5": ref["md5"], "ref_vmafneg": ref.get("neg"),
+          "ref_md5": ref["md5"], "ref_vmafneg": gs(ref),
           "ref_psnr_y": ref.get("psnr_y"), "ours_crf": best[0],
           "ours_bytes": ours["bytes"], "ours_md5": ours["md5"],
-          "ours_vmafneg": ours.get("neg"), "ours_psnr_y": ours.get("psnr_y"),
+          "ours_vmafneg": gs(ours), "ours_psnr_y": ours.get("psnr_y"),
           "dsize_pct": round(ds, 3), "commit": ps.commit(), "bin": bh,
           "ref_bin": rh, "solved": now(), "solve_s": round(time.time() - t0, 1),
           "encodes": len(tried), "threads": THREADS,
           "ours_supp": supp_of(ours), "ref_supp": supp_of(ref),
-          "lookahead": f"ours {OUR_DEPTH} / x265 {REF_DEPTH}"}
+          "lookahead": f"ours {OUR_DEPTH} / x265 {REF_DEPTH}", "metric": GATE}
     jput(POINTS, k, pt)
-    log(f"  {k}: ours crf {best[0]} {ours['bytes']} B ({ds:+.2f}%)  dVMAF-NEG "
-        f"{(ours.get('neg') or 0) - (ref.get('neg') or 0):+.2f}  dPSNR-Y "
+    log(f"  {k}: ours crf {best[0]} {ours['bytes']} B ({ds:+.2f}%)  d{MNAME} "
+        f"{(gs(ours) or 0) - (gs(ref) or 0):+.2f}  dPSNR-Y "
         f"{ours['psnr_y'] - ref['psnr_y']:+.2f}  [{time.time() - t0:.0f} s]")
     return pt
 
@@ -1877,7 +1879,7 @@ def do_plan(args):
                       f"ladders (x265 {REF_DEPTH} throughout)")
             print(f"  ladders: CRF {', '.join(map(str, RUNGS))}; VBR at "
                   f"x265's rates there, maxrate {MAXR}x, buffer {BUFR}x; "
-                  f"VMAF-NEG every {'frame' if st == 1 else f'{st}rd frame'}")
+                  f"{MNAME} every {'frame' if st == 1 else f'{st}rd frame'}")
         print(line + "\n")
     # credits rows
     if "L" in tiers:
@@ -2215,14 +2217,14 @@ def write_full_report(date):
              "at the same file")
     L.append("size; below 1.00 we're faster. Pass = median <= 1.00 and worst "
              "<= 1.15, quality")
-    L.append('no worse than -0.5 VMAF-NEG. "-" = not measured yet.')
+    L.append(f'no worse than -0.5 {MNAME}. "-" = not measured yet.')
     L.append('A dagger (†) marks a figure that includes a cell timed in one '
              'run only; "void"')
     L.append("means every cell there was measured but failed a validity rule "
              "(see the last")
     L.append("section). Quality holds for a class and tier when the median "
-             "dVMAF-NEG is")
-    L.append("at least -0.5, no cell is more than 1.0 VMAF-NEG or 1.0 dB "
+             f"d{MNAME} is")
+    L.append(f"at least -0.5, no cell is more than 1.0 {MNAME} or 1.0 dB "
              "PSNR-Y behind,")
     L.append("and every cell's size is within 1%. Both encoders read the same "
              "8-bit")
@@ -2345,7 +2347,7 @@ def write_full_report(date):
     L.append("|---|---|---|---|---|---|")
     L += speed_lines
     L.append("")
-    L.append("## Quality at matched size (VMAF-NEG delta median / worst; "
+    L.append(f"## Quality at matched size ({MNAME} delta median / worst; "
              "PSNR-Y worst)")
     L.append("| class | tier | dVMAF | dPSNR-Y | worst cell | verdict |")
     L.append("|---|---|---|---|---|---|")
@@ -2453,7 +2455,7 @@ def write_full_report(date):
                 near.append(f"{cc['name']} {M_} {cv['bn']:+.2f}%")
             how = "every frame" if cv["stride"] == 1 else \
                 f"every {cv['stride']} frames"
-            parts.append(f"{M_} BD-VMAF-NEG {cv['bn']:+.2f}% (PSNR-Y "
+            parts.append(f"{M_} BD-{MNAME} {cv['bn']:+.2f}% (PSNR-Y "
                          f"{cv['bp']:+.2f}%; {cv['n']} rungs, {how})"
                          + ("  **OVER the +1.0% bar**" if over else "")
                          + ("" if cv["frames_ok"] else "  FRAME-MISMATCH"))
@@ -2467,7 +2469,7 @@ def write_full_report(date):
                        if bad else ""))
         bl.append(f"- {cc['name']} ({cc['tier']}): " + "; ".join(parts))
     L.append("")
-    L.append(f"## BD-rate from the ladders (bar: BD-VMAF-NEG <= "
+    L.append(f"## BD-rate from the ladders (bar: BD-{MNAME} <= "
              f"+{BD_BAR:.1f}%)")
     L.append(f"{landed} of {landed + len(pend)} cell-modes have a landed "
              f"curve; {landed - len(fails)} of those {landed} pass"
@@ -2479,7 +2481,7 @@ def write_full_report(date):
              f"encoders at {THREADS} threads (x265 --pools {THREADS} "
              f"--frame-threads 4), lookahead ours {OUR_DEPTH} / x265 "
              f"{REF_DEPTH}, negative = ours needs fewer bits. Only curves of "
-             "this binary count. VMAF-NEG on every frame on tier M, every 3rd "
+             f"this binary count. {MNAME} on every frame on tier M, every 3rd "
              "on tier L (an odd stride, coprime with both mini-GOP periods).")
     L += bl
     if tl:
@@ -2496,7 +2498,7 @@ def write_full_report(date):
 
     # sweep
     L.append("")
-    L.append("## Lookahead depth sweep (BD-VMAF-NEG against the reference)")
+    L.append(f"## Lookahead depth sweep (BD-{MNAME} against the reference)")
     L.append(f"Ours at --rc-lookahead {', '.join(map(str, SWEEP_DEPTHS))} "
              f"({OUR_DEPTH} is medium's own, the depth every other figure "
              f"uses); x265 at its default {REF_DEPTH} in every column. Same "
