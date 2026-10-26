@@ -2186,7 +2186,12 @@ def write_full_report(date):
             if r is None:
                 continue
             r = dict(r)
-            if g == "G3" and pt and not r.get("dvmafneg"):
+            # a point scored on the gate metric outranks a timed row's
+            # score, which may predate the metric switch
+            fresh = (pt and pt.get("ours_vmafneg") is not None
+                     and pt.get("ref_vmafneg") is not None)
+            if g == "G3" and fresh and (pt.get("metric") == GATE
+                                        or not r.get("dvmafneg")):
                 r.update(ours_vmafneg=ps.f2(pt["ours_vmafneg"]),
                          ref_vmafneg=ps.f2(pt["ref_vmafneg"]),
                          dvmafneg=ps.f2(pt["ours_vmafneg"] - pt["ref_vmafneg"]),
