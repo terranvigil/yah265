@@ -7,8 +7,9 @@ One cell is one clip (or segment) at one size. For every cell the
 reference, x265 4.3+1 at `--preset medium`, runs at its DEFAULT rate
 factor (CRF 28), and ours at `--preset medium` (our default, so no flag)
 is solved onto the reference's file size within +/-1%: integer CRF first,
-then fractional `--crf`. Both bitstreams are scored with VMAF-NEG on
-every frame and PSNR-Y. Three goals:
+then fractional `--crf`. Both bitstreams are scored with parity_long's
+scorer on every frame: VMAF v1 (the gate, stored in the spec's vmafneg
+columns and named by the point's `metric`), PSNR-Y and SSIM. Three goals:
 
     G1  pure C, one thread     ours N265_ASM_OFF=all --threads 1
                                x265 --no-asm --pools none --frame-threads 1
@@ -321,59 +322,38 @@ def solve_ours(tmpl, src, target, out, log):
     return q, size_at(q)
 
 
-def score(tmpl, q, src, out, work):
-    v = bdr.vmaf_cached(tmpl, _fmt_q(q), src, out, work)
-    if not v or "VMAF-NEG" not in v:
-        return None, None
-    return v["VMAF-NEG"], v.get(bd.LUMA_KEY)
+def _pl():
+    # imported late: parity_long imports this module at its own top
+    import parity_long
+    return parity_long
 
 
-def supp_of(out, src, work, frames, fps):
-    """Spec 5.2a, off ONE libvmaf run with per-frame output (the same two
-    models, v0.6.1 and v0.6.1neg, as the pooled score) plus the memo's
-    plane PSNRs and one ffmpeg ssim pass:
+def pl_cell(c):
+    return _pl()._mk(c[0], c[1], c[2], c[1], kind="y4m", spec_cell=c)
 
-      vmafneg_hmean    libvmaf's harmonic mean, n / sum(1/(x+1)) - 1
-      vmafneg_min      the worst frame
-      vmafneg_low1     the mean of the worst ceil(1%) of frames
-      vmafneg_first1s  the mean of the first round(fps) frames
-      vmaf             plain VMAF v0.6.1, pooled mean
-      psnr_yuv611      (6 Y + U + V) / 8 of the per-plane PSNRs, dB
-      ssim_yuv611      (6 Y + U + V) / 8 of the per-plane SSIMs, ratio
-      frames           frames libvmaf read off the decode; frames_ok is
-                       whether that is every frame of the source"""
-    # plain VMAF is OPTIONAL in 5.2a (publication passes only): a second
-    # model costs about 80% more scoring CPU, so by default the run
-    # carries the NEG model alone and the column stays empty
-    saved = bd._vmaf_models()
-    if not PLAIN_VMAF:
-        bd._MODELS = ("--model version=vmaf_v0.6.1neg:name=vmaf_neg",
-                      "vmaf_neg", "VMAF-NEG")
-    try:
-        v = bd.vmaf_of(out, src, work, per_frame=True)
-    finally:
-        bd._MODELS = saved
-    if not v or not v.get("frames"):
-        return {"frames": 0, "frames_ok": False}
-    f = v["frames"]
-    n = len(f)
-    worst = sorted(f)
-    d = {"frames": n, "frames_ok": n == frames,
-         "vmafneg_hmean": n / sum(1.0 / (x + 1.0) for x in f) - 1.0,
-         "vmafneg_min": worst[0],
-         "vmafneg_low1": statistics.mean(worst[:max(1, math.ceil(n / 100))]),
-         "vmafneg_first1s": statistics.mean(f[:max(1, round(fps))]),
-         "vmaf": v.get("VMAF") if PLAIN_VMAF else None}
-    # ffmpeg's filters run with shortest=1 (bdcompare), so a short decode
-    # is never padded by a repeated last frame; the count above is
-    # libvmaf's own
-    y, u, cr = bd.planes_psnr_of(out, src)
-    if None not in (y, u, cr):
-        d["psnr_yuv611"] = (6 * y + u + cr) / 8.0
-    sy, su, sv, _ = bd.planes_ssim_of(out, src)
-    if None not in (sy, su, sv):
-        d["ssim_yuv611"] = (6 * sy + su + sv) / 8.0
-    return d
+
+def gate_supp(r):
+    """Spec 5.2a off a parity_long score record. Under v1 the hmean and
+    min columns are the gate model's pooled ones; its pass keeps no
+    per-frame scores, so low1 and first1s stay empty."""
+    pl = _pl()
+    s = pl.supp_of(r)
+    if pl.GATE == "v1" and "v1_gate" in r:
+        g = r["v1_gate"]
+        s.update(vmafneg_hmean=r.get(f"v1_{g}_hmean"),
+                 vmafneg_min=r.get(f"v1_{g}_min"))
+    return s
+
+
+def score(c, out, work):
+    """(gate score, PSNR-Y, 5.2a columns) of a bitstream, by parity_long's
+    scorer: VMAF v1 (or VMAF-NEG where v1 is off), PSNR and SSIM. The gate
+    score lands in the spec's vmafneg columns, named by the point's
+    `metric`."""
+    pl = _pl()
+    r = pl.score(pl_cell(c), out, work)
+    g = pl.gate_score(r) if pl.has_gate(r) else None
+    return g, r.get("psnr_y"), gate_supp(r)
 
 
 def ensure_local_s(cells):
@@ -398,12 +378,8 @@ def load_points():
         return {}
 
 
-def save_points(pts):
-    tmp = POINTS + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(pts, f, indent=1, sort_keys=True)
-        f.write("\n")
-    os.replace(tmp, POINTS)
+def put_point(k, pt):
+    _pl().jput(POINTS, k, pt)
 
 
 def shim_ffmpeg(threads):
@@ -446,31 +422,46 @@ def rebind(k, pt, c):
     return same
 
 
-def add_supp(k, pt, src, frames, fps, log):
-    """The 5.2a columns for both arms of a solved point. The bitstreams
-    come back out of bd_at_rate's encode memo (a copy, no encode)."""
-    work = tempfile.mkdtemp(prefix="supp.", dir=WORK)
+def rescore(k, pt, c, log):
+    """A point scored on an older metric takes the gate one without a
+    re-solve. Both bitstreams come back at the solved crf (bd_at_rate's
+    memo, or an encode) and must be the solved md5. Only the gate pass
+    runs: PSNR and SSIM of the same bytes are kept."""
+    pl = _pl()
+    cell = pl_cell(c)
+    n = pl.info(cell)["frames"]
+    work = tempfile.mkdtemp(prefix="rescore.", dir=WORK)
+    rec = {}
     try:
         for arm, tmpl, q in (
                 ("ref", ref_tmpl(pt["anchor"], SOLVE_THREADS), pt["ref_crf"]),
                 ("ours", our_tmpl(SOLVE_THREADS), pt["ours_crf"])):
             out = os.path.join(work, arm + ".hevc")
-            bdr.enc(tmpl, _fmt_q(q), src, out)
-            if md5_of(out) != pt[f"{arm}_md5"] and arm == "ours":
-                log(f"  {k}: {arm} bitstream differs from the solved one")
-            pt[f"{arm}_supp"] = supp_of(out, src, work, frames, fps)
-            s = pt[f"{arm}_supp"]
-            vm = "-" if s.get("vmaf") is None else f"{s['vmaf']:.2f}"
-            log(f"      {arm:<4} supp: frames {s['frames']}/{frames} "
-                f"hmean {s.get('vmafneg_hmean', 0):.2f} "
-                f"min {s.get('vmafneg_min', 0):.2f} "
-                f"low1 {s.get('vmafneg_low1', 0):.2f} "
-                f"first1s {s.get('vmafneg_first1s', 0):.2f} "
-                f"VMAF {vm} "
-                f"PSNR611 {s.get('psnr_yuv611', 0):.2f} "
-                f"SSIM611 {s.get('ssim_yuv611', 0):.4f}")
+            bdr.enc(tmpl, _fmt_q(q), src_of(c), out)
+            m = md5_of(out) if os.path.exists(out) else None
+            if m != pt[f"{arm}_md5"]:
+                sys.exit(f"parity_spec.py: {k}: {arm} at crf {_fmt_q(q)} "
+                         f"writes {m}, the solved point has "
+                         f"{pt[f'{arm}_md5']}; not rescored")
+            rec[arm] = pl.score_v1(cell, out, work, 0, n, 1)
     finally:
-        subprocess.run(["rm", "-rf", work])
+        shutil.rmtree(work, ignore_errors=True)
+    for arm, r in rec.items():
+        pt.setdefault(f"{arm}_neg", pt[f"{arm}_vmafneg"])
+        pt[f"{arm}_vmafneg"] = pl.gate_score(r)
+        s = pt.setdefault(f"{arm}_supp", {})
+        g = r["v1_gate"]
+        s.update(vmafneg_hmean=r.get(f"v1_{g}_hmean"),
+                 vmafneg_min=r.get(f"v1_{g}_min"),
+                 vmafneg_low1=None, vmafneg_first1s=None, vmaf=None)
+        s["frames_ok"] = s.get("frames_ok", True) and r["v1_frames"] == n
+    pt["metric"] = pl.GATE
+    pt["rescored"] = datetime.datetime.now().isoformat(timespec="seconds")
+    put_point(k, pt)
+    log(f"  {k}: rescored {pl.MNAME} ours {pt['ours_vmafneg']:.2f} x265 "
+        f"{pt['ref_vmafneg']:.2f} "
+        f"(d {pt['ours_vmafneg'] - pt['ref_vmafneg']:+.2f}; "
+        f"NEG d {pt['ours_neg'] - pt['ref_neg']:+.2f})")
 
 
 def do_solve(args):
@@ -503,11 +494,12 @@ def do_solve(args):
                     and old.get("src_bytes") == os.path.getsize(src)):
                 log(f"  {k}: solved already (crf {old['ours_crf']}, "
                     f"{old['dsize_pct']:+.2f}%)")
-                if ("ours_supp" not in old or "ref_supp" not in old
-                        or (PLAIN_VMAF and old["ours_supp"].get("vmaf")
-                            is None)):
-                    add_supp(k, old, src, frames, fps, log)
-                    save_points(pts)
+                if old.get("metric", "neg") != _pl().GATE:
+                    if _pl().GATE != "v1":
+                        sys.exit(f"parity_spec.py: {k} holds "
+                                 f"{old.get('metric', 'neg')} scores and "
+                                 "v1 is off; nothing to rescore with")
+                    rescore(k, old, c, log)
                 continue
             t0 = time.time()
             work = tempfile.mkdtemp(prefix="spec.", dir=WORK)
@@ -520,35 +512,36 @@ def do_solve(args):
                 log(f"  {k}: reference encode FAILED")
                 continue
             rmd5 = md5_of(ro)
-            rneg, rpsnr = score(rt, REF_CRF, src, ro, work)
-            log(f"      x265 crf {REF_CRF} -> {rb} B  NEG {rneg}  "
+            rg, rpsnr, rsupp = score(c, ro, work)
+            log(f"      x265 crf {REF_CRF} -> {rb} B  {_pl().MNAME} {rg}  "
                 f"PSNR-Y {rpsnr}")
             ot = our_tmpl(SOLVE_THREADS)
             oo = os.path.join(work, "ours.hevc")
             q, ob = solve_ours(ot, src, rb, oo, log)
             bdr.enc(ot, _fmt_q(q), src, oo)
             omd5 = md5_of(oo)
-            oneg, opsnr = score(ot, q, src, oo, work)
+            og, opsnr, osupp = score(c, oo, work)
             ds = (ob / rb - 1) * 100
             pts[k] = {
                 "tier": c[0], "class": c[1], "title": c[2], "anchor": an,
                 "src": src, "src_bytes": os.path.getsize(src),
                 "size": f"{w}x{h}", "frames": frames, "fps": fps,
                 "ref_crf": REF_CRF, "ref_bytes": rb, "ref_md5": rmd5,
-                "ref_vmafneg": rneg, "ref_psnr_y": rpsnr,
+                "ref_vmafneg": rg, "ref_psnr_y": rpsnr,
                 "ours_crf": q, "ours_bytes": ob, "ours_md5": omd5,
-                "ours_vmafneg": oneg, "ours_psnr_y": opsnr,
+                "ours_vmafneg": og, "ours_psnr_y": opsnr,
                 "dsize_pct": round(ds, 3), "commit": cm, "bin": bh,
                 "solved": datetime.datetime.now().isoformat(
                     timespec="seconds"),
                 "solve_s": round(time.time() - t0, 1),
+                "ref_supp": rsupp, "ours_supp": osupp,
+                "metric": _pl().GATE,
             }
-            add_supp(k, pts[k], src, frames, fps, log)
-            save_points(pts)
-            dv = (oneg - rneg) if None not in (oneg, rneg) else None
+            put_point(k, pts[k])
+            dv = (og - rg) if None not in (og, rg) else None
             dp = (opsnr - rpsnr) if None not in (opsnr, rpsnr) else None
             log(f"  {k}: ours crf {_fmt_q(q)} {ob} B ({ds:+.2f}%)  "
-                f"dVMAF-NEG {dv:+.2f}  dPSNR-Y {dp:+.2f}  "
+                f"d{_pl().MNAME} {dv:+.2f}  dPSNR-Y {dp:+.2f}  "
                 f"[{time.time() - t0:.0f} s]" if dv is not None and
                 dp is not None else f"  {k}: scoring FAILED")
             subprocess.run(["rm", "-rf", work])
