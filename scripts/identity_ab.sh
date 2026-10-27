@@ -102,11 +102,12 @@ profile() {
         item50)       echo "|N265_VBR_DEFPT=0";;   # item 50, capped VBR: a deep deficit takes the 1000-frame operating point
         item51)       echo "|N265_CDZ=0 N265_CBQPOFFS=0 N265_CRQPOFFS=0";;   # item 51, medium from 720p up: inter chroma rounds at 1/3, chroma QP offsets -1
         item52)       echo "|N265_CDZ=0 N265_CBQPOFFS=0 N265_CRQPOFFS=0";;   # item 52, medium below 720p takes item 51's pair (the CIF matrix's escape; at 720p it is N265_CBQPOFFS=-1 N265_CRQPOFFS=-1)
+        item53)       echo "|N265_PSY_DARK=0";;   # item 53, medium: psy on dark, smooth blocks (2 at 720p, 4 at HD and UHD, none below 720p)
         asmoff)       echo "|N265_ASM_OFF=all";;
         *) return 1;;
     esac
 }
-PROFILE_NAMES="info fingerprint weightp stream ship item22 item23 item24 item25 item25sched item26 item28 item29 item29s2 item30 vbrspeed item33 item35 item36 item37 item38 item40 item41 item43 item44 item46 item47 item48 item49 item50 item51 item52 asmoff"
+PROFILE_NAMES="info fingerprint weightp stream ship item22 item23 item24 item25 item25sched item26 item28 item29 item29s2 item30 vbrspeed item33 item35 item36 item37 item38 item40 item41 item43 item44 item46 item47 item48 item49 item50 item51 item52 item53 asmoff"
 
 # ---------------------------------------------------------------- one cell
 # Called back through xargs: identity_ab.sh --cell WORK LINE

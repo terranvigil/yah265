@@ -1425,6 +1425,10 @@ static void fw_config(n265_encoder *e, n265_frame_work *fw)
     fw->hrd_cpb_size_scale = e->hrd_cpb_size_scale;
     fw->hrd_cpb_size_value = e->hrd_cpb_size_value;
     fw->psy = e->psy;
+    fw->dark_psy = e->dark_psy;
+    fw->dark_qhi = e->dark_qhi;
+    fw->dark_qw = e->dark_qw;
+    fw->dark_cols = (e->pad_w + 15) >> 4;
     fw->dbf_beta = e->dbf_beta;
     fw->dbf_tc = e->dbf_tc;
     /* the two PPS weighting flags, copied like every other config
@@ -1494,6 +1498,12 @@ static int fw_open(n265_encoder *e, n265_frame_work *fw)
     fw->blk_qp = calloc(nblk, 1);
     fw->ctu_qp_off = calloc(nctu, 1);
     fw->ctu_qp_raw = calloc(nctu, sizeof(float));
+    if (e->dark_psy > 0.0) {
+        fw->dark_w = calloc((size_t)fw->dark_cols * ((e->pad_h + 15) >> 4),
+                            sizeof(float));
+        if (!fw->dark_w)
+            return -1;
+    }
     fw->ctu_lam_q8 = calloc(nctu, sizeof(uint16_t));
     fw->sao = calloc(nctu, sizeof(sao_params));
     fw->brk_cw = calloc(nctu, sizeof(float));
@@ -1580,6 +1590,7 @@ static void fw_close(n265_frame_work *fw)
     free(fw->blk_qp);
     free(fw->ctu_qp_off);
     free(fw->ctu_qp_raw);
+    free(fw->dark_w);
     free(fw->ctu_lam_q8);
     free(fw->brk_cw);
     free(fw->brk_ca);
@@ -1991,6 +2002,26 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     { const char *v = n265_env("N265_RDOQ"); e->rdoq = v ? atoi(v) : 1;
       if (g_rdoq_level >= 0) e->rdoq = rdoq_level_map(g_rdoq_level); }
     { const char *v = n265_env("N265_PSY"); e->psy = v ? atof(v) : 0.0; }
+    /* N265_PSY_DARK (phase 14 item 53; yah264's dark-block psy, refit
+     * here). VMAF v1 reads banding through CAMBI, and dark gradients and
+     * faint dark grain are where it shows first: at medium the psy term
+     * is off, so the RD decision codes that grain to a flat block, and
+     * flat blocks meet at a step. A 16x16 luma block counts as dark and
+     * smooth by two linear ramps on the 8-bit scale: its mean (whole at
+     * N265_PSY_DARK_M / 2 and below, none at N265_PSY_DARK_M) and its
+     * variance (whole at a quarter of N265_PSY_DARK_V, none at it). On
+     * those blocks the psy strength rises by N265_PSY_DARK times the
+     * two weights, so a reconstruction that sheds the grain pays for
+     * it. The rise fades with the CTU's QP, whole up to N265_PSY_DARK_QHI
+     * - N265_PSY_DARK_QW and none from N265_PSY_DARK_QHI: at QP 46 the
+     * bits it keeps in dark blocks are taken from detail the metric
+     * reads (nocturne 720p, a 30 s window at 584 kbit/s: -1.7 v1
+     * unfaded, level faded). 0 is off, the compiled-in default. */
+    { const char *v = n265_env("N265_PSY_DARK"); e->dark_psy = v ? atof(v) : 0.0; }
+    { const char *v = n265_env("N265_PSY_DARK_QHI"); e->dark_qhi = v ? atof(v) : 40.0; }
+    { const char *v = n265_env("N265_PSY_DARK_QW"); e->dark_qw = v ? atof(v) : 12.0; }
+    { const char *v = n265_env("N265_PSY_DARK_M"); e->dark_m = v ? atof(v) : 64.0; }
+    { const char *v = n265_env("N265_PSY_DARK_V"); e->dark_v = v ? atof(v) : 16.0; }
     e->aq = g_aq || n265_env("N265_AQ") != NULL;      /* variance AQ */
     e->la_depth = e->mode == N265_MODE_PCM || !e->bframes ? g_la_depth
                                                           : g_la_depth;
@@ -2027,6 +2058,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         e->crf_on = 0;
         e->rdoq = 0;
         e->psy = 0.0;
+        e->dark_psy = 0.0;
         e->aq = 0;
         e->cutree = 0;
     }
@@ -5761,6 +5793,40 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
         if (!e->cutree) {
             memset(fw->ctu_qp_off, 0, (size_t)fw->ctb_cols * fw->ctb_rows);
             memset(fw->ctu_qp_raw, 0, (size_t)fw->ctb_cols * fw->ctb_rows * sizeof(float));
+        }
+        /* the dark-block map (phase 14 item 53, see n265_encoder_open):
+         * per 16x16 luma block, the dark weight times the smooth weight.
+         * Read off the source on the driver thread before the frame is
+         * launched, so the frame's decisions stay frozen. */
+        if (fw->dark_w) {
+            int dc = fw->dark_cols, dr = (fw->pad_h + 15) >> 4;
+            double sc = (double)(1 << BIT_DEPTH_SHIFT);
+            double ml = e->dark_m, vl = e->dark_v;
+            for (int by = 0; by < dr; by++)
+                for (int bx = 0; bx < dc; bx++) {
+                    int x0 = bx * 16, y0 = by * 16;
+                    int w = x0 + 16 > fw->pad_w ? fw->pad_w - x0 : 16;
+                    int h = y0 + 16 > fw->pad_h ? fw->pad_h - y0 : 16;
+                    int64_t s1 = 0, s2 = 0;
+                    for (int y = y0; y < y0 + h; y++) {
+                        const pixel *p = fw->pad_plane[0] +
+                                         (size_t)y * fw->pad_stride[0];
+                        for (int x = x0; x < x0 + w; x++) {
+                            s1 += p[x];
+                            s2 += p[x] * p[x];
+                        }
+                    }
+                    double np = (double)(w * h);
+                    double m = (double)s1 / np;
+                    double v = (double)s2 / np - m * m;
+                    m /= sc;
+                    v /= sc * sc;
+                    double dw = (ml - m) / (0.5 * ml);
+                    double sw = (vl - (v > 0.0 ? v : 0.0)) / (0.75 * vl);
+                    dw = dw < 0.0 ? 0.0 : dw > 1.0 ? 1.0 : dw;
+                    sw = sw < 0.0 ? 0.0 : sw > 1.0 ? 1.0 : sw;
+                    fw->dark_w[by * dc + bx] = (float)(dw * sw);
+                }
         }
         if (e->aq && n265_env("N265_AQ_FLAT"))
             memset(fw->ctu_qp_off, (uint8_t)atoi(n265_env("N265_AQ_FLAT")),

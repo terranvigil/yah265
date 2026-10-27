@@ -580,6 +580,11 @@ typedef struct n265_frame_work {
     int tid;                /* this picture's TemporalId (0, or 1 on a
                              * non-reference B leaf under the flag)     */
     double psy;             /* N265_PSY: psychovisual energy strength */
+    double dark_psy;        /* N265_PSY_DARK: psy added on dark, smooth blocks */
+    double dark_qhi, dark_qw;   /* ...fading to none at QP dark_qhi over dark_qw */
+    float *dark_w;          /* per 16x16 luma block: dark x smooth weight in
+                             * [0, 1], or NULL when no dark term is on */
+    int dark_cols;          /* the map's stride, in 16x16 blocks */
     int dbf_beta, dbf_tc;   /* slice_beta/tc_offset_div2, see n265_encoder */
     /* --cbqpoffs / --crqpoffs: pps_cb_qp_offset / pps_cr_qp_offset, the
      * PPS half of the chroma quantiser's offset. See n265_encoder. */
@@ -1471,6 +1476,9 @@ struct n265_encoder {
     int aq;                 /* adaptive quantization on/off            */
     int rdoq;
     double psy;
+    /* N265_PSY_DARK (phase 14 item 53): the strength, its QP fade and
+     * the two ramps that say which blocks are dark and smooth */
+    double dark_psy, dark_qhi, dark_qw, dark_m, dark_v;
     int keyint;
     int bframes;
     int scenecut;
@@ -2322,6 +2330,41 @@ void n265_write_pred_weight_table(bitstream_t *bs,
 static inline int n265_wp_denom(const struct n265_frame_work *fw, int c_idx)
 {
     return c_idx ? fw->wp_cdenom : fw->wp_ldenom;
+}
+
+/* the mean dark weight (phase 14 item 53) over the 16x16 blocks an n x n
+ * luma area at (x0, y0) touches; 0 without the map */
+static inline double n265_dark_mean(const struct n265_frame_work *fw, int x0,
+                                    int y0, int n)
+{
+    if (!fw->dark_w)
+        return 0.0;
+    int bx0 = x0 >> 4, by0 = y0 >> 4;
+    int bx1 = (x0 + n - 1) >> 4, by1 = (y0 + n - 1) >> 4;
+    int bc = fw->dark_cols, br = (fw->pad_h + 15) >> 4;
+    if (bx1 >= bc) bx1 = bc - 1;
+    if (by1 >= br) by1 = br - 1;
+    double s = 0.0;
+    int k = 0;
+    for (int by = by0; by <= by1; by++)
+        for (int bx = bx0; bx <= bx1; bx++, k++)
+            s += fw->dark_w[by * bc + bx];
+    return k ? s / k : 0.0;
+}
+
+/* the psy strength the dark term adds on an n x n luma area at (x0, y0),
+ * at the CTU's QP: whole up to dark_qhi - dark_qw, none from dark_qhi */
+static inline double n265_dark_psy(const struct n265_frame_work *fw, int x0,
+                                   int y0, int n)
+{
+    double f = fw->dark_qw > 0.0
+                   ? (fw->dark_qhi - (double)fw->cur_ctu_qp) / fw->dark_qw
+                   : 1.0;
+    if (f <= 0.0)
+        return 0.0;
+    if (f > 1.0)
+        f = 1.0;
+    return fw->dark_psy * f * n265_dark_mean(fw, x0, y0, n);
 }
 
 #endif
