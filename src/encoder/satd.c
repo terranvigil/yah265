@@ -258,6 +258,32 @@ uint64_t n265_ssd_wh(const pixel *a, int as, const pixel *b, int bs,
     return n265_ssd_wh_c(a, as, b, bs, w, h);
 }
 
+__attribute__((noinline))
+uint32_t n265_sum_sq_wh_c(const pixel *p, int stride, int w, int h,
+                          uint64_t *sq)
+{
+    uint32_t s1 = 0;
+    uint64_t s2 = 0;
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++) {
+            int v = p[(size_t)y * stride + x];
+            s1 += (uint32_t)v;
+            s2 += (uint64_t)(v * v);
+        }
+    *sq = s2;
+    return s1;
+}
+
+uint32_t n265_sum_sq_wh(const pixel *p, int stride, int w, int h,
+                        uint64_t *sq)
+{
+#if N265_NEON_SATD
+    if (w == 16 && h <= 16 && n265_asm_on(N265_ASM_SATD))
+        return n265_sum_sq16_neon(p, stride, h, sq);
+#endif
+    return n265_sum_sq_wh_c(p, stride, w, h, sq);
+}
+
 /* ---- per-row and per-column SAD --------------------------------------
  *
  * ctu.c's rect_proxy ranks the two rectangular splits off the 2Nx2N

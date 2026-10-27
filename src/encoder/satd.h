@@ -57,6 +57,12 @@ uint32_t n265_sad_wh_c(const pixel *a, int as, const pixel *b, int bs,
 uint64_t n265_ssd_wh_c(const pixel *a, int as, const pixel *b, int bs,
                        int w, int h);
 
+/* the sum of the samples of a w x h block, and their squares in *sq */
+uint32_t n265_sum_sq_wh(const pixel *p, int stride, int w, int h,
+                        uint64_t *sq);
+uint32_t n265_sum_sq_wh_c(const pixel *p, int stride, int w, int h,
+                          uint64_t *sq);
+
 /* Per-row and per-column sums of |a - b| over an n x n block: row[y] is
  * the SAD of row y, col[x] the SAD of column x, and both arrays are n
  * long. ctu.c's rect_proxy is the only caller; it passes n = 8, 16, 32.

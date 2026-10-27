@@ -163,6 +163,12 @@ uint64_t n265_ssd_wh_neon(const pixel *a, int as, const pixel *b,
 void n265_sad_rowcol_neon(const pixel *a, int as, const pixel *b,
                           int bs, int n, uint32_t *row, uint32_t *col);
 
+/* n265_psy_energy: the 4x4 Hadamard AC energy of an n x n block */
+uint32_t n265_psy_energy_neon(const pixel *p, int stride, int n);
+
+/* n265_sum_sq_wh at w = 16, h <= 16 */
+uint32_t n265_sum_sq16_neon(const pixel *p, int stride, int h, uint64_t *sq);
+
 #if BIT_DEPTH == 8 && defined(__ARM_FEATURE_DOTPROD)
 /* The FEAT_DotProd arm of n265_ssd_wh_neon, which selects it at runtime
  * on N265_CPU_DOTPROD (udot of a difference with itself is the sum of

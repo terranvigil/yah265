@@ -5807,15 +5807,10 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                     int x0 = bx * 16, y0 = by * 16;
                     int w = x0 + 16 > fw->pad_w ? fw->pad_w - x0 : 16;
                     int h = y0 + 16 > fw->pad_h ? fw->pad_h - y0 : 16;
-                    int64_t s1 = 0, s2 = 0;
-                    for (int y = y0; y < y0 + h; y++) {
-                        const pixel *p = fw->pad_plane[0] +
-                                         (size_t)y * fw->pad_stride[0];
-                        for (int x = x0; x < x0 + w; x++) {
-                            s1 += p[x];
-                            s2 += p[x] * p[x];
-                        }
-                    }
+                    uint64_t s2;
+                    uint32_t s1 = n265_sum_sq_wh(
+                        fw->pad_plane[0] + (size_t)y0 * fw->pad_stride[0] + x0,
+                        fw->pad_stride[0], w, h, &s2);
                     double np = (double)(w * h);
                     double m = (double)s1 / np;
                     double v = (double)s2 / np - m * m;
