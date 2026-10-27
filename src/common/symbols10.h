@@ -196,6 +196,9 @@
 #define n265_preset_selected         n265_preset_selected_10
 #define n265_psy_cost                n265_psy_cost_10
 #define n265_psy_energy              n265_psy_energy_10
+#define n265_psy_energy_c            n265_psy_energy_c_10
+#define n265_psy_energy_neon         n265_psy_energy_neon_10
+#define n265_psy_scale               n265_psy_scale_10
 #define n265_qpfile_at               n265_qpfile_at_10
 #define n265_qpfile_free             n265_qpfile_free_10
 #define n265_qpfile_parse            n265_qpfile_parse_10
@@ -269,6 +272,9 @@
 #define n265_sao_warm                n265_sao_warm_10
 #define n265_sao_write               n265_sao_write_10
 #define n265_satd                    n265_satd_10
+#define n265_sum_sq_wh               n265_sum_sq_wh_10
+#define n265_sum_sq_wh_c             n265_sum_sq_wh_c_10
+#define n265_sum_sq16_neon           n265_sum_sq16_neon_10
 #define n265_satd_warm               n265_satd_warm_10
 #define n265_satd_wh                 n265_satd_wh_10
 #define n265_satd_wh_c               n265_satd_wh_c_10

@@ -17,6 +17,7 @@
 #include "checkasm.h"
 
 #include "common/cpu.h"
+#include "encoder/psy.h"
 #include "encoder/satd.h"
 #include "encoder/arm/neon.h"   /* self-guarded; the family kernels land here */
 
@@ -864,6 +865,95 @@ static void bench_rowcol(void)
     }
 }
 
+/* ---- psy energy and the 16-wide sample sums ---------------------------
+ *
+ * Both read one plane, so fill_pair's `a` is the input; kinds 1 and 4
+ * put every sample at a clip end, which is the range edge for both. */
+static int check_psy_sums(void)
+{
+    int bad = 0;
+#if N265_NEON_SATD
+    static const int psy_n[] = { 4, 8, 16, 32, 64 };
+
+    for (int i = 0; i < 5 && !bad; i++) {
+        int n = psy_n[i];
+        for (int is = 0; is < 2 && !bad; is++) {
+            int st = is ? n + 5 : n;
+            size_t bytes = (size_t)st * n * sizeof(pixel);
+            pixel *a = ca_guard_alloc(bytes);
+            pixel *b = ca_guard_alloc(bytes);
+            char what[48];
+
+            snprintf(what, sizeof(what), "psy energy %dx%d s%d", n, n, is);
+            for (int kind = 0; kind < NKIND && !bad; kind++)
+                for (int rep = 0; rep < 16 && !bad; rep++) {
+                    memset(a, CA_POISON, bytes);
+                    fill_pair(a, st, b, st, n, n, kind);
+                    ca_guard_poison(a, bytes);
+                    uint32_t r = n265_psy_energy_c(a, st, n);
+                    uint32_t o = n265_psy_energy_neon(a, st, n);
+                    if (r != o) {
+                        printf("    %s MISMATCH kind %d: ref %u neon %u\n",
+                               what, kind, r, o);
+                        bad++;
+                        break;
+                    }
+                    bad += ca_guard_check(a, bytes, what);
+                    ca_guard_scramble(a, bytes);
+                    scramble_pad(a, st, n, n);
+                    if (!bad && n265_psy_energy_neon(a, st, n) != o) {
+                        printf("    %s: result depends on bytes OUTSIDE "
+                               "the block (kind %d)\n", what, kind);
+                        bad++;
+                    }
+                }
+            ca_guard_free(a);
+            ca_guard_free(b);
+        }
+    }
+    for (int h = 1; h <= 16 && !bad; h++) {
+        for (int is = 0; is < 2 && !bad; is++) {
+            int st = is ? 16 + 5 : 16;
+            size_t bytes = (size_t)st * h * sizeof(pixel);
+            pixel *a = ca_guard_alloc(bytes);
+            pixel *b = ca_guard_alloc(bytes);
+            char what[48];
+
+            snprintf(what, sizeof(what), "sum_sq 16x%d s%d", h, is);
+            for (int kind = 0; kind < NKIND && !bad; kind++)
+                for (int rep = 0; rep < 16 && !bad; rep++) {
+                    uint64_t rq, oq, oq2;
+                    memset(a, CA_POISON, bytes);
+                    fill_pair(a, st, b, st, 16, h, kind);
+                    ca_guard_poison(a, bytes);
+                    uint32_t r = n265_sum_sq_wh_c(a, st, 16, h, &rq);
+                    uint32_t o = n265_sum_sq16_neon(a, st, h, &oq);
+                    if (r != o || rq != oq) {
+                        printf("    %s MISMATCH kind %d: ref %u/%llu neon "
+                               "%u/%llu\n", what, kind, r,
+                               (unsigned long long)rq, o,
+                               (unsigned long long)oq);
+                        bad++;
+                        break;
+                    }
+                    bad += ca_guard_check(a, bytes, what);
+                    ca_guard_scramble(a, bytes);
+                    scramble_pad(a, st, 16, h);
+                    if (!bad && (n265_sum_sq16_neon(a, st, h, &oq2) != o ||
+                                 oq2 != oq)) {
+                        printf("    %s: result depends on bytes OUTSIDE "
+                               "the block (kind %d)\n", what, kind);
+                        bad++;
+                    }
+                }
+            ca_guard_free(a);
+            ca_guard_free(b);
+        }
+    }
+#endif
+    return bad;
+}
+
 int check_satd(void)
 {
     int bad;
@@ -896,6 +986,9 @@ int check_satd(void)
     if (bad)
         return bad;
     bad = check_ssd_extreme();
+    if (bad)
+        return bad;
+    bad = check_psy_sums();
     if (bad)
         return bad;
     bench_satd();

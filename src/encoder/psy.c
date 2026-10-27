@@ -16,7 +16,10 @@
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 #include <stdlib.h>
+
+#include "common/cpu.h"
 #include "encoder/psy.h"
+#include "encoder/arm/neon.h"   /* self-guarded */
 
 static uint32_t hadamard4_ac(const pixel *p, int stride)
 {
@@ -37,7 +40,7 @@ static uint32_t hadamard4_ac(const pixel *p, int stride)
     return sum;
 }
 
-uint32_t n265_psy_energy(const pixel *p, int stride, int n)
+uint32_t n265_psy_energy_c(const pixel *p, int stride, int n)
 {
     uint32_t e = 0;
     for (int y = 0; y < n; y += 4)
@@ -46,13 +49,28 @@ uint32_t n265_psy_energy(const pixel *p, int stride, int n)
     return e;
 }
 
+uint32_t n265_psy_energy(const pixel *p, int stride, int n)
+{
+#if N265_NEON_SATD
+    if (n265_asm_on(N265_ASM_SATD))
+        return n265_psy_energy_neon(p, stride, n);
+#endif
+    return n265_psy_energy_c(p, stride, n);
+}
+
 uint64_t n265_psy_cost(const pixel *src, int src_stride, const pixel *rec,
                        int rec_stride, int n, uint32_t lam_q8, double strength)
 {
     if (strength <= 0.0)
         return 0;
-    uint32_t es = n265_psy_energy(src, src_stride, n);
-    uint32_t er = n265_psy_energy(rec, rec_stride, n);
+    return n265_psy_scale(n265_psy_energy(src, src_stride, n),
+                          n265_psy_energy(rec, rec_stride, n), lam_q8,
+                          strength);
+}
+
+uint64_t n265_psy_scale(uint32_t es, uint32_t er, uint32_t lam_q8,
+                        double strength)
+{
     uint32_t d = es > er ? es - er : er - es;
     /* the Hadamard AC sum is ~ pixel-difference units x 2 per coefficient;
      * scaled by lambda (Q8 -> real) like a rate term, at the strength.

@@ -381,11 +381,18 @@ struct n265_scratch {
     struct mcc_key { int c, x, y, w, h; mot_t mot; } mcc_k[MCC_N];
     pixel mcc_b[MCC_N][64 * 64];
     int mcc_n, mcc_next;
+    /* the source's 4x4 psy energies over the CTU at (psy_x0, psy_y0),
+     * filled on first use; psy_x0 < 0 when no CTU is open */
+    int psy_x0, psy_y0;
+    uint32_t psy_src[16 * 16];
 };
 
 struct n265_scratch *n265_scratch_new(void)
 {
-    return calloc(1, sizeof(struct n265_scratch));
+    struct n265_scratch *sc = calloc(1, sizeof(struct n265_scratch));
+    if (sc)
+        sc->psy_x0 = -1;
+    return sc;
 }
 
 void n265_scratch_free(struct n265_scratch *sc)
@@ -1323,6 +1330,43 @@ static void tb_recon(struct n265_frame_work *e, int c_idx, int x0, int y0,
     tb_commit(e, c_idx, x0, y0, log2n, tb);
 }
 
+#define PSY_UNSET UINT32_MAX
+
+/* the source psy energy of the n x n luma area at (x0, y0), from the open
+ * CTU's cache where the area lies inside it */
+static uint32_t psy_src_energy(struct n265_frame_work *e, int x0, int y0,
+                               int n)
+{
+    int ss = e->pad_stride[0];
+    const pixel *src = e->pad_plane[0] + (size_t)y0 * ss + x0;
+    struct n265_scratch *sc = e->sc;
+    int ctb = 1 << e->ctb_log2;
+    if (!sc || sc->psy_x0 < 0 || x0 < sc->psy_x0 || y0 < sc->psy_y0 ||
+        x0 + n > sc->psy_x0 + ctb || y0 + n > sc->psy_y0 + ctb)
+        return n265_psy_energy(src, ss, n);
+    int bx = (x0 - sc->psy_x0) >> 2, by = (y0 - sc->psy_y0) >> 2;
+    uint32_t sum = 0;
+    for (int y = 0; y < n >> 2; y++) {
+        uint32_t *c = sc->psy_src + (by + y) * 16 + bx;
+        for (int x = 0; x < n >> 2; x++) {
+            if (c[x] == PSY_UNSET)
+                c[x] = n265_psy_energy(src + (size_t)(4 * y) * ss + 4 * x,
+                                       ss, 4);
+            sum += c[x];
+        }
+    }
+    return sum;
+}
+
+/* the psy term of a luma candidate whose n x n recon is at rec */
+static uint64_t psy_term(struct n265_frame_work *e, int x0, int y0, int n,
+                         const pixel *rec, int rec_stride, double ps)
+{
+    return n265_psy_scale(psy_src_energy(e, x0, y0, n),
+                          n265_psy_energy(rec, rec_stride, n),
+                          ctu_lam(e, e->cur_ctu_qp), ps);
+}
+
 /* SSD of a TB scratch recon against the source, the whole unit - the
  * stacked pair together at 4:2:2, since the pair IS the n x 2n area the
  * luma block presents. */
@@ -1340,8 +1384,7 @@ static uint64_t tb_ssd_px(struct n265_frame_work *e, int c_idx, int x0,
         if (e->dark_psy > 0.0)      /* item 53: the dark, smooth blocks */
             ps += n265_dark_psy(e, x0, y0, n);
         if (ps > 0.0)
-            ssd += n265_psy_cost(src, e->pad_stride[0], rec, n, n,
-                                 ctu_lam(e, e->cur_ctu_qp), ps);
+            ssd += psy_term(e, x0, y0, n, rec, n, ps);
     }
     /* the two quantisers reconciled (N265_CHROMA_W); inert at 256 */
     if (c_idx && chroma_w_q8(e) != 256)
@@ -4725,9 +4768,9 @@ static uint64_t cu_area_ssd(struct n265_frame_work *e, int x0, int y0, int n)
     if (e->dark_psy > 0.0)
         ps += n265_dark_psy(e, x0, y0, n);
     if (ps > 0.0)
-        ssd += n265_psy_cost(e->pad_plane[0] + y0 * e->pad_stride[0] + x0, e->pad_stride[0],
-                             e->recon[0] + y0 * e->recon_stride[0] + x0, e->recon_stride[0],
-                             n, ctu_lam(e, e->cur_ctu_qp), ps);
+        ssd += psy_term(e, x0, y0, n,
+                        e->recon[0] + y0 * e->recon_stride[0] + x0,
+                        e->recon_stride[0], ps);
     for (int c = 0; c < 3; c++) {
         int shx = c ? e->csx : 0, shy = c ? e->csy : 0;
         const pixel *src = e->pad_plane[c];
@@ -8110,8 +8153,17 @@ void n265_analyze_ctu(struct n265_frame_work *e, int ctb_x, int ctb_y)
         e->cu_arm = CU_ARM_MERGE;
     }
     depth_bounds(e, ctb_x, ctb_y);
+    int psy_cache = e->sc && e->ctb_log2 <= 6 &&
+                    (e->psy > 0.0 || e->dark_psy > 0.0);
+    if (psy_cache) {
+        e->sc->psy_x0 = ctb_x << e->ctb_log2;
+        e->sc->psy_y0 = ctb_y << e->ctb_log2;
+        memset(e->sc->psy_src, 0xff, sizeof(e->sc->psy_src));
+    }
     (void)quadtree(e, ctb_x << e->ctb_log2, ctb_y << e->ctb_log2,
                    e->ctb_log2, 0);
+    if (psy_cache)
+        e->sc->psy_x0 = -1;
     if (depth_bound() || e->dd_rec) {  /* what this CTU actually used */
         int x0 = ctb_x << e->ctb_log2, y0 = ctb_y << e->ctb_log2;
         int n = 1 << e->ctb_log2;

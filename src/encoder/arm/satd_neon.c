@@ -978,6 +978,118 @@ uint64_t n265_ssd_wh_dot_neon(const pixel *a, int as, const pixel *b,
 }
 #endif /* BIT_DEPTH == 8 && __ARM_FEATURE_DOTPROD */
 
+/* ---- psy energy -------------------------------------------------------
+ *
+ * The same 4x4 tiles on the samples themselves instead of a difference.
+ * The abs-sum of a tile is twice its sum of pass-2 maxima (satd4_core),
+ * and the DC it includes is the tile's sample sum, which pass 1's first
+ * output already holds. Samples are in [0, PIXEL_MAX], a subset of the
+ * SATD input range, so every bound above holds here too.
+ */
+#if BIT_DEPTH == 8
+static inline int16x8_t px8(const pixel *p)
+{
+    return vreinterpretq_s16_u16(vmovl_u8(vld1_u8(p)));
+}
+
+static inline int16x8_t px4z(const pixel *p)
+{
+    return vreinterpretq_s16_u16(vmovl_u8(ld4z(p)));
+}
+#else
+static inline int16x8_t px8(const pixel *p)
+{
+    return vreinterpretq_s16_u16(vld1q_u16(p));
+}
+
+static inline int16x8_t px4z(const pixel *p)
+{
+    return vreinterpretq_s16_u16(vcombine_u16(vld1_u16(p), vdup_n_u16(0)));
+}
+#endif
+
+static inline void psy4_core(int16x8_t r0, int16x8_t r1, int16x8_t r2,
+                             int16x8_t r3, uint32x4_t *amax, uint32x4_t *adc)
+{
+    int16x8_t q0, q1, q2, q3;
+
+    HAD4_V(q0, q1, q2, q3, r0, r1, r2, r3);
+    *adc = vpadalq_u16(*adc, vreinterpretq_u16_s16(q0));
+    {
+        int16x8_t t0 = vtrn1q_s16(q0, q1), t1 = vtrn2q_s16(q0, q1);
+        int16x8_t t2 = vtrn1q_s16(q2, q3), t3 = vtrn2q_s16(q2, q3);
+        r0 = F32_(vtrn1q_s32(S32_(t0), S32_(t2)));
+        r2 = F32_(vtrn2q_s32(S32_(t0), S32_(t2)));
+        r1 = F32_(vtrn1q_s32(S32_(t1), S32_(t3)));
+        r3 = F32_(vtrn2q_s32(S32_(t1), S32_(t3)));
+    }
+    {
+        int16x8_t s0 = vaddq_s16(r0, r2), s1 = vaddq_s16(r1, r3);
+        int16x8_t t0 = vsubq_s16(r0, r2), t1 = vsubq_s16(r1, r3);
+        uint16x8_t m0 = vreinterpretq_u16_s16(
+            vmaxq_s16(vabsq_s16(s0), vabsq_s16(s1)));
+        uint16x8_t m1 = vreinterpretq_u16_s16(
+            vmaxq_s16(vabsq_s16(t0), vabsq_s16(t1)));
+
+        *amax = vpadalq_u16(vpadalq_u16(*amax, m0), m1);
+    }
+}
+
+uint32_t n265_psy_energy_neon(const pixel *p, int stride, int n)
+{
+    uint32x4_t amax = vdupq_n_u32(0), adc = vdupq_n_u32(0);
+
+    if (n == 4) {
+        psy4_core(px4z(p), px4z(p + stride), px4z(p + 2 * stride),
+                  px4z(p + 3 * stride), &amax, &adc);
+    } else {
+        for (int y = 0; y < n; y += 4) {
+            const pixel *r = p + (size_t)y * stride;
+            for (int x = 0; x < n; x += 8)
+                psy4_core(px8(r + x), px8(r + stride + x),
+                          px8(r + 2 * stride + x), px8(r + 3 * stride + x),
+                          &amax, &adc);
+        }
+    }
+    return 2 * vaddvq_u32(amax) - vaddvq_u32(adc);
+}
+
+/* ---- sample sum and sum of squares, 16 wide ---------------------------
+ *
+ * h <= 16 keeps every lane exact: at 8 bits a u16 sum lane takes 2 * 255
+ * per row and a u32 square lane 4 * 255^2; at Main10 a u32 square lane
+ * takes 4 * 1023^2 per row.
+ */
+uint32_t n265_sum_sq16_neon(const pixel *p, int stride, int h, uint64_t *sq)
+{
+    uint32x4_t q = vdupq_n_u32(0);
+#if BIT_DEPTH == 8
+    uint16x8_t s = vdupq_n_u16(0);
+
+    for (int y = 0; y < h; y++, p += stride) {
+        uint8x16_t v = vld1q_u8(p);
+        s = vpadalq_u8(s, v);
+        q = vpadalq_u16(q, vmull_u8(vget_low_u8(v), vget_low_u8(v)));
+        q = vpadalq_u16(q, vmull_high_u8(v, v));
+    }
+    *sq = vaddvq_u32(q);
+    return vaddlvq_u16(s);
+#else
+    uint32x4_t s = vdupq_n_u32(0);
+
+    for (int y = 0; y < h; y++, p += stride) {
+        uint16x8_t a = vld1q_u16(p), b = vld1q_u16(p + 8);
+        s = vpadalq_u16(vpadalq_u16(s, a), b);
+        q = vmlal_u16(q, vget_low_u16(a), vget_low_u16(a));
+        q = vmlal_high_u16(q, a, a);
+        q = vmlal_u16(q, vget_low_u16(b), vget_low_u16(b));
+        q = vmlal_high_u16(q, b, b);
+    }
+    *sq = vaddlvq_u32(q);
+    return vaddvq_u32(s);
+#endif
+}
+
 #else
 typedef int n265_satd_neon_unused_;      /* C wants a non-empty TU */
 #endif /* N265_NEON_SATD */
