@@ -1335,9 +1335,14 @@ static uint64_t tb_ssd_px(struct n265_frame_work *e, int c_idx, int x0,
     uint64_t ssd = n265_ssd_wh(src, e->pad_stride[c_idx], rec, n, n, rows);
     /* the psychovisual term (psy.c): luma only, the same strength for every
      * candidate so it only ever re-ranks them */
-    if (c_idx == 0 && e->psy > 0.0)
-        ssd += n265_psy_cost(src, e->pad_stride[0], rec, n, n,
-                             ctu_lam(e, e->cur_ctu_qp), e->psy);
+    if (c_idx == 0) {
+        double ps = e->psy;
+        if (e->dark_psy > 0.0)      /* item 53: the dark, smooth blocks */
+            ps += n265_dark_psy(e, x0, y0, n);
+        if (ps > 0.0)
+            ssd += n265_psy_cost(src, e->pad_stride[0], rec, n, n,
+                                 ctu_lam(e, e->cur_ctu_qp), ps);
+    }
     /* the two quantisers reconciled (N265_CHROMA_W); inert at 256 */
     if (c_idx && chroma_w_q8(e) != 256)
         ssd = (ssd * chroma_w_q8(e)) >> 8;
@@ -4716,10 +4721,13 @@ static int intra_rd_pick(struct n265_frame_work *e, int x0, int y0, int log2n,
 static uint64_t cu_area_ssd(struct n265_frame_work *e, int x0, int y0, int n)
 {
     uint64_t ssd = 0;
-    if (e->psy > 0.0)       /* the same psy term the TB candidates carry */
+    double ps = e->psy;     /* the same psy term the TB candidates carry */
+    if (e->dark_psy > 0.0)
+        ps += n265_dark_psy(e, x0, y0, n);
+    if (ps > 0.0)
         ssd += n265_psy_cost(e->pad_plane[0] + y0 * e->pad_stride[0] + x0, e->pad_stride[0],
                              e->recon[0] + y0 * e->recon_stride[0] + x0, e->recon_stride[0],
-                             n, ctu_lam(e, e->cur_ctu_qp), e->psy);
+                             n, ctu_lam(e, e->cur_ctu_qp), ps);
     for (int c = 0; c < 3; c++) {
         int shx = c ? e->csx : 0, shy = c ? e->csy : 0;
         const pixel *src = e->pad_plane[c];

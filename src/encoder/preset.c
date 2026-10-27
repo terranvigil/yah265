@@ -382,6 +382,11 @@ static const struct kv med_tab[] = {
     { "N265_CDZ", "1" },
     { "N265_CBQPOFFS", "-1" },
     { "N265_CRQPOFFS", "-1" },
+    /* phase 14 item 53, at its compiled-in 0: no dark psy below the 720p
+     * class. On the CIF-7 band it gains akiyo 0.8, bus 0.6 and
+     * coastguard 0.3 points of BD-v1 and costs tempete 1.0, so CIF stays
+     * main's stream. med_tab_720 names 2 and med_tab_uhd 4. */
+    { "N265_PSY_DARK", "0" },
     /* There is NO `N265_NR_INTRA` / `N265_NR_INTER` row, and item 6b is
      * why that is worth saying out loud here. Item 6 recommended
      * `--nr-intra 100 --nr-inter 100` for this table off a five-clip
@@ -766,6 +771,13 @@ static const struct kv med_tab_uhd[] = {
     { "N265_CDZ", "1" },
     { "N265_CBQPOFFS", "-1" },
     { "N265_CRQPOFFS", "-1" },
+    /* phase 14 item 53 at HD and UHD: twice med_tab_720's dark psy.
+     * Nocturne 1080p's CRF BD-v1 on a 30 s dark window goes +31.1% ->
+     * -11.9% at 4 (-8.2% at 2). stem2 2160p's dark minutes at 9480
+     * kbit/s read CAMBI 9.5-9.9 against x265's 6.0-7.1; at 4 a 30 s
+     * window goes 89.29 -> 92.97 v1 (x265 90.29) and 90.47 -> 93.68
+     * (91.96), and a bright one 93.38 -> 94.05. */
+    { "N265_PSY_DARK", "4" },
     { NULL, NULL }
 };
 
@@ -806,6 +818,14 @@ static const struct kv med_tab_hd[] = {
  * docs/phase14.md "Item 41". */
 static const struct kv med_tab_720[] = {
     { "N265_CRF_DC_WIN", "20" },   /* phase 14 item 46, see med_par_720 */
+    /* phase 14 item 53: psy on dark, smooth blocks, fading out from QP
+     * 28 to 40, so faint dark grain is not coded to flat steps that v1
+     * reads as banding (CAMBI). Nocturne 720p's darkest window at 584
+     * kbit/s goes 73.21 -> 75.27 v1 (x265 76.04) on CAMBI 7.30 -> 3.63;
+     * 3 and 4 cost detail there. The compiled-in 0 keeps fast, slow and
+     * slower. `N265_PSY_DARK=0` is the escape. docs/phase14.md
+     * "Item 53". */
+    { "N265_PSY_DARK", "2" },
     { "N265_ME_PATTERN", "1" },
     { "N265_BADAPT_FASTW", "320" },
     { "N265_BADAPT_MVMIN", "3" },
