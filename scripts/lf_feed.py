@@ -16,6 +16,9 @@ Two sources:
   y4m   a staged Y4M segment. Writes the header, seeks to the first wanted
         frame and copies whole blocks. Nothing is parsed per frame. (Not
         `tail -c +N`: on macOS that burned a full core for 83 s per 1.9 GB.)
+        A thread reads the next blocks while this one writes, so the pipe
+        isn't left empty for each disk read; LF_Y4M_AHEAD=0 is the old
+        single copy.
 
   vt    a compressed master, decoded on the fly by VideoToolbox and, for a
         size below native, scaled by scale_vt. Measured 2026-09-24 on Tears of
@@ -79,6 +82,8 @@ def y4m_header(path):
 
 
 def feed_y4m(a):
+    if os.environ.get("LF_Y4M_AHEAD", "1") != "0":
+        return feed_y4m_ahead(a)
     hdr, per = y4m_header(a.src)
     out = sys.stdout.buffer
     left = a.count * per if a.count else None
@@ -98,6 +103,67 @@ def feed_y4m(a):
             os._exit(0)
     if left:
         sys.exit(f"lf_feed: {a.src} ended {left // per} frames short")
+
+
+# the double-buffered copy: a thread reads the disk ahead while this one
+# writes, so the pipe is not left empty for the length of each disk read
+Y4M_BLOCK = 32 << 20
+Y4M_DEPTH = 4
+
+
+def feed_y4m_ahead(a):
+    hdr, per = y4m_header(a.src)
+    left = a.count * per if a.count else None
+    q = collections.deque()
+    cv = threading.Condition()
+    state = {"eof": False, "stop": False}
+
+    def reader():
+        rem = left
+        with open(a.src, "rb", buffering=0) as f:
+            f.seek(len(hdr) + a.start * per)
+            while rem is None or rem > 0:
+                with cv:
+                    while len(q) >= Y4M_DEPTH and not state["stop"]:
+                        cv.wait()
+                    if state["stop"]:
+                        return
+                b = f.read(Y4M_BLOCK if rem is None else min(Y4M_BLOCK, rem))
+                if not b:
+                    break
+                if rem is not None:
+                    rem -= len(b)
+                with cv:
+                    q.append(b)
+                    cv.notify_all()
+        with cv:
+            state["eof"] = True
+            cv.notify_all()
+
+    t = threading.Thread(target=reader, daemon=True)
+    t.start()
+    fd = sys.stdout.fileno()
+    sent = 0
+    try:
+        os.write(fd, hdr)
+        while True:
+            with cv:
+                while not q and not state["eof"]:
+                    cv.wait()
+                if not q:
+                    break
+                b = q.popleft()
+                cv.notify_all()
+            mv = memoryview(b)
+            while mv:
+                mv = mv[os.write(fd, mv):]
+            sent += len(b)
+    except BrokenPipeError:
+        os._exit(0)
+    t.join()
+    if left is not None and sent < left:
+        sys.exit(f"lf_feed: {a.src} ended {(left - sent) // per} frames "
+                 "short")
 
 
 # The VideoToolbox frame format hwdownload must name for a scaled decode depends
