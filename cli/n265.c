@@ -790,6 +790,140 @@ static int y4m_read(y4m_t *y)
     return 1;
 }
 
+/* READ-AHEAD (phase 14 item 55). Above one thread the input is read on
+ * its own thread into a ring of frames, so a slow feeder overlaps the
+ * encode instead of stalling the driver between pictures. The samples are
+ * the ones y4m_read gives inline, so the stream is the same. */
+typedef struct rd_ring {
+    y4m_t *slot;                /* slot 0 is the caller's reader */
+    int n, head, count;
+    int done, last;             /* the reader stopped; y4m_read's result */
+    int stop;
+    long limit;                 /* --frames, -1 for none */
+    pthread_mutex_t m;
+    pthread_cond_t cv;
+    pthread_t t;
+} rd_ring;
+
+static void *rd_main(void *arg)
+{
+    rd_ring *q = arg;
+    long got = 0;
+    for (;;) {
+        pthread_mutex_lock(&q->m);
+        while (q->count == q->n && !q->stop)
+            pthread_cond_wait(&q->cv, &q->m);
+        int s = (q->head + q->count) % q->n;
+        int stop = q->stop;
+        pthread_mutex_unlock(&q->m);
+        int r = 0;
+        if (!stop && (q->limit < 0 || got < q->limit))
+            r = y4m_read(&q->slot[s]);
+        pthread_mutex_lock(&q->m);
+        if (r > 0) {
+            q->count++;
+            got++;
+        } else {
+            q->done = 1;
+            q->last = r;
+        }
+        pthread_cond_broadcast(&q->cv);
+        pthread_mutex_unlock(&q->m);
+        if (r <= 0)
+            return NULL;
+    }
+}
+
+/* the slot count, or 0 for the inline read */
+static int rd_slots(const y4m_t *y, int threads)
+{
+    const char *e = getenv("N265_READAHEAD_MB");
+    long mb = e ? atol(e) : 64;
+    if (mb <= 0 || threads == 1)
+        return 0;
+    size_t per = y->frame_bytes + (y->pix8 ? y->nsamp : 0) +
+                 (y->pix16 ? y->nsamp * sizeof(uint16_t) : 0);
+    long n = (long)(((size_t)mb << 20) / per);
+    return n < 2 ? 2 : n > 64 ? 64 : (int)n;
+}
+
+static int rd_open(rd_ring *q, y4m_t *y, int n, long limit)
+{
+    memset(q, 0, sizeof(*q));
+    q->slot = calloc((size_t)n, sizeof(*q->slot));
+    if (!q->slot)
+        return -1;
+    q->n = n;
+    q->limit = limit;
+    for (int i = 0; i < n; i++) {
+        y4m_t *s = &q->slot[i];
+        *s = *y;
+        if (i == 0)
+            continue;
+        s->clipped = 0;
+        s->frame = malloc(y->frame_bytes);
+        s->pix8 = y->pix8 ? malloc(y->nsamp) : NULL;
+        s->pix16 = y->pix16 ? malloc(y->nsamp * sizeof(uint16_t)) : NULL;
+        if (!s->frame || (y->pix8 && !s->pix8) || (y->pix16 && !s->pix16))
+            return -1;
+        const uint8_t *b0 = y->pix8 ? y->pix8 : y->pix16 ?
+                            (const uint8_t *)y->pix16 : y->frame;
+        const uint8_t *b1 = s->pix8 ? s->pix8 : s->pix16 ?
+                            (const uint8_t *)s->pix16 : s->frame;
+        for (int c = 0; c < 3; c++)
+            s->plane[c] = b1 + ((const uint8_t *)y->plane[c] - b0);
+    }
+    pthread_mutex_init(&q->m, NULL);
+    pthread_cond_init(&q->cv, NULL);
+    if (pthread_create(&q->t, NULL, rd_main, q) != 0)
+        return -1;
+    return 0;
+}
+
+/* the next frame's reader, NULL at the end (*r: 0 EOF, -1 error) */
+static y4m_t *rd_next(rd_ring *q, int *r)
+{
+    pthread_mutex_lock(&q->m);
+    while (q->count == 0 && !q->done)
+        pthread_cond_wait(&q->cv, &q->m);
+    y4m_t *s = q->count ? &q->slot[q->head] : NULL;
+    if (!s)
+        *r = q->last;
+    pthread_mutex_unlock(&q->m);
+    return s;
+}
+
+static void rd_release(rd_ring *q)
+{
+    pthread_mutex_lock(&q->m);
+    q->head = (q->head + 1) % q->n;
+    q->count--;
+    pthread_cond_broadcast(&q->cv);
+    pthread_mutex_unlock(&q->m);
+}
+
+/* joins the reader and folds the slots' clip counts into *y */
+static void rd_close(rd_ring *q, y4m_t *y)
+{
+    pthread_mutex_lock(&q->m);
+    q->stop = 1;
+    pthread_cond_broadcast(&q->cv);
+    pthread_mutex_unlock(&q->m);
+    pthread_join(q->t, NULL);
+    y->clipped = 0;
+    for (int i = 0; i < q->n; i++) {
+        y->clipped += q->slot[i].clipped;
+        if (i) {
+            free(q->slot[i].frame);
+            free(q->slot[i].pix8);
+            free(q->slot[i].pix16);
+        }
+    }
+    free(q->slot);
+    pthread_mutex_destroy(&q->m);
+    pthread_cond_destroy(&q->cv);
+}
+
 static void usage(void)
 {
     fprintf(stderr,
@@ -3751,9 +3885,23 @@ int main(int argc, char **argv)
 
     long n = 0;
     int r = 0;
-    while ((max_frames < 0 || n < max_frames) && (r = y4m_read(&y)) > 0) {
+    rd_ring rq;
+    int nslot = rd_slots(&y, threads);
+    if (nslot && rd_open(&rq, &y, nslot, max_frames) != 0) {
+        fprintf(stderr, "n265: cannot start the input reader\n");
+        return 1;
+    }
+    for (;;) {
+        const y4m_t *src = &y;
+        if (nslot) {
+            if (!(src = rd_next(&rq, &r)))
+                break;
+        } else if ((max_frames >= 0 && n >= max_frames) ||
+                   (r = y4m_read(&y)) <= 0) {
+            break;
+        }
         n265_picture pic = {
-            .plane = { y.plane[0], y.plane[1], y.plane[2] },
+            .plane = { src->plane[0], src->plane[1], src->plane[2] },
             .stride = { y.w, y.w >> y.csx, y.w >> y.csx },
             .pts = n,
         };
@@ -3764,10 +3912,14 @@ int main(int argc, char **argv)
             fprintf(stderr, "n265: encode failed on frame %ld\n", n);
             return 1;
         }
+        if (nslot)
+            rd_release(&rq);
         for (int i = 0; i < nnal; i++)
             fwrite(nal[i].payload, 1, (size_t)nal[i].size, fout);
         n++;
     }
+    if (nslot)
+        rd_close(&rq, &y);
     if (r < 0) {
         fprintf(stderr, "n265: truncated input after frame %ld\n", n);
         return 1;
