@@ -474,6 +474,13 @@ enum {
  * all of which are frozen before the CTU is analysed - and `dmin`/`dmax`
  * are the depth range the unbounded quadtree actually used, which is the
  * thing a bound has to predict. The instrument is inert: it only reads. */
+struct n265_nbstat {
+    uint64_t me_sum[4];     /* the 2Nx2N AMVP arm's best prediction SAD  */
+    uint32_t me_n[4];
+    uint64_t sk_sum[4];     /* the prediction SSE of a CU the skip won   */
+    uint32_t sk_n[4];
+};
+
 struct n265_depth_rec {
     float ctqp;             /* the cu-tree field, QP units, before rounding */
     float lvar;             /* log2(CTU source luma variance + 1)           */
@@ -840,12 +847,19 @@ typedef struct n265_frame_work {
                              * the frames in it that receive propagation      */
     uint16_t *ctu_lam_q8;   /* per-CTU lambda multiplier, Q8 (256 = inert) */
     uint8_t *ctu_dmin, *ctu_dmax;   /* P2: per-CTU depth range used */
+    /* phase 14 item 31: per-CTU running sums the causal-neighbour gates
+     * read (N265_NB_ME, N265_NB_SKIP), by CU size 8..64; cleared at
+     * dispatch, written only by the CTU's own row */
+    struct n265_nbstat *nbs;
     struct sao_params *sao; /* per-CTB SAO decisions */
     pixel *sao_tmp[3];      /* one CTB row's pristine deblocked band */
     pixel *sao_line[3];     /* the row above's last line, pre-SAO */
 
     /* ---- row-private once a row copy exists ---- */
     int cur_ctu_qp;         /* QP of the CTU being analyzed */
+    int nb_cx, nb_cy;       /* ...and its CTB address (item 31's gates) */
+    int td_want;            /* item 31: the TB being analysed is an inter
+                             * trial priced on its coefficients */
     uint32_t cur_ctu_lam_q8;     /* its lambda multiplier, Q8 (256 = inert) */
     uint32_t cur_ctu_lam_sad_q8; /* the same in the SAD domain (its sqrt) */
     /* N265_CHROMA_W: this CTU's chroma distortion weight, Q8 (256 =

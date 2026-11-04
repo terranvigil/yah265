@@ -1510,6 +1510,7 @@ static int fw_open(n265_encoder *e, n265_frame_work *fw)
     fw->brk_ca = calloc(nctu, sizeof(float));
     fw->brk_ce = calloc(nctu, sizeof(float));
     fw->brk_dq = calloc(nctu, 1);
+    fw->nbs = calloc(nctu, sizeof(struct n265_nbstat));
     if (depth_dump_file()) {
         fw->dd_rec = calloc(nctu, sizeof(struct n265_depth_rec));
         if (!fw->dd_rec)
@@ -1526,7 +1527,8 @@ static int fw_open(n265_encoder *e, n265_frame_work *fw)
         !fw->edge_map || !fw->blk_intra || !fw->blk_skip || !fw->blk_cbf_y ||
         !fw->blk_mv || !fw->blk_pred || !fw->blk_ref || !fw->blk_qp ||
         !fw->ctu_qp_off || !fw->ctu_qp_raw || !fw->ctu_lam_q8 || !fw->sao ||
-        !fw->brk_cw || !fw->brk_ca || !fw->brk_ce || !fw->brk_dq)
+        !fw->brk_cw || !fw->brk_ca || !fw->brk_ce || !fw->brk_dq ||
+        !fw->nbs)
         return -1;
     /* enc_prog[] is three runs of ctb_rows: the per-row CTB count, the
      * column a yielded row resumes at, and its "suspended" flag (item
@@ -1576,6 +1578,7 @@ static int fw_open(n265_encoder *e, n265_frame_work *fw)
 
 static void fw_close(n265_frame_work *fw)
 {
+    free(fw->nbs);
     free(fw->ctu_dmin);
     free(fw->ctu_dmax);
     free(fw->ct_depth);
@@ -5226,6 +5229,8 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
     /* P2: no CTU of this picture has a decided depth range yet */
     memset(fw->ctu_dmin, 0xff, (size_t)fw->ctb_cols * fw->ctb_rows);
     memset(fw->ctu_dmax, 0xff, (size_t)fw->ctb_cols * fw->ctb_rows);
+    memset(fw->nbs, 0, (size_t)fw->ctb_cols * fw->ctb_rows *
+                       sizeof(struct n265_nbstat));
     /* Type the frame's content here, on the driver, from its own source
      * luma - so every decision below is frozen before a single row job
      * exists and is the same at every thread count. It leads the QP ladder
