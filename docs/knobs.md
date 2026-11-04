@@ -396,7 +396,7 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_TD_DIST` | 0 | src/encoder/ctu.c:991 |
 | `N265_TT_SKIP_INTRA` | 0 | src/encoder/ctu.c:2184 |
 | `N265_TT_SKIP_QP` | 0 | src/encoder/ctu.c:2196 |
-| `N265_UHD_REF2` | ? | src/encoder/preset.c:1213 |
+| `N265_UHD_REF2` | ? | src/encoder/preset.c:1216 |
 | `N265_VBR_DEFPT_SPEND` | 0.0 | src/encoder/rc.c:296 |
 | `N265_VBR_LAG_GFLOOR` | 0.0 | src/encoder/encoder.c:2964 |
 | `N265_VBR_LAG_GRAW` | 0 | src/encoder/encoder.c:2966 |
