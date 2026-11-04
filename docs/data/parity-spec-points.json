@@ -1,7 +1,7 @@
 {
  "L/1080p/bbb/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "1080p",
   "commit": "061abf3",
   "dsize_pct": 0.041,
@@ -56,7 +56,7 @@
  },
  "L/1080p/cosmos/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "1080p",
   "commit": "061abf3",
   "dsize_pct": -0.058,
@@ -111,7 +111,7 @@
  },
  "L/1080p/meridian/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "1080p",
   "commit": "061abf3",
   "dsize_pct": -0.347,
@@ -166,7 +166,7 @@
  },
  "L/1080p/nocturne/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "1080p",
   "commit": "061abf3",
   "dsize_pct": 0.011,
@@ -221,7 +221,7 @@
  },
  "L/1080p/sintel/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "1080p",
   "commit": "061abf3",
   "dsize_pct": 0.008,
@@ -276,7 +276,7 @@
  },
  "L/1080p/stem2/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "1080p",
   "commit": "061abf3",
   "dsize_pct": 0.405,
@@ -331,7 +331,7 @@
  },
  "L/1080p/tears/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "1080p",
   "commit": "5ffc0ad",
   "dsize_pct": -0.144,
@@ -386,7 +386,7 @@
  },
  "L/2160p/bbb/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "2160p",
   "commit": "061abf3",
   "dsize_pct": 0.22,
@@ -441,7 +441,7 @@
  },
  "L/2160p/meridian/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "2160p",
   "commit": "061abf3",
   "dsize_pct": -0.376,
@@ -496,7 +496,7 @@
  },
  "L/2160p/nocturne/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "2160p",
   "commit": "061abf3",
   "dsize_pct": -0.49,
@@ -551,7 +551,7 @@
  },
  "L/2160p/sintel/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "2160p",
   "commit": "061abf3",
   "dsize_pct": 0.052,
@@ -606,7 +606,7 @@
  },
  "L/2160p/stem2/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "2160p",
   "commit": "061abf3",
   "dsize_pct": 0.089,
@@ -661,7 +661,7 @@
  },
  "L/2160p/tears/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "2160p",
   "commit": "061abf3",
   "dsize_pct": -0.139,
@@ -716,7 +716,7 @@
  },
  "L/720p/bbb/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "720p",
   "commit": "061abf3",
   "dsize_pct": 0.461,
@@ -771,7 +771,7 @@
  },
  "L/720p/cosmos/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "720p",
   "commit": "061abf3",
   "dsize_pct": -0.251,
@@ -826,7 +826,7 @@
  },
  "L/720p/meridian/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "720p",
   "commit": "5ffc0ad",
   "dsize_pct": -0.1,
@@ -881,7 +881,7 @@
  },
  "L/720p/nocturne/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "720p",
   "commit": "061abf3",
   "dsize_pct": -0.209,
@@ -936,7 +936,7 @@
  },
  "L/720p/sintel/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "720p",
   "commit": "061abf3",
   "dsize_pct": 0.085,
@@ -991,7 +991,7 @@
  },
  "L/720p/stem2/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "720p",
   "commit": "061abf3",
   "dsize_pct": 0.237,
@@ -1046,7 +1046,7 @@
  },
  "L/720p/tears/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "720p",
   "commit": "3ae0270",
   "dsize_pct": 0.037,
@@ -1102,7 +1102,7 @@
  },
  "M/1080p/chimera/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "1080p",
   "commit": "061abf3",
   "dsize_pct": -0.136,
@@ -1151,7 +1151,7 @@
  },
  "M/1080p/chimera/ft1": {
   "anchor": "ft1",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "1080p",
   "commit": "061abf3",
   "dsize_pct": -0.009,
@@ -1200,7 +1200,7 @@
  },
  "M/1080p/meridian/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "1080p",
   "commit": "061abf3",
   "dsize_pct": 0.049,
@@ -1249,7 +1249,7 @@
  },
  "M/1080p/meridian/ft1": {
   "anchor": "ft1",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "1080p",
   "commit": "061abf3",
   "dsize_pct": -0.177,
@@ -1298,7 +1298,7 @@
  },
  "M/1080p/sollevante/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "1080p",
   "commit": "061abf3",
   "dsize_pct": -0.071,
@@ -1347,7 +1347,7 @@
  },
  "M/1080p/sollevante/ft1": {
   "anchor": "ft1",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "1080p",
   "commit": "061abf3",
   "dsize_pct": 0.005,
@@ -1396,7 +1396,7 @@
  },
  "M/2160p/chimera/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "2160p",
   "commit": "061abf3",
   "dsize_pct": 0.055,
@@ -1445,7 +1445,7 @@
  },
  "M/2160p/chimera/ft1": {
   "anchor": "ft1",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "2160p",
   "commit": "061abf3",
   "dsize_pct": -0.133,
@@ -1494,7 +1494,7 @@
  },
  "M/2160p/meridian/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "2160p",
   "commit": "061abf3",
   "dsize_pct": -0.387,
@@ -1543,7 +1543,7 @@
  },
  "M/2160p/meridian/ft1": {
   "anchor": "ft1",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "2160p",
   "commit": "061abf3",
   "dsize_pct": -0.218,
@@ -1592,7 +1592,7 @@
  },
  "M/2160p/sollevante/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "2160p",
   "commit": "061abf3",
   "dsize_pct": -0.116,
@@ -1641,7 +1641,7 @@
  },
  "M/2160p/sollevante/ft1": {
   "anchor": "ft1",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "2160p",
   "commit": "061abf3",
   "dsize_pct": -0.044,
@@ -1690,7 +1690,7 @@
  },
  "S/1080p/pedestrian/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "1080p",
   "commit": "5ffc0ad",
   "dsize_pct": -0.452,
@@ -1739,7 +1739,7 @@
  },
  "S/1080p/pedestrian/ft1": {
   "anchor": "ft1",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "1080p",
   "commit": "5ffc0ad",
   "dsize_pct": -0.274,
@@ -1788,7 +1788,7 @@
  },
  "S/1080p/riverbed/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "1080p",
   "commit": "5ffc0ad",
   "dsize_pct": 0.03,
@@ -1837,7 +1837,7 @@
  },
  "S/1080p/riverbed/ft1": {
   "anchor": "ft1",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "1080p",
   "commit": "5ffc0ad",
   "dsize_pct": -0.02,
@@ -1886,7 +1886,7 @@
  },
  "S/1080p/sunflower/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "1080p",
   "commit": "e086a9d",
   "dsize_pct": 0.247,
@@ -1936,7 +1936,7 @@
  },
  "S/1080p/sunflower/ft1": {
   "anchor": "ft1",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "1080p",
   "commit": "5ffc0ad",
   "dsize_pct": -0.072,
@@ -1985,7 +1985,7 @@
  },
  "S/2160p/bbb_2160p/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "2160p",
   "commit": "5ffc0ad",
   "dsize_pct": -0.432,
@@ -2034,7 +2034,7 @@
  },
  "S/2160p/bbb_2160p/ft1": {
   "anchor": "ft1",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "2160p",
   "commit": "5ffc0ad",
   "dsize_pct": 0.203,
@@ -2083,7 +2083,7 @@
  },
  "S/2160p/meridian_2160p/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "2160p",
   "commit": "5ffc0ad",
   "dsize_pct": -0.127,
@@ -2132,7 +2132,7 @@
  },
  "S/2160p/meridian_2160p/ft1": {
   "anchor": "ft1",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "2160p",
   "commit": "5ffc0ad",
   "dsize_pct": -0.093,
@@ -2181,7 +2181,7 @@
  },
  "S/720p/ducks/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "720p",
   "commit": "e086a9d",
   "dsize_pct": -0.007,
@@ -2231,7 +2231,7 @@
  },
  "S/720p/ducks/ft1": {
   "anchor": "ft1",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "720p",
   "commit": "e086a9d",
   "dsize_pct": -0.03,
@@ -2281,7 +2281,7 @@
  },
  "S/720p/fourpeople/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "720p",
   "commit": "e086a9d",
   "dsize_pct": 0.052,
@@ -2331,7 +2331,7 @@
  },
  "S/720p/fourpeople/ft1": {
   "anchor": "ft1",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "720p",
   "commit": "e086a9d",
   "dsize_pct": -0.296,
@@ -2381,7 +2381,7 @@
  },
  "S/720p/park_joy/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "720p",
   "commit": "e086a9d",
   "dsize_pct": 0.002,
@@ -2431,7 +2431,7 @@
  },
  "S/720p/park_joy/ft1": {
   "anchor": "ft1",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "720p",
   "commit": "e086a9d",
   "dsize_pct": -0.061,
@@ -2481,7 +2481,7 @@
  },
  "S/720p/shields/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "720p",
   "commit": "e086a9d",
   "dsize_pct": 0.386,
@@ -2531,7 +2531,7 @@
  },
  "S/720p/shields/ft1": {
   "anchor": "ft1",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "720p",
   "commit": "e086a9d",
   "dsize_pct": 0.205,
@@ -2581,7 +2581,7 @@
  },
  "S/CIF/bus/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "CIF",
   "commit": "e086a9d",
   "dsize_pct": -0.254,
@@ -2631,7 +2631,7 @@
  },
  "S/CIF/bus/ft1": {
   "anchor": "ft1",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "CIF",
   "commit": "e086a9d",
   "dsize_pct": -0.217,
@@ -2681,7 +2681,7 @@
  },
  "S/CIF/foreman/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "CIF",
   "commit": "e086a9d",
   "dsize_pct": -0.426,
@@ -2731,7 +2731,7 @@
  },
  "S/CIF/foreman/ft1": {
   "anchor": "ft1",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "CIF",
   "commit": "e086a9d",
   "dsize_pct": -0.231,
@@ -2781,7 +2781,7 @@
  },
  "S/CIF/stefan/def": {
   "anchor": "def",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "CIF",
   "commit": "e086a9d",
   "dsize_pct": -0.043,
@@ -2831,7 +2831,7 @@
  },
  "S/CIF/stefan/ft1": {
   "anchor": "ft1",
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "class": "CIF",
   "commit": "e086a9d",
   "dsize_pct": 0.372,

@@ -2,7 +2,7 @@
  "L/1080p/bbb/G1": {
   "before_crf": 27.52,
   "before_dsize_pct": -18.117,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T09:35:12",
   "dsize_pct": -0.06,
   "encodes": 3,
@@ -40,7 +40,7 @@
  "L/1080p/bbb/G2": {
   "before_crf": 27.52,
   "before_dsize_pct": -19.314,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T09:29:53",
   "dsize_pct": -0.031,
   "encodes": 3,
@@ -78,7 +78,7 @@
  "L/1080p/cosmos/G1": {
   "before_crf": 25.27,
   "before_dsize_pct": 22.354,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T10:08:20",
   "dsize_pct": 0.049,
   "encodes": 3,
@@ -116,7 +116,7 @@
  "L/1080p/cosmos/G2": {
   "before_crf": 25.27,
   "before_dsize_pct": 20.336,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T10:02:40",
   "dsize_pct": -0.026,
   "encodes": 3,
@@ -154,7 +154,7 @@
  "L/1080p/meridian/G1": {
   "before_crf": 26.36,
   "before_dsize_pct": -0.398,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T07:48:53",
   "dsize_pct": -0.398,
   "encodes": 1,
@@ -192,7 +192,7 @@
  "L/1080p/meridian/G2": {
   "before_crf": 26.36,
   "before_dsize_pct": -10.329,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T07:48:53",
   "dsize_pct": 0.218,
   "encodes": 3,
@@ -230,7 +230,7 @@
  "L/1080p/nocturne/G1": {
   "before_crf": 24.52,
   "before_dsize_pct": 42.215,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T10:28:11",
   "dsize_pct": -0.305,
   "encodes": 3,
@@ -268,7 +268,7 @@
  "L/1080p/nocturne/G2": {
   "before_crf": 24.52,
   "before_dsize_pct": 38.926,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T10:18:04",
   "dsize_pct": -0.361,
   "encodes": 3,
@@ -306,7 +306,7 @@
  "L/1080p/sintel/G1": {
   "before_crf": 29.91,
   "before_dsize_pct": -56.255,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T08:54:12",
   "dsize_pct": -0.198,
   "encodes": 3,
@@ -344,7 +344,7 @@
  "L/1080p/sintel/G2": {
   "before_crf": 29.91,
   "before_dsize_pct": -56.903,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T08:50:28",
   "dsize_pct": -0.074,
   "encodes": 3,
@@ -382,7 +382,7 @@
  "L/1080p/stem2/G1": {
   "before_crf": 26.39,
   "before_dsize_pct": -11.286,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T08:18:11",
   "dsize_pct": 0.297,
   "encodes": 2,
@@ -420,7 +420,7 @@
  "L/1080p/stem2/G2": {
   "before_crf": 26.39,
   "before_dsize_pct": -12.601,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T08:10:25",
   "dsize_pct": 0.023,
   "encodes": 8,
@@ -459,7 +459,7 @@
  "L/1080p/tears/G1": {
   "before_crf": 24.88,
   "before_dsize_pct": -2.982,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T07:20:00",
   "dsize_pct": -0.061,
   "encodes": 2,
@@ -497,7 +497,7 @@
  "L/1080p/tears/G2": {
   "before_crf": 24.88,
   "before_dsize_pct": -5.265,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T07:15:53",
   "dsize_pct": 0.464,
   "encodes": 2,
@@ -535,7 +535,7 @@
  "L/2160p/bbb/G1": {
   "before_crf": 27.78,
   "before_dsize_pct": -20.636,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T09:57:45",
   "dsize_pct": 0.086,
   "encodes": 3,
@@ -573,7 +573,7 @@
  "L/2160p/bbb/G2": {
   "before_crf": 27.78,
   "before_dsize_pct": -22.361,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T09:42:54",
   "dsize_pct": 0.25,
   "encodes": 3,
@@ -611,7 +611,7 @@
  "L/2160p/meridian/G1": {
   "before_crf": 26.35,
   "before_dsize_pct": 12.65,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T08:01:09",
   "dsize_pct": 0.349,
   "encodes": 3,
@@ -649,7 +649,7 @@
  "L/2160p/meridian/G2": {
   "before_crf": 26.35,
   "before_dsize_pct": 1.539,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T07:55:26",
   "dsize_pct": 0.183,
   "encodes": 2,
@@ -687,7 +687,7 @@
  "L/2160p/nocturne/G1": {
   "before_crf": 23.64,
   "before_dsize_pct": 44.507,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T12:02:24",
   "dsize_pct": -0.191,
   "encodes": 5,
@@ -725,7 +725,7 @@
  "L/2160p/nocturne/G2": {
   "before_crf": 23.64,
   "before_dsize_pct": 42.399,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T10:53:21",
   "dsize_pct": 0.331,
   "encodes": 4,
@@ -763,7 +763,7 @@
  "L/2160p/sintel/G1": {
   "before_crf": 29.45,
   "before_dsize_pct": -64.622,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T09:24:26",
   "dsize_pct": 0.168,
   "encodes": 3,
@@ -801,7 +801,7 @@
  "L/2160p/sintel/G2": {
   "before_crf": 29.45,
   "before_dsize_pct": -66.262,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T09:02:24",
   "dsize_pct": 0.366,
   "encodes": 3,
@@ -839,7 +839,7 @@
  "L/2160p/stem2/G1": {
   "before_crf": 25.76,
   "before_dsize_pct": -1.83,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T08:46:57",
   "dsize_pct": -0.351,
   "encodes": 2,
@@ -877,7 +877,7 @@
  "L/2160p/stem2/G2": {
   "before_crf": 25.76,
   "before_dsize_pct": -7.219,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T08:23:49",
   "dsize_pct": -0.454,
   "encodes": 2,
@@ -915,7 +915,7 @@
  "L/2160p/tears/G1": {
   "before_crf": 24.25,
   "before_dsize_pct": 6.108,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T07:43:47",
   "dsize_pct": -0.279,
   "encodes": 3,
@@ -953,7 +953,7 @@
  "L/2160p/tears/G2": {
   "before_crf": 24.25,
   "before_dsize_pct": 2.498,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T07:24:25",
   "dsize_pct": -0.461,
   "encodes": 2,
@@ -991,7 +991,7 @@
  "L/720p/bbb/G1": {
   "before_crf": 27.04,
   "before_dsize_pct": -5.327,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T09:28:07",
   "dsize_pct": -0.131,
   "encodes": 3,
@@ -1029,7 +1029,7 @@
  "L/720p/bbb/G2": {
   "before_crf": 27.04,
   "before_dsize_pct": -7.343,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T09:25:26",
   "dsize_pct": -0.05,
   "encodes": 3,
@@ -1067,7 +1067,7 @@
  "L/720p/cosmos/G1": {
   "before_crf": 25.68,
   "before_dsize_pct": 15.78,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T10:00:45",
   "dsize_pct": -0.307,
   "encodes": 2,
@@ -1105,7 +1105,7 @@
  "L/720p/cosmos/G2": {
   "before_crf": 25.68,
   "before_dsize_pct": 14.743,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T09:58:26",
   "dsize_pct": -0.3,
   "encodes": 2,
@@ -1143,7 +1143,7 @@
  "L/720p/meridian/G1": {
   "before_crf": 27.39,
   "before_dsize_pct": 4.258,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T07:45:41",
   "dsize_pct": 0.232,
   "encodes": 3,
@@ -1181,7 +1181,7 @@
  "L/720p/meridian/G2": {
   "before_crf": 27.39,
   "before_dsize_pct": -9.763,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T07:45:00",
   "dsize_pct": -0.349,
   "encodes": 3,
@@ -1219,7 +1219,7 @@
  "L/720p/nocturne/G1": {
   "before_crf": 24.93,
   "before_dsize_pct": 27.84,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T10:14:27",
   "dsize_pct": 0.055,
   "encodes": 3,
@@ -1257,7 +1257,7 @@
  "L/720p/nocturne/G2": {
   "before_crf": 24.93,
   "before_dsize_pct": 24.146,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T10:09:53",
   "dsize_pct": 0.101,
   "encodes": 3,
@@ -1295,7 +1295,7 @@
  "L/720p/sintel/G1": {
   "before_crf": 28.61,
   "before_dsize_pct": -37.754,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T08:49:13",
   "dsize_pct": -0.175,
   "encodes": 3,
@@ -1333,7 +1333,7 @@
  "L/720p/sintel/G2": {
   "before_crf": 28.61,
   "before_dsize_pct": -38.801,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T08:47:30",
   "dsize_pct": 0.301,
   "encodes": 3,
@@ -1371,7 +1371,7 @@
  "L/720p/stem2/G1": {
   "before_crf": 26.76,
   "before_dsize_pct": -6.85,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T08:04:48",
   "dsize_pct": -0.301,
   "encodes": 2,
@@ -1409,7 +1409,7 @@
  "L/720p/stem2/G2": {
   "before_crf": 26.76,
   "before_dsize_pct": -8.114,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T08:02:34",
   "dsize_pct": -0.455,
   "encodes": 5,
@@ -1447,7 +1447,7 @@
  "L/720p/tears/G1": {
   "before_crf": 25.69,
   "before_dsize_pct": -3.841,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T07:14:52",
   "dsize_pct": -0.268,
   "encodes": 2,
@@ -1485,7 +1485,7 @@
  "L/720p/tears/G2": {
   "before_crf": 25.69,
   "before_dsize_pct": -5.974,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-11-01T07:12:57",
   "dsize_pct": -0.494,
   "encodes": 2,
@@ -1523,7 +1523,7 @@
  "M/1080p/chimera/G1": {
   "before_crf": 26.72,
   "before_dsize_pct": 11.841,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-10-31T21:59:00",
   "dsize_pct": 0.427,
   "encodes": 2,
@@ -1549,7 +1549,7 @@
  "M/1080p/chimera/G2": {
   "before_crf": 26.72,
   "before_dsize_pct": 11.102,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-10-31T21:58:48",
   "dsize_pct": 0.332,
   "encodes": 2,
@@ -1575,7 +1575,7 @@
  "M/1080p/meridian/G1": {
   "before_crf": 25.85,
   "before_dsize_pct": 12.497,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-10-31T22:02:38",
   "dsize_pct": -0.099,
   "encodes": 3,
@@ -1601,7 +1601,7 @@
  "M/1080p/meridian/G2": {
   "before_crf": 25.85,
   "before_dsize_pct": 0.936,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-10-31T22:02:13",
   "dsize_pct": 0.003,
   "encodes": 2,
@@ -1627,7 +1627,7 @@
  "M/1080p/sollevante/G1": {
   "before_crf": 25.61,
   "before_dsize_pct": -24.564,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-10-31T22:01:47",
   "dsize_pct": -0.056,
   "encodes": 3,
@@ -1653,7 +1653,7 @@
  "M/1080p/sollevante/G2": {
   "before_crf": 25.61,
   "before_dsize_pct": -25.145,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-10-31T22:00:40",
   "dsize_pct": 0.035,
   "encodes": 3,
@@ -1679,7 +1679,7 @@
  "M/2160p/chimera/G1": {
   "before_crf": 26.9,
   "before_dsize_pct": -14.14,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-10-31T22:04:43",
   "dsize_pct": -0.296,
   "encodes": 2,
@@ -1705,7 +1705,7 @@
  "M/2160p/chimera/G2": {
   "before_crf": 26.9,
   "before_dsize_pct": -14.46,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-10-31T22:04:00",
   "dsize_pct": -0.257,
   "encodes": 2,
@@ -1731,7 +1731,7 @@
  "M/2160p/meridian/G1": {
   "before_crf": 26.37,
   "before_dsize_pct": 8.506,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-10-31T22:17:34",
   "dsize_pct": 0.318,
   "encodes": 3,
@@ -1757,7 +1757,7 @@
  "M/2160p/meridian/G2": {
   "before_crf": 26.37,
   "before_dsize_pct": 2.496,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-10-31T22:15:40",
   "dsize_pct": 0.176,
   "encodes": 2,
@@ -1783,7 +1783,7 @@
  "M/2160p/sollevante/G1": {
   "before_crf": 24.81,
   "before_dsize_pct": -16.266,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-10-31T22:14:08",
   "dsize_pct": 0.007,
   "encodes": 3,
@@ -1809,7 +1809,7 @@
  "M/2160p/sollevante/G2": {
   "before_crf": 24.81,
   "before_dsize_pct": -18.074,
-  "bin": "3cdaf714dd0cd609",
+  "bin": "4d51b17080cfea11",
   "date": "2026-10-31T22:10:20",
   "dsize_pct": 0.101,
   "encodes": 3,
