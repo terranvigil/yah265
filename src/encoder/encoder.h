@@ -468,12 +468,7 @@ enum {
  * 8x8 minimum, which is every shape the quadtree can visit */
 #define N265_CU_REC_MAX 85
 
-/* N265_DEPTH_DUMP (phase 7 item 4, step 0): the per-CTU training record.
- * Everything above `dmin` is a PRE-DECISION feature - it comes off the
- * lookahead's lowres maps, the frame's own source luma or the AQ field,
- * all of which are frozen before the CTU is analysed - and `dmin`/`dmax`
- * are the depth range the unbounded quadtree actually used, which is the
- * thing a bound has to predict. The instrument is inert: it only reads. */
+/* N265_NB_ME / N265_NB_SKIP (item 34): one CTU's sums by CU size 8..64 */
 struct n265_nbstat {
     uint64_t me_sum[4];     /* the 2Nx2N AMVP arm's best prediction SAD  */
     uint32_t me_n[4];
@@ -481,6 +476,12 @@ struct n265_nbstat {
     uint32_t sk_n[4];
 };
 
+/* N265_DEPTH_DUMP (phase 7 item 4, step 0): the per-CTU training record.
+ * Everything above `dmin` is a PRE-DECISION feature - it comes off the
+ * lookahead's lowres maps, the frame's own source luma or the AQ field,
+ * all of which are frozen before the CTU is analysed - and `dmin`/`dmax`
+ * are the depth range the unbounded quadtree actually used, which is the
+ * thing a bound has to predict. The instrument is inert: it only reads. */
 struct n265_depth_rec {
     float ctqp;             /* the cu-tree field, QP units, before rounding */
     float lvar;             /* log2(CTU source luma variance + 1)           */
@@ -847,19 +848,12 @@ typedef struct n265_frame_work {
                              * the frames in it that receive propagation      */
     uint16_t *ctu_lam_q8;   /* per-CTU lambda multiplier, Q8 (256 = inert) */
     uint8_t *ctu_dmin, *ctu_dmax;   /* P2: per-CTU depth range used */
-    /* phase 14 item 31: per-CTU running sums the causal-neighbour gates
-     * read (N265_NB_ME, N265_NB_SKIP), by CU size 8..64; cleared at
-     * dispatch, written only by the CTU's own row */
-    struct n265_nbstat *nbs;
     struct sao_params *sao; /* per-CTB SAO decisions */
     pixel *sao_tmp[3];      /* one CTB row's pristine deblocked band */
     pixel *sao_line[3];     /* the row above's last line, pre-SAO */
 
     /* ---- row-private once a row copy exists ---- */
     int cur_ctu_qp;         /* QP of the CTU being analyzed */
-    int nb_cx, nb_cy;       /* ...and its CTB address (item 31's gates) */
-    int td_want;            /* item 31: the TB being analysed is an inter
-                             * trial priced on its coefficients */
     uint32_t cur_ctu_lam_q8;     /* its lambda multiplier, Q8 (256 = inert) */
     uint32_t cur_ctu_lam_sad_q8; /* the same in the SAD domain (its sqrt) */
     /* N265_CHROMA_W: this CTU's chroma distortion weight, Q8 (256 =
@@ -1020,6 +1014,15 @@ typedef struct n265_frame_work {
      * with nothing and are never read by a predicate. LAST in the struct
      * on purpose: an instrument must not move a hot field's offset. */
     double t_disp, t_row0, t_rowlast, t_ent0, t_ent1;
+    /* phase 14 item 34's arms, after the hot fields for the same reason.
+     * `nbs`: per-CTU sums the causal-neighbour gates read (N265_NB_ME,
+     * N265_NB_SKIP), by CU size 8..64, cleared at dispatch and written
+     * only by the CTU's own row. `nb_cx`, `nb_cy`: the CTU being analysed
+     * (row-private). `td_want`: the TB being analysed is an inter trial
+     * priced on its coefficients (N265_TD_DIST, row-private). */
+    struct n265_nbstat *nbs;
+    int nb_cx, nb_cy;
+    int td_want;
 } n265_frame_work;
 
 int n265_chroma_qp(int qp_y, int chroma_idc);   /* encoder/transform.h */

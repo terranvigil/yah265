@@ -473,7 +473,7 @@ uint64_t n265_rdoq_sb_nz(const int16_t *blk, int log2n)
     return n265_rdoq_sb_nz_ref(blk, log2n);
 }
 
-/* N265_RDOQ_TAIL (phase 14 item 31): before the lattice runs, walk the
+/* N265_RDOQ_TAIL (phase 14 item 34): before the lattice runs, walk the
  * coded sub-blocks from the last one toward the first and drop each whose
  * every coefficient is at most one quantiser step UNROUNDED, stopping at
  * the first that is not. Sub-block 0 is never dropped. A level that is
@@ -487,115 +487,39 @@ static int rdoq_tail(void)
     return v;
 }
 
-/* N265_TAIL_TRACE (census, output-neutral): what the drop above would do
- * with it OFF. Printed at exit as `TT,<size>,blocks,cut_blocks,sb_walked,
- * sb_cut,sb_cut_kept,coef_walked,coef_cut`: sub-blocks and positions the
- * lattice walks from its first last position, the share the rule would
- * drop, and how many of the dropped sub-blocks the lattice in fact kept a
- * level in (the decisions the drop would change). Relaxed atomic adds. */
-enum { TT_BLK, TT_CUTBLK, TT_SBW, TT_SBC, TT_SBK, TT_CW, TT_CC, TT_N };
-static uint64_t g_tt[4][TT_N];
-static void tt_report(void)
-{
-    for (int l = 0; l < 4; l++)
-        if (g_tt[l][TT_BLK])
-            fprintf(stderr, "TT,%d,%llu,%llu,%llu,%llu,%llu,%llu,%llu\n",
-                    4 << l, (unsigned long long)g_tt[l][0],
-                    (unsigned long long)g_tt[l][1],
-                    (unsigned long long)g_tt[l][2],
-                    (unsigned long long)g_tt[l][3],
-                    (unsigned long long)g_tt[l][4],
-                    (unsigned long long)g_tt[l][5],
-                    (unsigned long long)g_tt[l][6]);
-}
-static int tail_trace(void)
-{
-    static int v = -1;
-    if (v < 0) {
-        v = n265_env("N265_TAIL_TRACE") != NULL;
-        if (v)
-            atexit(tt_report);
-    }
-    return v;
-}
-
-/* the drop's mask, raster sub-block bits as in `sb_nz`; `*walked` gets the
- * lattice's own start (scan index of the last coded sub-block) */
-static uint64_t tail_mask(const int16_t *coef, uint64_t sb_nz, int log2n,
-                          const uint8_t *sb_scan, int q, int qbits,
-                          int *last_sb)
+/* N265_RDOQ_TAIL's drop on the rounded levels: returns the occupancy
+ * left. Out of line, so the lattice's own frame doesn't carry it. */
+static __attribute__((noinline)) uint64_t
+tail_drop(int16_t *rtn, const int16_t *coef, uint64_t sb_nz, int log2n,
+          const uint8_t *sb_scan, int q, int qbits)
 {
     int n = 1 << log2n, sb_dim = n >> 2, num_sb = sb_dim * sb_dim;
     int64_t one = (int64_t)1 << qbits;
     uint64_t m = 0;
-    *last_sb = -1;
     for (int s = num_sb - 1; s >= 1; s--) {
         int sb_x = sb_scan[s] & 15, sb_y = sb_scan[s] >> 4;
         int bit = sb_y * sb_dim + sb_x;
         if (!((sb_nz >> bit) & 1))
             continue;
-        if (*last_sb < 0)
-            *last_sb = s;
         const int16_t *p = coef + (sb_y << 2) * n + (sb_x << 2);
-        int small = 1;
-        for (int y = 0; y < 4 && small; y++)
+        for (int y = 0; y < 4; y++)
             for (int x = 0; x < 4; x++) {
                 int c = p[y * n + x];
-                if ((int64_t)(c < 0 ? -c : c) * q > one) {
-                    small = 0;
-                    break;
-                }
+                if ((int64_t)(c < 0 ? -c : c) * q > one)
+                    goto done;
             }
-        if (!small)
-            break;
         m |= 1ull << bit;
+        int16_t *r = rtn + (sb_y << 2) * n + (sb_x << 2);
+        for (int y = 0; y < 4; y++)
+            memset(r + y * n, 0, 4 * sizeof(int16_t));
     }
-    if (*last_sb < 0 && (sb_nz & 1))
-        *last_sb = 0;
-    return m;
+done:
+    return sb_nz & ~m;
 }
-
-static int rdoq_body(int16_t *level, const int16_t *coef, int log2n, int qp,
-                     int intra, int c_idx, int scan_idx,
-                     const cabac_ctx_t *ctx, uint32_t lam_q8,
-                     uint64_t *tail_out, int *walk_out);
 
 int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
               int intra, int c_idx, int scan_idx, const cabac_ctx_t *ctx,
               uint32_t lam_q8)
-{
-    if (!tail_trace())
-        return rdoq_body(level, coef, log2n, qp, intra, c_idx, scan_idx, ctx,
-                         lam_q8, NULL, NULL);
-    uint64_t m = 0;
-    int walk = -1;
-    int nz = rdoq_body(level, coef, log2n, qp, intra, c_idx, scan_idx, ctx,
-                       lam_q8, &m, &walk);
-    if (walk < 0)
-        return nz;
-    int n = 1 << log2n, sb_dim = n >> 2;
-    uint64_t *t = g_tt[log2n - 2];
-    uint64_t kept = 0, cut = 0;
-    if (m) {
-        uint64_t lv = n265_rdoq_sb_nz(level, log2n);
-        cut = (uint64_t)__builtin_popcountll(m);
-        kept = (uint64_t)__builtin_popcountll(m & lv);
-    }
-    (void)sb_dim;
-    __atomic_fetch_add(&t[TT_BLK], 1, __ATOMIC_RELAXED);
-    __atomic_fetch_add(&t[TT_CUTBLK], m != 0, __ATOMIC_RELAXED);
-    __atomic_fetch_add(&t[TT_SBW], (uint64_t)walk + 1, __ATOMIC_RELAXED);
-    __atomic_fetch_add(&t[TT_SBC], cut, __ATOMIC_RELAXED);
-    __atomic_fetch_add(&t[TT_SBK], kept, __ATOMIC_RELAXED);
-    __atomic_fetch_add(&t[TT_CW], 16ull * ((uint64_t)walk + 1), __ATOMIC_RELAXED);
-    __atomic_fetch_add(&t[TT_CC], 16ull * cut, __ATOMIC_RELAXED);
-    return nz;
-}
-
-static int rdoq_body(int16_t *level, const int16_t *coef, int log2n, int qp,
-                     int intra, int c_idx, int scan_idx,
-                     const cabac_ctx_t *ctx, uint32_t lam_q8,
-                     uint64_t *tail_out, int *walk_out)
 {
     n265_rdoq_init();
     /* the away-from-zero level probe: -2.7% median BD-VMAF-NEG, 7/7 clips
@@ -678,23 +602,9 @@ static int rdoq_body(int16_t *level, const int16_t *coef, int log2n, int qp,
     int czero = (int)((((int64_t)1 << qbits) - add + q - 1) / q);
     int any = n265_rdoq_rtn(rtn, &all_zero, &sb_nz, coef, log2n, q, add,
                             qbits, czero);
-    if (any && (tail_out || rdoq_tail())) {
-        int walk;
-        uint64_t m = tail_mask(coef, sb_nz, log2n, sb_scan, q, qbits, &walk);
-        if (tail_out) {
-            *tail_out = m;
-            *walk_out = walk;
-        } else if (m) {
-            for (int b = 0; b < 64; b++) {
-                if (!((m >> b) & 1))
-                    continue;
-                int16_t *p = rtn + ((b / sb_dim) << 2) * n + ((b % sb_dim) << 2);
-                for (int y = 0; y < 4; y++)
-                    memset(p + y * n, 0, 4 * sizeof(int16_t));
-            }
-            sb_nz &= ~m;
-            any = sb_nz != 0;
-        }
+    if (any && rdoq_tail()) {
+        sb_nz = tail_drop(rtn, coef, sb_nz, log2n, sb_scan, q, qbits);
+        any = sb_nz != 0;
     }
     memset(level, 0, (size_t)nn * sizeof(int16_t));
     if (!any)
@@ -1252,6 +1162,5 @@ void n265_rdoq_warm(void)
     (void)rdoq_decimate_grad();
     (void)rdoq_dg_trace();
     (void)rdoq_tail();
-    (void)tail_trace();
     n265_rdoq_init();       /* the cost tables and the parseval probe */
 }

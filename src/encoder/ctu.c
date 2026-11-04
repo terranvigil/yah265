@@ -276,7 +276,7 @@ typedef struct tb_ctx {
      * tb_make_recon is handed a tb_ctx and nothing else - and a block
      * that says what it is cannot be reconstructed the wrong way. */
     int bypass;
-    /* phase 14 item 31, N265_TD_DIST: an inter TRIAL block whose
+    /* phase 14 item 34, N265_TD_DIST: an inter TRIAL block whose
      * distortion was taken on the coefficients and whose `recon` has NOT
      * been built. td_d is the coded distortion and td_z the distortion of
      * coding nothing (the skip's), both in pixel SSD units and both summed
@@ -979,15 +979,7 @@ static void rt_tally(struct n265_frame_work *e, int c_idx, int log2n, int qp,
  * with the lattice outright on 52-89% of luma trials and disagrees about
  * the cbf on under 2%, so 3 is not built until the band says 2 gives back
  * too much. */
-/* N265_RDOQ_LAT_SZ: under N265_RDOQ=2, the transform sizes that KEEP the
- * lattice in the TRIALS as well - a bitmask over log2n - 2, so bit 0 is
- * 4x4, bit 1 8x8, bit 2 16x16 and bit 3 32x32. 0 is the whole commit-only
- * mode and is what N265_RDOQ=2 means on its own. It exists because the
- * two halves of the mode are not one trade: the per-size census says
- * where the calls are, where the time is (a 32x32 call is 64 times a 4x4
- * one) and where the two quantisers actually disagree, and those are
- * three different places. Inert unless N265_RDOQ=2. */
-/* N265_TD_DIST (phase 14 item 31): 1 prices the inter trials' distortion
+/* N265_TD_DIST (phase 14 item 34): 1 prices the inter trials' distortion
  * on the coefficients - the quantiser's error against the unquantised
  * transform, scaled to pixel units by the transform's own energy ratio -
  * and builds no reconstruction for a candidate that loses. The skip's
@@ -999,6 +991,14 @@ static int td_dist(void)
     return v;
 }
 
+/* N265_RDOQ_LAT_SZ: under N265_RDOQ=2, the transform sizes that KEEP the
+ * lattice in the TRIALS as well - a bitmask over log2n - 2, so bit 0 is
+ * 4x4, bit 1 8x8, bit 2 16x16 and bit 3 32x32. 0 is the whole commit-only
+ * mode and is what N265_RDOQ=2 means on its own. It exists because the
+ * two halves of the mode are not one trade: the per-size census says
+ * where the calls are, where the time is (a 32x32 call is 64 times a 4x4
+ * one) and where the two quantisers actually disagree, and those are
+ * three different places. Inert unless N265_RDOQ=2. */
 static int rdoq_lat_sz(void)
 {
     static int v = -1;
@@ -1062,6 +1062,32 @@ static void tb_quant_one(struct n265_frame_work *e, int c_idx, int log2n,
     }
     if (*out_nz && !sbh_done)
         n265_sbh_adjust(level, log2n, scan);
+}
+
+/* N265_TD_DIST: the block's coded distortion and its skip distortion, off
+ * the coefficients, in pixel SSD units. Out of line: the trial path is
+ * hot and this is not on it unless the knob is. */
+static __attribute__((noinline)) void
+td_price(tb_ctx *tb, const int16_t *coef, const int16_t *level, int log2n,
+         int qp, int nz)
+{
+    int n = 1 << log2n;
+    int64_t sz = 0, sd;
+    for (int i = 0; i < n * n; i++)
+        sz += (int32_t)coef[i] * coef[i];
+    sd = sz;
+    if (nz) {
+        int16_t dq[32 * 32];
+        n265_dequant(dq, level, log2n, qp, NULL, NULL);
+        sd = 0;
+        for (int i = 0; i < n * n; i++) {
+            int32_t d = (int32_t)coef[i] - dq[i];
+            sd += d * d;
+        }
+    }
+    double f = n265_rdoq_parseval(log2n);
+    tb->td_d += (uint64_t)llround((double)sd / f);
+    tb->td_z += (uint64_t)llround((double)sz / f);
 }
 
 /* one SQUARE block of a transform unit: the whole of it at 4:2:0 and
@@ -1170,24 +1196,8 @@ static void tb_analyze_one(struct n265_frame_work *e, int c_idx, int x0,
     if (e->rdoq && rdoq_trace())
         rt_tally(e, c_idx, log2n, qp, !inter, use_dst, scan, coef, pred,
                  level, *out_nz, src, e->pad_stride[c_idx]);
-    if (inter && e->td_want) {
-        int64_t sz = 0, sd;
-        for (int i = 0; i < n * n; i++)
-            sz += (int32_t)coef[i] * coef[i];
-        sd = sz;
-        if (*out_nz) {
-            int16_t dq[32 * 32];
-            n265_dequant(dq, level, log2n, qp, NULL, NULL);
-            sd = 0;
-            for (int i = 0; i < n * n; i++) {
-                int32_t d = (int32_t)coef[i] - dq[i];
-                sd += d * d;
-            }
-        }
-        double f = n265_rdoq_parseval(log2n);
-        tb->td_d += (uint64_t)llround((double)sd / f);
-        tb->td_z += (uint64_t)llround((double)sz / f);
-    }
+    if (inter && e->td_want)
+        td_price(tb, coef, level, log2n, qp, *out_nz);
 }
 
 /* reconstruct ONE block of the unit into the TB's scratch buffer */
@@ -1353,7 +1363,7 @@ static void tb_commit(struct n265_frame_work *e, int c_idx, int x0, int y0,
     int rows = n * nsub_c(e, c_idx);
     pixel *recon = e->recon[c_idx];
     int stride = e->recon_stride[c_idx];
-    if (tb->td)             /* a coefficient-priced trial: build it now */
+    if (__builtin_expect(tb->td, 0))    /* a coefficient-priced trial */
         tb_make_recon(e, c_idx, log2n, tb->td_qp, MODE_INTER, tb);
     for (int y = 0; y < rows; y++)
         n265_cpy(recon + (size_t)(y0 + y) * stride + x0, tb->recon + y * n,
@@ -1437,15 +1447,21 @@ static uint64_t tb_ssd_px(struct n265_frame_work *e, int c_idx, int x0,
     return ssd;
 }
 
+/* N265_TD_DIST: a trial with no recon, and no psy term to add */
+static __attribute__((noinline)) uint64_t
+td_ssd(const struct n265_frame_work *e, int c_idx, const tb_ctx *tb)
+{
+    uint64_t ssd = tb->td_d;
+    if (c_idx && chroma_w_q8(e) != 256)
+        ssd = (ssd * chroma_w_q8(e)) >> 8;
+    return ssd;
+}
+
 static uint64_t tb_ssd(struct n265_frame_work *e, int c_idx, int x0, int y0,
                        int log2n, const tb_ctx *tb)
 {
-    if (tb->td) {       /* N265_TD_DIST: no recon, and no psy term to add */
-        uint64_t ssd = tb->td_d;
-        if (c_idx && chroma_w_q8(e) != 256)
-            ssd = (ssd * chroma_w_q8(e)) >> 8;
-        return ssd;
-    }
+    if (__builtin_expect(tb->td, 0))
+        return td_ssd(e, c_idx, tb);
     return tb_ssd_px(e, c_idx, x0, y0, log2n, tb->recon);
 }
 
@@ -1454,7 +1470,7 @@ static uint64_t tb_ssd(struct n265_frame_work *e, int c_idx, int x0, int y0,
  * off or zero on this luma area */
 static int td_on(const struct n265_frame_work *e, int x0, int y0, int n)
 {
-    return td_dist() && e->psy <= 0.0 &&
+    return e->psy <= 0.0 &&
            (e->dark_psy <= 0.0 || n265_dark_psy(e, x0, y0, n) <= 0.0);
 }
 
@@ -4460,7 +4476,7 @@ static uint64_t inter_tt_node(struct n265_frame_work *e, mot_t mot, int x0,
         tcr = &e->sc->ctt_cr[depth];
         if (!forced) {
             /* N265_TD_DIST: tb_commit builds whichever of these wins */
-            int td = td_on(e, x0, y0, 1 << log2n);
+            int td = td_dist() && td_on(e, x0, y0, 1 << log2n);
             e->td_want = td;
             if (has_chroma) {
                 tb_analyze(e, 1, cx0, cy0, log2c, qp_cb, MODE_INTER, mot, tcb);
@@ -6195,7 +6211,7 @@ static void merge_trial(struct n265_frame_work *e, int x0, int y0, int log2n,
     int qp_cb = n265_chroma_qp_of(e, e->cur_ctu_qp, 1);
     int qp_cr = n265_chroma_qp_of(e, e->cur_ctu_qp, 2);
 
-    int td = td_on(e, x0, y0, 1 << log2n);
+    int td = td_dist() && td_on(e, x0, y0, 1 << log2n);
     e->td_want = td;
     tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, cand, m_tl);
     tb_analyze(e, 1, cx0, cy0, log2c, qp_cb, MODE_INTER, cand, m_tcb);
@@ -6247,7 +6263,7 @@ static void amvp_trial(struct n265_frame_work *e, int x0, int y0, int log2n,
     int qp_cb = n265_chroma_qp_of(e, e->cur_ctu_qp, 1);
     int qp_cr = n265_chroma_qp_of(e, e->cur_ctu_qp, 2);
 
-    int td = td_on(e, x0, y0, 1 << log2n);
+    int td = td_dist() && td_on(e, x0, y0, 1 << log2n);
     e->td_want = td;
     tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, amot, a_tl);
     tb_analyze(e, 1, cx0, cy0, log2c, qp_cb, MODE_INTER, amot, a_tcb);
@@ -6271,7 +6287,7 @@ static void amvp_trial(struct n265_frame_work *e, int x0, int y0, int log2n,
     *j_amvp = rd_j(e, *d_amvp, st.bits, lam);
 }
 
-/* ---- phase 14 item 31: the causal-neighbour gates -----------------
+/* ---- phase 14 item 34: the causal-neighbour gates -----------------
  *
  * Both read a running mean pooled over this CTU and the four CTUs whose
  * analysis is finished before it starts under the wavefront - left, top-
@@ -6451,7 +6467,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             return rd_j(e, ssd, adv.bits, ctu_lam(e, e->cur_ctu_qp));
         }
 
-        /* item 31's early skip against the neighbours' own skips */
+        /* item 34's early skip against the neighbours' own skips */
         if (nb_skip() && !e->lossless && log2n >= 3) {
             uint64_t sl, sc;
             nb_skip_sse(e, x0, y0, log2n, cand, &sl, &sc);

@@ -187,6 +187,8 @@ DEFAULT_OVERRIDES = {
 }
 
 OVERRIDES = {
+    # phase 14 item 34: moot unless N265_NB_ME or N265_NB_SKIP arms a gate
+    "N265_NB_MIN": "arm",
     # phase 14 item 42: moot unless --gop-parallel armed the mode, so they
     # are that opt-in mode's parameters and not shipped defaults
     "N265_GOP_LEN": "arm", "N265_GOP_CUTS": "arm", "N265_GOP_WINDOW": "arm",
