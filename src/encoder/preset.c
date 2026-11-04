@@ -387,6 +387,15 @@ static const struct kv med_tab[] = {
      * coastguard 0.3 points of BD-v1 and costs tempete 1.0, so CIF stays
      * main's stream. med_tab_720 names 2 and med_tab_uhd 4. */
     { "N265_PSY_DARK", "0" },
+    /* phase 14 item 34, every class: the coarse intra rank in every
+     * picture and slice, inter trials priced on their coefficients, and
+     * the rounded tail dropped before the lattice. About 10% fewer
+     * instructions at one thread; tier D's BD-v1 median doesn't move.
+     * `N265_IRANK=0 N265_TD_DIST=0 N265_RDOQ_TAIL=0` is the escape.
+     * docs/phase14.md "Item 34". */
+    { "N265_IRANK", "2" },
+    { "N265_TD_DIST", "1" },
+    { "N265_RDOQ_TAIL", "1" },
     /* There is NO `N265_NR_INTRA` / `N265_NR_INTER` row, and item 6b is
      * why that is worth saying out loud here. Item 6 recommended
      * `--nr-intra 100 --nr-inter 100` for this table off a five-clip

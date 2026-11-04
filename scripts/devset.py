@@ -89,7 +89,7 @@ def score_memo(cell, bitstream, wd, s=0, n=None, stride=1, psnr_only=False):
     k = "|".join((pl.file_md5(bitstream), pl.feed_sig(pl.feeder(cell, s, n)),
                   str(stride), str(psnr_only), str(pl.SSIM_PASS)))
     have = pl.jload(SCORES).get(k)
-    if have:
+    if have and (psnr_only or pl.has_gate(have, cell)):
         return have
     return pl.jput(SCORES, k, _score(cell, bitstream, wd, s, n, stride,
                                      psnr_only))
@@ -583,7 +583,7 @@ def print_table(rows, title):
           f"{'':>14}{f(med('ix_c'), '{:.3f}', 9)}"
           f"{f(med('ix_simd'), '{:.3f}', 9)}{f(med('cx_c'), '{:.2f}', 7)}"
           f"{f(med('cx_simd'), '{:.2f}', 7)}")
-    print("BD = BD-rate on VMAF-NEG vs x265 medium (+ is behind); trk max = "
+    print("BD = BD-rate on " + ("VMAF v1" if pl.GATE == "v1" else "VMAF-NEG") + " vs x265 medium (+ is behind); trk max = "
           "ours' worst VBR rung off target, %; dNEG/dPSNR/dSIZE at x265 "
           "CRF 28's bytes; instr/cpu = ours over x265 at --threads 1, "
           "C = pure C, S = SIMD")

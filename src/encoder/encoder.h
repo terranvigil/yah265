@@ -468,14 +468,6 @@ enum {
  * 8x8 minimum, which is every shape the quadtree can visit */
 #define N265_CU_REC_MAX 85
 
-/* N265_NB_ME / N265_NB_SKIP (item 34): one CTU's sums by CU size 8..64 */
-struct n265_nbstat {
-    uint64_t me_sum[4];     /* the 2Nx2N AMVP arm's best prediction SAD  */
-    uint32_t me_n[4];
-    uint64_t sk_sum[4];     /* the prediction SSE of a CU the skip won   */
-    uint32_t sk_n[4];
-};
-
 /* N265_DEPTH_DUMP (phase 7 item 4, step 0): the per-CTU training record.
  * Everything above `dmin` is a PRE-DECISION feature - it comes off the
  * lookahead's lowres maps, the frame's own source luma or the AQ field,
@@ -1014,14 +1006,9 @@ typedef struct n265_frame_work {
      * with nothing and are never read by a predicate. LAST in the struct
      * on purpose: an instrument must not move a hot field's offset. */
     double t_disp, t_row0, t_rowlast, t_ent0, t_ent1;
-    /* phase 14 item 34's arms, after the hot fields for the same reason.
-     * `nbs`: per-CTU sums the causal-neighbour gates read (N265_NB_ME,
-     * N265_NB_SKIP), by CU size 8..64, cleared at dispatch and written
-     * only by the CTU's own row. `nb_cx`, `nb_cy`: the CTU being analysed
-     * (row-private). `td_want`: the TB being analysed is an inter trial
-     * priced on its coefficients (N265_TD_DIST, row-private). */
-    struct n265_nbstat *nbs;
-    int nb_cx, nb_cy;
+    /* N265_TD_DIST (phase 14 item 34, row-private): the TB being analysed
+     * is an inter trial priced on its coefficients. After the hot fields
+     * for the same reason. */
     int td_want;
 } n265_frame_work;
 

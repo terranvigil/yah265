@@ -1069,8 +1069,12 @@ static void tb_quant_one(struct n265_frame_work *e, int c_idx, int log2n,
  * hot and this is not on it unless the knob is. */
 static __attribute__((noinline)) void
 td_price(tb_ctx *tb, const int16_t *coef, const int16_t *level, int log2n,
-         int qp, int nz)
+         int qp, int nz, int first)
 {
+    if (first) {
+        tb->td_qp = qp;
+        tb->td_d = tb->td_z = 0;
+    }
     int n = 1 << log2n;
     int64_t sz = 0, sd;
     for (int i = 0; i < n * n; i++)
@@ -1197,7 +1201,7 @@ static void tb_analyze_one(struct n265_frame_work *e, int c_idx, int x0,
         rt_tally(e, c_idx, log2n, qp, !inter, use_dst, scan, coef, pred,
                  level, *out_nz, src, e->pad_stride[c_idx]);
     if (inter && e->td_want)
-        td_price(tb, coef, level, log2n, qp, *out_nz);
+        td_price(tb, coef, level, log2n, qp, *out_nz, off == 0);
 }
 
 /* reconstruct ONE block of the unit into the TB's scratch buffer */
@@ -1243,9 +1247,7 @@ static void tb_analyze(struct n265_frame_work *e, int c_idx, int x0, int y0,
     if (c_idx)
         mode = n265_c422_mode(e->c422, mode);
     tb->nz2 = 0;
-    tb->td = e->td_want && mode == MODE_INTER && !e->lossless;
-    tb->td_qp = qp;
-    tb->td_d = tb->td_z = 0;
+    tb->td = e->td_want;
     tb_analyze_one(e, c_idx, x0, y0, log2n, qp, mode, mot, tb, 0, &tb->nz);
     if (nsub_c(e, c_idx) == 1)
         return;
@@ -1470,7 +1472,7 @@ static uint64_t tb_ssd(struct n265_frame_work *e, int c_idx, int x0, int y0,
  * off or zero on this luma area */
 static int td_on(const struct n265_frame_work *e, int x0, int y0, int n)
 {
-    return e->psy <= 0.0 &&
+    return !e->lossless && e->psy <= 0.0 &&
            (e->dark_psy <= 0.0 || n265_dark_psy(e, x0, y0, n) <= 0.0);
 }
 
@@ -1750,6 +1752,23 @@ static int rank_nmodes(const struct n265_frame_work *e, const int *sub,
     return e->slice_type == 0 && intra_b_modes() ? 2 : 35;
 }
 
+/* N265_IRANK (phase 14 item 34): 2 takes the coarse rank below
+ * (N265_INTRA_FAST's) to every picture width and every slice, I included,
+ * on every eighth angle refined at 4, 2 and 1, and not refined at all
+ * where planar or DC leads the seeds: 7 to 13 predictions in place of 35.
+ * 0 is main. An explicit candidate list (the NxN sub-ranks, the B-slice
+ * cut) keeps its list. The SAD-scored forms the arm was screened with
+ * lost on v1 and are gone (docs/phase14.md, item 34). */
+static int irank_mode(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_IRANK");
+        v = s && atoi(s) == 2 ? 2 : 0;
+    }
+    return v;
+}
+
 /* `satd_out`, where a caller asks for it, is the winner's own RANKING
  * cost - the Hadamard the 35-mode loop below already computed and threw
  * away. `cost_out` cannot stand in for it: that one is re-taken as a SAD
@@ -1758,59 +1777,12 @@ static int rank_nmodes(const struct n265_frame_work *e, const int *sub,
  * SA8D-proxy mode decision (phase 13 A4) ranks the intra arm against the
  * inter ones in the Hadamard domain and needs the number this loop
  * actually minimised. Costs nothing: it is a store of a live variable. */
-/* N265_IRANK (phase 14 item 34): the cost of the inter-slice and
- * intra-slice 35-mode rank.
- *   0  main: SATD, and the coarse rank only where N265_INTRA_FAST asks
- *   1  0, scored in SAD
- *   2  the coarse rank on every picture and slice, SATD: planar, DC and
- *      every eighth angle, refined at 4, 2 and 1 around the best angle,
- *      and not refined at all where planar or DC leads
- *   3  2, scored in SAD
- *   4  3, and in an inter slice no refinement where the best seed's SAD
- *      is over twice the inter arm's prediction SAD
- *   5  3 with every fourth angle, refined at 2 and 1
- *   6  5, with 4's stop
- * An explicit candidate list (the NxN sub-ranks, the B-slice cut) keeps
- * its list; only its metric follows 1 and 3-6. */
-static int irank_mode(void)
-{
-    static int v = -1;
-    if (v < 0) {
-        const char *s = n265_env("N265_IRANK");
-        v = s ? atoi(s) : 0;
-        if (v < 0 || v > 6)
-            v = 0;
-    }
-    return v;
-}
-
-static int search_luma_mode_g(struct n265_frame_work *e, int x0, int y0,
-                              int log2n, const pixel *ref_plane,
-                              int ref_stride, uint32_t *cost_out,
-                              int topk[], int nk,
-                              const int *sub, int nsub,
-                              uint32_t *satd_out, uint32_t gate_sad);
-
 static int search_luma_mode_sub(struct n265_frame_work *e, int x0, int y0,
                                 int log2n, const pixel *ref_plane,
                                 int ref_stride, uint32_t *cost_out,
                                 int topk[], int nk,
                                 const int *sub, int nsub,
                                 uint32_t *satd_out)
-{
-    return search_luma_mode_g(e, x0, y0, log2n, ref_plane, ref_stride,
-                              cost_out, topk, nk, sub, nsub, satd_out,
-                              UINT32_MAX);
-}
-
-/* `gate_sad` is the inter arm's prediction SAD where the caller has one
- * (UINT32_MAX otherwise); only N265_IRANK 4 and 6 read it. */
-static int search_luma_mode_g(struct n265_frame_work *e, int x0, int y0,
-                              int log2n, const pixel *ref_plane,
-                              int ref_stride, uint32_t *cost_out,
-                              int topk[], int nk,
-                              const int *sub, int nsub,
-                              uint32_t *satd_out, uint32_t gate_sad)
 {
     int n = 1 << log2n;
     const pixel *src = e->pad_plane[0] + y0 * e->pad_stride[0] + x0;
@@ -1856,13 +1828,11 @@ static int search_luma_mode_g(struct n265_frame_work *e, int x0, int y0,
      * Narrow pictures keep the full rank (N265_INTRA_FAST_W): on the
      * CIF-7 band the coarse one cost coastguard_cif 0.63 and bus_cif 0.44
      * of a point, and at 720p sita_flat 2.42.
-     * N265_IRANK (item 34) widens the coarse pass to every picture and
-     * slice, and may score it in SAD or stop it after the seeds. */
+     * N265_IRANK 2 widens it to every picture and slice. */
     int irk = irank_mode();
-    int use_sad = irk == 1 || irk >= 3;
     int fast = !sub && ((e->slice_type != 2 && intra_fast(e, log2n)) ||
-                        irk >= 2);
-    int step = irk >= 5 ? 4 : irk >= 2 ? 8 : intra_fast_step();
+                        irk);
+    int step = irk ? 8 : intra_fast_step();
     int fl[40], nf = 0;
     if (fast) {
         fl[nf++] = INTRA_PLANAR;
@@ -1880,9 +1850,7 @@ static int search_luma_mode_g(struct n265_frame_work *e, int x0, int y0,
         n265_intra_pred(pred, n, r, log2n, mode, 0);
         /* rank by SATD (post-transform bits proxy); the reported cost
          * stays SAD-domain for the callers that compare across metrics */
-        uint32_t cost = use_sad
-            ? n265_sad_wh(src, e->pad_stride[0], pred, n, n, n)
-            : n265_satd(src, e->pad_stride[0], pred, n, n);
+        uint32_t cost = n265_satd(src, e->pad_stride[0], pred, n, n);
         if (topk && cost < ck[nkc - 1]) {
             int p = nkc - 1;
             while (p > 0 && cost < ck[p - 1]) {
@@ -1908,14 +1876,8 @@ static int search_luma_mode_g(struct n265_frame_work *e, int x0, int y0,
                 bac = cost;
                 ba = mode;
             }
-            /* N265_IRANK 2-6: no refinement where planar or DC leads the
-             * seeds; 4 and 6 also stop where the best seed is over twice
-             * the inter arm's prediction SAD */
-            if (irk >= 2 && mi == nf - 1 && dist == step / 2 &&
-                (best_mode < 2 ||
-                 ((irk == 4 || irk == 6) && e->slice_type != 2 &&
-                  gate_sad != UINT32_MAX &&
-                  (uint64_t)best_cost > 2ull * gate_sad)))
+            /* N265_IRANK: no refinement where planar or DC leads */
+            if (irk && mi == nf - 1 && dist == step / 2 && best_mode < 2)
                 dist = 0;
             /* a stage is done: queue the next pair around the best angle,
              * and go straight on to the stage after if neither is new */
@@ -1942,20 +1904,13 @@ static int search_luma_mode_g(struct n265_frame_work *e, int x0, int y0,
     if (topk)
         for (int i = 0; i < nkc; i++)
             topk[i] = mk[i];
-    /* each output is the rank's own cost where the rank used its metric,
-     * and is re-taken on the winner's prediction where it did not */
-    if (satd_out && !use_sad)
+    if (satd_out)
         *satd_out = best_cost;
-    if (cost_out && use_sad)
-        *cost_out = best_cost;
-    if ((satd_out && use_sad) || (cost_out && !use_sad)) {
+    if (cost_out) {
         const pixel *r = n265_use_filtered_refs(best_mode, log2n, 0)
                                ? refs_f : refs;
         n265_intra_pred(pred, n, r, log2n, best_mode, 0);
-        if (satd_out && use_sad)
-            *satd_out = n265_satd(src, e->pad_stride[0], pred, n, n);
-        if (cost_out && !use_sad)
-            *cost_out = n265_sad_wh(src, e->pad_stride[0], pred, n, n, n);
+        *cost_out = n265_sad_wh(src, e->pad_stride[0], pred, n, n, n);
     }
     static int hist[35];
     if (mode_hist_on()) {
@@ -6287,107 +6242,6 @@ static void amvp_trial(struct n265_frame_work *e, int x0, int y0, int log2n,
     *j_amvp = rd_j(e, *d_amvp, st.bits, lam);
 }
 
-/* ---- phase 14 item 34: the causal-neighbour gates -----------------
- *
- * Both read a running mean pooled over this CTU and the four CTUs whose
- * analysis is finished before it starts under the wavefront - left, top-
- * left, top and top-right - so the threshold is a function of decoded
- * order alone and is the same at every thread count.
- *
- * N265_NB_ME (percent, 0 off): the 2Nx2N AMVP arm takes the predictor
- * without searching, list by list and reference by reference, where the
- * predictor's own SAD is under this share of the neighbours' mean best
- * SAD at the CU's size.
- * N265_NB_SKIP (percent, 0 off): a CU is committed as a skip at its best
- * merge candidate, before any trial, where the candidate's prediction SSE
- * is under this share of the neighbours' mean skip SSE at the CU's size
- * and the chroma SSE is under half the luma one.
- * N265_NB_MIN: how many neighbour samples a mean needs before a gate may
- * read it (default 4). */
-static int nb_me(void)
-{
-    static int v = -1;
-    if (v < 0) { const char *s = n265_env("N265_NB_ME"); v = s ? atoi(s) : 0; }
-    return v;
-}
-
-static int nb_skip(void)
-{
-    static int v = -1;
-    if (v < 0) { const char *s = n265_env("N265_NB_SKIP"); v = s ? atoi(s) : 0; }
-    return v;
-}
-
-static int nb_min(void)
-{
-    static int v = -1;
-    if (v < 0) { const char *s = n265_env("N265_NB_MIN"); v = s ? atoi(s) : 4; }
-    return v;
-}
-
-/* the pooled (sum, count) at size index `si`; which = 0 ME, 1 skip */
-static void nb_pool(const struct n265_frame_work *e, int si, int which,
-                    uint64_t *sum, uint32_t *cnt)
-{
-    static const int dx[5] = { 0, -1, -1, 0, 1 }, dy[5] = { 0, 0, -1, -1, -1 };
-    uint64_t s = 0;
-    uint32_t c = 0;
-    for (int i = 0; i < 5; i++) {
-        int x = e->nb_cx + dx[i], y = e->nb_cy + dy[i];
-        if (x < 0 || y < 0 || x >= e->ctb_cols)
-            continue;
-        const struct n265_nbstat *b = &e->nbs[y * e->ctb_cols + x];
-        s += which ? b->sk_sum[si] : b->me_sum[si];
-        c += which ? b->sk_n[si] : b->me_n[si];
-    }
-    *sum = s;
-    *cnt = c;
-}
-
-static inline struct n265_nbstat *nb_cur(struct n265_frame_work *e)
-{
-    return &e->nbs[e->nb_cy * e->ctb_cols + e->nb_cx];
-}
-
-/* is `v` under pct% of the pooled mean? */
-static int nb_under(const struct n265_frame_work *e, int si, int which,
-                    uint64_t v, int pct)
-{
-    uint64_t s;
-    uint32_t c;
-    nb_pool(e, si, which, &s, &c);
-    if (c == 0 || c < (uint32_t)nb_min())
-        return 0;
-    return v * c * 100u < s * (uint64_t)pct;
-}
-
-/* the skip prediction's SSE at motion `m`, luma and (weighted) chroma, in
- * the units merge_trial's d_skip is taken in */
-static void nb_skip_sse(struct n265_frame_work *e, int x0, int y0, int log2n,
-                        mot_t m, uint64_t *luma, uint64_t *chroma)
-{
-    int n = 1 << log2n;
-    pixel pred[64 * 64];
-    mc_pred(e, 0, x0, y0, n, m, pred);
-    *luma = n265_ssd_wh(e->pad_plane[0] + y0 * e->pad_stride[0] + x0,
-                        e->pad_stride[0], pred, n, n, n);
-    uint64_t c = 0;
-    if (e->chroma_idc) {
-        int cw = n >> e->csx, ch = n >> e->csy;
-        int cx0 = x0 >> e->csx, cy0 = y0 >> e->csy;
-        for (int k = 1; k <= 2; k++) {
-            mc_pred_wh(e, k, cx0, cy0, cw, ch, m, pred, cw);
-            uint64_t d = n265_ssd_wh(e->pad_plane[k] + cy0 * e->pad_stride[k]
-                                         + cx0, e->pad_stride[k], pred, cw,
-                                     cw, ch);
-            if (chroma_w_q8(e) != 256)
-                d = (d * chroma_w_q8(e)) >> 8;
-            c += d;
-        }
-    }
-    *chroma = c;
-}
-
 static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
 {
     int n = 1 << log2n;
@@ -6453,10 +6307,6 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             uint64_t ssd = cu_area_ssd(e, x0, y0, n);
             e->last_skip_clean = ssd <= skip_clean_thr(e->cur_ctu_qp, n);
             e->last_cu_nores = 1;
-            if (nb_skip() && log2n >= 3) {
-                nb_cur(e)->sk_sum[log2n - 3] += ssd;
-                nb_cur(e)->sk_n[log2n - 3]++;
-            }
             if (cr) {
                 cr->kind = N265_CUT_SKIP;
                 cr->flags |= N265_CUF_STATIC | N265_CUF_NORES |
@@ -6465,35 +6315,6 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                 cr->cyc_merge = (uint32_t)(cu_tick() - cu_t0);
             }
             return rd_j(e, ssd, adv.bits, ctu_lam(e, e->cur_ctu_qp));
-        }
-
-        /* item 34's early skip against the neighbours' own skips */
-        if (nb_skip() && !e->lossless && log2n >= 3) {
-            uint64_t sl, sc;
-            nb_skip_sse(e, x0, y0, log2n, cand, &sl, &sc);
-            if (2 * sc < sl && nb_under(e, log2n - 3, 1, sl + sc, nb_skip())) {
-                skip_cu(e, x0, y0, log2n, cand, midx);
-                e->rec_pos = pos0;
-                est_state adv = { e->est_ctx, 0 };
-                n265_est_advance_cu(e, &adv, x0, y0, log2n);
-                set_blk(e, e->blk_qp, x0, y0, n,
-                        e->ent_qp_coded ? N265_QP_STORE(e->cur_ctu_qp)
-                                        : N265_QP_INHERIT);
-                uint64_t ssd = cu_area_ssd(e, x0, y0, n);
-                e->last_skip_clean = ssd <= skip_clean_thr(e->cur_ctu_qp, n);
-                e->last_cu_nores = 1;
-                nb_cur(e)->sk_sum[log2n - 3] += ssd;
-                nb_cur(e)->sk_n[log2n - 3]++;
-                if (cr) {
-                    cr->kind = N265_CUT_SKIP;
-                    cr->flags |= N265_CUF_NORES |
-                        (e->last_skip_clean ? N265_CUF_CLEAN : 0);
-                    cr->d_skip = (uint32_t)(ssd > UINT32_MAX ? UINT32_MAX
-                                                             : ssd);
-                    cr->cyc_merge = (uint32_t)(cu_tick() - cu_t0);
-                }
-                return rd_j(e, ssd, adv.bits, ctu_lam(e, e->cur_ctu_qp));
-            }
         }
 
         if (log2n <= 5) {
@@ -6657,7 +6478,6 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                 /* per list: search every reference, keep the one whose
                  * SAD + lambda x (mvd + ref_idx) bits is lowest, and the
                  * predictors of that reference */
-                uint32_t nb_best = UINT32_MAX;
                 mv_t mvr_prev1[2] = { { 0, 0 }, { 0, 0 } };
                 int mvr_prev1_poc[2] = { 0, 0 }, mvr_prev1_ok[2] = { 0, 0 };
                 mv_t r0mv1[2] = { { 0, 0 }, { 0, 0 } };   /* REF2_LITE */
@@ -6705,26 +6525,8 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                         struct n265_me_rate rc = { me_rate_bits, &rcx,
                                                    (uint32_t)lam4 };
                         struct n265_me_keep kp;
-                        uint32_t sad = UINT32_MAX;
-                        /* N265_NB_ME: the predictor already beats what the
-                         * neighbours' searches found */
-                        if (nb_me() && log2n >= 3) {
-                            mv_t pc = p[0];
-                            n265_clamp_mv(e, x0, y0, n, n, &pc);
-                            uint32_t ps = n265_mc_sad(e, l, r, x0, y0, n, n,
-                                                      pc);
-                            if (nb_under(e, log2n - 3, 0, ps, nb_me())) {
-                                sad = ps;
-                                mv = pc;
-                                if (want_keep) {
-                                    kp.satd = UINT32_MAX;
-                                    kp.nb_valid = kp.sq_valid = 0;
-                                    kp.rung_fired = 0;
-                                }
-                            }
-                        }
-                        if (sad != UINT32_MAX) {
-                        } else if (r > 0 && ref2_lite()) {
+                        uint32_t sad;
+                        if (r > 0 && ref2_lite()) {                        } else if (r > 0 && ref2_lite()) {
                             mv_t cd[4] = { p[0], p[1], seed,
                                 n265_mv_poc_scale(r0mv1[l],
                                     e->poc - e->refl[l][r]->poc,
@@ -6742,8 +6544,6 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                         }
                         if (r == 0)
                             r0mv1[l] = mv;
-                        if (nb_me() && log2n >= 3 && sad < nb_best)
-                            nb_best = sad;
                         u.mv[l] = mv;
                         if (e->mereuse_trace) {
                             mvr_prev1[l] = mv;
@@ -6762,10 +6562,6 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                                         * lam4) >> 12);
                         if (c < best_c) { best_c = c; me_mv[l] = mv; mvp[l][0] = p[0]; mvp[l][1] = p[1]; amot.ref[l] = (int8_t)r; if (want_keep) keep[l] = kp; }
                     }
-                }
-                if (nb_best != UINT32_MAX) {
-                    nb_cur(e)->me_sum[log2n - 3] += nb_best;
-                    nb_cur(e)->me_n[log2n - 3]++;
                 }
                 amot.mv[0] = me_mv[0];
                 if (e->slice_type == 0) {
@@ -7084,12 +6880,11 @@ intra_gate_done: ;
                 e->iw_arm[2]++;             /* 35-mode ranks run       */
             itry(e, ITS_ARM, log2n, 1, (uint64_t)rank_nmodes(e, NULL, 0), 0);
             int want_sad = intra_gate() >= 4 || intra_oracle();
-            imode = search_luma_mode_g(e, x0, y0, log2n, e->recon[0],
-                                       e->recon_stride[0],
-                                       want_sad ? &isad : NULL,
-                                       im.top, intra_rd_n(), NULL, 0,
-                                       px_on ? &isatd : NULL,
-                                       cand_plain_sad);
+            imode = search_luma_mode_sub(e, x0, y0, log2n, e->recon[0],
+                                         e->recon_stride[0],
+                                         want_sad ? &isad : NULL,
+                                         im.top, intra_rd_n(), NULL, 0,
+                                         px_on ? &isatd : NULL);
             if (intra_reuse()) {
                 im.ranked = 1;
                 im.mode = imode;
@@ -7207,11 +7002,6 @@ intra_gate_done: ;
                     j_intra_adm = j_intra * (uint64_t)(100 + mg) / 100;
             }
             if (j_intra_adm < best) { best = j_intra; kind = 3; }
-            if (nb_skip() && kind == 0 && log2n >= 3 &&
-                j_skip != UINT64_MAX) {
-                nb_cur(e)->sk_sum[log2n - 3] += d_skip;
-                nb_cur(e)->sk_n[log2n - 3]++;
-            }
 
             /* A4's census reads the SHORTLIST, before the partitions:
              * the three 2Nx2N predictions are the comparison the proxy
@@ -8474,8 +8264,6 @@ static void depth_dump_features(struct n265_frame_work *e, int ctb_x,
 void n265_analyze_ctu(struct n265_frame_work *e, int ctb_x, int ctb_y)
 {
     int ctb_k = ctb_y * e->ctb_cols + ctb_x;
-    e->nb_cx = ctb_x;
-    e->nb_cy = ctb_y;
     int q = e->qp + e->ctu_qp_off[ctb_k];
     e->cur_ctu_qp = n265_qp_clip(q);
     e->cur_ctu_lam_q8 = e->ctu_lam_q8 ? e->ctu_lam_q8[ctb_k] : 256;
@@ -8545,8 +8333,7 @@ void n265_ctu_warm(void)
     (void)cbf_fast(); (void)gate_scale(); (void)skip_exit();
     (void)static_commit(); (void)sc_conj();
     (void)intra_gate(); (void)intra_pf_q8(); (void)intra_oracle();
-    (void)irank_mode(); (void)nb_me(); (void)nb_skip(); (void)nb_min();
-    (void)td_dist();
+    (void)irank_mode(); (void)td_dist();
     (void)part_gate(); (void)chroma_dz();
     (void)part_amp_margin(); (void)rect_rank(); (void)n265_rect_flat();
     (void)depth_bound();
