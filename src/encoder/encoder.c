@@ -6942,9 +6942,9 @@ static void join_oldest(n265_encoder *e)
      * TemporalId of its own access unit; ours are all written at a layer-0
      * access unit (the parameter sets and the recovery point at an IRAP)
      * or carry timing that applies to the whole stream, so 0 is right for
-     * them too. The per-picture HDR10+ message and RPU are the exception
-     * and take the picture's TemporalId, so dropping a sub-layer drops
-     * them with it. */
+     * them too. The per-picture messages are the exception - the HDR10+
+     * message, the picture hash and the RPU - and take the picture's
+     * TemporalId, so dropping a sub-layer drops them with it. */
     pack_nal_tid(d, fw->nal_type, fw->tid, fw->rbsp.buf, fw->rbsp.bytes);
     /* --hash: the decoded picture hash, D.2.19. A SUFFIX SEI, so it comes
      * AFTER the access unit's VCL NAL (7.4.2.4.4) - the only suffix NAL
@@ -6957,7 +6957,8 @@ static void join_oldest(n265_encoder *e)
         n265_pic_hash h;
         hash_frame(e, fw, &h);
         n265_write_hash_sei(&e->hash_bs, &h, 3);
-        pack_nal(d, N265_NAL_SUFFIX_SEI, e->hash_bs.buf, e->hash_bs.bytes);
+        pack_nal_tid(d, N265_NAL_SUFFIX_SEI, fw->tid, e->hash_bs.buf,
+                     e->hash_bs.bytes);
     }
     /* --dolby-vision-rpu: this picture's RPU, by display index as above.
      * It is the access unit's last NAL, after its slice and its suffix
