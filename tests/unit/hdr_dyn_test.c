@@ -79,16 +79,19 @@ static const uint8_t rpu5[162] = {
 
 static char *tmp_file(const void *data, size_t n)
 {
-    static char path[64];
-    snprintf(path, sizeof path, "/tmp/n265_hdr_dyn_XXXXXX");
+    static char path[1024];
+    const char *dir = getenv("TMPDIR");
+    snprintf(path, sizeof path, "%s/n265_hdr_dyn_XXXXXX",
+             dir && *dir ? dir : "/tmp");
     int fd = mkstemp(path);
     if (fd < 0)
         return NULL;
-    if (write(fd, data, n) != (ssize_t)n) {
-        close(fd);
+    int ok = write(fd, data, n) == (ssize_t)n;
+    close(fd);
+    if (!ok) {
+        unlink(path);
         return NULL;
     }
-    close(fd);
     return path;
 }
 

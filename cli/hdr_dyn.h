@@ -20,7 +20,8 @@ typedef struct n265_dyn_tab {
 
 /* Read an HDR10+ JSON file into one T.35 payload per frame. 0 on success;
  * otherwise -1 with the reason in `err`. */
-int n265_h10p_load(const char *path, n265_dyn_tab *t, char *err, size_t errlen);
+int n265_h10p_load(const char *path, n265_dyn_tab *t, char *err,
+                   size_t errlen);
 
 /* Read a Dolby Vision RPU file (Annex B NAL units of type 62) into one
  * RBSP per frame. 0 on success; otherwise -1 with the reason in `err`. */

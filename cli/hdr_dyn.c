@@ -113,7 +113,7 @@ typedef struct jdoc {
     const char *p, *end;
     int depth;
     int full;               /* a value hit J_NODE_MAX */
-    int oom;
+    int oom, deep;
     const char *dup;        /* a key the loader reads appears twice */
 } jdoc;
 
@@ -201,7 +201,9 @@ static int j_list(jdoc *d, int self, int obj)
         size_t klen = 0;
         j_ws(d);
         if (obj) {
-            if (j_str(d, &key, &klen) < 0)
+            /* keys are compared as written, so one spelled with an escape
+             * could hide a repeat; no metadata tool writes one */
+            if (j_str(d, &key, &klen) < 0 || memchr(key, '\\', klen))
                 return -1;
             j_ws(d);
             if (d->p >= d->end || *d->p++ != ':')
@@ -233,8 +235,12 @@ static int j_list(jdoc *d, int self, int obj)
 static int j_value(jdoc *d)
 {
     j_ws(d);
-    if (d->p >= d->end || ++d->depth > 64)
+    if (d->p >= d->end)
         return -1;
+    if (++d->depth > 64) {
+        d->deep = 1;
+        return -1;
+    }
     int v = -1;
     char c = *d->p;
     if (c == '{' || c == '[') {
@@ -550,7 +556,7 @@ int n265_h10p_load(const char *path, n265_dyn_tab *t, char *err,
     char *text = slurp(path, &size, err, errlen);
     if (!text)
         return -1;
-    jdoc d = { NULL, 0, 0, text, text + size, 0, 0, 0, NULL };
+    jdoc d = { NULL, 0, 0, text, text + size, 0, 0, 0, 0, NULL };
     dyn_list l = { 0 };
     int rc = -1, prof = 0, seen = 0, seen_info = 0, k = 0;
     j_ws(&d);
@@ -572,7 +578,11 @@ int n265_h10p_load(const char *path, n265_dyn_tab *t, char *err,
                 goto bad;
             j_ws(&d);
             if (klen == 9 && !memcmp(key, "SceneInfo", 9)) {
-                if (seen++ || d.p >= d.end || *d.p != '[')
+                if (seen++) {
+                    fail(err, errlen, "%s has SceneInfo twice", path);
+                    goto out;
+                }
+                if (d.p >= d.end || *d.p != '[')
                     goto bad;
                 d.p++;
                 j_ws(&d);
@@ -705,6 +715,12 @@ int n265_h10p_load(const char *path, n265_dyn_tab *t, char *err,
 bad:
     if (d.oom)
         fail(err, errlen, "out of memory");
+    else if (d.deep)
+        fail(err, errlen, "%s nests deeper than 64 levels near byte %ld, "
+             "which is not HDR10+ metadata", path, (long)(d.p - text));
+    else if (size >= 3 && !memcmp(text, "\xef\xbb\xbf", 3))
+        fail(err, errlen, "%s starts with a byte order mark, which JSON "
+             "doesn't allow", path);
     else if (d.full)
         fail(err, errlen, "%s has a value of over %d items near byte %ld, "
              "which is not HDR10+ metadata", path, J_NODE_MAX,
@@ -846,7 +862,8 @@ int n265_rpu_load(const char *path, n265_dyn_tab *t, char *err,
          * 0x19 prefix byte; a file cut from a stream has the type-62
          * header in front, which goes. */
         long at = s;
-        if (end - at >= 3 && b[at] == 0x7c && b[at + 1] == 0x01)
+        if (end - at >= 3 && b[at] == 0x7c && !(b[at + 1] & 0xf8) &&
+            (b[at + 1] & 7))    /* layer 0, any TemporalId */
             at += 2;
         if (end - at < 2 || b[at] != 0x19) {
             fail(err, errlen, "%s: entry %d is not a Dolby Vision RPU (no "
@@ -883,11 +900,13 @@ int n265_rpu_load(const char *path, n265_dyn_tab *t, char *err,
          * the 0x80 stop byte. The body is copied unread, but a file cut
          * short or damaged on the way fails here instead of becoming a
          * corrupt RPU in the stream. */
+        uint32_t crc = m >= 6 ? (uint32_t)r[m - 5] << 24 |
+                                (uint32_t)r[m - 4] << 16 |
+                                (uint32_t)r[m - 3] << 8 | r[m - 2] : 0;
         int whole_rpu = m >= 6 && r[m - 1] == 0x80 &&
-                        rpu_crc32(r + 1, m - 6) ==
-                            ((uint32_t)r[m - 5] << 24 | (uint32_t)r[m - 4] << 16 |
-                             (uint32_t)r[m - 3] << 8 | r[m - 2]);
-        int prof = same && whole_rpu ? n265_rpu_profile(r, m) : 0;
+                        rpu_crc32(r + 1, m - 6) == crc;
+        /* the header has to fit in the body the CRC covers */
+        int prof = same && whole_rpu ? n265_rpu_profile(r, m - 5) : 0;
         const char *why = !same ? "isn't escaped the way a stream carries it, "
                                   "so it can't be copied as it is"
                         : !whole_rpu ? "fails its CRC: the file is cut short "

@@ -272,8 +272,9 @@ YAH265_API void n265_set_hdr10(int hdr10, int cll_on, int atc);
  * the i-th picture passed in, wherever the encoder codes it. A NULL entry
  * or a picture past n carries none, and n <= 0 turns the feature off. The
  * next n265_encoder_open call takes the table and clears the setting,
- * whether or not the open succeeds, so each open needs its own call. The arrays and what they point at are the
- * caller's and must outlive that encoder.
+ * whether or not the open succeeds, so each open needs its own call. The
+ * arrays and what they point at are the caller's and must outlive that
+ * encoder.
  *
  * hdr10plus: each entry is a user_data_registered_itu_t_t35 payload from
  * the country code on, an ST 2094-40 (HDR10+) message, written as one

@@ -71,11 +71,11 @@ write that box. A Dolby Vision-aware muxer such as MP4Box or mkvmerge does.
 
 ## How it was checked
 
-- **Against the tools' own injection.** Encoding with `--dhdr10-info` and
-  `--dolby-vision-rpu` gives the same NAL units, byte for byte, as encoding
-  without them and then running `hdr10plus_tool inject` and
-  `dovi_tool inject-rpu` on the result. The only extras on the tools' side are
-  an access unit delimiter per picture and the encoder's version SEI.
+- **Against the tools' own injection.** A CRF encode with `--dhdr10-info`
+  and `--dolby-vision-rpu` gives the same NAL units, byte for byte, as the
+  same encode without them run through `hdr10plus_tool inject` and
+  `dovi_tool inject-rpu`. Two differ: the tools add an access unit delimiter
+  to each picture, and the encoder's version SEI names the extra options.
 - **Round trips.** `dovi_tool extract-rpu` and `hdr10plus_tool extract` on an
   encode give back the input metadata exactly. That holds with B-frames
   reordering the pictures, with `--seek`, and across `--gop-parallel`
@@ -90,7 +90,7 @@ write that box. A Dolby Vision-aware muxer such as MP4Box or mkvmerge does.
 - **Nothing else moves.** Without these options the output is byte-identical
   to the encoder before they existed, except under `--temporal-layers`, where
   the NAL units written with each picture (the delimiter, timing SEI, hash
-  and filler) now take that picture's temporal layer. With them, a CRF encode codes the same
-  pictures. Under a bitrate or VBV target the metadata's bytes count toward it
-  like any other part of the access unit, so the rate control spends slightly
-  less on the pictures.
+  and filler) now take that picture's temporal layer. With them, a CRF
+  encode codes the same pictures. Under a bitrate or VBV target the
+  metadata's bytes count toward it like any other part of the access unit,
+  so the rate control spends slightly less on the pictures.

@@ -3451,6 +3451,11 @@ void n265_encoder_close(n265_encoder *e)
         fclose(e->shot_f);
         e->shot_f = NULL;
     }
+    /* A picture without its HDR10+ message or RPU breaks that format's
+     * playback there, so a drop is never silent. */
+    if (e->dyn_lost)
+        fprintf(stderr, "n265: ERROR out of memory: %ld HDR10+ or Dolby "
+                "Vision metadata NALs were not written\n", e->dyn_lost);
     /* --strict-cbr: say how much of the stream is padding. A run that
      * needed none held the rate on its own; one that is a third filler is
      * telling you the target is above what the content costs. */
@@ -5799,6 +5804,11 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
         if (e->hrd_on)
             ovh += 40.0;    /* the buffering period and pic timing pair */
         ovh += (double)(fw->sei_len + fw->hdr_sei_len) + 12.0;
+        size_t ml = 0;
+        if (dynmeta_at(&e->h10p, fw->display_idx, &ml))
+            ovh += (double)ml + 9.0;    /* start code, header, SEI framing */
+        if (dynmeta_at(&e->rpu, fw->display_idx, &ml))
+            ovh += (double)ml + 6.0;
         fw->brk_lim -= 8.0 * ovh;
         fw->brk_slim -= 8.0 * ovh;
         if (fw->brk_lim < N265_VBV_MIN_ALLOW)
@@ -6935,9 +6945,11 @@ static void join_oldest(n265_encoder *e)
     size_t dyn_len = 0;
     const uint8_t *dyn = dynmeta_at(&e->h10p, fw->display_idx, &dyn_len);
     if (dyn) {
+        int had = d->nnal;
         n265_write_t35_sei(&e->t35_bs, dyn, dyn_len);
         pack_nal_tid(d, N265_NAL_PREFIX_SEI, fw->tid, e->t35_bs.buf,
                      e->t35_bs.bytes);
+        e->dyn_lost += d->nnal == had;
     }
     /* --temporal-layers: 7.4.2.2 puts the parameter sets, the end of
      * sequence and the end of bitstream at TemporalId 0, the access unit
@@ -7019,8 +7031,12 @@ static void join_oldest(n265_encoder *e)
             e->filler_aus++;
         }
     }
-    if (rpu_sz)
-        append_nal(d, N265_NAL_UNSPEC62, e->rpu_nal, rpu_sz);
+    if (dyn) {
+        int had = d->nnal;
+        if (rpu_sz)
+            append_nal(d, N265_NAL_UNSPEC62, e->rpu_nal, rpu_sz);
+        e->dyn_lost += d->nnal == had;
+    }
     e->n_done++;
     e->frames_out++;
     dump_recon_frame(e, fw);

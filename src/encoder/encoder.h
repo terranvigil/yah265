@@ -1358,6 +1358,7 @@ struct n265_encoder {
      * The RPU is packed ahead of time, because strict CBR's filler has to
      * count it and still come before it. */
     n265_dynmeta h10p, rpu;
+    long dyn_lost;          /* metadata NALs an allocation failure dropped */
     bitstream_t t35_bs;
     uint8_t *rpu_nal;
     size_t rpu_nal_cap;
