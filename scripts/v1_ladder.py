@@ -15,8 +15,8 @@ swap is that feature's share of the gap at matched rate.
 
 Scoring is the parity pipeline's (parity_long.py score_v1): both sides at
 10 bits (yuv420p10le), CAMBI told the encode is 8-bit and its coded size
-(cambi.enc_bitdepth=8, enc_width, enc_height), the 3d0h model below the
-UHD class and 1d5h_2160 at it (the _hfr twins at 50 fps and up), every
+(cambi.enc_bitdepth=8, enc_width, enc_height), the 3d0h model at 1080p and
+below and 1d5h_2160 above it (the _hfr twins at 50 fps and up), every
 frame. v1 is read at DISPLAY resolution (owner rule 10-25): a picture
 smaller than 1920x1080 in both dimensions is scaled up, bicubic and
 aspect kept, to fit 1920x1080, reference and decode alike. V1_NATIVE=1
@@ -47,7 +47,6 @@ THR = os.environ.get("THREADS", "4")
 BIN = os.environ.get("BIN", os.path.join(ROOT, "build-rel", "n265"))
 FEATS = [("cambi", "cambi"), ("speed_chroma_uv", "chroma"),
          ("integer_adm3", "adm3"), ("integer_motion3", "motion3")]
-UHD = 3840 * 1600
 # the owner's display rule (10-25), as parity_long.py V1_DISP
 DISP = (1920, 1080)
 
@@ -128,9 +127,16 @@ def rung(src, enc, mode, q, env, flags, binh, frames=None):
         cmd = ["x265", "--input", src, "--preset", "medium"] + rate_args(mode, q) + fl + [
             "--pools", THR, "--frame-threads", "4", "--log-level", "error"]
     dm = disp_mode(w, h)
-    key = hashlib.sha256(json.dumps([cmd, sorted(env.items()), src,
-                                     binh if enc == "ours" else "x265",
-                                     "disp:" + dm]).encode()).hexdigest()[:20]
+    # owner rule: 1d5h_2160 above 1080p, 3d0h at and below it
+    sub = (MD + "_hfr", "vmaf_v1.0.16_hfr_") if fps >= 49.9 else (MD, "vmaf_v1.0.16_")
+    model = os.path.join(sub[0], sub[1] + ("1d5h_2160" if h > 1080 else "3d0h") + ".json")
+    k = [cmd, sorted(env.items()), src, binh if enc == "ours" else "x265", "disp:" + dm]
+    # before the rule the switch was at 3840x1600 pixels: key the sizes whose
+    # model changed (1440p) on it, so their old scores aren't reused, and
+    # leave every other size's cached scores valid
+    if (h > 1080) != (w * h >= 3840 * 1600):
+        k.append(os.path.basename(model))
+    key = hashlib.sha256(json.dumps(k).encode()).hexdigest()[:20]
     js = os.path.join(CACHE, key + ".json")
     if os.path.exists(js):
         return json.load(open(js))
@@ -142,8 +148,6 @@ def rung(src, enc, mode, q, env, flags, binh, frames=None):
     e.update(env)
     subprocess.run(cmd + ["-o", bs], env=e, check=True,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    sub = (MD + "_hfr", "vmaf_v1.0.16_hfr_") if fps >= 49.9 else (MD, "vmaf_v1.0.16_")
-    model = os.path.join(sub[0], sub[1] + ("1d5h_2160" if w * h >= UHD else "3d0h") + ".json")
     fr = vmaf_pass(src, bs, frames, dm if dm == "fit" else "10", [
         "--model", f"path={model}:name=v1:cambi.enc_bitdepth=8"
         f":cambi.enc_width={w}:cambi.enc_height={h}"], CACHE, key + ".v1")
