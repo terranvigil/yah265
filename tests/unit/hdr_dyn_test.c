@@ -218,6 +218,14 @@ int main(void)
     if (p)
         unlink(p);
 
+    /* a header with nothing after it says so */
+    static const uint8_t bare[] = { 0, 0, 0, 1, 0x7c, 0x01 };
+    p = tmp_file(bare, sizeof bare);
+    CHECK(p && n265_rpu_load(p, &t, err, sizeof err) < 0 &&
+          strstr(err, "no RPU"));
+    if (p)
+        unlink(p);
+
     /* a type-62 header with TemporalId bits of 0 says what's wrong */
     uint8_t fz[6 + sizeof rpu8] = { 0, 0, 0, 1, 0x7c, 0x00 };
     memcpy(fz + 6, rpu8, sizeof rpu8);

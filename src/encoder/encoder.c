@@ -586,8 +586,10 @@ void n265_set_dovi_rpu(int n, const uint8_t *const *rbsp, const size_t *len)
 
 /* the bytes an RBSP takes once packed as a NAL: the emulation prevention
  * the packer will add, plus `framing` for the start code and headers. The
- * scan starts at the RBSP, which is exact for the RPU and, since an HDR10+
- * payload opens with its 0xB5 country code, for the SEI around it too. */
+ * scan starts at the RBSP, which is exact for the RPU and, for an HDR10+
+ * payload that opens with its 0xB5 country code as the CLI's do, for the
+ * SEI around it too. A library payload opening with zeros can come out a
+ * byte low, which only trims the brake's allowance. */
 static double packed_size(const uint8_t *rbsp, size_t len, double framing)
 {
     size_t ep = 0;

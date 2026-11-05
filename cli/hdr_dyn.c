@@ -889,6 +889,9 @@ int n265_rpu_load(const char *path, n265_dyn_tab *t, char *err,
             else if (ok_hdr && end - s == 2)
                 fail(err, errlen, "%s: entry %d is a NAL header with no RPU "
                      "after it", path, k);
+            else if (end - at == 1 && b[at] == 0x19)
+                fail(err, errlen, "%s: entry %d is an RPU cut short after "
+                     "its prefix byte", path, k);
             else
                 fail(err, errlen, "%s: entry %d is not a Dolby Vision RPU "
                      "(no 0x19 prefix)", path, k);
