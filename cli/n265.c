@@ -1509,12 +1509,14 @@ static void usage(void)
         "                  bt2020nc.\n"
         "  --dolby-vision-rpu <file>  a Dolby Vision profile 8 RPU per\n"
         "                  picture, from the file dovi_tool writes, copied\n"
-        "                  unread as the access unit's last NAL. Needs\n"
-        "                  --dolby-vision-profile.\n"
+        "                  unread as the access unit's last NAL. Each RPU's\n"
+        "                  escaping, CRC and profile are checked. Needs\n"
+        "                  --dolby-vision-profile, and warns without a VBV.\n"
         "  --dolby-vision-profile <p>  8.1 (an HDR10 base layer: PQ,\n"
         "                  BT.2020), 8.2 (an SDR BT.709 base layer) or 8.4\n"
         "                  (an HLG base layer). It checks the colour flags\n"
-        "                  match and the encode is 10-bit.\n"
+        "                  match and the encode is 10-bit 4:2:0 at limited\n"
+        "                  range.\n"
         "  Both files are read in display order: entry i goes with input\n"
         "  frame i, and --seek skips entries as it skips frames. A file\n"
         "  that covers fewer frames than were encoded fails the run, after\n"
@@ -3879,6 +3881,30 @@ int main(int argc, char **argv)
             return 2;
         }
     }
+    /* with the video on stdin, a metadata file there would read the Y4M
+     * as metadata */
+    if (in_path && !strcmp(in_path, "-")) {
+        const char *f[2] = { h10p_path, rpu_path };
+        for (int k = 0; k < 2; k++)
+            if (f[k] && (!strcmp(f[k], "/dev/stdin") ||
+                         !strcmp(f[k], "/dev/fd/0") || !strcmp(f[k], "-"))) {
+                fprintf(stderr, "n265: the input is on stdin, so %s can't "
+                        "be read from there too\n",
+                        k ? "--dolby-vision-rpu" : "--dhdr10-info");
+                return 2;
+            }
+    }
+    /* Dolby Vision deliveries are normally HRD-constrained, but a CRF
+     * encode is still a valid stream and is what testing and archiving
+     * want, so this only says so. */
+    if (rpu_path && !(vbv_maxrate > 0.0 && vbv_bufsize > 0.0))
+        fprintf(stderr, "n265: WARNING Dolby Vision is normally delivered "
+                "under a VBV: consider --vbv-maxrate and --vbv-bufsize\n");
+    /* 8.1's base layer is meant to be a whole HDR10 stream */
+    if (dv_profile == 81 && !have_md)
+        fprintf(stderr, "n265: WARNING a Dolby Vision 8.1 base layer is "
+                "HDR10, which carries a mastering display: consider "
+                "--master-display\n");
     char dyn_err[256];
     if (h10p_path &&
         n265_h10p_load(h10p_path, &g_h10p_tab, dyn_err, sizeof dyn_err) < 0) {

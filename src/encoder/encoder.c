@@ -1697,6 +1697,12 @@ void n265_row_end(n265_row_ctx *row, n265_frame_work *fw, int r)
 
 n265_encoder *n265_encoder_open(const n265_param *p)
 {
+    /* Every call takes the per-picture tables, whether the open succeeds
+     * or not: they are the caller's memory, and one left behind by a
+     * failed open would be read by the next encoder after it was freed. */
+    n265_dynmeta h10p = g_h10p, rpu = g_rpu;
+    memset(&g_h10p, 0, sizeof g_h10p);
+    memset(&g_rpu, 0, sizeof g_rpu);
     if (!p || (p->width & 1) || (p->height & 1) ||
         (p->csp != N265_CSP_I420 && p->csp != N265_CSP_I422 &&
          p->csp != N265_CSP_I444))
@@ -2664,12 +2670,8 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         }
         e->hrd_concat = g_hrd_concat;
         e->sig = g_sig;
-        /* taken, not shared: the tables are the caller's memory, and a
-         * later encoder must not read ones that went with this one */
-        e->h10p = g_h10p;
-        e->rpu = g_rpu;
-        memset(&g_h10p, 0, sizeof g_h10p);
-        memset(&g_rpu, 0, sizeof g_rpu);
+        e->h10p = h10p;
+        e->rpu = rpu;
         if (e->h10p.n && bs_init(&e->t35_bs, 320) < 0)
             goto fail;
         if (e->sig.hash) {

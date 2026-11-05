@@ -39,7 +39,7 @@ static char *slurp(const char *path, long *size, char *err, size_t errlen)
      * (`<(...)`) works as well as a file */
     char *buf = NULL;
     size_t n = 0, cap = 0;
-    int big = 0;
+    int big = 0, oom = 0;
     for (;;) {
         if (n == cap) {
             if (cap >= (size_t)DYN_FILE_MAX) {
@@ -48,8 +48,10 @@ static char *slurp(const char *path, long *size, char *err, size_t errlen)
             }
             cap = cap ? cap * 2 : 1 << 16;
             char *b = realloc(buf, cap + 1);
-            if (!b)
+            if (!b) {
+                oom = 1;
                 break;
+            }
             buf = b;
         }
         size_t got = fread(buf + n, 1, cap - n, f);
@@ -57,10 +59,11 @@ static char *slurp(const char *path, long *size, char *err, size_t errlen)
         if (got == 0)
             break;
     }
-    int bad = ferror(f) || big || n == cap;
+    int bad = ferror(f) || big || oom || n == cap;
     fclose(f);
     if (bad || !buf) {
-        fail(err, errlen, big ? "%s is too large" : "cannot read %s", path);
+        fail(err, errlen, oom ? "out of memory reading %s"
+                          : big ? "%s is too large" : "cannot read %s", path);
         free(buf);
         return NULL;
     }
@@ -91,7 +94,7 @@ void n265_dyn_free(n265_dyn_tab *t)
  *
  * Enough of RFC 8259 for a metadata file: every value is parsed and
  * checked, numbers are kept as doubles, and strings are kept raw (escapes
- * skipped, not decoded), since the keys and the profile letter this file
+ * checked, not decoded), since the keys and the profile letter this file
  * reads are plain ASCII. */
 
 enum { J_NULL, J_BOOL, J_NUM, J_STR, J_ARR, J_OBJ };
@@ -110,6 +113,8 @@ typedef struct jdoc {
     const char *p, *end;
     int depth;
     int full;               /* a value hit J_NODE_MAX */
+    int oom;
+    const char *dup;        /* a key the loader reads appears twice */
 } jdoc;
 
 static void j_ws(jdoc *d)
@@ -132,8 +137,10 @@ static int j_new(jdoc *d, int type)
     if (d->cnt == d->cap) {
         int cap = d->cap ? d->cap * 2 : 1024;
         jnode *n = realloc(d->n, (size_t)cap * sizeof *n);
-        if (!n)
+        if (!n) {
+            d->oom = 1;
             return -1;
+        }
         d->n = n;
         d->cap = cap;
     }
@@ -152,8 +159,21 @@ static int j_str(jdoc *d, const char **s, size_t *len)
     while (d->p < d->end && *d->p != '"') {
         if ((unsigned char)*d->p < 0x20)
             return -1;
-        if (*d->p == '\\' && ++d->p >= d->end)
-            return -1;
+        if (*d->p == '\\') {
+            if (++d->p >= d->end)
+                return -1;
+            if (*d->p == 'u') {
+                for (int i = 1; i <= 4; i++) {
+                    char h = d->p + i < d->end ? d->p[i] : 0;
+                    if (!((h >= '0' && h <= '9') || (h >= 'a' && h <= 'f') ||
+                          (h >= 'A' && h <= 'F')))
+                        return -1;
+                }
+                d->p += 4;
+            } else if (!strchr("\"\\/bfnrt", *d->p) || !*d->p) {
+                return -1;
+            }
+        }
         d->p++;
     }
     if (d->p >= d->end)
@@ -278,15 +298,25 @@ static int j_value(jdoc *d)
     return v;
 }
 
-static int j_get(const jdoc *d, int obj, const char *key)
+/* RFC 8259 leaves a repeated name undefined, so a key the loader reads
+ * that appears twice is refused rather than resolved one way or the other:
+ * it reads as absent here, and the loader reports it. */
+static int j_get(const jdoc *cd, int obj, const char *key)
 {
+    jdoc *d = (jdoc *)cd;
     if (obj < 0 || d->n[obj].type != J_OBJ)
         return -1;
     size_t kl = strlen(key);
+    int hit = -1;
     for (int k = d->n[obj].kid; k >= 0; k = d->n[k].next)
-        if (d->n[k].klen == kl && !memcmp(d->n[k].key, key, kl))
-            return k;
-    return -1;
+        if (d->n[k].klen == kl && !memcmp(d->n[k].key, key, kl)) {
+            if (hit >= 0) {
+                d->dup = key;
+                return -1;
+            }
+            hit = k;
+        }
+    return hit;
 }
 
 /* ---- the ST 2094-40 payload ------------------------------------------- */
@@ -520,9 +550,9 @@ int n265_h10p_load(const char *path, n265_dyn_tab *t, char *err,
     char *text = slurp(path, &size, err, errlen);
     if (!text)
         return -1;
-    jdoc d = { NULL, 0, 0, text, text + size, 0, 0 };
+    jdoc d = { NULL, 0, 0, text, text + size, 0, 0, 0, NULL };
     dyn_list l = { 0 };
-    int rc = -1, prof = 0, seen = 0, k = 0;
+    int rc = -1, prof = 0, seen = 0, seen_info = 0, k = 0;
     j_ws(&d);
     if (d.p >= d.end || *d.p != '{')
         goto bad;
@@ -546,7 +576,9 @@ int n265_h10p_load(const char *path, n265_dyn_tab *t, char *err,
                     goto bad;
                 d.p++;
                 j_ws(&d);
-                int more = d.p < d.end && *d.p != ']';
+                if (d.p >= d.end)
+                    goto bad;
+                int more = *d.p != ']';
                 if (!more)
                     d.p++;
                 while (more) {
@@ -565,7 +597,13 @@ int n265_h10p_load(const char *path, n265_dyn_tab *t, char *err,
                     n265_h10p_frame f;
                     uint8_t pl[128], *copy;
                     size_t len;
-                    if (scene(&d, sc, k, &f, err, errlen) < 0)
+                    int got = scene(&d, sc, k, &f, err, errlen);
+                    if (d.dup) {
+                        fail(err, errlen, "SceneInfo[%d] has the key %s "
+                             "twice", k, d.dup);
+                        goto out;
+                    }
+                    if (got < 0)
                         goto out;
                     if (!(len = n265_h10p_payload(&f, pl, sizeof pl)) ||
                         !(copy = malloc(len))) {
@@ -598,6 +636,11 @@ int n265_h10p_load(const char *path, n265_dyn_tab *t, char *err,
                     goto bad;
                 if (klen == 8 && !memcmp(key, "JSONInfo", 8)) {
                     int pv = j_get(&d, v, "HDR10plusProfile");
+                    if (seen_info++ || d.dup) {
+                        fail(err, errlen, "%s has JSONInfo or its "
+                             "HDR10plusProfile twice", path);
+                        goto out;
+                    }
                     if (pv >= 0) {
                         if (d.n[pv].type != J_STR || d.n[pv].slen != 1 ||
                             (d.n[pv].str[0] != 'A' && d.n[pv].str[0] != 'B')) {
@@ -660,7 +703,9 @@ int n265_h10p_load(const char *path, n265_dyn_tab *t, char *err,
     rc = 0;
     goto out;
 bad:
-    if (d.full)
+    if (d.oom)
+        fail(err, errlen, "out of memory");
+    else if (d.full)
         fail(err, errlen, "%s has a value of over %d items near byte %ld, "
              "which is not HDR10+ metadata", path, J_NODE_MAX,
              (long)(d.p - text));
@@ -742,6 +787,18 @@ int n265_rpu_profile(const uint8_t *rbsp, size_t len)
     return 0;
 }
 
+/* MPEG-2's CRC32: polynomial 0x04C11DB7, not reflected, from all ones */
+static uint32_t rpu_crc32(const uint8_t *p, size_t n)
+{
+    uint32_t c = 0xffffffffu;
+    for (size_t i = 0; i < n; i++) {
+        c ^= (uint32_t)p[i] << 24;
+        for (int k = 0; k < 8; k++)
+            c = c & 0x80000000u ? (c << 1) ^ 0x04c11db7u : c << 1;
+    }
+    return c;
+}
+
 /* dovi_tool writes one RPU per frame, in display order, each behind a
  * start code. Any NAL header goes (the library writes its own) and the
  * emulation prevention comes out, because the library puts it back as it
@@ -760,11 +817,12 @@ int n265_rpu_load(const char *path, n265_dyn_tab *t, char *err,
     const uint8_t *b = (const uint8_t *)text;
     dyn_list l = { 0 };
     int rc = -1;
-    long s;
-    if (size >= 3 && !b[0] && !b[1] && b[2] == 1)
-        s = 3;
-    else if (size >= 4 && !b[0] && !b[1] && !b[2] && b[3] == 1)
-        s = 4;
+    /* Annex B lets zero bytes run ahead of the first start code */
+    long s = 0;
+    while (s < size && !b[s])
+        s++;
+    if (s >= 2 && s < size && b[s] == 1)
+        s++;
     else {
         fail(err, errlen, "%s is not an RPU file (no start code at the "
              "front)", path);
@@ -782,6 +840,8 @@ int n265_rpu_load(const char *path, n265_dyn_tab *t, char *err,
         long end = e;
         while (end > s && b[end - 1] == 0)  /* a four-byte code's zero */
             end--;
+        if (end == s && next > size && k > 0)   /* a start code at the end */
+            break;
         /* dovi_tool writes the RPU with no NAL header, starting at its
          * 0x19 prefix byte; a file cut from a stream has the type-62
          * header in front, which goes. */
@@ -819,21 +879,32 @@ int n265_rpu_load(const char *path, n265_dyn_tab *t, char *err,
             zeros = r[i] == 0 ? zeros + 1 : 0;
         }
         same &= o == end;
-        int prof = same ? n265_rpu_profile(r, m) : 0;
-        if (!same || prof != 8 || list_add(&l, r, m, (uint32_t)k, 0) < 0) {
+        /* An RPU ends in a CRC32 of everything after its prefix byte, then
+         * the 0x80 stop byte. The body is copied unread, but a file cut
+         * short or damaged on the way fails here instead of becoming a
+         * corrupt RPU in the stream. */
+        int whole_rpu = m >= 6 && r[m - 1] == 0x80 &&
+                        rpu_crc32(r + 1, m - 6) ==
+                            ((uint32_t)r[m - 5] << 24 | (uint32_t)r[m - 4] << 16 |
+                             (uint32_t)r[m - 3] << 8 | r[m - 2]);
+        int prof = same && whole_rpu ? n265_rpu_profile(r, m) : 0;
+        const char *why = !same ? "isn't escaped the way a stream carries it, "
+                                  "so it can't be copied as it is"
+                        : !whole_rpu ? "fails its CRC: the file is cut short "
+                                       "or damaged"
+                        : NULL;
+        if (why || prof != 8 || list_add(&l, r, m, (uint32_t)k, 0) < 0) {
             free(r);
-            if (!same)
-                fail(err, errlen, "%s: entry %d isn't escaped the way a "
-                     "stream carries it, so it can't be copied as it is",
-                     path, k);
+            if (why)
+                fail(err, errlen, "%s: entry %d %s", path, k, why);
+            else if (prof == 8)
+                fail(err, errlen, "out of memory");
             else if (prof)
                 fail(err, errlen, "%s: entry %d is a profile %d RPU; only "
                      "profile 8 is supported", path, k, prof);
-            else if (prof != 8)
+            else
                 fail(err, errlen, "%s: entry %d is not a Dolby Vision RPU "
                      "this encoder can read", path, k);
-            else
-                fail(err, errlen, "out of memory");
             goto out;
         }
         s = next;

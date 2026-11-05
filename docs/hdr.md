@@ -48,6 +48,10 @@ header must say profile 8, and `--dolby-vision-profile` must match the colour
 flags and a 10-bit encode. A command line that would mislabel the stream is
 refused before it writes anything. Either file can come from a pipe.
 
+Dolby Vision without a VBV, and 8.1 without `--master-display`, get a warning
+and still encode. Deliveries are normally HRD-constrained and an 8.1 base
+layer is a complete HDR10 stream, but a CRF encode is still a valid one.
+
 ## Encoding HDR10+ and Dolby Vision 8.1
 
 ```
@@ -84,7 +88,8 @@ write that box. A Dolby Vision-aware muxer such as MP4Box or mkvmerge does.
   Levante: the Dolby Vision XML published with it under CC BY 4.0, turned
   into profile 8.1 RPUs by `dovi_tool`.
 - **Nothing else moves.** Without these options the output is byte-identical
-  to the encoder before they existed. With them, a CRF encode codes the same
+  to the encoder before they existed, except under `--temporal-layers`, where
+  the per-picture messages now take their picture's temporal layer. With them, a CRF encode codes the same
   pictures. Under a bitrate or VBV target the metadata's bytes count toward it
   like any other part of the access unit, so the rate control spends slightly
   less on the pictures.

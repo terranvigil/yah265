@@ -271,8 +271,8 @@ YAH265_API void n265_set_hdr10(int hdr10, int cll_on, int atc);
 /* Per-picture HDR metadata, n entries in DISPLAY order: entry i goes with
  * the i-th picture passed in, wherever the encoder codes it. A NULL entry
  * or a picture past n carries none, and n <= 0 turns the feature off. The
- * next n265_encoder_open takes the table and clears the setting, so each
- * encoder needs its own call. The arrays and what they point at are the
+ * next n265_encoder_open call takes the table and clears the setting,
+ * whether or not the open succeeds, so each open needs its own call. The arrays and what they point at are the
  * caller's and must outlive that encoder.
  *
  * hdr10plus: each entry is a user_data_registered_itu_t_t35 payload from
