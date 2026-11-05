@@ -352,6 +352,7 @@
 #define n265_vui_needed              n265_vui_needed_10
 #define n265_write_aud               n265_write_aud_10
 #define n265_write_hdr_sei           n265_write_hdr_sei_10
+#define n265_write_t35_sei           n265_write_t35_sei_10
 #define n265_write_hash_sei          n265_write_hash_sei_10
 #define n265_write_fgc_sei           n265_write_fgc_sei_10
 #define n265_write_hrd_sei           n265_write_hrd_sei_10

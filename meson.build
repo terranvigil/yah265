@@ -213,7 +213,7 @@ yah265_dep = declare_dependency(
 # content through Main10 on purpose. The CLI is compiled at 8 so the
 # names the header gives it are the 8-bit library's; the Main10 entry
 # points it declares for itself, suffixed.
-n265 = executable('n265' + depth_suffix, 'cli/n265.c',
+n265 = executable('n265' + depth_suffix, 'cli/n265.c', 'cli/hdr_dyn.c',
   c_args : ['-UN265_BIT_DEPTH', '-DN265_BIT_DEPTH=8'],
   link_with : [lib8_static, lib10_static],
   include_directories : inc,

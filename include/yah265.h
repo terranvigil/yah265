@@ -10,6 +10,7 @@
 #ifndef YAH265_H
 #define YAH265_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -88,7 +89,9 @@ typedef uint16_t n265_pixel;
 #define n265_set_vui_window   N265_API(n265_set_vui_window)
 #define n265_set_hdr_meta     N265_API(n265_set_hdr_meta)
 #define n265_set_hdr10        N265_API(n265_set_hdr10)
-#define n265_set_gop          N265_API(n265_set_gop)
+#define n265_set_hdr10plus    N265_API(n265_set_hdr10plus)
+#define n265_set_dovi_rpu     N265_API(n265_set_dovi_rpu)
+#define n265_set_gop         N265_API(n265_set_gop)
 #define n265_set_preset       N265_API(n265_set_preset)
 #define n265_preset_param     N265_API(n265_preset_param)
 #define n265_preset_param_res N265_API(n265_preset_param_res)
@@ -147,6 +150,7 @@ enum {
     N265_NAL_FD         = 38,   /* --strict-cbr: filler data          */
     N265_NAL_PREFIX_SEI = 39,
     N265_NAL_SUFFIX_SEI = 40,
+    N265_NAL_UNSPEC62   = 62,   /* --dolby-vision-rpu: the picture's RPU */
 };
 
 typedef struct n265_nal {
@@ -264,6 +268,22 @@ YAH265_API void n265_set_hdr_meta(const uint32_t *md, int cll, int fall);
  * message alone. atc is the alternative transfer characteristic (D.2.38),
  * -1 for no message. */
 YAH265_API void n265_set_hdr10(int hdr10, int cll_on, int atc);
+/* Per-picture HDR metadata, n entries in DISPLAY order: entry i goes with
+ * the i-th picture passed in, wherever the encoder codes it. A NULL entry
+ * or a picture past n carries none, and n <= 0 turns the feature off. The
+ * arrays and what they point at are the caller's and must outlive the
+ * encoder.
+ *
+ * hdr10plus: each entry is a user_data_registered_itu_t_t35 payload from
+ * the country code on, an ST 2094-40 (HDR10+) message, written as one
+ * prefix SEI per picture.
+ * dovi_rpu: each entry is the RBSP of a Dolby Vision RPU NAL (type 62),
+ * without its two header bytes and with emulation prevention removed. It
+ * is written as the access unit's last NAL. */
+YAH265_API void n265_set_hdr10plus(int n, const uint8_t *const *t35,
+                                   const size_t *len);
+YAH265_API void n265_set_dovi_rpu(int n, const uint8_t *const *rbsp,
+                                  const size_t *len);
 
 /* ---- open GOP (phase 14 item 3) ----
  *

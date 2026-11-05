@@ -768,6 +768,20 @@ size_t n265_write_hdr_sei(bitstream_t *bs, const n265_signal *s)
     return bs->bytes;
 }
 
+/* user_data_registered_itu_t_t35 (D.2.5, payload type 4), in a prefix SEI
+ * NAL of its own: `t35` is the whole payload from the country code on, so
+ * the message is a byte copy. --dhdr10-info writes one per picture, the
+ * ST 2094-40 dynamic metadata of that picture, and players look for it as
+ * a NAL by itself. */
+void n265_write_t35_sei(bitstream_t *bs, const uint8_t *t35, size_t len)
+{
+    bs_reset(bs);
+    for (size_t i = 0; i < len; i++)
+        bs_put_bits(bs, t35[i], 8);
+    sei_wrap(bs, 0, 4);
+    bs_rbsp_trailing(bs);
+}
+
 /* decoded_picture_hash (D.2.19), in a SUFFIX SEI NAL - the only suffix
  * NAL this encoder writes. Phase 14 item 1.
  *

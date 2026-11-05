@@ -17,6 +17,7 @@
 #include <unistd.h>
 
 #include "yah265.h"
+#include "hdr_dyn.h"
 
 /* internal knobs, resolved from the library (not yet public API) */
 void n265_encoder_set_dump_decode(n265_encoder *e, FILE *f);
@@ -197,6 +198,10 @@ void n265_set_vui_sar_10(int idc, int w, int h);
 void n265_set_vui_window_10(int on, int l, int t, int r, int b);
 void n265_set_hdr_meta_10(const uint32_t *md, int cll, int fall);
 void n265_set_hdr10_10(int hdr10, int cll_on, int atc);
+void n265_set_hdr10plus_10(int n, const uint8_t *const *t35,
+                           const size_t *len);
+void n265_set_dovi_rpu_10(int n, const uint8_t *const *rbsp,
+                          const size_t *len);
 int  n265_set_preset_10(const char *name);
 int  n265_preset_param_10(const char *key, int fallback);
 int  n265_preset_param_res_10(const char *key, int fallback, int w, int h);
@@ -280,6 +285,8 @@ typedef struct n265_api {
     void (*set_vui_window)(int, int, int, int, int);
     void (*set_hdr_meta)(const uint32_t *, int, int);
     void (*set_hdr10)(int, int, int);
+    void (*set_hdr10plus)(int, const uint8_t *const *, const size_t *);
+    void (*set_dovi_rpu)(int, const uint8_t *const *, const size_t *);
     n265_encoder *(*encoder_open)(const n265_param *);
     int  (*encoder_encode)(n265_encoder *, n265_nal **, int *,
                            const n265_picture *);
@@ -319,6 +326,7 @@ static const n265_api api8 = {
     n265_set_mcstf,
     n265_set_hash, n265_set_gop, n265_set_vui_colour, n265_set_vui_sar,
     n265_set_vui_window, n265_set_hdr_meta, n265_set_hdr10,
+    n265_set_hdr10plus, n265_set_dovi_rpu,
     n265_encoder_open, n265_encoder_encode, n265_encoder_close,
     n265_version_str, n265_encoder_set_dump, n265_encoder_set_dump_decode,
     n265_encoder_set_shot_stats,
@@ -343,6 +351,7 @@ static const n265_api api10 = {
     n265_set_hash_10, n265_set_gop_10, n265_set_vui_colour_10,
     n265_set_vui_sar_10,
     n265_set_vui_window_10, n265_set_hdr_meta_10, n265_set_hdr10_10,
+    n265_set_hdr10plus_10, n265_set_dovi_rpu_10,
     n265_encoder_open_10,
     n265_encoder_encode_10, n265_encoder_close_10, n265_version_str_10,
     n265_encoder_set_dump_10, n265_encoder_set_dump_decode_10,
@@ -1492,6 +1501,23 @@ static void usage(void)
         "                  assume instead. Same value table as --transfer;\n"
         "                  it is how an HLG stream tells a display it\n"
         "                  cannot reach what to do.\n"
+        "  --dhdr10-info <json>  HDR10+ (SMPTE ST 2094-40) dynamic\n"
+        "                  metadata, one message per picture, from the JSON\n"
+        "                  hdr10plus_tool writes (profile A or B, one\n"
+        "                  window). Entry i goes with input frame i, so\n"
+        "                  --seek skips entries as it skips frames. Needs\n"
+        "                  --transfer smpte2084.\n"
+        "  --dolby-vision-rpu <file>  a Dolby Vision RPU per picture, from\n"
+        "                  the file dovi_tool writes, copied unread as the\n"
+        "                  access unit's last NAL. Entry i goes with input\n"
+        "                  frame i, as above. Needs --dolby-vision-profile.\n"
+        "  --dolby-vision-profile <p>  8.1 (an HDR10 base layer: PQ,\n"
+        "                  BT.2020), 8.2 (an SDR BT.709 base layer) or 8.4\n"
+        "                  (an HLG base layer). It checks the colour flags\n"
+        "                  match and the encode is 10-bit;\n"
+        "                  the profile itself is in the RPUs. Either file\n"
+        "                  covering fewer frames than were encoded fails the\n"
+        "                  run.\n"
         "  NOTE the ENCODER-SIDE half of x265's HDR options is deliberately\n"
         "  absent: --hdr10-opt is a block-level QP decision tuned to PQ\n"
         "  content, and this item signals without deciding.\n"
@@ -1776,6 +1802,57 @@ typedef struct gp_job {
     int relief;                 /* N265_GOP_RELIEF */
     int kcap;                   /* N265_GOP_K: frames in flight, at most */
 } gp_job;
+
+/* --dhdr10-info and --dolby-vision-rpu, read at start-up and indexed from
+ * the input's first frame. An encoder numbers its pictures from 0, so
+ * --seek, and each --gop-parallel segment on top of it, hands the library
+ * the part of each table that starts at its own first picture. */
+static n265_dyn_tab g_h10p_tab, g_rpu_tab;
+static long g_dyn_seek;
+
+static void dyn_apply(const n265_api *a, long from)
+{
+    long at = g_dyn_seek + from;
+    const n265_dyn_tab *h = &g_h10p_tab, *r = &g_rpu_tab;
+    if (h->n > at)
+        a->set_hdr10plus((int)(h->n - at),
+                         (const uint8_t *const *)h->buf + at, h->len + at);
+    else
+        a->set_hdr10plus(0, NULL, NULL);
+    if (r->n > at)
+        a->set_dovi_rpu((int)(r->n - at),
+                        (const uint8_t *const *)r->buf + at, r->len + at);
+    else
+        a->set_dovi_rpu(0, NULL, NULL);
+}
+
+/* After the encode. A picture with no metadata breaks HDR10+ or Dolby
+ * Vision playback at that picture, so it fails the run (the stream is
+ * still written). Metadata left over is only a warning: a --frames run
+ * over part of a title is the usual reason. */
+static int dyn_check(long frames)
+{
+    const n265_dyn_tab *t[2] = { &g_h10p_tab, &g_rpu_tab };
+    const char *flag[2] = { "--dhdr10-info", "--dolby-vision-rpu" };
+    int rc = 0;
+    for (int k = 0; k < 2; k++) {
+        if (!t[k]->n)
+            continue;
+        long have = t[k]->n - g_dyn_seek;
+        if (have < 0)
+            have = 0;
+        if (have < frames) {
+            fprintf(stderr, "n265: ERROR %s covers %ld of the %ld frames "
+                    "encoded; the last %ld have none\n", flag[k], have,
+                    frames, frames - have);
+            rc = 1;
+        } else if (have > frames) {
+            fprintf(stderr, "n265: WARNING %s covers %ld frames and %ld "
+                    "were encoded\n", flag[k], have, frames);
+        }
+    }
+    return rc;
+}
 
 /* the knobs are read by name at the call, so the census can find them */
 static int gp_env_int(const char *v, int def)
@@ -2164,6 +2241,7 @@ static void *gp_worker(void *arg)
 
         pthread_mutex_lock(&j->open_lock);
         a->set_threads(nthr);
+        dyn_apply(a, start);
         n265_encoder *e = a->encoder_open(&j->p);
         pthread_mutex_unlock(&j->open_lock);
         if (!e) {
@@ -2711,6 +2789,8 @@ int main(int argc, char **argv)
     uint32_t md[10];
     int have_md = 0, maxcll = -1, maxfall = -1;
     int hdr10 = -1, cll_on = 1, atc = -1;
+    const char *h10p_path = NULL, *rpu_path = NULL;
+    int dv_profile = 0;     /* --dolby-vision-profile: 81, 82 or 84 */
     int had_crf = 0;            /* --crf given: the ON switch, not crf >= 0 */
     int out_depth = 0;          /* --output-depth; 0 = the input's */
     /* RAW input (--input-res / --input-csp / --fps / --input-depth) and
@@ -3168,6 +3248,21 @@ int main(int argc, char **argv)
             if (atc < 0) {
                 fprintf(stderr, "n265: --atc-sei takes a transfer "
                         "characteristic, by name or by number\n");
+                return 2;
+            }
+        } else if (!strcmp(argv[i], "--dhdr10-info") && i + 1 < argc) {
+            h10p_path = argv[++i];
+        } else if (!strcmp(argv[i], "--dolby-vision-rpu") && i + 1 < argc) {
+            rpu_path = argv[++i];
+        } else if (!strcmp(argv[i], "--dolby-vision-profile") &&
+                   i + 1 < argc) {
+            const char *v = argv[++i];
+            dv_profile = !strcmp(v, "8.1") || !strcmp(v, "81") ? 81
+                       : !strcmp(v, "8.2") || !strcmp(v, "82") ? 82
+                       : !strcmp(v, "8.4") || !strcmp(v, "84") ? 84 : -1;
+            if (dv_profile < 0) {
+                fprintf(stderr, "n265: --dolby-vision-profile is 8.1 (HDR10 "
+                        "base layer), 8.2 (SDR BT.709) or 8.4 (HLG)\n");
                 return 2;
             }
         } else if (!strcmp(argv[i], "--dump-recon") && i + 1 < argc) {
@@ -3739,6 +3834,58 @@ int main(int argc, char **argv)
     a->set_vui_window(win_on, win_l, win_t, win_r, win_b);
     a->set_hdr_meta(have_md ? md : NULL, maxcll, maxfall);
     a->set_hdr10(hdr10, cll_on, atc);
+    /* The dynamic metadata describes PQ or HLG pictures, so the stream has
+     * to say that's what it holds, or a player that reads the colour
+     * description first never looks for the metadata. */
+    if (h10p_path && sig_transfer != 16) {
+        fprintf(stderr, "n265: --dhdr10-info is HDR10+ metadata for PQ "
+                "content: add --transfer smpte2084\n");
+        return 2;
+    }
+    if (!rpu_path != !dv_profile) {
+        fprintf(stderr, "n265: --dolby-vision-rpu and "
+                "--dolby-vision-profile go together\n");
+        return 2;
+    }
+    if (rpu_path) {
+        int hlg = sig_transfer == 18 || (sig_transfer == 14 && atc == 18);
+        if (a->depth != 10) {
+            fprintf(stderr, "n265: Dolby Vision profile 8 is 10-bit: give a "
+                    "10-bit input or --output-depth 10\n");
+            return 2;
+        }
+        int ok = dv_profile == 82
+                     ? sig_colorprim == 1 && sig_colormatrix == 1 &&
+                       sig_transfer == 1
+                     : sig_colorprim == 9 && sig_colormatrix == 9 &&
+                       (dv_profile == 81 ? sig_transfer == 16 : hlg);
+        if (!ok) {
+            fprintf(stderr, "n265: Dolby Vision profile %s needs %s\n",
+                    dv_profile == 81 ? "8.1" : dv_profile == 82 ? "8.2" : "8.4",
+                    dv_profile == 81
+                    ? "--colorprim bt2020 --colormatrix bt2020nc --transfer "
+                      "smpte2084"
+                    : dv_profile == 82
+                    ? "--colorprim bt709 --colormatrix bt709 --transfer bt709"
+                    : "--colorprim bt2020 --colormatrix bt2020nc and "
+                      "--transfer arib-std-b67 (or --transfer bt2020-10 with "
+                      "--atc-sei arib-std-b67)");
+            return 2;
+        }
+    }
+    char dyn_err[256];
+    if (h10p_path &&
+        n265_h10p_load(h10p_path, &g_h10p_tab, dyn_err, sizeof dyn_err) < 0) {
+        fprintf(stderr, "n265: --dhdr10-info: %s\n", dyn_err);
+        return 2;
+    }
+    if (rpu_path &&
+        n265_rpu_load(rpu_path, &g_rpu_tab, dyn_err, sizeof dyn_err) < 0) {
+        fprintf(stderr, "n265: --dolby-vision-rpu: %s\n", dyn_err);
+        return 2;
+    }
+    g_dyn_seek = seek;
+    dyn_apply(a, 0);
     /* --verbose is N265_LEVEL_TRACE by another name: one code path, one
      * line, and a script that wants it without a flag sets the variable.
      * setenv does not overwrite, so an explicit N265_LEVEL_TRACE=0 in the
@@ -3830,7 +3977,7 @@ int main(int argc, char **argv)
                              : y.csp == N265_CSP_I422 ? "4:2:2" : "4:2:0";
             fprintf(stderr, "n265: %ld frames, %dx%d %s %d-bit\n", gn, y.w,
                     y.h, gfmt, y.depth);
-            return 0;
+            return dyn_check(gn);
         }
     }
     n265_encoder *enc = a->encoder_open(&p);
@@ -3979,5 +4126,5 @@ int main(int argc, char **argv)
     else
         fprintf(stderr, "n265: %ld frames, %dx%d %s %d-bit\n", n, y.w, y.h,
                 fmt, y.depth);
-    return 0;
+    return dyn_check(n);
 }

@@ -88,6 +88,22 @@ typedef struct n265_signal {
                              * -1 = no message                         */
 } n265_signal;
 
+/* Per-picture metadata, indexed by DISPLAY order: entry i belongs to the
+ * i-th picture handed to the encoder, whatever order it is coded in. A
+ * NULL entry, or a picture past `n`, carries nothing. The memory is the
+ * caller's and is read until the encoder closes.
+ *
+ * Two users: --dhdr10-info, where each entry is one ST 2094-40 payload
+ * already in its ITU-T T.35 wrapping, and --dolby-vision-rpu, where each
+ * is the RBSP of one RPU NAL (type 62, its two header bytes off and its
+ * emulation prevention removed). Neither is parsed here. Both are
+ * pass-through, and the CLI owns the syntax. */
+typedef struct n265_dynmeta {
+    int n;
+    const uint8_t *const *buf;
+    const size_t *len;
+} n265_dynmeta;
+
 /* The name table for one field, NULL-terminated, index == code. */
 const char * const *n265_vui_names(int field);
 

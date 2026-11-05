@@ -32,6 +32,17 @@
 
 struct sao_params;
 
+/* Every NAL one access unit can carry, in the order the driver packs
+ * them, so the deferred ring's per-unit bound is counted rather than
+ * guessed. Only the count is used. */
+enum {
+    N265_AU_EOS, N265_AU_AUD, N265_AU_VPS, N265_AU_SPS, N265_AU_PPS,
+    N265_AU_RECOVERY, N265_AU_INFO, N265_AU_HRD, N265_AU_HDR10,
+    N265_AU_GRAIN, N265_AU_HDR10PLUS, N265_AU_SLICE, N265_AU_HASH,
+    N265_AU_FILLER, N265_AU_DOVI_RPU, N265_AU_EOB,
+    N265_AU_NAL_MAX
+};
+
 enum {
     N265_MODE_INTRA = 0,    /* real coding: DC intra, CTB 32 */
     N265_MODE_PCM = 1,      /* phase-0 path: I_PCM, CTB 16 */
@@ -1340,6 +1351,14 @@ struct n265_encoder {
      * here is read on a worker. */
     n265_signal sig;
     bitstream_t hash_bs;    /* the scratch the picture hash is built in */
+    /* --dhdr10-info and --dolby-vision-rpu: each picture's own metadata,
+     * by display index (signal.h), and the scratch its NAL is built in.
+     * The RPU is packed ahead of time, because strict CBR's filler has to
+     * count it and still come before it. */
+    n265_dynmeta h10p, rpu;
+    bitstream_t t35_bs;
+    uint8_t *rpu_nal;
+    size_t rpu_nal_cap;
     /* --repeat-headers / --aud / --eos / --eob / --info (phase 14 item 4):
      * the NALs an access unit may carry besides its own. Every one of them
      * is OFF by default, `--info` included, so the default bitstream is
@@ -1700,30 +1719,15 @@ struct n265_encoder {
         uint8_t *buf;
         size_t cap, len;
         int nnal;
-        /* SIXTEEN. pack_nal DROPS a NAL past this bound and says
-         * nothing, so a bound one short does not fail loudly - it
-         * silently loses the IDR slice and the stream decodes as "could
-         * not find ref with POC 0". It was eight, and it was found too
-         * short TWICE by exactly that symptom: once at phase 14 item 1
-         * (VPS, SPS, PPS, the HRD timing pair, the HDR metadata, the
-         * grain SEI, the slice, the hash), and again at item 4, whose
-         * flags add five more NALs to the same access unit - the end of
-         * sequence, the access unit delimiter, the recovery point, the
-         * version SEI, and strict CBR's filler.
-         *
-         * The worst IRAP this encoder can write is now: EOS, AUD, VPS,
-         * SPS, PPS, recovery point, the HRD timing pair, the HDR
-         * metadata, the version SEI, the grain SEI, the slice, the hash
-         * suffix SEI, filler, EOB - fourteen. Sixteen leaves room for two
-         * more before the next item has to count again, and the cost is
-         * 64 bytes per ring slot.
-         *
-         * If a third item makes this list longer, make the bound a
-         * derived constant instead of raising it: the failure is silent
-         * by construction and no gate that runs one flag at a time can
-         * see it. The 10-bit all-flags smoke of item 4 is what found it. */
-        int type[16];
-        int size[16];
+        /* N265_AU_NAL_MAX, counted off the list of every NAL an access
+         * unit can carry (above this struct). pack_nal DROPS a NAL past
+         * this bound and says nothing, so a bound one short does not fail
+         * loudly - it silently loses the IDR slice and the stream decodes
+         * as "could not find ref with POC 0". A hand-raised bound was
+         * found too short twice by exactly that symptom, so a new NAL
+         * goes on the list, and the bound follows. */
+        int type[N265_AU_NAL_MAX];
+        int size[N265_AU_NAL_MAX];
     } done[LA_MAX + N265_MAX_FRAME_WORK + 4];
     int n_done, done_head;
     /* T2 stall census (N265_STALL_TRACE): reference reads that had to
@@ -2091,6 +2095,7 @@ void n265_write_vps(n265_frame_work *e);
 void n265_write_fgc_sei(bitstream_t *bs, const n265_grain_model *m);
 void n265_write_hrd_sei(bitstream_t *bs, const n265_hrd_sei *v);
 size_t n265_write_hdr_sei(bitstream_t *bs, const n265_signal *s);
+void n265_write_t35_sei(bitstream_t *bs, const uint8_t *t35, size_t len);
 void n265_write_hash_sei(bitstream_t *bs, const n265_pic_hash *h, int ncomp);
 void n265_write_sps(n265_frame_work *e);
 void n265_write_pps(n265_frame_work *e);

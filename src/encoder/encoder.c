@@ -561,6 +561,38 @@ void n265_set_hdr10(int hdr10, int cll_on, int atc)
     g_sig.atc = atc >= 0 && atc <= 255 ? atc : -1;
 }
 
+/* --dhdr10-info and --dolby-vision-rpu: per-picture metadata by display
+ * index (signal.h). n <= 0 or a NULL table clears it. */
+static n265_dynmeta g_h10p, g_rpu;
+
+static void set_dynmeta(n265_dynmeta *m, int n, const uint8_t *const *buf,
+                        const size_t *len)
+{
+    int on = n > 0 && buf && len;
+    m->n = on ? n : 0;
+    m->buf = on ? buf : NULL;
+    m->len = on ? len : NULL;
+}
+
+void n265_set_hdr10plus(int n, const uint8_t *const *t35, const size_t *len)
+{
+    set_dynmeta(&g_h10p, n, t35, len);
+}
+
+void n265_set_dovi_rpu(int n, const uint8_t *const *rbsp, const size_t *len)
+{
+    set_dynmeta(&g_rpu, n, rbsp, len);
+}
+
+/* entry `i` of a table, or NULL when the picture has none */
+static const uint8_t *dynmeta_at(const n265_dynmeta *m, int i, size_t *len)
+{
+    if (i < 0 || i >= m->n || !m->buf[i] || !m->len[i])
+        return NULL;
+    *len = m->len[i];
+    return m->buf[i];
+}
+
 void n265_set_bitrate(double kbps) { g_bitrate = kbps > 0.0 ? kbps : 0.0; }
 /* Two-pass: 1 writes the stats sidecar, 2 plans from it, 3 does both (the
  * plan from the file it is about to replace). The path is the caller's and
@@ -2632,6 +2664,10 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         }
         e->hrd_concat = g_hrd_concat;
         e->sig = g_sig;
+        e->h10p = g_h10p;
+        e->rpu = g_rpu;
+        if (e->h10p.n && bs_init(&e->t35_bs, 320) < 0)
+            goto fail;
         if (e->sig.hash) {
             /* the scratch one picture's hash message is built in: 64 bytes
              * holds the widest of the three (three 16-byte MD5s, the type
@@ -3586,6 +3622,8 @@ void n265_encoder_close(n265_encoder *e)
     n265_la_free(e);
     bs_free(&e->hrd_bs);
     bs_free(&e->hash_bs);
+    bs_free(&e->t35_bs);
+    free(e->rpu_nal);
     bs_free(&e->aud_bs);
     bs_free(&e->info_bs);
     bs_free(&e->rec_bs);
@@ -4279,6 +4317,27 @@ static void pack_nal(struct n265_done *d, int type, const uint8_t *rbsp,
                      size_t len)
 {
     pack_nal_tid(d, type, 0, rbsp, len);
+}
+
+/* A NAL already packed elsewhere (start code, header and all), appended
+ * as it is. */
+static void append_nal(struct n265_done *d, int type, const uint8_t *nal,
+                       size_t sz)
+{
+    if (d->nnal >= (int)(sizeof(d->type) / sizeof(d->type[0])))
+        return;
+    if (d->len + sz > d->cap) {
+        uint8_t *b = realloc(d->buf, d->len + sz);
+        if (!b)
+            return;
+        d->buf = b;
+        d->cap = d->len + sz;
+    }
+    memcpy(d->buf + d->len, nal, sz);
+    d->type[d->nnal] = type;
+    d->size[d->nnal] = (int)sz;
+    d->nnal++;
+    d->len += sz;
 }
 
 /* Copy up to `max` joined frames into the caller's buffer, oldest first.
@@ -6862,6 +6921,15 @@ static void join_oldest(n265_encoder *e)
         pack_nal(d, N265_NAL_PREFIX_SEI, fw->hdr_sei, fw->hdr_sei_len);
     if (fw->sei_len)
         pack_nal(d, N265_NAL_PREFIX_SEI, fw->sei, fw->sei_len);
+    /* --dhdr10-info: this picture's ST 2094-40 metadata, looked up by its
+     * DISPLAY index because the file describes pictures in display order
+     * and this one may be coded several pictures away from it. */
+    size_t dyn_len = 0;
+    const uint8_t *dyn = dynmeta_at(&e->h10p, fw->display_idx, &dyn_len);
+    if (dyn) {
+        n265_write_t35_sei(&e->t35_bs, dyn, dyn_len);
+        pack_nal(d, N265_NAL_PREFIX_SEI, e->t35_bs.buf, e->t35_bs.bytes);
+    }
     /* --temporal-layers: the VCL NAL - and only the VCL NAL - carries the
      * picture's TemporalId. 7.4.2.2 puts every parameter set, access unit
      * delimiter, end of sequence and end of bitstream at TemporalId 0
@@ -6884,6 +6952,25 @@ static void join_oldest(n265_encoder *e)
         n265_write_hash_sei(&e->hash_bs, &h, 3);
         pack_nal(d, N265_NAL_SUFFIX_SEI, e->hash_bs.buf, e->hash_bs.bytes);
     }
+    /* --dolby-vision-rpu: this picture's RPU, by display index as above.
+     * It is the access unit's last NAL, after its slice and its suffix
+     * SEI, and so after strict CBR's filler too. The filler has to count
+     * it, so it is packed here and appended after the filler. */
+    size_t rpu_sz = 0;
+    dyn = dynmeta_at(&e->rpu, fw->display_idx, &dyn_len);
+    if (dyn) {
+        size_t need = nal_pack_bound(dyn_len) + 64;
+        if (need > e->rpu_nal_cap) {
+            uint8_t *b = realloc(e->rpu_nal, need);
+            if (b) {
+                e->rpu_nal = b;
+                e->rpu_nal_cap = need;
+            }
+        }
+        if (need <= e->rpu_nal_cap)
+            rpu_sz = nal_pack_tid(e->rpu_nal, e->rpu_nal_cap,
+                                  N265_NAL_UNSPEC62, 0, dyn, dyn_len);
+    }
     /* --strict-cbr: the padding half. Our CPB is E.2.3's cbr_flag = 0
      * model, where arrival STOPS at a full buffer - which is what lets the
      * mode ride CRF and be met by raising a quantiser alone. Strict CBR is
@@ -6901,7 +6988,7 @@ static void join_oldest(n265_encoder *e)
      * unit's own size - so the padding is a pure function of the encode
      * and comes out the same at every thread count. */
     if (e->vbv.on && e->strict_cbr) {
-        double bits = (double)d->len * 8.0;
+        double bits = (double)(d->len + rpu_sz) * 8.0;
         double over = e->vbv.fill - bits + e->vbv.inflow - e->vbv.bufsize;
         if (over > 0.0) {
             /* the NAL costs 4 bytes of start code, 2 of header and the
@@ -6920,6 +7007,8 @@ static void join_oldest(n265_encoder *e)
             e->filler_aus++;
         }
     }
+    if (rpu_sz)
+        append_nal(d, N265_NAL_UNSPEC62, e->rpu_nal, rpu_sz);
     e->n_done++;
     e->frames_out++;
     dump_recon_frame(e, fw);
