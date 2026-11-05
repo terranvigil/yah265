@@ -32,14 +32,16 @@
 
 struct sao_params;
 
-/* Every NAL one access unit can carry, in the order the driver packs
- * them, so the deferred ring's per-unit bound is counted rather than
- * guessed. Only the count is used. */
+/* Every NAL one access unit's ring slot can carry, in the order the
+ * driver packs them, so the deferred ring's per-slot bound is counted
+ * rather than guessed. The EOS is the one closing the previous sequence
+ * ahead of an IDR; the flush packs the last EOS and the EOB in a slot of
+ * their own. Only the count is used. */
 enum {
     N265_AU_EOS, N265_AU_AUD, N265_AU_VPS, N265_AU_SPS, N265_AU_PPS,
     N265_AU_RECOVERY, N265_AU_INFO, N265_AU_HRD, N265_AU_HDR10,
     N265_AU_GRAIN, N265_AU_HDR10PLUS, N265_AU_SLICE, N265_AU_HASH,
-    N265_AU_FILLER, N265_AU_DOVI_RPU, N265_AU_EOB,
+    N265_AU_FILLER, N265_AU_DOVI_RPU,
     N265_AU_NAL_MAX
 };
 

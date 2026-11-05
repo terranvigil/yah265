@@ -96,18 +96,22 @@ int main(void)
     if (p)
         unlink(p);
 
-    /* an RPU file: one entry with a type-62 header and an escape, one
-     * without a header, as dovi_tool writes them */
+    /* An RPU file: one entry with a type-62 header and an escape, one
+     * without a header, as dovi_tool writes them. The bytes are the head of
+     * a real profile 8 RPU (dovi_tool's assets/tests/profile8.bin), which
+     * is as far as the reader looks. */
+#define P8 0x19, 0x08, 0x09, 0x08, 0x40, 0x61, 0x36, 0x50, 0x6f, 0x00, 0x3f, \
+           0xf8, 0x01, 0xff, 0xc0, 0x0f, 0xff, 0xd0
     static const uint8_t rpu[] = {
-        0, 0, 0, 1, 0x7c, 0x01, 0x19, 0x08, 0x00, 0x00, 0x03, 0x01, 0x80,
-        0, 0, 0, 1, 0x19, 0x22, 0x80,
+        0, 0, 0, 1, 0x7c, 0x01, P8, 0x00, 0x00, 0x03, 0x01, 0x80,
+        0, 0, 0, 1, P8, 0x80,
     };
+    static const uint8_t e0[] = { P8, 0x00, 0x00, 0x01, 0x80 };
+    static const uint8_t e1[] = { P8, 0x80 };
     p = tmp_file(rpu, sizeof rpu);
     CHECK(p != NULL);
     if (p) {
         CHECK(n265_rpu_load(p, &t, err, sizeof err) == 0);
-        static const uint8_t e0[] = { 0x19, 0x08, 0x00, 0x00, 0x01, 0x80 };
-        static const uint8_t e1[] = { 0x19, 0x22, 0x80 };
         CHECK(t.n == 2);
         if (t.n == 2) {
             CHECK(t.len[0] == sizeof e0 && !memcmp(t.buf[0], e0, sizeof e0));
@@ -116,6 +120,23 @@ int main(void)
         n265_dyn_free(&t);
         unlink(p);
     }
+
+    /* the profile from the header: profile 5 (assets/tests/profile5.bin)
+     * differs from profile 8 in vdr_rpu_profile and the full range flag */
+    static const uint8_t p5[] = {
+        0x19, 0x08, 0x09, 0x00, 0x40, 0x61, 0xb6, 0x50, 0x6f, 0x00, 0x3f,
+        0xf8, 0x01, 0xff, 0xc0, 0x0f, 0xff, 0xd0, 0x80,
+    };
+    CHECK(n265_rpu_profile(e1, sizeof e1) == 8);
+    CHECK(n265_rpu_profile(p5, sizeof p5) == 5);
+    CHECK(n265_rpu_profile(e1, 3) == 0);
+    uint8_t f5[4 + sizeof p5] = { 0, 0, 0, 1 };
+    memcpy(f5 + 4, p5, sizeof p5);
+    p = tmp_file(f5, sizeof f5);
+    CHECK(p && n265_rpu_load(p, &t, err, sizeof err) < 0 &&
+          strstr(err, "profile 5"));
+    if (p)
+        unlink(p);
 
     if (fails)
         fprintf(stderr, "hdr_dyn: %d check(s) failed\n", fails);

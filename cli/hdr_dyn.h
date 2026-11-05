@@ -43,6 +43,10 @@ typedef struct n265_h10p_frame {
 
 size_t n265_h10p_payload(const n265_h10p_frame *f, uint8_t *out, size_t cap);
 
+/* The Dolby Vision profile an RPU's header says (4, 5, 7 or 8), or 0 when
+ * it isn't one. Exposed for the unit test. */
+int n265_rpu_profile(const uint8_t *rbsp, size_t len);
+
 void n265_dyn_free(n265_dyn_tab *t);
 
 #endif

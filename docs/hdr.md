@@ -43,9 +43,10 @@ playback there. A file with entries left over gets a warning, since a
 `--frames` run over part of a title is the usual reason.
 
 Both readers check what they read. HDR10+ values must fall inside the HDR10+
-profiles' ranges, and `--dolby-vision-profile` must match the colour flags
-and a 10-bit encode, so a command line that would mislabel the stream is
-refused before it writes anything.
+profiles' ranges, and HDR10+ needs a 10-bit HDR10 encode under it. Every RPU's
+header must say profile 8, and `--dolby-vision-profile` must match the colour
+flags and a 10-bit encode. A command line that would mislabel the stream is
+refused before it writes anything. Either file can come from a pipe.
 
 ## Encoding HDR10+ and Dolby Vision 8.1
 

@@ -91,7 +91,7 @@ typedef uint16_t n265_pixel;
 #define n265_set_hdr10        N265_API(n265_set_hdr10)
 #define n265_set_hdr10plus    N265_API(n265_set_hdr10plus)
 #define n265_set_dovi_rpu     N265_API(n265_set_dovi_rpu)
-#define n265_set_gop         N265_API(n265_set_gop)
+#define n265_set_gop          N265_API(n265_set_gop)
 #define n265_set_preset       N265_API(n265_set_preset)
 #define n265_preset_param     N265_API(n265_preset_param)
 #define n265_preset_param_res N265_API(n265_preset_param_res)
@@ -271,8 +271,9 @@ YAH265_API void n265_set_hdr10(int hdr10, int cll_on, int atc);
 /* Per-picture HDR metadata, n entries in DISPLAY order: entry i goes with
  * the i-th picture passed in, wherever the encoder codes it. A NULL entry
  * or a picture past n carries none, and n <= 0 turns the feature off. The
- * arrays and what they point at are the caller's and must outlive the
- * encoder.
+ * next n265_encoder_open takes the table and clears the setting, so each
+ * encoder needs its own call. The arrays and what they point at are the
+ * caller's and must outlive that encoder.
  *
  * hdr10plus: each entry is a user_data_registered_itu_t_t35 payload from
  * the country code on, an ST 2094-40 (HDR10+) message, written as one

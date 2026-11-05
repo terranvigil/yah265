@@ -1504,20 +1504,21 @@ static void usage(void)
         "  --dhdr10-info <json>  HDR10+ (SMPTE ST 2094-40) dynamic\n"
         "                  metadata, one message per picture, from the JSON\n"
         "                  hdr10plus_tool writes (profile A or B, one\n"
-        "                  window). Entry i goes with input frame i, so\n"
-        "                  --seek skips entries as it skips frames. Needs\n"
-        "                  --transfer smpte2084.\n"
-        "  --dolby-vision-rpu <file>  a Dolby Vision RPU per picture, from\n"
-        "                  the file dovi_tool writes, copied unread as the\n"
-        "                  access unit's last NAL. Entry i goes with input\n"
-        "                  frame i, as above. Needs --dolby-vision-profile.\n"
+        "                  window). Needs a 10-bit HDR10 encode: --transfer\n"
+        "                  smpte2084 --colorprim bt2020 --colormatrix\n"
+        "                  bt2020nc.\n"
+        "  --dolby-vision-rpu <file>  a Dolby Vision profile 8 RPU per\n"
+        "                  picture, from the file dovi_tool writes, copied\n"
+        "                  unread as the access unit's last NAL. Needs\n"
+        "                  --dolby-vision-profile.\n"
         "  --dolby-vision-profile <p>  8.1 (an HDR10 base layer: PQ,\n"
         "                  BT.2020), 8.2 (an SDR BT.709 base layer) or 8.4\n"
         "                  (an HLG base layer). It checks the colour flags\n"
-        "                  match and the encode is 10-bit;\n"
-        "                  the profile itself is in the RPUs. Either file\n"
-        "                  covering fewer frames than were encoded fails the\n"
-        "                  run.\n"
+        "                  match and the encode is 10-bit.\n"
+        "  Both files are read in display order: entry i goes with input\n"
+        "  frame i, and --seek skips entries as it skips frames. A file\n"
+        "  that covers fewer frames than were encoded fails the run, after\n"
+        "  the stream is written.\n"
         "  NOTE the ENCODER-SIDE half of x265's HDR options is deliberately\n"
         "  absent: --hdr10-opt is a block-level QP decision tuned to PQ\n"
         "  content, and this item signals without deciding.\n"
@@ -1618,7 +1619,8 @@ static int opt_drop(const char *k)
 static int opt_drop_value(const char *k)
 {
     /* the flag shapes the stream and its value is a file name */
-    return !strcmp(k, "qpfile") || !strcmp(k, "stats");
+    return !strcmp(k, "qpfile") || !strcmp(k, "stats") ||
+           !strcmp(k, "dhdr10-info") || !strcmp(k, "dolby-vision-rpu");
 }
 
 /* one iteration of the parse loop: argv[from] is the option and the loop
@@ -3837,9 +3839,12 @@ int main(int argc, char **argv)
     /* The dynamic metadata describes PQ or HLG pictures, so the stream has
      * to say that's what it holds, or a player that reads the colour
      * description first never looks for the metadata. */
-    if (h10p_path && sig_transfer != 16) {
-        fprintf(stderr, "n265: --dhdr10-info is HDR10+ metadata for PQ "
-                "content: add --transfer smpte2084\n");
+    if (h10p_path && (sig_transfer != 16 || sig_colorprim != 9 ||
+                      sig_colormatrix != 9 || a->depth != 10)) {
+        fprintf(stderr, "n265: --dhdr10-info is HDR10+ metadata, which "
+                "rides on HDR10: a 10-bit encode (or --output-depth 10) "
+                "with --transfer smpte2084 --colorprim bt2020 "
+                "--colormatrix bt2020nc\n");
         return 2;
     }
     if (!rpu_path != !dv_profile) {
@@ -3849,9 +3854,10 @@ int main(int argc, char **argv)
     }
     if (rpu_path) {
         int hlg = sig_transfer == 18 || (sig_transfer == 14 && atc == 18);
-        if (a->depth != 10) {
-            fprintf(stderr, "n265: Dolby Vision profile 8 is 10-bit: give a "
-                    "10-bit input or --output-depth 10\n");
+        if (a->depth != 10 || y.csp != N265_CSP_I420 || sig_range == 1) {
+            fprintf(stderr, "n265: Dolby Vision profile 8 is 10-bit 4:2:0 "
+                    "at limited range: give a 4:2:0 input, 10-bit or with "
+                    "--output-depth 10, and no --range full\n");
             return 2;
         }
         int ok = dv_profile == 82

@@ -2664,8 +2664,12 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         }
         e->hrd_concat = g_hrd_concat;
         e->sig = g_sig;
+        /* taken, not shared: the tables are the caller's memory, and a
+         * later encoder must not read ones that went with this one */
         e->h10p = g_h10p;
         e->rpu = g_rpu;
+        memset(&g_h10p, 0, sizeof g_h10p);
+        memset(&g_rpu, 0, sizeof g_rpu);
         if (e->h10p.n && bs_init(&e->t35_bs, 320) < 0)
             goto fail;
         if (e->sig.hash) {
@@ -6928,7 +6932,8 @@ static void join_oldest(n265_encoder *e)
     const uint8_t *dyn = dynmeta_at(&e->h10p, fw->display_idx, &dyn_len);
     if (dyn) {
         n265_write_t35_sei(&e->t35_bs, dyn, dyn_len);
-        pack_nal(d, N265_NAL_PREFIX_SEI, e->t35_bs.buf, e->t35_bs.bytes);
+        pack_nal_tid(d, N265_NAL_PREFIX_SEI, fw->tid, e->t35_bs.buf,
+                     e->t35_bs.bytes);
     }
     /* --temporal-layers: the VCL NAL - and only the VCL NAL - carries the
      * picture's TemporalId. 7.4.2.2 puts every parameter set, access unit
@@ -6937,7 +6942,9 @@ static void join_oldest(n265_encoder *e)
      * TemporalId of its own access unit; ours are all written at a layer-0
      * access unit (the parameter sets and the recovery point at an IRAP)
      * or carry timing that applies to the whole stream, so 0 is right for
-     * them too. */
+     * them too. The per-picture HDR10+ message and RPU are the exception
+     * and take the picture's TemporalId, so dropping a sub-layer drops
+     * them with it. */
     pack_nal_tid(d, fw->nal_type, fw->tid, fw->rbsp.buf, fw->rbsp.bytes);
     /* --hash: the decoded picture hash, D.2.19. A SUFFIX SEI, so it comes
      * AFTER the access unit's VCL NAL (7.4.2.4.4) - the only suffix NAL
@@ -6969,7 +6976,7 @@ static void join_oldest(n265_encoder *e)
         }
         if (need <= e->rpu_nal_cap)
             rpu_sz = nal_pack_tid(e->rpu_nal, e->rpu_nal_cap,
-                                  N265_NAL_UNSPEC62, 0, dyn, dyn_len);
+                                  N265_NAL_UNSPEC62, fw->tid, dyn, dyn_len);
     }
     /* --strict-cbr: the padding half. Our CPB is E.2.3's cbr_flag = 0
      * model, where arrival STOPS at a full buffer - which is what lets the

@@ -15,7 +15,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* far past any real title's metadata (a two-hour HDR10+ JSON is ~60 MB) */
+/* past any real title's metadata: a two-hour HDR10+ JSON, pretty-printed
+ * the way hdr10plus_tool writes it, is about 130 MB */
 #define DYN_FILE_MAX    (512L << 20)
 
 static int fail(char *err, size_t errlen, const char *fmt, ...)
@@ -34,24 +35,37 @@ static char *slurp(const char *path, long *size, char *err, size_t errlen)
         fail(err, errlen, "cannot open %s", path);
         return NULL;
     }
+    /* read to the end rather than asking for the size first, so a pipe
+     * (`<(...)`) works as well as a file */
     char *buf = NULL;
-    long n = -1;
-    if (fseek(f, 0, SEEK_END) == 0 && (n = ftell(f)) >= 0 &&
-        n <= DYN_FILE_MAX && fseek(f, 0, SEEK_SET) == 0) {
-        buf = malloc((size_t)n + 1);
-        if (buf && fread(buf, 1, (size_t)n, f) != (size_t)n) {
-            free(buf);
-            buf = NULL;
+    size_t n = 0, cap = 0;
+    int big = 0;
+    for (;;) {
+        if (n == cap) {
+            if (cap >= (size_t)DYN_FILE_MAX) {
+                big = 1;
+                break;
+            }
+            cap = cap ? cap * 2 : 1 << 16;
+            char *b = realloc(buf, cap + 1);
+            if (!b)
+                break;
+            buf = b;
         }
+        size_t got = fread(buf + n, 1, cap - n, f);
+        n += got;
+        if (got == 0)
+            break;
     }
+    int bad = ferror(f) || big || n == cap;
     fclose(f);
-    if (!buf) {
-        fail(err, errlen, n > DYN_FILE_MAX ? "%s is too large"
-                                           : "cannot read %s", path);
+    if (bad || !buf) {
+        fail(err, errlen, big ? "%s is too large" : "cannot read %s", path);
+        free(buf);
         return NULL;
     }
     buf[n] = '\0';
-    *size = n;
+    *size = (long)n;
     return buf;
 }
 
@@ -95,6 +109,7 @@ typedef struct jdoc {
     int cnt, cap;
     const char *p, *end;
     int depth;
+    int full;               /* a value hit J_NODE_MAX */
 } jdoc;
 
 static void j_ws(jdoc *d)
@@ -104,8 +119,16 @@ static void j_ws(jdoc *d)
         d->p++;
 }
 
+/* nodes in one value: a scene is about 40, so this is a dense file with no
+ * scenes in it, and refusing it keeps the tree from growing to gigabytes */
+#define J_NODE_MAX  (1 << 20)
+
 static int j_new(jdoc *d, int type)
 {
+    if (d->cnt >= J_NODE_MAX) {
+        d->full = 1;
+        return -1;
+    }
     if (d->cnt == d->cap) {
         int cap = d->cap ? d->cap * 2 : 1024;
         jnode *n = realloc(d->n, (size_t)cap * sizeof *n);
@@ -219,9 +242,32 @@ static int j_value(jdoc *d)
         if ((v = j_new(d, J_NULL)) >= 0)
             d->p += 4;
     } else if (c == '-' || (c >= '0' && c <= '9')) {
+        /* RFC 8259's grammar first, because strtod also takes hex, "inf"
+         * and leading zeros */
+        const char *q = d->p + (c == '-');
+        if (q >= d->end || *q < '0' || *q > '9' ||
+            (*q == '0' && q + 1 < d->end && q[1] >= '0' && q[1] <= '9'))
+            return -1;
+        while (q < d->end && *q >= '0' && *q <= '9')
+            q++;
+        if (q < d->end && *q == '.') {
+            if (++q >= d->end || *q < '0' || *q > '9')
+                return -1;
+            while (q < d->end && *q >= '0' && *q <= '9')
+                q++;
+        }
+        if (q < d->end && (*q == 'e' || *q == 'E')) {
+            q++;
+            if (q < d->end && (*q == '+' || *q == '-'))
+                q++;
+            if (q >= d->end || *q < '0' || *q > '9')
+                return -1;
+            while (q < d->end && *q >= '0' && *q <= '9')
+                q++;
+        }
         char *e;
         double x = strtod(d->p, &e);
-        if (e == d->p || e > d->end)
+        if (e != q)
             return -1;
         if ((v = j_new(d, J_NUM)) >= 0) {
             d->n[v].num = x;
@@ -241,14 +287,6 @@ static int j_get(const jdoc *d, int obj, const char *key)
         if (d->n[k].klen == kl && !memcmp(d->n[k].key, key, kl))
             return k;
     return -1;
-}
-
-static int j_count(const jdoc *d, int arr)
-{
-    int n = 0;
-    for (int k = d->n[arr].kid; k >= 0; k = d->n[k].next)
-        n++;
-    return n;
 }
 
 /* ---- the ST 2094-40 payload ------------------------------------------- */
@@ -320,7 +358,7 @@ static int whole(const jdoc *d, int x, int bits, uint32_t *v)
     if (x < 0 || d->n[x].type != J_NUM)
         return -1;
     double n = d->n[x].num;
-    if (n < 0 || n >= (double)(1u << bits) || n != (double)(uint32_t)n)
+    if (!(n >= 0 && n < (double)(1u << bits)) || n != (double)(uint32_t)n)
         return -1;
     *v = (uint32_t)n;
     return 0;
@@ -341,7 +379,7 @@ static int whole_list(const jdoc *d, int x, int bits, int max,
     return 0;
 }
 
-static int scene(const jdoc *d, int s, int k, int prof, n265_h10p_frame *f,
+static int scene(const jdoc *d, int s, int k, n265_h10p_frame *f,
                  char *err, size_t errlen)
 {
     uint32_t nw;
@@ -401,12 +439,6 @@ static int scene(const jdoc *d, int s, int k, int prof, n265_h10p_frame *f,
                     "TargetedSystemDisplayMaximumLuminance is at most 10000",
                     k);
     int bz = j_get(d, s, "BezierCurveData");
-    if (prof == 'A' && bz >= 0)
-        return fail(err, errlen, "SceneInfo[%d] has BezierCurveData, which "
-                    "profile A does not carry", k);
-    if (prof == 'B' && bz < 0)
-        return fail(err, errlen, "SceneInfo[%d] has no BezierCurveData, "
-                    "which profile B needs", k);
     if (bz >= 0) {
         f->tone_mapping = 1;
         if (whole(d, j_get(d, bz, "KneePointX"), 12, &f->knee_x) < 0 ||
@@ -421,12 +453,65 @@ static int scene(const jdoc *d, int s, int k, int prof, n265_h10p_frame *f,
                         "a TargetedSystemDisplayMaximumLuminance", k);
     } else if (f->target_max) {
         return fail(err, errlen, "SceneInfo[%d]: "
-                    "TargetedSystemDisplayMaximumLuminance is 0 without a "
-                    "Bezier curve (profile A)", k);
+                    "TargetedSystemDisplayMaximumLuminance must be 0 "
+                    "without a Bezier curve (profile A)", k);
     }
     return 0;
 }
 
+/* growable lists for the loaders, before the frame count is known */
+typedef struct dyn_list {
+    int n, cap;
+    uint8_t **buf;
+    size_t *len;
+    uint32_t *idx;
+    char *curve;
+} dyn_list;
+
+static int list_add(dyn_list *l, uint8_t *buf, size_t len, uint32_t idx,
+                    int curve)
+{
+    if (l->n == l->cap) {
+        int cap = l->cap ? l->cap * 2 : 1024;
+        uint8_t **b = realloc(l->buf, (size_t)cap * sizeof *b);
+        if (b)
+            l->buf = b;
+        size_t *n = realloc(l->len, (size_t)cap * sizeof *n);
+        if (n)
+            l->len = n;
+        uint32_t *x = realloc(l->idx, (size_t)cap * sizeof *x);
+        if (x)
+            l->idx = x;
+        char *c = realloc(l->curve, (size_t)cap);
+        if (c)
+            l->curve = c;
+        if (!b || !n || !x || !c)
+            return -1;
+        l->cap = cap;
+    }
+    l->buf[l->n] = buf;
+    l->len[l->n] = len;
+    l->idx[l->n] = idx;
+    l->curve[l->n] = (char)curve;
+    l->n++;
+    return 0;
+}
+
+static void list_free(dyn_list *l, int keep_bufs)
+{
+    if (!keep_bufs)
+        for (int i = 0; i < l->n; i++)
+            free(l->buf[i]);
+    free(l->buf);
+    free(l->len);
+    free(l->idx);
+    free(l->curve);
+}
+
+/* The top-level object is walked by hand and the SceneInfo list parsed
+ * one entry at a time, each entry's tree dropped once its payload is
+ * built. A two-hour title is ~170,000 entries, so memory then follows the
+ * 64-byte payloads rather than the file's half a million nodes a minute. */
 int n265_h10p_load(const char *path, n265_dyn_tab *t, char *err,
                    size_t errlen)
 {
@@ -435,78 +520,235 @@ int n265_h10p_load(const char *path, n265_dyn_tab *t, char *err,
     char *text = slurp(path, &size, err, errlen);
     if (!text)
         return -1;
-    jdoc d = { NULL, 0, 0, text, text + size, 0 };
-    int root = j_value(&d), rc = -1;
+    jdoc d = { NULL, 0, 0, text, text + size, 0, 0 };
+    dyn_list l = { 0 };
+    int rc = -1, prof = 0, seen = 0, k = 0;
     j_ws(&d);
-    if (root < 0 || d.p != d.end) {
-        fail(err, errlen, "%s is not valid JSON (near byte %ld)", path,
-             (long)(d.p - text));
-        goto out;
-    }
-    int si = j_get(&d, root, "SceneInfo");
-    if (si < 0 || d.n[si].type != J_ARR || !j_count(&d, si)) {
+    if (d.p >= d.end || *d.p != '{')
+        goto bad;
+    d.p++;
+    j_ws(&d);
+    if (d.p < d.end && *d.p == '}')
+        d.p++;
+    else
+        for (;;) {
+            const char *key;
+            size_t klen;
+            j_ws(&d);
+            if (j_str(&d, &key, &klen) < 0)
+                goto bad;
+            j_ws(&d);
+            if (d.p >= d.end || *d.p++ != ':')
+                goto bad;
+            j_ws(&d);
+            if (klen == 9 && !memcmp(key, "SceneInfo", 9)) {
+                if (seen++ || d.p >= d.end || *d.p != '[')
+                    goto bad;
+                d.p++;
+                j_ws(&d);
+                int more = d.p < d.end && *d.p != ']';
+                if (!more)
+                    d.p++;
+                while (more) {
+                    d.cnt = 0;
+                    d.depth = 2;
+                    int sc = j_value(&d);
+                    if (sc < 0)
+                        goto bad;
+                    uint32_t idx = (uint32_t)k;
+                    int fi = j_get(&d, sc, "SequenceFrameIndex");
+                    if (fi >= 0 && whole(&d, fi, 31, &idx) < 0) {
+                        fail(err, errlen, "SceneInfo[%d]: SequenceFrameIndex "
+                             "is not a frame number", k);
+                        goto out;
+                    }
+                    n265_h10p_frame f;
+                    uint8_t pl[128], *copy;
+                    size_t len;
+                    if (scene(&d, sc, k, &f, err, errlen) < 0)
+                        goto out;
+                    if (!(len = n265_h10p_payload(&f, pl, sizeof pl)) ||
+                        !(copy = malloc(len))) {
+                        fail(err, errlen, "out of memory");
+                        goto out;
+                    }
+                    memcpy(copy, pl, len);
+                    if (list_add(&l, copy, len, idx, f.tone_mapping) < 0) {
+                        free(copy);
+                        fail(err, errlen, "out of memory");
+                        goto out;
+                    }
+                    k++;
+                    j_ws(&d);
+                    if (d.p < d.end && *d.p == ',') {
+                        d.p++;
+                        continue;
+                    }
+                    if (d.p < d.end && *d.p == ']') {
+                        d.p++;
+                        break;
+                    }
+                    goto bad;
+                }
+            } else {
+                d.cnt = 0;
+                d.depth = 1;
+                int v = j_value(&d);
+                if (v < 0)
+                    goto bad;
+                if (klen == 8 && !memcmp(key, "JSONInfo", 8)) {
+                    int pv = j_get(&d, v, "HDR10plusProfile");
+                    if (pv >= 0) {
+                        if (d.n[pv].type != J_STR || d.n[pv].slen != 1 ||
+                            (d.n[pv].str[0] != 'A' && d.n[pv].str[0] != 'B')) {
+                            fail(err, errlen, "%s: HDR10plusProfile must be "
+                                 "\"A\" or \"B\"", path);
+                            goto out;
+                        }
+                        prof = d.n[pv].str[0];
+                    }
+                }
+            }
+            j_ws(&d);
+            if (d.p < d.end && *d.p == ',') {
+                d.p++;
+                continue;
+            }
+            if (d.p < d.end && *d.p == '}') {
+                d.p++;
+                break;
+            }
+            goto bad;
+        }
+    j_ws(&d);
+    if (d.p != d.end)
+        goto bad;
+    if (!l.n) {
         fail(err, errlen, "%s has no SceneInfo list", path);
         goto out;
     }
-    int prof = 0;
-    int pv = j_get(&d, j_get(&d, root, "JSONInfo"), "HDR10plusProfile");
-    if (pv >= 0) {
-        if (d.n[pv].type != J_STR || d.n[pv].slen != 1 ||
-            (d.n[pv].str[0] != 'A' && d.n[pv].str[0] != 'B')) {
-            fail(err, errlen, "%s: HDR10plusProfile must be \"A\" or \"B\"",
-                 path);
+    /* the profile can come after the list, so it is checked here */
+    for (int i = 0; i < l.n; i++)
+        if (prof && l.curve[i] != (prof == 'B')) {
+            fail(err, errlen, prof == 'A'
+                 ? "SceneInfo[%d] has BezierCurveData, which profile A does "
+                   "not carry"
+                 : "SceneInfo[%d] has no BezierCurveData, which profile B "
+                   "needs", i);
             goto out;
         }
-        prof = d.n[pv].str[0];
-    }
-    int n = j_count(&d, si);
-    if (tab_alloc(t, n) < 0) {
+    if (tab_alloc(t, l.n) < 0) {
         fail(err, errlen, "out of memory");
         goto out;
     }
-    int k = 0;
-    for (int s = d.n[si].kid; s >= 0; s = d.n[s].next, k++) {
-        uint32_t idx = (uint32_t)k;
-        int fi = j_get(&d, s, "SequenceFrameIndex");
-        if (fi >= 0 && (whole(&d, fi, 31, &idx) < 0 || idx >= (uint32_t)n)) {
-            fail(err, errlen, "SceneInfo[%d]: SequenceFrameIndex is not a "
-                 "frame of this file", k);
+    for (int i = 0; i < l.n; i++) {
+        uint32_t idx = l.idx[i];
+        if (idx >= (uint32_t)l.n) {
+            fail(err, errlen, "SceneInfo[%d]: SequenceFrameIndex %u is not a "
+                 "frame of this file (%d entries)", i, idx, l.n);
             goto out;
         }
         if (t->buf[idx]) {
             fail(err, errlen, "SceneInfo[%d]: frame %u is described twice",
-                 k, idx);
+                 i, idx);
             goto out;
         }
-        n265_h10p_frame f;
-        uint8_t pl[128];
-        size_t len;
-        if (scene(&d, s, k, prof, &f, err, errlen) < 0)
-            goto out;
-        if (!(len = n265_h10p_payload(&f, pl, sizeof pl)) ||
-            !(t->buf[idx] = malloc(len))) {
-            fail(err, errlen, "out of memory");
-            goto out;
-        }
-        memcpy(t->buf[idx], pl, len);
-        t->len[idx] = len;
+        t->buf[idx] = l.buf[i];
+        t->len[idx] = l.len[i];
+        l.buf[i] = NULL;
     }
     rc = 0;
+    goto out;
+bad:
+    if (d.full)
+        fail(err, errlen, "%s has a value of over %d items near byte %ld, "
+             "which is not HDR10+ metadata", path, J_NODE_MAX,
+             (long)(d.p - text));
+    else
+        fail(err, errlen, "%s is not valid JSON (near byte %ld)", path,
+             (long)(d.p - text));
 out:
     if (rc < 0)
         n265_dyn_free(t);
+    list_free(&l, 0);
     free(d.n);
     free(text);
     return rc;
 }
 
-/* ---- the RPU file ------------------------------------------------------
- *
- * dovi_tool writes one RPU per frame, in display order, each behind a
- * four-byte start code. Any NAL header goes (the library writes its own)
- * and the emulation prevention comes out, because the library puts it back
- * as it packs. Removing and re-adding it gives the same bytes, since both
- * sides insert exactly where the escape rule requires. */
+/* ---- the RPU file ------------------------------------------------------ */
+
+/* rpu_data_header() as far as the profile: vdr_rpu_profile 1 is profile
+ * 8 unless the enhancement layer's resampling and residual flags make it 7
+ * (12-bit) or 4, and 0 is profile 5. Returns 0 for anything else. */
+typedef struct bitr {
+    const uint8_t *p;
+    size_t n, pos;
+} bitr;
+
+static uint32_t get(bitr *r, int bits)
+{
+    uint32_t v = 0;
+    for (int i = 0; i < bits; i++) {
+        size_t byte = r->pos >> 3;
+        int bit = byte < r->n ? (r->p[byte] >> (7 - (r->pos & 7))) & 1 : 0;
+        v = v << 1 | (uint32_t)bit;
+        r->pos++;
+    }
+    return v;
+}
+
+static uint32_t get_ue(bitr *r)
+{
+    int z = 0;
+    while (z < 31 && !get(r, 1) && (r->pos >> 3) < r->n)
+        z++;
+    return z ? ((1u << z) - 1) + get(r, z) : 0;
+}
+
+int n265_rpu_profile(const uint8_t *rbsp, size_t len)
+{
+    if (len < 4 || rbsp[0] != 0x19)
+        return 0;
+    bitr r = { rbsp + 1, len - 1, 0 };
+    if (get(&r, 6) != 2)                /* rpu_type */
+        return 0;
+    uint32_t format = get(&r, 11);
+    uint32_t profile = get(&r, 4);      /* vdr_rpu_profile */
+    get(&r, 4);                         /* vdr_rpu_level */
+    int el_resample = 0, no_residual = 0, vdr_depth = 0, full = 0;
+    if (get(&r, 1)) {                   /* vdr_seq_info_present_flag */
+        get(&r, 1);     /* chroma_resampling_explicit_filter_flag */
+        if (get(&r, 2) == 0)            /* coefficient_data_type */
+            get_ue(&r);                 /* coefficient_log2_denom */
+        get(&r, 2);                     /* vdr_rpu_normalized_idc */
+        full = (int)get(&r, 1);         /* bl_video_full_range_flag */
+        if (!(format & 0x700)) {
+            get_ue(&r);                 /* bl_bit_depth_minus8 */
+            get_ue(&r);                 /* el_bit_depth_minus8 */
+            vdr_depth = (int)get_ue(&r);    /* vdr_bit_depth_minus8 */
+            get(&r, 1);                 /* spatial_resampling_filter_flag */
+            get(&r, 3);                 /* reserved_zero_3bits */
+            el_resample = (int)get(&r, 1);
+            no_residual = (int)get(&r, 1);
+        }
+    }
+    if ((r.pos + 7) >> 3 > r.n)
+        return 0;
+    if (profile == 0)
+        return full ? 5 : 0;
+    if (profile == 1)
+        return el_resample && !no_residual ? (vdr_depth == 4 ? 7 : 4) : 8;
+    return 0;
+}
+
+/* dovi_tool writes one RPU per frame, in display order, each behind a
+ * start code. Any NAL header goes (the library writes its own) and the
+ * emulation prevention comes out, because the library puts it back as it
+ * packs. That gives the same bytes only for an entry escaped exactly where
+ * the rule requires and nowhere else, so every entry is re-escaped here and
+ * refused if it differs: "copied unread" then holds for every file that is
+ * accepted. Each entry is checked as it is found. */
 int n265_rpu_load(const char *path, n265_dyn_tab *t, char *err,
                   size_t errlen)
 {
@@ -516,54 +758,50 @@ int n265_rpu_load(const char *path, n265_dyn_tab *t, char *err,
     if (!text)
         return -1;
     const uint8_t *b = (const uint8_t *)text;
-    int rc = -1, n = 0, cap = 0;
-    /* start of each NAL's payload, after its start code */
-    long *at = NULL;
-    for (long i = 0; i + 2 < size; i++)
-        if (b[i] == 0 && b[i + 1] == 0 && b[i + 2] == 1) {
-            if (n == cap) {
-                cap = cap ? cap * 2 : 4096;
-                long *p = realloc(at, (size_t)cap * sizeof *p);
-                if (!p) {
-                    fail(err, errlen, "out of memory");
-                    goto out;
-                }
-                at = p;
-            }
-            at[n++] = i + 3;
-            i += 2;
-        }
-    if (!n || at[0] > 4) {
+    dyn_list l = { 0 };
+    int rc = -1;
+    long s;
+    if (size >= 3 && !b[0] && !b[1] && b[2] == 1)
+        s = 3;
+    else if (size >= 4 && !b[0] && !b[1] && !b[2] && b[3] == 1)
+        s = 4;
+    else {
         fail(err, errlen, "%s is not an RPU file (no start code at the "
              "front)", path);
         goto out;
     }
-    if (tab_alloc(t, n) < 0) {
-        fail(err, errlen, "out of memory");
-        goto out;
-    }
-    for (int k = 0; k < n; k++) {
-        long s = at[k], e = k + 1 < n ? at[k + 1] - 3 : size;
-        while (e > s && b[e - 1] == 0)  /* a four-byte code's leading zero */
-            e--;
+    for (int k = 0; s <= size; k++) {
+        long e = s, next = size + 1;
+        for (; e + 2 < size; e++)
+            if (!b[e] && !b[e + 1] && b[e + 2] == 1) {
+                next = e + 3;
+                break;
+            }
+        if (next > size)
+            e = size;
+        long end = e;
+        while (end > s && b[end - 1] == 0)  /* a four-byte code's zero */
+            end--;
         /* dovi_tool writes the RPU with no NAL header, starting at its
          * 0x19 prefix byte; a file cut from a stream has the type-62
          * header in front, which goes. */
-        if (e - s >= 3 && b[s] == 0x7c && b[s + 1] == 0x01)
-            s += 2;
-        if (e - s < 2 || b[s] != 0x19) {
+        long at = s;
+        if (end - at >= 3 && b[at] == 0x7c && b[at + 1] == 0x01)
+            at += 2;
+        if (end - at < 2 || b[at] != 0x19) {
             fail(err, errlen, "%s: entry %d is not a Dolby Vision RPU (no "
                  "0x19 prefix)", path, k);
             goto out;
         }
-        uint8_t *r = malloc((size_t)(e - s));
+        uint8_t *r = malloc((size_t)(end - at));
         if (!r) {
             fail(err, errlen, "out of memory");
             goto out;
         }
         size_t m = 0;
-        int zeros = 0;
-        for (long i = s; i < e; i++) {
+        int zeros = 0, same = 1;
+        long o = at;    /* where re-escaping the RBSP has got to */
+        for (long i = at; i < end; i++) {
             if (zeros >= 2 && b[i] == 3) {
                 zeros = 0;
                 continue;
@@ -571,14 +809,49 @@ int n265_rpu_load(const char *path, n265_dyn_tab *t, char *err,
             zeros = b[i] == 0 ? zeros + 1 : 0;
             r[m++] = b[i];
         }
-        t->buf[k] = r;
-        t->len[k] = m;
+        zeros = 0;
+        for (size_t i = 0; i < m && same; i++) {
+            if (zeros >= 2 && r[i] <= 3) {
+                same &= o < end && b[o++] == 3;
+                zeros = 0;
+            }
+            same &= o < end && b[o++] == r[i];
+            zeros = r[i] == 0 ? zeros + 1 : 0;
+        }
+        same &= o == end;
+        int prof = same ? n265_rpu_profile(r, m) : 0;
+        if (!same || prof != 8 || list_add(&l, r, m, (uint32_t)k, 0) < 0) {
+            free(r);
+            if (!same)
+                fail(err, errlen, "%s: entry %d isn't escaped the way a "
+                     "stream carries it, so it can't be copied as it is",
+                     path, k);
+            else if (prof)
+                fail(err, errlen, "%s: entry %d is a profile %d RPU; only "
+                     "profile 8 is supported", path, k, prof);
+            else if (prof != 8)
+                fail(err, errlen, "%s: entry %d is not a Dolby Vision RPU "
+                     "this encoder can read", path, k);
+            else
+                fail(err, errlen, "out of memory");
+            goto out;
+        }
+        s = next;
+    }
+    if (tab_alloc(t, l.n) < 0) {
+        fail(err, errlen, "out of memory");
+        goto out;
+    }
+    for (int i = 0; i < l.n; i++) {
+        t->buf[i] = l.buf[i];
+        t->len[i] = l.len[i];
+        l.buf[i] = NULL;
     }
     rc = 0;
 out:
     if (rc < 0)
         n265_dyn_free(t);
-    free(at);
+    list_free(&l, 0);
     free(text);
     return rc;
 }
