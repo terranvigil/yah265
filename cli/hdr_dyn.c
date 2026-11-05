@@ -113,7 +113,7 @@ typedef struct jdoc {
     const char *p, *end;
     int depth;
     int full;               /* a value hit J_NODE_MAX */
-    int oom, deep;
+    int oom, deep, esc_key;
     const char *dup;        /* a key the loader reads appears twice */
 } jdoc;
 
@@ -203,8 +203,12 @@ static int j_list(jdoc *d, int self, int obj)
         if (obj) {
             /* keys are compared as written, so one spelled with an escape
              * could hide a repeat; no metadata tool writes one */
-            if (j_str(d, &key, &klen) < 0 || memchr(key, '\\', klen))
+            if (j_str(d, &key, &klen) < 0)
                 return -1;
+            if (memchr(key, '\\', klen)) {
+                d->esc_key = 1;
+                return -1;
+            }
             j_ws(d);
             if (d->p >= d->end || *d->p++ != ':')
                 return -1;
@@ -556,7 +560,7 @@ int n265_h10p_load(const char *path, n265_dyn_tab *t, char *err,
     char *text = slurp(path, &size, err, errlen);
     if (!text)
         return -1;
-    jdoc d = { NULL, 0, 0, text, text + size, 0, 0, 0, 0, NULL };
+    jdoc d = { NULL, 0, 0, text, text + size, 0, 0, 0, 0, 0, NULL };
     dyn_list l = { 0 };
     int rc = -1, prof = 0, seen = 0, seen_info = 0, k = 0;
     j_ws(&d);
@@ -573,6 +577,10 @@ int n265_h10p_load(const char *path, n265_dyn_tab *t, char *err,
             j_ws(&d);
             if (j_str(&d, &key, &klen) < 0)
                 goto bad;
+            if (memchr(key, '\\', klen)) {
+                d.esc_key = 1;
+                goto bad;
+            }
             j_ws(&d);
             if (d.p >= d.end || *d.p++ != ':')
                 goto bad;
@@ -715,6 +723,10 @@ int n265_h10p_load(const char *path, n265_dyn_tab *t, char *err,
 bad:
     if (d.oom)
         fail(err, errlen, "out of memory");
+    else if (d.esc_key)
+        fail(err, errlen, "%s spells a key with an escape near byte %ld, "
+             "which HDR10+ metadata doesn't use and could hide a repeated "
+             "key", path, (long)(d.p - text));
     else if (d.deep)
         fail(err, errlen, "%s nests deeper than 64 levels near byte %ld, "
              "which is not HDR10+ metadata", path, (long)(d.p - text));
@@ -866,8 +878,13 @@ int n265_rpu_load(const char *path, n265_dyn_tab *t, char *err,
             (b[at + 1] & 7))    /* layer 0, any TemporalId */
             at += 2;
         if (end - at < 2 || b[at] != 0x19) {
-            fail(err, errlen, "%s: entry %d is not a Dolby Vision RPU (no "
-                 "0x19 prefix)", path, k);
+            if (end - at >= 2 && (b[at] == 0x7c || b[at] == 0x7d))
+                fail(err, errlen, "%s: entry %d has a type-62 NAL header "
+                     "with a layer or TemporalId an RPU can't have", path,
+                     k);
+            else
+                fail(err, errlen, "%s: entry %d is not a Dolby Vision RPU "
+                     "(no 0x19 prefix)", path, k);
             goto out;
         }
         uint8_t *r = malloc((size_t)(end - at));

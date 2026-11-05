@@ -176,6 +176,47 @@ int main(void)
         unlink(p);
     CHECK(n265_rpu_profile(rpu8, 3) == 0);
 
+    /* refusals that each get their own reason */
+    static const struct { const char *json, *why; } bad_json[] = {
+        { "{\"Scene\\u0049nfo\":[]}", "escape" },
+        { "{\"SceneInfo\":[{\"Number\\u004ffWindows\":1}]}", "escape" },
+        { "\xef\xbb\xbf{}", "byte order mark" },
+        { "{\"SceneInfo\":[],\"SceneInfo\":[]}", "twice" },
+    };
+    for (size_t i = 0; i < sizeof bad_json / sizeof bad_json[0]; i++) {
+        p = tmp_file(bad_json[i].json, strlen(bad_json[i].json));
+        CHECK(p && n265_h10p_load(p, &t, err, sizeof err) < 0 &&
+              strstr(err, bad_json[i].why));
+        if (p)
+            unlink(p);
+    }
+    char deep[200] = "{\"a\":";
+    for (int i = 0; i < 70; i++)
+        strcat(deep, "[");
+    p = tmp_file(deep, strlen(deep));
+    CHECK(p && n265_h10p_load(p, &t, err, sizeof err) < 0 &&
+          strstr(err, "deeper"));
+    if (p)
+        unlink(p);
+
+    /* an RPU cut from a stream at TemporalId 2 keeps its header off */
+    uint8_t ft[6 + sizeof rpu8] = { 0, 0, 0, 1, 0x7c, 0x03 };
+    memcpy(ft + 6, rpu8, sizeof rpu8);
+    p = tmp_file(ft, sizeof ft);
+    CHECK(p && n265_rpu_load(p, &t, err, sizeof err) == 0 && t.n == 1);
+    n265_dyn_free(&t);
+    if (p)
+        unlink(p);
+
+    /* an entry whose CRC checks out but whose header doesn't fit in the
+     * body the CRC covers */
+    static const uint8_t tiny[] = { 0, 0, 0, 1, 0x19, 0x08, 0x00, 0x8a, 0xff,
+                                    0x27, 0x2f, 0x80 };
+    p = tmp_file(tiny, sizeof tiny);
+    CHECK(p && n265_rpu_load(p, &t, err, sizeof err) < 0);
+    if (p)
+        unlink(p);
+
     if (fails)
         fprintf(stderr, "hdr_dyn: %d check(s) failed\n", fails);
     return fails != 0;

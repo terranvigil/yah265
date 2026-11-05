@@ -584,6 +584,22 @@ void n265_set_dovi_rpu(int n, const uint8_t *const *rbsp, const size_t *len)
     set_dynmeta(&g_rpu, n, rbsp, len);
 }
 
+/* the bytes an RBSP takes once packed as a NAL: the emulation prevention
+ * the packer will add, plus `framing` for the start code and headers */
+static double packed_size(const uint8_t *rbsp, size_t len, double framing)
+{
+    size_t ep = 0;
+    int zeros = 0;
+    for (size_t i = 0; i < len; i++) {
+        if (zeros >= 2 && rbsp[i] <= 3) {
+            ep++;
+            zeros = 0;
+        }
+        zeros = rbsp[i] ? 0 : zeros + 1;
+    }
+    return (double)(len + ep) + framing;
+}
+
 /* entry `i` of a table, or NULL when the picture has none */
 static const uint8_t *dynmeta_at(const n265_dynmeta *m, int i, size_t *len)
 {
@@ -772,6 +788,14 @@ void n265_encoder_set_csv(n265_encoder *e, const char *path, int level)
     n265_csv_close(&e->csv);
     if (n265_csv_open(&e->csv, path, level, e->met.psnr, e->met.ssim) < 0)
         fprintf(stderr, "n265: cannot write --csv %s\n", path);
+}
+
+/* metadata NALs an allocation failure kept out of the stream, so the CLI
+ * can fail the run */
+long n265_encoder_dyn_lost(const n265_encoder *e);
+long n265_encoder_dyn_lost(const n265_encoder *e)
+{
+    return e ? e->dyn_lost : 0;
 }
 
 long n265_encoder_metrics(n265_encoder *e, double out[6])
@@ -5805,10 +5829,11 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
             ovh += 40.0;    /* the buffering period and pic timing pair */
         ovh += (double)(fw->sei_len + fw->hdr_sei_len) + 12.0;
         size_t ml = 0;
-        if (dynmeta_at(&e->h10p, fw->display_idx, &ml))
-            ovh += (double)ml + 9.0;    /* start code, header, SEI framing */
-        if (dynmeta_at(&e->rpu, fw->display_idx, &ml))
-            ovh += (double)ml + 6.0;
+        const uint8_t *m = dynmeta_at(&e->h10p, fw->display_idx, &ml);
+        if (m)  /* start code, NAL header, SEI type, size bytes, stop byte */
+            ovh += packed_size(m, ml, 8.0 + (double)(ml / 255 + 1));
+        if ((m = dynmeta_at(&e->rpu, fw->display_idx, &ml)))
+            ovh += packed_size(m, ml, 6.0);
         fw->brk_lim -= 8.0 * ovh;
         fw->brk_slim -= 8.0 * ovh;
         if (fw->brk_lim < N265_VBV_MIN_ALLOW)
@@ -6947,8 +6972,11 @@ static void join_oldest(n265_encoder *e)
     if (dyn) {
         int had = d->nnal;
         n265_write_t35_sei(&e->t35_bs, dyn, dyn_len);
-        pack_nal_tid(d, N265_NAL_PREFIX_SEI, fw->tid, e->t35_bs.buf,
-                     e->t35_bs.bytes);
+        /* the writer drops bytes when its buffer can't grow; the message
+         * is the payload plus at least a type, a size and a stop byte */
+        if (e->t35_bs.bytes >= dyn_len + 3)
+            pack_nal_tid(d, N265_NAL_PREFIX_SEI, fw->tid, e->t35_bs.buf,
+                         e->t35_bs.bytes);
         e->dyn_lost += d->nnal == had;
     }
     /* --temporal-layers: 7.4.2.2 puts the parameter sets, the end of

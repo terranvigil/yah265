@@ -58,6 +58,7 @@ void n265_set_qpfile(const char *path);
 void n265_set_zones(const char *spec);
 void n265_encoder_set_csv(n265_encoder *e, const char *path, int level);
 long n265_encoder_metrics(n265_encoder *e, double out[6]);
+long n265_encoder_dyn_lost(const n265_encoder *e);
 /* Two-pass (phase 12 item 4): 1 writes the stats sidecar, 2 plans from it,
  * 3 does both. The path outlives the encoder - it is argv. */
 void n265_set_pass(int pass, const char *stats);
@@ -231,6 +232,7 @@ void n265_set_qpfile_10(const char *path);
 void n265_set_zones_10(const char *spec);
 void n265_encoder_set_csv_10(n265_encoder *e, const char *path, int level);
 long n265_encoder_metrics_10(n265_encoder *e, double out[6]);
+long n265_encoder_dyn_lost_10(const n265_encoder *e);
 void n265_show_config_10(const n265_encoder *e, FILE *f, int in_depth);
 
 typedef struct n265_api {
@@ -311,6 +313,8 @@ typedef struct n265_api {
      * The third argument is the INPUT file's sample width, which is the
      * one row the encoder cannot know. */
     void (*show_config)(const n265_encoder *, FILE *, int);
+    /* HDR10+ or Dolby Vision NALs lost to an allocation failure */
+    long (*dyn_lost)(const n265_encoder *);
 } n265_api;
 
 static const n265_api api8 = {
@@ -334,7 +338,7 @@ static const n265_api api8 = {
     n265_set_rc_bounds,
     n265_set_sei_opts, n265_set_qpfile, n265_set_zones,
     n265_encoder_set_csv, n265_encoder_metrics, n265_set_fingerprint,
-    n265_show_config,
+    n265_show_config, n265_encoder_dyn_lost,
 };
 
 static const n265_api api10 = {
@@ -361,6 +365,7 @@ static const n265_api api10 = {
     n265_set_sei_opts_10, n265_set_qpfile_10, n265_set_zones_10,
     n265_encoder_set_csv_10, n265_encoder_metrics_10,
     n265_set_fingerprint_10, n265_show_config_10,
+    n265_encoder_dyn_lost_10,
 };
 
 /* QpBdOffsetY (7-5), and the clip bound of Clip1Y. Runtime now, off the
@@ -1813,6 +1818,7 @@ typedef struct gp_job {
  * the part of each table that starts at its own first picture. */
 static n265_dyn_tab g_h10p_tab, g_rpu_tab;
 static long g_dyn_seek;
+static long g_dyn_lost;     /* summed over every encoder, under open_lock */
 
 static void dyn_apply(const n265_api *a, long from)
 {
@@ -1838,7 +1844,7 @@ static int dyn_check(long frames)
 {
     const n265_dyn_tab *t[2] = { &g_h10p_tab, &g_rpu_tab };
     const char *flag[2] = { "--dhdr10-info", "--dolby-vision-rpu" };
-    int rc = 0;
+    int rc = g_dyn_lost > 0;    /* the library has said what was lost */
     for (int k = 0; k < 2; k++) {
         if (!t[k]->n)
             continue;
@@ -2388,6 +2394,7 @@ static void *gp_worker(void *arg)
                 s->rc_own = spent - (pred >= 0 ? bits_before : 0.0);
         }
         pthread_mutex_lock(&j->open_lock);
+        g_dyn_lost += a->dyn_lost(e);
         a->encoder_close(e);
         gp_relief(j->relief);
         pthread_mutex_unlock(&j->open_lock);
@@ -4130,6 +4137,7 @@ int main(int argc, char **argv)
             fprintf(stderr, "n265: SSIM-Y over %ld frames: %.6f (%.4f dB)\n",
                     nmet, met[4], met[5]);
     }
+    g_dyn_lost += a->dyn_lost(enc);
     a->encoder_close(enc);
     if (fdump)
         fclose(fdump);

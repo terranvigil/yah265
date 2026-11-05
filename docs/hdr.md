@@ -74,8 +74,9 @@ write that box. A Dolby Vision-aware muxer such as MP4Box or mkvmerge does.
 - **Against the tools' own injection.** A CRF encode with `--dhdr10-info`
   and `--dolby-vision-rpu` gives the same NAL units, byte for byte, as the
   same encode without them run through `hdr10plus_tool inject` and
-  `dovi_tool inject-rpu`. Two differ: the tools add an access unit delimiter
-  to each picture, and the encoder's version SEI names the extra options.
+  `dovi_tool inject-rpu`. The only differences: the tools add an access unit
+  delimiter to each picture, and the encoder's version SEI names the extra
+  options.
 - **Round trips.** `dovi_tool extract-rpu` and `hdr10plus_tool extract` on an
   encode give back the input metadata exactly. That holds with B-frames
   reordering the pictures, with `--seek`, and across `--gop-parallel`

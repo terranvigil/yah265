@@ -89,6 +89,7 @@
 #define n265_dup_thr_q8              n265_dup_thr_q8_10
 #define n265_dup_trace               n265_dup_trace_10
 #define n265_encoder_metrics         n265_encoder_metrics_10
+#define n265_encoder_dyn_lost        n265_encoder_dyn_lost_10
 #define n265_encoder_set_csv         n265_encoder_set_csv_10
 #define n265_encoder_set_dump        n265_encoder_set_dump_10
 #define n265_encoder_set_dump_decode n265_encoder_set_dump_decode_10
