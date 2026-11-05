@@ -70,6 +70,31 @@ themselves, so a player needs the container to tell it, in MP4's `dvcC` box
 or Matroska's equivalent. ffmpeg's stream copy from a raw `.hevc` doesn't
 write that box. A Dolby Vision-aware muxer such as MP4Box or mkvmerge does.
 
+## Quality on HDR content
+
+We scored yah265 and x265 with Netflix's HDR-VMAF v1.1.8 on two HDR10
+titles from Netflix Open Content: 10 seconds of Sol Levante (animation, 24p)
+and 5 seconds of Sparks (live action, 60p). Both encoders ran at preset medium
+and 6 threads, each over five CRF rungs, with the same HDR10 signalling. The
+table gives yah265's BD-rate against x265 on HDR-VMAF. A negative number is
+the share of bitrate yah265 saves at equal quality.
+
+| title | 1080p | 2160p |
+|---|--:|--:|
+| Sol Levante | −16.4% | −12.3% |
+| Sparks | −10.9% | −12.7% |
+
+The two encoders' CRF scales don't line up on this material: at the same CRF
+yah265 writes a much smaller file on Sol Levante. Each yah265 ladder was
+picked to cover the same HDR-VMAF range as x265's, so every number compares
+the two over the same span of quality.
+
+Banding was read with HDR-VMAF's PQ CAMBI. Sol Levante's flat gradients band
+on both encoders at the lower rates, and yah265 bands less there at the same
+bitrate: its worst frames stay just under a CAMBI of 5 where x265's reach 5 to
+6. On Sparks yah265 reads slightly higher than x265, but both stay far below
+the level where banding shows.
+
 ## How it was checked
 
 - **Against the tools' own injection.** A CRF encode with `--dhdr10-info`
