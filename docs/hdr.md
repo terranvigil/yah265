@@ -89,7 +89,8 @@ write that box. A Dolby Vision-aware muxer such as MP4Box or mkvmerge does.
   into profile 8.1 RPUs by `dovi_tool`.
 - **Nothing else moves.** Without these options the output is byte-identical
   to the encoder before they existed, except under `--temporal-layers`, where
-  the per-picture messages now take their picture's temporal layer. With them, a CRF encode codes the same
+  the NAL units written with each picture (the delimiter, timing SEI, hash
+  and filler) now take that picture's temporal layer. With them, a CRF encode codes the same
   pictures. Under a bitrate or VBV target the metadata's bytes count toward it
   like any other part of the access unit, so the rate control spends slightly
   less on the pictures.

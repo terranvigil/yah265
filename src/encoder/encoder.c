@@ -6892,7 +6892,8 @@ static void join_oldest(n265_encoder *e)
     if (e->aud) {
         n265_write_aud(&e->aud_bs, fw->slice_type == 2 ? 0
                                  : fw->slice_type == 1 ? 1 : 2);
-        pack_nal(d, N265_NAL_AUD, e->aud_bs.buf, e->aud_bs.bytes);
+        pack_nal_tid(d, N265_NAL_AUD, fw->tid, e->aud_bs.buf,
+                     e->aud_bs.bytes);
     }
     if (fw->emit_headers)
         for (int i = 0; i < e->nhdr; i++)
@@ -6921,7 +6922,8 @@ static void join_oldest(n265_encoder *e)
         n265_hrd_sei v;
         hrd_sei_values(e, fw, &v);
         n265_write_hrd_sei(&e->hrd_bs, &v);
-        pack_nal(d, N265_NAL_PREFIX_SEI, e->hrd_bs.buf, e->hrd_bs.bytes);
+        pack_nal_tid(d, N265_NAL_PREFIX_SEI, fw->tid, e->hrd_bs.buf,
+                     e->hrd_bs.bytes);
     }
     if (fw->hdr_sei_len)
         pack_nal(d, N265_NAL_PREFIX_SEI, fw->hdr_sei, fw->hdr_sei_len);
@@ -6937,16 +6939,15 @@ static void join_oldest(n265_encoder *e)
         pack_nal_tid(d, N265_NAL_PREFIX_SEI, fw->tid, e->t35_bs.buf,
                      e->t35_bs.bytes);
     }
-    /* --temporal-layers: the VCL NAL - and only the VCL NAL - carries the
-     * picture's TemporalId. 7.4.2.2 puts every parameter set, access unit
-     * delimiter, end of sequence and end of bitstream at TemporalId 0
-     * whatever the picture around them is, and a prefix SEI takes the
-     * TemporalId of its own access unit; ours are all written at a layer-0
-     * access unit (the parameter sets and the recovery point at an IRAP)
-     * or carry timing that applies to the whole stream, so 0 is right for
-     * them too. The per-picture messages are the exception - the HDR10+
-     * message, the picture hash and the RPU - and take the picture's
-     * TemporalId, so dropping a sub-layer drops them with it. */
+    /* --temporal-layers: 7.4.2.2 puts the parameter sets, the end of
+     * sequence and the end of bitstream at TemporalId 0, the access unit
+     * delimiter and filler data at their access unit's TemporalId, and
+     * every other non-VCL NAL at or above it. So everything written once
+     * per access unit - the delimiter, the timing SEI, the HDR10+ message,
+     * the slice, the picture hash, the filler and the RPU - takes the
+     * picture's TemporalId, and dropping a sub-layer drops all of it. The
+     * rest (the parameter sets, the recovery point, the version SEI, the
+     * HDR10 and grain SEIs) is written only at an IRAP, which is layer 0. */
     pack_nal_tid(d, fw->nal_type, fw->tid, fw->rbsp.buf, fw->rbsp.bytes);
     /* --hash: the decoded picture hash, D.2.19. A SUFFIX SEI, so it comes
      * AFTER the access unit's VCL NAL (7.4.2.4.4) - the only suffix NAL
@@ -7012,7 +7013,8 @@ static void join_oldest(n265_encoder *e)
             for (long i = 0; i < need; i++)
                 bs_put_bits(&e->fd_bs, 0xff, 8);
             bs_rbsp_trailing(&e->fd_bs);
-            pack_nal(d, N265_NAL_FD, e->fd_bs.buf, e->fd_bs.bytes);
+            pack_nal_tid(d, N265_NAL_FD, fw->tid, e->fd_bs.buf,
+                         e->fd_bs.bytes);
             e->filler_bytes += (long)need + 7;
             e->filler_aus++;
         }
