@@ -155,3 +155,10 @@ if python3.found()
     args : [meson.project_source_root() / 'scripts' / 'bdcompare.py',
             '--selftest'])
 endif
+
+# The command line's HDR10+ JSON and Dolby Vision RPU readers. The ST
+# 2094-40 writer is pinned to a profile B payload another encoder wrote.
+unit_hdr_dyn = executable('unit_hdr_dyn',
+  ['unit/hdr_dyn_test.c', '../cli/hdr_dyn.c'],
+  include_directories : include_directories('../cli'))
+test('hdr_dyn', unit_hdr_dyn)

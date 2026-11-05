@@ -573,6 +573,10 @@ static void sei_wrap(bitstream_t *bs, size_t at, unsigned type)
     size_t hdr = type / 255 + 1 + n / 255 + 1;
     for (size_t i = 0; i < hdr; i++)
         bs_put_bits(bs, 0, 8);
+    /* a put that couldn't grow the buffer wrote nothing, and moving the
+     * payload up into room that isn't there would run off the end */
+    if (bs->bytes != at + n + hdr)
+        return;
     memmove(bs->buf + at + hdr, bs->buf + at, n);
     size_t o = at;
     unsigned t = type;
@@ -766,6 +770,20 @@ size_t n265_write_hdr_sei(bitstream_t *bs, const n265_signal *s)
         return 0;
     bs_rbsp_trailing(bs);
     return bs->bytes;
+}
+
+/* user_data_registered_itu_t_t35 (D.2.5, payload type 4), in a prefix SEI
+ * NAL of its own: `t35` is the whole payload from the country code on, so
+ * the message is a byte copy. --dhdr10-info writes one per picture, the
+ * ST 2094-40 dynamic metadata of that picture, and players look for it as
+ * a NAL by itself. */
+void n265_write_t35_sei(bitstream_t *bs, const uint8_t *t35, size_t len)
+{
+    bs_reset(bs);
+    for (size_t i = 0; i < len; i++)
+        bs_put_bits(bs, t35[i], 8);
+    sei_wrap(bs, 0, 4);
+    bs_rbsp_trailing(bs);
 }
 
 /* decoded_picture_hash (D.2.19), in a SUFFIX SEI NAL - the only suffix

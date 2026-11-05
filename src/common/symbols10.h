@@ -88,6 +88,7 @@
 #define n265_dup_on                  n265_dup_on_10
 #define n265_dup_thr_q8              n265_dup_thr_q8_10
 #define n265_dup_trace               n265_dup_trace_10
+#define n265_encoder_dyn_lost        n265_encoder_dyn_lost_10
 #define n265_encoder_metrics         n265_encoder_metrics_10
 #define n265_encoder_set_csv         n265_encoder_set_csv_10
 #define n265_encoder_set_dump        n265_encoder_set_dump_10
@@ -352,6 +353,7 @@
 #define n265_vui_needed              n265_vui_needed_10
 #define n265_write_aud               n265_write_aud_10
 #define n265_write_hdr_sei           n265_write_hdr_sei_10
+#define n265_write_t35_sei           n265_write_t35_sei_10
 #define n265_write_hash_sei          n265_write_hash_sei_10
 #define n265_write_fgc_sei           n265_write_fgc_sei_10
 #define n265_write_hrd_sei           n265_write_hrd_sei_10
