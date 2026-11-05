@@ -213,7 +213,17 @@ int main(void)
     static const uint8_t tiny[] = { 0, 0, 0, 1, 0x19, 0x08, 0x00, 0x8a, 0xff,
                                     0x27, 0x2f, 0x80 };
     p = tmp_file(tiny, sizeof tiny);
-    CHECK(p && n265_rpu_load(p, &t, err, sizeof err) < 0);
+    CHECK(p && n265_rpu_load(p, &t, err, sizeof err) < 0 &&
+          strstr(err, "can read"));
+    if (p)
+        unlink(p);
+
+    /* a type-62 header with TemporalId bits of 0 says what's wrong */
+    uint8_t fz[6 + sizeof rpu8] = { 0, 0, 0, 1, 0x7c, 0x00 };
+    memcpy(fz + 6, rpu8, sizeof rpu8);
+    p = tmp_file(fz, sizeof fz);
+    CHECK(p && n265_rpu_load(p, &t, err, sizeof err) < 0 &&
+          strstr(err, "type-62"));
     if (p)
         unlink(p);
 

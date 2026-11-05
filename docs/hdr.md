@@ -39,7 +39,8 @@ encoder codes the pictures in. `--seek` skips entries along with frames, and
 `--gop-parallel` gives each segment its own part of the file. If a file runs
 out before the input does, the encode still writes the stream but exits with
 an error, because pictures without metadata break HDR10+ or Dolby Vision
-playback there. A file with entries left over gets a warning, since a
+playback there. A metadata NAL lost to a failed allocation fails the run the
+same way. A file with entries left over gets a warning, since a
 `--frames` run over part of a title is the usual reason.
 
 Both readers check what they read. HDR10+ values must fall inside the HDR10+

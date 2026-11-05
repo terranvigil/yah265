@@ -585,7 +585,9 @@ void n265_set_dovi_rpu(int n, const uint8_t *const *rbsp, const size_t *len)
 }
 
 /* the bytes an RBSP takes once packed as a NAL: the emulation prevention
- * the packer will add, plus `framing` for the start code and headers */
+ * the packer will add, plus `framing` for the start code and headers. The
+ * scan starts at the RBSP, which is exact for the RPU and, since an HDR10+
+ * payload opens with its 0xB5 country code, for the SEI around it too. */
 static double packed_size(const uint8_t *rbsp, size_t len, double framing)
 {
     size_t ep = 0;
@@ -6972,9 +6974,10 @@ static void join_oldest(n265_encoder *e)
     if (dyn) {
         int had = d->nnal;
         n265_write_t35_sei(&e->t35_bs, dyn, dyn_len);
-        /* the writer drops bytes when its buffer can't grow; the message
-         * is the payload plus at least a type, a size and a stop byte */
-        if (e->t35_bs.bytes >= dyn_len + 3)
+        /* the writer drops bytes when its buffer can't grow; the whole
+         * message is the payload, its type byte, its size bytes and the
+         * stop byte */
+        if (e->t35_bs.bytes == dyn_len + 3 + dyn_len / 255)
             pack_nal_tid(d, N265_NAL_PREFIX_SEI, fw->tid, e->t35_bs.buf,
                          e->t35_bs.bytes);
         e->dyn_lost += d->nnal == had;

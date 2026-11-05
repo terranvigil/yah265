@@ -573,6 +573,10 @@ static void sei_wrap(bitstream_t *bs, size_t at, unsigned type)
     size_t hdr = type / 255 + 1 + n / 255 + 1;
     for (size_t i = 0; i < hdr; i++)
         bs_put_bits(bs, 0, 8);
+    /* a put that couldn't grow the buffer wrote nothing, and moving the
+     * payload up into room that isn't there would run off the end */
+    if (bs->bytes != at + n + hdr)
+        return;
     memmove(bs->buf + at + hdr, bs->buf + at, n);
     size_t o = at;
     unsigned t = type;

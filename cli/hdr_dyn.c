@@ -878,10 +878,17 @@ int n265_rpu_load(const char *path, n265_dyn_tab *t, char *err,
             (b[at + 1] & 7))    /* layer 0, any TemporalId */
             at += 2;
         if (end - at < 2 || b[at] != 0x19) {
-            if (end - at >= 2 && (b[at] == 0x7c || b[at] == 0x7d))
+            int hdr = at == s && end - s >= 2 &&
+                      (b[s] == 0x7c || b[s] == 0x7d);
+            int ok_hdr = hdr && b[s] == 0x7c && !(b[s + 1] & 0xf8) &&
+                         (b[s + 1] & 7);
+            if (hdr && !ok_hdr)
                 fail(err, errlen, "%s: entry %d has a type-62 NAL header "
                      "with a layer or TemporalId an RPU can't have", path,
                      k);
+            else if (ok_hdr && end - s == 2)
+                fail(err, errlen, "%s: entry %d is a NAL header with no RPU "
+                     "after it", path, k);
             else
                 fail(err, errlen, "%s: entry %d is not a Dolby Vision RPU "
                      "(no 0x19 prefix)", path, k);
