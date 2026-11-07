@@ -9,6 +9,10 @@
 
 void n265_rdoq_init(void);
 
+/* the forward transform's energy scale at log2n (2..5): pixel SSD is
+ * coefficient SSD divided by it. Measured once, by n265_rdoq_init. */
+double n265_rdoq_parseval(int log2n);
+
 /* N265_SBH_RD: RDOQ decides the sign-bit-hiding parity fix itself (see
  * rdoq.c), so the caller must not run n265_sbh_adjust after it. */
 int n265_rdoq_sbh_on(void);

@@ -1019,6 +1019,10 @@ typedef struct n265_frame_work {
      * with nothing and are never read by a predicate. LAST in the struct
      * on purpose: an instrument must not move a hot field's offset. */
     double t_disp, t_row0, t_rowlast, t_ent0, t_ent1;
+    /* N265_TD_DIST (phase 14 item 34, row-private): the TB being analysed
+     * is an inter trial priced on its coefficients. After the hot fields
+     * for the same reason. */
+    int td_want;
 } n265_frame_work;
 
 int n265_chroma_qp(int qp_y, int chroma_idc);   /* encoder/transform.h */

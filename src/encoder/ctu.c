@@ -276,6 +276,14 @@ typedef struct tb_ctx {
      * tb_make_recon is handed a tb_ctx and nothing else - and a block
      * that says what it is cannot be reconstructed the wrong way. */
     int bypass;
+    /* phase 14 item 34, N265_TD_DIST: an inter TRIAL block whose
+     * distortion was taken on the coefficients and whose `recon` has NOT
+     * been built. td_d is the coded distortion and td_z the distortion of
+     * coding nothing (the skip's), both in pixel SSD units and both summed
+     * over the unit's blocks; tb_commit builds the recon at `td_qp` before
+     * the block reaches the picture. */
+    int td, td_qp;
+    uint64_t td_d, td_z;
 } tb_ctx;
 
 /* "this transform unit coded anything", which is what every
@@ -971,6 +979,18 @@ static void rt_tally(struct n265_frame_work *e, int c_idx, int log2n, int qp,
  * with the lattice outright on 52-89% of luma trials and disagrees about
  * the cbf on under 2%, so 3 is not built until the band says 2 gives back
  * too much. */
+/* N265_TD_DIST (phase 14 item 34): 1 prices the inter trials' distortion
+ * on the coefficients - the quantiser's error against the unquantised
+ * transform, scaled to pixel units by the transform's own energy ratio -
+ * and builds no reconstruction for a candidate that loses. The skip's
+ * distortion comes off the same coefficients for free. 0 is main. */
+static int td_dist(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *s = n265_env("N265_TD_DIST"); v = s ? atoi(s) : 0; }
+    return v;
+}
+
 /* N265_RDOQ_LAT_SZ: under N265_RDOQ=2, the transform sizes that KEEP the
  * lattice in the TRIALS as well - a bitmask over log2n - 2, so bit 0 is
  * 4x4, bit 1 8x8, bit 2 16x16 and bit 3 32x32. 0 is the whole commit-only
@@ -1042,6 +1062,36 @@ static void tb_quant_one(struct n265_frame_work *e, int c_idx, int log2n,
     }
     if (*out_nz && !sbh_done)
         n265_sbh_adjust(level, log2n, scan);
+}
+
+/* N265_TD_DIST: the block's coded distortion and its skip distortion, off
+ * the coefficients, in pixel SSD units. Out of line: the trial path is
+ * hot and this is not on it unless the knob is. */
+static __attribute__((noinline)) void
+td_price(tb_ctx *tb, const int16_t *coef, const int16_t *level, int log2n,
+         int qp, int nz, int first)
+{
+    if (first) {
+        tb->td_qp = qp;
+        tb->td_d = tb->td_z = 0;
+    }
+    int n = 1 << log2n;
+    int64_t sz = 0, sd;
+    for (int i = 0; i < n * n; i++)
+        sz += (int32_t)coef[i] * coef[i];
+    sd = sz;
+    if (nz) {
+        int16_t dq[32 * 32];
+        n265_dequant(dq, level, log2n, qp, NULL, NULL);
+        sd = 0;
+        for (int i = 0; i < n * n; i++) {
+            int32_t d = (int32_t)coef[i] - dq[i];
+            sd += d * d;
+        }
+    }
+    double f = n265_rdoq_parseval(log2n);
+    tb->td_d += (uint64_t)llround((double)sd / f);
+    tb->td_z += (uint64_t)llround((double)sz / f);
 }
 
 /* one SQUARE block of a transform unit: the whole of it at 4:2:0 and
@@ -1150,6 +1200,8 @@ static void tb_analyze_one(struct n265_frame_work *e, int c_idx, int x0,
     if (e->rdoq && rdoq_trace())
         rt_tally(e, c_idx, log2n, qp, !inter, use_dst, scan, coef, pred,
                  level, *out_nz, src, e->pad_stride[c_idx]);
+    if (inter && e->td_want)
+        td_price(tb, coef, level, log2n, qp, *out_nz, off == 0);
 }
 
 /* reconstruct ONE block of the unit into the TB's scratch buffer */
@@ -1195,6 +1247,7 @@ static void tb_analyze(struct n265_frame_work *e, int c_idx, int x0, int y0,
     if (c_idx)
         mode = n265_c422_mode(e->c422, mode);
     tb->nz2 = 0;
+    tb->td = e->td_want;
     tb_analyze_one(e, c_idx, x0, y0, log2n, qp, mode, mot, tb, 0, &tb->nz);
     if (nsub_c(e, c_idx) == 1)
         return;
@@ -1241,6 +1294,7 @@ static void tb_make_recon(const struct n265_frame_work *e, int c_idx,
     if (nsub_c(e, c_idx) == 2)
         tb_make_recon_one(c_idx, log2n, qp, mode, tb, (size_t)n * n,
                           tb->nz2);
+    tb->td = 0;
 }
 
 /* N265_RDOQ=2: one block of a WINNER carried out of a trial, re-quantised
@@ -1300,6 +1354,7 @@ static void tb_relattice(struct n265_frame_work *e, int c_idx, int x0, int y0,
     if (nsub_c(e, c_idx) == 2)
         tb_relattice_one(e, c_idx, x0, y0 + n, log2n, qp, mode, tb,
                          (size_t)n * n, &tb->nz2);
+    tb->td = 0;
 }
 
 /* blit the scratch recon into the frame and mark the cbf map */
@@ -1310,6 +1365,8 @@ static void tb_commit(struct n265_frame_work *e, int c_idx, int x0, int y0,
     int rows = n * nsub_c(e, c_idx);
     pixel *recon = e->recon[c_idx];
     int stride = e->recon_stride[c_idx];
+    if (__builtin_expect(tb->td, 0))    /* a coefficient-priced trial */
+        tb_make_recon(e, c_idx, log2n, tb->td_qp, MODE_INTER, tb);
     for (int y = 0; y < rows; y++)
         n265_cpy(recon + (size_t)(y0 + y) * stride + x0, tb->recon + y * n,
                (size_t)n * sizeof(pixel));
@@ -1392,10 +1449,31 @@ static uint64_t tb_ssd_px(struct n265_frame_work *e, int c_idx, int x0,
     return ssd;
 }
 
+/* N265_TD_DIST: a trial with no recon, and no psy term to add */
+static __attribute__((noinline)) uint64_t
+td_ssd(const struct n265_frame_work *e, int c_idx, const tb_ctx *tb)
+{
+    uint64_t ssd = tb->td_d;
+    if (c_idx && chroma_w_q8(e) != 256)
+        ssd = (ssd * chroma_w_q8(e)) >> 8;
+    return ssd;
+}
+
 static uint64_t tb_ssd(struct n265_frame_work *e, int c_idx, int x0, int y0,
                        int log2n, const tb_ctx *tb)
 {
+    if (__builtin_expect(tb->td, 0))
+        return td_ssd(e, c_idx, tb);
     return tb_ssd_px(e, c_idx, x0, y0, log2n, tb->recon);
+}
+
+/* N265_TD_DIST applies only where the trial's distortion carries no psy
+ * term, which needs the reconstruction: psy off, and the dark-block psy
+ * off or zero on this luma area */
+static int td_on(const struct n265_frame_work *e, int x0, int y0, int n)
+{
+    return !e->lossless && e->psy <= 0.0 &&
+           (e->dark_psy <= 0.0 || n265_dark_psy(e, x0, y0, n) <= 0.0);
 }
 
 /* ---- one chroma unit's syntax, in the three places it is spent -------
@@ -1674,6 +1752,23 @@ static int rank_nmodes(const struct n265_frame_work *e, const int *sub,
     return e->slice_type == 0 && intra_b_modes() ? 2 : 35;
 }
 
+/* N265_IRANK (phase 14 item 34): 2 takes the coarse rank below
+ * (N265_INTRA_FAST's) to every picture width and every slice, I included,
+ * on every eighth angle refined at 4, 2 and 1, and not refined at all
+ * where planar or DC leads the seeds: 7 to 13 predictions in place of 35.
+ * 0 is main. An explicit candidate list (the NxN sub-ranks, the B-slice
+ * cut) keeps its list. The SAD-scored forms the arm was screened with
+ * lost on v1 and are gone (docs/phase14.md, item 34). */
+static int irank_mode(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_IRANK");
+        v = s && atoi(s) == 2 ? 2 : 0;
+    }
+    return v;
+}
+
 /* `satd_out`, where a caller asks for it, is the winner's own RANKING
  * cost - the Hadamard the 35-mode loop below already computed and threw
  * away. `cost_out` cannot stand in for it: that one is re-taken as a SAD
@@ -1732,16 +1827,20 @@ static int search_luma_mode_sub(struct n265_frame_work *e, int x0, int y0,
      * instead of 35. Only the full rank; a caller's own list is kept.
      * Narrow pictures keep the full rank (N265_INTRA_FAST_W): on the
      * CIF-7 band the coarse one cost coastguard_cif 0.63 and bus_cif 0.44
-     * of a point, and at 720p sita_flat 2.42. */
-    int fast = !sub && e->slice_type != 2 && intra_fast(e, log2n);
+     * of a point, and at 720p sita_flat 2.42.
+     * N265_IRANK 2 widens it to every picture and slice. */
+    int irk = irank_mode();
+    int fast = !sub && ((e->slice_type != 2 && intra_fast(e, log2n)) ||
+                        irk);
+    int step = irk ? 8 : intra_fast_step();
     int fl[40], nf = 0;
     if (fast) {
         fl[nf++] = INTRA_PLANAR;
         fl[nf++] = INTRA_DC;
-        for (int m = 2; m <= 34; m += intra_fast_step())
+        for (int m = 2; m <= 34; m += step)
             fl[nf++] = m;
     }
-    int dist = intra_fast_step() / 2;
+    int dist = step / 2;
     int ba = -1;                        /* the best angle so far */
     uint32_t bac = UINT32_MAX;
     for (int mi = 0; mi < (fast ? nf : sub ? nsub : 35); mi++) {
@@ -1777,6 +1876,9 @@ static int search_luma_mode_sub(struct n265_frame_work *e, int x0, int y0,
                 bac = cost;
                 ba = mode;
             }
+            /* N265_IRANK: no refinement where planar or DC leads */
+            if (irk && mi == nf - 1 && dist == step / 2 && best_mode < 2)
+                dist = 0;
             /* a stage is done: queue the next pair around the best angle,
              * and go straight on to the stage after if neither is new */
             while (mi == nf - 1 && dist >= 1) {
@@ -4328,16 +4430,24 @@ static uint64_t inter_tt_node(struct n265_frame_work *e, mot_t mot, int x0,
         tcb = &e->sc->ctt_cb[depth];
         tcr = &e->sc->ctt_cr[depth];
         if (!forced) {
+            /* N265_TD_DIST: tb_commit builds whichever of these wins */
+            int td = td_dist() && td_on(e, x0, y0, 1 << log2n);
+            e->td_want = td;
             if (has_chroma) {
                 tb_analyze(e, 1, cx0, cy0, log2c, qp_cb, MODE_INTER, mot, tcb);
                 tb_analyze(e, 2, cx0, cy0, log2c, qp_cr, MODE_INTER, mot, tcr);
-                tb_make_recon(e, 1, log2c, qp_cb, MODE_INTER, tcb);
-                tb_make_recon(e, 2, log2c, qp_cr, MODE_INTER, tcr);
+                if (!td) {
+                    tb_make_recon(e, 1, log2c, qp_cb, MODE_INTER, tcb);
+                    tb_make_recon(e, 2, log2c, qp_cr, MODE_INTER, tcr);
+                }
             } else {
                 tcb->nz = tcb->nz2 = tcr->nz = tcr->nz2 = 0;
+                tcb->td = tcr->td = 0;
             }
             tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, mot, tl);
-            tb_make_recon(e, 0, log2n, e->cur_ctu_qp, MODE_INTER, tl);
+            e->td_want = 0;
+            if (!td)
+                tb_make_recon(e, 0, log2n, e->cur_ctu_qp, MODE_INTER, tl);
         }
     }
     if (!forced) {
@@ -6056,20 +6166,34 @@ static void merge_trial(struct n265_frame_work *e, int x0, int y0, int log2n,
     int qp_cb = n265_chroma_qp_of(e, e->cur_ctu_qp, 1);
     int qp_cr = n265_chroma_qp_of(e, e->cur_ctu_qp, 2);
 
+    int td = td_dist() && td_on(e, x0, y0, 1 << log2n);
+    e->td_want = td;
     tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, cand, m_tl);
     tb_analyze(e, 1, cx0, cy0, log2c, qp_cb, MODE_INTER, cand, m_tcb);
     tb_analyze(e, 2, cx0, cy0, log2c, qp_cr, MODE_INTER, cand, m_tcr);
-    tb_make_recon(e, 0, log2n, e->cur_ctu_qp, MODE_INTER, m_tl);
-    tb_make_recon(e, 1, log2c, qp_cb, MODE_INTER, m_tcb);
-    tb_make_recon(e, 2, log2c, qp_cr, MODE_INTER, m_tcr);
+    e->td_want = 0;
+    if (!td) {
+        tb_make_recon(e, 0, log2n, e->cur_ctu_qp, MODE_INTER, m_tl);
+        tb_make_recon(e, 1, log2c, qp_cb, MODE_INTER, m_tcb);
+        tb_make_recon(e, 2, log2c, qp_cr, MODE_INTER, m_tcr);
+    }
     *m_any = m_tl->nz || tb_any(m_tcb) || tb_any(m_tcr);
     *d_merge = tb_ssd(e, 0, x0, y0, log2n, m_tl) +
         tb_ssd(e, 1, cx0, cy0, log2c, m_tcb) +
         tb_ssd(e, 2, cx0, cy0, log2c, m_tcr);
-    /* forced skip: prediction only, measured on the prediction itself */
-    *d_skip = tb_ssd_px(e, 0, x0, y0, log2n, m_tl->pred) +
-              tb_ssd_px(e, 1, cx0, cy0, log2c, m_tcb->pred) +
-              tb_ssd_px(e, 2, cx0, cy0, log2c, m_tcr->pred);
+    /* forced skip: prediction only, measured on the prediction itself;
+     * under N265_TD_DIST the energy of the same coefficients */
+    if (td) {
+        uint64_t zc = m_tcb->td_z + m_tcr->td_z;
+        if (chroma_w_q8(e) != 256)
+            zc = ((m_tcb->td_z * chroma_w_q8(e)) >> 8) +
+                 ((m_tcr->td_z * chroma_w_q8(e)) >> 8);
+        *d_skip = m_tl->td_z + zc;
+    } else {
+        *d_skip = tb_ssd_px(e, 0, x0, y0, log2n, m_tl->pred) +
+                  tb_ssd_px(e, 1, cx0, cy0, log2c, m_tcb->pred) +
+                  tb_ssd_px(e, 2, cx0, cy0, log2c, m_tcr->pred);
+    }
     *j_skip = rd_j(e, *d_skip, skip_bits, lam);
     *j_merge = UINT64_MAX;
     if (*m_any) {
@@ -6094,12 +6218,17 @@ static void amvp_trial(struct n265_frame_work *e, int x0, int y0, int log2n,
     int qp_cb = n265_chroma_qp_of(e, e->cur_ctu_qp, 1);
     int qp_cr = n265_chroma_qp_of(e, e->cur_ctu_qp, 2);
 
+    int td = td_dist() && td_on(e, x0, y0, 1 << log2n);
+    e->td_want = td;
     tb_analyze(e, 0, x0, y0, log2n, e->cur_ctu_qp, MODE_INTER, amot, a_tl);
     tb_analyze(e, 1, cx0, cy0, log2c, qp_cb, MODE_INTER, amot, a_tcb);
     tb_analyze(e, 2, cx0, cy0, log2c, qp_cr, MODE_INTER, amot, a_tcr);
-    tb_make_recon(e, 0, log2n, e->cur_ctu_qp, MODE_INTER, a_tl);
-    tb_make_recon(e, 1, log2c, qp_cb, MODE_INTER, a_tcb);
-    tb_make_recon(e, 2, log2c, qp_cr, MODE_INTER, a_tcr);
+    e->td_want = 0;
+    if (!td) {
+        tb_make_recon(e, 0, log2n, e->cur_ctu_qp, MODE_INTER, a_tl);
+        tb_make_recon(e, 1, log2c, qp_cb, MODE_INTER, a_tcb);
+        tb_make_recon(e, 2, log2c, qp_cr, MODE_INTER, a_tcr);
+    }
     *a_any = a_tl->nz || tb_any(a_tcb) || tb_any(a_tcr);
     *d_amvp = tb_ssd(e, 0, x0, y0, log2n, a_tl) +
         tb_ssd(e, 1, cx0, cy0, log2c, a_tcb) +
@@ -6397,7 +6526,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                                                    (uint32_t)lam4 };
                         struct n265_me_keep kp;
                         uint32_t sad;
-                        if (r > 0 && ref2_lite()) {
+                        if (r > 0 && ref2_lite()) {                        } else if (r > 0 && ref2_lite()) {
                             mv_t cd[4] = { p[0], p[1], seed,
                                 n265_mv_poc_scale(r0mv1[l],
                                     e->poc - e->refl[l][r]->poc,
@@ -8204,6 +8333,7 @@ void n265_ctu_warm(void)
     (void)cbf_fast(); (void)gate_scale(); (void)skip_exit();
     (void)static_commit(); (void)sc_conj();
     (void)intra_gate(); (void)intra_pf_q8(); (void)intra_oracle();
+    (void)irank_mode(); (void)td_dist();
     (void)part_gate(); (void)chroma_dz();
     (void)part_amp_margin(); (void)rect_rank(); (void)n265_rect_flat();
     (void)depth_bound();

@@ -89,7 +89,7 @@ def score_memo(cell, bitstream, wd, s=0, n=None, stride=1, psnr_only=False):
     k = "|".join((pl.file_md5(bitstream), pl.feed_sig(pl.feeder(cell, s, n)),
                   str(stride), str(psnr_only), str(pl.SSIM_PASS)))
     have = pl.jload(SCORES).get(k)
-    if have:
+    if have and (psnr_only or pl.has_gate(have, cell)):
         return have
     return pl.jput(SCORES, k, _score(cell, bitstream, wd, s, n, stride,
                                      psnr_only))
@@ -242,8 +242,24 @@ def ref_sig(extra=""):
 
 def _rung(cell, arm, mode, q, stride=GOP_STRIDE, log=print):
     r = pl.measure(cell, arm, mode, q, stride=stride, log=log)
-    return {k: r.get(k) for k in ("bytes", "kbps", "neg", "psnr_y", "md5",
-                                  "frames_ok", "q")}
+    out = {k: r.get(k) for k in ("bytes", "kbps", "neg", "psnr_y", "md5",
+                                 "frames_ok", "q")}
+    out["v1"] = pl.gate_score(r) if "v1_gate" in r else None
+    return out
+
+
+def qv(r):
+    """A rung's gate metric: v1 where the harness gates on it, else NEG."""
+    return r.get("v1") if pl.GATE == "v1" else r["neg"]
+
+
+def scored(rec):
+    """A cached task scored on the current gate metric (a NEG-era row
+    is re-read: its encodes come back from the memo, its scores don't)."""
+    rows = list(rec.get("rungs", []))
+    if "point" in rec:
+        rows.append(rec["point"])
+    return all(qv(r) is not None for r in rows)
 
 
 def t_ref_crf(cell, sig):
@@ -380,7 +396,8 @@ def plan(cells, sig, want_vbr, want_speed, want_ref_speed=True,
     todo = []
 
     def add(task, cell, s):
-        if rkey(task, cell, s) in have:
+        if rkey(task, cell, s) in have and (task.startswith("speed_") or
+                                            scored(have[rkey(task, cell, s)])):
             return
         if any(t == task and c is cell and x == s for t, c, x in todo):
             return
@@ -480,8 +497,8 @@ def bdn(ref, ours):
     if not ref or not ours:
         return None
     x, o = ref["rungs"], ours["rungs"]
-    return bd.bd_rate([r["kbps"] for r in x], [r["neg"] for r in x],
-                      [r["kbps"] for r in o], [r["neg"] for r in o])
+    return bd.bd_rate([r["kbps"] for r in x], [qv(r) for r in x],
+                      [r["kbps"] for r in o], [qv(r) for r in o])
 
 
 def track(rec):
@@ -509,9 +526,9 @@ def read(cell, sig):
         out["trk_x"] = track(rv)
     if rc and oc:
         a, b = oc["point"], rc["point"]
-        out.update(dneg=a["neg"] - b["neg"], dpsnr=a["psnr_y"] - b["psnr_y"],
+        out.update(dneg=qv(a) - qv(b), dpsnr=a["psnr_y"] - b["psnr_y"],
                    dsize=100 * (a["bytes"] / b["bytes"] - 1),
-                   match_crf=oc["match_crf"], ref_neg=b["neg"],
+                   match_crf=oc["match_crf"], ref_neg=qv(b),
                    frames_ok=all(r.get("frames_ok") for r in
                                  oc["rungs"] + rc["rungs"] + [a, b]))
     for tier in ("c", "simd"):
@@ -566,7 +583,7 @@ def print_table(rows, title):
           f"{'':>14}{f(med('ix_c'), '{:.3f}', 9)}"
           f"{f(med('ix_simd'), '{:.3f}', 9)}{f(med('cx_c'), '{:.2f}', 7)}"
           f"{f(med('cx_simd'), '{:.2f}', 7)}")
-    print("BD = BD-rate on VMAF-NEG vs x265 medium (+ is behind); trk max = "
+    print("BD = BD-rate on " + ("VMAF v1" if pl.GATE == "v1" else "VMAF-NEG") + " vs x265 medium (+ is behind); trk max = "
           "ours' worst VBR rung off target, %; dNEG/dPSNR/dSIZE at x265 "
           "CRF 28's bytes; instr/cpu = ours over x265 at --threads 1, "
           "C = pure C, S = SIMD")

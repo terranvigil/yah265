@@ -145,6 +145,11 @@ void n265_rdoq_init(void)
     inited = 1;
 }
 
+double n265_rdoq_parseval(int log2n)
+{
+    return parseval[log2n];
+}
+
 static inline uint32_t bin_cost(const cabac_ctx_t *ctx, int bin)
 {
     return bin == ctx->mps ? cost_mps[ctx->state] : cost_lps[ctx->state];
@@ -468,6 +473,50 @@ uint64_t n265_rdoq_sb_nz(const int16_t *blk, int log2n)
     return n265_rdoq_sb_nz_ref(blk, log2n);
 }
 
+/* N265_RDOQ_TAIL (phase 14 item 34): before the lattice runs, walk the
+ * coded sub-blocks from the last one toward the first and drop each whose
+ * every coefficient is at most one quantiser step UNROUNDED, stopping at
+ * the first that is not. Sub-block 0 is never dropped. A level that is
+ * only there because of the rounding offset is the one the last-position
+ * pass mostly removes anyway, and the lattice then never visits the
+ * stretch. 0 is main. */
+static int rdoq_tail(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *s = n265_env("N265_RDOQ_TAIL"); v = s ? atoi(s) : 0; }
+    return v;
+}
+
+/* N265_RDOQ_TAIL's drop on the rounded levels: returns the occupancy
+ * left. Out of line, so the lattice's own frame doesn't carry it. */
+static __attribute__((noinline)) uint64_t
+tail_drop(int16_t *rtn, const int16_t *coef, uint64_t sb_nz, int log2n,
+          const uint8_t *sb_scan, int q, int qbits)
+{
+    int n = 1 << log2n, sb_dim = n >> 2, num_sb = sb_dim * sb_dim;
+    int64_t one = (int64_t)1 << qbits;
+    uint64_t m = 0;
+    for (int s = num_sb - 1; s >= 1; s--) {
+        int sb_x = sb_scan[s] & 15, sb_y = sb_scan[s] >> 4;
+        int bit = sb_y * sb_dim + sb_x;
+        if (!((sb_nz >> bit) & 1))
+            continue;
+        const int16_t *p = coef + (sb_y << 2) * n + (sb_x << 2);
+        for (int y = 0; y < 4; y++)
+            for (int x = 0; x < 4; x++) {
+                int c = p[y * n + x];
+                if ((int64_t)(c < 0 ? -c : c) * q > one)
+                    goto done;
+            }
+        m |= 1ull << bit;
+        int16_t *r = rtn + (sb_y << 2) * n + (sb_x << 2);
+        for (int y = 0; y < 4; y++)
+            memset(r + y * n, 0, 4 * sizeof(int16_t));
+    }
+done:
+    return sb_nz & ~m;
+}
+
 int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
               int intra, int c_idx, int scan_idx, const cabac_ctx_t *ctx,
               uint32_t lam_q8)
@@ -553,6 +602,10 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
     int czero = (int)((((int64_t)1 << qbits) - add + q - 1) / q);
     int any = n265_rdoq_rtn(rtn, &all_zero, &sb_nz, coef, log2n, q, add,
                             qbits, czero);
+    if (any && rdoq_tail()) {
+        sb_nz = tail_drop(rtn, coef, sb_nz, log2n, sb_scan, q, qbits);
+        any = sb_nz != 0;
+    }
     memset(level, 0, (size_t)nn * sizeof(int16_t));
     if (!any)
         return 0;
@@ -1108,5 +1161,6 @@ void n265_rdoq_warm(void)
     (void)rdoq_decimate();
     (void)rdoq_decimate_grad();
     (void)rdoq_dg_trace();
+    (void)rdoq_tail();
     n265_rdoq_init();       /* the cost tables and the parseval probe */
 }

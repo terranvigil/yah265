@@ -242,6 +242,7 @@
 #define n265_vbv_update              n265_vbv_update_10
 #define n265_rdoq                    n265_rdoq_10
 #define n265_rdoq_init               n265_rdoq_init_10
+#define n265_rdoq_parseval           n265_rdoq_parseval_10
 #define n265_rdoq_rtn                n265_rdoq_rtn_10
 #define n265_rdoq_rtn_neon           n265_rdoq_rtn_neon_10
 #define n265_rdoq_rtn_ref            n265_rdoq_rtn_ref_10
