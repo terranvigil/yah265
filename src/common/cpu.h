@@ -3,8 +3,8 @@
  * knob that every NEON dispatch site branches on.
  *
  * Adapted from yah264's src/common/cpu.{h,c} (our own tooling under
- * the CONTRIBUTING.md carve-out), with the x86 half dropped: yah265 targets
- * aarch64 for phase 6 and the C path stays first-class everywhere else.
+ * the CONTRIBUTING.md carve-out). aarch64 has the NEON tier; x86-64 has
+ * the AVX2 tier (docs/x86-plan.md). The C path stays first-class on both.
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
@@ -24,6 +24,12 @@ enum {
     N265_CPU_NEON    = 1u << 0,
     N265_CPU_DOTPROD = 1u << 1,   /* FEAT_DotProd (udot/sdot) */
     N265_CPU_I8MM    = 1u << 2,   /* FEAT_I8MM */
+    /* x86-64. AVX2 is set only with FMA3, BMI2 and the OS saving the YMM
+     * state, because the AVX2 tier is built with all three -m flags and
+     * may use any of them. */
+    N265_CPU_SSE42   = 1u << 8,
+    N265_CPU_AVX2    = 1u << 9,
+    N265_CPU_AVX512  = 1u << 10,  /* F + BW + VL, ZMM state; no kernel yet */
 };
 
 /* Kernel classes, one bit each. A class is the unit the ablation knob and
@@ -138,6 +144,57 @@ static inline int n265_asm_on(uint32_t cls)
     if (!(cls & N265_ASM_PORTED))
         return 0;
     return (n265_cpu_flags() & N265_CPU_NEON) &&
+           !((n265_asm_off_ | n265_asm_refuse_) & cls);
+}
+
+/* ---- the x86-64 AVX2 tier --------------------------------------------
+ *
+ * The same shape as the NEON half above: meson defines one
+ * N265_AVX2_<FAMILY> per family it compiles into THIS library (8-bit
+ * only for now; the Main10 library is C on x86), the kernels live in
+ * src/encoder/x86/<family>_avx2.c, and a dispatch site reads
+ *
+ *     #if N265_AVX2_SATD
+ *         if (n265_avx2_on(N265_ASM_SATD))
+ *             return n265_foo_avx2(...);
+ *     #endif
+ *
+ * beside its NEON twin. The two never coexist in one build. */
+#ifndef N265_X86
+#define N265_X86 0
+#endif
+#ifndef N265_AVX2_TRANSFORM
+#define N265_AVX2_TRANSFORM 0
+#endif
+#ifndef N265_AVX2_SATD
+#define N265_AVX2_SATD 0
+#endif
+#ifndef N265_AVX2_MC
+#define N265_AVX2_MC 0
+#endif
+#ifndef N265_AVX2_RDOQ
+#define N265_AVX2_RDOQ 0
+#endif
+#ifndef N265_AVX2_COST
+#define N265_AVX2_COST 0
+#endif
+#ifndef N265_AVX2_INTRA
+#define N265_AVX2_INTRA 0
+#endif
+
+#define N265_ASM_PORTED_AVX2 ( \
+    (N265_AVX2_TRANSFORM ? (N265_ASM_DCT | N265_ASM_QUANT) : 0u) | \
+    (N265_AVX2_SATD      ? (uint32_t)N265_ASM_SATD : 0u) | \
+    (N265_AVX2_MC        ? (uint32_t)N265_ASM_MC : 0u) | \
+    (N265_AVX2_RDOQ      ? (uint32_t)N265_ASM_QUANT : 0u) | \
+    (N265_AVX2_COST      ? (uint32_t)N265_ASM_QUANT : 0u) | \
+    (N265_AVX2_INTRA     ? (uint32_t)N265_ASM_INTRA : 0u))
+
+static inline int n265_avx2_on(uint32_t cls)
+{
+    if (!(cls & N265_ASM_PORTED_AVX2))
+        return 0;
+    return (n265_cpu_flags() & N265_CPU_AVX2) &&
            !((n265_asm_off_ | n265_asm_refuse_) & cls);
 }
 

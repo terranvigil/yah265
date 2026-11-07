@@ -28,7 +28,6 @@
 
 #include "encoder/residual.h"
 #include "encoder/tables.h"
-#include "encoder/arm/neon.h"   /* self-guarded; the family kernels land here */
 
 /* ---- the spec table, proved against the literal clause -------------- */
 
@@ -214,17 +213,17 @@ static void sbh_ref_call(void *p)
     n265_sbh_adjust_ref(c->level, c->log2n, c->scan_idx);
 }
 
-#if N265_NEON_COST
+#if CA_SIMD_COST
 static void csbf_neon_call(void *p)
 {
     struct cctx *c = p;
-    n265_csbf_map_neon(c->level, c->log2n, c->map);
+    CA_SIMD(n265_csbf_map)(c->level, c->log2n, c->map);
 }
 
 static void group_neon_call(void *p)
 {
     struct cctx *c = p;
-    c->sig = n265_coeff_group_neon(c->level, 1 << c->log2n, c->scan_idx,
+    c->sig = CA_SIMD(n265_coeff_group)(c->level, 1 << c->log2n, c->scan_idx,
                                    c->abs, &c->neg);
 }
 
@@ -232,7 +231,7 @@ static void sbh_neon_call(void *p)
 {
     struct cctx *c = p;
     memcpy(c->level, c->seed, sizeof(c->level));
-    n265_sbh_adjust_neon(c->level, c->log2n, c->scan_idx);
+    CA_SIMD(n265_sbh_adjust)(c->level, c->log2n, c->scan_idx);
 }
 #define CSBF_NEON csbf_neon_call
 #define GROUP_NEON group_neon_call
@@ -243,7 +242,7 @@ static void sbh_neon_call(void *p)
 #define SBH_NEON NULL
 #endif
 
-#if N265_NEON_COST
+#if CA_SIMD_COST
 
 /* The TB shapes residual_coding actually sees. From the same 2026-09-10
  * survey: 4x4 through 32x32 luma, 4x4/8x8/16x16 chroma, and the two
@@ -273,7 +272,7 @@ static void check_csbf_window(int log2n, int kind)
         snprintf(what, sizeof(what), "csbf_map %dx%d / %s, %s edge", n, n,
                  lkind_name[kind], tail ? "far" : "near");
         ca_pg_arm(what);
-        n265_csbf_map_neon(level, log2n, map);
+        CA_SIMD(n265_csbf_map)(level, log2n, map);
         ca_pg_disarm();
         ca_pg_free(&gl);
         ca_pg_free(&gm);
@@ -304,7 +303,7 @@ static void check_group_window(int log2n, int scan_idx, int kind)
                  "%s edge", n, scan_idx, lkind_name[kind],
                  tail ? "far" : "near");
         ca_pg_arm(what);
-        n265_coeff_group_neon(grp, n, scan_idx, abs_out, &neg);
+        CA_SIMD(n265_coeff_group)(grp, n, scan_idx, abs_out, &neg);
         ca_pg_disarm();
         ca_pg_free(&gl);
         ca_pg_free(&ga);
@@ -336,12 +335,12 @@ static int check_csbf_neon(void)
 
                 ca_guard_poison(map, mb);
                 ca_guard_scramble(level, lb);
-                n265_csbf_map_neon(level, log2n, map);
+                CA_SIMD(n265_csbf_map)(level, log2n, map);
                 bad += ca_guard_check(map, mb, "csbf_map_neon map");
                 for (size_t i = 0; i < mb; i++)
                     if (ref[i] != map[i]) {
                         printf("    csbf_map MISMATCH %dx%d / %s: [%zu] "
-                               "ref %d neon %d\n", n, n, lkind_name[kind], i,
+                               "ref %d simd %d\n", n, n, lkind_name[kind], i,
                                ref[i], map[i]);
                         bad++;
                         break;
@@ -352,7 +351,7 @@ static int check_csbf_neon(void)
                  * must give the same map, or the kernel loaded outside it */
                 ca_guard_scramble(level, lb);
                 memset(map, 0, mb);
-                n265_csbf_map_neon(level, log2n, map);
+                CA_SIMD(n265_csbf_map)(level, log2n, map);
                 if (memcmp(first, map, mb)) {
                     printf("    csbf_map_neon %dx%d / %s: READ past the "
                            "block (border changed the result)\n", n, n,
@@ -404,14 +403,14 @@ static int check_group_neon(void)
                             ref_sig = n265_coeff_group_ref(grp, n, scan_idx,
                                                            ref_abs, &ref_neg);
                             ca_guard_poison(abs_out, ab);
-                            sig = n265_coeff_group_neon(grp, n, scan_idx,
+                            sig = CA_SIMD(n265_coeff_group)(grp, n, scan_idx,
                                                         abs_out, &neg);
                             bad += ca_guard_check(abs_out, ab,
                                                   "coeff_group_neon abs");
                             if (sig != ref_sig || neg != ref_neg) {
                                 printf("    coeff_group MASK MISMATCH %dx%d "
                                        "scan %d / %s sb (%d,%d): sig ref "
-                                       "%04x neon %04x, neg ref %04x neon "
+                                       "%04x simd %04x, neg ref %04x simd "
                                        "%04x\n", n, n, scan_idx,
                                        lkind_name[kind], sbx, sby, ref_sig,
                                        sig, ref_neg, neg);
@@ -422,7 +421,7 @@ static int check_group_neon(void)
                                 if (ref_abs[i] != abs_out[i]) {
                                     printf("    coeff_group ABS MISMATCH "
                                            "%dx%d scan %d / %s sb (%d,%d): "
-                                           "[%d] ref %u neon %u\n", n, n,
+                                           "[%d] ref %u simd %u\n", n, n,
                                            scan_idx, lkind_name[kind], sbx,
                                            sby, i, ref_abs[i], abs_out[i]);
                                     bad++;
@@ -448,7 +447,7 @@ static int check_group_neon(void)
                                 }
                             ca_guard_scramble(level, lb);
                             memset(abs_out, 0, ab);
-                            sig = n265_coeff_group_neon(grp, n, scan_idx,
+                            sig = CA_SIMD(n265_coeff_group)(grp, n, scan_idx,
                                                         abs_out, &neg);
                             if (memcmp(first, abs_out, ab) ||
                                 sig != first_sig || neg != first_neg) {
@@ -466,9 +465,9 @@ static int check_group_neon(void)
     }
     return bad;
 }
-#endif /* N265_NEON_COST */
+#endif /* CA_SIMD_COST */
 
-#if N265_NEON_COST
+#if CA_SIMD_COST
 
 /* sbh_adjust's window is the whole block and nothing else - it reads four
  * rows of four per group at the block stride and writes at most one
@@ -489,7 +488,7 @@ static void check_sbh_window(int log2n, int scan_idx, int kind)
         snprintf(what, sizeof(what), "sbh_adjust %dx%d scan %d / %s, %s edge",
                  n, n, scan_idx, lkind_name[kind], tail ? "far" : "near");
         ca_pg_arm(what);
-        n265_sbh_adjust_neon(level, log2n, scan_idx);
+        CA_SIMD(n265_sbh_adjust)(level, log2n, scan_idx);
         ca_pg_disarm();
         ca_pg_free(&gl);
     }
@@ -564,7 +563,7 @@ static int check_sbh_neon(void)
 
                     memcpy(level, seed, lb);
                     ca_guard_poison(level, lb);
-                    n265_sbh_adjust_neon(level, log2n, k);
+                    CA_SIMD(n265_sbh_adjust)(level, log2n, k);
                     bad += ca_guard_check(level, lb, "sbh_adjust_neon level");
                     if (memcmp(ref, level, lb)) {
                         int at = -1;
@@ -572,7 +571,7 @@ static int check_sbh_neon(void)
                         for (int i = 0; i < nn; i++)
                             if (ref[i] != level[i]) { at = i; break; }
                         printf("    sbh_adjust MISMATCH %dx%d scan %d case "
-                               "%d rep %d: (%d,%d) ref %d neon %d\n", n, n, k,
+                               "%d rep %d: (%d,%d) ref %d simd %d\n", n, n, k,
                                ci, rep, at % n, at / n, ref[at], level[at]);
                         bad++;
                     }
@@ -584,7 +583,7 @@ static int check_sbh_neon(void)
     return bad;
 }
 
-#endif /* N265_NEON_COST */
+#endif /* CA_SIMD_COST */
 
 int check_cost(void)
 {
@@ -593,7 +592,7 @@ int check_cost(void)
 
     n265_residual_tables_init();
     bad += check_sig_pat();
-#if N265_NEON_COST
+#if CA_SIMD_COST
     bad += check_csbf_neon();
     bad += check_group_neon();
     bad += check_sbh_neon();

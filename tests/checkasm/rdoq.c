@@ -19,7 +19,6 @@
 #include "checkasm.h"
 
 #include "encoder/rdoq.h"
-#include "encoder/arm/neon.h"   /* self-guarded; the family kernels land here */
 
 /* rdoq.c's own derivation of the quantiser parameters, which is what the
  * kernel's range proof is stated against. Kept here rather than exported
@@ -91,7 +90,7 @@ static void fill_level(int16_t *lv, int nn, int kind)
     fill_coef(lv, nn, kind);
 }
 
-#if N265_NEON_RDOQ
+#if CA_SIMD_RDOQ
 
 /* ---- correctness ---------------------------------------------------- */
 
@@ -101,7 +100,7 @@ static int cmp_rtn(const int16_t *ref, const int16_t *got, int nn,
     for (int i = 0; i < nn; i++)
         if (ref[i] != got[i]) {
             printf("    rdoq_rtn MISMATCH %s / %s qp %d intra %d at %d: "
-                   "ref %d neon %d\n", shape, kind, qp, intra, i,
+                   "ref %d simd %d\n", shape, kind, qp, intra, i,
                    ref[i], got[i]);
             return 1;
         }
@@ -133,14 +132,14 @@ static void check_rtn_window(int log2n, int kind, int qp)
                      "rdoq_rtn %dx%d / %s qp %d intra %d, %s edge", n, n,
                      ckind_name[kind], qp, intra, tail ? "far" : "near");
             ca_pg_arm(what);
-            n265_rdoq_rtn_neon(rtn, &az, &m, coef, log2n, p.q, p.add,
+            CA_SIMD(n265_rdoq_rtn)(rtn, &az, &m, coef, log2n, p.q, p.add,
                                p.qbits, p.czero);
             ca_pg_disarm();
 
             snprintf(what, sizeof(what), "rdoq_sb_nz %dx%d / %s, %s edge",
                      n, n, ckind_name[kind], tail ? "far" : "near");
             ca_pg_arm(what);
-            (void)n265_rdoq_sb_nz_neon(rtn, log2n);
+            (void)CA_SIMD(n265_rdoq_sb_nz)(rtn, log2n);
             ca_pg_disarm();
             ca_pg_free(&gc);
             ca_pg_free(&gr);
@@ -181,7 +180,7 @@ static int check_rdoq_neon(void)
                                              p.q, p.add, p.qbits, p.czero);
                     ca_guard_poison(rtn, bytes);
                     ca_guard_scramble(coef, bytes);
-                    gany = n265_rdoq_rtn_neon(rtn, &gaz, &gm, coef, log2n,
+                    gany = CA_SIMD(n265_rdoq_rtn)(rtn, &gaz, &gm, coef, log2n,
                                               p.q, p.add, p.qbits,
                                               p.czero);
                     bad += ca_guard_check(rtn, bytes, "rdoq_rtn_neon rtn");
@@ -189,13 +188,13 @@ static int check_rdoq_neon(void)
                                    qp, intra);
                     if (memcmp(&raz, &gaz, sizeof(raz))) {
                         printf("    rdoq_rtn ENERGY %s / %s qp %d intra "
-                               "%d: ref %.17g neon %.17g\n", shape,
+                               "%d: ref %.17g simd %.17g\n", shape,
                                ckind_name[kind], qp, intra, raz, gaz);
                         bad++;
                     }
                     if (rm != gm || rany != gany) {
                         printf("    rdoq_rtn SBNZ %s / %s qp %d intra %d: "
-                               "ref %llx/%d neon %llx/%d\n", shape,
+                               "ref %llx/%d simd %llx/%d\n", shape,
                                ckind_name[kind], qp, intra,
                                (unsigned long long)rm, rany,
                                (unsigned long long)gm, gany);
@@ -211,10 +210,10 @@ static int check_rdoq_neon(void)
                 fill_level(coef, nn, kind);
                 rm = n265_rdoq_sb_nz_ref(coef, log2n);
                 ca_guard_scramble(coef, bytes);
-                gm = n265_rdoq_sb_nz_neon(coef, log2n);
+                gm = CA_SIMD(n265_rdoq_sb_nz)(coef, log2n);
                 if (rm != gm) {
                     printf("    rdoq_sb_nz MISMATCH %s / %s: ref %llx "
-                           "neon %llx\n", shape, ckind_name[kind],
+                           "simd %llx\n", shape, ckind_name[kind],
                            (unsigned long long)rm,
                            (unsigned long long)gm);
                     bad++;
@@ -226,7 +225,7 @@ static int check_rdoq_neon(void)
     }
     return bad;
 }
-#endif /* N265_NEON_RDOQ */
+#endif /* CA_SIMD_RDOQ */
 
 /* ---- bench ---------------------------------------------------------- */
 
@@ -251,18 +250,18 @@ static void sbnz_c_call(void *v)
     c->m = n265_rdoq_sb_nz_ref(c->coef, c->log2n);
 }
 
-#if N265_NEON_RDOQ
+#if CA_SIMD_RDOQ
 static void rtn_neon_call(void *v)
 {
     struct rctx *c = v;
-    n265_rdoq_rtn_neon(c->rtn, &c->az, &c->m, c->coef, c->log2n, c->p.q,
+    CA_SIMD(n265_rdoq_rtn)(c->rtn, &c->az, &c->m, c->coef, c->log2n, c->p.q,
                        c->p.add, c->p.qbits, c->p.czero);
 }
 
 static void sbnz_neon_call(void *v)
 {
     struct rctx *c = v;
-    c->m = n265_rdoq_sb_nz_neon(c->coef, c->log2n);
+    c->m = CA_SIMD(n265_rdoq_sb_nz)(c->coef, c->log2n);
 }
 #define RTN_NEON  rtn_neon_call
 #define SBNZ_NEON sbnz_neon_call
@@ -303,7 +302,7 @@ int check_rdoq(void)
             }
         }
     }
-#if N265_NEON_RDOQ
+#if CA_SIMD_RDOQ
     bad += check_rdoq_neon();
 #endif
     if (bad)

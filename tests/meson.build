@@ -143,7 +143,9 @@ checkasm = executable('checkasm', checkasm_sources,
   dependencies : yah265_dep)
 # no --bench: the meson test is the correctness leg and stays fast.
 # `make checkasm-bench` is where the tables come from.
-test('checkasm', checkasm)
+# Rosetta 2 runs AVX2 but reports it only under this variable, which no
+# real CPU's run reads (docs/x86-plan.md).
+test('checkasm', checkasm, env : ['ROSETTA_ADVERTISE_AVX=1'])
 
 # the BD integrator the board and the band both read through: a saturating
 # point set must give a finite number, a well-conditioned one must give the

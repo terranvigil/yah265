@@ -56,6 +56,43 @@ static uint32_t detect_arm(void)
 #endif
 #endif /* aarch64 */
 
+#if defined(__x86_64__) || defined(_M_X64)
+#include <cpuid.h>
+
+/* From yah264's detection, cut to the tiers this encoder builds. Rosetta 2
+ * executes AVX2 but reports it only to a process started with
+ * ROSETTA_ADVERTISE_AVX=1, so without that variable an emulated run takes
+ * the C path, which is safe and only slow. */
+static uint32_t detect_x86(void)
+{
+    uint32_t flags = 0;
+    unsigned a, b, c, d;
+
+    if (!__get_cpuid(1, &a, &b, &c, &d))
+        return 0;
+    if ((c & (1u << 19)) && (c & (1u << 20)))
+        flags |= N265_CPU_SSE42;
+    int fma = (c & (1u << 12)) != 0;
+    int avx = (c & (1u << 28)) != 0;
+    int ymm_ok = 0, zmm_ok = 0;
+    if (c & (1u << 27)) {   /* OSXSAVE */
+        uint32_t lo, hi;
+        __asm__ volatile("xgetbv" : "=a"(lo), "=d"(hi) : "c"(0));
+        ymm_ok = (lo & 0x6) == 0x6;
+        zmm_ok = (lo & 0xe6) == 0xe6;
+    }
+    if (__get_cpuid_count(7, 0, &a, &b, &c, &d)) {
+        int avx2 = (b & (1u << 5)) != 0, bmi2 = (b & (1u << 8)) != 0;
+        if (avx && ymm_ok && fma && avx2 && bmi2)
+            flags |= N265_CPU_AVX2;
+        if ((flags & N265_CPU_AVX2) && zmm_ok && (b & (1u << 16)) &&
+            (b & (1u << 30)) && (b & (1u << 31)))
+            flags |= N265_CPU_AVX512;
+    }
+    return flags;
+}
+#endif /* x86 */
+
 uint32_t n265_cpu_cached_;
 uint32_t n265_asm_off_;
 uint32_t n265_asm_refuse_;
@@ -104,6 +141,8 @@ static void cpu_detect_once(void)
 {
 #if defined(__aarch64__) || defined(_M_ARM64)
     n265_cpu_cached_ = detect_arm();
+#elif defined(__x86_64__) || defined(_M_X64)
+    n265_cpu_cached_ = detect_x86();
 #else
     n265_cpu_cached_ = 0;
 #endif
@@ -122,7 +161,8 @@ void n265_cpu_name(uint32_t flags, char *buf, int size)
 {
     static const struct { uint32_t bit; const char *name; } tbl[] = {
         { N265_CPU_NEON, "neon" }, { N265_CPU_DOTPROD, "dotprod" },
-        { N265_CPU_I8MM, "i8mm" },
+        { N265_CPU_I8MM, "i8mm" }, { N265_CPU_SSE42, "sse4.2" },
+        { N265_CPU_AVX2, "avx2" }, { N265_CPU_AVX512, "avx512" },
     };
     int off = 0;
     buf[0] = '\0';

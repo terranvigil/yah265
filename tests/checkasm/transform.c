@@ -8,7 +8,6 @@
 #include "checkasm.h"
 
 #include "encoder/transform.h"
-#include "encoder/arm/neon.h"   /* self-guarded; the family kernels land here */
 
 /* ---- transforms ---------------------------------------------------- */
 
@@ -61,17 +60,17 @@ static void quant_c_call(void *p)
     c->nz = n265_quant_ref(c->level, c->coef, c->log2n, c->qp, c->intra);
 }
 
-#if N265_NEON_TRANSFORM
+#if CA_SIMD_TRANSFORM
 static void dequant_neon_call(void *p)
 {
     struct qctx *c = p;
-    n265_dequant_neon(c->dq, c->level, c->log2n, c->qp, &c->nzw, &c->nzh);
+    CA_SIMD(n265_dequant)(c->dq, c->level, c->log2n, c->qp, &c->nzw, &c->nzh);
 }
 
 static void quant_neon_call(void *p)
 {
     struct qctx *c = p;
-    c->nz = n265_quant_neon(c->level, c->coef, c->log2n, c->qp, c->intra);
+    c->nz = CA_SIMD(n265_quant)(c->level, c->coef, c->log2n, c->qp, c->intra);
 }
 #define DEQ_NEON dequant_neon_call
 #define QNT_NEON quant_neon_call
@@ -80,18 +79,18 @@ static void quant_neon_call(void *p)
 #define QNT_NEON NULL
 #endif
 
-#if N265_NEON_TRANSFORM
+#if CA_SIMD_TRANSFORM
 static void fdct_neon_call(void *p)
 {
     struct tctx *c = p;
-    n265_fdct_neon(c->coef, c->resid, c->log2n, c->use_dst);
+    CA_SIMD(n265_fdct)(c->coef, c->resid, c->log2n, c->use_dst);
 }
 
 static void idct_neon_call(void *p)
 {
     struct tctx *c = p;
-    n265_idct_add_neon(c->dst, 32, c->dq, c->log2n, c->pred, 32, c->use_dst,
-                       c->nzw, c->nzh);
+    CA_SIMD(n265_idct_add)(c->dst, 32, c->dq, c->log2n, c->pred, 32,
+                           c->use_dst, c->nzw, c->nzh);
 }
 #define FDCT_NEON fdct_neon_call
 #define IDCT_NEON idct_neon_call
@@ -159,7 +158,7 @@ static void fill_dq(int16_t *d, int nn, int kind)
     }
 }
 
-#if N265_NEON_TRANSFORM
+#if CA_SIMD_TRANSFORM
 
 /* ---- the NEON leg ---------------------------------------------------
  *
@@ -255,7 +254,7 @@ static int cmp16(const int16_t *ref, const int16_t *got, int nn,
 {
     for (int i = 0; i < nn; i++)
         if (ref[i] != got[i]) {
-            printf("    %s MISMATCH %s / %s: [%d] ref %d neon %d\n",
+            printf("    %s MISMATCH %s / %s: [%d] ref %d simd %d\n",
                    what, shape, kind, i, ref[i], got[i]);
             return 1;
         }
@@ -270,7 +269,7 @@ static int cmp_pix(const pixel *ref, const pixel *got, int stride, int n,
         for (int x = 0; x < n; x++)
             if (ref[y * stride + x] != got[y * stride + x]) {
                 printf("    %s MISMATCH %s / %s (nzw %d nzh %d): (%d,%d) "
-                       "ref %d neon %d\n", what, shape, kind, nzw, nzh, x, y,
+                       "ref %d simd %d\n", what, shape, kind, nzw, nzh, x, y,
                        ref[y * stride + x], got[y * stride + x]);
                 return 1;
             }
@@ -298,7 +297,7 @@ static void check_fdct_window(int log2n, int use_dst, int kind)
                  use_dst ? "-dst" : "", rkind_name[kind],
                  tail ? "far" : "near");
         ca_pg_arm(what);
-        n265_fdct_neon(coef, resid, log2n, use_dst);
+        CA_SIMD(n265_fdct)(coef, resid, log2n, use_dst);
         ca_pg_disarm();
         ca_pg_free(&gr);
         ca_pg_free(&gc);
@@ -330,7 +329,7 @@ static int check_fdct_neon(void)
 
                 ca_guard_poison(coef, rb);
                 ca_guard_scramble(resid, rb);
-                n265_fdct_neon(coef, resid, log2n, use_dst);
+                CA_SIMD(n265_fdct)(coef, resid, log2n, use_dst);
                 bad += ca_guard_check(coef, rb, "fdct_neon coef");
                 bad += cmp16(ref, coef, nn, "fdct", tshapes[s].name,
                              rkind_name[kind]);
@@ -340,7 +339,7 @@ static int check_fdct_neon(void)
                  * give the same answer, or the kernel loaded outside it */
                 ca_guard_scramble(resid, rb);
                 memset(coef, 0, rb);
-                n265_fdct_neon(coef, resid, log2n, use_dst);
+                CA_SIMD(n265_fdct)(coef, resid, log2n, use_dst);
                 if (memcmp(first, coef, rb)) {
                     printf("    fdct_neon %s / %s: READ past the block "
                            "(border changed the result)\n", tshapes[s].name,
@@ -437,15 +436,15 @@ static void check_quant_window(int log2n, int kind, int qp)
         snprintf(what, sizeof(what), "dequant %dx%d / %s qp %d, %s edge",
                  n, n, lkind_name[kind], qp, tail ? "far" : "near");
         ca_pg_arm(what);
-        n265_dequant_neon(dq, level, log2n, qp, &nzw, &nzh);
-        n265_dequant_neon(dq, level, log2n, qp, NULL, NULL);
+        CA_SIMD(n265_dequant)(dq, level, log2n, qp, &nzw, &nzh);
+        CA_SIMD(n265_dequant)(dq, level, log2n, qp, NULL, NULL);
         ca_pg_disarm();
 
         snprintf(what, sizeof(what), "quant %dx%d / %s qp %d, %s edge",
                  n, n, lkind_name[kind], qp, tail ? "far" : "near");
         ca_pg_arm(what);
         for (int intra = 0; intra < 3; intra++)   /* 2: N265_CDZ=2 */
-            n265_quant_neon(level, coef, log2n, qp, intra);
+            CA_SIMD(n265_quant)(level, coef, log2n, qp, intra);
         ca_pg_disarm();
         ca_pg_free(&gl);
         ca_pg_free(&gd);
@@ -488,18 +487,18 @@ static int check_quant_neon(void)
                 n265_dequant_ref(ref, level, log2n, qp, &rw, &rh);
                 ca_guard_poison(dq, bytes);
                 ca_guard_scramble(level, bytes);
-                n265_dequant_neon(dq, level, log2n, qp, &gw, &gh);
+                CA_SIMD(n265_dequant)(dq, level, log2n, qp, &gw, &gh);
                 bad += ca_guard_check(dq, bytes, "dequant_neon dq");
                 bad += cmp16(ref, dq, nn, "dequant", shape,
                              lkind_name[kind]);
                 if (rw != gw || rh != gh) {
                     printf("    dequant BOX %s / %s qp %d: ref %dx%d "
-                           "neon %dx%d\n", shape, lkind_name[kind], qp,
+                           "simd %dx%d\n", shape, lkind_name[kind], qp,
                            rw, rh, gw, gh);
                     bad++;
                 }
                 /* the NULL-pointer arm the header allows */
-                n265_dequant_neon(dq, level, log2n, qp, NULL, NULL);
+                CA_SIMD(n265_dequant)(dq, level, log2n, qp, NULL, NULL);
 
                 /* ---- quant ---- */
                 for (int i = 0; i < nn; i++)
@@ -508,14 +507,14 @@ static int check_quant_neon(void)
                     rn = n265_quant_ref(ref, coef, log2n, qp, intra);
                     ca_guard_poison(level, bytes);
                     ca_guard_scramble(coef, bytes);
-                    gn = n265_quant_neon(level, coef, log2n, qp, intra);
+                    gn = CA_SIMD(n265_quant)(level, coef, log2n, qp, intra);
                     bad += ca_guard_check(level, bytes,
                                           "quant_neon level");
                     bad += cmp16(ref, level, nn, "quant", shape,
                                  lkind_name[kind]);
                     if (rn != gn) {
                         printf("    quant NZ %s / %s qp %d intra %d: "
-                               "ref %d neon %d\n", shape, lkind_name[kind],
+                               "ref %d simd %d\n", shape, lkind_name[kind],
                                qp, intra, rn, gn);
                         bad++;
                     }
@@ -568,7 +567,7 @@ static void check_idct_window(int log2n, int use_dst, int kind, int pad)
                      use_dst ? "-dst" : "", ckind_name[kind], nzw, nzh, pad,
                      tail ? "far" : "near");
             ca_pg_arm(what);
-            n265_idct_add_neon(dst, ds, dq, log2n, pred, ps, use_dst,
+            CA_SIMD(n265_idct_add)(dst, ds, dq, log2n, pred, ps, use_dst,
                                nzw, nzh);
             ca_pg_disarm();
         }
@@ -629,7 +628,7 @@ static int check_idct_neon(void)
                         memset(dst, CA_POISON, dbytes);
                         ca_guard_poison(dst, dbytes);
                         ca_guard_scramble(pred, pbytes);
-                        n265_idct_add_neon(dst, ds, dq, log2n, pred, ps,
+                        CA_SIMD(n265_idct_add)(dst, ds, dq, log2n, pred, ps,
                                            use_dst, nzw, nzh);
                         bad += ca_guard_check(dst, dbytes, "idct_neon dst");
                         bad += ca_check_pad_pix(dst, ds, n, n,
@@ -643,7 +642,7 @@ static int check_idct_neon(void)
                         memcpy(first, dst, dbytes);
                         ca_guard_scramble(pred, pbytes);
                         memset(dst, 0, dbytes);
-                        n265_idct_add_neon(dst, ds, dq, log2n, pred, ps,
+                        CA_SIMD(n265_idct_add)(dst, ds, dq, log2n, pred, ps,
                                            use_dst, nzw, nzh);
                         for (int y = 0; y < n; y++)
                             if (memcmp(first + y * ds, dst + y * ds,
@@ -668,7 +667,7 @@ static int check_idct_neon(void)
     }
     return bad;
 }
-#endif /* N265_NEON_TRANSFORM */
+#endif /* CA_SIMD_TRANSFORM */
 
 int check_transform(void)
 {
@@ -724,7 +723,7 @@ int check_transform(void)
             }
         }
     }
-#if N265_NEON_TRANSFORM
+#if CA_SIMD_TRANSFORM
     bad += check_fdct_neon();
     bad += check_idct_neon();
     bad += check_quant_neon();
@@ -771,6 +770,7 @@ int check_transform(void)
      * that matters (checkasm.h). Two level populations, because the C
      * dequant's early-out makes a sparse block a different kernel from a
      * dense one. */
+#if CA_SIMD_TRANSFORM
     {
         static struct qctx q;
         char name[40];
@@ -791,5 +791,6 @@ int check_transform(void)
             bench(name, dequant_c_call, dequant_c_call, DEQ_NEON, &q, 20000);
         }
     }
+#endif
     return 0;
 }

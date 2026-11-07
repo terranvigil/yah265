@@ -19,7 +19,6 @@
 #include "common/cpu.h"
 #include "encoder/psy.h"
 #include "encoder/satd.h"
-#include "encoder/arm/neon.h"   /* self-guarded; the family kernels land here */
 
 /* ---- input generators ---------------------------------------------
  *
@@ -146,8 +145,8 @@ static uint32_t satd_ref_wh(const pixel *a, int as, const pixel *b,
 static uint32_t satd_opt_wh(const pixel *a, int as, const pixel *b,
                             int bs, int w, int h)
 {
-#if N265_NEON_SATD
-    return n265_satd_wh_neon(a, as, b, bs, w, h);
+#if CA_SIMD_SATD
+    return CA_SIMD(n265_satd_wh)(a, as, b, bs, w, h);
 #else
     return n265_satd_wh(a, as, b, bs, w, h);
 #endif
@@ -253,7 +252,7 @@ static int check_satd_wh(void)
 static int check_satd_tiles(void)
 {
     int bad = 0;
-#if N265_NEON_SATD
+#if CA_SIMD_SATD
     for (int t = 0; t < 2 && !bad; t++) {
         int n = t ? 8 : 4;
         for (int is = 0; is < 2 && !bad; is++) {
@@ -276,10 +275,10 @@ static int check_satd_tiles(void)
                     ca_guard_poison(b, bbytes);
                     r = n == 8 ? n265_satd8_ref(a, as, b, bs)
                                : n265_satd4_ref(a, as, b, bs);
-                    o = n == 8 ? n265_satd8_neon(a, as, b, bs)
-                               : n265_satd4_neon(a, as, b, bs);
+                    o = n == 8 ? CA_SIMD(n265_satd8)(a, as, b, bs)
+                               : CA_SIMD(n265_satd4)(a, as, b, bs);
                     if (r != o) {
-                        printf("    %s MISMATCH kind %d: ref %u neon %u\n",
+                        printf("    %s MISMATCH kind %d: ref %u simd %u\n",
                                what, kind, r, o);
                         bad++;
                         break;
@@ -292,8 +291,8 @@ static int check_satd_tiles(void)
                     ca_guard_scramble(b, bbytes);
                     scramble_pad(a, as, n, n);
                     scramble_pad(b, bs, n, n);
-                    o2 = n == 8 ? n265_satd8_neon(a, as, b, bs)
-                                : n265_satd4_neon(a, as, b, bs);
+                    o2 = n == 8 ? CA_SIMD(n265_satd8)(a, as, b, bs)
+                                : CA_SIMD(n265_satd4)(a, as, b, bs);
                     if (o2 != o) {
                         printf("    %s: result depends on bytes OUTSIDE "
                                "the tile (kind %d)\n", what, kind);
@@ -329,11 +328,11 @@ static void satd_c_call(void *p)
     c->sink += n265_satd_wh_c(c->a, c->as, c->b, c->bs, c->w, c->h);
 }
 
-#if N265_NEON_SATD
+#if CA_SIMD_SATD
 static void satd_neon_call(void *p)
 {
     struct sctx *c = p;
-    c->sink += n265_satd_wh_neon(c->a, c->as, c->b, c->bs, c->w, c->h);
+    c->sink += CA_SIMD(n265_satd_wh)(c->a, c->as, c->b, c->bs, c->w, c->h);
 }
 #endif
 
@@ -361,7 +360,7 @@ static void bench_satd(void)
         c.w = satd_bench_shapes[i][0];
         c.h = satd_bench_shapes[i][1];
         snprintf(name, sizeof(name), "satd %dx%d", c.w, c.h);
-#if N265_NEON_SATD
+#if CA_SIMD_SATD
         bench(name, satd_ref_call, satd_c_call, satd_neon_call, &c, 40000);
 #else
         bench(name, satd_ref_call, satd_c_call, NULL, &c, 40000);
@@ -426,14 +425,14 @@ static uint64_t red_ref(int which, const pixel *a, int as, const pixel *b,
 static uint64_t red_opt(int which, const pixel *a, int as, const pixel *b,
                         int bs, int w, int h)
 {
-#if N265_NEON_SATD
+#if CA_SIMD_SATD
 #if BIT_DEPTH == 8 && defined(__ARM_FEATURE_DOTPROD)
     if (which == RED_SSD_DOT)
         return n265_ssd_wh_dot_neon(a, as, b, bs, w, h);
 #endif
     if (which == RED_SSD)
-        return n265_ssd_wh_neon(a, as, b, bs, w, h);
-    return n265_sad_wh_neon(a, as, b, bs, w, h);
+        return CA_SIMD(n265_ssd_wh)(a, as, b, bs, w, h);
+    return CA_SIMD(n265_sad_wh)(a, as, b, bs, w, h);
 #else
     if (which == RED_SAD)
         return n265_sad_wh(a, as, b, bs, w, h);
@@ -531,8 +530,8 @@ static void rowcol_ref(const pixel *a, int as, const pixel *b, int bs,
 static void rowcol_opt(const pixel *a, int as, const pixel *b, int bs,
                        int n, uint32_t *row, uint32_t *col)
 {
-#if N265_NEON_SATD
-    n265_sad_rowcol_neon(a, as, b, bs, n, row, col);
+#if CA_SIMD_SATD
+    CA_SIMD(n265_sad_rowcol)(a, as, b, bs, n, row, col);
 #else
     n265_sad_rowcol(a, as, b, bs, n, row, col);
 #endif
@@ -652,9 +651,9 @@ static void pg_call(int which, const pixel *a, int as, const pixel *b,
     volatile uint64_t sink = 0;
 
     switch (which) {
-#if N265_NEON_SATD
-    case PG_SATD4: sink = n265_satd4_neon(a, as, b, bs); break;
-    case PG_SATD8: sink = n265_satd8_neon(a, as, b, bs); break;
+#if CA_SIMD_SATD
+    case PG_SATD4: sink = CA_SIMD(n265_satd4)(a, as, b, bs); break;
+    case PG_SATD8: sink = CA_SIMD(n265_satd8)(a, as, b, bs); break;
 #endif
     case PG_SATD_WH: sink = satd_opt_wh(a, as, b, bs, w, h); break;
     case PG_ROWCOL:
@@ -694,7 +693,7 @@ static void check_window(const char *tag, int which, int w, int h)
 
 static void check_windows(void)
 {
-#if N265_NEON_SATD
+#if CA_SIMD_SATD
     check_window("satd4 tile", PG_SATD4, 4, 4);
     check_window("satd8 tile", PG_SATD8, 8, 8);
 #endif
@@ -710,7 +709,7 @@ static void check_windows(void)
     for (int s = 0; s < NROWCOL_SH; s++)
         check_window("sad rowcol", PG_ROWCOL, rowcol_shapes[s],
                      rowcol_shapes[s]);
-#if N265_NEON_SATD && BIT_DEPTH == 8 && defined(__ARM_FEATURE_DOTPROD)
+#if CA_SIMD_SATD && BIT_DEPTH == 8 && defined(__ARM_FEATURE_DOTPROD)
     if (n265_cpu_flags() & N265_CPU_DOTPROD)
         for (int s = 0; s < NSSD_SH; s++)
             check_window("ssd/dot", PG_RED + RED_SSD_DOT, ssd_shapes[s][0],
@@ -741,7 +740,7 @@ static int check_ssd_extreme(void)
                (unsigned long long)want, (unsigned long long)got);
         return 1;
     }
-#if N265_NEON_SATD && BIT_DEPTH == 8 && defined(__ARM_FEATURE_DOTPROD)
+#if CA_SIMD_SATD && BIT_DEPTH == 8 && defined(__ARM_FEATURE_DOTPROD)
     if (n265_cpu_flags() & N265_CPU_DOTPROD) {
         got = red_opt(RED_SSD_DOT, a, 64, b, 64, 64, 64);
         if (got != want) {
@@ -805,7 +804,7 @@ static void bench_reduction(const char *tag, int which)
         /* The reference IS the C path for these two - there is no third
          * form - so the middle column is a control on the measurement and
          * should read like the first. */
-#if N265_NEON_SATD
+#if CA_SIMD_SATD
         bench(name, red_ref_call, red_ref_call, red_opt_call, &c, 200000);
 #else
         bench(name, red_ref_call, red_opt_call, NULL, &c, 200000);
@@ -856,7 +855,7 @@ static void bench_rowcol(void)
         snprintf(name, sizeof(name), "sad rowcol %dx%d", c.n, c.n);
         /* the reference IS the C path here too: the middle column is a
          * control on the measurement and should read like the first */
-#if N265_NEON_SATD
+#if CA_SIMD_SATD
         bench(name, rowcol_ref_call, rowcol_ref_call, rowcol_opt_call, &c,
               200000);
 #else
@@ -872,7 +871,7 @@ static void bench_rowcol(void)
 static int check_psy_sums(void)
 {
     int bad = 0;
-#if N265_NEON_SATD
+#if CA_SIMD_SATD
     static const int psy_n[] = { 4, 8, 16, 32, 64 };
 
     for (int i = 0; i < 5 && !bad; i++) {
@@ -891,9 +890,9 @@ static int check_psy_sums(void)
                     fill_pair(a, st, b, st, n, n, kind);
                     ca_guard_poison(a, bytes);
                     uint32_t r = n265_psy_energy_c(a, st, n);
-                    uint32_t o = n265_psy_energy_neon(a, st, n);
+                    uint32_t o = CA_SIMD(n265_psy_energy)(a, st, n);
                     if (r != o) {
-                        printf("    %s MISMATCH kind %d: ref %u neon %u\n",
+                        printf("    %s MISMATCH kind %d: ref %u simd %u\n",
                                what, kind, r, o);
                         bad++;
                         break;
@@ -901,7 +900,7 @@ static int check_psy_sums(void)
                     bad += ca_guard_check(a, bytes, what);
                     ca_guard_scramble(a, bytes);
                     scramble_pad(a, st, n, n);
-                    if (!bad && n265_psy_energy_neon(a, st, n) != o) {
+                    if (!bad && CA_SIMD(n265_psy_energy)(a, st, n) != o) {
                         printf("    %s: result depends on bytes OUTSIDE "
                                "the block (kind %d)\n", what, kind);
                         bad++;
@@ -927,9 +926,9 @@ static int check_psy_sums(void)
                     fill_pair(a, st, b, st, 16, h, kind);
                     ca_guard_poison(a, bytes);
                     uint32_t r = n265_sum_sq_wh_c(a, st, 16, h, &rq);
-                    uint32_t o = n265_sum_sq16_neon(a, st, h, &oq);
+                    uint32_t o = CA_SIMD(n265_sum_sq16)(a, st, h, &oq);
                     if (r != o || rq != oq) {
-                        printf("    %s MISMATCH kind %d: ref %u/%llu neon "
+                        printf("    %s MISMATCH kind %d: ref %u/%llu simd "
                                "%u/%llu\n", what, kind, r,
                                (unsigned long long)rq, o,
                                (unsigned long long)oq);
@@ -939,7 +938,7 @@ static int check_psy_sums(void)
                     bad += ca_guard_check(a, bytes, what);
                     ca_guard_scramble(a, bytes);
                     scramble_pad(a, st, 16, h);
-                    if (!bad && (n265_sum_sq16_neon(a, st, h, &oq2) != o ||
+                    if (!bad && (CA_SIMD(n265_sum_sq16)(a, st, h, &oq2) != o ||
                                  oq2 != oq)) {
                         printf("    %s: result depends on bytes OUTSIDE "
                                "the block (kind %d)\n", what, kind);
@@ -972,7 +971,7 @@ int check_satd(void)
     bad = check_reduction("ssd", RED_SSD, ssd_shapes, NSSD_SH);
     if (bad)
         return bad;
-#if N265_NEON_SATD && BIT_DEPTH == 8 && defined(__ARM_FEATURE_DOTPROD)
+#if CA_SIMD_SATD && BIT_DEPTH == 8 && defined(__ARM_FEATURE_DOTPROD)
     /* the second arm of the SSD, on a host that can run it. Both arms are
      * held to the same C reference; a host without the extension reaches
      * neither this check nor the arm. */
@@ -995,7 +994,7 @@ int check_satd(void)
     bench_reduction("sad", RED_SAD);
     bench_reduction("ssd", RED_SSD);
     bench_rowcol();
-#if N265_NEON_SATD && BIT_DEPTH == 8 && defined(__ARM_FEATURE_DOTPROD)
+#if CA_SIMD_SATD && BIT_DEPTH == 8 && defined(__ARM_FEATURE_DOTPROD)
     if (n265_cpu_flags() & N265_CPU_DOTPROD)
         bench_reduction("ssd/dot", RED_SSD_DOT);
 #endif

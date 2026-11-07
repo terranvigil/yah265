@@ -27,7 +27,6 @@
 
 #include "common/cpu.h"
 #include "encoder/intra.h"
-#include "encoder/arm/neon.h"   /* self-guarded */
 
 /* ---- input generators -----------------------------------------------
  *
@@ -68,8 +67,8 @@ static void fill_refs(pixel *refs, int n, int kind)
 static void pred_opt(pixel *dst, int ds, const pixel *refs, int log2n,
                      int mode, int c_idx)
 {
-#if N265_NEON_INTRA
-    n265_intra_pred_neon(dst, ds, refs, log2n, mode, c_idx);
+#if CA_SIMD_INTRA
+    CA_SIMD(n265_intra_pred)(dst, ds, refs, log2n, mode, c_idx);
 #else
     n265_intra_pred(dst, ds, refs, log2n, mode, c_idx);
 #endif
@@ -163,8 +162,8 @@ static int check_pred(void)
 
 static void filt_opt(pixel *out, const pixel *in, int log2n, int strong)
 {
-#if N265_NEON_INTRA
-    n265_filter_refs_neon(out, in, log2n, strong);
+#if CA_SIMD_INTRA
+    CA_SIMD(n265_filter_refs)(out, in, log2n, strong);
 #else
     n265_filter_refs(out, in, log2n, strong);
 #endif
@@ -479,7 +478,7 @@ static void bench_intra(void)
 
             pc.mode = bench_modes[m];
             snprintf(name, sizeof(name), "%s %d", bench_names[m], n);
-#if N265_NEON_INTRA
+#if CA_SIMD_INTRA
             bench(name, pred_ref_call, pred_ref_call, pred_opt_call, &pc,
                   200000);
 #else
@@ -495,7 +494,7 @@ static void bench_intra(void)
         fc.in = refs;
         fc.log2n = log2n;
         snprintf(name, sizeof(name), "filter_refs %d", 1 << log2n);
-#if N265_NEON_INTRA
+#if CA_SIMD_INTRA
         bench(name, filt_ref_call, filt_ref_call, filt_opt_call, &fc,
               400000);
 #else

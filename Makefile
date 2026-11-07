@@ -15,7 +15,7 @@ BUILD ?= build
 # keeps working.
 BUILD10 ?= build10
 
-.PHONY: build build8 build10 build-rel test smoke10 conformance conformance-fast conformance10 conformance10-fast conformance444 conformance444-fast conformance444-10 conformance444-10-fast conformance422 conformance422-fast conformance422-10 conformance422-10-fast provenance asan asan10 asan444 asan422 determ determ-fast determ10 determ444 determ422 board board-quick goal-legs clean checkasm-bench checkasm-asan checkasm10-bench checkasm10-asan clean-scratch
+.PHONY: build build8 build10 build-rel build-x86 test-x86 checkasm-x86-asan conformance-fast-x86 x86-identity test smoke10 conformance conformance-fast conformance10 conformance10-fast conformance444 conformance444-fast conformance444-10 conformance444-10-fast conformance422 conformance422-fast conformance422-10 conformance422-10-fast provenance asan asan10 asan444 asan422 determ determ-fast determ10 determ444 determ422 board board-quick goal-legs clean checkasm-bench checkasm-asan checkasm10-bench checkasm10-asan clean-scratch
 
 build: build8 build10
 
@@ -88,6 +88,31 @@ checkasm10-asan:
 	    -Db_sanitize=address,undefined -Db_lundef=false
 	ninja -C build10-asan tests/checkasm
 	build10-asan/tests/checkasm
+
+# x86-64 on an Apple Silicon Mac (docs/x86-plan.md): clang -arch x86_64,
+# run by Rosetta 2. ROSETTA_ADVERTISE_AVX=1 is what lets the binary see
+# AVX2; scripts/x86_n265.sh sets it for the encode gates. Untimed only:
+# a wall time under emulation means nothing.
+BUILD_X86 ?= build-x86
+
+build-x86:
+	@[ -d $(BUILD_X86) ] || meson setup $(BUILD_X86) --cross-file scripts/cross/x86_64-darwin.ini
+	nice -n 10 ninja -C $(BUILD_X86) -j 4
+
+test-x86: build-x86
+	ROSETTA_ADVERTISE_AVX=1 nice -n 10 meson test -C $(BUILD_X86) --print-errorlogs --num-processes 4
+
+checkasm-x86-asan:
+	@[ -d build-x86-asan ] || meson setup build-x86-asan --cross-file scripts/cross/x86_64-darwin.ini \
+	    -Db_sanitize=address,undefined -Db_lundef=false
+	nice -n 10 ninja -C build-x86-asan -j 4 tests/checkasm
+	ROSETTA_ADVERTISE_AVX=1 build-x86-asan/tests/checkasm
+
+conformance-fast-x86: build-x86
+	X86_N265=$(CURDIR)/$(BUILD_X86)/n265 N265=scripts/x86_n265.sh scripts/conformance.sh --fast
+
+x86-identity: build-x86
+	scripts/x86_identity.sh $(BUILD_X86)/n265
 
 conformance: build
 	N265=$(BUILD)/n265 scripts/conformance.sh

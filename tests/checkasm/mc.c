@@ -8,7 +8,6 @@
 
 #include "common/cpu.h"
 #include "encoder/mc.h"
-#include "encoder/arm/neon.h"   /* self-guarded; the family kernels land here */
 
 /* The page guard is checkasm.h's, and this family is why it exists: a
  * four-sample tail written with an eight-lane load and a four-lane store
@@ -47,8 +46,8 @@ static const int bi_dims[] = { 2, 4, 6, 8, 12, 16, 24, 32, 48, 64 };
 static void bi_opt(pixel *dst, int ds, const int16_t *a, const int16_t *b,
                    int w, int h)
 {
-#if N265_NEON_MC
-    n265_bi_avg_wh_neon(dst, ds, a, b, w, h);
+#if CA_SIMD_MC
+    CA_SIMD(n265_bi_avg_wh)(dst, ds, a, b, w, h);
 #else
     n265_bi_avg_wh(dst, ds, a, b, w, h);
 #endif
@@ -247,7 +246,7 @@ static void bench_bi_avg(void)
         snprintf(name, sizeof(name), "bi_avg %dx%d", c.w, c.h);
         /* no C fast path distinct from the reference here, so the middle
          * column is a control: it should read the same as the first */
-#if N265_NEON_MC
+#if CA_SIMD_MC
         bench(name, bi_ref_call, bi_ref_call, bi_opt_call, &c, 200000);
 #else
         bench(name, bi_ref_call, bi_opt_call, NULL, &c, 200000);
@@ -360,8 +359,8 @@ static void hf_scramble(int16_t *hf, int hs, int w, int h)
 static void hf_opt(pixel *dst, int ds, int w, int h, const int16_t *hf,
                    int hs, int fy)
 {
-#if N265_NEON_MC
-    n265_mc_luma_hf_neon(dst, ds, w, h, hf, hs, fy);
+#if CA_SIMD_MC
+    CA_SIMD(n265_mc_luma_hf)(dst, ds, w, h, hf, hs, fy);
 #else
     n265_mc_luma_hf_ref(dst, ds, w, h, hf, hs, fy);
 #endif
@@ -370,8 +369,8 @@ static void hf_opt(pixel *dst, int ds, int w, int h, const int16_t *hf,
 static void hf14_opt(int16_t *dst, int ds, int w, int h, const int16_t *hf,
                      int hs, int fy)
 {
-#if N265_NEON_MC
-    n265_mc_luma_14_hf_neon(dst, ds, w, h, hf, hs, fy);
+#if CA_SIMD_MC
+    CA_SIMD(n265_mc_luma_14_hf)(dst, ds, w, h, hf, hs, fy);
 #else
     n265_mc_luma_14_hf_ref(dst, ds, w, h, hf, hs, fy);
 #endif
@@ -388,7 +387,7 @@ static int mc_cmp_pix(const pixel *ref, const pixel *got, int ds, int w,
     for (int y = 0; y < h; y++)
         for (int x = 0; x < w; x++)
             if (ref[(ptrdiff_t)y * ds + x] != got[(ptrdiff_t)y * ds + x]) {
-                printf("    %s MISMATCH kind %d at (%d,%d): ref %d neon %d\n",
+                printf("    %s MISMATCH kind %d at (%d,%d): ref %d simd %d\n",
                        what, kind, x, y, ref[(ptrdiff_t)y * ds + x],
                        got[(ptrdiff_t)y * ds + x]);
                 return 1;
@@ -402,7 +401,7 @@ static int mc_cmp16(const int16_t *ref, const int16_t *got, int ds, int w,
     for (int y = 0; y < h; y++)
         for (int x = 0; x < w; x++)
             if (ref[(ptrdiff_t)y * ds + x] != got[(ptrdiff_t)y * ds + x]) {
-                printf("    %s MISMATCH kind %d at (%d,%d): ref %d neon %d\n",
+                printf("    %s MISMATCH kind %d at (%d,%d): ref %d simd %d\n",
                        what, kind, x, y, ref[(ptrdiff_t)y * ds + x],
                        got[(ptrdiff_t)y * ds + x]);
                 return 1;
@@ -612,14 +611,14 @@ static void bench_luma_hf(void)
         for (int fy = 0; fy < 4; fy += 2) {   /* the copy arm and a filter arm */
             c.fy = fy;
             snprintf(name, sizeof(name), "luma_hf %dx%d fy%d", c.w, c.h, fy);
-#if N265_NEON_MC
+#if CA_SIMD_MC
             bench(name, hf_ref_call, hf_ref_call, hf_opt_call, &c, 20000);
 #else
             bench(name, hf_ref_call, hf_opt_call, NULL, &c, 20000);
 #endif
             snprintf(name, sizeof(name), "luma_14_hf %dx%d fy%d", c.w, c.h,
                      fy);
-#if N265_NEON_MC
+#if CA_SIMD_MC
             bench(name, hf14_ref_call, hf14_ref_call, hf14_opt_call, &c,
                   20000);
 #else
@@ -695,17 +694,17 @@ static void mc_call_ref(int kind, void *dst, int ds, int w, int h,
 static void mc_call_opt(int kind, void *dst, int ds, int w, int h,
                         const pixel *ref, int rs, int fx, int fy)
 {
-#if N265_NEON_MC
+#if CA_SIMD_MC
     if (kind == MC_K_WH)
-        n265_mc_luma_wh_neon(dst, ds, w, h, ref, rs, fx, fy);
+        CA_SIMD(n265_mc_luma_wh)(dst, ds, w, h, ref, rs, fx, fy);
     else if (kind == MC_K_14WH)
-        n265_mc_luma_14_wh_neon(dst, ds, w, h, ref, rs, fx, fy);
+        CA_SIMD(n265_mc_luma_14_wh)(dst, ds, w, h, ref, rs, fx, fy);
     else if (kind == MC_K_CWH)
-        n265_mc_chroma_wh_neon(dst, ds, w, h, ref, rs, fx, fy);
+        CA_SIMD(n265_mc_chroma_wh)(dst, ds, w, h, ref, rs, fx, fy);
     else if (kind == MC_K_C14WH)
-        n265_mc_chroma_14_wh_neon(dst, ds, w, h, ref, rs, fx, fy);
+        CA_SIMD(n265_mc_chroma_14_wh)(dst, ds, w, h, ref, rs, fx, fy);
     else
-        n265_mc_luma_hplane_neon(dst, ds, w, h, ref, rs, fx);
+        CA_SIMD(n265_mc_luma_hplane)(dst, ds, w, h, ref, rs, fx);
 #else
     mc_call_ref(kind, dst, ds, w, h, ref, rs, fx, fy);
 #endif
@@ -1057,7 +1056,7 @@ static void bench_luma_plane(void)
             c.dst = dst8;
             snprintf(name, sizeof(name), "luma_wh %dx%d f%d%d", c.w, c.h,
                      c.fx, c.fy);
-#if N265_NEON_MC
+#if CA_SIMD_MC
             bench(name, p_ref_call, p_ref_call, p_opt_call, &c, 20000);
 #else
             bench(name, p_ref_call, p_opt_call, NULL, &c, 20000);
@@ -1066,7 +1065,7 @@ static void bench_luma_plane(void)
             c.dst = dst16;
             snprintf(name, sizeof(name), "luma_14_wh %dx%d f%d%d", c.w, c.h,
                      c.fx, c.fy);
-#if N265_NEON_MC
+#if CA_SIMD_MC
             bench(name, p_ref_call, p_ref_call, p_opt_call, &c, 20000);
 #else
             bench(name, p_ref_call, p_opt_call, NULL, &c, 20000);
@@ -1085,7 +1084,7 @@ static void bench_luma_plane(void)
         c.h = 32;
         c.ds = c.w;
         snprintf(name, sizeof(name), "luma_hplane %dx32", c.w);
-#if N265_NEON_MC
+#if CA_SIMD_MC
         bench(name, p_ref_call, p_ref_call, p_opt_call, &c, 20000);
 #else
         bench(name, p_ref_call, p_opt_call, NULL, &c, 20000);
@@ -1128,7 +1127,7 @@ static void bench_chroma(void)
             c.dst = dst8;
             snprintf(name, sizeof(name), "chroma_wh %dx%d f%d%d", c.w, c.h,
                      c.fx, c.fy);
-#if N265_NEON_MC
+#if CA_SIMD_MC
             bench(name, p_ref_call, p_ref_call, p_opt_call, &c, 20000);
 #else
             bench(name, p_ref_call, p_opt_call, NULL, &c, 20000);
@@ -1137,7 +1136,7 @@ static void bench_chroma(void)
             c.dst = dst16;
             snprintf(name, sizeof(name), "chroma_14_wh %dx%d f%d%d", c.w, c.h,
                      c.fx, c.fy);
-#if N265_NEON_MC
+#if CA_SIMD_MC
             bench(name, p_ref_call, p_ref_call, p_opt_call, &c, 20000);
 #else
             bench(name, p_ref_call, p_opt_call, NULL, &c, 20000);
@@ -1190,8 +1189,8 @@ static void wp_fill_par(struct wp_par *p, int k)
 static void wp_uni_opt(pixel *dst, int ds, const int16_t *src, int w, int h,
                        int wt, int off, int denom)
 {
-#if N265_NEON_MC
-    n265_wp_uni_wh_neon(dst, ds, src, w, h, wt, off, denom);
+#if CA_SIMD_MC
+    CA_SIMD(n265_wp_uni_wh)(dst, ds, src, w, h, wt, off, denom);
 #else
     n265_wp_uni_wh(dst, ds, src, w, h, wt, off, denom);
 #endif
@@ -1200,8 +1199,8 @@ static void wp_uni_opt(pixel *dst, int ds, const int16_t *src, int w, int h,
 static void wp_bi_opt(pixel *dst, int ds, const int16_t *a, const int16_t *b,
                       int w, int h, int w0, int o0, int w1, int o1, int denom)
 {
-#if N265_NEON_MC
-    n265_wp_bi_wh_neon(dst, ds, a, b, w, h, w0, o0, w1, o1, denom);
+#if CA_SIMD_MC
+    CA_SIMD(n265_wp_bi_wh)(dst, ds, a, b, w, h, w0, o0, w1, o1, denom);
 #else
     n265_wp_bi_wh(dst, ds, a, b, w, h, w0, o0, w1, o1, denom);
 #endif
@@ -1210,8 +1209,8 @@ static void wp_bi_opt(pixel *dst, int ds, const int16_t *a, const int16_t *b,
 static void wp_pix_opt(pixel *dst, int ds, const pixel *src, int ss, int w,
                        int h, int wt, int off, int denom)
 {
-#if N265_NEON_MC
-    n265_wp_pix_wh_neon(dst, ds, src, ss, w, h, wt, off, denom);
+#if CA_SIMD_MC
+    CA_SIMD(n265_wp_pix_wh)(dst, ds, src, ss, w, h, wt, off, denom);
 #else
     n265_wp_pix_wh(dst, ds, src, ss, w, h, wt, off, denom);
 #endif
@@ -1397,19 +1396,19 @@ static void bench_wp(void)
         c.h = bi_bench_shapes[i][1];
         c.ds = c.w + BI_PAD;
         snprintf(name, sizeof(name), "wp_uni %dx%d", c.w, c.h);
-#if N265_NEON_MC
+#if CA_SIMD_MC
         bench(name, wp_uni_ref_call, wp_uni_ref_call, wp_uni_opt_call, &c, 20000);
 #else
         bench(name, wp_uni_ref_call, wp_uni_opt_call, NULL, &c, 20000);
 #endif
         snprintf(name, sizeof(name), "wp_bi %dx%d", c.w, c.h);
-#if N265_NEON_MC
+#if CA_SIMD_MC
         bench(name, wp_bi_ref_call, wp_bi_ref_call, wp_bi_opt_call, &c, 20000);
 #else
         bench(name, wp_bi_ref_call, wp_bi_opt_call, NULL, &c, 20000);
 #endif
         snprintf(name, sizeof(name), "wp_pix %dx%d", c.w, c.h);
-#if N265_NEON_MC
+#if CA_SIMD_MC
         bench(name, wp_pix_ref_call, wp_pix_ref_call, wp_pix_opt_call, &c, 20000);
 #else
         bench(name, wp_pix_ref_call, wp_pix_opt_call, NULL, &c, 20000);

@@ -112,6 +112,35 @@ if cpu_family == 'aarch64'
 endif
 neon_families = is_8bit ? families_8 : families_10
 
+# The x86-64 AVX2 tier (docs/x86-plan.md). AVX2 is not baseline x86-64,
+# so the family files compile into their own static library with
+# -mavx2 -mfma -mbmi2 and fold into the 8-bit encoder library as objects;
+# every other file stays baseline and reaches a kernel only through a
+# CPUID-checked dispatch site. 8-bit only for now: the Main10 library is
+# the C reference on x86. The family names and the per-family macro
+# (N265_AVX2_<FAMILY>) mirror the NEON lists above. A family is IN when
+# its file src/encoder/x86/<family>_avx2.c exists, so a family item adds
+# its file and its dispatch sites and touches nothing here; the file
+# lands only once every neon.h entry point of the family has an _avx2
+# twin that checkasm holds bit-exact.
+fs = import('fs')
+x86_all_families = []
+x86_families_8 = []
+x86_avx2_args = ['-mavx2', '-mfma', '-mbmi2']
+if cpu_family == 'x86_64'
+  x86_all_families = ['transform', 'satd', 'mc', 'rdoq', 'cost', 'intra']
+  foreach f : x86_all_families
+    if fs.exists('src/encoder/x86/' + f + '_avx2.c')
+      x86_families_8 += f
+    endif
+  endforeach
+  add_project_arguments('-DN265_X86=1', language : 'c')
+endif
+avx2_families = is_8bit ? x86_families_8 : []
+foreach f : avx2_families
+  add_project_arguments('-DN265_AVX2_' + f.to_upper() + '=1', language : 'c')
+endforeach
+
 # The project arguments still carry THIS build's depth and its family
 # macros, because tests/ compiles the family files itself and has to see
 # the same lanes the library was built with. The libraries below override
@@ -136,6 +165,12 @@ foreach d : [8, 10]
       srcs += 'src/encoder/arm/' + f + '_neon.c'
     endif
   endforeach
+  foreach f : x86_all_families
+    args += '-UN265_AVX2_' + f.to_upper()
+    if d == 8 and f in x86_families_8
+      args += '-DN265_AVX2_' + f.to_upper() + '=1'
+    endif
+  endforeach
   if d != 8
     # Every symbol this library defines carries a _10 suffix - the public
     # API through include/yah265.h, the internals through this header -
@@ -146,6 +181,21 @@ foreach d : [8, 10]
   depth_sources += { '@0@'.format(d) : srcs }
   depth_args += { '@0@'.format(d) : args }
 endforeach
+
+# The AVX2 objects, which only the 8-bit library takes. The archive name
+# stays off the libyah265* glob scripts/symbol_check.sh compares.
+depth_objects = { '8' : [], '10' : [] }
+if x86_families_8.length() > 0
+  avx2_srcs = []
+  foreach f : x86_families_8
+    avx2_srcs += 'src/encoder/x86/' + f + '_avx2.c'
+  endforeach
+  avx2_lib = static_library('n265avx2-8', avx2_srcs,
+    c_args : depth_args['8'] + x86_avx2_args,
+    include_directories : inc,
+    install : false)
+  depth_objects += { '8' : [avx2_lib.extract_all_objects(recursive : false)] }
+endif
 
 # Both linkage forms (yah264 lesson: plain library() made the CLI link
 # the dylib and cross a shared-library boundary on every hot call, worth
@@ -160,6 +210,7 @@ endforeach
 libyah265_both = both_libraries('yah265' + depth_suffix,
   depth_sources['@0@'.format(bit_depth)],
   c_args : depth_args['@0@'.format(bit_depth)],
+  objects : depth_objects['@0@'.format(bit_depth)],
   include_directories : inc,
   dependencies : [m_dep, threads_dep],
   version : meson.project_version(),
@@ -174,6 +225,7 @@ other_depth = bit_depth == 8 ? 10 : 8
 libyah265_other = static_library('yah265-alt@0@'.format(other_depth),
   depth_sources['@0@'.format(other_depth)],
   c_args : depth_args['@0@'.format(other_depth)],
+  objects : depth_objects['@0@'.format(other_depth)],
   include_directories : inc,
   dependencies : [m_dep, threads_dep],
   gnu_symbol_visibility : 'hidden',

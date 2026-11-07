@@ -21,8 +21,8 @@
  * `ca_bench` is set, so `make test` stays fast and `checkasm --bench` is
  * where the tables come from.
  *
- * Under `#if N265_NEON` a family compares `n265_x_ref` against
- * `n265_x_neon` DIRECTLY, never through the dispatching entry point: the
+ * Under `#if CA_SIMD_<FAMILY>` a family compares `n265_x_ref` against
+ * `CA_SIMD(n265_x)` DIRECTLY, never through the dispatching entry point: the
  * entry point can be ablated by N265_ASM_OFF, and a harness that could be
  * silently turned into a C-against-C tautology is not a harness.
  *
@@ -39,6 +39,46 @@
 #include <string.h>
 
 #include "common/pixel.h"   /* pixel, BIT_DEPTH, PIXEL_MAX */
+#include "common/cpu.h"
+
+/* ---- the ISA under test ---------------------------------------------
+ *
+ * One binary checks one SIMD tier: NEON on aarch64, AVX2 on x86-64. The
+ * family files name a kernel as CA_SIMD(n265_foo), which is n265_foo_neon
+ * or n265_foo_avx2, and test for its presence with CA_SIMD_<FAMILY>, so
+ * the same checks hold both tiers to the same C references. The two tiers
+ * export the same entry points per family (src/encoder/arm/neon.h,
+ * src/encoder/x86/avx2.h); that is what makes this a rename and not a
+ * second harness. */
+#if N265_NEON
+#include "encoder/arm/neon.h"
+#define CA_SIMD(f) f##_neon
+#define CA_ISA "neon"
+#define CA_SIMD_TRANSFORM N265_NEON_TRANSFORM
+#define CA_SIMD_SATD      N265_NEON_SATD
+#define CA_SIMD_MC        N265_NEON_MC
+#define CA_SIMD_RDOQ      N265_NEON_RDOQ
+#define CA_SIMD_COST      N265_NEON_COST
+#define CA_SIMD_INTRA     N265_NEON_INTRA
+#elif N265_X86
+#include "encoder/x86/avx2.h"
+#define CA_SIMD(f) f##_avx2
+#define CA_ISA "avx2"
+#define CA_SIMD_TRANSFORM N265_AVX2_TRANSFORM
+#define CA_SIMD_SATD      N265_AVX2_SATD
+#define CA_SIMD_MC        N265_AVX2_MC
+#define CA_SIMD_RDOQ      N265_AVX2_RDOQ
+#define CA_SIMD_COST      N265_AVX2_COST
+#define CA_SIMD_INTRA     N265_AVX2_INTRA
+#else
+#define CA_ISA "none"
+#define CA_SIMD_TRANSFORM 0
+#define CA_SIMD_SATD      0
+#define CA_SIMD_MC        0
+#define CA_SIMD_RDOQ      0
+#define CA_SIMD_COST      0
+#define CA_SIMD_INTRA     0
+#endif
 
 /* set by main() from the CLI; families bench only when it is nonzero */
 extern int ca_bench;

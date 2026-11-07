@@ -65,7 +65,8 @@ void bench(const char *what, void (*ref)(void *), void (*opt)(void *),
     if (neon) {
         for (int i = 0; i < iters; i++) neon(ctx);
         t3 = now_ns();
-        printf("    %-22s ref %8.1f   c %8.1f   neon %8.1f ns   %5.2fx\n",
+        printf("    %-22s ref %8.1f   c %8.1f   " CA_ISA
+               " %8.1f ns   %5.2fx\n",
                what, (t1 - t0) / iters, (t2 - t1) / iters,
                (t3 - t2) / iters, (t2 - t1) / (t3 - t2));
         return;
@@ -302,8 +303,18 @@ int main(int argc, char **argv)
     {
         char name[64];
         n265_cpu_name(n265_cpu_flags(), name, sizeof(name));
-        printf("checkasm: cpu %s, %d-bit samples\n", name, BIT_DEPTH);
+        printf("checkasm: cpu %s, %d-bit samples, checking %s\n", name,
+               BIT_DEPTH, CA_ISA);
     }
+#if N265_X86
+    /* the families call their AVX2 kernels directly, so a CPU without it
+     * would fault rather than fail; 77 is meson's skip */
+    if (N265_ASM_PORTED_AVX2 && !(n265_cpu_flags() & N265_CPU_AVX2)) {
+        printf("checkasm: this CPU does not report AVX2 (under Rosetta, "
+               "set ROSETTA_ADVERTISE_AVX=1); skipped\n");
+        return 77;
+    }
+#endif
     for (const kernel_test *t = tests; t->name; t++) {
         int r;
         if (only && strcmp(t->name, only))
