@@ -945,9 +945,12 @@ static const struct kv med_tab_hlg[] = {
     { NULL, NULL },
 };
 
-/* HDR_CLASS_TABLES (WIP) */
+/* `medium` on PQ or HLG, per class (phase 14 item 59): the speed cuts
+ * that cost HDR-VMAF most go back. The coarse intra rank (item 34) cost
+ * 2-6%, and at UHD the intra transform split (item 57) cost Sol Levante
+ * 1.8%. `N265_HDR_FULL=0` is the escape. docs/phase14.md "Item 59". */
 static const struct kv med_tab_hdr_720[] = {
-    { "N265_IRANK", "0" },
+    { "N265_IRANK", "0" },      /* unmeasured at 720p; the 1080p row */
     { NULL, NULL },
 };
 
@@ -958,6 +961,7 @@ static const struct kv med_tab_hdr_hd[] = {
 
 static const struct kv med_tab_hdr_uhd[] = {
     { "N265_IRANK", "0" },
+    { "N265_TT_SKIP_INTRA", "0" },
     { NULL, NULL },
 };
 

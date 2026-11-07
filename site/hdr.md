@@ -90,17 +90,17 @@ negative number is the share of bitrate yah265 saves at equal quality.
 
 | title | 1080p | 2160p |
 |---|--:|--:|
-| Sol Levante | -19.4% | -14.3% |
-| Sparks | -18.5% | -17.9% |
+| Sol Levante | -23.0% | -17.7% |
+| Sparks | -23.2% | -24.2% |
 
 x265's `--hdr10-opt` tunes it for PQ. Against x265 with it on, yah265 saves
-1.7% at 1080p and 1.5% at 2160p on Sol Levante. On Sparks it saves 13.3% and
-11.6%.
+5.5% at 1080p and 5.4% at 2160p on Sol Levante. On Sparks it saves 18.3% and
+18.4%.
 
 HLG was read on the same two 1080p clips re-coded from PQ to HLG, because we
 have no native HLG master. HDR-VMAF has no HLG transfer, so both sides are
-converted back to PQ before scoring. On the HLG clips yah265 saves 20.2% on
-Sol Levante and 18.0% on Sparks against x265.
+converted back to PQ before scoring. On the HLG clips yah265 saves 22.4% on
+Sol Levante and 22.4% on Sparks against x265.
 
 x265 ran CRF 20 to 32 in steps of 3. The two CRF scales don't line up on this
 material: at the same CRF yah265 writes a much smaller file on Sol Levante. So

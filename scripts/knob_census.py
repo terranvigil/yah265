@@ -84,6 +84,8 @@ OFFCLAIM = re.compile(r'(?<!was )(?<!old )[Dd]efault(?:s)?\s+(?:is\s+|stays\s+)?
 # presence-only reader, a string enum, or a literal that is not the last
 # number on the line.
 DEFAULT_OVERRIDES = {
+    # phase 14 item 59: on unless 0, read only on a PQ or HLG medium
+    "N265_HDR_FULL": "1 on PQ and HLG at medium",
     # `if (v && !g_cb_qp_off) e->cb_qp_off = atoi(v)`: the flag wins, and
     # 0 is what both doors leave shut
     "N265_CBQPOFFS": "0", "N265_CRQPOFFS": "0",
@@ -187,6 +189,7 @@ DEFAULT_OVERRIDES = {
 }
 
 OVERRIDES = {
+    "N265_HDR_FULL": "default",          # item 59: the env is the escape
     # phase 14 item 42: moot unless --gop-parallel armed the mode, so they
     # are that opt-in mode's parameters and not shipped defaults
     "N265_GOP_LEN": "arm", "N265_GOP_CUTS": "arm", "N265_GOP_WINDOW": "arm",

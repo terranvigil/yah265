@@ -80,8 +80,10 @@ on dark blocks. Wide-gamut chroma stays in a narrow band around its midpoint.
 At luma's quantizer it loses far more than SDR chroma does. `--hdr-opt` turns the
 tuning on for a stream that doesn't name either transfer, and `--no-hdr-opt`
 turns it off. `--hdr10-opt` is the same switch under x265's name. A
-`--cbqpoffs` or `--crqpoffs` you name yourself still wins. The other presets
-code HDR like SDR.
+`--cbqpoffs` or `--crqpoffs` you name yourself still wins. From 720p up,
+medium on HDR also keeps the full intra mode rank that SDR gives up for
+speed, and at 2160p it keeps the intra transform split too. The other
+presets code HDR like SDR.
 
 ## Quality on HDR content
 
@@ -109,21 +111,20 @@ option and has no HLG reading.
 
 | title | against x265 | against x265 `--hdr10-opt` |
 |---|--:|--:|
-| Sol Levante 1080p | -19.4% | -1.7% |
-| Sol Levante 2160p | -14.3% | -1.5% |
-| Sparks 1080p | -18.5% | -13.3% |
-| Sparks 2160p | -17.9% | -11.6% |
-| Sol Levante HLG 1080p | -20.2% | - |
-| Sparks HLG 1080p | -18.0% | - |
+| Sol Levante 1080p | -23.0% | -5.5% |
+| Sol Levante 2160p | -17.7% | -5.4% |
+| Sparks 1080p | -23.2% | -18.3% |
+| Sparks 2160p | -24.2% | -18.4% |
+| Sol Levante HLG 1080p | -22.4% | - |
+| Sparks HLG 1080p | -22.4% | - |
 
 `--hdr10-opt` is worth 6-19% to x265 on HDR-VMAF. Without the tuning yah265
-was level with it on Sol Levante. With the tuning yah265 is now under 2%
-ahead there. The work medium dropped for speed in [phase 14 item
-57](phase14.md) costs 2-9% of BD-rate on these clips, most of it at 2160p.
-Before that change the same table read -21.5% to -25.0% against x265. This
-table ran yah265 at `--threads 4`. On the Sparks 1080p ladder that writes the
-same streams as `--threads 6`. `scripts/hdr_bd.py` runs the ladders and the
-BD reading.
+was level with it on Sol Levante, and with it yah265 is 5% ahead there. At
+1080p every cell reads ahead of the first tuned binary. At 2160p Sol Levante
+is 1.2 points behind it and Sparks 0.8: the rest of the speed work medium
+took is still in. This table ran yah265 at `--threads 4`. On the Sparks
+1080p ladder that writes the same streams as `--threads 6`.
+`scripts/hdr_bd.py` runs the ladders and the BD reading.
 
 x265 ran CRF 20 to 32 in steps of 3. The two CRF scales don't line up on this
 material: at the same CRF yah265 writes a much smaller file on Sol Levante. So
