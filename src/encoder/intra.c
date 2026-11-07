@@ -8,6 +8,7 @@
 #include "common/cpu.h"
 #include "encoder/intra.h"
 #include "encoder/arm/neon.h"   /* self-guarded */
+#include "encoder/x86/avx2.h"   /* self-guarded */
 
 static inline int abs_int(int v) { return v < 0 ? -v : v; }
 
@@ -347,6 +348,12 @@ void n265_filter_refs(pixel *out, const pixel *in, int log2n, int strong)
         return;
     }
 #endif
+#if N265_AVX2_INTRA
+    if (n265_avx2_on(N265_ASM_INTRA)) {
+        n265_filter_refs_avx2(out, in, log2n, strong);
+        return;
+    }
+#endif
     n265_filter_refs_ref(out, in, log2n, strong);
 }
 
@@ -480,6 +487,12 @@ void n265_intra_pred(pixel *dst, int dst_stride, const pixel *refs,
      * the predicate moves time and nothing else. */
     if (n265_asm_on(N265_ASM_INTRA)) {
         n265_intra_pred_neon(dst, dst_stride, refs, log2n, mode, c_idx);
+        return;
+    }
+#endif
+#if N265_AVX2_INTRA
+    if (n265_avx2_on(N265_ASM_INTRA)) {
+        n265_intra_pred_avx2(dst, dst_stride, refs, log2n, mode, c_idx);
         return;
     }
 #endif
