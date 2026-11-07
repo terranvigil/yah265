@@ -2671,6 +2671,8 @@ n265_encoder *n265_encoder_open(const n265_param *p)
             if (bs_init(&e->info_bs, 1024) < 0)
                 goto fail;
             n265_write_info_sei(&e->info_bs, n265_version_str(), g_info_opts);
+            if (e->info_bs.failed)
+                goto fail;
         }
         /* --idr-recovery-sei: the message is the same three fields at
          * every IRAP, so it is built once here too. */
@@ -2678,6 +2680,8 @@ n265_encoder *n265_encoder_open(const n265_param *p)
             if (bs_init(&e->rec_bs, 32) < 0)
                 goto fail;
             n265_write_recovery_sei(&e->rec_bs);
+            if (e->rec_bs.failed)
+                goto fail;
         }
         /* --pic-struct rides the pic_timing message, which exists only
          * where the HRD does. Refused rather than ignored: a --pic-struct
@@ -3484,6 +3488,10 @@ void n265_encoder_close(n265_encoder *e)
     if (e->dyn_lost)
         fprintf(stderr, "n265: ERROR out of memory: %ld HDR10+ or Dolby "
                 "Vision metadata NALs were not written\n", e->dyn_lost);
+    if (e->sei_lost)
+        fprintf(stderr, "n265: ERROR out of memory: %ld SEI, access unit "
+                "delimiter or filler data NALs were not written\n",
+                e->sei_lost);
     /* --strict-cbr: say how much of the stream is padding. A run that
      * needed none held the rate on its own; one that is a third filler is
      * telling you the target is above what the content costs. */
@@ -5793,9 +5801,12 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
      * at a CRA has parsed no earlier message and would synthesise no
      * grain at all. Same bytes, different reason. */
     fw->sei_len = 0;
+    fw->sei_lost = 0;
     if (e->fgc_strength > 0.0 && fw->irap && e->fgc_ready && e->fgc.present) {
         n265_write_fgc_sei(&fw->rbsp, &e->fgc);
-        if (fw->rbsp.bytes <= sizeof fw->sei) {
+        if (fw->rbsp.failed)
+            fw->sei_lost++;
+        else if (fw->rbsp.bytes <= sizeof fw->sei) {
             memcpy(fw->sei, fw->rbsp.buf, fw->rbsp.bytes);
             fw->sei_len = fw->rbsp.bytes;
         }
@@ -5810,7 +5821,9 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
     fw->hdr_sei_len = 0;
     if (fw->irap && (n265_hdr10_on(&e->sig) || e->sig.atc >= 0) &&
         n265_write_hdr_sei(&fw->rbsp, &e->sig) > 0) {
-        if (fw->rbsp.bytes <= sizeof fw->hdr_sei) {
+        if (fw->rbsp.failed)
+            fw->sei_lost++;
+        else if (fw->rbsp.bytes <= sizeof fw->hdr_sei) {
             memcpy(fw->hdr_sei, fw->rbsp.buf, fw->rbsp.bytes);
             fw->hdr_sei_len = fw->rbsp.bytes;
         }
@@ -6931,8 +6944,11 @@ static void join_oldest(n265_encoder *e)
     if (e->aud) {
         n265_write_aud(&e->aud_bs, fw->slice_type == 2 ? 0
                                  : fw->slice_type == 1 ? 1 : 2);
-        pack_nal_tid(d, N265_NAL_AUD, fw->tid, e->aud_bs.buf,
-                     e->aud_bs.bytes);
+        if (e->aud_bs.failed)
+            e->sei_lost++;
+        else
+            pack_nal_tid(d, N265_NAL_AUD, fw->tid, e->aud_bs.buf,
+                         e->aud_bs.bytes);
     }
     if (fw->emit_headers)
         for (int i = 0; i < e->nhdr; i++)
@@ -6961,11 +6977,15 @@ static void join_oldest(n265_encoder *e)
         n265_hrd_sei v;
         hrd_sei_values(e, fw, &v);
         n265_write_hrd_sei(&e->hrd_bs, &v);
-        pack_nal_tid(d, N265_NAL_PREFIX_SEI, fw->tid, e->hrd_bs.buf,
-                     e->hrd_bs.bytes);
+        if (e->hrd_bs.failed)
+            e->sei_lost++;
+        else
+            pack_nal_tid(d, N265_NAL_PREFIX_SEI, fw->tid, e->hrd_bs.buf,
+                         e->hrd_bs.bytes);
     }
     if (fw->hdr_sei_len)
         pack_nal(d, N265_NAL_PREFIX_SEI, fw->hdr_sei, fw->hdr_sei_len);
+    e->sei_lost += fw->sei_lost;
     if (fw->sei_len)
         pack_nal(d, N265_NAL_PREFIX_SEI, fw->sei, fw->sei_len);
     /* --dhdr10-info: this picture's ST 2094-40 metadata, looked up by its
@@ -6976,10 +6996,7 @@ static void join_oldest(n265_encoder *e)
     if (dyn) {
         int had = d->nnal;
         n265_write_t35_sei(&e->t35_bs, dyn, dyn_len);
-        /* the writer drops bytes when its buffer can't grow; the whole
-         * message is the payload, its type byte, its size bytes and the
-         * stop byte */
-        if (e->t35_bs.bytes == dyn_len + 3 + dyn_len / 255)
+        if (!e->t35_bs.failed)
             pack_nal_tid(d, N265_NAL_PREFIX_SEI, fw->tid, e->t35_bs.buf,
                          e->t35_bs.bytes);
         e->dyn_lost += d->nnal == had;
@@ -7005,8 +7022,11 @@ static void join_oldest(n265_encoder *e)
         n265_pic_hash h;
         hash_frame(e, fw, &h);
         n265_write_hash_sei(&e->hash_bs, &h, 3);
-        pack_nal_tid(d, N265_NAL_SUFFIX_SEI, fw->tid, e->hash_bs.buf,
-                     e->hash_bs.bytes);
+        if (e->hash_bs.failed)
+            e->sei_lost++;
+        else
+            pack_nal_tid(d, N265_NAL_SUFFIX_SEI, fw->tid, e->hash_bs.buf,
+                         e->hash_bs.bytes);
     }
     /* --dolby-vision-rpu: this picture's RPU, by display index as above.
      * It is the access unit's last NAL, after its slice and its suffix
@@ -7058,10 +7078,14 @@ static void join_oldest(n265_encoder *e)
             for (long i = 0; i < need; i++)
                 bs_put_bits(&e->fd_bs, 0xff, 8);
             bs_rbsp_trailing(&e->fd_bs);
-            pack_nal_tid(d, N265_NAL_FD, fw->tid, e->fd_bs.buf,
-                         e->fd_bs.bytes);
-            e->filler_bytes += (long)need + 7;
-            e->filler_aus++;
+            if (e->fd_bs.failed) {
+                e->sei_lost++;
+            } else {
+                pack_nal_tid(d, N265_NAL_FD, fw->tid, e->fd_bs.buf,
+                             e->fd_bs.bytes);
+                e->filler_bytes += (long)need + 7;
+                e->filler_aus++;
+            }
         }
     }
     if (dyn) {
