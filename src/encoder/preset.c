@@ -845,6 +845,39 @@ static const struct kv med_tab_720[] = {
 };
 
 /* today's medium's structure, which is the front end's own defaults */
+/* `medium` on a PQ picture (phase 14 item 56). It answers before every
+ * resolution overlay, so a row here holds at every size. The stream is
+ * PQ when its VUI says smpte2084, or under --hdr-opt.
+ *
+ * BT.2020 chroma of P3 or BT.709 content sits in a narrow band around
+ * the midpoint, so at luma's QP it is quantised far coarser than SDR
+ * chroma, and HDR-VMAF reads chroma. Both chroma quantisers run six
+ * steps finer than luma's (written as the PPS offsets). On the 1080p dev
+ * pair that is -4.1% (Sol Levante) and -10.5% (Sparks) BD-HDR-VMAF on
+ * its own; -3 gained about half that and -9 lost Sol Levante. Dark psy
+ * (item 53) is off: it spends bits on dark grain HDR-VMAF does not read,
+ * and off alone gains 1.7% and 3.9%. Together -6.2% and -14.2%.
+ * `N265_CBQPOFFS` and `N265_CRQPOFFS` at the size's own value (-1 at
+ * 1080p and up) with `N265_PSY_DARK` at its own (4) is the escape, or
+ * `--no-hdr-opt`. docs/phase14.md "Item 56". */
+static const struct kv med_tab_pq[] = {
+    { "N265_CBQPOFFS", "-6" },
+    { "N265_CRQPOFFS", "-6" },
+    { "N265_PSY_DARK", "0" },
+    { NULL, NULL },
+};
+
+/* `medium` on an HLG picture: the VUI or the alternative transfer SEI
+ * says arib-std-b67. The same rows, read on HLG versions of the two dev
+ * clips: chroma at -6 gains 3.4% and 9.8% on its own, dark psy off 2.5%
+ * and 6.1%. */
+static const struct kv med_tab_hlg[] = {
+    { "N265_CBQPOFFS", "-6" },
+    { "N265_CRQPOFFS", "-6" },
+    { "N265_PSY_DARK", "0" },
+    { NULL, NULL },
+};
+
 static const struct kv slow_par[] = {
     { "ctu", "64" },
     { "rc-lookahead", "20" },
@@ -1036,6 +1069,9 @@ static int g_preset = 3;        /* medium: rungs[3] */
 static int g_uhd;
 /* 1 on a picture of 720p area or more below HD (N265_720_SAMPLES) */
 static int g_720;
+/* The HDR kind the encoder latched at open (n265_preset_hdr): 0 SDR, 1 PQ,
+ * 2 HLG (phase 14 item 56) */
+static int g_hdr;
 
 static const char *lookup(const struct kv *t, const char *k)
 {
@@ -1045,11 +1081,24 @@ static const char *lookup(const struct kv *t, const char *k)
     return NULL;
 }
 
+/* The HDR overlay of the selected rung for the latched kind, or NULL */
+static const struct kv *hdr_tab(void)
+{
+    if (g_preset != 3)
+        return NULL;
+    return g_hdr == 1 ? med_tab_pq : g_hdr == 2 ? med_tab_hlg : NULL;
+}
+
 const char *n265_env(const char *name)
 {
     const char *v = getenv(name);
     if (v)
         return v;
+    if (hdr_tab()) {
+        v = lookup(hdr_tab(), name);
+        if (v)
+            return v;
+    }
     if (g_uhd == 1 && rungs[g_preset].tab_hd) {
         v = lookup(rungs[g_preset].tab_hd, name);
         if (v)
@@ -1085,6 +1134,16 @@ void n265_preset_uhd(int width, int height)
 int n265_preset_res_class(void)
 {
     return g_uhd;
+}
+
+void n265_preset_hdr(int kind)
+{
+    g_hdr = kind == 1 || kind == 2 ? kind : 0;
+}
+
+int n265_preset_hdr_kind(void)
+{
+    return g_hdr;
 }
 
 /* ---- reading the selected rung back out (phase 14 item 13) ----------
@@ -1127,6 +1186,11 @@ int n265_preset_row(int i, const char **key, const char **val,
             const char *u = lookup(rungs[g_preset].tab_720, t[n].k);
             if (u)
                 *val = u;       /* ...and at 720p (item 41) */
+        }
+        if (hdr_tab()) {
+            const char *u = lookup(hdr_tab(), t[n].k);
+            if (u)
+                *val = u;       /* ...and on PQ or HLG (item 56) */
         }
         *env = getenv(t[n].k);
         return 1;

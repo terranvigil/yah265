@@ -1,8 +1,9 @@
 # HDR
 
 yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8 as Main10 HEVC.
-All of it is signalling. The colour flags and metadata tell a player what the
-pictures are, and nothing in them steers how the encoder codes a picture.
+The colour flags and metadata tell a player what the pictures are. At preset
+medium the transfer also changes how the pictures are coded: see
+[Tuning for HDR](#tuning-for-hdr).
 
 | format | what goes in the stream | options |
 |---|---|---|
@@ -70,6 +71,18 @@ themselves, so a player needs the container to tell it, in MP4's `dvcC` box
 or Matroska's equivalent. ffmpeg's stream copy from a raw `.hevc` doesn't
 write that box. A Dolby Vision-aware muxer such as MP4Box or mkvmerge does.
 
+## Tuning for HDR
+
+When the stream says PQ (`--transfer smpte2084`) or HLG (`--transfer
+arib-std-b67`, or `--atc-sei arib-std-b67`), preset medium codes chroma six
+quantiser steps finer than luma and turns off the extra psy weight on dark
+blocks. Wide-gamut chroma sits in a narrow band around its midpoint, so at
+luma's quantiser it loses far more than SDR chroma does. `--hdr-opt` turns the
+tuning on for a stream that doesn't name either transfer, and `--no-hdr-opt`
+turns it off. `--hdr10-opt` is the same switch under x265's name. A
+`--cbqpoffs` or `--crqpoffs` you name yourself still wins. The other presets
+code HDR like SDR.
+
 ## Quality on HDR content
 
 We scored yah265 and x265 with Netflix's HDR-VMAF v1.1.8 on two HDR10
@@ -85,6 +98,20 @@ negative number is the share of bitrate yah265 saves at equal quality.
 |---|--:|--:|
 | Sol Levante | -16.4% | -12.3% |
 | Sparks | -10.9% | -12.7% |
+
+Those numbers predate the HDR tuning above. With it, read the same way over
+six rungs a side:
+
+| title | against x265 | against x265 `--hdr10-opt` |
+|---|--:|--:|
+| Sol Levante 1080p | -21.5% | -4.2% |
+| Sol Levante 2160p | -18.8% | -6.8% |
+| Sparks 1080p | -21.9% | -16.9% |
+| Sparks 2160p | -25.0% | -19.2% |
+
+`--hdr10-opt` is worth 6-19% to x265 on HDR-VMAF, and without the tuning
+yah265 was level with it on Sol Levante. `scripts/hdr_bd.py` runs the ladders
+and the BD reading.
 
 x265 ran CRF 20 to 32 in steps of 3. The two CRF scales don't line up on this
 material: at the same CRF yah265 writes a much smaller file on Sol Levante. So

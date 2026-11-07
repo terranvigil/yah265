@@ -203,6 +203,7 @@ void n265_set_hdr10plus_10(int n, const uint8_t *const *t35,
                            const size_t *len);
 void n265_set_dovi_rpu_10(int n, const uint8_t *const *rbsp,
                           const size_t *len);
+void n265_set_hdr_opt_10(int on);
 int  n265_set_preset_10(const char *name);
 int  n265_preset_param_10(const char *key, int fallback);
 int  n265_preset_param_res_10(const char *key, int fallback, int w, int h);
@@ -289,6 +290,7 @@ typedef struct n265_api {
     void (*set_hdr10)(int, int, int);
     void (*set_hdr10plus)(int, const uint8_t *const *, const size_t *);
     void (*set_dovi_rpu)(int, const uint8_t *const *, const size_t *);
+    void (*set_hdr_opt)(int);        /* --hdr-opt (item 56) */
     n265_encoder *(*encoder_open)(const n265_param *);
     int  (*encoder_encode)(n265_encoder *, n265_nal **, int *,
                            const n265_picture *);
@@ -331,7 +333,7 @@ static const n265_api api8 = {
     n265_set_mcstf,
     n265_set_hash, n265_set_gop, n265_set_vui_colour, n265_set_vui_sar,
     n265_set_vui_window, n265_set_hdr_meta, n265_set_hdr10,
-    n265_set_hdr10plus, n265_set_dovi_rpu,
+    n265_set_hdr10plus, n265_set_dovi_rpu, n265_set_hdr_opt,
     n265_encoder_open, n265_encoder_encode, n265_encoder_close,
     n265_version_str, n265_encoder_set_dump, n265_encoder_set_dump_decode,
     n265_encoder_set_shot_stats,
@@ -356,7 +358,7 @@ static const n265_api api10 = {
     n265_set_hash_10, n265_set_gop_10, n265_set_vui_colour_10,
     n265_set_vui_sar_10,
     n265_set_vui_window_10, n265_set_hdr_meta_10, n265_set_hdr10_10,
-    n265_set_hdr10plus_10, n265_set_dovi_rpu_10,
+    n265_set_hdr10plus_10, n265_set_dovi_rpu_10, n265_set_hdr_opt_10,
     n265_encoder_open_10,
     n265_encoder_encode_10, n265_encoder_close_10, n265_version_str_10,
     n265_encoder_set_dump_10, n265_encoder_set_dump_decode_10,
@@ -1527,9 +1529,11 @@ static void usage(void)
         "  frame i, and --seek skips entries as it skips frames. A file\n"
         "  that covers fewer frames than were encoded fails the run, after\n"
         "  the stream is written.\n"
-        "  NOTE the ENCODER-SIDE half of x265's HDR options is deliberately\n"
-        "  absent: --hdr10-opt is a block-level QP decision tuned to PQ\n"
-        "  content, and this item signals without deciding.\n"
+        "  --hdr-opt / --no-hdr-opt  medium's HDR tuning on or off. It is\n"
+        "                  on by itself where --transfer (or --atc-sei)\n"
+        "                  names smpte2084 or arib-std-b67; --hdr-opt\n"
+        "                  turns the PQ tuning on for a stream that names\n"
+        "                  neither. --hdr10-opt is the same switch.\n"
         "  --verbose, -v   the RESOLVED configuration at open, one\n"
         "                  \"n265 [info]: key : value\" row at a time - what\n"
         "                  the preset, the flags and the N265_* environment\n"
@@ -2805,6 +2809,7 @@ int main(int argc, char **argv)
     uint32_t md[10];
     int have_md = 0, maxcll = -1, maxfall = -1;
     int hdr10 = -1, cll_on = 1, atc = -1;
+    int hdr_opt = -1;
     const char *h10p_path = NULL, *rpu_path = NULL;
     int dv_profile = 0;     /* --dolby-vision-profile: 81, 82 or 84 */
     int had_crf = 0;            /* --crf given: the ON switch, not crf >= 0 */
@@ -3251,6 +3256,12 @@ int main(int argc, char **argv)
                         "0..65535 cd/m2\n");
                 return 2;
             }
+        } else if (!strcmp(argv[i], "--hdr-opt") ||
+                   !strcmp(argv[i], "--hdr10-opt")) {
+            hdr_opt = 1;
+        } else if (!strcmp(argv[i], "--no-hdr-opt") ||
+                   !strcmp(argv[i], "--no-hdr10-opt")) {
+            hdr_opt = 0;
         } else if (!strcmp(argv[i], "--hdr10")) {
             hdr10 = 1;
         } else if (!strcmp(argv[i], "--no-hdr10")) {
@@ -3850,6 +3861,7 @@ int main(int argc, char **argv)
     a->set_vui_window(win_on, win_l, win_t, win_r, win_b);
     a->set_hdr_meta(have_md ? md : NULL, maxcll, maxfall);
     a->set_hdr10(hdr10, cll_on, atc);
+    a->set_hdr_opt(hdr_opt);
     /* The dynamic metadata describes PQ or HLG pictures, so the stream has
      * to say that's what it holds, or a player that reads the colour
      * description first never looks for the metadata. */

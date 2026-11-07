@@ -584,6 +584,29 @@ void n265_set_dovi_rpu(int n, const uint8_t *const *rbsp, const size_t *len)
     set_dynmeta(&g_rpu, n, rbsp, len);
 }
 
+/* --hdr-opt / --no-hdr-opt (phase 14 item 56): 1 forces the HDR tuning on,
+ * 0 off, -1 leaves it to the transfer the stream signals */
+static int g_hdr_opt = -1;
+
+void n265_set_hdr_opt(int on)
+{
+    g_hdr_opt = on < 0 ? -1 : on != 0;
+}
+
+/* 0 SDR, 1 PQ, 2 HLG: what the stream says it carries. HLG counts whether
+ * the VUI names it or the alternative transfer SEI does. --hdr-opt on a
+ * stream that names neither takes the PQ tuning. */
+static int hdr_kind(void)
+{
+    if (g_hdr_opt == 0)
+        return 0;
+    if (g_sig.transfer == 16)
+        return 1;
+    if (g_sig.transfer == 18 || g_sig.atc == 18)
+        return 2;
+    return g_hdr_opt == 1 ? 1 : 0;
+}
+
 /* the bytes an RBSP takes once packed as a NAL: the emulation prevention
  * the packer will add, plus `framing` for the start code and headers. The
  * scan starts at the RBSP, which is exact for the RPU and, for an HDR10+
@@ -1168,6 +1191,37 @@ void n265_ref_used(int cra_poc, int radl_poc, const int *m, int nm, int cur,
  * and every natural clip is over 70%. docs/phase10.md "Items 3-4". */
 #define AQ_FLAT_HI 16.0
 
+/* The luma-level QP offset for PQ pictures (phase 14 item 56), from the
+ * table in ITU-T H-series Supplement 15: a CTU's mean 10-bit luma code
+ * picks its offset, +3 below 301 down to -6 from 834. PQ spends many more
+ * code values on dark light than a gamma curve does and few on highlights,
+ * so at one QP the highlights are quantised far coarser than an SDR
+ * picture's would be. `lm` is the AQ grid's mean luma; on the pooled
+ * 64x64 tree a CTU reads the mean of its quarters. */
+static double hdr_luma_dqp(const double *lm, int i, const n265_frame_work *fw,
+                           int pool, int gcols, int grows)
+{
+    static const int edge[9] = { 301, 367, 434, 501, 567, 634, 701, 767, 834 };
+    double m;
+    if (pool) {
+        int cx = i % fw->ctb_cols, cy = i / fw->ctb_cols, n = 0;
+        m = 0.0;
+        for (int sy = 2 * cy; sy < 2 * cy + 2 && sy < grows; sy++)
+            for (int sx = 2 * cx; sx < 2 * cx + 2 && sx < gcols; sx++) {
+                m += lm[sy * gcols + sx];
+                n++;
+            }
+        m = n ? m / n : 0.0;
+    } else {
+        m = lm[i];
+    }
+    m *= (double)(4 >> BIT_DEPTH_SHIFT);
+    int k = 0;
+    while (k < 9 && m >= edge[k])
+        k++;
+    return 3.0 - k;
+}
+
 struct dpbw_state {
     int nanc, n;
     int anc[N265_MAX_REF + 1];      /* marked anchor POCs, ascending */
@@ -1749,6 +1803,9 @@ n265_encoder *n265_encoder_open(const n265_param *p)
          p->csp != N265_CSP_I444))
         return NULL;
 
+    /* before the first knob is read: on medium a PQ or HLG stream puts
+     * its own rows in front of the preset table */
+    n265_preset_hdr(hdr_kind());
     n265_encoder *e = calloc(1, sizeof(*e));
     if (!e)
         return NULL;
@@ -2101,7 +2158,8 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     { const char *v = n265_env("N265_PSY_DARK_QW"); e->dark_qw = v ? atof(v) : 12.0; }
     { const char *v = n265_env("N265_PSY_DARK_M"); e->dark_m = v ? atof(v) : 64.0; }
     { const char *v = n265_env("N265_PSY_DARK_V"); e->dark_v = v ? atof(v) : 16.0; }
-    e->aq = g_aq || n265_env("N265_AQ") != NULL;      /* variance AQ */
+    { const char *v = n265_env("N265_HDR_LQP"); e->hdr_lqp = v ? atof(v) : 0.0; }
+    e->aq =g_aq || n265_env("N265_AQ") != NULL;      /* variance AQ */
     e->la_depth = e->mode == N265_MODE_PCM || !e->bframes ? g_la_depth
                                                           : g_la_depth;
     e->cutree = e->mode == N265_MODE_PCM ? 0 : g_cutree;
@@ -2483,6 +2541,29 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     if (e->cb_qp_off > 12) e->cb_qp_off = 12;
     if (e->cr_qp_off < -12) e->cr_qp_off = -12;
     if (e->cr_qp_off > 12) e->cr_qp_off = 12;
+    /* N265_HDR_CQP (phase 14 item 56): the chroma offsets H-series
+     * Supplement 15 gives a BT.2020 PQ picture, round(w * (-0.46 QP +
+     * 9.26)) held in [-12, 0], with w N265_HDR_CQP_CB for Cb and
+     * N265_HDR_CQP_CR for Cr and the whole scaled by N265_HDR_CQP. Wide
+     * gamut chroma sits in a narrow band around the midpoint, so at one
+     * QP it is quantised much coarser than BT.709 chroma. The QP is the
+     * operating point the encode opens at, the one --mcstf reads; a named
+     * --cbqpoffs or --crqpoffs wins. 0 is off. */
+    { const char *v = n265_env("N265_HDR_CQP");
+      double s = v ? atof(v) : 0.0;
+      if (s != 0.0) {
+          const char *wb = n265_env("N265_HDR_CQP_CB");
+          const char *wr = n265_env("N265_HDR_CQP_CR");
+          double qp = e->crf_on ? e->crf + e->crf_dur + 5.0
+                    : e->abr_on ? 32.0 : (double)e->qp_base;
+          double t = s * (-0.46 * qp + 9.26);
+          int cb = (int)lround((wb ? atof(wb) : 1.04) * t);
+          int cr = (int)lround((wr ? atof(wr) : 1.39) * t);
+          cb = cb < -12 ? -12 : cb > 0 ? 0 : cb;
+          cr = cr < -12 ? -12 : cr > 0 ? 0 : cr;
+          if (!g_cb_qp_given) e->cb_qp_off = cb;
+          if (!g_cr_qp_given) e->cr_qp_off = cr;
+      } }
     /* --weightp / --weightb (phase 14 item 2). The flag first, then the
      * knob, then the preset table behind n265_env - the order every
      * other tuning value here uses. */
@@ -5998,6 +6079,9 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
             int ng = gcols * grows;
             double *lv = malloc((size_t)ng * sizeof(double));
             double avg = 0;
+            /* the grid's mean luma, for N265_HDR_LQP alone */
+            double *lm = e->hdr_lqp != 0.0
+                       ? malloc((size_t)ng * sizeof(double)) : NULL;
             /* The flat-frame protecting sign's second field and its content
              * census (N265_AQ_FLAT_THR, phase 10 item 3; see the flat branch
              * below). Both are built only when the sign is armed, so at the
@@ -6059,6 +6143,8 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                     int np = w * h;
                     double var = (double)s2 / np -
                         ((double)s1 / np) * ((double)s1 / np);
+                    if (lm)
+                        lm[cy * gcols + cx] = (double)s1 / np;
                     /* the +1 keeps log2 finite at a perfectly flat CTU,
                      * and it is one SQUARED 8-bit level: scaling it with
                      * the variance is what makes the whole field shift by
@@ -6408,6 +6494,9 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                     if (off > aqc) off = aqc;
                     else if (off < -aqc) off = -aqc;
                 }
+                if (lm)
+                    off += e->hdr_lqp * hdr_luma_dqp(lm, i, fw, pool, gcols,
+                                                     grows);
                 int o;
                 if (e->qp_round1) {
                     off += ctqpw * fw->ctu_qp_raw[i];
@@ -6420,6 +6509,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
             }
             if (lvv != lv) free(lvv);
             free(lv);
+            free(lm);
         }
 
         /* Spend the base QP's fractional part over the CTUs: each one is
