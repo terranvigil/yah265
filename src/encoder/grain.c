@@ -39,7 +39,7 @@
  * is a 64x64 integer transform of a fixed Gaussian LUT with an edge
  * attenuation on top, so its variance is a property of the tables and
  * there is nothing to derive it from but the tables. docs/phase12.md,
- * "The synthesiser, calibrated". Index 0 and 1 are unreachable (the
+ * "The synthesizer, calibrated". Index 0 and 1 are unreachable (the
  * decoder clips the cut-off to 2..14) and are filled so an index error
  * would not read as a plausible grain. */
 static const float K[15] = {
