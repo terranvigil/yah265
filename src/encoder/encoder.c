@@ -800,7 +800,19 @@ void n265_encoder_set_csv(n265_encoder *e, const char *path, int level)
 long n265_encoder_dyn_lost(const n265_encoder *e);
 long n265_encoder_dyn_lost(const n265_encoder *e)
 {
-    return e ? e->dyn_lost + e->nal_lost + e->fd_short : 0;
+    if (!e)
+        return 0;
+    /* read after the drain: a NAL still in the ring, or a frame still in
+     * flight, never reached the caller, which is what happens when the
+     * output buffer can't grow during the flush */
+    long left = e->n_inflight;
+    int n = (int)(sizeof(e->done) / sizeof(e->done[0]));
+    for (int i = 0; i < e->n_done; i++)
+        left += e->done[(e->done_head + i) % n].nnal;
+    if (left)
+        fprintf(stderr, "n265: ERROR out of memory: %ld NALs or frames were "
+                "never handed out\n", left);
+    return e->dyn_lost + e->nal_lost + e->fd_short + left;
 }
 
 long n265_encoder_metrics(n265_encoder *e, double out[6])
@@ -3496,8 +3508,8 @@ void n265_encoder_close(n265_encoder *e)
         fprintf(stderr, "n265: ERROR out of memory: %ld HDR10+ or Dolby "
                 "Vision metadata NALs were not written\n", e->dyn_lost);
     if (e->nal_lost)
-        fprintf(stderr, "n265: ERROR out of memory: %ld NALs were dropped "
-                "or written short\n", e->nal_lost);
+        fprintf(stderr, "n265: ERROR %ld NALs were dropped or written short "
+                "(out of memory)\n", e->nal_lost);
     if (e->fd_short)
         fprintf(stderr, "n265: ERROR out of memory: the filler fell short "
                 "in %ld access units, so the stream overflows its strict "
@@ -4452,17 +4464,13 @@ static void stash_header(n265_encoder *e, int type, n265_frame_work *fw)
     int i = e->nhdr;
     if (i >= 3)
         return;
-    /* a parameter set lost here makes the whole stream undecodable, so it
-     * is counted with the rest and fails the run */
-    if (fw->rbsp.failed) {
-        e->nal_lost++;
+    /* a set lost here is not stashed, and the access units that carry
+     * the stash count it as missing when they pack it */
+    if (fw->rbsp.failed)
         return;
-    }
     uint8_t *b = realloc(e->hdr_rbsp[i], fw->rbsp.bytes + 1);
-    if (!b) {
-        e->nal_lost++;
+    if (!b)
         return;
-    }
     memcpy(b, fw->rbsp.buf, fw->rbsp.bytes);
     e->hdr_rbsp[i] = b;
     e->hdr_len[i] = fw->rbsp.bytes;
@@ -6978,10 +6986,13 @@ static void join_oldest(n265_encoder *e)
                                  : fw->slice_type == 1 ? 1 : 2);
         pack_bs(e, d, N265_NAL_AUD, fw->tid, &e->aud_bs);
     }
-    if (fw->emit_headers)
+    if (fw->emit_headers) {
+        /* the VPS, SPS and PPS: a stream missing one is undecodable */
+        e->nal_lost += 3 - e->nhdr;
         for (int i = 0; i < e->nhdr; i++)
             e->nal_lost += !pack_nal(d, e->hdr_type[i], e->hdr_rbsp[i],
                                      e->hdr_len[i]);
+    }
     /* --idr-recovery-sei: one prefix SEI per IRAP, beside the parameter
      * sets and ahead of the timing pair - a decoder that joins here reads
      * "the recovery is immediate" before it reads anything about when to
@@ -7039,9 +7050,9 @@ static void join_oldest(n265_encoder *e)
      * HDR10 and grain SEIs) is written only at an IRAP, which is layer 0. */
     /* a slice the writer cut short can't be dropped, the picture would go
      * missing, so it is packed as it is and counted */
-    e->nal_lost += fw->rbsp.failed;
-    e->nal_lost += !pack_nal_tid(d, fw->nal_type, fw->tid, fw->rbsp.buf,
-                                 fw->rbsp.bytes);
+    int packed = pack_nal_tid(d, fw->nal_type, fw->tid, fw->rbsp.buf,
+                              fw->rbsp.bytes);
+    e->nal_lost += fw->rbsp.failed || !packed;
     /* --hash: the decoded picture hash, D.2.19. A SUFFIX SEI, so it comes
      * AFTER the access unit's VCL NAL (7.4.2.4.4) - the only suffix NAL
      * this encoder writes - and it is computed HERE, on the driver, off
@@ -7105,7 +7116,8 @@ static void join_oldest(n265_encoder *e)
             for (long i = 0; i < need; i++)
                 bs_put_bits(&e->fd_bs, 0xff, 8);
             bs_rbsp_trailing(&e->fd_bs);
-            if (e->fd_bs.failed) {
+            int shrunk = e->fd_bs.failed;
+            if (shrunk) {
                 /* the buffer couldn't grow to the whole filler: write what
                  * fits in it, which is still valid filler, and say the
                  * buffer is fuller here than strict CBR allows */
@@ -7114,13 +7126,13 @@ static void join_oldest(n265_encoder *e)
                 for (long i = 0; i < need; i++)
                     bs_put_bits(&e->fd_bs, 0xff, 8);
                 bs_rbsp_trailing(&e->fd_bs);
-                e->fd_short++;
             }
             if (!e->fd_bs.failed &&
                 pack_nal_tid(d, N265_NAL_FD, fw->tid, e->fd_bs.buf,
                              e->fd_bs.bytes)) {
                 e->filler_bytes += (long)need + 7;
                 e->filler_aus++;
+                e->fd_short += shrunk;
             } else {
                 e->nal_lost++;
             }

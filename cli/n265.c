@@ -313,7 +313,8 @@ typedef struct n265_api {
      * The third argument is the INPUT file's sample width, which is the
      * one row the encoder cannot know. */
     void (*show_config)(const n265_encoder *, FILE *, int);
-    /* HDR10+ or Dolby Vision NALs lost to an allocation failure */
+    /* NALs an allocation failure dropped, cut short or never handed out,
+     * HDR10+ and Dolby Vision metadata included (the name is older) */
     long (*dyn_lost)(const n265_encoder *);
 } n265_api;
 
@@ -1818,7 +1819,7 @@ typedef struct gp_job {
  * the part of each table that starts at its own first picture. */
 static n265_dyn_tab g_h10p_tab, g_rpu_tab;
 static long g_dyn_seek;
-static long g_dyn_lost;     /* summed over every encoder, under open_lock */
+static long g_dyn_lost;     /* every encoder's NAL losses, under open_lock */
 
 static void dyn_apply(const n265_api *a, long from)
 {
@@ -1836,10 +1837,11 @@ static void dyn_apply(const n265_api *a, long from)
         a->set_dovi_rpu(0, NULL, NULL);
 }
 
-/* After the encode. A picture with no metadata breaks HDR10+ or Dolby
- * Vision playback at that picture, so it fails the run (the stream is
- * still written). Metadata left over is only a warning: a --frames run
- * over part of a title is the usual reason. */
+/* After the encode. A NAL the library lost fails the run, and so does a
+ * picture with no metadata, which breaks HDR10+ or Dolby Vision playback
+ * at that picture (the stream is still written either way). Metadata left
+ * over is only a warning: a --frames run over part of a title is the usual
+ * reason. */
 static int dyn_check(long frames)
 {
     const n265_dyn_tab *t[2] = { &g_h10p_tab, &g_rpu_tab };

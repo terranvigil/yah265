@@ -933,8 +933,8 @@ typedef struct n265_frame_work {
      * access unit. 64 bytes holds the three messages with their headers
      * three times over. */
     size_t hdr_sei_len;
-    int nal_lost;           /* of the two above, built short or too big */
     uint8_t hdr_sei[N265_HDR_SEI_MAX];
+    int nal_lost;           /* the grain and HDR10 SEIs, built short or too big */
     int nal_type;
     /* rate control hand-off, frozen at dispatch (sec 3 rule 4) */
     int rc_cls;
@@ -1360,7 +1360,8 @@ struct n265_encoder {
      * count it and still come before it. */
     n265_dynmeta h10p, rpu;
     long dyn_lost;          /* metadata NALs an allocation failure dropped */
-    long nal_lost;          /* every other NAL it dropped or wrote short */
+    long nal_lost;          /* every other NAL it, or a full NAL table, dropped
+                             * or wrote short */
     long fd_short;          /* access units whose strict-CBR filler fell short */
     bitstream_t t35_bs;
     uint8_t *rpu_nal;
