@@ -10,6 +10,7 @@
 
 #include "common/cpu.h"
 #include "encoder/arm/neon.h"
+#include "encoder/x86/avx2.h"   /* self-guarded */
 #include "encoder/mc.h"
 #include "encoder/refchk.h"
 
@@ -125,6 +126,12 @@ void n265_mc_luma_wh(pixel *dst, int ds, int w, int h,
         return;
     }
 #endif
+#if N265_AVX2_MC
+    if (n265_avx2_on(N265_ASM_MC)) {
+        n265_mc_luma_wh_avx2(dst, ds, w, h, ref, ref_stride, fx, fy);
+        return;
+    }
+#endif
     n265_mc_luma_wh_ref(dst, ds, w, h, ref, ref_stride, fx, fy);
 }
 
@@ -187,6 +194,12 @@ void n265_mc_luma_hplane(int16_t *dst, int ds, int w, int h,
 #if N265_NEON_MC
     if (n265_asm_on(N265_ASM_MC)) {
         n265_mc_luma_hplane_neon(dst, ds, w, h, ref, ref_stride, fx);
+        return;
+    }
+#endif
+#if N265_AVX2_MC
+    if (n265_avx2_on(N265_ASM_MC)) {
+        n265_mc_luma_hplane_avx2(dst, ds, w, h, ref, ref_stride, fx);
         return;
     }
 #endif
@@ -306,6 +319,12 @@ void n265_mc_luma_hf(pixel *dst, int ds, int w, int h,
         return;
     }
 #endif
+#if N265_AVX2_MC
+    if (n265_avx2_on(N265_ASM_MC)) {
+        n265_mc_luma_hf_avx2(dst, ds, w, h, hf, hs, fy);
+        return;
+    }
+#endif
     n265_mc_luma_hf_ref(dst, ds, w, h, hf, hs, fy);
 }
 
@@ -344,6 +363,12 @@ void n265_mc_luma_14_hf(int16_t *dst, int ds, int w, int h,
         return;
     }
 #endif
+#if N265_AVX2_MC
+    if (n265_avx2_on(N265_ASM_MC)) {
+        n265_mc_luma_14_hf_avx2(dst, ds, w, h, hf, hs, fy);
+        return;
+    }
+#endif
     n265_mc_luma_14_hf_ref(dst, ds, w, h, hf, hs, fy);
 }
 
@@ -355,6 +380,12 @@ void n265_mc_chroma_wh(pixel *dst, int ds, int w, int h,
 #if N265_NEON_MC
     if (n265_asm_on(N265_ASM_MC)) {
         n265_mc_chroma_wh_neon(dst, ds, w, h, ref, ref_stride, fx, fy);
+        return;
+    }
+#endif
+#if N265_AVX2_MC
+    if (n265_avx2_on(N265_ASM_MC)) {
+        n265_mc_chroma_wh_avx2(dst, ds, w, h, ref, ref_stride, fx, fy);
         return;
     }
 #endif
@@ -427,6 +458,12 @@ void n265_mc_luma_14_wh(int16_t *dst, int ds, int w, int h,
         return;
     }
 #endif
+#if N265_AVX2_MC
+    if (n265_avx2_on(N265_ASM_MC)) {
+        n265_mc_luma_14_wh_avx2(dst, ds, w, h, ref, ref_stride, fx, fy);
+        return;
+    }
+#endif
     n265_mc_luma_14_wh_ref(dst, ds, w, h, ref, ref_stride, fx, fy);
 }
 
@@ -488,6 +525,12 @@ void n265_mc_chroma_14_wh(int16_t *dst, int ds, int w, int h,
 #if N265_NEON_MC
     if (n265_asm_on(N265_ASM_MC)) {
         n265_mc_chroma_14_wh_neon(dst, ds, w, h, ref, ref_stride, fx, fy);
+        return;
+    }
+#endif
+#if N265_AVX2_MC
+    if (n265_avx2_on(N265_ASM_MC)) {
+        n265_mc_chroma_14_wh_avx2(dst, ds, w, h, ref, ref_stride, fx, fy);
         return;
     }
 #endif
@@ -602,6 +645,12 @@ void n265_bi_avg_wh(pixel *dst, int ds, const int16_t *a, const int16_t *b,
         return;
     }
 #endif
+#if N265_AVX2_MC
+    if (w >= 4 && n265_avx2_on(N265_ASM_MC)) {
+        n265_bi_avg_wh_avx2(dst, ds, a, b, w, h);
+        return;
+    }
+#endif
     n265_bi_avg_wh_ref(dst, ds, a, b, w, h);
 }
 
@@ -653,6 +702,12 @@ void n265_wp_uni_wh(pixel *dst, int ds, const int16_t *src, int w, int h,
         return;
     }
 #endif
+#if N265_AVX2_MC
+    if (w >= 4 && n265_avx2_on(N265_ASM_MC)) {
+        n265_wp_uni_wh_avx2(dst, ds, src, w, h, wt, off, denom);
+        return;
+    }
+#endif
     n265_wp_uni_wh_ref(dst, ds, src, w, h, wt, off, denom);
 }
 
@@ -684,6 +739,12 @@ void n265_wp_bi_wh(pixel *dst, int ds, const int16_t *a, const int16_t *b,
         return;
     }
 #endif
+#if N265_AVX2_MC
+    if (w >= 4 && n265_avx2_on(N265_ASM_MC)) {
+        n265_wp_bi_wh_avx2(dst, ds, a, b, w, h, w0, o0, w1, o1, denom);
+        return;
+    }
+#endif
     n265_wp_bi_wh_ref(dst, ds, a, b, w, h, w0, o0, w1, o1, denom);
 }
 
@@ -695,6 +756,12 @@ void n265_wp_pix_wh(pixel *dst, int ds, const pixel *src, int ss, int w,
 #if N265_NEON_MC
     if (w >= 4 && n265_asm_on(N265_ASM_MC)) {
         n265_wp_pix_wh_neon(dst, ds, src, ss, w, h, wt, off, denom);
+        return;
+    }
+#endif
+#if N265_AVX2_MC
+    if (w >= 4 && n265_avx2_on(N265_ASM_MC)) {
+        n265_wp_pix_wh_avx2(dst, ds, src, ss, w, h, wt, off, denom);
         return;
     }
 #endif
