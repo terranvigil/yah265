@@ -397,6 +397,22 @@ static const struct kv med_tab[] = {
     { "N265_IRANK", "0" },
     { "N265_TD_DIST", "1" },
     { "N265_RDOQ_TAIL", "1" },
+    /* phase 14 item 57: margin spent on speed. The intra transform
+     * tree tries no split under a 16x16 or 32x32 node, at every class:
+     * 2.4-5.0% of the instructions for at most 0.8 of a point of BD-v1
+     * on a tier D cell or a CIF-7 clip. The overlays add more: the
+     * five-point subpel square (`N265_SUBPEL_AXIS` 3) at 720p and UHD,
+     * one intra mode fully priced instead of three (`N265_INTRA_RD_N`
+     * 1) at 720p and HD, and at UHD no inter transform split at all,
+     * three merge candidates ranked and the intra recursion stop at
+     * every 16x16 node. CIF keeps the other arms off: with all three
+     * it lost foreman 1.7 points and akiyo 1.3. `N265_SUBPEL_AXIS=0
+     * N265_INTRA_RD_N=3 N265_TT_SKIP_INTRA=0 N265_MERGE_RD_N=5
+     * N265_INTRA_RSKIP=3` is the escape, and at UHD
+     * `N265_TT_SKIP_INTER=2` with it. docs/phase14.md "Item 57". */
+    { "N265_SUBPEL_AXIS", "0" },
+    { "N265_INTRA_RD_N", "3" },
+    { "N265_TT_SKIP_INTRA", "6" },
     /* There is NO `N265_NR_INTRA` / `N265_NR_INTER` row, and item 6b is
      * why that is worth saying out loud here. Item 6 recommended
      * `--nr-intra 100 --nr-inter 100` for this table off a five-clip
@@ -760,8 +776,20 @@ static const struct kv med_tab_uhd[] = {
      * commit tries no transform split under a 16x16 node. The 8x8 node's
      * split stays: without it meridian's VBR ladder gave 0.21 of a point,
      * and at 1080p it cost sunflower 0.13; the 32x32 node's cost meridian
-     * 0.55. `N265_TT_SKIP_INTER=0` is the escape. */
-    { "N265_TT_SKIP_INTER", "2" },
+     * 0.55, both on VMAF-NEG. Item 57 drops them too (below); its
+     * escape is `N265_TT_SKIP_INTER=2`, and 0 is item 40's. */
+    /* phase 14 item 57 at UHD only (tab_hd answers first at HD): no
+     * inter transform split at any node, three merge candidates ranked
+     * and the intra recursion stop at every 16x16 node, not only on
+     * intra-heavy frames. At 720p and 1080p each of the three cost
+     * Chimera 720p 1.3-2.3 points; on the three UHD cells none costs
+     * more than 0.4. Three intra modes stay priced here: one cost
+     * tears 2160p 0.9. */
+    { "N265_TT_SKIP_INTER", "7" },
+    { "N265_MERGE_RD_N", "3" },
+    { "N265_INTRA_RSKIP", "1" },
+    { "N265_INTRA_RD_N", "3" },
+    { "N265_SUBPEL_AXIS", "3" },
     /* the split side (item 24's knob), measured at 2160p by item 26: on
      * three 4K windows every per-rung delta against the tree without it
      * is within 0.11 VMAF-NEG. At HD, tab_hd answers first with the same
@@ -808,6 +836,12 @@ static const struct kv med_tab_hd[] = {
     { "N265_REF2_LITE", "0" },        /* item 48: UHD only */
     { "N265_CB64_SPLITGATE", "256" },
     { "N265_TT_SKIP_INTER", "0" },   /* item 40: UHD only */
+    { "N265_MERGE_RD_N", "5" },      /* item 57: UHD only */
+    { "N265_INTRA_RSKIP", "3" },     /* item 57: UHD only */
+    /* item 57: one intra mode priced at HD; the five-point subpel
+     * square not, since with it the stack cost bbb 1.15 points */
+    { "N265_INTRA_RD_N", "1" },
+    { "N265_SUBPEL_AXIS", "0" },
     { NULL, NULL }
 };
 
@@ -853,6 +887,9 @@ static const struct kv med_tab_720[] = {
     { "N265_CDZ", "1" },
     { "N265_CBQPOFFS", "-2" },
     { "N265_CRQPOFFS", "-2" },
+    /* phase 14 item 57 at 720p: see med_tab */
+    { "N265_SUBPEL_AXIS", "3" },
+    { "N265_INTRA_RD_N", "1" },
     { NULL, NULL }
 };
 

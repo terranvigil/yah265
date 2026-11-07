@@ -156,37 +156,39 @@ typedef struct sao_stats {
  * under 5% of the clip it was written for. Re-open it only if a future
  * arm turns the edge offset back on somewhere, where the four
  * classification passes ARE vector work. */
+/* Each bin holds its count and its difference sum in one word: the count
+ * from bit 40 up and the signed sum below it, so a sample costs one
+ * read-modify-write instead of two. A block is at most 64x64 samples, so
+ * the sum stays far inside 2^39 and the two halves come apart exactly. */
+#define SAO_PK_ONE ((int64_t)1 << 40)
+
 void n265_sao_band_stats(const pixel *src, int src_stride,
                          const pixel *rec, int rec_stride, int w,
                          int h, int64_t bn[32], int64_t bd[32])
 {
-    int32_t n[4][32], d[4][32];
-    memset(n, 0, sizeof(n));
-    memset(d, 0, sizeof(d));
+    int64_t pk[4][32];
+    memset(pk, 0, sizeof(pk));
     for (int y = 0; y < h; y++) {
         const pixel *s = src + (size_t)y * src_stride;
         const pixel *r = rec + (size_t)y * rec_stride;
         int x = 0;
         for (; x + 4 <= w; x += 4) {
             int r0 = r[x], r1 = r[x + 1], r2 = r[x + 2], r3 = r[x + 3];
-            n[0][r0 >> SAO_BAND_SHIFT]++;
-            d[0][r0 >> SAO_BAND_SHIFT] += s[x] - r0;
-            n[1][r1 >> SAO_BAND_SHIFT]++;
-            d[1][r1 >> SAO_BAND_SHIFT] += s[x + 1] - r1;
-            n[2][r2 >> SAO_BAND_SHIFT]++;
-            d[2][r2 >> SAO_BAND_SHIFT] += s[x + 2] - r2;
-            n[3][r3 >> SAO_BAND_SHIFT]++;
-            d[3][r3 >> SAO_BAND_SHIFT] += s[x + 3] - r3;
+            pk[0][r0 >> SAO_BAND_SHIFT] += SAO_PK_ONE + (s[x] - r0);
+            pk[1][r1 >> SAO_BAND_SHIFT] += SAO_PK_ONE + (s[x + 1] - r1);
+            pk[2][r2 >> SAO_BAND_SHIFT] += SAO_PK_ONE + (s[x + 2] - r2);
+            pk[3][r3 >> SAO_BAND_SHIFT] += SAO_PK_ONE + (s[x + 3] - r3);
         }
         for (; x < w; x++) {
             int rv = r[x];
-            n[0][rv >> SAO_BAND_SHIFT]++;
-            d[0][rv >> SAO_BAND_SHIFT] += s[x] - rv;
+            pk[0][rv >> SAO_BAND_SHIFT] += SAO_PK_ONE + (s[x] - rv);
         }
     }
     for (int b = 0; b < 32; b++) {
-        bn[b] += (int64_t)n[0][b] + n[1][b] + n[2][b] + n[3][b];
-        bd[b] += (int64_t)d[0][b] + d[1][b] + d[2][b] + d[3][b];
+        int64_t t = pk[0][b] + pk[1][b] + pk[2][b] + pk[3][b];
+        int64_t c = (t + SAO_PK_ONE / 2) >> 40;
+        bn[b] += c;
+        bd[b] += t - c * SAO_PK_ONE;
     }
 }
 
