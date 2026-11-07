@@ -2158,6 +2158,9 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     { const char *v = n265_env("N265_PSY_DARK_QW"); e->dark_qw = v ? atof(v) : 12.0; }
     { const char *v = n265_env("N265_PSY_DARK_M"); e->dark_m = v ? atof(v) : 64.0; }
     { const char *v = n265_env("N265_PSY_DARK_V"); e->dark_v = v ? atof(v) : 16.0; }
+    /* N265_PSY_DARK_LO (phase 14 item 58): no dark psy on a block whose
+     * mean is under this, the black of a title card. 0 is off. */
+    { const char *v = n265_env("N265_PSY_DARK_LO"); e->dark_lo = v ? atof(v) : 0.0; }
     { const char *v = n265_env("N265_HDR_LQP"); e->hdr_lqp = v ? atof(v) : 0.0; }
     e->aq =g_aq || n265_env("N265_AQ") != NULL;      /* variance AQ */
     e->la_depth = e->mode == N265_MODE_PCM || !e->bframes ? g_la_depth
@@ -6056,7 +6059,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                     v /= sc * sc;
                     double dw = (ml - m) / (0.5 * ml);
                     double sw = (vl - (v > 0.0 ? v : 0.0)) / (0.75 * vl);
-                    dw = dw < 0.0 ? 0.0 : dw > 1.0 ? 1.0 : dw;
+                    dw = dw < 0.0 || m < e->dark_lo ? 0.0 : dw > 1.0 ? 1.0 : dw;
                     sw = sw < 0.0 ? 0.0 : sw > 1.0 ? 1.0 : sw;
                     fw->dark_w[by * dc + bx] = (float)(dw * sw);
                 }

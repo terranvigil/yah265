@@ -387,6 +387,12 @@ static const struct kv med_tab[] = {
      * coastguard 0.3 points of BD-v1 and costs tempete 1.0, so CIF stays
      * main's stream. med_tab_720 names 2 and med_tab_uhd 4. */
     { "N265_PSY_DARK", "0" },
+    /* phase 14 item 58, every class (inert where the dark psy is 0): no
+     * dark psy on a 16x16 block whose mean is under 18, the black of a
+     * credits card. On a nocturne 1080p credits sample BD-PSNR-Y against
+     * x265 goes +41.0% -> -20.8%, and its darkest story window +4.44% ->
+     * -0.39% BD-v1. `N265_PSY_DARK_LO=0` is the escape. */
+    { "N265_PSY_DARK_LO", "18" },
     /* phase 14 item 34: inter trials priced on their coefficients, and
      * the rounded tail dropped before the lattice, at every class. Both
      * gain BD-v1 and save instructions. The coarse intra rank (IRANK)
@@ -795,6 +801,9 @@ static const struct kv med_tab_uhd[] = {
      * is within 0.11 VMAF-NEG. At HD, tab_hd answers first with the same
      * value. */
     { "N265_CB64_SPLITGATE", "256" },
+    /* phase 14 item 58: HD only (tab_hd answers first) */
+    { "N265_CB64_GATEQ", "0" },
+    { "N265_CB64_GATEQ_REF", "0" },
     /* phase 14 item 51, at HD and UHD (and med_tab_720 at 720p): VMAF
      * v1 scores chroma and weighs it steeply, and Chimera was over the
      * v1 bar. Inter chroma rounds at 1/3 instead of the 1/6 deadzone,
@@ -842,6 +851,15 @@ static const struct kv med_tab_hd[] = {
      * square not, since with it the stack cost bbb 1.15 points */
     { "N265_INTRA_RD_N", "1" },
     { "N265_SUBPEL_AXIS", "0" },
+    /* phase 14 item 58: the skip gate also bounds each 32x32 quadrant,
+     * at 1.25x a quarter of the node's bound (1.5x on referenced
+     * pictures). A 64x64 skip whose residual sits in one corner lost
+     * that corner's detail: sunflower 1080p +1.93% -> +0.54% BD-v1, for
+     * 1.7% more instructions at HD. `N265_CB64_GATEQ=0
+     * N265_CB64_GATEQ_REF=0` is the escape.
+     * docs/phase14.md "Item 58". */
+    { "N265_CB64_GATEQ", "125" },
+    { "N265_CB64_GATEQ_REF", "150" },
     { NULL, NULL }
 };
 
