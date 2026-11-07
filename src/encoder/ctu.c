@@ -3456,6 +3456,41 @@ static int cb64_gate_of(const struct n265_frame_work *e)
     return e->nonref ? cb64_skipgate() : cb64_skipgate_ref();
 }
 
+/* N265_CB64_GATEQ (phase 14 item 58): the skip gate also bounds each
+ * 32x32 quadrant, at this percentage of a quarter of the node's bound.
+ * A node whose residual sits in one corner passes the whole-node bound
+ * and loses that corner's detail. 0 is off. */
+static int cb64_gateq(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_CB64_GATEQ");
+        v = s ? atoi(s) : 0;
+        if (v < 0)
+            v = 0;
+    }
+    return v;
+}
+
+/* N265_CB64_GATEQ_REF: the same on a referenced picture; unset follows
+ * N265_CB64_GATEQ */
+static int cb64_gateq_ref(void)
+{
+    static int v = -2;
+    if (v == -2) {
+        const char *s = n265_env("N265_CB64_GATEQ_REF");
+        v = s ? atoi(s) : -1;
+        if (v < -1)
+            v = -1;
+    }
+    return v < 0 ? cb64_gateq() : v;
+}
+
+static int cb64_gateq_of(const struct n265_frame_work *e)
+{
+    return e->nonref ? cb64_gateq() : cb64_gateq_ref();
+}
+
 /* N265_REF2_LITE (phase 14 item 48, an arm): the AMVP search on a second
  * or later reference, made cheap. 1 prices only the candidates already in
  * hand - the two predictors, the seed and the first reference's winner
@@ -7655,6 +7690,15 @@ static int cb64_gate_try(struct n265_frame_work *e, int x0, int y0,
     if (ssd * 1024u * 65536u > (uint64_t)cb64_gate_of(e) *
                                (uint64_t)e->tree_w16 * thr)
         return 0;
+    if (cb64_gateq_of(e)) {
+        double qb = (double)cb64_gate_of(e) * e->tree_w16 * (double)thr /
+                    (1024.0 * 65536.0) / 4.0 * cb64_gateq_of(e) / 100.0;
+        int h = n >> 1;
+        for (int i = 0; i < 4; i++)
+            if ((double)cu_area_ssd(e, x0 + (i & 1) * h, y0 + (i >> 1) * h,
+                                    h) > qb)
+                return 0;
+    }
     est_state adv = { e->est_ctx, 0 };
     n265_est_advance_cu(e, &adv, x0, y0, log2n);
     set_blk(e, e->blk_qp, x0, y0, n,
@@ -8343,7 +8387,7 @@ void n265_ctu_warm(void)
     (void)intra_fast_qp(); (void)intra_fast_step(); (void)tt_skip_qp();
     (void)intra_fast_w(); (void)intra_fast_flat();
     (void)cb64_gate(); (void)cb64_amvp(); (void)b_intra_margin();
-    (void)cb64_prof_on(); (void)cb64_skipgate(); (void)cb64_skipgate_ref(); (void)ref2_lite();
+    (void)cb64_prof_on(); (void)cb64_skipgate(); (void)cb64_skipgate_ref(); (void)cb64_gateq(); (void)cb64_gateq_ref(); (void)ref2_lite();
     (void)bi_refine_iters(); (void)merge_rd_n(); (void)merge_pick_rate(); (void)cb64_splitgate(); (void)bi_gate();
     (void)bi_gate_margin(); (void)intra_rd_n(); (void)intra_rd_mpm();
     (void)i_intra(); (void)chroma_w_on(); (void)chroma_w_pct();

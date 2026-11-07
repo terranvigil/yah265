@@ -106,11 +106,12 @@ profile() {
         item56)       echo "--no-hdr-opt|";;      # item 56, medium on PQ / HLG: chroma -6 / -6, no dark psy (SDR never moves)
         item55)       echo "|N265_READAHEAD_MB=0";;   # item 55, the input read on its own thread above one thread (a schedule; no bit moves)
         item57)       echo "|N265_SUBPEL_AXIS=0 N265_INTRA_RD_N=3 N265_TT_SKIP_INTRA=0 N265_MERGE_RD_N=5 N265_INTRA_RSKIP=3";;   # item 57, medium spends margin on speed (at UHD add N265_TT_SKIP_INTER=2)
+        item58)       echo "|N265_CB64_GATEQ=0 N265_CB64_GATEQ_REF=0 N265_PSY_DARK_LO=0";;   # item 58, medium: the HD skip gate bounds each 32x32 quadrant; no dark psy under mean 18
         asmoff)       echo "|N265_ASM_OFF=all";;
         *) return 1;;
     esac
 }
-PROFILE_NAMES="info fingerprint weightp stream ship item22 item23 item24 item25 item25sched item26 item28 item29 item29s2 item30 vbrspeed item33 item35 item36 item37 item38 item40 item41 item43 item44 item46 item47 item48 item49 item50 item51 item52 item53 item55 item56 item57 asmoff"
+PROFILE_NAMES="info fingerprint weightp stream ship item22 item23 item24 item25 item25sched item26 item28 item29 item29s2 item30 vbrspeed item33 item35 item36 item37 item38 item40 item41 item43 item44 item46 item47 item48 item49 item50 item51 item52 item53 item55 item56 item57 item58 asmoff"
 
 # ---------------------------------------------------------------- one cell
 # Called back through xargs: identity_ab.sh --cell WORK LINE
