@@ -32,6 +32,7 @@ void bs_reset(bitstream_t *bs)
     bs->bytes = 0;
     bs->acc = 0;
     bs->acc_bits = 0;
+    bs->failed = 0;
 }
 
 static int bs_grow(bitstream_t *bs, size_t need)
@@ -55,10 +56,10 @@ void bs_put_bits(bitstream_t *bs, uint32_t val, int n)
     bs->acc_bits += n;
     while (bs->acc_bits >= 8) {
         if (bs->bytes + 1 > bs->cap && bs_grow(bs, bs->bytes + 1) < 0) {
-            /* out of memory: drop bits; caller sees short output and the
-             * conformance gate fails loudly. never silently truncate a
-             * byte boundary mid-stream in a way that parses. */
+            /* out of memory: drop bits and set the flag, which the
+             * caller checks before it packs what was written */
             bs->acc_bits = 0;
+            bs->failed = 1;
             return;
         }
         bs->acc_bits -= 8;
