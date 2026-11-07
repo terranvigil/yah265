@@ -26,3 +26,6 @@ subprojects/.wraplock
 subprojects/packagecache/
 /tests/train-corpus/
 /local
+
+# the built docs site (scripts/site.sh)
+/site/_build/

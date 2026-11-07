@@ -15,6 +15,7 @@ typedef struct bitstream_t {
     size_t bytes;       /* complete bytes written                */
     uint64_t acc;       /* pending bits, MSB-first, low-aligned  */
     int acc_bits;       /* number of pending bits (< 8 after put) */
+    int failed;         /* a put dropped bits since the last reset */
 } bitstream_t;
 
 int  bs_init(bitstream_t *bs, size_t capacity);

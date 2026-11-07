@@ -934,6 +934,7 @@ typedef struct n265_frame_work {
      * three times over. */
     size_t hdr_sei_len;
     uint8_t hdr_sei[N265_HDR_SEI_MAX];
+    int nal_lost;           /* the grain and HDR10 SEIs, built short or too big */
     int nal_type;
     /* rate control hand-off, frozen at dispatch (sec 3 rule 4) */
     int rc_cls;
@@ -1363,6 +1364,9 @@ struct n265_encoder {
      * count it and still come before it. */
     n265_dynmeta h10p, rpu;
     long dyn_lost;          /* metadata NALs an allocation failure dropped */
+    long nal_lost;          /* every other NAL it, or a full NAL table, dropped
+                             * or wrote short */
+    long fd_short;          /* access units whose strict-CBR filler fell short */
     bitstream_t t35_bs;
     uint8_t *rpu_nal;
     size_t rpu_nal_cap;
@@ -1505,6 +1509,9 @@ struct n265_encoder {
     /* N265_PSY_DARK (phase 14 item 53): the strength, its QP fade and
      * the two ramps that say which blocks are dark and smooth */
     double dark_psy, dark_qhi, dark_qw, dark_m, dark_v;
+    /* N265_HDR_LQP (phase 14 item 56): the strength of the luma-level
+     * QP offset a PQ picture's CTUs take, 0 off */
+    double hdr_lqp;
     int keyint;
     int bframes;
     int scenecut;
@@ -1728,9 +1735,9 @@ struct n265_encoder {
         int nnal;
         /* N265_AU_NAL_MAX, counted off the list of every NAL an access
          * unit can carry (above this struct). pack_nal DROPS a NAL past
-         * this bound and says nothing, so a bound one short does not fail
-         * loudly - it silently loses the IDR slice and the stream decodes
-         * as "could not find ref with POC 0". A hand-raised bound was
+         * this bound; the drop is counted and fails the run, but a bound
+         * one short still loses the IDR slice and the stream decodes as
+         * "could not find ref with POC 0". A hand-raised bound was
          * found too short twice by exactly that symptom, so a new NAL
          * goes on the list, and the bound follows. */
         int type[N265_AU_NAL_MAX];

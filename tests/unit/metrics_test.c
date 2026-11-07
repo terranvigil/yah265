@@ -29,6 +29,14 @@ static int fails;
 #define W 32
 #define H 32
 
+#if BIT_DEPTH == 8
+#define REF_PSNR_Y 34.4067903455
+#define REF_SSIM_Y 0.993744602472
+#else
+#define REF_PSNR_Y 34.4269052914
+#define REF_SSIM_Y 0.993743199093
+#endif
+
 /* The two planes the reference numbers were taken over. The pattern is
  * deliberately high-variance, so SSIM is dominated by the error term and
  * not by a flat region's constants. */
@@ -61,17 +69,18 @@ int main(void)
     /* ---- PSNR ----
      *
      * The luma error is the same integer pattern at every depth, scaled
-     * by the depth shift, so the squared error scales by 4^shift and the
-     * dB figure is depth-independent: the max scales the same way. That
-     * is why one reference number serves both builds. */
+     * by the depth shift, but the peak is 1023, not 4 x 255, and the
+     * clip at the top lands on different samples, so each depth has its
+     * own reference. Both were checked against an independent walk and
+     * ffmpeg's psnr and ssim filters on the same planes (gray, gray10le). */
     n265_metrics m;
     memset(&m, 0, sizeof(m));
     m.psnr = 1;
     m.ssim = 1;
     n265_metrics_frame(&m, src, sstride, rec, rstride, W, H, 1, 1);
 
-    CHECK(fabs(m.f_psnr[0] - 34.4067903455) < 1e-6,
-          "per-frame PSNR Y %.10f, reference 34.4067903455", m.f_psnr[0]);
+    CHECK(fabs(m.f_psnr[0] - REF_PSNR_Y) < 1e-6,
+          "per-frame PSNR Y %.10f, reference %.10f", m.f_psnr[0], REF_PSNR_Y);
     CHECK(isinf(m.f_psnr[1]) && isinf(m.f_psnr[2]),
           "a lossless plane has no logarithm and must read as inf, not as "
           "a number derived from its size: %.4f / %.4f", m.f_psnr[1],
@@ -84,8 +93,8 @@ int main(void)
           m.f_psnr_avg, m.f_psnr[0] + 10.0 * log10(1.5));
 
     /* ---- SSIM ---- */
-    CHECK(fabs(m.f_ssim - 0.993744602472) < 1e-9,
-          "per-frame SSIM-Y %.12f, reference 0.993744602472", m.f_ssim);
+    CHECK(fabs(m.f_ssim - REF_SSIM_Y) < 1e-9,
+          "per-frame SSIM-Y %.12f, reference %.12f", m.f_ssim, REF_SSIM_Y);
 
     /* Pooling: a second identical frame must move neither number, because
      * the squared error is summed and divided by the samples it was

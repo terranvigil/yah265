@@ -91,6 +91,7 @@ typedef uint16_t n265_pixel;
 #define n265_set_hdr10        N265_API(n265_set_hdr10)
 #define n265_set_hdr10plus    N265_API(n265_set_hdr10plus)
 #define n265_set_dovi_rpu     N265_API(n265_set_dovi_rpu)
+#define n265_set_hdr_opt      N265_API(n265_set_hdr_opt)
 #define n265_set_gop          N265_API(n265_set_gop)
 #define n265_set_preset       N265_API(n265_set_preset)
 #define n265_preset_param     N265_API(n265_preset_param)
@@ -286,6 +287,9 @@ YAH265_API void n265_set_hdr10plus(int n, const uint8_t *const *t35,
                                    const size_t *len);
 YAH265_API void n265_set_dovi_rpu(int n, const uint8_t *const *rbsp,
                                   const size_t *len);
+/* --hdr-opt (phase 14 item 56): 1 turns medium's HDR tuning on, 0 off,
+ * -1 (the default) turns it on where the stream signals PQ or HLG. */
+YAH265_API void n265_set_hdr_opt(int on);
 
 /* ---- open GOP (phase 14 item 3) ----
  *

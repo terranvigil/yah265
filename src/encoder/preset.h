@@ -24,6 +24,11 @@ const char *n265_preset_selected(void);
  * (luma w*h >= 1920*800), 2 UHD-class (>= 3840*1600). The rate switch
  * reads it to pick its threshold (phase 14 items 17 and 23). */
 int n265_preset_res_class(void);
+/* The HDR kind, latched by n265_encoder_open before it reads a knob: 0
+ * SDR, 1 PQ, 2 HLG. On medium a PQ or HLG kind puts its own table in front
+ * of every other (phase 14 item 56). */
+void n265_preset_hdr(int kind);
+int n265_preset_hdr_kind(void);
 int n265_preset_row(int i, const char **key, const char **val,
                     const char **env);
 
