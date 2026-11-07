@@ -31,7 +31,7 @@ names a built page and each `#fragment` names an id on that page.
 | `hdr.md` | HDR (the build takes it from `docs/hdr.md`) |
 | `results.md` | results (the build takes it from the latest parity report) |
 | `check-it-yourself.md` | check it yourself |
-| `blog.md` | blog, a placeholder |
+| `blog.md` | blog: the parity post (scripts/blog_charts.py fills its figures and draws `assets/blog/`) |
 | `methodology.md` | methodology (built and linked from results, but left out of the nav) |
 | `_layout.html` | the shell every page is poured into |
 | `assets/site.css` | shared styles |
