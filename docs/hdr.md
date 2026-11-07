@@ -2,8 +2,8 @@
 
 yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8 as Main10 HEVC.
 The colour flags and metadata tell a player what the pictures are. At preset
-medium the transfer also changes how the pictures are coded: see
-[Tuning for HDR](#tuning-for-hdr).
+medium the transfer also changes how the pictures are coded, as
+[Tuning for HDR](#tuning-for-hdr) describes.
 
 | format | what goes in the stream | options |
 |---|---|---|
@@ -51,8 +51,8 @@ flags and a 10-bit encode. A command line that would mislabel the stream is
 refused before it writes anything. Either file can come from a pipe.
 
 Dolby Vision without a VBV, and 8.1 without `--master-display`, get a warning
-and still encode. Deliveries are normally HRD-constrained and an 8.1 base
-layer is a complete HDR10 stream, but a CRF encode is still a valid one.
+and still encode. Deliveries are normally HRD-constrained. An 8.1 base
+layer is a complete HDR10 stream. A CRF encode is still a valid one.
 
 ## Encoding HDR10+ and Dolby Vision 8.1
 
@@ -67,17 +67,17 @@ ffmpeg -i master.mov -pix_fmt yuv420p10le -strict -1 -f yuv4mpegpipe - |
 ```
 
 A raw HEVC stream has nowhere to say "this is Dolby Vision" except the RPUs
-themselves, so a player needs the container to tell it, in MP4's `dvcC` box
-or Matroska's equivalent. ffmpeg's stream copy from a raw `.hevc` doesn't
+themselves. A player needs the container to tell it, in MP4's `dvcC` box or
+Matroska's equivalent. ffmpeg's stream copy from a raw `.hevc` doesn't
 write that box. A Dolby Vision-aware muxer such as MP4Box or mkvmerge does.
 
 ## Tuning for HDR
 
-When the stream says PQ (`--transfer smpte2084`) or HLG (`--transfer
-arib-std-b67`, or `--atc-sei arib-std-b67`), preset medium codes chroma six
-quantiser steps finer than luma and turns off the extra psy weight on dark
-blocks. Wide-gamut chroma sits in a narrow band around its midpoint, so at
-luma's quantiser it loses far more than SDR chroma does. `--hdr-opt` turns the
+A stream says PQ with `--transfer smpte2084`. It says HLG with `--transfer
+arib-std-b67` or `--atc-sei arib-std-b67`. On either one, preset medium codes
+chroma six quantiser steps finer than luma and turns off the extra psy weight
+on dark blocks. Wide-gamut chroma stays in a narrow band around its midpoint.
+At luma's quantiser it loses far more than SDR chroma does. `--hdr-opt` turns the
 tuning on for a stream that doesn't name either transfer, and `--no-hdr-opt`
 turns it off. `--hdr10-opt` is the same switch under x265's name. A
 `--cbqpoffs` or `--crqpoffs` you name yourself still wins. The other presets
@@ -86,8 +86,9 @@ code HDR like SDR.
 ## Quality on HDR content
 
 We scored yah265 and x265 with Netflix's HDR-VMAF v1.1.8 on two HDR10
-titles from Netflix Open Content: 10 seconds of Sol Levante (animation, 24p)
-and 5 seconds of Sparks (live action, 60p). Both encoders ran at preset medium
+titles from Netflix Open Content: 10 seconds of Sol Levante
+and 5 seconds of Sparks. Sol Levante is 24p animation. Sparks is 60p live
+action. Both encoders ran at preset medium
 with the same HDR10 signalling. yah265 ran at `--threads 6`, and x265 at
 `--pools 6 --frame-threads 4` with no `--hdr10-opt`. Scores use HDR-VMAF's 3H
 model at 1080p and its 1.5H model at 2160p, in the high frame rate variant
@@ -109,13 +110,13 @@ six rungs a side:
 | Sparks 1080p | -21.9% | -16.9% |
 | Sparks 2160p | -25.0% | -19.2% |
 
-`--hdr10-opt` is worth 6-19% to x265 on HDR-VMAF, and without the tuning
-yah265 was level with it on Sol Levante. `scripts/hdr_bd.py` runs the ladders
+`--hdr10-opt` is worth 6-19% to x265 on HDR-VMAF. Without the tuning yah265
+was level with it on Sol Levante. `scripts/hdr_bd.py` runs the ladders
 and the BD reading.
 
 x265 ran CRF 20 to 32 in steps of 3. The two CRF scales don't line up on this
 material: at the same CRF yah265 writes a much smaller file on Sol Levante. So
-yah265 ran CRF 11 to 32 in the same steps, and each cell uses the five rungs
+yah265 ran CRF 11 to 32 in the same steps. Each cell uses the five rungs
 whose HDR-VMAF range best matches x265's. Those cover 92% or more of x265's
 range in every cell.
 
@@ -123,29 +124,27 @@ Banding was read with HDR-VMAF's PQ CAMBI. Sol Levante's flat gradients band
 on both encoders at the lower rates. yah265 bands less there at the same
 bitrate: its worst frames read about a point lower, around 5 where x265's
 reach 6. On Sparks yah265 reads slightly higher than x265 at the upper rates
-and lower at the lower ones, and both stay far below the level where banding
+and lower at the lower ones. Both stay far below the level where banding
 shows.
 
 ## How it was checked
 
-- **Against the tools' own injection.** A CRF encode with `--dhdr10-info`
-  and `--dolby-vision-rpu` gives the same NAL units, byte for byte, as the
-  same encode without them run through `hdr10plus_tool inject` and
-  `dovi_tool inject-rpu`. The only differences: the tools add an access unit
-  delimiter to each picture, and the encoder's version SEI names the extra
-  options.
-- **Round trips.** `dovi_tool extract-rpu` and `hdr10plus_tool extract` on an
-  encode give back the input metadata exactly. That holds with B-frames
-  reordering the pictures, with `--seek`, and across `--gop-parallel`
-  segments.
-- **Against another encoder.** The ST 2094-40 writer reproduces a profile B
-  message from a real HDR10+ stream byte for byte. The unit test pins it.
-- **Players.** ffmpeg parses the HDR10+ message and the Dolby Vision RPU of
-  every frame, and decodes the streams with errors fatal.
-- **Real metadata.** The Dolby Vision test uses Netflix's own grade for Sol
-  Levante: the Dolby Vision XML published with it under CC BY 4.0, turned
-  into profile 8.1 RPUs by `dovi_tool`.
-- **Nothing else moves.** Without these options the output is byte-identical
+- A CRF encode with `--dhdr10-info` and `--dolby-vision-rpu` gives the same
+  NAL units, byte for byte, as the same encode without them run through
+  `hdr10plus_tool inject` and `dovi_tool inject-rpu`. The tools add an access
+  unit delimiter to each picture. The encoder's version SEI names the extra
+  options. Those are the only differences.
+- `dovi_tool extract-rpu` and `hdr10plus_tool extract` on an encode give back
+  the input metadata exactly. That holds with B-frames reordering the
+  pictures, with `--seek`, and across `--gop-parallel` segments.
+- The ST 2094-40 writer reproduces a profile B message from another
+  encoder's real HDR10+ stream byte for byte. A unit test holds it to that.
+- ffmpeg parses the HDR10+ message and the Dolby Vision RPU of every frame.
+  It decodes the streams with errors fatal.
+- The Dolby Vision test uses Netflix's own grade for Sol Levante. That's the
+  Dolby Vision XML published with it under CC BY 4.0, turned into profile 8.1
+  RPUs by `dovi_tool`.
+- Nothing else moves. Without these options the output is byte-identical
   to the encoder before they existed, except under `--temporal-layers`, where
   the NAL units written with each picture (the delimiter, timing SEI, hash
   and filler) now take that picture's temporal layer. With them, a CRF

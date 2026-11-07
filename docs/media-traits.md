@@ -2,17 +2,18 @@
 
 `scripts/media_traits.py` measures what each test title is before anything
 is encoded. It writes one row per title to `docs/data/media-traits.csv`.
-The CSV is the record. This page says what each column means, what each
-flag can mislead, and the rule a reading follows when its cell is flagged.
+The CSV is the record. This page says what each column means and what
+each flag can mislead. It also gives the rule a reading follows when its
+cell is flagged.
 
 ## Why
 
-A cell's number can move because of one quirk of the clip, and not because
-of the content an item is about. Meridian 720p opens on 60 black frames.
-Item 29 step 2's flat rule gave up an accident those frames caused in the
-rate control. The cell read 1.79% worse, and none of that loss was about
-the 89 seconds of picture that follow. A trait like that should be known
-before the reading, not found after it.
+A cell's number can move because of one quirk of the clip instead of the
+content an item is about. Meridian 720p opens on 60 black frames. Item 29
+step 2's flat rule gave up an accident those frames caused in the rate
+control. The cell read 1.79% worse. None of that loss was about the 89
+seconds of picture that follow. A trait like that should be known before
+the reading instead of found after it.
 
 ## The titles
 
@@ -32,16 +33,16 @@ fades and luma range hold at every size. Its flat share and noise level are
 
 One pass per source reads every frame's luma once. It keeps a per-frame
 series, cached under `~/.cache/yah265-traits` and keyed on the source's
-path, size and mtime. The CSV is a reduction of the series, so a threshold
-change costs seconds. Most traits are read on a box-averaged copy about 320
+path, size and mtime. Because the CSV is a reduction of the series, a
+threshold change costs seconds. Most traits are read on a box-averaged copy about 320
 samples wide. The flat type is read at full size, because it's the
 encoder's own definition. The noise estimate is read at full size too, on
 at most 240 evenly spaced frames.
 
 The flat type is the encoder's content gate (`N265_FLAT_GATE`, la.c),
 reproduced bit for bit. `media_traits.py check-flat` compares it with
-`N265_FLAT_TRACE` frame by frame. It matched on every frame of foreman_cif
-(300), sita_toon_720p, fade_cif and 120 frames of Meridian 720p.
+`N265_FLAT_TRACE` frame by frame. It matched on every frame of foreman_cif's
+300, of sita_toon_720p and of fade_cif, and on 120 frames of Meridian 720p.
 
 ## Columns
 
@@ -63,7 +64,7 @@ reproduced bit for bit. `media_traits.py check-flat` compares it with
 | `noise_sigma` | Immerkaer's noise estimator per 16x16 block, the 20th percentile over blocks off the clip rails (mean 25-229), median over the sampled non-black frames, in 8-bit codes |
 | `flags` | the traits below, with their values |
 
-## Flags, and what each can mislead
+## What each flag can mislead
 
 | flag | fires when | readings it can mislead |
 |---|---|---|
@@ -76,14 +77,14 @@ reproduced bit for bit. `media_traits.py check-flat` compares it with
 | `narrow:LO-HI` | the median frame's p99 minus its p01 is at or under 150 codes | The same tools as `dark`. PQ masters read as 8-bit with no tone map land here (Meridian 22-171, Chimera 52-198), and so do some natural clips (ducks, riverbed) |
 | `noise:S` | sigma at or over 2.0 | Rate at any fixed quality (grain costs bits), and VMAF-NEG against PSNR, which disagree on grain |
 
-The noise column is the weakest. It reads fine texture as noise where a
-clip has no smooth area (mobile_cif 3.3, crowd_run 1.9). It also misses
-the two grain titles at 1080p: Nocturne reads 1.56 and Lash of the Whip
-0.80, both under the flag. Read the number, not the flag, and don't gate
-on it.
+The noise column is the weakest. Where a clip has no smooth area it
+reads fine texture as noise. mobile_cif reads 3.3 and crowd_run 1.9. It
+also misses the two grain titles at 1080p. Nocturne reads 1.56 and Lash
+of the Whip 0.80. Both are under the flag. Read the number instead of
+the flag, and don't gate on it.
 
-A flag is a caution, not a verdict. Thresholds sit at the top of the
-script; change one there and here together.
+A flag is a caution. It doesn't decide anything by itself. The thresholds
+are at the top of the script. Change one there and here together.
 
 ## The rule
 
@@ -92,11 +93,11 @@ reading. For a leading black or still run, the second reading starts at
 `lead_skip` and runs to the end of the segment, at the cell's own rates.
 `scripts/vbr_lf.py segc` does it, and `seg` runs it after the full reading.
 
-**A change whose gain or loss sits only in a flagged trait's reading is
+**A change whose gain or loss is only in a flagged trait's reading is
 reported as that, and judged on the content reading.** The full reading
-stays in the record, beside it. Cell definitions and the shared offsets
-don't change. They belong to all three codecs (enclab
-`spec/PARITY-SPEC.md`), and a change to one is proposed there.
+stays in the record beside it. Cell definitions and the shared offsets
+don't change. They belong to all three codecs through enclab's
+`spec/PARITY-SPEC.md`. A change to one is proposed there.
 
 `vbr_lf.py`'s report prints each cell's flags beside its number.
 `parity_spec.py` prints them in its solve log and lists the flagged cells
@@ -107,25 +108,33 @@ under the quality table.
 `python3 scripts/media_traits.py show` prints every title's flags and
 `lead_skip`. What it found:
 
-- **Every matrix title opens on black.** Meridian 60 frames (1.0 s),
-  Chimera 120 (5.0 s), Sol Levante 193 (8.0 s), at all three sizes. So do
-  the probe windows cut at frame 0 (mer1080_w0, sol1080_w0) and tier S's
-  Meridian 2160p (60). The long-form excerpts don't, because the shared
-  offsets start past the opening card. StEM2's excerpt ends on 10 black
-  frames, and Cosmos and StEM2 end on a still (58 and 49 frames).
+- **Every matrix title opens on black**, at all three sizes:
+
+  | title | black lead |
+  |---|---|
+  | Meridian | 60 frames (1.0 s) |
+  | Chimera | 120 (5.0 s) |
+  | Sol Levante | 193 (8.0 s) |
+
+  So do the probe windows cut at frame 0, mer1080_w0 and sol1080_w0. So
+  does tier S's Meridian 2160p, at 60 frames. The long-form excerpts
+  don't, because the shared offsets start past the opening card. StEM2's
+  excerpt ends on 10 black frames. Cosmos and StEM2 end on a still, of 58
+  and 49 frames.
 - **Meridian and Chimera are mostly flat-typed.** The encoder types 82%
-  of Meridian 720p's content frames flat (96% at 1080p and 2160p), and 60%
-  / 77% of Chimera's. Both are narrow-range PQ masters read as 8-bit. So
-  the flat branches of AQ, the CRF base, cu-tree and SAO decide most of
-  these cells, not the natural-video branches. Sol Levante is 31-58% flat
-  (it rises with size), the long-form titles 41-88% except Nocturne (0%)
-  and Lash (100%).
-- **Meridian's long-form excerpt is dark** (median p99 122). The segment
-  isn't (171), and the opening probe window is (140).
-- **Sol Levante cuts 22 times a minute**, and its probe windows 24 and 32.
-  Sol's opening window also holds a fade-in and a dissolve (14%).
+  of Meridian 720p's content frames flat, and 96% at 1080p and 2160p. It
+  types 60% / 77% of Chimera's flat. Both are narrow-range PQ masters
+  read as 8-bit. So the flat branches of AQ, the CRF base, cu-tree and SAO
+  decide most of these cells instead of the natural-video branches. Sol
+  Levante is 31-58% flat, rising with size. The long-form titles are
+  41-88% flat, except Nocturne at 0% and Lash at 100%.
+- **Meridian's long-form excerpt is dark**, with a median p99 of 122.
+  The segment isn't, at 171. The opening probe window is, at 140.
+- **Sol Levante cuts 22 times a minute.** Its probe windows cut 24 and
+  32 times. Sol's opening window also holds a fade-in and a dissolve,
+  which make up 14% of it.
 - **The corpus's fade clips read as fades.** fade_cif is 60% fade, and
-  xfade_720p 18% dissolve. sintel_720p (the trailer) opens on 24 black
-  frames, ends on 33, and is 23% transitions.
+  xfade_720p 18% dissolve. sintel_720p is the trailer. It opens on 24
+  black frames and ends on 33, and 23% of it is transitions.
 - Tier S, apart from Meridian, has no lead or trail run and no
   transitions.
