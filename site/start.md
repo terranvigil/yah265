@@ -76,7 +76,7 @@ That prints the resolved configuration and exits. `--verbose` prints the same ta
 | mode | options | what it does |
 |---|---|---|
 | CRF | `--crf 23` | constant quality, the size follows the content |
-| fixed QP | `--qp 26` | one quantiser for every frame, mostly for testing |
+| fixed QP | `--qp 26` | one quantizer for every frame, mostly for testing |
 | ABR | `--bitrate 3000` | a mean bitrate in kbit/s, with no buffer |
 | VBR | `--bitrate 3000 --vbv-maxrate 4500 --vbv-bufsize 6000` | a mean bitrate held under a decoder buffer |
 | CBR | VBR's options with `--strict-cbr` | a constant rate. Filler data pads any picture that comes in under its share |
@@ -102,8 +102,8 @@ With a VBV, the stream includes HRD parameters and buffering-period SEI. `--crf-
 | `--bframes <n>` | B-frames between anchors, 0 to 15 (default 7) |
 | `--ref <n>` | references per list, 1 to 5 |
 | `--rc-lookahead <n>` | lookahead depth in frames |
-| `--rdoq-level <0-2>` | rate-distortion optimised quantisation: off, at the final encode, or in every decision |
-| `--cbqpoffs` / `--crqpoffs` | chroma quantiser offsets from luma |
+| `--rdoq-level <0-2>` | rate-distortion optimized quantization: off, at the final encode, or in every decision |
+| `--cbqpoffs` / `--crqpoffs` | chroma quantizer offsets from luma |
 | `--psnr`, `--ssim` | report the metric at the end of the run |
 | `--csv <file>` | per-run or per-frame statistics |
 | `--dump-recon <file>` | write the reconstruction as raw YUV |
@@ -113,7 +113,7 @@ With a VBV, the stream includes HRD parameters and buffering-period SEI. `--crf-
 
 ## The identification marks
 
-Every stream has an SEI message that names the encoder, its version, its licence and the options the run resolved. It holds no clock, no path and no thread count. `--no-info` drops it.
+Every stream has an SEI message that names the encoder, its version, its license and the options the run resolved. It holds no clock, no path and no thread count. `--no-info` drops it.
 
 The stream also has a fingerprint that survives when the SEI is stripped. Where the merge candidate list holds the same motion at its last two positions, the encoder picks which index to write by a fixed rule. The mark costs no bits because the two codings are the same length and decode to the same picture. `--no-fingerprint` turns it off. `scripts/fingerprint_check.py` reads both marks back from a stream.
 

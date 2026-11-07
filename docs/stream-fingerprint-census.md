@@ -2,7 +2,7 @@
 
 Phase 14 item 10, step 1. The backlog entry proposed a signature in "the
 choices the syntax leaves open (tie-breaks in the merge, motion and intra
-searches; the short-term reference set signalling form), zero bits and no
+searches; the short-term reference set signaling form), zero bits and no
 picture change". This is the measurement that says which of those are
 actually available, and it moves the design: **an RD tie is not a
 fingerprint site.**
@@ -51,7 +51,7 @@ averaged over the clip.
 | ...where the winner's cost was matched | 31.9 | 20.5 | 1292.7 | 1125.9 | 210.4 | 132.3 | yes | **no** |
 | luma intra mode ranks run | 503.2 | 384.4 | 16439.7 | 13029.1 | 5824.9 | 4906.3 | - | - |
 | ...where the best SATD was matched | 41.5 | 33.1 | 1877.1 | 1510.3 | 429.4 | 377.3 | **no** | **no** |
-| alternative RPS signalling forms per slice | 0 | 0 | 0 | 0 | 0 | 0 | n/a | yes |
+| alternative RPS signaling forms per slice | 0 | 0 | 0 | 0 | 0 | 0 | n/a | yes |
 
 Site by site.
 
@@ -109,14 +109,14 @@ free.
 cost ties. 20-1300 squares a frame end with two positions at the same
 cost, and the bitstream records only the one that was taken.
 
-**The short-term RPS signalling form. It does not exist in our streams.**
+**The short-term RPS signaling form. It does not exist in our streams.**
 `num_short_term_ref_pic_sets` is 0 in the SPS
 (`src/encoder/headers.c`), so every slice codes its set explicitly and
 there is no index form to choose against - the census column is 0 by
 construction, not by measurement. The entry named this site and it is
 worth saying exactly what it would cost to create it:
 
-- Putting the sets in the SPS and signalling by index makes
+- Putting the sets in the SPS and signaling by index makes
   `short_term_ref_pic_set_idx` a FIXED-LENGTH u(v) field, so choosing
   among duplicate entries in that list would be genuinely free per slice
   and readable by a plain header parser - the best of both conditions.

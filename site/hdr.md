@@ -6,7 +6,7 @@ description: How yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8, wh
 # HDR
 
 yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8 as Main10 HEVC.
-All of it is signalling. The colour flags and metadata tell a player what the
+All of it is signaling. The color flags and metadata tell a player what the
 pictures are. Nothing in them steers how the encoder codes a picture.
 
 | format | what goes in the stream | options |
@@ -18,11 +18,11 @@ pictures are. Nothing in them steers how the encoder codes a picture.
 | Dolby Vision 8.2 | SDR BT.709, plus an RPU in every picture | `--transfer bt709 --colorprim bt709 --colormatrix bt709` and the two Dolby Vision options with `8.2` |
 | Dolby Vision 8.4 | HLG, plus an RPU in every picture | HLG's options and the two Dolby Vision options with `8.4` |
 
-`--video-signal-type-preset BT2100_PQ_YCC:P3D65x1000n0005` sets HDR10's colour
+`--video-signal-type-preset BT2100_PQ_YCC:P3D65x1000n0005` sets HDR10's color
 flags and a 1000-nit P3 mastering display in one go.
 
 Dolby Vision profile 5 isn't offered. Its base layer is in Dolby's IPTPQc2
-colour space. Nothing in this toolchain can produce or check that.
+color space. Nothing in this toolchain can produce or check that.
 
 ## Dynamic metadata comes from a file
 
@@ -38,7 +38,7 @@ tools write:
 - `--dolby-vision-rpu` reads the RPU file that
   [dovi_tool](https://github.com/quietvoid/dovi_tool) writes. That's
   `dovi_tool extract-rpu` from an existing Dolby Vision stream, or
-  `dovi_tool generate` from a colourist's Dolby Vision XML.
+  `dovi_tool generate` from a colorist's Dolby Vision XML.
 
 Entry *i* of either file goes with frame *i* of the input, whatever order the
 encoder codes the pictures in. `--seek` skips entries along with frames.
@@ -52,7 +52,7 @@ reason is a `--frames` run over part of a title.
 Both readers check what they read. HDR10+ values must fall inside the HDR10+
 profiles' ranges. HDR10+ also needs a 10-bit HDR10 encode under it. Every
 RPU's header must say profile 8. `--dolby-vision-profile` must match the
-colour flags and a 10-bit encode. A command line that would mislabel the stream is
+color flags and a 10-bit encode. A command line that would mislabel the stream is
 refused before it writes anything. Either file can come from a pipe.
 
 Dolby Vision without a VBV gets a warning and still encodes. Deliveries are
@@ -82,7 +82,7 @@ write that box. A Dolby Vision-aware muxer such as MP4Box or mkvmerge does.
 We scored yah265 and x265 with Netflix's HDR-VMAF v1.1.8 on two HDR10
 titles from Netflix Open Content. We used 10 seconds of the 24p animation Sol
 Levante and 5 seconds of the 60p live-action Sparks. Both encoders ran at preset medium
-with the same HDR10 signalling. yah265 ran at `--threads 6`. x265 ran at
+with the same HDR10 signaling. yah265 ran at `--threads 6`. x265 ran at
 `--pools 6 --frame-threads 4` with no `--hdr10-opt`. Scores use HDR-VMAF's 3H
 model at 1080p and its 1.5H model at 2160p. Sparks used the high frame rate
 variant of each. The table gives yah265's BD-rate against x265 on HDR-VMAF. A

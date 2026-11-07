@@ -7,7 +7,7 @@ AI-driven development can get against x265.**
 yah265 is a sibling of [yah264](../yah264), which met its pure-C speed-parity
 goals against x264. The rules are the same here for a new codec. The encoder
 is clean-room from the ITU-T H.265 spec. It's licensed GPL-2.0-or-later, with
-a commercial licence beside it in the same arrangement as x264 and x265. See
+a commercial license beside it in the same arrangement as x264 and x265. See
 LICENSE, and ask terranvigil@gmail.com for commercial terms. Every stream is
 verified against independent decoders. Every performance claim is
 reproducible from a Makefile target.
@@ -79,12 +79,12 @@ picture as unchanged (63% ours, 60% x265). A perfect early-skip oracle would
 have bought under 4% of its wall. Two clip-specific items went at the skip
 side and found nothing. What sets the clip apart is thousands of small 8x8
 blocks in the crowd texture that each carry a little real change. On those we
-run a rate-distortion optimised quantiser (RDOQ) that x265 medium doesn't run
+run a rate-distortion optimized quantizer (RDOQ) that x265 medium doesn't run
 at all. That step is about a quarter of the clip's single-thread time. It's
 also part of why our pictures are better there, 12 BD points ahead of x265 on
 that clip at the default.
 
-The leg didn't close by trading quality. The phase 13 utilisation census
+The leg didn't close by trading quality. The phase 13 utilization census
 found a scheduling defect. The thread pool woke every waiter on 91% of
 per-block publishes. That cost 4 s of system time per 120 frames of 1080p at
 18 threads. Keying the wakes is bit-exact and is item C4 of the phase 13 notes. It took
@@ -92,7 +92,7 @@ every clip's all-core wall down 5 to 16%. Touchdown went from 1.14x to 0.87x.
 The record of the clip's analysis is in sections 11 and 12 of the phase 9
 goals plan and in the [phase 9 lattice notes](docs/phase9-lattice.md).
 
-**...and how to trade it yourself.** `--rdoq-level` hands that quantiser to
+**...and how to trade it yourself.** `--rdoq-level` hands that quantizer to
 the user. It uses x265's numbering so a setting means the same on both.
 Level 0 turns RDOQ off. Level 1 is what `medium` runs: the lattice once per
 block, at the commit. Level 2 runs it in every rate-distortion decision. That

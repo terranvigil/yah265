@@ -22,7 +22,7 @@ The speed figures say how many times faster yah265 runs than x265 when both writ
 
 - Main, Main10, Main 4:4:4, Main 4:4:4 10 and Main 4:2:2 10 from one binary. The input picks the profile.
 - CRF, fixed QP, ABR, VBR and CBR with a VBV, capped CRF, and two-pass.
-- HDR10, HDR10+, HLG and Dolby Vision profile 8 signalling. The [HDR page](hdr.md) covers it.
+- HDR10, HDR10+, HLG and Dolby Vision profile 8 signaling. The [HDR page](hdr.md) covers it.
 - Four presets in x265's names: `fast`, `medium`, `slow` and `slower`.
 - x265's option names wherever the two encoders share a feature.
 - NEON kernels on arm64. Each one is bit-exact with its C reference.
@@ -31,6 +31,6 @@ The speed figures say how many times faster yah265 runs than x265 when both writ
 
 [Getting started](start.md) builds the encoder and walks through the command line. [Design](design.md) explains how the encoder is put together. [Results](results.md) has the full parity tables and how to read them, and [check it yourself](check-it-yourself.md) shows how to rerun a reading on your own machine.
 
-## Licence
+## License
 
-yah265 is GPL-2.0-or-later. A commercial licence is also available. x264 and x265 use the same arrangement. Write to terranvigil@gmail.com for commercial terms.
+yah265 is GPL-2.0-or-later. A commercial license is also available. x264 and x265 use the same arrangement. Write to terranvigil@gmail.com for commercial terms.

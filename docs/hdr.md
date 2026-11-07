@@ -1,7 +1,7 @@
 # HDR
 
 yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8 as Main10 HEVC.
-The colour flags and metadata tell a player what the pictures are. At preset
+The color flags and metadata tell a player what the pictures are. At preset
 medium the transfer also changes how the pictures are coded, as
 [Tuning for HDR](#tuning-for-hdr) describes.
 
@@ -14,11 +14,11 @@ medium the transfer also changes how the pictures are coded, as
 | Dolby Vision 8.2 | SDR BT.709, plus an RPU in every picture | `--transfer bt709 --colorprim bt709 --colormatrix bt709` and the two Dolby Vision options with `8.2` |
 | Dolby Vision 8.4 | HLG, plus an RPU in every picture | HLG's options and the two Dolby Vision options with `8.4` |
 
-`--video-signal-type-preset BT2100_PQ_YCC:P3D65x1000n0005` sets HDR10's colour
+`--video-signal-type-preset BT2100_PQ_YCC:P3D65x1000n0005` sets HDR10's color
 flags and a 1000-nit P3 mastering display in one go.
 
 Dolby Vision profile 5 isn't offered. Its base layer is in Dolby's IPTPQc2
-colour space, which nothing in this toolchain can produce or check.
+color space, which nothing in this toolchain can produce or check.
 
 ## Dynamic metadata comes from a file
 
@@ -33,7 +33,7 @@ tools write:
 - `--dolby-vision-rpu` reads the RPU file that
   [dovi_tool](https://github.com/quietvoid/dovi_tool) writes. That's
   `dovi_tool extract-rpu` from an existing Dolby Vision stream, or
-  `dovi_tool generate` from a colourist's Dolby Vision XML.
+  `dovi_tool generate` from a colorist's Dolby Vision XML.
 
 Entry *i* of either file goes with frame *i* of the input, whatever order the
 encoder codes the pictures in. `--seek` skips entries along with frames, and
@@ -46,7 +46,7 @@ same way. A file with entries left over gets a warning, since a
 
 Both readers check what they read. HDR10+ values must fall inside the HDR10+
 profiles' ranges, and HDR10+ needs a 10-bit HDR10 encode under it. Every RPU's
-header must say profile 8, and `--dolby-vision-profile` must match the colour
+header must say profile 8, and `--dolby-vision-profile` must match the color
 flags and a 10-bit encode. A command line that would mislabel the stream is
 refused before it writes anything. Either file can come from a pipe.
 
@@ -75,9 +75,9 @@ write that box. A Dolby Vision-aware muxer such as MP4Box or mkvmerge does.
 
 A stream says PQ with `--transfer smpte2084`. It says HLG with `--transfer
 arib-std-b67` or `--atc-sei arib-std-b67`. On either one, preset medium codes
-chroma six quantiser steps finer than luma and turns off the extra psy weight
+chroma six quantizer steps finer than luma and turns off the extra psy weight
 on dark blocks. Wide-gamut chroma stays in a narrow band around its midpoint.
-At luma's quantiser it loses far more than SDR chroma does. `--hdr-opt` turns the
+At luma's quantizer it loses far more than SDR chroma does. `--hdr-opt` turns the
 tuning on for a stream that doesn't name either transfer, and `--no-hdr-opt`
 turns it off. `--hdr10-opt` is the same switch under x265's name. A
 `--cbqpoffs` or `--crqpoffs` you name yourself still wins. The other presets
@@ -89,7 +89,7 @@ We scored yah265 and x265 with Netflix's HDR-VMAF v1.1.8 on two HDR10
 titles from Netflix Open Content: 10 seconds of Sol Levante
 and 5 seconds of Sparks. Sol Levante is 24p animation. Sparks is 60p live
 action. Both encoders ran at preset medium
-with the same HDR10 signalling. yah265 ran at `--threads 6`, and x265 at
+with the same HDR10 signaling. yah265 ran at `--threads 6`, and x265 at
 `--pools 6 --frame-threads 4` with no `--hdr10-opt`. Scores use HDR-VMAF's 3H
 model at 1080p and its 1.5H model at 2160p, in the high frame rate variant
 for Sparks. The table gives yah265's BD-rate against x265 on HDR-VMAF. A

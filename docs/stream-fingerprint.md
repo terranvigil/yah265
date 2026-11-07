@@ -10,7 +10,7 @@ from the search tie-breaks the backlog entry proposed.
 
 The identification SEI is the readable mark. It's `--info`, from phase 14
 item 9. It holds a UUID and a line of text naming the encoder, its version,
-its licence, its URL and the options the run resolved. It's also the first
+its license, its URL and the options the run resolved. It's also the first
 thing a remux or a one-line NAL filter drops. After that, nothing about the
 stream says what wrote it.
 
@@ -257,9 +257,9 @@ This is the short version. The census has the numbers and the reasoning.
   given up.
 - Intra modes with identical predictions are free in their own syntax
   element. They aren't free three blocks later. The mode seeds the MPM
-  derivation of its neighbours, the chroma DM mode and the mode-dependent
+  derivation of its neighbors, the chroma DM mode and the mode-dependent
   scan.
-- The short-term RPS signalling form was named in the entry. It doesn't
+- The short-term RPS signaling form was named in the entry. It doesn't
   exist in our streams. Because `num_short_term_ref_pic_sets` is 0, every
   slice codes its set explicitly. Then 7.3.7 offers exactly one spelling. Creating
   the choice means moving the sets into the SPS. That changes every slice's
