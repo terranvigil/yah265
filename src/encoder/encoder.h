@@ -1728,9 +1728,9 @@ struct n265_encoder {
         int nnal;
         /* N265_AU_NAL_MAX, counted off the list of every NAL an access
          * unit can carry (above this struct). pack_nal DROPS a NAL past
-         * this bound and says nothing, so a bound one short does not fail
-         * loudly - it silently loses the IDR slice and the stream decodes
-         * as "could not find ref with POC 0". A hand-raised bound was
+         * this bound; the drop is counted and fails the run, but a bound
+         * one short still loses the IDR slice and the stream decodes as
+         * "could not find ref with POC 0". A hand-raised bound was
          * found too short twice by exactly that symptom, so a new NAL
          * goes on the list, and the bound follows. */
         int type[N265_AU_NAL_MAX];

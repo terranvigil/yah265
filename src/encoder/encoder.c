@@ -810,8 +810,8 @@ long n265_encoder_dyn_lost(const n265_encoder *e)
     for (int i = 0; i < e->n_done; i++)
         left += e->done[(e->done_head + i) % n].nnal;
     if (left)
-        fprintf(stderr, "n265: ERROR out of memory: %ld NALs or frames were "
-                "never handed out\n", left);
+        fprintf(stderr, "n265: ERROR out of memory: the stream ends early, "
+                "before every frame was handed out\n");
     return e->dyn_lost + e->nal_lost + e->fd_short + left;
 }
 

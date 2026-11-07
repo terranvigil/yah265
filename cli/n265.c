@@ -2396,7 +2396,10 @@ static void *gp_worker(void *arg)
                 s->rc_own = spent - (pred >= 0 ? bits_before : 0.0);
         }
         pthread_mutex_lock(&j->open_lock);
-        g_dyn_lost += a->dyn_lost(e);
+        /* an aborted segment skipped its drain and fails the run already;
+         * its frames still in flight are not a loss to report */
+        if (!s->err)
+            g_dyn_lost += a->dyn_lost(e);
         a->encoder_close(e);
         gp_relief(j->relief);
         pthread_mutex_unlock(&j->open_lock);
