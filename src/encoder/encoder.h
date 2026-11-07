@@ -1508,7 +1508,7 @@ struct n265_encoder {
     double psy;
     /* N265_PSY_DARK (phase 14 item 53): the strength, its QP fade and
      * the two ramps that say which blocks are dark and smooth */
-    double dark_psy, dark_qhi, dark_qw, dark_m, dark_v;
+    double dark_psy, dark_qhi, dark_qw, dark_m, dark_v, dark_lo;
     /* N265_HDR_LQP (phase 14 item 56): the strength of the luma-level
      * QP offset a PQ picture's CTUs take, 0 off */
     double hdr_lqp;
