@@ -927,6 +927,22 @@ static const struct kv med_tab_hlg[] = {
     { NULL, NULL },
 };
 
+/* HDR_CLASS_TABLES (WIP) */
+static const struct kv med_tab_hdr_720[] = {
+    { "N265_IRANK", "0" },
+    { NULL, NULL },
+};
+
+static const struct kv med_tab_hdr_hd[] = {
+    { "N265_IRANK", "0" },
+    { NULL, NULL },
+};
+
+static const struct kv med_tab_hdr_uhd[] = {
+    { "N265_IRANK", "0" },
+    { NULL, NULL },
+};
+
 static const struct kv slow_par[] = {
     { "ctu", "64" },
     { "rc-lookahead", "20" },
@@ -1138,11 +1154,30 @@ static const struct kv *hdr_tab(void)
     return g_hdr == 1 ? med_tab_pq : g_hdr == 2 ? med_tab_hlg : NULL;
 }
 
+/* ...and its per-class rows (item 59), shared by PQ and HLG, or NULL
+ * under N265_HDR_FULL=0 */
+static const struct kv *hdr_class_tab(void)
+{
+    const char *e;
+    if (!hdr_tab())
+        return NULL;
+    e = getenv("N265_HDR_FULL");
+    if (e && !atoi(e))
+        return NULL;
+    return g_uhd == 2 ? med_tab_hdr_uhd : g_uhd == 1 ? med_tab_hdr_hd :
+           g_720 ? med_tab_hdr_720 : NULL;
+}
+
 const char *n265_env(const char *name)
 {
     const char *v = getenv(name);
     if (v)
         return v;
+    if (hdr_class_tab()) {
+        v = lookup(hdr_class_tab(), name);
+        if (v)
+            return v;
+    }
     if (hdr_tab()) {
         v = lookup(hdr_tab(), name);
         if (v)
@@ -1240,6 +1275,11 @@ int n265_preset_row(int i, const char **key, const char **val,
             const char *u = lookup(hdr_tab(), t[n].k);
             if (u)
                 *val = u;       /* ...and on PQ or HLG (item 56) */
+        }
+        if (hdr_class_tab()) {
+            const char *u = lookup(hdr_class_tab(), t[n].k);
+            if (u)
+                *val = u;       /* ...per class (item 59) */
         }
         *env = getenv(t[n].k);
         return 1;
