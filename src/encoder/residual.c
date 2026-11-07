@@ -9,6 +9,7 @@
 
 #include "common/cpu.h"
 #include "encoder/arm/neon.h"
+#include "encoder/x86/avx2.h"   /* self-guarded */
 #include "encoder/residual.h"
 #include "encoder/tables.h"
 
@@ -212,6 +213,12 @@ void n265_csbf_map(const int16_t *level, int log2n, uint8_t *out)
         return;
     }
 #endif
+#if N265_AVX2_COST
+    if (n265_avx2_on(N265_ASM_QUANT)) {
+        n265_csbf_map_avx2(level, log2n, out);
+        return;
+    }
+#endif
     n265_csbf_map_ref(level, log2n, out);
 }
 
@@ -241,6 +248,11 @@ uint32_t n265_coeff_group(const int16_t *grp, ptrdiff_t stride, int scan_idx,
 #if N265_NEON_COST
     if (n265_asm_on(N265_ASM_QUANT))
         return n265_coeff_group_neon(grp, stride, scan_idx, abs_out,
+                                     neg_mask);
+#endif
+#if N265_AVX2_COST
+    if (n265_avx2_on(N265_ASM_QUANT))
+        return n265_coeff_group_avx2(grp, stride, scan_idx, abs_out,
                                      neg_mask);
 #endif
     return n265_coeff_group_ref(grp, stride, scan_idx, abs_out, neg_mask);
@@ -294,6 +306,12 @@ void n265_sbh_adjust(int16_t *level, int log2n, int scan_idx)
 #if N265_NEON_COST
     if (n265_asm_on(N265_ASM_QUANT)) {
         n265_sbh_adjust_neon(level, log2n, scan_idx);
+        return;
+    }
+#endif
+#if N265_AVX2_COST
+    if (n265_avx2_on(N265_ASM_QUANT)) {
+        n265_sbh_adjust_avx2(level, log2n, scan_idx);
         return;
     }
 #endif
