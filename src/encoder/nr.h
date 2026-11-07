@@ -3,7 +3,7 @@
  *
  * A per-coefficient-POSITION offset, learned from the running magnitude
  * statistics of the coefficients this encode has already produced, and
- * subtracted toward zero before the block is quantised. It is the x264 /
+ * subtracted toward zero before the block is quantized. It is the x264 /
  * x265 "noise reduction" knob and it is a pre-filter in the TRANSFORM
  * domain, not in the source domain - which is what separates it from
  * --film-grain-denoise (grain.h), the source-domain half.
@@ -25,7 +25,7 @@
 /* The statistics are kept per CATEGORY, and a category is what x265's two
  * flags already imply plus the two splits an offset cannot be shared
  * across: intra and inter (the two flags), luma and chroma (different
- * quantisers and wildly different magnitudes), and the four transform
+ * quantizers and wildly different magnitudes), and the four transform
  * sizes (a 4x4's position 3 and a 32x32's position 3 are different
  * frequencies). 2 x 2 x 4 = 16. */
 #define N265_NR_CATS    16
@@ -66,7 +66,7 @@ static inline int n265_nr_base(int intra, int chroma, int log2n)
  * of how many workers were running. */
 typedef struct n265_nr {
     uint64_t sum[N265_NR_SLOTS];    /* running total of |coef| per position */
-    uint64_t cnt[N265_NR_CATS];     /* blocks quantised per category        */
+    uint64_t cnt[N265_NR_CATS];     /* blocks quantized per category        */
     uint16_t off[N265_NR_SLOTS];    /* what the next dispatch hands a frame */
 } n265_nr;
 
@@ -95,7 +95,7 @@ void n265_nr_fold(n265_nr *nr, const n265_nr_tally *t);
 /* Re-solve every offset from the running state. `intra` and `inter` are
  * the two flag values in 0..2000; a category whose strength is 0, or
  * whose block count is still 0, gets offsets of 0 and is therefore
- * exactly the quantiser without this feature. */
+ * exactly the quantizer without this feature. */
 void n265_nr_offsets(n265_nr *nr, int intra, int inter);
 
 /* Attenuate one transform block and tally it.

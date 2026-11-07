@@ -28,7 +28,7 @@ size, in a pass of its own.
                          [-- ours flags]
 
 --vbr runs both sides at x265's CRF rungs' achieved rates, with
---vbv-maxrate 1.5x and --vbv-bufsize 2x. Encodes and scores are memoised
+--vbv-maxrate 1.5x and --vbv-bufsize 2x. Encodes and scores are memoized
 under ~/.cache/yah265-v1 (V1_CACHE), keyed by the command, the source and
 our binary's hash. THREADS (default 4) is each encoder's and libvmaf's
 thread count; BIN overrides build-rel/n265.

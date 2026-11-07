@@ -35,8 +35,8 @@
  *    future; L1 is the future then the past; each cut to ref_max") and
  *    run against the library's over an exhaustive sweep of marked sets,
  *    current POCs, barriers and RADL bands. The library's version is
- *    optimised for being the mirror of n265_build_lists; this one is
- *    optimised for being obvious.
+ *    optimized for being the mirror of n265_build_lists; this one is
+ *    optimized for being obvious.
  *
  * What a unit test cannot check is whether a decoder agrees, and for
  * this feature that is the claim that matters: docs/phase14.md item 3

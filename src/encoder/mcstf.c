@@ -20,7 +20,7 @@
 /* ---- knobs ---------------------------------------------------------- */
 
 /* N265_MCSTF_SIGMA: the photometric width of the per-pixel weight, in
- * 8-BIT luma levels, Q8. A neighbour pixel that differs from the original
+ * 8-BIT luma levels, Q8. A neighbor pixel that differs from the original
  * by sigma keeps 61% of its weight and one that differs by three sigma
  * keeps 1%, so this is the number that says "a difference this big is
  * noise; a difference bigger than this is the picture moving".
@@ -55,7 +55,7 @@ int n265_mcstf_sigma_q8(void)
  * the census separates clips that have capture noise from clips that do
  * not, and what the filter needs to know is something narrower - where
  * there is enough noise for a temporal average to beat what the
- * quantiser was going to do anyway. Those are not the same line. At 0.75
+ * quantizer was going to do anyway. Those are not the same line. At 0.75
  * the filter arms on foreman_cif and costs it 1.35 BD points; at 1.5 it
  * does not arm there at all, and on the five-clip read (docs/phase14.md,
  * item 6) the arm becomes three clips better, two byte-identical and
@@ -153,7 +153,7 @@ struct n265_mcstf {
     int next_idx;           /* display index of the next push            */
     /* The ring is a SLIDING WINDOW and not a conveyor: a picture that
      * has been handed out stays in it, because it is the next picture's
-     * past neighbour. `out_pos` is where in the window the next output
+     * past neighbor. `out_pos` is where in the window the next output
      * sits, and the window drops its oldest entry once it is `cap` long,
      * which is what holds out_pos at `range` in steady state. */
     int out_pos;
@@ -161,7 +161,7 @@ struct n265_mcstf {
     pixel *out_buf[3];
     pixel *out[3];
     int out_stride[3];
-    /* per-block motion, one entry per (neighbour, block) */
+    /* per-block motion, one entry per (neighbor, block) */
     int16_t *mv;
     uint16_t *berr;         /* the block's mean absolute error, Q4       */
     int bw, bh;
@@ -178,19 +178,19 @@ struct n265_mcstf {
     double rho0, rho1;      /* the block-error knee and slope            */
     double sub_thr;         /* subpel above this integer MAE, levels     */
     double cut;             /* the one-sided ratio that calls a cut      */
-    int str_q8;             /* the neighbours' overall strength          */
+    int str_q8;             /* the neighbors' overall strength          */
     int dc;                 /* predictions take the block's mean offset  */
     double sigma_pic;       /* this picture's noise reading, levels      */
     int last_side;          /* 0 both, 1 future only, 2 past only        */
-    uint32_t *bsad;         /* integer SAD per (neighbour, block)        */
+    uint32_t *bsad;         /* integer SAD per (neighbor, block)        */
     uint16_t gnorm[N265_MCSTF_GN + 1]; /* exp(-t^2/2), Q8, t in 1/64 */
 };
 
 /* The temporal strengths, Q8, by distance in pictures. The further
- * away in time, the less a neighbour is
+ * away in time, the less a neighbor is
  * about this picture, and by the fourth the filter is mostly deciding
  * not to trust it. The ORIGINAL's own weight is 256, so at range 2 a
- * pixel whose four neighbours all agree perfectly is the mean of five
+ * pixel whose four neighbors all agree perfectly is the mean of five
  * samples with the middle one counting hardest - noise down by a factor
  * near two, which is what the filter is for. */
 static const int mc_tstr[N265_MCSTF_MAX_RANGE + 1] = { 256, 218, 154, 115, 90 };
@@ -401,7 +401,7 @@ void n265_mcstf_push(n265_mcstf *m, const pixel *const plane[3],
                      const int stride[3])
 {
     /* Make room first: the window is `cap` long and the oldest entry is
-     * the one no later picture will want as a neighbour. Sliding here
+     * the one no later picture will want as a neighbor. Sliding here
      * rather than after the write is what keeps `m->n` a valid index. */
     if (m->n == m->cap) {
         mc_pic gone = m->p[0];
@@ -428,10 +428,10 @@ void n265_mcstf_push(n265_mcstf *m, const pixel *const plane[3],
 
 int n265_mcstf_ready(n265_mcstf *m, int flush)
 {
-    /* A picture may come out once it has every FUTURE neighbour it is
+    /* A picture may come out once it has every FUTURE neighbor it is
      * going to get - `range` of them, or, on a flush, however many the
      * end of the sequence left. The first pictures of an encode come out
-     * with no past neighbours and the last with no future ones, which is
+     * with no past neighbors and the last with no future ones, which is
      * what any temporal filter's ends look like and what the weights
      * already handle: there is simply one term fewer in the average. */
     if (m->out_pos >= m->n)
@@ -498,7 +498,7 @@ static int mcstf_noise(const n265_mcstf *m, const mc_pic *p)
     return (NBIN - 1) * 16;
 }
 
-/* One block's motion against one neighbour: the coarse stage on the
+/* One block's motion against one neighbor: the coarse stage on the
  * subsampled luma, then a square refinement at full resolution. Integer
  * samples only. A fractional stage would find a better match on real
  * motion, and it is deliberately not here: what this filter does with a
@@ -593,7 +593,7 @@ static void mcstf_filter(n265_mcstf *m, int ci)
         }
     }
 
-    /* the motion, once per neighbour, on luma; chroma rides the same
+    /* the motion, once per neighbor, on luma; chroma rides the same
      * vectors scaled by the subsampling, which is what a source filter
      * can afford and what the weights make safe */
     for (int k = 0; k < nb; k++) {
@@ -657,7 +657,7 @@ static void mcstf_filter(n265_mcstf *m, int ci)
  *
  * The item-6 filter above weighs every picture with one photometric width
  * (6 levels) and one block-error half-life, which is right for grain and
- * wrong for a clean picture: on clean content a neighbour that disagrees
+ * wrong for a clean picture: on clean content a neighbor that disagrees
  * by four levels is disagreeing about the PICTURE - a sub-sample shift, a
  * slow zoom - and averaging it in is a blur. That is where foreman and
  * the animations lost. Model 2 asks each block how much noise it has and
@@ -668,22 +668,22 @@ static void mcstf_filter(n265_mcstf *m, int ci)
  * readings, each of which can only overstate it, and the block takes the
  * smallest:
  *   - its own Laplacian (0.89 s on a flat noisy block, more on texture);
- *   - its best neighbour's residual, which for a perfect match is two
+ *   - its best neighbor's residual, which for a perfect match is two
  *     pictures' noise, 2 s^2 per sample, and more for any mismatch;
  *   - a multiple of the PICTURE's noise reading, the 25th-percentile
  *     Laplacian the selective gate already takes, which caps a block that
  *     is both textured and badly matched at what the flat areas of the
  *     same picture say the sensor did.
- * A block whose best neighbour matches it exactly reads zero - an exact
+ * A block whose best neighbor matches it exactly reads zero - an exact
  * repeat, a still background in a clean source - and its width falls to
  * the floor, where a difference of one level already weighs nothing. So
  * the drawn-on-twos repeats of limited animation stay exact repeats and
  * the still-picture invariant holds by the same arithmetic as before.
  *
- * THE ERROR TERM. A neighbour's mean squared residual against what the
+ * THE ERROR TERM. A neighbor's mean squared residual against what the
  * noise alone would give, rho = mse / 2 s^2. Up to a knee (2) the
- * residual is noise and the neighbour keeps its weight; past it the
- * weight falls as 1 / (1 + (rho - knee) / slope), so a neighbour that
+ * residual is noise and the neighbor keeps its weight; past it the
+ * weight falls as 1 / (1 + (rho - knee) / slope), so a neighbor that
  * matched the block no better than a different picture would counts for
  * little and the per-sample width decides the rest.
  *
@@ -701,8 +701,8 @@ static void mcstf_filter(n265_mcstf *m, int ci)
  * THE WIDTH. sharp * sqrt(2) * s', the spread of the difference of two
  * noisy samples times a multiple. Under a quarter level the block is
  * copied. The multiple opens with the operating point, doubling every
- * 12 QP above 32: at a coarse quantiser the detail a wider average costs
- * is detail the quantiser was going to take anyway.
+ * 12 QP above 32: at a coarse quantizer the detail a wider average costs
+ * is detail the quantizer was going to take anyway.
  *
  * SUBPEL where the integer match is poor: a block whose integer mean
  * absolute error is under 2 levels is already matched to within its
@@ -710,7 +710,7 @@ static void mcstf_filter(n265_mcstf *m, int ci)
  * half-sample then a quarter-sample ring, with the codec's own 8-tap
  * interpolation, and chroma rides the same vector at its own phase.
  *
- * CUTS. A picture whose nearest past neighbour matches three times worse
+ * CUTS. A picture whose nearest past neighbor matches three times worse
  * than its nearest future one (or the reverse) sits at a cut, and the
  * far side of the cut is dropped as a whole rather than left to the
  * block weights; a period start (--keyint) takes the future only, since
@@ -799,7 +799,7 @@ static void subpel_refine(const mc_pic *cur, const mc_pic *ref, int x0,
  * before it is weighed. A fade or a light change moves every sample of
  * a block by about the same amount; without this the residual reads it
  * as mismatch and the average pulls the picture's brightness toward its
- * neighbours'. On a noisy block that is not fading the offset is the
+ * neighbors'. On a noisy block that is not fading the offset is the
  * mean of 256 noise samples, a sixteenth of a deviation. */
 static void dc_match(const pixel *o, int ost, pixel *p, int w, int h)
 {
@@ -868,7 +868,7 @@ static int mcstf_filter2(n265_mcstf *m, int ci)
         return 0;
     }
 
-    /* integer motion for every (neighbour, block), and the per-neighbour
+    /* integer motion for every (neighbor, block), and the per-neighbor
      * mean error the cut test reads */
     double esum[2 * N265_MCSTF_MAX_RANGE];
     for (int k = 0; k < nb; k++) {
@@ -983,7 +983,7 @@ static int mcstf_filter2(n265_mcstf *m, int ci)
             sb = sqrt(fmax(0.0, sb * sb - s0q));
             if (sb > cap * lv)
                 sb = cap * lv;
-            /* the error term, per neighbour */
+            /* the error term, per neighbor */
             double den = 2.0 * sb * sb + 0.25 * lv * lv;
             for (int k = 0; k < nb; k++) {
                 if (!use[k]) {

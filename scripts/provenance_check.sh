@@ -2,8 +2,8 @@
 # Machine-checkable half of the clean-room policy (CONTRIBUTING.md): fail
 # on x265/x264/HM attribution strings or assembly files in the shipped
 # tree. Run before any DSP merge; cheap. Until 2026-09-14 it also banned
-# GPL notices, which would flag an x265 or x264 header by its licence
-# block; the tree's own licence is GPL-2.0-or-later since 20d9415, so
+# GPL notices, which would flag an x265 or x264 header by its license
+# block; the tree's own license is GPL-2.0-or-later since 20d9415, so
 # that pattern would flag every SPDX line, and the attribution strings
 # carry the check alone now.
 

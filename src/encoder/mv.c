@@ -16,7 +16,7 @@
 #include "encoder/preset.h"
 
 /* is the 4x4 cell holding (x,y) an already-decoded inter block?
- * Prediction-block availability (6.4.2): a neighbour inside the CURRENT
+ * Prediction-block availability (6.4.2): a neighbor inside the CURRENT
  * coding block skips the z-scan test entirely - it is the first PU of a
  * two-PU split, already derived and stored. Outside the CB the z-scan
  * order decides (6.4.1). */
@@ -127,7 +127,7 @@ static int tmvp_mv(struct n265_frame_work *e, const pu_geo *g,
     /* D2: the collocated picture and the POC it scales against were
      * frozen at dispatch. The coding path must not read a live DPB
      * slot's marking - a later frame's dispatch retires pictures while
-     * this one is still analysing. */
+     * this one is still analyzing. */
     const struct n265_refpic *col = e->col;
     if (!col || no_tmvp)
         return 0;
@@ -151,7 +151,7 @@ static int tmvp_mv(struct n265_frame_work *e, const pu_geo *g,
         if (col->col_pred[t])
             i16 = t;
     }
-    if (i16 < 0) {      /* centre: the prediction block's */
+    if (i16 < 0) {      /* center: the prediction block's */
         int xc = g->x + g->w / 2, yc = g->y + g->h / 2;
         n265_ref_wait(e, col, yc);
         int t = (yc >> 4) * c16w + (xc >> 4);
@@ -310,7 +310,7 @@ int n265_merge_list_pu(struct n265_frame_work *e, const pu_geo *g, mot_t out[],
  * equivalence it can prove from the syntax alone - no encoder cost is
  * involved. `*dup34` is the pair the fingerprint rides, because
  * merge_idx MAX_MERGE-2 and MAX_MERGE-1 are the only two indices whose
- * truncated-unary binarisation has the same length AND the same
+ * truncated-unary binarization has the same length AND the same
  * context-coded prefix, so swapping them is free to the bit. The return
  * is "some pair somewhere", for the census only. */
 int n265_merge_dups(struct n265_frame_work *e, const pu_geo *g, int *dup34)
@@ -659,7 +659,7 @@ static int subme_mode(void)
     return v;
 }
 
-/* N265_SUBPEL_RATE (phase 10 item 1): the subpel ladder minimises pure
+/* N265_SUBPEL_RATE (phase 10 item 1): the subpel ladder minimizes pure
  * SATD, so it takes whichever phase has the smallest Hadamard cost
  * however many mvd bits that position costs, and at N265_SUBME=3 - the
  * shipped medium - the last square it runs is the vector that gets
@@ -667,7 +667,7 @@ static int subme_mode(void)
  *
  *   0  off. The ladder is what it has always been.
  *   1  the POST-SEARCH re-rank: the AMVP vector against its four
- *      quarter-pel neighbours on luma SATD + lambda x mvd, taken in
+ *      quarter-pel neighbors on luma SATD + lambda x mvd, taken in
  *      ctu.c where the vector is settled. Five luma SATDs per AMVP PU
  *      per list. ctu.c owns this arm; the ladder does not see it.
  *   2  the rate term inside the ladder's LAST round, each candidate
@@ -714,7 +714,7 @@ int n265_subpel_rate(void)
  * questions are not the same one. On a flat square a quarter-pel step
  * changes the Hadamard by almost nothing, so the move the re-rank makes
  * there is worth almost nothing in distortion; on a steep square a
- * neighbour that still wins wins by a lot. The tie form therefore keeps
+ * neighbor that still wins wins by a lot. The tie form therefore keeps
  * precisely the worthless moves and buys out the valuable ones, which is
  * what the band says in one line.
  *
@@ -734,13 +734,13 @@ int n265_subpel_gate(void)
 /* N265_SUBME_RUNG (phase 11 item 2): the subpel rung the item-1b census
  * named. Half of what the `N265_SUBPEL_RATE=1` re-rank buys is not the
  * rate term at all - 42-50% of its moves are a strictly LOWER SATD than
- * the centre, quarter-pel refinement the `N265_SUBME=3` ladder skipped
+ * the center, quarter-pel refinement the `N265_SUBME=3` ladder skipped
  * at its `gate_q_move` break - and it is bought in a pass ABOVE the
  * ladder that re-interpolates what the ladder had in registers and that
  * pays a BI Hadamard (two MCs and an average) on the 40% of its passes
  * whose settled candidate is bi. This puts the same step inside
  * `n265_me_search`: after the ladder's last square, one more quarter-pel
- * step around the settled centre, priced in the CALLER's rate model
+ * step around the settled center, priced in the CALLER's rate model
  * (`struct n265_me_rate`, the same units the re-rank uses - the model's
  * `base` differs between the two sites and cancels in an argmin over one
  * list's vectors), over the four axis Hadamards the ladder may already
@@ -881,8 +881,8 @@ static int me_pattern(void)
     return v;
 }
 
-/* quantiser step at qp, Q8: the unit the early-out bound is asked in,
- * because a prediction already inside the quantiser floor leaves the
+/* quantizer step at qp, Q8: the unit the early-out bound is asked in,
+ * because a prediction already inside the quantizer floor leaves the
  * pattern nothing to find */
 /* Indexed by Qp' = qp + QP_BD_OFFSET: the step is asked in SAMPLE units
  * against a per-pixel SAD, so at Main10 it has to be four times the
@@ -924,9 +924,9 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
     static const int dia4[4][2] = { {4,0}, {-4,0}, {0,4}, {0,-4} };
     int pattern = me_pattern();
     /* Early-out: a seed whose prediction is already inside the
-     * quantiser floor has nothing for the pattern to find - whatever it
-     * moves to, the residual quantises to the same nothing - so the
-     * walk is bought to lose. Asked per pixel in quantiser steps. */
+     * quantizer floor has nothing for the pattern to find - whatever it
+     * moves to, the residual quantizes to the same nothing - so the
+     * walk is bought to lose. Asked per pixel in quantizer steps. */
     int early = 0;
     if (pattern >= 2) {
         unsigned pct = pattern == 2 ? 50u : 100u;
@@ -938,7 +938,7 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
     } else if (pattern) {
         /* Hexagon search (HEXBS, Zhu/Lin/Chau 2002): six points on a
          * flattened hexagon so a step covers two pels of ground for the
-         * same six evaluations, walked until the centre wins, then a
+         * same six evaluations, walked until the center wins, then a
          * unit-diamond finish for the pel the hexagon steps over. The
          * walk is bounded at the reference's merange class - 57 full
          * pels from the seed - rather than by an iteration count. */
@@ -1022,7 +1022,7 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
     int dedup = subpel_dedup();
     /* N265_SUBME, the subme-2 ladder. 1 runs the quarter-pel square
      * only where the half-pel one moved: where it did not, the block's
-     * best half-pel phase is the centre the round started at and the
+     * best half-pel phase is the center the round started at and the
      * quarter-pel square is refining a position the search has already
      * decided nothing better is near. 2 also drops it for 8x4 and 4x8
      * PUs, where the sixteen extra interpolations buy a quarter of a
@@ -1055,7 +1055,7 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
     int trace = sp_trace();
     /* `n265_me_keep`: the last quarter-pel square's own Hadamards, kept
      * for the arm-1 re-rank in ctu.c, and by the rung for its own step.
-     * `kq_c` is the square's centre, and the entries are only handed
+     * `kq_c` is the square's center, and the entries are only handed
      * over if the square ended there. */
     int kw = keep != NULL || rung != 0;
     mv_t kq_c = { 0, 0 };
@@ -1135,7 +1135,7 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
                             sp_bump(SP_SATD, 1);
                     }
                     if (kq_here && (!dx || !dy)) {
-                        /* the re-rank's four axis neighbours, in its
+                        /* the re-rank's four axis neighbors, in its
                          * own order; the square's diagonals are its own */
                         int ki = dy == 0 ? (dx > 0 ? 0 : 1) : (dy > 0 ? 2 : 3);
                         kq[ki] = s;
@@ -1183,7 +1183,7 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
             }
             if (sad_step) {
                 /* the two steps rank in different metrics, so the
-                 * quarter-pel square needs its centre re-costed */
+                 * quarter-pel square needs its center re-costed */
                 if (b.x != cur.x || b.y != cur.y) {
                     cur = b;
                     best_satd = mc_satd(e, list, ridx, x0, y0, w, h, cur);
@@ -1196,8 +1196,8 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
             }
             last_moved = cur.x != sq_start.x || cur.y != sq_start.y;
         }
-        /* A round that did not move the centre leaves the search in the
-         * state it started in - same centre, same best cost - so the
+        /* A round that did not move the center leaves the search in the
+         * state it started in - same center, same best cost - so the
          * next one walks the identical candidate set to the identical
          * answer. Not running it is bit-identical, and it is half the
          * subpel budget on every block that had already converged. */
@@ -1206,8 +1206,8 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
     }
     /* --- N265_SUBME_RUNG (phase 11 item 2) --- *
      *
-     * One more quarter-pel step, around the centre the ladder settled
-     * on, ranked on the four AXIS neighbours - the re-rank's own five
+     * One more quarter-pel step, around the center the ladder settled
+     * on, ranked on the four AXIS neighbors - the re-rank's own five
      * positions - in luma SATD + the caller's lambda x mvd. The square
      * the ladder just walked may already hold all four Hadamards, in
      * which case the step is the ranking alone and costs nothing; the
@@ -1217,7 +1217,7 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
      * The gate is item 1b's predicate on item 1b's square and keeps its
      * sign: a flat square means a quarter-pel step changes the Hadamard
      * by almost nothing, so the move is worth almost nothing; a
-     * separated one means a neighbour that still wins, wins by a lot. */
+     * separated one means a neighbor that still wins, wins by a lot. */
     mv_t rung_mv = cur;
     int rung_fired = 0;
     if (rung && !fullpel) {

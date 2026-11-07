@@ -20,7 +20,7 @@
 
 #include "encoder/rdoq.h"
 
-/* rdoq.c's own derivation of the quantiser parameters, which is what the
+/* rdoq.c's own derivation of the quantizer parameters, which is what the
  * kernel's range proof is stated against. Kept here rather than exported
  * because it is the CALLER's arithmetic: the kernel takes the results. */
 static const int ca_quant_scale[6] = {
@@ -31,7 +31,7 @@ struct qparm { int q, qbits, czero; int64_t add; };
 
 static struct qparm qparm(int log2n, int qp, int intra)
 {
-    /* `qp` is QpY and the quantiser indexes Qp' (phase 8 item 2), so this
+    /* `qp` is QpY and the quantizer indexes Qp' (phase 8 item 2), so this
      * is rdoq.c's derivation verbatim at whichever depth the harness is
      * built for: qbits is 21 + qP/6 - log2n at 8 bits and two smaller at
      * Main10 against a qP that is twelve larger, which is the same

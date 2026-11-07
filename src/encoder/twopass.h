@@ -15,7 +15,7 @@
  * THE MODEL
  *
  * Pass 1 is an ordinary encode that writes down, per frame, what it cost
- * and what quantiser it cost that at. Pass 2 reads those pairs and plans
+ * and what quantizer it cost that at. Pass 2 reads those pairs and plans
  * the whole file before coding anything.
  *
  * Each frame gets its own rate curve, ANCHORED ON THE MEASUREMENT rather
@@ -31,14 +31,14 @@
  * level and the opening fit are all estimators of a number pass 1 already
  * knows for each frame separately.
  *
- * On top of that curve sits the ONE modelled term, and it is x264's
+ * On top of that curve sits the ONE modeled term, and it is x264's
  * qcomp: a frame harder than the file's own geometric mean is coded at a
- * COARSER quantiser, by
+ * COARSER quantizer, by
  *
  *     d_i = 6 * (1 - qcomp) * log2( (cplx_i / nblk) / gmean )
  *
  * clamped to N265_2P_CLAMP. This is the term that makes a second pass an
- * ALLOCATOR and not just a relabelling. Today's one-pass loop has no such
+ * ALLOCATOR and not just a relabeling. Today's one-pass loop has no such
  * term at all, which is easy to miss: `w / T` is `w_avg / bits_per_frame`
  * identically (rc.c), so the frame's complexity cancels and every frame
  * rides the same base - qcomp reaches the one-pass base nowhere. At
@@ -67,7 +67,7 @@
  * whose stopping rule would have to be part of the determinism claim.
  * The only iteration is over frames the QP RANGE pins (a plan below
  * QpBdOffsetY or above 51 is not a plan): those are fixed at the bound,
- * their bits come out of the target, and the rest are re-levelled around
+ * their bits come out of the target, and the rest are re-leveled around
  * them. It is a finite walk - a frame never unpins - and 32 bounds it.
  */
 
@@ -78,12 +78,12 @@
 #include <stdio.h>
 
 /* The format version written into the header line and required on read.
- * A stats file is an encoder artefact and not an interchange format: two
+ * A stats file is an encoder artifact and not an interchange format: two
  * different builds' numbers must not be mixed, and the version is what
  * says so out loud instead of producing a plausible wrong plan. */
 #define N265_2P_VER 1
 
-/* the classic quantiser scale, the axis rc.c and this file share */
+/* the classic quantizer scale, the axis rc.c and this file share */
 static inline double n265_2p_qscale(double q)
 {
     return 0.85 * pow(2.0, (q - 12.0) / 6.0);

@@ -212,16 +212,16 @@ YAH265_API void n265_set_badapt(int on);
  * every value (docs/threading-design.md). */
 YAH265_API void n265_set_threads(int n);
 
-/* ---- pass-through signalling (phase 14 item 1) ----
+/* ---- pass-through signaling (phase 14 item 1) ----
  *
  * Six setters, and NONE of them changes a coded sample: they fill in the
- * VUI's colour description, the sample aspect ratio, the default display
+ * VUI's color description, the sample aspect ratio, the default display
  * window, the HDR10 static metadata SEIs and the decoded picture hash.
  * Give none of them and the stream is byte for byte the one this encoder
  * wrote before they existed.
  *
  * Every argument is already the SYNTAX ELEMENT of ITU-T H.265 Annex E or
- * Annex D - a colour primary is Table E.3's number, not a name - so a
+ * Annex D - a color primary is Table E.3's number, not a name - so a
  * caller that has a name parses it itself or uses n265 the binary, which
  * accepts x265's spellings. -1 means "not given" in every field that has
  * an absence, and an absent field's presence flag is 0.

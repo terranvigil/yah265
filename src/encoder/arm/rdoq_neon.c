@@ -14,7 +14,7 @@
  *                      block, which is what the sign-bit-hiding pass
  *                      needs over the FINAL levels.
  *
- * The C form of the first cannot be auto-vectorised and clang does not
+ * The C form of the first cannot be auto-vectorized and clang does not
  * try: the energy is a running `double` sum, and reassociating a
  * floating-point reduction is not something a compiler may do without
  * -ffast-math. That is why it was measured at a third of rdoq's time on
@@ -52,7 +52,7 @@
  *   where czero = ceil(((1 << qbits) - add) / q). For |coef| <= czero - 1
  *   we have |coef| * q < (1 << qbits) - add, so the shift yields 0, which
  *   is exactly what the C stores; and for |coef| >= czero it yields at
- *   least 1. The branch is a speed optimisation over an expression that
+ *   least 1. The branch is a speed optimization over an expression that
  *   is already correct, so the vector form computes it unconditionally
  *   and `czero` is unused here. It stays in the signature because the
  *   kernel and its C entry point have the same one.

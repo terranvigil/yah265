@@ -130,7 +130,7 @@ void bench(const char *what, void (*ref)(void *), void (*opt)(void *),
  *
  * Overreading and overwriting past a block edge is THE classic NEON bug -
  * the tail of a width the vector loop does not cover, or a load that
- * grabs eight samples where four were declared. The sanitiser finds those
+ * grabs eight samples where four were declared. The sanitizer finds those
  * only when the block happens to sit at the end of a heap allocation; this
  * finds them every call.
  *
@@ -183,7 +183,7 @@ static inline int ca_check_pad_pix(const pixel *blk, int stride, int w, int h,
  * written as "load 4, duplicate, run the 8-lane op, store 4" compiles to
  * a plain 16-byte `ldr q`, so the kernel reads four samples past the row,
  * discards them, and passes the scramble check because the output cannot
- * move. The sanitiser is quiet too, because the bytes are still inside
+ * move. The sanitizer is quiet too, because the bytes are still inside
  * the allocation.
  *
  * The page guard is the net that does not need the value: a mapping sized

@@ -66,7 +66,7 @@ clips_excerpt=(
 #
 # The derf collection has no clip with a global illumination ramp, and a
 # fade is the regime weighted prediction exists for (phase 14 item 2), so
-# these two are SYNTHESISED from clips already in the corpus - and the
+# these two are SYNTHESIZED from clips already in the corpus - and the
 # recipe is written here rather than in a note, so it can be re-run and
 # the pin can fail.
 #
@@ -77,7 +77,7 @@ clips_excerpt=(
 #                filter blacks out everything outside its own window, so
 #                the chain returns 120 black frames. (Measured: it does.)
 #   xfade_720p   park_joy_720p and in_to_tree_720p, 80 frames each, with
-#                an 0.8 s (40-frame) cross-fade centred on frame 60. The
+#                an 0.8 s (40-frame) cross-fade centered on frame 60. The
 #                harder half of the regime: the mean moves globally, but
 #                the CONTENT is a mix of two pictures, so one weight per
 #                reference can only take the illumination part of it.

@@ -17,7 +17,7 @@ each stream (showinfo, the same decode order the y4m goes out in).
 Built and read for phase 13 B4 (docs/phase13.md "B4"), which is where the
 readings and the caveats are. The one caveat worth repeating here: the two
 encoders choose DIFFERENT GOPs, so a per-type split that ignores that is a
-GOP-alignment artefact. The `both typed` rows are the honest ones, and the
+GOP-alignment artifact. The `both typed` rows are the honest ones, and the
 row that says how many frames the split could not read is printed beside
 them.
 
@@ -151,7 +151,7 @@ for clip in sys.argv[1:]:
     grp(lambda i: i > 0, "all but frame 0")
     # The type split is only honest where BOTH encoders chose the same
     # type at that display index: the two GOPs differ, so "ours typed P"
-    # against whatever x265 put there is a GOP-alignment artefact.
+    # against whatever x265 put there is a GOP-alignment artifact.
     for t in ("P", "B"):
         grp(lambda i, t=t: ot[i] == t and xt[i] == t, f"both typed {t}")
     grp(lambda i: ot[i] != xt[i], "types differ (not a reading)")

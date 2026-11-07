@@ -41,7 +41,7 @@ enum {
     N265_ASM_MC    = 1u << 2,   /* luma/chroma interpolation, bi average */
     N265_ASM_INTRA = 1u << 3,   /* intra prediction and its filters */
     N265_ASM_SAO   = 1u << 4,   /* SAO statistics and application */
-    N265_ASM_QUANT = 1u << 5,   /* quant/dequant and the RDOQ marshalling */
+    N265_ASM_QUANT = 1u << 5,   /* quant/dequant and the RDOQ marshaling */
     N265_ASM_ALL   = 0x3fu,
 };
 
@@ -99,7 +99,7 @@ static inline uint32_t n265_cpu_flags(void)
  * meson defines one N265_NEON_<FAMILY> per family it compiles in, and
  * the list is per DEPTH (phase 8 item 3): a family reaches a build only
  * once its 16-bit lanes are proved bit-exact at that depth under a
- * checkasm built at the same depth. Normalised to 0/1 here so a C
+ * checkasm built at the same depth. Normalized to 0/1 here so a C
  * expression can read them as well as the preprocessor can. */
 #ifndef N265_NEON
 #define N265_NEON 0
@@ -125,7 +125,7 @@ static inline uint32_t n265_cpu_flags(void)
 
 /* The classes any compiled-in family carries. A class is WIDER than a
  * family - N265_ASM_QUANT is dequant/quant in the transform file, the
- * RDOQ marshalling and the coefficient costing, three files - so this
+ * RDOQ marshaling and the coefficient costing, three files - so this
  * mask is not the gate. The gate is the per-site `#if N265_NEON_<FAMILY>`,
  * which is a family-exact compile-time fact; this is the belt to that
  * brace, so that a dispatch site which ever lost its guard still takes

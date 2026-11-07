@@ -58,7 +58,7 @@ the determinism gate makes bit-neutral.
 Timing rules (docs/instruments.md): output to /dev/null, median of
 NRUNS, sizes measured in a separate untimed pass. The timed binary is
 `build-rel/n265` (`make build-rel`, -O3) since 2026-09-12, worth 2-3% of
-the wall; `build/` stays `debugoptimized` for the sanitiser and
+the wall; `build/` stays `debugoptimized` for the sanitizer and
 determinism gates, and the two are byte-identical on the 12-cell cmp the
 switch was gated on. N265 overrides it.
 
@@ -149,14 +149,14 @@ def corpus_clips():
 
 # The CRF leg (2026-09-11). Everything above encodes at a fixed QP, and
 # x265 forces AQ and cu-tree off in CQP mode, so the CQP columns compare us
-# against a reference with no adaptive quantisation and cannot see a
+# against a reference with no adaptive quantization and cannot see a
 # CRF-only change at all: the rows for d59e23f and 50fa1a8 reproduced
 # ff29576 to the digit while the CIF-7 CRF band median moved -8.10 to
 # -10.57. This column asks the same question under CRF, and does NOT ask it
 # with a second implementation - it runs scripts/bd_vs_x265.py, the band's
 # own instrument, so the board's number IS the band's number (BD-rate on
 # VMAF-NEG at MATCHED ACHIEVED BITRATE on the scripts/ladders.json targets,
-# against x265 `--preset medium --crf`, memoised under ~/.cache/yah265-bd).
+# against x265 `--preset medium --crf`, memoized under ~/.cache/yah265-bd).
 # The CLI defaults `--aq 1 --cutree 1` since 2026-09-12 (before that both
 # defaulted to 0, and `--crf 28` with and without them differs by cmp:
 # 53093 vs 113758 bytes on foreman). The CQP and timed legs below pass
@@ -460,7 +460,7 @@ def main():
     if "--clips" in sys.argv:
         only = sys.argv[sys.argv.index("--clips") + 1].split(",")
         clips = [c for c in clips if c[0] in only]
-    # one run for the whole board, so its JOBS parallelises across clips
+    # one run for the whole board, so its JOBS parallelizes across clips
     crf = bd_crf([c[0] for c in clips])
     with tempfile.TemporaryDirectory() as tmp, \
          open(HISTORY, "a", newline="") as f:

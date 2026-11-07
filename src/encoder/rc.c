@@ -9,7 +9,7 @@
  *
  * The model, re-derived (docs/programme-from-yah264.md A.1):
  *
- *   qscale(q)   = 0.85 * 2^((q - 12) / 6)     the classic quantiser scale
+ *   qscale(q)   = 0.85 * 2^((q - 12) / 6)     the classic quantizer scale
  *   w(frame)    = scale[class] * nblk * (complexity / nblk)^qcomp
  *   bits(frame) = w / qscale(rate factor)
  *
@@ -21,8 +21,8 @@
  * lets the same constants work on content the priors were never fitted to.
  * Because the observation is taken against the BASE rate factor, the class
  * scale absorbs everything the encoder does between the base and the
- * frame's real QP - the cascade, the AQ frame mean, the un-centred cu-tree
- * field - and none of those has to be modelled twice.
+ * frame's real QP - the cascade, the AQ frame mean, the un-centered cu-tree
+ * field - and none of those has to be modeled twice.
  *
  * The allocator gives frame i its fair share of the budget,
  * T = bits_per_frame * w_i / mean(w): constant quality inside the budget,
@@ -30,12 +30,12 @@
  *
  * The OPERATING POINT - the base rate factor the whole sequence rides,
  * which the fair share leaves untouched because the frame's complexity
- * cancels between w_i and T - is MEASURED rather than modelled: it is the
+ * cancels between w_i and T - is MEASURED rather than modeled: it is the
  * running mean of `bits x qscale(base)` over every coded frame, against
  * the per-frame budget. That product is the numerator of the budget solve
  * itself, so the point is an identity and not a fit, and it is what the
  * class scales cannot be trusted for on content where most frames cost
- * the same at any quantiser (see n265_rc_next). On top of it sits a
+ * the same at any quantizer (see n265_rc_next). On top of it sits a
  * proportional and an integral correction on the cumulative error, spread
  * over a horizon of `horizon` frames, which is what actually lands the
  * file on its target size.
@@ -187,7 +187,7 @@ void n265_rc_open(struct n265_encoder *e)
      * does it. On a real title at 60 fps that horizon is a tenth of a
      * second, and every heavy stretch pins the coarse rail: Meridian
      * 720p at 181k codes ten seconds of its opening at QP 50, where the
-     * bits no longer answer the quantiser (240 frames of that content
+     * bits no longer answer the quantizer (240 frames of that content
      * cost 59 kB at QP 51 against 81 kB at 45) and VMAF-NEG falls to 40.
      * Under a VBV the buffer is what bounds a local overspend, so the
      * coarse rail can be short: 1.5 QP over the measured operating point.
@@ -450,7 +450,7 @@ void n265_rc_open(struct n265_encoder *e)
     rc->rf = 26.0;
 }
 
-/* the predicted bits x qscale of a frame. The complexity is normalised per
+/* the predicted bits x qscale of a frame. The complexity is normalized per
  * lowres block before it is compressed, so `scale` is a per-block constant
  * and the priors carry across resolutions; without that the same content at
  * 720p reads five times the CIF scale purely from the block count. */
@@ -546,13 +546,13 @@ static int cadence_class(struct n265_encoder *e, int i)
  * `q_code` is the base the frame is ABOUT to be coded at - not the rate
  * factor, the base: under ABR the encoder adds the cu-tree frame term back
  * on after this loop answers, and the class scales are learned against the
- * base, so the base is the only quantiser the bits model is calibrated in.
+ * base, so the base is the only quantizer the bits model is calibrated in.
  * The model's prediction there is `weight / qscale(base)`, and the buffer's
  * answer is how many bits it can actually pay for at this removal and at
  * every planned removal in the window behind it.
  *
  * When the prediction is over the allowance the base rises by exactly the
- * ratio, `6 log2(pred / allow)`, which is the quantiser step that makes the
+ * ratio, `6 log2(pred / allow)`, which is the quantizer step that makes the
  * model's own prediction equal the allowance. It is one step and not an
  * iteration: the window's plans were priced at the OLD base, so raising it
  * only leaves them conservative - every future frame will be cheaper than
@@ -573,7 +573,7 @@ static int cadence_class(struct n265_encoder *e, int i)
  * frame whose complexity reaches `scpred` of its intra cost is priced at
  * the worse of its own fit and the intra fit, as the old clamp prices it.
  * The QP it adds is the fit's own: `6 log2(p / a)` over the fitted slope,
- * so content whose bits stop answering the quantiser is raised by what it
+ * so content whose bits stop answering the quantizer is raised by what it
  * takes, not by the textbook step. */
 static double vbv_dqp_szm(struct n265_encoder *e, int cls, double cplx,
                           double icplx, double q_code, double *pred,
@@ -642,7 +642,7 @@ static double vbv_dqp(struct n265_encoder *e, int cls, double cplx,
         /* the window is priced at the ALLOCATOR's scale and not at the
          * pessimistic one. The two estimators answer different questions:
          * "can this frame be paid for NOW" wants the worse of them, and
-         * being wrong high there costs one quantiser step; "how much must
+         * being wrong high there costs one quantizer step; "how much must
          * be saved for the frames behind it" wants the mean, and being
          * wrong high there reserves the whole buffer against frames that
          * do not exist. On sintel_720p's black opening the pessimistic
@@ -687,7 +687,7 @@ static double vbv_dqp(struct n265_encoder *e, int cls, double cplx,
  * and the cu-tree frame term - because that is the number n265_rc_done
  * learns the class scales against, and the prediction has to be made in the
  * units the observation is taken in. The answer only ever goes UP: capped
- * CRF never spends a fuller buffer on a finer quantiser, or the cap would
+ * CRF never spends a fuller buffer on a finer quantizer, or the cap would
  * be a target. */
 double n265_vbv_crf_base(struct n265_encoder *e, int cls, double cplx,
                          double icplx, double base, double *pred,
@@ -721,7 +721,7 @@ double n265_vbv_crf_base(struct n265_encoder *e, int cls, double cplx,
      * point the ordinary QP clip handles, not something for a buffer to
      * have an opinion about. */
     double q = base + d;
-    /* item 47: where no quantiser makes the plan, the skip holds the
+    /* item 47: where no quantizer makes the plan, the skip holds the
      * frame to an allowance, and that one is solved with the window
      * priced at the QP the frames will really get near the top, 51, and
      * not at this frame's base: priced at the base, a window that is
@@ -913,7 +913,7 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
      * `plan_ok` says a whole-file plan describes this frame (rc.h). Where
      * it does, two quantities come from the plan instead of from the
      * model: the frame's target, which is its own planned bits rather than
-     * a fair share of a flat budget, and the base, which is the quantiser
+     * a fair share of a flat budget, and the base, which is the quantizer
      * the closed-form solve chose for it rather than the measured
      * operating point. Everything else in this function runs unchanged,
      * including the weight and the running means - they cost nothing, the
@@ -921,7 +921,7 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
      * books either way.
      *
      * `N265_ABR_IOFF` is inert under a plan and that is deliberate: the
-     * intra frames' share of the file is not modelled in the second pass,
+     * intra frames' share of the file is not modeled in the second pass,
      * it is measured, so an intra discount the allocator plans for is a
      * correction to an estimate that is no longer being made. */
     int twop = rc->plan_ok;
@@ -1006,7 +1006,7 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
      *
      * The floor is taken over the whole LOOKAHEAD WINDOW and not over this
      * frame alone, because the rate factor is a walked state: the frames
-     * between two IDRs on sita_flat cost 200 bits at any quantiser, so they
+     * between two IDRs on sita_flat cost 200 bits at any quantizer, so they
      * bank a deficit they cannot spend, walk the rate factor down six steps
      * chasing it, and the step bound then carries that position into the
      * IDR, which is the frame that can spend. Reading the window is the
@@ -1077,7 +1077,7 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
         rc->rf_bias = -rc->imax;
 
     /* Both feedback terms together are bounded, because a stretch the model
-     * is simply wrong about can otherwise drag the quantiser anywhere: the
+     * is simply wrong about can otherwise drag the quantizer anywhere: the
      * black frames that open sintel_720p cost 200 bits at any QP, so the
      * loop reads eleven frames of unspent budget and walks the rate factor
      * down twenty steps chasing bits that do not exist. The bound is what
@@ -1189,7 +1189,7 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
      *     sita_flat_720p, where three scene-cut IDRs land in 120 frames and
      *     the base runs 9.4 QP too fine.
      *   - `scale[cls]` is a mean of per-frame RATIOS, so a frame whose bits
-     *     do not depend on the quantiser at all - 108 of sita_flat's 120
+     *     do not depend on the quantizer at all - 108 of sita_flat's 120
      *     frames cost about 200 bits at any QP - counts as much as one that
      *     carries a tenth of the file. Over the flat stretch the leaf-B scale
      *     falls from 1.7 to 0.04 and takes the base down with it, and the
@@ -1203,7 +1203,7 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
      * `bits x qscale(base)` over EVERY coded frame, against the per-frame
      * budget. Checked against the truth on four clips at a constant QP it
      * reproduces the rate factor that lands each ladder target to 0.01 QP,
-     * where the modelled point reads 22.71 against 32.10 on sita_flat.
+     * where the modeled point reads 22.71 against 32.10 on sita_flat.
      *
      * The model is not thereby unemployed: it still fits the opening from
      * the lookahead window, it still hands out the fair shares, and its
@@ -1277,7 +1277,7 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
      * evidence, and there is nothing to damp in it - while rate-limiting the
      * SUM makes the rate factor a walked state that carries the wrong
      * position into the wrong frame. On sita_flat the frames between two
-     * IDRs cost 200 bits at any quantiser, the loop walks six steps down
+     * IDRs cost 200 bits at any quantizer, the loop walks six steps down
      * over them chasing a deficit they cannot spend, and the IDR then
      * inherits the walk: at the third IDR the feedback asks for 0 and the
      * step bound still hands it 2 QP below the operating point.
@@ -1300,7 +1300,7 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
      * ten to fifty frames of budget, it is where the R-D curve is steepest
      * (sita_flat's third IDR moves 2.5x over 4 QP where the model's own
      * slope says 1.6x), and the surplus that provoked it is usually an
-     * artefact of the FLAT budget - on sita_flat the loop reads an 88k
+     * artifact of the FLAT budget - on sita_flat the loop reads an 88k
      * deficit at the third IDR, spends 4.3 QP of rate factor closing it, and
      * ends the clip 21% OVER. A surplus always has somewhere cheaper to go,
      * because nine frames in ten are inter. N265_ABR_IBRAKE=0 restores the
@@ -1357,7 +1357,7 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
      * (encoder.c, dispatch_frame), so without this line the loop's answer and
      * the frame's base are two different numbers and the difference is a pure
      * OPEN-LOOP error. It is not small and it is not zero-mean: under ABR the
-     * per-CTU field is CENTRED (la.c centres unless crf_on) and the term is
+     * per-CTU field is CENTERED (la.c centers unless crf_on) and the term is
      * then the field's whole frame mean, which on animation is -4 to -7.5 QP.
      * sita_toon_720p opened at a fitted 20.60, coded its first IDR at 13.12 -
      * 23 frames of budget on one frame - and then sat on its +6 feedback rail
@@ -1578,7 +1578,7 @@ void n265_rc_done(struct n265_encoder *e, int cls, double cplx, double rf_used,
      * one addition is the whole of "the loop pays for it".
      *
      * The class scale above is NOT corrected the same way, and must not be:
-     * `obs` is the raw price of this frame's content at the quantiser it was
+     * `obs` is the raw price of this frame's content at the quantizer it was
      * really coded at, and the offset is put back on at weight-formation time
      * in n265_rc_next. Correcting both would count it twice. */
     /* N265_VBR_CTKEEP (item 37): the frame was coded at the loop's level
@@ -1592,8 +1592,8 @@ void n265_rc_done(struct n265_encoder *e, int cls, double cplx, double rf_used,
      * different frame set than cplxr's is not a level at all. */
     double cx = c * exp2(-ctf / 6.0);
     /* A frame at the lookahead's complexity floor - black, a still card -
-     * costs its few hundred bits of overhead at any quantiser, so `bits x
-     * qscale` there measures the quantiser and not the content. Chimera
+     * costs its few hundred bits of overhead at any quantizer, so `bits x
+     * qscale` there measures the quantizer and not the content. Chimera
      * opens on five seconds of black: counted, they walk the operating
      * point from 21.7 to 1.3 and the first picture after the cut is
      * planned at QP 13 (phase 14 item 29). They still count as spending
@@ -1611,7 +1611,7 @@ void n265_rc_done(struct n265_encoder *e, int cls, double cplx, double rf_used,
          * its share: on akiyo the opening IDR is 27% of a 120-frame file, the
          * point moves 2.6 QP coarse, and the clip pays 4 points of ABR
          * BD-rate for an allocation that used to give its one I frame - and
-         * so the 119 frames that reference it - the finer quantiser.
+         * so the 119 frames that reference it - the finer quantizer.
          *
          * A SECOND intra frame is the evidence that was missing. When one
          * arrives the held observation is folded in beside it and the point

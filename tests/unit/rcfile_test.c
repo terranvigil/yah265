@@ -59,7 +59,7 @@ static void qpfile_ok(void)
           q.e[0].qp == 26.0, "entry 0 wrong");
     CHECK(q.e[1].frame == 12 && q.e[1].type == N265_QPF_I &&
           q.e[1].qp == 31.5, "entry 1 wrong (a fractional qp is legal)");
-    /* a type with no qp forces the type and leaves the quantiser alone */
+    /* a type with no qp forces the type and leaves the quantizer alone */
     CHECK(q.e[2].frame == 30 && q.e[2].type == N265_QPF_IDR &&
           q.e[2].qp < 0.0, "entry 2 should carry no qp");
     CHECK(q.e[3].type == N265_QPF_AUTO && q.e[3].qp == 20.0,

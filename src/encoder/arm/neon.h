@@ -48,7 +48,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "common/cpu.h"     /* N265_NEON_<FAMILY>, normalised to 0/1 */
+#include "common/cpu.h"     /* N265_NEON_<FAMILY>, normalized to 0/1 */
 #include "common/pixel.h"
 
 #if N265_NEON_MC

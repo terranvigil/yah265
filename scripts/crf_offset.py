@@ -25,9 +25,9 @@ at all - a constant offset is a relabel, a spread is content.
     CLIPS=/path/to/big.y4m FRAMES=600 LO=12 HI=34 python3 scripts/crf_offset.py
     OURENV='N265_AQ_DC=0' TAG=dc0 python3 scripts/crf_offset.py
 
-Encodes are memoised under ~/.cache/yah265-crf (CRF_CACHE=dir, =0 off),
+Encodes are memoized under ~/.cache/yah265-crf (CRF_CACHE=dir, =0 off),
 keyed by the command, the source and a hash of our binary, the way
-bd_at_rate.py memoises the band's.
+bd_at_rate.py memoizes the band's.
 
 x265 runs at its DEFAULT thread configuration here, because the question
 is what a user's own `x265 --crf N` produces. That costs 0.4-3.5% of the

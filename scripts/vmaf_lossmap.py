@@ -319,7 +319,7 @@ def summarise(rows, nscales, label, w=None):
     """The design's three questions, printed as one table per clip."""
     fr = rows["frame"]
     nfr = int(fr.max()) + 1 if len(fr) else 0
-    # per-frame normalised loss share, per scale and combined
+    # per-frame normalized loss share, per scale and combined
     share = {}
     for s in range(nscales):
         lo = rows[f"vif_den{s}"] - rows[f"vif_num{s}"]

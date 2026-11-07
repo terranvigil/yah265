@@ -2,7 +2,7 @@
 """Fit the learned depth-bound table and print its coverage curve.
 
 Phase 7 item 4, step 0 (docs/phase7-depth-design.md). Reads the per-CTU
-records N265_DEPTH_DUMP writes, quantises the pre-decision features into a
+records N265_DEPTH_DUMP writes, quantizes the pre-decision features into a
 small grid, stores per cell the depth interval that covers a target share
 of the training CTUs, and reports - on content HELD OUT BY CLIP - what
 fraction of CTUs that interval actually contains and how many of the four
@@ -59,7 +59,7 @@ EXTRAS = ("park_joy_720p ducks_720p in_to_tree_720p sintel_720p "
 # type x QP band; `fine` and the lowres INTER cost turned out to separate
 # the outcome far harder than the ratio does, so the ratio keeps three
 # coarse bins and `pmean` joins the grid. Every axis is a quantity that
-# exists before the CTU is analysed.
+# exists before the CTU is analyzed.
 #
 # Each entry is (feature, edges); np.digitize puts a value into
 # len(edges) + 1 bins.

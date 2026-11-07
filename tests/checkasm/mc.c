@@ -12,7 +12,7 @@
 /* The page guard is checkasm.h's, and this family is why it exists: a
  * four-sample tail written with an eight-lane load and a four-lane store
  * reads four samples it never uses, passes the scramble check because the
- * output cannot move, and passes the sanitiser because the bytes are still
+ * output cannot move, and passes the sanitizer because the bytes are still
  * inside the allocation. On a padded reference plane it is harmless. On
  * n265_ref_win's gathered `tmp` - which the clipped-MV path takes, and
  * which holds only the (w + 7) * (h + 7) bytes it actually gathered - it

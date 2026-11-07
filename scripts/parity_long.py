@@ -428,7 +428,7 @@ def span_note(cell):
 
 def windows(frames, fps):
     """yah264's stratified sample: one WIN_SECS window per STRATUM_SECS,
-    centred in its stratum, a pure function of the frame count and rate."""
+    centered in its stratum, a pure function of the frame count and rate."""
     n = max(1, int(frames / fps / STRATUM_SECS + 0.5))
     wlen = min(frames, int(round(WIN_SECS * fps)))
     st = frames / n
@@ -848,7 +848,7 @@ def now():
 
 def measure(cell, arm, mode, q, s=0, n=None, prof="solve", depth=None,
             stride=None, psnr_only=False, log=print):
-    """One untimed encode of frames s..s+n, memoised on the feeder, the
+    """One untimed encode of frames s..s+n, memoized on the feeder, the
     command and the binary: bytes, md5, kbps, and the scores when `stride`
     is given. The bitstream is deleted; only its numbers are kept."""
     i = info(cell)
@@ -1666,7 +1666,7 @@ def do_vbr_wall(args):
 
 # The dry run's throughput model is the logged walls: every valid timed row
 # of docs/data/parity-spec.csv gives Mpx/s per class, goal and arm, and a
-# class without a row borrows its neighbour's. The untimed 6-thread rate is
+# class without a row borrows its neighbor's. The untimed 6-thread rate is
 # taken as half the default-thread G3 rate (an assumption: 6 of 18 cores,
 # scaling sublinearly), and libvmaf scores 25 Mpx/s at four threads (the
 # median over 1350 rungs of yah264's ladder lane on this box, VMAF-NEG and
@@ -1712,7 +1712,7 @@ def model_rate(model, cls, goal, arm):
 
 
 def feed_cap(cell):
-    """Frames a second the cell's feeder can give, modelled."""
+    """Frames a second the cell's feeder can give, modeled."""
     i = info(cell)
     if i["src"] == "y4m":
         mbps = 900.0 if i["path"].startswith("<") else 5000.0
@@ -2123,7 +2123,7 @@ def selftest():
     assert full_geom("lash1924", "720p") == (1280, 960)
     assert full_geom("lash1924", "1080p") == (1440, 1080)
     assert full_geom("sintel", "2160p") == (4096, 1744)
-    # a 528 s cell: three windows of 720 frames, centred in their strata
+    # a 528 s cell: three windows of 720 frames, centered in their strata
     assert windows(12672, 24.0) == [(1752, 720), (5976, 720), (10200, 720)]
     assert len(windows(2760, 24000 / 1001)) == 1        # tier M: one
     for s in (1, 3, 7):

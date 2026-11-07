@@ -22,7 +22,7 @@ SCORING. The score is bdcompare.vmaf_of's own libvmaf call -- the band's, with
 the band's models -- asked for its per-frame array, and a shot's score is the
 mean of that array over the shot's display range. It has to come off the
 WHOLE-SEQUENCE run: VMAF's temporal features make a frame's score depend on
-its neighbours, so a shot cut out and scored as its own clip reads differently
+its neighbors, so a shot cut out and scored as its own clip reads differently
 from the same shot inside the sequence. Averaging the whole-file array is also
 exactly what scripts/multishot_bd.py does per shot, which is what lets the two
 be checked against each other (`--check-shots`).
@@ -67,7 +67,7 @@ def _frames_json(bitstream, src):
 
 
 def per_frame_neg(bitstream, src):
-    """The per-frame VMAF-NEG array for one bitstream, memoised."""
+    """The per-frame VMAF-NEG array for one bitstream, memoized."""
     ck = _frames_json(bitstream, src)
     if ck and os.path.exists(ck):
         try:
@@ -101,7 +101,7 @@ def hull(points):
     """The upper-left convex hull of (bytes, score) points: the rungs a
     ladder builder would keep. Dominated points go first (more bytes for no
     more quality), then the upper convex envelope of what is left, so a point
-    that sits under the chord between its neighbours is dropped too."""
+    that sits under the chord between its neighbors is dropped too."""
     pts = sorted(points, key=lambda p: (p[0], -p[1]))
     front, best = [], None
     for b, s, name in pts:                  # Pareto: score strictly rising

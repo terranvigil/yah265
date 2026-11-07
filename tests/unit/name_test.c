@@ -5,7 +5,7 @@
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  *
  * A name table is the one kind of code that ships with a typo and no
- * symptom. Nothing downstream reads a colour description back: a stream
+ * symptom. Nothing downstream reads a color description back: a stream
  * tagged BT.709 when the caller asked for BT.2100 decodes, conforms,
  * matches both decoders bit for bit and is wrong. The same is true of a
  * tune - a composition that silently dropped one of its four knobs would
@@ -111,7 +111,7 @@ static void test_vsp_names(void)
     chk(n265_vsp_name(n + 5) == NULL, "name past the end");
 }
 
-/* The colour volume: its ten ST 2086 values, as the P3-D65 1000-nit
+/* The color volume: its ten ST 2086 values, as the P3-D65 1000-nit
  * --master-display string gives them. Order is G, B, R, WP, then max and min luminance. */
 static void test_vsp_volume(void)
 {

@@ -227,7 +227,7 @@ static int check_filter(void)
  * positions are enumerated: the picture corners and edges, the first and
  * last TB of a CTB row, and a scatter of interior positions at every
  * alignment a TB of that size can have. Every one of them is run at three
- * CTB sizes, because the z-scan key - and so which neighbours count as
+ * CTB sizes, because the z-scan key - and so which neighbors count as
  * already decoded - is a function of ctb_log2.
  */
 static void refs_opt(pixel *refs, const pixel *recon, int stride,

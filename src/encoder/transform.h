@@ -16,7 +16,7 @@ void n265_fdct(int16_t *coef, const int16_t *resid, int log2n, int use_dst);
 
 /* Normative inverse path (8.6.3 dequant, 8.6.4 inverse transform); this is
  * the half that must match the decoder bit-exactly. */
-/* nzw/nzh (optional) report the dequantised block's nonzero bounding box:
+/* nzw/nzh (optional) report the dequantized block's nonzero bounding box:
  * every coefficient at x >= *nzw or y >= *nzh is zero. Feed them straight
  * to n265_idct_add, which then skips the rows and columns that cannot
  * contribute. Passing the full size is always correct, just slower. */
@@ -55,7 +55,7 @@ int n265_quant(int16_t *level, const int16_t *coef, int log2n, int qp,
  * Min(qPi, 51) at every other one - so the argument is
  * chroma_format_idc itself and the function reads the spec's condition
  * rather than a predicate that happens to agree with it. The return is
- * QpC in the 8-BIT DOMAIN, not Qp'C: the quantiser adds QpBdOffsetC
+ * QpC in the 8-BIT DOMAIN, not Qp'C: the quantizer adds QpBdOffsetC
  * itself and the chroma deblocking filter (8.7.2.5.5) does not, so
  * returning the offset index would be silently right for one caller and
  * silently wrong for the other. */

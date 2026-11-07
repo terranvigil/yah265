@@ -24,7 +24,7 @@ build8:
 	ninja -C $(BUILD)
 
 # The TIMED build (phase 9 step 0). meson's default here is
-# `debugoptimized` (-O2) and stays that way: the sanitiser trees, the
+# `debugoptimized` (-O2) and stays that way: the sanitizer trees, the
 # determinism gate and every correctness target want the assertions and
 # the frame pointers. -O3 is worth 2-3% of the wall on its own
 # (docs/phase9-goals-plan.md sec 2 (e)) and the two builds are
@@ -67,7 +67,7 @@ checkasm-bench: build
 	$(BUILD)/tests/checkasm --bench
 
 # checkasm under ASan+UBSan, part of the kernel item gate. The guard
-# buffers catch a stray read or write at the BLOCK edge and the sanitiser
+# buffers catch a stray read or write at the BLOCK edge and the sanitizer
 # catches it at the ALLOCATION edge; they miss different bugs, so a kernel
 # item runs both.
 checkasm-asan:
@@ -248,7 +248,7 @@ asan:
 	N265=build-asan/n265 scripts/conformance.sh --fast
 
 # The Main10 conformance list under ASan + UBSan. Item 5a collapses this
-# onto the SAME sanitiser tree `make asan` uses: build-asan compiles both
+# onto the SAME sanitizer tree `make asan` uses: build-asan compiles both
 # libraries and its n265 links both, so the 10-bit code is instrumented
 # there too and a second tree bought nothing. `make asan` is still the
 # 8-bit read and still says nothing about 10.

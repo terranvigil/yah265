@@ -1,6 +1,6 @@
 /*
  * The decoded picture hash (D.2.19 / D.3.19): MD5, CRC or checksum over
- * one reconstructed picture, per colour component.
+ * one reconstructed picture, per color component.
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  *
  * D.3.19 hashes the DECODED PICTURE, which is the coded picture and not

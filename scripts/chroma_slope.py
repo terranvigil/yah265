@@ -4,7 +4,7 @@
 """The per-component rate-distortion SLOPE, and the chroma weight it implies.
 
 The mode decision's chroma weight `N265_CHROMA_W` was derived from the ratio of
-the two quantisers' squared steps, `2^((qp_y - qp_c)/3)`. That prices chroma
+the two quantizers' squared steps, `2^((qp_y - qp_c)/3)`. That prices chroma
 DISTORTION against luma's and assumes chroma RATE behaves like luma's. This
 measures the assumption: per component, the coded bits (N265_CBIT_TRACE, exact
 attribution) and the SSD of the encoder's own reconstruction against the

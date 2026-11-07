@@ -125,7 +125,7 @@ with ThreadPoolExecutor(max_workers=JOBS) as ex:
         mc = re.search(r"chromaPSNR ([+-][\d.]+)%", out)
         if mc: chroma[clip] = float(mc.group(1))
         # Luma PSNR off the same points: the second metric a grain arm is
-        # argued on, since VMAF-NEG's reading of synthesised samples is
+        # argued on, since VMAF-NEG's reading of synthesized samples is
         # itself the open question (phase 12 item 3).
         my = re.search(r"lumaPSNR ([+-][\d.]+)%", out)
         if my: luma[clip] = float(my.group(1))

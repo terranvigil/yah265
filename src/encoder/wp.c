@@ -16,7 +16,7 @@
  * yet at dispatch and whose readiness is a thread-order property. The
  * first moment fixes the offset and the second fixes the scale
  * (`sqrt(varF / varR)`), then a SAD over the same
- * two planes says whether the map is worth signalling. Nothing here
+ * two planes says whether the map is worth signaling. Nothing here
  * reads a coded sample, so the whole table is a pure function of the
  * input pictures and is identical at every thread count.
  *
@@ -55,7 +55,7 @@ int n265_wp_trace(void)
 }
 
 /* The gain a weighted map has to show on the lowres plane before it is
- * signalled, as a right shift of the unweighted SAD: 4 is 1/16, about
+ * signaled, as a right shift of the unweighted SAD: 4 is 1/16, about
  * 6.3%. A LARGER number is a smaller margin and fires more often.
  *
  * 4 rather than the 6 this shipped with first, and the evidence is a
@@ -66,7 +66,7 @@ int n265_wp_trace(void)
  * 11.4% at its SMALLEST of twenty-three. Nothing on a clip without an
  * illumination change reached 5% and nothing on a clip with one fell
  * below 11%, so the margin belongs in the gap. At 1/64 the two grain
- * and motion clips were signalling weights worth a couple of percent of
+ * and motion clips were signaling weights worth a couple of percent of
  * lowres SAD and costing 0.6-0.8 of a BD point, which is the whole
  * failure mode this test exists to prevent: a near-identity weight
  * moves every sample by a level and turns blocks that would have been
@@ -84,7 +84,7 @@ static int wp_gain_shift(void)
 }
 
 /* The share of 8x8 lowres blocks a map must IMPROVE before it is
- * signalled, in percent. See block_win_pct for what it is for.
+ * signaled, in percent. See block_win_pct for what it is for.
  *
  * 40, and the calibration is two-sided from the only two-sided evidence
  * the corpus has. Over 120 frames at medium, the win share of every map
@@ -368,7 +368,7 @@ void n265_wp_analyse(n265_encoder *e, n265_frame_work *fw)
         plane_moments(e->wp_cur[c + 1], nc, &cm[c + 1][0], &cm[c + 1][1]);
 
     /* pass 1: the real-valued maps, so the shared denominators can be
-     * chosen before anything is quantised */
+     * chosen before anything is quantized */
     struct cand cl[2][N265_MAX_REF], cc[2][N265_MAX_REF][2];
     memset(cl, 0, sizeof(cl));
     memset(cc, 0, sizeof(cc));
@@ -403,7 +403,7 @@ void n265_wp_analyse(n265_encoder *e, n265_frame_work *fw)
     fw->wp_ldenom = ld;
     fw->wp_cdenom = cd;
 
-    /* pass 2: quantise, then let the SAD decide. */
+    /* pass 2: quantize, then let the SAD decide. */
     for (int l = 0; l < lists; l++)
         for (int r = 0; r < fw->nref[l] && r < maxref; r++) {
             n265_wp *wp = &fw->wp[l][r];
@@ -453,7 +453,7 @@ void n265_wp_analyse(n265_encoder *e, n265_frame_work *fw)
                         bwin, fired ? "FIRE" : "-");
 
             /* chroma. ONE flag covers Cb and Cr (7.3.6.3), so the two
-             * are decided together on the sum of their SADs; signalling
+             * are decided together on the sum of their SADs; signaling
              * a good Cb map and a bad Cr one is not a thing the syntax
              * can express. */
             if (!cc[l][r][0].valid)

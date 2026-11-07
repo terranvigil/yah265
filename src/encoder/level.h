@@ -57,7 +57,7 @@ typedef struct n265_level_out {
 } n265_level_out;
 
 /* 0 on success; -1 with out->err set when no level admits the stream or
- * when an explicit --level / --high-tier cannot be honoured. */
+ * when an explicit --level / --high-tier cannot be honored. */
 int n265_level_solve(const n265_level_req *rq, n265_level_out *out);
 
 /* "4.1", "41" or "123" -> 123. 0 for a string that is not a level. */

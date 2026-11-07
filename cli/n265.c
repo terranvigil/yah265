@@ -93,7 +93,7 @@ void n265_set_vbv(double maxrate, double bufsize, double init);
  * arithmetic over the Annex A table, so the 8-bit copy serves both
  * libraries and the dispatch table does not carry it. */
 int n265_level_parse(const char *s);
-/* The pass-through signalling flags' STRING forms (phase 14 item 1,
+/* The pass-through signaling flags' STRING forms (phase 14 item 1,
  * src/encoder/signal.h): the value tables of Annex E with x265's
  * spellings, and the four compound syntaxes. Depth-independent for the
  * same reason n265_level_parse is, so the 8-bit copy serves both
@@ -114,7 +114,7 @@ int n265_master_display_parse(const char *s, uint32_t v[10]);
 int n265_cll_parse(const char *s, int *cll, int *fall);
 
 /* --video-signal-type-preset (phase 14 item 15): the name table for a
- * whole colour signalling set, in src/encoder/signal.c beside the value
+ * whole color signaling set, in src/encoder/signal.c beside the value
  * tables it expands into. `v` is indexed by N265_VUI_* and by
  * N265_VSP_CHROMALOC; -1 is a field the preset leaves alone. */
 #define N265_VSP_CHROMALOC  6           /* N265_VUI_NFIELD */
@@ -278,7 +278,7 @@ typedef struct n265_api {
     void (*set_dup_thr)(double);
     void (*set_nr)(int, int);       /* --nr-intra / --nr-inter (item 6) */
     void (*set_mcstf)(int, int, int);   /* --mcstf and its two (item 6) */
-    /* the pass-through signalling setters (phase 14 item 1). They take
+    /* the pass-through signaling setters (phase 14 item 1). They take
      * syntax elements, never names: the tables above turn the command
      * line's spellings into numbers once, before the dispatch. */
     void (*set_hash)(int);
@@ -780,7 +780,7 @@ static int y4m_read(y4m_t *y)
          * Main10 encode of an 8-bit clip comparable with its 8-bit encode
          * at the same QP: the residual is exactly four times, the forward
          * transform sheds exactly two bits, and the coefficients that
-         * reach the quantiser are the same integers. It costs one pass
+         * reach the quantizer are the same integers. It costs one pass
          * over the frame and no latency - the picture is converted where
          * it is read, not queued. */
         for (size_t i = 0; i < nsamp; i++)
@@ -1698,7 +1698,7 @@ static void opt_note(optstr *o, char **argv, int from, int to)
  * the first segment, as in a serial stream; an --eob is kept on the last
  * segment only. The HRD timing SEI is NOT written on a joined stream:
  * each instance would count its removal delays from its own start.
- * The buffer itself is honoured and scripts/vbv_check.py walks it from
+ * The buffer itself is honored and scripts/vbv_check.py walks it from
  * the stream's access unit sizes.
  *
  * When it engages. Only above one thread, and only when the input runs
@@ -2780,7 +2780,7 @@ int main(int argc, char **argv)
     /* --vbv-maxrate / --vbv-bufsize / --vbv-init; 0/0 is the mode off,
      * which is every encode before phase 12 item 2. */
     double vbv_maxrate = 0.0, vbv_bufsize = 0.0, vbv_init = 0.9;
-    /* Pass-through signalling (phase 14 item 1). -1 is "the flag was not
+    /* Pass-through signaling (phase 14 item 1). -1 is "the flag was not
      * given" in every field that has an absence; give none of them and
      * nothing below reaches the stream. */
     int hash = 0;
@@ -2934,14 +2934,14 @@ int main(int argc, char **argv)
         } else if (!strcmp(argv[i], "--scaling-list") && i + 1 < argc) {
             /* Parsed and REFUSED, by name, with the reason. The SPS flag
              * is two bits; what follows it is not. With
-             * scaling_list_enabled_flag set, a decoder dequantises with
+             * scaling_list_enabled_flag set, a decoder dequantizes with
              * the default matrices of Tables 7-5 and 7-6, so this
-             * encoder's quantiser has to apply them too or every
+             * encoder's quantizer has to apply them too or every
              * reconstruction stops matching every decoder - and that
-             * reaches the forward quantiser, the inverse, RDOQ's per
+             * reaches the forward quantizer, the inverse, RDOQ's per
              * coefficient rate-distortion and the NEON kernels of both.
-             * It is a quantiser item with a checkasm leg, not a cheap
-             * signalling one, and shipping the flag alone would fail the
+             * It is a quantizer item with a checkasm leg, not a cheap
+             * signaling one, and shipping the flag alone would fail the
              * recon-match gate on its first vector. */
             fprintf(stderr, "n265: --scaling-list is not implemented, and "
                     "not because the SPS flag is hard: with "
@@ -3184,7 +3184,7 @@ int main(int argc, char **argv)
              *
              * A refresh that is only half enforced is WORSE than no
              * refresh: the stream would claim a recovery point that a
-             * decoder joining there cannot honour, and nothing in this
+             * decoder joining there cannot honor, and nothing in this
              * encoder's gates would say so, because every one of them
              * decodes from the start of the stream. */
             fprintf(stderr, "n265: --intra-refresh is not implemented, "
@@ -3337,7 +3337,7 @@ int main(int argc, char **argv)
      * reader that guessed would code garbage silently on the one input
      * that cannot say what it is. `--input-res` is the switch - x265
      * takes the same decision off the `.yuv` extension, and that is
-     * honoured too so a plain `n265 clip.yuv --input-res ...` and the
+     * honored too so a plain `n265 clip.yuv --input-res ...` and the
      * bare extension agree. */
     if (is_y4m_name(in_path) &&
         (in_w > 0 || in_csp >= 0 || in_depth || in_fps_num > 0)) {
@@ -3427,7 +3427,7 @@ int main(int argc, char **argv)
     const int qp_bd_off = N265_QP_BD_OFF(a->depth);
 
     /* QpY runs -QpBdOffsetY..51 (7.4.3.3): 0..51 at 8 bits, -12..51 at
-     * Main10, where the twelve extra steps are the finer quantisers the
+     * Main10, where the twelve extra steps are the finer quantizers the
      * two extra sample bits pay for and are the whole point of the
      * profile at the top of the ladder. */
     if (qp < -qp_bd_off || qp > 51) {
@@ -3709,7 +3709,7 @@ int main(int argc, char **argv)
     }
     a->set_nr(nr_intra, nr_inter);
     /* x265 spells the range 0..4 and its 0 means the filter off. Here 0
-     * is refused by name instead: --mcstf with no neighbours is an
+     * is refused by name instead: --mcstf with no neighbors is an
      * identity filter that still costs the latency and the queue, and a
      * flag that silently does nothing is the thing this project keeps
      * refusing to ship. */
@@ -3721,7 +3721,7 @@ int main(int argc, char **argv)
     a->set_mcstf(mcstf, mcstf_range, mcstf_selective);
     a->set_vbv(vbv_maxrate, vbv_bufsize, vbv_init);
     a->set_weight(weightp, weightb);
-    /* ---- the pass-through signalling (phase 14 item 1) ---- */
+    /* ---- the pass-through signaling (phase 14 item 1) ---- */
     if (hash < 0 || hash > 3) {
         fprintf(stderr, "n265: --hash is 0 (off), 1 (MD5), 2 (CRC) or "
                 "3 (checksum)\n");
@@ -3747,7 +3747,7 @@ int main(int argc, char **argv)
      * the flags it was given: the preset (which is the whole of the
      * knob state a preset sets - the payload names no env knob) and the
      * rate control that won, --bitrate over --crf over --qp, with
-     * --lossless and --pcm having no quantiser to name at all. */
+     * --lossless and --pcm having no quantizer to name at all. */
     {
         optstr head = { .s = "", .n = 0 };
         char v[32];
@@ -3800,7 +3800,7 @@ int main(int argc, char **argv)
     a->set_zones(zones_spec);
     a->set_hash(hash);
     /* --open-gop / --radl (phase 14 item 3). A RADL count past the
-     * mini-GOP cannot be honoured - there are only ever `--bframes`
+     * mini-GOP cannot be honored - there are only ever `--bframes`
      * leading pictures - so it is refused rather than silently capped. */
     if (radl < 0 || radl > bframes) {
         fprintf(stderr, "n265: --radl is 0..%d here (a CRA has at most "
@@ -3813,7 +3813,7 @@ int main(int argc, char **argv)
         return 2;
     }
     a->set_gop(open_gop, radl);
-    /* The default display window is signalled in CHROMA units (7.4.3.2.1)
+    /* The default display window is signaled in CHROMA units (7.4.3.2.1)
      * and the flag takes pixels, so an offset that is not a whole number
      * of chroma samples cannot be written. x265 documents the same flag in
      * pixels and then writes them unshifted, which at 4:2:0 signals twice
@@ -3863,7 +3863,7 @@ int main(int argc, char **argv)
     a->set_hdr10(hdr10, cll_on, atc);
     a->set_hdr_opt(hdr_opt);
     /* The dynamic metadata describes PQ or HLG pictures, so the stream has
-     * to say that's what it holds, or a player that reads the colour
+     * to say that's what it holds, or a player that reads the color
      * description first never looks for the metadata. */
     if (h10p_path && (sig_transfer != 16 || sig_colorprim != 9 ||
                       sig_colormatrix != 9 || a->depth != 10)) {

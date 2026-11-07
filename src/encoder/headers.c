@@ -22,7 +22,7 @@
  *
  * Until phase 8 item 7 the pick lived here and read the picture size and
  * the DPB alone - eight of the thirteen levels, no rate leg - which
- * signalled 720p50 at a level its own frame rate violates (Table A.7,
+ * signaled 720p50 at a level its own frame rate violates (Table A.7,
  * MaxLumaSr) and a PCM stream at a level admitting a tenth of its bit
  * rate. Both were wrong by a table, and both moved. */
 static void write_ptl(bitstream_t *bs, int level_idc, int tier,
@@ -92,7 +92,7 @@ static void write_ptl(bitstream_t *bs, int level_idc, int tier,
          * 4:2:2 profile and the 4:4:4 ones.
          *
          * Table A.2 has NO 8-bit 4:2:2 row - the lowest 4:2:2 profile is
-         * Main 4:2:2 10 - so an 8-bit 4:2:2 stream is signalled as that,
+         * Main 4:2:2 10 - so an 8-bit 4:2:2 stream is signaled as that,
          * with max_8bit CLEAR. The flag is a constraint the stream
          * declines to make and not a description of its sample width,
          * and bit_depth 8 sits inside Main 4:2:2 10 already; x265 names
@@ -354,11 +354,11 @@ void n265_write_sps(struct n265_frame_work *e)
     } else {
         bs_put_bits(bs, 1, 1);      /* vui_parameters_present_flag */
         /* vui_parameters (E.2.1), in order. Everything here is
-         * PASS-THROUGH: the colour description, the aspect ratio and the
+         * PASS-THROUGH: the color description, the aspect ratio and the
          * display window describe the pictures the caller handed in and
          * change no coded sample (phase 14 item 1, src/encoder/signal.h).
          * A presence flag is 1 exactly where the caller named one of the
-         * fields under it, so a stream with no signalling flags carries
+         * fields under it, so a stream with no signaling flags carries
          * the bits it always carried.
          *
          * field_seq_flag 0 and frame_field_info 0 say the same thing the
@@ -390,7 +390,7 @@ void n265_write_sps(struct n265_frame_work *e)
             bs_put_bits(bs, 1, 1);
             /* 5 is Unspecified (Table E.2) and is what the syntax infers
              * when the whole block is absent, so it is what an unnamed
-             * video_format says here too. Same for the three colour
+             * video_format says here too. Same for the three color
              * fields at 2. */
             bs_put_bits(bs, (uint32_t)(sig->videoformat < 0 ? 5
                                        : sig->videoformat), 3);
@@ -420,7 +420,7 @@ void n265_write_sps(struct n265_frame_work *e)
         bs_put_bits(bs, 0, 1);      /* field_seq_flag */
         /* --pic-struct: with it, pic_timing carries pic_struct,
          * source_scan_type and duplicate_flag (D.2.3), which is how
-         * pulldown and field repetition are signalled on a stream whose
+         * pulldown and field repetition are signaled on a stream whose
          * pictures are frames. The flag and the SEI move together: a
          * decoder that reads one field width and gets another parses the
          * rest of the message as noise. */
@@ -443,7 +443,7 @@ void n265_write_sps(struct n265_frame_work *e)
             bs_put_ue(bs, (uint32_t)(sig->win_b >> e->csy));
         }
         if (!e->vui_timing) {
-            /* the colour half alone: a stream that names --colorprim and
+            /* the color half alone: a stream that names --colorprim and
              * nothing else still gets a VUI, and this is the bit that
              * says the timing block is not in it */
             bs_put_bits(bs, 0, 1);  /* vui_timing_info_present_flag */
@@ -483,7 +483,7 @@ void n265_write_pps(struct n265_frame_work *e)
     /* sign_data_hiding_enabled_flag. 7.4.9.11 makes signHidden depend on
      * !cu_transquant_bypass_flag, so under --lossless - where every CU is
      * bypass - the tool is already inert by the spec's own condition.
-     * Signalling it off says the same thing in one place instead of
+     * Signaling it off says the same thing in one place instead of
      * leaving the reader to re-derive it per CU, and it is what the
      * residual writer's `sbh` argument is passed. */
     bs_put_bits(bs, e->mode != N265_MODE_PCM && !e->lossless, 1);
@@ -596,10 +596,10 @@ static void sei_wrap(bitstream_t *bs, size_t at, unsigned type)
 /* film_grain_characteristics, D.2.20, inside a prefix SEI NAL (D.2.1).
  *
  * What is NOT written and why: model_id 0 is frequency filtering, which
- * is the one model with a synthesiser in this project's measurement chain
+ * is the one model with a synthesizer in this project's measurement chain
  * (docs/phase12.md step 0), and it is also the one SMPTE RDD 5 defines.
  * separate_colour_description_present_flag is 0, so the grain inherits
- * the picture's own colour description, which is what it was measured
+ * the picture's own color description, which is what it was measured
  * off. blending_mode_id 0 is additive; multiplicative grain is a
  * different estimate and this item does not make it. The persistence
  * flag is 1: the SEI is written in every IRAP access unit, and one
@@ -637,7 +637,7 @@ void n265_write_fgc_sei(bitstream_t *bs, const n265_grain_model *m)
  * hrd_parameters and left these as a named debt.
  *
  * Both messages ride the same NAL, buffering period FIRST, because D.3.2's
- * HRD initialises on the buffering period of the access unit it starts
+ * HRD initializes on the buffering period of the access unit it starts
  * with: a decoder that has read the pic_timing of an AU before its
  * buffering period has read a removal delay against a period it does not
  * have yet. One NAL also keeps the deferred ring's bound at six NALs for
@@ -864,7 +864,7 @@ void n265_write_aud(bitstream_t *bs, int pic_type)
  *         - <url> - options: k=v ...
  *
  * one line, " - " between the fields, in that order. The copyright line
- * is LICENSE's, so the string and the licence cannot drift apart, and the
+ * is LICENSE's, so the string and the license cannot drift apart, and the
  * options clause is what the CLI resolved - the preset, the rate control
  * it settled on, and the flags the run was given. It carries no clock, no
  * path and no thread count: the payload is part of the bitstream, and a

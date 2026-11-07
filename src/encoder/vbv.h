@@ -16,7 +16,7 @@
  * and the stream conforms exactly when `fill(k) - bits(k) >= 0` for every
  * k. The cap is the `cbr_flag = 0` half of E.2.3: arrival STOPS when the
  * buffer is full rather than forcing filler data in, which is what makes
- * this a one-sided constraint an encoder can meet by raising a quantiser.
+ * this a one-sided constraint an encoder can meet by raising a quantizer.
  *
  * The fill is deliberately NOT clamped at zero from below. An underflow is
  * a fact about the stream, not a state the encoder may forget: carrying the
@@ -70,7 +70,7 @@ typedef struct n265_vbv {
 
 /* The floor under an allowance. A coded picture is never free - a slice
  * header alone is tens of bits - so an allowance of zero is not a budget,
- * it is a division by zero in whatever converts bits back to a quantiser.
+ * it is a division by zero in whatever converts bits back to a quantizer.
  * The QP clip is what actually bounds the answer; this only keeps the
  * logarithm finite. */
 #define N265_VBV_MIN_ALLOW 1.0

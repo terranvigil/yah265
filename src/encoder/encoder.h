@@ -141,7 +141,7 @@ enum {
  * QpY + QP_BD_OFFSET, 0..63, which leaves 0xff free at both depths and is
  * the bare QpY at 8 bits. Everything that READS the map converts back,
  * because the two consumers - deblocking's Table 8-12 index and the
- * prediction of the next quantisation group - both want QpY.
+ * prediction of the next quantization group - both want QpY.
  * A bias is safe under the averaging deblock.c does: it is constant, and
  * ((a+B) + (b+B) + 1) >> 1 is ((a+b+1) >> 1) + B exactly. */
 #define N265_QP_STORE(q) ((q) + QP_BD_OFFSET)
@@ -464,7 +464,7 @@ enum {
 enum {
     N265_CUF_SPLIT   = 1u,  /* the quadtree kept the SPLIT arm here    */
     N265_CUF_STATIC  = 2u,  /* the strict static-skip exit took the CU
-                             * before a single TB was analysed         */
+                             * before a single TB was analyzed         */
     N265_CUF_GAMVP   = 4u,  /* the AMVP arm was gated away             */
     N265_CUF_GINTRA  = 8u,  /* the intra arm was gated away            */
     N265_CUF_CLEAN   = 16u, /* the winner was a CLEAN skip             */
@@ -484,7 +484,7 @@ enum {
 /* N265_DEPTH_DUMP (phase 7 item 4, step 0): the per-CTU training record.
  * Everything above `dmin` is a PRE-DECISION feature - it comes off the
  * lookahead's lowres maps, the frame's own source luma or the AQ field,
- * all of which are frozen before the CTU is analysed - and `dmin`/`dmax`
+ * all of which are frozen before the CTU is analyzed - and `dmin`/`dmax`
  * are the depth range the unbounded quadtree actually used, which is the
  * thing a bound has to predict. The instrument is inert: it only reads. */
 struct n265_depth_rec {
@@ -547,13 +547,13 @@ typedef struct n265_frame_work {
      * commit_inter_tt_node) and the replay (entropy.c's replay_tt) read
      * these and nothing else. */
     int tt_depth_inter, tt_depth_intra;
-    int rdoq;               /* N265_RDOQ: RD-optimised quantisation */
+    int rdoq;               /* N265_RDOQ: RD-optimized quantization */
     /* N265_RDOQ=2: the lattice runs on the COMMIT path only, and this is
      * the predicate that says which path a tb_analyze_one call is on. It
      * is set and cleared around the commit-side analyses in ctu.c, is
      * per-frame-work state that never crosses a worker, and so splits
      * trial from commit the same way on one thread and on twelve.
-     * Meaningless at N265_RDOQ 0 and 1, where the quantiser does not
+     * Meaningless at N265_RDOQ 0 and 1, where the quantizer does not
      * depend on it. */
     int rdoq_commit;
     /* --lossless: transquant_bypass_enabled_flag in the PPS and
@@ -576,7 +576,7 @@ typedef struct n265_frame_work {
      * write_ptl writes a number rather than re-deriving one. */
     int level_idc, level_tier;
     int vui_timing;         /* --vui-timing: vui_timing_info in the SPS */
-    /* The pass-through signalling (signal.h): the VUI's colour
+    /* The pass-through signaling (signal.h): the VUI's color
      * description, the aspect ratio, the display window and the HDR10
      * metadata. Copied here at dispatch like every other config field, so
      * the SPS writer and the SEI builder read one struct and no global. */
@@ -600,7 +600,7 @@ typedef struct n265_frame_work {
     int dark_cols;          /* the map's stride, in 16x16 blocks */
     int dbf_beta, dbf_tc;   /* slice_beta/tc_offset_div2, see n265_encoder */
     /* --cbqpoffs / --crqpoffs: pps_cb_qp_offset / pps_cr_qp_offset, the
-     * PPS half of the chroma quantiser's offset. See n265_encoder. */
+     * PPS half of the chroma quantizer's offset. See n265_encoder. */
     int cb_qp_off, cr_qp_off;
 
     /* ---- per-frame: source, recon, slice ---- */
@@ -719,7 +719,7 @@ typedef struct n265_frame_work {
      * `nr_off` is this frame's FROZEN offsets, a copy taken at dispatch:
      * the driver's own table moves under every dispatch and a frame in
      * flight must not see it move. `nr_on` is the single predicate every
-     * quantiser call reads, and it is 0 unless a strength was named. */
+     * quantizer call reads, and it is 0 unless a strength was named. */
     int nr_on;
     uint16_t *nr_off;
     n265_nr_tally *nr_tally;
@@ -739,7 +739,7 @@ typedef struct n265_frame_work {
     struct n265_rps rps;    /* D1: snapshotted at dispatch */
     /* D2: the TMVP collocated picture, resolved at dispatch. The coding
      * path must not read `marked` off a live DPB slot - a later frame's
-     * dispatch can retire the picture while this one is still analysing
+     * dispatch can retire the picture while this one is still analyzing
      * it - so the choice and the POC it scales against are frozen here.
      * NULL when there is no usable collocated picture. */
     struct n265_refpic *col;
@@ -847,8 +847,8 @@ typedef struct n265_frame_work {
     int8_t *ctu_qp_off;     /* per-CTU QP offset map (AQ/cu-tree feed) */
     float *ctu_qp_raw;      /* per-CTU cu-tree offset before rounding  */
     double ct_mean_raw;     /* the cu-tree field's own frame mean, QP units */
-    double ct_mean_used;    /* the mean the per-CTU map was centred on (0
-                             * under CRF, where the map stays un-centred)  */
+    double ct_mean_used;    /* the mean the per-CTU map was centered on (0
+                             * under CRF, where the map stays un-centered)  */
     double ct_level;        /* the lookahead window's own level: the mean over
                              * the frames in it that receive propagation      */
     uint16_t *ctu_lam_q8;   /* per-CTU lambda multiplier, Q8 (256 = inert) */
@@ -1020,7 +1020,7 @@ typedef struct n265_frame_work {
      * with nothing and are never read by a predicate. LAST in the struct
      * on purpose: an instrument must not move a hot field's offset. */
     double t_disp, t_row0, t_rowlast, t_ent0, t_ent1;
-    /* N265_TD_DIST (phase 14 item 34, row-private): the TB being analysed
+    /* N265_TD_DIST (phase 14 item 34, row-private): the TB being analyzed
      * is an inter trial priced on its coefficients. After the hot fields
      * for the same reason. */
     int td_want;
@@ -1136,7 +1136,7 @@ typedef struct n265_row_ctx {
  * below K and K never exceeds N265_MAX_FRAME_WORK. The fold is therefore
  * in coding order, once per frame, over the same set of frames at one
  * worker and at twelve - which is the whole of why the offsets a frame
- * quantises with do not depend on --threads.
+ * quantizes with do not depend on --threads.
  *
  * The ring only has to hold an entry from its own retirement to that
  * dispatch, which is at most LAG entries deep; 16 is the same power of
@@ -1225,14 +1225,14 @@ struct n265_encoder {
     /* E.2.3's two scaled pairs, solved once at open from the VBV the clamp
      * enforces and rounded UP - a declared BitRate below what the encoder
      * assumed, or a declared CpbSize below the buffer it planned against,
-     * would be a claim the stream does not honour. */
+     * would be a claim the stream does not honor. */
     int hrd_on;
     unsigned hrd_bit_rate_scale, hrd_bit_rate_value;
     unsigned hrd_cpb_size_scale, hrd_cpb_size_value;
     /* ...and the same two decoded back out of E.2.3. That is what the SPS
      * CLAIMS, so it is what A.4.2's MaxBR and MaxCPB have to admit - the
      * rounding above can only ever push it up, and a --vbv-maxrate sitting
-     * exactly on a level's bound would otherwise be signalled over it. */
+     * exactly on a level's bound would otherwise be signaled over it. */
     int64_t hrd_bit_rate_bits, hrd_cpb_size_bits;
     /* The HRD timing SEIs (hrd.h, phase 12 item 5), and the two coding
      * indices they are counted from. Both are driver state, moved in
@@ -1288,7 +1288,7 @@ struct n265_encoder {
     int uhd_cls;
     int no_sao;
     /* N265_DBF_BETA / N265_DBF_TC: slice_beta_offset_div2 and
-     * slice_tc_offset_div2, signalled through the PPS. Both shift the
+     * slice_tc_offset_div2, signaled through the PPS. Both shift the
      * index into Table 8-12, so a negative offset filters less: fewer
      * segments pass the d < beta test at all, and the ones that do are
      * clipped to a smaller tC. Zero is the shipped default and the
@@ -1297,7 +1297,7 @@ struct n265_encoder {
     /* --cbqpoffs / --crqpoffs (x265's names): pps_cb_qp_offset and
      * pps_cr_qp_offset, -12..12 each, 0 by default and 0 at every preset.
      * The spec puts them into qPi BEFORE Table 8-10 (8.6.1), so what they
-     * move is the chroma QUANTISER itself and not a cost - which is the
+     * move is the chroma QUANTIZER itself and not a cost - which is the
      * whole difference between these and N265_CHROMA_W. At 0 the
      * derivation is the one that ran before they existed, expression for
      * expression, and the PPS writes the same two se(v) zeroes it always
@@ -1353,7 +1353,7 @@ struct n265_encoder {
      * them, which is what N265_LEVEL_TRACE prints. */
     n265_level_out level;
     int vui_timing;         /* --vui-timing: vui_timing_info in the SPS */
-    /* The pass-through signalling flags (signal.h), as the setters left
+    /* The pass-through signaling flags (signal.h), as the setters left
      * them at open. Copied into every frame_work at dispatch; nothing
      * here is read on a worker. */
     n265_signal sig;
@@ -1411,7 +1411,7 @@ struct n265_encoder {
      * into every IRAP access unit with the persistence flag set. */
     double fgc_strength;
     int fgc_denoise;
-    int fgc_ready;          /* the model has been finalised */
+    int fgc_ready;          /* the model has been finalized */
     int fgc_nacc;           /* pictures folded into the estimate */
     n265_grain_est *fgc_est;
     n265_grain_model fgc;
@@ -1426,7 +1426,7 @@ struct n265_encoder {
      * is folded LAG coding indices later. Neither is ever read by a row
      * worker; the frame gets a frozen COPY of the offsets (fw->nr_off),
      * because the driver rewrites `nr->off` at every dispatch while
-     * frames are still quantising. */
+     * frames are still quantizing. */
     /* --mcstf / --mcstf-ref-range / --selective-mcstf (phase 14 item 6).
      * NULL unless the flag was named; when it is, it is a queue in FRONT
      * of the lookahead and the only thing in the encoder that knows about
@@ -1774,7 +1774,7 @@ struct n265_encoder {
     /* N265_CU_TRACE: the census's output file, and the skip map of the
      * PREVIOUS FRAME IN CODING ORDER. Both are driver-only - the map is
      * copied out of each frame at retirement, where join_oldest has
-     * already serialised coding order - so the co-located-skip column is
+     * already serialized coding order - so the co-located-skip column is
      * the same integer at one worker and at twelve. */
     FILE *cu_trace_f;
     uint8_t *cu_prev_skip;
@@ -1797,7 +1797,7 @@ struct n265_encoder {
     int iw_thr;             /* N265_INTRA_ADAPT_THR, tenths of a % */
     /* N265_STATIC_COMMIT (phase 11 item 4): the coded-skip maps its
      * co-located conjunct reads. One entry per coding index, written at
-     * retirement - where join_oldest has already serialised coding order
+     * retirement - where join_oldest has already serialized coding order
      * - and read at DISPATCH, over the entries whose coding index is at
      * or below k - N265_MAX_FRAME_WORK.
      *
@@ -1869,7 +1869,7 @@ static inline double n265_ct_qp_scale(const struct n265_encoder *e)
 
 /* The cu-tree FRAME term, in QP units, for one frame under CRF/ABR: k_f of
  * the field's own frame mean, less whatever share of that mean the per-CTU
- * map is still carrying (k_b of it, since under CRF the map is un-centred).
+ * map is still carrying (k_b of it, since under CRF the map is un-centered).
  * k_f == k_b makes the two halves the same expression on the same double and
  * the term exactly 0, which is why the default encoder is byte-identical.
  * N265_CT_FRAMEW_FLAT is k_f on a flat-typed frame: the field's cross-frame
@@ -2327,7 +2327,7 @@ void n265_hf2_knobs(n265_encoder *e);
  * one predicate in front of the array read, so a clip with no fade pays
  * a load and a branch per prediction and nothing else.
  *
- * NULL means "the identity", not "no weighting is signalled": under
+ * NULL means "the identity", not "no weighting is signaled": under
  * weighted_pred_flag the decoder runs 8.5.3.3.4.3 for this block either
  * way, and at the identity that clause IS the default prediction (mc.h),
  * so taking the plain filter here is bit-exact and not an approximation. */

@@ -136,7 +136,7 @@ PRED_B = [
 SAD_BUCKETS = [(0, 4), (4, 6), (6, 8), (8, 10), (10, 12), (12, 14),
                (14, 16), (16, 20), (20, 32), (32, 1 << 30)]
 # d_skip / clean_thr, in hundredths: the forced skip's distortion against
-# the quantiser-floor bound SKIP_EXIT is written in
+# the quantizer-floor bound SKIP_EXIT is written in
 DSK_BUCKETS = [(0, 5), (5, 10), (10, 25), (25, 50), (50, 100), (100, 200),
                (200, 400), (400, 1 << 30)]
 

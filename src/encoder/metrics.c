@@ -30,7 +30,7 @@ static double plane_ssd(const pixel *a, int as, const pixel *b, int bs,
 }
 
 /* ffmpeg's vf_ssim, to the arithmetic: 8x8 windows at stride 4 over the
- * plane, the two stabilising constants scaled by the window's 64 samples
+ * plane, the two stabilizing constants scaled by the window's 64 samples
  * (and, for the variance term, by its 63 degrees of freedom), and the
  * plain mean over windows. The plane is truncated to a multiple of four
  * in each direction the way that filter truncates it, which is why a

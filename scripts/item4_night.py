@@ -40,8 +40,8 @@ ratio is FEEDER-BOUND, and the excerpt is staged to the INTERNAL disk
 (the T7 reads ~290 fps of raw 1080p, under 1.5x our auto rate) and both
 are timed again from the file (lf_feed.py y4m through a pipe). Staging
 keeps the internal disk above FREE_FLOOR_GB (60); when the excerpt does
-not fit, the CENTRED sub-window that does is staged and the row's source
-says so. At 2160p the excerpt is never streamed for time: the centred
+not fit, the CENTERED sub-window that does is staged and the row's source
+says so. At 2160p the excerpt is never streamed for time: the centered
 60 s window the matched point was solved on (vbr_lf.timed_span) is
 staged on the T7 (~74 fps of raw 4K, over 1.5x either encoder at 4K)
 and timed from the file. One thread runs on a 60 s window (at most 1800
@@ -325,7 +325,7 @@ def lf_cell(group, cell):
 
     def stage(start, count, where):
         """Stage [start, start+count) under `where` if it fits over the
-        60 GB floor, else the CENTRED sub-window that does. Returns
+        60 GB floor, else the CENTERED sub-window that does. Returns
         (path, first frame, count) or (None, 0, 0)."""
         if not PLAN:
             os.makedirs(where, exist_ok=True)

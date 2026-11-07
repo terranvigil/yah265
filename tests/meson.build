@@ -42,7 +42,7 @@ test('vbv', unit_vbv)
 
 # The two-pass stats parser and the whole-file rate-factor solve
 # (src/encoder/twopass.c), checked as algebra for the same reason the VBV
-# is: the plan decides every frame's quantiser before a frame is coded, so
+# is: the plan decides every frame's quantizer before a frame is coded, so
 # there is nothing in it an encode could tell you that arithmetic cannot.
 unit_twopass = executable('unit_twopass', 'unit/twopass_test.c',
   dependencies : yah265_dep)
@@ -57,7 +57,7 @@ test('hrd', unit_hrd)
 
 # The decoded picture hash (phase 14 item 1): RFC 1321's own vectors
 # against the MD5 primitive, a known plane against three expected values
-# none of which this code produced, and the three signalling SEI writers
+# none of which this code produced, and the three signaling SEI writers
 # against hand-assembled messages. Pure arithmetic and pure syntax, no
 # encode; the decoder-side half is docs/phase14.md's ffmpeg verification
 # and scripts/hash_check.py.
@@ -103,10 +103,10 @@ unit_rcfile = executable('unit_rcfile', 'unit/rcfile_test.c',
 test('rcfile', unit_rcfile)
 
 # The two name tables of phase 14 item 15: --video-signal-type-preset's
-# colour sets and --tune's compositions, against the syntax element
+# color sets and --tune's compositions, against the syntax element
 # values and the knob values written out by hand. A name table is the one
 # kind of code that ships with a typo and no symptom - a stream tagged
-# with the wrong colour description decodes, conforms and matches both
+# with the wrong color description decodes, conforms and matches both
 # decoders bit for bit.
 unit_name = executable('unit_name', 'unit/name_test.c',
   dependencies : yah265_dep)

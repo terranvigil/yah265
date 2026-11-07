@@ -68,7 +68,7 @@ void n265_intra_refs_spec(pixel *refs, const pixel *recon, int stride,
 
     /* 8.4.4.2.2 substitution: search from the bottom-left end of the left
      * column (our index 4n) toward the corner and then along the top row;
-     * if everything is unavailable, mid-grey. */
+     * if everything is unavailable, mid-gray. */
     int first = -1;
     for (int i = total - 1; i >= 0 && first < 0; i--)
         if (val[i] >= 0)
@@ -228,7 +228,7 @@ void n265_intra_refs_g(pixel *refs, const pixel *recon, int stride,
         }
     }
 
-    if (!nt && !nl && !cav) {           /* nothing available: mid-grey */
+    if (!nt && !nl && !cav) {           /* nothing available: mid-gray */
         for (int i = 0; i <= 4 * n; i++)
             refs[i] = 1 << (BIT_DEPTH - 1);
         return;
@@ -481,7 +481,7 @@ void n265_intra_pred(pixel *dst, int dst_stride, const pixel *refs,
 #if N265_NEON_INTRA
     /* Every shape. 8x8 at an angular mode of 18 or above stayed on C
      * until phase 14 item 39, at 0.92-0.97x of a row walk clang
-     * auto-vectorises; the kernel retires 15% fewer instructions there
+     * auto-vectorizes; the kernel retires 15% fewer instructions there
      * (340 against 400 a call) since its reference copy stopped being a
      * libc call, so it takes the shape too. Both paths are bit-exact, so
      * the predicate moves time and nothing else. */

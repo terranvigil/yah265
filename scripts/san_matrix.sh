@@ -12,7 +12,7 @@
 #   scripts/san_matrix.sh            # builds build-san/ (once), runs the cases this encoder supports (16)
 #   FF=/path/to/ffmpeg scripts/san_matrix.sh
 #
-# Exit status is the number of cases with a sanitiser report. ~3 min.
+# Exit status is the number of cases with a sanitizer report. ~3 min.
 cd "$(dirname "$0")/.." || exit 1
 S=${SAN_WORK:-build-san/work}; mkdir -p "$S/a6wd"
 B=build-san

@@ -27,7 +27,7 @@
 #
 # Since item 5a $N265 and $N265_10 are normally the SAME binary, because
 # build/n265 links both libraries and picks the encoder from the input's
-# bit depth; the two variables stay separate so a sanitiser tree or an
+# bit depth; the two variables stay separate so a sanitizer tree or an
 # older binary can be pointed at one leg without the other.
 
 set -u
@@ -179,7 +179,7 @@ run_vector() {
     # film grain SEI by default, and this comparison is about the coded
     # picture - what the encoder reconstructed - not about what a display
     # pipeline would put on the screen. The flag hands the parameters out
-    # as side data instead of synthesising, which is byte-neutral on a
+    # as side data instead of synthesizing, which is byte-neutral on a
     # stream without the SEI (proven, docs/phase12.md step 0) and is the
     # only thing that makes a --film-grain vector's recon claim mean
     # anything. dec265 ignores the message entirely and needs no flag.
@@ -394,7 +394,7 @@ run_vector_dup() {
 #     `cbf_cb[x0][y0 + (1 << (log2TrafoSize-1))]` and 7.3.8.10's tIdx
 #     loop), and where the 8x8 node keeps a stacked 4x4 PAIR at the
 #     parent. Low QP drives the tree deep enough to reach that pair
-#     everywhere; intra NxN is where it is signalled under one
+#     everywhere; intra NxN is where it is signaled under one
 #     intra_chroma_pred_mode.
 #   - Table 8-3's chroma intra mode remap (8.4.3). It is an identity
 #     below mode 6 and a wrong table decodes anything whose chroma modes
@@ -447,7 +447,7 @@ if [ "$CSP" = 422 ]; then
     # the widest RPS and the deepest pyramid the encoder builds
     run_vector ${P}_deep   352x288 34 testsrc2 "--keyint 20 --bframes 15 --rc-lookahead 24 --ref 3 --b-adapt 0 --crf 26 --aq 1 --cutree 1 --threads 1"
     # CRF, and AQ + cu-tree: the fractional base QP writes cu_qp_delta at
-    # quantisation groups CQP never reaches, and every one of those QPs
+    # quantization groups CQP never reaches, and every one of those QPs
     # goes through the chroma mapping again
     run_vector ${P}_crf    352x288 24 testsrc2 "--keyint 12 --bframes 5 --crf 26 --threads 1"
     run_vector ${P}_aq     352x288 18 testsrc2 "--keyint 9 --aq 1 --cutree 1 --crf 28"
@@ -558,7 +558,7 @@ if [ "$CSP" = 444 ]; then
     # the widest RPS and the deepest pyramid the encoder builds
     run_vector ${P}_deep   352x288 34 testsrc2 "--keyint 20 --bframes 15 --rc-lookahead 24 --ref 3 --b-adapt 0 --crf 26 --aq 1 --cutree 1 --threads 1"
     # CRF, and AQ + cu-tree: the fractional base QP writes cu_qp_delta at
-    # quantisation groups CQP never reaches, and every one of those QPs
+    # quantization groups CQP never reaches, and every one of those QPs
     # goes through the chroma mapping again
     run_vector ${P}_crf    352x288 24 testsrc2 "--keyint 12 --bframes 5 --crf 26 --threads 1"
     run_vector ${P}_aq     352x288 18 testsrc2 "--keyint 9 --aq 1 --cutree 1 --crf 28"
@@ -606,7 +606,7 @@ if [ "$CSP" = 444 ]; then
     run_vector_file tests/corpus/foreman_cif.y4m \
                    ${P}_foreman 352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 28 --aq 1 --cutree 1 --threads 4"
     # --hash 2, the CRC form (phase 14 item 1). At 4:4:4 because the hash
-    # is per COLOUR COMPONENT and the chroma planes are full size here, so
+    # is per COLOR COMPONENT and the chroma planes are full size here, so
     # a hash that walked a plane with 4:2:0's geometry would be wrong in a
     # way the 4:2:0 vectors cannot show. The CRC form because ffmpeg only
     # verifies MD5: on this vector the whole claim rests on
@@ -648,7 +648,7 @@ if [ "$DEPTH" = 10 ]; then
     # bottom of QpY's range at Main10 (-QpBdOffsetY, 7.4.3.3) and exists
     # only at this depth, 0 is where the 8-bit range starts, 22 is the
     # middle and 51 the top. A table left indexed by the bare QP instead
-    # of Qp' desynchronises the dequantiser from the decoder's, and the
+    # of Qp' desynchronizes the dequantizer from the decoder's, and the
     # two ends are where it shows first.
     run_vector m10_qpm12   176x144  3  testsrc2  "--qp -12"
     run_vector m10_qp0     176x144  3  testsrc2  "--qp 0"
@@ -665,7 +665,7 @@ if [ "$DEPTH" = 10 ]; then
     # the deep window at three references: the widest RPS and the
     # deepest pyramid this encoder builds
     run_vector m10_deep    352x288 34  testsrc2  "--keyint 20 --bframes 15 --rc-lookahead 24 --ref 3 --b-adapt 0 --crf 26 --aq 1 --cutree 1 --threads 1"
-    # CRF and ABR: the fractional base QP puts cu_qp_delta at quantisation
+    # CRF and ABR: the fractional base QP puts cu_qp_delta at quantization
     # groups the CQP path never reaches, and cu_qp_delta is one of the
     # three fields that carry QpBdOffset
     run_vector m10_crf     352x288 24  testsrc2  "--keyint 12 --bframes 5 --crf 26 --threads 1"
@@ -679,7 +679,7 @@ if [ "$DEPTH" = 10 ]; then
     run_vector m10_dbf_neg 176x144 16  testsrc2  "--keyint 8 --aq 1"
     # SAO, explicitly: sao_offset_abs is cMax 31 at Main10 and cMax 7 at
     # 8 bits, and a truncated-unary string written at the wrong cMax
-    # desynchronises the parse from that CTB on. Band and edge separately,
+    # desynchronizes the parse from that CTB on. Band and edge separately,
     # because only one of them codes a sign.
     run_vector_env "N265_SAO_TYPES=3" \
                    m10_sao_full 176x144 12 testsrc2 "--keyint 6"
@@ -731,7 +731,7 @@ if [ "$DEPTH" = 10 ]; then
     run_vector_file tests/corpus/mobile_cif.y4m \
                    m10_mobile 352x288 16 testsrc2 "--keyint 8 --bframes 3 --qp 22 --aq 1 --threads 1"
     # The whole of phase 14 item 1 at once, at the depth HDR is actually
-    # delivered in: the decoded picture hash, the full colour description
+    # delivered in: the decoded picture hash, the full color description
     # (BT.2100 PQ), and the two HDR10 static metadata SEIs REPEATED at
     # every IRAP - which is what --keyint 8 over 24 frames is for. The SPS
     # grows a VUI block that every field after it depends on, so a decoder
@@ -739,7 +739,7 @@ if [ "$DEPTH" = 10 ]; then
     # shifted; both decoders are held bit-exact, and the hash leg above
     # adds the picture-level claim on top.
     # Weighted prediction at Main10 (phase 14 item 2). The offsets are
-    # signalled in 8-BIT levels at every depth and 8.5.3.3.4.3 shifts
+    # signaled in 8-BIT levels at every depth and 8.5.3.3.4.3 shifts
     # them by WpOffsetBdShiftY at use, so a writer that scaled the offset
     # itself - or a predictor that forgot to - produces a stream that
     # parses and reconstructs a different picture. This is the vector
@@ -824,7 +824,7 @@ run_vector vbv_crf       352x288 24  testsrc2  "--keyint 12 --crf 28 --vbv-maxra
 # per-frame base comes from a file instead of from the loop, and on
 # twopass_vbv it is then clamped by the buffer as well, which is the
 # composition this item claims and the one place two rate-control
-# mechanisms write the same quantiser.
+# mechanisms write the same quantizer.
 run_vector_2p twopass_abr 352x288 24  testsrc2  "--keyint 12 --bitrate 400 --aq 1 --cutree 1"
 run_vector_2p twopass_vbv 352x288 24  testsrc2  "--keyint 12 --bitrate 400 --vbv-maxrate 400 --vbv-bufsize 400 --aq 1 --cutree 1"
 # deblocking offsets: the PPS grows its control block
@@ -876,7 +876,7 @@ run_vector_clean "N265_FLAT_GATE=25" \
 # leg as well as the two-decoder leg.
 #
 # The full pyramid, at one thread and at twelve. These could not exist
-# before the SPS fix: sps_max_num_reorder_pics was signalled as
+# before the SPS fix: sps_max_num_reorder_pics was signaled as
 # `bframes` against sps_max_dec_pic_buffering_minus1 = N265_DPB_SLOTS,
 # so at --bframes 7 the declared reorder depth exceeded the declared
 # buffer count. That is out of range by 7.4.3.2.1 and dec265 refuses the
@@ -941,7 +941,7 @@ run_vector slow_t1_cif  352x288 24 testsrc2 "--keyint 12 --preset slow --aq 1 --
 run_vector slow_t12_cif 352x288 24 testsrc2 "--keyint 12 --preset slow --aq 1 --cutree 1 --threads 12"
 # 2026-09-10: the corner that spent the whole ladder reading off the end of
 # the reference allocation. CTB 16 makes the coding blocks small enough that
-# a merge candidate is nearly always a neighbour's decided vector, --ref 3
+# a merge candidate is nearly always a neighbor's decided vector, --ref 3
 # with --bframes 7 gives tmvp_mv's POC scaling its widest distance ratios,
 # and the product points far outside the picture. The decoder clips such a
 # read to the picture edge (8.5.3.3.2); before n265_mc_clip this encoder did
@@ -1067,7 +1067,7 @@ VENV=""
 # rebuilt the recon from the wrong levels, or a cbf left over from the
 # trial, stops matching at the first CTU - and both decoders are what say
 # so. Two cells: the full pyramid with AQ and cu-tree at twelve threads,
-# which is where the merge / AMVP / partition winners are re-quantised at
+# which is where the merge / AMVP / partition winners are re-quantized at
 # their commit and where a merged 2Nx2N CU whose residual the lattice
 # takes away has to come out as a SKIP; and CTB 16 at one thread for the
 # other transform-tree geometry and the intra NxN commit.
@@ -1075,12 +1075,12 @@ run_vector_env "N265_RDOQ=2" \
            rdoq2_ipb_t12  352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 26 --aq 1 --cutree 1 --threads 12"
 run_vector_env "N265_RDOQ=2" \
            rdoq2_ctu16_t1 176x144 16 testsrc2 "--keyint 8 --ctu 16 --bframes 5 --aq 1 --cutree 1 --threads 1"
-# --rdoq-level (2026-09-14): the same three quantisers, reached the way a
+# --rdoq-level (2026-09-14): the same three quantizers, reached the way a
 # USER reaches them, and the two cells are the two ENDS - the flag's own
 # map onto N265_RDOQ is what they check, since the default list already
 # walks the middle (`--rdoq-level 1` IS `--preset medium`, byte for byte,
 # and the identity cmp says so rather than a vector). Level 0 is plain
-# quantisation everywhere, where sign-bit hiding and the all-zero margin
+# quantization everywhere, where sign-bit hiding and the all-zero margin
 # meet levels no lattice ever touched; level 2 is the lattice in every RD
 # trial, which is the compiled-in default reached from a medium command
 # line. One thread and twelve, so the flag carries the determinism leg.
@@ -1096,7 +1096,7 @@ run_vector rdoqlvl2_t1  176x144 16 testsrc2 "--keyint 8 --ctu 16 --bframes 5 --a
 # the offset AFTER Table 8-10 instead of into qPi before it - cannot
 # match the recon. Deblocking is in the claim too: 8.7.2.5.5 indexes the
 # chroma tC table with cQpPicOffset added, so the offsets move the filter
-# as well as the quantiser. One thread and twelve, so the pair carries
+# as well as the quantizer. One thread and twelve, so the pair carries
 # the determinism leg as well.
 run_vector cbcrqpoffs_t12 352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 26 --aq 1 --cutree 1 --cbqpoffs -2 --crqpoffs 2 --threads 12"
 run_vector cbcrqpoffs_t1  176x144 16 testsrc2 "--keyint 8 --ctu 16 --bframes 5 --aq 1 --cutree 1 --cbqpoffs -6 --crqpoffs -3 --threads 1"
@@ -1163,7 +1163,7 @@ run_vector_dup "N265_DUP_FAST=1 N265_DUP_THR=0.5" \
 # SEI is the one thing this item puts in the bitstream and the claim about
 # it is exactly a conformance claim: both decoders parse the message and
 # BOTH reconstruct the coded picture bit-exactly - ffmpeg because it was
-# asked to hand the parameters out rather than synthesise, dec265 because
+# asked to hand the parameters out rather than synthesize, dec265 because
 # it ignores the message. A decoder that mis-parsed the message would fall
 # off the end of the SEI and take the rest of the access unit with it.
 #
@@ -1179,11 +1179,11 @@ run_vector_dup "N265_DUP_FAST=1 N265_DUP_THR=0.5" \
 # DISPLAY order, so a hash taken from the wrong frame passes a count and
 # fails a comparison. run_vector's hash leg is what compares them.
 run_vector hash_md5      352x288 24 testsrc2 "--keyint 12 --bframes 7 --crf 26 --aq 1 --cutree 1 --hash 1 --threads 4"
-# ...and the VUI colour block without it, on a picture that also has a
+# ...and the VUI color block without it, on a picture that also has a
 # CONFORMANCE window, so the two windows are in the same SPS and a
 # decoder has to keep them apart: the conformance window crops 210x122 up
 # to 216x128 and the default display window asks for six more pixels of
-# the coded picture to be hidden. Everything here is signalling, so the
+# the coded picture to be hidden. Everything here is signaling, so the
 # claim is that both decoders still reconstruct the same samples.
 run_vector vui_colour    210x122 12 testsrc2 "--keyint 6 --bframes 3 --qp 30 --colorprim bt709 --transfer bt709 --colormatrix bt709 --range full --videoformat pal --chromaloc 0 --overscan crop --sar 16:9 --display-window 2,2,4,4 --threads 4"
 # Weighted prediction (phase 14 item 2), on the clip the tool exists for.
@@ -1244,7 +1244,7 @@ run_vector fgc_denoise   352x288 20 testsrc2 "--keyint 6 --bframes 3 --aq 1 --cu
 # reduction. It writes no syntax a decoder has to learn - it changes the
 # LEVELS - so what this vector actually claims is that the encoder's own
 # reconstruction still matches a decoder's after the attenuation, which
-# is the one way a quantiser-side filter breaks: an encoder that
+# is the one way a quantizer-side filter breaks: an encoder that
 # attenuates on the analysis path and not on the commit path reconstructs
 # from coefficients it did not code. Run at twelve threads because the
 # tally is row-private and summed on the driver, and at --keyint 6 so the
@@ -1283,14 +1283,14 @@ run_vector nal_opts      352x288 24 testsrc2 "--keyint 6 --bframes 3 --qp 30 --r
 # cbr_flag in the HRD, which is a NAL type and a schedule flag nothing
 # else in this suite produces; --qpfile moves a key frame off the keyint
 # grid, which changes the POC line and the reference lists around it.
-# --zones rides with the first because it is the other way a quantiser
+# --zones rides with the first because it is the other way a quantizer
 # gets pinned from outside the loop, and a pinned QP that the AQ frame
 # mean then moved would decode fine and be wrong.
 printf '0 I 26\n7 I\n13 I 30\n' > "$TMP/rc_qpfile.txt"
 run_vector rc_qpfile     352x288 20 testsrc2 "--keyint 100 --bframes 3 --crf 28 --qpfile $TMP/rc_qpfile.txt --threads 4"
 run_vector rc_cbr        352x288 24 testsrc2 "--keyint 8 --bframes 3 --bitrate 700 --vbv-maxrate 700 --vbv-bufsize 700 --strict-cbr --max-ausize-factor 0.6 --qpmin 20 --qpmax 44 --zones 0,7,q=32 --threads 4"
 # The cheap SEIs and the temporal sub-layer (phase 14 item 4). Four of the
-# five are signalling - a recovery point at every IRAP, three new fields
+# five are signaling - a recovery point at every IRAP, three new fields
 # in pic_timing, one flag in the first buffering period - and the fifth is
 # not: --temporal-layers changes a VCL NAL HEADER and adds the sub-layer
 # tails to profile_tier_level and hrd_parameters, which are the two places
@@ -1313,7 +1313,7 @@ run_vector tlayers_only  352x288 20 testsrc2 "--keyint 10 --bframes 7 --qp 32 --
 # Every NAL-producing flag at once: EOS, AUD, VPS, SPS, PPS, the recovery
 # point, the HRD timing pair, the HDR metadata, the version SEI, the
 # grain SEI, the slice, the hash suffix SEI, filler, EOB.
-# Phase 14 item 15 adds --video-signal-type-preset with a colour volume,
+# Phase 14 item 15 adds --video-signal-type-preset with a color volume,
 # which makes the HDR10 message in that access unit its longest form -
 # mastering display AND content light level - and --dup-threshold, which
 # arms the near-duplicate path. --tune is NOT here: this vector names

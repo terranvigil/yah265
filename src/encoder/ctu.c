@@ -41,17 +41,17 @@ static int mode_hist_on(void)
 
 /* N265_CHROMA_W: the chroma distortion weight in the RD sums.
  *
- * Chroma is quantised at n265_chroma_qp(qp_y), which above luma QP 29 is
- * a FINER quantiser than luma's (Table 8-10, no offsets). A cost that
+ * Chroma is quantized at n265_chroma_qp(qp_y), which above luma QP 29 is
+ * a FINER quantizer than luma's (Table 8-10, no offsets). A cost that
  * adds chroma SSD to luma SSD beside one luma lambda therefore
  * under-prices chroma: a unit of chroma error costs the same J as a unit
  * of luma error while the bits that would remove it are cheaper. The
- * factor that makes the two quantisers comparable is the ratio of their
+ * factor that makes the two quantizers comparable is the ratio of their
  * squared step sizes, 2^((qp_y - qp_c) / 3) - and RDOQ already prices a
  * chroma TB's coefficients against lambda(qp_c), which is
  * lambda(qp_y) divided by exactly that ratio, so the mode decision is
- * the one place in this encoder where the two quantisers are not
- * reconciled with each other. Derived here from the two quantisers.
+ * the one place in this encoder where the two quantizers are not
+ * reconciled with each other. Derived here from the two quantizers.
  *
  * Q8 and exact: qp_y - qp_c is 0..6 by construction, and the weight is
  * inert (256) wherever the two QPs agree, which is every luma QP below
@@ -117,7 +117,7 @@ static uint32_t chroma_w_for_qp(int qp_y, int chroma_idc)
  *
  * The weight is 1.0 per chroma sample, i.e. the Cb and Cr costs are
  * simply added to the luma one. N265_CHROMA_W's table is the ratio of
- * the two quantisers' SQUARED step sizes and belongs to an SSD sum; a
+ * the two quantizers' SQUARED step sizes and belongs to an SSD sum; a
  * SATD or SAD is a magnitude, not a squared error, and the ratio does
  * not transfer to it. The measurement that would set a weight here is
  * already in the record: "The weight from each component's measured rate
@@ -781,7 +781,7 @@ static void cu_close(struct n265_frame_work *e, struct n265_cu_rec *r,
  * on every TB of every mode-decision TRIAL. The commit-only form
  * (x265's `--rdoq-level 1`) divides that cost by the number of trials per
  * TB that is actually committed, and pays for it with whatever the plain
- * quantiser's levels get wrong in the trials. Both halves are counted
+ * quantizer's levels get wrong in the trials. Both halves are counted
  * here on the SAME coefficients: the lattice's levels are the ones that
  * ship, so nothing below moves a bit.
  *
@@ -808,7 +808,7 @@ static void cu_close(struct n265_frame_work *e, struct n265_cu_rec *r,
 static atomic_ullong rt_trial[2][4], rt_commit[2][4];
 /* the same disagreement columns per transform size: which sizes a
  * partial arm (N265_RDOQ_LAT_SZ) should keep the lattice in during
- * the trials is a question about where the two quantisers actually
+ * the trials is a question about where the two quantizers actually
  * part company, not about where the calls are */
 static atomic_ullong rt_diff_sz[2][4], rt_dj_sz[2][4];
 static atomic_ullong rt_n[2][7];
@@ -901,9 +901,9 @@ static uint32_t rt_bits(struct n265_frame_work *e, int c_idx, int log2n,
 }
 
 /* NOTE (phase 14 item 6): under --nr-intra/--nr-inter this census is
- * comparing the lattice's ATTENUATED levels against the plain quantiser's
+ * comparing the lattice's ATTENUATED levels against the plain quantizer's
  * un-attenuated ones, because the attenuation lives inside tb_quant_one
- * and this arm re-quantises the caller's own coefficients. It is a
+ * and this arm re-quantizes the caller's own coefficients. It is a
  * diagnostic and it is output-neutral either way; read it with the noise
  * reduction off, which is its default and the shape it was written for. */
 static void rt_tally(struct n265_frame_work *e, int c_idx, int log2n, int qp,
@@ -960,18 +960,18 @@ static void rt_tally(struct n265_frame_work *e, int c_idx, int log2n, int qp,
         atomic_fetch_add_explicit(&rt_n[p][RT_D100], 1, memory_order_relaxed);
 }
 
-/* The quantiser half of a TB analysis: which of the two quantisers this
+/* The quantizer half of a TB analysis: which of the two quantizers this
  * call is entitled to, and the sign hiding that goes with it.
  *
  * `N265_RDOQ=2` matches what x265 documents for `--rdoq-level 1`: the
- * mode-decision TRIALS run the plain quantiser and the lattice runs once
+ * mode-decision TRIALS run the plain quantizer and the lattice runs once
  * per TB on the COMMIT path, so the encoder pays for the largest block of
  * its wall once per committed block instead of once per trial (the
  * census in docs/phase9-lattice.md: 2.26-2.50 luma trials per committed
  * TB at the pin). `e->rdoq_commit` is which of the two a call is; the
- * commit path sets it around its own analyses and re-quantises the
+ * commit path sets it around its own analyses and re-quantizes the
  * winners it was handed (tb_relattice below). At `N265_RDOQ` 0 and 1 the
- * flag is not read and the quantiser is what it always was, which is what
+ * flag is not read and the quantizer is what it always was, which is what
  * makes the default byte-identical.
  *
  * `N265_RDOQ=3` would also run the lattice in the final RD stage of the
@@ -980,7 +980,7 @@ static void rt_tally(struct n265_frame_work *e, int c_idx, int log2n, int qp,
  * the cbf on under 2%, so 3 is not built until the band says 2 gives back
  * too much. */
 /* N265_TD_DIST (phase 14 item 34): 1 prices the inter trials' distortion
- * on the coefficients - the quantiser's error against the unquantised
+ * on the coefficients - the quantizer's error against the unquantized
  * transform, scaled to pixel units by the transform's own energy ratio -
  * and builds no reconstruction for a candidate that loses. The skip's
  * distortion comes off the same coefficients for free. 0 is main. */
@@ -997,7 +997,7 @@ static int td_dist(void)
  * mode and is what N265_RDOQ=2 means on its own. It exists because the
  * two halves of the mode are not one trade: the per-size census says
  * where the calls are, where the time is (a 32x32 call is 64 times a 4x4
- * one) and where the two quantisers actually disagree, and those are
+ * one) and where the two quantizers actually disagree, and those are
  * three different places. Inert unless N265_RDOQ=2. */
 static int rdoq_lat_sz(void)
 {
@@ -1007,14 +1007,14 @@ static int rdoq_lat_sz(void)
 }
 
 /* N265_CDZ (phase 14 item 51): the rounding an INTER chroma coefficient
- * is quantised with. 0 is the inter deadzone, 1/6 of a step (main); 1
+ * is quantized with. 0 is the inter deadzone, 1/6 of a step (main); 1
  * rounds at 1/3, as intra does; 2 rounds at 1/2. It feeds the plain
- * quantiser and the lattice's starting level alike, so under RDOQ 2 it
+ * quantizer and the lattice's starting level alike, so under RDOQ 2 it
  * moves the trials and the commit both.
  *
  * Why chroma: VMAF v1 scores chroma (its SpEED chroma feature), and the
  * 1/6 deadzone zeroes the small inter chroma coefficients that carry the
- * pale, low-contrast colour of live-action pictures. The level is still
+ * pale, low-contrast color of live-action pictures. The level is still
  * priced by the lattice; this only moves where its search starts and
  * what a trial without the lattice keeps. Luma at 1/3 was read too and
  * lost (docs/phase14.md item 51). medium takes 1 at every size: item
@@ -1035,7 +1035,7 @@ static void tb_quant_one(struct n265_frame_work *e, int c_idx, int log2n,
                           ((rdoq_lat_sz() >> (log2n - 2)) & 1));
     int sbh_done = 0;
     /* --nr-intra / --nr-inter (phase 14 item 6, nr.h). The attenuation
-     * happens HERE, on the coefficients, BEFORE either quantiser sees
+     * happens HERE, on the coefficients, BEFORE either quantizer sees
      * them - which is the only placement that means the same thing under
      * both. Putting it inside the lattice would make the RD decision
      * price a coefficient the encoder had already decided to shrink, and
@@ -1174,7 +1174,7 @@ static void tb_analyze_one(struct n265_frame_work *e, int c_idx, int x0,
         for (int x = 0; x < n; x++)
             resid[y * n + x] = (int16_t)(src[y * e->pad_stride[c_idx] + x] -
                                          pred[y * n + x]);
-    /* transquant bypass (8.6.2): no transform, no quantiser, and no
+    /* transquant bypass (8.6.2): no transform, no quantizer, and no
      * sign-bit hiding (7.4.9.11 conditions it on the flag). The coded
      * levels ARE the residual samples in raster position, which is what
      * the decoder's `if (cu_transquant_bypass_flag) resSamples = r`
@@ -1297,15 +1297,15 @@ static void tb_make_recon(const struct n265_frame_work *e, int c_idx,
     tb->td = 0;
 }
 
-/* N265_RDOQ=2: one block of a WINNER carried out of a trial, re-quantised
+/* N265_RDOQ=2: one block of a WINNER carried out of a trial, re-quantized
  * with the lattice and reconstructed from what the lattice chose.
  *
- * The trial built `tb->level` with the plain quantiser and `tb->recon`
+ * The trial built `tb->level` with the plain quantizer and `tb->recon`
  * from those levels, so both are wrong for a block that is about to be
  * committed - the decoder reconstructs from the LEVELS, and a recon built
  * from other levels is what the deblock, SAO and every later prediction
  * would then read. The PREDICTION is not wrong: it is the same samples
- * whatever the quantiser did. So the residual and its transform are
+ * whatever the quantizer did. So the residual and its transform are
  * re-derived from `tb->pred` and the source - one fdct, not a second
  * motion compensation or intra gather - the lattice runs once, and
  * tb_make_recon_one rebuilds the recon from its levels.
@@ -1314,7 +1314,7 @@ static void tb_make_recon(const struct n265_frame_work *e, int c_idx,
  * INTRA unit's lower block predicts from the upper block's recon
  * (tb_analyze's lend-and-restore), so changing the upper block's levels
  * invalidates the lower block's stored prediction. The intra commit path
- * therefore re-ANALYSES under `e->rdoq_commit` instead of re-quantising,
+ * therefore re-ANALYSES under `e->rdoq_commit` instead of re-quantizing,
  * which redoes the gather and is exact at every format. */
 static void tb_relattice_one(struct n265_frame_work *e, int c_idx, int x0,
                              int y0, int log2n, int qp, int mode,
@@ -1347,7 +1347,7 @@ static void tb_relattice(struct n265_frame_work *e, int c_idx, int x0, int y0,
 {
     int n = 1 << log2n;
     if (e->lossless)
-        return;                 /* 8.6.2: there is no quantiser to re-run */
+        return;                 /* 8.6.2: there is no quantizer to re-run */
     if (c_idx)
         mode = n265_c422_mode(e->c422, mode);
     tb_relattice_one(e, c_idx, x0, y0, log2n, qp, mode, tb, 0, &tb->nz);
@@ -1443,7 +1443,7 @@ static uint64_t tb_ssd_px(struct n265_frame_work *e, int c_idx, int x0,
         if (ps > 0.0)
             ssd += psy_term(e, x0, y0, n, rec, n, ps);
     }
-    /* the two quantisers reconciled (N265_CHROMA_W); inert at 256 */
+    /* the two quantizers reconciled (N265_CHROMA_W); inert at 256 */
     if (c_idx && chroma_w_q8(e) != 256)
         ssd = (ssd * chroma_w_q8(e)) >> 8;
     return ssd;
@@ -1645,7 +1645,7 @@ static void itry(const struct n265_frame_work *e, int site, int log2n,
 
 /* the split census: one `IS,` row per inter-slice node whose no-split
  * winner was intra and whose split arm ran - what the node knew before
- * the split (its SSD and bits, lambda, the neighbours' split context and
+ * the split (its SSD and bits, lambda, the neighbors' split context and
  * the source's quadrant variances) beside what the split then did */
 static void itry_split(const struct n265_frame_work *e, int x0, int y0,
                        int log2n, int split_inc, uint64_t ssd, uint32_t bits,
@@ -1776,7 +1776,7 @@ static int irank_mode(void)
  * SAD, and a SATD is two to four times a SAD on the same block. The
  * SA8D-proxy mode decision (phase 13 A4) ranks the intra arm against the
  * inter ones in the Hadamard domain and needs the number this loop
- * actually minimised. Costs nothing: it is a store of a live variable. */
+ * actually minimized. Costs nothing: it is a store of a live variable. */
 static int search_luma_mode_sub(struct n265_frame_work *e, int x0, int y0,
                                 int log2n, const pixel *ref_plane,
                                 int ref_stride, uint32_t *cost_out,
@@ -1795,7 +1795,7 @@ static int search_luma_mode_sub(struct n265_frame_work *e, int x0, int y0,
      * every mode at log2n 2, so the filtered copy below is written and
      * never read. 4x4 is the size the mode search visits most (6336 of
      * these calls in 30 frames of foreman at --preset fast), so the whole
-     * filter is skipped there. refs_f stays uninitialised in that case,
+     * filter is skipped there. refs_f stays uninitialized in that case,
      * which is sound because the same predicate guards every read of it. */
     if (log2n > 2)
         n265_filter_refs(refs_f, refs, log2n, 1);
@@ -1806,7 +1806,7 @@ static int search_luma_mode_sub(struct n265_frame_work *e, int x0, int y0,
      * (`--no-b-intra`); this keeps the arm and takes its cheap
      * half, so a B CU that really does want intra can still have it. An
      * explicit candidate list from a caller wins - the NxN sub-rank and
-     * the I-slice neighbourhood rank pass one and are not B slices
+     * the I-slice neighborhood rank pass one and are not B slices
      * anyway. */
     static const int dc_planar[2] = { INTRA_PLANAR, INTRA_DC };
     if (!sub && e->slice_type == 0 && intra_b_modes()) {
@@ -2126,7 +2126,7 @@ static int es_thr_pct(void)
 }
 
 /* N265_RSKIP: stop the recursion where the no-split winner carried no
- * residual at all. 1 also requires that neither decoded neighbour went
+ * residual at all. 1 also requires that neither decoded neighbor went
  * deeper than this node; 2 drops that condition. Measured and held
  * twice: P1 refused it stacked on the CBF_FAST=3 it had just shipped,
  * and R12 re-priced it on the R7 base at +0.14 mean BD for 1.050x
@@ -2216,7 +2216,7 @@ static int intra_rskip(const struct n265_frame_work *e, int log2n)
     return log2n == 4 || (m >= 2 && log2n == 5);
 }
 
-/* N265_CBF_FAST: once a candidate quantises to nothing, stop trying the
+/* N265_CBF_FAST: once a candidate quantizes to nothing, stop trying the
  * expensive ones. Two independent stages: the merge candidate's cbf
  * gating AMVP, intra and the partitions, and the AMVP candidate's cbf
  * gating intra and the partitions. 1 is the first stage, 2 is both,
@@ -2255,7 +2255,7 @@ static int gate_scale(void)
 
 /* N265_SKIP_EXIT (phase 4): the merge and skip arms run before the AMVP
  * search, so where they have already ended in a skip whose distortion
- * is inside the quantiser floor, the CU's winner is decided and the
+ * is inside the quantizer floor, the CU's winner is decided and the
  * search - and the partitions behind it - are bought to lose. 1 and 2
  * are the bound in multiples of the clean-skip level; 3 drops the bound
  * and asks only that skip beat the merge candidate's own RD.
@@ -2291,8 +2291,8 @@ static int skip_exit(void)
  * 10-14% of the encode and is bought at every CU whether or not the
  * inter arms left anything for it to win. Each mode adds a disjunct to
  * the gate on top of 1, the 2Nx2N winner being the skip: 2 the winning
- * inter candidate's distortion already sitting at the quantiser floor,
- * 3 the decoded neighbourhood being inter with no luma coefficients.
+ * inter candidate's distortion already sitting at the quantizer floor,
+ * 3 the decoded neighborhood being inter with no luma coefficients.
  * 4 and 5 instead keep the 35-mode rank and gate only the RD trial,
  * on the ranked intra prediction being worse than the merge prediction
  * by 1.5x and by 1.0x in the SAD units both are measured in. 5 is the
@@ -2327,7 +2327,7 @@ static int skip_exit(void)
  * (`N265_INTRA_ORACLE`) measured the population first, and it says three
  * things.
  *
- * One: **mode 2's quantiser-floor disjunct is not a filter.** It fires
+ * One: **mode 2's quantizer-floor disjunct is not a filter.** It fires
  * on every CU the family reaches that the skip disjunct has not already
  * taken - 91.8% of foreman's population and 87.2% of coastguard's, with
  * 98% of those at or under HALF the bound. Mode 2 never meant "gate
@@ -2401,7 +2401,7 @@ static int intra_pf_q8(void)
  * at every CU the family reaches, then prints one `IO,` line per CU on
  * which mode 2's disjuncts WOULD have fired. The line carries what a
  * gate could condition on (CU size, which inter candidate won, that
- * winner's distortion against the quantiser floor, the prefilter's two
+ * winner's distortion against the quantizer floor, the prefilter's two
  * SADs) next to the outcome the gate is trying to predict (whether the
  * intra trial won the 2Nx2N RD comparison, and by how much), so
  * P(intra wins | mode 2 fires) can be split by feature before a gate is
@@ -2421,7 +2421,7 @@ static int intra_oracle(void)
 /* P3 mode 3: every decoded 4x4 along this CU's left and top edges is
  * inter and carried no luma coefficients. Both edges are fully
  * available at this point - the left column ends at A1 and the top row
- * at B1, the same neighbours the AMVP derivation reads. */
+ * at B1, the same neighbors the AMVP derivation reads. */
 static int nb_inter_clean(struct n265_frame_work *e, int x0, int y0, int n)
 {
     int cells = n >> 2;
@@ -2579,13 +2579,13 @@ static void rect_proxy(struct n265_frame_work *e, int x0, int y0, int n,
 }
 
 /* N265_DEPTH_BOUND (P2): bound the depth range the quadtree searches to
- * the range the decoded neighbours and the collocated CTU already used.
+ * the range the decoded neighbors and the collocated CTU already used.
  * 0 off; 1 widens that range by one each way; 3 takes it as it stands.
  * 2 and 4 are 1 and 3 plus the whole-CTU prediction-only skip trial at
  * depth 0 even where the bound forbids the CTB depth. 5 and 6 keep only
  * the upper half of the bound and read it locally, off the 4x4 cells
  * immediately left of and above the node rather than off whole
- * neighbouring CTUs: 5 stops one level below the deepest of them, 6 at
+ * neighboring CTUs: 5 stops one level below the deepest of them, 6 at
  * their depth. */
 static int depth_bound(void)
 {
@@ -2611,9 +2611,9 @@ static int depth_bound_local(void)
 
 /* The deepest the decoded 4x4 cells immediately left of and above this
  * node went. Both edges are available in decode order - the same
- * neighbours split_inc and the AMVP derivation read - and the split
+ * neighbors split_inc and the AMVP derivation read - and the split
  * trial restores the map, so this reads the committed tree only. With
- * no decoded neighbour at all it does not bound. */
+ * no decoded neighbor at all it does not bound. */
 static int nb_depth_max(struct n265_frame_work *e, int x0, int y0, int n)
 {
     int cells = n >> 2, hi = -1;
@@ -2682,7 +2682,7 @@ static int want_skip(struct n265_frame_work *e, int x0, int y0, int log2n)
  * only the parent can price them.
  *
  * Intra prediction reads the recon of everything coded before it, so the
- * split arm commits child by child and the flat arm - analysed first, off
+ * split arm commits child by child and the flat arm - analyzed first, off
  * the recon as it stood at entry - restores that recon when it wins. The
  * edge map is restored with it: a child marks its own transform edges as
  * it commits, and a losing split arm must not leave them behind.
@@ -2707,7 +2707,7 @@ static int want_skip(struct n265_frame_work *e, int x0, int y0, int log2n)
  * The intra prediction reads e->recon and nothing between the two calls
  * writes it, so re-running tb_analyze here would compute the same three
  * blocks a second time - one fdct, one RDOQ and one inverse per
- * component. NULL means analyse them here, and only the root ever has
+ * component. NULL means analyze them here, and only the root ever has
  * them. */
 static uint64_t tt_node(struct n265_frame_work *e, int mode, int x0, int y0,
                         int log2ts, int depth, tb_ctx *pre_l, tb_ctx *pre_cb,
@@ -2745,7 +2745,7 @@ static uint64_t tt_node(struct n265_frame_work *e, int mode, int x0, int y0,
         st = &ownst;
     }
 
-    /* ---- the flat arrangement, analysed off the recon as it stands and
+    /* ---- the flat arrangement, analyzed off the recon as it stands and
      * written to the frame only if it wins ---- */
     uint64_t d_flat = 0, b_flat = 0, j_flat = UINT64_MAX;
     cabac_ctx_t fctx[CTX_COUNT];
@@ -2972,11 +2972,11 @@ flat_wins:
 }
 
 /* Everything tt_analyze runs is on the commit path - every arrangement is
- * analysed here and one of them IS the coded block - so under
+ * analyzed here and one of them IS the coded block - so under
  * N265_RDOQ=2 the whole of it is lattice work. intra_rd_pick's winner
- * (`pre_l`) is not: it was analysed with the plain quantiser during the
+ * (`pre_l`) is not: it was analyzed with the plain quantizer during the
  * mode decision, and a 4:2:2 unit's stored prediction cannot be
- * re-quantised in place (tb_relattice), so the flat arm re-analyses it
+ * re-quantized in place (tb_relattice), so the flat arm re-analyses it
  * here instead of reusing it. */
 static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
                        int log2ts, tb_ctx *pre_l, tb_ctx *pre_cb,
@@ -3176,7 +3176,7 @@ static uint32_t mot_sad_c(struct n265_frame_work *e, int x0, int y0, int w,
 /* N265_CPRED_W: the chroma term's weight in percent, 100 = w 1.0. Its
  * reason for existing is 0, the LUMA-ONLY CONTROL: N265_CHROMA_PRED=2
  * also re-ranks the search's final vector against its quarter-pel
- * neighbours, and without this knob there is no way to say how much of
+ * neighbors, and without this knob there is no way to say how much of
  * that arm is the chroma term and how much is the re-rank. It is also
  * the strength sweep if one is ever wanted. */
 static int cpred_w_pct(void)
@@ -3389,7 +3389,7 @@ static int la_inter_pct(struct n265_frame_work *e, int x0, int y0, int n)
  * thread and 0.922x at auto against today's medium - and worth -3.83% and
  * -11.79% BD-VMAF-NEG on the two 4K sources. Read that against the
  * CPU-TIME reading of the same arm, which was 1.105x and refused it: a
- * gate that deletes a serialising pass at the root of every coding tree
+ * gate that deletes a serializing pass at the root of every coding tree
  * shortens the wall by more than it shortens the cycles, and the bar
  * names the wall. So item 12's refusal is answered.
  *
@@ -3495,7 +3495,7 @@ static int cb64_gateq_of(const struct n265_frame_work *e)
  * or later reference, made cheap. 1 prices only the candidates already in
  * hand - the two predictors, the seed and the first reference's winner
  * scaled by POC distance - and takes the lowest SAD as it is; 2 adds the
- * eight full-pel neighbours of that winner. No subpel walk either way.
+ * eight full-pel neighbors of that winner. No subpel walk either way.
  * 0 is the full search on every reference. */
 static int ref2_lite(void)
 {
@@ -3762,10 +3762,10 @@ static int bi_refine_iters(void)
 
 /* N265_MERGE_RD_N (R5): how many of the merge list's five candidates get
  * a prediction and a cost in the prefilter that picks one for the RD
- * trial. The SIGNALLED list is untouched - MaxNumMergeCand stays 5 and
+ * trial. The SIGNALED list is untouched - MaxNumMergeCand stays 5 and
  * the merge_idx binarization with it - this is only how many are given
  * an MC and a SATD (or a SAD at the CU level) first. The list is derivation-ordered, so the ones dropped are the
- * temporal and combined candidates, not the spatial neighbours. */
+ * temporal and combined candidates, not the spatial neighbors. */
 static int merge_rd_n(void)
 {
     static int v = -1;
@@ -3929,7 +3929,7 @@ static uint32_t me_rate_bits(void *vctx, mv_t mv)
 /* N265_SUBPEL_TRACE, the re-rank half: what arm 1 would cost, countable
  * with the arm OFF. `cu` is AMVP PUs whose vector reaches the re-rank
  * site, `lists` the per-list passes that site would make, `satd` the
- * luma SATDs it would buy (the centre plus the in-bounds neighbours),
+ * luma SATDs it would buy (the center plus the in-bounds neighbors),
  * `moved` how often it changes the vector when it is on. */
 enum { RR_CU, RR_LISTS, RR_SATD, RR_MOVED, RR_N };
 static atomic_ullong rr_n[RR_N];
@@ -4095,11 +4095,11 @@ static uint32_t bi_satd_fixed(struct n265_frame_work *e, int x0, int y0, int w,
 }
 
 /* Arm 1's re-rank of one list's vector against its four quarter-pel
- * neighbours (phase 10 item 1, made affordable in item 1b). Both sites
+ * neighbors (phase 10 item 1, made affordable in item 1b). Both sites
  * that settle an AMVP vector call this, so the cache, the gate and the
  * census are one piece of code and cannot drift apart.
  *
- * `cen` is the centre's cost in the site's units, or UINT32_MAX to have
+ * `cen` is the center's cost in the site's units, or UINT32_MAX to have
  * it built here. `keep` is what the ladder handed back on list `l`; its
  * SQUARE MARGIN is what the gate reads and is meaningful either way,
  * while its SATDs may be read as values only when `uni` - the settled
@@ -4165,14 +4165,14 @@ static mv_t subpel_rerank(struct n265_frame_work *e, const pu_geo *g,
 
     *cost = cen;
     if (gate && cut)
-        /* the centre goes uncosted too. The vector does not move, and
+        /* the center goes uncosted too. The vector does not move, and
          * the cost after an unmoved vector is the one the caller came in
          * with - the only one it is allowed to read. */
         return amot->mv[l];
-    /* `pc` is the centre's cost WITHOUT the rate term, which the census
+    /* `pc` is the center's cost WITHOUT the rate term, which the census
      * needs to say how much of this arm is the rate arbitration it was
      * built to be and how much is quarter-pel refinement the N265_SUBME=3
-     * ladder skipped. Known only where this function built the centre. */
+     * ladder skipped. Known only where this function built the center. */
     uint32_t pc = UINT32_MAX;
 
     /* phase 11 item 4 arm (c): the square's FIXED list does not move.
@@ -4288,7 +4288,7 @@ static mv_t subpel_rerank(struct n265_frame_work *e, const pu_geo *g,
 }
 
 /* Bi-prediction refinement (N265_BI_REFINE). Pairing the two independent
- * per-list winners optimises each half against the SOURCE; the average
+ * per-list winners optimizes each half against the SOURCE; the average
  * they form is never searched. Holding one list fixed makes the bi
  * prediction an affine function of the other, so the pair walks downhill
  * on the combined SATD under a small quarter-pel square pattern, one
@@ -4411,14 +4411,14 @@ static void est_tt_bits(struct n265_frame_work *e, est_state *st, int log2n,
 /* One node of an inter CU's residual quadtree, at trafoDepth `depth`.
  *
  * The same tree tt_node codes, with one difference that runs all the way
- * through it: inter prediction is neighbour-free, so a node's children do
+ * through it: inter prediction is neighbor-free, so a node's children do
  * not have to be reconstructed in order and a losing split arm needs no
  * recon put back - the flat arrangement's own commit covers exactly the
  * area the children wrote. What it DOES need back is the edge map, which
  * is an OR and cannot be un-marked.
  *
  * `tl`/`tcb`/`tcr` are the caller's flat analysis of this node, which
- * only the root has; deeper nodes analyse their own. `isplit` is
+ * only the root has; deeper nodes analyze their own. `isplit` is
  * 7.4.9.8's interSplitFlag: at `--tu-inter-depth 1` a non-2Nx2N inter CU
  * infers a split at depth 0 rather than coding one.
  *
@@ -4535,7 +4535,7 @@ static uint64_t inter_tt_node(struct n265_frame_work *e, mot_t mot, int x0,
          * the flat arrangement's J: every term still to come (the other
          * children, the chroma, the cbf and split bins) adds to both d
          * and bits, and rd_j is monotone in each. So the rest is not
-         * analysed. Nothing the abandoned children wrote survives the
+         * analyzed. Nothing the abandoned children wrote survives the
          * flat path below (it restores the edge map and the record, and
          * its commit covers the area), so the stream is the same; the NR
          * tally is the one thing that would see fewer blocks, hence the
@@ -4656,10 +4656,10 @@ flat_wins:
     return d_flat;
 }
 
-/* The split arrangement is analysed inside the commit, so under
+/* The split arrangement is analyzed inside the commit, so under
  * N265_RDOQ=2 its children are lattice work; the root's flat TBs were
- * re-quantised by commit_inter_cu before it got here, so the two
- * arrangements are compared on the same quantiser and the winner is the
+ * re-quantized by commit_inter_cu before it got here, so the two
+ * arrangements are compared on the same quantizer and the winner is the
  * one that is coded. */
 static void commit_inter_tt(struct n265_frame_work *e, mot_t mot, int x0,
                             int y0, int log2n, int part, tb_ctx *tl,
@@ -4719,7 +4719,7 @@ static int intra_rd_mpm(void)
  * only, where there is no inter arm to gate against and every CU pays
  * the full search. 1 and 2 narrow the RD shortlist to two modes and to
  * one; 3 ranks the four 4x4 NxN luma blocks over the 8x8 parent's own
- * neighbourhood instead of all 35 modes; 4 is 2 and 3 together. 0 is
+ * neighborhood instead of all 35 modes; 4 is 2 and 3 together. 0 is
  * the default: 3 is quality-free but the clean timing pass reads it at
  * 1.005x foreman against a byte-identical base, so there is nothing to
  * buy at this keyint (docs/phase4-ladder.md R11). */
@@ -4734,7 +4734,7 @@ static int i_intra(void)
 }
 
 /* N265_INTER_NXN (parity item 3): the four 4x4 ranks an 8x8 intra CU
- * runs in an INTER slice. 1 ranks them over the parent's neighbourhood,
+ * runs in an INTER slice. 1 ranks them over the parent's neighborhood,
  * as N265_I_INTRA=3 does in I slices; 2 drops NxN in inter slices. 0 is
  * main. */
 static int inter_nxn(void)
@@ -4748,7 +4748,7 @@ static int inter_nxn(void)
 }
 
 /* the modes a 4x4 RMD looks at when N265_I_INTRA >= 3: the parent 8x8's
- * own winner and its two angular neighbours, planar and DC, and the two
+ * own winner and its two angular neighbors, planar and DC, and the two
  * most probable modes, which cost two bins where a remainder costs six */
 static int intra_sub_cands(struct n265_frame_work *e, int x0, int y0,
                            int parent, int out[8])
@@ -4934,7 +4934,7 @@ static uint64_t cu_area_ssd(struct n265_frame_work *e, int x0, int y0, int n)
 
 /* qstep^2 / 8: the per-pixel MSE below which a skip is "clean" and the
  * split trial cannot plausibly pay for its syntax */
-/* An SSD in native sample units against the square of the quantiser
+/* An SSD in native sample units against the square of the quantizer
  * step, so the step is taken at Qp' = qp + QP_BD_OFFSET: at Main10 that
  * is four times the 8-bit step, its square is sixteen times, and the SSD
  * it is compared against is sixteen times too. */
@@ -4950,7 +4950,7 @@ static uint64_t skip_clean_thr(int qp, int n)
 
 /* the CU's motion maps across a partition trial. The first PU's motion
  * has to be visible to the second PU's AMVP derivation - 6.4.2 makes a
- * neighbour inside the same coding block available, and A1 of a vertical
+ * neighbor inside the same coding block available, and A1 of a vertical
  * split (B1 of a horizontal one) is exactly that - so every trial writes
  * the maps and then puts them back. */
 typedef struct mot_snap {
@@ -5135,8 +5135,8 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
     uint32_t side[2] = { UINT32_MAX, UINT32_MAX };
     int nl = e->slice_type == 0 ? 2 : 1;
     /* what the winning reference's ladder already costed (phase 10 item
-     * 1b); this site's centre is free already - it is `acost` - so only
-     * the four neighbours and the gate's scale come out of here. */
+     * 1b); this site's center is free already - it is `acost` - so only
+     * the four neighbors and the gate's scale come out of here. */
     int want_keep = n265_subpel_rate() == 1 || n265_subme_rung() != 0;
     struct n265_me_keep keep[2];
     keep[0].satd = keep[1].satd = UINT32_MAX;
@@ -5399,7 +5399,7 @@ static void set_cu_pred(struct n265_frame_work *e, int x0, int y0, int n,
     e->cu_pred_y0 = y0;
 }
 
-/* The same thing off an already-analysed whole-CU TB rather than a
+/* The same thing off an already-analyzed whole-CU TB rather than a
  * partition candidate: tl/tcb/tcr hold the 2Nx2N prediction this CU was
  * priced with, and interpolation is position-invariant, so the RQT split
  * arm's four children are crops of it. Without this they each re-run the
@@ -5535,9 +5535,9 @@ static uint64_t rd_part(struct n265_frame_work *e, int x0, int y0, int log2n,
  * losing candidates are not counted), cost the luma-chosen vector's
  * chroma SATD against the best chroma SATD over the same shortlist the
  * choice was made from - the merge candidates the prefilter ranks, plus
- * the four quarter-pel neighbours of the chosen vector - and print what
+ * the four quarter-pel neighbors of the chosen vector - and print what
  * the better chroma alternative would cost in luma. One CSV row per PU
- * on stderr; run at --threads 1, the rows are not serialised. */
+ * on stderr; run at --threads 1, the rows are not serialized. */
 static int cpred_trace(void)
 {
     static int v = -1;
@@ -5558,7 +5558,7 @@ static void cpred_trace_pu(struct n265_frame_work *e, const pu_geo *g,
     uint32_t bc = cc, bl = lc;
     int from = 0;       /* 1 = a merge candidate, 2 = a quarter-pel step */
     /* and the JOINT winner, which is what an arm would actually pick:
-     * the shortlist entry minimising luma SATD + chroma SATD at w = 1 */
+     * the shortlist entry minimizing luma SATD + chroma SATD at w = 1 */
     uint64_t jbest = (uint64_t)lc + cc;
     uint32_t jl = lc, jc = cc;
     int jfrom = 0;
@@ -5618,15 +5618,15 @@ static void cpred_trace_pu(struct n265_frame_work *e, const pu_geo *g,
  * rqt_root_cbf it actually coded, which is the `any` it was handed except
  * under N265_RDOQ=2 - see below.
  *
- * Under N265_RDOQ=2 the TBs arriving here were quantised plainly by
+ * Under N265_RDOQ=2 the TBs arriving here were quantized plainly by
  * whichever trial won (the merge and AMVP candidates, or rd_part's
  * partition), so the lattice runs on them HERE, before a single record
  * byte is written. Three things follow from that and all three are done
  * before `rec_u8`:
  *
  *  - `any` has to be re-derived. It can only fall: the lattice's first
- *    pass is the plain quantiser's own rounding, so a block the plain
- *    quantiser sent to zero the lattice sends to zero too (19 million
+ *    pass is the plain quantizer's own rounding, so a block the plain
+ *    quantizer sent to zero the lattice sends to zero too (19 million
  *    trials of the census, no exception), and a block it kept the lattice
  *    may still drop. A stale `any = 1` over an all-zero transform tree
  *    would code cbf_luma = 0 into a leaf where 7.3.8.8 INFERS it to 1.
@@ -5861,7 +5861,7 @@ static int sc_commit(const struct n265_frame_work *e, int x0, int y0, int n,
 /* ---- phase 13 A4: the SA8D proxy mode decision -----------------------
  *
  * What this replaces. Today every 2Nx2N candidate is priced by running
- * the whole chain on it - forward transform, quantise, inverse, rebuild,
+ * the whole chain on it - forward transform, quantize, inverse, rebuild,
  * SSD against the source, and a bit-exact walk of the residual syntax -
  * and the winner is the lowest D + lambda x R. Three candidates a CU
  * (the merge prediction, the searched AMVP vector, the best intra mode)
@@ -5885,8 +5885,8 @@ static int sc_commit(const struct n265_frame_work *e, int x0, int y0, int n,
  * other and never a sum of both.
  *
  * What the proxy CANNOT see, and what is done about it. The prediction
- * Hadamard is blind to what quantisation does - above all to a residual
- * that quantises entirely away, which is the difference between a merge
+ * Hadamard is blind to what quantization does - above all to a residual
+ * that quantizes entirely away, which is the difference between a merge
  * CU and a skip. So the proxy does not try to rank those two: the merge
  * candidate is ONE prediction with one proxy cost, and skip against
  * merge-with-residual is settled after the winner's transform has run,
@@ -5909,7 +5909,7 @@ enum { PX_MERGE = 0, PX_AMVP = 1, PX_INTRA = 2, PX_NK = 3 };
  * comparison the proxy can carry. `L` is luma alone; `C` adds the chroma Hadamard of the same predictions. They
  * differ only where the two are not the same encoder: an inter
  * prediction's chroma comes from the same motion as its luma, an intra
- * one's comes from the DM mode off the neighbours, and a luma-only
+ * one's comes from the DM mode off the neighbors, and a luma-only
  * argmin therefore charges intra nothing for chroma it will have to
  * code. Both are free here - the full trial has already built every
  * prediction this reads. */
@@ -6181,7 +6181,7 @@ static void px_tally(const uint64_t full[PX_NK],
         px_bump(PXC_GAPPMC, px_gap(full[bf], full[bc]));
 }
 
-/* The merge candidate's FULL trial: transform, quantise, reconstruct,
+/* The merge candidate's FULL trial: transform, quantize, reconstruct,
  * and price the two arrangements its one prediction can carry - the skip
  * (prediction only) and the merge with a residual.
  *
@@ -6416,13 +6416,13 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             if (px1) {
                 /* the proxy's whole cost for this candidate: the
                  * Hadamard of its prediction and the skip syntax that
-                 * can carry it. No transform, no quantiser, no
+                 * can carry it. No transform, no quantizer, no
                  * reconstruction, no residual bits - the residual is
                  * what the commit decides, on the winner, once.
                  *
                  * Two gates below read this arm's TRIAL and are
                  * therefore inert here, and they have to be: `cbf_fast`
-                 * asks whether the merge residual quantised away and
+                 * asks whether the merge residual quantized away and
                  * `skip_exit` asks whether the skip beat the merge on J,
                  * and under the proxy neither question has been asked
                  * yet when the AMVP search has to be entered. Both are
@@ -6441,7 +6441,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                 merge_trial(e, x0, y0, log2n, cand, inc, skip_bits, pd, lam,
                             m_tl, m_tcb, m_tcr, &m_any, &d_merge, &d_skip,
                             &j_skip, &j_merge);
-                /* P1 CBF fast: the merge prediction already quantised to
+                /* P1 CBF fast: the merge prediction already quantized to
                  * nothing, so every remaining candidate can only re-buy
                  * the same block with more syntax */
                 if ((cbf_fast() == 1 || cbf_fast() == 2) && !m_any)
@@ -6458,7 +6458,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
 
                 /* the merge-first skip exit: both merge arms are priced
                  * by now, and where the skip won on J with its distortion
-                 * inside the quantiser floor, this CU's winner is already
+                 * inside the quantizer floor, this CU's winner is already
                  * decided - the AMVP search cannot code less than
                  * nothing, and the rect/AMP trials are never entered on a
                  * CU the skip wins anyway. */
@@ -6675,7 +6675,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                         if (!(amot.pred & (1 << l)))
                             continue;
                         rr_bump(RR_LISTS, 1);
-                        rr_bump(RR_SATD, 1);    /* the centre */
+                        rr_bump(RR_SATD, 1);    /* the center */
                         for (int i = 0; i < 4; i++) {
                             mv_t v = { (int16_t)(amot.mv[l].x + st[i][0]),
                                        (int16_t)(amot.mv[l].y + st[i][1]) };
@@ -6713,9 +6713,9 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                     for (int l = 0; l < 2; l++) {
                         if (!(amot.pred & (1 << l)))
                             continue;
-                        /* the ladder's Hadamards describe this centre
+                        /* the ladder's Hadamards describe this center
                          * only while the settled vector is still the uni
-                         * winner it returned on this list; a bi centre
+                         * winner it returned on this list; a bi center
                          * is the AVERAGE of two predictions and none of
                          * them is its SATD. The scale the gate reads is
                          * that list's own ladder SATD either way. */
@@ -6800,7 +6800,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                     px_prox[PXV_C][PX_AMVP] = px_j(sy + sc, b, lam4);
                 }
                 /* P1 CBF fast, second stage: the searched vector's
-                 * residual quantised away too */
+                 * residual quantized away too */
                 if (cbf_fast() >= 2 && !a_any)
                     gate_intra = gate_part = 1;
             }
@@ -6824,10 +6824,10 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
             uint64_t or_dinter = 0, or_thr = 0, or_jinter = 0;
             uint64_t iw_jinter = 0;
             /* ...and not under --lossless: every disjunct below is an
-             * argument about the QUANTISER FLOOR - the winning inter
+             * argument about the QUANTIZER FLOOR - the winning inter
              * candidate's distortion already being inside qstep^2, so
              * intra has no distortion left to buy. A bypass CU has no
-             * quantiser and no floor: its distortion is zero because it
+             * quantizer and no floor: its distortion is zero because it
              * codes the residual, not because the residual was small, and
              * the gate would fire on every CU of every B slice and delete
              * the intra arm from the encoder. */
@@ -6846,18 +6846,18 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                  * skip that was not priced did not - but a CU where
                  * NOTHING inter was priced has no argument at all, and
                  * `d_inter` would then be a zero that reads as "already
-                 * at the quantiser floor" and gates the intra arm away
+                 * at the quantizer floor" and gates the intra arm away
                  * on every such CU. */
                 if (j_inter == UINT64_MAX)
                     goto intra_gate_done;
                 uint64_t thr = skip_clean_thr(e->cur_ctu_qp, n);
-                /* the 2Nx2N winner is the skip: the neighbours' motion
+                /* the 2Nx2N winner is the skip: the neighbors' motion
                  * explains the block with no residual at all, and an
                  * intra CU there codes a prediction mode and a residual
                  * to say the same thing */
                 int d1 = (j_inter == j_skip);
                 /* the winning inter candidate's distortion is already at
-                 * the quantiser floor (per-pixel MSE within qstep^2), so
+                 * the quantizer floor (per-pixel MSE within qstep^2), so
                  * intra has no distortion left to buy and can only spend
                  * bits */
                 int d2 = d_inter <= 4 * thr;
@@ -6865,7 +6865,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                     g = 1;
                 if ((intra_gate() == 2 || intra_gate() == 3) && !g && d2)
                     g = 1;
-                /* and the neighbourhood agrees: no intra structure is
+                /* and the neighborhood agrees: no intra structure is
                  * arriving from either decoded edge */
                 if (intra_gate() == 3 && !g && nb_inter_clean(e, x0, y0, n))
                     g = 1;
@@ -7087,7 +7087,7 @@ intra_gate_done: ;
             /* P4: a two-PU split can only pay where the block's own
              * searched motion left something to code. Where the AMVP
              * candidate reproduced the merge vector, or its residual
-             * quantised away, the neighbours' single motion field
+             * quantized away, the neighbors' single motion field
              * already explains the block. */
             int rect_ok = 1;
             if (part_gate() >= 2)
@@ -7161,7 +7161,7 @@ intra_gate_done: ;
                 /* the proxy runs the chain ONCE, on the winner, at
                  * commit - whatever the winner turned out to be. An
                  * intra winner falls through to the intra section and is
-                 * re-analysed there in BOTH paths, so counting it once
+                 * re-analyzed there in BOTH paths, so counting it once
                  * here is the same count on both sides of the ratio. */
                 px_bump(PXC_PXTRIAL, 1);
             }
@@ -7244,7 +7244,7 @@ intra_gate_done: ;
         uint32_t costn = 0;
         int nmodes[4];
         /* I slices, N265_I_INTRA >= 3: the four 4x4 ranks run over the
-         * 8x8 parent's own neighbourhood rather than all 35 modes. The
+         * 8x8 parent's own neighborhood rather than all 35 modes. The
          * parent was just ranked at the same position off the same
          * reference samples, so its winner is the direction this block
          * is in; what a 4x4 adds is a step either side of it. */
@@ -7317,7 +7317,7 @@ intra_gate_done: ;
      * record stream and are the OR of them, so they are patched in after
      * the loop, exactly as tt_analyze's split arm does.
      *
-     * Every TB below is analysed and committed here, so the whole block is
+     * Every TB below is analyzed and committed here, so the whole block is
      * commit-path work: under N265_RDOQ=2 it is the lattice's. */
     tb_ctx tcb, tcr, tl;
     e->rdoq_commit = 1;
@@ -7560,17 +7560,17 @@ static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
  * picture from copies of itself: a zero vector on every list it uses,
  * and every one of those lists pointing inside the duplicate set. That
  * admits the bi candidate where both sides are duplicates, which is not
- * a concession - averaging two independent quantisations of one source
+ * a concession - averaging two independent quantizations of one source
  * is a better prediction than either, and it is what the encoder's own
  * RD picks on a long hold. Leaving it out made the arm decline every CU
  * of `sita_flat_720p` (docs/phase11.md sec 1.4). The ORDER is
- * 8.5.3.2's, so the candidate is whatever the neighbourhood is already
+ * 8.5.3.2's, so the candidate is whatever the neighborhood is already
  * using, and on a picture coded this way throughout the search ends at
  * index 0.
  *
  * What it may not do is invent syntax: a skip carries a merge index and
  * nothing else, so where no candidate qualifies - the first CU of a
- * B picture, which has no spatial neighbour and whose zero fill is bi
+ * B picture, which has no spatial neighbor and whose zero fill is bi
  * toward references that may not both be duplicates - the node is handed
  * back to the full analysis rather than coded as something it is not.
  *
@@ -7621,7 +7621,7 @@ static int dup_commit(struct n265_frame_work *e, int x0, int y0, int log2n,
 /* Capped CRF's skip (phase 14 item 47): the brake has no QP left and the
  * picture's remainder still overruns what the buffer can pay for, so this
  * node is one skip on the first merge candidate - whatever the
- * neighbourhood already uses - with no residual and no split. The commit
+ * neighborhood already uses - with no residual and no split. The commit
  * is dup_commit's without the duplicate test. Returns 0 only where the
  * merge list is empty, which a P or B slice never makes it. */
 static int brk_skip_commit(struct n265_frame_work *e, int x0, int y0,
@@ -7787,11 +7787,11 @@ static uint64_t quadtree_inner(struct n265_frame_work *e, int x0, int y0,
         return j;
     }
 
-    /* P2: this node is above the depth range the neighbourhood used, so
+    /* P2: this node is above the depth range the neighborhood used, so
      * the no-split arm (and, at the CTB, its CB64 arms) never wins.
      * Recurse straight away. Modes 2 and 4 keep one arm here: the
      * whole-CTU prediction-only skip, which is cheap and is the one
-     * thing a neighbourhood bound gets wrong when a moving picture
+     * thing a neighborhood bound gets wrong when a moving picture
      * goes still. */
     if (depth_bound() && depth < e->db_lo) {
         qt_snap *fpre = &e->sc->qt_fpre, *fwon = &e->sc->qt_fwon;
@@ -7926,7 +7926,7 @@ static uint64_t quadtree_inner(struct n265_frame_work *e, int x0, int y0,
     }
     /* P1 rskip: the no-split arm left no residual at all, so the four
      * children can only re-buy the same prediction with four sets of
-     * syntax. Mode 1 also asks that neither decoded neighbour went
+     * syntax. Mode 1 also asks that neither decoded neighbor went
      * deeper than this node - where they did, this block is on a real
      * boundary and the split is worth trying anyway. Above 32 the CU
      * arm is intra-or-strict-skip and the CB64 arms below have not run,
@@ -8070,7 +8070,7 @@ static uint64_t quadtree_inner(struct n265_frame_work *e, int x0, int y0,
         }
     }
 
-    /* P2: the neighbourhood never went below this depth, so the split
+    /* P2: the neighborhood never went below this depth, so the split
      * arm is not worth its four candidate sets. The no-split arm has
      * run and its state stands; its J already carries the split flag. */
     if (depth_bound() && !depth_bound_local() && depth >= e->db_hi)
@@ -8142,7 +8142,7 @@ static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
 }
 
 /* P2: the depth range this CTU's quadtree may search, from the decoded
- * spatial neighbours (left, above, above-left, above-right) and, in an
+ * spatial neighbors (left, above, above-left, above-right) and, in an
  * inter slice, the collocated CTU of the nearest reference, widened by
  * one each way. With nothing decided yet the range is the whole tree. */
 static void depth_bounds(struct n265_frame_work *e, int ctb_x, int ctb_y)

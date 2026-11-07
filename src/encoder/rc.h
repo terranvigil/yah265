@@ -27,7 +27,7 @@ enum {
  * content kind (static, simple, complex), from the frames already coded.
  * Each fit is a ridge regression toward its parent's (the frame's RC
  * class), with exponential forgetting; the parents ride toward the
- * class's prior scale. `c` is the quantiser slope, fitted rather than
+ * class's prior scale. `c` is the quantizer slope, fitted rather than
  * assumed to be -1: on heavy content at low rate the bits halve over 12
  * QP, not 6. */
 #define RC_SZK 10                /* I, P, B depth 1-4 x referenced/leaf */
@@ -57,7 +57,7 @@ typedef struct n265_rc {
     int copen;                  /* the forced opening IDR is not evidence */
     double copen_bits;          /* ...until a second intra frame arrives  */
     int copen_held;
-    int meas;                   /* 0 restores the modelled operating point */
+    int meas;                   /* 0 restores the modeled operating point */
     double mguard;              /* QP of model-vs-measurement slack     */
     int tcap;                   /* horizon floored at the frame's own plan */
     int ibrake;                 /* an intra frame's feedback may not spend */
@@ -90,7 +90,7 @@ typedef struct n265_rc {
      * item 2). An intra frame is coded `ioff` QP FINER than the rate factor
      * the loop would otherwise hand it, and the plan is written knowing it:
      * the frame's weight is multiplied by `2^(ioff/6)`, which is exactly the
-     * bits the finer quantiser costs, so the fair share, the TCAP horizon and
+     * bits the finer quantizer costs, so the fair share, the TCAP horizon and
      * the measured operating point all price the frame at what it will really
      * spend. That is the difference between this and the cu-tree frame term
      * it replaces - the term moved the control variable behind the loop's
@@ -141,7 +141,7 @@ typedef struct n265_rc {
      * So this one is per class and per class ONLY, and it attacks fast and
      * decays slowly: an expensive frame raises its class's scale at once,
      * and cheap frames of OTHER classes cannot lower it at all. That is the
-     * asymmetry a buffer wants - being wrong high costs a quantiser step,
+     * asymmetry a buffer wants - being wrong high costs a quantizer step,
      * being wrong low costs the stream. */
     double vscale[RC_CLASSES];
     double vdecay;              /* N265_VBV_DECAY: the slow side's rate */
@@ -190,7 +190,7 @@ typedef struct n265_rc {
      *
      * What the plan replaces is exactly two things: the fair share `T`,
      * which becomes the frame's own planned bits, and the base, which
-     * becomes the quantiser the whole-file solve chose for it instead of
+     * becomes the quantizer the whole-file solve chose for it instead of
      * the measured operating point. The class scales, the VBV's scales,
      * the cu-tree term coming off the answer and the step bound are all
      * untouched - the second pass moves where the base comes from, not
@@ -205,7 +205,7 @@ typedef struct n265_rc {
     double szm_z;               /* N265_VBR_SZM_Z: the clamp's margin, in
                                  * residual standard deviations */
     double szm_gmin;            /* N265_VBR_SZM_GMIN: the clamp's floor on
-                                 * the fitted quantiser slope */
+                                 * the fitted quantizer slope */
     double szm_zlag;            /* N265_VBR_SZM_ZLAG: the lag walk's */
     double szm_static, szm_simple;  /* content thresholds, cost per block */
     n265_szfit szp[RC_CLASSES];

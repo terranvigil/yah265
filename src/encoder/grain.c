@@ -4,20 +4,20 @@
  * Phase 12 item 3. The picture the encoder codes and the picture the
  * viewer sees are not the same picture when the film_grain_characteristics
  * SEI is written: the encoder may code a cored picture and the decoder
- * puts synthesised grain back on output. Everything about the SECOND
+ * puts synthesized grain back on output. Everything about the SECOND
  * picture is decided here, in one place, on the driver thread, out of
  * integer sums taken in display order - so the model is a pure function
  * of the source and the whole thing stays byte-reproducible across
  * thread counts.
  *
- * What the model has to be is fixed by the only synthesiser this project
+ * What the model has to be is fixed by the only synthesizer this project
  * can measure through (docs/phase12.md, step 0): H.274's frequency
  * filtering model, in which the decoder puts
  *
  *     grain = (scale * pattern[h][v]) >> (log2_scale_factor + 6)
  *
  * on each 8x8 block, choosing the interval by the block's MEAN. So the
- * grain's standard deviation is linear in the signalled scale with a
+ * grain's standard deviation is linear in the signaled scale with a
  * constant that depends only on the cut-off pair, and the estimator's
  * whole job is to produce, per intensity interval, a sigma and a grain
  * size. The measured constants are K[] below.
@@ -33,9 +33,9 @@
 #include "encoder/grain.h"
 #include "encoder/preset.h"
 
-/* sigma per unit of signalled scale at log2_scale_factor 0, indexed by the
+/* sigma per unit of signaled scale at log2_scale_factor 0, indexed by the
  * cut-off value h (== v), 2..14. Measured end to end through the
- * synthesiser on a flat plate coded --lossless, not derived: the pattern
+ * synthesizer on a flat plate coded --lossless, not derived: the pattern
  * is a 64x64 integer transform of a fixed Gaussian LUT with an edge
  * attenuation on top, so its variance is a property of the tables and
  * there is nothing to derive it from but the tables. docs/phase12.md,
@@ -49,7 +49,7 @@ static const float K[15] = {
 
 /* What the estimator's 3x3 high-pass PASSES of grain of a given cut-off:
  * the residual std over the grain's own std, measured on the same flat
- * plate through the same synthesiser. The estimator reads a residual and
+ * plate through the same synthesizer. The estimator reads a residual and
  * has to report a grain, so this is the division it does. It is strongly
  * cut-off dependent - coarse grain is almost entirely inside the
  * low-pass - which is why the size has to be estimated BEFORE the
@@ -73,10 +73,10 @@ static const float G[15] = {
 #define EST_BIAS  1.11f
 
 /* The cut-off the residual's lag-1 autocorrelation reports. rho is the
- * normalised correlation of neighbouring residual samples over the two
+ * normalized correlation of neighboring residual samples over the two
  * axes, on FLAT blocks only; the finer the grain, the less two
- * neighbours agree, so rho falls as the cut-off rises. The thresholds are
- * the midpoints of rho measured on synthesised grain of known cut-off
+ * neighbors agree, so rho falls as the cut-off rises. The thresholds are
+ * the midpoints of rho measured on synthesized grain of known cut-off
  * (scratch/rho_calib.py; the table is in docs/phase12.md).
  *
  * The map is monotone only from h = 5 up, and that is not a defect of the
@@ -172,7 +172,7 @@ double n265_fgc_ratio(void)
 }
 
 /* The grain std, in 8-bit levels, below which a component carries no
- * grain worth signalling. The control the item is priced against is a
+ * grain worth signaling. The control the item is priced against is a
  * CLEAN clip, and on one the right SEI is no SEI at all. */
 double n265_fgc_min(void)
 {
@@ -249,7 +249,7 @@ void n265_grain_close(n265_grain_est *g)
 
 /* The intensity bin of a sample value, in the 8-BIT domain: the SEI's
  * interval bounds are 8-bit numbers whatever the coded depth is, and the
- * only synthesiser in the chain is 8-bit anyway. */
+ * only synthesizer in the chain is 8-bit anyway. */
 static int bin_of(int mean8)
 {
     int b = mean8 * N265_FGC_BINS / 256;
@@ -365,27 +365,27 @@ void n265_grain_accum(n265_grain_est *g, const pixel *const plane[3],
     g->nframes++;
 }
 
-/* The cut-off a component is SIGNALLED at, given the one its plane was
+/* The cut-off a component is SIGNALED at, given the one its plane was
  * measured at. The decoder's 4:2:0 adaptation doubles a chroma cut-off
- * (clipping at 14) and halves a chroma scale before it synthesises
+ * (clipping at 14) and halves a chroma scale before it synthesizes
  * anything - measured, docs/phase12.md - so a chroma component is
- * signalled at half of what its plane should end up with. */
+ * signaled at half of what its plane should end up with. */
 static int sig_cut(int c, int eff)
 {
     int v = c ? (eff + 1) / 2 : eff;
     return v < 2 ? 2 : v > 14 ? 14 : v;
 }
 
-/* ...and what that signalled value actually synthesises with, which is
+/* ...and what that signaled value actually synthesizes with, which is
  * the index the scale has to be solved against. Not the same number for
- * chroma, and not always 2x the signalled one either: the doubling clips. */
+ * chroma, and not always 2x the signaled one either: the doubling clips. */
 static int act_cut(int c, int sgn)
 {
     int v = c ? 2 * sgn : sgn;
     return v > 14 ? 14 : v;
 }
 
-/* The signalled scale that lands `sigma` on a component's plane. */
+/* The signaled scale that lands `sigma` on a component's plane. */
 static double scale_for(int c, double sigma, int sgn, int log2)
 {
     double need = sigma / K[act_cut(c, sgn)] * (double)(1 << log2);
@@ -400,7 +400,7 @@ void n265_grain_finish(const n265_grain_est *g, n265_grain_model *m,
         return;
 
     /* One log2_scale_factor for the whole SEI, picked so the largest
-     * scale any interval needs lands in (32, 64]: the synthesised grain
+     * scale any interval needs lands in (32, 64]: the synthesized grain
      * is held in an int8_t, so scale * 127 >> (log2 + 6) has to stay
      * inside 127 - i.e. scale <= 64 << log2 - and using the top of that
      * range is what buys the low-sigma intervals their resolution. */
@@ -437,7 +437,7 @@ void n265_grain_finish(const n265_grain_est *g, n265_grain_model *m,
             sig[c][b] = (float)s;
         }
     }
-    /* A bin nobody populated inherits its nearest populated neighbour:
+    /* A bin nobody populated inherits its nearest populated neighbor:
      * the decoder picks an interval for EVERY block, so a hole in the
      * middle of the range would be a hole in the synthesis. */
     for (int c = 0; c < ncomp; c++) {
@@ -494,8 +494,8 @@ void n265_grain_finish(const n265_grain_est *g, n265_grain_model *m,
             m->vcut[c][n] = (int8_t)hc;
             n++;
         }
-        /* A component with no grain worth signalling is left out of the
-         * SEI: one whose every interval quantises to zero scale, and one
+        /* A component with no grain worth signaling is left out of the
+         * SEI: one whose every interval quantizes to zero scale, and one
          * whose loudest interval is under the floor. The second is the
          * clean-clip case the item is controlled on - the right SEI on a
          * clip with no grain is no SEI at all. */

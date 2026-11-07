@@ -118,7 +118,7 @@ static int check_sig_pat(void)
 
 /* ---- level generators ----------------------------------------------
  *
- * Levels reach residual_coding straight out of the quantiser (and out of
+ * Levels reach residual_coding straight out of the quantizer (and out of
  * n265_sbh_adjust, which can grow one magnitude by 1). Sparse blocks are
  * the encoder's common case by a long way - the 2026-09-10 survey found
  * 86% of the sub-blocks scanned by the csbf pass hold nothing at all -
@@ -434,7 +434,7 @@ static int check_group_neon(void)
                             first_neg = neg;
 
                             /* read window: the kernel declares four rows of
-                             * four, so randomising the rest of the block -
+                             * four, so randomizing the rest of the block -
                              * this group's sixteen levels put back exactly -
                              * must not move the answer */
                             for (int i = 0; i < n * n; i++)

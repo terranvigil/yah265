@@ -1,7 +1,7 @@
 /*
- * Rate-distortion optimised quantisation (RDOQ) for one transform block.
+ * Rate-distortion optimized quantization (RDOQ) for one transform block.
  *
- * The quantiser picks, per coefficient, the level that minimises
+ * The quantizer picks, per coefficient, the level that minimizes
  * distortion + lambda * rate instead of rounding to nearest. Distortion is
  * taken in the coefficient domain: the core transforms are orthogonal up
  * to a per-size constant, so the pixel-domain SSD of a coefficient error
@@ -25,7 +25,7 @@
  *   4. the whole block: all-zero when even the best arrangement costs more
  *      than the distortion of coding nothing.
  * Sign-bit hiding is applied afterwards by the caller, as after the plain
- * quantiser.
+ * quantizer.
  *
  * The coefficient loop reads its context costs out of small tables built
  * once per sub-block rather than deriving them per coefficient, and
@@ -275,11 +275,11 @@ static void last_pos_tables(const cabac_ctx_t *ctx, int log2n, int c_idx,
  * qualification itself, and the sign being hidden.
  *
  * 0 is the rule form. 1 spends the fix on a coefficient the block already
- * codes; 2 also lets it land on a position the block quantised to zero,
+ * codes; 2 also lets it land on a position the block quantized to zero,
  * which is where the cheapest fix usually is - a coefficient sitting just
  * under its own rounding boundary costs almost nothing to promote, where
- * every already-coded level is at least a full quantiser step from its
- * neighbour. Measured on the CIF band 2026-09-08: 1 is -2.8% median
+ * every already-coded level is at least a full quantizer step from its
+ * neighbor. Measured on the CIF band 2026-09-08: 1 is -2.8% median
  * BD-VMAF-NEG on the rule form, 2 another -2.3%, both 7 of 7 clips. 2 is
  * the default. */
 int n265_rdoq_sbh_on(void)
@@ -485,7 +485,7 @@ uint64_t n265_rdoq_sb_nz(const int16_t *blk, int log2n)
 
 /* N265_RDOQ_TAIL (phase 14 item 34): before the lattice runs, walk the
  * coded sub-blocks from the last one toward the first and drop each whose
- * every coefficient is at most one quantiser step UNROUNDED, stopping at
+ * every coefficient is at most one quantizer step UNROUNDED, stopping at
  * the first that is not. Sub-block 0 is never dropped. A level that is
  * only there because of the rounding offset is the one the last-position
  * pass mostly removes anyway, and the lattice then never visits the
@@ -556,7 +556,7 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
     int n = 1 << log2n;
     int nn = n * n;
     /* The same pair transform.c runs, and it has to BE the same pair or
-     * the lattice prices a quantiser the encoder does not use: qP is
+     * the lattice prices a quantizer the encoder does not use: qP is
      * Qp' = qp + QpBdOffset, and both shifts read BIT_DEPTH (29 - BD and
      * BD + log2n - 5). Both fold back to 21 and 8 + log2n - 5 at 8 bits. */
     int qpq = qp + QP_BD_OFFSET;
@@ -591,7 +591,7 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
     const uint8_t *soff = scan_off[scan_idx][log2n - 2];
     int sb_dim = n >> 2, num_sb = sb_dim * sb_dim;
     /* scan position of the sub-block at (x, y): the right and below
-     * neighbours' coded flags were found by walking the whole scan table
+     * neighbors' coded flags were found by walking the whole scan table
      * per sub-block, which is num_sb^2 steps for one lookup each */
     uint8_t sb_at[8][8];
     for (int t = 0; t < num_sb; t++)
@@ -836,7 +836,7 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
              * own rounding boundary rather than on one already coded. The
              * level is priced but never selected as the block's own. */
             if (sbh_rd >= 2 && lmax == 0) {
-                /* The l = 1 probe on a position the quantiser rounded to
+                /* The l = 1 probe on a position the quantizer rounded to
                  * zero, which is 77-85% of every position the lattice
                  * visits (foreman 84.4%, park_joy 76.6% at qp 30). At l = 1
                  * the whole candidate collapses to constants: the dequant

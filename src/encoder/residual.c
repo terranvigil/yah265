@@ -78,7 +78,7 @@ static const uint8_t min_in_group[10] = { 0, 1, 2, 3, 4, 6, 8, 12, 16, 24 };
  * the states are not written at all. Sixteen sig_coeff_flag bins of a
  * 4x4 group land on three contexts, so this is a different estimate and
  * a different bitstream - not a faster way to the same digit - which is
- * why it is a MODE with a band behind it and not an optimisation. The
+ * why it is a MODE with a band behind it and not an optimization. The
  * reason to want it is that a price
  * with no read-after-write on the context array is a price a vector
  * kernel can compute sixteen at a time (A1b). The walk, the bin count
@@ -139,7 +139,7 @@ N265_AI void write_last_prefix(int est, const res_ops *ops,
  *
  * The derivation has exactly one term that varies WITHIN a 4x4 group -
  * the position term below, a function of (x, y) inside the group and of
- * the right/below neighbour flags - and three that do not: the group's
+ * the right/below neighbor flags - and three that do not: the group's
  * own +3, the TB size and scan offset, and the component. So the sixteen
  * ctxIncs of a group are one fixed sixteen-byte pattern plus a scalar the
  * caller works out once per group, and the per-coefficient switch the
@@ -364,7 +364,7 @@ N265_AI void residual_walk(int est, const res_ops *ops, cabac_ctx_t *ectx,
     const uint8_t *co_scan = n265_scan_coef[scan_idx];
 
     /* Per-sub-block significance on the sub-block GRID: the context
-     * derivation below wants the right and below neighbours of each
+     * derivation below wants the right and below neighbors of each
      * sub-block, and finding them by walking the scan is quadratic in the
      * sub-block count (4096 lookups for a 32x32 TB, on a path the mode
      * decision runs per candidate). The grid is in raster order, so the
@@ -522,7 +522,7 @@ N265_AI void residual_walk(int est, const res_ops *ops, cabac_ctx_t *ectx,
          * is inferred from the abs-sum parity and not coded. `sbh` is the
          * rest of 7.4.9.11's condition, which the caller owns:
          * sign_data_hiding_enabled_flag AND !cu_transquant_bypass_flag.
-         * A bypass block that dropped a sign here would desynchronise the
+         * A bypass block that dropped a sign here would desynchronize the
          * decoder's parse from that sub-block on, because the decoder
          * does NOT infer one. */
         int hidden = sbh && num_sig > 0 &&

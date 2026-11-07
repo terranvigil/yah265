@@ -439,7 +439,7 @@ def _ladder_blobs(tmpl, src):
 
 
 def _planes_of(blob, cj, src):
-    """(Y, Cb, Cr) dB for one cached bitstream, memoised beside it. Reads the
+    """(Y, Cb, Cr) dB for one cached bitstream, memoized beside it. Reads the
     json first; only a point that predates the plane split costs an ffmpeg
     run, and it pays it once for every later reader. All three planes come
     off that ONE run, so the luma the sixth leg reads is free wherever the
@@ -617,7 +617,7 @@ def _med(xs):
 
 def solve_clip(clip, target):
     """Both sides bisected onto `target` bytes, with bytes and VMAF-NEG
-    off the resulting bitstreams. Everything here is memoised."""
+    off the resulting bitstreams. Everything here is memoized."""
     src = src_of(clip)
     work = tempfile.mkdtemp(prefix="goallegs.")
     out = {}

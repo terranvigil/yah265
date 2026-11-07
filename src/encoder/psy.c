@@ -10,7 +10,7 @@
  * cost scaled by the mode lambda and a strength (N265_PSY), so it competes
  * in the same units as the rate term. yah264 shipped the same idea at a
  * flat strength gated by the band; the metric that decides is VMAF-NEG,
- * which penalises sharpening, so a win here is texture retained and not
+ * which penalizes sharpening, so a win here is texture retained and not
  * noise added.
  *
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.

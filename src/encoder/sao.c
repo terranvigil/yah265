@@ -38,14 +38,14 @@ static inline pixel clip1(int v)
 
 /* 7.4.9.3.2: sao_offset_abs runs 0 .. (1 << (Min(BitDepth, 10) - 5)) - 1,
  * which is 7 at 8 bits and 31 at Main10, and that same value is the TR
- * binarisation's cMax (9.3.3.2, cRiceParam 0). Two things ride on it and
+ * binarization's cMax (9.3.3.2, cRiceParam 0). Two things ride on it and
  * only one of them is a quality question.
  *
  * The SYNTAX one is not optional: a truncated-unary string that reaches
  * cMax carries no terminating zero. Writing a magnitude of 7 at 10 bits
  * against a decoder whose cMax is 31 emits seven ones and stops, the
  * decoder keeps consuming bypass bins looking for the eighth, and the
- * parse desynchronises from that CTB on. That is a broken stream and not
+ * parse desynchronizes from that CTB on. That is a broken stream and not
  * a soft loss, and it is why this is a constant and not a literal.
  *
  * The other is range: because log2OffsetScale is 0 at both depths
@@ -194,7 +194,7 @@ void n265_sao_band_stats(const pixel *src, int src_stride,
 
 /* `allow` is the frame's type mask - N265_SAO_TYPES OR'd with what the
  * content gate gives a flat-typed frame (N265_SAO_ANIM). The edge sweep
- * is four whole-CTB passes of neighbour classification against one pass
+ * is four whole-CTB passes of neighbor classification against one pass
  * for the band histogram, and where the mask allows no edge offset
  * nothing downstream ever reads en/ed: pick_comp and pick_chroma reject
  * SAO_EDGE outright, so no CTB in the frame can carry that type, and the
@@ -291,7 +291,7 @@ static int sao_types(void)
  * VMAF-NEG (R7). Flat-shaded animation is the one content where the
  * BAND offset has something real to correct: banding across a large
  * constant fill is what a band offset is for, and it is the only
- * artefact class a level shift can reach. So rather than one
+ * artifact class a level shift can reach. So rather than one
  * sequence-wide answer, each frame is typed and the answer follows the
  * content.
  *
@@ -523,7 +523,7 @@ static int sao_chroma_joint(void)
  * component per CTB and 3-4.5% of the encode, and it runs on every CTB
  * whether or not SAO has anything to correct there. Where the whole CTB
  * carried no luma residual at all - every CU a skip, or a candidate
- * whose residual quantised entirely away - the reconstruction IS the
+ * whose residual quantized entirely away - the reconstruction IS the
  * motion-compensated prediction, so the error left in it is the
  * reference picture's own, and that picture's own SAO already corrected
  * it. 1 gates on that; 2 to 6 loosen it to a CTB where at most one, two,
@@ -539,7 +539,7 @@ static int sao_chroma_joint(void)
  * own and the reference's SAO already corrected it. On flat-shaded
  * animation the CTBs with no residual ARE the flat fills, which is to
  * say the only place a band offset had anything to do, and the premise
- * does not cover the fill's own requantisation drift down a long P/B
+ * does not cover the fill's own requantization drift down a long P/B
  * run. Measured on the three animation clips at CQP with the band-only
  * gate on and the AQ arm off: sintel +2.79 -> +2.39, sita_toon -2.94 ->
  * -3.24, sita_flat -0.90 -> -2.41, all three better with the gate OFF.
@@ -616,7 +616,7 @@ static int params_all_off(const sao_params *p)
 
 /* N265_SAO_TRACE (diagnostic, output-neutral): the exact SSD delta this
  * parameter set produces on this CTB, computed the way n265_sao_apply
- * will produce it - clipping included, neighbours unfiltered - so it can
+ * will produce it - clipping included, neighbors unfiltered - so it can
  * be held against the stats model's prediction. */
 static int64_t true_dssd(const pixel *src, int src_stride,
                          const pixel *rec, int stride,
@@ -684,7 +684,7 @@ static void sao_analyze_row(struct n265_frame_work *e, int cy)
                 int share = ctb_cbf_share(e, cx, cy, ctb);
                 if (share <= sao_gate_share()) {
                     /* SAO_OFF everywhere, which memset already wrote.
-                     * Say it by merging where a neighbour already says
+                     * Say it by merging where a neighbor already says
                      * it - same result, fewer bins - and explicitly
                      * otherwise. */
                     const sao_params *l = cx > 0
@@ -955,7 +955,7 @@ static void sao_apply_row(struct n265_frame_work *e, int cy)
                         if (x + eo_dx[cls] < 0 || x - eo_dx[cls] < 0 ||
                             x + eo_dx[cls] >= pw || x - eo_dx[cls] >= pw)
                             continue;
-                        /* neighbours: inside the band from the pristine
+                        /* neighbors: inside the band from the pristine
                          * copy, one line above from sao_line, one line
                          * below straight from the (still pre-SAO) recon */
                         int px[3], k = 0;
@@ -968,7 +968,7 @@ static void sao_apply_row(struct n265_frame_work *e, int cy)
                                     ? in[(size_t)(yy - y0) * pw + xx]
                                     : out[(size_t)yy * stride + xx];
                         }
-                        /* the two neighbours are interchangeable in
+                        /* the two neighbors are interchangeable in
                          * every rule below, so their order does not
                          * matter */
                         int n0 = px[0], cc = px[1], n1 = px[2];

@@ -1,11 +1,11 @@
 /*
- * Pass-through signalling: the VUI's colour description, the sample
+ * Pass-through signaling: the VUI's color description, the sample
  * aspect ratio, the default display window, and the HDR10 static
  * metadata SEIs. Phase 14 item 1.
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  *
- * Everything here is SIGNALLING and nothing here is a decision. No field
- * below reaches a quantiser, a mode, a lambda or a rate, and none of them
+ * Everything here is SIGNALING and nothing here is a decision. No field
+ * below reaches a quantizer, a mode, a lambda or a rate, and none of them
  * changes a single coded sample: a stream encoded with the whole set
  * given carries the same VCL NALs as one encoded without it, with
  * different bytes in the SPS and a couple of SEI messages in front. That
@@ -17,7 +17,7 @@
  * takes) into these, so the library never sees a string. -1 means the
  * field was not given, and every presence flag in the VUI is derived from
  * what was - which is the one place this differs from x265, where a
- * colour field set to its own "unspecified" value suppresses the
+ * color field set to its own "unspecified" value suppresses the
  * description. Asking for `--colorprim unknown` here writes the
  * description with colour_primaries 2 in it, because a user who names the
  * flag has said something.
@@ -54,7 +54,7 @@ typedef struct n265_signal {
     /* --pic-struct (phase 14 item 4): the pic_timing field, and with it
      * the VUI's frame_field_info_present_flag. -1 is the flag absent. It
      * lives here rather than beside the VBV because it is pure
-     * signalling: it says how the decoder should present a picture and
+     * signaling: it says how the decoder should present a picture and
      * changes no coded sample. */
     int pic_struct;
 
@@ -128,7 +128,7 @@ int n265_cll_parse(const char *s, int *cll, int *fall);
 
 /* ---- --video-signal-type-preset (phase 14 item 15) ------------------
  *
- * One NAME for a whole colour signalling set, and nothing but a name: it
+ * One NAME for a whole color signaling set, and nothing but a name: it
  * expands to the flags above and adds no syntax of its own. The table is
  * x265's, taken from the pinned reference binary's own `--help` (brew
  * x265 4.3+1-e9b8812), because the only reason this spelling exists is
@@ -148,7 +148,7 @@ int n265_cll_parse(const char *s, int *cll, int *fall);
 enum {
     N265_VSP_OK             =  0,
     N265_VSP_BAD_SYSTEM     = -1,   /* no such system-id */
-    N265_VSP_BAD_VOLUME     = -2,   /* no such colour-volume */
+    N265_VSP_BAD_VOLUME     = -2,   /* no such color-volume */
     N265_VSP_VOLUME_SYSTEM  = -3,   /* a volume on a system that takes none */
     N265_VSP_VOLUME_REFUSED = -4,   /* a volume we will not write; see `why` */
 };

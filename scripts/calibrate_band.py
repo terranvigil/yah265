@@ -4,7 +4,7 @@
 # Ported from yah264 (codec-agnostic instrument; the encoder binary, its flags
 # and the reference encoder are the only changes).
 """Find, per clip, the ABR ladder whose x265-medium operating points land inside
-the VMAF-NEG 88-94 band.  Fixed multipliers off a 'calibrated centre' do NOT do
+the VMAF-NEG 88-94 band.  Fixed multipliers off a 'calibrated center' do NOT do
 this -- they put akiyo/touchdown at saturation and sintel below the band, which
 makes the BD fit degenerate (touchdown read +341269%).
 

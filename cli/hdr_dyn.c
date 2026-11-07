@@ -355,7 +355,7 @@ static void put(bitw *w, uint32_t v, int bits)
 
 /* One window (the whole picture), the shape every HDR10+ title uses: the
  * per-picture targeted-display and mastering-display peak tables are
- * absent, there is no fraction of bright pixels and no colour saturation
+ * absent, there is no fraction of bright pixels and no color saturation
  * mapping, which are the fields hdr10plus_tool's JSON has no place for. */
 size_t n265_h10p_payload(const n265_h10p_frame *f, uint8_t *out, size_t cap)
 {

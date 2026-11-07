@@ -36,7 +36,7 @@ static const int8_t chroma_filt[8][4] = {
  * N265_REF_PAD border instead, which is the same thing only while the
  * read stays inside it. The motion SEARCH is clamped to that border
  * (n265_clamp_mv), but a merge or AMVP candidate is inherited from a
- * neighbour and is NOT clamped - the spec does not clamp it and a
+ * neighbor and is NOT clamped - the spec does not clamp it and a
  * decoder does not have to - so a candidate can reach past the border,
  * and the samples after it are the next row's left border rather than the
  * edge sample.
@@ -96,7 +96,7 @@ const pixel *n265_ref_win(const pixel *plane, int stride, int pic_w,
  * (s + 2048) >> 12 when its intermediate has NOT been shifted. Folding
  * two truncating shifts into one is exact - ((x >> a) + (1 << (b-1))) >> b
  * equals (x + (1 << (a+b-1))) >> (a+b) for every x - so nothing here is
- * an approximation. What forces shift1 to be spelt out at all is int16:
+ * an approximation. What forces shift1 to be spelled out at all is int16:
  * an intermediate that is STORED has to be the 14-bit value the spec
  * defines or it overflows at 10 bits, and everything downstream of a
  * stored intermediate then shifts by the remainder. */

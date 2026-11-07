@@ -93,7 +93,7 @@ void n265_mc_chroma_14(int16_t *dst, int n, const pixel *ref,
  * picture. Our pictures carry a finite N265_REF_PAD border instead,
  * which is only the same thing while the read stays inside it: merge and
  * AMVP motion vectors are not clamped (only the search is), so a
- * candidate inherited from a neighbour can reach past it. Returns the
+ * candidate inherited from a neighbor can reach past it. Returns the
  * block origin the filter may read `hl` samples left/above and `hr`
  * right/below of - the plane itself when the window is inside the
  * border, else `tmp`, gathered with the spec's clipping. `tmp` holds

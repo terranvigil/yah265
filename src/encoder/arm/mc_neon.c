@@ -384,7 +384,7 @@ void n265_mc_luma_hf_neon(pixel *dst, int ds, int w, int h,
     if (!fy) {
         /* Sixteen at a time, not eight. The body is three instructions
          * per eight samples, so at eight the loop's own increment and
-         * branch are a third of the work and the C's auto-vectorised
+         * branch are a third of the work and the C's auto-vectorized
          * version - which clang unrolls - wins. */
         for (int y = 0; y < h; y++) {
             const int16_t *p = hf + (ptrdiff_t)y * hs;
@@ -421,7 +421,7 @@ void n265_mc_luma_hf_neon(pixel *dst, int ds, int w, int h,
                  * store, rewrites the duplicate as a plain 16-byte load,
                  * and the kernel then reads four samples past the row.
                  * That is invisible to a value-comparing test (the bytes
-                 * are discarded), invisible to the sanitiser (they are
+                 * are discarded), invisible to the sanitizer (they are
                  * inside the allocation), and a genuine out-of-bounds
                  * read on n265_ref_win's gathered tmp. Here every lane
                  * that reaches the store is live, so there is no dead
@@ -503,7 +503,7 @@ void n265_mc_luma_hf_neon(pixel *dst, int ds, int w, int h,
  * That cast MATTERS and vshrn_n_s32 is the reason this is exact rather
  * than approximately exact. s >> 6 does NOT always fit int16: at the
  * adversarial end above, 3669928 >> 6 = 57342, and the C's conversion to
- * int16_t wraps modulo 2^16 (the compiler's documented behaviour for the
+ * int16_t wraps modulo 2^16 (the compiler's documented behavior for the
  * out-of-range case). vshrn_n_s32 is "shift right narrow": it keeps the
  * LOW 16 bits of the arithmetic shift and does not saturate, so it
  * reproduces the wrap. vqshrn_n_s32 would clamp to 32767 and disagree.
@@ -1120,7 +1120,7 @@ static inline void mc_copy_pix(pixel *d, int ds, const pixel *p, int rs,
  * BOTH full-pel arms are written as the C loop at Main10, and that is a
  * measured choice rather than laziness: at this sample width the arm is
  * memory-bound, and nothing hand-written beats what clang emits for a
- * row copy. The hand-vectorised form read 1.3-1.85x at 4 and 16 wide and
+ * row copy. The hand-vectorized form read 1.3-1.85x at 4 and 16 wide and
  * 0.56-0.59x at 32 and 64, a memcpy per row read 0.63-0.78x everywhere,
  * and the plain loop reads 0.99-1.22x across the whole shape set. The
  * arm stays in the kernel so the dispatch is still one branch and the

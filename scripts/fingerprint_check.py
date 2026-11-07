@@ -6,7 +6,7 @@ survives losing the first:
 
   identification  a user_data_unregistered SEI (D.2.6) under this
                   project's UUID, naming the encoder, its version, its
-                  licence, its URL and the options the run resolved. Any
+                  license, its URL and the options the run resolved. Any
                   remux or one-line NAL filter drops it; `--strip-sei`
                   here does exactly that, to prove the point.
 

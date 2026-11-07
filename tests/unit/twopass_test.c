@@ -3,12 +3,12 @@
  * solve (src/encoder/twopass.c).
  *
  * The solve is the one piece of this item that decides every frame's
- * quantiser before a single frame is coded, so it is also the whole of the
+ * quantizer before a single frame is coded, so it is also the whole of the
  * determinism claim - there is nothing in it a thread could reach. That
  * makes it exactly the kind of thing to check as algebra rather than
  * through an encode: what is checked here is that the plan SUMS TO THE
  * TARGET, that it reproduces pass 1 where it should, that qcomp moves the
- * quantiser in x264's direction and no further than the clamp, and that a
+ * quantizer in x264's direction and no further than the clamp, and that a
  * file the parser should refuse is refused instead of half-read.
  *
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
@@ -118,7 +118,7 @@ static void test_parse_refusals(void)
     unlink(p);
     n265_2p_free(&tp);
 
-    /* no geometry: the complexity normalisation has no divisor */
+    /* no geometry: the complexity normalization has no divisor */
     p = tmpfile_with("#n265-2pass 1\n"
                      "0 0 2 0 0 23.5 80000 360000 360000 360000 0 0\n");
     n265_2p_init(&tp);
@@ -192,7 +192,7 @@ static void test_sums_to_target(void)
             CHECK(NEAR(tp.plan_bits, plan_sum(&tp), 1e-6),
                   "the reported total is the plan's own");
             /* every frame's plan is its own rate curve read at its own
-             * planned quantiser - no second model anywhere */
+             * planned quantizer - no second model anywhere */
             for (int i = 0; i < tp.n; i++)
                 CHECK(NEAR(tp.fr[i].plan_bits,
                            tp.fr[i].x / n265_2p_qscale(tp.fr[i].plan_qp),
@@ -224,8 +224,8 @@ static void test_qcomp_one_is_flat(void)
     n265_2p_free(&tp);
 }
 
-/* ...and the file coded at ONE quantiser, asked for exactly the bits it
- * already spent, is planned at that same quantiser. The anchor is a
+/* ...and the file coded at ONE quantizer, asked for exactly the bits it
+ * already spent, is planned at that same quantizer. The anchor is a
  * measurement, so the solve has to be the identity here. */
 static void test_reproduces_pass1(void)
 {
@@ -248,7 +248,7 @@ static void test_reproduces_pass1(void)
 
 /* qcomp's direction is x264's and it is the whole of the allocation: a
  * frame harder than the file's geometric mean is coded COARSER. Getting
- * this backwards would be a quality-levelling encoder that still hit its
+ * this backwards would be a quality-leveling encoder that still hit its
  * rate, which is the refusal docs/phase7-shot-design.md already records
  * one level up. */
 static void test_qcomp_direction_and_clamp(void)
@@ -286,7 +286,7 @@ static void test_qcomp_direction_and_clamp(void)
 }
 
 /* A target the QP range cannot reach. The plan may not answer with a
- * quantiser that does not exist, and the frames it pins have to stay
+ * quantizer that does not exist, and the frames it pins have to stay
  * pinned - the walk that takes them out of the solve is finite only
  * because pinning is one-way. */
 static void test_qp_range(void)

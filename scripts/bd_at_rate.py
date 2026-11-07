@@ -244,7 +244,7 @@ def vmaf_cached(tmpl, q, src, out, work):
 def solve(tmpl, src, target, out, sizes, lo=0, hi=51):
     """The integer QP (or CRF, once it exists) whose size lands nearest `target`
     bytes. Monotone: higher = fewer bits. Integer bisection, then the better
-    of the two neighbours. `sizes` memoises q -> bytes within the run."""
+    of the two neighbors. `sizes` memoizes q -> bytes within the run."""
     def size_at(q):
         if q not in sizes:
             sizes[q] = enc(tmpl, q, src, out)
@@ -400,7 +400,7 @@ def main():
     # quality. Skipped silently where ffmpeg gave no psnr line, which leaves
     # the luma reading exactly as it was.
     # Luma PSNR on the same points. VMAF-NEG is the metric the band decides
-    # on, but a feature that puts SYNTHESISED samples on the screen is one
+    # on, but a feature that puts SYNTHESIZED samples on the screen is one
     # the two metrics are entitled to disagree about, so both are printed
     # and both are argued (phase 12 item 3).
     ya = [p[3] for p in a]

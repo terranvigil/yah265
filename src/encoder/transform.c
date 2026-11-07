@@ -101,7 +101,7 @@ void n265_dequant_ref(int16_t *dq, const int16_t *level, int log2n, int qp,
     int64_t add = 1 << (bd_shift - 1);
     int64_t scale = (int64_t)level_scale[qpq % 6] << (qpq / 6);
     int mx = 0, my = 0;
-    /* a zero level dequantises to add >> bd_shift, which is zero for every
+    /* a zero level dequantizes to add >> bd_shift, which is zero for every
      * size (bd_shift >= 5), so the skip below is the same arithmetic. The
      * bounding box it collects is what lets the inverse transform leave
      * the empty rows and columns alone. */
@@ -392,7 +392,7 @@ void n265_fdct(int16_t *coef, const int16_t *resid, int log2n, int use_dst)
 #if N265_NEON_TRANSFORM
     /* Every shape. Until phase 14 item 39 the DCT at 4x4 and 8x8 stayed
      * on C: the int32 four-lane form read 0.47x and 0.63x of a C path
-     * clang auto-vectorises (docs/phase6-neon.md, round 6). Item 39's
+     * clang auto-vectorizes (docs/phase6-neon.md, round 6). Item 39's
      * int16 forms run eight transforms per vector and replaced them
      * (docs/phase14.md, "Item 39"). Every path is bit-exact, so the
      * choice moves time and nothing else. */
@@ -557,7 +557,7 @@ int n265_quant_ref(int16_t *level, const int16_t *coef, int log2n, int qp,
     /* 14 + qP/6 + (15 - BitDepth - log2n); 21 at 8 bits. qP is Qp', the
      * 8-bit-domain `qp` plus QpBdOffset, so at Main10 the two moves
      * cancel: BIT_DEPTH costs 2 and QP_BD_OFFSET/6 returns 2, and a
-     * coefficient of a given magnitude quantises to the same level it
+     * coefficient of a given magnitude quantizes to the same level it
      * would at 8 bits. That is the property the whole depth carries -
      * the forward DCT's shift1 already shed the two extra sample bits. */
     int qpq = qp + QP_BD_OFFSET;
@@ -580,17 +580,17 @@ int n265_quant_ref(int16_t *level, const int16_t *coef, int log2n, int qp,
 /* 8.6.1: qPiCb = Clip3(-QpBdOffsetC, 57, QpY + offsets), and then QpCb
  * depends on the CHROMA FORMAT: Table 8-10 when ChromaArrayType is 1
  * (4:2:0), and `Min(qPi, 51)` for every other ChromaArrayType - so at
- * 4:4:4 chroma is quantised at the LUMA QP all the way up the ladder
+ * 4:4:4 chroma is quantized at the LUMA QP all the way up the ladder
  * instead of being pulled 5 or 6 steps finer above luma QP 29. That is
  * the spec's own statement that 4:4:4 chroma carries as much detail as
  * luma and does not need the extra protection subsampled chroma gets.
- * The quantiser's index is Qp'Cb = QpCb + QpBdOffsetC. We return QpC, the 8-BIT-DOMAIN value, and not Qp'Cb,
+ * The quantizer's index is Qp'Cb = QpCb + QpBdOffsetC. We return QpC, the 8-BIT-DOMAIN value, and not Qp'Cb,
  * because the two callers want different things and only one of them
  * wants the offset: n265_quant/n265_dequant add QP_BD_OFFSET themselves
  * (as they do for luma), while the chroma deblocking filter indexes
  * Table 8-12 with QpC + 2 + offsets and no QpBdOffset at all
  * (8.7.2.5.5). Returning the offset index would have been silently
- * right for the quantiser and silently wrong for the filter.
+ * right for the quantizer and silently wrong for the filter.
  *
  * The mapping's identity leg extends straight down through zero - for
  * qPi < 30 QpC IS qPi - so every negative QpY maps to itself and the

@@ -166,7 +166,7 @@ static void test_never_underflows_on_plan(void)
 /* The floor under the window's reservation. A forecast may take the
  * allowance down, but never below `reserve` of what the buffer holds -
  * which is the guard against a window priced two orders of magnitude too
- * high pinning the quantiser at its coarsest for frames that cost nothing.
+ * high pinning the quantizer at its coarsest for frames that cost nothing.
  * The k = 0 bound is a fact and is never floored by it. */
 static void test_reserve_floor(void)
 {

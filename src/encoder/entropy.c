@@ -308,7 +308,7 @@ static void replay_tt(struct n265_frame_work *e, const res_ops *ops, int mode,
 
     /* 7.3.8.8: the chroma cbfs are present when
      * `log2TrafoSize > 2 || ChromaArrayType == 3` - at 4:4:4 a 4x4 node
-     * has its own chroma pair, so the pair is signalled there too.
+     * has its own chroma pair, so the pair is signaled there too.
      *
      * ...and at 4:2:2 each component carries TWO cbfs at this node, for
      * the two stacked square blocks the unit is - but only where the

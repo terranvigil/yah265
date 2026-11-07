@@ -1,6 +1,6 @@
 /*
  * --qpfile and --zones (phase 14 item 4): the two ways a user pins a
- * quantiser onto a range of the timeline from outside the rate control.
+ * quantizer onto a range of the timeline from outside the rate control.
  *
  * Pure parsing, no encoder and no pixels, so tests/unit/rcfile_test.c can
  * check both grammars outright - including every refusal, which is half

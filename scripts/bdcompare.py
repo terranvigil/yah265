@@ -31,10 +31,10 @@ encodes, numpy only. `make test` runs it.
 `--subsample` defaults to 1 (every frame) since 2026-10-18: any stride
 aliases the mini-GOP (ours 8, x265 5), so a strided score reads a
 different frame-type mix on each side. `--neg-only` (or BD_NEG_ONLY=1 in
-the environment, which every importer of this module honours) scores
+the environment, which every importer of this module honors) scores
 VMAF-NEG alone, about 45% less libvmaf time. Its model string differs, and
 that string is a term of bd_at_rate's content memo key, so NEG-only
-points are memoised apart from full ones and no existing entry moves.
+points are memoized apart from full ones and no existing entry moves.
 """
 import argparse
 import concurrent.futures as fut
@@ -59,7 +59,7 @@ def sh(cmd):
     return subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
 
-# Phase 12 item 3, step 0: does the decode in the band SYNTHESISE H.274 film
+# Phase 12 item 3, step 0: does the decode in the band SYNTHESIZE H.274 film
 # grain, or not?
 #
 # ffmpeg's hevc decoder applies the film_grain_characteristics SEI by default
@@ -74,7 +74,7 @@ def sh(cmd):
 #                  default. The flag is output-neutral on a stream WITHOUT
 #                  the SEI, verified byte for byte (docs/phase12.md), which
 #                  is why it costs the existing memo nothing.
-#   FGC=1          grain is synthesised on output, scored against the
+#   FGC=1          grain is synthesized on output, scored against the
 #                  ORIGINAL source: the honest viewer question, and the only
 #                  reading under which a denoise-and-resynthesise arm can
 #                  win anything.
@@ -143,7 +143,7 @@ def _dec_pixfmt():
 CHROMA_KEY = "chromaPSNR"
 # The luma PSNR off the SAME ffmpeg run as the chroma guard. It costs nothing
 # (the psnr filter prints y:, u: and v: on one line) and it is the second
-# metric phase 12 item 3 has to report: VMAF-NEG's reading of SYNTHESISED
+# metric phase 12 item 3 has to report: VMAF-NEG's reading of SYNTHESIZED
 # grain is itself the open question, so a grain arm is argued on both numbers
 # or on neither.
 LUMA_KEY = "lumaPSNR"
@@ -250,7 +250,7 @@ def planes_ssim_of(bitstream, src_path):
     default and timestamp sync would compare the wrong frames, and
     shortest=1 to stop at the truncated encode's length. The filter's own
     line is `SSIM Y:0.850557 (8.255233) U:... V:... All:...`; the
-    parenthesised numbers are the dB form and are recomputed by `ssim_db`
+    parenthesized numbers are the dB form and are recomputed by `ssim_db`
     rather than parsed, so the memo holds the ratio and every reader picks
     its own scale."""
     p = sh(f'ffmpeg -loglevel info {" ".join(fgc_dec_flags())} '
@@ -342,7 +342,7 @@ def vmaf_of(bitstream, src_path, work, per_frame=False):
     # display order, off the same libvmaf run. shot_hull.py slices a
     # per-shot mean out of it, and it has to be this call and not a
     # second one: the temporal features make a frame's score depend on
-    # its neighbours, so a shot scored as its own clip is NOT the shot's
+    # its neighbors, so a shot scored as its own clip is NOT the shot's
     # score inside the sequence (multishot_bd.py averages the same
     # whole-file per-frame array, which is what makes the two agree).
     # Nothing else about the call moves, and the default is off, so
@@ -391,7 +391,7 @@ def vmaf_of(bitstream, src_path, work, per_frame=False):
     if primary not in pm:
         return None
     # Report the best available VMAF (v1 when YAH264_VMAF_MODEL is set) plus
-    # NEG, which penalises enhancement/sharpening -- the honest gate for
+    # NEG, which penalizes enhancement/sharpening -- the honest gate for
     # texture-retention features (psy-RD) that plain VMAF over-credits.
     out = {plabel: pm[primary]["mean"]}
     if "vmaf_neg" in pm:
@@ -611,7 +611,7 @@ def selftest():
     check(bool(np.all(np.diff(_pchip_eval(x, y, xs)) >= -1e-12)),
           "pchip stays monotone between them")
 
-    # phase 13 B4: the SSIM dB scale, against ffmpeg's own parenthesised
+    # phase 13 B4: the SSIM dB scale, against ffmpeg's own parenthesized
     # numbers off the `ssim` filter (foreman_cif, 12 frames, x265
     # ultrafast crf 34: "Y:0.850557 (8.255233) U:0.922018 (11.080070)
     # V:0.960733 (14.059669) All:0.880830 (9.238313)"). If this drifts the

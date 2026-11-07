@@ -501,7 +501,7 @@ static void pred_planar_neon(pixel *dst, int stride, const pixel *refs,
     /* (x+1)*tr + n, at most 32 * PIXEL_MAX + 32, and (n-1-x). The tail up
      * to eight is zeroed rather than left alone: at n = 4 the row is one
      * eight-lane pass and four of its lanes are computed and thrown away,
-     * and a lane built out of an uninitialised table is a sanitiser
+     * and a lane built out of an uninitialized table is a sanitizer
      * report waiting to happen even where the value cannot escape. */
     /* built eight lanes at a time (item 39): the scalar fill and the zero
      * tail compiled to a loop and a bzero call per prediction. At n = 4

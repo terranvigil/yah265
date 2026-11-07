@@ -108,7 +108,7 @@ static void parse_and_check(const bitstream_t *bs, const n265_grain_model *m)
             /* The decoder takes the FIRST interval containing a block's
              * mean, so the set has to be ordered, disjoint and complete:
              * an overlap silently shadows a later interval and a gap
-             * silently synthesises nothing there. */
+             * silently synthesizes nothing there. */
             CHECK((int)lo == prev_hi + 1,
                   "comp %d interval %u starts at %u, previous ended at %d "
                   "(intervals must be contiguous and ordered)",

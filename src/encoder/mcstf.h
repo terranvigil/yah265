@@ -1,15 +1,15 @@
 /*
  * --mcstf: the motion-compensated spatio-temporal filter on the SOURCE.
  *
- * A picture's own noise is uncorrelated with its neighbours' and its
- * CONTENT is not, so the average of a few motion-compensated neighbours
+ * A picture's own noise is uncorrelated with its neighbors' and its
+ * CONTENT is not, so the average of a few motion-compensated neighbors
  * is the same picture with less noise in it - and a picture with less
  * noise in it is cheaper to code at the same apparent quality. That is
  * the whole claim, and it is a claim about NOISY SOURCES only: on clean
  * content the average has nothing to remove and can only blur.
  *
  * Three things keep it from blurring anyway, and they are the three
- * weights below: a neighbour counts less the further away in time it is,
+ * weights below: a neighbor counts less the further away in time it is,
  * less where its block did not match, and less at any pixel where it
  * disagrees with the original by more than noise could explain. A moving
  * edge the motion search missed therefore contributes almost nothing
@@ -39,7 +39,7 @@
 
 #include "common/pixel.h"
 
-/* x265's own range for --mcstf-ref-range: neighbours on EACH side. 0 is
+/* x265's own range for --mcstf-ref-range: neighbors on EACH side. 0 is
  * the filter doing nothing, which is not the same as the filter being
  * off (it still costs the latency), so the CLI refuses 0 by name. */
 #define N265_MCSTF_MAX_RANGE 4
@@ -75,11 +75,11 @@
 typedef struct n265_mcstf n265_mcstf;
 
 /* Open the queue. `w`/`h` are the displayed luma size, `csx`/`csy` the
- * chroma shift, `range` the neighbours per side (1..4), `selective`
+ * chroma shift, `range` the neighbors per side (1..4), `selective`
  * arms --selective-mcstf. `qp` is the encode's operating point on the
  * QP axis (a CRF is passed as the QP it lands near), which sets how far
  * the photometric width opens; `keyint` names the period starts, which
- * take future neighbours only. Returns NULL on an allocation failure. */
+ * take future neighbors only. Returns NULL on an allocation failure. */
 n265_mcstf *n265_mcstf_open(int w, int h, int csx, int csy, int range,
                             int selective, double qp, int keyint);
 void n265_mcstf_close(n265_mcstf *m);
@@ -91,7 +91,7 @@ void n265_mcstf_push(n265_mcstf *m, const pixel *const plane[3],
 
 /* Is a filtered picture ready to be taken out? After the last push, call
  * this with `flush` nonzero to drain the queue: the trailing pictures
- * are filtered against the neighbours that exist, which is fewer on the
+ * are filtered against the neighbors that exist, which is fewer on the
  * future side and is exactly what the leading pictures already do. */
 int n265_mcstf_ready(n265_mcstf *m, int flush);
 

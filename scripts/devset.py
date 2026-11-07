@@ -25,7 +25,7 @@ Per cell, ours at --preset medium (build-rel/n265 unless --bin):
               CRF, x265 at 28. Read through boxlib.measure; load barely
               moves the instruction count, so no quiet box is needed.
 
-x265 is memoised once per x265 binary. Ours is memoised on its binary
+x265 is memoized once per x265 binary. Ours is memoized on its binary
 hash, its N265_* environment and its flags, so a re-read of an unchanged
 build costs nothing and a new build costs only ours.
 
@@ -83,7 +83,7 @@ _score = pl.score
 
 
 def score_memo(cell, bitstream, wd, s=0, n=None, stride=1, psnr_only=False):
-    """parity_long's score, memoised on the bitstream's md5 and the frames
+    """parity_long's score, memoized on the bitstream's md5 and the frames
     it is scored against: an arm that leaves a cell's stream alone pays
     the encode and not the libvmaf run."""
     k = "|".join((pl.file_md5(bitstream), pl.feed_sig(pl.feeder(cell, s, n)),

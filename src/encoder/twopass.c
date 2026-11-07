@@ -56,7 +56,7 @@ int n265_2p_open_write(n265_2p *tp, const char *path, int rewrite,
         return -1;
     }
     /* The header is machine-read for exactly one field - `nblk`, which the
-     * complexity normalisation divides by - and human-read for the rest.
+     * complexity normalization divides by - and human-read for the rest.
      * Everything a reader might want to know about which encode produced
      * the file is on it, because the failure this guards against is a plan
      * built from somebody else's numbers. */
@@ -265,13 +265,13 @@ int n265_2p_solve(n265_2p *tp, double target, double qcomp, double clamp,
      * extrapolating near where it was taken. Far from the anchor the
      * exponent is not 1 and on the cheap frames it is not even smooth:
      * akiyo_cif codes display 8 at QP 28.7 for 720 bits in pass 1 - a
-     * picture whose residual quantises to almost nothing - and the same
+     * picture whose residual quantizes to almost nothing - and the same
      * frame at QP 20.3 costs 12 328 bits. Seventeen times, where the model
      * says 2.65. That is the dead zone, not a bad fit, and no exponent
-     * fixes it; the only defence is not to go there.
+     * fixes it; the only defense is not to go there.
      *
      * So the ALLOCATION may move a frame at most `trust` QP from the
-     * quantiser pass 1 measured it at. The LEVEL below is not bounded,
+     * quantizer pass 1 measured it at. The LEVEL below is not bounded,
      * which is what keeps this from being a bound on hitting the target:
      * the radius says the second pass may re-allocate a little around
      * what the first pass found, and may re-level as far as it likes.
@@ -296,7 +296,7 @@ int n265_2p_solve(n265_2p *tp, double target, double qcomp, double clamp,
      * it on the target in closed form - no bisection, no tolerance, and no
      * stopping rule that would have to be part of the determinism claim.
      * The only iteration is over frames a QP bound fixes: their bits come
-     * off the target and the rest are re-levelled around them. A frame
+     * off the target and the rest are re-leveled around them. A frame
      * never unpins, so the walk is finite and 32 bounds it. */
     double fixed_bits = 0.0;
     for (int it = 0; it < 32; it++) {

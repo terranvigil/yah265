@@ -22,7 +22,7 @@ typedef struct mot_t {
 } mot_t;
 
 /* One prediction unit in its coding block. The CB is carried because
- * prediction-block availability (6.4.2) turns on whether a neighbour
+ * prediction-block availability (6.4.2) turns on whether a neighbor
  * lies inside the current coding block; everything else - the spatial
  * positions, both temporal positions - comes from the PU. */
 typedef struct pu_geo {
@@ -107,7 +107,7 @@ int n265_rung_rerank(void);
 /* What the ladder's last square already knows, handed back so the
  * N265_SUBPEL_RATE=1 re-rank does not buy it a second time (phase 10
  * item 1b). The re-rank ranks the settled vector against its four
- * quarter-pel neighbours on luma SATD, and where that vector is still
+ * quarter-pel neighbors on luma SATD, and where that vector is still
  * the uni winner this ladder returned they are the same Hadamards of the
  * same block against the same reference: `mot_satd_wh` of a uni `mot_t`
  * is `mc_satd` of its list's vector, line for line.
@@ -117,11 +117,11 @@ int n265_rung_rerank(void);
  * the re-rank's own offset order - (1,0), (-1,0), (0,1), (0,-1) - and
  * holds what the ladder's final QUARTER-pel square costed there,
  * UINT32_MAX where the clamp dropped a position or the square never ran.
- * It may be read only when `nb_valid`, which says the square was centred
+ * It may be read only when `nb_valid`, which says the square was centered
  * on the vector that came back - i.e. the square that did not move.
  *
  * `sq_best` and `sq_second` are the two smallest PURE Hadamards of that
- * last square whatever its step, centre included - the flatness the gate
+ * last square whatever its step, center included - the flatness the gate
  * reads - and `sq_valid` says the square ranked in SATD and had a
  * runner-up to report. *
  * `rung_fired` says `N265_SUBME_RUNG` took its step on this pass, so on

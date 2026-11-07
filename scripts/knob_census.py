@@ -64,7 +64,7 @@ DEFVAL = re.compile(r':\s*(-?[0-9.]+)\s*;')
 #      (`n265_env("N265_NO_TMVP") ? 0 : 1` is the flag's value, not the
 #      knob's default).
 #   G  guarded assignment:  double aqc = 3.0; ... if (v) aqc = atof(v);
-#      -- the default is the target's own initialisation, above the read or
+#      -- the default is the target's own initialization, above the read or
 #      earlier on the same line. The nearest assignment wins and a
 #      non-literal one stops the walk (that is a symbolic default: an
 #      override's job).
@@ -236,14 +236,14 @@ OVERRIDES = {
     "N265_TREE_K": "default", "N265_TREE_SLOTS": "default",
     "N265_ROW_YIELD": "default", "N265_CLAIM_PRIO": "default",
     "N265_TASK_TRACE": "instrument",
-    # phase 14 item 11b: catalogued in docs/instruments.md because the CRF
+    # phase 14 item 11b: cataloged in docs/instruments.md because the CRF
     # axis section has to say what the mapping IS, which the heuristic then
     # reads as "machinery". Three of them are the shipped mapping - the
     # duration exponent, the rate it is zero at, and the level's memory -
     # and the legacy switch is the escape, which is an arm.
     "N265_CRF_DUR": "default", "N265_CRF_DUR_FPS": "default",
     "N265_CRF_DC_MEM": "default", "N265_CRF_LEGACY": "arm",
-    # phase 14 item 6: catalogued in docs/instruments.md because --mcstf's
+    # phase 14 item 6: cataloged in docs/instruments.md because --mcstf's
     # own section has to say what its constants are, which the heuristic
     # then reads as "machinery". They are not: each one is the SHIPPED
     # value of a filter constant and the env is its escape. Only the
@@ -272,7 +272,7 @@ OVERRIDES = {
     # are arms, not shipped defaults - 0 is the default at every preset and
     # the measurement that keeps it there is in docs/phase13.md.
     "N265_CBQPOFFS": "arm", "N265_CRQPOFFS": "arm",
-    # phase 14 item 20: the four consumer refits. Each is catalogued in
+    # phase 14 item 20: the four consumer refits. Each is cataloged in
     # docs/instruments.md because the item's account has to say what its
     # constant IS, which the heuristic then reads as "machinery". They are
     # not: each one is the SHIPPED value of a decision the lookahead makes
@@ -284,7 +284,7 @@ OVERRIDES = {
     # phase 14 item 21, and the same case as the four above: the scenecut's
     # failure-share trigger with its own level guard, and the ABR model's
     # price for the motion a prediction is fetched with. Each is the
-    # SHIPPED value of a decision, catalogued in docs/instruments.md
+    # SHIPPED value of a decision, cataloged in docs/instruments.md
     # because the item has to say what the constant is.
     "N265_SC_FAILW": "default", "N265_SC_FAILW_SPIKE": "default",
     "N265_RC_MVRATE": "default",
@@ -306,7 +306,7 @@ OVERRIDES = {
     # moot unless N265_CHROMA_W is set, so it is that arm's parameter and
     # not a shipped default of its own
     "N265_CHROMA_W_PCT": "arm",
-    # phase 13 A1: catalogued in docs/instruments.md because it has a
+    # phase 13 A1: cataloged in docs/instruments.md because it has a
     # result, but it is a default-off MODE refused on the band and kept
     # for re-pricing at the lower rungs - an arm, not machinery
     "N265_EST_MODE": "arm",
@@ -368,7 +368,7 @@ OVERRIDES = {
     "N265_STATIC_COMMIT": "arm",
     "N265_SC_CONJ": "arm",
     # the lattice IS the shipped default (1) and the env is its escape; it
-    # is catalogued in docs/instruments.md because value 2 - the
+    # is cataloged in docs/instruments.md because value 2 - the
     # commit-only form, phase 9 step 2 - is an arm with a census behind
     # it, and being named there is what the heuristic reads as
     # "instrument".
@@ -441,8 +441,8 @@ def ternary_default(win, name, var, macros):
 
 def guarded_default(lines, i, pos, var):
     """form G: `<type> t = LIT; ... if (v) t = atof(v);` - the default is the
-    target's nearest initialisation, which may sit earlier on the read's own
-    line. A non-literal initialisation stops the walk: that is a symbolic
+    target's nearest initialization, which may sit earlier on the read's own
+    line. A non-literal initialization stops the walk: that is a symbolic
     default and belongs in DEFAULT_OVERRIDES."""
     if not var:
         return None
@@ -527,7 +527,7 @@ def scan():
                         default = DEFAULT_OVERRIDES.get(name, default)
                         # nearest default-claim comment above (stale check). The
                         # scan stops at the previous knob's getenv AND at any
-                        # comment line naming a DIFFERENT knob, so a neighbour's
+                        # comment line naming a DIFFERENT knob, so a neighbor's
                         # "default OFF" is never charged to this one.
                         claim = None
                         for j in range(i - 1, max(-1, i - 40), -1):

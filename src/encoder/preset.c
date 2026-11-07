@@ -323,7 +323,7 @@ static const struct kv med_tab[] = {
     /* phase 14 item 30: the 2Nx2N merge pick prices the index it will
      * write, as the PU search already does. At a high QP most CUs are
      * skips and the index is most of what a skip costs: on the Meridian
-     * 720p window at QP 51 merge signalling was 70% of the stream. The
+     * 720p window at QP 51 merge signaling was 70% of the stream. The
      * compiled-in default is 0, so fast, slow and slower are untouched
      * and `N265_MERGE_PICK_RATE=0` is the escape. docs/phase14.md
      * "Item 30". */
@@ -368,7 +368,7 @@ static const struct kv med_tab[] = {
      * med_tab_uhd name 20 from 720p up */
     { "N265_CRF_DC_WIN", "12" },
     /* phase 14 item 52: below the 720p class too, inter chroma rounds
-     * at 1/3 and both chroma quantisers run one step finer than luma's.
+     * at 1/3 and both chroma quantizers run one step finer than luma's.
      * Item 51 kept CIF at 0/0 because v1 read no chroma at the coded
      * size. v1 is scored at display size now (a picture under 1920x1080
      * in both dimensions is scaled up to fit), and there it reads chroma
@@ -518,7 +518,7 @@ static const struct kv slower_tab[] = {
  * The table below is `slower_tab` spelled out again - not shared, for the
  * reason every other table here is spelled out - plus two rows that name
  * values `slower` already inherits from the compiled-in defaults, so that
- * a later move of a default cannot quietly take the top rung's quantiser
+ * a later move of a default cannot quietly take the top rung's quantizer
  * or its merge list away. Everything else x265 spends at this name was
  * built, measured on the CRF band at `--preset slower`, and DROPPED:
  *
@@ -638,7 +638,7 @@ static const struct kv med_par[] = {
  * and at 2160p it is wrong. The reason is the tree's reach in PICTURE
  * terms: a 32x32 tree over a 3840x2160 frame is 8160 trees whose largest
  * node covers 0.02% of the picture, and 4K content's flat regions are
- * far larger than that, so every one of them is re-signalled tree by
+ * far larger than that, so every one of them is re-signaled tree by
  * tree. Item 16 counted the consequence: at the bottom rung our 2160p B
  * slices are 99.5% skipped at 32x32 and `merge_idx` alone is 19-29% of
  * the stream.
@@ -754,7 +754,7 @@ static const struct kv med_tab_uhd[] = {
     { "N265_CRF_DC_WIN", "20" },
     /* phase 14 item 36, at HD and UHD (n265_env reads this table for
      * both): the full-pel search walks the hexagon to 57 pels instead of
-     * the 24-step unit diamond, and the b-adapt motion term is normalised
+     * the 24-step unit diamond, and the b-adapt motion term is normalized
      * to a 320-sample lowres width instead of 128. The diamond stopped in
      * a local minimum on fine texture at a far reference: on sunflower
      * and tears an anchor eight frames out cost twice the bits of one
@@ -807,7 +807,7 @@ static const struct kv med_tab_uhd[] = {
     /* phase 14 item 51, at HD and UHD (and med_tab_720 at 720p): VMAF
      * v1 scores chroma and weighs it steeply, and Chimera was over the
      * v1 bar. Inter chroma rounds at 1/3 instead of the 1/6 deadzone,
-     * and both chroma quantisers run one step finer than luma's
+     * and both chroma quantizers run one step finer than luma's
      * (pps_cb_qp_offset and pps_cr_qp_offset -1). Chimera 1080p's cell
      * goes +1.24% -> -4.67% BD-v1 under CRF, and every 720p-and-up tier
      * D cell reads level or ahead but sunflower (+0.7 on three
@@ -917,8 +917,8 @@ static const struct kv med_tab_720[] = {
  * PQ when its VUI says smpte2084, or under --hdr-opt.
  *
  * BT.2020 chroma of P3 or BT.709 content sits in a narrow band around
- * the midpoint, so at luma's QP it is quantised far coarser than SDR
- * chroma, and HDR-VMAF reads chroma. Both chroma quantisers run six
+ * the midpoint, so at luma's QP it is quantized far coarser than SDR
+ * chroma, and HDR-VMAF reads chroma. Both chroma quantizers run six
  * steps finer than luma's (written as the PPS offsets). On the 1080p dev
  * pair that is -4.1% (Sol Levante) and -10.5% (Sparks) BD-HDR-VMAF on
  * its own; -3 gained about half that and -9 lost Sol Levante. Dark psy

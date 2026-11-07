@@ -264,8 +264,8 @@ const pixel *n265_la_next_src(struct n265_encoder *e);
 void n265_la_set_anchor(struct n265_encoder *e, int i);
 
 /* the B-run length the priced mini-GOP comparison prefers, 1..maxa: the
- * amortised lowres cost of coding `A` B frames under one anchor at
- * distance A+1, minimised over A. Needs a valid anchor plane. */
+ * amortized lowres cost of coding `A` B frames under one anchor at
+ * distance A+1, minimized over A. Needs a valid anchor plane. */
 int n265_la_brun(struct n265_encoder *e, int maxa);
 
 /* the same trellis priced in BITS rather than residual: each frame's

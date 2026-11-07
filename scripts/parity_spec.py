@@ -27,7 +27,7 @@ solved bitstream serves every goal of an anchor.
 Three modes, split so the untimed half can run in the day and the timed
 half in a night block:
 
-  --solve   untimed. Encodes both anchors, solves ours, scores. Memoised
+  --solve   untimed. Encodes both anchors, solves ours, scores. Memoized
             through bd_at_rate's encode and metric memo. Writes the solved
             points to docs/data/parity-spec-points.json. Runs at a small
             share: SOLVE_THREADS (default 2) for each encoder and the

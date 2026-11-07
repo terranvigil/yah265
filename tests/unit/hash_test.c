@@ -1,5 +1,5 @@
 /*
- * Unit tests: the decoded picture hash (D.3.19) and the signalling SEI
+ * Unit tests: the decoded picture hash (D.3.19) and the signaling SEI
  * writers, src/encoder/hash.c and src/encoder/headers.c. Phase 14 item 1.
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  *
@@ -95,7 +95,7 @@ static void test_md5_vectors(void)
 
 /* The known plane: 8x8, sample (x, y) = (17x + 5y) & 0xff. Every value
  * fits in eight bits at BOTH depths, so the SAMPLES are the same picture
- * and only D.3.19's byte serialisation differs - which is exactly the
+ * and only D.3.19's byte serialization differs - which is exactly the
  * thing the second expected set exists to check. */
 #define PW 8
 #define PH 8

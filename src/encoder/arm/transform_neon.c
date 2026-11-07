@@ -3,7 +3,7 @@
  * N265_ASM_DCT). One file per kernel family; see src/encoder/arm/neon.h for
  * the dispatch convention every kernel here follows.
  *
- * THE SHAPE OF THE VECTORISATION. A 2-D separable transform is 2N
+ * THE SHAPE OF THE VECTORIZATION. A 2-D separable transform is 2N
  * independent 1-D transforms, and the cheapest way to put NEON on one is
  * to keep the 1-D butterfly EXACTLY as the C writes it and run four of
  * them at once, one per lane. Lanes therefore index the independent
@@ -42,7 +42,7 @@
  * and the constants below are the same expressions transform.c's C
  * reference reads. Phase 8 item 3 - what the depth actually moves here is
  * three shifts (the forward shift1, the inverse's second stage, the
- * dequant's bdShift), the quantiser's Qp' index, and the width of a
+ * dequant's bdShift), the quantizer's Qp' index, and the width of a
  * sample at the two ends where pred comes in and dst goes out. The
  * butterflies themselves are int32 lanes over int16 coefficients and do
  * not know the depth at all, which is why this family was the first one
@@ -371,7 +371,7 @@ static inline void fwd_dst4_1d_x4(int32x4_t *out, const int32x4_t *x,
  * were never going to sit in 32 registers - and the wrong one here, where
  * the whole intermediate is four or sixteen vectors. At these two sizes
  * the round trip is real traffic, which is part of why round 1 measured
- * 0.38-0.65x against a C path clang auto-vectorises and left both on C.
+ * 0.38-0.65x against a C path clang auto-vectorizes and left both on C.
  *
  * This is the same kernel with the buffer deleted: `bt` is an array of
  * vectors, every index into it is a constant once `n` is, and the only
@@ -1009,7 +1009,7 @@ void n265_fdct_neon(int16_t *coef, const int16_t *resid, int log2n,
  * One 1-D inverse DCT of length n on four columns at once: inv_dct_1d()
  * from transform.c, lane for lane.
  *
- * RANGE. The input is a dequantised coefficient, already clipped to int16
+ * RANGE. The input is a dequantized coefficient, already clipped to int16
  * by n265_dequant, so |c| <= 32768. The level of length `len` adds at
  * most len * 90 * 32768 to e, and summing that over the levels 1, 2, ...,
  * n/2 plus the 64 * src[0] seed gives |e| <= 90 * 32768 * (n - 1) + 64 *
@@ -1125,7 +1125,7 @@ static inline void add_clip_4x8(pixel *dst, int ds, const pixel *pred,
  * every level, so stage 1 emits clip16((64 * dq0 + 64) >> 7) in every row
  * and stage 2 turns that into (64 * v + (1 << (19 - BitDepth))) >>
  * (20 - BitDepth) in every column. Same reduction the C entry point
- * makes; worth vectorising because at 32x32 it is 1024 clipped sample
+ * makes; worth vectorizing because at 32x32 it is 1024 clipped sample
  * adds.
  *
  * int16 lanes hold the whole add at both depths: |r| <= 64 * 32768 >>
@@ -1388,7 +1388,7 @@ void idct8_s16(pixel *dst, int ds, const int16_t *dq, const pixel *pred,
  * odd index under it. Every index at or past kb is still read as the zero
  * it is by the cheap levels.
  *
- * RANGE. The input is int16 (stage 1: dequantised, clipped; stage 2:
+ * RANGE. The input is int16 (stage 1: dequantized, clipped; stage 2:
  * stage 1's output, clipped). A sum is at most the column's |T| total
  * times 32768, under 2^26 at 32 points, inside int32 at every level. The
  * narrow is the C's rounding shift with clip3(-32768, 32767): stage 1's
@@ -1633,7 +1633,7 @@ void n265_idct_add_neon(pixel *dst, int dst_stride, const int16_t *dq,
  * registers). Sh <= 9216 and Sl < 2^bd <= 1024 are both int16, so each
  * product is one widening multiply from the level as loaded; the sum is
  * the split described above, in the same int32 bound. A row whose levels
- * are all zero dequantises to zeros (the C's own skip), and after the
+ * are all zero dequantizes to zeros (the C's own skip), and after the
  * lattice that is most rows, so it is stored without the arithmetic.
  * The bounding box comes from an OR of the results: per row for nzh,
  * per column chunk for nzw. */

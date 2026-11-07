@@ -499,7 +499,7 @@ def run_lf(cell, modes=("crf", "vbr")):
 # its DEFAULT rate factor (crf 28), ours solved onto its file size within
 # +/-1% (a fractional CRF, secant on log-bytes), both scored on every frame.
 # The frames are the ones the night times: the whole excerpt at 720p and
-# 1080p, a centred WIN_2160-second window at 2160p. The night reads this row
+# 1080p, a centered WIN_2160-second window at 2160p. The night reads this row
 # and skips a cell that has none, because an unmatched cell isn't valid.
 X265_DEFAULT_CRF = 28
 WIN_2160 = float(os.environ.get("WIN_2160", "60"))

@@ -1,5 +1,5 @@
 /*
- * Rate-distortion optimised quantisation of one transform block.
+ * Rate-distortion optimized quantization of one transform block.
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 #ifndef N265_RDOQ_H
@@ -17,7 +17,7 @@ double n265_rdoq_parseval(int log2n);
  * rdoq.c), so the caller must not run n265_sbh_adjust after it. */
 int n265_rdoq_sbh_on(void);
 
-/* Quantise coef (raster, n*n) into level with the RD choice per coefficient
+/* Quantize coef (raster, n*n) into level with the RD choice per coefficient
  * (see rdoq.c). ctx is the slice context array the block will be coded
  * against (read, not adapted); lam_q8 the mode-decision lambda (Q8) in
  * pixel-SSD units. Returns the number of nonzero levels. */
@@ -36,7 +36,7 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
  * of *sb_nz is set when the sub-block at raster index
  * s = (y >> 2) * (n >> 2) + (x >> 2) holds a nonzero level. Returns
  * nonzero when any level is nonzero. `czero` is the deadzone threshold the
- * C uses to skip the multiply below it; it is an optimisation over an
+ * C uses to skip the multiply below it; it is an optimization over an
  * expression that is already correct there, so a kernel may ignore it
  * (rdoq_neon.c carries the proof).
  *

@@ -50,7 +50,7 @@ void n265_cabac_ctx_init(cabac_ctx_t *ctx, uint8_t init_value, int slice_qp)
     /* 9.3.2.2. The Clip3(0, 51, .) below is on SliceQpY, the 8-BIT-DOMAIN
      * value, and it is 0..51 at EVERY bit depth - the clause says so
      * literally, with no QpBdOffset term. At Main10 a slice at QpY -12
-     * therefore initialises its contexts as if at QP 0, which is what a
+     * therefore initializes its contexts as if at QP 0, which is what a
      * conformant decoder does too. Do not "fix" it to Qp'. */
     int m = (init_value >> 4) * 5 - 45;
     int n = ((init_value & 15) << 3) - 16;

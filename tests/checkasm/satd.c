@@ -632,7 +632,7 @@ static int check_rowcol(void)
  * samples where four were declared moves the answer only if the extra
  * lanes reach the reduction. Zero them, mask them, or throw the high half
  * of the vector away - all of which a Hadamard tail does - and the read is
- * invisible to every net in checkasm.h and to the sanitiser both.
+ * invisible to every net in checkasm.h and to the sanitizer both.
  *
  * So every kernel in this family also runs against a mapping sized to
  * ca_pg_window() of each input with an unmapped page hard against it, at

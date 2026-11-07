@@ -9,7 +9,7 @@
  *
  *   - MaxLumaSr (Table A.7). 1280x720 at 50 fps is 46 080 000 samples per
  *     second against level 3.1's 33 177 600, so every 720p50 clip in the
- *     corpus was signalling a level its OWN FRAME RATE violates. The
+ *     corpus was signaling a level its OWN FRAME RATE violates. The
  *     picture fits; the rate does not.
  *   - MaxBR (Table A.7). A phase-0 I_PCM stream carries about 30 Mbit/s at
  *     CIF, and level 2.1 main tier admits 3.3. That is the "PCM exceeds

@@ -6,7 +6,7 @@
  * all (`n265_csbf_map`), and once per coded group to fetch its sixteen
  * levels in scan order as magnitude, sign and significance
  * (`n265_coeff_group`). Both are elementwise over a group and neither
- * touches the arithmetic coder, so both vectorise; the bin-by-bin context
+ * touches the arithmetic coder, so both vectorize; the bin-by-bin context
  * walk between them does not, and stays in C.
  *
  * The 2026-09-10 shape survey (foreman_cif, 60 frames, qp 30, aq/cutree

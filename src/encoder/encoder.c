@@ -166,7 +166,7 @@ static int g_vui_timing = 1;    /* vui_timing_info in the SPS; on since
 /* --film-grain / --film-grain-denoise (phase 12 item 3). 0 / 0 is off, is
  * the default, is every preset and is every board and band leg: the
  * owner's standing rule is that an analysis mode is never a default, and
- * film grain signalling is one - it changes what a DECODER puts on the
+ * film grain signaling is one - it changes what a DECODER puts on the
  * screen, and it is only ever a win where the viewer wanted the grain
  * back. At 0 nothing here allocates, reads a picture or writes a byte. */
 static double g_film_grain = 0.0;
@@ -181,7 +181,7 @@ static int g_fgc_denoise = 0;
  * The flag WINS where it was given - over the environment and over the
  * preset alike, the rule `--rdoq-level` follows - so
  * `--nr-intra 0 --nr-inter 0` is medium's escape and is the pre-6b
- * medium byte for byte. At 0 nothing allocates and no quantiser call
+ * medium byte for byte. At 0 nothing allocates and no quantizer call
  * changes shape. */
 static int g_nr_intra = -1, g_nr_inter = -1;
 /* --mcstf / --mcstf-ref-range / --selective-mcstf (phase 14 item 6). Off,
@@ -200,8 +200,8 @@ static int g_mcstf = -1, g_mcstf_range = -1, g_mcstf_selective = 0;
 static double g_vbv_maxrate = 0.0;  /* --vbv-maxrate, kbit/s */
 static double g_vbv_bufsize = 0.0;  /* --vbv-bufsize, kbit   */
 static double g_vbv_init = 0.9;     /* --vbv-init, a fraction of the buffer */
-/* Pass-through signalling (phase 14 item 1): the decoded picture hash, the
- * VUI's colour description and the HDR10 static metadata. The whole struct
+/* Pass-through signaling (phase 14 item 1): the decoded picture hash, the
+ * VUI's color description and the HDR10 static metadata. The whole struct
  * is OFF here - every field -1 or 0 - and off is what every board, band and
  * gate leg runs, which is what makes "no flag, no byte moves" the item's
  * identity claim. Nothing in it reaches a coding decision; see signal.h. */
@@ -329,7 +329,7 @@ void n265_set_rc_bounds(double crf_min, double crf_max, int qpmin, int qpmax,
  * argv); both are PARSED at open, where a refusal can name the line. */
 /* --idr-recovery-sei / --pic-struct / --hrd-concat / --temporal-layers
  * (phase 14 item 4). `pic_struct` is -1 for the flag absent. The first
- * three are pure signalling; the last one is the only member of this
+ * three are pure signaling; the last one is the only member of this
  * group that changes a VCL NAL header, which is why it is gated on the
  * conformance vectors and not just on an escape cmp. */
 void n265_set_sei_opts(int recovery_sei, int pic_struct, int hrd_concat,
@@ -355,13 +355,13 @@ void n265_set_crf(double crf) { g_crf = crf; g_crf_on = 1; }
  * points are: include/yah265.h is another item's file this round. */
 void n265_set_lossless(int on);
 void n265_set_lossless(int on) { g_lossless = on != 0; }
-/* --rdoq-level <0|1|2>: the coefficient quantiser, in X265'S numbering,
+/* --rdoq-level <0|1|2>: the coefficient quantizer, in X265'S numbering,
  * because that is the number a user arrives with. Ours is `N265_RDOQ` and
  * it counts the same three encoders in a different order (the order they
  * were BUILT in: no lattice, the lattice everywhere, the lattice at the
  * commit). The map is here and nowhere else:
  *
- *   --rdoq-level 0   off, plain quantisation everywhere   N265_RDOQ=0
+ *   --rdoq-level 0   off, plain quantization everywhere   N265_RDOQ=0
  *   --rdoq-level 1   the lattice on the commit path only  N265_RDOQ=2
  *   --rdoq-level 2   the lattice in every RD trial too    N265_RDOQ=1
  *
@@ -384,7 +384,7 @@ static int rdoq_level_map(int lvl)
  * derivation is the expression it always was. 100 in either argument is
  * "not given", which leaves that half to the preset (phase 14 item 51).
  *
- * Which direction is which: NEGATIVE is a finer chroma quantiser, i.e.
+ * Which direction is which: NEGATIVE is a finer chroma quantizer, i.e.
  * spend more on chroma. POSITIVE is the direction docs/instruments.md
  * closes "by design, not by measurement" as a default, because it moves
  * bits from chroma to luma and the band's metric cannot see chroma at
@@ -475,7 +475,7 @@ void n265_set_vbv(double maxrate, double bufsize, double init)
     g_vbv_bufsize = bufsize;
     g_vbv_init = init;
 }
-/* ---- the pass-through signalling setters (phase 14 item 1) ----
+/* ---- the pass-through signaling setters (phase 14 item 1) ----
  *
  * Six of them, one per group of flags, and every argument is already the
  * SYNTAX ELEMENT: the CLI owns the string forms (signal.c's tables) and
@@ -490,8 +490,8 @@ void n265_set_hash(int type)
     g_sig.hash = type >= 0 && type <= 3 ? type : 0;
 }
 
-/* the VUI's colour block: video_format, video_full_range_flag, the three
- * colour description fields, chroma_sample_loc_type and the overscan flag
+/* the VUI's color block: video_format, video_full_range_flag, the three
+ * color description fields, chroma_sample_loc_type and the overscan flag
  * (-1 for every one that was not given). */
 void n265_set_vui_colour(int videoformat, int full_range, int colorprim,
                          int transfer, int colormatrix, int chromaloc,
@@ -706,7 +706,7 @@ void n265_encoder_set_dump(n265_encoder *e, FILE *f)
  *
  * Runs LAST at open, after n265_la_init has fixed the lowres geometry and
  * n265_rc_open has turned the bitrate into bits per frame: the plan needs
- * the first to normalise a complexity and the second to have a target at
+ * the first to normalize a complexity and the second to have a target at
  * all.
  *
  * Every refusal here is made at open and names its number. A second pass
@@ -1171,7 +1171,7 @@ void n265_ref_used(int cra_poc, int radl_poc, const int *m, int nm, int cur,
  * pre-retirement marking wants seven slots out of a pool of six and the
  * claim then overwrites a picture that stays marked (the DPB-pressure
  * bug T0a recorded). N265_DPB_HOLD keeps the old bound with the old
- * behaviour. */
+ * behavior. */
 /* DPBW_ENT bounds the marked set: ref_max carried anchors plus this
  * mini-GOP's anchor and its reference Bs. DPBW_MAX bounds the decoder's
  * DPB, which is those plus the pictures held only for output - at most
@@ -1195,7 +1195,7 @@ void n265_ref_used(int cra_poc, int radl_poc, const int *m, int nm, int cur,
  * table in ITU-T H-series Supplement 15: a CTU's mean 10-bit luma code
  * picks its offset, +3 below 301 down to -6 from 834. PQ spends many more
  * code values on dark light than a gamma curve does and few on highlights,
- * so at one QP the highlights are quantised far coarser than an SDR
+ * so at one QP the highlights are quantized far coarser than an SDR
  * picture's would be. `lm` is the AQ grid's mean luma; on the pooled
  * 64x64 tree a CTU reads the mean of its quarters. */
 static double hdr_luma_dqp(const double *lm, int i, const n265_frame_work *fw,
@@ -1408,7 +1408,7 @@ static int dpb_pool(int refs, int marked)
  * mini-GOP - display order advances monotonically from one mini-GOP to
  * the next - so the deepest reorder is the largest count of pictures
  * that precede a picture in the plan's coding order and follow it in
- * display order, maximised over every B-run length b-adapt may pick.
+ * display order, maximized over every B-run length b-adapt may pick.
  * The retirement does not touch it.
  *
  * `buffering` is the picture storage buffer count: the walk above under
@@ -1850,13 +1850,13 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      *
      * The FRAME-DURATION term. A CRF encode holds one quality over a
      * SEQUENCE, and the same picture quality is worth a different
-     * quantiser depending on how long a picture is on screen: at 60
+     * quantizer depending on how long a picture is on screen: at 60
      * frames a second each frame carries half the eye's time it carries
-     * at 30, so the sequence can afford a coarser quantiser per frame
-     * for the same quality per second. The behaviour a user's own crf
+     * at 30, so the sequence can afford a coarser quantizer per frame
+     * for the same quality per second. The behavior a user's own crf
      * numbers were calibrated against applies that as a power law on the
-     * quantiser SCALE - a reference duration over this frame's, to the
-     * 0.3 - and a quantiser scale is six QP steps per octave, so it is
+     * quantizer SCALE - a reference duration over this frame's, to the
+     * 0.3 - and a quantizer scale is six QP steps per octave, so it is
      * 6 x 0.3 = 1.8 QP per doubling of the frame rate. Ours reached only
      * the bits per frame under ABR, the VUI and the level check, and
      * that absence is the whole 2.4 QP the read set's 24 fps animation
@@ -1867,7 +1867,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * N265_CRF_DUR_FPS the rate it is zero at, which is also where the
      * whole axis sits: moving it moves every clip's base by the same
      * number of QP steps, and it is the pedestal this mapping was
-     * centred with. A source with no frame rate takes the param default
+     * centered with. A source with no frame rate takes the param default
      * and no term. */
     e->crf_legacy = 0;
     { const char *v = n265_env("N265_CRF_LEGACY"); if (v) e->crf_legacy = atoi(v) != 0; }
@@ -2168,9 +2168,9 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->cutree = e->mode == N265_MODE_PCM ? 0 : g_cutree;
     /* ---- --lossless (phase 8 item 5b) ----
      *
-     * transquant_bypass. A bypass CU has no quantiser at all (8.6.2: the
+     * transquant_bypass. A bypass CU has no quantizer at all (8.6.2: the
      * coded level IS the residual sample), so every tool whose job is to
-     * decide what the quantiser throws away has nothing to decide and is
+     * decide what the quantizer throws away has nothing to decide and is
      * turned off HERE, at open, rather than being left to no-op its way
      * through the frame:
      *
@@ -2185,7 +2185,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      *     spec's own condition; the PPS flag goes down with it (every CU
      *     here is bypass) and the encoder-side hider is not called.
      *   - AQ, cu-tree and the fractional base QP: three ways of moving QP
-     *     per CTU or per frame. With no quantiser they only spend bits on
+     *     per CTU or per frame. With no quantizer they only spend bits on
      *     cu_qp_delta, so the PPS flag goes down too (qp_delta_on below
      *     reads exactly these three).
      *   - psy-rd. It rides on the SSD term, which is identically zero.
@@ -2210,7 +2210,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * per-rung read on Meridian: the gated tree is -0.18 and -0.63 of
      * VMAF-NEG against today's medium at the top two rungs and +0.08,
      * +1.33, +4.05 at the bottom three, because what it removes is item
-     * 16's per-CU signalling floor and a floor only matters once the
+     * 16's per-CU signaling floor and a floor only matters once the
      * residual has shrunk to meet it. Taken flat the tree therefore
      * LOSES ground against x265 medium on Meridian - +53.22% becomes
      * +57.74% - and the plan's yardstick is x265.
@@ -2295,7 +2295,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * arm an arm without rewriting the command.
      *
      * CRF ONLY, checked rather than assumed. The plan moves the base QP
-     * across shots: under CQP the user named the quantiser and nothing
+     * across shots: under CQP the user named the quantizer and nothing
      * may move it, and under ABR the rate loop
      * already allocates across shots from measured bits and would spend
      * the rest of the shot undoing the offset. Asked for anywhere else
@@ -2333,7 +2333,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      *
      * The chroma format gate is not a limitation of the SYNTAX - the SEI
      * is defined for every format - but of what can be measured: the only
-     * synthesiser in this project's chain does 8-bit 4:2:0 and nothing
+     * synthesizer in this project's chain does 8-bit 4:2:0 and nothing
      * else (docs/phase12.md step 0), so a model written for anything else
      * would be a claim no gate in this tree can check. It is refused
      * loudly rather than written blind. */
@@ -2425,7 +2425,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * value is clamped rather than trusted, because unlike the flag's it
      * has not been through the CLI's range check.
      *
-     * --lossless and --pcm reach no quantiser at all (the residual IS the
+     * --lossless and --pcm reach no quantizer at all (the residual IS the
      * coded level), so there is nothing here for the flag to attenuate;
      * it is refused by name where the user NAMED it, and silently dropped
      * where it is only the preset's default - a default that cannot apply
@@ -2529,7 +2529,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     if (e->dbf_beta > 6) e->dbf_beta = 6;
     if (e->dbf_tc < -6) e->dbf_tc = -6;
     if (e->dbf_tc > 6) e->dbf_tc = 6;
-    /* the chroma quantiser offsets (phase 13 B1). The CLI flags set the
+    /* the chroma quantizer offsets (phase 13 B1). The CLI flags set the
      * globals; N265_CBQPOFFS / N265_CRQPOFFS reach the same two numbers
      * from a script that cannot pass a flag, and the flag wins because it
      * is read second. Both clamped to the spec's range whichever door
@@ -2549,7 +2549,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * 9.26)) held in [-12, 0], with w N265_HDR_CQP_CB for Cb and
      * N265_HDR_CQP_CR for Cr and the whole scaled by N265_HDR_CQP. Wide
      * gamut chroma sits in a narrow band around the midpoint, so at one
-     * QP it is quantised much coarser than BT.709 chroma. The QP is the
+     * QP it is quantized much coarser than BT.709 chroma. The QP is the
      * operating point the encode opens at, the one --mcstf reads; a named
      * --cbqpoffs or --crqpoffs wins. 0 is off. */
     { const char *v = n265_env("N265_HDR_CQP");
@@ -2597,7 +2597,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * Every refusal is at open and every one of them names its number. A
      * VBV is a promise to a decoder, and the three ways to make it a
      * promise nothing keeps are to name half of it, to name it with no
-     * quantiser the clamp can move (CQP, PCM, lossless), or to name a
+     * quantizer the clamp can move (CQP, PCM, lossless), or to name a
      * buffer that starts fuller than it is. */
     {
         double fps = p->fps_den > 0 ? (double)p->fps_num / p->fps_den : 0.0;
@@ -2751,10 +2751,10 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         { const char *v = n265_env("N265_VBV_HRD");
           e->vbv_hrd = v ? atoi(v) != 0 : 1; }
         e->vui_timing = g_vui_timing && p->fps_num > 0 && p->fps_den > 0;
-        /* The pass-through signalling, as the setters left it (signal.h).
+        /* The pass-through signaling, as the setters left it (signal.h).
          * It is copied whole and validated nowhere: every field is already
          * a syntax element the CLI bounded, and there is nothing about the
-         * STREAM that could refuse one - a colour primary is a claim about
+         * STREAM that could refuse one - a color primary is a claim about
          * the source, not about anything this encoder decides. */
         /* --aud: one byte per access unit, rewritten in place. --info:
          * the identification SEI is a constant for the run - the options
@@ -2789,7 +2789,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         /* --pic-struct rides the pic_timing message, which exists only
          * where the HRD does. Refused rather than ignored: a --pic-struct
          * that silently wrote nothing would look like a decoder that did
-         * not honour it. */
+         * not honor it. */
         if (g_sig.pic_struct >= 0 && !e->vbv.on) {
             fprintf(stderr, "n265: --pic-struct is a field of the pic_timing "
                             "SEI, which this encoder writes only with a "
@@ -2928,7 +2928,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
             /* ...and it is the DECLARED pair that is bounded, not the raw
              * knobs. E.2.3 can only express a rate as a scaled integer, and
              * the HRD above rounds UP to stay safe, so a --vbv-maxrate
-             * sitting exactly on a level's MaxBR would be signalled a few
+             * sitting exactly on a level's MaxBR would be signaled a few
              * hundred bit/s over it. A.4.2 bounds what the SPS SAYS, so the
              * level is solved against that number and the two can never
              * disagree. Without an HRD the raw knobs are what the clamp
@@ -4014,7 +4014,7 @@ static int hf_cache_on(void)
  * six clips of seven - because it reads 0.975x on sita_flat_720p. That
  * refusal was about the shape of the decision and not about the cache:
  * the fill is a fixed twelve passes per reference picture while the
- * traffic that amortises it is content, spanning 149 M samples to
+ * traffic that amortizes it is content, spanning 149 M samples to
  * 5820 M over the corpus at one preset. Round 4 makes the set a
  * per-reference decision taken from traffic the encoder measured on
  * frames it has already coded, so every clip gets the set its own
@@ -4796,7 +4796,7 @@ static void entropy_frame(n265_encoder *e, n265_frame_work *fw);
  * path, which is the entropy task alone. */
 
 /* Row r's CTB x may run when row r-1 has committed CTB x+1, the 2-CTB
- * WPP lag: intra's top-right neighbour and the estimator snapshot both
+ * WPP lag: intra's top-right neighbor and the estimator snapshot both
  * live under it. */
 struct lag_wait {
     struct n265_prog *p;
@@ -4928,7 +4928,7 @@ static int job_ready(void *ctx, int idx)
  * One-sided: it only ever raises a CTU's QP, and only when the remainder
  * at the unbraked rate would not fit in what the buffer has left. The
  * CTU's offset stays inside the +-12 every other writer keeps, which is
- * what keeps cu_qp_delta legal against any neighbour. Returns the QP it
+ * what keeps cu_qp_delta legal against any neighbor. Returns the QP it
  * added. */
 static int vbv_brake(n265_frame_work *fw, int r, int c, int *skip,
                      double *rate_out)
@@ -5329,7 +5329,7 @@ static void sc_resolve(n265_encoder *e, n265_frame_work *fw)
  * The answer is a SET and not one reference. A picture in the middle of
  * a long hold is the duplicate of the anchor behind it AND of the one in
  * front, and the prediction that averages the two is not the same
- * prediction as either: it averages two independent quantisations of one
+ * prediction as either: it averages two independent quantizations of one
  * source, which is better than both and is what the encoder picks there
  * on its own. Naming a single reference made the arm decline every CU on
  * `sita_flat_720p`, where the leaves are bi (docs/phase11.md sec 1.4).
@@ -5480,10 +5480,10 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
      *     in coding order, over the same set at t1 and t12.
      *  2. re-solve every offset from the estimate.
      *  3. hand this frame a COPY, because the table is about to move
-     *     again under a frame that is still quantising.
+     *     again under a frame that is still quantizing.
      *
      * A frame whose whole category is still empty gets offsets of zero
-     * and is the quantiser this encoder has always had - which is what
+     * and is the quantizer this encoder has always had - which is what
      * the first LAG frames of every encode are. */
     fw->nr_on = 0;
     if (e->nr) {
@@ -5631,9 +5631,9 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
      * ratios in CQP mode too): I anchors lower, non-ref B higher */
     /* CRF (yah264's final form, written for this encoder): a constant base per
      * frame, crf + the cu-tree operating-point shift. The cu-tree offsets are
-     * left un-centred under CRF (a referenced region nets a lower QP, a leaf
+     * left un-centered under CRF (a referenced region nets a lower QP, a leaf
      * region does not), so their mean-negative field is netted out by a
-     * fixed shift and only the DIFFERENTIAL survives; centring them would
+     * fixed shift and only the DIFFERENTIAL survives; centering them would
      * throw the cross-frame allocation away. N265_CRF_SHIFT nets what is
      * left of that mean after the frame term below has taken k_f of it:
      * 5.4 = (1 - qcomp) * 13.5 at qcomp 0.6 with the term off, which is the
@@ -5681,7 +5681,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
      * frame mean (n265_la_cutree left it in fw): what the lookahead measured
      * this frame to be worth to the ones that reference it, where the
      * cascade below is a fixed guess. CRF/ABR only - under CQP the field is
-     * centred and there is no cross-frame term to place. It lands before the
+     * centered and there is no cross-frame term to place. It lands before the
      * rounding, so with the fractional path on it is carried over the CTUs
      * and without it, it rounds with the base. */
     if ((e->crf_on || e->abr_on) && e->cutree) {
@@ -5702,7 +5702,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                     (double)fw->sc_ratio, (double)fw->la_mvabs);
     }
     /* --mcstf's coupling (phase 14 item 31): a filtered picture gets a
-     * finer quantiser. Its noise is gone, so what the bonus buys is
+     * finer quantizer. Its noise is gone, so what the bonus buys is
      * picture, and it is paid back by every picture that predicts from
      * it. An intra picture takes it only if N265_MCSTF_QPB_I says so. */
     if (fw->mcstf_filt && (slice_type != 2 || e->mcstf_qpb_i))
@@ -5719,7 +5719,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
      * are what turn a base into this frame's QP.
      *
      * It is one-sided: capped CRF never spends a full buffer on a finer
-     * quantiser. The CRF value is the quality the user asked for and the
+     * quantizer. The CRF value is the quality the user asked for and the
      * VBV is a ceiling on the damage, not a second target. */
     if (e->vbv.on && !e->abr_on) {
         base = n265_vbv_crf_base(e, fw->rc_cls, fw->rc_cplx, fw->rc_icplx,
@@ -5763,7 +5763,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
              * wanted more than QP 51 could give, to the clamp's own
              * allowance: that frame is the window's reservation for a
              * dearer one behind it (a key frame at the end of a stretch
-             * that is over the cap even at 51), and no quantiser can
+             * that is over the cap even at 51), and no quantizer can
              * make it. */
             if (fw->brk_on && e->rc.ccrf_skip && slice_type != 2) {
                 fw->brk_sk_on = 1;
@@ -5782,7 +5782,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
      * be a ceiling. x265's semantics, and x265's warning with them:
      * under a VBV a --crf-max low enough to fight the buffer is a way to
      * ask for an underflow, and this encoder will report it rather than
-     * quietly raise the quantiser past the bound it was given. */
+     * quietly raise the quantizer past the bound it was given. */
     if (e->crf_on && e->crf_bounds) {
         if (base > e->crf_max)
             base = e->crf_max;
@@ -5794,7 +5794,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
      * codes best, the leaves worst). N265_PB_STEP scales the per-layer
      * increment. N265_PB_CASCADE=r,l names the two B steps outright
      * (referenced, leaf) under CRF/ABR, which is the OTHER half of the
-     * double count the frame term above addresses: under CRF the un-centred
+     * double count the frame term above addresses: under CRF the un-centered
      * field is already a frame-type cascade, so these fixed steps are paid
      * twice. Taking it here rather than out of the field is what keeps the
      * shot's own level intact, and a fixed step moves no bits between shots.
@@ -5808,8 +5808,8 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
             cascade = fw->flat ? (nonref ? e->pb_cascade_flat_l : e->pb_cascade_flat_r)
                                : (nonref ? e->pb_cascade_l : e->pb_cascade_r);
     }
-    /* The signalled base QP is an integer, so a control variable that only
-     * moves it is quantised to 5-15% of the rate per step and cannot land on
+    /* The signaled base QP is an integer, so a control variable that only
+     * moves it is quantized to 5-15% of the rate per step and cannot land on
      * a size. Carry the base's fraction instead and spend it over the CTUs
      * below; qfrac is exactly 0 when the fractional path is off, which is
      * what keeps CQP and CRF byte-identical to the pre-ABR encoder.
@@ -5828,7 +5828,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
     if (frac_on && e->crf_on && e->cutree && fw->flat && !e->qp_frac_flat &&
         (double)e->ct_framew_flat == (double)e->ct_qpw)
         frac_on = 0;
-    /* --zones and --qpfile: the user pinning a quantiser onto a range of
+    /* --zones and --qpfile: the user pinning a quantizer onto a range of
      * the DISPLAY timeline, from outside the rate control.
      *
      * A forced QP is the FRAME's QP and not a base the cascade then moves:
@@ -5838,7 +5838,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
      * the other shape - a bit MULTIPLIER - and it lands as the QP offset
      * that buys the same bits, -6 log2 F, because there is no zone-aware
      * allocator here to hand a second budget to. That is the cheap form
-     * and the docs say so: it moves the quantiser, not the plan, so the
+     * and the docs say so: it moves the quantizer, not the plan, so the
      * rest of the file does not give the bits back. */
     double forced = 1e9;
     if (e->zones_on) {
@@ -5884,7 +5884,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
      * Applied only where the user narrowed the spec's own range, so the
      * default path is the clip it always was. A forced QP is bounded too:
      * the bounds are what the stream may contain, and a qpfile is not a
-     * licence to leave the range the encode was configured for. */
+     * license to leave the range the encode was configured for. */
     fw->qp = n265_qp_bound(e, q);
     if (n265_dup_trace())
         dup_trace_dispatch(e, fw);
@@ -5920,7 +5920,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
      *
      * A CRA does NOT open a coded video sequence, so the repeat there is
      * not about persistence - it is about the seek: a decoder that starts
-     * at a CRA has parsed no earlier message and would synthesise no
+     * at a CRA has parsed no earlier message and would synthesize no
      * grain at all. Same bytes, different reason. */
     fw->sei_len = 0;
     fw->nal_lost = 0;
@@ -6109,8 +6109,8 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
              * many QP steps DOWN, buying bits for a region that codes to
              * nothing while the outlines that carry the picture pay. 4 is
              * a standard deviation of two luma levels: below it an 8-bit
-             * picture is flat to within the smallest step the quantiser
-             * reproduces. 0 is the pre-2026-09-09 behaviour and is
+             * picture is flat to within the smallest step the quantizer
+             * reproduces. 0 is the pre-2026-09-09 behavior and is
              * exactly inert.
              *
              * The floor reaches the per-CTU term ONLY. The frame mean below
@@ -6236,7 +6236,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
              * goes on the BASE QP at its own strength (N265_AQ_DC, default
              * 1.0) against an absolute anchor in log2(variance) units
              * (N265_AQ_ANCHOR, default 6.4), so every base-keyed decision sees
-             * it; the per-CTU part below stays centred on the frame.
+             * it; the per-CTU part below stays centered on the frame.
              *
              * The anchor is in log2(variance), so the depth term is
              * ADDITIVE and not a scale: a variance sixteen times larger is
@@ -6351,7 +6351,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
              * masking model left to apply. 0 ships: the per-CTU term is
              * OFF on such a frame (the cu-tree field, summed after the
              * clamp, is untouched). Set it to N265_AQ_CLAMP's value to
-             * restore the ungated behaviour. Worth, on the three
+             * restore the ungated behavior. Worth, on the three
              * animation clips at CQP/CRF against the SAO arm alone:
              * sintel +2.39/-5.55 -> -10.20/-17.78, sita_toon
              * -3.24/-4.62 -> -5.86/-7.06, sita_flat -2.41/-10.01 ->
@@ -6572,7 +6572,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
          * fractional-base dither have all landed in it - which is the map
          * the CTU, the deblock and SAO all read. Diagnostic and
          * output-neutral; dispatch_frame runs on the driver thread, so the
-         * lines are serialised without a lock. scripts/vmaf_lossmap.py
+         * lines are serialized without a lock. scripts/vmaf_lossmap.py
          * joins its blocks to this. */
         {
             const char *qmf = n265_env("N265_QP_MAP_TRACE");
@@ -7180,7 +7180,7 @@ static void join_oldest(n265_encoder *e)
     }
     /* --strict-cbr: the padding half. Our CPB is E.2.3's cbr_flag = 0
      * model, where arrival STOPS at a full buffer - which is what lets the
-     * mode ride CRF and be met by raising a quantiser alone. Strict CBR is
+     * mode ride CRF and be met by raising a quantizer alone. Strict CBR is
      * the other flag: arrival never stops, so a frame that came in UNDER
      * its share would overflow the buffer, and the only conforming way to
      * spend the difference is filler data (NAL 38, D-less: a run of 0xFF
@@ -7189,7 +7189,7 @@ static void join_oldest(n265_encoder *e)
      * It is deliberately NOT met by making the picture worse. The bits
      * exist to hold a constant arrival rate, not to buy quality, and an
      * encoder that spent them inside the picture would be answering a
-     * transport question with a quantiser.
+     * transport question with a quantizer.
      *
      * Computed here, on the driver, in removal order, off the access
      * unit's own size - so the padding is a pure function of the encode
@@ -7267,7 +7267,7 @@ static void join_oldest(n265_encoder *e)
     }
     /* N265_STATIC_COMMIT (phase 11 item 4): stamp this frame's coded-skip
      * map into the ring. Here, on the driver, where join_oldest has
-     * already serialised coding order, so the ring's contents are a pure
+     * already serialized coding order, so the ring's contents are a pure
      * function of the encode; sc_resolve then reads only the part of it
      * that no thread count can change. */
     if (n265_static_commit() && fw->blk_skip) {
@@ -7712,7 +7712,7 @@ void n265_build_lists(n265_encoder *e, n265_frame_work *fw, int poc,
  * costs the whole prediction chain, so the detector has to be very sure
  * before it may place one close to the last. N265_MIN_KEYINT sets it;
  * 0 means the auto rule; 4 is the default and the pre-2026-09-09
- * behaviour.
+ * behavior.
  *
  * Refused at 0 on 2026-09-09 because the bound had nothing to put at a
  * suppressed cut, and REFUSED AGAIN on 2026-09-12 with the non-IDR
@@ -7852,7 +7852,7 @@ static int key_rule(n265_encoder *e, int i, int origin)
     int d = e->la.f[i].display_idx;
     /* --qpfile: an `I` or `K` line forces a key frame here. It is the one
      * type a file can ask for without asking the plan builder for a
-     * mini-GOP shape, which is why it is the one this encoder honours. */
+     * mini-GOP shape, which is why it is the one this encoder honors. */
     if (e->qpf_on) {
         const n265_qpent *qe = n265_qpfile_at(&e->qpf, d);
         if (qe && qe->type == N265_QPF_IDR)
@@ -7978,10 +7978,10 @@ static int la_is_nonidr_i(n265_encoder *e, int i)
  * shot HARDER than the level, so a hard shot is coded coarser and an
  * easy one finer.
  *
- * That is x264's qcomp trade and NOT quality levelling, which is what
+ * That is x264's qcomp trade and NOT quality leveling, which is what
  * the item wanted and what step 2 measured it against: the term is worth
  * about 2% of across-shot BD-rate on both multi-shot suites and it makes
- * the per-shot quality spread WIDER, not narrower. The levelling
+ * the per-shot quality spread WIDER, not narrower. The leveling
  * direction is the same expression at k < 0 and costs 3.0-3.4% of BD.
  * The numbers are in docs/phase7-shot-design.md "Step 2 result"; the
  * short version is that lookahead complexity is a bit-allocation signal
@@ -8201,7 +8201,7 @@ static void build_plan_order(n265_encoder *e)
      * that moves. N265_BADAPT_REFW scales it back to a fraction of the
      * frame width: the term is multiplied by refw / lowres width, with
      * refw the width the cutoff is taken to hold at. The scale is CLAMPED
-     * AT 1.0, so the normalisation can only ever relax the cutoff, never
+     * AT 1.0, so the normalization can only ever relax the cutoff, never
      * tighten it: everything at or below refw - the whole CIF half of the
      * corpus, where the 0.35 was read - is byte-identical to the
      * pre-2026-09-08 encoder, and only the clips whose motion the term was
@@ -8245,7 +8245,7 @@ static void build_plan_order(n265_encoder *e)
         if (la_is_nonidr_i(e, i)) { keymax = inon = i; break; }
     }
     /* b-adapt 2: price the mini-GOP instead of ruling on motion. The run
-     * length is the one whose amortised lowres cost is lowest - one anchor
+     * length is the one whose amortized lowres cost is lowest - one anchor
      * predicted at distance A+1 plus A bidirectionally-predicted leaves,
      * over A+1 frames. It has no calibrated constant in it. */
     if (e->badapt == 3 && keymax >= 1) {
@@ -8593,7 +8593,7 @@ static int drive_scheduler(n265_encoder *e)
      * frame at or after this one in the plan references. The decoder's
      * DPB is governed by the RPS we signal - a picture leaves it on the
      * first RPS that omits it - so doing this at dispatch rather than at
-     * the mini-GOP end shortens both our occupancy and the signalled set,
+     * the mini-GOP end shortens both our occupancy and the signaled set,
      * and takes the declared buffering (and with it the level) down with
      * them.
      *
@@ -8966,7 +8966,7 @@ int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
          * caller just handed in is not the picture that goes into the
          * lookahead: it goes into the filter's own queue, and what comes
          * out is the picture `--mcstf-ref-range` steps behind it, with
-         * its neighbours averaged into it. Everything after that point -
+         * its neighbors averaged into it. Everything after that point -
          * the lowres costs, the scenecut, cu-tree, the mode decision,
          * the coded samples - sees one picture and only one. With the
          * filter off this is the push it always was, in a function. */

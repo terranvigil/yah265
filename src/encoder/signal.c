@@ -1,5 +1,5 @@
 /*
- * The value tables and the string forms of the pass-through signalling
+ * The value tables and the string forms of the pass-through signaling
  * flags. Phase 14 item 1.
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  *
@@ -7,7 +7,7 @@
  * spellings x265 gives them so a command line moves between the two
  * encoders unchanged. Index equals code everywhere, including the
  * "reserved" entries: dropping them would shift every value after them,
- * which is the one way a colour table can be wrong without anything
+ * which is the one way a color table can be wrong without anything
  * failing to parse.
  *
  * Bare numbers are accepted too, as x265 accepts them, and are bounded by
@@ -278,7 +278,7 @@ static const struct vsp_row {
     { NULL, NULL, NULL, NULL, NULL, NULL }
 };
 
-/* The colour volumes, as `--master-display` strings.
+/* The color volumes, as `--master-display` strings.
  *
  * x265 allows one only beside the three BT2100_PQ_* systems, and that
  * restriction is kept: a mastering display volume on an SDR system is a
@@ -367,7 +367,7 @@ int n265_vsp_parse(const char *s, int *v, uint32_t *md, int *have_md,
     if (!colon)
         return N265_VSP_OK;
 
-    /* the colour volume, and only on the three systems that take one */
+    /* the color volume, and only on the three systems that take one */
     if (strncmp(r->name, "BT2100_PQ", 9))
         return N265_VSP_VOLUME_SYSTEM;
     const struct vsp_vol *w = NULL;

@@ -20,13 +20,13 @@ Phase 12 item 5 adds a THIRD walk, and it is the only one that reads what
 a decoder actually receives. The coded stream is parsed - Annex B start
 codes, access units closing at each VCL NAL, the buffering_period (D.2.2)
 and pic_timing (D.2.3) SEI messages read field by field - and the CPB is
-walked again from the SIGNALLED numbers alone: the removal times C.2.3
-derives from the signalled delays, the buffer filling at the DECLARED
-BitRate from the signalled initial delay, and draining by the access unit
+walked again from the SIGNALED numbers alone: the removal times C.2.3
+derives from the signaled delays, the buffer filling at the DECLARED
+BitRate from the signaled initial delay, and draining by the access unit
 sizes taken from the stream itself. Three things then have to agree, and
 each catches a different bug:
 
-    `sei` underflows == the trace walk's underflows   the signalling is
+    `sei` underflows == the trace walk's underflows   the signaling is
         consistent with the buffer the encoder actually planned against
     the removal times are strictly monotone           C.2.3 is satisfiable
     the stream's own AU sizes == the trace's bits     the trace is the
@@ -35,7 +35,7 @@ each catches a different bug:
 The middle walk (the encoder's opinion) and the first (the trace's sizes)
 are both encoder-side. This one would still fail if the encoder wrote a
 perfect stream and lied about it in the SEI, which is the whole question
-"is the HRD signalling true" reduces to.
+"is the HRD signaling true" reduces to.
 
     CLIPS=foreman_cif python3 scripts/vbv_check.py
     MODE=crf CRF=28 python3 scripts/vbv_check.py
@@ -288,11 +288,11 @@ def declared_pair(maxrate, bufsize):
 
 
 def hrd_walk(aus, bitrate, cpbsize, tick):
-    """C.2, from the SIGNALLED delays alone.
+    """C.2, from the SIGNALED delays alone.
 
     Removal times: the first access unit is removed at its own initial
     delay; every one after it at the removal time of the access unit that
-    carried the most recent PRECEDING buffering period, plus its signalled
+    carried the most recent PRECEDING buffering period, plus its signaled
     au_cpb_removal_delay in clock ticks. The CPB fills at BitRate from t=0,
     stops when full (cbr_flag is 0), and the whole access unit leaves at
     its removal time."""
@@ -370,7 +370,7 @@ def cell(clip, mult, secs, base_rate):
     clamped = sum(1 for r in rows if r["dqp"] > 1e-9)
     # the third walk: the stream's own SEI messages. The access unit sizes
     # it reads are checked against the trace's bits first, so a difference
-    # in the CPB can only ever be about the SIGNALLING.
+    # in the CPB can only ever be about the SIGNALING.
     sei_under = sei_mono = sei_bp = 0
     sei_minpct = 0.0
     sei_size = 0

@@ -19,8 +19,8 @@
 
 /* Share of whole 16x16 source luma blocks with variance under one 8-BIT
  * luma level, in percent. A variance under one level is a standard
- * deviation under a single luma level: a block that is one flat colour to
- * within the smallest step the quantiser reproduces. The walk is over the
+ * deviation under a single luma level: a block that is one flat color to
+ * within the smallest step the quantizer reproduces. The walk is over the
  * DISPLAYED picture,
  * not the coded one - conformance padding is replicated and therefore
  * perfectly flat, and a picture 722 samples tall would otherwise get a
@@ -112,7 +112,7 @@ int n265_la_init(struct n265_encoder *e)
     /* The cost loops read whole 8x8 lowres blocks (anchored at lw - 8 on the
      * right and bottom edges), so the plane is never smaller than one
      * block; the downscale below edge-replicates into the padding. A 8x8
-     * input overran a 4x4 plane here (the sanitiser matrix, 2026-09-06). */
+     * input overran a 4x4 plane here (the sanitizer matrix, 2026-09-06). */
     la->lw = e->pad_w / 2 < 8 ? 8 : e->pad_w / 2;
     la->lh = e->pad_h / 2 < 8 ? 8 : e->pad_h / 2;
     la->bw = (la->lw + 7) / 8;
@@ -231,7 +231,7 @@ static uint32_t sad8(const pixel *a, int as, const pixel *b, int bs)
  * the moving frames' own ratio, after which every frame that moves
  * clears 1.3x the level and reads as a cut. A frame whose mean lowres
  * SAD is under one unit per 8x8 block is a repeat, not a measurement.
- * On by default since 2026-09-09; 0 is the behaviour before it, and
+ * On by default since 2026-09-09; 0 is the behavior before it, and
  * every clip in the corpus that is single-shot at 120 frames is
  * byte-identical under either value.
  *
@@ -264,14 +264,14 @@ static int sc_hold(void)
  * is usually within a diamond step or two of the answer, and a search
  * seeded from one chains along the motion trail rather than walking out
  * to it one lowres pixel at a time. The reach stops being the iteration
- * cap and becomes the cap plus whatever the neighbours already found.
+ * cap and becomes the cap plus whatever the neighbors already found.
  * `pair_cost` has always seeded itself this way; this is the same idea
  * one level down.
  *
  * Every candidate is DEDUPLICATED against the zero vector and against
  * the candidates before it, which is what keeps the clock flat: on
  * static content, on a held frame and on a pulldown repeat the
- * neighbours are all (0,0), every candidate collapses onto the zero
+ * neighbors are all (0,0), every candidate collapses onto the zero
  * vector that was already priced, and the block pays a handful of
  * integer compares and not one extra SAD. Blocks that DO move pay four
  * or five SADs against a diamond that was going to run its full eight
@@ -353,7 +353,7 @@ static int badapt_mvcap(void)
  * failures. A diamond that starts at the zero vector only leaves it by
  * improving at every step, so under the old search a block with a
  * nonzero vector had earned it. Seed the same diamond from a
- * neighbour's vector and a block can end up far from the origin on a
+ * neighbor's vector and a block can end up far from the origin on a
  * match that is worth almost nothing - a fit to noise, which on grain
  * or on a dissolve is most of the picture. The run rule then reads a
  * mean |MV| made of motion that is not there.
@@ -402,7 +402,7 @@ static int badapt_mvgate(void)
  * choice is measured (docs/phase14.md item 20: a predictor-relative
  * term leaves xfade_720p at +7.04% where the origin-relative one reads
  * +5.79%) and it has a reason - a crossfade's field is coherent noise,
- * so it agrees with its neighbours and a predictor-relative term
+ * so it agrees with its neighbors and a predictor-relative term
  * charges it nothing, while the origin is the only reference a blend
  * cannot agree with. It also keeps the term monotone in |MV|, which is
  * what the propagation is being asked about.
@@ -801,7 +801,7 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
                 n265_grain_denoise(&e->fgc, f->src[c], dw, w, h, c);
                 /* the pad is an edge replication of the CODED picture, and
                  * the coded picture just moved: redo it rather than leave
-                 * the filter's own edge behaviour standing in for it */
+                 * the filter's own edge behavior standing in for it */
                 for (int y = 0; y < h; y++) {
                     pixel *d = f->src[c] + (size_t)y * dw;
                     for (int x = w; x < dw; x++)
@@ -927,7 +927,7 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
                 /* N265_LA_MEPRED: the motion vector predictors. Left,
                  * above, above-right, their component-wise median, and
                  * this block's vector in the previous frame. The median
-                 * is formed only where all three spatial neighbours
+                 * is formed only where all three spatial neighbors
                  * exist; where they do not, the ones that do stand on
                  * their own. */
                 if (la_mepred()) {
@@ -1088,7 +1088,7 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
                         fail++;
                         failw += f->icost[b];
                     }
-                    /* LOCAL smoothness: agreement with the neighbours that
+                    /* LOCAL smoothness: agreement with the neighbors that
                      * were already written, which is a different question
                      * from agreement with the frame's median */
                     if (bx > 0 && by > 0) {
@@ -1502,10 +1502,10 @@ static int32_t brun_logT_q16(int qp)
 /* Frame bits in Q16: sum over blocks of max(0, log2(sad / T)). A block
  * under the dead zone is free, which is the term `--b-adapt 2` did not
  * have; above it the price grows with the log of the residual, which is
- * what a quantiser followed by an entropy coder does. A per-block syntax
+ * what a quantizer followed by an entropy coder does. A per-block syntax
  * floor is deliberately absent: the block count is the same for every
  * candidate and every frame, so a constant per block adds the same
- * amount to every candidate's amortised price and cannot move the pick. */
+ * amount to every candidate's amortized price and cannot move the pick. */
 static uint64_t blk_bits(const uint32_t *sad, int nb, int32_t logT)
 {
     uint64_t sum = 0;
@@ -1543,7 +1543,7 @@ static void brun_depths(int blo, int bhi, int depth, int *d, int *nref)
  * two to four QP higher, so its dead zone is wider and more of its blocks
  * are free. That is the term that lets a long run win on static content
  * where a residual sum always prefers the shortest prediction distance.
- * Amortised over A + 1 frames and minimised over A, ties to the longer
+ * Amortized over A + 1 frames and minimized over A, ties to the longer
  * run, exactly as `--b-adapt 2`. N265_BRUN_TRACE prints the per-frame
  * prediction for every candidate. */
 int n265_la_brun_bits(struct n265_encoder *e, int maxa)
@@ -1708,7 +1708,7 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
 
     /* offsets for frame i: -strength * log2((intra + prop) / intra),
      * averaged per CTU and ZERO-MEANED across the frame (without rate
-     * control an un-centred map is just an operating-point shift plus
+     * control an un-centered map is just an operating-point shift plus
      * delta bits), then clamped */
     la_frame *f = &la->f[i];
     int ctb = 1 << e->ctb_log2;
@@ -1717,7 +1717,7 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
     /* built in the frame's own per-CTU map, which is sized for the picture:
      * a fixed stack array sized for 3840x2160 at CTB 32 overran on any
      * larger picture (4096x2160 is 8704 CTUs) and aborted. Nothing reads
-     * the map before the centring below rewrites it in place. */
+     * the map before the centering below rewrites it in place. */
     float *raw = fw->ctu_qp_raw;
     float mean = 0;
     /* --mcstf's coupling (phase 14 item 31): a filtered picture carries
@@ -1752,21 +1752,21 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
             mean += v;
         }
     mean /= nctu;
-    float field_mean = mean;    /* the frame term reads this, before centring eats it */
-    /* CRF leaves the field un-centred so the cross-frame differential
+    float field_mean = mean;    /* the frame term reads this, before centering eats it */
+    /* CRF leaves the field un-centered so the cross-frame differential
      * survives, and a fixed shift in the base nets "the" mean. There is no
      * one mean: a NON-REFERENCED frame receives no propagation at all, so
      * its field is identically zero, where a referenced frame's mean is
      * strongly negative and content-keyed. The difference lands on top of
      * the pyramid QP cascade as a second, uncalibrated cascade.
-     * N265_CT_CENTRE 1 centres every frame's field on its own mean under
+     * N265_CT_CENTRE 1 centers every frame's field on its own mean under
      * CRF as well (the CQP form), leaving the cascade the only frame-type
      * term; that removes the step and the cross-frame differential with it.
      * 2 removes only the step: it nets each PROPAGATED-INTO frame against
      * the mean over the frames in the lookahead window that receive
      * propagation at all, so what survives is the frame's deviation from
      * the window's own level, and a frame with no propagation keeps its
-     * zero. 0 is the pre-2026-09-08 behaviour. */
+     * zero. 0 is the pre-2026-09-08 behavior. */
     if (e->crf_on) {
         static int centre = -1;
         if (centre < 0) {
@@ -1774,7 +1774,7 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
             centre = v ? atoi(v) : 0;
         }
         if (!centre) {
-            mean = 0;       /* un-centred: the shift in the base nets the mean */
+            mean = 0;       /* un-centered: the shift in the base nets the mean */
         } else if (centre >= 2) {
             if (mean == 0.0f) {
                 /* no propagation into this frame: it IS the operating point */
@@ -1875,7 +1875,7 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
      * way and rounds it once with the variance term.) */
     double qpw = n265_ct_qp_scale(e);
     /* The frame term's two inputs (phase 7 step 2). Under CRF the field is
-     * left un-centred, so the per-CTU offsets below already carry k_b of the
+     * left un-centered, so the per-CTU offsets below already carry k_b of the
      * field's own frame mean - a second frame-type cascade on top of the
      * fixed I/P/B steps - and one strength was scaling the cross-frame
      * allocation and the within-frame spread together. Handing the two means
@@ -1895,7 +1895,7 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
         fw->ctu_qp_off[k] = (int8_t)(off < -12 ? -12 : off > 12 ? 12 : off);
     }
     /* N265_CT_LAMBDA reads the SAME field as a per-CTU lambda multiplier,
-     * at strength 1 and centred on the frame so it is independent of what
+     * at strength 1 and centered on the frame so it is independent of what
      * the QP path above did with it. dev < 0 is a CTU the field wants at a
      * lower QP; it gets the lambda that QP step would have carried, on the
      * same 2^(d/3) slope, bounded by the offset map's own +-12. Frozen

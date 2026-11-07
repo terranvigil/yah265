@@ -4,14 +4,14 @@
 # The Main10 encoder refuses 8-bit input (cli/n265.c): one library per
 # sample width, and a silent upshift inside the reader would let a 10-bit
 # measurement be taken on SDR content without saying so. This is the
-# conversion, spelt out once, so that every 10-bit gate names it.
+# conversion, spelled out once, so that every 10-bit gate names it.
 #
 # It is a PURE LEFT SHIFT by two - sample * 4, not sample * 1023/255 -
 # which is what a Main10 stream of SDR content is, and what makes the
 # 10-bit encode of an upshifted clip comparable with the 8-bit encode of
 # its original at the same QP: the residual is exactly four times, the
 # forward transform sheds exactly two bits (shift1 = log2n + BitDepth - 9),
-# and the coefficients that reach the quantiser are the same integers.
+# and the coefficients that reach the quantizer are the same integers.
 # ffmpeg's format filter does that shift for yuv420p -> yuv420p10le.
 #
 # usage: scripts/upshift10.sh in.y4m out.y4m [extra ffmpeg input args...]

@@ -57,13 +57,13 @@ typedef n265_pixel pixel;
  * that only shows at the bottom of the ladder.
  *
  * EVERY `qp` variable in this encoder is the spec's QpY (or QpC): the
- * 8-BIT-DOMAIN quantiser index, which runs `-QpBdOffsetY .. 51` and is
+ * 8-BIT-DOMAIN quantizer index, which runs `-QpBdOffsetY .. 51` and is
  * therefore NEGATIVE below QP 0 at Main10. That is the number the user
  * types at `--qp`, the number `slice_qp_delta` carries (7.4.7.1), and
  * the number the deblocking filter indexes Table 8-12 with (8.7.2.5.3,
  * where `qPL` is built from QpY and not from Qp'Y).
  *
- * Anything whose quantity scales with the QUANTISER STEP indexes its
+ * Anything whose quantity scales with the QUANTIZER STEP indexes its
  * table with `qp + QP_BD_OFFSET` instead - the spec's Qp'Y, 0..63 - and
  * that single substitution is exactly right for all of them, because a
  * step, a lambda and a squared step are all powers of two in QP/6,
