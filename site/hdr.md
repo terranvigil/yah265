@@ -82,7 +82,7 @@ write that box. A Dolby Vision-aware muxer such as MP4Box or mkvmerge does.
 We scored yah265 and x265 with Netflix's HDR-VMAF v1.1.8 on two HDR10
 titles from Netflix Open Content. We used 10 seconds of the 24p animation Sol
 Levante and 5 seconds of the 60p live-action Sparks. Both encoders ran at preset medium
-with the same HDR10 signaling. yah265 ran at `--threads 6`. x265 ran at
+with the same HDR10 signaling. yah265 ran at `--threads 4`. x265 ran at
 `--pools 6 --frame-threads 4` with no `--hdr10-opt`. Scores use HDR-VMAF's 3H
 model at 1080p and its 1.5H model at 2160p. Sparks used the high frame rate
 variant of each. The table gives yah265's BD-rate against x265 on HDR-VMAF. A
@@ -90,21 +90,30 @@ negative number is the share of bitrate yah265 saves at equal quality.
 
 | title | 1080p | 2160p |
 |---|--:|--:|
-| Sol Levante | -16.4% | -12.3% |
-| Sparks | -10.9% | -12.7% |
+| Sol Levante | -19.4% | -14.3% |
+| Sparks | -18.5% | -17.9% |
+
+x265's `--hdr10-opt` tunes it for PQ. Against x265 with it on, yah265 saves
+1.7% at 1080p and 1.5% at 2160p on Sol Levante. On Sparks it saves 13.3% and
+11.6%.
+
+HLG was read on the same two 1080p clips re-coded from PQ to HLG, because we
+have no native HLG master. HDR-VMAF has no HLG transfer, so both sides are
+converted back to PQ before scoring. On the HLG clips yah265 saves 20.2% on
+Sol Levante and 18.0% on Sparks against x265.
 
 x265 ran CRF 20 to 32 in steps of 3. The two CRF scales don't line up on this
 material: at the same CRF yah265 writes a much smaller file on Sol Levante. So
-yah265 ran CRF 11 to 32 in the same steps. Each cell uses the five rungs
-whose HDR-VMAF range best matches x265's. Those cover 92% or more of x265's
-range in every cell.
+yah265 ran CRF 11 to 26 on Sol Levante and 17 to 32 on Sparks, in the same
+steps. Those six rungs cover 95% or more of x265's HDR-VMAF range in every
+cell.
 
 Banding was read with HDR-VMAF's PQ CAMBI. Sol Levante's flat gradients band
-on both encoders at the lower rates. yah265 bands less there at the same
-bitrate. Its worst frames read about a point lower. They sit around 5 where
-x265's reach 6. On Sparks yah265 reads slightly higher than x265 at the upper
-rates and lower at the lower ones. Both stay far below the level where
-banding shows.
+on both encoders at the lower rates. There yah265's worst frames read lower
+at the same bitrate. They sit around 5 where x265's reach 6. Its mean reads
+about 0.1 higher, because preset medium turns off the extra psy weight on dark
+blocks for HDR. On Sparks yah265's mean reads higher than x265's at every
+rate. Both stay far below the level where banding shows.
 
 ## How it was checked
 

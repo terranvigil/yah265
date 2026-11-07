@@ -100,32 +100,44 @@ negative number is the share of bitrate yah265 saves at equal quality.
 | Sol Levante | -16.4% | -12.3% |
 | Sparks | -10.9% | -12.7% |
 
-Those numbers predate the HDR tuning above. With it, read the same way over
-six rungs a side:
+Those numbers predate the HDR tuning above. The table below reads the current
+binary the same way, with six of our rungs against x265's five. The HLG rows
+use the two 1080p clips re-coded from PQ to HLG at a 1000-nit peak, because
+the library has no native HLG master. HDR-VMAF has no HLG transfer, so both
+sides are converted back to PQ before scoring. x265's `--hdr10-opt` is a PQ
+option and has no HLG reading.
 
 | title | against x265 | against x265 `--hdr10-opt` |
 |---|--:|--:|
-| Sol Levante 1080p | -21.5% | -4.2% |
-| Sol Levante 2160p | -18.8% | -6.8% |
-| Sparks 1080p | -21.9% | -16.9% |
-| Sparks 2160p | -25.0% | -19.2% |
+| Sol Levante 1080p | -19.4% | -1.7% |
+| Sol Levante 2160p | -14.3% | -1.5% |
+| Sparks 1080p | -18.5% | -13.3% |
+| Sparks 2160p | -17.9% | -11.6% |
+| Sol Levante HLG 1080p | -20.2% | - |
+| Sparks HLG 1080p | -18.0% | - |
 
 `--hdr10-opt` is worth 6-19% to x265 on HDR-VMAF. Without the tuning yah265
-was level with it on Sol Levante. `scripts/hdr_bd.py` runs the ladders
-and the BD reading.
+was level with it on Sol Levante. With the tuning yah265 is now under 2%
+ahead there. The work medium dropped for speed in [phase 14 item
+57](phase14.md) costs 2-9% of BD-rate on these clips, most of it at 2160p.
+Before that change the same table read -21.5% to -25.0% against x265. This
+table ran yah265 at `--threads 4`. On the Sparks 1080p ladder that writes the
+same streams as `--threads 6`. `scripts/hdr_bd.py` runs the ladders and the
+BD reading.
 
 x265 ran CRF 20 to 32 in steps of 3. The two CRF scales don't line up on this
 material: at the same CRF yah265 writes a much smaller file on Sol Levante. So
 yah265 ran CRF 11 to 32 in the same steps. Each cell uses the five rungs
 whose HDR-VMAF range best matches x265's. Those cover 92% or more of x265's
-range in every cell.
+range in every cell. The tuned table uses CRF 11 to 26 on Sol Levante and 17
+to 32 on Sparks. Those six rungs cover 95% or more of x265's range.
 
-Banding was read with HDR-VMAF's PQ CAMBI. Sol Levante's flat gradients band
-on both encoders at the lower rates. yah265 bands less there at the same
-bitrate: its worst frames read about a point lower, around 5 where x265's
-reach 6. On Sparks yah265 reads slightly higher than x265 at the upper rates
-and lower at the lower ones. Both stay far below the level where banding
-shows.
+Banding was read with HDR-VMAF's PQ CAMBI on the current binary. Sol
+Levante's flat gradients band on both encoders at the lower rates. There
+yah265's worst frames still read lower at the same bitrate, around 5 where
+x265's reach 6. Its mean reads about 0.1 higher, because medium turns off the
+dark psy weight on HDR. On Sparks yah265's mean reads higher than x265's at
+every rate. Both stay far below the level where banding shows.
 
 ## How it was checked
 
