@@ -8,8 +8,12 @@
     scripts/hdr_bd.py bd --ref ARM --test ARM [--test ARM ...] [--clip ...]
 
 Every rung is encoded, decoded with ffmpeg and scored with HDR-VMAF
+<<<<<<< HEAD
 v1.1.8 (the model and color flags yah264's HDR page used: 3 picture
 heights at 1080p, 1.5 at 2160p, the high-frame-rate twin for Sparks),
+=======
+v1.1.8 (the model and colour flags yah264's HDR page used: 3 picture
+heights at 1080p, 1.5 at 2160p, the high-frame-rate twin at 50 fps and up),
 with PSNR-Y from the same libvmaf run. A rung is kept beside the command
 that made it, the binary's hash included, and redone only when that
 changes. HLG clips are scored as PQ: HDR-VMAF has no HLG transfer, so the
@@ -44,6 +48,8 @@ WORK = os.environ.get("HDR_WORK", "<staging>/yah265/hdr/item56")
 THREADS = os.environ.get("THREADS", "6")
 SRC = "<staging>/yah264/hdr"
 HLG = f"{WORK}/src"
+# EBU / DVB 8K HLG10 clip, frames 600-899 scaled down; CC BY 4.0
+NATIVE = "<staging>/yah265/hdr/hlg_native/src"
 # both titles were graded on a 1000-nit P3 D65 display
 MD = "G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1)"
 
@@ -55,6 +61,8 @@ CLIPS = {
     "sparks_2160": (f"{SRC}/sparks_2160.y4m", 300, 60000 / 1001, "pq", "1000,219"),
     "solhlg_1080": (f"{HLG}/solhlg_1080.y4m", 240, 24.0, "hlg", None),
     "sparkshlg_1080": (f"{HLG}/sparkshlg_1080.y4m", 300, 60000 / 1001, "hlg", None),
+    "dvbhlg_1080": (f"{NATIVE}/dvbhlg_1080.y4m", 300, 50.0, "hlg", None),
+    "dvbhlg_2160": (f"{NATIVE}/dvbhlg_2160.y4m", 300, 50.0, "hlg", None),
 }
 
 HLG2PQ = ("zscale=tin=arib-std-b67:min=bt2020nc:pin=bt2020:rin=tv:t=linear:"
@@ -69,7 +77,7 @@ def colour(trc):
 
 
 def model(clip):
-    hfr = clip.startswith("sparks")
+    hfr = CLIPS[clip][2] >= 50
     d = "hdr_vmaf_v1.1.8" + ("_hfr" if hfr else "")
     base = "hdr_vmaf_v1.1.8" + ("_hfr" if hfr else "")
     tail = "_1d5h_2160" if clip.endswith("2160") else "_3d0h"
@@ -108,7 +116,7 @@ def pq_ref(clip):
     src, frames, fps, trc, cll = CLIPS[clip]
     if trc == "pq":
         return src
-    out = f"{HLG}/{clip}_aspq.y4m"
+    out = os.path.splitext(src)[0] + "_aspq.y4m"
     if not os.path.exists(out):
         dec(src, out, HLG2PQ)
     return out
