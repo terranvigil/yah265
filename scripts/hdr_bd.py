@@ -8,11 +8,7 @@
     scripts/hdr_bd.py bd --ref ARM --test ARM [--test ARM ...] [--clip ...]
 
 Every rung is encoded, decoded with ffmpeg and scored with HDR-VMAF
-<<<<<<< HEAD
 v1.1.8 (the model and color flags yah264's HDR page used: 3 picture
-heights at 1080p, 1.5 at 2160p, the high-frame-rate twin for Sparks),
-=======
-v1.1.8 (the model and colour flags yah264's HDR page used: 3 picture
 heights at 1080p, 1.5 at 2160p, the high-frame-rate twin at 50 fps and up),
 with PSNR-Y from the same libvmaf run. A rung is kept beside the command
 that made it, the binary's hash included, and redone only when that
