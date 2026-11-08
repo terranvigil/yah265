@@ -104,10 +104,8 @@ negative number is the share of bitrate yah265 saves at equal quality.
 
 Those numbers predate the HDR tuning above. The table below reads the current
 binary the same way, with six of our rungs against x265's five. The HLG rows
-use the two 1080p clips re-coded from PQ to HLG at a 1000-nit peak, because
-the library has no native HLG master. HDR-VMAF has no HLG transfer, so both
-sides are converted back to PQ before scoring. x265's `--hdr10-opt` is a PQ
-option and has no HLG reading.
+are native HLG footage, described under [HLG](#hlg). x265's `--hdr10-opt` is
+a PQ option and has no HLG reading.
 
 | title | against x265 | against x265 `--hdr10-opt` |
 |---|--:|--:|
@@ -115,8 +113,8 @@ option and has no HLG reading.
 | Sol Levante 2160p | -17.7% | -5.4% |
 | Sparks 1080p | -23.2% | -18.3% |
 | Sparks 2160p | -24.2% | -18.4% |
-| Sol Levante HLG 1080p | -22.4% | - |
-| Sparks HLG 1080p | -22.4% | - |
+| EBU / DVB HLG 1080p | -38.8% | - |
+| EBU / DVB HLG 2160p | -34.6% | - |
 
 `--hdr10-opt` is worth 6-19% to x265 on HDR-VMAF. Without the tuning yah265
 was level with it on Sol Levante, and with it yah265 is 5% ahead there. At
@@ -130,8 +128,39 @@ x265 ran CRF 20 to 32 in steps of 3. The two CRF scales don't line up on this
 material: at the same CRF yah265 writes a much smaller file on Sol Levante. So
 yah265 ran CRF 11 to 32 in the same steps. Each cell uses the five rungs
 whose HDR-VMAF range best matches x265's. Those cover 92% or more of x265's
-range in every cell. The tuned table uses CRF 11 to 26 on Sol Levante and 17
-to 32 on Sparks. Those six rungs cover 95% or more of x265's range.
+range in every cell. The tuned table uses CRF 11 to 26 on Sol Levante, 17
+to 32 on Sparks and 20 to 35 on the HLG clip. Those six rungs cover 95% or
+more of x265's range.
+
+### HLG
+
+The HLG rows read native HLG footage. The source is the EBU / DVB 8K HLG
+test clip, published by DVB under CC BY 4.0 (credit EBU / DVB). It is HEVC
+Main10 HLG10 in BT.2020, 7680x4320 at 50 fps. The download is the clip's
+37 Mbit/s DASH rendition. We took frames 600 to 899 (12 s to 18 s), which
+hold the clip's one cut. A near-static shot falls on either side of it: a
+harbor in daylight and a sunset over water. They were scaled down to 3840x2160
+and 1920x1080 in 10-bit 4:2:0 with zscale's Lanczos filter, HLG and BT.2020
+kept. Both encoders signal HLG with `--transfer arib-std-b67`. HDR-VMAF has
+no HLG transfer, so the reference and every decoded picture go through the
+same HLG to PQ conversion at a 1000-nit peak before scoring. At 50 fps the
+score uses the high frame rate model. yah265 ran at `--threads 4`, and x265
+at `--pools 4 --frame-threads 4`.
+
+The HLG tuning is worth 14.1% at 1080p and 15.0% at 2160p on HDR-VMAF.
+That's medium against medium with `--no-hdr-opt`, at the same six CRFs.
+Without it yah265 still saves 29.1% and 23.4% against x265. PSNR-Y reads
+much closer. At 2160p yah265 is within 1% of x265 on it. The tuning costs
+2-3% of PSNR-Y at both sizes, because it moves bits from luma to chroma.
+
+CAMBI reads yah265's mean about 0.25 higher than x265's at the same bitrate on
+this clip. Both stay near 2 to 3, far below the level where banding shows.
+
+Earlier HLG rows came from Sol Levante and Sparks re-coded from PQ to HLG.
+They read -22.4% on both. The native clip reads well ahead of that. It is
+two near-static shots. Its source is itself an HEVC encode, and the
+downscale averages away most of what noise is left. That makes it easy
+material, and a lead on it shouldn't be read as a lead on all HLG.
 
 Banding was read with HDR-VMAF's PQ CAMBI on the current binary. Sol
 Levante's flat gradients band on both encoders at the lower rates. There
