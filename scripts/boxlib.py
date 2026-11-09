@@ -231,10 +231,27 @@ def lock_holder():
     return rec
 
 
+def _ancestors():
+    """This process and every process above it. Homebrew's python
+    re-execs the interpreter as a child, so the shell that took the lock
+    can be two levels up, not one."""
+    out, pid = [os.getpid()], os.getppid()
+    while pid > 1 and pid not in out:
+        out.append(pid)
+        try:
+            pid = int(subprocess.run(["ps", "-o", "ppid=", "-p", str(pid)],
+                                     capture_output=True, text=True,
+                                     check=True).stdout.strip())
+        except (subprocess.CalledProcessError, ValueError):
+            break
+    return out
+
+
 def _ours(rec):
-    """Held by this process or the one that started it: a timed harness
-    may run untimed sub-work (a solve) under its own lock."""
-    return rec and rec.get("pid") in (os.getpid(), os.getppid())
+    """Held by this process or one above it: a wrapper may hold the lock
+    across several legs, and a timed harness may run untimed sub-work (a
+    solve) under its own lock."""
+    return bool(rec) and rec.get("pid") in _ancestors()
 
 
 def take_lock(label, pid=None):
@@ -288,6 +305,10 @@ def timing_lock(label, wait=None):
     it (TIMING_WAIT=0, or wait=False, refuses instead)."""
     if wait is None:
         wait = os.environ.get("TIMING_WAIT", "1") != "0"
+    rec = lock_holder()
+    if rec and rec.get("pid") != os.getpid() and _ours(rec):
+        yield               # a wrapper above us holds it for the block
+        return
     while not take_lock(label):
         rec = lock_holder()
         if not wait:
