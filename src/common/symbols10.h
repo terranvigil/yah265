@@ -205,6 +205,7 @@
 #define n265_psy_energy              n265_psy_energy_10
 #define n265_psy_energy_c            n265_psy_energy_c_10
 #define n265_psy_energy_neon         n265_psy_energy_neon_10
+#define n265_psy_energy_avx2         n265_psy_energy_avx2_10
 #define n265_psy_scale               n265_psy_scale_10
 #define n265_qpfile_at               n265_qpfile_at_10
 #define n265_qpfile_free             n265_qpfile_free_10
@@ -269,10 +270,12 @@
 #define n265_row_end                 n265_row_end_10
 #define n265_sad_rowcol              n265_sad_rowcol_10
 #define n265_sad_rowcol_neon         n265_sad_rowcol_neon_10
+#define n265_sad_rowcol_avx2         n265_sad_rowcol_avx2_10
 #define n265_sad_rowcol_ref          n265_sad_rowcol_ref_10
 #define n265_sad_wh                  n265_sad_wh_10
 #define n265_sad_wh_c                n265_sad_wh_c_10
 #define n265_sad_wh_neon             n265_sad_wh_neon_10
+#define n265_sad_wh_avx2             n265_sad_wh_avx2_10
 #define n265_sao_band_stats          n265_sao_band_stats_10
 #define n265_sao_frame_mask          n265_sao_frame_mask_10
 #define n265_sao_masks               n265_sao_masks_10
@@ -284,14 +287,18 @@
 #define n265_sum_sq_wh               n265_sum_sq_wh_10
 #define n265_sum_sq_wh_c             n265_sum_sq_wh_c_10
 #define n265_sum_sq16_neon           n265_sum_sq16_neon_10
+#define n265_sum_sq16_avx2           n265_sum_sq16_avx2_10
 #define n265_satd_warm               n265_satd_warm_10
 #define n265_satd_wh                 n265_satd_wh_10
 #define n265_satd_wh_c               n265_satd_wh_c_10
 #define n265_satd_wh_neon            n265_satd_wh_neon_10
+#define n265_satd_wh_avx2            n265_satd_wh_avx2_10
 #define n265_satd4_neon              n265_satd4_neon_10
+#define n265_satd4_avx2              n265_satd4_avx2_10
 #define n265_satd4_ref               n265_satd4_ref_10
 #define n265_satd8_mixed             n265_satd8_mixed_10
 #define n265_satd8_neon              n265_satd8_neon_10
+#define n265_satd8_avx2              n265_satd8_avx2_10
 #define n265_satd8_ref               n265_satd8_ref_10
 #define n265_sbh_adjust              n265_sbh_adjust_10
 #define n265_sbh_adjust_neon         n265_sbh_adjust_neon_10
@@ -378,6 +385,7 @@
 #define n265_ssd_wh_c                n265_ssd_wh_c_10
 #define n265_ssd_wh_dot_neon         n265_ssd_wh_dot_neon_10
 #define n265_ssd_wh_neon             n265_ssd_wh_neon_10
+#define n265_ssd_wh_avx2             n265_ssd_wh_avx2_10
 #define n265_tables_init             n265_tables_init_10
 #define n265_tables_init_est         n265_tables_init_est_10
 #define n265_tmatrix                 n265_tmatrix_10
