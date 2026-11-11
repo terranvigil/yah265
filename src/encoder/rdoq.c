@@ -45,6 +45,7 @@
 #include "common/cpu.h"
 #include "encoder/arm/neon.h"   /* self-guarded; nothing off aarch64 */
 #include "encoder/x86/avx2.h"   /* self-guarded */
+#include "encoder/x86/sse42.h"   /* self-guarded */
 #include "encoder/rdoq.h"
 #include "encoder/transform.h"
 #include "encoder/tables.h"
@@ -451,6 +452,11 @@ int n265_rdoq_rtn(int16_t *rtn, double *all_zero, uint64_t *sb_nz,
         return n265_rdoq_rtn_avx2(rtn, all_zero, sb_nz, coef, log2n, q,
                                   add, qbits, czero);
 #endif
+#if N265_SSE42_RDOQ
+    if (n265_sse42_on(N265_ASM_QUANT))
+        return n265_rdoq_rtn_sse42(rtn, all_zero, sb_nz, coef, log2n, q,
+                                  add, qbits, czero);
+#endif
     return n265_rdoq_rtn_ref(rtn, all_zero, sb_nz, coef, log2n, q, add,
                              qbits, czero);
 }
@@ -479,6 +485,10 @@ uint64_t n265_rdoq_sb_nz(const int16_t *blk, int log2n)
 #if N265_AVX2_RDOQ
     if (n265_avx2_on(N265_ASM_QUANT))
         return n265_rdoq_sb_nz_avx2(blk, log2n);
+#endif
+#if N265_SSE42_RDOQ
+    if (n265_sse42_on(N265_ASM_QUANT))
+        return n265_rdoq_sb_nz_sse42(blk, log2n);
 #endif
     return n265_rdoq_sb_nz_ref(blk, log2n);
 }
