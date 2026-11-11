@@ -21,6 +21,7 @@
 #include "encoder/psy.h"
 #include "encoder/arm/neon.h"   /* self-guarded */
 #include "encoder/x86/avx2.h"   /* self-guarded */
+#include "encoder/x86/sse42.h"   /* self-guarded */
 
 static uint32_t hadamard4_ac(const pixel *p, int stride)
 {
@@ -59,6 +60,10 @@ uint32_t n265_psy_energy(const pixel *p, int stride, int n)
 #if N265_AVX2_SATD
     if (n265_avx2_on(N265_ASM_SATD))
         return n265_psy_energy_avx2(p, stride, n);
+#endif
+#if N265_SSE42_SATD
+    if (n265_sse42_on(N265_ASM_SATD))
+        return n265_psy_energy_sse42(p, stride, n);
 #endif
     return n265_psy_energy_c(p, stride, n);
 }

@@ -10,6 +10,7 @@
 #include "encoder/preset.h"
 #include "encoder/arm/neon.h"   /* self-guarded */
 #include "encoder/x86/avx2.h"   /* self-guarded */
+#include "encoder/x86/sse42.h"   /* self-guarded */
 
 /* The 4x4 tile is unchanged. It was already the 8-add butterfly with the
  * abs-sum folded, and writing it out any other way measured 0.85x on the
@@ -189,6 +190,10 @@ uint32_t n265_satd_wh(const pixel *a, int a_stride, const pixel *b,
     if (n265_avx2_on(N265_ASM_SATD))
         return n265_satd_wh_avx2(a, a_stride, b, b_stride, w, h);
 #endif
+#if N265_SSE42_SATD
+    if (n265_sse42_on(N265_ASM_SATD))
+        return n265_satd_wh_sse42(a, a_stride, b, b_stride, w, h);
+#endif
     return n265_satd_wh_c(a, a_stride, b, b_stride, w, h);
 }
 
@@ -241,6 +246,10 @@ uint32_t n265_sad_wh(const pixel *a, int as, const pixel *b, int bs,
     if (n265_avx2_on(N265_ASM_SATD))
         return n265_sad_wh_avx2(a, as, b, bs, w, h);
 #endif
+#if N265_SSE42_SATD
+    if (n265_sse42_on(N265_ASM_SATD))
+        return n265_sad_wh_sse42(a, as, b, bs, w, h);
+#endif
     return n265_sad_wh_c(a, as, b, bs, w, h);
 }
 
@@ -267,6 +276,10 @@ uint64_t n265_ssd_wh(const pixel *a, int as, const pixel *b, int bs,
 #if N265_AVX2_SATD
     if (n265_avx2_on(N265_ASM_SATD))
         return n265_ssd_wh_avx2(a, as, b, bs, w, h);
+#endif
+#if N265_SSE42_SATD
+    if (n265_sse42_on(N265_ASM_SATD))
+        return n265_ssd_wh_sse42(a, as, b, bs, w, h);
 #endif
     return n265_ssd_wh_c(a, as, b, bs, w, h);
 }
@@ -297,6 +310,10 @@ uint32_t n265_sum_sq_wh(const pixel *p, int stride, int w, int h,
 #if N265_AVX2_SATD
     if (w == 16 && h <= 16 && n265_avx2_on(N265_ASM_SATD))
         return n265_sum_sq16_avx2(p, stride, h, sq);
+#endif
+#if N265_SSE42_SATD
+    if (w == 16 && h <= 16 && n265_sse42_on(N265_ASM_SATD))
+        return n265_sum_sq16_sse42(p, stride, h, sq);
 #endif
     return n265_sum_sq_wh_c(p, stride, w, h, sq);
 }
@@ -359,6 +376,12 @@ void n265_sad_rowcol(const pixel *a, int as, const pixel *b, int bs,
 #if N265_AVX2_SATD
     if (n265_avx2_on(N265_ASM_SATD)) {
         n265_sad_rowcol_avx2(a, as, b, bs, n, row, col);
+        return;
+    }
+#endif
+#if N265_SSE42_SATD
+    if (n265_sse42_on(N265_ASM_SATD)) {
+        n265_sad_rowcol_sse42(a, as, b, bs, n, row, col);
         return;
     }
 #endif
