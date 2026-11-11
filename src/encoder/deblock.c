@@ -178,6 +178,12 @@ void n265_dbk_luma_v(pixel *pix, ptrdiff_t stride, const int16_t *beta,
         return;
     }
 #endif
+#if N265_AVX2_DEBLOCK
+    if (n265_avx2_on(N265_ASM_DBK)) {
+        n265_dbk_luma_v_avx2(pix, stride, beta, tc, nseg);
+        return;
+    }
+#endif
     n265_dbk_luma_v_ref(pix, stride, beta, tc, nseg);
 }
 
@@ -187,6 +193,12 @@ void n265_dbk_luma_h(pixel *pix, ptrdiff_t stride, const int16_t *beta,
 #if N265_NEON_DEBLOCK
     if (n265_asm_on(N265_ASM_DBK)) {
         n265_dbk_luma_h_neon(pix, stride, beta, tc, nseg);
+        return;
+    }
+#endif
+#if N265_AVX2_DEBLOCK
+    if (n265_avx2_on(N265_ASM_DBK)) {
+        n265_dbk_luma_h_avx2(pix, stride, beta, tc, nseg);
         return;
     }
 #endif
@@ -202,6 +214,12 @@ void n265_dbk_chroma_v(pixel *pix, ptrdiff_t stride, const int16_t *tc,
         return;
     }
 #endif
+#if N265_AVX2_DEBLOCK
+    if (n265_avx2_on(N265_ASM_DBK)) {
+        n265_dbk_chroma_v_avx2(pix, stride, tc, n);
+        return;
+    }
+#endif
     n265_dbk_chroma_v_ref(pix, stride, tc, n);
 }
 
@@ -211,6 +229,12 @@ void n265_dbk_chroma_h(pixel *pix, ptrdiff_t stride, const int16_t *tc,
 #if N265_NEON_DEBLOCK
     if (n265_asm_on(N265_ASM_DBK)) {
         n265_dbk_chroma_h_neon(pix, stride, tc, n);
+        return;
+    }
+#endif
+#if N265_AVX2_DEBLOCK
+    if (n265_avx2_on(N265_ASM_DBK)) {
+        n265_dbk_chroma_h_avx2(pix, stride, tc, n);
         return;
     }
 #endif

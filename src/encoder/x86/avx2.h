@@ -123,4 +123,17 @@ void n265_filter_refs_avx2(pixel *out, const pixel *in, int log2n,
                            int strong);
 #endif /* N265_AVX2_INTRA */
 
+#if N265_AVX2_DEBLOCK
+/* ---- deblock (N265_ASM_DBK) ---------------------------------------- */
+
+void n265_dbk_luma_v_avx2(pixel *pix, ptrdiff_t stride, const int16_t *beta,
+                          const int16_t *tc, int nseg);
+void n265_dbk_luma_h_avx2(pixel *pix, ptrdiff_t stride, const int16_t *beta,
+                          const int16_t *tc, int nseg);
+void n265_dbk_chroma_v_avx2(pixel *pix, ptrdiff_t stride, const int16_t *tc,
+                            int n);
+void n265_dbk_chroma_h_avx2(pixel *pix, ptrdiff_t stride, const int16_t *tc,
+                            int n);
+#endif /* N265_AVX2_DEBLOCK */
+
 #endif /* N265_X86_AVX2_H */
