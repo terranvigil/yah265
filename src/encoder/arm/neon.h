@@ -257,4 +257,20 @@ void n265_dbk_chroma_h_neon(pixel *pix, ptrdiff_t stride, const int16_t *tc,
                             int n);
 #endif /* N265_NEON_DEBLOCK */
 
+#if N265_NEON_SAO
+/* ---- sao (N265_ASM_SAO) -------------------------------------------- */
+
+/* src/encoder/sao.h has the contracts. */
+void n265_sao_band_stats_neon(const pixel *src, int src_stride,
+                              const pixel *rec, int rec_stride, int w, int h,
+                              int64_t bn[32], int64_t bd[32]);
+void n265_sao_eo_stats_neon(const pixel *src, const pixel *cur,
+                            const pixel *a, const pixel *b, int n,
+                            int64_t en[5], int64_t ed[5]);
+void n265_sao_eo_apply_neon(pixel *dst, const pixel *cur, const pixel *a,
+                            const pixel *b, int n, const int8_t off[4]);
+void n265_sao_bo_apply_neon(pixel *dst, const pixel *in, int n, int pos,
+                            const int8_t off[4]);
+#endif /* N265_NEON_SAO */
+
 #endif /* N265_ARM_NEON_H */

@@ -48,11 +48,38 @@ void n265_sao_row(struct n265_frame_work *e, int cy);
  * `src - rec` to bd[band]. `bn` and `bd` are 32 entries each and are
  * ACCUMULATED into, not cleared, so a caller may split a block by rows.
  * This is the whole of the SAO analysis pass on a band-only frame, which
- * since R7 is every frame the filter runs on at all. Plain C on purpose;
- * the refusal of a NEON twin, with its arithmetic, is in sao.c. */
+ * since R7 is every frame the filter runs on at all. Class N265_ASM_SAO. */
 void n265_sao_band_stats(const pixel *src, int src_stride,
                          const pixel *rec, int rec_stride, int w, int h,
                          int64_t bn[32], int64_t bd[32]);
+
+/* One row of the edge offset (class N265_ASM_SAO). Sample x of `cur` has
+ * its two neighbors at a[x] and b[x]; the caller points `a` and `b` at the
+ * rows and columns the class names. The stats add each categorized
+ * sample's count to en[1..4] and `src - cur` to ed[1..4]. The apply writes
+ * dst[x] = clip1(cur[x] + off[cat - 1]) where the category is nonzero and
+ * leaves the rest of `dst` alone. */
+void n265_sao_eo_stats(const pixel *src, const pixel *cur, const pixel *a,
+                       const pixel *b, int n, int64_t en[5], int64_t ed[5]);
+void n265_sao_eo_apply(pixel *dst, const pixel *cur, const pixel *a,
+                       const pixel *b, int n, const int8_t off[4]);
+
+/* One row of the band offset: where in[x]'s band less `pos` is 0..3,
+ * dst[x] = clip1(in[x] + off[band - pos]); elsewhere `dst` is untouched. */
+void n265_sao_bo_apply(pixel *dst, const pixel *in, int n, int pos,
+                       const int8_t off[4]);
+
+/* the C references of the four kernels above */
+void n265_sao_band_stats_ref(const pixel *src, int src_stride,
+                             const pixel *rec, int rec_stride, int w, int h,
+                             int64_t bn[32], int64_t bd[32]);
+void n265_sao_eo_stats_ref(const pixel *src, const pixel *cur,
+                           const pixel *a, const pixel *b, int n,
+                           int64_t en[5], int64_t ed[5]);
+void n265_sao_eo_apply_ref(pixel *dst, const pixel *cur, const pixel *a,
+                           const pixel *b, int n, const int8_t off[4]);
+void n265_sao_bo_apply_ref(pixel *dst, const pixel *in, int n, int pos,
+                           const int8_t off[4]);
 
 /* Write one CTB's sao() syntax (7.3.8.3). */
 void n265_sao_write(struct n265_frame_work *e, cabac_t *cb, int ctb_x,

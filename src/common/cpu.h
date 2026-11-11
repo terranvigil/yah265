@@ -126,6 +126,9 @@ static inline uint32_t n265_cpu_flags(void)
 #ifndef N265_NEON_DEBLOCK
 #define N265_NEON_DEBLOCK 0
 #endif
+#ifndef N265_NEON_SAO
+#define N265_NEON_SAO 0
+#endif
 
 /* The classes any compiled-in family carries. A class is WIDER than a
  * family - N265_ASM_QUANT is dequant/quant in the transform file, the
@@ -142,7 +145,8 @@ static inline uint32_t n265_cpu_flags(void)
     (N265_NEON_RDOQ      ? (uint32_t)N265_ASM_QUANT : 0u) | \
     (N265_NEON_COST      ? (uint32_t)N265_ASM_QUANT : 0u) | \
     (N265_NEON_INTRA     ? (uint32_t)N265_ASM_INTRA : 0u) | \
-    (N265_NEON_DEBLOCK   ? (uint32_t)N265_ASM_DBK : 0u))
+    (N265_NEON_DEBLOCK   ? (uint32_t)N265_ASM_DBK : 0u) | \
+    (N265_NEON_SAO       ? (uint32_t)N265_ASM_SAO : 0u))
 
 static inline int n265_asm_on(uint32_t cls)
 {
@@ -189,6 +193,9 @@ static inline int n265_asm_on(uint32_t cls)
 #ifndef N265_AVX2_DEBLOCK
 #define N265_AVX2_DEBLOCK 0
 #endif
+#ifndef N265_AVX2_SAO
+#define N265_AVX2_SAO 0
+#endif
 
 #define N265_ASM_PORTED_AVX2 ( \
     (N265_AVX2_TRANSFORM ? (N265_ASM_DCT | N265_ASM_QUANT) : 0u) | \
@@ -197,7 +204,8 @@ static inline int n265_asm_on(uint32_t cls)
     (N265_AVX2_RDOQ      ? (uint32_t)N265_ASM_QUANT : 0u) | \
     (N265_AVX2_COST      ? (uint32_t)N265_ASM_QUANT : 0u) | \
     (N265_AVX2_INTRA     ? (uint32_t)N265_ASM_INTRA : 0u) | \
-    (N265_AVX2_DEBLOCK   ? (uint32_t)N265_ASM_DBK : 0u))
+    (N265_AVX2_DEBLOCK   ? (uint32_t)N265_ASM_DBK : 0u) | \
+    (N265_AVX2_SAO       ? (uint32_t)N265_ASM_SAO : 0u))
 
 static inline int n265_avx2_on(uint32_t cls)
 {

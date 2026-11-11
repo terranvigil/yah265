@@ -61,6 +61,7 @@
 #define CA_SIMD_COST      N265_NEON_COST
 #define CA_SIMD_INTRA     N265_NEON_INTRA
 #define CA_SIMD_DEBLOCK   N265_NEON_DEBLOCK
+#define CA_SIMD_SAO       N265_NEON_SAO
 #elif N265_X86
 #include "encoder/x86/avx2.h"
 #define CA_SIMD(f) f##_avx2
@@ -72,6 +73,7 @@
 #define CA_SIMD_COST      N265_AVX2_COST
 #define CA_SIMD_INTRA     N265_AVX2_INTRA
 #define CA_SIMD_DEBLOCK   N265_AVX2_DEBLOCK
+#define CA_SIMD_SAO       N265_AVX2_SAO
 #else
 #define CA_ISA "none"
 #define CA_SIMD_TRANSFORM 0
@@ -81,6 +83,7 @@
 #define CA_SIMD_COST      0
 #define CA_SIMD_INTRA     0
 #define CA_SIMD_DEBLOCK   0
+#define CA_SIMD_SAO       0
 #endif
 
 /* set by main() from the CLI; families bench only when it is nonzero */

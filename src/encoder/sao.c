@@ -20,6 +20,13 @@
 #include "encoder/sao.h"
 #include "encoder/est.h"
 #include "encoder/preset.h"
+#include "common/cpu.h"
+#if N265_NEON
+#include "encoder/arm/neon.h"
+#endif
+#if N265_X86
+#include "encoder/x86/avx2.h"
+#endif
 
 static inline int clip3(int lo, int hi, int v)
 {
@@ -142,29 +149,19 @@ typedef struct sao_stats {
  * merge at the end is 32 adds per block: 1.278s -> 1.199s on
  * sita_flat_720p, 60 frames at --threads 1, three alternating pairs.
  *
- * A NEON twin under N265_ASM_SAO is REFUSED, and the arithmetic is why.
- * NEON has no scatter, so a 32-bin histogram has to be written as 32
- * one-hot compares per vector: per 16 samples that is 32 vceqq_u8 plus
- * 32 count accumulates plus, for bd, two int16 accumulates each against
- * a widened mask, about 12 operations per sample against the three this
- * loop issues. The band index is the sample itself and there is no
- * decomposition that removes the scatter - bd[b] = sum(src) - sum(rec)
- * over the band still needs the per-band partition. The measurement
- * agrees that there is nothing left to win: after the edge skip above,
- * the whole SAO pass is 1.05x of sita_flat_720p's encode and 1.02x of
- * sintel_720p's, so a kernel that beat this loop outright would move
- * under 5% of the clip it was written for. Re-open it only if a future
- * arm turns the edge offset back on somewhere, where the four
- * classification passes ARE vector work. */
+ * The SIMD kernels take a different route, since neither ISA has a
+ * scatter: a strip of rows whose samples span few bands is summed band
+ * by band under a compare mask, and a strip that spans many comes back
+ * here. */
 /* Each bin holds its count and its difference sum in one word: the count
  * from bit 40 up and the signed sum below it, so a sample costs one
  * read-modify-write instead of two. A block is at most 64x64 samples, so
  * the sum stays far inside 2^39 and the two halves come apart exactly. */
 #define SAO_PK_ONE ((int64_t)1 << 40)
 
-void n265_sao_band_stats(const pixel *src, int src_stride,
-                         const pixel *rec, int rec_stride, int w,
-                         int h, int64_t bn[32], int64_t bd[32])
+void n265_sao_band_stats_ref(const pixel *src, int src_stride,
+                             const pixel *rec, int rec_stride, int w,
+                             int h, int64_t bn[32], int64_t bd[32])
 {
     int64_t pk[4][32];
     memset(pk, 0, sizeof(pk));
@@ -192,6 +189,122 @@ void n265_sao_band_stats(const pixel *src, int src_stride,
     }
 }
 
+void n265_sao_band_stats(const pixel *src, int src_stride,
+                         const pixel *rec, int rec_stride, int w,
+                         int h, int64_t bn[32], int64_t bd[32])
+{
+#if N265_NEON_SAO
+    if (n265_asm_on(N265_ASM_SAO)) {
+        n265_sao_band_stats_neon(src, src_stride, rec, rec_stride, w, h,
+                                 bn, bd);
+        return;
+    }
+#endif
+    n265_sao_band_stats_ref(src, src_stride, rec, rec_stride, w, h, bn, bd);
+}
+
+/* The edge-offset row kernels (sao.h). The category of c between its two
+ * neighbors a and b is sign(c - a) + sign(c - b): -2 a local minimum
+ * (category 1), -1 a minimum's shoulder (2), +1 and +2 the maxima (3, 4),
+ * 0 none, which is eo_category's table. */
+static inline int eo_sign(int d)
+{
+    return (d > 0) - (d < 0);
+}
+
+static const int8_t eo_cat_of[5] = { 1, 2, 0, 3, 4 };
+
+void n265_sao_eo_stats_ref(const pixel *src, const pixel *cur,
+                           const pixel *a, const pixel *b, int n,
+                           int64_t en[5], int64_t ed[5])
+{
+    for (int x = 0; x < n; x++) {
+        int c = cur[x];
+        int cat = eo_cat_of[eo_sign(c - a[x]) + eo_sign(c - b[x]) + 2];
+        if (cat) {
+            en[cat]++;
+            ed[cat] += src[x] - c;
+        }
+    }
+}
+
+void n265_sao_eo_apply_ref(pixel *dst, const pixel *cur, const pixel *a,
+                           const pixel *b, int n, const int8_t off[4])
+{
+    for (int x = 0; x < n; x++) {
+        int c = cur[x];
+        int cat = eo_cat_of[eo_sign(c - a[x]) + eo_sign(c - b[x]) + 2];
+        if (cat)
+            dst[x] = clip1(c + off[cat - 1]);
+    }
+}
+
+void n265_sao_bo_apply_ref(pixel *dst, const pixel *in, int n, int pos,
+                           const int8_t off[4])
+{
+    for (int x = 0; x < n; x++) {
+        int v = in[x];
+        int band = (v >> SAO_BAND_SHIFT) - pos;
+        if (band >= 0 && band < 4)
+            dst[x] = clip1(v + off[band]);
+    }
+}
+
+void n265_sao_eo_stats(const pixel *src, const pixel *cur, const pixel *a,
+                       const pixel *b, int n, int64_t en[5], int64_t ed[5])
+{
+#if N265_NEON_SAO
+    if (n265_asm_on(N265_ASM_SAO)) {
+        n265_sao_eo_stats_neon(src, cur, a, b, n, en, ed);
+        return;
+    }
+#endif
+    n265_sao_eo_stats_ref(src, cur, a, b, n, en, ed);
+}
+
+void n265_sao_eo_apply(pixel *dst, const pixel *cur, const pixel *a,
+                       const pixel *b, int n, const int8_t off[4])
+{
+#if N265_NEON_SAO
+    if (n265_asm_on(N265_ASM_SAO)) {
+        n265_sao_eo_apply_neon(dst, cur, a, b, n, off);
+        return;
+    }
+#endif
+    n265_sao_eo_apply_ref(dst, cur, a, b, n, off);
+}
+
+void n265_sao_bo_apply(pixel *dst, const pixel *in, int n, int pos,
+                       const int8_t off[4])
+{
+#if N265_NEON_SAO
+    if (n265_asm_on(N265_ASM_SAO)) {
+        n265_sao_bo_apply_neon(dst, in, n, pos, off);
+        return;
+    }
+#endif
+    n265_sao_bo_apply_ref(dst, in, n, pos, off);
+}
+
+/* the rows a sample of class `cls` may be classified on: both neighbors
+ * inside the picture */
+static void eo_span(int cls, int x0, int y0, int w, int h, int pw, int ph,
+                    int *xlo, int *xhi, int *ylo, int *yhi)
+{
+    *xlo = x0;
+    *xhi = x0 + w;
+    *ylo = y0;
+    *yhi = y0 + h;
+    if (eo_dx[cls]) {
+        *xlo = *xlo < 1 ? 1 : *xlo;
+        *xhi = *xhi > pw - 1 ? pw - 1 : *xhi;
+    }
+    if (eo_dy[cls]) {
+        *ylo = *ylo < 1 ? 1 : *ylo;
+        *yhi = *yhi > ph - 1 ? ph - 1 : *yhi;
+    }
+}
+
 /* `allow` is the frame's type mask - N265_SAO_TYPES OR'd with what the
  * content gate gives a flat-typed frame (N265_SAO_ANIM). The edge sweep
  * is four whole-CTB passes of neighbor classification against one pass
@@ -215,23 +328,23 @@ static void collect_stats(const pixel *src, int src_stride,
                         st->bn, st->bd);
     if (!(allow & 2))
         return;
-    for (int cls = 0; cls < 4; cls++)
-        for (int y = y0; y < y0 + h; y++) {
-            if (y + eo_dy[cls] < 0 || y - eo_dy[cls] < 0 ||
-                y + eo_dy[cls] >= ph || y - eo_dy[cls] >= ph)
-                continue;
-            for (int x = x0; x < x0 + w; x++) {
-                if (x + eo_dx[cls] < 0 || x - eo_dx[cls] < 0 ||
-                    x + eo_dx[cls] >= pw || x - eo_dx[cls] >= pw)
-                    continue;
-                int cat = eo_category(rec, stride, above, ytop, x, y, cls);
-                if (cat) {
-                    st->en[cls][cat]++;
-                    st->ed[cls][cat] +=
-                        src[y * src_stride + x] - rec[y * stride + x];
-                }
+    for (int cls = 0; cls < 4; cls++) {
+        int dx = eo_dx[cls], xlo, xhi, ylo, yhi;
+        eo_span(cls, x0, y0, w, h, pw, ph, &xlo, &xhi, &ylo, &yhi);
+        if (xhi <= xlo)
+            continue;
+        for (int y = ylo; y < yhi; y++) {
+            const pixel *cur = rec + (size_t)y * stride;
+            const pixel *a = cur + dx, *b = cur - dx;
+            if (eo_dy[cls]) {
+                a = (above && y == ytop ? above : cur - stride) + dx;
+                b = cur + stride - dx;
             }
+            n265_sao_eo_stats(src + (size_t)y * src_stride + xlo, cur + xlo,
+                              a + xlo, b + xlo, xhi - xlo, st->en[cls],
+                              st->ed[cls]);
         }
+    }
 }
 
 /* SSD delta of applying a given parameter set to this CTB (no rate) */
@@ -378,23 +491,22 @@ static void analyze_cand(const sao_stats *st, uint32_t lam, int allow,
                          comp_cand *c)
 {
     const int64_t *bn = st->bn, *bd = st->bd;
+    int8_t bo[32];
+    int64_t brd[32];
+    for (int b = 0; b < 32; b++)
+        bo[b] = (int8_t)best_offset(bn[b], bd[b], -SAO_OFF_MAX, SAO_OFF_MAX,
+                                    lam, 1, &brd[b]);
     c->band_j = INT64_MAX;
     c->band_pos = 0;
     memset(c->band_off, 0, 4);
     for (int pos = 0; pos < 29; pos++) {
         int64_t g = ((int64_t)lam * 5) >> 8;
-        int8_t o[4];
-        for (int i = 0; i < 4; i++) {
-            int64_t rd;
-            o[i] = (int8_t)best_offset(bn[pos + i], bd[pos + i],
-                                       -SAO_OFF_MAX, SAO_OFF_MAX,
-                                       lam, 1, &rd);
-            g += rd;
-        }
+        for (int i = 0; i < 4; i++)
+            g += brd[pos + i];
         if (g < c->band_j) {
             c->band_j = g;
             c->band_pos = pos;
-            memcpy(c->band_off, o, 4);
+            memcpy(c->band_off, bo + pos, 4);
         }
     }
 
@@ -936,51 +1048,31 @@ static void sao_apply_row(struct n265_frame_work *e, int cy)
             int x0 = (cx * ctb) >> shx;
             int w = (x0 + (ctb >> shx) > pw) ? pw - x0 : ctb >> shx;
             if (p->type[c] == SAO_BAND) {
-                int pos = p->class_or_pos[c];
                 for (int y = y0; y < y1; y++)
-                    for (int x = x0; x < x0 + w; x++) {
-                        int v = in[(size_t)(y - y0) * pw + x];
-                        int band = (v >> SAO_BAND_SHIFT) - pos;
-                        if (band >= 0 && band < 4)
-                            out[(size_t)y * stride + x] =
-                                clip1(v + p->offset[c][band]);
-                    }
+                    n265_sao_bo_apply(out + (size_t)y * stride + x0,
+                                      in + (size_t)(y - y0) * pw + x0, w,
+                                      p->class_or_pos[c], p->offset[c]);
             } else {
                 int cls = p->class_or_pos[c];
-                for (int y = y0; y < y1; y++) {
-                    if (y + eo_dy[cls] < 0 || y - eo_dy[cls] < 0 ||
-                        y + eo_dy[cls] >= ph || y - eo_dy[cls] >= ph)
-                        continue;
-                    for (int x = x0; x < x0 + w; x++) {
-                        if (x + eo_dx[cls] < 0 || x - eo_dx[cls] < 0 ||
-                            x + eo_dx[cls] >= pw || x - eo_dx[cls] >= pw)
-                            continue;
-                        /* neighbors: inside the band from the pristine
-                         * copy, one line above from sao_line, one line
-                         * below straight from the (still pre-SAO) recon */
-                        int px[3], k = 0;
-                        for (int d = -1; d <= 1; d++) {
-                            int yy = y + d * eo_dy[cls];
-                            int xx = x + d * eo_dx[cls];
-                            if (d == 0) { yy = y; xx = x; }
-                            px[k++] = (above && yy == y0 - 1) ? above[xx]
-                                : (yy >= y0 && yy < y1)
-                                    ? in[(size_t)(yy - y0) * pw + xx]
-                                    : out[(size_t)yy * stride + xx];
-                        }
-                        /* the two neighbors are interchangeable in
-                         * every rule below, so their order does not
-                         * matter */
-                        int n0 = px[0], cc = px[1], n1 = px[2];
-                        int cat = 0;
-                        if (cc < n0 && cc < n1) cat = 1;
-                        else if ((cc < n0 && cc == n1) || (cc == n0 && cc < n1)) cat = 2;
-                        else if ((cc > n0 && cc == n1) || (cc == n0 && cc > n1)) cat = 3;
-                        else if (cc > n0 && cc > n1) cat = 4;
-                        if (cat)
-                            out[(size_t)y * stride + x] =
-                                clip1(cc + p->offset[c][cat - 1]);
+                int dx = eo_dx[cls], xlo, xhi, ylo, yhi;
+                eo_span(cls, x0, y0, w, y1 - y0, pw, ph, &xlo, &xhi, &ylo,
+                        &yhi);
+                if (xhi <= xlo)
+                    continue;
+                for (int y = ylo; y < yhi; y++) {
+                    /* neighbors: inside the band from the pristine copy,
+                     * one line above from sao_line, one line below
+                     * straight from the (still pre-SAO) recon */
+                    const pixel *cur = in + (size_t)(y - y0) * pw;
+                    const pixel *a = cur + dx, *b = cur - dx;
+                    if (eo_dy[cls]) {
+                        a = (y == y0 ? above : cur - pw) + dx;
+                        b = (y + 1 < y1 ? cur + pw
+                                        : out + (size_t)(y + 1) * stride) - dx;
                     }
+                    n265_sao_eo_apply(out + (size_t)y * stride + xlo,
+                                      cur + xlo, a + xlo, b + xlo,
+                                      xhi - xlo, p->offset[c]);
                 }
             }
         }
