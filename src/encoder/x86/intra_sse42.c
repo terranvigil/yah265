@@ -5,8 +5,8 @@
  *
  * intra_avx2.c's kernels with 32-sample rows as two 16-byte halves and
  * planar in 8-column groups; at Main10 a sample is a u16 lane already.
- * The AVX2 file has the range arguments; they hold lane for lane. Reads of `refs` and `in` stay inside their 4n + 1
- * samples.
+ * The AVX2 file has the range arguments; they hold lane for lane. Reads
+ * of `refs` and `in` stay inside their 4n + 1 samples.
  *
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
@@ -588,11 +588,14 @@ static inline void filt16(uint8_t *out, const uint8_t *in, int i)
     _mm_storeu_si128((__m128i *)(out + i), _mm_packus_epi16(lo, hi));
 }
 
+static inline __m128i ld8w(const uint8_t *p)
+{
+    return _mm_cvtepu8_epi16(_mm_loadl_epi64((const __m128i *)p));
+}
+
 static inline void filt8(uint8_t *out, const uint8_t *in, int i)
 {
-    __m128i a = _mm_cvtepu8_epi16(_mm_loadl_epi64((const __m128i *)(in + i - 1)));
-    __m128i b = _mm_cvtepu8_epi16(_mm_loadl_epi64((const __m128i *)(in + i)));
-    __m128i c = _mm_cvtepu8_epi16(_mm_loadl_epi64((const __m128i *)(in + i + 1)));
+    __m128i a = ld8w(in + i - 1), b = ld8w(in + i), c = ld8w(in + i + 1);
     __m128i t = _mm_add_epi16(_mm_add_epi16(a, c), _mm_add_epi16(b, b));
     t = _mm_srli_epi16(_mm_add_epi16(t, _mm_set1_epi16(2)), 2);
     _mm_storel_epi64((__m128i *)(out + i), _mm_packus_epi16(t, t));
