@@ -1,0 +1,18 @@
+# Copyright (c) 2026, the yah265 authors
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# The second emulator (docs/x86-plan.md): QEMU user mode on the host's own
+# architecture. It runs the statically linked x86-64 checkasm that
+# scripts/x86_docker.sh builds in the amd64 image, with `-cpu` choosing
+# which x86 extensions the emulated CPU reports. Nothing in Docker's
+# shared binfmt setup changes.
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        qemu-user \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /work
+CMD ["/bin/bash"]
