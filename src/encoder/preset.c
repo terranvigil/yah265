@@ -965,6 +965,21 @@ static const struct kv med_tab_hdr_uhd[] = {
     { NULL, NULL },
 };
 
+/* `medium` under capped VBR on a UHD-class picture (phase 14 item 60):
+ * the whole merge list gets a trial again, the intra recursion stops
+ * only on intra-heavy frames as below UHD, and the 64x64 skip gate bounds
+ * each 32x32 quadrant with item 58's HD values. Item 57's three-candidate
+ * list and 16x16 stop put Chimera 2160p's VBR curve 1.7 points over the
+ * bar; CRF had the margin and keeps them. `N265_UHD_CVBR=0` is the
+ * escape. docs/phase14.md "Item 60". */
+static const struct kv med_tab_uhd_cvbr[] = {
+    { "N265_MERGE_RD_N", "5" },
+    { "N265_INTRA_RSKIP", "3" },
+    { "N265_CB64_GATEQ", "125" },
+    { "N265_CB64_GATEQ_REF", "150" },
+    { NULL, NULL },
+};
+
 static const struct kv slow_par[] = {
     { "ctu", "64" },
     { "rc-lookahead", "20" },
@@ -1159,6 +1174,8 @@ static int g_720;
 /* The HDR kind the encoder latched at open (n265_preset_hdr): 0 SDR, 1 PQ,
  * 2 HLG (phase 14 item 56) */
 static int g_hdr;
+/* 1 when the encoder latched capped VBR at open (n265_preset_cvbr) */
+static int g_cvbr;
 
 static const char *lookup(const struct kv *t, const char *k)
 {
@@ -1190,11 +1207,28 @@ static const struct kv *hdr_class_tab(void)
            g_720 ? med_tab_hdr_720 : NULL;
 }
 
+/* item 60's rows: medium, UHD, capped VBR, unless N265_UHD_CVBR=0 */
+static const struct kv *cvbr_tab(void)
+{
+    const char *e;
+    if (g_preset != 3 || g_uhd != 2 || !g_cvbr)
+        return NULL;
+    e = getenv("N265_UHD_CVBR");
+    if (e && !atoi(e))
+        return NULL;
+    return med_tab_uhd_cvbr;
+}
+
 const char *n265_env(const char *name)
 {
     const char *v = getenv(name);
     if (v)
         return v;
+    if (cvbr_tab()) {
+        v = lookup(cvbr_tab(), name);
+        if (v)
+            return v;
+    }
     if (hdr_class_tab()) {
         v = lookup(hdr_class_tab(), name);
         if (v)
@@ -1252,6 +1286,11 @@ int n265_preset_hdr_kind(void)
     return g_hdr;
 }
 
+void n265_preset_cvbr(int on)
+{
+    g_cvbr = on != 0;
+}
+
 /* ---- reading the selected rung back out (phase 14 item 13) ----------
  *
  * `--show-config` and `--verbose` print what the run RESOLVED, and the
@@ -1302,6 +1341,11 @@ int n265_preset_row(int i, const char **key, const char **val,
             const char *u = lookup(hdr_class_tab(), t[n].k);
             if (u)
                 *val = u;       /* ...per class (item 59) */
+        }
+        if (cvbr_tab()) {
+            const char *u = lookup(cvbr_tab(), t[n].k);
+            if (u)
+                *val = u;       /* ...and under capped VBR (item 60) */
         }
         *env = getenv(t[n].k);
         return 1;

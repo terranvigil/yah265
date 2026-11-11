@@ -195,6 +195,7 @@
 #define n265_preset_res_class        n265_preset_res_class_10
 #define n265_preset_hdr              n265_preset_hdr_10
 #define n265_preset_hdr_kind         n265_preset_hdr_kind_10
+#define n265_preset_cvbr             n265_preset_cvbr_10
 #define n265_preset_row              n265_preset_row_10
 #define n265_preset_selected         n265_preset_selected_10
 #define n265_psy_cost                n265_psy_cost_10

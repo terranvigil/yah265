@@ -29,6 +29,10 @@ int n265_preset_res_class(void);
  * of every other (phase 14 item 56). */
 void n265_preset_hdr(int kind);
 int n265_preset_hdr_kind(void);
+/* Capped VBR (a bitrate with a VBV whose maxrate is above it, not strict
+ * CBR), latched by n265_encoder_open before it reads a knob. On medium at
+ * UHD it puts item 60's rows in front of every other. */
+void n265_preset_cvbr(int on);
 int n265_preset_row(int i, const char **key, const char **val,
                     const char **env);
 

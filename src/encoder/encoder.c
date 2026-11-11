@@ -1806,6 +1806,11 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     /* before the first knob is read: on medium a PQ or HLG stream puts
      * its own rows in front of the preset table */
     n265_preset_hdr(hdr_kind());
+    /* rc.c's capped VBR test, from the globals the encoder copies below */
+    n265_preset_cvbr(g_bitrate > 0.0 && g_mode != N265_MODE_PCM &&
+                     !g_lossless && !g_strict_cbr &&
+                     g_vbv_maxrate > 0.0 && g_vbv_bufsize > 0.0 &&
+                     g_vbv_maxrate > g_bitrate * 1.0001);
     n265_encoder *e = calloc(1, sizeof(*e));
     if (!e)
         return NULL;
