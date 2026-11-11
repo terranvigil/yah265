@@ -8,8 +8,9 @@
  * segment's line-0 and line-3 decisions reach its lanes with one in-lane
  * pshufb.
  *
- * A vertical edge's sixteen lines are transposed into lanes and back and
- * stored whole, so p3 and q3 are rewritten with the values they held. A
+ * Both depths share the arithmetic; only the loads, the stores and the
+ * transposes differ. A vertical edge's sixteen lines are transposed into
+ * lanes and back and stored whole, so p3 and q3 are rewritten with the values they held. A
  * tail under four segments, or under sixteen chroma lines, goes to the C
  * reference.
  *
@@ -22,6 +23,7 @@
 #include "encoder/deblock.h"
 #include "encoder/x86/avx2.h"
 
+#if BIT_DEPTH == 8
 static inline __m256i ld16(const pixel *p)
 {
     return _mm256_cvtepu8_epi16(_mm_loadu_si128((const __m128i *)p));
@@ -32,6 +34,22 @@ static inline __m128i pack16(__m256i v)
     return _mm_packus_epi16(_mm256_castsi256_si128(v),
                             _mm256_extracti128_si256(v, 1));
 }
+
+static inline void st16(pixel *p, __m256i v)
+{
+    _mm_storeu_si128((__m128i *)p, pack16(v));
+}
+#else
+static inline __m256i ld16(const pixel *p)
+{
+    return _mm256_loadu_si256((const __m256i *)p);
+}
+
+static inline void st16(pixel *p, __m256i v)
+{
+    _mm256_storeu_si256((__m256i *)p, v);
+}
+#endif
 
 static inline __m256i clamp3(__m256i v, __m256i lo, __m256i hi)
 {
@@ -189,12 +207,13 @@ void n265_dbk_luma_h_avx2(pixel *pix, ptrdiff_t stride, const int16_t *beta,
         if (!luma_quad(r, seg_quad(beta + k), seg_quad(tc + k)))
             continue;
         for (int i = 1; i < 7; i++)
-            _mm_storeu_si128((__m128i *)(b + (i - 4) * stride), pack16(r[i]));
+            st16(b + (i - 4) * stride, r[i]);
     }
     if (k < nseg)
         n265_dbk_luma_h_ref(pix + 4 * k, stride, beta + k, tc + k, nseg - k);
 }
 
+#if BIT_DEPTH == 8
 /* sixteen rows of eight bytes <-> eight columns of sixteen */
 static inline void rows_to_cols(const pixel *b, ptrdiff_t stride,
                                 __m128i c[8])
@@ -249,6 +268,72 @@ static inline void cols_to_rows(pixel *b, ptrdiff_t stride, const __m128i c[8])
         }
 }
 
+static inline void load_lines(const pixel *b, ptrdiff_t stride, __m256i r[8])
+{
+    __m128i c[8];
+    rows_to_cols(b, stride, c);
+    for (int i = 0; i < 8; i++)
+        r[i] = _mm256_cvtepu8_epi16(c[i]);
+}
+
+static inline void store_lines(pixel *b, ptrdiff_t stride, const __m256i r[8])
+{
+    __m128i c[8];
+    for (int i = 0; i < 8; i++)
+        c[i] = pack16(r[i]);
+    cols_to_rows(b, stride, c);
+}
+#else
+/* 8x8 transpose of int16, its own inverse */
+static inline void transpose8(__m128i r[8])
+{
+    __m128i a[8], t[8];
+    for (int i = 0; i < 4; i++) {
+        a[2 * i] = _mm_unpacklo_epi16(r[2 * i], r[2 * i + 1]);
+        a[2 * i + 1] = _mm_unpackhi_epi16(r[2 * i], r[2 * i + 1]);
+    }
+    /* a[0]: columns 0-3 of rows 0-1, a[1]: columns 4-7; a[2], a[3]: rows 2-3 */
+    for (int h = 0; h < 2; h++)
+        for (int j = 0; j < 2; j++) {
+            t[4 * h + 2 * j] = _mm_unpacklo_epi32(a[4 * h + j], a[4 * h + j + 2]);
+            t[4 * h + 2 * j + 1] = _mm_unpackhi_epi32(a[4 * h + j], a[4 * h + j + 2]);
+        }
+    /* t[0..3]: rows 0-3 of column pairs 01 23 45 67; t[4..7]: rows 4-7 */
+    for (int j = 0; j < 4; j++) {
+        r[2 * j] = _mm_unpacklo_epi64(t[j], t[j + 4]);
+        r[2 * j + 1] = _mm_unpackhi_epi64(t[j], t[j + 4]);
+    }
+}
+
+static inline void load_lines(const pixel *b, ptrdiff_t stride, __m256i r[8])
+{
+    __m128i lo[8], hi[8];
+    for (int i = 0; i < 8; i++) {
+        lo[i] = _mm_loadu_si128((const __m128i *)(b + i * stride));
+        hi[i] = _mm_loadu_si128((const __m128i *)(b + (i + 8) * stride));
+    }
+    transpose8(lo);
+    transpose8(hi);
+    for (int i = 0; i < 8; i++)
+        r[i] = _mm256_set_m128i(hi[i], lo[i]);
+}
+
+static inline void store_lines(pixel *b, ptrdiff_t stride, const __m256i r[8])
+{
+    __m128i lo[8], hi[8];
+    for (int i = 0; i < 8; i++) {
+        lo[i] = _mm256_castsi256_si128(r[i]);
+        hi[i] = _mm256_extracti128_si256(r[i], 1);
+    }
+    transpose8(lo);
+    transpose8(hi);
+    for (int i = 0; i < 8; i++) {
+        _mm_storeu_si128((__m128i *)(b + i * stride), lo[i]);
+        _mm_storeu_si128((__m128i *)(b + (i + 8) * stride), hi[i]);
+    }
+}
+#endif
+
 void n265_dbk_luma_v_avx2(pixel *pix, ptrdiff_t stride, const int16_t *beta,
                           const int16_t *tc, int nseg)
 {
@@ -257,16 +342,11 @@ void n265_dbk_luma_v_avx2(pixel *pix, ptrdiff_t stride, const int16_t *beta,
         if (quad_zero(tc + k))
             continue;
         pixel *b = pix + 4 * k * stride - 4;
-        __m128i c[8];
         __m256i r[8];
-        rows_to_cols(b, stride, c);
-        for (int i = 0; i < 8; i++)
-            r[i] = _mm256_cvtepu8_epi16(c[i]);
+        load_lines(b, stride, r);
         if (!luma_quad(r, seg_quad(beta + k), seg_quad(tc + k)))
             continue;
-        for (int i = 1; i < 7; i++)
-            c[i] = pack16(r[i]);
-        cols_to_rows(b, stride, c);
+        store_lines(b, stride, r);
     }
     if (k < nseg)
         n265_dbk_luma_v_ref(pix + 4 * k * stride, stride, beta + k, tc + k,
@@ -296,13 +376,14 @@ void n265_dbk_chroma_h_avx2(pixel *pix, ptrdiff_t stride, const int16_t *tc,
         __m256i p1 = ld16(b - 2 * stride), p0 = ld16(b - stride);
         __m256i q0 = ld16(b), q1 = ld16(b + stride);
         chroma16(p1, &p0, &q0, q1, t);
-        _mm_storeu_si128((__m128i *)(b - stride), pack16(p0));
-        _mm_storeu_si128((__m128i *)b, pack16(q0));
+        st16(b - stride, p0);
+        st16(b, q0);
     }
     if (i < n)
         n265_dbk_chroma_h_ref(pix + i, stride, tc + i, n - i);
 }
 
+#if BIT_DEPTH == 8
 static inline int ld4(const pixel *p)
 {
     int v;
@@ -353,3 +434,64 @@ void n265_dbk_chroma_v_avx2(pixel *pix, ptrdiff_t stride, const int16_t *tc,
     if (i < n)
         n265_dbk_chroma_v_ref(pix + i * stride, stride, tc + i, n - i);
 }
+#else
+/* p1 p0 q0 q1 of eight lines, as four columns of eight */
+static inline void cv_cols8(const pixel *b, ptrdiff_t stride, __m128i c[4])
+{
+    __m128i lo[2], hi[2];
+    for (int g = 0; g < 2; g++) {
+        const pixel *r = b + 4 * g * stride - 2;
+        __m128i a = _mm_unpacklo_epi16(
+            _mm_loadl_epi64((const __m128i *)r),
+            _mm_loadl_epi64((const __m128i *)(r + stride)));
+        __m128i d = _mm_unpacklo_epi16(
+            _mm_loadl_epi64((const __m128i *)(r + 2 * stride)),
+            _mm_loadl_epi64((const __m128i *)(r + 3 * stride)));
+        lo[g] = _mm_unpacklo_epi32(a, d);
+        hi[g] = _mm_unpackhi_epi32(a, d);
+    }
+    c[0] = _mm_unpacklo_epi64(lo[0], lo[1]);
+    c[1] = _mm_unpackhi_epi64(lo[0], lo[1]);
+    c[2] = _mm_unpacklo_epi64(hi[0], hi[1]);
+    c[3] = _mm_unpackhi_epi64(hi[0], hi[1]);
+}
+
+#define CV_ST(v, j, row) do { \
+    uint32_t w_ = (uint32_t)_mm_extract_epi32(v, j); \
+    memcpy(b + (row) * stride - 1, &w_, sizeof(w_)); \
+} while (0)
+
+/* p0' and q0' of eight lines back as pairs */
+static inline void cv_store8(pixel *b, ptrdiff_t stride, __m128i p0, __m128i q0)
+{
+    __m128i lo = _mm_unpacklo_epi16(p0, q0), hi = _mm_unpackhi_epi16(p0, q0);
+    CV_ST(lo, 0, 0); CV_ST(lo, 1, 1); CV_ST(lo, 2, 2); CV_ST(lo, 3, 3);
+    CV_ST(hi, 0, 4); CV_ST(hi, 1, 5); CV_ST(hi, 2, 6); CV_ST(hi, 3, 7);
+}
+
+void n265_dbk_chroma_v_avx2(pixel *pix, ptrdiff_t stride, const int16_t *tc,
+                            int n)
+{
+    int i = 0;
+    for (; i + 16 <= n; i += 16) {
+        __m256i t = _mm256_loadu_si256((const __m256i *)(tc + i));
+        if (_mm256_testz_si256(t, t))
+            continue;
+        pixel *b = pix + i * stride;
+        __m128i lo[4], hi[4];
+        cv_cols8(b, stride, lo);
+        cv_cols8(b + 8 * stride, stride, hi);
+        __m256i p1 = _mm256_set_m128i(hi[0], lo[0]);
+        __m256i p0 = _mm256_set_m128i(hi[1], lo[1]);
+        __m256i q0 = _mm256_set_m128i(hi[2], lo[2]);
+        __m256i q1 = _mm256_set_m128i(hi[3], lo[3]);
+        chroma16(p1, &p0, &q0, q1, t);
+        cv_store8(b, stride, _mm256_castsi256_si128(p0),
+                  _mm256_castsi256_si128(q0));
+        cv_store8(b + 8 * stride, stride, _mm256_extracti128_si256(p0, 1),
+                  _mm256_extracti128_si256(q0, 1));
+    }
+    if (i < n)
+        n265_dbk_chroma_v_ref(pix + i * stride, stride, tc + i, n - i);
+}
+#endif
