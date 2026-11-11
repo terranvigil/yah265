@@ -136,7 +136,7 @@ if cpu_family == 'x86_64'
       x86_families_8 += f
     endif
   endforeach
-  foreach f : ['transform', 'satd']  # grown one proved family at a time
+  foreach f : ['transform', 'satd', 'mc']  # grown one proved family at a time
     if f in x86_families_8
       x86_families_10 += f
     endif

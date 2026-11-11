@@ -47,6 +47,7 @@
 #define n265_bi_avg                  n265_bi_avg_10
 #define n265_bi_avg_wh               n265_bi_avg_wh_10
 #define n265_bi_avg_wh_neon          n265_bi_avg_wh_neon_10
+#define n265_bi_avg_wh_avx2          n265_bi_avg_wh_avx2_10
 #define n265_bi_avg_wh_ref           n265_bi_avg_wh_ref_10
 #define n265_brun_trace              n265_brun_trace_10
 #define n265_build_lists             n265_build_lists_10
@@ -156,28 +157,35 @@
 #define n265_mc_chroma_14            n265_mc_chroma_14_10
 #define n265_mc_chroma_14_wh         n265_mc_chroma_14_wh_10
 #define n265_mc_chroma_14_wh_neon    n265_mc_chroma_14_wh_neon_10
+#define n265_mc_chroma_14_wh_avx2    n265_mc_chroma_14_wh_avx2_10
 #define n265_mc_chroma_14_wh_ref     n265_mc_chroma_14_wh_ref_10
 #define n265_mc_chroma_wh            n265_mc_chroma_wh_10
 #define n265_mc_chroma_wh_neon       n265_mc_chroma_wh_neon_10
+#define n265_mc_chroma_wh_avx2       n265_mc_chroma_wh_avx2_10
 #define n265_mc_chroma_wh_ref        n265_mc_chroma_wh_ref_10
 #define n265_mc_luma                 n265_mc_luma_10
 #define n265_mc_luma_14              n265_mc_luma_14_10
 #define n265_mc_luma_14_hf           n265_mc_luma_14_hf_10
 #define n265_mc_luma_14_hf_neon      n265_mc_luma_14_hf_neon_10
+#define n265_mc_luma_14_hf_avx2      n265_mc_luma_14_hf_avx2_10
 #define n265_mc_luma_14_hf_ref       n265_mc_luma_14_hf_ref_10
 #define n265_mc_luma_14_wh           n265_mc_luma_14_wh_10
 #define n265_mc_luma_14_wh_neon      n265_mc_luma_14_wh_neon_10
+#define n265_mc_luma_14_wh_avx2      n265_mc_luma_14_wh_avx2_10
 #define n265_mc_luma_14_wh_ref       n265_mc_luma_14_wh_ref_10
 #define n265_mc_luma_2d              n265_mc_luma_2d_10
 #define n265_mc_luma_2d_14           n265_mc_luma_2d_14_10
 #define n265_mc_luma_hf              n265_mc_luma_hf_10
 #define n265_mc_luma_hf_neon         n265_mc_luma_hf_neon_10
+#define n265_mc_luma_hf_avx2         n265_mc_luma_hf_avx2_10
 #define n265_mc_luma_hf_ref          n265_mc_luma_hf_ref_10
 #define n265_mc_luma_hplane          n265_mc_luma_hplane_10
 #define n265_mc_luma_hplane_neon     n265_mc_luma_hplane_neon_10
+#define n265_mc_luma_hplane_avx2     n265_mc_luma_hplane_avx2_10
 #define n265_mc_luma_hplane_ref      n265_mc_luma_hplane_ref_10
 #define n265_mc_luma_wh              n265_mc_luma_wh_10
 #define n265_mc_luma_wh_neon         n265_mc_luma_wh_neon_10
+#define n265_mc_luma_wh_avx2         n265_mc_luma_wh_avx2_10
 #define n265_mc_luma_wh_ref          n265_mc_luma_wh_ref_10
 #define n265_mc_sad                  n265_mc_sad_10
 #define n265_me_search               n265_me_search_10
@@ -436,8 +444,11 @@
 #define n265_write_pred_weight_table n265_write_pred_weight_table_10
 
 #define n265_wp_uni_wh_neon          n265_wp_uni_wh_neon_10
+#define n265_wp_uni_wh_avx2          n265_wp_uni_wh_avx2_10
 #define n265_wp_bi_wh_neon           n265_wp_bi_wh_neon_10
+#define n265_wp_bi_wh_avx2           n265_wp_bi_wh_avx2_10
 #define n265_wp_pix_wh_neon          n265_wp_pix_wh_neon_10
+#define n265_wp_pix_wh_avx2          n265_wp_pix_wh_avx2_10
 #define n265_wp_pix_wh_ref           n265_wp_pix_wh_ref_10
 
 #endif /* N265_SYMBOLS10_H */
