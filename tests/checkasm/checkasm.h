@@ -75,20 +75,6 @@
 #define CA_SIMD_INTRA     N265_AVX2_INTRA
 #define CA_SIMD_DEBLOCK   N265_AVX2_DEBLOCK
 #define CA_SIMD_SAO       N265_AVX2_SAO
-/* A family with no SSE4.2 kernels is skipped at that tier, and these
- * names only let it link. */
-#if !N265_SSE42_DEBLOCK
-#define n265_dbk_luma_v_sse42    n265_dbk_luma_v_avx2
-#define n265_dbk_luma_h_sse42    n265_dbk_luma_h_avx2
-#define n265_dbk_chroma_v_sse42  n265_dbk_chroma_v_avx2
-#define n265_dbk_chroma_h_sse42  n265_dbk_chroma_h_avx2
-#endif
-#if !N265_SSE42_SAO
-#define n265_sao_band_stats_sse42  n265_sao_band_stats_avx2
-#define n265_sao_eo_stats_sse42    n265_sao_eo_stats_avx2
-#define n265_sao_eo_apply_sse42    n265_sao_eo_apply_avx2
-#define n265_sao_bo_apply_sse42    n265_sao_bo_apply_avx2
-#endif
 #else
 #define CA_SIMD_TRANSFORM 0
 #define CA_SIMD_SATD      0

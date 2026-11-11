@@ -111,4 +111,32 @@ void n265_filter_refs_sse42(pixel *out, const pixel *in, int log2n,
                             int strong);
 #endif /* N265_SSE42_INTRA */
 
+#if N265_SSE42_DEBLOCK
+/* ---- deblock (N265_ASM_DBK) ---------------------------------------- */
+
+void n265_dbk_luma_v_sse42(pixel *pix, ptrdiff_t stride, const int16_t *beta,
+                           const int16_t *tc, int nseg);
+void n265_dbk_luma_h_sse42(pixel *pix, ptrdiff_t stride, const int16_t *beta,
+                           const int16_t *tc, int nseg);
+void n265_dbk_chroma_v_sse42(pixel *pix, ptrdiff_t stride, const int16_t *tc,
+                             int n);
+void n265_dbk_chroma_h_sse42(pixel *pix, ptrdiff_t stride, const int16_t *tc,
+                             int n);
+#endif /* N265_SSE42_DEBLOCK */
+
+#if N265_SSE42_SAO
+/* ---- sao (N265_ASM_SAO) -------------------------------------------- */
+
+void n265_sao_band_stats_sse42(const pixel *src, int src_stride,
+                               const pixel *rec, int rec_stride, int w, int h,
+                               int64_t bn[32], int64_t bd[32]);
+void n265_sao_eo_stats_sse42(const pixel *src, const pixel *cur,
+                             const pixel *a, const pixel *b, int n,
+                             int64_t en[5], int64_t ed[5]);
+void n265_sao_eo_apply_sse42(pixel *dst, const pixel *cur, const pixel *a,
+                             const pixel *b, int n, const int8_t off[4]);
+void n265_sao_bo_apply_sse42(pixel *dst, const pixel *in, int n, int pos,
+                             const int8_t off[4]);
+#endif /* N265_SSE42_SAO */
+
 #endif /* N265_X86_SSE42_H */

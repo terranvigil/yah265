@@ -26,6 +26,7 @@
 #endif
 #if N265_X86
 #include "encoder/x86/avx2.h"
+#include "encoder/x86/sse42.h"   /* self-guarded */
 #endif
 
 static inline int clip3(int lo, int hi, int v)
@@ -207,6 +208,13 @@ void n265_sao_band_stats(const pixel *src, int src_stride,
         return;
     }
 #endif
+#if N265_SSE42_SAO
+    if (n265_sse42_on(N265_ASM_SAO)) {
+        n265_sao_band_stats_sse42(src, src_stride, rec, rec_stride, w, h,
+                                 bn, bd);
+        return;
+    }
+#endif
     n265_sao_band_stats_ref(src, src_stride, rec, rec_stride, w, h, bn, bd);
 }
 
@@ -272,6 +280,12 @@ void n265_sao_eo_stats(const pixel *src, const pixel *cur, const pixel *a,
         return;
     }
 #endif
+#if N265_SSE42_SAO
+    if (n265_sse42_on(N265_ASM_SAO)) {
+        n265_sao_eo_stats_sse42(src, cur, a, b, n, en, ed);
+        return;
+    }
+#endif
     n265_sao_eo_stats_ref(src, cur, a, b, n, en, ed);
 }
 
@@ -290,6 +304,12 @@ void n265_sao_eo_apply(pixel *dst, const pixel *cur, const pixel *a,
         return;
     }
 #endif
+#if N265_SSE42_SAO
+    if (n265_sse42_on(N265_ASM_SAO)) {
+        n265_sao_eo_apply_sse42(dst, cur, a, b, n, off);
+        return;
+    }
+#endif
     n265_sao_eo_apply_ref(dst, cur, a, b, n, off);
 }
 
@@ -305,6 +325,12 @@ void n265_sao_bo_apply(pixel *dst, const pixel *in, int n, int pos,
 #if N265_AVX2_SAO
     if (n265_avx2_on(N265_ASM_SAO)) {
         n265_sao_bo_apply_avx2(dst, in, n, pos, off);
+        return;
+    }
+#endif
+#if N265_SSE42_SAO
+    if (n265_sse42_on(N265_ASM_SAO)) {
+        n265_sao_bo_apply_sse42(dst, in, n, pos, off);
         return;
     }
 #endif

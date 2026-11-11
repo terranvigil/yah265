@@ -162,14 +162,15 @@ static void run_ref(int kern, pixel *q0, int stride, const int16_t *beta,
 }
 
 #if CA_SIMD_DEBLOCK
-static const luma_fn luma_simd[2] = { CA_SIMD(n265_dbk_luma_v),
-                                      CA_SIMD(n265_dbk_luma_h) };
-static const chroma_fn chroma_simd[2] = { CA_SIMD(n265_dbk_chroma_v),
-                                          CA_SIMD(n265_dbk_chroma_h) };
-
 static void run_simd(int kern, pixel *q0, int stride, const int16_t *beta,
                      const int16_t *tc, int n)
 {
+    /* CA_SIMD picks the tier at run time on x86-64 */
+    const luma_fn luma_simd[2] = { CA_SIMD(n265_dbk_luma_v),
+                                   CA_SIMD(n265_dbk_luma_h) };
+    const chroma_fn chroma_simd[2] = { CA_SIMD(n265_dbk_chroma_v),
+                                       CA_SIMD(n265_dbk_chroma_h) };
+
     if (kern < CHROMA_V)
         luma_simd[kern](q0, stride, beta, tc, n);
     else
