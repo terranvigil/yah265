@@ -1,7 +1,8 @@
 /*
  * intra_avx2.c - intra prediction and reference smoothing (N265_ASM_INTRA)
  * on AVX2. The entry points are src/encoder/arm/neon.h's intra block,
- * renamed, and every one is bit-exact with src/encoder/intra.c.
+ * renamed, and every one is bit-exact with src/encoder/intra.c at both
+ * depths.
  *
  * Angular rows interleave r[x + idx] with r[x + idx + 1] and take
  * _mm_maddubs_epi16 against the byte pair (32 - fact, fact). The weights
@@ -11,6 +12,9 @@
  *
  * Planar's four weights sum to 2n, so a lane is at most
  * n * (2 * 255 + 1) = 16352 at n = 32, inside int16.
+ *
+ * At Main10 a sample is a u16 lane already. An angular lane is at most
+ * 32 * 1023 = 32736, and a planar one 65504 (see pred_planar there).
  *
  * Reads of `refs` and `in` stay inside their 4n + 1 samples: checkasm's
  * page guard holds every kernel here to that.
@@ -34,6 +38,7 @@ static const int16_t ia_inv_angle[35] = {
     0, 0, 0, 0
 };
 
+#if BIT_DEPTH == 8
 static inline uint32_t ld32u(const uint8_t *p)
 {
     uint32_t v;
@@ -362,6 +367,248 @@ static void pred_dc(uint8_t *dst, int stride, const uint8_t *refs,
     }
 }
 
+#else   /* Main10: the same predictions on u16 lanes */
+
+/* (x + 16) >> 5 per lane; the weights sum to 32, so x <= 32736 */
+static inline __m256i rnd5_256(__m256i x)
+{
+    return _mm256_srli_epi16(_mm256_add_epi16(x, _mm256_set1_epi16(16)), 5);
+}
+
+/* n = 32, 16, 8 or 4 samples */
+static inline void ld_n(__m256i *v, const pixel *p, int n)
+{
+    if (n == 32) {
+        v[0] = _mm256_loadu_si256((const __m256i *)p);
+        v[1] = _mm256_loadu_si256((const __m256i *)(p + 16));
+    } else if (n == 16) {
+        v[0] = _mm256_loadu_si256((const __m256i *)p);
+    } else if (n == 8) {
+        v[0] = _mm256_zextsi128_si256(_mm_loadu_si128((const __m128i *)p));
+    } else {
+        v[0] = _mm256_zextsi128_si256(_mm_loadl_epi64((const __m128i *)p));
+    }
+}
+
+static inline void st_n(pixel *p, const __m256i *v, int n)
+{
+    if (n == 32) {
+        _mm256_storeu_si256((__m256i *)p, v[0]);
+        _mm256_storeu_si256((__m256i *)(p + 16), v[1]);
+    } else if (n == 16) {
+        _mm256_storeu_si256((__m256i *)p, v[0]);
+    } else if (n == 8) {
+        _mm_storeu_si128((__m128i *)p, _mm256_castsi256_si128(v[0]));
+    } else {
+        _mm_storel_epi64((__m128i *)p, _mm256_castsi256_si128(v[0]));
+    }
+}
+
+/* ---- angular (8.4.4.2.6) ------------------------------------------- */
+
+static void ang_rows(pixel *out, int os, const pixel *r, int n, int angle)
+{
+    const int nv = n == 32 ? 2 : 1;
+    for (int y = 0; y < n; y++) {
+        int idx = ((y + 1) * angle) >> 5;
+        int f = ((y + 1) * angle) & 31;
+        __m256i a[2], b[2];
+
+        ld_n(a, r + idx, n);
+        if (f) {
+            __m256i wa = _mm256_set1_epi16((int16_t)(32 - f));
+            __m256i wb = _mm256_set1_epi16((int16_t)f);
+            ld_n(b, r + idx + 1, n);
+            for (int i = 0; i < nv; i++)
+                a[i] = rnd5_256(_mm256_add_epi16(_mm256_mullo_epi16(a[i], wa),
+                                                 _mm256_mullo_epi16(b[i], wb)));
+        }
+        st_n(out + (size_t)y * os, a, n);
+    }
+}
+
+static inline void trans4x4(pixel *d, int ds, const pixel *s, int ss)
+{
+    __m128i r0 = _mm_loadl_epi64((const __m128i *)s);
+    __m128i r1 = _mm_loadl_epi64((const __m128i *)(s + ss));
+    __m128i r2 = _mm_loadl_epi64((const __m128i *)(s + 2 * ss));
+    __m128i r3 = _mm_loadl_epi64((const __m128i *)(s + 3 * ss));
+    __m128i a = _mm_unpacklo_epi16(r0, r1), b = _mm_unpacklo_epi16(r2, r3);
+    __m128i c = _mm_unpacklo_epi32(a, b), e = _mm_unpackhi_epi32(a, b);
+    _mm_storel_epi64((__m128i *)d, c);
+    _mm_storel_epi64((__m128i *)(d + ds), _mm_unpackhi_epi64(c, c));
+    _mm_storel_epi64((__m128i *)(d + 2 * ds), e);
+    _mm_storel_epi64((__m128i *)(d + 3 * ds), _mm_unpackhi_epi64(e, e));
+}
+
+static inline void trans8x8(pixel *d, int ds, const pixel *s, int ss)
+{
+    __m128i r[8], a[8], b[8];
+
+    for (int i = 0; i < 8; i++)
+        r[i] = _mm_loadu_si128((const __m128i *)(s + (size_t)i * ss));
+    for (int i = 0; i < 4; i++) {
+        a[2 * i] = _mm_unpacklo_epi16(r[2 * i], r[2 * i + 1]);
+        a[2 * i + 1] = _mm_unpackhi_epi16(r[2 * i], r[2 * i + 1]);
+    }
+    for (int i = 0; i < 2; i++) {
+        b[4 * i] = _mm_unpacklo_epi32(a[4 * i], a[4 * i + 2]);
+        b[4 * i + 1] = _mm_unpackhi_epi32(a[4 * i], a[4 * i + 2]);
+        b[4 * i + 2] = _mm_unpacklo_epi32(a[4 * i + 1], a[4 * i + 3]);
+        b[4 * i + 3] = _mm_unpackhi_epi32(a[4 * i + 1], a[4 * i + 3]);
+    }
+    for (int i = 0; i < 4; i++) {
+        _mm_storeu_si128((__m128i *)(d + (size_t)(2 * i) * ds),
+                         _mm_unpacklo_epi64(b[i], b[4 + i]));
+        _mm_storeu_si128((__m128i *)(d + (size_t)(2 * i + 1) * ds),
+                         _mm_unpackhi_epi64(b[i], b[4 + i]));
+    }
+}
+
+/* r[-n-1 .. 2n-1] */
+static void build_ref(pixel *r, const pixel *main, const pixel *side,
+                      int corner, int n, int angle, int inv)
+{
+    r[-1] = (pixel)corner;
+    memcpy(r, main, (size_t)(2 * n) * sizeof(pixel));
+    if (angle < 0) {
+        int last = (n * angle) >> 5;
+        for (int i = -2; i >= last; i--)
+            r[i] = side[(((i + 1) * inv + 128) >> 8) - 1];
+    }
+}
+
+static void pred_angular(pixel *dst, int stride, const pixel *refs,
+                         int log2n, int mode, int c_idx)
+{
+    int n = 1 << log2n;
+    const pixel *top = refs + 1;
+    const pixel *left = refs + 2 * n + 1;
+    int corner = refs[0];
+    int angle = ia_angle[mode];
+    int inv = ia_inv_angle[mode];
+    pixel ref[4 * 32 + 2];
+    pixel *r = ref + n + 1;
+
+    if (mode >= 18) {
+        build_ref(r, top, left, corner, n, angle, inv);
+        ang_rows(dst, stride, r, n, angle);
+        if (mode == 26 && c_idx == 0 && n < 32)
+            for (int y = 0; y < n; y++) {
+                int v = top[0] + ((left[y] - corner) >> 1);
+                dst[(size_t)y * stride] =
+                    (pixel)(v < 0 ? 0 : v > PIXEL_MAX ? PIXEL_MAX : v);
+            }
+    } else {
+        pixel tmp[32 * 32];
+        build_ref(r, left, top, corner, n, angle, inv);
+        ang_rows(tmp, n, r, n, angle);
+        if (n == 4)
+            trans4x4(dst, stride, tmp, 4);
+        else
+            for (int by = 0; by < n; by += 8)
+                for (int bx = 0; bx < n; bx += 8)
+                    trans8x8(dst + (size_t)bx * stride + by, stride,
+                             tmp + (size_t)by * n + bx, n);
+        if (mode == 10 && c_idx == 0 && n < 32)
+            for (int x = 0; x < n; x++) {
+                int v = left[0] + ((top[x] - corner) >> 1);
+                dst[x] = (pixel)(v < 0 ? 0 : v > PIXEL_MAX ? PIXEL_MAX : v);
+            }
+    }
+}
+
+/* ---- planar (8.4.4.2.4) --------------------------------------------
+ *
+ * The four weights sum to 2n, so a lane is at most
+ * n * (2 * 1023 + 1) = 65504 at n = 32: not int16, but every term is
+ * non-negative and the sum fits u16, so the modular adds and the logical
+ * shift give the exact value. */
+
+static void pred_planar(pixel *dst, int stride, const pixel *refs, int log2n)
+{
+    int n = 1 << log2n;
+    const pixel *top = refs + 1;
+    const pixel *left = refs + 2 * n + 1;
+    int tr = top[n];
+    int bl = left[n];
+    __m128i sh = _mm_cvtsi32_si128(log2n + 1);
+    const __m256i ramp = _mm256_setr_epi16(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+                                           11, 12, 13, 14, 15);
+    /* columns 0-15 and 16-31: n-1-x, (x+1)*tr + n, top[x] */
+    __m256i xw[2], base[2], t[2];
+    int halves = n == 32 ? 2 : 1;
+
+    ld_n(t, top, n);
+    for (int h = 0; h < halves; h++) {
+        __m256i xi = _mm256_add_epi16(ramp, _mm256_set1_epi16((int16_t)(16 * h)));
+        xw[h] = _mm256_sub_epi16(_mm256_set1_epi16((int16_t)(n - 1)), xi);
+        base[h] = _mm256_add_epi16(
+            _mm256_mullo_epi16(_mm256_add_epi16(xi, _mm256_set1_epi16(1)),
+                               _mm256_set1_epi16((int16_t)tr)),
+            _mm256_set1_epi16((int16_t)n));
+    }
+
+    for (int y = 0; y < n; y++) {
+        __m256i ly = _mm256_set1_epi16((int16_t)left[y]);
+        __m256i ny = _mm256_set1_epi16((int16_t)(n - 1 - y));
+        __m256i dy = _mm256_set1_epi16((int16_t)((y + 1) * bl));
+        __m256i o[2];
+
+        for (int h = 0; h < halves; h++) {
+            __m256i acc = _mm256_add_epi16(base[h],
+                                           _mm256_mullo_epi16(xw[h], ly));
+            acc = _mm256_add_epi16(acc, _mm256_mullo_epi16(t[h], ny));
+            o[h] = _mm256_srl_epi16(_mm256_add_epi16(acc, dy), sh);
+        }
+        st_n(dst + (size_t)y * stride, o, n);
+    }
+}
+
+/* ---- DC (8.4.4.2.5) ------------------------------------------------ */
+
+static void pred_dc(pixel *dst, int stride, const pixel *refs, int log2n,
+                    int filter_edges)
+{
+    int n = 1 << log2n;
+    const pixel *top = refs + 1;
+    const pixel *left = refs + 2 * n + 1;
+    const __m256i one = _mm256_set1_epi16(1);
+    __m256i a[2], b[2], s;
+    int dc;
+
+    ld_n(a, top, n);
+    ld_n(b, left, n);
+    /* 2n samples, at most 65472 */
+    s = _mm256_madd_epi16(_mm256_add_epi16(a[0], b[0]), one);
+    if (n == 32)
+        s = _mm256_add_epi32(s, _mm256_madd_epi16(_mm256_add_epi16(a[1], b[1]),
+                                                  one));
+    {
+        __m128i q = _mm_add_epi32(_mm256_castsi256_si128(s),
+                                  _mm256_extracti128_si256(s, 1));
+        q = _mm_add_epi32(q, _mm_shuffle_epi32(q, 0x4e));
+        q = _mm_add_epi32(q, _mm_shuffle_epi32(q, 0xb1));
+        dc = (_mm_cvtsi128_si32(q) + n) >> (log2n + 1);
+    }
+
+    {
+        __m256i v[2];
+        v[0] = v[1] = _mm256_set1_epi16((int16_t)dc);
+        for (int y = 0; y < n; y++)
+            st_n(dst + (size_t)y * stride, v, n);
+    }
+
+    if (filter_edges && n < 32) {
+        dst[0] = (pixel)((left[0] + 2 * dc + top[0] + 2) >> 2);
+        for (int x = 1; x < n; x++)
+            dst[x] = (pixel)((top[x] + 3 * dc + 2) >> 2);
+        for (int y = 1; y < n; y++)
+            dst[(size_t)y * stride] = (pixel)((left[y] + 3 * dc + 2) >> 2);
+    }
+}
+#endif
+
 void n265_intra_pred_avx2(pixel *dst, int dst_stride, const pixel *refs,
                           int log2n, int mode, int c_idx)
 {
@@ -375,6 +622,7 @@ void n265_intra_pred_avx2(pixel *dst, int dst_stride, const pixel *refs,
 
 /* ---- [1 2 1] reference smoothing (8.4.4.2.3) ----------------------- */
 
+#if BIT_DEPTH == 8
 static inline void filt16(uint8_t *out, const uint8_t *in, int i)
 {
     __m256i a = _mm256_cvtepu8_epi16(_mm_loadu_si128((const __m128i *)(in + i - 1)));
@@ -398,9 +646,32 @@ static inline void filt8(uint8_t *out, const uint8_t *in, int i)
     _mm_storel_epi64((__m128i *)(out + i), _mm_packus_epi16(t, t));
 }
 
+#else
+static inline void filt16(pixel *out, const pixel *in, int i)
+{
+    __m256i a = _mm256_loadu_si256((const __m256i *)(in + i - 1));
+    __m256i b = _mm256_loadu_si256((const __m256i *)(in + i));
+    __m256i c = _mm256_loadu_si256((const __m256i *)(in + i + 1));
+    __m256i t = _mm256_add_epi16(_mm256_add_epi16(a, c),
+                                 _mm256_add_epi16(b, b));
+    t = _mm256_srli_epi16(_mm256_add_epi16(t, _mm256_set1_epi16(2)), 2);
+    _mm256_storeu_si256((__m256i *)(out + i), t);
+}
+
+static inline void filt8(pixel *out, const pixel *in, int i)
+{
+    __m128i a = _mm_loadu_si128((const __m128i *)(in + i - 1));
+    __m128i b = _mm_loadu_si128((const __m128i *)(in + i));
+    __m128i c = _mm_loadu_si128((const __m128i *)(in + i + 1));
+    __m128i t = _mm_add_epi16(_mm_add_epi16(a, c), _mm_add_epi16(b, b));
+    t = _mm_srli_epi16(_mm_add_epi16(t, _mm_set1_epi16(2)), 2);
+    _mm_storeu_si128((__m128i *)(out + i), t);
+}
+#endif
+
 /* a run of `count` outputs from `first`; the last chunk is placed to end
  * on the run, so no load passes in[first + count] */
-static void filt_run(uint8_t *out, const uint8_t *in, int first, int count)
+static void filt_run(pixel *out, const pixel *in, int first, int count)
 {
     int end = first + count;
     int i = first;
@@ -417,7 +688,7 @@ static void filt_run(uint8_t *out, const uint8_t *in, int first, int count)
             filt8(out, in, end - 8);
     } else {
         for (; i < end; i++)
-            out[i] = (uint8_t)((in[i - 1] + 2 * in[i] + in[i + 1] + 2) >> 2);
+            out[i] = (pixel)((in[i - 1] + 2 * in[i] + in[i + 1] + 2) >> 2);
     }
 }
 

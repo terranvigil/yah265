@@ -123,6 +123,7 @@
 #define n265_fdct_ref                n265_fdct_ref_10
 #define n265_filter_refs             n265_filter_refs_10
 #define n265_filter_refs_neon        n265_filter_refs_neon_10
+#define n265_filter_refs_avx2        n265_filter_refs_avx2_10
 #define n265_filter_refs_ref         n265_filter_refs_ref_10
 #define n265_flat_gate               n265_flat_gate_10
 #define n265_hf2_knobs               n265_hf2_knobs_10
@@ -132,6 +133,7 @@
 #define n265_idct_add_ref            n265_idct_add_ref_10
 #define n265_intra_pred              n265_intra_pred_10
 #define n265_intra_pred_neon         n265_intra_pred_neon_10
+#define n265_intra_pred_avx2         n265_intra_pred_avx2_10
 #define n265_intra_pred_ref          n265_intra_pred_ref_10
 #define n265_intra_refs              n265_intra_refs_10
 #define n265_intra_refs_g            n265_intra_refs_g_10
