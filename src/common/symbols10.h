@@ -263,9 +263,11 @@
 #define n265_rdoq_parseval           n265_rdoq_parseval_10
 #define n265_rdoq_rtn                n265_rdoq_rtn_10
 #define n265_rdoq_rtn_neon           n265_rdoq_rtn_neon_10
+#define n265_rdoq_rtn_avx2           n265_rdoq_rtn_avx2_10
 #define n265_rdoq_rtn_ref            n265_rdoq_rtn_ref_10
 #define n265_rdoq_sb_nz              n265_rdoq_sb_nz_10
 #define n265_rdoq_sb_nz_neon         n265_rdoq_sb_nz_neon_10
+#define n265_rdoq_sb_nz_avx2         n265_rdoq_sb_nz_avx2_10
 #define n265_rdoq_sb_nz_ref          n265_rdoq_sb_nz_ref_10
 #define n265_rdoq_sbh_on             n265_rdoq_sbh_on_10
 #define n265_rdoq_warm               n265_rdoq_warm_10
