@@ -1,7 +1,7 @@
 /*
  * transform_avx2.c - the transform family (N265_ASM_DCT, N265_ASM_QUANT)
  * on AVX2. The entry points are src/encoder/arm/neon.h's transform block,
- * renamed, 8-bit only.
+ * renamed, at both depths.
  *
  * Each 1-D pass runs one independent transform per int16 lane (a column
  * of the block), so a row of the block is one vector and the length
@@ -25,6 +25,11 @@
  *     packus), which is clip3(0, 255, pred + r) for the C's int32 r.
  *   - madd overflows only on -32768 * -32768 twice, and no matrix entry
  *     is -32768.
+ *
+ * At Main10 |resid| <= 1023 and the forward shift1 is two larger, so pass
+ * 1's output is at most 1023 * 2048 >> 6 = 32736 and every bound above
+ * holds. Only add_pred sees a sample: it clips with min/max against
+ * PIXEL_MAX where 8 bits uses packus.
  *
  * The matrix tables are the C's n265_tmatrix (tables.c builds it at run
  * time) and the DST-VII, written as the pairs each madd broadcasts.
@@ -512,6 +517,7 @@ void n265_fdct_avx2(int16_t *coef, const int16_t *resid, int log2n,
 /* ---- inverse -------------------------------------------------------- */
 
 /* dst = clip(pred + r) over n x n, r packed with stride n */
+#if BIT_DEPTH == 8
 AI_ void add_pred(pixel *dst, int ds, const pixel *pred, int ps,
                   const int16_t *r, const int N)
 {
@@ -553,6 +559,44 @@ AI_ void add_pred(pixel *dst, int ds, const pixel *pred, int ps,
         }
     }
 }
+#else
+AI_ void add_pred(pixel *dst, int ds, const pixel *pred, int ps,
+                  const int16_t *r, const int N)
+{
+    const __m256i z = _mm256_setzero_si256();
+    const __m256i mx = _mm256_set1_epi16(PIXEL_MAX);
+
+    for (int y = 0; y < N; y++) {
+        const pixel *p = pred + (ptrdiff_t)y * ps;
+        pixel *d = dst + (ptrdiff_t)y * ds;
+        const int16_t *ry = r + y * N;
+
+        if (N >= 16) {
+            for (int x = 0; x < N; x += 16) {
+                __m256i v = _mm256_adds_epi16(ld_s16(ry + x, 16),
+                    _mm256_loadu_si256((const __m256i *)(p + x)));
+
+                _mm256_storeu_si256((__m256i *)(d + x),
+                    _mm256_min_epi16(_mm256_max_epi16(v, z), mx));
+            }
+        } else if (N == 8) {
+            __m128i v = _mm_adds_epi16(_mm_loadu_si128((const __m128i *)ry),
+                                       _mm_loadu_si128((const __m128i *)p));
+
+            _mm_storeu_si128((__m128i *)d,
+                _mm_min_epi16(_mm_max_epi16(v, _mm256_castsi256_si128(z)),
+                              _mm256_castsi256_si128(mx)));
+        } else {
+            __m128i v = _mm_adds_epi16(_mm_loadl_epi64((const __m128i *)ry),
+                                       _mm_loadl_epi64((const __m128i *)p));
+
+            _mm_storel_epi64((__m128i *)d,
+                _mm_min_epi16(_mm_max_epi16(v, _mm256_castsi256_si128(z)),
+                              _mm256_castsi256_si128(mx)));
+        }
+    }
+}
+#endif
 
 AI_ void idct_n(pixel *dst, int ds, const int16_t *dq, const pixel *pred,
                 int ps, const int N, const int16_t (*tab)[2], int nzw,

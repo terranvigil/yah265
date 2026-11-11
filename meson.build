@@ -113,19 +113,21 @@ endif
 neon_families = is_8bit ? families_8 : families_10
 
 # The x86-64 AVX2 tier (docs/x86-plan.md). AVX2 is not baseline x86-64,
-# so the family files compile into their own static library with
-# -mavx2 -mfma -mbmi2 and fold into the 8-bit encoder library as objects;
+# so the family files compile into their own static libraries with
+# -mavx2 -mfma -mbmi2 and fold into the encoder libraries as objects;
 # every other file stays baseline and reaches a kernel only through a
-# CPUID-checked dispatch site. 8-bit only for now: the Main10 library is
-# the C reference on x86. The family names and the per-family macro
-# (N265_AVX2_<FAMILY>) mirror the NEON lists above. A family is IN when
-# its file src/encoder/x86/<family>_avx2.c exists, so a family item adds
-# its file and its dispatch sites and touches nothing here; the file
-# lands only once every neon.h entry point of the family has an _avx2
-# twin that checkasm holds bit-exact.
+# CPUID-checked dispatch site. The family names and the per-family macro
+# (N265_AVX2_<FAMILY>) mirror the NEON lists above. A family is IN at 8
+# bits when its file src/encoder/x86/<family>_avx2.c exists, so a family
+# item adds its file and its dispatch sites and touches nothing here; the
+# file lands only once every neon.h entry point of the family has an
+# _avx2 twin that checkasm holds bit-exact. The Main10 list is written
+# out, for the NEON list's reason: a family joins it once its 16-bit
+# lanes pass a checkasm built at 10 bits.
 fs = import('fs')
 x86_all_families = []
 x86_families_8 = []
+x86_families_10 = []
 x86_avx2_args = ['-mavx2', '-mfma', '-mbmi2']
 if cpu_family == 'x86_64'
   x86_all_families = ['transform', 'satd', 'mc', 'rdoq', 'cost', 'intra']
@@ -134,9 +136,14 @@ if cpu_family == 'x86_64'
       x86_families_8 += f
     endif
   endforeach
+  foreach f : ['transform']  # grown one proved family at a time
+    if f in x86_families_8
+      x86_families_10 += f
+    endif
+  endforeach
   add_project_arguments('-DN265_X86=1', language : 'c')
 endif
-avx2_families = is_8bit ? x86_families_8 : []
+avx2_families = is_8bit ? x86_families_8 : x86_families_10
 foreach f : avx2_families
   add_project_arguments('-DN265_AVX2_' + f.to_upper() + '=1', language : 'c')
 endforeach
@@ -167,7 +174,7 @@ foreach d : [8, 10]
   endforeach
   foreach f : x86_all_families
     args += '-UN265_AVX2_' + f.to_upper()
-    if d == 8 and f in x86_families_8
+    if f in (d == 8 ? x86_families_8 : x86_families_10)
       args += '-DN265_AVX2_' + f.to_upper() + '=1'
     endif
   endforeach
@@ -182,20 +189,25 @@ foreach d : [8, 10]
   depth_args += { '@0@'.format(d) : args }
 endforeach
 
-# The AVX2 objects, which only the 8-bit library takes. The archive name
-# stays off the libyah265* glob scripts/symbol_check.sh compares.
+# The AVX2 objects, one archive per depth, each folded into its depth's
+# library. The 10-bit one is compiled with that library's arguments, so
+# symbols10.h renames its kernels too. The archive names stay off the
+# libyah265* glob scripts/symbol_check.sh compares.
 depth_objects = { '8' : [], '10' : [] }
-if x86_families_8.length() > 0
-  avx2_srcs = []
-  foreach f : x86_families_8
-    avx2_srcs += 'src/encoder/x86/' + f + '_avx2.c'
-  endforeach
-  avx2_lib = static_library('n265avx2-8', avx2_srcs,
-    c_args : depth_args['8'] + x86_avx2_args,
-    include_directories : inc,
-    install : false)
-  depth_objects += { '8' : [avx2_lib.extract_all_objects(recursive : false)] }
-endif
+foreach d : [8, 10]
+  fams = d == 8 ? x86_families_8 : x86_families_10
+  if fams.length() > 0
+    avx2_srcs = []
+    foreach f : fams
+      avx2_srcs += 'src/encoder/x86/' + f + '_avx2.c'
+    endforeach
+    avx2_lib = static_library('n265avx2-@0@'.format(d), avx2_srcs,
+      c_args : depth_args['@0@'.format(d)] + x86_avx2_args,
+      include_directories : inc,
+      install : false)
+    depth_objects += { '@0@'.format(d) : [avx2_lib.extract_all_objects(recursive : false)] }
+  endif
+endforeach
 
 # Both linkage forms (yah264 lesson: plain library() made the CLI link
 # the dylib and cross a shared-library boundary on every hot call, worth

@@ -120,15 +120,16 @@ test('name', unit_name)
 # nothing but C to compare against C, which is the tautology the harness
 # exists to avoid. Item 3 builds it at BOTH depths and makes the family
 # list per depth: at 8 bits every family, at 10 bits exactly the
-# families whose 16-bit lanes exist (meson.build's neon_families), so
-# the harness never runs a leg that cannot fail. The macro a family file
+# families whose 16-bit lanes exist (meson.build's neon_families, or
+# avx2_families on x86-64), so the harness never runs a leg that cannot
+# fail. The macro a family file
 # reads for its own presence is N265_CA_<FAMILY>, passed here rather than
 # project-wide: it decides which files are IN THIS BINARY, while
 # N265_NEON_<FAMILY> decides whether the NEON leg inside a compiled file
 # has a kernel to check.
 ca_families = ['transform', 'satd', 'mc', 'rdoq', 'cost', 'intra']
 if not is_8bit
-  ca_families = neon_families
+  ca_families = neon_families + avx2_families
 endif
 
 checkasm_sources = ['checkasm/main.c']

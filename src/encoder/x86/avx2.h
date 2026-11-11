@@ -13,7 +13,8 @@
  *   - Those files are the only ones compiled with -mavx2 -mfma -mbmi2.
  *     Everything else stays baseline x86-64 and reaches a kernel through
  *     a dispatch site that tests n265_avx2_on(class), which reads CPUID.
- *   - 8-bit only for now. `pixel` is uint8_t in every file here.
+ *   - Both depths. `pixel` is uint8_t in the 8-bit library and uint16_t
+ *     in the Main10 one, where symbols10.h gives every name a _10 suffix.
  *   - Every kernel is BIT-EXACT with its C reference.
  *
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
@@ -46,11 +47,8 @@ uint32_t n265_sum_sq16_avx2(const pixel *p, int stride, int h,
                             uint64_t *sq);
 #endif /* N265_AVX2_SATD */
 
-/* The families below have no kernels yet. Their prototypes are here so a
- * family item adds only its .c file and its dispatch sites
- * (docs/x86-plan.md); meson turns N265_AVX2_<FAMILY> on when
- * src/encoder/x86/<family>_avx2.c exists. The contracts, shapes and
- * range arguments are the NEON twins' in neon.h. */
+/* The contracts, shapes and range arguments are the NEON twins' in
+ * neon.h. */
 
 #if N265_AVX2_MC
 /* ---- mc (N265_ASM_MC) ---------------------------------------------- */

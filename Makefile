@@ -15,7 +15,7 @@ BUILD ?= build
 # keeps working.
 BUILD10 ?= build10
 
-.PHONY: build build8 build10 build-rel build-x86 test-x86 checkasm-x86-asan conformance-fast-x86 x86-identity test smoke10 conformance conformance-fast conformance10 conformance10-fast conformance444 conformance444-fast conformance444-10 conformance444-10-fast conformance422 conformance422-fast conformance422-10 conformance422-10-fast provenance asan asan10 asan444 asan422 determ determ-fast determ10 determ444 determ422 board board-quick goal-legs clean checkasm-bench checkasm-asan checkasm10-bench checkasm10-asan clean-scratch
+.PHONY: build build8 build10 build-rel build-x86 test-x86 checkasm-x86-asan conformance-fast-x86 x86-identity build10-x86 checkasm10-x86 checkasm10-x86-asan conformance10-fast-x86 test smoke10 conformance conformance-fast conformance10 conformance10-fast conformance444 conformance444-fast conformance444-10 conformance444-10-fast conformance422 conformance422-fast conformance422-10 conformance422-10-fast provenance asan asan10 asan444 asan422 determ determ-fast determ10 determ444 determ422 board board-quick goal-legs clean checkasm-bench checkasm-asan checkasm10-bench checkasm10-asan clean-scratch
 
 build: build8 build10
 
@@ -108,8 +108,29 @@ checkasm-x86-asan:
 	nice -n 10 ninja -C build-x86-asan -j 4 tests/checkasm
 	ROSETTA_ADVERTISE_AVX=1 build-x86-asan/tests/checkasm
 
+# The Main10 checkasm on x86: the 16-bit lanes of the AVX2 families that
+# are in meson's x86_families_10. build-x86's n265 already links both
+# libraries, so the 10-bit encode gates run on it.
+BUILD10_X86 ?= build10-x86
+
+build10-x86:
+	@[ -d $(BUILD10_X86) ] || meson setup $(BUILD10_X86) --cross-file scripts/cross/x86_64-darwin.ini -Dbit_depth=10
+	nice -n 10 ninja -C $(BUILD10_X86) -j 4
+
+checkasm10-x86: build10-x86
+	ROSETTA_ADVERTISE_AVX=1 nice -n 10 $(BUILD10_X86)/tests/checkasm
+
+checkasm10-x86-asan:
+	@[ -d build10-x86-asan ] || meson setup build10-x86-asan --cross-file scripts/cross/x86_64-darwin.ini \
+	    -Dbit_depth=10 -Db_sanitize=address,undefined -Db_lundef=false
+	nice -n 10 ninja -C build10-x86-asan -j 4 tests/checkasm
+	ROSETTA_ADVERTISE_AVX=1 build10-x86-asan/tests/checkasm
+
 conformance-fast-x86: build-x86
 	X86_N265=$(CURDIR)/$(BUILD_X86)/n265 N265=scripts/x86_n265.sh scripts/conformance.sh --fast
+
+conformance10-fast-x86: build-x86
+	X86_N265=$(CURDIR)/$(BUILD_X86)/n265 N265_10=scripts/x86_n265.sh scripts/conformance.sh --depth10 --fast
 
 x86-identity: build-x86
 	scripts/x86_identity.sh $(BUILD_X86)/n265
