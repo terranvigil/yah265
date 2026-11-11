@@ -68,6 +68,7 @@
 #define n265_cpu_flags_slow          n265_cpu_flags_slow_10
 #define n265_cpu_name                n265_cpu_name_10
 #define n265_cpu_ready_              n265_cpu_ready__10
+#define n265_cpu_tier_keep           n265_cpu_tier_keep_10
 #define n265_csbf_map                n265_csbf_map_10
 #define n265_csbf_map_neon           n265_csbf_map_neon_10
 #define n265_csbf_map_avx2           n265_csbf_map_avx2_10

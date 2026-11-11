@@ -131,6 +131,7 @@ DEFAULT_OVERRIDES = {
     "N265_PB_CASCADE": "auto",
     "N265_PB_CASCADE_FLAT": "auto",
     "N265_ASM_OFF": "unset",             # a class-name list, not a number
+    "N265_CPU_MAX": "unset",             # a tier name, not a number
     # the rect/AMP pair: guarded readers of the form
     # `!(v ? atoi(v) != 0 : D)`, where D is not the last number on the
     # line. AMP is OFF by default since the phase 6b placement and a

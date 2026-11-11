@@ -129,11 +129,19 @@ x86_all_families = []
 x86_families_8 = []
 x86_families_10 = []
 x86_avx2_args = ['-mavx2', '-mfma', '-mbmi2']
+# The SSE4.2 tier, for x86-64 CPUs without AVX2: the same rule, with
+# src/encoder/x86/<family>_sse42.c built with -msse4.2.
+x86_sse42_families_8 = []
+x86_sse42_families_10 = []
+x86_sse42_args = ['-msse4.2']
 if cpu_family == 'x86_64'
   x86_all_families = ['transform', 'satd', 'mc', 'rdoq', 'cost', 'intra', 'deblock', 'sao']
   foreach f : x86_all_families
     if fs.exists('src/encoder/x86/' + f + '_avx2.c')
       x86_families_8 += f
+    endif
+    if fs.exists('src/encoder/x86/' + f + '_sse42.c')
+      x86_sse42_families_8 += f
     endif
   endforeach
   foreach f : ['transform', 'satd', 'mc', 'intra', 'rdoq', 'cost', 'deblock', 'sao']  # grown one proved family at a time
@@ -141,11 +149,20 @@ if cpu_family == 'x86_64'
       x86_families_10 += f
     endif
   endforeach
+  foreach f : []  # the SSE4.2 Main10 list, grown the same way
+    if f in x86_sse42_families_8
+      x86_sse42_families_10 += f
+    endif
+  endforeach
   add_project_arguments('-DN265_X86=1', language : 'c')
 endif
 avx2_families = is_8bit ? x86_families_8 : x86_families_10
 foreach f : avx2_families
   add_project_arguments('-DN265_AVX2_' + f.to_upper() + '=1', language : 'c')
+endforeach
+sse42_families = is_8bit ? x86_sse42_families_8 : x86_sse42_families_10
+foreach f : sse42_families
+  add_project_arguments('-DN265_SSE42_' + f.to_upper() + '=1', language : 'c')
 endforeach
 
 # The project arguments still carry THIS build's depth and its family
@@ -177,6 +194,10 @@ foreach d : [8, 10]
     if f in (d == 8 ? x86_families_8 : x86_families_10)
       args += '-DN265_AVX2_' + f.to_upper() + '=1'
     endif
+    args += '-UN265_SSE42_' + f.to_upper()
+    if f in (d == 8 ? x86_sse42_families_8 : x86_sse42_families_10)
+      args += '-DN265_SSE42_' + f.to_upper() + '=1'
+    endif
   endforeach
   if d != 8
     # Every symbol this library defines carries a _10 suffix - the public
@@ -189,12 +210,13 @@ foreach d : [8, 10]
   depth_args += { '@0@'.format(d) : args }
 endforeach
 
-# The AVX2 objects, one archive per depth, each folded into its depth's
-# library. The 10-bit one is compiled with that library's arguments, so
-# symbols10.h renames its kernels too. The archive names stay off the
+# The AVX2 and SSE4.2 objects, one archive per tier and depth, each
+# folded into its depth's library. The 10-bit ones are compiled with that
+# library's arguments, so symbols10.h renames their kernels too. The archive names stay off the
 # libyah265* glob scripts/symbol_check.sh compares.
 depth_objects = { '8' : [], '10' : [] }
 foreach d : [8, 10]
+  objs = []
   fams = d == 8 ? x86_families_8 : x86_families_10
   if fams.length() > 0
     avx2_srcs = []
@@ -205,8 +227,21 @@ foreach d : [8, 10]
       c_args : depth_args['@0@'.format(d)] + x86_avx2_args,
       include_directories : inc,
       install : false)
-    depth_objects += { '@0@'.format(d) : [avx2_lib.extract_all_objects(recursive : false)] }
+    objs += avx2_lib.extract_all_objects(recursive : false)
   endif
+  fams = d == 8 ? x86_sse42_families_8 : x86_sse42_families_10
+  if fams.length() > 0
+    sse42_srcs = []
+    foreach f : fams
+      sse42_srcs += 'src/encoder/x86/' + f + '_sse42.c'
+    endforeach
+    sse42_lib = static_library('n265sse42-@0@'.format(d), sse42_srcs,
+      c_args : depth_args['@0@'.format(d)] + x86_sse42_args,
+      include_directories : inc,
+      install : false)
+    objs += sse42_lib.extract_all_objects(recursive : false)
+  endif
+  depth_objects += { '@0@'.format(d) : objs }
 endforeach
 
 # Both linkage forms (yah264 lesson: plain library() made the CLI link

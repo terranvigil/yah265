@@ -4,7 +4,8 @@
  *
  * Adapted from yah264's src/common/cpu.{h,c} (our own tooling under
  * the CONTRIBUTING.md carve-out). aarch64 has the NEON tier; x86-64 has
- * the AVX2 tier (docs/x86-plan.md). The C path stays first-class on both.
+ * the SSE4.2 and AVX2 tiers (docs/x86-plan.md). The C path stays
+ * first-class on both.
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
@@ -76,6 +77,13 @@ extern uint32_t n265_asm_off_;
 extern uint32_t n265_asm_refuse_;
 void n265_asm_refuse(uint32_t cls);
 uint32_t n265_cpu_flags_slow(void);
+
+/* N265_CPU_MAX=<tier> caps the detected word to the bits that tier keeps
+ * (c, neon, dotprod, i8mm on aarch64; c, sse42, avx2, avx512 on x86-64),
+ * so one machine can run and time every tier below its own. A measurement
+ * hook like N265_ASM_OFF: every kernel is bit-exact, so it moves no bit.
+ * The keep mask of a tier name, ~0 for a name this architecture lacks. */
+uint32_t n265_cpu_tier_keep(const char *name);
 
 static inline uint32_t n265_cpu_flags(void)
 {
@@ -212,6 +220,54 @@ static inline int n265_avx2_on(uint32_t cls)
     if (!(cls & N265_ASM_PORTED_AVX2))
         return 0;
     return (n265_cpu_flags() & N265_CPU_AVX2) &&
+           !((n265_asm_off_ | n265_asm_refuse_) & cls);
+}
+
+/* ---- the x86-64 SSE4.2 tier ------------------------------------------
+ *
+ * For x86-64 CPUs without AVX2. Same shape as the AVX2 tier: one
+ * N265_SSE42_<FAMILY> per family file src/encoder/x86/<family>_sse42.c,
+ * built with -msse4.2, and a dispatch block after the AVX2 one. */
+#ifndef N265_SSE42_TRANSFORM
+#define N265_SSE42_TRANSFORM 0
+#endif
+#ifndef N265_SSE42_SATD
+#define N265_SSE42_SATD 0
+#endif
+#ifndef N265_SSE42_MC
+#define N265_SSE42_MC 0
+#endif
+#ifndef N265_SSE42_RDOQ
+#define N265_SSE42_RDOQ 0
+#endif
+#ifndef N265_SSE42_COST
+#define N265_SSE42_COST 0
+#endif
+#ifndef N265_SSE42_INTRA
+#define N265_SSE42_INTRA 0
+#endif
+#ifndef N265_SSE42_DEBLOCK
+#define N265_SSE42_DEBLOCK 0
+#endif
+#ifndef N265_SSE42_SAO
+#define N265_SSE42_SAO 0
+#endif
+
+#define N265_ASM_PORTED_SSE42 ( \
+    (N265_SSE42_TRANSFORM ? (N265_ASM_DCT | N265_ASM_QUANT) : 0u) | \
+    (N265_SSE42_SATD      ? (uint32_t)N265_ASM_SATD : 0u) | \
+    (N265_SSE42_MC        ? (uint32_t)N265_ASM_MC : 0u) | \
+    (N265_SSE42_RDOQ      ? (uint32_t)N265_ASM_QUANT : 0u) | \
+    (N265_SSE42_COST      ? (uint32_t)N265_ASM_QUANT : 0u) | \
+    (N265_SSE42_INTRA     ? (uint32_t)N265_ASM_INTRA : 0u) | \
+    (N265_SSE42_DEBLOCK   ? (uint32_t)N265_ASM_DBK : 0u) | \
+    (N265_SSE42_SAO       ? (uint32_t)N265_ASM_SAO : 0u))
+
+static inline int n265_sse42_on(uint32_t cls)
+{
+    if (!(cls & N265_ASM_PORTED_SSE42))
+        return 0;
+    return (n265_cpu_flags() & N265_CPU_SSE42) &&
            !((n265_asm_off_ | n265_asm_refuse_) & cls);
 }
 

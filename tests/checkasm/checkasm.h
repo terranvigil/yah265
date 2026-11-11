@@ -43,17 +43,18 @@
 
 /* ---- the ISA under test ---------------------------------------------
  *
- * One binary checks one SIMD tier: NEON on aarch64, AVX2 on x86-64. The
- * family files name a kernel as CA_SIMD(n265_foo), which is n265_foo_neon
- * or n265_foo_avx2, and test for its presence with CA_SIMD_<FAMILY>, so
- * the same checks hold both tiers to the same C references. The two tiers
- * export the same entry points per family (src/encoder/arm/neon.h,
- * src/encoder/x86/avx2.h); that is what makes this a rename and not a
- * second harness. */
+ * One binary checks every SIMD tier the machine has: NEON (and its
+ * DotProd arm) on aarch64, SSE4.2 and AVX2 on x86-64. main() runs the
+ * families once per tier with the feature word capped to that tier, so
+ * the dispatched entry points take that tier's path too. The family files
+ * name a kernel as CA_SIMD(n265_foo) and test for its presence with
+ * CA_SIMD_<FAMILY>; on x86-64 CA_SIMD picks the tier's twin at run time.
+ * The tiers export the same entry points per family
+ * (src/encoder/arm/neon.h, src/encoder/x86/avx2.h, x86/sse42.h); that is
+ * what makes this a rename and not a second harness. */
 #if N265_NEON
 #include "encoder/arm/neon.h"
 #define CA_SIMD(f) f##_neon
-#define CA_ISA "neon"
 #define CA_SIMD_TRANSFORM N265_NEON_TRANSFORM
 #define CA_SIMD_SATD      N265_NEON_SATD
 #define CA_SIMD_MC        N265_NEON_MC
@@ -64,8 +65,8 @@
 #define CA_SIMD_SAO       N265_NEON_SAO
 #elif N265_X86
 #include "encoder/x86/avx2.h"
-#define CA_SIMD(f) f##_avx2
-#define CA_ISA "avx2"
+#include "encoder/x86/sse42.h"
+#define CA_SIMD(f) ((n265_cpu_flags() & N265_CPU_AVX2) ? f##_avx2 : f##_sse42)
 #define CA_SIMD_TRANSFORM N265_AVX2_TRANSFORM
 #define CA_SIMD_SATD      N265_AVX2_SATD
 #define CA_SIMD_MC        N265_AVX2_MC
@@ -74,8 +75,63 @@
 #define CA_SIMD_INTRA     N265_AVX2_INTRA
 #define CA_SIMD_DEBLOCK   N265_AVX2_DEBLOCK
 #define CA_SIMD_SAO       N265_AVX2_SAO
+/* A family with no SSE4.2 kernels is skipped at that tier, and these
+ * names only let it link. */
+#if !N265_SSE42_SATD
+#define n265_satd4_sse42       n265_satd4_avx2
+#define n265_satd8_sse42       n265_satd8_avx2
+#define n265_satd_wh_sse42     n265_satd_wh_avx2
+#define n265_sad_wh_sse42      n265_sad_wh_avx2
+#define n265_ssd_wh_sse42      n265_ssd_wh_avx2
+#define n265_sad_rowcol_sse42  n265_sad_rowcol_avx2
+#define n265_psy_energy_sse42  n265_psy_energy_avx2
+#define n265_sum_sq16_sse42    n265_sum_sq16_avx2
+#endif
+#if !N265_SSE42_MC
+#define n265_bi_avg_wh_sse42       n265_bi_avg_wh_avx2
+#define n265_wp_uni_wh_sse42       n265_wp_uni_wh_avx2
+#define n265_wp_bi_wh_sse42        n265_wp_bi_wh_avx2
+#define n265_wp_pix_wh_sse42       n265_wp_pix_wh_avx2
+#define n265_mc_luma_hf_sse42      n265_mc_luma_hf_avx2
+#define n265_mc_luma_14_hf_sse42   n265_mc_luma_14_hf_avx2
+#define n265_mc_luma_wh_sse42      n265_mc_luma_wh_avx2
+#define n265_mc_luma_14_wh_sse42   n265_mc_luma_14_wh_avx2
+#define n265_mc_luma_hplane_sse42  n265_mc_luma_hplane_avx2
+#define n265_mc_chroma_wh_sse42    n265_mc_chroma_wh_avx2
+#define n265_mc_chroma_14_wh_sse42 n265_mc_chroma_14_wh_avx2
+#endif
+#if !N265_SSE42_TRANSFORM
+#define n265_fdct_sse42      n265_fdct_avx2
+#define n265_idct_add_sse42  n265_idct_add_avx2
+#define n265_dequant_sse42   n265_dequant_avx2
+#define n265_quant_sse42     n265_quant_avx2
+#endif
+#if !N265_SSE42_RDOQ
+#define n265_rdoq_rtn_sse42    n265_rdoq_rtn_avx2
+#define n265_rdoq_sb_nz_sse42  n265_rdoq_sb_nz_avx2
+#endif
+#if !N265_SSE42_COST
+#define n265_csbf_map_sse42     n265_csbf_map_avx2
+#define n265_coeff_group_sse42  n265_coeff_group_avx2
+#define n265_sbh_adjust_sse42   n265_sbh_adjust_avx2
+#endif
+#if !N265_SSE42_INTRA
+#define n265_intra_pred_sse42   n265_intra_pred_avx2
+#define n265_filter_refs_sse42  n265_filter_refs_avx2
+#endif
+#if !N265_SSE42_DEBLOCK
+#define n265_dbk_luma_v_sse42    n265_dbk_luma_v_avx2
+#define n265_dbk_luma_h_sse42    n265_dbk_luma_h_avx2
+#define n265_dbk_chroma_v_sse42  n265_dbk_chroma_v_avx2
+#define n265_dbk_chroma_h_sse42  n265_dbk_chroma_h_avx2
+#endif
+#if !N265_SSE42_SAO
+#define n265_sao_band_stats_sse42  n265_sao_band_stats_avx2
+#define n265_sao_eo_stats_sse42    n265_sao_eo_stats_avx2
+#define n265_sao_eo_apply_sse42    n265_sao_eo_apply_avx2
+#define n265_sao_bo_apply_sse42    n265_sao_bo_apply_avx2
+#endif
 #else
-#define CA_ISA "none"
 #define CA_SIMD_TRANSFORM 0
 #define CA_SIMD_SATD      0
 #define CA_SIMD_MC        0
@@ -85,6 +141,9 @@
 #define CA_SIMD_DEBLOCK   0
 #define CA_SIMD_SAO       0
 #endif
+
+/* the tier the families are running at, for the bench line */
+extern const char *ca_isa;
 
 /* set by main() from the CLI; families bench only when it is nonzero */
 extern int ca_bench;

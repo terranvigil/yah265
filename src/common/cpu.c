@@ -1,5 +1,5 @@
 /*
- * cpu.c - runtime CPU feature detection and N265_ASM_OFF parsing.
+ * cpu.c - runtime CPU feature detection, N265_ASM_OFF and N265_CPU_MAX.
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
@@ -70,8 +70,8 @@ static uint32_t detect_x86(void)
 
     if (!__get_cpuid(1, &a, &b, &c, &d))
         return 0;
-    if ((c & (1u << 19)) && (c & (1u << 20)))
-        flags |= N265_CPU_SSE42;
+    if ((c & (1u << 9)) && (c & (1u << 19)) && (c & (1u << 20)))
+        flags |= N265_CPU_SSE42;   /* with SSSE3, which the tier also uses */
     int fma = (c & (1u << 12)) != 0;
     int avx = (c & (1u << 28)) != 0;
     int ymm_ok = 0, zmm_ok = 0;
@@ -135,6 +135,31 @@ static uint32_t parse_asm_off(const char *s)
     return off;
 }
 
+/* the feature bits each tier keeps; the C tier keeps none */
+static const struct { const char *name; uint32_t keep; } tier_tbl[] = {
+    { "c", 0 },
+#if defined(__aarch64__) || defined(_M_ARM64)
+    { "neon", N265_CPU_NEON },
+    { "dotprod", N265_CPU_NEON | N265_CPU_DOTPROD },
+    { "i8mm", N265_CPU_NEON | N265_CPU_DOTPROD | N265_CPU_I8MM },
+#elif defined(__x86_64__) || defined(_M_X64)
+    { "sse42", N265_CPU_SSE42 },
+    { "sse4.2", N265_CPU_SSE42 },
+    { "avx2", N265_CPU_SSE42 | N265_CPU_AVX2 },
+    { "avx512", N265_CPU_SSE42 | N265_CPU_AVX2 | N265_CPU_AVX512 },
+#endif
+};
+
+/* a name this architecture doesn't have caps nothing, as N265_ASM_OFF
+ * ignores an unknown class */
+uint32_t n265_cpu_tier_keep(const char *name)
+{
+    for (size_t i = 0; i < sizeof(tier_tbl) / sizeof(tier_tbl[0]); i++)
+        if (!strcmp(name, tier_tbl[i].name))
+            return tier_tbl[i].keep;
+    return ~0u;
+}
+
 /* Both caches are filled before the release store, so the inline fast path
  * in cpu.h can read either one after its acquire load returns nonzero. */
 static void cpu_detect_once(void)
@@ -146,6 +171,9 @@ static void cpu_detect_once(void)
 #else
     n265_cpu_cached_ = 0;
 #endif
+    const char *cap = n265_env("N265_CPU_MAX");
+    if (cap)
+        n265_cpu_cached_ &= n265_cpu_tier_keep(cap);
     const char *off = n265_env("N265_ASM_OFF");
     n265_asm_off_ = off ? parse_asm_off(off) : 0;
     atomic_store_explicit(&n265_cpu_ready_, 1, memory_order_release);

@@ -121,7 +121,7 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_VBV_RESERVE` | 0.2 | src/encoder/encoder.c:2671 |
 | `N265_VBV_SAFE` | 0.85 | src/encoder/encoder.c:2657 |
 
-## instrument (201)
+## instrument (202)
 
 | knob | default | reader |
 |---|---|---|
@@ -168,7 +168,7 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_AQ_SIGNAL` | 1 | src/encoder/encoder.c:1998 |
 | `N265_AQ_STR` | 0.7 | src/encoder/encoder.c:1992 |
 | `N265_AQ_TRACE` | presence | src/encoder/encoder.c:6452 |
-| `N265_ASM_OFF` | unset | src/common/cpu.c:149 |
+| `N265_ASM_OFF` | unset | src/common/cpu.c:177 |
 | `N265_BADAPT_REFW` | 128.0 | src/encoder/encoder.c:8217 |
 | `N265_BADAPT_THR` | 0.35 | src/encoder/encoder.c:8216 |
 | `N265_BADAPT_TRACE` | presence | src/encoder/la.c:1371 |
@@ -188,6 +188,7 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_CHROMA_W` | 0 | src/encoder/ctu.c:66 |
 | `N265_CPRED_GATE` | 2 | src/encoder/ctu.c:3213 |
 | `N265_CPRED_TRACE` | presence | src/encoder/ctu.c:5546 |
+| `N265_CPU_MAX` | unset | src/common/cpu.c:174 |
 | `N265_CRF_DC_ANCHOR` | 3 | src/encoder/encoder.c:1907 |
 | `N265_CRF_DC_WIN` | 12.0 | src/encoder/encoder.c:1913 |
 | `N265_CRF_SHIFT` | 5.4 | src/encoder/encoder.c:5220 |

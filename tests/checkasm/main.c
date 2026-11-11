@@ -26,6 +26,7 @@
 #include "encoder/tables.h"
 
 int ca_bench;
+const char *ca_isa = "none";
 
 static uint32_t rs = 0x2545f491u;
 
@@ -65,9 +66,8 @@ void bench(const char *what, void (*ref)(void *), void (*opt)(void *),
     if (neon) {
         for (int i = 0; i < iters; i++) neon(ctx);
         t3 = now_ns();
-        printf("    %-22s ref %8.1f   c %8.1f   " CA_ISA
-               " %8.1f ns   %5.2fx\n",
-               what, (t1 - t0) / iters, (t2 - t1) / iters,
+        printf("    %-22s ref %8.1f   c %8.1f   %s %8.1f ns   %5.2fx\n",
+               what, (t1 - t0) / iters, (t2 - t1) / iters, ca_isa,
                (t3 - t2) / iters, (t2 - t1) / (t3 - t2));
         return;
     }
@@ -205,9 +205,16 @@ void ca_pg_disarm(void)
 
 /* ---- the table ------------------------------------------------------ */
 
+enum {
+    CA_F_TRANSFORM = 1u << 0, CA_F_SATD = 1u << 1, CA_F_MC = 1u << 2,
+    CA_F_RDOQ = 1u << 3, CA_F_COST = 1u << 4, CA_F_INTRA = 1u << 5,
+    CA_F_DEBLOCK = 1u << 6, CA_F_SAO = 1u << 7, CA_F_ALL = 0xffu,
+};
+
 typedef struct kernel_test {
     const char *name;
     int (*run)(void);   /* 0 = pass */
+    uint32_t family;    /* CA_F_<FAMILY> */
 } kernel_test;
 
 /* One line per family file; adding a family touches this file and
@@ -247,30 +254,61 @@ int check_sao(void);
 
 static const kernel_test tests[] = {
 #if N265_CA_TRANSFORM
-    { "transform", check_transform },
+    { "transform", check_transform, CA_F_TRANSFORM },
 #endif
 #if N265_CA_SATD
-    { "satd", check_satd },
+    { "satd", check_satd, CA_F_SATD },
 #endif
 #if N265_CA_MC
-    { "mc", check_mc },
+    { "mc", check_mc, CA_F_MC },
 #endif
 #if N265_CA_RDOQ
-    { "rdoq", check_rdoq },
+    { "rdoq", check_rdoq, CA_F_RDOQ },
 #endif
 #if N265_CA_COST
-    { "cost", check_cost },
+    { "cost", check_cost, CA_F_COST },
 #endif
 #if N265_CA_INTRA
-    { "intra", check_intra },
+    { "intra", check_intra, CA_F_INTRA },
 #endif
 #if N265_CA_DEBLOCK
-    { "deblock", check_deblock },
+    { "deblock", check_deblock, CA_F_DEBLOCK },
 #endif
 #if N265_CA_SAO
-    { "sao", check_sao },
+    { "sao", check_sao, CA_F_SAO },
 #endif
-    { NULL, NULL },
+    { NULL, NULL, 0 },
+};
+
+/* A tier runs when the CPU has its `bit`, with the feature word cut to
+ * `keep`, over the families that have kernels at that tier. */
+typedef struct ca_tier {
+    const char *name;
+    uint32_t bit, keep, families;
+} ca_tier;
+
+#define CA_FAMS(P) ( \
+    (P##_TRANSFORM ? CA_F_TRANSFORM : 0u) | (P##_SATD ? CA_F_SATD : 0u) | \
+    (P##_MC ? CA_F_MC : 0u) | (P##_RDOQ ? CA_F_RDOQ : 0u) | \
+    (P##_COST ? CA_F_COST : 0u) | (P##_INTRA ? CA_F_INTRA : 0u) | \
+    (P##_DEBLOCK ? CA_F_DEBLOCK : 0u) | (P##_SAO ? CA_F_SAO : 0u))
+
+static const ca_tier tiers[] = {
+#if N265_NEON
+    { "neon", N265_CPU_NEON, N265_CPU_NEON, CA_FAMS(N265_NEON) },
+    /* the SSD kernel's udot arm */
+    { "dotprod", N265_CPU_DOTPROD, N265_CPU_NEON | N265_CPU_DOTPROD,
+      N265_NEON_SATD ? CA_F_SATD : 0u },
+    { "i8mm", N265_CPU_I8MM, ~0u, 0 },
+#elif N265_X86
+    { "sse42", N265_CPU_SSE42, N265_CPU_SSE42, CA_FAMS(N265_SSE42) },
+    { "avx2", N265_CPU_AVX2, N265_CPU_SSE42 | N265_CPU_AVX2,
+      CA_FAMS(N265_AVX2) },
+    { "avx512", N265_CPU_AVX512, ~0u, 0 },
+#else
+    { "c", 0, 0, CA_F_ALL },
+#endif
+    { NULL, 0, 0, 0 },
 };
 
 static void usage(void)
@@ -285,7 +323,7 @@ static void usage(void)
 int main(int argc, char **argv)
 {
     const char *only = NULL;
-    int fails = 0, ran = 0;
+    int fails = 0, ran = 0, tiers_run = 0;
 
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--bench")) {
@@ -312,30 +350,44 @@ int main(int argc, char **argv)
     }
 
     n265_tables_init();
+    uint32_t detected = n265_cpu_flags();
     {
         char name[64];
-        n265_cpu_name(n265_cpu_flags(), name, sizeof(name));
-        printf("checkasm: cpu %s, %d-bit samples, checking %s\n", name,
-               BIT_DEPTH, CA_ISA);
+        n265_cpu_name(detected, name, sizeof(name));
+        printf("checkasm: cpu %s, %d-bit samples\n", name, BIT_DEPTH);
     }
-#if N265_X86
-    /* the families call their AVX2 kernels directly, so a CPU without it
-     * would fault rather than fail; 77 is meson's skip */
-    if (N265_ASM_PORTED_AVX2 && !(n265_cpu_flags() & N265_CPU_AVX2)) {
-        printf("checkasm: this CPU does not report AVX2 (under Rosetta, "
-               "set ROSETTA_ADVERTISE_AVX=1); skipped\n");
+    for (const ca_tier *tr = tiers; tr->name; tr++) {
+        if (tr->bit && !(detected & tr->bit))
+            continue;
+        if (!tr->families) {
+            printf("checkasm: tier %s has no kernels; skipped\n", tr->name);
+            continue;
+        }
+        /* single-threaded, so the feature word can be swapped per tier */
+        n265_cpu_cached_ = detected & tr->keep;
+        ca_isa = tr->name;
+        printf("checkasm: checking %s\n", tr->name);
+        for (const kernel_test *t = tests; t->name; t++) {
+            int r;
+            if (only && strcmp(t->name, only))
+                continue;
+            if (!(tr->families & t->family))
+                continue;
+            r = t->run();
+            printf("%-24s %-7s %s\n", t->name, tr->name, r ? "FAIL" : "ok");
+            fails += !!r;
+            ran++;
+        }
+        tiers_run++;
+    }
+    n265_cpu_cached_ = detected;
+    if (!tiers_run) {
+        /* a direct kernel call would fault rather than fail; 77 is
+         * meson's skip */
+        printf("checkasm: no SIMD tier with kernels on this CPU; skipped\n");
         return 77;
     }
-#endif
-    for (const kernel_test *t = tests; t->name; t++) {
-        int r;
-        if (only && strcmp(t->name, only))
-            continue;
-        r = t->run();
-        printf("%-32s %s\n", t->name, r ? "FAIL" : "ok");
-        fails += !!r;
-        ran++;
-    }
-    printf("checkasm: %d kernel(s), %d failure(s)\n", ran, fails);
+    printf("checkasm: %d check(s) over %d tier(s), %d failure(s)\n", ran,
+           tiers_run, fails);
     return fails ? 1 : 0;
 }
