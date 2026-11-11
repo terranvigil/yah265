@@ -243,4 +243,18 @@ void n265_filter_refs_neon(pixel *out, const pixel *in, int log2n,
 
 #endif /* N265_NEON_INTRA */
 
+#if N265_NEON_DEBLOCK
+/* ---- deblock (N265_ASM_DBK) ---------------------------------------- */
+
+/* src/encoder/deblock.h has the contracts. */
+void n265_dbk_luma_v_neon(pixel *pix, ptrdiff_t stride, const int16_t *beta,
+                          const int16_t *tc, int nseg);
+void n265_dbk_luma_h_neon(pixel *pix, ptrdiff_t stride, const int16_t *beta,
+                          const int16_t *tc, int nseg);
+void n265_dbk_chroma_v_neon(pixel *pix, ptrdiff_t stride, const int16_t *tc,
+                            int n);
+void n265_dbk_chroma_h_neon(pixel *pix, ptrdiff_t stride, const int16_t *tc,
+                            int n);
+#endif /* N265_NEON_DEBLOCK */
+
 #endif /* N265_ARM_NEON_H */

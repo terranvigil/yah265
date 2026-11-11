@@ -111,7 +111,7 @@ static const struct { const char *name; uint32_t bit; } class_tbl[] = {
     { "dct", N265_ASM_DCT },     { "satd", N265_ASM_SATD },
     { "mc", N265_ASM_MC },       { "intra", N265_ASM_INTRA },
     { "sao", N265_ASM_SAO },     { "quant", N265_ASM_QUANT },
-    { "all", N265_ASM_ALL },
+    { "deblock", N265_ASM_DBK }, { "all", N265_ASM_ALL },
 };
 
 /* comma- or space-separated class list; an unknown name is ignored rather

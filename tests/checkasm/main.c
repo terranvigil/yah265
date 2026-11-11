@@ -238,6 +238,9 @@ int check_cost(void);
 #if N265_CA_INTRA
 int check_intra(void);
 #endif
+#if N265_CA_DEBLOCK
+int check_deblock(void);
+#endif
 
 static const kernel_test tests[] = {
 #if N265_CA_TRANSFORM
@@ -257,6 +260,9 @@ static const kernel_test tests[] = {
 #endif
 #if N265_CA_INTRA
     { "intra", check_intra },
+#endif
+#if N265_CA_DEBLOCK
+    { "deblock", check_deblock },
 #endif
     { NULL, NULL },
 };

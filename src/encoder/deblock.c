@@ -13,6 +13,13 @@
 #include "encoder/deblock.h"
 #include "encoder/transform.h"
 #include "encoder/preset.h"
+#include "common/cpu.h"
+#if N265_NEON
+#include "encoder/arm/neon.h"
+#endif
+#if N265_X86
+#include "encoder/x86/avx2.h"
+#endif
 
 /* Table 8-12 */
 static const uint8_t beta_tab[52] = {
@@ -128,6 +135,88 @@ static void chroma_segment(pixel *pix, int xstride, int ystride, int tc,
     }
 }
 
+/* The four filter entry points (deblock.h). A segment or line whose tc is
+ * 0 is left alone, which is also what the two filters above do with it. */
+void n265_dbk_luma_v_ref(pixel *pix, ptrdiff_t stride, const int16_t *beta,
+                         const int16_t *tc, int nseg)
+{
+    for (int k = 0; k < nseg; k++)
+        if (tc[k])
+            luma_segment(pix + 4 * k * stride, 1, (int)stride, beta[k], tc[k]);
+}
+
+void n265_dbk_luma_h_ref(pixel *pix, ptrdiff_t stride, const int16_t *beta,
+                         const int16_t *tc, int nseg)
+{
+    for (int k = 0; k < nseg; k++)
+        if (tc[k])
+            luma_segment(pix + 4 * k, (int)stride, 1, beta[k], tc[k]);
+}
+
+void n265_dbk_chroma_v_ref(pixel *pix, ptrdiff_t stride, const int16_t *tc,
+                           int n)
+{
+    for (int i = 0; i < n; i++)
+        if (tc[i])
+            chroma_segment(pix + i * stride, 1, (int)stride, tc[i], 1);
+}
+
+void n265_dbk_chroma_h_ref(pixel *pix, ptrdiff_t stride, const int16_t *tc,
+                           int n)
+{
+    for (int i = 0; i < n; i++)
+        if (tc[i])
+            chroma_segment(pix + i, (int)stride, 1, tc[i], 1);
+}
+
+void n265_dbk_luma_v(pixel *pix, ptrdiff_t stride, const int16_t *beta,
+                     const int16_t *tc, int nseg)
+{
+#if N265_NEON_DEBLOCK
+    if (n265_asm_on(N265_ASM_DBK)) {
+        n265_dbk_luma_v_neon(pix, stride, beta, tc, nseg);
+        return;
+    }
+#endif
+    n265_dbk_luma_v_ref(pix, stride, beta, tc, nseg);
+}
+
+void n265_dbk_luma_h(pixel *pix, ptrdiff_t stride, const int16_t *beta,
+                     const int16_t *tc, int nseg)
+{
+#if N265_NEON_DEBLOCK
+    if (n265_asm_on(N265_ASM_DBK)) {
+        n265_dbk_luma_h_neon(pix, stride, beta, tc, nseg);
+        return;
+    }
+#endif
+    n265_dbk_luma_h_ref(pix, stride, beta, tc, nseg);
+}
+
+void n265_dbk_chroma_v(pixel *pix, ptrdiff_t stride, const int16_t *tc,
+                       int n)
+{
+#if N265_NEON_DEBLOCK
+    if (n265_asm_on(N265_ASM_DBK)) {
+        n265_dbk_chroma_v_neon(pix, stride, tc, n);
+        return;
+    }
+#endif
+    n265_dbk_chroma_v_ref(pix, stride, tc, n);
+}
+
+void n265_dbk_chroma_h(pixel *pix, ptrdiff_t stride, const int16_t *tc,
+                       int n)
+{
+#if N265_NEON_DEBLOCK
+    if (n265_asm_on(N265_ASM_DBK)) {
+        n265_dbk_chroma_h_neon(pix, stride, tc, n);
+        return;
+    }
+#endif
+    n265_dbk_chroma_h_ref(pix, stride, tc, n);
+}
+
 /* is there a CU/TU/PU boundary crossing the 8-grid position? edge_map
  * bit 0 = left edge here, bit 1 = top edge; bits 2 and 3 say that edge is
  * also a TRANSFORM edge, which the cbf leg of the bS derivation needs
@@ -233,54 +322,8 @@ static int seg_qp(const struct n265_frame_work *e, int x, int y, int vertical)
     return N265_QP_LOAD((e->blk_qp[pi] + e->blk_qp[qi] + 1) >> 1);
 }
 
-/* 8.7.2.3/8.7.2.4's chroma half, for the luma band [ly0, ly1).
- *
- * The grid is EIGHT CHROMA SAMPLES in both directions at every format -
- * which is 16 luma at 4:2:0 and 8 luma at 4:4:4 - and only bS 2 (an intra
- * block on either side) reaches the chroma filter at all. Each luma bS
- * segment is four luma lines, so it covers `4 >> csy` chroma lines: two
- * at 4:2:0 and four at 4:4:4, which is what `nl` is. The maps the bS and
- * the QP come from are indexed in LUMA coordinates, so every lookup here
- * shifts back up by csx/csy rather than the plane shifting down.
- *
- * At 4:2:0 every expression folds to the `2 *` and the `+= 2` that were
- * written out before the format became a variable. */
-static void deblock_chroma(struct n265_frame_work *e, int ly0, int ly1,
-                           int to)
-{
-    int csx = e->csx, csy = e->csy;
-    int nl = 4 >> csy;                  /* chroma lines per bS segment */
-    int stepx = 4 >> csx;               /* chroma columns per bS segment */
-    int cw = e->pad_w >> csx, ch = e->pad_h >> csy;
-    int cy0 = ly0 >> csy, cy1 = ly1 >> csy;
-    if (cy1 > ch)
-        cy1 = ch;
-
-    for (int p = 1; p <= 2; p++) {
-        pixel *c = e->recon[p];
-        int cs = e->recon_stride[p];
-        for (int x = 8; x < cw; x += 8)
-            for (int y = cy0; y < cy1; y += nl)
-                if (has_edge(e, x << csx, y << csy, 1) &&
-                    seg_bs(e, x << csx, y << csy, 1) == 2) {
-                    int q = n265_chroma_qp_of(e, seg_qp(e, x << csx, y << csy, 1),
-                                             p);
-                    int t = TC_AT(clip3(0, 53, q + 2 + to));
-                    if (t)
-                        chroma_segment(c + y * cs + x, 1, cs, t, nl);
-                }
-        for (int y = cy0 < 8 ? 8 : cy0; y < cy1; y += 8)
-            for (int x = 0; x < cw; x += stepx)
-                if (has_edge(e, x << csx, y << csy, 0) &&
-                    seg_bs(e, x << csx, y << csy, 0) == 2) {
-                    int q = n265_chroma_qp_of(e, seg_qp(e, x << csx, y << csy, 0),
-                                             p);
-                    int t = TC_AT(clip3(0, 53, q + 2 + to));
-                    if (t)
-                        chroma_segment(c + y * cs + x, cs, 1, t, stepx);
-                }
-    }
-}
+/* Horizontal edges are filtered this many luma columns per kernel call. */
+#define DBK_RUN 64
 
 /* One CTB row's share of 8.7.2, in the order the row wavefront runs it
  * (docs/threading-design.md sec 1): every vertical edge inside the band,
@@ -293,7 +336,16 @@ static void deblock_chroma(struct n265_frame_work *e, int ly0, int ly1,
  * y+3, which lie in bands r-1 and r, and both have had their vertical
  * edges filtered by the time deblock(r) runs its horizontal half.
  * Vertical filtering reads only along its own line, so nothing a later
- * row does can reach back. */
+ * row does can reach back.
+ *
+ * The chroma half (8.7.2.3/8.7.2.4) rides the luma walk. Its grid is
+ * EIGHT CHROMA SAMPLES in both directions at every format - 16 luma at
+ * 4:2:0, 8 at 4:4:4 - so a luma edge on that grid is also a chroma edge,
+ * and each luma bS segment covers `4 >> csy` chroma lines of a vertical
+ * edge or `4 >> csx` chroma columns of a horizontal one. Only bS 2 reaches
+ * the chroma filter. The planes never touch, so filtering each chroma
+ * edge beside its luma edge leaves every plane's own order unchanged:
+ * all of a band's vertical edges before any of its horizontal ones. */
 void n265_deblock_row(struct n265_frame_work *e, int r)
 {
     /* 8.7.2.5.3 / 8.7.2.5.7: where cu_transquant_bypass_flag is 1 for the
@@ -304,7 +356,7 @@ void n265_deblock_row(struct n265_frame_work *e, int r)
     if (e->lossless)
         return;
     pixel *luma = e->recon[0];
-    int ls = e->recon_stride[0];
+    ptrdiff_t ls = e->recon_stride[0];
     /* 8.7.2.5.3: Q for beta is qP + 2*slice_beta_offset_div2, and for tC
      * qP + 2*(bS-1) + 2*slice_tc_offset_div2 */
     int bo = 2 * e->dbf_beta, to = 2 * e->dbf_tc;
@@ -312,31 +364,80 @@ void n265_deblock_row(struct n265_frame_work *e, int r)
     int y0 = r * ctb, y1 = y0 + ctb;
     if (y1 > e->pad_h)
         y1 = e->pad_h;
+    int csx = e->csx, csy = e->csy;
+    int nl = 4 >> csy, stepx = 4 >> csx;
+    int cgx = 8 << csx, cgy = 8 << csy;     /* the chroma grid in luma */
+    pixel *cp[2] = { e->recon[1], e->recon[2] };
+    ptrdiff_t cs[2] = { e->recon_stride[1], e->recon_stride[2] };
+    int nseg = (y1 - y0) >> 2;
+    int16_t beta[DBK_RUN / 4], tc[DBK_RUN / 4], ctc[2][DBK_RUN];
 
-    for (int x = 8; x < e->pad_w; x += 8)
-        for (int y = y0; y < y1; y += 4)
-            if (has_edge(e, x, y, 1)) {
-                int bs = seg_bs(e, x, y, 1);
+    for (int x = 8; x < e->pad_w; x += 8) {
+        int ccol = !(x & (cgx - 1));
+        int any = 0, cany = 0;
+        for (int k = 0; k < nseg; k++) {
+            int y = y0 + 4 * k;
+            int bs = has_edge(e, x, y, 1) ? seg_bs(e, x, y, 1) : 0;
+            int q = bs ? seg_qp(e, x, y, 1) : 0;
+            beta[k] = tc[k] = 0;
+            if (bs) {
+                beta[k] = (int16_t)BETA_AT(clip3(0, 51, q + bo));
+                tc[k] = (int16_t)TC_AT(clip3(0, 53, q + 2 * (bs - 1) + to));
+                any |= tc[k];
+            }
+            if (!ccol)
+                continue;
+            for (int p = 0; p < 2; p++) {
+                int t = bs == 2 ? TC_AT(clip3(0, 53,
+                        n265_chroma_qp_of(e, q, p + 1) + 2 + to)) : 0;
+                for (int i = 0; i < nl; i++)
+                    ctc[p][k * nl + i] = (int16_t)t;
+                cany |= t;
+            }
+        }
+        if (any)
+            n265_dbk_luma_v(luma + y0 * ls + x, ls, beta, tc, nseg);
+        if (cany)
+            for (int p = 0; p < 2; p++)
+                n265_dbk_chroma_v(cp[p] + (y0 >> csy) * cs[p] + (x >> csx),
+                                  cs[p], ctc[p], nseg * nl);
+    }
+
+    for (int y = y0 < 8 ? 8 : y0; y < y1; y += 8) {
+        int crow = !(y & (cgy - 1));
+        for (int x0 = 0; x0 < e->pad_w; x0 += DBK_RUN) {
+            int n = (e->pad_w - x0 < DBK_RUN ? e->pad_w - x0 : DBK_RUN) >> 2;
+            int any = 0, cany = 0;
+            for (int k = 0; k < n; k++) {
+                int x = x0 + 4 * k;
+                int bs = has_edge(e, x, y, 0) ? seg_bs(e, x, y, 0) : 0;
+                int q = bs ? seg_qp(e, x, y, 0) : 0;
+                beta[k] = tc[k] = 0;
                 if (bs) {
-                    int q = seg_qp(e, x, y, 1);
-                    luma_segment(luma + y * ls + x, 1, ls,
-                                 BETA_AT(clip3(0, 51, q + bo)),
-                                 TC_AT(clip3(0, 53, q + 2 * (bs - 1) + to)));
+                    beta[k] = (int16_t)BETA_AT(clip3(0, 51, q + bo));
+                    tc[k] = (int16_t)TC_AT(clip3(0, 53,
+                                                 q + 2 * (bs - 1) + to));
+                    any |= tc[k];
+                }
+                if (!crow)
+                    continue;
+                for (int p = 0; p < 2; p++) {
+                    int t = bs == 2 ? TC_AT(clip3(0, 53,
+                            n265_chroma_qp_of(e, q, p + 1) + 2 + to)) : 0;
+                    for (int i = 0; i < stepx; i++)
+                        ctc[p][k * stepx + i] = (int16_t)t;
+                    cany |= t;
                 }
             }
-    for (int y = y0 < 8 ? 8 : y0; y < y1; y += 8)
-        for (int x = 0; x < e->pad_w; x += 4)
-            if (has_edge(e, x, y, 0)) {
-                int bs = seg_bs(e, x, y, 0);
-                if (bs) {
-                    int q = seg_qp(e, x, y, 0);
-                    luma_segment(luma + y * ls + x, ls, 1,
-                                 BETA_AT(clip3(0, 51, q + bo)),
-                                 TC_AT(clip3(0, 53, q + 2 * (bs - 1) + to)));
-                }
-            }
-
-    deblock_chroma(e, y0, y1, to);
+            if (any)
+                n265_dbk_luma_h(luma + y * ls + x0, ls, beta, tc, n);
+            if (cany)
+                for (int p = 0; p < 2; p++)
+                    n265_dbk_chroma_h(cp[p] + (y >> csy) * cs[p] +
+                                      (x0 >> csx), cs[p], ctc[p],
+                                      n * stepx);
+        }
+    }
 }
 
 /* qPY_PREV (8.6.1) with entropy_coding_sync off is a frame-serial chain,
@@ -378,36 +479,7 @@ void n265_qpmap_row(struct n265_frame_work *e, int r, int *prev)
 
 void n265_deblock_frame(struct n265_frame_work *e)
 {
-    pixel *luma = e->recon[0];
-    int ls = e->recon_stride[0];
-    /* 8.7.2.5.3: Q for beta is qP + 2*slice_beta_offset_div2, and for tC
-     * qP + 2*(bS-1) + 2*slice_tc_offset_div2 */
-    int bo = 2 * e->dbf_beta, to = 2 * e->dbf_tc;
-
-    /* vertical edges, whole picture */
-    for (int x = 8; x < e->pad_w; x += 8)
-        for (int y = 0; y < e->pad_h; y += 4)
-            if (has_edge(e, x, y, 1)) {
-                int bs = seg_bs(e, x, y, 1);
-                if (bs) {
-                    int q = seg_qp(e, x, y, 1);
-                    luma_segment(luma + y * ls + x, 1, ls,
-                                 BETA_AT(clip3(0, 51, q + bo)),
-                                 TC_AT(clip3(0, 53, q + 2 * (bs - 1) + to)));
-                }
-            }
-    /* horizontal edges */
-    for (int y = 8; y < e->pad_h; y += 8)
-        for (int x = 0; x < e->pad_w; x += 4)
-            if (has_edge(e, x, y, 0)) {
-                int bs = seg_bs(e, x, y, 0);
-                if (bs) {
-                    int q = seg_qp(e, x, y, 0);
-                    luma_segment(luma + y * ls + x, ls, 1,
-                                 BETA_AT(clip3(0, 51, q + bo)),
-                                 TC_AT(clip3(0, 53, q + 2 * (bs - 1) + to)));
-                }
-            }
-
-    deblock_chroma(e, 0, e->pad_h, to);
+    int ctb = 1 << e->ctb_log2;
+    for (int r = 0; r * ctb < e->pad_h; r++)
+        n265_deblock_row(e, r);
 }

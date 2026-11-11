@@ -127,7 +127,7 @@ test('name', unit_name)
 # project-wide: it decides which files are IN THIS BINARY, while
 # N265_NEON_<FAMILY> decides whether the NEON leg inside a compiled file
 # has a kernel to check.
-ca_families = ['transform', 'satd', 'mc', 'rdoq', 'cost', 'intra']
+ca_families = ['transform', 'satd', 'mc', 'rdoq', 'cost', 'intra', 'deblock']
 if not is_8bit
   ca_families = neon_families + avx2_families
 endif

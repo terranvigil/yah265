@@ -105,9 +105,9 @@ all_families = []
 families_8 = []
 families_10 = []
 if cpu_family == 'aarch64'
-  all_families = ['transform', 'satd', 'mc', 'rdoq', 'cost', 'intra']
-  families_8 = ['transform', 'satd', 'mc', 'rdoq', 'cost', 'intra']
-  families_10 = ['transform', 'satd', 'rdoq', 'cost', 'intra', 'mc']  # grown one proved family at a time
+  all_families = ['transform', 'satd', 'mc', 'rdoq', 'cost', 'intra', 'deblock']
+  families_8 = ['transform', 'satd', 'mc', 'rdoq', 'cost', 'intra', 'deblock']
+  families_10 = ['transform', 'satd', 'rdoq', 'cost', 'intra', 'mc', 'deblock']  # grown one proved family at a time
   add_project_arguments('-DN265_NEON=1', language : 'c')
 endif
 neon_families = is_8bit ? families_8 : families_10
@@ -130,7 +130,7 @@ x86_families_8 = []
 x86_families_10 = []
 x86_avx2_args = ['-mavx2', '-mfma', '-mbmi2']
 if cpu_family == 'x86_64'
-  x86_all_families = ['transform', 'satd', 'mc', 'rdoq', 'cost', 'intra']
+  x86_all_families = ['transform', 'satd', 'mc', 'rdoq', 'cost', 'intra', 'deblock']
   foreach f : x86_all_families
     if fs.exists('src/encoder/x86/' + f + '_avx2.c')
       x86_families_8 += f

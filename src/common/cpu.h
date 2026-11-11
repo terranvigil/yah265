@@ -42,7 +42,8 @@ enum {
     N265_ASM_INTRA = 1u << 3,   /* intra prediction and its filters */
     N265_ASM_SAO   = 1u << 4,   /* SAO statistics and application */
     N265_ASM_QUANT = 1u << 5,   /* quant/dequant and the RDOQ marshaling */
-    N265_ASM_ALL   = 0x3fu,
+    N265_ASM_DBK   = 1u << 6,   /* the deblocking filters */
+    N265_ASM_ALL   = 0x7fu,
 };
 
 /* The detected feature word. The fast path inlines to an acquire load of
@@ -85,7 +86,7 @@ static inline uint32_t n265_cpu_flags(void)
 
 /* Per-class SIMD ablation, a MEASUREMENT HOOK and nothing else.
  * N265_ASM_OFF is a comma-separated class list
- * (`dct,satd,mc,intra,sao,quant`, or `all`) that forces those dispatch
+ * (`dct,satd,mc,intra,sao,quant,deblock`, or `all`) that forces those dispatch
  * sites onto their C fallback while the rest of the encoder stays
  * as-shipped. Every NEON kernel is bit-exact with its C reference, so the
  * output is unchanged by construction and a class's wall delta under
@@ -122,6 +123,9 @@ static inline uint32_t n265_cpu_flags(void)
 #ifndef N265_NEON_INTRA
 #define N265_NEON_INTRA 0
 #endif
+#ifndef N265_NEON_DEBLOCK
+#define N265_NEON_DEBLOCK 0
+#endif
 
 /* The classes any compiled-in family carries. A class is WIDER than a
  * family - N265_ASM_QUANT is dequant/quant in the transform file, the
@@ -137,7 +141,8 @@ static inline uint32_t n265_cpu_flags(void)
     (N265_NEON_MC        ? (uint32_t)N265_ASM_MC : 0u) | \
     (N265_NEON_RDOQ      ? (uint32_t)N265_ASM_QUANT : 0u) | \
     (N265_NEON_COST      ? (uint32_t)N265_ASM_QUANT : 0u) | \
-    (N265_NEON_INTRA     ? (uint32_t)N265_ASM_INTRA : 0u))
+    (N265_NEON_INTRA     ? (uint32_t)N265_ASM_INTRA : 0u) | \
+    (N265_NEON_DEBLOCK   ? (uint32_t)N265_ASM_DBK : 0u))
 
 static inline int n265_asm_on(uint32_t cls)
 {
@@ -181,6 +186,9 @@ static inline int n265_asm_on(uint32_t cls)
 #ifndef N265_AVX2_INTRA
 #define N265_AVX2_INTRA 0
 #endif
+#ifndef N265_AVX2_DEBLOCK
+#define N265_AVX2_DEBLOCK 0
+#endif
 
 #define N265_ASM_PORTED_AVX2 ( \
     (N265_AVX2_TRANSFORM ? (N265_ASM_DCT | N265_ASM_QUANT) : 0u) | \
@@ -188,7 +196,8 @@ static inline int n265_asm_on(uint32_t cls)
     (N265_AVX2_MC        ? (uint32_t)N265_ASM_MC : 0u) | \
     (N265_AVX2_RDOQ      ? (uint32_t)N265_ASM_QUANT : 0u) | \
     (N265_AVX2_COST      ? (uint32_t)N265_ASM_QUANT : 0u) | \
-    (N265_AVX2_INTRA     ? (uint32_t)N265_ASM_INTRA : 0u))
+    (N265_AVX2_INTRA     ? (uint32_t)N265_ASM_INTRA : 0u) | \
+    (N265_AVX2_DEBLOCK   ? (uint32_t)N265_ASM_DBK : 0u))
 
 static inline int n265_avx2_on(uint32_t cls)
 {
