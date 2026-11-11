@@ -62,6 +62,7 @@
 #define n265_clamp_mv                n265_clamp_mv_10
 #define n265_coeff_group             n265_coeff_group_10
 #define n265_coeff_group_neon        n265_coeff_group_neon_10
+#define n265_coeff_group_avx2        n265_coeff_group_avx2_10
 #define n265_coeff_group_ref         n265_coeff_group_ref_10
 #define n265_cpu_cached_             n265_cpu_cached__10
 #define n265_cpu_flags_slow          n265_cpu_flags_slow_10
@@ -69,6 +70,7 @@
 #define n265_cpu_ready_              n265_cpu_ready__10
 #define n265_csbf_map                n265_csbf_map_10
 #define n265_csbf_map_neon           n265_csbf_map_neon_10
+#define n265_csbf_map_avx2           n265_csbf_map_avx2_10
 #define n265_csbf_map_ref            n265_csbf_map_ref_10
 #define n265_csv_close               n265_csv_close_10
 #define n265_csv_frame               n265_csv_frame_10
@@ -314,6 +316,7 @@
 #define n265_satd8_ref               n265_satd8_ref_10
 #define n265_sbh_adjust              n265_sbh_adjust_10
 #define n265_sbh_adjust_neon         n265_sbh_adjust_neon_10
+#define n265_sbh_adjust_avx2         n265_sbh_adjust_avx2_10
 #define n265_sbh_adjust_ref          n265_sbh_adjust_ref_10
 #define n265_static_commit           n265_static_commit_10
 #define n265_subpel_gate             n265_subpel_gate_10
