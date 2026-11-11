@@ -65,8 +65,9 @@ up() {
 
     local iid="" subnet
     for subnet in $("${AWS[@]}" ec2 describe-subnets --filters \
-            Name=default-for-az,Values=true --query 'Subnets[].SubnetId' \
-            --output text); do
+            Name=default-for-az,Values=true \
+            "Name=availability-zone,Values=${AZS:-*}" \
+            --query 'Subnets[].SubnetId' --output text); do
     iid=$("${AWS[@]}" ec2 run-instances --image-id "$ami" \
         --instance-type "$TYPE" --key-name "$tag" \
         --security-group-ids "$sg" --subnet-id "$subnet" \

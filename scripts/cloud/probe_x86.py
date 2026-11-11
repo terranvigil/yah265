@@ -128,16 +128,50 @@ def timed(cell, arm, rnd, pin=None):
             "t": time.strftime("%H:%M:%S")})
 
 
+def busy(cell, arm, pin, stop, procs):
+    """Rerun the arm, untimed, until the slowest arm of the cell ends, so
+    every timed arm runs on an equally loaded box from start to finish
+    (a lone tail would get the single-core turbo the others didn't)."""
+    title, fn, cf1, cfd = cell
+    cmd, env = arm_cmd(arm, cf1, cfd, "/dev/null")
+    while not stop.is_set():
+        p = subprocess.Popen(["taskset", "-c", str(pin[0])] + cmd,
+                             stdin=open(os.path.join(MEDIA, fn), "rb"),
+                             env=env, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+        procs.append(p)
+        p.wait()
+
+
 def lane(cells, cores, rnd):
     for cell in cells:
         k = rnd % 4
         arms = T1_ARMS[k:] + T1_ARMS[:k]
-        th = [threading.Thread(target=timed, args=(cell, a, rnd, cores[i]))
+        stop, procs, fill, left = threading.Event(), [], [], [len(arms)]
+        lock = threading.Lock()
+
+        def one(a, pin):
+            timed(cell, a, rnd, pin)
+            with lock:
+                left[0] -= 1
+                if left[0] == 0:
+                    stop.set()
+                    return
+            t = threading.Thread(target=busy, args=(cell, a, pin, stop, procs))
+            fill.append(t)
+            t.start()
+
+        th = [threading.Thread(target=one, args=(a, cores[i]))
               for i, a in enumerate(arms)]
         for t in th:
             t.start()
         for t in th:
             t.join()
+        while any(t.is_alive() for t in fill):
+            for p in list(procs):
+                if p.poll() is None:
+                    p.kill()
+            time.sleep(0.2)
 
 
 def warm():
@@ -151,17 +185,18 @@ def do_time(rounds):
     pc = phys_cores()
     assert len(pc) >= 4, pc
     warm()
+    # a round holds every arm, so a spot reclaim mid-run still leaves
+    # whole rounds of every goal
     for rnd in range(rounds):
         if len(pc) < 8:
             lane(CELLS, pc[0:4], rnd)
-            continue
-        halves = [pc[0:4], pc[4:8]]
-        if rnd % 2:
-            halves.reverse()
-        a = threading.Thread(target=lane, args=([CELLS[2]], halves[0], rnd))
-        b = threading.Thread(target=lane, args=(CELLS[0:2], halves[1], rnd))
-        a.start(); b.start(); a.join(); b.join()
-    for rnd in range(rounds):
+        else:
+            halves = [pc[0:4], pc[4:8]]
+            if rnd % 2:
+                halves.reverse()
+            a = threading.Thread(target=lane, args=([CELLS[2]], halves[0], rnd))
+            b = threading.Thread(target=lane, args=(CELLS[0:2], halves[1], rnd))
+            a.start(); b.start(); a.join(); b.join()
         for cell in CELLS:
             arms = TN_ARMS if rnd % 2 == 0 else TN_ARMS[::-1]
             for arm in arms:
