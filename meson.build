@@ -149,7 +149,7 @@ if cpu_family == 'x86_64'
       x86_families_10 += f
     endif
   endforeach
-  foreach f : []  # the SSE4.2 Main10 list, grown the same way
+  foreach f : ['transform', 'satd', 'mc', 'intra', 'rdoq', 'cost']  # the SSE4.2 Main10 list
     if f in x86_sse42_families_8
       x86_sse42_families_10 += f
     endif

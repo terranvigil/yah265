@@ -1,13 +1,14 @@
 /*
  * satd_sse42.c - the SATD / SAD / SSD family (N265_ASM_SATD) on SSE4.2.
  *
- * satd_avx2.c's structure in 128-bit registers: a row of 8 samples
- * widened to 8 int16 lanes is one 8x8 tile row or two 4x4 tile rows, the
+ * satd_avx2.c's structure in 128-bit registers, at both depths: a row of
+ * 8 samples in 8 int16 lanes is one 8x8 tile row or two 4x4 tile rows, the
  * horizontal transform runs inside each 4- or 8-lane group with in-lane
  * shuffles and the vertical one across the row registers. The 2-D
  * Walsh-Hadamard gives the same set of values in any butterfly order, so
- * the absolute sums match the C. The AVX2 file has the range arguments;
- * they hold lane for lane.
+ * the absolute sums match the C. The AVX2 file has the range arguments,
+ * Main10's included (the 8x8 tile's last stage as 2 * max(|a|, |b|), the
+ * 4x4 sums added in pairs); they hold lane for lane.
  *
  * Every load reads exactly the bytes of the block: 16, 8 or 4 per row and
  * a scalar tail below 4.
@@ -21,9 +22,13 @@
 #include "encoder/satd.h"
 #include "encoder/x86/sse42.h"
 
-/* n = 8 or 4 bytes, zero-extended to 8 int16 lanes */
+/* n = 8 or 4 samples, zero-extended to 8 int16 lanes */
 static inline __m128i ld_w8(const pixel *p, int n)
 {
+#if BIT_DEPTH > 8
+    return n == 8 ? _mm_loadu_si128((const __m128i *)p)
+                  : _mm_loadl_epi64((const __m128i *)p);
+#else
     __m128i x;
     if (n == 8) {
         x = _mm_loadl_epi64((const __m128i *)p);
@@ -33,6 +38,7 @@ static inline __m128i ld_w8(const pixel *p, int n)
         x = _mm_cvtsi32_si128(t);
     }
     return _mm_cvtepu8_epi16(x);
+#endif
 }
 
 static inline __m128i ld_diff(const pixel *a, const pixel *b, int n)
@@ -75,23 +81,29 @@ static inline uint64_t hsum_epi64(__m128i s)
 }
 
 /* the vertical 4-point transform of four horizontally transformed rows,
- * absolute values summed per lane */
+ * absolute values summed into epi32 lane pairs */
 static inline __m128i vabs4(__m128i r0, __m128i r1, __m128i r2, __m128i r3)
 {
+    const __m128i one = _mm_set1_epi16(1);
     __m128i s0 = _mm_add_epi16(r0, r1), d0 = _mm_sub_epi16(r0, r1);
     __m128i s1 = _mm_add_epi16(r2, r3), d1 = _mm_sub_epi16(r2, r3);
     __m128i o0 = _mm_abs_epi16(_mm_add_epi16(s0, s1));
     __m128i o1 = _mm_abs_epi16(_mm_sub_epi16(s0, s1));
     __m128i o2 = _mm_abs_epi16(_mm_add_epi16(d0, d1));
     __m128i o3 = _mm_abs_epi16(_mm_sub_epi16(d0, d1));
-    return _mm_add_epi16(_mm_add_epi16(o0, o1), _mm_add_epi16(o2, o3));
+#if BIT_DEPTH == 8
+    return _mm_madd_epi16(_mm_add_epi16(_mm_add_epi16(o0, o1),
+                                        _mm_add_epi16(o2, o3)), one);
+#else
+    return _mm_add_epi32(_mm_madd_epi16(_mm_add_epi16(o0, o1), one),
+                         _mm_madd_epi16(_mm_add_epi16(o2, o3), one));
+#endif
 }
 
 /* one 4-row band of 4x4 tiles across w (a multiple of 4), each rounded */
 static inline uint32_t band4(const pixel *a, int as, const pixel *b, int bs,
                              int w)
 {
-    const __m128i one = _mm_set1_epi16(1);
     __m128i acc = _mm_setzero_si128();
     for (int x = 0; x < w;) {
         int n = w - x >= 8 ? 8 : 4;
@@ -101,7 +113,7 @@ static inline uint32_t band4(const pixel *a, int as, const pixel *b, int bs,
                                              b + 2 * bs + x, n)));
         __m128i r3 = hstage2(hstage1(ld_diff(a + 3 * as + x,
                                              b + 3 * bs + x, n)));
-        __m128i m = _mm_madd_epi16(vabs4(r0, r1, r2, r3), one);
+        __m128i m = vabs4(r0, r1, r2, r3);
         /* a tile is two adjacent epi32 lanes; after this both hold its sum */
         m = _mm_add_epi32(m, _mm_shuffle_epi32(m, 0xb1));
         m = _mm_srli_epi32(_mm_add_epi32(m, _mm_set1_epi32(1)), 1);
@@ -123,7 +135,12 @@ static inline uint32_t band8(const pixel *a, int as, const pixel *b, int bs,
         for (int y = 0; y < 8; y++)
             r[y] = hstage4(hstage2(hstage1(
                 ld_diff(a + y * as + x, b + y * bs + x, 8))));
-        for (int s = 1; s < 8; s <<= 1)
+#if BIT_DEPTH == 8
+        const int last = 8;
+#else
+        const int last = 4;
+#endif
+        for (int s = 1; s < last; s <<= 1)
             for (int i = 0; i < 8; i += s << 1)
                 for (int j = i; j < i + s; j++) {
                     __m128i t = r[j];
@@ -131,11 +148,21 @@ static inline uint32_t band8(const pixel *a, int as, const pixel *b, int bs,
                     r[j + s] = _mm_sub_epi16(t, r[j + s]);
                 }
         __m128i m = _mm_setzero_si128();
+#if BIT_DEPTH == 8
         for (int y = 0; y < 8; y += 2) {
             __m128i p = _mm_add_epi16(_mm_abs_epi16(r[y]),
                                       _mm_abs_epi16(r[y + 1]));
             m = _mm_add_epi32(m, _mm_madd_epi16(p, one));
         }
+#else
+        /* the last vertical stage, as 2 * max(|a|, |b|) */
+        for (int y = 0; y < 4; y++) {
+            __m128i p = _mm_max_epi16(_mm_abs_epi16(r[y]),
+                                      _mm_abs_epi16(r[y + 4]));
+            m = _mm_add_epi32(m, _mm_madd_epi16(p, one));
+        }
+        m = _mm_slli_epi32(m, 1);
+#endif
         sum += (hsum_epi32(m) + 2) >> 2;
     }
     return sum;
@@ -183,6 +210,7 @@ uint32_t n265_satd_wh_sse42(const pixel *a, int as, const pixel *b, int bs,
 
 /* ---- SAD / SSD ------------------------------------------------------ */
 
+#if BIT_DEPTH == 8
 uint32_t n265_sad_wh_sse42(const pixel *a, int as, const pixel *b, int bs,
                            int w, int h)
 {
@@ -216,6 +244,36 @@ uint32_t n265_sad_wh_sse42(const pixel *a, int as, const pixel *b, int bs,
     }
     return (uint32_t)hsum_epi64(acc) + tail;
 }
+#else
+static inline __m128i absdiff16(__m128i x, __m128i y)
+{
+    return _mm_sub_epi16(_mm_max_epu16(x, y), _mm_min_epu16(x, y));
+}
+
+/* a 64x64 block sums to at most 4096 * 1023 in epi32 lanes */
+uint32_t n265_sad_wh_sse42(const pixel *a, int as, const pixel *b, int bs,
+                           int w, int h)
+{
+    const __m128i one = _mm_set1_epi16(1);
+    __m128i acc = _mm_setzero_si128();
+    uint32_t tail = 0;
+    for (int y = 0; y < h; y++) {
+        const pixel *p = a + (ptrdiff_t)y * as, *q = b + (ptrdiff_t)y * bs;
+        int x = 0;
+        while (w - x >= 4) {
+            int n = w - x >= 8 ? 8 : 4;
+            acc = _mm_add_epi32(acc, _mm_madd_epi16(
+                absdiff16(ld_w8(p + x, n), ld_w8(q + x, n)), one));
+            x += n;
+        }
+        for (; x < w; x++) {
+            int d = p[x] - q[x];
+            tail += (uint32_t)(d < 0 ? -d : d);
+        }
+    }
+    return hsum_epi32(acc) + tail;
+}
+#endif
 
 uint64_t n265_ssd_wh_sse42(const pixel *a, int as, const pixel *b, int bs,
                            int w, int h)
@@ -243,6 +301,7 @@ uint64_t n265_ssd_wh_sse42(const pixel *a, int as, const pixel *b, int bs,
     return hsum_epi64(acc) + tail;
 }
 
+#if BIT_DEPTH == 8
 uint32_t n265_sum_sq16_sse42(const pixel *p, int stride, int h, uint64_t *sq)
 {
     const __m128i z = _mm_setzero_si128();
@@ -258,10 +317,31 @@ uint32_t n265_sum_sq16_sse42(const pixel *p, int stride, int h, uint64_t *sq)
     *sq = hsum_epi32(s2);
     return (uint32_t)hsum_epi64(s1);
 }
+#else
+uint32_t n265_sum_sq16_sse42(const pixel *p, int stride, int h, uint64_t *sq)
+{
+    const __m128i one = _mm_set1_epi16(1);
+    __m128i s1 = _mm_setzero_si128(), s2 = s1;
+    for (int y = 0; y < h; y++) {
+        const pixel *r = p + (ptrdiff_t)y * stride;
+        __m128i lo = _mm_loadu_si128((const __m128i *)r);
+        __m128i hi = _mm_loadu_si128((const __m128i *)(r + 8));
+        s1 = _mm_add_epi32(s1, _mm_add_epi32(_mm_madd_epi16(lo, one),
+                                             _mm_madd_epi16(hi, one)));
+        /* 16 rows of four squares per lane: 64 * 1046529 fits */
+        s2 = _mm_add_epi32(s2, _mm_add_epi32(_mm_madd_epi16(lo, lo),
+                                             _mm_madd_epi16(hi, hi)));
+    }
+    *sq = hsum_epi32(s2);
+    return hsum_epi32(s1);
+}
+#endif
 
 /* ---- per-row and per-column SAD -------------------------------------
  *
- * Column sums stay in u16 lanes: n * 255 is at most 16320 at n = 64. */
+ * Column sums stay in u16 lanes: n * PIXEL_MAX is at most 65472 at
+ * n = 64. */
+#if BIT_DEPTH == 8
 static inline __m128i absdiff8_16(const pixel *p, const pixel *q, int n)
 {
     __m128i x = n == 16 ? _mm_loadu_si128((const __m128i *)p)
@@ -303,6 +383,37 @@ void n265_sad_rowcol_sse42(const pixel *a, int as, const pixel *b, int bs,
                          _mm_unpackhi_epi16(cacc[k], z));
     }
 }
+#else
+void n265_sad_rowcol_sse42(const pixel *a, int as, const pixel *b, int bs,
+                           int n, uint32_t *row, uint32_t *col)
+{
+    if ((n & 7) || n > 64 || n <= 0) {
+        n265_sad_rowcol_ref(a, as, b, bs, n, row, col);
+        return;
+    }
+    const __m128i one = _mm_set1_epi16(1), z = _mm_setzero_si128();
+    __m128i cacc[8];
+    int nc = n >> 3;
+    for (int k = 0; k < nc; k++)
+        cacc[k] = z;
+    for (int y = 0; y < n; y++) {
+        const pixel *p = a + (ptrdiff_t)y * as, *q = b + (ptrdiff_t)y * bs;
+        __m128i rs = z;
+        for (int k = 0; k < nc; k++) {
+            __m128i d = absdiff16(ld_w8(p + 8 * k, 8), ld_w8(q + 8 * k, 8));
+            rs = _mm_add_epi32(rs, _mm_madd_epi16(d, one));
+            cacc[k] = _mm_add_epi16(cacc[k], d);
+        }
+        row[y] = hsum_epi32(rs);
+    }
+    for (int k = 0; k < nc; k++) {
+        _mm_storeu_si128((__m128i *)(col + 8 * k),
+                         _mm_unpacklo_epi16(cacc[k], z));
+        _mm_storeu_si128((__m128i *)(col + 8 * k + 4),
+                         _mm_unpackhi_epi16(cacc[k], z));
+    }
+}
+#endif
 
 /* ---- n265_psy_energy ------------------------------------------------
  *
@@ -326,12 +437,17 @@ uint32_t n265_psy_energy_sse42(const pixel *p, int stride, int n)
             __m128i d1 = _mm_sub_epi16(r2, r3);
             __m128i o0 = _mm_blend_epi16(_mm_add_epi16(s0, s1),
                                          _mm_setzero_si128(), 0x11);
-            __m128i t = _mm_add_epi16(
-                _mm_add_epi16(_mm_abs_epi16(o0),
-                              _mm_abs_epi16(_mm_sub_epi16(s0, s1))),
-                _mm_add_epi16(_mm_abs_epi16(_mm_add_epi16(d0, d1)),
-                              _mm_abs_epi16(_mm_sub_epi16(d0, d1))));
-            acc = _mm_add_epi32(acc, _mm_madd_epi16(t, one));
+            __m128i t0 = _mm_add_epi16(_mm_abs_epi16(o0),
+                                       _mm_abs_epi16(_mm_sub_epi16(s0, s1)));
+            __m128i t1 = _mm_add_epi16(_mm_abs_epi16(_mm_add_epi16(d0, d1)),
+                                       _mm_abs_epi16(_mm_sub_epi16(d0, d1)));
+#if BIT_DEPTH == 8
+            acc = _mm_add_epi32(acc,
+                                _mm_madd_epi16(_mm_add_epi16(t0, t1), one));
+#else
+            acc = _mm_add_epi32(acc, _mm_add_epi32(_mm_madd_epi16(t0, one),
+                                                   _mm_madd_epi16(t1, one)));
+#endif
             x += m;
         }
     }

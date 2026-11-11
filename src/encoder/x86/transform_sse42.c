@@ -1,13 +1,15 @@
 /*
  * transform_sse42.c - the transform family (N265_ASM_DCT, N265_ASM_QUANT)
- * on SSE4.2. The entry points are sse42.h's transform block, 8-bit only.
+ * on SSE4.2. The entry points are sse42.h's transform block, at both
+ * depths.
  *
  * transform_avx2.c's kernels with 8 columns to a vector instead of 16:
  * one independent transform per int16 lane, products from madd on two
  * interleaved rows against a broadcast pair of matrix entries, the block
  * transposed in int16 between the passes. Each output is a sum of the
  * C's exact products in another order; the AVX2 file has the range
- * proof that nothing overflows, and it holds lane for lane.
+ * proof that nothing overflows, Main10's included, and it holds lane for
+ * lane.
  *
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
@@ -488,6 +490,7 @@ void n265_fdct_sse42(int16_t *coef, const int16_t *resid, int log2n,
 /* ---- inverse -------------------------------------------------------- */
 
 /* dst = clip(pred + r) over n x n, r packed with stride n */
+#if BIT_DEPTH == 8
 AI_ void add_pred(pixel *dst, int ds, const pixel *pred, int ps,
                   const int16_t *r, const int N)
 {
@@ -524,6 +527,36 @@ AI_ void add_pred(pixel *dst, int ds, const pixel *pred, int ps,
         }
     }
 }
+#else
+AI_ void add_pred(pixel *dst, int ds, const pixel *pred, int ps,
+                  const int16_t *r, const int N)
+{
+    const __m128i z = _mm_setzero_si128();
+    const __m128i mx = _mm_set1_epi16(PIXEL_MAX);
+
+    for (int y = 0; y < N; y++) {
+        const pixel *p = pred + (ptrdiff_t)y * ps;
+        pixel *d = dst + (ptrdiff_t)y * ds;
+        const int16_t *ry = r + y * N;
+
+        if (N >= 8) {
+            for (int x = 0; x < N; x += 8) {
+                __m128i v = _mm_adds_epi16(ld_s16(ry + x, 8),
+                    _mm_loadu_si128((const __m128i *)(p + x)));
+
+                _mm_storeu_si128((__m128i *)(d + x),
+                                 _mm_min_epi16(_mm_max_epi16(v, z), mx));
+            }
+        } else {
+            __m128i v = _mm_adds_epi16(_mm_loadl_epi64((const __m128i *)ry),
+                                       _mm_loadl_epi64((const __m128i *)p));
+
+            _mm_storel_epi64((__m128i *)d,
+                             _mm_min_epi16(_mm_max_epi16(v, z), mx));
+        }
+    }
+}
+#endif
 
 AI_ void idct_n(pixel *dst, int ds, const int16_t *dq, const pixel *pred,
                 int ps, const int N, const int16_t (*tab)[2], int nzw,

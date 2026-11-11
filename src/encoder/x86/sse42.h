@@ -4,8 +4,9 @@
  * The tier for x86-64 CPUs without AVX2 (docs/x86-plan.md). A kernel is
  * `n265_<kernel>_sse42(...)` with its AVX2 twin's signature and contract,
  * defined in src/encoder/x86/<family>_sse42.c, the only files built with
- * -msse4.2. A family is ported whole, 8-bit only, and every kernel is
- * BIT-EXACT with its C reference.
+ * -msse4.2. A family is ported whole, at both depths (symbols10.h gives
+ * the Main10 names a _10 suffix), and every kernel is BIT-EXACT with its
+ * C reference.
  *
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
