@@ -386,7 +386,7 @@ struct n265_scratch {
     qt_snap qt_fpre, qt_fwon;   /* the depth-bound arm, depth 0 only */
     /* the CTU's last few full-motion predictions (mc_pred_wh), emptied
      * at every CTU (phase 14 item 40) */
-    struct mcc_key { int c, x, y, w, h; mot_t mot; } mcc_k[MCC_N];
+    struct mcc_key { uint64_t pos; mot_t mot; } mcc_k[MCC_N];
     pixel mcc_b[MCC_N][64 * 64];
     int mcc_n, mcc_next;
     /* the source's 4x4 psy energies over the CTU at (psy_x0, psy_y0),
@@ -552,11 +552,19 @@ static void mc_pred_wh_do(struct n265_frame_work *e, int c_idx, int x0,
                           int y0, int w, int h, mot_t mot, pixel *dst,
                           int ds);
 
-static inline int mcc_same(const struct mcc_key *k, int c_idx, int x0,
-                           int y0, int w, int h, const mot_t *m)
+/* c_idx, the block and the list flags in one word */
+static inline uint64_t mcc_pos(int c_idx, int x0, int y0, int w, int h,
+                               int pred)
 {
-    if (k->c != c_idx || k->x != x0 || k->y != y0 || k->w != w ||
-        k->h != h || k->mot.pred != m->pred)
+    return (uint64_t)(uint32_t)x0 | (uint64_t)(uint32_t)y0 << 20 |
+           (uint64_t)w << 40 | (uint64_t)h << 48 | (uint64_t)c_idx << 56 |
+           (uint64_t)pred << 60;
+}
+
+static inline int mcc_same(const struct mcc_key *k, uint64_t pos,
+                           const mot_t *m)
+{
+    if (k->pos != pos)
         return 0;
     for (int l = 0; l < 2; l++)
         if ((m->pred >> l) & 1)
@@ -584,8 +592,9 @@ static const pixel *mc_pred_get(struct n265_frame_work *e, int c_idx, int x0,
                                 int y0, int w, int h, mot_t mot)
 {
     struct n265_scratch *sc = e->sc;
+    uint64_t pos = mcc_pos(c_idx, x0, y0, w, h, mot.pred);
     for (int i = 0; i < sc->mcc_n; i++)
-        if (mcc_same(&sc->mcc_k[i], c_idx, x0, y0, w, h, &mot))
+        if (mcc_same(&sc->mcc_k[i], pos, &mot))
             return sc->mcc_b[i];
     int i = sc->mcc_next;
     sc->mcc_next = (i + 1) % MCC_N;
@@ -593,7 +602,8 @@ static const pixel *mc_pred_get(struct n265_frame_work *e, int c_idx, int x0,
         sc->mcc_n++;
     mc_pred_wh_do(e, c_idx, x0, y0, w, h, mot, sc->mcc_b[i], w);
     struct mcc_key *k = &sc->mcc_k[i];
-    k->c = c_idx; k->x = x0; k->y = y0; k->w = w; k->h = h; k->mot = mot;
+    k->pos = pos;
+    k->mot = mot;
     return sc->mcc_b[i];
 }
 
