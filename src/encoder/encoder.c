@@ -6142,12 +6142,19 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                     int w = x0 + g > fw->pad_w ? fw->pad_w - x0 : g;
                     int h = y0 + g > fw->pad_h ? fw->pad_h - y0 : g;
                     int64_t s1 = 0, s2 = 0;
-                    for (int y = y0; y < y0 + h; y++)
-                        for (int x = x0; x < x0 + w; x++) {
-                            int v = fw->pad_plane[0][y * fw->pad_stride[0] + x];
-                            s1 += v;
-                            s2 += v * v;
+                    for (int y = y0; y < y0 + h; y++) {
+                        const pixel *row = fw->pad_plane[0] +
+                            (size_t)y * fw->pad_stride[0] + x0;
+                        uint32_t r1 = 0, r2 = 0;
+                        N265_VECTORIZE
+                        for (int x = 0; x < w; x++) {
+                            uint32_t v = row[x];
+                            r1 += v;
+                            r2 += v * v;
                         }
+                        s1 += r1;
+                        s2 += r2;
+                    }
                     int np = w * h;
                     double var = (double)s2 / np -
                         ((double)s1 / np) * ((double)s1 / np);
@@ -6201,13 +6208,18 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                             for (int y = 0; y < hh; y++) {
                                 const pixel *p = fw->pad_plane[0] +
                                     (size_t)(y0 + 2 * y) * ps + x0;
+                                const pixel *q = p + ps;
+                                uint32_t r1 = 0, r2 = 0;
+                                N265_VECTORIZE
                                 for (int x = 0; x < hw; x++) {
-                                    int d = (p[2 * x] + p[2 * x + 1] +
-                                             p[2 * x + ps] + p[2 * x + ps + 1]
-                                             + 2) >> 2;
-                                    t1 += d;
-                                    t2 += d * d;
+                                    uint32_t d = (p[2 * x] + p[2 * x + 1] +
+                                                  q[2 * x] + q[2 * x + 1]
+                                                  + 2) >> 2;
+                                    r1 += d;
+                                    r2 += d * d;
                                 }
+                                t1 += r1;
+                                t2 += r2;
                             }
                             int n2 = hw * hh;
                             double v2 = (double)t2 / n2 -
