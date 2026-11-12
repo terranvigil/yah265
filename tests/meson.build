@@ -139,6 +139,11 @@ foreach f : ca_families
   checkasm_args += '-DN265_CA_' + f.to_upper() + '=1'
 endforeach
 
+if sve_families.length() > 0
+  checkasm_sources += 'checkasm/sve.c'
+  checkasm_args += '-DN265_CA_SVE=1'
+endif
+
 checkasm = executable('checkasm', checkasm_sources,
   c_args : checkasm_args,
   dependencies : yah265_dep)

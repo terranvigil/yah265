@@ -5,3 +5,9 @@
 # must compile to exactly what it compiled to before the option existed.
 option('bit_depth', type : 'combo', choices : ['8', '10'], value : '8',
        description : 'sample width of the encoder library (8 or Main10)')
+
+# The aarch64 SVE tier (docs/sve.md). auto: Linux on aarch64 with a
+# compiler that has the SVE intrinsics. No Apple part has SVE, so enabled
+# on macOS only compiles the files; detection never selects them there.
+option('sve', type : 'feature', value : 'auto',
+       description : 'build the aarch64 SVE/SVE2 kernels')

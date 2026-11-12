@@ -25,6 +25,9 @@ enum {
     N265_CPU_NEON    = 1u << 0,
     N265_CPU_DOTPROD = 1u << 1,   /* FEAT_DotProd (udot/sdot) */
     N265_CPU_I8MM    = 1u << 2,   /* FEAT_I8MM */
+    N265_CPU_SVE     = 1u << 3,   /* Linux only; docs/sve.md */
+    N265_CPU_SVE2    = 1u << 4,
+    N265_CPU_SVE256  = 1u << 5,   /* SVE vector length of 256 bits or more */
     /* x86-64. AVX2 is set only with FMA3, BMI2 and the OS saving the YMM
      * state, because the AVX2 tier is built with all three -m flags and
      * may use any of them. */
@@ -79,8 +82,8 @@ void n265_asm_refuse(uint32_t cls);
 uint32_t n265_cpu_flags_slow(void);
 
 /* N265_CPU_MAX=<tier> caps the detected word to the bits that tier keeps
- * (c, neon, dotprod, i8mm on aarch64; c, sse42, avx2, avx512 on x86-64),
- * so one machine can run and time every tier below its own. A measurement
+ * (c, neon, dotprod, i8mm, sve, sve2 on aarch64; c, sse42, avx2, avx512
+ * on x86-64), so one machine can run and time every tier below its own. A measurement
  * hook like N265_ASM_OFF: every kernel is bit-exact, so it moves no bit.
  * The keep mask of a tier name, ~0 for a name this architecture lacks. */
 uint32_t n265_cpu_tier_keep(const char *name);
@@ -90,6 +93,13 @@ static inline uint32_t n265_cpu_flags(void)
     if (atomic_load_explicit(&n265_cpu_ready_, memory_order_acquire))
         return n265_cpu_cached_;
     return n265_cpu_flags_slow();
+}
+
+/* the feature word without the acquire; only after an n265_cpu_flags()
+ * on this thread has returned (n265_asm_on is one) */
+static inline uint32_t n265_cpu_word(void)
+{
+    return n265_cpu_cached_;
 }
 
 /* Per-class SIMD ablation, a MEASUREMENT HOOK and nothing else.
@@ -270,6 +280,28 @@ static inline int n265_sse42_on(uint32_t cls)
     return (n265_cpu_flags() & N265_CPU_SSE42) &&
            !((n265_asm_off_ | n265_asm_refuse_) & cls);
 }
+
+/* ---- the aarch64 SVE tier (docs/sve.md) ----------------------------
+ *
+ * One N265_SVE_<FAMILY> per family file src/encoder/arm/<family>_sve.c.
+ * An SVE kernel is tried inside its NEON twin's n265_asm_on branch, so
+ * N265_ASM_OFF and N265_CPU_MAX turn both off, and a site pays one bit
+ * test when SVE is absent. A kernel ships only on the CPU shapes where it
+ * measured faster than NEON: each has its own predicate in
+ * src/encoder/arm/sve.h, over the word n265_cpu_word() returns. */
+#ifndef N265_SVE_SATD
+#define N265_SVE_SATD 0
+#endif
+#ifndef N265_SVE_MC
+#define N265_SVE_MC 0
+#endif
+/* no SVE kernels; here so the per-tier family masks can name them */
+#define N265_SVE_TRANSFORM 0
+#define N265_SVE_RDOQ 0
+#define N265_SVE_COST 0
+#define N265_SVE_INTRA 0
+#define N265_SVE_DEBLOCK 0
+#define N265_SVE_SAO 0
 
 /* Human-readable list of the active features, into `buf` (NUL-terminated). */
 void n265_cpu_name(uint32_t flags, char *buf, int size);

@@ -208,7 +208,8 @@ void ca_pg_disarm(void)
 enum {
     CA_F_TRANSFORM = 1u << 0, CA_F_SATD = 1u << 1, CA_F_MC = 1u << 2,
     CA_F_RDOQ = 1u << 3, CA_F_COST = 1u << 4, CA_F_INTRA = 1u << 5,
-    CA_F_DEBLOCK = 1u << 6, CA_F_SAO = 1u << 7, CA_F_ALL = 0xffu,
+    CA_F_DEBLOCK = 1u << 6, CA_F_SAO = 1u << 7, CA_F_SVE = 1u << 8,
+    CA_F_ALL = 0x1ffu,
 };
 
 typedef struct kernel_test {
@@ -251,6 +252,9 @@ int check_deblock(void);
 #if N265_CA_SAO
 int check_sao(void);
 #endif
+#if N265_CA_SVE
+int check_sve(void);
+#endif
 
 static const kernel_test tests[] = {
 #if N265_CA_TRANSFORM
@@ -277,6 +281,9 @@ static const kernel_test tests[] = {
 #if N265_CA_SAO
     { "sao", check_sao, CA_F_SAO },
 #endif
+#if N265_CA_SVE
+    { "sve", check_sve, CA_F_SVE },
+#endif
     { NULL, NULL, 0 },
 };
 
@@ -300,6 +307,13 @@ static const ca_tier tiers[] = {
     { "dotprod", N265_CPU_DOTPROD, N265_CPU_NEON | N265_CPU_DOTPROD,
       N265_NEON_SATD ? CA_F_SATD : 0u },
     { "i8mm", N265_CPU_I8MM, ~0u, 0 },
+    /* the families the SVE kernels dispatch from, then the SVE kernels
+     * themselves */
+    { "sve", N265_CPU_SVE, N265_CPU_NEON | N265_CPU_DOTPROD | N265_CPU_I8MM |
+      N265_CPU_SVE | N265_CPU_SVE256, CA_FAMS(N265_SVE) |
+      (CA_FAMS(N265_SVE) ? CA_F_SVE : 0u) },
+    { "sve2", N265_CPU_SVE2, ~0u, CA_FAMS(N265_SVE) |
+      (CA_FAMS(N265_SVE) ? CA_F_SVE : 0u) },
 #elif N265_X86
     { "sse42", N265_CPU_SSE42, N265_CPU_SSE42, CA_FAMS(N265_SSE42) },
     { "avx2", N265_CPU_AVX2, N265_CPU_SSE42 | N265_CPU_AVX2,

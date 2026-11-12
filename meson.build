@@ -101,6 +101,7 @@ lib_sources = [
 #
 # Item 5a makes the lists per LIBRARY rather than per build directory,
 # since both depths are compiled here now.
+fs = import('fs')
 all_families = []
 families_8 = []
 families_10 = []
@@ -111,6 +112,36 @@ if cpu_family == 'aarch64'
   add_project_arguments('-DN265_NEON=1', language : 'c')
 endif
 neon_families = is_8bit ? families_8 : families_10
+
+# The SVE tier (docs/sve.md): src/encoder/arm/<family>_sve.c, built with
+# +sve into its own archive like the x86 tiers. A family is in at both
+# depths once its file exists, since every file holds both depths' lanes.
+sve_all_families = []
+sve_families_8 = []
+sve_families_10 = []
+sve_args = ['-march=armv8.2-a+dotprod+sve']
+sve_opt = get_option('sve')
+if cpu_family == 'aarch64' and not sve_opt.disabled()
+  sve_ok = cc.compiles('''#include <arm_sve.h>
+      svint64_t f(svint16_t a, svint64_t acc) { return svdot(acc, a, a); }''',
+    args : sve_args, name : 'SVE intrinsics')
+  if sve_opt.enabled() and not sve_ok
+    error('-Dsve=enabled, but the compiler lacks the SVE intrinsics')
+  endif
+  if sve_ok and (sve_opt.enabled() or host_machine.system() == 'linux')
+    sve_all_families = ['satd', 'mc']
+    foreach f : sve_all_families
+      if fs.exists('src/encoder/arm/' + f + '_sve.c')
+        sve_families_8 += f
+        sve_families_10 += f
+      endif
+    endforeach
+  endif
+endif
+sve_families = is_8bit ? sve_families_8 : sve_families_10
+foreach f : sve_families
+  add_project_arguments('-DN265_SVE_' + f.to_upper() + '=1', language : 'c')
+endforeach
 
 # The x86-64 AVX2 tier (docs/x86-plan.md). AVX2 is not baseline x86-64,
 # so the family files compile into their own static libraries with
@@ -124,7 +155,6 @@ neon_families = is_8bit ? families_8 : families_10
 # _avx2 twin that checkasm holds bit-exact. The Main10 list is written
 # out, for the NEON list's reason: a family joins it once its 16-bit
 # lanes pass a checkasm built at 10 bits.
-fs = import('fs')
 x86_all_families = []
 x86_families_8 = []
 x86_families_10 = []
@@ -189,6 +219,12 @@ foreach d : [8, 10]
       srcs += 'src/encoder/arm/' + f + '_neon.c'
     endif
   endforeach
+  foreach f : sve_all_families
+    args += '-UN265_SVE_' + f.to_upper()
+    if f in (d == 8 ? sve_families_8 : sve_families_10)
+      args += '-DN265_SVE_' + f.to_upper() + '=1'
+    endif
+  endforeach
   foreach f : x86_all_families
     args += '-UN265_AVX2_' + f.to_upper()
     if f in (d == 8 ? x86_families_8 : x86_families_10)
@@ -210,7 +246,7 @@ foreach d : [8, 10]
   depth_args += { '@0@'.format(d) : args }
 endforeach
 
-# The AVX2 and SSE4.2 objects, one archive per tier and depth, each
+# The AVX2, SSE4.2 and SVE objects, one archive per tier and depth, each
 # folded into its depth's library. The 10-bit ones are compiled with that
 # library's arguments, so symbols10.h renames their kernels too. The archive names stay off the
 # libyah265* glob scripts/symbol_check.sh compares.
@@ -240,6 +276,18 @@ foreach d : [8, 10]
       include_directories : inc,
       install : false)
     objs += sse42_lib.extract_all_objects(recursive : false)
+  endif
+  fams = d == 8 ? sve_families_8 : sve_families_10
+  if fams.length() > 0
+    sve_srcs = []
+    foreach f : fams
+      sve_srcs += 'src/encoder/arm/' + f + '_sve.c'
+    endforeach
+    sve_lib = static_library('n265sve-@0@'.format(d), sve_srcs,
+      c_args : depth_args['@0@'.format(d)] + sve_args,
+      include_directories : inc,
+      install : false)
+    objs += sve_lib.extract_all_objects(recursive : false)
   endif
   depth_objects += { '@0@'.format(d) : objs }
 endforeach

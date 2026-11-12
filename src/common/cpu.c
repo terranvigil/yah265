@@ -35,11 +35,22 @@ static uint32_t detect_arm(void)
 }
 #else /* Linux / other aarch64 */
 #include <sys/auxv.h>
+#include <sys/prctl.h>
 #ifndef HWCAP_ASIMDDP
 #define HWCAP_ASIMDDP (1 << 20)
 #endif
 #ifndef HWCAP2_I8MM
 #define HWCAP2_I8MM (1 << 13)
+#endif
+#ifndef HWCAP_SVE
+#define HWCAP_SVE (1 << 22)
+#endif
+#ifndef HWCAP2_SVE2
+#define HWCAP2_SVE2 (1 << 1)
+#endif
+#ifndef PR_SVE_GET_VL
+#define PR_SVE_GET_VL 51
+#define PR_SVE_VL_LEN_MASK 0xffff
 #endif
 
 static uint32_t detect_arm(void)
@@ -51,6 +62,15 @@ static uint32_t detect_arm(void)
         flags |= N265_CPU_DOTPROD;
     if (hw2 & HWCAP2_I8MM)
         flags |= N265_CPU_I8MM;
+    if (hw & HWCAP_SVE) {
+        flags |= N265_CPU_SVE;
+        if (hw2 & HWCAP2_SVE2)
+            flags |= N265_CPU_SVE2;
+        /* the length this process runs at, in bytes */
+        int vl = prctl(PR_SVE_GET_VL);
+        if (vl > 0 && (vl & PR_SVE_VL_LEN_MASK) >= 32)
+            flags |= N265_CPU_SVE256;
+    }
     return flags;
 }
 #endif
@@ -142,6 +162,9 @@ static const struct { const char *name; uint32_t keep; } tier_tbl[] = {
     { "neon", N265_CPU_NEON },
     { "dotprod", N265_CPU_NEON | N265_CPU_DOTPROD },
     { "i8mm", N265_CPU_NEON | N265_CPU_DOTPROD | N265_CPU_I8MM },
+    { "sve", N265_CPU_NEON | N265_CPU_DOTPROD | N265_CPU_I8MM |
+             N265_CPU_SVE | N265_CPU_SVE256 },
+    { "sve2", ~0u },
 #elif defined(__x86_64__) || defined(_M_X64)
     { "sse42", N265_CPU_SSE42 },
     { "sse4.2", N265_CPU_SSE42 },
@@ -189,7 +212,9 @@ void n265_cpu_name(uint32_t flags, char *buf, int size)
 {
     static const struct { uint32_t bit; const char *name; } tbl[] = {
         { N265_CPU_NEON, "neon" }, { N265_CPU_DOTPROD, "dotprod" },
-        { N265_CPU_I8MM, "i8mm" }, { N265_CPU_SSE42, "sse4.2" },
+        { N265_CPU_I8MM, "i8mm" }, { N265_CPU_SVE, "sve" },
+        { N265_CPU_SVE2, "sve2" }, { N265_CPU_SVE256, "vl256" },
+        { N265_CPU_SSE42, "sse4.2" },
         { N265_CPU_AVX2, "avx2" }, { N265_CPU_AVX512, "avx512" },
     };
     int off = 0;

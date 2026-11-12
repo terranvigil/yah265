@@ -9,6 +9,7 @@
 #include "encoder/satd.h"
 #include "encoder/preset.h"
 #include "encoder/arm/neon.h"   /* self-guarded */
+#include "encoder/arm/sve.h"    /* self-guarded */
 #include "encoder/x86/avx2.h"   /* self-guarded */
 #include "encoder/x86/sse42.h"   /* self-guarded */
 
@@ -183,8 +184,13 @@ uint32_t n265_satd_wh(const pixel *a, int a_stride, const pixel *b,
      * checkasm --bench); the vector entry then lost its per-call setup
      * and a pass-2 stage, and reads 2.25x. Both paths are bit-exact, so
      * the choice moves time and nothing else. */
-    if (n265_asm_on(N265_ASM_SATD))
+    if (n265_asm_on(N265_ASM_SATD)) {
+#if N265_SVE_SATD
+        if (N265_SVE_SATD_OK(n265_cpu_word(), w, h))
+            return n265_satd_wh_sve(a, a_stride, b, b_stride, w, h);
+#endif
         return n265_satd_wh_neon(a, a_stride, b, b_stride, w, h);
+    }
 #endif
 #if N265_AVX2_SATD
     if (n265_avx2_on(N265_ASM_SATD))
@@ -239,8 +245,13 @@ uint32_t n265_sad_wh(const pixel *a, int as, const pixel *b, int bs,
                      int w, int h)
 {
 #if N265_NEON_SATD
-    if (n265_asm_on(N265_ASM_SATD))
+    if (n265_asm_on(N265_ASM_SATD)) {
+#if N265_SVE_SATD
+        if (N265_SVE_SAD_OK(n265_cpu_word(), w, h))
+            return n265_sad_wh_sve(a, as, b, bs, w, h);
+#endif
         return n265_sad_wh_neon(a, as, b, bs, w, h);
+    }
 #endif
 #if N265_AVX2_SATD
     if (n265_avx2_on(N265_ASM_SATD))
@@ -270,8 +281,13 @@ uint64_t n265_ssd_wh(const pixel *a, int as, const pixel *b, int bs,
                      int w, int h)
 {
 #if N265_NEON_SATD
-    if (n265_asm_on(N265_ASM_SATD))
+    if (n265_asm_on(N265_ASM_SATD)) {
+#if N265_SVE_SATD
+        if (N265_SVE_SSD_OK(n265_cpu_word(), w, h))
+            return n265_ssd_wh_sve(a, as, b, bs, w, h);
+#endif
         return n265_ssd_wh_neon(a, as, b, bs, w, h);
+    }
 #endif
 #if N265_AVX2_SATD
     if (n265_avx2_on(N265_ASM_SATD))
@@ -303,6 +319,11 @@ uint32_t n265_sum_sq_wh_c(const pixel *p, int stride, int w, int h,
 uint32_t n265_sum_sq_wh(const pixel *p, int stride, int w, int h,
                         uint64_t *sq)
 {
+#if N265_SVE_SATD
+    if (N265_SVE_SUMSQ_OK(n265_cpu_flags(), w, h) &&
+        n265_asm_on(N265_ASM_SATD))
+        return n265_sum_sq_wh_sve(p, stride, w, h, sq);
+#endif
 #if N265_NEON_SATD
     if (w == 16 && h <= 16 && n265_asm_on(N265_ASM_SATD))
         return n265_sum_sq16_neon(p, stride, h, sq);
