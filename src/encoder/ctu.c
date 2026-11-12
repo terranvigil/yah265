@@ -1094,16 +1094,18 @@ td_price(tb_ctx *tb, const int16_t *coef, const int16_t *level, int log2n,
         tb->td_qp = qp;
         tb->td_d = tb->td_z = 0;
     }
-    int n = 1 << log2n;
+    int nn = 1 << (2 * log2n);
     int64_t sz = 0, sd;
-    for (int i = 0; i < n * n; i++)
-        sz += (int32_t)coef[i] * coef[i];
+    N265_VECTORIZE
+    for (int i = 0; i < nn; i++)
+        sz += (uint32_t)((int32_t)coef[i] * coef[i]);
     sd = sz;
     if (nz) {
         int16_t dq[32 * 32];
         n265_dequant(dq, level, log2n, qp, NULL, NULL);
         sd = 0;
-        for (int i = 0; i < n * n; i++) {
+        N265_VECTORIZE
+        for (int i = 0; i < nn; i++) {
             int32_t d = (int32_t)coef[i] - dq[i];
             sd += d * d;
         }
