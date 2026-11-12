@@ -35,6 +35,15 @@
  * caller filling n265_picture sees the same width the library does. */
 typedef n265_pixel pixel;
 
+/* Vectorize a sample loop at full width: clang otherwise unrolls a short
+ * one whole and leaves it scalar. For integer loops only, where the
+ * result cannot depend on it. */
+#if defined(__clang__)
+#define N265_VECTORIZE _Pragma("clang loop vectorize_width(16) unroll(disable)")
+#else
+#define N265_VECTORIZE
+#endif
+
 /* BitDepthY == BitDepthC: 4:2:0 8-bit or Main10 only, so one constant
  * serves both. Item 2 splits them only if a profile ever needs it. */
 #define BIT_DEPTH       N265_BIT_DEPTH

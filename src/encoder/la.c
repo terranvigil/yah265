@@ -817,24 +817,42 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
 
     /* lowres: 2x2 mean over the padded width (edge rows repeat source) */
     int lw = la->lw, lh = la->lh;
-    for (int y = 0; y < lh; y++)
-        for (int x = 0; x < lw; x++) {
-            int sy = 2 * y, sx = 2 * x;
-            int h1 = sy + 1 < e->param.height ? sy + 1 : sy;
-            int w1 = sx + 1 < e->param.width ? sx + 1 : sx;
-            if (sy >= e->param.height)
-                sy = h1 = e->param.height - 1;
-            if (sx >= e->param.width)
-                sx = w1 = e->param.width - 1;
-            const pixel *s = f->src[0];
-            int ps = e->pad_w;
-            /* the mean, brought back to 8-bit magnitudes: the shift is
-             * 2 at 8 bits, which is the plain 2x2 mean it has always
-             * been (la.h says why the proxy stays narrow) */
-            f->lowres[y * lw + x] = (pixel)((s[sy * ps + sx] +
-                s[sy * ps + w1] + s[h1 * ps + sx] + s[h1 * ps + w1] +
-                (2 << BIT_DEPTH_SHIFT)) >> (2 + BIT_DEPTH_SHIFT));
+    {
+        const pixel *s = f->src[0];
+        pixel *lo = f->lowres;
+        int ps = e->pad_w, sh = e->param.height, sw = e->param.width;
+        /* the samples a step reads without the edge clamps */
+        int xin = sw >> 1 < lw ? sw >> 1 : lw;
+        int yin = sh >> 1 < lh ? sh >> 1 : lh;
+        for (int y = 0; y < lh; y++) {
+            int x = 0;
+            if (y < yin) {
+                const pixel *restrict r0 = s + (size_t)(2 * y) * ps;
+                const pixel *restrict r1 = r0 + ps;
+                pixel *restrict d = lo + (size_t)y * lw;
+                N265_VECTORIZE
+                for (; x < xin; x++)
+                    d[x] = (pixel)((r0[2 * x] + r0[2 * x + 1] + r1[2 * x] +
+                                    r1[2 * x + 1] + (2 << BIT_DEPTH_SHIFT))
+                                   >> (2 + BIT_DEPTH_SHIFT));
+            }
+            for (; x < lw; x++) {
+                int sy = 2 * y, sx = 2 * x;
+                int h1 = sy + 1 < sh ? sy + 1 : sy;
+                int w1 = sx + 1 < sw ? sx + 1 : sx;
+                if (sy >= sh)
+                    sy = h1 = sh - 1;
+                if (sx >= sw)
+                    sx = w1 = sw - 1;
+                /* the mean, brought back to 8-bit magnitudes: the shift is
+                 * 2 at 8 bits, which is the plain 2x2 mean it has always
+                 * been (la.h says why the proxy stays narrow) */
+                lo[y * lw + x] = (pixel)((s[sy * ps + sx] +
+                    s[sy * ps + w1] + s[h1 * ps + sx] + s[h1 * ps + w1] +
+                    (2 << BIT_DEPTH_SHIFT)) >> (2 + BIT_DEPTH_SHIFT));
+            }
         }
+    }
 
     /* per-8x8 costs */
     f->icost_sum = f->pcost_sum = f->mvabs_sum = f->mvsat_sum = 0;
