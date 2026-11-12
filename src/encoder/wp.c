@@ -132,11 +132,24 @@ static int wp_max_refs(void)
 static void downscale(pixel *dst, int dw, int dh, const pixel *src,
                       int ss, int sw, int sh)
 {
+    /* the samples a step reads without the edge clamps */
+    int xin = sw >> 1 < dw ? sw >> 1 : dw;
     for (int y = 0; y < dh; y++) {
         int sy = 2 * y, sy1;
         if (sy >= sh) sy = sh - 1;
         sy1 = sy + 1 < sh ? sy + 1 : sy;
-        for (int x = 0; x < dw; x++) {
+        int x = 0;
+        if (sy1 == sy + 1) {
+            const pixel *restrict r0 = src + (size_t)sy * ss;
+            const pixel *restrict r1 = r0 + ss;
+            pixel *restrict d = dst + (size_t)y * dw;
+            N265_VECTORIZE
+            for (; x < xin; x++)
+                d[x] = (pixel)((r0[2 * x] + r0[2 * x + 1] + r1[2 * x] +
+                                r1[2 * x + 1] + (2 << BIT_DEPTH_SHIFT))
+                               >> (2 + BIT_DEPTH_SHIFT));
+        }
+        for (; x < dw; x++) {
             int sx = 2 * x, sx1;
             if (sx >= sw) sx = sw - 1;
             sx1 = sx + 1 < sw ? sx + 1 : sx;
@@ -237,29 +250,40 @@ struct sad_set {
 static void sad_sweep(const pixel *cur, const pixel *ref, int n,
                       int w, int d, int o0, struct sad_set *out)
 {
-    /* The map has 256 possible inputs - the lowres planes carry 8-bit
-     * values at every depth (la.h) - so five candidates over it is a
-     * table built once, against a multiply, a shift, an add and two
-     * clamps per sample per candidate otherwise. The plane is half a
-     * million samples at 1080p and the table is not, which is the whole
-     * argument. It is sized by the PIXEL type rather than by 256 so that
-     * a value outside the range the downscale guarantees would be a
-     * wrong answer and not an out-of-bounds read. */
-    static const int LN = PIXEL_MAX + 1;
-    uint8_t lut[5][PIXEL_MAX + 1];
-    for (int k = 0; k < 5; k++)
-        for (int v = 0; v < LN; v++)
-            lut[k][v] = (uint8_t)wp_map8(v > 255 ? 255 : v, w, d,
-                                         o0 + k - 2);
+    /* wp_map8 per candidate, written out: candidate k is the clamp of
+     * one unclamped map plus k - 2, so the loop has no table to gather
+     * from and vectorizes. Sums run in 32 bits over a chunk. */
+    int rnd = d ? 1 << (d - 1) : 0;
     memset(out, 0, sizeof(*out));
-    for (int i = 0; i < n; i++) {
-        int c = cur[i], r = ref[i];
-        int du = c - r;
-        out->un += (unsigned)(du < 0 ? -du : du);
-        for (int k = 0; k < 5; k++) {
-            int dv = c - lut[k][r];
-            out->w[k] += (unsigned)(dv < 0 ? -dv : dv);
+    for (int i0 = 0; i0 < n; i0 += 4096) {
+        int i1 = n - i0 < 4096 ? n : i0 + 4096;
+        uint32_t su = 0, s0 = 0, s1 = 0, s2 = 0, s3 = 0, s4 = 0;
+        N265_VECTORIZE
+        for (int i = i0; i < i1; i++) {
+            int c = cur[i], r = ref[i];
+            int m = (((r > 255 ? 255 : r) * w + rnd) >> d) + o0;
+            int du = c - r;
+            su += (unsigned)(du < 0 ? -du : du);
+#define WP_SWEEP_K(acc, k)                                              \
+            {                                                           \
+                int t = m + (k) - 2;                                    \
+                t = t < 0 ? 0 : t > 255 ? 255 : t;                      \
+                int dv = c - t;                                         \
+                acc += (unsigned)(dv < 0 ? -dv : dv);                   \
+            }
+            WP_SWEEP_K(s0, 0)
+            WP_SWEEP_K(s1, 1)
+            WP_SWEEP_K(s2, 2)
+            WP_SWEEP_K(s3, 3)
+            WP_SWEEP_K(s4, 4)
+#undef WP_SWEEP_K
         }
+        out->un += su;
+        out->w[0] += s0;
+        out->w[1] += s1;
+        out->w[2] += s2;
+        out->w[3] += s3;
+        out->w[4] += s4;
     }
 }
 
