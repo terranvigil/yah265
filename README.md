@@ -19,19 +19,22 @@ films, at CIF, 720p, 1080p and 4K.
 
 | goal | yah265 | x265 | yah265 runs |
 |---|---|---|---|
-| 1 | pure C on one thread | `--no-asm` on one thread | 1.96x to 3.45x as fast |
-| 2 | pure C on all cores | `--no-asm` on all cores | 2.27x to 3.23x as fast |
-| 3 | NEON on all cores | its own assembly on all cores | 1.37x to 1.89x as fast |
-| quality | | | 12.4% fewer bits at equal VMAF v1 |
+| 1 | pure C on one thread | `--no-asm` on one thread | 2.17x to 4.35x as fast |
+| 2 | pure C on all cores | `--no-asm` on all cores | 2.86x to 4.17x as fast |
+| 3 | NEON on all cores | its own assembly on all cores | 1.61x to 2.13x as fast |
+| quality | | | 10.9% fewer bits at equal VMAF v1 |
 
 Each speed range runs from the slowest group's median to the fastest's. A
 group is one resolution class in one tier of the test set. The quality row
-is a median over 52 rate ladders on real films at CRF and at VBR. Every one
-of those ladders comes out ahead of x265.
+is a median over 52 rate ladders on real films at CRF and at VBR. All 52
+are inside the parity bar, and yah265 comes out ahead on 51.
+
+These are Mac results, on arm64 NEON. Parity on x86-64 (SSE4.2, AVX2 and
+AVX-512) and on arm64 SVE is in progress.
 
 The [results page](site/results.md) has every table, down to the slowest
 clip in each group, VBR rate tracking and the lookahead sweep. It's built
-from the [parity report](docs/parity/PARITY-REPORT-yah265-2026-11-04.md).
+from the [parity report](docs/parity/PARITY-REPORT-yah265-2026-11-12.md).
 [Check it yourself](site/check-it-yourself.md) shows how to rerun a reading.
 
 ## Build and use

@@ -6,7 +6,7 @@ type: article
 
 # Introducing yah265
 
-yah265 is an H.265/HEVC encoder written from scratch. At `--preset medium` it runs <!--gen:g3-range-->1.37x to 1.89x<!--/gen:g3-range--> as fast as x265 with both encoders' SIMD on and every core busy. For the same VMAF v1 quality it needs a median <!--gen:bd-median-->12.4%<!--/gen:bd-median--> fewer bits.
+yah265 is an H.265/HEVC encoder written from scratch. At `--preset medium` it runs <!--gen:g3-range-->1.61x to 2.13x<!--/gen:g3-range--> as fast as x265 with both encoders' SIMD on and every core busy. For the same VMAF v1 quality it needs a median <!--gen:bd-median-->10.9%<!--/gen:bd-median--> fewer bits.
 
 It's the second of three sibling encoders. [yah264](https://terranvigil.github.io/yah264/) reached the same goals against x264 first. yah265 follows the same rules. The code is clean-room from the ITU-T H.265 specification, and two independent decoders check every stream it writes.
 
@@ -16,12 +16,12 @@ Each speed figure is the median over a group of clips, at the same file size as 
 
 | build | times as fast as x265 |
 |---|--:|
-| plain C, one thread (x265 `--no-asm`, one thread) | <!--gen:g1-range-->1.96x to 3.45x<!--/gen:g1-range--> |
-| plain C, all cores (x265 `--no-asm`) | <!--gen:g2-range-->2.27x to 3.23x<!--/gen:g2-range--> |
-| SIMD, all cores (yah265 NEON against x265's own assembly) | <!--gen:g3-range-->1.37x to 1.89x<!--/gen:g3-range--> |
+| plain C, one thread (x265 `--no-asm`, one thread) | <!--gen:g1-range-->2.17x to 4.35x<!--/gen:g1-range--> |
+| plain C, all cores (x265 `--no-asm`) | <!--gen:g2-range-->2.86x to 4.17x<!--/gen:g2-range--> |
+| SIMD, all cores (yah265 NEON against x265's own assembly) | <!--gen:g3-range-->1.61x to 2.13x<!--/gen:g3-range--> |
 
 - Faster than x265 on every goal in every class from CIF to 4K, and on clips from ten seconds to ten minutes. That's <!--gen:combos-->27 of 27<!--/gen:combos--> combinations of class, length and goal.
-- Ahead of x265 on all <!--gen:ladders-ahead-->52<!--/gen:ladders-ahead--> of <!--gen:ladders-->52<!--/gen:ladders--> rate ladders on real films, at CRF and at capped VBR.
+- Ahead of x265 on <!--gen:ladders-ahead-->51<!--/gen:ladders-ahead--> of <!--gen:ladders-->52<!--/gen:ladders--> rate ladders on real films, at CRF and at capped VBR. All <!--gen:ladders-in-bar-->52<!--/gen:ladders-in-bar--> are inside the +1.0% bar.
 - Main, Main10, 4:2:2 and 4:4:4 from one binary.
 - CRF, fixed QP, ABR, VBR and CBR with a VBV, capped CRF and two-pass.
 - HDR10, HDR10+, HLG and Dolby Vision profile 8 signaling.
@@ -29,33 +29,33 @@ Each speed figure is the median over a group of clips, at the same file size as 
 
 <figure class="chart"><img src="assets/blog/speed.svg" alt="Dot plot: median speedup over x265 medium for each resolution and length group at three goals. Every dot sits right of the 1x line."></figure>
 
-The closest group is <!--gen:closest-group-->4K 2-min segments on G3<!--/gen:closest-group-->. The slowest single clip anywhere is <!--gen:slowest-cell-->Sintel at 4K on G3<!--/gen:slowest-cell-->, which still runs <!--gen:slowest-x-->1.19x<!--/gen:slowest-x--> as fast as x265.
+The closest group is <!--gen:closest-group-->720p short clips on G3<!--/gen:closest-group-->. The slowest single clip anywhere is <!--gen:slowest-cell-->Sintel at 4K on G3<!--/gen:slowest-cell-->, which still runs <!--gen:slowest-x-->1.52x<!--/gen:slowest-x--> as fast as x265.
 
 <!--gen:speed-table-->
 | class | tier | G1, C on one thread | G2, C on all cores | G3, SIMD on all cores | VMAF v1 at the same size |
 |---|---|--:|--:|--:|--:|
-| CIF | short clips | 1.96x | 2.86x | 1.89x | +2.10 |
-| 720p | short clips | 2.63x | 2.78x | 1.43x | +2.46 |
-| 720p | 10-min films | 2.70x | 3.23x | 1.82x | +1.67 |
-| 1080p | short clips | 2.63x | 2.78x | 1.64x | +0.58 |
-| 1080p | 2-min segments | 2.63x | 2.70x | 1.52x | +2.09 |
-| 1080p | 10-min films | 2.78x | 2.94x | 1.61x | +1.08 |
-| 4K | short clips | 3.45x | 2.56x | 1.49x | +2.08 |
-| 4K | 2-min segments | 2.50x | 2.33x | 1.37x | +1.53 |
-| 4K | 10-min films | 2.50x | 2.27x | 1.45x | +1.27 |
+| CIF | short clips | 2.17x | 3.12x | 1.96x | +2.33 |
+| 720p | short clips | 3.33x | 3.33x | 1.61x | +2.39 |
+| 720p | 10-min films | 3.57x | 4.17x | 2.13x | +1.67 |
+| 1080p | short clips | 3.12x | 3.33x | 1.92x | +0.61 |
+| 1080p | 2-min segments | 2.86x | 3.03x | 1.69x | +1.96 |
+| 1080p | 10-min films | 3.12x | 3.33x | 1.75x | +1.08 |
+| 4K | short clips | 4.35x | 3.12x | 1.61x | +1.86 |
+| 4K | 2-min segments | 3.33x | 3.12x | 1.79x | +1.40 |
+| 4K | 10-min films | 3.33x | 2.86x | 1.72x | +1.18 |
 <!--/gen:speed-table-->
 
 The last column is VMAF v1 points ahead of x265 at the same file size, median over the group.
 
-<figure class="chart"><img src="assets/blog/bdrate.svg" alt="Dot plot: BD-rate against x265 on VMAF v1 for 26 film cells at CRF and capped VBR. Every dot sits left of zero."></figure>
+<figure class="chart"><img src="assets/blog/bdrate.svg" alt="Dot plot: BD-rate against x265 on VMAF v1 for 26 film cells at CRF and capped VBR. Every dot sits left of the +1.0% bar."></figure>
 
-Over the whole rate range the saving is a median <!--gen:bd-crf-->14.4%<!--/gen:bd-crf--> at CRF and <!--gen:bd-vbr-->10.8%<!--/gen:bd-vbr--> at capped VBR. The bar for parity is +1.0% on every ladder. The thinnest margin is <!--gen:bd-tightest-->Chimera 4K (2 min) VBR<!--/gen:bd-tightest--> at <!--gen:bd-tightest-v-->-0.76%<!--/gen:bd-tightest-v-->.
+Over the whole rate range the saving is a median <!--gen:bd-crf-->12.1%<!--/gen:bd-crf--> at CRF and <!--gen:bd-vbr-->9.4%<!--/gen:bd-vbr--> at capped VBR. The bar for parity is +1.0% on every ladder. The thinnest margin is <!--gen:bd-tightest-->Chimera 4K (2 min) VBR<!--/gen:bd-tightest--> at <!--gen:bd-tightest-v-->+0.70%<!--/gen:bd-tightest-v-->.
 
 ## How it was measured
 
 Both encoders ran `--preset medium` on one Apple M5 Max with 18 cores. The reference is the Homebrew build of x265 4.3, with its arm64 assembly. For a speed reading, yah265 is solved onto x265's file size within 1%. Both encoders read the same frames from one feeder on standard input. Quality is VMAF v1, scored at display size on every frame of the two-minute segments and every third frame of the films. The ten-minute films skip their black openings and stop before the end credits.
 
-The [results page](results.md) has every table. The [methodology](methodology.md) has the rules that make a number valid. The current figures on this page come from <!--gen:report-link-->[the parity report of 2026-11-04](docs/parity/PARITY-REPORT-yah265-2026-11-04.md)<!--/gen:report-link-->. The history chart comes from the board's own data file. One [script](scripts/blog_charts.py) draws every chart and fills in every figure from those two sources. You can [check it yourself](check-it-yourself.md).
+The [results page](results.md) has every table. The [methodology](methodology.md) has the rules that make a number valid. The current figures on this page come from <!--gen:report-link-->[the parity report of 2026-11-12](docs/parity/PARITY-REPORT-yah265-2026-11-12.md)<!--/gen:report-link-->. The history chart comes from the board's own data file. One [script](scripts/blog_charts.py) draws every chart and fills in every figure from those two sources. You can [check it yourself](check-it-yourself.md).
 
 ## How we got there
 
@@ -111,13 +111,13 @@ One title still failed the speed bar with SIMD on. Meridian at 720p took 1.22x x
 
 ### Parity
 
-yah265 declared full parity in early November. <!--gen:parity-line-->[The parity report of 2026-11-04](docs/parity/PARITY-REPORT-yah265-2026-11-04.md) has every speed combination passing. Every ladder is inside the bar.<!--/gen:parity-line-->
+yah265 declared full parity in early November. <!--gen:parity-line-->[The parity report of 2026-11-12](docs/parity/PARITY-REPORT-yah265-2026-11-12.md) has every speed combination passing. Every ladder is inside the bar.<!--/gen:parity-line-->
 
 ## Still open
 
 - The content types tier (film grain, sports and screen) hasn't been timed. Its speed doesn't count toward parity.
-- End credits are reported apart from the films. <!--gen:credits-->On 3 of 7 titles yah265 needs more bytes than x265 there.<!--/gen:credits-->
-- x86-64 SIMD is the next platform.
+- End credits are reported apart from the films. <!--gen:credits-->On 1 of 5 titles yah265 needs more bytes than x265 there. The other 2 are still pending.<!--/gen:credits-->
+- Every result here is from the Mac. Parity on x86-64 (SSE4.2, AVX2 and AVX-512) and on arm64 SVE is in progress.
 
 ## Docs
 

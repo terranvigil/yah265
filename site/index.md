@@ -10,13 +10,13 @@ description: An H.265/HEVC encoder written from scratch, faster than x265 at med
 yah265 is the sibling of [yah264](https://terranvigil.github.io/yah264/), which reached the same goals against x264. The rules carry over. The encoder is clean-room from the ITU-T H.265 specification. Every stream is checked against two independent decoders. Every number on this site comes from a script in the repository.
 
 <div class="nums">
-<div><span>pure C on one thread</span><b>1.96x to 3.45x</b></div>
-<div><span>pure C on all cores</span><b>2.27x to 3.23x</b></div>
-<div><span>SIMD on all cores</span><b>1.37x to 1.89x</b></div>
-<div><span>median bits saved</span><b>12.4%</b></div>
+<div><span>pure C on one thread</span><b>2.17x to 4.35x</b></div>
+<div><span>pure C on all cores</span><b>2.86x to 4.17x</b></div>
+<div><span>SIMD on all cores</span><b>1.61x to 2.13x</b></div>
+<div><span>median bits saved</span><b>10.9%</b></div>
 </div>
 
-The speed figures say how many times faster yah265 runs than x265 when both write files of the same size. Each range runs from the slowest group's median to the fastest's. The last figure is the share of bitrate yah265 saves at equal VMAF v1 quality. It's a median over 52 rate ladders on real films at CRF and at VBR. Every one of those ladders comes out ahead of x265.
+The speed figures say how many times faster yah265 runs than x265 when both write files of the same size. Each range runs from the slowest group's median to the fastest's. The last figure is the share of bitrate yah265 saves at equal VMAF v1 quality. It's a median over 52 rate ladders on real films at CRF and at VBR. All 52 are inside the parity bar, and yah265 comes out ahead on 51. These are Mac results, on arm64 NEON. Parity on x86-64 and on arm64 SVE is in progress.
 
 ## What it does
 
