@@ -211,10 +211,9 @@ static void atexit_hist(int *h)
 static void set_blk(struct n265_frame_work *e, uint8_t *map, int x0, int y0,
                     int n, int v)
 {
-    for (int y = 0; y < n; y += 4)
-        for (int x = 0; x < n; x += 4)
-            map[((y0 + y) >> 2) * e->map_stride + ((x0 + x) >> 2)] =
-                (uint8_t)v;
+    uint8_t *m = map + (y0 >> 2) * e->map_stride + (x0 >> 2);
+    for (int y = 0; y < n; y += 4, m += e->map_stride)
+        memset(m, v, (size_t)(n >> 2));
 }
 
 static void set_mode_map(struct n265_frame_work *e, int x0, int y0, int n,
