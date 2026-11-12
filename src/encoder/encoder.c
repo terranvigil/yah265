@@ -3177,8 +3177,8 @@ n265_encoder *n265_encoder_open(const n265_param *p)
             struct n265_refpic *r = sl < e->dpb_slots
                 ? &e->dpb[sl] : &e->scratch_pic[sl - e->dpb_slots];
             r->stride[i] = w + 2 * px;
-            r->base[i] = malloc((size_t)r->stride[i] * (h + 2 * py)
-                                * sizeof(pixel));
+            r->base[i] = n265_malloc_big((size_t)r->stride[i] *
+                                         (h + 2 * py) * sizeof(pixel));
             if (!r->base[i])
                 goto fail;
             r->plane[i] = r->base[i] + py * r->stride[i] + px;
@@ -4248,7 +4248,7 @@ static void hf_arm(n265_encoder *e, struct n265_refpic *r, int code_idx)
                              * n265_ref_guard reads it unconditionally */
     for (int i = 0; i < 3; i++) {
         if (!r->hf_base[i]) {
-            r->hf_base[i] = malloc((size_t)w * h * sizeof(int16_t));
+            r->hf_base[i] = n265_malloc_big((size_t)w * h * sizeof(int16_t));
             if (!r->hf_base[i]) {   /* no cache is a slow path, not a fail */
                 for (int k = 0; k < 3; k++)
                     r->hf[k] = NULL;
@@ -4320,7 +4320,7 @@ static void hf_arm(n265_encoder *e, struct n265_refpic *r, int code_idx)
         if (!(mask & (1u << i)))
             continue;
         if (!r->hf2_base[i]) {
-            r->hf2_base[i] = malloc((size_t)w * h * sizeof(pixel));
+            r->hf2_base[i] = n265_malloc_big((size_t)w * h * sizeof(pixel));
             if (!r->hf2_base[i])    /* no cache is a slow path, not a fail */
                 break;
         }
@@ -4331,7 +4331,7 @@ static void hf_arm(n265_encoder *e, struct n265_refpic *r, int code_idx)
         if (!(mask & (1u << (i + 12))))
             continue;
         if (!r->hf2w_base[i]) {
-            r->hf2w_base[i] = malloc((size_t)w * h * sizeof(int16_t));
+            r->hf2w_base[i] = n265_malloc_big((size_t)w * h * sizeof(int16_t));
             if (!r->hf2w_base[i])
                 break;
         }
@@ -6142,12 +6142,19 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                     int w = x0 + g > fw->pad_w ? fw->pad_w - x0 : g;
                     int h = y0 + g > fw->pad_h ? fw->pad_h - y0 : g;
                     int64_t s1 = 0, s2 = 0;
-                    for (int y = y0; y < y0 + h; y++)
-                        for (int x = x0; x < x0 + w; x++) {
-                            int v = fw->pad_plane[0][y * fw->pad_stride[0] + x];
-                            s1 += v;
-                            s2 += v * v;
+                    for (int y = y0; y < y0 + h; y++) {
+                        const pixel *row = fw->pad_plane[0] +
+                            (size_t)y * fw->pad_stride[0] + x0;
+                        uint32_t r1 = 0, r2 = 0;
+                        N265_VECTORIZE
+                        for (int x = 0; x < w; x++) {
+                            uint32_t v = row[x];
+                            r1 += v;
+                            r2 += v * v;
                         }
+                        s1 += r1;
+                        s2 += r2;
+                    }
                     int np = w * h;
                     double var = (double)s2 / np -
                         ((double)s1 / np) * ((double)s1 / np);
@@ -6201,13 +6208,18 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                             for (int y = 0; y < hh; y++) {
                                 const pixel *p = fw->pad_plane[0] +
                                     (size_t)(y0 + 2 * y) * ps + x0;
+                                const pixel *q = p + ps;
+                                uint32_t r1 = 0, r2 = 0;
+                                N265_VECTORIZE
                                 for (int x = 0; x < hw; x++) {
-                                    int d = (p[2 * x] + p[2 * x + 1] +
-                                             p[2 * x + ps] + p[2 * x + ps + 1]
-                                             + 2) >> 2;
-                                    t1 += d;
-                                    t2 += d * d;
+                                    uint32_t d = (p[2 * x] + p[2 * x + 1] +
+                                                  q[2 * x] + q[2 * x + 1]
+                                                  + 2) >> 2;
+                                    r1 += d;
+                                    r2 += d * d;
                                 }
+                                t1 += r1;
+                                t2 += r2;
                             }
                             int n2 = hw * hh;
                             double v2 = (double)t2 / n2 -

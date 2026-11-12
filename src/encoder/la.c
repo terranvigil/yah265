@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "common/cpu.h"
 #include "encoder/encoder.h"
 #include "encoder/la.h"
 #include "encoder/preset.h"
@@ -65,13 +66,20 @@ int n265_la_flat_pct(const struct n265_frame_work *fw)
             int lo = PIXEL_MAX, hi = 0;
             for (int y = 0; y < 16; y++) {
                 const pixel *r = b + y * stride;
+                uint32_t r1 = 0, r2 = 0;
+                pixel rlo = r[0], rhi = r[0];
+                N265_VECTORIZE
                 for (int x = 0; x < 16; x++) {
-                    int v = r[x];
-                    s1 += (uint32_t)v;
-                    s2 += (uint32_t)(v * v);
-                    if (v < lo) lo = v;
-                    if (v > hi) hi = v;
+                    pixel v = r[x];
+                    r1 += v;
+                    r2 += (uint32_t)v * v;
+                    rlo = v < rlo ? v : rlo;
+                    rhi = v > rhi ? v : rhi;
                 }
+                s1 += r1;
+                s2 += r2;
+                if (rlo < lo) lo = rlo;
+                if (rhi > hi) hi = rhi;
                 /* Exact early reject, and on natural video it fires on
                  * the first row of nearly every block. For any mean,
                  * one of the two extremes is at least (hi - lo) / 2
@@ -137,7 +145,7 @@ int n265_la_init(struct n265_encoder *e)
         for (int c = 0; c < 3; c++) {
             int w = c ? e->pad_w >> e->csx : e->pad_w;
             int h = c ? e->pad_h >> e->csy : e->pad_h;
-            f->src[c] = malloc((size_t)w * h * sizeof(pixel));
+            f->src[c] = n265_malloc_big((size_t)w * h * sizeof(pixel));
             if (!f->src[c])
                 return -1;
         }
@@ -173,8 +181,9 @@ int n265_la_init(struct n265_encoder *e)
         f->zsad = malloc((size_t)nb * sizeof(uint16_t));
         f->mv = malloc((size_t)nb * 2 * sizeof(int16_t));
         f->prop = malloc((size_t)nb * sizeof(float));
+        f->ctfrac = malloc((size_t)nb * sizeof(float));
         if (!f->lowres || !f->icost || !f->pcost || !f->zsad || !f->mv ||
-            !f->prop)
+            !f->prop || !f->ctfrac)
             return -1;
     }
     return 0;
@@ -195,6 +204,7 @@ void n265_la_free(struct n265_encoder *e)
         free(f->zsad);
         free(f->mv);
         free(f->prop);
+        free(f->ctfrac);
     }
     free(e->la.f);
     e->la.f = NULL;
@@ -214,11 +224,17 @@ void n265_la_free(struct n265_encoder *e)
     e->la.pc_bisad = NULL;
 }
 
-/* the lookahead's own name for the block SAD; the loop moved to
- * n265_sad_wh (satd.c) when the family got a NEON form */
-static uint32_t sad8(const pixel *a, int as, const pixel *b, int bs)
+/* the lookahead's 8x8 block SAD, inline: through n265_sad_wh the call
+ * cost more than the loop */
+static inline uint32_t sad8(const pixel *a, int as, const pixel *b, int bs)
 {
-    return n265_sad_wh(a, as, b, bs, 8, 8);
+    uint32_t sad = 0;
+    for (int y = 0; y < 8; y++, a += as, b += bs)
+        for (int x = 0; x < 8; x++) {
+            int d = a[x] - b[x];
+            sad += (uint32_t)(d < 0 ? -d : d);
+        }
+    return sad;
 }
 
 /* N265_SC_HOLD: a HELD frame does not set the running level.
@@ -817,30 +833,49 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
 
     /* lowres: 2x2 mean over the padded width (edge rows repeat source) */
     int lw = la->lw, lh = la->lh;
-    for (int y = 0; y < lh; y++)
-        for (int x = 0; x < lw; x++) {
-            int sy = 2 * y, sx = 2 * x;
-            int h1 = sy + 1 < e->param.height ? sy + 1 : sy;
-            int w1 = sx + 1 < e->param.width ? sx + 1 : sx;
-            if (sy >= e->param.height)
-                sy = h1 = e->param.height - 1;
-            if (sx >= e->param.width)
-                sx = w1 = e->param.width - 1;
-            const pixel *s = f->src[0];
-            int ps = e->pad_w;
-            /* the mean, brought back to 8-bit magnitudes: the shift is
-             * 2 at 8 bits, which is the plain 2x2 mean it has always
-             * been (la.h says why the proxy stays narrow) */
-            f->lowres[y * lw + x] = (pixel)((s[sy * ps + sx] +
-                s[sy * ps + w1] + s[h1 * ps + sx] + s[h1 * ps + w1] +
-                (2 << BIT_DEPTH_SHIFT)) >> (2 + BIT_DEPTH_SHIFT));
+    {
+        const pixel *s = f->src[0];
+        pixel *lo = f->lowres;
+        int ps = e->pad_w, sh = e->param.height, sw = e->param.width;
+        /* the samples a step reads without the edge clamps */
+        int xin = sw >> 1 < lw ? sw >> 1 : lw;
+        int yin = sh >> 1 < lh ? sh >> 1 : lh;
+        for (int y = 0; y < lh; y++) {
+            int x = 0;
+            if (y < yin) {
+                const pixel *restrict r0 = s + (size_t)(2 * y) * ps;
+                const pixel *restrict r1 = r0 + ps;
+                pixel *restrict d = lo + (size_t)y * lw;
+                N265_VECTORIZE
+                for (; x < xin; x++)
+                    d[x] = (pixel)((r0[2 * x] + r0[2 * x + 1] + r1[2 * x] +
+                                    r1[2 * x + 1] + (2 << BIT_DEPTH_SHIFT))
+                                   >> (2 + BIT_DEPTH_SHIFT));
+            }
+            for (; x < lw; x++) {
+                int sy = 2 * y, sx = 2 * x;
+                int h1 = sy + 1 < sh ? sy + 1 : sy;
+                int w1 = sx + 1 < sw ? sx + 1 : sx;
+                if (sy >= sh)
+                    sy = h1 = sh - 1;
+                if (sx >= sw)
+                    sx = w1 = sw - 1;
+                /* the mean, brought back to 8-bit magnitudes: the shift is
+                 * 2 at 8 bits, which is the plain 2x2 mean it has always
+                 * been (la.h says why the proxy stays narrow) */
+                lo[y * lw + x] = (pixel)((s[sy * ps + sx] +
+                    s[sy * ps + w1] + s[h1 * ps + sx] + s[h1 * ps + w1] +
+                    (2 << BIT_DEPTH_SHIFT)) >> (2 + BIT_DEPTH_SHIFT));
+            }
         }
+    }
 
     /* per-8x8 costs */
     f->icost_sum = f->pcost_sum = f->mvabs_sum = f->mvsat_sum = 0;
     f->mvbits_sum = 0;
     int mvcap = badapt_mvcap();
     int mvgate = badapt_mvgate();
+    int ctrate = ct_mvrate();
     f->zsad_sum = 0;
     uint64_t ifail_sum = 0;     /* the intra cost of the blocks inter loses */
     for (int by = 0; by < la->bh; by++)
@@ -1021,6 +1056,15 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
                 f->zsad[b] = (uint16_t)(zc > 65535 ? 65535 : zc);
                 f->mv[2 * b] = (int16_t)mx;
                 f->mv[2 * b + 1] = (int16_t)my;
+            }
+            {
+                /* the propagate fraction cu-tree reads, once per frame
+                 * rather than once per window it sits in */
+                float ic = f->icost[b], pc = f->pcost[b];
+                if (ctrate)
+                    pc += (float)la_mvcost(ctrate, f->mv[2 * b],
+                                           f->mv[2 * b + 1]);
+                f->ctfrac[b] = pc >= ic ? -1.0f : 1.0f - pc / ic;
             }
             f->icost_sum += f->icost[b];
             f->pcost_sum += f->pcost[b];
@@ -1640,7 +1684,6 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
                 order[m++] = k - 1;
         }
     }
-    int mvrate = ct_mvrate();
     for (int oi = m - 1; oi >= 0; oi--) {
         int k = order[oi];
         if (k <= i)
@@ -1668,17 +1711,19 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
         }
         if (!nt)
             continue;
-        for (int b = 0; b < nb; b++) {
-            float ic = f->icost[b], pc = f->pcost[b];
+        int bw = la->bw, bh = la->bh;
+        for (int by = 0; by < bh; by++)
+        for (int bx = 0; bx < bw; bx++) {
+            int b = by * bw + bx;
             /* N265_CT_MVRATE: the propagate fraction is priced on the
              * cost the CODER pays for this block - the vector's own bits
-             * included - and not on the lookahead's bare distortion. */
-            if (mvrate)
-                pc += (float)la_mvcost(mvrate, f->mv[2 * b], f->mv[2 * b + 1]);
-            if (pc >= ic)
+             * included - and not on the lookahead's bare distortion
+             * (n265_la_push forms it). */
+            float frac = f->ctfrac[b];
+            if (frac < 0.0f)
                 continue;
-            float amount = (ic + f->prop[b]) * (1.0f - pc / ic);
-            int bx = b % la->bw, by = b / la->bw;
+            float ic = f->icost[b];
+            float amount = (ic + f->prop[b]) * frac;
             for (int t = 0; t < nt; t++) {
                 la_frame *ref = &la->f[tgt[t].idx];
                 int mvx = f->mv[2 * b] * tgt[t].scale;
@@ -1692,15 +1737,28 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
                 int fx = px & 7, fy = py & 7;
                 float wx1 = fx / 8.0f, wy1 = fy / 8.0f;
                 float aw = amount * tgt[t].w;
+                if (gx >= 0 && gy >= 0 && gx + 1 < bw && gy + 1 < bh) {
+                    /* the loop below, with no edge to test */
+                    float *p0 = ref->prop + gy * bw + gx, *p1 = p0 + bw;
+                    float w;
+                    w = (1 - wx1) * (1 - wy1);
+                    p0[0] += aw * w;
+                    w = wx1 * (1 - wy1);
+                    p0[1] += aw * w;
+                    w = (1 - wx1) * wy1;
+                    p1[0] += aw * w;
+                    w = wx1 * wy1;
+                    p1[1] += aw * w;
+                    continue;
+                }
                 for (int dy = 0; dy < 2; dy++)
                     for (int dx = 0; dx < 2; dx++) {
                         int tx = gx + dx, ty = gy + dy;
-                        if (tx < 0 || ty < 0 || tx >= la->bw ||
-                            ty >= la->bh)
+                        if (tx < 0 || ty < 0 || tx >= bw || ty >= bh)
                             continue;
                         float w = (dx ? wx1 : 1 - wx1) *
                                   (dy ? wy1 : 1 - wy1);
-                        ref->prop[ty * la->bw + tx] += aw * w;
+                        ref->prop[ty * bw + tx] += aw * w;
                     }
             }
         }

@@ -211,10 +211,9 @@ static void atexit_hist(int *h)
 static void set_blk(struct n265_frame_work *e, uint8_t *map, int x0, int y0,
                     int n, int v)
 {
-    for (int y = 0; y < n; y += 4)
-        for (int x = 0; x < n; x += 4)
-            map[((y0 + y) >> 2) * e->map_stride + ((x0 + x) >> 2)] =
-                (uint8_t)v;
+    uint8_t *m = map + (y0 >> 2) * e->map_stride + (x0 >> 2);
+    for (int y = 0; y < n; y += 4, m += e->map_stride)
+        memset(m, v, (size_t)(n >> 2));
 }
 
 static void set_mode_map(struct n265_frame_work *e, int x0, int y0, int n,
@@ -386,7 +385,7 @@ struct n265_scratch {
     qt_snap qt_fpre, qt_fwon;   /* the depth-bound arm, depth 0 only */
     /* the CTU's last few full-motion predictions (mc_pred_wh), emptied
      * at every CTU (phase 14 item 40) */
-    struct mcc_key { int c, x, y, w, h; mot_t mot; } mcc_k[MCC_N];
+    struct mcc_key { uint64_t pos; mot_t mot; } mcc_k[MCC_N];
     pixel mcc_b[MCC_N][64 * 64];
     int mcc_n, mcc_next;
     /* the source's 4x4 psy energies over the CTU at (psy_x0, psy_y0),
@@ -552,11 +551,19 @@ static void mc_pred_wh_do(struct n265_frame_work *e, int c_idx, int x0,
                           int y0, int w, int h, mot_t mot, pixel *dst,
                           int ds);
 
-static inline int mcc_same(const struct mcc_key *k, int c_idx, int x0,
-                           int y0, int w, int h, const mot_t *m)
+/* c_idx, the block and the list flags in one word */
+static inline uint64_t mcc_pos(int c_idx, int x0, int y0, int w, int h,
+                               int pred)
 {
-    if (k->c != c_idx || k->x != x0 || k->y != y0 || k->w != w ||
-        k->h != h || k->mot.pred != m->pred)
+    return (uint64_t)(uint32_t)x0 | (uint64_t)(uint32_t)y0 << 20 |
+           (uint64_t)w << 40 | (uint64_t)h << 48 | (uint64_t)c_idx << 56 |
+           (uint64_t)pred << 60;
+}
+
+static inline int mcc_same(const struct mcc_key *k, uint64_t pos,
+                           const mot_t *m)
+{
+    if (k->pos != pos)
         return 0;
     for (int l = 0; l < 2; l++)
         if ((m->pred >> l) & 1)
@@ -584,8 +591,9 @@ static const pixel *mc_pred_get(struct n265_frame_work *e, int c_idx, int x0,
                                 int y0, int w, int h, mot_t mot)
 {
     struct n265_scratch *sc = e->sc;
+    uint64_t pos = mcc_pos(c_idx, x0, y0, w, h, mot.pred);
     for (int i = 0; i < sc->mcc_n; i++)
-        if (mcc_same(&sc->mcc_k[i], c_idx, x0, y0, w, h, &mot))
+        if (mcc_same(&sc->mcc_k[i], pos, &mot))
             return sc->mcc_b[i];
     int i = sc->mcc_next;
     sc->mcc_next = (i + 1) % MCC_N;
@@ -593,7 +601,8 @@ static const pixel *mc_pred_get(struct n265_frame_work *e, int c_idx, int x0,
         sc->mcc_n++;
     mc_pred_wh_do(e, c_idx, x0, y0, w, h, mot, sc->mcc_b[i], w);
     struct mcc_key *k = &sc->mcc_k[i];
-    k->c = c_idx; k->x = x0; k->y = y0; k->w = w; k->h = h; k->mot = mot;
+    k->pos = pos;
+    k->mot = mot;
     return sc->mcc_b[i];
 }
 
@@ -1064,6 +1073,25 @@ static void tb_quant_one(struct n265_frame_work *e, int c_idx, int log2n,
         n265_sbh_adjust(level, log2n, scan);
 }
 
+/* source minus prediction, n x n packed; each size is its own loop so
+ * the row width is a constant the vectorizer can use */
+static inline void blk_resid(int16_t *restrict r, const pixel *src,
+                             ptrdiff_t ss, const pixel *pred, int log2n)
+{
+#define BLK_RESID(N)                                                    \
+    for (int y = 0; y < (N); y++)                                       \
+        for (int x = 0; x < (N); x++)                                   \
+            r[y * (N) + x] = (int16_t)(src[y * ss + x] - pred[y * (N) + x]); \
+    return;
+    switch (log2n) {
+    case 2: BLK_RESID(4)
+    case 3: BLK_RESID(8)
+    case 4: BLK_RESID(16)
+    default: BLK_RESID(32)
+    }
+#undef BLK_RESID
+}
+
 /* N265_TD_DIST: the block's coded distortion and its skip distortion, off
  * the coefficients, in pixel SSD units. Out of line: the trial path is
  * hot and this is not on it unless the knob is. */
@@ -1075,16 +1103,18 @@ td_price(tb_ctx *tb, const int16_t *coef, const int16_t *level, int log2n,
         tb->td_qp = qp;
         tb->td_d = tb->td_z = 0;
     }
-    int n = 1 << log2n;
+    int nn = 1 << (2 * log2n);
     int64_t sz = 0, sd;
-    for (int i = 0; i < n * n; i++)
-        sz += (int32_t)coef[i] * coef[i];
+    N265_VECTORIZE
+    for (int i = 0; i < nn; i++)
+        sz += (uint32_t)((int32_t)coef[i] * coef[i]);
     sd = sz;
     if (nz) {
         int16_t dq[32 * 32];
         n265_dequant(dq, level, log2n, qp, NULL, NULL);
         sd = 0;
-        for (int i = 0; i < n * n; i++) {
+        N265_VECTORIZE
+        for (int i = 0; i < nn; i++) {
             int32_t d = (int32_t)coef[i] - dq[i];
             sd += d * d;
         }
@@ -1170,10 +1200,7 @@ static void tb_analyze_one(struct n265_frame_work *e, int c_idx, int x0,
     }
 
     int16_t resid[32 * 32], coef[32 * 32];
-    for (int y = 0; y < n; y++)
-        for (int x = 0; x < n; x++)
-            resid[y * n + x] = (int16_t)(src[y * e->pad_stride[c_idx] + x] -
-                                         pred[y * n + x]);
+    blk_resid(resid, src, e->pad_stride[c_idx], pred, log2n);
     /* transquant bypass (8.6.2): no transform, no quantizer, and no
      * sign-bit hiding (7.4.9.11 conditions it on the flag). The coded
      * levels ARE the residual samples in raster position, which is what
@@ -1322,17 +1349,13 @@ static void tb_relattice_one(struct n265_frame_work *e, int c_idx, int x0,
 {
     int inter = mode == MODE_INTER;
     int use_dst = !inter && c_idx == 0 && log2n == 2;
-    int n = 1 << log2n;
     int ps = e->pad_stride[c_idx];
     const pixel *pred = tb->pred + off;
     int16_t *level = tb->level + off;
     const pixel *src = e->pad_plane[c_idx] + (size_t)y0 * ps + x0;
     int16_t resid[32 * 32], coef[32 * 32];
 
-    for (int y = 0; y < n; y++)
-        for (int x = 0; x < n; x++)
-            resid[y * n + x] = (int16_t)(src[(size_t)y * ps + x] -
-                                         pred[y * n + x]);
+    blk_resid(resid, src, ps, pred, log2n);
     n265_fdct(coef, resid, log2n, use_dst);
     int scan = inter ? 0 : n265_scan_idx(mode, log2n, c_filt(e, c_idx));
     int sv = e->rdoq_commit;
@@ -2994,33 +3017,26 @@ static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
 static void set_mot_map_wh(struct n265_frame_work *e, int x0, int y0, int w,
                            int h, mot_t mot)
 {
-    for (int y = 0; y < h; y += 4)
-        for (int x = 0; x < w; x += 4) {
-            int m = ((y0 + y) >> 2) * e->map_stride + ((x0 + x) >> 2);
-            e->blk_mv[4 * m] = mot.mv[0].x;
-            e->blk_mv[4 * m + 1] = mot.mv[0].y;
-            e->blk_mv[4 * m + 2] = mot.mv[1].x;
-            e->blk_mv[4 * m + 3] = mot.mv[1].y;
-            e->blk_pred[m] = mot.pred;
-            e->blk_ref[2 * m] = mot.ref[0];
-            e->blk_ref[2 * m + 1] = mot.ref[1];
+    int16_t mv4[4] = { mot.mv[0].x, mot.mv[0].y, mot.mv[1].x, mot.mv[1].y };
+    int8_t ref2[2] = { mot.ref[0], mot.ref[1] };
+    int16_t *bmv = e->blk_mv;
+    uint8_t *bpred = e->blk_pred;
+    int8_t *bref = e->blk_ref;
+    int ms = e->map_stride, nx = w >> 2;
+    for (int y = 0; y < h; y += 4) {
+        int m0 = ((y0 + y) >> 2) * ms + (x0 >> 2);
+        for (int k = 0; k < nx; k++) {
+            memcpy(bmv + 4 * (m0 + k), mv4, sizeof mv4);
+            memcpy(bref + 2 * (m0 + k), ref2, sizeof ref2);
         }
+        memset(bpred + m0, mot.pred, (size_t)nx);
+    }
 }
 
 static void set_mot_map(struct n265_frame_work *e, int x0, int y0, int n,
                         mot_t mot)
 {
-    for (int y = 0; y < n; y += 4)
-        for (int x = 0; x < n; x += 4) {
-            int m = ((y0 + y) >> 2) * e->map_stride + ((x0 + x) >> 2);
-            e->blk_mv[4 * m] = mot.mv[0].x;
-            e->blk_mv[4 * m + 1] = mot.mv[0].y;
-            e->blk_mv[4 * m + 2] = mot.mv[1].x;
-            e->blk_mv[4 * m + 3] = mot.mv[1].y;
-            e->blk_pred[m] = mot.pred;
-            e->blk_ref[2 * m] = mot.ref[0];
-            e->blk_ref[2 * m + 1] = mot.ref[1];
-        }
+    set_mot_map_wh(e, x0, y0, n, n, mot);
 }
 
 static int cpred_trace(void);
