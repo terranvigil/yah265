@@ -59,7 +59,7 @@ One engine handles the reference picture sets and the decoded picture buffer. Be
 
 ## SIMD
 
-The arm64 build has NEON kernels for the transforms, the cost functions, interpolation and the other hot paths. They're written as intrinsics with one file per kernel family. The encoder picks them at run time. Every kernel reproduces its C reference byte for byte, or it doesn't merge. `N265_ASM_OFF=all` puts the shipping binary back on the C path with no rebuild. That's how the pure-C goals are timed. The C path stays first-class because it's what other architectures run.
+The arm64 build has NEON kernels for the transforms, the cost functions, interpolation and the other hot paths. They're written as intrinsics with one file per kernel family. The encoder picks them at run time. Every kernel reproduces its C reference byte for byte, or it doesn't merge. `N265_ASM_OFF=all` puts the shipping binary back on the C path with no rebuild. That's how the pure-C goals are timed. The x86-64 build has the same families as SSE4.2 and AVX2 kernels, held to the same rule. The C path stays first-class because it's the reference every kernel is checked against.
 
 ## The gates
 

@@ -81,7 +81,7 @@ preset only sets defaults, any option you give wins over it.
   tunes its coding for PQ and HLG pictures. The [HDR notes](docs/hdr.md)
   cover both.
 - x265's option names wherever the two encoders share a feature.
-- NEON kernels on arm64. Each one is bit-exact with its C reference.
+- SIMD kernels on arm64 (NEON) and x86-64 (SSE4.2 and AVX2), picked at run time. Each one is bit-exact with its C reference.
 - The same bytes from run to run at `--threads 1`.
 
 ## License

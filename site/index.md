@@ -25,7 +25,7 @@ The speed figures say how many times faster yah265 runs than x265 when both writ
 - HDR10, HDR10+, HLG and Dolby Vision profile 8 signaling. The [HDR page](hdr.md) covers it.
 - Four presets in x265's names: `fast`, `medium`, `slow` and `slower`.
 - x265's option names wherever the two encoders share a feature.
-- NEON kernels on arm64. Each one is bit-exact with its C reference.
+- SIMD kernels on arm64 (NEON) and x86-64 (SSE4.2 and AVX2), picked at run time. Each one is bit-exact with its C reference.
 
 ## Where to go next
 
