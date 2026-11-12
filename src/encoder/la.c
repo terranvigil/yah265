@@ -221,11 +221,17 @@ void n265_la_free(struct n265_encoder *e)
     e->la.pc_bisad = NULL;
 }
 
-/* the lookahead's own name for the block SAD; the loop moved to
- * n265_sad_wh (satd.c) when the family got a NEON form */
-static uint32_t sad8(const pixel *a, int as, const pixel *b, int bs)
+/* the lookahead's 8x8 block SAD, inline: through n265_sad_wh the call
+ * cost more than the loop */
+static inline uint32_t sad8(const pixel *a, int as, const pixel *b, int bs)
 {
-    return n265_sad_wh(a, as, b, bs, 8, 8);
+    uint32_t sad = 0;
+    for (int y = 0; y < 8; y++, a += as, b += bs)
+        for (int x = 0; x < 8; x++) {
+            int d = a[x] - b[x];
+            sad += (uint32_t)(d < 0 ? -d : d);
+        }
+    return sad;
 }
 
 /* N265_SC_HOLD: a HELD frame does not set the running level.
