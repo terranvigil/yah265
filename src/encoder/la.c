@@ -1693,7 +1693,10 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
         }
         if (!nt)
             continue;
-        for (int b = 0; b < nb; b++) {
+        int bw = la->bw, bh = la->bh;
+        for (int by = 0; by < bh; by++)
+        for (int bx = 0; bx < bw; bx++) {
+            int b = by * bw + bx;
             float ic = f->icost[b], pc = f->pcost[b];
             /* N265_CT_MVRATE: the propagate fraction is priced on the
              * cost the CODER pays for this block - the vector's own bits
@@ -1703,7 +1706,6 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
             if (pc >= ic)
                 continue;
             float amount = (ic + f->prop[b]) * (1.0f - pc / ic);
-            int bx = b % la->bw, by = b / la->bw;
             for (int t = 0; t < nt; t++) {
                 la_frame *ref = &la->f[tgt[t].idx];
                 int mvx = f->mv[2 * b] * tgt[t].scale;
@@ -1717,15 +1719,28 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
                 int fx = px & 7, fy = py & 7;
                 float wx1 = fx / 8.0f, wy1 = fy / 8.0f;
                 float aw = amount * tgt[t].w;
+                if (gx >= 0 && gy >= 0 && gx + 1 < bw && gy + 1 < bh) {
+                    /* the loop below, with no edge to test */
+                    float *p0 = ref->prop + gy * bw + gx, *p1 = p0 + bw;
+                    float w;
+                    w = (1 - wx1) * (1 - wy1);
+                    p0[0] += aw * w;
+                    w = wx1 * (1 - wy1);
+                    p0[1] += aw * w;
+                    w = (1 - wx1) * wy1;
+                    p1[0] += aw * w;
+                    w = wx1 * wy1;
+                    p1[1] += aw * w;
+                    continue;
+                }
                 for (int dy = 0; dy < 2; dy++)
                     for (int dx = 0; dx < 2; dx++) {
                         int tx = gx + dx, ty = gy + dy;
-                        if (tx < 0 || ty < 0 || tx >= la->bw ||
-                            ty >= la->bh)
+                        if (tx < 0 || ty < 0 || tx >= bw || ty >= bh)
                             continue;
                         float w = (dx ? wx1 : 1 - wx1) *
                                   (dy ? wy1 : 1 - wy1);
-                        ref->prop[ty * la->bw + tx] += aw * w;
+                        ref->prop[ty * bw + tx] += aw * w;
                     }
             }
         }
