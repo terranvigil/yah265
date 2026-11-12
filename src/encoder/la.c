@@ -1819,6 +1819,12 @@ static void ct_prop_rows(const struct ct_prop *c, int by0, int by1, int ty0,
     }
 }
 
+static void ct_prop_all(void *ctx)
+{
+    const struct ct_prop *c = ctx;
+    ct_prop_rows(c, 0, c->la->bh, 0, c->la->bh);
+}
+
 static void ct_prop_band(void *ctx, int i)
 {
     const struct ct_prop *c = ctx;
@@ -1964,14 +1970,10 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
             cp.tgt[t].neg = tgt[t].neg;
             cp.tgt[t].scale = tgt[t].scale;
         }
-        if (n265_par_width(e) > 1) {
-            int bands = n265_par_width(e) / 2 > 2 ? n265_par_width(e) / 2 : 2;
-            cp.band = (la->bh + bands - 1) / bands;
-            n265_par_for(e, PAR_CT_PROP, (la->bh + cp.band - 1) / cp.band,
-                         ct_prop_band, &cp);
-        } else {
-            ct_prop_rows(&cp, 0, la->bh, 0, la->bh);
-        }
+        int bands = n265_par_width(e) / 2 > 2 ? n265_par_width(e) / 2 : 2;
+        cp.band = (la->bh + bands - 1) / bands;
+        n265_par_for_whole(e, PAR_CT_PROP, (la->bh + cp.band - 1) / cp.band,
+                           ct_prop_band, &cp, ct_prop_all);
     }
 
     /* offsets for frame i: -strength * log2((intra + prop) / intra),

@@ -1990,6 +1990,11 @@ typedef struct n265_par n265_par;
 int n265_par_width(const struct n265_encoder *e);
 void n265_par_for(struct n265_encoder *e, int site, int n,
                   void (*fn)(void *ctx, int i), void *ctx);
+/* the same, and where the split does not run, `whole` does the job in one
+ * piece instead of item by item */
+void n265_par_for_whole(struct n265_encoder *e, int site, int n,
+                        void (*fn)(void *ctx, int i), void *ctx,
+                        void (*whole)(void *ctx));
 /* A row wavefront: row r calls n265_par_need(w, r, x) before reading
  * row r - 1's columns below x, and n265_par_post(w, r, x) once its own
  * first x columns are final. `w` is NULL where the rows run in order on

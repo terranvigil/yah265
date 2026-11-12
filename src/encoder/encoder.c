@@ -2972,6 +2972,12 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * no bits, only how much of the mini-GOP overlaps. */
     int tree_k = 0, vbr_lag = 0;
     e->dpb_slots_hf = e->dpb_slots;
+    /* The driver's per-frame analysis split over the pool (n265_par_for),
+     * with the eight frames in flight at 720p and the slot growth at the
+     * peak below. A schedule, so 0 - main's - moves no bit and is there
+     * to time against. */
+    { const char *v = n265_env("N265_DRV_PAR");
+      e->drv_par = v ? atoi(v) : 1; }
     { const char *v = n265_env("N265_MAX_FRAME_WORK");
       /* T3/4's sweep. K is bounded in practice by the DPB slot pool, not
        * by the frame_works: a frame in flight that is a REFERENCE holds a
@@ -3023,6 +3029,16 @@ n265_encoder *n265_encoder_open(const n265_param *p)
                         ? e->ctb_rows : (e->ctb_cols + 1) / 2;
           if (2 * cap <= nt)
               k = 8;
+          /* A 720p-class picture takes eight too, now that the driver's
+           * analysis is split: at auto threads shields_720p read 0.85x
+           * on x86 and 0.87x here, and sintel_720p, which step 4 refused
+           * at +6.4%, reads 0.85x. One worker gains nothing from it. */
+          {
+              long a = (long)e->param.width * e->param.height;
+              if (e->drv_par && nt > 1 && a >= 1280L * 533 &&
+                  a < 1920L * 800)
+                  k = 8;
+          }
           /* Phase 14 item 17. Where the UHD overlay took the 64x64 tree
            * (uhd_qp >= 0 says the switch decided, uhd_tree says which
            * way) the wavefront has half the rows of the 32x32 tree it
@@ -3115,11 +3131,6 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         if (e->row_yield < 0)
             e->row_yield = 0;
     }
-    /* The driver's per-frame analysis split over the pool (n265_par_for),
-     * and the slot growth at the peak below. A schedule, so 0 - main's -
-     * moves no bit and is there to time against. */
-    { const char *v = n265_env("N265_DRV_PAR");
-      e->drv_par = v ? atoi(v) : 1; }
     /* Item 25: more frames in flight need more pictures to write into.
      * A pool at the structural peak already leaves claim_slot's overwrite
      * branch unreachable (dpb_pool), so growing it there is as unseen as
@@ -4756,7 +4767,7 @@ static void par_go(n265_par *w, int items)
 /* Whether a split pays is measured rather than assumed: on a small
  * picture, or where the free workers are slow cores, the split loses to
  * the driver alone. Each site keeps both forms' time an item and runs the
- * faster, trying the other every 32nd call so a change of load can turn
+ * faster, trying the other every 256th call so a change of load can turn
  * it back. Which form runs is a schedule; it cannot change a bit. */
 static int par_pick(n265_encoder *e, int site)
 {
@@ -4764,7 +4775,7 @@ static int par_pick(n265_encoder *e, int site)
     if (e->par_site[site].n[0] < 4 || e->par_site[site].n[1] < 4)
         return c & 1;
     int best = e->par_site[site].t[1] < e->par_site[site].t[0];
-    return (c & 31) == 0 ? !best : best;
+    return (c & 255) == 0 ? !best : best;
 }
 
 static void par_note(n265_encoder *e, int site, int split, double t)
@@ -4776,10 +4787,20 @@ static void par_note(n265_encoder *e, int site, int split, double t)
 void n265_par_for(n265_encoder *e, int site, int n,
                   void (*fn)(void *ctx, int i), void *ctx)
 {
+    n265_par_for_whole(e, site, n, fn, ctx, NULL);
+}
+
+void n265_par_for_whole(n265_encoder *e, int site, int n,
+                        void (*fn)(void *ctx, int i), void *ctx,
+                        void (*whole)(void *ctx))
+{
     ntp_pool *p = par_pool(e);
     if (!p || n < 2) {
-        for (int i = 0; i < n; i++)
-            fn(ctx, i);
+        if (whole)
+            whole(ctx);
+        else
+            for (int i = 0; i < n; i++)
+                fn(ctx, i);
         return;
     }
     int split = par_pick(e, site);
@@ -4791,6 +4812,8 @@ void n265_par_for(n265_encoder *e, int site, int n,
         n265_par w = { .pool = p, .fn = fn, .ctx = ctx, .n = n };
         w.chunk = (n + parts - 1) / parts;
         par_go(&w, (n + w.chunk - 1) / w.chunk);
+    } else if (whole) {
+        whole(ctx);
     } else {
         for (int i = 0; i < n; i++)
             fn(ctx, i);

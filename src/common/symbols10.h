@@ -320,6 +320,7 @@
 #define n265_rdoq_warm               n265_rdoq_warm_10
 #define n265_real_ops                n265_real_ops_10
 #define n265_par_for                 n265_par_for_10
+#define n265_par_for_whole           n265_par_for_whole_10
 #define n265_par_need                n265_par_need_10
 #define n265_par_post                n265_par_post_10
 #define n265_par_wave                n265_par_wave_10
