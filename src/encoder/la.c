@@ -180,8 +180,9 @@ int n265_la_init(struct n265_encoder *e)
         f->zsad = malloc((size_t)nb * sizeof(uint16_t));
         f->mv = malloc((size_t)nb * 2 * sizeof(int16_t));
         f->prop = malloc((size_t)nb * sizeof(float));
+        f->ctfrac = malloc((size_t)nb * sizeof(float));
         if (!f->lowres || !f->icost || !f->pcost || !f->zsad || !f->mv ||
-            !f->prop)
+            !f->prop || !f->ctfrac)
             return -1;
     }
     return 0;
@@ -202,6 +203,7 @@ void n265_la_free(struct n265_encoder *e)
         free(f->zsad);
         free(f->mv);
         free(f->prop);
+        free(f->ctfrac);
     }
     free(e->la.f);
     e->la.f = NULL;
@@ -872,6 +874,7 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
     f->mvbits_sum = 0;
     int mvcap = badapt_mvcap();
     int mvgate = badapt_mvgate();
+    int ctrate = ct_mvrate();
     f->zsad_sum = 0;
     uint64_t ifail_sum = 0;     /* the intra cost of the blocks inter loses */
     for (int by = 0; by < la->bh; by++)
@@ -1052,6 +1055,15 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
                 f->zsad[b] = (uint16_t)(zc > 65535 ? 65535 : zc);
                 f->mv[2 * b] = (int16_t)mx;
                 f->mv[2 * b + 1] = (int16_t)my;
+            }
+            {
+                /* the propagate fraction cu-tree reads, once per frame
+                 * rather than once per window it sits in */
+                float ic = f->icost[b], pc = f->pcost[b];
+                if (ctrate)
+                    pc += (float)la_mvcost(ctrate, f->mv[2 * b],
+                                           f->mv[2 * b + 1]);
+                f->ctfrac[b] = pc >= ic ? -1.0f : 1.0f - pc / ic;
             }
             f->icost_sum += f->icost[b];
             f->pcost_sum += f->pcost[b];
@@ -1671,7 +1683,6 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
                 order[m++] = k - 1;
         }
     }
-    int mvrate = ct_mvrate();
     for (int oi = m - 1; oi >= 0; oi--) {
         int k = order[oi];
         if (k <= i)
@@ -1703,15 +1714,15 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
         for (int by = 0; by < bh; by++)
         for (int bx = 0; bx < bw; bx++) {
             int b = by * bw + bx;
-            float ic = f->icost[b], pc = f->pcost[b];
             /* N265_CT_MVRATE: the propagate fraction is priced on the
              * cost the CODER pays for this block - the vector's own bits
-             * included - and not on the lookahead's bare distortion. */
-            if (mvrate)
-                pc += (float)la_mvcost(mvrate, f->mv[2 * b], f->mv[2 * b + 1]);
-            if (pc >= ic)
+             * included - and not on the lookahead's bare distortion
+             * (n265_la_push forms it). */
+            float frac = f->ctfrac[b];
+            if (frac < 0.0f)
                 continue;
-            float amount = (ic + f->prop[b]) * (1.0f - pc / ic);
+            float ic = f->icost[b];
+            float amount = (ic + f->prop[b]) * frac;
             for (int t = 0; t < nt; t++) {
                 la_frame *ref = &la->f[tgt[t].idx];
                 int mvx = f->mv[2 * b] * tgt[t].scale;

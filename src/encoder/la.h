@@ -112,6 +112,7 @@ typedef struct la_frame {
     uint16_t *zsad;
     int16_t *mv;            /* lowres MV pairs (full-pel lowres units)  */
     float *prop;            /* cu-tree propagate-in accumulator         */
+    float *ctfrac;          /* cu-tree's 1 - pcost/icost; < 0: none     */
     uint64_t icost_sum, pcost_sum;
     uint64_t mvabs_sum;     /* sum |lowres MV| over blocks (motion magnitude) */
     /* the frame's motion in BITS on the exp-Golomb shape, summed over
