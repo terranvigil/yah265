@@ -505,8 +505,17 @@ uint32_t mc_sad_frac(struct n265_frame_work *e,
     N265_REF_GUARD2(e, ref, need, 0, n265_ref_hf_base(ref, mv.x & 3),
                     n265_ref_2d_base(ref, mv.x & 3, mv.y & 3));
     if (p2) {
-        n265_mc_luma_2d(pred, w, w, h, p2, ref->hf2_stride);
-    } else {
+        /* priced in place: the cached plane IS the prediction */
+        int ps = ref->hf2_stride;
+        N265_RC_TOUCH_P2(p2);
+        N265_RC_TOUCH_P2(p2 + (ptrdiff_t)(h - 1) * ps);
+        uint32_t c = wp ? wp_sad(src, e->pad_stride[0], p2, ps, w, h, wp,
+                                 n265_wp_denom(e, 0))
+                        : n265_sad_wh(src, e->pad_stride[0], p2, ps, w, h);
+        N265_REF_UNGUARD();
+        return c;
+    }
+    {
         pixel win[N265_REF_WIN_SAMPLES];
         int ws, wclip;
         const pixel *rp = n265_ref_win(ref->plane[0], ref->stride[0],
@@ -595,9 +604,19 @@ static uint32_t mc_satd(struct n265_frame_work *e, int list, int ridx, int x0, i
     n265_hf2_tally(e, ref, ix, iy, w, h, mv.x & 3, mv.y & 3, 0);
     N265_REF_GUARD2(e, ref, need, 0, n265_ref_hf_base(ref, mv.x & 3),
                     n265_ref_2d_base(ref, mv.x & 3, mv.y & 3));
+    const n265_wp *wp = n265_wp_of(e, list, ridx, 0);
     if (p2) {
-        n265_mc_luma_2d(pred, w, w, h, p2, ref->hf2_stride);
-    } else {
+        /* priced in place: the cached plane IS the prediction */
+        int ps = ref->hf2_stride;
+        N265_RC_TOUCH_P2(p2);
+        N265_RC_TOUCH_P2(p2 + (ptrdiff_t)(h - 1) * ps);
+        uint32_t c = wp ? wp_satd(src, e->pad_stride[0], p2, ps, w, h, wp,
+                                  n265_wp_denom(e, 0))
+                        : n265_satd_wh(src, e->pad_stride[0], p2, ps, w, h);
+        N265_REF_UNGUARD();
+        return c;
+    }
+    {
         pixel win[N265_REF_WIN_SAMPLES];
         int ws, wclip;
         const pixel *rp = n265_ref_win(ref->plane[0], ref->stride[0],
@@ -608,7 +627,6 @@ static uint32_t mc_satd(struct n265_frame_work *e, int list, int ridx, int x0, i
                         ref->hf_stride, mv.x & 3, mv.y & 3);
     }
     N265_REF_UNGUARD();
-    const n265_wp *wp = n265_wp_of(e, list, ridx, 0);
     if (wp)
         return wp_satd(src, e->pad_stride[0], pred, w, w, h, wp,
                        n265_wp_denom(e, 0));
