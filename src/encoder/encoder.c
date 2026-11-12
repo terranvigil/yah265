@@ -3115,8 +3115,21 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         if (e->row_yield < 0)
             e->row_yield = 0;
     }
-    /* Item 25: more frames in flight need more pictures to write into. */
-    if (tree_k && e->K > 6 && e->dpb_peak < e->dpb_slots) {
+    /* The driver's per-frame analysis split over the pool (n265_par_for),
+     * and the slot growth at the peak below. A schedule, so 0 - main's -
+     * moves no bit and is there to time against. */
+    { const char *v = n265_env("N265_DRV_PAR");
+      e->drv_par = v ? atoi(v) : 1; }
+    /* Item 25: more frames in flight need more pictures to write into.
+     * A pool at the structural peak already leaves claim_slot's overwrite
+     * branch unreachable (dpb_pool), so growing it there is as unseen as
+     * growing it above the peak; UHD's two references put medium exactly
+     * at the peak, and its six slots held twelve frames to four or five.
+     * A single worker codes one frame at a time, so there it is not
+     * grown. */
+    int at_peak = e->dpb_peak == e->dpb_slots && e->drv_par &&
+                  (g_threads > 0 ? g_threads : auto_threads()) > 1;
+    if (tree_k && e->K > 6 && (e->dpb_peak < e->dpb_slots || at_peak)) {
         const char *t = n265_env("N265_TREE_SLOTS");
         int s = e->dpb_slots + (t ? atoi(t) : e->K - 6);
         e->dpb_slots = s > N265_DPB_SLOTS ? N265_DPB_SLOTS : s;
@@ -3219,7 +3232,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         /* a yielded row keeps its lane, so with yields on every row of
          * every frame in flight may hold one besides the nesting bound */
         int nl = nt * e->K + (e->row_yield ? e->K * e->ctb_rows : 0);
-        e->pool = ntp_open(nt, e->K, nl);
+        e->pool = ntp_open(nt, e->K + 1, nl);
 #ifdef N265_TTRACE
         tt_open();
 #endif
@@ -3678,6 +3691,9 @@ void n265_encoder_close(n265_encoder *e)
          * worker anywhere is in a milestone wait, so `bcast/pub` is how
          * often a per-CTB publish reaches the lock, and `blocked/waits`
          * how often the two-CTB lag outlasts the bounded spin. */
+        double run_in = 0, run_wait = 0;
+        ntp_prof_run(e->pool, &run_in, &run_wait);
+        fprintf(stderr, "SPAR run=%.3f wait=%.3f\n", run_in, run_wait);
         long pub = 0, bcast = 0, waits = 0, blocked = 0;
         ntp_prof_counts(e->pool, &pub, &bcast, &waits, &blocked);
         fprintf(stderr,
@@ -3738,6 +3754,7 @@ void n265_encoder_close(n265_encoder *e)
         n265_scratch_free(e->row[i].sc);
     free(e->row);
     ntp_close(e->pool);
+    free(e->par_prog);
 #ifdef N265_TTRACE
     tt_close();
 #endif
@@ -4671,6 +4688,172 @@ static void metrics_frame(n265_encoder *e, n265_frame_work *fw, size_t bytes)
     }
 }
 
+struct n265_par {
+    ntp_job job;
+    ntp_pool *pool;             /* NULL: in order on the driver */
+    void (*fn)(void *ctx, int i);
+    void (*wfn)(void *ctx, n265_par *w, int r);
+    void *ctx;
+    int n, chunk;
+    atomic_int next;            /* the next item to hand out */
+    atomic_int *prog;
+};
+
+static int par_ready(void *ctx, int idx)
+{
+    (void)ctx;
+    (void)idx;
+    return 1;
+}
+
+/* every task takes items off one counter until none is left */
+static int par_run(void *ctx, int lane, int idx)
+{
+    n265_par *w = ctx;
+    (void)lane;
+    (void)idx;
+    for (;;) {
+        int k = atomic_fetch_add_explicit(&w->next, 1, memory_order_relaxed);
+        if (k * w->chunk >= w->n)
+            break;
+        if (w->wfn) {
+            w->wfn(w->ctx, w, k);
+        } else {
+            int i1 = (k + 1) * w->chunk < w->n ? (k + 1) * w->chunk : w->n;
+            for (int i = k * w->chunk; i < i1; i++)
+                w->fn(w->ctx, i);
+        }
+    }
+    return 0;
+}
+
+static ntp_pool *par_pool(n265_encoder *e)
+{
+    return e->drv_par && e->pool && ntp_threads(e->pool) > 1 ? e->pool
+                                                               : NULL;
+}
+
+int n265_par_width(const n265_encoder *e)
+{
+    ntp_pool *p = par_pool((n265_encoder *)e);
+    return p ? ntp_threads(p) : 1;
+}
+
+static void par_go(n265_par *w, int items)
+{
+    int nt = ntp_threads(w->pool);
+    w->job.ctx = w;
+    w->job.ntask = items < nt ? items : nt;
+    w->job.ready = par_ready;
+    w->job.run = par_run;
+    w->job.prio = -1;
+    w->job.nolane = 1;
+    w->job.drain = 1;
+    atomic_init(&w->next, 0);
+    ntp_run(w->pool, &w->job);
+}
+
+/* Whether a split pays is measured rather than assumed: on a small
+ * picture, or where the free workers are slow cores, the split loses to
+ * the driver alone. Each site keeps both forms' time an item and runs the
+ * faster, trying the other every 32nd call so a change of load can turn
+ * it back. Which form runs is a schedule; it cannot change a bit. */
+static int par_pick(n265_encoder *e, int site)
+{
+    unsigned c = ++e->par_site[site].calls;
+    if (e->par_site[site].n[0] < 4 || e->par_site[site].n[1] < 4)
+        return c & 1;
+    int best = e->par_site[site].t[1] < e->par_site[site].t[0];
+    return (c & 31) == 0 ? !best : best;
+}
+
+static void par_note(n265_encoder *e, int site, int split, double t)
+{
+    double *m = &e->par_site[site].t[split];
+    *m = e->par_site[site].n[split]++ ? *m + (t - *m) / 8.0 : t;
+}
+
+void n265_par_for(n265_encoder *e, int site, int n,
+                  void (*fn)(void *ctx, int i), void *ctx)
+{
+    ntp_pool *p = par_pool(e);
+    if (!p || n < 2) {
+        for (int i = 0; i < n; i++)
+            fn(ctx, i);
+        return;
+    }
+    int split = par_pick(e, site);
+    double t0 = prof_now();
+    if (split) {
+        /* several items per worker, so a late starter can still take a
+         * share */
+        int parts = 8 * ntp_threads(p);
+        n265_par w = { .pool = p, .fn = fn, .ctx = ctx, .n = n };
+        w.chunk = (n + parts - 1) / parts;
+        par_go(&w, (n + w.chunk - 1) / w.chunk);
+    } else {
+        for (int i = 0; i < n; i++)
+            fn(ctx, i);
+    }
+    par_note(e, site, split, (prof_now() - t0) / n);
+}
+
+void n265_par_wave(n265_encoder *e, int site, int rows,
+                   void (*fn)(void *ctx, n265_par *w, int r), void *ctx)
+{
+    n265_par w = { .pool = par_pool(e), .wfn = fn, .ctx = ctx, .n = rows,
+                   .chunk = 1 };
+    if (w.pool && e->par_prog_n < rows) {
+        free(e->par_prog);
+        e->par_prog = malloc((size_t)rows * sizeof(atomic_int));
+        e->par_prog_n = e->par_prog ? rows : 0;
+    }
+    if (!w.pool || rows < 2 || !e->par_prog) {
+        for (int r = 0; r < rows; r++)
+            fn(ctx, NULL, r);
+        return;
+    }
+    int split = par_pick(e, site);
+    double t0 = prof_now();
+    if (split) {
+        w.prog = e->par_prog;
+        for (int r = 0; r < rows; r++)
+            atomic_init(&w.prog[r], 0);
+        par_go(&w, rows);
+    } else {
+        for (int r = 0; r < rows; r++)
+            fn(ctx, NULL, r);
+    }
+    par_note(e, site, split, (prof_now() - t0) / rows);
+}
+
+/* distinct from the frames' lag keys only to spare them spurious wakes */
+#define PAR_KEY(r) (0x7a000000u + (unsigned)(r))
+
+struct par_wait { atomic_int *p; int need; };
+
+static int par_pred(void *ctx)
+{
+    struct par_wait *q = ctx;
+    return atomic_load_explicit(q->p, memory_order_acquire) >= q->need;
+}
+
+void n265_par_need(n265_par *w, int r, int x)
+{
+    if (r == 0)
+        return;
+    struct par_wait q = { &w->prog[r - 1], x };
+    if (!par_pred(&q))
+        ntp_wait(w->pool, PAR_KEY(r), par_pred, &q);
+}
+
+void n265_par_post(n265_par *w, int r, int x)
+{
+    atomic_store_explicit(&w->prog[r], x, memory_order_release);
+    if (r + 1 < w->n)
+        ntp_publish(w->pool, PAR_KEY(r + 1));
+}
+
 /* The exact reference stall (G2). The fast path is inline in
  * encoder.h; this is what happens when it misses: count it, then run
  * ready tasks of strictly OLDER frames until the watermark arrives. */
@@ -5443,6 +5626,169 @@ static void dup_trace_retire(const n265_encoder *e,
             (double)zdup / n);
 }
 
+/* one row of 16x16 blocks of the dark-block map */
+struct dark_rows {
+    const n265_encoder *e;
+    const pixel *src;
+    int stride, pad_w, pad_h, cols;
+    float *out;
+};
+
+static void dark_row(void *ctx, int by)
+{
+    const struct dark_rows *a = ctx;
+    int dc = a->cols;
+    double sc = (double)(1 << BIT_DEPTH_SHIFT);
+    double ml = a->e->dark_m, vl = a->e->dark_v;
+    for (int bx = 0; bx < dc; bx++) {
+        int x0 = bx * 16, y0 = by * 16;
+        int w = x0 + 16 > a->pad_w ? a->pad_w - x0 : 16;
+        int h = y0 + 16 > a->pad_h ? a->pad_h - y0 : 16;
+        uint64_t s2;
+        uint32_t s1 = n265_sum_sq_wh(
+            a->src + (size_t)y0 * a->stride + x0,
+            a->stride, w, h, &s2);
+        double np = (double)(w * h);
+        double m = (double)s1 / np;
+        double v = (double)s2 / np - m * m;
+        m /= sc;
+        v /= sc * sc;
+        double dw = (ml - m) / (0.5 * ml);
+        double sw = (vl - (v > 0.0 ? v : 0.0)) / (0.75 * vl);
+        dw = dw < 0.0 || m < a->e->dark_lo ? 0.0 : dw > 1.0 ? 1.0 : dw;
+        sw = sw < 0.0 ? 0.0 : sw > 1.0 ? 1.0 : sw;
+        a->out[by * dc + bx] = (float)(dw * sw);
+    }
+}
+
+/* One cell of the AQ field. The frame sums stay with the caller, taken in
+ * cell order, so a split over the pool adds in the order it always did. */
+struct aq_cells {
+    const n265_encoder *e;
+    const pixel *src;
+    int stride, pad_w, pad_h;
+    double *lv, *lvv, *lm, *dct;
+    unsigned char *fh;
+    double vfloor;
+    int g, gcols;
+};
+
+static void aq_cell(const struct aq_cells *a, int i, double *dct,
+                    unsigned char *fh)
+{
+    int g = a->g, gcols = a->gcols;
+    int cy = i / gcols, cx = i % gcols;
+    *fh = 0;
+    int x0 = cx * g, y0 = cy * g;
+    int w = x0 + g > a->pad_w ? a->pad_w - x0 : g;
+    int h = y0 + g > a->pad_h ? a->pad_h - y0 : g;
+    int64_t s1 = 0, s2 = 0;
+    for (int y = y0; y < y0 + h; y++) {
+        const pixel *row = a->src + (size_t)y * a->stride + x0;
+        uint32_t r1 = 0, r2 = 0;
+        N265_VECTORIZE
+        for (int x = 0; x < w; x++) {
+            uint32_t v = row[x];
+            r1 += v;
+            r2 += v * v;
+        }
+        s1 += r1;
+        s2 += r2;
+    }
+    int np = w * h;
+    double var = (double)s2 / np -
+        ((double)s1 / np) * ((double)s1 / np);
+    if (a->lm)
+        a->lm[cy * gcols + cx] = (double)s1 / np;
+    /* the +1 keeps log2 finite at a perfectly flat CTU,
+     * and it is one SQUARED 8-bit level: scaling it with
+     * the variance is what makes the whole field shift by
+     * exactly 2 * BIT_DEPTH_SHIFT at Main10, which is
+     * what the anchor below then subtracts back off. */
+    *dct = log2((var < 0.0 ? 0.0 : var) +
+                (double)(1 << (2 * BIT_DEPTH_SHIFT)));
+    /* The VARIANCE field the flat branch's protecting sign
+     * reads, taken here because two lines below `var` stops
+     * being the variance. Same floor, same +1, same units as
+     * `a->lv`; only the quantity differs. */
+    if (a->lvv != a->lv) {
+        double vv = var < 0.0 ? 0.0 : var;
+        if (vv < a->vfloor) vv = a->vfloor;
+        a->lvv[cy * gcols + cx] =
+            log2(vv + (double)(1 << (2 * BIT_DEPTH_SHIFT)));
+    }
+    /* N265_AQ_SIGNAL=1 (phase 7 M1'): the per-CTU signal
+     * becomes `fine` - the CTU's full-resolution variance
+     * minus what its 2x-down plane explains - in place of
+     * the variance itself. The loss map (step 0) ranks the
+     * metric's per-block loss at +0.42 / +0.52 with `fine`
+     * on foreman / mobile against log2-variance's +0.37 /
+     * +0.30, and `coarse` turned out to BE the variance
+     * (+0.93 to +0.998 on every clip), so this is the one
+     * signal in the design the shipped term does not
+     * already carry. The 2x-down plane is the lookahead's
+     * own 2x2 mean, (a+b+c+d+2)>>2 (la.c), recomputed here
+     * rather than read from f->lowres because that plane is
+     * built over the lookahead's own padded width and this
+     * has to land on the CTU grid; it is 1/4 of the reads
+     * the variance above already does, on the driver thread
+     * before the frame is launched, so the frame's
+     * decisions stay frozen (threading rule 4).
+     *
+     * The frame mean the AQ_DC term consumes (avg_dc above)
+     * is deliberately NOT switched: it is a frame-level
+     * complexity proxy, not a masking term, and the map
+     * does not speak to it. */
+    if (a->e->aq_signal) {
+        int hw = w >> 1, hh = h >> 1;
+        if (hw > 0 && hh > 0) {
+            int ps = a->stride;
+            int64_t t1 = 0, t2 = 0;
+            for (int y = 0; y < hh; y++) {
+                const pixel *p = a->src +
+                    (size_t)(y0 + 2 * y) * ps + x0;
+                const pixel *q = p + ps;
+                uint32_t r1 = 0, r2 = 0;
+                N265_VECTORIZE
+                for (int x = 0; x < hw; x++) {
+                    uint32_t d = (p[2 * x] + p[2 * x + 1] +
+                                  q[2 * x] + q[2 * x + 1]
+                                  + 2) >> 2;
+                    r1 += d;
+                    r2 += d * d;
+                }
+                t1 += r1;
+                t2 += r2;
+            }
+            int n2 = hw * hh;
+            double v2 = (double)t2 / n2 -
+                ((double)t1 / n2) * ((double)t1 / n2);
+            var -= v2 < 0.0 ? 0.0 : v2;
+        }
+        if (var < 0.0) var = 0.0;
+    }
+    /* The content census the flat gate acts on, read on the
+     * per-CTU signal itself and BEFORE the floor eats it:
+     * how many CTUs of this frame carry outline-sized fine
+     * detail. AQ_FLAT_HI is 16 squared 8-bit levels, four
+     * levels of within-2x2 standard deviation, scaled to the
+     * coded depth like every other variance here. It is a
+     * count and touches nothing; the gate below is the only
+     * reader. */
+    if (a->e->aq_flat_sign != 0.0f &&
+        var >= AQ_FLAT_HI * (double)(1 << (2 * BIT_DEPTH_SHIFT)))
+        *fh = 1;
+    if (var < a->vfloor) var = a->vfloor;
+    a->lv[cy * gcols + cx] =
+        log2(var + (double)(1 << (2 * BIT_DEPTH_SHIFT)));
+}
+
+static void aq_cell_par(void *ctx, int i)
+{
+    const struct aq_cells *a = ctx;
+    aq_cell(a, i, &a->dct[i], &a->fh[i]);
+}
+
 /* Dispatch one frame: everything that is driver-serial by construction
  * (the QP ladder, the AQ field, the headers, the record and estimator
  * reset), then the frame's job onto the pool. The driver does NOT wait
@@ -6045,29 +6391,10 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
          * Read off the source on the driver thread before the frame is
          * launched, so the frame's decisions stay frozen. */
         if (fw->dark_w) {
-            int dc = fw->dark_cols, dr = (fw->pad_h + 15) >> 4;
-            double sc = (double)(1 << BIT_DEPTH_SHIFT);
-            double ml = e->dark_m, vl = e->dark_v;
-            for (int by = 0; by < dr; by++)
-                for (int bx = 0; bx < dc; bx++) {
-                    int x0 = bx * 16, y0 = by * 16;
-                    int w = x0 + 16 > fw->pad_w ? fw->pad_w - x0 : 16;
-                    int h = y0 + 16 > fw->pad_h ? fw->pad_h - y0 : 16;
-                    uint64_t s2;
-                    uint32_t s1 = n265_sum_sq_wh(
-                        fw->pad_plane[0] + (size_t)y0 * fw->pad_stride[0] + x0,
-                        fw->pad_stride[0], w, h, &s2);
-                    double np = (double)(w * h);
-                    double m = (double)s1 / np;
-                    double v = (double)s2 / np - m * m;
-                    m /= sc;
-                    v /= sc * sc;
-                    double dw = (ml - m) / (0.5 * ml);
-                    double sw = (vl - (v > 0.0 ? v : 0.0)) / (0.75 * vl);
-                    dw = dw < 0.0 || m < e->dark_lo ? 0.0 : dw > 1.0 ? 1.0 : dw;
-                    sw = sw < 0.0 ? 0.0 : sw > 1.0 ? 1.0 : sw;
-                    fw->dark_w[by * dc + bx] = (float)(dw * sw);
-                }
+            struct dark_rows a = { e, fw->pad_plane[0], fw->pad_stride[0],
+                                   fw->pad_w, fw->pad_h, fw->dark_cols,
+                                   fw->dark_w };
+            n265_par_for(e, PAR_DARK, (fw->pad_h + 15) >> 4, dark_row, &a);
         }
         if (e->aq && n265_env("N265_AQ_FLAT"))
             memset(fw->ctu_qp_off, (uint8_t)atoi(n265_env("N265_AQ_FLAT")),
@@ -6136,114 +6463,34 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
             { const char *v = n265_env("N265_AQ_FLOOR");
               if (v) vfloor = atof(v) * (double)(1 << (2 * BIT_DEPTH_SHIFT)); }
             double avg_dc = 0;      /* the same field WITHOUT the floor */
-            for (int cy = 0; cy < grows; cy++)
-                for (int cx = 0; cx < gcols; cx++) {
-                    int x0 = cx * g, y0 = cy * g;
-                    int w = x0 + g > fw->pad_w ? fw->pad_w - x0 : g;
-                    int h = y0 + g > fw->pad_h ? fw->pad_h - y0 : g;
-                    int64_t s1 = 0, s2 = 0;
-                    for (int y = y0; y < y0 + h; y++) {
-                        const pixel *row = fw->pad_plane[0] +
-                            (size_t)y * fw->pad_stride[0] + x0;
-                        uint32_t r1 = 0, r2 = 0;
-                        N265_VECTORIZE
-                        for (int x = 0; x < w; x++) {
-                            uint32_t v = row[x];
-                            r1 += v;
-                            r2 += v * v;
-                        }
-                        s1 += r1;
-                        s2 += r2;
-                    }
-                    int np = w * h;
-                    double var = (double)s2 / np -
-                        ((double)s1 / np) * ((double)s1 / np);
-                    if (lm)
-                        lm[cy * gcols + cx] = (double)s1 / np;
-                    /* the +1 keeps log2 finite at a perfectly flat CTU,
-                     * and it is one SQUARED 8-bit level: scaling it with
-                     * the variance is what makes the whole field shift by
-                     * exactly 2 * BIT_DEPTH_SHIFT at Main10, which is
-                     * what the anchor below then subtracts back off. */
-                    avg_dc += log2((var < 0.0 ? 0.0 : var) +
-                                   (double)(1 << (2 * BIT_DEPTH_SHIFT)));
-                    /* The VARIANCE field the flat branch's protecting sign
-                     * reads, taken here because two lines below `var` stops
-                     * being the variance. Same floor, same +1, same units as
-                     * `lv`; only the quantity differs. */
-                    if (lvv != lv) {
-                        double vv = var < 0.0 ? 0.0 : var;
-                        if (vv < vfloor) vv = vfloor;
-                        lvv[cy * gcols + cx] =
-                            log2(vv + (double)(1 << (2 * BIT_DEPTH_SHIFT)));
-                        avg_v += lvv[cy * gcols + cx];
-                    }
-                    /* N265_AQ_SIGNAL=1 (phase 7 M1'): the per-CTU signal
-                     * becomes `fine` - the CTU's full-resolution variance
-                     * minus what its 2x-down plane explains - in place of
-                     * the variance itself. The loss map (step 0) ranks the
-                     * metric's per-block loss at +0.42 / +0.52 with `fine`
-                     * on foreman / mobile against log2-variance's +0.37 /
-                     * +0.30, and `coarse` turned out to BE the variance
-                     * (+0.93 to +0.998 on every clip), so this is the one
-                     * signal in the design the shipped term does not
-                     * already carry. The 2x-down plane is the lookahead's
-                     * own 2x2 mean, (a+b+c+d+2)>>2 (la.c), recomputed here
-                     * rather than read from f->lowres because that plane is
-                     * built over the lookahead's own padded width and this
-                     * has to land on the CTU grid; it is 1/4 of the reads
-                     * the variance above already does, on the driver thread
-                     * before the frame is launched, so the frame's
-                     * decisions stay frozen (threading rule 4).
-                     *
-                     * The frame mean the AQ_DC term consumes (avg_dc above)
-                     * is deliberately NOT switched: it is a frame-level
-                     * complexity proxy, not a masking term, and the map
-                     * does not speak to it. */
-                    if (e->aq_signal) {
-                        int hw = w >> 1, hh = h >> 1;
-                        if (hw > 0 && hh > 0) {
-                            int ps = fw->pad_stride[0];
-                            int64_t t1 = 0, t2 = 0;
-                            for (int y = 0; y < hh; y++) {
-                                const pixel *p = fw->pad_plane[0] +
-                                    (size_t)(y0 + 2 * y) * ps + x0;
-                                const pixel *q = p + ps;
-                                uint32_t r1 = 0, r2 = 0;
-                                N265_VECTORIZE
-                                for (int x = 0; x < hw; x++) {
-                                    uint32_t d = (p[2 * x] + p[2 * x + 1] +
-                                                  q[2 * x] + q[2 * x + 1]
-                                                  + 2) >> 2;
-                                    r1 += d;
-                                    r2 += d * d;
-                                }
-                                t1 += r1;
-                                t2 += r2;
-                            }
-                            int n2 = hw * hh;
-                            double v2 = (double)t2 / n2 -
-                                ((double)t1 / n2) * ((double)t1 / n2);
-                            var -= v2 < 0.0 ? 0.0 : v2;
-                        }
-                        if (var < 0.0) var = 0.0;
-                    }
-                    /* The content census the flat gate acts on, read on the
-                     * per-CTU signal itself and BEFORE the floor eats it:
-                     * how many CTUs of this frame carry outline-sized fine
-                     * detail. AQ_FLAT_HI is 16 squared 8-bit levels, four
-                     * levels of within-2x2 standard deviation, scaled to the
-                     * coded depth like every other variance here. It is a
-                     * count and touches nothing; the gate below is the only
-                     * reader. */
-                    if (e->aq_flat_sign != 0.0f &&
-                        var >= AQ_FLAT_HI * (double)(1 << (2 * BIT_DEPTH_SHIFT)))
-                        fine_hi++;
-                    if (var < vfloor) var = vfloor;
-                    lv[cy * gcols + cx] =
-                        log2(var + (double)(1 << (2 * BIT_DEPTH_SHIFT)));
-                    avg += lv[cy * gcols + cx];
+            {
+                struct aq_cells a = { e, fw->pad_plane[0], fw->pad_stride[0],
+                                      fw->pad_w, fw->pad_h, lv, lvv, lm, NULL,
+                                      NULL, vfloor, g, gcols };
+                if (n265_par_width(e) > 1) {
+                    a.dct = malloc((size_t)ng * sizeof(double));
+                    a.fh = malloc((size_t)ng);
                 }
+                if (a.dct && a.fh)
+                    n265_par_for(e, PAR_AQ, ng, aq_cell_par, &a);
+                for (int i = 0; i < ng; i++) {
+                    double dct;
+                    unsigned char fh;
+                    if (a.dct && a.fh) {
+                        dct = a.dct[i];
+                        fh = a.fh[i];
+                    } else {
+                        aq_cell(&a, i, &dct, &fh);
+                    }
+                    avg_dc += dct;
+                    if (lvv != lv)
+                        avg_v += lvv[i];
+                    fine_hi += fh;
+                    avg += lv[i];
+                }
+                free(a.dct);
+                free(a.fh);
+            }
             avg /= ng;
             avg_dc /= ng;
             if (lvv != lv) avg_v /= ng;

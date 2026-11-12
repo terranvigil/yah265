@@ -58,6 +58,13 @@ typedef struct ntp_job {
      * to strictly older jobs, which is what the deadlock argument needs,
      * and among those it still takes the oldest. */
     int prio;
+    /* the tasks use no lane scratch (ntp_run's jobs) */
+    int nolane;
+    /* ntp_run: the tasks share one queue of work, so once the caller's
+     * own task returns the queue is empty and the tasks nobody has
+     * started are retired unrun. With no worker idle the caller runs one
+     * task alone and registers nothing. */
+    int drain;
     /* set by ntp_submit */
     void *impl;
 } ntp_job;
@@ -79,6 +86,14 @@ void ntp_submit(ntp_pool *p, ntp_job *job);
  * does NOT execute tasks: it is the driver, and letting it run work
  * would make `--threads 1` two threads wide. */
 void ntp_join(ntp_pool *p, ntp_job *job);
+
+/* Fork-join for the driver's own analysis: register `job`, run its tasks
+ * on the calling thread as well as on any worker that is free, and return
+ * once every task is done. Its tasks must wait on nothing outside the job;
+ * a wavefront inside it is fine, because tasks are claimed in index order.
+ * One worker or none free degenerates to the caller running them all in
+ * index order. */
+void ntp_run(ntp_pool *p, ntp_job *job);
 
 /* Inside a running task: block until `pred(ctx)` is true. Bounded
  * spin-then-sleep. The predicate must become true through work another
@@ -137,6 +152,9 @@ void ntp_prof_enable(ntp_pool *p);
  * milestone waits with the subset that parked. Instrument only. */
 void ntp_prof_counts(const ntp_pool *p, long *pub, long *bcast,
                      long *waits, long *blocked);
+/* ntp_run's registered calls: the caller's seconds inside them, and the
+ * part spent waiting on tasks other threads took. Instrument only. */
+void ntp_prof_run(const ntp_pool *p, double *in, double *wait);
 void ntp_prof_read(const ntp_pool *p, double *busy, double *stall,
                    double *stall_ref, double *park, double *allpark,
                    double *wall, long *tasks);

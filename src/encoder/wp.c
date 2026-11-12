@@ -129,12 +129,22 @@ static int wp_max_refs(void)
  * the same way rather than a different way that happens to look similar.
  * Brought back to 8-bit magnitudes at every depth for the same reason the
  * lookahead does it: this is a cost proxy, never a predictor. */
-static void downscale(pixel *dst, int dw, int dh, const pixel *src,
-                      int ss, int sw, int sh)
+struct ds_rows {
+    pixel *dst;
+    int dw;
+    const pixel *src;
+    int ss, sw, sh;
+};
+
+static void downscale_row(void *ctx, int y)
 {
+    const struct ds_rows *c = ctx;
+    pixel *dst = c->dst;
+    const pixel *src = c->src;
+    int dw = c->dw, ss = c->ss, sw = c->sw, sh = c->sh;
     /* the samples a step reads without the edge clamps */
     int xin = sw >> 1 < dw ? sw >> 1 : dw;
-    for (int y = 0; y < dh; y++) {
+    {
         int sy = 2 * y, sy1;
         if (sy >= sh) sy = sh - 1;
         sy1 = sy + 1 < sh ? sy + 1 : sy;
@@ -161,6 +171,13 @@ static void downscale(pixel *dst, int dw, int dh, const pixel *src,
     }
 }
 
+static void downscale(n265_encoder *e, pixel *dst, int dw, int dh,
+                      const pixel *src, int ss, int sw, int sh)
+{
+    struct ds_rows c = { dst, dw, src, ss, sw, sh };
+    n265_par_for(e, PAR_WP_DS, dh, downscale_row, &c);
+}
+
 void n265_wp_build_cur(n265_encoder *e, const la_frame *f)
 {
     if (!e->wp_cur[0])
@@ -168,7 +185,7 @@ void n265_wp_build_cur(n265_encoder *e, const la_frame *f)
     memcpy(e->wp_cur[0], f->lowres,
            (size_t)e->la.lw * e->la.lh * sizeof(pixel));
     for (int c = 1; c < 3; c++)
-        downscale(e->wp_cur[c], e->wp_cw, e->wp_ch, f->src[c],
+        downscale(e, e->wp_cur[c], e->wp_cw, e->wp_ch, f->src[c],
                   e->pad_w >> e->csx, e->param.width >> e->csx,
                   e->param.height >> e->csy);
 }
@@ -186,22 +203,63 @@ void n265_wp_slot_store(n265_encoder *e, struct n265_refpic *slot)
 
 /* ---- the derivation ---------------------------------------------- */
 
-static void plane_moments(const pixel *p, int n, double *mean, double *var)
+struct moments {
+    const pixel *p;
+    int n, chunk;
+    uint64_t (*part)[2];
+};
+
+static void moments_chunk(void *ctx, int j)
 {
+    const struct moments *c = ctx;
+    int i0 = j * c->chunk, i1 = i0 + c->chunk < c->n ? i0 + c->chunk : c->n;
     uint64_t s = 0, sq = 0;
     /* 32-bit sums over chunks a full-range sample cannot overflow */
-    for (int i0 = 0; i0 < n; i0 += 1024) {
-        int i1 = n - i0 < 1024 ? n : i0 + 1024;
+    for (int k0 = i0; k0 < i1; k0 += 1024) {
+        int k1 = i1 - k0 < 1024 ? i1 : k0 + 1024;
         uint32_t cs = 0, csq = 0;
         N265_VECTORIZE
-        for (int i = i0; i < i1; i++) {
-            uint32_t v = p[i];
+        for (int i = k0; i < k1; i++) {
+            uint32_t v = c->p[i];
             cs += v;
             csq += v * v;
         }
         s += cs;
         sq += csq;
     }
+    c->part[j][0] = s;
+    c->part[j][1] = sq;
+}
+
+/* `e` NULL: one pass on this thread */
+static void plane_moments(n265_encoder *e, const pixel *p, int n,
+                          double *mean, double *var)
+{
+    enum { CHUNK = 1 << 14 };
+    uint64_t one[1][2];
+    struct moments c = { p, n, n, one };
+    int nch = 1;
+    if (e && n > CHUNK && n265_par_width(e) > 1) {
+        nch = (n + CHUNK - 1) / CHUNK;
+        c.chunk = CHUNK;
+        c.part = malloc((size_t)nch * sizeof(*c.part));
+        if (!c.part) {
+            nch = 1;
+            c.chunk = n;
+            c.part = one;
+        }
+    }
+    if (nch > 1)
+        n265_par_for(e, PAR_WP_MOM, nch, moments_chunk, &c);
+    else
+        moments_chunk(&c, 0);
+    uint64_t s = 0, sq = 0;
+    for (int j = 0; j < nch; j++) {
+        s += c.part[j][0];
+        sq += c.part[j][1];
+    }
+    if (c.part != one)
+        free(c.part);
     double m = (double)s / n;
     *mean = m;
     /* the population variance, and it is allowed to come out slightly
@@ -255,28 +313,40 @@ struct sad_set {
     uint64_t w[5];
 };
 
-static void sad_sweep(const pixel *cur, const pixel *ref, int n,
-                      int w, int d, int o0, struct sad_set *out)
+struct sweep_chunk {
+    const pixel *cur, *ref;
+    int n, chunk;
+    int w, d, o0;
+    struct sad_set *out;
+};
+
+static void sweep_chunk(void *ctx, int j)
 {
+    const struct sweep_chunk *c = ctx;
+    struct sad_set *out = &c->out[j];
+    const pixel *cur = c->cur, *ref = c->ref;
+    int w = c->w, d = c->d, o0 = c->o0;
+    int n0 = j * c->chunk;
+    int n1 = n0 + c->chunk < c->n ? n0 + c->chunk : c->n;
     /* wp_map8 per candidate, written out: candidate k is the clamp of
      * one unclamped map plus k - 2, so the loop has no table to gather
      * from and vectorizes. Sums run in 32 bits over a chunk. */
     int rnd = d ? 1 << (d - 1) : 0;
     memset(out, 0, sizeof(*out));
-    for (int i0 = 0; i0 < n; i0 += 4096) {
-        int i1 = n - i0 < 4096 ? n : i0 + 4096;
+    for (int i0 = n0; i0 < n1; i0 += 4096) {
+        int i1 = n1 - i0 < 4096 ? n1 : i0 + 4096;
         uint32_t su = 0, s0 = 0, s1 = 0, s2 = 0, s3 = 0, s4 = 0;
         N265_VECTORIZE
         for (int i = i0; i < i1; i++) {
-            int c = cur[i], r = ref[i];
+            int cv = cur[i], r = ref[i];
             int m = (((r > 255 ? 255 : r) * w + rnd) >> d) + o0;
-            int du = c - r;
+            int du = cv - r;
             su += (unsigned)(du < 0 ? -du : du);
 #define WP_SWEEP_K(acc, k)                                              \
             {                                                           \
                 int t = m + (k) - 2;                                    \
                 t = t < 0 ? 0 : t > 255 ? 255 : t;                      \
-                int dv = c - t;                                         \
+                int dv = cv - t;                                        \
                 acc += (unsigned)(dv < 0 ? -dv : dv);                   \
             }
             WP_SWEEP_K(s0, 0)
@@ -292,6 +362,33 @@ static void sad_sweep(const pixel *cur, const pixel *ref, int n,
         out->w[2] += s2;
         out->w[3] += s3;
         out->w[4] += s4;
+    }
+}
+
+static void sad_sweep(n265_encoder *e, const pixel *cur, const pixel *ref,
+                      int n, int w, int d, int o0, struct sad_set *out)
+{
+    /* integer sums, so the chunks add up to the one-pass totals exactly */
+    enum { CHUNK = 1 << 14 };
+    int nch = (n + CHUNK - 1) / CHUNK;
+    struct sad_set *part = nch > 1 && n265_par_width(e) > 1
+                         ? malloc((size_t)nch * sizeof(*part)) : NULL;
+    struct sweep_chunk sc = { cur, ref, n, CHUNK, w, d, o0,
+                              part ? part : out };
+    if (part)
+        n265_par_for(e, PAR_WP_SAD, nch, sweep_chunk, &sc);
+    else {
+        sc.chunk = n;
+        sweep_chunk(&sc, 0);
+    }
+    if (part) {
+        memset(out, 0, sizeof(*out));
+        for (int i = 0; i < nch; i++) {
+            out->un += part[i].un;
+            for (int k = 0; k < 5; k++)
+                out->w[k] += part[i].w[k];
+        }
+        free(part);
     }
 }
 
@@ -348,11 +445,11 @@ struct cand {
  * the same three numbers for every reference and every list, and on a P
  * frame with three references the naive form walks the current lowres
  * plane three times to get them again. */
-static void fit_from(double mf, double vf, const pixel *ref, int n,
-                     double *scale, double *off)
+static void fit_from(n265_encoder *e, double mf, double vf,
+                     const pixel *ref, int n, double *scale, double *off)
 {
     double mr, vr;
-    plane_moments(ref, n, &mr, &vr);
+    plane_moments(e, ref, n, &mr, &vr);
     /* A reference with no variance carries no scale information: the
      * offset is the whole of the map, and asking sqrt(vf / vr) for one
      * would divide by the noise floor. 1.0 is a real answer here, not a
@@ -368,14 +465,14 @@ void n265_wp_fit(const pixel *cur, const pixel *ref, int n,
                  double *scale, double *off)
 {
     double mf, vf;
-    plane_moments(cur, n, &mf, &vf);
-    fit_from(mf, vf, ref, n, scale, off);
+    plane_moments(NULL, cur, n, &mf, &vf);
+    fit_from(NULL, mf, vf, ref, n, scale, off);
 }
 
-static void derive_cand(const double *cm, const pixel *ref, int n,
-                        struct cand *c)
+static void derive_cand(n265_encoder *e, const double *cm, const pixel *ref,
+                        int n, struct cand *c)
 {
-    fit_from(cm[0], cm[1], ref, n, &c->scale, &c->off);
+    fit_from(e, cm[0], cm[1], ref, n, &c->scale, &c->off);
     c->valid = 1;
 }
 
@@ -395,9 +492,10 @@ void n265_wp_analyse(n265_encoder *e, n265_frame_work *fw)
 
     /* the current picture's own moments, once for the whole table */
     double cm[3][2];
-    plane_moments(e->wp_cur[0], nl, &cm[0][0], &cm[0][1]);
+    plane_moments(e, e->wp_cur[0], nl, &cm[0][0], &cm[0][1]);
     for (int c = 0; c < 2; c++)
-        plane_moments(e->wp_cur[c + 1], nc, &cm[c + 1][0], &cm[c + 1][1]);
+        plane_moments(e, e->wp_cur[c + 1], nc, &cm[c + 1][0],
+                      &cm[c + 1][1]);
 
     /* pass 1: the real-valued maps, so the shared denominators can be
      * chosen before anything is quantized */
@@ -409,9 +507,10 @@ void n265_wp_analyse(n265_encoder *e, n265_frame_work *fw)
             const struct n265_refpic *rp = fw->refl[l][r];
             if (!rp->wp_low[0] || rp->poc == fw->poc)
                 continue;
-            derive_cand(cm[0], rp->wp_low[0], nl, &cl[l][r]);
+            derive_cand(e, cm[0], rp->wp_low[0], nl, &cl[l][r]);
             for (int c = 0; c < 2; c++)
-                derive_cand(cm[c + 1], rp->wp_low[c + 1], nc, &cc[l][r][c]);
+                derive_cand(e, cm[c + 1], rp->wp_low[c + 1], nc,
+                            &cc[l][r][c]);
         }
 
     /* 7.3.6.3 carries ONE luma_log2_weight_denom and one
@@ -451,7 +550,8 @@ void n265_wp_analyse(n265_encoder *e, n265_frame_work *fw)
             if (ol < -128) ol = -128;
             if (ol > 127) ol = 127;
             struct sad_set ss;
-            sad_sweep(e->wp_cur[0], rp->wp_low[0], nl, w, ld, (int)ol, &ss);
+            sad_sweep(e, e->wp_cur[0], rp->wp_low[0], nl, w, ld, (int)ol,
+                      &ss);
             int bk = -1;
             uint64_t bs = UINT64_MAX;
             for (int k = 0; k < 5; k++) {
@@ -501,7 +601,7 @@ void n265_wp_analyse(n265_encoder *e, n265_frame_work *fw)
                 if (o > 127) o = 127;
                 co[c] = (int)o;
                 struct sad_set cs;
-                sad_sweep(e->wp_cur[c + 1], rp->wp_low[c + 1], nc, cw[c],
+                sad_sweep(e, e->wp_cur[c + 1], rp->wp_low[c + 1], nc, cw[c],
                           cd, co[c], &cs);
                 int k2 = -1;
                 uint64_t b2 = UINT64_MAX;

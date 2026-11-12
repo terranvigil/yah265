@@ -7,6 +7,7 @@
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
+#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -51,50 +52,79 @@
 #define FLAT_RANGE_MAX  (32 << BIT_DEPTH_SHIFT)      /* 32 at 8, 128 at 10 */
 #define FLAT_VAR_BOUND  (65536ull << (2 * BIT_DEPTH_SHIFT))
 
+struct flat_rows {
+    const pixel *p;
+    int stride, bw;
+    int *flat;
+};
+
+static int flat_count(const struct flat_rows *c, int by)
+{
+    const pixel *p = c->p;
+    int stride = c->stride;
+    int flat = 0;
+    for (int bx = 0; bx < c->bw; bx++) {
+        const pixel *b = p + (by << 4) * stride + (bx << 4);
+        uint32_t s1 = 0, s2 = 0;
+        int lo = PIXEL_MAX, hi = 0;
+        for (int y = 0; y < 16; y++) {
+            const pixel *r = b + y * stride;
+            uint32_t r1 = 0, r2 = 0;
+            pixel rlo = r[0], rhi = r[0];
+            N265_VECTORIZE
+            for (int x = 0; x < 16; x++) {
+                pixel v = r[x];
+                r1 += v;
+                r2 += (uint32_t)v * v;
+                rlo = v < rlo ? v : rlo;
+                rhi = v > rhi ? v : rhi;
+            }
+            s1 += r1;
+            s2 += r2;
+            if (rlo < lo) lo = rlo;
+            if (rhi > hi) hi = rhi;
+            /* Exact early reject, and on natural video it fires on
+             * the first row of nearly every block. For any mean,
+             * one of the two extremes is at least (hi - lo) / 2
+             * away from it, so 256 * var >= ((hi - lo) / 2)^2 and a
+             * range of 32 (of 128 at 10 bits) or more cannot be a
+             * variance under one 8-bit level. */
+            if (hi - lo >= FLAT_RANGE_MAX)
+                break;
+        }
+        /* var < T  <=>  256*s2 - s1^2 < 256*256*T, T one 8-bit level
+         * squared in native sample units */
+        if (hi - lo < FLAT_RANGE_MAX &&
+            (uint64_t)s2 * 256u - (uint64_t)s1 * s1 < FLAT_VAR_BOUND)
+            flat++;
+    }
+    return flat;
+}
+
+static void flat_row(void *ctx, int by)
+{
+    const struct flat_rows *c = ctx;
+    c->flat[by] = flat_count(c, by);
+}
+
 int n265_la_flat_pct(const struct n265_frame_work *fw)
 {
-    const pixel *p = fw->pad_plane[0];
-    int stride = fw->pad_stride[0];
     int bw = fw->param.width >> 4, bh = fw->param.height >> 4;
     if (bw <= 0 || bh <= 0)
         return 0;
+    int *rows = n265_par_width(fw->enc) > 1
+              ? malloc((size_t)bh * sizeof(int)) : NULL;
+    struct flat_rows c = { fw->pad_plane[0], fw->pad_stride[0], bw, rows };
     int flat = 0;
-    for (int by = 0; by < bh; by++)
-        for (int bx = 0; bx < bw; bx++) {
-            const pixel *b = p + (by << 4) * stride + (bx << 4);
-            uint32_t s1 = 0, s2 = 0;
-            int lo = PIXEL_MAX, hi = 0;
-            for (int y = 0; y < 16; y++) {
-                const pixel *r = b + y * stride;
-                uint32_t r1 = 0, r2 = 0;
-                pixel rlo = r[0], rhi = r[0];
-                N265_VECTORIZE
-                for (int x = 0; x < 16; x++) {
-                    pixel v = r[x];
-                    r1 += v;
-                    r2 += (uint32_t)v * v;
-                    rlo = v < rlo ? v : rlo;
-                    rhi = v > rhi ? v : rhi;
-                }
-                s1 += r1;
-                s2 += r2;
-                if (rlo < lo) lo = rlo;
-                if (rhi > hi) hi = rhi;
-                /* Exact early reject, and on natural video it fires on
-                 * the first row of nearly every block. For any mean,
-                 * one of the two extremes is at least (hi - lo) / 2
-                 * away from it, so 256 * var >= ((hi - lo) / 2)^2 and a
-                 * range of 32 (of 128 at 10 bits) or more cannot be a
-                 * variance under one 8-bit level. */
-                if (hi - lo >= FLAT_RANGE_MAX)
-                    break;
-            }
-            /* var < T  <=>  256*s2 - s1^2 < 256*256*T, T one 8-bit level
-             * squared in native sample units */
-            if (hi - lo < FLAT_RANGE_MAX &&
-                (uint64_t)s2 * 256u - (uint64_t)s1 * s1 < FLAT_VAR_BOUND)
-                flat++;
-        }
+    if (rows) {
+        n265_par_for(fw->enc, PAR_FLAT, bh, flat_row, &c);
+        for (int by = 0; by < bh; by++)
+            flat += rows[by];
+        free(rows);
+    } else {
+        for (int by = 0; by < bh; by++)
+            flat += flat_count(&c, by);
+    }
     return flat * 100 / (bw * bh);
 }
 
@@ -136,7 +166,8 @@ int n265_la_init(struct n265_encoder *e)
      * allocation is exactly the one it has always been. */
     la->cap = e->la_fill + 2 + e->K + e->bframes;
     la->f = calloc((size_t)la->cap, sizeof(la_frame));
-    if (!la->f)
+    la->row_sum = malloc((size_t)la->bh * sizeof(*la->row_sum));
+    if (!la->f || !la->row_sum)
         return -1;
     la->sc_rn = 0;
     la->sc_last_ic = -1;
@@ -175,6 +206,10 @@ int n265_la_init(struct n265_encoder *e)
                 return -1;
         }
         f->lowres = malloc((size_t)la->lw * la->lh * sizeof(pixel));
+        f->mvy_lo = malloc((size_t)la->bh * sizeof(int16_t));
+        f->mvy_hi = malloc((size_t)la->bh * sizeof(int16_t));
+        if (!f->mvy_lo || !f->mvy_hi)
+            return -1;
         int nb = la->bw * la->bh;
         f->icost = malloc((size_t)nb * sizeof(uint16_t));
         f->pcost = malloc((size_t)nb * sizeof(uint16_t));
@@ -199,6 +234,8 @@ void n265_la_free(struct n265_encoder *e)
         for (int c = 0; c < 3; c++)
             free(f->src[c]);
         free(f->lowres);
+        free(f->mvy_lo);
+        free(f->mvy_hi);
         free(f->icost);
         free(f->pcost);
         free(f->zsad);
@@ -222,6 +259,8 @@ void n265_la_free(struct n265_encoder *e)
     e->la.pc_bsad = NULL;
     free(e->la.pc_bisad);
     e->la.pc_bisad = NULL;
+    free(e->la.row_sum);
+    e->la.row_sum = NULL;
 }
 
 /* the lookahead's 8x8 block SAD, inline: through n265_sad_wh the call
@@ -758,6 +797,304 @@ static int src_identical(const struct n265_encoder *e, const la_frame *a,
     return 1;
 }
 
+/* n265_la_push's passes over the picture, one row per item */
+struct push_rows {
+    struct n265_encoder *e;
+    la_frame *f;
+    const la_frame *prev;
+    const pixel *const *plane;
+    const int *stride;
+    int mvcap, mvgate, mepred, ctrate;
+};
+
+static void push_copy_row(void *ctx, int i)
+{
+    const struct push_rows *pr = ctx;
+    const struct n265_encoder *e = pr->e;
+    int dh0 = e->pad_h, dhc = e->pad_h >> e->csy;
+    int c = i < dh0 ? 0 : i < dh0 + dhc ? 1 : 2;
+    int y = c == 0 ? i : c == 1 ? i - dh0 : i - dh0 - dhc;
+    int w = c ? e->param.width >> e->csx : e->param.width;
+    int h = c ? e->param.height >> e->csy : e->param.height;
+    int dw = c ? e->pad_w >> e->csx : e->pad_w;
+    const pixel *s = pr->plane[c] + (y < h ? y : h - 1) * pr->stride[c];
+    pixel *d = pr->f->src[c] + y * dw;
+    memcpy(d, s, (size_t)w * sizeof(pixel));
+    for (int x = w; x < dw; x++)     /* a sample fill, not a byte one */
+        d[x] = s[w - 1];
+}
+
+static void push_lowres_row(void *ctx, int y)
+{
+    const struct push_rows *pr = ctx;
+    const struct n265_encoder *e = pr->e;
+    int lw = e->la.lw, lh = e->la.lh;
+    int sw = e->param.width, sh = e->param.height;
+    const pixel *s = pr->f->src[0];
+    int ps = e->pad_w;
+    pixel *lo = pr->f->lowres;
+    /* the samples a step reads without the edge clamps */
+    int xin = sw >> 1 < lw ? sw >> 1 : lw;
+    int yin = sh >> 1 < lh ? sh >> 1 : lh;
+    int x = 0;
+    if (y < yin) {
+        const pixel *restrict r0 = s + (size_t)(2 * y) * ps;
+        const pixel *restrict r1 = r0 + ps;
+        pixel *restrict d = lo + (size_t)y * lw;
+        N265_VECTORIZE
+        for (; x < xin; x++)
+            d[x] = (pixel)((r0[2 * x] + r0[2 * x + 1] + r1[2 * x] +
+                            r1[2 * x + 1] + (2 << BIT_DEPTH_SHIFT))
+                           >> (2 + BIT_DEPTH_SHIFT));
+    }
+    for (; x < lw; x++) {
+        int sy = 2 * y, sx = 2 * x;
+        int h1 = sy + 1 < sh ? sy + 1 : sy;
+        int w1 = sx + 1 < sw ? sx + 1 : sx;
+        if (sy >= sh)
+            sy = h1 = sh - 1;
+        if (sx >= sw)
+            sx = w1 = sw - 1;
+        /* the mean, brought back to 8-bit magnitudes: the shift is
+         * 2 at 8 bits, which is the plain 2x2 mean it has always
+         * been (la.h says why the proxy stays narrow) */
+        lo[y * lw + x] = (pixel)((s[sy * ps + sx] +
+            s[sy * ps + w1] + s[h1 * ps + sx] + s[h1 * ps + w1] +
+            (2 << BIT_DEPTH_SHIFT)) >> (2 + BIT_DEPTH_SHIFT));
+    }
+}
+
+static void push_cost_row(void *ctx, n265_par *w, int by)
+{
+    const struct push_rows *c = ctx;
+    const n265_la *la = &c->e->la;
+    la_frame *f = c->f;
+    const la_frame *prev = c->prev;
+    int lw = la->lw, lh = la->lh;
+    uint64_t *sum = la->row_sum[by];
+    for (int k = 0; k < 7; k++)
+        sum[k] = 0;
+    for (int bx = 0; bx < la->bw; bx++) {
+        if (w)
+            n265_par_need(w, by, bx + 2 < la->bw ? bx + 2 : la->bw);
+        int b = by * la->bw + bx;
+        int x0 = bx * 8, y0 = by * 8;
+        if (x0 + 8 > lw)
+            x0 = lw - 8;
+        if (y0 + 8 > lh)
+            y0 = lh - 8;
+        const pixel *blk = f->lowres + y0 * lw + x0;
+        /* intra estimate: best of V/H/DC prediction from decoded-side
+         * neighbors (the AC-energy proxy undercosts structure and
+         * fires false scenecuts on grain). Falls back to AC energy
+         * in the top-left corner. */
+        uint32_t ic;
+        {
+            uint32_t sv = UINT32_MAX, sh = UINT32_MAX, sd;
+            int have_t = y0 > 0, have_l = x0 > 0;
+            if (have_t) {
+                sv = 0;
+                for (int y = 0; y < 8; y++)
+                    for (int x = 0; x < 8; x++) {
+                        int d = blk[y * lw + x] - blk[-lw + x];
+                        sv += (uint32_t)(d < 0 ? -d : d);
+                    }
+            }
+            if (have_l) {
+                sh = 0;
+                for (int y = 0; y < 8; y++)
+                    for (int x = 0; x < 8; x++) {
+                        int d = blk[y * lw + x] - blk[y * lw - 1];
+                        sh += (uint32_t)(d < 0 ? -d : d);
+                    }
+            }
+            int dcs = 0, dcn = 0;
+            if (have_t) {
+                for (int x = 0; x < 8; x++)
+                    dcs += blk[-lw + x];
+                dcn += 8;
+            }
+            if (have_l) {
+                for (int y = 0; y < 8; y++)
+                    dcs += blk[y * lw - 1];
+                dcn += 8;
+            }
+            if (!dcn) {     /* corner: block mean */
+                for (int y = 0; y < 8; y++)
+                    for (int x = 0; x < 8; x++)
+                        dcs += blk[y * lw + x];
+                dcn = 64;
+            }
+            int dc = (dcs + dcn / 2) / dcn;
+            sd = 0;
+            for (int y = 0; y < 8; y++)
+                for (int x = 0; x < 8; x++) {
+                    int d = blk[y * lw + x] - dc;
+                    sd += (uint32_t)(d < 0 ? -d : d);
+                }
+            ic = sd;
+            if (sv < ic)
+                ic = sv;
+            if (sh < ic)
+                ic = sh;
+            ic += 64;       /* mode/signal floor */
+        }
+        f->icost[b] = (uint16_t)(ic > 65535 ? 65535 : ic);
+
+        uint32_t bzsad = 0, bsadf = 0;
+        if (!prev) {
+            f->pcost[b] = f->icost[b];
+            f->zsad[b] = f->icost[b];
+            f->mv[2 * b] = f->mv[2 * b + 1] = 0;
+        } else {
+            /* small diamond at lowres, start at zero */
+            int mx = 0, my = 0;
+            uint32_t best = sad8(blk, lw,
+                                 prev->lowres + y0 * lw + x0, lw);
+            bzsad = best;          /* the zero vector's own SAD */
+            /* the search's own starting cost IS the zero-vector
+             * distance the duplicate chain is built on: taken here,
+             * before the diamond moves off it, for one add a block */
+            sum[5] += best;
+            /* N265_LA_MEPRED: the motion vector predictors. Left,
+             * above, above-right, their component-wise median, and
+             * this block's vector in the previous frame. The median
+             * is formed only where all three spatial neighbors
+             * exist; where they do not, the ones that do stand on
+             * their own. */
+            if (c->mepred) {
+                int cand[5][2];
+                int nc = 0;
+                int have_l = bx > 0, have_t = by > 0;
+                int have_tr = by > 0 && bx + 1 < la->bw;
+                int lx = 0, ly = 0, tx0 = 0, ty0 = 0, rx = 0, ry = 0;
+                if (have_l) {
+                    lx = f->mv[2 * (b - 1)];
+                    ly = f->mv[2 * (b - 1) + 1];
+                    cand[nc][0] = lx; cand[nc][1] = ly; nc++;
+                }
+                if (have_t) {
+                    tx0 = f->mv[2 * (b - la->bw)];
+                    ty0 = f->mv[2 * (b - la->bw) + 1];
+                    cand[nc][0] = tx0; cand[nc][1] = ty0; nc++;
+                }
+                if (have_tr) {
+                    rx = f->mv[2 * (b - la->bw + 1)];
+                    ry = f->mv[2 * (b - la->bw + 1) + 1];
+                    cand[nc][0] = rx; cand[nc][1] = ry; nc++;
+                }
+                if (have_l && have_t && have_tr) {
+                    cand[nc][0] = med3(lx, tx0, rx);
+                    cand[nc][1] = med3(ly, ty0, ry);
+                    nc++;
+                }
+                cand[nc][0] = prev->mv[2 * b];
+                cand[nc][1] = prev->mv[2 * b + 1];
+                nc++;
+                for (int k = 0; k < nc; k++) {
+                    int cx = cand[k][0], cy = cand[k][1];
+                    /* the zero vector is already priced, and a
+                     * candidate the list has seen is already priced
+                     * too: on content that does not move this is
+                     * every one of them */
+                    if (!cx && !cy)
+                        continue;
+                    int seen = 0;
+                    for (int j = 0; j < k; j++)
+                        if (cand[j][0] == cx && cand[j][1] == cy) {
+                            seen = 1;
+                            break;
+                        }
+                    if (seen)
+                        continue;
+                    if (x0 + cx < 0 || y0 + cy < 0 ||
+                        x0 + cx + 8 > lw || y0 + cy + 8 > lh)
+                        continue;
+                    uint32_t s = sad8(blk, lw,
+                        prev->lowres + (y0 + cy) * lw + x0 + cx, lw);
+                    if (s < best) {
+                        best = s;
+                        mx = cx;
+                        my = cy;
+                    }
+                }
+            }
+            for (int it = 0; it < 8; it++) {
+                int bmx = mx, bmy = my;
+                uint32_t bs = best;
+                static const int d[4][2] = {
+                    { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 }
+                };
+                for (int k = 0; k < 4; k++) {
+                    int tx = mx + d[k][0], ty = my + d[k][1];
+                    if (x0 + tx < 0 || y0 + ty < 0 ||
+                        x0 + tx + 8 > lw || y0 + ty + 8 > lh)
+                        continue;
+                    uint32_t s = sad8(blk, lw,
+                        prev->lowres + (y0 + ty) * lw + x0 + tx, lw);
+                    if (s < bs) {
+                        bs = s;
+                        bmx = tx;
+                        bmy = ty;
+                    }
+                }
+                if (bmx == mx && bmy == my)
+                    break;
+                mx = bmx;
+                my = bmy;
+                best = bs;
+            }
+            bsadf = best;
+            uint32_t pc = best + 16;
+            f->pcost[b] = (uint16_t)(pc > 65535 ? 65535 : pc);
+            /* the same block priced with no search at all, in the same
+             * units, for N265_LA_MVSTAT */
+            uint32_t zc = bzsad + 16;
+            f->zsad[b] = (uint16_t)(zc > 65535 ? 65535 : zc);
+            f->mv[2 * b] = (int16_t)mx;
+            f->mv[2 * b + 1] = (int16_t)my;
+        }
+        {
+            /* the propagate fraction cu-tree reads, once per frame
+             * rather than once per window it sits in */
+            float ic = f->icost[b], pc = f->pcost[b];
+            if (c->ctrate)
+                pc += (float)la_mvcost(c->ctrate, f->mv[2 * b],
+                                       f->mv[2 * b + 1]);
+            f->ctfrac[b] = pc >= ic ? -1.0f : 1.0f - pc / ic;
+        }
+        sum[0] += f->icost[b];
+        sum[1] += f->pcost[b];
+        if (prev && f->pcost[b] >= f->icost[b])
+            sum[6] += f->icost[b];
+        {
+            int l1 = abs(f->mv[2*b]) + abs(f->mv[2*b+1]);
+            sum[2] += (uint64_t)l1;
+            sum[3] += (uint64_t)(la_mvblen(f->mv[2*b]) +
+                                        la_mvblen(f->mv[2*b+1]));
+            if (c->mvcap > 0 && l1 > c->mvcap)
+                l1 = c->mvcap;
+            /* N265_BADAPT_MVGATE: a vector that bought nothing is
+             * not motion. */
+            if (c->mvgate > 0 && (uint64_t)(bzsad - bsadf) * 100u <
+                                  (uint64_t)c->mvgate * bzsad)
+                l1 = 0;
+            sum[4] += (uint64_t)l1;
+        }
+        if (w)
+            n265_par_post(w, by, bx + 1);
+    }
+    int lo = INT16_MAX, hi = INT16_MIN;
+    for (int b = by * la->bw; b < (by + 1) * la->bw; b++) {
+        if (f->mv[2 * b + 1] < lo)
+            lo = f->mv[2 * b + 1];
+        if (f->mv[2 * b + 1] > hi)
+            hi = f->mv[2 * b + 1];
+    }
+    f->mvy_lo[by] = (int16_t)lo;
+    f->mvy_hi[by] = (int16_t)hi;
+}
+
 void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
                   const int stride[3])
 {
@@ -775,19 +1112,10 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
     /* Edge-replicate into the padded geometry here, once. encode_frame
      * used to re-pad this into a second frame-sized buffer every frame;
      * the queue slot IS the padded source now (threading-design sec 4). */
-    for (int c = 0; c < 3; c++) {
-        int w = c ? e->param.width >> e->csx : e->param.width;
-        int h = c ? e->param.height >> e->csy : e->param.height;
-        int dw = c ? e->pad_w >> e->csx : e->pad_w;
-        int dh = c ? e->pad_h >> e->csy : e->pad_h;
-        for (int y = 0; y < dh; y++) {
-            const pixel *s = plane[c] + (y < h ? y : h - 1) * stride[c];
-            pixel *d = f->src[c] + y * dw;
-            memcpy(d, s, (size_t)w * sizeof(pixel));
-            for (int x = w; x < dw; x++)     /* a sample fill, not a byte one */
-                d[x] = s[w - 1];
-        }
-    }
+    struct push_rows pr = { e, f, prev, plane, stride, badapt_mvcap(),
+                            badapt_mvgate(), la_mepred(), ct_mvrate() };
+    n265_par_for(e, PAR_COPY, e->pad_h + 2 * (e->pad_h >> e->csy),
+                 push_copy_row, &pr);
 
     /* --film-grain (phase 12 item 3). The estimate is taken HERE, on the
      * source as it arrived and before anything else has read it, and the
@@ -832,259 +1160,22 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
     }
 
     /* lowres: 2x2 mean over the padded width (edge rows repeat source) */
-    int lw = la->lw, lh = la->lh;
-    {
-        const pixel *s = f->src[0];
-        pixel *lo = f->lowres;
-        int ps = e->pad_w, sh = e->param.height, sw = e->param.width;
-        /* the samples a step reads without the edge clamps */
-        int xin = sw >> 1 < lw ? sw >> 1 : lw;
-        int yin = sh >> 1 < lh ? sh >> 1 : lh;
-        for (int y = 0; y < lh; y++) {
-            int x = 0;
-            if (y < yin) {
-                const pixel *restrict r0 = s + (size_t)(2 * y) * ps;
-                const pixel *restrict r1 = r0 + ps;
-                pixel *restrict d = lo + (size_t)y * lw;
-                N265_VECTORIZE
-                for (; x < xin; x++)
-                    d[x] = (pixel)((r0[2 * x] + r0[2 * x + 1] + r1[2 * x] +
-                                    r1[2 * x + 1] + (2 << BIT_DEPTH_SHIFT))
-                                   >> (2 + BIT_DEPTH_SHIFT));
-            }
-            for (; x < lw; x++) {
-                int sy = 2 * y, sx = 2 * x;
-                int h1 = sy + 1 < sh ? sy + 1 : sy;
-                int w1 = sx + 1 < sw ? sx + 1 : sx;
-                if (sy >= sh)
-                    sy = h1 = sh - 1;
-                if (sx >= sw)
-                    sx = w1 = sw - 1;
-                /* the mean, brought back to 8-bit magnitudes: the shift is
-                 * 2 at 8 bits, which is the plain 2x2 mean it has always
-                 * been (la.h says why the proxy stays narrow) */
-                lo[y * lw + x] = (pixel)((s[sy * ps + sx] +
-                    s[sy * ps + w1] + s[h1 * ps + sx] + s[h1 * ps + w1] +
-                    (2 << BIT_DEPTH_SHIFT)) >> (2 + BIT_DEPTH_SHIFT));
-            }
-        }
-    }
+    n265_par_for(e, PAR_LOWRES, la->lh, push_lowres_row, &pr);
 
-    /* per-8x8 costs */
-    f->icost_sum = f->pcost_sum = f->mvabs_sum = f->mvsat_sum = 0;
-    f->mvbits_sum = 0;
-    int mvcap = badapt_mvcap();
-    int mvgate = badapt_mvgate();
-    int ctrate = ct_mvrate();
-    f->zsad_sum = 0;
-    uint64_t ifail_sum = 0;     /* the intra cost of the blocks inter loses */
+    /* per-8x8 costs. A block's vector predictors are its left, above and
+     * above-right neighbors, so the rows run as a wavefront. */
+    n265_par_wave(e, PAR_COST, la->bh, push_cost_row, &pr);
+    uint64_t sums[7] = { 0 };
     for (int by = 0; by < la->bh; by++)
-        for (int bx = 0; bx < la->bw; bx++) {
-            int b = by * la->bw + bx;
-            int x0 = bx * 8, y0 = by * 8;
-            if (x0 + 8 > lw)
-                x0 = lw - 8;
-            if (y0 + 8 > lh)
-                y0 = lh - 8;
-            const pixel *blk = f->lowres + y0 * lw + x0;
-            /* intra estimate: best of V/H/DC prediction from decoded-side
-             * neighbors (the AC-energy proxy undercosts structure and
-             * fires false scenecuts on grain). Falls back to AC energy
-             * in the top-left corner. */
-            uint32_t ic;
-            {
-                uint32_t sv = UINT32_MAX, sh = UINT32_MAX, sd;
-                int have_t = y0 > 0, have_l = x0 > 0;
-                if (have_t) {
-                    sv = 0;
-                    for (int y = 0; y < 8; y++)
-                        for (int x = 0; x < 8; x++) {
-                            int d = blk[y * lw + x] - blk[-lw + x];
-                            sv += (uint32_t)(d < 0 ? -d : d);
-                        }
-                }
-                if (have_l) {
-                    sh = 0;
-                    for (int y = 0; y < 8; y++)
-                        for (int x = 0; x < 8; x++) {
-                            int d = blk[y * lw + x] - blk[y * lw - 1];
-                            sh += (uint32_t)(d < 0 ? -d : d);
-                        }
-                }
-                int dcs = 0, dcn = 0;
-                if (have_t) {
-                    for (int x = 0; x < 8; x++)
-                        dcs += blk[-lw + x];
-                    dcn += 8;
-                }
-                if (have_l) {
-                    for (int y = 0; y < 8; y++)
-                        dcs += blk[y * lw - 1];
-                    dcn += 8;
-                }
-                if (!dcn) {     /* corner: block mean */
-                    for (int y = 0; y < 8; y++)
-                        for (int x = 0; x < 8; x++)
-                            dcs += blk[y * lw + x];
-                    dcn = 64;
-                }
-                int dc = (dcs + dcn / 2) / dcn;
-                sd = 0;
-                for (int y = 0; y < 8; y++)
-                    for (int x = 0; x < 8; x++) {
-                        int d = blk[y * lw + x] - dc;
-                        sd += (uint32_t)(d < 0 ? -d : d);
-                    }
-                ic = sd;
-                if (sv < ic)
-                    ic = sv;
-                if (sh < ic)
-                    ic = sh;
-                ic += 64;       /* mode/signal floor */
-            }
-            f->icost[b] = (uint16_t)(ic > 65535 ? 65535 : ic);
-
-            uint32_t bzsad = 0, bsadf = 0;
-            if (!prev) {
-                f->pcost[b] = f->icost[b];
-                f->zsad[b] = f->icost[b];
-                f->mv[2 * b] = f->mv[2 * b + 1] = 0;
-            } else {
-                /* small diamond at lowres, start at zero */
-                int mx = 0, my = 0;
-                uint32_t best = sad8(blk, lw,
-                                     prev->lowres + y0 * lw + x0, lw);
-                bzsad = best;          /* the zero vector's own SAD */
-                /* the search's own starting cost IS the zero-vector
-                 * distance the duplicate chain is built on: taken here,
-                 * before the diamond moves off it, for one add a block */
-                f->zsad_sum += best;
-                /* N265_LA_MEPRED: the motion vector predictors. Left,
-                 * above, above-right, their component-wise median, and
-                 * this block's vector in the previous frame. The median
-                 * is formed only where all three spatial neighbors
-                 * exist; where they do not, the ones that do stand on
-                 * their own. */
-                if (la_mepred()) {
-                    int cand[5][2];
-                    int nc = 0;
-                    int have_l = bx > 0, have_t = by > 0;
-                    int have_tr = by > 0 && bx + 1 < la->bw;
-                    int lx = 0, ly = 0, tx0 = 0, ty0 = 0, rx = 0, ry = 0;
-                    if (have_l) {
-                        lx = f->mv[2 * (b - 1)];
-                        ly = f->mv[2 * (b - 1) + 1];
-                        cand[nc][0] = lx; cand[nc][1] = ly; nc++;
-                    }
-                    if (have_t) {
-                        tx0 = f->mv[2 * (b - la->bw)];
-                        ty0 = f->mv[2 * (b - la->bw) + 1];
-                        cand[nc][0] = tx0; cand[nc][1] = ty0; nc++;
-                    }
-                    if (have_tr) {
-                        rx = f->mv[2 * (b - la->bw + 1)];
-                        ry = f->mv[2 * (b - la->bw + 1) + 1];
-                        cand[nc][0] = rx; cand[nc][1] = ry; nc++;
-                    }
-                    if (have_l && have_t && have_tr) {
-                        cand[nc][0] = med3(lx, tx0, rx);
-                        cand[nc][1] = med3(ly, ty0, ry);
-                        nc++;
-                    }
-                    cand[nc][0] = prev->mv[2 * b];
-                    cand[nc][1] = prev->mv[2 * b + 1];
-                    nc++;
-                    for (int k = 0; k < nc; k++) {
-                        int cx = cand[k][0], cy = cand[k][1];
-                        /* the zero vector is already priced, and a
-                         * candidate the list has seen is already priced
-                         * too: on content that does not move this is
-                         * every one of them */
-                        if (!cx && !cy)
-                            continue;
-                        int seen = 0;
-                        for (int j = 0; j < k; j++)
-                            if (cand[j][0] == cx && cand[j][1] == cy) {
-                                seen = 1;
-                                break;
-                            }
-                        if (seen)
-                            continue;
-                        if (x0 + cx < 0 || y0 + cy < 0 ||
-                            x0 + cx + 8 > lw || y0 + cy + 8 > lh)
-                            continue;
-                        uint32_t s = sad8(blk, lw,
-                            prev->lowres + (y0 + cy) * lw + x0 + cx, lw);
-                        if (s < best) {
-                            best = s;
-                            mx = cx;
-                            my = cy;
-                        }
-                    }
-                }
-                for (int it = 0; it < 8; it++) {
-                    int bmx = mx, bmy = my;
-                    uint32_t bs = best;
-                    static const int d[4][2] = {
-                        { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 }
-                    };
-                    for (int k = 0; k < 4; k++) {
-                        int tx = mx + d[k][0], ty = my + d[k][1];
-                        if (x0 + tx < 0 || y0 + ty < 0 ||
-                            x0 + tx + 8 > lw || y0 + ty + 8 > lh)
-                            continue;
-                        uint32_t s = sad8(blk, lw,
-                            prev->lowres + (y0 + ty) * lw + x0 + tx, lw);
-                        if (s < bs) {
-                            bs = s;
-                            bmx = tx;
-                            bmy = ty;
-                        }
-                    }
-                    if (bmx == mx && bmy == my)
-                        break;
-                    mx = bmx;
-                    my = bmy;
-                    best = bs;
-                }
-                bsadf = best;
-                uint32_t pc = best + 16;
-                f->pcost[b] = (uint16_t)(pc > 65535 ? 65535 : pc);
-                /* the same block priced with no search at all, in the same
-                 * units, for N265_LA_MVSTAT */
-                uint32_t zc = bzsad + 16;
-                f->zsad[b] = (uint16_t)(zc > 65535 ? 65535 : zc);
-                f->mv[2 * b] = (int16_t)mx;
-                f->mv[2 * b + 1] = (int16_t)my;
-            }
-            {
-                /* the propagate fraction cu-tree reads, once per frame
-                 * rather than once per window it sits in */
-                float ic = f->icost[b], pc = f->pcost[b];
-                if (ctrate)
-                    pc += (float)la_mvcost(ctrate, f->mv[2 * b],
-                                           f->mv[2 * b + 1]);
-                f->ctfrac[b] = pc >= ic ? -1.0f : 1.0f - pc / ic;
-            }
-            f->icost_sum += f->icost[b];
-            f->pcost_sum += f->pcost[b];
-            if (prev && f->pcost[b] >= f->icost[b])
-                ifail_sum += f->icost[b];
-            {
-                int l1 = abs(f->mv[2*b]) + abs(f->mv[2*b+1]);
-                f->mvabs_sum += (uint64_t)l1;
-                f->mvbits_sum += (uint64_t)(la_mvblen(f->mv[2*b]) +
-                                            la_mvblen(f->mv[2*b+1]));
-                if (mvcap > 0 && l1 > mvcap)
-                    l1 = mvcap;
-                /* N265_BADAPT_MVGATE: a vector that bought nothing is
-                 * not motion. */
-                if (mvgate > 0 && (uint64_t)(bzsad - bsadf) * 100u <
-                                      (uint64_t)mvgate * bzsad)
-                    l1 = 0;
-                f->mvsat_sum += (uint64_t)l1;
-            }
-        }
+        for (int k = 0; k < 7; k++)
+            sums[k] += la->row_sum[by][k];
+    f->icost_sum = sums[0];
+    f->pcost_sum = sums[1];
+    f->mvabs_sum = sums[2];
+    f->mvbits_sum = sums[3];
+    f->mvsat_sum = sums[4];
+    f->zsad_sum = sums[5];
+    uint64_t ifail_sum = sums[6];   /* the intra cost of the blocks inter loses */
     /* N265_LA_MVSTAT (instrument, phase 14 item 21): the statistics a
      * scenecut rule could use to tell a true cut from fast COHERENT
      * motion, both of which read the same low cost ratio once the search
@@ -1657,6 +1748,161 @@ int n265_la_brun_bits(struct n265_encoder *e, int maxa)
     return best_a;
 }
 
+/* The cu-tree propagation of one frame into its targets. Split over the
+ * pool it runs by bands of target rows, each visiting in block order the
+ * source rows whose motion can reach it, so every target sample takes its
+ * adds in the order of the whole-frame loop. */
+struct ct_prop {
+    const n265_la *la;
+    const la_frame *f;
+    struct { int idx; float w; int neg; int scale; } tgt[2];
+    int nt;
+    int band;                   /* target rows per band */
+};
+
+/* source rows [by0, by1), adds into target rows [ty0, ty1) */
+static void ct_prop_rows(const struct ct_prop *c, int by0, int by1, int ty0,
+                         int ty1)
+{
+    const n265_la *la = c->la;
+    const la_frame *f = c->f;
+    int bw = la->bw;
+    for (int by = by0; by < by1; by++)
+    for (int bx = 0; bx < bw; bx++) {
+        int b = by * bw + bx;
+        /* N265_CT_MVRATE: the propagate fraction is priced on the
+         * cost the CODER pays for this block - the vector's own bits
+         * included - and not on the lookahead's bare distortion
+         * (n265_la_push forms it). */
+        float frac = f->ctfrac[b];
+        if (frac < 0.0f)
+            continue;
+        float ic = f->icost[b];
+        float amount = (ic + f->prop[b]) * frac;
+        for (int t = 0; t < c->nt; t++) {
+            la_frame *ref = &la->f[c->tgt[t].idx];
+            int mvx = f->mv[2 * b] * c->tgt[t].scale;
+            int mvy = f->mv[2 * b + 1] * c->tgt[t].scale;
+            if (c->tgt[t].neg) {
+                mvx = -mvx;
+                mvy = -mvy;
+            }
+            int px = bx * 8 + mvx, py = by * 8 + mvy;
+            int gx = px >> 3, gy = py >> 3;
+            int fx = px & 7, fy = py & 7;
+            float wx1 = fx / 8.0f, wy1 = fy / 8.0f;
+            float aw = amount * c->tgt[t].w;
+            if (gx >= 0 && gy >= ty0 && gx + 1 < bw && gy + 1 < ty1) {
+                /* the loop below, with no edge to test */
+                float *p0 = ref->prop + gy * bw + gx, *p1 = p0 + bw;
+                float w;
+                w = (1 - wx1) * (1 - wy1);
+                p0[0] += aw * w;
+                w = wx1 * (1 - wy1);
+                p0[1] += aw * w;
+                w = (1 - wx1) * wy1;
+                p1[0] += aw * w;
+                w = wx1 * wy1;
+                p1[1] += aw * w;
+                continue;
+            }
+            for (int dy = 0; dy < 2; dy++)
+                for (int dx = 0; dx < 2; dx++) {
+                    int tx = gx + dx, ty = gy + dy;
+                    if (tx < 0 || ty < ty0 || tx >= bw || ty >= ty1)
+                        continue;
+                    float w = (dx ? wx1 : 1 - wx1) *
+                              (dy ? wy1 : 1 - wy1);
+                    ref->prop[ty * bw + tx] += aw * w;
+                }
+        }
+    }
+}
+
+static void ct_prop_band(void *ctx, int i)
+{
+    const struct ct_prop *c = ctx;
+    const n265_la *la = c->la;
+    int ty0 = i * c->band;
+    int ty1 = ty0 + c->band < la->bh ? ty0 + c->band : la->bh;
+    for (int by = 0; by < la->bh; by++) {
+        int reach = 0;
+        for (int t = 0; t < c->nt && !reach; t++) {
+            int lo = c->f->mvy_lo[by] * c->tgt[t].scale;
+            int hi = c->f->mvy_hi[by] * c->tgt[t].scale;
+            if (c->tgt[t].neg) {
+                int x = lo;
+                lo = -hi;
+                hi = -x;
+            }
+            reach = ((by * 8 + hi) >> 3) + 1 >= ty0 &&
+                    (by * 8 + lo) >> 3 < ty1;
+        }
+        if (reach)
+            ct_prop_rows(c, by, by + 1, ty0, ty1);
+    }
+}
+
+/* n265_la_cutree's two reads of the propagated field, split over the
+ * pool: each item writes its own slots and the sums stay serial */
+struct ct_level {
+    const n265_la *la;
+    int lo;
+    double *acc;
+    int *cnt;
+};
+
+static void ct_level_frame(void *ctx, int i)
+{
+    const struct ct_level *c = ctx;
+    const la_frame *g = &c->la->f[c->lo + i];
+    int nb = c->la->bw * c->la->bh;
+    double acc = 0;
+    int cnt = 0;
+    for (int b = 0; b < nb; b++) {
+        if (g->prop[b] == 0.0f)
+            continue;
+        float ic = g->icost[b];
+        acc += log2f((ic + g->prop[b]) / ic);
+        cnt++;
+    }
+    c->acc[i] = acc;
+    c->cnt[i] = cnt;
+}
+
+struct ct_field {
+    const n265_la *la;
+    const la_frame *f;
+    float *raw;
+    float str;
+    int blocks_per_ctb, ctb_cols;
+};
+
+static void ct_field_row(void *ctx, int cy)
+{
+    const struct ct_field *c = ctx;
+    const n265_la *la = c->la;
+    const la_frame *f = c->f;
+    int blocks_per_ctb = c->blocks_per_ctb;
+    for (int cx = 0; cx < c->ctb_cols; cx++) {
+        float acc = 0;
+        int cnt = 0;
+        for (int dy = 0; dy < blocks_per_ctb; dy++)
+            for (int dx = 0; dx < blocks_per_ctb; dx++) {
+                int bx = cx * blocks_per_ctb + dx;
+                int by = cy * blocks_per_ctb + dy;
+                if (bx >= la->bw || by >= la->bh)
+                    continue;
+                int b = by * la->bw + bx;
+                float ic = f->icost[b];
+                acc += log2f((ic + f->prop[b]) / ic);
+                cnt++;
+            }
+        float v = cnt ? -c->str * acc / cnt : 0;
+        c->raw[cy * c->ctb_cols + cx] = v;
+    }
+}
+
 void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
 {
     n265_la *la = &e->la;
@@ -1711,56 +1957,20 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
         }
         if (!nt)
             continue;
-        int bw = la->bw, bh = la->bh;
-        for (int by = 0; by < bh; by++)
-        for (int bx = 0; bx < bw; bx++) {
-            int b = by * bw + bx;
-            /* N265_CT_MVRATE: the propagate fraction is priced on the
-             * cost the CODER pays for this block - the vector's own bits
-             * included - and not on the lookahead's bare distortion
-             * (n265_la_push forms it). */
-            float frac = f->ctfrac[b];
-            if (frac < 0.0f)
-                continue;
-            float ic = f->icost[b];
-            float amount = (ic + f->prop[b]) * frac;
-            for (int t = 0; t < nt; t++) {
-                la_frame *ref = &la->f[tgt[t].idx];
-                int mvx = f->mv[2 * b] * tgt[t].scale;
-                int mvy = f->mv[2 * b + 1] * tgt[t].scale;
-                if (tgt[t].neg) {
-                    mvx = -mvx;
-                    mvy = -mvy;
-                }
-                int px = bx * 8 + mvx, py = by * 8 + mvy;
-                int gx = px >> 3, gy = py >> 3;
-                int fx = px & 7, fy = py & 7;
-                float wx1 = fx / 8.0f, wy1 = fy / 8.0f;
-                float aw = amount * tgt[t].w;
-                if (gx >= 0 && gy >= 0 && gx + 1 < bw && gy + 1 < bh) {
-                    /* the loop below, with no edge to test */
-                    float *p0 = ref->prop + gy * bw + gx, *p1 = p0 + bw;
-                    float w;
-                    w = (1 - wx1) * (1 - wy1);
-                    p0[0] += aw * w;
-                    w = wx1 * (1 - wy1);
-                    p0[1] += aw * w;
-                    w = (1 - wx1) * wy1;
-                    p1[0] += aw * w;
-                    w = wx1 * wy1;
-                    p1[1] += aw * w;
-                    continue;
-                }
-                for (int dy = 0; dy < 2; dy++)
-                    for (int dx = 0; dx < 2; dx++) {
-                        int tx = gx + dx, ty = gy + dy;
-                        if (tx < 0 || ty < 0 || tx >= bw || ty >= bh)
-                            continue;
-                        float w = (dx ? wx1 : 1 - wx1) *
-                                  (dy ? wy1 : 1 - wy1);
-                        ref->prop[ty * bw + tx] += aw * w;
-                    }
-            }
+        struct ct_prop cp = { la, f, { { 0 } }, nt, la->bh };
+        for (int t = 0; t < nt; t++) {
+            cp.tgt[t].idx = tgt[t].idx;
+            cp.tgt[t].w = tgt[t].w;
+            cp.tgt[t].neg = tgt[t].neg;
+            cp.tgt[t].scale = tgt[t].scale;
+        }
+        if (n265_par_width(e) > 1) {
+            int bands = n265_par_width(e) / 2 > 2 ? n265_par_width(e) / 2 : 2;
+            cp.band = (la->bh + bands - 1) / bands;
+            n265_par_for(e, PAR_CT_PROP, (la->bh + cp.band - 1) / cp.band,
+                         ct_prop_band, &cp);
+        } else {
+            ct_prop_rows(&cp, 0, la->bh, 0, la->bh);
         }
     }
 
@@ -1790,25 +2000,10 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
         else if (n265_la_scenecut(e, i))
             str *= e->mcstf_ctsc;
     }
-    for (int cy = 0; cy < e->ctb_rows; cy++)
-        for (int cx = 0; cx < e->ctb_cols; cx++) {
-            float acc = 0;
-            int cnt = 0;
-            for (int dy = 0; dy < blocks_per_ctb; dy++)
-                for (int dx = 0; dx < blocks_per_ctb; dx++) {
-                    int bx = cx * blocks_per_ctb + dx;
-                    int by = cy * blocks_per_ctb + dy;
-                    if (bx >= la->bw || by >= la->bh)
-                        continue;
-                    int b = by * la->bw + bx;
-                    float ic = f->icost[b];
-                    acc += log2f((ic + f->prop[b]) / ic);
-                    cnt++;
-                }
-            float v = cnt ? -str * acc / cnt : 0;
-            raw[cy * e->ctb_cols + cx] = v;
-            mean += v;
-        }
+    struct ct_field cf = { la, f, raw, str, blocks_per_ctb, e->ctb_cols };
+    n265_par_for(e, PAR_CT_FIELD, e->ctb_rows, ct_field_row, &cf);
+    for (int k = 0; k < nctu; k++)
+        mean += raw[k];
     mean /= nctu;
     float field_mean = mean;    /* the frame term reads this, before centering eats it */
     /* CRF leaves the field un-centered so the cross-frame differential
@@ -1895,17 +2090,13 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
             }
             double sum = 0, all = 0;
             int n = 0, nall = 0;
+            double accs[LA_MAX];
+            int cnts[LA_MAX];
+            struct ct_level lv = { la, lo, accs, cnts };
+            n265_par_for(e, PAR_CT_LEVEL, hi - lo, ct_level_frame, &lv);
             for (int k = lo; k < hi; k++) {
-                const la_frame *g = &la->f[k];
-                double acc = 0;
-                int cnt = 0;
-                for (int b = 0; b < nb; b++) {
-                    if (g->prop[b] == 0.0f)
-                        continue;
-                    float ic = g->icost[b];
-                    acc += log2f((ic + g->prop[b]) / ic);
-                    cnt++;
-                }
+                double acc = accs[k - lo];
+                int cnt = cnts[k - lo];
                 all += -(double)e->cutree_str * acc / nb;   /* a leaf adds 0 */
                 nall++;
                 if (!cnt)

@@ -157,6 +157,7 @@ typedef struct la_frame {
      * without duplicates never pays for it. */
     int dup_grp;
     uint64_t zsad_sum, dup_cum;
+    int16_t *mvy_lo, *mvy_hi;   /* each block row's vertical MV range */
     /* --shot-window: the base-QP offset the shot plan gave this frame,
      * and whether a plan has seen it yet. Written on the driver when the
      * frame's shot is planned, read at dispatch, and carried by la_pop's
@@ -194,6 +195,7 @@ typedef struct n265_la {
     uint32_t *pc_sad[16];   /* b-adapt 4: the same searches' PER-BLOCK SAD */
     uint32_t *pc_bsad;      /* backward scratch */
     uint32_t *pc_bisad;     /* bidirectional scratch */
+    uint64_t (*row_sum)[7]; /* n265_la_push's per-row cost sums */
 } n265_la;
 
 /* The frames the decision machinery may read - cu-tree, the b-adapt run

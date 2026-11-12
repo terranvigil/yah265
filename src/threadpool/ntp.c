@@ -37,6 +37,7 @@ struct jslot {
     int *lane_of;
     int cap;
     int ndone;
+    atomic_int ndone_pub;       /* ndone, for ntp_run's spin outside `mu` */
     int active;
     /* T3/3: the lowest index that is still T_PENDING. `claim` starts its
      * scan here instead of at 0, so the done prefix of a job - which is
@@ -180,6 +181,9 @@ struct ntp_pool {
      * nothing but its own core. Maintained under `mu`, where `nidle`
      * already is. */
     double allpark, allpark_t0;
+    /* ntp_run: the caller's seconds inside it, and the part spent waiting
+     * for tasks other threads took */
+    double run_in, run_wait;
 };
 
 /* mu held. Call after every change to p->nidle. */
@@ -371,7 +375,7 @@ static struct jslot *claim(ntp_pool *p, uint64_t limit, int *out_idx)
             s->first_pending++;
         for (int k = s->first_pending; k < j->ntask; k++)
             if (s->state[k] == T_PENDING &&
-                (s->lane_of[k] >= 0 || p->nlane_free > 0) &&
+                (j->nolane || s->lane_of[k] >= 0 || p->nlane_free > 0) &&
                 j->ready(j->ctx, k)) {
                 best = s;
                 *out_idx = k;
@@ -386,12 +390,12 @@ static struct jslot *claim(ntp_pool *p, uint64_t limit, int *out_idx)
 /* mu held on entry and on return. Runs the task with the lock dropped. */
 static void run_task(ntp_pool *p, struct jslot *js, int idx)
 {
+    ntp_job *j = js->job;
     int lane = js->lane_of[idx];
     if (lane >= 0)
         js->lane_of[idx] = -1;
-    else
+    else if (!j->nolane)
         lane = lane_take(p);
-    ntp_job *j = js->job;
     uint64_t saved = tls_seq;
     tls_seq = js->seq;
     /* the instrument: a TOP-LEVEL task span is the worker being busy; a
@@ -431,7 +435,9 @@ static void run_task(ntp_pool *p, struct jslot *js, int idx)
     }
     js->state[idx] = T_DONE;
     js->ndone++;
-    lane_give(p, lane);
+    atomic_store_explicit(&js->ndone_pub, js->ndone, memory_order_release);
+    if (lane >= 0)
+        lane_give(p, lane);
     /* A finished task can unblock both a claimable task and an in-task
      * milestone wait. The claim side takes one worker (the chain in the
      * worker loop spreads it if there is more than one task ready); the
@@ -530,6 +536,7 @@ void ntp_submit(ntp_pool *p, ntp_job *job)
     for (int i = 0; i < job->ntask; i++)
         js->lane_of[i] = -1;
     js->ndone = 0;
+    atomic_store_explicit(&js->ndone_pub, 0, memory_order_relaxed);
     js->first_pending = 0;
     js->job = job;
     js->seq = p->next_seq++;
@@ -549,6 +556,72 @@ void ntp_join(ntp_pool *p, ntp_job *job)
         pthread_cond_wait(&p->done, &p->mu);
     js->active = 0;
     js->job = NULL;
+    pthread_mutex_unlock(&p->mu);
+    job->impl = NULL;
+}
+
+static int spin_for(ntp_pred_fn pred, void *ctx);
+
+static int run_done(void *ctx)
+{
+    const struct jslot *js = ctx;
+    return atomic_load_explicit(&js->ndone_pub, memory_order_acquire) >=
+           js->job->ntask;
+}
+
+void ntp_run(ntp_pool *p, ntp_job *job)
+{
+    /* nobody free to help: skip the registration and its wakes */
+    if (job->drain && atomic_load(&p->n_idle) == 0) {
+        job->run(job->ctx, -1, 0);
+        return;
+    }
+    double t0 = p->prof ? ntp_now() : 0.0;
+    ntp_submit(p, job);
+    struct jslot *js = job->impl;
+    if (!js)
+        return;                 /* ran inline at submit */
+    pthread_mutex_lock(&p->mu);
+    for (;;) {
+        int idx = -1;
+        while (js->first_pending < job->ntask &&
+               js->state[js->first_pending] != T_PENDING)
+            js->first_pending++;
+        for (int k = js->first_pending; k < job->ntask; k++)
+            if (js->state[k] == T_PENDING && job->ready(job->ctx, k)) {
+                idx = k;
+                break;
+            }
+        if (idx >= 0) {
+            js->state[idx] = T_RUNNING;
+            run_task(p, js, idx);
+            if (job->drain)
+                for (int k = js->first_pending; k < job->ntask; k++)
+                    if (js->state[k] == T_PENDING) {
+                        js->state[k] = T_DONE;
+                        js->ndone++;
+                        atomic_store_explicit(&js->ndone_pub, js->ndone,
+                                              memory_order_relaxed);
+                    }
+            continue;
+        }
+        if (js->ndone >= job->ntask)
+            break;
+        /* the tasks left are running, and a sleep and wake would cost more
+         * than most of them have left to do: spin first */
+        double tw = p->prof ? ntp_now() : 0.0;
+        pthread_mutex_unlock(&p->mu);
+        int fin = spin_for(run_done, js);
+        pthread_mutex_lock(&p->mu);
+        if (!fin && js->ndone < job->ntask)
+            pthread_cond_wait(&p->done, &p->mu);
+        if (p->prof)
+            p->run_wait += ntp_now() - tw;
+    }
+    js->active = 0;
+    js->job = NULL;
+    if (p->prof)
+        p->run_in += ntp_now() - t0;
     pthread_mutex_unlock(&p->mu);
     job->impl = NULL;
 }
@@ -715,6 +788,12 @@ void ntp_prof_enable(ntp_pool *p)
     if (p->nidle >= p->nthreads)
         p->allpark_t0 = ntp_now();
     pthread_mutex_unlock(&p->mu);
+}
+
+void ntp_prof_run(const ntp_pool *p, double *in, double *wait)
+{
+    *in = p ? p->run_in : 0.0;
+    *wait = p ? p->run_wait : 0.0;
 }
 
 void ntp_prof_counts(const ntp_pool *p, long *pub, long *bcast,

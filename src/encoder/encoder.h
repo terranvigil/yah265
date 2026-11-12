@@ -1146,6 +1146,13 @@ typedef struct n265_row_ctx {
 #define N265_NR_LAG  N265_RETIRE_WIN
 #define N265_NR_HIST 16
 
+/* the call sites, each timed on its own (n265_par_for, below) */
+enum {
+    PAR_COPY, PAR_LOWRES, PAR_COST, PAR_FLAT, PAR_AQ, PAR_DARK, PAR_WP_DS,
+    PAR_WP_MOM, PAR_WP_SAD, PAR_CT_PROP, PAR_CT_FIELD, PAR_CT_LEVEL,
+    PAR_SITES
+};
+
 struct n265_encoder {
     n265_param param;
     int mode;
@@ -1748,6 +1755,14 @@ struct n265_encoder {
      * block, and frames dispatched, so the doc's table is per frame. */
     atomic_long ref_stalls, stall_frames;
     ntp_pool *pool;
+    int drv_par;                /* N265_DRV_PAR */
+    struct {                    /* per call site: seconds an item, and runs */
+        double t[2];            /* [0] on the driver alone, [1] split */
+        int n[2];
+        unsigned calls;
+    } par_site[PAR_SITES];
+    atomic_int *par_prog;       /* n265_par_wave's row progress */
+    int par_prog_n;
     n265_row_ctx *row;      /* one lane per worker, plus the nested lanes */
     int nlanes;
 
@@ -1966,6 +1981,23 @@ static inline int n265_ref_have(const struct n265_refpic *p)
     return atomic_load_explicit((atomic_int *)&p->final_rows,
                                 memory_order_acquire);
 }
+
+/* The driver's per-frame analysis, split over the pool (ntp_run). Every
+ * item must be a pure function of its index, so the split moves no bit;
+ * at one worker the items run in order on the driver, as before. */
+typedef struct n265_par n265_par;
+/* the workers a split may use: 1 where it runs in order on the driver */
+int n265_par_width(const struct n265_encoder *e);
+void n265_par_for(struct n265_encoder *e, int site, int n,
+                  void (*fn)(void *ctx, int i), void *ctx);
+/* A row wavefront: row r calls n265_par_need(w, r, x) before reading
+ * row r - 1's columns below x, and n265_par_post(w, r, x) once its own
+ * first x columns are final. `w` is NULL where the rows run in order on
+ * the driver, and then neither call is needed. */
+void n265_par_wave(struct n265_encoder *e, int site, int rows,
+                   void (*fn)(void *ctx, n265_par *w, int r), void *ctx);
+void n265_par_need(n265_par *w, int r, int x);
+void n265_par_post(n265_par *w, int r, int x);
 
 /* encoder.c: the slow half - count the stall and run older work. */
 void n265_ref_stall(n265_frame_work *e, const struct n265_refpic *pic,

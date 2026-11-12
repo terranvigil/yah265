@@ -319,6 +319,11 @@
 #define n265_rdoq_sbh_on             n265_rdoq_sbh_on_10
 #define n265_rdoq_warm               n265_rdoq_warm_10
 #define n265_real_ops                n265_real_ops_10
+#define n265_par_for                 n265_par_for_10
+#define n265_par_need                n265_par_need_10
+#define n265_par_post                n265_par_post_10
+#define n265_par_wave                n265_par_wave_10
+#define n265_par_width               n265_par_width_10
 #define n265_rect_flat               n265_rect_flat_10
 #define n265_ref_stall               n265_ref_stall_10
 #define n265_ref_win                 n265_ref_win_10
@@ -500,8 +505,10 @@
 #define ntp_prof_enable              ntp_prof_enable_10
 #define ntp_prof_counts              ntp_prof_counts_10
 #define ntp_prof_read                ntp_prof_read_10
+#define ntp_prof_run                 ntp_prof_run_10
 #define ntp_publish                  ntp_publish_10
 #define ntp_publish_task             ntp_publish_task_10
+#define ntp_run                      ntp_run_10
 #define ntp_submit                   ntp_submit_10
 #define ntp_threads                  ntp_threads_10
 #define ntp_wait                     ntp_wait_10
