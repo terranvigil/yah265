@@ -14,71 +14,75 @@ text{font-family:-apple-system,"IBM Plex Sans",Helvetica,Arial,sans-serif}
 </style>
 <rect width='100%' height='100%' class='bg'/>
 <text x='24.0' y='40.0' font-size='22' class='t1' text-anchor='start' font-weight='600'>yah265 is faster than x265 in every class and tier</text>
-<text x='24.0' y='64.0' font-size='14' class='t2' text-anchor='start'>Median speedup over x265 medium at the same file size. Apple M5 Max, 18 cores. Report of 2026-11-04.</text>
+<text x='24.0' y='64.0' font-size='14' class='t2' text-anchor='start'>Median speedup over x265 medium at the same file size. Apple M5 Max, 18 cores. Report of 2026-11-12.</text>
 <circle cx='30.0' cy='86.0' r='5.5' class='s1 ring' stroke-width='2'/>
 <text x='42.0' y='91.0' font-size='13' class='t2' text-anchor='start'>G1: C, one thread</text>
 <rect x='186.1' y='81.0' width='9.9' height='9.9' rx='1.5' class='s2 ring' stroke-width='2'/>
 <text x='203.0' y='91.0' font-size='13' class='t2' text-anchor='start'>G2: C, all cores</text>
 <polygon points='345.0,79.1 351.9,86.0 345.0,92.9 338.1,86.0' class='s3 ring' stroke-width='2'/>
 <text x='357.0' y='91.0' font-size='13' class='t2' text-anchor='start'>G3: SIMD, all cores</text>
-<line x1='250.8' y1='108' x2='250.8' y2='476' class='base' stroke-width='1.5' stroke-dasharray='4 3'/>
-<text x='250.8' y='496.0' font-size='12' class='t2' text-anchor='middle'>1x (x265)</text>
-<line x1='352.3' y1='108' x2='352.3' y2='476' class='grid' stroke-width='1'/>
-<text x='352.3' y='496.0' font-size='12' class='t2' text-anchor='middle'>1.5x</text>
-<line x1='453.8' y1='108' x2='453.8' y2='476' class='grid' stroke-width='1'/>
-<text x='453.8' y='496.0' font-size='12' class='t2' text-anchor='middle'>2x</text>
-<line x1='555.4' y1='108' x2='555.4' y2='476' class='grid' stroke-width='1'/>
-<text x='555.4' y='496.0' font-size='12' class='t2' text-anchor='middle'>2.5x</text>
-<line x1='656.9' y1='108' x2='656.9' y2='476' class='grid' stroke-width='1'/>
-<text x='656.9' y='496.0' font-size='12' class='t2' text-anchor='middle'>3x</text>
-<line x1='758.5' y1='108' x2='758.5' y2='476' class='grid' stroke-width='1'/>
-<text x='758.5' y='496.0' font-size='12' class='t2' text-anchor='middle'>3.5x</text>
+<line x1='238.8' y1='108' x2='238.8' y2='476' class='base' stroke-width='1.5' stroke-dasharray='4 3'/>
+<text x='238.8' y='496.0' font-size='12' class='t2' text-anchor='middle'>1x (x265)</text>
+<line x1='316.5' y1='108' x2='316.5' y2='476' class='grid' stroke-width='1'/>
+<text x='316.5' y='496.0' font-size='12' class='t2' text-anchor='middle'>1.5x</text>
+<line x1='394.1' y1='108' x2='394.1' y2='476' class='grid' stroke-width='1'/>
+<text x='394.1' y='496.0' font-size='12' class='t2' text-anchor='middle'>2x</text>
+<line x1='471.8' y1='108' x2='471.8' y2='476' class='grid' stroke-width='1'/>
+<text x='471.8' y='496.0' font-size='12' class='t2' text-anchor='middle'>2.5x</text>
+<line x1='549.4' y1='108' x2='549.4' y2='476' class='grid' stroke-width='1'/>
+<text x='549.4' y='496.0' font-size='12' class='t2' text-anchor='middle'>3x</text>
+<line x1='627.1' y1='108' x2='627.1' y2='476' class='grid' stroke-width='1'/>
+<text x='627.1' y='496.0' font-size='12' class='t2' text-anchor='middle'>3.5x</text>
+<line x1='704.7' y1='108' x2='704.7' y2='476' class='grid' stroke-width='1'/>
+<text x='704.7' y='496.0' font-size='12' class='t2' text-anchor='middle'>4x</text>
+<line x1='782.4' y1='108' x2='782.4' y2='476' class='grid' stroke-width='1'/>
+<text x='782.4' y='496.0' font-size='12' class='t2' text-anchor='middle'>4.5x</text>
 <line x1='860.0' y1='108' x2='860.0' y2='476' class='grid' stroke-width='1'/>
-<text x='860.0' y='496.0' font-size='12' class='t2' text-anchor='middle'>4x</text>
+<text x='860.0' y='496.0' font-size='12' class='t2' text-anchor='middle'>5x</text>
 <text x='530.0' y='524.0' font-size='13' class='t2' text-anchor='middle'>times as fast as x265 (right is faster)</text>
 <text x='188.0' y='140.0' font-size='13' class='t1' text-anchor='end'>CIF short clips</text>
-<line x1='430.9' y1='136.0' x2='627.9' y2='136.0' class='span' stroke-width='2'/>
-<circle cx='445.9' cy='136.0' r='6' class='s1 ring' stroke-width='2'/>
-<rect x='622.5' y='130.6' width='10.8' height='10.8' rx='1.5' class='s2 ring' stroke-width='2'/>
-<polygon points='430.9,128.5 438.4,136.0 430.9,143.5 423.4,136.0' class='s3 ring' stroke-width='2'/>
+<line x1='388.0' y1='136.0' x2='568.8' y2='136.0' class='span' stroke-width='2'/>
+<circle cx='421.1' cy='136.0' r='6' class='s1 ring' stroke-width='2'/>
+<rect x='563.4' y='130.6' width='10.8' height='10.8' rx='1.5' class='s2 ring' stroke-width='2'/>
+<polygon points='388.0,128.5 395.5,136.0 388.0,143.5 380.5,136.0' class='s3 ring' stroke-width='2'/>
 <text x='188.0' y='180.0' font-size='13' class='t1' text-anchor='end'>720p short clips</text>
-<line x1='337.8' y1='176.0' x2='611.8' y2='176.0' class='span' stroke-width='2'/>
-<circle cx='582.1' cy='176.0' r='6' class='s1 ring' stroke-width='2'/>
-<rect x='606.4' y='170.6' width='10.8' height='10.8' rx='1.5' class='s2 ring' stroke-width='2'/>
-<polygon points='337.8,168.5 345.3,176.0 337.8,183.5 330.3,176.0' class='s3 ring' stroke-width='2'/>
+<line x1='334.0' y1='176.0' x2='601.2' y2='176.0' class='span' stroke-width='2'/>
+<circle cx='601.2' cy='171.0' r='6' class='s1 ring' stroke-width='2'/>
+<rect x='595.8' y='175.6' width='10.8' height='10.8' rx='1.5' class='s2 ring' stroke-width='2'/>
+<polygon points='334.0,168.5 341.5,176.0 334.0,183.5 326.5,176.0' class='s3 ring' stroke-width='2'/>
 <text x='188.0' y='220.0' font-size='13' class='t1' text-anchor='end'>720p 10-min films</text>
-<line x1='416.9' y1='216.0' x2='702.8' y2='216.0' class='span' stroke-width='2'/>
-<circle cx='596.5' cy='216.0' r='6' class='s1 ring' stroke-width='2'/>
-<rect x='697.4' y='210.6' width='10.8' height='10.8' rx='1.5' class='s2 ring' stroke-width='2'/>
-<polygon points='416.9,208.5 424.4,216.0 416.9,223.5 409.4,216.0' class='s3 ring' stroke-width='2'/>
+<line x1='413.9' y1='216.0' x2='730.6' y2='216.0' class='span' stroke-width='2'/>
+<circle cx='638.2' cy='216.0' r='6' class='s1 ring' stroke-width='2'/>
+<rect x='725.2' y='210.6' width='10.8' height='10.8' rx='1.5' class='s2 ring' stroke-width='2'/>
+<polygon points='413.9,208.5 421.4,216.0 413.9,223.5 406.4,216.0' class='s3 ring' stroke-width='2'/>
 <text x='188.0' y='260.0' font-size='13' class='t1' text-anchor='end'>1080p short clips</text>
-<line x1='380.6' y1='256.0' x2='611.8' y2='256.0' class='span' stroke-width='2'/>
-<circle cx='582.1' cy='256.0' r='6' class='s1 ring' stroke-width='2'/>
-<rect x='606.4' y='250.6' width='10.8' height='10.8' rx='1.5' class='s2 ring' stroke-width='2'/>
-<polygon points='380.6,248.5 388.1,256.0 380.6,263.5 373.1,256.0' class='s3 ring' stroke-width='2'/>
+<line x1='382.2' y1='256.0' x2='601.2' y2='256.0' class='span' stroke-width='2'/>
+<circle cx='568.8' cy='256.0' r='6' class='s1 ring' stroke-width='2'/>
+<rect x='595.8' y='250.6' width='10.8' height='10.8' rx='1.5' class='s2 ring' stroke-width='2'/>
+<polygon points='382.2,248.5 389.7,256.0 382.2,263.5 374.7,256.0' class='s3 ring' stroke-width='2'/>
 <text x='188.0' y='300.0' font-size='13' class='t1' text-anchor='end'>1080p 2-min segments</text>
-<line x1='355.4' y1='296.0' x2='596.5' y2='296.0' class='span' stroke-width='2'/>
-<circle cx='582.1' cy='296.0' r='6' class='s1 ring' stroke-width='2'/>
-<rect x='591.1' y='290.6' width='10.8' height='10.8' rx='1.5' class='s2 ring' stroke-width='2'/>
-<polygon points='355.4,288.5 362.9,296.0 355.4,303.5 347.9,296.0' class='s3 ring' stroke-width='2'/>
+<line x1='346.7' y1='296.0' x2='554.1' y2='296.0' class='span' stroke-width='2'/>
+<circle cx='527.2' cy='296.0' r='6' class='s1 ring' stroke-width='2'/>
+<rect x='548.7' y='290.6' width='10.8' height='10.8' rx='1.5' class='s2 ring' stroke-width='2'/>
+<polygon points='346.7,288.5 354.2,296.0 346.7,303.5 339.2,296.0' class='s3 ring' stroke-width='2'/>
 <text x='188.0' y='340.0' font-size='13' class='t1' text-anchor='end'>1080p 10-min films</text>
-<line x1='375.2' y1='336.0' x2='645.0' y2='336.0' class='span' stroke-width='2'/>
-<circle cx='611.8' cy='336.0' r='6' class='s1 ring' stroke-width='2'/>
-<rect x='639.6' y='330.6' width='10.8' height='10.8' rx='1.5' class='s2 ring' stroke-width='2'/>
-<polygon points='375.2,328.5 382.7,336.0 375.2,343.5 367.7,336.0' class='s3 ring' stroke-width='2'/>
+<line x1='356.0' y1='336.0' x2='601.2' y2='336.0' class='span' stroke-width='2'/>
+<circle cx='568.8' cy='336.0' r='6' class='s1 ring' stroke-width='2'/>
+<rect x='595.8' y='330.6' width='10.8' height='10.8' rx='1.5' class='s2 ring' stroke-width='2'/>
+<polygon points='356.0,328.5 363.5,336.0 356.0,343.5 348.5,336.0' class='s3 ring' stroke-width='2'/>
 <text x='188.0' y='380.0' font-size='13' class='t1' text-anchor='end'>4K short clips</text>
-<line x1='350.8' y1='376.0' x2='748.0' y2='376.0' class='span' stroke-width='2'/>
-<circle cx='748.0' cy='376.0' r='6' class='s1 ring' stroke-width='2'/>
-<rect x='563.0' y='370.6' width='10.8' height='10.8' rx='1.5' class='s2 ring' stroke-width='2'/>
-<polygon points='350.8,368.5 358.3,376.0 350.8,383.5 343.3,376.0' class='s3 ring' stroke-width='2'/>
+<line x1='334.0' y1='376.0' x2='758.7' y2='376.0' class='span' stroke-width='2'/>
+<circle cx='758.7' cy='376.0' r='6' class='s1 ring' stroke-width='2'/>
+<rect x='563.4' y='370.6' width='10.8' height='10.8' rx='1.5' class='s2 ring' stroke-width='2'/>
+<polygon points='334.0,368.5 341.5,376.0 334.0,383.5 326.5,376.0' class='s3 ring' stroke-width='2'/>
 <text x='188.0' y='420.0' font-size='13' class='t1' text-anchor='end'>4K 2-min segments</text>
-<line x1='325.9' y1='416.0' x2='555.4' y2='416.0' class='span' stroke-width='2'/>
-<circle cx='555.4' cy='416.0' r='6' class='s1 ring' stroke-width='2'/>
-<rect x='514.6' y='410.6' width='10.8' height='10.8' rx='1.5' class='s2 ring' stroke-width='2'/>
-<polygon points='325.9,408.5 333.4,416.0 325.9,423.5 318.4,416.0' class='s3 ring' stroke-width='2'/>
+<line x1='360.8' y1='416.0' x2='601.2' y2='416.0' class='span' stroke-width='2'/>
+<circle cx='601.2' cy='416.0' r='6' class='s1 ring' stroke-width='2'/>
+<rect x='563.4' y='410.6' width='10.8' height='10.8' rx='1.5' class='s2 ring' stroke-width='2'/>
+<polygon points='360.8,408.5 368.3,416.0 360.8,423.5 353.3,416.0' class='s3 ring' stroke-width='2'/>
 <text x='188.0' y='460.0' font-size='13' class='t1' text-anchor='end'>4K 10-min films</text>
-<line x1='342.0' y1='456.0' x2='555.4' y2='456.0' class='span' stroke-width='2'/>
-<circle cx='555.4' cy='456.0' r='6' class='s1 ring' stroke-width='2'/>
-<rect x='503.8' y='450.6' width='10.8' height='10.8' rx='1.5' class='s2 ring' stroke-width='2'/>
-<polygon points='342.0,448.5 349.5,456.0 342.0,463.5 334.5,456.0' class='s3 ring' stroke-width='2'/>
+<line x1='351.3' y1='456.0' x2='601.2' y2='456.0' class='span' stroke-width='2'/>
+<circle cx='601.2' cy='456.0' r='6' class='s1 ring' stroke-width='2'/>
+<rect x='521.8' y='450.6' width='10.8' height='10.8' rx='1.5' class='s2 ring' stroke-width='2'/>
+<polygon points='351.3,448.5 358.8,456.0 351.3,463.5 343.8,456.0' class='s3 ring' stroke-width='2'/>
 </svg>

@@ -109,15 +109,17 @@ def ladders(md_path):
 
 
 def credits(md_path):
-    """(titles behind on their end credits, titles read) from the report's
-    supplementary credits table."""
+    """(titles behind on their end credits, titles read, titles pending)
+    from the report's supplementary credits table."""
     rows, on = [], False
     for line in open(md_path):
         if line.startswith("## "):
             on = line.startswith("## End credits")
         elif on and line.startswith("| ") and not line.startswith("| title"):
             rows.append(line.rstrip().rstrip("|").split("|")[-1].strip())
-    return sum(1 for r in rows if r.startswith("**behind")), len(rows)
+    read = [r for r in rows if r]
+    return (sum(1 for r in read if r.startswith("**behind")), len(read),
+            len(rows) - len(read))
 
 
 def board_history():
@@ -399,9 +401,12 @@ def values(sp, q, lad, date, report_rel, hist, cred):
                           f"{len(passing)} of {len(combos)} speed combinations passing")
         + ". " + ("Every ladder is inside the bar." if bd_ok else
                   f"{V['ladders-in-bar']} of {V['ladders']} ladders are inside the bar."))
-    behind, read = cred
+    behind, read, pending = cred
     V["credits"] = (f"On {behind} of {read} titles yah265 needs more bytes than x265 there."
                     if behind else f"yah265 is level or ahead on all {read} titles there.")
+    if pending:
+        V["credits"] += (f" The other {pending} {'is' if pending == 1 else 'are'}"
+                         " still pending.")
     g3s = [p for p in hist if p["g3"]]
     V["hist-g3-first"] = f"{g3s[0]['g3']:.1f}x" if g3s else "-"
     V["hist-g3-first-date"] = g3s[0]["date"] if g3s else "-"
