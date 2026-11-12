@@ -10,6 +10,7 @@
 
 #include "common/cpu.h"
 #include "encoder/arm/neon.h"
+#include "encoder/arm/sve.h"    /* self-guarded */
 #include "encoder/x86/avx2.h"   /* self-guarded */
 #include "encoder/x86/sse42.h"   /* self-guarded */
 #include "encoder/mc.h"
@@ -328,6 +329,12 @@ void n265_mc_luma_hf(pixel *dst, int ds, int w, int h,
     N265_RC_TOUCH16(hf + (fy ? h + 3 : h - 1) * hs);
 #if N265_NEON_MC
     if (n265_asm_on(N265_ASM_MC)) {
+#if N265_SVE_MC
+        if (N265_SVE_MCV_OK(n265_cpu_word(), w, h, fy)) {
+            n265_mc_luma_hf_sve(dst, ds, w, h, hf, hs, fy);
+            return;
+        }
+#endif
         n265_mc_luma_hf_neon(dst, ds, w, h, hf, hs, fy);
         return;
     }
@@ -378,6 +385,12 @@ void n265_mc_luma_14_hf(int16_t *dst, int ds, int w, int h,
     N265_RC_TOUCH16(hf + (fy ? h + 3 : h - 1) * hs);
 #if N265_NEON_MC
     if (n265_asm_on(N265_ASM_MC)) {
+#if N265_SVE_MC
+        if (N265_SVE_MCV14_OK(n265_cpu_word(), w, h, fy)) {
+            n265_mc_luma_14_hf_sve(dst, ds, w, h, hf, hs, fy);
+            return;
+        }
+#endif
         n265_mc_luma_14_hf_neon(dst, ds, w, h, hf, hs, fy);
         return;
     }

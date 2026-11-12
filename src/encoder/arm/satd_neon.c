@@ -859,7 +859,7 @@ uint64_t n265_ssd_wh_neon(const pixel *a, int as, const pixel *b,
 #if BIT_DEPTH == 8
     uint32x4_t acc = vdupq_n_u32(0);
 
-#if defined(__ARM_FEATURE_DOTPROD)
+#if N265_NEON_DOT
     /* The DotProd arm below is faster at every shape this kernel sees and
      * twice as fast at the big ones (64x64: 158 ns against 318), because
      * udot(acc, d, d) replaces two vmull_u8 and two vpadalq_u16 per
@@ -928,7 +928,7 @@ uint64_t n265_ssd_wh_neon(const pixel *a, int as, const pixel *b,
 #endif
 }
 
-#if BIT_DEPTH == 8 && defined(__ARM_FEATURE_DOTPROD)
+#if BIT_DEPTH == 8 && N265_NEON_DOT
 /* The FEAT_DotProd arm. udot(acc, d, d) IS the sum of four squares
  * accumulated into a u32 lane, which is the whole of this kernel's inner
  * step: one instruction where the base form needs two vmull_u8 and two
@@ -944,6 +944,7 @@ uint64_t n265_ssd_wh_neon(const pixel *a, int as, const pixel *b,
  * instruction, the feature word says this CPU can run it. Exported so
  * checkasm checks and times BOTH arms on a host that has the extension.
  */
+N265_DOT_TARGET
 uint64_t n265_ssd_wh_dot_neon(const pixel *a, int as, const pixel *b,
                               int bs, int w, int h)
 {
@@ -976,7 +977,7 @@ uint64_t n265_ssd_wh_dot_neon(const pixel *a, int as, const pixel *b,
     }
     return (uint64_t)vaddvq_u32(acc) + vaddv_u32(acc2) + rest;
 }
-#endif /* BIT_DEPTH == 8 && __ARM_FEATURE_DOTPROD */
+#endif /* BIT_DEPTH == 8 && N265_NEON_DOT */
 
 /* ---- psy energy -------------------------------------------------------
  *

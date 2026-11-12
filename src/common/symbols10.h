@@ -535,5 +535,11 @@
 #define n265_wp_pix_wh_avx2          n265_wp_pix_wh_avx2_10
 #define n265_wp_pix_wh_sse42         n265_wp_pix_wh_sse42_10
 #define n265_wp_pix_wh_ref           n265_wp_pix_wh_ref_10
+#define n265_satd_wh_sve             n265_satd_wh_sve_10
+#define n265_sad_wh_sve              n265_sad_wh_sve_10
+#define n265_ssd_wh_sve              n265_ssd_wh_sve_10
+#define n265_sum_sq_wh_sve           n265_sum_sq_wh_sve_10
+#define n265_mc_luma_hf_sve          n265_mc_luma_hf_sve_10
+#define n265_mc_luma_14_hf_sve       n265_mc_luma_14_hf_sve_10
 
 #endif /* N265_SYMBOLS10_H */

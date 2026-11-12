@@ -432,7 +432,7 @@ static uint64_t red_opt(int which, const pixel *a, int as, const pixel *b,
                         int bs, int w, int h)
 {
 #if CA_SIMD_SATD
-#if BIT_DEPTH == 8 && defined(__ARM_FEATURE_DOTPROD)
+#if BIT_DEPTH == 8 && N265_NEON_DOT
     if (which == RED_SSD_DOT)
         return n265_ssd_wh_dot_neon(a, as, b, bs, w, h);
 #endif
@@ -715,7 +715,7 @@ static void check_windows(void)
     for (int s = 0; s < NROWCOL_SH; s++)
         check_window("sad rowcol", PG_ROWCOL, rowcol_shapes[s],
                      rowcol_shapes[s]);
-#if CA_SIMD_SATD && BIT_DEPTH == 8 && defined(__ARM_FEATURE_DOTPROD)
+#if CA_SIMD_SATD && BIT_DEPTH == 8 && N265_NEON_DOT
     if (n265_cpu_flags() & N265_CPU_DOTPROD)
         for (int s = 0; s < NSSD_SH; s++)
             check_window("ssd/dot", PG_RED + RED_SSD_DOT, ssd_shapes[s][0],
@@ -746,7 +746,7 @@ static int check_ssd_extreme(void)
                (unsigned long long)want, (unsigned long long)got);
         return 1;
     }
-#if CA_SIMD_SATD && BIT_DEPTH == 8 && defined(__ARM_FEATURE_DOTPROD)
+#if CA_SIMD_SATD && BIT_DEPTH == 8 && N265_NEON_DOT
     if (n265_cpu_flags() & N265_CPU_DOTPROD) {
         got = red_opt(RED_SSD_DOT, a, 64, b, 64, 64, 64);
         if (got != want) {
@@ -977,7 +977,7 @@ int check_satd(void)
     bad = check_reduction("ssd", RED_SSD, ssd_shapes, NSSD_SH);
     if (bad)
         return bad;
-#if CA_SIMD_SATD && BIT_DEPTH == 8 && defined(__ARM_FEATURE_DOTPROD)
+#if CA_SIMD_SATD && BIT_DEPTH == 8 && N265_NEON_DOT
     /* the second arm of the SSD, on a host that can run it. Both arms are
      * held to the same C reference; a host without the extension reaches
      * neither this check nor the arm. */
@@ -1000,7 +1000,7 @@ int check_satd(void)
     bench_reduction("sad", RED_SAD);
     bench_reduction("ssd", RED_SSD);
     bench_rowcol();
-#if CA_SIMD_SATD && BIT_DEPTH == 8 && defined(__ARM_FEATURE_DOTPROD)
+#if CA_SIMD_SATD && BIT_DEPTH == 8 && N265_NEON_DOT
     if (n265_cpu_flags() & N265_CPU_DOTPROD)
         bench_reduction("ssd/dot", RED_SSD_DOT);
 #endif

@@ -2,7 +2,8 @@
 # Copyright (c) 2026, the yah265 authors
 # SPDX-License-Identifier: GPL-2.0-or-later
 #
-# ec2.sh -- one spot instance for an x86 probe, and everything it needs,
+# ec2.sh -- one spot instance for a probe (x86-64 or arm64, from TYPE),
+# and everything it needs,
 # created and torn down by name. The owner's terms (CLAUDE.md, owner-rules):
 # spot only, a price cap per vCPU-hour, instance-initiated shutdown
 # terminates, a dead-man shutdown at boot, and nothing left billing.
@@ -11,6 +12,7 @@
 #                  one spot instance; writes $STATE
 #   ec2.sh ip      the instance's public IP
 #   ec2.sh ssh ... ssh to it
+#   ec2.sh deadman MIN   re-arm the dead-man shutdown MIN minutes out
 #   ec2.sh down    terminate, wait until terminated, delete the key pair
 #                  and the security group, list anything left
 #
@@ -27,6 +29,11 @@ STATE=${STATE:-./ec2-state}
 NAME=${NAME:-yah265-x86-probe}
 AWS=(aws --region "$REGION")
 
+arch() {
+    "${AWS[@]}" ec2 describe-instance-types --instance-types "$TYPE" \
+        --query 'InstanceTypes[0].ProcessorInfo.SupportedArchitectures[0]' --output text
+}
+
 vcpus() {
     "${AWS[@]}" ec2 describe-instance-types --instance-types "$TYPE" \
         --query 'InstanceTypes[0].VCpuInfo.DefaultVCpus' --output text
@@ -37,9 +44,10 @@ up() {
     [ -f "$STATE/instance" ] && { echo "already up: $(cat "$STATE/instance")"; exit 1; }
     local n; n=$(vcpus)
     local maxp=${MAXPRICE:-$(python3 -c "print(f'{0.04*$n:.3f}')")}
-    local ami
+    local ami deb=amd64
+    [ "$(arch)" = arm64 ] && deb=arm64
     ami=$("${AWS[@]}" ssm get-parameter --name \
-        /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id \
+        /aws/service/canonical/ubuntu/server/24.04/stable/current/$deb/hvm/ebs-gp3/ami-id \
         --query Parameter.Value --output text)
     local myip; myip=$(curl -s https://checkip.amazonaws.com)
     local tag sg
@@ -53,7 +61,7 @@ up() {
         chmod 600 "$STATE/key.pem"
         echo "$tag" > "$STATE/keyname"
         sg=$("${AWS[@]}" ec2 create-security-group --group-name "$tag" \
-            --description "x86 probe ssh" --query GroupId --output text)
+            --description "probe ssh" --query GroupId --output text)
         echo "$sg" > "$STATE/sg"
         "${AWS[@]}" ec2 authorize-security-group-ingress --group-id "$sg" \
             --protocol tcp --port 22 --cidr "$myip/32" >/dev/null
@@ -95,9 +103,13 @@ ip() {
 }
 
 ssh_() {
-    ssh -i "$STATE/key.pem" -o StrictHostKeyChecking=accept-new \
+    ssh -i "$STATE/key.pem" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new \
         -o UserKnownHostsFile="$STATE/known_hosts" -o ServerAliveInterval=30 \
         "ubuntu@$(ip)" "$@"
+}
+
+deadman() {
+    ssh_ "sudo shutdown -c; sudo shutdown -h +${1:?minutes}"
 }
 
 down() {
@@ -135,6 +147,7 @@ case "${1:-}" in
     up) up ;;
     ip) ip ;;
     ssh) shift; ssh_ "$@" ;;
+    deadman) shift; deadman "$@" ;;
     down) down ;;
-    *) echo "usage: ec2.sh up|ip|ssh|down" >&2; exit 2 ;;
+    *) echo "usage: ec2.sh up|ip|ssh|deadman|down" >&2; exit 2 ;;
 esac
