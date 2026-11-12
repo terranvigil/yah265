@@ -65,13 +65,20 @@ int n265_la_flat_pct(const struct n265_frame_work *fw)
             int lo = PIXEL_MAX, hi = 0;
             for (int y = 0; y < 16; y++) {
                 const pixel *r = b + y * stride;
+                uint32_t r1 = 0, r2 = 0;
+                pixel rlo = r[0], rhi = r[0];
+                N265_VECTORIZE
                 for (int x = 0; x < 16; x++) {
-                    int v = r[x];
-                    s1 += (uint32_t)v;
-                    s2 += (uint32_t)(v * v);
-                    if (v < lo) lo = v;
-                    if (v > hi) hi = v;
+                    pixel v = r[x];
+                    r1 += v;
+                    r2 += (uint32_t)v * v;
+                    rlo = v < rlo ? v : rlo;
+                    rhi = v > rhi ? v : rhi;
                 }
+                s1 += r1;
+                s2 += r2;
+                if (rlo < lo) lo = rlo;
+                if (rhi > hi) hi = rhi;
                 /* Exact early reject, and on natural video it fires on
                  * the first row of nearly every block. For any mean,
                  * one of the two extremes is at least (hi - lo) / 2
