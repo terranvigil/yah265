@@ -101,6 +101,29 @@ static inline int n265_psy_energy_avx512_wide(int n)
 #define n265_mc_chroma_14_wh_avx512 n265_mc_chroma_14_wh_avx2
 
 /* ---- transform (N265_ASM_DCT, N265_ASM_QUANT) ---------------------- */
+#if N265_AVX512_TRANSFORM
+void n265_fdct_avx512(int16_t *coef, const int16_t *resid, int log2n,
+                      int use_dst);
+void n265_idct_add_avx512(pixel *dst, int dst_stride, const int16_t *dq,
+                          int log2n, const pixel *pred, int pred_stride,
+                          int use_dst, int nzw, int nzh);
+void n265_dequant_avx512(int16_t *dq, const int16_t *level, int log2n,
+                         int qp, int *nzw, int *nzh);
+int n265_quant_avx512(int16_t *level, const int16_t *coef, int log2n, int qp,
+                      int intra);
+
+/* the 32-point DCT; the smaller ones and the DST stay AVX2 */
+static inline int n265_dct_avx512_wide(int log2n, int use_dst)
+{
+    return log2n == 5 && !use_dst;
+}
+
+/* quant and dequant from 8x8 up; at 4x4 AVX2 measured faster */
+static inline int n265_quant_avx512_wide(int log2n)
+{
+    return log2n >= 3;
+}
+#else
 #undef n265_fdct_avx512
 #define n265_fdct_avx512 n265_fdct_avx2
 #undef n265_idct_add_avx512
@@ -109,6 +132,7 @@ static inline int n265_psy_energy_avx512_wide(int n)
 #define n265_dequant_avx512 n265_dequant_avx2
 #undef n265_quant_avx512
 #define n265_quant_avx512 n265_quant_avx2
+#endif
 
 /* ---- families with no AVX-512 kernel ------------------------------- */
 #undef n265_rdoq_rtn_avx512

@@ -110,6 +110,7 @@
 #define n265_dequant                 n265_dequant_10
 #define n265_dequant_neon            n265_dequant_neon_10
 #define n265_dequant_avx2            n265_dequant_avx2_10
+#define n265_dequant_avx512          n265_dequant_avx512_10
 #define n265_dequant_sse42           n265_dequant_sse42_10
 #define n265_dequant_ref             n265_dequant_ref_10
 #define n265_dpb_requirement         n265_dpb_requirement_10
@@ -147,6 +148,7 @@
 #define n265_fdct                    n265_fdct_10
 #define n265_fdct_neon               n265_fdct_neon_10
 #define n265_fdct_avx2               n265_fdct_avx2_10
+#define n265_fdct_avx512             n265_fdct_avx512_10
 #define n265_fdct_sse42              n265_fdct_sse42_10
 #define n265_fdct_ref                n265_fdct_ref_10
 #define n265_filter_refs             n265_filter_refs_10
@@ -159,6 +161,7 @@
 #define n265_idct_add                n265_idct_add_10
 #define n265_idct_add_neon           n265_idct_add_neon_10
 #define n265_idct_add_avx2           n265_idct_add_avx2_10
+#define n265_idct_add_avx512         n265_idct_add_avx512_10
 #define n265_idct_add_sse42          n265_idct_add_sse42_10
 #define n265_idct_add_ref            n265_idct_add_ref_10
 #define n265_intra_pred              n265_intra_pred_10
@@ -264,6 +267,7 @@
 #define n265_quant                   n265_quant_10
 #define n265_quant_neon              n265_quant_neon_10
 #define n265_quant_avx2              n265_quant_avx2_10
+#define n265_quant_avx512            n265_quant_avx512_10
 #define n265_quant_sse42             n265_quant_sse42_10
 #define n265_quant_ref               n265_quant_ref_10
 #define n265_rc_class                n265_rc_class_10

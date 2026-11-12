@@ -10,6 +10,7 @@
 #include "common/cpu.h"
 #include "encoder/arm/neon.h"   /* self-guarded; nothing off aarch64 */
 #include "encoder/x86/avx2.h"   /* self-guarded */
+#include "encoder/x86/avx512.h"
 #include "encoder/x86/sse42.h"   /* self-guarded */
 #include "encoder/tables.h"
 #include "encoder/transform.h"
@@ -76,6 +77,12 @@ void n265_dequant(int16_t *dq, const int16_t *level, int log2n, int qp,
 #if N265_NEON_TRANSFORM
     if (n265_asm_on(N265_ASM_QUANT)) {
         n265_dequant_neon(dq, level, log2n, qp, nzw, nzh);
+        return;
+    }
+#endif
+#if N265_AVX512_TRANSFORM
+    if (n265_quant_avx512_wide(log2n) && n265_avx512_on(N265_ASM_QUANT)) {
+        n265_dequant_avx512(dq, level, log2n, qp, nzw, nzh);
         return;
     }
 #endif
@@ -408,6 +415,12 @@ void n265_fdct(int16_t *coef, const int16_t *resid, int log2n, int use_dst)
         return;
     }
 #endif
+#if N265_AVX512_TRANSFORM
+    if (n265_dct_avx512_wide(log2n, use_dst) && n265_avx512_on(N265_ASM_DCT)) {
+        n265_fdct_avx512(coef, resid, log2n, use_dst);
+        return;
+    }
+#endif
 #if N265_AVX2_TRANSFORM
     if (n265_avx2_on(N265_ASM_DCT)) {
         n265_fdct_avx2(coef, resid, log2n, use_dst);
@@ -535,6 +548,13 @@ void n265_idct_add(pixel *dst, int dst_stride, const int16_t *dq,
         return;
     }
 #endif
+#if N265_AVX512_TRANSFORM
+    if (n265_dct_avx512_wide(log2n, use_dst) && n265_avx512_on(N265_ASM_DCT)) {
+        n265_idct_add_avx512(dst, dst_stride, dq, log2n, pred, pred_stride,
+                           use_dst, nzw, nzh);
+        return;
+    }
+#endif
 #if N265_AVX2_TRANSFORM
     if (n265_avx2_on(N265_ASM_DCT)) {
         n265_idct_add_avx2(dst, dst_stride, dq, log2n, pred, pred_stride,
@@ -559,6 +579,10 @@ int n265_quant(int16_t *level, const int16_t *coef, int log2n, int qp,
 #if N265_NEON_TRANSFORM
     if (n265_asm_on(N265_ASM_QUANT))
         return n265_quant_neon(level, coef, log2n, qp, intra);
+#endif
+#if N265_AVX512_TRANSFORM
+    if (n265_quant_avx512_wide(log2n) && n265_avx512_on(N265_ASM_QUANT))
+        return n265_quant_avx512(level, coef, log2n, qp, intra);
 #endif
 #if N265_AVX2_TRANSFORM
     if (n265_avx2_on(N265_ASM_QUANT))
