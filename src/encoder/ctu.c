@@ -3006,33 +3006,26 @@ static void tt_analyze(struct n265_frame_work *e, int mode, int x0, int y0,
 static void set_mot_map_wh(struct n265_frame_work *e, int x0, int y0, int w,
                            int h, mot_t mot)
 {
-    for (int y = 0; y < h; y += 4)
-        for (int x = 0; x < w; x += 4) {
-            int m = ((y0 + y) >> 2) * e->map_stride + ((x0 + x) >> 2);
-            e->blk_mv[4 * m] = mot.mv[0].x;
-            e->blk_mv[4 * m + 1] = mot.mv[0].y;
-            e->blk_mv[4 * m + 2] = mot.mv[1].x;
-            e->blk_mv[4 * m + 3] = mot.mv[1].y;
-            e->blk_pred[m] = mot.pred;
-            e->blk_ref[2 * m] = mot.ref[0];
-            e->blk_ref[2 * m + 1] = mot.ref[1];
+    int16_t mv4[4] = { mot.mv[0].x, mot.mv[0].y, mot.mv[1].x, mot.mv[1].y };
+    int8_t ref2[2] = { mot.ref[0], mot.ref[1] };
+    int16_t *bmv = e->blk_mv;
+    uint8_t *bpred = e->blk_pred;
+    int8_t *bref = e->blk_ref;
+    int ms = e->map_stride, nx = w >> 2;
+    for (int y = 0; y < h; y += 4) {
+        int m0 = ((y0 + y) >> 2) * ms + (x0 >> 2);
+        for (int k = 0; k < nx; k++) {
+            memcpy(bmv + 4 * (m0 + k), mv4, sizeof mv4);
+            memcpy(bref + 2 * (m0 + k), ref2, sizeof ref2);
         }
+        memset(bpred + m0, mot.pred, (size_t)nx);
+    }
 }
 
 static void set_mot_map(struct n265_frame_work *e, int x0, int y0, int n,
                         mot_t mot)
 {
-    for (int y = 0; y < n; y += 4)
-        for (int x = 0; x < n; x += 4) {
-            int m = ((y0 + y) >> 2) * e->map_stride + ((x0 + x) >> 2);
-            e->blk_mv[4 * m] = mot.mv[0].x;
-            e->blk_mv[4 * m + 1] = mot.mv[0].y;
-            e->blk_mv[4 * m + 2] = mot.mv[1].x;
-            e->blk_mv[4 * m + 3] = mot.mv[1].y;
-            e->blk_pred[m] = mot.pred;
-            e->blk_ref[2 * m] = mot.ref[0];
-            e->blk_ref[2 * m + 1] = mot.ref[1];
-        }
+    set_mot_map_wh(e, x0, y0, n, n, mot);
 }
 
 static int cpred_trace(void);
