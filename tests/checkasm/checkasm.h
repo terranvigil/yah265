@@ -66,7 +66,9 @@
 #elif N265_X86
 #include "encoder/x86/avx2.h"
 #include "encoder/x86/sse42.h"
-#define CA_SIMD(f) ((n265_cpu_flags() & N265_CPU_AVX2) ? f##_avx2 : f##_sse42)
+#include "encoder/x86/avx512.h"
+#define CA_SIMD(f) ((n265_cpu_flags() & N265_CPU_AVX512) ? f##_avx512 : \
+                    (n265_cpu_flags() & N265_CPU_AVX2) ? f##_avx2 : f##_sse42)
 #define CA_SIMD_TRANSFORM N265_AVX2_TRANSFORM
 #define CA_SIMD_SATD      N265_AVX2_SATD
 #define CA_SIMD_MC        N265_AVX2_MC
