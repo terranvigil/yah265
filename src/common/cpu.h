@@ -14,6 +14,10 @@
 
 #include <stdatomic.h>
 #include <stdint.h>
+#include <stdlib.h>
+#if defined(__linux__)
+#include <sys/mman.h>
+#endif
 
 #include "common/pixel.h"
 
@@ -273,5 +277,22 @@ static inline int n265_sse42_on(uint32_t cls)
 
 /* Human-readable list of the active features, into `buf` (NUL-terminated). */
 void n265_cpu_name(uint32_t flags, char *buf, int size);
+
+/* malloc for a picture-sized buffer; free() releases it. On Linux it is
+ * 2 MB aligned and marked for transparent huge pages, which cut the
+ * first-touch page faults and the TLB misses on the frame planes. */
+static inline void *n265_malloc_big(size_t n)
+{
+#if defined(__linux__) && defined(MADV_HUGEPAGE)
+    if (n >= ((size_t)2 << 20)) {
+        void *p;
+        if (posix_memalign(&p, (size_t)2 << 20, n))
+            return NULL;
+        madvise(p, n, MADV_HUGEPAGE);
+        return p;
+    }
+#endif
+    return malloc(n);
+}
 
 #endif /* N265_CPU_H */

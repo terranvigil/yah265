@@ -3177,8 +3177,8 @@ n265_encoder *n265_encoder_open(const n265_param *p)
             struct n265_refpic *r = sl < e->dpb_slots
                 ? &e->dpb[sl] : &e->scratch_pic[sl - e->dpb_slots];
             r->stride[i] = w + 2 * px;
-            r->base[i] = malloc((size_t)r->stride[i] * (h + 2 * py)
-                                * sizeof(pixel));
+            r->base[i] = n265_malloc_big((size_t)r->stride[i] *
+                                         (h + 2 * py) * sizeof(pixel));
             if (!r->base[i])
                 goto fail;
             r->plane[i] = r->base[i] + py * r->stride[i] + px;
@@ -4248,7 +4248,7 @@ static void hf_arm(n265_encoder *e, struct n265_refpic *r, int code_idx)
                              * n265_ref_guard reads it unconditionally */
     for (int i = 0; i < 3; i++) {
         if (!r->hf_base[i]) {
-            r->hf_base[i] = malloc((size_t)w * h * sizeof(int16_t));
+            r->hf_base[i] = n265_malloc_big((size_t)w * h * sizeof(int16_t));
             if (!r->hf_base[i]) {   /* no cache is a slow path, not a fail */
                 for (int k = 0; k < 3; k++)
                     r->hf[k] = NULL;
@@ -4320,7 +4320,7 @@ static void hf_arm(n265_encoder *e, struct n265_refpic *r, int code_idx)
         if (!(mask & (1u << i)))
             continue;
         if (!r->hf2_base[i]) {
-            r->hf2_base[i] = malloc((size_t)w * h * sizeof(pixel));
+            r->hf2_base[i] = n265_malloc_big((size_t)w * h * sizeof(pixel));
             if (!r->hf2_base[i])    /* no cache is a slow path, not a fail */
                 break;
         }
@@ -4331,7 +4331,7 @@ static void hf_arm(n265_encoder *e, struct n265_refpic *r, int code_idx)
         if (!(mask & (1u << (i + 12))))
             continue;
         if (!r->hf2w_base[i]) {
-            r->hf2w_base[i] = malloc((size_t)w * h * sizeof(int16_t));
+            r->hf2w_base[i] = n265_malloc_big((size_t)w * h * sizeof(int16_t));
             if (!r->hf2w_base[i])
                 break;
         }

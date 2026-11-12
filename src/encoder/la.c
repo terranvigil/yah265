@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "common/cpu.h"
 #include "encoder/encoder.h"
 #include "encoder/la.h"
 #include "encoder/preset.h"
@@ -144,7 +145,7 @@ int n265_la_init(struct n265_encoder *e)
         for (int c = 0; c < 3; c++) {
             int w = c ? e->pad_w >> e->csx : e->pad_w;
             int h = c ? e->pad_h >> e->csy : e->pad_h;
-            f->src[c] = malloc((size_t)w * h * sizeof(pixel));
+            f->src[c] = n265_malloc_big((size_t)w * h * sizeof(pixel));
             if (!f->src[c])
                 return -1;
         }
