@@ -163,9 +163,11 @@ static inline void mc_vacc8x2(const int16_t *p, int hs, const int16_t *f,
 {
     int16x8_t r[9];
 
+    #pragma GCC unroll 16
     for (int k = 0; k < 9; k++)
         r[k] = vld1q_s16(p + (ptrdiff_t)(k - 3) * hs);
     a[0] = a[1] = a[2] = a[3] = vdupq_n_s32(0);
+    #pragma GCC unroll 16
     for (int k = 0; k < 8; k++) {
         a[0] = vmlal_n_s16(a[0], vget_low_s16(r[k]), f[k]);
         a[1] = vmlal_high_n_s16(a[1], r[k], f[k]);
@@ -184,9 +186,11 @@ static inline void mc_vacc4x2(const int16_t *p, int hs, const int16_t *f,
 {
     int16x4_t r[9];
 
+    #pragma GCC unroll 16
     for (int k = 0; k < 9; k++)
         r[k] = vld1_s16(p + (ptrdiff_t)(k - 3) * hs);
     a[0] = a[1] = vdupq_n_s32(0);
+    #pragma GCC unroll 16
     for (int k = 0; k < 8; k++) {
         a[0] = vmlal_n_s16(a[0], r[k], f[k]);
         a[1] = vmlal_n_s16(a[1], r[k + 1], f[k]);
@@ -197,6 +201,7 @@ static inline void mc_vacc8(const int16_t *p, int hs, const int16_t *f,
                             int32x4_t a[2])
 {
     a[0] = a[1] = vdupq_n_s32(0);
+    #pragma GCC unroll 16
     for (int k = 0; k < 8; k++) {
         int16x8_t v = vld1q_s16(p + (ptrdiff_t)(k - 3) * hs);
         a[0] = vmlal_n_s16(a[0], vget_low_s16(v), f[k]);
@@ -207,6 +212,7 @@ static inline void mc_vacc8(const int16_t *p, int hs, const int16_t *f,
 static inline int32x4_t mc_vacc4(const int16_t *p, int hs, const int16_t *f)
 {
     int32x4_t a = vdupq_n_s32(0);
+    #pragma GCC unroll 16
     for (int k = 0; k < 8; k++)
         a = vmlal_n_s16(a, vld1_s16(p + (ptrdiff_t)(k - 3) * hs), f[k]);
     return a;
@@ -314,12 +320,15 @@ MC_V_ATTR void mc_v4x8(const int16_t *p, int hs, const int fy,
     const int16_t *f = mc_luma_filt[fy];
     int16x8_t r[11];
 
+    #pragma GCC unroll 16
     for (int k = 0; k < 11; k++)
         r[k] = vld1q_s16(p + (ptrdiff_t)(k - 3) * hs);
+    #pragma GCC unroll 16
     for (int o = 0; o < 4; o++) {
         int32x4_t lo = vdupq_n_s32(0), hi = vdupq_n_s32(0);
         int first = 1;
 
+        #pragma GCC unroll 16
         for (int k = 0; k < 8; k++) {
             if (!f[k])
                 continue;

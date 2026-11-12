@@ -51,6 +51,19 @@
 #include "common/cpu.h"     /* N265_NEON_<FAMILY>, normalized to 0/1 */
 #include "common/pixel.h"
 
+/* The DotProd arm builds where the compiler can target it, not only where
+ * its default -march already has it: a generic Linux -march=armv8-a
+ * otherwise drops the arm on every Graviton. */
+#if defined(__ARM_FEATURE_DOTPROD)
+#define N265_NEON_DOT 1
+#define N265_DOT_TARGET
+#elif defined(__aarch64__) && (defined(__clang__) || __GNUC__ >= 10)
+#define N265_NEON_DOT 1
+#define N265_DOT_TARGET __attribute__((target("+dotprod")))
+#else
+#define N265_NEON_DOT 0
+#endif
+
 #if N265_NEON_MC
 /* ---- mc (N265_ASM_MC) ---------------------------------------------- */
 
@@ -169,7 +182,7 @@ uint32_t n265_psy_energy_neon(const pixel *p, int stride, int n);
 /* n265_sum_sq_wh at w = 16, h <= 16 */
 uint32_t n265_sum_sq16_neon(const pixel *p, int stride, int h, uint64_t *sq);
 
-#if BIT_DEPTH == 8 && defined(__ARM_FEATURE_DOTPROD)
+#if BIT_DEPTH == 8 && N265_NEON_DOT
 /* The FEAT_DotProd arm of n265_ssd_wh_neon, which selects it at runtime
  * on N265_CPU_DOTPROD (udot of a difference with itself is the sum of
  * four squares). Exported so checkasm can check and time BOTH arms on a
