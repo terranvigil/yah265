@@ -395,6 +395,9 @@ static const int sad_shapes[][2] = {
     /* item 39's u16-accumulator arm: odd heights at 16 (the two-row
      * step's tail) and the tallest block at each of its three widths */
     { 16, 1 }, { 16, 5 }, { 16, 64 }, { 32, 64 }, { 32, 3 }, { 64, 7 },
+    /* the AVX-512 narrow arms: four rows a vector, and the rows past
+     * a multiple of four */
+    { 8, 7 }, { 4, 6 }, { 8, 64 }, { 4, 64 }, { 12, 9 },
 };
 #define NSAD_SH ((int)(sizeof(sad_shapes) / sizeof(sad_shapes[0])))
 
@@ -406,6 +409,9 @@ static const int ssd_shapes[][2] = {
     { 2, 2 }, { 6, 6 }, { 12, 12 }, { 24, 24 }, { 48, 48 },
     { 8, 16 }, { 16, 8 }, { 3, 7 }, { 7, 3 }, { 1, 64 }, { 64, 1 },
     { 20, 20 }, { 33, 5 },
+    /* the AVX-512 arms: two or four rows a vector, odd and short heights */
+    { 9, 7 }, { 16, 5 }, { 13, 3 }, { 8, 6 }, { 4, 5 }, { 8, 64 }, { 4, 12 },
+    { 16, 64 }, { 12, 1 },
 };
 #define NSSD_SH ((int)(sizeof(ssd_shapes) / sizeof(ssd_shapes[0])))
 

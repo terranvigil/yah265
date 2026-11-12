@@ -4,7 +4,8 @@
 #
 # x86_identity.sh - the kernel item's escape cmp on an x86-64 build:
 # every clip at one thread, N265_ASM_OFF=all against the shipped binary
-# (the AVX2 tier) and against N265_CPU_MAX=sse42 (the SSE4.2 tier), as
+# (the top tier the CPU has), against N265_CPU_MAX=avx2 where that top
+# tier is AVX-512, and against N265_CPU_MAX=sse42 (the SSE4.2 tier), as
 # the bitstream and as --dump-recon. Every kernel is bit-exact with its C
 # reference, so every cell must read SAME.
 #
@@ -46,15 +47,21 @@ hash_of() {
 
 # the build's checkasm prints the feature word the library detects
 ca="$(dirname "$BIN")/tests/checkasm"
-if ! "$ca" satd 2>/dev/null | head -1 | grep -q ' avx2,'; then
+if ! "$ca" satd 2>/dev/null | head -1 | grep -Eq ' avx2[ ,]'; then
     echo "x86_identity: $ca does not report AVX2 here; refusing a C-vs-C cmp" >&2
     exit 2
 fi
+tiers="$("$ca" 2>/dev/null | sed -n 's/^checkasm: checking //p')"
 ARMS="on off"
-if "$ca" 2>/dev/null | grep -q '^checkasm: checking sse42'; then
-    ARMS="on sse42 off"
+TOP=avx2
+if echo "$tiers" | grep -qx avx512; then
+    TOP=avx512
+    ARMS="on avx2 off"
+fi
+if echo "$tiers" | grep -qx sse42; then
+    ARMS="${ARMS% off} sse42 off"
 else
-    echo "x86_identity: no SSE4.2 kernels in this build; avx2 arm only" >&2
+    echo "x86_identity: no SSE4.2 kernels in this build; no sse42 arm" >&2
 fi
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/x86id.XXXXXX")"
@@ -66,6 +73,7 @@ encode() {   # encode clip preset arm
     local envs=(ROSETTA_ADVERTISE_AVX=1)
     [ "$arm" = off ] && envs+=(N265_ASM_OFF=all)
     [ "$arm" = sse42 ] && envs+=(N265_CPU_MAX=sse42)
+    [ "$arm" = avx2 ] && envs+=(N265_CPU_MAX=avx2)
     for e in ${ARM_ON:-}; do envs+=("$e"); done
     env "${envs[@]}" nice -n 10 "$BIN" "$CORPUS/$clip.y4m" -o "$out.hevc" \
         --preset "$preset" --frames "$FRAMES" --threads 1 \
@@ -104,7 +112,7 @@ for clip in $CLIPS; do
             [ "$(hash_of "$b.$arm.hevc")" = "$(hash_of "$b.off.hevc")" ] || { s=DIFF; rc=1; }
             [ "$(hash_of "$b.$arm.yuv")" = "$(hash_of "$b.off.yuv")" ] || { r=DIFF; rc=1; }
             printf '%-16s %-7s %-5s stream %s  recon %s  %s\n' "$clip" "$preset" \
-                "${arm/on/avx2}" "$s" "$r" "$(hash_of "$b.$arm.hevc")"
+                "${arm/on/$TOP}" "$s" "$r" "$(hash_of "$b.$arm.hevc")"
         done
     done
 done

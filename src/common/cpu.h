@@ -30,7 +30,7 @@ enum {
      * may use any of them. */
     N265_CPU_SSE42   = 1u << 8,
     N265_CPU_AVX2    = 1u << 9,
-    N265_CPU_AVX512  = 1u << 10,  /* F + BW + VL, ZMM state; no kernel yet */
+    N265_CPU_AVX512  = 1u << 10,  /* F + BW + VL, with the ZMM state */
 };
 
 /* Kernel classes, one bit each. A class is the unit the ablation knob and
@@ -220,6 +220,50 @@ static inline int n265_avx2_on(uint32_t cls)
     if (!(cls & N265_ASM_PORTED_AVX2))
         return 0;
     return (n265_cpu_flags() & N265_CPU_AVX2) &&
+           !((n265_asm_off_ | n265_asm_refuse_) & cls);
+}
+
+/* ---- the x86-64 AVX-512 tier -----------------------------------------
+ *
+ * AVX-512 F, BW and VL on top of AVX2: one N265_AVX512_<FAMILY> per file
+ * src/encoder/x86/<family>_avx512.c, and a dispatch block BEFORE the AVX2
+ * one. A family may cover only some entry points: a kernel that measured
+ * no faster than its AVX2 twin stays AVX2 (x86/avx512.h aliases it). */
+#ifndef N265_AVX512_TRANSFORM
+#define N265_AVX512_TRANSFORM 0
+#endif
+#ifndef N265_AVX512_SATD
+#define N265_AVX512_SATD 0
+#endif
+#ifndef N265_AVX512_MC
+#define N265_AVX512_MC 0
+#endif
+#ifndef N265_AVX512_RDOQ
+#define N265_AVX512_RDOQ 0
+#endif
+#ifndef N265_AVX512_COST
+#define N265_AVX512_COST 0
+#endif
+#ifndef N265_AVX512_INTRA
+#define N265_AVX512_INTRA 0
+#endif
+#ifndef N265_AVX512_DEBLOCK
+#define N265_AVX512_DEBLOCK 0
+#endif
+#ifndef N265_AVX512_SAO
+#define N265_AVX512_SAO 0
+#endif
+
+#define N265_ASM_PORTED_AVX512 ( \
+    (N265_AVX512_TRANSFORM ? (N265_ASM_DCT | N265_ASM_QUANT) : 0u) | \
+    (N265_AVX512_SATD      ? (uint32_t)N265_ASM_SATD : 0u) | \
+    (N265_AVX512_MC        ? (uint32_t)N265_ASM_MC : 0u))
+
+static inline int n265_avx512_on(uint32_t cls)
+{
+    if (!(cls & N265_ASM_PORTED_AVX512))
+        return 0;
+    return (n265_cpu_flags() & N265_CPU_AVX512) &&
            !((n265_asm_off_ | n265_asm_refuse_) & cls);
 }
 

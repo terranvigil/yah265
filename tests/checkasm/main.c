@@ -304,7 +304,7 @@ static const ca_tier tiers[] = {
     { "sse42", N265_CPU_SSE42, N265_CPU_SSE42, CA_FAMS(N265_SSE42) },
     { "avx2", N265_CPU_AVX2, N265_CPU_SSE42 | N265_CPU_AVX2,
       CA_FAMS(N265_AVX2) },
-    { "avx512", N265_CPU_AVX512, ~0u, 0 },
+    { "avx512", N265_CPU_AVX512, ~0u, CA_FAMS(N265_AVX512) },
 #else
     { "c", 0, 0, CA_F_ALL },
 #endif
