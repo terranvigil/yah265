@@ -189,10 +189,18 @@ void n265_wp_slot_store(n265_encoder *e, struct n265_refpic *slot)
 static void plane_moments(const pixel *p, int n, double *mean, double *var)
 {
     uint64_t s = 0, sq = 0;
-    for (int i = 0; i < n; i++) {
-        unsigned v = p[i];
-        s += v;
-        sq += (uint64_t)v * v;
+    /* 32-bit sums over chunks a full-range sample cannot overflow */
+    for (int i0 = 0; i0 < n; i0 += 1024) {
+        int i1 = n - i0 < 1024 ? n : i0 + 1024;
+        uint32_t cs = 0, csq = 0;
+        N265_VECTORIZE
+        for (int i = i0; i < i1; i++) {
+            uint32_t v = p[i];
+            cs += v;
+            csq += v * v;
+        }
+        s += cs;
+        sq += csq;
     }
     double m = (double)s / n;
     *mean = m;
