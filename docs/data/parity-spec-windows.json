@@ -1,17 +1,18 @@
 {
  "L/1080p/bbb/G1": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 27.52,
-  "before_dsize_pct": -18.117,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T09:35:12",
-  "dsize_pct": -0.06,
+  "before_dsize_pct": -16.824,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T21:25:21",
+  "dsize_pct": 0.07,
   "encodes": 3,
-  "ours_bytes": 15093909,
-  "ours_crf": 25.83,
+  "ours_bytes": 15113539,
+  "ours_crf": 25.96,
   "ours_md5": [
-   "9fde693efe6c5a6d4daa9e91713536d6",
-   "e848fd5c271593ed19a5c7cb4d0768f6",
-   "994c92ff58dffc6bc4d746532b11b8aa"
+   "fd14bb8bbb3163546e65f511e7ad14d7",
+   "3ab8065e9402bd252e6baaf6bb000d24",
+   "dc75022162b87da339a8cce2b092711e"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 15102995,
@@ -38,18 +39,19 @@
   "x265_threads": "--pools none --frame-threads 1"
  },
  "L/1080p/bbb/G2": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 27.52,
-  "before_dsize_pct": -19.314,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T09:29:53",
-  "dsize_pct": -0.031,
+  "before_dsize_pct": -18.04,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T21:24:35",
+  "dsize_pct": -0.084,
   "encodes": 3,
-  "ours_bytes": 15322269,
-  "ours_crf": 25.71,
+  "ours_bytes": 15314157,
+  "ours_crf": 25.84,
   "ours_md5": [
-   "8c2d0b44ce29a9aea9fc8587632107ea",
-   "f3af027b4c2114ba8e5e3c8e6e965d3c",
-   "d9711d43f7086adb30ca9756a494ed7a"
+   "e5794fcae6379640d903235f75e666aa",
+   "7279a7dd76caa3a5b353b51251eb42a6",
+   "cdeb447f4ab19235a269451dd3ebbf0b"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 15326986,
@@ -76,18 +78,19 @@
   "x265_threads": "--frame-threads 4"
  },
  "L/1080p/cosmos/G1": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 25.27,
-  "before_dsize_pct": 22.354,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T10:08:20",
-  "dsize_pct": 0.049,
+  "before_dsize_pct": 21.813,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T21:36:50",
+  "dsize_pct": 0.13,
   "encodes": 3,
-  "ours_bytes": 23719020,
-  "ours_crf": 26.9,
+  "ours_bytes": 23738113,
+  "ours_crf": 26.83,
   "ours_md5": [
-   "08de98088070e38978e148f61cc89018",
-   "5424ce0e24c3a456731b1a1a881eb4a7",
-   "4eafdbb5a5240e4676979c2c31bcda94"
+   "a0a5f83b5afa31405a10e609f0a930a1",
+   "0ee858f2c60ed34e561867d5ce90744a",
+   "73d4f54be1f2f4e7f47f18d9b2c3b884"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 23707405,
@@ -114,18 +117,19 @@
   "x265_threads": "--pools none --frame-threads 1"
  },
  "L/1080p/cosmos/G2": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 25.27,
-  "before_dsize_pct": 20.336,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T10:02:40",
-  "dsize_pct": -0.026,
+  "before_dsize_pct": 19.804,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T21:36:00",
+  "dsize_pct": -0.093,
   "encodes": 3,
-  "ours_bytes": 24098497,
-  "ours_crf": 26.76,
+  "ours_bytes": 24082320,
+  "ours_crf": 26.71,
   "ours_md5": [
-   "acea8b780bdea0f93f61e83720316295",
-   "b8a96b63ae63ebcb3901e4f06600ab99",
-   "c8cbee2911d37c02a64195aeea3031bc"
+   "d27152ea11724ad6baebc06260ef076a",
+   "9491e1bf5ca3c96083cad78daa4552e6",
+   "1b47898397b4542ba532030a6d170492"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 24104797,
@@ -152,18 +156,19 @@
   "x265_threads": "--frame-threads 4"
  },
  "L/1080p/meridian/G1": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 26.36,
-  "before_dsize_pct": -0.398,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T07:48:53",
-  "dsize_pct": -0.398,
-  "encodes": 1,
-  "ours_bytes": 3545004,
-  "ours_crf": 26.36,
+  "before_dsize_pct": 0.712,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T20:40:54",
+  "dsize_pct": 0.2,
+  "encodes": 2,
+  "ours_bytes": 3566297,
+  "ours_crf": 26.41,
   "ours_md5": [
-   "ef49e4f8af20ed42d907c8d5830d197b",
-   "556e7713f59de6cbc283c5b1ce29312d",
-   "e2c81402f0a379670c3d43a17b78c44e"
+   "ed980019059f8a6981f1d5e84d02b0a0",
+   "48f6daccbcca47a8f4c539ded085d100",
+   "8a771a138f02065bb9264f2f0606cc81"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 3559174,
@@ -190,18 +195,19 @@
   "x265_threads": "--pools none --frame-threads 1"
  },
  "L/1080p/meridian/G2": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 26.36,
-  "before_dsize_pct": -10.329,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T07:48:53",
-  "dsize_pct": 0.218,
+  "before_dsize_pct": -9.329,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T20:35:36",
+  "dsize_pct": 0.114,
   "encodes": 3,
-  "ours_bytes": 3961984,
-  "ours_crf": 25.59,
+  "ours_bytes": 3957869,
+  "ours_crf": 25.66,
   "ours_md5": [
-   "375657670af7ee3f88f843ca6f06f55c",
-   "f2044327dedd840b0c5c69ee7228618a",
-   "bc7f0d997b051cbd1250d8bb6e906ddd"
+   "cfec8ac52d84fd09f3f55f7b8a4e4ba9",
+   "5d64ae6ba1af267198edf4439579d414",
+   "2f6e329d43dd59baaa123c3dcca5e7c2"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 3953348,
@@ -228,18 +234,19 @@
   "x265_threads": "--frame-threads 4"
  },
  "L/1080p/nocturne/G1": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 24.52,
-  "before_dsize_pct": 42.215,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T10:28:11",
-  "dsize_pct": -0.305,
+  "before_dsize_pct": 41.373,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T21:55:54",
+  "dsize_pct": -0.304,
   "encodes": 3,
-  "ours_bytes": 21802009,
-  "ours_crf": 26.74,
+  "ours_bytes": 21802269,
+  "ours_crf": 26.75,
   "ours_md5": [
-   "ca16f9b0b6a72c0e1ecba017088e6b03",
-   "09411010f91948fd0cb65a41b11b3ff9",
-   "e206f2cad11a8fa81629cb673773baa7"
+   "1efbe65697985df6e31665b9749215b3",
+   "58405ecfdb177a5cbbb2d4db2b463eda",
+   "5e5560eb8edc83a4067e8ca77e6bfb47"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 21868698,
@@ -266,18 +273,19 @@
   "x265_threads": "--pools none --frame-threads 1"
  },
  "L/1080p/nocturne/G2": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 24.52,
-  "before_dsize_pct": 38.926,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T10:18:04",
-  "dsize_pct": -0.361,
+  "before_dsize_pct": 38.103,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T21:49:22",
+  "dsize_pct": -0.284,
   "encodes": 3,
-  "ours_bytes": 22305750,
+  "ours_bytes": 22322844,
   "ours_crf": 26.59,
   "ours_md5": [
-   "fceb3e14fa14feafdb207ca0f8faf988",
-   "f0b19b89815e5aaeba86f359db93b060",
-   "886b01902948c03fe3f9f291fd64bbc5"
+   "3a6cfaacf2ac33bc6825f9dff728cf76",
+   "78a7fcf6467ee2d40028015e331481de",
+   "41176b2206dd9ecb24e23626c189a570"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 22386514,
@@ -304,18 +312,19 @@
   "x265_threads": "--frame-threads 4"
  },
  "L/1080p/sintel/G1": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 29.91,
-  "before_dsize_pct": -56.255,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T08:54:12",
-  "dsize_pct": -0.198,
+  "before_dsize_pct": -55.731,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T20:58:27",
+  "dsize_pct": -0.161,
   "encodes": 3,
-  "ours_bytes": 11124735,
-  "ours_crf": 23.66,
+  "ours_bytes": 11128900,
+  "ours_crf": 23.71,
   "ours_md5": [
-   "a04b9702d945bd2b36327965ba3bca2d",
-   "df7ed57137ccee0c466ab4ac4033c935",
-   "348cec7169c1f96f41786a364c29f2bc"
+   "30210500f4ae13b47a489cad2ee413b5",
+   "e1ffb99acb9cb80d0d68e31893e14212",
+   "cfaf7b66f0e579f7c9044b0c397ed892"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 11146837,
@@ -342,18 +351,19 @@
   "x265_threads": "--pools none --frame-threads 1"
  },
  "L/1080p/sintel/G2": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 29.91,
-  "before_dsize_pct": -56.903,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T08:50:28",
-  "dsize_pct": -0.074,
+  "before_dsize_pct": -56.386,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T20:57:55",
+  "dsize_pct": -0.03,
   "encodes": 3,
-  "ours_bytes": 11306056,
-  "ours_crf": 23.55,
+  "ours_bytes": 11311112,
+  "ours_crf": 23.6,
   "ours_md5": [
-   "5af5aeee43b773a9c75a1891e068b65d",
-   "85594451bcb7a64512fa63cf170dd846",
-   "09bbd6c9f9eb3c87a6503b2a078434d7"
+   "9f32ef17c434a7c737a9aaf1459d2ea5",
+   "41a1859be433d0654f34beaf94def754",
+   "2db407c9d8a3c8bdd0a481043e5cc85d"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 11314461,
@@ -380,18 +390,19 @@
   "x265_threads": "--frame-threads 4"
  },
  "L/1080p/stem2/G1": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 26.39,
-  "before_dsize_pct": -11.286,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T08:18:11",
-  "dsize_pct": 0.297,
-  "encodes": 2,
-  "ours_bytes": 14769370,
-  "ours_crf": 25.47,
+  "before_dsize_pct": -6.399,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T20:52:13",
+  "dsize_pct": -0.687,
+  "encodes": 8,
+  "ours_bytes": 14624388,
+  "ours_crf": 25.53,
   "ours_md5": [
-   "5160c014348752b90b0d253afdc1409f",
-   "4c972d97c87edb430801b9fa5d98f25e",
-   "2d6ab8aaad0c60504e4d7ff19c82c3b2"
+   "c15af0ef9b6cfbc414b5386abad0d043",
+   "d30444d082533ee0a963bf908af4a517",
+   "8f9a2b15f1f286a9be998a61f1b9d3a3"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 14725610,
@@ -418,28 +429,28 @@
   "x265_threads": "--pools none --frame-threads 1"
  },
  "L/1080p/stem2/G2": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 26.39,
-  "before_dsize_pct": -12.601,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T08:10:25",
-  "dsize_pct": 0.023,
-  "encodes": 8,
-  "ours_bytes": 14606649,
-  "ours_crf": 25.32,
+  "before_dsize_pct": -7.786,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T20:49:43",
+  "dsize_pct": 0.295,
+  "encodes": 3,
+  "ours_bytes": 14991232,
+  "ours_crf": 25.69,
   "ours_md5": [
-   "824ed7bd6da2fd6f4cd7e765019953a4",
-   "8bc14a88079cfada46568281bc26157a",
-   "08eddc6435fe1e0c72b40c0e25b49294"
+   "17e17b7de0890b1beaf1e2ef05f06972",
+   "13a6edb70bea199041fd43a09d87a2a9",
+   "09fb0ce2d0f65c967471722fe9beafdd"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
-  "ref_bytes": 14603247,
-  "ref_crf": 28.18,
+  "ref_bytes": 14947167,
+  "ref_crf": 28,
   "ref_md5": [
-   "831ba7147f85a4f085d7b9eecaa28a97",
-   "de2ab225ce5f298eb820a55fa39fdce7",
-   "9749a77ec7846f41bf423a7b989a2e6b"
+   "7048ba858a05ab0d3161a9600d05b249",
+   "5dc8a460a64c1796d5e15c5e6e8243df",
+   "7ec785942d0d7363d6d32d8188059217"
   ],
-  "ref_moved": true,
   "windows": [
    [
     1796,
@@ -457,18 +468,19 @@
   "x265_threads": "--frame-threads 4"
  },
  "L/1080p/tears/G1": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 24.88,
-  "before_dsize_pct": -2.982,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T07:20:00",
-  "dsize_pct": -0.061,
+  "before_dsize_pct": -2.006,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T20:03:40",
+  "dsize_pct": -0.167,
   "encodes": 2,
-  "ours_bytes": 12298471,
-  "ours_crf": 24.65,
+  "ours_bytes": 12285364,
+  "ours_crf": 24.72,
   "ours_md5": [
-   "d54f9bb09879141d4c3d4ff92689e4d5",
-   "e8cfdd97fdc6c6eb76cce1cc567bcfa7",
-   "940554f6a7cb87a070e675475c2ab4e2"
+   "5e491488541de948efc8ba08417687e2",
+   "a735aa85a768acd45a1133b919c045e4",
+   "09d7c4f2a7e334e8473c2add6c98f5fb"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 12305950,
@@ -495,18 +507,19 @@
   "x265_threads": "--pools none --frame-threads 1"
  },
  "L/1080p/tears/G2": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 24.88,
-  "before_dsize_pct": -5.265,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T07:15:53",
-  "dsize_pct": 0.464,
+  "before_dsize_pct": -4.312,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T20:03:23",
+  "dsize_pct": 0.14,
   "encodes": 2,
-  "ours_bytes": 12660935,
-  "ours_crf": 24.46,
+  "ours_bytes": 12620043,
+  "ours_crf": 24.54,
   "ours_md5": [
-   "e7770bb2abdcfbc44dade023137a2c51",
-   "2f33e61d04ca850146ed6d7b2b4f0efc",
-   "e23d5deeccc4bce4a40837bcd35dd4ee"
+   "359e760c3aa7e63189ac3282503e66a7",
+   "1bc782f211f2c1704d2de3ce1c90bd95",
+   "eb24a4447c74cd1ce135a0056b4eb207"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 12602435,
@@ -533,18 +546,19 @@
   "x265_threads": "--frame-threads 4"
  },
  "L/2160p/bbb/G1": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 27.78,
-  "before_dsize_pct": -20.636,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T09:57:45",
-  "dsize_pct": 0.086,
+  "before_dsize_pct": -18.51,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T21:34:05",
+  "dsize_pct": 0.032,
   "encodes": 3,
-  "ours_bytes": 36969020,
-  "ours_crf": 25.83,
+  "ours_bytes": 36948982,
+  "ours_crf": 26.03,
   "ours_md5": [
-   "6a244cfd62618f3fe3a3704e10b1565a",
-   "13bd41f4acf90788ec9da9581d708741",
-   "1a417b855ecb9572de70049209f6bd23"
+   "27abd8a73f7eb11d705c8038bdc85141",
+   "372c7cbc4b2c9a73b7717b6ee0b7f324",
+   "f213daa1f3e85141af6bf5682b0349e0"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 36937314,
@@ -571,18 +585,19 @@
   "x265_threads": "--pools none --frame-threads 1"
  },
  "L/2160p/bbb/G2": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 27.78,
-  "before_dsize_pct": -22.361,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T09:42:54",
-  "dsize_pct": 0.25,
-  "encodes": 3,
-  "ours_bytes": 37852566,
-  "ours_crf": 25.65,
+  "before_dsize_pct": -20.282,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T21:31:13",
+  "dsize_pct": 0.061,
+  "encodes": 4,
+  "ours_bytes": 37781107,
+  "ours_crf": 25.88,
   "ours_md5": [
-   "e1ec70a1df7dfa0444514c27391816be",
-   "026e6a72e756b05cc8fbdbdb10ce2600",
-   "947b5515b643011452706a2d7c607cd6"
+   "1c390616ac2cf09e81cb457bf37827a6",
+   "d095282e3c2f8d445d3c6430ace23387",
+   "ddcfac2ecda6b9997029a08da92fdf06"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 37758186,
@@ -609,18 +624,19 @@
   "x265_threads": "--frame-threads 4"
  },
  "L/2160p/meridian/G1": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 26.35,
-  "before_dsize_pct": 12.65,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T08:01:09",
-  "dsize_pct": 0.349,
+  "before_dsize_pct": 12.167,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T20:47:50",
+  "dsize_pct": 0.325,
   "encodes": 3,
-  "ours_bytes": 10061729,
-  "ours_crf": 27.18,
+  "ours_bytes": 10059312,
+  "ours_crf": 27.16,
   "ours_md5": [
-   "6559b844c14b0105f5cd4264376bd329",
-   "1a3e327ea1a44b983d8b4683ce08089e",
-   "edefdf5ea78c130e65273c3cf697f52d"
+   "571cdabc92188f08144811e34a99a157",
+   "e9b2a119f3050619b5c0009dd2844b16",
+   "d45a8eea95337a32c3ea7aeb9d5f21f4"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 10026698,
@@ -647,18 +663,19 @@
   "x265_threads": "--pools none --frame-threads 1"
  },
  "L/2160p/meridian/G2": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 26.35,
-  "before_dsize_pct": 1.539,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T07:55:26",
-  "dsize_pct": 0.183,
+  "before_dsize_pct": 1.103,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T20:44:30",
+  "dsize_pct": 0.147,
   "encodes": 2,
-  "ours_bytes": 11144273,
-  "ours_crf": 26.47,
+  "ours_bytes": 11140262,
+  "ours_crf": 26.43,
   "ours_md5": [
-   "3e40404575ea3d10fee8112a13290eef",
-   "b4840221f117cea8a3ee56f430c03068",
-   "cac6704d90de2f8bd5dcaff46d4b0926"
+   "7c124336a1973020d8b1b3b2da5ef8e8",
+   "a8392e52d978e6d882ea285e2599bc98",
+   "df3d2a68b96ef3767853a68d0b5f5271"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 11123949,
@@ -685,18 +702,19 @@
   "x265_threads": "--frame-threads 4"
  },
  "L/2160p/nocturne/G1": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 23.64,
-  "before_dsize_pct": 44.507,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T12:02:24",
-  "dsize_pct": -0.191,
-  "encodes": 5,
-  "ours_bytes": 110815355,
-  "ours_crf": 24.7,
+  "before_dsize_pct": 39.55,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T22:30:40",
+  "dsize_pct": 0.092,
+  "encodes": 4,
+  "ours_bytes": 111130187,
+  "ours_crf": 24.62,
   "ours_md5": [
-   "c27125bde0cbf8defb120216bc7582e6",
-   "b095e35c83c600dc5d4eee1b27ba1a2e",
-   "9fb5a84151ff8002eebfb8eacb022272"
+   "6298c78ee9cef2258ed0da53ee4ec07d",
+   "09549344c087a74e5ab2011643910ccc",
+   "a92adb202eb4275aab3fa606bd30e2f3"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 111027506,
@@ -723,18 +741,19 @@
   "x265_threads": "--pools none --frame-threads 1"
  },
  "L/2160p/nocturne/G2": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 23.64,
-  "before_dsize_pct": 42.399,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T10:53:21",
-  "dsize_pct": 0.331,
+  "before_dsize_pct": 37.515,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T22:15:44",
+  "dsize_pct": 0.145,
   "encodes": 4,
-  "ours_bytes": 113044308,
-  "ours_crf": 24.64,
+  "ours_bytes": 112834684,
+  "ours_crf": 24.58,
   "ours_md5": [
-   "37f847722b16b8410f966c71c3e66b3f",
-   "c978525e0d90e72c02fd8f1dbf01791e",
-   "2b234eaf01fb8ea255ec77cd0e83e652"
+   "8772d3b92174dff93a84aaf65afbe0e4",
+   "0397d34a7fa28ad4bc5bea3918b35dda",
+   "fe7b39480b0a26c30aeefe2005533e37"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 112671236,
@@ -761,18 +780,19 @@
   "x265_threads": "--frame-threads 4"
  },
  "L/2160p/sintel/G1": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 29.45,
-  "before_dsize_pct": -64.622,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T09:24:26",
-  "dsize_pct": 0.168,
+  "before_dsize_pct": -64.382,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T21:22:37",
+  "dsize_pct": 0.236,
   "encodes": 3,
-  "ours_bytes": 49791405,
-  "ours_crf": 22.6,
+  "ours_bytes": 49825349,
+  "ours_crf": 22.64,
   "ours_md5": [
-   "07dd5e7d2529dbaa91f0891753caf99d",
-   "78e082a0399c4f4f2eb03b320825a1b7",
-   "0fdd8e4189abdeae8c340f54255621ae"
+   "9882cc9be8853f1fdfb89be4010e5dff",
+   "331b4218f066abb348fca595ab7cae36",
+   "bcfc24e27164da276f235010f8d4d49b"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 49707886,
@@ -799,18 +819,19 @@
   "x265_threads": "--pools none --frame-threads 1"
  },
  "L/2160p/sintel/G2": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 29.45,
-  "before_dsize_pct": -66.262,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T09:02:24",
-  "dsize_pct": 0.366,
+  "before_dsize_pct": -66.033,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T21:14:16",
+  "dsize_pct": -0.034,
   "encodes": 3,
-  "ours_bytes": 52315339,
-  "ours_crf": 22.3,
+  "ours_bytes": 52106629,
+  "ours_crf": 22.34,
   "ours_md5": [
-   "5c05b9d6d686b454d14fb77ef847a7ae",
-   "7756c70204ef1c4c8ce4692289accdc7",
-   "f78e24abae650a633628048631dbf474"
+   "d55b84c617a0cfd8b13561a7e8cb5dea",
+   "35afd59db6325abd54ea49f3ce74def1",
+   "e0ad899fb2b64896aee5377d1ba96b30"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 52124509,
@@ -837,18 +858,19 @@
   "x265_threads": "--frame-threads 4"
  },
  "L/2160p/stem2/G1": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 25.76,
-  "before_dsize_pct": -1.83,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T08:46:57",
-  "dsize_pct": -0.351,
-  "encodes": 2,
-  "ours_bytes": 36801401,
-  "ours_crf": 25.62,
+  "before_dsize_pct": 0.328,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T20:56:47",
+  "dsize_pct": 0.328,
+  "encodes": 1,
+  "ours_bytes": 37052297,
+  "ours_crf": 25.76,
   "ours_md5": [
-   "46ecae1c6e1e9615f217cc3e48c8a1a4",
-   "131ebda66ef523a860979e2d2bb1b6c1",
-   "94a23939ac492a797d593d839c4de8d0"
+   "cab4a2ceeae1832ab77c8cbe91606724",
+   "2fc9020969f729209cf5d26b70a45008",
+   "f7667fc47bd168972b4191321fbfe102"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 36931114,
@@ -875,18 +897,19 @@
   "x265_threads": "--pools none --frame-threads 1"
  },
  "L/2160p/stem2/G2": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 25.76,
-  "before_dsize_pct": -7.219,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T08:23:49",
-  "dsize_pct": -0.454,
-  "encodes": 2,
-  "ours_bytes": 38899017,
-  "ours_crf": 25.18,
+  "before_dsize_pct": -5.18,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T20:56:47",
+  "dsize_pct": 0.465,
+  "encodes": 3,
+  "ours_bytes": 39258057,
+  "ours_crf": 25.25,
   "ours_md5": [
-   "ab12576fe9d9fa28615683483bb92d15",
-   "87a19d4aa66984ea8c4e32262cc7f2cc",
-   "93b94b945eef9e9f7951da0b5bf3583c"
+   "6debe3c08a57c63eccc6579b897ff72d",
+   "147afc34ac703b5cceee875b78784225",
+   "5caaa928a74d3bf6b1490ad0f384de1b"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 39076507,
@@ -913,18 +936,19 @@
   "x265_threads": "--frame-threads 4"
  },
  "L/2160p/tears/G1": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 24.25,
-  "before_dsize_pct": 6.108,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T07:43:47",
-  "dsize_pct": -0.279,
+  "before_dsize_pct": 6.083,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T20:19:22",
+  "dsize_pct": -0.111,
   "encodes": 3,
-  "ours_bytes": 32513485,
-  "ours_crf": 24.62,
+  "ours_bytes": 32568299,
+  "ours_crf": 24.63,
   "ours_md5": [
-   "f4eb47067e3974dc0f663aac16a33147",
-   "44db0bae7292b59e52ac9e7b50d3c1f5",
-   "019267f5a4934116536e28073f61ee36"
+   "e955b8e9500346d5608b6af84c91206d",
+   "423f434845f870665653818921f34ba5",
+   "c6f4b1412eefe9d5764fe6f986ead676"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 32604572,
@@ -951,18 +975,19 @@
   "x265_threads": "--pools none --frame-threads 1"
  },
  "L/2160p/tears/G2": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 24.25,
-  "before_dsize_pct": 2.498,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T07:24:25",
-  "dsize_pct": -0.461,
+  "before_dsize_pct": 2.474,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T20:11:32",
+  "dsize_pct": -0.411,
   "encodes": 2,
-  "ours_bytes": 33597159,
+  "ours_bytes": 33614006,
   "ours_crf": 24.44,
   "ours_md5": [
-   "795cef05ae3965cf2e181fcba807c899",
-   "be54429375e22f34ccc34e4c7c1d9efa",
-   "b0b88b651e0b0d55b6c8064e73839088"
+   "e26b27e3c09d7ed2d8c74c78d3a27e44",
+   "d0580898573b4ac93303f6ca63a716cf",
+   "cc6c7234047cef09f20c806f9cbd83e8"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 33752859,
@@ -989,18 +1014,19 @@
   "x265_threads": "--frame-threads 4"
  },
  "L/720p/bbb/G1": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 27.04,
-  "before_dsize_pct": -5.327,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T09:28:07",
-  "dsize_pct": -0.131,
+  "before_dsize_pct": -4.065,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T21:23:29",
+  "dsize_pct": 0.05,
   "encodes": 3,
-  "ours_bytes": 7099258,
-  "ours_crf": 26.55,
+  "ours_bytes": 7112108,
+  "ours_crf": 26.67,
   "ours_md5": [
-   "5a5f48252988472302b2fcbbca06a9b4",
-   "89a88920f0444e26231a240e16b226e7",
-   "aa15525e77d43b4acb7ed8dc2a0cd4fe"
+   "93346400ebb500ceb169cb4c83c2246e",
+   "0083c9816771cf1b016b56c3fee9a4ca",
+   "cd6562a68b0f443a23ac2ede882025ef"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 7108573,
@@ -1027,18 +1053,19 @@
   "x265_threads": "--pools none --frame-threads 1"
  },
  "L/720p/bbb/G2": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 27.04,
-  "before_dsize_pct": -7.343,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T09:25:26",
-  "dsize_pct": -0.05,
+  "before_dsize_pct": -6.108,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T21:23:10",
+  "dsize_pct": 0.027,
   "encodes": 3,
-  "ours_bytes": 7259599,
-  "ours_crf": 26.34,
+  "ours_bytes": 7265229,
+  "ours_crf": 26.47,
   "ours_md5": [
-   "d2bd56c26c54a102cf9c490df27df7d9",
-   "485254c7842fc6d45836ed1477cd58fe",
-   "02f8c044bb036a57975130cc54edde0a"
+   "dea2de26e3f7226f6d9e1d56217cb275",
+   "2c53015fcf8e5d8dba5b5121f003dc03",
+   "46b6f2ccd5889357171f98f22cd4c62d"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 7263259,
@@ -1065,18 +1092,19 @@
   "x265_threads": "--frame-threads 4"
  },
  "L/720p/cosmos/G1": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 25.68,
-  "before_dsize_pct": 15.78,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T10:00:45",
-  "dsize_pct": -0.307,
+  "before_dsize_pct": 15.533,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T21:34:41",
+  "dsize_pct": -0.396,
   "encodes": 2,
-  "ours_bytes": 12562406,
-  "ours_crf": 26.81,
+  "ours_bytes": 12551232,
+  "ours_crf": 26.79,
   "ours_md5": [
-   "08ce63a5850872277f8b8d6625ce93ae",
-   "38ab6a991cfa631655f512d0b1529222",
-   "68a2b0352b881641ab370faa10af1fe2"
+   "34ad7c049b6c03840d2f460fd53e819e",
+   "f14d1a9364bb4867e2b4ecf500826af2",
+   "2ecb88e242237fad7b2c071c484bc602"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 12601072,
@@ -1103,18 +1131,19 @@
   "x265_threads": "--pools none --frame-threads 1"
  },
  "L/720p/cosmos/G2": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 25.68,
-  "before_dsize_pct": 14.743,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T09:58:26",
-  "dsize_pct": -0.3,
+  "before_dsize_pct": 14.498,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T21:34:29",
+  "dsize_pct": -0.24,
   "encodes": 2,
-  "ours_bytes": 12676862,
-  "ours_crf": 26.74,
+  "ours_bytes": 12684470,
+  "ours_crf": 26.72,
   "ours_md5": [
-   "356314caa0dd665d24084433db176292",
-   "7e6db581b1493e515c87e16446c782ba",
-   "dcca97556a9fdaf2d466625336516651"
+   "7858627f6d294f39ed726e754f0d7a86",
+   "91da980c9d9bc7f3f7492080bdd56b2a",
+   "dac858c8b34bae678b479ab0aed35c3c"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 12714961,
@@ -1141,18 +1170,19 @@
   "x265_threads": "--frame-threads 4"
  },
  "L/720p/meridian/G1": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 27.39,
-  "before_dsize_pct": 4.258,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T07:45:41",
-  "dsize_pct": 0.232,
+  "before_dsize_pct": 5.489,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T20:22:38",
+  "dsize_pct": -0.166,
   "encodes": 3,
-  "ours_bytes": 1720869,
-  "ours_crf": 27.85,
+  "ours_bytes": 1714032,
+  "ours_crf": 27.99,
   "ours_md5": [
-   "e95fbf5eaaecb8e5ebfa9d9f889b8cab",
-   "3cddbd5f021b1abbac28a6c5e1c71fa6",
-   "d4251cf640c2d68b242d9c941be8f1d0"
+   "72f276c640516766d621d3024f2e703b",
+   "d5f74f5b806015d3e687605cd9efccb8",
+   "f9f57028c83ef6ea34310c52238c0b5a"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 1716884,
@@ -1179,18 +1209,19 @@
   "x265_threads": "--pools none --frame-threads 1"
  },
  "L/720p/meridian/G2": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 27.39,
-  "before_dsize_pct": -9.763,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T07:45:00",
-  "dsize_pct": -0.349,
+  "before_dsize_pct": -8.698,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T20:22:18",
+  "dsize_pct": -0.114,
   "encodes": 3,
-  "ours_bytes": 1976732,
-  "ours_crf": 26.39,
+  "ours_bytes": 1981403,
+  "ours_crf": 26.55,
   "ours_md5": [
-   "74f730dcc1d42b92256807cb0369a355",
-   "78d67157faf8cb6dcc03b556d78d64db",
-   "6639abd7ddf333d1485bc6e5d8f13fc5"
+   "41e827021c3455200dd3c1f4b682ec23",
+   "c1b7c947760a5f55ad5b0ea60a95c0ce",
+   "657e8b95766f028aacd26cefba377f2c"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 1983658,
@@ -1217,18 +1248,19 @@
   "x265_threads": "--frame-threads 4"
  },
  "L/720p/nocturne/G1": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 24.93,
-  "before_dsize_pct": 27.84,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T10:14:27",
-  "dsize_pct": 0.055,
+  "before_dsize_pct": 28.355,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T21:39:44",
+  "dsize_pct": 0.054,
   "encodes": 3,
-  "ours_bytes": 10405133,
-  "ours_crf": 26.73,
+  "ours_bytes": 10404992,
+  "ours_crf": 26.76,
   "ours_md5": [
-   "ec073a4af6d2b1dc86871e415b0ea22b",
-   "51b802023930f0defb1a88252f4444ee",
-   "fa4e60b073cf68672040210bd640a78e"
+   "eff9fc3f9013ecae31efc38d23b60615",
+   "985b95094d8d496582d4f908c7928bd6",
+   "1c47ca7011e9599dc42efcc8eecf534d"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 10399376,
@@ -1255,18 +1287,19 @@
   "x265_threads": "--pools none --frame-threads 1"
  },
  "L/720p/nocturne/G2": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 24.93,
-  "before_dsize_pct": 24.146,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T10:09:53",
-  "dsize_pct": 0.101,
+  "before_dsize_pct": 24.646,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T21:38:13",
+  "dsize_pct": 0.034,
   "encodes": 3,
-  "ours_bytes": 10719589,
-  "ours_crf": 26.51,
+  "ours_bytes": 10712371,
+  "ours_crf": 26.55,
   "ours_md5": [
-   "2a175536266096ca04a815edc7c4a647",
-   "d87fdbc78e9bbafbfa404ab125d54dbb",
-   "bd85c049362d0d1e7d175fb0865b7b75"
+   "642c5b9d22ad2de9301bf478afe458ff",
+   "e39d89f3bb8787e7eda9ad7e4d1366ea",
+   "e885f19d155f1f586613007c3f82e1ad"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 10708781,
@@ -1293,18 +1326,19 @@
   "x265_threads": "--frame-threads 4"
  },
  "L/720p/sintel/G1": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 28.61,
-  "before_dsize_pct": -37.754,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T08:49:13",
-  "dsize_pct": -0.175,
+  "before_dsize_pct": -37.111,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T20:57:16",
+  "dsize_pct": -0.392,
   "encodes": 3,
-  "ours_bytes": 5091613,
-  "ours_crf": 24.56,
+  "ours_bytes": 5080552,
+  "ours_crf": 24.66,
   "ours_md5": [
-   "4863b971569651a22374ab1dc9dca369",
-   "87c23ef9928ea478a7423fca128ba080",
-   "71347984cedcec0bdf055fc666177990"
+   "40d99ed588c1418ffb2b5d219159bd05",
+   "7b8f0b92a1a7e5b50538342cf773cdbd",
+   "b7b8d0f12464200d87a98e5f52fc09be"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 5100552,
@@ -1331,18 +1365,19 @@
   "x265_threads": "--pools none --frame-threads 1"
  },
  "L/720p/sintel/G2": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 28.61,
-  "before_dsize_pct": -38.801,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T08:47:30",
-  "dsize_pct": 0.301,
+  "before_dsize_pct": -38.169,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T20:57:04",
+  "dsize_pct": 0.307,
   "encodes": 3,
-  "ours_bytes": 5203455,
-  "ours_crf": 24.39,
+  "ours_bytes": 5203765,
+  "ours_crf": 24.49,
   "ours_md5": [
-   "453160e7927f4576df5e3b8111839523",
-   "a48f0ffec96107d7aff46491e0dd19d0",
-   "706b20f0020e4ca7f9c0ee80ee7ca1db"
+   "b0f2d48f8fa788a786e021174a1d633e",
+   "2c73ee31899efd97b76e1654179dc449",
+   "a42e6f75303b680f8c9a61fe9f8d7ee5"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 5187835,
@@ -1369,18 +1404,19 @@
   "x265_threads": "--frame-threads 4"
  },
  "L/720p/stem2/G1": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 26.76,
-  "before_dsize_pct": -6.85,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T08:04:48",
-  "dsize_pct": -0.301,
-  "encodes": 2,
-  "ours_bytes": 6930372,
-  "ours_crf": 26.21,
+  "before_dsize_pct": -6.207,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T20:48:40",
+  "dsize_pct": -0.48,
+  "encodes": 3,
+  "ours_bytes": 6917873,
+  "ours_crf": 26.23,
   "ours_md5": [
-   "de917787799bd947fff9071c31a996cb",
-   "bf4c6e0367bd4537e6336d97e09d7855",
-   "05ab16a9c296374f282b39069c4ae3ff"
+   "7be038bea6d96f12c082b206452601af",
+   "db4cf44d094850fb166f42d87463ff81",
+   "2116bc77a470d5e4fd851a70edb2caef"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 6951266,
@@ -1407,18 +1443,19 @@
   "x265_threads": "--pools none --frame-threads 1"
  },
  "L/720p/stem2/G2": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 26.76,
-  "before_dsize_pct": -8.114,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T08:02:34",
-  "dsize_pct": -0.455,
-  "encodes": 5,
-  "ours_bytes": 7014840,
-  "ours_crf": 26.04,
+  "before_dsize_pct": -7.48,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T20:48:20",
+  "dsize_pct": 0.024,
+  "encodes": 3,
+  "ours_bytes": 7048615,
+  "ours_crf": 26.11,
   "ours_md5": [
-   "6fc47fc65d4fa681c3c9f869fc44d6f3",
-   "32ed174f72e82937244138bde875adb8",
-   "ba83b4acc9761fff1798c9d4d5f83da9"
+   "6467a56bb6f80a8850cd942c4a350cab",
+   "f175d50686f69b39009a0b5c545a6ae6",
+   "75ecba68bb34b6063c6b7025af65c91c"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 7046889,
@@ -1445,18 +1482,19 @@
   "x265_threads": "--frame-threads 4"
  },
  "L/720p/tears/G1": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 25.69,
-  "before_dsize_pct": -3.841,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T07:14:52",
-  "dsize_pct": -0.268,
+  "before_dsize_pct": -2.906,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T20:02:48",
+  "dsize_pct": -0.254,
   "encodes": 2,
-  "ours_bytes": 6191561,
-  "ours_crf": 25.39,
+  "ours_bytes": 6192481,
+  "ours_crf": 25.46,
   "ours_md5": [
-   "6f0de6f661b3bcea3db441d1a4c887fd",
-   "4177c8a352851b42dff3fd62d7918f08",
-   "14d99490ea6859828b5fba3358b031a0"
+   "dc792a529ae3c74bbcfe53ccd1112db5",
+   "06625c8d5e2ad433e2563f8c25756e0a",
+   "408067b3fd30d4f84758062d6a5c603e"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 6208224,
@@ -1483,18 +1521,19 @@
   "x265_threads": "--pools none --frame-threads 1"
  },
  "L/720p/tears/G2": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 25.69,
-  "before_dsize_pct": -5.974,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-11-01T07:12:57",
-  "dsize_pct": -0.494,
+  "before_dsize_pct": -5.06,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T20:02:38",
+  "dsize_pct": -0.342,
   "encodes": 2,
-  "ours_bytes": 6317765,
-  "ours_crf": 25.22,
+  "ours_bytes": 6327391,
+  "ours_crf": 25.29,
   "ours_md5": [
-   "18384c1369505e5945e223b33aeb6316",
-   "f29167c2ae008cce52568f20a25f49bb",
-   "7296db17406b677c08c853a52f895df0"
+   "341921583e0a212645958bc143426ef1",
+   "2c7cf697a2ad162a12e53cc3a6a269de",
+   "5611272b9b692831544acb1c9097bcd9"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 6349105,
@@ -1521,16 +1560,17 @@
   "x265_threads": "--frame-threads 4"
  },
  "M/1080p/chimera/G1": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 26.72,
-  "before_dsize_pct": 11.841,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-10-31T21:59:00",
-  "dsize_pct": 0.427,
+  "before_dsize_pct": 12.43,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T14:34:35",
+  "dsize_pct": 0.193,
   "encodes": 2,
-  "ours_bytes": 7309783,
-  "ours_crf": 27.58,
+  "ours_bytes": 7292743,
+  "ours_crf": 27.62,
   "ours_md5": [
-   "5d11e4b65fafa36e631e2aaae7ec0109"
+   "cd56601a0976db23942bac08d84fbcbc"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 7278667,
@@ -1547,16 +1587,17 @@
   "x265_threads": "--pools none --frame-threads 1"
  },
  "M/1080p/chimera/G2": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 26.72,
-  "before_dsize_pct": 11.102,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-10-31T21:58:48",
-  "dsize_pct": 0.332,
+  "before_dsize_pct": 11.688,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T14:34:25",
+  "dsize_pct": 0.441,
   "encodes": 2,
-  "ours_bytes": 7351400,
-  "ours_crf": 27.53,
+  "ours_bytes": 7359328,
+  "ours_crf": 27.57,
   "ours_md5": [
-   "317169f6c87dbee9aa2cfd6f4bd74bd4"
+   "5b34b5603b2c95957a1fc8b6279f1803"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 7327049,
@@ -1573,16 +1614,17 @@
   "x265_threads": "--frame-threads 4"
  },
  "M/1080p/meridian/G1": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 25.85,
-  "before_dsize_pct": 12.497,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-10-31T22:02:38",
-  "dsize_pct": -0.099,
+  "before_dsize_pct": 14.023,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T14:37:08",
+  "dsize_pct": -0.053,
   "encodes": 3,
-  "ours_bytes": 1152680,
-  "ours_crf": 26.66,
+  "ours_bytes": 1153218,
+  "ours_crf": 26.77,
   "ours_md5": [
-   "573540347e9de4834dd741f2da8f22e6"
+   "13272972172805826188833a6f68c57c"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 1153825,
@@ -1599,16 +1641,17 @@
   "x265_threads": "--pools none --frame-threads 1"
  },
  "M/1080p/meridian/G2": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 25.85,
-  "before_dsize_pct": 0.936,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-10-31T22:02:13",
-  "dsize_pct": 0.003,
+  "before_dsize_pct": 2.305,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T14:36:52",
+  "dsize_pct": -0.313,
   "encodes": 2,
-  "ours_bytes": 1286020,
-  "ours_crf": 25.92,
+  "ours_bytes": 1281955,
+  "ours_crf": 26.03,
   "ours_md5": [
-   "fce923a467a5b10c16ff1b591df7f0c0"
+   "1386612224d260576a4e593a0daac12c"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 1285984,
@@ -1625,16 +1668,17 @@
   "x265_threads": "--frame-threads 4"
  },
  "M/1080p/sollevante/G1": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 25.61,
-  "before_dsize_pct": -24.564,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-10-31T22:01:47",
-  "dsize_pct": -0.056,
+  "before_dsize_pct": -24.56,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T14:36:35",
+  "dsize_pct": -0.005,
   "encodes": 3,
-  "ours_bytes": 30984135,
+  "ours_bytes": 31000108,
   "ours_crf": 23.61,
   "ours_md5": [
-   "60e77ca411a3148732d695098c269fb5"
+   "bd41515c8babf82b4e35b3cc49153223"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 31001511,
@@ -1651,16 +1695,17 @@
   "x265_threads": "--pools none --frame-threads 1"
  },
  "M/1080p/sollevante/G2": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 25.61,
-  "before_dsize_pct": -25.145,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-10-31T22:00:40",
-  "dsize_pct": 0.035,
+  "before_dsize_pct": -25.141,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T14:35:43",
+  "dsize_pct": 0.111,
   "encodes": 3,
-  "ours_bytes": 31253100,
-  "ours_crf": 23.56,
+  "ours_bytes": 31276921,
+  "ours_crf": 23.55,
   "ours_md5": [
-   "0a89762e7393892916ec3a8d16f19512"
+   "287d7a4420b8a01beca8ed3e9ed06cb3"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 31242184,
@@ -1677,16 +1722,17 @@
   "x265_threads": "--frame-threads 4"
  },
  "M/2160p/chimera/G1": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 26.9,
-  "before_dsize_pct": -14.14,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-10-31T22:04:43",
-  "dsize_pct": -0.296,
+  "before_dsize_pct": -9.151,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T14:38:52",
+  "dsize_pct": -0.026,
   "encodes": 2,
-  "ours_bytes": 17899378,
-  "ours_crf": 25.73,
+  "ours_bytes": 17947875,
+  "ours_crf": 26.16,
   "ours_md5": [
-   "f9b54e8e697ac6fba857b66fabb5b31e"
+   "f345336c9f00599ef59b3170bd9264ff"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 17952519,
@@ -1703,16 +1749,17 @@
   "x265_threads": "--pools none --frame-threads 1"
  },
  "M/2160p/chimera/G2": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 26.9,
-  "before_dsize_pct": -14.46,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-10-31T22:04:00",
-  "dsize_pct": -0.257,
+  "before_dsize_pct": -9.491,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T14:38:17",
+  "dsize_pct": -0.09,
   "encodes": 2,
-  "ours_bytes": 17973461,
-  "ours_crf": 25.7,
+  "ours_bytes": 18003699,
+  "ours_crf": 26.13,
   "ours_md5": [
-   "3dd84398a2a00eed73aacd6feca10da0"
+   "3b9e048730b6e49377d1821b7b2b1e9d"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 18019828,
@@ -1729,16 +1776,17 @@
   "x265_threads": "--frame-threads 4"
  },
  "M/2160p/meridian/G1": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 26.37,
-  "before_dsize_pct": 8.506,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-10-31T22:17:34",
-  "dsize_pct": 0.318,
+  "before_dsize_pct": 8.691,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T14:48:32",
+  "dsize_pct": 0.07,
   "encodes": 3,
-  "ours_bytes": 3536698,
+  "ours_bytes": 3527934,
   "ours_crf": 26.96,
   "ours_md5": [
-   "efe31e49302e6741a290a723884eee84"
+   "7c2bd077471c49835cfebe29ab42b659"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 3525481,
@@ -1755,16 +1803,17 @@
   "x265_threads": "--pools none --frame-threads 1"
  },
  "M/2160p/meridian/G2": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 26.37,
-  "before_dsize_pct": 2.496,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-10-31T22:15:40",
-  "dsize_pct": 0.176,
+  "before_dsize_pct": 2.67,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T14:47:24",
+  "dsize_pct": -0.014,
   "encodes": 2,
-  "ours_bytes": 3738774,
-  "ours_crf": 26.56,
+  "ours_bytes": 3731701,
+  "ours_crf": 26.57,
   "ours_md5": [
-   "69253947f448919e44465668a2672df3"
+   "56ce0929381a1837b98d51f39657cb4a"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 3732219,
@@ -1781,16 +1830,17 @@
   "x265_threads": "--frame-threads 4"
  },
  "M/2160p/sollevante/G1": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 24.81,
-  "before_dsize_pct": -16.266,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-10-31T22:14:08",
-  "dsize_pct": 0.007,
+  "before_dsize_pct": -15.276,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T14:46:05",
+  "dsize_pct": -0.143,
   "encodes": 3,
-  "ours_bytes": 81090919,
-  "ours_crf": 23.38,
+  "ours_bytes": 80969629,
+  "ours_crf": 23.49,
   "ours_md5": [
-   "e9b04c2d5f60e33ac05d4184d152b6b9"
+   "bd1580ba59fa33c25d5e52fc4f07ab97"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 81085427,
@@ -1807,16 +1857,17 @@
   "x265_threads": "--pools none --frame-threads 1"
  },
  "M/2160p/sollevante/G2": {
+  "aliased_from": "a759f17fe024ed04",
   "before_crf": 24.81,
-  "before_dsize_pct": -18.074,
-  "bin": "4d51b17080cfea11",
-  "date": "2026-10-31T22:10:20",
-  "dsize_pct": 0.101,
+  "before_dsize_pct": -17.106,
+  "bin": "ab8a99ebce03affc",
+  "date": "2026-11-07T14:43:11",
+  "dsize_pct": -0.084,
   "encodes": 3,
-  "ours_bytes": 82958816,
-  "ours_crf": 23.19,
+  "ours_bytes": 82805124,
+  "ours_crf": 23.29,
   "ours_md5": [
-   "cb9f4a73b76cd1d7d6927b659f0c91ef"
+   "ee13f57d516f6b4a49b0581a77be8b4d"
   ],
   "ref_bin": "2ffa132bb74bb3a5",
   "ref_bytes": 82874934,
