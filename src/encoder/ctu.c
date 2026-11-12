@@ -1064,6 +1064,25 @@ static void tb_quant_one(struct n265_frame_work *e, int c_idx, int log2n,
         n265_sbh_adjust(level, log2n, scan);
 }
 
+/* source minus prediction, n x n packed; each size is its own loop so
+ * the row width is a constant the vectorizer can use */
+static inline void blk_resid(int16_t *restrict r, const pixel *src,
+                             ptrdiff_t ss, const pixel *pred, int log2n)
+{
+#define BLK_RESID(N)                                                    \
+    for (int y = 0; y < (N); y++)                                       \
+        for (int x = 0; x < (N); x++)                                   \
+            r[y * (N) + x] = (int16_t)(src[y * ss + x] - pred[y * (N) + x]); \
+    return;
+    switch (log2n) {
+    case 2: BLK_RESID(4)
+    case 3: BLK_RESID(8)
+    case 4: BLK_RESID(16)
+    default: BLK_RESID(32)
+    }
+#undef BLK_RESID
+}
+
 /* N265_TD_DIST: the block's coded distortion and its skip distortion, off
  * the coefficients, in pixel SSD units. Out of line: the trial path is
  * hot and this is not on it unless the knob is. */
@@ -1170,10 +1189,7 @@ static void tb_analyze_one(struct n265_frame_work *e, int c_idx, int x0,
     }
 
     int16_t resid[32 * 32], coef[32 * 32];
-    for (int y = 0; y < n; y++)
-        for (int x = 0; x < n; x++)
-            resid[y * n + x] = (int16_t)(src[y * e->pad_stride[c_idx] + x] -
-                                         pred[y * n + x]);
+    blk_resid(resid, src, e->pad_stride[c_idx], pred, log2n);
     /* transquant bypass (8.6.2): no transform, no quantizer, and no
      * sign-bit hiding (7.4.9.11 conditions it on the flag). The coded
      * levels ARE the residual samples in raster position, which is what
@@ -1322,17 +1338,13 @@ static void tb_relattice_one(struct n265_frame_work *e, int c_idx, int x0,
 {
     int inter = mode == MODE_INTER;
     int use_dst = !inter && c_idx == 0 && log2n == 2;
-    int n = 1 << log2n;
     int ps = e->pad_stride[c_idx];
     const pixel *pred = tb->pred + off;
     int16_t *level = tb->level + off;
     const pixel *src = e->pad_plane[c_idx] + (size_t)y0 * ps + x0;
     int16_t resid[32 * 32], coef[32 * 32];
 
-    for (int y = 0; y < n; y++)
-        for (int x = 0; x < n; x++)
-            resid[y * n + x] = (int16_t)(src[(size_t)y * ps + x] -
-                                         pred[y * n + x]);
+    blk_resid(resid, src, ps, pred, log2n);
     n265_fdct(coef, resid, log2n, use_dst);
     int scan = inter ? 0 : n265_scan_idx(mode, log2n, c_filt(e, c_idx));
     int sv = e->rdoq_commit;
