@@ -1,0 +1,101 @@
+{
+ "box": "x86B",
+ "hub": "172.31.32.126",
+ "itype": "x86",
+ "cells": [
+  {
+   "key": "L/2160p/meridian",
+   "tier": "L",
+   "cls": "2160p",
+   "title": "meridian",
+   "name": "L_2160p_meridian",
+   "frames": 32887,
+   "fps": 59.94005994005994,
+   "points": {
+    "def": {
+     "ours_crf": 26.23,
+     "ref_crf": 28,
+     "ours_bytes": 91166178,
+     "ref_bytes": 90915717,
+     "ours_md5": "cfde1422bb610a7beb1e20727115e866",
+     "bin": "a9b880c8ad668ffa"
+    }
+   },
+   "windows": {
+    "G1": {
+     "spans": [
+      [
+       4582,
+       1798
+      ],
+      [
+       15544,
+       1798
+      ],
+      [
+       26506,
+       1798
+      ]
+     ],
+     "ours_crf": 27.16,
+     "ref_crf": 28,
+     "ours_md5": [
+      "571cdabc92188f08144811e34a99a157",
+      "e9b2a119f3050619b5c0009dd2844b16",
+      "d45a8eea95337a32c3ea7aeb9d5f21f4"
+     ],
+     "ref_md5": [
+      "e2cc3bf9541677e4470f79b91fd2363c",
+      "dc8f5c4afbc64225615892934d5b7087",
+      "df17cadf4fba5a71106ac8cf4bdfc8e5"
+     ]
+    },
+    "G2": {
+     "spans": [
+      [
+       4582,
+       1798
+      ],
+      [
+       15544,
+       1798
+      ],
+      [
+       26506,
+       1798
+      ]
+     ],
+     "ours_crf": 26.43,
+     "ref_crf": 28,
+     "ours_md5": [
+      "7c124336a1973020d8b1b3b2da5ef8e8",
+      "a8392e52d978e6d882ea285e2599bc98",
+      "df3d2a68b96ef3767853a68d0b5f5271"
+     ],
+     "ref_md5": [
+      "8ace8fc4d790e59ca52211b0a2e63f1a",
+      "5683b15972d259164ec2fe5fd3960983",
+      "82f13527a336e66028bf48c4dda43ff9"
+     ]
+    }
+   },
+   "vbr_k": 1326,
+   "goals": [
+    "G1",
+    "G2",
+    "G3",
+    "VBR"
+   ],
+   "src": {
+    "kind": "dec",
+    "file": "m/Meridian_UHD4k5994_HDR_P3PQ.mp4",
+    "skip": 1798,
+    "hdr": "YUV4MPEG2 W3840 H2160 F60000:1001 Ip A1:1 C420jpeg XYSCSS=420JPEG"
+   },
+   "check": {
+    "plane_md5": "2612bf2d2f0ea76f52d0baae9f20d113",
+    "frames": 1
+   }
+  }
+ ]
+}

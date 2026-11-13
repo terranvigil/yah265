@@ -1,0 +1,475 @@
+{
+ "box": "x86M",
+ "hub": "172.31.32.126",
+ "itype": "x86",
+ "cells": [
+  {
+   "key": "M/1080p/chimera",
+   "tier": "M",
+   "cls": "1080p",
+   "title": "chimera",
+   "name": "M_1080p_chimera",
+   "frames": 2640,
+   "fps": 23.976023976023978,
+   "points": {
+    "ft1": {
+     "ours_crf": 26.86,
+     "ref_crf": 28,
+     "ours_bytes": 22584470,
+     "ref_bytes": 22601586,
+     "ours_md5": "bd4fb8b5adb5071013cd907e127e1c0d",
+     "bin": "a9b880c8ad668ffa"
+    },
+    "def": {
+     "ours_crf": 26.76,
+     "ref_crf": 28,
+     "ours_bytes": 22911428,
+     "ref_bytes": 22953671,
+     "ours_md5": "319b0ee92033fd3cf704bf4665ec6a30",
+     "bin": "a9b880c8ad668ffa"
+    }
+   },
+   "windows": {
+    "G1": {
+     "spans": [
+      [
+       960,
+       719
+      ]
+     ],
+     "ours_crf": 27.62,
+     "ref_crf": 28,
+     "ours_md5": [
+      "cd56601a0976db23942bac08d84fbcbc"
+     ],
+     "ref_md5": [
+      "f7a1f823b297d73b2082297d2fbe1288"
+     ]
+    },
+    "G2": {
+     "spans": [
+      [
+       960,
+       719
+      ]
+     ],
+     "ours_crf": 27.57,
+     "ref_crf": 28,
+     "ours_md5": [
+      "5b34b5603b2c95957a1fc8b6279f1803"
+     ],
+     "ref_md5": [
+      "62acfcba0f09914c11d3b10229a4c2a1"
+     ]
+    }
+   },
+   "vbr_k": 1668,
+   "goals": [
+    "G1",
+    "G2",
+    "G3",
+    "VBR"
+   ],
+   "src": {
+    "kind": "ll",
+    "file": "ll/M_chimera_1080p.mkv",
+    "skip": 0,
+    "hdr": "YUV4MPEG2 W1920 H1080 F24000:1001 Ip A1:1 C420jpeg XYSCSS=420JPEG"
+   },
+   "check": {
+    "plane_md5": "1592c8abaca78d26e996055b2470ef0b",
+    "frames": 2640
+   }
+  },
+  {
+   "key": "M/2160p/chimera",
+   "tier": "M",
+   "cls": "2160p",
+   "title": "chimera",
+   "name": "M_2160p_chimera",
+   "frames": 2640,
+   "fps": 23.976023976023978,
+   "points": {
+    "ft1": {
+     "ours_crf": 27.15,
+     "ref_crf": 28,
+     "ours_bytes": 61658231,
+     "ref_bytes": 61558344,
+     "ours_md5": "c7cdb70e472f70ac80635a2e7bb14d85",
+     "bin": "a9b880c8ad668ffa"
+    },
+    "def": {
+     "ours_crf": 27.09,
+     "ref_crf": 28,
+     "ours_bytes": 62111270,
+     "ref_bytes": 62146752,
+     "ours_md5": "d1d463f0c2faeac7b72072200ac13f4e",
+     "bin": "a9b880c8ad668ffa"
+    }
+   },
+   "windows": {
+    "G1": {
+     "spans": [
+      [
+       960,
+       719
+      ]
+     ],
+     "ours_crf": 26.16,
+     "ref_crf": 28,
+     "ours_md5": [
+      "f345336c9f00599ef59b3170bd9264ff"
+     ],
+     "ref_md5": [
+      "5e796f1d9751538a9827f0689b60ab35"
+     ]
+    },
+    "G2": {
+     "spans": [
+      [
+       960,
+       719
+      ]
+     ],
+     "ours_crf": 26.13,
+     "ref_crf": 28,
+     "ours_md5": [
+      "3b9e048730b6e49377d1821b7b2b1e9d"
+     ],
+     "ref_md5": [
+      "501db360f177eab0f986e1aa9a4a2935"
+     ]
+    }
+   },
+   "vbr_k": 4515,
+   "goals": [
+    "G1",
+    "G2",
+    "G3",
+    "VBR"
+   ],
+   "src": {
+    "kind": "ll",
+    "file": "ll/M_chimera_2160p.d",
+    "skip": 0,
+    "hdr": "YUV4MPEG2 W3840 H2160 F24000:1001 Ip A1:1 C420mpeg2 XYSCSS=420MPEG2"
+   },
+   "check": {
+    "plane_md5": "0c82e941e190ccd19516b76c06876d09",
+    "frames": 2640
+   }
+  },
+  {
+   "key": "M/1080p/sollevante",
+   "tier": "M",
+   "cls": "1080p",
+   "title": "sollevante",
+   "name": "M_1080p_sollevante",
+   "frames": 2494,
+   "fps": 24.0,
+   "points": {
+    "ft1": {
+     "ours_crf": 25.71,
+     "ref_crf": 28,
+     "ours_bytes": 100781937,
+     "ref_bytes": 100736625,
+     "ours_md5": "1b4b4b5c3b10dc6ef833a0fb463f8d7b",
+     "bin": "a9b880c8ad668ffa"
+    },
+    "def": {
+     "ours_crf": 25.61,
+     "ref_crf": 28,
+     "ours_bytes": 102131131,
+     "ref_bytes": 102131664,
+     "ours_md5": "65bf547c955df84a7fb426c6c8921a73",
+     "bin": "a9b880c8ad668ffa"
+    }
+   },
+   "windows": {
+    "G1": {
+     "spans": [
+      [
+       887,
+       720
+      ]
+     ],
+     "ours_crf": 23.61,
+     "ref_crf": 28,
+     "ours_md5": [
+      "bd41515c8babf82b4e35b3cc49153223"
+     ],
+     "ref_md5": [
+      "525518f6f771f50257475a597278c21c"
+     ]
+    },
+    "G2": {
+     "spans": [
+      [
+       887,
+       720
+      ]
+     ],
+     "ours_crf": 23.55,
+     "ref_crf": 28,
+     "ours_md5": [
+      "287d7a4420b8a01beca8ed3e9ed06cb3"
+     ],
+     "ref_md5": [
+      "53e7a5359ebd78489b50c2a564d78c93"
+     ]
+    }
+   },
+   "vbr_k": 7863,
+   "goals": [
+    "G1",
+    "G2",
+    "G3",
+    "VBR"
+   ],
+   "src": {
+    "kind": "ll",
+    "file": "ll/M_sollevante_1080p.mkv",
+    "skip": 0,
+    "hdr": "YUV4MPEG2 W1920 H1080 F24:1 Ip A1:1 C420jpeg XYSCSS=420JPEG XCOLORRANGE=LIMITED"
+   },
+   "check": {
+    "plane_md5": "46121024629d84d69302c856c12c0fbb",
+    "frames": 2494
+   }
+  },
+  {
+   "key": "M/2160p/sollevante",
+   "tier": "M",
+   "cls": "2160p",
+   "title": "sollevante",
+   "name": "M_2160p_sollevante",
+   "frames": 2494,
+   "fps": 24.0,
+   "points": {
+    "ft1": {
+     "ours_crf": 25.1,
+     "ref_crf": 28,
+     "ours_bytes": 263311372,
+     "ref_bytes": 263233608,
+     "ours_md5": "b30ada087e6f11caa57ba9ae606ca9c2",
+     "bin": "a9b880c8ad668ffa"
+    },
+    "def": {
+     "ours_crf": 24.91,
+     "ref_crf": 28,
+     "ours_bytes": 269260513,
+     "ref_bytes": 269309401,
+     "ours_md5": "d1e8a579f682ab9455cdec09f390badc",
+     "bin": "a9b880c8ad668ffa"
+    }
+   },
+   "windows": {
+    "G1": {
+     "spans": [
+      [
+       887,
+       720
+      ]
+     ],
+     "ours_crf": 23.49,
+     "ref_crf": 28,
+     "ours_md5": [
+      "bd1580ba59fa33c25d5e52fc4f07ab97"
+     ],
+     "ref_md5": [
+      "ecb298cafc6607959d338be1d759892c"
+     ]
+    },
+    "G2": {
+     "spans": [
+      [
+       887,
+       720
+      ]
+     ],
+     "ours_crf": 23.29,
+     "ref_crf": 28,
+     "ours_md5": [
+      "ee13f57d516f6b4a49b0581a77be8b4d"
+     ],
+     "ref_md5": [
+      "4e736edc638aa30074c46faf24d0f4ce"
+     ]
+    }
+   },
+   "vbr_k": 20733,
+   "goals": [
+    "G1",
+    "G2",
+    "G3",
+    "VBR"
+   ],
+   "src": {
+    "kind": "ll",
+    "file": "ll/M_sollevante_2160p.d",
+    "skip": 0,
+    "hdr": "YUV4MPEG2 W3840 H2160 F24:1 Ip A1:1 C420jpeg XYSCSS=420JPEG XCOLORRANGE=LIMITED"
+   },
+   "check": {
+    "plane_md5": "522fe191366ae7d83037418c0adf29e5",
+    "frames": 2494
+   }
+  },
+  {
+   "key": "M/1080p/meridian",
+   "tier": "M",
+   "cls": "1080p",
+   "title": "meridian",
+   "name": "M_1080p_meridian",
+   "frames": 3553,
+   "fps": 59.94005994005994,
+   "points": {
+    "ft1": {
+     "ours_crf": 26.69,
+     "ref_crf": 28,
+     "ours_bytes": 2112214,
+     "ref_bytes": 2116972,
+     "ours_md5": "46d9529bf9c39d82bbc1a511dfa5f772",
+     "bin": "a9b880c8ad668ffa"
+    },
+    "def": {
+     "ours_crf": 25.94,
+     "ref_crf": 28,
+     "ours_bytes": 2357109,
+     "ref_bytes": 2355563,
+     "ours_md5": "60a9de97bfab22da713210d4ab5e56eb",
+     "bin": "a9b880c8ad668ffa"
+    }
+   },
+   "windows": {
+    "G1": {
+     "spans": [
+      [
+       877,
+       1798
+      ]
+     ],
+     "ours_crf": 26.77,
+     "ref_crf": 28,
+     "ours_md5": [
+      "13272972172805826188833a6f68c57c"
+     ],
+     "ref_md5": [
+      "e5b583f1d686f635b1142cd3c7f86471"
+     ]
+    },
+    "G2": {
+     "spans": [
+      [
+       877,
+       1798
+      ]
+     ],
+     "ours_crf": 26.03,
+     "ref_crf": 28,
+     "ours_md5": [
+      "1386612224d260576a4e593a0daac12c"
+     ],
+     "ref_md5": [
+      "9b88edbad2afb5d3ecd77d857b7c89ad"
+     ]
+    }
+   },
+   "vbr_k": 318,
+   "goals": [
+    "G1",
+    "G2",
+    "G3",
+    "VBR"
+   ],
+   "src": {
+    "kind": "ll",
+    "file": "ll/M_meridian_1080p.mkv",
+    "skip": 0,
+    "hdr": "YUV4MPEG2 W1920 H1080 F60000:1001 Ip A1:1 C420jpeg XYSCSS=420JPEG"
+   },
+   "check": {
+    "plane_md5": "eacb64c923a778e2cd1dbe882f3970da",
+    "frames": 3553
+   }
+  },
+  {
+   "key": "M/2160p/meridian",
+   "tier": "M",
+   "cls": "2160p",
+   "title": "meridian",
+   "name": "M_2160p_meridian",
+   "frames": 3553,
+   "fps": 59.94005994005994,
+   "points": {
+    "ft1": {
+     "ours_crf": 26.73,
+     "ref_crf": 28,
+     "ours_bytes": 6637026,
+     "ref_bytes": 6653644,
+     "ours_md5": "60e5c4fac809db2f3b5501b7a2e2bb48",
+     "bin": "a9b880c8ad668ffa"
+    },
+    "def": {
+     "ours_crf": 26.33,
+     "ref_crf": 28,
+     "ours_bytes": 7026391,
+     "ref_bytes": 7034513,
+     "ours_md5": "d41ccb6f5c4d89e180416a04c149d40e",
+     "bin": "a9b880c8ad668ffa"
+    }
+   },
+   "windows": {
+    "G1": {
+     "spans": [
+      [
+       877,
+       1798
+      ]
+     ],
+     "ours_crf": 26.96,
+     "ref_crf": 28,
+     "ours_md5": [
+      "7c2bd077471c49835cfebe29ab42b659"
+     ],
+     "ref_md5": [
+      "2b2b7d0aa561923788fbe72594930211"
+     ]
+    },
+    "G2": {
+     "spans": [
+      [
+       877,
+       1798
+      ]
+     ],
+     "ours_crf": 26.57,
+     "ref_crf": 28,
+     "ours_md5": [
+      "56ce0929381a1837b98d51f39657cb4a"
+     ],
+     "ref_md5": [
+      "8fe6493238e05d0ce1cecd7d58ddaa68"
+     ]
+    }
+   },
+   "vbr_k": 949,
+   "goals": [
+    "G1",
+    "G2",
+    "G3",
+    "VBR"
+   ],
+   "src": {
+    "kind": "dec",
+    "file": "m/Meridian_UHD4k5994_HDR_P3PQ.mp4",
+    "skip": 3564,
+    "hdr": "YUV4MPEG2 W3840 H2160 F60000:1001 Ip A1:1 C420mpeg2 XYSCSS=420MPEG2"
+   },
+   "check": {
+    "plane_md5": "5fc1395297ceb36e36ed87d86920b28b",
+    "frames": 3553
+   }
+  }
+ ]
+}

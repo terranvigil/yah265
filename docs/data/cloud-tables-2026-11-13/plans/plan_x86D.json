@@ -1,0 +1,101 @@
+{
+ "box": "x86D",
+ "hub": "172.31.32.126",
+ "itype": "x86",
+ "cells": [
+  {
+   "key": "L/2160p/stem2",
+   "tier": "L",
+   "cls": "2160p",
+   "title": "stem2",
+   "name": "L_2160p_stem2",
+   "frames": 12940,
+   "fps": 24.0,
+   "points": {
+    "def": {
+     "ours_crf": 25.92,
+     "ref_crf": 28,
+     "ours_bytes": 200213904,
+     "ref_bytes": 199728631,
+     "ours_md5": "777e04d8a65938d6be6d5203cdf7b369",
+     "bin": "a9b880c8ad668ffa"
+    }
+   },
+   "windows": {
+    "G1": {
+     "spans": [
+      [
+       1796,
+       720
+      ],
+      [
+       6110,
+       720
+      ],
+      [
+       10423,
+       720
+      ]
+     ],
+     "ours_crf": 25.76,
+     "ref_crf": 28,
+     "ours_md5": [
+      "cab4a2ceeae1832ab77c8cbe91606724",
+      "2fc9020969f729209cf5d26b70a45008",
+      "f7667fc47bd168972b4191321fbfe102"
+     ],
+     "ref_md5": [
+      "66a92e40db4bbdedd6aae135dcfbddab",
+      "d5d160878703ee20464edc4354812f9a",
+      "233bf333ffe460622e63406053b17e0f"
+     ]
+    },
+    "G2": {
+     "spans": [
+      [
+       1796,
+       720
+      ],
+      [
+       6110,
+       720
+      ],
+      [
+       10423,
+       720
+      ]
+     ],
+     "ours_crf": 25.25,
+     "ref_crf": 28,
+     "ours_md5": [
+      "6debe3c08a57c63eccc6579b897ff72d",
+      "147afc34ac703b5cceee875b78784225",
+      "5caaa928a74d3bf6b1490ad0f384de1b"
+     ],
+     "ref_md5": [
+      "add0e26cdff1ed6a506e39ffd5bcb0e6",
+      "b80a2fb080daf2e7c89b9caa05271dd0",
+      "7a9beedbe63071937b4045394715968e"
+     ]
+    }
+   },
+   "vbr_k": 2964,
+   "goals": [
+    "G1",
+    "G2",
+    "G3",
+    "VBR"
+   ],
+   "src": {
+    "kind": "dec",
+    "file": "m/stem2_uhd_hevc_q90.mp4",
+    "skip": 5640,
+    "hdr": "YUV4MPEG2 W3840 H2160 F24:1 Ip A1:1 C420jpeg XYSCSS=420JPEG XCOLORRANGE=LIMITED"
+   },
+   "check": {
+    "plane_md5": "a2368913c7c54f5b7e737410b20597d1",
+    "frames": 1
+   }
+  }
+ ]
+}

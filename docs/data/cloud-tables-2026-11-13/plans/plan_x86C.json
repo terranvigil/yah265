@@ -1,0 +1,101 @@
+{
+ "box": "x86C",
+ "hub": "172.31.32.126",
+ "itype": "x86",
+ "cells": [
+  {
+   "key": "L/2160p/tears",
+   "tier": "L",
+   "cls": "2160p",
+   "title": "tears",
+   "name": "L_2160p_tears",
+   "frames": 12672,
+   "fps": 24.0,
+   "points": {
+    "def": {
+     "ours_crf": 24.25,
+     "ref_crf": 28,
+     "ours_bytes": 223395103,
+     "ref_bytes": 223705112,
+     "ours_md5": "629be1ecf28adf7c81f08e66114aa6f4",
+     "bin": "4d51b17080cfea11"
+    }
+   },
+   "windows": {
+    "G1": {
+     "spans": [
+      [
+       1752,
+       720
+      ],
+      [
+       5976,
+       720
+      ],
+      [
+       10200,
+       720
+      ]
+     ],
+     "ours_crf": 24.63,
+     "ref_crf": 28,
+     "ours_md5": [
+      "e955b8e9500346d5608b6af84c91206d",
+      "423f434845f870665653818921f34ba5",
+      "c6f4b1412eefe9d5764fe6f986ead676"
+     ],
+     "ref_md5": [
+      "c8da1e0aa863f4593e0eb47c585b7cc7",
+      "9e12b84dcef24491292c63cdaee11d72",
+      "0b93500604d6834eca6b0945ea44cda7"
+     ]
+    },
+    "G2": {
+     "spans": [
+      [
+       1752,
+       720
+      ],
+      [
+       5976,
+       720
+      ],
+      [
+       10200,
+       720
+      ]
+     ],
+     "ours_crf": 24.44,
+     "ref_crf": 28,
+     "ours_md5": [
+      "e26b27e3c09d7ed2d8c74c78d3a27e44",
+      "d0580898573b4ac93303f6ca63a716cf",
+      "cc6c7234047cef09f20c806f9cbd83e8"
+     ],
+     "ref_md5": [
+      "013ef51d66f5c0cffa34a77533faf986",
+      "3b80222e554e33f53a11f05e2d5c6215",
+      "75452422c29273e7d4173e4b77731b28"
+     ]
+    }
+   },
+   "vbr_k": 3389,
+   "goals": [
+    "G1",
+    "G2",
+    "G3",
+    "VBR"
+   ],
+   "src": {
+    "kind": "dec",
+    "file": "m/tearsofsteel_4k.mov",
+    "skip": 1440,
+    "hdr": "YUV4MPEG2 W3840 H1714 F24:1 Ip A1:1 C420jpeg XYSCSS=420JPEG"
+   },
+   "check": {
+    "plane_md5": "d059637f0966f3c47022dcd1a0fab47d",
+    "frames": 12672
+   }
+  }
+ ]
+}

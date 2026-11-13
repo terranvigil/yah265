@@ -1,0 +1,296 @@
+{
+ "box": "g4L10a",
+ "hub": "172.31.32.126",
+ "itype": "graviton4",
+ "cells": [
+  {
+   "key": "L/1080p/tears",
+   "tier": "L",
+   "cls": "1080p",
+   "title": "tears",
+   "name": "L_1080p_tears",
+   "frames": 12672,
+   "fps": 24.0,
+   "points": {
+    "def": {
+     "ours_crf": 24.88,
+     "ref_crf": 28,
+     "ours_bytes": 84293947,
+     "ref_bytes": 84415839,
+     "ours_md5": "5f11bd89d34613371828ecf1af6feb2d",
+     "bin": "4d51b17080cfea11"
+    }
+   },
+   "windows": {
+    "G1": {
+     "spans": [
+      [
+       1752,
+       720
+      ],
+      [
+       5976,
+       720
+      ],
+      [
+       10200,
+       720
+      ]
+     ],
+     "ours_crf": 24.72,
+     "ref_crf": 28,
+     "ours_md5": [
+      "5e491488541de948efc8ba08417687e2",
+      "a735aa85a768acd45a1133b919c045e4",
+      "09d7c4f2a7e334e8473c2add6c98f5fb"
+     ],
+     "ref_md5": [
+      "adda9e9fcbc493c2fdd29056115efd6d",
+      "59880f8ccdebfebea11bb5769339cb66",
+      "a84b90eada46632fd38f4c61cff4f53f"
+     ]
+    },
+    "G2": {
+     "spans": [
+      [
+       1752,
+       720
+      ],
+      [
+       5976,
+       720
+      ],
+      [
+       10200,
+       720
+      ]
+     ],
+     "ours_crf": 24.54,
+     "ref_crf": 28,
+     "ours_md5": [
+      "359e760c3aa7e63189ac3282503e66a7",
+      "1bc782f211f2c1704d2de3ce1c90bd95",
+      "eb24a4447c74cd1ce135a0056b4eb207"
+     ],
+     "ref_md5": [
+      "4e192ba2ea2375a0cfc53a4cc1a85b63",
+      "1532d4543e468dd3983c7cdedcab4538",
+      "48bd3fd215ac1361c89db3cd14c1ede6"
+     ]
+    }
+   },
+   "vbr_k": 1279,
+   "goals": [
+    "G1",
+    "G2",
+    "G3",
+    "VBR"
+   ],
+   "src": {
+    "kind": "ll",
+    "file": "ll/L_tears_1080p.d",
+    "skip": 0,
+    "hdr": "YUV4MPEG2 W1920 H858 F24:1 Ip A1:1 C420jpeg XYSCSS=420JPEG"
+   },
+   "check": {
+    "plane_md5": "8bd7eed1cb328d8f0154b0235bbea9b4",
+    "frames": 12672
+   }
+  },
+  {
+   "key": "L/1080p/sintel",
+   "tier": "L",
+   "cls": "1080p",
+   "title": "sintel",
+   "name": "L_1080p_sintel",
+   "frames": 13178,
+   "fps": 24.0,
+   "points": {
+    "def": {
+     "ours_crf": 29.91,
+     "ref_crf": 28,
+     "ours_bytes": 76406993,
+     "ref_bytes": 76400637,
+     "ours_md5": "715871fbdcf2f4a64f09e7ef7b44ee6e",
+     "bin": "4d51b17080cfea11"
+    }
+   },
+   "windows": {
+    "G1": {
+     "spans": [
+      [
+       1836,
+       720
+      ],
+      [
+       6229,
+       720
+      ],
+      [
+       10621,
+       720
+      ]
+     ],
+     "ours_crf": 23.71,
+     "ref_crf": 28,
+     "ours_md5": [
+      "30210500f4ae13b47a489cad2ee413b5",
+      "e1ffb99acb9cb80d0d68e31893e14212",
+      "cfaf7b66f0e579f7c9044b0c397ed892"
+     ],
+     "ref_md5": [
+      "360d374949d13ced22a95cf757221d2f",
+      "5e452b9b3723b30973fe51ace6e1c23f",
+      "d4a2073b56bfc0e0307b8084838e043c"
+     ]
+    },
+    "G2": {
+     "spans": [
+      [
+       1836,
+       720
+      ],
+      [
+       6229,
+       720
+      ],
+      [
+       10621,
+       720
+      ]
+     ],
+     "ours_crf": 23.6,
+     "ref_crf": 28,
+     "ours_md5": [
+      "9f32ef17c434a7c737a9aaf1459d2ea5",
+      "41a1859be433d0654f34beaf94def754",
+      "2db407c9d8a3c8bdd0a481043e5cc85d"
+     ],
+     "ref_md5": [
+      "82107310e476d94c2e23cdca2f373ea2",
+      "51ec3a49ebc0389b4f7e068dce4a1f31",
+      "be467e8c373e619ca21d36c9f87a4d3c"
+     ]
+    }
+   },
+   "vbr_k": 1113,
+   "goals": [
+    "G1",
+    "G2",
+    "G3",
+    "VBR"
+   ],
+   "src": {
+    "kind": "ll",
+    "file": "ll/L_sintel_1080p.d",
+    "skip": 0,
+    "hdr": "YUV4MPEG2 W1920 H818 F24:1 Ip A1:1 C420jpeg XYSCSS=420JPEG XCOLORRANGE=LIMITED"
+   },
+   "check": {
+    "plane_md5": "43ddef0fcc1472a5e23cb220a5388cd9",
+    "frames": 13178
+   }
+  },
+  {
+   "key": "L/1080p/cosmos",
+   "tier": "L",
+   "cls": "1080p",
+   "title": "cosmos",
+   "name": "L_1080p_cosmos",
+   "frames": 13724,
+   "fps": 24.0,
+   "points": {
+    "def": {
+     "ours_crf": 25.27,
+     "ref_crf": 28,
+     "ours_bytes": 100514584,
+     "ref_bytes": 100572662,
+     "ours_md5": "875d0b33ff4b2e21bf00c10ff16f865d",
+     "bin": "4d51b17080cfea11"
+    }
+   },
+   "windows": {
+    "G1": {
+     "spans": [
+      [
+       1927,
+       720
+      ],
+      [
+       6502,
+       720
+      ],
+      [
+       11076,
+       720
+      ]
+     ],
+     "ours_crf": 26.83,
+     "ref_crf": 28,
+     "ours_md5": [
+      "a0a5f83b5afa31405a10e609f0a930a1",
+      "0ee858f2c60ed34e561867d5ce90744a",
+      "73d4f54be1f2f4e7f47f18d9b2c3b884"
+     ],
+     "ref_md5": [
+      "5e8e93f79763cea84d2b96b0230590c3",
+      "e69a12972161d5d2fc0bdc9f5496d69e",
+      "07b93bb576c86f8c7195c87ca166276c"
+     ]
+    },
+    "G2": {
+     "spans": [
+      [
+       1927,
+       720
+      ],
+      [
+       6502,
+       720
+      ],
+      [
+       11076,
+       720
+      ]
+     ],
+     "ours_crf": 26.71,
+     "ref_crf": 28,
+     "ours_md5": [
+      "d27152ea11724ad6baebc06260ef076a",
+      "9491e1bf5ca3c96083cad78daa4552e6",
+      "1b47898397b4542ba532030a6d170492"
+     ],
+     "ref_md5": [
+      "197c25289fae87ec660c550bc911f607",
+      "343de442ca22a374c279ae044a2196ce",
+      "f878fd185c06a2ec8b926894973931ca"
+     ]
+    }
+   },
+   "vbr_k": 1407,
+   "goals": [
+    "G1",
+    "G2",
+    "G3",
+    "VBR"
+   ],
+   "src": {
+    "kind": "dec",
+    "file": "m/cosmos_laundromat_1080p.mp4",
+    "skip": 720,
+    "hdr": "YUV4MPEG2 W1920 H804 F24:1 Ip A1:1 C420jpeg XYSCSS=420JPEG"
+   },
+   "check": {
+    "plane_md5": "e1885ed15de713974b0dc9f118606c2f",
+    "frames": 13724
+   }
+  }
+ ],
+ "batches": [
+  [
+   "L_1080p_tears",
+   "L_1080p_sintel",
+   "L_1080p_cosmos"
+  ]
+ ]
+}

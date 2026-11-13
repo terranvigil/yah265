@@ -1,0 +1,45 @@
+{
+ "box": "g4fix",
+ "hub": "172.31.32.126",
+ "itype": "graviton4",
+ "cells": [
+  {
+   "key": "S/CIF/stefan",
+   "tier": "S",
+   "cls": "CIF",
+   "title": "stefan",
+   "name": "S_CIF_stefan_r",
+   "frames": 90,
+   "fps": 29.97002997002997,
+   "points": {
+    "ft1": {
+     "ours_crf": 27.18,
+     "ref_crf": 28,
+     "ours_bytes": 169988,
+     "ref_bytes": 170615,
+     "ours_md5": "dbf027e636cf94c754b48b9e26831384",
+     "bin": "a9b880c8ad668ffa"
+    },
+    "def": {
+     "ours_crf": 27.09,
+     "ref_crf": 28,
+     "ours_bytes": 171863,
+     "ref_bytes": 172408,
+     "ours_md5": "7b79d0bae168c5915438e4a7232ed486",
+     "bin": "a9b880c8ad668ffa"
+    }
+   },
+   "goals": [
+    "G1",
+    "G2",
+    "G3"
+   ],
+   "src": {
+    "kind": "y4m",
+    "file": "s/stefan_cif.y4m",
+    "skip": 0
+   },
+   "resolve": true
+  }
+ ]
+}

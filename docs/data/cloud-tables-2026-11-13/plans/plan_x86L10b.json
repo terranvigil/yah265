@@ -1,0 +1,201 @@
+{
+ "box": "x86L10b",
+ "hub": "172.31.32.126",
+ "itype": "x86",
+ "cells": [
+  {
+   "key": "L/1080p/bbb",
+   "tier": "L",
+   "cls": "1080p",
+   "title": "bbb",
+   "name": "L_1080p_bbb",
+   "frames": 13929,
+   "fps": 30.0,
+   "points": {
+    "def": {
+     "ours_crf": 27.62,
+     "ref_crf": 28,
+     "ours_bytes": 79267581,
+     "ref_bytes": 79224061,
+     "ours_md5": "92e5c0e40d39826025de8467612965de",
+     "bin": "a9b880c8ad668ffa"
+    }
+   },
+   "windows": {
+    "G1": {
+     "spans": [
+      [
+       1871,
+       900
+      ],
+      [
+       6514,
+       900
+      ],
+      [
+       11157,
+       900
+      ]
+     ],
+     "ours_crf": 25.96,
+     "ref_crf": 28,
+     "ours_md5": [
+      "fd14bb8bbb3163546e65f511e7ad14d7",
+      "3ab8065e9402bd252e6baaf6bb000d24",
+      "dc75022162b87da339a8cce2b092711e"
+     ],
+     "ref_md5": [
+      "49788d0df84e8dea2d833e1444b31623",
+      "d8b5480f275169cccd94ba1106ce5f7e",
+      "de7f37ef51f1027b433c1de9107fdc4b"
+     ]
+    },
+    "G2": {
+     "spans": [
+      [
+       1871,
+       900
+      ],
+      [
+       6514,
+       900
+      ],
+      [
+       11157,
+       900
+      ]
+     ],
+     "ours_crf": 25.84,
+     "ref_crf": 28,
+     "ours_md5": [
+      "e5794fcae6379640d903235f75e666aa",
+      "7279a7dd76caa3a5b353b51251eb42a6",
+      "cdeb447f4ab19235a269451dd3ebbf0b"
+     ],
+     "ref_md5": [
+      "d5ce99dca5fdadae5d9b24c7165304f3",
+      "e590daa60ed4c14514f1f2a479c5225a",
+      "2013966c58eba6e38da06683914b85a5"
+     ]
+    }
+   },
+   "vbr_k": 1365,
+   "goals": [
+    "G1",
+    "G2",
+    "G3",
+    "VBR"
+   ],
+   "src": {
+    "kind": "ll",
+    "file": "ll/L_bbb_1080p.d",
+    "skip": 0,
+    "hdr": "YUV4MPEG2 W1920 H1080 F30:1 Ip A1:1 C420jpeg XYSCSS=420JPEG"
+   },
+   "check": {
+    "plane_md5": "9d847b59a94514163b3229190438feaa",
+    "frames": 13929
+   }
+  },
+  {
+   "key": "L/1080p/stem2",
+   "tier": "L",
+   "cls": "1080p",
+   "title": "stem2",
+   "name": "L_1080p_stem2",
+   "frames": 12940,
+   "fps": 24.0,
+   "points": {
+    "def": {
+     "ours_crf": 26.52,
+     "ref_crf": 28,
+     "ours_bytes": 77169973,
+     "ref_bytes": 77157955,
+     "ours_md5": "a96c747205d96df668854d7077d3f6fc",
+     "bin": "a9b880c8ad668ffa"
+    }
+   },
+   "windows": {
+    "G1": {
+     "spans": [
+      [
+       1796,
+       720
+      ],
+      [
+       6110,
+       720
+      ],
+      [
+       10423,
+       720
+      ]
+     ],
+     "ours_crf": 25.53,
+     "ref_crf": 28,
+     "ours_md5": [
+      "c15af0ef9b6cfbc414b5386abad0d043",
+      "d30444d082533ee0a963bf908af4a517",
+      "8f9a2b15f1f286a9be998a61f1b9d3a3"
+     ],
+     "ref_md5": [
+      "9317cb097ec46d876507af7066fffd36",
+      "a2bf451594a6198bc2d02c92820bf2ec",
+      "49f19256bdc676c2759edf6cf2e1d2cb"
+     ]
+    },
+    "G2": {
+     "spans": [
+      [
+       1796,
+       720
+      ],
+      [
+       6110,
+       720
+      ],
+      [
+       10423,
+       720
+      ]
+     ],
+     "ours_crf": 25.69,
+     "ref_crf": 28,
+     "ours_md5": [
+      "17e17b7de0890b1beaf1e2ef05f06972",
+      "13a6edb70bea199041fd43a09d87a2a9",
+      "09fb0ce2d0f65c967471722fe9beafdd"
+     ],
+     "ref_md5": [
+      "7048ba858a05ab0d3161a9600d05b249",
+      "5dc8a460a64c1796d5e15c5e6e8243df",
+      "7ec785942d0d7363d6d32d8188059217"
+     ]
+    }
+   },
+   "vbr_k": 1145,
+   "goals": [
+    "G1",
+    "G2",
+    "G3",
+    "VBR"
+   ],
+   "src": {
+    "kind": "ll",
+    "file": "ll/L_stem2_1080p.d",
+    "skip": 0,
+    "hdr": "YUV4MPEG2 W1920 H1080 F24:1 Ip A1:1 C420jpeg XYSCSS=420JPEG XCOLORRANGE=LIMITED"
+   },
+   "check": {
+    "plane_md5": "7eb7f593a11c348530d17e8c2af13b50",
+    "frames": 12940
+   }
+  }
+ ],
+ "batches": [
+  [
+   "L_1080p_bbb",
+   "L_1080p_stem2"
+  ]
+ ]
+}

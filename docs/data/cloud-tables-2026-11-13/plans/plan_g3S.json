@@ -1,0 +1,439 @@
+{
+ "box": "g3S",
+ "hub": "172.31.32.126",
+ "itype": "graviton3",
+ "cells": [
+  {
+   "key": "S/CIF/foreman",
+   "tier": "S",
+   "cls": "CIF",
+   "title": "foreman",
+   "name": "S_CIF_foreman",
+   "frames": 300,
+   "fps": 29.97002997002997,
+   "points": {
+    "ft1": {
+     "ours_crf": 26.1,
+     "ref_crf": 28,
+     "ours_bytes": 291293,
+     "ref_bytes": 289864,
+     "ours_md5": "50b042a9c9bf7ab808d21412b1b54110",
+     "bin": "a9b880c8ad668ffa"
+    },
+    "def": {
+     "ours_crf": 26,
+     "ref_crf": 28,
+     "ours_bytes": 294097,
+     "ref_bytes": 294362,
+     "ours_md5": "f378697813ceeb83f0ad1ea97584ec0e",
+     "bin": "a9b880c8ad668ffa"
+    }
+   },
+   "goals": [
+    "G3"
+   ],
+   "src": {
+    "kind": "y4m",
+    "file": "s/foreman_cif.y4m",
+    "skip": 0
+   }
+  },
+  {
+   "key": "S/CIF/bus",
+   "tier": "S",
+   "cls": "CIF",
+   "title": "bus",
+   "name": "S_CIF_bus",
+   "frames": 150,
+   "fps": 30.0,
+   "points": {
+    "ft1": {
+     "ours_crf": 27.89,
+     "ref_crf": 28,
+     "ours_bytes": 308163,
+     "ref_bytes": 308095,
+     "ours_md5": "3e81fe5bdc08d9a4166993893bcab9cb",
+     "bin": "a9b880c8ad668ffa"
+    },
+    "def": {
+     "ours_crf": 27.84,
+     "ref_crf": 28,
+     "ours_bytes": 309580,
+     "ref_bytes": 310096,
+     "ours_md5": "87a4640d17265a0c4ac5b04195914136",
+     "bin": "a9b880c8ad668ffa"
+    }
+   },
+   "goals": [
+    "G3"
+   ],
+   "src": {
+    "kind": "y4m",
+    "file": "s/bus_cif.y4m",
+    "skip": 0
+   }
+  },
+  {
+   "key": "S/CIF/stefan",
+   "tier": "S",
+   "cls": "CIF",
+   "title": "stefan",
+   "name": "S_CIF_stefan",
+   "frames": 90,
+   "fps": 29.97002997002997,
+   "points": {
+    "ft1": {
+     "ours_crf": 27.18,
+     "ref_crf": 28,
+     "ours_bytes": 169988,
+     "ref_bytes": 170615,
+     "ours_md5": "dbf027e636cf94c754b48b9e26831384",
+     "bin": "a9b880c8ad668ffa"
+    },
+    "def": {
+     "ours_crf": 27.09,
+     "ref_crf": 28,
+     "ours_bytes": 171863,
+     "ref_bytes": 172408,
+     "ours_md5": "7b79d0bae168c5915438e4a7232ed486",
+     "bin": "a9b880c8ad668ffa"
+    }
+   },
+   "goals": [
+    "G3"
+   ],
+   "src": {
+    "kind": "y4m",
+    "file": "s/stefan_cif.y4m",
+    "skip": 0
+   }
+  },
+  {
+   "key": "S/720p/ducks",
+   "tier": "S",
+   "cls": "720p",
+   "title": "ducks",
+   "name": "S_720p_ducks",
+   "frames": 500,
+   "fps": 50.0,
+   "points": {
+    "ft1": {
+     "ours_crf": 27.2,
+     "ref_crf": 28,
+     "ours_bytes": 11479506,
+     "ref_bytes": 11475218,
+     "ours_md5": "79f27482fdbefc0eea22b7c0206a421f",
+     "bin": "a9b880c8ad668ffa"
+    },
+    "def": {
+     "ours_crf": 27.2,
+     "ref_crf": 28,
+     "ours_bytes": 11479506,
+     "ref_bytes": 11472507,
+     "ours_md5": "79f27482fdbefc0eea22b7c0206a421f",
+     "bin": "a9b880c8ad668ffa"
+    }
+   },
+   "goals": [
+    "G3"
+   ],
+   "src": {
+    "kind": "y4m",
+    "file": "s/ducks_720p.y4m",
+    "skip": 0
+   }
+  },
+  {
+   "key": "S/720p/park_joy",
+   "tier": "S",
+   "cls": "720p",
+   "title": "park_joy",
+   "name": "S_720p_park_joy",
+   "frames": 500,
+   "fps": 50.0,
+   "points": {
+    "ft1": {
+     "ours_crf": 23.56,
+     "ref_crf": 28,
+     "ours_bytes": 11751697,
+     "ref_bytes": 11745437,
+     "ours_md5": "c7c1e94508af1a338cebc5b88cbe29c0",
+     "bin": "a9b880c8ad668ffa"
+    },
+    "def": {
+     "ours_crf": 23.57,
+     "ref_crf": 28,
+     "ours_bytes": 11723206,
+     "ref_bytes": 11738065,
+     "ours_md5": "67cf5c0e418529cc08d0730f49f36d30",
+     "bin": "a9b880c8ad668ffa"
+    }
+   },
+   "goals": [
+    "G3"
+   ],
+   "src": {
+    "kind": "y4m",
+    "file": "s/park_joy_720p.y4m",
+    "skip": 0
+   }
+  },
+  {
+   "key": "S/720p/fourpeople",
+   "tier": "S",
+   "cls": "720p",
+   "title": "fourpeople",
+   "name": "S_720p_fourpeople",
+   "frames": 601,
+   "fps": 60.0,
+   "points": {
+    "ft1": {
+     "ours_crf": 27.33,
+     "ref_crf": 28,
+     "ours_bytes": 737756,
+     "ref_bytes": 741297,
+     "ours_md5": "af5deef1000bb5f9c37c42060ce945e3",
+     "bin": "a9b880c8ad668ffa"
+    },
+    "def": {
+     "ours_crf": 27.1,
+     "ref_crf": 28,
+     "ours_bytes": 762817,
+     "ref_bytes": 763057,
+     "ours_md5": "0e797bc8ff1e11935b631a722569260d",
+     "bin": "a9b880c8ad668ffa"
+    }
+   },
+   "goals": [
+    "G3"
+   ],
+   "src": {
+    "kind": "y4m",
+    "file": "s/fourpeople_720p.y4m",
+    "skip": 0
+   }
+  },
+  {
+   "key": "S/720p/shields",
+   "tier": "S",
+   "cls": "720p",
+   "title": "shields",
+   "name": "S_720p_shields",
+   "frames": 504,
+   "fps": 50.0,
+   "points": {
+    "ft1": {
+     "ours_crf": 24.89,
+     "ref_crf": 28,
+     "ours_bytes": 1768511,
+     "ref_bytes": 1768091,
+     "ours_md5": "38313068bd347c1c470ce7505bfc3d2e",
+     "bin": "a9b880c8ad668ffa"
+    },
+    "def": {
+     "ours_crf": 24.82,
+     "ref_crf": 28,
+     "ours_bytes": 1796021,
+     "ref_bytes": 1792347,
+     "ours_md5": "cca424355892a958593c4505ce5e17dd",
+     "bin": "a9b880c8ad668ffa"
+    }
+   },
+   "goals": [
+    "G3"
+   ],
+   "src": {
+    "kind": "y4m",
+    "file": "s/shields_720p.y4m",
+    "skip": 0
+   }
+  },
+  {
+   "key": "S/1080p/sunflower",
+   "tier": "S",
+   "cls": "1080p",
+   "title": "sunflower",
+   "name": "S_1080p_sunflower",
+   "frames": 500,
+   "fps": 25.0,
+   "points": {
+    "ft1": {
+     "ours_crf": 24,
+     "ref_crf": 28,
+     "ours_bytes": 2493233,
+     "ref_bytes": 2499207,
+     "ours_md5": "9c6437303b8f7543ad0552d04c0abfb9",
+     "bin": "a9b880c8ad668ffa"
+    },
+    "def": {
+     "ours_crf": 23.89,
+     "ref_crf": 28,
+     "ours_bytes": 2537078,
+     "ref_bytes": 2537155,
+     "ours_md5": "375918553fb9d0833ae06f4a89631fd4",
+     "bin": "a9b880c8ad668ffa"
+    }
+   },
+   "goals": [
+    "G3"
+   ],
+   "src": {
+    "kind": "y4m",
+    "file": "s/sunflower_1080p.y4m",
+    "skip": 0
+   }
+  },
+  {
+   "key": "S/1080p/pedestrian",
+   "tier": "S",
+   "cls": "1080p",
+   "title": "pedestrian",
+   "name": "S_1080p_pedestrian",
+   "frames": 375,
+   "fps": 25.0,
+   "points": {
+    "ft1": {
+     "ours_crf": 24.73,
+     "ref_crf": 28,
+     "ours_bytes": 3466651,
+     "ref_bytes": 3474807,
+     "ours_md5": "bb70a1b5e1a7e5a233d9658d2ef018de",
+     "bin": "a9b880c8ad668ffa"
+    },
+    "def": {
+     "ours_crf": 24.57,
+     "ref_crf": 28,
+     "ours_bytes": 3530200,
+     "ref_bytes": 3542256,
+     "ours_md5": "a532ade2070ae45435d5f279eb861ee1",
+     "bin": "a9b880c8ad668ffa"
+    }
+   },
+   "goals": [
+    "G3"
+   ],
+   "src": {
+    "kind": "y4m",
+    "file": "s/pedestrian_1080p.y4m",
+    "skip": 0
+   }
+  },
+  {
+   "key": "S/1080p/riverbed",
+   "tier": "S",
+   "cls": "1080p",
+   "title": "riverbed",
+   "name": "S_1080p_riverbed",
+   "frames": 250,
+   "fps": 25.0,
+   "points": {
+    "ft1": {
+     "ours_crf": 26.5,
+     "ref_crf": 28,
+     "ours_bytes": 11940148,
+     "ref_bytes": 11927022,
+     "ours_md5": "ac491cddedfc898a8dcc4fd2814e4b2f",
+     "bin": "a9b880c8ad668ffa"
+    },
+    "def": {
+     "ours_crf": 26.48,
+     "ref_crf": 28,
+     "ours_bytes": 11968756,
+     "ref_bytes": 11967383,
+     "ours_md5": "bf3bbdfbdfe445c95136acdb40afe029",
+     "bin": "a9b880c8ad668ffa"
+    }
+   },
+   "goals": [
+    "G3"
+   ],
+   "src": {
+    "kind": "y4m",
+    "file": "s/riverbed_1080p.y4m",
+    "skip": 0
+   }
+  },
+  {
+   "key": "S/2160p/meridian_2160p",
+   "tier": "S",
+   "cls": "2160p",
+   "title": "meridian_2160p",
+   "name": "S_2160p_meridian_2160p",
+   "frames": 600,
+   "fps": 59.94005994005994,
+   "points": {
+    "ft1": {
+     "ours_crf": 26.16,
+     "ref_crf": 28,
+     "ours_bytes": 1599860,
+     "ref_bytes": 1594918,
+     "ours_md5": "7234454b882c013488618389dc12f1ef",
+     "bin": "a9b880c8ad668ffa"
+    },
+    "def": {
+     "ours_crf": 25.93,
+     "ref_crf": 28,
+     "ours_bytes": 1661314,
+     "ref_bytes": 1655536,
+     "ours_md5": "9cba51b2462e08df556ad554f8ac7909",
+     "bin": "a9b880c8ad668ffa"
+    }
+   },
+   "goals": [
+    "G3"
+   ],
+   "src": {
+    "kind": "dec",
+    "file": "m/Meridian_UHD4k5994_HDR_P3PQ.mp4",
+    "skip": 1782,
+    "hdr": "YUV4MPEG2 W3840 H2160 F60000:1001 Ip A1:1 C420mpeg2 XYSCSS=420MPEG2"
+   },
+   "stage": true,
+   "check": {
+    "plane_md5": "4977b3d6d4e1c8d36372aa670b3cb267",
+    "frames": 600
+   }
+  },
+  {
+   "key": "S/2160p/bbb_2160p",
+   "tier": "S",
+   "cls": "2160p",
+   "title": "bbb_2160p",
+   "name": "S_2160p_bbb_2160p",
+   "frames": 300,
+   "fps": 30.0,
+   "points": {
+    "ft1": {
+     "ours_crf": 26.95,
+     "ref_crf": 28,
+     "ours_bytes": 2212325,
+     "ref_bytes": 2219837,
+     "ours_md5": "07a08e7b58dda9180b29cac11de5aafe",
+     "bin": "a9b880c8ad668ffa"
+    },
+    "def": {
+     "ours_crf": 26.64,
+     "ref_crf": 28,
+     "ours_bytes": 2275656,
+     "ref_bytes": 2282339,
+     "ours_md5": "d7557cebe4e6fcdfcc7516504cf34b61",
+     "bin": "a9b880c8ad668ffa"
+    }
+   },
+   "goals": [
+    "G3"
+   ],
+   "src": {
+    "kind": "dec",
+    "file": "m/bbb_sunflower_2160p_30fps_normal.mp4",
+    "skip": 1798,
+    "hdr": "YUV4MPEG2 W3840 H2160 F30:1 Ip A1:1 C420mpeg2 XYSCSS=420MPEG2"
+   },
+   "stage": true,
+   "check": {
+    "plane_md5": "4c821fc646d9a9a58f30da02bf7387f1",
+    "frames": 300
+   }
+  }
+ ]
+}

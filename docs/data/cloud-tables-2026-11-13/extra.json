@@ -1,0 +1,98 @@
+{
+ "x86": {
+  "box_types": "m7i.8xlarge / c7i.8xlarge (Xeon Platinum 8488C), pinned to 16 vCPUs",
+  "header": [
+   "Encoder: yah265 n265 504fdda (main; the Mac's binary is a9b880c8), built on each box from `git archive 504fdda` with clang 18, release, preset medium.  Reference: x265 4.3+1-e9b8812 built on each box from the 4.3 release tarball (clang 18, 8-bit, default assembly), preset medium.",
+   "Machine: AWS EC2 spot, us-east-2. Intel Xeon Platinum 8488C (Sapphire Rapids) on m7i.8xlarge and c7i.8xlarge, Ubuntu 24.04, kernel 7.0. Measured 2026-11-12 23:30 to 2026-11-13 14:00 UTC.",
+   "Pinning: both encoders run on 16 vCPUs, eight cores and their siblings (`taskset`), ours `--threads 16` and x265 `--pools 16`. That's what each picks on a 16-vCPU box. The feeder runs on the other 16 vCPUs. G1's one-thread arms run eight at a time, each on its own core with its sibling idle, and the box stays at eight busy cores until the last timed arm ends. Every other timed encode runs alone.",
+   "SIMD: ours dispatches its AVX-512 tier (checkasm on the box: sse4.2, avx2 and avx512, 0 failures). x265 runs its default assembly, which on this CPU stops at AVX2. The G3 table also has an arm with x265 `--asm avx512`, so its best case is in the table too. G1 and G2 are ours with N265_ASM_OFF=all against x265 `--no-asm`.",
+   "",
+   "How to read: a speed ratio is our time / the reference's time at the same file size; below 1.00 we're faster. Pass = median <= 1.00 and worst <= 1.15, quality no worse than -0.5 VMAF v1. \"-\" = not measured. A dagger (\u2020) marks a figure that includes a cell timed in one run only. Lookahead: ours 20 at 720p and up, 12 at CIF / x265 20 (each medium's own).",
+   "",
+   "## Source frames",
+   "Both encoders read the same Y4M on stdin from one feeder, under the Y4M header the Mac's feeder wrote for that cell. The frames are the Mac's, checked per cell by an md5 over every plane byte (the list at the end):",
+   "- Tier S CIF, 720p and 1080p: the Mac's Y4M files, sent raw and fed by a block copy, as the Mac's `cat`.",
+   "- Tier S 2160p, tier M meridian 2160p, tier L 2160p (tears, meridian, stem2, sintel, bbb) and cosmos 1080p: decoded in software on the box (ffmpeg 6.1) from the H.264 and HEVC masters the Mac decodes. The decoder runs on the feeder vCPUs and decodes up to the cell's first frame before the clock starts. The wall runs from there to the encoder's exit.",
+   "- Tier M chimera and sollevante (1080p and 2160p), tier M meridian 1080p and tier L 720p and 1080p: the Mac's own frames (VideoToolbox-scaled where scaled), sent lossless (x264 --qp 0, 8-bit 4:2:0) and decoded in software on the feeder vCPUs. The uplink to AWS ran at 3-5 MB/s, too slow for the raw files.",
+   "- The feeder alone is timed on each cell's first 60 s and has to deliver 1.5x the faster arm's rate. Every cell cleared it.",
+   "",
+   "## What was measured here",
+   "Every speed figure, size, md5 and VBR rate in this report was measured on the boxes. The quality columns of the CSV are the Mac's at the same point. x86 streams differ slightly from the Mac's, because clang fuses float multiply-adds on arm64 and not on baseline x86-64, and the owner chose to leave that as is. So x86 quality is shown by reproduction (next section)."
+  ],
+  "sections": [
+   [
+    "## Quality: four Mac ladders re-measured on x86",
+    "Both encoders re-encoded at the Mac's rungs, 6 threads each (x265 `--pools 6 --frame-threads 4`), scored with VMAF v1 at libvmaf 0f9912e (the Mac's build) on its gate model, every frame on tier M and every 3rd on tier L. BD is against x265 on the same box. The rungs ran on c7i.4xlarge (Sapphire Rapids) and, after three spot reclaims, on c6i.4xlarge (Ice Lake). Our x86 streams don't depend on which x86-64 CPU writes them, since every kernel tier is bit-exact with C.",
+    "| curve | Mac BD-VMAF v1 | x86 BD-VMAF v1 | difference | within 0.2 |",
+    "|---|---|---|---|---|",
+    "| chimera_2160p (M) VBR | +0.70% | +0.78% | +0.07 | yes |",
+    "| sollevante_1080p (M) CRF | -14.35% | -14.38% | -0.03 | yes |",
+    "| cosmos_1080p (L) CRF | -11.32% | -11.35% | -0.03 | yes |",
+    "| cosmos_1080p (L) VBR | -11.82% | -11.81% | +0.01 | yes |",
+    "All four land within 0.2 BD points of the Mac's, so no full x86 ladder was owed. chimera_2160p VBR, the Mac's curve nearest the bar, reads +0.78% here and stays inside +1.0%. VBR tracking: chimera_2160p ours -3.6% to -5.2% (x265 -13.7% to -14.4%), cosmos_1080p ours -2.4% to -2.9% (x265 -0.6% to -0.8%), all inside +-10%.",
+    "I read that as the Mac's quality table holding on x86: every class and tier passes, and no cell is soft (PARITY-REPORT-yah265-2026-11-12)."
+   ]
+  ],
+  "tail": [
+   "## Changed since the last report",
+   "This is the first full x86 table. The 2026-11-11 probe timed three tier S cells with both encoders on AVX2 and read G3 0.89-0.98. Since then the scalar driver work and the UHD scaling item took the G3 wall down at every class, and ours now dispatches AVX-512 on this CPU. On those three cells G3 now reads 0.63 (shields_720p), 0.61 (sunflower_1080p) and 0.43 (bbb_2160p).",
+   "",
+   "## Not valid or not measured",
+   "- Nocturne (tier L at 720p, 1080p and 2160p) wasn't measured. Its master is 95 GB of ProRes, and its 720p and 1080p frames would have been about 60 GB lossless. At a 3-5 MB/s uplink neither could reach the boxes inside the day and the budget. So the 720p-L, 1080p-L and 2160p-L rows cover 6, 6 and 5 of their 7, 7 and 6 cells.",
+   "- foreman_cif and stefan_cif: x265's own build here writes 1-1.5% more or fewer bytes than the Mac's brew x265 at CRF 28. Its frame-thread count follows the 16 vCPUs, not the Mac's 18. The Mac's crf then missed the 1% size bar, so ours was re-solved on the box onto this x265's bytes (foreman def 26.06; stefan ft1 27.05 and def 27.03) and both cells re-timed. Those rows replace the Mac-point ones.",
+   "- Tier M G1 and G2 are read on the Mac's matched 30 s windows here (the spec's rule). The Mac's tier M rows read the whole segment.",
+   "- Spot reclaims: when a box was reclaimed part-way through a goal, the next box reran that goal whole. No row mixes boxes.",
+   "- G1 arms ran eight at a time on separate cores, so at all-core turbo. Both arms ran under the same load and the ratio holds, but the walls are slower than a lone one-thread run."
+  ],
+  "verdict_extra": [
+   "Quality:               PASS in every class and tier, by reproduction: 4 of 4 Mac curves land within 0.2 BD-VMAF v1 points on x86, so the Mac's quality table stands",
+   "Full parity:           yes on every cell measured. 27 of 27 combinations pass (class, tier S/M/L and goal). Nocturne's three tier L cells weren't measured (last section). VBR wall: 23 of 26 cells, all under 1.00, and our rate inside +-10% on every one.",
+   "x265 at --asm avx512:  G3 medians 0.41-0.77, worst cell 0.84 (bus_cif): no class moves by more than 0.03 against x265's default assembly."
+  ]
+ },
+ "graviton4": {
+  "box_types": "c8g/r8g (Graviton4, Neoverse V2), pinned to 16 cores",
+  "header": [
+   "Encoder: yah265 n265 504fdda (main; the Mac's binary is a9b880c8), built on each box from `git archive 504fdda` with clang 18, release, preset medium.  Reference: x265 4.3+1-e9b8812 built on each box from the 4.3 release tarball (clang 18, 8-bit), preset medium.",
+   "Machine: AWS EC2 spot, us-east-2. AWS Graviton4 (Neoverse V2) on c8g.8xlarge, r8g.8xlarge and c8g.12xlarge (one CPU), Ubuntu 24.04, kernel 7.0. Measured 2026-11-12 23:10 to 2026-11-13 10:20 UTC.",
+   "Pinning: both encoders run on 16 cores (`taskset`), ours `--threads 16` and x265 `--pools 16`. The feeder runs on the other cores. G1's one-thread arms run eight at a time, each on its own core, and the box stays at eight busy cores until the last timed arm ends. Every other timed encode runs alone.",
+   "SIMD: ours dispatches NEON, dotprod, SVE and SVE2 (checkasm on the box: 0 failures; the SVE vector length is 128 bits). x265 runs its full aarch64 assembly: NEON, SVE, SVE2, dotprod, i8mm and SVE2 bitperm. G1 and G2 are ours with N265_ASM_OFF=all against x265 `--no-asm`.",
+   "",
+   "How to read: a speed ratio is our time / the reference's time at the same file size; below 1.00 we're faster. Pass = median <= 1.00 and worst <= 1.15, quality no worse than -0.5 VMAF v1. \"-\" = not measured. A dagger (\u2020) marks a figure that includes a cell timed in one run only. Lookahead: ours 20 at 720p and up, 12 at CIF / x265 20 (each medium's own).",
+   "",
+   "## Source frames",
+   "Fed as on the x86 boxes, under the Mac feeder's Y4M header. Tier S CIF to 1080p are the Mac's files, fed by a block copy. Tier S 2160p, tier M meridian 2160p, tier L 2160p and cosmos 1080p are decoded in software on the feeder cores from the Mac's H.264 and HEVC masters. The rest (tier M chimera and sollevante, meridian 1080p, tier L 720p and 1080p) are the Mac's own frames, sent lossless and decoded on the feeder cores. Every cell's planes were checked against the Mac's by md5 before timing, and every cell cleared the 1.5x feeder rule."
+  ],
+  "sections": [
+   [
+    "## Quality: our streams are the Mac's",
+    "Linux arm64 writes the Mac's streams, so quality here is shown by identity, not by ladders. Every timed encode of ours at the Mac's points has the md5 of the Mac's stream at the same point (table below: G1 and G2 on the Mac's windows or clips, G3 and VBR on the whole cell). The one row per goal marked different is stefan_cif re-solved on this box, which runs at another crf by design. At the Mac's crf it was identical too. So the Mac's quality table is this box's: every class and tier passes, with no soft cells (PARITY-REPORT-yah265-2026-11-12)."
+   ],
+   [
+    "## Graviton3, second line (G3 on tier S)",
+    "AWS Graviton3 (Neoverse V1, 256-bit SVE) on c7g.4xlarge: 16 cores, the whole box, feeder and encoders sharing it. Ours dispatches NEON, dotprod, SVE and SVE2; x265 its aarch64 assembly. Three interleaved rounds. All 12 of our G3 streams there are the Mac's.",
+    "| class | G3 median / worst | cells |",
+    "|---|---|---|",
+    "| CIF | 0.53 / 0.60 | 2 of 3 (stefan_cif reads 0.50 at -1.13% size, outside the 1% bar, not re-solved) |",
+    "| 720p | 0.45 / 0.54 | 4 of 4 |",
+    "| 1080p | 0.62 / 0.66 | 3 of 3 |",
+    "| 2160p | 0.31 / 0.34 | 2 of 2 |"
+   ]
+  ],
+  "tail": [
+   "## Changed since the last report",
+   "This is the first full Graviton table. The 2026-11-12 SVE probe timed three tier S cells on Graviton4 and Graviton3 and found 20 of 20 of our streams identical to the Mac's. This table extends both findings to every gating cell but nocturne's.",
+   "",
+   "## Not valid or not measured",
+   "- Nocturne (tier L at 720p, 1080p and 2160p) wasn't measured, for the reason the x86 report gives: 95 GB of ProRes, or about 60 GB of lossless frames, against a 3-5 MB/s uplink.",
+   "- stefan_cif: this box's x265 writes 1.1-1.4% fewer bytes than brew's x265 on the Mac. Ours was re-solved onto them (ft1 and def) and the cell re-timed. That row replaces the Mac-point one.",
+   "- Tier M G1 and G2 are read on the Mac's matched 30 s windows (the spec's rule). The Mac's tier M rows read the whole segment.",
+   "- Spot reclaims: when a box was reclaimed part-way through a goal, the next box reran that goal whole. No row mixes boxes. Tier S G1 and G2 ran on c8g.12xlarge and its G3 on r8g.8xlarge.",
+   "- G1 arms ran eight at a time on separate cores. Both arms ran under the same load, so the ratio holds."
+  ],
+  "verdict_extra": [
+   "Quality:               PASS in every class and tier, by identity: every timed stream of ours at the Mac's points is the Mac's stream, so the Mac's quality table stands",
+   "Full parity:           yes on every cell measured. 27 of 27 combinations pass (class, tier S/M/L and goal). Nocturne's three tier L cells weren't measured (last section). VBR wall: 23 of 26 cells, all under 1.00, and our rate inside +-10% on every one."
+  ]
+ }
+}
