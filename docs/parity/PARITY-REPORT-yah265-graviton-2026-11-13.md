@@ -36,7 +36,7 @@ Cells counted (G1 G2 G3) are valid timed cells of the class and tier's gating se
 Linux arm64 writes the Mac's streams, so quality here is shown by identity, not by ladders. Every timed encode of ours at the Mac's points has the md5 of the Mac's stream at the same point (table below: G1 and G2 on the Mac's windows or clips, G3 and VBR on the whole cell). The one row per goal marked different is stefan_cif re-solved on this box, which runs at another crf by design. At the Mac's crf it was identical too. So the Mac's quality table is this box's: every class and tier passes, with no soft cells (PARITY-REPORT-yah265-2026-11-12).
 
 ## Graviton3, second line (G3 on tier S)
-AWS Graviton3 (Neoverse V1, 256-bit SVE) on c7g.4xlarge: 16 cores, the whole box, feeder and encoders sharing it. Ours dispatches NEON, dotprod, SVE and SVE2; x265 its aarch64 assembly. Three interleaved rounds. All 12 of our G3 streams there are the Mac's.
+AWS Graviton3 (Neoverse V1, 256-bit SVE) on c7g.4xlarge: 16 cores, the whole box, feeder and encoders sharing it. Ours dispatches NEON, dotprod and SVE at 256 bits. The V1 has no SVE2. x265 its aarch64 assembly. Three interleaved rounds. All 12 of our G3 streams there are the Mac's.
 | class | G3 median / worst | cells |
 |---|---|---|
 | CIF | 0.53 / 0.60 | 2 of 3 (stefan_cif reads 0.50 at -1.13% size, outside the 1% bar, not re-solved) |
