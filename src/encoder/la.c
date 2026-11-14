@@ -276,6 +276,174 @@ static inline uint32_t sad8(const pixel *a, int as, const pixel *b, int bs)
     return sad;
 }
 
+/* N265_SCREEN (phase 14 item 61): type screen content per frame and give
+ * it the scroll vote, the change-driven B run (encoder.c) and the lowres
+ * motion seeds. 0 is off and is main's stream byte for byte. */
+int n265_screen(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_SCREEN");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
+/* A screen block is an edge (a range of 64 levels or more) drawn in a
+ * handful of levels (16 or fewer) on a background that repeats exactly
+ * (180 of its 240 horizontal neighbor pairs equal). Clipped highlights
+ * pass the last test and fail the second. A frame is screen content when
+ * SCR_SHARE percent of the tested blocks (every other row and column)
+ * are. */
+#define SCR_RANGE   (64 << BIT_DEPTH_SHIFT)
+#define SCR_LEVELS  16
+#define SCR_EQ      180
+#define SCR_SHARE   3
+
+static int scr_detect(const struct n265_encoder *e, const pixel *p, int stride)
+{
+    int bw = e->param.width >> 4, bh = e->param.height >> 4;
+    int tested = 0, hit = 0;
+    for (int by = 0; by < bh; by += 2)
+        for (int bx = 0; bx < bw; bx += 2) {
+            const pixel *b = p + (by << 4) * stride + (bx << 4);
+            int eq = 0, y = 0;
+            tested++;
+            for (; y < 16; y++) {
+                const pixel *r = b + y * stride;
+                for (int x = 1; x < 16; x++)
+                    eq += r[x] == r[x - 1];
+                /* the rows left cannot reach SCR_EQ */
+                if (eq + (15 - y) * 15 < SCR_EQ)
+                    break;
+            }
+            if (y < 16)
+                continue;
+            uint64_t seen[(PIXEL_MAX + 64) / 64] = { 0 };
+            int levels = 0;
+            pixel lo = b[0], hi = b[0];
+            for (y = 0; y < 16; y++)
+                for (int x = 0; x < 16; x++) {
+                    pixel v = b[y * stride + x];
+                    lo = v < lo ? v : lo;
+                    hi = v > hi ? v : hi;
+                    uint64_t bit = 1ull << (v & 63);
+                    levels += !(seen[v >> 6] & bit);
+                    seen[v >> 6] |= bit;
+                }
+            hit += hi - lo >= SCR_RANGE && levels <= SCR_LEVELS;
+        }
+    return tested && hit * 100 >= tested * SCR_SHARE;
+}
+
+/* Vote up to two scroll vectors for a screen frame against the previous
+ * one. A scroll is horizontal or vertical and longer than a diamond
+ * walks, so each moved, textured block searches its own row and column
+ * +-GMV_R lowres pels. */
+#define GMV_R 128
+
+struct scr_rows {
+    const n265_la *la;
+    const la_frame *f, *prev;
+    int (*hist)[2][2 * GMV_R + 1];  /* per voting row: horizontal, vertical */
+    int *voters;
+};
+
+static void scr_vote_row(void *ctx, int r)
+{
+    const struct scr_rows *c = ctx;
+    const n265_la *la = c->la;
+    int lw = la->lw, lh = la->lh;
+    int *hx = c->hist[r][0], *hy = c->hist[r][1];
+    int by = 1 + 2 * r;
+    for (int bx = 1; bx + 1 < la->bw; bx += 2) {
+        int x0 = bx * 8, y0 = by * 8;
+        const pixel *blk = c->f->lowres + y0 * lw + x0;
+        const pixel *ref = c->prev->lowres;
+        int lo = 255, hi = 0;
+        for (int y = 0; y < 8; y++)
+            for (int x = 0; x < 8; x++) {
+                int v = blk[y * lw + x];
+                lo = v < lo ? v : lo;
+                hi = v > hi ? v : hi;
+            }
+        if (hi - lo < 48)
+            continue;
+        uint32_t z = sad8(blk, lw, ref + y0 * lw + x0, lw);
+        if (z < 64)
+            continue;
+        uint32_t bs = UINT32_MAX;
+        int bdx = 0, bdy = 0, ties = 0;
+        for (int d = -GMV_R; d <= GMV_R; d++) {
+            if (!d)
+                continue;
+            if (x0 + d >= 0 && x0 + d + 8 <= lw) {
+                uint32_t s = sad8(blk, lw, ref + y0 * lw + x0 + d, lw);
+                if (s < bs) { bs = s; bdx = d; bdy = 0; ties = 0; }
+                else if (s == bs) ties++;
+            }
+            if (y0 + d >= 0 && y0 + d + 8 <= lh) {
+                uint32_t s = sad8(blk, lw, ref + (y0 + d) * lw + x0, lw);
+                if (s < bs) { bs = s; bdx = 0; bdy = d; ties = 0; }
+                else if (s == bs) ties++;
+            }
+        }
+        c->voters[r]++;
+        /* a repeating pattern has no one answer */
+        if (ties || bs * 4 > z)
+            continue;
+        if (bdy == 0)
+            hx[bdx + GMV_R]++;
+        else
+            hy[bdy + GMV_R]++;
+    }
+}
+
+static void scr_vote(struct n265_encoder *e, la_frame *f, const la_frame *prev)
+{
+    const n265_la *la = &e->la;
+    int rows = (la->bh - 1) / 2;
+    if (rows < 1)
+        return;
+    struct scr_rows c = { la, f, prev,
+                          calloc((size_t)rows, sizeof *c.hist),
+                          calloc((size_t)rows, sizeof *c.voters) };
+    if (!c.hist || !c.voters) {
+        free(c.hist);
+        free(c.voters);
+        return;
+    }
+    n265_par_for(e, PAR_SCR_VOTE, rows, scr_vote_row, &c);
+    int hx[2 * GMV_R + 1] = { 0 }, hy[2 * GMV_R + 1] = { 0 };
+    int voters = 0;
+    for (int r = 0; r < rows; r++) {
+        voters += c.voters[r];
+        for (int d = 0; d <= 2 * GMV_R; d++) {
+            hx[d] += c.hist[r][0][d];
+            hy[d] += c.hist[r][1][d];
+        }
+    }
+    free(c.hist);
+    free(c.voters);
+    /* the two most voted, each carrying a tenth of the voters */
+    for (int k = 0; k < 2; k++) {
+        int best = 0, bi = -1, vert = 0;
+        for (int d = 0; d <= 2 * GMV_R; d++) {
+            if (hx[d] > best) { best = hx[d]; bi = d; vert = 0; }
+            if (hy[d] > best) { best = hy[d]; bi = d; vert = 1; }
+        }
+        if (bi < 0 || best < 6 || best * 10 < voters)
+            break;
+        f->gmv[f->gmv_n][0] = (int16_t)(vert ? 0 : bi - GMV_R);
+        f->gmv[f->gmv_n][1] = (int16_t)(vert ? bi - GMV_R : 0);
+        f->gmv_n++;
+        if (vert)
+            hy[bi] = 0;
+        else
+            hx[bi] = 0;
+    }
+}
+
 /* N265_SC_HOLD: a HELD frame does not set the running level.
  * sc_ema is the level the ratio has to spike over, and it is meant to
  * be the shot's own inter difficulty. Limited animation holds a frame
@@ -757,6 +925,7 @@ void n265_la_warm(void)
     (void)sc_jump();
     (void)sc_floor();
     (void)n265_flat_gate();
+    (void)n265_screen();
     log2q16_init();
     (void)brun_logT_q16(32);
     (void)n265_brun_trace();
@@ -963,7 +1132,7 @@ static void push_cost_row(void *ctx, n265_par *w, int by)
              * exist; where they do not, the ones that do stand on
              * their own. */
             if (c->mepred) {
-                int cand[5][2];
+                int cand[7][2];
                 int nc = 0;
                 int have_l = bx > 0, have_t = by > 0;
                 int have_tr = by > 0 && bx + 1 < la->bw;
@@ -991,6 +1160,11 @@ static void push_cost_row(void *ctx, n265_par *w, int by)
                 cand[nc][0] = prev->mv[2 * b];
                 cand[nc][1] = prev->mv[2 * b + 1];
                 nc++;
+                for (int g = 0; g < f->gmv_n; g++) {
+                    cand[nc][0] = f->gmv[g][0];
+                    cand[nc][1] = f->gmv[g][1];
+                    nc++;
+                }
                 for (int k = 0; k < nc; k++) {
                     int cx = cand[k][0], cy = cand[k][1];
                     /* the zero vector is already priced, and a
@@ -1161,6 +1335,11 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
 
     /* lowres: 2x2 mean over the padded width (edge rows repeat source) */
     n265_par_for(e, PAR_LOWRES, la->lh, push_lowres_row, &pr);
+
+    f->scr = n265_screen() && scr_detect(e, f->src[0], e->pad_w);
+    f->gmv_n = 0;
+    if (f->scr && prev)
+        scr_vote(e, f, prev);
 
     /* per-8x8 costs. A block's vector predictors are its left, above and
      * above-right neighbors, so the rows run as a wavefront. */

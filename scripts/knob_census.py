@@ -222,6 +222,9 @@ OVERRIDES = {
     # phase 14 item 30: shipped by medium's table (compiled-in 0, so the
     # other presets don't move); the env is the escape.
     "N265_MERGE_PICK_RATE": "default",
+    # phase 14 item 61: the screen-content path, shipped by medium's table
+    # (compiled-in 0); the env is the escape.
+    "N265_SCREEN": "default",
     # phase 14 item 36: the hexagon walk, shipped by medium's table
     # (compiled-in 0, so the other presets don't move); the env is the
     # escape.

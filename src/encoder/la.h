@@ -67,6 +67,7 @@ struct n265_frame_work;
  * every decision it feeds is byte-identical at every thread count. */
 int n265_la_flat_pct(const struct n265_frame_work *fw);
 int n265_flat_gate(void);
+int n265_screen(void);
 
 typedef struct la_frame {
     float sc_ratio;         /* pcost/icost at push time */
@@ -158,6 +159,11 @@ typedef struct la_frame {
     int dup_grp;
     uint64_t zsad_sum, dup_cum;
     int16_t *mvy_lo, *mvy_hi;   /* each block row's vertical MV range */
+    /* N265_SCREEN (phase 14 item 61): typed screen content, and the
+     * scroll vectors voted against the previous frame, in lowres pels */
+    int scr;
+    int gmv_n;
+    int16_t gmv[2][2];
     /* --shot-window: the base-QP offset the shot plan gave this frame,
      * and whether a plan has seen it yet. Written on the driver when the
      * frame's shot is planned, read at dispatch, and carried by la_pop's

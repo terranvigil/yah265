@@ -328,6 +328,12 @@ static const struct kv med_tab[] = {
      * and `N265_MERGE_PICK_RATE=0` is the escape. docs/phase14.md
      * "Item 30". */
     { "N265_MERGE_PICK_RATE", "1" },
+    /* phase 14 item 61: screen content (text, sheets, desktops) is typed
+     * per frame and gets the scroll vote, the change-driven B run and the
+     * lowres motion seeds. No frame of tiers S, M or L is typed, so those
+     * streams don't move. The compiled-in default is 0, so fast, slow and
+     * slower are untouched and `N265_SCREEN=0` is the escape. */
+    { "N265_SCREEN", "1" },
     /* phase 14 item 36, named at their compiled-in values: below the HD
      * class the b-adapt term holds at a 128-sample lowres width, as at
      * every other rung, and below the 720p class the walk is the unit

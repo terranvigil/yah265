@@ -8531,6 +8531,19 @@ static void build_plan_order(n265_encoder *e)
         if (la_is_cra(e, i)) { keymax = inon = i; break; }
         if (la_is_nonidr_i(e, i)) { keymax = inon = i; break; }
     }
+    /* N265_SCREEN (phase 14 item 61): on screen content the run ends ON
+     * the first frame that changed, so every change is an anchor and the
+     * still frames between are B copies of it. A change is a mean
+     * zero-vector lowres difference over 0.02 of a level. */
+    if (la->f[0].scr) {
+        uint64_t still = (uint64_t)la->lw * la->lh / 50;
+        A = keymax;
+        for (int i = 0; i < keymax; i++)
+            if (la->f[i].zsad_sum > still) {
+                A = i;
+                break;
+            }
+    } else
     /* b-adapt 2: price the mini-GOP instead of ruling on motion. The run
      * length is the one whose amortized lowres cost is lowest - one anchor
      * predicted at distance A+1 plus A bidirectionally-predicted leaves,
@@ -8950,6 +8963,8 @@ static int drive_scheduler(n265_encoder *e)
     fw->la_prop = f->prop;          /* N265_CU_TRACE only */
     fw->la_bw = la->bw;
     fw->la_bh = la->bh;
+    /* a screen frame seeds its search with the scroll the lowres found */
+    fw->mereuse = e->mereuse | (f->scr ? N265_MEREUSE_LOWRES : 0);
     /* N265_MEREUSE class C: freeze this frame's lowres MVs here, on the
      * driver, while f->mv still holds them - the slot is reused once the
      * frame retires, so a row job cannot read f->mv live and stay

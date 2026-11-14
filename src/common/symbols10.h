@@ -157,6 +157,7 @@
 #define n265_filter_refs_sse42       n265_filter_refs_sse42_10
 #define n265_filter_refs_ref         n265_filter_refs_ref_10
 #define n265_flat_gate               n265_flat_gate_10
+#define n265_screen                  n265_screen_10
 #define n265_hf2_knobs               n265_hf2_knobs_10
 #define n265_idct_add                n265_idct_add_10
 #define n265_idct_add_neon           n265_idct_add_neon_10

@@ -1150,7 +1150,7 @@ typedef struct n265_row_ctx {
 enum {
     PAR_COPY, PAR_LOWRES, PAR_COST, PAR_FLAT, PAR_AQ, PAR_DARK, PAR_WP_DS,
     PAR_WP_MOM, PAR_WP_SAD, PAR_CT_PROP, PAR_CT_FIELD, PAR_CT_LEVEL,
-    PAR_SITES
+    PAR_SCR_VOTE, PAR_SITES
 };
 
 struct n265_encoder {
