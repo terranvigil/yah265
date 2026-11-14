@@ -9,7 +9,7 @@
 set -euo pipefail
 NAME=$1; PLAN=$2; CUR=$3
 D=$(cd "$(dirname "$0")" && pwd)
-ST=${FLEET_STATE:-$HOME/src/yah265/local/cloudtab-2026-11-12/state}
+ST=${FLEET_STATE:-$HOME/src/yah265/local/cloudtab-2026-11-13/state}
 IP=$(python3 -c "import json;print(json.load(open('$ST/$NAME.json'))['ip'])")
 HUB=$(python3 -c "import json;print(json.load(open('$PLAN'))['hub'])")
 O=(-i "$ST/key.pem" -o IdentitiesOnly=yes -o UserKnownHostsFile="$ST/known_hosts" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20)

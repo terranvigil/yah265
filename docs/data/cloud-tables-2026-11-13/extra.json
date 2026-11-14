@@ -3,7 +3,7 @@
   "box_types": "m7i.8xlarge / c7i.8xlarge (Xeon Platinum 8488C), pinned to 16 vCPUs",
   "header": [
    "Encoder: yah265 n265 504fdda (main; the Mac's binary is a9b880c8), built on each box from `git archive 504fdda` with clang 18, release, preset medium.  Reference: x265 4.3+1-e9b8812 built on each box from the 4.3 release tarball (clang 18, 8-bit, default assembly), preset medium.",
-   "Machine: AWS EC2 spot, us-east-2. Intel Xeon Platinum 8488C (Sapphire Rapids) on m7i.8xlarge and c7i.8xlarge, Ubuntu 24.04, kernel 7.0. Measured 2026-11-12 23:30 to 2026-11-13 14:00 UTC.",
+   "Machine: AWS EC2 spot, us-east-2. Intel Xeon Platinum 8488C (Sapphire Rapids) on m7i.8xlarge and c7i.8xlarge, Ubuntu 24.04, kernel 7.0. Measured 2026-11-12 23:30 to 2026-11-13 14:00 UTC, nocturne 2026-11-13 20:15 to 2026-11-14 04:00.",
    "Pinning: both encoders run on 16 vCPUs, eight cores and their siblings (`taskset`), ours `--threads 16` and x265 `--pools 16`. That's what each picks on a 16-vCPU box. The feeder runs on the other 16 vCPUs. G1's one-thread arms run eight at a time, each on its own core with its sibling idle, and the box stays at eight busy cores until the last timed arm ends. Every other timed encode runs alone.",
    "SIMD: ours dispatches its AVX-512 tier (checkasm on the box: sse4.2, avx2 and avx512, 0 failures). x265 runs its default assembly, which on this CPU stops at AVX2. The G3 table also has an arm with x265 `--asm avx512`, so its best case is in the table too. G1 and G2 are ours with N265_ASM_OFF=all against x265 `--no-asm`.",
    "",
@@ -38,7 +38,8 @@
    "This is the first full x86 table. The 2026-11-11 probe timed three tier S cells with both encoders on AVX2 and read G3 0.89-0.98. Since then the scalar driver work and the UHD scaling item took the G3 wall down at every class, and ours now dispatches AVX-512 on this CPU. On those three cells G3 now reads 0.63 (shields_720p), 0.61 (sunflower_1080p) and 0.43 (bbb_2160p).",
    "",
    "## Not valid or not measured",
-   "- Nocturne (tier L at 720p, 1080p and 2160p) wasn't measured. Its master is 95 GB of ProRes, and its 720p and 1080p frames would have been about 60 GB lossless. At a 3-5 MB/s uplink neither could reach the boxes inside the day and the budget. So the 720p-L, 1080p-L and 2160p-L rows cover 6, 6 and 5 of their 7, 7 and 6 cells.",
+   "- Nocturne, added in a second round: 720p and 1080p are the Mac's own frames, sent lossless as for the other tier L cells. 2160p is the spec's tier L span of the ProRes master (frames 3000-37319), cut on the Mac by stream copy and decoded on the box. The Mac's feeder decodes that master with VideoToolbox, and ffmpeg's ProRes decoder doesn't agree with it to the bit (68 dB PSNR-Y on frame 3000, 10-bit planes already different). So the 2160p frames here are the Mac's software decode, checked against it by plane md5, and not the Mac feeder's frames. On x86 the feeder runs ffmpeg's C paths (`-cpuflags 0`): ffmpeg's x86 SIMD rounds the 10-bit 4:2:2 to 8-bit 4:2:0 conversion differently from its C and NEON paths. The Mac's crf held the 1% size bar on these frames.",
+   "- Nocturne 720p and 1080p G3 and VBR were first fed by decoding the lossless pack on the fly, and that feeder was too slow for the 1.5x rule. They were re-run from a raw copy staged on the box (720p on m7i.8xlarge, 1080p on m7i.12xlarge for the memory to cache it), fed by block copy as the Mac's staged Y4M is. Those rows replace the decode-fed ones.",
    "- foreman_cif and stefan_cif: x265's own build here writes 1-1.5% more or fewer bytes than the Mac's brew x265 at CRF 28. Its frame-thread count follows the 16 vCPUs, not the Mac's 18. The Mac's crf then missed the 1% size bar, so ours was re-solved on the box onto this x265's bytes (foreman def 26.06; stefan ft1 27.05 and def 27.03) and both cells re-timed. Those rows replace the Mac-point ones.",
    "- Tier M G1 and G2 are read on the Mac's matched 30 s windows here (the spec's rule). The Mac's tier M rows read the whole segment.",
    "- Spot reclaims: when a box was reclaimed part-way through a goal, the next box reran that goal whole. No row mixes boxes.",
@@ -46,7 +47,7 @@
   ],
   "verdict_extra": [
    "Quality:               PASS in every class and tier, by reproduction: 4 of 4 Mac curves land within 0.2 BD-VMAF v1 points on x86, so the Mac's quality table stands",
-   "Full parity:           yes on every cell measured. 27 of 27 combinations pass (class, tier S/M/L and goal). Nocturne's three tier L cells weren't measured (last section). VBR wall: 23 of 26 cells, all under 1.00, and our rate inside +-10% on every one.",
+   "Full parity:           yes. 27 of 27 combinations pass (class, tier S/M/L and goal), over every gating cell. VBR wall: 26 of 26 cells, all under 1.00, and our rate inside +-10% on every one.",
    "x265 at --asm avx512:  G3 medians 0.41-0.77, worst cell 0.84 (bus_cif): no class moves by more than 0.03 against x265's default assembly."
   ]
  },
@@ -54,7 +55,7 @@
   "box_types": "c8g/r8g (Graviton4, Neoverse V2), pinned to 16 cores",
   "header": [
    "Encoder: yah265 n265 504fdda (main; the Mac's binary is a9b880c8), built on each box from `git archive 504fdda` with clang 18, release, preset medium.  Reference: x265 4.3+1-e9b8812 built on each box from the 4.3 release tarball (clang 18, 8-bit), preset medium.",
-   "Machine: AWS EC2 spot, us-east-2. AWS Graviton4 (Neoverse V2) on c8g.8xlarge, r8g.8xlarge and c8g.12xlarge (one CPU), Ubuntu 24.04, kernel 7.0. Measured 2026-11-12 23:10 to 2026-11-13 10:20 UTC.",
+   "Machine: AWS EC2 spot, us-east-2. AWS Graviton4 (Neoverse V2) on c8g.8xlarge, r8g.8xlarge and c8g.12xlarge (one CPU), Ubuntu 24.04, kernel 7.0. Measured 2026-11-12 23:10 to 2026-11-13 10:20 UTC, nocturne 2026-11-13 20:15 to 2026-11-14 04:00.",
    "Pinning: both encoders run on 16 cores (`taskset`), ours `--threads 16` and x265 `--pools 16`. The feeder runs on the other cores. G1's one-thread arms run eight at a time, each on its own core, and the box stays at eight busy cores until the last timed arm ends. Every other timed encode runs alone.",
    "SIMD: ours dispatches NEON, dotprod, SVE and SVE2 (checkasm on the box: 0 failures; the SVE vector length is 128 bits). x265 runs its full aarch64 assembly: NEON, SVE, SVE2, dotprod, i8mm and SVE2 bitperm. G1 and G2 are ours with N265_ASM_OFF=all against x265 `--no-asm`.",
    "",
@@ -81,18 +82,19 @@
   ],
   "tail": [
    "## Changed since the last report",
-   "This is the first full Graviton table. The 2026-11-12 SVE probe timed three tier S cells on Graviton4 and Graviton3 and found 20 of 20 of our streams identical to the Mac's. This table extends both findings to every gating cell but nocturne's.",
+   "This is the first full Graviton table. The 2026-11-12 SVE probe timed three tier S cells on Graviton4 and Graviton3 and found 20 of 20 of our streams identical to the Mac's. This table extends both findings to every gating cell.",
    "",
    "## Not valid or not measured",
-   "- Nocturne (tier L at 720p, 1080p and 2160p) wasn't measured, for the reason the x86 report gives: 95 GB of ProRes, or about 60 GB of lossless frames, against a 3-5 MB/s uplink.",
+   "- Nocturne, added in a second round: 720p and 1080p are the Mac's own frames, sent lossless as for the other tier L cells. 2160p is the spec's tier L span of the ProRes master (frames 3000-37319), cut on the Mac by stream copy and decoded on the box. The Mac's feeder decodes that master with VideoToolbox, and ffmpeg's ProRes decoder doesn't agree with it to the bit (68 dB PSNR-Y on frame 3000, 10-bit planes already different). So the 2160p frames here are the Mac's software decode, checked against it by plane md5, and not the Mac feeder's frames. The Mac's crf held the 1% size bar on these frames. Our nocturne_2160p streams therefore differ from the Mac's on Graviton too (the different rows in the identity table, with re-solved stefan_cif).",
+   "- Nocturne 720p and 1080p G3 and VBR were first fed by decoding the lossless pack on the fly, and that feeder was too slow for the 1.5x rule. They were re-run from a raw copy staged on the box (on r8g.8xlarge, whose memory holds the 1080p copy), fed by block copy as the Mac's staged Y4M is. Those rows replace the decode-fed ones.",
    "- stefan_cif: this box's x265 writes 1.1-1.4% fewer bytes than brew's x265 on the Mac. Ours was re-solved onto them (ft1 and def) and the cell re-timed. That row replaces the Mac-point one.",
    "- Tier M G1 and G2 are read on the Mac's matched 30 s windows (the spec's rule). The Mac's tier M rows read the whole segment.",
    "- Spot reclaims: when a box was reclaimed part-way through a goal, the next box reran that goal whole. No row mixes boxes. Tier S G1 and G2 ran on c8g.12xlarge and its G3 on r8g.8xlarge.",
    "- G1 arms ran eight at a time on separate cores. Both arms ran under the same load, so the ratio holds."
   ],
   "verdict_extra": [
-   "Quality:               PASS in every class and tier, by identity: every timed stream of ours at the Mac's points is the Mac's stream, so the Mac's quality table stands",
-   "Full parity:           yes on every cell measured. 27 of 27 combinations pass (class, tier S/M/L and goal). Nocturne's three tier L cells weren't measured (last section). VBR wall: 23 of 26 cells, all under 1.00, and our rate inside +-10% on every one."
+   "Quality:               PASS in every class and tier, by identity: every timed stream of ours at the Mac's points is the Mac's stream, except nocturne_2160p, whose source frames here are a software decode (68 dB from the Mac's), so the Mac's quality table stands",
+   "Full parity:           yes. 27 of 27 combinations pass (class, tier S/M/L and goal), over every gating cell. VBR wall: 26 of 26 cells, all under 1.00, and our rate inside +-10% on every one."
   ]
  }
 }

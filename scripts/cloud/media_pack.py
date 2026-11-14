@@ -182,9 +182,74 @@ def send_chunked(name, to, ssh, preset, chunk):
     return man
 
 
+COPY_ITEMS = {
+    # an all-intra master, cut by stream copy: the box decodes the same
+    # coded frames the Mac does (tier L nocturne, master frames from 3000)
+    "N_nocturne_2160p": ("<media>/longform/nocturne_filmgrain/"
+                         "nocturne_60fps_uhd_filmgrain_sdr.mov", 3000, 34320,
+                         (60, 1)),
+}
+
+
+def send_copy(name, to, ssh, chunk):
+    """An intra-only master's span as stream-copied chunks under NAME.d/.
+    Each chunk keeps the master's timestamps, and its first packet's time
+    must be its first frame's, so a chunk that starts one frame off is
+    refused before it leaves the Mac."""
+    src, start, count, (num, den) = COPY_ITEMS[name]
+    host, d = to.split(":", 1)
+    rd = f"{d}/{name}.d"
+    have = set(subprocess.run(shlex.split(ssh) + [
+        host, f"mkdir -p {rd}; ls {rd}"], capture_output=True,
+        text=True).stdout.split())
+    t0 = time.time()
+    k = 0
+    for s in range(0, count, chunk):
+        n = min(chunk, count - s)
+        fn = f"c{k:04d}.mov"
+        k += 1
+        if fn in have:
+            continue
+        f = start + s
+        tmp = os.path.join(tempfile.gettempdir(), f"mp_{name}_{fn}")
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss",
+                        f"{(f + 0.25) * den / num:.6f}", "-i", src, "-map",
+                        "0:v:0", "-frames:v", str(n), "-c", "copy",
+                        "-copyts", tmp], check=True)
+        pts = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "packet=pts_time", "-of", "csv=p=0",
+             "-read_intervals", "%+#1", tmp], capture_output=True,
+            text=True).stdout.split()
+        got = round(float(pts[0]) * num / den)
+        nf = int(subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0", "-count_packets",
+             "-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", tmp],
+            capture_output=True, text=True).stdout.split()[0])
+        if got != f or nf != n:
+            sys.exit(f"{name}: chunk {fn} starts at frame {got} with {nf} "
+                     f"frames, wanted {f} and {n}")
+        size = os.path.getsize(tmp)
+        with open(tmp, "rb") as fh:
+            up = subprocess.run(shlex.split(ssh) + [
+                host, f"cat > {rd}/{fn}.part && test $(stat -c %s "
+                f"{rd}/{fn}.part) = {size} && mv {rd}/{fn}.part {rd}/{fn}"],
+                stdin=fh)
+        os.remove(tmp)
+        if up.returncode != 0:
+            sys.exit(f"{name}: chunk {fn} upload failed")
+    man = {"name": name, "src": src, "master_start": start, "frames": count,
+           "chunk": chunk, "chunks": k, "copy": True,
+           "secs": round(time.time() - t0, 1)}
+    subprocess.run(shlex.split(ssh) + [host, f"cat > {d}/{name}.json"],
+                   input=json.dumps(man).encode(), check=True)
+    print(json.dumps(man), flush=True)
+    return man
+
+
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("cmd", choices=("list", "send", "md5"))
+    p.add_argument("cmd", choices=("list", "send", "md5", "sendcopy"))
     p.add_argument("names", nargs="*")
     p.add_argument("--to")
     p.add_argument("--ssh", default="ssh")
@@ -197,7 +262,9 @@ def main():
             print(k, v)
         return
     for nm in a.names:
-        if a.cmd == "send" and a.chunk:
+        if a.cmd == "sendcopy":
+            send_copy(nm, a.to, a.ssh, a.chunk or 1200)
+        elif a.cmd == "send" and a.chunk:
             send_chunked(nm, a.to, a.ssh, a.preset, a.chunk)
         elif a.cmd == "send":
             send(nm, a.to, a.ssh, a.preset)

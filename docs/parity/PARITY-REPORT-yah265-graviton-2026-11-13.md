@@ -1,7 +1,7 @@
 # yah265 parity report, Graviton4, 2026-11-13
 
 Encoder: yah265 n265 504fdda (main; the Mac's binary is a9b880c8), built on each box from `git archive 504fdda` with clang 18, release, preset medium.  Reference: x265 4.3+1-e9b8812 built on each box from the 4.3 release tarball (clang 18, 8-bit), preset medium.
-Machine: AWS EC2 spot, us-east-2. AWS Graviton4 (Neoverse V2) on c8g.8xlarge, r8g.8xlarge and c8g.12xlarge (one CPU), Ubuntu 24.04, kernel 7.0. Measured 2026-11-12 23:10 to 2026-11-13 10:20 UTC.
+Machine: AWS EC2 spot, us-east-2. AWS Graviton4 (Neoverse V2) on c8g.8xlarge, r8g.8xlarge and c8g.12xlarge (one CPU), Ubuntu 24.04, kernel 7.0. Measured 2026-11-12 23:10 to 2026-11-13 10:20 UTC, nocturne 2026-11-13 20:15 to 2026-11-14 04:00.
 Pinning: both encoders run on 16 cores (`taskset`), ours `--threads 16` and x265 `--pools 16`. The feeder runs on the other cores. G1's one-thread arms run eight at a time, each on its own core, and the box stays at eight busy cores until the last timed arm ends. Every other timed encode runs alone.
 SIMD: ours dispatches NEON, dotprod, SVE and SVE2 (checkasm on the box: 0 failures; the SVE vector length is 128 bits). x265 runs its full aarch64 assembly: NEON, SVE, SVE2, dotprod, i8mm and SVE2 bitperm. G1 and G2 are ours with N265_ASM_OFF=all against x265 `--no-asm`.
 
@@ -11,24 +11,24 @@ How to read: a speed ratio is our time / the reference's time at the same file s
 Fed as on the x86 boxes, under the Mac feeder's Y4M header. Tier S CIF to 1080p are the Mac's files, fed by a block copy. Tier S 2160p, tier M meridian 2160p, tier L 2160p and cosmos 1080p are decoded in software on the feeder cores from the Mac's H.264 and HEVC masters. The rest (tier M chimera and sollevante, meridian 1080p, tier L 720p and 1080p) are the Mac's own frames, sent lossless and decoded on the feeder cores. Every cell's planes were checked against the Mac's by md5 before timing, and every cell cleared the 1.5x feeder rule.
 
 ## Verdict
-G1 pure C, 1 thread:  PASS in CIF-S, 720p-S, 720p-L (6 of 7 cells), 1080p-S, 1080p-M, 1080p-L (6 of 7 cells), 2160p-S, 2160p-M, 2160p-L (5 of 6 cells)
-G2 pure C, all cores: PASS in CIF-S, 720p-S, 720p-L (6 of 7 cells), 1080p-S, 1080p-M, 1080p-L (6 of 7 cells), 2160p-S, 2160p-M, 2160p-L (5 of 6 cells)
-G3 SIMD, all cores:   PASS in CIF-S, 720p-S, 720p-L (6 of 7 cells), 1080p-S, 1080p-M, 1080p-L (6 of 7 cells), 2160p-S, 2160p-M, 2160p-L (5 of 6 cells)
-Quality:               PASS in every class and tier, by identity: every timed stream of ours at the Mac's points is the Mac's stream, so the Mac's quality table stands
-Full parity:           yes on every cell measured. 27 of 27 combinations pass (class, tier S/M/L and goal). Nocturne's three tier L cells weren't measured (last section). VBR wall: 23 of 26 cells, all under 1.00, and our rate inside +-10% on every one.
+G1 pure C, 1 thread:  PASS in CIF-S, 720p-S, 720p-L, 1080p-S, 1080p-M, 1080p-L, 2160p-S, 2160p-M, 2160p-L
+G2 pure C, all cores: PASS in CIF-S, 720p-S, 720p-L, 1080p-S, 1080p-M, 1080p-L, 2160p-S, 2160p-M, 2160p-L
+G3 SIMD, all cores:   PASS in CIF-S, 720p-S, 720p-L, 1080p-S, 1080p-M, 1080p-L, 2160p-S, 2160p-M, 2160p-L
+Quality:               PASS in every class and tier, by identity: every timed stream of ours at the Mac's points is the Mac's stream, except nocturne_2160p, whose source frames here are a software decode (68 dB from the Mac's), so the Mac's quality table stands
+Full parity:           yes. 27 of 27 combinations pass (class, tier S/M/L and goal), over every gating cell. VBR wall: 26 of 26 cells, all under 1.00, and our rate inside +-10% on every one.
 
 ## Speed (median / worst ratio, per class and tier)
 | class | tier | G1 | G2 | G3 | VBR wall (G3) | cells |
 |---|---|---|---|---|---|---|
 | CIF | S | 0.66 / 0.68 | 0.40 / 0.45 | 0.55 / 0.66 | n/a | 3/3 3/3 3/3 |
 | 720p | S | 0.43 / 0.59 | 0.26 / 0.34 | 0.48 / 0.57 | n/a | 4/4 4/4 4/4 |
-| 720p | L | 0.43 / 0.45 | 0.25 / 0.28 | 0.42 / 0.46 | 0.41 / 0.50 | 6/7 6/7 6/7 |
+| 720p | L | 0.43 / 0.45 | 0.25 / 0.28 | 0.42 / 0.46 | 0.40 / 0.50 | 7/7 7/7 7/7 |
 | 1080p | S | 0.45 / 0.55 | 0.42 / 0.46 | 0.68 / 0.71 | n/a | 3/3 3/3 3/3 |
 | 1080p | M | 0.53 / 0.54 | 0.42 / 0.48 | 0.64 / 0.72 | 0.69 / 0.72 | 3/3 3/3 3/3 |
-| 1080p | L | 0.48 / 0.51 | 0.39 / 0.41 | 0.60 / 0.64 | 0.70 / 0.78 | 6/7 6/7 6/7 |
+| 1080p | L | 0.47 / 0.51 | 0.38 / 0.41 | 0.59 / 0.64 | 0.70 / 0.78 | 7/7 7/7 7/7 |
 | 2160p | S | 0.33 / 0.34 | 0.21 / 0.23 | 0.31 / 0.33 | n/a | 2/2 2/2 2/2 |
 | 2160p | M | 0.44 / 0.49 | 0.29 / 0.45 | 0.47 / 0.63 | 0.53 / 0.71 | 3/3 3/3 3/3 |
-| 2160p | L | 0.45 / 0.47 | 0.33 / 0.36 | 0.49 / 0.54 | 0.57 / 0.66 | 5/6 5/6 5/6 |
+| 2160p | L | 0.45 / 0.47 | 0.33 / 0.36 | 0.49 / 0.54 | 0.56 / 0.66 | 6/6 6/6 6/6 |
 
 Cells counted (G1 G2 G3) are valid timed cells of the class and tier's gating set.
 
@@ -48,10 +48,10 @@ AWS Graviton3 (Neoverse V1, 256-bit SVE) on c7g.4xlarge: 16 cores, the whole box
 Each timed encode's md5 against the Mac's stream at the same point (the Mac's timed runs, its G1/G2 window solves, its VBR walls). Same / different / no Mac record:
 | goal | same | different | no Mac record |
 |---|---|---|---|
-| G1 | 34 | 1 | 0 |
-| G2 | 34 | 1 | 0 |
-| G3 | 34 | 1 | 0 |
-| VBR | 23 | 0 | 0 |
+| G1 | 36 | 2 | 0 |
+| G2 | 36 | 2 | 0 |
+| G3 | 36 | 2 | 0 |
+| VBR | 25 | 1 | 0 |
 
 ## VBR wall (G3 only: SIMD, all 16 vCPUs, one rung per cell)
 The Mac's rung per cell (x265's CRF 28 rate on the Mac), maxrate 1.5x, buffer 2x, lookahead ours 20 / x265 20, 2 interleaved rounds, no size match. Tracking is the achieved bitrate against the target.
@@ -66,17 +66,20 @@ The Mac's rung per cell (x265's CRF 28 rate on the Mac), maxrate 1.5x, buffer 2x
 | bbb_720p | L | 620 | 0.50 | 613 (-1.2%) | 603 (-2.8%) | 625.9 | 2 |
 | cosmos_720p | L | 734 | 0.40 | 717 (-2.3%) | 731 (-0.4%) | 694.0 | 2 |
 | meridian_720p | L | 205 | 0.49 | 200 (-2.4%) | 200 (-2.5%) | 1042.4 | 2 |
+| nocturne_720p | L | 1022 | 0.37 | 1014 (-0.8%) | 1065 (+4.2%) | 5423.1 | 2 |
 | sintel_720p | L | 523 | 0.42 | 485 (-7.3%) | 505 (-3.4%) | 634.4 | 2 |
 | stem2_720p | L | 567 | 0.40 | 538 (-5.1%) | 508 (-10.3%) | 640.1 | 2 |
 | tears_720p | L | 628 | 0.39 | 629 (+0.1%) | 638 (+1.6%) | 698.5 | 2 |
 | bbb_1080p | L | 1365 | 0.78 | 1350 (-1.1%) | 1312 (-3.9%) | 260.0 | 2 |
 | cosmos_1080p | L | 1407 | 0.70 | 1367 (-2.8%) | 1395 (-0.8%) | 1707.6 | 2 |
 | meridian_1080p | L | 438 | 0.53 | 429 (-2.2%) | 425 (-3.0%) | 426.4 | 2 |
+| nocturne_1080p | L | 2198 | 0.56 | 2174 (-1.1%) | 2254 (+2.6%) | 2534.4 | 2 |
 | sintel_1080p | L | 1113 | 0.74 | 1054 (-5.3%) | 1079 (-3.0%) | 293.2 | 2 |
 | stem2_1080p | L | 1145 | 0.65 | 1078 (-5.8%) | 1017 (-11.2%) | 268.3 | 2 |
 | tears_1080p | L | 1279 | 0.70 | 1284 (+0.4%) | 1300 (+1.6%) | 301.6 | 2 |
 | bbb_2160p | L | 3453 | 0.55 | 3422 (-0.9%) | 3311 (-4.1%) | 316.7 | 2 |
 | meridian_2160p | L | 1326 | 0.38 | 1304 (-1.6%) | 1283 (-3.2%) | 325.5 | 2 |
+| nocturne_2160p | L | 9142 | 0.51 | 9012 (-1.4%) | 9089 (-0.6%) | 131.6 | 2 |
 | sintel_2160p | L | 4329 | 0.66 | 4260 (-1.6%) | 4235 (-2.2%) | 233.6 | 2 |
 | stem2_2160p | L | 2964 | 0.57 | 2811 (-5.2%) | 2671 (-9.9%) | 124.3 | 2 |
 | tears_2160p | L | 3389 | 0.59 | 3395 (+0.2%) | 3435 (+1.4%) | 369.6 | 2 |
@@ -156,6 +159,10 @@ The Mac's rung per cell (x265's CRF 28 rate on the Mac), maxrate 1.5x, buffer 2x
 | meridian_720p | L | G2 | 10.39 | 48.61 | 0.21 | -0.17% | 5307.9 | 1 | same | yes |
 | meridian_720p | L | G3 | 52.60 | 129.01 | 0.41 | +0.36% | 1058.0 | 2 | same | yes |
 | meridian_720p | L | VBR | 64.72 | 132.83 | 0.49 | +0.12% | 1042.4 | 2 | same | yes |
+| nocturne_720p | L | G1 | 280.10 | 785.56 | 0.36 | +0.05% | - | 1 | same | yes |
+| nocturne_720p | L | G2 | 22.27 | 90.08 | 0.25 | +0.03% | 5430.0 | 1 | same | yes |
+| nocturne_720p | L | G3 | 86.66 | 199.33 | 0.43 | +0.23% | 5347.9 | 2 | same | yes |
+| nocturne_720p | L | VBR | 96.82 | 259.08 | 0.37 | -4.74% | 5423.1 | 2 | same | yes |
 | sintel_720p | L | G1 | 115.42 | 264.46 | 0.44 | -0.40% | - | 1 | same | yes |
 | sintel_720p | L | G2 | 10.19 | 41.22 | 0.25 | +0.30% | 7280.6 | 1 | same | yes |
 | sintel_720p | L | G3 | 38.57 | 93.86 | 0.41 | +0.91% | 640.1 | 2 | same | yes |
@@ -180,6 +187,10 @@ The Mac's rung per cell (x265's CRF 28 rate on the Mac), maxrate 1.5x, buffer 2x
 | meridian_1080p | L | G2 | 22.75 | 99.63 | 0.23 | -0.01% | 2390.8 | 1 | same | yes |
 | meridian_1080p | L | G3 | 116.38 | 264.01 | 0.44 | -0.08% | 424.9 | 2 | same | yes |
 | meridian_1080p | L | VBR | 141.84 | 268.37 | 0.53 | +0.83% | 426.4 | 2 | same | yes |
+| nocturne_1080p | L | G1 | 823.81 | 1912.74 | 0.43 | -0.30% | - | 1 | same | yes |
+| nocturne_1080p | L | G2 | 56.13 | 176.36 | 0.32 | -0.28% | 2364.2 | 1 | same | yes |
+| nocturne_1080p | L | G3 | 201.98 | 400.38 | 0.50 | -0.19% | 2473.5 | 2 | same | yes |
+| nocturne_1080p | L | VBR | 239.86 | 431.57 | 0.56 | -3.59% | 2534.4 | 2 | same | yes |
 | sintel_1080p | L | G1 | 278.40 | 600.36 | 0.46 | -0.14% | - | 1 | same | yes |
 | sintel_1080p | L | G2 | 24.45 | 60.00 | 0.41 | -0.01% | 3192.8 | 1 | same | yes |
 | sintel_1080p | L | G3 | 88.69 | 144.27 | 0.61 | +0.60% | 291.9 | 2 | same | yes |
@@ -200,6 +211,10 @@ The Mac's rung per cell (x265's CRF 28 rate on the Mac), maxrate 1.5x, buffer 2x
 | meridian_2160p | L | G2 | 71.46 | 417.63 | 0.17 | -0.03% | 619.8 | 1 | same | yes |
 | meridian_2160p | L | G3 | 422.52 | 1196.46 | 0.35 | +0.17% | 312.1 | 2 | same | yes |
 | meridian_2160p | L | VBR | 464.30 | 1222.94 | 0.38 | +1.63% | 325.5 | 2 | same | yes |
+| nocturne_2160p | L | G1 | 4733.91 | 10576.92 | 0.45 | +0.16% | - | 1 | DIFFERENT | yes |
+| nocturne_2160p | L | G2 | 309.32 | 969.03 | 0.32 | +0.05% | 595.8 | 1 | DIFFERENT | yes |
+| nocturne_2160p | L | G3 | 1050.36 | 2173.34 | 0.48 | +0.15% | 131.5 | 2 | DIFFERENT | yes |
+| nocturne_2160p | L | VBR | 1083.43 | 2117.27 | 0.51 | -0.85% | 131.6 | 2 | DIFFERENT | yes |
 | sintel_2160p | L | G1 | 1275.17 | 2766.53 | 0.46 | +0.24% | - | 1 | same | yes |
 | sintel_2160p | L | G2 | 85.43 | 245.83 | 0.35 | -0.02% | 713.2 | 1 | same | yes |
 | sintel_2160p | L | G3 | 326.01 | 600.42 | 0.54 | -0.45% | 232.4 | 2 | same | yes |
@@ -217,17 +232,22 @@ The Mac's rung per cell (x265's CRF 28 rate on the Mac), maxrate 1.5x, buffer 2x
 - L_1080p_bbb: 13929 frame(s), plane md5 same
 - L_1080p_cosmos: 13724 frame(s), plane md5 same
 - L_1080p_meridian: 32887 frame(s), plane md5 same
+- L_1080p_nocturne: 34320 frame(s), plane md5 same
+- L_1080p_nocturne_s: 34320 frame(s), plane md5 same
 - L_1080p_sintel: 13178 frame(s), plane md5 same
 - L_1080p_stem2: 12940 frame(s), plane md5 same
 - L_1080p_tears: 12672 frame(s), plane md5 same
 - L_2160p_bbb: 1 frame(s), plane md5 same
 - L_2160p_meridian: 1 frame(s), plane md5 same
+- L_2160p_nocturne: 1 frame(s), plane md5 same
 - L_2160p_sintel: 13178 frame(s), plane md5 same
 - L_2160p_stem2: 1 frame(s), plane md5 same
 - L_2160p_tears: 12672 frame(s), plane md5 same
 - L_720p_bbb: 13929 frame(s), plane md5 same
 - L_720p_cosmos: 13724 frame(s), plane md5 same
 - L_720p_meridian: 32887 frame(s), plane md5 same
+- L_720p_nocturne: 34320 frame(s), plane md5 same
+- L_720p_nocturne_s: 34320 frame(s), plane md5 same
 - L_720p_sintel: 13178 frame(s), plane md5 same
 - L_720p_stem2: 12940 frame(s), plane md5 same
 - L_720p_tears: 12672 frame(s), plane md5 same
@@ -241,10 +261,11 @@ The Mac's rung per cell (x265's CRF 28 rate on the Mac), maxrate 1.5x, buffer 2x
 - S_2160p_meridian_2160p: 600 frame(s), plane md5 same
 
 ## Changed since the last report
-This is the first full Graviton table. The 2026-11-12 SVE probe timed three tier S cells on Graviton4 and Graviton3 and found 20 of 20 of our streams identical to the Mac's. This table extends both findings to every gating cell but nocturne's.
+This is the first full Graviton table. The 2026-11-12 SVE probe timed three tier S cells on Graviton4 and Graviton3 and found 20 of 20 of our streams identical to the Mac's. This table extends both findings to every gating cell.
 
 ## Not valid or not measured
-- Nocturne (tier L at 720p, 1080p and 2160p) wasn't measured, for the reason the x86 report gives: 95 GB of ProRes, or about 60 GB of lossless frames, against a 3-5 MB/s uplink.
+- Nocturne, added in a second round: 720p and 1080p are the Mac's own frames, sent lossless as for the other tier L cells. 2160p is the spec's tier L span of the ProRes master (frames 3000-37319), cut on the Mac by stream copy and decoded on the box. The Mac's feeder decodes that master with VideoToolbox, and ffmpeg's ProRes decoder doesn't agree with it to the bit (68 dB PSNR-Y on frame 3000, 10-bit planes already different). So the 2160p frames here are the Mac's software decode, checked against it by plane md5, and not the Mac feeder's frames. The Mac's crf held the 1% size bar on these frames. Our nocturne_2160p streams therefore differ from the Mac's on Graviton too (the different rows in the identity table, with re-solved stefan_cif).
+- Nocturne 720p and 1080p G3 and VBR were first fed by decoding the lossless pack on the fly, and that feeder was too slow for the 1.5x rule. They were re-run from a raw copy staged on the box (on r8g.8xlarge, whose memory holds the 1080p copy), fed by block copy as the Mac's staged Y4M is. Those rows replace the decode-fed ones.
 - stefan_cif: this box's x265 writes 1.1-1.4% fewer bytes than brew's x265 on the Mac. Ours was re-solved onto them (ft1 and def) and the cell re-timed. That row replaces the Mac-point one.
 - Tier M G1 and G2 are read on the Mac's matched 30 s windows (the spec's rule). The Mac's tier M rows read the whole segment.
 - Spot reclaims: when a box was reclaimed part-way through a goal, the next box reran that goal whole. No row mixes boxes. Tier S G1 and G2 ran on c8g.12xlarge and its G3 on r8g.8xlarge.

@@ -1,0 +1,102 @@
+{
+ "box": "g4N4a",
+ "hub": "172.31.35.85",
+ "itype": "graviton4",
+ "cells": [
+  {
+   "key": "L/2160p/nocturne",
+   "tier": "L",
+   "cls": "2160p",
+   "title": "nocturne",
+   "name": "L_2160p_nocturne",
+   "frames": 34320,
+   "fps": 60.0,
+   "points": {
+    "def": {
+     "ours_crf": 23.54,
+     "ref_crf": 28,
+     "ours_bytes": 654484550,
+     "ref_bytes": 653683235,
+     "ours_md5": "7ecd7e6abde653a05a2b930ea2d329f5",
+     "bin": "a9b880c8ad668ffa"
+    }
+   },
+   "windows": {
+    "G1": {
+     "spans": [
+      [
+       4820,
+       1800
+      ],
+      [
+       16260,
+       1800
+      ],
+      [
+       27700,
+       1800
+      ]
+     ],
+     "ours_crf": 24.62,
+     "ref_crf": 28,
+     "ours_md5": [
+      "6298c78ee9cef2258ed0da53ee4ec07d",
+      "09549344c087a74e5ab2011643910ccc",
+      "a92adb202eb4275aab3fa606bd30e2f3"
+     ],
+     "ref_md5": [
+      "75e7f1d0dccbf6e3b9f00b1e865707e5",
+      "f52c3f3e6cf0c4744b25a31e0a515b0e",
+      "3bb6546b8325fdc2d7fd60ebb2188c86"
+     ]
+    },
+    "G2": {
+     "spans": [
+      [
+       4820,
+       1800
+      ],
+      [
+       16260,
+       1800
+      ],
+      [
+       27700,
+       1800
+      ]
+     ],
+     "ours_crf": 24.58,
+     "ref_crf": 28,
+     "ours_md5": [
+      "8772d3b92174dff93a84aaf65afbe0e4",
+      "0397d34a7fa28ad4bc5bea3918b35dda",
+      "fe7b39480b0a26c30aeefe2005533e37"
+     ],
+     "ref_md5": [
+      "800e13ecb367497faa412c92f4b27d2b",
+      "929e712cd8ef94baf5e3eb46674c2433",
+      "32206bae97a6eced6419261b299428a6"
+     ]
+    }
+   },
+   "vbr_k": 9142,
+   "goals": [
+    "G1",
+    "G2",
+    "VBR"
+   ],
+   "src": {
+    "kind": "dec",
+    "file": "ll/N_nocturne_2160p.d",
+    "skip": 0,
+    "hdr": "YUV4MPEG2 W3840 H2160 F60:1 Ip A1:1 C420jpeg XYSCSS=420JPEG XCOLORRANGE=LIMITED",
+    "cpuflags": "0"
+   },
+   "check": {
+    "plane_md5": "d71fbef16aabb6488226b11d2c98a9c4",
+    "frames": 1,
+    "mac_feeder_md5": "ad51ca5b507a3e9a405eab34a2854709"
+   }
+  }
+ ]
+}

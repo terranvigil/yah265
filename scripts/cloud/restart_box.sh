@@ -8,7 +8,7 @@
 set -euo pipefail
 NAME=$1; PLAN=$2
 D=$(cd "$(dirname "$0")" && pwd)
-ST=${FLEET_STATE:-$HOME/src/yah265/local/cloudtab-2026-11-12/state}
+ST=${FLEET_STATE:-$HOME/src/yah265/local/cloudtab-2026-11-13/state}
 IP=$(python3 -c "import json;print(json.load(open('$ST/$NAME.json'))['ip'])")
 O=(-i "$ST/key.pem" -o IdentitiesOnly=yes -o UserKnownHostsFile="$ST/known_hosts" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20)
 ssh "${O[@]}" ubuntu@$IP 'pkill -f "[t]ables_run.py"; pkill -f "[l]adder_run.py"; pkill -f "[x]265build/x265"; pkill -f "[b]uild-rel/n265"; pkill -f "[f]eeder.py"; pkill -f "^cat /home/ubuntu/t/wor[k]"; true'

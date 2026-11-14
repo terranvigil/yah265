@@ -1,0 +1,100 @@
+{
+ "box": "g4N7s",
+ "hub": "172.31.35.85",
+ "itype": "graviton4",
+ "cells": [
+  {
+   "key": "L/720p/nocturne",
+   "tier": "L",
+   "cls": "720p",
+   "title": "nocturne",
+   "name": "L_720p_nocturne_s",
+   "frames": 34320,
+   "fps": 60.0,
+   "points": {
+    "def": {
+     "ours_crf": 24.93,
+     "ref_crf": 28,
+     "ours_bytes": 72900393,
+     "ref_bytes": 73053280,
+     "ours_md5": "c696d10cc093ed049dfe5187f3aa4b76",
+     "bin": "4d51b17080cfea11"
+    }
+   },
+   "windows": {
+    "G1": {
+     "spans": [
+      [
+       4820,
+       1800
+      ],
+      [
+       16260,
+       1800
+      ],
+      [
+       27700,
+       1800
+      ]
+     ],
+     "ours_crf": 26.76,
+     "ref_crf": 28,
+     "ours_md5": [
+      "eff9fc3f9013ecae31efc38d23b60615",
+      "985b95094d8d496582d4f908c7928bd6",
+      "1c47ca7011e9599dc42efcc8eecf534d"
+     ],
+     "ref_md5": [
+      "694ab1350028d7ef44f6cf763b25c02c",
+      "bd944fb4fbf8b034adba4a2ba5507514",
+      "6673b104ee563f934ae6812e98b647d6"
+     ]
+    },
+    "G2": {
+     "spans": [
+      [
+       4820,
+       1800
+      ],
+      [
+       16260,
+       1800
+      ],
+      [
+       27700,
+       1800
+      ]
+     ],
+     "ours_crf": 26.55,
+     "ref_crf": 28,
+     "ours_md5": [
+      "642c5b9d22ad2de9301bf478afe458ff",
+      "e39d89f3bb8787e7eda9ad7e4d1366ea",
+      "e885f19d155f1f586613007c3f82e1ad"
+     ],
+     "ref_md5": [
+      "1f1c07b4e04057e9f690dc3c29447e5d",
+      "d0551b6fb8a5d42b408ade2063395355",
+      "97dd67c165182c548a726b0440b6cd6a"
+     ]
+    }
+   },
+   "vbr_k": 1022,
+   "goals": [
+    "G3",
+    "VBR"
+   ],
+   "src": {
+    "kind": "ll",
+    "file": "ll/L_nocturne_720p.d",
+    "skip": 0,
+    "hdr": "YUV4MPEG2 W1280 H720 F60:1 Ip A1:1 C420jpeg XYSCSS=420JPEG XCOLORRANGE=LIMITED"
+   },
+   "check": {
+    "plane_md5": "2f9f634ac151256ecdbf5b9cdf581fea",
+    "frames": 34320
+   },
+   "stage": true
+  }
+ ]
+}

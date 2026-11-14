@@ -221,6 +221,14 @@ def write(arch, cells, recs, boxes, date, out_md, out_csv, extra):
     for name in list(allrows):
         if name.endswith("_r") and name[:-2] in allrows:
             del allrows[name[:-2]]
+    # a cell re-run from a staged raw copy (NAME_s) supersedes the goals it
+    # re-ran: the decode-fed run was feeder-bound there
+    for name in list(allrows):
+        if name.endswith("_s") and name[:-2] in allrows:
+            base = allrows[name[:-2]][1]
+            for g, r in allrows[name][1].items():
+                base[g] = r
+            del allrows[name]
     lines = []
     A = lambda s="": lines.append(s)                       # noqa: E731
     env = extra.get("env", {})

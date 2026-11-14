@@ -178,6 +178,8 @@ def feed_cmd(c, s, n, ready=None, md5=None, threads=None, out=None):
         a += ["--vf", sr["vf"]]
     if sr.get("seek"):
         a += ["--seek", str(sr["seek"])]
+    if sr.get("cpuflags") is not None and X86:
+        a += ["--cpuflags", str(sr["cpuflags"])]
     if ready:
         a += ["--ready", ready]
     if md5:

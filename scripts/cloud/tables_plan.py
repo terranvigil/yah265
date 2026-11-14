@@ -150,6 +150,27 @@ def catalog(manifests):
                 "src": {"kind": "dec", "file": "m/cosmos_laundromat_1080p.mp4",
                         "skip": 720, "hdr": m["hdr"]},
                 "check": {"plane_md5": m["plane_md5"], "frames": m["frames"]}}
+    # nocturne 2160p: the master's span as stream-copied ProRes chunks.
+    # ffmpeg's ProRes decoder and VideoToolbox's don't agree to the bit
+    # (68 dB PSNR on frame 3000), so the box's frames are the Mac's
+    # software decode, checked against that, not the Mac feeder's. On x86
+    # the feeder runs ffmpeg's C paths (cpuflags 0): its SIMD 10-to-8-bit
+    # 4:2:2-to-4:2:0 conversion rounds differently from the C and NEON one.
+    man = os.path.join(manifests, "N_nocturne_2160p.json")
+    if os.path.exists(man):
+        k = "L/2160p/nocturne"
+        p = pts[f"{k}/def"]
+        cells[k] = {"key": k, "tier": "L", "cls": "2160p", "title": "nocturne",
+                    "name": "L_2160p_nocturne", "frames": p["frames"],
+                    "fps": p["fps"], "points": {"def": pt(k, "def")},
+                    "windows": win(k), "vbr_k": vbr.get(k),
+                    "goals": ["G1", "G2", "G3", "VBR"],
+                    "src": {"kind": "dec", "file": "ll/N_nocturne_2160p.d",
+                            "skip": 0, "hdr": vt["nocturne"]["hdr"],
+                            "cpuflags": "0"},
+                    "check": {"plane_md5": "d71fbef16aabb6488226b11d2c98a9c4",
+                              "frames": 1,
+                              "mac_feeder_md5": vt["nocturne"]["f0_md5"]}}
     # tier L 720p and 1080p from the Mac's frames, sent lossless
     for t in ("tears", "meridian", "stem2", "sintel", "bbb", "cosmos",
               "nocturne"):
@@ -185,6 +206,10 @@ def main():
     ap.add_argument("--batch", type=int, default=0)
     ap.add_argument("--out")
     ap.add_argument("--ladder", help="curves: KEY:crf|vbr,...")
+    ap.add_argument("--stage", action="store_true",
+                    help="decode the whole cell to a raw Y4M on the box first "
+                         "and feed it by block copy (a lossless source whose "
+                         "decode can't keep 1.5x ahead of the encoders)")
     ap.add_argument("--resolve", action="store_true",
                     help="solve ours onto this box's x265 bytes first; the "
                          "cells are renamed NAME_r and supersede NAME")
@@ -221,6 +246,9 @@ def main():
             if fnmatch.fnmatch(k, pat) and k not in [c["key"] for c in sel]:
                 sel.append(cat[k])
     for c in sel:
+        if a.stage:
+            c["stage"] = True
+            c["name"] += "_s"
         if a.resolve:
             c["resolve"] = True
             c["name"] += "_r"

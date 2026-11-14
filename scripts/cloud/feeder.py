@@ -41,6 +41,9 @@ def main():
     p.add_argument("--ready")
     p.add_argument("--md5")
     p.add_argument("--out")
+    p.add_argument("--cpuflags",
+                   help="ffmpeg -cpuflags (0 = its C paths; x86's swscale "
+                        "SIMD rounds 10-to-8-bit 4:2:2 differently)")
     p.add_argument("--seek", type=float, default=0.0,
                    help="input seek in seconds before --skip (intra-only "
                         "sources, or a lossless pack with known keyframes)")
@@ -50,6 +53,8 @@ def main():
     h = int(next(t[1:] for t in tags if t[0] == "H"))
     fs = w * h * 3 // 2
     cmd = ["ffmpeg", "-v", "error", "-nostdin", "-threads", a.threads]
+    if a.cpuflags is not None:
+        cmd += ["-cpuflags", a.cpuflags]
     if a.seek:
         cmd += ["-ss", f"{a.seek:.6f}"]
     if os.path.isdir(a.src):
@@ -57,7 +62,7 @@ def main():
         lst = os.path.join(a.src, f"concat.{os.getpid()}.txt")
         with open(lst, "w") as f:
             for c in sorted(x for x in os.listdir(a.src)
-                            if x.endswith(".mkv")):
+                            if x.endswith((".mkv", ".mov"))):
                 f.write(f"file '{os.path.join(a.src, c)}'\n")
         cmd += ["-f", "concat", "-safe", "0", "-i", lst]
     else:

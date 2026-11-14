@@ -36,7 +36,7 @@ import time
 
 REGION = os.environ.get("REGION", "us-east-2")
 STATE = os.environ.get("FLEET_STATE", os.path.expanduser(
-    "~/src/yah265/local/cloudtab-2026-11-12/state"))
+    "~/src/yah265/local/cloudtab-2026-11-13/state"))
 LEDGER = os.environ.get("FLEET_LEDGER", os.path.expanduser(
     "~/src/yah265/local/ec2-ledger.md"))
 PREFIX = "yah265-ct"
