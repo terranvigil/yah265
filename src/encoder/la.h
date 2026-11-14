@@ -170,6 +170,9 @@ typedef struct la_frame {
      * shift with the rest of the slot. Both are 0 with the mode off. */
     float shot_off;
     uint8_t shot_planned;
+    /* N265_JIT: camera jitter on fine texture in a window over this
+     * frame, and the flag as it stood when the frame was planned */
+    uint8_t jit, jit_plan;
 } la_frame;
 
 typedef struct n265_la {
@@ -202,6 +205,9 @@ typedef struct n265_la {
     uint32_t *pc_bsad;      /* backward scratch */
     uint32_t *pc_bisad;     /* bidirectional scratch */
     uint64_t (*row_sum)[7]; /* n265_la_push's per-row cost sums */
+    /* N265_JIT's history ring: median vector, coherence, intra cost per block */
+    struct { int16_t mx, my; float coh, ic; } jh[32];
+    int jh_n;
 } n265_la;
 
 /* The frames the decision machinery may read - cu-tree, the b-adapt run

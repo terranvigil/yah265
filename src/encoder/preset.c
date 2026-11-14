@@ -866,6 +866,13 @@ static const struct kv med_tab_hd[] = {
      * docs/phase14.md "Item 58". */
     { "N265_CB64_GATEQ", "125" },
     { "N265_CB64_GATEQ_REF", "150" },
+    /* phase 14 item 62: on a handheld camera's jitter over fine texture
+     * (la.c's N265_JIT window) the b-adapt rule doesn't end the run, the
+     * merge-first skip exit is off and the lattice runs in every RD
+     * trial. worldcup_far_1080p against x265: CRF +18.83% -> -2.22%,
+     * VBR +15.02% -> -3.91% BD-v1. No tier S, M or L frame fires.
+     * `N265_JIT=0` is the escape. docs/phase14.md "Item 62". */
+    { "N265_JIT", "1" },
     { NULL, NULL }
 };
 

@@ -2142,6 +2142,9 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * meet. */
     { const char *v = n265_env("N265_RDOQ"); e->rdoq = v ? atoi(v) : 1;
       if (g_rdoq_level >= 0) e->rdoq = rdoq_level_map(g_rdoq_level); }
+    /* phase 14 item 62: a frame la.c types camera jitter on fine
+     * texture runs the lattice in every RD trial (N265_RDOQ 1) */
+    { const char *v = n265_env("N265_JIT_RDOQ"); e->jit_rdoq = v ? atoi(v) : 1; }
     { const char *v = n265_env("N265_PSY"); e->psy = v ? atof(v) : 0.0; }
     /* N265_PSY_DARK (phase 14 item 53; yah264's dark-block psy, refit
      * here). VMAF v1 reads banding through CAMBI, and dark gradients and
@@ -8574,12 +8577,14 @@ static void build_plan_order(n265_encoder *e)
             if (!end && fastw > 0.0 && mv >= mvmin &&
                 mv * fscale * (double)la->f[i].sc_ratio > bthr)
                 end = 1;
+            if (la->f[i].jit)
+                end = 0;
             if (trace)
                 fprintf(stderr, "BADAPT d=%d i=%d mv=%.3f ratio=%.3f "
-                        "scale=%.3f m=%.4f thr=%.4f %s\n",
+                        "scale=%.3f m=%.4f thr=%.4f jit=%d %s\n",
                         la->f[i].display_idx, i, mv,
                         (double)la->f[i].sc_ratio, wscale, m, bthr,
-                        end ? "END" : "extend");
+                        la->f[i].jit, end ? "END" : "extend");
             if (end) break;    /* this frame ends the run (it is the anchor) */
         }
     }
@@ -8702,6 +8707,8 @@ static void build_plan(n265_encoder *e)
 {
     build_plan_order(e);
     plan_lifetimes(e);
+    for (int p = 0; p < e->plan_len; p++)
+        e->la.f[e->plan_li[p]].jit_plan = e->la.f[e->plan_li[p]].jit;
 }
 
 static void join_oldest(n265_encoder *e);
@@ -8954,6 +8961,8 @@ static int drive_scheduler(n265_encoder *e)
     fw->ref_valid = e->ref_valid;
     fw->shot_off = e->shot_window > 0 ? (double)f->shot_off : 0.0;
     fw->sc_ratio = f->sc_ratio;     /* lookahead pcost/icost, P3 reads it */
+    fw->jit = f->jit_plan;
+    fw->rdoq = fw->jit && e->rdoq && e->jit_rdoq ? 1 : e->rdoq;
     fw->mcstf_filt = f->mcstf_filt;
     fw->la_mvabs = la->bw * la->bh
                        ? (float)f->mvabs_sum / (float)(la->bw * la->bh) : 0.0f;

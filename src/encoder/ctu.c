@@ -6478,7 +6478,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                  * decided - the AMVP search cannot code less than
                  * nothing, and the rect/AMP trials are never entered on a
                  * CU the skip wins anyway. */
-                if (skip_exit() && !gate_amvp && j_skip <= j_merge &&
+                if (skip_exit() && !e->jit && !gate_amvp && j_skip <= j_merge &&
                     (skip_exit() >= 3 ||
                      d_skip * (skip_exit() == 1 ? 4u : 1u) <=
                          skip_clean_thr(e->cur_ctu_qp, n)))

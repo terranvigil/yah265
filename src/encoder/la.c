@@ -171,6 +171,7 @@ int n265_la_init(struct n265_encoder *e)
         return -1;
     la->sc_rn = 0;
     la->sc_last_ic = -1;
+    la->jh_n = 0;
     for (int i = 0; i < la->cap; i++) {
         la_frame *f = &la->f[i];
         for (int c = 0; c < 3; c++) {
@@ -910,6 +911,61 @@ int n265_dup_on(void)
     return n265_dup_fast() || n265_dup_trace();
 }
 
+/* N265_JIT (phase 14 item 62): flags a frame whose last N265_JIT_WIN
+ * frames show a handheld camera's jitter over fine texture. Every frame
+ * of the window has a coherent field (at least N265_JIT_COH of its
+ * blocks within two lowres pixels of the median vector), the median
+ * vector's second difference averages at least N265_JIT_J lowres pixels
+ * (each frame's saturated at 4), and the intra cost averages at least
+ * N265_JIT_IC per lowres 8x8 block. The pans and follow shots of tiers
+ * S, M and L move too smoothly to reach the jitter bar. 0 is off. */
+static int jit_on(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *e = n265_env("N265_JIT"); v = e ? atoi(e) : 0; }
+    return v;
+}
+
+static int jit_trace(void)
+{
+    static int v = -1;
+    if (v < 0) v = n265_env("N265_JIT_TRACE") != NULL;
+    return v;
+}
+
+static int jit_win(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *e = n265_env("N265_JIT_WIN");
+        v = e ? atoi(e) : 24;
+        if (v < 1) v = 1;
+        if (v > 29) v = 29;
+    }
+    return v;
+}
+
+static double jit_j(void)
+{
+    static double v = -1.0;
+    if (v < 0.0) { const char *e = n265_env("N265_JIT_J"); v = e ? atof(e) : 2.2; }
+    return v;
+}
+
+static double jit_coh(void)
+{
+    static double v = -1.0;
+    if (v < 0.0) { const char *e = n265_env("N265_JIT_COH"); v = e ? atof(e) : 0.75; }
+    return v;
+}
+
+static double jit_ic(void)
+{
+    static double v = -1.0;
+    if (v < 0.0) { const char *e = n265_env("N265_JIT_IC"); v = e ? atof(e) : 720.0; }
+    return v;
+}
+
 /* the driver resolves this file's knobs at open, before a worker can be
  * the one that writes them first; see n265_ctu_warm */
 void n265_la_warm(void)
@@ -924,6 +980,12 @@ void n265_la_warm(void)
     (void)sc_failw_spike();
     (void)sc_jump();
     (void)sc_floor();
+    (void)jit_on();
+    (void)jit_win();
+    (void)jit_trace();
+    (void)jit_j();
+    (void)jit_coh();
+    (void)jit_ic();
     (void)n265_flat_gate();
     (void)n265_screen();
     log2q16_init();
@@ -1269,6 +1331,70 @@ static void push_cost_row(void *ctx, n265_par *w, int by)
     f->mvy_hi[by] = (int16_t)hi;
 }
 
+/* the median of a histogram of n values offset by `off` */
+static int hist_median(const int *h, int len, int n, int off)
+{
+    int c = 0;
+    for (int v = 0; v < len; v++) {
+        c += h[v];
+        if (c > n / 2)
+            return v - off;
+    }
+    return len - 1 - off;
+}
+
+static void la_jitter(n265_la *la, la_frame *f, const la_frame *prev)
+{
+    enum { R = 512, NR = 2 * R };
+    int nb = la->bw * la->bh;
+    int mx = 0, my = 0;
+    float coh = 0.0f;
+    if (prev && nb > 0) {
+        int hx[NR] = { 0 }, hy[NR] = { 0 };
+        for (int b = 0; b < nb; b++) {
+            int x = f->mv[2 * b], y = f->mv[2 * b + 1];
+            hx[x < -R ? 0 : x >= R ? NR - 1 : x + R]++;
+            hy[y < -R ? 0 : y >= R ? NR - 1 : y + R]++;
+        }
+        mx = hist_median(hx, NR, nb, R);
+        my = hist_median(hy, NR, nb, R);
+        int n = 0;
+        for (int b = 0; b < nb; b++)
+            n += abs(f->mv[2 * b] - mx) + abs(f->mv[2 * b + 1] - my) <= 2;
+        coh = (float)n / (float)nb;
+    }
+    int pos = la->jh_n % 32;
+    la->jh[pos].mx = (int16_t)mx;
+    la->jh[pos].my = (int16_t)my;
+    la->jh[pos].coh = coh;
+    la->jh[pos].ic = nb ? (float)f->icost_sum / (float)nb : 0.0f;
+    la->jh_n++;
+    int win = jit_win();
+    if (la->jh_n < win + 2)
+        return;
+    double j = 0.0, ic = 0.0;
+    for (int k = 0; k < win; k++) {
+        int i0 = (la->jh_n - 1 - k) % 32;
+        int i1 = (la->jh_n - 2 - k) % 32;
+        int i2 = (la->jh_n - 3 - k) % 32;
+        if ((double)la->jh[i0].coh < jit_coh())
+            return;
+        int a = abs(la->jh[i0].mx - 2 * la->jh[i1].mx + la->jh[i2].mx) +
+                abs(la->jh[i0].my - 2 * la->jh[i1].my + la->jh[i2].my);
+        j += a < 4 ? a : 4;
+        ic += la->jh[i0].ic;
+    }
+    if (j < jit_j() * win || ic < jit_ic() * win)
+        return;
+    if (jit_trace())
+        fprintf(stderr, "JIT d=%d j=%.3f ic=%.1f\n", f->display_idx,
+                j / win, ic / win);
+    /* the window's frames still queued take the flag too */
+    for (int k = la->count - win + 1; k <= la->count; k++)
+        if (k >= 0)
+            la->f[k].jit = 1;
+}
+
 void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
                   const int stride[3])
 {
@@ -1445,6 +1571,9 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
         free(xs);
         free(ys);
     }
+    f->jit = 0;
+    if (jit_on())
+        la_jitter(la, f, prev);
     f->sc_ratio = (float)f->pcost_sum /
                   (float)(f->icost_sum ? f->icost_sum : 1);
     f->sc_failw = f->icost_sum ? (float)((double)ifail_sum /

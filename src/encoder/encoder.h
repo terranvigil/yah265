@@ -770,6 +770,7 @@ typedef struct n265_frame_work {
 
     /* lookahead hand-off, frozen before the frame launches */
     float sc_ratio;         /* lookahead pcost/icost (P3) */
+    int jit;                /* lookahead camera-jitter flag (N265_JIT) */
     int mcstf_filt;         /* --mcstf filtered this picture (item 31) */
     float la_mvabs;         /* lookahead mean |MV| per lowres block (N265_CT_TRACE) */
     const uint16_t *la_icost, *la_pcost;
@@ -1512,6 +1513,7 @@ struct n265_encoder {
 
     int aq;                 /* adaptive quantization on/off            */
     int rdoq;
+    int jit_rdoq;           /* N265_JIT_RDOQ: the rdoq a jitter frame codes at */
     double psy;
     /* N265_PSY_DARK (phase 14 item 53): the strength, its QP fade and
      * the two ramps that say which blocks are dark and smooth */

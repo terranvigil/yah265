@@ -110,11 +110,12 @@ profile() {
         item58)       echo "|N265_CB64_GATEQ=0 N265_CB64_GATEQ_REF=0 N265_PSY_DARK_LO=0";;   # item 58, medium: the HD skip gate bounds each 32x32 quadrant; no dark psy under mean 18
         item60)       echo "|N265_UHD_CVBR=0";;   # item 60, medium under capped VBR at UHD: the whole merge list and the intra-heavy-only 16x16 stop (UHD capped VBR only)
         item61)       echo "|N265_SCREEN=0";;     # item 61, medium on screen content: scroll vote, change-driven B run, lowres seeds (no other content moves)
+        item62)       echo "|N265_JIT=0";;        # item 62, medium at HD: camera jitter over fine texture keeps the B run, the AMVP search and rdoq 1 (no other content moves)
         asmoff)       echo "|N265_ASM_OFF=all";;
         *) return 1;;
     esac
 }
-PROFILE_NAMES="info fingerprint weightp stream ship item22 item23 item24 item25 item25sched item26 item28 item29 item29s2 item30 vbrspeed item33 item35 item36 item37 item38 item40 item41 item43 item44 item46 item47 item48 item49 item50 item51 item52 item53 item55 item56 item57 item58 item59 item60 item61 asmoff"
+PROFILE_NAMES="info fingerprint weightp stream ship item22 item23 item24 item25 item25sched item26 item28 item29 item29s2 item30 vbrspeed item33 item35 item36 item37 item38 item40 item41 item43 item44 item46 item47 item48 item49 item50 item51 item52 item53 item55 item56 item57 item58 item59 item60 item61 item62 asmoff"
 
 # ---------------------------------------------------------------- one cell
 # Called back through xargs: identity_ab.sh --cell WORK LINE
