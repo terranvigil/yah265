@@ -1244,7 +1244,7 @@ LONG_MODES = (
                "count and the estimated hours; nothing runs"),
     ("--windows", "untimed: G1/G2 window matches (tiers M, L, lash)"),
     ("--time-windows", "TIMED: G1/G2 on the windows"),
-    ("--ladder", "untimed: CRF and VBR ladders (tiers M and L)"),
+    ("--ladder", "untimed: CRF and VBR ladders (tiers M, L and C)"),
     ("--sweep", "untimed: the lookahead sweep (ours 12/20/30, x265 20)"),
     ("--credits", "untimed: the end-credits rows (tier L, 1080p)"),
     ("--vbr-wall", "TIMED: the VBR wall leg, G3 (tiers M and L)"),

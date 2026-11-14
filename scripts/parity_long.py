@@ -24,11 +24,12 @@ the ladder lane beside it), against x265 medium:
             is re-matched onto x265's summed window bytes at each timed
             thread count (G1 one frame thread, G2 default); a goal whose
             summed bytes miss by more than 5% is void for that cell.
-  ladders   CRF rungs 20/23/26/29/32 on both sides; VBR rungs at x265's
-            achieved rates there, maxrate 1.5K, buffer 2K; both encoders at
-            6 threads (x265 --pools 6 --frame-threads 4). BD-VMAF-NEG per
-            curve, VBR tracking per rung against the +-10% bar. VMAF-NEG on
-            every frame on tier M, every 3rd on tier L.
+  ladders   tiers M, L and C. CRF rungs 20/23/26/29/32 on both sides;
+            VBR rungs at x265's achieved rates there, maxrate 1.5K, buffer
+            2K; both encoders at 6 threads (x265 --pools 6 --frame-threads
+            4). BD-VMAF-NEG per curve, VBR tracking per rung against the
+            +-10% bar. VMAF-NEG on every frame on tiers M and C, every 3rd
+            on tier L.
   VBR wall  G3 only: one rung per M and L cell at x265's CRF 28 achieved
             rate, 1.5x / 2x, two interleaved rounds, no size match.
   sweep     ours at --rc-lookahead 12, 20 (medium's own) and 30 on six
@@ -1174,7 +1175,7 @@ def split_modes(arg):
 
 def do_ladder(args):
     modes = split_modes(args.modes)
-    for cell in select(args, ("M", "L")):
+    for cell in select(args, ("M", "L", "C")):
         run_ladder(cell, modes, (OUR_DEPTH,))
 
 
