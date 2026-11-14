@@ -1,7 +1,7 @@
 # yah265 parity report, every architecture, 2026-11-14
 
 - Encoder: yah265 n265 at main d771c4a, preset medium.
-- Mac binary: build-rel ab8a99eb (main 360ab7d), carried by identity to a9b880c8 (main 504fdda) and then to 7eea345a (main d771c4a).
+- Mac binary: build-rel ab8a99eb (main 360ab7d), carried by identity to a9b880c8 (main 504fdda) and then to 3ee7824e (main d771c4a).
 - Cloud binary: 504fdda built on each box from `git archive` with clang 18.
 - Reference: x265 4.3+1-e9b8812, preset medium. Homebrew's build on the Mac, the 4.3 release tarball built with clang 18 on each cloud box.
 - Mac: Apple M5 Max, 18 cores, macOS 26.6.2, arm64 NEON.
@@ -20,7 +20,7 @@ Is yah265 at full parity on every architecture? Yes on every instruction set tha
 
 Tier C first ran on a9b880c8 and failed on three 1080p cells: worldcup_far and the two screen clips wikipedia and spreadsheet. Two items fixed them. Item 61 finds screen content and follows its scrolls. Item 62 finds a handheld camera's jitter and keeps long B runs through it. Wikipedia's CRF curve went from +57.69% to -63.91% BD-v1. Spreadsheet's went from +58.71% to -53.94% and worldcup_far's from +18.83% to -2.22%. Neither item fires on any gating cell, so tiers S, M and L code the same bytes as before.
 
-The binary changed after the cloud tables ran. Main is now d771c4a and its release build is 7eea345a. The cloud numbers still hold for it, for two reasons. The cloud boxes ran 504fdda, the source of a9b880c8, and every gating cell still writes a9b880c8's streams byte for byte. On content they don't type, the two detectors add 0.02-0.04% to the instructions.
+The binary changed after the cloud tables ran. Main is now d771c4a and its release build is 3ee7824e. The cloud numbers still hold for it, for two reasons. The cloud boxes ran 504fdda, the source of a9b880c8, and every gating cell still writes a9b880c8's streams byte for byte. On content they don't type, the two detectors add 0.02-0.04% to the instructions.
 
 ```
 G1 pure C, 1 thread:   PASS in all 9 class-tiers on Mac, x86-64 and Graviton4 (CIF-S, 720p-S/L, 1080p-S/M/L, 2160p-S/M/L)
@@ -134,7 +134,7 @@ x86 doesn't write the Mac's streams. Clang fuses float multiply-adds on arm64 bu
 Graviton4 writes the Mac's streams. In each of G1, G2 and G3, 36 of its 38 timed encodes match the Mac's by md5. Of the VBR walls 25 of 26 match. One miss is stefan_cif. It was re-solved at another crf on purpose, and at the Mac's crf it was identical too. The other is nocturne_2160p, whose source frames differ (see the caveats).
 
 ## Tier C on the Mac
-Tier C ran on a9b880c8 (main 504fdda) with the spec's harness, scripts/parity_spec.py. Items 61 and 62 then re-measured the four clips they move. The three screen clips ran on 4d8c0ff1 and worldcup_far on 7097f4aa. All nine cells' rows are carried to 7eea345a by identity. Each cell has a matched point at x265's CRF 28 bytes, scored on every frame. Each also has a five-rung CRF ladder (20 to 32) and a VBR ladder at x265's CRF rates, with maxrate 1.5x and a buffer of 2x, both encoders at 6 threads. VMAF v1 is scored at display size: lash at 720p (1280x960) is scaled up to fit 1080p. boxing_2160p is 60 fps and reads on the 1d5h_2160 _hfr model. skater227 and boxing are 10-bit sources converted to 8-bit 4:2:0. Lash is the 10-minute excerpt from 40 s. The other seven are the short clips, 130 frames (254 for boxing). Speed is one timed G3 row per cell, interleaved rounds on a quiet box, and doesn't gate. The four moved clips' G3 rows are still a9b880c8's.
+Tier C ran on a9b880c8 (main 504fdda) with the spec's harness, scripts/parity_spec.py. Items 61 and 62 then re-measured the four clips they move. The three screen clips ran on 4d8c0ff1 and worldcup_far on 7097f4aa. All nine cells' rows are carried to 3ee7824e by identity. Each cell has a matched point at x265's CRF 28 bytes, scored on every frame. Each also has a five-rung CRF ladder (20 to 32) and a VBR ladder at x265's CRF rates, with maxrate 1.5x and a buffer of 2x, both encoders at 6 threads. VMAF v1 is scored at display size: lash at 720p (1280x960) is scaled up to fit 1080p. boxing_2160p is 60 fps and reads on the 1d5h_2160 _hfr model. skater227 and boxing are 10-bit sources converted to 8-bit 4:2:0. Lash is the 10-minute excerpt from 40 s. The other seven are the short clips, 130 frames (254 for boxing). Speed is one timed G3 row per cell, interleaved rounds on a quiet box, and doesn't gate. The four moved clips' G3 rows are still a9b880c8's.
 
 | cell | content | dVMAF v1 / dPSNR-Y at matched size | BD-v1 CRF | BD-v1 VBR | G3 | verdict |
 |---|---|---|---|---|---|---|
@@ -186,7 +186,7 @@ The bar is absolute and applies to ours. x265 misses it on chimera at both sizes
 - Many Mac rows come from older binaries. Tier L's G1 and G2 windows, eleven tier L G3 cells and fifteen VBR walls ran on 12de49f2 (a74e541). That binary predates the deblock and SAO SIMD. Since that SIMD made the encoder about 0.3% faster, those ratios are slightly conservative. The ladders came from 12de49f2 and a759f17f. Each carried row names its source binary in docs/data. Identity cmps showed the streams byte-identical before any row was carried.
 - Those eleven tier L G3 cells keep the crf solved on an older binary still, 4d51b17 (061abf3). Their timed encodes held the 1% size match.
 - On 2026-11-12 the Mac's rows were carried again, from ab8a99eb to a9b880c8 (main 504fdda). identity_ab read 28 of 28 SAME. Six whole cells matched as well, across CRF, capped CRF and VBR.
-- On 2026-11-14 they were carried once more, from a9b880c8 to 7eea345a (main d771c4a), leaving out the four clips items 61 and 62 moved. Those four came over from the items' own binaries. Before the carry, a bitstream cmp of the two release builds read SAME on three tier S clips at one thread, on chimera_1080p's tier M G1 window at its crf, and on a capped-VBR skater227 rung. One rung of each moved clip, re-encoded on 7eea345a, matched its recorded md5.
+- On 2026-11-14 they were carried once more, from a9b880c8 to 3ee7824e (main d771c4a), leaving out the four clips items 61 and 62 moved. Those four came over from the items' own binaries. Before the carry, a bitstream cmp of the two release builds read SAME on three tier S clips at one thread, on chimera_1080p's tier M G1 window at its crf, and on a capped-VBR skater227 rung. One rung of each moved clip, re-encoded on that build, matched its recorded md5. The rows went first to 7eea345a, a worktree build of the same source without NDEBUG, then to 3ee7824e, main's release build with NDEBUG as a9b880c8 had it. The two write the same streams (foreman_cif, wikipedia and worldcup_far checked).
 - The Mac read tier M G1 and G2 on the whole segment. That predates the rule for 30 s windows.
 - Tier L G1 and G2 come from one run each on every machine. The Mac's only single-run G3 rows are two of the void meridian cells.
 - The credits rows for stem2 and bbb are still pending. On tears' credits we're behind, at +5.9% size at equal PSNR-Y (extrapolated). Credits are supplementary and don't gate.
@@ -220,7 +220,7 @@ The bar is absolute and applies to ours. x265 misses it on chimera at both sizes
 - Tier C ran on the Mac for the first time. Six of nine cells passed on a9b880c8. worldcup_far, wikipedia and spreadsheet at 1080p failed the floor and the BD bar. `--ladder` now takes tier C.
 - Item 61 (9923fe0) gives screen content a scroll vote, a change-driven B run and lowres search seeds. Wikipedia's CRF curve reads -63.91% BD-v1, spreadsheet's -53.94% and debugging's -25.07%. Their VBR curves sit wholly above x265's at fewer bits.
 - Item 62 (d771c4a) keeps the long B run, the full AMVP search and the lattice through a handheld camera's jitter. worldcup_far reads -2.22% under CRF and -3.91% under VBR, and +0.14 VMAF v1 at matched size. It costs that clip 12% more wall at one thread.
-- Tier C's quality now passes on all nine clips. The Mac's rows were carried to 7eea345a by identity.
+- Tier C's quality now passes on all nine clips. The Mac's rows were carried to 3ee7824e by identity.
 - The Graviton report said ours dispatches SVE2 on Graviton3. The V1 has no SVE2, so it runs SVE at 256 bits. Fixed.
 
 ## Not measured
