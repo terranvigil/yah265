@@ -8,28 +8,31 @@
 - x86-64: Intel Xeon Platinum 8488C (Sapphire Rapids) on EC2 m7i and c7i spot, AVX-512 over AVX2.
 - Graviton4: Neoverse V2 on EC2 c8g and r8g spot, NEON and SVE2 at 128 bits.
 - Graviton3: Neoverse V1 on c7g.4xlarge, SVE at 256 bits. A second line, tier S G3 only.
-- Measured: Mac timed legs 2026-09-26 20:02 to 2026-11-12 14:07. Cloud 2026-11-12 23:10 to 2026-11-14 04:00 UTC.
+- Measured: Mac timed legs 2026-09-26 20:02 to 2026-11-12 14:07. Tier C on the Mac 2026-11-13 23:24 to 2026-11-14 03:17 EST, on a9b880c8. Cloud 2026-11-12 23:10 to 2026-11-14 04:00 UTC.
 - Sources: the three reports PARITY-REPORT-yah265-2026-11-12, PARITY-REPORT-yah265-x86-2026-11-13 and PARITY-REPORT-yah265-graviton-2026-11-13 with their CSVs. The cloud records are in docs/data/cloud-tables-2026-11-13/.
 
-This page adds no new measurement.
+The one new measurement on this page is tier C, on the Mac. Its points, ladders and timed rows are in docs/data/parity-spec-points.json, parity-spec-ladders.json and parity-spec.csv.
 
 How to read: a speed ratio is our time over the reference's time at the same file size. Below 1.00 we're faster. Pass means median <= 1.00 and worst <= 1.15, with quality no worse than -0.5 VMAF v1. "-" means not measured. Each cell shows median / worst over the class and tier's valid cells. Lookahead is each medium's own on every machine. Ours is 20 at 720p and up and 12 at CIF, and x265's is 20. The Mac runs at auto threads on all 18 cores. On each cloud box both encoders are held to 16 vCPUs by `taskset`. The feeder runs on the other cores.
 
 ## Verdict
-Is yah265 at full parity on every architecture? Yes on every cell that counts toward the bar, on all three machines that were timed. Two gaps keep it short of a clean yes on every instruction set. SSE4.2 was never timed on real hardware. An AVX2-only x86 CPU wasn't timed as its own column either. Because both tiers are bit-exact with C, they write the streams the x86 table measured. Their quality holds for that reason, but their speed is unmeasured. Tier C has no matched point on any machine, as before.
+Is yah265 at full parity on every architecture? Not yet. Every gating combination of tiers S, M and L passes on all three machines that were timed. Tier C's quality also counts, and it fails on three 1080p cells. Two more gaps keep it short of a clean yes on every instruction set. SSE4.2 was never timed on real hardware. An AVX2-only x86 CPU wasn't timed as its own column either. Because both tiers are bit-exact with C, they write the streams the x86 table measured. Their quality holds for that reason, but their speed is unmeasured.
+
+Tier C is now measured on the Mac. The spec counts its matched-size quality on every clip. Six of its nine cells pass. Three 1080p cells fail the per-cell floor and the BD bar: worldcup_far, and the two screen clips wikipedia and spreadsheet. Lash at 720p and 1080p, the sports clips worldcup and skater227, boxing at 2160p and the debugging screen clip all pass. So full parity holds on the gating set (tiers S, M and L) and not on tier C.
 
 ```
 G1 pure C, 1 thread:   PASS in all 9 class-tiers on Mac, x86-64 and Graviton4 (CIF-S, 720p-S/L, 1080p-S/M/L, 2160p-S/M/L)
 G2 pure C, all cores:  PASS in all 9 on Mac, x86-64 and Graviton4
 G3 SIMD, all cores:    PASS in all 9 on Mac (NEON), x86-64 (AVX-512 over AVX2) and Graviton4 (SVE2 over NEON)
 VBR wall (G3):         PASS, 26 of 26 cells on each machine, every one under 1.00
-Quality:               PASS in every class and tier: Mac ladders 52 of 52 inside the BD bar, x86 by reproduction, Graviton4 by stream identity
-VBR tracking:          PASS, every measured rung of ours inside +-10% on every machine
-Full parity:           yes on the gating set, 81 of 81 combinations (27 per machine) and 78 of 78 VBR walls
-Not measured:          SSE4.2 speed, AVX2-only speed, Graviton3 beyond tier S G3, tier C on every machine
+Quality:               PASS in every class of tiers S, M and L: Mac ladders 52 of 52 inside the BD bar, x86 by reproduction, Graviton4 by stream identity
+Tier C quality:        PASS in 720p-C and 2160p-C; OPEN in 1080p-C (worldcup_far, wikipedia, spreadsheet); 12 of 18 tier C curves inside the BD bar
+VBR tracking:          PASS, every measured tier M and L rung of ours inside +-10% on every machine
+Full parity:           no: tier C quality open in 1080p-C. The gating set passes, 81 of 81 combinations (27 per machine) and 78 of 78 VBR walls
+Not measured:          SSE4.2 speed, AVX2-only speed, Graviton3 beyond tier S G3, tier C off the Mac, tier C G1 and G2
 ```
 
-The tightest timed cell anywhere is the Mac's meridian_1080p tier L VBR wall at 0.85. On x86 the tightest G3 cell is bus_cif at 0.82, or 0.84 against x265 at `--asm avx512`. Every median and every worst sits at least 0.15 inside its bar. I'd sign off parity on NEON, AVX-512 and SVE2 from this table. SSE4.2 and AVX2-only I'd call correct and untimed, with no speed figure claimed for either.
+The tightest timed cell anywhere is the Mac's meridian_1080p tier L VBR wall at 0.85. On x86 the tightest G3 cell is bus_cif at 0.82, or 0.84 against x265 at `--asm avx512`. Every median and every worst sits at least 0.15 inside its bar. I'd sign off parity on the gating set on NEON, AVX-512 and SVE2 from this table. Tier C's three 1080p cells stand between that and full parity. SSE4.2 and AVX2-only I'd call correct and untimed, with no speed figure claimed for either.
 
 ## G1 speed at one thread in pure C
 | class | tier | Mac | x86-64 | Graviton4 | cells (Mac / x86 / G4) |
@@ -72,7 +75,9 @@ On x86 ours dispatches AVX-512 for the satd and transform families and AVX2 for 
 | 2160p | S | 0.62 / 0.63 | 0.41 / 0.43 | 0.41 / 0.44 | 0.31 / 0.33 | 0.31 / 0.34 | 2 / 2 / 2 |
 | 2160p | M | 0.56 / 0.60 | 0.53 / 0.67 | 0.54 / 0.69 | 0.47 / 0.63 | - | 2 / 3 / 3 |
 | 2160p | L | 0.58 / 0.66 | 0.59 / 0.62 | 0.60 / 0.63 | 0.49 / 0.54 | - | 6 / 6 / 6 |
-| 720p, 1080p, 2160p | C | - | - | - | - | - | outside the bar |
+| 720p | C | 0.47 / 0.47 | - | - | - | - | 1 / - / - (not gating) |
+| 1080p | C | 0.53 / 0.54 | - | - | - | - | 7 / - / - (not gating) |
+| 2160p | C | 0.28 / 0.28 | - | - | - | - | 1 / - / - (not gating) |
 
 ## VBR wall at G3 on one rung per real-title cell
 The rung is x265's CRF 28 rate on the Mac, with maxrate 1.5x and a buffer of 2x. Two interleaved rounds, no size match.
@@ -116,12 +121,39 @@ Quality is VMAF v1 scored at display size, on vmaf_v1.0.16 3d0h up to 1080p and 
 | 2160p | S | +1.86 / +1.22 | -0.49 | n/a | inferred | identical streams |
 | 2160p | M | +1.40 / +0.06 | -0.48 | +0.70% (chimera VBR) | reproduced: chimera VBR +0.07 | identical streams |
 | 2160p | L | +1.18 / +0.44 | -0.54 | -4.59% (bbb VBR) | inferred | identical except nocturne |
+| 720p | C | +2.55 / +2.55 | -0.07 | -26.04% (lash1924 VBR) | - | - |
+| 1080p | C | +0.52 / -6.02 | -5.28 | +171.34% (wikipedia VBR) | - | - |
+| 2160p | C | -0.24 / -0.24 | -0.68 | -3.81% (boxing CRF) | - | - |
 
-No soft cell sits between -0.5 and -1.0 VMAF v1. All 52 Mac curves are inside +1.0%. The one within 0.5 points of the bar is chimera_2160p VBR at +0.70%.
+Tiers S, M and L have no soft cell between -0.5 and -1.0 VMAF v1. All 52 of their Mac curves are inside +1.0%. The one within 0.5 points of the bar is chimera_2160p VBR at +0.70%. Tier C is in its own section below.
 
 x86 doesn't write the Mac's streams. Clang fuses float multiply-adds on arm64 but not on baseline x86-64. The owner chose to leave that as is. So four Mac curves were re-run on x86 at the Mac's rungs and scored with the Mac's libvmaf build. All four come within 0.2 BD points of the Mac's. The largest move is chimera_2160p VBR, from +0.70% to +0.78%. "Inferred" in the table means the row rests on those four curves and on the kernels being bit-exact.
 
 Graviton4 writes the Mac's streams. In each of G1, G2 and G3, 36 of its 38 timed encodes match the Mac's by md5. Of the VBR walls 25 of 26 match. One miss is stefan_cif. It was re-solved at another crf on purpose, and at the Mac's crf it was identical too. The other is nocturne_2160p, whose source frames differ (see the caveats).
+
+## Tier C on the Mac
+Tier C ran on a9b880c8 (main 504fdda) with the spec's harness, scripts/parity_spec.py. Each cell has a matched point at x265's CRF 28 bytes, scored on every frame. Each also has a five-rung CRF ladder (20 to 32) and a VBR ladder at x265's CRF rates, with maxrate 1.5x and a buffer of 2x, both encoders at 6 threads. VMAF v1 is scored at display size: lash at 720p (1280x960) is scaled up to fit 1080p. boxing_2160p is 60 fps and reads on the 1d5h_2160 _hfr model. skater227 and boxing are 10-bit sources converted to 8-bit 4:2:0. Lash is the 10-minute excerpt from 40 s. The other seven are the short clips, 130 frames (254 for boxing). Speed is one timed G3 row per cell, interleaved rounds on a quiet box, and doesn't gate.
+
+| cell | content | dVMAF v1 / dPSNR-Y at matched size | BD-v1 CRF | BD-v1 VBR | G3 | verdict |
+|---|---|---|---|---|---|---|
+| lash1924_720p | film grain | +2.55 / -0.07 | -27.09% | -26.04% | 0.47 | PASS |
+| lash1924_1080p | film grain | +2.92 / -0.08 | -31.89% | -31.37% | 0.54 | PASS |
+| worldcup_1080p | sports | +0.52 / -0.52 | -6.15% | -7.80% | 0.52 | PASS |
+| worldcup_far_1080p | sports | -1.46 / -1.05 | +18.83% | +15.02% | 0.53 | FAIL |
+| skater227_1080p | sports | +0.60 / -0.90 | -4.29% | -16.78% | 0.50 | PASS |
+| boxing_2160p | sports | -0.24 / -0.68 | -3.81% | -14.91% | 0.28 | PASS |
+| wikipedia_1080p | screen | -6.02 / -5.28 | +57.69% | +171.34% | 0.53 | FAIL |
+| debugging_1080p | screen | +0.53 / -0.13 | -4.27% | -16.28% | 0.51 | PASS |
+| spreadsheet_1080p | screen | -4.35 / -4.23 | +58.71% | +23.00% | 0.53 | FAIL |
+
+The three failures, read from their CRF curves:
+- wikipedia: ours lands within 0.15 VMAF v1 of x265 at every rung but spends 1.53-1.64x its bits (crf 20: 6694 against 4215 kb/s at 98.88 and 99.03).
+- spreadsheet: ours spends 1.26-1.42x the bits and still reads 0.4-2.2 lower (crf 26: 5284 against 3792 kb/s at 94.90 and 95.96).
+- worldcup_far: ours spends 0.84-0.87x the bits and reads 0.5-4.9 lower (crf 29: 2732 against 3211 kb/s at 91.17 and 94.41). The gap opens toward the low rungs.
+
+At the matched point x265 moved to crf 28.03 on wikipedia and 28.22 on spreadsheet. Our size steps there were too coarse to land within 1% of CRF 28's bytes. The wikipedia VBR figure rests on a thin overlap: x265 undershoots its targets by 32-40%, so the two curves share only 2195-2525 kb/s. Its CRF figure is the cleaner reading. Nothing was tuned for these cells.
+
+The VBR tracking bar applies to tiers M and L, so tier C's tracking is shown for information. Ours stays inside +-10% on six cells, worst +5.0% (boxing). It misses on all three screen clips: wikipedia +8.4% to +13.7% (4 of 5 rungs out), debugging -4.9% to -12.8% (2 of 5) and spreadsheet -20.5% to -24.9% (5 of 5). x265 misses on the same three by 32-44%. Each clip runs 4.3 s against a 2 s buffer.
 
 ## VBR rate tracking
 The bar puts every rung within +-10% of its target.
@@ -131,6 +163,7 @@ The bar puts every rung within +-10% of its target.
 | x86 ladders, chimera_2160p and cosmos_1080p | 10 | -5.2% (chimera_2160p) | -14.4% (chimera_2160p) | ours 10 of 10 |
 | x86 VBR walls | 26 | -7.3% (sintel_720p) | -14.5% (chimera, both sizes) | ours 26 of 26 |
 | Graviton4 VBR walls | 26 | -7.3% (sintel_720p) | -14.5% (chimera, both sizes) | ours 26 of 26 |
+| Mac tier C ladders, 9 cells x 5 rungs (information) | 45 | -24.9% (spreadsheet_1080p) | -44.3% (spreadsheet_1080p) | ours 34 of 45 |
 
 The bar is absolute and applies to ours. x265 misses it on chimera at both sizes and on several stem2 rungs.
 
@@ -168,9 +201,12 @@ The bar is absolute and applies to ours. x265 misses it on chimera at both sizes
 - The UHD scaling item splits the driver's per-frame analysis over the pool and grows the UHD slot pool. It's a schedule change and moves no bit.
 - The 2026-11-12 Mac report declared full parity on the Mac. The site and README took its numbers, scoped to the Mac. Its rows were then carried to a9b880c8 by identity.
 - The x86-64 and Graviton tables ran on EC2 spot in 3c875c8. Nocturne's tier L cells followed in 559bb1e. Both machines pass 27 of 27.
+- Tier C ran on the Mac for the first time. Six of nine cells pass. worldcup_far, wikipedia and spreadsheet at 1080p fail the floor and the BD bar. `--ladder` now takes tier C.
+- The Graviton report said ours dispatches SVE2 on Graviton3. The V1 has no SVE2, so it runs SVE at 256 bits. Fixed.
 
 ## Not measured
-- Tier C on every machine: no matched point on lash1924 (720p, 1080p), worldcup, worldcup_far, skater227, boxing_2160p, wikipedia, debugging or spreadsheet. The spec counts tier C's matched-size quality on every clip, so tier C quality stays open. Its speed doesn't gate.
+- Tier C off the Mac. x86 and Graviton would read the same quality by the same argument as the gating set (reproduction and stream identity), but no tier C cell ran there.
+- Tier C G1 and G2 on any machine. Its speed doesn't gate.
 - SSE4.2 and AVX2-only wall time.
 - Graviton3 G1, G2, tiers M and L, and VBR.
 - Full BD ladders on x86 beyond the four reproduced curves, and on Graviton (identity stands in).
