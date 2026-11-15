@@ -1,7 +1,7 @@
 # yah265 parity report, x86-64, 2026-11-13
 
 Encoder: yah265 n265 504fdda (main; the Mac's binary is a9b880c8), built on each box from `git archive 504fdda` with clang 18, release, preset medium.  Reference: x265 4.3+1-e9b8812 built on each box from the 4.3 release tarball (clang 18, 8-bit, default assembly), preset medium.
-Machine: AWS EC2 spot, us-east-2. Intel Xeon Platinum 8488C (Sapphire Rapids) on m7i.8xlarge and c7i.8xlarge, Ubuntu 24.04, kernel 7.0. Measured 2026-11-12 23:30 to 2026-11-13 14:00 UTC, nocturne 2026-11-13 20:15 to 2026-11-14 04:00.
+Machine: AWS EC2 spot, us-east-2. Intel Xeon Platinum 8488C (Sapphire Rapids) on m7i.8xlarge and c7i.8xlarge, Ubuntu 24.04, kernel 7.0. Measured 2026-11-12 23:30 to 2026-11-13 14:00 UTC, nocturne 2026-11-13 20:15 to 2026-11-14 04:00. The SSE4.2 and AVX2 caps 2026-11-15 20:27 to 20:52, on main d771c4a.
 Pinning: both encoders run on 16 vCPUs, eight cores and their siblings (`taskset`), ours `--threads 16` and x265 `--pools 16`. That's what each picks on a 16-vCPU box. The feeder runs on the other 16 vCPUs. G1's one-thread arms run eight at a time, each on its own core with its sibling idle, and the box stays at eight busy cores until the last timed arm ends. Every other timed encode runs alone.
 SIMD: ours dispatches its AVX-512 tier (checkasm on the box: sse4.2, avx2 and avx512, 0 failures). x265 runs its default assembly, which on this CPU stops at AVX2. The G3 table also has an arm with x265 `--asm avx512`, so its best case is in the table too. G1 and G2 are ours with N265_ASM_OFF=all against x265 `--no-asm`.
 
@@ -24,6 +24,8 @@ G3 SIMD, all cores:   PASS in CIF-S, 720p-S, 720p-L, 1080p-S, 1080p-M, 1080p-L, 
 Quality:               PASS in every class and tier, by reproduction: 4 of 4 Mac curves land within 0.2 BD-VMAF v1 points on x86, so the Mac's quality table stands
 Full parity:           yes. 27 of 27 combinations pass (class, tier S/M/L and goal), over every gating cell. VBR wall: 26 of 26 cells, all under 1.00, and our rate inside +-10% on every one.
 x265 at --asm avx512:  G3 medians 0.41-0.77, worst cell 0.84 (bus_cif): no class moves by more than 0.03 against x265's default assembly.
+SSE4.2 tier (G3, S):   PASS in CIF, 720p, 1080p and 2160p. Medians 0.43-0.69, worst cell 0.77 (pedestrian_1080p), against x265 --asm sse4.2 (added 2026-11-15)
+AVX2 tier (G3, S):     PASS in CIF, 720p, 1080p and 2160p. Medians 0.45-0.85, worst cell 0.92 (pedestrian_1080p), against x265 --asm avx2 (added 2026-11-15)
 
 ## Speed (median / worst ratio, per class and tier)
 | class | tier | G1 | G2 | G3 | G3 vs x265 --asm avx512 | VBR wall (G3) | cells |
@@ -39,6 +41,37 @@ x265 at --asm avx512:  G3 medians 0.41-0.77, worst cell 0.84 (bus_cif): no class
 | 2160p | L | 0.43 / 0.45 | 0.31 / 0.33 | 0.59 / 0.62 | 0.60 / 0.63 | 0.66 / 0.73 | 6/6 6/6 6/6 |
 
 Cells counted (G1 G2 G3) are valid timed cells of the class and tier's gating set.
+
+## G3 with both encoders held to SSE4.2 and to AVX2 (tier S, 2026-11-15)
+The table above times our AVX-512 build. An x86 CPU with AVX2 and no AVX-512, or with SSE4.2 alone, runs a lower tier of both encoders, so this round caps both at the same tier on the same Xeon. Ours ran under `N265_CPU_MAX=sse42` and `N265_CPU_MAX=avx2`. x265 ran at `--asm sse4.2`, which reports MMX2 SSE2Fast SSSE3 SSE4.2, and at `--asm avx2`, which reports MMX2 SSE2Fast LZCNT SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2. That second set is x265's default on this CPU. A fifth arm ran ours uncapped (AVX-512) against x265 at `--asm avx2` as a control against the table above.
+
+| class | ours SSE4.2 vs x265 sse4.2 | ours AVX2 vs x265 avx2 | control: ours AVX-512 vs x265 avx2 | 2026-11-13 G3 | cells |
+|---|---|---|---|---|---|
+| CIF | 0.64 / 0.75 | 0.74 / 0.88 | 0.70 / 0.83 | 0.70 / 0.82 | 3 |
+| 720p | 0.50 / 0.65 | 0.63 / 0.80 | 0.60 / 0.75 | 0.60 / 0.75 | 4 |
+| 1080p | 0.69 / 0.77 | 0.85 / 0.92 | 0.74 / 0.80 | 0.74 / 0.80 | 3 |
+| 2160p | 0.43 / 0.45 | 0.45 / 0.50 | 0.44 / 0.48 | 0.41 / 0.43 | 2 |
+
+Both capped tiers pass in every class. AVX2 against AVX2 is the tightest pairing, because x265 gains more from AVX2 than we do. Its worst cell is pedestrian_1080p at 0.92, which leaves 0.23 to the bar. At SSE4.2 x265 loses more than we do, so every cell reads at or below its AVX2 ratio. The control comes within 0.03 of the 2026-11-13 table in every class.
+
+Method: one m7i.8xlarge (Xeon 8488C) ran every arm. Both encoders were held to 16 vCPUs as above. Each cell ran three rounds, and the five arms rotated their order every round. The binary is main d771c4a built on the box with clang 18 in release. Its checkasm passed there at sse4.2, avx2 and avx512. The points are the table's. Ours writes one stream per cell at all three tiers, one md5 over its nine encodes. So the size match is the table's. x265 writes the same byte count at both of its tiers, though its md5s differ between them. This round had no media hub. The Mac sent the CIF clips. The box fetched the 720p and 1080p clips from media.xiph.org and the bbb and Meridian masters from their public sources. Each file matched the Mac's copy by md5. The 2160p cells were decoded and staged on the box. Their frames matched the Mac's by plane md5. bbb_2160p kept two rounds on three of its five arms. The box locked out logins as it began to halt after its run, before the last three records were copied off. The records are in docs/data/cloud-tables-2026-11-15/.
+
+| cell | ours sse4.2 s | x265 sse4.2 s | ratio | ours avx2 s | x265 avx2 s | ratio | ours avx512 s | ratio vs x265 avx2 | dsize | feed fps | rounds |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| foreman_cif | 0.77 | 1.37 | 0.57 | 0.72 | 1.08 | 0.67 | 0.67 | 0.62 | +0.13% | 27881.6 | 3 |
+| bus_cif | 0.69 | 0.92 | 0.75 | 0.65 | 0.74 | 0.88 | 0.61 | 0.83 | -0.51% | 19644.4 | 3 |
+| stefan_cif | 0.34 | 0.54 | 0.64 | 0.32 | 0.44 | 0.74 | 0.30 | 0.70 | +0.06% | 16338.7 | 3 |
+| ducks_720p | 7.63 | 15.44 | 0.49 | 7.43 | 12.00 | 0.62 | 6.87 | 0.57 | -0.04% | 3854.2 | 3 |
+| park_joy_720p | 7.16 | 10.98 | 0.65 | 6.91 | 8.61 | 0.80 | 6.48 | 0.75 | -0.32% | 4142.2 | 3 |
+| fourpeople_720p | 2.03 | 4.59 | 0.44 | 1.90 | 3.68 | 0.52 | 1.82 | 0.49 | -0.34% | 4135.3 | 3 |
+| shields_720p | 2.83 | 5.52 | 0.51 | 2.68 | 4.12 | 0.65 | 2.55 | 0.62 | -0.38% | 4192.5 | 3 |
+| sunflower_1080p | 5.73 | 10.21 | 0.56 | 5.21 | 7.84 | 0.66 | 4.82 | 0.62 | -0.32% | 1865.8 | 3 |
+| pedestrian_1080p | 8.23 | 10.65 | 0.77 | 7.64 | 8.27 | 0.92 | 6.62 | 0.80 | -0.31% | 1853.0 | 3 |
+| riverbed_1080p | 13.14 | 19.00 | 0.69 | 12.35 | 14.47 | 0.85 | 10.71 | 0.74 | +0.49% | 1726.6 | 3 |
+| meridian_2160p | 14.02 | 34.08 | 0.41 | 12.78 | 31.23 | 0.41 | 12.22 | 0.39 | +0.09% | 482.0 | 3 |
+| bbb_2160p | 7.74 | 17.24 | 0.45 | 7.31 | 14.69 | 0.50 | 7.12 | 0.48 | -0.58% | 477.3 | 2-3 |
+
+foreman_cif and stefan_cif ran at the crf re-solved on x86 (26.06 and 27.03), as in the table above. A capped tier on a big Xeon isn't an AVX2-only part. The cores, caches and clocks are Sapphire Rapids's, so a Zen 2 or Haswell box will read its own numbers. What this round settles is the ratio when both encoders run the same instruction set. G1 and G2 weren't rerun, because both are pure C and the table above already times them.
 
 ## Quality: four Mac ladders re-measured on x86
 Both encoders re-encoded at the Mac's rungs, 6 threads each (x265 `--pools 6 --frame-threads 4`), scored with VMAF v1 at libvmaf 0f9912e (the Mac's build) on its gate model, every frame on tier M and every 3rd on tier L. BD is against x265 on the same box. The rungs ran on c7i.4xlarge (Sapphire Rapids) and, after three spot reclaims, on c6i.4xlarge (Ice Lake). Our x86 streams don't depend on which x86-64 CPU writes them, since every kernel tier is bit-exact with C.
