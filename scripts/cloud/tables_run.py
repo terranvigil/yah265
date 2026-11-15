@@ -122,8 +122,7 @@ def load_done(plan):
     if "cells" in plan and "curves" not in plan:
         for c in plan["cells"]:
             for goal in c["goals"]:
-                arms = ["ours", "ref"] + (["ref512"] if X86 and goal == "G3"
-                                          else [])
+                arms = g_arms(plan, goal)
                 want = {(c["name"], goal, rnd, a, wi)
                         for rnd in range(1, ROUNDS[(c["tier"], goal)] + 1)
                         for a in arms
@@ -221,6 +220,8 @@ def spans(c, goal):
 def arm_cmd(c, goal, arm, out, threads_one=False):
     env = dict(os.environ)
     env.pop("N265_ASM_OFF", None)
+    env.pop("N265_CPU_MAX", None)
+    arm, _, tier = arm.partition("@")
     purec = goal in ("G1", "G2")
     if goal == "VBR":
         k = c["vbr_k"]
@@ -237,6 +238,8 @@ def arm_cmd(c, goal, arm, out, threads_one=False):
                                     "-o", out]
         if purec:
             env["N265_ASM_OFF"] = "all"
+        if tier:
+            env["N265_CPU_MAX"] = tier
     else:
         cmd = [X265, "--input", "-", "--y4m", "--preset", "medium"] + rate
         cmd += (["--pools", "none", "--frame-threads", "1"] if goal == "G1"
@@ -245,8 +248,14 @@ def arm_cmd(c, goal, arm, out, threads_one=False):
             cmd += ["--no-asm"]
         if arm == "ref512":
             cmd += ["--asm", "avx512"]
+        if tier:
+            cmd += ["--asm", X265_TIER.get(tier, tier)]
         cmd += ["--log-level", "error", "-o", out]
     return cmd, env
+
+
+# our tier names as x265's --asm spells them
+X265_TIER = {"sse42": "sse4.2"}
 
 
 def md5_of(path):
@@ -520,11 +529,19 @@ def g1(plan, cells):
     push(plan)
 
 
+def g_arms(plan, goal):
+    """The arms of a goal. A plan's g3_arms replaces G3's: NAME@TIER caps
+    ours at N265_CPU_MAX=TIER and runs x265 at --asm TIER."""
+    if goal == "G3" and plan.get("g3_arms"):
+        return list(plan["g3_arms"])
+    return ["ours", "ref"] + (["ref512"] if X86 and goal == "G3" else [])
+
+
 def default_legs(plan, c, goal):
     if goal not in c["goals"]:
         return
     sp = spans(c, goal)
-    arms = ["ours", "ref"] + (["ref512"] if X86 and goal == "G3" else [])
+    arms = g_arms(plan, goal)
     rounds = ROUNDS[(c["tier"], goal)]
     staged = goal == "G2" and c.get("windows")
     src0 = (window_file(c, 0) if staged else

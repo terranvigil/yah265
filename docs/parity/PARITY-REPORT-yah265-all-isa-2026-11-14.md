@@ -8,7 +8,7 @@
 - x86-64: Intel Xeon Platinum 8488C (Sapphire Rapids) on EC2 m7i and c7i spot, AVX-512 over AVX2.
 - Graviton4: Neoverse V2 on EC2 c8g and r8g spot, NEON and SVE2 at 128 bits.
 - Graviton3: Neoverse V1 on c7g.4xlarge, SVE at 256 bits. A second line, tier S G3 only.
-- Measured: Mac timed legs 2026-09-26 20:02 to 2026-11-12 14:07. Tier C on the Mac 2026-11-13 23:24 to 2026-11-14 03:17 EST, on a9b880c8. Items 61 and 62 re-measured four tier C clips on 2026-11-14, on their own binaries. Cloud 2026-11-12 23:10 to 2026-11-14 04:00 UTC.
+- Measured: Mac timed legs 2026-09-26 20:02 to 2026-11-12 14:07. Tier C on the Mac 2026-11-13 23:24 to 2026-11-14 03:17 EST, on a9b880c8. Items 61 and 62 re-measured four tier C clips on 2026-11-14, on their own binaries. Cloud 2026-11-12 23:10 to 2026-11-14 04:00 UTC. The capped SSE4.2 and AVX2 run on the x86 box 2026-11-15 20:27 to 20:52 UTC, on main d771c4a.
 - Sources: the three reports PARITY-REPORT-yah265-2026-11-12, PARITY-REPORT-yah265-x86-2026-11-13 and PARITY-REPORT-yah265-graviton-2026-11-13 with their CSVs. The cloud records are in docs/data/cloud-tables-2026-11-13/.
 
 The new measurements on this page are tier C, on the Mac, and the four clips items 61 and 62 moved. Their points, ladders and timed rows are in docs/data/parity-spec-points.json, parity-spec-ladders.json and parity-spec.csv.
@@ -16,7 +16,7 @@ The new measurements on this page are tier C, on the Mac, and the four clips ite
 How to read: a speed ratio is our time over the reference's time at the same file size. Below 1.00 we're faster. Pass means median <= 1.00 and worst <= 1.15, with quality no worse than -0.5 VMAF v1. "-" means not measured. Each cell shows median / worst over the class and tier's valid cells. Lookahead is each medium's own on every machine. Ours is 20 at 720p and up and 12 at CIF, and x265's is 20. The Mac runs at auto threads on all 18 cores. On each cloud box both encoders are held to 16 vCPUs by `taskset`. The feeder runs on the other cores.
 
 ## Verdict
-Is yah265 at full parity on every architecture? Yes on every instruction set that was timed, and two gaps in coverage remain. Every gating combination of tiers S, M and L passes on all three machines that were timed. Tier C's quality also counts, and it now passes on all nine clips. SSE4.2 was never timed on real hardware. An AVX2-only x86 CPU wasn't timed as its own column either. Because both tiers are bit-exact with C, they write the streams the x86 table measured. Their quality holds for that reason, but their speed is unmeasured.
+Is yah265 at full parity on every architecture? Yes on every instruction set that was timed. Every gating combination of tiers S, M and L passes on all three machines that were timed. Tier C's quality also counts, and it now passes on all nine clips. SSE4.2 and AVX2 were timed on 2026-11-15 as tiers of their own, on tier S G3, with both encoders capped at the same tier on the x86 box. Both pass in every class. The worst cell is pedestrian_1080p at 0.92 under AVX2. Because both tiers are bit-exact with C, they write the streams the x86 table measured, and their quality holds for that reason.
 
 Tier C first ran on a9b880c8 and failed on three 1080p cells: worldcup_far and the two screen clips wikipedia and spreadsheet. Two items fixed them. Item 61 finds screen content and follows its scrolls. Item 62 finds a handheld camera's jitter and keeps long B runs through it. Wikipedia's CRF curve went from +57.69% to -63.91% BD-v1. Spreadsheet's went from +58.71% to -53.94% and worldcup_far's from +18.83% to -2.22%. Neither item fires on any gating cell, so tiers S, M and L code the same bytes as before.
 
@@ -26,15 +26,16 @@ The binary changed after the cloud tables ran. Main is now d771c4a and its relea
 G1 pure C, 1 thread:   PASS in all 9 class-tiers on Mac, x86-64 and Graviton4 (CIF-S, 720p-S/L, 1080p-S/M/L, 2160p-S/M/L)
 G2 pure C, all cores:  PASS in all 9 on Mac, x86-64 and Graviton4
 G3 SIMD, all cores:    PASS in all 9 on Mac (NEON), x86-64 (AVX-512 over AVX2) and Graviton4 (SVE2 over NEON)
+G3 at a capped tier:   PASS in CIF-S, 720p-S, 1080p-S and 2160p-S on x86-64 at SSE4.2 (worst 0.77) and at AVX2 (worst 0.92), both encoders capped alike
 VBR wall (G3):         PASS, 26 of 26 cells on each machine, every one under 1.00
 Quality:               PASS in every class of tiers S, M and L: Mac ladders 52 of 52 inside the BD bar, x86 by reproduction, Graviton4 by stream identity
 Tier C quality:        PASS in 720p-C, 1080p-C and 2160p-C, 9 of 9 clips; 15 of 15 BD curves inside the bar, and the 3 screen VBR curves sit wholly above x265's
 VBR tracking:          PASS, every measured tier M and L rung of ours inside +-10% on every machine
 Full parity:           yes on NEON, AVX-512 and SVE2: 81 of 81 gating combinations (27 per machine), 78 of 78 VBR walls, tier C quality 9 of 9
-Not measured:          SSE4.2 speed, AVX2-only speed, Graviton3 beyond tier S G3, tier C off the Mac, tier C G1 and G2
+Not measured:          SSE4.2 and AVX2 beyond tier S G3, a CPU that stops at AVX2 or SSE4.2 in silicon, Graviton3 beyond tier S G3, tier C off the Mac, tier C G1 and G2
 ```
 
-The tightest timed cell anywhere is the Mac's meridian_1080p tier L VBR wall at 0.85. On x86 the tightest G3 cell is bus_cif at 0.82, or 0.84 against x265 at `--asm avx512`. Every median and every worst sits at least 0.15 inside its bar. I'd sign off full parity on NEON, AVX-512 and SVE2 from this table, tier C included. SSE4.2 and AVX2-only I'd call correct and untimed, with no speed figure claimed for either.
+The tightest timed cell anywhere is the Mac's meridian_1080p tier L VBR wall at 0.85. On x86 the tightest G3 cell is bus_cif at 0.82, or 0.84 against x265 at `--asm avx512`. Every median and every worst sits at least 0.15 inside its bar. I'd sign off full parity on NEON, AVX-512 and SVE2 from this table, tier C included. SSE4.2 and AVX2 I'd sign off on tier S. G1 and G2 are pure C and already timed, so G3 is the only goal a tier can move. Tiers M and L weren't run capped. On tier S the AVX2 cap costs at most 0.12 against the AVX-512 ratio, and x86's worst tier M or L G3 cell is 0.80. So I'd expect them to pass, but that's an estimate.
 
 ## G1 speed at one thread in pure C
 | class | tier | Mac | x86-64 | Graviton4 | cells (Mac / x86 / G4) |
@@ -81,6 +82,14 @@ On x86 ours dispatches AVX-512 for the satd and transform families and AVX2 for 
 | 1080p | C | 0.53 / 0.54 | - | - | - | - | 7 / - / - (not gating; 4 timed on a9b880c8 before items 61 and 62) |
 | 2160p | C | 0.28 / 0.28 | - | - | - | - | 1 / - / - (not gating) |
 
+On 2026-11-15 the x86 box ran tier S G3 again with both encoders held to one tier: ours under `N265_CPU_MAX`, x265 under `--asm sse4.2` or `--asm avx2`. The AVX-512 column is the same run's control, ours uncapped against x265 at `--asm avx2`, which is x265's default on this CPU. PARITY-REPORT-yah265-x86-2026-11-13 has every cell and the method.
+| class | tier | x86-64 SSE4.2 vs x265 sse4.2 | x86-64 AVX2 vs x265 avx2 | control: AVX-512 vs x265 avx2 | cells |
+|---|---|---|---|---|---|
+| CIF | S | 0.64 / 0.75 | 0.74 / 0.88 | 0.70 / 0.83 | 3 |
+| 720p | S | 0.50 / 0.65 | 0.63 / 0.80 | 0.60 / 0.75 | 4 |
+| 1080p | S | 0.69 / 0.77 | 0.85 / 0.92 | 0.74 / 0.80 | 3 |
+| 2160p | S | 0.43 / 0.45 | 0.45 / 0.50 | 0.44 / 0.48 | 2 |
+
 ## VBR wall at G3 on one rung per real-title cell
 The rung is x265's CRF 28 rate on the Mac, with maxrate 1.5x and a buffer of 2x. Two interleaved rounds, no size match.
 | class | tier | Mac | x86-64 | Graviton4 | cells |
@@ -98,17 +107,18 @@ The rung is x265's CRF 28 rate on the Mac, with maxrate 1.5x and a buffer of 2x.
 | SVE2, 128-bit (arm64) | Graviton4 | yes: every G3 cell in the bar | checkasm on the box, 0 failures; streams identical to the Mac's |
 | SVE, 256-bit (arm64) | Graviton3 | tier S G3 only | 12 of 12 G3 streams identical to the Mac's |
 | AVX-512 (x86-64) | Xeon 8488C | yes: every G3 cell in the bar | checkasm on the box at sse4.2, avx2 and avx512, 0 failures |
-| AVX2 (x86-64) | Xeon 8488C, under AVX-512 | as the base of every x86 G3 cell, not alone | checkasm; escape cmp at `N265_CPU_MAX=avx2` SAME on 42 cells at 8 bits and 42 at 10 |
-| SSE4.2 (x86-64) | Xeon checkasm, Rosetta, QEMU Nehalem | no | below |
+| AVX2 (x86-64) | Xeon 8488C, under AVX-512 and capped alone | yes: tier S G3 capped at AVX2 against x265 `--asm avx2`, worst 0.92 | checkasm; escape cmp at `N265_CPU_MAX=avx2` SAME on 42 cells at 8 bits and 42 at 10; the capped G3 streams equal the uncapped ones by md5 |
+| SSE4.2 (x86-64) | Xeon 8488C capped, Rosetta, QEMU Nehalem | yes: tier S G3 capped at SSE4.2 against x265 `--asm sse4.2`, worst 0.77 | below |
 
-SSE4.2 isn't timed anywhere on real hardware. I mark its speed unmeasured. Its correctness rests on four checks:
+SSE4.2 was timed only as a cap on the Xeon. Its correctness rests on four checks and the timed run:
 
 - checkasm passes at the sse4.2 tier on the Xeon, under Rosetta with and without ASan and UBSan, and under QEMU's Nehalem model.
 - The escape cmp at `N265_CPU_MAX=sse42` is SAME against C on all 28 Rosetta cells. On the Xeon it is SAME on 42 cells at 8 bits and 42 at 10.
 - Fast conformance passes at the tier with no failure.
 - A deliberate break in each family was caught.
+- In the capped G3 run, all 12 tier S cells wrote the same md5 at SSE4.2, AVX2 and AVX-512.
 
-Its only speed figures are Rosetta's instruction counts, which say nothing about x86 wall time. An AVX2-only CPU is in a similar spot. The nearest reading caps one thread at AVX2 on the same Xeon. Against that cap the AVX-512 build is 1.068x faster over 19 cells. The 2026-11-11 probe timed both encoders on AVX2, but on an older binary. I'd expect an AVX2-only part to pass G3 with room, since x86's worst G3 cell is 0.82. That's an estimate.
+Both tiers were timed on a capped Xeon, with no CPU that stops at AVX2 or SSE4.2 in silicon. A Haswell or Zen 2 box has other cores, caches and clocks, so its walls would differ. The ratio with both encoders on one instruction set is what the run settles. AVX2 is the tightest pairing because x265 gains more from AVX2 than we do. Its worst cell, pedestrian_1080p, reads 0.92. Before this run the nearest reading capped one thread at AVX2 on the same Xeon, where the AVX-512 build was 1.068x faster over 19 cells. The 2026-11-11 probe timed both encoders on AVX2 too, on an older binary.
 
 ## Quality on each machine
 Quality is VMAF v1 scored at display size, on vmaf_v1.0.16 3d0h up to 1080p and 1d5h_2160 above. Matched size within 1% on every cell. BD is the Mac's five-rung ladder, CRF and VBR, against x265 on the same box. Tier S has no ladder under the spec.
@@ -210,6 +220,7 @@ The bar is absolute and applies to ours. x265 misses it on chimera at both sizes
 
 **Spend**
 - The two cloud-table rounds cost about $54.23 in estimates. The whole EC2 ledger sums to about $57.50 of the owner's $100 cap: instance estimates plus the hubs' volumes. That figure is my sum of its rows, because the ledger has no grand-total line. The billing page hasn't been checked against it.
+- The capped SSE4.2 and AVX2 run on 2026-11-15 took one m7i.8xlarge spot box for 0.67 h, about $0.37. That brings the ledger to about $57.87.
 
 ## Last 24 hours on main
 - The scalar speed work merged. It covers the lowres plane, the cu-tree and AQ sums, the weighted-prediction sweeps, the 4x4 map writes and the prediction cache. Picture planes now use huge pages under Linux. No bit moved.
@@ -226,6 +237,6 @@ The bar is absolute and applies to ours. x265 misses it on chimera at both sizes
 ## Not measured
 - Tier C off the Mac. x86 and Graviton would read the same quality by the same argument as the gating set (reproduction and stream identity), but no tier C cell ran there.
 - Tier C G1 and G2 on any machine, and G3 for the four clips items 61 and 62 moved on the binary that moved them. Tier C speed doesn't gate.
-- SSE4.2 and AVX2-only wall time.
+- SSE4.2 and AVX2 on tiers M and L, and on a CPU that stops at either tier in silicon. Tier S G3 at both caps is in the G3 section.
 - Graviton3 G1, G2, tiers M and L, and VBR.
 - Full BD ladders on x86 beyond the four reproduced curves, and on Graviton (identity stands in).
