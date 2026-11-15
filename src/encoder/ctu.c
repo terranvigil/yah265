@@ -5042,8 +5042,8 @@ static mv_t mvr_lowres(struct n265_frame_work *e, int x0, int y0, int *ok)
     if (bx >= e->la_bw || by >= e->la_bh)
         return z;
     int b = by * e->la_bw + bx;
-    mv_t u = { (int16_t)(e->la_mv[2 * b] << 3),
-               (int16_t)(e->la_mv[2 * b + 1] << 3) };
+    mv_t u = { (int16_t)(e->la_mv[2 * b] * 8),
+               (int16_t)(e->la_mv[2 * b + 1] * 8) };
     *ok = 1;
     return u;
 }
@@ -5061,8 +5061,8 @@ static int mvr_lowres_frozen(struct n265_frame_work *e, int x0, int y0,
     if (bx >= e->la_bw || by >= e->la_bh)
         return 0;
     int b = by * e->la_bw + bx;
-    out->x = (int16_t)(e->la_mv_frozen[2 * b] << 3);
-    out->y = (int16_t)(e->la_mv_frozen[2 * b + 1] << 3);
+    out->x = (int16_t)(e->la_mv_frozen[2 * b] * 8);
+    out->y = (int16_t)(e->la_mv_frozen[2 * b + 1] * 8);
     return 1;
 }
 
