@@ -67,13 +67,19 @@ TITLE = {"chimera": "Chimera", "sollevante": "Sol Levante",
          "worldcup_far": "World Cup, far camera", "worldcup": "World Cup",
          "skater227": "Skater", "ducks": "Ducks take off",
          "crowd_run": "Crowd run", "park_joy": "Park joy"}
-POOLS = [("crf", "CRF"), ("vbr", "capped VBR"), ("content", "content types")]
+GOAL_ORDER = ["G3", "G1", "G2"]
+GOAL_LONG = {"G3": "G3: as shipped, SIMD on all cores",
+             "G1": "G1: algorithm only, plain C on one thread",
+             "G2": "G2: algorithm only, plain C on all cores"}
 BD_BAR = 1.0
 
-# the ladders the curves chart draws: (tier/class/title) as the ladder file
-# keys them. The binaries are main's release build and brew's x265; the
-# script checks each curve's BD against the report before it draws it.
-CURVES = ["L/1080p/tears", "M/1080p/meridian", "M/2160p/chimera"]
+# Titles held out of every figure, chart and table on the site. Every
+# generator reads its rows through report_rows() or asks shown(), so this
+# list is the only place a title goes in or comes out.
+EXCLUDED = ("meridian", "chimera")
+
+# the binaries whose ladders count: main's release build and brew's x265.
+# The script checks each curve's BD against the report before it draws it.
 OURS_BIN = "3ee7824ee8159f24"
 REF_BIN = "2ffa132bb74bb3a5"
 
@@ -100,20 +106,36 @@ def fnum(s):
         return None
 
 
-def speed_groups(rows):
+def base_title(title):
+    return re.sub(r"_(cif|\d+p)$", "", title)
+
+
+def shown(title):
+    """False for a title on the exclusion list, at any picture size."""
+    return base_title(title) not in EXCLUDED
+
+
+def report_rows(path, everything=False):
+    """A parity CSV's rows without the excluded titles. everything=True
+    keeps them, for checking this script's medians against a report's."""
+    return [r for r in csv.DictReader(open(path)) if everything or shown(r["title"])]
+
+
+def speed_groups(rows, goals=GOALS, ref="ref_wall_s"):
     """(class, tier, goal) -> (median, worst, worst title) over valid rows,
-    the same rule the reports use."""
+    the same rule the reports use. ref names the x265 wall column, for the
+    cloud rows that timed a second x265 arm."""
     acc = {}
     for r in rows:
-        v = fnum(r["ratio"])
+        v = fnum(r["ratio" if ref == "ref_wall_s" else "ratio_ref512"])
         if r["valid"] != "yes" or v is None or "FAIL:" in r["note"] or r["tier"] not in TIERS \
-                or r["goal"] not in GOALS:
+                or r["goal"] not in goals:
             continue
         # the cloud reports take the median before rounding and the Mac's
         # takes it over the two-place column, so each is rebuilt its own way
         u = v
         if r.get("arch"):
-            u = fnum(r["ours_wall_s"]) / fnum(r["ref_wall_s"])
+            u = fnum(r["ours_wall_s"]) / fnum(r[ref])
         acc.setdefault((r["class"], r["tier"], r["goal"]), []).append((v, r["title"], u))
     return {k: (st.median(u for *_, u in vs), max(vs)[0], max(vs)[1])
             for k, vs in acc.items()}
@@ -153,7 +175,7 @@ def vbr_walls(md_path):
             on = line.startswith("## VBR wall")
         elif on and line.startswith("| ") and not line.startswith("| cell"):
             c = [x.strip() for x in line.strip().strip("|").split("|")]
-            if fnum(c[3]) is not None:
+            if fnum(c[3]) is not None and shown(c[0].rsplit("_", 1)[0]):
                 out.append((c[0], c[1], float(c[3])))
     if not out:
         sys.exit(f"{md_path}: no VBR wall table found")
@@ -179,26 +201,113 @@ def clip_name(title, cls, tier=None):
     return f"{name} {RES.get(cls, cls)}{dur}"
 
 
-def pooled(mac_rows, mac_md):
-    """The site's headline, pooled over every cell timed on the Mac at G3
-    (SIMD, all cores, both encoders at medium). Three pools: the valid CRF
-    rows of the Mac report, where yah265 is solved onto x265's file size;
-    the report's capped VBR walls, where both run at one target rate; and
-    the content-type clips. Returns the pools as [(ratio, name)], the pooled
-    median ratio, and the VMAF v1 lead at matched size over the CRF and
-    content-type cells (the VBR walls carry no score)."""
-    crf = [r for r in mac_rows if r["goal"] == "G3" and r["valid"] == "yes"
-           and fnum(r["ratio"]) is not None and "FAIL:" not in r["note"]
-           and r["tier"] in TIERS]
-    cont = content_rows()
-    pools = {
-        "crf": [(float(r["ratio"]), clip_name(r["title"], r["class"], r["tier"])) for r in crf],
-        "vbr": [(v, clip_name(c.rsplit("_", 1)[0], c.rsplit("_", 1)[1], t))
-                for c, t, v in vbr_walls(mac_md)],
-        "content": [(float(r["ratio"]), clip_name(r["title"], r["class"])) for r in cont],
-    }
-    allr = [v for vs in pools.values() for v, _ in vs]
-    dv = [float(r["dvmafneg"]) for r in crf + cont if fnum(r["dvmafneg"]) is not None]
+def vbr_groups(mac_md, cloud):
+    """(class, tier) -> {machine: (median, worst)} and the cell count, for
+    the capped VBR walls: the Mac's from its report's table, the cloud
+    machines' from their CSV rows."""
+    acc = {}
+    for cell, tier, v in vbr_walls(mac_md):
+        acc.setdefault((cell.rsplit("_", 1)[1], tier), []).append(v)
+    out = {k: {"mac": (st.median(v), max(v))} for k, v in acc.items()}
+    n = {k: len(v) for k, v in acc.items()}
+    for m, rows in cloud.items():
+        for (c, t, _), v in speed_groups(rows, ("VBR",)).items():
+            out.setdefault((c, t), {})[m] = v[:2]
+    return out, n
+
+
+def record_walls(path):
+    """(cell, arm) -> the G3 wall of every round, from a cloud run's records."""
+    walls = {}
+    for line in open(path):
+        r = json.loads(line)
+        if r.get("goal") == "G3" and "wall_s" in r and r.get("rc") == 0:
+            walls.setdefault((r["cell"], r["arm"]), []).append((r["wall_s"], r.get("bytes")))
+    return walls
+
+
+def record_title(cell):
+    """'S_2160p_bbb_2160p' -> ('2160p', 'bbb_2160p')."""
+    _, cls, title = cell.split("_", 2)
+    return cls, title
+
+
+def graviton3(path, size_bar=0.01):
+    """class -> (median, slowest, clips) at G3 on the short clips, from the
+    Graviton3 run's records: per clip, the median wall over its rounds. A
+    clip whose two files differ by more than the size bar is left out, as
+    in the Graviton report."""
+    walls = record_walls(path)
+    acc = {}
+    for cell in sorted({c for c, _ in walls}):
+        cls, title = record_title(cell)
+        ours, ref = walls[(cell, "ours")], walls[(cell, "ref")]
+        if not shown(title) or abs(ours[0][1] / ref[0][1] - 1) > size_bar:
+            continue
+        acc.setdefault(cls, []).append(
+            round(st.median(w for w, _ in ours) / st.median(w for w, _ in ref), 2))
+    return {c: (st.median(v), max(v), len(v)) for c, v in acc.items()}
+
+
+CAPPED_PAIRS = [("sse42", "ours@sse42", "ref@sse42", "both at SSE4.2"),
+                ("avx2", "ours@avx2", "ref@avx2", "both at AVX2"),
+                ("avx512", "ours", "ref@avx2", "yah265 at AVX-512, x265 at AVX2")]
+
+
+def capped_records():
+    rs = sorted(glob.glob(os.path.join(ROOT, "docs/data/cloud-tables-*/records/x86T.jsonl")))
+    if not rs:
+        sys.exit("no capped-tier records (docs/data/cloud-tables-*/records/x86T.jsonl)")
+    return rs[-1]
+
+
+def capped_run(path, report_md):
+    """class -> {pair: (median ratio, slowest ratio, cells)} from the capped
+    run's records: per cell and arm the median wall over its rounds. The
+    read is first checked, every title in, against the table the x86 report
+    prints."""
+    walls = record_walls(path)
+    out = {}
+    for everything in (True, False):
+        acc = {}
+        for cell in sorted({c for c, _ in walls}):
+            cls, title = record_title(cell)
+            if not everything and not shown(title):
+                continue
+            for key, a, b, _ in CAPPED_PAIRS:
+                ratio = round(st.median(w for w, _ in walls[(cell, a)])
+                              / st.median(w for w, _ in walls[(cell, b)]), 2)
+                acc.setdefault(cls, {}).setdefault(key, []).append(ratio)
+        out = {c: {k: (st.median(v), max(v), len(v)) for k, v in d.items()}
+               for c, d in acc.items()}
+        if everything:
+            for c, d in capped_printed(report_md).items():
+                for k in ("sse42", "avx2"):
+                    for mine, theirs in zip(out[c][k][:2], d[k]):
+                        if abs(mine - theirs) > 0.011:
+                            sys.exit(f"capped run, {c} {k}: {mine:.2f} from the records, "
+                                     f"{theirs:.2f} in {os.path.basename(report_md)}")
+    return out
+
+
+def headline_cells(mac_rows):
+    """The site's headline, and the only place it is computed. It covers the
+    size-matched cells timed on the Mac as shipped: the valid G3 rows of
+    tiers S, M and L, where yah265's CRF is solved onto x265's file size
+    within 1% and both encoders run at medium with SIMD on all cores. The
+    capped VBR walls share a target rate and no size, and the content-type
+    clips sit outside the speed verdict, so neither is in it. Speed and the
+    VMAF v1 lead are medians over the same cells. Returns the cells per
+    class as [(ratio, name)] with the two medians."""
+    cells = [r for r in mac_rows if r["goal"] == "G3" and r["valid"] == "yes"
+             and fnum(r["ratio"]) is not None and "FAIL:" not in r["note"]
+             and r["tier"] in TIERS and shown(r["title"])]
+    if any(fnum(r["dvmafneg"]) is None or abs(float(r["dsize_pct"])) > 1.0 for r in cells):
+        sys.exit("a headline cell has no VMAF v1 score or isn't size-matched within 1%")
+    pools = {c: [(float(r["ratio"]), clip_name(r["title"], r["class"], r["tier"]))
+                 for r in cells if r["class"] == c] for c in CLASSES}
+    allr = [float(r["ratio"]) for r in cells]
+    dv = [float(r["dvmafneg"]) for r in cells]
     return {"pools": pools, "n": len(allr), "median": st.median(allr),
             "faster": sum(1 for v in allr if v < 1), "dv": st.median(dv), "dv_n": len(dv),
             "dv_ahead": sum(1 for v in dv if v > 0)}
@@ -220,7 +329,8 @@ def ladders(md_path):
         m = BD_LINE.match(line)
         if m:
             title, size = m[1].rsplit("_", 1)
-            out.append((title, size, m[2], float(m[3]), float(m[4])))
+            if shown(title):
+                out.append((title, size, m[2], float(m[3]), float(m[4])))
     return out
 
 
@@ -230,14 +340,15 @@ def credits(md_path):
     for line in open(md_path):
         if line.startswith("## "):
             on = line.startswith("## End credits")
-        elif on and line.startswith("| ") and not line.startswith("| title"):
+        elif on and line.startswith("| ") and not line.startswith("| title") \
+                and shown(line.split("|")[1].strip()):
             rows.append(line.rstrip().rstrip("|").split("|")[-1].strip())
     read = [r for r in rows if r]
     return (sum(1 for r in read if r.startswith("**behind")), len(read),
             len(rows) - len(read))
 
 
-def capped(md_path):
+def capped_printed(md_path):
     """class -> {'sse42': (median, worst), 'avx2': (median, worst)} from the
     x86 report's table of both encoders held to one instruction set."""
     out, on = {}, False
@@ -284,13 +395,21 @@ def bd_rate(ref, ours):
     return (math.exp(d) - 1) * 100
 
 
+def curve_picks(lad):
+    """The three ladders the post draws, by rule: the largest CRF saving,
+    the median one and the smallest, as the ladder file keys them."""
+    by = sorted(lad, key=lambda r: r[3])
+    return [f"{tier}/{size}/{title}" for title, size, tier, *_ in
+            (by[0], by[len(by) // 2], by[-1])]
+
+
 def curves(lad):
     """cell -> (ours [(kbps, v1)], x265 [(kbps, v1)], model) at CRF, with
     the BD checked against the report's figure for that cell."""
     data = json.load(open(LADDERS))
     want = {(f"{t}_{s}", tier): crf for t, s, tier, crf, _ in lad}
     out = {}
-    for cell in CURVES:
+    for cell in curve_picks(lad):
         pts = {"ours": [], "ref": []}
         model = None
         for k, r in data.items():
@@ -363,6 +482,100 @@ text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-
 </style>"""
 
 
+# Every chart is drawn twice: on a 900-unit canvas, and on a 480-unit one
+# for phones (name-narrow.svg), where panels stack and the title wraps.
+# The chart functions read the width from here.
+NARROW = False
+NARROW_W = 480
+
+
+def width(wide=900):
+    return NARROW_W if NARROW else wide
+
+
+def pick(wide, narrow):
+    return narrow if NARROW else wide
+
+
+def wrap(s, size, maxw, bold=False):
+    """Greedy line breaks for text of one size, by an average glyph width."""
+    per = size * (0.57 if bold else 0.52)
+    lines, cur = [], ""
+    for w in str(s).split(" "):
+        if cur and (len(cur) + 1 + len(w)) * per > maxw:
+            lines.append(cur)
+            cur = w
+        else:
+            cur = f"{cur} {w}".strip()
+    return lines + [cur] if cur else lines
+
+
+def note(o, x, y, s, size=12, cls="t2", maxw=None, anchor="start", lh=1.35):
+    """A caption that wraps on the narrow canvas. Returns the height used."""
+    lines = wrap(s, size, maxw) if (maxw and NARROW) else [s]
+    for i, ln in enumerate(lines):
+        o.append(T(x, y + i * size * lh, ln, size, cls, anchor))
+    return (len(lines) - 1) * size * lh
+
+
+_HEAD = re.compile(r"<text x='24\.0' y='(\d+)\.0' font-size='([\d.]+)' class='(t1|t2)' "
+                   r"text-anchor='start'( font-weight='600')?>(.*?)</text>\n?")
+
+
+def fit_narrow(svg):
+    """Restack a narrow chart's heading: the title and the line under it
+    wrap to the canvas, and everything below moves down by what they took."""
+    W = NARROW_W
+    found = {}
+    for m in _HEAD.finditer(svg):
+        y, size = int(m[1]), float(m[2])
+        if "title" not in found and size >= 21 and y <= 40:
+            found["title"] = m
+        elif "sub" not in found and size == 14 and y in (62, 64) and m[3] == "t2":
+            found["sub"] = m
+    if "title" not in found:
+        sys.exit("fit_narrow: a chart has no title line")
+    out, y = [], 30
+    for ln in wrap(found["title"][5], 18, W - 40, True):
+        out.append(f"<text x='20' y='{y}' font-size='18' class='t1' font-weight='600'>{ln}</text>")
+        y += 23
+    y -= 3
+    if "sub" in found:
+        for ln in wrap(found["sub"][5], 12.5, W - 40):
+            out.append(f"<text x='20' y='{y}' font-size='12.5' class='t2'>{ln}</text>")
+            y += 17
+    dy = max(0, y - 17 - 64)
+    for m in found.values():
+        svg = svg.replace(m[0], "", 1)
+    mark = "class='bg'/>"
+    i = svg.index(mark) + len(mark)
+    body = svg[i:]
+    j = body.rindex("</svg>")
+    svg = (svg[:i] + "\n" + "\n".join(out) + f"\n<g transform='translate(0 {dy})'>"
+           + body[:j] + "</g>\n</svg>")
+    h = re.search(r"viewBox='0 0 (\d+) ([\d.]+)'", svg)
+    H = float(h[2]) + dy
+    svg = svg.replace(h[0], f"viewBox='0 0 {h[1]} {H:g}'", 1)
+    return re.sub(r" width='\d+' height='[\d.]+' viewBox", f" width='{h[1]}' height='{H:g}' viewBox",
+                  svg, count=1)
+
+
+def render(charts):
+    """{name.svg: function} -> {name.svg: wide svg, name-narrow.svg: narrow}."""
+    global NARROW
+    out = {}
+    for name, fn in charts.items():
+        NARROW = False
+        out[name] = fn()
+        NARROW = True
+        try:
+            out[name.replace(".svg", "") + "-narrow" + (".svg" if name.endswith(".svg") else "")] \
+                = fit_narrow(fn())
+        finally:
+            NARROW = False
+    return out
+
+
 def esc(s):
     return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
@@ -394,10 +607,11 @@ def marker(shape, x, y, cls, r=6):
 
 
 def legend(o, items, y=90, x=24, gap=24):
+    size, per, gap = pick((13, 7.0, gap), (11.5, 5.9, 12))
     for shape, cls, label in items:
         o.append(marker(shape, x + 6, y - 4, cls, 5.5))
-        o.append(T(x + 18, y + 1, label, 13, "t2"))
-        x += 18 + len(label) * 7.0 + gap
+        o.append(T(x + 18, y + 1, label, size, "t2"))
+        x += 18 + len(label) * per + gap
 
 
 def bar(x0, x1, y, h, cls):
@@ -421,12 +635,20 @@ def fmin(s):
     return f"{s / 60:.1f} min"
 
 
+WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
+
+
+def word(n):
+    return WORDS[n] if n < len(WORDS) else str(n)
+
+
 def chart_films(fl):
     """Paired bars: minutes per film for both encoders, one panel per class."""
     panels = [c for c in ("1080p", "2160p") if c in fl]
     order = [t for t, *_ in sorted(fl["2160p"], key=lambda r: -(r[2] or 0))]
     order += sorted({t for c in panels for t, *_ in fl[c]} - set(order))
-    W, L, R = 900, 180, 210
+    W = width()
+    L, R = pick((180, 210), (138, 136))
     rowh, barh, gap = 40, 12, 2
     Tp = 112
     # a panel lists the films it timed
@@ -435,12 +657,12 @@ def chart_films(fl):
     H = Tp + sum(panel_h.values()) + 16 * (len(panels) - 1) + 14
     tot = {c: (sum(r[1] for r in fl[c] if r[1]), sum(r[2] for r in fl[c] if r[2]))
            for c in panels}
-    o = head(W, H, f"x265 took {tot['2160p'][1] / 60:.0f} minutes for six 4K films. "
-                   f"yah265 took {tot['2160p'][0] / 60:.0f}.",
+    title = (f"x265 took {tot['2160p'][1] / 60:.0f} minutes for {word(len(timed['2160p']))} 4K "
+             f"films. yah265 took {tot['2160p'][0] / 60:.0f}.")
+    o = head(W, H, title,
              "Paired bars of encode wall time per ten-minute film at 1080p and 4K, "
              "yah265 against x265 at the same file size.")
-    o.append(T(24, 40, f"x265 took {tot['2160p'][1] / 60:.0f} minutes for six 4K films. "
-                       f"yah265 took {tot['2160p'][0] / 60:.0f}.", 22, weight="600"))
+    o.append(T(24, 40, title, 22, weight="600"))
     o.append(T(24, 64, "Wall time per ten-minute film at the same file size. Both at preset "
                        "medium with SIMD on all 18 cores of an Apple M5 Max.", 14, "t2"))
     o.append(f"<rect x='24' y='{90 - 10}' width='12' height='12' rx='2' class='s1'/>")
@@ -501,25 +723,28 @@ def swarm(xs, d):
 
 
 def chart_cells(pl):
-    """One dot per timed cell behind the headline, a row per pool."""
-    W, L, R, Tp, B = 900, 190, 40, 104, 62
+    """One dot per timed cell behind the headline, a row per picture size."""
+    W, Tp, B = width(), 104, 62
+    L, R = pick((190, 40), (172, 22))
     d = 11.5
-    vals = {k: sorted((1 / v, n) for v, n in pl["pools"][k]) for k, _ in POOLS}
+    pools = [(c, RES[c]) for c in CLASSES if pl["pools"][c]]
+    vals = {k: sorted((1 / v, n) for v, n in pl["pools"][k]) for k, _ in pools}
     top = max(v for vs in vals.values() for v, _ in vs)
     x0, x1 = 0.75, math.ceil(top * 2) / 2
     X = lambda v: L + (v - x0) / (x1 - x0) * (W - L - R)
     offs = {k: swarm([X(v) for v, _ in vs], d) for k, vs in vals.items()}
     rowh = {k: max(80, 2 * max(abs(o) for o in offs[k]) + 56) for k in offs}
     H = Tp + sum(rowh.values()) + B
-    title = (f"All {pl['n']} timed cells run faster than x265, {times(pl['median'])} at the median"
+    title = (f"All {pl['n']} size-matched cells run faster than x265, "
+             f"{times(pl['median'])} at the median"
              if pl["faster"] == pl["n"]
-             else f"{pl['faster']} of {pl['n']} timed cells run faster than x265")
-    o = head(W, H, title, "One dot per timed cell: times faster than x265 medium on an Apple "
-                          "M5 Max with SIMD on all cores, in rows for CRF, capped VBR and "
-                          "content types, with each row's median marked.")
+             else f"{pl['faster']} of {pl['n']} size-matched cells run faster than x265")
+    o = head(W, H, title, "One dot per timed cell: times faster than x265 medium at the same "
+                          "file size on an Apple M5 Max with SIMD on all cores, in a row per "
+                          "picture size, with each row's median marked.")
     o.append(T(24, 40, title, 22, weight="600"))
-    o.append(T(24, 64, "One dot per cell, with a line at each row's median. Both encoders at "
-                       "preset medium on all cores of an Apple M5 Max.", 14, "t2"))
+    o.append(T(24, 64, "One dot per CRF encode at the same file size, with a line at each row's "
+                       "median. Preset medium on all cores of an Apple M5 Max.", 14, "t2"))
     v = 1.0
     while v <= x1 + 1e-9:
         o.append(f"<line x1='{X(v):.1f}' y1='{Tp - 8}' x2='{X(v):.1f}' y2='{H - B}' "
@@ -531,14 +756,14 @@ def chart_cells(pl):
     lo = min((v, n, k) for k, vs in vals.items() for v, n in vs)
     hi = max((v, n, k) for k, vs in vals.items() for v, n in vs)
     y = Tp
-    for k, label in POOLS:
+    for k, label in pools:
         yc = y + rowh[k] / 2
         med = 1 / st.median(v for v, _ in pl["pools"][k])
         o.append(T(24, yc - 3, label, 14, "t1", weight="600"))
         o.append(T(24, yc + 15, f"{len(vals[k])} cells, median {med:.2f}x", 12.5, "t2"))
         for (v, n), dy in zip(vals[k], offs[k]):
             o.append(f"<circle cx='{X(v):.1f}' cy='{yc + dy:.1f}' r='4.75' class='s1 ring' "
-                     f"stroke-width='1.5'><title>{esc(n)} ({label}): {v:.2f}x faster</title></circle>")
+                     f"stroke-width='1.5'><title>{esc(n)}: {v:.2f}x faster</title></circle>")
         o.append(f"<line x1='{X(med):.1f}' y1='{y + 22:.1f}' x2='{X(med):.1f}' "
                  f"y2='{y + rowh[k] - 12:.1f}' class='med' stroke-width='2'/>")
         for (v, n, kk), anchor, dx in ((lo, "start", -5), (hi, "end", 5)):
@@ -558,7 +783,8 @@ def chart_arch(sps, date):
     rows = speed_rows(sps.values())
     vals = [1 / round(sp[(c, t, "G3")][0], 2) for sp in sps.values() for c, t in rows
             if (c, t, "G3") in sp]
-    W, L, R, Tp, B = 900, 200, 40, 116, 62
+    W, Tp, B = width(), 116, 62
+    L, R = pick((200, 40), (156, 22))
     rowh = 40
     H = Tp + B + rowh * len(rows)
     x0 = 0.75
@@ -582,7 +808,7 @@ def chart_arch(sps, date):
     o.append(T((L + W - R) / 2, H - 14, "times faster than x265 (right is faster)", 13, "t2", "middle"))
     for i, (c, t) in enumerate(rows):
         y = Tp + rowh * (i + 0.5)
-        o.append(T(L - 12, y + 4, f"{RES[c]} {TIER_LABEL[t]}", 13, "t1", "end"))
+        o.append(T(L - 12, y + 4, f"{RES[c]} {TIER_LABEL[t]}", pick(13, 12), "t1", "end"))
         got = {m: 1 / round(sps[m][(c, t, "G3")][0], 2) for m in MACHINES
                if (c, t, "G3") in sps[m]}
         if len(got) > 1:
@@ -596,7 +822,7 @@ def chart_arch(sps, date):
             o.append(marker(j, X(got[m]), y + dy, f"s{j + 1}"))
         miss = [MACHINE_LABEL[m] for m in MACHINES if m not in got]
         if miss:
-            o.append(T(W - R, y + 4, "not measured: " + ", ".join(miss), 11, "t2", "end"))
+            o.append(T(W - R, y + 16, "not measured: " + ", ".join(miss), 10.5, "t2", "end"))
     o.append("</svg>")
     return "\n".join(o)
 
@@ -613,13 +839,16 @@ def prose_name(title, size, tier):
 
 
 def chart_curves(cv):
-    W, H, Tp, B = 900, 430, 120, 64
-    n = len(cv)
-    pw, pl = (W - 48) / n, 44
+    W, Tp, B = width(), 120, 64
+    cols = pick(len(cv), 1)
+    nrow = math.ceil(len(cv) / cols)
+    ph = pick(246, 236)
+    H = Tp + ph * nrow + B
+    pw, pl = (W - 48) / cols, 44
     o = head(W, H, "yah265's rate curves sit above x265's",
              "VMAF v1 against bitrate on five CRF rungs for three titles, yah265 and x265 "
              "at preset medium.")
-    o.append(T(24, 40, "More quality at every bitrate on two titles, level on the third", 22,
+    o.append(T(24, 40, "The largest, the median and the smallest saving among the ladders", 22,
                weight="600"))
     o.append(T(24, 64, "VMAF v1 against bitrate, five CRF rungs per encoder (CRF 20 to 32). "
                        "Up and left is better.", 14, "t2"))
@@ -629,34 +858,36 @@ def chart_curves(cv):
     o.append(T(128, 91, "x265", 13, "t2"))
     for p, (cell, (ours, ref, model, bd)) in enumerate(cv.items()):
         tier, cls, title = cell.split("/")
-        px0 = 24 + pl + p * pw
+        px0 = 24 + pl + (p % cols) * pw
         px1 = px0 + pw - pl - 12
+        py0 = Tp + (p // cols) * ph
+        py1 = py0 + ph - 36
         allk = [k for k, _ in ours + ref]
         alls = [s for _, s in ours + ref]
         lk0, lk1 = math.log(min(allk) * 0.9), math.log(max(allk) * 1.1)
         s0 = math.floor(min(alls) / 5) * 5
         s1 = math.ceil(max(alls) / 5) * 5
         X = lambda k: px0 + (math.log(k) - lk0) / (lk1 - lk0) * (px1 - px0)
-        Y = lambda s: Tp + 30 + (s1 - s) / (s1 - s0) * (H - Tp - 30 - B)
-        o.append(T(px0 - pl + 4, Tp + 2, cell_name(title, cls, tier), 14, "t1", weight="600"))
-        o.append(T(px0 - pl + 4, Tp + 20, f"BD-rate {bd:+.2f}% on VMAF v1", 12.5, "t2"))
+        Y = lambda s: py0 + 30 + (s1 - s) / (s1 - s0) * (py1 - py0 - 30)
+        o.append(T(px0 - pl + 4, py0 + 2, cell_name(title, cls, tier), 14, "t1", weight="600"))
+        o.append(T(px0 - pl + 4, py0 + 20, f"BD-rate {bd:+.2f}% on VMAF v1", 12.5, "t2"))
         for s in range(s0, s1 + 1, 5):
             o.append(f"<line x1='{px0:.1f}' y1='{Y(s):.1f}' x2='{px1:.1f}' y2='{Y(s):.1f}' "
                      f"class='{'base' if s == s0 else 'grid'}'/>")
             o.append(T(px0 - 6, Y(s) + 4, f"{s}", 11.5, "t2", "end"))
         for tk in (100, 200, 300, 500, 1000, 2000, 3000, 5000, 10000, 20000, 30000):
             if math.exp(lk0) <= tk <= math.exp(lk1):
-                o.append(f"<line x1='{X(tk):.1f}' y1='{H - B}' x2='{X(tk):.1f}' y2='{H - B + 4}' "
-                         f"class='base'/>")
+                o.append(f"<line x1='{X(tk):.1f}' y1='{py1:.1f}' x2='{X(tk):.1f}' "
+                         f"y2='{py1 + 4:.1f}' class='base'/>")
                 lab = f"{tk / 1000:g}M" if tk >= 1000 else f"{tk}k"
-                o.append(T(X(tk), H - B + 18, lab, 11.5, "t2", "middle"))
+                o.append(T(X(tk), py1 + 18, lab, 11.5, "t2", "middle"))
         for pts, ln, cls, shape in ((ref, "lx", "sx", 1), (ours, "l1", "s1", 0)):
             o.append(f"<polyline fill='none' class='{ln}' stroke-width='2' points='"
                      + " ".join(f"{X(k):.1f},{Y(s):.1f}" for k, s in pts) + "'/>")
             for k, s in pts:
                 o.append(marker(shape, X(k), Y(s), cls, 4.5))
-    o.append(T(W / 2, H - 14, "bitrate, log scale (k = kbit/s, M = Mbit/s); "
-                              "VMAF v1 up the side", 13, "t2", "middle"))
+    note(o, W / 2, H - 28, "bitrate, log scale (k = kbit/s, M = Mbit/s); VMAF v1 up the side",
+         pick(13, 12), "t2", W - 40, "middle")
     o.append("</svg>")
     return "\n".join(o)
 
@@ -664,7 +895,8 @@ def chart_curves(cv):
 def chart_bd(lad, date):
     rows = sorted(lad, key=lambda r: (r[3] + r[4]) / 2)
     allv = [r[3] for r in lad] + [r[4] for r in lad]
-    W, L, R, Tp, B = 900, 250, 40, 116, 62
+    W, Tp, B = width(), 116, 62
+    L, R = pick((250, 40), (206, 22))
     rowh = 24
     H = Tp + B + rowh * len(rows)
     x0 = min(-5, int((min(allv) - 4.999) / 5) * 5)
@@ -686,11 +918,11 @@ def chart_bd(lad, date):
     o.append(f"<line x1='{bx:.1f}' y1='{Tp - 8}' x2='{bx:.1f}' y2='{H - B}' class='base' "
              f"stroke-width='1.5' stroke-dasharray='2 3'/>")
     o.append(T(bx + 4, Tp - 12, f"bar +{BD_BAR:g}%", 11, "t2"))
-    o.append(T((L + W - R) / 2, H - 14, "bitrate change for the same VMAF v1 (left is better)",
+    o.append(T(pick((L + W - R) / 2, W / 2), H - 14, "bitrate change for the same VMAF v1 (left is better)",
                13, "t2", "middle"))
     for i, (title, size, tier, crf, vbr) in enumerate(rows):
         y = Tp + rowh * (i + 0.5)
-        o.append(T(L - 12, y + 4, cell_name(title, size, tier), 12.5, "t1", "end"))
+        o.append(T(L - 12, y + 4, cell_name(title, size, tier), pick(12.5, 11), "t1", "end"))
         o.append(f"<line x1='{X(min(crf, vbr)):.1f}' y1='{y}' x2='{X(max(crf, vbr)):.1f}' "
                  f"y2='{y}' class='span' stroke-width='2'/>")
         dy = 4 if abs(crf - vbr) < 0.8 else 0
@@ -701,7 +933,7 @@ def chart_bd(lad, date):
 
 
 def chart_history(pts):
-    W, H, L, R, Tp, B = 900, 500, 92, 100, 160, 64
+    W, H, L, R, Tp, B = width(), pick(500, 440), 92, pick(100, 84), 160, 64
     # y is log2 of the speed multiple (x265's wall over ours)
     ys = [math.log2(1 / p[k]) for p in pts for k in ("g1", "g3") if p[k]]
     y0, y1 = math.floor(min(ys)), max(1, math.ceil(max(ys)))
@@ -721,7 +953,7 @@ def chart_history(pts):
                  f"stroke-width='{1.5 if v == 0 else 1}'{' stroke-dasharray=\"4 3\"' if v == 0 else ''}/>")
         lab = "even" if v == 0 else (f"{2 ** v:g}x faster" if v > 0 else f"{2 ** -v:g}x slower")
         o.append(T(L - 10, Y(v) + 4, lab, 12, "t2", "end"))
-    step = max(1, n // 5)
+    step = max(1, n // pick(5, 3))
     for i in sorted(set(range(0, n, step)) | {n - 1}):
         if i != n - 1 and n - 1 - i < step / 2:
             continue
@@ -742,7 +974,8 @@ def chart_history(pts):
         x, ty = X(idx), Tp - 40 + 15 * j
         o.append(f"<line x1='{x:.1f}' y1='{ty + 4}' x2='{x:.1f}' y2='{H - B}' class='base' "
                  f"stroke-width='1' stroke-dasharray='2 3'/>")
-        o.append(T(x - 4, ty, text, 11.5, "t2", "end"))
+        left = x - 4 - len(text) * 6.2 < 20
+        o.append(T(x + 4 if left else x - 4, ty, text, 11.5, "t2", "start" if left else "end"))
     for k, cls in (("g1", "s1"), ("g3", "s3")):
         if last[k]:
             o.append(T(X(n - 1) + 10, Y(math.log2(1 / last[k])) + 4,
@@ -765,19 +998,24 @@ def frange(meds):
 
 
 def headline(pl):
-    """The site's one headline sentence. scripts/site_front.py fills the
-    home page and the README with the same figures."""
-    return (f"yah265 encodes video {times(pl['median'])} faster than x265 at the same file "
-            f"size, median over every timed cell (CRF, capped VBR and content types), with "
-            f"{pl['dv']:+.2f} VMAF v1 points.")
+    """The site's one headline sentence, from headline_cells(). The home
+    page, the README, the launch post, the results page and the social card
+    all take their figures from the same dict."""
+    return (f"On an Apple M5 Max, yah265 encodes a median {times(pl['median'])} faster than "
+            f"x265 at the same file size and scores a median {pl['dv']:.2f} VMAF v1 points "
+            f"higher. Those medians cover the {pl['n']} CRF encodes of the test set where the "
+            "two files match in size within 1%, from short clips to ten-minute films at CIF "
+            "to 4K. Both encoders ran at preset medium with SIMD on all cores.")
 
 
 def headline_table(pl):
-    L = ["| timed cells | count | median | slowest cell |", "|---|--:|--:|---|"]
-    for k, label in POOLS:
-        vs = pl["pools"][k]
+    L = ["| size-matched cells on the Mac | count | median | slowest cell |", "|---|--:|--:|---|"]
+    for c in CLASSES:
+        vs = pl["pools"][c]
+        if not vs:
+            continue
         w = max(vs)
-        L.append(f"| {label} | {len(vs)} | {times(st.median(v for v, _ in vs))} faster | "
+        L.append(f"| {RES[c]} | {len(vs)} | {times(st.median(v for v, _ in vs))} faster | "
                  f"{w[1]}, {times(w[0])} faster |")
     allv = [x for vs in pl["pools"].values() for x in vs]
     w = max(allv)
@@ -902,18 +1140,16 @@ def frames_figure(count, caption):
 # Three sentences of FRAMES_ALL say what the crops look like. Look at the
 # crops again and rewrite them whenever scripts/frame_crops.sh picks new ones.
 FRAMES_CROP = "cropped to the region where the two encodes lose detail most differently"
-FRAMES_ONE = ("This is the hardest moment of a 90-second Tears of Steel clip at 1080p. It's the "
-              f"frame where the two encoders' mean VMAF v1 is lowest, {FRAMES_CROP}. Both files "
-              "are the same size to within 0.5%. "
-              '<a href="results.html#side-by-side-at-the-same-size">Results</a> has the next two '
-              "hardest moments. In one of them x265 holds up better.")
+FRAMES_ONE = ("A script chose this frame. Of a 90-second Tears of Steel clip at 1080p, it's the "
+              f"frame where the two encoders' mean VMAF v1 is lowest, {FRAMES_CROP}. yah265 "
+              "keeps more of the texture here. Both files are the same size to within 0.5%. "
+              '<a href="results.html#side-by-side-at-the-same-size">Results</a> shows all three '
+              "frames the rule picked, including one where x265 is sharper.")
 FRAMES_ALL = ("These are the three hardest moments of the clip. Each is the frame where the two "
               "encoders' mean VMAF v1 is lowest in one of the three lowest-scoring shots, "
               f"{FRAMES_CROP}. yah265 keeps more of the texture in the first crop. x265 keeps the "
               "eyebrows sharper in the second. The third is close. "
               "<code>scripts/frame_crops.sh</code> makes the crops.")
-FRAMES_PLAYER = ('Scrub the whole clip yourself in the <a href="compare/tears/">comparison '
-                 "player</a>.")
 
 
 def claims(pl, fl, ff):
@@ -934,9 +1170,12 @@ def claims(pl, fl, ff):
         sys.exit("site/blog.md says otherwise: " + "; ".join(bad))
 
 
+CARD_LAYOUT = 2  # bump when draw_card's wording or layout changes
+
+
 def card_key(pl, fl):
     ok = [r for r in fl["2160p"] if r[1]]
-    return (f"{times(pl['median'])}|{pl['dv']:+.2f}|{pl['n']}|{len(ok)}|"
+    return (f"v{CARD_LAYOUT}|{times(pl['median'])}|{pl['dv']:+.2f}|{pl['n']}|{len(ok)}|"
             f"{sum(r[2] for r in ok) / 60:.0f}|{sum(r[1] for r in ok) / 60:.0f}")
 
 
@@ -982,9 +1221,14 @@ def draw_card(path, pl, fl):
         im.paste(logo, (M, 56), logo)
     else:
         d.text((M, 60), "yah265", font=font(52, True), fill=ink)
-    d.text((M, 160), f"{times(pl['median'])} faster than x265", font=font(92, True), fill=ink)
-    d.text((M, 274), f"at the same file size, with {pl['dv']:+.2f} VMAF v1 points",
-           font=font(38), fill=ink2)
+    # the main line carries the machine and the metric with the two figures
+    main = [f"{times(pl['median'])} faster than x265 on a Mac,",
+            f"{pl['dv']:+.2f} VMAF v1 at the same file size"]
+    size = 92
+    while max(d.textlength(t, font=font(size, True)) for t in main) > W - 2 * M:
+        size -= 2
+    for i, t in enumerate(main):
+        d.text((M, 150 + i * round(size * 1.18)), t, font=font(size, True), fill=ink)
     ok = [r for r in fl["2160p"] if r[1]]
     ours, ref = sum(r[1] for r in ok), sum(r[2] for r in ok)
     d.text((M, 368), f"{len(ok)} ten-minute films at 4K, preset medium, same file sizes",
@@ -996,8 +1240,8 @@ def draw_card(path, pl, fl):
         d.rounded_rectangle((x0 - 8, y, x1, y + 40), radius=8, fill=color)
         d.rectangle((x0 - 8, y, x0, y + 40), fill=color)
         d.text((x1 + 16, y + 4), f"{v / 60:.0f} min", font=font(28, True), fill=ink)
-    d.text((M, 562), f"Median over {pl['n']} timed cells: CRF, capped VBR and content types. "
-                     f"Apple M5 Max, all cores.", font=font(22), fill=ink2)
+    d.text((M, 562), f"Medians over {pl['n']} size-matched CRF encodes, CIF to 4K, both at "
+                     f"preset medium. Apple M5 Max, all cores.", font=font(22), fill=ink2)
     meta = PngImagePlugin.PngInfo()
     meta.add_text("yah265-card", card_key(pl, fl))
     im.save(path, pnginfo=meta, optimize=True)
@@ -1007,7 +1251,6 @@ def values(sps, q, lad, fl, cap, cv, ff, rows, repro, date, report_rel, hist, cr
     V = {}
     V["headline"] = headline(pl)
     V["fig-frames"] = frames_figure(1, FRAMES_ONE)
-    V["frames-player"] = FRAMES_PLAYER
     V["headline-table"] = headline_table(pl)
     V["dv-cells"] = f"{pl['dv_ahead']} of the {pl['dv_n']}"
     V["films-table"] = films_table(fl)
@@ -1035,8 +1278,6 @@ def values(sps, q, lad, fl, cap, cv, ff, rows, repro, date, report_rel, hist, cr
     V["longest-title"] = TITLE.get(longest[0], longest[0])
     V["longest-ref"] = fmin(longest[2]).replace(" min", " minutes")
     V["longest-ours"] = fmin(longest[1]).replace(" min", " minutes")
-    void = [r[0] for c in ("1080p", "2160p") for r in fl[c] if not r[1]]
-    V["films-void"] = " and ".join(TITLE.get(t, t) for t in void) or "none"
     # speed on every machine
     for m, sp in sps.items():
         for g in GOALS:
@@ -1088,6 +1329,7 @@ def values(sps, q, lad, fl, cap, cv, ff, rows, repro, date, report_rel, hist, cr
     V["ff-tol"] = f"{max(e['size_tolerance'] for e in ff) * 100:g}%"
     V["ff-n"] = str(len(ff))
     V["ff-cmd"] = ffmpeg_cmd(best)
+    V["ff-clip"] = f"{best['seconds']} seconds of {best['title']} at {best['variant']}"
     # the rest
     V["report-date"] = date
     V["report-link"] = f"[the all-architecture parity report of {date}]({report_rel})"
@@ -1106,8 +1348,8 @@ def values(sps, q, lad, fl, cap, cv, ff, rows, repro, date, report_rel, hist, cr
 def goal_table(sps):
     L = ["| goal | " + " | ".join(MACHINE_LONG[m] for m in MACHINES) + " |",
          "|---|" + "--:|" * len(MACHINES)]
-    lab = {"G1": "G1: C on one thread", "G2": "G2: C on all cores", "G3": "G3: SIMD on all cores"}
-    for g in GOALS:
+    lab = GOAL_LONG
+    for g in GOAL_ORDER:
         cells = []
         for m in MACHINES:
             meds = [v[0] for (c, t, gg), v in sps[m].items() if gg == g]
@@ -1190,7 +1432,7 @@ def main():
              "g4": newest(rf"PARITY-REPORT-yah265-graviton-{D}\.csv")}
     summary = newest(rf"PARITY-REPORT-yah265-all-isa-{D}\.md")
     date = re.search(f"({D})", os.path.basename(summary))[1]
-    rows = {m: list(csv.DictReader(open(p))) for m, p in paths.items()}
+    rows = {m: report_rows(p) for m, p in paths.items()}
     sps = {m: speed_groups(rs) for m, rs in rows.items()}
     q = quality_groups(rows["mac"])
     mac_md = mac_csv[:-4] + ".md"
@@ -1198,20 +1440,22 @@ def main():
     if not lad:
         sys.exit(f"{mac_md}: no BD ladder lines found")
     fl = films(rows["mac"])
-    cap = capped(paths["x86"][:-4] + ".md")
+    cap = capped_run(capped_records(), paths["x86"][:-4] + ".md")
     cv = curves(lad)
-    ff = json.load(open(FFMPEG))["examples"]
+    ff = [e for e in json.load(open(FFMPEG))["examples"] if e["title"].lower() not in EXCLUDED]
     hist = board_history()
     report_rel = os.path.relpath(summary, ROOT)
-    repro = json.load(open(REPRO))
-    pl = pooled(rows["mac"], mac_md)
+    repro = [r for r in json.load(open(REPRO)) if shown(r["cell"].split("/")[2])]
+    pl = headline_cells(rows["mac"])
     claims(pl, fl, ff)
     V = values(sps, q, lad, fl, cap, cv, ff, rows, repro, date, report_rel, hist,
                credits(mac_md), pl)
-    charts = {"films.svg": chart_films(fl), "cells.svg": chart_cells(pl),
-              "arch.svg": chart_arch(sps, date),
-              "curves.svg": chart_curves(cv), "bdrate.svg": chart_bd(lad, re.search(f"({D})", os.path.basename(mac_csv))[1]),
-              "history.svg": chart_history(hist)}
+    mac_date = re.search(f"({D})", os.path.basename(mac_csv))[1]
+    charts = render({"films.svg": lambda: chart_films(fl), "cells.svg": lambda: chart_cells(pl),
+                     "arch.svg": lambda: chart_arch(sps, date),
+                     "curves.svg": lambda: chart_curves(cv),
+                     "bdrate.svg": lambda: chart_bd(lad, mac_date),
+                     "history.svg": lambda: chart_history(hist)})
     post = open(POST).read()
     new_post = fill(post, V)
     stale = []

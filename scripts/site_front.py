@@ -7,19 +7,18 @@ Fills every `<!--gen:NAME-->...<!--/gen:NAME-->` span in README.md,
 site/index.md, site/hdr.md and site/options.md, and draws two charts into
 site/assets/charts/front/:
 
+    home-hero.svg    the headline as a race between the two encoders
     home-speed.svg   times faster than x265 at G3 per class, on each machine
     hdr-bd.svg       bits saved at equal HDR-VMAF per HDR cell
 
-The headline is blog_charts.pooled(), so the home page, the README and the
-launch post state one figure. It pools every G3 cell timed on the Mac:
-
-    CRF            valid G3 rows of the newest docs/parity/PARITY-REPORT-yah265-<date>.csv
-    capped VBR     the "VBR wall" table of the report beside that CSV
-    content types  tier C G3 rows of docs/data/parity-spec.csv
-
-The quality lead is the median VMAF v1 difference over the CRF and
-content-type cells, which are size-matched. The VBR cells share a target
-rate and no size, so they have no place in it. HDR numbers come from
+The headline is blog_charts.headline_cells(), so the home page, the README,
+the launch post, the results page and the social card state one pair of
+figures. It covers the size-matched cells timed on the Mac: the valid G3
+rows of tiers S, M and L in the newest
+docs/parity/PARITY-REPORT-yah265-<date>.csv, less the titles on
+blog_charts.EXCLUDED. Speed and the VMAF v1 lead are medians over the same
+cells. Each chart is written twice, as name.svg and as name-narrow.svg for
+phones. HDR numbers come from
 docs/data/hdr-results.json. The option list comes from a captured
 `y265 --help`, docs/data/cli-help.txt.
 
@@ -80,55 +79,72 @@ HERO_STYLE = """<style>
 def chart_hero(pl):
     """The home page's race: both encoders start together on the same
     encode, and the picture stops when yah265 finishes. x265's bar is then
-    as long as the pooled median ratio."""
-    W, H, L, R = 900, 268, 104, 196
+    as long as the headline's median ratio. On the narrow canvas the
+    figure sits above the bars, so nothing hangs off the right edge."""
+    nw = bc.NARROW
+    W, L, R = bc.width(), bc.pick(104, 20), bc.pick(196, 20)
     ratio = pl["median"]
     X = lambda v: L + v * (W - L - R)
     title = f"When yah265 finishes, x265 is {ratio * 100:.0f}% of the way through"
+    sub = (f"The median of {pl['n']} CRF encodes at the same file size on an Apple M5 Max. "
+           "Both at preset medium with SIMD on all cores.")
+    y1 = 104 if not nw else 158
+    y2, h = y1 + (56 if not nw else 64), 34 if not nw else 28
+    H = y2 + h + (72 if not nw else 92)
     o = head(W, H, title,
              "Two bars racing over the same encode. The yah265 bar reaches the end. The x265 "
              f"bar has covered {ratio * 100:.0f}% of the distance at that moment, which is the "
-             f"median over {pl['n']} timed cells.")
+             f"median over {pl['n']} size-matched cells.")
     o.append(HERO_STYLE)
     o.append(bc.T(24, 40, title, 22, weight="600"))
-    o.append(bc.T(24, 64, f"The median of {pl['n']} timed cells on an Apple M5 Max. Same file "
-                          "size, both at preset medium with SIMD on all cores.", 14, "t2"))
-    y1, y2, h = 104, 160, 34
+    o.append(bc.T(24, 64, sub, 14, "t2"))
     for v in (0, 0.25, 0.5, 0.75, 1):
         o.append(f"<line x1='{X(v):.1f}' y1='{y1 - 10}' x2='{X(v):.1f}' y2='{y2 + h + 10}' "
                  f"class='{'base' if v == 1 else 'grid'}'"
                  + (" stroke-width='2' stroke-dasharray='4 4'" if v == 1 else "") + "/>")
+        if nw and v in (0.25, 0.75):
+            continue
         o.append(bc.T(X(v), y2 + h + 28, "start" if v == 0 else "finish" if v == 1
-                      else f"{v * 100:.0f}%", 12, "t2", "middle"))
+                      else f"{v * 100:.0f}%", 12, "t2",
+                      "start" if nw and v == 0 else "end" if nw and v == 1 else "middle"))
     for y, name, v, cls in ((y1, "yah265", 1.0, "s1"), (y2, "x265", ratio, "sx")):
         o.append(f"<rect x='{X(0):.1f}' y='{y}' width='{X(1) - X(0):.1f}' height='{h}' rx='4' "
                  "class='band'/>")
         o.append(bc.bar(X(0), X(v), y, h, cls).replace("class='", "class='run "))
-        o.append(bc.T(L - 14, y + h / 2 + 5, name, 15, "t1", "end", "600"))
+        if nw:
+            o.append(bc.T(L, y - 8, name, 14, "t1", "start", "600"))
+        else:
+            o.append(bc.T(L - 14, y + h / 2 + 5, name, 15, "t1", "end", "600"))
     o.append("<g class='after'>")
-    o.append(bc.T(X(1) + 16, y1 + h / 2 - 1, f"{bc.times(ratio)}", 30, "note", weight="700"))
-    o.append(bc.T(X(1) + 16, y1 + h / 2 + 19, "faster than x265", 13, "t2"))
+    if nw:
+        o.append(bc.T(L, 122, f"{bc.times(ratio)}", 34, "note", weight="700"))
+        o.append(bc.T(L + 104, 122, "faster than x265", 15, "t2"))
+    else:
+        o.append(bc.T(X(1) + 16, y1 + h / 2 - 1, f"{bc.times(ratio)}", 30, "note", weight="700"))
+        o.append(bc.T(X(1) + 16, y1 + h / 2 + 19, "faster than x265", 13, "t2"))
     o.append(bc.T(X(ratio) + 10, y2 + h / 2 + 5, f"{ratio * 100:.0f}% done", 13, "t1"))
     o.append("</g>")
     yb = y2 + h + 62
-    o.append(f"<line x1='24' y1='{yb - 22}' x2='{W - 24}' y2='{yb - 22}' class='grid'/>")
-    o.append(bc.marker(0, 31, yb - 4, "s1", 5))
-    o.append(bc.T(44, yb, f"At that file size yah265 also scores a median {pl['dv']:+.2f} VMAF v1 "
-                          f"points higher than x265, over {pl['dv_n']} cells.", 14, "t1"))
+    o.append(f"<line x1='{bc.pick(24, 20)}' y1='{yb - 22}' x2='{W - bc.pick(24, 20)}' "
+             f"y2='{yb - 22}' class='grid'/>")
+    o.append(bc.marker(0, bc.pick(31, 26), yb - 4, "s1", 5))
+    bc.note(o, bc.pick(44, 38), yb, f"At that file size yah265 also scores a median "
+            f"{pl['dv']:.2f} VMAF v1 points higher than x265.", bc.pick(14, 12.5), "t1", W - 60)
     o.append("</svg>")
     return "\n".join(o)
 
 
 def chart_home(cm, n_all):
     """One panel per machine, one bar per class, x265 as the 1x line."""
-    W, L, R, Tp = 900, 150, 70, 96
+    W, Tp = bc.width(), 96
+    L, R = bc.pick((150, 70), (70, 52))
     rowh, barh, ph = 30, 16, 40
     classes = [c for c in bc.CLASSES if any(c in cm[m] for m in bc.MACHINES)]
     vals = {m: {c: 1 / round(cm[m][c][0], 2) for c in classes if c in cm[m]} for m in bc.MACHINES}
     top = max(v for d in vals.values() for v in d.values())
     xmax = max(2.0, int(top * 2 + 1.999) / 2)
     X = lambda v: L + v / xmax * (W - L - R)
-    H = Tp + len(bc.MACHINES) * (ph + rowh * len(classes)) + 50
+    H = Tp + len(bc.MACHINES) * (ph + rowh * len(classes)) + bc.pick(50, 82)
     title = "yah265 is faster than x265 at every picture size on all three machines"
     o = head(W, H, title,
              "Bars of the median times faster than x265 at the same file size, per picture "
@@ -136,8 +152,9 @@ def chart_home(cm, n_all):
              "preset medium with SIMD on all cores.")
     o.append(bc.T(24, 38, title, 21, weight="600"))
     o.append(bc.T(24, 62, "Median times faster at the same file size. Both encoders at preset "
-                          "medium, SIMD on all cores.", 14, "t2"))
-    o.append(bc.T(X(1), Tp + 22, "x265 = 1x", 12.5, "t2", "middle"))
+                          "medium, SIMD on all cores. Right is faster.", 14, "t2"))
+    if not bc.NARROW:
+        o.append(bc.T(X(1), Tp + 22, "x265 = 1x", 12.5, "t2", "middle"))
     y = Tp
     for m in bc.MACHINES:
         o.append(bc.T(24, y + 24, bc.MACHINE_LONG[m], 15, weight="600"))
@@ -163,9 +180,9 @@ def chart_home(cm, n_all):
     v = 0.0
     while v <= xmax + 1e-9:
         o.append(bc.T(X(v), y + 20, "0" if v == 0 else f"{v:g}x", 12, "t2", "middle"))
-        v += 0.5
-    o.append(bc.T(X(0), y + 40, f"Median over every valid cell of a size: short clips, two-minute "
-                                f"segments and ten-minute films. {n_all} cells in all.", 12, "t2"))
+        v += bc.pick(0.5, 1.0)
+    bc.note(o, bc.pick(X(0), 24), y + 40, f"Median over every valid cell of a size: short clips, "
+            f"two-minute segments and ten-minute films. {n_all} cells in all.", 12, "t2", W - 48)
     o.append("</svg>")
     return "\n".join(o)
 
@@ -177,9 +194,10 @@ def hdr_rows(data, ours, against):
 def chart_hdr(data):
     """Bits saved at equal HDR-VMAF: one panel per x265 configuration."""
     panels = [("Against x265", hdr_rows(data, "medium", "x265")),
-              ("Against x265 with --hdr10-opt, its PQ tuning",
+              ("Against x265 with its --hdr10-opt",
                hdr_rows(data, "medium", "x265 --hdr10-opt"))]
-    W, L, R, Tp = 900, 220, 80, 92
+    W, Tp = bc.width(), 92
+    L, R = bc.pick((220, 80), (150, 56))
     rowh, barh, ph = 30, 16, 40
     top = max(-r["bd_pct"] for _, rs in panels for r in rs)
     xmax = (int(top / 10) + 1) * 10
@@ -222,7 +240,7 @@ def quality_table(pl, lad):
     allv = [r[3] for r in lad] + [r[4] for r in lad]
     return "\n".join([
         "| quality on the Mac | cells | median |", "|---|--:|--:|",
-        f"| VMAF v1 lead at the same file size, CRF and content types | {pl['dv_n']} | "
+        f"| VMAF v1 lead at the same file size, the cells above | {pl['dv_n']} | "
         f"{pl['dv']:+.2f} points |",
         f"| bits saved at equal VMAF v1, rate ladders at CRF and capped VBR | {len(allv)} | "
         f"{abs(st.median(allv)):.1f}% |"])
@@ -380,7 +398,7 @@ GROUPS = [
         ("--dhdr10-info", "none", "HDR10+ dynamic metadata from a JSON file, one message per picture."),
         ("--dolby-vision-rpu", "none", "A Dolby Vision profile 8 RPU per picture, from a file. Needs `--dolby-vision-profile`."),
         ("--dolby-vision-profile", "none", "`8.1`, `8.2` or `8.4`. The color flags must match it."),
-        ("--hdr-opt / --no-hdr-opt", "on for PQ and HLG", "The HDR tuning of `medium`, on or off. `--hdr10-opt` is the same switch."),
+        ("--hdr-opt / --no-hdr-opt", "on for PQ and HLG", "The HDR tuning of `medium`, on or off. `--hdr10-opt` is accepted as another name for it."),
     ]),
     ("Reports", [
         ("--psnr", "off", "Report PSNR at the end of the run. The stream doesn't change."),
@@ -601,20 +619,19 @@ def main():
     paths = {"mac": bc.newest(rf"PARITY-REPORT-yah265-{D}\.csv"),
              "x86": bc.newest(rf"PARITY-REPORT-yah265-x86-{D}\.csv"),
              "g4": bc.newest(rf"PARITY-REPORT-yah265-graviton-{D}\.csv")}
-    rows = {m: list(csv.DictReader(open(p))) for m, p in paths.items()}
+    rows = {m: bc.report_rows(p) for m, p in paths.items()}
     mac_md = paths["mac"][:-4] + ".md"
     sps = {m: bc.speed_groups(rs) for m, rs in rows.items()}
     lad = bc.ladders(mac_md)
     if not lad:
         sys.exit(f"{mac_md}: no BD ladder lines found")
-    pl = bc.pooled(rows["mac"], mac_md)
+    pl = bc.headline_cells(rows["mac"])
     cm = {m: class_medians(rs) for m, rs in rows.items()}
     hdr = json.load(open(HDR))
     opts, build, nopt = options_tables()
     V = {
         "headline": bc.headline(pl),
         "fig-frames": bc.frames_figure(1, bc.FRAMES_ONE),
-        "frames-player": bc.FRAMES_PLAYER,
         "pooled-table": bc.headline_table(pl),
         "quality-table": quality_table(pl, lad),
         "goal-table": bc.goal_table(sps),
@@ -624,9 +641,10 @@ def main():
         "options": opts,
         "options-build": f"{nopt} entries from `{build}`",
     }
-    charts = {"home-hero.svg": chart_hero(pl),
-              "home-speed.svg": chart_home(cm, sum(v[1] for d in cm.values() for v in d.values())),
-              "hdr-bd.svg": chart_hdr(hdr)}
+    n_all = sum(v[1] for d in cm.values() for v in d.values())
+    charts = bc.render({"home-hero.svg": lambda: chart_hero(pl),
+                        "home-speed.svg": lambda: chart_home(cm, n_all),
+                        "hdr-bd.svg": lambda: chart_hdr(hdr)})
     stale = []
     for name, svg in charts.items():
         p = os.path.join(OUT, name)
@@ -646,7 +664,7 @@ def main():
             if not a.check:
                 with open(p, "w") as f:
                     f.write(new)
-    print(f"headline: {bc.times(pl['median'])} faster over {pl['n']} cells ("
+    print(f"headline: {bc.times(pl['median'])} faster over {pl['n']} size-matched cells ("
           + ", ".join(f"{k} {len(v)}" for k, v in pl["pools"].items())
           + f"); VMAF v1 {pl['dv']:+.2f} over {pl['dv_n']} cells; {nopt} options")
     if a.check:

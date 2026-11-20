@@ -36,7 +36,7 @@ The first command runs the unit tests and the repository's own checks. The secon
 
 ## One clip by hand
 
-A reading compares the two encoders at the same file size and then asks two questions: which one finished first, and which one looks better.
+A reading compares the two encoders at the same file size and then asks two questions: which one finished first, and which one scores higher on VMAF v1.
 
 <figure class="diagram">
 <svg viewBox="0 0 720 250" role="img" aria-labelledby="ciy-t ciy-d">
@@ -91,7 +91,7 @@ $ time (cat clip.y4m | build-rel/y265 - -o ours.hevc --crf 24)
 $ time (cat clip.y4m | x265 --input - --y4m --preset medium --crf 28 -o ref.hevc)
 ```
 
-Divide yah265's `real` time by x265's. That's the G3 ratio the results page reports, and under 1.00 means yah265 finished first.
+Divide x265's `real` time by yah265's. That's the G3 speed the results page reports, and over 1.00 means yah265 finished first.
 
 For G1, run each encoder in plain C on one thread:
 
@@ -101,7 +101,7 @@ $ cat clip.y4m | x265 --input - --y4m --preset medium --crf 28 \
     --no-asm --pools none --frame-threads 1 -o ref.hevc
 ```
 
-G2 drops `--threads 1` and the two x265 threading options. x265 quietly uses more than one thread unless it gets both `--pools none` and `--frame-threads 1`.
+G2 drops `--threads 1` and the two x265 threading options. x265 uses more than one thread unless it gets both `--pools none` and `--frame-threads 1`.
 
 x265's pictures change with its frame-thread count. The one-thread run therefore writes a different file, and yah265 needs its own size match for G1.
 
@@ -119,15 +119,28 @@ $ scripts/v1_ladder.py clip.y4m
 $ scripts/v1_ladder.py clip.y4m --vbr
 ```
 
-The script codes a five-rung ladder on both encoders, at CRF 20, 23, 26, 29 and 32. It then prints yah265's BD-rate on VMAF v1 against x265 medium. Negative means yah265 needs fewer bits for the same quality. With `--vbr` both encoders run at the bitrates x265 reached on those rungs, where the maxrate is 1.5 times the target and the buffer is twice the target. Scoring follows the [methodology](methodology.md#scoring-quality).
+The script codes a five-rung ladder on both encoders, at CRF 20, 23, 26, 29 and 32. It then prints yah265's BD-rate on VMAF v1 against x265 medium, where negative means yah265 needs fewer bits for the same score. With `--vbr` both encoders run at the bitrates x265 reached on those rungs, where the maxrate is 1.5 times the target and the buffer is twice the target. Scoring follows the [methodology](methodology.md#scoring-quality).
 
-After the BD-rate the script prints one row per yah265 rung. Each row has the rung's bitrate, its score, x265's score at that bitrate and the gap between them. The last four columns say which of v1's features makes up the gap. The script swaps one feature at a time from x265's frames onto yah265's and reports what each swap is worth.
+This is the CRF ladder on the foreman CIF clip. It took 50 seconds on the Mac.
 
-Encodes and scores are cached under `~/.cache/yah265-v1`. `THREADS` sets the thread count for each encoder and for libvmaf. It defaults to 4.
+```
+$ scripts/v1_ladder.py foreman_cif.y4m
+foreman_cif.y4m ours crf : BD-v1 -9.66%
+    kbps      v1  x265@r    gap | v1 gained by taking x265's:    cambi   chroma     adm3  motion3
+     101  42.049  outside x265's rates
+     154  55.999  54.712 +1.288 |   +0.018   -2.101   +0.796   -0.000
+     235  67.192  64.779 +2.413 |   +0.005   -2.643   +0.225   +0.000
+     371  76.654  73.757 +2.898 |   +0.003   -2.912   +0.011   +0.000
+     584  83.686  81.264 +2.422 |   +0.001   -2.185   -0.240   +0.000
+```
+
+Each row is one yah265 rung, with x265's score read off its curve at the same bitrate. For the last four columns the script swaps one of v1's features at a time from x265's frames onto yah265's and reports what the swap is worth.
+
+Encodes and scores are cached under `~/.cache/yah265-v1`. `THREADS` sets the thread count for each encoder and for libvmaf. It defaults to 4. `BIN` overrides the yah265 binary.
 
 ## Reading size and quality together
 
-A speed ratio means nothing until the sizes match, because an encoder that writes a larger file had more bits to spend. Its picture should look better for that reason alone. Check the 1% size match first and read everything else after.
+A speed ratio means nothing until the sizes match, because an encoder that writes a larger file had more bits to spend. It should score higher for that reason alone. Check the 1% size match first and read everything else after.
 
 At the matched size, compare the two VMAF v1 scores directly. One clip's lead says little about the next clip's. That's why the results page reports the median over a group and the clip with the smallest lead.
 

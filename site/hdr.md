@@ -88,7 +88,7 @@ A stream says PQ with `--transfer smpte2084`. It says HLG with `--transfer arib-
 
 From 720p up, `medium` on HDR also keeps the full intra mode search that SDR gives up for speed. At 4K it keeps the intra transform split too.
 
-`--hdr-opt` turns the tuning on for a stream that names neither transfer, and `--no-hdr-opt` turns it off. `--hdr10-opt` is the same switch under x265's name. A `--cbqpoffs` or `--crqpoffs` you give yourself still wins. The other presets code HDR like SDR.
+`--hdr-opt` turns the tuning on for a stream that names neither transfer, and `--no-hdr-opt` turns it off. `--hdr10-opt` is accepted as another name for yah265's switch. The tuning behind it is yah265's own. A `--cbqpoffs` or `--crqpoffs` you give yourself still wins. The other presets code HDR like SDR.
 
 ## Quality on HDR content
 
@@ -107,7 +107,7 @@ We scored both encoders with Netflix's HDR-VMAF v1.1.8. The table gives yah265's
 | EBU / DVB HLG | HLG | 4K | -34.6% | no HLG reading |
 <!--/gen:hdr-table-->
 
-yah265 is ahead on every cell. The margin is thinnest on Sol Levante against x265 with `--hdr10-opt`, its own PQ tuning. That option has no HLG reading.
+yah265 is ahead on every cell. The margin is thinnest on Sol Levante against x265 with its `--hdr10-opt` option on. That option has no HLG reading.
 
 I wouldn't read the HLG clip's lead as a lead on all HLG, because the clip is easy material. It's two near-static shots from a source that is itself an HEVC encode. The downscale averages away most of the noise that was left. The next table shows what the tuning alone is worth on it.
 

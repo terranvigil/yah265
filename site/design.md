@@ -270,8 +270,8 @@ Every change passes these before it merges.
 - Two runs at `--threads 1` must give the same bytes. Across thread counts a mismatch is reported as a warning.
 - Each SIMD kernel is tested against its C reference by a tool called checkasm, under AddressSanitizer too.
 - A change that moves streams gets an environment setting that undoes it. The gate compares that setting's output with the previous commit's, byte for byte, to show that nothing else moved.
-- A change that loses quality or speed doesn't ship. Every refusal is logged with its cause in the [ideas log](docs/ideas.md).
+- A change that loses quality or speed doesn't ship.
 
-## Clean room
+## Written from the specification
 
-The encoder is written fresh from the ITU-T H.265 specification, published papers and the behavior of reference decoders as an oracle. No code comes from x265 or any other encoder. The command-line vocabulary follows x265's so that a command line written for x265 still works. The [contribution rules](CONTRIBUTING.md) have the full policy.
+The encoder is written from the ITU-T H.265 specification. Published papers supplied the algorithms. Two reference decoders check every stream. The command line uses x265's option names for the features both encoders share. The [encoding guide](guide.md#left-out-on-purpose) lists the options it refuses. The [contribution rules](CONTRIBUTING.md) have the full policy.

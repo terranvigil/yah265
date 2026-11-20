@@ -1,0 +1,71 @@
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 480 532' role='img'>
+<title>yah265 needs fewer bits than x265 for the same HDR-VMAF on every cell</title><desc>Bars of the share of bitrate yah265 saves at equal HDR-VMAF, per title and picture size, against x265 and against x265 with its PQ tuning on.</desc>
+<style>
+.bg{fill:#ffffff}.t1{fill:#212529}.t2{fill:#495057}.grid{stroke:#e9ecef}
+.base{stroke:#868e96}.ring{stroke:#ffffff}.med{stroke:#212529}.band{fill:#f1f3f5}
+.s1{fill:#ff4d1a}.s2{fill:#00919a}.s3{fill:#6250d6}.sx{fill:#868e96}
+.l1{stroke:#ff4d1a}.l2{stroke:#00919a}.l3{stroke:#6250d6}.lx{stroke:#868e96}.span{stroke:#dee2e6}
+.note{fill:#b8330a}.wash{fill:#ffe8dc}
+text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+@media (prefers-color-scheme:dark){
+.bg{fill:#1b1c1e}.t1{fill:#e9ecee}.t2{fill:#b6bcc1}.grid{stroke:#2e3135}
+.base{stroke:#8f959a}.ring{stroke:#1b1c1e}.med{stroke:#e9ecee}.band{fill:#23262a}
+.s1{fill:#ff4d1a}.s2{fill:#12a3ad}.s3{fill:#9085e9}.sx{fill:#8f959a}
+.l1{stroke:#ff4d1a}.l2{stroke:#12a3ad}.l3{stroke:#9085e9}.lx{stroke:#8f959a}.span{stroke:#3a3e43}
+.note{fill:#ff8a5c}.wash{fill:#45200f}}
+</style>
+<rect width='100%' height='100%' class='bg'/>
+<text x='20' y='30' font-size='18' class='t1' font-weight='600'>yah265 needs fewer bits than x265 for the</text>
+<text x='20' y='53' font-size='18' class='t1' font-weight='600'>same HDR-VMAF on every cell</text>
+<text x='20' y='73' font-size='12.5' class='t2'>Share of bitrate saved at equal HDR-VMAF v1.1.8. Both encoders at</text>
+<text x='20' y='90' font-size='12.5' class='t2'>preset medium. Longer is better.</text>
+<g transform='translate(0 26)'>
+<text x='24.0' y='104.0' font-size='15' class='t1' text-anchor='start' font-weight='600'>Against x265</text>
+<line x1='218.5' y1='116' x2='218.5' y2='296' class='grid'/>
+<line x1='287.0' y1='116' x2='287.0' y2='296' class='grid'/>
+<line x1='355.5' y1='116' x2='355.5' y2='296' class='grid'/>
+<line x1='424.0' y1='116' x2='424.0' y2='296' class='grid'/>
+<line x1='150.0' y1='116' x2='150.0' y2='296' class='base'/>
+<text x='138.0' y='136.0' font-size='13' class='t1' text-anchor='end'>Sol Levante 1080p</text>
+<path d='M150.0,123.0 H303.5 Q307.5,123.0 307.5,127.0 V135.0 Q307.5,139.0 303.5,139.0 H150.0 Z' class='s1'/>
+<text x='314.5' y='136.0' font-size='13' class='t1' text-anchor='start'>23.0%</text>
+<text x='138.0' y='166.0' font-size='13' class='t1' text-anchor='end'>Sol Levante 4K</text>
+<path d='M150.0,153.0 H267.2 Q271.2,153.0 271.2,157.0 V165.0 Q271.2,169.0 267.2,169.0 H150.0 Z' class='s1'/>
+<text x='278.2' y='166.0' font-size='13' class='t1' text-anchor='start'>17.7%</text>
+<text x='138.0' y='196.0' font-size='13' class='t1' text-anchor='end'>Sparks 1080p</text>
+<path d='M150.0,183.0 H304.9 Q308.9,183.0 308.9,187.0 V195.0 Q308.9,199.0 304.9,199.0 H150.0 Z' class='s1'/>
+<text x='315.9' y='196.0' font-size='13' class='t1' text-anchor='start'>23.2%</text>
+<text x='138.0' y='226.0' font-size='13' class='t1' text-anchor='end'>Sparks 4K</text>
+<path d='M150.0,213.0 H311.8 Q315.8,213.0 315.8,217.0 V225.0 Q315.8,229.0 311.8,229.0 H150.0 Z' class='s1'/>
+<text x='322.8' y='226.0' font-size='13' class='t1' text-anchor='start'>24.2%</text>
+<text x='138.0' y='256.0' font-size='13' class='t1' text-anchor='end'>EBU / DVB HLG 1080p</text>
+<path d='M150.0,243.0 H411.8 Q415.8,243.0 415.8,247.0 V255.0 Q415.8,259.0 411.8,259.0 H150.0 Z' class='s1'/>
+<text x='422.8' y='256.0' font-size='13' class='t1' text-anchor='start'>38.8%</text>
+<text x='138.0' y='286.0' font-size='13' class='t1' text-anchor='end'>EBU / DVB HLG 4K</text>
+<path d='M150.0,273.0 H383.0 Q387.0,273.0 387.0,277.0 V285.0 Q387.0,289.0 383.0,289.0 H150.0 Z' class='s1'/>
+<text x='394.0' y='286.0' font-size='13' class='t1' text-anchor='start'>34.6%</text>
+<text x='24.0' y='320.0' font-size='15' class='t1' text-anchor='start' font-weight='600'>Against x265 with its --hdr10-opt</text>
+<line x1='218.5' y1='332' x2='218.5' y2='452' class='grid'/>
+<line x1='287.0' y1='332' x2='287.0' y2='452' class='grid'/>
+<line x1='355.5' y1='332' x2='355.5' y2='452' class='grid'/>
+<line x1='424.0' y1='332' x2='424.0' y2='452' class='grid'/>
+<line x1='150.0' y1='332' x2='150.0' y2='452' class='base'/>
+<text x='138.0' y='352.0' font-size='13' class='t1' text-anchor='end'>Sol Levante 1080p</text>
+<path d='M150.0,339.0 H183.7 Q187.7,339.0 187.7,343.0 V351.0 Q187.7,355.0 183.7,355.0 H150.0 Z' class='s1'/>
+<text x='194.7' y='352.0' font-size='13' class='t1' text-anchor='start'>5.5%</text>
+<text x='138.0' y='382.0' font-size='13' class='t1' text-anchor='end'>Sol Levante 4K</text>
+<path d='M150.0,369.0 H183.0 Q187.0,369.0 187.0,373.0 V381.0 Q187.0,385.0 183.0,385.0 H150.0 Z' class='s1'/>
+<text x='194.0' y='382.0' font-size='13' class='t1' text-anchor='start'>5.4%</text>
+<text x='138.0' y='412.0' font-size='13' class='t1' text-anchor='end'>Sparks 1080p</text>
+<path d='M150.0,399.0 H271.4 Q275.4,399.0 275.4,403.0 V411.0 Q275.4,415.0 271.4,415.0 H150.0 Z' class='s1'/>
+<text x='282.4' y='412.0' font-size='13' class='t1' text-anchor='start'>18.3%</text>
+<text x='138.0' y='442.0' font-size='13' class='t1' text-anchor='end'>Sparks 4K</text>
+<path d='M150.0,429.0 H272.0 Q276.0,429.0 276.0,433.0 V441.0 Q276.0,445.0 272.0,445.0 H150.0 Z' class='s1'/>
+<text x='283.0' y='442.0' font-size='13' class='t1' text-anchor='start'>18.4%</text>
+<text x='150.0' y='472.0' font-size='12' class='t2' text-anchor='middle'>0%</text>
+<text x='218.5' y='472.0' font-size='12' class='t2' text-anchor='middle'>10%</text>
+<text x='287.0' y='472.0' font-size='12' class='t2' text-anchor='middle'>20%</text>
+<text x='355.5' y='472.0' font-size='12' class='t2' text-anchor='middle'>30%</text>
+<text x='424.0' y='472.0' font-size='12' class='t2' text-anchor='middle'>40%</text>
+</g>
+</svg>

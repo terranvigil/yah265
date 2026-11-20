@@ -121,12 +121,12 @@ The chart shows how much faster each encoder gets when its kernels are switched 
 | CIF | 1.61x / 2.64x | 1.90x / 3.12x | 1.73x / 2.52x | 3 |
 | 720p | 1.42x / 2.81x | 1.74x / 3.58x | 1.48x / 2.63x | 4 |
 | 1080p | 1.98x / 3.37x | 2.28x / 4.19x | 1.89x / 2.95x | 3 |
-| 4K | 1.38x / 2.62x | 1.82x / 3.59x | 1.62x / 2.43x | 2 |
+| 4K | 1.44x / 2.55x | 1.80x / 3.59x | 1.66x / 2.36x | 1 |
 <!--/gen:simd-table-->
 
 SIMD speeds x265 up more than it speeds yah265 up, on every machine and at every size. yah265 starts further ahead in plain C and keeps a smaller lead once the kernels are on. I'd expect part of the reason to be work that has no kernels. The driver's per-frame analysis is scalar C in yah265 ([The lookahead and the driver](threading.md#the-lookahead-and-the-driver)).
 
-The higher tiers add little on top of the base ones at encode level. The [SVE notes](docs/sve.md) and the [x86 SIMD notes](docs/x86-plan.md) have the kernel-by-kernel timings.
+The higher tiers add little on top of the base ones at encode level. The [SVE notes](docs/sve.md) have the kernel-by-kernel timings on arm64.
 
 ## Capped tiers on x86
 
@@ -145,7 +145,7 @@ Each cell is the median over a size's short clips, then the slowest clip.
 | CIF | 1.56x / 1.33x | 1.35x / 1.14x | 1.43x / 1.20x | 3 |
 | 720p | 2.00x / 1.54x | 1.56x / 1.25x | 1.69x / 1.33x | 4 |
 | 1080p | 1.45x / 1.30x | 1.18x / 1.09x | 1.35x / 1.25x | 3 |
-| 4K | 2.33x / 2.22x | 2.22x / 2.00x | 2.33x / 2.08x | 2 |
+| 4K | 2.22x / 2.22x | 2.00x / 2.00x | 2.08x / 2.08x | 1 |
 <!--/gen:capped-table-->
 
 yah265 stays ahead at both caps. AVX2 against AVX2 is the closest pairing, because x265 gains more from AVX2 than yah265 does. yah265 wrote the same stream at all three tiers on every clip.

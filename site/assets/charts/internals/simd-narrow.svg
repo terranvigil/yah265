@@ -1,0 +1,110 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='480' height='894' viewBox='0 0 480 894' role='img'>
+<title>SIMD speeds x265 up more than it speeds yah265 up</title><desc>All-core wall time in plain C over all-core wall time with SIMD, median over each class's short clips, for yah265 and x265 on three machines.</desc>
+<style>
+.bg{fill:#ffffff}.t1{fill:#212529}.t2{fill:#495057}.grid{stroke:#e9ecef}
+.base{stroke:#868e96}.ring{stroke:#ffffff}.med{stroke:#212529}.band{fill:#f1f3f5}
+.s1{fill:#ff4d1a}.s2{fill:#00919a}.s3{fill:#6250d6}.sx{fill:#868e96}
+.l1{stroke:#ff4d1a}.l2{stroke:#00919a}.l3{stroke:#6250d6}.lx{stroke:#868e96}.span{stroke:#dee2e6}
+.note{fill:#b8330a}.wash{fill:#ffe8dc}
+text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+@media (prefers-color-scheme:dark){
+.bg{fill:#1b1c1e}.t1{fill:#e9ecee}.t2{fill:#b6bcc1}.grid{stroke:#2e3135}
+.base{stroke:#8f959a}.ring{stroke:#1b1c1e}.med{stroke:#e9ecee}.band{fill:#23262a}
+.s1{fill:#ff4d1a}.s2{fill:#12a3ad}.s3{fill:#9085e9}.sx{fill:#8f959a}
+.l1{stroke:#ff4d1a}.l2{stroke:#12a3ad}.l3{stroke:#9085e9}.lx{stroke:#8f959a}.span{stroke:#3a3e43}
+.note{fill:#ff8a5c}.wash{fill:#45200f}}
+</style>
+<rect width='100%' height='100%' class='bg'/>
+<text x='20' y='30' font-size='18' class='t1' font-weight='600'>SIMD speeds x265 up more than it speeds</text>
+<text x='20' y='53' font-size='18' class='t1' font-weight='600'>yah265 up</text>
+<text x='20' y='73' font-size='12.5' class='t2'>All-core wall in plain C over all-core wall with SIMD. Median over</text>
+<text x='20' y='90' font-size='12.5' class='t2'>each class's short clips, same file size.</text>
+<g transform='translate(0 26)'>
+<rect x='24' y='80' width='12' height='12' rx='2' class='s1'/>
+<text x='42.0' y='91.0' font-size='13' class='t2' text-anchor='start'>yah265</text>
+<rect x='110' y='80' width='12' height='12' rx='2' class='sx'/>
+<text x='128.0' y='91.0' font-size='13' class='t2' text-anchor='start'>x265</text>
+<text x='24.0' y='126.0' font-size='14' class='t1' text-anchor='start' font-weight='600'>Mac, NEON</text>
+<line x1='82.0' y1='136' x2='82.0' y2='324' class='base'/>
+<text x='82.0' y='340.0' font-size='12' class='t2' text-anchor='middle'>0x</text>
+<line x1='210.8' y1='136' x2='210.8' y2='324' class='grid'/>
+<text x='210.8' y='340.0' font-size='12' class='t2' text-anchor='middle'>2x</text>
+<line x1='339.6' y1='136' x2='339.6' y2='324' class='grid'/>
+<text x='339.6' y='340.0' font-size='12' class='t2' text-anchor='middle'>4x</text>
+<text x='72.0' y='167.0' font-size='13' class='t1' text-anchor='end'>CIF</text>
+<path d='M82.0,149.0 H181.9 Q185.9,149.0 185.9,153.0 V158.0 Q185.9,162.0 181.9,162.0 H82.0 Z' class='s1'/>
+<path d='M82.0,164.0 H248.3 Q252.3,164.0 252.3,168.0 V173.0 Q252.3,177.0 248.3,177.0 H82.0 Z' class='sx'/>
+<text x='191.9' y='160.0' font-size='12' class='t1' text-anchor='start'>1.6x</text>
+<text x='258.3' y='175.0' font-size='12' class='t2' text-anchor='start'>2.6x</text>
+<text x='72.0' y='213.0' font-size='13' class='t1' text-anchor='end'>720p</text>
+<path d='M82.0,195.0 H169.5 Q173.5,195.0 173.5,199.0 V204.0 Q173.5,208.0 169.5,208.0 H82.0 Z' class='s1'/>
+<path d='M82.0,210.0 H258.8 Q262.8,210.0 262.8,214.0 V219.0 Q262.8,223.0 258.8,223.0 H82.0 Z' class='sx'/>
+<text x='179.5' y='206.0' font-size='12' class='t1' text-anchor='start'>1.4x</text>
+<text x='268.8' y='221.0' font-size='12' class='t2' text-anchor='start'>2.8x</text>
+<text x='72.0' y='259.0' font-size='13' class='t1' text-anchor='end'>1080p</text>
+<path d='M82.0,241.0 H205.7 Q209.7,241.0 209.7,245.0 V250.0 Q209.7,254.0 205.7,254.0 H82.0 Z' class='s1'/>
+<path d='M82.0,256.0 H295.0 Q299.0,256.0 299.0,260.0 V265.0 Q299.0,269.0 295.0,269.0 H82.0 Z' class='sx'/>
+<text x='215.7' y='252.0' font-size='12' class='t1' text-anchor='start'>2.0x</text>
+<text x='305.0' y='267.0' font-size='12' class='t2' text-anchor='start'>3.4x</text>
+<text x='72.0' y='305.0' font-size='13' class='t1' text-anchor='end'>4K</text>
+<path d='M82.0,287.0 H170.6 Q174.6,287.0 174.6,291.0 V296.0 Q174.6,300.0 170.6,300.0 H82.0 Z' class='s1'/>
+<path d='M82.0,302.0 H242.2 Q246.2,302.0 246.2,306.0 V311.0 Q246.2,315.0 242.2,315.0 H82.0 Z' class='sx'/>
+<text x='180.6' y='298.0' font-size='12' class='t1' text-anchor='start'>1.4x</text>
+<text x='252.2' y='313.0' font-size='12' class='t2' text-anchor='start'>2.5x</text>
+<text x='24.0' y='370.0' font-size='14' class='t1' text-anchor='start' font-weight='600'>x86-64, AVX-512</text>
+<line x1='82.0' y1='380' x2='82.0' y2='568' class='base'/>
+<text x='82.0' y='584.0' font-size='12' class='t2' text-anchor='middle'>0x</text>
+<line x1='210.8' y1='380' x2='210.8' y2='568' class='grid'/>
+<text x='210.8' y='584.0' font-size='12' class='t2' text-anchor='middle'>2x</text>
+<line x1='339.6' y1='380' x2='339.6' y2='568' class='grid'/>
+<text x='339.6' y='584.0' font-size='12' class='t2' text-anchor='middle'>4x</text>
+<text x='72.0' y='411.0' font-size='13' class='t1' text-anchor='end'>CIF</text>
+<path d='M82.0,393.0 H200.6 Q204.6,393.0 204.6,397.0 V402.0 Q204.6,406.0 200.6,406.0 H82.0 Z' class='s1'/>
+<path d='M82.0,408.0 H278.7 Q282.7,408.0 282.7,412.0 V417.0 Q282.7,421.0 278.7,421.0 H82.0 Z' class='sx'/>
+<text x='210.6' y='404.0' font-size='12' class='t1' text-anchor='start'>1.9x</text>
+<text x='288.7' y='419.0' font-size='12' class='t2' text-anchor='start'>3.1x</text>
+<text x='72.0' y='457.0' font-size='13' class='t1' text-anchor='end'>720p</text>
+<path d='M82.0,439.0 H190.1 Q194.1,439.0 194.1,443.0 V448.0 Q194.1,452.0 190.1,452.0 H82.0 Z' class='s1'/>
+<path d='M82.0,454.0 H308.5 Q312.5,454.0 312.5,458.0 V463.0 Q312.5,467.0 308.5,467.0 H82.0 Z' class='sx'/>
+<text x='200.1' y='450.0' font-size='12' class='t1' text-anchor='start'>1.7x</text>
+<text x='318.5' y='465.0' font-size='12' class='t2' text-anchor='start'>3.6x</text>
+<text x='72.0' y='503.0' font-size='13' class='t1' text-anchor='end'>1080p</text>
+<path d='M82.0,485.0 H224.8 Q228.8,485.0 228.8,489.0 V494.0 Q228.8,498.0 224.8,498.0 H82.0 Z' class='s1'/>
+<path d='M82.0,500.0 H347.8 Q351.8,500.0 351.8,504.0 V509.0 Q351.8,513.0 347.8,513.0 H82.0 Z' class='sx'/>
+<text x='234.8' y='496.0' font-size='12' class='t1' text-anchor='start'>2.3x</text>
+<text x='357.8' y='511.0' font-size='12' class='t2' text-anchor='start'>4.2x</text>
+<text x='72.0' y='549.0' font-size='13' class='t1' text-anchor='end'>4K</text>
+<path d='M82.0,531.0 H194.1 Q198.1,531.0 198.1,535.0 V540.0 Q198.1,544.0 194.1,544.0 H82.0 Z' class='s1'/>
+<path d='M82.0,546.0 H309.1 Q313.1,546.0 313.1,550.0 V555.0 Q313.1,559.0 309.1,559.0 H82.0 Z' class='sx'/>
+<text x='204.1' y='542.0' font-size='12' class='t1' text-anchor='start'>1.8x</text>
+<text x='319.1' y='557.0' font-size='12' class='t2' text-anchor='start'>3.6x</text>
+<text x='24.0' y='614.0' font-size='14' class='t1' text-anchor='start' font-weight='600'>Graviton4, SVE2</text>
+<line x1='82.0' y1='624' x2='82.0' y2='812' class='base'/>
+<text x='82.0' y='828.0' font-size='12' class='t2' text-anchor='middle'>0x</text>
+<line x1='210.8' y1='624' x2='210.8' y2='812' class='grid'/>
+<text x='210.8' y='828.0' font-size='12' class='t2' text-anchor='middle'>2x</text>
+<line x1='339.6' y1='624' x2='339.6' y2='812' class='grid'/>
+<text x='339.6' y='828.0' font-size='12' class='t2' text-anchor='middle'>4x</text>
+<text x='72.0' y='655.0' font-size='13' class='t1' text-anchor='end'>CIF</text>
+<path d='M82.0,637.0 H189.2 Q193.2,637.0 193.2,641.0 V646.0 Q193.2,650.0 189.2,650.0 H82.0 Z' class='s1'/>
+<path d='M82.0,652.0 H240.4 Q244.4,652.0 244.4,656.0 V661.0 Q244.4,665.0 240.4,665.0 H82.0 Z' class='sx'/>
+<text x='199.2' y='648.0' font-size='12' class='t1' text-anchor='start'>1.7x</text>
+<text x='250.4' y='663.0' font-size='12' class='t2' text-anchor='start'>2.5x</text>
+<text x='72.0' y='701.0' font-size='13' class='t1' text-anchor='end'>720p</text>
+<path d='M82.0,683.0 H173.6 Q177.6,683.0 177.6,687.0 V692.0 Q177.6,696.0 173.6,696.0 H82.0 Z' class='s1'/>
+<path d='M82.0,698.0 H247.3 Q251.3,698.0 251.3,702.0 V707.0 Q251.3,711.0 247.3,711.0 H82.0 Z' class='sx'/>
+<text x='183.6' y='694.0' font-size='12' class='t1' text-anchor='start'>1.5x</text>
+<text x='257.3' y='709.0' font-size='12' class='t2' text-anchor='start'>2.6x</text>
+<text x='72.0' y='747.0' font-size='13' class='t1' text-anchor='end'>1080p</text>
+<path d='M82.0,729.0 H200.0 Q204.0,729.0 204.0,733.0 V738.0 Q204.0,742.0 200.0,742.0 H82.0 Z' class='s1'/>
+<path d='M82.0,744.0 H267.8 Q271.8,744.0 271.8,748.0 V753.0 Q271.8,757.0 267.8,757.0 H82.0 Z' class='sx'/>
+<text x='210.0' y='740.0' font-size='12' class='t1' text-anchor='start'>1.9x</text>
+<text x='277.8' y='755.0' font-size='12' class='t2' text-anchor='start'>2.9x</text>
+<text x='72.0' y='793.0' font-size='13' class='t1' text-anchor='end'>4K</text>
+<path d='M82.0,775.0 H184.8 Q188.8,775.0 188.8,779.0 V784.0 Q188.8,788.0 184.8,788.0 H82.0 Z' class='s1'/>
+<path d='M82.0,790.0 H229.9 Q233.9,790.0 233.9,794.0 V799.0 Q233.9,803.0 229.9,803.0 H82.0 Z' class='sx'/>
+<text x='194.8' y='786.0' font-size='12' class='t1' text-anchor='start'>1.7x</text>
+<text x='239.9' y='801.0' font-size='12' class='t2' text-anchor='start'>2.4x</text>
+<text x='240.0' y='854.0' font-size='13' class='t2' text-anchor='middle'>times faster with SIMD than without (longer is a bigger gain)</text>
+</g>
+</svg>

@@ -17,7 +17,10 @@ into site/assets/charts/internals/:
                    clips, both encoders
 
 and refills every `<!--gen:NAME-->...<!--/gen:NAME-->` span in
-site/architectures.md and site/threading.md. It also checks that the
+site/architectures.md and site/threading.md. Rows come through
+blog_charts.report_rows(), which leaves out the titles on
+blog_charts.EXCLUDED, and each chart is written twice, as name.svg and as
+name-narrow.svg for phones. It also checks that the
 "Supported today" table on the architectures page has the same rows, in
 the same order, as the summary report's coverage table.
 
@@ -25,7 +28,6 @@ the same order, as the summary report's coverage table.
     scripts/charts_internals.py --check    # exit 1 if a page or a chart is stale
 """
 import argparse
-import csv
 import glob
 import json
 import os
@@ -42,10 +44,9 @@ PAGES = [os.path.join(ROOT, "site/architectures.md"), os.path.join(ROOT, "site/t
 ARCH_PAGE = PAGES[0]
 GEN = re.compile(r"<!--gen:([a-z0-9-]+)-->(.*?)<!--/gen:\1-->", re.S)
 
-GOAL_LABEL = {"G1": "One thread, plain C", "G2": "All cores, plain C", "G3": "All cores, SIMD"}
-PAIRS = [("sse42", "ours@sse42", "ref@sse42", "both at SSE4.2"),
-         ("avx2", "ours@avx2", "ref@avx2", "both at AVX2"),
-         ("avx512", "ours", "ref@avx2", "yah265 at AVX-512, x265 at AVX2")]
+GOAL_LABEL = {"G3": "As shipped: all cores, SIMD", "G1": "One thread, plain C",
+              "G2": "All cores, plain C"}
+PAIRS = bc.CAPPED_PAIRS
 # how far two encodes' x265 byte counts may differ and still be the same
 # span of the same clip (the one-thread x265 arm codes slightly other pictures)
 SAME_SPAN = 0.05
@@ -106,34 +107,6 @@ def wall_ratio(cells, num, den):
             for c, v in acc.items()}
 
 
-def capped_run(path, report_md):
-    """class -> {pair: (median ratio, slowest ratio, cells)} from the capped
-    run's records: per cell and arm the median wall over its rounds. Checked
-    against the table the x86 report prints."""
-    walls = {}
-    for line in open(path):
-        r = json.loads(line)
-        if r.get("goal") != "G3" or "wall_s" not in r or r.get("rc") != 0:
-            continue
-        walls.setdefault((r["cell"], r["arm"]), []).append(r["wall_s"])
-    cells = sorted({c for c, _ in walls})
-    acc = {}
-    for cell in cells:
-        cls = cell.split("_")[1]
-        for key, a, b, _ in PAIRS:
-            ratio = round(st.median(walls[(cell, a)]) / st.median(walls[(cell, b)]), 2)
-            acc.setdefault(cls, {}).setdefault(key, []).append(ratio)
-    out = {c: {k: (st.median(v), max(v), len(v)) for k, v in d.items()} for c, d in acc.items()}
-    printed = bc.capped(report_md)
-    for c, d in printed.items():
-        for k in ("sse42", "avx2"):
-            for mine, theirs in zip(out[c][k][:2], d[k]):
-                if abs(mine - theirs) > 0.011:
-                    sys.exit(f"capped run, {c} {k}: {mine:.2f} from the records, "
-                             f"{theirs:.2f} in {os.path.basename(report_md)}")
-    return out
-
-
 def coverage_rows(md_path):
     """First column of the summary report's instruction-set coverage table."""
     rows, on = [], False
@@ -167,10 +140,13 @@ def chart_machines(sps):
         if slow:
             sys.exit(f"{m}: median over 1.00 in {slow}; the chart's title no longer holds")
     vals = [faster(v[0]) for sp in sps.values() for v in sp.values()]
-    W, L, R, Tp, B = 900, 150, 24, 148, 62
+    nw = bc.NARROW
+    W, L, R, Tp, B = bc.width(), bc.pick(150, 120), 24, 148, 62
     gap, rowh = 22, 34
-    pw = (W - L - R - 2 * gap) / 3
-    H = Tp + B + rowh * len(rows)
+    body = rowh * len(rows)
+    step = body + 66
+    pw = W - L - R if nw else (W - L - R - 2 * gap) / 3
+    H = Tp + B + (step * 3 - 66 if nw else body)
     x0, x1 = 1.0, max(2.0, int(max(vals) + 0.999))
     o = head(W, H, "yah265 is faster than x265 at all three goals on all three machines",
                 "Median times faster than x265 medium at the same file size, per class and "
@@ -181,20 +157,24 @@ def chart_machines(sps):
     o.append(bc.T(24, 64, "Median times faster than x265 medium at the same file size, per "
                           "class and clip length.", 14, "t2"))
     bc.legend(o, [(i, f"s{i + 1}", bc.MACHINE_LABEL[m]) for i, m in enumerate(bc.MACHINES)])
-    for p, goal in enumerate(bc.GOALS):
-        px = L + p * (pw + gap)
+    for p, goal in enumerate(bc.GOAL_ORDER):
+        px = L if nw else L + p * (pw + gap)
+        py = Tp + (p * step if nw else 0)
         X = lambda v: px + 10 + (v - x0) / (x1 - x0) * (pw - 20)
-        o.append(bc.T(px + 10, Tp - 16, GOAL_LABEL[goal], 14, "t1", weight="600"))
+        o.append(bc.T(24 if nw else px + 10, py - 16, GOAL_LABEL[goal], 14, "t1", weight="600"))
         v = x0
         while v <= x1 + 1e-9:
             cls = "base" if v == 1 else "grid"
             dash = " stroke-dasharray='4 3'" if v == 1 else ""
-            o.append(f"<line x1='{X(v):.1f}' y1='{Tp - 6}' x2='{X(v):.1f}' y2='{H - B}' "
+            o.append(f"<line x1='{X(v):.1f}' y1='{py - 6}' x2='{X(v):.1f}' y2='{py + body}' "
                      f"class='{cls}'{dash}/>")
-            o.append(bc.T(X(v), H - B + 18, f"{v:g}x", 12, "t2", "middle"))
+            o.append(bc.T(X(v), py + body + 18, f"{v:g}x", 12, "t2", "middle"))
             v += 1
         for i, (c, t) in enumerate(rows):
-            y = Tp + rowh * (i + 0.5)
+            y = py + rowh * (i + 0.5)
+            if nw or p == 0:
+                o.append(bc.T(L - 8, y - 1, bc.RES[c], 13, "t1", "end"))
+                o.append(bc.T(L - 8, y + 12, bc.TIER_LABEL[t], 11, "t2", "end"))
             got = {m: faster(sps[m][(c, t, goal)][0]) for m in bc.MACHINES
                    if (c, t, goal) in sps[m]}
             if len(got) > 1:
@@ -207,10 +187,6 @@ def chart_machines(sps):
                 close = [k for k in bc.MACHINES if k in got and abs(got[k] - got[m]) < 0.12]
                 dy = 0 if len(close) == 1 else (close.index(m) - (len(close) - 1) / 2) * 9
                 o.append(bc.marker(j, X(got[m]), y + dy, f"s{j + 1}", 5))
-    for i, (c, t) in enumerate(rows):
-        y = Tp + rowh * (i + 0.5)
-        o.append(bc.T(L - 8, y - 1, bc.RES[c], 13, "t1", "end"))
-        o.append(bc.T(L - 8, y + 12, bc.TIER_LABEL[t], 11, "t2", "end"))
     o.append(bc.T((L + W - R) / 2, H - 14, "times faster than x265 (1x is level, right is faster)",
                   13, "t2", "middle"))
     o.append("</svg>")
@@ -253,10 +229,12 @@ def chart_simd(gain):
         if any(o >= x for o, x, _ in d.values()):
             sys.exit(f"{m}: SIMD buys yah265 as much as x265 in some class; "
                      "the chart's title no longer holds")
-    W, Tp = 900, 140
-    pw = (W - 48 - 2 * 20) / 3
+    nw = bc.NARROW
+    W, Tp = bc.width(), 140
+    pw = W - 48 if nw else (W - 48 - 2 * 20) / 3
     xmax = int(max(x for d in gain.values() for _, x, _ in d.values()) + 0.999)
-    H = Tp + 46 * 4 + 56
+    step = 46 * 4 + 60
+    H = Tp + 46 * 4 + 56 + (2 * step if nw else 0)
     o = head(W, H, "SIMD speeds x265 up more than it speeds yah265 up",
                 "All-core wall time in plain C over all-core wall time with SIMD, median "
                 "over each class's short clips, for yah265 and x265 on three machines.")
@@ -265,7 +243,8 @@ def chart_simd(gain):
                           "each class's short clips, same file size.", 14, "t2"))
     pair_legend(o)
     for p, m in enumerate(bc.MACHINES):
-        yb = paired_panel(o, 24 + p * (pw + 20), pw, Tp, bc.MACHINE_LABEL[m], gain[m], xmax)
+        yb = paired_panel(o, 24 + (0 if nw else p * (pw + 20)), pw, Tp + (p * step if nw else 0),
+                          bc.MACHINE_LABEL[m], gain[m], xmax)
     o.append(bc.T(W / 2, yb + 42, "times faster with SIMD than without (longer is a bigger gain)",
                   13, "t2", "middle"))
     o.append("</svg>")
@@ -273,7 +252,7 @@ def chart_simd(gain):
 
 
 def chart_threads(scale, cores):
-    W, Tp = 720, 140
+    W, Tp = bc.width(720), 140
     top = max(max(o, x) for o, x, _ in scale.values())
     step = bc.nice_step(top, 4)
     xmax = step * int(top / step + 0.999)
@@ -298,7 +277,7 @@ def chart_capped(cap):
         sys.exit("capped run: a cell is slower than x265; the chart's title no longer holds")
     classes = [c for c in bc.CLASSES if c in cap]
     vals = [faster(v[0]) for d in cap.values() for v in d.values()]
-    W, L, R, Tp, B, rowh = 900, 110, 40, 116, 62, 44
+    W, L, R, Tp, B, rowh = bc.width(), bc.pick(110, 70), bc.pick(40, 22), 116, 62, 44
     H = Tp + B + rowh * len(classes)
     x0, x1 = 0.75, max(2.0, int(max(vals) * 2 + 1.999) / 2)
     X = lambda v: L + (v - x0) / (x1 - x0) * (W - L - R)
@@ -391,23 +370,20 @@ def main():
              "x86": bc.newest(rf"PARITY-REPORT-yah265-x86-{D}\.csv"),
              "g4": bc.newest(rf"PARITY-REPORT-yah265-graviton-{D}\.csv")}
     summary = bc.newest(rf"PARITY-REPORT-yah265-all-isa-{D}\.md")
-    records = sorted(glob.glob(os.path.join(ROOT, "docs/data/cloud-tables-*/records/x86T.jsonl")))
-    if not records:
-        sys.exit("no capped-tier records (docs/data/cloud-tables-*/records/x86T.jsonl)")
-    rows = {m: list(csv.DictReader(open(p))) for m, p in paths.items()}
+    rows = {m: bc.report_rows(p) for m, p in paths.items()}
     sps = {m: bc.speed_groups(rs) for m, rs in rows.items()}
     cells = {m: short_cells(rs) for m, rs in rows.items()}
     gain = {m: wall_ratio(c, "G2", "G3") for m, c in cells.items()}
     scale = wall_ratio(cells["mac"], "G1", "G2")
-    cap = capped_run(records[-1], paths["x86"][:-4] + ".md")
+    cap = bc.capped_run(bc.capped_records(), paths["x86"][:-4] + ".md")
     cores = re.search(r"^- Mac: .*?(\d+) cores", open(summary).read(), re.M)
     if not cores:
         sys.exit(f"{summary}: no Mac core count")
 
-    charts = {"machines.svg": chart_machines(sps),
-              "simd.svg": chart_simd(gain),
-              "capped.svg": chart_capped(cap),
-              "threads.svg": chart_threads(scale, cores[1])}
+    charts = bc.render({"machines.svg": lambda: chart_machines(sps),
+                        "simd.svg": lambda: chart_simd(gain),
+                        "capped.svg": lambda: chart_capped(cap),
+                        "threads.svg": lambda: chart_threads(scale, cores[1])})
     V = {"capped-table": table_capped(cap),
          "simd-table": table_simd(gain),
          "threads-table": table_threads(scale)}

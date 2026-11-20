@@ -252,14 +252,25 @@ figure.compare { margin: 2.2rem 0; }
 .cmp.on .cmp-pane.show { display: block; }
 figure.compare .cmp + .cmp { margin-top: 1rem; }
 
-/* a chart's labels are drawn for a 900-unit canvas. On a phone it pans
-   like a table instead of shrinking past reading */
+/* every chart has a second drawing for a 480-unit canvas, and the build
+   hands that one to a phone, so a chart fits the column at any width */
 @media (max-width: 40rem) {
-  figure.chart { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  figure.chart img { width: 40rem; max-width: none; }
-  figure.chart figcaption { position: sticky; left: 0; }
   .cmp-where { width: 4.6rem; }
+  /* a three-column table can't fit: each row becomes a block, with the
+     first cell as its heading */
+  .tbl table.stack, .tbl table.stack tbody, .tbl table.stack tr, .tbl table.stack td { display: block; }
+  .tbl table.stack thead { display: none; }
+  .tbl table.stack tr { padding: 0.55rem 0; border-bottom: 1px solid var(--hairline); }
+  .tbl table.stack td { border: 0; padding: 0.1rem 0; }
+  .tbl table.stack td code { white-space: normal; overflow-wrap: anywhere; }
+  .tbl table.stack td:nth-child(2)::before { content: "default: "; color: var(--ink-3); }
 }
+
+details.data { margin: 1.2rem 0; border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); }
+details.data > summary { cursor: pointer; padding: 0.6rem 0; font-family: var(--sans); font-size: 0.85rem; font-weight: 600; color: var(--ink-2); }
+details.data > summary:hover { color: var(--accent); }
+details.data[open] > summary { border-bottom: 1px solid var(--hairline); }
+figure.chart picture { display: block; }
 
 /* diagram classes: the only way a diagram takes color */
 .d-box { fill: var(--surface); stroke: var(--ink-3); stroke-width: 1.5; }

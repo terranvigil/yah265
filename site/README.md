@@ -31,6 +31,8 @@ Every build ends with a link check. It fails when:
 - a `#fragment` names an id the page doesn't have
 - an image isn't among the built files, or loads from another site
 - a repository link names a file that doesn't exist or that git ignores
+- a page or the top-level README links a working note that isn't published,
+  such as the plan or a phase log. `PRIVATE` in `scripts/build_site.py` lists them
 
 `--strict` also fails on a page with no `description`, on a repository link
 to an untracked file, and on a stale chart. It learns that a chart is stale
@@ -69,7 +71,18 @@ top bar, the side rail and the previous and next links all follow it.
 
 A chart is an image inside `<figure class="chart">`. The image file holds
 both its light and its dark colors because a page's styles can't reach
-into an image.
+into an image. Each chart script draws every chart twice, once 900 units
+wide and once 480 units wide as `name-narrow.svg`. A page names the wide
+one. The builder hands a phone the narrow one.
+
+Speed is written as times faster on every chart and table, and right is
+faster. A chart script reads the parity rows through
+`blog_charts.report_rows()`, which leaves out the titles on
+`blog_charts.EXCLUDED`. The headline figures come from
+`blog_charts.headline_cells()` and nowhere else.
+
+A page with no `image` of its own gets the launch post's social card. A
+long per-cell table goes inside `<details class="data" markdown="1">`.
 
 A diagram is inline SVG inside `<figure class="diagram">`, drawn on a
 `viewBox` 720 units wide. It takes color only from these classes:

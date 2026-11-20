@@ -1,0 +1,249 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='480' height='660' viewBox='0 0 480 660' role='img'>
+<title>All 95 of yah265's VBR rungs come within 10% of their target</title><desc>Dot plot of VBR rate error per rung for every real-title cell, yah265 and x265.</desc>
+<style>
+.bg{fill:#ffffff}.t1{fill:#212529}.t2{fill:#495057}.grid{stroke:#e9ecef}
+.base{stroke:#868e96}.ring{stroke:#ffffff}.med{stroke:#212529}.band{fill:#f1f3f5}
+.s1{fill:#ff4d1a}.s2{fill:#00919a}.s3{fill:#6250d6}.sx{fill:#868e96}
+.l1{stroke:#ff4d1a}.l2{stroke:#00919a}.l3{stroke:#6250d6}.lx{stroke:#868e96}.span{stroke:#dee2e6}
+.note{fill:#b8330a}.wash{fill:#ffe8dc}
+text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+@media (prefers-color-scheme:dark){
+.bg{fill:#1b1c1e}.t1{fill:#e9ecee}.t2{fill:#b6bcc1}.grid{stroke:#2e3135}
+.base{stroke:#8f959a}.ring{stroke:#1b1c1e}.med{stroke:#e9ecee}.band{fill:#23262a}
+.s1{fill:#ff4d1a}.s2{fill:#12a3ad}.s3{fill:#9085e9}.sx{fill:#8f959a}
+.l1{stroke:#ff4d1a}.l2{stroke:#12a3ad}.l3{stroke:#9085e9}.lx{stroke:#8f959a}.span{stroke:#3a3e43}
+.note{fill:#ff8a5c}.wash{fill:#45200f}}
+</style>
+<rect width='100%' height='100%' class='bg'/>
+<text x='20' y='30' font-size='18' class='t1' font-weight='600'>All 95 of yah265's VBR rungs come within</text>
+<text x='20' y='53' font-size='18' class='t1' font-weight='600'>10% of their target</text>
+<text x='20' y='73' font-size='12.5' class='t2'>Achieved bitrate against the target over the whole cell, five rungs</text>
+<text x='20' y='90' font-size='12.5' class='t2'>per encoder. The shaded band is yah265's ±10% bar.</text>
+<g transform='translate(0 26)'>
+<circle cx='30.0' cy='86.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='42.0' y='91.0' font-size='11.5' class='t2' text-anchor='start'>yah265</text>
+<rect x='90.5' y='81.0' width='9.9' height='9.9' rx='1.5' class='sx ring' stroke-width='2'/>
+<text x='107.4' y='91.0' font-size='11.5' class='t2' text-anchor='start'>x265</text>
+<rect x='248.0' y='108' width='168.0' height='464' class='band'/>
+<line x1='206.0' y1='108.0' x2='206.0' y2='572.0' class='grid' stroke-width='1'/>
+<line x1='248.0' y1='108.0' x2='248.0' y2='572.0' class='grid' stroke-width='1'/>
+<text x='248.0' y='592.0' font-size='12' class='t2' text-anchor='middle'>-10%</text>
+<line x1='290.0' y1='108.0' x2='290.0' y2='572.0' class='grid' stroke-width='1'/>
+<line x1='332.0' y1='108.0' x2='332.0' y2='572.0' class='base' stroke-width='1.5'/>
+<text x='332.0' y='592.0' font-size='12' class='t2' text-anchor='middle'>target</text>
+<line x1='374.0' y1='108.0' x2='374.0' y2='572.0' class='grid' stroke-width='1'/>
+<line x1='416.0' y1='108.0' x2='416.0' y2='572.0' class='grid' stroke-width='1'/>
+<text x='416.0' y='592.0' font-size='12' class='t2' text-anchor='middle'>+10%</text>
+<line x1='458.0' y1='108.0' x2='458.0' y2='572.0' class='grid' stroke-width='1'/>
+<text x='194.0' y='132.0' font-size='11' class='t1' text-anchor='end'>Sol Levante 1080p (2 min)</text>
+<rect x='277.2' y='128.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='271.2' y='128.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='266.4' y='128.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='263.2' y='128.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='262.2' y='128.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<circle cx='305.2' cy='124.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='298.3' cy='124.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='297.4' cy='124.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='295.9' cy='124.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='293.3' cy='124.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='156.0' font-size='11' class='t1' text-anchor='end'>Sol Levante 4K (2 min)</text>
+<rect x='265.5' y='152.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='261.0' y='152.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='260.1' y='152.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='260.7' y='152.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='264.0' y='152.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<circle cx='297.0' cy='148.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='299.9' cy='148.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='291.5' cy='148.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='290.9' cy='148.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='280.4' cy='148.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='180.0' font-size='11' class='t1' text-anchor='end'>Tears of Steel 720p (10 min)</text>
+<rect x='342.3' y='176.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='342.0' y='176.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='342.1' y='176.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='342.0' y='176.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='341.8' y='176.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<circle cx='332.1' cy='172.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='332.8' cy='172.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='333.5' cy='172.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='333.7' cy='172.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='333.9' cy='172.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='204.0' font-size='11' class='t1' text-anchor='end'>Tears of Steel 1080p (10 min)</text>
+<rect x='343.0' y='200.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='342.8' y='200.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='342.6' y='200.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='342.5' y='200.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='343.0' y='200.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<circle cx='334.0' cy='196.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='334.9' cy='196.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='335.4' cy='196.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='335.8' cy='196.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='336.0' cy='196.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='228.0' font-size='11' class='t1' text-anchor='end'>Tears of Steel 4K (10 min)</text>
+<rect x='338.8' y='224.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='339.7' y='224.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='342.1' y='224.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='339.1' y='224.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='332.4' y='224.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<circle cx='332.2' cy='220.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='333.1' cy='220.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='334.0' cy='220.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='335.0' cy='220.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='334.1' cy='220.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='252.0' font-size='11' class='t1' text-anchor='end'>StEM2 720p (10 min)</text>
+<rect x='246.0' y='248.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='242.7' y='248.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='242.9' y='248.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='248.0' y='248.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='260.5' y='248.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<circle cx='282.9' cy='244.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='287.7' cy='244.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='286.4' cy='244.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='289.1' cy='244.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='294.7' cy='244.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='276.0' font-size='11' class='t1' text-anchor='end'>StEM2 1080p (10 min)</text>
+<rect x='237.5' y='272.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='235.0' y='272.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='238.2' y='272.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='250.8' y='272.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='281.4' y='272.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<circle cx='278.7' cy='268.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='288.1' cy='268.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='287.7' cy='268.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='293.6' cy='268.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='295.9' cy='268.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='300.0' font-size='11' class='t1' text-anchor='end'>StEM2 4K (10 min)</text>
+<rect x='228.4' y='296.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='238.7' y='296.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='267.3' y='296.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='290.0' y='296.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='296.9' y='296.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<circle cx='288.7' cy='292.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='285.0' cy='292.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='294.0' cy='292.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='297.7' cy='292.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='293.3' cy='292.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='324.0' font-size='11' class='t1' text-anchor='end'>Sintel 720p (10 min)</text>
+<rect x='300.7' y='320.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='300.6' y='320.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='300.5' y='320.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='301.0' y='320.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='301.6' y='320.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<circle cx='267.7' cy='316.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='269.6' cy='316.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='272.3' cy='316.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='275.3' cy='316.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='278.9' cy='316.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='348.0' font-size='11' class='t1' text-anchor='end'>Sintel 1080p (10 min)</text>
+<rect x='303.1' y='344.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='303.5' y='344.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='304.1' y='344.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='304.5' y='344.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='305.2' y='344.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<circle cx='283.1' cy='340.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='286.8' cy='340.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='290.0' cy='340.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='293.4' cy='340.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='296.9' cy='340.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='372.0' font-size='11' class='t1' text-anchor='end'>Sintel 4K (10 min)</text>
+<rect x='310.2' y='368.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='310.7' y='368.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='311.2' y='368.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='311.6' y='368.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='311.4' y='368.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<circle cx='309.5' cy='364.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='317.2' cy='364.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='320.5' cy='364.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='322.2' cy='364.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='322.5' cy='364.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='396.0' font-size='11' class='t1' text-anchor='end'>Big Buck Bunny 720p (10 min)</text>
+<rect x='310.1' y='392.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='306.5' y='392.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='303.1' y='392.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='300.8' y='392.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='299.2' y='392.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<circle cx='320.7' cy='388.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='321.7' cy='388.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='322.7' cy='388.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='323.8' cy='388.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='324.5' cy='388.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='420.0' font-size='11' class='t1' text-anchor='end'>Big Buck Bunny 1080p (10 min)</text>
+<rect x='299.8' y='416.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='297.0' y='416.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='295.4' y='416.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='294.5' y='416.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='294.3' y='416.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<circle cx='322.6' cy='412.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='323.0' cy='412.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='323.2' cy='412.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='323.6' cy='412.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='324.1' cy='412.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='444.0' font-size='11' class='t1' text-anchor='end'>Big Buck Bunny 4K (10 min)</text>
+<rect x='296.3' y='440.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='294.7' y='440.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='294.3' y='440.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='294.4' y='440.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='294.4' y='440.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<circle cx='324.0' cy='436.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='324.3' cy='436.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='324.8' cy='436.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='325.0' cy='436.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='325.4' cy='436.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='468.0' font-size='11' class='t1' text-anchor='end'>Cosmos Laundromat 720p (10 min)</text>
+<rect x='327.7' y='464.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='326.4' y='464.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='325.6' y='464.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='325.4' y='464.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='325.5' y='464.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<circle cx='316.7' cy='460.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='313.6' cy='460.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='311.0' cy='460.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='309.7' cy='460.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='309.9' cy='460.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='492.0' font-size='11' class='t1' text-anchor='end'>Cosmos Laundromat 1080p (10 min)</text>
+<rect x='323.0' y='488.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='321.9' y='488.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='322.3' y='488.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='323.4' y='488.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='323.8' y='488.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<circle cx='311.6' cy='484.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='308.9' cy='484.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='307.6' cy='484.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='307.8' cy='484.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='309.7' cy='484.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='516.0' font-size='11' class='t1' text-anchor='end'>Nocturne 720p (10 min)</text>
+<rect x='365.7' y='512.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='365.6' y='512.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='359.6' y='512.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='351.2' y='512.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='339.9' y='512.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<circle cx='326.7' cy='508.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='325.8' cy='508.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='324.7' cy='508.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='323.2' cy='508.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='320.9' cy='508.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='540.0' font-size='11' class='t1' text-anchor='end'>Nocturne 1080p (10 min)</text>
+<rect x='357.6' y='536.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='353.2' y='536.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='343.3' y='536.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='327.5' y='536.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='322.6' y='536.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<circle cx='326.6' cy='532.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='323.9' cy='532.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='320.6' cy='532.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='318.1' cy='532.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='321.4' cy='532.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='564.0' font-size='11' class='t1' text-anchor='end'>Nocturne 4K (10 min)</text>
+<rect x='344.0' y='560.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='329.6' y='560.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='321.0' y='560.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='323.4' y='560.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='325.3' y='560.9' width='6.1' height='6.1' rx='1.5' class='sx ring' stroke-width='2'/>
+<circle cx='323.1' cy='556.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='319.9' cy='556.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='322.7' cy='556.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='325.4' cy='556.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<circle cx='326.9' cy='556.0' r='3.8' class='s1 ring' stroke-width='2'/>
+<text x='240.0' y='620.0' font-size='13' class='t2' text-anchor='middle'>achieved bitrate against the target (left is under)</text>
+</g>
+</svg>

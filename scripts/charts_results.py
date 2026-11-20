@@ -8,7 +8,7 @@ all-architecture summary and the rate ladders in
 docs/data/parity-spec-ladders.json. Writes seven charts into
 site/assets/charts/results/:
 
-    speed.svg      the Mac's encode time over x265's, per class, tier and goal
+    speed.svg      times faster than x265 on the Mac, per class, tier and goal
     machines.svg   the same medians on the Mac, the Xeon and Graviton4
     quality.svg    VMAF v1 lead at the matched file size, per class and tier
     curves.svg     VMAF v1 against bitrate for every real-title cell
@@ -18,12 +18,17 @@ site/assets/charts/results/:
 
 and refills every `<!--gen:NAME-->...<!--/gen:NAME-->` span in
 site/results.md, so no table row or chart caption there is typed by hand.
+Rows come through blog_charts.report_rows(), which leaves out the titles
+on blog_charts.EXCLUDED, so every median here is taken again from the
+per-cell rows. The reading code is first checked, every title in, against
+the all-architecture report's own tables. Each chart is written twice, as
+name.svg and as name-narrow.svg for phones.
 
     scripts/charts_results.py            # newest reports
     scripts/charts_results.py --check    # exit 1 if the page or a chart is stale
 """
 import argparse
-import csv
+import glob
 import json
 import math
 import os
@@ -43,7 +48,8 @@ LADDERS_REL = "docs/data/parity-spec-ladders.json"
 CLASSES, TIERS, GOALS, MACHINES = B.CLASSES, B.TIERS, B.GOALS, B.MACHINES
 RES, TITLE = B.RES, B.TITLE
 TIER_LABEL = {"S": "short clips", "M": "2-minute segments", "L": "10-minute films"}
-GOAL_LABEL = {"G1": "G1: C, one thread", "G2": "G2: C, all cores", "G3": "G3: SIMD, all cores"}
+GOAL_LABEL = {"G3": "G3: SIMD, all cores", "G1": "G1: C, one thread", "G2": "G2: C, all cores"}
+GOAL_ORDER = B.GOAL_ORDER
 MEDIAN_BAR, WORST_BAR = 1.00, 1.15
 DV_MEDIAN, DV_CELL = -0.5, -1.0
 BD_BAR, TRACK_BAR = B.BD_BAR, 10.0
@@ -176,95 +182,111 @@ def hline(x0, x1, y, cls="grid", w=1):
 
 
 def row_label(c, t):
-    return f"{RES[c]} {TIER_LABEL[t]}"
+    return f"{RES[c]} {B.pick(TIER_LABEL, B.TIER_LABEL)[t]}"
 
 
-def chart_ratio(title, sub, desc, panels, rows, series, whisker):
+def tf(ratio):
+    """Times faster, from a wall ratio rounded as the reports print it."""
+    return 1 / round(ratio, 2)
+
+
+def pair(med, worst):
+    return f"{tf(med):.2f}x / {tf(worst):.2f}x"
+
+
+def chart_faster(title, sub, desc, panels, rows, series, whisker):
     """Small multiples of one dot plot. panels: [(heading, {(row, series
-    index): (median, slowest)})]. The ratio axis is shared and the bars are
-    drawn on it."""
-    W, L, Tp, B_ = 900, 196, 150, 78
-    rowh = 30
-    H = Tp + B_ + rowh * len(rows)
+    index): (median, slowest)})] as wall ratios. They're drawn as times
+    faster than x265 on one shared axis, so right is faster. The panels sit
+    side by side on the wide canvas and stack on the narrow one."""
+    nw = B.NARROW
+    W, L, Tp, B_ = B.width(), B.pick(196, 150), 150, 62
+    rowh, gap = 30, 22
     n = len(panels)
-    gap = 22
-    pw = (W - L - 24 - gap * (n - 1)) / n
-    x1 = 1.25 if whisker else 1.1
+    body = rowh * len(rows)
+    step = body + 86
+    H = Tp + (step * n - 24 if nw else body + B_)
+    pw = W - L - 24 if nw else (W - L - 24 - gap * (n - 1)) / n
+    top = max(tf(m) for _, vals in panels for m, _ in vals.values())
+    x0, x1 = 0.5, max(2.0, math.ceil(top * 2) / 2)
+    ticks = [v for v in (1, 2, 3, 4, 5, 6) if v <= x1] if x1 > 2.5 else [1, 1.5, 2, 2.5]
     o = head(W, H, title, sub, desc)
     if len(series) > 1:
         B.legend(o, [(i, f"s{i + 1}", lab) for i, lab in enumerate(series)])
-    for i, (c, t) in enumerate(rows):
-        y = Tp + rowh * (i + 0.5)
-        if i % 2 == 0:
-            o.append(f"<rect x='24' y='{y - rowh / 2:.1f}' width='{W - 48}' height='{rowh}' class='band'/>")
-        o.append(T(L - 12, y + 4, row_label(c, t), 13, "t1", "end"))
     for p, (heading, vals) in enumerate(panels):
-        px = L + p * (pw + gap)
-        X = lambda v: px + v / x1 * pw
-        o.append(T(px, Tp - 26, heading, 14, "t1", weight="600"))
-        for v, lab in ((0.25, "4x"), (0.5, "2x"), (0.75, "1.33x")):
-            o.append(vline(X(v), Tp - 6, H - B_))
-            o.append(T(X(v), H - B_ + 18, f"{v:g}", 12, "t2", "middle"))
-            o.append(T(X(v), H - B_ + 33, lab, 11, "t2", "middle"))
-        o.append(vline(X(0), Tp - 6, H - B_, "base"))
-        o.append(vline(X(MEDIAN_BAR), Tp - 6, H - B_, "base", 1.5))
-        o.append(T(X(MEDIAN_BAR), H - B_ + 18, "1.00", 12, "t1", "middle"))
-        o.append(T(X(MEDIAN_BAR), H - B_ + 33, "even", 11, "t2", "middle"))
+        px = L if nw else L + p * (pw + gap)
+        py = Tp + (p * step if nw else 0)
+        X = lambda v: px + (v - x0) / (x1 - x0) * pw
+        if nw or p == 0:
+            for i, (c, t) in enumerate(rows):
+                y = py + rowh * (i + 0.5)
+                if i % 2 == 0:
+                    o.append(f"<rect x='24' y='{y - rowh / 2:.1f}' width='{W - 48}' "
+                             f"height='{rowh}' class='band'/>")
+                o.append(T(L - 12, y + 4, row_label(c, t), B.pick(13, 12), "t1", "end"))
+        o.append(T(24 if nw else px, py - B.pick(26, 14), heading, 14, "t1", weight="600"))
+        for v in ticks:
+            if v == 1:
+                continue
+            o.append(vline(X(v), py - 6, py + body))
+            o.append(T(X(v), py + body + 18, f"{v:g}x", 12, "t2", "middle"))
+        o.append(vline(X(1), py - 6, py + body, "base", 1.5))
+        o.append(T(X(1), py + body + 18, "1x", 12, "t1", "middle"))
+        o.append(T(X(1), py + body + 32, "x265", 11, "t2", "middle"))
         if whisker:
-            o.append(vline(X(WORST_BAR), Tp - 6, H - B_, "base", 1.5, "2 3"))
-            o.append(T(X(WORST_BAR) + 3, Tp - 10, f"{WORST_BAR:.2f}", 11, "t2", "middle"))
+            o.append(vline(X(1 / WORST_BAR), py - 6, py + body, "base", 1.5, "2 3"))
         for i, r in enumerate(rows):
-            y = Tp + rowh * (i + 0.5)
+            y = py + rowh * (i + 0.5)
             got = [(j, vals[(r, j)]) for j in range(len(series)) if (r, j) in vals]
             for j, (med, worst) in got:
                 dy = (j - (len(series) - 1) / 2) * 8 if len(series) > 1 else 0
                 if whisker and worst is not None:
-                    o.append(f"<line x1='{X(med):.1f}' y1='{y + dy:.1f}' x2='{X(worst):.1f}' "
-                             f"y2='{y + dy:.1f}' class='l{j + 1}' stroke-width='2'/>")
-                    o.append(f"<line x1='{X(worst):.1f}' y1='{y + dy - 5:.1f}' x2='{X(worst):.1f}' "
-                             f"y2='{y + dy + 5:.1f}' class='l{j + 1}' stroke-width='2'/>")
-                o.append(marker(j, X(med), y + dy, f"s{j + 1}", 5))
-    o.append(T(W / 2, H - 12, "yah265's encode time over x265's at the same file size (left is "
-             "faster). The lower labels read the same ratio as times faster.",
-             12.5, "t2", "middle"))
+                    o.append(f"<line x1='{X(tf(med)):.1f}' y1='{y + dy:.1f}' "
+                             f"x2='{X(tf(worst)):.1f}' y2='{y + dy:.1f}' class='l{j + 1}' "
+                             f"stroke-width='2'/>")
+                    o.append(f"<line x1='{X(tf(worst)):.1f}' y1='{y + dy - 5:.1f}' "
+                             f"x2='{X(tf(worst)):.1f}' y2='{y + dy + 5:.1f}' class='l{j + 1}' "
+                             f"stroke-width='2'/>")
+                o.append(marker(j, X(tf(med)), y + dy, f"s{j + 1}", 5))
+    o.append(T(W / 2, H - 12, "times faster than x265 at the same file size (right is faster)",
+               12.5, "t2", "middle"))
     o.append("</svg>")
     return "\n".join(o)
 
 
 def chart_speed(sp):
     rows = B.speed_rows([sp])
-    meds = [v[0] for v in sp.values()]
-    worst = max(v[1] for v in sp.values())
-    title = (f"yah265 takes {round(min(meds), 2) * 100:.0f}% to {round(max(meds), 2) * 100:.0f}% "
-             f"of x265's encode time on the Mac")
+    g3 = [v[0] for k, v in sp.items() if k[2] == "G3"]
+    title = (f"As shipped, yah265 runs {tf(max(g3)):.2f}x to {tf(min(g3)):.2f}x faster than "
+             f"x265 on the Mac")
     panels = [(GOAL_LABEL[g], {((c, t), 0): sp[(c, t, g)][:2] for c, t in rows if (c, t, g) in sp})
-              for g in GOALS]
-    return title, chart_ratio(
-        title, f"Dot: the median over a group's clips. Tick: its slowest clip, {worst:.2f} at "
-               f"most. The bars are {MEDIAN_BAR:.2f} for the median and {WORST_BAR:.2f} for the "
-               f"slowest clip.",
-        "Dot plot in three panels, one per goal, of the Mac's median speed ratio against x265 "
-        "medium for each class and tier, with a whisker to the slowest clip.",
+              for g in GOAL_ORDER]
+    return title, chart_faster(
+        title, f"Dot: the median over a group's clips. Tick: its slowest clip. The bar is 1x for "
+               f"the median and the dashed {1 / WORST_BAR:.2f}x for the slowest clip.",
+        "Dot plot in three panels, one per goal, of how many times faster than x265 medium "
+        "yah265 runs on the Mac for each class and tier, with a whisker to the slowest clip.",
         panels, rows, ["Mac"], True)
 
 
 def chart_machines(sps):
     rows = B.speed_rows(sps.values())
     meds = [v[0] for sp in sps.values() for v in sp.values()]
-    title = (f"On all three machines every group's median is {round(max(meds), 2):.2f} or lower")
+    title = (f"On all three machines every group's median is at least {tf(max(meds)):.2f}x faster")
     panels = [(GOAL_LABEL[g], {((c, t), j): sps[m][(c, t, g)][:2] for j, m in enumerate(MACHINES)
-                               for c, t in rows if (c, t, g) in sps[m]}) for g in GOALS]
-    return title, chart_ratio(
-        title, "Median speed ratio per class and tier. Each machine is timed against x265 on "
+                               for c, t in rows if (c, t, g) in sps[m]}) for g in GOAL_ORDER]
+    return title, chart_faster(
+        title, "Median times faster per class and tier. Each machine is timed against x265 on "
                "the same machine.",
-        "Dot plot in three panels, one per goal, of the median speed ratio against x265 medium "
+        "Dot plot in three panels, one per goal, of the median times faster than x265 medium "
         "for each class and tier on an Apple M5 Max, a Xeon 8488C and a Graviton4.",
         panels, rows, [B.MACHINE_LABEL[m] for m in MACHINES], False)
 
 
 def chart_quality(q):
     rows = sorted(q, key=lambda r: (CLASSES.index(r[0]), TIERS.index(r[1])))
-    W, L, R, Tp, B_ = 900, 190, 40, 110, 62
+    W, Tp, B_ = B.width(), 110, 62
+    L, R = B.pick((190, 40), (150, 44))
     rowh = 34
     H = Tp + B_ + rowh * len(rows)
     lo = min(-1.5, math.floor(min(v[1] for v in q.values()) * 2) / 2)
@@ -282,13 +304,14 @@ def chart_quality(q):
         o.append(vline(X(v), Tp - 6, H - B_, "base" if v == 0 else "grid", 1.5 if v == 0 else 1))
         o.append(T(X(v), H - B_ + 20, "0 (x265)" if v == 0 else f"{v:+g}", 12, "t2", "middle"))
         v += 1
-    for bar, lab in ((DV_MEDIAN, f"median bar {DV_MEDIAN:g}"), (DV_CELL, f"clip bar {DV_CELL:g}")):
+    for bar, lab in ((DV_MEDIAN, B.pick(f"median bar {DV_MEDIAN:g}", f"median {DV_MEDIAN:g}")),
+                     (DV_CELL, B.pick(f"clip bar {DV_CELL:g}", f"clip {DV_CELL:g}"))):
         o.append(vline(X(bar), Tp - 6, H - B_, "base", 1.5, "2 3"))
         o.append(T(X(bar) - 4, Tp - 10, lab, 11, "t2", "end" if bar == DV_CELL else "start"))
     for i, (c, t) in enumerate(rows):
         y = Tp + rowh * (i + 0.5)
         med, worst, _ = q[(c, t)]
-        o.append(T(L - 12, y + 4, row_label(c, t), 13, "t1", "end"))
+        o.append(T(L - 12, y + 4, row_label(c, t), B.pick(13, 12), "t1", "end"))
         o.append(f"<line x1='{X(worst):.1f}' y1='{y}' x2='{X(med):.1f}' y2='{y}' class='l1' stroke-width='2'/>")
         o.append(f"<line x1='{X(worst):.1f}' y1='{y - 5}' x2='{X(worst):.1f}' y2='{y + 5}' class='l1' stroke-width='2'/>")
         o.append(marker(0, X(med), y, "s1", 5.5))
@@ -300,8 +323,8 @@ def chart_quality(q):
 
 
 def chart_curves(lad, cells, bds):
-    cols = 4
-    W, Tp = 900, 112
+    cols = B.pick(4, 2)
+    W, Tp = B.width(), 112
     pw, ph = (W - 48) / cols, 168
     nrow = math.ceil(len(cells) / cols)
     H = Tp + ph * nrow + 34
@@ -329,7 +352,8 @@ def chart_curves(lad, cells, bds):
         s1 = math.ceil(max(alls) / step) * step
         X = lambda k: px0 + (math.log(k) - lk0) / (lk1 - lk0) * (px1 - px0)
         Y = lambda s: py0 + (s1 - s) / (s1 - s0) * (py1 - py0)
-        o.append(T(px0 - 30, py0 - 24, B.cell_name(title_, size, tier), 11.5, "t1", weight="600"))
+        o.append(T(px0 - 30, py0 - 24, B.cell_name(title_, size, tier), B.pick(11.5, 11), "t1",
+                   weight="600"))
         o.append(T(px0 - 30, py0 - 9, f"BD-rate {bds[key][0]:+.2f}%", 11, "t2"))
         for s in range(s0, s1 + 1, step):
             o.append(hline(px0, px1, Y(s), "base" if s == s0 else "grid"))
@@ -346,13 +370,14 @@ def chart_curves(lad, cells, bds):
             for k, s in pts:
                 o.append(marker(shape, X(k), Y(s), cls, 3.2))
     o.append(T(W / 2, H - 12, "bitrate on a log scale (k = kbit/s, M = Mbit/s), VMAF v1 up the side",
-               12.5, "t2", "middle"))
+               B.pick(12.5, 11.5), "t2", "middle"))
     o.append("</svg>")
     return title, "\n".join(o)
 
 
 def chart_tracking(cells, tr):
-    W, L, R, Tp, B_ = 900, 250, 40, 116, 62
+    W, Tp, B_ = B.width(), 116, 62
+    L, R = B.pick((250, 40), (206, 22))
     rowh = 24
     H = Tp + B_ + rowh * len(cells)
     allo = [e for k, *_ in cells for e in tr[k][0]]
@@ -371,15 +396,18 @@ def chart_tracking(cells, tr):
              f"height='{H - B_ - Tp + 8}' class='band'/>")
     for v in range(x0, x1 + 1, 5):
         o.append(vline(X(v), Tp - 8, H - B_, "base" if v == 0 else "grid", 1.5 if v == 0 else 1))
-        o.append(T(X(v), H - B_ + 20, "on target" if v == 0 else f"{v:+d}%", 12, "t2", "middle"))
+        if B.NARROW and v % 10:
+            continue
+        o.append(T(X(v), H - B_ + 20, B.pick("on target", "target") if v == 0 else f"{v:+d}%",
+                   12, "t2", "middle"))
     for i, (key, title_, size, tier) in enumerate(cells):
         y = Tp + rowh * (i + 0.5)
-        o.append(T(L - 12, y + 4, B.cell_name(title_, size, tier), 12.5, "t1", "end"))
+        o.append(T(L - 12, y + 4, B.cell_name(title_, size, tier), B.pick(12.5, 11), "t1", "end"))
         for e in tr[key][1]:
             o.append(marker(1, X(e), y + 4, "sx", 3.4))
         for e in tr[key][0]:
             o.append(marker(0, X(e), y - 4, "s1", 3.8))
-    o.append(T((L + W - R) / 2, H - 14, "achieved bitrate against the target (left is under)",
+    o.append(T(B.pick((L + W - R) / 2, W / 2), H - 14, "achieved bitrate against the target (left is under)",
                13, "t2", "middle"))
     o.append("</svg>")
     return title, "\n".join(o)
@@ -388,7 +416,10 @@ def chart_tracking(cells, tr):
 def chart_lookahead(sweep):
     """sweep: [(key, label, mode, {depth: bd})]. Each line is one cell's
     BD-rate against its own value at depth 20."""
-    W, H, Tp, B_ = 900, 420, 130, 70
+    nw = B.NARROW
+    W, Tp, B_ = B.width(), 130, 70
+    ph = 220
+    H = Tp + (2 * ph + 60 if nw else ph) + B_
     depths = [12, 20, 30]
     deltas = {(k, m): {d: v[d] - v[20] for d in depths} for k, _, m, v in sweep}
     lo = math.floor(min(min(d.values()) for d in deltas.values()))
@@ -397,28 +428,30 @@ def chart_lookahead(sweep):
            for m in ("crf", "vbr")}
     worst12 = max(v[12] for v in deltas.values())
     gain30 = st.median(v[30] for v in deltas.values())
+    ncell = len({k for k, _ in deltas})
     title = (f"A lookahead of 12 costs up to {worst12:.1f} BD-rate points against 20. "
              f"Going to 30 moves the median {gain30:+.2f}")
     o = head(W, H, title.split(". ")[0], "BD-rate on VMAF v1 at each depth, less the same cell's at 20. x265 "
              "stays at its own 20. Below zero is better than 20.",
-             "Two line charts, CRF and VBR, of the change in BD-rate at lookahead depths 12, 20 "
-             "and 30 for six cells, with the median drawn heavier.")
+             f"Two line charts, CRF and VBR, of the change in BD-rate at lookahead depths 12, 20 "
+             f"and 30 for {B.word(ncell)} cells, with the median drawn heavier.")
     o.append(f"<line x1='24' y1='86' x2='44' y2='86' class='l1' stroke-width='3'/>")
-    o.append(T(50, 91, "median of the six cells", 13, "t2"))
+    o.append(T(50, 91, f"median of the {B.word(ncell)} cells", 13, "t2"))
     o.append(f"<line x1='230' y1='86' x2='250' y2='86' class='lx' stroke-width='1.5'/>")
     o.append(T(256, 91, "each cell", 13, "t2"))
-    pw = (W - 48 - 40) / 2
+    pw = W - 48 if nw else (W - 48 - 40) / 2
     for p, m in enumerate(("crf", "vbr")):
-        px0 = 24 + 70 + p * (pw + 40)
+        px0 = 24 + 70 + (0 if nw else p * (pw + 40))
         px1 = px0 + pw - 70 - 104
+        py = Tp + (p * (ph + 60) if nw else 0)
         X = lambda d: px0 + (d - 12) / 18 * (px1 - px0)
-        Y = lambda v: Tp + (hi - v) / (hi - lo) * (H - Tp - B_)
-        o.append(T(px0 - 70, Tp - 14, "CRF" if m == "crf" else "capped VBR", 14, "t1", weight="600"))
+        Y = lambda v: py + (hi - v) / (hi - lo) * ph
+        o.append(T(px0 - 70, py - 14, "CRF" if m == "crf" else "capped VBR", 14, "t1", weight="600"))
         for v in range(lo, hi + 1):
             o.append(hline(px0, px1, Y(v), "base" if v == 0 else "grid", 1.5 if v == 0 else 1))
             o.append(T(px0 - 8, Y(v) + 4, "same as 20" if v == 0 else f"{v:+d}", 11.5, "t2", "end"))
         for d in depths:
-            o.append(T(X(d), H - B_ + 20, f"{d} frames", 12, "t2", "middle"))
+            o.append(T(X(d), py + ph + 20, f"{d} frames", 12, "t2", "middle"))
         far = max((k for (k, mm) in deltas if mm == m), key=lambda k: deltas[(k, m)][12])
         for k, lab, mm, _ in sweep:
             if mm != m:
@@ -427,21 +460,22 @@ def chart_lookahead(sweep):
             o.append(f"<polyline fill='none' class='lx' stroke-width='1.5' points='"
                      + " ".join(f"{X(d):.1f},{Y(v[d]):.1f}" for d in depths) + "'/>")
             if k == far:
-                o.append(T(X(12) + 6, Y(v[12]) - 6, lab, 11.5, "t2"))
+                o.append(T(X(12) + 6, Y(v[12]) - 6, lab.split(",")[0], 11.5, "t2"))
         o.append(f"<polyline fill='none' class='l1' stroke-width='3' points='"
                  + " ".join(f"{X(d):.1f},{Y(med[m][d]):.1f}" for d in depths) + "'/>")
         for d in depths:
             o.append(marker(0, X(d), Y(med[m][d]), "s1", 4.5))
         o.append(T(X(30) + 10, Y(med[m][30]) + 4, f"median {med[m][30]:+.2f}", 12, "t1"))
-    o.append(T(W / 2, H - 14, "yah265's lookahead depth across, BD-rate points against depth 20 up the side",
-               13, "t2", "middle"))
+    B.note(o, W / 2, H - 28, "yah265's lookahead depth across, BD-rate points against depth 20 "
+           "up the side", B.pick(13, 12), "t2", W - 40, "middle")
     o.append("</svg>")
     return title, "\n".join(o)
 
 
 def chart_tierc(tc):
     """tc: [(label, content, crf bd, vbr bd or None)]."""
-    W, L, R, Tp, B_ = 900, 250, 40, 116, 62
+    W, Tp, B_ = B.width(), 116, 62
+    L, R = B.pick((250, 40), (186, 22))
     rowh = 34
     H = Tp + B_ + rowh * len(tc)
     allv = [v for r in tc for v in r[2:] if v is not None]
@@ -456,6 +490,8 @@ def chart_tierc(tc):
     B.legend(o, [(0, "s1", "CRF"), (1, "s2", "capped VBR")])
     for v in range(x0, x1 + 1, 10):
         o.append(vline(X(v), Tp - 8, H - B_, "base" if v == 0 else "grid", 1.5 if v == 0 else 1))
+        if B.NARROW and v % 20:
+            continue
         o.append(T(X(v), H - B_ + 20, "0 (x265)" if v == 0 else f"{v:+d}%", 12, "t2", "middle"))
     o.append(vline(X(BD_BAR), Tp - 8, H - B_, "base", 1.5, "2 3"))
     o.append(T(X(BD_BAR) + 4, Tp - 12, f"bar +{BD_BAR:.1f}%", 11, "t2"))
@@ -464,15 +500,15 @@ def chart_tierc(tc):
         o.append(T(L - 12, y, lab, 12.5, "t1", "end"))
         o.append(T(L - 12, y + 14, content, 11, "t2", "end"))
         if vbr is None:
-            o.append(T(X(0) - 10, y + 15, "VBR: no shared score range, yah265 above at every rung",
-                       11, "t2", "end"))
+            o.append(T(X(0) - 10, y + 15, B.pick("VBR: no shared score range, yah265 above at "
+                       "every rung", "VBR: no shared range, yah265 above"), 11, "t2", "end"))
         else:
             o.append(f"<line x1='{X(min(crf, vbr)):.1f}' y1='{y}' x2='{X(max(crf, vbr)):.1f}' "
                      f"y2='{y}' class='span' stroke-width='2'/>")
             o.append(marker(1, X(vbr), y + (4 if abs(crf - vbr) < 1.5 else 0), "s2", 5))
         o.append(marker(0, X(crf), y - (4 if vbr is not None and abs(crf - vbr) < 1.5 else 0),
                         "s1", 5.5))
-    o.append(T((L + W - R) / 2, H - 14, "bitrate change for the same VMAF v1 (left is better)",
+    o.append(T(B.pick((L + W - R) / 2, W / 2), H - 14, "bitrate change for the same VMAF v1 (left is better)",
                13, "t2", "middle"))
     o.append("</svg>")
     return title, "\n".join(o)
@@ -514,28 +550,31 @@ def values(D):
     L, R, C = "---", "--:", "---"
 
     V["fig-frames"] = B.frames_figure(3, B.FRAMES_ALL)
-    V["frames-player"] = B.FRAMES_PLAYER
 
     # the verdict
     combos = [(m, k) for m in MACHINES for k in sps[m]]
     ok = [1 for m, k in combos if sps[m][k][0] <= MEDIAN_BAR and sps[m][k][1] <= WORST_BAR]
-    wall = table(isa, "VBR wall")[1:]
-    wall_n = sum(int(r[5]) for r in wall) * len(MACHINES)
-    wall_ok = sum(int(r[5]) for r in wall for c in r[2:5] if float(c.split("/")[1]) < MEDIAN_BAR)
+    vbr, vbr_n = D["vbr"]
+    walls = [v for _, _, v in B.vbr_walls(D["mac_md"])]
+    walls += [B.fnum(r["ratio"]) for m in ("x86", "g4") for r in rows[m]
+              if r["goal"] == "VBR" and r["valid"] == "yes"]
     allbd = [v for k, *_ in cells for v in bds[k]]
     tc = table(isa, "Tier C on the Mac")[1:]
     trk = [e for k, *_ in cells for e in tr[k][0]]
     pl = D["pl"]
     V["verdict"] = mdt(["what was measured", "result"], [L, R], [
-        [f"median speed over the {pl['n']} cells timed on the Mac", f"{B.times(pl['median'])} faster"],
-        [f"median VMAF v1 lead at the same file size, {pl['dv_n']} cells", f"{pl['dv']:+.2f} points"],
+        [f"median speed on the Mac at the same file size, {pl['n']} CRF cells",
+         f"{B.times(pl['median'])} faster"],
+        [f"median VMAF v1 lead at the same file size, the same {pl['dv_n']} cells",
+         f"{pl['dv']:+.2f} points"],
         [f"median bits saved at equal VMAF v1, {len(allbd)} rate ladders",
          f"{abs(st.median(allbd)):.1f}%"],
         ["speed groups inside the bar, three goals on three machines",
          f"{len(ok)} of {len(combos)}"],
         [f"rate ladders inside the +{BD_BAR:.1f}% BD-rate bar",
          f"{sum(1 for v in allbd if v <= BD_BAR)} of {len(allbd)}"],
-        ["VBR cells faster than x265, on three machines", f"{wall_ok} of {wall_n}"],
+        ["capped VBR cells faster than x265 at the same target bitrate, on three machines",
+         f"{sum(1 for v in walls if v < MEDIAN_BAR)} of {len(walls)}"],
         [f"VBR rungs within ±{TRACK_BAR:g}% of their target",
          f"{sum(1 for e in trk if abs(e) <= TRACK_BAR)} of {len(trk)}"],
         ["content-type clips passing on quality",
@@ -544,10 +583,10 @@ def values(D):
 
     # how to read, the test set
     V["goal-defs"] = mdt(["goal", "yah265", "x265", "threads"], [L, L, L, L], [
+        ["G3", "as shipped, with SIMD", "as shipped, with its assembly", "each encoder's default"],
         ["G1", "plain C (`N265_ASM_OFF=all`)", "plain C (`--no-asm`)",
          "one. x265 gets it from `--pools none --frame-threads 1`"],
-        ["G2", "plain C", "plain C", "each encoder's default"],
-        ["G3", "as shipped, with SIMD", "as shipped, with its assembly", "each encoder's default"]])
+        ["G2", "plain C", "plain C", "each encoder's default"]])
     sets = {}
     for r in rows["mac"]:
         if r["tier"] in TIERS:
@@ -558,8 +597,8 @@ def values(D):
     trow = []
     for t in TIERS:
         per = ", ".join(f"{len(sets[t][c])} at {RES[c]}" for c in CLASSES if c in sets[t])
-        names = sorted({TITLE.get(re.sub(r"_(cif|\d+p)$", "", x), re.sub(r"_(cif|\d+p)$", "", x))
-                        for c in sets[t] for x in sets[t][c]})
+        names = sorted({TITLE.get(B.base_title(x), B.base_title(x))
+                        for c in sets[t] for x in sets[t][c]}, key=str.lower)
         trow.append([f"{t}, {TIER_LABEL[t]}", per, ", ".join(names), how[t]])
     kinds = {}
     for r in tc:
@@ -575,46 +614,42 @@ def values(D):
     sp = sps["mac"]
     srows = []
     for c, t in B.speed_rows([sp]):
-        g = [f"{sp[(c, t, x)][0]:.2f} / {sp[(c, t, x)][1]:.2f}" for x in GOALS]
-        srows.append([RES[c], TIER_LABEL[t]] + g + [B.fx(sp[(c, t, "G3")][0])])
-    V["speed-mac"] = mdt(["class", "tier", "G1", "G2", "G3", "G3 as times faster"],
-                         [L, L, R, R, R, R], srows)
+        srows.append([RES[c], TIER_LABEL[t]] + [pair(*sp[(c, t, x)][:2]) for x in GOAL_ORDER])
+    V["speed-mac"] = mdt(["class", "tier", "G3", "G1", "G2"], [L, L, R, R, R], srows)
     frows = []
     for line in open(D["mac_md"]):
         m = re.match(r"- (\S+) \(end frame (\d+)\): G1 (.+?); G2 (.+?); G3 (.+)$", line.rstrip())
-        if m:
-            g = ["void" if "feeder-bound" in x else x for x in m.groups()[2:]]
-            frows.append([nice(*split_cell(m[1])), m[2]] + g)
-    V["films"] = mdt(["film", "last story frame", "G1", "G2", "G3"], [L, R, R, R, R], frows)
+        if m and B.shown(split_cell(m[1])[0]):
+            g1, g2, g3 = (f"{tf(float(x)):.2f}x" for x in m.groups()[2:])
+            frows.append([nice(*split_cell(m[1])), m[2], g3, g1, g2])
+    V["films"] = mdt(["film", "last story frame", "G3", "G1", "G2"], [L, R, R, R, R], frows)
 
-    # by machine: the all-architecture report's own tables, gating rows only
-    for g, start in (("g1", "G1 speed"), ("g2", "G2 speed")):
-        V[f"machines-{g}"] = mdt(["class", "tier", "Mac", "x86-64", "Graviton4"], [L, L, R, R, R],
-                                 [[RES[r[0]], TIER_LABEL[r[1]]] + r[2:5]
-                                  for r in table(isa, start)[1:] if r[1] in TIERS])
-    g3 = table(isa, "G3 speed")[1:]
+    # by machine, from each machine's rows
+    def mrow(c, t, cols):
+        return [RES[c], TIER_LABEL[t]] + [pair(*v[:2]) if v else "not measured" for v in cols]
+    grid = B.speed_rows(sps.values())
+    for g in ("G1", "G2"):
+        V[f"machines-{g.lower()}"] = mdt(
+            ["class", "tier", "Mac", "x86-64", "Graviton4"], [L, L, R, R, R],
+            [mrow(c, t, [sps[m].get((c, t, g)) for m in MACHINES]) for c, t in grid])
+    s512 = D["s512"]
     V["machines-g3"] = mdt(
         ["class", "tier", "Mac", "x86-64", "x86-64 against x265 at `--asm avx512`", "Graviton4"],
         [L, L, R, R, R, R],
-        [[RES[r[0]], TIER_LABEL[r[1]]] + r[2:6] for r in g3 if r[1] in TIERS])
-    # Graviton3 ran the short clips only; its own count wins where it names one
-    n3 = lambda r: (re.search(r"\((\d+) of", r[6]) or re.match(r"(\d+)", r[7]))[1]
+        [mrow(c, t, [sps["mac"].get((c, t, "G3")), sps["x86"].get((c, t, "G3")),
+                     s512.get((c, t, "G3")), sps["g4"].get((c, t, "G3"))]) for c, t in grid])
     V["graviton3"] = mdt(["class", "Graviton3", "clips"], [L, R, R],
-                         [[RES[r[0]], r[6].split("(")[0].strip(), n3(r)]
-                          for r in g3 if r[1] in TIERS and r[6] != "-"])
-    V["capped"] = mdt(["class", "both at SSE4.2", "both at AVX2", "control: yah265 at AVX-512, x265 at AVX2",
-                       "clips"], [L, R, R, R, R],
-                      [[RES[r[0]]] + r[2:6] for r in table(isa, "G3 speed", 1)[1:]])
+                         [[RES[c], pair(*D["g3"][c][:2]), D["g3"][c][2]]
+                          for c in CLASSES if c in D["g3"]])
+    cap = D["cap"]
+    V["capped"] = mdt(["class"] + [lab for *_, lab in B.CAPPED_PAIRS] + ["clips"], [L, R, R, R, R],
+                      [[RES[c]] + [pair(*cap[c][k][:2]) for k, *_ in B.CAPPED_PAIRS]
+                       + [cap[c]["avx2"][2]] for c in CLASSES if c in cap])
+    vkeys = sorted(vbr, key=lambda r: (CLASSES.index(r[0]), TIERS.index(r[1])))
     V["vbr-machines"] = mdt(["class", "tier", "Mac", "x86-64", "Graviton4", "cells"],
                             [L, L, R, R, R, R],
-                            [[RES[r[0]], TIER_LABEL[r[1]]] + r[2:6] for r in wall])
-    for m in MACHINES:
-        for (c, t, g), v in sps[m].items():
-            col = {"mac": 2, "x86": 3, "g4": 5 if g == "G3" else 4}[m]
-            rep = next(r for r in table(isa, f"{g} speed")[1:] if (r[0], r[1]) == (c, t))[col]
-            if [x.strip() for x in rep.split("/")] != [f"{y:.2f}" for y in v[:2]]:
-                sys.exit(f"{m} {c} {t} {g}: the CSV gives {v[0]:.2f} / {v[1]:.2f}, "
-                         f"the all-architecture report {rep}")
+                            [mrow(c, t, [vbr[(c, t)].get(m) for m in MACHINES]) + [vbr_n[(c, t)]]
+                             for c, t in vkeys])
 
     # quality at the same size
     how_q = {(r[0], r[1]): r[5:7] for r in table(isa, "Quality on each machine")[1:]}
@@ -625,7 +660,7 @@ def values(D):
     xrows = []
     for (c, t), (x86, _) in how_q.items():
         m = re.match(r"reproduced: (\w+) (.+)$", x86)
-        if m:
+        if m and B.shown(m[1]):
             xrows += [[f"{nice(m[1], c)}, {TIER_LABEL[t]}", mode, moved]
                       for mode, moved in re.findall(r"(CRF|VBR) ([+-][\d.]+)", m[2])]
     V["quality-xeon"] = mdt(["ladder run again on the Xeon", "mode", "BD-rate points from the Mac's curve"],
@@ -647,23 +682,25 @@ def values(D):
     V["vbr-track"] = mdt(["cell", "tier", "yah265, five rungs", "x265, five rungs"], [L, L, R, R],
                          [[nice(ti, s), TIER_LABEL[t], rng(tr[k][0]), rng(tr[k][1])]
                           for k, ti, s, t in cells])
-    V["vbr-wall"] = mdt(["cell", "tier", "target kbit/s", "ratio", "yah265 against target",
+    V["vbr-wall"] = mdt(["cell", "tier", "target kbit/s", "speed", "yah265 against target",
                          "x265 against target"], [L, L, R, R, R, R],
-                        [[nice(*split_cell(r[0])), TIER_LABEL[r[1]], r[2], r[3],
+                        [[nice(*split_cell(r[0])), TIER_LABEL[r[1]], r[2], f"{tf(float(r[3])):.2f}x",
                           re.search(r"\((.+?)\)", r[4])[1], re.search(r"\((.+?)\)", r[5])[1]]
-                         for r in table(mac, "VBR wall")[1:]])
+                         for r in table(mac, "VBR wall")[1:] if B.shown(split_cell(r[0])[0])])
     V["lookahead"] = mdt(["cell", "mode", "yah265 at 12", "yah265 at 20", "yah265 at 30"],
                          [L, L, R, R, R],
                          [[lab, "CRF" if m == "crf" else "VBR"] + [pct(v[d]) for d in (12, 20, 30)]
                           for _, lab, m, v in D["sweep"]])
 
     # tier C
-    V["tier-c"] = mdt(["clip", "content", "VMAF v1 lead at the same size", "CRF BD-rate",
-                       "VBR BD-rate", "VBR rate against target", "G3 ratio"],
-                      [L, L, R, R, R, R, R],
-                      [[nice(*split_cell(r[0])), r[1], r[2].split("/")[0].strip(),
+    V["tier-c"] = mdt(["clip", "content", "x265 settings", "VMAF v1 lead at the same size",
+                       "CRF BD-rate", "VBR BD-rate", "VBR rate against target", "G3 speed"],
+                      [L, L, L, R, R, R, R, R],
+                      [[nice(*split_cell(r[0])), r[1], "`medium` defaults, no `--tune`",
+                        r[2].split("/")[0].strip(),
                         pct(crf), "no shared range, yah265 above" if vbr is None else pct(vbr),
-                        rng(D["ctr"][r[0]]), r[5].split()[0] + (" (earlier binary)" if "(" in r[5] else "")]
+                        rng(D["ctr"][r[0]]), f"{tf(float(r[5].split()[0])):.2f}x"
+                        + (" (earlier binary)" if "(" in r[5] else "")]
                        for r, (_, _, crf, vbr) in zip(tc, D["tc"])])
 
     # figures
@@ -705,11 +742,19 @@ def gather():
              "g4": B.newest(rf"PARITY-REPORT-yah265-graviton-{Dt}\.csv")}
     isa_path = B.newest(rf"PARITY-REPORT-yah265-all-isa-{Dt}\.md")
     mac_md = mac_csv[:-4] + ".md"
-    rows = {m: list(csv.DictReader(open(p))) for m, p in paths.items()}
+    rows = {m: B.report_rows(p) for m, p in paths.items()}
     D = {"paths": paths, "isa_path": isa_path, "mac_md": mac_md, "rows": rows,
          "sps": {m: B.speed_groups(rs) for m, rs in rows.items()},
          "q": quality_rows(rows["mac"]), "isa": md_tables(isa_path), "mac": md_tables(mac_md),
-         "pl": B.pooled(rows["mac"], mac_md)}
+         "pl": B.headline_cells(rows["mac"])}
+    D["s512"] = B.speed_groups(rows["x86"], ("G3",), "ref512_wall_s")
+    D["vbr"] = B.vbr_groups(mac_md, {m: rows[m] for m in ("x86", "g4")})
+    D["cap"] = B.capped_run(B.capped_records(), paths["x86"][:-4] + ".md")
+    g3 = sorted(glob.glob(os.path.join(ROOT, "docs/data/cloud-tables-*/records/g3S.jsonl")))
+    if not g3:
+        sys.exit("no Graviton3 records (docs/data/cloud-tables-*/records/g3S.jsonl)")
+    D["g3"] = B.graviton3(g3[-1])
+    check_reading(D["isa"], paths, mac_md, g3[-1])
     lad = D["lad"] = load_ladders()
     lines = B.ladders(mac_md)
     D["cells"] = real_cells(lines)
@@ -748,21 +793,47 @@ def gather():
     return D
 
 
+def check_reading(isa, paths, mac_md, g3_path):
+    """This script's medians, taken with every title in, against the tables
+    the all-architecture report prints. A mismatch means the reading code
+    and the report have parted, so stop."""
+    def same(what, mine, theirs):
+        if [x.strip() for x in theirs.split("(")[0].split("/")] != [f"{y:.2f}" for y in mine[:2]]:
+            sys.exit(f"{what}: {mine[0]:.2f} / {mine[1]:.2f} from the rows, "
+                     f"the all-architecture report says {theirs}")
+    full = {m: B.report_rows(p, everything=True) for m, p in paths.items()}
+    for m in MACHINES:
+        for (c, t, g), v in B.speed_groups(full[m]).items():
+            col = {"mac": 2, "x86": 3, "g4": 5 if g == "G3" else 4}[m]
+            rep = next(r for r in table(isa, f"{g} speed")[1:] if (r[0], r[1]) == (c, t))
+            same(f"{m} {c} {t} {g}", v, rep[col])
+    g3rows = table(isa, "G3 speed")[1:]
+    for (c, t, _), v in B.speed_groups(full["x86"], ("G3",), "ref512_wall_s").items():
+        same(f"x86 avx512 {c} {t}", v, next(r for r in g3rows if (r[0], r[1]) == (c, t))[4])
+    for m, col in (("x86", 3), ("g4", 4)):
+        for (c, t, _), v in B.speed_groups(full[m], ("VBR",)).items():
+            same(f"{m} VBR {c} {t}", v,
+                 next(r for r in table(isa, "VBR wall")[1:] if (r[0], r[1]) == (c, t))[col])
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--check", action="store_true",
                     help="change nothing; exit 1 if the page or a chart is out of date")
     a = ap.parse_args()
     D = gather()
-    made = {"speed": chart_speed(D["sps"]["mac"]), "machines": chart_machines(D["sps"]),
-            "quality": chart_quality(D["q"]),
-            "curves": chart_curves(D["lad"], D["cells"], D["bds"]),
-            "tracking": chart_tracking(D["cells"], D["tr"]),
-            "lookahead": chart_lookahead(D["sweep"]), "tierc": chart_tierc(D["tc"])}
-    D["titles"] = {k: v[0] for k, v in made.items()}
+    fns = {"speed": lambda: chart_speed(D["sps"]["mac"]),
+           "machines": lambda: chart_machines(D["sps"]),
+           "quality": lambda: chart_quality(D["q"]),
+           "curves": lambda: chart_curves(D["lad"], D["cells"], D["bds"]),
+           "tracking": lambda: chart_tracking(D["cells"], D["tr"]),
+           "lookahead": lambda: chart_lookahead(D["sweep"]),
+           "tierc": lambda: chart_tierc(D["tc"])}
+    D["titles"] = {k: fn()[0] for k, fn in fns.items()}
+    made = B.render({k: (lambda fn=fn: fn()[1]) for k, fn in fns.items()})
     V = values(D)
     stale = []
-    for name, (_, svg) in made.items():
+    for name, svg in made.items():
         p = os.path.join(OUT, name + ".svg")
         old = open(p).read() if os.path.exists(p) else None
         if old != svg + "\n":
@@ -779,7 +850,7 @@ def main():
             with open(PAGE, "w") as f:
                 f.write(new)
     print(f"{len(D['cells'])} real-title cells, {len(D['tc'])} content-type clips, "
-          f"{sum(len(s) for s in D['sps'].values())} speed groups, {len(made)} charts")
+          f"{sum(len(s) for s in D['sps'].values())} speed groups, {len(fns)} charts")
     if a.check:
         if stale:
             print("stale: " + ", ".join(stale))

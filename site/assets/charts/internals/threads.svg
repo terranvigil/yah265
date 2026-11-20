@@ -46,9 +46,9 @@ text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-
 <text x='483.3' y='252.0' font-size='12' class='t1' text-anchor='start'>10.6x</text>
 <text x='450.9' y='267.0' font-size='12' class='t2' text-anchor='start'>9.7x</text>
 <text x='72.0' y='305.0' font-size='13' class='t1' text-anchor='end'>4K</text>
-<path d='M82.0,287.0 H289.3 Q293.3,287.0 293.3,291.0 V296.0 Q293.3,300.0 289.3,300.0 H82.0 Z' class='s1'/>
-<path d='M82.0,302.0 H376.8 Q380.8,302.0 380.8,306.0 V311.0 Q380.8,315.0 376.8,315.0 H82.0 Z' class='sx'/>
-<text x='299.3' y='298.0' font-size='12' class='t1' text-anchor='start'>5.6x</text>
-<text x='386.8' y='313.0' font-size='12' class='t2' text-anchor='start'>8.0x</text>
+<path d='M82.0,287.0 H296.1 Q300.1,287.0 300.1,291.0 V296.0 Q300.1,300.0 296.1,300.0 H82.0 Z' class='s1'/>
+<path d='M82.0,302.0 H391.8 Q395.8,302.0 395.8,306.0 V311.0 Q395.8,315.0 391.8,315.0 H82.0 Z' class='sx'/>
+<text x='306.1' y='298.0' font-size='12' class='t1' text-anchor='start'>5.8x</text>
+<text x='401.8' y='313.0' font-size='12' class='t2' text-anchor='start'>8.4x</text>
 <text x='360.0' y='366.0' font-size='13' class='t2' text-anchor='middle'>times faster on all cores than on one thread</text>
 </svg>

@@ -154,7 +154,7 @@ Many switches also take a `--no-` form that turns them off. "The preset's" means
 | `--dhdr10-info <json>` | none | HDR10+ dynamic metadata from a JSON file, one message per picture. |
 | `--dolby-vision-rpu <file>` | none | A Dolby Vision profile 8 RPU per picture, from a file. Needs `--dolby-vision-profile`. |
 | `--dolby-vision-profile <p>` | none | `8.1`, `8.2` or `8.4`. The color flags must match it. |
-| `--hdr-opt / --no-hdr-opt` | on for PQ and HLG | The HDR tuning of `medium`, on or off. `--hdr10-opt` is the same switch. |
+| `--hdr-opt / --no-hdr-opt` | on for PQ and HLG | The HDR tuning of `medium`, on or off. `--hdr10-opt` is accepted as another name for it. |
 
 ## Reports
 

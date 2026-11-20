@@ -254,7 +254,7 @@ The chart shows how much each encoder gains from the Mac's cores. It compares th
 | CIF | 4.1x | 2.9x | 3 |
 | 720p | 7.5x | 6.9x | 4 |
 | 1080p | 10.6x | 9.7x | 3 |
-| 4K | 5.6x | 8.0x | 2 |
+| 4K | 5.8x | 8.4x | 1 |
 <!--/gen:threads-table-->
 
 Up to 1080p yah265 gains more from the cores than x265 does. At 4K it gains less. These rows were timed before the driver's analysis was split over the pool.

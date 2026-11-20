@@ -112,7 +112,7 @@ The first pass measures every frame and the second plans the whole file before i
 
 ## Presets
 
-`--preset` takes x265's names. Four are built.
+`--preset` takes the preset names familiar from x264 and x265. Four are built.
 
 | preset | coding tree at 1080p | lookahead at 1080p | what it's for |
 |---|---|---|---|
@@ -144,7 +144,7 @@ The encoder refuses x265's other four tune names and prints a reason for each.
 | refused tune | why | what to use |
 |---|---|---|
 | `psnr`, `ssim` | each fits the encoder to a metric the project doesn't decide on | `--ssim` reports the number without changing the encode |
-| `grain` | x265's version changes how the rate control treats grainy frames. That hasn't been built here | `--film-grain` is a different tool, described [below](#film-grain-denoising-and-filters) |
+| `grain` | in x265 it's a set of rate-control and psychovisual changes for grainy sources. That hasn't been built here | `--film-grain` is a different tool, described [below](#film-grain-denoising-and-filters) |
 | `fastdecode` | only part of it could be delivered | `--no-weightp` and `--no-weightb` directly |
 
 ## Profiles, depth and chroma
@@ -181,7 +181,7 @@ What's promised is repeatability at `--threads 1`: two runs of one command write
 
 Both of these are opt-in. The default encoder never looks further ahead than its lookahead.
 
-`--shot-window <n>` buffers up to `n` frames so the encoder can plan a whole shot against the shots before it. It works with `--crf` only. It adds `n` frames of latency and holds that many more source pictures in memory. It stays off because, in our own test on multi-shot sequences, it saved a little bitrate and made quality less even from one shot to the next. The [shot design notes](docs/phase7-shot-design.md) have the measurement.
+`--shot-window <n>` buffers up to `n` frames so the encoder can plan a whole shot against the shots before it. It works with `--crf` only. It adds `n` frames of latency and holds that many more source pictures in memory. It stays off because, in our own test on multi-shot sequences, it saved a little bitrate and made quality less even from one shot to the next.
 
 `--shot-stats <file>` writes one JSON line per shot: where it starts and ends, its bits, its frame types and its complexity. A ladder builder can use it to pick a rate per shot. The stream is the same with it on.
 
@@ -238,8 +238,6 @@ All of these change the picture, so read them as tools for specific sources. Non
 | a switch to turn off scene detection | the encoder always looks for scene changes |
 | non-conforming streams | where no level admits a stream the encoder refuses to write it |
 | Dolby Vision profile 5 | its base layer uses a color space nothing in this toolchain can produce or check |
-
-The [x265 feature audit](docs/x265-feature-audit.md) goes through x265's options one at a time.
 
 ## Identification marks
 
