@@ -1,5 +1,5 @@
 /*
- * n265: Y4M in, Annex-B HEVC out.
+ * y265: Y4M in, Annex-B HEVC out.
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
@@ -41,7 +41,7 @@ void n265_set_info_opts(const char *opts);
  * spends no bits and moves no sample at all. */
 void n265_set_fingerprint(int on);
 /* --show-config / --verbose (phase 14 item 13): the resolved
- * configuration, one `n265 [info]: key : value` row at a time. Printed
+ * configuration, one `y265 [info]: key : value` row at a time. Printed
  * by the LIBRARY, which is where the preset table, the environment and
  * Annex A have already been resolved into the values that will code. */
 void n265_show_config(const n265_encoder *e, FILE *f, int in_depth);
@@ -156,7 +156,7 @@ const char *n265_tune_name(int i);
  *
  * The sample width is a compile-time type, so there are two encoder
  * libraries and there always will be; what there is no longer is two
- * command lines. n265 links both archives and picks the encoder from the
+ * command lines. y265 links both archives and picks the encoder from the
  * INPUT: a C420 y4m goes to the 8-bit library, a C420p10 one to Main10,
  * and --output-depth 10 puts 8-bit input through Main10 after an explicit
  * upshift. The two are told apart by name - the Main10 library's symbols
@@ -566,7 +566,7 @@ static int src_geom(y4m_t *y, const char *desc)
     if ((y->w & 1) || (y->h & 1)) {
         /* n265_encoder_open's own condition, checked here so the refusal
          * names the picture instead of reading as an open failure. */
-        fprintf(stderr, "n265: %dx%d: the encoder needs even dimensions\n",
+        fprintf(stderr, "y265: %dx%d: the encoder needs even dimensions\n",
                 y->w, y->h);
         return -2;
     }
@@ -588,7 +588,7 @@ static int src_geom(y4m_t *y, const char *desc)
     if (y->out_depth == 0)
         y->out_depth = y->depth;
     if (y->out_depth < y->depth && (y->out_depth != 8 || y->depth != 10)) {
-        fprintf(stderr, "n265: --output-depth %d on %d-bit input (%s): the "
+        fprintf(stderr, "y265: --output-depth %d on %d-bit input (%s): the "
                 "only downshift here is 10 to 8.\n", y->out_depth,
                 y->depth, desc);
         return -2;
@@ -657,7 +657,7 @@ static int y4m_open(y4m_t *y, FILE *f)
         return -1;
     y->depth = y4m_csp_depth(csp, &y->csp);
     if (y->depth < 0) {
-        fprintf(stderr, "n265: unsupported input format C%s "
+        fprintf(stderr, "y265: unsupported input format C%s "
                 "(4:2:0, 4:2:2 or 4:4:4, at 8 or 10 bits)\n", csp);
         return -2;
     }
@@ -966,7 +966,7 @@ static void rd_close(rd_ring *q, y4m_t *y)
 static void usage(void)
 {
     fprintf(stderr,
-        "usage: n265 [options] <input.y4m|input.yuv|->\n"
+        "usage: y265 [options] <input.y4m|input.yuv|->\n"
         "  One binary, every profile: the encoder is chosen from the input.\n"
         "  A C420 y4m is coded Main (8-bit), a C420p10 one Main10, a C444\n"
         "  one Main 4:4:4, a C444p10 one Main 4:4:4 10, and a C422 or\n"
@@ -1557,7 +1557,7 @@ static void usage(void)
         "                  turns the PQ tuning on for a stream that names\n"
         "                  neither. --hdr10-opt is the same switch.\n"
         "  --verbose, -v   the RESOLVED configuration at open, one\n"
-        "                  \"n265 [info]: key : value\" row at a time - what\n"
+        "                  \"y265 [info]: key : value\" row at a time - what\n"
         "                  the preset, the flags and the N265_* environment\n"
         "                  settled on, x265's log shape so the two read side\n"
         "                  by side - and with it the level and tier chosen\n"
@@ -1769,12 +1769,12 @@ static int dyn_check(long frames)
         if (have < 0)
             have = 0;
         if (have < frames) {
-            fprintf(stderr, "n265: ERROR %s covers %ld of the %ld frames "
+            fprintf(stderr, "y265: ERROR %s covers %ld of the %ld frames "
                     "encoded; the last %ld have none\n", flag[k], have,
                     frames, frames - have);
             rc = 1;
         } else if (have > frames) {
-            fprintf(stderr, "n265: WARNING %s covers %ld frames and %ld "
+            fprintf(stderr, "y265: WARNING %s covers %ld frames and %ld "
                     "were encoded\n", flag[k], have, frames);
         }
     }
@@ -2207,7 +2207,7 @@ static void *gp_worker(void *arg)
         y4m_t rd;
         memset(&rd, 0, sizeof rd);
         if (j->seek && gp_reader_open(j, &rd, start) != 0) {
-            fprintf(stderr, "n265: cannot read %s at frame %d\n", j->path,
+            fprintf(stderr, "y265: cannot read %s at frame %d\n", j->path,
                     start);
             s->err = 1;
         }
@@ -2224,7 +2224,7 @@ static void *gp_worker(void *arg)
                 pthread_mutex_unlock(&j->lock);
                 if (ab || y4m_read(&rd) <= 0) {
                     if (!ab)
-                        fprintf(stderr, "n265: cannot read frame %d of "
+                        fprintf(stderr, "y265: cannot read frame %d of "
                                 "%s\n", i, j->path);
                     s->err = 1;
                     break;
@@ -2249,7 +2249,7 @@ static void *gp_worker(void *arg)
             n265_nal *nal;
             int nnal;
             if (a->encoder_encode(e, &nal, &nnal, &pic) < 0) {
-                fprintf(stderr, "n265: encode failed on frame %d\n", i);
+                fprintf(stderr, "y265: encode failed on frame %d\n", i);
                 s->err = 1;
                 break;
             }
@@ -2471,7 +2471,7 @@ static int gp_run(const n265_api *a, y4m_t *y, const char *in_path,
         else
             r = y4m_read(y);
         if (r < 0) {
-            fprintf(stderr, "n265: truncated input after frame %ld\n", n);
+            fprintf(stderr, "y265: truncated input after frame %ld\n", n);
             rc = 1;
             break;
         }
@@ -2495,7 +2495,7 @@ static int gp_run(const n265_api *a, y4m_t *y, const char *in_path,
             if (j->cuts) {
                 const void *lu = gp_scan_luma(j, y, n);
                 if (!lu) {
-                    fprintf(stderr, "n265: cannot read frame %ld\n", n);
+                    fprintf(stderr, "y265: cannot read frame %ld\n", n);
                     rc = 1;
                     break;
                 }
@@ -2694,7 +2694,7 @@ static int cli_parse(const n265_api *a, n265_config *cfg, int argc,
             const char *v = argv[++i];
             if (sscanf(v, "%dx%d", &o->in_w, &o->in_h) != 2 || o->in_w <= 0 ||
                 o->in_h <= 0) {
-                fprintf(stderr, "n265: --input-res is WxH, e.g. 352x288\n");
+                fprintf(stderr, "y265: --input-res is WxH, e.g. 352x288\n");
                 return 2;
             }
         } else if (!strcmp(argv[i], "--input-csp") && i + 1 < argc) {
@@ -2702,10 +2702,10 @@ static int cli_parse(const n265_api *a, n265_config *cfg, int argc,
             o->in_csp = input_csp_parse(argv[++i], &mono);
             if (o->in_csp < 0) {
                 fprintf(stderr, mono
-                        ? "n265: --input-csp i400 (monochrome) is not a "
+                        ? "y265: --input-csp i400 (monochrome) is not a "
                           "format this encoder codes yet; it is refused "
                           "rather than read as 4:2:0\n"
-                        : "n265: --input-csp is i420, i422 or i444 (or the "
+                        : "y265: --input-csp is i420, i422 or i444 (or the "
                           "chroma_format_idc itself: 1, 2, 3)\n");
                 return 2;
             }
@@ -2713,7 +2713,7 @@ static int cli_parse(const n265_api *a, n265_config *cfg, int argc,
             o->in_depth = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--fps") && i + 1 < argc) {
             if (fps_parse(argv[++i], &o->in_fps_num, &o->in_fps_den) < 0) {
-                fprintf(stderr, "n265: --fps is N, N/D or a decimal "
+                fprintf(stderr, "y265: --fps is N, N/D or a decimal "
                         "(30, 30000/1001, 29.97)\n");
                 return 2;
             }
@@ -2724,7 +2724,7 @@ static int cli_parse(const n265_api *a, n265_config *cfg, int argc,
         } else if (!strcmp(argv[i], "--seek") && i + 1 < argc) {
             o->seek = atol(argv[++i]);
             if (o->seek < 0) {
-                fprintf(stderr, "n265: --seek takes a frame count\n");
+                fprintf(stderr, "y265: --seek takes a frame count\n");
                 return 2;
             }
         } else if (!strcmp(argv[i], "--dump-recon-decode") && i + 1 < argc) {
@@ -2744,7 +2744,7 @@ static int cli_parse(const n265_api *a, n265_config *cfg, int argc,
         } else if (!strcmp(argv[i], "--shot-stats") && i + 1 < argc) {
             o->shot_path = argv[++i];
         } else if (!strcmp(argv[i], "--version")) {
-            printf("n265 %s\n", a->version_str());
+            printf("y265 %s\n", a->version_str());
             return 0;
         } else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
             usage();
@@ -2767,7 +2767,7 @@ static int cli_parse(const n265_api *a, n265_config *cfg, int argc,
                            ? argv[i] + 1 : NULL;
         int tv = name ? n265_config_takes_value(name) : -1;
         if (tv < 0 || (tv && i + 1 >= argc)) {
-            fprintf(stderr, "n265: unknown option %s\n", argv[i]);
+            fprintf(stderr, "y265: unknown option %s\n", argv[i]);
             usage();
             return 2;
         }
@@ -2811,13 +2811,13 @@ int main(int argc, char **argv)
     int verbose = o.verbose, show_config = o.show_config;
     int threads = o.threads, want_psnr = o.want_psnr, want_ssim = o.want_ssim;
     if (out_depth != 0 && out_depth != 8 && out_depth != 10) {
-        fprintf(stderr, "n265: --output-depth must be 8 or 10\n");
+        fprintf(stderr, "y265: --output-depth must be 8 or 10\n");
         return 2;
     }
 
     FILE *fin = strcmp(in_path, "-") ? fopen(in_path, "rb") : stdin;
     if (!fin) {
-        fprintf(stderr, "n265: cannot open %s: %s\n", in_path, strerror(errno));
+        fprintf(stderr, "y265: cannot open %s: %s\n", in_path, strerror(errno));
         return 1;
     }
     /* RAW or y4m, and the decision is made from the FLAGS and the name,
@@ -2825,11 +2825,11 @@ int main(int argc, char **argv)
      * reader that guessed would code garbage silently on the one input
      * that cannot say what it is. `--input-res` is the switch - x265
      * takes the same decision off the `.yuv` extension, and that is
-     * honored too so a plain `n265 clip.yuv --input-res ...` and the
+     * honored too so a plain `y265 clip.yuv --input-res ...` and the
      * bare extension agree. */
     if (is_y4m_name(in_path) &&
         (in_w > 0 || in_csp >= 0 || in_depth || in_fps_num > 0)) {
-        fprintf(stderr, "n265: --input-res / --input-csp / --input-depth / "
+        fprintf(stderr, "y265: --input-res / --input-csp / --input-depth / "
                 "--fps describe RAW input; %s carries its own geometry\n",
                 in_path);
         return 2;
@@ -2852,7 +2852,7 @@ int main(int argc, char **argv)
         if (in_csp < 0)       miss[nmiss++] = "--input-csp i420|i422|i444";
         if (in_fps_num <= 0)  miss[nmiss++] = "--fps N[/D]";
         if (nmiss) {
-            fprintf(stderr, "n265: raw input carries no header, so its "
+            fprintf(stderr, "y265: raw input carries no header, so its "
                     "geometry has to be given:");
             for (int k = 0; k < nmiss; k++)
                 fprintf(stderr, " %s%s", miss[k], k + 1 < nmiss ? "," : "");
@@ -2862,7 +2862,7 @@ int main(int argc, char **argv)
         if (in_depth == 0)
             in_depth = 8;
         if (in_depth != 8 && in_depth != 10) {
-            fprintf(stderr, "n265: --input-depth must be 8 or 10\n");
+            fprintf(stderr, "y265: --input-depth must be 8 or 10\n");
             return 2;
         }
         yr = raw_open(&y, fin, in_w, in_h, in_csp, in_depth,
@@ -2873,7 +2873,7 @@ int main(int argc, char **argv)
          * --input-res that disagrees with the header is a mistake worth
          * a message. */
         if (in_w > 0 || in_csp >= 0 || in_depth || in_fps_num > 0) {
-            fprintf(stderr, "n265: --input-res / --input-csp / "
+            fprintf(stderr, "y265: --input-res / --input-csp / "
                     "--input-depth / --fps describe RAW input; a y4m "
                     "carries its own geometry\n");
             return 2;
@@ -2882,8 +2882,8 @@ int main(int argc, char **argv)
     }
     if (yr < 0) {
         if (yr == -1)
-            fprintf(stderr, want_raw ? "n265: cannot size the raw input\n"
-                                     : "n265: bad y4m input\n");
+            fprintf(stderr, want_raw ? "y265: cannot size the raw input\n"
+                                     : "y265: bad y4m input\n");
         return 1;
     }
     /* --dither, once the source's own depth is known. It is set AFTER
@@ -2892,7 +2892,7 @@ int main(int argc, char **argv)
      * silently inert is the one thing about a command line that cannot
      * be debugged from the output. */
     if (dither && !(y.depth == 10 && y.out_depth == 8)) {
-        fprintf(stderr, "n265: --dither is the 10-bit to 8-bit reduction's "
+        fprintf(stderr, "y265: --dither is the 10-bit to 8-bit reduction's "
                 "own choice; it needs --output-depth 8 on a 10-bit source "
                 "(this one is %d-bit in, %d-bit out)\n", y.depth,
                 y.out_depth);
@@ -2902,7 +2902,7 @@ int main(int argc, char **argv)
     /* --seek, after the open (the y4m header has to be read either way)
      * and before anything is encoded. */
     if (seek > 0 && src_skip(&y, seek) < 0) {
-        fprintf(stderr, "n265: --seek %ld runs past the end of %s\n",
+        fprintf(stderr, "y265: --seek %ld runs past the end of %s\n",
                 seek, in_path);
         return 1;
     }
@@ -2945,13 +2945,13 @@ int main(int argc, char **argv)
     const char *rpu_path = a->config_get_str(cfg, "dolby-vision-rpu");
     /* --csv-log-level without --csv does nothing, so it is refused */
     if (csv_level >= 0 && !csv_path) {
-        fprintf(stderr, "n265: --csv-log-level needs --csv <file>\n");
+        fprintf(stderr, "y265: --csv-log-level needs --csv <file>\n");
         return 2;
     }
     if (csv_level < 0)
         csv_level = 0;
     if (csv_level > 2) {
-        fprintf(stderr, "n265: --csv-log-level is 0 (one summary row for "
+        fprintf(stderr, "y265: --csv-log-level is 0 (one summary row for "
                 "the run), 1 (a row per frame) or 2 (that, plus the rate "
                 "control's columns)\n");
         return 2;
@@ -2963,7 +2963,7 @@ int main(int argc, char **argv)
         for (int k = 0; k < 2; k++)
             if (f[k] && (!strcmp(f[k], "/dev/stdin") ||
                          !strcmp(f[k], "/dev/fd/0") || !strcmp(f[k], "-"))) {
-                fprintf(stderr, "n265: the input is on stdin, so %s can't "
+                fprintf(stderr, "y265: the input is on stdin, so %s can't "
                         "be read from there too\n",
                         k ? "--dolby-vision-rpu" : "--dhdr10-info");
                 return 2;
@@ -2972,12 +2972,12 @@ int main(int argc, char **argv)
     char dyn_err[256];
     if (h10p_path &&
         n265_h10p_load(h10p_path, &g_h10p_tab, dyn_err, sizeof dyn_err) < 0) {
-        fprintf(stderr, "n265: --dhdr10-info: %s\n", dyn_err);
+        fprintf(stderr, "y265: --dhdr10-info: %s\n", dyn_err);
         return 2;
     }
     if (rpu_path &&
         n265_rpu_load(rpu_path, &g_rpu_tab, dyn_err, sizeof dyn_err) < 0) {
-        fprintf(stderr, "n265: --dolby-vision-rpu: %s\n", dyn_err);
+        fprintf(stderr, "y265: --dolby-vision-rpu: %s\n", dyn_err);
         return 2;
     }
     g_dyn_seek = seek;
@@ -3004,12 +3004,12 @@ int main(int argc, char **argv)
               "timing SEI, which a joined stream does not carry"
             : NULL;
         if (why) {
-            fprintf(stderr, "n265: --gop-parallel %d: coding serially, "
+            fprintf(stderr, "y265: --gop-parallel %d: coding serially, "
                     "since %s\n", gop_par, why);
         } else {
             FILE *gout = fopen(out_path, "wb");
             if (!gout) {
-                fprintf(stderr, "n265: cannot open %s: %s\n", out_path,
+                fprintf(stderr, "y265: cannot open %s: %s\n", out_path,
                         strerror(errno));
                 return 1;
             }
@@ -3017,7 +3017,7 @@ int main(int argc, char **argv)
             if (dump_path) {
                 gdump = fopen(dump_path, "wb");
                 if (!gdump) {
-                    fprintf(stderr, "n265: cannot open %s: %s\n", dump_path,
+                    fprintf(stderr, "y265: cannot open %s: %s\n", dump_path,
                             strerror(errno));
                     return 1;
                 }
@@ -3033,19 +3033,19 @@ int main(int argc, char **argv)
             if (gdump)
                 fclose(gdump);
             if (fclose(gout) != 0 && !grc) {
-                fprintf(stderr, "n265: write failed: %s\n", strerror(errno));
+                fprintf(stderr, "y265: write failed: %s\n", strerror(errno));
                 grc = 1;
             }
             if (grc)
                 return 1;
             if (gnm > 0 && want_psnr)
-                fprintf(stderr, "n265: PSNR over %ld frames: y %.4f u %.4f "
+                fprintf(stderr, "y265: PSNR over %ld frames: y %.4f u %.4f "
                         "v %.4f avg %.4f dB\n", gnm, gmet[0], gmet[1],
                         gmet[2], gmet[3]);
             if (gnm > 0 && want_ssim)
-                fprintf(stderr, "n265: SSIM-Y over %ld frames: %.6f (%.4f "
+                fprintf(stderr, "y265: SSIM-Y over %ld frames: %.6f (%.4f "
                         "dB)\n", gnm, gmet[4], gmet[5]);
-            fprintf(stderr, "n265: gop-parallel: %d segment%s, %d instance%s "
+            fprintf(stderr, "y265: gop-parallel: %d segment%s, %d instance%s "
                     "x %d thread%s\n", gseg, gseg == 1 ? "" : "s",
                     gseg > 1 ? (gop_par < nt ? gop_par : (int)nt) : 1,
                     gseg > 1 ? "s" : "", gk, gk == 1 ? "" : "s");
@@ -3055,19 +3055,19 @@ int main(int argc, char **argv)
             if (fin != stdin)
                 fclose(fin);
             if (y.clipped)
-                fprintf(stderr, "n265: WARNING %ld input samples were above "
+                fprintf(stderr, "y265: WARNING %ld input samples were above "
                         "the declared %d-bit range and were clamped\n",
                         y.clipped, y.depth);
             const char *gfmt = y.csp == N265_CSP_I444 ? "4:4:4"
                              : y.csp == N265_CSP_I422 ? "4:2:2" : "4:2:0";
-            fprintf(stderr, "n265: %ld frames, %dx%d %s %d-bit\n", gn, y.w,
+            fprintf(stderr, "y265: %ld frames, %dx%d %s %d-bit\n", gn, y.w,
                     y.h, gfmt, y.depth);
             return dyn_check(gn);
         }
     }
     n265_encoder *enc = a->encoder_open(&p);
     if (!enc) {
-        fprintf(stderr, "n265: encoder_open failed (dims %dx%d)\n", y.w, y.h);
+        fprintf(stderr, "y265: encoder_open failed (dims %dx%d)\n", y.w, y.h);
         return 1;
     }
 
@@ -3097,7 +3097,7 @@ int main(int argc, char **argv)
     if (dump_path) {
         fdump = fopen(dump_path, "wb");
         if (!fdump) {
-            fprintf(stderr, "n265: cannot open %s: %s\n", dump_path,
+            fprintf(stderr, "y265: cannot open %s: %s\n", dump_path,
                     strerror(errno));
             return 1;
         }
@@ -3111,7 +3111,7 @@ int main(int argc, char **argv)
     }
     FILE *fout = fopen(out_path, "wb");
     if (!fout) {
-        fprintf(stderr, "n265: cannot open %s: %s\n", out_path, strerror(errno));
+        fprintf(stderr, "y265: cannot open %s: %s\n", out_path, strerror(errno));
         return 1;
     }
 
@@ -3120,7 +3120,7 @@ int main(int argc, char **argv)
     rd_ring rq;
     int nslot = rd_slots(&y, threads);
     if (nslot && rd_open(&rq, &y, nslot, max_frames) != 0) {
-        fprintf(stderr, "n265: cannot start the input reader\n");
+        fprintf(stderr, "y265: cannot start the input reader\n");
         return 1;
     }
     for (;;) {
@@ -3141,7 +3141,7 @@ int main(int argc, char **argv)
         int nnal;
         int bytes = a->encoder_encode(enc, &nal, &nnal, &pic);
         if (bytes < 0) {
-            fprintf(stderr, "n265: encode failed on frame %ld\n", n);
+            fprintf(stderr, "y265: encode failed on frame %ld\n", n);
             return 1;
         }
         if (nslot)
@@ -3153,7 +3153,7 @@ int main(int argc, char **argv)
     if (nslot)
         rd_close(&rq, &y);
     if (r < 0) {
-        fprintf(stderr, "n265: truncated input after frame %ld\n", n);
+        fprintf(stderr, "y265: truncated input after frame %ld\n", n);
         return 1;
     }
 
@@ -3176,11 +3176,11 @@ int main(int argc, char **argv)
         double met[6];
         long nmet = a->metrics(enc, met);
         if (nmet > 0 && want_psnr)
-            fprintf(stderr, "n265: PSNR over %ld frames: y %.4f u %.4f "
+            fprintf(stderr, "y265: PSNR over %ld frames: y %.4f u %.4f "
                     "v %.4f avg %.4f dB\n", nmet, met[0], met[1], met[2],
                     met[3]);
         if (nmet > 0 && want_ssim)
-            fprintf(stderr, "n265: SSIM-Y over %ld frames: %.6f (%.4f dB)\n",
+            fprintf(stderr, "y265: SSIM-Y over %ld frames: %.6f (%.4f dB)\n",
                     nmet, met[4], met[5]);
     }
     g_dyn_lost += a->dyn_lost(enc);
@@ -3195,22 +3195,22 @@ int main(int argc, char **argv)
     if (fin != stdin)
         fclose(fin);
     if (fclose(fout) != 0) {
-        fprintf(stderr, "n265: write failed: %s\n", strerror(errno));
+        fprintf(stderr, "y265: write failed: %s\n", strerror(errno));
         return 1;
     }
     if (y.clipped)
-        fprintf(stderr, "n265: WARNING %ld input samples were above the "
+        fprintf(stderr, "y265: WARNING %ld input samples were above the "
                 "declared %d-bit range and were clamped\n", y.clipped,
                 y.depth);
     const char *fmt = y.csp == N265_CSP_I444 ? "4:4:4"
                     : y.csp == N265_CSP_I422 ? "4:2:2" : "4:2:0";
     if (y.out_depth != y.depth)
-        fprintf(stderr, "n265: %ld frames, %dx%d %s %d-bit in, coded %d-bit "
+        fprintf(stderr, "y265: %ld frames, %dx%d %s %d-bit in, coded %d-bit "
                 "(%s)\n", n, y.w, y.h, fmt, y.depth, y.out_depth,
                 y.out_depth > y.depth ? "upshifted by 2"
                 : y.dither ? "ordered dither" : "truncated by 2");
     else
-        fprintf(stderr, "n265: %ld frames, %dx%d %s %d-bit\n", n, y.w, y.h,
+        fprintf(stderr, "y265: %ld frames, %dx%d %s %d-bit\n", n, y.w, y.h,
                 fmt, y.depth);
     return dyn_check(n);
 }

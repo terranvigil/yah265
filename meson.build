@@ -402,11 +402,19 @@ yah265_dep = declare_dependency(
 # content through Main10 on purpose. The CLI is compiled at 8 so the
 # names the header gives it are the 8-bit library's; the Main10 entry
 # points it declares for itself, suffixed.
-n265 = executable('n265' + depth_suffix, 'cli/n265.c', 'cli/hdr_dyn.c',
+y265 = executable('y265' + depth_suffix, 'cli/y265.c', 'cli/hdr_dyn.c',
   c_args : ['-UN265_BIT_DEPTH', '-DN265_BIT_DEPTH=8'],
   link_with : [lib8_static, lib10_static],
   include_directories : inc,
   dependencies : [m_dep, threads_dep],
   install : true)
+
+# n265 was the command line's name before it was y265. The build tree
+# keeps it as a link so the gates, the board and the harnesses still run.
+n265 = custom_target('n265-alias',
+  input : y265,
+  output : 'n265' + depth_suffix,
+  command : ['ln', '-sf', 'y265' + depth_suffix, '@OUTPUT@'],
+  build_by_default : true)
 
 subdir('tests')

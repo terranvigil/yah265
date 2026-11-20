@@ -719,7 +719,7 @@ static int twopass_open(n265_encoder *e, const n265_param *p)
     if (g_pass <= 0)
         return 0;               /* the encoder main ships */
     if (!g_stats_path || !*g_stats_path) {
-        fprintf(stderr, "n265: --pass %d needs --stats <file>\n", g_pass);
+        fprintf(stderr, "y265: --pass %d needs --stats <file>\n", g_pass);
         return -1;
     }
     e->tp.pass = g_pass;
@@ -729,7 +729,7 @@ static int twopass_open(n265_encoder *e, const n265_param *p)
     if (g_pass >= 2) {
         char err[512] = { 0 };
         if (n265_2p_read(&e->tp, g_stats_path, err, sizeof err) < 0) {
-            fprintf(stderr, "n265: --pass %d: %s\n", g_pass, err);
+            fprintf(stderr, "y265: --pass %d: %s\n", g_pass, err);
             return -1;
         }
         /* The target is the whole file the stats describe, not the frames
@@ -738,13 +738,13 @@ static int twopass_open(n265_encoder *e, const n265_param *p)
          * construction. Saying so is the caller's job; the encoder's is to
          * plan the file it was told about. */
         if (!e->abr_on || !(e->rc.bits_per_frame > 0.0)) {
-            fprintf(stderr, "n265: --pass %d needs --bitrate: a plan is a "
+            fprintf(stderr, "y265: --pass %d needs --bitrate: a plan is a "
                     "rate factor solved onto a target, and under --crf and "
                     "--qp there is no target to solve onto\n", g_pass);
             return -1;
         }
         if (e->tp.nblk != nblk) {
-            fprintf(stderr, "n265: --pass %d: %s was written at %d lowres "
+            fprintf(stderr, "y265: --pass %d: %s was written at %d lowres "
                     "blocks (%dx%d) and this encode has %d. The stats "
                     "describe a different picture size.\n", g_pass,
                     g_stats_path, e->tp.nblk, e->tp.width, e->tp.height,
@@ -765,7 +765,7 @@ static int twopass_open(n265_encoder *e, const n265_param *p)
         double target = e->rc.bits_per_frame * (double)e->tp.n;
         if (n265_2p_solve(&e->tp, target, qcomp, clamp, trust,
                           (double)N265_QP_MIN, 51.0) < 0) {
-            fprintf(stderr, "n265: --pass %d: the plan would not solve "
+            fprintf(stderr, "y265: --pass %d: the plan would not solve "
                     "(%d frames, %.0f bits)\n", g_pass, e->tp.n, target);
             return -1;
         }
@@ -799,7 +799,7 @@ void n265_encoder_set_shot_stats(n265_encoder *e, const char *path)
     if (path && *path) {
         e->shot_f = fopen(path, "w");
         if (!e->shot_f)
-            fprintf(stderr, "n265: cannot write --shot-stats %s\n", path);
+            fprintf(stderr, "y265: cannot write --shot-stats %s\n", path);
     }
 }
 
@@ -814,7 +814,7 @@ void n265_encoder_set_csv(n265_encoder *e, const char *path, int level)
         return;
     n265_csv_close(&e->csv);
     if (n265_csv_open(&e->csv, path, level, e->met.psnr, e->met.ssim) < 0)
-        fprintf(stderr, "n265: cannot write --csv %s\n", path);
+        fprintf(stderr, "y265: cannot write --csv %s\n", path);
 }
 
 /* NALs an allocation failure kept out of the stream or cut short, so the
@@ -833,7 +833,7 @@ long n265_encoder_dyn_lost(const n265_encoder *e)
     for (int i = 0; i < e->n_done; i++)
         left += e->done[(e->done_head + i) % n].nnal;
     if (left)
-        fprintf(stderr, "n265: ERROR out of memory: the stream ends early, "
+        fprintf(stderr, "y265: ERROR out of memory: the stream ends early, "
                 "before every frame was handed out\n");
     return e->dyn_lost + e->nal_lost + e->fd_short + left;
 }
@@ -2099,7 +2099,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
          * --bframes 0..15) already keep inside N265_DPB_SLOTS. It stays
          * as an assertion an API caller cannot walk past. */
         if (e->dpb_slots > N265_DPB_SLOTS) {
-            fprintf(stderr, "n265: --bframes %d with --ref %d needs %d DPB "
+            fprintf(stderr, "y265: --bframes %d with --ref %d needs %d DPB "
                     "slots and the pool holds %d; lower --ref or --bframes\n",
                     e->bframes, e->ref_max, e->dpb_slots, N265_DPB_SLOTS);
             goto fail;
@@ -2315,7 +2315,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
       if (w < 0) w = 0;
       if (w > N265_MAX_SHOT_WINDOW) w = N265_MAX_SHOT_WINDOW;
       if (w > 0 && !e->crf_on) {
-          fprintf(stderr, "n265: --shot-window needs --crf (the plan moves "
+          fprintf(stderr, "y265: --shot-window needs --crf (the plan moves "
                   "the base QP); the shot planner is off\n");
           w = 0;
       }
@@ -2353,13 +2353,13 @@ n265_encoder *n265_encoder_open(const n265_param *p)
      * coded sample - but the denoise is refused, loudly, rather than
      * quietly redefining what the mode means. */
     if (e->fgc_denoise && (e->lossless || e->mode == N265_MODE_PCM)) {
-        fprintf(stderr, "n265: --film-grain-denoise codes a FILTERED "
+        fprintf(stderr, "y265: --film-grain-denoise codes a FILTERED "
                 "source, which --lossless/--pcm cannot mean; denoise off "
                 "(the SEI is still written)\n");
         e->fgc_denoise = 0;
     }
     if (e->fgc_strength > 0.0 && (BIT_DEPTH != 8 || e->chroma_idc != 1)) {
-        fprintf(stderr, "n265: --film-grain needs 8-bit 4:2:0 (the only "
+        fprintf(stderr, "y265: --film-grain needs 8-bit 4:2:0 (the only "
                 "shape the measurement chain can synthesise); off\n");
         e->fgc_strength = 0.0;
         e->fgc_denoise = 0;
@@ -2368,7 +2368,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         e->fgc_est = n265_grain_open(e->param.width, e->param.height,
                                      e->csx, e->csy);
         if (!e->fgc_est) {
-            fprintf(stderr, "n265: --film-grain: out of memory; off\n");
+            fprintf(stderr, "y265: --film-grain: out of memory; off\n");
             e->fgc_strength = 0.0;
             e->fgc_denoise = 0;
         }
@@ -2406,7 +2406,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         /* said only to a caller who asked by name: a preset's filter
          * simply does not arm where the source must be coded exactly */
         if (g_mcstf == 1)
-            fprintf(stderr, "n265: --mcstf codes a FILTERED source, which "
+            fprintf(stderr, "y265: --mcstf codes a FILTERED source, which "
                     "--lossless/--pcm cannot mean; off\n");
     } else if (mcstf_on) {
         /* the operating point the filter's width opens with, on the QP
@@ -2420,7 +2420,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
                                    e->csx, e->csy, e->mcstf_range,
                                    e->mcstf_selective, qp_est, e->keyint);
         if (!e->mcstf)
-            fprintf(stderr, "n265: --mcstf: out of memory; off\n");
+            fprintf(stderr, "y265: --mcstf: out of memory; off\n");
     }
     /* --nr-intra / --nr-inter. Armed only if one of them is nonzero, and
      * the two allocations below are the ONLY memory the feature costs
@@ -2451,7 +2451,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         (e->lossless || e->mode == N265_MODE_PCM)) {
         if (g_nr_intra >= 0 || g_nr_inter >= 0 ||
             getenv("N265_NR_INTRA") || getenv("N265_NR_INTER"))
-            fprintf(stderr, "n265: --nr-intra/--nr-inter attenuate transform "
+            fprintf(stderr, "y265: --nr-intra/--nr-inter attenuate transform "
                     "coefficients, and --lossless/--pcm code none; off\n");
         e->nr_intra = e->nr_inter = 0;
     }
@@ -2459,7 +2459,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         e->nr = calloc(1, sizeof(*e->nr));
         e->nr_hist = calloc(N265_NR_HIST, sizeof(*e->nr_hist));
         if (!e->nr || !e->nr_hist) {
-            fprintf(stderr, "n265: --nr-intra/--nr-inter: out of memory; "
+            fprintf(stderr, "y265: --nr-intra/--nr-inter: out of memory; "
                     "off\n");
             free(e->nr);
             free(e->nr_hist);
@@ -2612,18 +2612,18 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         double maxrate = g_vbv_maxrate * 1000.0;
         double bufsize = g_vbv_bufsize * 1000.0;
         if ((g_vbv_maxrate > 0.0) != (g_vbv_bufsize > 0.0)) {
-            fprintf(stderr, "n265: --vbv-maxrate and --vbv-bufsize are one "
+            fprintf(stderr, "y265: --vbv-maxrate and --vbv-bufsize are one "
                             "knob in two halves; name both or neither\n");
             goto fail;
         }
         if (g_vbv_maxrate < 0.0 || g_vbv_bufsize < 0.0) {
-            fprintf(stderr, "n265: --vbv-maxrate and --vbv-bufsize are "
+            fprintf(stderr, "y265: --vbv-maxrate and --vbv-bufsize are "
                             "positive or absent\n");
             goto fail;
         }
         if (maxrate > 0.0) {
             if (!e->abr_on && !e->crf_on) {
-                fprintf(stderr, "n265: --vbv-maxrate needs a rate control "
+                fprintf(stderr, "y265: --vbv-maxrate needs a rate control "
                                 "with a quantiser to move: use --bitrate "
                                 "(ABR) or --crf (capped CRF). Under --qp, "
                                 "--pcm and --lossless the buffer is whatever "
@@ -2631,18 +2631,18 @@ n265_encoder *n265_encoder_open(const n265_param *p)
                 goto fail;
             }
             if (!(g_vbv_init > 0.0) || g_vbv_init > 1.0) {
-                fprintf(stderr, "n265: --vbv-init is a fraction of the "
+                fprintf(stderr, "y265: --vbv-init is a fraction of the "
                                 "buffer in (0, 1]; %g is not\n", g_vbv_init);
                 goto fail;
             }
             if (fps <= 0.0) {
-                fprintf(stderr, "n265: --vbv-maxrate needs a frame rate: the "
+                fprintf(stderr, "y265: --vbv-maxrate needs a frame rate: the "
                                 "CPB's removal times are one per picture and "
                                 "this source declares none\n");
                 goto fail;
             }
             if (e->abr_on && maxrate < e->abr_bitrate) {
-                fprintf(stderr, "n265: --vbv-maxrate %.0f is below --bitrate "
+                fprintf(stderr, "y265: --vbv-maxrate %.0f is below --bitrate "
                                 "%.0f: the buffer would be asked to hold a "
                                 "stream that never fits in it\n",
                         maxrate / 1000.0, e->abr_bitrate / 1000.0);
@@ -2682,14 +2682,14 @@ n265_encoder *n265_encoder_open(const n265_param *p)
          * no flag, because the encode still finishes and the number
          * still looks like a result. */
         if (e->ausize_factor < 0.5 || e->ausize_factor > 1.0) {
-            fprintf(stderr, "n265: --max-ausize-factor is a fraction of the "
+            fprintf(stderr, "y265: --max-ausize-factor is a fraction of the "
                             "CPB in [0.5, 1.0]; %g is not\n",
                     e->ausize_factor);
             goto fail;
         }
         if (e->ausize_factor < 1.0) {
             if (!e->vbv.on) {
-                fprintf(stderr, "n265: --max-ausize-factor bounds an access "
+                fprintf(stderr, "y265: --max-ausize-factor bounds an access "
                                 "unit against the CPB, so it needs "
                                 "--vbv-maxrate and --vbv-bufsize\n");
                 goto fail;
@@ -2697,7 +2697,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
             e->vbv.au_cap = e->ausize_factor * e->vbv.bufsize;
         }
         if (e->strict_cbr && !(e->vbv.on && e->abr_on)) {
-            fprintf(stderr, "n265: --strict-cbr is the constant-rate form of "
+            fprintf(stderr, "y265: --strict-cbr is the constant-rate form of "
                             "ABR under a buffer: it needs --bitrate with "
                             "--vbv-maxrate and --vbv-bufsize\n");
             goto fail;
@@ -2706,31 +2706,31 @@ n265_encoder *n265_encoder_open(const n265_param *p)
             goto fail;
         if (e->crf_bounds) {
             if (!e->crf_on) {
-                fprintf(stderr, "n265: --crf-min and --crf-max bound the "
+                fprintf(stderr, "y265: --crf-min and --crf-max bound the "
                                 "RATE FACTOR, so they need --crf. Under "
                                 "--bitrate the bounds on the loop's answer "
                                 "are --qpmin and --qpmax.\n");
                 goto fail;
             }
             if (e->crf_min > e->crf_max) {
-                fprintf(stderr, "n265: --crf-min %g is above --crf-max %g\n",
+                fprintf(stderr, "y265: --crf-min %g is above --crf-max %g\n",
                         e->crf_min, e->crf_max);
                 goto fail;
             }
         }
         if (e->qpmin > e->qpmax) {
-            fprintf(stderr, "n265: --qpmin %d is above --qpmax %d\n",
+            fprintf(stderr, "y265: --qpmin %d is above --qpmax %d\n",
                     e->qpmin, e->qpmax);
             goto fail;
         }
         if (e->qp_bounds && !(e->abr_on || e->crf_on)) {
-            fprintf(stderr, "n265: --qpmin and --qpmax bound what the rate "
+            fprintf(stderr, "y265: --qpmin and --qpmax bound what the rate "
                             "control may choose; under --qp the quantiser "
                             "is already yours\n");
             goto fail;
         }
         if (g_qpfile_path && g_zones_spec) {
-            fprintf(stderr, "n265: --qpfile and --zones both pin a "
+            fprintf(stderr, "y265: --qpfile and --zones both pin a "
                             "quantiser onto the timeline; pick one\n");
             goto fail;
         }
@@ -2738,7 +2738,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
             char err[512] = "";
             if (n265_qpfile_parse(&e->qpf, g_qpfile_path, err,
                                   sizeof(err)) < 0) {
-                fprintf(stderr, "n265: --qpfile: %s\n", err);
+                fprintf(stderr, "y265: --qpfile: %s\n", err);
                 goto fail;
             }
             e->qpf_on = 1;
@@ -2747,7 +2747,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
             char err[512] = "";
             if (n265_zones_parse(&e->zones, g_zones_spec, err,
                                  sizeof(err)) < 0) {
-                fprintf(stderr, "n265: %s\n", err);
+                fprintf(stderr, "y265: %s\n", err);
                 goto fail;
             }
             e->zones_on = 1;
@@ -2777,7 +2777,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
                 goto fail;
             n265_write_info_sei(&e->info_bs, n265_version_str(), g_info_opts);
             if (e->info_bs.failed) {
-                fprintf(stderr, "n265: out of memory building the version "
+                fprintf(stderr, "y265: out of memory building the version "
                                 "SEI\n");
                 goto fail;
             }
@@ -2789,7 +2789,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
                 goto fail;
             n265_write_recovery_sei(&e->rec_bs);
             if (e->rec_bs.failed) {
-                fprintf(stderr, "n265: out of memory building the recovery "
+                fprintf(stderr, "y265: out of memory building the recovery "
                                 "point SEI\n");
                 goto fail;
             }
@@ -2799,13 +2799,13 @@ n265_encoder *n265_encoder_open(const n265_param *p)
          * that silently wrote nothing would look like a decoder that did
          * not honor it. */
         if (g_sig.pic_struct >= 0 && !e->vbv.on) {
-            fprintf(stderr, "n265: --pic-struct is a field of the pic_timing "
+            fprintf(stderr, "y265: --pic-struct is a field of the pic_timing "
                             "SEI, which this encoder writes only with a "
                             "buffer: use --vbv-maxrate and --vbv-bufsize\n");
             goto fail;
         }
         if (g_hrd_concat && !e->vbv.on) {
-            fprintf(stderr, "n265: --hrd-concat is a flag in the "
+            fprintf(stderr, "y265: --hrd-concat is a flag in the "
                             "buffering_period SEI, which this encoder writes "
                             "only with a buffer: use --vbv-maxrate and "
                             "--vbv-bufsize\n");
@@ -2948,7 +2948,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
                                     : (int64_t)e->vbv.bufsize;
         }
         if (n265_level_solve(&rq, &e->level) < 0) {
-            fprintf(stderr, "n265: %s\n", e->level.err);
+            fprintf(stderr, "y265: %s\n", e->level.err);
             goto fail;
         }
         if (n265_env("N265_LEVEL_TRACE")) {
@@ -3382,7 +3382,7 @@ fail:
  * What `--show-config` prints, and what `--verbose` prints on its way
  * past: the configuration this run RESOLVED, after the preset, the flags
  * and the N265_* environment have all had their say, in x265's own log
- * shape - one `n265 [info]: key : value` line per row - so that the two
+ * shape - one `y265 [info]: key : value` line per row - so that the two
  * encoders' logs read side by side. The 2026-09-16 parity check had to
  * read ours out of src/encoder/preset.c because the binary said nothing;
  * this is the row that answers it instead.
@@ -3406,7 +3406,7 @@ fail:
 static void cfg_row(FILE *f, const char *key, const char *fmt, ...)
 {
     va_list ap;
-    fprintf(f, "n265 [info]: %-22s : ", key);
+    fprintf(f, "y265 [info]: %-22s : ", key);
     va_start(ap, fmt);
     vfprintf(f, fmt, ap);
     va_end(ap);
@@ -3621,20 +3621,20 @@ void n265_encoder_close(n265_encoder *e)
     /* A picture without its HDR10+ message or RPU breaks that format's
      * playback there, so a drop is never silent. */
     if (e->dyn_lost)
-        fprintf(stderr, "n265: ERROR out of memory: %ld HDR10+ or Dolby "
+        fprintf(stderr, "y265: ERROR out of memory: %ld HDR10+ or Dolby "
                 "Vision metadata NALs were not written\n", e->dyn_lost);
     if (e->nal_lost)
-        fprintf(stderr, "n265: ERROR %ld NALs were dropped or written short "
+        fprintf(stderr, "y265: ERROR %ld NALs were dropped or written short "
                 "(out of memory)\n", e->nal_lost);
     if (e->fd_short)
-        fprintf(stderr, "n265: ERROR out of memory: the filler fell short "
+        fprintf(stderr, "y265: ERROR out of memory: the filler fell short "
                 "in %ld access units, so the stream overflows its strict "
                 "CBR buffer there\n", e->fd_short);
     /* --strict-cbr: say how much of the stream is padding. A run that
      * needed none held the rate on its own; one that is a third filler is
      * telling you the target is above what the content costs. */
     if (e->strict_cbr)
-        fprintf(stderr, "n265: --strict-cbr: %ld filler bytes in %ld of %ld "
+        fprintf(stderr, "y265: --strict-cbr: %ld filler bytes in %ld of %ld "
                 "access units\n", e->filler_bytes, e->filler_aus,
                 e->frames_out);
     /* --csv: the summary row, once everything has retired. */
@@ -3649,7 +3649,7 @@ void n265_encoder_close(n265_encoder *e)
      * once, here, rather than per frame. */
     n265_2p_close_write(&e->tp);
     if (e->tp.miss > 0)
-        fprintf(stderr, "n265: --pass %d: %ld coded frames were not in the "
+        fprintf(stderr, "y265: --pass %d: %ld coded frames were not in the "
                 "stats file (%d frames); those fell back to the one-pass "
                 "loop\n", e->tp.pass, e->tp.miss, e->tp.n);
     n265_2p_free(&e->tp);
