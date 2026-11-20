@@ -76,6 +76,7 @@ lib_sources = [
   'src/encoder/headers.c',
   'src/encoder/level.c',
   'src/encoder/preset.c',
+  'src/encoder/config.c',
   'src/encoder/encoder.c',
   'src/encoder/ttrace.c',
 ]
@@ -332,22 +333,19 @@ endforeach
 # hidden visibility is what gets installed for external callers (the
 # ffmpeg wrapper).
 #
-# The installed pair is this build's own depth. The OTHER depth is built
-# static only, because the one thing that links it is n265 in this same
-# build directory, and static is what keeps its hot calls direct.
-libyah265_both = both_libraries('yah265' + depth_suffix,
+# The static archive is this build's own depth. The OTHER depth is built
+# static only for n265 in this same build directory. The 8-bit build's
+# SHARED library carries both depths, so one installed libyah265 serves
+# yuv420p and yuv420p10 alike: the Main10 entry points are the _10 names,
+# which is what lets the two share one object.
+libyah265_static = static_library('yah265' + depth_suffix,
   depth_sources['@0@'.format(bit_depth)],
   c_args : depth_args['@0@'.format(bit_depth)],
   objects : depth_objects['@0@'.format(bit_depth)],
   include_directories : inc,
   dependencies : [m_dep, threads_dep],
-  version : meson.project_version(),
-  soversion : '0',
   gnu_symbol_visibility : 'hidden',
   install : true)
-
-libyah265 = libyah265_both.get_shared_lib()
-libyah265_static = libyah265_both.get_static_lib()
 
 other_depth = bit_depth == 8 ? 10 : 8
 libyah265_other = static_library('yah265-alt@0@'.format(other_depth),
@@ -358,6 +356,17 @@ libyah265_other = static_library('yah265-alt@0@'.format(other_depth),
   dependencies : [m_dep, threads_dep],
   gnu_symbol_visibility : 'hidden',
   install : false)
+
+shared_objs = [libyah265_static.extract_all_objects(recursive : true)]
+if is_8bit
+  shared_objs += libyah265_other.extract_all_objects(recursive : true)
+endif
+libyah265 = shared_library('yah265' + depth_suffix,
+  objects : shared_objs,
+  dependencies : [m_dep, threads_dep],
+  version : meson.project_version(),
+  soversion : '0',
+  install : true)
 
 lib8_static  = is_8bit ? libyah265_static : libyah265_other
 lib10_static = is_8bit ? libyah265_other : libyah265_static
@@ -393,11 +402,19 @@ yah265_dep = declare_dependency(
 # content through Main10 on purpose. The CLI is compiled at 8 so the
 # names the header gives it are the 8-bit library's; the Main10 entry
 # points it declares for itself, suffixed.
-n265 = executable('n265' + depth_suffix, 'cli/n265.c', 'cli/hdr_dyn.c',
+y265 = executable('y265' + depth_suffix, 'cli/y265.c', 'cli/hdr_dyn.c',
   c_args : ['-UN265_BIT_DEPTH', '-DN265_BIT_DEPTH=8'],
   link_with : [lib8_static, lib10_static],
   include_directories : inc,
   dependencies : [m_dep, threads_dep],
   install : true)
+
+# n265 was the command line's name before it was y265. The build tree
+# keeps it as a link so the gates, the board and the harnesses still run.
+n265 = custom_target('n265-alias',
+  input : y265,
+  output : 'n265' + depth_suffix,
+  command : ['ln', '-sf', 'y265' + depth_suffix, '@OUTPUT@'],
+  build_by_default : true)
 
 subdir('tests')

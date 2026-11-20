@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """HDR CRF ladders scored with HDR-VMAF, and BD-rate between them.
 
-    scripts/hdr_bd.py enc ARM --kind n265|x265 [--bin PATH] \
+    scripts/hdr_bd.py enc ARM --kind y265|x265 [--bin PATH] \
         [--env K=V ...] [--args "..."] --clip sol_1080 --crfs 11,14,17,20,23
     scripts/hdr_bd.py bd --ref ARM --test ARM [--test ARM ...] [--clip ...]
 
@@ -92,7 +92,7 @@ def enc_cmd(a, clip, q, out):
     src, frames, fps, trc, cll = CLIPS[clip]
     col = colour(trc)
     extra = shlex.split(a.args or "")
-    if a.kind == "n265":
+    if a.kind in ("y265", "n265"):
         cmd = [a.bin, src, "-o", out, "--preset", "medium", "--crf", str(q),
                "--threads", THREADS] + col
         if trc == "pq":
@@ -165,7 +165,7 @@ def point(arm, clip, q):
 
 
 def cmd_enc(a):
-    a.bin = a.bin or ("x265" if a.kind == "x265" else "build-rel/n265")
+    a.bin = a.bin or ("x265" if a.kind == "x265" else os.environ.get("BIN", "build-rel/y265"))
     a.bin = os.path.abspath(a.bin) if os.sep in a.bin else \
         subprocess.run(["which", a.bin], capture_output=True,
                        text=True).stdout.strip()
@@ -253,7 +253,7 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     e = sub.add_parser("enc")
     e.add_argument("arm")
-    e.add_argument("--kind", choices=("n265", "x265"), default="n265")
+    e.add_argument("--kind", choices=("y265", "n265", "x265"), default="y265")
     e.add_argument("--bin")
     e.add_argument("--env", action="append", default=[])
     e.add_argument("--args")

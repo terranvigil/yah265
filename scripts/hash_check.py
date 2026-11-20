@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Check a stream's decoded picture hash SEIs against the pictures.
 
 Phase 14 item 1. The encoder writes one decoded_picture_hash message per

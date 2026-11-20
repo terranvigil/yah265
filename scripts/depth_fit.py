@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Fit the learned depth-bound table and print its coverage curve.
 
 Phase 7 item 4, step 0 (docs/phase7-depth-design.md). Reads the per-CTU

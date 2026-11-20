@@ -34,7 +34,7 @@ extern "C" {
 /* The sample width this library was built for: 8 (the default) or 10.
  * There is one library per depth - meson's `bit_depth` option defines
  * this project-wide and suffixes the 10-bit library and binary
- * (`n265-10`) - so a caller includes this header once per library it
+ * (`yah265-10`, `y265-10`) - so a caller includes this header once per library it
  * links, and the picture it hands in carries samples of that width.
  * Nothing here is defined when a consumer builds against the installed
  * 8-bit header, which is why 8 is the default. */
@@ -51,7 +51,7 @@ typedef uint16_t n265_pixel;
 #endif
 
 /* The per-depth symbol namespace (phase 8 item 5a). Since one command
- * line links BOTH libraries - n265 picks the encoder from the input's
+ * line links BOTH libraries - y265 picks the encoder from the input's
  * bit depth - the two cannot both export `n265_encoder_open`, so the
  * Main10 library's public names carry a `_10` suffix.
  *
@@ -59,7 +59,7 @@ typedef uint16_t n265_pixel;
  * either way, and this header renames the call for it according to the
  * N265_BIT_DEPTH it compiled with (nothing, for the installed 8-bit
  * header). A consumer that wants BOTH libraries in one program is in
- * n265's position and declares the suffixed entry points itself; that
+ * y265's position and declares the suffixed entry points itself; that
  * is what N265_API is published for.
  *
  * The library's internal symbols are namespaced the same way, by a
@@ -103,6 +103,18 @@ typedef uint16_t n265_pixel;
 #define n265_encoder_encode   N265_API(n265_encoder_encode)
 #define n265_encoder_close    N265_API(n265_encoder_close)
 #define n265_version_str      N265_API(n265_version_str)
+#define n265_encoder_headers  N265_API(n265_encoder_headers)
+#define n265_encoder_access_units N265_API(n265_encoder_access_units)
+#define n265_encoder_reorder_depth N265_API(n265_encoder_reorder_depth)
+#define n265_config_new       N265_API(n265_config_new)
+#define n265_config_free      N265_API(n265_config_free)
+#define n265_config_parse     N265_API(n265_config_parse)
+#define n265_config_parse_list N265_API(n265_config_parse_list)
+#define n265_config_takes_value N265_API(n265_config_takes_value)
+#define n265_config_note      N265_API(n265_config_note)
+#define n265_config_apply     N265_API(n265_config_apply)
+#define n265_config_get       N265_API(n265_config_get)
+#define n265_config_get_str   N265_API(n265_config_get_str)
 #endif
 
 /* Chroma sampling of input pictures. The value IS chroma_format_idc
@@ -162,7 +174,7 @@ typedef struct n265_nal {
 
 /* The planes are `void *` and not `n265_pixel *` so that ONE picture
  * struct serves both libraries: the sample width is the library's, not
- * the header's, and a caller that links both (n265 does) hands 8-bit
+ * the header's, and a caller that links both (y265 does) hands 8-bit
  * planes to one and 16-bit planes to the other through the same type.
  * A caller that links one library writes `n265_pixel *` as before and
  * the conversion to void * is implicit in C. */
@@ -208,8 +220,9 @@ YAH265_API void n265_set_ref(int n);
  * spans (measured from the lookahead) instead of always coding the maximum. */
 YAH265_API void n265_set_badapt(int on);
 
-/* Worker threads. 0 = one per online CPU. Output is byte-identical at
- * every value (docs/threading-design.md). */
+/* Worker threads. 0 = one per online CPU. One thread gives the same
+ * stream on every run; above one, the stream may differ between runs
+ * and thread counts. */
 YAH265_API void n265_set_threads(int n);
 
 /* ---- pass-through signaling (phase 14 item 1) ----
@@ -222,7 +235,7 @@ YAH265_API void n265_set_threads(int n);
  *
  * Every argument is already the SYNTAX ELEMENT of ITU-T H.265 Annex E or
  * Annex D - a color primary is Table E.3's number, not a name - so a
- * caller that has a name parses it itself or uses n265 the binary, which
+ * caller that has a name parses it itself or uses the y265 binary, which
  * accepts x265's spellings. -1 means "not given" in every field that has
  * an absence, and an absent field's presence flag is 0.
  *
@@ -245,7 +258,7 @@ YAH265_API void n265_set_weight(int weightp, int weightb);
  * strict form - only a byte-identical source arms the path - and is the
  * default and every stream written before this flag existed. Negative is
  * "not given", which leaves N265_DUP_THR and then that default in
- * charge. docs/instruments.md says what the distance is measured on. */
+ * charge. */
 YAH265_API void n265_set_dup_thr(double thr);
 
 YAH265_API void n265_set_hash(int type);
@@ -385,6 +398,81 @@ YAH265_API int n265_encoder_encode(n265_encoder *e, n265_nal **nal,
 YAH265_API void n265_encoder_close(n265_encoder *e);
 
 YAH265_API const char *n265_version_str(void);
+
+/* ---- one access unit per coded picture ----
+ *
+ * What the last n265_encoder_encode (or n265_encoder_headers) call
+ * returned, one entry per access unit in coding order: the picture's
+ * display index (0 for the first picture handed in; -1 for a tail of
+ * NALs with no picture, such as --eos / --eob at the end of a flush) and
+ * its NALs, as a range of the array that call returned. Valid until the
+ * next call on this encoder. */
+typedef struct n265_au {
+    int display_idx;
+    int first_nal;
+    int nnal;
+} n265_au;
+YAH265_API int n265_encoder_access_units(const n265_encoder *e,
+                                         const n265_au **au);
+/* sps_max_num_reorder_pics: how many pictures a decoder may hold back
+ * before output, the bound a container's dts must trail pts by */
+YAH265_API int n265_encoder_reorder_depth(const n265_encoder *e);
+/* The VPS, SPS and PPS, before any picture is encoded: what a container
+ * stores as its decoder configuration. They are the same bytes the first
+ * access unit carries in-band. Returns the byte count, or -1. */
+YAH265_API int n265_encoder_headers(n265_encoder *e, n265_nal **nal,
+                                    int *nnal);
+
+/* ---- the command line's options, as a library call ----
+ *
+ * Every coding option of the y265 command line, parsed and resolved by
+ * the same code the CLI runs, so a front end that passes the same options
+ * gets the same stream. Names are the CLI's without the dashes ("crf",
+ * "vbv-maxrate", "no-info"); a switch takes no value, or "1"/"0".
+ *
+ *   n265_config *c = n265_config_new();
+ *   n265_config_parse(c, "preset", "medium");
+ *   n265_config_parse_list(c, "crf=25:no-info");
+ *   n265_param p; n265_param_default(&p);
+ *   p.width = 1920; p.height = 1080; p.fps_num = 25; p.fps_den = 1;
+ *   n265_config_apply(c, &p);       // settings as the CLI resolves them
+ *   n265_encoder *e = n265_encoder_open(&p);
+ *   ...
+ *   n265_encoder_close(e);
+ *   n265_config_free(c);            // after the close: open keeps its strings
+ *
+ * apply resolves the preset against the picture size and depth, checks
+ * every range, and sets the library's process-global configuration, so
+ * apply and open must not race with another apply/open in the process.
+ * Errors are printed to stderr. */
+enum {
+    N265_CONFIG_UNKNOWN   = -1,   /* no such option                 */
+    N265_CONFIG_BAD_VALUE = -2,   /* refused; the reason is printed */
+    N265_CONFIG_NO_VALUE  = -3,   /* the option takes a value       */
+};
+typedef struct n265_config n265_config;
+YAH265_API n265_config *n265_config_new(void);
+YAH265_API void n265_config_free(n265_config *c);
+YAH265_API int n265_config_parse(n265_config *c, const char *name,
+                                 const char *value);
+/* "key=value:key:key=value", x265-params style */
+YAH265_API int n265_config_parse_list(n265_config *c, const char *list);
+/* 1 the option takes a value, 0 it is a switch, -1 no such option */
+YAH265_API int n265_config_takes_value(const char *name);
+/* Record an option a front end handled itself (the CLI's --frames,
+ * --seek, ...) in the identification SEI, in order. */
+YAH265_API void n265_config_note(n265_config *c, const char *name,
+                                 const char *value);
+/* p: width, height, csp and fps in; filled for n265_encoder_open out */
+YAH265_API int n265_config_apply(n265_config *c, n265_param *p);
+/* A resolved value after apply ("bframes", "keyint", "bitrate",
+ * "vbv-maxrate", "threads", ...): 0, or -1 for a key it doesn't know. */
+YAH265_API int n265_config_get(const n265_config *c, const char *key,
+                               double *v);
+/* a string option ("preset", "qpfile", "dhdr10-info", "info" for the
+ * SEI's options clause after apply), or NULL */
+YAH265_API const char *n265_config_get_str(const n265_config *c,
+                                           const char *key);
 
 #ifdef __cplusplus
 }

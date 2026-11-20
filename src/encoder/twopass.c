@@ -52,7 +52,7 @@ int n265_2p_open_write(n265_2p *tp, const char *path, int rewrite,
     }
     tp->out = fopen(target, "w");
     if (!tp->out) {
-        fprintf(stderr, "n265: cannot write --stats %s\n", target);
+        fprintf(stderr, "y265: cannot write --stats %s\n", target);
         return -1;
     }
     /* The header is machine-read for exactly one field - `nblk`, which the
@@ -258,7 +258,7 @@ int n265_2p_solve(n265_2p *tp, double target, double qcomp, double clamp,
     tp->rf = rf;
 
     /* Step 2: the TRUST RADIUS, and it is the whole of what the corpus
-     * forced (docs/phase12.md, Item 4).
+     * forced.
      *
      * Every frame's rate curve here is a MEASUREMENT extrapolated by
      * `bits(q) = X / qscale(q)`, and a measurement is only worth

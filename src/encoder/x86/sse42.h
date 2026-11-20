@@ -1,7 +1,7 @@
 /*
  * sse42.h - every x86-64 SSE4.2 kernel entry point in one place.
  *
- * The tier for x86-64 CPUs without AVX2 (docs/x86-plan.md). A kernel is
+ * The tier for x86-64 CPUs without AVX2. A kernel is
  * `n265_<kernel>_sse42(...)` with its AVX2 twin's signature and contract,
  * defined in src/encoder/x86/<family>_sse42.c, the only files built with
  * -msse4.2. A family is ported whole, at both depths (symbols10.h gives

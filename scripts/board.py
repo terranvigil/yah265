@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Parity board: measure yah265 against pinned x265 and append one row
 per clip to docs/data/parity-history.csv so progress charts over time.
 

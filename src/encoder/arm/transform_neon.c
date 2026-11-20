@@ -255,7 +255,7 @@ static inline void inv_odd_acc(int32x4_t *o, int32x4_t c, const int8_t *row,
  * larger (`log2n + BitDepth - 9`), so the pre-shift dot product goes to
  * 2.94M and EVERYTHING AFTER IT IS UNMOVED: stage-1 outputs under 45900,
  * stage 2 under 132M. The two moves cancel by construction - that is the
- * property the whole depth rests on (docs/phase8-plan.md, item 2) - so
+ * property the whole depth rests on - so
  * one range argument covers both builds. Every one of those numbers is
  * inside int32 with four bits to spare, so the lane arithmetic never
  * wraps and is exact rather than merely modular-exact.
@@ -313,10 +313,9 @@ void fwd_dct_1d_body(int32x4_t *out, int32x4_t *e, int n, int32x4_t sh)
  * `rs`, constant `n265_tmatrix` row addresses, and the switch resolved
  * at every level.
  *
- * `noinline` for round 6's reason (docs/phase6-neon.md, round 6 part B):
- * an unrolled 32-point butterfly sitting in the same function as the
- * 16-point one makes both pay for the register allocation, and the
- * wrapper's own `e`/`v` arrays are in memory either way.
+ * `noinline` because an unrolled 32-point butterfly sitting in the same
+ * function as the 16-point one makes both pay for the register allocation, and
+ * the wrapper's own `e`/`v` arrays are in memory either way.
  */
 static __attribute__((noinline))
 void fwd_dct_1d_x4_16(int32x4_t *out, int32x4_t *e, int32x4_t sh)

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Read a stream's provenance marks: the identification SEI and the fingerprint.
 
 Phase 14 item 10. Two marks, and the point of the second one is that it

@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
 # Conformance gate: every encode must reconstruct bit-exact through BOTH
 # independent decoders (ffmpeg hevc + dec265), and the encoder must be
 # byte-identical across runs. Phase 0 note: everything is all-intra IDR so

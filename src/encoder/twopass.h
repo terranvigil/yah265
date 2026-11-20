@@ -1,6 +1,6 @@
 /*
  * Two-pass rate control: the stats sidecar and the whole-file rate-factor
- * solve (docs/phase12.md, Item 4).
+ * solve.
  *
  * Pure arithmetic and one text format: no encoder, no environment, no
  * pixels - the same split vbv.c takes, and for the same reason. It lets

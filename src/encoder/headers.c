@@ -596,8 +596,8 @@ static void sei_wrap(bitstream_t *bs, size_t at, unsigned type)
 /* film_grain_characteristics, D.2.20, inside a prefix SEI NAL (D.2.1).
  *
  * What is NOT written and why: model_id 0 is frequency filtering, which
- * is the one model with a synthesizer in this project's measurement chain
- * (docs/phase12.md step 0), and it is also the one SMPTE RDD 5 defines.
+ * is the one model with a synthesizer in this project's measurement chain,
+ * and it is also the one SMPTE RDD 5 defines.
  * separate_colour_description_present_flag is 0, so the grain inherits
  * the picture's own color description, which is what it was measured
  * off. blending_mode_id 0 is additive; multiplicative grain is a

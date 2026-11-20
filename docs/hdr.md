@@ -58,7 +58,7 @@ layer is a complete HDR10 stream. A CRF encode is still a valid one.
 
 ```
 ffmpeg -i master.mov -pix_fmt yuv420p10le -strict -1 -f yuv4mpegpipe - |
-  n265 - -o out.hevc --crf 22 \
+  y265 - -o out.hevc --crf 22 \
     --colorprim bt2020 --transfer smpte2084 --colormatrix bt2020nc \
     --master-display 'G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1)' \
     --max-cll 1000,400 \
@@ -79,7 +79,8 @@ chroma six quantizer steps finer than luma and turns off the extra psy weight
 on dark blocks. Wide-gamut chroma stays in a narrow band around its midpoint.
 At luma's quantizer it loses far more than SDR chroma does. `--hdr-opt` turns the
 tuning on for a stream that doesn't name either transfer, and `--no-hdr-opt`
-turns it off. `--hdr10-opt` is the same switch under x265's name. A
+turns it off. `--hdr10-opt` is accepted as an alias for it, though x265's
+option of that name works differently. A
 `--cbqpoffs` or `--crqpoffs` you name yourself still wins. From 720p up,
 medium on HDR also keeps the full intra mode rank that SDR gives up for
 speed, and at 2160p it keeps the intra transform split too. The other

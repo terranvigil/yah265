@@ -112,7 +112,8 @@ static void test_vsp_names(void)
 }
 
 /* The color volume: its ten ST 2086 values, as the P3-D65 1000-nit
- * --master-display string gives them. Order is G, B, R, WP, then max and min luminance. */
+ * --master-display string gives them. Order is G, B, R, WP, then max and
+ * min luminance. */
 static void test_vsp_volume(void)
 {
     static const uint32_t p3d65_1000[10] = {

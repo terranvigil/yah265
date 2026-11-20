@@ -157,7 +157,7 @@ enum {
 /* The DPB picture: a padded, border-extended, fully filtered
  * reconstruction plus the side data a later frame reads from it. The
  * frame being coded reconstructs DIRECTLY into its claimed slot
- * (docs/threading-design.md sec 4), so there is no commit copy; the
+ * so there is no commit copy; the
  * slot stays `valid = 0` until publish, which is what keeps the picture
  * out of its own RPS and out of its own reference lists. */
 struct n265_refpic {
@@ -364,7 +364,7 @@ enum {
 };
 
 /* N265_CBIT_TRACE buckets: the frame's coded bits charged to the syntax
- * that carries each component (docs/phase7-psy-design.md, the chroma gap) */
+ * that carries each component */
 enum {
     N265_CB_Y = 0,          /* luma residual_coding()                 */
     N265_CB_CB,             /* cb residual_coding()                   */
@@ -499,7 +499,7 @@ struct n265_depth_rec {
     uint8_t dmin, dmax;     /* the target                                   */
 };
 
-/* The coding context (docs/threading-design.md sec 4, T0 audit).
+/* The coding context.
  *
  * One instance per frame in flight, and one SHALLOW COPY per row lane.
  * Fields divide three ways:
@@ -798,7 +798,7 @@ typedef struct n265_frame_work {
      * and no branch depends on it, so it has never mattered.) */
     uint8_t *sc_prop;
     int sc_prop_n;
-    /* The DUPLICATE path (phase 11 item 1, docs/phase11.md). `dup_grp`
+    /* The DUPLICATE path. `dup_grp`
      * and `dup_cum` are this frame's own entries in the lookahead's
      * duplicate chain (la.h).
      *
@@ -1167,7 +1167,7 @@ struct n265_encoder {
     /* THE CRF AXIS (phase 14 item 11b, 2026-09-16). What a `--crf N`
      * number buys is a mapping from that number to a base QP, and two
      * terms of ours were not the ones a user who knows the knob from
-     * another encoder expects (docs/phase14.md item 11):
+     * another encoder expects:
      *
      *   crf_legacy  N265_CRF_LEGACY=1, the escape: the pre-2026-09-16
      *               mapping, byte for byte, for a stream that has to
@@ -1199,7 +1199,6 @@ struct n265_encoder {
      *                   one constant for the whole encode, so every
      *                   within-file allocation the absolute anchor gave
      *                   survives exactly and only the level moves
-     *               docs/phase14.md item 11b has what each one measured.
      */
     int crf_legacy;
     double crf_dur;
@@ -1529,7 +1528,7 @@ struct n265_encoder {
      * `la_depth` at the default, `shot_window` where that is deeper. The
      * two are different numbers only in the opt-in shot-planning mode,
      * whose whole point is to hold a shot the 20-frame window cannot
-     * (la.h, docs/phase7-shot-design.md step 2). */
+     * (la.h). */
     int la_fill;
     /* --shot-window N / N265_SHOT_WINDOW: 0 = off, and off is the
      * default, the board and every preset. Opt-in, CRF only, N frames of
@@ -1554,6 +1553,9 @@ struct n265_encoder {
      * where it runs out and the rest is the next call's prefix. */
     n265_nal nal[2 * (N265_MAX_BFRAMES + 1) + N265_MAX_FRAME_WORK + 8];
     size_t nal_off[2 * (N265_MAX_BFRAMES + 1) + N265_MAX_FRAME_WORK + 8];
+    /* the access units the last call returned, for n265_encoder_access_units */
+    n265_au au[2 * (N265_MAX_BFRAMES + 1) + N265_MAX_FRAME_WORK + 8];
+    int n_au;
     /* A1/A2: output is a prefix of the completed frames and up to K stay
      * in flight across calls. Off at one worker, where nothing overlaps
      * and a call must return exactly what it returned before.
@@ -1603,7 +1605,7 @@ struct n265_encoder {
      * GOP while its trailing pictures predict across the CRA anyway.
      * That is the exact non-conformance this item exists to avoid, and
      * it is the negative control the seek check is armed against
-     * (docs/phase14.md item 3). Diagnostic only; never a shipped path. */
+     * Diagnostic only; never a shipped path. */
     int cra_bar_poc, cra_bar_radl;
     int open_gop;           /* --open-gop: a keyint picture is a CRA */
     int radl;               /* --radl: leading pictures coded RADL   */
@@ -1742,6 +1744,7 @@ struct n265_encoder {
         uint8_t *buf;
         size_t cap, len;
         int nnal;
+        int disp;           /* display index; -1 for a NAL-only tail */
         /* N265_AU_NAL_MAX, counted off the list of every NAL an access
          * unit can carry (above this struct). pack_nal DROPS a NAL past
          * this bound; the drop is counted and fails the run, but a bound
@@ -1842,7 +1845,7 @@ struct n265_encoder {
     int iw_trace;
 
     /* --shot-stats / N265_SHOT_STATS: the per-shot JSON Lines sidecar
-     * (docs/phase7-shot-design.md step 1). Frames retire in CODING
+     * Frames retire in CODING
      * order and a non-IDR I is its own mini-GOP's anchor, so a shot's
      * opener can retire before leaves that belong to the shot before
      * it; the ring below re-sorts retired frames into DISPLAY order and
@@ -1890,8 +1893,8 @@ static inline double n265_ct_qp_scale(const struct n265_encoder *e)
  * k_f == k_b makes the two halves the same expression on the same double and
  * the term exactly 0, which is why the default encoder is byte-identical.
  * N265_CT_FRAMEW_FLAT is k_f on a flat-typed frame: the field's cross-frame
- * reading is a content trade there (docs/phase7-modulation-design.md
- * "Step 2 result"), so that branch keeps today's form by default. */
+ * reading is a content trade there, so that branch keeps today's form
+ * by default. */
 static inline double n265_ct_frame_term(const struct n265_encoder *e,
                                         const struct n265_frame_work *fw)
 {

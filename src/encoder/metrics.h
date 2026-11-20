@@ -13,7 +13,7 @@
  * themselves: PSNR pools the mean squared error over frames and then
  * takes the logarithm (vf_psnr's summary), and SSIM is the 8x8 window at
  * stride 4 over the luma plane, averaged over windows and then over
- * frames (vf_ssim). docs/instruments.md records the check.
+ * frames (vf_ssim).
  *
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */

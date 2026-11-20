@@ -406,9 +406,8 @@ void n265_fdct(int16_t *coef, const int16_t *resid, int log2n, int use_dst)
 #if N265_NEON_TRANSFORM
     /* Every shape. Until phase 14 item 39 the DCT at 4x4 and 8x8 stayed
      * on C: the int32 four-lane form read 0.47x and 0.63x of a C path
-     * clang auto-vectorizes (docs/phase6-neon.md, round 6). Item 39's
-     * int16 forms run eight transforms per vector and replaced them
-     * (docs/phase14.md, "Item 39"). Every path is bit-exact, so the
+     * clang auto-vectorizes. The int16 forms run eight transforms per
+     * vector and replaced them. Every path is bit-exact, so the
      * choice moves time and nothing else. */
     if (n265_asm_on(N265_ASM_DCT)) {
         n265_fdct_neon(coef, resid, log2n, use_dst);

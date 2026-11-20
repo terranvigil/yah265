@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 # yah265 scratch namespace -- the ONE place the prefixes are written down.
 #
 # Read by scripts/scratch.sh (shell harnesses), scripts/scratch.py (python

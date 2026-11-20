@@ -42,7 +42,7 @@ static inline uint32_t n265_est_bin(cabac_ctx_t *ctx, int bin)
  * on every bin; this one is a price read off a snapshot, which is what
  * `n265_rdoq`'s cost_mps / cost_lps already are for the lattice. Nothing
  * calls it unless N265_EST_MODE is 1, and then only inside the residual
- * walk of a TRIAL. See docs/phase13.md "A1". */
+ * walk of a TRIAL. */
 static inline uint32_t n265_est_cost(const cabac_ctx_t *ctx, int bin)
 {
     return n265_est_step[ctx->state][bin != ctx->mps] & 0xffffu;
