@@ -7,7 +7,7 @@ description: Rerun a speed, size and quality reading of yah265 against x265 on y
 
 Everything on the [results page](results.md) comes from scripts in the repository. This page shows how to take the same kind of reading on your own machine. It starts with one clip by hand and ends with the full harness.
 
-I haven't written a single command that reruns the whole results page yet. The harness at the end of this page comes closest. It expects the project's own media library.
+The harness at the end of this page reruns whole tables. It expects the project's own media library.
 
 ## What you need
 

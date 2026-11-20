@@ -496,7 +496,11 @@ def mdt(header, align, rows):
                      + ["| " + " | ".join(str(c) for c in r) + " |" for r in rows])
 
 
-def pct(v, places=2):
+# BD-rate in the tables; the ladder file and the dated reports keep two places
+BD_PLACES = 1
+
+
+def pct(v, places=BD_PLACES):
     return f"{v:+.{places}f}%"
 
 
@@ -529,14 +533,17 @@ def values(D):
     allbd = [v for k, *_ in cells for v in bds[k]]
     tc = table(isa, "Tier C on the Mac")[1:]
     trk = [e for k, *_ in cells for e in tr[k][0]]
+    pl = D["pl"]
     V["verdict"] = mdt(["what was measured", "result"], [L, R], [
-        ["speed: combinations of class, tier and goal inside the bar, over three machines",
+        [f"median speed over the {pl['n']} cells timed on the Mac", f"{B.times(pl['median'])} faster"],
+        [f"median VMAF v1 lead at the same file size, {pl['dv_n']} cells", f"{pl['dv']:+.2f} points"],
+        [f"median bits saved at equal VMAF v1, {len(allbd)} rate ladders",
+         f"{abs(st.median(allbd)):.1f}%"],
+        ["speed groups inside the bar, three goals on three machines",
          f"{len(ok)} of {len(combos)}"],
-        ["VBR encode time: real-title cells faster than x265, over three machines",
-         f"{wall_ok} of {wall_n}"],
-        [f"rate ladders at or under the +{BD_BAR:.1f}% BD-rate bar",
+        [f"rate ladders inside the +{BD_BAR:.1f}% BD-rate bar",
          f"{sum(1 for v in allbd if v <= BD_BAR)} of {len(allbd)}"],
-        ["median bits saved at equal VMAF v1 over those ladders", f"{abs(st.median(allbd)):.1f}%"],
+        ["VBR cells faster than x265, on three machines", f"{wall_ok} of {wall_n}"],
         [f"VBR rungs within ±{TRACK_BAR:g}% of their target",
          f"{sum(1 for e in trk if abs(e) <= TRACK_BAR)} of {len(trk)}"],
         ["content-type clips passing on quality",
@@ -593,12 +600,16 @@ def values(D):
         V[f"machines-{g}"] = mdt(["class", "tier", "Mac", "x86-64", "Graviton4"], [L, L, R, R, R],
                                  [[RES[r[0]], TIER_LABEL[r[1]]] + r[2:5]
                                   for r in table(isa, start)[1:] if r[1] in TIERS])
-    dash = lambda s: "not measured" if s == "-" else s
+    g3 = table(isa, "G3 speed")[1:]
     V["machines-g3"] = mdt(
-        ["class", "tier", "Mac", "x86-64", "x86-64 against x265 at `--asm avx512`", "Graviton4",
-         "Graviton3"], [L, L, R, R, R, R, R],
-        [[RES[r[0]], TIER_LABEL[r[1]]] + [dash(x) for x in r[2:7]]
-         for r in table(isa, "G3 speed")[1:] if r[1] in TIERS])
+        ["class", "tier", "Mac", "x86-64", "x86-64 against x265 at `--asm avx512`", "Graviton4"],
+        [L, L, R, R, R, R],
+        [[RES[r[0]], TIER_LABEL[r[1]]] + r[2:6] for r in g3 if r[1] in TIERS])
+    # Graviton3 ran the short clips only; its own count wins where it names one
+    n3 = lambda r: (re.search(r"\((\d+) of", r[6]) or re.match(r"(\d+)", r[7]))[1]
+    V["graviton3"] = mdt(["class", "Graviton3", "clips"], [L, R, R],
+                         [[RES[r[0]], r[6].split("(")[0].strip(), n3(r)]
+                          for r in g3 if r[1] in TIERS and r[6] != "-"])
     V["capped"] = mdt(["class", "both at SSE4.2", "both at AVX2", "control: yah265 at AVX-512, x265 at AVX2",
                        "clips"], [L, R, R, R, R],
                       [[RES[r[0]]] + r[2:6] for r in table(isa, "G3 speed", 1)[1:]])
@@ -609,19 +620,24 @@ def values(D):
         for (c, t, g), v in sps[m].items():
             col = {"mac": 2, "x86": 3, "g4": 5 if g == "G3" else 4}[m]
             rep = next(r for r in table(isa, f"{g} speed")[1:] if (r[0], r[1]) == (c, t))[col]
-            # the report takes medians of unrounded walls and the CSV holds
-            # two places, so an even-count median can differ in the last one
-            if any(abs(float(x) - y) > 0.0101 for x, y in zip(rep.split("/"), v[:2])):
+            if [x.strip() for x in rep.split("/")] != [f"{y:.2f}" for y in v[:2]]:
                 sys.exit(f"{m} {c} {t} {g}: the CSV gives {v[0]:.2f} / {v[1]:.2f}, "
                          f"the all-architecture report {rep}")
 
     # quality at the same size
     how_q = {(r[0], r[1]): r[5:7] for r in table(isa, "Quality on each machine")[1:]}
-    V["quality"] = mdt(["class", "tier", "median", "smallest lead", "on", "x86-64", "Graviton4"],
-                       [L, L, R, R, L, L, L],
+    V["quality"] = mdt(["class", "tier", "median", "smallest lead", "on"], [L, L, R, R, L],
                        [[RES[c], TIER_LABEL[t], f"{q[(c, t)][0]:+.2f}", f"{q[(c, t)][1]:+.2f}",
-                         nice(q[(c, t)][2], c)] + how_q[(c, t)]
+                         nice(q[(c, t)][2], c)]
                         for c, t in sorted(q, key=lambda r: (CLASSES.index(r[0]), TIERS.index(r[1])))])
+    xrows = []
+    for (c, t), (x86, _) in how_q.items():
+        m = re.match(r"reproduced: (\w+) (.+)$", x86)
+        if m:
+            xrows += [[f"{nice(m[1], c)}, {TIER_LABEL[t]}", mode, moved]
+                      for mode, moved in re.findall(r"(CRF|VBR) ([+-][\d.]+)", m[2])]
+    V["quality-xeon"] = mdt(["ladder run again on the Xeon", "mode", "BD-rate points from the Mac's curve"],
+                            [L, L, R], xrows)
 
     # ladders
     V["bd"] = mdt(["cell", "tier", "CRF BD-rate", "VBR BD-rate"], [L, L, R, R],
@@ -654,9 +670,9 @@ def values(D):
                        "VBR BD-rate", "VBR rate against target", "G3 ratio"],
                       [L, L, R, R, R, R, R],
                       [[nice(*split_cell(r[0])), r[1], r[2].split("/")[0].strip(),
-                        r[3], "no shared range, yah265 above" if "no overlap" in r[4] else r[4],
+                        pct(crf), "no shared range, yah265 above" if vbr is None else pct(vbr),
                         rng(D["ctr"][r[0]]), r[5].split()[0] + (" (earlier binary)" if "(" in r[5] else "")]
-                       for r in tc])
+                       for r, (_, _, crf, vbr) in zip(tc, D["tc"])])
 
     # figures
     mac_csv = link(os.path.relpath(D["paths"]["mac"], ROOT), "the Mac report's rows")
@@ -700,7 +716,8 @@ def gather():
     rows = {m: list(csv.DictReader(open(p))) for m, p in paths.items()}
     D = {"paths": paths, "isa_path": isa_path, "mac_md": mac_md, "rows": rows,
          "sps": {m: B.speed_groups(rs) for m, rs in rows.items()},
-         "q": quality_rows(rows["mac"]), "isa": md_tables(isa_path), "mac": md_tables(mac_md)}
+         "q": quality_rows(rows["mac"]), "isa": md_tables(isa_path), "mac": md_tables(mac_md),
+         "pl": B.pooled(rows["mac"], mac_md)}
     lad = D["lad"] = load_ladders()
     lines = B.ladders(mac_md)
     D["cells"] = real_cells(lines)

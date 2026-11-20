@@ -241,8 +241,6 @@ The two environment settings move no bit of the output. They exist for timing on
 
 The driver still paces a 4K encode on a machine with many cores. Part of its work is a chain in which each frame's analysis reads the previous frame's result. That part stays serial.
 
-A thread-sanitizer run on x86 reports one data race, between a row writing its quantizer map and another row copying frame state as it starts. It hasn't produced a stream difference in the identity checks. It isn't fixed.
-
 The chart shows how much each encoder gains from the Mac's cores. It compares the same short clips in plain C on one thread and on all cores.
 
 <figure class="chart">

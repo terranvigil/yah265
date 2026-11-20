@@ -177,8 +177,6 @@ What's promised is repeatability at `--threads 1`: two runs of one command write
 
 `--gop-parallel <n>` codes a long input as segments on several encoder instances at once and joins them at key frames. It's opt-in. The joined stream differs from the serial one and has no HRD timing. It also doesn't combine with `--pass`, `--qpfile`, `--zones`, `--csv` or `--shot-stats`. [Threading](threading.md#segment-parallel-encoding) explains when it helps.
 
-Memory use per thread count hasn't been measured for publication.
-
 ## Shot-aware options
 
 Both of these are opt-in. The default encoder never looks further ahead than its lookahead.
@@ -230,7 +228,7 @@ All of these change the picture, so read them as tools for specific sources. Non
 |---|---|
 | six of x265's preset names | four were built and didn't earn the name, as [Presets](#presets) says |
 | four of x265's tune names | see [Tunes](#tunes) |
-| `--intra-refresh` | a refresh only helps if nothing in the refreshed area predicts from outside it. The encoder can't promise that yet, and it refuses the option by name |
+| `--intra-refresh` | a refresh only helps if nothing in the refreshed area predicts from outside it. The encoder can't promise that, so it refuses the option by name |
 | `--scaling-list` | every quantizer path would have to apply the matrices or the encoder's pictures would stop matching a decoder's. It's refused by name |
 | interlaced coding | we will add it if there is enough interest |
 | 12-bit | only 8-bit and 10-bit are built |

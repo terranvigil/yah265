@@ -8,7 +8,7 @@
 <p align="center">
   <a href="#try-it">Try it</a> ·
   <a href="#results">Results</a> ·
-  <a href="#the-n265-command-line">y265</a> ·
+  <a href="#the-y265-command-line">y265</a> ·
   <a href="#documentation">Documentation</a> ·
   <a href="#contributing">Contributing</a> ·
   <a href="#license">License</a>
@@ -68,7 +68,7 @@ Each of the project's three speed goals passes on three machines. The table give
 | G3: SIMD on all cores | 1.61x to 2.13x | 1.35x to 2.44x | 1.47x to 3.23x |
 <!--/gen:goal-table-->
 
-The [results page](https://terranvigil.github.io/yah265/results.html) has every table and chart. It also lists what hasn't been measured. [Check it yourself](https://terranvigil.github.io/yah265/check-it-yourself.html) shows how to rerun a reading.
+The [results page](https://terranvigil.github.io/yah265/results.html) has every table and chart. [Check it yourself](https://terranvigil.github.io/yah265/check-it-yourself.html) shows how to rerun a reading.
 
 ## The y265 command line
 

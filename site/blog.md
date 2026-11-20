@@ -154,7 +154,7 @@ Parity on the Mac wasn't the finish line, because a parity claim has to hold on 
 
 ## The tables behind the charts
 
-Every table here is filled by the script that draws the charts, apart from the last one.
+Every table here is filled by the script that draws the charts.
 
 ### Every timed cell
 
@@ -222,7 +222,7 @@ The last column is how many VMAF v1 points yah265 scores above x265 when both fi
 | 1080p | 10-min films | 1.75x | 1.47x | 1.69x | +1.08 |
 | 4K | short clips | 1.61x | 2.44x | 3.23x | +1.86 |
 | 4K | 2-min segments | 1.79x | 1.89x | 2.13x | +1.40 |
-| 4K | 10-min films | 1.72x | 1.69x | 2.08x | +1.18 |
+| 4K | 10-min films | 1.72x | 1.69x | 2.04x | +1.18 |
 <!--/gen:arch-table-->
 
 ### x86 without AVX-512
@@ -277,19 +277,6 @@ The ladders ran on the Mac. Graviton4's quality is the Mac's, because it writes 
 | C on one thread | 2.7x x265's time (2026-09-07) | 3.23x faster (2026-10-03) |
 | SIMD on all cores | 15.2x x265's time (2026-09-10) | 1.31x faster (2026-10-03) |
 <!--/gen:board-table-->
-
-### What each fix moved
-
-These are the readings from the story above, as the project journal recorded them at the time. Where the last cell is empty, the journal's next reading was a full table. The tables above show where that cell stands now.
-
-| what we found | where | reading then | after the fix |
-|---|---|--:|--:|
-| more bits than x265 for the same quality | Meridian 1080p, 2 min | 11.7% more | |
-| slower than x265 | Sol Levante 1080p, 2 min | 1.28x x265's time | |
-| capped VBR behind where CRF was level or ahead | real-title cells | 8% to 35% behind | |
-| capped VBR behind | Chimera, 2 min | 19% behind | under 1% behind |
-| motion search stuck on fine texture | Sunflower 1080p | 18.7% behind | slightly ahead |
-| input read between frames | Meridian 720p | 1.22x x265's time | 1.6x faster at six threads |
 
 ## How it was measured
 

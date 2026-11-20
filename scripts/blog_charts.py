@@ -109,8 +109,13 @@ def speed_groups(rows):
         if r["valid"] != "yes" or v is None or "FAIL:" in r["note"] or r["tier"] not in TIERS \
                 or r["goal"] not in GOALS:
             continue
-        acc.setdefault((r["class"], r["tier"], r["goal"]), []).append((v, r["title"]))
-    return {k: (st.median(x for x, _ in vs), max(vs)[0], max(vs)[1])
+        # the cloud reports take the median before rounding and the Mac's
+        # takes it over the two-place column, so each is rebuilt its own way
+        u = v
+        if r.get("arch"):
+            u = fnum(r["ours_wall_s"]) / fnum(r["ref_wall_s"])
+        acc.setdefault((r["class"], r["tier"], r["goal"]), []).append((v, r["title"], u))
+    return {k: (st.median(u for *_, u in vs), max(vs)[0], max(vs)[1])
             for k, vs in acc.items()}
 
 

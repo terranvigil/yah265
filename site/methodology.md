@@ -74,7 +74,7 @@ G1 and G2 would take many hours at one thread on the 2-minute and 10-minute cell
 | L | seven open-licensed films at 720p, 1080p and 4K | 600 seconds from a recorded offset past the opening card, cut at the last frame before the end credits |
 | C | a film scan, sports and screen content | quality counts toward the verdict. Speed is shown and doesn't count |
 
-Openings and credits are cut because they can steer a reading. Black frames and text on flat backgrounds score near the top of VMAF's scale whatever the encoder does. A five-rung fit through points that saturated swings by tens of percent. Every start and end frame is recorded. The credits still get a row of their own in the dated report that the results page links to.
+Every start and end frame is recorded.
 
 Each ten-minute excerpt has to represent its whole title. A scene scan classes every shot by detail and motion. The excerpt's share of each class may differ from the whole title's by about 10% at most. Two excerpts moved their offsets to meet that.
 
