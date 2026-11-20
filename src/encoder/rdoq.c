@@ -33,7 +33,7 @@
  * arithmetic on the same values, so the levels do not move; the form each
  * replaced is kept under `-DN265_LAT_AUDIT` as an in-place
  * `__builtin_trap()` compare, so a build with that define aborts on the
- * first bit of disagreement. See docs/phase6-neon.md, round 5.
+ * first bit of disagreement.
  *
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
@@ -320,8 +320,7 @@ static int rdoq_decimate(void)
 /* N265_DECIMATE_GRAD: the all-zero margin on a gradient-shaped block, in
  * percent, where every other block keeps N265_DECIMATE. Unset is the
  * sentinel below and means "the same margin everywhere", i.e. main byte
- * for byte. See rdoq_grad_shape() for what counts as gradient-shaped and
- * docs/phase7-psy-design.md M2 for why the two want different margins. */
+ * for byte. See rdoq_grad_shape() for what counts as gradient-shaped. */
 #define DECGRAD_OFF 1000000
 static int rdoq_decimate_grad(void)
 {
@@ -1063,8 +1062,8 @@ int n265_rdoq(int16_t *level, const int16_t *coef, int log2n, int qp,
      * The margin is right about a fine-scale block and wrong about a
      * gradient one, which is what the broad optimum above is averaging:
      * dropping a block's last low-frequency coefficients flattens a ramp
-     * into a band, and a band is coarse structure the metric reads (M2,
-     * docs/phase7-psy-design.md). N265_DECIMATE_GRAD gives the
+     * into a band, and a band is coarse structure the metric reads.
+     * N265_DECIMATE_GRAD gives the
      * gradient-shaped arrangement its own margin; unset, both are
      * N265_DECIMATE and nothing moves. */
     int decimate = rdoq_decimate();

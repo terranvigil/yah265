@@ -1,7 +1,7 @@
 /*
  * Coding-tree analysis: decisions, reconstruction, and record commit.
  * No entropy coding happens here; the trailing pass in entropy.c replays
- * the record stream (docs/threading-design.md).
+ * the record stream.
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
@@ -30,8 +30,7 @@ static int *g_hist;
 static int g_nxn, g_2nx2n_min;
 
 /* Cached env knobs live at file scope so n265_ctu_warm() can initialize
- * every one of them on the driver before any worker exists
- * (docs/threading-design.md, T0 audit item 2). */
+ * every one of them on the driver before any worker exists. */
 static int mode_hist_on(void)
 {
     static int v = -1;
@@ -86,7 +85,7 @@ static uint32_t chroma_w_for_qp(int qp_y, int chroma_idc)
         return 256;
     /* Deliberately the UNOFFSET derivation, and it does not matter: the
      * knob is off at every preset and in every gate (it was refused on
-     * the band, docs/phase7-psy-design.md), and the two planes would need
+     * the band), and the two planes would need
      * two weights the moment --cbqpoffs and --crqpoffs disagreed. Anyone
      * who turns both on together should re-derive this first. */
     int d = qp_y - n265_chroma_qp(qp_y, chroma_idc);
@@ -99,7 +98,7 @@ static uint32_t chroma_w_for_qp(int qp_y, int chroma_idc)
     return w;
 }
 /* N265_CHROMA_PRED (phase 7): how much of the candidate CHOICE carries a
- * chroma term. The decomposition in docs/phase7-psy-design.md placed two
+ * chroma term. The phase 7 decomposition placed two
  * thirds of bus's 0.8-0.9 dB chroma deficit in the chroma PREDICTION -
  * chroma residual is under 1% of that stream, so the reconstruction IS
  * the prediction - and every motion candidate in this encoder is chosen
@@ -338,7 +337,7 @@ typedef struct qt_snap {
     uint8_t rec_copy[40960];
 } qt_snap;
 
-/* Per-row-lane trial scratch (docs/threading-design.md sec 4). These
+/* Per-row-lane trial scratch. These
  * were ~180 KB of function-local `static` buffers, which is exactly what
  * a row wavefront cannot have. The layout keeps each old static as its
  * own field so the SHARING is unchanged: analyze_cu is re-entered
@@ -363,9 +362,8 @@ struct n265_scratch {
      * hold 4:4:4's 32x32 chroma block and 4:2:0 only ever writes 16x16 of
      * each: as locals they were 4 KB of frame that the 4:2:0 encoder
      * reserves on every call and three quarters never touches, and that
-     * alone was 0.5% of single-thread wall (docs/phase8-plan.md, "Phase 8
-     * speed") - and on the stack a five-deep recursion would reserve all
-     * five sets at once. */
+     * alone was 0.5% of single-thread wall - and on the stack a five-deep
+     * recursion would reserve all five sets at once. */
     tb_ctx tt_fl[5], tt_fcb[5], tt_fcr[5];   /* the flat arrangement      */
     tb_ctx tt_pcb[5], tt_pcr[5];    /* the 8x8 node's own chroma, split arm */
     /* the node's pre-split recon, restored when the flat arm wins */
@@ -421,7 +419,7 @@ static void mc_pred14(struct n265_frame_work *e, int list, int ref, int c_idx,
  * int16 it needs: a stack frame is reserved for the whole function, so
  * putting the buffer in the caller would charge every UNWEIGHTED
  * prediction in the encoder for a path it never takes. That is the
- * trade docs/phase8-plan.md measured at half a percent of single-thread
+ * trade measured at half a percent of single-thread
  * wall for 4 KB in tt_analyze. */
 static void mc_pred_uni_wp(struct n265_frame_work *e, int list, int ref,
                            int c_idx, int x0, int y0, int w, int h, mv_t mv,
@@ -693,11 +691,10 @@ static inline uint32_t ctu_lam(const struct n265_frame_work *e, int qp)
  * The clock is `cntvct_el0` on aarch64, whose `cntfrq_el0` on this box
  * is 1 GHz - a tick is a nanosecond, and one 8x8 node is hundreds of
  * them - and the read is cheap enough that a traced encode and a plain
- * one are the same wall to the resolution of the harness
- * (docs/phase9-goals-plan.md sec 11.1). PMCCNTR_EL0 is not readable from
- * EL0 here, which is why this is the counter and not cycles; where the
- * timebase is coarser the SHARES still hold, because the difference of
- * two truncated reads is unbiased over the millions the census sums. */
+ * one are the same wall to the resolution of the harness. PMCCNTR_EL0 is not
+ * readable from EL0 here, which is why this is the counter and not cycles;
+ * where the timebase is coarser the SHARES still hold, because the difference
+ * of two truncated reads is unbiased over the millions the census sums. */
 static inline uint64_t cu_tick(void)
 {
 #if defined(__aarch64__)
@@ -976,7 +973,7 @@ static void rt_tally(struct n265_frame_work *e, int c_idx, int log2n, int qp,
  * mode-decision TRIALS run the plain quantizer and the lattice runs once
  * per TB on the COMMIT path, so the encoder pays for the largest block of
  * its wall once per committed block instead of once per trial (the
- * census in docs/phase9-lattice.md: 2.26-2.50 luma trials per committed
+ * census measured 2.26-2.50 luma trials per committed
  * TB at the pin). `e->rdoq_commit` is which of the two a call is; the
  * commit path sets it around its own analyses and re-quantizes the
  * winners it was handed (tb_relattice below). At `N265_RDOQ` 0 and 1 the
@@ -1026,7 +1023,7 @@ static int rdoq_lat_sz(void)
  * pale, low-contrast color of live-action pictures. The level is still
  * priced by the lattice; this only moves where its search starts and
  * what a trial without the lattice keeps. Luma at 1/3 was read too and
- * lost (docs/phase14.md item 51). medium takes 1 at every size: item
+ * lost (item 51). medium takes 1 at every size: item
  * 51 kept CIF at 0, where v1 read no chroma at the coded size, and item
  * 52 took it there once v1 was scored at display size. */
 static int chroma_dz(void)
@@ -1781,7 +1778,7 @@ static int rank_nmodes(const struct n265_frame_work *e, const int *sub,
  * where planar or DC leads the seeds: 7 to 13 predictions in place of 35.
  * 0 is main. An explicit candidate list (the NxN sub-ranks, the B-slice
  * cut) keeps its list. The SAD-scored forms the arm was screened with
- * lost on v1 and are gone (docs/phase14.md, item 34). */
+ * lost on v1 and are gone (item 34). */
 static int irank_mode(void)
 {
     static int v = -1;
@@ -2076,7 +2073,7 @@ static int skip_thr8(void)
 /* N265_STATIC_COMMIT (phase 11 item 4): the census's P3, the static
  * commit re-derived, as a MULTIPLE of the strict static-skip bound. 0 is
  * off and is the compiled-in default; the value is the multiplier the
- * census swept (docs/phase9-goals-plan.md sec 11.5, PRED_B).
+ * census swept.
  *
  * Family B, which is the thing to be careful about: this is asked BEFORE
  * the merge arm rather than after it, so it saves the WHOLE node - and
@@ -2132,7 +2129,7 @@ static int sc_conj(void)
     return v;
 }
 
-/* P1, the early-out trio (docs/phase4-ladder.md). All three are off by
+/* P1, the early-out trio. All three are off by
  * default; each one reshapes a decision, so each is priced on the band
  * before it becomes a default. */
 
@@ -2154,10 +2151,9 @@ static int es_thr_pct(void)
  * twice: P1 refused it stacked on the CBF_FAST=3 it had just shipped,
  * and R12 re-priced it on the R7 base at +0.14 mean BD for 1.050x
  * foreman - which passes on the CQP band and fails at the pinned CRF
- * point, where it costs +0.71 with two clips past the per-clip bar
- * (docs/phase4-ladder.md R12).
+ * point, where it costs +0.71 with two clips past the per-clip bar.
  *
- * 2 is the default since 2026-09-11 (phase 6b, docs/phase6b-economy.md):
+ * 2 is the default since 2026-09-11 (phase 6b):
  * re-priced on the NEON binary it is 1.045x for +0.20 CQP / +0.61 CRF of
  * band median, and medium is placed at an explicit quality budget now
  * rather than at R12's price rule. 0 is the pre-P1 encoder and what
@@ -2244,7 +2240,7 @@ static int intra_rskip(const struct n265_frame_work *e, int log2n)
  * gating AMVP, intra and the partitions, and the AMVP candidate's cbf
  * gating intra and the partitions. 1 is the first stage, 2 is both,
  * 3 is the second alone: stage 1 costs three times what stage 2 does and
- * buys less per point (docs/phase4-ladder.md). 0 is the pre-P1 encoder.
+ * buys less per point. 0 is the pre-P1 encoder.
  *
  * 2 is the default since 2026-09-11 (phase 6b): both stages read 1.079x
  * on the NEON binary for +0.37 CQP / +0.54 CRF of band median, the fifth
@@ -2289,7 +2285,7 @@ static int gate_scale(void)
  * candidate reaching cbf 0 and `RSKIP=2` has stopped the recursion on
  * the same population. 1.6% of the wall for +0.72 of CRF band median is
  * a marginal price of 0.45, the worst trade on the ladder after
- * `SBH_RD` (docs/phase6b-economy.md, point C). `--preset fast` still
+ * `SBH_RD`. `--preset fast` still
  * takes it: at fast's own operating point the population it gates is a
  * different one.
  *
@@ -2343,7 +2339,6 @@ static int skip_exit(void)
  * `NO_RECT` charged foreman 5.02 for in step 4: where the 2Nx2N vector
  * does not explain the CU, rect is already gone and the intra ARM is
  * what is left carrying it, so gating the arm leaves no answer at all.
- * docs/phase6b-economy.md, step 5.
  *
  * **6 to 9 are step 6**, the search step 5 left open: the room between
  * mode 5's margin and mode 2's disjunct. The oracle
@@ -2401,7 +2396,7 @@ static int skip_exit(void)
  * at a quarter-margin; it cannot reach the rank, so it is strictly
  * slower AND cheaper than 7, and 7 costs 0.31 on its worst clip. 6 is
  * kept as the calibration point it is: it prices mode 2's quality
- * exactly. docs/phase6b-economy.md, step 6. */
+ * exactly. */
 static int intra_gate(void)
 {
     static int v = -1;
@@ -2509,7 +2504,7 @@ static int part_amp_margin(void)
  * search is skipped: a larger margin runs both more often, and 0 is the
  * pre-P5 encoder.
  *
- * Measured and refused at 5, 20 and 50 (docs/phase4-ladder.md, R1), and
+ * Measured and refused at 5, 20 and 50, and
  * refused a third time in phase 6b step 2 on `sita_toon_720p`: the
  * proxy reads the 2Nx2N residual's row-vs-column deviation and
  * animation's residual is edges on flat fills, where that statistic
@@ -2523,7 +2518,7 @@ static int part_amp_margin(void)
  * against that the arm costs 0.46 there, 0.24 on `sita_flat_720p` and
  * 0.08 on `sintel_720p`. The CIF seven read +0.13 CQP / +0.83 CRF of
  * band median for 1.036x of the single-thread wall and 1.038x at auto
- * threads (docs/phase6b-economy.md, point A). The third refusal was
+ * threads. The third refusal was
  * right on its own numbers and is still the reason the proxy is never
  * to be trusted on flat fills; it was a margin call, and the margin
  * moved. 0 is the pre-P5 encoder. */
@@ -2560,8 +2555,8 @@ static int rect_rank(void)
  * 54-89 on sita_flat, 13-26 on sita_toon) and on 0/120 of every natural
  * clip, the closest being foreman at 6. So this exception costs nothing
  * on twelve of fifteen clips and hands the other three the pre-step-4
- * medium exactly, byte for byte (docs/phase6b-economy.md, step 4's
- * identity table - it is proved by cmp, not argued from the gate). */
+ * medium exactly, byte for byte (proved by cmp, not argued from the
+ * gate). */
 int n265_rect_flat(void)
 {
     static int v = -1;
@@ -3430,8 +3425,7 @@ static int la_inter_pct(struct n265_frame_work *e, int x0, int y0, int n)
  * 0 is OFF and is item 12's ungated arm byte for byte, which is what
  * every rung from `veryfast` through `medium` runs below the HD rule,
  * what `slow` and `slower` run at every resolution, and what any
- * explicit `--ctu 32` runs anywhere. The tables are in
- * docs/phase14.md, "Item 17".
+ * explicit `--ctu 32` runs anywhere.
  *
  * The bound is a FRACTION of the clean bound and not the clean bound
  * itself because the population at 2160p sits a long way under it: 99.4%
@@ -3712,7 +3706,7 @@ static int cb64_prof_on(void)
  * of the instrument - for 1.033x foreman. 2 is the same rule at a bound
  * that fires too rarely to pay (1.005x). 3 never fires on CIF at all,
  * where the lookahead's ratio tops out near 70, and is measured and held
- * with its park_joy number. Numbers in docs/phase4-ladder.md. */
+ * with its park_joy number. */
 static int cb64_gate(void)
 {
     static int v = -1;
@@ -3810,7 +3804,7 @@ static int merge_rd_n(void)
  * first. 4 is the default: +0.10 mean BD for 1.041x foreman / 1.021x
  * mobile, and it improves the worst clip. The positive margins are worth
  * nothing (1 buys 1.025x foreman and 0.994x mobile) and 5 is priced out
- * at +0.24 for 1.061x. Numbers in docs/phase4-ladder.md. */
+ * at +0.24 for 1.061x. */
 static int bi_gate(void)
 {
     static int v = -1;
@@ -4198,9 +4192,9 @@ static mv_t subpel_rerank(struct n265_frame_work *e, const pu_geo *g,
      * filter over the same samples five times. Buy it once.
      *
      * This is the shape `bi_satd_fixed` already had for N265_BI_REFINE
-     * and which nothing on the re-rank path used (docs/phase11.md sec
-     * 2.9). It is ARITHMETICALLY the same number, not a cheaper metric:
-     * the item's claim is a cmp, not a band.
+     * and which nothing on the re-rank path used. It is ARITHMETICALLY the
+     * same number, not a cheaper metric: the item's claim is a cmp, not a
+     * band.
      *
      * `kv` is NULL on a bi pass, so the ladder's cache never supplies one
      * of these five and the saving is the whole four MCs. */
@@ -4738,7 +4732,7 @@ static int intra_rd_mpm(void)
  * neighborhood instead of all 35 modes; 4 is 2 and 3 together. 0 is
  * the default: 3 is quality-free but the clean timing pass reads it at
  * 1.005x foreman against a byte-identical base, so there is nothing to
- * buy at this keyint (docs/phase4-ladder.md R11). */
+ * buy at this keyint. */
 static int i_intra(void)
 {
     static int v = -1;
@@ -5031,7 +5025,7 @@ static void mvr_probe(struct n265_frame_work *e, int base, int list, int ref,
  * (x0,y0), upscaled to full-res quarter-pel (lowres pel = 2 full pel = 8
  * qpel), or 0 with *ok=0 when no lowres MV is reachable. Reads the LIVE
  * la_mv, which is only safe under the census's own threads-1 run; a
- * shipped arm needs a frozen copy (docs/phase14-mvreuse.md). */
+ * shipped arm needs a frozen copy. */
 static mv_t mvr_lowres(struct n265_frame_work *e, int x0, int y0, int *ok)
 {
     mv_t z = { 0, 0 };
@@ -7561,7 +7555,7 @@ static void qt_restore(struct n265_frame_work *e, const qt_snap *sn, int x0,
 static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
                          int depth);
 
-/* N265_DUP_FAST (phase 11 item 1, docs/phase11.md): the whole of the arm.
+/* N265_DUP_FAST (phase 11 item 1): the whole of the arm.
  *
  * This frame's source is the source of the references in `e->dup_msk`,
  * which the driver resolved at dispatch, so the picture the decoder
@@ -7579,7 +7573,7 @@ static uint64_t quadtree(struct n265_frame_work *e, int x0, int y0, int log2n,
  * a concession - averaging two independent quantizations of one source
  * is a better prediction than either, and it is what the encoder's own
  * RD picks on a long hold. Leaving it out made the arm decline every CU
- * of `sita_flat_720p` (docs/phase11.md sec 1.4). The ORDER is
+ * of `sita_flat_720p`. The ORDER is
  * 8.5.3.2's, so the candidate is whatever the neighborhood is already
  * using, and on a picture coded this way throughout the search ends at
  * index 0.

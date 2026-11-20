@@ -11,7 +11,7 @@
  * thread counts.
  *
  * What the model has to be is fixed by the only synthesizer this project
- * can measure through (docs/phase12.md, step 0): H.274's frequency
+ * can measure through: H.274's frequency
  * filtering model, in which the decoder puts
  *
  *     grain = (scale * pattern[h][v]) >> (log2_scale_factor + 6)
@@ -38,10 +38,9 @@
  * synthesizer on a flat plate coded --lossless, not derived: the pattern
  * is a 64x64 integer transform of a fixed Gaussian LUT with an edge
  * attenuation on top, so its variance is a property of the tables and
- * there is nothing to derive it from but the tables. docs/phase12.md,
- * "The synthesizer, calibrated". Index 0 and 1 are unreachable (the
- * decoder clips the cut-off to 2..14) and are filled so an index error
- * would not read as a plausible grain. */
+ * there is nothing to derive it from but the tables. Index 0 and 1 are
+ * unreachable (the decoder clips the cut-off to 2..14) and are filled so an
+ * index error would not read as a plausible grain. */
 static const float K[15] = {
     0.0f, 0.0f, 0.158f, 0.210f, 0.273f, 0.335f, 0.377f, 0.450f,
     0.473f, 0.569f, 0.615f, 0.658f, 0.727f, 0.787f, 0.821f
@@ -67,7 +66,7 @@ static const float G[15] = {
  * correlation cutting the effective degrees of freedom. Measured, not
  * derived: on synthetic grain of known sigma the estimator reads 0.89-0.92
  * of the truth over a 4x span of amplitude and the whole usable cut-off
- * range (docs/phase12.md, "The estimator, against ground truth"), so one
+ * range, so one
  * constant covers it. It is calibrated AT the default N265_FGC_PCT and
  * moves with it. */
 #define EST_BIAS  1.11f
@@ -77,7 +76,7 @@ static const float G[15] = {
  * axes, on FLAT blocks only; the finer the grain, the less two
  * neighbors agree, so rho falls as the cut-off rises. The thresholds are
  * the midpoints of rho measured on synthesized grain of known cut-off
- * (scratch/rho_calib.py; the table is in docs/phase12.md).
+ * (scratch/rho_calib.py).
  *
  * The map is monotone only from h = 5 up, and that is not a defect of the
  * measurement: below 5 the grain is so smooth that a 3x3 high-pass of it
@@ -151,8 +150,8 @@ double n265_fgc_core(void)
 /* The most an intensity bin may report over the QUIETEST bin. Film grain
  * IS intensity dependent and the SEI's interval structure exists to carry
  * that, but a residual is grain plus texture and only the quiet end of
- * the population is evidence about grain at all. Measured on the corpus
- * (docs/phase12.md): on park_joy the per-bin 25th percentile runs 0.98 in
+ * the population is evidence about grain at all. Measured on the corpus:
+ * on park_joy the per-bin 25th percentile runs 0.98 in
  * the shadows to 8.38 in the midtones, and the midtone reading is
  * foliage - there is not one flat block at that exposure in the whole
  * frame. Uncapped, the estimator would signal that foliage as grain and
@@ -368,7 +367,7 @@ void n265_grain_accum(n265_grain_est *g, const pixel *const plane[3],
 /* The cut-off a component is SIGNALED at, given the one its plane was
  * measured at. The decoder's 4:2:0 adaptation doubles a chroma cut-off
  * (clipping at 14) and halves a chroma scale before it synthesizes
- * anything - measured, docs/phase12.md - so a chroma component is
+ * anything - measured - so a chroma component is
  * signaled at half of what its plane should end up with. */
 static int sig_cut(int c, int eff)
 {

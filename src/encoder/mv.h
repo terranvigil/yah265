@@ -18,7 +18,7 @@ typedef struct mv_t {
 typedef struct mot_t {
     mv_t mv[2];
     uint8_t pred;   /* bit0 = L0, bit1 = L1 */
-    int8_t ref[2];  /* reference index per list (docs/refstruct-design.md) */
+    int8_t ref[2];  /* reference index per list */
 } mot_t;
 
 /* One prediction unit in its coding block. The CB is carried because

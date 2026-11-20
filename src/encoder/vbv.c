@@ -22,7 +22,7 @@ void n265_vbv_init(n265_vbv *v, double maxrate, double bufsize, double init,
      * statement as "the decoder waited init * bufsize / maxrate seconds
      * before decoding the first picture" - and it is the number the
      * buffering period SEI would carry as initial_cpb_removal_delay if
-     * this encoder wrote one (see docs/phase12.md, Item 2). */
+     * this encoder wrote one. */
     v->fill = init * bufsize;
     if (v->fill > bufsize)
         v->fill = bufsize;

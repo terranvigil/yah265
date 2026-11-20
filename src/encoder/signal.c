@@ -246,8 +246,8 @@ int n265_cll_parse(const char *s, int *cll, int *fall)
  * BT.2100 PQ and not an RGB set at all. They are x265's values and this
  * flag is a SPELLING - a name that meant one thing in one encoder and
  * another here would be worse than a name that carries a value the user
- * can see and override. docs/phase14.md records both, and every one of
- * the nine individual flags overrides the preset.
+ * can see and override. Every one of the nine individual flags overrides
+ * the preset.
  *
  * The values are written as x265's own option strings and resolved
  * through the value tables above, so this table cannot drift from them
@@ -301,12 +301,9 @@ static const struct vsp_vol {
       "G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(40000000,50)",
       NULL },
     { "BT2100x108n0005", NULL,
-      "x265's table gives its red primary as (34000,146000) and "
-      "display_primaries_y is u(16) in ST 2086, so there is no value to "
-      "pass through; the two readings of what was meant - BT.2020's red "
-      "at 14600, P3's at 16000 - disagree, and guessing would put an "
-      "invented mastering volume in the stream. Name --master-display "
-      "with the volume you graded on." },
+      "its red primary y of 146000 does not fit the 16-bit field of ST "
+      "2086, and the value meant is ambiguous. Use --master-display with "
+      "the volume you graded on." },
     { NULL, NULL, NULL }
 };
 

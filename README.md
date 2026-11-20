@@ -57,6 +57,9 @@ takes any source ffmpeg can read:
 ffmpeg -i movie.mov -pix_fmt yuv420p -f yuv4mpegpipe - | build-rel/n265 - -o out.hevc --crf 23
 ```
 
+Inside ffmpeg it's `-c:v libyah265`, which writes the same stream as `n265`
+given the same options. [docs/ffmpeg.md](docs/ffmpeg.md) has the build.
+
 `make test` runs the tests, and `make conformance-fast` runs the decoder
 checks. [Getting started](site/start.md) walks through the command line.
 `build-rel/n265 --help` lists every option.

@@ -1,6 +1,5 @@
 /*
- * Single-pass average-bitrate rate control (docs/programme-from-yah264.md
- * step A.1). Re-derived here; see rc.c for the model.
+ * Single-pass average-bitrate rate control; see rc.c for the model.
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
@@ -214,7 +213,7 @@ typedef struct n265_rc {
     /* step 3, N265_VBR_OPEN: the opening solved on a corpus prior */
     int vopen;
     double op_a[RC_CLASSES], op_b[RC_CLASSES], op_g;
-    /* constants (docs/instruments.md) */
+    /* constants */
     double qcomp, horizon, maxstep, scale_mem, w_mem;
     double rf_bias;             /* the integral term, in QP units      */
     double lvl_gain;            /* how fast the shared level follows  */

@@ -61,9 +61,8 @@ static const uint8_t min_in_group[10] = { 0, 1, 2, 3, 4, 6, 8, 12, 16, 24 };
  * per-bin call inlined (n265_est_bin's packed step, est.h) and every
  * BYPASS bin priced as a COUNT instead of a call, because a bypass bin
  * costs exactly 256 in Q8 whatever it is. The estimator was 4-7% of the
- * single-thread wall with the residual walk another 7-12% (docs/
- * phase9-lattice.md), and 30% of the bins it charged were bypass ones
- * that carried no information at all.
+ * single-thread wall with the residual walk another 7-12%, and 30% of the bins
+ * it charged were bypass ones that carried no information at all.
  *
  * BIT-EXACT, and by construction rather than by measurement: the same
  * context array is stepped by the same function on the same bins in the
@@ -735,15 +734,14 @@ void n265_residual_coding(const res_ops *ops, const int16_t *level,
 #endif
 
 #ifdef N265_EST_AUDIT
-    /* In-place trap compare, the method docs/phase6-neon.md round 5 used
-     * for the lattice. The PRE-ITEM form is the est=0 instance driven
-     * through this backend's own callbacks, which for the estimator ARE
-     * est_bin_cb / est_bypass_cb: it is the code that shipped, bin for
-     * bin. Run it from the entry contexts, rewind, run the straight-line
-     * instance from the same entry contexts, and trap unless the Q8 total
-     * AND all 152 contexts agree. Scratch build only
-     * (-DN265_EST_AUDIT); nothing under it is compiled in a shipped
-     * binary. */
+    /* In-place trap compare, the method used for the lattice. The
+     * PRE-ITEM form is the est=0 instance driven through this backend's
+     * own callbacks, which for the estimator ARE est_bin_cb /
+     * est_bypass_cb: it is the code that shipped, bin for bin. Run it from the
+     * entry contexts, rewind, run the straight-line instance from the same
+     * entry contexts, and trap unless the Q8 total AND all 152 contexts agree.
+     * Scratch build only (-DN265_EST_AUDIT); nothing under it is compiled in a
+     * shipped binary. */
     {
         cabac_ctx_t save[CTX_COUNT], old_ctx[CTX_COUNT];
         memcpy(save, st->ctx, sizeof save);

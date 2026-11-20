@@ -26,8 +26,8 @@
  * noise; a difference bigger than this is the picture moving".
  *
  * 6.0. The corpus's own grain sits between 0.9 and 4.3 luma levels of
- * standard deviation (docs/phase12.md's estimator table over park_joy,
- * ducks, crowd_run, in_to_tree), so a width of six covers the noise on
+ * standard deviation (the grain estimator over park_joy, ducks,
+ * crowd_run, in_to_tree), so a width of six covers the noise on
  * every clip this filter is for with a margin, and at three sigma - 18
  * levels - anything the motion search got wrong is already worth a
  * hundredth of its weight. It is a knob because it is the one constant
@@ -57,9 +57,9 @@ int n265_mcstf_sigma_q8(void)
  * there is enough noise for a temporal average to beat what the
  * quantizer was going to do anyway. Those are not the same line. At 0.75
  * the filter arms on foreman_cif and costs it 1.35 BD points; at 1.5 it
- * does not arm there at all, and on the five-clip read (docs/phase14.md,
- * item 6) the arm becomes three clips better, two byte-identical and
- * none worse, on VMAF-NEG and on PSNR-Y alike.
+ * does not arm there at all, and on the five-clip read the arm becomes three
+ * clips better, two byte-identical and none worse, on VMAF-NEG and on PSNR-Y
+ * alike.
  *
  * The census is kept below because it is still the sanity check that the
  * CLEAN end is unambiguous, and because it says where the bar is not: at
@@ -445,8 +445,7 @@ int n265_mcstf_ready(n265_mcstf *m, int flush)
  * is the cheapest high-pass that rejects a linear ramp - and the 25th
  * PERCENTILE over 8x8 blocks of that block's mean, because a percentile
  * is what separates noise from texture in a population where most blocks
- * are both (docs/phase12.md's grain estimator makes the same argument at
- * more length).
+ * are both.
  *
  * The reading is the noise standard deviation to within a few percent,
  * and that is an identity rather than a fit: for white noise of standard

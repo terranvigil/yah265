@@ -6,13 +6,11 @@
  * knobs the encoder already has; the environment overrides it and an
  * explicit front-end flag overrides it.
  *
- * The ladder shifted by role on 2026-09-13 (phase 9 step 1,
- * docs/phase9-goals-plan.md sec 4). The plan's goals are read against
- * x265 `--preset medium`, so the preset that carries them has to be
- * called `medium`: a user comparing two encoders compares preset to
- * preset, and a medium-versus-medium run has to be the honest one - same
- * name, same quality class, less time. Every name therefore moved down
- * one rung:
+ * The ladder shifted by role on 2026-09-13 (phase 9 step 1). The plan's goals
+ * are read against x265 `--preset medium`, so the preset that carries them has
+ * to be called `medium`: a user comparing two encoders compares preset to
+ * preset, and a medium-versus-medium run has to be the honest one - same name,
+ * same quality class, less time. Every name therefore moved down one rung:
  *
  *   fast    today's fast with the two free phase-7 tools unpinned
  *   medium  that, plus the two rungs the per-clip quality leg needed
@@ -22,13 +20,10 @@
  * `medium`'s table is no longer empty, so the DEFAULT encoder moved with
  * the name. The compiled-in defaults did NOT move: `--preset slow` names
  * every one of them and is today's medium byte for byte, which is the
- * identity the rename is verified on (docs/phase9-goals-plan.md,
- * "Step 1 result", "The identities").
+ * identity the rename is verified on.
  *
- * Every entry below is an arm one of the ladders priced
- * (docs/phase4-ladder.md, docs/phase6b-economy.md,
- * docs/phase9-goals-plan.md, docs/instruments.md); nothing here is a
- * value invented for the preset.
+ * Every entry below is an arm one of the ladders priced; nothing here
+ * is a value invented for the preset.
  */
 
 #include <stdlib.h>
@@ -91,10 +86,9 @@ static const struct kv fast_tab[] = {
     /* the two rungs below are the whole difference between this preset
      * and the goal preset. */
     /* the whole-arm intra gate on the inter side's own distortion. It is
-     * a DIFFERENT gate from modes 4-7, not more of one
-     * (docs/phase6b-economy.md, "The intra-gate family is not monotone in
-     * speed"), and at 1.10-1.26x of the wall at auto it is the largest
-     * single thing fast still has that medium does not. */
+     * a DIFFERENT gate from modes 4-7, not more of one (the intra-gate
+     * family is not monotone in speed), and at 1.10-1.26x of the wall at auto
+     * it is the largest single thing fast still has that medium does not. */
     { "N265_INTRA_GATE", "2" },
     /* the RD-domain sign-bit decision off: 1.01-1.03x of the wall for
      * 4.6-5.3 BD points, the worst trade in the encoder (6b step 1),
@@ -113,13 +107,11 @@ static const struct kv fast_tab[] = {
  *
  *   N265_RD_PROXY 1   the inter shortlist ranked on SA8D + estimated
  *                     bits, one transform per CU instead of two
- *                     (docs/phase13.md, the A4 census)
  *   N265_EST_MODE 1   the frozen-context residual bit estimate, which
  *                     the band refused at medium and which belongs
  *                     here: a rung already spending band for speed can
  *                     afford it, and the cheaper the search the larger
  *                     the coefficient path's share of it
- *                     (docs/phase13.md, A1)
  *
  * Nothing else moves. `--ref` is 1 at every rung from `slow` down (the
  * compiled-in default), so x265's "ref 2-3 at faster" has no lever here
@@ -202,8 +194,8 @@ static const struct kv vfast_tab[] = {
  *   N265_SKIP_EXIT  1 -> 2   the loosest static-skip exit
  *   N265_RDOQ       1 -> 2   the commit-only lattice
  *
- * Priced to the end as a composition in step 5 (docs/phase9-goals-plan.md
- * sec 10) and shipped in step 7 (sec 12). The pair is the only thing
+ * Priced to the end as a composition in step 5 and shipped in step 7.
+ * The pair is the only thing
  * measured in phase 9 that puts every one of the fifteen clips under the
  * 1.15x worst-clip bar - touchdown_1080p 1.24x -> 1.11x at a 0.76x
  * median - with the plan's quality and compression legs still passing
@@ -213,8 +205,7 @@ static const struct kv vfast_tab[] = {
  * points ahead of x265 medium to about a point behind, the 15-clip CRF
  * median goes -12.63% -> -6.67%, and multishot is 5.3-5.9% behind this
  * preset's previous recipe (still 1.7% and 16.9% ahead of x265 across
- * shots). That recipe is one env list away and is named in
- * docs/instruments.md.
+ * shots). That recipe is one env list away.
  *
  * The step-1 recipe, the one the two rows above replace, read -12.62%
  * CIF-7 / -14.39% HD-6 / -12.63% of 15-clip CRF band median against x265
@@ -277,7 +268,7 @@ static const struct kv med_tab[] = {
      * byte, `sita_toon_720p` - the clip the ungated sign cost four points -
      * included. The compiled-in defaults are 0 and ungated, so fast, slow
      * and slower are untouched and `N265_AQ_FLAT_SIGN=0` is the escape.
-     * docs/phase10.md "Items 3-4". */
+     */
     { "N265_AQ_FLAT_SIGN", "1.0" },
     { "N265_AQ_FLAT_THR",  "3" },
     /* phase 11 item 1: a picture whose source is already in the DPB is
@@ -289,7 +280,7 @@ static const struct kv med_tab[] = {
      * sita_toon_720p 0.962x at one thread for -1.76 -> -2.21 CRF,
      * sita_flat_720p 0.879x for -3.85 -> -4.08. The compiled-in default
      * is 0, so fast, slow and slower are untouched and `N265_DUP_FAST=0`
-     * is the escape. docs/phase11.md. */
+     * is the escape. */
     { "N265_DUP_FAST",   "1" },
     /* parity item 3: the intra search an inter slice buys where it does
      * not pay. NxN (four 4x4 luma PBs, picked on a SAD sum) is dropped
@@ -301,7 +292,7 @@ static const struct kv med_tab[] = {
      * the time. The CIF-7 band never reaches that ratio. Compiled-in
      * defaults are 0, so fast, slow and slower are untouched and
      * `N265_INTER_NXN=0 N265_INTRA_RSKIP=0` is the escape.
-     * docs/phase14.md "Item 23". */
+     */
     { "N265_INTER_NXN",  "2" },
     { "N265_INTRA_RSKIP", "3" },
     /* phase 14 item 2: weighted prediction in P slices, x265's own
@@ -314,7 +305,7 @@ static const struct kv med_tab[] = {
      * against x265 medium, a 24.6-point swing and the largest
      * single-clip deficit this encoder had, and sintel_720p - a trailer,
      * so real dissolves - -12.55% -> -17.33%. `N265_WEIGHTB` needs no
-     * entry: it is priced in docs/phase14.md and stays off, as it does
+     * entry: it is priced and stays off, as it does
      * in x265, because it costs 0.31 of a point on akiyo_cif for the
      * table it writes in every B slice header and takes xfade_720p
      * backwards. The compiled-in default is 0, so fast and faster are
@@ -325,8 +316,7 @@ static const struct kv med_tab[] = {
      * skips and the index is most of what a skip costs: on the Meridian
      * 720p window at QP 51 merge signaling was 70% of the stream. The
      * compiled-in default is 0, so fast, slow and slower are untouched
-     * and `N265_MERGE_PICK_RATE=0` is the escape. docs/phase14.md
-     * "Item 30". */
+     * and `N265_MERGE_PICK_RATE=0` is the escape. */
     { "N265_MERGE_PICK_RATE", "1" },
     /* phase 14 item 61: screen content (text, sheets, desktops) is typed
      * per frame and gets the scroll vote, the change-driven B run and the
@@ -348,7 +338,7 @@ static const struct kv med_tab[] = {
      * The commit's 16x16 transform split is dropped at UHD only (the
      * overlay below); this row keeps it everywhere else.
      * `N265_SUBPEL_AXIS` gets no row: it cost sunflower 0.48 of a point.
-     * docs/phase14.md "Item 40". */
+     */
     { "N265_INTRA_FAST", "15" },
     /* ...on pictures 1920 wide and up. At 720p it cost sita_flat_720p
      * 2.42 points and sita_toon_720p 0.70, and keeping it off flat-typed
@@ -366,7 +356,7 @@ static const struct kv med_tab[] = {
      * default is 0, so fast, slow and slower are untouched. The B pull is
      * named here at its compiled-in 0 and set by the UHD overlay, which
      * HD reads too. `N265_AQ2=0 N265_AQ_BPULL=0` is the escape.
-     * docs/phase14.md "Item 44". */
+     */
     { "N265_AQ2", "1" },
     { "N265_AQ_BPULL", "0" },
     /* phase 14 item 46, at its compiled-in value: the CRF level window
@@ -383,8 +373,7 @@ static const struct kv med_tab[] = {
      * -> -22.75). -2 here was mixed (mobile and tempete lose 0.2, the
      * median gains 0.5) for up to 2.0 more points of PSNR-Y.
      * `N265_CDZ=0 N265_CBQPOFFS=0 N265_CRQPOFFS=0` is the escape.
-     * med_tab_720 and med_tab_uhd name their own values.
-     * docs/phase14.md "Item 52". */
+     * med_tab_720 and med_tab_uhd name their own values. */
     { "N265_CDZ", "1" },
     { "N265_CBQPOFFS", "-1" },
     { "N265_CRQPOFFS", "-1" },
@@ -405,7 +394,7 @@ static const struct kv med_tab[] = {
      * runs from the 720p class up (med_tab_720, med_tab_uhd): at CIF it
      * cost the CIF-7 median 1.7 points of BD-v1 for 6% of the
      * instructions. `N265_IRANK=0 N265_TD_DIST=0 N265_RDOQ_TAIL=0` is the
-     * escape. docs/phase14.md "Item 34". */
+     * escape. */
     { "N265_IRANK", "0" },
     { "N265_TD_DIST", "1" },
     { "N265_RDOQ_TAIL", "1" },
@@ -421,7 +410,7 @@ static const struct kv med_tab[] = {
      * it lost foreman 1.7 points and akiyo 1.3. `N265_SUBPEL_AXIS=0
      * N265_INTRA_RD_N=3 N265_TT_SKIP_INTRA=0 N265_MERGE_RD_N=5
      * N265_INTRA_RSKIP=3` is the escape, and at UHD
-     * `N265_TT_SKIP_INTER=2` with it. docs/phase14.md "Item 57". */
+     * `N265_TT_SKIP_INTER=2` with it. */
     { "N265_SUBPEL_AXIS", "0" },
     { "N265_INTRA_RD_N", "3" },
     { "N265_TT_SKIP_INTRA", "6" },
@@ -440,7 +429,7 @@ static const struct kv med_tab[] = {
      *
      * The two knobs exist so the next re-pricing is a row here and not a
      * rebuild; the compiled-in default behind them is 0, which is off
-     * and is x265's default. docs/phase14.md, "Item 6b". */
+     * and is x265's default. */
     { NULL, NULL }
 };
 
@@ -477,9 +466,8 @@ static const struct kv slow_tab[] = {
 };
 
 /* slower: today's slow, the quality preset, unchanged - it was re-placed
- * on 2026-09-12 and nothing in step 1 touches it
- * (docs/phase7-gop-design.md, "slow re-placed"). Order follows the ladder
- * in docs/phase6b-economy.md: step 2's six, then step 3's two and step
+ * on 2026-09-12 and nothing in step 1 touches it. Order follows the
+ * phase 6b ladder: step 2's six, then step 3's two and step
  * 4's one, then the non-IDR intra placement.
  *
  * The table names no value for `N265_INTRA_GATE`, `N265_SBH_RD`,
@@ -508,9 +496,9 @@ static const struct kv slower_tab[] = {
                                    * is already on                     */
     /* the non-IDR intra picture, placed at a cut the IDR bound refuses.
      * It is reachable only at two references per list, which is this
-     * preset's own structure and no other's (docs/phase7-gop-design.md,
-     * "Step 2 follow-up"). `N265_INTRA_MIN` needs no entry: 4, the floor
-     * the IDR bound already carried, is the one the placement wants   */
+     * preset's own structure and no other's. `N265_INTRA_MIN` needs no entry:
+     * 4, the floor the IDR bound already carried, is the one the placement
+     * wants */
     { "N265_MIN_KEYINT", "0" },
     { "N265_WEIGHTP",    "1" },   /* phase 14 item 2; see med_tab */
     { NULL, NULL }
@@ -518,8 +506,7 @@ static const struct kv slower_tab[] = {
 
 /* veryslow: `slower` plus the ONE lever of x265's veryslow that measured
  * as a gain here - the transform tree's third level. NOT PLACED; the
- * table is what the measurement left, and docs/phase14.md "Item 5" is
- * why.
+ * table is what the measurement left.
  *
  * The table below is `slower_tab` spelled out again - not shared, for the
  * reason every other table here is spelled out - plus two rows that name
@@ -538,9 +525,9 @@ static const struct kv slower_tab[] = {
  *                       x265 veryslow (+2.11% -> +6.37%). The deep
  *                       window's own note already says the longer run
  *                       costs band on top of the deeper window, and
- *                       docs/instruments.md says depth is priced per
- *                       preset and 24 already broke a clip's bar at
- *                       medium. 40 is well past anything measured.
+ *                       depth is priced per preset and 24 already broke a
+ *                       clip's bar at medium. 40 is well past anything
+ *                       measured.
  *   N265_SUBPEL_RATE 1
  *   ungated             +0.18 of band median. Medium buys it GATED for a
  *                       reason and this rung has no reason to buy it
@@ -650,8 +637,7 @@ static const struct kv med_par[] = {
  * the stream.
  *
  * Measured on two 4K sources - Meridian 600 frames and bbb_sunflower 300
- * frames - the numbers are in docs/phase14.md "Item 12" for the tree and
- * "Item 17" for the gate it ships with. Everything else about `medium`
+ * frames. Everything else about `medium`
  * is untouched, this rung included: the window stays 12 at every
  * resolution, and below the gate the bitstream is what main wrote, byte
  * for byte.
@@ -693,7 +679,7 @@ static const struct kv med_par_uhd[] = {
  * predictors and the first reference's winner scaled by distance. That
  * keeps D3v at -1.22% (full search -2.84%, one reference +3.08%) for
  * 3.6% more SIMD instructions than one reference on D3 and 0.1% on D2.
- * `N265_UHD_REF2=0` is the escape. docs/phase14.md "Item 48". */
+ * `N265_UHD_REF2=0` is the escape. */
 static const struct kv med_par_4k[] = {
     { "ref", "2" },
     { NULL, NULL }
@@ -707,8 +693,7 @@ static const struct kv med_par_4k[] = {
  * window buys is the propagation horizon. CIF stays at 12: there it
  * gives bus_cif 0.69 and akiyo_cif 0.55 of band back. The CRF level
  * window (N265_CRF_DC_WIN) moves with it in med_tab_uhd and med_tab_720.
- * `--rc-lookahead 12` with `N265_CRF_DC_WIN=12` is the escape.
- * docs/phase14.md "Item 46". */
+ * `--rc-lookahead 12` with `N265_CRF_DC_WIN=12` is the escape. */
 static const struct kv med_par_720[] = {
     { "rc-lookahead", "20" },
     { NULL, NULL }
@@ -773,8 +758,7 @@ static const struct kv med_tab_uhd[] = {
      * points, and at 720p sita_toon_720p goes from -5.11% to +5.71%.
      * Item 41 found the 720p losses are the width's: the walk alone is
      * level or ahead there, and med_tab_720 takes it at 720p.
-     * `N265_ME_PATTERN=0 N265_BADAPT_REFW=128` is the escape.
-     * docs/phase14.md "Item 36". */
+     * `N265_ME_PATTERN=0 N265_BADAPT_REFW=128` is the escape. */
     { "N265_ME_PATTERN", "1" },
     { "N265_BADAPT_REFW", "320" },
     /* phase 14 item 44, at HD and UHD: a B frame takes 0.8 more frame-DC
@@ -820,8 +804,7 @@ static const struct kv med_tab_uhd[] = {
      * overlapping rungs. Item 52 took the pair to CIF (med_tab) and
      * the offsets to -2 at 720p (med_tab_720), once v1 was scored at
      * display size; 1080p and up are read at their coded size and keep
-     * -1. `N265_CDZ=0 N265_CBQPOFFS=0 N265_CRQPOFFS=0` is the escape.
-     * docs/phase14.md "Item 51". */
+     * -1. `N265_CDZ=0 N265_CBQPOFFS=0 N265_CRQPOFFS=0` is the escape. */
     { "N265_CDZ", "1" },
     { "N265_CBQPOFFS", "-1" },
     { "N265_CRQPOFFS", "-1" },
@@ -844,8 +827,7 @@ static const struct kv med_tab_uhd[] = {
  * pooled BD vs x265 is -6.77% ungated and -6.82% / -6.69% at 256 / 512:
  * no measured quality cost at any of them, so the cheapest value read
  * is the one named. Item 26 measured it at 2160p and the UHD overlay
- * carries it too. ctu.c's N265_CB64_SPLITGATE comment has the census and
- * docs/phase14.md "Item 24" the numbers. */
+ * carries it too. ctu.c's N265_CB64_SPLITGATE comment has the census. */
 static const struct kv med_tab_hd[] = {
     { "N265_CB64_SKIPGATE", "64" },   /* item 48: UHD runs 32 */
     { "N265_REF2_LITE", "0" },        /* item 48: UHD only */
@@ -862,8 +844,7 @@ static const struct kv med_tab_hd[] = {
      * pictures). A 64x64 skip whose residual sits in one corner lost
      * that corner's detail: sunflower 1080p +1.93% -> +0.54% BD-v1, for
      * 1.7% more instructions at HD. `N265_CB64_GATEQ=0
-     * N265_CB64_GATEQ_REF=0` is the escape.
-     * docs/phase14.md "Item 58". */
+     * N265_CB64_GATEQ_REF=0` is the escape. */
     { "N265_CB64_GATEQ", "125" },
     { "N265_CB64_GATEQ_REF", "150" },
     /* phase 14 item 62: on a handheld camera's jitter over fine texture
@@ -871,7 +852,7 @@ static const struct kv med_tab_hd[] = {
      * merge-first skip exit is off and the lattice runs in every RD
      * trial. worldcup_far_1080p against x265: CRF +18.83% -> -2.22%,
      * VBR +15.02% -> -3.91% BD-v1. No tier S, M or L frame fires.
-     * `N265_JIT=0` is the escape. docs/phase14.md "Item 62". */
+     * `N265_JIT=0` is the escape. */
     { "N265_JIT", "1" },
     { NULL, NULL }
 };
@@ -890,8 +871,7 @@ static const struct kv med_tab_hd[] = {
  * D5 -0.42% -> -0.29%, D6 -19.12% -> -19.29%. The seven 720p corpus
  * clips read what the walk alone reads. CIF stays on the diamond: the
  * walk costs foreman_cif 0.64 and coastguard_cif 0.45 of a point there.
- * `N265_ME_PATTERN=0 N265_BADAPT_FASTW=0` is the escape.
- * docs/phase14.md "Item 41". */
+ * `N265_ME_PATTERN=0 N265_BADAPT_FASTW=0` is the escape. */
 static const struct kv med_tab_720[] = {
     { "N265_IRANK", "2" },          /* phase 14 item 34, see med_tab */
     { "N265_CRF_DC_WIN", "20" },   /* phase 14 item 46, see med_par_720 */
@@ -900,8 +880,7 @@ static const struct kv med_tab_720[] = {
      * reads as banding (CAMBI). Nocturne 720p's darkest window at 584
      * kbit/s goes 73.21 -> 75.27 v1 (x265 76.04) on CAMBI 7.30 -> 3.63;
      * 3 and 4 cost detail there. The compiled-in 0 keeps fast, slow and
-     * slower. `N265_PSY_DARK=0` is the escape. docs/phase14.md
-     * "Item 53". */
+     * slower. `N265_PSY_DARK=0` is the escape. */
     { "N265_PSY_DARK", "2" },
     { "N265_ME_PATTERN", "1" },
     { "N265_BADAPT_FASTW", "320" },
@@ -914,7 +893,7 @@ static const struct kv med_tab_720[] = {
      * -25.64 (VBR -18.84 -> -20.28), for 0.4-1.9 points of PSNR-Y. -3
      * still gains (another 1.1-2.4) at 1.7-2.3 more of PSNR-Y and is
      * not taken. `N265_CBQPOFFS=-1 N265_CRQPOFFS=-1` is item 51's 720p
-     * stream. docs/phase14.md "Item 52". */
+     * stream. */
     { "N265_CDZ", "1" },
     { "N265_CBQPOFFS", "-2" },
     { "N265_CRQPOFFS", "-2" },
@@ -939,7 +918,7 @@ static const struct kv med_tab_720[] = {
  * and off alone gains 1.7% and 3.9%. Together -6.2% and -14.2%.
  * `N265_CBQPOFFS` and `N265_CRQPOFFS` at the size's own value (-1 at
  * 1080p and up) with `N265_PSY_DARK` at its own (4) is the escape, or
- * `--no-hdr-opt`. docs/phase14.md "Item 56". */
+ * `--no-hdr-opt`. */
 static const struct kv med_tab_pq[] = {
     { "N265_CBQPOFFS", "-6" },
     { "N265_CRQPOFFS", "-6" },
@@ -961,7 +940,7 @@ static const struct kv med_tab_hlg[] = {
 /* `medium` on PQ or HLG, per class (phase 14 item 59): the speed cuts
  * that cost HDR-VMAF most go back. The coarse intra rank (item 34) cost
  * 2-6%, and at UHD the intra transform split (item 57) cost Sol Levante
- * 1.8%. `N265_HDR_FULL=0` is the escape. docs/phase14.md "Item 59". */
+ * 1.8%. `N265_HDR_FULL=0` is the escape. */
 static const struct kv med_tab_hdr_720[] = {
     { "N265_IRANK", "0" },      /* unmeasured at 720p; the 1080p row */
     { NULL, NULL },
@@ -984,7 +963,7 @@ static const struct kv med_tab_hdr_uhd[] = {
  * each 32x32 quadrant with item 58's HD values. Item 57's three-candidate
  * list and 16x16 stop put Chimera 2160p's VBR curve 1.7 points over the
  * bar; CRF had the margin and keeps them. `N265_UHD_CVBR=0` is the
- * escape. docs/phase14.md "Item 60". */
+ * escape. */
 static const struct kv med_tab_uhd_cvbr[] = {
     { "N265_MERGE_RD_N", "5" },
     { "N265_INTRA_RSKIP", "3" },
@@ -1007,7 +986,7 @@ static const struct kv slower_par[] = {
      * because two of the three things the re-placement took are only
      * reachable behind it - `la_is_nonidr_i` gates the intra placement on
      * `ref_max >= 2`, and the deeper window has a second list entry to
-     * act through. docs/phase7-gop-design.md, "slow re-placed". */
+     * act through. */
     { "ref",           "2" },
     { "bframes",       "7" },   /* the default since 2026-09-10; kept
                                  * so the structure reads whole        */
@@ -1051,7 +1030,7 @@ static const struct kv placebo_par[] = {
  * arrays below are the whole of the naming: `rungs` is what is PLACED -
  * a rung earns a row here only by passing the four legs against the
  * x265 preset of the same name, on every one of the fifteen corpus clips
- * (docs/phase9-goals-plan.md sec 4, the rule medium was placed by) - and
+ * (the rule medium was placed by) - and
  * `x265_names` is the ladder those names sit on, fastest first, so that
  * a name we know and have not placed can be refused with the nearest
  * rung that IS placed rather than with "unknown".
@@ -1125,7 +1104,7 @@ static const struct rung rungs[] = {
      * re-pricing value - the levers are one line from being re-tried
      * without the one the evidence points at - and because a row here is
      * what lets the refusal say which rung was tried and failed rather
-     * than pretending the name is unknown. docs/phase13.md, "C2". */
+     * than pretending the name is unknown. */
     { "veryfast", vfast_tab, NULL,  vfast_par, NULL,  0, NULL, NULL, NULL, NULL },
     /* `faster` is present and NOT placed either, and for a different
      * reason from veryfast's. It PASSES the band on every one of the
@@ -1138,7 +1117,7 @@ static const struct rung rungs[] = {
      *   quality      bus_cif -0.56 dVMAF     (bar -0.5)    FAIL
      *   compression  bus_cif +2.64%          (bar +1.0%)   FAIL
      *
-     * docs/phase13.md, "C2". The table stays for the same reason
+     * The table stays for the same reason
      * veryfast's does, and the two binding clips are the same two the
      * project already has open items on. */
     { "faster",   faster_tab, NULL, faster_par, NULL, 0, NULL, NULL, NULL, NULL },
@@ -1161,7 +1140,7 @@ static const struct rung rungs[] = {
      * not earn its own names yet, and a rung built on top of it inherits
      * that. `--preset medium` still reads -6.65% with all seven ahead,
      * which is the control this item ran to be sure the instrument and
-     * the corpus had not moved. docs/phase14.md, "Item 5". */
+     * the corpus had not moved. */
     { "veryslow", veryslow_tab, NULL, veryslow_par, NULL, 0, NULL, NULL, NULL, NULL },
     { "placebo",  placebo_tab, NULL,  placebo_par, NULL,  0, NULL, NULL, NULL, NULL },
 };
@@ -1464,13 +1443,12 @@ int n265_preset_param_res(const char *key, int fallback, int width,
  *   zerolatency - SHIPPED. Nothing in it is new: no B frames, a window
  *                 of one, no adaptive run length, no cu-tree propagation
  *                 (there is no window to propagate over), and one frame
- *                 in flight. The last is bit-neutral by gate - output is
- *                 byte-identical at every thread count - and is here
- *                 because latency is what the name promises.
+ *                 in flight. The last is a schedule, not a coding
+ *                 choice, and is here because latency is what the name
+ *                 promises.
  *   psnr, ssim  - REFUSED. Both are metric fitting: x265's psnr turns AQ
  *                 and psy off because those tools cost PSNR while
- *                 improving the picture. docs/phase7-psy-design.md
- *                 closes that by argument and the band decides on
+ *                 improving the picture. The band decides on
  *                 VMAF-NEG, so a tune that trades the metric we read for
  *                 one we do not would be shipping a worse encoder under
  *                 a better number.

@@ -1,7 +1,7 @@
 /*
  * CTU record stream: the analysis walk appends decisions and coefficient
- * levels; the trailing entropy pass replays them in the same order
- * (docs/threading-design.md sec 2/5). Structure (splits, skip, modes)
+ * levels; the trailing entropy pass replays them in the same order.
+ * Structure (splits, skip, modes)
  * lives in the frame maps; the stream holds what maps can't: part flags,
  * cbfs at every transform-tree node, and levels.
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.

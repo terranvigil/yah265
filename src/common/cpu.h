@@ -4,7 +4,7 @@
  *
  * Adapted from yah264's src/common/cpu.{h,c} (our own tooling under
  * the CONTRIBUTING.md carve-out). aarch64 has the NEON tier; x86-64 has
- * the SSE4.2 and AVX2 tiers (docs/x86-plan.md). The C path stays
+ * the SSE4.2 and AVX2 tiers. The C path stays
  * first-class on both.
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
@@ -79,8 +79,7 @@ extern uint32_t n265_asm_off_;
  * configuration can decline a whole class, which is what keeps
  * N265_ASM_OFF measuring what a family is worth instead of a shape gate
  * hidden inside a shared kernel. Its cost is the second load in
- * n265_asm_on, priced at nothing in phase 8 (docs/phase8-plan.md,
- * "Three arms measured to nothing"). */
+ * n265_asm_on, measured at nothing. */
 extern uint32_t n265_asm_refuse_;
 void n265_asm_refuse(uint32_t cls);
 uint32_t n265_cpu_flags_slow(void);

@@ -478,7 +478,7 @@ static int sc_hold(void)
  * 24p motion in a 60p container: on `src_meridian_600` the exhaustive
  * cost keeps falling out to +-32 lowres pixels, and until the search
  * gets there the inter cost reads above the intra cost and the scenecut
- * detector fires on a shot that never changed (docs/phase14.md item 18).
+ * detector fires on a shot that never changed.
  *
  * The expensive answer is a wider pattern. The cheap one is a better
  * STARTING POINT, and three are already to hand when the block is
@@ -545,8 +545,8 @@ static inline int med3(int a, int b, int c)
  * diamond's own reach and the honest upper bound, but the old search
  * rarely got there - it had to improve on every one of eight steps - so
  * a cap at eight leaves most of the growth in. The P/B censuses against
- * main and the eleven-clip corpus both pick 4 (docs/phase14.md item 20
- * has every candidate from 8 down to 2 with its census); the clips
+ * main and the eleven-clip corpus both pick 4 from candidates 8 down
+ * to 2; the clips
  * whose field the old search could measure are unmoved by any of them,
  * so the value is decided by the three 720p clips alone and the curve
  * through them is steep. 0 is no saturation, which is item 19's rule
@@ -623,7 +623,7 @@ static int badapt_mvgate(void)
  * every full-resolution search in this encoder already uses.
  *
  * Charged against the ORIGIN, not against a spatial predictor. The
- * choice is measured (docs/phase14.md item 20: a predictor-relative
+ * choice is measured (a predictor-relative
  * term leaves xfade_720p at +7.04% where the origin-relative one reads
  * +5.79%) and it has a reason - a crossfade's field is coherent noise,
  * so it agrees with its neighbors and a predictor-relative term
@@ -659,8 +659,7 @@ static int ct_mvrate(void)
  * The share below does not average: it asks how much of the picture,
  * weighted by what intra would pay for it, inter prediction cannot do
  * anything with. Measured, it is the one statistic that separates a cut
- * from fast coherent motion once the search is honest (docs/phase14.md
- * item 21 has the table):
+ * from fast coherent motion once the search is honest:
  *
  *   Meridian's pulldown frames, which MUST NOT cut      0.063 - 0.073
  *   Meridian display 311, a real cut                    0.690
@@ -1878,7 +1877,7 @@ int n265_la_brun(struct n265_encoder *e, int maxa)
     return best_a;
 }
 
-/* --- the bits model (`--b-adapt 4`, docs/phase7-gop-design.md D1) --- */
+/* --- the bits model (`--b-adapt 4`) --- */
 
 /* log2 in Q16, table-driven off the top eight mantissa bits. Integer end
  * to end on purpose: the sum below runs over every lowres block of every
@@ -2374,10 +2373,9 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
      * and that is what the fixed I/P/B cascade double-counts. The level
      * itself is the SHOT's own complexity, which nothing else in the
      * encoder supplies: scaling it down moves bits between shots, and the
-     * multi-shot gate refuses that (docs/phase7-modulation-design.md
-     * "Step 2 result"). k_f therefore re-weights the deviation and leaves
-     * the level alone. N265_CT_FRAME_LEVEL=0 is the whole-mean form, which
-     * is the arm that gate refused. */
+     * multi-shot gate refuses that. k_f therefore re-weights the deviation and
+     * leaves the level alone. N265_CT_FRAME_LEVEL=0 is the whole-mean form,
+     * which is the arm that gate refused. */
     double level = 0.0;
     if ((e->crf_on || e->abr_on) && e->ct_framew != e->ct_qpw) {
         static int use_level = -1;
@@ -2458,8 +2456,7 @@ void n265_la_cutree(struct n265_encoder *e, n265_frame_work *fw, int i)
      * the QP path above did with it. dev < 0 is a CTU the field wants at a
      * lower QP; it gets the lambda that QP step would have carried, on the
      * same 2^(d/3) slope, bounded by the offset map's own +-12. Frozen
-     * here, before the frame is scheduled, and read-only after it is
-     * (docs/threading-design.md rule 4). */
+     * here, before the frame is scheduled, and read-only after it is. */
     if (e->ct_lambda != 0.0f && e->cutree_str != 0.0f) {
         double fm = 0;
         for (int k = 0; k < nctu; k++)

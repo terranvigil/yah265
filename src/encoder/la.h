@@ -1,6 +1,5 @@
 /*
- * Lookahead: input queue, lowres statistics, scenecut, cu-tree
- * (docs/lookahead-design.md L0-L2, serial form).
+ * Lookahead: input queue, lowres statistics, scenecut, cu-tree.
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 
@@ -229,7 +228,7 @@ void n265_la_free(struct n265_encoder *e);
 void n265_la_warm(void);
 
 /* N265_BRUN_TRACE: price the bits trellis and print it, whatever rule is
- * actually deciding the run (docs/instruments.md) */
+ * actually deciding the run */
 int n265_brun_trace(void);
 
 /* The duplicate-frame path's four knobs (phase 11 item 1).
@@ -285,8 +284,8 @@ int n265_la_brun(struct n265_encoder *e, int maxa);
 
 /* the same trellis priced in BITS rather than residual: each frame's
  * blocks costed max(0, log2(sad / dead zone at that frame's planned QP)),
- * which is the term that lets a long run win (docs/phase7-gop-design.md
- * D1). Needs a valid anchor plane. */
+ * which is the term that lets a long run win. Needs a valid anchor
+ * plane. */
 int n265_la_brun_bits(struct n265_encoder *e, int maxa);
 
 /* the B-run length the anchor-prediction degradation rule allows */

@@ -1734,13 +1734,12 @@ static void mc_cvblock_s16(int16_t *d, int ds, const pixel *p, int rs,
  * 64x64 at 4:4:4, where a chroma block IS the luma block.
  *
  * There are two of them rather than one because a frame costs what it
- * RESERVES and not what it touches (docs/phase8-plan.md, "Phase 8
- * speed"): a single (64 + 3) x 64 temp would put 8 KB on the stack of
- * every 4:2:0 call, which is the format twelve of the fifteen corpus
- * clips are in. The common arm therefore keeps 4:2:0's temp and the wide
- * one is its own out-of-line function with its own frame, reached only
- * by a block no halved plane can produce. Both arms run the same body
- * and are bit-exact with each other and with the C by construction.
+ * RESERVES and not what it touches: a single (64 + 3) x 64 temp would put 8 KB
+ * on the stack of every 4:2:0 call, which is the format twelve of the fifteen
+ * corpus clips are in. The common arm therefore keeps 4:2:0's temp and the
+ * wide one is its own out-of-line function with its own frame, reached only by
+ * a block no halved plane can produce. Both arms run the same body and are
+ * bit-exact with each other and with the C by construction.
  */
 #define MC_CTMP_SMALL ((32 + 3) * 32)
 #define MC_CTMP_WIDE  ((64 + 3) * 64)
