@@ -80,7 +80,7 @@ LOGOS = ["yah265-logo-light.png", "yah265-logo-dark.png"]
 
 # Run with --check under --strict, where they exist.
 CHART_SCRIPTS = ["blog_charts.py", "site_front.py", "charts_internals.py",
-                 "charts_results.py", "site_trust.py"]
+                 "charts_results.py", "site_trust.py", "share_cards.py"]
 
 # Working notes that aren't published with the repository. A link to one
 # counts as a link to a missing file, on the site and in the README.
@@ -89,7 +89,9 @@ PRIVATE = re.compile(
     r"instruments)\.md|docs/phase[^/]*\.md|docs/research/|docs/[^/]*handoff[^/]*|"
     r"(.*/)?HANDOFF[^/]*|(.*/)?CLAUDE\.md)", re.I)
 
-# The link card of a page that names no image of its own.
+# A page's link card is its own image under SHARE, drawn by
+# scripts/share_cards.py. The launch post's card stands in for a missing one.
+SHARE = "assets/share"
 DEFAULT_CARD = "assets/blog/card.png"
 
 REPO_HREF = re.compile(
@@ -364,7 +366,10 @@ def build(strict=False):
         if src.name not in UNLISTED:
             index.extend(search_records(target, labels.get(target, short), content))
 
-        image = meta.get("image", "") or DEFAULT_CARD
+        own = f"{SHARE}/{src.stem}.png"
+        image = meta.get("image", "") or (own if (tmp / own).exists() else DEFAULT_CARD)
+        if strict and image == DEFAULT_CARD and not meta.get("image"):
+            problems.append(f"{src.name}: no share card (run scripts/share_cards.py)")
         social = ""
         if image:
             if not (tmp / image).exists():

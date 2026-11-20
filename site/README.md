@@ -88,7 +88,7 @@ faster. A chart script reads the parity rows through
 `blog_charts.EXCLUDED`. The headline figures come from
 `blog_charts.headline_cells()` and nowhere else.
 
-A page with no `image` of its own gets the launch post's social card. A
+A page with no `image` of its own gets the card `scripts/share_cards.py` draws for it under `assets/share/`. The same script draws the four launch images there. A
 long per-cell table goes inside `<details class="data" markdown="1">`.
 
 A diagram is inline SVG inside `<figure class="diagram">`. Each figure holds

@@ -1249,7 +1249,7 @@ def claims(pl, fl, ff):
         sys.exit("site/blog.md says otherwise: " + "; ".join(bad))
 
 
-CARD_LAYOUT = 2  # bump when draw_card's wording or layout changes
+CARD_LAYOUT = 3  # bump when draw_card's wording or layout changes
 
 
 def card_key(pl, fl):
@@ -1301,7 +1301,7 @@ def draw_card(path, pl, fl):
     else:
         d.text((M, 60), "yah265", font=font(52, True), fill=ink)
     # the main line carries the machine and the metric with the two figures
-    main = [f"{times(pl['median'])} faster than x265 on a Mac,",
+    main = [f"{times(pl['median'])} faster than x265 on the Mac,",
             f"{pl['dv']:+.2f} VMAF v1 at the same file size"]
     size = 92
     while max(d.textlength(t, font=font(size, True)) for t in main) > W - 2 * M:
