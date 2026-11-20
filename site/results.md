@@ -5,7 +5,7 @@ description: The parity tables against x265 medium, from CIF to 4K and from shor
 
 # Results
 
-On the Mac, yah265 has reached full parity with x265. Every goal passes in every class and every timed tier, from CIF to 4K and from ten-second clips to ten-minute films. Both encoders run at `--preset medium`. The reference is the Homebrew build of x265 4.3+1-e9b8812. It includes x265's own arm64 assembly. Everything was timed on one Apple M5 Max with 18 cores. Parity on x86-64 (SSE4.2, AVX2 and AVX-512) and on arm64 SVE is in progress.
+On the Mac, yah265 has reached full parity with x265. Every goal passes in every class and every timed tier, from CIF to 4K and from ten-second clips to ten-minute films. Both encoders run at `--preset medium`. The reference is the Homebrew build of x265 4.3+1-e9b8812. It includes x265's own arm64 assembly. Everything was timed on one Apple M5 Max with 18 cores. The same goals also pass on an x86-64 Xeon with AVX-512 and on a Graviton4 with SVE2. Their tables are in the [all-architecture report](docs/parity/PARITY-REPORT-yah265-all-isa-2026-11-14.md).
 
 [The methodology](methodology.md) covers the test set, the rules that make a number valid and how quality is scored. The full report this page is built from is [in the repository](docs/parity/PARITY-REPORT-yah265-2026-11-12.md).
 

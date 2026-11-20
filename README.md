@@ -29,8 +29,10 @@ group is one resolution class in one tier of the test set. The quality row
 is a median over 52 rate ladders on real films at CRF and at VBR. All 52
 are inside the parity bar, and yah265 comes out ahead on 51.
 
-These are Mac results, on arm64 NEON. Parity on x86-64 (SSE4.2, AVX2 and
-AVX-512) and on arm64 SVE is in progress.
+These are Mac results, on arm64 NEON. The same goals also pass on an
+x86-64 Xeon with AVX-512 and on a Graviton4 with SVE2. The
+[all-architecture report](docs/parity/PARITY-REPORT-yah265-all-isa-2026-11-14.md)
+has those tables.
 
 The [results page](site/results.md) has every table, down to the slowest
 clip in each group, VBR rate tracking and the lookahead sweep. It's built
@@ -81,7 +83,7 @@ preset only sets defaults, any option you give wins over it.
   tunes its coding for PQ and HLG pictures. The [HDR notes](docs/hdr.md)
   cover both.
 - x265's option names wherever the two encoders share a feature.
-- SIMD kernels on arm64 (NEON) and x86-64 (SSE4.2 and AVX2), picked at run time. Each one is bit-exact with its C reference.
+- SIMD kernels on arm64 (NEON and SVE) and x86-64 (SSE4.2, AVX2 and AVX-512), picked at run time. Each one is bit-exact with its C reference.
 - The same bytes from run to run at `--threads 1`.
 
 ## License

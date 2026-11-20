@@ -16,7 +16,7 @@ yah265 is the sibling of [yah264](https://terranvigil.github.io/yah264/), which 
 <div><span>median bits saved</span><b>10.9%</b></div>
 </div>
 
-The speed figures say how many times faster yah265 runs than x265 when both write files of the same size. Each range runs from the slowest group's median to the fastest's. The last figure is the share of bitrate yah265 saves at equal VMAF v1 quality. It's a median over 52 rate ladders on real films at CRF and at VBR. All 52 are inside the parity bar, and yah265 comes out ahead on 51. These are Mac results, on arm64 NEON. Parity on x86-64 and on arm64 SVE is in progress.
+The speed figures say how many times faster yah265 runs than x265 when both write files of the same size. Each range runs from the slowest group's median to the fastest's. The last figure is the share of bitrate yah265 saves at equal VMAF v1 quality. It's a median over 52 rate ladders on real films at CRF and at VBR. All 52 are inside the parity bar, and yah265 comes out ahead on 51. These are Mac results, on arm64 NEON. The same goals also pass on an x86-64 Xeon with AVX-512 and on a Graviton4 with SVE2, as the [launch post](blog.md) shows.
 
 ## What it does
 
@@ -25,7 +25,7 @@ The speed figures say how many times faster yah265 runs than x265 when both writ
 - HDR10, HDR10+, HLG and Dolby Vision profile 8 signaling. The [HDR page](hdr.md) covers it.
 - Four presets in x265's names: `fast`, `medium`, `slow` and `slower`.
 - x265's option names wherever the two encoders share a feature.
-- SIMD kernels on arm64 (NEON) and x86-64 (SSE4.2 and AVX2), picked at run time. Each one is bit-exact with its C reference.
+- SIMD kernels on arm64 (NEON and SVE) and x86-64 (SSE4.2, AVX2 and AVX-512), picked at run time. Each one is bit-exact with its C reference.
 
 ## Where to go next
 
