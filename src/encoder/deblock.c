@@ -374,11 +374,10 @@ static int seg_qp(const struct n265_frame_work *e, int x, int y, int vertical)
 /* Horizontal edges are filtered this many luma columns per kernel call. */
 #define DBK_RUN 64
 
-/* One CTB row's share of 8.7.2, in the order the row wavefront runs it
- * (docs/threading-design.md sec 1): every vertical edge inside the band,
- * then the horizontal edge on the band's TOP boundary (between rows
- * r-1 and r) and the band's internal horizontal edges. The boundary at
- * the band's bottom belongs to row r+1.
+/* One CTB row's share of 8.7.2, in the order the row wavefront runs it:
+ * every vertical edge inside the band, then the horizontal edge on the band's
+ * TOP boundary (between rows r-1 and r) and the band's internal horizontal
+ * edges. The boundary at the band's bottom belongs to row r+1.
  *
  * This is the same result as the old whole-picture "all vertical, then
  * all horizontal" pass. A horizontal edge at luma y reads lines y-4 to

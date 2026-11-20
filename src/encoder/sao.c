@@ -7,7 +7,6 @@
  * OFF BY DEFAULT since R7 (N265_SAO_TYPES=0): measured, this filter wins
  * PSNR and loses VMAF-NEG at the same rate, and the whole of the loss is
  * the edge offset, whose sign 8.7.3.2 fixes so that it can only smooth.
- * Diagnosis, tables and the re-price triggers: docs/phase4-ladder.md R7.
  * Everything below still runs, correctly, whenever the knob says so.
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
@@ -72,8 +71,8 @@ static const int eo_dy[4] = { 0, -1, -1, -1 };
  * Inside the CTB row being processed and below it that is the recon
  * plane itself (rows below are deblocked and not yet SAO'd). The one
  * line SAO has already rewritten is the last line of the row above, so
- * `above` carries the copy taken before that row was applied
- * (docs/threading-design.md sec 1). `ytop` is the band's first line. */
+ * `above` carries the copy taken before that row was applied. `ytop` is the
+ * band's first line. */
 static inline int sao_pix(const pixel *p, int stride, const pixel *above,
                           int ytop, int x, int y)
 {
@@ -438,8 +437,7 @@ static int sao_types(void)
         const char *s = n265_env("N265_SAO_TYPES");
         v = s ? atoi(s) : 0;    /* R7: the filter is OFF by default. It
                                  * wins PSNR and loses VMAF-NEG on every
-                                 * band read; see docs/phase4-ladder.md
-                                 * R7. 3 is the pre-R7 encoder. */
+                                 * band read. 3 is the older encoder. */
     }
     return v;
 }
@@ -503,8 +501,7 @@ void n265_sao_masks(int *base, int *flat)
 
 /* N265_SAO_QPLAM: 1 prices each CTB's candidates at that CTB's own
  * QP-derived lambda rather than the frame's; 0 is HEAD.
- * N265_SAO_BIAS: percent scale on the SAO pricing lambda, 100 = HEAD.
- * Both are documented in docs/instruments.md. */
+ * N265_SAO_BIAS: percent scale on the SAO pricing lambda, 100 = HEAD. */
 static int sao_qplam(void)
 {
     static int v = -1;
@@ -717,8 +714,7 @@ static int sao_chroma_joint(void)
  * -9.33), so our per-CTB SAO decision is turning the filter on where it
  * loses, and 3 to 6 measure that gradient rather than a gate. They are
  * held, not shipped: a threshold tuned against a defect would have to be
- * re-derived the moment the defect is fixed. Full sweep and root cause
- * in docs/phase4-ladder.md R6. */
+ * re-derived the moment the defect is fixed. */
 static int sao_gate(void)
 {
     static int v = -1;
@@ -728,8 +724,7 @@ static int sao_gate(void)
                                  * where SAO runs, and at the shipped
                                  * N265_SAO_TYPES=0 that is the
                                  * flat-typed frames alone - where it
-                                 * LOSES. See the comment below and
-                                 * docs/programme-from-yah264.md. 2 is
+                                 * LOSES. See the comment below. 2 is
                                  * R6's value and the one to restore
                                  * alongside N265_SAO_TYPES=3. */
     }

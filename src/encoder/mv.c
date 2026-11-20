@@ -662,7 +662,7 @@ void n265_clamp_mv(struct n265_frame_work *e, int x0, int y0, int w, int h,
  * resolve (-3.13 -> -3.22 CQP, -9.21 -> -9.22 CRF), for 1.94 CQP and
  * 2.24 CRF of CIF-7 band median and 1.111x of the wall on top of
  * point A. All fifteen corpus clips stay ahead of x265 under CRF, worst
- * `sita_toon_720p` -6.31% (docs/phase6b-economy.md, point B).
+ * `sita_toon_720p` -6.31%.
  *
  * The joint cost still exceeds the solo row by about two thirds of a
  * point in each mode - the solo table understates this arm and any
@@ -707,7 +707,7 @@ int n265_subpel_rate(void)
 
 /* N265_SUBPEL_GATE (phase 10 item 1b): the re-rank of arm 1 costs five
  * luma SATDs per AMVP PU per list, +26-29% of the whole subpel Hadamard
- * budget (docs/phase10.md sec 1.3), and 33-40% of it changes nothing.
+ * budget, and 33-40% of it changes nothing.
  * Two cuts bring the bill down and this is the second of them; the
  * first, `struct n265_me_keep`, is not a knob because it is bit-exact.
  *

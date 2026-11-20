@@ -12,9 +12,9 @@
  *     corpus was signaling a level its OWN FRAME RATE violates. The
  *     picture fits; the rate does not.
  *   - MaxBR (Table A.7). A phase-0 I_PCM stream carries about 30 Mbit/s at
- *     CIF, and level 2.1 main tier admits 3.3. That is the "PCM exceeds
- *     every tier's MaxBR by construction" line in docs/ideas.md, and it
- *     was true only because nothing consulted the table: level 5.1 admits
+ *     CIF, and level 2.1 main tier admits 3.3. It looked like PCM exceeds
+ *     every tier's MaxBR only because nothing consulted the table: level
+ *     5.1 admits
  *     it, and 5.1 is what the stream says now.
  *
  * The tables below are Table A.6 (general tier and level limits) and

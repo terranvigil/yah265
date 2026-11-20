@@ -220,8 +220,9 @@ YAH265_API void n265_set_ref(int n);
  * spans (measured from the lookahead) instead of always coding the maximum. */
 YAH265_API void n265_set_badapt(int on);
 
-/* Worker threads. 0 = one per online CPU. Output is byte-identical at
- * every value (docs/threading-design.md). */
+/* Worker threads. 0 = one per online CPU. One thread gives the same
+ * stream on every run; above one, the stream may differ between runs
+ * and thread counts. */
 YAH265_API void n265_set_threads(int n);
 
 /* ---- pass-through signaling (phase 14 item 1) ----
@@ -257,7 +258,7 @@ YAH265_API void n265_set_weight(int weightp, int weightb);
  * strict form - only a byte-identical source arms the path - and is the
  * default and every stream written before this flag existed. Negative is
  * "not given", which leaves N265_DUP_THR and then that default in
- * charge. docs/instruments.md says what the distance is measured on. */
+ * charge. */
 YAH265_API void n265_set_dup_thr(double thr);
 
 YAH265_API void n265_set_hash(int type);

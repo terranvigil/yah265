@@ -151,7 +151,7 @@ struct ntp_pool {
      * `done` whenever ANY worker anywhere was in a milestone wait - on
      * touchdown_1080p at eighteen threads that was 233 603 of 257 040
      * publishes, each waking every waiting worker to re-check a
-     * predicate that was almost never its own (docs/phase13.md "C4").
+     * predicate that was almost never its own.
      *
      * A per-CTB publish inside row r of one frame can satisfy exactly
      * one milestone: the two-CTB lag of row r+1 of THAT frame. The

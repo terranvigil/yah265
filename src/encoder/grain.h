@@ -21,9 +21,8 @@
 /* Model values per interval. THREE: scale, horizontal cut-off, vertical
  * cut-off. The spec allows six; values 3..5 are the LOW cut-off pair and
  * an aspect term, they default to 0 when absent, and the only synthesizer
- * in this project's measurement chain reads none of them (docs/phase12.md,
- * step 0). Writing three instead of six is 24 fewer bits per interval for
- * bit-identical synthesis. */
+ * in this project's measurement chain reads none of them. Writing three
+ * instead of six is 24 fewer bits per interval for bit-identical synthesis. */
 #define N265_FGC_NVALS      3
 /* The largest grain std, in 8-bit luma levels, the writer will signal.
  * Past this the model is not describing grain any more. */

@@ -10,7 +10,7 @@
  * preset's resolution rules, the tune, the range checks) and calls the
  * process-global setters in the order the CLI always called them.
  *
- * Messages go to stderr with the "n265: " prefix the CLI printed.
+ * Messages go to stderr with the "y265: " prefix the CLI printed.
  */
 
 #include <stdio.h>
@@ -48,7 +48,7 @@ void n265_set_vbv(double maxrate, double bufsize, double init);
 
 #define QP_BD_OFF (6 * (N265_BIT_DEPTH - 8))
 
-/* the identification SEI's options clause (phase 14 item 9) */
+/* the identification SEI's options clause */
 typedef struct {
     char s[640];
     size_t n;
@@ -295,7 +295,7 @@ static int vui_arg(const char *flag, int field, const char *v, int *out)
     *out = n265_vui_parse(field, v);
     if (*out >= 0)
         return 0;
-    fprintf(stderr, "n265: --%s %s is not a value of that field. The "
+    fprintf(stderr, "y265: --%s %s is not a value of that field. The "
             "names are:", flag, v);
     const char * const *n = n265_vui_names(field);
     for (int k = 0; n && n[k]; k++)
@@ -351,7 +351,7 @@ static int parse_one(n265_config *c, const char *k, const char *v)
     } else if (IS("pic-struct")) {
         c->pic_struct = atoi(v);
         if (c->pic_struct < 0 || c->pic_struct > 12) {
-            fprintf(stderr, "n265: --pic-struct is Table D.2's value "
+            fprintf(stderr, "y265: --pic-struct is Table D.2's value "
                     "0..12 (0 frame, 7 frame doubling, 8 frame "
                     "tripling)\n");
             return N265_CONFIG_BAD_VALUE;
@@ -365,15 +365,10 @@ static int parse_one(n265_config *c, const char *k, const char *v)
     } else if (IS("scaling-list")) {
         /* refused: the flag needs the default matrices in the quantizer,
          * the inverse, RDOQ and their kernels, or no decoder matches */
-        fprintf(stderr, "n265: --scaling-list is not implemented, and "
-                "not because the SPS flag is hard: with "
-                "scaling_list_enabled_flag set a decoder dequantises "
-                "with the spec's default matrices, so the encoder's "
-                "own quantiser has to apply them or the "
-                "reconstruction stops matching every decoder. That "
-                "reaches the forward quantiser, the inverse, RDOQ and "
-                "the NEON kernels of both - a quantiser item with a "
-                "checkasm leg. See docs/x265-feature-audit.md.\n");
+        fprintf(stderr, "y265: --scaling-list is not supported: the "
+                "quantizer does not apply scaling matrices, so a stream "
+                "that signalled them would not decode to the encoder's "
+                "pictures.\n");
         return N265_CONFIG_BAD_VALUE;
     } else if (IS("crf-min")) {
         c->crf_lo = atof(v);
@@ -524,29 +519,25 @@ static int parse_one(n265_config *c, const char *k, const char *v)
         int rc = n265_vsp_parse(v, c->vsp, c->vsp_md, &c->vsp_md_on, &why);
         if (rc != N265_VSP_OK) {
             if (rc == N265_VSP_BAD_SYSTEM) {
-                fprintf(stderr, "n265: --video-signal-type-preset %s "
+                fprintf(stderr, "y265: --video-signal-type-preset %s "
                         "is not a system-id. The names are:", v);
                 for (int i = 0; n265_vsp_name(i); i++)
                     fprintf(stderr, " %s", n265_vsp_name(i));
-                fprintf(stderr, " - each of them x265's spelling and "
-                        "x265's values, and each expands to the nine "
-                        "colour flags, which override it.\n");
+                fprintf(stderr, "\n");
             } else if (rc == N265_VSP_VOLUME_SYSTEM) {
-                fprintf(stderr, "n265: --video-signal-type-preset %s "
-                        "takes no colour volume: a mastering display "
-                        "volume is carried only by the three "
-                        "BT2100_PQ_* systems, as in x265. Name "
-                        "--master-display if the content was graded "
-                        "on one anyway.\n", v);
+                fprintf(stderr, "y265: --video-signal-type-preset %s "
+                        "takes no colour volume: only the BT2100_PQ_* "
+                        "systems carry one. Use --master-display "
+                        "instead.\n", v);
             } else if (rc == N265_VSP_BAD_VOLUME) {
-                fprintf(stderr, "n265: --video-signal-type-preset: no "
+                fprintf(stderr, "y265: --video-signal-type-preset: no "
                         "such colour volume. The names are:");
                 for (int i = 0; n265_vsp_volume_name(i); i++)
                     fprintf(stderr, " %s", n265_vsp_volume_name(i));
                 fprintf(stderr, "\n");
             } else {
-                fprintf(stderr, "n265: --video-signal-type-preset: "
-                        "that colour volume is refused by name - %s\n",
+                fprintf(stderr, "y265: --video-signal-type-preset: "
+                        "that colour volume is not supported: %s\n",
                         why ? why : "no reason recorded");
             }
             return N265_CONFIG_BAD_VALUE;
@@ -556,52 +547,31 @@ static int parse_one(n265_config *c, const char *k, const char *v)
         const char *why = NULL;
         int rc = n265_tune_parse(v, c->tune, &why);
         if (rc == N265_TUNE_REFUSED) {
-            fprintf(stderr, "n265: --tune %s is refused BY NAME, and "
-                    "here is why: %s\n", v, why);
+            fprintf(stderr, "y265: --tune %s is not supported: %s\n",
+                    v, why);
             return N265_CONFIG_BAD_VALUE;
         }
         if (rc != N265_TUNE_OK) {
-            fprintf(stderr, "n265: --tune %s is not one of x265's "
-                    "five names. They are:", v);
+            fprintf(stderr, "y265: --tune %s is not a tune. The names "
+                    "are:", v);
             for (int i = 0; n265_tune_name(i); i++)
                 fprintf(stderr, " %s", n265_tune_name(i));
-            fprintf(stderr, " - and only zerolatency is accepted here; "
-                    "ask for one of the other four by name and it "
-                    "prints its own reason.\n");
+            fprintf(stderr, ". Only zerolatency is supported.\n");
             return N265_CONFIG_BAD_VALUE;
         }
         c->had_tune = 1;
     } else if (IS("intra-refresh")) {
         /* refused: a half-enforced refresh claims a recovery point a
-         * joining decoder cannot honor (docs/phase14.md item 15) */
-        fprintf(stderr, "n265: --intra-refresh is not implemented, "
-                "and not because the intra column is hard. The "
-                "refresh is only worth its recovery point if NOTHING "
-                "in the refreshed region reads an unrefreshed "
-                "sample, and three of this encoder's parts have to "
-                "change for that: (1) the motion search's clamp "
-                "bounds MC to the padded reference, but a merge or "
-                "AMVP candidate is INHERITED and is deliberately not "
-                "clamped (src/encoder/mc.c), so the bound has to "
-                "move into mode decision, where it meets the merge "
-                "index the stream fingerprint writes; (2) "
-                "constrained intra prediction, which the refresh "
-                "needs and which we do not have, makes reference "
-                "availability depend on each neighbour's prediction "
-                "mode - it is a PREFIX today, and the closed-form "
-                "substitution and binary search in "
-                "src/encoder/intra.c exist only because it is; "
-                "(3) the plan builder has one kind of key picture, "
-                "and a refresh period is a second. It is an item "
-                "with its own gate - decode from the recovery point, "
-                "not from the start - and not a flag. See "
-                "docs/phase14.md item 15 and "
-                "docs/x265-feature-audit.md.\n");
+         * joining decoder cannot honor */
+        fprintf(stderr, "y265: --intra-refresh is not supported: "
+                "inherited motion candidates and intra prediction can "
+                "still read the unrefreshed region, so the recovery "
+                "point would not hold.\n");
         return N265_CONFIG_BAD_VALUE;
     } else if (IS("dup-threshold")) {
         c->dup_thr = atof(v);
         if (c->dup_thr < 0.0 || c->dup_thr > 255.0) {
-            fprintf(stderr, "n265: --dup-threshold is 0..255, in "
+            fprintf(stderr, "y265: --dup-threshold is 0..255, in "
                     "8-bit luma levels per lowres pixel; 0 (the "
                     "default) is the strict form, where only an "
                     "identical source arms the path\n");
@@ -610,27 +580,27 @@ static int parse_one(n265_config *c, const char *k, const char *v)
     } else if (IS("chromaloc")) {
         c->sig_chromaloc = atoi(v);
         if (c->sig_chromaloc < 0 || c->sig_chromaloc > 5) {
-            fprintf(stderr, "n265: --chromaloc is 0..5 (E.2.1's "
+            fprintf(stderr, "y265: --chromaloc is 0..5 (E.2.1's "
                     "chroma_sample_loc_type)\n");
             return N265_CONFIG_BAD_VALUE;
         }
     } else if (IS("sar")) {
         if (n265_sar_parse(v, &c->sar_idc, &c->sar_w, &c->sar_h) < 0) {
-            fprintf(stderr, "n265: --sar takes a ratio (\"16:9\") or a "
+            fprintf(stderr, "y265: --sar takes a ratio (\"16:9\") or a "
                     "Table E.1 index 0..16\n");
             return N265_CONFIG_BAD_VALUE;
         }
     } else if (IS("display-window")) {
         if (n265_window_parse(v, &c->win_l, &c->win_t, &c->win_r,
                               &c->win_b) < 0) {
-            fprintf(stderr, "n265: --display-window is "
+            fprintf(stderr, "y265: --display-window is "
                     "\"left,top,right,bottom\" in pixels\n");
             return N265_CONFIG_BAD_VALUE;
         }
         c->win_on = 1;
     } else if (IS("master-display")) {
         if (n265_master_display_parse(v, c->md) < 0) {
-            fprintf(stderr, "n265: --master-display is "
+            fprintf(stderr, "y265: --master-display is "
                     "G(x,y)B(x,y)R(x,y)WP(x,y)L(max,min); the eight "
                     "chromaticities are 0..65535 in units of "
                     "0.00002\n");
@@ -639,7 +609,7 @@ static int parse_one(n265_config *c, const char *k, const char *v)
         c->have_md = 1;
     } else if (IS("max-cll")) {
         if (n265_cll_parse(v, &c->maxcll, &c->maxfall) < 0) {
-            fprintf(stderr, "n265: --max-cll is \"cll,fall\", both "
+            fprintf(stderr, "y265: --max-cll is \"cll,fall\", both "
                     "0..65535 cd/m2\n");
             return N265_CONFIG_BAD_VALUE;
         }
@@ -658,7 +628,7 @@ static int parse_one(n265_config *c, const char *k, const char *v)
     } else if (IS("atc-sei")) {
         c->atc = n265_vui_parse(N265_VUI_TRANSFER, v);
         if (c->atc < 0) {
-            fprintf(stderr, "n265: --atc-sei takes a transfer "
+            fprintf(stderr, "y265: --atc-sei takes a transfer "
                     "characteristic, by name or by number\n");
             return N265_CONFIG_BAD_VALUE;
         }
@@ -671,7 +641,7 @@ static int parse_one(n265_config *c, const char *k, const char *v)
                       : !strcmp(v, "8.2") || !strcmp(v, "82") ? 82
                       : !strcmp(v, "8.4") || !strcmp(v, "84") ? 84 : -1;
         if (c->dv_profile < 0) {
-            fprintf(stderr, "n265: --dolby-vision-profile is 8.1 (HDR10 "
+            fprintf(stderr, "y265: --dolby-vision-profile is 8.1 (HDR10 "
                     "base layer), 8.2 (SDR BT.709) or 8.4 (HLG)\n");
             return N265_CONFIG_BAD_VALUE;
         }
@@ -706,12 +676,12 @@ int n265_config_parse_list(n265_config *c, const char *list)
             *eq = '\0';
         rc = n265_config_parse(c, tok, eq ? eq + 1 : NULL);
         if (rc == N265_CONFIG_UNKNOWN)
-            fprintf(stderr, "n265: unknown option %s\n", tok);
+            fprintf(stderr, "y265: unknown option %s\n", tok);
         else if (rc == N265_CONFIG_NO_VALUE)
-            fprintf(stderr, "n265: %s needs a value (%s=...)\n", tok, tok);
+            fprintf(stderr, "y265: %s needs a value (%s=...)\n", tok, tok);
         else if (rc == N265_CONFIG_BAD_VALUE && eq &&
                  n265_config_takes_value(tok) == 0)
-            fprintf(stderr, "n265: %s is a switch: give it no value, or "
+            fprintf(stderr, "y265: %s is a switch: give it no value, or "
                     "0 or 1\n", tok);
         if (rc)
             break;
@@ -733,12 +703,12 @@ int n265_config_apply(n265_config *c, n265_param *p)
 
     /* QpY runs -QpBdOffsetY..51 (7.4.3.3); the rate factor shares it */
     if (c->qp < -qp_bd_off || c->qp > 51) {
-        fprintf(stderr, "n265: qp out of range %d..51 at %d bits\n",
+        fprintf(stderr, "y265: qp out of range %d..51 at %d bits\n",
                 -qp_bd_off, depth);
         FAIL;
     }
     if (c->had_crf && c->crf < -qp_bd_off) {
-        fprintf(stderr, "n265: --crf %g is below the %d-bit floor of %d "
+        fprintf(stderr, "y265: --crf %g is below the %d-bit floor of %d "
                 "(QpBdOffsetY, 7.4.3.3)\n", c->crf, depth, -qp_bd_off);
         FAIL;
     }
@@ -746,17 +716,14 @@ int n265_config_apply(n265_config *c, n265_param *p)
     if (c->preset) {
         int pr = n265_set_preset(c->preset);
         if (pr == -2) {
-            fprintf(stderr, "n265: --preset %s is one of x265's names but "
-                            "is not a placed rung of this encoder; the "
-                            "nearest placed rung is %s\n",
+            fprintf(stderr, "y265: --preset %s is not supported; the "
+                            "nearest preset is %s\n",
                     c->preset, n265_preset_nearest(c->preset));
             FAIL;
         }
         if (pr < 0) {
-            fprintf(stderr, "n265: --preset must be one of x265's names: "
-                            "ultrafast, superfast, veryfast, faster, fast, "
-                            "medium, slow, slower, veryslow, placebo (the "
-                            "placed rungs are printed by --help)\n");
+            fprintf(stderr, "y265: --preset must be fast, medium, slow "
+                            "or slower\n");
             FAIL;
         }
     }
@@ -803,7 +770,7 @@ int n265_config_apply(n265_config *c, n265_param *p)
     if (!had_la)      lookahead = n265_preset_param_res("rc-lookahead",
                                                         lookahead, w, h);
     /* a tree the resolution rule moved may be switched back at open; a
-     * named one may not (item 17) */
+     * named one may not */
     int ctu_blind = n265_preset_param("ctu", ctu), uhd_tree = 0;
     if (!c->had_ctu) {
         ctu = n265_preset_param_res("ctu", ctu, w, h);
@@ -814,39 +781,39 @@ int n265_config_apply(n265_config *c, n265_param *p)
     if (!c->had_tua) tu_intra = n265_preset_param_res("tu-intra-depth",
                                                       tu_intra, w, h);
     if (ctu != 16 && ctu != 32 && ctu != 64) {
-        fprintf(stderr, "n265: --ctu must be 16, 32 or 64\n");
+        fprintf(stderr, "y265: --ctu must be 16, 32 or 64\n");
         FAIL;
     }
     /* N265_MAX_BFRAMES and LA_DEPTH_MAX, checked after the preset since
      * a preset can set either */
     if (bframes < 0 || bframes > 15) {
-        fprintf(stderr, "n265: --bframes out of range 0..15\n");
+        fprintf(stderr, "y265: --bframes out of range 0..15\n");
         FAIL;
     }
     if (lookahead < 1 || lookahead > 60) {
-        fprintf(stderr, "n265: --rc-lookahead out of range 1..60\n");
+        fprintf(stderr, "y265: --rc-lookahead out of range 1..60\n");
         FAIL;
     }
     if (c->pass < 0 || c->pass > 3) {
-        fprintf(stderr, "n265: --pass is 1 (write the stats), 2 (plan from "
+        fprintf(stderr, "y265: --pass is 1 (write the stats), 2 (plan from "
                 "them) or 3 (both)\n");
         FAIL;
     }
     if (c->pass && !c->stats_path) {
-        fprintf(stderr, "n265: --pass %d needs --stats <file>\n", c->pass);
+        fprintf(stderr, "y265: --pass %d needs --stats <file>\n", c->pass);
         FAIL;
     }
     if (c->stats_path && !c->pass) {
-        fprintf(stderr, "n265: --stats needs --pass 1, 2 or 3\n");
+        fprintf(stderr, "y265: --stats needs --pass 1, 2 or 3\n");
         FAIL;
     }
     if (c->shot_window < 0 || c->shot_window > 300) {
-        fprintf(stderr, "n265: --shot-window out of range 0..300\n");
+        fprintf(stderr, "y265: --shot-window out of range 0..300\n");
         FAIL;
     }
     /* a shallower window would silently shorten every mini-GOP */
     if (lookahead < bframes + 1) {
-        fprintf(stderr, "n265: --rc-lookahead %d is too shallow for "
+        fprintf(stderr, "y265: --rc-lookahead %d is too shallow for "
                 "--bframes %d: the window must hold the whole mini-GOP, so "
                 "--rc-lookahead must be at least %d%s\n",
                 lookahead, bframes, bframes + 1,
@@ -869,20 +836,20 @@ int n265_config_apply(n265_config *c, n265_param *p)
     n265_set_pass(c->pass, c->stats_path);
     n265_set_threads(c->threads);
     if (c->pcm && c->lossless) {
-        fprintf(stderr, "n265: --pcm and --lossless are two different "
+        fprintf(stderr, "y265: --pcm and --lossless are two different "
                 "lossless modes; pick one\n");
         FAIL;
     }
     n265_set_lossless(c->lossless);
     if (c->had_rdoq && (c->rdoq_level < 0 || c->rdoq_level > 2)) {
-        fprintf(stderr, "n265: --rdoq-level must be 0 (off), 1 (final "
+        fprintf(stderr, "y265: --rdoq-level must be 0 (off), 1 (final "
                 "encode only) or 2 (all RD decisions)\n");
         FAIL;
     }
     n265_set_rdoq_level(c->rdoq_level);
     if ((tu_inter > 0 && (tu_inter < 1 || tu_inter > 4)) ||
         (tu_intra > 0 && (tu_intra < 1 || tu_intra > 4))) {
-        fprintf(stderr, "n265: --tu-inter-depth / --tu-intra-depth must be "
+        fprintf(stderr, "y265: --tu-inter-depth / --tu-intra-depth must be "
                 "1..4 (levels of transform tree; 2 is the default)\n");
         FAIL;
     }
@@ -892,7 +859,7 @@ int n265_config_apply(n265_config *c, n265_param *p)
         int tu_cap = ctb_log2 - 1;
         if ((c->had_tui && tu_inter > tu_cap) ||
             (c->had_tua && tu_intra > tu_cap)) {
-            fprintf(stderr, "n265: --tu-inter-depth / --tu-intra-depth above "
+            fprintf(stderr, "y265: --tu-inter-depth / --tu-intra-depth above "
                     "%d needs a coding tree larger than --ctu %d\n",
                     tu_cap, ctu);
             FAIL;
@@ -901,7 +868,7 @@ int n265_config_apply(n265_config *c, n265_param *p)
     n265_set_tu_depth(tu_inter, tu_intra);
     if (c->cbqpoffs < -12 || c->cbqpoffs > 12 || c->crqpoffs < -12 ||
         c->crqpoffs > 12) {
-        fprintf(stderr, "n265: --cbqpoffs and --crqpoffs take -12..12 "
+        fprintf(stderr, "y265: --cbqpoffs and --crqpoffs take -12..12 "
                 "(7.4.3.3.1); negative spends more on chroma\n");
         FAIL;
     }
@@ -913,7 +880,7 @@ int n265_config_apply(n265_config *c, n265_param *p)
         if (c->level_str) {
             idc = n265_level_parse(c->level_str);
             if (!idc) {
-                fprintf(stderr, "n265: --level %s is not a level of Annex A "
+                fprintf(stderr, "y265: --level %s is not a level of Annex A "
                         "(1, 2, 2.1, 3, 3.1, 4, 4.1, 5, 5.1, 5.2, 6, 6.1, "
                         "6.2; \"41\" spells 4.1). The raw idc is not a "
                         "spelling: 30 and 60 are each an idc AND a level "
@@ -927,21 +894,21 @@ int n265_config_apply(n265_config *c, n265_param *p)
     n265_set_film_grain(c->film_grain, c->fgc_denoise);
     if ((c->had_nr_intra && (c->nr_intra < 0 || c->nr_intra > 2000)) ||
         (c->had_nr_inter && (c->nr_inter < 0 || c->nr_inter > 2000))) {
-        fprintf(stderr, "n265: --nr-intra/--nr-inter take 0..2000 "
-                "(x265's range); 0 is off\n");
+        fprintf(stderr, "y265: --nr-intra/--nr-inter take 0..2000; "
+                "0 is off\n");
         FAIL;
     }
     n265_set_nr(c->nr_intra, c->nr_inter);
     if (c->mcstf_range != -1 && (c->mcstf_range < 1 || c->mcstf_range > 4)) {
-        fprintf(stderr, "n265: --mcstf-ref-range takes 1..4 neighbours "
-                "per side (x265 spells its 0 as --no-mcstf; so do we)\n");
+        fprintf(stderr, "y265: --mcstf-ref-range takes 1..4 neighbours "
+                "per side; --no-mcstf turns the filter off\n");
         FAIL;
     }
     n265_set_mcstf(mcstf, c->mcstf_range, c->mcstf_selective);
     n265_set_vbv(c->vbv_maxrate, c->vbv_bufsize, c->vbv_init);
     n265_set_weight(c->weightp, c->weightb);
     if (c->hash < 0 || c->hash > 3) {
-        fprintf(stderr, "n265: --hash is 0 (off), 1 (MD5), 2 (CRC) or "
+        fprintf(stderr, "y265: --hash is 0 (off), 1 (MD5), 2 (CRC) or "
                 "3 (checksum)\n");
         FAIL;
     }
@@ -980,7 +947,7 @@ int n265_config_apply(n265_config *c, n265_param *p)
     int qpmax = c->had_qpmax ? c->qpmax : 51;
     if (qpmin < -qp_bd_off || qpmin > 51 || qpmax < -qp_bd_off ||
         qpmax > 51) {
-        fprintf(stderr, "n265: --qpmin and --qpmax are QpY values, %d..51 "
+        fprintf(stderr, "y265: --qpmin and --qpmax are QpY values, %d..51 "
                 "at %d bits (QpBdOffsetY, 7.4.3.3)\n", -qp_bd_off, depth);
         FAIL;
     }
@@ -992,12 +959,12 @@ int n265_config_apply(n265_config *c, n265_param *p)
     n265_set_zones(c->zones_spec);
     n265_set_hash(c->hash);
     if (c->radl < 0 || c->radl > bframes) {
-        fprintf(stderr, "n265: --radl is 0..%d here (a CRA has at most "
+        fprintf(stderr, "y265: --radl is 0..%d here (a CRA has at most "
                 "--bframes leading pictures)\n", bframes);
         FAIL;
     }
     if (c->radl && !c->open_gop) {
-        fprintf(stderr, "n265: --radl needs --open-gop (RADL pictures are "
+        fprintf(stderr, "y265: --radl needs --open-gop (RADL pictures are "
                 "the leading pictures of a CRA)\n");
         FAIL;
     }
@@ -1006,21 +973,20 @@ int n265_config_apply(n265_config *c, n265_param *p)
     if (c->win_on) {
         if ((c->win_l & ((1 << csx) - 1)) || (c->win_r & ((1 << csx) - 1)) ||
             (c->win_t & ((1 << csy) - 1)) || (c->win_b & ((1 << csy) - 1))) {
-            fprintf(stderr, "n265: --display-window offsets are signalled "
+            fprintf(stderr, "y265: --display-window offsets are signalled "
                     "in chroma samples, so at this chroma format the "
                     "horizontal ones must be multiples of %d and the "
                     "vertical ones of %d\n", 1 << csx, 1 << csy);
             FAIL;
         }
         if (c->win_l + c->win_r >= w || c->win_t + c->win_b >= h) {
-            fprintf(stderr, "n265: --display-window %d,%d,%d,%d leaves no "
+            fprintf(stderr, "y265: --display-window %d,%d,%d,%d leaves no "
                     "picture inside %dx%d\n", c->win_l, c->win_t, c->win_r,
                     c->win_b, w, h);
             FAIL;
         }
     }
-    /* the signal-type preset fills only the fields left alone; x265
-     * does the opposite, recorded in docs/phase14.md */
+    /* the signal-type preset fills only the fields left alone */
     int sig_colorprim = c->sig_colorprim, sig_transfer = c->sig_transfer;
     int sig_colormatrix = c->sig_colormatrix, sig_range = c->sig_range;
     int sig_chromaloc = c->sig_chromaloc, have_md = c->have_md;
@@ -1049,21 +1015,21 @@ int n265_config_apply(n265_config *c, n265_param *p)
     /* dynamic metadata rides on a stream that says it is PQ or HLG */
     if (c->h10p_path && (sig_transfer != 16 || sig_colorprim != 9 ||
                          sig_colormatrix != 9 || depth != 10)) {
-        fprintf(stderr, "n265: --dhdr10-info is HDR10+ metadata, which "
+        fprintf(stderr, "y265: --dhdr10-info is HDR10+ metadata, which "
                 "rides on HDR10: a 10-bit encode (or --output-depth 10) "
                 "with --transfer smpte2084 --colorprim bt2020 "
                 "--colormatrix bt2020nc\n");
         FAIL;
     }
     if (!c->rpu_path != !c->dv_profile) {
-        fprintf(stderr, "n265: --dolby-vision-rpu and "
+        fprintf(stderr, "y265: --dolby-vision-rpu and "
                 "--dolby-vision-profile go together\n");
         FAIL;
     }
     if (c->rpu_path) {
         int hlg = sig_transfer == 18 || (sig_transfer == 14 && c->atc == 18);
         if (depth != 10 || csp != N265_CSP_I420 || sig_range == 1) {
-            fprintf(stderr, "n265: Dolby Vision profile 8 is 10-bit 4:2:0 "
+            fprintf(stderr, "y265: Dolby Vision profile 8 is 10-bit 4:2:0 "
                     "at limited range: give a 4:2:0 input, 10-bit or with "
                     "--output-depth 10, and no --range full\n");
             FAIL;
@@ -1075,7 +1041,7 @@ int n265_config_apply(n265_config *c, n265_param *p)
                      : sig_colorprim == 9 && sig_colormatrix == 9 &&
                        (dv == 81 ? sig_transfer == 16 : hlg);
         if (!ok) {
-            fprintf(stderr, "n265: Dolby Vision profile %s needs %s\n",
+            fprintf(stderr, "y265: Dolby Vision profile %s needs %s\n",
                     dv == 81 ? "8.1" : dv == 82 ? "8.2" : "8.4",
                     dv == 81
                     ? "--colorprim bt2020 --colormatrix bt2020nc --transfer "
@@ -1089,10 +1055,10 @@ int n265_config_apply(n265_config *c, n265_param *p)
         }
     }
     if (c->rpu_path && !(c->vbv_maxrate > 0.0 && c->vbv_bufsize > 0.0))
-        fprintf(stderr, "n265: WARNING Dolby Vision is normally delivered "
+        fprintf(stderr, "y265: WARNING Dolby Vision is normally delivered "
                 "under a VBV: consider --vbv-maxrate and --vbv-bufsize\n");
     if (c->dv_profile == 81 && !have_md)
-        fprintf(stderr, "n265: WARNING a Dolby Vision 8.1 base layer is "
+        fprintf(stderr, "y265: WARNING a Dolby Vision 8.1 base layer is "
                 "HDR10, which carries a mastering display: consider "
                 "--master-display\n");
 

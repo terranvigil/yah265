@@ -1,6 +1,6 @@
 /*
  * Worker pool: one shared worker set, a job table, gated wavefronts and
- * milestones (docs/threading-design.md sec 1). No progress getters: a
+ * milestones. No progress getters: a
  * caller can ask whether a task may run, never how far another one has
  * got, so analysis cannot consume a raced completion count.
  *

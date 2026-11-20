@@ -7,7 +7,7 @@
  * lands on top of it unchanged. So ABR is CRF with the base solved from
  * bits instead of given.
  *
- * The model, re-derived (docs/programme-from-yah264.md A.1):
+ * The model:
  *
  *   qscale(q)   = 0.85 * 2^((q - 12) / 6)     the classic quantizer scale
  *   w(frame)    = scale[class] * nblk * (complexity / nblk)^qcomp
@@ -45,8 +45,8 @@
  * to the base by the caller AFTER this loop has answered, so it moves the
  * control variable rather than riding it, and no measurement in here absorbs
  * it. The loop is told it and takes it back off, which is both the fix and a
- * refusal - what the term was buying under ABR is real and is priced in
- * docs/ideas.md. See the block by `rf`.
+ * refusal - what the term was buying under ABR is real. See the block by
+ * `rf`.
  *
  * The opening is fitted from the lookahead window rather than guessed: at
  * the first frame the window's complexities are typed by the coding
@@ -155,7 +155,7 @@ double n265_rc_cplx(struct n265_encoder *e, int i, int cls)
      * every frame whose class it does not change: at rate 32 the whole
      * seventeen-clip ABR table is main's to the digit except the two cells
      * this item is about. Charging it into the value as well was measured
-     * and is not shipped (docs/phase14.md item 21). */
+     * and is not shipped. */
     double c = pc < ic ? (double)f->pcost_sum : ic;
     return c > 1.0 ? c : 1.0;
 }
@@ -202,7 +202,7 @@ void n265_rc_open(struct n265_encoder *e)
      *
      * Without --vbv-maxrate both keep their ABR defaults, so plain ABR,
      * and CRF and CQP (which never reach this function's answer), are
-     * byte-identical to main. docs/phase14.md, item 29. */
+     * byte-identical to main. */
     int vbr = e->abr_on && e->vbv.on;
     /* capped VBR: a cap above the target, not a CBR-shaped VBV (item 37) */
     int cvbr = vbr && !e->strict_cbr &&
@@ -234,7 +234,7 @@ void n265_rc_open(struct n265_encoder *e)
      *   N265_VBR_FBUP 6    (above) the item 29 rail back to the fine one;
      *                      N265_ABR_FBUP, when set, still wins
      *
-     * On the dev set's VBR cells (docs/phase14.md, item 37) they read
+     * On the dev set's VBR cells they read
      * -7.8% / -11.2% / -2.2% BD-VMAF-NEG against main on chimera 720p's
      * two-minute segment, meridian 2160p and sollevante 1080p.
      * `N265_VBR_FBW=0 N265_VBR_OVW=0 N265_VBR_CTKEEP=0 N265_VBV_OWN=0
@@ -261,8 +261,8 @@ void n265_rc_open(struct n265_encoder *e)
      * surplus of an easy stretch, rode the 6 QP rail into the hard scene
      * after it and ran the buffer to 0.7%. Every rung lands where it did
      * or up to 1.2% lower; D5v reads -2.9% BD-VMAF-NEG against main and
-     * +6.30% against x265 (+9.73% before), D2 and D4 within 0.2
-     * (docs/phase14.md, item 38). `N265_VBR_FBFINE=6
+     * +6.30% against x265 (+9.73% before), D2 and D4 within 0.2.
+     * `N265_VBR_FBFINE=6
      * N265_VBR_SPENDFILL=0` is main byte for byte.
      *
      * N265_VBR_SPEND, the same feedback scaled by the frame's complexity
@@ -343,12 +343,12 @@ void n265_rc_open(struct n265_encoder *e)
      * fights its own plan, chasing a cumulative error the plan already
      * accounts for, and the trajectory is the one-pass trajectory with
      * extra steps. At 0 the plan is open loop and whatever the model gets
-     * wrong lands on the file size. The arms are in docs/phase12.md. */
+     * wrong lands on the file size. */
     rc->tp_gain = abr_tunable("N265_2P_GAIN", 0.25);
     /* Prior per-class scales: bits x qscale per lowres block per
      * (per-block complexity)^qcomp. Geometric means over 11 corpus clips x
-     * QP 24/30/36 x 40 frames, read off N265_RC_TRACE on CQP encodes
-     * (docs/programme-from-yah264.md, the ABR round). They seed the opening
+     * QP 24/30/36 x 40 frames, read off N265_RC_TRACE on CQP encodes.
+     * They seed the opening
      * only: the first coded frame of a clip replaces the shared level and
      * the first few of each class replace the rest. The RATIOS are what
      * they mostly carry - 1.91 / 1 / 0.30 / 0.13 - and those are far
@@ -387,8 +387,7 @@ void n265_rc_open(struct n265_encoder *e)
      *   N265_CCRF_SKIP 1         an inter CTU the brake cannot pay for at
      *                            its last QP is coded as one skip
      *
-     * `N265_CCRF_BRAKE=0 N265_CCRF_GUARD=1` is main byte for byte
-     * (docs/phase14.md, item 47). */
+     * `N265_CCRF_BRAKE=0 N265_CCRF_GUARD=1` is main byte for byte. */
     if (!e->abr_on && e->vbv.on)
         rc->brake = (int)abr_tunable("N265_CCRF_BRAKE", 1);
     rc->ccrf_r0 = abr_tunable("N265_CCRF_BRK_R0", 1.25);
@@ -413,8 +412,7 @@ void n265_rc_open(struct n265_encoder *e)
      * brake plan against, and the loop's count of the frames in flight);
      * inert at one worker, where the lag is 0. 1 also prices the clamp
      * and the brake's plan on it, and is refused: +1.94% BD-VMAF-NEG on
-     * Chimera 720p. Both are arms, off, which is main (docs/phase14.md,
-     * item 32). */
+     * Chimera 720p. Both are arms, off, which is main. */
     rc->szm = e->abr_on && e->vbv.on
                   ? (int)abr_tunable("N265_VBR_SZM", 0) : 0;
     rc->szm_lam = abr_tunable("N265_VBR_SZM_LAM", 0.9);
@@ -434,7 +432,7 @@ void n265_rc_open(struct n265_encoder *e)
      * rates each, static frames left out. On the three 720p segments,
      * held out, it opens 7.0 QP from where the loop settles against the
      * allocator prior's 7.8, and moves Chimera, which the prior opens
-     * right, 6 QP fine (docs/phase14.md, item 32). */
+     * right, 6 QP fine. */
     rc->vopen = e->abr_on && e->vbv.on
                     ? (int)abr_tunable("N265_VBR_OPEN", 0) : 0;
     rc->op_a[RC_I] = abr_tunable("N265_VBR_OPEN_AI", -7.027);
@@ -500,8 +498,7 @@ static double rc_oweight(n265_rc *rc, int cls, double cplx, double icplx)
  *
  *   N265_ABR_IOFF     a constant, in QP. The honest form of the I-frame bonus
  *                     the cu-tree frame term used to hand the opening IDR by
- *                     accident (docs/ideas.md, "An intra QP offset the ABR
- *                     loop pays for"): every intra frame, the same discount,
+ *                     accident: every intra frame, the same discount,
  *                     and the allocator prices it.
  *   N265_ABR_IOFF_CT  a share of the frame's own cu-tree term instead, taken
  *                     on the FINER side only. The term's claim was that it
@@ -1377,9 +1374,7 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
      * noisier QP trajectory. Under CRF the term stays exactly as phase 7
      * shipped it; what is refused is an ABR base nothing nets.
      *
-     * `N265_ABR_CTF`, all four arms measured on this item (2026-09-12; the
-     * 15-clip table and the CIF-7 ABR BD are in
-     * docs/programme-from-yah264.md, "ABR rate accuracy"):
+     * `N265_ABR_CTF`, all four arms measured on this item:
      *
      *   0 - the pre-fix loop: the term lands on the base and nothing in here
      *       has heard of it. The regression, kept as the arm that reproduces

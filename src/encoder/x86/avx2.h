@@ -1,8 +1,7 @@
 /*
  * avx2.h - every x86-64 AVX2 kernel entry point in one place.
  *
- * The x86 twin of src/encoder/arm/neon.h, and the same convention
- * (docs/x86-plan.md):
+ * The x86 twin of src/encoder/arm/neon.h, and the same convention:
  *
  *   - A kernel is `n265_<kernel>_avx2(...)` with the SAME signature as
  *     its NEON twin `n265_<kernel>_neon(...)`, declared here under

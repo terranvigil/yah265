@@ -1,7 +1,7 @@
 /*
  * neon.h - every NEON kernel entry point in one place.
  *
- * The dispatch convention (docs/instruments.md, "NEON dispatch (phase 6)"):
+ * The dispatch convention:
  *
  *   - A NEON kernel is an exported function `n265_<kernel>_neon(...)` with
  *     the SAME signature as its C entry point `n265_<kernel>(...)`.
@@ -18,7 +18,7 @@
  *     `pixel` and never on uint8_t.
  *   - The C entry point keeps its body and dispatches at the TOP, after any
  *     N265_RC_TOUCH lines (those stay in the C entry point: the
- *     N265_REF_CHECK proof of docs/threading-design.md G2 reads them):
+ *     N265_REF_CHECK proof reads them):
  *
  *         #if N265_NEON_MC
  *             if (n265_asm_on(N265_ASM_MC))
