@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
 # The Main10 build's smoke, phase 8 item 1. It is NOT a correctness gate:
 # item 1 only claims that the pixel is a type, that the 8-bit build is
 # byte-identical to what it was, and that the 10-bit build compiles and

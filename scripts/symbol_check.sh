@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
 # Symbol check: the two encoder libraries must share no name.
 #
 # Phase 8 item 5a. One command line links BOTH archives, and a name

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-or-later
 """The random access claim an open-GOP stream makes, checked.
 
 A CRA picture is a random access point. A decoder handed the stream from

@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
 # 8-bit 4:2:0 y4m -> 10-bit 4:2:0 y4m (C420p10), phase 8 item 2.
 #
 # The Main10 encoder refuses 8-bit input (cli/n265.c): one library per

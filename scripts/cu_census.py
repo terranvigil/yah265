@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Read N265_CU_TRACE's per-node records and answer step 6a's questions.
 
 The trace (src/encoder/ctu.c, `N265_CU_TRACE`) writes one fixed 72-byte

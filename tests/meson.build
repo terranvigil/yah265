@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 unit_bitstream = executable('unit_bitstream', 'unit/bitstream_test.c',
   dependencies : yah265_dep)
 test('bitstream', unit_bitstream)
