@@ -64,17 +64,18 @@ import hashlib, json, math, os, shlex, subprocess, sys, tempfile, time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 import bdcompare as bd                                           # noqa: E402
+import media_paths as mp                                         # noqa: E402
 import media_traits as traits                                    # noqa: E402
 
 TP = os.path.expanduser("~/media/throughput")
-TP_T7 = "<staging>/yah265/throughput"
+TP_T7 = mp.expand("<staging>/yah265/throughput")
 N265 = os.environ.get("BIN") or os.environ.get("N265", os.path.join(ROOT, "build-rel", "y265"))
 X265 = os.environ.get("X265", "x265")
 FEED = os.environ.get("LF_FEED", os.path.expanduser(
     "~/src/yah264-board4k/scripts/lf_feed.py"))
 # The shared masters (md5-verified copy of the Seagate, 2026-09-26). The
 # memo names a master by its basename, so a verified move keeps its points.
-MEDIA = os.environ.get("LF_MEDIA", "<media>")
+MEDIA = os.environ.get("LF_MEDIA") or mp.media()
 FEED10 = os.path.join(ROOT, "scripts", "lf_feed10.py")
 STOPF = os.path.join(os.environ.get("VBRLF_WORK", os.path.join(
     ROOT, "scratch", "vbrlf")), "STOP")

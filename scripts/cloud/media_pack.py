@@ -28,9 +28,12 @@ import sys
 import tempfile
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import media_paths as mp                                  # noqa: E402
+
 TM = os.path.expanduser("~/media/throughput")
 STAGE = [os.path.expanduser("~/media/staging-y4m"),
-         "<staging>/yah264/y4m"]
+         mp.expand("<staging>/yah264/y4m")]
 # tier L: cell length from parity_long's TITLES (last story frame + 1)
 L_FRAMES = {"tears": 12672, "meridian": 32887, "stem2": 12940,
             "sintel": 13178, "bbb": 13929, "cosmos": 13724,
@@ -55,8 +58,9 @@ def items():
                   ("S_meridian_2160p", "src_meridian_modern_600.y4m")):
         it[nm] = (os.path.join(ts, f), 0, None)
     for t in ("tears", "sintel"):
-        it[f"L_{t}_2160p"] = ("<staging>/yah264/y4m/"
-                              f"{t}-x10_2160p.y4m", 0, L_FRAMES[t])
+        it[f"L_{t}_2160p"] = (mp.expand("<staging>/yah264/y4m/"
+                                        f"{t}-x10_2160p.y4m"),
+                              0, L_FRAMES[t])
     return it
 
 
@@ -185,8 +189,9 @@ def send_chunked(name, to, ssh, preset, chunk):
 COPY_ITEMS = {
     # an all-intra master, cut by stream copy: the box decodes the same
     # coded frames the Mac does (tier L nocturne, master frames from 3000)
-    "N_nocturne_2160p": ("<media>/longform/nocturne_filmgrain/"
-                         "nocturne_60fps_uhd_filmgrain_sdr.mov", 3000, 34320,
+    "N_nocturne_2160p": (mp.expand("<media>/longform/nocturne_filmgrain/"
+                                   "nocturne_60fps_uhd_filmgrain_sdr.mov"),
+                         3000, 34320,
                          (60, 1)),
 }
 

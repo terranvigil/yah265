@@ -54,11 +54,12 @@ import hashlib, json, math, os, shutil, subprocess, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
+import media_paths as mp                                         # noqa: E402
 import vbr_lf as v                                               # noqa: E402
 
 OUT = os.path.join(ROOT, "scratch", "vbrlf")
 CSVP = os.path.join(OUT, "night.csv")
-STAGE = os.environ.get("STAGE_DIR", "<staging>/yah265")
+STAGE = os.environ.get("STAGE_DIR") or mp.expand("<staging>/yah265")
 STAGE_INT = os.environ.get("STAGE_INT", os.path.join(OUT, "stage"))
 N265 = v.N265
 X265 = v.X265

@@ -70,6 +70,7 @@ sys.path.insert(0, os.path.join(ROOT, "scripts"))
 import bdcompare as bd                                    # noqa: E402
 import bd_at_rate as bdr                                  # noqa: E402
 import boxlib                                             # noqa: E402
+import media_paths as mp                                  # noqa: E402
 import media_traits as mt                                 # noqa: E402
 
 
@@ -87,12 +88,13 @@ ps = _spec()
 
 PY = sys.executable
 FEED = os.environ.get("LF_FEED", os.path.join(ROOT, "scripts", "lf_feed.py"))
-MEDIA = os.environ.get("LF_MEDIA", "<media>")
+MEDIA = os.environ.get("LF_MEDIA") or mp.media(required=False)
 MASTERS = os.environ.get("LF_MASTERS", os.path.expanduser(
     "~/src/yah264-board4k/scratch/masters"))
 STAGED = [os.environ.get("LF_STAGE_INTERNAL",
                          os.path.expanduser("~/media/staging-y4m")),
-          os.environ.get("LF_STAGE_Y4M", "<staging>/yah264/y4m")]
+          (os.environ.get("LF_STAGE_Y4M")
+           or mp.expand("<staging>/yah264/y4m", required=False))]
 TIER_C_DIR = os.environ.get("LF_TIER_C",
                             os.path.expanduser("~/media/tier_c_int"))
 
@@ -316,7 +318,7 @@ def all_cells():
     if SMOKE:
         out = [_mk("C", "CIF", "smoke", "CIF", kind="clip",
                    file="foreman_cif.y4m", content="smoke", ten_bit=False,
-                   dir=ps.T7_TIER_S, limit=30, smoke=True)]
+                   dir=ps.t7_tier_s(), limit=30, smoke=True)]
     return out
 
 
@@ -346,7 +348,7 @@ def excerpt_span(title):
 
 def master_path(title):
     f = TITLES[title]
-    usb = os.path.join(MEDIA, f["file"])
+    usb = os.path.join(MEDIA or mp.media(), f["file"])
     local = os.path.join(MASTERS, os.path.basename(f["file"]))
     try:
         if os.path.getsize(local) == os.path.getsize(usb):
@@ -361,7 +363,7 @@ def staged_path(title, size):
     geometry is the cell's and which holds the cell's frames, or None."""
     w, h = full_geom(title, size)
     need = excerpt_span(title)[1]
-    for d in STAGED:
+    for d in filter(None, STAGED):
         p = os.path.join(d, f"{title}-x10_{size}.y4m")
         try:
             pw, ph, _, n = y4m_shape(p)
@@ -1716,7 +1718,7 @@ def feed_cap(cell):
     """Frames a second the cell's feeder can give, modeled."""
     i = info(cell)
     if i["src"] == "y4m":
-        mbps = 900.0 if i["path"].startswith("<") else 5000.0
+        mbps = 900.0 if mp.under_roots(i["path"]) else 5000.0
         return mbps * 1e6 / (i["w"] * i["h"] * 1.5)
     nat = TITLES[cell["title"]]["native"]
     vt = VT_FPS3 if timed_workers(cell) > 1 else VT_FPS1
@@ -1787,7 +1789,7 @@ def do_plan(args):
         if c["kind"] == "spec":
             p = ps.src_of(c["spec_cell"])
             if not os.path.exists(p):
-                p = os.path.join(ps.T7_TIER_S, c["spec_cell"][3])
+                p = os.path.join(ps.t7_tier_s(), c["spec_cell"][3])
             try:
                 w, h, fps, n = y4m_shape(p)
             except OSError:

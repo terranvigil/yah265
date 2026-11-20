@@ -59,6 +59,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 import boxlib                                             # noqa: E402
+import media_paths as mp                                  # noqa: E402
 import parity_long as pl                                  # noqa: E402
 
 ps = pl.ps
@@ -106,11 +107,11 @@ GOP_STRIDE = 1
 # why it is here, the full-table cells it stands in for
 CELLS = [
     ("D1", "1080p", "sunflower", "d1_sunflower_1080p.y4m", 500,
-     "<media>/tier_s/sunflower_1080p.y4m", 0, False,
+     mp.expand("<media>/tier_s/sunflower_1080p.y4m"), 0, False,
      "-2.10 VMAF-NEG; a suspected false scene cut",
      "S/1080p/sunflower; the S 1080p class (pedestrian, riverbed)"),
     ("D2", "2160p", "meridian", "d2_meridian_2160p.y4m", 300,
-     "<media>/tier_s/src_meridian_modern_600.y4m", 0, True,
+     mp.expand("<media>/tier_s/src_meridian_modern_600.y4m"), 0, True,
      "-0.56 VMAF-NEG (read on the old clip)",
      "S/2160p/meridian_2160p; M/2160p/meridian; L meridian 720p-2160p"),
     ("D3", "2160p", "chimera", "d3_chimera_2160p.y4m", 300,
@@ -160,10 +161,10 @@ CELLS = [
     # windows, read in place from the staged excerpt (600 frames of 4K are
     # 5.9 GB). Two scene cuts in a dark, grainy live-action stretch.
     ("D9", "2160p", "tears_w", "tears-x10_2160p.y4m", 600,
-     "<staging>/yah264/y4m/tears-x10_2160p.y4m", 1752, False,
+     mp.expand("<staging>/yah264/y4m/tears-x10_2160p.y4m"), 1752, False,
      "3840x1714; L/2160p/tears CRF +2.58% on the 3-rung screen",
      "L/2160p/tears; the UHD scope cells",
-     {"dir": "<staging>/yah264/y4m", "offset": 1752,
+     {"dir": mp.expand("<staging>/yah264/y4m"), "offset": 1752,
       "limit": 600}),
     # the 60 fps long-form VBR cell (item 49): three minutes of the Meridian
     # excerpt from its first G1/G2 window, VBR only, read in place. The

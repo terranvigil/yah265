@@ -1,6 +1,10 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # One-word entry points for every gate. CI runs exactly these.
 
+# this box's media roots for the harnesses (untracked; see
+# scripts/media_paths.py)
+-include local/paths.mk
+
 BUILD ?= build
 # Phase 8 item 1: the pixel is a compile-time type, so there is one
 # LIBRARY per depth. Item 5a makes the binary one again: every build tree

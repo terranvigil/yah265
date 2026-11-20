@@ -41,10 +41,12 @@ import numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
+import media_paths as mp                                  # noqa: E402
 CACHE = os.path.expanduser(os.environ.get("TRAITS_CACHE",
                                           "~/.cache/yah265-traits"))
 CSV_PATH = os.path.join(ROOT, "docs", "data", "media-traits.csv")
 TP = os.path.expanduser("~/media/throughput")
+# expanded on use: parity_long imports this, and make test imports it
 TP_T7 = "<staging>/yah265/throughput"
 PROBE = os.path.expanduser("~/media/probe")
 TIER_S = "<media>/tier_s"
@@ -94,7 +96,7 @@ def _seg_sources():
         name = f"{v['title']}_{v['res']}_{v['seg']}.y4m"
         src = os.path.join(TP, name)
         if not os.path.exists(src):
-            src = os.path.join(TP_T7, name)
+            src = os.path.join(mp.expand(TP_T7), name)
         out[f"seg/{cell}"] = dict(kind="y4m", path=src, tier="segment",
                                   fps=v["fps"])
     return out
@@ -138,7 +140,7 @@ def _lf_sources():
 def titles():
     t = _seg_sources()
     t.update(_probe_sources(t))
-    t.update(_dir_sources(TIER_S, "tierS", "tierS"))
+    t.update(_dir_sources(mp.expand(TIER_S), "tierS", "tierS"))
     t.update(_lf_sources())
     t.update(_dir_sources(CORPUS, "corpus", "corpus"))
     return t

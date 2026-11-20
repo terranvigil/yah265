@@ -35,17 +35,18 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import boxlib                                             # noqa: E402
+import media_paths as mp                                  # noqa: E402
 from bdcompare import bd_rate                             # noqa: E402
 
 HOME = os.path.expanduser("~")
 VMAF = os.environ.get("VMAF_HDR_BIN", f"{HOME}/.local/opt/vmaf-hdr/bin/vmaf")
 MODELS = os.environ.get("VMAF_HDR_MODELS", f"{HOME}/.local/share/vmaf-hdr")
-WORK = os.environ.get("HDR_WORK", "<staging>/yah265/hdr/item56")
+WORK = os.environ.get("HDR_WORK") or mp.expand("<staging>/yah265/hdr/item56")
 THREADS = os.environ.get("THREADS", "6")
-SRC = "<staging>/yah264/hdr"
+SRC = mp.expand("<staging>/yah264/hdr")
 HLG = f"{WORK}/src"
 # EBU / DVB 8K HLG10 clip, frames 600-899 scaled down; CC BY 4.0
-NATIVE = "<staging>/yah265/hdr/hlg_native/src"
+NATIVE = mp.expand("<staging>/yah265/hdr/hlg_native/src")
 # both titles were graded on a 1000-nit P3 D65 display
 MD = "G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1)"
 

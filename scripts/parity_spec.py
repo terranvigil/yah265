@@ -74,11 +74,18 @@ sys.path.insert(0, os.path.join(ROOT, "scripts"))
 import bd_at_rate as bdr                                  # noqa: E402
 import bdcompare as bd                                    # noqa: E402
 import boxlib                                             # noqa: E402
+import media_paths as mp                                  # noqa: E402
 
 bd.SUBSAMPLE = 1                     # every frame, per the spec
 
+# resolved on use, so a box with no media configured can still import
+# this module (make test runs its selftest)
 SPEC = "<media>/PARITY-SPEC.md"
 T7_TIER_S = "<media>/tier_s"
+
+
+def t7_tier_s():
+    return mp.expand(T7_TIER_S)
 # tier S is read from an internal-disk copy (the T7 is USB); --solve
 # makes the copy if it is missing and checks the size of every file
 LOCAL_S = os.path.join(ROOT, "scratch/tier_s")
@@ -361,7 +368,7 @@ def ensure_local_s(cells):
     for c in cells:
         if c[0] != "S":
             continue
-        dst, org = src_of(c), os.path.join(T7_TIER_S, c[3])
+        dst, org = src_of(c), os.path.join(t7_tier_s(), c[3])
         if os.path.exists(dst) and (not os.path.exists(org) or
                                     os.path.getsize(dst) ==
                                     os.path.getsize(org)):
