@@ -29,3 +29,30 @@ subprojects/packagecache/
 
 # the built docs site (scripts/site.sh)
 /site/_build/
+
+# internal working docs and agent config: kept on disk for local sessions,
+# never published (the list and reasons live outside the tree)
+/CLAUDE.md
+/.claude/
+/.github/copilot-instructions.md
+/docs/research/
+/docs/phase*.md
+/docs/plan.md
+/docs/plan-beat-yah264.md
+/docs/parity-plan.md
+/docs/parity-plan-matrix.md
+/docs/programme-from-yah264.md
+/docs/x86-plan.md
+/docs/x265-feature-audit.md
+/docs/optimization-backlog.md
+/docs/ideas.md
+/docs/night-queue.md
+/docs/parity-journal.md
+/docs/model-usage.md
+/docs/handoff-*.md
+/docs/lookahead-design.md
+/docs/threading-design.md
+/docs/refstruct-design.md
+/docs/live-control.md
+/docs/board-operating-point-pin.md
+/docs/instruments.md
