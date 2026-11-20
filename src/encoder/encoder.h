@@ -1554,6 +1554,9 @@ struct n265_encoder {
      * where it runs out and the rest is the next call's prefix. */
     n265_nal nal[2 * (N265_MAX_BFRAMES + 1) + N265_MAX_FRAME_WORK + 8];
     size_t nal_off[2 * (N265_MAX_BFRAMES + 1) + N265_MAX_FRAME_WORK + 8];
+    /* the access units the last call returned, for n265_encoder_access_units */
+    n265_au au[2 * (N265_MAX_BFRAMES + 1) + N265_MAX_FRAME_WORK + 8];
+    int n_au;
     /* A1/A2: output is a prefix of the completed frames and up to K stay
      * in flight across calls. Off at one worker, where nothing overlaps
      * and a call must return exactly what it returned before.
@@ -1742,6 +1745,7 @@ struct n265_encoder {
         uint8_t *buf;
         size_t cap, len;
         int nnal;
+        int disp;           /* display index; -1 for a NAL-only tail */
         /* N265_AU_NAL_MAX, counted off the list of every NAL an access
          * unit can carry (above this struct). pack_nal DROPS a NAL past
          * this bound; the drop is counted and fails the run, but a bound

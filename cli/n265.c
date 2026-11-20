@@ -215,6 +215,15 @@ int  n265_encoder_encode_10(n265_encoder *e, n265_nal **nal, int *nnal,
                             const n265_picture *pic);
 void n265_encoder_close_10(n265_encoder *e);
 const char *n265_version_str_10(void);
+n265_config *n265_config_new_10(void);
+void n265_config_free_10(n265_config *c);
+int  n265_config_parse_10(n265_config *c, const char *name,
+                          const char *value);
+void n265_config_note_10(n265_config *c, const char *name,
+                         const char *value);
+int  n265_config_apply_10(n265_config *c, n265_param *p);
+int  n265_config_get_10(const n265_config *c, const char *key, double *v);
+const char *n265_config_get_str_10(const n265_config *c, const char *key);
 void n265_encoder_set_dump_decode_10(n265_encoder *e, FILE *f);
 void n265_encoder_set_dump_10(n265_encoder *e, FILE *f);
 void n265_encoder_set_shot_stats_10(n265_encoder *e, const char *path);
@@ -318,6 +327,14 @@ typedef struct n265_api {
     /* NALs an allocation failure dropped, cut short or never handed out,
      * HDR10+ and Dolby Vision metadata included (the name is older) */
     long (*dyn_lost)(const n265_encoder *);
+    /* the coding options, parsed and resolved by the library */
+    n265_config *(*config_new)(void);
+    void (*config_free)(n265_config *);
+    int  (*config_parse)(n265_config *, const char *, const char *);
+    void (*config_note)(n265_config *, const char *, const char *);
+    int  (*config_apply)(n265_config *, n265_param *);
+    int  (*config_get)(const n265_config *, const char *, double *);
+    const char *(*config_get_str)(const n265_config *, const char *);
 } n265_api;
 
 static const n265_api api8 = {
@@ -342,6 +359,8 @@ static const n265_api api8 = {
     n265_set_sei_opts, n265_set_qpfile, n265_set_zones,
     n265_encoder_set_csv, n265_encoder_metrics, n265_set_fingerprint,
     n265_show_config, n265_encoder_dyn_lost,
+    n265_config_new, n265_config_free, n265_config_parse, n265_config_note,
+    n265_config_apply, n265_config_get, n265_config_get_str,
 };
 
 static const n265_api api10 = {
@@ -369,6 +388,9 @@ static const n265_api api10 = {
     n265_encoder_set_csv_10, n265_encoder_metrics_10,
     n265_set_fingerprint_10, n265_show_config_10,
     n265_encoder_dyn_lost_10,
+    n265_config_new_10, n265_config_free_10, n265_config_parse_10,
+    n265_config_note_10, n265_config_apply_10, n265_config_get_10,
+    n265_config_get_str_10,
 };
 
 /* QpBdOffsetY (7-5), and the clip bound of Clip1Y. Runtime now, off the
@@ -1547,117 +1569,6 @@ static void usage(void)
         "  --version       print version\n");
 }
 
-/* One VUI value flag, parsed the way x265 parses it: a name from the
- * field's own table, or the bare number. A refusal prints the table
- * rather than the shrug a lookup failure would otherwise be - the table
- * lives in the library (src/encoder/signal.c) and is not copied here. */
-#define SIGARG(field, var) do { \
-    const char *v_ = argv[++i]; \
-    (var) = n265_vui_parse((field), v_); \
-    if ((var) < 0) { \
-        fprintf(stderr, "n265: %s %s is not a value of that field. The " \
-                "names are:", argv[i - 1], v_); \
-        const char * const *n_ = n265_vui_names(field); \
-        for (int k_ = 0; n_ && n_[k_]; k_++) \
-            fprintf(stderr, " %s", n_[k_]); \
-        fprintf(stderr, " - or the number itself (Annex E's tables " \
-                "number them in that order).\n"); \
-        return 2; \
-    } \
-} while (0)
-
-/* ---- the options clause of the identification SEI (phase 14 item 9) ----
- *
- * What goes in the payload is the preset, the rate control the CLI
- * settled on, and the flags this run was actually given, in the order
- * they were given. What stays out is anything that would make one
- * command line write two different streams:
- *
- *   - no PATHS. An input name is not a coding option and would put a
- *     working directory in the bitstream.
- *   - no THREAD COUNT. `--threads 1` and `--threads 12` must produce the
- *     same bytes; that identity is a gate (CLAUDE.md), and printing the
- *     count would break it on every clip.
- *   - no CLOCK, no environment. The env knobs are measurement ARMS and
- *     the preset already names the ones a preset sets.
- *   - nothing byte-neutral that only reports (`--psnr`, `--csv`,
- *     `--dump-recon`): those are documented as costing the stream
- *     nothing, and they must keep costing it nothing.
- *
- * The flags are collected from argv itself rather than from a table of
- * option names, so this cannot drift as flags are added: the parse loop
- * records how many tokens each iteration consumed, which is exactly the
- * knowledge of "does this one take a value" the loop already has. */
-typedef struct {
-    char s[640];
-    size_t n;
-} optstr;
-
-static void opt_put(optstr *o, const char *key, const char *val)
-{
-    int n = snprintf(o->s + o->n, sizeof o->s - o->n, "%s%s%s%s",
-                     o->n ? " " : "", key, val ? "=" : "", val ? val : "");
-    if (n > 0 && (size_t)n < sizeof o->s - o->n)
-        o->n += (size_t)n;
-    else                        /* full: keep what fits and stop growing */
-        o->s[o->n] = '\0';
-}
-
-/* the three filters, by the option's name with its dashes stripped */
-static int opt_drop(const char *k)
-{
-    static const char * const drop[] = {
-        "o", "dump-recon", "dump-recon-decode", "csv", "csv-log-level",
-        "shot-stats", "psnr", "ssim", "verbose", "v", "threads",
-        /* a schedule, like --threads: the identification SEI must not
-         * change with it */
-        "gop-parallel",
-        "show-config", "version", "help", "h",
-        /* the switch for this very message: naming a default must not
-         * change the stream, so `--info` and a default run write the
-         * same bytes and `--no-info` writes no message to name itself
-         * in */
-        "info", "no-info",
-        /* named in the resolved head instead, so they are not echoed
-         * twice */
-        "preset", "qp", "crf", "bitrate", NULL
-    };
-    for (int i = 0; drop[i]; i++)
-        if (!strcmp(k, drop[i]))
-            return 1;
-    return 0;
-}
-
-static int opt_drop_value(const char *k)
-{
-    /* the flag shapes the stream and its value is a file name */
-    return !strcmp(k, "qpfile") || !strcmp(k, "stats") ||
-           !strcmp(k, "dhdr10-info") || !strcmp(k, "dolby-vision-rpu");
-}
-
-/* one iteration of the parse loop: argv[from] is the option and the loop
- * left `to` at the last token it consumed for it. */
-static void opt_note(optstr *o, char **argv, int from, int to)
-{
-    const char *a = argv[from];
-    if (a[0] != '-' || !a[1])   /* the input file */
-        return;
-    const char *k = a + 1;
-    if (*k == '-')
-        k++;
-    if (!strcmp(k, "w"))        /* the two short aliases that are coding
-                                 * options; print the long names */
-        k = "weightp";
-    if (!strcmp(k, "t"))
-        k = "tune";
-    if (opt_drop(k))
-        return;
-    if (to > from && !opt_drop_value(k))
-        opt_put(o, k, argv[to]);
-    else
-        opt_put(o, k, NULL);
-}
-
 /* ---------------------------------------------------------------------
  * GOP-parallel encoding (phase 14 item 42, parity plan C10).
  *
@@ -2749,154 +2660,47 @@ static int gp_run(const n265_api *a, y4m_t *y, const char *in_path,
     return rc;
 }
 
-int main(int argc, char **argv)
+/* What the command line handles itself: the input, the outputs, the
+ * reports and the schedules. Every coding option goes to the library's
+ * parser (n265_config_parse), which the ffmpeg wrapper calls too. */
+typedef struct {
+    const char *in_path, *out_path, *dump_path, *shot_path;
+    const char *dump_decode_path, *csv_path;
+    long max_frames, seek;
+    int out_depth, in_w, in_h, in_csp, in_depth, in_fps_num, in_fps_den;
+    int dither, csv_level, gop_par, verbose, show_config;
+    int threads, want_psnr, want_ssim;
+} cli_opts;
+
+/* -1 to go on, or the exit code */
+static int cli_parse(const n265_api *a, n265_config *cfg, int argc,
+                     char **argv, cli_opts *o)
 {
-    const char *in_path = NULL, *out_path = "out.hevc";
-    const char *dump_path = NULL, *shot_path = NULL;
-    const char *stats_path = NULL;
-    int pass = 0;               /* --pass; 0 = off, the default */
-    long max_frames = -1;
-    int qp = 26, pcm = 0, ctu = 64, keyint = 250, bframes = 7, aq = 1;
-    int lossless = 0;
-    const char *level_str = NULL;   /* --level; NULL = derive it */
-    int high_tier = 0, vui_timing = 1, verbose = 0;   /* VUI timing on since 2026-09-12 */
-    /* --show-config (phase 14 item 13): print the resolved configuration
-     * and stop, for a script that wants the table and not an encode. The
-     * table itself is what --verbose prints on its way past. */
-    int show_config = 0;
-    double film_grain = 0.0;    /* --film-grain: 0 = off, and off is the default */
-    int fgc_denoise = 0;        /* --film-grain-denoise */
-    /* --nr-intra / --nr-inter: -1 is "not given", which leaves the preset
-     * to choose - medium 100 / 100 since item 6b, fast/slow/slower 0 - so
-     * this is an override and not a default (the shape --rdoq-level has).
-     * `--nr-intra 0 --nr-inter 0` is still off and still wins. */
-    int nr_intra = -1, nr_inter = -1;
-    int had_nr_intra = 0, had_nr_inter = 0;
-    /* --mcstf and its two: -1 is "no flag given", which leaves on/off and
-     * the range to the preset (phase 14 item 31); not selective */
-    int mcstf = -1, mcstf_range = -1, mcstf_selective = 0;
-    int dither = 0;             /* --dither, only on the 10 -> 8 downshift */
-    double crf = -1.0, bitrate = 0.0;
-    /* --vbv-maxrate / --vbv-bufsize / --vbv-init; 0/0 is the mode off,
-     * which is every encode before phase 12 item 2. */
-    double vbv_maxrate = 0.0, vbv_bufsize = 0.0, vbv_init = 0.9;
-    /* Pass-through signaling (phase 14 item 1). -1 is "the flag was not
-     * given" in every field that has an absence; give none of them and
-     * nothing below reaches the stream. */
-    int hash = 0;
-    /* --weightp / --weightb; -1 is "no flag given", which leaves the
-     * value to N265_WEIGHTP / N265_WEIGHTB and then to the preset */
-    int weightp = -1, weightb = -1;
-    /* open GOP (phase 14 item 3): on, which is x265's default too. */
-    int open_gop = 1, radl = 0;
-    int sig_videoformat = -1, sig_range = -1, sig_overscan = -1;
-    int sig_colorprim = -1, sig_transfer = -1, sig_colormatrix = -1;
-    int sig_chromaloc = -1;
-    /* --video-signal-type-preset: what the NAME asked for, kept apart
-     * from the nine individual flags above so the rule "an explicit flag
-     * wins" holds whichever order the two were given in. */
-    int vsp[N265_VSP_NFIELD], vsp_md_on = 0, had_vsp = 0;
-    uint32_t vsp_md[10];
-    /* -t/--tune: the composition, applied after the loop and only where
-     * the command line named nothing. -1 is a knob it does not touch. */
-    int tune[N265_TUNE_NFIELD] = { -1, -1, -1, -1, -1 };
-    int had_tune = 0, la_from_tune = 0;
-    /* --dup-threshold: negative is "not given", which leaves
-     * N265_DUP_THR and then the strict form in charge. */
-    double dup_thr = -1.0;
-    int sar_idc = -1, sar_w = 0, sar_h = 0;
-    int win_on = 0, win_l = 0, win_t = 0, win_r = 0, win_b = 0;
-    uint32_t md[10];
-    int have_md = 0, maxcll = -1, maxfall = -1;
-    int hdr10 = -1, cll_on = 1, atc = -1;
-    int hdr_opt = -1;
-    const char *h10p_path = NULL, *rpu_path = NULL;
-    int dv_profile = 0;     /* --dolby-vision-profile: 81, 82 or 84 */
-    int had_crf = 0;            /* --crf given: the ON switch, not crf >= 0 */
-    int out_depth = 0;          /* --output-depth; 0 = the input's */
-    /* RAW input (--input-res / --input-csp / --fps / --input-depth) and
-     * --seek. Every one of them is 0 / -1 for "not given": a y4m carries
-     * its own geometry and none of this is read on that path. */
-    int in_w = 0, in_h = 0, in_csp = -1, in_depth = 0;
-    int in_fps_num = 0, in_fps_den = 0;
-    long seek = 0;
-    /* --psnr / --ssim / --csv / --csv-log-level. Off is the default and
-     * off is byte-for-byte the encoder without them. */
-    /* --repeat-headers / --aud / --eos / --eob / --info. The first four
-     * are off; --info is ON since phase 14 item 9, which is x265's
-     * default too - a stream says what wrote it unless it is asked not
-     * to. `--no-info` is the escape, and an identity cmp against a
-     * pre-item binary is run with it (CLAUDE.md, docs/instruments.md). */
-    int repeat_hdr = 0, aud = 0, eos = 0, eob = 0, info = 1;
-    int fingerprint = 1;        /* on unless --no-fingerprint says not */
-    /* The rate-control exposure. The sentinels ARE the widest legal
-     * values, so an unnamed flag and a flag named at its widest are the
-     * same thing and neither is applied. */
-    /* --idr-recovery-sei / --pic-struct / --hrd-concat /
-     * --temporal-layers. All absent by default; pic_struct is -1 for
-     * "the flag was not given". */
-    int recovery_sei = 0, pic_struct = -1, hrd_concat = 0, tlayers = 0;
-    double crf_lo = -1e9, crf_hi = 1e9;
-    int qpmin = 0, qpmax = 51, strict_cbr = 0, had_qpmin = 0, had_qpmax = 0;
-    double ausize_factor = 1.0;
-    const char *qpfile_path = NULL, *zones_spec = NULL;
-    int want_psnr = 0, want_ssim = 0, csv_level = -1;
-    const char *csv_path = NULL;
-    int nref = 1, badapt = 1;
-    int lookahead = 20, cutree = 1;   /* 20 since 2026-09-12 (x265 medium's
-                                     * own depth): the last window that
-                                     * clears every gate rule, docs/
-                                     * phase7-gop-design.md step 4 */   /* on by default since 2026-09-12: every
-                                     * measured medium passes both, and the
-                                     * bare CLI used to hand out the tools-only
-                                     * encoder (docs/instruments.md, board) */
-    int threads = 0;
-    int gop_par = 0;            /* --gop-parallel; 0 = off, the default */
-    int shot_window = 0;        /* --shot-window; 0 = off, the default */
-    /* --rdoq-level: -1 is "not given", which leaves the preset (and the
-     * environment) in charge - the flag is an override, not a default. */
-    int rdoq_level = -1, had_rdoq = 0;
-    /* --tu-inter-depth / --tu-intra-depth: -1 is "not given", the same
-     * override-not-default shape --rdoq-level has. */
-    int tu_inter = -1, tu_intra = -1, had_tui = 0, had_tua = 0;
-    /* --cbqpoffs / --crqpoffs: "not given" is its own state, because
-     * medium names an offset from the 720p class up (phase 14 item 51)
-     * and an explicit 0 has to be able to undo it. */
-    int cbqpoffs = 0, crqpoffs = 0, had_cbq = 0, had_crq = 0;
-    const char *dump_decode_path = NULL;
-    const char *preset = NULL;
-    /* which structural flags the user gave: a preset supplies the rest */
-    int had_ref = 0, had_badapt = 0, had_bframes = 0, had_la = 0, had_ctu = 0;
-    int had_cutree = 0;
-
-    optstr info_opts = { .s = "", .n = 0 };
-
+    memset(o, 0, sizeof *o);
+    o->out_path = "out.hevc";
+    o->max_frames = -1;
+    o->in_csp = -1;
+    o->csv_level = -1;
     for (int i = 1; i < argc; i++) {
-        const int argi = i;     /* where this option started: the branch
-                                 * below moves `i` past its value, if it
-                                 * has one, and that is what opt_note
-                                 * reads instead of a table (item 9) */
+        const int argi = i;
+        int mine = 1;
         if (!strcmp(argv[i], "-o") && i + 1 < argc) {
-            out_path = argv[++i];
+            o->out_path = argv[++i];
         } else if (!strcmp(argv[i], "--frames") && i + 1 < argc) {
-            max_frames = atol(argv[++i]);
-        } else if (!strcmp(argv[i], "--qp") && i + 1 < argc) {
-            qp = atoi(argv[++i]);
-        } else if (!strcmp(argv[i], "--crf") && i + 1 < argc) {
-            crf = atof(argv[++i]); had_crf = 1;
+            o->max_frames = atol(argv[++i]);
         } else if (!strcmp(argv[i], "--output-depth") && i + 1 < argc) {
-            out_depth = atoi(argv[++i]);
+            o->out_depth = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--input-res") && i + 1 < argc) {
             const char *v = argv[++i];
-            if (sscanf(v, "%dx%d", &in_w, &in_h) != 2 || in_w <= 0 ||
-                in_h <= 0) {
+            if (sscanf(v, "%dx%d", &o->in_w, &o->in_h) != 2 || o->in_w <= 0 ||
+                o->in_h <= 0) {
                 fprintf(stderr, "n265: --input-res is WxH, e.g. 352x288\n");
                 return 2;
             }
         } else if (!strcmp(argv[i], "--input-csp") && i + 1 < argc) {
             int mono = 0;
-            in_csp = input_csp_parse(argv[++i], &mono);
-            if (in_csp < 0) {
+            o->in_csp = input_csp_parse(argv[++i], &mono);
+            if (o->in_csp < 0) {
                 fprintf(stderr, mono
                         ? "n265: --input-csp i400 (monochrome) is not a "
                           "format this encoder codes yet; it is refused "
@@ -2906,422 +2710,106 @@ int main(int argc, char **argv)
                 return 2;
             }
         } else if (!strcmp(argv[i], "--input-depth") && i + 1 < argc) {
-            in_depth = atoi(argv[++i]);
+            o->in_depth = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--fps") && i + 1 < argc) {
-            if (fps_parse(argv[++i], &in_fps_num, &in_fps_den) < 0) {
+            if (fps_parse(argv[++i], &o->in_fps_num, &o->in_fps_den) < 0) {
                 fprintf(stderr, "n265: --fps is N, N/D or a decimal "
                         "(30, 30000/1001, 29.97)\n");
                 return 2;
             }
-        } else if (!strcmp(argv[i], "--idr-recovery-sei")) {
-            recovery_sei = 1;
-        } else if (!strcmp(argv[i], "--no-idr-recovery-sei")) {
-            recovery_sei = 0;
-        } else if (!strcmp(argv[i], "--pic-struct") && i + 1 < argc) {
-            pic_struct = atoi(argv[++i]);
-            if (pic_struct < 0 || pic_struct > 12) {
-                fprintf(stderr, "n265: --pic-struct is Table D.2's value "
-                        "0..12 (0 frame, 7 frame doubling, 8 frame "
-                        "tripling)\n");
-                return 2;
-            }
-        } else if (!strcmp(argv[i], "--hrd-concat")) {
-            hrd_concat = 1;
-        } else if (!strcmp(argv[i], "--temporal-layers")) {
-            tlayers = 1;
-        } else if (!strcmp(argv[i], "--no-temporal-layers")) {
-            tlayers = 0;
-        } else if (!strcmp(argv[i], "--scaling-list") && i + 1 < argc) {
-            /* Parsed and REFUSED, by name, with the reason. The SPS flag
-             * is two bits; what follows it is not. With
-             * scaling_list_enabled_flag set, a decoder dequantizes with
-             * the default matrices of Tables 7-5 and 7-6, so this
-             * encoder's quantizer has to apply them too or every
-             * reconstruction stops matching every decoder - and that
-             * reaches the forward quantizer, the inverse, RDOQ's per
-             * coefficient rate-distortion and the NEON kernels of both.
-             * It is a quantizer item with a checkasm leg, not a cheap
-             * signaling one, and shipping the flag alone would fail the
-             * recon-match gate on its first vector. */
-            fprintf(stderr, "n265: --scaling-list is not implemented, and "
-                    "not because the SPS flag is hard: with "
-                    "scaling_list_enabled_flag set a decoder dequantises "
-                    "with the spec's default matrices, so the encoder's "
-                    "own quantiser has to apply them or the "
-                    "reconstruction stops matching every decoder. That "
-                    "reaches the forward quantiser, the inverse, RDOQ and "
-                    "the NEON kernels of both - a quantiser item with a "
-                    "checkasm leg. See docs/x265-feature-audit.md.\n");
-            return 2;
-        } else if (!strcmp(argv[i], "--crf-min") && i + 1 < argc) {
-            crf_lo = atof(argv[++i]);
-        } else if (!strcmp(argv[i], "--crf-max") && i + 1 < argc) {
-            crf_hi = atof(argv[++i]);
-        } else if (!strcmp(argv[i], "--qpmin") && i + 1 < argc) {
-            qpmin = atoi(argv[++i]); had_qpmin = 1;
-        } else if (!strcmp(argv[i], "--qpmax") && i + 1 < argc) {
-            qpmax = atoi(argv[++i]); had_qpmax = 1;
-        } else if (!strcmp(argv[i], "--strict-cbr")) {
-            strict_cbr = 1;
-        } else if (!strcmp(argv[i], "--max-ausize-factor") && i + 1 < argc) {
-            ausize_factor = atof(argv[++i]);
-        } else if (!strcmp(argv[i], "--qpfile") && i + 1 < argc) {
-            qpfile_path = argv[++i];
-        } else if (!strcmp(argv[i], "--zones") && i + 1 < argc) {
-            zones_spec = argv[++i];
-        } else if (!strcmp(argv[i], "--repeat-headers")) {
-            repeat_hdr = 1;
-        } else if (!strcmp(argv[i], "--no-repeat-headers")) {
-            repeat_hdr = 0;
-        } else if (!strcmp(argv[i], "--aud")) {
-            aud = 1;
-        } else if (!strcmp(argv[i], "--no-aud")) {
-            aud = 0;
-        } else if (!strcmp(argv[i], "--eos")) {
-            eos = 1;
-        } else if (!strcmp(argv[i], "--no-eos")) {
-            eos = 0;
-        } else if (!strcmp(argv[i], "--eob")) {
-            eob = 1;
-        } else if (!strcmp(argv[i], "--no-eob")) {
-            eob = 0;
-        } else if (!strcmp(argv[i], "--info")) {
-            info = 1;
-        } else if (!strcmp(argv[i], "--no-info")) {
-            info = 0;
-        } else if (!strcmp(argv[i], "--fingerprint")) {
-            fingerprint = 1;
-        } else if (!strcmp(argv[i], "--no-fingerprint")) {
-            fingerprint = 0;
-        } else if (!strcmp(argv[i], "--psnr")) {
-            want_psnr = 1;
-        } else if (!strcmp(argv[i], "--ssim")) {
-            want_ssim = 1;
         } else if (!strcmp(argv[i], "--csv") && i + 1 < argc) {
-            csv_path = argv[++i];
+            o->csv_path = argv[++i];
         } else if (!strcmp(argv[i], "--csv-log-level") && i + 1 < argc) {
-            csv_level = atoi(argv[++i]);
+            o->csv_level = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--seek") && i + 1 < argc) {
-            seek = atol(argv[++i]);
-            if (seek < 0) {
+            o->seek = atol(argv[++i]);
+            if (o->seek < 0) {
                 fprintf(stderr, "n265: --seek takes a frame count\n");
                 return 2;
             }
-        } else if (!strcmp(argv[i], "--bitrate") && i + 1 < argc) {
-            bitrate = atof(argv[++i]);
-        } else if (!strcmp(argv[i], "--ref") && i + 1 < argc) {
-            nref = atoi(argv[++i]); had_ref = 1;
-        } else if (!strcmp(argv[i], "--b-adapt") && i + 1 < argc) {
-            badapt = atoi(argv[++i]); had_badapt = 1;
-        } else if (!strcmp(argv[i], "--preset") && i + 1 < argc) {
-            preset = argv[++i];
-        } else if (!strcmp(argv[i], "--keyint") && i + 1 < argc) {
-            keyint = atoi(argv[++i]);
-        } else if (!strcmp(argv[i], "--open-gop")) {
-            open_gop = 1;
-        } else if (!strcmp(argv[i], "--no-open-gop")) {
-            open_gop = 0;
-        } else if (!strcmp(argv[i], "--radl") && i + 1 < argc) {
-            radl = atoi(argv[++i]);
-        } else if (!strcmp(argv[i], "--bframes") && i + 1 < argc) {
-            bframes = atoi(argv[++i]); had_bframes = 1;
-        } else if (!strcmp(argv[i], "--aq") && i + 1 < argc) {
-            aq = atoi(argv[++i]);
-        } else if (!strcmp(argv[i], "--rc-lookahead") && i + 1 < argc) {
-            lookahead = atoi(argv[++i]); had_la = 1;
-        } else if (!strcmp(argv[i], "--cutree") && i + 1 < argc) {
-            cutree = atoi(argv[++i]); had_cutree = 1;
         } else if (!strcmp(argv[i], "--dump-recon-decode") && i + 1 < argc) {
-            dump_decode_path = argv[++i];
-        } else if (!strcmp(argv[i], "--threads") && i + 1 < argc) {
-            threads = atoi(argv[++i]);
+            o->dump_decode_path = argv[++i];
         } else if (!strcmp(argv[i], "--gop-parallel") && i + 1 < argc) {
-            gop_par = atoi(argv[++i]);
-        } else if (!strcmp(argv[i], "--ctu") && i + 1 < argc) {
-            ctu = atoi(argv[++i]); had_ctu = 1;
-        } else if (!strcmp(argv[i], "--rdoq-level") && i + 1 < argc) {
-            rdoq_level = atoi(argv[++i]); had_rdoq = 1;
-        } else if (!strcmp(argv[i], "--tu-inter-depth") && i + 1 < argc) {
-            tu_inter = atoi(argv[++i]); had_tui = 1;
-        } else if (!strcmp(argv[i], "--tu-intra-depth") && i + 1 < argc) {
-            tu_intra = atoi(argv[++i]); had_tua = 1;
-        } else if (!strcmp(argv[i], "--cbqpoffs") && i + 1 < argc) {
-            cbqpoffs = atoi(argv[++i]); had_cbq = 1;
-        } else if (!strcmp(argv[i], "--crqpoffs") && i + 1 < argc) {
-            crqpoffs = atoi(argv[++i]); had_crq = 1;
-        } else if (!strcmp(argv[i], "--pcm")) {
-            pcm = 1;
-        } else if (!strcmp(argv[i], "--lossless")) {
-            lossless = 1;
-        } else if (!strcmp(argv[i], "--weightp") || !strcmp(argv[i], "-w")) {
-            weightp = 1;
-        } else if (!strcmp(argv[i], "--no-weightp")) {
-            weightp = 0;
-        } else if (!strcmp(argv[i], "--weightb")) {
-            weightb = 1;
-        } else if (!strcmp(argv[i], "--no-weightb")) {
-            weightb = 0;
-        } else if (!strcmp(argv[i], "--level") && i + 1 < argc) {
-            level_str = argv[++i];
-        } else if (!strcmp(argv[i], "--high-tier")) {
-            high_tier = 1;
+            o->gop_par = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--verbose") || !strcmp(argv[i], "-v")) {
-            verbose = 1;
+            o->verbose = 1;
         } else if (!strcmp(argv[i], "--show-config")) {
-            show_config = 1;
-        } else if (!strcmp(argv[i], "--vui-timing")) {
-            vui_timing = 1;
-        } else if (!strcmp(argv[i], "--no-vui-timing")) {
-            vui_timing = 0;
-        } else if (!strcmp(argv[i], "--film-grain") && i + 1 < argc) {
-            film_grain = atof(argv[++i]);
-        } else if (!strcmp(argv[i], "--film-grain-denoise") && i + 1 < argc) {
-            fgc_denoise = atoi(argv[++i]);
-        } else if (!strcmp(argv[i], "--nr-intra") && i + 1 < argc) {
-            nr_intra = atoi(argv[++i]); had_nr_intra = 1;
-        } else if (!strcmp(argv[i], "--nr-inter") && i + 1 < argc) {
-            nr_inter = atoi(argv[++i]); had_nr_inter = 1;
-        } else if (!strcmp(argv[i], "--mcstf")) {
-            mcstf = 1;
-        } else if (!strcmp(argv[i], "--no-mcstf")) {
-            mcstf = 0;
-        } else if (!strcmp(argv[i], "--mcstf-ref-range") && i + 1 < argc) {
-            mcstf_range = atoi(argv[++i]);
-        } else if (!strcmp(argv[i], "--selective-mcstf")) {
-            mcstf_selective = 1;
-        } else if (!strcmp(argv[i], "--no-selective-mcstf")) {
-            mcstf_selective = 0;
+            o->show_config = 1;
         } else if (!strcmp(argv[i], "--dither")) {
-            dither = 1;
+            o->dither = 1;
         } else if (!strcmp(argv[i], "--no-dither")) {
-            dither = 0;
-        } else if (!strcmp(argv[i], "--vbv-maxrate") && i + 1 < argc) {
-            vbv_maxrate = atof(argv[++i]);
-        } else if (!strcmp(argv[i], "--vbv-bufsize") && i + 1 < argc) {
-            vbv_bufsize = atof(argv[++i]);
-        } else if (!strcmp(argv[i], "--vbv-init") && i + 1 < argc) {
-            vbv_init = atof(argv[++i]);
-        } else if (!strcmp(argv[i], "--hash") && i + 1 < argc) {
-            hash = atoi(argv[++i]);
-        } else if (!strcmp(argv[i], "--colorprim") && i + 1 < argc) {
-            SIGARG(N265_VUI_COLORPRIM, sig_colorprim);
-        } else if (!strcmp(argv[i], "--transfer") && i + 1 < argc) {
-            SIGARG(N265_VUI_TRANSFER, sig_transfer);
-        } else if (!strcmp(argv[i], "--colormatrix") && i + 1 < argc) {
-            SIGARG(N265_VUI_COLORMATRIX, sig_colormatrix);
-        } else if (!strcmp(argv[i], "--videoformat") && i + 1 < argc) {
-            SIGARG(N265_VUI_VIDEOFORMAT, sig_videoformat);
-        } else if (!strcmp(argv[i], "--range") && i + 1 < argc) {
-            SIGARG(N265_VUI_RANGE, sig_range);
-        } else if (!strcmp(argv[i], "--overscan") && i + 1 < argc) {
-            SIGARG(N265_VUI_OVERSCAN, sig_overscan);
-            /* "unknown" is the absence of the field and not a value of
-             * it, and the table's last entry is what says so. */
-            if (sig_overscan == 2)
-                sig_overscan = -1;
-        } else if (!strcmp(argv[i], "--video-signal-type-preset") &&
-                   i + 1 < argc) {
-            const char *why = NULL;
-            const char *v = argv[++i];
-            int rc = n265_vsp_parse(v, vsp, vsp_md, &vsp_md_on, &why);
-            if (rc != N265_VSP_OK) {
-                if (rc == N265_VSP_BAD_SYSTEM) {
-                    fprintf(stderr, "n265: --video-signal-type-preset %s "
-                            "is not a system-id. The names are:", v);
-                    for (int k = 0; n265_vsp_name(k); k++)
-                        fprintf(stderr, " %s", n265_vsp_name(k));
-                    fprintf(stderr, " - each of them x265's spelling and "
-                            "x265's values, and each expands to the nine "
-                            "colour flags, which override it.\n");
-                } else if (rc == N265_VSP_VOLUME_SYSTEM) {
-                    fprintf(stderr, "n265: --video-signal-type-preset %s "
-                            "takes no colour volume: a mastering display "
-                            "volume is carried only by the three "
-                            "BT2100_PQ_* systems, as in x265. Name "
-                            "--master-display if the content was graded "
-                            "on one anyway.\n", v);
-                } else if (rc == N265_VSP_BAD_VOLUME) {
-                    fprintf(stderr, "n265: --video-signal-type-preset: no "
-                            "such colour volume. The names are:");
-                    for (int k = 0; n265_vsp_volume_name(k); k++)
-                        fprintf(stderr, " %s", n265_vsp_volume_name(k));
-                    fprintf(stderr, "\n");
-                } else {
-                    fprintf(stderr, "n265: --video-signal-type-preset: "
-                            "that colour volume is refused by name - %s\n",
-                            why ? why : "no reason recorded");
-                }
-                return 2;
-            }
-            had_vsp = 1;
-        } else if ((!strcmp(argv[i], "--tune") || !strcmp(argv[i], "-t")) &&
-                   i + 1 < argc) {
-            const char *why = NULL;
-            const char *v = argv[++i];
-            int rc = n265_tune_parse(v, tune, &why);
-            if (rc == N265_TUNE_REFUSED) {
-                fprintf(stderr, "n265: --tune %s is refused BY NAME, and "
-                        "here is why: %s\n", v, why);
-                return 2;
-            }
-            if (rc != N265_TUNE_OK) {
-                fprintf(stderr, "n265: --tune %s is not one of x265's "
-                        "five names. They are:", v);
-                for (int k = 0; n265_tune_name(k); k++)
-                    fprintf(stderr, " %s", n265_tune_name(k));
-                fprintf(stderr, " - and only zerolatency is accepted here; "
-                        "ask for one of the other four by name and it "
-                        "prints its own reason.\n");
-                return 2;
-            }
-            had_tune = 1;
-        } else if (!strcmp(argv[i], "--intra-refresh")) {
-            /* Parsed and REFUSED, by name, with the reason - the same
-             * shape as --scaling-list above and for the same kind of
-             * reason: the flag is one bit and what stands behind it is
-             * not. Priced in phase 14 item 15 and left for its own item;
-             * docs/phase14.md has the whole reading.
-             *
-             * A refresh that is only half enforced is WORSE than no
-             * refresh: the stream would claim a recovery point that a
-             * decoder joining there cannot honor, and nothing in this
-             * encoder's gates would say so, because every one of them
-             * decodes from the start of the stream. */
-            fprintf(stderr, "n265: --intra-refresh is not implemented, "
-                    "and not because the intra column is hard. The "
-                    "refresh is only worth its recovery point if NOTHING "
-                    "in the refreshed region reads an unrefreshed "
-                    "sample, and three of this encoder's parts have to "
-                    "change for that: (1) the motion search's clamp "
-                    "bounds MC to the padded reference, but a merge or "
-                    "AMVP candidate is INHERITED and is deliberately not "
-                    "clamped (src/encoder/mc.c), so the bound has to "
-                    "move into mode decision, where it meets the merge "
-                    "index the stream fingerprint writes; (2) "
-                    "constrained intra prediction, which the refresh "
-                    "needs and which we do not have, makes reference "
-                    "availability depend on each neighbour's prediction "
-                    "mode - it is a PREFIX today, and the closed-form "
-                    "substitution and binary search in "
-                    "src/encoder/intra.c exist only because it is; "
-                    "(3) the plan builder has one kind of key picture, "
-                    "and a refresh period is a second. It is an item "
-                    "with its own gate - decode from the recovery point, "
-                    "not from the start - and not a flag. See "
-                    "docs/phase14.md item 15 and "
-                    "docs/x265-feature-audit.md.\n");
-            return 2;
-        } else if (!strcmp(argv[i], "--dup-threshold") && i + 1 < argc) {
-            dup_thr = atof(argv[++i]);
-            if (dup_thr < 0.0 || dup_thr > 255.0) {
-                fprintf(stderr, "n265: --dup-threshold is 0..255, in "
-                        "8-bit luma levels per lowres pixel; 0 (the "
-                        "default) is the strict form, where only an "
-                        "identical source arms the path\n");
-                return 2;
-            }
-        } else if (!strcmp(argv[i], "--chromaloc") && i + 1 < argc) {
-            sig_chromaloc = atoi(argv[++i]);
-            if (sig_chromaloc < 0 || sig_chromaloc > 5) {
-                fprintf(stderr, "n265: --chromaloc is 0..5 (E.2.1's "
-                        "chroma_sample_loc_type)\n");
-                return 2;
-            }
-        } else if (!strcmp(argv[i], "--sar") && i + 1 < argc) {
-            if (n265_sar_parse(argv[++i], &sar_idc, &sar_w, &sar_h) < 0) {
-                fprintf(stderr, "n265: --sar takes a ratio (\"16:9\") or a "
-                        "Table E.1 index 0..16\n");
-                return 2;
-            }
-        } else if (!strcmp(argv[i], "--display-window") && i + 1 < argc) {
-            if (n265_window_parse(argv[++i], &win_l, &win_t, &win_r,
-                                  &win_b) < 0) {
-                fprintf(stderr, "n265: --display-window is "
-                        "\"left,top,right,bottom\" in pixels\n");
-                return 2;
-            }
-            win_on = 1;
-        } else if (!strcmp(argv[i], "--master-display") && i + 1 < argc) {
-            if (n265_master_display_parse(argv[++i], md) < 0) {
-                fprintf(stderr, "n265: --master-display is "
-                        "G(x,y)B(x,y)R(x,y)WP(x,y)L(max,min); the eight "
-                        "chromaticities are 0..65535 in units of "
-                        "0.00002\n");
-                return 2;
-            }
-            have_md = 1;
-        } else if (!strcmp(argv[i], "--max-cll") && i + 1 < argc) {
-            if (n265_cll_parse(argv[++i], &maxcll, &maxfall) < 0) {
-                fprintf(stderr, "n265: --max-cll is \"cll,fall\", both "
-                        "0..65535 cd/m2\n");
-                return 2;
-            }
-        } else if (!strcmp(argv[i], "--hdr-opt") ||
-                   !strcmp(argv[i], "--hdr10-opt")) {
-            hdr_opt = 1;
-        } else if (!strcmp(argv[i], "--no-hdr-opt") ||
-                   !strcmp(argv[i], "--no-hdr10-opt")) {
-            hdr_opt = 0;
-        } else if (!strcmp(argv[i], "--hdr10")) {
-            hdr10 = 1;
-        } else if (!strcmp(argv[i], "--no-hdr10")) {
-            hdr10 = 0;
-        } else if (!strcmp(argv[i], "--cll")) {
-            cll_on = 1;
-        } else if (!strcmp(argv[i], "--no-cll")) {
-            cll_on = 0;
-        } else if (!strcmp(argv[i], "--atc-sei") && i + 1 < argc) {
-            atc = n265_vui_parse(N265_VUI_TRANSFER, argv[++i]);
-            if (atc < 0) {
-                fprintf(stderr, "n265: --atc-sei takes a transfer "
-                        "characteristic, by name or by number\n");
-                return 2;
-            }
-        } else if (!strcmp(argv[i], "--dhdr10-info") && i + 1 < argc) {
-            h10p_path = argv[++i];
-        } else if (!strcmp(argv[i], "--dolby-vision-rpu") && i + 1 < argc) {
-            rpu_path = argv[++i];
-        } else if (!strcmp(argv[i], "--dolby-vision-profile") &&
-                   i + 1 < argc) {
-            const char *v = argv[++i];
-            dv_profile = !strcmp(v, "8.1") || !strcmp(v, "81") ? 81
-                       : !strcmp(v, "8.2") || !strcmp(v, "82") ? 82
-                       : !strcmp(v, "8.4") || !strcmp(v, "84") ? 84 : -1;
-            if (dv_profile < 0) {
-                fprintf(stderr, "n265: --dolby-vision-profile is 8.1 (HDR10 "
-                        "base layer), 8.2 (SDR BT.709) or 8.4 (HLG)\n");
-                return 2;
-            }
+            o->dither = 0;
         } else if (!strcmp(argv[i], "--dump-recon") && i + 1 < argc) {
-            dump_path = argv[++i];
-        } else if (!strcmp(argv[i], "--shot-window") && i + 1 < argc) {
-            shot_window = atoi(argv[++i]);
+            o->dump_path = argv[++i];
         } else if (!strcmp(argv[i], "--shot-stats") && i + 1 < argc) {
-            shot_path = argv[++i];
-        } else if (!strcmp(argv[i], "--pass") && i + 1 < argc) {
-            pass = atoi(argv[++i]);
-        } else if (!strcmp(argv[i], "--stats") && i + 1 < argc) {
-            stats_path = argv[++i];
+            o->shot_path = argv[++i];
         } else if (!strcmp(argv[i], "--version")) {
-            printf("n265 %s\n", n265_version_str());
+            printf("n265 %s\n", a->version_str());
             return 0;
         } else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
             usage();
             return 0;
         } else if (argv[i][0] != '-' || !strcmp(argv[i], "-")) {
-            in_path = argv[i];
+            o->in_path = argv[i];
+            continue;
         } else {
+            mine = 0;
+        }
+        if (mine) {
+            /* still named in the identification SEI, in order */
+            a->config_note(cfg, argv[argi], i > argi ? argv[i] : NULL);
+            continue;
+        }
+        /* a coding option, by its long name (-w and -t are the two short
+         * spellings) */
+        const char *name = !strncmp(argv[i], "--", 2) ? argv[i] + 2
+                         : !strcmp(argv[i], "-w") || !strcmp(argv[i], "-t")
+                           ? argv[i] + 1 : NULL;
+        int tv = name ? n265_config_takes_value(name) : -1;
+        if (tv < 0 || (tv && i + 1 >= argc)) {
             fprintf(stderr, "n265: unknown option %s\n", argv[i]);
             usage();
             return 2;
         }
-        opt_note(&info_opts, argv, argi, i);
+        const char *val = tv ? argv[++i] : NULL;
+        if (a->config_parse(cfg, name, val) != 0)
+            return 2;
+        if (!strcmp(name, "threads"))
+            o->threads = atoi(val);
+        else if (!strcmp(name, "psnr"))
+            o->want_psnr = 1;
+        else if (!strcmp(name, "ssim"))
+            o->want_ssim = 1;
     }
-    if (!in_path) {
+    if (!o->in_path) {
         usage();
         return 2;
     }
+    return -1;
+}
 
+int main(int argc, char **argv)
+{
+    cli_opts o;
+    n265_config *cfg = api8.config_new();
+    if (!cfg)
+        return 1;
+    {
+        int rc = cli_parse(&api8, cfg, argc, argv, &o);
+        if (rc >= 0)
+            return rc;
+    }
+    const char *in_path = o.in_path, *out_path = o.out_path;
+    const char *dump_path = o.dump_path, *shot_path = o.shot_path;
+    const char *dump_decode_path = o.dump_decode_path;
+    const char *csv_path = o.csv_path;
+    long max_frames = o.max_frames, seek = o.seek;
+    int out_depth = o.out_depth, dither = o.dither;
+    int in_w = o.in_w, in_h = o.in_h, in_csp = o.in_csp, in_depth = o.in_depth;
+    int in_fps_num = o.in_fps_num, in_fps_den = o.in_fps_den;
+    int csv_level = o.csv_level, gop_par = o.gop_par;
+    int verbose = o.verbose, show_config = o.show_config;
+    int threads = o.threads, want_psnr = o.want_psnr, want_ssim = o.want_ssim;
     if (out_depth != 0 && out_depth != 8 && out_depth != 10) {
         fprintf(stderr, "n265: --output-depth must be 8 or 10\n");
         return 2;
@@ -3424,312 +2912,38 @@ int main(int argc, char **argv)
      * this point calls through `a` and does not know which encoder it
      * is configuring. */
     const n265_api *a = y.out_depth == 10 ? &api10 : &api8;
-    const int qp_bd_off = N265_QP_BD_OFF(a->depth);
-
-    /* QpY runs -QpBdOffsetY..51 (7.4.3.3): 0..51 at 8 bits, -12..51 at
-     * Main10, where the twelve extra steps are the finer quantizers the
-     * two extra sample bits pay for and are the whole point of the
-     * profile at the top of the ladder. */
-    if (qp < -qp_bd_off || qp > 51) {
-        fprintf(stderr, "n265: qp out of range %d..51 at %d bits\n",
-                -qp_bd_off, a->depth);
-        return 2;
-    }
-    /* The rate factor is a QpY too, so it has the same floor. Below it the
-     * RC would clamp and quietly encode something else; above zero at 8
-     * bits this is the range it always had. */
-    if (had_crf && crf < -qp_bd_off) {
-        fprintf(stderr, "n265: --crf %g is below the %d-bit floor of %d "
-                "(QpBdOffsetY, 7.4.3.3)\n", crf, a->depth, -qp_bd_off);
-        return 2;
-    }
-    /* The preset is a default source and nothing else: it is selected
-     * before anything reads a knob, and every value it offers here is
-     * taken only where the command line was silent. */
-    if (preset) {
-        int pr = a->set_preset(preset);
-        if (pr == -2) {
-            /* one of x265's ten names, with no table behind it: the rung
-             * has not been PLACED (docs/phase13.md C2), and naming a
-             * preset we have not measured against the x265 preset of the
-             * same name is the one thing the ladder exists to stop. Point
-             * at the nearest rung that has been. */
-            fprintf(stderr, "n265: --preset %s is one of x265's names but "
-                            "is not a placed rung of this encoder; the "
-                            "nearest placed rung is %s\n",
-                    preset, a->preset_nearest(preset));
+    if (a != &api8) {
+        /* the same options into the Main10 library's parser; the first
+         * pass already refused anything it would */
+        cli_opts again;
+        api8.config_free(cfg);
+        cfg = a->config_new();
+        if (!cfg || cli_parse(a, cfg, argc, argv, &again) >= 0)
             return 2;
-        }
-        if (pr < 0) {
-            fprintf(stderr, "n265: --preset must be one of x265's names: "
-                            "ultrafast, superfast, veryfast, faster, fast, "
-                            "medium, slow, slower, veryslow, placebo (the "
-                            "placed rungs are printed by --help)\n");
-            return 2;
-        }
     }
-    /* -t/--tune, applied HERE: after the command line has been read, so
-     * an explicitly named flag keeps its value, and before the preset
-     * fallbacks below, so the tune beats the preset. The `had_` flags it
-     * sets are what carry both halves of that rule. */
-    if (had_tune) {
-        if (!had_bframes && tune[N265_TUNE_BFRAMES] >= 0) {
-            bframes = tune[N265_TUNE_BFRAMES]; had_bframes = 1;
-        }
-        if (!had_la && tune[N265_TUNE_LOOKAHEAD] >= 0) {
-            lookahead = tune[N265_TUNE_LOOKAHEAD]; had_la = 1;
-            la_from_tune = 1;
-        }
-        if (!had_badapt && tune[N265_TUNE_BADAPT] >= 0) {
-            badapt = tune[N265_TUNE_BADAPT]; had_badapt = 1;
-        }
-        if (!had_cutree && tune[N265_TUNE_CUTREE] >= 0)
-            cutree = tune[N265_TUNE_CUTREE];
-        /* --mcstf holds --mcstf-ref-range pictures back, which is
-         * latency, so the tune takes the preset's filter off unless the
-         * filter was named (phase 14 item 31) */
-        if (mcstf < 0 && tune[N265_TUNE_FRAMEWORK] >= 0)
-            mcstf = 0;
-        /* The frames in flight. setenv does NOT overwrite, so an
-         * explicit N265_MAX_FRAME_WORK still wins - and this is the one
-         * leg of the tune that moves no bit: output is byte-identical at
-         * every thread count and at every K, which is a gate, so what it
-         * buys is latency and nothing else. */
-        if (tune[N265_TUNE_FRAMEWORK] >= 0) {
-            char k[16];
-            snprintf(k, sizeof k, "%d", tune[N265_TUNE_FRAMEWORK]);
-            setenv("N265_MAX_FRAME_WORK", k, 0);
-        }
-    }
-    /* The picture the preset is being asked about. Some of what it
-     * offers is resolution-aware (phase 14 items 12 and 17) and this is
-     * the only place that knows the geometry: the source has been opened,
-     * so the size is the FILE's, before any padding to the coding tree -
-     * which is the size the rule is written in and the one a user
-     * names. */
-    a->preset_uhd(y.w, y.h);
-    if (!had_ref)     nref = a->preset_param_res("ref", nref, y.w, y.h);
-    if (!had_bframes) bframes = a->preset_param_res("bframes", bframes,
-                                                    y.w, y.h);
-    if (!had_badapt)  badapt = a->preset_param_res("b-adapt", badapt,
-                                                   y.w, y.h);
-    if (!had_la)      lookahead = a->preset_param_res("rc-lookahead",
-                                                      lookahead, y.w, y.h);
-    /* item 17: remember whether the RESOLUTION rule is what moved the
-     * coding tree, by asking the same rung the resolution-blind way. A
-     * tree the user named is the user's and the rate switch leaves it
-     * alone; one the rule offered is the rule's and the switch may take
-     * it back down. */
-    int ctu_blind = a->preset_param("ctu", ctu), uhd_tree = 0;
-    if (!had_ctu) {
-        ctu = a->preset_param_res("ctu", ctu, y.w, y.h);
-        uhd_tree = ctu != ctu_blind;
-    }
-    if (!had_tui)     tu_inter = a->preset_param_res("tu-inter-depth",
-                                                     tu_inter, y.w, y.h);
-    if (!had_tua)     tu_intra = a->preset_param_res("tu-intra-depth",
-                                                     tu_intra, y.w, y.h);
-    if (ctu != 16 && ctu != 32 && ctu != 64) {
-        fprintf(stderr, "n265: --ctu must be 16, 32 or 64\n");
+    n265_param p;
+    a->param_default(&p);
+    p.width = y.w;
+    p.height = y.h;
+    p.csp = y.csp;
+    p.fps_num = y.fps_num;
+    p.fps_den = y.fps_den;
+    if (a->config_apply(cfg, &p) != 0)
         return 2;
-    }
-    /* Structural ranges, checked AFTER the preset has filled in what the
-     * command line left out, because a preset can set either of them.
-     * The numbers are N265_MAX_BFRAMES and LA_DEPTH_MAX; the CLI does not
-     * see the internal headers, so they are repeated here and in usage(). */
-    if (bframes < 0 || bframes > 15) {
-        fprintf(stderr, "n265: --bframes out of range 0..15\n");
-        return 2;
-    }
-    /* 60 since 2026-09-14 (phase 14 item 5), where 32 was the ceiling
-     * that stopped `veryslow` and `placebo` naming x265's own windows of
-     * 40 and 60. The knob's cost is unchanged and is linear in the depth:
-     * N frames of input held before anything is coded (N/fps of latency)
-     * and `depth + 2 + K + bframes` slots of full-resolution source,
-     * about 3.6 MB a frame at 1080p. docs/instruments.md, "The deep
-     * window". A ceiling is not a recommendation: what each rung sets is
-     * priced in docs/phase14.md. */
-    if (lookahead < 1 || lookahead > 60) {
-        fprintf(stderr, "n265: --rc-lookahead out of range 1..60\n");
-        return 2;
-    }
-    /* N265_MAX_SHOT_WINDOW, repeated here for the same reason the two
-     * above are: the CLI does not see the internal headers. */
-    /* --pass and --stats are one knob in two halves, the way the VBV's
-     * two are: a pass with no file is a pass that cannot do its job, and a
-     * file with no pass is a flag that does nothing. Both refusals are made
-     * here because neither needs the stream. */
-    if (pass < 0 || pass > 3) {
-        fprintf(stderr, "n265: --pass is 1 (write the stats), 2 (plan from "
-                "them) or 3 (both)\n");
-        return 2;
-    }
-    if (pass && !stats_path) {
-        fprintf(stderr, "n265: --pass %d needs --stats <file>\n", pass);
-        return 2;
-    }
-    if (stats_path && !pass) {
-        fprintf(stderr, "n265: --stats needs --pass 1, 2 or 3\n");
-        return 2;
-    }
-    if (shot_window < 0 || shot_window > 300) {
-        fprintf(stderr, "n265: --shot-window out of range 0..300\n");
-        return 2;
-    }
-    /* The window has to CONTAIN the run it is asked to plan: a mini-GOP
-     * of `bframes` leaves plus its anchor is bframes + 1 pictures, and
-     * the planner only ever extends a run as far as the queue reaches
-     * (`maxa = min(bframes, count - 1)`, build_plan_order). A window
-     * shallower than that silently shortens every mini-GOP instead of
-     * refusing, which is the one failure mode of a deep --bframes that
-     * looks like a quality result. */
-    if (lookahead < bframes + 1) {
-        fprintf(stderr, "n265: --rc-lookahead %d is too shallow for "
-                "--bframes %d: the window must hold the whole mini-GOP, so "
-                "--rc-lookahead must be at least %d%s\n",
-                lookahead, bframes, bframes + 1,
-                la_from_tune ? " (the window of 1 is --tune zerolatency's; "
-                               "name --rc-lookahead yourself to widen it)"
-                             : "");
-        return 2;
-    }
-    int ctb_log2 = ctu == 16 ? 4 : ctu == 32 ? 5 : 6;
-    a->set_mode(pcm ? 1 : 0, qp, ctb_log2, keyint, bframes, aq);
-    /* item 17, and it has to be after set_mode, which clears the flag */
-    a->set_uhd_tree(uhd_tree);
-    /* The flag decides, not the value: `crf >= 0` used to double as the
-     * off sentinel here, which is why the twelve QP steps Main10 pays for
-     * were reachable through --qp and not through --crf. */
-    if (had_crf) a->set_crf(crf);
-    if (bitrate > 0) a->set_bitrate(bitrate);
-    a->set_ref(nref);
-    a->set_badapt(badapt);
-    a->set_la(lookahead, cutree);
-    a->set_shot_window(shot_window);
-    a->set_pass(pass, stats_path);
-    a->set_threads(threads);
-    /* --pcm is the phase-0 lossless path and --lossless the coded one;
-     * asking for both is a contradiction, not a stack. */
-    if (pcm && lossless) {
-        fprintf(stderr, "n265: --pcm and --lossless are two different "
-                "lossless modes; pick one\n");
-        return 2;
-    }
-    a->set_lossless(lossless);
-    /* --rdoq-level. Range-checked here because nothing but the string is
-     * needed for it, and passed down as x265's number: the library owns
-     * the map onto its own knob (src/encoder/encoder.c,
-     * n265_set_rdoq_level). Left off, the preset chooses - medium 1,
-     * fast/slow/slower 2 - which is what makes this an override and not
-     * a default. */
-    if (had_rdoq && (rdoq_level < 0 || rdoq_level > 2)) {
-        fprintf(stderr, "n265: --rdoq-level must be 0 (off), 1 (final "
-                "encode only) or 2 (all RD decisions)\n");
-        return 2;
-    }
-    a->set_rdoq_level(rdoq_level);
-    /* --tu-inter-depth / --tu-intra-depth. x265's range is 1..4 and so is
-     * this one; a value outside it is refused rather than clamped, for
-     * the reason the chroma offsets are. Left off, the preset chooses -
-     * 2 / 2 everywhere up to `slower`, which IS the tree every stream
-     * this project wrote before the flag existed. */
-    if ((tu_inter > 0 && (tu_inter < 1 || tu_inter > 4)) ||
-        (tu_intra > 0 && (tu_intra < 1 || tu_intra > 4))) {
-        fprintf(stderr, "n265: --tu-inter-depth / --tu-intra-depth must be "
-                "1..4 (levels of transform tree; 2 is the default)\n");
-        return 2;
-    }
-    /* ...and the coding tree's own bound. 7.4.3.2.1 puts
-     * max_transform_hierarchy_depth_* (which is the flag minus one) at
-     * CtbLog2SizeY - MinTbLog2SizeY, so `--ctu 16` admits 3 levels and
-     * `--ctu 32` four; ffmpeg refuses the SPS outright past that, which is
-     * how this was found. A depth the USER named is refused here rather
-     * than clamped, for the reason --cbqpoffs is; one a PRESET named is
-     * clamped at encoder open, so `--ctu 16 --preset placebo` still
-     * codes. */
-    {
-        int ctu_log2 = ctu == 16 ? 4 : ctu == 32 ? 5 : 6;
-        int tu_cap = ctu_log2 - 1;
-        if ((had_tui && tu_inter > tu_cap) || (had_tua && tu_intra > tu_cap)) {
-            fprintf(stderr, "n265: --tu-inter-depth / --tu-intra-depth above "
-                    "%d needs a coding tree larger than --ctu %d\n",
-                    tu_cap, ctu);
-            return 2;
-        }
-    }
-    a->set_tu_depth(tu_inter, tu_intra);
-    /* --cbqpoffs / --crqpoffs. 7.4.3.3.1 bounds pps_cb_qp_offset and
-     * pps_cr_qp_offset at +-12 and x265 takes the same range, so a value
-     * outside it is refused rather than clamped: a clamp would encode
-     * something the user did not ask for and say nothing about it.
-     *
-     * NEGATIVE spends MORE on chroma; positive moves bits to luma, which
-     * the band's metric cannot see at all and which docs/instruments.md
-     * closes as a DEFAULT by design. As a user knob both directions are
-     * reachable, and this is the one place that says so. */
-    if (cbqpoffs < -12 || cbqpoffs > 12 || crqpoffs < -12 || crqpoffs > 12) {
-        fprintf(stderr, "n265: --cbqpoffs and --crqpoffs take -12..12 "
-                "(7.4.3.3.1); negative spends more on chroma\n");
-        return 2;
-    }
-    /* a flag not given passes N265_QPOFFS_UNSET, so the preset's row
-     * (medium names -1 from 720p up, phase 14 item 51) stays in charge
-     * and an explicit 0 is an escape from it */
-    a->set_chroma_qpoffs(had_cbq ? cbqpoffs : 100, had_crq ? crqpoffs : 100);
-    /* --level / --high-tier. The refusals that need the STREAM - a level
-     * too low for the picture, the rate or the DPB - are made at encoder
-     * open, where the derivation lives; the one made here is the only one
-     * that needs nothing but the string. */
-    {
-        int idc = 0;
-        if (level_str) {
-            idc = n265_level_parse(level_str);
-            if (!idc) {
-                fprintf(stderr, "n265: --level %s is not a level of Annex A "
-                        "(1, 2, 2.1, 3, 3.1, 4, 4.1, 5, 5.1, 5.2, 6, 6.1, "
-                        "6.2; \"41\" spells 4.1). The raw idc is not a "
-                        "spelling: 30 and 60 are each an idc AND a level "
-                        "written ten times.\n", level_str);
-                return 2;
-            }
-        }
-        a->set_level(idc, high_tier);
-    }
-    a->set_vui_timing(vui_timing);
-    a->set_film_grain(film_grain, fgc_denoise);
-    /* Range-checked only where the user actually typed it: the -1 the two
-     * carry otherwise is this file's "not given" and is the value that
-     * leaves the choice to the preset (medium names 100 / 100 since item
-     * 6b). A negative the USER typed is still refused. */
-    if ((had_nr_intra && (nr_intra < 0 || nr_intra > 2000)) ||
-        (had_nr_inter && (nr_inter < 0 || nr_inter > 2000))) {
-        fprintf(stderr, "n265: --nr-intra/--nr-inter take 0..2000 "
-                "(x265's range); 0 is off\n");
-        return 2;
-    }
-    a->set_nr(nr_intra, nr_inter);
-    /* x265 spells the range 0..4 and its 0 means the filter off. Here 0
-     * is refused by name instead: --mcstf with no neighbors is an
-     * identity filter that still costs the latency and the queue, and a
-     * flag that silently does nothing is the thing this project keeps
-     * refusing to ship. */
-    if (mcstf_range != -1 && (mcstf_range < 1 || mcstf_range > 4)) {
-        fprintf(stderr, "n265: --mcstf-ref-range takes 1..4 neighbours "
-                "per side (x265 spells its 0 as --no-mcstf; so do we)\n");
-        return 2;
-    }
-    a->set_mcstf(mcstf, mcstf_range, mcstf_selective);
-    a->set_vbv(vbv_maxrate, vbv_bufsize, vbv_init);
-    a->set_weight(weightp, weightb);
-    /* ---- the pass-through signaling (phase 14 item 1) ---- */
-    if (hash < 0 || hash > 3) {
-        fprintf(stderr, "n265: --hash is 0 (off), 1 (MD5), 2 (CRC) or "
-                "3 (checksum)\n");
-        return 2;
-    }
-    /* --csv-log-level without --csv is a flag that does nothing, and
-     * --csv without a level gets x265's own default of 0 (one summary
-     * row). The pair is refused the way --pass / --stats is. */
+    double cv;
+#define CFG(k) (a->config_get(cfg, (k), &cv) == 0 ? cv : 0.0)
+    const int keyint = (int)CFG("keyint"), pass = (int)CFG("pass");
+    const int hrd_concat = (int)CFG("hrd-concat");
+    const int repeat_hdr = (int)CFG("repeat-headers");
+    const double bitrate = CFG("bitrate");
+    const double vbv_maxrate = CFG("vbv-maxrate");
+    const double vbv_bufsize = CFG("vbv-bufsize");
+#undef CFG
+    const char *qpfile_path = a->config_get_str(cfg, "qpfile");
+    const char *zones_spec = a->config_get_str(cfg, "zones");
+    const char *h10p_path = a->config_get_str(cfg, "dhdr10-info");
+    const char *rpu_path = a->config_get_str(cfg, "dolby-vision-rpu");
+    /* --csv-log-level without --csv does nothing, so it is refused */
     if (csv_level >= 0 && !csv_path) {
         fprintf(stderr, "n265: --csv-log-level needs --csv <file>\n");
         return 2;
@@ -3741,169 +2955,6 @@ int main(int argc, char **argv)
                 "the run), 1 (a row per frame) or 2 (that, plus the rate "
                 "control's columns)\n");
         return 2;
-    }
-    a->set_metrics(want_psnr, want_ssim);
-    /* The head of the options clause is what the run RESOLVED, ahead of
-     * the flags it was given: the preset (which is the whole of the
-     * knob state a preset sets - the payload names no env knob) and the
-     * rate control that won, --bitrate over --crf over --qp, with
-     * --lossless and --pcm having no quantizer to name at all. */
-    {
-        optstr head = { .s = "", .n = 0 };
-        char v[32];
-        opt_put(&head, "preset", preset ? preset : "medium"); /* the effective preset: medium is the default, and provenance names what ran */
-        if (pcm) {
-            opt_put(&head, "rc", "pcm");
-        } else if (lossless) {
-            opt_put(&head, "rc", "lossless");
-        } else if (bitrate > 0.0) {
-            opt_put(&head, "rc", "abr");
-            snprintf(v, sizeof v, "%g", bitrate);
-            opt_put(&head, "bitrate", v);
-        } else if (had_crf) {
-            opt_put(&head, "rc", "crf");
-            snprintf(v, sizeof v, "%.2f", crf);
-            opt_put(&head, "crf", v);
-        } else {
-            opt_put(&head, "rc", "cqp");
-            snprintf(v, sizeof v, "%d", qp);
-            opt_put(&head, "qp", v);
-        }
-        char all[768];
-        snprintf(all, sizeof all, "%s%s%s", head.s, info_opts.n ? " " : "",
-                 info_opts.s);
-        a->set_info_opts(all);
-    }
-    a->set_nal_opts(repeat_hdr, aud, eos, eob, info);
-    a->set_fingerprint(fingerprint);
-    /* The QP bounds are QpY values, so they carry the depth's floor the
-     * way --qp and --crf do. The rest of the refusals need the STREAM -
-     * whether there is a rate control to bound, whether there is a buffer
-     * to bound an access unit against - and are made at encoder open. */
-    /* Unnamed, the pair IS the depth's own QpY range, which is what
-     * makes it inert: the library applies the bounds only where one of
-     * them was narrowed. The floor is -QpBdOffsetY and not 0, so a
-     * Main10 encode's twelve extra steps stay reachable. */
-    if (!had_qpmin) qpmin = -qp_bd_off;
-    if (!had_qpmax) qpmax = 51;
-    if (qpmin < -qp_bd_off || qpmin > 51 || qpmax < -qp_bd_off ||
-        qpmax > 51) {
-        fprintf(stderr, "n265: --qpmin and --qpmax are QpY values, %d..51 "
-                "at %d bits (QpBdOffsetY, 7.4.3.3)\n", -qp_bd_off,
-                a->depth);
-        return 2;
-    }
-    a->set_sei_opts(recovery_sei, pic_struct, hrd_concat, tlayers);
-    a->set_rc_bounds(crf_lo, crf_hi, qpmin, qpmax, strict_cbr,
-                     ausize_factor);
-    a->set_qpfile(qpfile_path);
-    a->set_zones(zones_spec);
-    a->set_hash(hash);
-    /* --open-gop / --radl (phase 14 item 3). A RADL count past the
-     * mini-GOP cannot be honored - there are only ever `--bframes`
-     * leading pictures - so it is refused rather than silently capped. */
-    if (radl < 0 || radl > bframes) {
-        fprintf(stderr, "n265: --radl is 0..%d here (a CRA has at most "
-                "--bframes leading pictures)\n", bframes);
-        return 2;
-    }
-    if (radl && !open_gop) {
-        fprintf(stderr, "n265: --radl needs --open-gop (RADL pictures are "
-                "the leading pictures of a CRA)\n");
-        return 2;
-    }
-    a->set_gop(open_gop, radl);
-    /* The default display window is signaled in CHROMA units (7.4.3.2.1)
-     * and the flag takes pixels, so an offset that is not a whole number
-     * of chroma samples cannot be written. x265 documents the same flag in
-     * pixels and then writes them unshifted, which at 4:2:0 signals twice
-     * the region it was given; refusing the odd offset is the honest half
-     * of matching that spelling. */
-    if (win_on) {
-        int sx = y.csx, sy = y.csy;
-        if ((win_l & ((1 << sx) - 1)) || (win_r & ((1 << sx) - 1)) ||
-            (win_t & ((1 << sy) - 1)) || (win_b & ((1 << sy) - 1))) {
-            fprintf(stderr, "n265: --display-window offsets are signalled "
-                    "in chroma samples, so at this chroma format the "
-                    "horizontal ones must be multiples of %d and the "
-                    "vertical ones of %d\n", 1 << sx, 1 << sy);
-            return 2;
-        }
-        if (win_l + win_r >= y.w || win_t + win_b >= y.h) {
-            fprintf(stderr, "n265: --display-window %d,%d,%d,%d leaves no "
-                    "picture inside %dx%d\n", win_l, win_t, win_r, win_b,
-                    y.w, y.h);
-            return 2;
-        }
-    }
-    /* --video-signal-type-preset expands LAST and only into fields the
-     * command line left alone. x265 has the opposite rule - there the
-     * preset discards an individual flag given beside it - and this is a
-     * deliberate divergence, recorded in docs/phase14.md: a flag the
-     * user typed and the encoder then dropped is the worse of the two
-     * surprises, and the preset is a shorthand for those same flags. */
-    if (had_vsp) {
-        if (sig_colorprim < 0)   sig_colorprim   = vsp[N265_VUI_COLORPRIM];
-        if (sig_transfer < 0)    sig_transfer    = vsp[N265_VUI_TRANSFER];
-        if (sig_colormatrix < 0) sig_colormatrix = vsp[N265_VUI_COLORMATRIX];
-        if (sig_range < 0)       sig_range       = vsp[N265_VUI_RANGE];
-        if (sig_chromaloc < 0)   sig_chromaloc   = vsp[N265_VSP_CHROMALOC];
-        if (!have_md && vsp_md_on) {
-            memcpy(md, vsp_md, sizeof md);
-            have_md = 1;
-        }
-    }
-    a->set_vui_colour(sig_videoformat, sig_range, sig_colorprim,
-                      sig_transfer, sig_colormatrix, sig_chromaloc,
-                      sig_overscan);
-    a->set_dup_thr(dup_thr);
-    a->set_vui_sar(sar_idc, sar_w, sar_h);
-    a->set_vui_window(win_on, win_l, win_t, win_r, win_b);
-    a->set_hdr_meta(have_md ? md : NULL, maxcll, maxfall);
-    a->set_hdr10(hdr10, cll_on, atc);
-    a->set_hdr_opt(hdr_opt);
-    /* The dynamic metadata describes PQ or HLG pictures, so the stream has
-     * to say that's what it holds, or a player that reads the color
-     * description first never looks for the metadata. */
-    if (h10p_path && (sig_transfer != 16 || sig_colorprim != 9 ||
-                      sig_colormatrix != 9 || a->depth != 10)) {
-        fprintf(stderr, "n265: --dhdr10-info is HDR10+ metadata, which "
-                "rides on HDR10: a 10-bit encode (or --output-depth 10) "
-                "with --transfer smpte2084 --colorprim bt2020 "
-                "--colormatrix bt2020nc\n");
-        return 2;
-    }
-    if (!rpu_path != !dv_profile) {
-        fprintf(stderr, "n265: --dolby-vision-rpu and "
-                "--dolby-vision-profile go together\n");
-        return 2;
-    }
-    if (rpu_path) {
-        int hlg = sig_transfer == 18 || (sig_transfer == 14 && atc == 18);
-        if (a->depth != 10 || y.csp != N265_CSP_I420 || sig_range == 1) {
-            fprintf(stderr, "n265: Dolby Vision profile 8 is 10-bit 4:2:0 "
-                    "at limited range: give a 4:2:0 input, 10-bit or with "
-                    "--output-depth 10, and no --range full\n");
-            return 2;
-        }
-        int ok = dv_profile == 82
-                     ? sig_colorprim == 1 && sig_colormatrix == 1 &&
-                       sig_transfer == 1
-                     : sig_colorprim == 9 && sig_colormatrix == 9 &&
-                       (dv_profile == 81 ? sig_transfer == 16 : hlg);
-        if (!ok) {
-            fprintf(stderr, "n265: Dolby Vision profile %s needs %s\n",
-                    dv_profile == 81 ? "8.1" : dv_profile == 82 ? "8.2" : "8.4",
-                    dv_profile == 81
-                    ? "--colorprim bt2020 --colormatrix bt2020nc --transfer "
-                      "smpte2084"
-                    : dv_profile == 82
-                    ? "--colorprim bt709 --colormatrix bt709 --transfer bt709"
-                    : "--colorprim bt2020 --colormatrix bt2020nc and "
-                      "--transfer arib-std-b67 (or --transfer bt2020-10 with "
-                      "--atc-sei arib-std-b67)");
-            return 2;
-        }
     }
     /* with the video on stdin, a metadata file there would read the Y4M
      * as metadata */
@@ -3918,17 +2969,6 @@ int main(int argc, char **argv)
                 return 2;
             }
     }
-    /* Dolby Vision deliveries are normally HRD-constrained, but a CRF
-     * encode is still a valid stream and is what testing and archiving
-     * want, so this only says so. */
-    if (rpu_path && !(vbv_maxrate > 0.0 && vbv_bufsize > 0.0))
-        fprintf(stderr, "n265: WARNING Dolby Vision is normally delivered "
-                "under a VBV: consider --vbv-maxrate and --vbv-bufsize\n");
-    /* 8.1's base layer is meant to be a whole HDR10 stream */
-    if (dv_profile == 81 && !have_md)
-        fprintf(stderr, "n265: WARNING a Dolby Vision 8.1 base layer is "
-                "HDR10, which carries a mastering display: consider "
-                "--master-display\n");
     char dyn_err[256];
     if (h10p_path &&
         n265_h10p_load(h10p_path, &g_h10p_tab, dyn_err, sizeof dyn_err) < 0) {
@@ -3942,20 +2982,9 @@ int main(int argc, char **argv)
     }
     g_dyn_seek = seek;
     dyn_apply(a, 0);
-    /* --verbose is N265_LEVEL_TRACE by another name: one code path, one
-     * line, and a script that wants it without a flag sets the variable.
-     * setenv does not overwrite, so an explicit N265_LEVEL_TRACE=0 in the
-     * environment still turns it on - presence is what the encoder reads,
-     * as it does for every other trace. */
+    /* --verbose is N265_LEVEL_TRACE by another name */
     if (verbose)
         setenv("N265_LEVEL_TRACE", "1", 0);
-    n265_param p;
-    a->param_default(&p);
-    p.width = y.w;
-    p.height = y.h;
-    p.csp = y.csp;
-    p.fps_num = y.fps_num;
-    p.fps_den = y.fps_den;
     /* --gop-parallel (phase 14 item 42): above one thread only, and not
      * with the options that need one encoder to see the whole input */
     if (gop_par > 1 && !show_config) {

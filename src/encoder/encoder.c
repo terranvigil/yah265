@@ -4478,6 +4478,7 @@ static struct n265_done *done_slot(n265_encoder *e)
     struct n265_done *d = &e->done[(e->done_head + e->n_done) % n];
     d->len = 0;
     d->nnal = 0;
+    d->disp = -1;
     return d;
 }
 
@@ -4562,6 +4563,10 @@ static void emit_done(n265_encoder *e, int max, size_t *out_used, int *nnal)
             e->out_cap = cap;
         }
         memcpy(e->out + *out_used, d->buf, d->len);
+        e->au[e->n_au].display_idx = d->disp;
+        e->au[e->n_au].first_nal = *nnal;
+        e->au[e->n_au].nnal = d->nnal;
+        e->n_au++;
         size_t off = *out_used;
         for (int i = 0; i < d->nnal; i++) {
             e->nal[*nnal].type = d->type[i];
@@ -7354,6 +7359,7 @@ static void join_oldest(n265_encoder *e)
     double t_j1 = e->la_prof ? prof_now() : 0.0;
     if (e->la_prof) e->prof_join += t_j1 - t_j0;
     struct n265_done *d = done_slot(e);
+    d->disp = fw->display_idx;
     /* --eos: an end of sequence NAL closes every coded video sequence, and
      * an IDR opens a new one - so the message belongs to the END of the
      * PREVIOUS access unit and is written just ahead of this one's first
@@ -9266,6 +9272,7 @@ int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
         return -1;
     *nal = e->nal;
     *nnal = 0;
+    e->n_au = 0;
     size_t out_used = 0;
     int count = 0;
 
@@ -9349,4 +9356,63 @@ int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
 
     *nnal = count;
     return (int)out_used;
+}
+
+int n265_encoder_access_units(const n265_encoder *e, const n265_au **au)
+{
+    if (!e || !au)
+        return -1;
+    *au = e->au;
+    return e->n_au;
+}
+
+int n265_encoder_reorder_depth(const n265_encoder *e)
+{
+    return e ? e->dpb_reorder : -1;
+}
+
+int n265_encoder_headers(n265_encoder *e, n265_nal **nal, int *nnal)
+{
+    if (!e || !nal || !nnal)
+        return -1;
+    *nal = e->nal;
+    *nnal = 0;
+    /* the first frame_work is free scratch only while nothing is in flight */
+    if (e->n_inflight)
+        return -1;
+    n265_frame_work *fw = &e->fw[0];
+    struct n265_done d;
+    memset(&d, 0, sizeof d);
+    int ok = 1;
+    n265_write_vps(fw);
+    ok &= !fw->rbsp.failed && pack_nal(&d, N265_NAL_VPS, fw->rbsp.buf, fw->rbsp.bytes);
+    n265_write_sps(fw);
+    ok &= !fw->rbsp.failed && pack_nal(&d, N265_NAL_SPS, fw->rbsp.buf, fw->rbsp.bytes);
+    n265_write_pps(fw);
+    ok &= !fw->rbsp.failed && pack_nal(&d, N265_NAL_PPS, fw->rbsp.buf, fw->rbsp.bytes);
+    if (ok && d.len > e->out_cap) {
+        uint8_t *o = realloc(e->out, d.len);
+        if (o) {
+            e->out = o;
+            e->out_cap = d.len;
+        } else {
+            ok = 0;
+        }
+    }
+    if (!ok) {
+        free(d.buf);
+        return -1;
+    }
+    memcpy(e->out, d.buf, d.len);
+    size_t off = 0;
+    for (int i = 0; i < d.nnal; i++) {
+        e->nal[i].type = d.type[i];
+        e->nal[i].size = d.size[i];
+        e->nal[i].payload = e->out + off;
+        off += (size_t)d.size[i];
+    }
+    e->n_au = 0;
+    *nnal = d.nnal;
+    free(d.buf);
+    return (int)d.len;
 }
