@@ -255,9 +255,9 @@ The Xeon's streams differ a little because the compiler rounds some floating-poi
 
 The Xeon's other rows rest on those four curves and on the SIMD code matching the C code bit for bit.
 
-## Same size, side by side
+## Side by side at the same size
 
-A score is one way to compare two encodes, and looking at them is the other. The clip is 90 seconds of Tears of Steel at 1080p, from the middle of the story. Both encoders ran at `medium` and wrote files of the same size. Switch between the reference and the two encodes.
+A score is one way to compare two encodes. Looking at them is the other. The clip is 90 seconds of Tears of Steel at 1080p, from the middle of the story. Both encoders ran at `medium` and wrote files of the same size. Switch between the reference and the two encodes.
 
 <!--gen:fig-frames-->
 <figure class="compare">
@@ -279,7 +279,7 @@ A score is one way to compare two encodes, and looking at them is the other. The
 <div class="cmp-pane" data-name="yah265" data-first><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-1153-yah265.webp" alt="The same crop from yah265's encode."><span class="cmp-tag ours"><b>yah265</b> · VMAF v1 87.4 on this frame · 15.95 MB file · 4x zoom</span></div>
 <div class="cmp-pane" data-name="x265"><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-1153-x265.webp" alt="The same crop from x265's encode."><span class="cmp-tag"><b>x265</b> · VMAF v1 86.3 on this frame · 15.88 MB file · 4x zoom</span></div>
 </div>
-<figcaption>The three hardest moments of the clip: the lowest-scoring frame, by the two encoders' mean VMAF v1, cropped to the region where the two encodes lose detail most differently, one from each of the three lowest-scoring shots. yah265 keeps more of the texture in the first crop. x265 keeps the eyebrows sharper in the second. The third is close. <code>scripts/frame_crops.sh</code> makes the crops. Tears of Steel: (CC) Blender Foundation, <a href="https://mango.blender.org">mango.blender.org</a>, CC-BY 3.0.</figcaption>
+<figcaption>These are the three hardest moments of the clip. Each is the frame where the two encoders' mean VMAF v1 is lowest in one of the three lowest-scoring shots, cropped to the region where the two encodes lose detail most differently. yah265 keeps more of the texture in the first crop. x265 keeps the eyebrows sharper in the second. The third is close. <code>scripts/frame_crops.sh</code> makes the crops. Tears of Steel: (CC) Blender Foundation, <a href="https://mango.blender.org">mango.blender.org</a>, CC-BY 3.0.</figcaption>
 </figure>
 <!--/gen:fig-frames-->
 

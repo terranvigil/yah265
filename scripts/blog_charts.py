@@ -899,17 +899,18 @@ def frames_figure(count, caption):
     return "\n".join(out)
 
 
-# The last sentence of FRAMES_ALL is what the three crops look like. Look at
-# them again and rewrite it whenever scripts/frame_crops.sh picks new ones.
-FRAMES_RULE = ("the lowest-scoring frame, by the two encoders' mean VMAF v1, cropped to the "
-               "region where the two encodes lose detail most differently")
-FRAMES_ONE = (f"The hardest moment of a 90-second Tears of Steel clip at 1080p: {FRAMES_RULE}. "
-              "Both files are the same size to within 0.5%. "
-              '<a href="results.html#same-size-side-by-side">Results</a> has the next two '
-              "hardest moments, one of them a crop where x265 holds up better.")
-FRAMES_ALL = (f"The three hardest moments of the clip: {FRAMES_RULE}, one from each of the "
-              "three lowest-scoring shots. yah265 keeps more of the texture in the first crop. "
-              "x265 keeps the eyebrows sharper in the second. The third is close. "
+# Three sentences of FRAMES_ALL say what the crops look like. Look at the
+# crops again and rewrite them whenever scripts/frame_crops.sh picks new ones.
+FRAMES_CROP = "cropped to the region where the two encodes lose detail most differently"
+FRAMES_ONE = ("This is the hardest moment of a 90-second Tears of Steel clip at 1080p. It's the "
+              f"frame where the two encoders' mean VMAF v1 is lowest, {FRAMES_CROP}. Both files "
+              "are the same size to within 0.5%. "
+              '<a href="results.html#side-by-side-at-the-same-size">Results</a> has the next two '
+              "hardest moments. In one of them x265 holds up better.")
+FRAMES_ALL = ("These are the three hardest moments of the clip. Each is the frame where the two "
+              "encoders' mean VMAF v1 is lowest in one of the three lowest-scoring shots, "
+              f"{FRAMES_CROP}. yah265 keeps more of the texture in the first crop. x265 keeps the "
+              "eyebrows sharper in the second. The third is close. "
               "<code>scripts/frame_crops.sh</code> makes the crops.")
 FRAMES_PLAYER = ('Scrub the whole clip yourself in the <a href="compare/tears/">comparison '
                  "player</a>.")

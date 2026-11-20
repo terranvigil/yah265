@@ -33,7 +33,7 @@ The new ffmpeg is at `build-ffmpeg/ffmpeg/ffmpeg`. [Build and first encode](star
 
 On this site "faster" compares wall time for files of the same size, so 2x faster is half the time. Both encoders run `--preset medium` with SIMD on every core. The capped VBR cells share a target bitrate where the others share a size.
 
-## Same size, side by side
+## Side by side at the same size
 
 The two encodes below are the same size. Switch between the reference and each of them.
 
@@ -45,7 +45,7 @@ The two encodes below are the same size. Switch between the reference and each o
 <div class="cmp-pane" data-name="yah265" data-first><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-701-yah265.webp" alt="The same crop from yah265's encode."><span class="cmp-tag ours"><b>yah265</b> · VMAF v1 88.3 on this frame · 15.95 MB file · 4x zoom</span></div>
 <div class="cmp-pane" data-name="x265"><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-701-x265.webp" alt="The same crop from x265's encode."><span class="cmp-tag"><b>x265</b> · VMAF v1 84.4 on this frame · 15.88 MB file · 4x zoom</span></div>
 </div>
-<figcaption>The hardest moment of a 90-second Tears of Steel clip at 1080p: the lowest-scoring frame, by the two encoders' mean VMAF v1, cropped to the region where the two encodes lose detail most differently. Both files are the same size to within 0.5%. <a href="results.html#same-size-side-by-side">Results</a> has the next two hardest moments, one of them a crop where x265 holds up better. Tears of Steel: (CC) Blender Foundation, <a href="https://mango.blender.org">mango.blender.org</a>, CC-BY 3.0.</figcaption>
+<figcaption>This is the hardest moment of a 90-second Tears of Steel clip at 1080p. It's the frame where the two encoders' mean VMAF v1 is lowest, cropped to the region where the two encodes lose detail most differently. Both files are the same size to within 0.5%. <a href="results.html#side-by-side-at-the-same-size">Results</a> has the next two hardest moments. In one of them x265 holds up better. Tears of Steel: (CC) Blender Foundation, <a href="https://mango.blender.org">mango.blender.org</a>, CC-BY 3.0.</figcaption>
 </figure>
 <!--/gen:fig-frames-->
 
