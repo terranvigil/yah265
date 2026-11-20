@@ -38,6 +38,11 @@ Every build ends with a link check. It fails when:
 to an untracked file, and on a stale chart. It learns that a chart is stale
 by running each chart script with `--check`.
 
+`make docs-recipes` runs every `sh` block in the README and the pages on a
+tiny clip, with `build/y265` and the ffmpeg that `scripts/build-ffmpeg.sh`
+builds. `scripts/docs_recipes.py --list` shows what each block gets: run,
+skipped with its reason, or waiting on a tool.
+
 ## What's where
 
 | file | page |

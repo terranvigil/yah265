@@ -6,26 +6,30 @@
 A recipe is a fenced block marked `sh` in README.md or a site page. Each
 runs under `bash -euo pipefail` in its own empty directory that holds a
 tiny clip under every input name the docs use. `y265`, `ffmpeg` and
-`ffprobe` resolve to the binaries named on the command line.
+`ffprobe` resolve to the binaries named on the command line, both as bare
+names and at the paths the docs give them (build/y265, build-rel/y265,
+build-ffmpeg/ffmpeg/ffmpeg). The directory also links the repo's scripts/,
+docs/ and site/, so a recipe that runs a script finds what it reads.
 
   scripts/docs_recipes.py --list                 name every recipe and what
                                                  would happen to it. Runs nothing
   scripts/docs_recipes.py --y265 build-rel/y265 --ffmpeg-dir build-ffmpeg/ffmpeg
   scripts/docs_recipes.py ... --only guide       one page's recipes
 
-NOT WIRED INTO THE BUILD YET. It waits for the y265 binary and
-scripts/build-ffmpeg.sh to land on main. Until then only --list is meant
-to be used, and scripts/build_site.py doesn't call it.
+`make docs-recipes` runs it on build/y265 and the ffmpeg that
+scripts/build-ffmpeg.sh leaves in build-ffmpeg/ffmpeg.
 
 How a block is treated:
   run     the default
   skip    the line above the fence is <!-- recipe: skip REASON -->, or the
           block builds, installs, publishes or fetches (SLOW below). Those
           are run by the gates that own them
-  needs   it names a tool that wasn't given or found; that fails the run
+  needs   it names a tool that wasn't given or found, or libx265 when the
+          ffmpeg given wasn't built --with-x265; that fails the run
           unless --allow-missing
 A block marked <!-- recipe: after PAGE:LINE --> runs in the directory the
 named recipe left, for a second step that reads the first one's output.
+A mark may sit above a generated span's opening comment.
 """
 import argparse
 import glob
@@ -43,6 +47,8 @@ PAGES = ["README.md"] + sorted(
     if os.path.basename(p) not in ("README.md", "shell-test.md"))
 FENCE = re.compile(r"(?m)^```(sh|bash)\n(.*?)^```", re.S)
 MARK = re.compile(r"<!--\s*recipe:\s*(skip|after)\s*(.*?)\s*-->\s*$")
+GEN_OPEN = re.compile(r"^<!--gen:[\w-]+-->\s*$")
+REPO_LINKS = ("scripts", "docs", "site")
 # builds, installs, publishing and downloads: owned by other gates
 SLOW = re.compile(r"\b(make\s+\w|meson\b|ninja\b|git\s+(worktree|push|clone|commit|add)\b|"
                   r"scripts/(site|build-ffmpeg|conformance|fetch_corpus)\S*|brew\b|pip\b|curl\b|"
@@ -51,8 +57,9 @@ TOOLS = ("y265", "ffmpeg", "ffprobe", "ffplay", "x265", "vmaf", "dec265", "MP4Bo
 # every input name a page uses, and the tiny clip that stands in for it
 Y4M_NAMES = ("in.y4m", "input.y4m", "clip.y4m", "tears_1080p.y4m", "source.y4m")
 RAW_NAMES = ("in.yuv",)
-MUXED_NAMES = ("in.mp4", "in.mov", "in.mkv")
-CLIP_W, CLIP_H, CLIP_N, CLIP_FPS = 64, 64, 12, 24
+MUXED_NAMES = ("in.mp4", "in.mov", "in.mkv", "master.mov", "tearsofsteel_4k.mov")
+# CIF, because the v1 scorer in v1_ladder.py refuses a much smaller picture
+CLIP_W, CLIP_H, CLIP_N, CLIP_FPS = 352, 288, 12, 24
 TIMEOUT_S = 120
 
 
@@ -64,8 +71,10 @@ def recipes(only=None):
         text = open(os.path.join(ROOT, rel)).read()
         for m in FENCE.finditer(text):
             line = text.count("\n", 0, m.start()) + 1
-            before = text[:m.start()].rstrip("\n").rsplit("\n", 1)[-1]
-            mark = MARK.search(before)
+            above = text[:m.start()].rstrip("\n").split("\n")
+            while len(above) > 1 and GEN_OPEN.match(above[-1]):
+                above.pop()
+            mark = MARK.search(above[-1])
             body = "\n".join(re.sub(r"^\$ ", "", ln) for ln in m[2].splitlines())
             out.append({"id": f"{os.path.basename(rel)[:-3]}:{line}", "page": rel, "line": line,
                         "body": body, "mark": (mark[1], mark[2]) if mark else None})
@@ -80,6 +89,8 @@ def plan(r, have):
     if slow:
         return "skip", f"builds or publishes ({slow[0].strip()})"
     used = [t for t in TOOLS if re.search(rf"(?<![\w./-]){re.escape(t)}(?![\w-])", r["body"])]
+    if "libx265" in r["body"] and "ffmpeg" in used:
+        used.append("libx265")
     missing = [t for t in used if t not in have]
     if missing:
         return "needs", ", ".join(missing)
@@ -97,6 +108,16 @@ def write_y4m(path):
 
 
 def stage(d, tools):
+    for sub in REPO_LINKS:
+        os.symlink(os.path.join(ROOT, sub), os.path.join(d, sub))
+    places = {"y265": ("build/y265", "build-rel/y265"),
+              "ffmpeg": ("build-ffmpeg/ffmpeg/ffmpeg",),
+              "ffprobe": ("build-ffmpeg/ffmpeg/ffprobe",)}
+    for name, rels in places.items():
+        for rel in rels:
+            if name in tools:
+                os.makedirs(os.path.join(d, os.path.dirname(rel)), exist_ok=True)
+                os.symlink(os.path.abspath(tools[name]), os.path.join(d, rel))
     src = os.path.join(d, Y4M_NAMES[0])
     write_y4m(src)
     for n in Y4M_NAMES[1:]:
@@ -110,7 +131,7 @@ def stage(d, tools):
         # lossless, so making the stand-in isn't a recipe under test
         for n in MUXED_NAMES:
             subprocess.run([tools["ffmpeg"], "-v", "error", "-y", "-i", src, "-c:v", "ffv1",
-                            os.path.join(d, n if n.endswith(".mkv") else n)], check=False)
+                            os.path.join(d, n)], check=False)
 
 
 def run(todo, tools, keep):
@@ -164,8 +185,14 @@ def main():
     for t in TOOLS:
         if t not in tools and t not in ("y265", "ffmpeg", "ffprobe") and shutil.which(t):
             tools[t] = shutil.which(t)
+    have = set(tools)
+    if "ffmpeg" in tools:
+        enc = subprocess.run([tools["ffmpeg"], "-hide_banner", "-encoders"],
+                             capture_output=True, text=True).stdout
+        if re.search(r"\blibx265\b", enc):
+            have.add("libx265")
     rs = recipes(a.only)
-    plans = [(r, *plan(r, tools)) for r in rs]
+    plans = [(r, *plan(r, have)) for r in rs]
     if a.list:
         for r, act, why in plans:
             first = next((ln for ln in r["body"].splitlines() if ln.strip()), "")

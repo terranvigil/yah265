@@ -40,7 +40,7 @@ The same name doesn't promise the same default. [Options](options.md) lists ever
 | `--recon` | `--dump-recon` | raw YUV |
 | `--log-level` | `--verbose` | prints the resolved configuration |
 | `--hdr10-opt` | `--hdr-opt` | either name works. It turns on yah265's own HDR tuning, which works differently |
-| `--b-adapt` | `--b-adapt` | 0 and 1 mean the same. 2 isn't offered |
+| `--b-adapt` | `--b-adapt` | 0 and 1 mean the same. 2 to 4 are experimental |
 | `--dup-threshold` | `--dup-threshold` | the unit is different. Start from 0, the default |
 | `--film-grain` | `--film-grain` | x265 takes a file of grain parameters. `y265` estimates the grain itself and takes a strength |
 | `--profile` | none | the input and `--output-depth` pick the profile |

@@ -16,7 +16,7 @@ BUILD ?= build
 # keeps working.
 BUILD10 ?= build10
 
-.PHONY: build build8 build10 build-rel build-x86 test-x86 checkasm-x86-asan conformance-fast-x86 x86-identity build10-x86 checkasm10-x86 checkasm10-x86-asan conformance10-fast-x86 test smoke10 conformance conformance-fast conformance10 conformance10-fast conformance444 conformance444-fast conformance444-10 conformance444-10-fast conformance422 conformance422-fast conformance422-10 conformance422-10-fast provenance asan asan10 asan444 asan422 determ determ-fast determ10 determ444 determ422 board board-quick goal-legs clean checkasm-bench checkasm-asan checkasm10-bench checkasm10-asan clean-scratch
+.PHONY: build build8 build10 build-rel build-x86 test-x86 checkasm-x86-asan conformance-fast-x86 x86-identity build10-x86 checkasm10-x86 checkasm10-x86-asan conformance10-fast-x86 test smoke10 conformance conformance-fast conformance10 conformance10-fast conformance444 conformance444-fast conformance444-10 conformance444-10-fast conformance422 conformance422-fast conformance422-10 conformance422-10-fast provenance asan asan10 asan444 asan422 determ determ-fast determ10 determ444 determ422 board board-quick goal-legs clean checkasm-bench checkasm-asan checkasm10-bench checkasm10-asan clean-scratch docs-recipes
 
 build: build8 build10
 
@@ -305,3 +305,10 @@ clean:
 #   make clean-scratch DAYS=7    only the ones older than a week
 clean-scratch:
 	@DAYS=$(DAYS) DRY=$(DRY) scripts/clean_scratch.sh
+
+# Run every sh block in the README and the site pages on a tiny clip.
+# The ffmpeg recipes need scripts/build-ffmpeg.sh first, and the libx265
+# ones its --with-x265; RECIPES_FLAGS=--allow-missing skips what's absent.
+FFMPEG_DIR ?= build-ffmpeg/ffmpeg
+docs-recipes: build
+	scripts/docs_recipes.py --y265 $(BUILD)/y265 --ffmpeg-dir $(FFMPEG_DIR) $(RECIPES_FLAGS)

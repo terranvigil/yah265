@@ -107,6 +107,7 @@ $ cat clip.y4m | x265 --input - --y4m --preset medium --crf 28 -o ref.hevc
 
 Then encode with yah265 and move `--crf` until its file is within 1% of x265's:
 
+<!-- recipe: after check-it-yourself:104 -->
 ```sh
 $ cat clip.y4m | build-rel/y265 - -o ours.hevc --crf 24
 $ ls -l ref.hevc ours.hevc

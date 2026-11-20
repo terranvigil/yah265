@@ -103,6 +103,7 @@ Most people meet an encoder through ffmpeg. An outside tester would run it that 
 
 yah265 took less time and scored higher on this clip. Take it as an example, since it's one run of each encoder. These are the commands. The last one runs the same encode through yah265's own command line.
 
+<!-- recipe: skip encodes a minute of 1080p three times; the y265 line is checked in start.md -->
 <!--gen:ff-cmd-->
 ```sh
 ffmpeg -ss 60 -i tearsofsteel_4k.mov -frames:v 1440 -an -vf scale=1920:858:flags=bicubic,format=yuv420p \

@@ -177,6 +177,7 @@ A Y4M file works without the pipe, as `build-rel/y265 input.y4m -o out.hevc --cr
 
 A file from the ffmpeg route is already an MP4. `y265` writes a bare stream, which ffmpeg plays as it is and wraps without re-encoding:
 
+<!-- recipe: after start:170 -->
 ```sh
 ffmpeg -i out.hevc -c copy out.mp4
 ```

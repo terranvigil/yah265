@@ -235,7 +235,7 @@ All of these change the picture, so read them as tools for specific sources. Non
 |---|---|---|
 | `--film-grain <s>` | estimates the source's grain and describes it in an SEI message. A decoder that supports the message adds grain back | grainy film. 8-bit 4:2:0 only |
 | `--film-grain-denoise 1` | with `--film-grain`, also removes the grain before coding. This is the half that saves bits | when the player is known to synthesize grain |
-| `--nr-intra`, `--nr-inter` | attenuate coefficients that look like noise before they're quantized | noisy sources. `--nr-intra 0 --nr-inter 0` turns off what `medium` sets |
+| `--nr-intra`, `--nr-inter` | attenuate coefficients that look like noise before they're quantized | noisy sources. Both are off by default |
 | `--mcstf` | averages each anchor picture with its motion-compensated neighbors before coding | noisy sources. It adds latency |
 | `--selective-mcstf` | skips that filter on pictures that measure clean | a mixed library. Flat-shaded animation loses quality to `--mcstf` without it |
 

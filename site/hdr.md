@@ -104,6 +104,7 @@ Two cases get a warning and still encode. Dolby Vision without a VBV is one, bec
 
 ## Encoding HDR10+ and Dolby Vision 8.1
 
+<!-- recipe: skip needs an HDR10+ JSON and a Dolby Vision RPU file -->
 ```sh
 ffmpeg -i master.mov -pix_fmt yuv420p10le -strict -1 -f yuv4mpegpipe - |
   y265 - -o out.hevc --crf 22 \
