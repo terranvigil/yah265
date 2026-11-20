@@ -320,7 +320,7 @@ An average can hide a bad stretch, so this section looks at the low end of the s
 | file size | 15.95 MB | 15.88 MB | +0.4% |
 <!--/trust:tears-table-->
 
-Both files came from ffmpeg at `medium`, with <!--trust:tears-crfs-->`-crf 25` for yah265 and `-crf 25.3` for x265<!--/trust:tears-crfs-->, and every frame was scored. yah265's lead on the worst twentieth of the frames is wider than its lead on the average.
+Both files came from ffmpeg at `medium`, with <!--trust:tears-crfs-->`-crf 25` for yah265 and `-crf 25.3` for x265<!--/trust:tears-crfs-->. Every frame was scored. yah265's lead on the worst twentieth of the frames is wider than its lead on the average.
 
 Each parity cell records one tail figure, the score of its lowest frame. The table sets the lead there beside the lead on the mean, for the short clips and the two-minute segments.
 
