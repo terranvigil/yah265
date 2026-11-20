@@ -79,6 +79,16 @@ LOGOS = ["yah265-logo-light.png", "yah265-logo-dark.png"]
 CHART_SCRIPTS = ["blog_charts.py", "site_front.py", "charts_internals.py",
                  "charts_results.py"]
 
+# Working notes that aren't published with the repository. A link to one
+# counts as a link to a missing file, on the site and in the README.
+PRIVATE = re.compile(
+    r"^(docs/(plan|ideas|x86-plan|x265-feature-audit|parity-journal|threading-design|"
+    r"instruments)\.md|docs/phase[^/]*\.md|docs/research/|docs/[^/]*handoff[^/]*|"
+    r"(.*/)?HANDOFF[^/]*|(.*/)?CLAUDE\.md)", re.I)
+
+# The link card of a page that names no image of its own.
+DEFAULT_CARD = "assets/blog/card.png"
+
 REPO_HREF = re.compile(
     r"(\.\./)?(docs|scripts|spec|src|include|tests|cli)/|"
     r"(\.\./)?(Makefile|README\.md|LICENSE|CONTRIBUTING\.md)$")
@@ -331,14 +341,18 @@ def build(strict=False):
             content = re.sub(r"<h1[^>]*>yah265</h1>", f'<h1 class="mark">{LOGO}</h1>',
                              content, count=1)
         content = content.replace("</h1>", "</h1>" + SMPTE, 1)
+        content = narrow_charts(content)
         content = content.replace("<table>", '<div class="tbl"><table>')
         content = content.replace("</table>", "</table></div>")
+        if target == "options.html":
+            # three columns don't fit a phone; site.css stacks these rows there
+            content = content.replace('<div class="tbl"><table>', '<div class="tbl"><table class="stack">')
         items = h2_items(getattr(md, "toc_tokens", []))
         sections = render_sections(items)
         if src.name not in UNLISTED:
             index.extend(search_records(target, labels.get(target, short), content))
 
-        image = meta.get("image", "")
+        image = meta.get("image", "") or DEFAULT_CARD
         social = ""
         if image:
             if not (tmp / image).exists():
@@ -385,12 +399,36 @@ def build(strict=False):
     return problems, cited
 
 
+def narrow_charts(content):
+    """A chart drawn for the 900-unit canvas has a 480-unit twin beside it,
+    name-narrow.svg. Phones get the twin."""
+    def sub(m):
+        twin = m[2] + "-narrow.svg"
+        if not (SRC / twin).exists():
+            return m[0]
+        return (f'<picture><source media="(max-width: 40rem)" srcset="{twin}">'
+                f"{m[0]}</picture>")
+    return re.sub(r'<img ([^>]*?)src="(assets/[^"]+?)\.svg"[^>]*>', sub, content)
+
+
+def check_readme():
+    """The README is read on GitHub and never built, so its links to
+    unpublished notes are looked for here."""
+    text = (ROOT / "README.md").read_text()
+    return [f"README.md: {h} (not published)"
+            for h in re.findall(r"\]\(([^)#\s]+)", text) if PRIVATE.match(h)]
+
+
 def check_repo_links(cited, strict):
-    """A cited repository file must exist and must not be git-ignored.
-    Under --strict it must be tracked too."""
+    """A cited repository file must exist, must be one the repository
+    publishes and must not be git-ignored. Under --strict it must be
+    tracked too."""
     bad = []
     for href, page in sorted(cited.items()):
         path = href.split("#")[0]
+        if PRIVATE.match(path):
+            bad.append(f"{page}: {href} (not published)")
+            continue
         if not (ROOT / path).exists():
             bad.append(f"{page}: {href} (no such file in the repository)")
             continue
@@ -420,9 +458,6 @@ def check_links():
                 continue
             path, _, frag = href.partition("#")
             name = path or p.name
-            if path.startswith("compare/"):
-                # the comparison player is published beside the site
-                continue
             if path.startswith("assets/"):
                 if not (OUT / path).exists():
                     bad.append(f"{p.name}: {href}")
@@ -453,7 +488,7 @@ def check_charts():
 def run(strict):
     """Build and check. Returns the list of problems."""
     problems, cited = build(strict)
-    problems += check_links() + check_repo_links(cited, strict)
+    problems += check_links() + check_repo_links(cited, strict) + check_readme()
     if strict:
         problems += check_charts()
     if problems:
