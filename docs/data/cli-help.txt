@@ -1,0 +1,602 @@
+# y265 0.0.1, release build 12875ae0
+usage: y265 [options] <input.y4m|input.yuv|->
+  One binary, every profile: the encoder is chosen from the input.
+  A C420 y4m is coded Main (8-bit), a C420p10 one Main10, a C444
+  one Main 4:4:4, a C444p10 one Main 4:4:4 10, and a C422 or
+  C422p10 one Main 4:2:2 10 (Table A.2 has no 8-bit 4:2:2 profile)
+  - no flag says so. The chroma format is a runtime SPS property;
+  only the sample width picks a library. See --output-depth.
+  -o <file>       output Annex-B bitstream (default: out.hevc)
+  --frames <n>    encode at most n frames
+  --output-depth <8|10>  code at this sample width (default: the
+                  input's). 10 on 8-bit input is the deliberate
+                  case: a Main10 stream of SDR content, upshifted
+                  by a pure left shift of two as it is read - one
+                  pass per frame, no added latency. 8 on 10-bit
+                  input is refused: there is no downshift here.
+  --seek <n>      drop the first n frames of the input. The
+                  picture the encoder sees first is frame n of
+                  the source and its pts starts at 0, so the
+                  stream is the one you get by trimming the
+                  input first. Both readers; a pipe is read
+                  through, a file is seeked over.
+
+  RAW planar input, for a source with no y4m header. The reader is
+  selected by --input-res (or by a .yuv name), and then the
+  geometry a header would have carried has to be given in full -
+  size, chroma format and frame rate - because a raw file says
+  nothing about itself and a guess codes garbage without a word.
+  --input-res <WxH>  picture size, e.g. 352x288
+  --input-csp <c>  i420, i422 or i444 (or the chroma_format_idc
+                  itself: 1, 2, 3). i400 is refused by name.
+  --fps <N[/D]>   frame rate: 30, 30000/1001 or 29.97. A ratio is
+                  kept exactly; a decimal becomes N/10^k and is
+                  NOT rounded to the nearest broadcast rate.
+  --input-depth <8|10>  sample width of the raw file (default 8).
+                  10-bit is 16-bit little-endian samples, as
+                  ffmpeg's yuv420p10le writes them.
+
+  --preset <name>  speed/quality point, in x265's names.
+                  Rungs, fastest first: fast, medium (default),
+                  slow, slower. x265's other six names are
+                  known and refused, naming the nearest rung
+                  we have; `faster` and `veryfast` were built,
+                  measured against the x265 preset of the same
+                  name and refused (docs/phase13.md, C2), and so
+                  were `veryslow` and `placebo` (docs/phase14.md,
+                  item 5).
+                  (default medium, the point the project's goals are
+                  read at: at or ahead of x265 medium on every
+                  corpus clip, in less time).
+                  Sets the DEFAULTS of the tuning knobs; any flag or
+                  N265_* variable you give yourself still wins.
+  -t, --tune <name>  x265's five tune names, answered one at a
+                  time. ACCEPTED: zerolatency (--bframes 0
+                  --rc-lookahead 1 --b-adapt 0 --cutree 0 and one
+                  frame in flight - a composition of knobs this
+                  encoder already has, nothing new). REFUSED BY
+                  NAME, each printing its own reason: psnr and
+                  ssim (metric fitting, and the band decides on
+                  VMAF-NEG), grain (it is --rc-grain's damping
+                  constants, not --film-grain), fastdecode (two
+                  of its five legs are not flags we own). A flag
+                  you name yourself beats the tune, and the tune
+                  beats the preset.
+  --qp <n>        fixed QP (default 26). Range 0..51 at 8 bits,
+                  -12..51 at Main10 (QpBdOffsetY, 7.4.3.3)
+  --crf <f>       constant rate factor (base QP from f; overrides
+                  --qp). Same range as --qp, negative included at
+                  Main10: giving the flag at all is what turns CRF
+                  on, so --crf -6 is a rate factor and not an off
+                  switch. THE AXIS MOVED ON 2026-09-16: the number
+                  carries the FRAME RATE (1.8 QP per doubling of
+                  it, zero at 25 fps) and no longer carries the
+                  clip's absolute energy, so it transfers between
+                  clips the way a user expects. A crf number
+                  recorded before that date reproduces under
+                  N265_CRF_LEGACY=1
+  --bitrate <k>   single-pass ABR at k kbit/s (overrides --crf)
+  --ref <n>       references per list, 1..5 (default 1;
+                  `slower` runs 2, `veryslow` and `placebo` more).
+                  The DPB the shape needs is solved from it and
+                  the level raised to hold it; a shape the pool
+                  cannot hold is refused and says so.
+  --b-adapt <0-4> adaptive B run length from the lookahead: 0 fixed,
+                  1 the motion rule (default), 2/3 refused priced arms,
+                  4 the bits model (docs/phase7-gop-design.md)
+  --rdoq-level <0|1|2>  how much rate-distortion optimised
+                  quantisation to run. x265's numbering, so that a
+                  number carries over; ours is N265_RDOQ and counts
+                  the same three encoders in another order
+                  (docs/instruments.md).
+                  0 off, plain quantisation everywhere: 16% off our
+                    wall, and about 18 BD points of quality given
+                    back (only 2 of 15 corpus clips stay ahead of
+                    x265 medium). It is what puts our worst clip
+                    under x265's own wall.
+                  1 the final encode only (medium's default): the
+                    lattice once per coded block, at the commit.
+                  2 every RD decision (slow's and slower's default):
+                    8% more wall for about 3 BD points.
+                  Left off, the preset picks; given, it wins over
+                  the preset and over N265_RDOQ.
+  (N265_PSY=F adds the psy term to the quantiser's distortion)
+  --tu-inter-depth <1..4>  transform-tree levels an inter CU
+                  may use; --tu-intra-depth the same for intra.
+                  x265's names and x265's numbering, which is
+                  the SPS max_transform_hierarchy_depth plus one.
+                  1 codes no split flag at all (a partitioned
+                  inter CU still infers one); 2 is our default
+                  and every stream written before 2026-09-14;
+                  3 and 4 are what x265 veryslow and placebo run.
+                  Left off, the preset picks.
+  --cbqpoffs <n>  pps_cb_qp_offset, -12..12 (the preset's if not given)
+  --crqpoffs <n>  pps_cr_qp_offset, -12..12 (the same)
+                  The chroma quantiser's offset from luma's, added
+                  into qPi before Table 8-10 (8.6.1). NEGATIVE
+                  spends more on chroma; positive moves those bits
+                  to luma. medium names -1 for both from the 720p
+                  class up, where VMAF v1 scores chroma, and 0
+                  below it; every other preset names 0
+                  (docs/phase14.md item 51). A flag given, 0
+                  included, wins over the preset.
+  --pcm           phase-0 I_PCM mode (lossless, huge)
+  --lossless      mathematically lossless: transquant bypass on
+                  every CU, so the reconstruction IS the source.
+                  Turns off rate control, RDOQ, sign-bit hiding,
+                  AQ, cu-tree, psy-rd and both loop filters (all
+                  of them price against a quantiser there is not).
+                  --qp/--crf/--bitrate are ignored; prediction and
+                  mode decision still run, on bits alone.
+  --ctu <16|32|64>  coding tree block size. The compiled-in
+                  default is 64 and every preset offers its own:
+                  32 from `veryfast` through `medium`, 64 at
+                  `slow` and above. `medium`'s 32 is
+                  RESOLUTION-AWARE - on a UHD-class picture (luma
+                  w*h at or above 3840*1600, so 2160p and the
+                  scope crops of it) it offers 64 instead, and
+                  with it the depth-0 residual gate that makes
+                  the 64x64 node affordable there
+                  (N265_CB64_SKIPGATE, docs/instruments.md): the
+                  pair is worth four to twelve points of
+                  BD-VMAF-NEG at 2160p for the same clock at one
+                  thread and up to 1.10x at auto on a cheap clip.
+                  The tree is taken only where the planned base
+                  QP is at or above N265_UHD_QP (31); below it
+                  medium codes its 32x32 tree. The gate rides with the
+                  tree and only on that rung - `slow` and
+                  `slower` code a 64x64 tree at every resolution
+                  and are not gated. This flag overrides the
+                  tree, at every resolution, and never the gate.
+  --keyint <n>    key frame period in frames (default 250)
+  --open-gop      code the --keyint picture as a CRA, keeping the
+                  pyramid that straddles it as leading pictures
+                  (default; --no-open-gop for an IDR there). A
+                  scene cut is an IDR either way.
+  --radl <n>      of the CRA's leading pictures, how many are RADL
+                  rather than RASL - decodable when the decode
+                  starts at that CRA (default 0)
+  --bframes <0..15> B frames between anchors, hierarchical (default 7).
+                  Above 7 the window has to hold the mini-GOP, so
+                  --rc-lookahead must be at least --bframes + 1.
+  --aq <0|1>      variance adaptive quantization (default 1)
+  --rc-lookahead <1..60>  lookahead depth in frames (default 20,
+                  x265 medium's own; 12 before 2026-09-12).
+                  Latency is the lookahead depth in frames. The deep
+                  window (--rc-lookahead 24 --bframes 15) is an
+                  opt-in mode: 24 frames of latency and a deeper
+                  DPB, for static or drawn content
+                  (docs/phase7-gop-design.md).
+  --cutree <0|1>  lookahead propagation QP offsets (default 1)
+  --dup-threshold <f>  NEAR-duplicate bound for the frame
+                  duplicate path, in 8-bit luma levels per lowres
+                  pixel (default 0). 0 is the strict form and is
+                  every stream this encoder has written: only a
+                  source already in the DPB arms the path. Above
+                  0 a frame within that distance of a reference
+                  is coded all-skip toward it, which is what
+                  reaches telecined and frame-doubled content,
+                  where the repeat is not bit-exact. The distance
+                  is NOT x265's PSNR threshold and its numbers do
+                  not carry over; 0.25 and 0.5 are what the
+                  corpus was measured at (docs/instruments.md).
+  --threads <n>   worker threads; 0 = one per online CPU (default 0).
+                  Output is byte-identical at every value.
+  --gop-parallel <n>  code a long input as segments on n encoder
+                  instances at once, --threads / n threads each,
+                  joined at IDRs into one stream (0 = off, the
+                  default). Only above one thread and past one
+                  segment (--keyint frames); the stream is not
+                  the serial one. No HRD timing SEI on a joined
+                  stream; not with --pass, --qpfile, --zones,
+                  --csv, --shot-stats or --hrd-concat. A file is
+                  read by each instance; a pipe is held in a
+                  window of (n + 1.5) x --keyint frames.
+  --dump-recon <file>  write reconstruction as raw YUV (the
+                  conformance gate compares decoders against it)
+  --shot-window <n>  OPT-IN shot planner: buffer up to n frames so
+                  the encoder can price a whole shot and offset its
+                  base QP against the shots before it (0 = off, the
+                  default; --crf only). LATENCY IS n FRAMES - 2.5 s
+                  at 60 and 24 fps, 1 s at 60 and 60 fps - and the
+                  queue holds n more source pictures, about 0.17
+                  MiB each at CIF, 1.6 at 720p and 3.6 at 1080p, so
+                  --shot-window 120 takes crowd_run_1080p from 357
+                  to 717 MB of peak RSS. Max 300. What it buys and
+                  what it costs the per-shot quality spread:
+                  docs/phase7-shot-design.md.
+  Cheap SEIs and sub-layers. Signalling, except the last, which puts a
+  temporal id in a VCL NAL header. All off by default.
+  --idr-recovery-sei  a recovery point SEI (D.2.8) at every IRAP:
+                  recovery_poc_cnt 0, exact_match 1. It is what a
+                  random-access player looks for.
+  --pic-struct <n>  Table D.2's pic_struct in the pic_timing SEI
+                  (0 frame, 7 frame doubling, 8 frame tripling),
+                  and with it frame_field_info_present_flag in the
+                  VUI. It carries pulldown and field repetition.
+                  Needs a buffer: pic_timing is written only where
+                  the HRD is.
+  --hrd-concat    the concatenation flag in the first key frame's
+                  buffering period SEI: this access unit was
+                  spliced onto another stream, so C.2.3 reads the
+                  removal delay delta rather than a clock the
+                  splice broke. Needs a buffer.
+  --temporal-layers  put the NON-REFERENCE B leaves in temporal
+                  sub-layer 1: nuh_temporal_id_plus1 2 on their
+                  slice NALs, sps/vps_max_sub_layers_minus1 1, and
+                  the profile_tier_level and hrd_parameters tails
+                  that go with them. A player can then drop the
+                  sub-layer and halve the frame rate without
+                  parsing a slice. The leaves are the only
+                  pictures that CAN go there - 7.4.2.2 forbids a
+                  lower layer from referencing a higher one, and
+                  a leaf is referenced by nothing.
+  --intra-refresh  NOT IMPLEMENTED and refused by name: a
+                  periodic intra refresh is worth its recovery
+                  point only if nothing in the refreshed region
+                  reads an unrefreshed sample, and that reaches
+                  mode decision (merge and AMVP candidates are
+                  inherited, not clamped), constrained intra
+                  prediction (which we do not have) and the plan
+                  builder. Priced in docs/phase14.md item 15 and
+                  left for its own item; the refusal prints the
+                  whole reason.
+  --scaling-list <s>  NOT IMPLEMENTED and refused by name; the
+                  message says why (it is a quantiser item, not a
+                  signalling one).
+
+  Rate control, exposed. Every one of these is inert unless you name
+  it, and each is refused rather than ignored where the mode it
+  needs is absent.
+  --crf-min <f>   floor the rate factor --crf may be coded at.
+  --crf-max <f>   ...and cap it. Both bound the rate factor AFTER
+                  the buffer's own clamp, which is what makes them
+                  bounds: under --vbv-maxrate a --crf-max low
+                  enough to fight the buffer is a way to ask for
+                  an underflow, and this encoder reports that
+                  rather than quietly coding past the bound.
+                  --crf only; under --bitrate use --qpmin/--qpmax.
+  --qpmin <n>     hard bounds on the frame QP the rate control may
+  --qpmax <n>     choose, in QpY: 0..51 at 8 bits, -12..51 at
+                  Main10. They bound
+                  the LOOP's own answer too, so the integral winds
+                  against a rate factor it can reach instead of
+                  against a clamp applied behind its back.
+  --strict-cbr    hold a CONSTANT rate under --bitrate with a VBV:
+                  cbr_flag is signalled in the HRD and an access
+                  unit that came in under its share is padded with
+                  filler data (NAL 38) rather than by making the
+                  picture worse. The padding is reported at the end
+                  of the run; a run that needed none held the rate
+                  on its own.
+  --max-ausize-factor <f>  bound ONE access unit at f of the CPB,
+                  0.5..1.0 (default 1.0, no bound). An oversized
+                  AU is a hard failure in a hardware decoder
+                  whatever the buffer says about its neighbours.
+                  Needs --vbv-maxrate and --vbv-bufsize.
+  --qpfile <file>  force frame types and QPs from a file, x264's
+                  format: "<display frame> <type> [<qp>]" per
+                  line, # for a comment. The types are I or K (a
+                  key frame), i (a non-IDR intra picture) and - .
+                  P, B and b are REFUSED by name: what they ask
+                  for is a mini-GOP shape, and the run length
+                  belongs to the plan builder, not to a file.
+                  A forced QP is the FRAME's QP, not a base the
+                  pyramid cascade then moves.
+  --zones <spec>  x265's syntax: zones separated by /, each
+                  "start,end,q=N" or "start,end,b=F", in DISPLAY
+                  order. q=N pins the frame QP over the range;
+                  b=F is a bit multiplier and lands as the QP
+                  offset that buys the same bits, -6 log2 F -
+                  it moves the quantiser, not the plan, so the
+                  rest of the file does not give the bits back.
+                  Overlapping zones are refused.
+
+  Bitstream-level NALs. None of them changes a coded sample and all
+  of them are OFF by default; every one adds or repeats a NAL.
+  --repeat-headers  VPS/SPS/PPS lead EVERY IRAP access unit, not
+                  just the first, so a receiver joining mid-stream
+                  (broadcast, RTP, an HLS segment) has them.
+  --aud           access unit delimiter NAL (type 35) at the head
+                  of every access unit; some transport muxers want
+                  the boundary spelled out rather than inferred.
+  --eos           end of sequence NAL (36) at the end of every
+                  coded video sequence: before each IDR after the
+                  first, and at the end of the stream.
+  --eob           end of bitstream NAL (37), the last NAL there is.
+  --info / --no-info  a user data unregistered SEI (D.2.6) naming
+                  this encoder, its version, its licence, its URL
+                  and the options this run resolved, wherever the
+                  parameter sets go - so once per stream, and
+                  under --repeat-headers once per IRAP, which is
+                  what x265 does with the same pair. ON by
+                  default, as x265's is. The payload carries no
+                  clock, no path and no thread count, so one
+                  command line writes one stream whatever it is
+                  run on. --no-info drops the message, and that
+                  is what a bitstream cmp against a binary older
+                  than this default is run with. Under --qp and
+                  --crf the recon is unmoved and --dump-recon is
+                  a second escape; under --bitrate the message is
+                  bits the rate control spends, so it is not.
+  --no-fingerprint  drop the stream fingerprint. It is ON by
+                  default and it is the identifying mark that
+                  survives having the SEIs stripped: a signature
+                  in a merge_idx choice the syntax leaves open,
+                  costing no bits and moving no sample.
+                  scripts/fingerprint_check.py reads it back.
+  --psnr          report PSNR at the end of the run, pooled over
+                  every coded frame: per plane and a
+                  pixel-weighted average. Measured on the
+                  encoder's OWN reconstruction against the
+                  picture it coded - no decode - which is the
+                  same samples a decoder puts on the screen,
+                  because the conformance gate holds the two
+                  bit-exact. The squared error is pooled over
+                  frames and the logarithm taken once, which is
+                  ffmpeg's pooling, so the number matches
+                  `ffmpeg -lavfi psnr` to a hundredth of a dB.
+                  Output-neutral: the bitstream is byte-identical
+                  with it on.
+  --ssim          the same for SSIM on the luma plane: 8x8
+                  windows at stride 4, averaged over windows and
+                  then over frames, which is ffmpeg's ssim
+                  filter's arithmetic. Also reported in dB.
+  --csv <file>    per-run or per-frame statistics as CSV.
+  --csv-log-level <0|1|2>  0 (the default) writes one summary row
+                  for the run; 1 adds a row per coded frame in
+                  CODING order (POC, order, type, depth, QP,
+                  bits, and the metrics above where they were
+                  asked for); 2 adds the rate control's columns
+                  (planned bits, VBV fill, VBV dQP, flat). The
+                  bits column counts the whole access unit,
+                  parameter sets and SEIs included. No elapsed
+                  time or fps column, unlike x265's: a clock in
+                  a log makes two runs of one encode differ.
+  --shot-stats <file>  per-shot JSON Lines sidecar, one object per
+                  shot in display order (N265_SHOT_STATS=file does
+                  the same). Output-neutral: the bitstream is
+                  byte-identical with it on. Fields and the shot
+                  definition: docs/instruments.md.
+  --pass <n>      TWO-PASS, opt-in, with --stats: 1 codes the clip
+                  and writes a per-frame stats sidecar, 2 reads it
+                  and plans the whole file before coding a frame,
+                  3 does both (the plan comes from the file it then
+                  replaces). Pass 2 needs --bitrate and the same
+                  source; pass 1 may run any mode and any preset.
+                  WHOLE-FILE ANALYSIS, so it is opt-in and absent
+                  the encoder is byte-for-byte the one-pass one.
+  --stats <file>  the sidecar --pass writes or reads.
+  --level <l>     signal this level instead of the derived one:
+                  1, 2, 2.1 ... 6.2 ("41" also spells 4.1; the raw
+                  idc is not a spelling). REFUSED when the stream
+                  does not fit it - the picture size, the
+                  per-dimension bound, the declared DPB, the frame
+                  rate, or the bit rate where one is known. Left
+                  off, the level is derived from all five (Annex A).
+  --high-tier     signal the High tier. Only defined from level 4
+                  up (A.4.1), so on a smaller picture it is what
+                  takes the level to 4. Under --bitrate the tier
+                  also rises on its own when no Main tier level
+                  admits the target.
+                  NOTE the bit-rate bound is ENFORCED only under
+                  --bitrate and --pcm, where the encoder knows the
+                  rate. Under --qp and --crf the rate is whatever
+                  the content costs, so the level comes from size,
+                  DPB and frame rate and MaxBR is only REPORTED
+                  (--verbose prints it).
+  --vui-timing    write vui_timing_info in the SPS from the y4m (the
+                  default since 2026-09-12); --no-vui-timing omits it
+                  frame rate, so a decoder can check the level's
+                  MaxLumaSr leg against the rate it was derived
+                  from. Off by default: it adds about a dozen
+                  bytes to every SPS and Annex A does not ask for it.
+  --film-grain <s>  estimate the source's film grain and write the
+                  film_grain_characteristics SEI (H.265 D.2.20), so a
+                  decoder that implements H.274 re-synthesises grain
+                  on output. OPT-IN and never a default: it changes
+                  what a decoder puts on the screen. s is a multiplier
+                  on the estimated grain std; 1.0 is the estimate as
+                  measured, 0 is off. 8-bit 4:2:0 only - the only
+                  synthesiser this project can measure through does
+                  that shape and no other - and refused loudly
+                  elsewhere. Latency: none. About twenty bytes per
+                  key frame.
+  --film-grain-denoise <0|1>  with --film-grain, also core the grain
+                  out of the picture the encoder CODES (default 0).
+                  This is the half that saves bits: the encoder
+                  spends nothing on grain and the decoder puts it
+                  back. Without it the SEI only adds grain to a
+                  picture that already has some.
+  --nr-intra <0-2000>  coefficient-domain noise reduction in intra
+                  blocks (--preset medium 100; fast, slow and
+                  slower 0, off). A per-coefficient-
+                  POSITION offset, learned from the magnitudes this
+                  encode has already produced, taken off every
+                  coefficient toward zero before it is quantised. A
+                  position that is usually quiet is noise and is
+                  attenuated; a position that is usually loud is
+                  structure and is left nearly alone. Opt-in: it
+                  changes the picture, and what it is worth depends
+                  on how noisy the source is (docs/phase14.md).
+                  It overrides the preset and N265_NR_INTRA, so
+                  --nr-intra 0 --nr-inter 0 is medium's escape.
+  --nr-inter <0-2000>  the same in inter blocks (medium 100).
+  --mcstf         motion-compensated temporal filter on the SOURCE
+                  (default off). Every eighth picture - the ones a
+                  mini-GOP predicts from - is replaced by a weighted
+                  average of itself and its motion-compensated
+                  neighbours, so its own noise averages down while
+                  its content does not. A neighbour counts less the
+                  further away in time it is, less where its block
+                  did not match, and less at any pixel where it
+                  disagrees by more than noise could explain.
+                  Costs --mcstf-ref-range frames of latency and a
+                  full-resolution motion search on the filtered
+                  pictures. For NOISY sources; on clean content the
+                  average has nothing to take out.
+  --mcstf-ref-range <1-4>  neighbours per side (default 2).
+  --selective-mcstf  skip the filter on a picture whose measured
+                  noise floor is under N265_MCSTF_CLEAN (default
+                  1.5 luma levels, placed by the band). Default
+                  off, as x265's is - but --mcstf without it loses
+                  8 BD points on flat-shaded animation, so if you
+                  are filtering a mixed library, name both.
+  --dither        on the 10-bit-in, 8-bit-out path only: add a 2x2
+                  ordered dither before dropping the two bits,
+                  instead of truncating them. Exactly mean-
+                  preserving over any 2x2, so a gradient arrives as
+                  a dot pattern at the level it really had rather
+                  than as a staircase. Needs --output-depth 8 on a
+                  10-bit source; anywhere else it is refused by
+                  name, because there is nothing to dither.
+  --vbv-maxrate <k>  hypothetical decoder buffer: the CPB arrival
+                  rate in kbit/s. With --vbv-bufsize it holds the
+                  encode inside a decoder buffer that never
+                  underflows - under --bitrate as a second
+                  constraint on the ABR loop, under --crf as
+                  capped CRF, where the rate factor stands until
+                  the buffer says otherwise. Both halves or
+                  neither; refused under --qp, --pcm and
+                  --lossless, which have no quantiser to move.
+                  The rate and the buffer are ENFORCED against
+                  the level's MaxBR and MaxCPB, and the schedule
+                  is written as hrd_parameters in the VUI.
+  --vbv-bufsize <k>  the CPB size in kbit (the other half).
+  --vbv-init <f>  how full the buffer starts, as a fraction of
+                  --vbv-bufsize in (0, 1]. Default 0.9.
+  -w, --weightp / --no-weightp
+                  weighted prediction in P slices: the encoder
+                  derives one explicit weight per reference from
+                  the lookahead and signals it where it beats the
+                  unweighted prediction. It is a tool for FADES
+                  and lighting changes and does nothing elsewhere -
+                  the estimator declines, and the cost is the
+                  table's own handful of bits. On at --preset
+                  medium and above, x265's default.
+  --weightb / --no-weightb
+                  the same in B slices. OFF by default, as in
+                  x265: see docs/phase14.md for what it is worth
+                  on the fade clips and what it costs elsewhere.
+  --hash <0-3>    decoded picture hash SEI, one suffix message per
+                  picture (H.265 D.2.19): 0 off (the default),
+                  1 MD5, 2 CRC, 3 checksum - x265's numbering. The
+                  hash is of the CODED picture, padding included,
+                  so any decoder can self-check our streams:
+                  `ffmpeg -err_detect crccheck -v debug` verifies
+                  the MD5 form and says so per picture.
+
+  VUI colour signalling and HDR10 static metadata. All of it is
+  PASS-THROUGH: it describes the pictures you handed in, changes no
+  coded sample, and is absent unless you name the flag. Every value
+  flag takes x265's name or the bare number Annex E gives it.
+  --video-signal-type-preset <name[:volume]>  one name for a
+                  whole colour signalling set, in x265's
+                  spellings and with x265's values: BT601_525,
+                  BT601_626 (BT601_625 is an alias), BT709_YCC,
+                  BT709_RGB, BT2020_YCC_NCL, BT2020_RGB,
+                  BT2100_PQ_YCC, BT2100_PQ_ICTCP, BT2100_PQ_RGB,
+                  BT2100_HLG_YCC, BT2100_HLG_RGB, FR709_RGB,
+                  FR2020_RGB, FRP3D65_YCC. It is a NAME TABLE and
+                  nothing else: it expands into the flags below
+                  and writes no syntax of its own. An individual
+                  flag you give beside it WINS over the preset's
+                  value (x265 discards it instead - a deliberate
+                  divergence, docs/phase14.md). The optional
+                  :volume is a mastering display, on the three
+                  BT2100_PQ_* systems only: P3D65x1000n0005 or
+                  P3D65x4000n005. x265's third volume is refused
+                  by name - its red primary does not fit the
+                  u(16) of ST 2086 - and the refusal says so.
+  --colorprim <p> colour primaries: bt709, unknown, bt470m,
+                  bt470bg, smpte170m, smpte240m, film, bt2020,
+                  smpte428, smpte431, smpte432 (Table E.3)
+  --transfer <t>  transfer characteristics: bt709, unknown,
+                  bt470m, bt470bg, smpte170m, smpte240m, linear,
+                  log100, log316, iec61966-2-4, bt1361e,
+                  iec61966-2-1, bt2020-10, bt2020-12, smpte2084
+                  (PQ), smpte428, arib-std-b67 (HLG) (Table E.4)
+  --colormatrix <m>  matrix coefficients: gbr, bt709, unknown,
+                  fcc, bt470bg, smpte170m, smpte240m, ycgco,
+                  bt2020nc, bt2020c, smpte2085, chroma-derived-nc,
+                  chroma-derived-c, ictcp, ipt-pq-c2 (Table E.5)
+  --range <r>     limited or full luma and chroma range. Full-range
+                  content decoded as limited is washed out, and
+                  nothing but this flag says which it is.
+  --videoformat <f>  component, pal, ntsc, secam, mac or unknown
+  --chromaloc <n> chroma sample location 0..5 (E.2.1). 2 is what
+                  BT.2020 and BT.2100 ask for.
+  --overscan <o>  unknown (write nothing, the default), show or
+                  crop: whether the cropped region is appropriate
+                  to display using overscan
+  --sar <w:h|n>   sample aspect ratio. A RATIO is written as
+                  EXTENDED_SAR with the pair after it; a NUMBER is
+                  the Table E.1 index 0..16. Anamorphic content
+                  decodes at the wrong shape without it.
+  --display-window <l,t,r,b>  overscan cropping region in PIXELS.
+                  The syntax is in chroma samples, so the offsets
+                  must be multiples of SubWidthC / SubHeightC and
+                  are divided on the way out - x265 takes the same
+                  flag in pixels and writes them unshifted, which
+                  at 4:2:0 signals twice the region it was given.
+                  Distinct from the conformance window, which is
+                  this encoder's own padding crop.
+  --master-display <s>  SMPTE ST 2086 mastering display colour
+                  volume SEI (D.2.28), in x265's syntax:
+                  G(x,y)B(x,y)R(x,y)WP(x,y)L(max,min). The eight
+                  chromaticities are in units of 0.00002 (50000 is
+                  1.0) and the two luminances in 0.0001 cd/m2, so
+                  P3D65 at 1000 nits is
+                  G(13250,34500)B(7500,3000)R(34000,16000)
+                  WP(15635,16450)L(10000000,5).
+  --max-cll <c,f> content light level SEI (D.2.35), "cll,fall" in
+                  cd/m2. It says what the CONTENT reaches; nothing
+                  here measures it, so both numbers are yours.
+  --hdr10 / --no-hdr10  force the two messages above on or off.
+                  Left alone, naming either one's values arms them,
+                  which is x265's rule. They are written in EVERY
+                  IRAP access unit, so a decoder joining at a
+                  mid-stream key frame has them.
+  --no-cll        drop the content light level message and keep
+                  the mastering display
+  --atc-sei <t>   alternative transfer characteristics SEI
+                  (D.2.38): the transfer an SDR decoder should
+                  assume instead. Same value table as --transfer;
+                  it is how an HLG stream tells a display it
+                  cannot reach what to do.
+  --dhdr10-info <json>  HDR10+ (SMPTE ST 2094-40) dynamic
+                  metadata, one message per picture, from the JSON
+                  hdr10plus_tool writes (profile A or B, one
+                  window). Needs a 10-bit HDR10 encode: --transfer
+                  smpte2084 --colorprim bt2020 --colormatrix
+                  bt2020nc.
+  --dolby-vision-rpu <file>  a Dolby Vision profile 8 RPU per
+                  picture, from the file dovi_tool writes, copied
+                  unread as the access unit's last NAL. Each RPU's
+                  escaping, CRC and profile are checked. Needs
+                  --dolby-vision-profile, and warns without a VBV.
+  --dolby-vision-profile <p>  8.1 (an HDR10 base layer: PQ,
+                  BT.2020), 8.2 (an SDR BT.709 base layer) or 8.4
+                  (an HLG base layer). It checks the colour flags
+                  match and the encode is 10-bit 4:2:0 at limited
+                  range.
+  Both files are read in display order: entry i goes with input
+  frame i, and --seek skips entries as it skips frames. A file
+  that covers fewer frames than were encoded fails the run, after
+  the stream is written.
+  --hdr-opt / --no-hdr-opt  medium's HDR tuning on or off. It is
+                  on by itself where --transfer (or --atc-sei)
+                  names smpte2084 or arib-std-b67; --hdr-opt
+                  turns the PQ tuning on for a stream that names
+                  neither. --hdr10-opt is the same switch.
+  --verbose, -v   the RESOLVED configuration at open, one
+                  "y265 [info]: key : value" row at a time - what
+                  the preset, the flags and the N265_* environment
+                  settled on, x265's log shape so the two read side
+                  by side - and with it the level and tier chosen
+                  and every Annex A bound that drove them
+                  (N265_LEVEL_TRACE=1 is that second line alone)
+  --show-config   the same table, then exit 0 without encoding.
+                  Both go to stderr and neither moves a byte of the
+                  stream; --show-config writes no output file.
+  --version       print version

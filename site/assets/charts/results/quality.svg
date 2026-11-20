@@ -1,0 +1,78 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='900' height='478' viewBox='0 0 900 478' role='img'>
+<title>yah265 scores higher than x265 at the same file size in every class and tier</title><desc>Dot plot of the median VMAF v1 difference at matched file size per class and tier, with a whisker to the smallest lead.</desc>
+<style>
+.bg{fill:#fcfcfb}.t1{fill:#0b0b0b}.t2{fill:#52514e}.grid{stroke:#e6e5e1}
+.base{stroke:#8a8984}.ring{stroke:#fcfcfb}.band{fill:#efeeea}
+.s1{fill:#ff4d1a}.s2{fill:#2a78d6}.s3{fill:#1baf7a}.sx{fill:#8a8984}
+.l1{stroke:#ff4d1a}.l2{stroke:#2a78d6}.l3{stroke:#1baf7a}.lx{stroke:#8a8984}.span{stroke:#e6e5e1}
+text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+@media (prefers-color-scheme:dark){
+.bg{fill:#1a1a19}.t1{fill:#f0efec}.t2{fill:#c3c2b7}.grid{stroke:#2e2e2c}
+.base{stroke:#8a8984}.ring{stroke:#1a1a19}.band{fill:#262624}
+.s1{fill:#ff4d1a}.s2{fill:#3987e5}.s3{fill:#199e70}.sx{fill:#8a8984}
+.l1{stroke:#ff4d1a}.l2{stroke:#3987e5}.l3{stroke:#199e70}.lx{stroke:#8a8984}.span{stroke:#3a3a37}}
+</style>
+<rect width='100%' height='100%' class='bg'/>
+<text x='24.0' y='40.0' font-size='22' class='t1' text-anchor='start' font-weight='600'>yah265 scores higher than x265 at the same file size in every class and tier</text>
+<text x='24.0' y='64.0' font-size='14' class='t2' text-anchor='start'>VMAF v1 at the matched file size, yah265 minus x265. Dot: the group's median. Tick: the clip with the smallest lead.</text>
+<line x1='264.4' y1='104.0' x2='264.4' y2='416.0' class='grid' stroke-width='1'/>
+<text x='264.4' y='436.0' font-size='12' class='t2' text-anchor='middle'>-1</text>
+<line x1='413.3' y1='104.0' x2='413.3' y2='416.0' class='base' stroke-width='1.5'/>
+<text x='413.3' y='436.0' font-size='12' class='t2' text-anchor='middle'>0 (x265)</text>
+<line x1='562.2' y1='104.0' x2='562.2' y2='416.0' class='grid' stroke-width='1'/>
+<text x='562.2' y='436.0' font-size='12' class='t2' text-anchor='middle'>+1</text>
+<line x1='711.1' y1='104.0' x2='711.1' y2='416.0' class='grid' stroke-width='1'/>
+<text x='711.1' y='436.0' font-size='12' class='t2' text-anchor='middle'>+2</text>
+<line x1='860.0' y1='104.0' x2='860.0' y2='416.0' class='grid' stroke-width='1'/>
+<text x='860.0' y='436.0' font-size='12' class='t2' text-anchor='middle'>+3</text>
+<line x1='338.9' y1='104.0' x2='338.9' y2='416.0' class='base' stroke-width='1.5' stroke-dasharray='2 3'/>
+<text x='334.9' y='100.0' font-size='11' class='t2' text-anchor='start'>median bar -0.5</text>
+<line x1='264.4' y1='104.0' x2='264.4' y2='416.0' class='base' stroke-width='1.5' stroke-dasharray='2 3'/>
+<text x='260.4' y='100.0' font-size='11' class='t2' text-anchor='end'>clip bar -1</text>
+<text x='178.0' y='131.0' font-size='13' class='t1' text-anchor='end'>CIF short clips</text>
+<line x1='496.7' y1='127.0' x2='760.2' y2='127.0' class='l1' stroke-width='2'/>
+<line x1='496.7' y1='122.0' x2='496.7' y2='132.0' class='l1' stroke-width='2'/>
+<circle cx='760.2' cy='127.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='770.2' y='131.0' font-size='12' class='t2' text-anchor='start'>+2.33</text>
+<text x='178.0' y='165.0' font-size='13' class='t1' text-anchor='end'>720p short clips</text>
+<line x1='541.4' y1='161.0' x2='769.2' y2='161.0' class='l1' stroke-width='2'/>
+<line x1='541.4' y1='156.0' x2='541.4' y2='166.0' class='l1' stroke-width='2'/>
+<circle cx='769.2' cy='161.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='779.2' y='165.0' font-size='12' class='t2' text-anchor='start'>+2.39</text>
+<text x='178.0' y='199.0' font-size='13' class='t1' text-anchor='end'>720p 10-minute films</text>
+<line x1='504.2' y1='195.0' x2='662.0' y2='195.0' class='l1' stroke-width='2'/>
+<line x1='504.2' y1='190.0' x2='504.2' y2='200.0' class='l1' stroke-width='2'/>
+<circle cx='662.0' cy='195.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='672.0' y='199.0' font-size='12' class='t2' text-anchor='start'>+1.67</text>
+<text x='178.0' y='233.0' font-size='13' class='t1' text-anchor='end'>1080p short clips</text>
+<line x1='405.9' y1='229.0' x2='504.2' y2='229.0' class='l1' stroke-width='2'/>
+<line x1='405.9' y1='224.0' x2='405.9' y2='234.0' class='l1' stroke-width='2'/>
+<circle cx='504.2' cy='229.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='514.2' y='233.0' font-size='12' class='t2' text-anchor='start'>+0.61</text>
+<text x='178.0' y='267.0' font-size='13' class='t1' text-anchor='end'>1080p 2-minute segments</text>
+<line x1='507.1' y1='263.0' x2='705.2' y2='263.0' class='l1' stroke-width='2'/>
+<line x1='507.1' y1='258.0' x2='507.1' y2='268.0' class='l1' stroke-width='2'/>
+<circle cx='705.2' cy='263.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='715.2' y='267.0' font-size='12' class='t2' text-anchor='start'>+1.96</text>
+<text x='178.0' y='301.0' font-size='13' class='t1' text-anchor='end'>1080p 10-minute films</text>
+<line x1='517.6' y1='297.0' x2='574.1' y2='297.0' class='l1' stroke-width='2'/>
+<line x1='517.6' y1='292.0' x2='517.6' y2='302.0' class='l1' stroke-width='2'/>
+<circle cx='574.1' cy='297.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='584.1' y='301.0' font-size='12' class='t2' text-anchor='start'>+1.08</text>
+<text x='178.0' y='335.0' font-size='13' class='t1' text-anchor='end'>4K short clips</text>
+<line x1='595.0' y1='331.0' x2='691.0' y2='331.0' class='l1' stroke-width='2'/>
+<line x1='595.0' y1='326.0' x2='595.0' y2='336.0' class='l1' stroke-width='2'/>
+<circle cx='691.0' cy='331.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='701.0' y='335.0' font-size='12' class='t2' text-anchor='start'>+1.86</text>
+<text x='178.0' y='369.0' font-size='13' class='t1' text-anchor='end'>4K 2-minute segments</text>
+<line x1='422.3' y1='365.0' x2='621.8' y2='365.0' class='l1' stroke-width='2'/>
+<line x1='422.3' y1='360.0' x2='422.3' y2='370.0' class='l1' stroke-width='2'/>
+<circle cx='621.8' cy='365.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='631.8' y='369.0' font-size='12' class='t2' text-anchor='start'>+1.40</text>
+<text x='178.0' y='403.0' font-size='13' class='t1' text-anchor='end'>4K 10-minute films</text>
+<line x1='478.8' y1='399.0' x2='589.0' y2='399.0' class='l1' stroke-width='2'/>
+<line x1='478.8' y1='394.0' x2='478.8' y2='404.0' class='l1' stroke-width='2'/>
+<circle cx='589.0' cy='399.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='599.0' y='403.0' font-size='12' class='t2' text-anchor='start'>+1.18</text>
+<text x='525.0' y='464.0' font-size='13' class='t2' text-anchor='middle'>VMAF v1 points ahead of x265 (right is better)</text>
+</svg>

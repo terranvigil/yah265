@@ -1,0 +1,114 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='900' height='518.0' viewBox='0 0 900 518.0' role='img'>
+<title>All 70 timed cells run faster than x265, 1.77x at the median</title><desc>One dot per timed cell: times faster than x265 medium on an Apple M5 Max with SIMD on all cores, in rows for CRF, capped VBR and content types, with each row's median marked.</desc>
+<style>
+.bg{fill:#fcfcfb}.t1{fill:#0b0b0b}.t2{fill:#52514e}.grid{stroke:#e6e5e1}
+.base{stroke:#8a8984}.ring{stroke:#fcfcfb}.med{stroke:#0b0b0b}
+.s1{fill:#ff4d1a}.s2{fill:#1baf7a}.s3{fill:#6250d6}.sx{fill:#8a8984}
+.l1{stroke:#ff4d1a}.l2{stroke:#1baf7a}.l3{stroke:#6250d6}.lx{stroke:#8a8984}.span{stroke:#e6e5e1}
+text{font-family:system-ui,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif}
+@media (prefers-color-scheme:dark){
+.bg{fill:#1a1a19}.t1{fill:#f0efec}.t2{fill:#c3c2b7}.grid{stroke:#2e2e2c}
+.base{stroke:#8a8984}.ring{stroke:#1a1a19}.med{stroke:#f0efec}
+.s1{fill:#ff4d1a}.s2{fill:#199e70}.s3{fill:#9085e9}.sx{fill:#8a8984}
+.l1{stroke:#ff4d1a}.l2{stroke:#199e70}.l3{stroke:#9085e9}.lx{stroke:#8a8984}.span{stroke:#3a3a37}}
+</style>
+<rect width='100%' height='100%' class='bg'/>
+<text x='24.0' y='40.0' font-size='22' class='t1' text-anchor='start' font-weight='600'>All 70 timed cells run faster than x265, 1.77x at the median</text>
+<text x='24.0' y='64.0' font-size='14' class='t2' text-anchor='start'>One dot per cell, with a line at each row's median. Both encoders at preset medium on all cores of an Apple M5 Max.</text>
+<line x1='241.5' y1='96' x2='241.5' y2='456.0' class='base' stroke-width='1.5'/>
+<text x='241.5' y='476.0' font-size='12' class='t2' text-anchor='middle'>1x (x265)</text>
+<line x1='344.6' y1='96' x2='344.6' y2='456.0' class='grid' stroke-width='1'/>
+<text x='344.6' y='476.0' font-size='12' class='t2' text-anchor='middle'>1.5x</text>
+<line x1='447.7' y1='96' x2='447.7' y2='456.0' class='grid' stroke-width='1'/>
+<text x='447.7' y='476.0' font-size='12' class='t2' text-anchor='middle'>2x</text>
+<line x1='550.8' y1='96' x2='550.8' y2='456.0' class='grid' stroke-width='1'/>
+<text x='550.8' y='476.0' font-size='12' class='t2' text-anchor='middle'>2.5x</text>
+<line x1='653.8' y1='96' x2='653.8' y2='456.0' class='grid' stroke-width='1'/>
+<text x='653.8' y='476.0' font-size='12' class='t2' text-anchor='middle'>3x</text>
+<line x1='756.9' y1='96' x2='756.9' y2='456.0' class='grid' stroke-width='1'/>
+<text x='756.9' y='476.0' font-size='12' class='t2' text-anchor='middle'>3.5x</text>
+<line x1='860.0' y1='96' x2='860.0' y2='456.0' class='grid' stroke-width='1'/>
+<text x='860.0' y='476.0' font-size='12' class='t2' text-anchor='middle'>4x</text>
+<text x='525.0' y='504.0' font-size='13' class='t2' text-anchor='middle'>times faster than x265 (right is faster)</text>
+<text x='24.0' y='175.0' font-size='14' class='t1' text-anchor='start' font-weight='600'>CRF</text>
+<text x='24.0' y='193.0' font-size='12.5' class='t2' text-anchor='start'>35 cells, median 1.79x</text>
+<circle cx='347.7' cy='178.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Meridian 1080p, 2 min (CRF): 1.52x faster</title></circle>
+<circle cx='347.7' cy='189.5' r='4.75' class='s1 ring' stroke-width='1.5'><title>Sintel 4K, 10 min (CRF): 1.52x faster</title></circle>
+<circle cx='352.5' cy='166.5' r='4.75' class='s1 ring' stroke-width='1.5'><title>Shields 720p (CRF): 1.54x faster</title></circle>
+<circle cx='357.5' cy='201.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Fourpeople 720p (CRF): 1.56x faster</title></circle>
+<circle cx='357.5' cy='155.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Meridian 4K, 10 min (CRF): 1.56x faster</title></circle>
+<circle cx='362.6' cy='178.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Big Buck Bunny 4K (CRF): 1.59x faster</title></circle>
+<circle cx='373.3' cy='183.8' r='4.75' class='s1 ring' stroke-width='1.5'><title>Meridian 4K (CRF): 1.64x faster</title></circle>
+<circle cx='379.0' cy='172.2' r='4.75' class='s1 ring' stroke-width='1.5'><title>Big Buck Bunny 4K, 10 min (CRF): 1.67x faster</title></circle>
+<circle cx='379.0' cy='195.2' r='4.75' class='s1 ring' stroke-width='1.5'><title>Park joy 720p (CRF): 1.67x faster</title></circle>
+<circle cx='379.0' cy='160.8' r='4.75' class='s1 ring' stroke-width='1.5'><title>Sol Levante 4K, 2 min (CRF): 1.67x faster</title></circle>
+<circle cx='384.8' cy='206.8' r='4.75' class='s1 ring' stroke-width='1.5'><title>Big Buck Bunny 1080p, 10 min (CRF): 1.69x faster</title></circle>
+<circle cx='384.8' cy='149.2' r='4.75' class='s1 ring' stroke-width='1.5'><title>Chimera 1080p, 2 min (CRF): 1.69x faster</title></circle>
+<circle cx='390.8' cy='178.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Sintel 1080p, 10 min (CRF): 1.72x faster</title></circle>
+<circle cx='390.8' cy='189.5' r='4.75' class='s1 ring' stroke-width='1.5'><title>Sol Levante 1080p, 2 min (CRF): 1.72x faster</title></circle>
+<circle cx='390.8' cy='166.5' r='4.75' class='s1 ring' stroke-width='1.5'><title>Tears of Steel 1080p, 10 min (CRF): 1.72x faster</title></circle>
+<circle cx='397.1' cy='201.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Bus CIF (CRF): 1.75x faster</title></circle>
+<circle cx='403.5' cy='178.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Big Buck Bunny 720p, 10 min (CRF): 1.79x faster</title></circle>
+<circle cx='403.5' cy='189.5' r='4.75' class='s1 ring' stroke-width='1.5'><title>Nocturne 1080p, 10 min (CRF): 1.79x faster</title></circle>
+<circle cx='403.5' cy='166.5' r='4.75' class='s1 ring' stroke-width='1.5'><title>Nocturne 720p, 10 min (CRF): 1.79x faster</title></circle>
+<circle cx='403.5' cy='155.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Pedestrian 1080p (CRF): 1.79x faster</title></circle>
+<circle cx='403.5' cy='212.5' r='4.75' class='s1 ring' stroke-width='1.5'><title>StEM2 1080p, 10 min (CRF): 1.79x faster</title></circle>
+<circle cx='403.5' cy='143.5' r='4.75' class='s1 ring' stroke-width='1.5'><title>StEM2 4K, 10 min (CRF): 1.79x faster</title></circle>
+<circle cx='410.2' cy='201.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Cosmos Laundromat 1080p, 10 min (CRF): 1.82x faster</title></circle>
+<circle cx='410.2' cy='224.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Tears of Steel 4K, 10 min (CRF): 1.82x faster</title></circle>
+<circle cx='424.4' cy='178.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Chimera 4K, 2 min (CRF): 1.89x faster</title></circle>
+<circle cx='431.8' cy='189.5' r='4.75' class='s1 ring' stroke-width='1.5'><title>Riverbed 1080p (CRF): 1.92x faster</title></circle>
+<circle cx='439.6' cy='178.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Stefan CIF (CRF): 1.96x faster</title></circle>
+<circle cx='439.6' cy='166.5' r='4.75' class='s1 ring' stroke-width='1.5'><title>Sunflower 1080p (CRF): 1.96x faster</title></circle>
+<circle cx='464.9' cy='178.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Cosmos Laundromat 720p, 10 min (CRF): 2.08x faster</title></circle>
+<circle cx='464.9' cy='189.5' r='4.75' class='s1 ring' stroke-width='1.5'><title>Nocturne 4K, 10 min (CRF): 2.08x faster</title></circle>
+<circle cx='474.0' cy='166.5' r='4.75' class='s1 ring' stroke-width='1.5'><title>Sintel 720p, 10 min (CRF): 2.13x faster</title></circle>
+<circle cx='474.0' cy='201.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Tears of Steel 720p, 10 min (CRF): 2.13x faster</title></circle>
+<circle cx='483.5' cy='178.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Foreman CIF (CRF): 2.17x faster</title></circle>
+<circle cx='493.5' cy='189.5' r='4.75' class='s1 ring' stroke-width='1.5'><title>Ducks take off 720p (CRF): 2.22x faster</title></circle>
+<circle cx='493.5' cy='166.5' r='4.75' class='s1 ring' stroke-width='1.5'><title>StEM2 720p, 10 min (CRF): 2.22x faster</title></circle>
+<line x1='403.5' y1='126.0' x2='403.5' y2='240.0' class='med' stroke-width='2'/>
+<text x='24.0' y='300.0' font-size='14' class='t1' text-anchor='start' font-weight='600'>capped VBR</text>
+<text x='24.0' y='318.0' font-size='12.5' class='t2' text-anchor='start'>26 cells, median 1.64x</text>
+<circle cx='277.9' cy='303.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Meridian 1080p, 10 min (capped VBR): 1.18x faster</title></circle>
+<circle cx='306.6' cy='303.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Meridian 720p, 10 min (capped VBR): 1.32x faster</title></circle>
+<circle cx='310.3' cy='314.5' r='4.75' class='s1 ring' stroke-width='1.5'><title>Sintel 4K, 10 min (capped VBR): 1.33x faster</title></circle>
+<circle cx='317.8' cy='297.2' r='4.75' class='s1 ring' stroke-width='1.5'><title>Big Buck Bunny 1080p, 10 min (capped VBR): 1.37x faster</title></circle>
+<circle cx='338.6' cy='303.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Big Buck Bunny 4K, 10 min (capped VBR): 1.47x faster</title></circle>
+<circle cx='338.6' cy='314.5' r='4.75' class='s1 ring' stroke-width='1.5'><title>Meridian 1080p, 2 min (capped VBR): 1.47x faster</title></circle>
+<circle cx='347.7' cy='291.5' r='4.75' class='s1 ring' stroke-width='1.5'><title>Sol Levante 4K, 2 min (capped VBR): 1.52x faster</title></circle>
+<circle cx='352.5' cy='303.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Meridian 4K, 10 min (capped VBR): 1.54x faster</title></circle>
+<circle cx='357.5' cy='314.5' r='4.75' class='s1 ring' stroke-width='1.5'><title>Meridian 4K, 2 min (capped VBR): 1.56x faster</title></circle>
+<circle cx='357.5' cy='326.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Sintel 1080p, 10 min (capped VBR): 1.56x faster</title></circle>
+<circle cx='357.5' cy='280.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Tears of Steel 4K, 10 min (capped VBR): 1.56x faster</title></circle>
+<circle cx='362.6' cy='297.2' r='4.75' class='s1 ring' stroke-width='1.5'><title>Chimera 1080p, 2 min (capped VBR): 1.59x faster</title></circle>
+<circle cx='373.3' cy='303.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Cosmos Laundromat 1080p, 10 min (capped VBR): 1.64x faster</title></circle>
+<circle cx='373.3' cy='314.5' r='4.75' class='s1 ring' stroke-width='1.5'><title>StEM2 4K, 10 min (capped VBR): 1.64x faster</title></circle>
+<circle cx='373.3' cy='291.5' r='4.75' class='s1 ring' stroke-width='1.5'><title>Tears of Steel 1080p, 10 min (capped VBR): 1.64x faster</title></circle>
+<circle cx='379.0' cy='326.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Chimera 4K, 2 min (capped VBR): 1.67x faster</title></circle>
+<circle cx='384.8' cy='308.8' r='4.75' class='s1 ring' stroke-width='1.5'><title>Sol Levante 1080p, 2 min (capped VBR): 1.69x faster</title></circle>
+<circle cx='384.8' cy='297.2' r='4.75' class='s1 ring' stroke-width='1.5'><title>StEM2 1080p, 10 min (capped VBR): 1.69x faster</title></circle>
+<circle cx='390.8' cy='320.2' r='4.75' class='s1 ring' stroke-width='1.5'><title>Nocturne 1080p, 10 min (capped VBR): 1.72x faster</title></circle>
+<circle cx='417.2' cy='303.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Big Buck Bunny 720p, 10 min (capped VBR): 1.85x faster</title></circle>
+<circle cx='456.1' cy='303.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Nocturne 4K, 10 min (capped VBR): 2.04x faster</title></circle>
+<circle cx='474.0' cy='303.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Nocturne 720p, 10 min (capped VBR): 2.13x faster</title></circle>
+<circle cx='526.2' cy='303.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Sintel 720p, 10 min (capped VBR): 2.38x faster</title></circle>
+<circle cx='526.2' cy='314.5' r='4.75' class='s1 ring' stroke-width='1.5'><title>StEM2 720p, 10 min (capped VBR): 2.38x faster</title></circle>
+<circle cx='564.0' cy='303.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Cosmos Laundromat 720p, 10 min (capped VBR): 2.56x faster</title></circle>
+<circle cx='577.9' cy='303.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Tears of Steel 720p, 10 min (capped VBR): 2.63x faster</title></circle>
+<line x1='373.3' y1='274.0' x2='373.3' y2='342.0' class='med' stroke-width='2'/>
+<text x='272.9' y='266.0' font-size='12' class='t1' text-anchor='start'>Meridian 1080p, 10 min: 1.18x</text>
+<text x='24.0' y='402.0' font-size='14' class='t1' text-anchor='start' font-weight='600'>content types</text>
+<text x='24.0' y='420.0' font-size='12.5' class='t2' text-anchor='start'>9 cells, median 1.92x</text>
+<circle cx='417.2' cy='405.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Lash of the Whip 1080p (content types): 1.85x faster</title></circle>
+<circle cx='424.4' cy='416.5' r='4.75' class='s1 ring' stroke-width='1.5'><title>Spreadsheet 1080p (content types): 1.89x faster</title></circle>
+<circle cx='424.4' cy='393.5' r='4.75' class='s1 ring' stroke-width='1.5'><title>Wikipedia 1080p (content types): 1.89x faster</title></circle>
+<circle cx='424.4' cy='428.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>World Cup, far camera 1080p (content types): 1.89x faster</title></circle>
+<circle cx='431.8' cy='405.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>World Cup 1080p (content types): 1.92x faster</title></circle>
+<circle cx='439.6' cy='416.5' r='4.75' class='s1 ring' stroke-width='1.5'><title>Debugging 1080p (content types): 1.96x faster</title></circle>
+<circle cx='447.7' cy='405.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Skater 1080p (content types): 2.00x faster</title></circle>
+<circle cx='474.0' cy='405.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Lash of the Whip 720p (content types): 2.13x faster</title></circle>
+<circle cx='771.6' cy='405.0' r='4.75' class='s1 ring' stroke-width='1.5'><title>Boxing 4K (content types): 3.57x faster</title></circle>
+<line x1='431.8' y1='376.0' x2='431.8' y2='444.0' class='med' stroke-width='2'/>
+<text x='776.6' y='368.0' font-size='12' class='t1' text-anchor='end'>Boxing 4K: 3.57x</text>
+</svg>

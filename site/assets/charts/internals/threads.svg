@@ -1,0 +1,52 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='720' height='380' viewBox='0 0 720 380' role='img'>
+<title>What 18 cores buy each encoder in plain C</title><desc>One-thread wall time over all-core wall time in plain C, median over each class's short clips on an Apple M5 Max, for yah265 and x265.</desc>
+<style>
+.bg{fill:#fcfcfb}.t1{fill:#0b0b0b}.t2{fill:#52514e}.grid{stroke:#e6e5e1}
+.base{stroke:#8a8984}.ring{stroke:#fcfcfb}
+.s1{fill:#ff4d1a}.s2{fill:#00919a}.s3{fill:#7a52c7}.sx{fill:#6b7280}
+.span{stroke:#e6e5e1}
+text{font-family:system-ui,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif}
+@media (prefers-color-scheme:dark){
+.bg{fill:#1a1a19}.t1{fill:#f0efec}.t2{fill:#c3c2b7}.grid{stroke:#2e2e2c}
+.base{stroke:#8a8984}.ring{stroke:#1a1a19}
+.s1{fill:#f2542d}.s2{fill:#12a3ad}.s3{fill:#9273e6}.sx{fill:#8f959b}
+.span{stroke:#3a3a37}}
+</style>
+<rect width='100%' height='100%' class='bg'/>
+<text x='24.0' y='40.0' font-size='22' class='t1' text-anchor='start' font-weight='600'>What 18 cores buy each encoder in plain C</text>
+<text x='24.0' y='64.0' font-size='14' class='t2' text-anchor='start'>One-thread wall over all-core wall, SIMD off. Median over each class's short clips on the Mac.</text>
+<rect x='24' y='80' width='12' height='12' rx='2' class='s1'/>
+<text x='42.0' y='91.0' font-size='13' class='t2' text-anchor='start'>yah265</text>
+<rect x='110' y='80' width='12' height='12' rx='2' class='sx'/>
+<text x='128.0' y='91.0' font-size='13' class='t2' text-anchor='start'>x265</text>
+<text x='24.0' y='126.0' font-size='14' class='t1' text-anchor='start' font-weight='600'>Apple M5 Max, plain C</text>
+<line x1='82.0' y1='136' x2='82.0' y2='324' class='base'/>
+<text x='82.0' y='340.0' font-size='12' class='t2' text-anchor='middle'>0x</text>
+<line x1='269.3' y1='136' x2='269.3' y2='324' class='grid'/>
+<text x='269.3' y='340.0' font-size='12' class='t2' text-anchor='middle'>5x</text>
+<line x1='456.7' y1='136' x2='456.7' y2='324' class='grid'/>
+<text x='456.7' y='340.0' font-size='12' class='t2' text-anchor='middle'>10x</text>
+<line x1='644.0' y1='136' x2='644.0' y2='324' class='grid'/>
+<text x='644.0' y='340.0' font-size='12' class='t2' text-anchor='middle'>15x</text>
+<text x='72.0' y='167.0' font-size='13' class='t1' text-anchor='end'>CIF</text>
+<path d='M82.0,149.0 H230.5 Q234.5,149.0 234.5,153.0 V158.0 Q234.5,162.0 230.5,162.0 H82.0 Z' class='s1'/>
+<path d='M82.0,164.0 H186.1 Q190.1,164.0 190.1,168.0 V173.0 Q190.1,177.0 186.1,177.0 H82.0 Z' class='sx'/>
+<text x='240.5' y='160.0' font-size='12' class='t1' text-anchor='start'>4.1x</text>
+<text x='196.1' y='175.0' font-size='12' class='t2' text-anchor='start'>2.9x</text>
+<text x='72.0' y='213.0' font-size='13' class='t1' text-anchor='end'>720p</text>
+<path d='M82.0,195.0 H358.5 Q362.5,195.0 362.5,199.0 V204.0 Q362.5,208.0 358.5,208.0 H82.0 Z' class='s1'/>
+<path d='M82.0,210.0 H337.2 Q341.2,210.0 341.2,214.0 V219.0 Q341.2,223.0 337.2,223.0 H82.0 Z' class='sx'/>
+<text x='368.5' y='206.0' font-size='12' class='t1' text-anchor='start'>7.5x</text>
+<text x='347.2' y='221.0' font-size='12' class='t2' text-anchor='start'>6.9x</text>
+<text x='72.0' y='259.0' font-size='13' class='t1' text-anchor='end'>1080p</text>
+<path d='M82.0,241.0 H473.3 Q477.3,241.0 477.3,245.0 V250.0 Q477.3,254.0 473.3,254.0 H82.0 Z' class='s1'/>
+<path d='M82.0,256.0 H440.9 Q444.9,256.0 444.9,260.0 V265.0 Q444.9,269.0 440.9,269.0 H82.0 Z' class='sx'/>
+<text x='483.3' y='252.0' font-size='12' class='t1' text-anchor='start'>10.6x</text>
+<text x='450.9' y='267.0' font-size='12' class='t2' text-anchor='start'>9.7x</text>
+<text x='72.0' y='305.0' font-size='13' class='t1' text-anchor='end'>4K</text>
+<path d='M82.0,287.0 H289.3 Q293.3,287.0 293.3,291.0 V296.0 Q293.3,300.0 289.3,300.0 H82.0 Z' class='s1'/>
+<path d='M82.0,302.0 H376.8 Q380.8,302.0 380.8,306.0 V311.0 Q380.8,315.0 376.8,315.0 H82.0 Z' class='sx'/>
+<text x='299.3' y='298.0' font-size='12' class='t1' text-anchor='start'>5.6x</text>
+<text x='386.8' y='313.0' font-size='12' class='t2' text-anchor='start'>8.0x</text>
+<text x='360.0' y='366.0' font-size='13' class='t2' text-anchor='middle'>times faster on all cores than on one thread</text>
+</svg>

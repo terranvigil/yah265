@@ -7,15 +7,19 @@ Reads the newest parity reports for each machine
 (docs/parity/PARITY-REPORT-yah265-<date>.csv for the Mac, -x86-<date> and
 -graviton-<date> for the cloud boxes, with the .md beside each), the
 all-architecture summary (PARITY-REPORT-yah265-all-isa-<date>.md), the
-rate ladders in docs/data/parity-spec-ladders.json, the ffmpeg runs in
+rate ladders in docs/data/parity-spec-ladders.json, the content-type rows
+of docs/data/parity-spec.csv, the ffmpeg runs in
 docs/data/blog-ffmpeg-examples.json and docs/data/parity-history.csv.
-Writes five charts into site/assets/blog/:
+Writes six charts and the social card into site/assets/blog/:
 
     films.svg     wall time per ten-minute film at 1080p and 4K, both encoders
+    cells.svg     every timed cell behind the headline, as times faster than x265
     arch.svg      times faster than x265 at G3 on each machine, per class and tier
     curves.svg    VMAF v1 against bitrate for three titles, both encoders
     bdrate.svg    BD-rate on VMAF v1 for every ladder, CRF and VBR
     history.svg   the timed board's medians, commit by commit
+    card.png      the 1200x627 link card (drawn with Pillow; --check reads
+                  the figures stamped into it and needs no Pillow)
 
 and refills every `<!--gen:NAME-->...<!--/gen:NAME-->` span in
 site/blog.md, so no figure on the page is typed by hand.
@@ -41,6 +45,9 @@ LADDERS = os.path.join(ROOT, "docs/data/parity-spec-ladders.json")
 FFMPEG = os.path.join(ROOT, "docs/data/blog-ffmpeg-examples.json")
 REPRO = os.path.join(ROOT, "docs/data/cloud-tables-2026-11-13/repro_x86.json")
 PARITY = os.path.join(ROOT, "docs/parity")
+SPEC = os.path.join(ROOT, "docs/data/parity-spec.csv")
+LOGO = os.path.join(ROOT, "assets/yah265-logo-light.png")
+CARD = "card.png"
 
 CLASSES = ["CIF", "720p", "1080p", "2160p"]
 TIERS = ["S", "M", "L"]
@@ -56,7 +63,11 @@ TITLE = {"chimera": "Chimera", "sollevante": "Sol Levante",
          "meridian": "Meridian", "tears": "Tears of Steel",
          "bbb": "Big Buck Bunny", "sintel": "Sintel",
          "cosmos": "Cosmos Laundromat", "stem2": "StEM2",
-         "nocturne": "Nocturne", "lash1924": "Lash of the Whip"}
+         "nocturne": "Nocturne", "lash1924": "Lash of the Whip",
+         "worldcup_far": "World Cup, far camera", "worldcup": "World Cup",
+         "skater227": "Skater", "ducks": "Ducks take off",
+         "crowd_run": "Crowd run", "park_joy": "Park joy"}
+POOLS = [("crf", "CRF"), ("vbr", "capped VBR"), ("content", "content types")]
 BD_BAR = 1.0
 
 # the ladders the curves chart draws: (tier/class/title) as the ladder file
@@ -126,6 +137,71 @@ def films(rows):
              fnum(r["ref_wall_s"]) if ok else None, fnum(r["ratio"]) if ok else None,
              fnum(r["dvmafneg"])))
     return out
+
+
+def vbr_walls(md_path):
+    """[(cell, tier, ratio)] from the report's "VBR wall" table: one capped
+    VBR rung per real-title cell, both encoders at one target rate."""
+    out, on = [], False
+    for line in open(md_path):
+        if line.startswith("## "):
+            on = line.startswith("## VBR wall")
+        elif on and line.startswith("| ") and not line.startswith("| cell"):
+            c = [x.strip() for x in line.strip().strip("|").split("|")]
+            if fnum(c[3]) is not None:
+                out.append((c[0], c[1], float(c[3])))
+    if not out:
+        sys.exit(f"{md_path}: no VBR wall table found")
+    return out
+
+
+def content_rows():
+    """The newest valid G3 row of each content-type (tier C) clip."""
+    last = {}
+    for r in csv.DictReader(open(SPEC)):
+        if r["tier"] == "C" and r["goal"] == "G3" and r["valid"] == "yes" \
+                and fnum(r["ratio"]) is not None:
+            k = (r["class"], r["title"])
+            if k not in last or r["date"] >= last[k]["date"]:
+                last[k] = r
+    return list(last.values())
+
+
+def clip_name(title, cls, tier=None):
+    base = re.sub(r"_(cif|\d+p)$", "", title)
+    name = TITLE.get(base, base.replace("_", " ").capitalize())
+    dur = {"M": ", 2 min", "L": ", 10 min"}.get(tier, "")
+    return f"{name} {RES.get(cls, cls)}{dur}"
+
+
+def pooled(mac_rows, mac_md):
+    """The site's headline, pooled over every cell timed on the Mac at G3
+    (SIMD, all cores, both encoders at medium). Three pools: the valid CRF
+    rows of the Mac report, where yah265 is solved onto x265's file size;
+    the report's capped VBR walls, where both run at one target rate; and
+    the content-type clips. Returns the pools as [(ratio, name)], the pooled
+    median ratio, and the VMAF v1 lead at matched size over the CRF and
+    content-type cells (the VBR walls carry no score)."""
+    crf = [r for r in mac_rows if r["goal"] == "G3" and r["valid"] == "yes"
+           and fnum(r["ratio"]) is not None and "FAIL:" not in r["note"]
+           and r["tier"] in TIERS]
+    cont = content_rows()
+    pools = {
+        "crf": [(float(r["ratio"]), clip_name(r["title"], r["class"], r["tier"])) for r in crf],
+        "vbr": [(v, clip_name(c.rsplit("_", 1)[0], c.rsplit("_", 1)[1], t))
+                for c, t, v in vbr_walls(mac_md)],
+        "content": [(float(r["ratio"]), clip_name(r["title"], r["class"])) for r in cont],
+    }
+    allr = [v for vs in pools.values() for v, _ in vs]
+    dv = [float(r["dvmafneg"]) for r in crf + cont if fnum(r["dvmafneg"]) is not None]
+    return {"pools": pools, "n": len(allr), "median": st.median(allr),
+            "faster": sum(1 for v in allr if v < 1), "dv": st.median(dv), "dv_n": len(dv),
+            "dv_ahead": sum(1 for v in dv if v > 0)}
+
+
+def times(ratio):
+    """Times faster from an unrounded ratio, for the pooled medians."""
+    return f"{1 / ratio:.2f}x"
 
 
 BD_LINE = re.compile(r"^- (\S+) \(([A-Z])\): CRF BD-VMAF v1 ([-+]\d+\.\d+)%.*?"
@@ -259,19 +335,24 @@ def board_history():
 
 # ------------------------------------------------------------------ charts
 
-# slots 1-3 of the reference categorical palette, light and dark. x265 is
-# the comparator, so it takes the neutral (.sx) and yah265 the accent.
+# yah265 is the logo's orange-red (.s1) and x265, the comparator, a neutral
+# gray (.sx). Where every series is yah265's own (machines, rate modes,
+# goals) slots 2 and 3 are aqua and violet. Each set passes the dataviz
+# validator's CVD and normal-vision checks on both surfaces, and every
+# series also has its own marker shape. Text stays in the ink colors.
+BRAND = "#ff4d1a"
+NEUTRAL = "#8a8984"
 STYLE = """<style>
 .bg{fill:#fcfcfb}.t1{fill:#0b0b0b}.t2{fill:#52514e}.grid{stroke:#e6e5e1}
-.base{stroke:#8a8984}.ring{stroke:#fcfcfb}
-.s1{fill:#2a78d6}.s2{fill:#eb6834}.s3{fill:#1baf7a}.sx{fill:#8a8984}
-.l1{stroke:#2a78d6}.l2{stroke:#eb6834}.l3{stroke:#1baf7a}.lx{stroke:#8a8984}.span{stroke:#e6e5e1}
-text{font-family:-apple-system,"IBM Plex Sans",Helvetica,Arial,sans-serif}
+.base{stroke:#8a8984}.ring{stroke:#fcfcfb}.med{stroke:#0b0b0b}
+.s1{fill:#ff4d1a}.s2{fill:#1baf7a}.s3{fill:#6250d6}.sx{fill:#8a8984}
+.l1{stroke:#ff4d1a}.l2{stroke:#1baf7a}.l3{stroke:#6250d6}.lx{stroke:#8a8984}.span{stroke:#e6e5e1}
+text{font-family:system-ui,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif}
 @media (prefers-color-scheme:dark){
 .bg{fill:#1a1a19}.t1{fill:#f0efec}.t2{fill:#c3c2b7}.grid{stroke:#2e2e2c}
-.base{stroke:#8a8984}.ring{stroke:#1a1a19}
-.s1{fill:#3987e5}.s2{fill:#d95926}.s3{fill:#199e70}.sx{fill:#8a8984}
-.l1{stroke:#3987e5}.l2{stroke:#d95926}.l3{stroke:#199e70}.lx{stroke:#8a8984}.span{stroke:#3a3a37}}
+.base{stroke:#8a8984}.ring{stroke:#1a1a19}.med{stroke:#f0efec}
+.s1{fill:#ff4d1a}.s2{fill:#199e70}.s3{fill:#9085e9}.sx{fill:#8a8984}
+.l1{stroke:#ff4d1a}.l2{stroke:#199e70}.l3{stroke:#9085e9}.lx{stroke:#8a8984}.span{stroke:#3a3a37}}
 </style>"""
 
 
@@ -394,6 +475,72 @@ def chart_films(fl):
                        f"{fmin(ours)}, {1 / round(ratio, 2):.2f}x faster", 12, "t1"))
             o.append(T(X(ref) + 6, ry + 2 * barh + gap - 2, fmin(ref), 12, "t2"))
         y = yb + 34 + 16
+    o.append("</svg>")
+    return "\n".join(o)
+
+
+def swarm(xs, d):
+    """Vertical offsets that keep dots at the x positions xs at least d
+    apart: each dot takes the offset nearest the row's center that is free."""
+    placed = []
+    for x in xs:
+        k = 0
+        while True:
+            cands = [0] if k == 0 else [k * d / 2, -k * d / 2]
+            hit = next((dy for dy in cands
+                        if all((x - px) ** 2 + (dy - py) ** 2 >= d * d for px, py in placed)), None)
+            if hit is not None:
+                placed.append((x, hit))
+                break
+            k += 1
+    return [dy for _, dy in placed]
+
+
+def chart_cells(pl):
+    """One dot per timed cell behind the headline, a row per pool."""
+    W, L, R, Tp, B = 900, 190, 40, 104, 62
+    d = 11.5
+    vals = {k: sorted((1 / v, n) for v, n in pl["pools"][k]) for k, _ in POOLS}
+    top = max(v for vs in vals.values() for v, _ in vs)
+    x0, x1 = 0.75, math.ceil(top * 2) / 2
+    X = lambda v: L + (v - x0) / (x1 - x0) * (W - L - R)
+    offs = {k: swarm([X(v) for v, _ in vs], d) for k, vs in vals.items()}
+    rowh = {k: max(80, 2 * max(abs(o) for o in offs[k]) + 56) for k in offs}
+    H = Tp + sum(rowh.values()) + B
+    title = (f"All {pl['n']} timed cells run faster than x265, {times(pl['median'])} at the median"
+             if pl["faster"] == pl["n"]
+             else f"{pl['faster']} of {pl['n']} timed cells run faster than x265")
+    o = head(W, H, title, "One dot per timed cell: times faster than x265 medium on an Apple "
+                          "M5 Max with SIMD on all cores, in rows for CRF, capped VBR and "
+                          "content types, with each row's median marked.")
+    o.append(T(24, 40, title, 22, weight="600"))
+    o.append(T(24, 64, "One dot per cell, with a line at each row's median. Both encoders at "
+                       "preset medium on all cores of an Apple M5 Max.", 14, "t2"))
+    v = 1.0
+    while v <= x1 + 1e-9:
+        o.append(f"<line x1='{X(v):.1f}' y1='{Tp - 8}' x2='{X(v):.1f}' y2='{H - B}' "
+                 f"class='{'base' if v == 1 else 'grid'}' stroke-width='{1.5 if v == 1 else 1}'/>")
+        o.append(T(X(v), H - B + 20, "1x (x265)" if v == 1 else f"{v:g}x", 12, "t2", "middle"))
+        v += 0.5
+    o.append(T((L + W - R) / 2, H - 14, "times faster than x265 (right is faster)", 13, "t2",
+               "middle"))
+    lo = min((v, n, k) for k, vs in vals.items() for v, n in vs)
+    hi = max((v, n, k) for k, vs in vals.items() for v, n in vs)
+    y = Tp
+    for k, label in POOLS:
+        yc = y + rowh[k] / 2
+        med = 1 / st.median(v for v, _ in pl["pools"][k])
+        o.append(T(24, yc - 3, label, 14, "t1", weight="600"))
+        o.append(T(24, yc + 15, f"{len(vals[k])} cells, median {med:.2f}x", 12.5, "t2"))
+        for (v, n), dy in zip(vals[k], offs[k]):
+            o.append(f"<circle cx='{X(v):.1f}' cy='{yc + dy:.1f}' r='4.75' class='s1 ring' "
+                     f"stroke-width='1.5'><title>{esc(n)} ({label}): {v:.2f}x faster</title></circle>")
+        o.append(f"<line x1='{X(med):.1f}' y1='{y + 22:.1f}' x2='{X(med):.1f}' "
+                 f"y2='{y + rowh[k] - 12:.1f}' class='med' stroke-width='2'/>")
+        for (v, n, kk), anchor, dx in ((lo, "start", -5), (hi, "end", 5)):
+            if kk == k:
+                o.append(T(X(v) + dx, y + 14, f"{n}: {v:.2f}x", 12, "t1", anchor))
+        y += rowh[k]
     o.append("</svg>")
     return "\n".join(o)
 
@@ -613,8 +760,195 @@ def frange(meds):
     return f"{fx(max(meds))} to {fx(min(meds))}"
 
 
-def values(sps, q, lad, fl, cap, cv, ff, rows, repro, date, report_rel, hist, cred):
+def headline(pl):
+    """The site's one headline sentence. scripts/site_front.py fills the
+    home page and the README with the same figures."""
+    return (f"yah265 encodes video {times(pl['median'])} faster than x265 at the same file "
+            f"size, median over every timed cell (CRF, capped VBR and content types), with "
+            f"{pl['dv']:+.2f} VMAF v1 points.")
+
+
+def headline_table(pl):
+    L = ["| timed cells | count | median | slowest cell |", "|---|--:|--:|---|"]
+    for k, label in POOLS:
+        vs = pl["pools"][k]
+        w = max(vs)
+        L.append(f"| {label} | {len(vs)} | {times(st.median(v for v, _ in vs))} faster | "
+                 f"{w[1]}, {times(w[0])} faster |")
+    allv = [x for vs in pl["pools"].values() for x in vs]
+    w = max(allv)
+    L.append(f"| **all** | **{pl['n']}** | **{times(pl['median'])} faster** | "
+             f"{w[1]}, {times(w[0])} faster |")
+    return "\n".join(L)
+
+
+def films_table(fl):
+    L = ["| class | film | x265 | yah265 | faster | VMAF v1 ahead |", "|---|---|--:|--:|--:|--:|"]
+    for c in ("1080p", "2160p"):
+        rows = sorted(fl[c], key=lambda r: -(r[2] or 0))
+        for t, ours, ref, ratio, dv in rows:
+            if ours is None:
+                L.append(f"| {RES[c]} | {TITLE.get(t, t)} | not timed | not timed | - | - |")
+                continue
+            L.append(f"| {RES[c]} | {TITLE.get(t, t)} | {fmin(ref)} | {fmin(ours)} | "
+                     f"{fx(ratio)} | {dv:+.2f} |")
+        ok = [r for r in rows if r[1]]
+        ours, ref = sum(r[1] for r in ok), sum(r[2] for r in ok)
+        L.append(f"| {RES[c]} | **all {len(ok)} timed** | **{ref / 60:.0f} min** | "
+                 f"**{ours / 60:.0f} min** | **{ref / ours:.2f}x** | |")
+    return "\n".join(L)
+
+
+def capped_table(cap):
+    L = ["| class | both held to SSE4.2 | both held to AVX2 |", "|---|--:|--:|"]
+    for c in CLASSES:
+        if c in cap:
+            L.append(f"| {RES[c]} | {fx(cap[c]['sse42'][0])} | {fx(cap[c]['avx2'][0])} |")
+    return "\n".join(L)
+
+
+def quality_table(lad):
+    L = ["| rate mode | ladders | median bits saved | ahead of x265 | inside the bar | thinnest margin |",
+         "|---|--:|--:|--:|--:|---|"]
+    sets = [("CRF", [(r[3], r) for r in lad]), ("capped VBR", [(r[4], r) for r in lad])]
+    sets.append(("both", sets[0][1] + sets[1][1]))
+    for label, vs in sets:
+        v, r = max(vs, key=lambda x: x[0])
+        L.append(f"| {label} | {len(vs)} | {-st.median(x for x, _ in vs):.1f}% | "
+                 f"{sum(1 for x, _ in vs if x < 0)} | {sum(1 for x, _ in vs if x <= BD_BAR)} | "
+                 f"{clip_name(r[0], r[1], r[2])}, {v:+.2f}% |")
+    return "\n".join(L)
+
+
+def curves_table(cv):
+    L = ["| panel | bits saved at the same VMAF v1 |", "|---|--:|"]
+    for cell, (_, _, _, bd) in cv.items():
+        tier, cls, title = cell.split("/")
+        L.append(f"| {clip_name(title, cls, tier)} | {-bd:.1f}% |")
+    return "\n".join(L)
+
+
+def offmac_table(rows, repro):
+    g4 = [r for r in rows["g4"] if r["goal"] in GOALS and r["tier"] in TIERS]
+    same = sum(1 for r in g4 if r["mac_md5_same"] == "same")
+    return "\n".join([
+        "| machine | check | result |", "|---|---|---|",
+        f"| Graviton4 | timed encodes that are the Mac's streams byte for byte | "
+        f"{same} of {len(g4)} |",
+        f"| x86-64 | ladders run again, largest difference from the Mac's BD-rate | "
+        f"{len(repro)} ladders, {max(abs(r['diff']) for r in repro):.2f} points |"])
+
+
+def board_table(hist):
+    def cell(v):
+        return f"{1 / v:.2f}x faster" if v < 1 else f"{v:.1f}x x265's time"
+    g3 = [p for p in hist if p["g3"]]
+    return "\n".join([
+        "| board median | first timed board | last timed board |", "|---|--:|--:|",
+        f"| C on one thread | {cell(hist[0]['g1'])} ({hist[0]['date']}) | "
+        f"{cell(hist[-1]['g1'])} ({hist[-1]['date']}) |",
+        f"| SIMD on all cores | {cell(g3[0]['g3'])} ({g3[0]['date']}) | "
+        f"{cell(g3[-1]['g3'])} ({g3[-1]['date']}) |"])
+
+
+def claims(pl, fl, ff):
+    """Sentences in the post that carry no figure still rest on the data.
+    Stop here when one of them stops being true."""
+    bad = []
+    if pl["faster"] != pl["n"]:
+        bad.append("not every timed cell is faster than x265")
+    for c in ("1080p", "2160p"):
+        for t, ours, ref, ratio, dv in fl[c]:
+            if ours is not None and not (ours < ref and (dv or 0) > 0):
+                bad.append(f"{t} at {c} is not both faster and ahead on VMAF v1")
+    for e in ff:
+        if not (e["ours"]["wall_s"] < e["ref"]["wall_s"]
+                and e["ours"]["vmaf_mean"] > e["ref"]["vmaf_mean"]):
+            bad.append(f"ffmpeg run {e['job']} is not both faster and ahead")
+    if bad:
+        sys.exit("site/blog.md says otherwise: " + "; ".join(bad))
+
+
+def card_key(pl, fl):
+    ok = [r for r in fl["2160p"] if r[1]]
+    return (f"{times(pl['median'])}|{pl['dv']:+.2f}|{pl['n']}|{len(ok)}|"
+            f"{sum(r[2] for r in ok) / 60:.0f}|{sum(r[1] for r in ok) / 60:.0f}")
+
+
+def card_stamp(path):
+    """(width, height, stamped key) of a PNG, read from its chunks."""
+    try:
+        b = open(path, "rb").read()
+    except OSError:
+        return None
+    if b[:8] != b"\x89PNG\r\n\x1a\n":
+        return None
+    w, h = int.from_bytes(b[16:20], "big"), int.from_bytes(b[20:24], "big")
+    i, key = 8, None
+    while i + 8 <= len(b):
+        n, kind = int.from_bytes(b[i:i + 4], "big"), b[i + 4:i + 8]
+        if kind == b"tEXt" and b[i + 8:i + 8 + n].startswith(b"yah265-card\0"):
+            key = b[i + 20:i + 8 + n].decode("latin-1")
+        i += 12 + n
+    return w, h, key
+
+
+def draw_card(path, pl, fl):
+    """The link card: the headline, and the 4K films' total time as two bars."""
+    from PIL import Image, ImageDraw, ImageFont, PngImagePlugin
+
+    def font(size, bold=False):
+        for name, idx in (("/System/Library/Fonts/HelveticaNeue.ttc", 1 if bold else 0),
+                          ("/System/Library/Fonts/Helvetica.ttc", 1 if bold else 0),
+                          ("DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf", 0)):
+            try:
+                return ImageFont.truetype(name, size, index=idx)
+            except OSError:
+                continue
+        return ImageFont.load_default()
+
+    W, H, M = 1200, 627, 72
+    ink, ink2, bg = "#0b0b0b", "#52514e", "#fcfcfb"
+    im = Image.new("RGB", (W, H), bg)
+    d = ImageDraw.Draw(im)
+    if os.path.exists(LOGO):
+        logo = Image.open(LOGO).convert("RGBA")
+        logo = logo.resize((round(logo.width * 64 / logo.height), 64), Image.LANCZOS)
+        im.paste(logo, (M, 56), logo)
+    else:
+        d.text((M, 60), "yah265", font=font(52, True), fill=ink)
+    d.text((M, 160), f"{times(pl['median'])} faster than x265", font=font(92, True), fill=ink)
+    d.text((M, 274), f"at the same file size, with {pl['dv']:+.2f} VMAF v1 points",
+           font=font(38), fill=ink2)
+    ok = [r for r in fl["2160p"] if r[1]]
+    ours, ref = sum(r[1] for r in ok), sum(r[2] for r in ok)
+    d.text((M, 368), f"{len(ok)} ten-minute films at 4K, preset medium, same file sizes",
+           font=font(26), fill=ink2)
+    x0, full = M + 130, W - M - 130 - 200
+    for y, name, v, color in ((424, "x265", ref, NEUTRAL), (484, "yah265", ours, BRAND)):
+        x1 = x0 + full * v / ref
+        d.text((M, y + 4), name, font=font(28, name == "yah265"), fill=ink)
+        d.rounded_rectangle((x0 - 8, y, x1, y + 40), radius=8, fill=color)
+        d.rectangle((x0 - 8, y, x0, y + 40), fill=color)
+        d.text((x1 + 16, y + 4), f"{v / 60:.0f} min", font=font(28, True), fill=ink)
+    d.text((M, 562), f"Median over {pl['n']} timed cells: CRF, capped VBR and content types. "
+                     f"Apple M5 Max, all cores.", font=font(22), fill=ink2)
+    meta = PngImagePlugin.PngInfo()
+    meta.add_text("yah265-card", card_key(pl, fl))
+    im.save(path, pnginfo=meta, optimize=True)
+
+
+def values(sps, q, lad, fl, cap, cv, ff, rows, repro, date, report_rel, hist, cred, pl):
     V = {}
+    V["headline"] = headline(pl)
+    V["headline-table"] = headline_table(pl)
+    V["dv-cells"] = f"{pl['dv_ahead']} of the {pl['dv_n']}"
+    V["films-table"] = films_table(fl)
+    V["capped-table"] = capped_table(cap)
+    V["quality-table"] = quality_table(lad)
+    V["curves-table"] = curves_table(cv)
+    V["offmac-table"] = offmac_table(rows, repro)
+    V["board-table"] = board_table(hist)
     # quality off the Mac: Graviton4 by stream identity, x86 by reproduction
     g4 = [r for r in rows["g4"] if r["goal"] in GOALS and r["tier"] in TIERS]
     V["g4-same"] = f"{sum(1 for r in g4 if r['mac_md5_same'] == 'same')} of {len(g4)}"
@@ -651,6 +985,9 @@ def values(sps, q, lad, fl, cap, cv, ff, rows, repro, date, report_rel, hist, cr
     V["slowest-cell"] = (f"{TITLE.get(base, base.capitalize())} at {RES[worst[3][0]]} "
                          f"on the {MACHINE_SHORT[worst[2]]}")
     V["slowest-x"] = fx(worst[0])
+    V["combos-line"] = (f"That's {V['combos']} combinations of machine, group and goal inside "
+                        f"the bar. {V['slowest-cell']} is the slowest single clip at G3 "
+                        f"on any machine. It still runs {V['slowest-x']} faster.")
     V["goal-table"] = goal_table(sps)
     V["arch-table"] = arch_table(sps, q)
     V["avx2-range"] = frange([v["avx2"][0] for v in cap.values()])
@@ -740,7 +1077,7 @@ def ffmpeg_table(ff):
 
 def ffmpeg_cmd(e):
     """The two encodes of one ffmpeg run, and the same encode through the
-    n265 command line, as a fenced block a reader can paste."""
+    y265 command line, as a fenced block a reader can paste."""
     src = f"-ss {e['start_s']:g} -i {e['source']} -frames:v {e['frames']} -an"
     vf = f"-vf scale={e['width']}:{e['height']}:flags=bicubic,format=yuv420p"
     o, r = e["ours"], e["ref"]
@@ -753,7 +1090,7 @@ def ffmpeg_cmd(e):
         "",
         "# the same yah265 encode through its own command line",
         f"ffmpeg {src} {vf} -f yuv4mpegpipe - | \\",
-        f"  build-rel/n265 - -o out.hevc --preset medium --crf {o['crf']:g}",
+        f"  build-rel/y265 - -o out.hevc --preset medium --crf {o['crf']:g}",
         "```"])
 
 
@@ -777,6 +1114,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--check", action="store_true",
                     help="change nothing; exit 1 if the page or a chart is out of date")
+    ap.add_argument("--card", action="store_true", help="draw the link card again")
     a = ap.parse_args()
     D = r"\d{4}-\d\d-\d\d"
     mac_csv = newest(rf"PARITY-REPORT-yah265-{D}\.csv")
@@ -799,9 +1137,12 @@ def main():
     hist = board_history()
     report_rel = os.path.relpath(summary, ROOT)
     repro = json.load(open(REPRO))
+    pl = pooled(rows["mac"], mac_md)
+    claims(pl, fl, ff)
     V = values(sps, q, lad, fl, cap, cv, ff, rows, repro, date, report_rel, hist,
-               credits(mac_md))
-    charts = {"films.svg": chart_films(fl), "arch.svg": chart_arch(sps, date),
+               credits(mac_md), pl)
+    charts = {"films.svg": chart_films(fl), "cells.svg": chart_cells(pl),
+              "arch.svg": chart_arch(sps, date),
               "curves.svg": chart_curves(cv), "bdrate.svg": chart_bd(lad, re.search(f"({D})", os.path.basename(mac_csv))[1]),
               "history.svg": chart_history(hist)}
     post = open(POST).read()
@@ -816,11 +1157,22 @@ def main():
                 os.makedirs(OUT, exist_ok=True)
                 with open(p, "w") as f:
                     f.write(svg + "\n")
+    card = os.path.join(OUT, CARD)
+    if card_stamp(card) != (1200, 627, card_key(pl, fl)) or a.card:
+        if a.check:
+            stale.append(CARD)
+        else:
+            try:
+                draw_card(card, pl, fl)
+                stale.append(CARD)
+            except ImportError:
+                sys.exit(f"{CARD} is out of date and drawing it needs Pillow")
     if new_post != post:
         stale.append("site/blog.md")
         if not a.check:
             with open(POST, "w") as f:
                 f.write(new_post)
+    print(f"headline: {V['headline']}")
     print(f"reports {', '.join(os.path.relpath(p, ROOT) for p in paths.values())}: "
           f"{len(lad)} ladder cells, {sum(len(s) for s in sps.values())} speed groups, "
           f"{len(hist)} board points")

@@ -1,122 +1,143 @@
 ---
-title: Getting started - yah265
-description: Build yah265, run your first encode, and pick a preset and a rate mode.
+title: Build and first encode - yah265
+description: Build ffmpeg with yah265 in one command, run a first encode, and build the y265 command-line encoder on its own.
 ---
 
-# Getting started
+# Build and first encode
 
-## Build it
+There are two ways to run yah265. Most people want it inside ffmpeg, where it's the `libyah265` encoder. The other is `y265`, the project's own command-line encoder, which reads raw video from a file or a pipe.
 
-You need a C11 compiler (clang is the reference), Meson, Ninja and Python 3. ffmpeg is worth having too. It makes input and decodes what comes out.
+<figure class="diagram">
+<svg viewBox="0 0 720 250" role="img" aria-labelledby="start-fig-t start-fig-d">
+<title id="start-fig-t">Two ways to run yah265</title>
+<desc id="start-fig-d">In the first way one ffmpeg process decodes the source, encodes it with libyah265 and writes an MP4. In the second way ffmpeg decodes the source into a Y4M pipe, y265 reads the pipe and writes a raw HEVC stream, and a second ffmpeg run wraps that stream in an MP4.</desc>
+<text class="d-label" x="10" y="24">1. Inside ffmpeg</text>
+<rect class="d-box" x="10" y="38" width="120" height="56" rx="6"/>
+<text class="d-text" x="70" y="71" text-anchor="middle">in.mp4</text>
+<rect class="d-fill" x="190" y="38" width="340" height="56" rx="6"/>
+<text class="d-label" x="204" y="60">ffmpeg</text>
+<text class="d-label" x="204" y="80">decode</text>
+<rect class="d-accent" x="280" y="48" width="140" height="36" rx="6"/>
+<text class="d-mono" x="350" y="71" text-anchor="middle">libyah265</text>
+<text class="d-label" x="484" y="80" text-anchor="middle">mux</text>
+<rect class="d-box" x="590" y="38" width="120" height="56" rx="6"/>
+<text class="d-text" x="650" y="71" text-anchor="middle">out.mp4</text>
+<line class="d-arrow" x1="130" y1="66" x2="188" y2="66"/>
+<line class="d-arrow" x1="530" y1="66" x2="588" y2="66"/>
+<text class="d-label" x="10" y="150">2. The y265 command line</text>
+<rect class="d-box" x="10" y="164" width="120" height="56" rx="6"/>
+<text class="d-text" x="70" y="197" text-anchor="middle">in.mp4</text>
+<rect class="d-fill" x="170" y="164" width="90" height="56" rx="6"/>
+<text class="d-label" x="215" y="188" text-anchor="middle">ffmpeg</text>
+<text class="d-label" x="215" y="206" text-anchor="middle">decode</text>
+<rect class="d-accent" x="320" y="164" width="100" height="56" rx="6"/>
+<text class="d-mono" x="370" y="197" text-anchor="middle">y265</text>
+<rect class="d-fill" x="490" y="164" width="70" height="56" rx="6"/>
+<text class="d-label" x="525" y="188" text-anchor="middle">ffmpeg</text>
+<text class="d-label" x="525" y="206" text-anchor="middle">mux</text>
+<rect class="d-box" x="600" y="164" width="110" height="56" rx="6"/>
+<text class="d-text" x="655" y="197" text-anchor="middle">out.mp4</text>
+<line class="d-arrow" x1="130" y1="192" x2="168" y2="192"/>
+<line class="d-arrow" x1="260" y1="192" x2="318" y2="192"/>
+<text class="d-label" x="289" y="180" text-anchor="middle">Y4M</text>
+<line class="d-arrow" x1="420" y1="192" x2="488" y2="192"/>
+<text class="d-label" x="454" y="180" text-anchor="middle">.hevc</text>
+<line class="d-arrow" x1="560" y1="192" x2="598" y2="192"/>
+</svg>
+<figcaption>Both ways run the same encoder with the same options.</figcaption>
+</figure>
 
-```
-git clone https://github.com/terranvigil/yah265
-cd yah265
-make build-rel
-```
+## Build ffmpeg with yah265
 
-That leaves a release build of the encoder at `build-rel/n265`. `make build` instead gives a `debugoptimized` tree under `build/` with the assertions on. The two write the same bytes. The release build is the one every timed figure on this site uses.
+You need git, a C compiler, Meson, Ninja, pkg-config and make. One command builds everything from a clone of the repository:
 
-There's one binary for every bit depth. It links an 8-bit library and a 10-bit one and picks from the input.
-
-## Your first encode
-
-```
-build-rel/n265 input.y4m -o out.hevc --crf 23
-```
-
-The output is a raw Annex-B HEVC stream. ffmpeg plays it, decodes it, and muxes it into MP4 or Matroska:
-
-```
-ffmpeg -i out.hevc -c copy out.mp4
-```
-
-The input can be a Y4M file, raw planar YUV, or `-` for standard input. A pipe from ffmpeg takes any source ffmpeg can read:
-
-```
-ffmpeg -i movie.mov -pix_fmt yuv420p -f yuv4mpegpipe - | build-rel/n265 - -o out.hevc --crf 23
-```
-
-Because raw YUV has no header, you give the geometry yourself with `--input-res`, `--input-csp`, `--fps` and `--input-depth`. Without a rate flag the encoder codes a fixed QP of 26. Most work wants `--crf`.
-
-## Profiles
-
-The input's chroma format and sample width pick the profile. No flag says so.
-
-| input | stream |
-|---|---|
-| 4:2:0, 8-bit | Main |
-| 4:2:0, 10-bit | Main10 |
-| 4:4:4, 8-bit | Main 4:4:4 |
-| 4:4:4, 10-bit | Main 4:4:4 10 |
-| 4:2:2, 8 or 10-bit | Main 4:2:2 10 |
-
-`--output-depth 10` codes 8-bit input as Main10. Going the other way isn't offered. `--lossless` codes a mathematically lossless stream.
-
-## Presets
-
-`--preset` takes x265's names. Four of them are built: `fast`, `medium`, `slow` and `slower`. `medium` is the default and the preset every result on this site is read at. It's also resolution-aware. At 720p and up it looks 20 frames ahead, where CIF looks 12. From 1080p up it codes 64x64 coding trees, where smaller pictures use 32x32.
-
-x265's other six names are known and refused. The error names the nearest preset that exists. `faster`, `veryfast`, `veryslow` and `placebo` were each built and measured against the x265 preset of the same name. None of them earned it.
-
-`slow` and `slower` spend more time for more quality than `medium`. They've only been placed against x265's `medium`. Read against x265's own `slow` and `slower`, they don't yet win.
-
-A preset only sets defaults. Any option you give wins over it. To see what a run will actually do, ask the encoder:
-
-```
-build-rel/n265 input.y4m --preset medium --show-config
+```sh
+git clone https://github.com/terranvigil/yah265 && cd yah265
+scripts/build-ffmpeg.sh
 ```
 
-That prints the resolved configuration and exits. `--verbose` prints the same table at the start of a real encode.
-
-`--tune zerolatency` turns off B-frames and the lookahead for one-frame latency. The encoder refuses the other x265 tune names and gives a reason for each.
-
-## Rate modes
-
-| mode | options | what it does |
-|---|---|---|
-| CRF | `--crf 23` | constant quality, the size follows the content |
-| fixed QP | `--qp 26` | one quantizer for every frame, mostly for testing |
-| ABR | `--bitrate 3000` | a mean bitrate in kbit/s, with no buffer |
-| VBR | `--bitrate 3000 --vbv-maxrate 4500 --vbv-bufsize 6000` | a mean bitrate held under a decoder buffer |
-| CBR | VBR's options with `--strict-cbr` | a constant rate. Filler data pads any picture that comes in under its share |
-| capped CRF | `--crf 23 --vbv-maxrate 4500 --vbv-bufsize 6000` | constant quality that never breaks the buffer |
-| two-pass | `--pass 1 --stats s.log`, then `--pass 2 --stats s.log` | a first pass measures the clip and the second spends the bits |
-
-The CRF scale is yah265's own. A given number doesn't give the same file size as x265 at that number. The scale accounts for the frame rate. It moves 1.8 QP each time the frame rate doubles.
-
-With a VBV, the stream includes HRD parameters and buffering-period SEI. `--crf-min`, `--crf-max`, `--qpmin` and `--qpmax` bound the rate control. `--zones` and `--qpfile` steer it by frame range.
-
-## Threads
-
-`--threads 0` is the default and starts one worker per online CPU. At `--threads 1`, two runs of the same command give the same bytes. Above one thread the output is the same at every thread count, except for VBR with a buffer. There the rate control works with several frames in flight and the stream differs from the one-thread stream.
-
-`--gop-parallel <n>` codes a long input as segments on several encoder instances at once and joins them at key frames. It's opt-in. The joined stream differs from the serial one.
-
-## Options worth knowing
+The script builds the yah265 library and installs it under `build-ffmpeg/inst`. It then fetches an ffmpeg source tree that has the `libyah265` encoder and builds `ffmpeg` and `ffprobe` in `build-ffmpeg/ffmpeg`. Two options change that:
 
 | option | what it does |
 |---|---|
-| `--keyint <n>` | key frame period in frames (default 250). A scene cut restarts the count |
-| `--open-gop` / `--no-open-gop` | a CRA at the period with leading pictures (default), or an IDR |
-| `--bframes <n>` | B-frames between anchors, 0 to 15 (default 7) |
-| `--ref <n>` | references per list, 1 to 5 |
-| `--rc-lookahead <n>` | lookahead depth in frames |
-| `--rdoq-level <0-2>` | rate-distortion optimized quantization: off, at the final encode, or in every decision |
-| `--cbqpoffs` / `--crqpoffs` | chroma quantizer offsets from luma |
-| `--psnr`, `--ssim` | report the metric at the end of the run |
-| `--csv <file>` | per-run or per-frame statistics |
-| `--dump-recon <file>` | write the reconstruction as raw YUV |
-| `--repeat-headers` | parameter sets at every key frame, for a receiver that joins mid-stream |
+| `--with-x265` | also enables `libx265`, for side-by-side tests |
+| `--prefix DIR` | installs the yah265 library in `DIR` |
 
-`build-rel/n265 --help` lists everything.
+The ffmpeg it builds is a GPL binary. yah265 is GPL-2.0-or-later, and ffmpeg only links a GPL library when it's configured with `--enable-gpl`.
 
-## The identification marks
+## Your first encode
 
-Every stream has an SEI message that names the encoder, its version, its license and the options the run resolved. It holds no clock, no path and no thread count. `--no-info` drops it.
+```sh
+build-ffmpeg/ffmpeg/ffmpeg -i in.mp4 -c:v libyah265 -preset medium -crf 25 out.mp4
+```
 
-The stream also has a fingerprint that survives when the SEI is stripped. Where the merge candidate list holds the same motion at its last two positions, the encoder picks which index to write by a fixed rule. The mark costs no bits because the two codings are the same length and decode to the same picture. `--no-fingerprint` turns it off. `scripts/fingerprint_check.py` reads both marks back from a stream.
+That's the command you'd give x265 with one word changed. `out.mp4` plays in anything that plays HEVC.
 
-## Environment knobs
+Always pass `-crf`. With no rate option the encoder codes every frame at one fixed quantizer. That's a test mode. The encoding guide has the [ffmpeg options the encoder takes](guide.md#from-ffmpeg).
 
-Settings named `N265_*` in the environment reach tuning parameters the command line doesn't expose. They're for experiments. A preset sets most of them. `--show-config` prints the ones a preset named and marks any your environment overrode. The generated [knob list](docs/knobs.md) names them.
+## Pick a quality
+
+`-crf` sets the quality and lets the file size follow the content. A lower number gives a better picture and a bigger file. I'd start at 25 and move by two or three at a time until the picture is good enough.
+
+The CRF scale is yah265's own. A number that suited x265 won't give the same file size here. Pick it by looking at the result. When you need a size or a bitrate instead, the guide's [rate modes](guide.md#rate-modes) cover it.
+
+## Build y265 on its own
+
+`y265` needs a C11 compiler, Meson, Ninja and Python 3. The reference compiler is clang.
+
+```sh
+make build-rel
+```
+
+That leaves the encoder at `build-rel/y265`. The binary is named `y265` and the project yah265. One binary codes every bit depth and picks from its input.
+
+`y265` reads Y4M or raw YUV and writes a raw HEVC stream. ffmpeg can feed it any source through a pipe:
+
+```sh
+ffmpeg -i in.mp4 -pix_fmt yuv420p -f yuv4mpegpipe - | build-rel/y265 - -o out.hevc --crf 25
+```
+
+A Y4M file works without the pipe, as `build-rel/y265 input.y4m -o out.hevc --crf 25`. Because raw YUV has no header, you describe it with `--input-res`, `--input-csp` and `--fps`.
+
+## Play it and mux it
+
+A file from the ffmpeg route is already an MP4. `y265` writes a bare stream, which ffmpeg plays as it is and wraps without re-encoding:
+
+```sh
+ffmpeg -i out.hevc -c copy out.mp4
+```
+
+## Check the stream
+
+`y265` can write the pictures it expects a decoder to produce. Decode the stream with ffmpeg and compare the two files:
+
+```sh
+build-rel/y265 input.y4m -o out.hevc --crf 25 --dump-recon recon.yuv
+ffmpeg -i out.hevc -f rawvideo decoded.yuv
+cmp recon.yuv decoded.yuv
+```
+
+`cmp` prints nothing when every sample matches. The project runs this check on every stream in its tests, against ffmpeg and against libde265.
+
+## Build ffmpeg by hand
+
+The script runs three steps. Run them yourself when you want a different prefix layout or your own ffmpeg configure flags.
+
+<details>
+<summary>The manual steps</summary>
+
+<pre><code>meson setup build-ff -Dbuildtype=release -Dprefix=$PWD/inst && ninja -C build-ff install
+git clone -b yah265 https://github.com/terranvigil/FFmpeg ffmpeg-yah265 && cd ffmpeg-yah265
+PKG_CONFIG_PATH=../inst/lib/pkgconfig ./configure --enable-gpl --enable-libyah265 && make -j
+</code></pre>
+
+</details>
+
+The first line installs the library, its header and its pkg-config file. The second fetches the ffmpeg tree with the wrapper. The third configures and builds it.
+
+## Next
+
+- The [encoding guide](guide.md) covers rate modes, presets, threads and what ships.
+- [Options](options.md) lists every `y265` option with its default.
+- [HDR](hdr.md) covers HDR10, HDR10+, HLG and Dolby Vision.
+- [Check it yourself](check-it-yourself.md) reruns a published result on your machine.
