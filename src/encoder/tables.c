@@ -261,9 +261,10 @@ void n265_tables_init(void)
  * than derived from the angle arithmetic: the spec gives it as a table,
  * and its ends - 2..5 all collapsing to 2, and 34 coming back as 31 -
  * are not what a formula would produce. The values are the spec's table,
- * checked against ffmpeg's and libde265's decodes of the 4:2:2 vectors: a plausible-looking wrong table
- * decodes every stream whose chroma modes stay below 14 and desyncs the
- * rest, which is what the first 4:2:2 vector did. */
+ * checked against ffmpeg's and libde265's decodes of the 4:2:2 vectors: a
+ * plausible-looking wrong table decodes every stream whose chroma modes
+ * stay below 14 and desyncs the rest, which is what the first 4:2:2
+ * vector did. */
 const uint8_t n265_c422_mode_map[35] = {
      0,  1,  2,  2,  2,  2,  3,  5,  7,  8, 10, 12, 13, 15, 17, 18, 19,
     20, 21, 22, 23, 23, 24, 24, 25, 25, 26, 27, 27, 28, 28, 29, 29, 30,

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Compare two raw YUV files. Exit 0 when equal, or when within the given
 bounds (used for the known ffmpeg-vs-dec265 chroma SAO seam disagreement
 at --ctu 16: luma must stay bit-exact, chroma may differ in a bounded,

@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
 # The encode side of the Annex A level table check (phase 8 item 7).
 #
 # tests/unit/level_test.c checks the DERIVATION exhaustively, in memory.

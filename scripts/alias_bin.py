@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Carry parity results from one binary to another that writes the same
 streams. Ladder rows are copied to the new binary's key; points and
 windows are rebound in place. Each carried row names the binary it was

@@ -3774,8 +3774,9 @@ static int bi_refine_iters(void)
  * a prediction and a cost in the prefilter that picks one for the RD
  * trial. The SIGNALED list is untouched - MaxNumMergeCand stays 5 and
  * the merge_idx binarization with it - this is only how many are given
- * an MC and a SATD (or a SAD at the CU level) first. The list is derivation-ordered, so the ones dropped are the
- * temporal and combined candidates, not the spatial neighbors. */
+ * an MC and a SATD (or a SAD at the CU level) first. The list is
+ * derivation-ordered, so the ones dropped are the temporal and combined
+ * candidates, not the spatial neighbors. */
 static int merge_rd_n(void)
 {
     static int v = -1;
@@ -5882,10 +5883,10 @@ static int sc_commit(const struct n265_frame_work *e, int x0, int y0, int n,
  * commit.
  *
  * The full trials are a large share of our quality at a given rate, and
- * also of what a candidate costs. It is not a thing to do at medium -
- * medium is the goal preset and its quality is the goal - so it is a
+ * also of what a candidate costs. The proxy is not a thing to do at
+ * medium - medium is the goal preset and its quality is the goal - so it is a
  * MODE, off everywhere today, and it is what makes the rungs below
- * `fast` possible (sec C).
+ * `fast` possible.
  *
  * The domain. The proxy compares in the HADAMARD domain, not the SSD
  * one, so its lambda is the SAD-domain lambda (`ctu_lam_sad_q4`, the

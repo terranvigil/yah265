@@ -6,6 +6,8 @@
  * (assets/metadata/ToS-s01.h265), a profile B payload with a Bezier curve.
  * Its fields are the ones hdr10plus_tool extracts from that frame, so the
  * bytes below are what any HDR10+ reader already accepts.
+ * Those 64 bytes come from hdr10plus_tool (MIT licence) and its Tears of
+ * Steel sample (CC BY 3.0, (c) Blender Foundation, mango.blender.org).
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 

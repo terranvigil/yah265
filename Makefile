@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 # One-word entry points for every gate. CI runs exactly these.
 
 BUILD ?= build
