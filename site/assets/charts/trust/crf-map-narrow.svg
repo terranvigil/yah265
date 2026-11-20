@@ -1,0 +1,100 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='480' height='509' viewBox='0 0 480 509' role='img'>
+<title>For the same file size, yah265's CRF is about 2 below x265's</title><desc>The yah265 CRF that writes the same file size as each x265 CRF, one faint line per film cell and the median over the cells.</desc>
+<style>
+.bg{fill:#ffffff}.t1{fill:#212529}.t2{fill:#495057}.grid{stroke:#e9ecef}
+.base{stroke:#868e96}.ring{stroke:#ffffff}.med{stroke:#212529}.band{fill:#f1f3f5}
+.s1{fill:#ff4d1a}.s2{fill:#00919a}.s3{fill:#6250d6}.sx{fill:#868e96}
+.l1{stroke:#ff4d1a}.l2{stroke:#00919a}.l3{stroke:#6250d6}.lx{stroke:#868e96}.span{stroke:#dee2e6}
+.note{fill:#b8330a}.wash{fill:#ffe8dc}
+text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+@media (prefers-color-scheme:dark){
+.bg{fill:#1b1c1e}.t1{fill:#e9ecee}.t2{fill:#b6bcc1}.grid{stroke:#2e3135}
+.base{stroke:#8f959a}.ring{stroke:#1b1c1e}.med{stroke:#e9ecee}.band{fill:#23262a}
+.s1{fill:#ff4d1a}.s2{fill:#12a3ad}.s3{fill:#9085e9}.sx{fill:#8f959a}
+.l1{stroke:#ff4d1a}.l2{stroke:#12a3ad}.l3{stroke:#9085e9}.lx{stroke:#8f959a}.span{stroke:#3a3e43}
+.note{fill:#ff8a5c}.wash{fill:#45200f}}
+</style>
+<rect width='100%' height='100%' class='bg'/>
+<text x='20' y='30' font-size='18' class='t1' font-weight='600'>For the same file size, yah265's CRF is</text>
+<text x='20' y='53' font-size='18' class='t1' font-weight='600'>about 2 below x265's</text>
+<text x='20' y='73' font-size='12.5' class='t2'>Each faint line is one film at one size. Both encoders at medium.</text>
+<g transform='translate(0 9)'>
+<circle cx='30.0' cy='86.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='42.0' y='91.0' font-size='11.5' class='t2' text-anchor='start'>median yah265 CRF</text>
+<rect x='155.4' y='81.0' width='9.9' height='9.9' rx='1.5' class='sx ring' stroke-width='2'/>
+<text x='172.3' y='91.0' font-size='11.5' class='t2' text-anchor='start'>one cell</text>
+<line x1='60' y1='436.0' x2='454' y2='436.0' class='grid'/>
+<text x='50.0' y='440.0' font-size='12' class='t2' text-anchor='end'>18</text>
+<line x1='60' y1='396.0' x2='454' y2='396.0' class='grid'/>
+<text x='50.0' y='400.0' font-size='12' class='t2' text-anchor='end'>20</text>
+<line x1='60' y1='356.0' x2='454' y2='356.0' class='grid'/>
+<text x='50.0' y='360.0' font-size='12' class='t2' text-anchor='end'>22</text>
+<line x1='60' y1='316.0' x2='454' y2='316.0' class='grid'/>
+<text x='50.0' y='320.0' font-size='12' class='t2' text-anchor='end'>24</text>
+<line x1='60' y1='276.0' x2='454' y2='276.0' class='grid'/>
+<text x='50.0' y='280.0' font-size='12' class='t2' text-anchor='end'>26</text>
+<line x1='60' y1='236.0' x2='454' y2='236.0' class='grid'/>
+<text x='50.0' y='240.0' font-size='12' class='t2' text-anchor='end'>28</text>
+<line x1='60' y1='196.0' x2='454' y2='196.0' class='grid'/>
+<text x='50.0' y='200.0' font-size='12' class='t2' text-anchor='end'>30</text>
+<line x1='60' y1='156.0' x2='454' y2='156.0' class='grid'/>
+<text x='50.0' y='160.0' font-size='12' class='t2' text-anchor='end'>32</text>
+<line x1='60' y1='116.0' x2='454' y2='116.0' class='grid'/>
+<text x='50.0' y='120.0' font-size='12' class='t2' text-anchor='end'>34</text>
+<line x1='95.8' y1='436' x2='95.8' y2='441' class='base'/>
+<text x='95.8' y='456.0' font-size='12' class='t2' text-anchor='middle'>23</text>
+<line x1='203.3' y1='436' x2='203.3' y2='441' class='base'/>
+<text x='203.3' y='456.0' font-size='12' class='t2' text-anchor='middle'>26</text>
+<line x1='274.9' y1='436' x2='274.9' y2='441' class='base'/>
+<text x='274.9' y='456.0' font-size='12' class='t2' text-anchor='middle'>28</text>
+<line x1='310.7' y1='436' x2='310.7' y2='441' class='base'/>
+<text x='310.7' y='456.0' font-size='12' class='t2' text-anchor='middle'>29</text>
+<line x1='418.2' y1='436' x2='418.2' y2='441' class='base'/>
+<text x='418.2' y='456.0' font-size='12' class='t2' text-anchor='middle'>32</text>
+<text x='257.0' y='486.0' font-size='13' class='t2' text-anchor='middle'>x265 --crf</text>
+<text x='22' y='276.0' font-size='13' class='t2' text-anchor='middle' transform='rotate(-90 22 276.0)'>y265 --crf for the same size</text>
+<line x1='60.0' y1='356.0' x2='454.0' y2='136.0' class='base' stroke-dasharray='4 3'/>
+<text x='450.0' y='128.0' font-size='11.5' class='t2' text-anchor='end'>same number</text>
+<polyline fill='none' class='lx' stroke-width='1' opacity='0.55' points='95.8,342.2 203.3,283.3 274.9,243.6 310.7,223.8 418.2,164.8'/>
+<polyline fill='none' class='lx' stroke-width='1' opacity='0.55' points='95.8,334.7 203.3,276.6 274.9,236.6 310.7,216.5 418.2,156.8'/>
+<polyline fill='none' class='lx' stroke-width='1' opacity='0.55' points='95.8,352.3 203.3,292.0 274.9,252.4 310.7,232.0 418.2,172.8'/>
+<polyline fill='none' class='lx' stroke-width='1' opacity='0.55' points='95.8,386.9 203.3,329.8 274.9,290.6 310.7,271.5 418.2,214.0'/>
+<polyline fill='none' class='lx' stroke-width='1' opacity='0.55' points='95.8,380.4 203.3,321.8 274.9,282.4 310.7,263.1 418.2,204.6'/>
+<polyline fill='none' class='lx' stroke-width='1' opacity='0.55' points='203.3,344.1 274.9,305.6 310.7,286.6 418.2,230.9'/>
+<polyline fill='none' class='lx' stroke-width='1' opacity='0.55' points='203.3,368.6 274.9,325.2 310.7,300.4 418.2,238.0'/>
+<polyline fill='none' class='lx' stroke-width='1' opacity='0.55' points='95.8,395.8 203.3,336.3 274.9,297.4 310.7,277.2 418.2,216.3'/>
+<polyline fill='none' class='lx' stroke-width='1' opacity='0.55' points='95.8,296.0 203.3,236.5 274.9,197.8 310.7,177.1'/>
+<polyline fill='none' class='lx' stroke-width='1' opacity='0.55' points='95.8,305.7 203.3,245.2 274.9,204.8 310.7,184.9'/>
+<polyline fill='none' class='lx' stroke-width='1' opacity='0.55' points='95.8,322.8 203.3,262.4 274.9,223.8 310.7,201.8'/>
+<polyline fill='none' class='lx' stroke-width='1' opacity='0.55' points='95.8,378.3 203.3,321.4 274.9,283.8 310.7,265.2 418.2,209.5'/>
+<polyline fill='none' class='lx' stroke-width='1' opacity='0.55' points='95.8,395.8 203.3,336.5 274.9,297.8 310.7,278.5 418.2,222.1'/>
+<polyline fill='none' class='lx' stroke-width='1' opacity='0.55' points='95.8,364.9 203.3,305.5 274.9,265.6 310.7,245.5 418.2,185.7'/>
+<polyline fill='none' class='lx' stroke-width='1' opacity='0.55' points='95.8,383.4 203.3,319.6 274.9,277.6 310.7,255.4 418.2,192.6'/>
+<polyline fill='none' class='lx' stroke-width='1' opacity='0.55' points='95.8,358.2 203.3,298.0 274.9,258.4 310.7,237.3 418.2,175.4'/>
+<polyline fill='none' class='lx' stroke-width='1' opacity='0.55' points='95.8,395.1 203.3,336.7 274.9,298.4 310.7,277.9 418.2,220.3'/>
+<polyline fill='none' class='lx' stroke-width='1' opacity='0.55' points='203.3,354.5 274.9,311.0 310.7,287.9 418.2,225.5'/>
+<polyline fill='none' class='lx' stroke-width='1' opacity='0.55' points='95.8,379.4 203.3,320.4 274.9,282.2 310.7,260.8 418.2,201.7'/>
+<rect x='272.4' y='273.5' width='5' height='5' class='sx' opacity='0.7'/>
+<rect x='272.4' y='236.7' width='5' height='5' class='sx' opacity='0.7'/>
+<rect x='272.4' y='251.7' width='5' height='5' class='sx' opacity='0.7'/>
+<rect x='272.4' y='249.5' width='5' height='5' class='sx' opacity='0.7'/>
+<rect x='272.4' y='322.1' width='5' height='5' class='sx' opacity='0.7'/>
+<rect x='272.4' y='251.5' width='5' height='5' class='sx' opacity='0.7'/>
+<rect x='272.4' y='297.1' width='5' height='5' class='sx' opacity='0.7'/>
+<rect x='272.4' y='315.7' width='5' height='5' class='sx' opacity='0.7'/>
+<rect x='272.4' y='302.1' width='5' height='5' class='sx' opacity='0.7'/>
+<rect x='272.4' y='263.9' width='5' height='5' class='sx' opacity='0.7'/>
+<rect x='272.4' y='260.7' width='5' height='5' class='sx' opacity='0.7'/>
+<polyline fill='none' class='l1' stroke-width='2.5' points='95.8,371.6 203.3,320.4 274.9,276.8 310.7,260.8 418.2,207.0'/>
+<circle cx='95.8' cy='371.6' r='5' class='s1 ring' stroke-width='2'/>
+<text x='95.8' y='393.6' font-size='12' class='t1' text-anchor='middle' font-weight='600'>21.2</text>
+<circle cx='203.3' cy='320.4' r='5' class='s1 ring' stroke-width='2'/>
+<text x='203.3' y='342.4' font-size='12' class='t1' text-anchor='middle' font-weight='600'>23.8</text>
+<circle cx='274.9' cy='276.8' r='5' class='s1 ring' stroke-width='2'/>
+<text x='274.9' y='298.8' font-size='12' class='t1' text-anchor='middle' font-weight='600'>26.0</text>
+<circle cx='310.7' cy='260.8' r='5' class='s1 ring' stroke-width='2'/>
+<text x='310.7' y='282.8' font-size='12' class='t1' text-anchor='middle' font-weight='600'>26.8</text>
+<circle cx='418.2' cy='207.0' r='5' class='s1 ring' stroke-width='2'/>
+<text x='418.2' y='229.0' font-size='12' class='t1' text-anchor='middle' font-weight='600'>29.4</text>
+</g>
+</svg>

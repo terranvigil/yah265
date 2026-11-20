@@ -22,7 +22,7 @@ A rate mode decides what stays fixed: the quality, the bitrate or the size.
 | fixed QP | `--qp` | you're testing the encoder. It's also what you get with no rate option |
 
 <figure class="diagram">
-<svg viewBox="0 0 720 330" role="img" aria-labelledby="rate-fig-t rate-fig-d">
+<svg class="d-wide" viewBox="0 0 720 330" role="img" aria-labelledby="rate-fig-t rate-fig-d">
 <title id="rate-fig-t">Choosing a rate mode</title>
 <desc id="rate-fig-d">A decision tree. If you don't need a set bitrate, use CRF, or capped CRF when there is a peak rate limit. If you need a set bitrate and the channel is constant rate, use CBR. Otherwise use two-pass when you can encode twice, capped VBR when a decoder buffer applies, and ABR when none does.</desc>
 <rect class="d-fill" x="250" y="10" width="220" height="44" rx="6"/>
@@ -63,6 +63,48 @@ A rate mode decides what stays fixed: the quality, the bitrate or the size.
 <text class="d-label" x="626" y="254">no buffer</text>
 <rect class="d-accent" x="600" y="276" width="90" height="44" rx="6"/>
 <text class="d-text" x="645" y="304" text-anchor="middle">ABR</text>
+</svg>
+<svg class="d-narrow" viewBox="0 0 360 480" role="img" aria-labelledby="rate-fig-t-n rate-fig-d-n">
+<title id="rate-fig-t-n">Choosing a rate mode</title>
+<desc id="rate-fig-d-n">A decision tree. If you don't need a set bitrate, use CRF, or capped CRF when there is a peak rate limit. If you need a set bitrate and the channel is constant rate, use CBR. Otherwise use two-pass when you can encode twice, capped VBR when a decoder buffer applies, and ABR when none does.</desc>
+<rect class="d-fill" x="60" y="8" width="240" height="42" rx="6"/>
+<text class="d-text" x="180" y="35" text-anchor="middle">Need a set bitrate?</text>
+<line class="d-arrow" x1="120" y1="50" x2="120" y2="86"/>
+<text class="d-label" x="112" y="72" text-anchor="end">no</text>
+<path class="d-arrow" d="M300 29H340V250"/>
+<text class="d-label" x="320" y="22" text-anchor="middle">yes</text>
+<rect class="d-fill" x="40" y="88" width="180" height="42" rx="6"/>
+<text class="d-text" x="130" y="115" text-anchor="middle">A peak rate limit?</text>
+<line class="d-arrow" x1="80" y1="130" x2="80" y2="166"/>
+<text class="d-label" x="72" y="152" text-anchor="end">no</text>
+<line class="d-arrow" x1="180" y1="130" x2="180" y2="166"/>
+<text class="d-label" x="188" y="152">yes</text>
+<rect class="d-accent" x="20" y="168" width="100" height="40" rx="6"/>
+<text class="d-text" x="70" y="194" text-anchor="middle">CRF</text>
+<rect class="d-accent" x="135" y="168" width="120" height="40" rx="6"/>
+<text class="d-text" x="195" y="194" text-anchor="middle">capped CRF</text>
+<rect class="d-fill" x="150" y="252" width="202" height="42" rx="6"/>
+<text class="d-text" x="251" y="279" text-anchor="middle">Constant-rate channel?</text>
+<line class="d-arrow" x1="150" y1="273" x2="112" y2="273"/>
+<text class="d-label" x="131" y="266" text-anchor="middle">yes</text>
+<rect class="d-accent" x="30" y="253" width="80" height="40" rx="6"/>
+<text class="d-text" x="70" y="279" text-anchor="middle">CBR</text>
+<line class="d-arrow" x1="251" y1="294" x2="251" y2="330"/>
+<text class="d-label" x="259" y="316">no</text>
+<rect class="d-fill" x="80" y="332" width="200" height="42" rx="6"/>
+<text class="d-text" x="180" y="359" text-anchor="middle">Time to encode twice?</text>
+<line class="d-arrow" x1="110" y1="374" x2="62" y2="428"/>
+<text class="d-label" x="78" y="398" text-anchor="end">yes</text>
+<line class="d-arrow" x1="180" y1="374" x2="180" y2="428"/>
+<text class="d-label" x="188" y="406">a buffer</text>
+<line class="d-arrow" x1="250" y1="374" x2="300" y2="428"/>
+<text class="d-label" x="286" y="396">no buffer</text>
+<rect class="d-accent" x="8" y="430" width="100" height="42" rx="6"/>
+<text class="d-text" x="58" y="457" text-anchor="middle">two-pass</text>
+<rect class="d-accent" x="120" y="430" width="120" height="42" rx="6"/>
+<text class="d-text" x="180" y="457" text-anchor="middle">capped VBR</text>
+<rect class="d-accent" x="262" y="430" width="90" height="42" rx="6"/>
+<text class="d-text" x="307" y="457" text-anchor="middle">ABR</text>
 </svg>
 <figcaption>Start from whether the bitrate is set for you.</figcaption>
 </figure>

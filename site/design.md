@@ -16,7 +16,7 @@ HEVC moved most of an encoder's cost into search. A coding tree can split from 6
 A frame passes through four stages. A reader thread takes it off the input. The lookahead keeps a small copy and works out what the frame will cost. One thread, called the driver here, decides the frame's type, its references and its planned quantizer. It then hands the frame to a shared pool of workers. In the pool the frame is coded as rows of coding tree units while rows of other frames run beside it. A last pass per frame turns the rows' recorded decisions into bits.
 
 <figure class="diagram">
-<svg viewBox="0 0 720 298" role="img" aria-label="The path a frame takes through yah265">
+<svg class="d-wide" viewBox="0 0 720 298" role="img" aria-label="The path a frame takes through yah265">
 <title>The path a frame takes through yah265</title>
 <desc>A reader thread hands frames to the lookahead, which keeps a small copy of each and estimates costs and motion. Frame decisions set each frame's type, QP plan and references and dispatch it to a shared worker pool in coding order. In the pool a frame's rows are encoded, deblocked, run through SAO and published, and one entropy pass per frame writes the stream. Published rows feed later frames' prediction, and the bits each frame used feed back to the frame decisions.</desc>
 <rect class="d-box" x="20" y="30" width="140" height="44" rx="6"/>
@@ -55,6 +55,49 @@ A frame passes through four stages. A reader thread takes it off the input. The 
 <line class="d-arrow" x1="615" y1="200" x2="615" y2="268"/>
 <text class="d-label" x="615" y="286" text-anchor="middle">stream, in coding order</text>
 </svg>
+<svg class="d-narrow" viewBox="0 0 360 546" role="img" aria-labelledby="design-path-n-t design-path-n-d">
+<title id="design-path-n-t">The path a frame takes through yah265</title>
+<desc id="design-path-n-d">A reader thread hands frames to the lookahead, which keeps a small copy of each and estimates costs and motion. Frame decisions set each frame's type, QP plan and references and dispatch it to a shared worker pool in coding order. In the pool a frame's rows are encoded, deblocked, run through SAO and published, and one entropy pass per frame writes the stream. Published rows feed later frames' prediction, and the bits each frame used feed back to the frame decisions.</desc>
+<rect class="d-box" x="64" y="8" width="186" height="44" rx="6"/>
+<text class="d-label" x="157" y="26.5" text-anchor="middle">Reader thread</text>
+<text class="d-label" x="157" y="42.5" text-anchor="middle">frames off the pipe</text>
+<line class="d-arrow" x1="157" y1="52" x2="157" y2="74"/>
+<rect class="d-box" x="64" y="76" width="186" height="44" rx="6"/>
+<text class="d-label" x="157" y="94.5" text-anchor="middle">Lookahead</text>
+<text class="d-label" x="157" y="110.5" text-anchor="middle">small copy, costs, motion</text>
+<line class="d-arrow" x1="157" y1="120" x2="157" y2="142"/>
+<rect class="d-accent" x="64" y="144" width="186" height="44" rx="6"/>
+<text class="d-label" x="157" y="162.5" text-anchor="middle">Frame decisions</text>
+<text class="d-label" x="157" y="178.5" text-anchor="middle">type, QP plan, references</text>
+<line class="d-arrow" x1="157" y1="188" x2="157" y2="266"/>
+<text class="d-label" x="165" y="214" text-anchor="start">dispatch, in coding order</text>
+<rect class="d-dash" x="48" y="228" width="306" height="260" rx="8"/>
+<text class="d-label" x="170" y="250" text-anchor="start">worker pool: rows of</text>
+<text class="d-label" x="170" y="266" text-anchor="start">several frames at once</text>
+<rect class="d-box" x="64" y="268" width="186" height="36" rx="6"/>
+<text class="d-label" x="157" y="290.5" text-anchor="middle">Encode rows</text>
+<line class="d-arrow" x1="157" y1="304" x2="157" y2="322"/>
+<rect class="d-box" x="64" y="324" width="186" height="36" rx="6"/>
+<text class="d-label" x="157" y="346.5" text-anchor="middle">Deblock rows</text>
+<line class="d-arrow" x1="157" y1="360" x2="157" y2="378"/>
+<rect class="d-box" x="64" y="380" width="186" height="36" rx="6"/>
+<text class="d-label" x="157" y="402.5" text-anchor="middle">SAO rows, then publish</text>
+<line class="d-arrow" x1="157" y1="416" x2="157" y2="434"/>
+<rect class="d-box" x="64" y="436" width="186" height="40" rx="6"/>
+<text class="d-label" x="157" y="452.5" text-anchor="middle">Entropy pass,</text>
+<text class="d-label" x="157" y="468.5" text-anchor="middle">one per frame</text>
+<path class="d-arrow d-muted" d="M250 398 L266 398 L266 286 L252 286"/>
+<text class="d-label" x="274" y="304" text-anchor="start">published</text>
+<text class="d-label" x="274" y="320" text-anchor="start">rows are</text>
+<text class="d-label" x="274" y="336" text-anchor="start">what later</text>
+<text class="d-label" x="274" y="352" text-anchor="start">frames</text>
+<text class="d-label" x="274" y="368" text-anchor="start">predict from</text>
+<path class="d-arrow d-muted" d="M64 456 L40 456 L40 166 L62 166"/>
+<text class="d-label" x="6" y="300" text-anchor="start">bits</text>
+<text class="d-label" x="6" y="316" text-anchor="start">used</text>
+<line class="d-arrow" x1="157" y1="476" x2="157" y2="514"/>
+<text class="d-label" x="157" y="534" text-anchor="middle">stream, in coding order</text>
+</svg>
 <figcaption>One thread makes the per-frame decisions. Everything inside the dashed box runs on the worker pool.</figcaption>
 </figure>
 
@@ -83,7 +126,7 @@ I swept the lookahead's depth on the test set and didn't inherit a number. The d
 Each coding tree unit runs a staged decision. Merge and skip candidates go first. A block that's already coded well enough leaves there. Every block size that survives gets one motion search for the whole block. A cheap Hadamard cost ranks the candidates. Only the winner pays for a full rate-distortion trial through the entropy coder's bit estimator.
 
 <figure class="diagram">
-<svg viewBox="0 0 720 294" role="img" aria-label="The decision ladder for one block">
+<svg class="d-wide" viewBox="0 0 720 294" role="img" aria-label="The decision ladder for one block">
 <title>The decision ladder for one block</title>
 <desc>A funnel in three stages. Every candidate enters at the top: merge candidates, one motion search per block size and the intra modes. Stage one tries merge and skip, and a block that is already coded well leaves there as a skip. Stage two ranks the survivors by a cheap Hadamard cost and drops the losers. Stage three gives one candidate a full rate-distortion trial, and the winner goes into the frame's records.</desc>
 <polygon class="d-fill" points="115,40 545,40 500,96 160,96"/>
@@ -108,6 +151,33 @@ Each coding tree unit runs a staged decision. Merge and skip candidates go first
 <text class="d-label" x="60" y="138" text-anchor="start">survivors</text>
 <text class="d-label" x="130" y="204" text-anchor="start">one</text>
 </svg>
+<svg class="d-narrow" viewBox="0 0 360 404" role="img" aria-labelledby="design-ladder-n-t design-ladder-n-d">
+<title id="design-ladder-n-t">The decision ladder for one block</title>
+<desc id="design-ladder-n-d">A funnel in three stages. Every candidate enters at the top: merge candidates, one motion search per block size and the intra modes. Stage one tries merge and skip, and a block that is already coded well leaves there as a skip. Stage two ranks the survivors by a cheap Hadamard cost and drops the losers. Stage three gives one candidate a full rate-distortion trial, and the winner goes into the frame's records.</desc>
+<text class="d-label" x="180" y="20" text-anchor="middle">every candidate: merge candidates,</text>
+<text class="d-label" x="180" y="38" text-anchor="middle">one motion search per block size, intra modes</text>
+<line class="d-arrow" x1="180" y1="46" x2="180" y2="64"/>
+<polygon class="d-fill" points="8,66 352,66 322,134 38,134"/>
+<text class="d-label" x="180" y="90" text-anchor="middle">1. Try merge and skip first</text>
+<text class="d-label" x="180" y="108" text-anchor="middle">a block that's already coded well</text>
+<text class="d-label" x="180" y="126" text-anchor="middle">stops here</text>
+<line class="d-arrow" x1="120" y1="134" x2="120" y2="174"/>
+<text class="d-label" x="112" y="160" text-anchor="end">survivors</text>
+<line class="d-arrow" x1="300" y1="134" x2="300" y2="150"/>
+<text class="d-label" x="352" y="168" text-anchor="end">early exit as a skip</text>
+<polygon class="d-fill" points="38,176 322,176 292,236 68,236"/>
+<text class="d-label" x="180" y="200" text-anchor="middle">2. Rank the rest by Hadamard cost</text>
+<text class="d-label" x="180" y="220" text-anchor="middle">cheap, no entropy coding</text>
+<line class="d-arrow" x1="120" y1="236" x2="120" y2="276"/>
+<text class="d-label" x="112" y="262" text-anchor="end">one</text>
+<line class="d-arrow d-muted" x1="280" y1="236" x2="280" y2="252"/>
+<text class="d-label" x="352" y="270" text-anchor="end">losers dropped</text>
+<polygon class="d-accent" points="60,278 300,278 270,340 90,340"/>
+<text class="d-label" x="180" y="304" text-anchor="middle">3. One full trial</text>
+<text class="d-label" x="180" y="324" text-anchor="middle">real distortion, real bits</text>
+<line class="d-arrow" x1="180" y1="340" x2="180" y2="372"/>
+<text class="d-label" x="180" y="392" text-anchor="middle">the winner goes into the frame's records</text>
+</svg>
 <figcaption>Each stage costs more per candidate than the one above it, and sees fewer candidates.</figcaption>
 </figure>
 
@@ -116,7 +186,7 @@ Pruning decides the speed. A node stops splitting when its neighbors and its own
 The coding tree's size follows the picture. Smaller pictures use 32x32 trees. From 1080p up, `medium` codes 64x64 trees with two gates on the top node.
 
 <figure class="diagram">
-<svg viewBox="0 0 720 260" role="img" aria-label="The two gates on a 64x64 node">
+<svg class="d-wide" viewBox="0 0 720 260" role="img" aria-label="The two gates on a 64x64 node">
 <title>The two gates on a 64x64 node</title>
 <desc>A 64 by 64 node first goes to gate one, which tries the whole block as a single skip. If little residual is left the skip is kept and the node is done. Otherwise gate two asks whether the skip missed by a wide margin. If it did, the node goes straight to four 32 by 32 nodes. If it didn't, the node gets a full decision at 64 by 64 and the split is tried as well.</desc>
 <rect class="d-box" x="20" y="100" width="90" height="44" rx="6"/>
@@ -143,6 +213,32 @@ The coding tree's size follows the picture. Smaller pictures use 32x32 trees. Fr
 <text class="d-label" x="553" y="82" text-anchor="start">no</text>
 <rect class="d-box" x="410" y="20" width="270" height="40" rx="6"/>
 <text class="d-label" x="545" y="44.5" text-anchor="middle">Full decision at 64x64, then try the split</text>
+</svg>
+<svg class="d-narrow" viewBox="0 0 360 404" role="img" aria-labelledby="design-gates-n-t design-gates-n-d">
+<title id="design-gates-n-t">The two gates on a 64x64 node</title>
+<desc id="design-gates-n-d">A 64 by 64 node first goes to gate one, which tries the whole block as a single skip. If little residual is left the skip is kept and the node is done. Otherwise gate two asks whether the skip missed by a wide margin. If it did, the node goes straight to four 32 by 32 nodes. If it didn't, the node gets a full decision at 64 by 64 and the split is tried as well.</desc>
+<rect class="d-box" x="120" y="8" width="120" height="36" rx="6"/>
+<text class="d-label" x="180" y="30.5" text-anchor="middle">64x64 node</text>
+<line class="d-arrow" x1="180" y1="44" x2="180" y2="62"/>
+<rect class="d-accent" x="30" y="64" width="300" height="40" rx="6"/>
+<text class="d-label" x="180" y="88.5" text-anchor="middle">Gate 1: try the whole block as one skip</text>
+<line class="d-arrow" x1="80" y1="104" x2="80" y2="148"/>
+<text class="d-label" x="88" y="126" text-anchor="start">little residual left</text>
+<rect class="d-box" x="8" y="150" width="164" height="36" rx="6"/>
+<text class="d-label" x="90" y="172.5" text-anchor="middle">Keep the skip. Done.</text>
+<line class="d-arrow" x1="280" y1="104" x2="280" y2="208"/>
+<text class="d-label" x="272" y="174" text-anchor="end">too much left</text>
+<rect class="d-accent" x="150" y="210" width="202" height="44" rx="6"/>
+<text class="d-label" x="251" y="228.5" text-anchor="middle">Gate 2: did the skip</text>
+<text class="d-label" x="251" y="244.5" text-anchor="middle">miss by a wide margin?</text>
+<line class="d-arrow" x1="251" y1="254" x2="251" y2="294"/>
+<text class="d-label" x="259" y="278" text-anchor="start">yes</text>
+<rect class="d-box" x="120" y="296" width="232" height="36" rx="6"/>
+<text class="d-label" x="236" y="318.5" text-anchor="middle">Go straight to four 32x32</text>
+<path class="d-arrow" d="M150 232 L30 232 L30 358"/>
+<text class="d-label" x="38" y="280" text-anchor="start">no</text>
+<rect class="d-box" x="8" y="360" width="344" height="36" rx="6"/>
+<text class="d-label" x="180" y="382.5" text-anchor="middle">Full decision at 64x64, then try the split</text>
 </svg>
 <figcaption>Both gates save work at the top of the tree, where a wrong guess is the most expensive.</figcaption>
 </figure>
@@ -176,7 +272,7 @@ Each picture is coded as one slice with no wavefront substreams and no tiles. Th
 Rate control turns what you asked for into a quantizer for every block. yah265 covers fixed QP, CRF, ABR, VBR, CBR, capped CRF and two-pass. The [encoding guide](guide.md#rate-modes) says when to use each.
 
 <figure class="diagram">
-<svg viewBox="0 0 720 290" role="img" aria-label="Which planner each rate mode uses">
+<svg class="d-wide" viewBox="0 0 720 290" role="img" aria-label="Which planner each rate mode uses">
 <title>Which planner each rate mode uses</title>
 <desc>Seven rate modes on the left feed three planners. Fixed QP uses the quantizer you gave. CRF, capped CRF and capped VBR use the quality planner, which sets a base QP from the lookahead's cost. ABR, CBR and the second pass of two-pass use the rate loop, which sets a QP from the bits spent so far. Capped CRF, capped VBR and CBR then pass through the buffer model. Every path ends at the per-block offsets that set each block's QP.</desc>
 <rect class="d-box" x="20" y="30" width="150" height="28" rx="6"/>
@@ -223,6 +319,52 @@ Rate control turns what you asked for into a quantizer for every block. yah265 c
 <text class="d-label" x="658" y="144" text-anchor="middle">then each</text>
 <text class="d-label" x="658" y="161" text-anchor="middle">block's QP</text>
 <text class="d-label" x="520" y="272" text-anchor="middle">shaded modes pass through the buffer model</text>
+</svg>
+<svg class="d-narrow" viewBox="0 0 360 444" role="img" aria-labelledby="design-rate-n-t design-rate-n-d">
+<title id="design-rate-n-t">Which planner each rate mode uses</title>
+<desc id="design-rate-n-d">Seven rate modes on the left feed three planners. Fixed QP uses the quantizer you gave. CRF, capped CRF and capped VBR use the quality planner, which sets a base QP from the lookahead's cost. ABR, CBR and the second pass of two-pass use the rate loop, which sets a QP from the bits spent so far. Capped CRF, capped VBR and CBR then pass through the buffer model. Every path ends at the per-block offsets that set each block's QP.</desc>
+<rect class="d-box" x="8" y="8" width="112" height="28" rx="6"/>
+<text class="d-label" x="64" y="26.5" text-anchor="middle">fixed QP</text>
+<line class="d-arrow d-muted" x1="120" y1="22" x2="148" y2="22"/>
+<rect class="d-box" x="150" y="4" width="168" height="36" rx="6"/>
+<text class="d-label" x="234" y="26.5" text-anchor="middle">The quantizer you gave</text>
+<rect class="d-box" x="8" y="58" width="112" height="28" rx="6"/>
+<text class="d-label" x="64" y="76.5" text-anchor="middle">CRF</text>
+<rect class="d-fill" x="8" y="94" width="112" height="28" rx="6"/>
+<text class="d-label" x="64" y="112.5" text-anchor="middle">capped CRF</text>
+<rect class="d-fill" x="8" y="130" width="112" height="28" rx="6"/>
+<text class="d-label" x="64" y="148.5" text-anchor="middle">capped VBR</text>
+<line class="d-arrow d-muted" x1="120" y1="72" x2="148" y2="92"/>
+<line class="d-arrow d-muted" x1="120" y1="108" x2="148" y2="106"/>
+<line class="d-arrow d-muted" x1="120" y1="144" x2="148" y2="120"/>
+<rect class="d-accent" x="150" y="62" width="168" height="88" rx="6"/>
+<text class="d-label" x="234" y="90" text-anchor="middle">Quality planner:</text>
+<text class="d-label" x="234" y="107" text-anchor="middle">a base QP from the</text>
+<text class="d-label" x="234" y="124" text-anchor="middle">lookahead's cost</text>
+<rect class="d-box" x="8" y="176" width="112" height="28" rx="6"/>
+<text class="d-label" x="64" y="194.5" text-anchor="middle">ABR</text>
+<rect class="d-fill" x="8" y="212" width="112" height="28" rx="6"/>
+<text class="d-label" x="64" y="230.5" text-anchor="middle">CBR</text>
+<rect class="d-box" x="8" y="248" width="112" height="40" rx="6"/>
+<text class="d-label" x="64" y="264.5" text-anchor="middle">two-pass,</text>
+<text class="d-label" x="64" y="280.5" text-anchor="middle">second pass</text>
+<line class="d-arrow d-muted" x1="120" y1="190" x2="148" y2="212"/>
+<line class="d-arrow d-muted" x1="120" y1="226" x2="148" y2="224"/>
+<line class="d-arrow d-muted" x1="120" y1="268" x2="148" y2="238"/>
+<rect class="d-box" x="150" y="196" width="168" height="56" rx="6"/>
+<text class="d-label" x="234" y="220.5" text-anchor="middle">Rate loop: a QP from</text>
+<text class="d-label" x="234" y="236.5" text-anchor="middle">the bits spent so far</text>
+<rect class="d-fill" x="200" y="300" width="100" height="40" rx="6"/>
+<text class="d-label" x="250" y="324.5" text-anchor="middle">Buffer model</text>
+<path class="d-arrow" d="M318 22 L346 22 L346 370"/>
+<path class="d-arrow" d="M318 106 L332 106 L332 370"/>
+<line class="d-arrow" x1="332" y1="320" x2="302" y2="320"/>
+<line class="d-arrow" x1="250" y1="252" x2="250" y2="298"/>
+<line class="d-arrow" x1="170" y1="252" x2="170" y2="370"/>
+<line class="d-arrow" x1="250" y1="340" x2="250" y2="370"/>
+<rect class="d-box" x="8" y="372" width="346" height="36" rx="6"/>
+<text class="d-label" x="180" y="394.5" text-anchor="middle">Per-block offsets, then each block's QP</text>
+<text class="d-label" x="180" y="432" text-anchor="middle">shaded modes pass through the buffer model</text>
 </svg>
 <figcaption>Capped VBR sits with CRF on the quality planner. The buffer model only sees the modes that have a buffer.</figcaption>
 </figure>

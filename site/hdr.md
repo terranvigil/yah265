@@ -21,7 +21,7 @@ yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8 as Main10 HEVC. The 
 Dolby Vision profile 5 isn't offered. Its base layer is in Dolby's IPTPQc2 color space, which nothing in this toolchain can produce or check.
 
 <figure class="diagram">
-<svg viewBox="0 0 720 250" role="img" aria-labelledby="hdr-fig-t hdr-fig-d">
+<svg class="d-wide" viewBox="0 0 720 250" role="img" aria-labelledby="hdr-fig-t hdr-fig-d">
 <title id="hdr-fig-t">Where each piece of HDR signaling goes in the stream</title>
 <desc id="hdr-fig-d">A stream drawn as a row of pictures. The color flags are in the sequence parameter set at the start. The mastering display and light level messages come at each key frame. An HDR10+ message and a Dolby Vision RPU come with every picture.</desc>
 <rect class="d-accent" x="10" y="100" width="90" height="56" rx="6"/>
@@ -51,6 +51,40 @@ Dolby Vision profile 5 isn't offered. Its base layer is in Dolby's IPTPQc2 color
 <line class="d-arrow" x1="405" y1="190" x2="405" y2="158"/>
 <line class="d-arrow" x1="525" y1="190" x2="525" y2="158"/>
 <line class="d-arrow" x1="645" y1="190" x2="645" y2="158"/>
+</svg>
+<svg class="d-narrow" viewBox="0 0 360 360" role="img" aria-labelledby="hdr-fig-t-n hdr-fig-d-n">
+<title id="hdr-fig-t-n">Where each piece of HDR signaling goes in the stream</title>
+<desc id="hdr-fig-d-n">A stream drawn as a column of pictures. The color flags are in the sequence parameter set at the start. The mastering display and light level messages come at each key frame. An HDR10+ message and a Dolby Vision RPU come with every picture.</desc>
+<rect class="d-accent" x="40" y="8" width="110" height="52" rx="6"/>
+<text class="d-text" x="95" y="32" text-anchor="middle">SPS</text>
+<text class="d-label" x="95" y="51" text-anchor="middle">VUI</text>
+<rect class="d-fill" x="40" y="74" width="110" height="36" rx="6"/>
+<text class="d-text" x="95" y="97" text-anchor="middle">key frame</text>
+<rect class="d-box" x="40" y="120" width="110" height="36" rx="6"/>
+<text class="d-text" x="95" y="143" text-anchor="middle">picture</text>
+<rect class="d-box" x="40" y="166" width="110" height="36" rx="6"/>
+<text class="d-text" x="95" y="189" text-anchor="middle">picture</text>
+<rect class="d-fill" x="40" y="212" width="110" height="36" rx="6"/>
+<text class="d-text" x="95" y="235" text-anchor="middle">key frame</text>
+<rect class="d-box" x="40" y="258" width="110" height="36" rx="6"/>
+<text class="d-text" x="95" y="281" text-anchor="middle">picture</text>
+<text class="d-label" x="196" y="22">Once per stream</text>
+<text class="d-label" x="196" y="40">transfer, primaries,</text>
+<text class="d-label" x="196" y="56">matrix</text>
+<line class="d-arrow" x1="190" y1="34" x2="152" y2="34"/>
+<text class="d-label" x="196" y="146">At every key frame</text>
+<text class="d-label" x="196" y="164">mastering display,</text>
+<text class="d-label" x="196" y="180">light level</text>
+<line class="d-arrow" x1="190" y1="148" x2="152" y2="94"/>
+<line class="d-arrow" x1="190" y1="166" x2="152" y2="228"/>
+<line class="d-line" x1="20" y1="92" x2="20" y2="318"/>
+<line class="d-arrow" x1="20" y1="92" x2="38" y2="92"/>
+<line class="d-arrow" x1="20" y1="138" x2="38" y2="138"/>
+<line class="d-arrow" x1="20" y1="184" x2="38" y2="184"/>
+<line class="d-arrow" x1="20" y1="230" x2="38" y2="230"/>
+<line class="d-arrow" x1="20" y1="276" x2="38" y2="276"/>
+<text class="d-label" x="8" y="336">With every picture: an HDR10+ message</text>
+<text class="d-label" x="8" y="352">and a Dolby Vision RPU</text>
 </svg>
 <figcaption>Static HDR10 metadata repeats at key frames so a player can join mid-stream. Dynamic metadata travels with each picture.</figcaption>
 </figure>

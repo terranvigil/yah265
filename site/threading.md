@@ -22,7 +22,7 @@ Inside a frame, a block needs its left, upper and upper-right neighbors to be fi
 A row in a P or B frame predicts from other frames. It can start as soon as each reference frame has finished the rows its motion search can reach. That reach is fixed by geometry: the search range, the fractional-sample step and the length of the interpolation filter.
 
 <figure class="diagram">
-<svg viewBox="0 0 720 274" role="img" aria-label="Rows of three frames in flight, and what a row waits for">
+<svg class="d-wide" viewBox="0 0 720 274" role="img" aria-label="Rows of three frames in flight, and what a row waits for">
 <title>Rows of three frames in flight, and what a row waits for</title>
 <desc>Three frames side by side, each drawn as six rows with a bar for how far each row has been coded. The first frame is a reference and is nearly done. The second predicts from the first and has four rows under way, each trailing the row above. The third predicts from both and has just started. The block being coded in the second frame is joined to an outlined band of three rows in the first frame, the rows its motion search can reach. A block in the third frame is joined to a band of two rows in the second.</desc>
 <text class="d-label" x="120" y="46" text-anchor="middle">frame 1, a reference</text>
@@ -70,6 +70,59 @@ A row in a P or B frame predicts from other frames. It can start as soon as each
 <text class="d-label" x="600" y="234" text-anchor="middle">started before frame 2 is done</text>
 <text class="d-label" x="360" y="264" text-anchor="middle">outlined rows: what the highlighted block's motion search can reach in its reference</text>
 </svg>
+<svg class="d-narrow" viewBox="0 0 360 490" role="img" aria-labelledby="thr-rows-n-t thr-rows-n-d">
+<title id="thr-rows-n-t">Rows of three frames in flight, and what a row waits for</title>
+<desc id="thr-rows-n-d">Three frames, each drawn as six rows with a bar for how far each row has been coded. The first frame is a reference and is nearly done. The second predicts from the first and has four rows under way, each trailing the row above. The third predicts from both and has just started. The block being coded in the second frame is joined to an outlined band of three rows in the first frame, the rows its motion search can reach. A block in the third frame is joined to a band of two rows in the second.</desc>
+<rect class="d-muted" x="8" y="12" width="180" height="20" rx="0"/>
+<rect class="d-fill" x="8" y="12" width="180" height="20" rx="0"/>
+<rect class="d-muted" x="8" y="32" width="180" height="20" rx="0"/>
+<rect class="d-fill" x="8" y="32" width="180" height="20" rx="0"/>
+<rect class="d-muted" x="8" y="52" width="180" height="20" rx="0"/>
+<rect class="d-fill" x="8" y="52" width="180" height="20" rx="0"/>
+<rect class="d-muted" x="8" y="72" width="180" height="20" rx="0"/>
+<rect class="d-fill" x="8" y="72" width="180" height="20" rx="0"/>
+<rect class="d-muted" x="8" y="92" width="180" height="20" rx="0"/>
+<rect class="d-fill" x="8" y="92" width="180" height="20" rx="0"/>
+<rect class="d-muted" x="8" y="112" width="180" height="20" rx="0"/>
+<rect class="d-fill" x="8" y="112" width="108" height="20" rx="0"/>
+<rect class="d-muted" x="8" y="162" width="180" height="20" rx="0"/>
+<rect class="d-fill" x="8" y="162" width="180" height="20" rx="0"/>
+<rect class="d-muted" x="8" y="182" width="180" height="20" rx="0"/>
+<rect class="d-fill" x="8" y="182" width="180" height="20" rx="0"/>
+<rect class="d-muted" x="8" y="202" width="180" height="20" rx="0"/>
+<rect class="d-fill" x="8" y="202" width="135" height="20" rx="0"/>
+<rect class="d-muted" x="8" y="222" width="180" height="20" rx="0"/>
+<rect class="d-fill" x="8" y="222" width="90" height="20" rx="0"/>
+<rect class="d-muted" x="8" y="242" width="180" height="20" rx="0"/>
+<rect class="d-muted" x="8" y="262" width="180" height="20" rx="0"/>
+<rect class="d-muted" x="8" y="312" width="180" height="20" rx="0"/>
+<rect class="d-fill" x="8" y="312" width="54" height="20" rx="0"/>
+<rect class="d-muted" x="8" y="332" width="180" height="20" rx="0"/>
+<rect class="d-muted" x="8" y="352" width="180" height="20" rx="0"/>
+<rect class="d-muted" x="8" y="372" width="180" height="20" rx="0"/>
+<rect class="d-muted" x="8" y="392" width="180" height="20" rx="0"/>
+<rect class="d-muted" x="8" y="412" width="180" height="20" rx="0"/>
+<text class="d-label" x="200" y="30" text-anchor="start">frame 1, a reference</text>
+<text class="d-label" x="200" y="48" text-anchor="start">rows 1 to 5 done</text>
+<text class="d-label" x="200" y="180" text-anchor="start">frame 2 predicts</text>
+<text class="d-label" x="200" y="198" text-anchor="start">from 1</text>
+<text class="d-label" x="200" y="222" text-anchor="start">each row trails</text>
+<text class="d-label" x="200" y="240" text-anchor="start">the one above</text>
+<text class="d-label" x="200" y="330" text-anchor="start">frame 3 predicts</text>
+<text class="d-label" x="200" y="348" text-anchor="start">from 1 and 2</text>
+<text class="d-label" x="200" y="372" text-anchor="start">started before</text>
+<text class="d-label" x="200" y="390" text-anchor="start">frame 2 is done</text>
+<rect class="d-line d-accent" x="8" y="52" width="180" height="60" rx="0"/>
+<line class="d-line d-accent" x1="98" y1="222" x2="8" y2="112"/>
+<line class="d-line d-accent" x1="116" y1="222" x2="188" y2="112"/>
+<rect class="d-accent" x="98" y="222" width="18" height="20" rx="0"/>
+<rect class="d-line d-accent" x="8" y="162" width="180" height="40" rx="0"/>
+<line class="d-line d-accent" x1="62" y1="312" x2="8" y2="202"/>
+<line class="d-line d-accent" x1="80" y1="312" x2="188" y2="202"/>
+<rect class="d-accent" x="62" y="312" width="18" height="20" rx="0"/>
+<text class="d-label" x="180" y="462" text-anchor="middle">outlined rows: what the highlighted block's</text>
+<text class="d-label" x="180" y="480" text-anchor="middle">motion search can reach in its reference</text>
+</svg>
 <figcaption>A row can run as soon as the outlined rows are finished in every reference. It doesn't wait for the whole reference frame.</figcaption>
 </figure>
 
@@ -89,7 +142,7 @@ One frame can't keep a large pool busy, because only so many of its rows can run
 | anything else | 6 |
 
 <figure class="diagram">
-<svg viewBox="0 0 720 350" role="img" aria-label="Twelve frames in flight, reference frames first">
+<svg class="d-wide" viewBox="0 0 720 350" role="img" aria-label="Twelve frames in flight, reference frames first">
 <title>Twelve frames in flight, reference frames first</title>
 <desc>A timeline with one bar per frame in coding order. The bars overlap, and at the marked moment all twelve are being coded at once. Frames that other frames predict from start first. The four B frames that nothing predicts from start last.</desc>
 <text class="d-mono" x="96" y="55" text-anchor="end">P8</text>
@@ -125,6 +178,42 @@ One frame can't keep a large pool busy, because only so many of its rows can run
 <rect class="d-fill" x="410" y="322" width="12" height="12" rx="2"/>
 <text class="d-label" x="430" y="333" text-anchor="start">frames nothing predicts from</text>
 </svg>
+<svg class="d-narrow" viewBox="0 0 360 370" role="img" aria-labelledby="thr-flight-n-t thr-flight-n-d">
+<title id="thr-flight-n-t">Twelve frames in flight, reference frames first</title>
+<desc id="thr-flight-n-d">A timeline with one bar per frame in coding order. The bars overlap, and at the marked moment all twelve are being coded at once. Frames that other frames predict from start first. The four B frames that nothing predicts from start last.</desc>
+<text class="d-mono" x="40" y="55" text-anchor="end">P8</text>
+<rect class="d-accent" x="48.0" y="44" width="168.3" height="14" rx="3"/>
+<text class="d-mono" x="40" y="75" text-anchor="end">B4</text>
+<rect class="d-accent" x="80.4" y="64" width="168.3" height="14" rx="3"/>
+<text class="d-mono" x="40" y="95" text-anchor="end">P16</text>
+<rect class="d-accent" x="96.5" y="84" width="168.3" height="14" rx="3"/>
+<text class="d-mono" x="40" y="115" text-anchor="end">B2</text>
+<rect class="d-accent" x="112.7" y="104" width="168.3" height="14" rx="3"/>
+<text class="d-mono" x="40" y="135" text-anchor="end">B6</text>
+<rect class="d-accent" x="112.7" y="124" width="168.3" height="14" rx="3"/>
+<text class="d-mono" x="40" y="155" text-anchor="end">B12</text>
+<rect class="d-accent" x="128.9" y="144" width="168.3" height="14" rx="3"/>
+<text class="d-mono" x="40" y="175" text-anchor="end">B10</text>
+<rect class="d-accent" x="145.1" y="164" width="168.3" height="14" rx="3"/>
+<text class="d-mono" x="40" y="195" text-anchor="end">B14</text>
+<rect class="d-accent" x="145.1" y="184" width="168.3" height="14" rx="3"/>
+<text class="d-mono" x="40" y="215" text-anchor="end">B1</text>
+<rect class="d-fill" x="164.5" y="204" width="168.3" height="14" rx="3"/>
+<text class="d-mono" x="40" y="235" text-anchor="end">B3</text>
+<rect class="d-fill" x="171.0" y="224" width="168.3" height="14" rx="3"/>
+<text class="d-mono" x="40" y="255" text-anchor="end">B5</text>
+<rect class="d-fill" x="177.5" y="244" width="168.3" height="14" rx="3"/>
+<text class="d-mono" x="40" y="275" text-anchor="end">B7</text>
+<rect class="d-fill" x="183.9" y="264" width="168.3" height="14" rx="3"/>
+<line class="d-dash" x1="200.1" y1="30" x2="200.1" y2="288"/>
+<text class="d-label" x="200.1" y="22" text-anchor="middle">twelve frames in flight at this moment</text>
+<line class="d-arrow d-muted" x1="48" y1="300" x2="350" y2="300"/>
+<text class="d-label" x="350" y="318" text-anchor="end">time</text>
+<rect class="d-accent" x="8" y="326" width="12" height="12" rx="2"/>
+<text class="d-label" x="28" y="337" text-anchor="start">frames that other frames predict from</text>
+<rect class="d-fill" x="8" y="348" width="12" height="12" rx="2"/>
+<text class="d-label" x="28" y="359" text-anchor="start">frames nothing predicts from</text>
+</svg>
 <figcaption>A sketch of the schedule on a 64x64 tree, drawn to show the order. The bar lengths aren't measured.</figcaption>
 </figure>
 
@@ -139,7 +228,7 @@ One thread, the driver, prepares each frame before the pool can start on it. It 
 All of that scales with the picture. At 4K the driver alone was slower than the pool. Workers sat idle while they waited for the next frame.
 
 <figure class="diagram">
-<svg viewBox="0 0 720 272" role="img" aria-label="The driver's per-frame analysis, alone and split over the pool">
+<svg class="d-wide" viewBox="0 0 720 272" role="img" aria-label="The driver's per-frame analysis, alone and split over the pool">
 <title>The driver's per-frame analysis, alone and split over the pool</title>
 <desc>Two timelines of the work the driver does before it can dispatch a frame: the lookahead push, the flat census, the AQ field, the dark map, the weighted prediction analysis and the cu-tree. On one thread the six steps run end to end. With many threads each step is cut into items that free workers run beside the driver, so each step is shorter and the frame is dispatched sooner.</desc>
 <text class="d-label" x="20" y="34" text-anchor="start">one thread: the driver does each step alone</text>
@@ -193,6 +282,64 @@ All of that scales with the picture. At 4K the driver alone was slower than the 
 <text class="d-label" x="504" y="158" text-anchor="start">dispatched sooner</text>
 <text class="d-label" x="20" y="256" text-anchor="start">shaded bars: the same step's items, run by workers that had nothing else to do</text>
 <line class="d-line d-muted" x1="18" y1="136" x2="18" y2="232"/>
+</svg>
+<svg class="d-narrow" viewBox="0 0 360 500" role="img" aria-labelledby="thr-split-n-t thr-split-n-d">
+<title id="thr-split-n-t">The driver's per-frame analysis, alone and split over the pool</title>
+<desc id="thr-split-n-d">Two timelines of the work the driver does before it can dispatch a frame: the lookahead push, the flat census, the AQ field, the dark map, the weighted prediction analysis and the cu-tree. On one thread the six steps run end to end. With many threads each step is cut into items that free workers run beside the driver, so each step is shorter and the frame is dispatched sooner.</desc>
+<text class="d-label" x="8" y="20" text-anchor="start">one thread: the driver</text>
+<text class="d-label" x="8" y="36" text-anchor="start">does each step alone</text>
+<text class="d-label" x="166" y="20" text-anchor="start">many threads: free</text>
+<text class="d-label" x="166" y="36" text-anchor="start">workers take pieces</text>
+<text class="d-label" x="166" y="52" text-anchor="start">of each step</text>
+<rect class="d-box" x="8" y="66" width="142" height="74" rx="6"/>
+<text class="d-label" x="79" y="107.5" text-anchor="middle">push</text>
+<rect class="d-box" x="8" y="144" width="142" height="46" rx="6"/>
+<text class="d-label" x="79" y="171.5" text-anchor="middle">flat census</text>
+<rect class="d-box" x="8" y="194" width="142" height="41" rx="6"/>
+<text class="d-label" x="79" y="219" text-anchor="middle">AQ field</text>
+<rect class="d-box" x="8" y="239" width="142" height="41" rx="6"/>
+<text class="d-label" x="79" y="264" text-anchor="middle">dark map</text>
+<rect class="d-box" x="8" y="284" width="142" height="46" rx="6"/>
+<text class="d-label" x="79" y="311.5" text-anchor="middle">weights</text>
+<rect class="d-box" x="8" y="334" width="142" height="74" rx="6"/>
+<text class="d-label" x="79" y="375.5" text-anchor="middle">cu-tree</text>
+<rect class="d-accent" x="8" y="412" width="142" height="33" rx="6"/>
+<text class="d-label" x="79" y="433" text-anchor="middle">dispatch</text>
+<rect class="d-fill" x="258" y="66" width="18" height="43" rx="3"/>
+<rect class="d-fill" x="282" y="66" width="18" height="43" rx="3"/>
+<rect class="d-fill" x="306" y="66" width="18" height="43" rx="3"/>
+<rect class="d-box" x="166" y="66" width="84" height="43" rx="6"/>
+<text class="d-label" x="208" y="92" text-anchor="middle">push</text>
+<rect class="d-fill" x="258" y="113" width="18" height="33" rx="3"/>
+<rect class="d-fill" x="282" y="113" width="18" height="33" rx="3"/>
+<rect class="d-fill" x="306" y="113" width="18" height="33" rx="3"/>
+<rect class="d-box" x="166" y="113" width="84" height="33" rx="6"/>
+<text class="d-label" x="208" y="134" text-anchor="middle">census</text>
+<rect class="d-fill" x="258" y="150" width="18" height="24" rx="3"/>
+<rect class="d-fill" x="282" y="150" width="18" height="24" rx="3"/>
+<rect class="d-fill" x="306" y="150" width="18" height="24" rx="3"/>
+<rect class="d-box" x="166" y="150" width="84" height="24" rx="6"/>
+<text class="d-label" x="208" y="166.5" text-anchor="middle">AQ</text>
+<rect class="d-fill" x="258" y="178" width="18" height="26" rx="3"/>
+<rect class="d-fill" x="282" y="178" width="18" height="26" rx="3"/>
+<rect class="d-fill" x="306" y="178" width="18" height="26" rx="3"/>
+<rect class="d-box" x="166" y="178" width="84" height="26" rx="6"/>
+<text class="d-label" x="208" y="195.5" text-anchor="middle">dark</text>
+<rect class="d-fill" x="258" y="208" width="18" height="37" rx="3"/>
+<rect class="d-fill" x="282" y="208" width="18" height="37" rx="3"/>
+<rect class="d-fill" x="306" y="208" width="18" height="37" rx="3"/>
+<rect class="d-box" x="166" y="208" width="84" height="37" rx="6"/>
+<text class="d-label" x="208" y="231" text-anchor="middle">weights</text>
+<rect class="d-fill" x="258" y="249" width="18" height="41" rx="3"/>
+<rect class="d-fill" x="282" y="249" width="18" height="41" rx="3"/>
+<rect class="d-fill" x="306" y="249" width="18" height="41" rx="3"/>
+<rect class="d-box" x="166" y="249" width="84" height="41" rx="6"/>
+<text class="d-label" x="208" y="274" text-anchor="middle">cu-tree</text>
+<rect class="d-accent" x="166" y="294" width="84" height="33" rx="6"/>
+<text class="d-label" x="208" y="315" text-anchor="middle">dispatch</text>
+<text class="d-label" x="166" y="347" text-anchor="start">dispatched sooner</text>
+<text class="d-label" x="180" y="470" text-anchor="middle">shaded bars: the same step's items, run by</text>
+<text class="d-label" x="180" y="488" text-anchor="middle">workers that had nothing else to do</text>
 </svg>
 <figcaption>The split changes when the analysis finishes. Every sum is still added up in its old order, so the results are the same numbers.</figcaption>
 </figure>

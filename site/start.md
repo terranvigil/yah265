@@ -8,7 +8,7 @@ description: Build ffmpeg with yah265 in one command, run a first encode, and bu
 There are two ways to run yah265. Most people want it inside ffmpeg, where it's the `libyah265` encoder. The other is `y265`, the project's own command-line encoder, which reads raw video from a file or a pipe.
 
 <figure class="diagram">
-<svg viewBox="0 0 720 250" role="img" aria-labelledby="start-fig-t start-fig-d">
+<svg class="d-wide" viewBox="0 0 720 250" role="img" aria-labelledby="start-fig-t start-fig-d">
 <title id="start-fig-t">Two ways to run yah265</title>
 <desc id="start-fig-d">In the first way one ffmpeg process decodes the source, encodes it with libyah265 and writes an MP4. In the second way ffmpeg decodes the source into a Y4M pipe, y265 reads the pipe and writes a raw HEVC stream, and a second ffmpeg run wraps that stream in an MP4.</desc>
 <text class="d-label" x="10" y="24">1. Inside ffmpeg</text>
@@ -44,6 +44,44 @@ There are two ways to run yah265. Most people want it inside ffmpeg, where it's 
 <text class="d-label" x="454" y="180" text-anchor="middle">.hevc</text>
 <line class="d-arrow" x1="560" y1="192" x2="598" y2="192"/>
 </svg>
+<svg class="d-narrow" viewBox="0 0 360 372" role="img" aria-labelledby="start-fig-t-n start-fig-d-n">
+<title id="start-fig-t-n">Two ways to run yah265</title>
+<desc id="start-fig-d-n">In the first way one ffmpeg process decodes the source, encodes it with libyah265 and writes an MP4. In the second way ffmpeg decodes the source into a Y4M pipe, y265 reads the pipe and writes a raw HEVC stream, and a second ffmpeg run wraps that stream in an MP4.</desc>
+<text class="d-label" x="8" y="16">1. Inside</text>
+<text class="d-label" x="8" y="32">ffmpeg</text>
+<rect class="d-box" x="30" y="44" width="120" height="40" rx="6"/>
+<text class="d-text" x="90" y="69" text-anchor="middle">in.mp4</text>
+<line class="d-arrow" x1="90" y1="84" x2="90" y2="110"/>
+<rect class="d-fill" x="8" y="112" width="164" height="132" rx="6"/>
+<text class="d-label" x="90" y="132" text-anchor="middle">ffmpeg</text>
+<text class="d-label" x="90" y="154" text-anchor="middle">decode</text>
+<rect class="d-accent" x="30" y="166" width="120" height="36" rx="6"/>
+<text class="d-mono" x="90" y="188.5" text-anchor="middle">libyah265</text>
+<text class="d-label" x="90" y="226" text-anchor="middle">mux</text>
+<line class="d-arrow" x1="90" y1="244" x2="90" y2="322"/>
+<rect class="d-box" x="30" y="324" width="120" height="40" rx="6"/>
+<text class="d-text" x="90" y="349" text-anchor="middle">out.mp4</text>
+<text class="d-label" x="196" y="16">2. The y265</text>
+<text class="d-label" x="196" y="32">command line</text>
+<rect class="d-box" x="210" y="44" width="120" height="40" rx="6"/>
+<text class="d-text" x="270" y="69" text-anchor="middle">in.mp4</text>
+<line class="d-arrow" x1="270" y1="84" x2="270" y2="106"/>
+<rect class="d-fill" x="225" y="108" width="90" height="44" rx="6"/>
+<text class="d-label" x="270" y="126.5" text-anchor="middle">ffmpeg</text>
+<text class="d-label" x="270" y="142.5" text-anchor="middle">decode</text>
+<line class="d-arrow" x1="270" y1="152" x2="270" y2="182"/>
+<text class="d-label" x="278" y="172">Y4M</text>
+<rect class="d-accent" x="220" y="184" width="100" height="40" rx="6"/>
+<text class="d-mono" x="270" y="208.5" text-anchor="middle">y265</text>
+<line class="d-arrow" x1="270" y1="224" x2="270" y2="254"/>
+<text class="d-label" x="278" y="244">.hevc</text>
+<rect class="d-fill" x="225" y="256" width="90" height="44" rx="6"/>
+<text class="d-label" x="270" y="274.5" text-anchor="middle">ffmpeg</text>
+<text class="d-label" x="270" y="290.5" text-anchor="middle">mux</text>
+<line class="d-arrow" x1="270" y1="300" x2="270" y2="322"/>
+<rect class="d-box" x="210" y="324" width="120" height="40" rx="6"/>
+<text class="d-text" x="270" y="349" text-anchor="middle">out.mp4</text>
+</svg>
 <figcaption>Both ways run the same encoder with the same options.</figcaption>
 </figure>
 
@@ -74,7 +112,7 @@ build-ffmpeg/ffmpeg/ffmpeg -i in.mp4 -c:v libyah265 -preset medium -crf 25 out.m
 That's the command you'd give x265 with one word changed. `out.mp4` plays in anything that plays HEVC.
 
 <figure class="diagram">
-<svg viewBox="0 0 720 132" role="img" aria-labelledby="swap-fig-t swap-fig-d">
+<svg class="d-wide" viewBox="0 0 720 132" role="img" aria-labelledby="swap-fig-t swap-fig-d">
 <title id="swap-fig-t">One word changes in the ffmpeg command</title>
 <desc id="swap-fig-d">Two ffmpeg command lines, one above the other. They match except for the encoder name after -c:v, which is libx265 in the first and libyah265 in the second.</desc>
 <text class="d-label" x="20" y="18">today</text>
@@ -90,6 +128,22 @@ That's the command you'd give x265 with one word changed. `out.mp4` plays in any
 <text class="d-mono" x="240" y="107" text-anchor="middle">libyah265</text>
 <text class="d-mono" x="296" y="107">-preset medium -crf 25 out.mp4</text>
 </svg>
+<svg class="d-narrow" viewBox="0 0 360 182" role="img" aria-labelledby="swap-fig-t-n swap-fig-d-n">
+<title id="swap-fig-t-n">One word changes in the ffmpeg command</title>
+<desc id="swap-fig-d-n">Two ffmpeg command lines, one above the other. They match except for the encoder name after -c:v, which is libx265 in the first and libyah265 in the second.</desc>
+<text class="d-label" x="8" y="16">today</text>
+<text class="d-mono" x="8" y="46">ffmpeg -i in.mp4 -c:v</text>
+<rect class="d-fill" x="180" y="28" width="92" height="28" rx="6"/>
+<text class="d-mono" x="226" y="46" text-anchor="middle">libx265</text>
+<text class="d-mono" x="8" y="76">-preset medium -crf 25 out.mp4</text>
+<path class="d-arrow d-accent" d="M272 42 H330 V136 H274"/>
+<text class="d-label" x="322" y="100" text-anchor="end">one word</text>
+<text class="d-label" x="8" y="112">with yah265</text>
+<text class="d-mono" x="8" y="140">ffmpeg -i in.mp4 -c:v</text>
+<rect class="d-accent" x="180" y="122" width="92" height="28" rx="6"/>
+<text class="d-mono" x="226" y="140" text-anchor="middle">libyah265</text>
+<text class="d-mono" x="8" y="170">-preset medium -crf 25 out.mp4</text>
+</svg>
 <figcaption>Everything else on the command line stays as it was.</figcaption>
 </figure>
 
@@ -99,7 +153,7 @@ Always pass `-crf`. With no rate option the encoder codes every frame at one fix
 
 `-crf` sets the quality and lets the file size follow the content. A lower number gives a better picture and a bigger file. I'd start at 25 and move by two or three at a time until the picture is good enough.
 
-The CRF scale is yah265's own. A number that suited x265 won't give the same file size here. Pick it by looking at the result. When you need a size or a bitrate instead, the guide's [rate modes](guide.md#rate-modes) cover it.
+The CRF scale is yah265's own. A number that suited x265 won't give the same file size here. [Coming from x265](from-x265.md) has a translation table and maps x265's options onto `y265`'s. When you need a size or a bitrate instead, the guide's [rate modes](guide.md#rate-modes) cover it.
 
 ## Build y265 on its own
 

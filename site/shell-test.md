@@ -10,7 +10,7 @@ This page is off the nav and out of the search index. It shows each piece of the
 ## Diagram classes
 
 <figure class="diagram">
-<svg viewBox="0 0 720 300" role="img" aria-labelledby="st-t st-d">
+<svg class="d-wide" viewBox="0 0 720 300" role="img" aria-labelledby="st-t st-d">
 <title id="st-t">The diagram classes</title>
 <desc id="st-d">One sample of each class a diagram may use: four kinds of box, four kinds of line and three kinds of text.</desc>
 <rect class="d-box" x="20" y="24" width="150" height="64" rx="6"/>
@@ -39,6 +39,36 @@ This page is off the nav and out of the search index. It shows each piece of the
 <text class="d-label" x="270" y="264">d-label is small sans</text>
 <text class="d-mono" x="445" y="264">d-mono --threads 1</text>
 <text class="d-text d-accent" x="620" y="264">d-accent</text>
+</svg>
+<svg class="d-narrow" viewBox="0 0 360 414" role="img" aria-labelledby="st-t-n st-d-n">
+<title id="st-t-n">The diagram classes</title>
+<desc id="st-d-n">One sample of each class a diagram may use: four kinds of box, four kinds of line and three kinds of text.</desc>
+<rect class="d-box" x="8" y="8" width="164" height="50" rx="6"/>
+<text class="d-label" x="90" y="37.5" text-anchor="middle">d-box</text>
+<rect class="d-fill" x="188" y="8" width="164" height="50" rx="6"/>
+<text class="d-label" x="270" y="37.5" text-anchor="middle">d-fill</text>
+<rect class="d-accent" x="8" y="66" width="164" height="50" rx="6"/>
+<text class="d-label" x="90" y="95.5" text-anchor="middle">d-accent</text>
+<rect class="d-muted" x="188" y="66" width="164" height="50" rx="6"/>
+<text class="d-label d-muted" x="270" y="95.5" text-anchor="middle">d-muted</text>
+<line class="d-line" x1="8" y1="146" x2="158" y2="146"/>
+<text class="d-label" x="8" y="166">d-line</text>
+<line class="d-dash" x1="188" y1="146" x2="338" y2="146"/>
+<text class="d-label" x="188" y="166">d-dash</text>
+<line class="d-arrow" x1="8" y1="190" x2="158" y2="190"/>
+<text class="d-label" x="8" y="210">d-arrow</text>
+<line class="d-arrow d-accent" x1="188" y1="190" x2="338" y2="190"/>
+<text class="d-label" x="188" y="210">d-arrow d-accent</text>
+<line class="d-line d-accent" x1="8" y1="234" x2="158" y2="234"/>
+<text class="d-label" x="8" y="254">d-line d-accent</text>
+<line class="d-dash d-muted" x1="188" y1="234" x2="338" y2="234"/>
+<text class="d-label" x="188" y="254">d-dash d-muted</text>
+<line class="d-arrow d-muted" x1="8" y1="278" x2="158" y2="278"/>
+<text class="d-label" x="8" y="298">d-arrow d-muted</text>
+<text class="d-text" x="8" y="336">d-text is the prose face</text>
+<text class="d-label" x="8" y="360">d-label is small sans</text>
+<text class="d-mono" x="8" y="384">d-mono --threads 1</text>
+<text class="d-text d-accent" x="8" y="408">d-accent</text>
 </svg>
 <figcaption>Every class from the diagram contract, drawn once.</figcaption>
 </figure>

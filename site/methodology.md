@@ -5,7 +5,7 @@ description: How yah265 is compared with x265, what makes a number valid, how qu
 
 # Methodology
 
-This page has the rules behind the [results](results.md). yah265 is compared with x265 4.3+1-e9b8812 when both run at `--preset medium`.
+This page has the rules behind the [results](results.md). [How x265 was run](x265-run.md) has the exact commands. yah265 is compared with x265 4.3+1-e9b8812 when both run at `--preset medium`.
 
 Both sides run their own `medium` defaults. Neither is given a `--tune`. yah265's `medium` adapts by itself to some content, such as screen recordings and handheld footage. x265 has tunes for grain and animation that these readings don't use. The Homebrew build has no screen-content mode. Any departure from a default is stated beside the reading. The main one is that the ladders run both encoders at 6 threads.
 
@@ -29,7 +29,7 @@ The test set, the goals, the bar and the report format come from one specificati
 A faster encoder can look faster only because it spent more bits, or look better only because it made a bigger file. Matching the file size takes both of those away.
 
 <figure class="diagram">
-<svg viewBox="0 0 720 300" role="img" aria-labelledby="mp-t mp-d">
+<svg class="d-wide" viewBox="0 0 720 300" role="img" aria-labelledby="mp-t mp-d">
 <title id="mp-t">The matched point on two rate curves</title>
 <desc id="mp-d">Two curves of VMAF v1 against file size, one per encoder. A vertical line marks the file size x265 wrote at CRF 28. yah265's CRF is solved until its file reaches that line. The quality difference and the encode times are both read there.</desc>
 <line class="d-line" x1="80" y1="250" x2="660" y2="250"/>
@@ -49,6 +49,28 @@ A faster encoder can look faster only because it spent more bits, or look better
 <text class="d-label" x="206" y="108" text-anchor="end">onto the same size</text>
 <text class="d-label" x="330" y="50" text-anchor="middle">same file size, within 1%</text>
 <text class="d-label" x="346" y="170">speed and quality are both read here</text>
+</svg>
+<svg class="d-narrow" viewBox="0 0 360 352" role="img" aria-labelledby="mp-t-n mp-d-n">
+<title id="mp-t-n">The matched point on two rate curves</title>
+<desc id="mp-d-n">Two curves of VMAF v1 against file size, one per encoder. A vertical line marks the file size x265 wrote at CRF 28. yah265's CRF is solved until its file reaches that line. The quality difference and the encode times are both read there.</desc>
+<line class="d-line" x1="40" y1="230" x2="340" y2="230"/>
+<line class="d-line" x1="40" y1="230" x2="40" y2="10"/>
+<text class="d-label" x="190" y="250" text-anchor="middle">file size</text>
+<text class="d-label" x="22" y="120" text-anchor="middle" transform="rotate(-90 22 120)">VMAF v1</text>
+<path class="d-line" d="M55,200 Q118.7,90 280,50"/>
+<path class="d-line d-accent" d="M55,180 Q114.5,60 280,30"/>
+<text class="d-label" x="288" y="56">x265</text>
+<text class="d-label d-accent" x="288" y="34">yah265</text>
+<line class="d-dash" x1="148.4" y1="230" x2="148.4" y2="40"/>
+<circle class="d-box" cx="148.4" cy="104" r="7"/>
+<circle class="d-accent" cx="148.4" cy="78" r="7"/>
+<circle class="d-box" cx="16" cy="272" r="7"/>
+<text class="d-label" x="32" y="277">the anchor: x265 at CRF 28</text>
+<circle class="d-accent" cx="16" cy="296" r="7"/>
+<text class="d-label" x="32" y="301">yah265, with its CRF solved onto the same size</text>
+<line class="d-dash" x1="16" y1="312" x2="16" y2="342"/>
+<text class="d-label" x="32" y="325">same file size, within 1%:</text>
+<text class="d-label" x="32" y="342">speed and quality are both read here</text>
 </svg>
 <figcaption>One cell's matched point. The curves are a sketch.</figcaption>
 </figure>

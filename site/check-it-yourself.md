@@ -39,7 +39,7 @@ The first command runs the unit tests and the repository's own checks. The secon
 A reading compares the two encoders at the same file size and then asks two questions: which one finished first, and which one scores higher on VMAF v1.
 
 <figure class="diagram">
-<svg viewBox="0 0 720 250" role="img" aria-labelledby="ciy-t ciy-d">
+<svg class="d-wide" viewBox="0 0 720 250" role="img" aria-labelledby="ciy-t ciy-d">
 <title id="ciy-t">The steps of one reading</title>
 <desc id="ciy-d">x265 encodes the clip at CRF 28. yah265 encodes it at a trial CRF. If the two files aren't within 1% in size, the CRF moves and yah265 encodes again. Once they match, the two encoders are timed in interleaved rounds and their outputs are scored with VMAF v1.</desc>
 <rect class="d-box" x="10" y="30" width="150" height="60" rx="6"/>
@@ -65,6 +65,36 @@ A reading compares the two encoders at the same file size and then asks two ques
 <text class="d-label" x="605" y="202" text-anchor="middle">VMAF v1 against the source</text>
 <path class="d-arrow" d="M495,120 H355 V148"/>
 <path class="d-arrow" d="M495,120 H605 V148"/>
+</svg>
+<svg class="d-narrow" viewBox="0 0 360 346" role="img" aria-labelledby="ciy-t-n ciy-d-n">
+<title id="ciy-t-n">The steps of one reading</title>
+<desc id="ciy-d-n">x265 encodes the clip at CRF 28. yah265 encodes it at a trial CRF. If the two files aren't within 1% in size, the CRF moves and yah265 encodes again. Once they match, the two encoders are timed in interleaved rounds and their outputs are scored with VMAF v1.</desc>
+<rect class="d-box" x="60" y="8" width="180" height="50" rx="6"/>
+<text class="d-text" x="150" y="30" text-anchor="middle">x265</text>
+<text class="d-label" x="150" y="48" text-anchor="middle">at CRF 28</text>
+<line class="d-arrow" x1="150" y1="58" x2="150" y2="82"/>
+<rect class="d-accent" x="60" y="84" width="180" height="50" rx="6"/>
+<text class="d-text" x="150" y="106" text-anchor="middle">yah265</text>
+<text class="d-label" x="150" y="124" text-anchor="middle">at a trial CRF</text>
+<line class="d-arrow" x1="150" y1="134" x2="150" y2="158"/>
+<rect class="d-fill" x="40" y="160" width="220" height="50" rx="6"/>
+<text class="d-text" x="150" y="182" text-anchor="middle">Same size?</text>
+<text class="d-label" x="150" y="200" text-anchor="middle">within 1% of x265's file</text>
+<path class="d-arrow" d="M260,185 H284 V109 H242"/>
+<text class="d-label" x="292" y="140">no: move</text>
+<text class="d-label" x="292" y="156">the CRF</text>
+<line class="d-line" x1="150" y1="210" x2="150" y2="240"/>
+<text class="d-label" x="158" y="230">yes</text>
+<path class="d-arrow" d="M150,240 H90 V266"/>
+<path class="d-arrow" d="M150,240 H270 V266"/>
+<rect class="d-box" x="8" y="268" width="164" height="70" rx="6"/>
+<text class="d-text" x="90" y="292" text-anchor="middle">Time both</text>
+<text class="d-label" x="90" y="312" text-anchor="middle">interleaved rounds,</text>
+<text class="d-label" x="90" y="328" text-anchor="middle">median</text>
+<rect class="d-box" x="188" y="268" width="164" height="70" rx="6"/>
+<text class="d-text" x="270" y="292" text-anchor="middle">Score both</text>
+<text class="d-label" x="270" y="312" text-anchor="middle">VMAF v1 against</text>
+<text class="d-label" x="270" y="328" text-anchor="middle">the source</text>
 </svg>
 <figcaption>The size match comes first. Speed and quality are read only after it holds.</figcaption>
 </figure>

@@ -89,7 +89,7 @@ The project has three speed goals. G3 times both encoders as shipped and is the 
 | G2: algorithm only, plain C on all cores | 2.56x to 4.35x | 2.22x to 4.76x | 2.08x to 4.35x |
 <!--/gen:goal-table-->
 
-[Results](results.md) has every table and chart.
+[Results](results.md) has every table and chart. [A skeptic's questions](faq.md) answers the objections I'd raise myself.
 
 ## Why I built it
 

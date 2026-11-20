@@ -42,7 +42,7 @@ Eight kernel families have NEON, AVX2 and SSE4.2 versions. They are the block-di
 The binary holds every tier it was built with. At startup it asks the CPU and the operating system what they support. Each kernel call then goes to the highest tier present.
 
 <figure class="diagram">
-<svg viewBox="0 0 720 304" role="img" aria-label="How a kernel is picked at run time">
+<svg class="d-wide" viewBox="0 0 720 304" role="img" aria-label="How a kernel is picked at run time">
 <title>How a kernel is picked at run time</title>
 <desc>Two ladders. On x86-64 the rungs from the bottom are plain C, SSE4.2, AVX2 and AVX-512. On arm64 they are plain C, NEON, NEON with the dot product extension, and SVE or SVE2. At startup the encoder reads what the CPU has, and each kernel runs on the highest rung it has a version for. The setting N265_CPU_MAX stops both ladders at a chosen rung, and N265_ASM_OFF=all sends every kernel back to plain C.</desc>
 <text class="d-text" x="130" y="30" text-anchor="middle">x86-64</text>
@@ -91,6 +91,59 @@ The binary holds every tier it was built with. At startup it asks the CPU and th
 <text class="d-label" x="360" y="290" text-anchor="middle">sends every kernel back to C</text>
 <line class="d-arrow d-accent" x1="270" y1="240" x2="224" y2="228"/>
 <line class="d-arrow d-accent" x1="450" y1="240" x2="496" y2="228"/>
+</svg>
+<svg class="d-narrow" viewBox="0 0 360 522" role="img" aria-labelledby="arch-pick-n-t arch-pick-n-d">
+<title id="arch-pick-n-t">How a kernel is picked at run time</title>
+<desc id="arch-pick-n-d">Two ladders. On x86-64 the rungs from the bottom are plain C, SSE4.2, AVX2 and AVX-512. On arm64 they are plain C, NEON, NEON with the dot product extension, and SVE or SVE2. At startup the encoder reads what the CPU has, and each kernel runs on the highest rung it has a version for. The setting N265_CPU_MAX stops both ladders at a chosen rung, and N265_ASM_OFF=all sends every kernel back to plain C.</desc>
+<text class="d-label" x="180" y="18" text-anchor="middle">At startup the encoder reads what the CPU has.</text>
+<text class="d-label" x="180" y="36" text-anchor="middle">Each kernel runs on the highest rung</text>
+<text class="d-label" x="180" y="54" text-anchor="middle">it has a version for.</text>
+<text class="d-text" x="82" y="86" text-anchor="middle">x86-64</text>
+<text class="d-text" x="278" y="86" text-anchor="middle">arm64</text>
+<rect class="d-box" x="8" y="98" width="148" height="58" rx="6"/>
+<text class="d-label" x="82" y="116" text-anchor="middle">AVX-512</text>
+<text class="d-label d-muted" x="82" y="132" text-anchor="middle">512-bit,</text>
+<text class="d-label d-muted" x="82" y="148" text-anchor="middle">some kernels</text>
+<rect class="d-box" x="8" y="166" width="148" height="58" rx="6"/>
+<text class="d-label" x="82" y="190" text-anchor="middle">AVX2</text>
+<text class="d-label d-muted" x="82" y="208" text-anchor="middle">256-bit</text>
+<line class="d-arrow d-muted" x1="82" y1="166" x2="82" y2="157"/>
+<rect class="d-box" x="8" y="234" width="148" height="58" rx="6"/>
+<text class="d-label" x="82" y="258" text-anchor="middle">SSE4.2</text>
+<text class="d-label d-muted" x="82" y="276" text-anchor="middle">128-bit</text>
+<line class="d-arrow d-muted" x1="82" y1="234" x2="82" y2="225"/>
+<rect class="d-fill" x="8" y="302" width="148" height="58" rx="6"/>
+<text class="d-label" x="82" y="320" text-anchor="middle">plain C</text>
+<text class="d-label d-muted" x="82" y="336" text-anchor="middle">the reference,</text>
+<text class="d-label d-muted" x="82" y="352" text-anchor="middle">on every CPU</text>
+<line class="d-arrow d-muted" x1="82" y1="302" x2="82" y2="293"/>
+<rect class="d-box" x="204" y="98" width="148" height="58" rx="6"/>
+<text class="d-label" x="278" y="116" text-anchor="middle">SVE or SVE2</text>
+<text class="d-label d-muted" x="278" y="132" text-anchor="middle">Linux only,</text>
+<text class="d-label d-muted" x="278" y="148" text-anchor="middle">some kernels</text>
+<rect class="d-box" x="204" y="166" width="148" height="58" rx="6"/>
+<text class="d-label" x="278" y="190" text-anchor="middle">NEON dot product</text>
+<text class="d-label d-muted" x="278" y="208" text-anchor="middle">one kernel family</text>
+<line class="d-arrow d-muted" x1="278" y1="166" x2="278" y2="157"/>
+<rect class="d-box" x="204" y="234" width="148" height="58" rx="6"/>
+<text class="d-label" x="278" y="258" text-anchor="middle">NEON</text>
+<text class="d-label d-muted" x="278" y="276" text-anchor="middle">128-bit</text>
+<line class="d-arrow d-muted" x1="278" y1="234" x2="278" y2="225"/>
+<rect class="d-fill" x="204" y="302" width="148" height="58" rx="6"/>
+<text class="d-label" x="278" y="320" text-anchor="middle">plain C</text>
+<text class="d-label d-muted" x="278" y="336" text-anchor="middle">the reference,</text>
+<text class="d-label d-muted" x="278" y="352" text-anchor="middle">on every CPU</text>
+<line class="d-arrow d-muted" x1="278" y1="302" x2="278" y2="293"/>
+<rect class="d-accent" x="110" y="384" width="140" height="36" rx="6"/>
+<text class="d-mono" x="180" y="406.5" text-anchor="middle">N265_CPU_MAX</text>
+<path class="d-arrow d-accent" d="M172 384 V195 H158"/>
+<path class="d-arrow d-accent" d="M188 384 V195 H202"/>
+<text class="d-label" x="180" y="440" text-anchor="middle">stops both ladders at a rung</text>
+<rect class="d-accent" x="100" y="456" width="160" height="36" rx="6"/>
+<text class="d-mono" x="180" y="478.5" text-anchor="middle">N265_ASM_OFF=all</text>
+<path class="d-arrow d-accent" d="M100 474 H40 V362"/>
+<path class="d-arrow d-accent" d="M260 474 H320 V362"/>
+<text class="d-label" x="180" y="512" text-anchor="middle">sends every kernel back to C</text>
 </svg>
 <figcaption>Every rung writes the same bytes as plain C, so the two settings change speed and nothing else.</figcaption>
 </figure>

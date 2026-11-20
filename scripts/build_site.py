@@ -53,6 +53,7 @@ NAV = [
     ("", "index.html", "Home"),
     ("Use", "start.html", "Build and first encode"),
     ("Use", "guide.html", "Encoding guide"),
+    ("Use", "from-x265.html", "Coming from x265"),
     ("Use", "options.html", "Options"),
     ("Use", "hdr.html", "HDR"),
     ("Understand", "hevc.html", "The HEVC standard"),
@@ -60,7 +61,9 @@ NAV = [
     ("Understand", "threading.html", "Threading"),
     ("Understand", "architectures.html", "Architectures"),
     ("Evidence", "results.html", "Results"),
+    ("Evidence", "x265-run.html", "How x265 was run"),
     ("Evidence", "check-it-yourself.html", "Check it yourself"),
+    ("Evidence", "faq.html", "A skeptic's questions"),
     ("", "blog.html", "Blog"),
 ]
 
@@ -77,7 +80,7 @@ LOGOS = ["yah265-logo-light.png", "yah265-logo-dark.png"]
 
 # Run with --check under --strict, where they exist.
 CHART_SCRIPTS = ["blog_charts.py", "site_front.py", "charts_internals.py",
-                 "charts_results.py"]
+                 "charts_results.py", "site_trust.py"]
 
 # Working notes that aren't published with the repository. A link to one
 # counts as a link to a missing file, on the site and in the README.
@@ -341,6 +344,12 @@ def build(strict=False):
             content = re.sub(r"<h1[^>]*>yah265</h1>", f'<h1 class="mark">{LOGO}</h1>',
                              content, count=1)
         content = content.replace("</h1>", "</h1>" + SMPTE, 1)
+        for fig in re.findall(r'(?s)<figure class="diagram[^"]*">.*?</figure>', content):
+            if not (re.search(r'<svg class="d-wide"', fig)
+                    and re.search(r'<svg class="d-narrow" viewBox="0 0 360 ', fig)):
+                name = re.search(r"<title[^>]*>(.*?)</title>", fig)
+                problems.append(f"{src.name}: the diagram '{name[1] if name else '?'}' needs a "
+                                "d-wide drawing and a 360-wide d-narrow one")
         content, unsourced = provenance(content)
         if strict:
             problems += [f"{src.name}: {u} has no provenance entry" for u in unsourced]

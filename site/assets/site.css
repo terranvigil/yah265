@@ -214,6 +214,10 @@ figure.diagram { overflow-x: auto; }
 figure.diagram svg { display: block; max-width: 100%; width: 100%; height: auto; }
 /* every diagram is drawn twice: 720 units wide, and 360 wide for a phone */
 figure.diagram svg.d-narrow { display: none; }
+@media (max-width: 40rem) {
+  figure.diagram svg.d-wide { display: none; }
+  figure.diagram svg.d-narrow { display: block; max-width: 24rem; margin: 0 auto; }
+}
 figcaption { font-family: var(--sans); font-size: 0.76rem; line-height: 1.5; color: var(--ink-3); margin-top: 0.6rem; }
 figcaption .prov { display: block; }
 figcaption .prov a { overflow-wrap: anywhere; }
@@ -494,8 +498,6 @@ nav.pager a:hover { color: var(--accent); background: none; }
   details.onpage li { margin: 0; }
   details.onpage a { display: block; padding: 0.55rem 0; box-shadow: none; color: var(--ink); border-top: 1px solid var(--hairline); }
   article { padding-top: 22px; }
-  figure.diagram svg.d-wide { display: none; }
-  figure.diagram svg.d-narrow { display: block; max-width: 24rem; margin: 0 auto; }
 }
 
 @media (max-width: 34rem) {

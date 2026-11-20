@@ -82,6 +82,14 @@ Here is the hardest moment of one clip, from two files of the same size.
 </figure>
 <!--/gen:fig-frames-->
 
+An average can hide a bad stretch. Here is every frame of that clip from both files.
+
+<!--trust:fig-trace-->
+<figure class="chart"><img src="assets/charts/trust/tail-trace.svg" alt="Line chart of VMAF v1 for every frame of a 90-second clip, one line per encoder. The yah265 line is above the x265 line in most of the low stretches."></figure>
+<!--/trust:fig-trace-->
+
+yah265's lead is wider on the clip's worst frames than on its average. [Results](results.md#the-worst-frames) has the figures.
+
 ## The same result through ffmpeg
 
 Most people meet an encoder through ffmpeg. An outside tester would run it that way too. So I ran both encoders from one ffmpeg build with `-preset medium` and default threads. yah265 ran at a fixed CRF. x265's CRF was then searched until its file came within <!--gen:ff-tol-->2%<!--/gen:ff-tol--> of ours. VMAF v1 scored every frame of both. Each encoder ran once.

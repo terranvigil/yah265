@@ -45,6 +45,7 @@ by running each chart script with `--check`.
 | `index.md` | Home. `scripts/site_front.py` fills its figures |
 | `start.md` | Build and first encode |
 | `guide.md` | Encoding guide |
+| `from-x265.md` | Coming from x265. The option map is written by hand and `scripts/site_trust.py` checks it against the captured `--help`. The same script fills the CRF table |
 | `options.md` | Options. `scripts/site_front.py` writes it from the captured `--help` |
 | `hdr.md` | HDR. Written by hand to follow `docs/hdr.md` |
 | `hevc.md` | The HEVC standard |
@@ -52,7 +53,9 @@ by running each chart script with `--check`.
 | `threading.md` | Threading |
 | `architectures.md` | Architectures. `scripts/charts_internals.py` draws its charts |
 | `results.md` | Results. `scripts/charts_results.py` fills its tables and draws its charts from the parity data |
+| `x265-run.md` | How x265 was run. `scripts/site_trust.py` writes its tables and commands |
 | `check-it-yourself.md` | Check it yourself |
+| `faq.md` | A skeptic's questions |
 | `blog.md` | Blog. `scripts/blog_charts.py` fills its figures and draws `assets/blog/` |
 | `methodology.md` | Methodology. Results links to it and the nav leaves it out |
 | `shell-test.md` | Every shell component on one page. It's off the nav and out of the search index |
@@ -60,8 +63,12 @@ by running each chart script with `--check`.
 | `assets/site.css` | styles, with the color tokens listed at the top |
 | `assets/site.js` | copy buttons, heading links and search |
 
-The builder never writes a page's content. A page with generated numbers
-keeps them between `<!--gen:NAME-->` marks for its chart script to fill.
+The builder writes one thing into a page: the line under each chart that
+names its sources and its script and links its data as CSV. Each chart
+script writes `name.csv` and a `provenance.json` beside its images for that.
+A page with generated numbers keeps them between `<!--gen:NAME-->` marks
+for its chart script to fill. `scripts/site_trust.py` fills
+`<!--trust:NAME-->` marks, on any page.
 Run that script after the data changes, then build.
 
 The reading order lives in `NAV` at the top of `scripts/build_site.py`. The
@@ -84,8 +91,10 @@ faster. A chart script reads the parity rows through
 A page with no `image` of its own gets the launch post's social card. A
 long per-cell table goes inside `<details class="data" markdown="1">`.
 
-A diagram is inline SVG inside `<figure class="diagram">`, drawn on a
-`viewBox` 720 units wide. It takes color only from these classes:
+A diagram is inline SVG inside `<figure class="diagram">`. Each figure holds
+two drawings: `<svg class="d-wide">` on a `viewBox` 720 units wide, and
+`<svg class="d-narrow">` on one 360 wide, laid out top to bottom for a
+phone. The build fails on a diagram with only one. It takes color only from these classes:
 
 | class | draws |
 |---|---|

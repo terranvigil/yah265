@@ -1,0 +1,26 @@
+{
+ "crf-map": {
+  "csv": "crf-map.csv",
+  "script": "scripts/site_trust.py",
+  "sources": [
+   [
+    "docs/parity/PARITY-REPORT-yah265-2026-11-12.csv",
+    "the Mac parity report (rows)"
+   ],
+   [
+    "docs/data/parity-spec-ladders.json",
+    "the recorded rate ladders"
+   ]
+  ]
+ },
+ "tail-trace": {
+  "csv": "tail-trace.csv",
+  "script": "scripts/site_trust.py",
+  "sources": [
+   [
+    "docs/data/tears-perframe.csv",
+    "the per-frame scores of the Tears of Steel clip"
+   ]
+  ]
+ }
+}

@@ -22,7 +22,7 @@ The first two rows are the headline. They cover the CRF cells timed on the Mac a
 | content-type clips passing on quality | 9 of 9 |
 <!--/gen:verdict-->
 
-"The bar" is the pass mark a reading has to meet. [The methodology](methodology.md) sets out each bar and the rules that make a number valid. [Check it yourself](check-it-yourself.md) shows how to take the same readings on your own machine. The long per-cell tables are folded. Open the ones you want.
+"The bar" is the pass mark a reading has to meet. [The methodology](methodology.md) sets out each bar and the rules that make a number valid. [How x265 was run](x265-run.md) has its build and the command for each goal. [Check it yourself](check-it-yourself.md) shows how to take the same readings on your own machine. The long per-cell tables are folded. Open the ones you want.
 
 ## What the numbers mean
 
@@ -302,6 +302,39 @@ A score is one way to compare two encodes. Looking at them is the other. The cli
 <!--/gen:fig-frames-->
 
 Nobody picked these frames by eye. A script scored every frame by the mean of the two encoders' VMAF v1 and took the lowest frame from each of the three lowest-scoring shots. In each frame it measured both encodes against the reference block by block and cropped the window where their losses differ most. That rule doesn't know which encode is ahead. The reference is a near-transparent copy of the source.
+
+## The worst frames
+
+An average can hide a bad stretch, so this section looks at the low end of the same Tears of Steel clip. The chart follows it frame by frame.
+
+<!--trust:fig-trace-->
+<figure class="chart"><img src="assets/charts/trust/tail-trace.svg" alt="Line chart of VMAF v1 for every frame of a 90-second clip, one line per encoder. The yah265 line is above the x265 line in most of the low stretches."></figure>
+<!--/trust:fig-trace-->
+
+<!--trust:tears-table-->
+| VMAF v1 over | yah265 | x265 | yah265's lead |
+|---|--:|--:|--:|
+| all 2160 frames | 93.57 | 92.91 | +0.66 |
+| worst 5% of frames (108 frames) | 88.44 | 86.43 | +2.02 |
+| lowest frame | 86.97 | 83.83 | +3.14 |
+| file size | 15.95 MB | 15.88 MB | +0.4% |
+<!--/trust:tears-table-->
+
+Both files came from ffmpeg at `medium`, with <!--trust:tears-crfs-->`-crf 25` for yah265 and `-crf 25.3` for x265<!--/trust:tears-crfs-->, and every frame was scored. yah265's lead on the worst twentieth of the frames is wider than its lead on the average.
+
+Each parity cell records one tail figure, the score of its lowest frame. The table sets the lead there beside the lead on the mean, for the short clips and the two-minute segments.
+
+<!--trust:low-table-->
+| size | cells | median lead, all frames | median lead, lowest frame | cells ahead on their lowest frame |
+|---|--:|--:|--:|--:|
+| CIF | 3 | +2.33 | -1.53 | 1 of 3 |
+| 720p | 4 | +2.39 | +2.17 | 4 of 4 |
+| 1080p | 4 | +1.28 | +2.24 | 3 of 4 |
+| 4K | 2 | +1.47 | +3.14 | 2 of 2 |
+| **all** | **13** | **+1.96** | **+2.10** | 10 of 13 |
+<!--/trust:low-table-->
+
+At CIF yah265's lowest frame is behind x265's on two of the three clips, although its mean is ahead on all three. The ten-minute films have no row because their runs didn't keep a lowest frame.
 
 ## Quality across the rate range
 
