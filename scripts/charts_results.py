@@ -513,7 +513,8 @@ def values(D):
     V = {}
     L, R, C = "---", "--:", "---"
 
-    V["fig-frames"] = B.frames_figure(None, B.FRAMES_ALL)
+    V["fig-frames"] = B.frames_figure(3, B.FRAMES_ALL)
+    V["frames-player"] = B.FRAMES_PLAYER
 
     # the verdict
     combos = [(m, k) for m in MACHINES for k in sps[m]]

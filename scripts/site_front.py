@@ -613,7 +613,8 @@ def main():
     opts, build, nopt = options_tables()
     V = {
         "headline": bc.headline(pl),
-        "fig-frames": bc.frames_figure(("median",), bc.FRAMES_ONE),
+        "fig-frames": bc.frames_figure(1, bc.FRAMES_ONE),
+        "frames-player": bc.FRAMES_PLAYER,
         "pooled-table": bc.headline_table(pl),
         "quality-table": quality_table(pl, lad),
         "goal-table": bc.goal_table(sps),

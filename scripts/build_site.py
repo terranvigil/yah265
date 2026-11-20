@@ -420,6 +420,9 @@ def check_links():
                 continue
             path, _, frag = href.partition("#")
             name = path or p.name
+            if path.startswith("compare/"):
+                # the comparison player is published beside the site
+                continue
             if path.startswith("assets/"):
                 if not (OUT / path).exists():
                     bad.append(f"{p.name}: {href}")

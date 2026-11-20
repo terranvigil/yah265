@@ -257,33 +257,35 @@ The Xeon's other rows rest on those four curves and on the SIMD code matching th
 
 ## Same size, side by side
 
-A score is one way to compare two encodes, and looking at them is the other. These are three frames from a 60-second clip of Tears of Steel at 1080p. Both encoders ran at `medium` and wrote files of the same size to within 2%. Switch between the source and the two encodes.
+A score is one way to compare two encodes, and looking at them is the other. The clip is 90 seconds of Tears of Steel at 1080p, from the middle of the story. Both encoders ran at `medium` and wrote files of the same size. Switch between the reference and the two encodes.
 
 <!--gen:fig-frames-->
 <figure class="compare">
 <div class="cmp">
-<div class="cmp-head"><p class="cmp-title">The lower quartile frame<span>VMAF v1 on this frame: yah265 86.1, x265 86.4</span></p><div class="cmp-where"><img loading="lazy" decoding="async" width="640" height="286" src="assets/frames/tos-1168-frame.webp" alt="The whole frame, with the cropped window outlined."><i style="left:43.12%;top:34.38%;width:21.67%;height:27.27%"></i></div></div>
-<div class="cmp-pane" data-name="Source"><img loading="lazy" decoding="async" width="832" height="468" src="assets/frames/tos-1168-source.webp" alt="The source frame, cropped."><span class="cmp-tag">Source, before encoding</span></div>
-<div class="cmp-pane" data-name="yah265" data-first><img loading="lazy" decoding="async" width="832" height="468" src="assets/frames/tos-1168-yah265.webp" alt="The same crop from yah265's encode."><span class="cmp-tag ours"><b>yah265</b> · 8.09 MB · VMAF v1 90.6 · encoded in 5.7 s</span></div>
-<div class="cmp-pane" data-name="x265"><img loading="lazy" decoding="async" width="832" height="468" src="assets/frames/tos-1168-x265.webp" alt="The same crop from x265's encode."><span class="cmp-tag"><b>x265</b> · 7.96 MB · VMAF v1 89.8 · encoded in 10.5 s</span></div>
+<div class="cmp-head"><p class="cmp-title">The hardest moment, 0:29 into the clip<span>VMAF v1 on this frame: yah265 88.3, x265 84.4. The crop is shown at 4x.</span></p><div class="cmp-where"><img loading="lazy" decoding="async" width="640" height="286" src="assets/frames/tears-701-frame.webp" alt="The whole frame, with the cropped window outlined."><i style="left:80.00%;top:5.59%;width:10.83%;height:13.05%"></i></div></div>
+<div class="cmp-pane" data-name="Reference"><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-701-reference.webp" alt="The reference frame, cropped."><span class="cmp-tag">Reference · 4x zoom</span></div>
+<div class="cmp-pane" data-name="yah265" data-first><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-701-yah265.webp" alt="The same crop from yah265's encode."><span class="cmp-tag ours"><b>yah265</b> · VMAF v1 88.3 on this frame · 15.95 MB file · 4x zoom</span></div>
+<div class="cmp-pane" data-name="x265"><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-701-x265.webp" alt="The same crop from x265's encode."><span class="cmp-tag"><b>x265</b> · VMAF v1 84.4 on this frame · 15.88 MB file · 4x zoom</span></div>
 </div>
 <div class="cmp">
-<div class="cmp-head"><p class="cmp-title">The median frame<span>VMAF v1 on this frame: yah265 84.5, x265 83.7</span></p><div class="cmp-where"><img loading="lazy" decoding="async" width="640" height="286" src="assets/frames/tos-1209-frame.webp" alt="The whole frame, with the cropped window outlined."><i style="left:44.48%;top:28.90%;width:21.67%;height:27.27%"></i></div></div>
-<div class="cmp-pane" data-name="Source"><img loading="lazy" decoding="async" width="832" height="468" src="assets/frames/tos-1209-source.webp" alt="The source frame, cropped."><span class="cmp-tag">Source, before encoding</span></div>
-<div class="cmp-pane" data-name="yah265" data-first><img loading="lazy" decoding="async" width="832" height="468" src="assets/frames/tos-1209-yah265.webp" alt="The same crop from yah265's encode."><span class="cmp-tag ours"><b>yah265</b> · 8.09 MB · VMAF v1 90.6 · encoded in 5.7 s</span></div>
-<div class="cmp-pane" data-name="x265"><img loading="lazy" decoding="async" width="832" height="468" src="assets/frames/tos-1209-x265.webp" alt="The same crop from x265's encode."><span class="cmp-tag"><b>x265</b> · 7.96 MB · VMAF v1 89.8 · encoded in 10.5 s</span></div>
+<div class="cmp-head"><p class="cmp-title">The second hardest moment, 0:37 into the clip<span>VMAF v1 on this frame: yah265 87.4, x265 85.5. The crop is shown at 4x.</span></p><div class="cmp-where"><img loading="lazy" decoding="async" width="640" height="286" src="assets/frames/tears-902-frame.webp" alt="The whole frame, with the cropped window outlined."><i style="left:40.83%;top:26.11%;width:10.83%;height:13.05%"></i></div></div>
+<div class="cmp-pane" data-name="Reference"><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-902-reference.webp" alt="The reference frame, cropped."><span class="cmp-tag">Reference · 4x zoom</span></div>
+<div class="cmp-pane" data-name="yah265" data-first><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-902-yah265.webp" alt="The same crop from yah265's encode."><span class="cmp-tag ours"><b>yah265</b> · VMAF v1 87.4 on this frame · 15.95 MB file · 4x zoom</span></div>
+<div class="cmp-pane" data-name="x265"><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-902-x265.webp" alt="The same crop from x265's encode."><span class="cmp-tag"><b>x265</b> · VMAF v1 85.5 on this frame · 15.88 MB file · 4x zoom</span></div>
 </div>
 <div class="cmp">
-<div class="cmp-head"><p class="cmp-title">The upper quartile frame<span>VMAF v1 on this frame: yah265 90.6, x265 88.7</span></p><div class="cmp-where"><img loading="lazy" decoding="async" width="640" height="286" src="assets/frames/tos-34-frame.webp" alt="The whole frame, with the cropped window outlined."><i style="left:26.25%;top:13.99%;width:21.67%;height:27.27%"></i></div></div>
-<div class="cmp-pane" data-name="Source"><img loading="lazy" decoding="async" width="832" height="468" src="assets/frames/tos-34-source.webp" alt="The source frame, cropped."><span class="cmp-tag">Source, before encoding</span></div>
-<div class="cmp-pane" data-name="yah265" data-first><img loading="lazy" decoding="async" width="832" height="468" src="assets/frames/tos-34-yah265.webp" alt="The same crop from yah265's encode."><span class="cmp-tag ours"><b>yah265</b> · 8.09 MB · VMAF v1 90.6 · encoded in 5.7 s</span></div>
-<div class="cmp-pane" data-name="x265"><img loading="lazy" decoding="async" width="832" height="468" src="assets/frames/tos-34-x265.webp" alt="The same crop from x265's encode."><span class="cmp-tag"><b>x265</b> · 7.96 MB · VMAF v1 89.8 · encoded in 10.5 s</span></div>
+<div class="cmp-head"><p class="cmp-title">The third hardest moment, 0:48 into the clip<span>VMAF v1 on this frame: yah265 87.4, x265 86.3. The crop is shown at 4x.</span></p><div class="cmp-where"><img loading="lazy" decoding="async" width="640" height="286" src="assets/frames/tears-1153-frame.webp" alt="The whole frame, with the cropped window outlined."><i style="left:3.33%;top:0.00%;width:10.83%;height:13.05%"></i></div></div>
+<div class="cmp-pane" data-name="Reference"><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-1153-reference.webp" alt="The reference frame, cropped."><span class="cmp-tag">Reference · 4x zoom</span></div>
+<div class="cmp-pane" data-name="yah265" data-first><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-1153-yah265.webp" alt="The same crop from yah265's encode."><span class="cmp-tag ours"><b>yah265</b> · VMAF v1 87.4 on this frame · 15.95 MB file · 4x zoom</span></div>
+<div class="cmp-pane" data-name="x265"><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-1153-x265.webp" alt="The same crop from x265's encode."><span class="cmp-tag"><b>x265</b> · VMAF v1 86.3 on this frame · 15.88 MB file · 4x zoom</span></div>
 </div>
-<figcaption>Crops are shown at twice their size, with no smoothing. <code>scripts/frame_crops.sh</code> makes them from the two encodes. Tears of Steel: (CC) Blender Foundation, <a href="https://mango.blender.org">mango.blender.org</a>, CC-BY 3.0.</figcaption>
+<figcaption>The three hardest moments of the clip: the lowest-scoring frame, by the two encoders' mean VMAF v1, cropped to the region where the two encodes lose detail most differently, one from each of the three lowest-scoring shots. yah265 keeps more of the texture in the first crop. x265 keeps the eyebrows sharper in the second. The third is close. <code>scripts/frame_crops.sh</code> makes the crops. Tears of Steel: (CC) Blender Foundation, <a href="https://mango.blender.org">mango.blender.org</a>, CC-BY 3.0.</figcaption>
 </figure>
 <!--/gen:fig-frames-->
 
-Nobody picked these frames by eye. A script sorted the clip's frames by yah265's VMAF v1 lead over x265 and took the lower quartile, the median and the upper quartile. In each frame it cropped the window where the two encodes differ most from each other, a rule that doesn't know which encode is closer to the source. On the lower-quartile frame x265 scores a little higher, and on the other two yah265 does.
+Nobody picked these frames by eye. A script scored every frame by the mean of the two encoders' VMAF v1 and took the lowest frame from each of the three lowest-scoring shots. In each frame it measured both encodes against the reference block by block and cropped the window where their losses differ most. That rule doesn't know which encode is ahead. The reference is a near-transparent copy of the source.
+
+<!--gen:frames-player-->Scrub the whole clip yourself in the <a href="compare/tears/">comparison player</a>.<!--/gen:frames-player-->
 
 ## Quality across the rate range
 

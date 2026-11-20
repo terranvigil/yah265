@@ -35,19 +35,21 @@ On this site "faster" compares wall time for files of the same size, so 2x faste
 
 ## Same size, side by side
 
-Both files below are the same size to within 2%. Switch between the source and the two encodes.
+The two encodes below are the same size. Switch between the reference and each of them.
 
 <!--gen:fig-frames-->
 <figure class="compare">
 <div class="cmp">
-<div class="cmp-head"><p class="cmp-title">The median frame<span>VMAF v1 on this frame: yah265 84.5, x265 83.7</span></p><div class="cmp-where"><img loading="lazy" decoding="async" width="640" height="286" src="assets/frames/tos-1209-frame.webp" alt="The whole frame, with the cropped window outlined."><i style="left:44.48%;top:28.90%;width:21.67%;height:27.27%"></i></div></div>
-<div class="cmp-pane" data-name="Source"><img loading="lazy" decoding="async" width="832" height="468" src="assets/frames/tos-1209-source.webp" alt="The source frame, cropped."><span class="cmp-tag">Source, before encoding</span></div>
-<div class="cmp-pane" data-name="yah265" data-first><img loading="lazy" decoding="async" width="832" height="468" src="assets/frames/tos-1209-yah265.webp" alt="The same crop from yah265's encode."><span class="cmp-tag ours"><b>yah265</b> · 8.09 MB · VMAF v1 90.6 · encoded in 5.7 s</span></div>
-<div class="cmp-pane" data-name="x265"><img loading="lazy" decoding="async" width="832" height="468" src="assets/frames/tos-1209-x265.webp" alt="The same crop from x265's encode."><span class="cmp-tag"><b>x265</b> · 7.96 MB · VMAF v1 89.8 · encoded in 10.5 s</span></div>
+<div class="cmp-head"><p class="cmp-title">The hardest moment, 0:29 into the clip<span>VMAF v1 on this frame: yah265 88.3, x265 84.4. The crop is shown at 4x.</span></p><div class="cmp-where"><img loading="lazy" decoding="async" width="640" height="286" src="assets/frames/tears-701-frame.webp" alt="The whole frame, with the cropped window outlined."><i style="left:80.00%;top:5.59%;width:10.83%;height:13.05%"></i></div></div>
+<div class="cmp-pane" data-name="Reference"><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-701-reference.webp" alt="The reference frame, cropped."><span class="cmp-tag">Reference · 4x zoom</span></div>
+<div class="cmp-pane" data-name="yah265" data-first><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-701-yah265.webp" alt="The same crop from yah265's encode."><span class="cmp-tag ours"><b>yah265</b> · VMAF v1 88.3 on this frame · 15.95 MB file · 4x zoom</span></div>
+<div class="cmp-pane" data-name="x265"><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-701-x265.webp" alt="The same crop from x265's encode."><span class="cmp-tag"><b>x265</b> · VMAF v1 84.4 on this frame · 15.88 MB file · 4x zoom</span></div>
 </div>
-<figcaption>One frame of a 60-second Tears of Steel clip at 1080p, encoded by both at preset medium to the same file size. It's the frame at the median of yah265's per-frame VMAF v1 lead, cropped to the window where the two encodes differ most and shown at twice its size. <a href="results.html#same-size-side-by-side">Results</a> has two more frames and how they were chosen. Tears of Steel: (CC) Blender Foundation, <a href="https://mango.blender.org">mango.blender.org</a>, CC-BY 3.0.</figcaption>
+<figcaption>The hardest moment of a 90-second Tears of Steel clip at 1080p: the lowest-scoring frame, by the two encoders' mean VMAF v1, cropped to the region where the two encodes lose detail most differently. Both files are the same size to within 0.5%. <a href="results.html#same-size-side-by-side">Results</a> has the next two hardest moments, one of them a crop where x265 holds up better. Tears of Steel: (CC) Blender Foundation, <a href="https://mango.blender.org">mango.blender.org</a>, CC-BY 3.0.</figcaption>
 </figure>
 <!--/gen:fig-frames-->
+
+<!--gen:frames-player-->Scrub the whole clip yourself in the <a href="compare/tears/">comparison player</a>.<!--/gen:frames-player-->
 
 ## What it does
 

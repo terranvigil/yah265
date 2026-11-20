@@ -854,56 +854,65 @@ def board_table(hist):
         f"{cell(g3[-1]['g3'])} ({g3[-1]['date']}) |"])
 
 
-FRAMES = os.path.join(ROOT, "site/assets/frames/tos.json")
+FRAMES = os.path.join(ROOT, "site/assets/frames/tears.json")
 FRAME_W, FRAME_H = 1920, 858
 FRAME_CREDIT = ('Tears of Steel: (CC) Blender Foundation, '
                 '<a href="https://mango.blender.org">mango.blender.org</a>, CC-BY 3.0.')
+ORDINAL = ["hardest", "second hardest", "third hardest"]
 
 
-def frames_figure(which=None, caption=""):
+def frames_figure(count, caption):
     """The same-frame comparison, from the record scripts/frame_crops.sh
-    wrote beside the crops. which: the picks to show, by their 'at' name."""
+    wrote beside the crops. count: how many of its picks to show."""
     d = json.load(open(FRAMES))
-    enc = d["encodes"]
-    tag = {k: f"<b>{k}</b> · {enc[k]['bytes'] / 1e6:.2f} MB · VMAF v1 {enc[k]['vmaf_v1_mean']:.1f} "
-              f"· encoded in {enc[k]['wall_s']:.1f} s" for k in enc}
+    enc, zoom = d["encodes"], d["zoom"]
     out = ['<figure class="compare">']
-    for p in d["picks"]:
-        if which and p["at"] not in which:
-            continue
+    for k, p in enumerate(d["picks"][:count]):
         n, c = p["frame"], p["crop"]
         box = (f"left:{c['x'] / FRAME_W * 100:.2f}%;top:{c['y'] / FRAME_H * 100:.2f}%;"
                f"width:{c['w'] / FRAME_W * 100:.2f}%;height:{c['h'] / FRAME_H * 100:.2f}%")
+        at = f"{int(p['at_s'] // 60)}:{int(p['at_s'] % 60):02d}"
         out.append('<div class="cmp">')
-        out.append(f'<div class="cmp-head"><p class="cmp-title">The {p["at"]} frame'
-                   f'<span>VMAF v1 on this frame: yah265 {p["yah265"]:.1f}, x265 {p["x265"]:.1f}'
-                   f'</span></p><div class="cmp-where"><img loading="lazy" decoding="async" '
-                   f'width="640" height="286" src="assets/frames/tos-{n}-frame.webp" '
+        out.append(f'<div class="cmp-head"><p class="cmp-title">The {ORDINAL[k]} moment, '
+                   f'{at} into the clip<span>VMAF v1 on this frame: yah265 {p["yah265"]:.1f}, '
+                   f'x265 {p["x265"]:.1f}. The crop is shown at {zoom}x.</span></p>'
+                   f'<div class="cmp-where"><img loading="lazy" decoding="async" '
+                   f'width="640" height="286" src="assets/frames/tears-{n}-frame.webp" '
                    f'alt="The whole frame, with the cropped window outlined.">'
                    f'<i style="{box}"></i></div></div>')
-        for arm, name, cls, first in (("source", "Source", "", ""),
+        for arm, name, cls, first in (("reference", "Reference", "", ""),
                                       ("yah265", "yah265", " ours", " data-first"),
                                       ("x265", "x265", "", "")):
-            alt = ("The source frame, cropped." if arm == "source"
-                   else f"The same crop from {name}'s encode.")
+            if arm == "reference":
+                alt, tag = "The reference frame, cropped.", f"Reference · {zoom}x zoom"
+            else:
+                alt = f"The same crop from {name}'s encode."
+                tag = (f"<b>{name}</b> · VMAF v1 {p[arm]:.1f} on this frame · "
+                       f"{enc[arm]['bytes'] / 1e6:.2f} MB file · {zoom}x zoom")
             out.append(f'<div class="cmp-pane" data-name="{name}"{first}><img loading="lazy" '
-                       f'decoding="async" width="{c["w"] * 2}" height="{c["h"] * 2}" '
-                       f'src="assets/frames/tos-{n}-{arm}.webp" alt="{alt}">'
-                       f'<span class="cmp-tag{cls}">{tag.get(arm, "Source, before encoding")}'
-                       f'</span></div>')
+                       f'decoding="async" width="{c["w"] * zoom}" height="{c["h"] * zoom}" '
+                       f'src="assets/frames/tears-{n}-{arm}.webp" alt="{alt}">'
+                       f'<span class="cmp-tag{cls}">{tag}</span></div>')
         out.append("</div>")
     out.append(f"<figcaption>{caption} {FRAME_CREDIT}</figcaption>")
     out.append("</figure>")
     return "\n".join(out)
 
 
-FRAMES_ONE = ("One frame of a 60-second Tears of Steel clip at 1080p, encoded by both at preset "
-              "medium to the same file size. It's the frame at the median of yah265's per-frame "
-              "VMAF v1 lead, cropped to the window where the two encodes differ most and shown "
-              'at twice its size. <a href="results.html#same-size-side-by-side">Results</a> has '
-              "two more frames and how they were chosen.")
-FRAMES_ALL = ("Crops are shown at twice their size, with no smoothing. "
-              "<code>scripts/frame_crops.sh</code> makes them from the two encodes.")
+# The last sentence of FRAMES_ALL is what the three crops look like. Look at
+# them again and rewrite it whenever scripts/frame_crops.sh picks new ones.
+FRAMES_RULE = ("the lowest-scoring frame, by the two encoders' mean VMAF v1, cropped to the "
+               "region where the two encodes lose detail most differently")
+FRAMES_ONE = (f"The hardest moment of a 90-second Tears of Steel clip at 1080p: {FRAMES_RULE}. "
+              "Both files are the same size to within 0.5%. "
+              '<a href="results.html#same-size-side-by-side">Results</a> has the next two '
+              "hardest moments, one of them a crop where x265 holds up better.")
+FRAMES_ALL = (f"The three hardest moments of the clip: {FRAMES_RULE}, one from each of the "
+              "three lowest-scoring shots. yah265 keeps more of the texture in the first crop. "
+              "x265 keeps the eyebrows sharper in the second. The third is close. "
+              "<code>scripts/frame_crops.sh</code> makes the crops.")
+FRAMES_PLAYER = ('Scrub the whole clip yourself in the <a href="compare/tears/">comparison '
+                 "player</a>.")
 
 
 def claims(pl, fl, ff):
@@ -996,7 +1005,8 @@ def draw_card(path, pl, fl):
 def values(sps, q, lad, fl, cap, cv, ff, rows, repro, date, report_rel, hist, cred, pl):
     V = {}
     V["headline"] = headline(pl)
-    V["fig-frames"] = frames_figure(("median",), FRAMES_ONE)
+    V["fig-frames"] = frames_figure(1, FRAMES_ONE)
+    V["frames-player"] = FRAMES_PLAYER
     V["headline-table"] = headline_table(pl)
     V["dv-cells"] = f"{pl['dv_ahead']} of the {pl['dv_n']}"
     V["films-table"] = films_table(fl)
