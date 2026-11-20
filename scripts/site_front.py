@@ -68,6 +68,57 @@ def head(W, H, title, desc):
             "<rect width='100%' height='100%' class='bg'/>"]
 
 
+HERO_STYLE = """<style>
+.run{transform-box:fill-box;transform-origin:left center;animation:run 2.4s linear both}
+.after{animation:show .4s 2.4s both}
+@keyframes run{from{transform:scaleX(0)}}
+@keyframes show{from{opacity:0}}
+@media (prefers-reduced-motion:reduce){.run,.after{animation:none}}
+</style>"""
+
+
+def chart_hero(pl):
+    """The home page's race: both encoders start together on the same
+    encode, and the picture stops when yah265 finishes. x265's bar is then
+    as long as the pooled median ratio."""
+    W, H, L, R = 900, 268, 104, 196
+    ratio = pl["median"]
+    X = lambda v: L + v * (W - L - R)
+    title = f"When yah265 finishes, x265 is {ratio * 100:.0f}% of the way through"
+    o = head(W, H, title,
+             "Two bars racing over the same encode. The yah265 bar reaches the end. The x265 "
+             f"bar has covered {ratio * 100:.0f}% of the distance at that moment, which is the "
+             f"median over {pl['n']} timed cells.")
+    o.append(HERO_STYLE)
+    o.append(bc.T(24, 40, title, 22, weight="600"))
+    o.append(bc.T(24, 64, f"The median of {pl['n']} timed cells on an Apple M5 Max. Same file "
+                          "size, both at preset medium with SIMD on all cores.", 14, "t2"))
+    y1, y2, h = 104, 160, 34
+    for v in (0, 0.25, 0.5, 0.75, 1):
+        o.append(f"<line x1='{X(v):.1f}' y1='{y1 - 10}' x2='{X(v):.1f}' y2='{y2 + h + 10}' "
+                 f"class='{'base' if v == 1 else 'grid'}'"
+                 + (" stroke-width='2' stroke-dasharray='4 4'" if v == 1 else "") + "/>")
+        o.append(bc.T(X(v), y2 + h + 28, "start" if v == 0 else "finish" if v == 1
+                      else f"{v * 100:.0f}%", 12, "t2", "middle"))
+    for y, name, v, cls in ((y1, "yah265", 1.0, "s1"), (y2, "x265", ratio, "sx")):
+        o.append(f"<rect x='{X(0):.1f}' y='{y}' width='{X(1) - X(0):.1f}' height='{h}' rx='4' "
+                 "class='band'/>")
+        o.append(bc.bar(X(0), X(v), y, h, cls).replace("class='", "class='run "))
+        o.append(bc.T(L - 14, y + h / 2 + 5, name, 15, "t1", "end", "600"))
+    o.append("<g class='after'>")
+    o.append(bc.T(X(1) + 16, y1 + h / 2 - 1, f"{bc.times(ratio)}", 30, "note", weight="700"))
+    o.append(bc.T(X(1) + 16, y1 + h / 2 + 19, "faster than x265", 13, "t2"))
+    o.append(bc.T(X(ratio) + 10, y2 + h / 2 + 5, f"{ratio * 100:.0f}% done", 13, "t1"))
+    o.append("</g>")
+    yb = y2 + h + 62
+    o.append(f"<line x1='24' y1='{yb - 22}' x2='{W - 24}' y2='{yb - 22}' class='grid'/>")
+    o.append(bc.marker(0, 31, yb - 4, "s1", 5))
+    o.append(bc.T(44, yb, f"At that file size yah265 also scores a median {pl['dv']:+.2f} VMAF v1 "
+                          f"points higher than x265, over {pl['dv_n']} cells.", 14, "t1"))
+    o.append("</svg>")
+    return "\n".join(o)
+
+
 def chart_home(cm, n_all):
     """One panel per machine, one bar per class, x265 as the 1x line."""
     W, L, R, Tp = 900, 150, 70, 96
@@ -86,11 +137,7 @@ def chart_home(cm, n_all):
     o.append(bc.T(24, 38, title, 21, weight="600"))
     o.append(bc.T(24, 62, "Median times faster at the same file size. Both encoders at preset "
                           "medium, SIMD on all cores.", 14, "t2"))
-    o.append("<rect x='24' y='74' width='12' height='12' rx='2' class='s1'/>")
-    o.append(bc.T(42, 85, "yah265", 13, "t2"))
-    o.append("<line x1='112' y1='80' x2='136' y2='80' class='lx' stroke-width='2' "
-             "stroke-dasharray='5 3'/>")
-    o.append(bc.T(142, 85, "x265, 1x", 13, "t2"))
+    o.append(bc.T(X(1), Tp + 22, "x265 = 1x", 12.5, "t2", "middle"))
     y = Tp
     for m in bc.MACHINES:
         o.append(bc.T(24, y + 24, bc.MACHINE_LONG[m], 15, weight="600"))
@@ -566,6 +613,7 @@ def main():
     opts, build, nopt = options_tables()
     V = {
         "headline": bc.headline(pl),
+        "fig-frames": bc.frames_figure(("median",), bc.FRAMES_ONE),
         "pooled-table": bc.headline_table(pl),
         "quality-table": quality_table(pl, lad),
         "goal-table": bc.goal_table(sps),
@@ -575,7 +623,8 @@ def main():
         "options": opts,
         "options-build": f"{nopt} entries from `{build}`",
     }
-    charts = {"home-speed.svg": chart_home(cm, sum(v[1] for d in cm.values() for v in d.values())),
+    charts = {"home-hero.svg": chart_hero(pl),
+              "home-speed.svg": chart_home(cm, sum(v[1] for d in cm.values() for v in d.values())),
               "hdr-bd.svg": chart_hdr(hdr)}
     stale = []
     for name, svg in charts.items():

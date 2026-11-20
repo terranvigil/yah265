@@ -346,18 +346,20 @@ def board_history():
 # validator's CVD and normal-vision checks on both surfaces, and every
 # series also has its own marker shape. Text stays in the ink colors.
 BRAND = "#ff4d1a"
-NEUTRAL = "#8a8984"
+NEUTRAL = "#868e96"
 STYLE = """<style>
-.bg{fill:#fcfcfb}.t1{fill:#0b0b0b}.t2{fill:#52514e}.grid{stroke:#e6e5e1}
-.base{stroke:#8a8984}.ring{stroke:#fcfcfb}.med{stroke:#0b0b0b}
-.s1{fill:#ff4d1a}.s2{fill:#1baf7a}.s3{fill:#6250d6}.sx{fill:#8a8984}
-.l1{stroke:#ff4d1a}.l2{stroke:#1baf7a}.l3{stroke:#6250d6}.lx{stroke:#8a8984}.span{stroke:#e6e5e1}
-text{font-family:system-ui,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif}
+.bg{fill:#ffffff}.t1{fill:#212529}.t2{fill:#495057}.grid{stroke:#e9ecef}
+.base{stroke:#868e96}.ring{stroke:#ffffff}.med{stroke:#212529}.band{fill:#f1f3f5}
+.s1{fill:#ff4d1a}.s2{fill:#00919a}.s3{fill:#6250d6}.sx{fill:#868e96}
+.l1{stroke:#ff4d1a}.l2{stroke:#00919a}.l3{stroke:#6250d6}.lx{stroke:#868e96}.span{stroke:#dee2e6}
+.note{fill:#b8330a}.wash{fill:#ffe8dc}
+text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
 @media (prefers-color-scheme:dark){
-.bg{fill:#1a1a19}.t1{fill:#f0efec}.t2{fill:#c3c2b7}.grid{stroke:#2e2e2c}
-.base{stroke:#8a8984}.ring{stroke:#1a1a19}.med{stroke:#f0efec}
-.s1{fill:#ff4d1a}.s2{fill:#199e70}.s3{fill:#9085e9}.sx{fill:#8a8984}
-.l1{stroke:#ff4d1a}.l2{stroke:#199e70}.l3{stroke:#9085e9}.lx{stroke:#8a8984}.span{stroke:#3a3a37}}
+.bg{fill:#1b1c1e}.t1{fill:#e9ecee}.t2{fill:#b6bcc1}.grid{stroke:#2e3135}
+.base{stroke:#8f959a}.ring{stroke:#1b1c1e}.med{stroke:#e9ecee}.band{fill:#23262a}
+.s1{fill:#ff4d1a}.s2{fill:#12a3ad}.s3{fill:#9085e9}.sx{fill:#8f959a}
+.l1{stroke:#ff4d1a}.l2{stroke:#12a3ad}.l3{stroke:#9085e9}.lx{stroke:#8f959a}.span{stroke:#3a3e43}
+.note{fill:#ff8a5c}.wash{fill:#45200f}}
 </style>"""
 
 
@@ -427,7 +429,9 @@ def chart_films(fl):
     W, L, R = 900, 180, 210
     rowh, barh, gap = 40, 12, 2
     Tp = 112
-    panel_h = {c: 34 + rowh * len(order) + 34 for c in panels}
+    # a panel lists the films it timed
+    timed = {c: [t for t in order if any(r[0] == t and r[1] for r in fl[c])] for c in panels}
+    panel_h = {c: 34 + rowh * len(timed[c]) + 34 for c in panels}
     H = Tp + sum(panel_h.values()) + 16 * (len(panels) - 1) + 14
     tot = {c: (sum(r[1] for r in fl[c] if r[1]), sum(r[2] for r in fl[c] if r[2]))
            for c in panels}
@@ -456,28 +460,23 @@ def chart_films(fl):
                    f"{tot[c][1] / 60:.0f} min for x265, {tot[c][0] / 60:.0f} min for yah265",
                    13, "t2"))
         y0 = y + 34
-        yb = y0 + rowh * len(order)
+        yb = y0 + rowh * len(timed[c])
         v = 0
         while v <= xmax + 1e-9:
             cls = "base" if v == 0 else "grid"
             o.append(f"<line x1='{X(v):.1f}' y1='{y0 - 4}' x2='{X(v):.1f}' y2='{yb}' class='{cls}'/>")
             o.append(T(X(v), yb + 16, f"{v / 60:g} min" if v else "0", 12, "t2", "middle"))
             v += step
-        for i, t in enumerate(order):
+        for i, t in enumerate(timed[c]):
             ry = y0 + rowh * i + (rowh - 2 * barh - gap) / 2
             o.append(T(L - 12, ry + barh + 5, TITLE.get(t, t), 13, "t1", "end"))
-            r = rows.get(t)
-            if r is None:
-                o.append(T(L + 8, ry + barh + 5, f"not in the {RES[c]} set", 12, "t2"))
-                continue
-            ours, ref, ratio, _ = r
-            if ours is None:
-                o.append(T(L + 8, ry + barh + 5, "not timed: the feeder couldn't keep up", 12, "t2"))
-                continue
+            ours, ref, ratio, _ = rows[t]
             o.append(bar(X(0), X(ours), ry, barh, "s1"))
             o.append(bar(X(0), X(ref), ry + barh + gap, barh, "sx"))
-            o.append(T(X(ours) + 6, ry + barh - 2,
-                       f"{fmin(ours)}, {1 / round(ratio, 2):.2f}x faster", 12, "t1"))
+            lab = fmin(ours)
+            o.append(T(X(ours) + 6, ry + barh - 2, lab, 12, "t1", weight="600"))
+            o.append(T(X(ours) + 12 + 6.6 * len(lab), ry + barh - 2,
+                       f"{1 / round(ratio, 2):.2f}x faster", 12, "note", weight="600"))
             o.append(T(X(ref) + 6, ry + 2 * barh + gap - 2, fmin(ref), 12, "t2"))
         y = yb + 34 + 16
     o.append("</svg>")
@@ -793,7 +792,6 @@ def films_table(fl):
         rows = sorted(fl[c], key=lambda r: -(r[2] or 0))
         for t, ours, ref, ratio, dv in rows:
             if ours is None:
-                L.append(f"| {RES[c]} | {TITLE.get(t, t)} | not timed | not timed | - | - |")
                 continue
             L.append(f"| {RES[c]} | {TITLE.get(t, t)} | {fmin(ref)} | {fmin(ours)} | "
                      f"{fx(ratio)} | {dv:+.2f} |")
@@ -854,6 +852,58 @@ def board_table(hist):
         f"{cell(hist[-1]['g1'])} ({hist[-1]['date']}) |",
         f"| SIMD on all cores | {cell(g3[0]['g3'])} ({g3[0]['date']}) | "
         f"{cell(g3[-1]['g3'])} ({g3[-1]['date']}) |"])
+
+
+FRAMES = os.path.join(ROOT, "site/assets/frames/tos.json")
+FRAME_W, FRAME_H = 1920, 858
+FRAME_CREDIT = ('Tears of Steel: (CC) Blender Foundation, '
+                '<a href="https://mango.blender.org">mango.blender.org</a>, CC-BY 3.0.')
+
+
+def frames_figure(which=None, caption=""):
+    """The same-frame comparison, from the record scripts/frame_crops.sh
+    wrote beside the crops. which: the picks to show, by their 'at' name."""
+    d = json.load(open(FRAMES))
+    enc = d["encodes"]
+    tag = {k: f"<b>{k}</b> · {enc[k]['bytes'] / 1e6:.2f} MB · VMAF v1 {enc[k]['vmaf_v1_mean']:.1f} "
+              f"· encoded in {enc[k]['wall_s']:.1f} s" for k in enc}
+    out = ['<figure class="compare">']
+    for p in d["picks"]:
+        if which and p["at"] not in which:
+            continue
+        n, c = p["frame"], p["crop"]
+        box = (f"left:{c['x'] / FRAME_W * 100:.2f}%;top:{c['y'] / FRAME_H * 100:.2f}%;"
+               f"width:{c['w'] / FRAME_W * 100:.2f}%;height:{c['h'] / FRAME_H * 100:.2f}%")
+        out.append('<div class="cmp">')
+        out.append(f'<div class="cmp-head"><p class="cmp-title">The {p["at"]} frame'
+                   f'<span>VMAF v1 on this frame: yah265 {p["yah265"]:.1f}, x265 {p["x265"]:.1f}'
+                   f'</span></p><div class="cmp-where"><img loading="lazy" decoding="async" '
+                   f'width="640" height="286" src="assets/frames/tos-{n}-frame.webp" '
+                   f'alt="The whole frame, with the cropped window outlined.">'
+                   f'<i style="{box}"></i></div></div>')
+        for arm, name, cls, first in (("source", "Source", "", ""),
+                                      ("yah265", "yah265", " ours", " data-first"),
+                                      ("x265", "x265", "", "")):
+            alt = ("The source frame, cropped." if arm == "source"
+                   else f"The same crop from {name}'s encode.")
+            out.append(f'<div class="cmp-pane" data-name="{name}"{first}><img loading="lazy" '
+                       f'decoding="async" width="{c["w"] * 2}" height="{c["h"] * 2}" '
+                       f'src="assets/frames/tos-{n}-{arm}.webp" alt="{alt}">'
+                       f'<span class="cmp-tag{cls}">{tag.get(arm, "Source, before encoding")}'
+                       f'</span></div>')
+        out.append("</div>")
+    out.append(f"<figcaption>{caption} {FRAME_CREDIT}</figcaption>")
+    out.append("</figure>")
+    return "\n".join(out)
+
+
+FRAMES_ONE = ("One frame of a 60-second Tears of Steel clip at 1080p, encoded by both at preset "
+              "medium to the same file size. It's the frame at the median of yah265's per-frame "
+              "VMAF v1 lead, cropped to the window where the two encodes differ most and shown "
+              'at twice its size. <a href="results.html#same-size-side-by-side">Results</a> has '
+              "two more frames and how they were chosen.")
+FRAMES_ALL = ("Crops are shown at twice their size, with no smoothing. "
+              "<code>scripts/frame_crops.sh</code> makes them from the two encodes.")
 
 
 def claims(pl, fl, ff):
@@ -946,6 +996,7 @@ def draw_card(path, pl, fl):
 def values(sps, q, lad, fl, cap, cv, ff, rows, repro, date, report_rel, hist, cred, pl):
     V = {}
     V["headline"] = headline(pl)
+    V["fig-frames"] = frames_figure(("median",), FRAMES_ONE)
     V["headline-table"] = headline_table(pl)
     V["dv-cells"] = f"{pl['dv_ahead']} of the {pl['dv_n']}"
     V["films-table"] = films_table(fl)

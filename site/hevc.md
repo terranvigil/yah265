@@ -453,6 +453,29 @@ Naming one of 35 modes would cost five bits or more on every block if the standa
 
 Inter prediction copies a block from an earlier decoded picture. A motion vector says where the copy comes from and a reference index says which picture. Vectors are precise to a quarter of a sample. Positions between whole samples are computed by a filter over eight neighboring samples for luma and four for chroma.
 
+<figure class="diagram">
+<svg viewBox="0 0 720 262" role="img" aria-labelledby="mv-fig-t mv-fig-d">
+<title id="mv-fig-t">A motion vector points at the block to copy</title>
+<desc id="mv-fig-d">Two pictures side by side. In the picture being coded one block is highlighted. In the earlier decoded picture a dashed outline marks the same place, and a motion vector runs from it to a highlighted block down and to the left. That block is copied across as the prediction.</desc>
+<text class="d-label" x="170" y="30" text-anchor="middle">an earlier decoded picture</text>
+<text class="d-label" x="550" y="30" text-anchor="middle">the picture being coded</text>
+<rect class="d-box" x="30" y="44" width="280" height="176" rx="0"/>
+<rect class="d-box" x="410" y="44" width="280" height="176" rx="0"/>
+<rect class="d-dash" x="150" y="84" width="50" height="50" rx="0"/>
+<text class="d-label" x="175" y="76" text-anchor="middle">same place</text>
+<rect class="d-accent" x="86" y="150" width="50" height="50" rx="0"/>
+<line class="d-arrow d-accent" x1="175" y1="109" x2="116" y2="169"/>
+<text class="d-label" x="138" y="128" text-anchor="end">motion vector</text>
+<rect class="d-accent" x="530" y="84" width="50" height="50" rx="0"/>
+<text class="d-label" x="555" y="76" text-anchor="middle">this block</text>
+<line class="d-arrow" x1="140" y1="180" x2="524" y2="116"/>
+<text class="d-label" x="430" y="176">copied as the prediction</text>
+<text class="d-label" x="170" y="246" text-anchor="middle">the vector can stop between samples</text>
+<text class="d-label" x="550" y="246" text-anchor="middle">only the leftover difference is coded</text>
+</svg>
+<figcaption>The stream holds the vector and which picture it points into. The decoder makes the same copy.</figcaption>
+</figure>
+
 HEVC has two ways to write the motion. Merge writes nothing but an index. The decoder builds a list of up to five candidates from the block's neighbors. The block takes one candidate's vector and reference whole. Skip mode is a merge with no residual, the cheapest block the standard can code. The other way is advanced motion vector prediction (AMVP), where the encoder picks one of two predicted vectors and codes the difference from it.
 
 <figure class="diagram">

@@ -90,6 +90,49 @@
     box.appendChild(btn);
   });
 
+  // frame comparisons: one pane at a time behind a switch. The arrow
+  // keys move between panes while the switch has focus
+  $$('.cmp').forEach(function (box) {
+    var panes = $$('.cmp-pane', box);
+    if (panes.length < 2) return;
+    var bar = el('div', 'cmp-switch');
+    bar.setAttribute('role', 'group');
+    bar.setAttribute('aria-label', 'Which picture to show');
+    var btns = panes.map(function (p, i) {
+      var b = el('button', null, p.dataset.name);
+      b.type = 'button';
+      b.addEventListener('click', function () { pick(i); });
+      bar.appendChild(b);
+      return b;
+    });
+    function pick(i) {
+      panes.forEach(function (p, j) { p.classList.toggle('show', i === j); });
+      btns.forEach(function (b, j) { b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+    }
+    bar.addEventListener('keydown', function (e) {
+      var d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+      if (!d) return;
+      var i = (btns.indexOf(document.activeElement) + d + btns.length) % btns.length;
+      btns[i].focus();
+      pick(i);
+      e.preventDefault();
+    });
+    // a hidden pane never scrolls into view, so its picture loads when
+    // the box comes near and a flick doesn't flash
+    var ready = function () { $$('.cmp-pane img', box).forEach(function (im) { im.loading = 'eager'; }); };
+    if (window.IntersectionObserver) {
+      var near = new IntersectionObserver(function (es, o) {
+        if (es.some(function (e) { return e.isIntersecting; })) { ready(); o.disconnect(); }
+      }, { rootMargin: '600px 0px' });
+      near.observe(box);
+    } else ready();
+    box.insertBefore(bar, panes[0]);
+    box.classList.add('on');
+    var first = 0;
+    panes.forEach(function (p, i) { if (p.hasAttribute('data-first')) first = i; });
+    pick(first);
+  });
+
   // a table wider than its box pins its first column, when that column
   // leaves at least half the box for the rest
   function pinTables() {

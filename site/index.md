@@ -9,6 +9,8 @@ description: An H.265/HEVC encoder written from scratch. It runs faster than x26
 
 yah265 is an H.265/HEVC encoder written from scratch in C. It runs inside ffmpeg under the options you already use.
 
+<figure class="chart hero"><img src="assets/charts/front/home-hero.svg" alt="Two bars race over the same encode. When the yah265 bar reaches the finish, the x265 bar is a little over halfway."><figcaption>Data: every cell timed on the Mac, from the parity report in the repository.</figcaption></figure>
+
 ## Try it
 
 ```sh
@@ -30,6 +32,22 @@ The new ffmpeg is at `build-ffmpeg/ffmpeg/ffmpeg`. [Build and first encode](star
 <figure class="chart"><img src="assets/charts/front/home-speed.svg" alt="Bars of how many times faster yah265 runs than x265 at CIF, 720p, 1080p and 4K on an Apple M5 Max, an Intel Xeon and an AWS Graviton4. Every bar passes the 1x line that marks x265."><figcaption>Data: the Mac, Xeon and Graviton4 parity reports in the repository.</figcaption></figure>
 
 On this site "faster" compares wall time for files of the same size, so 2x faster is half the time. Both encoders run `--preset medium` with SIMD on every core. The capped VBR cells share a target bitrate where the others share a size.
+
+## Same size, side by side
+
+Both files below are the same size to within 2%. Switch between the source and the two encodes.
+
+<!--gen:fig-frames-->
+<figure class="compare">
+<div class="cmp">
+<div class="cmp-head"><p class="cmp-title">The median frame<span>VMAF v1 on this frame: yah265 84.5, x265 83.7</span></p><div class="cmp-where"><img loading="lazy" decoding="async" width="640" height="286" src="assets/frames/tos-1209-frame.webp" alt="The whole frame, with the cropped window outlined."><i style="left:44.48%;top:28.90%;width:21.67%;height:27.27%"></i></div></div>
+<div class="cmp-pane" data-name="Source"><img loading="lazy" decoding="async" width="832" height="468" src="assets/frames/tos-1209-source.webp" alt="The source frame, cropped."><span class="cmp-tag">Source, before encoding</span></div>
+<div class="cmp-pane" data-name="yah265" data-first><img loading="lazy" decoding="async" width="832" height="468" src="assets/frames/tos-1209-yah265.webp" alt="The same crop from yah265's encode."><span class="cmp-tag ours"><b>yah265</b> · 8.09 MB · VMAF v1 90.6 · encoded in 5.7 s</span></div>
+<div class="cmp-pane" data-name="x265"><img loading="lazy" decoding="async" width="832" height="468" src="assets/frames/tos-1209-x265.webp" alt="The same crop from x265's encode."><span class="cmp-tag"><b>x265</b> · 7.96 MB · VMAF v1 89.8 · encoded in 10.5 s</span></div>
+</div>
+<figcaption>One frame of a 60-second Tears of Steel clip at 1080p, encoded by both at preset medium to the same file size. It's the frame at the median of yah265's per-frame VMAF v1 lead, cropped to the window where the two encodes differ most and shown at twice its size. <a href="results.html#same-size-side-by-side">Results</a> has two more frames and how they were chosen. Tears of Steel: (CC) Blender Foundation, <a href="https://mango.blender.org">mango.blender.org</a>, CC-BY 3.0.</figcaption>
+</figure>
+<!--/gen:fig-frames-->
 
 ## What it does
 

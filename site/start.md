@@ -73,6 +73,26 @@ build-ffmpeg/ffmpeg/ffmpeg -i in.mp4 -c:v libyah265 -preset medium -crf 25 out.m
 
 That's the command you'd give x265 with one word changed. `out.mp4` plays in anything that plays HEVC.
 
+<figure class="diagram">
+<svg viewBox="0 0 720 132" role="img" aria-labelledby="swap-fig-t swap-fig-d">
+<title id="swap-fig-t">One word changes in the ffmpeg command</title>
+<desc id="swap-fig-d">Two ffmpeg command lines, one above the other. They match except for the encoder name after -c:v, which is libx265 in the first and libyah265 in the second.</desc>
+<text class="d-label" x="20" y="18">today</text>
+<text class="d-mono" x="186" y="47" text-anchor="end">ffmpeg -i in.mp4 -c:v</text>
+<rect class="d-fill" x="194" y="28" width="92" height="28" rx="6"/>
+<text class="d-mono" x="240" y="47" text-anchor="middle">libx265</text>
+<text class="d-mono" x="296" y="47">-preset medium -crf 25 out.mp4</text>
+<line class="d-arrow d-accent" x1="240" y1="60" x2="240" y2="84"/>
+<text class="d-label" x="254" y="77">one word</text>
+<text class="d-label" x="20" y="78">with yah265</text>
+<text class="d-mono" x="186" y="107" text-anchor="end">ffmpeg -i in.mp4 -c:v</text>
+<rect class="d-accent" x="194" y="88" width="92" height="28" rx="6"/>
+<text class="d-mono" x="240" y="107" text-anchor="middle">libyah265</text>
+<text class="d-mono" x="296" y="107">-preset medium -crf 25 out.mp4</text>
+</svg>
+<figcaption>Everything else on the command line stays as it was.</figcaption>
+</figure>
+
 Always pass `-crf`. With no rate option the encoder codes every frame at one fixed quantizer. That's a test mode. The encoding guide has the [ffmpeg options the encoder takes](guide.md#from-ffmpeg).
 
 ## Pick a quality

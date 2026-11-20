@@ -1,0 +1,51 @@
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 900 268' role='img'>
+<title>When yah265 finishes, x265 is 56% of the way through</title><desc>Two bars racing over the same encode. The yah265 bar reaches the end. The x265 bar has covered 56% of the distance at that moment, which is the median over 70 timed cells.</desc>
+<style>
+.bg{fill:#ffffff}.t1{fill:#212529}.t2{fill:#495057}.grid{stroke:#e9ecef}
+.base{stroke:#868e96}.ring{stroke:#ffffff}.med{stroke:#212529}.band{fill:#f1f3f5}
+.s1{fill:#ff4d1a}.s2{fill:#00919a}.s3{fill:#6250d6}.sx{fill:#868e96}
+.l1{stroke:#ff4d1a}.l2{stroke:#00919a}.l3{stroke:#6250d6}.lx{stroke:#868e96}.span{stroke:#dee2e6}
+.note{fill:#b8330a}.wash{fill:#ffe8dc}
+text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+@media (prefers-color-scheme:dark){
+.bg{fill:#1b1c1e}.t1{fill:#e9ecee}.t2{fill:#b6bcc1}.grid{stroke:#2e3135}
+.base{stroke:#8f959a}.ring{stroke:#1b1c1e}.med{stroke:#e9ecee}.band{fill:#23262a}
+.s1{fill:#ff4d1a}.s2{fill:#12a3ad}.s3{fill:#9085e9}.sx{fill:#8f959a}
+.l1{stroke:#ff4d1a}.l2{stroke:#12a3ad}.l3{stroke:#9085e9}.lx{stroke:#8f959a}.span{stroke:#3a3e43}
+.note{fill:#ff8a5c}.wash{fill:#45200f}}
+</style>
+<rect width='100%' height='100%' class='bg'/>
+<style>
+.run{transform-box:fill-box;transform-origin:left center;animation:run 2.4s linear both}
+.after{animation:show .4s 2.4s both}
+@keyframes run{from{transform:scaleX(0)}}
+@keyframes show{from{opacity:0}}
+@media (prefers-reduced-motion:reduce){.run,.after{animation:none}}
+</style>
+<text x='24.0' y='40.0' font-size='22' class='t1' text-anchor='start' font-weight='600'>When yah265 finishes, x265 is 56% of the way through</text>
+<text x='24.0' y='64.0' font-size='14' class='t2' text-anchor='start'>The median of 70 timed cells on an Apple M5 Max. Same file size, both at preset medium with SIMD on all cores.</text>
+<line x1='104.0' y1='94' x2='104.0' y2='204' class='grid'/>
+<text x='104.0' y='222.0' font-size='12' class='t2' text-anchor='middle'>start</text>
+<line x1='254.0' y1='94' x2='254.0' y2='204' class='grid'/>
+<text x='254.0' y='222.0' font-size='12' class='t2' text-anchor='middle'>25%</text>
+<line x1='404.0' y1='94' x2='404.0' y2='204' class='grid'/>
+<text x='404.0' y='222.0' font-size='12' class='t2' text-anchor='middle'>50%</text>
+<line x1='554.0' y1='94' x2='554.0' y2='204' class='grid'/>
+<text x='554.0' y='222.0' font-size='12' class='t2' text-anchor='middle'>75%</text>
+<line x1='704.0' y1='94' x2='704.0' y2='204' class='base' stroke-width='2' stroke-dasharray='4 4'/>
+<text x='704.0' y='222.0' font-size='12' class='t2' text-anchor='middle'>finish</text>
+<rect x='104.0' y='104' width='600.0' height='34' rx='4' class='band'/>
+<path d='M104.0,104.0 H700.0 Q704.0,104.0 704.0,108.0 V134.0 Q704.0,138.0 700.0,138.0 H104.0 Z' class='run s1'/>
+<text x='90.0' y='126.0' font-size='15' class='t1' text-anchor='end' font-weight='600'>yah265</text>
+<rect x='104.0' y='160' width='600.0' height='34' rx='4' class='band'/>
+<path d='M104.0,160.0 H439.0 Q443.0,160.0 443.0,164.0 V190.0 Q443.0,194.0 439.0,194.0 H104.0 Z' class='run sx'/>
+<text x='90.0' y='182.0' font-size='15' class='t1' text-anchor='end' font-weight='600'>x265</text>
+<g class='after'>
+<text x='720.0' y='120.0' font-size='30' class='note' text-anchor='start' font-weight='700'>1.77x</text>
+<text x='720.0' y='140.0' font-size='13' class='t2' text-anchor='start'>faster than x265</text>
+<text x='453.0' y='182.0' font-size='13' class='t1' text-anchor='start'>56% done</text>
+</g>
+<line x1='24' y1='234' x2='876' y2='234' class='grid'/>
+<circle cx='31.0' cy='252.0' r='5' class='s1 ring' stroke-width='2'/>
+<text x='44.0' y='256.0' font-size='14' class='t1' text-anchor='start'>At that file size yah265 also scores a median +1.18 VMAF v1 points higher than x265, over 44 cells.</text>
+</svg>

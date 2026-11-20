@@ -68,6 +68,20 @@ Over all the ladders yah265 needs a median <!--gen:bd-median-->10.9%<!--/gen:bd-
 
 Here are three of those ladders as curves. On Tears of Steel and Meridian the yah265 curve sits above x265's the whole way. Chimera is the hardest title in the set for us, and at 4K the two curves nearly touch.
 
+Here is what the same size looks like on one frame.
+
+<!--gen:fig-frames-->
+<figure class="compare">
+<div class="cmp">
+<div class="cmp-head"><p class="cmp-title">The median frame<span>VMAF v1 on this frame: yah265 84.5, x265 83.7</span></p><div class="cmp-where"><img loading="lazy" decoding="async" width="640" height="286" src="assets/frames/tos-1209-frame.webp" alt="The whole frame, with the cropped window outlined."><i style="left:44.48%;top:28.90%;width:21.67%;height:27.27%"></i></div></div>
+<div class="cmp-pane" data-name="Source"><img loading="lazy" decoding="async" width="832" height="468" src="assets/frames/tos-1209-source.webp" alt="The source frame, cropped."><span class="cmp-tag">Source, before encoding</span></div>
+<div class="cmp-pane" data-name="yah265" data-first><img loading="lazy" decoding="async" width="832" height="468" src="assets/frames/tos-1209-yah265.webp" alt="The same crop from yah265's encode."><span class="cmp-tag ours"><b>yah265</b> · 8.09 MB · VMAF v1 90.6 · encoded in 5.7 s</span></div>
+<div class="cmp-pane" data-name="x265"><img loading="lazy" decoding="async" width="832" height="468" src="assets/frames/tos-1209-x265.webp" alt="The same crop from x265's encode."><span class="cmp-tag"><b>x265</b> · 7.96 MB · VMAF v1 89.8 · encoded in 10.5 s</span></div>
+</div>
+<figcaption>One frame of a 60-second Tears of Steel clip at 1080p, encoded by both at preset medium to the same file size. It's the frame at the median of yah265's per-frame VMAF v1 lead, cropped to the window where the two encodes differ most and shown at twice its size. <a href="results.html#same-size-side-by-side">Results</a> has two more frames and how they were chosen. Tears of Steel: (CC) Blender Foundation, <a href="https://mango.blender.org">mango.blender.org</a>, CC-BY 3.0.</figcaption>
+</figure>
+<!--/gen:fig-frames-->
+
 ## The same result through ffmpeg
 
 Most people meet an encoder through ffmpeg. An outside tester would run it that way too. So I ran both encoders from one ffmpeg build with `-preset medium` and default threads. yah265 ran at a fixed CRF. x265's CRF was then searched until its file came within <!--gen:ff-tol-->2%<!--/gen:ff-tol--> of ours. VMAF v1 scored every frame of both.
@@ -180,7 +194,6 @@ All of these ran on the Mac with SIMD on all cores. The VMAF v1 lead in the head
 | 1080p | Sintel | 1.8 min | 1.1 min | 1.72x | +0.76 |
 | 1080p | Tears of Steel | 1.8 min | 1.0 min | 1.72x | +1.08 |
 | 1080p | Big Buck Bunny | 1.8 min | 1.1 min | 1.69x | +0.70 |
-| 1080p | Meridian | not timed | not timed | - | - |
 | 1080p | **all 6 timed** | **15 min** | **9 min** | **1.76x** | |
 | 4K | Nocturne | 28.2 min | 13.6 min | 2.08x | +0.70 |
 | 4K | Meridian | 14.4 min | 9.2 min | 1.56x | +1.18 |

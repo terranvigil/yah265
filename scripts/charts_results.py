@@ -52,18 +52,7 @@ T, esc, marker = B.T, B.esc, B.marker
 # yah265 wears the logo's orange-red and x265 a neutral gray. Slots 2 and 3
 # are for a second and third series of our own (machines, rate modes).
 # Checked with the dataviz validator on both surfaces.
-STYLE = """<style>
-.bg{fill:#fcfcfb}.t1{fill:#0b0b0b}.t2{fill:#52514e}.grid{stroke:#e6e5e1}
-.base{stroke:#8a8984}.ring{stroke:#fcfcfb}.band{fill:#efeeea}
-.s1{fill:#ff4d1a}.s2{fill:#2a78d6}.s3{fill:#1baf7a}.sx{fill:#8a8984}
-.l1{stroke:#ff4d1a}.l2{stroke:#2a78d6}.l3{stroke:#1baf7a}.lx{stroke:#8a8984}.span{stroke:#e6e5e1}
-text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
-@media (prefers-color-scheme:dark){
-.bg{fill:#1a1a19}.t1{fill:#f0efec}.t2{fill:#c3c2b7}.grid{stroke:#2e2e2c}
-.base{stroke:#8a8984}.ring{stroke:#1a1a19}.band{fill:#262624}
-.s1{fill:#ff4d1a}.s2{fill:#3987e5}.s3{fill:#199e70}.sx{fill:#8a8984}
-.l1{stroke:#ff4d1a}.l2{stroke:#3987e5}.l3{stroke:#199e70}.lx{stroke:#8a8984}.span{stroke:#3a3a37}}
-</style>"""
+STYLE = B.STYLE
 
 
 # ------------------------------------------------------------------ data
@@ -235,8 +224,8 @@ def chart_ratio(title, sub, desc, panels, rows, series, whisker):
                     o.append(f"<line x1='{X(worst):.1f}' y1='{y + dy - 5:.1f}' x2='{X(worst):.1f}' "
                              f"y2='{y + dy + 5:.1f}' class='l{j + 1}' stroke-width='2'/>")
                 o.append(marker(j, X(med), y + dy, f"s{j + 1}", 5))
-    o.append(T((L + W - 24) / 2, H - 12, "yah265's encode time over x265's at the same file size "
-             "(left is faster). The second row of labels is the same thing as times faster.",
+    o.append(T(W / 2, H - 12, "yah265's encode time over x265's at the same file size (left is "
+             "faster). The lower labels read the same ratio as times faster.",
              12.5, "t2", "middle"))
     o.append("</svg>")
     return "\n".join(o)
@@ -375,7 +364,7 @@ def chart_tracking(cells, tr):
     title = (f"{'All' if inside == len(allo) else f'{inside} of'} {len(allo)} of yah265's VBR "
              f"rungs come within {TRACK_BAR:g}% of their target")
     o = head(W, H, title, "Achieved bitrate against the target over the whole cell, five rungs "
-             f"per encoder. The shaded band is the ±{TRACK_BAR:g}% bar, which applies to yah265.",
+             f"per encoder. The shaded band is yah265's ±{TRACK_BAR:g}% bar.",
              "Dot plot of VBR rate error per rung for every real-title cell, yah265 and x265.")
     B.legend(o, [(0, "s1", "yah265"), (1, "sx", "x265")])
     o.append(f"<rect x='{X(-TRACK_BAR):.1f}' y='{Tp - 8}' width='{X(TRACK_BAR) - X(-TRACK_BAR):.1f}' "
@@ -410,8 +399,8 @@ def chart_lookahead(sweep):
     gain30 = st.median(v[30] for v in deltas.values())
     title = (f"A lookahead of 12 costs up to {worst12:.1f} BD-rate points against 20. "
              f"Going to 30 moves the median {gain30:+.2f}")
-    o = head(W, H, title.split(". ")[0], "BD-rate on VMAF v1 at each depth, less the same cell's BD-rate at "
-             "20. x265 stays at its own 20 throughout. Below zero is better than 20.",
+    o = head(W, H, title.split(". ")[0], "BD-rate on VMAF v1 at each depth, less the same cell's at 20. x265 "
+             "stays at its own 20. Below zero is better than 20.",
              "Two line charts, CRF and VBR, of the change in BD-rate at lookahead depths 12, 20 "
              "and 30 for six cells, with the median drawn heavier.")
     o.append(f"<line x1='24' y1='86' x2='44' y2='86' class='l1' stroke-width='3'/>")
@@ -523,6 +512,8 @@ def values(D):
     isa, mac = D["isa"], D["mac"]
     V = {}
     L, R, C = "---", "--:", "---"
+
+    V["fig-frames"] = B.frames_figure(None, B.FRAMES_ALL)
 
     # the verdict
     combos = [(m, k) for m in MACHINES for k in sps[m]]

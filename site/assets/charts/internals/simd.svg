@@ -1,16 +1,18 @@
 <svg xmlns='http://www.w3.org/2000/svg' width='900' height='380' viewBox='0 0 900 380' role='img'>
 <title>SIMD speeds x265 up more than it speeds yah265 up</title><desc>All-core wall time in plain C over all-core wall time with SIMD, median over each class's short clips, for yah265 and x265 on three machines.</desc>
 <style>
-.bg{fill:#fcfcfb}.t1{fill:#0b0b0b}.t2{fill:#52514e}.grid{stroke:#e6e5e1}
-.base{stroke:#8a8984}.ring{stroke:#fcfcfb}
-.s1{fill:#ff4d1a}.s2{fill:#00919a}.s3{fill:#7a52c7}.sx{fill:#6b7280}
-.span{stroke:#e6e5e1}
-text{font-family:system-ui,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif}
+.bg{fill:#ffffff}.t1{fill:#212529}.t2{fill:#495057}.grid{stroke:#e9ecef}
+.base{stroke:#868e96}.ring{stroke:#ffffff}.med{stroke:#212529}.band{fill:#f1f3f5}
+.s1{fill:#ff4d1a}.s2{fill:#00919a}.s3{fill:#6250d6}.sx{fill:#868e96}
+.l1{stroke:#ff4d1a}.l2{stroke:#00919a}.l3{stroke:#6250d6}.lx{stroke:#868e96}.span{stroke:#dee2e6}
+.note{fill:#b8330a}.wash{fill:#ffe8dc}
+text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
 @media (prefers-color-scheme:dark){
-.bg{fill:#1a1a19}.t1{fill:#f0efec}.t2{fill:#c3c2b7}.grid{stroke:#2e2e2c}
-.base{stroke:#8a8984}.ring{stroke:#1a1a19}
-.s1{fill:#f2542d}.s2{fill:#12a3ad}.s3{fill:#9273e6}.sx{fill:#8f959b}
-.span{stroke:#3a3a37}}
+.bg{fill:#1b1c1e}.t1{fill:#e9ecee}.t2{fill:#b6bcc1}.grid{stroke:#2e3135}
+.base{stroke:#8f959a}.ring{stroke:#1b1c1e}.med{stroke:#e9ecee}.band{fill:#23262a}
+.s1{fill:#ff4d1a}.s2{fill:#12a3ad}.s3{fill:#9085e9}.sx{fill:#8f959a}
+.l1{stroke:#ff4d1a}.l2{stroke:#12a3ad}.l3{stroke:#9085e9}.lx{stroke:#8f959a}.span{stroke:#3a3e43}
+.note{fill:#ff8a5c}.wash{fill:#45200f}}
 </style>
 <rect width='100%' height='100%' class='bg'/>
 <text x='24.0' y='40.0' font-size='22' class='t1' text-anchor='start' font-weight='600'>SIMD speeds x265 up more than it speeds yah265 up</text>

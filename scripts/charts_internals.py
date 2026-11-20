@@ -55,18 +55,7 @@ SAME_SPAN = 0.05
 # these charts keep their own colors and only borrow blog_charts' shapes.
 # Slots s1-s3 passed the dataviz validator on both surfaces; the gray is
 # below its chroma floor on purpose, and no chart sets it beside another gray.
-STYLE = """<style>
-.bg{fill:#fcfcfb}.t1{fill:#0b0b0b}.t2{fill:#52514e}.grid{stroke:#e6e5e1}
-.base{stroke:#8a8984}.ring{stroke:#fcfcfb}
-.s1{fill:#ff4d1a}.s2{fill:#00919a}.s3{fill:#7a52c7}.sx{fill:#6b7280}
-.span{stroke:#e6e5e1}
-text{font-family:system-ui,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif}
-@media (prefers-color-scheme:dark){
-.bg{fill:#1a1a19}.t1{fill:#f0efec}.t2{fill:#c3c2b7}.grid{stroke:#2e2e2c}
-.base{stroke:#8a8984}.ring{stroke:#1a1a19}
-.s1{fill:#f2542d}.s2{fill:#12a3ad}.s3{fill:#9273e6}.sx{fill:#8f959b}
-.span{stroke:#3a3a37}}
-</style>"""
+STYLE = bc.STYLE
 
 
 def head(W, H, title, desc):
