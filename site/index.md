@@ -9,7 +9,7 @@ description: An H.265/HEVC encoder written from scratch. It runs faster than x26
 
 yah265 is an H.265/HEVC encoder written from scratch in C. It runs inside ffmpeg under the options you already use.
 
-<figure class="chart hero"><img src="assets/charts/front/home-hero.svg" alt="Two bars race over the same encode. When the yah265 bar reaches the finish, the x265 bar is a little over halfway."><figcaption>Data: the size-matched CRF cells of the Mac parity report in the repository.</figcaption></figure>
+<figure class="chart hero"><img src="assets/charts/front/home-hero.svg" alt="Two bars race over the same encode. When the yah265 bar reaches the finish, the x265 bar is a little over halfway."></figure>
 
 ## Try it
 
@@ -29,7 +29,7 @@ The new ffmpeg is at `build-ffmpeg/ffmpeg/ffmpeg`. [Build and first encode](star
 
 ## Speed on three machines
 
-<figure class="chart"><img src="assets/charts/front/home-speed.svg" alt="Bars of how many times faster yah265 runs than x265 at CIF, 720p, 1080p and 4K on an Apple M5 Max, an Intel Xeon and an AWS Graviton4. Every bar passes the 1x line that marks x265."><figcaption>Data: the Mac, Xeon and Graviton4 parity reports in the repository.</figcaption></figure>
+<figure class="chart"><img src="assets/charts/front/home-speed.svg" alt="Bars of how many times faster yah265 runs than x265 at CIF, 720p, 1080p and 4K on an Apple M5 Max, an Intel Xeon and an AWS Graviton4. Every bar passes the 1x line that marks x265."></figure>
 
 On this site "faster" compares wall time for files of the same size, so 2x faster is half the time. Both encoders run `--preset medium` with SIMD on every core. Right is faster on every speed chart.
 

@@ -11,7 +11,7 @@ image: assets/blog/card.png
 
 It's an H.265/HEVC encoder I wrote from scratch. Speed is the reason to try it. The chart shows what the difference looks like on real films. I gave both encoders the same ten-minute films on my Mac at `--preset medium` and had each write files of the same size. yah265 finished every film first. Each of its files also scored higher on VMAF v1.
 
-<figure class="chart"><img src="assets/blog/films.svg" alt="Paired bars of encode time per ten-minute film at 1080p and at 4K. On every film the yah265 bar is shorter, at a half to two thirds of the x265 bar."><figcaption>Data: the Mac parity report. The films table below has the same readings.</figcaption></figure>
+<figure class="chart"><img src="assets/blog/films.svg" alt="Paired bars of encode time per ten-minute film at 1080p and at 4K. On every film the yah265 bar is shorter, at a half to two thirds of the x265 bar."><figcaption>The films table below has the same readings.</figcaption></figure>
 
 On this page "2x faster" means half the wall time.
 
@@ -30,7 +30,7 @@ The project's own ffmpeg build includes `libyah265`. One command makes that buil
 
 A cell is one clip at one resolution. Each dot below is one cell timed on the Mac, where yah265's file is within 1% of x265's size.
 
-<figure class="chart"><img src="assets/blog/cells.svg" alt="Dots on an axis of times faster than x265. Each dot is one timed cell. The dots are in rows for CIF, 720p, 1080p and 4K. Every dot is right of the 1x line."><figcaption>Data: the Mac parity report. The first table below lists each row's median.</figcaption></figure>
+<figure class="chart"><img src="assets/blog/cells.svg" alt="Dots on an axis of times faster than x265. Each dot is one timed cell. The dots are in rows for CIF, 720p, 1080p and 4K. Every dot is right of the 1x line."><figcaption>The first table below lists each row's median.</figcaption></figure>
 
 These are the cells behind the headline. They run from ten-second clips to ten-minute films. In each one yah265's CRF is solved onto x265's file size. No dot sits left of the x265 line. Capped VBR and the content-type clips were timed too. The [results page](results.md#vbr) reports them apart because their files aren't matched in size the same way.
 
@@ -52,7 +52,7 @@ G3 is the one a user sees. G1 and G2 compare the algorithms with the hand-writte
 
 The Mac isn't the only machine I timed. Both encoders also ran on an Intel Xeon with AVX-512 and on an AWS Graviton4 with SVE2, held to the same 16 vCPUs on each cloud box.
 
-<figure class="chart"><img src="assets/blog/arch.svg" alt="Dot plot of the median speedup over x265 at G3 for each resolution and length group, one marker per machine. Every marker sits right of the 1x line."><figcaption>Data: the three per-machine parity reports. The G3 table below has each marker's value.</figcaption></figure>
+<figure class="chart"><img src="assets/blog/arch.svg" alt="Dot plot of the median speedup over x265 at G3 for each resolution and length group, one marker per machine. Every marker sits right of the 1x line."><figcaption>The G3 table below has each marker's value.</figcaption></figure>
 
 yah265 leads in every group on all three machines and passes all three goals on each. Because plenty of x86 machines have no AVX-512, I also held both encoders to AVX2 and then to SSE4.2 on the Xeon and timed the short clips again. The lead held at both.
 
@@ -60,11 +60,11 @@ yah265 leads in every group on all three machines and passes all three goals on 
 
 Speed would mean little if the files got bigger. Every real film has a five-rung rate ladder at CRF and another at capped VBR, scored on VMAF v1 at display size.
 
-<figure class="chart"><img src="assets/blog/bdrate.svg" alt="Dot plot of BD-rate against x265 on VMAF v1 for every film cell at CRF and capped VBR. Every dot sits left of the +1.0% bar."><figcaption>Data: the BD section of the Mac parity report.</figcaption></figure>
+<figure class="chart"><img src="assets/blog/bdrate.svg" alt="Dot plot of BD-rate against x265 on VMAF v1 for every film cell at CRF and capped VBR. Every dot sits left of the +1.0% bar."></figure>
 
 Over all the ladders yah265 needs a median <!--gen:bd-median-->10.2%<!--/gen:bd-median--> fewer bits for the same score. Every ladder is inside the bar.
 
-<figure class="chart"><img src="assets/blog/curves.svg" alt="Three line charts of VMAF v1 against bitrate on a log scale, for the ladders with the largest, the median and the smallest saving. The yah265 line sits above the x265 line in the first two and close to it in the third."><figcaption>Data: the rate ladder file.</figcaption></figure>
+<figure class="chart"><img src="assets/blog/curves.svg" alt="Three line charts of VMAF v1 against bitrate on a log scale, for the ladders with the largest, the median and the smallest saving. The yah265 line sits above the x265 line in the first two and close to it in the third."></figure>
 
 Here are three of those ladders as curves. I didn't choose them by eye: they're the CRF ladders with the largest saving, the median one and the smallest. In the last panel the two curves nearly touch.
 
@@ -110,7 +110,7 @@ ffmpeg -ss 60 -i tearsofsteel_4k.mov -frames:v 1440 -an -vf scale=1920:858:flags
 
 ## How we got there
 
-<figure class="chart"><img src="assets/blog/history.svg" alt="Line chart on a log scale of the timed board's median speed against x265 from September to October 2026. Both lines start well below even and end above it."><figcaption>Data: the timed board's history file.</figcaption></figure>
+<figure class="chart"><img src="assets/blog/history.svg" alt="Line chart on a log scale of the timed board's median speed against x265 from September to October 2026. Both lines start well below even and end above it."></figure>
 
 The chart is the timed board. It read every milestone commit on the same short clips until the shared test set took over in October. yah265 started out slow. The first reading with SIMD on every core took <!--gen:hist-g3-first-->15.2x<!--/gen:hist-g3-first--> x265's time.
 

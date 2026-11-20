@@ -1,0 +1,70 @@
+{
+ "arch": {
+  "csv": "arch.csv",
+  "script": "scripts/blog_charts.py",
+  "sources": [
+   [
+    "docs/parity/PARITY-REPORT-yah265-2026-11-12.csv",
+    "the Mac parity report (rows)"
+   ],
+   [
+    "docs/parity/PARITY-REPORT-yah265-x86-2026-11-13.csv",
+    "the Xeon parity report (rows)"
+   ],
+   [
+    "docs/parity/PARITY-REPORT-yah265-graviton-2026-11-13.csv",
+    "the Graviton4 parity report (rows)"
+   ]
+  ]
+ },
+ "bdrate": {
+  "csv": "bdrate.csv",
+  "script": "scripts/blog_charts.py",
+  "sources": [
+   [
+    "docs/parity/PARITY-REPORT-yah265-2026-11-12.md",
+    "the Mac parity report"
+   ]
+  ]
+ },
+ "cells": {
+  "csv": "cells.csv",
+  "script": "scripts/blog_charts.py",
+  "sources": [
+   [
+    "docs/parity/PARITY-REPORT-yah265-2026-11-12.csv",
+    "the Mac parity report (rows)"
+   ]
+  ]
+ },
+ "curves": {
+  "csv": "curves.csv",
+  "script": "scripts/blog_charts.py",
+  "sources": [
+   [
+    "docs/data/parity-spec-ladders.json",
+    "the recorded rate ladders"
+   ]
+  ]
+ },
+ "films": {
+  "csv": "films.csv",
+  "script": "scripts/blog_charts.py",
+  "sources": [
+   [
+    "docs/parity/PARITY-REPORT-yah265-2026-11-12.csv",
+    "the Mac parity report (rows)"
+   ]
+  ]
+ },
+ "history": {
+  "csv": "history.csv",
+  "script": "scripts/blog_charts.py",
+  "sources": [
+   [
+    "docs/data/parity-history.csv",
+    "the timed board's history"
+   ]
+  ]
+ }
+}

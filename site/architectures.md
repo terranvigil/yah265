@@ -17,7 +17,7 @@ The first layer is the algorithm, meaning how few candidates the encoder has to 
 
 <figure class="chart wide">
 <img src="assets/charts/internals/machines.svg" alt="Dot plot of how many times faster yah265 is than x265 at the same file size, in three panels: one thread in plain C, then every core in plain C, then every core with SIMD. Each panel has nine rows for picture size and clip length. Each row has a marker for each of three machines. Every marker is to the right of the 1x line.">
-<figcaption>From the three per-machine parity reports in <code>docs/parity/</code>. Each side ran <code>medium</code>. The Mac used all 18 cores. On a cloud machine the two encoders were held to 16. Drawn by <code>scripts/charts_internals.py</code>.</figcaption>
+<figcaption>Each side ran <code>medium</code>. The Mac used all 18 cores. On a cloud machine the two encoders were held to 16.</figcaption>
 </figure>
 
 yah265's lead is widest in plain C and narrowest with SIMD on. [What SIMD buys](#what-simd-buys) explains why. [Results](results.md#by-machine) has the table behind the chart.
@@ -112,7 +112,7 @@ The chart shows how much faster each encoder gets when its kernels are switched 
 
 <figure class="chart wide">
 <img src="assets/charts/internals/simd.svg" alt="Paired bars of all-core wall time in plain C over all-core wall time with SIMD, for yah265 and x265, per picture size on three machines. x265's bar is longer than yah265's in every group. The table below has the values.">
-<figcaption>From the short clips of the three per-machine parity reports, at the same file size. Drawn by <code>scripts/charts_internals.py</code>.</figcaption>
+<figcaption>Short clips at the same file size.</figcaption>
 </figure>
 
 <!--gen:simd-table-->
@@ -134,7 +134,7 @@ The x86 results above come from a CPU with AVX-512. Many x86 machines stop at AV
 
 <figure class="chart wide">
 <img src="assets/charts/internals/capped.svg" alt="Dot plot of how many times faster yah265 is than x265 on short clips, per picture size, for three pairings. Every marker is to the right of the 1x line. The pairing where each encoder runs AVX2 is the closest to it.">
-<figcaption>From the capped run's records in <code>docs/data/</code>. One Xeon 8488C with SIMD on 16 vCPUs, at <code>medium</code> on each side. Drawn by <code>scripts/charts_internals.py</code>.</figcaption>
+<figcaption>One Xeon 8488C with SIMD on 16 vCPUs, at <code>medium</code> on each side.</figcaption>
 </figure>
 
 Each cell is the median over a size's short clips, then the slowest clip.

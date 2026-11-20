@@ -74,7 +74,7 @@ Both encoders read the same 8-bit 4:2:0 frames on standard input from one feeder
 ## Speed
 
 <!--gen:fig-speed-->
-<figure class="chart"><img src="assets/charts/results/speed.svg" alt="As shipped, yah265 runs 1.59x to 2.13x faster than x265 on the Mac."><figcaption>Data: <a href="docs/parity/PARITY-REPORT-yah265-2026-11-12.csv">the Mac report's rows</a>.</figcaption></figure>
+<figure class="chart"><img src="assets/charts/results/speed.svg" alt="As shipped, yah265 runs 1.59x to 2.13x faster than x265 on the Mac."></figure>
 <!--/gen:fig-speed-->
 
 The table has the same numbers as median / slowest clip, in times faster.
@@ -133,7 +133,7 @@ Each film runs from its start frame to its last story frame. The table has the M
 ## By machine
 
 <!--gen:fig-machines-->
-<figure class="chart"><img src="assets/charts/results/machines.svg" alt="On all three machines every group's median is at least 1.25x faster."><figcaption>Data: <a href="docs/parity/PARITY-REPORT-yah265-2026-11-12.csv">the Mac rows</a>, <a href="docs/parity/PARITY-REPORT-yah265-x86-2026-11-13.csv">the Xeon rows</a>, <a href="docs/parity/PARITY-REPORT-yah265-graviton-2026-11-13.csv">the Graviton4 rows</a>.</figcaption></figure>
+<figure class="chart"><img src="assets/charts/results/machines.svg" alt="On all three machines every group's median is at least 1.25x faster."></figure>
 <!--/gen:fig-machines-->
 
 The same medians from each machine's slowest group to its fastest:
@@ -235,7 +235,7 @@ AVX2 against AVX2 is the closest pairing on the page. Both capped tiers write th
 ## Quality at the same size
 
 <!--gen:fig-quality-->
-<figure class="chart"><img src="assets/charts/results/quality.svg" alt="yah265 scores higher than x265 at the same file size in every class and tier."><figcaption>Data: <a href="docs/parity/PARITY-REPORT-yah265-2026-11-12.csv">the Mac report's rows</a>.</figcaption></figure>
+<figure class="chart"><img src="assets/charts/results/quality.svg" alt="yah265 scores higher than x265 at the same file size in every class and tier."></figure>
 <!--/gen:fig-quality-->
 
 The chart and table show the VMAF v1 score at the matched file size, yah265's minus x265's. A positive number means yah265 scores higher on VMAF v1 at the same size. The bar is a median no worse than -0.5 with no single cell more than 1.0 behind. Every cell's size is within 1% of x265's.
@@ -308,7 +308,7 @@ Nobody picked these frames by eye. A script scored every frame by the mean of th
 One matched point says little about the rest of the curve. So every 2-minute and 10-minute cell also runs a ladder. A ladder is the same clip coded at five quality settings on both encoders.
 
 <!--gen:fig-curves-->
-<figure class="chart"><img src="assets/charts/results/curves.svg" alt="yah265 needs fewer bits than x265 on 19 of 19 real-title cells at CRF."><figcaption>Data: <a href="docs/data/parity-spec-ladders.json">the recorded ladders</a>.</figcaption></figure>
+<figure class="chart"><img src="assets/charts/results/curves.svg" alt="yah265 needs fewer bits than x265 on 19 of 19 real-title cells at CRF."></figure>
 <!--/gen:fig-curves-->
 
 BD-rate turns each pair of curves into one number: how much more or less bitrate yah265 needs for the same VMAF v1 score. Negative means fewer bits. The bar is +1.0% on every curve.
@@ -365,7 +365,7 @@ Each ladder is set up the same way:
 VBR has to hit its bitrate as well as look good. The bar puts every rung of yah265's within ±10% of its target over the whole cell. x265's rungs are drawn for comparison and aren't held to the bar.
 
 <!--gen:fig-tracking-->
-<figure class="chart"><img src="assets/charts/results/tracking.svg" alt="All 95 of yah265's VBR rungs come within 10% of their target."><figcaption>Data: <a href="docs/data/parity-spec-ladders.json">the recorded ladders</a>.</figcaption></figure>
+<figure class="chart"><img src="assets/charts/results/tracking.svg" alt="All 95 of yah265's VBR rungs come within 10% of their target."></figure>
 <!--/gen:fig-tracking-->
 
 <details class="data" markdown="1">
@@ -445,7 +445,7 @@ VBR speed is read at G3 only. Each real-title cell runs one rung at the bitrate 
 I swept yah265's lookahead on a few cells instead of inheriting x265's depth. yah265 ran at 12, 20 and 30 frames. x265 stayed at its own 20.
 
 <!--gen:fig-lookahead-->
-<figure class="chart"><img src="assets/charts/results/lookahead.svg" alt="A lookahead of 12 costs up to 3.4 BD-rate points against 20. Going to 30 moves the median -0.16."><figcaption>Data: <a href="docs/data/parity-spec-ladders.json">the recorded ladders</a>.</figcaption></figure>
+<figure class="chart"><img src="assets/charts/results/lookahead.svg" alt="A lookahead of 12 costs up to 3.4 BD-rate points against 20. Going to 30 moves the median -0.16."></figure>
 <!--/gen:fig-lookahead-->
 
 <details class="data" markdown="1">
@@ -473,7 +473,7 @@ I swept yah265's lookahead on a few cells instead of inheriting x265's depth. ya
 Tier C is the content that codecs tend to handle unevenly: a scan of a 1924 film with heavy grain, four sports clips and three screen recordings. It ran on the Mac. x265 ran its `medium` defaults on every clip, with no `--tune`. yah265's `medium` detects screen content and handheld footage by itself. Those two detectors were built on clips in this tier.
 
 <!--gen:fig-tierc-->
-<figure class="chart"><img src="assets/charts/results/tierc.svg" alt="All 15 content-type curves with a BD-rate need fewer bits than x265."><figcaption>Data: <a href="docs/data/parity-spec-ladders.json">the recorded ladders</a>.</figcaption></figure>
+<figure class="chart"><img src="assets/charts/results/tierc.svg" alt="All 15 content-type curves with a BD-rate need fewer bits than x265."></figure>
 <!--/gen:fig-tierc-->
 
 <!--gen:tier-c-->

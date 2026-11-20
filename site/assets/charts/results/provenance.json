@@ -1,0 +1,80 @@
+{
+ "curves": {
+  "csv": "curves.csv",
+  "script": "scripts/charts_results.py",
+  "sources": [
+   [
+    "docs/data/parity-spec-ladders.json",
+    "the recorded rate ladders"
+   ]
+  ]
+ },
+ "lookahead": {
+  "csv": "lookahead.csv",
+  "script": "scripts/charts_results.py",
+  "sources": [
+   [
+    "docs/data/parity-spec-ladders.json",
+    "the recorded rate ladders"
+   ]
+  ]
+ },
+ "machines": {
+  "csv": "machines.csv",
+  "script": "scripts/charts_results.py",
+  "sources": [
+   [
+    "docs/parity/PARITY-REPORT-yah265-2026-11-12.csv",
+    "the Mac parity report (rows)"
+   ],
+   [
+    "docs/parity/PARITY-REPORT-yah265-x86-2026-11-13.csv",
+    "the Xeon parity report (rows)"
+   ],
+   [
+    "docs/parity/PARITY-REPORT-yah265-graviton-2026-11-13.csv",
+    "the Graviton4 parity report (rows)"
+   ]
+  ]
+ },
+ "quality": {
+  "csv": "quality.csv",
+  "script": "scripts/charts_results.py",
+  "sources": [
+   [
+    "docs/parity/PARITY-REPORT-yah265-2026-11-12.csv",
+    "the Mac parity report (rows)"
+   ]
+  ]
+ },
+ "speed": {
+  "csv": "speed.csv",
+  "script": "scripts/charts_results.py",
+  "sources": [
+   [
+    "docs/parity/PARITY-REPORT-yah265-2026-11-12.csv",
+    "the Mac parity report (rows)"
+   ]
+  ]
+ },
+ "tierc": {
+  "csv": "tierc.csv",
+  "script": "scripts/charts_results.py",
+  "sources": [
+   [
+    "docs/data/parity-spec-ladders.json",
+    "the recorded rate ladders"
+   ]
+  ]
+ },
+ "tracking": {
+  "csv": "tracking.csv",
+  "script": "scripts/charts_results.py",
+  "sources": [
+   [
+    "docs/data/parity-spec-ladders.json",
+    "the recorded rate ladders"
+   ]
+  ]
+ }
+}

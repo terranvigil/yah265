@@ -1,0 +1,13 @@
+class,pairing,median_times_faster,slowest_times_faster,clips
+CIF,both at SSE4.2,1.5625,1.3333,3
+CIF,both at AVX2,1.3514,1.1364,3
+CIF,"yah265 at AVX-512, x265 at AVX2",1.4286,1.2048,3
+720p,both at SSE4.2,2,1.5385,4
+720p,both at AVX2,1.5748,1.25,4
+720p,"yah265 at AVX-512, x265 at AVX2",1.6807,1.3333,4
+1080p,both at SSE4.2,1.4493,1.2987,3
+1080p,both at AVX2,1.1765,1.087,3
+1080p,"yah265 at AVX-512, x265 at AVX2",1.3514,1.25,3
+2160p,both at SSE4.2,2.2222,2.2222,1
+2160p,both at AVX2,2,2,1
+2160p,"yah265 at AVX-512, x265 at AVX2",2.0833,2.0833,1

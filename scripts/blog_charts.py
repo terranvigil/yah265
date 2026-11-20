@@ -457,6 +457,85 @@ def board_history():
     return pts
 
 
+# ------------------------------------------------------- chart data files
+
+SOURCE_LABEL = [("PARITY-REPORT-yah265-x86-", "the Xeon parity report"),
+                ("PARITY-REPORT-yah265-graviton-", "the Graviton4 parity report"),
+                ("PARITY-REPORT-yah265-all-isa-", "the all-machines parity report"),
+                ("PARITY-REPORT-yah265-", "the Mac parity report"),
+                ("parity-spec-ladders.json", "the recorded rate ladders"),
+                ("parity-spec-points.json", "the recorded matched points"),
+                ("parity-history.csv", "the timed board's history"),
+                ("hdr-results.json", "the HDR results"),
+                ("x86T.jsonl", "the capped run's records"),
+                ("tears-perframe.csv", "the per-frame scores of the Tears of Steel clip")]
+
+
+def source(path):
+    """(repository path, the name a caption shows) for a data file."""
+    rel = os.path.relpath(path, ROOT) if os.path.isabs(path) else path
+    base = os.path.basename(rel)
+    for key, label in SOURCE_LABEL:
+        if base.startswith(key) or base == key:
+            return rel, label + (" (rows)" if rel.endswith(".csv") and "PARITY" in base else "")
+    sys.exit(f"no caption name for the data file {rel}")
+
+
+def cell_text(v):
+    if isinstance(v, float):
+        return f"{v:.4f}".rstrip("0").rstrip(".")
+    return "" if v is None else str(v)
+
+
+def speed_csv(sps, goals=GOALS):
+    """Rows of the speed groups: machine, class, tier, goal, then the median
+    and the slowest clip as times faster than x265."""
+    head = ["machine", "class", "tier", "goal", "median_times_faster",
+            "slowest_times_faster", "slowest_clip"]
+    rows = []
+    for m in MACHINES:
+        for (c, t, g), (med, worst, title) in sorted(
+                sps.get(m, {}).items(),
+                key=lambda kv: (CLASSES.index(kv[0][0]), TIERS.index(kv[0][1]), kv[0][2])):
+            if g in goals:
+                rows.append([MACHINE_SHORT[m], c, t, g, 1 / med, 1 / worst, title])
+    return head, rows
+
+
+def publish_data(out_dir, script, entries, check):
+    """Writes each chart's numbers as name.csv beside name.svg, and
+    provenance.json with each chart's sources and script. The site builder
+    turns that into the line under the chart. entries is
+    {chart: ([data file, ...], header, rows)}. Returns what was stale."""
+    stale, prov = [], {}
+    for name, (sources, header, rows) in entries.items():
+        lines = [",".join(header)]
+        for r in rows:
+            cells = [cell_text(v) for v in r]
+            if len(cells) != len(header):
+                sys.exit(f"{name}.csv: a row has {len(cells)} cells, the header {len(header)}")
+            for c in cells:
+                if any(x in c.lower() for x in EXCLUDED):
+                    sys.exit(f"{name}.csv: a row names an excluded title ({c})")
+            lines.append(",".join(f'"{c}"' if "," in c else c for c in cells))
+        text = "\n".join(lines) + "\n"
+        p = os.path.join(out_dir, name + ".csv")
+        if (open(p).read() if os.path.exists(p) else None) != text:
+            stale.append(name + ".csv")
+            if not check:
+                os.makedirs(out_dir, exist_ok=True)
+                open(p, "w").write(text)
+        prov[name] = {"script": "scripts/" + script, "csv": name + ".csv",
+                      "sources": [list(source(x)) for x in sources]}
+    p = os.path.join(out_dir, "provenance.json")
+    text = json.dumps(prov, indent=1, sort_keys=True) + "\n"
+    if (open(p).read() if os.path.exists(p) else None) != text:
+        stale.append("provenance.json")
+        if not check:
+            open(p, "w").write(text)
+    return stale
+
+
 # ------------------------------------------------------------------ charts
 
 # yah265 is the logo's orange-red (.s1) and x265, the comparator, a neutral
@@ -1458,7 +1537,21 @@ def main():
                      "history.svg": lambda: chart_history(hist)})
     post = open(POST).read()
     new_post = fill(post, V)
-    stale = []
+    stale = publish_data(OUT, "blog_charts.py", {
+        "films": ([mac_csv], ["class", "title", "yah265_wall_s", "x265_wall_s", "times_faster",
+                              "vmaf_v1_lead"],
+                  [[c, t, o, x, 1 / r, dv] for c in CLASSES for t, o, x, r, dv in fl.get(c, []) if r]),
+        "cells": ([mac_csv], ["class", "cell", "times_faster"],
+                  [[c, n, 1 / r] for c in CLASSES for r, n in pl["pools"][c]]),
+        "arch": (list(paths.values()), *speed_csv(sps, ("G3",))),
+        "curves": ([LADDERS], ["cell", "encoder", "kbps", "vmaf_v1", "bd_rate_pct"],
+                   [[cell, enc, k, v, bd] for cell, (o, x, _, bd) in cv.items()
+                    for enc, pts in (("yah265", o), ("x265", x)) for k, v in pts]),
+        "bdrate": ([mac_md], ["title", "size", "tier", "bd_rate_crf_pct", "bd_rate_vbr_pct"],
+                   [list(r) for r in lad]),
+        "history": ([HISTORY], ["date", "commit", "clips", "g1_wall_over_x265", "g3_wall_over_x265"],
+                    [[h["date"], h["commit"], h["n"], h["g1"], h["g3"]] for h in hist]),
+    }, a.check)
     for name, svg in charts.items():
         p = os.path.join(OUT, name)
         old = open(p).read() if os.path.exists(p) else None

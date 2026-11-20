@@ -341,6 +341,9 @@ def build(strict=False):
             content = re.sub(r"<h1[^>]*>yah265</h1>", f'<h1 class="mark">{LOGO}</h1>',
                              content, count=1)
         content = content.replace("</h1>", "</h1>" + SMPTE, 1)
+        content, unsourced = provenance(content)
+        if strict:
+            problems += [f"{src.name}: {u} has no provenance entry" for u in unsourced]
         content = narrow_charts(content)
         content = content.replace("<table>", '<div class="tbl"><table>')
         content = content.replace("</table>", "</table></div>")
@@ -397,6 +400,38 @@ def build(strict=False):
     swap_in(tmp)
     print(f"built {pages} pages, {len(index)} search records -> {OUT}")
     return problems, cited
+
+
+def provenance(content):
+    """Under every chart: the data it was drawn from, the script that drew
+    it and its numbers as a CSV. The chart scripts write provenance.json
+    and the CSV beside the image. Returns the page and the charts that
+    have no entry."""
+    missing = []
+
+    def sub(m):
+        fig = m[0]
+        img = re.search(r'<img [^>]*?src="(assets/[^"]+?)/([^"/]+)\.svg"', fig)
+        if not img:
+            return fig
+        table = SRC / img[1] / "provenance.json"
+        entry = json.loads(table.read_text()).get(img[2]) if table.exists() else None
+        if not entry:
+            missing.append(f"{img[1]}/{img[2]}.svg")
+            return fig
+        srcs = [f'<a href="{html.escape(p)}">{html.escape(label)}</a>'
+                for p, label in entry["sources"]]
+        said = ", ".join(srcs[:-1]) + (" and " if len(srcs) > 1 else "") + srcs[-1]
+        line = (f'<span class="prov">Source: {said}. Drawn by '
+                f'<a href="{entry["script"]}"><code>{entry["script"]}</code></a>. '
+                f'<a href="{img[1]}/{entry["csv"]}" download>Download the chart\'s data (CSV)</a>.'
+                f"</span>")
+        if "</figcaption>" in fig:
+            return fig.replace("</figcaption>", " " + line + "</figcaption>", 1)
+        return fig.replace("</figure>", f"<figcaption>{line}</figcaption></figure>", 1)
+
+    content = re.sub(r'(?s)<figure class="chart[^"]*">.*?</figure>', sub, content)
+    return content, missing
 
 
 def narrow_charts(content):

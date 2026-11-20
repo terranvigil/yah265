@@ -1,0 +1,13 @@
+machine,class,median_times_faster,cells
+Mac,CIF,1.9608,3
+Mac,720p,1.9231,10
+Mac,1080p,1.7857,10
+Mac,2160p,1.6667,7
+Xeon,CIF,1.4286,3
+Xeon,720p,1.8519,10
+Xeon,1080p,1.4388,10
+Xeon,2160p,1.6667,7
+Graviton4,CIF,1.8182,3
+Graviton4,720p,2.3256,10
+Graviton4,1080p,1.6529,10
+Graviton4,2160p,2.0408,7

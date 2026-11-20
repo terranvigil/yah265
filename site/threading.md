@@ -245,7 +245,7 @@ The chart shows how much each encoder gains from the Mac's cores. It compares th
 
 <figure class="chart">
 <img src="assets/charts/internals/threads.svg" alt="Bar chart of one-thread wall time over all-core wall time in plain C on an Apple M5 Max, per picture size, for yah265 and x265. The table below has the values.">
-<figcaption>From the Mac's parity report, short clips, with SIMD off and <code>medium</code> on each side. Because the Mac's cores aren't all the same speed, the ceiling is below its core count. Drawn by <code>scripts/charts_internals.py</code>.</figcaption>
+<figcaption>Short clips on the Mac with SIMD off and <code>medium</code> on each side. Because the Mac's cores aren't all the same speed, the ceiling is below its core count.</figcaption>
 </figure>
 
 <!--gen:threads-table-->

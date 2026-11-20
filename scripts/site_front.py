@@ -645,7 +645,16 @@ def main():
     charts = bc.render({"home-hero.svg": lambda: chart_hero(pl),
                         "home-speed.svg": lambda: chart_home(cm, n_all),
                         "hdr-bd.svg": lambda: chart_hdr(hdr)})
-    stale = []
+    stale = bc.publish_data(OUT, "site_front.py", {
+        "home-hero": ([paths["mac"]], ["class", "cell", "times_faster"],
+                      [[c, n, 1 / r] for c in bc.CLASSES for r, n in pl["pools"][c]]),
+        "home-speed": (list(paths.values()), ["machine", "class", "median_times_faster", "cells"],
+                       [[bc.MACHINE_SHORT[m], c, 1 / cm[m][c][0], cm[m][c][1]]
+                        for m in bc.MACHINES for c in bc.CLASSES if c in cm[m]]),
+        "hdr-bd": ([HDR], ["title", "transfer", "size", "against", "bd_rate_pct"],
+                   [[r["title"], r["transfer"], r["size"], r["against"], r["bd_pct"]]
+                    for r in hdr["rows"] if r["ours"] == "medium"]),
+    }, a.check)
     for name, svg in charts.items():
         p = os.path.join(OUT, name)
         old = open(p).read() if os.path.exists(p) else None

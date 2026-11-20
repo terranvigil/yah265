@@ -534,8 +534,7 @@ def rng(vs):
 
 
 def figure(name, alt, source):
-    return (f'<figure class="chart"><img src="{REL}/{name}" alt="{esc(alt)}.">'
-            f"<figcaption>Data: {source}.</figcaption></figure>")
+    return f'<figure class="chart"><img src="{REL}/{name}" alt="{esc(alt)}."></figure>'
 
 
 def link(path, text):
@@ -832,7 +831,29 @@ def main():
     D["titles"] = {k: fn()[0] for k, fn in fns.items()}
     made = B.render({k: (lambda fn=fn: fn()[1]) for k, fn in fns.items()})
     V = values(D)
-    stale = []
+    mac, lf = D["paths"]["mac"], B.LADDERS
+    crv = []
+    for key, ti, s, t in D["cells"]:
+        for enc, pts in zip(("yah265", "x265"), curve(D["lad"], key, "crf")):
+            crv += [[nice(ti, s), t, enc, k, v, D["bds"][key][0]] for k, v in pts]
+    trk = []
+    for key, ti, s, t in D["cells"]:
+        o, x = D["tr"][key]
+        trk += [[nice(ti, s), t, i + 1, a_, b_] for i, (a_, b_) in enumerate(zip(o, x))]
+    stale = B.publish_data(OUT, "charts_results.py", {
+        "speed": ([mac], *B.speed_csv({"mac": D["sps"]["mac"]})),
+        "machines": (list(D["paths"].values()), *B.speed_csv(D["sps"])),
+        "quality": ([mac], ["class", "tier", "median_vmaf_v1_lead", "smallest_lead", "smallest_on"],
+                    [[c, t, *D["q"][(c, t)]] for c in CLASSES for t in TIERS if (c, t) in D["q"]]),
+        "curves": ([lf], ["cell", "tier", "encoder", "kbps", "vmaf_v1", "bd_rate_crf_pct"], crv),
+        "tracking": ([lf], ["cell", "tier", "rung", "yah265_rate_error_pct", "x265_rate_error_pct"],
+                     trk),
+        "lookahead": ([lf], ["cell", "mode", "bd_rate_pct_la12", "bd_rate_pct_la20",
+                             "bd_rate_pct_la30"],
+                      [[name, m, v[12], v[20], v[30]] for _, name, m, v in D["sweep"]]),
+        "tierc": ([lf], ["clip", "content", "bd_rate_crf_pct", "bd_rate_vbr_pct"],
+                  [list(r) for r in D["tc"]]),
+    }, a.check)
     for name, svg in made.items():
         p = os.path.join(OUT, name + ".svg")
         old = open(p).read() if os.path.exists(p) else None

@@ -92,7 +92,7 @@ From 720p up, `medium` on HDR also keeps the full intra mode search that SDR giv
 
 ## Quality on HDR content
 
-<figure class="chart"><img src="assets/charts/front/hdr-bd.svg" alt="Bars of the share of bitrate yah265 saves against x265 at equal HDR-VMAF on Sol Levante, Sparks and an HLG clip at 1080p and 4K. Every bar is a saving. The savings are smaller against x265 with its PQ tuning on, and smallest on Sol Levante."><figcaption>Data: <a href="docs/data/hdr-results.json">the HDR results file</a>, copied from the measured tables in the <a href="docs/hdr.md">HDR notes</a>.</figcaption></figure>
+<figure class="chart"><img src="assets/charts/front/hdr-bd.svg" alt="Bars of the share of bitrate yah265 saves against x265 at equal HDR-VMAF on Sol Levante, Sparks and an HLG clip at 1080p and 4K. Every bar is a saving. The savings are smaller against x265 with its PQ tuning on, and smallest on Sol Levante."></figure>
 
 We scored both encoders with Netflix's HDR-VMAF v1.1.8. The table gives yah265's BD-rate against x265, where a negative number is the share of bitrate yah265 saves at equal quality.
 

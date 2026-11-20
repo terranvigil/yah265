@@ -396,6 +396,20 @@ def main():
               f"coverage table\n  report: {want}\n  page:   {have}", file=sys.stderr)
         stale.append("site/architectures.md (coverage rows)")
     os.makedirs(OUT, exist_ok=True)
+    pair = lambda d: [[bc.MACHINE_SHORT.get(m, m), c, o, x, n] for m, v in d.items()
+                      for c in bc.CLASSES if c in v for o, x, n in [v[c]]]
+    stale += bc.publish_data(OUT, "charts_internals.py", {
+        "machines": (list(paths.values()), *bc.speed_csv(sps)),
+        "simd": (list(paths.values()),
+                 ["machine", "class", "yah265_c_over_simd", "x265_c_over_simd", "clips"], pair(gain)),
+        "threads": ([paths["mac"]],
+                    ["machine", "class", "yah265_one_thread_over_all", "x265_one_thread_over_all",
+                     "clips"], pair({"mac": scale})),
+        "capped": ([bc.capped_records()],
+                   ["class", "pairing", "median_times_faster", "slowest_times_faster", "clips"],
+                   [[c, label, 1 / cap[c][k][0], 1 / cap[c][k][1], cap[c][k][2]]
+                    for c in bc.CLASSES if c in cap for k, _, _, label in PAIRS if k in cap[c]]),
+    }, a.check)
     for name, svg in charts.items():
         p = os.path.join(OUT, name)
         old = open(p).read() if os.path.exists(p) else None
