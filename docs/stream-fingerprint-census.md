@@ -159,7 +159,7 @@ loop, and `scripts/fingerprint_check.py` drives one.
 
 ## Reproducing this
 
-    N265_FP_CENSUS=1 build/n265 tests/corpus/foreman_cif.y4m --frames 60 \
+    N265_FP_CENSUS=1 build/y265 tests/corpus/foreman_cif.y4m --frames 60 \
         --preset medium --qp 27 --aq 0 --cutree 0 --threads 1 \
         -o /dev/null 2> census.csv
 

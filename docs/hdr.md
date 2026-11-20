@@ -58,7 +58,7 @@ layer is a complete HDR10 stream. A CRF encode is still a valid one.
 
 ```
 ffmpeg -i master.mov -pix_fmt yuv420p10le -strict -1 -f yuv4mpegpipe - |
-  n265 - -o out.hevc --crf 22 \
+  y265 - -o out.hevc --crf 22 \
     --colorprim bt2020 --transfer smpte2084 --colormatrix bt2020nc \
     --master-display 'G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1)' \
     --max-cll 1000,400 \

@@ -9,7 +9,7 @@
 # DIFF.
 #
 #   sve_ab.sh BIN ROUNDS CLIP:FRAMES[:EXTRA] ...
-#   e.g. sve_ab.sh src/build-rel/n265 3 park_joy_720p.y4m:60 \
+#   e.g. sve_ab.sh src/build-rel/y265 3 park_joy_720p.y4m:60 \
 #            foreman_cif.y4m:60:--output-depth=10
 set -u
 BIN=$1; ROUNDS=$2; shift 2

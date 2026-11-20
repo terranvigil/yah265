@@ -45,7 +45,7 @@ half in a night block:
             points file (quality), in the spec's section 5.1 layout.
 
 Selection: --tier S|M (default S), --goals 3,2,1, --classes CIF,720p,...,
---cells foreman,bus (titles). Environment: N265 (default build-rel/n265),
+--cells foreman,bus (titles). Environment: BIN or N265 (default build-rel/y265),
 X265 (default x265 on PATH), SOLVE_THREADS, QUIET_MAX (150, the quiet bar
 in per-core percent of total box CPU, three 10 s windows; --loadavg falls
 back to the one-minute load against LOADMAX, 3.0),
@@ -84,10 +84,10 @@ T7_TIER_S = "<media>/tier_s"
 LOCAL_S = os.path.join(ROOT, "scratch/tier_s")
 TIER_M_DIR = os.path.expanduser("~/media/throughput")
 
-N265 = os.environ.get("N265", os.path.join(ROOT, "build-rel/n265"))
+N265 = os.environ.get("BIN") or os.environ.get("N265", os.path.join(ROOT, "build-rel/y265"))
 X265 = os.environ.get("X265", "x265")
 REF_CRF = 28                         # x265 --help: "Default 28.0"
-# the untimed share: n265 --threads, x265 --pools and ffmpeg's decode and
+# the untimed share: y265 --threads, x265 --pools and ffmpeg's decode and
 # filter threads; libvmaf's own count is VMAF_THREADS (default the same).
 # 2 + VMAF_THREADS=1 is three cores, one process at a time.
 SOLVE_THREADS = int(os.environ.get("SOLVE_THREADS", "2"))
@@ -160,7 +160,7 @@ CELLS = [
 # the deviation rule: every departure from either encoder's defaults,
 # stated in the note column and in the report
 DEVIATIONS = [
-    "ours: --crf solved onto x265's bytes (n265's own default rate "
+    "ours: --crf solved onto x265's bytes (y265's own default rate "
     "control is --qp 26; it has no default CRF)",
     "both: y4m on stdin through one cat (x265 needs --input - --y4m "
     "for that)",
@@ -958,7 +958,7 @@ def write_report(date):
     L = []
     L.append(f"# yah265 parity report, {date}")
     L.append("")
-    L.append(f"Encoder: yah265 n265 {', '.join(cm)}, preset medium.  "
+    L.append(f"Encoder: yah265 y265 {', '.join(cm)}, preset medium.  "
              f"Reference: x265 {ver}, preset medium.")
     L.append(f"Machine: {machine()}.  Night block: {block}.")
     L.append("")

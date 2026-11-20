@@ -49,7 +49,7 @@ TP_T7 = "<staging>/yah265/throughput"
 PROBE = os.path.expanduser("~/media/probe")
 TIER_S = "<media>/tier_s"
 CORPUS = os.path.join(ROOT, "tests", "corpus")
-N265 = os.environ.get("N265", os.path.join(ROOT, "build", "n265"))
+N265 = os.environ.get("BIN") or os.environ.get("N265", os.path.join(ROOT, "build", "y265"))
 
 # ---------------------------------------------------------------- thresholds
 # Every threshold the CSV's flags rest on. docs/media-traits.md restates

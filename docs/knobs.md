@@ -78,7 +78,7 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_RC_MVRATE` | 32 | src/encoder/rc.c:136 |
 | `N265_RDOQ` | 1 | src/encoder/encoder.c:2143 |
 | `N265_RDOQ_UP` | 1 | src/encoder/rdoq.c:298 |
-| `N265_READAHEAD_MB` | 64 | cli/n265.c:857 |
+| `N265_READAHEAD_MB` | 64 | cli/y265.c:878 |
 | `N265_ROW_YIELD` | 5000 where 2 * min(rows, (cols + 1) / 2) > threads > 1, else 0 | src/encoder/encoder.c:3132 |
 | `N265_SCREEN` | 0 | src/encoder/la.c:287 |
 | `N265_SC_FAILW` | 0.40 | src/encoder/la.c:683 |
@@ -231,7 +231,7 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_FORCE_NONIDR` | -1 | src/encoder/encoder.c:8050 |
 | `N265_FP_CENSUS` | presence | src/encoder/encoder.c:2110 |
 | `N265_FULLPEL` | presence | src/encoder/mv.c:113 |
-| `N265_GOP_TRACE` | presence | cli/n265.c:2485 |
+| `N265_GOP_TRACE` | presence | cli/y265.c:2037 |
 | `N265_HD_QP` | 27 | src/encoder/encoder.c:5405 |
 | `N265_HF2` | 3 | src/encoder/encoder.c:4099 |
 | `N265_HF2_TPP` | 150 | src/encoder/encoder.c:4127 |
@@ -362,14 +362,14 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_CRQPOFFS` | 0 | src/encoder/encoder.c:2549 |
 | `N265_CT_LAMBDA` | 0.0 | src/encoder/encoder.c:1924 |
 | `N265_EST_MODE` | 0 | src/encoder/est.c:24 |
-| `N265_GOP_CUTS` | 1 | cli/n265.c:2509 |
-| `N265_GOP_K` | (--threads / N) + 1, at least 3 | cli/n265.c:2537 |
-| `N265_GOP_LEN` | = --keyint | cli/n265.c:2506 |
-| `N265_GOP_RELIEF` | 1 | cli/n265.c:2536 |
-| `N265_GOP_SEEK` | 1 | cli/n265.c:2538 |
-| `N265_GOP_VBV_IN` | 0.5 | cli/n265.c:2527 |
-| `N265_GOP_VBV_OUT` | 0.6 | cli/n265.c:2528 |
-| `N265_GOP_WINDOW` | (N + 1.5) x N265_GOP_LEN | cli/n265.c:2511 |
+| `N265_GOP_CUTS` | 1 | cli/y265.c:2061 |
+| `N265_GOP_K` | (--threads / N) + 1, at least 3 | cli/y265.c:2089 |
+| `N265_GOP_LEN` | = --keyint | cli/y265.c:2058 |
+| `N265_GOP_RELIEF` | 1 | cli/y265.c:2088 |
+| `N265_GOP_SEEK` | 1 | cli/y265.c:2090 |
+| `N265_GOP_VBV_IN` | 0.5 | cli/y265.c:2079 |
+| `N265_GOP_VBV_OUT` | 0.6 | cli/y265.c:2080 |
+| `N265_GOP_WINDOW` | (N + 1.5) x N265_GOP_LEN | cli/y265.c:2063 |
 | `N265_HDR_CQP` | 0.0 | src/encoder/encoder.c:2563 |
 | `N265_HDR_CQP_CB` | ? | src/encoder/encoder.c:2566 |
 | `N265_HDR_CQP_CR` | ? | src/encoder/encoder.c:2567 |

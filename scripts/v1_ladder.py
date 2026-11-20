@@ -31,7 +31,7 @@ size, in a pass of its own.
 --vbv-maxrate 1.5x and --vbv-bufsize 2x. Encodes and scores are memoized
 under ~/.cache/yah265-v1 (V1_CACHE), keyed by the command, the source and
 our binary's hash. THREADS (default 4) is each encoder's and libvmaf's
-thread count; BIN overrides build-rel/n265.
+thread count; BIN overrides build-rel/y265.
 """
 import argparse, hashlib, json, math, os, subprocess, sys, time
 
@@ -44,7 +44,7 @@ MD = os.path.expanduser("~/.local/share/vmaf/model/vmaf_v1.0.16")
 CACHE = os.path.expanduser(os.environ.get("V1_CACHE", "~/.cache/yah265-v1"))
 LOCK = os.path.expanduser("~/.cache/enclab/TIMING_ACTIVE")
 THR = os.environ.get("THREADS", "4")
-BIN = os.environ.get("BIN", os.path.join(ROOT, "build-rel", "n265"))
+BIN = os.environ.get("BIN", os.path.join(ROOT, "build-rel", "y265"))
 FEATS = [("cambi", "cambi"), ("speed_chroma_uv", "chroma"),
          ("integer_adm3", "adm3"), ("integer_motion3", "motion3")]
 # the owner's display rule (10-25), as parity_long.py V1_DISP

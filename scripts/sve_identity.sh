@@ -11,7 +11,7 @@
 # against C and say nothing about the tier. It reads no clock.
 #
 #   scripts/sve_identity.sh BIN                 # CIF-7, medium and fast
-#   PRESETS=medium FRAMES=12 scripts/sve_identity.sh build/n265
+#   PRESETS=medium FRAMES=12 scripts/sve_identity.sh build/y265
 #
 # Environment: CLIPS, PRESETS, FRAMES (24), JOBS (4), CORPUS, ARM_ON
 # (extra NAME=VALUE settings for every arm, e.g. N265_ASM_OFF=mc to

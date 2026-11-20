@@ -68,7 +68,7 @@ import media_traits as traits                                    # noqa: E402
 
 TP = os.path.expanduser("~/media/throughput")
 TP_T7 = "<staging>/yah265/throughput"
-N265 = os.environ.get("N265", os.path.join(ROOT, "build-rel", "n265"))
+N265 = os.environ.get("BIN") or os.environ.get("N265", os.path.join(ROOT, "build-rel", "y265"))
 X265 = os.environ.get("X265", "x265")
 FEED = os.environ.get("LF_FEED", os.path.expanduser(
     "~/src/yah264-board4k/scripts/lf_feed.py"))

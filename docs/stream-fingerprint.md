@@ -223,7 +223,7 @@ item REJECTS `--no-fingerprint` with the usage text and writes nothing, so a
 stale build can't quietly produce a marked stream. The other is a program
 that skips the CLI, because the switch is a CLI flag that reaches a
 process-global setter through the API table. A harness that drives
-the library directly, and not through `cli/n265.c`, never calls
+the library directly, and not through `cli/y265.c`, never calls
 `n265_set_fingerprint`. It gets the default, which is on.
 
 ## The gate

@@ -34,7 +34,7 @@ extern "C" {
 /* The sample width this library was built for: 8 (the default) or 10.
  * There is one library per depth - meson's `bit_depth` option defines
  * this project-wide and suffixes the 10-bit library and binary
- * (`n265-10`) - so a caller includes this header once per library it
+ * (`yah265-10`, `y265-10`) - so a caller includes this header once per library it
  * links, and the picture it hands in carries samples of that width.
  * Nothing here is defined when a consumer builds against the installed
  * 8-bit header, which is why 8 is the default. */
@@ -51,7 +51,7 @@ typedef uint16_t n265_pixel;
 #endif
 
 /* The per-depth symbol namespace (phase 8 item 5a). Since one command
- * line links BOTH libraries - n265 picks the encoder from the input's
+ * line links BOTH libraries - y265 picks the encoder from the input's
  * bit depth - the two cannot both export `n265_encoder_open`, so the
  * Main10 library's public names carry a `_10` suffix.
  *
@@ -59,7 +59,7 @@ typedef uint16_t n265_pixel;
  * either way, and this header renames the call for it according to the
  * N265_BIT_DEPTH it compiled with (nothing, for the installed 8-bit
  * header). A consumer that wants BOTH libraries in one program is in
- * n265's position and declares the suffixed entry points itself; that
+ * y265's position and declares the suffixed entry points itself; that
  * is what N265_API is published for.
  *
  * The library's internal symbols are namespaced the same way, by a
@@ -174,7 +174,7 @@ typedef struct n265_nal {
 
 /* The planes are `void *` and not `n265_pixel *` so that ONE picture
  * struct serves both libraries: the sample width is the library's, not
- * the header's, and a caller that links both (n265 does) hands 8-bit
+ * the header's, and a caller that links both (y265 does) hands 8-bit
  * planes to one and 16-bit planes to the other through the same type.
  * A caller that links one library writes `n265_pixel *` as before and
  * the conversion to void * is implicit in C. */
@@ -235,7 +235,7 @@ YAH265_API void n265_set_threads(int n);
  *
  * Every argument is already the SYNTAX ELEMENT of ITU-T H.265 Annex E or
  * Annex D - a color primary is Table E.3's number, not a name - so a
- * caller that has a name parses it itself or uses n265 the binary, which
+ * caller that has a name parses it itself or uses the y265 binary, which
  * accepts x265's spellings. -1 means "not given" in every field that has
  * an absence, and an absent field's presence flag is 0.
  *
@@ -425,7 +425,7 @@ YAH265_API int n265_encoder_headers(n265_encoder *e, n265_nal **nal,
 
 /* ---- the command line's options, as a library call ----
  *
- * Every coding option of the n265 command line, parsed and resolved by
+ * Every coding option of the y265 command line, parsed and resolved by
  * the same code the CLI runs, so a front end that passes the same options
  * gets the same stream. Names are the CLI's without the dashes ("crf",
  * "vbv-maxrate", "no-info"); a switch takes no value, or "1"/"0".

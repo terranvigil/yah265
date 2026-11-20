@@ -46,7 +46,7 @@ Python 3.
 git clone https://github.com/terranvigil/yah265
 cd yah265
 make build-rel
-build-rel/n265 input.y4m -o out.hevc --crf 23
+build-rel/y265 input.y4m -o out.hevc --crf 23
 ```
 
 The output is a raw Annex-B stream, which ffmpeg plays and muxes. The input
@@ -54,15 +54,15 @@ can be Y4M, raw planar YUV, or `-` for standard input. A pipe from ffmpeg
 takes any source ffmpeg can read:
 
 ```
-ffmpeg -i movie.mov -pix_fmt yuv420p -f yuv4mpegpipe - | build-rel/n265 - -o out.hevc --crf 23
+ffmpeg -i movie.mov -pix_fmt yuv420p -f yuv4mpegpipe - | build-rel/y265 - -o out.hevc --crf 23
 ```
 
-Inside ffmpeg it's `-c:v libyah265`, which writes the same stream as `n265`
+Inside ffmpeg it's `-c:v libyah265`, which writes the same stream as `y265`
 given the same options. [docs/ffmpeg.md](docs/ffmpeg.md) has the build.
 
 `make test` runs the tests, and `make conformance-fast` runs the decoder
 checks. [Getting started](site/start.md) walks through the command line.
-`build-rel/n265 --help` lists every option.
+`build-rel/y265 --help` lists every option.
 
 ## Presets
 
