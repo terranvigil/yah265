@@ -1500,19 +1500,18 @@ static const struct tune_row {
     { "psnr", NULL, -1, -1, -1, -1, -1,
       "it is metric fitting: x265's psnr turns adaptive quantisation and "
       "psy off because both cost PSNR while improving the picture. This "
-      "encoder's band decides on VMAF-NEG and "
-      "docs/phase7-psy-design.md closes metric fitting by argument, so "
-      "the tune would ship a worse encoder under a better number." },
+      "encoder is tuned on VMAF, so the tune would ship a worse encoder "
+      "under a better number." },
     { "ssim", NULL, -1, -1, -1, -1, -1,
       "same reason as psnr: it fits the encoder to a metric this project "
-      "does not decide on (docs/phase7-psy-design.md). Name --ssim if "
+      "does not decide on. Name --ssim if "
       "what you want is the number reported." },
     { "grain", NULL, -1, -1, -1, -1, -1,
-      "it is not --film-grain. x265's tune grain is a rate-control shape "
-      "around --rc-grain, whose whole content is damping constants - how "
-      "much upward QP movement a grainy frame is allowed per frame - and "
-      "those come from a band read on a grain clip, which is phase 13 "
-      "item D. --film-grain (the SEI) and --film-grain-denoise are here "
+      "it is not --film-grain. x265's tune grain is a documented set of "
+      "rate-control and psy changes for grainy sources, built around "
+      "--rc-grain, and an equivalent here needs a band read on grain "
+      "clips that hasn't been done. --film-grain (the SEI) and "
+      "--film-grain-denoise are here "
       "today and are a different tool." },
     { "fastdecode", "fast-decode", -1, -1, -1, -1, -1,
       "two of its five legs are not flags this encoder owns: there is no "

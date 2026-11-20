@@ -1537,7 +1537,7 @@ static void usage(void)
         "  --verbose, -v   the RESOLVED configuration at open, one\n"
         "                  \"n265 [info]: key : value\" row at a time - what\n"
         "                  the preset, the flags and the N265_* environment\n"
-        "                  settled on, x265's log shape so the two read side\n"
+        "                  settled on, x265's log format so the two read side\n"
         "                  by side - and with it the level and tier chosen\n"
         "                  and every Annex A bound that drove them\n"
         "                  (N265_LEVEL_TRACE=1 is that second line alone)\n"
