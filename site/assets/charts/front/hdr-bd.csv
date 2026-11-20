@@ -1,0 +1,13 @@
+title,transfer,size,against,bd_rate_pct
+Sol Levante,PQ,1080p,x265,-23
+Sol Levante,PQ,2160p,x265,-17.7
+Sparks,PQ,1080p,x265,-23.2
+Sparks,PQ,2160p,x265,-24.2
+EBU / DVB HLG,HLG,1080p,x265,-38.8
+EBU / DVB HLG,HLG,2160p,x265,-34.6
+Sol Levante,PQ,1080p,x265 --hdr10-opt,-5.5
+Sol Levante,PQ,2160p,x265 --hdr10-opt,-5.4
+Sparks,PQ,1080p,x265 --hdr10-opt,-18.3
+Sparks,PQ,2160p,x265 --hdr10-opt,-18.4
+EBU / DVB HLG,HLG,1080p,yah265 --no-hdr-opt,-14.1
+EBU / DVB HLG,HLG,2160p,yah265 --no-hdr-opt,-15

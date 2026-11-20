@@ -1,0 +1,119 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='480' height='660' viewBox='0 0 480 660' role='img'>
+<title>A median 10.2% fewer bits for the same VMAF v1</title><desc>BD-rate against x265 medium on VMAF v1 for every rate ladder, CRF and capped VBR.</desc>
+<style>
+.bg{fill:#ffffff}.t1{fill:#212529}.t2{fill:#495057}.grid{stroke:#e9ecef}
+.base{stroke:#868e96}.ring{stroke:#ffffff}.med{stroke:#212529}.band{fill:#f1f3f5}
+.s1{fill:#ff4d1a}.s2{fill:#00919a}.s3{fill:#6250d6}.sx{fill:#868e96}
+.l1{stroke:#ff4d1a}.l2{stroke:#00919a}.l3{stroke:#6250d6}.lx{stroke:#868e96}.span{stroke:#dee2e6}
+.note{fill:#b8330a}.wash{fill:#ffe8dc}
+text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+@media (prefers-color-scheme:dark){
+.bg{fill:#1b1c1e}.t1{fill:#e9ecee}.t2{fill:#b6bcc1}.grid{stroke:#2e3135}
+.base{stroke:#8f959a}.ring{stroke:#1b1c1e}.med{stroke:#e9ecee}.band{fill:#23262a}
+.s1{fill:#ff4d1a}.s2{fill:#12a3ad}.s3{fill:#9085e9}.sx{fill:#8f959a}
+.l1{stroke:#ff4d1a}.l2{stroke:#12a3ad}.l3{stroke:#9085e9}.lx{stroke:#8f959a}.span{stroke:#3a3e43}
+.note{fill:#ff8a5c}.wash{fill:#45200f}}
+</style>
+<rect width='100%' height='100%' class='bg'/>
+<text x='20' y='30' font-size='18' class='t1' font-weight='600'>A median 10.2% fewer bits for the same</text>
+<text x='20' y='53' font-size='18' class='t1' font-weight='600'>quality</text>
+<text x='20' y='73' font-size='12.5' class='t2'>BD-rate against x265 medium on VMAF v1, 38 rate ladders on real</text>
+<text x='20' y='90' font-size='12.5' class='t2'>titles. Left of zero needs fewer bits. Report of 2026-11-12.</text>
+<g transform='translate(0 26)'>
+<circle cx='30.0' cy='86.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='42.0' y='91.0' font-size='11.5' class='t2' text-anchor='start'>CRF</text>
+<rect x='72.8' y='81.0' width='9.9' height='9.9' rx='1.5' class='s2 ring' stroke-width='2'/>
+<text x='89.7' y='91.0' font-size='11.5' class='t2' text-anchor='start'>capped VBR</text>
+<line x1='206.0' y1='108' x2='206.0' y2='572' class='grid' stroke-width='1'/>
+<text x='206.0' y='592.0' font-size='12' class='t2' text-anchor='middle'>-20%</text>
+<line x1='256.4' y1='108' x2='256.4' y2='572' class='grid' stroke-width='1'/>
+<text x='256.4' y='592.0' font-size='12' class='t2' text-anchor='middle'>-15%</text>
+<line x1='306.8' y1='108' x2='306.8' y2='572' class='grid' stroke-width='1'/>
+<text x='306.8' y='592.0' font-size='12' class='t2' text-anchor='middle'>-10%</text>
+<line x1='357.2' y1='108' x2='357.2' y2='572' class='grid' stroke-width='1'/>
+<text x='357.2' y='592.0' font-size='12' class='t2' text-anchor='middle'>-5%</text>
+<line x1='407.6' y1='108' x2='407.6' y2='572' class='base' stroke-width='1.5'/>
+<text x='407.6' y='592.0' font-size='12' class='t2' text-anchor='middle'>0 (x265)</text>
+<line x1='458.0' y1='108' x2='458.0' y2='572' class='grid' stroke-width='1'/>
+<text x='458.0' y='592.0' font-size='12' class='t2' text-anchor='middle'>+5%</text>
+<line x1='417.7' y1='108' x2='417.7' y2='572' class='base' stroke-width='1.5' stroke-dasharray='2 3'/>
+<text x='421.7' y='104.0' font-size='11' class='t2' text-anchor='start'>bar +1%</text>
+<text x='240.0' y='620.0' font-size='13' class='t2' text-anchor='middle'>bitrate change for the same VMAF v1 (left is better)</text>
+<text x='194.0' y='132.0' font-size='11' class='t1' text-anchor='end'>StEM2 1080p (10 min)</text>
+<line x1='226.5' y1='128.0' x2='268.4' y2='128.0' class='span' stroke-width='2'/>
+<rect x='263.9' y='123.5' width='9.0' height='9.0' rx='1.5' class='s2 ring' stroke-width='2'/>
+<circle cx='226.5' cy='128.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='156.0' font-size='11' class='t1' text-anchor='end'>Sintel 4K (10 min)</text>
+<line x1='238.2' y1='152.0' x2='273.4' y2='152.0' class='span' stroke-width='2'/>
+<rect x='268.9' y='147.5' width='9.0' height='9.0' rx='1.5' class='s2 ring' stroke-width='2'/>
+<circle cx='238.2' cy='152.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='180.0' font-size='11' class='t1' text-anchor='end'>Cosmos Laundromat 720p (10 min)</text>
+<line x1='253.4' y1='176.0' x2='265.2' y2='176.0' class='span' stroke-width='2'/>
+<rect x='260.7' y='171.5' width='9.0' height='9.0' rx='1.5' class='s2 ring' stroke-width='2'/>
+<circle cx='253.4' cy='176.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='204.0' font-size='11' class='t1' text-anchor='end'>Tears of Steel 4K (10 min)</text>
+<line x1='266.4' y1='200.0' x2='273.4' y2='200.0' class='span' stroke-width='2'/>
+<rect x='261.9' y='199.5' width='9.0' height='9.0' rx='1.5' class='s2 ring' stroke-width='2'/>
+<circle cx='273.4' cy='196.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='228.0' font-size='11' class='t1' text-anchor='end'>Nocturne 4K (10 min)</text>
+<line x1='251.7' y1='224.0' x2='306.4' y2='224.0' class='span' stroke-width='2'/>
+<rect x='247.2' y='219.5' width='9.0' height='9.0' rx='1.5' class='s2 ring' stroke-width='2'/>
+<circle cx='306.4' cy='224.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='252.0' font-size='11' class='t1' text-anchor='end'>Sol Levante 1080p (2 min)</text>
+<line x1='263.0' y1='248.0' x2='310.1' y2='248.0' class='span' stroke-width='2'/>
+<rect x='305.6' y='243.5' width='9.0' height='9.0' rx='1.5' class='s2 ring' stroke-width='2'/>
+<circle cx='263.0' cy='248.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='276.0' font-size='11' class='t1' text-anchor='end'>Cosmos Laundromat 1080p (10 min)</text>
+<line x1='288.5' y1='272.0' x2='293.5' y2='272.0' class='span' stroke-width='2'/>
+<rect x='284.0' y='271.5' width='9.0' height='9.0' rx='1.5' class='s2 ring' stroke-width='2'/>
+<circle cx='293.5' cy='268.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='300.0' font-size='11' class='t1' text-anchor='end'>Tears of Steel 1080p (10 min)</text>
+<line x1='280.8' y1='296.0' x2='303.4' y2='296.0' class='span' stroke-width='2'/>
+<rect x='298.9' y='291.5' width='9.0' height='9.0' rx='1.5' class='s2 ring' stroke-width='2'/>
+<circle cx='280.8' cy='296.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='324.0' font-size='11' class='t1' text-anchor='end'>Sintel 1080p (10 min)</text>
+<line x1='282.2' y1='320.0' x2='306.6' y2='320.0' class='span' stroke-width='2'/>
+<rect x='277.7' y='315.5' width='9.0' height='9.0' rx='1.5' class='s2 ring' stroke-width='2'/>
+<circle cx='306.6' cy='320.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='348.0' font-size='11' class='t1' text-anchor='end'>StEM2 4K (10 min)</text>
+<line x1='281.1' y1='344.0' x2='315.7' y2='344.0' class='span' stroke-width='2'/>
+<rect x='311.2' y='339.5' width='9.0' height='9.0' rx='1.5' class='s2 ring' stroke-width='2'/>
+<circle cx='281.1' cy='344.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='372.0' font-size='11' class='t1' text-anchor='end'>StEM2 720p (10 min)</text>
+<line x1='268.2' y1='368.0' x2='330.6' y2='368.0' class='span' stroke-width='2'/>
+<rect x='326.1' y='363.5' width='9.0' height='9.0' rx='1.5' class='s2 ring' stroke-width='2'/>
+<circle cx='268.2' cy='368.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='396.0' font-size='11' class='t1' text-anchor='end'>Sintel 720p (10 min)</text>
+<line x1='286.6' y1='392.0' x2='327.3' y2='392.0' class='span' stroke-width='2'/>
+<rect x='322.8' y='387.5' width='9.0' height='9.0' rx='1.5' class='s2 ring' stroke-width='2'/>
+<circle cx='286.6' cy='392.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='420.0' font-size='11' class='t1' text-anchor='end'>Sol Levante 4K (2 min)</text>
+<line x1='284.8' y1='416.0' x2='337.3' y2='416.0' class='span' stroke-width='2'/>
+<rect x='332.8' y='411.5' width='9.0' height='9.0' rx='1.5' class='s2 ring' stroke-width='2'/>
+<circle cx='284.8' cy='416.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='444.0' font-size='11' class='t1' text-anchor='end'>Big Buck Bunny 1080p (10 min)</text>
+<line x1='316.5' y1='440.0' x2='338.1' y2='440.0' class='span' stroke-width='2'/>
+<rect x='333.6' y='435.5' width='9.0' height='9.0' rx='1.5' class='s2 ring' stroke-width='2'/>
+<circle cx='316.5' cy='440.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='468.0' font-size='11' class='t1' text-anchor='end'>Nocturne 1080p (10 min)</text>
+<line x1='323.8' y1='464.0' x2='338.2' y2='464.0' class='span' stroke-width='2'/>
+<rect x='333.7' y='459.5' width='9.0' height='9.0' rx='1.5' class='s2 ring' stroke-width='2'/>
+<circle cx='323.8' cy='464.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='492.0' font-size='11' class='t1' text-anchor='end'>Tears of Steel 720p (10 min)</text>
+<line x1='334.7' y1='488.0' x2='367.2' y2='488.0' class='span' stroke-width='2'/>
+<rect x='362.7' y='483.5' width='9.0' height='9.0' rx='1.5' class='s2 ring' stroke-width='2'/>
+<circle cx='334.7' cy='488.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='516.0' font-size='11' class='t1' text-anchor='end'>Big Buck Bunny 4K (10 min)</text>
+<line x1='357.8' y1='512.0' x2='361.3' y2='512.0' class='span' stroke-width='2'/>
+<rect x='356.8' y='511.5' width='9.0' height='9.0' rx='1.5' class='s2 ring' stroke-width='2'/>
+<circle cx='357.8' cy='508.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='540.0' font-size='11' class='t1' text-anchor='end'>Nocturne 720p (10 min)</text>
+<line x1='344.4' y1='536.0' x2='403.5' y2='536.0' class='span' stroke-width='2'/>
+<rect x='399.0' y='531.5' width='9.0' height='9.0' rx='1.5' class='s2 ring' stroke-width='2'/>
+<circle cx='344.4' cy='536.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='194.0' y='564.0' font-size='11' class='t1' text-anchor='end'>Big Buck Bunny 720p (10 min)</text>
+<line x1='354.7' y1='560.0' x2='403.4' y2='560.0' class='span' stroke-width='2'/>
+<rect x='398.9' y='555.5' width='9.0' height='9.0' rx='1.5' class='s2 ring' stroke-width='2'/>
+<circle cx='354.7' cy='560.0' r='5.5' class='s1 ring' stroke-width='2'/>
+</g>
+</svg>

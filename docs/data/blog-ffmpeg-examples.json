@@ -1,0 +1,78 @@
+{
+ "about": "ffmpeg testbench jobs on the Apple M5 Max: one ffmpeg build with libyah265 and libx265, both at -preset medium and their default threading. x265's crf was solved until its file landed within 2% of ours. VMAF v1 scored every frame, both sides converted to 10 bits. Copied from each job's job.json.",
+ "examples": [
+  {
+   "job": "20261120-144805-meridian-1080p-60-yah265",
+   "title": "Meridian",
+   "variant": "1080p",
+   "width": 1920,
+   "height": 1080,
+   "seconds": 60,
+   "frames": 3596,
+   "fps": "60000/1001",
+   "start_s": 30,
+   "source": "Meridian_UHD4k5994_HDR_P3PQ.mp4",
+   "vmaf_model": "vmaf_v1.0.16_hfr_3d0h",
+   "size_tolerance": 0.02,
+   "ours": {
+    "encoder": "libyah265",
+    "crf": 25.0,
+    "bytes": 3076602,
+    "kbps": 404.37,
+    "wall_s": 8.971,
+    "vmaf_mean": 84.2492,
+    "vmaf_p5": 81.6149
+   },
+   "ref": {
+    "encoder": "libx265",
+    "crf": 26.7,
+    "bytes": 3102353,
+    "kbps": 407.09,
+    "wall_s": 23.66,
+    "vmaf_mean": 82.2158,
+    "vmaf_p5": 79.018,
+    "crf_tries": [
+     25.0,
+     27.1,
+     26.7
+    ]
+   }
+  },
+  {
+   "job": "20261120-144540-tos-1080p-60-yah265",
+   "title": "Tears of Steel",
+   "variant": "1080p",
+   "width": 1920,
+   "height": 858,
+   "seconds": 60,
+   "frames": 1440,
+   "fps": "24",
+   "start_s": 60,
+   "source": "tearsofsteel_4k.mov",
+   "vmaf_model": "vmaf_v1.0.16_3d0h",
+   "size_tolerance": 0.02,
+   "ours": {
+    "encoder": "libyah265",
+    "crf": 25.0,
+    "bytes": 8088038,
+    "kbps": 1075.97,
+    "wall_s": 5.745,
+    "vmaf_mean": 90.6156,
+    "vmaf_p5": 86.2533
+   },
+   "ref": {
+    "encoder": "libx265",
+    "crf": 25.8,
+    "bytes": 7958593,
+    "kbps": 1058.38,
+    "wall_s": 10.531,
+    "vmaf_mean": 89.7671,
+    "vmaf_p5": 84.9496,
+    "crf_tries": [
+     25.0,
+     25.8
+    ]
+   }
+  }
+ ]
+}

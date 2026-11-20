@@ -1,0 +1,40 @@
+{
+ "hdr-bd": {
+  "csv": "hdr-bd.csv",
+  "script": "scripts/site_front.py",
+  "sources": [
+   [
+    "docs/data/hdr-results.json",
+    "the HDR results"
+   ]
+  ]
+ },
+ "home-hero": {
+  "csv": "home-hero.csv",
+  "script": "scripts/site_front.py",
+  "sources": [
+   [
+    "docs/parity/PARITY-REPORT-yah265-2026-11-12.csv",
+    "the Mac parity report (rows)"
+   ]
+  ]
+ },
+ "home-speed": {
+  "csv": "home-speed.csv",
+  "script": "scripts/site_front.py",
+  "sources": [
+   [
+    "docs/parity/PARITY-REPORT-yah265-2026-11-12.csv",
+    "the Mac parity report (rows)"
+   ],
+   [
+    "docs/parity/PARITY-REPORT-yah265-x86-2026-11-13.csv",
+    "the Xeon parity report (rows)"
+   ],
+   [
+    "docs/parity/PARITY-REPORT-yah265-graviton-2026-11-13.csv",
+    "the Graviton4 parity report (rows)"
+   ]
+  ]
+ }
+}

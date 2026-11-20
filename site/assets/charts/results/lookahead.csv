@@ -1,0 +1,9 @@
+cell,mode,bd_rate_pct_la12,bd_rate_pct_la20,bd_rate_pct_la30
+"Sol Levante 1080p, 2-minute segments",crf,-13.7615,-14.3467,-14.4147
+"Tears of Steel 1080p, 10-minute films",crf,-11.4332,-12.5835,-12.8616
+"Sintel 4K, 10-minute films",crf,-15.6059,-16.8104,-16.9144
+"Big Buck Bunny 1080p, 10-minute films",crf,-5.6764,-9.0446,-10.207
+"Sol Levante 1080p, 2-minute segments",vbr,-8.9011,-9.673,-9.6954
+"Tears of Steel 1080p, 10-minute films",vbr,-9.6036,-10.3405,-10.5486
+"Sintel 4K, 10-minute films",vbr,-13.5248,-13.3093,-13.4289
+"Big Buck Bunny 1080p, 10-minute films",vbr,-4.2771,-6.8902,-7.3498

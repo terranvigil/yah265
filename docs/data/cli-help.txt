@@ -1,0 +1,223 @@
+# y265 0.0.1, release build bf293376
+usage: y265 [options] <input.y4m|input.yuv|->
+
+The input picks the profile: 8-bit 4:2:0 is coded Main, 10-bit 4:2:0
+Main10, 4:4:4 Main 4:4:4 (or 4:4:4 10), and 4:2:2 Main 4:2:2 10 (HEVC
+has no 8-bit 4:2:2 profile). --output-depth codes at another depth.
+
+Input and output
+  -o <file>             output Annex B bitstream (default out.hevc)
+  --frames <n>          encode at most n frames
+  --seek <n>            skip the first n input frames
+  --output-depth <8|10> coded bit depth (default: the input's). 10 on 8-bit
+                        input shifts samples up two bits; 8 on 10-bit input
+                        drops two bits, truncated unless --dither is given
+  --dither              with --output-depth 8 on 10-bit input, use a 2x2
+                        ordered dither instead of truncation
+  --dump-recon <file>   write the reconstructed pictures as raw YUV
+
+Raw input, selected by --input-res or a .yuv name. Give all of it: a raw
+file has no header.
+  --input-res <WxH>     picture size, e.g. 352x288
+  --input-csp <c>       i420, i422 or i444 (or 1, 2, 3); i400 is not supported
+  --fps <N[/D]>         frame rate: 30, 30000/1001 or 29.97
+  --input-depth <8|10>  bits per sample (default 8); 10-bit is 16-bit
+                        little-endian, as ffmpeg's yuv420p10le
+
+Presets and threads
+  --preset <name>       fast, medium (default), slow or slower. x265's other
+                        preset names are refused with the nearest one here.
+                        Any option you give overrides the preset.
+  -t, --tune <name>     zerolatency: no B frames, a one-frame lookahead and
+                        no cu-tree. psnr, ssim, grain and fastdecode are
+                        refused; each refusal says why.
+  --threads <n>         worker threads, 0 for one per CPU (default 0).
+                        --threads 1 writes the same stream on every run.
+                        Above one thread the stream can differ between runs
+                        and thread counts.
+  --gop-parallel <n>    code the input as segments on n encoders at once,
+                        joined at IDRs (default 0, off). Needs more than one
+                        thread; not with --pass, --qpfile, --zones, --csv,
+                        --shot-stats or --hrd-concat. The joined stream
+                        carries no HRD timing SEI.
+
+Rate control
+  --qp <n>              constant QP (default 26): 0..51, or -12..51 at 10-bit
+  --crf <f>             constant rate factor, same range as --qp; overrides
+                        --qp. It accounts for frame rate: 1.8 QP coarser per
+                        doubling, neutral at 25 fps.
+  --bitrate <k>         average bitrate in kbit/s, one pass; overrides --crf
+  --vbv-maxrate <k>     decoder buffer fill rate in kbit/s. With --vbv-bufsize
+                        it caps --bitrate or --crf and writes HRD parameters.
+                        Not with --qp, --pcm or --lossless.
+  --vbv-bufsize <k>     decoder buffer size in kbit
+  --vbv-init <f>        starting buffer fill, a fraction in (0, 1]
+                        (default 0.9)
+  --strict-cbr          constant rate under --bitrate with a VBV: underspent
+                        access units are padded with filler data
+  --max-ausize-factor <f>  cap one access unit at f of the buffer, 0.5..1.0
+                        (default 1.0, no cap). Needs a VBV.
+  --crf-min <f>         lowest rate factor --crf may code at
+  --crf-max <f>         highest rate factor --crf may code at
+  --qpmin <n>           lowest frame QP the rate control may pick
+  --qpmax <n>           highest frame QP the rate control may pick
+  --pass <1|2|3>        two-pass: 1 writes --stats, 2 reads it and plans the
+                        whole file (needs --bitrate), 3 does both
+  --stats <file>        the two-pass stats file
+  --qpfile <file>       force frame types and QPs, one "<frame> <type> [<qp>]"
+                        per line in display order, # for comments. Types: I
+                        or K (key frame), i (non-IDR intra), - (encoder's
+                        choice). P, B and b are refused: the encoder picks
+                        the GOP structure.
+  --zones <spec>        "start,end,q=N" or "start,end,b=F" zones joined by /,
+                        in display order: q=N fixes the QP, b=F scales the
+                        bits by F. Zones may not overlap.
+  --aq <0|1>            adaptive quantization (default 1)
+  --cutree <0|1>        lookahead-driven QP offsets for referenced blocks
+                        (default 1)
+  --rc-lookahead <n>    lookahead depth, 1..60 frames. Default: 12 at fast;
+                        20 at medium from 720p up and 12 below; 20 at slow;
+                        25 at slower
+  --shot-window <n>     shot planner for --crf: buffer up to n frames (max
+                        300) and balance the base QP across shots. Adds n
+                        frames of latency and memory. Default 0, off.
+
+Structure
+  --keyint <n>          maximum key frame interval (default 250). A scene cut
+                        restarts the count.
+  --open-gop            code periodic key frames as CRA (default);
+                        --no-open-gop codes IDR. Scene cuts are always IDR.
+  --radl <n>            leading pictures of a CRA coded as RADL (default 0)
+  --bframes <0..15>     B frames between anchors, hierarchical (default 7).
+                        Above 7, --rc-lookahead must be at least bframes + 1.
+  --b-adapt <0-4>       B run length: 0 fixed, 1 by motion (default),
+                        2 to 4 experimental cost models
+  --ref <n>             references per list, 1..5 (default 1; medium uses 2
+                        at 2160p, slower 2). The level rises to fit the DPB.
+  --ctu <16|32|64>      coding tree block size. Default: 32 at fast and at
+                        medium below 1080p; 64 at medium from 1080p up, slow
+                        and slower
+  --tu-inter-depth <1..4>  transform tree levels in inter CUs (default 2)
+  --tu-intra-depth <1..4>  transform tree levels in intra CUs (default 2)
+  --rdoq-level <0|1|2>  rate-distortion optimized quantization: 0 off, 1 in
+                        the final encode only (medium), 2 in every mode
+                        decision (fast, slow, slower)
+  --cbqpoffs <n>        Cb QP offset from luma, -12..12. Negative spends more
+                        on chroma. Default 0, except medium: -1, or -2 at
+                        720p below 1080p, or -6 on HDR.
+  --crqpoffs <n>        Cr QP offset, the same way
+  -w, --weightp         weighted prediction in P slices, for fades and
+                        lighting changes (default on, off at fast;
+                        --no-weightp)
+  --weightb             weighted prediction in B slices (default off)
+  --dup-threshold <f>   code a frame within f luma levels per lowres pixel
+                        of a reference as all-skip, for telecined or
+                        frame-doubled content (default 0, exact repeats only)
+  --pcm                 code every CU as I_PCM (lossless, very large)
+  --lossless            lossless coding: transquant bypass on every CU.
+                        Rate control, RDOQ, AQ, psy and loop filters are off.
+  --intra-refresh       not supported; the refusal says why
+  --scaling-list <s>    not supported; the refusal says why
+
+Filters
+  --film-grain <s>      estimate the source's film grain and write a film
+                        grain characteristics SEI, so a decoder that
+                        supports it adds grain on output. s scales the
+                        estimate (1.0 as measured, 0 off). 8-bit 4:2:0 only.
+  --film-grain-denoise <0|1>  with --film-grain, also remove the grain from
+                        the coded picture to save bits (default 0)
+  --nr-intra <0-2000>   noise reduction on intra transform coefficients
+                        (default 0, off)
+  --nr-inter <0-2000>   the same on inter blocks (default 0, off)
+  --mcstf               motion-compensated temporal filter on the pictures
+                        others predict from, for noisy sources (default off)
+  --mcstf-ref-range <1-4>  neighbor frames per side for --mcstf (default 2)
+  --selective-mcstf     skip --mcstf on pictures that measure clean. Use it
+                        with --mcstf on mixed content: flat animation loses
+                        quality to the filter.
+
+Headers and SEI (all off by default unless noted)
+  --repeat-headers      VPS, SPS and PPS before every key frame
+  --aud                 access unit delimiter NAL before every access unit
+  --eos                 end of sequence NAL before every IDR after the first
+                        and at the end
+  --eob                 end of bitstream NAL at the end
+  --idr-recovery-sei    recovery point SEI at every key frame
+  --pic-struct <n>      pic_timing SEI pic_struct, 0..12 (0 frame, 7 frame
+                        doubling, 8 frame tripling). Needs a VBV.
+  --hrd-concat          mark the first buffering period SEI as a splice
+                        point. Needs a VBV.
+  --temporal-layers     put non-reference B frames in temporal sub-layer 1,
+                        so a player can drop them to halve the frame rate
+  --hash <0-3>          decoded picture hash SEI: 0 off (default), 1 MD5,
+                        2 CRC, 3 checksum
+  --no-info             drop the SEI naming the encoder, its version and its
+                        options (on by default; --info)
+  --no-fingerprint      drop the stream fingerprint, a mark in an unused
+                        merge index choice that costs no bits and changes no
+                        sample (on by default)
+  --vui-timing          write the frame rate in the SPS VUI (default on;
+                        --no-vui-timing)
+  --level <l>           signal this level (1 .. 6.2; "41" is 4.1). Refused
+                        if the stream exceeds it. Default: derived.
+  --high-tier           signal the High tier (level 4 and up)
+
+Colour and HDR metadata (signalling only; no coded sample changes)
+  --video-signal-type-preset <name[:volume]>  set the colour flags at once,
+                        using x265's names: BT601_525, BT601_626, BT709_YCC,
+                        BT709_RGB, BT2020_YCC_NCL, BT2020_RGB, BT2100_PQ_YCC,
+                        BT2100_PQ_ICTCP, BT2100_PQ_RGB, BT2100_HLG_YCC,
+                        BT2100_HLG_RGB, FR709_RGB, FR2020_RGB, FRP3D65_YCC.
+                        A colour flag given beside it wins. The PQ systems
+                        take :P3D65x1000n0005 or :P3D65x4000n005.
+  --colorprim <p>       colour primaries: bt709, unknown, bt470m, bt470bg,
+                        smpte170m, smpte240m, film, bt2020, smpte428,
+                        smpte431, smpte432
+  --transfer <t>        transfer characteristics: bt709, unknown, bt470m,
+                        bt470bg, smpte170m, smpte240m, linear, log100,
+                        log316, iec61966-2-4, bt1361e, iec61966-2-1,
+                        bt2020-10, bt2020-12, smpte2084, smpte428,
+                        arib-std-b67
+  --colormatrix <m>     matrix coefficients: gbr, bt709, unknown, fcc,
+                        bt470bg, smpte170m, smpte240m, ycgco, bt2020nc,
+                        bt2020c, smpte2085, chroma-derived-nc,
+                        chroma-derived-c, ictcp, ipt-pq-c2
+  --range <r>           limited or full
+  --videoformat <f>     component, pal, ntsc, secam, mac or unknown
+  --chromaloc <0..5>    chroma sample location (2 for BT.2020 and BT.2100)
+  --overscan <o>        unknown (default), show or crop
+  --sar <w:h|n>         sample aspect ratio, as a ratio or a table index 0..16
+  --display-window <l,t,r,b>  display cropping offsets in pixels
+  --master-display <s>  mastering display SEI: G(x,y)B(x,y)R(x,y)WP(x,y)
+                        L(max,min), chromaticities in 0.00002 units and
+                        luminance in 0.0001 cd/m2
+  --max-cll <c,f>       content light level SEI: "maxcll,maxfall" in cd/m2
+  --hdr10 / --no-hdr10  force the two SEIs above on or off (default: on when
+                        either is given). Written at every key frame.
+  --no-cll              drop the content light level SEI
+  --atc-sei <t>         alternative transfer characteristics SEI; values as
+                        --transfer
+  --dhdr10-info <json>  HDR10+ dynamic metadata per picture, from the JSON
+                        hdr10plus_tool writes. Needs a 10-bit HDR10 encode.
+  --dolby-vision-rpu <file>  Dolby Vision profile 8 RPU per picture, from
+                        the file dovi_tool writes. Needs
+                        --dolby-vision-profile.
+  --dolby-vision-profile <p>  8.1 (HDR10 base), 8.2 (SDR BT.709 base) or 8.4
+                        (HLG base); the colour flags must match
+  --hdr-opt / --no-hdr-opt  medium's HDR tuning. On by default when
+                        --transfer or --atc-sei names smpte2084 or
+                        arib-std-b67. --hdr10-opt is the same switch.
+  Metadata files are read in input frame order and --seek skips entries
+  with frames. A file shorter than the encode fails the run.
+
+Reporting
+  --psnr                report PSNR at the end, per plane and averaged
+  --ssim                report luma SSIM at the end
+  --csv <file>          write statistics as CSV
+  --csv-log-level <0|1|2>  0 one row per run (default), 1 adds a row per
+                        frame, 2 adds rate control columns
+  --shot-stats <file>   write per-shot statistics as JSON Lines
+  --verbose, -v         print the resolved configuration, level and tier,
+                        then encode
+  --show-config         print the resolved configuration and exit
+  --version             print the version

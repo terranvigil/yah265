@@ -1,0 +1,56 @@
+---
+title: A skeptic's questions - yah265
+description: Short answers to the hard questions about yah265's comparison with x265. They cover what was tuned, what was left out, how x265 ran and how to check a number.
+---
+
+# A skeptic's questions
+
+These are the questions I'd ask if someone else published this site. Each answer is short and links to the data.
+
+## Is this x265 with the names changed?
+
+No. I wrote yah265 from the ITU-T H.265 specification and from published papers. No code from a third-party encoder goes in. Code from my own yah264 is reused. x265 is the yardstick here: I run its binary, read its documentation and measure its output.
+
+## Which x265, and how was it run?
+
+x265 4.3 at `--preset medium`, as Homebrew ships it on the Mac. The cloud machines built it from the release tarball. [How x265 was run](x265-run.md) has the exact build, the command for each goal, the thread settings and the instruction sets on each machine.
+
+## Is the headline cherry-picked?
+
+It covers every CRF cell in the test set that was timed on the Mac as shipped and whose two files match in size within 1%. Capped VBR and the content-type clips are reported in their own tables, because they don't share a file size. A cell that breaks a validity rule is marked in the report and stays out of every statistic, whichever way it points. The reports also hold rows for two titles that aren't in the set. Every figure on this site leaves them out. [The methodology](methodology.md#what-makes-a-number-valid) has the rules.
+
+## You tuned for the metric you score with.
+
+Yes. yah265's `medium` is tuned for VMAF v1, the only quality metric these pages judge by. x265's `medium` has other aims that include its psychovisual options. A lead here is a lead on that one score. A score can't settle how two encodes look, so [Results](results.md#side-by-side-at-the-same-size) shows frame crops that a script picked by a fixed rule.
+
+## You tuned on the clips you test on.
+
+Yes. The test set has no held-out content, because the clips I developed on were windows of the same titles. Treat the results as what the encoder does on this set. The test that matters is your own content. [Check it yourself](check-it-yourself.md) walks through it.
+
+## Does the lead hold beyond medium?
+
+I only claim `medium` against `medium`. yah265's `slow` and `slower` don't yet win against x265's own `slow` and `slower`, as the [guide](guide.md#presets) says. I haven't compared yah265 with any other HEVC encoder or with a hardware encoder.
+
+## Why time x265 without its assembly?
+
+Two of the three goals switch the hand-written SIMD off on both sides to compare the algorithms alone. They're engineering checks, because x265 isn't meant to run that way. The headline uses only the third goal, where both encoders run as shipped.
+
+## Did x265 get its tunes?
+
+Neither encoder gets a `--tune`. yah265's `medium` detects screen recordings and handheld footage by itself, and x265 has tunes for grain and animation that no reading uses. So the content-type clips compare one set of defaults with another. Their speed is shown and doesn't count toward the verdict.
+
+## Is it only fast on a Mac?
+
+The headline is the Mac's. The same test set ran on an Intel Xeon and on an AWS Graviton4, and yah265 leads on both. On the Xeon I also held both encoders to AVX2 and then to SSE4.2. [Results](results.md#by-machine) has each machine's table.
+
+## Does the average hide bad frames?
+
+It can, so [Results](results.md#the-worst-frames) shows one clip frame by frame and sets the worst 5% of frames beside the mean. It also compares each short clip's lowest frame, including the size where yah265's lowest frame is behind.
+
+## Is the VMAF setup standard?
+
+The scorer is Netflix's libvmaf with the `vmaf_v1.0.16` models. A picture smaller than 1080p is scaled up to display size before scoring, which follows Netflix's guidance for that model. The CIF rows depend on that rule. [The methodology](methodology.md#scoring-quality) names the commit, the models and the frame stride.
+
+## How do I check a number?
+
+Under every chart a line names its source file and the script that drew it, beside a link to its data as CSV. A script writes every table from the same files. The site's build fails when a page and the data disagree. To take a reading yourself, start with [Check it yourself](check-it-yourself.md).

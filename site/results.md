@@ -1,250 +1,538 @@
 ---
 title: Results - yah265
-description: The parity tables against x265 medium, from CIF to 4K and from short clips to ten-minute films, and how to read them.
+description: yah265 against x265 medium on speed, quality and file size, from CIF to 4K, on a Mac, an x86-64 Xeon and a Graviton4.
 ---
 
 # Results
 
-On the Mac, yah265 has reached full parity with x265. Every goal passes in every class and every timed tier, from CIF to 4K and from ten-second clips to ten-minute films. Both encoders run at `--preset medium`. The reference is the Homebrew build of x265 4.3+1-e9b8812. It includes x265's own arm64 assembly. Everything was timed on one Apple M5 Max with 18 cores. Parity on x86-64 (SSE4.2, AVX2 and AVX-512) and on arm64 SVE is in progress.
+Every reading on this page compares yah265 with x265 4.3 when both run at `--preset medium`. A script builds the tables and charts from the recorded runs. Its check fails when the page and the data disagree.
 
-[The methodology](methodology.md) covers the test set, the rules that make a number valid and how quality is scored. The full report this page is built from is [in the repository](docs/parity/PARITY-REPORT-yah265-2026-11-12.md).
+The first two rows are the headline. They cover the CRF cells timed on the Mac as shipped, where yah265's file is within 1% of x265's size.
 
-## How to read the ratios
+<!--gen:verdict-->
+| what was measured | result |
+|---|--:|
+| median speed on the Mac at the same file size, 30 CRF cells | 1.79x faster |
+| median VMAF v1 lead at the same file size, the same 30 cells | +1.23 points |
+| median bits saved at equal VMAF v1, 38 rate ladders | 10.2% |
+| speed groups inside the bar, three goals on three machines | 81 of 81 |
+| rate ladders inside the +1.0% BD-rate bar | 38 of 38 |
+| capped VBR cells faster than x265 at the same target bitrate, on three machines | 57 of 57 |
+| VBR rungs within ±10% of their target | 95 of 95 |
+| content-type clips passing on quality | 9 of 9 |
+<!--/gen:verdict-->
 
-A speed ratio is our wall time divided by x265's when both encoders write files of the same size. Below 1.00 means yah265 finished first. A ratio of 0.38 means we took 38% of x265's time. That's the same as running 2.6 times as fast.
+"The bar" is the pass mark a reading has to meet. [The methodology](methodology.md) sets out each bar and the rules that make a number valid. [How x265 was run](x265-run.md) has its build and the command for each goal. [Check it yourself](check-it-yourself.md) shows how to take the same readings on your own machine. The long per-cell tables are folded. Open the ones you want.
 
-Each table cell gives two ratios: the median over a group's clips and the worst clip. A group passes when its median is at or under 1.00 and its worst clip is at or under 1.15. Its quality must also hold.
+## What the numbers mean
 
+A cell is one clip at one picture size. A class is a picture size and a tier is a clip length. Cells are grouped by both.
+
+Speed is written as times faster. It's x265's encode time divided by yah265's when both write a file of the same size, so 2x faster is half the time. On every speed chart right is faster.
+
+A speed cell in a table holds the median over the group's clips and then the slowest clip. A group passes when its median is at least 1.00x and its slowest clip is at least 0.87x, as long as its quality holds too.
+
+Speed is read three ways. I call them goals. G3 is the one a user sees.
+
+<!--gen:goal-defs-->
 | goal | yah265 | x265 | threads |
 |---|---|---|---|
-| G1 | pure C | `--no-asm` | one, which x265 gets from `--pools none --frame-threads 1` |
-| G2 | pure C | `--no-asm` | each encoder's default |
-| G3 | as shipped, with NEON | as shipped, with its assembly | each encoder's default |
+| G3 | as shipped, with SIMD | as shipped, with its assembly | each encoder's default |
+| G1 | plain C (`N265_ASM_OFF=all`) | plain C (`--no-asm`) | one. x265 gets it from `--pools none --frame-threads 1` |
+| G2 | plain C | plain C | each encoder's default |
+<!--/gen:goal-defs-->
 
-yah265's pure C is the same binary with `N265_ASM_OFF=all`. x265's is the same binary with `--no-asm`.
+Plain C is the same binary on both sides with its hand-written SIMD switched off. G1 and G2 compare the algorithms alone. They're engineering checks, because x265 isn't meant to run without its assembly.
+
+Three machines were timed:
+
+- **Mac**: an Apple M5 Max with 18 cores and NEON. The reference there is the Homebrew build of x265 4.3+1-e9b8812.
+- **x86-64**: an Intel Xeon Platinum 8488C with AVX-512, rented in the cloud.
+- **Graviton4**: an AWS arm64 machine with SVE2.
+
+On the two cloud machines both encoders were held to 16 vCPUs. x265 was built there from its 4.3 release. A cloud time is only ever compared with x265 on the same machine.
+
+Each encoder looks ahead by its own `medium` default. That's 20 frames for x265. For yah265 it's 20 frames at 720p and up and 12 at CIF.
 
 ## The test set
 
-| tier | what it is |
-|---|---|
-| S, short clips | twelve standard test clips. The set has three at CIF, four at 720p, three at 1080p and two at 4K |
-| M, 2-minute segments | Chimera, Sol Levante and Meridian at 1080p and 4K. Each starts at its first non-black frame |
-| L, 10-minute excerpts | seven open films at 720p, 1080p and 4K: Tears of Steel, Meridian, StEM2, Sintel, Big Buck Bunny, Cosmos Laundromat and Nocturne. Each is cut at its last frame before the end credits |
-| C, content types | film grain, sports and screen content. Speed here doesn't count toward parity. None of it has been measured yet |
+<!--gen:test-set-->
+| tier | cells | what's in it | how it's cut |
+|---|---|---|---|
+| S, short clips | 3 at CIF, 4 at 720p, 3 at 1080p, 1 at 4K | Big Buck Bunny, bus, Ducks take off, foreman, fourpeople, Park joy, pedestrian, riverbed, shields, stefan, sunflower | each clip whole |
+| M, 2-minute segments | 1 at 1080p, 1 at 4K | Sol Levante | from the first non-black frame |
+| L, 10-minute films | 6 at 720p, 6 at 1080p, 5 at 4K | Big Buck Bunny, Cosmos Laundromat, Nocturne, Sintel, StEM2, Tears of Steel | 600 seconds past the opening card, stopped before the end credits |
+| C, content types | 1 at 720p, 7 at 1080p, 1 at 4K | 2 film grain, 4 sports, 3 screen | seven short clips and one ten-minute film scan at two sizes |
+<!--/gen:test-set-->
+
+Tiers S, M and L decide the speed verdict. Tier C adds film grain, sports and screen recordings. Its quality counts toward the verdict. Its speed is shown and doesn't count.
+
+Quality is VMAF v1, scored at display size. A picture smaller than 1080p is scaled up to fit 1920x1080 before it's scored, CIF included. [The methodology](methodology.md#scoring-quality) names the libvmaf build and the models.
 
 Both encoders read the same 8-bit 4:2:0 frames on standard input from one feeder.
 
 ## Speed
 
-Median / worst ratio in each class and tier. Lower is faster.
+<!--gen:fig-speed-->
+<figure class="chart"><img src="assets/charts/results/speed.svg" alt="As shipped, yah265 runs 1.59x to 2.13x faster than x265 on the Mac."></figure>
+<!--/gen:fig-speed-->
 
-| class | tier | G1 (C on one thread) | G2 (C on all cores) | G3 (SIMD on all cores) | verdict |
-|---|---|--:|--:|--:|---|
-| CIF | S | 0.46 / 0.48 | 0.32 / 0.35 | 0.51 / 0.57 | pass |
-| 720p | S | 0.30 / 0.43 | 0.30 / 0.33 | 0.62 / 0.65 | pass |
-| 720p | L | 0.28 / 0.32 | 0.24 / 0.31 | 0.47 / 0.56 | pass |
-| 1080p | S | 0.32 / 0.37 | 0.30 / 0.34 | 0.52 / 0.56 | pass |
-| 1080p | M | 0.35 / 0.40 | 0.33 / 0.37 | 0.59 / 0.66 | pass |
-| 1080p | L | 0.32 / 0.36 | 0.30 / 0.31 | 0.57 / 0.59 | pass |
-| 2160p | S | 0.23 / 0.25 | 0.32 / 0.35 | 0.62 / 0.63 | pass |
-| 2160p | M | 0.30 / 0.36 | 0.32 / 0.39 | 0.56 / 0.60 | pass |
-| 2160p | L | 0.30 / 0.32 | 0.35 / 0.38 | 0.58 / 0.66 | pass |
+The table has the same numbers as median / slowest clip, in times faster.
 
-All 27 combinations of class, tier and goal pass. The slowest clips are Meridian's 1080p segment and Sintel at 4K, both at 0.66 with SIMD on. G3 is the closest of the three goals. On this machine x265's assembly makes it about three times as fast as its own C.
+<!--gen:speed-mac-->
+| class | tier | G3 | G1 | G2 |
+|---|---|--:|--:|--:|
+| CIF | short clips | 1.96x / 1.75x | 2.17x / 2.08x | 3.12x / 2.86x |
+| 720p | short clips | 1.61x / 1.54x | 3.33x / 2.33x | 3.33x / 3.03x |
+| 720p | 10-minute films | 2.13x / 1.79x | 3.45x / 3.12x | 4.35x / 3.57x |
+| 1080p | short clips | 1.92x / 1.79x | 3.12x / 2.70x | 3.33x / 2.94x |
+| 1080p | 2-minute segments | 1.72x / 1.72x | 2.50x / 2.50x | 2.70x / 2.70x |
+| 1080p | 10-minute films | 1.75x / 1.69x | 3.03x / 2.78x | 3.33x / 3.23x |
+| 4K | short clips | 1.59x / 1.59x | 4.00x / 4.00x | 2.86x / 2.86x |
+| 4K | 2-minute segments | 1.67x / 1.67x | 2.78x / 2.78x | 2.56x / 2.56x |
+| 4K | 10-minute films | 1.79x / 1.52x | 3.23x / 3.12x | 2.78x / 2.63x |
+<!--/gen:speed-mac-->
 
-Four Meridian cells are left out of the count. Their feeder couldn't deliver frames 1.5 times as fast as the faster encoder ran. By rule, that makes the ratio void. They are the 4K segment at G3, the 720p film at G3, and the 1080p film at G2 and G3. The other cells in each row make up its median.
+G3 is the closest of the three goals. On these clips x265's assembly gains more over its plain C than yah265's SIMD gains over ours.
 
-### Each ten-minute film
+On the 2-minute and 10-minute cells, G1 and G2 are timed on 30-second windows. A window starts every three minutes and is coded as its own stream.
 
-Each film runs from its start frame to its last story frame.
+## Each ten-minute film
 
-| cell | last story frame | G1 | G2 | G3 |
+<figure class="chart"><img src="assets/blog/films.svg" alt="Paired bars of encode time per ten-minute film at 1080p and at 4K. On every film the yah265 bar is the shorter one."></figure>
+
+Each film runs from its start frame to its last story frame. The table has the Mac's speed for each film at each goal, in times faster.
+
+<details class="data" markdown="1">
+<summary>Each film at each goal</summary>
+
+<!--gen:films-->
+| film | last story frame | G3 | G1 | G2 |
 |---|--:|--:|--:|--:|
-| tears_720p | 12671 | 0.28 | 0.23 | 0.47 |
-| tears_1080p | 12671 | 0.33 | 0.30 | 0.58 |
-| tears_2160p | 12671 | 0.30 | 0.34 | 0.55 |
-| meridian_720p | 32886 | 0.18 | 0.31 | void |
-| meridian_1080p | 32886 | 0.19 | void | void |
-| meridian_2160p | 32886 | 0.19 | 0.32 | 0.64 |
-| stem2_720p | 12939 | 0.28 | 0.22 | 0.45 |
-| stem2_1080p | 12939 | 0.32 | 0.29 | 0.56 |
-| stem2_2160p | 12939 | 0.32 | 0.36 | 0.56 |
-| sintel_720p | 13177 | 0.29 | 0.24 | 0.47 |
-| sintel_1080p | 13177 | 0.31 | 0.31 | 0.58 |
-| sintel_2160p | 13177 | 0.32 | 0.38 | 0.66 |
-| bbb_720p | 13928 | 0.29 | 0.28 | 0.56 |
-| bbb_1080p | 13928 | 0.33 | 0.31 | 0.59 |
-| bbb_2160p | 13928 | 0.31 | 0.37 | 0.60 |
-| cosmos_720p | 13723 | 0.32 | 0.22 | 0.48 |
-| cosmos_1080p | 13723 | 0.36 | 0.30 | 0.55 |
-| nocturne_720p | 34319 | 0.23 | 0.27 | 0.56 |
-| nocturne_1080p | 34319 | 0.28 | 0.29 | 0.56 |
-| nocturne_2160p | 34319 | 0.28 | 0.29 | 0.48 |
+| Tears of Steel 720p | 12671 | 2.13x | 3.57x | 4.35x |
+| Tears of Steel 1080p | 12671 | 1.72x | 3.03x | 3.33x |
+| Tears of Steel 4K | 12671 | 1.82x | 3.33x | 2.94x |
+| StEM2 720p | 12939 | 2.22x | 3.57x | 4.55x |
+| StEM2 1080p | 12939 | 1.79x | 3.12x | 3.45x |
+| StEM2 4K | 12939 | 1.79x | 3.12x | 2.78x |
+| Sintel 720p | 13177 | 2.13x | 3.45x | 4.17x |
+| Sintel 1080p | 13177 | 1.72x | 3.23x | 3.23x |
+| Sintel 4K | 13177 | 1.52x | 3.12x | 2.63x |
+| Big Buck Bunny 720p | 13928 | 1.79x | 3.45x | 3.57x |
+| Big Buck Bunny 1080p | 13928 | 1.69x | 3.03x | 3.23x |
+| Big Buck Bunny 4K | 13928 | 1.67x | 3.23x | 2.70x |
+| Cosmos Laundromat 720p | 13723 | 2.08x | 3.12x | 4.55x |
+| Cosmos Laundromat 1080p | 13723 | 1.82x | 2.78x | 3.33x |
+| Nocturne 720p | 34319 | 1.79x | 4.35x | 3.70x |
+| Nocturne 1080p | 34319 | 1.79x | 3.57x | 3.45x |
+| Nocturne 4K | 34319 | 2.08x | 3.57x | 3.45x |
+<!--/gen:films-->
 
-On the 2-minute and 10-minute cells, G1 and G2 are timed on 30-second windows. A window starts every three minutes and is coded as its own stream. On every cell our summed window bytes come within 0.7% of x265's. The rule allows 5%.
+</details>
+
+## By machine
+
+<!--gen:fig-machines-->
+<figure class="chart"><img src="assets/charts/results/machines.svg" alt="On all three machines every group's median is at least 1.25x faster."></figure>
+<!--/gen:fig-machines-->
+
+The same medians from each machine's slowest group to its fastest:
+
+<!--gen:goal-table-->
+| goal | Apple M5 Max (NEON) | Xeon 8488C (AVX-512) | Graviton4 (SVE2) |
+|---|--:|--:|--:|
+| G3: as shipped, SIMD on all cores | 1.59x to 2.13x | 1.25x to 2.33x | 1.39x to 3.03x |
+| G1: algorithm only, plain C on one thread | 2.17x to 4.00x | 1.49x to 2.94x | 1.52x to 2.94x |
+| G2: algorithm only, plain C on all cores | 2.56x to 4.35x | 2.22x to 4.76x | 2.08x to 4.35x |
+<!--/gen:goal-table-->
+
+The next three tables give median / slowest clip for each goal.
+
+G3, SIMD on all cores:
+
+<!--gen:machines-g3-->
+| class | tier | Mac | x86-64 | x86-64 against x265 at `--asm avx512` | Graviton4 |
+|---|---|--:|--:|--:|--:|
+| CIF | short clips | 1.96x / 1.75x | 1.43x / 1.22x | 1.43x / 1.19x | 1.82x / 1.52x |
+| 720p | short clips | 1.61x / 1.54x | 1.67x / 1.33x | 1.61x / 1.30x | 2.08x / 1.75x |
+| 720p | 10-minute films | 2.13x / 1.79x | 1.89x / 1.79x | 1.82x / 1.75x | 2.33x / 2.17x |
+| 1080p | short clips | 1.92x / 1.79x | 1.35x / 1.25x | 1.30x / 1.20x | 1.47x / 1.41x |
+| 1080p | 2-minute segments | 1.72x / 1.72x | 1.25x / 1.25x | 1.22x / 1.22x | 1.39x / 1.39x |
+| 1080p | 10-minute films | 1.75x / 1.69x | 1.45x / 1.41x | 1.43x / 1.37x | 1.67x / 1.56x |
+| 4K | short clips | 1.59x / 1.59x | 2.33x / 2.33x | 2.27x / 2.27x | 3.03x / 3.03x |
+| 4K | 2-minute segments | 1.67x / 1.67x | 1.49x / 1.49x | 1.45x / 1.45x | 1.59x / 1.59x |
+| 4K | 10-minute films | 1.79x / 1.52x | 1.67x / 1.61x | 1.64x / 1.59x | 2.04x / 1.85x |
+<!--/gen:machines-g3-->
+
+On the Xeon x265 reports AVX2 as the highest instruction set it uses by default. The fifth column times it again at `--asm avx512`.
+
+<details class="data" markdown="1">
+<summary>G1 and G2 on each machine</summary>
+
+G1, plain C on one thread:
+
+<!--gen:machines-g1-->
+| class | tier | Mac | x86-64 | Graviton4 |
+|---|---|--:|--:|--:|
+| CIF | short clips | 2.17x / 2.08x | 1.49x / 1.49x | 1.52x / 1.47x |
+| 720p | short clips | 3.33x / 2.33x | 2.27x / 1.64x | 2.33x / 1.69x |
+| 720p | 10-minute films | 3.45x / 3.12x | 2.38x / 2.33x | 2.33x / 2.22x |
+| 1080p | short clips | 3.12x / 2.70x | 2.22x / 1.89x | 2.22x / 1.82x |
+| 1080p | 2-minute segments | 2.50x / 2.50x | 1.89x / 1.89x | 1.85x / 1.85x |
+| 1080p | 10-minute films | 3.03x / 2.78x | 2.13x / 2.04x | 2.08x / 1.96x |
+| 4K | short clips | 4.00x / 4.00x | 2.94x / 2.94x | 2.94x / 2.94x |
+| 4K | 2-minute segments | 2.78x / 2.78x | 2.13x / 2.13x | 2.04x / 2.04x |
+| 4K | 10-minute films | 3.23x / 3.12x | 2.33x / 2.22x | 2.22x / 2.13x |
+<!--/gen:machines-g1-->
+
+G2, plain C on all cores:
+
+<!--gen:machines-g2-->
+| class | tier | Mac | x86-64 | Graviton4 |
+|---|---|--:|--:|--:|
+| CIF | short clips | 3.12x / 2.86x | 2.27x / 2.04x | 2.50x / 2.22x |
+| 720p | short clips | 3.33x / 3.03x | 3.57x / 2.63x | 3.85x / 2.94x |
+| 720p | 10-minute films | 4.35x / 3.57x | 3.70x / 3.45x | 4.00x / 3.57x |
+| 1080p | short clips | 3.33x / 2.94x | 2.63x / 2.33x | 2.38x / 2.17x |
+| 1080p | 2-minute segments | 2.70x / 2.70x | 2.22x / 2.22x | 2.08x / 2.08x |
+| 1080p | 10-minute films | 3.33x / 3.23x | 2.70x / 2.56x | 2.56x / 2.44x |
+| 4K | short clips | 2.86x / 2.86x | 4.76x / 4.76x | 4.35x / 4.35x |
+| 4K | 2-minute segments | 2.56x / 2.56x | 2.56x / 2.56x | 2.22x / 2.22x |
+| 4K | 10-minute films | 2.78x / 2.63x | 3.12x / 3.03x | 3.03x / 2.78x |
+<!--/gen:machines-g2-->
+
+</details>
+
+Graviton3 has 256-bit SVE. It ran the short clips at G3.
+
+<details class="data" markdown="1">
+<summary>Graviton3, short clips at G3</summary>
+
+<!--gen:graviton3-->
+| class | Graviton3 | clips |
+|---|--:|--:|
+| CIF | 1.89x / 1.67x | 2 |
+| 720p | 2.27x / 1.85x | 4 |
+| 1080p | 1.61x / 1.52x | 3 |
+| 4K | 2.94x / 2.94x | 1 |
+<!--/gen:graviton3-->
+
+</details>
+
+The Xeon also ran the short clips at G3 with both encoders capped to one older instruction set, to stand in for a CPU that has no AVX-512.
+
+<!--gen:capped-->
+| class | both at SSE4.2 | both at AVX2 | yah265 at AVX-512, x265 at AVX2 | clips |
+|---|--:|--:|--:|--:|
+| CIF | 1.56x / 1.33x | 1.35x / 1.14x | 1.43x / 1.20x | 3 |
+| 720p | 2.00x / 1.54x | 1.56x / 1.25x | 1.69x / 1.33x | 4 |
+| 1080p | 1.45x / 1.30x | 1.18x / 1.09x | 1.35x / 1.25x | 3 |
+| 4K | 2.22x / 2.22x | 2.00x / 2.00x | 2.08x / 2.08x | 1 |
+<!--/gen:capped-->
+
+AVX2 against AVX2 is the closest pairing on the page. Both capped tiers write the same streams as the uncapped build, so their quality is the next section's. [Architectures](architectures.md) explains the tiers and how each is checked. The per-machine detail is in <!--gen:report-x86-->[the x86-64 report](docs/parity/PARITY-REPORT-yah265-x86-2026-11-13.md)<!--/gen:report-x86--> and <!--gen:report-g4-->[the Graviton report](docs/parity/PARITY-REPORT-yah265-graviton-2026-11-13.md)<!--/gen:report-g4-->.
 
 ## Quality at the same size
 
-The VMAF v1 difference at the matched file size, ours minus x265's. Positive means yah265 looks better. The worst cell is the one with the smallest lead.
+<!--gen:fig-quality-->
+<figure class="chart"><img src="assets/charts/results/quality.svg" alt="yah265 scores higher than x265 at the same file size in every class and tier."></figure>
+<!--/gen:fig-quality-->
 
-| class | tier | median | worst | worst cell |
+The chart and table show the VMAF v1 score at the matched file size, yah265's minus x265's. A positive number means yah265 scores higher on VMAF v1 at the same size. The bar is a median no worse than -0.5 with no single cell more than 1.0 behind. Every cell's size is within 1% of x265's.
+
+<!--gen:quality-->
+| class | tier | median | smallest lead | on |
 |---|---|--:|--:|---|
-| CIF | S | +2.33 | +0.56 | stefan_cif |
-| 720p | S | +2.39 | +0.86 | shields_720p |
-| 720p | L | +1.67 | +0.61 | bbb_720p |
-| 1080p | S | +0.61 | -0.05 | sunflower_1080p |
-| 1080p | M | +1.96 | +0.63 | chimera_1080p |
-| 1080p | L | +1.08 | +0.70 | bbb_1080p |
-| 2160p | S | +1.86 | +1.22 | bbb_2160p |
-| 2160p | M | +1.40 | +0.06 | chimera_2160p |
-| 2160p | L | +1.18 | +0.44 | bbb_2160p |
+| CIF | short clips | +2.33 | +0.56 | stefan CIF |
+| 720p | short clips | +2.39 | +0.86 | shields 720p |
+| 720p | 10-minute films | +1.54 | +0.61 | Big Buck Bunny 720p |
+| 1080p | short clips | +0.61 | -0.05 | sunflower 1080p |
+| 1080p | 2-minute segments | +1.96 | +1.96 | Sol Levante 1080p |
+| 1080p | 10-minute films | +1.08 | +0.70 | Big Buck Bunny 1080p |
+| 4K | short clips | +1.22 | +1.22 | Big Buck Bunny 4K |
+| 4K | 2-minute segments | +1.72 | +1.72 | Sol Levante 4K |
+| 4K | 10-minute films | +1.18 | +0.44 | Big Buck Bunny 4K |
+<!--/gen:quality-->
 
-The bar is a median no worse than -0.5 with no single cell more than 1.0 behind. sunflower_1080p is the only cell behind x265 at all, by 0.05. Every cell also stays within 1.0 dB of x265 on PSNR-Y and within 1% of its file size.
+The scores were measured on the Mac. Graviton4 gets the Mac's quality because it writes the Mac's streams byte for byte. The one exception is Nocturne at 4K, where the cloud feeder decoded the source differently.
+
+The Xeon's streams differ a little because the compiler rounds some floating-point math differently there. Some ladders were run again on the Xeon to see how far that moves a curve:
+
+<details class="data" markdown="1">
+<summary>Ladders run again on the Xeon</summary>
+
+<!--gen:quality-xeon-->
+| ladder run again on the Xeon | mode | BD-rate points from the Mac's curve |
+|---|---|--:|
+| Sol Levante 1080p, 2-minute segments | CRF | -0.03 |
+| Cosmos Laundromat 1080p, 10-minute films | CRF | -0.03 |
+| Cosmos Laundromat 1080p, 10-minute films | VBR | +0.01 |
+<!--/gen:quality-xeon-->
+
+</details>
+
+The Xeon's other rows rest on those curves and on the SIMD code matching the C code bit for bit.
+
+## Side by side at the same size
+
+A score is one way to compare two encodes. Looking at them is the other. The clip is 90 seconds of Tears of Steel at 1080p, from the middle of the story. Both encoders ran at `medium` and wrote files of the same size. Switch between the reference and the two encodes.
+
+<!--gen:fig-frames-->
+<figure class="compare">
+<div class="cmp">
+<div class="cmp-head"><p class="cmp-title">The hardest moment, 0:29 into the clip<span>VMAF v1 on this frame: yah265 88.3, x265 84.4. The crop is shown at 4x.</span></p><div class="cmp-where"><img loading="lazy" decoding="async" width="640" height="286" src="assets/frames/tears-701-frame.webp" alt="The whole frame, with the cropped window outlined."><i style="left:80.00%;top:5.59%;width:10.83%;height:13.05%"></i></div></div>
+<div class="cmp-pane" data-name="Reference"><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-701-reference.webp" alt="The reference frame, cropped."><span class="cmp-tag">Reference · 4x zoom</span></div>
+<div class="cmp-pane" data-name="yah265" data-first><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-701-yah265.webp" alt="The same crop from yah265's encode."><span class="cmp-tag ours"><b>yah265</b> · VMAF v1 88.3 on this frame · 15.95 MB file · 4x zoom</span></div>
+<div class="cmp-pane" data-name="x265"><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-701-x265.webp" alt="The same crop from x265's encode."><span class="cmp-tag"><b>x265</b> · VMAF v1 84.4 on this frame · 15.88 MB file · 4x zoom</span></div>
+</div>
+<div class="cmp">
+<div class="cmp-head"><p class="cmp-title">The second hardest moment, 0:37 into the clip<span>VMAF v1 on this frame: yah265 87.4, x265 85.5. The crop is shown at 4x.</span></p><div class="cmp-where"><img loading="lazy" decoding="async" width="640" height="286" src="assets/frames/tears-902-frame.webp" alt="The whole frame, with the cropped window outlined."><i style="left:40.83%;top:26.11%;width:10.83%;height:13.05%"></i></div></div>
+<div class="cmp-pane" data-name="Reference"><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-902-reference.webp" alt="The reference frame, cropped."><span class="cmp-tag">Reference · 4x zoom</span></div>
+<div class="cmp-pane" data-name="yah265" data-first><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-902-yah265.webp" alt="The same crop from yah265's encode."><span class="cmp-tag ours"><b>yah265</b> · VMAF v1 87.4 on this frame · 15.95 MB file · 4x zoom</span></div>
+<div class="cmp-pane" data-name="x265"><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-902-x265.webp" alt="The same crop from x265's encode."><span class="cmp-tag"><b>x265</b> · VMAF v1 85.5 on this frame · 15.88 MB file · 4x zoom</span></div>
+</div>
+<div class="cmp">
+<div class="cmp-head"><p class="cmp-title">The third hardest moment, 0:48 into the clip<span>VMAF v1 on this frame: yah265 87.4, x265 86.3. The crop is shown at 4x.</span></p><div class="cmp-where"><img loading="lazy" decoding="async" width="640" height="286" src="assets/frames/tears-1153-frame.webp" alt="The whole frame, with the cropped window outlined."><i style="left:3.33%;top:0.00%;width:10.83%;height:13.05%"></i></div></div>
+<div class="cmp-pane" data-name="Reference"><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-1153-reference.webp" alt="The reference frame, cropped."><span class="cmp-tag">Reference · 4x zoom</span></div>
+<div class="cmp-pane" data-name="yah265" data-first><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-1153-yah265.webp" alt="The same crop from yah265's encode."><span class="cmp-tag ours"><b>yah265</b> · VMAF v1 87.4 on this frame · 15.95 MB file · 4x zoom</span></div>
+<div class="cmp-pane" data-name="x265"><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-1153-x265.webp" alt="The same crop from x265's encode."><span class="cmp-tag"><b>x265</b> · VMAF v1 86.3 on this frame · 15.88 MB file · 4x zoom</span></div>
+</div>
+<figcaption>These are the three hardest moments of the clip. Each is the frame where the two encoders' mean VMAF v1 is lowest in one of the three lowest-scoring shots, cropped to the region where the two encodes lose detail most differently. yah265 keeps more of the texture in the first crop. x265 keeps the eyebrows sharper in the second. The third is close. <code>scripts/frame_crops.sh</code> makes the crops. Tears of Steel: (CC) Blender Foundation, <a href="https://mango.blender.org">mango.blender.org</a>, CC-BY 3.0.</figcaption>
+</figure>
+<!--/gen:fig-frames-->
+
+Nobody picked these frames by eye. A script scored every frame by the mean of the two encoders' VMAF v1 and took the lowest frame from each of the three lowest-scoring shots. In each frame it measured both encodes against the reference block by block and cropped the window where their losses differ most. That rule doesn't know which encode is ahead. The reference is a near-transparent copy of the source.
+
+## The worst frames
+
+An average can hide a bad stretch, so this section looks at the low end of the same Tears of Steel clip. The chart follows it frame by frame.
+
+<!--trust:fig-trace-->
+<figure class="chart"><img src="assets/charts/trust/tail-trace.svg" alt="Line chart of VMAF v1 for every frame of a 90-second clip, one line per encoder. The yah265 line is above the x265 line in most of the low stretches."></figure>
+<!--/trust:fig-trace-->
+
+<!--trust:tears-table-->
+| VMAF v1 over | yah265 | x265 | yah265's lead |
+|---|--:|--:|--:|
+| all 2160 frames | 93.57 | 92.91 | +0.66 |
+| worst 5% of frames (108 frames) | 88.44 | 86.43 | +2.02 |
+| lowest frame | 86.97 | 83.83 | +3.14 |
+| file size | 15.95 MB | 15.88 MB | +0.4% |
+<!--/trust:tears-table-->
+
+Both files came from ffmpeg at `medium`, with <!--trust:tears-crfs-->`-crf 25` for yah265 and `-crf 25.3` for x265<!--/trust:tears-crfs-->. Every frame was scored. yah265's lead on the worst twentieth of the frames is wider than its lead on the average.
+
+Each parity cell records one tail figure, the score of its lowest frame. The table sets the lead there beside the lead on the mean, for the short clips and the two-minute segments.
+
+<!--trust:low-table-->
+| size | cells | median lead, all frames | median lead, lowest frame | cells ahead on their lowest frame |
+|---|--:|--:|--:|--:|
+| CIF | 3 | +2.33 | -1.53 | 1 of 3 |
+| 720p | 4 | +2.39 | +2.17 | 4 of 4 |
+| 1080p | 4 | +1.28 | +2.24 | 3 of 4 |
+| 4K | 2 | +1.47 | +3.14 | 2 of 2 |
+| **all** | **13** | **+1.96** | **+2.10** | 10 of 13 |
+<!--/trust:low-table-->
+
+At CIF yah265's lowest frame is behind x265's on two of the three clips, although its mean is ahead on all three. The ten-minute films have no row because their runs didn't keep a lowest frame.
 
 ## Quality across the rate range
 
-Because one matched point says little about the rest of the curve, every 2-minute and 10-minute cell also runs a five-rung ladder on both encoders. BD-rate turns two rate-quality curves into one number: the share of bitrate yah265 needs to change to match x265's quality. Negative means yah265 needs fewer bits. The bar is +1.0% on every curve.
+One matched point says little about the rest of the curve. So every 2-minute and 10-minute cell also runs a ladder. A ladder is the same clip coded at five quality settings on both encoders.
 
-CRF rungs are 20, 23, 26, 29 and 32 on both sides. VBR rungs target x265's achieved bitrates at those CRFs. Each VBR rung sets the maxrate to 1.5 times the target and the buffer to twice the target. Both encoders run at 6 threads and look 20 frames ahead.
+<!--gen:fig-curves-->
+<figure class="chart"><img src="assets/charts/results/curves.svg" alt="yah265 needs fewer bits than x265 on 19 of 19 real-title cells at CRF."></figure>
+<!--/gen:fig-curves-->
 
+BD-rate turns each pair of curves into one number: how much more or less bitrate yah265 needs for the same VMAF v1 score. Negative means fewer bits. The bar is +1.0% on every curve.
+
+<figure class="chart"><img src="assets/blog/bdrate.svg" alt="Dot plot of BD-rate against x265 on VMAF v1 for every real-title cell at CRF and capped VBR. Every dot sits left of the bar."></figure>
+
+<!--gen:bd-summary-->
+| over the ladders | value |
+|---|--:|
+| median BD-rate, CRF | -12.0% |
+| median BD-rate, capped VBR | -9.1% |
+| median BD-rate, both | -10.2% |
+| ladders where yah265 needs fewer bits | 38 of 38 |
+| closest to the bar: Nocturne 720p, 10-minute films, VBR | -0.4% |
+<!--/gen:bd-summary-->
+
+Each ladder is set up the same way:
+
+- CRF rungs: 20, 23, 26, 29 and 32 on both sides.
+- VBR rungs: the bitrate x265 reached at each of those CRFs. The maxrate is 1.5 times the target and the buffer is twice the target.
+- Both encoders run at 6 threads and look 20 frames ahead.
+
+<details class="data" markdown="1">
+<summary>BD-rate of every ladder</summary>
+
+<!--gen:bd-->
 | cell | tier | CRF BD-rate | VBR BD-rate |
 |---|---|--:|--:|
-| chimera_1080p | M | -6.07% | -4.83% |
-| sollevante_1080p | M | -14.35% | -9.67% |
-| meridian_1080p | M | -28.69% | -27.64% |
-| chimera_2160p | M | -0.29% | +0.70% |
-| sollevante_2160p | M | -12.18% | -6.97% |
-| meridian_2160p | M | -16.89% | -15.33% |
-| tears_720p | L | -7.23% | -4.01% |
-| tears_1080p | L | -12.58% | -10.34% |
-| tears_2160p | L | -13.31% | -14.01% |
-| meridian_720p | L | -11.15% | -5.53% |
-| meridian_1080p | L | -16.62% | -15.88% |
-| meridian_2160p | L | -13.66% | -10.70% |
-| stem2_720p | L | -13.83% | -7.64% |
-| stem2_1080p | L | -17.97% | -13.81% |
-| stem2_2160p | L | -12.55% | -9.12% |
-| sintel_720p | L | -12.00% | -7.97% |
-| sintel_1080p | L | -10.02% | -12.44% |
-| sintel_2160p | L | -16.81% | -13.31% |
-| bbb_720p | L | -5.25% | -0.42% |
-| bbb_1080p | L | -9.04% | -6.89% |
-| bbb_2160p | L | -4.94% | -4.59% |
-| cosmos_720p | L | -15.30% | -14.13% |
-| cosmos_1080p | L | -11.32% | -11.82% |
-| nocturne_720p | L | -6.27% | -0.41% |
-| nocturne_1080p | L | -8.31% | -6.88% |
-| nocturne_2160p | L | -10.04% | -15.47% |
+| Sol Levante 1080p | 2-minute segments | -14.3% | -9.7% |
+| Sol Levante 4K | 2-minute segments | -12.2% | -7.0% |
+| Tears of Steel 720p | 10-minute films | -7.2% | -4.0% |
+| Tears of Steel 1080p | 10-minute films | -12.6% | -10.3% |
+| Tears of Steel 4K | 10-minute films | -13.3% | -14.0% |
+| StEM2 720p | 10-minute films | -13.8% | -7.6% |
+| StEM2 1080p | 10-minute films | -18.0% | -13.8% |
+| StEM2 4K | 10-minute films | -12.5% | -9.1% |
+| Sintel 720p | 10-minute films | -12.0% | -8.0% |
+| Sintel 1080p | 10-minute films | -10.0% | -12.4% |
+| Sintel 4K | 10-minute films | -16.8% | -13.3% |
+| Big Buck Bunny 720p | 10-minute films | -5.3% | -0.4% |
+| Big Buck Bunny 1080p | 10-minute films | -9.0% | -6.9% |
+| Big Buck Bunny 4K | 10-minute films | -4.9% | -4.6% |
+| Cosmos Laundromat 720p | 10-minute films | -15.3% | -14.1% |
+| Cosmos Laundromat 1080p | 10-minute films | -11.3% | -11.8% |
+| Nocturne 720p | 10-minute films | -6.3% | -0.4% |
+| Nocturne 1080p | 10-minute films | -8.3% | -6.9% |
+| Nocturne 4K | 10-minute films | -10.0% | -15.5% |
+<!--/gen:bd-->
 
-All 52 curves pass. The median is -10.9%. yah265 is ahead of x265 on 51 of them. The closest to the bar is Chimera at 4K under VBR, at +0.70%.
+</details>
 
-### VBR rate tracking
+## VBR
 
-Each VBR rung's achieved bitrate, against its target, over the whole cell. yah265's bar is ±10% on every rung. x265's column is there for comparison and isn't held to any bar.
+VBR has to hit its bitrate as well as look good. The bar puts every rung of yah265's within ±10% of its target over the whole cell. x265's rungs are drawn for comparison and aren't held to the bar.
 
-| cell | tier | ours, five rungs | x265, five rungs |
-|---|---|---|---|
-| chimera_1080p | M | -5.2% to -3.0% | -14.6% to -14.2% |
-| sollevante_1080p | M | -4.6% to -3.2% | -7.9% to -6.2% |
-| meridian_1080p | M | -4.5% to -2.8% | -5.7% to -2.6% |
-| chimera_2160p | M | -5.2% to -3.6% | -14.4% to -13.7% |
-| sollevante_2160p | M | -6.1% to -3.8% | -8.2% to -7.6% |
-| meridian_2160p | M | -3.5% to -1.4% | -5.8% to -1.6% |
-| tears_720p | L | +0.0% to +0.2% | +1.5% to +1.6% |
-| tears_1080p | L | +0.2% to +0.5% | +1.6% to +1.7% |
-| tears_2160p | L | +0.0% to +0.4% | +0.4% to +1.6% |
-| meridian_720p | L | -2.5% to -2.1% | -3.5% to -1.3% |
-| meridian_1080p | L | -2.2% to -1.9% | -3.2% to -2.3% |
-| meridian_2160p | L | -1.7% to -1.5% | -3.7% to -3.2% |
-| stem2_720p | L | -5.8% to -4.4% | -10.3% to -8.1% |
-| stem2_1080p | L | -6.4% to -4.3% | -11.2% to -5.7% |
-| stem2_2160p | L | -5.6% to -4.1% | -12.0% to -3.8% |
-| sintel_720p | L | -7.7% to -6.3% | -3.4% to -3.3% |
-| sintel_1080p | L | -5.8% to -4.2% | -3.1% to -2.8% |
-| sintel_2160p | L | -2.7% to -1.1% | -2.2% to -2.1% |
-| bbb_720p | L | -1.3% to -0.9% | -3.5% to -2.2% |
-| bbb_1080p | L | -1.1% to -0.9% | -4.1% to -3.5% |
-| bbb_2160p | L | -0.9% to -0.8% | -4.1% to -3.9% |
-| cosmos_720p | L | -2.7% to -1.8% | -0.4% to -0.1% |
-| cosmos_1080p | L | -2.9% to -2.4% | -0.8% to -0.6% |
-| nocturne_720p | L | -1.3% to -0.6% | +1.3% to +4.4% |
-| nocturne_1080p | L | -1.6% to -0.6% | -0.8% to +3.4% |
-| nocturne_2160p | L | -1.4% to -0.6% | -0.9% to +1.8% |
+<!--gen:fig-tracking-->
+<figure class="chart"><img src="assets/charts/results/tracking.svg" alt="All 95 of yah265's VBR rungs come within 10% of their target."></figure>
+<!--/gen:fig-tracking-->
 
-All 130 of yah265's rungs come in between -7.7% and +0.5% of their targets.
+<details class="data" markdown="1">
+<summary>VBR rate against target, every cell</summary>
 
-### Lookahead depth
+<!--gen:vbr-track-->
+| cell | tier | yah265, five rungs | x265, five rungs |
+|---|---|--:|--:|
+| Sol Levante 1080p | 2-minute segments | -4.6% to -3.2% | -7.9% to -6.2% |
+| Sol Levante 4K | 2-minute segments | -6.1% to -3.8% | -8.2% to -7.6% |
+| Tears of Steel 720p | 10-minute films | +0.0% to +0.2% | +1.5% to +1.6% |
+| Tears of Steel 1080p | 10-minute films | +0.2% to +0.5% | +1.6% to +1.7% |
+| Tears of Steel 4K | 10-minute films | +0.0% to +0.4% | +0.4% to +1.6% |
+| StEM2 720p | 10-minute films | -5.8% to -4.4% | -10.3% to -8.1% |
+| StEM2 1080p | 10-minute films | -6.4% to -4.3% | -11.2% to -5.7% |
+| StEM2 4K | 10-minute films | -5.6% to -4.1% | -12.0% to -3.8% |
+| Sintel 720p | 10-minute films | -7.7% to -6.3% | -3.4% to -3.3% |
+| Sintel 1080p | 10-minute films | -5.8% to -4.2% | -3.1% to -2.8% |
+| Sintel 4K | 10-minute films | -2.7% to -1.1% | -2.2% to -2.1% |
+| Big Buck Bunny 720p | 10-minute films | -1.3% to -0.9% | -3.5% to -2.2% |
+| Big Buck Bunny 1080p | 10-minute films | -1.1% to -0.9% | -4.1% to -3.5% |
+| Big Buck Bunny 4K | 10-minute films | -0.9% to -0.8% | -4.1% to -3.9% |
+| Cosmos Laundromat 720p | 10-minute films | -2.7% to -1.8% | -0.4% to -0.1% |
+| Cosmos Laundromat 1080p | 10-minute films | -2.9% to -2.4% | -0.8% to -0.6% |
+| Nocturne 720p | 10-minute films | -1.3% to -0.6% | +1.3% to +4.4% |
+| Nocturne 1080p | 10-minute films | -1.6% to -0.6% | -0.8% to +3.4% |
+| Nocturne 4K | 10-minute films | -1.4% to -0.6% | -0.9% to +1.8% |
+<!--/gen:vbr-track-->
 
-The lookahead's depth was swept on six cells. Ours ran at 12, 20 and 30 frames, and x265 stayed at its own 20 throughout. The table gives BD-rate on VMAF v1.
+</details>
 
-| cell | mode | ours 12 | ours 20 | ours 30 |
-|---|---|--:|--:|--:|
-| chimera_2160p (M) | CRF | +0.28% | -0.29% | -0.27% |
-| sollevante_1080p (M) | CRF | -13.76% | -14.35% | -14.41% |
-| meridian_2160p (M) | CRF | -15.19% | -16.89% | -16.74% |
-| tears_1080p (L) | CRF | -11.43% | -12.58% | -12.86% |
-| bbb_1080p (L) | CRF | -5.68% | -9.04% | -10.21% |
-| sintel_2160p (L) | CRF | -15.61% | -16.81% | -16.91% |
-| chimera_2160p (M) | VBR | +0.61% | +0.70% | +0.68% |
-| sollevante_1080p (M) | VBR | -8.90% | -9.67% | -9.70% |
-| meridian_2160p (M) | VBR | -13.72% | -15.33% | -15.33% |
-| tears_1080p (L) | VBR | -9.60% | -10.34% | -10.55% |
-| bbb_1080p (L) | VBR | -4.28% | -6.89% | -7.35% |
-| sintel_2160p (L) | VBR | -13.52% | -13.31% | -13.43% |
+### VBR encode time
 
-20 is `medium`'s depth from 720p up. Thirty frames gains 1.2 points on Big Buck Bunny at CRF. Elsewhere it moves half a point or less. An earlier sweep from 8 to 40 frames on the development set put the knee at 20. Past that point a deeper window costs more time than it buys.
+VBR speed is read at G3 only. Each real-title cell runs one rung at the bitrate x265 reached at CRF 28. The maxrate and buffer are set as in the ladders. These timings are outside the headline, because the two encoders share a target bitrate here and their files aren't matched in size. The second table shows how close each encoder came to the target.
 
-## VBR speed
-
-The VBR wall counts toward the bar at G3 only. Each 2-minute and 10-minute cell runs one rung at x265's CRF 28 bitrate with the maxrate at 1.5 times that target and the buffer at twice it. Because there's no size match here, the table shows both achieved rates.
-
-| cell | tier | target kbit/s | ratio | ours vs target | x265 vs target |
+<!--gen:vbr-machines-->
+| class | tier | Mac | x86-64 | Graviton4 | cells |
 |---|---|--:|--:|--:|--:|
-| chimera_1080p | M | 1668 | 0.63 | -4.1% | -14.5% |
-| sollevante_1080p | M | 7863 | 0.59 | -3.8% | -7.1% |
-| meridian_1080p | M | 318 | 0.68 | -4.0% | -5.4% |
-| chimera_2160p | M | 4515 | 0.60 | -5.1% | -14.5% |
-| sollevante_2160p | M | 20733 | 0.66 | -4.0% | -8.2% |
-| meridian_2160p | M | 949 | 0.64 | -3.0% | -4.3% |
-| tears_720p | L | 628 | 0.38 | +0.1% | +1.6% |
-| tears_1080p | L | 1279 | 0.61 | +0.4% | +1.6% |
-| tears_2160p | L | 3389 | 0.64 | +0.2% | +1.4% |
-| meridian_720p | L | 205 | 0.76 | -2.4% | -2.6% |
-| meridian_1080p | L | 438 | 0.85 | -2.2% | -3.0% |
-| meridian_2160p | L | 1326 | 0.65 | -1.6% | -3.2% |
-| stem2_720p | L | 567 | 0.42 | -5.1% | -10.3% |
-| stem2_1080p | L | 1145 | 0.59 | -5.8% | -11.2% |
-| stem2_2160p | L | 2964 | 0.61 | -5.2% | -9.9% |
-| sintel_720p | L | 523 | 0.42 | -7.3% | -3.4% |
-| sintel_1080p | L | 1113 | 0.64 | -5.3% | -3.0% |
-| sintel_2160p | L | 4329 | 0.75 | -1.6% | -2.1% |
-| bbb_720p | L | 620 | 0.54 | -1.2% | -2.8% |
-| bbb_1080p | L | 1365 | 0.73 | -1.1% | -3.9% |
-| bbb_2160p | L | 3453 | 0.68 | -0.9% | -4.1% |
-| cosmos_720p | L | 734 | 0.39 | -2.3% | -0.4% |
-| cosmos_1080p | L | 1407 | 0.61 | -2.8% | -0.8% |
-| nocturne_720p | L | 1022 | 0.47 | -0.8% | +4.2% |
-| nocturne_1080p | L | 2198 | 0.58 | -1.1% | +2.6% |
-| nocturne_2160p | L | 9142 | 0.49 | -1.4% | -0.6% |
+| 720p | 10-minute films | 2.38x / 1.85x | 2.00x / 1.72x | 2.50x / 2.00x | 6 |
+| 1080p | 2-minute segments | 1.69x / 1.69x | 1.23x / 1.23x | 1.39x / 1.39x | 1 |
+| 1080p | 10-minute films | 1.64x / 1.37x | 1.30x / 1.19x | 1.43x / 1.28x | 6 |
+| 4K | 2-minute segments | 1.52x / 1.52x | 1.33x / 1.33x | 1.41x / 1.41x | 1 |
+| 4K | 10-minute films | 1.56x / 1.33x | 1.49x / 1.37x | 1.75x / 1.52x | 5 |
+<!--/gen:vbr-machines-->
 
-The slowest VBR cell is Meridian's 1080p film, at 0.85.
+<details class="data" markdown="1">
+<summary>VBR encode time on the Mac, every cell</summary>
 
-## End credits
+<!--gen:vbr-wall-->
+| cell | tier | target kbit/s | speed | yah265 against target | x265 against target |
+|---|---|--:|--:|--:|--:|
+| Sol Levante 1080p | 2-minute segments | 7863 | 1.69x | -3.8% | -7.1% |
+| Sol Levante 4K | 2-minute segments | 20733 | 1.52x | -4.0% | -8.2% |
+| Tears of Steel 720p | 10-minute films | 628 | 2.63x | +0.1% | +1.6% |
+| Tears of Steel 1080p | 10-minute films | 1279 | 1.64x | +0.4% | +1.6% |
+| Tears of Steel 4K | 10-minute films | 3389 | 1.56x | +0.2% | +1.4% |
+| StEM2 720p | 10-minute films | 567 | 2.38x | -5.1% | -10.3% |
+| StEM2 1080p | 10-minute films | 1145 | 1.69x | -5.8% | -11.2% |
+| StEM2 4K | 10-minute films | 2964 | 1.64x | -5.2% | -9.9% |
+| Sintel 720p | 10-minute films | 523 | 2.38x | -7.3% | -3.4% |
+| Sintel 1080p | 10-minute films | 1113 | 1.56x | -5.3% | -3.0% |
+| Sintel 4K | 10-minute films | 4329 | 1.33x | -1.6% | -2.1% |
+| Big Buck Bunny 720p | 10-minute films | 620 | 1.85x | -1.2% | -2.8% |
+| Big Buck Bunny 1080p | 10-minute films | 1365 | 1.37x | -1.1% | -3.9% |
+| Big Buck Bunny 4K | 10-minute films | 3453 | 1.47x | -0.9% | -4.1% |
+| Cosmos Laundromat 720p | 10-minute films | 734 | 2.56x | -2.3% | -0.4% |
+| Cosmos Laundromat 1080p | 10-minute films | 1407 | 1.64x | -2.8% | -0.8% |
+| Nocturne 720p | 10-minute films | 1022 | 2.13x | -0.8% | +4.2% |
+| Nocturne 1080p | 10-minute films | 2198 | 1.72x | -1.1% | +2.6% |
+| Nocturne 4K | 10-minute films | 9142 | 2.04x | -1.4% | -0.6% |
+<!--/gen:vbr-wall-->
 
-The scored cells stop before the end credits because text on a flat background saturates VMAF and makes a BD fit swing. Each title's credits still get a row, so a weakness there stays visible. They're coded on their own at 1080p. x265 runs at CRF 28 and yah265 at the cell's matched CRF. The rows compare the file size each encoder needs for equal PSNR-Y. These rows aren't a gate.
+</details>
 
-| title | yah265's size at x265's PSNR-Y | reading |
-|---|--:|---|
-| Tears of Steel | +5.9% (extrapolated) | behind |
-| Meridian | -55.4% | ahead |
-| StEM2 | - | pending |
-| Sintel | -35.4% | ahead |
-| Big Buck Bunny | - | pending |
-| Cosmos Laundromat | -19.0% | ahead |
-| Nocturne | -32.8% | ahead |
+## Lookahead depth
 
-yah265 is behind on one of the five credit rolls read so far, Tears of Steel. It's open work. The StEM2 and Big Buck Bunny rows are pending.
+I swept yah265's lookahead on a few cells instead of inheriting x265's depth. yah265 ran at 12, 20 and 30 frames. x265 stayed at its own 20.
 
-## Not measured yet
+<!--gen:fig-lookahead-->
+<figure class="chart"><img src="assets/charts/results/lookahead.svg" alt="A lookahead of 12 costs up to 3.4 BD-rate points against 20. Going to 30 moves the median -0.16."></figure>
+<!--/gen:fig-lookahead-->
 
-Tier C hasn't been measured. Besides four sports clips and three screen recordings, it holds a scan of the 1924 film Lash of the Whip. Once it's read, its quality will count toward parity. Its speed will be shown but won't count.
+<details class="data" markdown="1">
+<summary>The lookahead sweep, every cell</summary>
+
+<!--gen:lookahead-->
+| cell | mode | yah265 at 12 | yah265 at 20 | yah265 at 30 |
+|---|---|--:|--:|--:|
+| Sol Levante 1080p, 2-minute segments | CRF | -13.8% | -14.3% | -14.4% |
+| Tears of Steel 1080p, 10-minute films | CRF | -11.4% | -12.6% | -12.9% |
+| Sintel 4K, 10-minute films | CRF | -15.6% | -16.8% | -16.9% |
+| Big Buck Bunny 1080p, 10-minute films | CRF | -5.7% | -9.0% | -10.2% |
+| Sol Levante 1080p, 2-minute segments | VBR | -8.9% | -9.7% | -9.7% |
+| Tears of Steel 1080p, 10-minute films | VBR | -9.6% | -10.3% | -10.5% |
+| Sintel 4K, 10-minute films | VBR | -13.5% | -13.3% | -13.4% |
+| Big Buck Bunny 1080p, 10-minute films | VBR | -4.3% | -6.9% | -7.3% |
+<!--/gen:lookahead-->
+
+</details>
+
+`medium` uses 20 from 720p up. An earlier sweep on the development clips ran from 8 to 40 frames and also put the knee at 20. Past the knee a deeper window costs more time than it buys.
+
+## Content types
+
+Tier C is the content that codecs tend to handle unevenly: a scan of a 1924 film with heavy grain, four sports clips and three screen recordings. It ran on the Mac. x265 ran its `medium` defaults on every clip, with no `--tune`. yah265's `medium` detects screen content and handheld footage by itself. Those two detectors were built on clips in this tier.
+
+<!--gen:fig-tierc-->
+<figure class="chart"><img src="assets/charts/results/tierc.svg" alt="All 15 content-type curves with a BD-rate need fewer bits than x265."></figure>
+<!--/gen:fig-tierc-->
+
+<!--gen:tier-c-->
+| clip | content | x265 settings | VMAF v1 lead at the same size | CRF BD-rate | VBR BD-rate | VBR rate against target | G3 speed |
+|---|---|---|--:|--:|--:|--:|--:|
+| Lash of the Whip 720p | film grain | `medium` defaults, no `--tune` | +2.55 | -27.1% | -26.0% | -0.7% to -0.3% | 2.13x |
+| Lash of the Whip 1080p | film grain | `medium` defaults, no `--tune` | +2.92 | -31.9% | -31.4% | -0.6% to -0.3% | 1.85x |
+| World Cup 1080p | sports | `medium` defaults, no `--tune` | +0.52 | -6.2% | -7.8% | -1.2% to -0.9% | 1.92x |
+| World Cup, far camera 1080p | sports | `medium` defaults, no `--tune` | +0.14 | -2.2% | -3.9% | -1.5% to +0.6% | 1.89x (earlier binary) |
+| Skater 1080p | sports | `medium` defaults, no `--tune` | +0.60 | -4.3% | -16.8% | +0.4% to +1.0% | 2.00x |
+| boxing 4K | sports | `medium` defaults, no `--tune` | -0.24 | -3.8% | -14.9% | +3.3% to +5.0% | 3.57x |
+| wikipedia 1080p | screen | `medium` defaults, no `--tune` | +3.57 | -63.9% | no shared range, yah265 above | -23.0% to -13.4% | 1.89x (earlier binary) |
+| debugging 1080p | screen | `medium` defaults, no `--tune` | +2.53 | -25.1% | no shared range, yah265 above | -11.2% to +0.3% | 1.96x (earlier binary) |
+| spreadsheet 1080p | screen | `medium` defaults, no `--tune` | +3.15 | -53.9% | no shared range, yah265 above | -26.8% to -22.7% | 1.89x (earlier binary) |
+<!--/gen:tier-c-->
+
+All nine clips pass on quality. On the three screen recordings yah265's lowest VBR rung scores above x265's highest at a lower bitrate. No BD-rate can be computed there because the two curves share no score range.
+
+Both encoders undershoot their VBR targets on the screen recordings, where the still frames between changes cost almost nothing. The ±10% tracking bar applies to the real titles and that column is here for information.
+
+Four G3 speeds are marked "earlier binary". They were timed before the changes that fixed screen content and handheld sports footage. Tier C speed counts toward neither the verdict nor the headline.
+
+## HDR
+
+HDR quality is read on its own metric, HDR-VMAF. The [HDR page](hdr.md) has those tables.
+
+## The full record
+
+Every run behind this page is in <!--gen:report-all-->[the all-architecture report](docs/parity/PARITY-REPORT-yah265-all-isa-2026-11-14.md)<!--/gen:report-all-->.

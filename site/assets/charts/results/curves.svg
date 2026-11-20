@@ -1,0 +1,583 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='900' height='986' viewBox='0 0 900 986' role='img'>
+<title>yah265 needs fewer bits than x265 on 19 of 19 real-title cells at CRF</title><desc>Small multiples of VMAF v1 against bitrate for every two-minute and ten-minute cell, yah265 and x265 at preset medium.</desc>
+<style>
+.bg{fill:#ffffff}.t1{fill:#212529}.t2{fill:#495057}.grid{stroke:#e9ecef}
+.base{stroke:#868e96}.ring{stroke:#ffffff}.med{stroke:#212529}.band{fill:#f1f3f5}
+.s1{fill:#ff4d1a}.s2{fill:#00919a}.s3{fill:#6250d6}.sx{fill:#868e96}
+.l1{stroke:#ff4d1a}.l2{stroke:#00919a}.l3{stroke:#6250d6}.lx{stroke:#868e96}.span{stroke:#dee2e6}
+.note{fill:#b8330a}.wash{fill:#ffe8dc}
+text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+@media (prefers-color-scheme:dark){
+.bg{fill:#1b1c1e}.t1{fill:#e9ecee}.t2{fill:#b6bcc1}.grid{stroke:#2e3135}
+.base{stroke:#8f959a}.ring{stroke:#1b1c1e}.med{stroke:#e9ecee}.band{fill:#23262a}
+.s1{fill:#ff4d1a}.s2{fill:#12a3ad}.s3{fill:#9085e9}.sx{fill:#8f959a}
+.l1{stroke:#ff4d1a}.l2{stroke:#12a3ad}.l3{stroke:#9085e9}.lx{stroke:#8f959a}.span{stroke:#3a3e43}
+.note{fill:#ff8a5c}.wash{fill:#45200f}}
+</style>
+<rect width='100%' height='100%' class='bg'/>
+<text x='24.0' y='40.0' font-size='22' class='t1' text-anchor='start' font-weight='600'>yah265 needs fewer bits than x265 on 19 of 19 real-title cells at CRF</text>
+<text x='24.0' y='64.0' font-size='14' class='t2' text-anchor='start'>VMAF v1 against bitrate on five CRF rungs per encoder (CRF 20 to 32). Up and left is better. Each panel has its own scales.</text>
+<circle cx='30.0' cy='86.0' r='5.5' class='s1 ring' stroke-width='2'/>
+<text x='42.0' y='91.0' font-size='13' class='t2' text-anchor='start'>yah265</text>
+<rect x='111.0' y='81.0' width='9.9' height='9.9' rx='1.5' class='sx ring' stroke-width='2'/>
+<text x='128.0' y='91.0' font-size='13' class='t2' text-anchor='start'>x265</text>
+<text x='24.0' y='128.0' font-size='11.5' class='t1' text-anchor='start' font-weight='600'>Sol Levante 1080p (2 min)</text>
+<text x='24.0' y='143.0' font-size='11' class='t2' text-anchor='start'>BD-rate -14.35%</text>
+<line x1='54.0' y1='250.0' x2='223.0' y2='250.0' class='base' stroke-width='1'/>
+<text x='49.0' y='254.0' font-size='10.5' class='t2' text-anchor='end'>70</text>
+<line x1='54.0' y1='217.3' x2='223.0' y2='217.3' class='grid' stroke-width='1'/>
+<text x='49.0' y='221.3' font-size='10.5' class='t2' text-anchor='end'>80</text>
+<line x1='54.0' y1='184.7' x2='223.0' y2='184.7' class='grid' stroke-width='1'/>
+<text x='49.0' y='188.7' font-size='10.5' class='t2' text-anchor='end'>90</text>
+<line x1='54.0' y1='152.0' x2='223.0' y2='152.0' class='grid' stroke-width='1'/>
+<text x='49.0' y='156.0' font-size='10.5' class='t2' text-anchor='end'>100</text>
+<line x1='101.6' y1='250.0' x2='101.6' y2='254.0' class='base' stroke-width='1'/>
+<text x='101.6' y='266.0' font-size='10.5' class='t2' text-anchor='middle'>5M</text>
+<line x1='156.5' y1='250.0' x2='156.5' y2='254.0' class='base' stroke-width='1'/>
+<text x='156.5' y='266.0' font-size='10.5' class='t2' text-anchor='middle'>10M</text>
+<line x1='211.4' y1='250.0' x2='211.4' y2='254.0' class='base' stroke-width='1'/>
+<text x='211.4' y='266.0' font-size='10.5' class='t2' text-anchor='middle'>20M</text>
+<polyline fill='none' class='lx' stroke-width='2' points='95.6,210.4 127.2,190.4 157.4,174.9 186.4,164.0 214.0,157.5'/>
+<rect x='92.7' y='207.6' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='124.3' y='187.5' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='154.6' y='172.1' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='183.5' y='161.1' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='211.1' y='154.7' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<polyline fill='none' class='l1' stroke-width='2' points='64.1,226.3 99.5,200.3 133.3,180.6 165.2,166.7 195.3,158.9'/>
+<circle cx='64.1' cy='226.3' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='99.5' cy='200.3' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='133.3' cy='180.6' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='165.2' cy='166.7' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='195.3' cy='158.9' r='3.2' class='s1 ring' stroke-width='2'/>
+<text x='237.0' y='128.0' font-size='11.5' class='t1' text-anchor='start' font-weight='600'>Sol Levante 4K (2 min)</text>
+<text x='237.0' y='143.0' font-size='11' class='t2' text-anchor='start'>BD-rate -12.18%</text>
+<line x1='267.0' y1='250.0' x2='436.0' y2='250.0' class='base' stroke-width='1'/>
+<text x='262.0' y='254.0' font-size='10.5' class='t2' text-anchor='end'>70</text>
+<line x1='267.0' y1='217.3' x2='436.0' y2='217.3' class='grid' stroke-width='1'/>
+<text x='262.0' y='221.3' font-size='10.5' class='t2' text-anchor='end'>80</text>
+<line x1='267.0' y1='184.7' x2='436.0' y2='184.7' class='grid' stroke-width='1'/>
+<text x='262.0' y='188.7' font-size='10.5' class='t2' text-anchor='end'>90</text>
+<line x1='267.0' y1='152.0' x2='436.0' y2='152.0' class='grid' stroke-width='1'/>
+<text x='262.0' y='156.0' font-size='10.5' class='t2' text-anchor='end'>100</text>
+<line x1='290.7' y1='250.0' x2='290.7' y2='254.0' class='base' stroke-width='1'/>
+<text x='290.7' y='266.0' font-size='10.5' class='t2' text-anchor='middle'>10M</text>
+<line x1='346.2' y1='250.0' x2='346.2' y2='254.0' class='base' stroke-width='1'/>
+<text x='346.2' y='266.0' font-size='10.5' class='t2' text-anchor='middle'>20M</text>
+<line x1='419.5' y1='250.0' x2='419.5' y2='254.0' class='base' stroke-width='1'/>
+<text x='419.5' y='266.0' font-size='10.5' class='t2' text-anchor='middle'>50M</text>
+<polyline fill='none' class='lx' stroke-width='2' points='311.4,210.2 339.7,189.4 367.9,173.4 396.7,163.0 426.9,157.2'/>
+<rect x='308.5' y='207.3' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='336.8' y='186.5' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='365.0' y='170.6' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='393.8' y='160.2' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='424.1' y='154.3' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<polyline fill='none' class='l1' stroke-width='2' points='277.2,234.1 308.3,205.9 338.4,184.1 367.7,169.1 396.8,160.3'/>
+<circle cx='277.2' cy='234.1' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='308.3' cy='205.9' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='338.4' cy='184.1' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='367.7' cy='169.1' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='396.8' cy='160.3' r='3.2' class='s1 ring' stroke-width='2'/>
+<text x='450.0' y='128.0' font-size='11.5' class='t1' text-anchor='start' font-weight='600'>Tears of Steel 720p (10 min)</text>
+<text x='450.0' y='143.0' font-size='11' class='t2' text-anchor='start'>BD-rate -7.23%</text>
+<line x1='480.0' y1='250.0' x2='649.0' y2='250.0' class='base' stroke-width='1'/>
+<text x='475.0' y='254.0' font-size='10.5' class='t2' text-anchor='end'>70</text>
+<line x1='480.0' y1='217.3' x2='649.0' y2='217.3' class='grid' stroke-width='1'/>
+<text x='475.0' y='221.3' font-size='10.5' class='t2' text-anchor='end'>80</text>
+<line x1='480.0' y1='184.7' x2='649.0' y2='184.7' class='grid' stroke-width='1'/>
+<text x='475.0' y='188.7' font-size='10.5' class='t2' text-anchor='end'>90</text>
+<line x1='480.0' y1='152.0' x2='649.0' y2='152.0' class='grid' stroke-width='1'/>
+<text x='475.0' y='156.0' font-size='10.5' class='t2' text-anchor='end'>100</text>
+<line x1='535.7' y1='250.0' x2='535.7' y2='254.0' class='base' stroke-width='1'/>
+<text x='535.7' y='266.0' font-size='10.5' class='t2' text-anchor='middle'>500k</text>
+<line x1='594.7' y1='250.0' x2='594.7' y2='254.0' class='base' stroke-width='1'/>
+<text x='594.7' y='266.0' font-size='10.5' class='t2' text-anchor='middle'>1M</text>
+<polyline fill='none' class='lx' stroke-width='2' points='514.4,217.9 544.8,200.1 575.8,186.2 607.0,175.8 639.3,168.3'/>
+<rect x='511.5' y='215.1' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='542.0' y='197.2' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='572.9' y='183.4' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='604.2' y='172.9' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='636.5' y='165.4' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<polyline fill='none' class='l1' stroke-width='2' points='490.9,234.7 521.7,211.4 552.7,193.4 583.9,180.1 615.9,170.7'/>
+<circle cx='490.9' cy='234.7' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='521.7' cy='211.4' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='552.7' cy='193.4' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='583.9' cy='180.1' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='615.9' cy='170.7' r='3.2' class='s1 ring' stroke-width='2'/>
+<text x='663.0' y='128.0' font-size='11.5' class='t1' text-anchor='start' font-weight='600'>Tears of Steel 1080p (10 min)</text>
+<text x='663.0' y='143.0' font-size='11' class='t2' text-anchor='start'>BD-rate -12.58%</text>
+<line x1='693.0' y1='250.0' x2='862.0' y2='250.0' class='base' stroke-width='1'/>
+<text x='688.0' y='254.0' font-size='10.5' class='t2' text-anchor='end'>75</text>
+<line x1='693.0' y1='230.4' x2='862.0' y2='230.4' class='grid' stroke-width='1'/>
+<text x='688.0' y='234.4' font-size='10.5' class='t2' text-anchor='end'>80</text>
+<line x1='693.0' y1='210.8' x2='862.0' y2='210.8' class='grid' stroke-width='1'/>
+<text x='688.0' y='214.8' font-size='10.5' class='t2' text-anchor='end'>85</text>
+<line x1='693.0' y1='191.2' x2='862.0' y2='191.2' class='grid' stroke-width='1'/>
+<text x='688.0' y='195.2' font-size='10.5' class='t2' text-anchor='end'>90</text>
+<line x1='693.0' y1='171.6' x2='862.0' y2='171.6' class='grid' stroke-width='1'/>
+<text x='688.0' y='175.6' font-size='10.5' class='t2' text-anchor='end'>95</text>
+<line x1='693.0' y1='152.0' x2='862.0' y2='152.0' class='grid' stroke-width='1'/>
+<text x='688.0' y='156.0' font-size='10.5' class='t2' text-anchor='end'>100</text>
+<line x1='702.5' y1='250.0' x2='702.5' y2='254.0' class='base' stroke-width='1'/>
+<text x='702.5' y='266.0' font-size='10.5' class='t2' text-anchor='middle'>500k</text>
+<line x1='752.3' y1='250.0' x2='752.3' y2='254.0' class='base' stroke-width='1'/>
+<text x='752.3' y='266.0' font-size='10.5' class='t2' text-anchor='middle'>1M</text>
+<line x1='802.0' y1='250.0' x2='802.0' y2='254.0' class='base' stroke-width='1'/>
+<text x='802.0' y='266.0' font-size='10.5' class='t2' text-anchor='middle'>2M</text>
+<polyline fill='none' class='lx' stroke-width='2' points='732.9,211.4 760.5,194.7 789.3,181.9 819.9,172.5 853.9,165.9'/>
+<rect x='730.0' y='208.5' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='757.6' y='191.9' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='786.4' y='179.0' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='817.0' y='169.7' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='851.0' y='163.0' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<polyline fill='none' class='l1' stroke-width='2' points='702.2,233.6 730.9,209.1 759.6,191.0 788.9,177.9 820.4,168.9'/>
+<circle cx='702.2' cy='233.6' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='730.9' cy='209.1' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='759.6' cy='191.0' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='788.9' cy='177.9' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='820.4' cy='168.9' r='3.2' class='s1 ring' stroke-width='2'/>
+<text x='24.0' y='296.0' font-size='11.5' class='t1' text-anchor='start' font-weight='600'>Tears of Steel 4K (10 min)</text>
+<text x='24.0' y='311.0' font-size='11' class='t2' text-anchor='start'>BD-rate -13.31%</text>
+<line x1='54.0' y1='418.0' x2='223.0' y2='418.0' class='base' stroke-width='1'/>
+<text x='49.0' y='422.0' font-size='10.5' class='t2' text-anchor='end'>70</text>
+<line x1='54.0' y1='385.3' x2='223.0' y2='385.3' class='grid' stroke-width='1'/>
+<text x='49.0' y='389.3' font-size='10.5' class='t2' text-anchor='end'>80</text>
+<line x1='54.0' y1='352.7' x2='223.0' y2='352.7' class='grid' stroke-width='1'/>
+<text x='49.0' y='356.7' font-size='10.5' class='t2' text-anchor='end'>90</text>
+<line x1='54.0' y1='320.0' x2='223.0' y2='320.0' class='grid' stroke-width='1'/>
+<text x='49.0' y='324.0' font-size='10.5' class='t2' text-anchor='end'>100</text>
+<line x1='87.7' y1='418.0' x2='87.7' y2='422.0' class='base' stroke-width='1'/>
+<text x='87.7' y='434.0' font-size='10.5' class='t2' text-anchor='middle'>2M</text>
+<line x1='139.2' y1='418.0' x2='139.2' y2='422.0' class='base' stroke-width='1'/>
+<text x='139.2' y='434.0' font-size='10.5' class='t2' text-anchor='middle'>5M</text>
+<line x1='178.2' y1='418.0' x2='178.2' y2='422.0' class='base' stroke-width='1'/>
+<text x='178.2' y='434.0' font-size='10.5' class='t2' text-anchor='middle'>10M</text>
+<line x1='217.2' y1='418.0' x2='217.2' y2='422.0' class='base' stroke-width='1'/>
+<text x='217.2' y='434.0' font-size='10.5' class='t2' text-anchor='middle'>20M</text>
+<polyline fill='none' class='lx' stroke-width='2' points='85.5,377.5 108.6,362.0 137.4,349.8 175.5,340.6 216.6,333.2'/>
+<rect x='82.6' y='374.6' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='105.7' y='359.1' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='134.5' y='347.0' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='172.6' y='337.8' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='213.7' y='330.4' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<polyline fill='none' class='l1' stroke-width='2' points='61.2,401.4 82.0,379.1 103.8,362.2 128.2,349.4 157.9,339.4'/>
+<circle cx='61.2' cy='401.4' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='82.0' cy='379.1' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='103.8' cy='362.2' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='128.2' cy='349.4' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='157.9' cy='339.4' r='3.2' class='s1 ring' stroke-width='2'/>
+<text x='237.0' y='296.0' font-size='11.5' class='t1' text-anchor='start' font-weight='600'>StEM2 720p (10 min)</text>
+<text x='237.0' y='311.0' font-size='11' class='t2' text-anchor='start'>BD-rate -13.83%</text>
+<line x1='267.0' y1='418.0' x2='436.0' y2='418.0' class='base' stroke-width='1'/>
+<text x='262.0' y='422.0' font-size='10.5' class='t2' text-anchor='end'>75</text>
+<line x1='267.0' y1='393.5' x2='436.0' y2='393.5' class='grid' stroke-width='1'/>
+<text x='262.0' y='397.5' font-size='10.5' class='t2' text-anchor='end'>80</text>
+<line x1='267.0' y1='369.0' x2='436.0' y2='369.0' class='grid' stroke-width='1'/>
+<text x='262.0' y='373.0' font-size='10.5' class='t2' text-anchor='end'>85</text>
+<line x1='267.0' y1='344.5' x2='436.0' y2='344.5' class='grid' stroke-width='1'/>
+<text x='262.0' y='348.5' font-size='10.5' class='t2' text-anchor='end'>90</text>
+<line x1='267.0' y1='320.0' x2='436.0' y2='320.0' class='grid' stroke-width='1'/>
+<text x='262.0' y='324.0' font-size='10.5' class='t2' text-anchor='end'>95</text>
+<line x1='322.2' y1='418.0' x2='322.2' y2='422.0' class='base' stroke-width='1'/>
+<text x='322.2' y='434.0' font-size='10.5' class='t2' text-anchor='middle'>500k</text>
+<line x1='388.6' y1='418.0' x2='388.6' y2='422.0' class='base' stroke-width='1'/>
+<text x='388.6' y='434.0' font-size='10.5' class='t2' text-anchor='middle'>1M</text>
+<polyline fill='none' class='lx' stroke-width='2' points='289.6,414.2 323.1,387.6 356.6,366.6 390.6,350.0 425.1,337.5'/>
+<rect x='286.8' y='411.3' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='320.2' y='384.8' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='353.8' y='363.7' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='387.7' y='347.1' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='422.3' y='334.6' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<polyline fill='none' class='l1' stroke-width='2' points='279.2,417.5 311.4,388.0 344.3,364.7 377.9,346.5 412.2,333.0'/>
+<circle cx='279.2' cy='417.5' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='311.4' cy='388.0' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='344.3' cy='364.7' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='377.9' cy='346.5' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='412.2' cy='333.0' r='3.2' class='s1 ring' stroke-width='2'/>
+<text x='450.0' y='296.0' font-size='11.5' class='t1' text-anchor='start' font-weight='600'>StEM2 1080p (10 min)</text>
+<text x='450.0' y='311.0' font-size='11' class='t2' text-anchor='start'>BD-rate -17.97%</text>
+<line x1='480.0' y1='418.0' x2='649.0' y2='418.0' class='base' stroke-width='1'/>
+<text x='475.0' y='422.0' font-size='10.5' class='t2' text-anchor='end'>75</text>
+<line x1='480.0' y1='393.5' x2='649.0' y2='393.5' class='grid' stroke-width='1'/>
+<text x='475.0' y='397.5' font-size='10.5' class='t2' text-anchor='end'>80</text>
+<line x1='480.0' y1='369.0' x2='649.0' y2='369.0' class='grid' stroke-width='1'/>
+<text x='475.0' y='373.0' font-size='10.5' class='t2' text-anchor='end'>85</text>
+<line x1='480.0' y1='344.5' x2='649.0' y2='344.5' class='grid' stroke-width='1'/>
+<text x='475.0' y='348.5' font-size='10.5' class='t2' text-anchor='end'>90</text>
+<line x1='480.0' y1='320.0' x2='649.0' y2='320.0' class='grid' stroke-width='1'/>
+<text x='475.0' y='324.0' font-size='10.5' class='t2' text-anchor='end'>95</text>
+<line x1='538.4' y1='418.0' x2='538.4' y2='422.0' class='base' stroke-width='1'/>
+<text x='538.4' y='434.0' font-size='10.5' class='t2' text-anchor='middle'>1M</text>
+<line x1='598.2' y1='418.0' x2='598.2' y2='422.0' class='base' stroke-width='1'/>
+<text x='598.2' y='434.0' font-size='10.5' class='t2' text-anchor='middle'>2M</text>
+<polyline fill='none' class='lx' stroke-width='2' points='507.0,393.4 539.2,371.2 571.8,353.9 604.9,340.6 639.2,330.8'/>
+<rect x='504.1' y='390.5' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='536.3' y='368.3' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='568.9' y='351.0' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='602.0' y='337.7' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='636.3' y='327.9' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<polyline fill='none' class='l1' stroke-width='2' points='491.0,400.7 523.3,373.3 555.7,352.6 588.4,337.0 622.6,325.5'/>
+<circle cx='491.0' cy='400.7' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='523.3' cy='373.3' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='555.7' cy='352.6' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='588.4' cy='337.0' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='622.6' cy='325.5' r='3.2' class='s1 ring' stroke-width='2'/>
+<text x='663.0' y='296.0' font-size='11.5' class='t1' text-anchor='start' font-weight='600'>StEM2 4K (10 min)</text>
+<text x='663.0' y='311.0' font-size='11' class='t2' text-anchor='start'>BD-rate -12.55%</text>
+<line x1='693.0' y1='418.0' x2='862.0' y2='418.0' class='base' stroke-width='1'/>
+<text x='688.0' y='422.0' font-size='10.5' class='t2' text-anchor='end'>70</text>
+<line x1='693.0' y1='398.4' x2='862.0' y2='398.4' class='grid' stroke-width='1'/>
+<text x='688.0' y='402.4' font-size='10.5' class='t2' text-anchor='end'>75</text>
+<line x1='693.0' y1='378.8' x2='862.0' y2='378.8' class='grid' stroke-width='1'/>
+<text x='688.0' y='382.8' font-size='10.5' class='t2' text-anchor='end'>80</text>
+<line x1='693.0' y1='359.2' x2='862.0' y2='359.2' class='grid' stroke-width='1'/>
+<text x='688.0' y='363.2' font-size='10.5' class='t2' text-anchor='end'>85</text>
+<line x1='693.0' y1='339.6' x2='862.0' y2='339.6' class='grid' stroke-width='1'/>
+<text x='688.0' y='343.6' font-size='10.5' class='t2' text-anchor='end'>90</text>
+<line x1='693.0' y1='320.0' x2='862.0' y2='320.0' class='grid' stroke-width='1'/>
+<text x='688.0' y='324.0' font-size='10.5' class='t2' text-anchor='end'>95</text>
+<line x1='728.2' y1='418.0' x2='728.2' y2='422.0' class='base' stroke-width='1'/>
+<text x='728.2' y='434.0' font-size='10.5' class='t2' text-anchor='middle'>2M</text>
+<line x1='801.7' y1='418.0' x2='801.7' y2='422.0' class='base' stroke-width='1'/>
+<text x='801.7' y='434.0' font-size='10.5' class='t2' text-anchor='middle'>5M</text>
+<line x1='857.2' y1='418.0' x2='857.2' y2='422.0' class='base' stroke-width='1'/>
+<text x='857.2' y='434.0' font-size='10.5' class='t2' text-anchor='middle'>10M</text>
+<polyline fill='none' class='lx' stroke-width='2' points='720.5,390.0 749.8,371.0 780.2,356.2 813.1,343.9 852.9,333.7'/>
+<rect x='717.6' y='387.1' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='746.9' y='368.1' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='777.3' y='353.3' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='810.3' y='341.0' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='850.0' y='330.8' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<polyline fill='none' class='l1' stroke-width='2' points='703.2,404.0 731.5,380.2 759.3,361.4 788.1,346.4 819.8,334.8'/>
+<circle cx='703.2' cy='404.0' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='731.5' cy='380.2' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='759.3' cy='361.4' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='788.1' cy='346.4' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='819.8' cy='334.8' r='3.2' class='s1 ring' stroke-width='2'/>
+<text x='24.0' y='464.0' font-size='11.5' class='t1' text-anchor='start' font-weight='600'>Sintel 720p (10 min)</text>
+<text x='24.0' y='479.0' font-size='11' class='t2' text-anchor='start'>BD-rate -12.00%</text>
+<line x1='54.0' y1='586.0' x2='223.0' y2='586.0' class='base' stroke-width='1'/>
+<text x='49.0' y='590.0' font-size='10.5' class='t2' text-anchor='end'>75</text>
+<line x1='54.0' y1='566.4' x2='223.0' y2='566.4' class='grid' stroke-width='1'/>
+<text x='49.0' y='570.4' font-size='10.5' class='t2' text-anchor='end'>80</text>
+<line x1='54.0' y1='546.8' x2='223.0' y2='546.8' class='grid' stroke-width='1'/>
+<text x='49.0' y='550.8' font-size='10.5' class='t2' text-anchor='end'>85</text>
+<line x1='54.0' y1='527.2' x2='223.0' y2='527.2' class='grid' stroke-width='1'/>
+<text x='49.0' y='531.2' font-size='10.5' class='t2' text-anchor='end'>90</text>
+<line x1='54.0' y1='507.6' x2='223.0' y2='507.6' class='grid' stroke-width='1'/>
+<text x='49.0' y='511.6' font-size='10.5' class='t2' text-anchor='end'>95</text>
+<line x1='54.0' y1='488.0' x2='223.0' y2='488.0' class='grid' stroke-width='1'/>
+<text x='49.0' y='492.0' font-size='10.5' class='t2' text-anchor='end'>100</text>
+<line x1='107.4' y1='586.0' x2='107.4' y2='590.0' class='base' stroke-width='1'/>
+<text x='107.4' y='602.0' font-size='10.5' class='t2' text-anchor='middle'>500k</text>
+<line x1='174.1' y1='586.0' x2='174.1' y2='590.0' class='base' stroke-width='1'/>
+<text x='174.1' y='602.0' font-size='10.5' class='t2' text-anchor='middle'>1M</text>
+<polyline fill='none' class='lx' stroke-width='2' points='66.3,573.9 100.3,552.4 134.7,535.4 169.4,522.4 204.5,512.9'/>
+<rect x='63.4' y='571.0' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='97.5' y='549.5' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='131.9' y='532.5' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='166.6' y='519.5' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='201.6' y='510.0' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<polyline fill='none' class='l1' stroke-width='2' points='74.6,563.5 108.3,542.5 142.5,526.5 177.0,514.8 212.1,507.0'/>
+<circle cx='74.6' cy='563.5' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='108.3' cy='542.5' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='142.5' cy='526.5' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='177.0' cy='514.8' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='212.1' cy='507.0' r='3.2' class='s1 ring' stroke-width='2'/>
+<text x='237.0' y='464.0' font-size='11.5' class='t1' text-anchor='start' font-weight='600'>Sintel 1080p (10 min)</text>
+<text x='237.0' y='479.0' font-size='11' class='t2' text-anchor='start'>BD-rate -10.02%</text>
+<line x1='267.0' y1='586.0' x2='436.0' y2='586.0' class='base' stroke-width='1'/>
+<text x='262.0' y='590.0' font-size='10.5' class='t2' text-anchor='end'>80</text>
+<line x1='267.0' y1='561.5' x2='436.0' y2='561.5' class='grid' stroke-width='1'/>
+<text x='262.0' y='565.5' font-size='10.5' class='t2' text-anchor='end'>85</text>
+<line x1='267.0' y1='537.0' x2='436.0' y2='537.0' class='grid' stroke-width='1'/>
+<text x='262.0' y='541.0' font-size='10.5' class='t2' text-anchor='end'>90</text>
+<line x1='267.0' y1='512.5' x2='436.0' y2='512.5' class='grid' stroke-width='1'/>
+<text x='262.0' y='516.5' font-size='10.5' class='t2' text-anchor='end'>95</text>
+<line x1='267.0' y1='488.0' x2='436.0' y2='488.0' class='grid' stroke-width='1'/>
+<text x='262.0' y='492.0' font-size='10.5' class='t2' text-anchor='end'>100</text>
+<line x1='310.7' y1='586.0' x2='310.7' y2='590.0' class='base' stroke-width='1'/>
+<text x='310.7' y='602.0' font-size='10.5' class='t2' text-anchor='middle'>1M</text>
+<line x1='368.1' y1='586.0' x2='368.1' y2='590.0' class='base' stroke-width='1'/>
+<text x='368.1' y='602.0' font-size='10.5' class='t2' text-anchor='middle'>2M</text>
+<polyline fill='none' class='lx' stroke-width='2' points='277.6,571.1 309.1,549.7 340.7,533.2 372.4,521.2 404.3,512.7'/>
+<rect x='274.7' y='568.2' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='306.2' y='546.8' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='337.8' y='530.4' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='369.6' y='518.3' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='401.5' y='509.8' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<polyline fill='none' class='l1' stroke-width='2' points='297.9,554.7 329.8,534.7 361.7,520.0 393.9,510.2 426.6,503.9'/>
+<circle cx='297.9' cy='554.7' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='329.8' cy='534.7' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='361.7' cy='520.0' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='393.9' cy='510.2' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='426.6' cy='503.9' r='3.2' class='s1 ring' stroke-width='2'/>
+<text x='450.0' y='464.0' font-size='11.5' class='t1' text-anchor='start' font-weight='600'>Sintel 4K (10 min)</text>
+<text x='450.0' y='479.0' font-size='11' class='t2' text-anchor='start'>BD-rate -16.81%</text>
+<line x1='480.0' y1='586.0' x2='649.0' y2='586.0' class='base' stroke-width='1'/>
+<text x='475.0' y='590.0' font-size='10.5' class='t2' text-anchor='end'>80</text>
+<line x1='480.0' y1='561.5' x2='649.0' y2='561.5' class='grid' stroke-width='1'/>
+<text x='475.0' y='565.5' font-size='10.5' class='t2' text-anchor='end'>85</text>
+<line x1='480.0' y1='537.0' x2='649.0' y2='537.0' class='grid' stroke-width='1'/>
+<text x='475.0' y='541.0' font-size='10.5' class='t2' text-anchor='end'>90</text>
+<line x1='480.0' y1='512.5' x2='649.0' y2='512.5' class='grid' stroke-width='1'/>
+<text x='475.0' y='516.5' font-size='10.5' class='t2' text-anchor='end'>95</text>
+<line x1='480.0' y1='488.0' x2='649.0' y2='488.0' class='grid' stroke-width='1'/>
+<text x='475.0' y='492.0' font-size='10.5' class='t2' text-anchor='end'>100</text>
+<line x1='545.7' y1='586.0' x2='545.7' y2='590.0' class='base' stroke-width='1'/>
+<text x='545.7' y='602.0' font-size='10.5' class='t2' text-anchor='middle'>5M</text>
+<line x1='599.5' y1='586.0' x2='599.5' y2='590.0' class='base' stroke-width='1'/>
+<text x='599.5' y='602.0' font-size='10.5' class='t2' text-anchor='middle'>10M</text>
+<polyline fill='none' class='lx' stroke-width='2' points='489.9,578.7 523.4,554.6 556.9,536.3 590.4,522.4 623.9,512.0'/>
+<rect x='487.0' y='575.8' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='520.5' y='551.7' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='554.0' y='533.4' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='587.5' y='519.5' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='621.0' y='509.2' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<polyline fill='none' class='l1' stroke-width='2' points='507.4,560.8 540.7,537.6 573.9,520.8 607.1,509.2 640.2,501.9'/>
+<circle cx='507.4' cy='560.8' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='540.7' cy='537.6' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='573.9' cy='520.8' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='607.1' cy='509.2' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='640.2' cy='501.9' r='3.2' class='s1 ring' stroke-width='2'/>
+<text x='663.0' y='464.0' font-size='11.5' class='t1' text-anchor='start' font-weight='600'>Big Buck Bunny 720p (10 min)</text>
+<text x='663.0' y='479.0' font-size='11' class='t2' text-anchor='start'>BD-rate -5.25%</text>
+<line x1='693.0' y1='586.0' x2='862.0' y2='586.0' class='base' stroke-width='1'/>
+<text x='688.0' y='590.0' font-size='10.5' class='t2' text-anchor='end'>80</text>
+<line x1='693.0' y1='561.5' x2='862.0' y2='561.5' class='grid' stroke-width='1'/>
+<text x='688.0' y='565.5' font-size='10.5' class='t2' text-anchor='end'>85</text>
+<line x1='693.0' y1='537.0' x2='862.0' y2='537.0' class='grid' stroke-width='1'/>
+<text x='688.0' y='541.0' font-size='10.5' class='t2' text-anchor='end'>90</text>
+<line x1='693.0' y1='512.5' x2='862.0' y2='512.5' class='grid' stroke-width='1'/>
+<text x='688.0' y='516.5' font-size='10.5' class='t2' text-anchor='end'>95</text>
+<line x1='693.0' y1='488.0' x2='862.0' y2='488.0' class='grid' stroke-width='1'/>
+<text x='688.0' y='492.0' font-size='10.5' class='t2' text-anchor='end'>100</text>
+<line x1='738.2' y1='586.0' x2='738.2' y2='590.0' class='base' stroke-width='1'/>
+<text x='738.2' y='602.0' font-size='10.5' class='t2' text-anchor='middle'>500k</text>
+<line x1='806.7' y1='586.0' x2='806.7' y2='590.0' class='base' stroke-width='1'/>
+<text x='806.7' y='602.0' font-size='10.5' class='t2' text-anchor='middle'>1M</text>
+<polyline fill='none' class='lx' stroke-width='2' points='715.0,571.8 748.2,548.6 782.0,530.9 816.2,517.8 850.8,508.4'/>
+<rect x='712.1' y='568.9' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='745.3' y='545.7' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='779.1' y='528.0' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='813.3' y='514.9' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='847.9' y='505.5' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<polyline fill='none' class='l1' stroke-width='2' points='705.6,578.3 739.2,551.7 772.9,532.3 806.8,518.3 841.2,508.3'/>
+<circle cx='705.6' cy='578.3' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='739.2' cy='551.7' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='772.9' cy='532.3' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='806.8' cy='518.3' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='841.2' cy='508.3' r='3.2' class='s1 ring' stroke-width='2'/>
+<text x='24.0' y='632.0' font-size='11.5' class='t1' text-anchor='start' font-weight='600'>Big Buck Bunny 1080p (10 min)</text>
+<text x='24.0' y='647.0' font-size='11' class='t2' text-anchor='start'>BD-rate -9.04%</text>
+<line x1='54.0' y1='754.0' x2='223.0' y2='754.0' class='base' stroke-width='1'/>
+<text x='49.0' y='758.0' font-size='10.5' class='t2' text-anchor='end'>85</text>
+<line x1='54.0' y1='721.3' x2='223.0' y2='721.3' class='grid' stroke-width='1'/>
+<text x='49.0' y='725.3' font-size='10.5' class='t2' text-anchor='end'>90</text>
+<line x1='54.0' y1='688.7' x2='223.0' y2='688.7' class='grid' stroke-width='1'/>
+<text x='49.0' y='692.7' font-size='10.5' class='t2' text-anchor='end'>95</text>
+<line x1='54.0' y1='656.0' x2='223.0' y2='656.0' class='grid' stroke-width='1'/>
+<text x='49.0' y='660.0' font-size='10.5' class='t2' text-anchor='end'>100</text>
+<line x1='88.4' y1='754.0' x2='88.4' y2='758.0' class='base' stroke-width='1'/>
+<text x='88.4' y='770.0' font-size='10.5' class='t2' text-anchor='middle'>1M</text>
+<line x1='153.5' y1='754.0' x2='153.5' y2='758.0' class='base' stroke-width='1'/>
+<text x='153.5' y='770.0' font-size='10.5' class='t2' text-anchor='middle'>2M</text>
+<polyline fill='none' class='lx' stroke-width='2' points='71.2,736.0 105.9,712.7 141.2,695.2 176.6,682.4 212.3,673.6'/>
+<rect x='68.3' y='733.1' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='103.0' y='709.8' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='138.3' y='692.4' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='173.8' y='679.6' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='209.5' y='670.8' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<polyline fill='none' class='l1' stroke-width='2' points='66.0,735.4 101.3,710.7 136.8,692.9 172.8,680.1 209.5,671.5'/>
+<circle cx='66.0' cy='735.4' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='101.3' cy='710.7' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='136.8' cy='692.9' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='172.8' cy='680.1' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='209.5' cy='671.5' r='3.2' class='s1 ring' stroke-width='2'/>
+<text x='237.0' y='632.0' font-size='11.5' class='t1' text-anchor='start' font-weight='600'>Big Buck Bunny 4K (10 min)</text>
+<text x='237.0' y='647.0' font-size='11' class='t2' text-anchor='start'>BD-rate -4.94%</text>
+<line x1='267.0' y1='754.0' x2='436.0' y2='754.0' class='base' stroke-width='1'/>
+<text x='262.0' y='758.0' font-size='10.5' class='t2' text-anchor='end'>85</text>
+<line x1='267.0' y1='721.3' x2='436.0' y2='721.3' class='grid' stroke-width='1'/>
+<text x='262.0' y='725.3' font-size='10.5' class='t2' text-anchor='end'>90</text>
+<line x1='267.0' y1='688.7' x2='436.0' y2='688.7' class='grid' stroke-width='1'/>
+<text x='262.0' y='692.7' font-size='10.5' class='t2' text-anchor='end'>95</text>
+<line x1='267.0' y1='656.0' x2='436.0' y2='656.0' class='grid' stroke-width='1'/>
+<text x='262.0' y='660.0' font-size='10.5' class='t2' text-anchor='end'>100</text>
+<line x1='274.5' y1='754.0' x2='274.5' y2='758.0' class='base' stroke-width='1'/>
+<text x='274.5' y='770.0' font-size='10.5' class='t2' text-anchor='middle'>2M</text>
+<line x1='361.8' y1='754.0' x2='361.8' y2='758.0' class='base' stroke-width='1'/>
+<text x='361.8' y='770.0' font-size='10.5' class='t2' text-anchor='middle'>5M</text>
+<line x1='427.8' y1='754.0' x2='427.8' y2='758.0' class='base' stroke-width='1'/>
+<text x='427.8' y='770.0' font-size='10.5' class='t2' text-anchor='middle'>10M</text>
+<polyline fill='none' class='lx' stroke-width='2' points='279.6,735.8 314.6,710.3 350.6,691.1 386.3,677.2 421.4,667.9'/>
+<rect x='276.8' y='732.9' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='311.7' y='707.4' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='347.7' y='688.3' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='383.4' y='674.3' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='418.5' y='665.0' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<polyline fill='none' class='l1' stroke-width='2' points='279.2,733.5 314.3,707.6 350.2,688.6 387.1,675.0 425.2,666.1'/>
+<circle cx='279.2' cy='733.5' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='314.3' cy='707.6' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='350.2' cy='688.6' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='387.1' cy='675.0' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='425.2' cy='666.1' r='3.2' class='s1 ring' stroke-width='2'/>
+<text x='450.0' y='632.0' font-size='11.5' class='t1' text-anchor='start' font-weight='600'>Cosmos Laundromat 720p (10 min)</text>
+<text x='450.0' y='647.0' font-size='11' class='t2' text-anchor='start'>BD-rate -15.30%</text>
+<line x1='480.0' y1='754.0' x2='649.0' y2='754.0' class='base' stroke-width='1'/>
+<text x='475.0' y='758.0' font-size='10.5' class='t2' text-anchor='end'>60</text>
+<line x1='480.0' y1='729.5' x2='649.0' y2='729.5' class='grid' stroke-width='1'/>
+<text x='475.0' y='733.5' font-size='10.5' class='t2' text-anchor='end'>70</text>
+<line x1='480.0' y1='705.0' x2='649.0' y2='705.0' class='grid' stroke-width='1'/>
+<text x='475.0' y='709.0' font-size='10.5' class='t2' text-anchor='end'>80</text>
+<line x1='480.0' y1='680.5' x2='649.0' y2='680.5' class='grid' stroke-width='1'/>
+<text x='475.0' y='684.5' font-size='10.5' class='t2' text-anchor='end'>90</text>
+<line x1='480.0' y1='656.0' x2='649.0' y2='656.0' class='grid' stroke-width='1'/>
+<text x='475.0' y='660.0' font-size='10.5' class='t2' text-anchor='end'>100</text>
+<line x1='530.3' y1='754.0' x2='530.3' y2='758.0' class='base' stroke-width='1'/>
+<text x='530.3' y='770.0' font-size='10.5' class='t2' text-anchor='middle'>500k</text>
+<line x1='584.3' y1='754.0' x2='584.3' y2='758.0' class='base' stroke-width='1'/>
+<text x='584.3' y='770.0' font-size='10.5' class='t2' text-anchor='middle'>1M</text>
+<line x1='638.2' y1='754.0' x2='638.2' y2='758.0' class='base' stroke-width='1'/>
+<text x='638.2' y='770.0' font-size='10.5' class='t2' text-anchor='middle'>2M</text>
+<polyline fill='none' class='lx' stroke-width='2' points='517.2,722.6 549.7,707.5 581.0,695.4 611.1,686.2 640.2,679.3'/>
+<rect x='514.4' y='719.7' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='546.8' y='704.6' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='578.1' y='692.5' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='608.2' y='683.3' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='637.3' y='676.4' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<polyline fill='none' class='l1' stroke-width='2' points='489.9,733.9 523.7,714.7 556.8,699.6 588.5,688.1 619.1,679.6'/>
+<circle cx='489.9' cy='733.9' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='523.7' cy='714.7' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='556.8' cy='699.6' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='588.5' cy='688.1' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='619.1' cy='679.6' r='3.2' class='s1 ring' stroke-width='2'/>
+<text x='663.0' y='632.0' font-size='11.5' class='t1' text-anchor='start' font-weight='600'>Cosmos Laundromat 1080p (10 min)</text>
+<text x='663.0' y='647.0' font-size='11' class='t2' text-anchor='start'>BD-rate -11.32%</text>
+<line x1='693.0' y1='754.0' x2='862.0' y2='754.0' class='base' stroke-width='1'/>
+<text x='688.0' y='758.0' font-size='10.5' class='t2' text-anchor='end'>70</text>
+<line x1='693.0' y1='734.4' x2='862.0' y2='734.4' class='grid' stroke-width='1'/>
+<text x='688.0' y='738.4' font-size='10.5' class='t2' text-anchor='end'>75</text>
+<line x1='693.0' y1='714.8' x2='862.0' y2='714.8' class='grid' stroke-width='1'/>
+<text x='688.0' y='718.8' font-size='10.5' class='t2' text-anchor='end'>80</text>
+<line x1='693.0' y1='695.2' x2='862.0' y2='695.2' class='grid' stroke-width='1'/>
+<text x='688.0' y='699.2' font-size='10.5' class='t2' text-anchor='end'>85</text>
+<line x1='693.0' y1='675.6' x2='862.0' y2='675.6' class='grid' stroke-width='1'/>
+<text x='688.0' y='679.6' font-size='10.5' class='t2' text-anchor='end'>90</text>
+<line x1='693.0' y1='656.0' x2='862.0' y2='656.0' class='grid' stroke-width='1'/>
+<text x='688.0' y='660.0' font-size='10.5' class='t2' text-anchor='end'>95</text>
+<line x1='698.0' y1='754.0' x2='698.0' y2='758.0' class='base' stroke-width='1'/>
+<text x='698.0' y='770.0' font-size='10.5' class='t2' text-anchor='middle'>500k</text>
+<line x1='751.9' y1='754.0' x2='751.9' y2='758.0' class='base' stroke-width='1'/>
+<text x='751.9' y='770.0' font-size='10.5' class='t2' text-anchor='middle'>1M</text>
+<line x1='805.7' y1='754.0' x2='805.7' y2='758.0' class='base' stroke-width='1'/>
+<text x='805.7' y='770.0' font-size='10.5' class='t2' text-anchor='middle'>2M</text>
+<polyline fill='none' class='lx' stroke-width='2' points='736.3,719.0 768.1,700.7 798.4,686.5 826.5,675.9 853.2,668.1'/>
+<rect x='733.4' y='716.2' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='765.2' y='697.8' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='795.5' y='683.6' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='823.6' y='673.0' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='850.3' y='665.2' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<polyline fill='none' class='l1' stroke-width='2' points='702.9,738.8 737.4,713.9 770.6,694.9 801.6,680.9 831.0,670.7'/>
+<circle cx='702.9' cy='738.8' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='737.4' cy='713.9' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='770.6' cy='694.9' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='801.6' cy='680.9' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='831.0' cy='670.7' r='3.2' class='s1 ring' stroke-width='2'/>
+<text x='24.0' y='800.0' font-size='11.5' class='t1' text-anchor='start' font-weight='600'>Nocturne 720p (10 min)</text>
+<text x='24.0' y='815.0' font-size='11' class='t2' text-anchor='start'>BD-rate -6.27%</text>
+<line x1='54.0' y1='922.0' x2='223.0' y2='922.0' class='base' stroke-width='1'/>
+<text x='49.0' y='926.0' font-size='10.5' class='t2' text-anchor='end'>50</text>
+<line x1='54.0' y1='897.5' x2='223.0' y2='897.5' class='grid' stroke-width='1'/>
+<text x='49.0' y='901.5' font-size='10.5' class='t2' text-anchor='end'>60</text>
+<line x1='54.0' y1='873.0' x2='223.0' y2='873.0' class='grid' stroke-width='1'/>
+<text x='49.0' y='877.0' font-size='10.5' class='t2' text-anchor='end'>70</text>
+<line x1='54.0' y1='848.5' x2='223.0' y2='848.5' class='grid' stroke-width='1'/>
+<text x='49.0' y='852.5' font-size='10.5' class='t2' text-anchor='end'>80</text>
+<line x1='54.0' y1='824.0' x2='223.0' y2='824.0' class='grid' stroke-width='1'/>
+<text x='49.0' y='828.0' font-size='10.5' class='t2' text-anchor='end'>90</text>
+<line x1='79.0' y1='922.0' x2='79.0' y2='926.0' class='base' stroke-width='1'/>
+<text x='79.0' y='938.0' font-size='10.5' class='t2' text-anchor='middle'>500k</text>
+<line x1='126.7' y1='922.0' x2='126.7' y2='926.0' class='base' stroke-width='1'/>
+<text x='126.7' y='938.0' font-size='10.5' class='t2' text-anchor='middle'>1M</text>
+<line x1='174.5' y1='922.0' x2='174.5' y2='926.0' class='base' stroke-width='1'/>
+<text x='174.5' y='938.0' font-size='10.5' class='t2' text-anchor='middle'>2M</text>
+<polyline fill='none' class='lx' stroke-width='2' points='89.7,878.2 118.6,861.5 147.6,847.5 178.3,835.9 215.2,826.4'/>
+<rect x='86.8' y='875.3' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='115.7' y='858.7' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='144.7' y='844.6' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='175.4' y='833.0' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='212.3' y='823.5' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<polyline fill='none' class='l1' stroke-width='2' points='62.8,898.3 89.5,877.5 118.0,859.7 147.4,845.2 178.4,833.7'/>
+<circle cx='62.8' cy='898.3' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='89.5' cy='877.5' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='118.0' cy='859.7' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='147.4' cy='845.2' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='178.4' cy='833.7' r='3.2' class='s1 ring' stroke-width='2'/>
+<text x='237.0' y='800.0' font-size='11.5' class='t1' text-anchor='start' font-weight='600'>Nocturne 1080p (10 min)</text>
+<text x='237.0' y='815.0' font-size='11' class='t2' text-anchor='start'>BD-rate -8.31%</text>
+<line x1='267.0' y1='922.0' x2='436.0' y2='922.0' class='base' stroke-width='1'/>
+<text x='262.0' y='926.0' font-size='10.5' class='t2' text-anchor='end'>60</text>
+<line x1='267.0' y1='889.3' x2='436.0' y2='889.3' class='grid' stroke-width='1'/>
+<text x='262.0' y='893.3' font-size='10.5' class='t2' text-anchor='end'>70</text>
+<line x1='267.0' y1='856.7' x2='436.0' y2='856.7' class='grid' stroke-width='1'/>
+<text x='262.0' y='860.7' font-size='10.5' class='t2' text-anchor='end'>80</text>
+<line x1='267.0' y1='824.0' x2='436.0' y2='824.0' class='grid' stroke-width='1'/>
+<text x='262.0' y='828.0' font-size='10.5' class='t2' text-anchor='end'>90</text>
+<line x1='292.6' y1='922.0' x2='292.6' y2='926.0' class='base' stroke-width='1'/>
+<text x='292.6' y='938.0' font-size='10.5' class='t2' text-anchor='middle'>1M</text>
+<line x1='326.6' y1='922.0' x2='326.6' y2='926.0' class='base' stroke-width='1'/>
+<text x='326.6' y='938.0' font-size='10.5' class='t2' text-anchor='middle'>2M</text>
+<line x1='371.5' y1='922.0' x2='371.5' y2='926.0' class='base' stroke-width='1'/>
+<text x='371.5' y='938.0' font-size='10.5' class='t2' text-anchor='middle'>5M</text>
+<line x1='405.4' y1='922.0' x2='405.4' y2='926.0' class='base' stroke-width='1'/>
+<text x='405.4' y='938.0' font-size='10.5' class='t2' text-anchor='middle'>10M</text>
+<polyline fill='none' class='lx' stroke-width='2' points='302.1,882.8 323.7,864.2 347.8,847.6 383.0,834.4 430.4,824.1'/>
+<rect x='299.2' y='879.9' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='320.8' y='861.4' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='344.9' y='844.7' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='380.1' y='831.5' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='427.6' y='821.2' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<polyline fill='none' class='l1' stroke-width='2' points='273.3,915.6 296.4,886.6 319.4,865.2 343.7,847.8 373.8,834.0'/>
+<circle cx='273.3' cy='915.6' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='296.4' cy='886.6' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='319.4' cy='865.2' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='343.7' cy='847.8' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='373.8' cy='834.0' r='3.2' class='s1 ring' stroke-width='2'/>
+<text x='450.0' y='800.0' font-size='11.5' class='t1' text-anchor='start' font-weight='600'>Nocturne 4K (10 min)</text>
+<text x='450.0' y='815.0' font-size='11' class='t2' text-anchor='start'>BD-rate -10.04%</text>
+<line x1='480.0' y1='922.0' x2='649.0' y2='922.0' class='base' stroke-width='1'/>
+<text x='475.0' y='926.0' font-size='10.5' class='t2' text-anchor='end'>40</text>
+<line x1='480.0' y1='902.4' x2='649.0' y2='902.4' class='grid' stroke-width='1'/>
+<text x='475.0' y='906.4' font-size='10.5' class='t2' text-anchor='end'>50</text>
+<line x1='480.0' y1='882.8' x2='649.0' y2='882.8' class='grid' stroke-width='1'/>
+<text x='475.0' y='886.8' font-size='10.5' class='t2' text-anchor='end'>60</text>
+<line x1='480.0' y1='863.2' x2='649.0' y2='863.2' class='grid' stroke-width='1'/>
+<text x='475.0' y='867.2' font-size='10.5' class='t2' text-anchor='end'>70</text>
+<line x1='480.0' y1='843.6' x2='649.0' y2='843.6' class='grid' stroke-width='1'/>
+<text x='475.0' y='847.6' font-size='10.5' class='t2' text-anchor='end'>80</text>
+<line x1='480.0' y1='824.0' x2='649.0' y2='824.0' class='grid' stroke-width='1'/>
+<text x='475.0' y='828.0' font-size='10.5' class='t2' text-anchor='end'>90</text>
+<line x1='487.8' y1='922.0' x2='487.8' y2='926.0' class='base' stroke-width='1'/>
+<text x='487.8' y='938.0' font-size='10.5' class='t2' text-anchor='middle'>2M</text>
+<line x1='523.3' y1='922.0' x2='523.3' y2='926.0' class='base' stroke-width='1'/>
+<text x='523.3' y='938.0' font-size='10.5' class='t2' text-anchor='middle'>5M</text>
+<line x1='550.1' y1='922.0' x2='550.1' y2='926.0' class='base' stroke-width='1'/>
+<text x='550.1' y='938.0' font-size='10.5' class='t2' text-anchor='middle'>10M</text>
+<line x1='577.0' y1='922.0' x2='577.0' y2='926.0' class='base' stroke-width='1'/>
+<text x='577.0' y='938.0' font-size='10.5' class='t2' text-anchor='middle'>20M</text>
+<line x1='612.5' y1='922.0' x2='612.5' y2='926.0' class='base' stroke-width='1'/>
+<text x='612.5' y='938.0' font-size='10.5' class='t2' text-anchor='middle'>50M</text>
+<polyline fill='none' class='lx' stroke-width='2' points='511.2,879.8 535.8,866.7 571.8,856.5 612.1,846.2 644.6,834.8'/>
+<rect x='508.3' y='876.9' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='532.9' y='863.9' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='568.9' y='853.6' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='609.3' y='843.3' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<rect x='641.7' y='831.9' width='5.8' height='5.8' rx='1.5' class='sx ring' stroke-width='2'/>
+<polyline fill='none' class='l1' stroke-width='2' points='485.0,902.8 503.6,885.4 524.2,871.2 552.7,859.7 587.9,849.7'/>
+<circle cx='485.0' cy='902.8' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='503.6' cy='885.4' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='524.2' cy='871.2' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='552.7' cy='859.7' r='3.2' class='s1 ring' stroke-width='2'/>
+<circle cx='587.9' cy='849.7' r='3.2' class='s1 ring' stroke-width='2'/>
+<text x='450.0' y='974.0' font-size='12.5' class='t2' text-anchor='middle'>bitrate on a log scale (k = kbit/s, M = Mbit/s), VMAF v1 up the side</text>
+</svg>

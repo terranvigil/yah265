@@ -1,0 +1,43 @@
+{
+  "what": "yah265's BD-rate on HDR-VMAF v1.1.8, in percent. A negative number is the share of bitrate yah265 saves at equal quality. Copied from the measured tables in docs/hdr.md, which scripts/hdr_bd.py produced. Edit docs/hdr.md first and this file second.",
+  "metric": "HDR-VMAF v1.1.8",
+  "preset": "medium on both encoders",
+  "rows": [
+    {"title": "Sol Levante", "transfer": "PQ", "size": "1080p", "ours": "medium", "against": "x265", "bd_pct": -23.0,
+     "source": "docs/hdr.md, Quality on HDR content, second table"},
+    {"title": "Sol Levante", "transfer": "PQ", "size": "2160p", "ours": "medium", "against": "x265", "bd_pct": -17.7,
+     "source": "docs/hdr.md, Quality on HDR content, second table"},
+    {"title": "Sparks", "transfer": "PQ", "size": "1080p", "ours": "medium", "against": "x265", "bd_pct": -23.2,
+     "source": "docs/hdr.md, Quality on HDR content, second table"},
+    {"title": "Sparks", "transfer": "PQ", "size": "2160p", "ours": "medium", "against": "x265", "bd_pct": -24.2,
+     "source": "docs/hdr.md, Quality on HDR content, second table"},
+    {"title": "EBU / DVB HLG", "transfer": "HLG", "size": "1080p", "ours": "medium", "against": "x265", "bd_pct": -38.8,
+     "source": "docs/hdr.md, Quality on HDR content, second table"},
+    {"title": "EBU / DVB HLG", "transfer": "HLG", "size": "2160p", "ours": "medium", "against": "x265", "bd_pct": -34.6,
+     "source": "docs/hdr.md, Quality on HDR content, second table"},
+    {"title": "Sol Levante", "transfer": "PQ", "size": "1080p", "ours": "medium", "against": "x265 --hdr10-opt", "bd_pct": -5.5,
+     "source": "docs/hdr.md, Quality on HDR content, second table"},
+    {"title": "Sol Levante", "transfer": "PQ", "size": "2160p", "ours": "medium", "against": "x265 --hdr10-opt", "bd_pct": -5.4,
+     "source": "docs/hdr.md, Quality on HDR content, second table"},
+    {"title": "Sparks", "transfer": "PQ", "size": "1080p", "ours": "medium", "against": "x265 --hdr10-opt", "bd_pct": -18.3,
+     "source": "docs/hdr.md, Quality on HDR content, second table"},
+    {"title": "Sparks", "transfer": "PQ", "size": "2160p", "ours": "medium", "against": "x265 --hdr10-opt", "bd_pct": -18.4,
+     "source": "docs/hdr.md, Quality on HDR content, second table"},
+    {"title": "EBU / DVB HLG", "transfer": "HLG", "size": "1080p", "ours": "medium", "against": "yah265 --no-hdr-opt", "bd_pct": -14.1,
+     "source": "docs/hdr.md, HLG, second paragraph"},
+    {"title": "EBU / DVB HLG", "transfer": "HLG", "size": "2160p", "ours": "medium", "against": "yah265 --no-hdr-opt", "bd_pct": -15.0,
+     "source": "docs/hdr.md, HLG, second paragraph"},
+    {"title": "EBU / DVB HLG", "transfer": "HLG", "size": "1080p", "ours": "medium --no-hdr-opt", "against": "x265", "bd_pct": -29.1,
+     "source": "docs/hdr.md, HLG, second paragraph"},
+    {"title": "EBU / DVB HLG", "transfer": "HLG", "size": "2160p", "ours": "medium --no-hdr-opt", "against": "x265", "bd_pct": -23.4,
+     "source": "docs/hdr.md, HLG, second paragraph"}
+  ],
+  "ladders": [
+    {"title": "Sol Levante", "frames": "10 seconds, 24 fps", "ours_crf": "11 to 26", "x265_crf": "20 to 32", "step": 3,
+     "source": "docs/hdr.md, Quality on HDR content, last paragraph"},
+    {"title": "Sparks", "frames": "5 seconds, 60 fps", "ours_crf": "17 to 32", "x265_crf": "20 to 32", "step": 3,
+     "source": "docs/hdr.md, Quality on HDR content, last paragraph"},
+    {"title": "EBU / DVB HLG", "frames": "6 seconds, 50 fps", "ours_crf": "20 to 35", "x265_crf": "20 to 32", "step": 3,
+     "source": "docs/hdr.md, Quality on HDR content, last paragraph, and HLG"}
+  ]
+}
