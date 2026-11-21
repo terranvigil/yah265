@@ -242,6 +242,7 @@ void n265_set_zones_10(const char *spec);
 void n265_encoder_set_csv_10(n265_encoder *e, const char *path, int level);
 long n265_encoder_metrics_10(n265_encoder *e, double out[6]);
 long n265_encoder_dyn_lost_10(const n265_encoder *e);
+const char *n265_encoder_backend_10(const n265_encoder *e);
 void n265_show_config_10(const n265_encoder *e, FILE *f, int in_depth);
 
 typedef struct n265_api {
@@ -326,6 +327,7 @@ typedef struct n265_api {
     /* NALs an allocation failure dropped, cut short or never handed out,
      * HDR10+ and Dolby Vision metadata included (the name is older) */
     long (*dyn_lost)(const n265_encoder *);
+    const char *(*backend)(const n265_encoder *);
     /* the coding options, parsed and resolved by the library */
     n265_config *(*config_new)(void);
     void (*config_free)(n265_config *);
@@ -357,7 +359,7 @@ static const n265_api api8 = {
     n265_set_rc_bounds,
     n265_set_sei_opts, n265_set_qpfile, n265_set_zones,
     n265_encoder_set_csv, n265_encoder_metrics, n265_set_fingerprint,
-    n265_show_config, n265_encoder_dyn_lost,
+    n265_show_config, n265_encoder_dyn_lost, n265_encoder_backend,
     n265_config_new, n265_config_free, n265_config_parse, n265_config_note,
     n265_config_apply, n265_config_get, n265_config_get_str,
 };
@@ -386,7 +388,7 @@ static const n265_api api10 = {
     n265_set_sei_opts_10, n265_set_qpfile_10, n265_set_zones_10,
     n265_encoder_set_csv_10, n265_encoder_metrics_10,
     n265_set_fingerprint_10, n265_show_config_10,
-    n265_encoder_dyn_lost_10,
+    n265_encoder_dyn_lost_10, n265_encoder_backend_10,
     n265_config_new_10, n265_config_free_10, n265_config_parse_10,
     n265_config_note_10, n265_config_apply_10, n265_config_get_10,
     n265_config_get_str_10,
@@ -1014,6 +1016,16 @@ static void usage(FILE *out)
         "                        thread; not with --pass, --qpfile, --zones, --csv,\n"
         "                        --shot-stats or --hrd-concat. The joined stream\n"
         "                        carries no HRD timing SEI.\n",
+        out);
+    fputs(
+        "\n"
+        "Hardware\n"
+        "  --hw <mode>           off (default), auto or videotoolbox: encode with the\n"
+        "                        Mac's HEVC hardware through VideoToolbox. The stream\n"
+        "                        is the hardware's. Options it can't honour are listed\n"
+        "                        once at open. auto falls back to this encoder with one\n"
+        "                        line; videotoolbox fails instead.\n"
+        "  --hw-strict           with --hw, refuse instead of listing those options\n",
         out);
     fputs(
         "\n"
@@ -2579,6 +2591,7 @@ int main(int argc, char **argv)
     const double bitrate = CFG("bitrate");
     const double vbv_maxrate = CFG("vbv-maxrate");
     const double vbv_bufsize = CFG("vbv-bufsize");
+    const int hw = (int)CFG("hw");
 #undef CFG
     const char *qpfile_path = a->config_get_str(cfg, "qpfile");
     const char *zones_spec = a->config_get_str(cfg, "zones");
@@ -2626,6 +2639,22 @@ int main(int argc, char **argv)
     /* --verbose is N265_LEVEL_TRACE by another name */
     if (verbose)
         setenv("N265_LEVEL_TRACE", "1", 0);
+    if (hw) {
+        const char *why = dump_path ? "--dump-recon"
+                        : dump_decode_path ? "--dump-recon-decode"
+                        : csv_path ? "--csv"
+                        : shot_path ? "--shot-stats" : NULL;
+        if (why) {
+            fprintf(stderr, "y265: --hw: %s has no hardware path (the "
+                    "hardware keeps its reconstruction and its decisions)\n",
+                    why);
+            return 2;
+        }
+        if (gop_par > 1)
+            fprintf(stderr, "y265: --gop-parallel %d: coding serially, "
+                    "since --hw has its own parallelism\n", gop_par);
+        gop_par = 0;
+    }
     /* --gop-parallel (phase 14 item 42): above one thread only, and not
      * with the options that need one encoder to see the whole input */
     if (gop_par > 1 && !show_config) {
@@ -2711,6 +2740,8 @@ int main(int argc, char **argv)
         fprintf(stderr, "y265: encoder_open failed (dims %dx%d)\n", y.w, y.h);
         return 1;
     }
+    if (hw && strcmp(a->backend(enc), "yah265"))
+        fprintf(stderr, "y265: encoder: %s\n", a->backend(enc));
 
     /* --show-config / --verbose (phase 14 item 13). Here, because the
      * table is what the encoder RESOLVED and the level, the tier and the

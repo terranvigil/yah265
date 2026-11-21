@@ -79,7 +79,23 @@ lib_sources = [
   'src/encoder/config.c',
   'src/encoder/encoder.c',
   'src/encoder/ttrace.c',
+  'src/hw/vt_map.c',
+  'src/hw/sc.c',
 ]
+
+# The VideoToolbox hardware mode (docs/hardware-mode.md); the stub
+# elsewhere.
+vt_opt = get_option('videotoolbox')
+vt_dep = dependency('', required : false)
+if host_machine.system() == 'darwin' and not vt_opt.disabled()
+  vt_dep = dependency('appleframeworks',
+                      modules : ['VideoToolbox', 'CoreMedia', 'CoreVideo',
+                                 'CoreFoundation'],
+                      required : vt_opt)
+elif vt_opt.enabled()
+  error('-Dvideotoolbox=enabled needs macOS')
+endif
+lib_sources += vt_dep.found() ? 'src/hw/vt.c' : 'src/hw/vt_stub.c'
 
 # Phase 6, goal 3. NEON is baseline on aarch64 and this box's clang already
 # defaults to the host CPU, so there is no -march here on purpose: the only
@@ -343,7 +359,7 @@ libyah265_static = static_library('yah265' + depth_suffix,
   c_args : depth_args['@0@'.format(bit_depth)],
   objects : depth_objects['@0@'.format(bit_depth)],
   include_directories : inc,
-  dependencies : [m_dep, threads_dep],
+  dependencies : [m_dep, threads_dep, vt_dep],
   gnu_symbol_visibility : 'hidden',
   install : true)
 
@@ -353,7 +369,7 @@ libyah265_other = static_library('yah265-alt@0@'.format(other_depth),
   c_args : depth_args['@0@'.format(other_depth)],
   objects : depth_objects['@0@'.format(other_depth)],
   include_directories : inc,
-  dependencies : [m_dep, threads_dep],
+  dependencies : [m_dep, threads_dep, vt_dep],
   gnu_symbol_visibility : 'hidden',
   install : false)
 
@@ -363,7 +379,7 @@ if is_8bit
 endif
 libyah265 = shared_library('yah265' + depth_suffix,
   objects : shared_objs,
-  dependencies : [m_dep, threads_dep],
+  dependencies : [m_dep, threads_dep, vt_dep],
   version : meson.project_version(),
   soversion : '0',
   install : true)
@@ -394,6 +410,7 @@ pkg.generate(libyah265,
 # names the library actually defines.
 yah265_dep = declare_dependency(
   link_with : libyah265_static,
+  dependencies : vt_dep,
   compile_args : is_8bit ? [] : ['-include', symbols10_h],
   include_directories : inc)
 
@@ -406,7 +423,7 @@ y265 = executable('y265' + depth_suffix, 'cli/y265.c', 'cli/hdr_dyn.c',
   c_args : ['-UN265_BIT_DEPTH', '-DN265_BIT_DEPTH=8'],
   link_with : [lib8_static, lib10_static],
   include_directories : inc,
-  dependencies : [m_dep, threads_dep],
+  dependencies : [m_dep, threads_dep, vt_dep],
   install : true)
 
 # n265 was the command line's name before it was y265. The build tree
