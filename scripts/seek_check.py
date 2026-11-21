@@ -164,6 +164,8 @@ def main():
     ap.add_argument("--ffmpeg", default=os.environ.get("FFMPEG", "ffmpeg"))
     ap.add_argument("--dec265", default=os.environ.get("DEC265", "dec265"))
     ap.add_argument("--keep", help="write the cut stream and decodes here")
+    ap.add_argument("--expect-radl", type=int, default=0,
+                    help="fail when the encode named --radl but the cut has no RADL")
     a = ap.parse_args()
 
     w, h = (int(x) for x in a.geometry.lower().split("x"))
@@ -180,6 +182,11 @@ def main():
         return 2
     which = min(a.cra, ncra)
     stream, cra, radl, kept = cut(d, which)
+    if a.expect_radl > 0 and radl == 0:
+        print(f"seek_check: the encode asked for --radl {a.expect_radl} and the "
+              f"cut has no RADL picture, so this check proves nothing about them",
+              file=sys.stderr)
+        return 1
 
     full = frames(a.full, fs)
     # What a decoder starting here has to output, counted off the CUT
@@ -206,7 +213,12 @@ def main():
     deout = os.path.join(tmp, "seek.de.yuv")
     open(cutpath, "wb").write(stream)
 
-    r = subprocess.run([a.ffmpeg, "-loglevel", "error", "-i", cutpath,
+    # libavcodec 8.0 to 8.1.2 drop a picture whose RPS keeps (but never
+    # uses) one missing after a seek, which a RADL may legally do. With
+    # output_corrupt they decode it; a RADL that really predicted from a
+    # missing picture would read a generated one and fail the comparison.
+    r = subprocess.run([a.ffmpeg, "-loglevel", "error", "-flags", "output_corrupt",
+                        "-i", cutpath,
                         "-pix_fmt", pix, "-f", "rawvideo", ffout, "-y"],
                        capture_output=True)
     if r.returncode != 0 or not os.path.exists(ffout):

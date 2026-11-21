@@ -282,9 +282,11 @@ run_vector() {
     # question about.
     case " $eargs " in
     *" --open-gop "*)
+        radl=$(printf '%s\n' "$eargs" | sed -n 's/.*--radl \([0-9]*\).*/\1/p')
         if ! FFMPEG="$FFMPEG" DEC265="$DEC265" python3 scripts/seek_check.py \
                 "$TMP/$name.hevc" "$TMP/$name.ff.yuv" --geometry "$size" \
-                --csp "$CSP" --depth "$DEPTH" >"$TMP/$name.seek" 2>&1; then
+                --csp "$CSP" --depth "$DEPTH" --expect-radl "${radl:-0}" \
+                >"$TMP/$name.seek" 2>&1; then
             echo "SUMMARY $name FAIL (seek to a CRA)"
             sed -n 1,2p "$TMP/$name.seek" >&2
             fail=$((fail+1)); return
