@@ -5,15 +5,15 @@ description: How yah265 makes the choices the HEVC standard leaves open, from th
 
 # Design
 
-The HEVC standard defines a legal stream and leaves the encoding to the encoder. This page covers how yah265 makes those choices. [The HEVC standard](hevc.md) explains the terms used here.
+The HEVC standard defines a legal stream. Because it leaves the encoding to the encoder, this page covers how yah265 makes those choices. [The HEVC standard](hevc.md) explains the terms used here.
 
 ## The idea
 
-HEVC moved most of an encoder's cost into search. A coding tree can split from 64x64 down to 8x8. Every node offers merge, motion search, 35 intra modes and a transform tree of its own. The pixel work per decoded sample stayed close to H.264's. So I treat the order in which candidates are tried as the encoder's real architecture, along with how early the losers are dropped. That ladder was designed first and the coding tools were built on it afterwards.
+HEVC moved most of an encoder's cost into search. A coding tree can split from 64x64 down to 8x8. Every node offers merge, motion search, 35 intra modes and a transform tree of its own. The pixel work per decoded sample stayed close to H.264's. So I treat the order in which candidates are tried as the encoder's real architecture, along with how early the losers are dropped. That ladder was designed first. The coding tools were built on it afterwards.
 
 ## The pipeline
 
-A frame passes through four stages. A reader thread takes it off the input. The lookahead keeps a small copy and works out what the frame will cost. One thread, called the driver here, decides the frame's type, its references and its planned quantizer. It then hands the frame to a shared pool of workers. In the pool the frame is coded as rows of coding tree units while rows of other frames run beside it. A last pass per frame turns the rows' recorded decisions into bits.
+A frame passes through four stages. A reader thread takes it off the input. The lookahead works out from a small copy what the frame will cost. One thread, called the driver here, decides the frame's type, its references and its planned quantizer. It then hands the frame to a shared pool of workers. In the pool the frame is coded as rows of coding tree units while rows of other frames run beside it. A last pass per frame turns the rows' recorded decisions into bits.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 298" role="img" aria-label="The path a frame takes through yah265">
@@ -117,9 +117,9 @@ Every frame passes through a lookahead queue before it's coded. The queue keeps 
 
 A scene cut has to be a jump in cost. One high reading isn't enough, because a film transferred with a pulldown cadence would then read as a run of cuts. Because the key frame period restarts at a cut, a periodic key frame never follows a cut closely.
 
-The lookahead also recognizes two kinds of content that need different handling. A scroll in a screen recording defeats a search that expects small motion. A frame typed as screen content therefore gets its scroll measured and handed to the motion search. Handheld footage of fine texture jitters from frame to frame. There the encoder keeps its long runs of B-frames and decides more carefully. [Content types](results.md#content-types) has the measurements for both.
+The lookahead also recognizes two kinds of content that need different handling. A scroll in a screen recording defeats a search that expects small motion. A frame typed as screen content therefore gets its scroll measured, then handed to the motion search. Handheld footage of fine texture jitters from frame to frame. There the encoder decides more carefully while it keeps its long runs of B-frames. [Content types](results.md#content-types) has the measurements for both.
 
-I swept the lookahead's depth on the test set and didn't inherit a number. The depths `medium` runs are in [the table below](#what-medium-does-at-each-size). [Lookahead depth](results.md#lookahead-depth) has the sweep.
+I swept the lookahead's depth on the test set instead of inheriting a number. The depths `medium` runs are in [the table below](#what-medium-does-at-each-size). [Lookahead depth](results.md#lookahead-depth) has the sweep.
 
 ## Mode decision
 
@@ -178,7 +178,7 @@ Each coding tree unit runs a staged decision. Merge and skip candidates go first
 <line class="d-arrow" x1="180" y1="340" x2="180" y2="372"/>
 <text class="d-label" x="180" y="392" text-anchor="middle">the winner goes into the frame's records</text>
 </svg>
-<figcaption>Each stage costs more per candidate than the one above it, and sees fewer candidates.</figcaption>
+<figcaption>Each stage sees fewer candidates than the one above it, at a higher cost for each.</figcaption>
 </figure>
 
 Pruning decides the speed. A node stops splitting when its neighbors and its own costs say a split won't pay. It also stops under a block that intra already won on an intra-heavy frame. On wide pictures the intra modes of P and B pictures are ranked coarse to fine. Only 19 of the 35 get priced. At `medium` the encoder tries neither the rectangular nor the uneven partitions. It doesn't try 4x4 intra in P and B pictures either. The slower presets turn those back on.
@@ -383,7 +383,7 @@ One engine handles the reference picture sets and the decoded picture buffer. Be
 
 ## What medium does at each size
 
-`medium` is the default preset and the one every result on this site was read at. It changes with the picture, because a choice that pays at 4K can cost quality at CIF.
+Every result on this site was read at `medium`, the default preset. It changes with the picture, because a choice that pays at 4K can cost quality at CIF.
 
 | picture | coding tree | lookahead | whole-sample search | references per list | chroma QP offset | dark psy strength |
 |---|---|---|---|--:|--:|--:|
@@ -399,7 +399,7 @@ The values are what `--show-config` prints for an 8-bit SDR input at each size. 
 Every quality result on this site is scored with VMAF v1. Several of `medium`'s choices come from what that metric measures.
 
 - VMAF v1 reads banding. With the psy term off, the rate-distortion decision coded faint grain in dark areas to flat steps. From 720p up the psy strength therefore rises on dark, smooth 16x16 blocks.
-- It scores chroma. It also scores a small picture scaled up to display size, where the chroma loss shows. Chroma gets more bits than luma's quantizer alone would give it: inter chroma coefficients round less harshly and both chroma quantizers run finer than luma's.
+- It scores chroma. It also scores a small picture scaled up to display size, where the chroma loss shows. Chroma gets more bits than luma's quantizer alone would give it. Inter chroma coefficients round less harshly. Both chroma quantizers also run finer than luma's.
 - Adaptive quantization scales its strength per frame from the spread of its own field.
 
 [Quality at the same size](results.md#quality-at-the-same-size) and [Quality across the rate range](results.md#quality-across-the-rate-range) hold the results.

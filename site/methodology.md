@@ -75,21 +75,21 @@ A faster encoder can look faster only because it spent more bits, or look better
 <figcaption>One cell's matched point. The curves are a sketch.</figcaption>
 </figure>
 
-x265 runs first, at its default rate factor of CRF 28. yah265 is then solved onto x265's file size within ±1% by trying integer CRFs and then a fractional one. Speed and quality are both read at that one point.
+x265 runs first, at its default rate factor of CRF 28. yah265 is then solved onto x265's file size within ±1% by trying integer CRFs, then a fractional one. Speed and quality are both read at that one point.
 
 Each cell has two x265 anchors because x265's pictures change with its frame-thread count. G3 and G2 use the anchor at x265's default threading. G1 uses the one at a single frame thread. Each anchor gets its own solve of yah265.
 
 ## Timing
 
 - Both encoders read the same frames on standard input from one feeder. Neither ever gets a file path the other doesn't.
-- The feeder alone must deliver at least 1.5 times the faster encoder's frame rate. Below that the cell is feeder-bound and its ratio is void.
+- The feeder alone must deliver at least 1.5 times the faster encoder's frame rate. A cell below that is feeder-bound. Its ratio is void.
 - Rounds are interleaved. The order of the two encoders reverses on alternate rounds. The reading is the median wall time.
 - The machine must be quiet, judged on total CPU across all cores. No other work runs during a timed leg.
 - Each run prints its output's md5. A run that didn't happen leaves a gap there.
 
 G3 is the goal a user sees, because it times both encoders as shipped. G1 and G2 switch the hand-written SIMD off on both sides to compare the algorithms alone. Those two are engineering checks, because x265 isn't meant to run without its assembly.
 
-G1 and G2 would take many hours at one thread on the 2-minute and 10-minute cells. They're timed on 30-second windows instead. A window starts every three minutes and is coded as its own stream. yah265 is matched again onto x265's summed window bytes. A goal whose summed bytes miss by more than 5% is void for that cell.
+G1 and G2 would take many hours at one thread on the 2-minute and 10-minute cells. They're timed on 30-second windows instead. A window starts every three minutes. Each one is coded as its own stream before yah265 is matched again onto x265's summed window bytes. A goal whose summed bytes miss by more than 5% is void for that cell.
 
 ## The test media
 
@@ -98,7 +98,7 @@ G1 and G2 would take many hours at one thread on the 2-minute and 10-minute cell
 | S | eleven standard clips from CIF to 4K | each clip whole |
 | M | Sol Levante at 1080p and 4K | from the first non-black frame to the end |
 | L | six open-licensed films at 720p, 1080p and 4K | 600 seconds from a recorded offset past the opening card, cut at the last frame before the end credits |
-| C | a film scan, sports and screen content | quality counts toward the verdict. Speed is shown and doesn't count |
+| C | a film scan, sports and screen content | quality counts toward the verdict. Speed is only shown |
 
 Every start and end frame is recorded. The reports in the repository also hold rows for two titles that aren't in this set. Every figure on the site is computed without them.
 
@@ -116,7 +116,7 @@ Quality is VMAF v1, Netflix's `vmaf_v1.0.16` models. The scorer is libvmaf 3.x. 
 
 VMAF v1 is the only quality metric these pages judge by. yah265's `medium` is tuned for it. x265's `medium` has other aims that include its psychovisual options. A lead here is a lead on that one score. The results page also shows frame crops because a score can't settle how two encodes look.
 
-v1 is scored at display resolution. An encode smaller than 1920x1080 in both dimensions is scaled up to fit that frame before scoring. A CIF clip is therefore scored after a 3.75x upscale. The CIF rows depend on that rule. The scaling is bicubic and keeps the aspect ratio. The reference gets the same scaling as the decode. CAMBI is told the coded size and the coded bit depth.
+v1 is scored at display resolution. An encode smaller than 1920x1080 in both dimensions is scaled up to fit that frame before scoring. A CIF clip is therefore scored after a 3.75x upscale. The CIF rows depend on that rule. The bicubic scaling keeps the aspect ratio. The reference gets the same scaling as the decode. CAMBI is told the coded size and the coded bit depth.
 
 In the report CSVs the columns whose names end in `vmafneg` hold VMAF v1 scores. The names are left from the metric the project used before.
 
@@ -128,7 +128,7 @@ Scoring runs at 10 bits. The model follows the picture:
 | above 1080p | `vmaf_v1.0.16_1d5h_2160`, for one and a half |
 | 50 fps and up | the `_hfr` variant of either |
 
-Every frame is scored at the matched point. The ladders score every frame on tier M and every third frame on tier L. The stride is odd because an even stride lines up with an encoder's B-frame pattern. When I measured that, it moved BD-rate by 1.3 to 6 points.
+Every frame is scored at the matched point. On tier M the ladders score every frame. On tier L they score every third frame. The stride is odd because an even stride lines up with an encoder's B-frame pattern. When I measured that, it moved BD-rate by 1.3 to 6 points.
 
 ## The bar
 
@@ -141,13 +141,13 @@ Every frame is scored at the matched point. The ladders score every frame on tie
 | VBR tracking, tiers M and L | every rung within ±10% of its target over the whole cell |
 | VBR speed, tiers M and L | G3 only, held to the same speed bar |
 
-The unit of passing is a combination of class, tier and goal, for example 1080p at tier M for G3. Because this site writes a speed as times faster, the same bar reads 1.00x for the median and 0.87x for the slowest clip. It passes when its median and slowest ratios meet the bar and quality holds for that class and tier. Full parity means every goal passes in every class and every tier on every machine. Tier C's speed is shown and kept outside that count.
+The unit of passing is a combination of class, tier and goal, for example 1080p at tier M for G3. Because this site writes a speed as times faster, the same bar reads 1.00x for the median and 0.87x for the slowest clip. It passes when its median ratio and its slowest ratio both meet the bar. Quality has to hold for that class and tier too. Full parity means every goal passes in every class, at every tier, on every machine. Tier C's speed is shown outside that count.
 
-The lookahead's depth is part of the reading. yah265's own depth is swept around x265's default on live action, animation and 60p content at 1080p and 4K, under CRF and VBR. x265 stays at its default 20 throughout. Every reading states both depths. Shot-based and chunked encoding never enter a reading.
+The lookahead's depth is part of the reading. yah265's own depth is swept around x265's default under CRF and VBR. The sweep covers live action, animation and 60p content at 1080p and 4K. x265 stays at its default 20 throughout. Every reading states both depths. Shot-based and chunked encoding never enter a reading.
 
 ## The ladders
 
-CRF rungs are 20, 23, 26, 29 and 32 on both encoders. VBR rungs target the bitrates x265 reached at those CRFs on the same cell. Each VBR rung sets the maxrate to 1.5 times the target and the buffer to twice the target. BD-rate is taken over the bytes each encoder wrote. Only curves from the binary under test count.
+CRF rungs are 20, 23, 26, 29 and 32 on both encoders. VBR rungs target the bitrates x265 reached at those CRFs on the same cell. Each VBR rung sets the maxrate to 1.5 times the target. Its buffer is twice the target. BD-rate is taken over the bytes each encoder wrote. Only curves from the binary under test count.
 
 ## What makes a number valid
 

@@ -11,11 +11,11 @@ HEVC is the video coding standard that ITU-T publishes as H.265. This page walks
 
 Raw video is far too large to store or send. An encoder shrinks it by sending only what a decoder can't guess for itself.
 
-The guess is called a prediction. The encoder cuts each picture into blocks and predicts every block from samples the decoder already has, taken either from the same picture (intra prediction) or from an earlier decoded picture (inter prediction). It then subtracts the prediction from the real block. The leftover is called the residual. The better the prediction, the smaller it is.
+The guess is called a prediction. The encoder cuts each picture into blocks. It predicts every block from samples the decoder already has. They come from the same picture (intra prediction) or from an earlier decoded picture (inter prediction). It then subtracts the prediction from the real block. The leftover is called the residual. The better the prediction, the smaller it is.
 
-The residual then goes through a transform that turns a block of samples into a block of frequencies. Most of the block's energy ends up in a few of them. Quantization divides each frequency by a step size and rounds the result. Because that rounding is the only step that loses picture detail, the step size is the quality control. A number called the quantization parameter (QP) sets it. Last, an entropy coder writes the prediction choices and the rounded values in as few bits as it can.
+The residual then goes through a transform that turns a block of samples into a block of frequencies. Most of the block's energy ends up in a few of them. Quantization divides each frequency by a step size, then rounds the result. Because that rounding is the only step that loses picture detail, the step size is the quality control. A number called the quantization parameter (QP) sets it. Last, an entropy coder writes the prediction choices and the rounded values in as few bits as it can.
 
-The encoder also does the decoder's half of the work. It rebuilds each block from the rounded values exactly as a decoder will and predicts later blocks from the rebuilt picture. Both sides then predict from the same samples.
+The encoder also does the decoder's half of the work. It rebuilds each block from the rounded values exactly as a decoder will. Because later blocks are predicted from the rebuilt picture, the two sides predict from the same samples.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 350" role="img" aria-label="The prediction loop every block goes through">
@@ -111,7 +111,7 @@ Pictures come in three kinds. A decoder can start from an I picture because it u
 
 ## What HEVC adds
 
-HEVC came after H.264 and has the same steps. What grew is the number of choices at each step. The standard's stated goal was the same picture quality as H.264 at about half the bitrate.
+HEVC came after H.264 with the same steps. What grew is the number of choices at each step. The standard's stated goal was the same picture quality as H.264 at about half the bitrate.
 
 | | H.264 | HEVC |
 |---|---|---|
@@ -179,7 +179,7 @@ The larger block matters most. A patch of sky in a 4K picture is thousands of sa
 <text class="d-label" x="140" y="396" text-anchor="middle">32x32</text>
 <text class="d-label" x="200" y="376" text-anchor="middle">16</text>
 </svg>
-<figcaption>HEVC spends one large block on a flat area and splits only where the picture has detail.</figcaption>
+<figcaption>HEVC spends one large block on a flat area. It splits only where the picture has detail.</figcaption>
 </figure>
 
 ## Pictures, slices and NAL units
@@ -257,7 +257,7 @@ Three kinds hold settings and no picture data. The video parameter set (VPS) des
 <text class="d-label" x="262" y="210" text-anchor="start">each slice</text>
 <text class="d-label" x="262" y="226" text-anchor="start">names its PPS</text>
 </svg>
-<figcaption>A stream is a row of NAL units. A slice holds picture data and points back at the parameter sets it needs.</figcaption>
+<figcaption>A stream is a row of NAL units. A slice holds picture data. It points back at the parameter sets it needs.</figcaption>
 </figure>
 
 A decoder can only start at a key picture. HEVC has two main kinds. After an IDR picture, nothing refers to anything that came before it. A CRA picture (clean random access) lets some pictures that are shown before it predict across it, from both sides. Those are called leading pictures. A group of pictures that ends this way is an open GOP. It costs fewer bits than a closed one because the pictures just before the key picture still get two references.
@@ -482,7 +482,7 @@ Every slice also lists the pictures the decoder has to keep for later prediction
 <text class="d-label" x="204" y="452" text-anchor="middle">leading pictures:</text>
 <text class="d-label" x="204" y="468" text-anchor="middle">decoded after the CRA, shown before it</text>
 </svg>
-<figcaption>Arrows point from a picture to the pictures it predicts from. The decoder takes the pictures in the bottom row's order and shows them in the top row's.</figcaption>
+<figcaption>Arrows point from a picture to the pictures it predicts from. The decoder takes the pictures in the bottom row's order. It shows them in the top row's.</figcaption>
 </figure>
 
 ## The coding tree
@@ -824,11 +824,11 @@ Intra prediction fills a block from the decoded samples just above it and to its
 <figcaption>Each angular mode copies the highlighted neighbor samples into the block along one of these directions. The fan is denser near horizontal and vertical.</figcaption>
 </figure>
 
-Naming one of 35 modes would cost five bits or more on every block if the standard didn't shorten it by building a list of three most probable modes from the blocks above and to the left. A mode on the list costs about two bits. Chroma can reuse the mode that luma chose.
+Naming one of 35 modes would cost five bits or more on every block if the standard didn't shorten it. It builds a list of three most probable modes from the blocks above and to the left. A mode on the list costs about two bits. Chroma can reuse the mode that luma chose.
 
 ## Inter prediction and merge
 
-Inter prediction copies a block from an earlier decoded picture. A motion vector says where the copy comes from and a reference index says which picture. Vectors are precise to a quarter of a sample. Positions between whole samples are computed by a filter over eight neighboring samples for luma and four for chroma.
+Inter prediction copies a block from an earlier decoded picture. A motion vector says where the copy comes from. A reference index says which picture. Vectors are precise to a quarter of a sample. Positions between whole samples are computed by a filter over eight neighboring samples for luma and four for chroma.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 262" role="img" aria-labelledby="mv-fig-t mv-fig-d">
@@ -872,7 +872,7 @@ Inter prediction copies a block from an earlier decoded picture. A motion vector
 <figcaption>The stream holds the vector and which picture it points into. The decoder makes the same copy.</figcaption>
 </figure>
 
-HEVC has two ways to write the motion. Merge writes nothing but an index. The decoder builds a list of up to five candidates from the block's neighbors. The block takes one candidate's vector and reference whole. Skip mode is a merge with no residual, the cheapest block the standard can code. The other way is advanced motion vector prediction (AMVP), where the encoder picks one of two predicted vectors and codes the difference from it.
+HEVC has two ways to write the motion. Merge writes nothing but an index. The decoder builds a list of up to five candidates from the block's neighbors. The block takes one candidate's vector and reference whole. Skip mode is a merge with no residual, the cheapest block the standard can code. The other way is advanced motion vector prediction (AMVP). There the encoder picks one of two predicted vectors, then codes the difference from it.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 300" role="img" aria-label="Where merge candidates come from">
@@ -1397,14 +1397,14 @@ The quantizer's step size doubles every six QP steps. At 8 bits the QP runs from
 <line class="d-arrow" x1="92" y1="374" x2="92" y2="406"/>
 <text class="d-label" x="102" y="394" text-anchor="start">quantize</text>
 </svg>
-<figcaption>The transform moves a block's energy into a few coefficients, so that rounding the rest to zero costs little.</figcaption>
+<figcaption>Because the transform moves a block's energy into a few coefficients, rounding the rest to zero costs little.</figcaption>
 </figure>
 
-Coefficients are coded in groups of 4x4, starting from the last nonzero one and working back toward the top left. One trick saves a bit in many groups. In sign data hiding the encoder leaves out the sign of one coefficient. The decoder works it out from whether the group's sum is odd or even.
+Coefficients are coded in groups of 4x4. The coding starts from the last nonzero one, then works back toward the top left. One trick saves a bit in many groups. In sign data hiding the encoder leaves out the sign of one coefficient. The decoder works it out from whether the group's sum is odd or even.
 
 ## Entropy coding
 
-Everything in a slice is written by one coder, context-adaptive binary arithmetic coding (CABAC). It works in three steps. Each value is first turned into a string of yes-or-no decisions called bins. For most bins the coder keeps a running estimate of how likely a one is, in a context model chosen by what the bin means. With that estimate an arithmetic coder spends less than a bit on a likely outcome and more than a bit on an unlikely one.
+Everything in a slice is written by one coder, context-adaptive binary arithmetic coding (CABAC). It works in three steps. Each value is first turned into a string of yes-or-no decisions called bins. For most bins the coder keeps a running estimate of how likely a one is, in a context model chosen by what the bin means. With that estimate an arithmetic coder spends less than a bit on a likely outcome. An unlikely one costs more than a bit.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 190" role="img" aria-label="The two paths a bin takes through CABAC">
@@ -1461,10 +1461,10 @@ Everything in a slice is written by one coder, context-adaptive binary arithmeti
 <line class="d-arrow" x1="180" y1="290" x2="180" y2="318"/>
 <text class="d-label" x="180" y="337" text-anchor="middle">bits</text>
 </svg>
-<figcaption>A regular bin is coded with a learned probability. A bypass bin skips the model and costs one whole bit.</figcaption>
+<figcaption>A regular bin is coded with a learned probability. A bypass bin skips the model. It costs one whole bit.</figcaption>
 </figure>
 
-Bins with no useful pattern, such as coefficient signs, take the bypass path, where the coder assumes even odds and skips the model. HEVC groups bypass bins together so that a decoder can read several at once.
+Bins with no useful pattern, such as coefficient signs, take the bypass path. There the coder skips the model because it assumes even odds. HEVC groups bypass bins together so that a decoder can read several at once.
 
 One slice has to be decoded in order because the context models carry over from block to block. The standard has two optional tools for decoders that want to work in parallel. Tiles cut the picture into independent rectangles. Wavefront processing gives each row of CTUs its own start point. Both cost some bitrate.
 
@@ -1472,7 +1472,7 @@ One slice has to be decoded in order because the context models carry over from 
 
 Quantizing each block on its own leaves visible steps at block edges. Two filters repair the rebuilt picture before it's shown or used as a reference. They're called in-loop filters because later pictures predict from the filtered result. The encoder has to apply exactly what the decoder will.
 
-Deblocking runs first. It looks at each block edge on an 8x8 grid and decides how strong a step the coding could have caused there. It then smooths a few samples on each side. Sample adaptive offset (SAO) runs second. For each CTU the encoder can send a few small corrections. One kind is added to samples in a chosen brightness band. The other is added to samples that form a local peak or valley along a chosen direction. Ringing next to a hard edge in the picture looks like that.
+Deblocking runs first. For each block edge on an 8x8 grid it decides how strong a step the coding could have caused there. It then smooths a few samples on each side. Sample adaptive offset (SAO) runs second. For each CTU the encoder can send a few small corrections. One kind is added to samples in a chosen brightness band. The other is added to samples that form a local peak or valley along a chosen direction. Ringing next to a hard edge in the picture looks like that.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 232" role="img" aria-label="One row of samples across a block edge, before and after each filter">
@@ -1517,7 +1517,7 @@ Deblocking runs first. It looks at each block edge on an 8x8 grid and decides ho
 <path class="d-line d-accent" d="M 40.0 492.9 L 58.7 491.1 L 77.4 486.6 L 96.2 479.4 L 114.9 477.6 L 133.6 474.3 L 152.3 469.6 L 171.0 468.0 L 189.8 467.0 L 208.5 463.0 L 227.2 461.6 L 245.9 458.7 L 264.6 451.5 L 283.4 449.7 L 302.1 445.2 L 320.8 438.0"/>
 <text class="d-label" x="180" y="548" text-anchor="middle">offsets pull it toward the source</text>
 </svg>
-<figcaption>The dashed line is the source and the solid line is the decoded row. The vertical line marks the edge between two blocks.</figcaption>
+<figcaption>The dashed line is the source. The solid line is the decoded row. The vertical line marks the edge between two blocks.</figcaption>
 </figure>
 
 ## Profiles, levels and HDR
@@ -1700,7 +1700,7 @@ A decoder doesn't have to support the whole standard. A profile names the tools 
 <text class="d-label" x="300" y="158" text-anchor="middle">16 chroma</text>
 <text class="d-label" x="300" y="174" text-anchor="middle">positions</text>
 </svg>
-<figcaption>Circles are luma samples and squares are chroma positions, on a patch of sixteen luma samples.</figcaption>
+<figcaption>Each patch has sixteen luma samples, drawn as circles. Squares are chroma positions.</figcaption>
 </figure>
 
 A level caps the picture size, the frame rate and the bitrate. A decoder then knows how much it has to handle. Each level comes in a Main tier and a High tier with a larger bitrate cap.
@@ -1709,7 +1709,7 @@ HDR needs no new coding tool. An HDR stream is a 10-bit stream with fields that 
 
 ## What the standard doesn't say
 
-The specification defines what every bit of a stream means and what a decoder must do with it. Every conforming decoder produces the same pictures from the same stream, down to the last sample. The standard says nothing about how an encoder arrives at the stream.
+The specification defines what every bit of a stream means. It also says what a decoder must do with it. Every conforming decoder produces the same pictures from the same stream, down to the last sample. The standard says nothing about how an encoder arrives at the stream.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 250" role="img" aria-label="What the standard fixes and what it leaves open">
@@ -1759,7 +1759,7 @@ The specification defines what every bit of a stream means and what a decoder mu
 <figcaption>The standard defines the bitstream and the decoder. Everything inside the dashed box is an encoder's own business.</figcaption>
 </figure>
 
-Two encoders can write legal streams of the same size from the same source and differ widely in quality and in time taken. All of that difference comes from the open choices. These are the main ones, with the Design section where yah265 makes each:
+Two encoders can write legal streams of the same size from the same source. The streams can still differ widely in quality, as can the time taken. All of that difference comes from the open choices. These are the main ones, with the Design section where yah265 makes each:
 
 - Which pictures become key pictures, P pictures and B pictures: [Lookahead](design.md#lookahead).
 - How each CTU is split and which prediction each CU gets: [Mode decision](design.md#mode-decision).

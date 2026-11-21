@@ -595,19 +595,20 @@ def values(D):
            "C": "seven short clips and one ten-minute film scan at two sizes"}
     trow = []
     for t in TIERS:
-        per = ", ".join(f"{len(sets[t][c])} at {RES[c]}" for c in CLASSES if c in sets[t])
+        per = [len(sets[t][c]) if c in sets[t] else "" for c in CLASSES]
         names = sorted({TITLE.get(B.base_title(x), B.base_title(x))
                         for c in sets[t] for x in sets[t][c]}, key=str.lower)
-        trow.append([f"{t}, {TIER_LABEL[t]}", per, ", ".join(names), how[t]])
+        trow.append([f"{t}, {TIER_LABEL[t]}", *per, ", ".join(names), how[t]])
     kinds = {}
     for r in tc:
         kinds.setdefault(r[1], []).append(r[0])
     cper = {}
     for r in tc:
         cper[split_cell(r[0])[1]] = cper.get(split_cell(r[0])[1], 0) + 1
-    trow.append(["C, content types", ", ".join(f"{cper[c]} at {RES[c]}" for c in CLASSES if c in cper),
+    trow.append(["C, content types", *[cper.get(c, "") for c in CLASSES],
                  ", ".join(f"{len(v)} {k}" for k, v in kinds.items()), how["C"]])
-    V["test-set"] = mdt(["tier", "cells", "what's in it", "how it's cut"], [L, L, L, L], trow)
+    V["test-set"] = mdt(["tier", *[RES[c] for c in CLASSES], "what's in it", "how it's cut"],
+                        [L, R, R, R, R, L, L], trow)
 
     # speed on the Mac
     sp = sps["mac"]

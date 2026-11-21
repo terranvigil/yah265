@@ -11,9 +11,9 @@ yah265 uses every core by default. This page explains how the work is divided an
 
 One shared pool of worker threads runs the whole encode. `--threads` sets its size. The default is one worker per CPU.
 
-The unit of work is a row of coding tree units. A frame becomes three tasks per row: encode the row, deblock it, then run SAO and publish the finished row for other frames to predict from. One more task per frame does the entropy coding. It walks the decisions the rows recorded and writes the bits.
+The unit of work is a row of coding tree units. A frame becomes three tasks per row: encode the row, deblock it, then run SAO and publish the finished row for other frames to predict from. One more task per frame does the entropy coding. It writes the bits from the decisions the rows recorded.
 
-The stream stays simple because the entropy coder is kept out of the rows. HEVC has optional tools that make a stream easier to code in parallel, at a cost in bitrate. yah265 writes one slice per picture and uses none of them. Because the entropy passes of different frames don't depend on each other, they run in parallel as ordinary pool work.
+The stream stays simple because the entropy coder is kept out of the rows. HEVC has optional tools that make a stream easier to code in parallel, at a cost in bitrate. yah265 uses none of them. It writes one slice per picture. Because the entropy passes of different frames don't depend on each other, they run in parallel as ordinary pool work.
 
 Inside a frame, a block needs its left, upper and upper-right neighbors to be finished. Each row therefore trails the row above it by two coding tree units.
 
@@ -126,7 +126,7 @@ A row in a P or B frame predicts from other frames. It can start as soon as each
 <figcaption>A row can run as soon as the outlined rows are finished in every reference. It doesn't wait for the whole reference frame.</figcaption>
 </figure>
 
-The start rule is only a good guess. Whenever a block is about to touch a reference picture, the encoder checks that the rows it will read are published and waits if they aren't. While it waits, the worker picks up work from an older frame. Because waits always point at older frames and the oldest frame never waits on another, the pool can't lock up.
+The start rule is only a good guess. Whenever a block is about to touch a reference picture, the encoder checks that the rows it will read are published. If they aren't, the block waits while its worker picks up work from an older frame. Waits always point at older frames. Because the oldest frame never waits on another, the pool can't lock up.
 
 I chose waiting over clamping. Another way to make frames overlap is to forbid motion vectors that point too far down the reference. That changes what the encoder can choose. Here a vector may point anywhere the standard allows.
 
@@ -217,7 +217,7 @@ One frame can't keep a large pool busy, because only so many of its rows can run
 <figcaption>A sketch of the schedule on a 64x64 tree, drawn to show the order. The bar lengths aren't measured.</figcaption>
 </figure>
 
-Two rules keep a deep queue moving. Frames that others predict from get workers first, since later frames are waiting on their rows. On wide pictures a row that finds the row above too close gives up its worker and resumes later.
+Two rules keep a deep queue moving. Frames that others predict from get workers first, since later frames are waiting on their rows. On wide pictures a row gives up its worker when it finds the row above too close. It resumes later.
 
 More frames in flight need more memory, because each one holds its own pictures.
 
@@ -341,10 +341,10 @@ All of that scales with the picture. At 4K the driver alone was slower than the 
 <text class="d-label" x="180" y="470" text-anchor="middle">shaded bars: the same step's items, run by</text>
 <text class="d-label" x="180" y="488" text-anchor="middle">workers that had nothing else to do</text>
 </svg>
-<figcaption>The split changes when the analysis finishes. Every sum is still added up in its old order, so the results are the same numbers.</figcaption>
+<figcaption>The split changes when the analysis finishes. Because every sum is still added up in its old order, the results are the same numbers.</figcaption>
 </figure>
 
-Above one thread the driver now cuts each of those steps into items and shares them with any worker that's free. The split isn't always a win. Because the hand-off cost more than it saved on small pictures, each step keeps a running time for both forms and uses the faster one.
+Above one thread the driver now cuts each of those steps into items that any free worker can take. The split isn't always a win. Because the hand-off cost more than it saved on small pictures, each step keeps a running time for both forms so that it can use the faster one.
 
 ## Input
 
@@ -354,7 +354,7 @@ Reading the source is work too. Above one thread a separate thread reads frames 
 
 At `--threads 1`, two runs of the same command write the same bytes. That's a promise. Every change has to pass a check of it before it merges.
 
-Above one thread, identical output is checked and reported. It isn't promised. The design aims for it all the same. A task reads only values that are fixed by the input and the settings. The schedule decides when a task runs and never what it reads. Every round of checks compares streams across thread counts and across repeated runs. A mismatch is recorded as a warning with its cause.
+Above one thread, identical output is checked and reported. It isn't promised. The design aims for it all the same. A task reads only values that are fixed by the input and the settings. The schedule decides when a task runs, never what it reads. Every round of checks compares streams across thread counts and across repeated runs. A mismatch is recorded as a warning with its cause.
 
 Capped VBR is different by design. Above one thread its stream differs from the one-thread stream, for the reason in the next section.
 
@@ -362,15 +362,15 @@ Capped VBR is different by design. Above one thread its stream differs from the 
 
 Rate decisions are made in coding order on the driver, one frame at a time, before a frame enters the pool. The per-block offsets are fixed at that point too.
 
-Fixed QP and CRF need nothing from earlier frames. Their frames overlap freely. A mode that targets a bitrate wants to know how many bits the earlier frames really took. Plain ABR waits for them. Its frames run one after another and only the rows inside a frame run in parallel.
+Fixed QP and CRF need nothing from earlier frames. Their frames overlap freely. A mode that targets a bitrate wants to know how many bits the earlier frames really took. Plain ABR waits for them. Because its frames run one after another, only the rows inside a frame run in parallel.
 
-Capped VBR doesn't wait. Above one thread it plans each frame from the actual sizes of frames up to eight back and from the planned sizes of the ones still in flight. Its speed is kept that way, at the price of a stream that differs from the one-thread stream. A buffer shorter than 1.2 seconds of maxrate is the exception. Because frames in flight overdrew buffers that shallow, the encoder waits there at every thread count and writes the one-thread stream.
+Capped VBR doesn't wait. Above one thread it plans each frame from the actual sizes of frames up to eight back and from the planned sizes of the ones still in flight. Its speed is kept that way, at the price of a stream that differs from the one-thread stream. A buffer shorter than 1.2 seconds of maxrate is the exception. Because frames in flight overdrew buffers that shallow, the encoder waits there at every thread count. What it writes is the one-thread stream.
 
 ## Segment-parallel encoding
 
-`--gop-parallel <n>` is a different way to use cores. It cuts a long input at key frame periods and codes the segments on several encoder instances at once, dividing the threads between them. The segments are joined at IDR pictures into one stream.
+`--gop-parallel <n>` is a different way to use cores. It cuts a long input at key frame periods. Several encoder instances share the threads to code the segments at once. The segments are joined at IDR pictures into one stream.
 
-It's off by default. The joined stream differs from the serial one and has no buffer timing messages. It can't be combined with two-pass, zones or a QP file, among others that `--help` lists.
+It's off by default. The joined stream differs from the serial one. It has no buffer timing messages. It can't be combined with two-pass, zones or a QP file, among others that `--help` lists.
 
 ## Setting it yourself
 

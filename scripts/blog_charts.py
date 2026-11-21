@@ -1081,7 +1081,7 @@ def headline(pl):
     page, the README, the launch post, the results page and the social card
     all take their figures from the same dict."""
     return (f"On an Apple M5 Max, yah265 encodes a median {times(pl['median'])} faster than "
-            f"x265 at the same file size and scores a median {pl['dv']:.2f} VMAF v1 points "
+            f"x265 at the same file size. Its VMAF v1 score is a median {pl['dv']:.2f} points "
             f"higher. Those medians cover the {pl['n']} CRF encodes of the test set where the "
             "two files match in size within 1%, from short clips to ten-minute films at CIF "
             "to 4K. Both encoders ran at preset medium with SIMD on all cores.")
@@ -1219,11 +1219,11 @@ def frames_figure(count, caption):
 # Three sentences of FRAMES_ALL say what the crops look like. Look at the
 # crops again and rewrite them whenever scripts/frame_crops.sh picks new ones.
 FRAMES_CROP = "cropped to the region where the two encodes lose detail most differently"
-FRAMES_ONE = ("A script chose this frame. Of a 90-second Tears of Steel clip at 1080p, it's the "
-              f"frame where the two encoders' mean VMAF v1 is lowest, {FRAMES_CROP}. yah265 "
-              "keeps more of the texture here. Both files are the same size to within 0.5%. "
-              '<a href="results.html#side-by-side-at-the-same-size">Results</a> shows all three '
-              "frames the rule picked, including one where x265 is sharper.")
+FRAMES_ONE = ("A complex frame of Tears of Steel clip at 1080p, where both "
+              "encoders score lowest. The crop shows where the two differ most. yah265 keeps "
+              "more of the texture. Both files are the same size within 0.5%. "
+              '<a href="results.html#side-by-side-at-the-same-size">Results</a> shows the three '
+              "hardest frames, including one where x265 is sharper.")
 FRAMES_ALL = ("These are the three hardest moments of the clip. Each is the frame where the two "
               "encoders' mean VMAF v1 is lowest in one of the three lowest-scoring shots, "
               f"{FRAMES_CROP}. yah265 keeps more of the texture in the first crop. x265 keeps the "

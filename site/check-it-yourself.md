@@ -5,19 +5,19 @@ description: Rerun a speed, size and quality reading of yah265 against x265 on y
 
 # Check it yourself
 
-Everything on the [results page](results.md) comes from scripts in the repository. This page shows how to take the same kind of reading on your own machine. It starts with one clip by hand and ends with the full harness.
+Everything on the [results page](results.md) comes from scripts in the repository. This page shows how to take the same kind of reading on your own machine. It goes from one clip by hand to the full harness.
 
 The harness at the end of this page reruns whole tables. It expects the project's own media library.
 
 ## What you need
 
 - yah265. Build it with `make build-rel`, as [Build and first encode](start.md) describes.
-- x265 as the reference. The results use the Homebrew build of x265 4.3. An older x265 on arm64 has much less assembly and makes a G3 reading look better than it is.
+- x265 as the reference. The results use the Homebrew build of x265 4.3. Because an older x265 on arm64 has much less assembly, it makes a G3 reading look better than it is.
 - ffmpeg, to make input and to decode.
 - libde265's `dec265`, for the conformance check.
-- For quality, a libvmaf 3.x `vmaf` command line with Netflix's `vmaf_v1.0.16` model. The scripts look for the tool at `~/.local/opt/vmaf-v1/bin/vmaf`, or wherever `V1_BIN` points, and for the models under `~/.local/share/vmaf/model`.
+- For quality, a libvmaf 3.x `vmaf` command line with Netflix's `vmaf_v1.0.16` model. The scripts look for the tool at `~/.local/opt/vmaf-v1/bin/vmaf`, or wherever `V1_BIN` points. They look for the models under `~/.local/share/vmaf/model`.
 
-You also need a clip. This command downloads seven standard CIF test clips from Xiph into `tests/corpus/` and checks each against a pinned hash:
+You also need a clip. This command downloads seven standard CIF test clips from Xiph into `tests/corpus/`. It checks each against a pinned hash:
 
 ```sh
 $ scripts/fetch_corpus.sh
@@ -32,11 +32,11 @@ $ make test
 $ make conformance-fast
 ```
 
-The first command runs the unit tests and the repository's own checks. The second encodes a set of test streams and decodes each one with ffmpeg and with `dec265`. Both decoders must reproduce the encoder's own reconstruction exactly. `make conformance` runs the full set.
+The first command runs the unit tests and the repository's own checks. The second encodes a set of test streams, then decodes each one with ffmpeg and with `dec265`. Both decoders must reproduce the encoder's own reconstruction exactly. `make conformance` runs the full set.
 
 ## One clip by hand
 
-A reading compares the two encoders at the same file size and then asks two questions: which one finished first, and which one scores higher on VMAF v1.
+A reading compares the two encoders at the same file size. It then asks which one finished first and which one scores higher on VMAF v1.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 250" role="img" aria-labelledby="ciy-t ciy-d">
@@ -105,7 +105,7 @@ Start with x265 at its default rate factor of CRF 28. It reads the clip on stand
 $ cat clip.y4m | x265 --input - --y4m --preset medium --crf 28 -o ref.hevc
 ```
 
-Then encode with yah265 and move `--crf` until its file is within 1% of x265's:
+Then encode with yah265, moving `--crf` until its file is within 1% of x265's:
 
 <!-- recipe: after check-it-yourself:104 -->
 ```sh
@@ -122,7 +122,7 @@ $ time (cat clip.y4m | build-rel/y265 - -o ours.hevc --crf 24)
 $ time (cat clip.y4m | x265 --input - --y4m --preset medium --crf 28 -o ref.hevc)
 ```
 
-Divide x265's `real` time by yah265's. That's the G3 speed the results page reports, and over 1.00 means yah265 finished first.
+Divide x265's `real` time by yah265's. That's the G3 speed the results page reports. Over 1.00 means yah265 finished first.
 
 For G1, run each encoder in plain C on one thread:
 
@@ -134,12 +134,12 @@ $ cat clip.y4m | x265 --input - --y4m --preset medium --crf 28 \
 
 G2 drops `--threads 1` and the two x265 threading options. x265 uses more than one thread unless it gets both `--pools none` and `--frame-threads 1`.
 
-x265's pictures change with its frame-thread count. The one-thread run therefore writes a different file, and yah265 needs its own size match for G1.
+x265's pictures change with its frame-thread count. Because the one-thread run writes a different file, yah265 needs its own size match for G1.
 
 A few habits keep the number fair:
 
 - Run on a quiet machine.
-- Interleave the two encoders over several rounds and take the median.
+- Take the median of several rounds that interleave the two encoders.
 - Feed both from the same source the same way.
 - Don't settle anything on one run. A speed ratio can move by a few hundredths between runs.
 
@@ -165,17 +165,17 @@ foreman_cif.y4m ours crf : BD-v1 -9.66%
      584  83.686  81.264 +2.422 |   +0.001   -2.185   -0.240   +0.000
 ```
 
-Each row is one yah265 rung, with x265's score read off its curve at the same bitrate. For the last four columns the script swaps one of v1's features at a time from x265's frames onto yah265's and reports what the swap is worth.
+Each row is one yah265 rung, with x265's score read off its curve at the same bitrate. For the last four columns the script swaps one of v1's features at a time from x265's frames onto yah265's. Each column reports what that swap is worth.
 
 Encodes and scores are cached under `~/.cache/yah265-v1`. `THREADS` sets the thread count for each encoder and for libvmaf. It defaults to 4. `BIN` overrides the yah265 binary.
 
 ## Reading size and quality together
 
-A speed ratio means nothing until the sizes match, because an encoder that writes a larger file had more bits to spend. It should score higher for that reason alone. Check the 1% size match first and read everything else after.
+A speed ratio means nothing until the sizes match, because an encoder that writes a larger file had more bits to spend. It should score higher for that reason alone. Check the 1% size match before reading anything else.
 
 At the matched size, compare the two VMAF v1 scores directly. One clip's lead says little about the next clip's. That's why the results page reports the median over a group and the clip with the smallest lead.
 
-One matched point is one bitrate. Read the ladder too, because an encoder can lead at CRF 28 and trail at high quality. BD-rate folds the whole ladder into one number. That number covers only the scores both curves reach. Where one encoder's lowest score is above the other's highest, there's no BD-rate to quote and the curves themselves are the answer.
+One matched point is one bitrate. Read the ladder too, because an encoder can lead at CRF 28 and trail at high quality. BD-rate folds the whole ladder into one number. That number covers only the scores both curves reach. Where one encoder's lowest score is above the other's highest, there's no BD-rate to quote. The curves themselves are the answer.
 
 Under VBR, check the bitrate each encoder reached against its target before comparing quality. An encoder that undershoots its target saves bits it was asked to spend.
 

@@ -5,7 +5,7 @@ description: How an x265 command line maps onto y265. It lists the options that 
 
 # Coming from x265
 
-This page is for someone who has an x265 command line and wants the `y265` one. Most options keep their name and meaning. A few are spelled differently and some aren't accepted. `y265` stops with an error on an option it doesn't know. It never ignores one silently.
+This page is for someone moving an x265 command line to `y265`. Most options keep their name and meaning, though a few are spelled differently. Some aren't accepted. `y265` stops with an error on an option it doesn't know. It never ignores one silently.
 
 ## Options that keep their name
 
@@ -23,7 +23,7 @@ This page is for someone who has an x265 command line and wants the `y265` one. 
 | reports | `--ssim`, `--csv`, `--csv-log-level` |
 <!--/map:accepted-->
 
-The same name doesn't promise the same default. [Options](options.md) lists every default, and `--show-config` prints what a command resolves to without encoding.
+The same name doesn't promise the same default. [Options](options.md) lists every default. `--show-config` prints what a command resolves to without encoding.
 
 ## Options with a different spelling
 
@@ -39,7 +39,7 @@ The same name doesn't promise the same default. [Options](options.md) lists ever
 | `--vui-timing-info` | `--vui-timing` | on by default |
 | `--recon` | `--dump-recon` | raw YUV |
 | `--log-level` | `--verbose` | prints the resolved configuration |
-| `--hdr10-opt` | `--hdr-opt` | either name works. It turns on yah265's own HDR tuning, which works differently |
+| `--hdr10-opt` | `--hdr-opt` | either name works. It turns on yah265's own HDR tuning. That works differently |
 | `--b-adapt` | `--b-adapt` | 0 and 1 mean the same. 2 to 4 are experimental |
 | `--dup-threshold` | `--dup-threshold` | the unit is different. Start from 0, the default |
 | `--film-grain` | `--film-grain` | x265 takes a file of grain parameters. `y265` estimates the grain itself and takes a strength |
@@ -51,12 +51,12 @@ The same name doesn't promise the same default. [Options](options.md) lists ever
 <!--map:refused-->
 | x265 | why | use instead |
 |---|---|---|
-| `--preset` with `ultrafast`, `superfast`, `veryfast`, `faster`, `veryslow` or `placebo` | four were built and measured against the x265 preset of the same name. None earned it. The fastest two aren't built | the error names the nearest of the four presets |
+| `--preset` with `ultrafast`, `superfast`, `veryfast`, `faster`, `veryslow` or `placebo` | yah265 keeps four presets, because its `medium` already beats x265's `medium` | the error names the nearest of the four presets |
 | `--tune psnr`, `--tune ssim` | each fits the encoder to a metric the project doesn't decide on | `--ssim` reports the number without changing the encode |
 | `--tune grain` | x265's set of rate-control and psychovisual changes for grain hasn't been built here | `--film-grain` is a different tool that the [guide](guide.md#film-grain-denoising-and-filters) describes |
 | `--tune fastdecode` | only part of it could be delivered | `--no-weightp` and `--no-weightb` |
 | `--tune animation` | not built | `medium` as it is |
-| `--psy-rd`, `--psy-rdoq` | yah265's perceptual weighting works differently, so x265's numbers wouldn't mean the same thing | the preset sets it |
+| `--psy-rd`, `--psy-rdoq` | x265's numbers wouldn't mean the same thing, because yah265's perceptual weighting works differently | the preset sets it |
 | `--aq-strength` | the preset sets the strength frame by frame | `--aq 0` turns AQ off |
 | `--rd`, `--me`, `--subme`, `--merange`, `--rect`, `--amp`, `--limit-refs`, `--rskip`, `--early-skip`, `--max-merge` | how hard the encoder searches is the preset's job here | a preset. The [environment knobs](guide.md#environment-knobs) are there for experiments |
 | `--signhide`, `--tskip`, `--strong-intra-smoothing`, `--temporal-mvp` | single coding tools have no switch | a preset |
@@ -92,6 +92,6 @@ The CRF scale is yah265's own. For the same file size, yah265's number is usuall
 | 32 | 29.4 | 27.9 to 32.0 | 16 |
 <!--/trust:crf-table-->
 
-Use the table as a starting point and check the size on your own content, because the range is wide. The films don't agree with each other. Sintel needs a higher number than x265's and Big Buck Bunny about the same one, while most of the others need one two to four lower.
+Because the range is wide, treat the table as a starting point. Check the size on your own content. The films don't agree with each other. Sintel needs a higher number than x265's, Big Buck Bunny about the same one. Most of the others need one two to four lower.
 
 The row for 28 is the matched point of every size-matched cell on the Mac, where yah265's CRF was solved onto x265's file. The other rows place x265's size at that CRF on yah265's five-rung ladder for each film. A film is left out of a row when the answer falls outside its ladder. The 23 and 32 rows have fewer cells for that reason.

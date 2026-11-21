@@ -7,18 +7,28 @@ description: How yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8, ho
 
 yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8 as Main10 HEVC. The color flags and metadata tell a player what the pictures are. At `--preset medium` the transfer function also changes how the pictures are coded, as [Tuning for HDR](#tuning-for-hdr) describes.
 
-| format | what goes in the stream | options |
+| format | in the stream | options |
 |---|---|---|
-| HDR10 | PQ transfer, BT.2020 primaries and matrix in the VUI, plus the mastering display (ST 2086) and content light level SEI in every key frame | `--transfer smpte2084 --colorprim bt2020 --colormatrix bt2020nc --master-display ... --max-cll ...` |
-| HDR10+ | HDR10, plus an ST 2094-40 message in every picture | HDR10's options and `--dhdr10-info <json>` |
-| HLG | HLG transfer in the VUI, or BT.2020 with an alternative transfer SEI naming HLG for SDR decoders | `--transfer arib-std-b67`, or `--transfer bt2020-10 --atc-sei arib-std-b67` |
-| Dolby Vision 8.1 | HDR10, plus a Dolby Vision RPU in every picture | HDR10's options and `--dolby-vision-rpu <file> --dolby-vision-profile 8.1` |
-| Dolby Vision 8.2 | SDR BT.709, plus an RPU in every picture | `--transfer bt709 --colorprim bt709 --colormatrix bt709` and the two Dolby Vision options with `8.2` |
-| Dolby Vision 8.4 | HLG, plus an RPU in every picture | HLG's options and the two Dolby Vision options with `8.4` |
+| HDR10 | PQ, BT.2020, mastering display (ST 2086), light level | the HDR10 command below |
+| HDR10+ | HDR10 + ST 2094-40 per picture | HDR10's, plus `--dhdr10-info <json>` |
+| HLG | HLG transfer | `--transfer arib-std-b67` |
+| HLG, SDR-compatible | BT.2020 + an HLG hint for SDR decoders | `--transfer bt2020-10 --atc-sei arib-std-b67` |
+| Dolby Vision 8.1 | HDR10 + RPU per picture | HDR10's, plus the Dolby Vision options with `8.1` |
+| Dolby Vision 8.2 | SDR BT.709 + RPU per picture | `--transfer bt709 --colorprim bt709 --colormatrix bt709`, plus the Dolby Vision options with `8.2` |
+| Dolby Vision 8.4 | HLG + RPU per picture | HLG's, plus the Dolby Vision options with `8.4` |
+
+HDR10:
+
+```sh
+--transfer smpte2084 --colorprim bt2020 --colormatrix bt2020nc \
+  --master-display ... --max-cll ...
+```
+
+Dolby Vision adds `--dolby-vision-rpu <file> --dolby-vision-profile <8.1|8.2|8.4>`.
 
 `--video-signal-type-preset BT2100_PQ_YCC:P3D65x1000n0005` sets HDR10's color flags and a 1000-nit P3 mastering display in one go.
 
-Dolby Vision profile 5 isn't offered. Its base layer is in Dolby's IPTPQc2 color space, which nothing in this toolchain can produce or check.
+Dolby Vision profile 5 isn't offered. Its base layer is in Dolby's IPTPQc2 color space. Nothing in this toolchain can produce or check that.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 250" role="img" aria-labelledby="hdr-fig-t hdr-fig-d">
@@ -96,11 +106,11 @@ HDR10+ and Dolby Vision describe the content scene by scene. yah265 doesn't meas
 - `--dhdr10-info` reads the JSON that [hdr10plus_tool](https://github.com/quietvoid/hdr10plus_tool) writes. `hdr10plus_tool extract master.hevc -o meta.json` makes one. Profile A and profile B with a Bézier tone curve both work. Each takes one window per picture.
 - `--dolby-vision-rpu` reads the RPU file that [dovi_tool](https://github.com/quietvoid/dovi_tool) writes. That's `dovi_tool extract-rpu` from an existing Dolby Vision stream, or `dovi_tool generate` from a colorist's Dolby Vision XML.
 
-Entry *i* of either file goes with frame *i* of the input, whatever order the encoder codes the pictures in. `--seek` skips entries along with frames, and `--gop-parallel` gives each segment its own part of the file. If a file runs out before the input does, the encode still writes the stream and then exits with an error, because pictures without metadata break HDR10+ or Dolby Vision playback from that point. A metadata NAL lost to a failed allocation fails the run the same way. A file with entries left over gets a warning. The usual reason is a `--frames` run over part of a title.
+Entry *i* of either file goes with frame *i* of the input, whatever order the encoder codes the pictures in. `--seek` skips entries along with frames. `--gop-parallel` gives each segment its own part of the file. If a file runs out before the input does, the encode still writes the stream. It then exits with an error, because pictures without metadata break HDR10+ or Dolby Vision playback from that point. A metadata NAL lost to a failed allocation fails the run the same way. A file with entries left over gets a warning. The usual reason is a `--frames` run over part of a title.
 
-Both readers check what they read. HDR10+ values must fall inside the HDR10+ profiles' ranges, and HDR10+ needs a 10-bit HDR10 encode under it. Every RPU's header must say profile 8, and `--dolby-vision-profile` must match the color flags and a 10-bit encode. A command line that would mislabel the stream is refused before it writes anything. Either file can come from a pipe.
+Both readers check what they read. HDR10+ values must fall inside the HDR10+ profiles' ranges. HDR10+ also needs a 10-bit HDR10 encode under it. Every RPU's header must say profile 8. `--dolby-vision-profile` must match the color flags and a 10-bit encode. A command line that would mislabel the stream is refused before it writes anything. Either file can come from a pipe.
 
-Two cases get a warning and still encode. Dolby Vision without a VBV is one, because deliveries are normally buffer-constrained while a CRF encode is still valid. An 8.1 encode without `--master-display` is the other, because an 8.1 base layer is a complete HDR10 stream.
+Two cases still encode, with a warning. Dolby Vision without a VBV is one, because deliveries are normally buffer-constrained while a CRF encode is still valid. An 8.1 encode without `--master-display` is the other, because an 8.1 base layer is a complete HDR10 stream.
 
 ## Encoding HDR10+ and Dolby Vision 8.1
 
@@ -119,11 +129,11 @@ A raw HEVC stream has nowhere to say "this is Dolby Vision" except the RPUs them
 
 ## Tuning for HDR
 
-A stream says PQ with `--transfer smpte2084`. It says HLG with `--transfer arib-std-b67` or `--atc-sei arib-std-b67`. On either one, `medium` codes chroma six quantizer steps finer than luma and turns off the extra psy weight it gives dark blocks on SDR. The reason is that wide-gamut chroma stays in a narrow band around its midpoint, so at luma's quantizer it loses far more than SDR chroma does.
+A stream says PQ with `--transfer smpte2084`. It says HLG with `--transfer arib-std-b67` or `--atc-sei arib-std-b67`. On either one, `medium` codes chroma six quantizer steps finer than luma. It also turns off the extra psy weight it gives dark blocks on SDR. Chroma gets the finer steps because wide-gamut chroma stays in a narrow band around its midpoint. At luma's quantizer it loses far more than SDR chroma does.
 
 From 720p up, `medium` on HDR also keeps the full intra mode search that SDR gives up for speed. At 4K it keeps the intra transform split too.
 
-`--hdr-opt` turns the tuning on for a stream that names neither transfer, and `--no-hdr-opt` turns it off. `--hdr10-opt` is accepted as another name for yah265's switch. The tuning behind it is yah265's own. A `--cbqpoffs` or `--crqpoffs` you give yourself still wins. The other presets code HDR like SDR.
+`--hdr-opt` turns the tuning on for a stream that names neither transfer. `--no-hdr-opt` turns it off. `--hdr10-opt` is accepted as another name for yah265's switch. The tuning behind it is yah265's own. A `--cbqpoffs` or `--crqpoffs` you give yourself still wins. The other presets code HDR like SDR.
 
 ## Quality on HDR content
 
@@ -155,7 +165,7 @@ I wouldn't read the HLG clip's lead as a lead on all HLG, because the clip is ea
 
 ### How the HDR readings were run
 
-The PQ titles are from Netflix Open Content: Sol Levante is 24p animation and Sparks is 60p live action. The HLG clip is the EBU / DVB 8K HLG test clip, published by DVB under CC BY 4.0 (credit EBU / DVB). We took frames 600 to 899 of its 37 Mbit/s rendition, around the clip's one cut, and scaled them down with HLG and BT.2020 kept.
+The PQ titles are from Netflix Open Content: Sol Levante is 24p animation, Sparks 60p live action. The HLG clip is the EBU / DVB 8K HLG test clip, published by DVB under CC BY 4.0 (credit EBU / DVB). Frames 600 to 899 of its 37 Mbit/s rendition, around the clip's one cut, were scaled down with HLG and BT.2020 kept.
 
 Both encoders ran `medium` with the same signaling. yah265 ran at `--threads 4`. x265 ran at `--pools 6 --frame-threads 4` on the PQ titles and `--pools 4 --frame-threads 4` on the HLG clip. Scores use HDR-VMAF's 3H model at 1080p and its 1.5H model at 4K, in the high frame rate variant at 50 fps and above. Because HDR-VMAF has no HLG transfer, the HLG reference and every decoded picture go through the same HLG to PQ conversion at a 1000-nit peak before scoring.
 

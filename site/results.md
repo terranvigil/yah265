@@ -26,11 +26,11 @@ The first two rows are the headline. They cover the CRF cells timed on the Mac a
 
 ## What the numbers mean
 
-A cell is one clip at one picture size. A class is a picture size and a tier is a clip length. Cells are grouped by both.
+A cell is one clip at one picture size. A class is a picture size. A tier is a clip length. Cells are grouped by both.
 
-Speed is written as times faster. It's x265's encode time divided by yah265's when both write a file of the same size, so 2x faster is half the time. On every speed chart right is faster.
+Speed is written as times faster. It's x265's encode time divided by yah265's when both write a file of the same size. That makes 2x faster half the time. On every speed chart right is faster.
 
-A speed cell in a table holds the median over the group's clips and then the slowest clip. A group passes when its median is at least 1.00x and its slowest clip is at least 0.87x, as long as its quality holds too.
+A speed cell in a table holds the median over the group's clips, then the slowest clip. A group passes when its median is at least 1.00x and its slowest clip is at least 0.87x, as long as its quality holds too.
 
 Speed is read three ways. I call them goals. G3 is the one a user sees.
 
@@ -52,20 +52,22 @@ Three machines were timed:
 
 On the two cloud machines both encoders were held to 16 vCPUs. x265 was built there from its 4.3 release. A cloud time is only ever compared with x265 on the same machine.
 
-Each encoder looks ahead by its own `medium` default. That's 20 frames for x265. For yah265 it's 20 frames at 720p and up and 12 at CIF.
+Each encoder looks ahead by its own `medium` default. That's 20 frames for x265. For yah265 it's 20 frames from 720p up and 12 at CIF.
 
 ## The test set
 
+The size columns count the cells in each tier at that picture size.
+
 <!--gen:test-set-->
-| tier | cells | what's in it | how it's cut |
-|---|---|---|---|
-| S, short clips | 3 at CIF, 4 at 720p, 3 at 1080p, 1 at 4K | Big Buck Bunny, bus, Ducks take off, foreman, fourpeople, Park joy, pedestrian, riverbed, shields, stefan, sunflower | each clip whole |
-| M, 2-minute segments | 1 at 1080p, 1 at 4K | Sol Levante | from the first non-black frame |
-| L, 10-minute films | 6 at 720p, 6 at 1080p, 5 at 4K | Big Buck Bunny, Cosmos Laundromat, Nocturne, Sintel, StEM2, Tears of Steel | 600 seconds past the opening card, stopped before the end credits |
-| C, content types | 1 at 720p, 7 at 1080p, 1 at 4K | 2 film grain, 4 sports, 3 screen | seven short clips and one ten-minute film scan at two sizes |
+| tier | CIF | 720p | 1080p | 4K | what's in it | how it's cut |
+|---|--:|--:|--:|--:|---|---|
+| S, short clips | 3 | 4 | 3 | 1 | Big Buck Bunny, bus, Ducks take off, foreman, fourpeople, Park joy, pedestrian, riverbed, shields, stefan, sunflower | each clip whole |
+| M, 2-minute segments |  |  | 1 | 1 | Sol Levante | from the first non-black frame |
+| L, 10-minute films |  | 6 | 6 | 5 | Big Buck Bunny, Cosmos Laundromat, Nocturne, Sintel, StEM2, Tears of Steel | 600 seconds past the opening card, stopped before the end credits |
+| C, content types |  | 1 | 7 | 1 | 2 film grain, 4 sports, 3 screen | seven short clips and one ten-minute film scan at two sizes |
 <!--/gen:test-set-->
 
-Tiers S, M and L decide the speed verdict. Tier C adds film grain, sports and screen recordings. Its quality counts toward the verdict. Its speed is shown and doesn't count.
+Tiers S, M and L decide the speed verdict. Tier C adds film grain, sports and screen recordings. Only its quality counts toward the verdict, although its speed is shown too.
 
 Quality is VMAF v1, scored at display size. A picture smaller than 1080p is scaled up to fit 1920x1080 before it's scored, CIF included. [The methodology](methodology.md#scoring-quality) names the libvmaf build and the models.
 
@@ -95,7 +97,7 @@ The table has the same numbers as median / slowest clip, in times faster.
 
 G3 is the closest of the three goals. On these clips x265's assembly gains more over its plain C than yah265's SIMD gains over ours.
 
-On the 2-minute and 10-minute cells, G1 and G2 are timed on 30-second windows. A window starts every three minutes and is coded as its own stream.
+On the 2-minute and 10-minute cells, G1 and G2 are timed on 30-second windows. A window starts every three minutes. Each is coded as its own stream.
 
 ## Each ten-minute film
 
@@ -230,7 +232,7 @@ The Xeon also ran the short clips at G3 with both encoders capped to one older i
 | 4K | 2.22x / 2.22x | 2.00x / 2.00x | 2.08x / 2.08x | 1 |
 <!--/gen:capped-->
 
-AVX2 against AVX2 is the closest pairing on the page. Both capped tiers write the same streams as the uncapped build, so their quality is the next section's. [Architectures](architectures.md) explains the tiers and how each is checked. The per-machine detail is in <!--gen:report-x86-->[the x86-64 report](docs/parity/PARITY-REPORT-yah265-x86-2026-11-13.md)<!--/gen:report-x86--> and <!--gen:report-g4-->[the Graviton report](docs/parity/PARITY-REPORT-yah265-graviton-2026-11-13.md)<!--/gen:report-g4-->.
+AVX2 against AVX2 is the closest pairing on the page. Because both capped tiers write the same streams as the uncapped build, their quality is the next section's. [Architectures](architectures.md) explains the tiers and how each is checked. The per-machine detail is in <!--gen:report-x86-->[the x86-64 report](docs/parity/PARITY-REPORT-yah265-x86-2026-11-13.md)<!--/gen:report-x86--> and <!--gen:report-g4-->[the Graviton report](docs/parity/PARITY-REPORT-yah265-graviton-2026-11-13.md)<!--/gen:report-g4-->.
 
 ## Quality at the same size
 
@@ -275,7 +277,7 @@ The Xeon's other rows rest on those curves and on the SIMD code matching the C c
 
 ## Side by side at the same size
 
-A score is one way to compare two encodes. Looking at them is the other. The clip is 90 seconds of Tears of Steel at 1080p, from the middle of the story. Both encoders ran at `medium` and wrote files of the same size. Switch between the reference and the two encodes.
+A score is one way to compare two encodes. Looking at them is the other. The clip is 90 seconds of Tears of Steel at 1080p, from the middle of the story. Both encoders wrote files of the same size at `medium`. Switch between the reference and the two encodes.
 
 <!--gen:fig-frames-->
 <figure class="compare">
@@ -301,11 +303,11 @@ A score is one way to compare two encodes. Looking at them is the other. The cli
 </figure>
 <!--/gen:fig-frames-->
 
-Nobody picked these frames by eye. A script scored every frame by the mean of the two encoders' VMAF v1 and took the lowest frame from each of the three lowest-scoring shots. In each frame it measured both encodes against the reference block by block and cropped the window where their losses differ most. That rule doesn't know which encode is ahead. The reference is a near-transparent copy of the source.
+Nobody picked these frames by eye. A script scored every frame by the mean of the two encoders' VMAF v1. From each of the three lowest-scoring shots it took the lowest frame. To place the crop, it measured both encodes against the reference block by block. The crop is the window where their losses differ most. That rule doesn't know which encode is ahead. The reference is a near-transparent copy of the source.
 
 ## The worst frames
 
-An average can hide a bad stretch, so this section looks at the low end of the same Tears of Steel clip. The chart follows it frame by frame.
+Because an average can hide a bad stretch, this section looks at the low end of the same Tears of Steel clip. The chart follows it frame by frame.
 
 <!--trust:fig-trace-->
 <figure class="chart"><img src="assets/charts/trust/tail-trace.svg" alt="Line chart of VMAF v1 for every frame of a 90-second clip, one line per encoder. The yah265 line is above the x265 line in most of the low stretches."></figure>
@@ -361,8 +363,8 @@ BD-rate turns each pair of curves into one number: how much more or less bitrate
 Each ladder is set up the same way:
 
 - CRF rungs: 20, 23, 26, 29 and 32 on both sides.
-- VBR rungs: the bitrate x265 reached at each of those CRFs. The maxrate is 1.5 times the target and the buffer is twice the target.
-- Both encoders run at 6 threads and look 20 frames ahead.
+- VBR rungs: the bitrate x265 reached at each of those CRFs. The maxrate is 1.5 times the target. The buffer is twice the target.
+- Both encoders run at 6 threads with a 20-frame lookahead.
 
 <details class="data" markdown="1">
 <summary>BD-rate of every ladder</summary>
@@ -395,7 +397,7 @@ Each ladder is set up the same way:
 
 ## VBR
 
-VBR has to hit its bitrate as well as look good. The bar puts every rung of yah265's within ±10% of its target over the whole cell. x265's rungs are drawn for comparison and aren't held to the bar.
+VBR has to hit its bitrate as well as look good. The bar puts every rung of yah265's within ±10% of its target over the whole cell. x265's rungs are drawn for comparison. The bar doesn't apply to them.
 
 <!--gen:fig-tracking-->
 <figure class="chart"><img src="assets/charts/results/tracking.svg" alt="All 95 of yah265's VBR rungs come within 10% of their target."></figure>
@@ -432,7 +434,7 @@ VBR has to hit its bitrate as well as look good. The bar puts every rung of yah2
 
 ### VBR encode time
 
-VBR speed is read at G3 only. Each real-title cell runs one rung at the bitrate x265 reached at CRF 28. The maxrate and buffer are set as in the ladders. These timings are outside the headline, because the two encoders share a target bitrate here and their files aren't matched in size. The second table shows how close each encoder came to the target.
+VBR speed is read at G3 only. Each real-title cell runs one rung at the bitrate x265 reached at CRF 28. The maxrate and buffer are set as in the ladders. Because the two encoders share a target bitrate here, their files aren't matched in size. That keeps these timings outside the headline. The second table shows how close each encoder came to the target.
 
 <!--gen:vbr-machines-->
 | class | tier | Mac | x86-64 | Graviton4 | cells |
@@ -499,7 +501,7 @@ I swept yah265's lookahead on a few cells instead of inheriting x265's depth. ya
 
 </details>
 
-`medium` uses 20 from 720p up. An earlier sweep on the development clips ran from 8 to 40 frames and also put the knee at 20. Past the knee a deeper window costs more time than it buys.
+`medium` uses 20 from 720p up. An earlier sweep on the development clips, from 8 to 40 frames, also put the knee at 20. Past the knee a deeper window costs more time than it buys.
 
 ## Content types
 
@@ -525,7 +527,7 @@ Tier C is the content that codecs tend to handle unevenly: a scan of a 1924 film
 
 All nine clips pass on quality. On the three screen recordings yah265's lowest VBR rung scores above x265's highest at a lower bitrate. No BD-rate can be computed there because the two curves share no score range.
 
-Both encoders undershoot their VBR targets on the screen recordings, where the still frames between changes cost almost nothing. The ±10% tracking bar applies to the real titles and that column is here for information.
+Both encoders undershoot their VBR targets on the screen recordings, where the still frames between changes cost almost nothing. Because the ±10% tracking bar applies to the real titles, that column is here for information.
 
 Four G3 speeds are marked "earlier binary". They were timed before the changes that fixed screen content and handheld sports footage. Tier C speed counts toward neither the verdict nor the headline.
 

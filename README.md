@@ -14,7 +14,7 @@
   <a href="#license">License</a>
 </p>
 
-<!--gen:headline-->On an Apple M5 Max, yah265 encodes a median 1.79x faster than x265 at the same file size and scores a median 1.23 VMAF v1 points higher. Those medians cover the 30 CRF encodes of the test set where the two files match in size within 1%, from short clips to ten-minute films at CIF to 4K. Both encoders ran at preset medium with SIMD on all cores.<!--/gen:headline-->
+<!--gen:headline-->On an Apple M5 Max, yah265 encodes a median 1.79x faster than x265 at the same file size. Its VMAF v1 score is a median 1.23 points higher. Those medians cover the 30 CRF encodes of the test set where the two files match in size within 1%, from short clips to ten-minute films at CIF to 4K. Both encoders ran at preset medium with SIMD on all cores.<!--/gen:headline-->
 
 yah265 is an H.265/HEVC encoder written from scratch in C. It runs inside ffmpeg under the options you already use. Its sibling [yah264](https://terranvigil.github.io/yah264/) met the same goals against x264.
 
@@ -38,7 +38,7 @@ Pass `-crf`. With no rate option the encoder runs a fixed-quantizer test mode.
 
 ## Results
 
-"Faster" compares wall time for files of the same size, so 2x faster is half the time. Both encoders run `--preset medium`. The reference is x265 4.3. The test set runs from short standard clips to ten-minute excerpts of open films, at CIF, 720p, 1080p and 4K.
+"Faster" compares wall time for files of the same size. That makes 2x faster half the time. Both encoders run `--preset medium`. The reference is x265 4.3. The test set runs from short standard clips to ten-minute excerpts of open films, at CIF, 720p, 1080p and 4K.
 
 The headline covers the cells below. Each is one clip at one picture size, coded at CRF on an 18-core Apple M5 Max, where yah265's file is within 1% of x265's size. Quality is VMAF v1.
 
@@ -80,7 +80,7 @@ make build-rel
 ffmpeg -i in.mp4 -pix_fmt yuv420p -f yuv4mpegpipe - | build-rel/y265 - -o out.hevc --crf 25
 ```
 
-It reads Y4M or raw YUV from a file or a pipe and writes a raw HEVC stream, which ffmpeg plays and muxes. `build-rel/y265 --help` lists every option.
+It reads Y4M or raw YUV from a file or a pipe. The output is a raw HEVC stream that ffmpeg plays and muxes. `build-rel/y265 --help` lists every option.
 
 ## Documentation
 
@@ -103,8 +103,8 @@ The site is at [terranvigil.github.io/yah265](https://terranvigil.github.io/yah2
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) first. The encoder is written from the ITU-T H.265 specification.
 
-A change has to pass the gate before it merges. `make test` runs the tests. `make conformance-fast` decodes every test stream with ffmpeg and libde265 and compares both with the encoder's own reconstruction. Two runs at `--threads 1` must write the same bytes. A SIMD kernel must match its C reference bit for bit. I don't merge a change that costs speed or quality on the test set.
+A change has to pass the gate before it merges. `make test` runs the tests. `make conformance-fast` decodes every test stream with ffmpeg and with libde265 so that both decodes can be compared with the encoder's own reconstruction. Two runs at `--threads 1` must write the same bytes. A SIMD kernel must match its C reference bit for bit. I don't merge a change that costs speed or quality on the test set.
 
 ## License
 
-yah265 is dual-licensed: GPL-2.0-or-later, or a commercial license. See [LICENSE](LICENSE), and write to terranvigil@gmail.com for commercial terms.
+yah265 is dual-licensed: GPL-2.0-or-later, or a commercial license. See [LICENSE](LICENSE). Write to terranvigil@gmail.com for commercial terms.

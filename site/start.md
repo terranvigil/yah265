@@ -5,7 +5,7 @@ description: Build ffmpeg with yah265 in one command, run a first encode, and bu
 
 # Build and first encode
 
-There are two ways to run yah265. Most people want it inside ffmpeg, where it's the `libyah265` encoder. The other is `y265`, the project's own command-line encoder, which reads raw video from a file or a pipe.
+There are two ways to run yah265. Most people want it inside ffmpeg, where it's the `libyah265` encoder. The other is `y265`, the project's own command-line encoder. It reads raw video from a file or a pipe.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 250" role="img" aria-labelledby="start-fig-t start-fig-d">
@@ -94,14 +94,14 @@ git clone https://github.com/terranvigil/yah265 && cd yah265
 scripts/build-ffmpeg.sh
 ```
 
-The script builds the yah265 library and installs it under `build-ffmpeg/inst`. It then fetches an ffmpeg source tree that has the `libyah265` encoder and builds `ffmpeg` and `ffprobe` in `build-ffmpeg/ffmpeg`. Two options change that:
+Once the script has built the yah265 library, it installs it under `build-ffmpeg/inst`. It then fetches an ffmpeg source tree that has the `libyah265` encoder. The `ffmpeg` and `ffprobe` it builds from that tree go in `build-ffmpeg/ffmpeg`. Two options change that:
 
 | option | what it does |
 |---|---|
 | `--with-x265` | also enables `libx265`, for side-by-side tests |
 | `--prefix DIR` | installs the yah265 library in `DIR` |
 
-The ffmpeg it builds is a GPL binary. yah265 is GPL-2.0-or-later, and ffmpeg only links a GPL library when it's configured with `--enable-gpl`.
+The ffmpeg it builds is a GPL binary. yah265 is GPL-2.0-or-later. ffmpeg only links a GPL library when it's configured with `--enable-gpl`.
 
 ## Your first encode
 
@@ -147,13 +147,13 @@ That's the command you'd give x265 with one word changed. `out.mp4` plays in any
 <figcaption>Everything else on the command line stays as it was.</figcaption>
 </figure>
 
-Always pass `-crf`. With no rate option the encoder codes every frame at one fixed quantizer. That's a test mode. The encoding guide has the [ffmpeg options the encoder takes](guide.md#from-ffmpeg).
+Pass a rate option, such as `-crf` or `-b:v`. With none, the encoder codes every frame at one fixed quantizer, which is meant for testing. For streaming I'd use capped CRF: `-crf` with `-maxrate` and `-bufsize`. The encoding guide covers [every rate mode](guide.md#rate-modes) and the [ffmpeg options the encoder takes](guide.md#from-ffmpeg).
 
 ## Pick a quality
 
-`-crf` sets the quality and lets the file size follow the content. A lower number gives a better picture and a bigger file. I'd start at 25 and move by two or three at a time until the picture is good enough.
+`-crf` sets the quality. The file size then follows the content. A lower number gives a better picture and a bigger file. I'd start at 25, then move by two or three at a time until the picture is good enough.
 
-The CRF scale is yah265's own. A number that suited x265 won't give the same file size here. [Coming from x265](from-x265.md) has a translation table and maps x265's options onto `y265`'s. When you need a size or a bitrate instead, the guide's [rate modes](guide.md#rate-modes) cover it.
+The CRF scale is yah265's own. A number that suited x265 won't give the same file size here. [Coming from x265](from-x265.md) has a translation table. It also maps x265's options onto `y265`'s. When you need a size or a bitrate instead, the guide's [rate modes](guide.md#rate-modes) cover it.
 
 ## Build y265 on its own
 
@@ -163,9 +163,9 @@ The CRF scale is yah265's own. A number that suited x265 won't give the same fil
 make build-rel
 ```
 
-That leaves the encoder at `build-rel/y265`. The binary is named `y265` and the project yah265. One binary codes every bit depth and picks from its input.
+That leaves the encoder at `build-rel/y265`. The binary is named `y265`, though the project is yah265. One binary codes every bit depth. It picks the depth from its input.
 
-`y265` reads Y4M or raw YUV and writes a raw HEVC stream. ffmpeg can feed it any source through a pipe:
+`y265` turns Y4M or raw YUV into a raw HEVC stream. ffmpeg can feed it any source through a pipe:
 
 ```sh
 ffmpeg -i in.mp4 -pix_fmt yuv420p -f yuv4mpegpipe - | build-rel/y265 - -o out.hevc --crf 25
@@ -175,7 +175,7 @@ A Y4M file works without the pipe, as `build-rel/y265 input.y4m -o out.hevc --cr
 
 ## Play it and mux it
 
-A file from the ffmpeg route is already an MP4. `y265` writes a bare stream, which ffmpeg plays as it is and wraps without re-encoding:
+A file from the ffmpeg route is already an MP4. `y265` writes a bare stream. ffmpeg plays it as it is, or wraps it without re-encoding:
 
 <!-- recipe: after start:170 -->
 ```sh
@@ -184,7 +184,7 @@ ffmpeg -i out.hevc -c copy out.mp4
 
 ## Check the stream
 
-`y265` can write the pictures it expects a decoder to produce. Decode the stream with ffmpeg and compare the two files:
+`y265` can write the pictures it expects a decoder to produce. Decode the stream with ffmpeg, then compare the two files:
 
 ```sh
 build-rel/y265 input.y4m -o out.hevc --crf 25 --dump-recon recon.yuv

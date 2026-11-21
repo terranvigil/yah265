@@ -5,7 +5,9 @@ description: An H.265/HEVC encoder written from scratch. It runs faster than x26
 
 # yah265
 
-<p class="standfirst"><!--gen:headline-->On an Apple M5 Max, yah265 encodes a median 1.79x faster than x265 at the same file size and scores a median 1.23 VMAF v1 points higher. Those medians cover the 30 CRF encodes of the test set where the two files match in size within 1%, from short clips to ten-minute films at CIF to 4K. Both encoders ran at preset medium with SIMD on all cores.<!--/gen:headline--></p>
+Welcome to the home of yah265, an HEVC encoder that went through months of optimization and benchmarking until it significantly outperformed x265 and others. We chose targets for quality, compression and encoding speed and were able to surpass them. I will go into more details as to how I was able to do this later in these docs.
+
+<p class="standfirst"><!--gen:headline-->On an Apple M5 Max, yah265 encodes a median 1.79x faster than x265 at the same file size. Its VMAF v1 score is a median 1.23 points higher. Those medians cover the 30 CRF encodes of the test set where the two files match in size within 1%, from short clips to ten-minute films at CIF to 4K. Both encoders ran at preset medium with SIMD on all cores.<!--/gen:headline--></p>
 
 yah265 is an H.265/HEVC encoder written from scratch in C. It runs inside ffmpeg under the options you already use.
 
@@ -18,7 +20,7 @@ ffmpeg -i in.mp4 -c:v libx265   -preset medium -crf 25 out.mp4   # what you run 
 ffmpeg -i in.mp4 -c:v libyah265 -preset medium -crf 25 out.mp4   # swap one word
 ```
 
-One command builds that ffmpeg from a clone of the repository:
+Simple command builds that ffmpeg from a clone of the repository:
 
 ```sh
 git clone https://github.com/terranvigil/yah265 && cd yah265
@@ -31,7 +33,7 @@ The new ffmpeg is at `build-ffmpeg/ffmpeg/ffmpeg`. [Build and first encode](star
 
 <figure class="chart"><img src="assets/charts/front/home-speed.svg" alt="Bars of how many times faster yah265 runs than x265 at CIF, 720p, 1080p and 4K on an Apple M5 Max, an Intel Xeon and an AWS Graviton4. Every bar passes the 1x line that marks x265."></figure>
 
-On this site "faster" compares wall time for files of the same size, so 2x faster is half the time. Both encoders run `--preset medium` with SIMD on every core. Right is faster on every speed chart.
+On this site "faster" compares wall time for files of the same size. That makes 2x faster half the time. Both encoders run `--preset medium` with SIMD on every core. Right is faster on every speed chart.
 
 ## Side by side at the same size
 
@@ -45,7 +47,7 @@ The two encodes below are the same size. Switch between the reference and each o
 <div class="cmp-pane" data-name="yah265" data-first><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-701-yah265.webp" alt="The same crop from yah265's encode."><span class="cmp-tag ours"><b>yah265</b> · VMAF v1 88.3 on this frame · 15.95 MB file · 4x zoom</span></div>
 <div class="cmp-pane" data-name="x265"><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-701-x265.webp" alt="The same crop from x265's encode."><span class="cmp-tag"><b>x265</b> · VMAF v1 84.4 on this frame · 15.88 MB file · 4x zoom</span></div>
 </div>
-<figcaption>A script chose this frame. Of a 90-second Tears of Steel clip at 1080p, it's the frame where the two encoders' mean VMAF v1 is lowest, cropped to the region where the two encodes lose detail most differently. yah265 keeps more of the texture here. Both files are the same size to within 0.5%. <a href="results.html#side-by-side-at-the-same-size">Results</a> shows all three frames the rule picked, including one where x265 is sharper. Tears of Steel: (CC) Blender Foundation, <a href="https://mango.blender.org">mango.blender.org</a>, CC-BY 3.0.</figcaption>
+<figcaption>A complex frame of Tears of Steel clip at 1080p, where both encoders score lowest. The crop shows where the two differ most. yah265 keeps more of the texture. Both files are the same size within 0.5%. <a href="results.html#side-by-side-at-the-same-size">Results</a> shows the three hardest frames, including one where x265 is sharper. Tears of Steel: (CC) Blender Foundation, <a href="https://mango.blender.org">mango.blender.org</a>, CC-BY 3.0.</figcaption>
 </figure>
 <!--/gen:fig-frames-->
 
@@ -79,7 +81,7 @@ The headline covers the cells in the first table. Each is one clip at one pictur
 | bits saved at equal VMAF v1, rate ladders at CRF and capped VBR | 38 | 10.2% |
 <!--/gen:quality-table-->
 
-The project has three speed goals. G3 times both encoders as shipped and is the one a user sees. G1 and G2 switch the hand-written SIMD off on both sides to compare the algorithms alone. Read those two rows as engineering checks, because x265 isn't meant to run without its assembly. Each cell is the range of group medians on that machine.
+The project has three speed goals. G3 times both encoders as shipped. It's the speed a user sees. G1 and G2 switch the hand-written SIMD off on both sides to compare the algorithms alone. Read those two rows as engineering checks, because x265 isn't meant to run without its assembly. Each cell is the range of group medians on that machine.
 
 <!--gen:goal-table-->
 | goal | Apple M5 Max (NEON) | Xeon 8488C (AVX-512) | Graviton4 (SVE2) |
@@ -93,7 +95,13 @@ The project has three speed goals. G3 times both encoders as shipped and is the 
 
 ## Why I built it
 
-yah265 is the second of three sibling encoders. [yah264](https://terranvigil.github.io/yah264/) met the same goals against x264 first, and the [launch post](blog.md) tells this one's story. I wrote yah265 from the ITU-T H.265 specification to see whether a new encoder could pass x265 at its default preset on speed and on VMAF v1 together. Every stream it writes is decoded by two independent decoders and compared with the encoder's own reconstruction.
+I've worked in video ingestion, encoding, packaging and delivery for nearly 20 years. The primary goal is always the same: Optimize for cost in terms of compute, storage and bandwidth while achieving the highest quality possible. This is the HEVC codec I would have dreamed of 10 years ago. I've gone after every dimension I cared about.
+
+## A family
+
+I wrote yah265 from the ITU-T H.265 specification to see whether a new encoder could pass x265 at its default preset on speed and on VMAF v1 together. Two independent decoders decode every stream it writes. Their output is compared with the encoder's own reconstruction. The [launch post](blog.md) tells the full story.
+
+yah265 is the second of three sibling encoders. [yah264](https://terranvigil.github.io/yah264/) met the same goals against x264 first. yaav1 is coming soon!
 
 ## License
 

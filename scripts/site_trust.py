@@ -164,7 +164,7 @@ def builds(paths, mac_rows):
          "Mac report")
     machine = need(r"Machine: (Apple [^,]+), (\d+) cores", report_line(mac_md, "Machine:"),
                    "Mac report")
-    rows = [[f"{machine[1]}, {machine[2]} cores", f"Homebrew's x265 {ver}, `{build}`",
+    rows = [[f"{machine[1]}, {machine[2]} cores", "Homebrew",
              caps.replace("Neon_DotProd", "DotProd").replace("Neon_I8MM", "I8MM").replace(" ", ", "),
              "NEON"]]
     x86 = report_line(x86_md, "Encoder:")
@@ -174,7 +174,7 @@ def builds(paths, mac_rows):
     need(r"ours dispatches its AVX-512 tier", simd, "x86 report")
     need(r"x265 runs its default assembly, which on this CPU stops at AVX2", simd, "x86 report")
     need(r"an arm with x265 `--asm avx512`", simd, "x86 report")
-    rows.append(["Intel Xeon 8488C, 16 vCPUs", f"x265 {ver} from the 4.3 release tarball, clang 18, 8-bit",
+    rows.append(["Intel Xeon 8488C, 16 vCPUs", "the 4.3 release tarball, clang 18, 8-bit",
                  "its default, which stops at AVX2 on this CPU. A second arm ran `--asm avx512`",
                  "AVX-512 over AVX2"])
     g4 = report_line(g4_md, "Encoder:")
@@ -184,7 +184,7 @@ def builds(paths, mac_rows):
     need(r"ours dispatches NEON, dotprod, SVE and SVE2", simd, "Graviton report")
     need(r"x265 runs its full aarch64 assembly: NEON, SVE, SVE2, dotprod, i8mm and SVE2 bitperm",
          simd, "Graviton report")
-    rows.append(["AWS Graviton4, 16 cores", f"x265 {ver} from the 4.3 release tarball, clang 18, 8-bit",
+    rows.append(["AWS Graviton4, 16 cores", "the 4.3 release tarball, clang 18, 8-bit",
                  "NEON, SVE, SVE2, DotProd, I8MM, SVE2 BitPerm", "NEON, DotProd, SVE, SVE2"])
     for md in (x86_md, g4_md):
         pin = report_line(md, "Pinning:")
@@ -196,6 +196,7 @@ def builds(paths, mac_rows):
                 open(mac_md).read(), "Mac report")
     table = mdt(["machine", "x265 build", "x265's instruction sets", "yah265's instruction sets"],
                 ["---"] * 4, rows)
+    table += f"\n\nThe Homebrew build reports `{build}`."
     return ver, table, look
 
 
