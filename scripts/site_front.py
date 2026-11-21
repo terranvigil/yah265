@@ -351,6 +351,10 @@ GROUPS = [
         ("--threads", "`0`", "Worker threads. `0` starts one per online CPU. At `1`, two runs of a command write the same bytes. Above one thread the stream can differ between runs."),
         ("--gop-parallel", "`0`", "Code a long input as segments on this many encoder instances and join them at key frames. The stream differs from the serial one."),
     ]),
+    ("Hardware", [
+        ("--hw", "`off`", "`videotoolbox` encodes with the Mac's HEVC hardware through VideoToolbox. The stream is the hardware's, not this encoder's. Options it can't follow are listed once at the start. `auto` uses this encoder when the hardware isn't there, and `videotoolbox` fails instead."),
+        ("--hw-strict", "off", "With `--hw`, refuse to encode when any option you gave can't be followed."),
+    ]),
     ("Shot-aware options", [
         ("--shot-window", "`0`", "Buffer up to this many frames so a whole shot can be planned before it's coded. `--crf` only, at most 300. It adds that many frames of latency."),
         ("--shot-stats", "none", "Write one JSON line of statistics per shot. The stream doesn't change."),
@@ -434,6 +438,8 @@ SEEN = {
     "-t, --tune": "20fc31ec",
     "--threads": "94de2a57",
     "--gop-parallel": "f64f8359",
+    "--hw": "cfdf8805",
+    "--hw-strict": "cef62975",
     "--qp": "3feae834",
     "--crf": "6ec86a4b",
     "--bitrate": "17ce7429",

@@ -1,4 +1,4 @@
-# y265 0.0.1, release build bf293376
+# y265 0.0.1, release build 151738c2
 usage: y265 [options] <input.y4m|input.yuv|->
 
 The input picks the profile: 8-bit 4:2:0 is coded Main, 10-bit 4:2:0
@@ -40,6 +40,14 @@ Presets and threads
                         thread; not with --pass, --qpfile, --zones, --csv,
                         --shot-stats or --hrd-concat. The joined stream
                         carries no HRD timing SEI.
+
+Hardware
+  --hw <mode>           off (default), auto or videotoolbox: encode with the
+                        Mac's HEVC hardware through VideoToolbox. The stream
+                        is the hardware's. Options it can't honour are listed
+                        once at open. auto falls back to this encoder with one
+                        line; videotoolbox fails instead.
+  --hw-strict           with --hw, refuse instead of listing those options
 
 Rate control
   --qp <n>              constant QP (default 26): 0..51, or -12..51 at 10-bit
