@@ -5,7 +5,7 @@ description: The x265 version and build behind every comparison, with the comman
 
 # How x265 was run
 
-Every comparison on this site is against x265 <!--trust:x265-version-->4.3+1-e9b8812<!--/trust:x265-version-->. This page gives the build on each machine, the command for each kind of reading and the settings each encoder ran with. A script writes the tables and the commands. Its sources are the parity reports and the code that timed the runs. The page can't drift from what was run.
+Every comparison on this site is against x265 <!--trust:x265-version-->4.3+1-e9b8812<!--/trust:x265-version-->. This page gives the build on each machine, the command for each kind of reading and the settings each encoder ran with. A script writes the tables and the commands from the parity reports and the code that timed the runs.
 
 x265 always runs `--preset medium` with no `--tune`. Everything else is its default unless a table below says otherwise. [The methodology](methodology.md) explains why each reading is taken the way it is.
 
@@ -21,7 +21,7 @@ x265 always runs `--preset medium` with no `--tune`. Everything else is its defa
 The Homebrew build reports `[Mac OS X][clang 21.0.0][64 bit] 8bit+10bit+12bit`.
 <!--/trust:x265-builds-->
 
-On the Mac x265 is the Homebrew package as it installs. On the cloud machines I built it from the 4.3 release tarball with its assembly on. The Xeon needs a note, because x265's default there uses AVX2 while yah265 uses AVX-512. I timed a second x265 arm with its AVX-512 code switched on. I also held both encoders to AVX2, then to SSE4.2. [Results](results.md#by-machine) has all of those readings.
+On the Mac x265 is the Homebrew package as it installs. On the cloud machines I built it from the 4.3 release tarball with its assembly on. On the Xeon x265's default uses AVX2 while yah265 uses AVX-512. I timed a second x265 arm with its AVX-512 code switched on. I also held both encoders to AVX2, then to SSE4.2. [Results](results.md#by-machine) has all of those readings.
 
 ## The command for each goal
 
@@ -66,7 +66,7 @@ cat tears_1080p.y4m | y265 - --crf 26 --threads 6 -o yah265.hevc
 
 x265 runs at CRF <!--trust:x265-ref-crf-->28<!--/trust:x265-ref-crf-->, its default. yah265's CRF is fractional because it's solved until its file is within 1% of x265's size.
 
-For capped VBR both encoders get the same three numbers. The target is the bitrate x265 reached at one CRF rung on that cell. The peak is 1.5 times the target. The buffer is twice the target.
+For capped VBR both encoders get the same three numbers. The target is the bitrate x265 reached on that cell, at CRF 28 for the timed runs and at each rung for the ladders. The peak is 1.5 times the target and the buffer is twice it.
 
 G1 and G2 switch the hand-written SIMD off on both sides to compare the algorithms alone. Read them as engineering checks, because x265 isn't meant to run without its assembly.
 
@@ -80,7 +80,7 @@ G1 and G2 switch the hand-written SIMD off on both sides to compare the algorith
 | G1 | `--threads 1` | `--pools none --frame-threads 1` | off: `N265_ASM_OFF=all` and `--no-asm` |
 | capped VBR | its default: one worker per CPU | its defaults for pools and frame threads | on |
 | rate ladders and the size solve | `--threads 6` | `--pools 6 --frame-threads 4` | on |
-| cloud machines, every timed goal | `--threads 16` on 16 CPUs | `--pools 16` on the same 16 CPUs | as the goal says |
+| cloud machines, G3, G2 and capped VBR | `--threads 16` on 16 CPUs | `--pools 16` on the same 16 CPUs | as the goal says |
 | Xeon held to one tier | `N265_CPU_MAX=sse42` or `avx2` | `--asm sse4.2` or `--asm avx2` | on, capped |
 <!--/trust:x265-threads-->
 
@@ -99,4 +99,4 @@ x265 stays at its default depth in every reading. yah265's own depth was swept a
 
 ## What x265 wasn't given
 
-No reading uses x265's tunes for grain and for animation. The Homebrew build has no screen-content mode. Because yah265's `medium` adapts to some of that content by itself, the content-type clips compare one encoder's defaults with the other's. [The skeptic's questions](faq.md) says what I make of that.
+No reading uses x265's tunes for grain and for animation. The Homebrew build has no screen-content mode. Because yah265's `medium` adapts to some of that content by itself, the content-type clips compare one encoder's defaults with the other's.

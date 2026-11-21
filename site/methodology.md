@@ -116,7 +116,7 @@ Quality is VMAF v1, Netflix's `vmaf_v1.0.16` models. The scorer is libvmaf 3.x. 
 
 VMAF v1 is the only quality metric these pages judge by. yah265's `medium` is tuned for it. x265's `medium` has other aims that include its psychovisual options. A lead here is a lead on that one score. The results page also shows frame crops because a score can't settle how two encodes look.
 
-v1 is scored at display resolution. An encode smaller than 1920x1080 in both dimensions is scaled up to fit that frame before scoring. A CIF clip is therefore scored after a 3.75x upscale. The CIF rows depend on that rule. The bicubic scaling keeps the aspect ratio. The reference gets the same scaling as the decode. CAMBI is told the coded size and the coded bit depth.
+v1 is scored at display resolution. An encode smaller than 1920x1080 in both dimensions is scaled up to fit that frame before scoring. A CIF clip is therefore scored after a 3.75x upscale. The bicubic scaling keeps the aspect ratio. The reference gets the same scaling as the decode. CAMBI is told the coded size and the coded bit depth.
 
 In the report CSVs the columns whose names end in `vmafneg` hold VMAF v1 scores. The names are left from the metric the project used before.
 
@@ -147,7 +147,7 @@ The lookahead's depth is part of the reading. yah265's own depth is swept around
 
 ## The ladders
 
-CRF rungs are 20, 23, 26, 29 and 32 on both encoders. VBR rungs target the bitrates x265 reached at those CRFs on the same cell. Each VBR rung sets the maxrate to 1.5 times the target. Its buffer is twice the target. BD-rate is taken over the bytes each encoder wrote. Only curves from the binary under test count.
+CRF rungs are 20, 23, 26, 29 and 32 on both encoders. VBR rungs target the bitrates x265 reached at those CRFs on the same cell. Each VBR rung sets the maxrate to 1.5 times the target and the buffer to twice the target. BD-rate is taken over the bytes each encoder wrote. Only curves from the binary under test count.
 
 ## What makes a number valid
 

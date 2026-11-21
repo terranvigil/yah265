@@ -5,9 +5,9 @@ description: Rerun a speed, size and quality reading of yah265 against x265 on y
 
 # Check it yourself
 
-Everything on the [results page](results.md) comes from scripts in the repository. This page shows how to take the same kind of reading on your own machine. It goes from one clip by hand to the full harness.
+Everything on the [results page](results.md) comes from scripts in the repository. This page shows how to take the same kind of reading on your own machine, from one clip by hand to the full harness.
 
-The harness at the end of this page reruns whole tables. It expects the project's own media library.
+The harness at the end of this page reruns whole tables from the project's own media library.
 
 ## What you need
 
@@ -17,7 +17,7 @@ The harness at the end of this page reruns whole tables. It expects the project'
 - libde265's `dec265`, for the conformance check.
 - For quality, a libvmaf 3.x `vmaf` command line with Netflix's `vmaf_v1.0.16` model. The scripts look for the tool at `~/.local/opt/vmaf-v1/bin/vmaf`, or wherever `V1_BIN` points. They look for the models under `~/.local/share/vmaf/model`.
 
-You also need a clip. This command downloads seven standard CIF test clips from Xiph into `tests/corpus/`. It checks each against a pinned hash:
+You also need a clip. This command downloads seven standard CIF test clips from Xiph into `tests/corpus/`:
 
 ```sh
 $ scripts/fetch_corpus.sh
@@ -122,7 +122,7 @@ $ time (cat clip.y4m | build-rel/y265 - -o ours.hevc --crf 24)
 $ time (cat clip.y4m | x265 --input - --y4m --preset medium --crf 28 -o ref.hevc)
 ```
 
-Divide x265's `real` time by yah265's. That's the G3 speed the results page reports. Over 1.00 means yah265 finished first.
+Divide x265's `real` time by yah265's. That's the G3 speed the results page reports.
 
 For G1, run each encoder in plain C on one thread:
 
@@ -155,7 +155,7 @@ The script codes a five-rung ladder on both encoders, at CRF 20, 23, 26, 29 and 
 This is the CRF ladder on the foreman CIF clip. It took 50 seconds on the Mac.
 
 ```
-$ scripts/v1_ladder.py foreman_cif.y4m
+$ scripts/v1_ladder.py tests/corpus/foreman_cif.y4m
 foreman_cif.y4m ours crf : BD-v1 -9.66%
     kbps      v1  x265@r    gap | v1 gained by taking x265's:    cambi   chroma     adm3  motion3
      101  42.049  outside x265's rates
@@ -167,7 +167,14 @@ foreman_cif.y4m ours crf : BD-v1 -9.66%
 
 Each row is one yah265 rung, with x265's score read off its curve at the same bitrate. For the last four columns the script swaps one of v1's features at a time from x265's frames onto yah265's. Each column reports what that swap is worth.
 
-Encodes and scores are cached under `~/.cache/yah265-v1`. `THREADS` sets the thread count for each encoder and for libvmaf. It defaults to 4. `BIN` overrides the yah265 binary.
+Four environment variables change a run:
+
+| variable | what it sets | default |
+|---|---|---|
+| `THREADS` | threads for each encoder and for libvmaf | 4 |
+| `BIN` | the yah265 binary | `build-rel/y265` |
+| `V1_BIN` | the `vmaf` tool | `~/.local/opt/vmaf-v1/bin/vmaf` |
+| `V1_CACHE` | where encodes and scores are cached | `~/.cache/yah265-v1` |
 
 ## Reading size and quality together
 
@@ -175,13 +182,13 @@ A speed ratio means nothing until the sizes match, because an encoder that write
 
 At the matched size, compare the two VMAF v1 scores directly. One clip's lead says little about the next clip's. That's why the results page reports the median over a group and the clip with the smallest lead.
 
-One matched point is one bitrate. Read the ladder too, because an encoder can lead at CRF 28 and trail at high quality. BD-rate folds the whole ladder into one number. That number covers only the scores both curves reach. Where one encoder's lowest score is above the other's highest, there's no BD-rate to quote. The curves themselves are the answer.
+One matched point is one bitrate. Read the ladder too, because an encoder can lead at CRF 28 and trail at high quality. BD-rate folds the whole ladder into one number. That number covers only the scores both curves reach. Where one encoder's lowest score is above the other's highest, there's no BD-rate to quote and the curves themselves are the answer.
 
 Under VBR, check the bitrate each encoder reached against its target before comparing quality. An encoder that undershoots its target saves bits it was asked to spend.
 
 ## The full harness
 
-`scripts/parity_spec.py` takes the whole parity reading. It splits into two halves. The untimed half can share a machine. The timed half needs the machine quiet.
+`scripts/parity_spec.py` takes the whole parity reading in two halves. The untimed half can share a machine. The timed half needs the machine quiet.
 
 | mode | what it does |
 |---|---|
@@ -201,7 +208,7 @@ Under VBR, check the bitrate each encoder reached against its target before comp
 $ scripts/parity_spec.py --plan --tier S
 ```
 
-Because the harness reads the project's shared test library at fixed paths, another machine needs the same layout. The recorded rows behind the results are in `docs/data/`. The report counts a ladder only when it came from the binary under test. A report rebuilt with a different binary shows those curves as pending.
+Because the harness reads the project's own test library, another machine needs the same layout. `YAH265_MEDIA` names the library's root. The recorded rows behind the results are in `docs/data/`. The report counts a ladder only when it came from the binary under test. A report rebuilt with a different binary shows those curves as pending.
 
 To check that the results page still matches those rows:
 

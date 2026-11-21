@@ -33,7 +33,7 @@ The new ffmpeg is at `build-ffmpeg/ffmpeg/ffmpeg`. [Build and first encode](star
 
 <figure class="chart"><img src="assets/charts/front/home-speed.svg" alt="Bars of how many times faster yah265 runs than x265 at CIF, 720p, 1080p and 4K on an Apple M5 Max, an Intel Xeon and an AWS Graviton4. Every bar passes the 1x line that marks x265."></figure>
 
-On this site "faster" compares wall time for files of the same size. That makes 2x faster half the time. Both encoders run `--preset medium` with SIMD on every core. Right is faster on every speed chart.
+On this site "faster" compares wall time for files of the same size. Both encoders run `--preset medium` with SIMD on every core. Right is faster on every speed chart.
 
 ## Side by side at the same size
 
@@ -42,20 +42,20 @@ The two encodes below are the same size. Switch between the reference and each o
 <!--gen:fig-frames-->
 <figure class="compare">
 <div class="cmp">
-<div class="cmp-head"><p class="cmp-title">The hardest moment, 0:29 into the clip<span>VMAF v1 on this frame: yah265 88.3, x265 84.4. The crop is shown at 4x.</span></p><div class="cmp-where"><img loading="lazy" decoding="async" width="640" height="286" src="assets/frames/tears-701-frame.webp" alt="The whole frame, with the cropped window outlined."><i style="left:80.00%;top:5.59%;width:10.83%;height:13.05%"></i></div></div>
+<div class="cmp-head"><p class="cmp-title">0:29 into the clip<span>VMAF v1 on this frame: yah265 88.3, x265 84.4. The crop is shown at 4x.</span></p><div class="cmp-where"><img loading="lazy" decoding="async" width="640" height="286" src="assets/frames/tears-701-frame.webp" alt="The whole frame, with the cropped window outlined."><i style="left:80.00%;top:5.59%;width:10.83%;height:13.05%"></i></div></div>
 <div class="cmp-pane" data-name="Reference"><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-701-reference.webp" alt="The reference frame, cropped."><span class="cmp-tag">Reference · 4x zoom</span></div>
 <div class="cmp-pane" data-name="yah265" data-first><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-701-yah265.webp" alt="The same crop from yah265's encode."><span class="cmp-tag ours"><b>yah265</b> · VMAF v1 88.3 on this frame · 15.95 MB file · 4x zoom</span></div>
 <div class="cmp-pane" data-name="x265"><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-701-x265.webp" alt="The same crop from x265's encode."><span class="cmp-tag"><b>x265</b> · VMAF v1 84.4 on this frame · 15.88 MB file · 4x zoom</span></div>
 </div>
-<figcaption>A complex frame of Tears of Steel clip at 1080p, where both encoders score lowest. The crop shows where the two differ most. yah265 keeps more of the texture. Both files are the same size within 0.5%. <a href="results.html#side-by-side-at-the-same-size">Results</a> shows the three hardest frames, including one where x265 is sharper. Tears of Steel: (CC) Blender Foundation, <a href="https://mango.blender.org">mango.blender.org</a>, CC-BY 3.0.</figcaption>
+<figcaption>A complex frame of Tears of Steel clip at 1080p, where both encoders score lowest. The crop shows where the two differ most. yah265 keeps more of the texture. Both files are the same size within 0.5%. <a href="results.html#side-by-side-at-the-same-size">Results</a> has more. Tears of Steel: (CC) Blender Foundation, <a href="https://mango.blender.org">mango.blender.org</a>, CC-BY 3.0.</figcaption>
 </figure>
 <!--/gen:fig-frames-->
 
 ## What it does
 
 - Encodes through ffmpeg as `libyah265`, or from a pipe with [its own command line](start.md#build-y265-on-its-own).
-- CRF, capped CRF, VBR, CBR, ABR and two-pass. The [encoding guide](guide.md#rate-modes) says when to pick each.
-- Main, Main10, 4:4:4 and 4:2:2 [profiles](guide.md#profiles-depth-and-chroma) from one binary.
+- CRF, capped CRF, VBR, CBR, ABR and two-pass. The [encoding guide](guide.md#pick-a-rate-mode) says when to pick each.
+- Main, Main10, 4:4:4 and 4:2:2 [profiles](guide.md#set-the-bit-depth-and-profile) from one binary.
 - [HDR10, HDR10+, HLG and Dolby Vision profile 8](hdr.md).
 - SIMD on arm64 and x86-64. [Architectures](architectures.md) lists what runs where.
 - x265's option names for shared features. [Options](options.md) lists every one.

@@ -211,7 +211,7 @@ def threads_table(facts, look):
         ["capped VBR", "its default: one worker per CPU", "its defaults for pools and frame threads",
          "on"],
         ["rate ladders and the size solve", f"`--threads {t}`", f"`{facts['solve_ref']}`", "on"],
-        ["cloud machines, every timed goal", "`--threads 16` on 16 CPUs",
+        ["cloud machines, G3, G2 and capped VBR", "`--threads 16` on 16 CPUs",
          "`--pools 16` on the same 16 CPUs", "as the goal says"],
         ["Xeon held to one tier", "`N265_CPU_MAX=sse42` or `avx2`", "`--asm sse4.2` or `--asm avx2`",
          "on, capped"],

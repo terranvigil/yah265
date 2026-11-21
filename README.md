@@ -25,7 +25,7 @@ ffmpeg -i in.mp4 -c:v libx265   -preset medium -crf 25 out.mp4   # what you run 
 ffmpeg -i in.mp4 -c:v libyah265 -preset medium -crf 25 out.mp4   # swap one word
 ```
 
-One command builds that ffmpeg:
+Simple command builds that ffmpeg:
 
 ```sh
 git clone https://github.com/terranvigil/yah265 && cd yah265
@@ -34,11 +34,11 @@ scripts/build-ffmpeg.sh
 
 It needs git, a C compiler, Meson, Ninja, pkg-config and make. The new ffmpeg is at `build-ffmpeg/ffmpeg/ffmpeg`. Add `--with-x265` to build `libx265` into it too, for side-by-side tests. Because yah265 is GPL, the ffmpeg it builds is a GPL binary.
 
-Pass `-crf`. With no rate option the encoder runs a fixed-quantizer test mode.
+Always pass a rate option. With none, the encoder runs a fixed-quantizer test mode.
 
 ## Results
 
-"Faster" compares wall time for files of the same size. That makes 2x faster half the time. Both encoders run `--preset medium`. The reference is x265 4.3. The test set runs from short standard clips to ten-minute excerpts of open films, at CIF, 720p, 1080p and 4K.
+"Faster" compares wall time for files of the same size. Both encoders run `--preset medium`. The reference is x265 4.3. The test set runs from short standard clips to ten-minute excerpts of open films, at CIF, 720p, 1080p and 4K.
 
 The headline covers the cells below. Each is one clip at one picture size, coded at CRF on an 18-core Apple M5 Max, where yah265's file is within 1% of x265's size. Quality is VMAF v1.
 
@@ -81,6 +81,32 @@ ffmpeg -i in.mp4 -pix_fmt yuv420p -f yuv4mpegpipe - | build-rel/y265 - -o out.he
 ```
 
 It reads Y4M or raw YUV from a file or a pipe. The output is a raw HEVC stream that ffmpeg plays and muxes. `build-rel/y265 --help` lists every option.
+
+## Shot-aware support
+
+Most video is a sequence of shots, and each shot wants different settings. yah265 gives a per-shot pipeline what it needs, in a single pass, without changing the default encode.
+
+A shot window lets a CRF encode buffer up to a whole shot and balance its quality against the shots before it. It adds its length in frames of latency, so it's off by default.
+
+Shot statistics write one JSON line per shot as the encode runs: where the shot starts and ends, its bits, its frame types and its complexity. The stream is the same with them on. `scripts/shot_hull.py` takes several encodes of one source with their statistics, scores each shot against the source and prints each shot's convex hull. That's the point a ladder builder picks a rung from.
+
+```sh
+y265 in.y4m -o crf22.hevc --crf 22 --shot-stats crf22.jsonl
+y265 in.y4m -o crf28.hevc --crf 28 --shot-stats crf28.jsonl
+scripts/shot_hull.py --src in.y4m \
+    --enc crf22=crf22.hevc:crf22.jsonl --enc crf28=crf28.hevc:crf28.jsonl
+```
+
+The [encoding guide](https://terranvigil.github.io/yah265/guide.html#planning-by-shot) has the details.
+
+## Up next
+
+The next work builds on the shot tools above, toward a full per-shot ladder:
+
+- **A key frame on every shot.** Each shot starts on its own key frame, so it can be seeked to, packaged or replaced alone.
+- **Per-shot quality in one pass.** Each shot gets its own quality setting from a scan of the source, with no trial encodes.
+- **Hulls across resolutions.** The hull script scores rungs at different resolutions against the source, on VMAF v1.
+- **A ladder search.** The search itself (rungs, convex hull, VMAF) lives in my [veo project](https://github.com/terranvigil/veo), with yah265 as its encoder.
 
 ## Documentation
 

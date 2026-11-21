@@ -7,9 +7,9 @@ description: How yah265 makes the choices the HEVC standard leaves open, from th
 
 The HEVC standard defines a legal stream. Because it leaves the encoding to the encoder, this page covers how yah265 makes those choices. [The HEVC standard](hevc.md) explains the terms used here.
 
-## The idea
+## Search order comes first
 
-HEVC moved most of an encoder's cost into search. A coding tree can split from 64x64 down to 8x8. Every node offers merge, motion search, 35 intra modes and a transform tree of its own. The pixel work per decoded sample stayed close to H.264's. So I treat the order in which candidates are tried as the encoder's real architecture, along with how early the losers are dropped. That ladder was designed first. The coding tools were built on it afterwards.
+HEVC moved most of an encoder's cost into search. A coding tree can split from 64x64 down to 8x8. Every node offers merge, motion search, 35 intra modes and a transform tree of its own. The pixel work per decoded sample stayed close to H.264's. So I treat the order in which candidates are tried as the encoder's real architecture, along with how early the losers are dropped. I designed that ladder first, then built the coding tools on it.
 
 ## The pipeline
 
@@ -181,7 +181,7 @@ Each coding tree unit runs a staged decision. Merge and skip candidates go first
 <figcaption>Each stage sees fewer candidates than the one above it, at a higher cost for each.</figcaption>
 </figure>
 
-Pruning decides the speed. A node stops splitting when its neighbors and its own costs say a split won't pay. It also stops under a block that intra already won on an intra-heavy frame. On wide pictures the intra modes of P and B pictures are ranked coarse to fine. Only 19 of the 35 get priced. At `medium` the encoder tries neither the rectangular nor the uneven partitions. It doesn't try 4x4 intra in P and B pictures either. The slower presets turn those back on.
+Pruning decides the speed. A node stops splitting when its neighbors and its own costs say a split won't pay. It also stops under a block that intra already won on an intra-heavy frame. On wide pictures the intra modes of P and B pictures are ranked coarse to fine. Only 19 of the 35 get priced. `medium` leaves out the rectangular and uneven partitions, along with 4x4 intra in P and B pictures. The slower presets turn those back on.
 
 The coding tree's size follows the picture. Smaller pictures use 32x32 trees. From 1080p up, `medium` codes 64x64 trees with two gates on the top node.
 
@@ -243,13 +243,13 @@ The coding tree's size follows the picture. Smaller pictures use 32x32 trees. Fr
 <figcaption>Both gates save work at the top of the tree, where a wrong guess is the most expensive.</figcaption>
 </figure>
 
-Both gates ramp in with the planned quantizer so that the file size moves smoothly as the CRF changes. At 1080p the first gate also checks each 32x32 quarter of the block, because residual that sat in one corner used to hide in the block's total.
+Both gates ramp in with the planned quantizer so that the file size moves smoothly as the CRF changes. At 1080p the first gate also checks each 32x32 quarter of the block, because residual in one corner can hide in the block's total.
 
 ## Motion search
 
 Motion search answers one question per block: where in the reference picture does this block best come from? The answer is priced as well as matched. Every candidate vector is charged for the bits it would cost to write. A slightly worse match that's cheap to code can win.
 
-The search starts from the vectors the block's neighbors used, since those are the ones the decoder can nearly guess. From the best of them it walks whole-sample positions, then refines to half and quarter samples. Small pictures walk a unit diamond. From 720p up the walk is a hexagon that finishes with the diamond, because on large pictures with fine texture the diamond alone stopped at a poor match.
+The search starts from the vectors the block's neighbors used, since those are the ones the decoder can nearly guess. From the best of them it walks whole-sample positions, then refines to half and quarter samples. Small pictures walk a unit diamond. From 720p up the walk is a hexagon that finishes with the diamond, because on large pictures with fine texture the diamond alone can stop at a poor match.
 
 At 4K each list has a second reference picture. Because a full search of it would double the work, the second reference only prices the predicted vectors and the first reference's winner scaled to it.
 
@@ -269,7 +269,7 @@ Each picture is coded as one slice with no wavefront substreams and no tiles. Th
 
 ## Rate control
 
-Rate control turns what you asked for into a quantizer for every block. yah265 covers fixed QP, CRF, ABR, VBR, CBR, capped CRF and two-pass. The [encoding guide](guide.md#rate-modes) says when to use each.
+Rate control turns what you asked for into a quantizer for every block. yah265 covers fixed QP, CRF, ABR, VBR, CBR, capped CRF and two-pass. The [encoding guide](guide.md#pick-a-rate-mode) says when to use each.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 290" role="img" aria-label="Which planner each rate mode uses">
@@ -369,7 +369,7 @@ Rate control turns what you asked for into a quantizer for every block. yah265 c
 <figcaption>Capped VBR sits with CRF on the quality planner. The buffer model only sees the modes that have a buffer.</figcaption>
 </figure>
 
-CRF plans a fractional base QP for each frame from the lookahead's cost estimate. Its scale moves with the frame rate. Two per-block adjustments follow in every mode. Adaptive quantization shifts bits toward blocks where the eye sees errors. The lookahead's propagation step lowers the QP on blocks that later frames predict from.
+CRF plans a fractional base QP for each frame from the lookahead's cost estimate, on a scale that moves with the frame rate. Two per-block adjustments follow in every mode. Adaptive quantization shifts bits toward blocks where the eye sees errors. The lookahead's propagation step lowers the QP on blocks that later frames predict from.
 
 A loop that chases a bitrate frame by frame makes quality swing. So VBR whose maxrate sits above its target runs on the quality planner with a level that moves slowly. It keeps one operating point over the whole encode. When the file runs well under its target, the level moves back toward the target at a limited rate.
 
@@ -398,20 +398,20 @@ The values are what `--show-config` prints for an 8-bit SDR input at each size. 
 
 Every quality result on this site is scored with VMAF v1. Several of `medium`'s choices come from what that metric measures.
 
-- VMAF v1 reads banding. With the psy term off, the rate-distortion decision coded faint grain in dark areas to flat steps. From 720p up the psy strength therefore rises on dark, smooth 16x16 blocks.
+- VMAF v1 reads banding. Without a psy term the rate-distortion decision codes faint grain in dark areas to flat steps. From 720p up the psy strength therefore rises on dark, smooth 16x16 blocks.
 - It scores chroma. It also scores a small picture scaled up to display size, where the chroma loss shows. Chroma gets more bits than luma's quantizer alone would give it. Inter chroma coefficients round less harshly. Both chroma quantizers also run finer than luma's.
 - Adaptive quantization scales its strength per frame from the spread of its own field.
 
 [Quality at the same size](results.md#quality-at-the-same-size) and [Quality across the rate range](results.md#quality-across-the-rate-range) hold the results.
 
-## The gates
+## Checks every change passes
 
 Every change passes these before it merges.
 
 - Two decoders decode each conformance encode. Both must match the encoder's own pictures, as [Validating the bitstream](#validating-the-bitstream) describes.
 - Two runs at `--threads 1` must give the same bytes. Across thread counts a mismatch is reported as a warning.
 - Each SIMD kernel is tested against its C reference by a tool called checkasm, under AddressSanitizer too.
-- A change that moves streams gets an environment setting that undoes it. The gate compares that setting's output with the previous commit's, byte for byte, to show that nothing else moved.
+- A change that moves streams gets an environment setting that undoes it. The check compares that setting's output with the previous commit's, byte for byte, to show that nothing else moved.
 - A change that loses quality or speed doesn't ship.
 
 ## Written from the specification

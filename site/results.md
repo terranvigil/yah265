@@ -22,17 +22,17 @@ The first two rows are the headline. They cover the CRF cells timed on the Mac a
 | content-type clips passing on quality | 9 of 9 |
 <!--/gen:verdict-->
 
-"The bar" is the pass mark a reading has to meet. [The methodology](methodology.md) sets out each bar and the rules that make a number valid. [How x265 was run](x265-run.md) has its build and the command for each goal. [Check it yourself](check-it-yourself.md) shows how to take the same readings on your own machine. The long per-cell tables are folded. Open the ones you want.
+"The bar" is the pass mark a reading has to meet. [The methodology](methodology.md) sets out each bar and the rules that make a number valid. [How x265 was run](x265-run.md) has its build and the command for each goal. [Check it yourself](check-it-yourself.md) shows how to take the same readings on your own machine. The long per-cell tables are folded.
 
 ## What the numbers mean
 
 A cell is one clip at one picture size. A class is a picture size. A tier is a clip length. Cells are grouped by both.
 
-Speed is written as times faster. It's x265's encode time divided by yah265's when both write a file of the same size. That makes 2x faster half the time. On every speed chart right is faster.
+Speed is written as times faster. It's x265's encode time divided by yah265's when both write a file of the same size. On every speed chart right is faster.
 
 A speed cell in a table holds the median over the group's clips, then the slowest clip. A group passes when its median is at least 1.00x and its slowest clip is at least 0.87x, as long as its quality holds too.
 
-Speed is read three ways. I call them goals. G3 is the one a user sees.
+I read speed three ways and call each one a goal. G3 times both encoders as shipped. It's the speed a user sees.
 
 <!--gen:goal-defs-->
 | goal | yah265 | x265 | threads |
@@ -42,7 +42,7 @@ Speed is read three ways. I call them goals. G3 is the one a user sees.
 | G2 | plain C | plain C | each encoder's default |
 <!--/gen:goal-defs-->
 
-Plain C is the same binary on both sides with its hand-written SIMD switched off. G1 and G2 compare the algorithms alone. They're engineering checks, because x265 isn't meant to run without its assembly.
+Plain C is each encoder's own binary with its hand-written SIMD switched off. G1 and G2 compare the algorithms alone. They're engineering checks, because x265 isn't meant to run without its assembly.
 
 Three machines were timed:
 
@@ -52,7 +52,7 @@ Three machines were timed:
 
 On the two cloud machines both encoders were held to 16 vCPUs. x265 was built there from its 4.3 release. A cloud time is only ever compared with x265 on the same machine.
 
-Each encoder looks ahead by its own `medium` default. That's 20 frames for x265. For yah265 it's 20 frames from 720p up and 12 at CIF.
+Each encoder looks ahead by its own `medium` default. x265's is 20 frames, and yah265's is 20 from 720p up and 12 at CIF.
 
 ## The test set
 
@@ -95,7 +95,7 @@ The table has the same numbers as median / slowest clip, in times faster.
 | 4K | 10-minute films | 1.79x / 1.52x | 3.23x / 3.12x | 2.78x / 2.63x |
 <!--/gen:speed-mac-->
 
-G3 is the closest of the three goals. On these clips x265's assembly gains more over its plain C than yah265's SIMD gains over ours.
+G3 is the closest of the three goals. On these clips x265's assembly gains more over its plain C than yah265's SIMD gains over its own.
 
 On the 2-minute and 10-minute cells, G1 and G2 are timed on 30-second windows. A window starts every three minutes. Each is coded as its own stream.
 
@@ -205,7 +205,7 @@ G2, plain C on all cores:
 
 </details>
 
-Graviton3 has 256-bit SVE. It ran the short clips at G3.
+A Graviton3 with 256-bit SVE ran the short clips at G3.
 
 <details class="data" markdown="1">
 <summary>Graviton3, short clips at G3</summary>
@@ -232,7 +232,7 @@ The Xeon also ran the short clips at G3 with both encoders capped to one older i
 | 4K | 2.22x / 2.22x | 2.00x / 2.00x | 2.08x / 2.08x | 1 |
 <!--/gen:capped-->
 
-AVX2 against AVX2 is the closest pairing on the page. Because both capped tiers write the same streams as the uncapped build, their quality is the next section's. [Architectures](architectures.md) explains the tiers and how each is checked. The per-machine detail is in <!--gen:report-x86-->[the x86-64 report](docs/parity/PARITY-REPORT-yah265-x86-2026-11-13.md)<!--/gen:report-x86--> and <!--gen:report-g4-->[the Graviton report](docs/parity/PARITY-REPORT-yah265-graviton-2026-11-13.md)<!--/gen:report-g4-->.
+The third column is a control. It repeats the main table's pairing in the same session as the two capped runs. AVX2 against AVX2 is the closest pairing on the page. Because both capped tiers write the same streams as the uncapped build, their quality is the next section's. [Architectures](architectures.md) explains the tiers and how each is checked. The per-machine detail is in <!--gen:report-x86-->[the x86-64 report](docs/parity/PARITY-REPORT-yah265-x86-2026-11-13.md)<!--/gen:report-x86--> and <!--gen:report-g4-->[the Graviton report](docs/parity/PARITY-REPORT-yah265-graviton-2026-11-13.md)<!--/gen:report-g4-->.
 
 ## Quality at the same size
 
@@ -240,7 +240,7 @@ AVX2 against AVX2 is the closest pairing on the page. Because both capped tiers 
 <figure class="chart"><img src="assets/charts/results/quality.svg" alt="yah265 scores higher than x265 at the same file size in every class and tier."></figure>
 <!--/gen:fig-quality-->
 
-The chart and table show the VMAF v1 score at the matched file size, yah265's minus x265's. A positive number means yah265 scores higher on VMAF v1 at the same size. The bar is a median no worse than -0.5 with no single cell more than 1.0 behind. Every cell's size is within 1% of x265's.
+The chart and table show yah265's VMAF v1 score minus x265's at the matched file size. The bar is a median no worse than -0.5 with no single cell more than 1.0 behind. Every cell's size is within 1% of x265's.
 
 <!--gen:quality-->
 | class | tier | median | smallest lead | on |
@@ -277,33 +277,27 @@ The Xeon's other rows rest on those curves and on the SIMD code matching the C c
 
 ## Side by side at the same size
 
-A score is one way to compare two encodes. Looking at them is the other. The clip is 90 seconds of Tears of Steel at 1080p, from the middle of the story. Both encoders wrote files of the same size at `medium`. Switch between the reference and the two encodes.
+Scores aside, you can just look at the two encodes. The clip is 90 seconds of Tears of Steel at 1080p, from the middle of the story. Both encoders wrote files of the same size at `medium`. Switch between the reference and the two encodes.
 
 <!--gen:fig-frames-->
 <figure class="compare">
 <div class="cmp">
-<div class="cmp-head"><p class="cmp-title">The hardest moment, 0:29 into the clip<span>VMAF v1 on this frame: yah265 88.3, x265 84.4. The crop is shown at 4x.</span></p><div class="cmp-where"><img loading="lazy" decoding="async" width="640" height="286" src="assets/frames/tears-701-frame.webp" alt="The whole frame, with the cropped window outlined."><i style="left:80.00%;top:5.59%;width:10.83%;height:13.05%"></i></div></div>
+<div class="cmp-head"><p class="cmp-title">0:29 into the clip<span>VMAF v1 on this frame: yah265 88.3, x265 84.4. The crop is shown at 4x.</span></p><div class="cmp-where"><img loading="lazy" decoding="async" width="640" height="286" src="assets/frames/tears-701-frame.webp" alt="The whole frame, with the cropped window outlined."><i style="left:80.00%;top:5.59%;width:10.83%;height:13.05%"></i></div></div>
 <div class="cmp-pane" data-name="Reference"><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-701-reference.webp" alt="The reference frame, cropped."><span class="cmp-tag">Reference · 4x zoom</span></div>
 <div class="cmp-pane" data-name="yah265" data-first><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-701-yah265.webp" alt="The same crop from yah265's encode."><span class="cmp-tag ours"><b>yah265</b> · VMAF v1 88.3 on this frame · 15.95 MB file · 4x zoom</span></div>
 <div class="cmp-pane" data-name="x265"><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-701-x265.webp" alt="The same crop from x265's encode."><span class="cmp-tag"><b>x265</b> · VMAF v1 84.4 on this frame · 15.88 MB file · 4x zoom</span></div>
 </div>
 <div class="cmp">
-<div class="cmp-head"><p class="cmp-title">The second hardest moment, 0:37 into the clip<span>VMAF v1 on this frame: yah265 87.4, x265 85.5. The crop is shown at 4x.</span></p><div class="cmp-where"><img loading="lazy" decoding="async" width="640" height="286" src="assets/frames/tears-902-frame.webp" alt="The whole frame, with the cropped window outlined."><i style="left:40.83%;top:26.11%;width:10.83%;height:13.05%"></i></div></div>
-<div class="cmp-pane" data-name="Reference"><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-902-reference.webp" alt="The reference frame, cropped."><span class="cmp-tag">Reference · 4x zoom</span></div>
-<div class="cmp-pane" data-name="yah265" data-first><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-902-yah265.webp" alt="The same crop from yah265's encode."><span class="cmp-tag ours"><b>yah265</b> · VMAF v1 87.4 on this frame · 15.95 MB file · 4x zoom</span></div>
-<div class="cmp-pane" data-name="x265"><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-902-x265.webp" alt="The same crop from x265's encode."><span class="cmp-tag"><b>x265</b> · VMAF v1 85.5 on this frame · 15.88 MB file · 4x zoom</span></div>
-</div>
-<div class="cmp">
-<div class="cmp-head"><p class="cmp-title">The third hardest moment, 0:48 into the clip<span>VMAF v1 on this frame: yah265 87.4, x265 86.3. The crop is shown at 4x.</span></p><div class="cmp-where"><img loading="lazy" decoding="async" width="640" height="286" src="assets/frames/tears-1153-frame.webp" alt="The whole frame, with the cropped window outlined."><i style="left:3.33%;top:0.00%;width:10.83%;height:13.05%"></i></div></div>
+<div class="cmp-head"><p class="cmp-title">0:48 into the clip<span>VMAF v1 on this frame: yah265 87.4, x265 86.3. The crop is shown at 4x.</span></p><div class="cmp-where"><img loading="lazy" decoding="async" width="640" height="286" src="assets/frames/tears-1153-frame.webp" alt="The whole frame, with the cropped window outlined."><i style="left:3.33%;top:0.00%;width:10.83%;height:13.05%"></i></div></div>
 <div class="cmp-pane" data-name="Reference"><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-1153-reference.webp" alt="The reference frame, cropped."><span class="cmp-tag">Reference · 4x zoom</span></div>
 <div class="cmp-pane" data-name="yah265" data-first><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-1153-yah265.webp" alt="The same crop from yah265's encode."><span class="cmp-tag ours"><b>yah265</b> · VMAF v1 87.4 on this frame · 15.95 MB file · 4x zoom</span></div>
 <div class="cmp-pane" data-name="x265"><img loading="lazy" decoding="async" width="832" height="448" src="assets/frames/tears-1153-x265.webp" alt="The same crop from x265's encode."><span class="cmp-tag"><b>x265</b> · VMAF v1 86.3 on this frame · 15.88 MB file · 4x zoom</span></div>
 </div>
-<figcaption>These are the three hardest moments of the clip. Each is the frame where the two encoders' mean VMAF v1 is lowest in one of the three lowest-scoring shots, cropped to the region where the two encodes lose detail most differently. yah265 keeps more of the texture in the first crop. x265 keeps the eyebrows sharper in the second. The third is close. <code>scripts/frame_crops.sh</code> makes the crops. Tears of Steel: (CC) Blender Foundation, <a href="https://mango.blender.org">mango.blender.org</a>, CC-BY 3.0.</figcaption>
+<figcaption>Two hard moments of the clip, where both encoders score low. Each crop shows where the two differ most. yah265 keeps more of the texture in the first. The second is close. <code>scripts/frame_crops.sh</code> makes the crops. Tears of Steel: (CC) Blender Foundation, <a href="https://mango.blender.org">mango.blender.org</a>, CC-BY 3.0.</figcaption>
 </figure>
 <!--/gen:fig-frames-->
 
-Nobody picked these frames by eye. A script scored every frame by the mean of the two encoders' VMAF v1. From each of the three lowest-scoring shots it took the lowest frame. To place the crop, it measured both encodes against the reference block by block. The crop is the window where their losses differ most. That rule doesn't know which encode is ahead. The reference is a near-transparent copy of the source.
+A script picked these frames by a fixed rule. It scored every frame by the mean of the two encoders' VMAF v1, then took the lowest frame in a low-scoring shot. To place the crop, it measured both encodes against the reference block by block. The crop is the window where their losses differ most, whichever encode is ahead. The reference is a near-transparent copy of the source.
 
 ## The worst frames
 
@@ -322,9 +316,9 @@ Because an average can hide a bad stretch, this section looks at the low end of 
 | file size | 15.95 MB | 15.88 MB | +0.4% |
 <!--/trust:tears-table-->
 
-Both files came from ffmpeg at `medium`, with <!--trust:tears-crfs-->`-crf 25` for yah265 and `-crf 25.3` for x265<!--/trust:tears-crfs-->. Every frame was scored. yah265's lead on the worst twentieth of the frames is wider than its lead on the average.
+Both files came from ffmpeg at `medium`, with <!--trust:tears-crfs-->`-crf 25` for yah265 and `-crf 25.3` for x265<!--/trust:tears-crfs-->. Every frame was scored. yah265's lead on the worst 5% of the frames is wider than its lead on the average.
 
-Each parity cell records one tail figure, the score of its lowest frame. The table sets the lead there beside the lead on the mean, for the short clips and the two-minute segments.
+Each cell also records the score of its lowest frame. For the short clips and the two-minute segments, the table sets yah265's lead on that frame beside its lead on the mean.
 
 <!--trust:low-table-->
 | size | cells | median lead, all frames | median lead, lowest frame | cells ahead on their lowest frame |
@@ -336,7 +330,7 @@ Each parity cell records one tail figure, the score of its lowest frame. The tab
 | **all** | **13** | **+1.96** | **+2.10** | 10 of 13 |
 <!--/trust:low-table-->
 
-At CIF yah265's lowest frame is behind x265's on two of the three clips, although its mean is ahead on all three. The ten-minute films have no row because their runs didn't keep a lowest frame.
+At CIF yah265's lowest frame is behind x265's on two of the three clips, although its mean is ahead on all three. The ten-minute films have no row because their runs recorded the mean alone.
 
 ## Quality across the rate range
 
@@ -397,7 +391,7 @@ Each ladder is set up the same way:
 
 ## VBR
 
-VBR has to hit its bitrate as well as look good. The bar puts every rung of yah265's within ±10% of its target over the whole cell. x265's rungs are drawn for comparison. The bar doesn't apply to them.
+VBR has to hit its bitrate as well as look good. The bar puts every rung of yah265's within ±10% of its target over the whole cell. x265's rungs are drawn for comparison.
 
 <!--gen:fig-tracking-->
 <figure class="chart"><img src="assets/charts/results/tracking.svg" alt="All 95 of yah265's VBR rungs come within 10% of their target."></figure>
@@ -434,7 +428,7 @@ VBR has to hit its bitrate as well as look good. The bar puts every rung of yah2
 
 ### VBR encode time
 
-VBR speed is read at G3 only. Each real-title cell runs one rung at the bitrate x265 reached at CRF 28. The maxrate and buffer are set as in the ladders. Because the two encoders share a target bitrate here, their files aren't matched in size. That keeps these timings outside the headline. The second table shows how close each encoder came to the target.
+VBR speed is read at G3 only. Each real-title cell runs one rung at the bitrate x265 reached at CRF 28. The maxrate and buffer are set as in the ladders. These timings stay out of the headline because the two files share a target bitrate where the headline cells share a size. The second table shows how close each encoder came to the target.
 
 <!--gen:vbr-machines-->
 | class | tier | Mac | x86-64 | Graviton4 | cells |
@@ -477,7 +471,7 @@ VBR speed is read at G3 only. Each real-title cell runs one rung at the bitrate 
 
 ## Lookahead depth
 
-I swept yah265's lookahead on a few cells instead of inheriting x265's depth. yah265 ran at 12, 20 and 30 frames. x265 stayed at its own 20.
+I swept yah265's lookahead on a few cells instead of inheriting x265's depth. yah265 ran at 12, 20 and 30 frames.
 
 <!--gen:fig-lookahead-->
 <figure class="chart"><img src="assets/charts/results/lookahead.svg" alt="A lookahead of 12 costs up to 3.4 BD-rate points against 20. Going to 30 moves the median -0.16."></figure>
@@ -501,35 +495,37 @@ I swept yah265's lookahead on a few cells instead of inheriting x265's depth. ya
 
 </details>
 
-`medium` uses 20 from 720p up. An earlier sweep on the development clips, from 8 to 40 frames, also put the knee at 20. Past the knee a deeper window costs more time than it buys.
+`medium` uses 20 from 720p up. An earlier sweep on the development clips, from 8 to 40 frames, also found that a window deeper than 20 costs more time than it gains.
 
 ## Content types
 
-Tier C is the content that codecs tend to handle unevenly: a scan of a 1924 film with heavy grain, four sports clips and three screen recordings. It ran on the Mac. x265 ran its `medium` defaults on every clip, with no `--tune`. yah265's `medium` detects screen content and handheld footage by itself. Those two detectors were built on clips in this tier.
+Tier C is the content that codecs tend to handle unevenly: a scan of a 1924 film with heavy grain, four sports clips and three screen recordings. The tier ran on the Mac, where x265 ran its `medium` defaults on every clip with no `--tune`. yah265's `medium` detects screen content and handheld footage by itself. Those two detectors were built on clips in this tier.
 
 <!--gen:fig-tierc-->
 <figure class="chart"><img src="assets/charts/results/tierc.svg" alt="All 15 content-type curves with a BD-rate need fewer bits than x265."></figure>
 <!--/gen:fig-tierc-->
 
+The VMAF v1 lead in the table is read at the same file size.
+
 <!--gen:tier-c-->
-| clip | content | x265 settings | VMAF v1 lead at the same size | CRF BD-rate | VBR BD-rate | VBR rate against target | G3 speed |
-|---|---|---|--:|--:|--:|--:|--:|
-| Lash of the Whip 720p | film grain | `medium` defaults, no `--tune` | +2.55 | -27.1% | -26.0% | -0.7% to -0.3% | 2.13x |
-| Lash of the Whip 1080p | film grain | `medium` defaults, no `--tune` | +2.92 | -31.9% | -31.4% | -0.6% to -0.3% | 1.85x |
-| World Cup 1080p | sports | `medium` defaults, no `--tune` | +0.52 | -6.2% | -7.8% | -1.2% to -0.9% | 1.92x |
-| World Cup, far camera 1080p | sports | `medium` defaults, no `--tune` | +0.14 | -2.2% | -3.9% | -1.5% to +0.6% | 1.89x (earlier binary) |
-| Skater 1080p | sports | `medium` defaults, no `--tune` | +0.60 | -4.3% | -16.8% | +0.4% to +1.0% | 2.00x |
-| boxing 4K | sports | `medium` defaults, no `--tune` | -0.24 | -3.8% | -14.9% | +3.3% to +5.0% | 3.57x |
-| wikipedia 1080p | screen | `medium` defaults, no `--tune` | +3.57 | -63.9% | no shared range, yah265 above | -23.0% to -13.4% | 1.89x (earlier binary) |
-| debugging 1080p | screen | `medium` defaults, no `--tune` | +2.53 | -25.1% | no shared range, yah265 above | -11.2% to +0.3% | 1.96x (earlier binary) |
-| spreadsheet 1080p | screen | `medium` defaults, no `--tune` | +3.15 | -53.9% | no shared range, yah265 above | -26.8% to -22.7% | 1.89x (earlier binary) |
+| clip | content | VMAF v1 lead | CRF BD-rate | VBR BD-rate | yah265 VBR rate against target | G3 speed |
+|---|---|--:|--:|--:|--:|--:|
+| Lash of the Whip 720p | film grain | +2.55 | -27.1% | -26.0% | -0.7% to -0.3% | 2.13x |
+| Lash of the Whip 1080p | film grain | +2.92 | -31.9% | -31.4% | -0.6% to -0.3% | 1.85x |
+| World Cup 1080p | sports | +0.52 | -6.2% | -7.8% | -1.2% to -0.9% | 1.92x |
+| World Cup, far camera 1080p | sports | +0.14 | -2.2% | -3.9% | -1.5% to +0.6% | 1.89x \* |
+| Skater 1080p | sports | +0.60 | -4.3% | -16.8% | +0.4% to +1.0% | 2.00x |
+| boxing 4K | sports | -0.24 | -3.8% | -14.9% | +3.3% to +5.0% | 3.57x |
+| wikipedia 1080p | screen | +3.57 | -63.9% | no shared range | -23.0% to -13.4% | 1.89x \* |
+| debugging 1080p | screen | +2.53 | -25.1% | no shared range | -11.2% to +0.3% | 1.96x \* |
+| spreadsheet 1080p | screen | +3.15 | -53.9% | no shared range | -26.8% to -22.7% | 1.89x \* |
 <!--/gen:tier-c-->
 
 All nine clips pass on quality. On the three screen recordings yah265's lowest VBR rung scores above x265's highest at a lower bitrate. No BD-rate can be computed there because the two curves share no score range.
 
 Both encoders undershoot their VBR targets on the screen recordings, where the still frames between changes cost almost nothing. Because the ±10% tracking bar applies to the real titles, that column is here for information.
 
-Four G3 speeds are marked "earlier binary". They were timed before the changes that fixed screen content and handheld sports footage. Tier C speed counts toward neither the verdict nor the headline.
+Four G3 speeds have an asterisk. They were timed before yah265's `medium` gained its screen-content and handheld detectors. Tier C speed counts toward neither the verdict nor the headline.
 
 ## HDR
 

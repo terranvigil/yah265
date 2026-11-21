@@ -1,21 +1,184 @@
 ---
 title: Threading - yah265
-description: How yah265 spreads an encode over many cores, what a row of blocks waits for and which outputs are promised to repeat.
+description: How yah265 spreads an encode over many cores, what a row of blocks waits for and which outputs repeat from run to run.
 ---
 
 # Threading
 
-yah265 uses every core by default. This page explains how the work is divided and what limits it. It also says exactly what the threading promises about the output. [Design](design.md#the-pipeline) has the pipeline this page takes apart.
+yah265 uses every core by default. This page explains how the work is divided, what limits it and which outputs repeat from run to run. [Design](design.md#the-pipeline) has the pipeline this page takes apart.
 
-## One pool, rows as work
+## Rows are the unit of work
 
 One shared pool of worker threads runs the whole encode. `--threads` sets its size. The default is one worker per CPU.
 
 The unit of work is a row of coding tree units. A frame becomes three tasks per row: encode the row, deblock it, then run SAO and publish the finished row for other frames to predict from. One more task per frame does the entropy coding. It writes the bits from the decisions the rows recorded.
 
-The stream stays simple because the entropy coder is kept out of the rows. HEVC has optional tools that make a stream easier to code in parallel, at a cost in bitrate. yah265 uses none of them. It writes one slice per picture. Because the entropy passes of different frames don't depend on each other, they run in parallel as ordinary pool work.
+Keeping the entropy coder out of the rows keeps the stream simple. HEVC has optional tools that make a stream easier to code in parallel, at a cost in bitrate. yah265 writes one slice per picture with none of them. Because the entropy passes of different frames don't depend on each other, they run in parallel as ordinary pool work.
 
 Inside a frame, a block needs its left, upper and upper-right neighbors to be finished. Each row therefore trails the row above it by two coding tree units.
+
+<figure class="diagram">
+<svg class="d-wide" viewBox="0 0 720 226" role="img" aria-labelledby="thr-wave-w-t thr-wave-w-d">
+<title id="thr-wave-w-t">Rows of one frame coded at the same time, each two units behind the row above</title>
+<desc id="thr-wave-w-d">One frame drawn as a grid of coding tree units, five rows deep. Every row is partly coded and has one unit being coded now. Each row's unit is two columns to the left of the one in the row above. The coded area is a staircase. For the unit being coded in the third row, three finished units are marked with a dashed outline: the one to its left, the one above it and the one above and to its right.</desc>
+<rect class="d-fill" x="20" y="24" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="52" y="24" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="84" y="24" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="116" y="24" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="148" y="24" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="180" y="24" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="212" y="24" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="244" y="24" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="276" y="24" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="308" y="24" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="340" y="24" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="372" y="24" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="404" y="24" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="20" y="56" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="52" y="56" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="84" y="56" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="116" y="56" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="148" y="56" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="180" y="56" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="212" y="56" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="244" y="56" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="276" y="56" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="308" y="56" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="340" y="56" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="372" y="56" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="404" y="56" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="20" y="88" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="52" y="88" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="84" y="88" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="116" y="88" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="148" y="88" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="180" y="88" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="212" y="88" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="244" y="88" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="276" y="88" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="308" y="88" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="340" y="88" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="372" y="88" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="404" y="88" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="20" y="120" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="52" y="120" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="84" y="120" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="116" y="120" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="148" y="120" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="180" y="120" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="212" y="120" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="244" y="120" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="276" y="120" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="308" y="120" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="340" y="120" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="372" y="120" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="404" y="120" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="20" y="152" width="32" height="32" rx="0"/>
+<rect class="d-fill" x="52" y="152" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="84" y="152" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="116" y="152" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="148" y="152" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="180" y="152" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="212" y="152" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="244" y="152" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="276" y="152" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="308" y="152" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="340" y="152" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="372" y="152" width="32" height="32" rx="0"/>
+<rect class="d-muted" x="404" y="152" width="32" height="32" rx="0"/>
+<rect class="d-accent" x="340" y="24" width="32" height="32" rx="0"/>
+<rect class="d-accent" x="276" y="56" width="32" height="32" rx="0"/>
+<rect class="d-accent" x="212" y="88" width="32" height="32" rx="0"/>
+<rect class="d-accent" x="148" y="120" width="32" height="32" rx="0"/>
+<rect class="d-accent" x="84" y="152" width="32" height="32" rx="0"/>
+<rect class="d-dash d-accent" x="184" y="92" width="24" height="24" rx="0"/>
+<rect class="d-dash d-accent" x="216" y="60" width="24" height="24" rx="0"/>
+<rect class="d-dash d-accent" x="248" y="60" width="24" height="24" rx="0"/>
+<rect class="d-fill" x="468" y="34" width="18" height="18" rx="0"/>
+<text class="d-label" x="496" y="48">finished</text>
+<rect class="d-accent" x="468" y="68" width="18" height="18" rx="0"/>
+<text class="d-label" x="496" y="82">being coded, one in each row</text>
+<rect class="d-dash d-accent" x="468" y="102" width="18" height="18" rx="0"/>
+<text class="d-label" x="496" y="116">what the third row's block</text>
+<text class="d-label" x="496" y="134">needs: left, upper, upper-right</text>
+<rect class="d-muted" x="468" y="154" width="18" height="18" rx="0"/>
+<text class="d-label" x="496" y="168">waiting</text>
+<text class="d-label" x="228" y="212" text-anchor="middle">each row runs two coding tree units behind the row above</text>
+</svg>
+<svg class="d-narrow" viewBox="0 0 360 330" role="img" aria-labelledby="thr-wave-n-t thr-wave-n-d">
+<title id="thr-wave-n-t">Rows of one frame coded at the same time, each two units behind the row above</title>
+<desc id="thr-wave-n-d">One frame drawn as a grid of coding tree units, five rows deep. Every row is partly coded and has one unit being coded now. Each row's unit is two columns to the left of the one in the row above. The coded area is a staircase. For the unit being coded in the third row, three finished units are marked with a dashed outline: the one to its left, the one above it and the one above and to its right.</desc>
+<rect class="d-fill" x="10" y="10" width="34" height="34" rx="0"/>
+<rect class="d-fill" x="44" y="10" width="34" height="34" rx="0"/>
+<rect class="d-fill" x="78" y="10" width="34" height="34" rx="0"/>
+<rect class="d-fill" x="112" y="10" width="34" height="34" rx="0"/>
+<rect class="d-fill" x="146" y="10" width="34" height="34" rx="0"/>
+<rect class="d-fill" x="180" y="10" width="34" height="34" rx="0"/>
+<rect class="d-fill" x="214" y="10" width="34" height="34" rx="0"/>
+<rect class="d-fill" x="248" y="10" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="282" y="10" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="316" y="10" width="34" height="34" rx="0"/>
+<rect class="d-fill" x="10" y="44" width="34" height="34" rx="0"/>
+<rect class="d-fill" x="44" y="44" width="34" height="34" rx="0"/>
+<rect class="d-fill" x="78" y="44" width="34" height="34" rx="0"/>
+<rect class="d-fill" x="112" y="44" width="34" height="34" rx="0"/>
+<rect class="d-fill" x="146" y="44" width="34" height="34" rx="0"/>
+<rect class="d-fill" x="180" y="44" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="214" y="44" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="248" y="44" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="282" y="44" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="316" y="44" width="34" height="34" rx="0"/>
+<rect class="d-fill" x="10" y="78" width="34" height="34" rx="0"/>
+<rect class="d-fill" x="44" y="78" width="34" height="34" rx="0"/>
+<rect class="d-fill" x="78" y="78" width="34" height="34" rx="0"/>
+<rect class="d-fill" x="112" y="78" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="146" y="78" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="180" y="78" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="214" y="78" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="248" y="78" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="282" y="78" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="316" y="78" width="34" height="34" rx="0"/>
+<rect class="d-fill" x="10" y="112" width="34" height="34" rx="0"/>
+<rect class="d-fill" x="44" y="112" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="78" y="112" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="112" y="112" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="146" y="112" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="180" y="112" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="214" y="112" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="248" y="112" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="282" y="112" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="316" y="112" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="10" y="146" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="44" y="146" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="78" y="146" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="112" y="146" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="146" y="146" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="180" y="146" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="214" y="146" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="248" y="146" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="282" y="146" width="34" height="34" rx="0"/>
+<rect class="d-muted" x="316" y="146" width="34" height="34" rx="0"/>
+<rect class="d-accent" x="282" y="10" width="34" height="34" rx="0"/>
+<rect class="d-accent" x="214" y="44" width="34" height="34" rx="0"/>
+<rect class="d-accent" x="146" y="78" width="34" height="34" rx="0"/>
+<rect class="d-accent" x="78" y="112" width="34" height="34" rx="0"/>
+<rect class="d-accent" x="10" y="146" width="34" height="34" rx="0"/>
+<rect class="d-dash d-accent" x="116" y="82" width="26" height="26" rx="0"/>
+<rect class="d-dash d-accent" x="150" y="48" width="26" height="26" rx="0"/>
+<rect class="d-dash d-accent" x="184" y="48" width="26" height="26" rx="0"/>
+<text class="d-label" x="180" y="204" text-anchor="middle">each row runs two coding tree units</text>
+<text class="d-label" x="180" y="222" text-anchor="middle">behind the row above</text>
+<rect class="d-fill" x="10" y="244" width="16" height="16" rx="0"/>
+<text class="d-label" x="34" y="257">finished</text>
+<rect class="d-muted" x="180" y="244" width="16" height="16" rx="0"/>
+<text class="d-label" x="204" y="257">waiting</text>
+<rect class="d-accent" x="10" y="272" width="16" height="16" rx="0"/>
+<text class="d-label" x="34" y="285">being coded, one in each row</text>
+<rect class="d-dash d-accent" x="10" y="300" width="16" height="16" rx="0"/>
+<text class="d-label" x="34" y="313">what the third row's block needs</text>
+</svg>
+<figcaption>Because a block reads the finished blocks to its left, above it and above to its right, the rows advance as a staircase.</figcaption>
+</figure>
 
 ## What a row waits for
 
@@ -128,7 +291,7 @@ A row in a P or B frame predicts from other frames. It can start as soon as each
 
 The start rule is only a good guess. Whenever a block is about to touch a reference picture, the encoder checks that the rows it will read are published. If they aren't, the block waits while its worker picks up work from an older frame. Waits always point at older frames. Because the oldest frame never waits on another, the pool can't lock up.
 
-I chose waiting over clamping. Another way to make frames overlap is to forbid motion vectors that point too far down the reference. That changes what the encoder can choose. Here a vector may point anywhere the standard allows.
+Forbidding motion vectors that point too far down the reference is another way to make frames overlap. Because that narrows what the encoder can choose, I chose waiting instead. A vector may point anywhere the standard allows.
 
 ## Frames in flight
 
@@ -217,7 +380,7 @@ One frame can't keep a large pool busy, because only so many of its rows can run
 <figcaption>A sketch of the schedule on a 64x64 tree, drawn to show the order. The bar lengths aren't measured.</figcaption>
 </figure>
 
-Two rules keep a deep queue moving. Frames that others predict from get workers first, since later frames are waiting on their rows. On wide pictures a row gives up its worker when it finds the row above too close. It resumes later.
+Two rules keep a deep queue moving. Frames that others predict from get workers first, since later frames are waiting on their rows. On wide pictures a row gives up its worker when it finds the row above too close.
 
 More frames in flight need more memory, because each one holds its own pictures.
 
@@ -225,7 +388,7 @@ More frames in flight need more memory, because each one holds its own pictures.
 
 One thread, the driver, prepares each frame before the pool can start on it. It feeds the lookahead, classifies flat and dark areas, builds the adaptive quantization field, analyzes weighted prediction and runs the propagation step that decides where later frames will look.
 
-All of that scales with the picture. At 4K the driver alone was slower than the pool. Workers sat idle while they waited for the next frame.
+All of that scales with the picture. At 4K a driver that did all of it alone would be slower than the pool. Workers would sit idle while they waited for the next frame. Above one thread the driver therefore cuts each of those steps into items that any free worker can take.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 272" role="img" aria-label="The driver's per-frame analysis, alone and split over the pool">
@@ -344,17 +507,17 @@ All of that scales with the picture. At 4K the driver alone was slower than the 
 <figcaption>The split changes when the analysis finishes. Because every sum is still added up in its old order, the results are the same numbers.</figcaption>
 </figure>
 
-Above one thread the driver now cuts each of those steps into items that any free worker can take. The split isn't always a win. Because the hand-off cost more than it saved on small pictures, each step keeps a running time for both forms so that it can use the faster one.
+The split isn't always a win. Because the hand-off costs more than it saves on small pictures, each step keeps a running time for both forms so that it can use the faster one.
 
 ## Input
 
-Reading the source is work too. Above one thread a separate thread reads frames ahead into a small buffer. A slow disk or a slow decoder upstream then doesn't add its time to every frame. At `--threads 1` the read stays inline.
+Reading the source is work too. Above one thread a separate thread reads frames ahead into a small buffer so that a slow disk or a slow decoder upstream doesn't add its time to every frame. At `--threads 1` the read stays inline.
 
 ## What stays identical
 
-At `--threads 1`, two runs of the same command write the same bytes. That's a promise. Every change has to pass a check of it before it merges.
+At `--threads 1`, two runs of the same command are promised to write the same bytes. Every change has to pass a check of it before it merges.
 
-Above one thread, identical output is checked and reported. It isn't promised. The design aims for it all the same. A task reads only values that are fixed by the input and the settings. The schedule decides when a task runs, never what it reads. Every round of checks compares streams across thread counts and across repeated runs. A mismatch is recorded as a warning with its cause.
+Above one thread, identical output is checked and reported. The design aims for it. A task reads only values that are fixed by the input and the settings. The schedule decides when a task runs, never what it reads. Every round of checks compares streams across thread counts and across repeated runs. A mismatch is recorded as a warning with its cause.
 
 Capped VBR is different by design. Above one thread its stream differs from the one-thread stream, for the reason in the next section.
 
@@ -362,15 +525,15 @@ Capped VBR is different by design. Above one thread its stream differs from the 
 
 Rate decisions are made in coding order on the driver, one frame at a time, before a frame enters the pool. The per-block offsets are fixed at that point too.
 
-Fixed QP and CRF need nothing from earlier frames. Their frames overlap freely. A mode that targets a bitrate wants to know how many bits the earlier frames really took. Plain ABR waits for them. Because its frames run one after another, only the rows inside a frame run in parallel.
+Because fixed QP and CRF need nothing from earlier frames, their frames overlap freely. A mode that targets a bitrate wants to know how many bits the earlier frames really took. Plain ABR waits for them. Because its frames run one after another, only the rows inside a frame run in parallel.
 
-Capped VBR doesn't wait. Above one thread it plans each frame from the actual sizes of frames up to eight back and from the planned sizes of the ones still in flight. Its speed is kept that way, at the price of a stream that differs from the one-thread stream. A buffer shorter than 1.2 seconds of maxrate is the exception. Because frames in flight overdrew buffers that shallow, the encoder waits there at every thread count. What it writes is the one-thread stream.
+Capped VBR doesn't wait. Above one thread it plans each frame from the actual sizes of frames up to eight back and from the planned sizes of the ones still in flight. Its speed is kept that way, at the price of a stream that differs from the one-thread stream. A buffer shorter than 1.2 seconds of maxrate is the exception. Because frames in flight would overdraw a buffer that shallow, the encoder waits there at every thread count and writes the one-thread stream.
 
 ## Segment-parallel encoding
 
 `--gop-parallel <n>` is a different way to use cores. It cuts a long input at key frame periods. Several encoder instances share the threads to code the segments at once. The segments are joined at IDR pictures into one stream.
 
-It's off by default. The joined stream differs from the serial one. It has no buffer timing messages. It can't be combined with two-pass, zones or a QP file, among others that `--help` lists.
+It's off by default. The joined stream differs from the serial one and has no buffer timing messages. The option can't be combined with two-pass, zones or a QP file, among others that `--help` lists.
 
 ## Setting it yourself
 
@@ -382,11 +545,9 @@ It's off by default. The joined stream differs from the serial one. It has no bu
 | `N265_READAHEAD_MB=0` | turn off the reader thread |
 | `N265_DRV_PAR=0` | keep the driver's analysis on the driver |
 
-The two environment settings move no bit of the output. They exist for timing one schedule against the other. The [encoding guide](guide.md#threads-and-memory) has the advice on which to use.
+The two environment settings move no bit of the output. They exist for timing one schedule against the other. The [encoding guide](guide.md#long-inputs-and-many-cores) has the advice on which to use.
 
-## Limits
-
-The driver still paces a 4K encode on a machine with many cores. Part of its work is a chain in which each frame's analysis reads the previous frame's result. That part stays serial.
+## Scaling with cores
 
 The chart shows how much each encoder gains from the Mac's cores. It compares the same short clips in plain C on one thread and on all cores.
 
@@ -404,6 +565,6 @@ The chart shows how much each encoder gains from the Mac's cores. It compares th
 | 4K | 5.8x | 8.4x | 1 |
 <!--/gen:threads-table-->
 
-Up to 1080p yah265 gains more from the cores than x265 does. At 4K it gains less. These rows were timed before the driver's analysis was split over the pool.
+Up to 1080p yah265 gains more from the cores than x265 does. At 4K it gains less. On a machine with many cores the driver sets the pace of a 4K encode, because part of its work is a chain in which each frame's analysis reads the previous frame's result. These rows were timed before the driver's analysis was split over the pool.
 
 [Results](results.md#speed) has the wall-time comparisons with x265 at one thread and on all cores.

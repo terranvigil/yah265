@@ -17,7 +17,7 @@ x265 4.3 at `--preset medium`, as Homebrew ships it on the Mac. The cloud machin
 
 ## Is the headline cherry-picked?
 
-It covers every CRF cell in the test set that was timed on the Mac as shipped, provided its two files match in size within 1%. Capped VBR and the content-type clips are reported in their own tables, because they don't share a file size. A cell that breaks a validity rule is marked in the report. It stays out of every statistic, whichever way it points. The reports also hold rows for two titles that aren't in the set. Every figure on this site leaves them out. [The methodology](methodology.md#what-makes-a-number-valid) has the rules.
+No. It covers every CRF cell in the test set that was timed on the Mac as shipped, provided its two files match in size within 1%. Capped VBR has its own tables because its files share a target bitrate where the headline cells share a size. The content-type clips are timed in their own table beside their quality. A cell that breaks a validity rule is marked in the report and stays out of every statistic, whichever way it points. Every figure on this site also leaves out the reports' rows for two titles that aren't in the set. [The methodology](methodology.md#what-makes-a-number-valid) has the rules.
 
 ## You tuned for the metric you score with.
 
@@ -29,7 +29,7 @@ Yes. The test set has no held-out content, because the clips I developed on were
 
 ## Does the lead hold beyond medium?
 
-I only claim `medium` against `medium`, the preset most people run. Every speed and quality result on this site compares those two. The [guide](guide.md#presets) explains why yah265 keeps four presets.
+I only claim `medium` against `medium`, the preset most people run. Every speed and quality result on this site compares those two. The [guide](guide.md#pick-a-preset) explains why yah265 keeps four presets.
 
 ## Why time x265 without its assembly?
 
@@ -41,7 +41,7 @@ Neither encoder gets a `--tune`. yah265's `medium` detects screen recordings and
 
 ## Is it only fast on a Mac?
 
-The headline is the Mac's. yah265 also leads on an Intel Xeon and on an AWS Graviton4, where the same test set ran. On the Xeon I also held both encoders to AVX2, then to SSE4.2. [Results](results.md#by-machine) has each machine's table.
+No. The headline is the Mac's. yah265 also leads on an Intel Xeon and on an AWS Graviton4, where the same test set ran. On the Xeon I also held both encoders to AVX2, then to SSE4.2. [Results](results.md#by-machine) has each machine's table.
 
 ## Does the average hide bad frames?
 
@@ -49,7 +49,7 @@ It can. [Results](results.md#the-worst-frames) shows one clip frame by frame for
 
 ## Is the VMAF setup standard?
 
-The scorer is Netflix's libvmaf with the `vmaf_v1.0.16` models. A picture smaller than 1080p is scaled up to display size before scoring, as Netflix's guidance for that model says. The CIF rows depend on that rule. [The methodology](methodology.md#scoring-quality) names the commit, the models and the frame stride.
+The scorer is Netflix's libvmaf with the `vmaf_v1.0.16` models. A picture smaller than 1080p is scaled up to display size before scoring, as Netflix's guidance for that model says. [The methodology](methodology.md#scoring-quality) names the commit, the models and the frame stride.
 
 ## How do I check a number?
 

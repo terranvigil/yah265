@@ -548,7 +548,7 @@ def values(D):
     V = {}
     L, R, C = "---", "--:", "---"
 
-    V["fig-frames"] = B.frames_figure(3, B.FRAMES_ALL)
+    V["fig-frames"] = B.frames_figure(B.RESULTS_PICKS, B.FRAMES_ALL)
 
     # the verdict
     combos = [(m, k) for m in MACHINES for k in sps[m]]
@@ -693,14 +693,13 @@ def values(D):
                           for _, lab, m, v in D["sweep"]])
 
     # tier C
-    V["tier-c"] = mdt(["clip", "content", "x265 settings", "VMAF v1 lead at the same size",
-                       "CRF BD-rate", "VBR BD-rate", "VBR rate against target", "G3 speed"],
-                      [L, L, L, R, R, R, R, R],
-                      [[nice(*split_cell(r[0])), r[1], "`medium` defaults, no `--tune`",
-                        r[2].split("/")[0].strip(),
-                        pct(crf), "no shared range, yah265 above" if vbr is None else pct(vbr),
+    V["tier-c"] = mdt(["clip", "content", "VMAF v1 lead", "CRF BD-rate", "VBR BD-rate",
+                       "yah265 VBR rate against target", "G3 speed"],
+                      [L, L, R, R, R, R, R],
+                      [[nice(*split_cell(r[0])), r[1], r[2].split("/")[0].strip(),
+                        pct(crf), "no shared range" if vbr is None else pct(vbr),
                         rng(D["ctr"][r[0]]), f"{tf(float(r[5].split()[0])):.2f}x"
-                        + (" (earlier binary)" if "(" in r[5] else "")]
+                        + (" \\*" if "(" in r[5] else "")]
                        for r, (_, _, crf, vbr) in zip(tc, D["tc"])])
 
     # figures

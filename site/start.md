@@ -147,13 +147,19 @@ That's the command you'd give x265 with one word changed. `out.mp4` plays in any
 <figcaption>Everything else on the command line stays as it was.</figcaption>
 </figure>
 
-Pass a rate option, such as `-crf` or `-b:v`. With none, the encoder codes every frame at one fixed quantizer, which is meant for testing. For streaming I'd use capped CRF: `-crf` with `-maxrate` and `-bufsize`. The encoding guide covers [every rate mode](guide.md#rate-modes) and the [ffmpeg options the encoder takes](guide.md#from-ffmpeg).
+Always pass a rate option. With none, the encoder codes every frame at one fixed quantizer, which is meant for testing. For streaming I'd use capped CRF, which adds a peak rate and a buffer to the CRF command:
+
+```sh
+ffmpeg -i in.mp4 -c:v libyah265 -preset medium -crf 25 -maxrate 4500k -bufsize 6000k out.mp4
+```
+
+The encoding guide covers [every rate mode](guide.md#pick-a-rate-mode) and the [ffmpeg options the encoder takes](guide.md#from-ffmpeg).
 
 ## Pick a quality
 
 `-crf` sets the quality. The file size then follows the content. A lower number gives a better picture and a bigger file. I'd start at 25, then move by two or three at a time until the picture is good enough.
 
-The CRF scale is yah265's own. A number that suited x265 won't give the same file size here. [Coming from x265](from-x265.md) has a translation table. It also maps x265's options onto `y265`'s. When you need a size or a bitrate instead, the guide's [rate modes](guide.md#rate-modes) cover it.
+The CRF scale is yah265's own. A number that suited x265 won't give the same file size here. [Coming from x265](from-x265.md) has a translation table. It also maps x265's options onto `y265`'s. When you need a size or a bitrate instead, the guide's [rate modes](guide.md#pick-a-rate-mode) cover it.
 
 ## Build y265 on its own
 

@@ -5,30 +5,243 @@ description: How yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8, ho
 
 # HDR
 
-yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8 as Main10 HEVC. The color flags and metadata tell a player what the pictures are. At `--preset medium` the transfer function also changes how the pictures are coded, as [Tuning for HDR](#tuning-for-hdr) describes.
+yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8 as Main 10 HEVC. Each one is a 10-bit stream with color flags that say how to read the samples. Most add metadata that tells a display how the pictures were graded. At `--preset medium` the transfer function also changes how the pictures are coded, as [Tuning for HDR](#tuning-for-hdr) describes.
 
-| format | in the stream | options |
+## What each format is made of
+
+| format | base stream | added to it |
 |---|---|---|
-| HDR10 | PQ, BT.2020, mastering display (ST 2086), light level | the HDR10 command below |
-| HDR10+ | HDR10 + ST 2094-40 per picture | HDR10's, plus `--dhdr10-info <json>` |
-| HLG | HLG transfer | `--transfer arib-std-b67` |
-| HLG, SDR-compatible | BT.2020 + an HLG hint for SDR decoders | `--transfer bt2020-10 --atc-sei arib-std-b67` |
-| Dolby Vision 8.1 | HDR10 + RPU per picture | HDR10's, plus the Dolby Vision options with `8.1` |
-| Dolby Vision 8.2 | SDR BT.709 + RPU per picture | `--transfer bt709 --colorprim bt709 --colormatrix bt709`, plus the Dolby Vision options with `8.2` |
-| Dolby Vision 8.4 | HLG + RPU per picture | HLG's, plus the Dolby Vision options with `8.4` |
+| HDR10 | PQ transfer, BT.2020 primaries and matrix | mastering display (ST 2086), MaxCLL and MaxFALL |
+| HDR10+ | HDR10 | an ST 2094-40 message with every picture |
+| HLG | HLG transfer, BT.2020 primaries and matrix | nothing |
+| Dolby Vision 8.1 | HDR10 | an RPU with every picture |
+| Dolby Vision 8.2 | SDR BT.709, coded 10-bit | an RPU with every picture |
+| Dolby Vision 8.4 | HLG | an RPU with every picture |
 
-HDR10:
-
-```sh
---transfer smpte2084 --colorprim bt2020 --colormatrix bt2020nc \
-  --master-display ... --max-cll ...
-```
-
-Dolby Vision adds `--dolby-vision-rpu <file> --dolby-vision-profile <8.1|8.2|8.4>`.
-
-`--video-signal-type-preset BT2100_PQ_YCC:P3D65x1000n0005` sets HDR10's color flags and a 1000-nit P3 mastering display in one go.
+<figure class="diagram">
+<svg class="d-wide" viewBox="0 0 720 240" role="img" aria-labelledby="hdr-lay-t hdr-lay-d">
+<title id="hdr-lay-t">Which HDR format is built on which base stream</title>
+<desc id="hdr-lay-d">The three base streams are HDR10, HLG and SDR BT.709, drawn in a row. HDR10+ and Dolby Vision 8.1 each add per-picture metadata to HDR10. Dolby Vision 8.4 adds it to HLG. Dolby Vision 8.2 adds it to SDR BT.709.</desc>
+<text class="d-label" x="20" y="22">Metadata with every picture</text>
+<rect class="d-box" x="20" y="36" width="140" height="52" rx="6"/>
+<text class="d-text" x="90" y="58" text-anchor="middle">HDR10+</text>
+<text class="d-label" x="90" y="77" text-anchor="middle">ST 2094-40</text>
+<rect class="d-box" x="180" y="36" width="140" height="52" rx="6"/>
+<text class="d-text" x="250" y="58" text-anchor="middle">Dolby Vision 8.1</text>
+<text class="d-label" x="250" y="77" text-anchor="middle">RPU</text>
+<rect class="d-box" x="350" y="36" width="160" height="52" rx="6"/>
+<text class="d-text" x="430" y="58" text-anchor="middle">Dolby Vision 8.4</text>
+<text class="d-label" x="430" y="77" text-anchor="middle">RPU</text>
+<rect class="d-box" x="540" y="36" width="160" height="52" rx="6"/>
+<text class="d-text" x="620" y="58" text-anchor="middle">Dolby Vision 8.2</text>
+<text class="d-label" x="620" y="77" text-anchor="middle">RPU</text>
+<line class="d-arrow" x1="90" y1="90" x2="90" y2="140"/>
+<line class="d-arrow" x1="250" y1="90" x2="250" y2="140"/>
+<line class="d-arrow" x1="430" y1="90" x2="430" y2="140"/>
+<line class="d-arrow" x1="620" y1="90" x2="620" y2="140"/>
+<rect class="d-fill" x="20" y="142" width="300" height="56" rx="6"/>
+<text class="d-text" x="170" y="166" text-anchor="middle">HDR10</text>
+<text class="d-label" x="170" y="186" text-anchor="middle">PQ, BT.2020, static metadata</text>
+<rect class="d-fill" x="350" y="142" width="160" height="56" rx="6"/>
+<text class="d-text" x="430" y="166" text-anchor="middle">HLG</text>
+<text class="d-label" x="430" y="186" text-anchor="middle">HLG, BT.2020</text>
+<rect class="d-fill" x="540" y="142" width="160" height="56" rx="6"/>
+<text class="d-text" x="620" y="166" text-anchor="middle">SDR</text>
+<text class="d-label" x="620" y="186" text-anchor="middle">BT.709</text>
+<text class="d-label" x="20" y="226">Base streams</text>
+</svg>
+<svg class="d-narrow" viewBox="0 0 360 452" role="img" aria-labelledby="hdr-lay-t-n hdr-lay-d-n">
+<title id="hdr-lay-t-n">Which HDR format is built on which base stream</title>
+<desc id="hdr-lay-d-n">The three base streams are HDR10, HLG and SDR BT.709, drawn one under another. HDR10+ and Dolby Vision 8.1 each add per-picture metadata to HDR10. Dolby Vision 8.4 adds it to HLG. Dolby Vision 8.2 adds it to SDR BT.709.</desc>
+<rect class="d-box" x="10" y="8" width="164" height="46" rx="6"/>
+<text class="d-text" x="92" y="28" text-anchor="middle">HDR10+</text>
+<text class="d-label" x="92" y="45" text-anchor="middle">ST 2094-40</text>
+<rect class="d-box" x="186" y="8" width="164" height="46" rx="6"/>
+<text class="d-text" x="268" y="28" text-anchor="middle">Dolby Vision 8.1</text>
+<text class="d-label" x="268" y="45" text-anchor="middle">RPU</text>
+<line class="d-arrow" x1="92" y1="56" x2="92" y2="80"/>
+<line class="d-arrow" x1="268" y1="56" x2="268" y2="80"/>
+<rect class="d-fill" x="10" y="82" width="340" height="46" rx="6"/>
+<text class="d-text" x="180" y="102" text-anchor="middle">HDR10</text>
+<text class="d-label" x="180" y="119" text-anchor="middle">PQ, BT.2020, static metadata</text>
+<rect class="d-box" x="10" y="160" width="340" height="46" rx="6"/>
+<text class="d-text" x="180" y="180" text-anchor="middle">Dolby Vision 8.4</text>
+<text class="d-label" x="180" y="197" text-anchor="middle">RPU</text>
+<line class="d-arrow" x1="180" y1="208" x2="180" y2="232"/>
+<rect class="d-fill" x="10" y="234" width="340" height="46" rx="6"/>
+<text class="d-text" x="180" y="254" text-anchor="middle">HLG</text>
+<text class="d-label" x="180" y="271" text-anchor="middle">HLG, BT.2020</text>
+<rect class="d-box" x="10" y="312" width="340" height="46" rx="6"/>
+<text class="d-text" x="180" y="332" text-anchor="middle">Dolby Vision 8.2</text>
+<text class="d-label" x="180" y="349" text-anchor="middle">RPU</text>
+<line class="d-arrow" x1="180" y1="360" x2="180" y2="384"/>
+<rect class="d-fill" x="10" y="386" width="340" height="46" rx="6"/>
+<text class="d-text" x="180" y="406" text-anchor="middle">SDR</text>
+<text class="d-label" x="180" y="423" text-anchor="middle">BT.709</text>
+</svg>
+<figcaption>A player that doesn't know the per-picture metadata plays the base stream under it.</figcaption>
+</figure>
 
 Dolby Vision profile 5 isn't offered. Its base layer is in Dolby's IPTPQc2 color space. Nothing in this toolchain can produce or check that.
+
+## Encoding HDR10
+
+`y265` reads the master through a pipe from ffmpeg:
+
+```sh
+ffmpeg -i master.mov -pix_fmt yuv420p10le -strict -1 -f yuv4mpegpipe - |
+  y265 - -o out.hevc --crf 22 \
+    --colorprim bt2020 --transfer smpte2084 --colormatrix bt2020nc \
+    --master-display 'G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1)' \
+    --max-cll 1000,400
+```
+
+Because the two metadata values describe the grade, they come from the master. [Reading the values off a source](#reading-the-values-off-a-source) shows how to get them. The string above is a P3 D65 mastering display.
+
+| in the command | what it is | unit |
+|---|---|---|
+| `G(x,y)B(x,y)R(x,y)` | the display's green, blue and red primaries | 0.00002 |
+| `WP(x,y)` | its white point | 0.00002 |
+| `L(max,min)` | its peak and black luminance | 0.0001 cd/m² |
+| `--max-cll <c,f>` | MaxCLL, then MaxFALL | cd/m² |
+
+### One name for the color flags
+
+`--video-signal-type-preset` sets the color flags from one name. A mastering display can follow the name after a colon.
+
+| name | what it sets |
+|---|---|
+| `BT2100_PQ_YCC` | PQ, BT.2020 primaries and matrix, chroma location 2 |
+| `BT2100_PQ_YCC:P3D65x1000n0005` | the same, plus a P3 D65 mastering display from 0.0005 to 1000 cd/m² |
+| `BT2100_PQ_YCC:P3D65x4000n005` | the same, plus a P3 D65 mastering display from 0.005 to 4000 cd/m² |
+| `BT2100_HLG_YCC` | HLG, BT.2020 primaries and matrix, chroma location 2 |
+
+A color flag given beside the name wins over it. Because the name sets no light level, `--max-cll` still goes beside it.
+
+### HDR10 from ffmpeg
+
+```sh
+ffmpeg -i master.mov -pix_fmt yuv420p10le \
+  -vf setparams=color_primaries=bt2020:color_trc=smpte2084:colorspace=bt2020nc \
+  -c:v libyah265 -preset medium -crf 22 \
+  -yah265-params 'master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1):max-cll=1000,400' \
+  -tag:v hvc1 out.mp4
+```
+
+`libyah265` writes the color flags from the tags on the frames ffmpeg hands it. A master that is already tagged PQ and BT.2020 needs no `setparams`. The filter is there for a source with missing tags, because ffmpeg's output flags `-color_primaries` and `-color_trc` didn't reach the encoder in the ffmpeg 8 build we tested.
+
+The mastering display and the light level reach the stream only through `-yah265-params`. ffmpeg by itself copies a source's values into the MP4's `mdcv` and `clli` boxes. A file can therefore show them when the stream inside has none.
+
+HDR10+ and Dolby Vision read metadata files. The parameter list refuses those two options. Encode HDR10+ and Dolby Vision with `y265`.
+
+## Encoding HLG
+
+Because HLG has no static metadata, the two ways to signal it differ only in their color flags.
+
+| signaling | options |
+|---|---|
+| HLG in the color flags | `--transfer arib-std-b67 --colorprim bt2020 --colormatrix bt2020nc` |
+| BT.2020 SDR in the color flags, HLG in an alternative transfer SEI | `--transfer bt2020-10 --colorprim bt2020 --colormatrix bt2020nc --atc-sei arib-std-b67` |
+
+The second form is the backward-compatible signaling that broadcast uses. An older receiver reads only the color flags and shows the picture as BT.2020 SDR. A receiver that knows the SEI treats the stream as HLG.
+
+```sh
+ffmpeg -i master.mov -pix_fmt yuv420p10le -strict -1 -f yuv4mpegpipe - |
+  y265 - -o out.hevc --crf 22 \
+    --transfer bt2020-10 --colorprim bt2020 --colormatrix bt2020nc \
+    --atc-sei arib-std-b67
+```
+
+## Encoding HDR10+ and Dolby Vision 8.1
+
+The command is HDR10's with a metadata file for each format. Either one works alone.
+
+<!-- recipe: skip needs an HDR10+ JSON and a Dolby Vision RPU file -->
+```sh
+ffmpeg -i master.mov -pix_fmt yuv420p10le -strict -1 -f yuv4mpegpipe - |
+  y265 - -o out.hevc --crf 22 \
+    --colorprim bt2020 --transfer smpte2084 --colormatrix bt2020nc \
+    --master-display 'G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1)' \
+    --max-cll 1000,400 \
+    --dhdr10-info meta.json \
+    --dolby-vision-rpu RPU.bin --dolby-vision-profile 8.1
+```
+
+The other two Dolby Vision profiles take the same pair of options over a different base stream. All three want a 10-bit 4:2:0 encode at limited range.
+
+| `--dolby-vision-profile` | color flags of the base stream |
+|---|---|
+| `8.1` | HDR10's |
+| `8.2` | `--transfer bt709 --colorprim bt709 --colormatrix bt709` |
+| `8.4` | either HLG form from the table above |
+
+A raw HEVC stream has nowhere to say "this is Dolby Vision" except the RPUs themselves. A player needs the container to tell it. In MP4 that's the Dolby Vision configuration box, named `dvvC` for profile 8. Matroska has an equivalent. ffmpeg's stream copy from a raw `.hevc` doesn't write that box. A Dolby Vision-aware muxer such as MP4Box or mkvmerge does.
+
+## Reading the values off a source
+
+ffprobe prints the color flags and the static metadata of a file's first frame:
+
+```sh
+ffprobe -v error -select_streams v:0 -read_intervals '%+#1' -show_frames \
+  -show_entries stream=profile,pix_fmt:frame=color_primaries,color_transfer,color_space,chroma_location:frame_side_data \
+  -of default=nw=1 master.mov
+```
+
+On an HDR10 master the side data has a mastering display block and a light level block. ffprobe prints each value as a fraction. When the denominators are 50000 for the chromaticities and 10000 for the luminances, the numerators are the option's values as they stand.
+
+| ffprobe field | goes in |
+|---|---|
+| `green_x`, `green_y` | `G(x,y)` |
+| `blue_x`, `blue_y` | `B(x,y)` |
+| `red_x`, `red_y` | `R(x,y)` |
+| `white_point_x`, `white_point_y` | `WP(x,y)` |
+| `max_luminance`, `min_luminance` | `L(max,min)` |
+| `max_content`, `max_average` | `--max-cll <c,f>` |
+
+## Checking the output
+
+The same ffprobe command on `out.hevc` shows what a player will read. These are the values a correct stream gives:
+
+| field | HDR10 | HLG |
+|---|---|---|
+| `profile` | `Main 10` | `Main 10` |
+| `pix_fmt` | `yuv420p10le` | `yuv420p10le` |
+| `color_primaries` | `bt2020` | `bt2020` |
+| `color_transfer` | `smpte2084` | `arib-std-b67` |
+| `color_space` | `bt2020nc` | `bt2020nc` |
+| HDR side data | mastering display, content light level | none |
+
+Because ffprobe applies the alternative transfer SEI, it reports `arib-std-b67` for both HLG forms. MediaInfo tells them apart. On HDR10 it also names the format on its "HDR format" line and prints the mastering display and light levels in cd/m².
+
+For the dynamic formats, `hdr10plus_tool extract` and `dovi_tool extract-rpu` read the metadata back out of the encode.
+
+## Mistakes to avoid
+
+### 8-bit input
+
+`y265` codes at the depth of its input. HDR10 or HLG flags on an 8-bit input therefore give an 8-bit Main stream labeled HDR. Convert in ffmpeg with `-pix_fmt yuv420p10le`, as the commands above do. HDR10+ and Dolby Vision refuse an 8-bit encode outright.
+
+### Chroma location
+
+BT.2020 and BT.2100 site 4:2:0 chroma top-left. That's `--chromaloc 2`. Set it only when the master's chroma really sits there, because the flag relabels the samples without moving them. The `--video-signal-type-preset` names set it for you.
+
+### Flags that contradict the format
+
+A command line that would mislabel a dynamic format is refused before it writes anything.
+
+| command line | result |
+|---|---|
+| HDR10+ without a 10-bit HDR10 encode under it | refused |
+| a Dolby Vision profile whose color flags don't match | refused |
+| Dolby Vision on an 8-bit, full-range or non-4:2:0 encode | refused |
+| an RPU file without a profile, or a profile without a file | refused |
+| a profile other than 8.1, 8.2 or 8.4 | refused |
+| Dolby Vision without a VBV | warning |
+| Dolby Vision 8.1 without `--master-display` | warning |
+
+The two warnings still encode. A delivery is normally buffer-constrained, although a CRF encode is still valid. Because an 8.1 base layer is a complete HDR10 stream, it should have a mastering display.
+
+## Where the signaling goes in the stream
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 250" role="img" aria-labelledby="hdr-fig-t hdr-fig-d">
@@ -108,32 +321,23 @@ HDR10+ and Dolby Vision describe the content scene by scene. yah265 doesn't meas
 
 Entry *i* of either file goes with frame *i* of the input, whatever order the encoder codes the pictures in. `--seek` skips entries along with frames. `--gop-parallel` gives each segment its own part of the file. If a file runs out before the input does, the encode still writes the stream. It then exits with an error, because pictures without metadata break HDR10+ or Dolby Vision playback from that point. A metadata NAL lost to a failed allocation fails the run the same way. A file with entries left over gets a warning. The usual reason is a `--frames` run over part of a title.
 
-Both readers check what they read. HDR10+ values must fall inside the HDR10+ profiles' ranges. HDR10+ also needs a 10-bit HDR10 encode under it. Every RPU's header must say profile 8. `--dolby-vision-profile` must match the color flags and a 10-bit encode. A command line that would mislabel the stream is refused before it writes anything. Either file can come from a pipe.
-
-Two cases still encode, with a warning. Dolby Vision without a VBV is one, because deliveries are normally buffer-constrained while a CRF encode is still valid. An 8.1 encode without `--master-display` is the other, because an 8.1 base layer is a complete HDR10 stream.
-
-## Encoding HDR10+ and Dolby Vision 8.1
-
-<!-- recipe: skip needs an HDR10+ JSON and a Dolby Vision RPU file -->
-```sh
-ffmpeg -i master.mov -pix_fmt yuv420p10le -strict -1 -f yuv4mpegpipe - |
-  y265 - -o out.hevc --crf 22 \
-    --colorprim bt2020 --transfer smpte2084 --colormatrix bt2020nc \
-    --master-display 'G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1)' \
-    --max-cll 1000,400 \
-    --dhdr10-info meta.json \
-    --dolby-vision-rpu RPU.bin --dolby-vision-profile 8.1
-```
-
-A raw HEVC stream has nowhere to say "this is Dolby Vision" except the RPUs themselves. A player needs the container to tell it, in MP4's `dvcC` box or Matroska's equivalent. ffmpeg's stream copy from a raw `.hevc` doesn't write that box. A Dolby Vision-aware muxer such as MP4Box or mkvmerge does.
+Both readers check what they read. HDR10+ values must fall inside the HDR10+ profiles' ranges. Every RPU's header must say profile 8. Either file can come from a pipe.
 
 ## Tuning for HDR
 
-A stream says PQ with `--transfer smpte2084`. It says HLG with `--transfer arib-std-b67` or `--atc-sei arib-std-b67`. On either one, `medium` codes chroma six quantizer steps finer than luma. It also turns off the extra psy weight it gives dark blocks on SDR. Chroma gets the finer steps because wide-gamut chroma stays in a narrow band around its midpoint. At luma's quantizer it loses far more than SDR chroma does.
+`medium` codes a stream differently once its transfer flag or its alternative transfer SEI names PQ or HLG. The other presets code HDR like SDR.
 
-From 720p up, `medium` on HDR also keeps the full intra mode search that SDR gives up for speed. At 4K it keeps the intra transform split too.
+| picture size | what `medium` does on HDR |
+|---|---|
+| every size | codes chroma six quantizer steps finer than luma, and drops the extra psy weight it gives dark blocks on SDR |
+| 720p and up | keeps the full intra mode search that SDR gives up for speed |
+| 4K | keeps the intra transform split too |
 
-`--hdr-opt` turns the tuning on for a stream that names neither transfer. `--no-hdr-opt` turns it off. `--hdr10-opt` is accepted as another name for yah265's switch. The tuning behind it is yah265's own. A `--cbqpoffs` or `--crqpoffs` you give yourself still wins. The other presets code HDR like SDR.
+Chroma gets the finer steps because wide-gamut chroma stays in a narrow band around its midpoint. At luma's quantizer it loses far more than SDR chroma does.
+
+A switch forces the tuning on for any stream, or off for an HDR one. Chroma offsets you set yourself still win.
+
+<p class="optchips"><span>Options</span> <a href="options.md#opt-hdr-opt"><code>--hdr-opt</code></a> <a href="options.md#opt-hdr10-opt"><code>--hdr10-opt</code></a> <a href="options.md#opt-no-hdr-opt"><code>--no-hdr-opt</code></a> <a href="options.md#opt-cbqpoffs"><code>--cbqpoffs</code></a> <a href="options.md#opt-crqpoffs"><code>--crqpoffs</code></a></p>
 
 ## Quality on HDR content
 
@@ -148,11 +352,11 @@ We scored both encoders with Netflix's HDR-VMAF v1.1.8. The table gives yah265's
 | Sol Levante | PQ | 4K | -17.7% | -5.4% |
 | Sparks | PQ | 1080p | -23.2% | -18.3% |
 | Sparks | PQ | 4K | -24.2% | -18.4% |
-| EBU / DVB HLG | HLG | 1080p | -38.8% | no HLG reading |
-| EBU / DVB HLG | HLG | 4K | -34.6% | no HLG reading |
+| EBU / DVB HLG | HLG | 1080p | -38.8% | PQ only |
+| EBU / DVB HLG | HLG | 4K | -34.6% | PQ only |
 <!--/gen:hdr-table-->
 
-yah265 is ahead on every cell. The margin is thinnest on Sol Levante against x265 with its `--hdr10-opt` option on. That option has no HLG reading.
+yah265 is ahead on every cell. The margin is thinnest on Sol Levante against x265 with its `--hdr10-opt` option on.
 
 I wouldn't read the HLG clip's lead as a lead on all HLG, because the clip is easy material. It's two near-static shots from a source that is itself an HEVC encode. The downscale averages away most of the noise that was left. The next table shows what the tuning alone is worth on it.
 

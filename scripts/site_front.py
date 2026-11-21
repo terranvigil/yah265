@@ -253,7 +253,7 @@ def hdr_table(data):
          "|---|---|---|--:|--:|"]
     tr = {(r["title"], r["size"]): r["transfer"] for r in data["rows"]}
     for k, v in a.items():
-        opt = f"{b[k]:.1f}%" if k in b else "no HLG reading"
+        opt = f"{b[k]:.1f}%" if k in b else "PQ only"
         L.append(f"| {k[0]} | {tr[k]} | {bc.RES[k[1]]} | {v:.1f}% | {opt} |")
     return "\n".join(L)
 
@@ -395,7 +395,7 @@ GROUPS = [
         ("--max-cll", "none", "Content light level SEI, as `cll,fall` in nits."),
         ("--hdr10 / --no-hdr10", "on once either is named", "Force the two HDR10 messages on or off."),
         ("--no-cll", "off", "Drop the content light level message and keep the mastering display."),
-        ("--atc-sei", "none", "The transfer an SDR decoder should assume instead. An HLG stream uses it."),
+        ("--atc-sei", "none", "The transfer a decoder that reads this SEI should use instead of the color flags' one. Backward-compatible HLG uses it."),
         ("--dhdr10-info", "none", "HDR10+ dynamic metadata from a JSON file, one message per picture. Needs a 10-bit HDR10 encode."),
         ("--dolby-vision-rpu", "none", "A Dolby Vision profile 8 RPU per picture, from a file. Needs `--dolby-vision-profile`."),
         ("--dolby-vision-profile", "none", "`8.1`, `8.2` or `8.4`. The color flags must match it."),
@@ -410,9 +410,9 @@ GROUPS = [
         ("--show-config", "off", "Print the resolved configuration and exit without encoding."),
         ("--version", "", "Print the version."),
     ]),
-    ("Refused by name", [
-        ("--intra-refresh", "refused", "Periodic intra refresh isn't built. The encoder says why and exits."),
-        ("--scaling-list", "refused", "Quantizer scaling lists aren't built. The encoder says why and exits."),
+    ("Not offered", [
+        ("--intra-refresh", "refused", "The encoder stops with an error. [Why](guide.md#left-out-on-purpose)"),
+        ("--scaling-list", "refused", "The encoder stops with an error. [Why](guide.md#left-out-on-purpose)"),
     ]),
 ]
 
@@ -545,6 +545,18 @@ def stamp(text):
     return hashlib.sha1(text.encode()).hexdigest()[:8]
 
 
+def row_ids(flags, line, taken):
+    """The link targets of one row: opt-<long name> for each spelling the
+    row heads, for a spelling in ALSO its text names, and for the plain
+    form of a --no- switch that has no row of its own."""
+    names = [f.lstrip("-") for f in re.split(r", | / ", flags)]
+    long = [n for f, n in zip(re.split(r", | / ", flags), names) if f.startswith("--")]
+    ids = long or names
+    ids += [s[2:] for s in ALSO if f"`{s}`" in line]
+    ids += [n[3:] for n in long if n.startswith("no-") and "--" + n[3:] not in taken]
+    return list(dict.fromkeys(ids))
+
+
 def options_tables(check_seen=True):
     if not os.path.exists(HELP):
         sys.exit(f"{HELP}: missing. Capture it with scripts/site_front.py --capture <y265>")
@@ -563,11 +575,13 @@ def options_tables(check_seen=True):
     if errs:
         sys.exit("docs/data/cli-help.txt and the option rows disagree:\n  " + "\n  ".join(errs))
     out = []
+    taken = {x for f in rows for x in re.split(r", | / ", f)}
     for name, rs in GROUPS:
         out += [f"## {name}", "", "| option | default | what it does |", "|---|---|---|"]
         for f, d, line in rs:
             spec = " ".join(x for x in (f, cap[f][0]) if x).replace("|", "\\|")
-            out.append(f"| `{spec}` | {d} | {line} |")
+            marks = "".join(f'<span id="opt-{i}"></span>' for i in row_ids(f, line, taken))
+            out.append(f"| {marks}`{spec}` | {d} | {line} |")
         out.append("")
     listed = "\n".join(out)
     miss = [s for s in ALSO if s not in listed]
@@ -633,7 +647,7 @@ def main():
     opts, build, nopt = options_tables()
     V = {
         "headline": bc.headline(pl),
-        "fig-frames": bc.frames_figure(1, bc.FRAMES_ONE),
+        "fig-frames": bc.frames_figure((0,), bc.FRAMES_ONE),
         "pooled-table": bc.headline_table(pl),
         "quality-table": quality_table(pl, lad),
         "goal-table": bc.goal_table(sps),
@@ -641,7 +655,7 @@ def main():
         "hdr-tuning-table": hdr_tuning_table(hdr),
         "hdr-ladder-table": hdr_ladder_table(hdr),
         "options": opts,
-        "options-build": f"{nopt} entries from `{build}`",
+        "options-build": f"{nopt} entries",
     }
     n_all = sum(v[1] for d in cm.values() for v in d.values())
     charts = bc.render({"home-hero.svg": lambda: chart_hero(pl),

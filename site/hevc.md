@@ -9,9 +9,9 @@ HEVC is the video coding standard that ITU-T publishes as H.265. This page walks
 
 ## How video encoding works
 
-Raw video is far too large to store or send. An encoder shrinks it by sending only what a decoder can't guess for itself.
+Raw video is far too large to store or send. Every picture is a grid of samples, with one plane of luma for brightness and two of chroma for color. An encoder shrinks the video by sending only what a decoder can't guess for itself.
 
-The guess is called a prediction. The encoder cuts each picture into blocks. It predicts every block from samples the decoder already has. They come from the same picture (intra prediction) or from an earlier decoded picture (inter prediction). It then subtracts the prediction from the real block. The leftover is called the residual. The better the prediction, the smaller it is.
+The guess is called a prediction. The encoder cuts each picture into blocks. It predicts every block from samples the decoder already has. Those samples come from the same picture (intra prediction) or from an earlier decoded picture (inter prediction). It then subtracts the prediction from the real block. The leftover is called the residual. The better the prediction, the smaller it is.
 
 The residual then goes through a transform that turns a block of samples into a block of frequencies. Most of the block's energy ends up in a few of them. Quantization divides each frequency by a step size, then rounds the result. Because that rounding is the only step that loses picture detail, the step size is the quality control. A number called the quantization parameter (QP) sets it. Last, an entropy coder writes the prediction choices and the rounded values in as few bits as it can.
 
@@ -264,7 +264,7 @@ A decoder can only start at a key picture. HEVC has two main kinds. After an IDR
 
 B pictures are usually arranged as a pyramid. The middle picture of a group is coded first from the pictures at either end. Each half is then filled in the same way. That's why pictures are decoded in a different order from the one they're shown in.
 
-Every slice also lists the pictures the decoder has to keep for later prediction. That list is the reference picture set. A decoder that joins late or loses a packet still knows exactly which pictures it should have.
+Every slice also has a reference picture set, the list of pictures the decoder has to keep for later prediction. A decoder that joins late or loses a packet still knows exactly which pictures it should have.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 306" role="img" aria-label="A B-picture pyramid and an open GOP">
@@ -1461,7 +1461,7 @@ Everything in a slice is written by one coder, context-adaptive binary arithmeti
 <line class="d-arrow" x1="180" y1="290" x2="180" y2="318"/>
 <text class="d-label" x="180" y="337" text-anchor="middle">bits</text>
 </svg>
-<figcaption>A regular bin is coded with a learned probability. A bypass bin skips the model. It costs one whole bit.</figcaption>
+<figcaption>A regular bin is coded with a learned probability. A bypass bin skips the model and costs one whole bit.</figcaption>
 </figure>
 
 Bins with no useful pattern, such as coefficient signs, take the bypass path. There the coder skips the model because it assumes even odds. HEVC groups bypass bins together so that a decoder can read several at once.
@@ -1705,7 +1705,7 @@ A decoder doesn't have to support the whole standard. A profile names the tools 
 
 A level caps the picture size, the frame rate and the bitrate. A decoder then knows how much it has to handle. Each level comes in a Main tier and a High tier with a larger bitrate cap.
 
-HDR needs no new coding tool. An HDR stream is a 10-bit stream with fields that say how to read its samples: the color primaries, the transfer function and the mastering display's range. Those fields live in the SPS and in SEI messages. [HDR](hdr.md) covers what yah265 writes. The [encoding guide](guide.md#profiles-depth-and-chroma) lists the profiles it codes.
+HDR needs no new coding tool. An HDR stream is a 10-bit stream with fields that say how to read its samples: the color primaries, the transfer function and the mastering display's range. Those fields live in the SPS and in SEI messages. [HDR](hdr.md) covers what yah265 writes. The [encoding guide](guide.md#set-the-bit-depth-and-profile) lists the profiles it codes.
 
 ## What the standard doesn't say
 

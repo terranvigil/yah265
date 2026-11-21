@@ -1175,22 +1175,21 @@ FRAMES = os.path.join(ROOT, "site/assets/frames/tears.json")
 FRAME_W, FRAME_H = 1920, 858
 FRAME_CREDIT = ('Tears of Steel: (CC) Blender Foundation, '
                 '<a href="https://mango.blender.org">mango.blender.org</a>, CC-BY 3.0.')
-ORDINAL = ["hardest", "second hardest", "third hardest"]
 
 
-def frames_figure(count, caption):
+def frames_figure(picks, caption):
     """The same-frame comparison, from the record scripts/frame_crops.sh
-    wrote beside the crops. count: how many of its picks to show."""
+    wrote beside the crops. picks: which of its picks to show, by index."""
     d = json.load(open(FRAMES))
     enc, zoom = d["encodes"], d["zoom"]
     out = ['<figure class="compare">']
-    for k, p in enumerate(d["picks"][:count]):
+    for k, p in enumerate(d["picks"][i] for i in picks):
         n, c = p["frame"], p["crop"]
         box = (f"left:{c['x'] / FRAME_W * 100:.2f}%;top:{c['y'] / FRAME_H * 100:.2f}%;"
                f"width:{c['w'] / FRAME_W * 100:.2f}%;height:{c['h'] / FRAME_H * 100:.2f}%")
         at = f"{int(p['at_s'] // 60)}:{int(p['at_s'] % 60):02d}"
         out.append('<div class="cmp">')
-        out.append(f'<div class="cmp-head"><p class="cmp-title">The {ORDINAL[k]} moment, '
+        out.append(f'<div class="cmp-head"><p class="cmp-title">'
                    f'{at} into the clip<span>VMAF v1 on this frame: yah265 {p["yah265"]:.1f}, '
                    f'x265 {p["x265"]:.1f}. The crop is shown at {zoom}x.</span></p>'
                    f'<div class="cmp-where"><img loading="lazy" decoding="async" '
@@ -1218,17 +1217,15 @@ def frames_figure(count, caption):
 
 # Three sentences of FRAMES_ALL say what the crops look like. Look at the
 # crops again and rewrite them whenever scripts/frame_crops.sh picks new ones.
-FRAMES_CROP = "cropped to the region where the two encodes lose detail most differently"
 FRAMES_ONE = ("A complex frame of Tears of Steel clip at 1080p, where both "
               "encoders score lowest. The crop shows where the two differ most. yah265 keeps "
               "more of the texture. Both files are the same size within 0.5%. "
-              '<a href="results.html#side-by-side-at-the-same-size">Results</a> shows the three '
-              "hardest frames, including one where x265 is sharper.")
-FRAMES_ALL = ("These are the three hardest moments of the clip. Each is the frame where the two "
-              "encoders' mean VMAF v1 is lowest in one of the three lowest-scoring shots, "
-              f"{FRAMES_CROP}. yah265 keeps more of the texture in the first crop. x265 keeps the "
-              "eyebrows sharper in the second. The third is close. "
-              "<code>scripts/frame_crops.sh</code> makes the crops.")
+              '<a href="results.html#side-by-side-at-the-same-size">Results</a> has more.')
+# the crops results.md shows, by index into the picks frame_crops.sh wrote
+RESULTS_PICKS = (0, 2)
+FRAMES_ALL = ("Two hard moments of the clip, where both encoders score low. Each crop shows "
+              "where the two differ most. yah265 keeps more of the texture in the first. "
+              "The second is close. <code>scripts/frame_crops.sh</code> makes the crops.")
 
 
 def claims(pl, fl, ff):
@@ -1329,7 +1326,7 @@ def draw_card(path, pl, fl):
 def values(sps, q, lad, fl, cap, cv, ff, rows, repro, date, report_rel, hist, cred, pl):
     V = {}
     V["headline"] = headline(pl)
-    V["fig-frames"] = frames_figure(1, FRAMES_ONE)
+    V["fig-frames"] = frames_figure((0,), FRAMES_ONE)
     V["headline-table"] = headline_table(pl)
     V["dv-cells"] = f"{pl['dv_ahead']} of the {pl['dv_n']}"
     V["films-table"] = films_table(fl)

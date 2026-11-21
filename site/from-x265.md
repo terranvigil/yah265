@@ -5,7 +5,7 @@ description: How an x265 command line maps onto y265. It lists the options that 
 
 # Coming from x265
 
-This page is for someone moving an x265 command line to `y265`. Most options keep their name and meaning, though a few are spelled differently. Some aren't accepted. `y265` stops with an error on an option it doesn't know. It never ignores one silently.
+This page is for someone moving an x265 command line to `y265`. Most options keep their name and meaning, though a few are spelled differently. Some aren't accepted. `y265` stops with an error on an option it doesn't know.
 
 ## Options that keep their name
 
@@ -51,28 +51,26 @@ The same name doesn't promise the same default. [Options](options.md) lists ever
 <!--map:refused-->
 | x265 | why | use instead |
 |---|---|---|
-| `--preset` with `ultrafast`, `superfast`, `veryfast`, `faster`, `veryslow` or `placebo` | yah265 keeps four presets, because its `medium` already beats x265's `medium` | the error names the nearest of the four presets |
-| `--tune psnr`, `--tune ssim` | each fits the encoder to a metric the project doesn't decide on | `--ssim` reports the number without changing the encode |
-| `--tune grain` | x265's set of rate-control and psychovisual changes for grain hasn't been built here | `--film-grain` is a different tool that the [guide](guide.md#film-grain-denoising-and-filters) describes |
-| `--tune fastdecode` | only part of it could be delivered | `--no-weightp` and `--no-weightb` |
-| `--tune animation` | not built | `medium` as it is |
-| `--psy-rd`, `--psy-rdoq` | x265's numbers wouldn't mean the same thing, because yah265's perceptual weighting works differently | the preset sets it |
+| `--preset` with `ultrafast`, `superfast`, `veryfast`, `faster`, `veryslow` or `placebo` | [in the guide](guide.md#left-out-on-purpose) | the error names the nearest of the four presets |
+| `--tune psnr`, `--tune ssim` | [in the guide](guide.md#tune-names) | `--ssim` reports the number without changing the encode |
+| `--tune grain` | [in the guide](guide.md#tune-names) | `--film-grain` is a different tool that the [guide](guide.md#grain-and-noisy-sources) describes |
+| `--tune fastdecode` | [in the guide](guide.md#tune-names) | `--no-weightp` and `--no-weightb` |
+| `--tune animation` | `medium` is tuned on a test set that includes animated films | `medium` as it is |
+| `--psy-rd`, `--psy-rdoq` | [in the guide](guide.md#left-out-on-purpose) | the preset sets it |
 | `--aq-strength` | the preset sets the strength frame by frame | `--aq 0` turns AQ off |
 | `--rd`, `--me`, `--subme`, `--merange`, `--rect`, `--amp`, `--limit-refs`, `--rskip`, `--early-skip`, `--max-merge` | how hard the encoder searches is the preset's job here | a preset. The [environment knobs](guide.md#environment-knobs) are there for experiments |
 | `--signhide`, `--tskip`, `--strong-intra-smoothing`, `--temporal-mvp` | single coding tools have no switch | a preset |
 | `--sao`, `--no-sao`, `--deblock`, `--no-deblock` | the in-loop filters have no switch | none |
-| `--scenecut`, `--no-scenecut`, `--min-keyint` | the encoder always looks for scene changes | `--keyint` |
+| `--scenecut`, `--no-scenecut`, `--min-keyint` | [in the guide](guide.md#left-out-on-purpose) | `--keyint` |
 | `--b-pyramid` | B-frames are always arranged as a pyramid | `--bframes` |
-| `--wpp`, `--slices`, `--lookahead-slices`, `--lookahead-threads` | yah265 sets up its threads by itself | `--threads` |
+| `--wpp`, `--slices`, `--lookahead-slices`, `--lookahead-threads` | [in the guide](guide.md#left-out-on-purpose) | `--threads` |
 | `--asm`, `--no-asm` | the SIMD tier is picked at run time | `N265_ASM_OFF=all` in the environment, for testing |
-| `--ipratio`, `--pbratio`, `--qcomp` | rate control isn't steered through these ratios | the guide's [rate modes](guide.md#rate-modes) |
-| `--intra-refresh` | refused by name. A refresh only helps if nothing in the refreshed area predicts from outside it. The encoder can't promise that | none |
-| `--scaling-list` | refused by name. Every quantizer path would have to apply the matrices | none |
-| `--interlace`, `--field` | interlaced coding isn't built | none |
-| `--analysis-save`, `--analysis-load` | they serve a multi-stage pipeline that nothing here uses | none |
+| `--ipratio`, `--pbratio`, `--qcomp` | rate control isn't steered through these ratios | the guide's [rate modes](guide.md#pick-a-rate-mode) |
+| `--intra-refresh` | [in the guide](guide.md#left-out-on-purpose) | none |
+| `--scaling-list` | [in the guide](guide.md#left-out-on-purpose) | none |
+| `--interlace`, `--field` | [in the guide](guide.md#left-out-on-purpose) | none |
+| `--analysis-save`, `--analysis-load` | [in the guide](guide.md#left-out-on-purpose) | none |
 <!--/map:refused-->
-
-The guide's [list of what's left out](guide.md#left-out-on-purpose) has the longer reasons.
 
 ## Translating a CRF
 

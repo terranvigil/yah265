@@ -5,7 +5,7 @@ description: Which CPUs and instruction sets yah265 runs on, how it picks a kern
 
 # Architectures
 
-yah265 runs on arm64 and x86-64. This page says which instruction sets it uses and how it chooses between them. It also says what was tested on which machine. Every figure is in a table or a chart that names its source.
+yah265 runs on arm64 and x86-64. This page covers which instruction sets it uses, how it chooses between them and what was tested on which machine.
 
 On this page "2x faster" means half the wall time for a file of the same size.
 
@@ -33,11 +33,21 @@ yah265's lead is widest in plain C and narrowest with SIMD on. [What SIMD buys](
 | AVX2 (x86-64) | Xeon 8488C | short clips | checkasm, C-path comparison at 8 and 10 bits |
 | SSE4.2 (x86-64) | Xeon 8488C, Rosetta, QEMU's Nehalem model | short clips | checkasm in all three places, C-path comparison, fast conformance |
 
-The whole test set means every class and tier. For the AVX2 and SSE4.2 timings both encoders were capped at that tier. AVX2 also ran under AVX-512. Its capped streams equal the uncapped ones. The SSE4.2 checks caught a deliberate break in each kernel family.
+The whole test set means every class and tier. For the AVX2 and SSE4.2 timings both encoders were capped at that tier. The AVX2 kernels ran both inside the AVX-512 encodes and capped alone. Both ways wrote the same streams. The SSE4.2 checks caught a deliberate break in each kernel family.
 
-The rows follow the coverage table of the [all-architecture parity report](docs/parity/PARITY-REPORT-yah265-all-isa-2026-11-14.md). checkasm is the test program that holds each kernel to its C reference. The C-path comparison encodes the same clip with the kernels on and with them off. It then compares the two streams byte for byte.
+The rows follow the coverage table of the [all-architecture parity report](docs/parity/PARITY-REPORT-yah265-all-isa-2026-11-14.md). checkasm is the test program that holds each kernel to its C reference. The C-path comparison encodes the same clip with the kernels on and with them off, then compares the two streams byte for byte.
 
-Eight kernel families have NEON, AVX2 and SSE4.2 versions. They are the block-difference metrics, the transforms with the quantizer, intra prediction, coefficient costing, RDOQ, motion compensation, deblocking and SAO. A kernel ships at the AVX-512 or SVE tier only where it measured faster than the tier below. AVX-512 kernels cover the block-difference metrics and the transforms. The other families run their AVX2 kernels on an AVX-512 CPU. SVE covers the block-difference metrics and one interpolation pass.
+## Which kernels each tier has
+
+Eight kernel families have NEON, AVX2 and SSE4.2 versions. A kernel ships at the AVX-512 or SVE tier only where it measured faster than the tier below.
+
+| tier | kernel families |
+|---|---|
+| NEON, AVX2, SSE4.2 | the block-difference metrics, the transforms with the quantizer, intra prediction, coefficient costing, RDOQ, motion compensation, deblocking, SAO |
+| AVX-512 | the block-difference metrics, the transforms |
+| SVE | the block-difference metrics, one interpolation pass |
+
+On an AVX-512 CPU the other families run their AVX2 kernels.
 
 ## How a kernel is picked
 
@@ -157,9 +167,9 @@ Two environment settings override the choice without changing a bit of the outpu
 | x86-64 | `c`, `sse42`, `avx2`, `avx512` |
 | arm64 | `c`, `neon`, `dotprod`, `i8mm`, `sve`, `sve2` |
 
-The second setting is how the pure-C results on this site were timed, on the shipping binary with no rebuild.
+The pure-C results on this site were timed with `N265_ASM_OFF=all`, on the shipping binary with no rebuild.
 
-Three details are worth knowing. The AVX2 tier needs FMA3 and BMI2 as well as AVX2. The SSE4.2 tier needs SSSE3 and SSE4.1. SVE is detected on Linux only. No Apple CPU has it.
+A tier can need more than its name says. The AVX2 tier needs FMA3 and BMI2 as well as AVX2. The SSE4.2 tier needs SSSE3 and SSE4.1. SVE is detected on Linux only. No Apple CPU has it.
 
 ## What SIMD buys
 
@@ -185,7 +195,7 @@ The higher tiers add little on top of the base ones at encode level. The [SVE no
 
 ## Capped tiers on x86
 
-The x86 results above come from a CPU with AVX-512. Many x86 machines stop at AVX2. Older ones stop at SSE4.2. To see how the comparison holds there, I held the two encoders to the same tier on the same Xeon. yah265 was capped through `N265_CPU_MAX` and x265 through its `--asm` option.
+The x86 results above come from a CPU with AVX-512. Many x86 machines stop at AVX2 and older ones at SSE4.2. To see how the comparison holds there, I held the two encoders to the same tier on the same Xeon. yah265 was capped through `N265_CPU_MAX` and x265 through its `--asm` option.
 
 <figure class="chart wide">
 <img src="assets/charts/internals/capped.svg" alt="Dot plot of how many times faster yah265 is than x265 on short clips, per picture size, for three pairings. Every marker is to the right of the 1x line. The pairing where each encoder runs AVX2 is the closest to it.">
@@ -211,9 +221,9 @@ A capped Xeon isn't an AVX2-only CPU. Its cores, caches and clock speeds are its
 
 The arm64 machines write the same streams as each other. A Graviton writes the Mac's stream byte for byte, apart from one title whose source frames were decoded differently on the cloud machine.
 
-x86 writes a different stream from arm64 at `medium`. On arm64 the compiler fuses a floating-point multiply and add into one instruction, because that instruction is always present there. It can't on baseline x86-64. The streams differ because some of the encoder's floating-point results then differ. I chose to leave that as it is. Quality on x86 was checked by encoding four rate curves again there. [By machine](results.md#by-machine) has the comparison. Within x86, every tier writes the same stream.
+x86 writes a different stream from arm64 at `medium`. On arm64 the compiler fuses a floating-point multiply and add into one instruction, because that instruction is always present there. Baseline x86-64 can't assume it. The streams differ because some of the encoder's floating-point results then differ. I chose to leave that as it is. Quality on x86 was checked by encoding four rate curves again there. [By machine](results.md#by-machine) has the comparison. Within x86, every tier writes the same stream.
 
-The register widths differ too. NEON is always 128 bits wide. The three x86 tiers each have a fixed width too. SVE's width belongs to the CPU. Because Graviton4 and Graviton3 differ in it, the SVE kernels are written to work at any width.
+The register widths differ too. NEON is always 128 bits wide. Each of the three x86 tiers has a fixed width of its own. SVE's width belongs to the CPU. Because Graviton4 and Graviton3 differ in it, the SVE kernels are written to work at any width.
 
 The last difference is where each tier can be tested. The Mac runs NEON natively. It runs the SSE4.2 and AVX2 builds under emulation, where their correctness checks can run. AVX-512 and SVE need real hardware. Those tiers were built, checked and timed on rented cloud machines.
 
@@ -239,7 +249,7 @@ make checkasm-asan              # the same checks under the sanitizers
 
 The families are `transform`, `satd`, `mc`, `rdoq`, `cost`, `intra`, `deblock` and `sao`.
 
-The second check is on whole encodes. Encode a clip once with the kernels on and once with them off. Then compare the two files.
+The second check is on whole encodes. Encode a clip once with the kernels on and once with them off, then compare the two files.
 
 ```sh
 N265_ASM_OFF=all build/y265 clip.y4m --threads 1 -o c.hevc
