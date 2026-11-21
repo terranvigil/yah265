@@ -110,7 +110,7 @@ Each film runs from its start frame to its last story frame. The table has the M
 
 <!--gen:films-->
 | film | last story frame | G3 | G1 | G2 |
-|---|--:|--:|--:|--:|
+|---|--:|--:|--:|
 | Tears of Steel 720p | 12671 | 2.13x | 3.57x | 4.35x |
 | Tears of Steel 1080p | 12671 | 1.72x | 3.03x | 3.33x |
 | Tears of Steel 4K | 12671 | 1.82x | 3.33x | 2.94x |
@@ -224,15 +224,15 @@ A Graviton3 with 256-bit SVE ran the short clips at G3.
 The Xeon also ran the short clips at G3 with both encoders capped to one older instruction set, to stand in for a CPU that has no AVX-512.
 
 <!--gen:capped-->
-| class | both at SSE4.2 | both at AVX2 | yah265 at AVX-512, x265 at AVX2 | clips |
+| class | both at SSE4.2 | both at AVX2 | clips |
 |---|--:|--:|--:|--:|
-| CIF | 1.56x / 1.33x | 1.35x / 1.14x | 1.43x / 1.20x | 3 |
-| 720p | 2.00x / 1.54x | 1.56x / 1.25x | 1.69x / 1.33x | 4 |
-| 1080p | 1.45x / 1.30x | 1.18x / 1.09x | 1.35x / 1.25x | 3 |
-| 4K | 2.22x / 2.22x | 2.00x / 2.00x | 2.08x / 2.08x | 1 |
+| CIF | 1.56x / 1.33x | 1.35x / 1.14x | 3 |
+| 720p | 2.00x / 1.54x | 1.56x / 1.25x | 4 |
+| 1080p | 1.45x / 1.30x | 1.18x / 1.09x | 3 |
+| 4K | 2.22x / 2.22x | 2.00x / 2.00x | 1 |
 <!--/gen:capped-->
 
-The third column is a control. It repeats the main table's pairing in the same session as the two capped runs. AVX2 against AVX2 is the closest pairing on the page. Because both capped tiers write the same streams as the uncapped build, their quality is the next section's. [Architectures](architectures.md) explains the tiers and how each is checked. The per-machine detail is in <!--gen:report-x86-->[the x86-64 report](docs/parity/PARITY-REPORT-yah265-x86-2026-11-13.md)<!--/gen:report-x86--> and <!--gen:report-g4-->[the Graviton report](docs/parity/PARITY-REPORT-yah265-graviton-2026-11-13.md)<!--/gen:report-g4-->.
+AVX2 against AVX2 is the closest pairing on the page. Because both capped tiers write the same streams as the uncapped build, their quality is the next section's. [Architectures](architectures.md) explains the tiers and how each is checked. The per-machine detail is in <!--gen:report-x86-->[the x86-64 report](docs/parity/PARITY-REPORT-yah265-x86-2026-11-13.md)<!--/gen:report-x86--> and <!--gen:report-g4-->[the Graviton report](docs/parity/PARITY-REPORT-yah265-graviton-2026-11-13.md)<!--/gen:report-g4-->.
 
 ## Quality at the same size
 

@@ -198,19 +198,19 @@ The higher tiers add little on top of the base ones at encode level. The [SVE no
 The x86 results above come from a CPU with AVX-512. Many x86 machines stop at AVX2 and older ones at SSE4.2. To see how the comparison holds there, I held the two encoders to the same tier on the same Xeon. yah265 was capped through `N265_CPU_MAX` and x265 through its `--asm` option.
 
 <figure class="chart wide">
-<img src="assets/charts/internals/capped.svg" alt="Dot plot of how many times faster yah265 is than x265 on short clips, per picture size, for three pairings. Every marker is to the right of the 1x line. The pairing where each encoder runs AVX2 is the closest to it.">
+<img src="assets/charts/internals/capped.svg" alt="Dot plot of how many times faster yah265 is than x265 on short clips, per picture size, with both encoders capped at SSE4.2 and at AVX2. Every marker is to the right of the 1x line. The AVX2 pairing is the closest to it.">
 <figcaption>One Xeon 8488C with SIMD on 16 vCPUs, at <code>medium</code> on each side.</figcaption>
 </figure>
 
 Each cell is the median over a size's short clips, then the slowest clip.
 
 <!--gen:capped-table-->
-| class | both at SSE4.2 | both at AVX2 | yah265 at AVX-512, x265 at AVX2 | clips |
-|---|--:|--:|--:|--:|
-| CIF | 1.56x / 1.33x | 1.35x / 1.14x | 1.43x / 1.20x | 3 |
-| 720p | 2.00x / 1.54x | 1.56x / 1.25x | 1.69x / 1.33x | 4 |
-| 1080p | 1.45x / 1.30x | 1.18x / 1.09x | 1.35x / 1.25x | 3 |
-| 4K | 2.22x / 2.22x | 2.00x / 2.00x | 2.08x / 2.08x | 1 |
+| class | both at SSE4.2 | both at AVX2 | clips |
+|---|--:|--:|--:|
+| CIF | 1.56x / 1.33x | 1.35x / 1.14x | 3 |
+| 720p | 2.00x / 1.54x | 1.56x / 1.25x | 4 |
+| 1080p | 1.45x / 1.30x | 1.18x / 1.09x | 3 |
+| 4K | 2.22x / 2.22x | 2.00x / 2.00x | 1 |
 <!--/gen:capped-table-->
 
 yah265 stays ahead at both caps. AVX2 against AVX2 is the closest pairing, because x265 gains more from AVX2 than yah265 does. yah265 wrote the same stream at all three tiers on every clip.

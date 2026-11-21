@@ -622,7 +622,7 @@ def values(D):
         if m and B.shown(split_cell(m[1])[0]):
             g1, g2, g3 = (f"{tf(float(x)):.2f}x" for x in m.groups()[2:])
             frows.append([nice(*split_cell(m[1])), m[2], g3, g1, g2])
-    V["films"] = mdt(["film", "last story frame", "G3", "G1", "G2"], [L, R, R, R, R], frows)
+    V["films"] = mdt(["film", "last story frame", "G3", "G1", "G2"], [L] + [R] * (len(B.CAPPED_PAIRS) + 1), frows)
 
     # by machine, from each machine's rows
     def mrow(c, t, cols):

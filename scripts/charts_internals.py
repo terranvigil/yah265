@@ -318,8 +318,8 @@ def chart_capped(cap):
 # ------------------------------------------------------------------ tables
 
 def table_capped(cap):
-    out = ["| class | both at SSE4.2 | both at AVX2 | yah265 at AVX-512, x265 at AVX2 | clips |",
-           "|---|--:|--:|--:|--:|"]
+    out = ["| class | " + " | ".join(lab for *_, lab in PAIRS) + " | clips |",
+           "|---|" + "--:|" * (len(PAIRS) + 1)]
     for c in bc.CLASSES:
         if c not in cap:
             continue

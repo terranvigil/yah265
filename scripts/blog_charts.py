@@ -250,8 +250,7 @@ def graviton3(path, size_bar=0.01):
 
 
 CAPPED_PAIRS = [("sse42", "ours@sse42", "ref@sse42", "both at SSE4.2"),
-                ("avx2", "ours@avx2", "ref@avx2", "both at AVX2"),
-                ("avx512", "ours", "ref@avx2", "yah265 at AVX-512, x265 at AVX2")]
+                ("avx2", "ours@avx2", "ref@avx2", "both at AVX2")]
 
 
 def capped_records():
