@@ -563,7 +563,7 @@ def values(D):
     pl = D["pl"]
     V["verdict"] = mdt(["what was measured", "result"], [L, R], [
         [f"median speed on the Mac at the same file size, {pl['n']} CRF cells",
-         f"{B.times(pl['median'])} faster"],
+         f"{B.headline_times(pl)} faster"],
         [f"median VMAF v1 lead at the same file size, the same {pl['dv_n']} cells",
          f"{pl['dv']:+.2f} points"],
         [f"median bits saved at equal VMAF v1, {len(allbd)} rate ladders",

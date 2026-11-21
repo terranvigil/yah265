@@ -117,10 +117,10 @@ def chart_hero(pl):
             o.append(bc.T(L - 14, y + h / 2 + 5, name, 15, "t1", "end", "600"))
     o.append("<g class='after'>")
     if nw:
-        o.append(bc.T(L, 122, f"{bc.times(ratio)}", 34, "note", weight="700"))
+        o.append(bc.T(L, 122, bc.headline_times(pl), 34, "note", weight="700"))
         o.append(bc.T(L + 104, 122, "faster than x265", 15, "t2"))
     else:
-        o.append(bc.T(X(1) + 16, y1 + h / 2 - 1, f"{bc.times(ratio)}", 30, "note", weight="700"))
+        o.append(bc.T(X(1) + 16, y1 + h / 2 - 1, bc.headline_times(pl), 30, "note", weight="700"))
         o.append(bc.T(X(1) + 16, y1 + h / 2 + 19, "faster than x265", 13, "t2"))
     o.append(bc.T(X(ratio) + 10, y2 + h / 2 + 5, f"{ratio * 100:.0f}% done", 13, "t1"))
     o.append("</g>")
@@ -695,7 +695,7 @@ def main():
             if not a.check:
                 with open(p, "w") as f:
                     f.write(new)
-    print(f"headline: {bc.times(pl['median'])} faster over {pl['n']} size-matched cells ("
+    print(f"headline: {bc.headline_times(pl)} faster over {pl['n']} size-matched cells ("
           + ", ".join(f"{k} {len(v)}" for k, v in pl["pools"].items())
           + f"); VMAF v1 {pl['dv']:+.2f} over {pl['dv_n']} cells; {nopt} options")
     if a.check:

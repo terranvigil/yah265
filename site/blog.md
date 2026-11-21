@@ -7,7 +7,7 @@ image: assets/blog/card.png
 
 # Introducing yah265
 
-<!--gen:headline-->On an Apple M5 Max, yah265 encodes a median 1.79x faster than x265 at the same file size. Its VMAF v1 score is a median 1.23 points higher. Those medians cover the 30 CRF encodes of the test set where the two files match in size within 1%, from short clips to ten-minute films at CIF to 4K. Both encoders ran at preset medium with SIMD on all cores.<!--/gen:headline-->
+<!--gen:headline-->On an Apple M5 Max, yah265 encodes a median 1.8x faster than x265 at the same file size. Its VMAF v1 score is a median 1.23 points higher. Those medians cover the 30 CRF encodes of the test set where the two files match in size within 1%, from short clips to ten-minute films at CIF to 4K. Both encoders ran at preset medium with SIMD on all cores.<!--/gen:headline-->
 
 It's an H.265/HEVC encoder I wrote from scratch. Speed is the reason to try it. The chart shows what the difference looks like on real films. Both encoders wrote files of the same size from the same ten-minute films on my Mac at `--preset medium`. yah265 finished every film first. Each of its files also scored higher on VMAF v1.
 
@@ -188,7 +188,7 @@ Every table here is filled by the script that draws the charts.
 | 720p | 10 | 1.92x faster | Shields 720p, 1.54x faster |
 | 1080p | 10 | 1.79x faster | Big Buck Bunny 1080p, 10 min, 1.69x faster |
 | 4K | 7 | 1.67x faster | Sintel 4K, 10 min, 1.52x faster |
-| **all** | **30** | **1.79x faster** | Sintel 4K, 10 min, 1.52x faster |
+| **all** | **30** | **1.8x faster** | Sintel 4K, 10 min, 1.52x faster |
 <!--/gen:headline-table-->
 
 All of these ran on the Mac at CRF with SIMD on all cores. In each one the two files are the same size within 1%. The VMAF v1 lead in the headline is the median over the same cells. yah265 scores higher on <!--gen:dv-cells-->29 of the 30<!--/gen:dv-cells--> of them.

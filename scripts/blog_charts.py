@@ -317,6 +317,12 @@ def times(ratio):
     return f"{1 / ratio:.2f}x"
 
 
+def headline_times(pl):
+    """The headline speed, to one decimal: run-to-run spread is wider
+    than the second one, and one decimal reads at a glance."""
+    return f"{1 / pl['median']:.1f}x"
+
+
 BD_LINE = re.compile(r"^- (\S+) \(([A-Z])\): CRF BD-VMAF v1 ([-+]\d+\.\d+)%.*?"
                      r"VBR BD-VMAF v1 ([-+]\d+\.\d+)%")
 
@@ -814,7 +820,7 @@ def chart_cells(pl):
     rowh = {k: max(80, 2 * max(abs(o) for o in offs[k]) + 56) for k in offs}
     H = Tp + sum(rowh.values()) + B
     title = (f"All {pl['n']} size-matched cells run faster than x265, "
-             f"{times(pl['median'])} at the median"
+             f"{headline_times(pl)} at the median"
              if pl["faster"] == pl["n"]
              else f"{pl['faster']} of {pl['n']} size-matched cells run faster than x265")
     o = head(W, H, title, "One dot per timed cell: times faster than x265 medium at the same "
@@ -1079,7 +1085,7 @@ def headline(pl):
     """The site's one headline sentence, from headline_cells(). The home
     page, the README, the launch post, the results page and the social card
     all take their figures from the same dict."""
-    return (f"On an Apple M5 Max, yah265 encodes a median {times(pl['median'])} faster than "
+    return (f"On an Apple M5 Max, yah265 encodes a median {headline_times(pl)} faster than "
             f"x265 at the same file size. Its VMAF v1 score is a median {pl['dv']:.2f} points "
             f"higher. Those medians cover the {pl['n']} CRF encodes of the test set where the "
             "two files match in size within 1%, from short clips to ten-minute films at CIF "
@@ -1097,7 +1103,7 @@ def headline_table(pl):
                  f"{w[1]}, {times(w[0])} faster |")
     allv = [x for vs in pl["pools"].values() for x in vs]
     w = max(allv)
-    L.append(f"| **all** | **{pl['n']}** | **{times(pl['median'])} faster** | "
+    L.append(f"| **all** | **{pl['n']}** | **{headline_times(pl)} faster** | "
              f"{w[1]}, {times(w[0])} faster |")
     return "\n".join(L)
 
@@ -1250,7 +1256,7 @@ CARD_LAYOUT = 3  # bump when draw_card's wording or layout changes
 
 def card_key(pl, fl):
     ok = [r for r in fl["2160p"] if r[1]]
-    return (f"v{CARD_LAYOUT}|{times(pl['median'])}|{pl['dv']:+.2f}|{pl['n']}|{len(ok)}|"
+    return (f"v{CARD_LAYOUT}|{headline_times(pl)}|{pl['dv']:+.2f}|{pl['n']}|{len(ok)}|"
             f"{sum(r[2] for r in ok) / 60:.0f}|{sum(r[1] for r in ok) / 60:.0f}")
 
 
@@ -1297,7 +1303,7 @@ def draw_card(path, pl, fl):
     else:
         d.text((M, 60), "yah265", font=font(52, True), fill=ink)
     # the main line carries the machine and the metric with the two figures
-    main = [f"{times(pl['median'])} faster than x265 on the Mac,",
+    main = [f"{headline_times(pl)} faster than x265 on the Mac,",
             f"{pl['dv']:+.2f} VMAF v1 at the same file size"]
     size = 92
     while max(d.textlength(t, font=font(size, True)) for t in main) > W - 2 * M:

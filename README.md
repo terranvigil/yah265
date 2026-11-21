@@ -14,7 +14,7 @@
   <a href="#license">License</a>
 </p>
 
-<!--gen:headline-->On an Apple M5 Max, yah265 encodes a median 1.79x faster than x265 at the same file size. Its VMAF v1 score is a median 1.23 points higher. Those medians cover the 30 CRF encodes of the test set where the two files match in size within 1%, from short clips to ten-minute films at CIF to 4K. Both encoders ran at preset medium with SIMD on all cores.<!--/gen:headline-->
+<!--gen:headline-->On an Apple M5 Max, yah265 encodes a median 1.8x faster than x265 at the same file size. Its VMAF v1 score is a median 1.23 points higher. Those medians cover the 30 CRF encodes of the test set where the two files match in size within 1%, from short clips to ten-minute films at CIF to 4K. Both encoders ran at preset medium with SIMD on all cores.<!--/gen:headline-->
 
 yah265 is an H.265/HEVC encoder written from scratch in C. It runs inside ffmpeg under the options you already use. Its sibling [yah264](https://terranvigil.github.io/yah264/) met the same goals against x264.
 
@@ -49,7 +49,7 @@ The headline covers the cells below. Each is one clip at one picture size, coded
 | 720p | 10 | 1.92x faster | Shields 720p, 1.54x faster |
 | 1080p | 10 | 1.79x faster | Big Buck Bunny 1080p, 10 min, 1.69x faster |
 | 4K | 7 | 1.67x faster | Sintel 4K, 10 min, 1.52x faster |
-| **all** | **30** | **1.79x faster** | Sintel 4K, 10 min, 1.52x faster |
+| **all** | **30** | **1.8x faster** | Sintel 4K, 10 min, 1.52x faster |
 <!--/gen:pooled-table-->
 
 <!--gen:quality-table-->

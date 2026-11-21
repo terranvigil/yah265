@@ -7,7 +7,7 @@ description: An H.265/HEVC encoder written from scratch. It runs faster than x26
 
 Welcome to the home of yah265, an HEVC encoder that went through months of optimization and benchmarking until it significantly outperformed x265 and others. We chose targets for quality, compression and encoding speed and were able to surpass them. I will go into more details as to how I was able to do this later in these docs.
 
-<p class="standfirst"><!--gen:headline-->On an Apple M5 Max, yah265 encodes a median 1.79x faster than x265 at the same file size. Its VMAF v1 score is a median 1.23 points higher. Those medians cover the 30 CRF encodes of the test set where the two files match in size within 1%, from short clips to ten-minute films at CIF to 4K. Both encoders ran at preset medium with SIMD on all cores.<!--/gen:headline--></p>
+<p class="standfirst"><!--gen:headline-->On an Apple M5 Max, yah265 encodes a median 1.8x faster than x265 at the same file size. Its VMAF v1 score is a median 1.23 points higher. Those medians cover the 30 CRF encodes of the test set where the two files match in size within 1%, from short clips to ten-minute films at CIF to 4K. Both encoders ran at preset medium with SIMD on all cores.<!--/gen:headline--></p>
 
 yah265 is an H.265/HEVC encoder written from scratch in C. It runs inside ffmpeg under the options you already use.
 
@@ -73,7 +73,7 @@ The headline covers the cells in the first table. Each is one clip at one pictur
 | 720p | 10 | 1.92x faster | Shields 720p, 1.54x faster |
 | 1080p | 10 | 1.79x faster | Big Buck Bunny 1080p, 10 min, 1.69x faster |
 | 4K | 7 | 1.67x faster | Sintel 4K, 10 min, 1.52x faster |
-| **all** | **30** | **1.79x faster** | Sintel 4K, 10 min, 1.52x faster |
+| **all** | **30** | **1.8x faster** | Sintel 4K, 10 min, 1.52x faster |
 <!--/gen:pooled-table-->
 
 <!--gen:quality-table-->

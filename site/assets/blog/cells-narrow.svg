@@ -1,5 +1,5 @@
 <svg xmlns='http://www.w3.org/2000/svg' width='480' height='545.5' viewBox='0 0 480 545.5' role='img'>
-<title>All 30 size-matched cells run faster than x265, 1.79x at the median</title><desc>One dot per timed cell: times faster than x265 medium at the same file size on an Apple M5 Max with SIMD on all cores, in a row per picture size, with each row's median marked.</desc>
+<title>All 30 size-matched cells run faster than x265, 1.8x at the median</title><desc>One dot per timed cell: times faster than x265 medium at the same file size on an Apple M5 Max with SIMD on all cores, in a row per picture size, with each row's median marked.</desc>
 <style>
 .bg{fill:#ffffff}.t1{fill:#212529}.t2{fill:#495057}.grid{stroke:#e9ecef}
 .base{stroke:#868e96}.ring{stroke:#ffffff}.med{stroke:#212529}.band{fill:#f1f3f5}
@@ -16,7 +16,7 @@ text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-
 </style>
 <rect width='100%' height='100%' class='bg'/>
 <text x='20' y='30' font-size='18' class='t1' font-weight='600'>All 30 size-matched cells run faster than</text>
-<text x='20' y='53' font-size='18' class='t1' font-weight='600'>x265, 1.79x at the median</text>
+<text x='20' y='53' font-size='18' class='t1' font-weight='600'>x265, 1.8x at the median</text>
 <text x='20' y='73' font-size='12.5' class='t2'>One dot per CRF encode at the same file size, with a line at each</text>
 <text x='20' y='90' font-size='12.5' class='t2'>row's median. Preset medium on all cores of an Apple M5 Max.</text>
 <g transform='translate(0 26)'>

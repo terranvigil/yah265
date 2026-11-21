@@ -47,7 +47,7 @@ def front_matter(path):
 
 def main_line(pl):
     """The one sentence a card with a number carries."""
-    return [f"{bc.times(pl['median'])} faster than x265 on the Mac,",
+    return [f"{bc.headline_times(pl)} faster than x265 on the Mac,",
             f"{pl['dv']:+.2f} VMAF v1 at the same file size"]
 
 
@@ -167,7 +167,7 @@ def launch_quality(path, key, pl):
     size = p.fit(main, 96, W - 2 * M)
     y = p.lines(M, 160, main, size, True, lead=1.18) + 30
     p.lines(M, y, [f"yah265 scores higher in {pl['dv_ahead']} of {pl['dv_n']} size-matched encodes,",
-                   f"and finishes a median {bc.times(pl['median'])} faster."], 36, fill=INK2, lead=1.35)
+                   f"and finishes a median {bc.headline_times(pl)} faster."], 36, fill=INK2, lead=1.35)
     p.text(M, 562, foot(pl), 22, fill=INK2)
     p.save(path, key)
 
@@ -200,7 +200,7 @@ def launch_square(path, key, pl):
     S = 1080
     p = Pen(S, S)
     p.logo(M, 80, 80)
-    main = [bc.times(pl["median"]) + " faster", "than x265 on the Mac,", f"{pl['dv']:+.2f} VMAF v1",
+    main = [bc.headline_times(pl) + " faster", "than x265 on the Mac,", f"{pl['dv']:+.2f} VMAF v1",
             "at the same file size"]
     size = p.fit(main, 112, S - 2 * M)
     y = p.lines(M, 250, main, size, True, lead=1.2) + 50
@@ -221,7 +221,7 @@ def main():
     pl, fl = bc.headline_cells(rows), bc.films(rows)
     ok = [r for r in fl["2160p"] if r[1]]
     cm = class_medians(pl)
-    figures = (f"{bc.times(pl['median'])}|{pl['dv']:+.2f}|{pl['n']}|{pl['dv_ahead']}|"
+    figures = (f"{bc.headline_times(pl)}|{pl['dv']:+.2f}|{pl['n']}|{pl['dv_ahead']}|"
                + "|".join(f"{r:.4f}" for _, r, _ in cm)
                + f"|{sum(r[1] for r in ok):.0f}|{sum(r[2] for r in ok):.0f}")
     jobs = {}

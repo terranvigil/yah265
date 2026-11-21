@@ -42,7 +42,7 @@ text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-
 <path d='M20.0,222.0 H262.4 Q266.4,222.0 266.4,226.0 V246.0 Q266.4,250.0 262.4,250.0 H20.0 Z' class='run sx'/>
 <text x='20.0' y='214.0' font-size='14' class='t1' text-anchor='start' font-weight='600'>x265</text>
 <g class='after'>
-<text x='20.0' y='122.0' font-size='34' class='note' text-anchor='start' font-weight='700'>1.79x</text>
+<text x='20.0' y='122.0' font-size='34' class='note' text-anchor='start' font-weight='700'>1.8x</text>
 <text x='124.0' y='122.0' font-size='15' class='t2' text-anchor='start'>faster than x265</text>
 <text x='276.4' y='241.0' font-size='13' class='t1' text-anchor='start'>56% done</text>
 </g>

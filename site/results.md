@@ -12,7 +12,7 @@ The first two rows are the headline. They cover the CRF cells timed on the Mac a
 <!--gen:verdict-->
 | what was measured | result |
 |---|--:|
-| median speed on the Mac at the same file size, 30 CRF cells | 1.79x faster |
+| median speed on the Mac at the same file size, 30 CRF cells | 1.8x faster |
 | median VMAF v1 lead at the same file size, the same 30 cells | +1.23 points |
 | median bits saved at equal VMAF v1, 38 rate ladders | 10.2% |
 | speed groups inside the bar, three goals on three machines | 81 of 81 |

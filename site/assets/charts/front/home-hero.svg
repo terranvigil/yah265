@@ -41,7 +41,7 @@ text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-
 <path d='M104.0,160.0 H436.0 Q440.0,160.0 440.0,164.0 V190.0 Q440.0,194.0 436.0,194.0 H104.0 Z' class='run sx'/>
 <text x='90.0' y='182.0' font-size='15' class='t1' text-anchor='end' font-weight='600'>x265</text>
 <g class='after'>
-<text x='720.0' y='120.0' font-size='30' class='note' text-anchor='start' font-weight='700'>1.79x</text>
+<text x='720.0' y='120.0' font-size='30' class='note' text-anchor='start' font-weight='700'>1.8x</text>
 <text x='720.0' y='140.0' font-size='13' class='t2' text-anchor='start'>faster than x265</text>
 <text x='450.0' y='182.0' font-size='13' class='t1' text-anchor='start'>56% done</text>
 </g>
