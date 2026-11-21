@@ -268,9 +268,8 @@ static inline __m256i hstage4_y(__m256i v)
 static inline __m256i ld2x8(const pixel *p, const pixel *q)
 {
 #if BIT_DEPTH == 8
-    return _mm256_cvtepu8_epi16(_mm_castpd_si128(_mm_loadh_pd(
-        _mm_castsi128_pd(_mm_loadl_epi64((const __m128i *)p)),
-        (const double *)q)));
+    return _mm256_cvtepu8_epi16(_mm_unpacklo_epi64(
+        _mm_loadl_epi64((const __m128i *)p), _mm_loadl_epi64((const __m128i *)q)));
 #else
     return _mm256_inserti128_si256(
         _mm256_castsi128_si256(_mm_loadu_si128((const __m128i *)p)),
@@ -369,12 +368,10 @@ static inline __m512i ld4x16m(const pixel *p, ptrdiff_t st, __mmask16 m)
 /* four rows of 8 bytes */
 static inline __m256i ld4x8b(const pixel *p, ptrdiff_t st)
 {
-    __m128i lo = _mm_castpd_si128(_mm_loadh_pd(
-        _mm_castsi128_pd(_mm_loadl_epi64((const __m128i *)p)),
-        (const double *)(p + st)));
-    __m128i hi = _mm_castpd_si128(_mm_loadh_pd(
-        _mm_castsi128_pd(_mm_loadl_epi64((const __m128i *)(p + 2 * st))),
-        (const double *)(p + 3 * st)));
+    __m128i lo = _mm_unpacklo_epi64(_mm_loadl_epi64((const __m128i *)p),
+                                    _mm_loadl_epi64((const __m128i *)(p + st)));
+    __m128i hi = _mm_unpacklo_epi64(_mm_loadl_epi64((const __m128i *)(p + 2 * st)),
+                                    _mm_loadl_epi64((const __m128i *)(p + 3 * st)));
     return _mm256_inserti128_si256(_mm256_castsi128_si256(lo), hi, 1);
 }
 

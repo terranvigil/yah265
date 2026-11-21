@@ -262,9 +262,9 @@ static inline void cols_to_rows(pixel *b, ptrdiff_t stride, const __m128i c[8])
             __m128i hi = _mm_unpackhi_epi32(e[4 * h + j], e[4 * h + j + 2]);
             pixel *r = b + (8 * h + 4 * j) * stride;
             _mm_storel_epi64((__m128i *)r, lo);
-            _mm_storeh_pd((double *)(void *)(r + stride), _mm_castsi128_pd(lo));
+            _mm_storel_epi64((__m128i *)(r + stride), _mm_unpackhi_epi64(lo, lo));
             _mm_storel_epi64((__m128i *)(r + 2 * stride), hi);
-            _mm_storeh_pd((double *)(void *)(r + 3 * stride), _mm_castsi128_pd(hi));
+            _mm_storel_epi64((__m128i *)(r + 3 * stride), _mm_unpackhi_epi64(hi, hi));
         }
 }
 
