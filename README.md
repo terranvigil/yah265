@@ -84,7 +84,7 @@ It reads Y4M or raw YUV from a file or a pipe. The output is a raw HEVC stream t
 
 ## Hardware option?
 
-On Macs, `--hw videotoolbox` uses Apple's hardware HEVC encoder instead of our SIMD build. Median over ten clips from 720p to 2160p in [hardware-mode.md](docs/hardware-mode.md), same bitrate:
+On Macs, `--hw videotoolbox` uses Apple's hardware HEVC encoder instead of yah265's own SIMD build. Median over ten clips from 720p to 2160p in [hardware-mode.md](docs/hardware-mode.md), same bitrate:
 
 | mode | wall time | CPU used | VMAF v1 |
 |---|--:|--:|--:|

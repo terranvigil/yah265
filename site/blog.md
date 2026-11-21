@@ -119,7 +119,7 @@ ffmpeg -ss 60 -i tearsofsteel_4k.mov -frames:v 1440 -an -vf scale=1920:858:flags
 ```
 <!--/gen:ff-cmd-->
 
-## How we got there
+## How I got there
 
 <figure class="chart"><img src="assets/blog/history.svg" alt="Line chart on a log scale of the timed board's median speed against x265 from September to October 2026. Both lines start well below even and end above it."></figure>
 
@@ -135,7 +135,7 @@ Quality came before speed on purpose. Because a board read at matched file size 
 
 On my 18-core Mac, x265's auto-detection chose four frame threads. About half the cores sat idle at 720p. yah265 runs one shared worker pool whose unit of work is a row of coding tree units. Rows from several frames are in flight at once. A row starts once its reference frames have finished the rows its motion search can reach. Geometry alone sets that wait. Output across thread counts is checked at every gate, though the only identity I promise is one thread from run to run.
 
-NEON kernels shipped in rounds the same week. This was the hard goal, because on these clips x265's arm64 assembly makes it about three times as fast as its plain C. Because each of our kernels is bit-exact with its C reference, turning SIMD off changes nothing but the speed. On the chart the SIMD line climbs to under 2x slower within two days.
+NEON kernels shipped in rounds the same week. This was the hard goal, because on these clips x265's arm64 assembly makes it about three times as fast as its plain C. Because each of yah265's kernels is bit-exact with its C reference, turning SIMD off changes nothing but the speed. On the chart the SIMD line climbs to under 2x slower within two days.
 
 ### Picking what medium means
 
@@ -143,23 +143,23 @@ By mid-September yah265 had a large quality lead, although it was still slower w
 
 ### Real films disagreed with the short clips
 
-The short clips had us ahead everywhere. Two-minute segments of real titles didn't agree. One needed more bits than x265. Sol Levante took longer to encode.
+The short clips had yah265 ahead everywhere. Two-minute segments of real titles didn't agree. One needed more bits than x265. Sol Levante took longer to encode.
 
-The first problem was block size. Because our 32x32 coding blocks spent their bits on syntax at low rates, a 64x64 tree with a skip gate went in at HD and 4K. Sol Levante's time went to intra search inside P and B frames. We ranked the intra modes once. Trying 4x4 intra there stopped, as did recursing under intra blocks that almost never split. Both changes also gained quality.
+The first problem was block size. Because yah265's 32x32 coding blocks spent their bits on syntax at low rates, a 64x64 tree with a skip gate went in at HD and 4K. Sol Levante's time went to intra search inside P and B frames. I ranked the intra modes once. Trying 4x4 intra there stopped, as did recursing under intra blocks that almost never split. Both changes also gained quality.
 
 A task trace showed that the bigger tree then cost wall time on all cores because too few frames were in flight. Once a scheduling simulator matched the measured walls within 1%, it pointed at twelve frames in flight with reference frames scheduled first. The check across thread counts still read byte-identical afterward.
 
 ### VBR started out behind
 
-When VBR was first measured we trailed x265 on cells where CRF was level or ahead. VBR was also slower than x265 on all cores. Only one picture was ever in flight, because VBR waited for every frame to finish before it planned the next one. Planning from frames up to eight back gave the parallelism back.
+When VBR was first measured yah265 trailed x265 on cells where CRF was level or ahead. VBR was also slower than x265 on all cores. Only one picture was ever in flight, because VBR waited for every frame to finish before it planned the next one. Planning from frames up to eight back gave the parallelism back.
 
 That change wrote HRD underflows on very shallow buffers. Those buffers now code with no lag, because a stream that underflows its own signaled buffer isn't conformant. Capped VBR then moved onto the CRF path with a slow level. It also stopped spending surplus bits on frames that already looked perfect.
 
 ### A dev set that reads in ten minutes
 
-A full-table read took a night. In October we switched to a dev set of eight short windows and one two-minute segment. It reads in about ten minutes. Thirteen changes merged in two days. Every one was read on the whole dev set before it shipped.
+A full-table read took a night. In October I switched to a dev set of eight short windows and one two-minute segment. It reads in about ten minutes. Thirteen changes merged in two days. Every one was read on the whole dev set before it shipped.
 
-The biggest find there was motion search on fine texture. Our runs of B-frames were twice as long as x265's. At that distance the diamond search got stuck. A hexagon search fixed it, along with a stronger motion term in the rule that ends a run.
+The biggest find there was motion search on fine texture. yah265's runs of B-frames were twice as long as x265's. At that distance the diamond search got stuck. A hexagon search fixed it, along with a stronger motion term in the rule that ends a run.
 
 ### VMAF v1
 
@@ -169,7 +169,7 @@ Then v1's banding feature found dark grain coded to flat steps on StEM2 and Noct
 
 ### The input read
 
-One film still failed the speed bar with SIMD on. At 720p it was slower than x265 even though our instruction count was the lowest of any film. The time went to the input. Because the command line read each frame between calls into the encoder, a slow disk added its time to every frame. Reading on its own thread fixed it.
+One film still failed the speed bar with SIMD on. At 720p it was slower than x265 even though yah265's instruction count was the lowest of any film. The time went to the input. Because the command line read each frame between calls into the encoder, a slow disk added its time to every frame. Reading on its own thread fixed it.
 
 ### Off the Mac
 

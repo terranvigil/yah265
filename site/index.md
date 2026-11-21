@@ -5,7 +5,7 @@ description: An H.265/HEVC encoder written from scratch. It runs faster than x26
 
 # yah265
 
-Welcome to the home of yah265, an HEVC encoder that went through months of optimization and benchmarking until it significantly outperformed x265 and others. We chose targets for quality, compression and encoding speed and were able to surpass them. I will go into more details as to how I was able to do this later in these docs.
+Welcome to the home of yah265, an HEVC encoder that went through months of optimization and benchmarking until it significantly outperformed x265 and others. I chose targets for quality, compression and encoding speed and was able to surpass them. I will go into more details as to how I was able to do this later in these docs.
 
 <p class="standfirst"><!--gen:headline-->On an Apple M5 Max, yah265 encodes a median 1.8x faster than x265 at the same file size. Its VMAF v1 score is a median 1.23 points higher. Those medians cover the 30 CRF encodes of the test set where the two files match in size within 1%, from short clips to ten-minute films at CIF to 4K. Both encoders ran at preset medium with SIMD on all cores.<!--/gen:headline--></p>
 

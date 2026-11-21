@@ -168,7 +168,7 @@ The first pass measures every frame. The second plans the whole file before it c
 
 `medium` changes with the picture size. A small picture gets a smaller coding tree and a shorter lookahead. 4K gets a second reference. Design has [the whole table](design.md#what-medium-does-at-each-size).
 
-yah265 offers four presets. Its `medium` already runs faster than x265's `medium` and scores higher at the same file size, so we kept the list short. x265's other preset names give an error that names the nearest preset. I'd use `medium` unless you've measured otherwise on your content.
+yah265 offers four presets. Its `medium` already runs faster than x265's `medium` and scores higher at the same file size, so I kept the list short. x265's other preset names give an error that names the nearest preset. I'd use `medium` unless you've measured otherwise on your content.
 
 Because a preset only sets defaults, any option you give wins over it. To see what a run will do, ask:
 
@@ -271,7 +271,7 @@ The joined stream differs from the serial one. It has no HRD timing. [Threading]
 
 ## Hardware encoding on a Mac
 
-On a Mac you can hand the encode to Apple's hardware. Your options carry over as far as the hardware allows, and the encoder lists the ones it can't follow before it starts. Our scene-cut detection still decides where the key frames go. The hardware uses a fraction of the CPU and usually less time. At the same bitrate it scores lower, by about four VMAF v1 points at the median. With `auto`, the encoder uses its own path when the hardware isn't there.
+On a Mac you can hand the encode to Apple's hardware. Your options carry over as far as the hardware allows, and the encoder lists the ones it can't follow before it starts. yah265's scene-cut detection still decides where the key frames go. The hardware uses a fraction of the CPU and usually less time. At the same bitrate it scores lower, by about four VMAF v1 points at the median. With `auto`, the encoder uses its own path when the hardware isn't there.
 
 ```sh
 y265 in.y4m -o out.hevc --hw videotoolbox --crf 26
@@ -312,7 +312,7 @@ Two pairs of bounds hold the rate control inside a range. One pair bounds the fr
 
 Two tools work on whole shots. Both are opt-in, because the default encoder never looks further ahead than its lookahead.
 
-A shot window buffers frames so a CRF encode can plan a whole shot against the shots before it. No other rate mode takes one. The window costs its length in frames of latency, because the encoder holds that many more source pictures in memory. The window stays off because, in our own test on multi-shot sequences, the little bitrate it saved came with quality less even from one shot to the next.
+A shot window buffers frames so a CRF encode can plan a whole shot against the shots before it. No other rate mode takes one. The window costs its length in frames of latency, because the encoder holds that many more source pictures in memory. The window stays off because, in my own test on multi-shot sequences, the little bitrate it saved came with quality less even from one shot to the next.
 
 Shot statistics are one JSON line per shot: where it starts and ends, its bits, its frame types and its complexity. A ladder builder can use them to pick a rate per shot. The stream is the same with them on.
 
@@ -388,7 +388,7 @@ The pixel format picks the bit depth. 4:2:0, 4:2:2 and 4:4:4 work at 8 and 10 bi
 | four of x265's tune names | each has a short reason under [Tune names](#tune-names) |
 | `--intra-refresh` | it serves low-latency links, such as video calls, that avoid key frames. Files and streaming need key frames for seeking anyway |
 | `--scaling-list` | x265 leaves custom quantizer matrices off by default too. yah265 shapes detail through its own perceptual tuning instead |
-| interlaced coding | almost all video made today is progressive. We will add it if there is enough interest |
+| interlaced coding | almost all video made today is progressive. I will add it if there is enough interest |
 | 12-bit | 8-bit and 10-bit cover every delivery format, HDR10, HLG and Dolby Vision included |
 | `--psy-rd`, `--psy-rdoq` | yah265's perceptual tuning is built into its presets, so there's nothing to set |
 | x265's threading options | yah265 sets up its threads by itself. It splits each frame into rows. Working on rows from several frames at once keeps every core busy without any tuning |

@@ -128,7 +128,7 @@ ffmpeg -i master.mov -pix_fmt yuv420p10le \
   -tag:v hvc1 out.mp4
 ```
 
-`libyah265` writes the color flags from the tags on the frames ffmpeg hands it. A master that is already tagged PQ and BT.2020 needs no `setparams`. The filter is there for a source with missing tags, because ffmpeg's output flags `-color_primaries` and `-color_trc` didn't reach the encoder in the ffmpeg 8 build we tested.
+`libyah265` writes the color flags from the tags on the frames ffmpeg hands it. A master that is already tagged PQ and BT.2020 needs no `setparams`. The filter is there for a source with missing tags, because ffmpeg's output flags `-color_primaries` and `-color_trc` didn't reach the encoder in the ffmpeg 8 build I tested.
 
 The mastering display and the light level reach the stream only through `-yah265-params`. ffmpeg by itself copies a source's values into the MP4's `mdcv` and `clli` boxes. A file can therefore show them when the stream inside has none.
 
@@ -343,7 +343,7 @@ A switch forces the tuning on for any stream, or off for an HDR one. Chroma offs
 
 <figure class="chart"><img src="assets/charts/front/hdr-bd.svg" alt="Bars of the share of bitrate yah265 saves against x265 at equal HDR-VMAF on Sol Levante, Sparks and an HLG clip at 1080p and 4K. Every bar is a saving. The savings are smaller against x265 with its PQ tuning on, and smallest on Sol Levante."></figure>
 
-We scored both encoders with Netflix's HDR-VMAF v1.1.8. The table gives yah265's BD-rate against x265, where a negative number is the share of bitrate yah265 saves at equal quality.
+I scored both encoders with Netflix's HDR-VMAF v1.1.8. The table gives yah265's BD-rate against x265, where a negative number is the share of bitrate yah265 saves at equal quality.
 
 <!--gen:hdr-table-->
 | title | transfer | size | against x265 | against x265 `--hdr10-opt` |
