@@ -272,7 +272,7 @@ def chart_speed(sp):
 def chart_machines(sps):
     rows = B.speed_rows(sps.values())
     meds = [v[0] for sp in sps.values() for v in sp.values()]
-    title = (f"On all three machines every group's median is at least {tf(max(meds)):.2f}x faster")
+    title = f"Against x265 as shipped, every group is at least {tf(max(meds)):.2f}x faster"
     panels = [(GOAL_LABEL[g], {((c, t), j): sps[m][(c, t, g)][:2] for j, m in enumerate(MACHINES)
                                for c, t in rows if (c, t, g) in sps[m]}) for g in GOAL_ORDER]
     return title, chart_faster(

@@ -135,7 +135,7 @@ Each film runs from its start frame to its last story frame. The table has the M
 ## By machine
 
 <!--gen:fig-machines-->
-<figure class="chart"><img src="assets/charts/results/machines.svg" alt="On all three machines every group's median is at least 1.25x faster."></figure>
+<figure class="chart"><img src="assets/charts/results/machines.svg" alt="Against x265 as shipped, every group is at least 1.25x faster."></figure>
 <!--/gen:fig-machines-->
 
 The same medians from each machine's slowest group to its fastest:
@@ -205,7 +205,7 @@ G2, plain C on all cores:
 
 </details>
 
-A Graviton3 with 256-bit SVE ran the short clips at G3.
+A Graviton3 with 256-bit SVE ran the short clips at G3. Its CIF row has two clips because the third came out more than 1% off the target size.
 
 <details class="data" markdown="1">
 <summary>Graviton3, short clips at G3</summary>

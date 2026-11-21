@@ -5,7 +5,7 @@
 
 VMAF v1 (vmaf_v1.0.16) predicts from four features only: CAMBI (banding),
 SpEED chroma (speed_chroma_uv), ADM3 (detail) and motion3. This reads a
-five-rung ladder on both encoders, prints BD-v1 and BD-PSNR-Y, and then
+five-rung ladder on both encoders, prints BD-v1 (and BD-PSNR-Y with --psnr), and then
 says WHICH feature carries the gap. It re-evaluates the model's SVR on the
 per-frame features (the model file is the source; the re-evaluation is
 checked against libvmaf's own score on every rung), interpolates x265's
@@ -259,6 +259,7 @@ def main():
     ap.add_argument("--vbr", action="store_true")
     ap.add_argument("--rungs", default="20,23,26,29,32")
     ap.add_argument("--frames", type=int, default=None)
+    ap.add_argument("--psnr", action="store_true", help="also print BD-PSNR-Y")
     o = ap.parse_args(a)
     env = dict(kv.split("=", 1) for kv in o.env)
     binh = sha(BIN)
@@ -277,7 +278,8 @@ def main():
     bp = bd_rate(R(ref), M(ref, "psnr_y"), R(ours), M(ours, "psnr_y"))
     fmt = lambda x: "n/a" if x is None else f"{x:+.2f}%"
     print(f"{os.path.basename(o.src)} {o.arm} {'vbr' if o.vbr else 'crf'} "
-          f"{' '.join(o.env + flags)}: BD-v1 {fmt(bv)}  BD-PSNR-Y {fmt(bp)}")
+          f"{' '.join(o.env + flags)}: BD-v1 {fmt(bv)}"
+          + (f"  BD-PSNR-Y {fmt(bp)}" if o.psnr else ""))
     attrib(ours, ref)
 
 
