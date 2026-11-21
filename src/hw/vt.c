@@ -40,10 +40,11 @@ struct n265_hw {
     int frames_in, frames_out;
     int err;                    /* first callback error, sticky */
     int hdr_sent;
-    /* the parameter sets, Annex B, in the order the description lists */
+    /* the parameter sets, Annex B, in the order the description lists,
+     * then our SEI; hdr_* counts the parameter sets alone */
     uint8_t *ps;
-    size_t ps_len;
-    int ps_n, ps_type[VT_MAX_PS];
+    size_t ps_len, hdr_len;
+    int ps_n, hdr_n, ps_type[VT_MAX_PS];
     size_t ps_size[VT_MAX_PS];
     int probing;
     pthread_mutex_t mx;
@@ -55,6 +56,10 @@ struct n265_hw {
     n265_au au[VT_MAX_AUS];
     int n_au;
     int reorder;
+    /* the HDR10 SEI, which the hardware doesn't write: out beside the
+     * parameter sets */
+    uint8_t sei[64];
+    size_t sei_len;
     char name[64];
 };
 
@@ -81,8 +86,8 @@ static int take_parameter_sets(struct n265_hw *h, CMFormatDescriptionRef fd)
         return -1;
     if (h->ps)
         return hlen;
-    if (cnt > VT_MAX_PS)
-        cnt = VT_MAX_PS;
+    if (cnt > VT_MAX_PS - 1)
+        cnt = VT_MAX_PS - 1;
     size_t total = 0;
     for (size_t i = 0; i < cnt; i++) {
         if (CMVideoFormatDescriptionGetHEVCParameterSetAtIndex(fd, i, &p, &n,
@@ -91,7 +96,7 @@ static int take_parameter_sets(struct n265_hw *h, CMFormatDescriptionRef fd)
             return -1;
         total += 4 + n;
     }
-    uint8_t *buf = malloc(total);
+    uint8_t *buf = malloc(total + h->sei_len);
     if (!buf)
         return -1;
     size_t w = 0;
@@ -103,6 +108,15 @@ static int take_parameter_sets(struct n265_hw *h, CMFormatDescriptionRef fd)
         h->ps_type[i] = n ? (p[0] >> 1) & 0x3f : 0;
         h->ps_size[i] = 4 + n;
         w += 4 + n;
+    }
+    h->hdr_n = (int)cnt;
+    h->hdr_len = total;
+    if (h->sei_len) {
+        memcpy(buf + w, h->sei, h->sei_len);
+        h->ps_type[cnt] = N265_NAL_PREFIX_SEI;
+        h->ps_size[cnt] = h->sei_len;
+        cnt++;
+        total += h->sei_len;
     }
     h->ps_n = (int)cnt;
     h->ps_len = total;
@@ -223,17 +237,6 @@ static int set_i32(VTCompressionSessionRef s, CFStringRef key, int v)
 static int set_f64(VTCompressionSessionRef s, CFStringRef key, double v)
 {
     return set_num(s, key, kCFNumberDoubleType, &v);
-}
-
-static int set_data(VTCompressionSessionRef s, CFStringRef key,
-                    const uint8_t *b, size_t n)
-{
-    CFDataRef d = CFDataCreate(NULL, b, (CFIndex)n);
-    if (!d)
-        return -1;
-    OSStatus st = VTSessionSetProperty(s, key, d);
-    CFRelease(d);
-    return st == noErr ? 0 : -1;
 }
 
 /* --crf onto the hardware's 0..1 quality key, rate-matched: each point is
@@ -443,27 +446,6 @@ static VTCompressionSessionRef session_new(struct n265_hw *h, int quiet,
         CFRelease(hn);
         CFRelease(vn);
     }
-    /* the two HDR10 SEI, in their payload layout */
-    if (c->have_md) {
-        uint8_t b[24];
-        for (int i = 0; i < 3; i++) {
-            put16(b + 4 * i, c->md_prim[i][0]);
-            put16(b + 4 * i + 2, c->md_prim[i][1]);
-        }
-        put16(b + 12, c->md_wp[0]);
-        put16(b + 14, c->md_wp[1]);
-        put32(b + 16, c->md_max);
-        put32(b + 20, c->md_min);
-        set_data(s, kVTCompressionPropertyKey_MasteringDisplayColorVolume,
-                 b, sizeof b);
-    }
-    if (c->have_cll) {
-        uint8_t b[4];
-        put16(b, (unsigned)c->maxcll);
-        put16(b + 2, (unsigned)c->maxfall);
-        set_data(s, kVTCompressionPropertyKey_ContentLightLevelInfo,
-                 b, sizeof b);
-    }
     if (VTCompressionSessionPrepareToEncodeFrames(s) != noErr) {
         *why = "the hardware session refused to prepare";
         goto fail;
@@ -498,6 +480,45 @@ struct n265_hw *n265_hw_open(const n265_hw_cfg *c, char *why, size_t whylen)
         h->cfg.fps_den = 1;
     }
     h->reorder = -1;
+    if (c->have_md || c->have_cll) {
+        uint8_t r[48];
+        size_t n = 0;
+        if (c->have_md) {
+            r[n++] = 137;
+            r[n++] = 24;
+            for (int i = 0; i < 3; i++) {
+                put16(r + n, c->md_prim[i][0]);
+                put16(r + n + 2, c->md_prim[i][1]);
+                n += 4;
+            }
+            put16(r + n, c->md_wp[0]);
+            put16(r + n + 2, c->md_wp[1]);
+            put32(r + n + 4, c->md_max);
+            put32(r + n + 8, c->md_min);
+            n += 12;
+        }
+        if (c->have_cll) {
+            r[n++] = 144;
+            r[n++] = 4;
+            put16(r + n, (unsigned)c->maxcll);
+            put16(r + n + 2, (unsigned)c->maxfall);
+            n += 4;
+        }
+        r[n++] = 0x80;
+        uint8_t *w = h->sei;
+        static const uint8_t head[6] = { 0, 0, 0, 1, 0x4e, 0x01 };
+        memcpy(w, head, sizeof head);
+        size_t k = sizeof head;
+        for (size_t i = 0, zeros = 0; i < n; i++) {
+            if (zeros >= 2 && r[i] <= 3) {
+                w[k++] = 3;
+                zeros = 0;
+            }
+            w[k++] = r[i];
+            zeros = r[i] ? 0 : zeros + 1;
+        }
+        h->sei_len = k;
+    }
     h->sess = session_new(h, 0, &msg);
     if (!h->sess) {
         if (why && whylen)
@@ -565,17 +586,20 @@ static int fill_buffer(const struct n265_hw *h, CVPixelBufferRef pb,
     return 0;
 }
 
-static CVPixelBufferRef new_buffer(VTCompressionSessionRef s,
-                                   const n265_hw_cfg *c)
+static CVPixelBufferRef new_buffer(const struct n265_hw *h,
+                                   VTCompressionSessionRef s)
 {
+    const n265_hw_cfg *c = &h->cfg;
     CVPixelBufferPoolRef pool = VTCompressionSessionGetPixelBufferPool(s);
     CVPixelBufferRef pb = NULL;
-    if (pool && CVPixelBufferPoolCreatePixelBuffer(NULL, pool, &pb)
-                == kCVReturnSuccess && pb)
-        return pb;
-    if (CVPixelBufferCreate(NULL, (size_t)c->width, (size_t)c->height,
-                            pixel_format(c), NULL, &pb) != kCVReturnSuccess)
-        return NULL;
+    if (!pool || CVPixelBufferPoolCreatePixelBuffer(NULL, pool, &pb)
+                 != kCVReturnSuccess || !pb) {
+        pb = NULL;
+        if (CVPixelBufferCreate(NULL, (size_t)c->width, (size_t)c->height,
+                                pixel_format(c), NULL, &pb)
+            != kCVReturnSuccess)
+            return NULL;
+    }
     return pb;
 }
 
@@ -589,7 +613,7 @@ static int probe_headers(struct n265_hw *h)
     VTCompressionSessionRef s = session_new(h, 1, &why);
     if (!s)
         return -1;
-    CVPixelBufferRef pb = new_buffer(s, &h->cfg);
+    CVPixelBufferRef pb = new_buffer(h, s);
     int rc = -1;
     if (pb && fill_buffer(h, pb, NULL) == 0) {
         pthread_mutex_lock(&h->mx);
@@ -622,23 +646,23 @@ int n265_hw_headers(struct n265_hw *h, n265_nal **nal, int *nnal)
     h->n_au = 0;
     if (probe_headers(h) < 0)
         return -1;
-    if (h->ps_len > h->out_cap) {
-        uint8_t *o = realloc(h->out, h->ps_len);
+    if (h->hdr_len > h->out_cap) {
+        uint8_t *o = realloc(h->out, h->hdr_len);
         if (!o)
             return -1;
         h->out = o;
-        h->out_cap = h->ps_len;
+        h->out_cap = h->hdr_len;
     }
-    memcpy(h->out, h->ps, h->ps_len);
+    memcpy(h->out, h->ps, h->hdr_len);
     size_t off = 0;
-    for (int i = 0; i < h->ps_n; i++) {
+    for (int i = 0; i < h->hdr_n; i++) {
         h->nal[i].type = h->ps_type[i];
         h->nal[i].size = (int)h->ps_size[i];
         h->nal[i].payload = h->out + off;
         off += h->ps_size[i];
     }
-    *nnal = h->ps_n;
-    return (int)h->ps_len;
+    *nnal = h->hdr_n;
+    return (int)h->hdr_len;
 }
 
 /* sps_max_num_reorder_pics of the highest sub-layer */
@@ -864,7 +888,7 @@ int n265_hw_encode(struct n265_hw *h, n265_nal **nal, int *nnal,
         h->n_au = 0;
         return 0;
     }
-    CVPixelBufferRef pb = new_buffer(h->sess, &h->cfg);
+    CVPixelBufferRef pb = new_buffer(h, h->sess);
     if (!pb)
         return -1;
     if (fill_buffer(h, pb, pic) < 0) {
