@@ -149,7 +149,7 @@ def scope(pl):
 
 
 def hook(s, pl):
-    s.para(M, 250, "I wrote an HEVC video encoder from scratch.", 42, "medium", INK2)
+    s.para(M, 250, "A new HEVC encoder, written in C.", 42, "medium", INK2)
     s.text(M - 14, 318, bc.headline_times(pl), 318, "heavy", NEON)
     y = s.para(M, 700, "faster than x265", 104, "bold", lead=1.1)
     y = s.para(M, y + 22, "at the same file size, with better quality.", 54, "medium", INK2,

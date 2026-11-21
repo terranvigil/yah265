@@ -16,7 +16,7 @@
 
 <!--gen:headline-->On an Apple M5 Max, yah265 encodes a median 1.8x faster than x265 at the same file size. Its VMAF v1 score is a median 1.23 points higher. Those medians cover the 30 CRF encodes of the test set where the two files match in size within 1%, from short clips to ten-minute films at CIF to 4K. Both encoders ran at preset medium with SIMD on all cores.<!--/gen:headline-->
 
-yah265 is an H.265/HEVC encoder written from scratch in C. It runs inside ffmpeg under the options you already use. Its sibling [yah264](https://terranvigil.github.io/yah264/) met the same goals against x264.
+yah265 is a new HEVC encoder, written in C. It runs inside ffmpeg under the options you already use. Its sibling [yah264](https://terranvigil.github.io/yah264/) met the same goals against x264.
 
 ## Try it
 

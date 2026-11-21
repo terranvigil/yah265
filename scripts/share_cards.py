@@ -31,7 +31,7 @@ import blog_charts as bc  # noqa: E402
 ROOT = bc.ROOT
 SITE = os.path.join(ROOT, "site")
 OUT = os.path.join(SITE, "assets/share")
-LAYOUT = 2  # bump when a card's wording or layout changes
+LAYOUT = 3  # bump when a card's wording or layout changes
 SKIP = {"README.md"}
 HEADLINE_PAGES = {"index", "results", "blog"}
 W, H, M = 1200, 627, 72
@@ -137,7 +137,7 @@ def page_card(path, key, title, desc, pl):
     else:
         p.lines(M, y, p.wrap(desc, 34, W - 2 * M)[:5], 34, fill=INK2, lead=1.3)
         p.d.line((M, H - 92, W - M, H - 92), fill=RULE, width=2)
-        p.text(M, H - 72, "yah265, an H.265/HEVC encoder written from scratch", 24, fill=INK2)
+        p.text(M, H - 72, "yah265, a new HEVC encoder, written in C", 24, fill=INK2)
     p.save(path, key)
 
 
@@ -204,7 +204,7 @@ def launch_square(path, key, pl):
             "at the same file size"]
     size = p.fit(main, 112, S - 2 * M)
     y = p.lines(M, 250, main, size, True, lead=1.2) + 50
-    p.lines(M, y, p.wrap("An H.265/HEVC encoder written from scratch. It runs inside ffmpeg.",
+    p.lines(M, y, p.wrap("A new HEVC encoder, written in C. It runs inside ffmpeg.",
                          40, S - 2 * M), 40, fill=INK2, lead=1.3)
     p.lines(M, S - 150, p.wrap(foot(pl), 26, S - 2 * M), 26, fill=INK2, lead=1.3)
     p.save(path, key)

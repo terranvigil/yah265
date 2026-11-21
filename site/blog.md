@@ -1,6 +1,6 @@
 ---
 title: Introducing yah265
-description: An H.265/HEVC encoder written from scratch. It encodes faster than x265 at medium on Apple silicon, x86-64 and Graviton. Its files score higher on VMAF v1 at the same size.
+description: A new HEVC encoder, written in C. It encodes faster than x265 at medium on Apple silicon, x86-64 and Graviton. Its files score higher on VMAF v1 at the same size.
 type: article
 image: assets/blog/card.png
 ---
@@ -9,7 +9,7 @@ image: assets/blog/card.png
 
 <!--gen:headline-->On an Apple M5 Max, yah265 encodes a median 1.8x faster than x265 at the same file size. Its VMAF v1 score is a median 1.23 points higher. Those medians cover the 30 CRF encodes of the test set where the two files match in size within 1%, from short clips to ten-minute films at CIF to 4K. Both encoders ran at preset medium with SIMD on all cores.<!--/gen:headline-->
 
-It's an H.265/HEVC encoder I wrote from scratch. Speed is the reason to try it. The chart shows what the difference looks like on real films. Both encoders wrote files of the same size from the same ten-minute films on my Mac at `--preset medium`. yah265 finished every film first. Each of its files also scored higher on VMAF v1.
+It's a new HEVC encoder I wrote in C. Speed is the reason to try it. The chart shows what the difference looks like on real films. Both encoders wrote files of the same size from the same ten-minute films on my Mac at `--preset medium`. yah265 finished every film first. Each of its files also scored higher on VMAF v1.
 
 <figure class="chart"><img src="assets/blog/films.svg" alt="Paired bars of encode time per ten-minute film at 1080p and at 4K. On every film the yah265 bar is shorter, at a half to two thirds of the x265 bar."><figcaption>The films table below has the same readings.</figcaption></figure>
 

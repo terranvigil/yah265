@@ -1,6 +1,6 @@
 ---
 title: yah265
-description: An H.265/HEVC encoder written from scratch. It runs faster than x265 at medium and scores higher on VMAF v1 at the same file size.
+description: A new HEVC encoder, written in C. It runs faster than x265 at medium and scores higher on VMAF v1 at the same file size.
 ---
 
 # yah265
@@ -9,7 +9,7 @@ Welcome to the home of yah265, an HEVC encoder that went through months of optim
 
 <p class="standfirst"><!--gen:headline-->On an Apple M5 Max, yah265 encodes a median 1.8x faster than x265 at the same file size. Its VMAF v1 score is a median 1.23 points higher. Those medians cover the 30 CRF encodes of the test set where the two files match in size within 1%, from short clips to ten-minute films at CIF to 4K. Both encoders ran at preset medium with SIMD on all cores.<!--/gen:headline--></p>
 
-yah265 is an H.265/HEVC encoder written from scratch in C. It runs inside ffmpeg under the options you already use.
+yah265 is a new HEVC encoder, written in C. It runs inside ffmpeg under the options you already use.
 
 <figure class="chart hero"><img src="assets/charts/front/home-hero.svg" alt="Two bars race over the same encode. When the yah265 bar reaches the finish, the x265 bar is a little over halfway."></figure>
 
