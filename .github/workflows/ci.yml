@@ -10,7 +10,7 @@ jobs:
       - name: deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y meson ninja-build ffmpeg libde265-examples
+          sudo apt-get install -y meson ninja-build ffmpeg libde265-examples python3-numpy
       - name: build + unit + provenance
         run: make test
       - name: conformance (two-decoder recon gate)
@@ -23,7 +23,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: deps
-        run: brew install meson ninja ffmpeg
+        run: |
+          brew install meson ninja ffmpeg
+          python3 -m pip install --break-system-packages numpy
       - name: cache dec265
         id: cache-dec265
         uses: actions/cache@v4

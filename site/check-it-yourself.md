@@ -15,6 +15,7 @@ The harness at the end of this page reruns whole tables from the project's own m
 - x265 as the reference. The results use the Homebrew build of x265 4.3. Because an older x265 on arm64 has much less assembly, it makes a G3 reading look better than it is.
 - ffmpeg, to make input and to decode.
 - libde265's `dec265`, for the conformance check.
+- Python 3 with numpy, for `make test` and the harness scripts.
 - For quality, a libvmaf 3.x `vmaf` command line with Netflix's `vmaf_v1.0.16` model. The scripts look for the tool at `~/.local/opt/vmaf-v1/bin/vmaf`, or wherever `V1_BIN` points. They look for the models under `~/.local/share/vmaf/model`.
 
 You also need a clip. This command downloads seven standard CIF test clips from Xiph into `tests/corpus/`:
