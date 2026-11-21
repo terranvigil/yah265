@@ -246,9 +246,9 @@ def action(s):
         size -= 1
     s.text(W / 2, y + 74, REPO, size, "bold", "#ffd9c7", mono=True, anchor="mm")
     y += 148 + 64
-    y = s.para(M, y, "Every result comes from a script you can rerun. The data is published "
-               "with it.", 46, "medium", INK, lead=1.3)
-    s.para(M, y + 34, "Tell me what you find.", 46, "medium", INK2, lead=1.3)
+    y = s.para(M, y, "Scripts are provided to reproduce my results. All data from those "
+               "tests are also included.", 46, "medium", INK, lead=1.3)
+    s.para(M, y + 34, "I want your feedback!", 46, "medium", INK2, lead=1.3)
     s.note("The docs and the results are linked in the post.", 32)
 
 
