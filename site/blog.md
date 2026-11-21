@@ -82,6 +82,8 @@ Here is the hardest moment of one clip, from two files of the same size.
 </figure>
 <!--/gen:fig-frames-->
 
+A still frame only goes so far. The [comparison players](https://terranvigil.github.io/yah265-compare/) play both encodes in motion at the same file size, so you can switch between them and jump to the hardest moments yourself.
+
 An average can hide a bad stretch. Here is every frame of that clip from both files.
 
 <!--trust:fig-trace-->

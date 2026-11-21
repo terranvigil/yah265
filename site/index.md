@@ -51,6 +51,8 @@ The two encodes below are the same size. Switch between the reference and each o
 </figure>
 <!--/gen:fig-frames-->
 
+To see both in motion, open the [comparison players](https://terranvigil.github.io/yah265-compare/).
+
 ## What it does
 
 - Encodes through ffmpeg as `libyah265`, or from a pipe with [its own command line](start.md#build-y265-on-its-own).

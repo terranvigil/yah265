@@ -297,6 +297,8 @@ Scores aside, you can just look at the two encodes. The clip is 90 seconds of Te
 </figure>
 <!--/gen:fig-frames-->
 
+The [comparison players](https://terranvigil.github.io/yah265-compare/) play both encodes in motion: 30 seconds of Nocturne in 4K, and the same Tears of Steel clip at 1080p. Each lets you switch encodes and jump to the frames where they differ most.
+
 A script picked these frames by a fixed rule. It scored every frame by the mean of the two encoders' VMAF v1, then took the lowest frame in a low-scoring shot. To place the crop, it measured both encodes against the reference block by block. The crop is the window where their losses differ most, whichever encode is ahead. The reference is a near-transparent copy of the source.
 
 ## The worst frames
