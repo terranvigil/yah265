@@ -98,13 +98,21 @@ REPO_HREF = re.compile(
     r"(\.\./)?(docs|scripts|spec|src|include|tests|cli)/|"
     r"(\.\./)?(Makefile|README\.md|LICENSE|CONTRIBUTING\.md)$")
 
-SMPTE = (
-    '<div class="smpte" aria-hidden="true">'
-    '<span style="background:#b8b8a8"></span><span style="background:#b8b83e"></span>'
-    '<span style="background:#3eb8b8"></span><span style="background:#3eb83e"></span>'
-    '<span style="background:#b83eb8"></span><span style="background:#b83e3e"></span>'
-    '<span style="background:#3e3eb8"></span></div>'
-)
+def _block_strip():
+    # coding blocks under each title: 64/32/16/8 widths, like one row of a
+    # split HEVC frame; seeded so every build writes the same strip
+    import random
+    rng = random.Random(265)
+    tints = ["neon", "glow", "accent-lt", "accent", "accent-soft"]
+    spans, used = [], 0
+    while used < 768:
+        w = min(rng.choice([64, 32, 32, 16, 16, 16, 8, 8]), 768 - used)
+        spans.append(f'<span style="flex-grow:{w};background:var(--{rng.choice(tints)})"></span>')
+        used += w
+    return '<div class="titlerule" aria-hidden="true">' + "".join(spans) + "</div>"
+
+
+TITLE_RULE = _block_strip()
 
 LOGO = (
     '<picture><source srcset="assets/yah265-logo-dark.png" '
@@ -345,7 +353,7 @@ def build(strict=False):
         if target == "index.html":
             content = re.sub(r"<h1[^>]*>yah265</h1>", f'<h1 class="mark">{LOGO}</h1>',
                              content, count=1)
-        content = content.replace("</h1>", "</h1>" + SMPTE, 1)
+        content = content.replace("</h1>", "</h1>" + TITLE_RULE, 1)
         for fig in re.findall(r'(?s)<figure class="diagram[^"]*">.*?</figure>', content):
             if not (re.search(r'<svg class="d-wide"', fig)
                     and re.search(r'<svg class="d-narrow" viewBox="0 0 360 ', fig)):

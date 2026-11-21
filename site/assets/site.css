@@ -68,7 +68,6 @@
     --hairline: #2e3135;
     --pass: #69db7c;
   }
-  .smpte { opacity: 0.72; }
 }
 
 * { box-sizing: border-box; }
@@ -110,9 +109,9 @@ a.skip {
 a.skip:focus { top: 8px; }
 svg.defs { position: absolute; }
 
-/* color bars under every page title: a test pattern for a video encoder */
-.smpte { display: flex; height: 6px; border-radius: 3px; overflow: hidden; margin: 1.5rem 0 0; opacity: 0.85; }
-.smpte span { flex: 1; }
+/* coding blocks under every page title: one row of a split HEVC frame */
+.titlerule { display: flex; gap: 1px; height: 6px; margin: 1.5rem 0 0; border-radius: 2px; overflow: hidden; }
+.titlerule span { flex-basis: 0; }
 
 /* the home page's title is the logo */
 h1.mark { margin: 0.2em 0 0; line-height: 0; }
@@ -514,7 +513,7 @@ nav.pager a:hover { color: var(--accent); background: none; }
 }
 
 @media print {
-  header.site, aside.toc, nav.pager, details.onpage, button.copy, a.anchor, a.skip, .smpte { display: none !important; }
+  header.site, aside.toc, nav.pager, details.onpage, button.copy, a.anchor, a.skip, .titlerule { display: none !important; }
   html { font-size: 11pt; }
   body { background: #fff; color: #000; }
   .wrap { display: block; max-width: none; padding: 0; }
