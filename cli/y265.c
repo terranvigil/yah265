@@ -2441,12 +2441,26 @@ static int cli_parse(const n265_api *a, n265_config *cfg, int argc,
     return -1;
 }
 
+/* main returns from many places while the encoder still reads the
+ * config's strings, so the config is freed once, at exit */
+static n265_config *exit_cfg;
+static const n265_api *exit_api;
+
+static void free_exit_cfg(void)
+{
+    if (exit_cfg)
+        exit_api->config_free(exit_cfg);
+}
+
 int main(int argc, char **argv)
 {
     cli_opts o;
     n265_config *cfg = api8.config_new();
     if (!cfg)
         return 1;
+    exit_cfg = cfg;
+    exit_api = &api8;
+    atexit(free_exit_cfg);
     {
         int rc = cli_parse(&api8, cfg, argc, argv, &o);
         if (rc >= 0)
@@ -2571,6 +2585,8 @@ int main(int argc, char **argv)
         cli_opts again;
         api8.config_free(cfg);
         cfg = a->config_new();
+        exit_cfg = cfg;
+        exit_api = a;
         if (!cfg || cli_parse(a, cfg, argc, argv, &again) >= 0)
             return 2;
     }
