@@ -270,7 +270,7 @@ determ422: build
 asan:
 	@[ -d build-asan ] || meson setup build-asan -Db_sanitize=address,undefined -Db_lundef=false
 	ninja -C build-asan
-	meson test -C build-asan --print-errorlogs
+	meson test -C build-asan --print-errorlogs --timeout-multiplier 10
 	N265=build-asan/n265 scripts/conformance.sh --fast
 
 # The Main10 conformance list under ASan + UBSan. Item 5a collapses this
