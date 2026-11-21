@@ -101,7 +101,7 @@ Once the script has built the yah265 library, it installs it under `build-ffmpeg
 | `--with-x265` | also enables `libx265`, for side-by-side tests |
 | `--prefix DIR` | installs the yah265 library in `DIR` |
 
-The ffmpeg it builds is a GPL binary. yah265 is GPL-2.0-or-later. ffmpeg only links a GPL library when it's configured with `--enable-gpl`.
+The ffmpeg it builds is a GPL binary because yah265 is GPL-2.0-or-later. ffmpeg only links a GPL library when it's configured with `--enable-gpl`.
 
 ## Your first encode
 
@@ -114,7 +114,7 @@ That's the command you'd give x265 with one word changed. `out.mp4` plays in any
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 132" role="img" aria-labelledby="swap-fig-t swap-fig-d">
 <title id="swap-fig-t">One word changes in the ffmpeg command</title>
-<desc id="swap-fig-d">Two ffmpeg command lines, one above the other. They match except for the encoder name after -c:v, which is libx265 in the first and libyah265 in the second.</desc>
+<desc id="swap-fig-d">Two ffmpeg command lines, one above the other. They match except for the encoder name after -c:v. It's libx265 in the first and libyah265 in the second.</desc>
 <text class="d-label" x="20" y="18">today</text>
 <text class="d-mono" x="186" y="47" text-anchor="end">ffmpeg -i in.mp4 -c:v</text>
 <rect class="d-fill" x="194" y="28" width="92" height="28" rx="6"/>
@@ -130,7 +130,7 @@ That's the command you'd give x265 with one word changed. `out.mp4` plays in any
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 182" role="img" aria-labelledby="swap-fig-t-n swap-fig-d-n">
 <title id="swap-fig-t-n">One word changes in the ffmpeg command</title>
-<desc id="swap-fig-d-n">Two ffmpeg command lines, one above the other. They match except for the encoder name after -c:v, which is libx265 in the first and libyah265 in the second.</desc>
+<desc id="swap-fig-d-n">Two ffmpeg command lines, one above the other. They match except for the encoder name after -c:v. It's libx265 in the first and libyah265 in the second.</desc>
 <text class="d-label" x="8" y="16">today</text>
 <text class="d-mono" x="8" y="46">ffmpeg -i in.mp4 -c:v</text>
 <rect class="d-fill" x="180" y="28" width="92" height="28" rx="6"/>
@@ -147,7 +147,7 @@ That's the command you'd give x265 with one word changed. `out.mp4` plays in any
 <figcaption>Everything else on the command line stays as it was.</figcaption>
 </figure>
 
-Always pass a rate option. With none, the encoder codes every frame at one fixed quantizer, which is meant for testing. For streaming I'd use capped CRF, which adds a peak rate and a buffer to the CRF command:
+Always pass a rate option. With none, the encoder runs a test mode that codes every frame at one fixed quantizer. For streaming I'd use capped CRF. It adds a peak rate and a buffer to the CRF command:
 
 ```sh
 ffmpeg -i in.mp4 -c:v libyah265 -preset medium -crf 25 -maxrate 4500k -bufsize 6000k out.mp4
@@ -157,9 +157,9 @@ The encoding guide covers [every rate mode](guide.md#pick-a-rate-mode) and the [
 
 ## Pick a quality
 
-`-crf` sets the quality. The file size then follows the content. A lower number gives a better picture and a bigger file. I'd start at 25, then move by two or three at a time until the picture is good enough.
+`-crf` sets the quality and lets the file size follow the content. A lower number gives a better picture and a bigger file. I'd start at 25, then move by two or three at a time until the picture is good enough.
 
-The CRF scale is yah265's own. A number that suited x265 won't give the same file size here. [Coming from x265](from-x265.md) has a translation table. It also maps x265's options onto `y265`'s. When you need a size or a bitrate instead, the guide's [rate modes](guide.md#pick-a-rate-mode) cover it.
+The CRF scale is yah265's own. A number that suited x265 won't give the same file size here. [Coming from x265](from-x265.md) has a translation table and maps x265's options onto `y265`'s. When you need a size or a bitrate instead, the guide's [rate modes](guide.md#pick-a-rate-mode) cover it.
 
 ## Build y265 on its own
 
@@ -169,7 +169,7 @@ The CRF scale is yah265's own. A number that suited x265 won't give the same fil
 make build-rel
 ```
 
-That leaves the encoder at `build-rel/y265`. The binary is named `y265`, though the project is yah265. One binary codes every bit depth. It picks the depth from its input.
+That leaves the encoder at `build-rel/y265`. The binary is named `y265`, though the project is yah265. One binary codes every bit depth and picks the depth from its input.
 
 `y265` turns Y4M or raw YUV into a raw HEVC stream. ffmpeg can feed it any source through a pipe:
 
@@ -177,7 +177,9 @@ That leaves the encoder at `build-rel/y265`. The binary is named `y265`, though 
 ffmpeg -i in.mp4 -pix_fmt yuv420p -f yuv4mpegpipe - | build-rel/y265 - -o out.hevc --crf 25
 ```
 
-A Y4M file works without the pipe, as `build-rel/y265 input.y4m -o out.hevc --crf 25`. Because raw YUV has no header, you describe it with `--input-res`, `--input-csp` and `--fps`.
+A Y4M file works without the pipe, as `build-rel/y265 input.y4m -o out.hevc --crf 25`. Because raw YUV has no header, you describe its picture size, chroma format and frame rate yourself.
+
+<p class="optchips"><span>Options</span> <a href="options.md#opt-input-res"><code>--input-res</code></a> <a href="options.md#opt-input-csp"><code>--input-csp</code></a> <a href="options.md#opt-fps"><code>--fps</code></a></p>
 
 ## Play it and mux it
 

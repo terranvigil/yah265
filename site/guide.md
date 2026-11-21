@@ -263,7 +263,7 @@ A long input can also be coded as segments on several encoder instances at once,
 y265 in.y4m -o out.hevc --crf 23 --gop-parallel 4
 ```
 
-The joined stream differs from the serial one. It has no HRD timing. [Threading](threading.md#segment-parallel-encoding) explains when it helps.
+The joined stream differs from the serial one and has no HRD timing. [Threading](threading.md#segment-parallel-encoding) explains when it helps.
 
 <p class="optchips"><span><a href="options.md#threads">Options</a></span> <a href="options.md#opt-threads"><code>--threads</code></a> <a href="options.md#opt-gop-parallel"><code>--gop-parallel</code></a></p>
 
@@ -302,7 +302,7 @@ y265 in.y4m -o out.hevc --crf 23 --zones 0,239,q=30/1200,1439,b=1.5
 
 Zones count in display order. No two may overlap.
 
-A QP file forces frame types and QPs frame by frame. It takes key frames and intra frames. It refuses a P or B type because the B-frame run belongs to the lookahead.
+A QP file forces frame types and QPs frame by frame. It takes key frames and intra frames but refuses a P or B type, because the B-frame run belongs to the lookahead.
 
 Two pairs of bounds hold the rate control inside a range. One pair bounds the frame quantizer in every mode. The other bounds the rate factor of a CRF encode.
 
@@ -328,7 +328,7 @@ The stream also has a fingerprint that survives when the SEI is stripped. In a f
 
 ## Environment knobs
 
-Settings named `N265_*` in the environment reach tuning parameters the command line doesn't expose. They're for experiments. `--show-config` prints the ones a preset named. It marks any your environment overrode. The [knob list](docs/knobs.md) names them all.
+Settings named `N265_*` in the environment reach tuning parameters the command line doesn't expose. They're for experiments. `--show-config` prints the ones a preset named and marks any your environment overrode. The [knob list](docs/knobs.md) names them all.
 
 ## From ffmpeg
 

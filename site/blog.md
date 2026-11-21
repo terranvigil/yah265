@@ -32,7 +32,7 @@ A cell is one clip at one resolution. Each dot below is one cell timed on the Ma
 
 <figure class="chart"><img src="assets/blog/cells.svg" alt="Dots on an axis of times faster than x265. Each dot is one timed cell. The dots are in rows for CIF, 720p, 1080p and 4K. Every dot is right of the 1x line."><figcaption>The first table below lists each row's median.</figcaption></figure>
 
-These are the cells behind the headline. They run from ten-second clips to ten-minute films. In each one yah265's CRF is solved onto x265's file size. No dot sits left of the x265 line. Capped VBR and the content-type clips were timed too. The [results page](results.md#vbr) reports them apart because their files aren't matched in size the same way.
+These are the cells behind the headline, from ten-second clips to ten-minute films. In each one yah265's CRF is solved onto x265's file size. No dot is left of the x265 line. Capped VBR and the content-type clips were timed too, although the [results page](results.md#vbr) reports them apart because their files aren't matched in size the same way.
 
 ## Three goals and a quality bar
 
@@ -46,15 +46,15 @@ I set three speed goals against x265 at `--preset medium`. Each one compares fil
 | G1 | plain C on one thread | `--no-asm` on one thread |
 | G2 | plain C on all cores | `--no-asm` on all cores |
 
-G3 is the one a user sees. G1 and G2 compare the algorithms with the hand-written SIMD off on both sides. I read those two as engineering checks, because x265 isn't meant to run without its assembly. A goal passes in a group of clips when the median is at least even and the slowest clip is no more than 15% slower. Quality has its own bar. On every rate ladder of a real film, yah265 may need at most 1.0% more bits than x265 for the same VMAF v1.
+G3 is the one a user sees. G1 and G2 compare the algorithms with the hand-written SIMD off on both sides. I read those two as engineering checks, because x265 isn't meant to run without its assembly. A goal passes in a group of clips when the median is at least even and the slowest clip is no more than 15% slower. The quality bar is that on every rate ladder of a real film, yah265 may need at most 1.0% more bits than x265 for the same VMAF v1.
 
 ## The same lead on three machines
 
-The Mac isn't the only machine I timed. Both encoders also ran on an Intel Xeon with AVX-512 and on an AWS Graviton4 with SVE2. Each cloud box held them to the same 16 vCPUs.
+I also timed both encoders on an Intel Xeon with AVX-512 and on an AWS Graviton4 with SVE2. Each cloud box held them to the same 16 vCPUs.
 
 <figure class="chart"><img src="assets/blog/arch.svg" alt="Dot plot of the median speedup over x265 at G3 for each resolution and length group, one marker per machine. Every marker sits right of the 1x line."><figcaption>The G3 table below has each marker's value.</figcaption></figure>
 
-yah265 leads in every group on all three machines. It passes all three goals on each. Because plenty of x86 machines have no AVX-512, I timed the short clips again on the Xeon with both encoders held to AVX2 and then to SSE4.2. The lead held at both.
+yah265 leads in every group on all three machines and passes all three goals on each. Because plenty of x86 machines have no AVX-512, I timed the short clips again on the Xeon with both encoders held to AVX2 and then to SSE4.2. The lead held at both.
 
 ## Smaller files for the same VMAF score
 
@@ -66,7 +66,7 @@ Over all the ladders yah265 needs a median <!--gen:bd-median-->10.2%<!--/gen:bd-
 
 <figure class="chart"><img src="assets/blog/curves.svg" alt="Three line charts of VMAF v1 against bitrate on a log scale, for the ladders with the largest, the median and the smallest saving. The yah265 line sits above the x265 line in the first two and close to it in the third."></figure>
 
-Here are three of those ladders as curves. I didn't choose them by eye: they're the CRF ladders with the largest saving, the median one and the smallest. In the last panel the two curves nearly touch.
+Here are three of those ladders as curves. So that I couldn't pick them by eye, I took the CRF ladders with the largest saving, the median one and the smallest. In the last panel the two curves nearly touch.
 
 Here is the hardest moment of one clip, from two files of the same size.
 
@@ -82,7 +82,7 @@ Here is the hardest moment of one clip, from two files of the same size.
 </figure>
 <!--/gen:fig-frames-->
 
-A still frame only goes so far. The [comparison players](https://terranvigil.github.io/yah265-compare/) play both encodes in motion at the same file size, so you can switch between them and jump to the hardest moments yourself.
+A still frame only goes so far. The [comparison players](https://terranvigil.github.io/yah265-compare/) play both encodes in motion at the same file size. You can switch between them and jump to the hardest moments yourself.
 
 An average can hide a bad stretch. Here is every frame of that clip from both files.
 
@@ -94,7 +94,7 @@ yah265's lead is wider on the clip's worst frames than on its average. [Results]
 
 ## The same result through ffmpeg
 
-Most people meet an encoder through ffmpeg. An outside tester would run it that way too. So I ran both encoders from one ffmpeg build with `-preset medium` and default threads. yah265 ran at a fixed CRF. x265's CRF was then searched until its file came within <!--gen:ff-tol-->2%<!--/gen:ff-tol--> of ours. VMAF v1 scored every frame of both. Each encoder ran once.
+Most people meet an encoder through ffmpeg, as an outside tester would. I ran both encoders from one ffmpeg build with `-preset medium` and default threads. Once yah265 had run at a fixed CRF, x265's CRF was searched until its file came within <!--gen:ff-tol-->2%<!--/gen:ff-tol--> of yah265's. VMAF v1 scored every frame of both.
 
 <!--gen:ffmpeg-table-->
 | clip | encoder | crf | size | encode time | VMAF v1 |
@@ -103,7 +103,7 @@ Most people meet an encoder through ffmpeg. An outside tester would run it that 
 |  | libx265 | 25.8 | 7.96 MB | 10.5 s | 89.77 |
 <!--/gen:ffmpeg-table-->
 
-yah265 took less time on this clip. Its file also scored higher. Take it as an example, since it's one run of each encoder. These are the commands. The last one runs the same encode through yah265's own command line.
+yah265 took less time on this clip and its file scored higher. Take it as an example, since it's one run of each encoder. Of the commands below, the last one runs the same encode through yah265's own command line.
 
 <!-- recipe: skip encodes a minute of 1080p three times; the y265 line is checked in start.md -->
 <!--gen:ff-cmd-->
@@ -143,7 +143,7 @@ By mid-September yah265 had a large quality lead, although it was still slower w
 
 ### Real films disagreed with the short clips
 
-The short clips had yah265 ahead everywhere. Two-minute segments of real titles didn't agree. One needed more bits than x265. Sol Levante took longer to encode.
+The short clips had yah265 ahead everywhere. Two-minute segments of real titles didn't agree, because one needed more bits than x265 and Sol Levante took longer to encode.
 
 The first problem was block size. Because yah265's 32x32 coding blocks spent their bits on syntax at low rates, a 64x64 tree with a skip gate went in at HD and 4K. Sol Levante's time went to intra search inside P and B frames. I ranked the intra modes once. Trying 4x4 intra there stopped, as did recursing under intra blocks that almost never split. Both changes also gained quality.
 
@@ -157,13 +157,13 @@ That change wrote HRD underflows on very shallow buffers. Those buffers now code
 
 ### A dev set that reads in ten minutes
 
-A full-table read took a night. In October I switched to a dev set of eight short windows and one two-minute segment. It reads in about ten minutes. Thirteen changes merged in two days. Every one was read on the whole dev set before it shipped.
+Because a full-table read took a night, in October I switched to a dev set of eight short windows and one two-minute segment that reads in about ten minutes. Thirteen changes merged in two days. Every one was read on the whole dev set before it shipped.
 
 The biggest find there was motion search on fine texture. yah265's runs of B-frames were twice as long as x265's. At that distance the diamond search got stuck. A hexagon search fixed it, along with a stronger motion term in the rule that ends a run.
 
 ### VMAF v1
 
-In late October I moved all three encoders from VMAF-NEG to VMAF v1. VMAF v1 reads chroma, banding and motion. One title fell over the bar at once because of chroma. Inter chroma now rounds less aggressively. Both chroma quantizers run finer than luma's. Scoring at display size exposed the same loss at CIF, where the chroma setting now reaches too.
+In late October I moved all three encoders from VMAF-NEG to VMAF v1. VMAF v1 reads chroma, banding and motion. One title fell over the bar at once because of chroma. Inter chroma now rounds less aggressively and both chroma quantizers run finer than luma's. Scoring at display size exposed the same loss at CIF, where the chroma setting now reaches too.
 
 Then v1's banding feature found dark grain coded to flat steps on StEM2 and Nocturne. Raising the psychovisual strength on dark, smooth blocks fixed both.
 
@@ -225,7 +225,7 @@ Each range runs from the slowest group's median to the fastest's. A group is one
 | G2: algorithm only, plain C on all cores | 2.56x to 4.35x | 2.22x to 4.76x | 2.08x to 4.35x |
 <!--/gen:goal-table-->
 
-<!--gen:combos-line-->That's 81 of 81 combinations of machine, group and goal inside the bar. Bus at CIF on the Xeon is the slowest single clip at G3 on any machine. It still runs 1.22x faster.<!--/gen:combos-line-->
+<!--gen:combos-line-->That's 81 of 81 combinations of machine, group and goal inside the bar. Bus at CIF on the Xeon is the slowest single clip at G3 on any machine and still runs 1.22x faster.<!--/gen:combos-line-->
 
 ### G3 by resolution and length
 
@@ -304,7 +304,7 @@ On the Mac both encoders ran on one Apple M5 Max with 18 cores, where the refere
 
 For a timed CRF reading, yah265 is solved onto x265's file size within 1%. The headline covers only those cells. The capped VBR cells stay out of it because they're timed at one shared target bitrate without being solved to match. x265 ran its default lookahead of 20 frames. yah265 ran its own `medium` default: 20 frames from 720p up and 12 at CIF.
 
-Quality is VMAF v1: Netflix's `vmaf_v1.0.16` models on libvmaf 3.x. It's scored at display size. A picture under 1080p is scaled up to fit 1920x1080 first, CIF included. The ladders score every frame of the two-minute segments and every third frame of the films. Each ten-minute film runs from the end of its black opening to the start of its end credits. Cloud wall times are reported apart from the Mac's, never pooled with them. The headline is the Mac's.
+Quality is VMAF v1: Netflix's `vmaf_v1.0.16` models on libvmaf 3.x. It's scored at display size. A picture under 1080p is scaled up to fit 1920x1080 first, CIF included. The ladders score every frame of the two-minute segments and every third frame of the films. Each ten-minute film runs from the end of its black opening to the start of its end credits. Because cloud wall times are reported apart from the Mac's, the headline is the Mac's alone.
 
 The [results page](results.md) has every table. The [methodology](methodology.md) has the rules that make a number valid. The figures on this page come from <!--gen:report-link-->[the all-architecture parity report of 2026-11-14](docs/parity/PARITY-REPORT-yah265-all-isa-2026-11-14.md)<!--/gen:report-link--> and the per-machine reports beside it. Every chart and every figure comes from one [script](scripts/blog_charts.py). You can [check it yourself](check-it-yourself.md).
 

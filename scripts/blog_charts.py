@@ -1376,7 +1376,7 @@ def values(sps, q, lad, fl, cap, cv, ff, rows, repro, date, report_rel, hist, cr
     V["slowest-x"] = fx(worst[0])
     V["combos-line"] = (f"That's {V['combos']} combinations of machine, group and goal inside "
                         f"the bar. {V['slowest-cell']} is the slowest single clip at G3 "
-                        f"on any machine. It still runs {V['slowest-x']} faster.")
+                        f"on any machine and still runs {V['slowest-x']} faster.")
     V["goal-table"] = goal_table(sps)
     V["arch-table"] = arch_table(sps, q)
     V["avx2-range"] = frange([v["avx2"][0] for v in cap.values()])

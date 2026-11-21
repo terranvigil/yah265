@@ -153,7 +153,7 @@ $ scripts/v1_ladder.py clip.y4m --vbr
 
 The script codes a five-rung ladder on both encoders, at CRF 20, 23, 26, 29 and 32. It then prints yah265's BD-rate on VMAF v1 against x265 medium, where negative means yah265 needs fewer bits for the same score. With `--vbr` both encoders run at the bitrates x265 reached on those rungs, where the maxrate is 1.5 times the target and the buffer is twice the target. Scoring follows the [methodology](methodology.md#scoring-quality).
 
-This is the CRF ladder on the foreman CIF clip. It took 50 seconds on the Mac.
+This CRF ladder on the foreman CIF clip took 50 seconds on the Mac.
 
 ```
 $ scripts/v1_ladder.py tests/corpus/foreman_cif.y4m

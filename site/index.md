@@ -64,7 +64,7 @@ To see both in motion, open the [comparison players](https://terranvigil.github.
 
 ## Results in brief
 
-The headline covers the cells in the first table. Each is one clip at one picture size, coded at CRF on an 18-core Apple M5 Max, where yah265's file is within 1% of x265's size.
+The headline covers the cells in the first table. Each cell is one clip at one picture size, coded at CRF on an 18-core Apple M5 Max. A cell counts when yah265's file is within 1% of x265's size.
 
 <!--gen:pooled-table-->
 | size-matched cells on the Mac | count | median | slowest cell |
@@ -83,7 +83,7 @@ The headline covers the cells in the first table. Each is one clip at one pictur
 | bits saved at equal VMAF v1, rate ladders at CRF and capped VBR | 38 | 10.2% |
 <!--/gen:quality-table-->
 
-The project has three speed goals. G3 times both encoders as shipped. It's the speed a user sees. G1 and G2 switch the hand-written SIMD off on both sides to compare the algorithms alone. Read those two rows as engineering checks, because x265 isn't meant to run without its assembly. Each cell is the range of group medians on that machine.
+Of the project's three speed goals, G3 is the one a user sees, because it times both encoders as shipped. G1 and G2 switch the hand-written SIMD off on both sides to compare the algorithms alone. Read those two rows as engineering checks, because x265 isn't meant to run without its assembly. Each cell is the range of group medians on that machine.
 
 <!--gen:goal-table-->
 | goal | Apple M5 Max (NEON) | Xeon 8488C (AVX-512) | Graviton4 (SVE2) |

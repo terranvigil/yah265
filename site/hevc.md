@@ -186,7 +186,7 @@ The larger block matters most. A patch of sky in a 4K picture is thousands of sa
 
 An HEVC stream is a row of packets called NAL units. Each one starts with a two-byte header that says what kind it is.
 
-Three kinds hold settings and no picture data. The video parameter set (VPS) describes the stream as a whole. Below it, the sequence parameter set (SPS) holds the picture size, the bit depth and which tools are switched on. Settings that can change from picture to picture go in the picture parameter set (PPS). The picture data itself travels in slices, where a slice is a run of blocks that can be decoded without the picture's other slices. A decoder may ignore the last kind, supplemental enhancement information (SEI). It holds extras such as HDR metadata.
+Three kinds hold settings and no picture data. The video parameter set (VPS) describes the stream as a whole. Below it, the sequence parameter set (SPS) holds the picture size, the bit depth and which tools are switched on. Settings that can change from picture to picture go in the picture parameter set (PPS). The picture data itself travels in slices, where a slice is a run of blocks that can be decoded without the picture's other slices. The last kind, supplemental enhancement information (SEI), holds extras such as HDR metadata that a decoder may ignore.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 214" role="img" aria-label="The NAL units at the start of a stream">
@@ -1404,7 +1404,7 @@ Coefficients are coded in groups of 4x4. The coding starts from the last nonzero
 
 ## Entropy coding
 
-Everything in a slice is written by one coder, context-adaptive binary arithmetic coding (CABAC). It works in three steps. Each value is first turned into a string of yes-or-no decisions called bins. For most bins the coder keeps a running estimate of how likely a one is, in a context model chosen by what the bin means. With that estimate an arithmetic coder spends less than a bit on a likely outcome. An unlikely one costs more than a bit.
+Everything in a slice is written by one coder, context-adaptive binary arithmetic coding (CABAC). Each value is first turned into a string of yes-or-no decisions called bins. For most bins the coder keeps a running estimate of how likely a one is, in a context model chosen by what the bin means. With that estimate an arithmetic coder spends less than a bit on a likely outcome. An unlikely one costs more than a bit.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 190" role="img" aria-label="The two paths a bin takes through CABAC">

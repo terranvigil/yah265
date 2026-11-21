@@ -40,7 +40,7 @@ Always pass a rate option. With none, the encoder runs a fixed-quantizer test mo
 
 "Faster" compares wall time for files of the same size. Both encoders run `--preset medium`. The reference is x265 4.3. The test set runs from short standard clips to ten-minute excerpts of open films, at CIF, 720p, 1080p and 4K.
 
-The headline covers the cells below. Each is one clip at one picture size, coded at CRF on an 18-core Apple M5 Max, where yah265's file is within 1% of x265's size. Quality is VMAF v1.
+The headline covers the cells below. Each cell is one clip at one picture size, coded at CRF on an 18-core Apple M5 Max. A cell counts when yah265's file is within 1% of x265's size. Quality is VMAF v1.
 
 <!--gen:pooled-table-->
 | size-matched cells on the Mac | count | median | slowest cell |
@@ -84,7 +84,7 @@ It reads Y4M or raw YUV from a file or a pipe. The output is a raw HEVC stream t
 
 ## Hardware option?
 
-On Macs, `--hw videotoolbox` uses Apple's hardware HEVC encoder instead of yah265's own SIMD build. Median over ten clips from 720p to 2160p in [hardware-mode.md](docs/hardware-mode.md), same bitrate:
+On Macs, `--hw videotoolbox` uses Apple's hardware HEVC encoder instead of yah265's own SIMD build. The table gives the median over ten clips from 720p to 2160p at the same bitrate. The [hardware mode note](docs/hardware-mode.md) has every clip.
 
 | mode | wall time | CPU used | VMAF v1 |
 |---|--:|--:|--:|
@@ -92,11 +92,11 @@ On Macs, `--hw videotoolbox` uses Apple's hardware HEVC encoder instead of yah26
 
 ## Shot-aware support
 
-Most video is a sequence of shots, and each shot wants different settings. yah265 gives a per-shot pipeline what it needs, in a single pass, without changing the default encode.
+Most video is a sequence of shots that each want different settings. yah265 gives a per-shot pipeline what it needs in a single pass, without changing the default encode.
 
-A shot window lets a CRF encode buffer up to a whole shot and balance its quality against the shots before it. It adds its length in frames of latency, so it's off by default.
+A shot window lets a CRF encode buffer up to a whole shot and balance its quality against the shots before it. It's off by default because it adds its length in frames of latency.
 
-Shot statistics write one JSON line per shot as the encode runs: where the shot starts and ends, its bits, its frame types and its complexity. The stream is the same with them on. `scripts/shot_hull.py` takes several encodes of one source with their statistics, scores each shot against the source and prints each shot's convex hull. That's the point a ladder builder picks a rung from.
+Shot statistics write one JSON line per shot as the encode runs and leave the stream as it was. Each line has where the shot starts and ends, its bits, its frame types and its complexity. The hull script takes several encodes of one source with their statistics and scores each shot against the source. It prints each shot's convex hull for a ladder builder to pick a rung from.
 
 ```sh
 y265 in.y4m -o crf22.hevc --crf 22 --shot-stats crf22.jsonl
@@ -111,10 +111,10 @@ The [encoding guide](https://terranvigil.github.io/yah265/guide.html#planning-by
 
 The next work builds on the shot tools above, toward a full per-shot ladder:
 
-- **A key frame on every shot.** Each shot starts on its own key frame, so it can be seeked to, packaged or replaced alone.
+- **A key frame on every shot.** Each shot starts on its own key frame so that it can be seeked to, packaged or replaced alone.
 - **Per-shot quality in one pass.** Each shot gets its own quality setting from a scan of the source, with no trial encodes.
 - **Hulls across resolutions.** The hull script scores rungs at different resolutions against the source, on VMAF v1.
-- **A ladder search.** The search itself (rungs, convex hull, VMAF) lives in my [veo project](https://github.com/terranvigil/veo), with yah265 as its encoder.
+- **A ladder search.** My [veo project](https://github.com/terranvigil/veo) runs the search itself over rungs, convex hull and VMAF. It uses yah265 as its encoder.
 
 ## Documentation
 

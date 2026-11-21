@@ -562,7 +562,7 @@ def main():
         "crf-table": crf_table(cp),
         "fig-crf": figure("crf-map", "Line chart of the yah265 CRF that writes the same file size as "
                                      "each x265 CRF from 23 to 32. The median line runs about two "
-                                     "below the same-number diagonal. A few animated films sit on or "
+                                     "below the same-number diagonal. A few animated films are on or "
                                      "above it."),
         "fig-trace": figure("tail-trace", "Line chart of VMAF v1 for every frame of a 90-second clip, "
                                           "one line per encoder. The yah265 line is above the x265 "
