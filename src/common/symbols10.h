@@ -157,6 +157,19 @@
 #define n265_filter_refs_sse42       n265_filter_refs_sse42_10
 #define n265_filter_refs_ref         n265_filter_refs_ref_10
 #define n265_flat_gate               n265_flat_gate_10
+#define n265_hw_access_units         n265_hw_access_units_10
+#define n265_hw_close                n265_hw_close_10
+#define n265_hw_encode               n265_hw_encode_10
+#define n265_hw_headers              n265_hw_headers_10
+#define n265_hw_mode                 n265_hw_mode_10
+#define n265_hw_name                 n265_hw_name_10
+#define n265_hw_open                 n265_hw_open_10
+#define n265_hw_option_class         n265_hw_option_class_10
+#define n265_hw_option_table         n265_hw_option_table_10
+#define n265_hw_reorder_depth        n265_hw_reorder_depth_10
+#define n265_hwsc_free               n265_hwsc_free_10
+#define n265_hwsc_new                n265_hwsc_new_10
+#define n265_hwsc_push               n265_hwsc_push_10
 #define n265_screen                  n265_screen_10
 #define n265_hf2_knobs               n265_hf2_knobs_10
 #define n265_idct_add                n265_idct_add_10
@@ -278,6 +291,7 @@
 #define n265_rc_next                 n265_rc_next_10
 #define n265_rc_open                 n265_rc_open_10
 #define n265_rc_warm                 n265_rc_warm_10
+#define n265_set_hw_opts             n265_set_hw_opts_10
 #define n265_szm_add                 n265_szm_add_10
 #define n265_szm_key                 n265_szm_key_10
 #define n265_szm_pred                n265_szm_pred_10

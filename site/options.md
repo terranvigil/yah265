@@ -5,7 +5,7 @@ description: Every option of the y265 command line, grouped by what it's for, wi
 
 # Options
 
-This page lists every option `y265` takes. It has <!--gen:options-build-->101 entries<!--/gen:options-build-->. The option names and arguments come from the encoder's own `--help`. A [script](scripts/site_front.py) fails its check when this page and the help disagree. From ffmpeg, the same names go through `-yah265-params` without the dashes, as the guide's [From ffmpeg](guide.md#from-ffmpeg) section shows.
+This page lists every option `y265` takes. It has <!--gen:options-build-->103 entries<!--/gen:options-build-->. The option names and arguments come from the encoder's own `--help`. A [script](scripts/site_front.py) fails its check when this page and the help disagree. From ffmpeg, the same names go through `-yah265-params` without the dashes, as the guide's [From ffmpeg](guide.md#from-ffmpeg) section shows.
 
 Many switches also take a `--no-` form that turns them off. "The preset's" means the default depends on `--preset` and sometimes on the picture size. Run `y265 --show-config` with your input to see what a run resolves to. The [encoding guide](guide.md) explains how the options fit together.
 
@@ -94,6 +94,13 @@ Many switches also take a `--no-` form that turns them off. "The preset's" means
 |---|---|---|
 | <span id="opt-threads"></span>`--threads <n>` | `0` | Worker threads. `0` starts one per online CPU. At `1`, two runs of a command write the same bytes. Above one thread the stream can differ between runs. |
 | <span id="opt-gop-parallel"></span>`--gop-parallel <n>` | `0` | Code a long input as segments on this many encoder instances and join them at key frames. The stream differs from the serial one. |
+
+## Hardware
+
+| option | default | what it does |
+|---|---|---|
+| <span id="opt-hw"></span>`--hw <mode>` | `off` | `videotoolbox` encodes with the Mac's HEVC hardware through VideoToolbox. The stream is the hardware's, not this encoder's. Options it can't follow are listed once at the start. `auto` uses this encoder when the hardware isn't there, and `videotoolbox` fails instead. |
+| <span id="opt-hw-strict"></span>`--hw-strict` | off | With `--hw`, refuse to encode when any option you gave can't be followed. |
 
 ## Shot-aware options
 

@@ -12,3 +12,8 @@ option('bit_depth', type : 'combo', choices : ['8', '10'], value : '8',
 # on macOS only compiles the files; detection never selects them there.
 option('sve', type : 'feature', value : 'auto',
        description : 'build the aarch64 SVE/SVE2 kernels')
+
+# The hardware mode (docs/hardware-mode.md). auto: on for macOS. Whether
+# it is used is the --hw choice, off by default.
+option('videotoolbox', type : 'feature', value : 'auto',
+       description : 'build the VideoToolbox hardware mode')

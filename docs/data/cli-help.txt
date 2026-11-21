@@ -1,4 +1,4 @@
-# y265 0.0.1, release build bf293376
+# y265 0.0.1, release build 7d27cf44
 usage: y265 [options] <input.y4m|input.yuv|->
 
 The input picks the profile: 8-bit 4:2:0 is coded Main, 10-bit 4:2:0
@@ -40,6 +40,14 @@ Presets and threads
                         thread; not with --pass, --qpfile, --zones, --csv,
                         --shot-stats or --hrd-concat. The joined stream
                         carries no HRD timing SEI.
+
+Hardware
+  --hw <mode>           off (default), auto or videotoolbox: encode with the
+                        Mac's HEVC hardware through VideoToolbox. The stream
+                        is the hardware's. Options it can't honor are listed
+                        once at open. auto falls back to this encoder with one
+                        line; videotoolbox fails instead.
+  --hw-strict           with --hw, refuse instead of listing those options
 
 Rate control
   --qp <n>              constant QP (default 26): 0..51, or -12..51 at 10-bit
@@ -163,14 +171,14 @@ Headers and SEI (all off by default unless noted)
   --high-tier           signal the High tier (level 4 and up)
 
 Colour and HDR metadata (signalling only; no coded sample changes)
-  --video-signal-type-preset <name[:volume]>  set the colour flags at once,
+  --video-signal-type-preset <name[:volume]>  set the color flags at once,
                         using x265's names: BT601_525, BT601_626, BT709_YCC,
                         BT709_RGB, BT2020_YCC_NCL, BT2020_RGB, BT2100_PQ_YCC,
                         BT2100_PQ_ICTCP, BT2100_PQ_RGB, BT2100_HLG_YCC,
                         BT2100_HLG_RGB, FR709_RGB, FR2020_RGB, FRP3D65_YCC.
-                        A colour flag given beside it wins. The PQ systems
+                        A color flag given beside it wins. The PQ systems
                         take :P3D65x1000n0005 or :P3D65x4000n005.
-  --colorprim <p>       colour primaries: bt709, unknown, bt470m, bt470bg,
+  --colorprim <p>       color primaries: bt709, unknown, bt470m, bt470bg,
                         smpte170m, smpte240m, film, bt2020, smpte428,
                         smpte431, smpte432
   --transfer <t>        transfer characteristics: bt709, unknown, bt470m,
@@ -203,7 +211,7 @@ Colour and HDR metadata (signalling only; no coded sample changes)
                         the file dovi_tool writes. Needs
                         --dolby-vision-profile.
   --dolby-vision-profile <p>  8.1 (HDR10 base), 8.2 (SDR BT.709 base) or 8.4
-                        (HLG base); the colour flags must match
+                        (HLG base); the color flags must match
   --hdr-opt / --no-hdr-opt  medium's HDR tuning. On by default when
                         --transfer or --atc-sei names smpte2084 or
                         arib-std-b67. --hdr10-opt is the same switch.

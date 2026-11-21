@@ -92,6 +92,8 @@ typedef uint16_t n265_pixel;
 #define n265_set_hdr10plus    N265_API(n265_set_hdr10plus)
 #define n265_set_dovi_rpu     N265_API(n265_set_dovi_rpu)
 #define n265_set_hdr_opt      N265_API(n265_set_hdr_opt)
+#define n265_set_hw           N265_API(n265_set_hw)
+#define n265_encoder_backend  N265_API(n265_encoder_backend)
 #define n265_set_gop          N265_API(n265_set_gop)
 #define n265_set_preset       N265_API(n265_set_preset)
 #define n265_preset_param     N265_API(n265_preset_param)
@@ -303,6 +305,23 @@ YAH265_API void n265_set_dovi_rpu(int n, const uint8_t *const *rbsp,
 /* --hdr-opt (phase 14 item 56): 1 turns medium's HDR tuning on, 0 off,
  * -1 (the default) turns it on where the stream signals PQ or HLG. */
 YAH265_API void n265_set_hdr_opt(int on);
+
+/* ---- the hardware mode (docs/hardware-mode.md) ----
+ *
+ * The next n265_encoder_open is backed by Apple's fixed-function HEVC
+ * encoder through VideoToolbox: the same handle and calls, the hardware's
+ * stream. N265_HW_AUTO falls back to the software encoder with one line
+ * on stderr when the hardware refuses; N265_HW_VIDEOTOOLBOX makes the
+ * open fail instead. The N265_HW environment variable overrides it.
+ * Reconstruction, metrics and the logs are not available on it. */
+enum {
+    N265_HW_OFF          = 0,
+    N265_HW_AUTO         = 1,
+    N265_HW_VIDEOTOOLBOX = 2,
+};
+YAH265_API void n265_set_hw(int mode);
+/* "yah265", or the hardware encoder's name */
+YAH265_API const char *n265_encoder_backend(const n265_encoder *e);
 
 /* ---- open GOP (phase 14 item 3) ----
  *

@@ -82,6 +82,14 @@ ffmpeg -i in.mp4 -pix_fmt yuv420p -f yuv4mpegpipe - | build-rel/y265 - -o out.he
 
 It reads Y4M or raw YUV from a file or a pipe. The output is a raw HEVC stream that ffmpeg plays and muxes. `build-rel/y265 --help` lists every option.
 
+## Hardware option?
+
+On Macs, `--hw videotoolbox` uses Apple's hardware HEVC encoder instead of our SIMD build. Median over ten clips from 720p to 2160p in [hardware-mode.md](docs/hardware-mode.md), same bitrate:
+
+| mode | wall time | CPU used | VMAF v1 |
+|---|--:|--:|--:|
+| `--hw videotoolbox` vs yah265 SIMD | 0.6x as long | 1/40 as much | 4.4 points lower |
+
 ## Shot-aware support
 
 Most video is a sequence of shots, and each shot wants different settings. yah265 gives a per-shot pipeline what it needs, in a single pass, without changing the default encode.

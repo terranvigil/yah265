@@ -21,6 +21,7 @@
 #include "encoder/level.h"
 #include "encoder/preset.h"
 #include "encoder/signal.h"
+#include "hw/vt_map.h"
 
 void n265_set_shot_window(int n);
 void n265_set_metrics(int psnr, int ssim);
@@ -45,6 +46,8 @@ void n265_set_film_grain(double strength, int denoise);
 void n265_set_nr(int intra, int inter);
 void n265_set_mcstf(int on, int range, int selective);
 void n265_set_vbv(double maxrate, double bufsize, double init);
+int n265_hw_mode(void);
+void n265_set_hw_opts(int veto, const char *warn);
 
 #define QP_BD_OFF (6 * (N265_BIT_DEPTH - 8))
 
@@ -53,6 +56,53 @@ typedef struct {
     char s[640];
     size_t n;
 } optstr;
+
+/* name, and whether it takes a value. The parse below handles exactly
+ * these; a front end asks n265_config_takes_value before it reads a
+ * value off its own argument list. */
+static const struct { const char *name; int val; } opt_tab[] = {
+    { "qp", 1 }, { "crf", 1 }, { "bitrate", 1 }, { "preset", 1 },
+    { "idr-recovery-sei", 0 }, { "no-idr-recovery-sei", 0 },
+    { "pic-struct", 1 }, { "hrd-concat", 0 },
+    { "temporal-layers", 0 }, { "no-temporal-layers", 0 },
+    { "scaling-list", 1 }, { "crf-min", 1 }, { "crf-max", 1 },
+    { "qpmin", 1 }, { "qpmax", 1 }, { "strict-cbr", 0 },
+    { "max-ausize-factor", 1 }, { "qpfile", 1 }, { "zones", 1 },
+    { "repeat-headers", 0 }, { "no-repeat-headers", 0 },
+    { "aud", 0 }, { "no-aud", 0 }, { "eos", 0 }, { "no-eos", 0 },
+    { "eob", 0 }, { "no-eob", 0 }, { "info", 0 }, { "no-info", 0 },
+    { "fingerprint", 0 }, { "no-fingerprint", 0 },
+    { "psnr", 0 }, { "ssim", 0 }, { "threads", 1 },
+    { "ref", 1 }, { "b-adapt", 1 }, { "keyint", 1 },
+    { "open-gop", 0 }, { "no-open-gop", 0 }, { "radl", 1 },
+    { "bframes", 1 }, { "aq", 1 }, { "rc-lookahead", 1 }, { "cutree", 1 },
+    { "ctu", 1 }, { "rdoq-level", 1 }, { "tu-inter-depth", 1 },
+    { "tu-intra-depth", 1 }, { "cbqpoffs", 1 }, { "crqpoffs", 1 },
+    { "pcm", 0 }, { "lossless", 0 },
+    { "weightp", 0 }, { "w", 0 }, { "no-weightp", 0 },
+    { "weightb", 0 }, { "no-weightb", 0 },
+    { "level", 1 }, { "high-tier", 0 },
+    { "vui-timing", 0 }, { "no-vui-timing", 0 },
+    { "film-grain", 1 }, { "film-grain-denoise", 1 },
+    { "nr-intra", 1 }, { "nr-inter", 1 },
+    { "mcstf", 0 }, { "no-mcstf", 0 }, { "mcstf-ref-range", 1 },
+    { "selective-mcstf", 0 }, { "no-selective-mcstf", 0 },
+    { "vbv-maxrate", 1 }, { "vbv-bufsize", 1 }, { "vbv-init", 1 },
+    { "hash", 1 }, { "colorprim", 1 }, { "transfer", 1 },
+    { "colormatrix", 1 }, { "videoformat", 1 }, { "range", 1 },
+    { "overscan", 1 }, { "video-signal-type-preset", 1 },
+    { "tune", 1 }, { "t", 1 }, { "intra-refresh", 0 },
+    { "dup-threshold", 1 }, { "chromaloc", 1 }, { "sar", 1 },
+    { "display-window", 1 }, { "master-display", 1 }, { "max-cll", 1 },
+    { "hdr-opt", 0 }, { "hdr10-opt", 0 },
+    { "no-hdr-opt", 0 }, { "no-hdr10-opt", 0 },
+    { "hdr10", 0 }, { "no-hdr10", 0 }, { "cll", 0 }, { "no-cll", 0 },
+    { "atc-sei", 1 }, { "dhdr10-info", 1 }, { "dolby-vision-rpu", 1 },
+    { "dolby-vision-profile", 1 }, { "shot-window", 1 },
+    { "pass", 1 }, { "stats", 1 }, { "hw", 1 }, { "hw-strict", 0 },
+};
+
+#define N_OPTS (sizeof opt_tab / sizeof opt_tab[0])
 
 struct n265_config {
     int qp, pcm, ctu, keyint, bframes, aq;
@@ -100,53 +150,10 @@ struct n265_config {
     char *preset;
     int had_ref, had_badapt, had_bframes, had_la, had_ctu, had_cutree;
     int applied;
+    int hw, hw_strict, hw_on;
+    unsigned char seen[N_OPTS];
     optstr info_opts;
     char info_all[768];
-};
-
-/* name, and whether it takes a value. The parse below handles exactly
- * these; a front end asks n265_config_takes_value before it reads a
- * value off its own argument list. */
-static const struct { const char *name; int val; } opt_tab[] = {
-    { "qp", 1 }, { "crf", 1 }, { "bitrate", 1 }, { "preset", 1 },
-    { "idr-recovery-sei", 0 }, { "no-idr-recovery-sei", 0 },
-    { "pic-struct", 1 }, { "hrd-concat", 0 },
-    { "temporal-layers", 0 }, { "no-temporal-layers", 0 },
-    { "scaling-list", 1 }, { "crf-min", 1 }, { "crf-max", 1 },
-    { "qpmin", 1 }, { "qpmax", 1 }, { "strict-cbr", 0 },
-    { "max-ausize-factor", 1 }, { "qpfile", 1 }, { "zones", 1 },
-    { "repeat-headers", 0 }, { "no-repeat-headers", 0 },
-    { "aud", 0 }, { "no-aud", 0 }, { "eos", 0 }, { "no-eos", 0 },
-    { "eob", 0 }, { "no-eob", 0 }, { "info", 0 }, { "no-info", 0 },
-    { "fingerprint", 0 }, { "no-fingerprint", 0 },
-    { "psnr", 0 }, { "ssim", 0 }, { "threads", 1 },
-    { "ref", 1 }, { "b-adapt", 1 }, { "keyint", 1 },
-    { "open-gop", 0 }, { "no-open-gop", 0 }, { "radl", 1 },
-    { "bframes", 1 }, { "aq", 1 }, { "rc-lookahead", 1 }, { "cutree", 1 },
-    { "ctu", 1 }, { "rdoq-level", 1 }, { "tu-inter-depth", 1 },
-    { "tu-intra-depth", 1 }, { "cbqpoffs", 1 }, { "crqpoffs", 1 },
-    { "pcm", 0 }, { "lossless", 0 },
-    { "weightp", 0 }, { "w", 0 }, { "no-weightp", 0 },
-    { "weightb", 0 }, { "no-weightb", 0 },
-    { "level", 1 }, { "high-tier", 0 },
-    { "vui-timing", 0 }, { "no-vui-timing", 0 },
-    { "film-grain", 1 }, { "film-grain-denoise", 1 },
-    { "nr-intra", 1 }, { "nr-inter", 1 },
-    { "mcstf", 0 }, { "no-mcstf", 0 }, { "mcstf-ref-range", 1 },
-    { "selective-mcstf", 0 }, { "no-selective-mcstf", 0 },
-    { "vbv-maxrate", 1 }, { "vbv-bufsize", 1 }, { "vbv-init", 1 },
-    { "hash", 1 }, { "colorprim", 1 }, { "transfer", 1 },
-    { "colormatrix", 1 }, { "videoformat", 1 }, { "range", 1 },
-    { "overscan", 1 }, { "video-signal-type-preset", 1 },
-    { "tune", 1 }, { "t", 1 }, { "intra-refresh", 0 },
-    { "dup-threshold", 1 }, { "chromaloc", 1 }, { "sar", 1 },
-    { "display-window", 1 }, { "master-display", 1 }, { "max-cll", 1 },
-    { "hdr-opt", 0 }, { "hdr10-opt", 0 },
-    { "no-hdr-opt", 0 }, { "no-hdr10-opt", 0 },
-    { "hdr10", 0 }, { "no-hdr10", 0 }, { "cll", 0 }, { "no-cll", 0 },
-    { "atc-sei", 1 }, { "dhdr10-info", 1 }, { "dolby-vision-rpu", 1 },
-    { "dolby-vision-profile", 1 }, { "shot-window", 1 },
-    { "pass", 1 }, { "stats", 1 },
 };
 
 static const char *strip_dashes(const char *k)
@@ -238,7 +245,7 @@ static int opt_drop(const char *k)
         "gop-parallel",
         "show-config", "version", "help", "h",
         "info", "no-info",
-        "preset", "qp", "crf", "bitrate", NULL
+        "preset", "qp", "crf", "bitrate", "hw", "hw-strict", NULL
     };
     for (int i = 0; drop[i]; i++)
         if (!strcmp(k, drop[i]))
@@ -332,8 +339,12 @@ int n265_config_parse(n265_config *c, const char *name, const char *value)
         return n265_config_parse(c, neg, NULL);
     }
     int r = parse_one(c, k, tv ? value : NULL);
-    if (r == 0)
+    if (r == 0) {
         n265_config_note(c, k, tv ? value : NULL);
+        for (size_t i = 0; i < N_OPTS; i++)
+            if (!strcmp(k, opt_tab[i].name))
+                c->seen[i] = 1;
+    }
     return r;
 }
 
@@ -651,6 +662,17 @@ static int parse_one(n265_config *c, const char *k, const char *v)
         c->pass = atoi(v);
     } else if (IS("stats")) {
         return set_str(&c->stats_path, v);
+    } else if (IS("hw")) {
+        c->hw = !strcmp(v, "off") ? N265_HW_OFF
+              : !strcmp(v, "auto") ? N265_HW_AUTO
+              : !strcmp(v, "videotoolbox") || !strcmp(v, "vt")
+                ? N265_HW_VIDEOTOOLBOX : -1;
+        if (c->hw < 0) {
+            fprintf(stderr, "y265: --hw is off, auto or videotoolbox\n");
+            return N265_CONFIG_BAD_VALUE;
+        }
+    } else if (IS("hw-strict")) {
+        c->hw_strict = 1;
     } else {
         return N265_CONFIG_UNKNOWN;
     }
@@ -688,6 +710,64 @@ int n265_config_parse_list(n265_config *c, const char *list)
     }
     free(dup);
     return rc;
+}
+
+/* The hardware mode's half of apply: the options the hardware can't
+ * honour, named once (at open, if a session opens), and the ones it has
+ * no path for, which refuse --hw videotoolbox and put auto in software. */
+static int hw_resolve(n265_config *c)
+{
+    n265_set_hw(c->hw);
+    n265_set_hw_opts(0, NULL);
+    int mode = n265_hw_mode();
+    c->hw_on = 0;
+    if (mode == N265_HW_OFF)
+        return 0;
+    char warn[2048];
+    size_t wn = 0;
+    int nwarn = 0;
+    warn[0] = '\0';
+    for (size_t i = 0; i < N_OPTS; i++) {
+        if (!c->seen[i])
+            continue;
+        const char *note = NULL;
+        enum n265_hw_class cls = n265_hw_option_class(opt_tab[i].name, &note);
+        if (cls == N265_HWC_FATAL) {
+            if (mode == N265_HW_VIDEOTOOLBOX) {
+                fprintf(stderr, "y265: --hw videotoolbox: --%s has no "
+                        "hardware path (%s)\n", opt_tab[i].name, note);
+                return -1;
+            }
+            fprintf(stderr, "y265: --hw auto: --%s has no hardware path "
+                    "(%s); using the software encoder\n", opt_tab[i].name,
+                    note);
+            n265_set_hw_opts(1, NULL);
+            return 0;
+        }
+        if (cls != N265_HWC_IGNORED && cls != N265_HWC_APPROX)
+            continue;
+        nwarn++;
+        int n = snprintf(warn + wn, sizeof warn - wn, "y265: hw:   --%s (%s%s%s)\n",
+                         opt_tab[i].name,
+                         cls == N265_HWC_IGNORED ? "ignored" : "approximated",
+                         note ? ": " : "", note ? note : "");
+        if (n > 0 && (size_t)n < sizeof warn - wn)
+            wn += (size_t)n;
+    }
+    if (nwarn && c->hw_strict) {
+        fprintf(stderr, "y265: --hw-strict: %d option%s the hardware won't "
+                "honour as given:\n%s", nwarn, nwarn == 1 ? "" : "s", warn);
+        return -1;
+    }
+    if (nwarn) {
+        char all[2200];
+        snprintf(all, sizeof all, "y265: hw: %d option%s not honoured as "
+                 "given by the hardware encoder:\n%s", nwarn,
+                 nwarn == 1 ? "" : "s", warn);
+        n265_set_hw_opts(0, all);
+    }
+    c->hw_on = 1;
+    return 0;
 }
 
 int n265_config_apply(n265_config *c, n265_param *p)
@@ -1062,6 +1142,9 @@ int n265_config_apply(n265_config *c, n265_param *p)
                 "HDR10, which carries a mastering display: consider "
                 "--master-display\n");
 
+    if (hw_resolve(c) != 0)
+        FAIL;
+
     n265_param q;
     n265_param_default(&q);
     q.width = w;
@@ -1105,6 +1188,7 @@ int n265_config_get(const n265_config *c, const char *key, double *v)
     K("open-gop", c->open_gop)
     K("dolby-vision-profile", c->dv_profile)
     K("depth", N265_BIT_DEPTH)
+    K("hw", c->hw_on ? n265_hw_mode() : N265_HW_OFF)
 #undef K
     return -1;
 }

@@ -6,7 +6,7 @@ Tier meanings: **default** = shipped behavior, the env is its escape; **instrume
 
 In the default column, **presence** means the reader is a boolean: unset is off and any value arms it. **unset** means the value names a file or a string and unset is off. `= N265_X` means the default is another knob's resolved value.
 
-## default (117)
+## default (118)
 
 | knob | default | reader |
 |---|---|---|
@@ -44,6 +44,7 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_FGC_RATIO` | 2.0 | src/encoder/grain.c:167 |
 | `N265_GATE_SCALE` | 100 | src/encoder/ctu.c:2272 |
 | `N265_HDR_FULL` | 1 on PQ and HLG at medium | src/encoder/preset.c:1216 |
+| `N265_HW_SC` | 1 (with --hw) | src/encoder/encoder.c:1834 |
 | `N265_INTRA_FAST` | 0 | src/encoder/ctu.c:1707 |
 | `N265_INTRA_FAST_W` | 1280 | src/encoder/ctu.c:1745 |
 | `N265_JIT_COH` | 0.75 | src/encoder/la.c:958 |
@@ -336,7 +337,7 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_WP_TRACE` | 0 | src/encoder/wp.c:51 |
 | `N265_WP_WIN` | 40 | src/encoder/wp.c:101 |
 
-## arm (97)
+## arm (98)
 
 | knob | default | reader |
 |---|---|---|
@@ -374,6 +375,7 @@ In the default column, **presence** means the reader is a boolean: unset is off 
 | `N265_HDR_CQP_CB` | ? | src/encoder/encoder.c:2566 |
 | `N265_HDR_CQP_CR` | ? | src/encoder/encoder.c:2567 |
 | `N265_HDR_LQP` | 0.0 | src/encoder/encoder.c:2172 |
+| `N265_HW` | off; overrides --hw | src/encoder/encoder.c:1810 |
 | `N265_INTRA_B_MODES` | 0 | src/encoder/ctu.c:1612 |
 | `N265_INTRA_FAST_FLAT` | 0 | src/encoder/ctu.c:1755 |
 | `N265_INTRA_FAST_QP` | 0 | src/encoder/ctu.c:1720 |

@@ -269,6 +269,17 @@ The joined stream differs from the serial one. It has no HRD timing. [Threading]
 
 <p class="optchips"><span>Doesn't combine with</span> <a href="options.md#opt-pass"><code>--pass</code></a> <a href="options.md#opt-qpfile"><code>--qpfile</code></a> <a href="options.md#opt-zones"><code>--zones</code></a> <a href="options.md#opt-csv"><code>--csv</code></a> <a href="options.md#opt-shot-stats"><code>--shot-stats</code></a></p>
 
+## Hardware encoding on a Mac
+
+On a Mac you can hand the encode to Apple's hardware. Your options carry over as far as the hardware allows, and the encoder lists the ones it can't follow before it starts. Our scene-cut detection still decides where the key frames go. The hardware uses a fraction of the CPU and usually less time. At the same bitrate it scores lower, by about four VMAF v1 points at the median. With `auto`, the encoder uses its own path when the hardware isn't there.
+
+```sh
+y265 in.y4m -o out.hevc --hw videotoolbox --crf 26
+ffmpeg -i in.mp4 -c:v libyah265 -yah265-params hw=videotoolbox:crf=26 -tag:v hvc1 out.mp4
+```
+
+<p class="optchips"><span>Options</span> <a href="options.md#opt-hw"><code>--hw</code></a> <a href="options.md#opt-hw-strict"><code>--hw-strict</code></a></p>
+
 ## Grain and noisy sources
 
 All of these change the picture. Read them as tools for specific sources.

@@ -1154,8 +1154,15 @@ enum {
     PAR_SCR_VOTE, PAR_SITES
 };
 
+struct n265_hw;
+struct n265_hwsc;
+
 struct n265_encoder {
     n265_param param;
+    /* the hardware mode (docs/hardware-mode.md): when set, nothing below
+     * is opened and every call goes to the session */
+    struct n265_hw *hw;
+    struct n265_hwsc *hwsc;
     int mode;
     int chroma_idc;         /* chroma_format_idc: 1 = 420, 2 = 422, 3 = 444 */
     int csx, csy;           /* log2 SubWidthC / SubHeightC */

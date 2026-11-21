@@ -25,6 +25,8 @@
 #include "encoder/sao.h"
 #include "encoder/preset.h"
 #include "encoder/ttrace.h"
+#include "hw/sc.h"
+#include "hw/vt.h"
 
 
 /* N265_LA_PROF: the lookahead's SERIAL FRACTION, which is what T3/2 has
@@ -697,6 +699,8 @@ void n265_set_gop(int open_gop, int radl)
 
 void n265_encoder_set_dump(n265_encoder *e, FILE *f)
 {
+    if (e->hw)
+        return;
     e->dump_recon = f;
 }
 
@@ -788,7 +792,7 @@ static int twopass_open(n265_encoder *e, const n265_param *p)
  * retired, so no shot can be half-accumulated here. */
 void n265_encoder_set_shot_stats(n265_encoder *e, const char *path)
 {
-    if (!e)
+    if (!e || e->hw)
         return;
     if (e->shot_f) {
         fclose(e->shot_f);
@@ -808,7 +812,7 @@ void n265_encoder_set_shot_stats(n265_encoder *e, const char *path)
  * tell an absent metric from a zero one by the header. */
 void n265_encoder_set_csv(n265_encoder *e, const char *path, int level)
 {
-    if (!e)
+    if (!e || e->hw)
         return;
     n265_csv_close(&e->csv);
     if (n265_csv_open(&e->csv, path, level, e->met.psnr, e->met.ssim) < 0)
@@ -821,7 +825,7 @@ void n265_encoder_set_csv(n265_encoder *e, const char *path, int level)
 long n265_encoder_dyn_lost(const n265_encoder *e);
 long n265_encoder_dyn_lost(const n265_encoder *e)
 {
-    if (!e)
+    if (!e || e->hw)
         return 0;
     /* read after the drain: a NAL still in the ring, or a frame still in
      * flight, never reached the caller, which is what happens when the
@@ -838,7 +842,7 @@ long n265_encoder_dyn_lost(const n265_encoder *e)
 
 long n265_encoder_metrics(n265_encoder *e, double out[6])
 {
-    if (!e || (!e->met.psnr && !e->met.ssim))
+    if (!e || e->hw || (!e->met.psnr && !e->met.ssim))
         return 0;
     n265_metrics_pooled(&e->met, out);
     return e->met.frames;
@@ -847,6 +851,8 @@ long n265_encoder_metrics(n265_encoder *e, double out[6])
 void n265_encoder_set_dump_decode(n265_encoder *e, FILE *f);
 void n265_encoder_set_dump_decode(n265_encoder *e, FILE *f)
 {
+    if (e->hw)
+        return;
     e->dump_decode = f;
 }
 
@@ -1787,6 +1793,145 @@ void n265_row_end(n265_row_ctx *row, n265_frame_work *fw, int r)
     fw->rrec[r].len = row->c.rec_len;
 }
 
+/* ---- the hardware mode (docs/hardware-mode.md) ---- */
+static int g_hw = N265_HW_OFF, g_hw_veto;
+static char g_hw_warn[2048];
+
+void n265_set_hw(int mode)
+{
+    g_hw = mode == N265_HW_AUTO || mode == N265_HW_VIDEOTOOLBOX ? mode
+                                                              : N265_HW_OFF;
+}
+
+/* N265_HW (off | auto | videotoolbox) overrides the caller, for harnesses */
+int n265_hw_mode(void);
+int n265_hw_mode(void)
+{
+    const char *v = getenv("N265_HW");
+    if (g_hw_veto)
+        return N265_HW_OFF;
+    if (!v || !*v)
+        return g_hw;
+    if (!strcmp(v, "auto"))
+        return N265_HW_AUTO;
+    if (!strcmp(v, "videotoolbox") || !strcmp(v, "vt") || !strcmp(v, "1"))
+        return N265_HW_VIDEOTOOLBOX;
+    return N265_HW_OFF;
+}
+
+/* veto: an option with no hardware path put auto in software. The
+ * warnings print only once a hardware session is open. */
+void n265_set_hw_opts(int veto, const char *warn);
+void n265_set_hw_opts(int veto, const char *warn)
+{
+    g_hw_veto = veto != 0;
+    snprintf(g_hw_warn, sizeof g_hw_warn, "%s", warn ? warn : "");
+}
+
+/* N265_HW_SC=0 leaves key frames to the hardware */
+static int hw_sc_on(void)
+{
+    const char *v = getenv("N265_HW_SC");
+    return !v || atoi(v) != 0;
+}
+
+static void hw_cfg_of(n265_hw_cfg *c, const n265_param *p)
+{
+    static const int sar_tab[17][2] = {
+        { 0, 0 }, { 1, 1 }, { 12, 11 }, { 10, 11 }, { 16, 11 }, { 40, 33 },
+        { 24, 11 }, { 20, 11 }, { 32, 11 }, { 80, 33 }, { 18, 11 },
+        { 15, 11 }, { 64, 33 }, { 160, 99 }, { 4, 3 }, { 3, 2 }, { 2, 1 },
+    };
+    memset(c, 0, sizeof *c);
+    c->width = p->width;
+    c->height = p->height;
+    c->csp = p->csp;
+    c->depth = N265_BIT_DEPTH;
+    c->fps_num = p->fps_num;
+    c->fps_den = p->fps_den;
+    /* with our scene-cut on, our interval places the periodic key; the
+     * hardware lands its own a few frames short of its interval, so its
+     * backstop is set well past ours */
+    c->keyint = g_keyint > 0 && hw_sc_on() ? 2 * g_keyint : g_keyint;
+    c->bframes = g_bframes;
+    c->realtime = g_bframes == 0 && g_la_depth <= 1;
+    c->crf_on = g_crf_on;
+    c->crf = g_crf;
+    c->qp = g_qp;
+    c->bitrate = g_bitrate;
+    c->vbv_maxrate = g_vbv_maxrate;
+    c->vbv_bufsize = g_vbv_bufsize;
+    c->colorprim = g_sig.colorprim;
+    c->transfer = g_sig.transfer;
+    c->colormatrix = g_sig.colormatrix;
+    c->full_range = g_sig.full_range;
+    if (g_sig.sar_idc == 255) {
+        c->sar_w = g_sig.sar_w;
+        c->sar_h = g_sig.sar_h;
+    } else if (g_sig.sar_idc > 0 && g_sig.sar_idc <= 16) {
+        c->sar_w = sar_tab[g_sig.sar_idc][0];
+        c->sar_h = sar_tab[g_sig.sar_idc][1];
+    }
+    c->have_md = g_sig.have_md;
+    memcpy(c->md_prim, g_sig.md_prim, sizeof c->md_prim);
+    memcpy(c->md_wp, g_sig.md_wp, sizeof c->md_wp);
+    c->md_max = g_sig.md_max;
+    c->md_min = g_sig.md_min;
+    c->have_cll = g_sig.have_cll && g_sig.cll_on;
+    c->maxcll = g_sig.maxcll;
+    c->maxfall = g_sig.maxfall;
+    c->repeat_headers = g_repeat_hdr;
+}
+
+
+/* 1 opened (or refused hard: *out NULL), 0 to go on in software */
+static int hw_try_open(const n265_param *p, int dyn, n265_encoder **out)
+{
+    int mode = n265_hw_mode();
+    *out = NULL;
+    if (mode == N265_HW_OFF)
+        return 0;
+    char why[160] = "";
+    struct n265_hw *h = NULL;
+    if (dyn) {
+        snprintf(why, sizeof why, "per-picture HDR metadata has no "
+                 "hardware path");
+    } else if (g_mode == N265_MODE_PCM || g_lossless) {
+        snprintf(why, sizeof why, "the hardware has no lossless mode");
+    } else {
+        n265_hw_cfg c;
+        hw_cfg_of(&c, p);
+        h = n265_hw_open(&c, why, sizeof why);
+    }
+    if (!h) {
+        if (mode == N265_HW_VIDEOTOOLBOX) {
+            fprintf(stderr, "y265: hardware encoder unavailable: %s\n", why);
+            return 1;
+        }
+        fprintf(stderr, "y265: hardware encoder unavailable (%s); using the "
+                "software encoder\n", why);
+        return 0;
+    }
+    n265_encoder *e = calloc(1, sizeof *e);
+    if (!e || (hw_sc_on() &&
+               !(e->hwsc = n265_hwsc_new(p->width, p->height, g_keyint)))) {
+        free(e);
+        n265_hw_close(h);
+        return 1;
+    }
+    e->param = *p;
+    e->hw = h;
+    if (g_hw_warn[0])
+        fputs(g_hw_warn, stderr);
+    *out = e;
+    return 1;
+}
+
+const char *n265_encoder_backend(const n265_encoder *e)
+{
+    return e && e->hw ? n265_hw_name(e->hw) : "yah265";
+}
+
 n265_encoder *n265_encoder_open(const n265_param *p)
 {
     /* Every call takes the per-picture tables, whether the open succeeds
@@ -1799,6 +1944,11 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         (p->csp != N265_CSP_I420 && p->csp != N265_CSP_I422 &&
          p->csp != N265_CSP_I444))
         return NULL;
+    {
+        n265_encoder *he;
+        if (hw_try_open(p, h10p.n > 0 || rpu.n > 0, &he))
+            return he;
+    }
 
     /* before the first knob is read: on medium a PQ or HLG stream puts
      * its own rows in front of the preset table */
@@ -3419,6 +3569,10 @@ void n265_show_config(const n265_encoder *e, FILE *f, int in_depth)
 {
     if (!e || !f)
         return;
+    if (e->hw) {
+        fprintf(f, "y265 [info]: encoder : %s\n", n265_hw_name(e->hw));
+        return;
+    }
     const n265_param *p = &e->param;
     const char *chroma = e->chroma_idc == 3 ? "4:4:4"
                        : e->chroma_idc == 2 ? "4:2:2" : "4:2:0";
@@ -3591,6 +3745,12 @@ void n265_encoder_close(n265_encoder *e)
 {
     if (!e)
         return;
+    if (e->hw) {
+        n265_hw_close(e->hw);
+        n265_hwsc_free(e->hwsc);
+        free(e);
+        return;
+    }
     /* A1: frames may still be in flight if the caller closed without
      * flushing. Their jobs own the frame_works and the pool. */
     while (e->n_inflight)
@@ -9256,6 +9416,10 @@ int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
 {
     if (!e)
         return -1;
+    if (e->hw)
+        return n265_hw_encode(e->hw, nal, nnal, pic,
+                              pic && e->hwsc ? n265_hwsc_push(e->hwsc, pic)
+                                             : 0);
     *nal = e->nal;
     *nnal = 0;
     e->n_au = 0;
@@ -9348,19 +9512,23 @@ int n265_encoder_access_units(const n265_encoder *e, const n265_au **au)
 {
     if (!e || !au)
         return -1;
+    if (e->hw)
+        return n265_hw_access_units(e->hw, au);
     *au = e->au;
     return e->n_au;
 }
 
 int n265_encoder_reorder_depth(const n265_encoder *e)
 {
-    return e ? e->dpb_reorder : -1;
+    return !e ? -1 : e->hw ? n265_hw_reorder_depth(e->hw) : e->dpb_reorder;
 }
 
 int n265_encoder_headers(n265_encoder *e, n265_nal **nal, int *nnal)
 {
     if (!e || !nal || !nnal)
         return -1;
+    if (e->hw)
+        return n265_hw_headers(e->hw, nal, nnal);
     *nal = e->nal;
     *nnal = 0;
     /* the first frame_work is free scratch only while nothing is in flight */
