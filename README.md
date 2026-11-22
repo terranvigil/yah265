@@ -22,7 +22,7 @@ yah265 is a new HEVC encoder, written in C. It runs inside ffmpeg under the opti
 
 ```sh
 ffmpeg -i in.mp4 -c:v libx265   -preset medium -crf 25 out.mp4   # what you run today
-ffmpeg -i in.mp4 -c:v libyah265 -preset medium -crf 25 out.mp4   # swap one word
+ffmpeg -i in.mp4 -c:v libyah265 -preset medium -crf 25 out.mp4
 ```
 
 Simple command builds that ffmpeg:
