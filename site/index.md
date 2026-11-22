@@ -27,7 +27,7 @@ git clone https://github.com/terranvigil/yah265 && cd yah265
 scripts/build-ffmpeg.sh
 ```
 
-The new ffmpeg is at `build-ffmpeg/ffmpeg/ffmpeg`. [Build and first encode](start.md) has the details and the `y265` command line.
+The new ffmpeg is at `build-ffmpeg/ffmpeg/ffmpeg`. See [Build and first encode](start.md) for the details and the `y265` command line.
 
 ## Speed on three machines
 
