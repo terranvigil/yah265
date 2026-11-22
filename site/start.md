@@ -5,7 +5,7 @@ description: Build ffmpeg with yah265 in one command, run a first encode, and bu
 
 # Build and first encode
 
-There are two ways to run yah265. Most people want it inside ffmpeg, where it's the `libyah265` encoder. The other is `y265`, the project's own command-line encoder. It reads raw video from a file or a pipe.
+There are two ways to run yah265. Most people use it through ffmpeg, as the `libyah265` encoder. The other is `y265`, the project's own command-line encoder. It reads raw video from a file or a pipe.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 250" role="img" aria-labelledby="start-fig-t start-fig-d">
