@@ -6,7 +6,7 @@ pg_link = [
   '-sENVIRONMENT=web,worker,node',
   '-sALLOW_MEMORY_GROWTH=1', '-sMAXIMUM_MEMORY=2gb',
   '-sSTACK_SIZE=4mb',
-  '-sEXPORTED_FUNCTIONS=_pg_open,_pg_frame,_pg_encode,_pg_flush,_pg_close,_pg_version',
+  '-sEXPORTED_FUNCTIONS=_pg_open,_pg_frame,_pg_encode,_pg_flush,_pg_close,_pg_version,_pg_reorder',
   '-sEXPORTED_RUNTIME_METHODS=FS,ccall,cwrap,HEAPU8,UTF8ToString',
 ]
 executable('yah265', 'pg.c',

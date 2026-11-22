@@ -2,7 +2,9 @@
  * The playground's entry points: the library's config, encode and recon
  * dump behind a handful of calls a Web Worker can make. One encoder at a
  * time. The stream goes to /out.hevc and the reconstruction, in display
- * order, to /recon.yuv, both on the in-memory file system.
+ * order, to /recon.yuv, both on the in-memory file system. /aus.bin gets
+ * one pair of int32 per access unit in coding order, its display index
+ * and its byte count, which is what the page's MP4 writer needs.
  *
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
@@ -17,10 +19,11 @@ void n265_encoder_set_dump(n265_encoder *e, FILE *f);
 
 static n265_config *cfg;
 static n265_encoder *enc;
-static FILE *out, *recon;
+static FILE *out, *recon, *aus;
 static unsigned char *frame;
 static int fw, fh;
 static long long nbytes;
+static int reorder;
 
 static int write_nals(int r, n265_nal *nal, int nnal)
 {
@@ -28,6 +31,17 @@ static int write_nals(int r, n265_nal *nal, int nnal)
         if (fwrite(nal[i].payload, 1, (size_t)nal[i].size, out) !=
             (size_t)nal[i].size)
             return -1;
+    if (r > 0) {
+        const n265_au *au;
+        int n = n265_encoder_access_units(enc, &au);
+        for (int k = 0; k < n; k++) {
+            int rec[2] = { au[k].display_idx, 0 };
+            for (int j = au[k].first_nal; j < au[k].first_nal + au[k].nnal; j++)
+                rec[1] += nal[j].size;
+            if (fwrite(rec, sizeof rec, 1, aus) != 1)
+                return -1;
+        }
+    }
     if (r > 0)
         nbytes += r;
     return r;
@@ -43,10 +57,12 @@ static void pg_free(void)
         fclose(out);
     if (recon)
         fclose(recon);
+    if (aus)
+        fclose(aus);
     free(frame);
     enc = NULL;
     cfg = NULL;
-    out = recon = NULL;
+    out = recon = aus = NULL;
     frame = NULL;
 }
 
@@ -71,8 +87,9 @@ EMSCRIPTEN_KEEPALIVE int pg_open(int width, int height, int fps_num,
     enc = n265_encoder_open(&p);
     out = fopen("/out.hevc", "wb");
     recon = fopen("/recon.yuv", "w+b");
+    aus = fopen("/aus.bin", "wb");
     frame = malloc((size_t)width * height * 3 / 2);
-    if (!enc || !out || !recon || !frame) {
+    if (!enc || !out || !recon || !aus || !frame) {
         pg_free();
         return -1;
     }
@@ -80,7 +97,14 @@ EMSCRIPTEN_KEEPALIVE int pg_open(int width, int height, int fps_num,
     fw = width;
     fh = height;
     nbytes = 0;
+    reorder = n265_encoder_reorder_depth(enc);
     return 0;
+}
+
+/* sps_max_num_reorder_pics, for the MP4's composition offsets */
+EMSCRIPTEN_KEEPALIVE int pg_reorder(void)
+{
+    return reorder;
 }
 
 /* where the caller writes the next I420 picture */

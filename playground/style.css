@@ -95,4 +95,5 @@ button:disabled { opacity: 0.5; cursor: default; }
 .stats dd { margin: 0; font-size: 1.1rem; font-variant-numeric: tabular-nums; }
 
 .note { border-top: 1px solid var(--line); padding-top: 16px; }
+.downloads { display: flex; gap: 8px; flex-wrap: wrap; }
 .back { font-size: 0.9rem; margin: 0 0 0.5rem; }

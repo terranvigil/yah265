@@ -19,7 +19,7 @@ Below the picture it lists:
 - PSNR-Y against the source
 - the encode time and the speed in frames per second
 
-A button saves the stream as a `.hevc` file. ffmpeg, VLC and mpv play it.
+Two buttons save the encode. The `.mp4` plays in most video players and in Safari. The `.hevc` is the raw stream, which ffmpeg, VLC and mpv play.
 
 The right half of the picture is the encoder's own reconstruction. Those are the exact frames a decoder makes from the stream, so your browser doesn't need HEVC playback to show them.
 

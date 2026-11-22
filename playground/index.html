@@ -55,15 +55,16 @@
       <div><dt>Encode time</dt><dd id="s-time"></dd></div>
       <div><dt>Speed</dt><dd id="s-fps"></dd></div>
     </dl>
-    <p><a id="dl" class="button" download="yah265.hevc">Download .hevc</a></p>
+    <p class="downloads"><a id="dl-mp4" class="button" download="yah265.mp4">Download .mp4</a> <a id="dl" class="button" download="yah265.hevc">Download .hevc</a></p>
   </section>
 
   <section class="note">
     <h2>About the speed</h2>
-    <p>This page runs a WebAssembly build of yah265 on one thread, with none of its SIMD kernels. The native encoder uses NEON, SVE, SSE4.2, AVX2 or AVX-512 and every core you have. On one thread alone, the native build ran 3 to 6 times faster than this page in my tests, and it splits the work over every core. Treat the speed shown here as the slow end for yah265.</p>
-    <p>The picture on the right is the encoder's own reconstruction, the exact frames a decoder would produce from the stream. So no HEVC playback support is needed to see the result.</p>
+    <p>This page runs yah265 on one thread, without its SIMD code. The native encoder ran 3 to 6 times faster on one thread, and it uses all of your cores. So this is the slowest yah265 gets.</p>
+    <p>The right side shows the exact frames a decoder makes from the stream, so your browser doesn't need HEVC support.</p>
   </section>
 </main>
+<script src="mp4.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -12,7 +12,7 @@ const ui = {
   drop: $('drop'), file: $('file'), preset: $('preset'), crf: $('crf'),
   crfval: $('crfval'), go: $('go'), bar: $('bar'), msg: $('msg'),
   result: $('result'), view: $('view'), split: $('split'), play: $('play'),
-  seek: $('seek'), fno: $('fno'), dl: $('dl'),
+  seek: $('seek'), fno: $('fno'), dl: $('dl'), dlMp4: $('dl-mp4'),
 };
 
 // what a test harness reads
@@ -327,6 +327,14 @@ function finish(m) {
     wallMs: performance.now() - job.t0, readMs: job.readMs, opts: job.opts,
   };
   ui.dl.href = URL.createObjectURL(new Blob([m.hevc], { type: 'video/hevc' }));
+  try {
+    const mp4 = hevcToMp4(new Uint8Array(m.hevc), new Int32Array(m.aus), m.reorder,
+                          src.w, src.h, src.fpsNum, src.fpsDen);
+    ui.dlMp4.href = URL.createObjectURL(new Blob([mp4], { type: 'video/mp4' }));
+    ui.dlMp4.hidden = false;
+  } catch (e) {
+    ui.dlMp4.hidden = true;
+  }
   $('s-size').textContent = fmtBytes(m.bytes);
   $('s-rate').textContent = stats.kbps.toFixed(0) + ' kbit/s';
   $('s-psnr').textContent = isFinite(psnr) ? psnr.toFixed(2) + ' dB' : 'lossless';

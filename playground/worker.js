@@ -6,7 +6,8 @@
 // worker -> page:
 //   {type: 'ready', version} once the module has loaded
 //   {type: 'opened'} | {type: 'progress', frames, bytes, encodeMs}
-//   {type: 'done', hevc, recon, bytes, encodeMs, frames} | {type: 'error', message}
+//   {type: 'done', hevc, recon, aus, reorder, bytes, encodeMs, frames} | {type: 'error', message}
+// aus: Int32Array buffer, (display index, bytes) per access unit in coding order
 'use strict';
 
 importScripts('yah265.js');
@@ -33,6 +34,7 @@ createYah265({
     flush: m.cwrap('pg_flush', 'number', []),
     close: m.cwrap('pg_close', 'number', []),
     version: m.cwrap('pg_version', 'string', []),
+    reorder: m.cwrap('pg_reorder', 'number', []),
   };
   postMessage({ type: 'ready', version: api.version() });
   while (queue.length) handle(queue.shift());
@@ -73,16 +75,19 @@ function handle(msg) {
         st.bytes += r;
         postMessage({ type: 'progress', frames: st.frames, bytes: st.bytes, encodeMs: st.ms + performance.now() - t0 });
       }
+      const reorder = api.reorder();
       api.close();
       st.ms += performance.now() - t0;
       const hevc = mod.FS.readFile('/out.hevc');
       const recon = mod.FS.readFile('/recon.yuv');
+      const aus = mod.FS.readFile('/aus.bin');
       mod.FS.unlink('/out.hevc');
       mod.FS.unlink('/recon.yuv');
+      mod.FS.unlink('/aus.bin');
       postMessage({
-        type: 'done', hevc: hevc.buffer, recon: recon.buffer,
+        type: 'done', hevc: hevc.buffer, recon: recon.buffer, aus: aus.buffer, reorder,
         bytes: hevc.length, encodeMs: st.ms, frames: st.frames,
-      }, [hevc.buffer, recon.buffer]);
+      }, [hevc.buffer, recon.buffer, aus.buffer]);
       st = null;
     }
   } catch (e) {
