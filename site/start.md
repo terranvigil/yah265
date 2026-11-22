@@ -85,6 +85,43 @@ There are two ways to run yah265. Most people use it through ffmpeg, as the `lib
 <figcaption>Both ways run the same encoder with the same options.</figcaption>
 </figure>
 
+## Install with Homebrew
+
+On macOS or Linux with Homebrew, one command builds and installs it:
+
+```sh
+brew install terranvigil/yah265/ffmpeg-yah265
+```
+
+That gives you `ffmpeg-yah265` and `ffprobe-yah265`, built on your machine, beside Homebrew's own `ffmpeg`. `brew install terranvigil/yah265/y265` installs the `y265` command line and the library alone. Both are GPL-2.0-or-later.
+
+```sh
+ffmpeg-yah265 -i in.mp4 -c:v libyah265 -preset medium -crf 25 out.mp4
+```
+
+### Tdarr
+
+Tdarr can run any ffmpeg you give it. Set `ffmpegPath` in `Tdarr_Node_Config.json` to the `ffmpeg-yah265` you installed, or to the one [the build script](#build-ffmpeg-with-yah265) makes. Then encode with the classic plugin **HandBrake Or FFmpeg Custom Arguments**. Set `cli` to `ffmpeg`, `container` to `mkv`, and `arguments` to:
+
+```text
+<io>-map 0 -c:v libyah265 -preset medium -crf 25 -c:a copy -c:s copy
+```
+
+That plugin has no filter of its own, so put a codec filter in front of it. Otherwise Tdarr re-encodes files that are already HEVC.
+
+### Jellyfin
+
+Jellyfin transcodes HEVC with `libx265` or a hardware encoder. No setting names another encoder. Encode the library with yah265 before Jellyfin sees it instead. Jellyfin then plays the HEVC files directly on clients that support them:
+
+```sh
+for f in *.mkv; do
+  ffmpeg-yah265 -i "$f" -map 0 -c:v libyah265 -preset medium -crf 25 \
+    -c:a copy -c:s copy "hevc/${f%.*}.mkv"
+done
+```
+
+Tdarr, above, can do this for a whole library and keep it up to date.
+
 ## Build ffmpeg with yah265
 
 You need git, a C compiler, Meson, Ninja, pkg-config and make. The following command builds everything:
