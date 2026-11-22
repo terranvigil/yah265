@@ -784,6 +784,10 @@ typedef struct n265_frame_work {
     /* lookahead hand-off, frozen before the frame launches */
     float sc_ratio;         /* lookahead pcost/icost (P3) */
     int jit;                /* lookahead camera-jitter flag (N265_JIT) */
+    int scr;                /* lookahead screen-content type (N265_SCREEN) */
+    /* --frame-stats only, read after the plan decided: which scene-cut
+     * trigger fired (N265_SC_*) and why an intra picture is here */
+    int fs_sc, fs_key;
     int mcstf_filt;         /* --mcstf filtered this picture (item 31) */
     float la_mvabs;         /* lookahead mean |MV| per lowres block (N265_CT_TRACE) */
     const uint16_t *la_icost, *la_pcost;

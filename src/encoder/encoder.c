@@ -4955,6 +4955,44 @@ static void dump_recon_frame(n265_encoder *e, n265_frame_work *fw)
  *
  * `bytes` is the whole ACCESS UNIT - parameter sets, SEIs and the slice -
  * because that is what the stream costs and what x265's CSV counts. */
+/* --frame-stats: what the lookahead and the analysis typed this frame
+ * as. Read at retirement off state the frame already froze. */
+static void fstats_detect(n265_encoder *e, const n265_frame_work *fw)
+{
+    static const char *const key[] = { "", "first", "forced", "qpfile",
+                                       "scene", "keyint", "other", "shot" };
+    static const char *const sc[] = { "", "ratio", "failw", "forced" };
+    FILE *o = e->fstats;
+    fprintf(o, ", \"sc_ratio\": %.3f", (double)fw->sc_ratio);
+    if (fw->fs_key)
+        fprintf(o, ", \"key\": \"%s\"", key[fw->fs_key]);
+    if (fw->fs_sc)
+        fprintf(o, ", \"scenecut\": \"%s\"", sc[fw->fs_sc]);
+    fprintf(o, ", \"screen\": %d, \"jitter\": %d, \"flat\": %d, "
+            "\"flat_pct\": %d", fw->scr ? 1 : 0, fw->jit ? 1 : 0,
+            fw->flat ? 1 : 0, fw->flat_pct);
+    if (fw->dark_w) {
+        int bc = fw->dark_cols, br = (fw->pad_h + 15) >> 4, nd = 0;
+        for (int i = 0; i < bc * br; i++)
+            nd += fw->dark_w[i] >= 0.5f;
+        fprintf(o, ", \"dark\": %.3f",
+                bc * br ? (double)nd / (double)(bc * br) : 0.0);
+    }
+    /* mean luma on a 2x2 lattice, in 8-bit levels at every depth */
+    const pixel *y = fw->pad_plane[0];
+    int st = fw->pad_stride[0], w = e->param.width, h = e->param.height;
+    uint64_t sum = 0, n = 0;
+    for (int r = 0; r < h; r += 2) {
+        const pixel *row = y + (size_t)r * st;
+        for (int c = 0; c < w; c += 2)
+            sum += row[c];
+        n += (uint64_t)((w + 1) / 2);
+    }
+    fprintf(o, ", \"luma\": %.1f",
+            n ? (double)sum / (double)n / (double)(1 << BIT_DEPTH_SHIFT)
+              : 0.0);
+}
+
 /* --frame-stats: one JSON line per frame, in coding order */
 static void fstats_frame(n265_encoder *e, const n265_frame_work *fw,
                          size_t bytes)
@@ -4969,6 +5007,7 @@ static void fstats_frame(n265_encoder *e, const n265_frame_work *fw,
             fw->idr, !fw->nonref, fw->qp, bytes, fw->poc, fw->code_idx);
     if (e->vbv.on)
         fprintf(e->fstats, ", \"vbv_fill\": %.0f", e->vbv.fill);
+    fstats_detect(e, fw);
     if (nctl)
         fprintf(e->fstats, ", \"control\": [%s]", ctl);
     fputs("}\n", e->fstats);
@@ -8842,6 +8881,33 @@ static void plan_brange(n265_encoder *e, int blo, int bhi, int depth)
     plan_brange(e, mid + 1, bhi, depth + 1);
 }
 
+/* --frame-stats: why an intra picture was placed, told apart after the
+ * plan decided. Nothing reads it but the stats line. */
+enum { FS_KEY_NONE, FS_KEY_FIRST, FS_KEY_FORCED, FS_KEY_QPFILE,
+       FS_KEY_SCENE, FS_KEY_PERIOD, FS_KEY_OTHER, FS_KEY_SHOT };
+
+static int fs_key_why(n265_encoder *e, const la_frame *f, int kind, int sc)
+{
+    if (f->display_idx == 0)
+        return FS_KEY_FIRST;
+    if (f->ctl_key)
+        return FS_KEY_FORCED;
+    if (e->qpf_on) {
+        const n265_qpent *qe = n265_qpfile_at(&e->qpf, f->display_idx);
+        if (qe && (qe->type == N265_QPF_IDR || qe->type == N265_QPF_I))
+            return FS_KEY_QPFILE;
+    }
+    if (e->shotl_on && n265_shotl_has(e, f->display_idx))
+        return FS_KEY_SHOT;
+    /* a non-IDR I is a cut's own picture; under --no-scenecut a key
+     * frame is the grid's even where the detector also fired */
+    if (kind == 3)
+        return sc != N265_SC_NONE ? FS_KEY_SCENE : FS_KEY_OTHER;
+    if (sc != N265_SC_NONE && !e->key_grid)
+        return FS_KEY_SCENE;
+    return kind == 2 || kind == 4 ? FS_KEY_PERIOD : FS_KEY_OTHER;
+}
+
 /* Build the coding-order plan for the mini-GOP at the front of the queue. */
 static void build_plan_order(n265_encoder *e)
 {
@@ -9388,6 +9454,10 @@ static int drive_scheduler(n265_encoder *e)
     fw->sc_ratio = f->sc_ratio;     /* lookahead pcost/icost, P3 reads it */
     fw->jit = f->jit_plan;
     fw->rdoq = fw->jit && e->rdoq && e->jit_rdoq ? 1 : e->rdoq;
+    fw->scr = f->scr;
+    fw->fs_sc = e->fstats ? n265_la_scenecut_why(e, li) : N265_SC_NONE;
+    fw->fs_key = e->fstats && slice_type == 2
+                     ? fs_key_why(e, f, kind, fw->fs_sc) : FS_KEY_NONE;
     fw->mcstf_filt = f->mcstf_filt;
     fw->la_mvabs = la->bw * la->bh
                        ? (float)f->mvabs_sum / (float)(la->bw * la->bh) : 0.0f;

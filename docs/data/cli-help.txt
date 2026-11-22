@@ -1,4 +1,4 @@
-# y265 0.0.1, release build 9d02c44b
+# y265 0.0.1, release build 841c08bf
 usage: y265 [options] <input.y4m|input.yuv|->
        y265 bench <video> [options]   compare with x265 on your clip
 
@@ -259,6 +259,9 @@ Reporting
   --shot-stats <file>   write per-shot statistics as JSON Lines
   --frame-stats <file>  write one JSON line per coded frame, with the live
                         control events that took effect on it
+  --report <file>       write an HTML report of the encode: rate, QP,
+                        frame types, shots, buffer and detections
+                        (runs encode_report.py; needs python3)
   --verbose, -v         print the resolved configuration, level and tier,
                         then encode
   --show-config         print the resolved configuration and exit

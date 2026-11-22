@@ -163,6 +163,9 @@ if python3.found()
   test('bd_rate', python3,
     args : [meson.project_source_root() / 'scripts' / 'bdcompare.py',
             '--selftest'])
+  # the --report page, from a canned --frame-stats file; no encodes
+  test('encode_report', python3,
+    args : [meson.current_source_dir() / 'unit' / 'encode_report_test.py'])
 endif
 
 # The command line's HDR10+ JSON and Dolby Vision RPU readers. The ST

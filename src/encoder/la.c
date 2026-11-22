@@ -1632,11 +1632,11 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
     la->count++;
 }
 
-int n265_la_scenecut(struct n265_encoder *e, int i)
+int n265_la_scenecut_why(struct n265_encoder *e, int i)
 {
     n265_la *la = &e->la;
     if (i >= la->count || la->f[i].display_idx == 0)
-        return 0;
+        return N265_SC_NONE;
     const la_frame *f = &la->f[i];
     /* --shot-list: the list is the only source of cuts, so every rung of
      * a ladder cuts at the same frames */
@@ -1645,27 +1645,37 @@ int n265_la_scenecut(struct n265_encoder *e, int i)
     /* cut when inter fails to undercut intra AND the ratio spikes over
      * its running level - a steady high ratio (grain, foliage) is not a
      * scene change */
-    int cut = f->sc_ratio >= 0.75f &&
+    int why = f->sc_ratio >= 0.75f &&
               (f->sc_ema == 0.0f ||
-               (double)f->sc_ratio >= sc_spike() * (double)f->sc_ema);
+               (double)f->sc_ratio >= sc_spike() * (double)f->sc_ema)
+                  ? N265_SC_RATIO : N265_SC_NONE;
     /* N265_SC_FAILW: the second, one-sided trigger. It may only ADD a cut
      * the ratio of sums cannot see. */
     double fwbar = sc_failw_bar();
-    if (!cut && fwbar > 0.0 && (double)f->sc_failw >= fwbar &&
+    if (!why && fwbar > 0.0 && (double)f->sc_failw >= fwbar &&
         (f->failw_lvl == 0.0f ||
          (double)f->sc_failw >= sc_failw_spike() * (double)f->failw_lvl))
-        cut = 1;
-    if (cut && !sc_jump_ok(f))
-        cut = 0;
-    if (!cut && sc_forced(f->display_idx))
-        cut = 1;
-    if (n265_env("N265_SC_TRACE"))
+        why = N265_SC_FAILW;
+    if (why && !sc_jump_ok(f))
+        why = N265_SC_NONE;
+    if (!why && sc_forced(f->display_idx))
+        why = N265_SC_FORCED;
+    return why;
+}
+
+int n265_la_scenecut(struct n265_encoder *e, int i)
+{
+    int cut = n265_la_scenecut_why(e, i) != N265_SC_NONE;
+    if (n265_env("N265_SC_TRACE") && i < e->la.count &&
+        e->la.f[i].display_idx != 0) {
+        const la_frame *f = &e->la.f[i];
         fprintf(stderr, "sc d=%d p=%llu i=%llu ratio=%.2f failw=%.3f "
                 "flvl=%.3f cut=%d\n",
                 f->display_idx, (unsigned long long)f->pcost_sum,
                 (unsigned long long)f->icost_sum,
                 (double)f->pcost_sum / (double)(f->icost_sum ? f->icost_sum : 1),
                 (double)f->sc_failw, (double)f->failw_lvl, cut);
+    }
     return cut;
 }
 
