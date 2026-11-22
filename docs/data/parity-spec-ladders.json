@@ -147227,6 +147227,16 @@
   "psnr_y": 41.013242,
   "q": 20
  },
+ "cred/1080p/bbb|cred|ours|20|la20|de1f9f3d1f803ec0": {
+  "bytes": 45750459,
+  "date": "2026-11-22T14:08:28",
+  "frames": 3732,
+  "frames_ok": true,
+  "kbps": 2942.1517041800644,
+  "md5": "ce3f08c206ae353d344d0d3fb480f9f5",
+  "psnr_y": 44.075249,
+  "q": 20
+ },
  "cred/1080p/bbb|cred|ours|20|la20|ecbd329524a2f850": {
   "bytes": 18435460,
   "date": "2026-10-26T08:44:34",
@@ -147312,6 +147322,16 @@
   "psnr_y": 39.205116,
   "q": 23
  },
+ "cred/1080p/bbb|cred|ours|23|la20|de1f9f3d1f803ec0": {
+  "bytes": 28999111,
+  "date": "2026-11-22T14:09:35",
+  "frames": 3732,
+  "frames_ok": true,
+  "kbps": 1864.8945980707394,
+  "md5": "f42c40700ea347a05e73df6a8616f28e",
+  "psnr_y": 42.28335,
+  "q": 23
+ },
  "cred/1080p/bbb|cred|ours|23|la20|ecbd329524a2f850": {
   "bytes": 11237249,
   "date": "2026-10-26T08:45:55",
@@ -147395,6 +147415,16 @@
   "kbps": 470.59041800643087,
   "md5": "6d008358de857b955c5cc06f1954fa00",
   "psnr_y": 37.345696,
+  "q": 26
+ },
+ "cred/1080p/bbb|cred|ours|26|la20|de1f9f3d1f803ec0": {
+  "bytes": 17934795,
+  "date": "2026-11-22T14:10:12",
+  "frames": 3732,
+  "frames_ok": true,
+  "kbps": 1153.3630225080385,
+  "md5": "bc600f87b554e0254e28d4f1204eacb6",
+  "psnr_y": 40.441146,
   "q": 26
  },
  "cred/1080p/bbb|cred|ours|26|la20|ecbd329524a2f850": {
@@ -147492,6 +147522,16 @@
   "psnr_y": 36.428735,
   "q": 27.52
  },
+ "cred/1080p/bbb|cred|ours|27.62|la20|de1f9f3d1f803ec0": {
+  "bytes": 13290320,
+  "date": "2026-11-22T14:11:42",
+  "frames": 3732,
+  "frames_ok": true,
+  "kbps": 854.6829581993569,
+  "md5": "048812c4ed7aed274eaf9bb92ffe4503",
+  "psnr_y": 39.45969,
+  "q": 27.62
+ },
  "cred/1080p/bbb|cred|ours|29|la20|12de49f25e5df045": {
   "bytes": 5101907,
   "date": "2026-11-09T03:18:57",
@@ -147565,6 +147605,16 @@
   "kbps": 328.09691318327975,
   "md5": "daa518cb519c6c752f9d60ff2710b882",
   "psnr_y": 35.439771,
+  "q": 29
+ },
+ "cred/1080p/bbb|cred|ours|29|la20|de1f9f3d1f803ec0": {
+  "bytes": 10860693,
+  "date": "2026-11-22T14:10:43",
+  "frames": 3732,
+  "frames_ok": true,
+  "kbps": 698.436848874598,
+  "md5": "06993581ad03c8cef7042bc61e3c28fc",
+  "psnr_y": 38.601111,
   "q": 29
  },
  "cred/1080p/bbb|cred|ours|29|la20|ecbd329524a2f850": {
@@ -147650,6 +147700,16 @@
   "kbps": 239.45131832797426,
   "md5": "ed1f8821397c203d3522c2fff3d55bfc",
   "psnr_y": 33.388945,
+  "q": 32
+ },
+ "cred/1080p/bbb|cred|ours|32|la20|de1f9f3d1f803ec0": {
+  "bytes": 7027353,
+  "date": "2026-11-22T14:11:08",
+  "frames": 3732,
+  "frames_ok": true,
+  "kbps": 451.919807073955,
+  "md5": "0ee49aa0b98124a1e63f27326a7a4e54",
+  "psnr_y": 36.711215,
   "q": 32
  },
  "cred/1080p/bbb|cred|ours|32|la20|ecbd329524a2f850": {
@@ -147797,6 +147857,16 @@
   "psnr_y": 59.082949,
   "q": 20
  },
+ "cred/1080p/cosmos|cred|ours|20|la20|de1f9f3d1f803ec0": {
+  "bytes": 207872,
+  "date": "2026-11-22T14:01:22",
+  "frames": 676,
+  "frames_ok": true,
+  "kbps": 59.04056804733728,
+  "md5": "15224657e525e700e2681dae2890bc1e",
+  "psnr_y": 59.345348,
+  "q": 20
+ },
  "cred/1080p/cosmos|cred|ours|20|la20|ecbd329524a2f850": {
   "bytes": 184475,
   "date": "2026-10-26T08:52:36",
@@ -147880,6 +147950,16 @@
   "kbps": 45.74030769230769,
   "md5": "a09e46605907d6fe242f00623310ab15",
   "psnr_y": 58.504937,
+  "q": 23
+ },
+ "cred/1080p/cosmos|cred|ours|23|la20|de1f9f3d1f803ec0": {
+  "bytes": 173707,
+  "date": "2026-11-22T14:01:29",
+  "frames": 676,
+  "frames_ok": true,
+  "kbps": 49.33689940828402,
+  "md5": "2c7bf7aa0938be7a57f6cdc6efe7ef7d",
+  "psnr_y": 58.855082,
   "q": 23
  },
  "cred/1080p/cosmos|cred|ours|23|la20|ecbd329524a2f850": {
@@ -147977,6 +148057,16 @@
   "psnr_y": 57.64996,
   "q": 25.27
  },
+ "cred/1080p/cosmos|cred|ours|25.27|la20|de1f9f3d1f803ec0": {
+  "bytes": 153690,
+  "date": "2026-11-22T14:01:47",
+  "frames": 676,
+  "frames_ok": true,
+  "kbps": 43.65159763313609,
+  "md5": "5257af9934acc673ff86c4baec200b50",
+  "psnr_y": 58.225819,
+  "q": 25.27
+ },
  "cred/1080p/cosmos|cred|ours|26|la20|12de49f25e5df045": {
   "bytes": 136789,
   "date": "2026-11-09T03:20:11",
@@ -148050,6 +148140,16 @@
   "kbps": 38.851313609467454,
   "md5": "a872d15718876b09abba2341d3b5e5c5",
   "psnr_y": 57.413816,
+  "q": 26
+ },
+ "cred/1080p/cosmos|cred|ours|26|la20|de1f9f3d1f803ec0": {
+  "bytes": 147798,
+  "date": "2026-11-22T14:01:34",
+  "frames": 676,
+  "frames_ok": true,
+  "kbps": 41.978130177514785,
+  "md5": "617b6ef6d63582b84648b6bb6048f6ba",
+  "psnr_y": 58.011679,
   "q": 26
  },
  "cred/1080p/cosmos|cred|ours|26|la20|ecbd329524a2f850": {
@@ -148137,6 +148237,16 @@
   "psnr_y": 55.781272,
   "q": 29
  },
+ "cred/1080p/cosmos|cred|ours|29|la20|de1f9f3d1f803ec0": {
+  "bytes": 124953,
+  "date": "2026-11-22T14:01:39",
+  "frames": 676,
+  "frames_ok": true,
+  "kbps": 35.48960946745562,
+  "md5": "ed491557cbeb73eecad54f6c884c85bb",
+  "psnr_y": 56.51619,
+  "q": 29
+ },
  "cred/1080p/cosmos|cred|ours|29|la20|ecbd329524a2f850": {
   "bytes": 111489,
   "date": "2026-10-26T08:53:04",
@@ -148220,6 +148330,16 @@
   "kbps": 27.822674556213016,
   "md5": "0a685f652c1c446869e1d8a880ba20d5",
   "psnr_y": 53.931795,
+  "q": 32
+ },
+ "cred/1080p/cosmos|cred|ours|32|la20|de1f9f3d1f803ec0": {
+  "bytes": 105624,
+  "date": "2026-11-22T14:01:43",
+  "frames": 676,
+  "frames_ok": true,
+  "kbps": 29.999715976331363,
+  "md5": "704f44ed85b02dbb67920178efebde6c",
+  "psnr_y": 54.764523,
   "q": 32
  },
  "cred/1080p/cosmos|cred|ours|32|la20|ecbd329524a2f850": {
@@ -148367,6 +148487,16 @@
   "psnr_y": 59.763714,
   "q": 20
  },
+ "cred/1080p/meridian|cred|ours|20|la20|de1f9f3d1f803ec0": {
+  "bytes": 341259,
+  "date": "2026-11-22T13:57:25",
+  "frames": 3077,
+  "frames_ok": true,
+  "kbps": 53.18189123193998,
+  "md5": "224c4b0127a0ea83c8bb7beb3e9508ff",
+  "psnr_y": 59.861396,
+  "q": 20
+ },
  "cred/1080p/meridian|cred|ours|20|la20|ecbd329524a2f850": {
   "bytes": 313744,
   "date": "2026-10-26T07:57:32",
@@ -148450,6 +148580,16 @@
   "kbps": 46.04051132487921,
   "md5": "dd12be53fe63f306579613d261de6ef9",
   "psnr_y": 59.233754,
+  "q": 23
+ },
+ "cred/1080p/meridian|cred|ours|23|la20|de1f9f3d1f803ec0": {
+  "bytes": 305881,
+  "date": "2026-11-22T13:57:53",
+  "frames": 3077,
+  "frames_ok": true,
+  "kbps": 47.66857451940325,
+  "md5": "1fe67123065aea2a0d6645a2ebd8af7e",
+  "psnr_y": 59.490501,
   "q": 23
  },
  "cred/1080p/meridian|cred|ours|23|la20|ecbd329524a2f850": {
@@ -148547,6 +148687,16 @@
   "psnr_y": 57.515935,
   "q": 26.36
  },
+ "cred/1080p/meridian|cred|ours|26.36|la20|de1f9f3d1f803ec0": {
+  "bytes": 272097,
+  "date": "2026-11-22T13:59:54",
+  "frames": 3077,
+  "frames_ok": true,
+  "kbps": 42.403667181047744,
+  "md5": "b70508063c759310e8e4af23a38f1efd",
+  "psnr_y": 58.076343,
+  "q": 26.36
+ },
  "cred/1080p/meridian|cred|ours|26|la20|12de49f25e5df045": {
   "bytes": 264536,
   "date": "2026-11-09T03:14:27",
@@ -148620,6 +148770,16 @@
   "kbps": 41.2253589764152,
   "md5": "b9c1ce7b1ff5d751b617e2c9e4ae6985",
   "psnr_y": 57.742438,
+  "q": 26
+ },
+ "cred/1080p/meridian|cred|ours|26|la20|de1f9f3d1f803ec0": {
+  "bytes": 276376,
+  "date": "2026-11-22T13:58:22",
+  "frames": 3077,
+  "frames_ok": true,
+  "kbps": 43.07050765289309,
+  "md5": "f5858b8fb310b5a84a8e1d7739065167",
+  "psnr_y": 58.329289,
   "q": 26
  },
  "cred/1080p/meridian|cred|ours|26|la20|ecbd329524a2f850": {
@@ -148707,6 +148867,16 @@
   "psnr_y": 55.788144,
   "q": 29
  },
+ "cred/1080p/meridian|cred|ours|29|la20|de1f9f3d1f803ec0": {
+  "bytes": 243323,
+  "date": "2026-11-22T13:58:56",
+  "frames": 3077,
+  "frames_ok": true,
+  "kbps": 37.91951954447892,
+  "md5": "932807b56a48433038b7fbebd52a6f2d",
+  "psnr_y": 56.517856,
+  "q": 29
+ },
  "cred/1080p/meridian|cred|ours|29|la20|ecbd329524a2f850": {
   "bytes": 223883,
   "date": "2026-10-26T08:08:02",
@@ -148790,6 +148960,16 @@
   "kbps": 32.92702098031965,
   "md5": "9d9426e28739e4d4699910cba86b9fb9",
   "psnr_y": 53.342013,
+  "q": 32
+ },
+ "cred/1080p/meridian|cred|ours|32|la20|de1f9f3d1f803ec0": {
+  "bytes": 218898,
+  "date": "2026-11-22T13:59:23",
+  "frames": 3077,
+  "frames_ok": true,
+  "kbps": 34.113121197944075,
+  "md5": "e831db4c695f1b602ec6cd153acdf60b",
+  "psnr_y": 54.134716,
   "q": 32
  },
  "cred/1080p/meridian|cred|ours|32|la20|ecbd329524a2f850": {
@@ -148937,6 +149117,16 @@
   "psnr_y": 43.065194,
   "q": 20
  },
+ "cred/1080p/nocturne|cred|ours|20|la20|de1f9f3d1f803ec0": {
+  "bytes": 1170350,
+  "date": "2026-11-22T14:01:58",
+  "frames": 1680,
+  "frames_ok": true,
+  "kbps": 334.38571428571424,
+  "md5": "711add0a24cc0ac4ab1c1c71a843846c",
+  "psnr_y": 43.308577,
+  "q": 20
+ },
  "cred/1080p/nocturne|cred|ours|20|la20|ecbd329524a2f850": {
   "bytes": 896970,
   "date": "2026-10-26T09:01:33",
@@ -149032,6 +149222,16 @@
   "psnr_y": 42.216467,
   "q": 23
  },
+ "cred/1080p/nocturne|cred|ours|23|la20|de1f9f3d1f803ec0": {
+  "bytes": 638095,
+  "date": "2026-11-22T14:02:17",
+  "frames": 1680,
+  "frames_ok": true,
+  "kbps": 182.31285714285713,
+  "md5": "dae948f8f5e4def391b6a9e2b87513a8",
+  "psnr_y": 42.518137,
+  "q": 23
+ },
  "cred/1080p/nocturne|cred|ours|23|la20|ecbd329524a2f850": {
   "bytes": 547983,
   "date": "2026-10-26T09:03:08",
@@ -149117,6 +149317,16 @@
   "psnr_y": 41.758753,
   "q": 24.52
  },
+ "cred/1080p/nocturne|cred|ours|24.52|la20|de1f9f3d1f803ec0": {
+  "bytes": 529676,
+  "date": "2026-11-22T14:03:20",
+  "frames": 1680,
+  "frames_ok": true,
+  "kbps": 151.336,
+  "md5": "c0c3c2862926fdd436ad2b5e6ada21e9",
+  "psnr_y": 42.095742,
+  "q": 24.52
+ },
  "cred/1080p/nocturne|cred|ours|26|la20|12de49f25e5df045": {
   "bytes": 403731,
   "date": "2026-11-09T03:20:57",
@@ -149190,6 +149400,16 @@
   "kbps": 115.3517142857143,
   "md5": "5e3c1fbefccd19eb52de2d536d8bb8c5",
   "psnr_y": 41.182263,
+  "q": 26
+ },
+ "cred/1080p/nocturne|cred|ours|26|la20|de1f9f3d1f803ec0": {
+  "bytes": 445935,
+  "date": "2026-11-22T14:02:40",
+  "frames": 1680,
+  "frames_ok": true,
+  "kbps": 127.41,
+  "md5": "21991b6ad9f82bae00a7a8b0639b7176",
+  "psnr_y": 41.570694,
   "q": 26
  },
  "cred/1080p/nocturne|cred|ours|26|la20|ecbd329524a2f850": {
@@ -149277,6 +149497,16 @@
   "psnr_y": 39.915159,
   "q": 29
  },
+ "cred/1080p/nocturne|cred|ours|29|la20|de1f9f3d1f803ec0": {
+  "bytes": 335664,
+  "date": "2026-11-22T14:02:55",
+  "frames": 1680,
+  "frames_ok": true,
+  "kbps": 95.904,
+  "md5": "7b8c00645635d9001e69325a4242382f",
+  "psnr_y": 40.401547,
+  "q": 29
+ },
  "cred/1080p/nocturne|cred|ours|29|la20|ecbd329524a2f850": {
   "bytes": 309415,
   "date": "2026-10-26T09:06:04",
@@ -149360,6 +149590,16 @@
   "kbps": 74.50714285714285,
   "md5": "f77e79b10e76891e175cb076129802d3",
   "psnr_y": 38.350862,
+  "q": 32
+ },
+ "cred/1080p/nocturne|cred|ours|32|la20|de1f9f3d1f803ec0": {
+  "bytes": 275654,
+  "date": "2026-11-22T14:03:07",
+  "frames": 1680,
+  "frames_ok": true,
+  "kbps": 78.7582857142857,
+  "md5": "0a3d86aa5d9f039cb7a11cd288c4b3c5",
+  "psnr_y": 38.878745,
   "q": 32
  },
  "cred/1080p/nocturne|cred|ours|32|la20|ecbd329524a2f850": {
@@ -149507,6 +149747,16 @@
   "psnr_y": 51.166252,
   "q": 20
  },
+ "cred/1080p/sintel|cred|ours|20|la20|de1f9f3d1f803ec0": {
+  "bytes": 2625056,
+  "date": "2026-11-22T14:00:18",
+  "frames": 1222,
+  "frames_ok": true,
+  "kbps": 412.4474238952537,
+  "md5": "4d0d5ab0dd0d014841fe716706c70e27",
+  "psnr_y": 52.491085,
+  "q": 20
+ },
  "cred/1080p/sintel|cred|ours|20|la20|ecbd329524a2f850": {
   "bytes": 1759980,
   "date": "2026-10-26T08:26:29",
@@ -149592,6 +149842,16 @@
   "psnr_y": 49.479501,
   "q": 23
  },
+ "cred/1080p/sintel|cred|ours|23|la20|de1f9f3d1f803ec0": {
+  "bytes": 1786077,
+  "date": "2026-11-22T14:00:27",
+  "frames": 1222,
+  "frames_ok": true,
+  "kbps": 280.62748281505725,
+  "md5": "0144f851c212e9a6eca38d1e9866aaab",
+  "psnr_y": 50.817896,
+  "q": 23
+ },
  "cred/1080p/sintel|cred|ours|23|la20|ecbd329524a2f850": {
   "bytes": 1218210,
   "date": "2026-10-26T08:26:48",
@@ -149675,6 +149935,16 @@
   "kbps": 135.84832733224223,
   "md5": "9dab04ec9f2d5d683b9dac817651ff22",
   "psnr_y": 47.70391,
+  "q": 26
+ },
+ "cred/1080p/sintel|cred|ours|26|la20|de1f9f3d1f803ec0": {
+  "bytes": 1216198,
+  "date": "2026-11-22T14:00:36",
+  "frames": 1222,
+  "frames_ok": true,
+  "kbps": 191.08839279869068,
+  "md5": "ebf3f65e983ca8e841436efb8bf66873",
+  "psnr_y": 49.065476,
   "q": 26
  },
  "cred/1080p/sintel|cred|ours|26|la20|ecbd329524a2f850": {
@@ -149772,6 +150042,16 @@
   "psnr_y": 45.288335,
   "q": 29.91
  },
+ "cred/1080p/sintel|cred|ours|29.91|la20|de1f9f3d1f803ec0": {
+  "bytes": 732097,
+  "date": "2026-11-22T14:01:12",
+  "frames": 1222,
+  "frames_ok": true,
+  "kbps": 115.02669721767595,
+  "md5": "3b87483cc813785ee4bc82d00585bf07",
+  "psnr_y": 46.649912,
+  "q": 29.91
+ },
  "cred/1080p/sintel|cred|ours|29|la20|12de49f25e5df045": {
   "bytes": 596379,
   "date": "2026-11-09T03:17:02",
@@ -149845,6 +150125,16 @@
   "kbps": 93.70275613747955,
   "md5": "ab9c1956549e34ca4df4613f3f0efa99",
   "psnr_y": 45.849824,
+  "q": 29
+ },
+ "cred/1080p/sintel|cred|ours|29|la20|de1f9f3d1f803ec0": {
+  "bytes": 827939,
+  "date": "2026-11-22T14:00:47",
+  "frames": 1222,
+  "frames_ok": true,
+  "kbps": 130.08534206219312,
+  "md5": "461f4a44d4e66b00a6e2c1c177c81553",
+  "psnr_y": 47.212887,
   "q": 29
  },
  "cred/1080p/sintel|cred|ours|29|la20|ecbd329524a2f850": {
@@ -149930,6 +150220,16 @@
   "kbps": 65.82693289689034,
   "md5": "c147329c307e026e70e0cb87a986ca11",
   "psnr_y": 43.951628,
+  "q": 32
+ },
+ "cred/1080p/sintel|cred|ours|32|la20|de1f9f3d1f803ec0": {
+  "bytes": 562240,
+  "date": "2026-11-22T14:00:58",
+  "frames": 1222,
+  "frames_ok": true,
+  "kbps": 88.33885433715221,
+  "md5": "37dea7a9c0da77acc4eabd5c69c400c7",
+  "psnr_y": 45.310802,
   "q": 32
  },
  "cred/1080p/sintel|cred|ours|32|la20|ecbd329524a2f850": {
@@ -150077,6 +150377,16 @@
   "psnr_y": 59.111498,
   "q": 20
  },
+ "cred/1080p/stem2|cred|ours|20|la20|de1f9f3d1f803ec0": {
+  "bytes": 982312,
+  "date": "2026-11-22T14:06:23",
+  "frames": 1460,
+  "frames_ok": true,
+  "kbps": 129.18075616438355,
+  "md5": "6b455ffb24ddbd4a0b688b53f782b2c6",
+  "psnr_y": 59.47235,
+  "q": 20
+ },
  "cred/1080p/stem2|cred|ours|20|la20|ecbd329524a2f850": {
   "bytes": 839223,
   "date": "2026-10-26T08:20:52",
@@ -150160,6 +150470,16 @@
   "kbps": 92.5170410958904,
   "md5": "f7130e3b057a9927126e2a4a7f9ffe6d",
   "psnr_y": 57.974814,
+  "q": 23
+ },
+ "cred/1080p/stem2|cred|ours|23|la20|de1f9f3d1f803ec0": {
+  "bytes": 793266,
+  "date": "2026-11-22T14:06:40",
+  "frames": 1460,
+  "frames_ok": true,
+  "kbps": 104.31991232876713,
+  "md5": "1e977ea2de6ed2aa1388dc576be39286",
+  "psnr_y": 58.639193,
   "q": 23
  },
  "cred/1080p/stem2|cred|ours|23|la20|ecbd329524a2f850": {
@@ -150257,6 +150577,16 @@
   "psnr_y": 56.386726,
   "q": 26.39
  },
+ "cred/1080p/stem2|cred|ours|26.52|la20|de1f9f3d1f803ec0": {
+  "bytes": 614716,
+  "date": "2026-11-22T14:07:36",
+  "frames": 1460,
+  "frames_ok": true,
+  "kbps": 80.83936438356164,
+  "md5": "79649a1bf426b0835e12fef265cbeff9",
+  "psnr_y": 57.077577,
+  "q": 26.52
+ },
  "cred/1080p/stem2|cred|ours|26|la20|12de49f25e5df045": {
   "bytes": 563905,
   "date": "2026-11-09T03:16:05",
@@ -150330,6 +150660,16 @@
   "kbps": 74.1573698630137,
   "md5": "f21cc0378d273446253f9c20692fb730",
   "psnr_y": 56.570743,
+  "q": 26
+ },
+ "cred/1080p/stem2|cred|ours|26|la20|de1f9f3d1f803ec0": {
+  "bytes": 639404,
+  "date": "2026-11-22T14:06:54",
+  "frames": 1460,
+  "frames_ok": true,
+  "kbps": 84.08600547945206,
+  "md5": "4ce3bb241038a5783219f2b399a1c249",
+  "psnr_y": 57.324402,
   "q": 26
  },
  "cred/1080p/stem2|cred|ours|26|la20|ecbd329524a2f850": {
@@ -150417,6 +150757,16 @@
   "psnr_y": 55.089457,
   "q": 29
  },
+ "cred/1080p/stem2|cred|ours|29|la20|de1f9f3d1f803ec0": {
+  "bytes": 508375,
+  "date": "2026-11-22T14:07:08",
+  "frames": 1460,
+  "frames_ok": true,
+  "kbps": 66.85479452054796,
+  "md5": "58e444ec944fa782cdf2791f6222bca0",
+  "psnr_y": 55.838751,
+  "q": 29
+ },
  "cred/1080p/stem2|cred|ours|29|la20|ecbd329524a2f850": {
   "bytes": 433010,
   "date": "2026-10-26T08:22:20",
@@ -150500,6 +150850,16 @@
   "kbps": 47.0592,
   "md5": "202899541117f4cd181671c4cf66df6c",
   "psnr_y": 53.526393,
+  "q": 32
+ },
+ "cred/1080p/stem2|cred|ours|32|la20|de1f9f3d1f803ec0": {
+  "bytes": 402623,
+  "date": "2026-11-22T14:07:22",
+  "frames": 1460,
+  "frames_ok": true,
+  "kbps": 52.94768219178082,
+  "md5": "6fb4b4aae1e9361bfcdb1b9bdfe1b72f",
+  "psnr_y": 54.330375,
   "q": 32
  },
  "cred/1080p/stem2|cred|ours|32|la20|ecbd329524a2f850": {
@@ -150647,6 +151007,16 @@
   "psnr_y": 36.763323,
   "q": 20
  },
+ "cred/1080p/tears|cred|ours|20|la20|de1f9f3d1f803ec0": {
+  "bytes": 87296147,
+  "date": "2026-11-22T14:04:09",
+  "frames": 1728,
+  "frames_ok": true,
+  "kbps": 9699.571888888888,
+  "md5": "ae25a1dc86af492b0dc17b079d715bae",
+  "psnr_y": 42.554827,
+  "q": 20
+ },
  "cred/1080p/tears|cred|ours|20|la20|ecbd329524a2f850": {
   "bytes": 25191613,
   "date": "2026-10-26T07:37:55",
@@ -150730,6 +151100,16 @@
   "kbps": 1874.5305555555556,
   "md5": "656942d30a3bddc3af76e2894b7c8dfa",
   "psnr_y": 34.930045,
+  "q": 23
+ },
+ "cred/1080p/tears|cred|ours|23|la20|de1f9f3d1f803ec0": {
+  "bytes": 59144779,
+  "date": "2026-11-22T14:04:39",
+  "frames": 1728,
+  "frames_ok": true,
+  "kbps": 6571.642111111111,
+  "md5": "871b003b47c3b464b8d3b13827ab8765",
+  "psnr_y": 40.572501,
   "q": 23
  },
  "cred/1080p/tears|cred|ours|23|la20|ecbd329524a2f850": {
@@ -150827,6 +151207,16 @@
   "psnr_y": 33.782304,
   "q": 24.88
  },
+ "cred/1080p/tears|cred|ours|24.88|la20|de1f9f3d1f803ec0": {
+  "bytes": 45661722,
+  "date": "2026-11-22T14:06:10",
+  "frames": 1728,
+  "frames_ok": true,
+  "kbps": 5073.524666666667,
+  "md5": "44616c0ced223a99da748d0d716be56f",
+  "psnr_y": 39.326399,
+  "q": 24.88
+ },
  "cred/1080p/tears|cred|ours|26|la20|12de49f25e5df045": {
   "bytes": 10663167,
   "date": "2026-11-09T03:12:54",
@@ -150900,6 +151290,16 @@
   "kbps": 1184.7963333333332,
   "md5": "9bb2292953a2e6acef5499c3bbd73c1e",
   "psnr_y": 33.114971,
+  "q": 26
+ },
+ "cred/1080p/tears|cred|ours|26|la20|de1f9f3d1f803ec0": {
+  "bytes": 38910158,
+  "date": "2026-11-22T14:05:03",
+  "frames": 1728,
+  "frames_ok": true,
+  "kbps": 4323.350888888889,
+  "md5": "d77231b4237981463e965d9148d2126c",
+  "psnr_y": 38.586598,
   "q": 26
  },
  "cred/1080p/tears|cred|ours|26|la20|ecbd329524a2f850": {
@@ -150987,6 +151387,16 @@
   "psnr_y": 31.375419,
   "q": 29
  },
+ "cred/1080p/tears|cred|ours|29|la20|de1f9f3d1f803ec0": {
+  "bytes": 24791537,
+  "date": "2026-11-22T14:05:24",
+  "frames": 1728,
+  "frames_ok": true,
+  "kbps": 2754.615222222222,
+  "md5": "808cb2bae81510c1b9c89d15b4c91edb",
+  "psnr_y": 36.59206,
+  "q": 29
+ },
  "cred/1080p/tears|cred|ours|29|la20|ecbd329524a2f850": {
   "bytes": 6400773,
   "date": "2026-10-26T07:39:20",
@@ -151070,6 +151480,16 @@
   "kbps": 453.68022222222226,
   "md5": "0c9cde87502768d3e7076c4db9412540",
   "psnr_y": 29.858044,
+  "q": 32
+ },
+ "cred/1080p/tears|cred|ours|32|la20|de1f9f3d1f803ec0": {
+  "bytes": 15189413,
+  "date": "2026-11-22T14:05:41",
+  "frames": 1728,
+  "frames_ok": true,
+  "kbps": 1687.7125555555556,
+  "md5": "2b6a518fc2f1bbf102e09d6bd1b03aff",
+  "psnr_y": 34.606329,
   "q": 32
  },
  "cred/1080p/tears|cred|ours|32|la20|ecbd329524a2f850": {
