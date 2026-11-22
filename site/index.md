@@ -37,7 +37,7 @@ On this site "faster" compares wall time for files of the same size. Both encode
 
 ## Side by side at the same size
 
-The two encodes below are the same size. Switch between the reference and each of them. This is the frame where yah265's lead is clearest.
+The two encodes below are the same size. Switch between the reference and each of them.
 
 <!--gen:fig-frames-->
 <figure class="compare">
