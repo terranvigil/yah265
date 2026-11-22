@@ -252,7 +252,7 @@ The chart and table show yah265's VMAF v1 score minus x265's at the matched file
 | 4K | 10-minute films | +1.18 | +0.44 | Big Buck Bunny 4K |
 <!--/gen:quality-->
 
-The scores were measured on the Mac. Graviton4 writes the same streams as the Mac, so its quality is the same. The Xeon's streams differ a little, so I ran three ladders again there.
+The scores were measured on the Mac. Graviton4 writes the same streams as the Mac, apart from one Nocturne 4K encode, so its quality is the same. The Xeon's streams differ a little, so I ran three ladders again there.
 
 <details class="data" markdown="1">
 <summary>Ladders run again on the Xeon</summary>
