@@ -20,7 +20,7 @@ The algorithm decides how few candidates the encoder has to try. A run on one th
 <figcaption>Each side ran <code>medium</code>. The Mac used all 18 cores. On a cloud machine the two encoders were held to 16.</figcaption>
 </figure>
 
-yah265's lead is widest in plain C and narrowest with SIMD on. [What SIMD buys](#what-simd-buys) explains why. [Results](results.md#by-machine) has the table behind the chart.
+yah265's lead is widest in plain C and [narrowest with SIMD on](#what-simd-buys). See [Results](results.md#by-machine) for the table behind the chart.
 
 ## Supported today
 
@@ -191,7 +191,7 @@ The chart shows how much faster each encoder gets when its kernels are switched 
 
 SIMD speeds x265 up more than it speeds yah265 up, on all three machines at each size. So yah265's lead is smaller once the kernels are on. Part of the reason is probably that some of yah265's work has no kernels.
 
-The higher tiers add little on top of the base ones at encode level. The [SVE notes](docs/sve.md) have the kernel-by-kernel timings on arm64.
+The higher tiers add little on top of the base ones at encode level. See the [SVE notes](docs/sve.md) for the kernel-by-kernel timings on arm64.
 
 ## Capped tiers on x86
 
@@ -221,7 +221,7 @@ Wall times on a real AVX2-only CPU will differ from a capped Xeon's. This test s
 
 A Graviton writes the Mac's stream byte for byte. The exception is one title whose source frames were decoded differently on the cloud machine.
 
-x86 writes a slightly different stream from arm64 at `medium`, because the compiler rounds some floating-point math differently there. I checked quality on x86 by running three rate ladders again. [By machine](results.md#by-machine) has the comparison. Within x86, the tiers write the same stream.
+x86 writes a slightly different stream from arm64 at `medium`, because the compiler rounds some floating-point math differently there. I checked quality on x86 by running [three rate ladders](results.md#by-machine) again. Within x86, the tiers write the same stream.
 
 The register widths differ too. NEON is always 128 bits wide. Each of the three x86 tiers has a fixed width of its own. Because SVE's width depends on the CPU, the SVE kernels work at any width.
 

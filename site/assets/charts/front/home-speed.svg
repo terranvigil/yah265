@@ -16,7 +16,7 @@ text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-
 </style>
 <rect width='100%' height='100%' class='bg'/>
 <text x='24.0' y='38.0' font-size='21' class='t1' text-anchor='start' font-weight='600'>yah265 is faster than x265 at each picture size on all three machines</text>
-<text x='24.0' y='62.0' font-size='14' class='t2' text-anchor='start'>Median times faster at the same file size. Both encoders at preset medium, SIMD on all cores. Right is faster.</text>
+<text x='24.0' y='62.0' font-size='14' class='t2' text-anchor='start'>Median times faster at the same file size. Both encoders at preset medium, SIMD on all cores.</text>
 <text x='376.7' y='118.0' font-size='12.5' class='t2' text-anchor='middle'>x265 = 1x</text>
 <text x='24.0' y='120.0' font-size='15' class='t1' text-anchor='start' font-weight='600'>Apple M5 Max (NEON)</text>
 <line x1='263.3' y1='132' x2='263.3' y2='252' class='grid'/>

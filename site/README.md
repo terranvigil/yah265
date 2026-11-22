@@ -90,7 +90,7 @@ one. The builder hands a phone the narrow one.
 Speed is written as times faster on the charts and tables, and right is
 faster. A chart script reads the parity rows through
 `blog_charts.report_rows()`, which leaves out the titles on
-`blog_charts.EXCLUDED`. The headline figures come from
+`blog_charts.EXCLUDED`. The main figures come from
 `blog_charts.headline_cells()` and nowhere else.
 
 A page with no `image` of its own gets the card `scripts/share_cards.py` draws for it under `assets/share/`. The same script draws the four launch images there. A
