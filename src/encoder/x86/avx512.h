@@ -169,19 +169,31 @@ static inline int n265_csbf_map_avx512_wide(int log2n)
 #undef n265_sbh_adjust_avx512
 #define n265_sbh_adjust_avx512 n265_sbh_adjust_avx2
 
-/* ---- families with no AVX-512 kernel ------------------------------- */
-#undef n265_intra_pred_avx512
-#define n265_intra_pred_avx512 n265_intra_pred_avx2
-#undef n265_filter_refs_avx512
-#define n265_filter_refs_avx512 n265_filter_refs_avx2
+/* ---- sao (N265_ASM_SAO) -------------------------------------------- */
+#if N265_AVX512_SAO
+void n265_sao_eo_stats_avx512(const pixel *src, const pixel *cur,
+                              const pixel *a, const pixel *b, int n,
+                              int64_t en[5], int64_t ed[5]);
+void n265_sao_eo_apply_avx512(pixel *dst, const pixel *cur, const pixel *a,
+                              const pixel *b, int n, const int8_t off[4]);
+void n265_sao_bo_apply_avx512(pixel *dst, const pixel *in, int n, int pos,
+                              const int8_t off[4]);
+#else
 #undef n265_sao_eo_stats_avx512
 #define n265_sao_eo_stats_avx512 n265_sao_eo_stats_avx2
 #undef n265_sao_eo_apply_avx512
 #define n265_sao_eo_apply_avx512 n265_sao_eo_apply_avx2
 #undef n265_sao_bo_apply_avx512
 #define n265_sao_bo_apply_avx512 n265_sao_bo_apply_avx2
+#endif
 #undef n265_sao_band_stats_avx512
 #define n265_sao_band_stats_avx512 n265_sao_band_stats_avx2
+
+/* ---- families with no AVX-512 kernel ------------------------------- */
+#undef n265_intra_pred_avx512
+#define n265_intra_pred_avx512 n265_intra_pred_avx2
+#undef n265_filter_refs_avx512
+#define n265_filter_refs_avx512 n265_filter_refs_avx2
 #undef n265_dbk_luma_v_avx512
 #define n265_dbk_luma_v_avx512 n265_dbk_luma_v_avx2
 #undef n265_dbk_luma_h_avx512

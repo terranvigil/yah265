@@ -272,7 +272,8 @@ static inline int n265_avx2_on(uint32_t cls)
     (N265_AVX512_SATD      ? (uint32_t)N265_ASM_SATD : 0u) | \
     (N265_AVX512_MC        ? (uint32_t)N265_ASM_MC : 0u) | \
     (N265_AVX512_RDOQ      ? (uint32_t)N265_ASM_QUANT : 0u) | \
-    (N265_AVX512_COST      ? (uint32_t)N265_ASM_QUANT : 0u))
+    (N265_AVX512_COST      ? (uint32_t)N265_ASM_QUANT : 0u) | \
+    (N265_AVX512_SAO       ? (uint32_t)N265_ASM_SAO : 0u))
 
 static inline int n265_avx512_on(uint32_t cls)
 {

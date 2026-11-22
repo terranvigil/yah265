@@ -25,6 +25,7 @@
 #endif
 #if N265_X86
 #include "encoder/x86/avx2.h"
+#include "encoder/x86/avx512.h"
 #include "encoder/x86/sse42.h"   /* self-guarded */
 #endif
 
@@ -273,6 +274,12 @@ void n265_sao_eo_stats(const pixel *src, const pixel *cur, const pixel *a,
         return;
     }
 #endif
+#if N265_AVX512_SAO
+    if (n265_avx512_on(N265_ASM_SAO)) {
+        n265_sao_eo_stats_avx512(src, cur, a, b, n, en, ed);
+        return;
+    }
+#endif
 #if N265_AVX2_SAO
     if (n265_avx2_on(N265_ASM_SAO)) {
         n265_sao_eo_stats_avx2(src, cur, a, b, n, en, ed);
@@ -297,6 +304,12 @@ void n265_sao_eo_apply(pixel *dst, const pixel *cur, const pixel *a,
         return;
     }
 #endif
+#if N265_AVX512_SAO
+    if (n265_avx512_on(N265_ASM_SAO)) {
+        n265_sao_eo_apply_avx512(dst, cur, a, b, n, off);
+        return;
+    }
+#endif
 #if N265_AVX2_SAO
     if (n265_avx2_on(N265_ASM_SAO)) {
         n265_sao_eo_apply_avx2(dst, cur, a, b, n, off);
@@ -318,6 +331,12 @@ void n265_sao_bo_apply(pixel *dst, const pixel *in, int n, int pos,
 #if N265_NEON_SAO
     if (n265_asm_on(N265_ASM_SAO)) {
         n265_sao_bo_apply_neon(dst, in, n, pos, off);
+        return;
+    }
+#endif
+#if N265_AVX512_SAO
+    if (n265_avx512_on(N265_ASM_SAO)) {
+        n265_sao_bo_apply_avx512(dst, in, n, pos, off);
         return;
     }
 #endif
