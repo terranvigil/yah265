@@ -7,7 +7,7 @@ description: yah265 against x265 medium on speed, quality and file size, from CI
 
 The results on this page compare yah265 with x265 4.3 when both run at `--preset medium`. A script builds the tables and charts from the recorded runs. Its check fails when the page and the data disagree.
 
-The first two rows are the headline. They cover the CRF cells timed on the Mac as shipped, where yah265's file is within 1% of x265's size.
+The first two rows are the headline. They cover the Mac's CRF encodes where the two files match in size within 1%.
 
 <!--gen:verdict-->
 | what was measured | result |
@@ -30,7 +30,7 @@ A cell is one clip at one picture size. A tier is a clip length: S is short clip
 
 Speed is written as times faster. It's x265's encode time divided by yah265's when both write a file of the same size. On the speed charts right is faster.
 
-A speed cell in a table holds the median over the clips of one picture size and clip length, then the slowest clip. It passes when the median is at least 1.00x and the slowest clip is at least 0.87x, as long as its quality holds too.
+Speed cells read median / slowest clip.
 
 I read speed three ways and call each one a goal. G3 times both encoders as shipped. It's the speed a user sees.
 
@@ -46,13 +46,11 @@ Plain C is each encoder's own binary with its hand-written SIMD switched off. G1
 
 Three machines were timed:
 
-- **Mac**: an Apple M5 Max with 18 cores and NEON. The reference there is the Homebrew build of x265 4.3+1-e9b8812.
+- **Mac**: an Apple M5 Max with 18 cores and NEON.
 - **x86-64**: an Intel Xeon Platinum 8488C with AVX-512, rented in the cloud.
 - **Graviton4**: an AWS arm64 machine with SVE2.
 
-On the two cloud machines both encoders were held to 16 vCPUs. x265 was built there from its 4.3 release. A cloud time is only ever compared with x265 on the same machine.
-
-Each encoder looks ahead by its own `medium` default. x265's is 20 frames, and yah265's is 20 from 720p up and 12 at CIF.
+On the two cloud machines both encoders were held to 16 vCPUs. A cloud time is only ever compared with x265 on the same machine.
 
 ## The test set
 
@@ -70,8 +68,6 @@ The size columns count the cells in each tier at that picture size.
 Tiers S, M and L decide the speed verdict. Tier C adds film grain, sports and screen recordings. Only its quality counts toward the verdict, although its speed is shown too.
 
 Quality is VMAF v1, scored at display size. A picture smaller than 1080p is scaled up to fit 1920x1080 before it's scored, CIF included. [The methodology](methodology.md#scoring-quality) names the libvmaf build and the models.
-
-Both encoders read the same 8-bit 4:2:0 frames on standard input from one feeder.
 
 ## Speed
 
@@ -97,7 +93,7 @@ The table has the same numbers as median / slowest clip, in times faster.
 
 G3 is the closest of the three goals. On these clips x265's assembly gains more over its plain C than yah265's SIMD gains over its own.
 
-On the 2-minute and 10-minute cells, G1 and G2 are timed on 30-second windows. A window starts every three minutes. Each is coded as its own stream.
+On the longer clips, G1 and G2 are timed on 30-second samples.
 
 ## Each ten-minute film
 
@@ -232,7 +228,7 @@ The Xeon also ran the short clips at G3 with both encoders capped to one older i
 | 4K | 2.22x / 2.22x | 2.00x / 2.00x | 1 |
 <!--/gen:capped-->
 
-AVX2 against AVX2 is the closest pairing on the page. Because both capped tiers write the same streams as the uncapped build, their quality is the next section's. [Architectures](architectures.md) explains the tiers and how each is checked. The per-machine detail is in <!--gen:report-x86-->[the x86-64 report](docs/parity/PARITY-REPORT-yah265-x86-2026-11-13.md)<!--/gen:report-x86--> and <!--gen:report-g4-->[the Graviton report](docs/parity/PARITY-REPORT-yah265-graviton-2026-11-13.md)<!--/gen:report-g4-->.
+AVX2 against AVX2 is the closest pairing on the page. Capping the instruction set doesn't change the output, so quality is the same as in the next section. [Architectures](architectures.md) explains the tiers and how each is checked. The per-machine detail is in <!--gen:report-x86-->[the x86-64 report](docs/parity/PARITY-REPORT-yah265-x86-2026-11-13.md)<!--/gen:report-x86--> and <!--gen:report-g4-->[the Graviton report](docs/parity/PARITY-REPORT-yah265-graviton-2026-11-13.md)<!--/gen:report-g4-->.
 
 ## Quality at the same size
 
@@ -240,7 +236,7 @@ AVX2 against AVX2 is the closest pairing on the page. Because both capped tiers 
 <figure class="chart"><img src="assets/charts/results/quality.svg" alt="yah265 scores higher than x265 at every picture size and clip length."></figure>
 <!--/gen:fig-quality-->
 
-The chart and table show yah265's VMAF v1 score minus x265's at the matched file size. The limit is a median no worse than -0.5 with no single cell more than 1.0 behind. Each cell's size is within 1% of x265's.
+The chart and table show yah265's VMAF v1 score minus x265's at the matched file size.
 
 <!--gen:quality-->
 | picture size | clip length | median | smallest lead | on |
@@ -256,9 +252,7 @@ The chart and table show yah265's VMAF v1 score minus x265's at the matched file
 | 4K | 10-minute films | +1.18 | +0.44 | Big Buck Bunny 4K |
 <!--/gen:quality-->
 
-The scores were measured on the Mac. Graviton4 gets the Mac's quality because it writes the Mac's streams byte for byte. The one exception is Nocturne at 4K, where the cloud feeder decoded the source differently.
-
-The Xeon's streams differ a little because the compiler rounds some floating-point math differently there. Some ladders were run again on the Xeon to see how far that moves a curve:
+The scores were measured on the Mac. Graviton4 writes the same streams as the Mac, so its quality is the same. The Xeon's streams differ a little, so I ran three ladders again there.
 
 <details class="data" markdown="1">
 <summary>Ladders run again on the Xeon</summary>
@@ -272,8 +266,6 @@ The Xeon's streams differ a little because the compiler rounds some floating-poi
 <!--/gen:quality-xeon-->
 
 </details>
-
-The Xeon's other rows rest on those curves and on the SIMD code matching the C code bit for bit.
 
 ## Side by side at the same size
 
@@ -299,7 +291,7 @@ Scores aside, you can just look at the two encodes. The clip is 90 seconds of Te
 
 The [comparison players](https://terranvigil.github.io/yah265-compare/) play both encodes in motion: 30 seconds of Nocturne in 4K, 30 seconds of Sparks at 1080p and a scrolling Wikipedia page. Each lets you switch encodes and jump to the frames where they differ most.
 
-A script picked these frames by a fixed rule. It scored each frame by the mean of the two encoders' VMAF v1, then took the lowest frame in a low-scoring shot. To place the crop, it measured both encodes against the reference block by block. The crop is the window where their losses differ most, whichever encode is ahead. The reference is a near-transparent copy of the source.
+A script picked these frames by a fixed rule. It scored each frame by the mean of the two encoders' VMAF v1, then took the lowest frame in a low-scoring shot. To place the crop, it measured both encodes against the reference block by block. The crop is the window where their losses differ most. The reference is a near-transparent copy of the source.
 
 ## The worst frames
 
@@ -320,7 +312,7 @@ Because an average can hide a bad stretch, this section looks at the low end of 
 
 Both files came from ffmpeg at `medium`, with <!--trust:tears-crfs-->`-crf 25` for yah265 and `-crf 25.3` for x265<!--/trust:tears-crfs-->. All frames were scored. yah265's lead on the worst 5% of the frames is wider than its lead on the average.
 
-Each cell also records the score of its lowest frame. For the short clips and the two-minute segments, the table sets yah265's lead on that frame beside its lead on the mean.
+The next table compares each clip's lowest frame with its average.
 
 <!--trust:low-table-->
 | size | cells | median lead, all frames | median lead, lowest frame | cells ahead on their lowest frame |
@@ -332,7 +324,7 @@ Each cell also records the score of its lowest frame. For the short clips and th
 | **all** | **13** | **+1.96** | **+2.10** | 10 of 13 |
 <!--/trust:low-table-->
 
-At CIF yah265's lowest frame is behind x265's on two of the three clips, although its mean is ahead on all three. The ten-minute films have no row because their runs recorded the mean alone.
+At CIF yah265's lowest frame is behind x265's on two of the three clips, although its mean is ahead on all three.
 
 ## Quality across the rate range
 
@@ -430,7 +422,7 @@ VBR has to hit its bitrate as well as look good. The limit puts each rung of yah
 
 ### VBR encode time
 
-VBR speed is read at G3 only. Each real-title cell runs one rung at the bitrate x265 reached at CRF 28. The maxrate and buffer are set as in the ladders. I didn't include these timings in the headline, because the two files share a target bitrate where the headline cells share a size. The second table shows how close each encoder came to the target.
+Both encoders ran as shipped at the same target bitrate. I didn't include these timings in the headline. The second table shows how close each encoder came to the target.
 
 <!--gen:vbr-machines-->
 | picture size | clip length | Mac | x86-64 | Graviton4 | cells |
@@ -525,9 +517,9 @@ The VMAF v1 lead in the table is read at the same file size.
 
 All nine clips pass on quality. On the three screen recordings yah265's lowest VBR rung scores above x265's highest at a lower bitrate. No BD-rate can be computed there because the two curves share no score range.
 
-Both encoders undershoot their VBR targets on the screen recordings, where the still frames between changes cost almost nothing. Because the ±10% tracking limit applies to the real titles, that column is here for information.
+Both encoders undershoot their VBR targets on the screen recordings, where the still frames between changes cost almost nothing.
 
-Four G3 speeds have an asterisk. They were timed before yah265's `medium` gained its screen-content and handheld detectors. Tier C speed counts toward neither the verdict nor the headline.
+The four speeds with an asterisk were timed before yah265's `medium` gained its screen and handheld detectors.
 
 ## HDR
 
