@@ -48,10 +48,16 @@ typedef struct n265_ctl {
     struct n265_ctl_slot *slot;
     int ring;
     int64_t oldest;
+    int rec_cap;                /* applied records kept undrained, at most */
+    int dropped;                /* a record was lost since the last drain */
 } n265_ctl;
 
 n265_ctl *n265_ctl_new(const struct n265_encoder *e);
 void n265_ctl_free(n265_ctl *c);
+
+/* test hook: the record bound of encoders opened after it, so a test can
+ * reach a dropped record; 0 restores N265_CTL_MAX_RECORD */
+void n265_ctl_set_record_cap(int cap);
 
 void n265_ctl_hand_in(struct n265_encoder *e);
 void n265_ctl_push(struct n265_encoder *e, struct la_frame *f, int64_t d);
