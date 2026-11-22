@@ -316,6 +316,39 @@ Shot statistics are one JSON line per shot. A ladder builder can use them to pic
 
 <p class="optchips"><span><a href="options.md#shot-aware-options">Options</a></span> <a href="options.md#opt-shot-window"><code>--shot-window</code></a> <a href="options.md#opt-shot-stats"><code>--shot-stats</code></a></p>
 
+## Live control
+
+Live control changes an encode while it runs. You can change the bitrate, the buffer, the CRF and the QP limits, ask for a key frame, or offset the QP over a range of frames.
+
+Each change is one line of a control log. A line names the input frame it applies to, counted from 0:
+
+```
+#livectl 1
+# drop to 2 Mbit/s at 4 s, back up at 12 s (30 fps)
+120 rate bitrate=2000 maxrate=3000 bufsize=3000
+120 key
+360 rate bitrate=6000 maxrate=9000 bufsize=9000
+400 zone last=459 offset=-3
+```
+
+The kinds are `rate`, `crf`, `qp` (`min=`, `max=`), `key` and `zone` (`last=`, `offset=`). A key frame lands on exactly the frame it names. A rate or CRF change lands on the first frame coded from that frame on, which can be a B frame's anchor a few frames later.
+
+Three options feed and record the log:
+
+- `--control <file>` applies a whole log. A bad line, or a change the encode can't take, stops the run before it starts.
+- `--control-fd <n>` reads lines from an open descriptor while the encode runs. `next` in place of a frame number means the next frame in. A line for a frame that has already gone in is skipped with a warning.
+- `--control-out <file>` writes every change that took effect. Fed back through `--control`, it gives the same stream at one thread.
+
+`--frame-stats` lists each change on the frame where it took effect.
+
+A rate change needs a rate mode that has one: `--bitrate` for the bitrate, and a buffer for `maxrate` and `bufsize`. A buffer can't be added or removed mid-stream. When the stream carries HRD timing, which it does by default with a buffer, the rate and buffer may only drop to or below their starting values. `--no-hrd` lifts that. Open at your top rate, or name a `--level`, if you plan to raise the rate.
+
+Live control uses one encoder, so `--gop-parallel` codes serially with it.
+
+In ffmpeg, an I frame you force (`-force_key_frames`) becomes a key frame, and a change to `bit_rate`, `rc_max_rate` or `rc_buffer_size` between two frames becomes a rate change on the next one. Nothing else is mapped.
+
+<p class="optchips"><span><a href="options.md#live-control">Options</a></span> <a href="options.md#opt-control"><code>--control</code></a> <a href="options.md#opt-control-fd"><code>--control-fd</code></a> <a href="options.md#opt-control-out"><code>--control-out</code></a> <a href="options.md#opt-frame-stats"><code>--frame-stats</code></a> <a href="options.md#opt-no-hrd"><code>--no-hrd</code></a></p>
+
 ## Identification marks
 
 Each stream has an SEI message that names the encoder and the options the run resolved. `--no-info` drops it.
@@ -367,6 +400,7 @@ The pixel format picks the bit depth. 4:2:0, 4:2:2 and 4:4:4 work at 8 and 10 bi
 |---|---|
 | profiles | Main, Main10, Main 4:4:4, Main 4:4:4 10, Main 4:2:2 10, lossless |
 | rate control | CRF, capped CRF, capped VBR, CBR with filler, ABR, two-pass, fixed QP, zones, a QP file |
+| live control | rate, buffer, CRF and QP changes, key frames and zones while the encode runs, from a log or a descriptor |
 | buffers | VBV with HRD signaling, a bound on one picture's size, level and tier checks |
 | structure | open and closed GOP, hierarchical B-frames, scene cut detection, weighted prediction, temporal layers |
 | analysis | adaptive quantization, lookahead bit allocation, rate-distortion optimized quantization, screen content detection |
@@ -376,7 +410,7 @@ The pixel format picks the bit depth. 4:2:0, 4:2:2 and 4:4:4 work at 8 and 10 bi
 | threads | one pool on all cores, segment-parallel encoding |
 | speed | SIMD on arm64 and x86-64, picked at run time. [Architectures](architectures.md) has the list |
 | front ends | the `y265` command line and the `libyah265` encoder in ffmpeg |
-| reports | CSV statistics, per-shot statistics, the resolved configuration |
+| reports | CSV statistics, per-frame and per-shot JSON statistics, the resolved configuration |
 
 ## Left out on purpose
 

@@ -135,6 +135,7 @@ Many switches also take a `--no-` form that turns them off. "The preset's" means
 | <span id="opt-idr-recovery-sei"></span>`--idr-recovery-sei` | off | A recovery point SEI at each key frame. |
 | <span id="opt-pic-struct"></span>`--pic-struct <n>` | off | The picture timing SEI's pic_struct, 0 to 12. `7` doubles a frame and `8` triples it. Needs a buffer. |
 | <span id="opt-hrd-concat"></span>`--hrd-concat` | off | Mark the first key frame as spliced onto another stream. Needs a buffer. |
+| <span id="opt-no-hrd"></span><span id="opt-hrd"></span>`--no-hrd` | off | Leave the HRD timing out of the stream. It's written by default when a buffer and a frame rate are set. A live encode that raises its rate needs this. |
 | <span id="opt-temporal-layers"></span>`--temporal-layers` | off | Put unreferenced B-frames in a second temporal layer. A player can then drop them and halve the frame rate. |
 | <span id="opt-level"></span>`--level <l>` | derived | Signal this level, from `1` to `6.2`. Refused when the stream doesn't fit it. |
 | <span id="opt-high-tier"></span>`--high-tier` | off | Signal the High tier, which exists from level 4 up. |
@@ -172,9 +173,18 @@ Many switches also take a `--no-` form that turns them off. "The preset's" means
 | <span id="opt-ssim"></span>`--ssim` | off | Report SSIM on luma at the end of the run. |
 | <span id="opt-csv"></span>`--csv <file>` | none | Write run statistics to a CSV file. |
 | <span id="opt-csv-log-level"></span>`--csv-log-level <0\|1\|2>` | `0` | `0` writes one row for the run, `1` adds a row per frame, `2` adds the rate control's columns. |
+| <span id="opt-frame-stats"></span>`--frame-stats <file>` | none | Write one JSON line per coded frame. A frame where a live control event took effect also lists that event. The stream doesn't change. |
 | <span id="opt-verbose"></span>`--verbose, -v` | off | Print the resolved configuration at the start of the encode. |
 | <span id="opt-show-config"></span>`--show-config` | off | Print the resolved configuration and exit without encoding. |
 | <span id="opt-version"></span>`--version` |  | Print the version. |
+
+## Live control
+
+| option | default | what it does |
+|---|---|---|
+| <span id="opt-control"></span>`--control <file>` | none | Apply the events in a control log before the encode starts. A bad line or a refused event stops the run. |
+| <span id="opt-control-fd"></span>`--control-fd <n>` | none | Read control log lines from this open descriptor while encoding. A late or refused line is skipped with a warning. |
+| <span id="opt-control-out"></span>`--control-out <file>` | none | Write every event that took effect as a control log. Fed back through `--control`, it gives the same stream at one thread. |
 
 ## Not offered
 
