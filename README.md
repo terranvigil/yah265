@@ -119,20 +119,29 @@ The shot tools above grow into a full per-shot ladder:
 
 ## Documentation
 
-The site is at [terranvigil.github.io/yah265](https://terranvigil.github.io/yah265/).
+**[Docs home](https://terranvigil.github.io/yah265/)**
 
-| page | what's on it |
-|---|---|
-| [Build and first encode](https://terranvigil.github.io/yah265/start.html) | the ffmpeg build, a first encode, building `y265` |
-| [Encoding guide](https://terranvigil.github.io/yah265/guide.html) | rate modes, presets, threads, what ships and what's left out |
-| [Options](https://terranvigil.github.io/yah265/options.html) | the options and their defaults |
-| [HDR](https://terranvigil.github.io/yah265/hdr.html) | HDR10, HDR10+, HLG and Dolby Vision profile 8 |
-| [The HEVC standard](https://terranvigil.github.io/yah265/hevc.html) | how encoding and HEVC work |
-| [Design](https://terranvigil.github.io/yah265/design.html) | how yah265 makes its choices |
-| [Threading](https://terranvigil.github.io/yah265/threading.html) | the many-core pipeline |
-| [Architectures](https://terranvigil.github.io/yah265/architectures.html) | what runs where, and where SIMD speed comes from |
-| [Results](https://terranvigil.github.io/yah265/results.html) | the tables and charts |
-| [Blog](https://terranvigil.github.io/yah265/blog.html) | the launch post |
+Use
+- [Build and first encode](https://terranvigil.github.io/yah265/start.html): the ffmpeg build, a first encode, building `y265`
+- [Encoding guide](https://terranvigil.github.io/yah265/guide.html): rate modes, presets, threads, live control, shots
+- [Coming from x265](https://terranvigil.github.io/yah265/from-x265.html): option names and a CRF translation table
+- [Try it on your own clip](https://terranvigil.github.io/yah265/bench.html): `y265 bench` against x265
+- [Options](https://terranvigil.github.io/yah265/options.html): the options and their defaults
+- [HDR](https://terranvigil.github.io/yah265/hdr.html): HDR10, HDR10+, HLG and Dolby Vision profile 8
+
+Understand
+- [The HEVC standard](https://terranvigil.github.io/yah265/hevc.html): how encoding and HEVC work
+- [Design](https://terranvigil.github.io/yah265/design.html): how yah265 makes its choices
+- [Threading](https://terranvigil.github.io/yah265/threading.html): the many-core pipeline
+- [Architectures](https://terranvigil.github.io/yah265/architectures.html): what runs where
+
+Evidence
+- [Results](https://terranvigil.github.io/yah265/results.html): the tables and charts
+- [Watch the encodes](https://terranvigil.github.io/yah265/compare.html): side-by-side players
+- [How x265 was run](https://terranvigil.github.io/yah265/x265-run.html): the commands and builds
+- [Check it yourself](https://terranvigil.github.io/yah265/check-it-yourself.html): rerun a measurement
+- [A skeptic's questions](https://terranvigil.github.io/yah265/faq.html)
+- [Blog](https://terranvigil.github.io/yah265/blog.html): the launch post
 
 ## Contributing
 
