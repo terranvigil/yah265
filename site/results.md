@@ -34,17 +34,17 @@ Speed is written as times faster. It's x265's encode time divided by yah265's wh
 
 Speed cells read median / slowest clip.
 
-I read speed three ways and call each one a goal. G3 times both encoders as shipped. It's the speed a user sees.
+I read speed three ways and call each one a goal. [G3](methodology.md#the-three-speed-goals) times both encoders as shipped, with SIMD on all cores. It's the speed a user sees. [G1](methodology.md#the-three-speed-goals) times both in plain C on one thread. [G2](methodology.md#the-three-speed-goals) times both in plain C on all cores.
 
 <!--gen:goal-defs-->
 | goal | yah265 | x265 | threads |
 |---|---|---|---|
-| G3 | as shipped, with SIMD | as shipped, with its assembly | each encoder's default |
-| G1 | plain C (`N265_ASM_OFF=all`) | plain C (`--no-asm`) | one. x265 gets it from `--pools none --frame-threads 1` |
-| G2 | plain C | plain C | each encoder's default |
+| [G3](methodology.md#the-three-speed-goals) | as shipped, with SIMD | as shipped, with its assembly | each encoder's default |
+| [G1](methodology.md#the-three-speed-goals) | plain C (`N265_ASM_OFF=all`) | plain C (`--no-asm`) | one. x265 gets it from `--pools none --frame-threads 1` |
+| [G2](methodology.md#the-three-speed-goals) | plain C | plain C | each encoder's default |
 <!--/gen:goal-defs-->
 
-Plain C is each encoder's own binary with its hand-written SIMD switched off. G1 and G2 compare the algorithms alone.
+Plain C is each encoder's own binary with its hand-written SIMD switched off. [G1 and G2](methodology.md#the-three-speed-goals) compare the algorithms alone.
 
 Three machines were timed:
 
@@ -80,7 +80,7 @@ Quality is VMAF v1, scored at display size. A picture smaller than 1080p is scal
 The table has the same numbers as median / slowest clip, in times faster.
 
 <!--gen:speed-mac-->
-| picture size | clip length | G3 | G1 | G2 |
+| picture size | clip length | [G3](methodology.md#the-three-speed-goals) | [G1](methodology.md#the-three-speed-goals) | [G2](methodology.md#the-three-speed-goals) |
 |---|---|--:|--:|--:|
 | CIF | short clips | 1.96x / 1.75x | 2.17x / 2.08x | 3.12x / 2.86x |
 | 720p | short clips | 1.61x / 1.54x | 3.33x / 2.33x | 3.33x / 3.03x |
@@ -93,9 +93,9 @@ The table has the same numbers as median / slowest clip, in times faster.
 | 4K | 10-minute films | 1.79x / 1.52x | 3.23x / 3.12x | 2.78x / 2.63x |
 <!--/gen:speed-mac-->
 
-G3 is the closest of the three goals. On these clips x265's assembly gains more over its plain C than yah265's SIMD gains over its own.
+[G3](methodology.md#the-three-speed-goals) is the closest of the three goals. On these clips x265's assembly gains more over its plain C than yah265's SIMD gains over its own.
 
-On the longer clips, G1 and G2 are timed on 30-second samples.
+On the longer clips, [G1 and G2](methodology.md#the-three-speed-goals) are timed on 30-second samples.
 
 ## Each ten-minute film
 
@@ -107,7 +107,7 @@ Each film runs from its start frame to its last story frame. The table has the M
 <summary>Each film at each goal</summary>
 
 <!--gen:films-->
-| film | last story frame | G3 | G1 | G2 |
+| film | last story frame | [G3](methodology.md#the-three-speed-goals) | [G1](methodology.md#the-three-speed-goals) | [G2](methodology.md#the-three-speed-goals) |
 |---|--:|--:|--:|
 | Tears of Steel 720p | 12671 | 2.13x | 3.57x | 4.35x |
 | Tears of Steel 1080p | 12671 | 1.72x | 3.03x | 3.33x |
@@ -141,14 +141,14 @@ The same medians from each machine's slowest to its fastest:
 <!--gen:goal-table-->
 | goal | Apple M5 Max (NEON) | Xeon 8488C (AVX-512) | Graviton4 (SVE2) |
 |---|--:|--:|--:|
-| G3: as shipped, SIMD on all cores | 1.59x to 2.13x | 1.25x to 2.33x | 1.39x to 3.03x |
-| G1: algorithm only, plain C on one thread | 2.17x to 4.00x | 1.49x to 2.94x | 1.52x to 2.94x |
-| G2: algorithm only, plain C on all cores | 2.56x to 4.35x | 2.22x to 4.76x | 2.08x to 4.35x |
+| [G3](methodology.md#the-three-speed-goals): as shipped, SIMD on all cores | 1.59x to 2.13x | 1.25x to 2.33x | 1.39x to 3.03x |
+| [G1](methodology.md#the-three-speed-goals): algorithm only, plain C on one thread | 2.17x to 4.00x | 1.49x to 2.94x | 1.52x to 2.94x |
+| [G2](methodology.md#the-three-speed-goals): algorithm only, plain C on all cores | 2.56x to 4.35x | 2.22x to 4.76x | 2.08x to 4.35x |
 <!--/gen:goal-table-->
 
 The next three tables give median / slowest clip for each goal.
 
-G3, SIMD on all cores:
+[G3](methodology.md#the-three-speed-goals), SIMD on all cores:
 
 <!--gen:machines-g3-->
 | picture size | clip length | Mac | x86-64 | x86-64 against x265 at `--asm avx512` | Graviton4 |
@@ -169,7 +169,7 @@ On the Xeon x265 reports AVX2 as the highest instruction set it uses by default.
 <details class="data" markdown="1">
 <summary>G1 and G2 on each machine</summary>
 
-G1, plain C on one thread:
+[G1](methodology.md#the-three-speed-goals), plain C on one thread:
 
 <!--gen:machines-g1-->
 | picture size | clip length | Mac | x86-64 | Graviton4 |
@@ -185,7 +185,7 @@ G1, plain C on one thread:
 | 4K | 10-minute films | 3.23x / 3.12x | 2.33x / 2.22x | 2.22x / 2.13x |
 <!--/gen:machines-g1-->
 
-G2, plain C on all cores:
+[G2](methodology.md#the-three-speed-goals), plain C on all cores:
 
 <!--gen:machines-g2-->
 | picture size | clip length | Mac | x86-64 | Graviton4 |
@@ -203,7 +203,7 @@ G2, plain C on all cores:
 
 </details>
 
-A Graviton3 with 256-bit SVE ran the short clips at G3. Its CIF row has two clips because the third came out more than 1% off the target size.
+A Graviton3 with 256-bit SVE ran the short clips at [G3](methodology.md#the-three-speed-goals). Its CIF row has two clips because the third came out more than 1% off the target size.
 
 <details class="data" markdown="1">
 <summary>Graviton3, short clips at G3</summary>
@@ -219,7 +219,7 @@ A Graviton3 with 256-bit SVE ran the short clips at G3. Its CIF row has two clip
 
 </details>
 
-The Xeon also ran the short clips at G3 with both encoders capped to one older instruction set, to stand in for a CPU that has no AVX-512.
+The Xeon also ran the short clips at [G3](methodology.md#the-three-speed-goals) with both encoders capped to one older instruction set, to stand in for a CPU that has no AVX-512.
 
 <!--gen:capped-->
 | picture size | both at SSE4.2 | both at AVX2 | clips |
@@ -504,7 +504,7 @@ Tier C is the content that codecs tend to handle unevenly: a scan of a 1924 film
 The VMAF v1 lead in the table is read at the same file size.
 
 <!--gen:tier-c-->
-| clip | content | VMAF v1 lead | CRF BD-rate | VBR BD-rate | yah265 VBR rate against target | G3 speed |
+| clip | content | VMAF v1 lead | CRF BD-rate | VBR BD-rate | yah265 VBR rate against target | [G3](methodology.md#the-three-speed-goals) speed |
 |---|---|--:|--:|--:|--:|--:|
 | Lash of the Whip 720p | film grain | +2.55 | -27.1% | -26.0% | -0.7% to -0.3% | 2.13x |
 | Lash of the Whip 1080p | film grain | +2.92 | -31.9% | -31.4% | -0.6% to -0.3% | 1.85x |

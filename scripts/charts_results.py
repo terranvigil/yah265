@@ -585,10 +585,10 @@ def values(D):
 
     # how to read, the test set
     V["goal-defs"] = mdt(["goal", "yah265", "x265", "threads"], [L, L, L, L], [
-        ["G3", "as shipped, with SIMD", "as shipped, with its assembly", "each encoder's default"],
-        ["G1", "plain C (`N265_ASM_OFF=all`)", "plain C (`--no-asm`)",
+        [B.glink("G3"), "as shipped, with SIMD", "as shipped, with its assembly", "each encoder's default"],
+        [B.glink("G1"), "plain C (`N265_ASM_OFF=all`)", "plain C (`--no-asm`)",
          "one. x265 gets it from `--pools none --frame-threads 1`"],
-        ["G2", "plain C", "plain C", "each encoder's default"]])
+        [B.glink("G2"), "plain C", "plain C", "each encoder's default"]])
     sets = {}
     for r in rows["mac"]:
         if r["tier"] in TIERS:
@@ -618,14 +618,14 @@ def values(D):
     srows = []
     for c, t in B.speed_rows([sp]):
         srows.append([RES[c], TIER_LABEL[t]] + [pair(*sp[(c, t, x)][:2]) for x in GOAL_ORDER])
-    V["speed-mac"] = mdt(["picture size", "clip length", "G3", "G1", "G2"], [L, L, R, R, R], srows)
+    V["speed-mac"] = mdt(["picture size", "clip length", *map(B.glink, GOAL_ORDER)], [L, L, R, R, R], srows)
     frows = []
     for line in open(D["mac_md"]):
         m = re.match(r"- (\S+) \(end frame (\d+)\): G1 (.+?); G2 (.+?); G3 (.+)$", line.rstrip())
         if m and B.shown(split_cell(m[1])[0]):
             g1, g2, g3 = (f"{tf(float(x)):.2f}x" for x in m.groups()[2:])
             frows.append([nice(*split_cell(m[1])), m[2], g3, g1, g2])
-    V["films"] = mdt(["film", "last story frame", "G3", "G1", "G2"], [L] + [R] * (len(B.CAPPED_PAIRS) + 1), frows)
+    V["films"] = mdt(["film", "last story frame", *map(B.glink, GOAL_ORDER)], [L] + [R] * (len(B.CAPPED_PAIRS) + 1), frows)
 
     # by machine, from each machine's rows
     def mrow(c, t, cols):
@@ -698,7 +698,7 @@ def values(D):
 
     # tier C
     V["tier-c"] = mdt(["clip", "content", "VMAF v1 lead", "CRF BD-rate", "VBR BD-rate",
-                       "yah265 VBR rate against target", "G3 speed"],
+                       "yah265 VBR rate against target", B.glink("G3") + " speed"],
                       [L, L, R, R, R, R, R],
                       [[nice(*split_cell(r[0])), r[1], r[2].split("/")[0].strip(),
                         pct(crf), "no shared range" if vbr is None else pct(vbr),

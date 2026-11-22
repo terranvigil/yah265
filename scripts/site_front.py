@@ -688,7 +688,8 @@ def main():
     for rel in PAGES:
         p = os.path.join(ROOT, rel)
         old = open(p).read()
-        new = fill(rel, old, V)
+        own = {"goal-table": bc.goal_table(sps, bc.GOALS_URL)} if rel == "README.md" else {}
+        new = fill(rel, old, {**V, **own})
         if new != old:
             stale.append(rel)
             if not a.check:
