@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 class Y265 < Formula
-  desc "HEVC/H.265 encoder: the y265 command line and the libyah265 library"
+  desc "HEVC/H.265 encoder: the y265 command-line tool and the libyah265 library"
   homepage "https://terranvigil.github.io/yah265/"
   url "https://github.com/terranvigil/yah265/archive/refs/tags/v0.0.1.tar.gz"
   sha256 "0000000000000000000000000000000000000000000000000000000000000000"

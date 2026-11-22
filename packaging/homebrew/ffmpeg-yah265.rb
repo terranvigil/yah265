@@ -11,12 +11,12 @@ class FfmpegYah265 < Formula
   depends_on "pkgconf" => :build
   depends_on "terranvigil/yah265/y265"
 
+  uses_from_macos "bzip2"
+  uses_from_macos "zlib"
+
   on_intel do
     depends_on "nasm" => :build
   end
-
-  uses_from_macos "bzip2"
-  uses_from_macos "zlib"
 
   def install
     args = %W[
@@ -30,7 +30,11 @@ class FfmpegYah265 < Formula
       --disable-shared
       --disable-doc
       --disable-ffplay
+      --disable-autodetect
+      --enable-zlib
+      --enable-bzlib
     ]
+    args += %w[--enable-videotoolbox --enable-audiotoolbox] if OS.mac?
     system "./configure", *args
     system "make", "ffmpeg", "ffprobe"
     libexec.install "ffmpeg", "ffprobe"
