@@ -525,7 +525,7 @@ The pixel format picks the bit depth. 4:2:0, 4:2:2 and 4:4:4 work at 8 and 10 bi
 | 12-bit | 8-bit and 10-bit cover the delivery formats, HDR10, HLG and Dolby Vision included |
 | `--psy-rd`, `--psy-rdoq` | yah265's perceptual tuning is built into its presets, so there's nothing to set |
 | x265's threading options | yah265 uses every core by default and needs no tuning. `--threads n` caps it at n |
-| analysis save and load | they let a bitrate ladder reuse one encode's analysis. The per-shot scan coming soon covers the same need |
+| analysis save and load | they let a bitrate ladder reuse one encode's analysis. The per-shot scan covers the same need |
 | Dolby Vision profile 5 | not supported yet. If you need it, [open an issue](https://github.com/terranvigil/yah265/issues) |
 | HEVC screen-content tools (SCC) | few decoders play SCC streams. yah265 gets its screen-recording gains inside the normal profiles, so any HEVC player can show them |
 | MV-HEVC (multiview, as in Apple's spatial video) | not supported yet. If you need it, [open an issue](https://github.com/terranvigil/yah265/issues) |

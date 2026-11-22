@@ -64,7 +64,7 @@ To see both in motion, open the [comparison players](https://terranvigil.github.
 - [HDR10, HDR10+, HLG and Dolby Vision profile 8](hdr.md).
 - [Shot statistics](guide.md#planning-by-shot): a report per shot that a script turns into each shot's best rungs for a ladder.
 - [Per-shot key frames](guide.md#planning-by-shot): one scan finds the shots and starts each on a key frame, so every rung of a ladder switches at the same frames.
-- Per-shot quality: a quality setting for each shot, from the same scan. [coming soon]
+- [Per-shot quality](guide.md#planning-by-shot): a quality setting for each shot, from the same scan.
 - [Live control](guide.md#live-control): change the bitrate, CRF or key frames while an encode runs.
 - [`y265 bench`](bench.md): compare yah265 and x265 on your own clip at the same file size.
 - [Encode reports](guide.md#encode-reports): one page per encode with bitrate, QP, shots and what yah265 detected.
