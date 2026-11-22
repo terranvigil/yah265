@@ -124,20 +124,10 @@ images.
 
 ## Publishing
 
-Nothing publishes automatically: GitHub Actions runs the tests but has no
-Pages job. A branch deploy can serve the built site because
-it's plain static HTML with relative links:
-
-    scripts/site.sh --strict
-    git worktree add ../yah265-pages --orphan gh-pages
-    cp -R site/_build/. ../yah265-pages/
-    git -C ../yah265-pages add -A
-    git -C ../yah265-pages commit -m "site: build"
-    git -C ../yah265-pages push origin gh-pages
-
-Then set Settings, Pages, Source to "Deploy from a branch", branch
-`gh-pages`, folder `/`. Pages serves the HTML as it is because the build
-writes a `.nojekyll` file.
+`.github/workflows/pages.yml` builds the site and publishes it on every
+push to main. It needs Settings, Pages, Source set to "GitHub Actions"
+once. The build writes a `.nojekyll` file, so Pages serves the HTML as
+it is.
 
 The social card needs an absolute address. The builder takes it from
 `SITE_URL`. Change that if the site moves.
