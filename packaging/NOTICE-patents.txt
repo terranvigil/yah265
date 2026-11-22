@@ -1,0 +1,12 @@
+Patent notice
+
+This package contains an HEVC (H.265) encoder in compiled form. HEVC is
+covered by patents held by many companies. Some are pooled, for example
+by Access Advance and Via LA, and some are not.
+
+The yah265 authors grant no patent licence of any kind. Whether your
+use needs a patent licence depends on where you are and what you do with
+the encoder, and that is your responsibility. If you sell, bundle or
+redistribute this package, ask a lawyer first.
+
+The source code is at https://github.com/terranvigil/yah265.
