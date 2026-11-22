@@ -260,6 +260,9 @@ void n265_encoder_set_frame_stats_10(n265_encoder *e, const char *path);
 void n265_control_init_10(n265_control_t *ev, int kind);
 const char *n265_control_strerror_10(int err);
 int  n265_encoder_control_10(n265_encoder *e, n265_control_t *ev);
+int  n265_encoder_control_check_10(n265_encoder *e, const n265_control_t *ev,
+                                   int n, int *bad_index);
+int  n265_encoder_status_10(n265_encoder *e, n265_status_t *st);
 int  n265_encoder_controls_applied_10(n265_encoder *e, n265_control_t *out,
                                       int max);
 long n265_encoder_metrics_10(n265_encoder *e, double out[6]);
@@ -364,7 +367,9 @@ typedef struct n265_api {
     void (*control_init)(n265_control_t *, int);
     const char *(*control_strerror)(int);
     int  (*encoder_control)(n265_encoder *, n265_control_t *);
+    int  (*control_check)(n265_encoder *, const n265_control_t *, int, int *);
     int  (*controls_applied)(n265_encoder *, n265_control_t *, int);
+    int  (*status)(n265_encoder *, n265_status_t *);
 } n265_api;
 
 static const n265_api api8 = {
@@ -392,7 +397,8 @@ static const n265_api api8 = {
     n265_config_new, n265_config_free, n265_config_parse, n265_config_note,
     n265_config_apply, n265_config_get, n265_config_get_str,
     n265_encoder_set_frame_stats, n265_control_init, n265_control_strerror,
-    n265_encoder_control, n265_encoder_controls_applied,
+    n265_encoder_control, n265_encoder_control_check,
+    n265_encoder_controls_applied, n265_encoder_status,
 };
 
 static const n265_api api10 = {
@@ -425,7 +431,8 @@ static const n265_api api10 = {
     n265_config_get_str_10,
     n265_encoder_set_frame_stats_10, n265_control_init_10,
     n265_control_strerror_10, n265_encoder_control_10,
-    n265_encoder_controls_applied_10,
+    n265_encoder_control_check_10, n265_encoder_controls_applied_10,
+    n265_encoder_status_10,
 };
 
 /* QpBdOffsetY (7-5), and the clip bound of Clip1Y. Runtime now, off the
@@ -2735,7 +2742,28 @@ typedef struct {
     n265_control_t *sub;
     char *used;
     int nsub, csub;
+    /* the --control file, fed as frames go by from fnext on */
+    const char *fpath;
+    n265_control_t *fev;
+    long *fline;
+    int fn, fnext;
+    /* frames named by the --control-fd events accepted, for the reserve */
+    int64_t *fdf;
+    int nfdf, cfdf;
 } ctl_cli;
+
+/* --control events wait in the CLI and go to the encoder as frames go by:
+ * every event for the frame about to be handed in, then more ahead of it
+ * while the encoder holds fewer than CTL_FEED_WINDOW. CTL_FD_RESERVE more
+ * are kept for --control-fd lines. An event has landed once its frame is
+ * CTL_LAG_SPAN behind the next one in (the lookahead, the shot window and
+ * the frames in flight are far shorter), so the file events naming any
+ * CTL_LAG_SPAN frames together may be at most what the encoder's bound of
+ * 4096 pending leaves. */
+#define CTL_FEED_WINDOW  1024
+#define CTL_FD_RESERVE   1024
+#define CTL_LAG_SPAN     1024
+#define CTL_SPAN_MAX     (4096 - CTL_FEED_WINDOW - CTL_FD_RESERVE)
 
 static int ctl_send(ctl_cli *c, n265_control_t *v)
 {
@@ -2887,19 +2915,145 @@ static int ctl_load(const char *path, ctl_file *cf)
     return rc;
 }
 
-static int ctl_submit_file(ctl_cli *c, const char *path, const ctl_file *cf)
+/* the whole --control file against the open encoder, before any output:
+ * every event as the encoder will see it, and the feed's room */
+static int ctl_check_file(ctl_cli *c, const char *path, const ctl_file *cf)
 {
+    c->fpath = path;
+    c->fev = malloc((size_t)(cf->n ? cf->n : 1) * sizeof *c->fev);
+    c->fline = malloc((size_t)(cf->n ? cf->n : 1) * sizeof *c->fline);
+    if (!c->fev || !c->fline) {
+        fprintf(stderr, "y265: --control: out of memory\n");
+        return -1;
+    }
     for (int i = 0; i < cf->n; i++) {
-        n265_control_t v;
-        ctl_from_log(c->a, &cf->ev[i], &v);
-        int r = ctl_send(c, &v);
-        if (r < 0) {
+        ctl_from_log(c->a, &cf->ev[i], &c->fev[i]);
+        c->fline[i] = cf->line[i];
+    }
+    c->fn = cf->n;
+    int bad = -1;
+    int r = c->a->control_check(c->enc, c->fev, c->fn, &bad);
+    if (r != 0) {
+        if (bad >= 0)
             fprintf(stderr, "y265: --control %s:%ld: %s\n", path,
-                    cf->line[i], c->a->control_strerror(r));
+                    c->fline[bad], c->a->control_strerror(r));
+        else
+            fprintf(stderr, "y265: --control %s: %s\n", path,
+                    c->a->control_strerror(r));
+        return -1;
+    }
+    /* frames never decrease down the file: one pass */
+    for (int i = 0, lo = 0; i < c->fn; i++) {
+        while (c->fev[i].frame - c->fev[lo].frame >= CTL_LAG_SPAN)
+            lo++;
+        if (i - lo + 1 > CTL_SPAN_MAX) {
+            fprintf(stderr, "y265: --control %s:%ld: more than %d events "
+                    "within %d frames: the encoder's queue can't hold "
+                    "them\n", path, c->fline[i], CTL_SPAN_MAX,
+                    CTL_LAG_SPAN);
             return -1;
         }
     }
     return 0;
+}
+
+static int ctl_status(ctl_cli *c, int64_t *pending, int64_t *next)
+{
+    n265_status_t st;
+    memset(&st, 0, sizeof st);
+    st.size = (int)sizeof st;
+    if (c->a->status(c->enc, &st) < 0)
+        return -1;
+    *pending = st.controls_pending;
+    *next = st.next_frame;
+    return 0;
+}
+
+/* before each hand-in. The file was checked whole, and every --control-fd
+ * event against what is left of it, so only EFULL can come back, and only
+ * ahead of the frame about to go in. */
+static int ctl_feed_file(ctl_cli *c)
+{
+    int64_t q, next;
+    if (c->fnext >= c->fn || ctl_status(c, &q, &next) < 0)
+        return 0;
+    while (c->fnext < c->fn) {
+        int must = c->fev[c->fnext].frame <= next;
+        if (!must && q >= CTL_FEED_WINDOW)
+            break;
+        n265_control_t v = c->fev[c->fnext];
+        int r = ctl_send(c, &v);
+        if (r == N265_CTL_EFULL && !must)
+            break;
+        if (r < 0) {
+            fprintf(stderr, "y265: --control %s:%ld: %s\n", c->fpath,
+                    c->fline[c->fnext], c->a->control_strerror(r));
+            return -1;
+        }
+        c->fnext++;
+        q++;
+    }
+    return 0;
+}
+
+/* an fd event, then the file events not fed yet that it could meet, under
+ * the encoder's own check. *bad is the file event that would be refused,
+ * or -1 when it is the fd event or nothing. */
+static int ctl_fd_check(ctl_cli *c, const n265_control_t *ev, int *bad)
+{
+    int kind = ev->kind;
+    int dep = kind == N265_CTL_RATE || kind == N265_CTL_QP_LIMITS ||
+              kind == N265_CTL_ZONE;
+    int n = 1;
+    if (dep)
+        for (int i = c->fnext; i < c->fn; i++)
+            n += c->fev[i].kind == kind;
+    n265_control_t *v = malloc((size_t)n * sizeof *v);
+    int *at = malloc((size_t)n * sizeof *at);
+    *bad = -1;
+    if (!v || !at) {
+        free(v);
+        free(at);
+        return N265_CTL_ENOMEM;
+    }
+    v[0] = *ev;
+    at[0] = -1;
+    for (int i = c->fnext, k = 1; dep && i < c->fn; i++)
+        if (c->fev[i].kind == kind) {
+            at[k] = i;
+            v[k++] = c->fev[i];
+        }
+    int b = -1;
+    int r = c->a->control_check(c->enc, v, n, &b);
+    if (r != 0 && b > 0)
+        *bad = at[b];
+    free(v);
+    free(at);
+    return r;
+}
+
+/* the reserve: fd events whose frame may not have landed yet */
+static int ctl_fd_room(ctl_cli *c, int64_t next)
+{
+    int w = 0;
+    for (int i = 0; i < c->nfdf; i++)
+        if (c->fdf[i] > next - CTL_LAG_SPAN)
+            c->fdf[w++] = c->fdf[i];
+    c->nfdf = w;
+    return c->nfdf < CTL_FD_RESERVE;
+}
+
+static void ctl_fd_note(ctl_cli *c, int64_t frame)
+{
+    if (c->nfdf == c->cfdf) {
+        int nc = c->cfdf ? 2 * c->cfdf : 64;
+        int64_t *f = realloc(c->fdf, (size_t)nc * sizeof *f);
+        if (!f)
+            return;
+        c->fdf = f;
+        c->cfdf = nc;
+    }
+    c->fdf[c->nfdf++] = frame;
 }
 
 /* one --control-fd line: -1 stops the encode */
@@ -2925,8 +3079,22 @@ static int ctl_fd_line(ctl_cli *c, const char *ln)
         return 0;
     n265_control_t v;
     ctl_from_log(c->a, &ev, &v);
-    r = ctl_send(c, &v);
-    if (r == N265_CTL_ELATE)
+    int64_t q, next;
+    int bad = -1;
+    if (ctl_status(c, &q, &next) < 0 || !ctl_fd_room(c, next))
+        r = N265_CTL_EFULL;
+    else
+        r = ctl_fd_check(c, &v, &bad);
+    if (r == 0) {
+        r = ctl_send(c, &v);
+        if (r == 0)
+            ctl_fd_note(c, v.frame);
+    }
+    if (bad >= 0)
+        fprintf(stderr, "y265: --control-fd line %ld skipped: %s line %ld "
+                "would then be refused: %s\n", c->line, c->fpath,
+                c->fline[bad], c->a->control_strerror(r));
+    else if (r == N265_CTL_ELATE)
         fprintf(stderr, "y265: --control-fd line %ld skipped: frame %lld "
                 "has already been handed in\n", c->line,
                 (long long)ev.frame);
@@ -2989,6 +3157,12 @@ static void ctl_drain(ctl_cli *c)
         for (int i = 0; i < 16; i++)
             c->a->control_init(&ev[i], 0);
         n = c->a->controls_applied(c->enc, ev, 16);
+        if (n < 0) {
+            fprintf(stderr, "y265: the encoder dropped applied control "
+                    "records: --control-out is incomplete\n");
+            n = 16;
+            continue;
+        }
         for (int i = 0; i < n; i++) {
             struct ctl_log_event l;
             char line[256];
@@ -3448,6 +3622,19 @@ int main(int argc, char **argv)
     }
     if (hw && strcmp(a->backend(enc), "yah265"))
         fprintf(stderr, "y265: encoder: %s\n", a->backend(enc));
+    ctl_cli cc = { 0 };
+    cc.a = a;
+    cc.enc = enc;
+    cc.fd = o.ctl_fd;
+    if (o.ctl_path) {
+        int r = ctl_check_file(&cc, o.ctl_path, &cfile);
+        free(cfile.ev);
+        free(cfile.line);
+        if (r < 0) {
+            a->encoder_close(enc);
+            return 2;
+        }
+    }
 
     /* --show-config / --verbose (phase 14 item 13). Here, because the
      * table is what the encoder RESOLVED and the level, the tier and the
@@ -3478,10 +3665,6 @@ int main(int argc, char **argv)
         a->set_csv(enc, csv_path, csv_level);
     if (o.fstats_path)
         a->set_frame_stats(enc, o.fstats_path);
-    ctl_cli cc = { 0 };
-    cc.a = a;
-    cc.enc = enc;
-    cc.fd = o.ctl_fd;
     if (o.ctl_out_path) {
         cc.out = fopen(o.ctl_out_path, "w");
         if (!cc.out) {
@@ -3490,13 +3673,6 @@ int main(int argc, char **argv)
             return 1;
         }
         fprintf(cc.out, "#livectl %d\n", CTL_LOG_VERSION);
-    }
-    if (o.ctl_path) {
-        int r = ctl_submit_file(&cc, o.ctl_path, &cfile);
-        free(cfile.ev);
-        free(cfile.line);
-        if (r < 0)
-            return 2;
     }
     if (cc.fd >= 0) {
         int fl = fcntl(cc.fd, F_GETFL);
@@ -3552,6 +3728,8 @@ int main(int argc, char **argv)
         };
         n265_nal *nal;
         int nnal;
+        if (ctl_feed_file(&cc) < 0)
+            return 2;
         if (ctl_fd_poll(&cc) < 0)
             return 1;
         int bytes = a->encoder_encode(enc, &nal, &nnal, &pic);
@@ -3583,6 +3761,14 @@ int main(int argc, char **argv)
             break;
         for (int i = 0; i < nnal; i++)
             fwrite(nal[i].payload, 1, (size_t)nal[i].size, fout);
+    }
+    for (; cc.fnext < cc.fn; cc.fnext++) {
+        struct ctl_log_event l;
+        char line[256];
+        ctl_to_log(&cc.fev[cc.fnext], &l);
+        ctl_log_format(&l, line, sizeof line);
+        fprintf(stderr, "y265: control \"%s\" never landed: the stream "
+                "ended first\n", line);
     }
     if (cc.out && ctl_write_out(&cc) != 0) {
         fprintf(stderr, "y265: write failed: %s\n", o.ctl_out_path);

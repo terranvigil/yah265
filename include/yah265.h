@@ -120,6 +120,7 @@ typedef uint16_t n265_pixel;
 #define n265_control_init     N265_API(n265_control_init)
 #define n265_control_strerror N265_API(n265_control_strerror)
 #define n265_encoder_control  N265_API(n265_encoder_control)
+#define n265_encoder_control_check N265_API(n265_encoder_control_check)
 #define n265_encoder_controls_applied N265_API(n265_encoder_controls_applied)
 #define n265_encoder_status   N265_API(n265_encoder_status)
 #endif
@@ -518,7 +519,7 @@ YAH265_API const char *n265_config_get_str(const n265_config *c,
  *
  * With no events the stream is byte-identical to an encode that never
  * called these. A recorded log of events replays to the same bytes at
- * one thread. All five calls run on the thread that calls encode, never
+ * one thread. All six calls run on the thread that calls encode, never
  * during an encode call.
  *
  * Both structs are versioned by `size`, their first field: fields are
@@ -573,12 +574,25 @@ YAH265_API const char *n265_control_strerror(int err);
  * resolved, or a negative N265_CTL_* code and nothing queued. */
 YAH265_API int n265_encoder_control(n265_encoder *e, n265_control_t *ev);
 
+/* Validate n events in order, each as if the ones before it and every
+ * event already queued were queued too, against the encoder's current
+ * state. Queues and changes nothing, and has no queue bound, so EFULL
+ * never comes back. Returns N265_CTL_OK, or the first refusal's code
+ * with its index in *bad_index. A bad pointer or n < 0 returns
+ * N265_CTL_EINVAL with *bad_index -1; a NULL bad_index returns
+ * N265_CTL_EINVAL and writes nothing. */
+YAH265_API int n265_encoder_control_check(n265_encoder *e,
+                                          const n265_control_t *ev, int n,
+                                          int *bad_index);
+
 /* Drain the events that took effect since the last call, in the order
  * they were applied, each with applied_frame set. After the flush, an
  * event whose frame never arrived comes back with applied_frame -1.
- * Returns the count, or -1 on bad arguments. Each out[] entry must have
- * its size set (the library writes no byte past it); n265_control_init
- * does that. */
+ * Returns the count, or -1 on bad arguments. If applied records were
+ * dropped since the last call because the record queue was full, it
+ * returns -1 once, draining nothing; later calls return normally. Each
+ * out[] entry must have its size set (the library writes no byte past
+ * it); n265_control_init does that. */
 YAH265_API int n265_encoder_controls_applied(n265_encoder *e,
                                              n265_control_t *out, int max);
 

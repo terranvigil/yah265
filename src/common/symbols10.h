@@ -315,6 +315,7 @@
 #define n265_encoder_set_frame_stats n265_encoder_set_frame_stats_10
 #define n265_ctl_new                 n265_ctl_new_10
 #define n265_ctl_free                n265_ctl_free_10
+#define n265_ctl_set_record_cap      n265_ctl_set_record_cap_10
 #define n265_ctl_hand_in             n265_ctl_hand_in_10
 #define n265_ctl_push                n265_ctl_push_10
 #define n265_ctl_rate_due            n265_ctl_rate_due_10

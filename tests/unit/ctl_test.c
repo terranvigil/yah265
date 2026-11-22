@@ -7,6 +7,7 @@
  */
 
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,10 +16,13 @@
 #include "ctl_log.h"
 
 void n265_set_hrd(int on);
+void n265_ctl_set_record_cap(int cap);
 
 #define W 192
 #define H 128
 #define NF 40
+/* the library's pending bound (src/encoder/ctl.h) */
+#define N265_CTL_MAX_PENDING_TEST 4096
 
 static int fails;
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "%s:%d: %s\n", __FILE__, \
@@ -513,6 +517,192 @@ static void test_independence_rate(void)
                  "no-hrd", ev, 3);
 }
 
+static uint32_t rng = 12345;
+
+static int rnd(int n)
+{
+    rng = rng * 1664525u + 1013904223u;
+    return (int)((rng >> 8) % (uint32_t)n);
+}
+
+static int rnd_rate(void)
+{
+    int k = rnd(30);
+    return k < 12 ? 0 : k == 12 ? -1 : 100 + 50 * rnd(24);
+}
+
+static void rnd_event(n265_control_t *v, int64_t base)
+{
+    static const int kinds[] = { N265_CTL_RATE, N265_CTL_RATE, N265_CTL_CRF,
+                                 N265_CTL_QP_LIMITS, N265_CTL_QP_LIMITS,
+                                 N265_CTL_KEYFRAME, N265_CTL_ZONE,
+                                 N265_CTL_ZONE, N265_CTL_ZONE,
+                                 N265_CTL_KEYFRAME, N265_CTL_CRF,
+                                 N265_CTL_QP_LIMITS, N265_CTL_RATE, 0,
+                                 N265_CTL_FPS, N265_CTL_RESOLUTION };
+    n265_control_init(v, kinds[rnd(17) < 14 ? rnd(13) : 13 + rnd(3)]);
+    int f = rnd(20);
+    v->frame = f == 0 ? N265_CTL_NEXT : f == 1 && rnd(3) == 0 ? -5
+             : base - 1 + rnd(30);
+    if (rnd(30) == 0)
+        v->size = rnd(2) ? 4 : (int)sizeof *v + 8;
+    v->bitrate_kbps = rnd_rate();
+    v->vbv_maxrate_kbps = rnd_rate();
+    v->vbv_bufsize_kbit = rnd_rate();
+    v->crf = 10.0 + 0.5 * rnd(90);
+    v->qp_min = rnd(3) == 0 ? -1 : rnd(53) - 1;
+    v->qp_max = rnd(3) == 0 ? -1 : rnd(53) - 1;
+    v->last = (v->frame < 0 ? base : v->frame) + rnd(16) - 2;
+    v->qp_offset = rnd(9) == 0 ? 60 : rnd(21) - 10;
+}
+
+/* n265_encoder_control_check against real queuing: random event lists,
+ * some on top of a queue already holding events, some after frames have
+ * gone in. The check must name the first event the queue refuses, with
+ * its code, and change nothing. */
+static void check_vs_queue(const char *opts, int trials)
+{
+    for (int t = 0; t < trials; t++) {
+        n265_encoder *e = open_with(opts);
+        CHECK(e);
+        if (!e)
+            return;
+        int fed = rnd(3);
+        for (int i = 0; i < fed; i++)
+            CHECK(feed(e, i, NULL) >= 0);
+        n265_control_t pre;
+        for (int i = rnd(4); i > 0; i--) {
+            rnd_event(&pre, fed);
+            n265_encoder_control(e, &pre);
+        }
+        n265_control_t ev[12];
+        int n = 1 + rnd(12);
+        for (int i = 0; i < n; i++)
+            rnd_event(&ev[i], fed);
+        n265_status_t s0, s1;
+        s0.size = s1.size = (int)sizeof s0;
+        CHECK(n265_encoder_status(e, &s0) == 0);
+        int bad = 99, bad2 = 99;
+        int r = n265_encoder_control_check(e, ev, n, &bad);
+        int r2 = n265_encoder_control_check(e, ev, n, &bad2);
+        CHECK(n265_encoder_status(e, &s1) == 0);
+        CHECK(r == r2 && bad == bad2);
+        CHECK(s0.controls_pending == s1.controls_pending &&
+              s0.next_frame == s1.next_frame);
+        CHECK(r == N265_CTL_OK ? bad == -1 : bad >= 0 && bad < n);
+        int qr = N265_CTL_OK, qbad = -1;
+        for (int i = 0; i < n && qr == N265_CTL_OK; i++) {
+            n265_control_t v = ev[i];
+            qr = n265_encoder_control(e, &v);
+            if (qr != N265_CTL_OK)
+                qbad = i;
+        }
+        if (r != qr || bad != qbad)
+            fprintf(stderr, "%s trial %d: check %d at %d, queue %d at %d\n",
+                    opts, t, r, bad, qr, qbad);
+        CHECK(r == qr && bad == qbad);
+        n265_encoder_close(e);
+    }
+}
+
+static void test_check_edges(void)
+{
+    n265_encoder *e = open_with("crf=28:threads=1");
+    CHECK(e);
+    n265_control_t v[2];
+    n265_control_init(&v[0], N265_CTL_KEYFRAME);
+    n265_control_init(&v[1], N265_CTL_KEYFRAME);
+    int bad = 7;
+    CHECK(n265_encoder_control_check(NULL, v, 1, &bad) == N265_CTL_EINVAL &&
+          bad == -1);
+    bad = 7;
+    CHECK(n265_encoder_control_check(e, NULL, 1, &bad) == N265_CTL_EINVAL &&
+          bad == -1);
+    bad = 7;
+    CHECK(n265_encoder_control_check(e, v, -1, &bad) == N265_CTL_EINVAL &&
+          bad == -1);
+    CHECK(n265_encoder_control_check(e, v, 1, NULL) == N265_CTL_EINVAL);
+    bad = 7;
+    CHECK(n265_encoder_control_check(e, v, 0, &bad) == N265_CTL_OK);
+    v[1].size = 4;
+    CHECK(n265_encoder_control_check(e, v, 2, &bad) == N265_CTL_EINVAL &&
+          bad == 1);
+
+    /* a zone conflicts with one earlier in the same list */
+    n265_control_init(&v[0], N265_CTL_ZONE);
+    v[0].frame = 10; v[0].last = 20; v[0].qp_offset = 2;
+    v[1] = v[0];
+    v[1].frame = 20; v[1].last = 30;
+    CHECK(n265_encoder_control_check(e, v, 2, &bad) == N265_CTL_ECONFLICT &&
+          bad == 1);
+    CHECK(n265_encoder_control(e, &v[0]) == N265_CTL_OK);
+    /* ...and with one already queued */
+    CHECK(n265_encoder_control_check(e, &v[1], 1, &bad) ==
+          N265_CTL_ECONFLICT && bad == 0);
+
+    /* no bound: more than the queue holds */
+    int big = N265_CTL_MAX_PENDING_TEST + 10;
+    n265_control_t *b = malloc((size_t)big * sizeof *b);
+    for (int i = 0; i < big; i++) {
+        n265_control_init(&b[i], N265_CTL_KEYFRAME);
+        b[i].frame = 100 + i;
+    }
+    bad = 7;
+    CHECK(n265_encoder_control_check(e, b, big, &bad) == N265_CTL_OK);
+    int r = N265_CTL_OK, i;
+    for (i = 0; i < big && r == N265_CTL_OK; i++)
+        r = n265_encoder_control(e, &b[i]);
+    CHECK(r == N265_CTL_EFULL);
+    free(b);
+    n265_encoder_close(e);
+}
+
+static void test_check_crf(void)
+{
+    test_check_edges();
+    check_vs_queue("qp=30:threads=1", 40);
+    check_vs_queue("crf=28:threads=1", 60);
+    check_vs_queue("crf=28:threads=1:vbv-maxrate=800:vbv-bufsize=800", 60);
+}
+
+static void test_check_rate(void)
+{
+    check_vs_queue("bitrate=400:vbv-maxrate=400:vbv-bufsize=400:threads=1",
+                   60);
+    check_vs_queue("bitrate=400:vbv-maxrate=600:vbv-bufsize=600:threads=1:"
+                   "no-hrd", 60);
+    check_vs_queue("bitrate=400:vbv-maxrate=600:vbv-bufsize=600:threads=1",
+                   60);
+    check_vs_queue("bitrate=400:threads=1", 40);
+}
+
+/* records lost to a full record queue: -1 once, then the rest */
+static void test_dropped(void)
+{
+    n265_ctl_set_record_cap(4);
+    n265_encoder *e = open_with("crf=28:threads=1");
+    n265_ctl_set_record_cap(0);
+    CHECK(e);
+    n265_control_t v;
+    for (int i = 0; i < 6; i++) {
+        n265_control_init(&v, N265_CTL_QP_LIMITS);
+        v.qp_min = 20 + i;
+        CHECK(ctl(e, N265_CTL_QP_LIMITS, i, &v) == N265_CTL_OK);
+    }
+    for (int t = 0; t < 8; t++)
+        CHECK(feed(e, t, NULL) >= 0);
+    flush(e, NULL);
+    n265_control_t out[8];
+    for (int i = 0; i < 8; i++)
+        n265_control_init(&out[i], 0);
+    CHECK(n265_encoder_controls_applied(e, out, 8) == -1);
+    CHECK(n265_encoder_controls_applied(e, out, 8) == 4);
+    CHECK(out[0].qp_min == 20 && out[3].qp_min == 23 &&
+          out[3].applied_frame == 3);
+    CHECK(n265_encoder_controls_applied(e, out, 8) == 0);
+    n265_encoder_close(e);
+}
+
 /* the shared grammar, as the CLI uses it */
 static void test_log(void)
 {
@@ -543,6 +733,30 @@ static void test_log(void)
                         sizeof err) == 1);
     ctl_log_format(&ev, line, sizeof line);
     CHECK(!strcmp(line, "400 zone last=459 offset=-2.5"));
+
+    /* reals: 1-8 digits, then '.' and 1-6; the writer's shortest form
+     * reads back */
+    CHECK(ctl_log_parse("1 crf value=12345678.123456", 0, &ev, err,
+                        sizeof err) == 1);
+    CHECK(ctl_log_parse("1 crf value=123456789", 0, &ev, err,
+                        sizeof err) == -1);
+    CHECK(ctl_log_parse("1 crf value=1.1234567", 0, &ev, err,
+                        sizeof err) == -1);
+    CHECK(ctl_log_parse("1 crf value=1.", 0, &ev, err, sizeof err) == -1);
+    CHECK(ctl_log_parse("1 crf value=.5", 0, &ev, err, sizeof err) == -1);
+    CHECK(ctl_log_parse("1 zone last=2 offset=+0.000001", 0, &ev, err,
+                        sizeof err) == 1);
+    ctl_log_format(&ev, line, sizeof line);
+    CHECK(!strcmp(line, "1 zone last=2 offset=0.000001"));
+    CHECK(ctl_log_parse("1 zone last=2 offset=-99999999.999999", 0, &ev,
+                        err, sizeof err) == 1);
+    ctl_log_format(&ev, line, sizeof line);
+    CHECK(!strcmp(line, "1 zone last=2 offset=-99999999.999999"));
+    /* the header version is digits only */
+    CHECK(ctl_log_header("#livectl +1") == -1);
+    CHECK(ctl_log_header("#livectl -1") == -1);
+    CHECK(ctl_log_header("#livectl 0x1") == -1);
+    CHECK(ctl_log_header("#livectl 1\r\n") == 1);
 }
 
 int main(void)
@@ -552,8 +766,11 @@ int main(void)
     test_cqp();
     test_crf();
     test_independence_crf();
+    test_check_crf();
+    test_dropped();
     test_abr();
     test_independence_rate();
+    test_check_rate();
     if (cfg)
         n265_config_free(cfg);
     if (fails)

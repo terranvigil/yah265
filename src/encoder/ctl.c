@@ -27,6 +27,13 @@ static double now_s(void)
     return (double)ts.tv_sec + 1e-9 * (double)ts.tv_nsec;
 }
 
+static int g_rec_cap;
+
+void n265_ctl_set_record_cap(int cap)
+{
+    g_rec_cap = cap > 0 ? cap : 0;
+}
+
 n265_ctl *n265_ctl_new(const n265_encoder *e)
 {
     n265_ctl *c = calloc(1, sizeof *c);
@@ -40,6 +47,7 @@ n265_ctl *n265_ctl_new(const n265_encoder *e)
     }
     for (int i = 0; i < c->ring; i++)
         c->slot[i].disp = -1;
+    c->rec_cap = g_rec_cap > 0 ? g_rec_cap : N265_CTL_MAX_RECORD;
     c->qp_min = e->qpmin;
     c->qp_max = e->qpmax;
     c->cbr = e->abr_on && e->vbv.on &&
@@ -99,9 +107,12 @@ static void q_pop_front(n265_control_t *q, int *n)
 
 static void record(n265_ctl *c, const n265_control_t *ev, int64_t at)
 {
-    if (grow(&c->done, c->ndone, &c->cdone) == 0) {
+    if (c->ndone < c->rec_cap &&
+        grow(&c->done, c->ndone, &c->cdone) == 0) {
         c->done[c->ndone] = *ev;
         c->done[c->ndone++].applied_frame = at;
+    } else {
+        c->dropped = 1;
     }
     if (at < 0)
         return;
@@ -496,11 +507,17 @@ static int check(n265_encoder *e, n265_control_t *v)
     }
 }
 
-int n265_encoder_control(n265_encoder *e, n265_control_t *ev)
+static int size_ok(const n265_control_t *ev)
 {
-    if (!e || !ev || ev->size < CTL_V1_SIZE ||
-        ev->size > (int)sizeof(n265_control_t))
-        return N265_CTL_EINVAL;
+    return ev->size >= CTL_V1_SIZE && ev->size <= (int)sizeof(n265_control_t);
+}
+
+/* Validate one event against e->ctl's queues and queue it there. Both
+ * n265_encoder_control and n265_encoder_control_check come through here,
+ * the check on a scratch copy of the queues, so the two can't disagree.
+ * `bounded` applies the EFULL bound, which the check doesn't have. */
+static int admit(n265_encoder *e, n265_control_t *ev, int bounded)
+{
     if (e->hw || !e->ctl)
         return N265_CTL_EUNSUPPORTED;
     n265_ctl *c = e->ctl;
@@ -515,8 +532,8 @@ int n265_encoder_control(n265_encoder *e, n265_control_t *ev)
     else if (v.frame < c->in)
         return N265_CTL_ELATE;
     v.applied_frame = -1;
-    if (c->nfq + c->nrq >= N265_CTL_MAX_PENDING ||
-        c->nfq + c->nrq + c->ndone >= N265_CTL_MAX_RECORD)
+    if (bounded && (c->nfq + c->nrq >= N265_CTL_MAX_PENDING ||
+                    c->nfq + c->nrq + c->ndone >= N265_CTL_MAX_RECORD))
         return N265_CTL_EFULL;
     int r = check(e, &v);
     if (r != N265_CTL_OK)
@@ -553,6 +570,68 @@ int n265_encoder_control(n265_encoder *e, n265_control_t *ev)
     return N265_CTL_OK;
 }
 
+int n265_encoder_control(n265_encoder *e, n265_control_t *ev)
+{
+    if (!e || !ev || !size_ok(ev))
+        return N265_CTL_EINVAL;
+    return admit(e, ev, 1);
+}
+
+static void *dup_array(const void *p, int n, size_t sz)
+{
+    if (n <= 0)
+        return NULL;
+    void *q = malloc((size_t)n * sz);
+    if (q)
+        memcpy(q, p, (size_t)n * sz);
+    return q;
+}
+
+int n265_encoder_control_check(n265_encoder *e, const n265_control_t *ev,
+                               int n, int *bad_index)
+{
+    if (!bad_index)
+        return N265_CTL_EINVAL;
+    *bad_index = -1;
+    if (!e || !ev || n < 0)
+        return N265_CTL_EINVAL;
+    n265_ctl *real = e->ctl;
+    n265_ctl s;
+    if (real) {
+        /* admit writes only the pending queues and the zones */
+        s = *real;
+        s.fq = dup_array(real->fq, real->nfq, sizeof *real->fq);
+        s.rq = dup_array(real->rq, real->nrq, sizeof *real->rq);
+        s.zones = dup_array(real->zones, real->nz, sizeof *real->zones);
+        s.cfq = s.fq ? real->nfq : 0;
+        s.crq = s.rq ? real->nrq : 0;
+        s.cz = s.zones ? real->nz : 0;
+        if ((real->nfq > 0 && !s.fq) || (real->nrq > 0 && !s.rq) ||
+            (real->nz > 0 && !s.zones)) {
+            free(s.fq);
+            free(s.rq);
+            free(s.zones);
+            *bad_index = 0;
+            return N265_CTL_ENOMEM;
+        }
+        e->ctl = &s;
+    }
+    int r = N265_CTL_OK;
+    for (int i = 0; i < n && r == N265_CTL_OK; i++) {
+        n265_control_t v = ev[i];
+        r = size_ok(&v) ? admit(e, &v, 0) : N265_CTL_EINVAL;
+        if (r != N265_CTL_OK)
+            *bad_index = i;
+    }
+    if (real) {
+        e->ctl = real;
+        free(s.fq);
+        free(s.rq);
+        free(s.zones);
+    }
+    return r;
+}
+
 int n265_encoder_controls_applied(n265_encoder *e, n265_control_t *out,
                                   int max)
 {
@@ -561,6 +640,10 @@ int n265_encoder_controls_applied(n265_encoder *e, n265_control_t *out,
     n265_ctl *c = e->ctl;
     if (!c)
         return 0;
+    if (c->dropped) {
+        c->dropped = 0;
+        return -1;
+    }
     for (int i = 0; i < max; i++)
         if (out[i].size < CTL_V1_SIZE ||
             out[i].size > (int)sizeof(n265_control_t))
