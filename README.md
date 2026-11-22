@@ -124,7 +124,7 @@ The site is at [terranvigil.github.io/yah265](https://terranvigil.github.io/yah2
 
 | page | what's on it |
 |---|---|
-| [Build and first encode](https://terranvigil.github.io/yah265/start.html) | the ffmpeg build, a first encode, `y265` on its own |
+| [Build and first encode](https://terranvigil.github.io/yah265/start.html) | the ffmpeg build, a first encode, building `y265` |
 | [Encoding guide](https://terranvigil.github.io/yah265/guide.html) | rate modes, presets, threads, what ships and what's left out |
 | [Options](https://terranvigil.github.io/yah265/options.html) | the options and their defaults |
 | [HDR](https://terranvigil.github.io/yah265/hdr.html) | HDR10, HDR10+, HLG and Dolby Vision profile 8 |

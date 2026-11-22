@@ -55,7 +55,7 @@ To see both in motion, open the [comparison players](https://terranvigil.github.
 
 ## What it does
 
-- Encodes through ffmpeg as `libyah265`, or from a pipe with [its own command line](start.md#build-y265-on-its-own).
+- Encodes through ffmpeg as `libyah265`, or from a pipe with [its own command line](start.md#build-y265).
 - CRF, capped CRF, VBR, CBR, ABR and two-pass. The [encoding guide](guide.md#pick-a-rate-mode) says when to pick each.
 - Main, Main10, 4:4:4 and 4:2:2 [profiles](guide.md#set-the-bit-depth-and-profile) from one binary.
 - [HDR10, HDR10+, HLG and Dolby Vision profile 8](hdr.md).

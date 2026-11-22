@@ -1,6 +1,6 @@
 ---
 title: Build and first encode - yah265
-description: Build ffmpeg with yah265 in one command, run a first encode, and build the y265 command-line encoder on its own.
+description: Build ffmpeg with yah265 in one command, run a first encode, and build the y265 command-line encoder.
 ---
 
 # Build and first encode
@@ -161,7 +161,7 @@ The encoding guide covers [the rate modes](guide.md#pick-a-rate-mode) and the [f
 
 The CRF scale is yah265's own. A number that suited x265 won't give the same file size here. [Coming from x265](from-x265.md) has a CRF translation table. For a target size or bitrate, see the guide's [rate modes](guide.md#pick-a-rate-mode).
 
-## Build y265 on its own
+## Build y265
 
 `y265` needs a C11 compiler, Meson, Ninja and Python 3.
 
