@@ -118,6 +118,7 @@ static int g_keyint = 250;      /* x265 4.3's own default (2026-09-08) */
  * leading pictures are RADL rather than RASL (0, also x265's). */
 static int g_open_gop = 1;
 static int g_radl = 0;
+static int g_intra_refresh = 0;
 
 /* The full hierarchical run. 3 shipped from 2026-09-07 until the preset
  * ladder priced 7 inside both the fast and the slow chains and found it
@@ -695,6 +696,29 @@ void n265_set_gop(int open_gop, int radl)
 {
     g_open_gop = open_gop ? 1 : 0;
     g_radl = radl < 0 ? 0 : radl > N265_MAX_BFRAMES ? N265_MAX_BFRAMES : radl;
+}
+
+void n265_set_intra_refresh(int on);
+void n265_set_intra_refresh(int on)
+{
+    g_intra_refresh = on != 0;
+}
+
+/* --intra-refresh: a picture's place in its sweep, or -1 outside one. The
+ * sweeps start on the picture after an IDR and last --keyint pictures. */
+int n265_ir_pos(const n265_encoder *e, int display)
+{
+    if (!e->ir_on)
+        return -1;
+    int k = display - e->gop_start_display - 1;
+    return k < 0 ? -1 : k % e->keyint;
+}
+
+/* luma x where the refresh column of sweep position j ends */
+static int ir_col_end(const n265_encoder *e, int j, int pad_w)
+{
+    long c = ((long)(j + 1) * e->ctb_cols / e->keyint) << e->ctb_log2;
+    return c > pad_w ? pad_w : (int)c;
 }
 
 void n265_encoder_set_dump(n265_encoder *e, FILE *f)
@@ -2673,6 +2697,23 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->qp_delta_on = e->mode != N265_MODE_PCM &&
                      (e->aq || e->cutree || e->qp_frac);
     e->scenecut = e->mode != N265_MODE_PCM;
+    /* --intra-refresh places no key frame at a cut */
+    e->ir_on = g_intra_refresh;
+    if (e->ir_on) {
+        e->scenecut = 0;
+        { const char *v = n265_env("N265_IR_NOBOUND");
+          e->ir_nobound = v ? atoi(v) != 0 : 0; }
+        { const char *v = n265_env("N265_IR_NOMARGIN");
+          e->ir_nomargin = v ? atoi(v) != 0 : 0; }
+        { const char *v = n265_env("N265_IR_TMVP");
+          e->ir_tmvp = v ? atoi(v) != 0 : 0; }
+        { const char *v = n265_env("N265_IR_NOEDGE");
+          e->ir_noedge = v ? atoi(v) != 0 : 0; }
+        e->ir_trace = n265_env("N265_IR_TRACE") != NULL;
+        if (bs_init(&e->ir_rec_bs, 32) < 0)
+            goto fail;
+        n265_write_recovery_sei(&e->ir_rec_bs, e->keyint - 1);
+    }
     /* deblocking offsets: both clamped to the spec's +-6, and both zero by
      * default, which keeps the PPS control block out of the stream */
     { const char *v = n265_env("N265_DBF_BETA"); e->dbf_beta = v ? atoi(v) : 0; }
@@ -2930,7 +2971,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         if (e->recovery_sei) {
             if (bs_init(&e->rec_bs, 32) < 0)
                 goto fail;
-            n265_write_recovery_sei(&e->rec_bs);
+            n265_write_recovery_sei(&e->rec_bs, 0);
             if (e->rec_bs.failed) {
                 fprintf(stderr, "y265: out of memory building the recovery "
                                 "point SEI\n");
@@ -3969,6 +4010,7 @@ void n265_encoder_close(n265_encoder *e)
     bs_free(&e->aud_bs);
     bs_free(&e->info_bs);
     bs_free(&e->rec_bs);
+    bs_free(&e->ir_rec_bs);
     bs_free(&e->fd_bs);
     n265_qpfile_free(&e->qpf);
     n265_zones_free(&e->zones);
@@ -4131,7 +4173,7 @@ static void write_slice_header(n265_encoder *e, n265_frame_work *fw)
             bs_put_bits(bs, rp->pos_used[i], 1);
             prev = rp->pos_poc[i];
         }
-        bs_put_bits(bs, n265_env("N265_NO_TMVP") ? 0 : 1, 1);      /* slice_temporal_mvp_enabled_flag */
+        bs_put_bits(bs, n265_env("N265_NO_TMVP") || fw->ir_notmvp ? 0 : 1, 1);      /* slice_temporal_mvp_enabled_flag */
     }
     if (fw->mode != N265_MODE_PCM && !fw->lossless && n265_sao_seq_enabled()) {
         /* the content gate (N265_SAO_ANIM) answers per frame, so these
@@ -4151,7 +4193,7 @@ static void write_slice_header(n265_encoder *e, n265_frame_work *fw)
         }
         if (fw->slice_type == 0)
             bs_put_bits(bs, 0, 1);  /* mvd_l1_zero_flag */
-        if (!n265_env("N265_NO_TMVP")) {
+        if (!n265_env("N265_NO_TMVP") && !fw->ir_notmvp) {
             if (fw->slice_type == 0)
                 bs_put_bits(bs, 1, 1);  /* collocated_from_l0_flag */
             if (fw->nref[0] > 1)
@@ -6432,7 +6474,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
      * an open-GOP receiver actually joins at, and `--open-gop
      * --repeat-headers` together are what make one of our elementary
      * streams seekable without a container. */
-    if (e->frames_done == 0 || (e->repeat_hdr && fw->irap)) {
+    if (e->frames_done == 0 || (e->repeat_hdr && fw->irap) || fw->ir_start) {
         /* The headers are a pure function of config, so they are written
          * here and packed when this frame retires: under overlap the
          * output ring is walked in coding order, not in completion
@@ -6497,6 +6539,8 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
             ovh += (double)e->info_bs.bytes + 6.0;
         if (e->recovery_sei && fw->irap)
             ovh += (double)e->rec_bs.bytes + 6.0;
+        if (fw->ir_start)
+            ovh += (double)e->ir_rec_bs.bytes + 6.0;
         if (e->hrd_on)
             ovh += 40.0;    /* the buffering period and pic timing pair */
         ovh += (double)(fw->sei_len + fw->hdr_sei_len) + 12.0;
@@ -7542,6 +7586,9 @@ static void join_oldest(n265_encoder *e)
      * conservative there and says nothing about them.) */
     if (e->recovery_sei && fw->irap)
         pack_bs(e, d, N265_NAL_PREFIX_SEI, 0, &e->rec_bs);
+    /* --intra-refresh: a sweep start, exact from the sweep's last picture */
+    if (fw->ir_start)
+        pack_bs(e, d, N265_NAL_PREFIX_SEI, 0, &e->ir_rec_bs);
     /* --info: the version SEI goes wherever the parameter sets go, which
      * is the first access unit and - under --repeat-headers - every IRAP,
      * so a receiver that joins mid-stream learns the same thing about the
@@ -8302,6 +8349,9 @@ static int key_rule(n265_encoder *e, int i, int origin)
         if (qe && qe->type == N265_QPF_IDR)
             return 1;
     }
+    /* --intra-refresh: the sweep replaces the period */
+    if (e->ir_on)
+        return 0;
     return e->mode == N265_MODE_PCM || e->keyint == 1 ||
            key_period(e, i, origin) ||
            (e->scenecut && d - origin >= min_keyint(e) &&
@@ -8615,6 +8665,11 @@ static void build_plan_order(n265_encoder *e)
         e->plan_len = 1; e->plan_pop = 1;
         return;
     }
+    /* --intra-refresh: nothing in a sweep lists a picture from before the
+     * one ahead of it */
+    if (n265_ir_pos(e, la->f[0].display_idx) == 0)
+        e->cra_bar_poc = e->cra_bar_radl =
+            la->f[0].display_idx - e->poc_origin_display - 1;
     /* The non-IDR I at the FRONT of the queue: a one-picture plan, the
      * shape the "next frame is a key frame" case already had. Nothing
      * else happens - the POC line continues (gop_start_display is still
@@ -9166,6 +9221,47 @@ static int drive_scheduler(n265_encoder *e)
      * The coding path reads fw->col, never a live DPB slot's marking. */
     fw->col = (fw->slice_type != 2 && fw->nref[0] > 0) ? fw->refl[0][0] : NULL;
     fw->col_poc = fw->col ? fw->col->poc : 0;
+    /* --intra-refresh: the column, each reference's refreshed width, and
+     * no temporal motion from before the sweep */
+    fw->ir_on = fw->ir_start = fw->ir_notmvp = fw->ir_mode = 0;
+    fw->ir_lo = fw->ir_hi = 0;
+    fw->ir_mbad = 0;
+    fw->ir_cref = 0;
+    {
+        int j = n265_ir_pos(e, f->display_idx);
+        if (j >= 0) {
+            fw->ir_start = j == 0;
+            fw->ir_on = slice_type == 1;
+        }
+        if (fw->ir_on) {
+            int rd = f->display_idx - j;
+            fw->ir_lo = j ? ir_col_end(e, j - 1, fw->pad_w) : 0;
+            fw->ir_hi = ir_col_end(e, j, fw->pad_w);
+            for (int r = 0; r < N265_MAX_REF; r++) {
+                int dr = r < fw->nref[0] ? fw->refl[0][r]->poc +
+                                               e->poc_origin_display : -1;
+                fw->ir_rhi[r] = r < fw->nref[0] && dr >= rd
+                                    ? ir_col_end(e, dr - rd, fw->pad_w) : -1;
+            }
+            fw->ir_mgl = e->ir_nomargin ? 0 : 5;
+            fw->ir_mgc = e->ir_nomargin ? 0 : 2;
+            /* a reference with no clean sample is no reference: its left
+             * padding repeats unrefreshed samples */
+            for (int r = 0; r < N265_MAX_REF; r++)
+                if (fw->ir_rhi[r] >= 0 && fw->ir_rhi[r] < fw->pad_w &&
+                    (fw->ir_rhi[r] - fw->ir_mgl < 1 ||
+                     (fw->ir_rhi[r] >> 1) - fw->ir_mgc < 1))
+                    fw->ir_rhi[r] = -1;
+            fw->ir_nobound = e->ir_nobound;
+            fw->ir_noedge = e->ir_noedge;
+            fw->ir_trace = e->ir_trace;
+            if (j == 0 && !e->ir_tmvp) {
+                fw->col = NULL;
+                fw->col_poc = 0;
+                fw->ir_notmvp = 1;
+            }
+        }
+    }
 #ifdef N265_REF_CHECK
     for (int l = 0; l < 2; l++)
         for (int k = 0; k < N265_MAX_REF; k++)

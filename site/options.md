@@ -71,6 +71,7 @@ Many switches also take a `--no-` form that turns them off. "The preset's" means
 | <span id="opt-keyint"></span>`--keyint <n>` | `250` | Longest gap between key frames. A scene cut restarts the count. |
 | <span id="opt-open-gop"></span><span id="opt-no-open-gop"></span>`--open-gop` | on | Code the periodic key frame as a CRA and keep the B-frames that straddle it. `--no-open-gop` writes an IDR there. A scene cut is an IDR either way. |
 | <span id="opt-radl"></span>`--radl <n>` | `0` | How many of a CRA's leading pictures stay decodable when playback starts at that CRA. |
+| <span id="opt-intra-refresh"></span>`--intra-refresh` | off | No key frame after the first. A column of intra blocks sweeps the picture every `--keyint` frames, and a decoder can join at the start of any sweep. P-frames and 4:2:0 only. [More](guide.md#intra-refresh) |
 | <span id="opt-bframes"></span>`--bframes <0..15>` | `7` | B-frames between anchors, 0 to 15. Above 7, `--rc-lookahead` must be at least one more. |
 | <span id="opt-b-adapt"></span>`--b-adapt <0-4>` | `1` | How the B run length is chosen: `0` fixed, `1` from motion. `2` to `4` are experimental. |
 | <span id="opt-ref"></span>`--ref <n>` | `1` | References per list, 1 to 5. `slower` uses 2, and so does `medium` at 4K. |
@@ -180,6 +181,5 @@ Many switches also take a `--no-` form that turns them off. "The preset's" means
 
 | option | default | what it does |
 |---|---|---|
-| <span id="opt-intra-refresh"></span>`--intra-refresh` | refused | The encoder stops with an error. [Why](guide.md#left-out-on-purpose) |
 | <span id="opt-scaling-list"></span>`--scaling-list <s>` | refused | The encoder stops with an error. [Why](guide.md#left-out-on-purpose) |
 <!--/gen:options-->

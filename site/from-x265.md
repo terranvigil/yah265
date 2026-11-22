@@ -14,7 +14,7 @@ This page is for someone moving an x265 command line to `y265`. Most options kee
 |---|---|
 | rate | `--crf`, `--qp`, `--bitrate`, `--vbv-maxrate`, `--vbv-bufsize`, `--vbv-init`, `--crf-min`, `--crf-max`, `--qpmin`, `--qpmax`, `--strict-cbr`, `--pass`, `--stats`, `--zones`, `--qpfile`, `--max-ausize-factor` |
 | preset and tune | `--preset` with `fast`, `medium`, `slow` or `slower`, and `--tune zerolatency` |
-| GOP | `--keyint`, `--open-gop`, `--radl`, `--bframes`, `--ref`, `--rc-lookahead`, `--weightp`, `--weightb`, `--temporal-layers` |
+| GOP | `--keyint`, `--open-gop`, `--radl`, `--bframes`, `--ref`, `--rc-lookahead`, `--weightp`, `--weightb`, `--temporal-layers`, `--intra-refresh` |
 | coding | `--ctu`, `--tu-intra-depth`, `--tu-inter-depth`, `--rdoq-level`, `--cbqpoffs`, `--crqpoffs`, `--lossless` |
 | input | `--input-res`, `--input-csp`, `--input-depth`, `--output-depth`, `--fps`, `--frames`, `--seek`, `--dither` |
 | stream | `--repeat-headers`, `--aud`, `--eos`, `--eob`, `--hash`, `--high-tier`, `--info`, `--idr-recovery-sei`, `--pic-struct`, `--hrd-concat` |
@@ -66,7 +66,6 @@ The same name doesn't promise the same default. [Options](options.md) lists the 
 | `--wpp`, `--slices`, `--lookahead-slices`, `--lookahead-threads` | [in the guide](guide.md#left-out-on-purpose) | `--threads` |
 | `--asm`, `--no-asm` | the SIMD tier is picked at run time | `N265_ASM_OFF=all` in the environment, for testing |
 | `--ipratio`, `--pbratio`, `--qcomp` | rate control isn't steered through these ratios | the guide's [rate modes](guide.md#pick-a-rate-mode) |
-| `--intra-refresh` | [in the guide](guide.md#left-out-on-purpose) | none |
 | `--scaling-list` | [in the guide](guide.md#left-out-on-purpose) | none |
 | `--interlace`, `--field` | [in the guide](guide.md#left-out-on-purpose) | none |
 | `--analysis-save`, `--analysis-load` | [in the guide](guide.md#left-out-on-purpose) | none |

@@ -1106,7 +1106,9 @@ static void usage(FILE *out)
         "  --pcm                 code every CU as I_PCM (lossless, very large)\n"
         "  --lossless            lossless coding: transquant bypass on every CU.\n"
         "                        Rate control, RDOQ, AQ, psy and loop filters are off.\n"
-        "  --intra-refresh       not supported; the refusal says why\n"
+        "  --intra-refresh       no key frame after the first: a column of intra\n"
+        "                        blocks sweeps the picture every --keyint frames,\n"
+        "                        so a decoder can join at any sweep. P frames only\n"
         "  --scaling-list <s>    not supported; the refusal says why\n",
         out);
     fputs(
@@ -2608,6 +2610,7 @@ int main(int argc, char **argv)
     const double vbv_maxrate = CFG("vbv-maxrate");
     const double vbv_bufsize = CFG("vbv-bufsize");
     const int hw = (int)CFG("hw");
+    const int intra_refresh = (int)CFG("intra-refresh");
 #undef CFG
     const char *qpfile_path = a->config_get_str(cfg, "qpfile");
     const char *zones_spec = a->config_get_str(cfg, "zones");
@@ -2673,6 +2676,11 @@ int main(int argc, char **argv)
     }
     /* --gop-parallel (phase 14 item 42): above one thread only, and not
      * with the options that need one encoder to see the whole input */
+    if (gop_par > 1 && intra_refresh) {
+        fprintf(stderr, "y265: --gop-parallel cannot be combined with "
+                "--intra-refresh, which has no key frames to cut at\n");
+        return 2;
+    }
     if (gop_par > 1 && !show_config) {
         long nt = threads > 0 ? threads : sysconf(_SC_NPROCESSORS_ONLN);
         const char *hrd = getenv("N265_VBV_HRD");

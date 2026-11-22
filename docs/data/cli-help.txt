@@ -1,4 +1,4 @@
-# y265 0.0.1, release build 7d27cf44
+# y265 0.0.1, release build bb550783
 usage: y265 [options] <input.y4m|input.yuv|->
 
 The input picks the profile: 8-bit 4:2:0 is coded Main, 10-bit 4:2:0
@@ -124,7 +124,9 @@ Structure
   --pcm                 code every CU as I_PCM (lossless, very large)
   --lossless            lossless coding: transquant bypass on every CU.
                         Rate control, RDOQ, AQ, psy and loop filters are off.
-  --intra-refresh       not supported; the refusal says why
+  --intra-refresh       no key frame after the first: a column of intra
+                        blocks sweeps the picture every --keyint frames,
+                        so a decoder can join at any sweep. P frames only
   --scaling-list <s>    not supported; the refusal says why
 
 Filters

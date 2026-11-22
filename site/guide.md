@@ -221,6 +221,21 @@ Without the tune, the latency is the lookahead depth in frames. Two opt-in tools
 
 <p class="optchips"><span><a href="options.md#presets-and-tunes">Options</a></span> <a href="options.md#opt-tune"><code>--tune</code></a> <a href="options.md#opt-rc-lookahead"><code>--rc-lookahead</code></a> <a href="options.md#opt-bframes"><code>--bframes</code></a></p>
 
+### Intra refresh
+
+A key frame is a big picture, and on a tight link it arrives late. `--intra-refresh` sends no key frame after the first. Each frame codes one column of blocks as intra, and the column sweeps across the picture every `--keyint` frames.
+
+A receiver can join at the start of any sweep. Its picture is exact once that sweep ends. Each sweep start carries a recovery point message and the parameter sets.
+
+```sh
+y265 in.y4m -o out.hevc --tune zerolatency --intra-refresh --keyint 30 \
+  --bitrate 1500 --vbv-maxrate 1500 --vbv-bufsize 500
+```
+
+It codes P-frames only, from 4:2:0 input. Scene cuts don't add key frames. A frame you list as a key frame in a QP file is still one, and a new sweep starts after it. It can't be combined with `--bframes` above 0, `--open-gop`, `--gop-parallel` or `--pcm`.
+
+<p class="optchips"><span><a href="options.md#gop-and-references">Options</a></span> <a href="options.md#opt-intra-refresh"><code>--intra-refresh</code></a> <a href="options.md#opt-keyint"><code>--keyint</code></a> <a href="options.md#opt-tune"><code>--tune</code></a></p>
+
 ## Set the bit depth and profile
 
 The input picks the profile. No option names it.
@@ -384,7 +399,6 @@ The pixel format picks the bit depth. 4:2:0, 4:2:2 and 4:4:4 work at 8 and 10 bi
 |---|---|
 | six of x265's preset names | `medium` already beats x265's `medium`, so I kept the list at four. See [Pick a preset](#pick-a-preset) |
 | four of x265's tune names | each has a short reason under [Tune names](#tune-names) |
-| `--intra-refresh` | it serves low-latency links, such as video calls, that avoid key frames. Files and streaming need key frames for seeking anyway |
 | `--scaling-list` | x265 leaves custom quantizer matrices off by default too. yah265 uses its own perceptual tuning instead |
 | interlaced coding | almost all video made today is progressive. I will add it if there is enough interest |
 | 12-bit | 8-bit and 10-bit cover the delivery formats, HDR10, HLG and Dolby Vision included |

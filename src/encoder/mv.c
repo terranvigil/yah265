@@ -633,12 +633,61 @@ static uint32_t mc_satd(struct n265_frame_work *e, int list, int ridx, int x0, i
     return n265_satd_wh(src, e->pad_stride[0], pred, w, w, h);
 }
 
+/* --intra-refresh: does a w-wide block at x0 read only the clean part of
+ * L0 ref `ref`, luma 8-tap and chroma 4-tap reach included (4:2:0) */
+static int ir_reach_ok(const struct n265_frame_work *e, int ref, int x0,
+                       int w, int mvx)
+{
+    if (ref < 0 || ref >= e->nref[0] || e->ir_rhi[ref] < 0)
+        return 0;
+    int hi = e->ir_rhi[ref];
+    if (hi >= e->pad_w)
+        return 1;
+    int cwl = hi - e->ir_mgl, cwc = (hi >> 1) - e->ir_mgc;
+    int lend = x0 + (mvx >> 2) + w - 1 + ((mvx & 3) ? 4 : 0);
+    int cend = (x0 >> 1) + (mvx >> 3) + (w >> 1) - 1 + ((mvx & 7) ? 2 : 0);
+    return lend <= cwl - 1 && cend <= cwc - 1;
+}
+
+int n265_ir_mot_ok(const struct n265_frame_work *e, int x0, int w, mot_t mot)
+{
+    if (!e->ir_on || e->ir_mode != 1 || e->ir_nobound)
+        return 1;
+    if (mot.pred != 1)
+        return 0;
+    return ir_reach_ok(e, mot.ref[0], x0, w, mot.mv[0].x);
+}
+
+int n265_ir_ref_ok(const struct n265_frame_work *e, int list, int ref)
+{
+    if (!e->ir_on || e->ir_mode != 1 || e->ir_nobound)
+        return 1;
+    return list == 0 && ref >= 0 && ref < e->nref[0] && e->ir_rhi[ref] >= 0;
+}
+
 /* clamp a full-pel mv so MC stays inside the padded reference */
 void n265_clamp_mv(struct n265_frame_work *e, int x0, int y0, int w, int h,
                    mv_t *mv)
 {
     int lo_x = -(x0 + N265_REF_PAD - 8) * 4;
     int hi_x = (e->pad_w + N265_REF_PAD - 8 - (x0 + w)) * 4;
+    /* --intra-refresh: every position up to the bound is clean, whatever
+     * its phase */
+    if (e->ir_on && e->ir_mode == 1 && !e->ir_nobound) {
+        int r = e->ir_cref;
+        int hi = r >= 0 && r < e->nref[0] ? e->ir_rhi[r] : -1;
+        int b = lo_x;
+        if (hi >= e->pad_w) {
+            b = hi_x;
+        } else if (hi >= 0) {
+            int cwl = hi - e->ir_mgl, cwc = (hi >> 1) - e->ir_mgc;
+            int bl = (cwl - x0 - w - 4) * 4 + 3;
+            int bc = (cwc - (x0 >> 1) - (w >> 1) - 2) * 8 + 7;
+            b = bl < bc ? bl : bc;
+        }
+        if (b < hi_x)
+            hi_x = b < lo_x ? lo_x : b;
+    }
     int lo_y = -(y0 + N265_REF_PAD - 8) * 4;
     int hi_y = (e->pad_h + N265_REF_PAD - 8 - (y0 + h)) * 4;
     if (mv->x < lo_x) mv->x = (int16_t)lo_x;
@@ -927,11 +976,14 @@ uint32_t n265_me_search(struct n265_frame_work *e, int list, int ridx, int x0, i
                         const struct n265_me_rate *rc)
 {
     mv_t cur = { (int16_t)((start.x >> 2) * 4), (int16_t)((start.y >> 2) * 4) };
+    e->ir_cref = list == 0 ? ridx : -1;
     n265_clamp_mv(e, x0, y0, w, h, &cur);
     uint32_t best_sad = n265_mc_sad(e, list, ridx, x0, y0, w, h, cur);
     /* the zero probe, unless the seed already is zero - costing the
      * same block twice cannot change the answer */
-    if (cur.x || cur.y) {
+    mv_t zc = { 0, 0 };
+    n265_clamp_mv(e, x0, y0, w, h, &zc);
+    if ((cur.x || cur.y) && !zc.x && !zc.y) {
         mv_t zero = { 0, 0 };
         uint32_t zs = n265_mc_sad(e, list, ridx, x0, y0, w, h, zero);
         if (zs < best_sad) {
