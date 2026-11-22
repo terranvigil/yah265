@@ -131,7 +131,7 @@ $ cat clip.y4m | x265 --input - --y4m --preset medium --crf 28 \
     --no-asm --pools none --frame-threads 1 -o ref.hevc
 ```
 
-G2 drops `--threads 1` and the two x265 threading options. x265's one-thread run writes a different file, so match yah265's size again for G1.
+G2 drops `--threads 1` and the two x265 threading options. Because x265's one-thread run writes a different file, match yah265's size again for G1.
 
 A few habits keep the number fair:
 

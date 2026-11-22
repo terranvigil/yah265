@@ -5,7 +5,7 @@ description: yah265 against x265 medium on speed, quality and file size, from CI
 
 # Results
 
-The results on this page compare yah265 with x265 4.3 when both run at `--preset medium`. A script builds the tables and charts from the recorded runs. Its check fails when the page and the data disagree.
+The results on this page compare yah265 with x265 4.3 when both run at `--preset medium`.
 
 The first two rows are the headline. They cover the Mac's CRF encodes where the two files match in size within 1%.
 
@@ -24,7 +24,7 @@ The first two rows are the headline. They cover the Mac's CRF encodes where the 
 
 To see the two encodes in motion, [watch them side by side](compare.md).
 
-The quality limit is that yah265 may need at most 1.0% more bits than x265 for the same VMAF v1. [The methodology](methodology.md) sets out each limit and the rules that make a number valid. [How x265 was run](x265-run.md) has its build and the command for each goal. [Check it yourself](check-it-yourself.md) shows how to take the same measurements on your own machine. The long per-cell tables are folded.
+The quality limit is that yah265 may need at most 1.0% more bits than x265 for the same VMAF v1. [The methodology](methodology.md) sets out each limit and the rules that make a number valid. [How x265 was run](x265-run.md) has its build and the command for each goal. [Check it yourself](check-it-yourself.md) shows how to take the same measurements on your own machine.
 
 ## What the numbers mean
 
@@ -230,7 +230,7 @@ The Xeon also ran the short clips at G3 with both encoders capped to one older i
 | 4K | 2.22x / 2.22x | 2.00x / 2.00x | 1 |
 <!--/gen:capped-->
 
-AVX2 against AVX2 is the closest pairing on the page. Capping the instruction set doesn't change the output, so quality is the same as in the next section. [Architectures](architectures.md) explains the tiers and how each is checked. The per-machine detail is in <!--gen:report-x86-->[the x86-64 report](docs/parity/PARITY-REPORT-yah265-x86-2026-11-13.md)<!--/gen:report-x86--> and <!--gen:report-g4-->[the Graviton report](docs/parity/PARITY-REPORT-yah265-graviton-2026-11-13.md)<!--/gen:report-g4-->.
+AVX2 against AVX2 is the closest pairing on the page. Because capping the instruction set doesn't change the output, quality is the same as in the next section. [Architectures](architectures.md) explains the instruction sets and how each is checked. The per-machine detail is in <!--gen:report-x86-->[the x86-64 report](docs/parity/PARITY-REPORT-yah265-x86-2026-11-13.md)<!--/gen:report-x86--> and <!--gen:report-g4-->[the Graviton report](docs/parity/PARITY-REPORT-yah265-graviton-2026-11-13.md)<!--/gen:report-g4-->.
 
 ## Quality at the same size
 
@@ -254,7 +254,7 @@ The chart and table show yah265's VMAF v1 score minus x265's at the matched file
 | 4K | 10-minute films | +1.18 | +0.44 | Big Buck Bunny 4K |
 <!--/gen:quality-->
 
-The scores were measured on the Mac. Graviton4 writes the same streams as the Mac, apart from one Nocturne 4K encode, so its quality is the same. The Xeon's streams differ a little, so I ran three ladders again there.
+The scores were measured on the Mac. Graviton4 writes the same streams as the Mac apart from one Nocturne 4K encode, so its quality is the same. Because the Xeon's streams differ a little, I ran three ladders again there.
 
 <details class="data" markdown="1">
 <summary>Ladders run again on the Xeon</summary>
@@ -387,7 +387,7 @@ Each ladder is set up the same way:
 
 ## VBR
 
-VBR has to hit its bitrate as well as look good. The limit puts each rung of yah265's within ±10% of its target over the whole cell. x265's rungs are drawn for comparison.
+VBR has to hit its bitrate as well as look good. Each of yah265's rungs has to come within ±10% of its target over the whole cell. The chart draws x265's rungs for comparison.
 
 <!--gen:fig-tracking-->
 <figure class="chart"><img src="assets/charts/results/tracking.svg" alt="All 95 of yah265's VBR rungs come within 10% of their target."></figure>

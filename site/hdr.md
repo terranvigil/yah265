@@ -82,7 +82,7 @@ yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8 as Main 10 HEVC. Eac
 <figcaption>A player that doesn't know the per-picture metadata plays the base stream under it.</figcaption>
 </figure>
 
-Dolby Vision profile 5 isn't offered. Its base layer is in Dolby's IPTPQc2 color space. Nothing in this toolchain can produce or check that.
+I left out Dolby Vision profile 5. Its base layer uses a color space that nothing in this toolchain can produce or check.
 
 ## Encoding HDR10
 
@@ -132,7 +132,7 @@ ffmpeg -i master.mov -pix_fmt yuv420p10le \
 
 On a 10-bit PQ or HLG encode, `libyah265` takes the mastering display and the light level from the source. A value in `-yah265-params`, as in the example, replaces the source's.
 
-HDR10+ and Dolby Vision read metadata files. The parameter list refuses those two options. Encode HDR10+ and Dolby Vision with `y265`.
+HDR10+ and Dolby Vision need `y265`, because their metadata options don't work through `-yah265-params`.
 
 ## Encoding HLG
 
@@ -238,8 +238,6 @@ A command line that would mislabel a dynamic format is refused before it writes 
 | a profile other than 8.1, 8.2 or 8.4 | refused |
 | Dolby Vision without a VBV | warning |
 | Dolby Vision 8.1 without `--master-display` | warning |
-
-The two warnings still encode.
 
 ## Where the signaling goes in the stream
 
@@ -369,9 +367,9 @@ Don't read the HLG clip's lead as a lead on all HLG. The clip is easy material: 
 
 ### How the HDR measurements were run
 
-The PQ titles are from Netflix Open Content: Sol Levante is 24p animation, Sparks 60p live action. The HLG clip is the EBU / DVB 8K HLG test clip, published by DVB under CC BY 4.0 (credit EBU / DVB). Frames 600 to 899 of its 37 Mbit/s rendition, around the clip's one cut, were scaled down with HLG and BT.2020 kept.
+The PQ titles are from Netflix Open Content: Sol Levante is 24p animation, Sparks 60p live action. The HLG clip is the EBU / DVB 8K HLG test clip, published by DVB under CC BY 4.0 (credit EBU / DVB). I took frames 600 to 899 of its 37 Mbit/s rendition, around the clip's one cut, and scaled them down with HLG and BT.2020 kept.
 
-Both encoders ran `medium` with the same signaling. Scores use HDR-VMAF's 3H model at 1080p and its 1.5H model at 4K, in the high frame rate variant at 50 fps and above. HDR-VMAF has no HLG mode, so the HLG clip is converted to PQ before scoring.
+Both encoders ran `medium` with the same signaling. Scores use HDR-VMAF's 3H model at 1080p and its 1.5H model at 4K, in the high frame rate variant at 50 fps and above. Because HDR-VMAF has no HLG mode, I converted the HLG clip to PQ before scoring.
 
 Each encoder ran its own CRF ladder, because the two scales don't line up on this material:
 
@@ -387,13 +385,13 @@ yah265's six rungs cover 95% or more of x265's HDR-VMAF range in each cell. The 
 
 ### Banding
 
-Banding was read with HDR-VMAF's PQ CAMBI. Sol Levante's flat gradients band on both encoders at the lower rates. There yah265's worst frames band less than x265's at the same bitrate. On average yah265 bands slightly more on all three titles. Both encoders stay far below the level where banding shows. The [HDR notes](docs/hdr.md) have the CAMBI figures.
+I measured banding with HDR-VMAF's PQ CAMBI. Sol Levante's flat gradients band on both encoders at the lower rates, where yah265's worst frames band less than x265's at the same bitrate. On average yah265 bands slightly more on all three titles. Both encoders stay far below the level where banding shows. The [HDR notes](docs/hdr.md) have the CAMBI figures.
 
 ## How it was checked
 
 - A CRF encode with `--dhdr10-info` and `--dolby-vision-rpu` matches what `hdr10plus_tool inject` and `dovi_tool inject-rpu` produce from the same encode without them.
 - `dovi_tool extract-rpu` and `hdr10plus_tool extract` on an encode give back the input metadata exactly. That holds with B-frames reordering the pictures, with `--seek`, and across `--gop-parallel` segments.
-- The ST 2094-40 writer reproduces a profile B message from a real HDR10+ stream byte for byte. A unit test holds it to that.
-- ffmpeg parses the HDR10+ message and the Dolby Vision RPU of each frame. It decodes the streams with errors fatal.
+- The ST 2094-40 writer reproduces a profile B message from a real HDR10+ stream byte for byte.
+- ffmpeg parses the HDR10+ message and the Dolby Vision RPU of each frame, and decodes the streams with errors fatal.
 - The Dolby Vision test uses Netflix's own grade for Sol Levante. That's the Dolby Vision XML published with it under CC BY 4.0, turned into profile 8.1 RPUs by `dovi_tool`.
 - The metadata doesn't change the pictures of a CRF encode. Under a bitrate target its bytes count toward the target.

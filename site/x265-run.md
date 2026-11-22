@@ -1,13 +1,11 @@
 ---
 title: How x265 was run - yah265
-description: The x265 version and build behind the comparisons, with the command for each goal and the threads, lookahead and instruction sets each encoder ran with.
+description: The x265 version and build behind the comparisons and the command for each goal.
 ---
 
 # How x265 was run
 
-The comparisons on this site are against x265 <!--trust:x265-version-->4.3+1-e9b8812<!--/trust:x265-version-->. This page gives the build on each machine, the command for each kind of measurement and the settings each encoder ran with. A script writes the tables and commands from the recorded runs.
-
-x265 always runs `--preset medium` with no `--tune`. Everything else is its default unless a table below says otherwise. [The methodology](methodology.md) explains why each measurement is taken the way it is.
+The comparisons on this site are against x265 <!--trust:x265-version-->4.3+1-e9b8812<!--/trust:x265-version-->. x265 always runs `--preset medium` with no `--tune`. Everything else is its default unless a table below says otherwise. [The methodology](methodology.md) explains why each measurement is taken the way it is.
 
 ## The build on each machine
 
@@ -21,7 +19,7 @@ x265 always runs `--preset medium` with no `--tune`. Everything else is its defa
 The Homebrew build reports `[Mac OS X][clang 21.0.0][64 bit] 8bit+10bit+12bit`.
 <!--/trust:x265-builds-->
 
-On the Mac x265 is the Homebrew package as it installs. On the cloud machines I built it from the 4.3 release tarball with its assembly on. On the Xeon x265 stops at AVX2 by default while yah265 uses AVX-512. I also timed x265 with its AVX-512 code switched on, and both encoders held to AVX2 and to SSE4.2. [Results](results.md#by-machine) has all of those results.
+On the Xeon x265 stops at AVX2 by default while yah265 uses AVX-512. I also timed x265 with its AVX-512 code switched on, then both encoders held to AVX2 and to SSE4.2. [Results](results.md#by-machine) has those timings.
 
 ## The command for each goal
 
@@ -84,7 +82,7 @@ G1 and G2 switch the hand-written SIMD off on both sides to compare the algorith
 | Xeon held to one tier | `N265_CPU_MAX=sse42` or `avx2` | `--asm sse4.2` or `--asm avx2` | on, capped |
 <!--/trust:x265-threads-->
 
-x265's output depends on its frame-thread count. It picks four on the Mac, so the untimed encodes use four too.
+x265's output depends on its frame-thread count. Because it picks four on the Mac, the untimed encodes use four too.
 
 ## Lookahead
 
@@ -95,7 +93,7 @@ x265's output depends on its frame-thread count. It picks four on the Mac, so th
 | x265 | 20 | 20 | its `medium` |
 <!--/trust:x265-lookahead-->
 
-x265 stays at its default depth throughout. yah265's own depth was swept around it. [Results](results.md#lookahead-depth) has that sweep.
+I kept x265 at its default depth and swept yah265's own depth around it. [Results](results.md#lookahead-depth) has that sweep.
 
 ## What x265 wasn't given
 

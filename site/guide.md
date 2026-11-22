@@ -168,7 +168,7 @@ The first pass measures each frame. The second plans the whole file before it co
 
 `medium` changes with the picture size. A small picture gets a smaller coding tree and a shorter lookahead. 4K gets a second reference. Design has [the whole table](design.md#what-medium-does-at-each-size).
 
-yah265 offers four presets. Its `medium` already runs faster than x265's `medium` and scores higher at the same file size, so I kept the list short. x265's other preset names give an error that names the nearest preset. I'd use `medium` unless you've measured otherwise on your content.
+yah265 offers four presets. I kept the list short because its `medium` already runs faster than x265's `medium` and scores higher at the same file size. x265's other preset names give an error that names the nearest preset. I'd use `medium` unless you've measured otherwise on your content.
 
 Because a preset only sets defaults, any option you give wins over it. To see what a run will do, ask:
 
@@ -188,12 +188,10 @@ A key frame arrives every 250 frames by default, and at each scene cut. Up to se
 
 By default key frames use an open GOP, which saves bits. If your packager needs closed segments, pass `--no-open-gop`.
 
-The lookahead depth is also the latency in frames.
-
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 256" role="img" aria-labelledby="gop-t gop-d"><title id="gop-t">What each GOP option controls</title><desc id="gop-d">A row of frames in display order. An IDR key frame starts it, then runs of three B-frames between P anchors. Three dashed B-frames, the leading pictures, sit just before a CRA key frame. Labels name the option behind each part: --bframes over a B run, --rc-lookahead over the newest frames, --ref on an arrow from a P frame back to the key frame, --no-open-gop and --radl at the CRA, and --keyint under the span from one key frame to the next.</desc><defs><marker id="gop-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-head" d="M0 0 L10 5 L0 10 z"/></marker></defs><rect class="d-accent" x="20" y="100" width="32" height="40" rx="4"/><text class="d-label" x="36.0" y="124.5" text-anchor="middle">IDR</text><rect class="d-box" x="56" y="100" width="32" height="40" rx="4"/><text class="d-label" x="72.0" y="124.5" text-anchor="middle">B</text><rect class="d-box" x="92" y="100" width="32" height="40" rx="4"/><text class="d-label" x="108.0" y="124.5" text-anchor="middle">B</text><rect class="d-box" x="128" y="100" width="32" height="40" rx="4"/><text class="d-label" x="144.0" y="124.5" text-anchor="middle">B</text><rect class="d-fill" x="164" y="100" width="32" height="40" rx="4"/><text class="d-label" x="180.0" y="124.5" text-anchor="middle">P</text><rect class="d-box" x="200" y="100" width="32" height="40" rx="4"/><text class="d-label" x="216.0" y="124.5" text-anchor="middle">B</text><rect class="d-box" x="236" y="100" width="32" height="40" rx="4"/><text class="d-label" x="252.0" y="124.5" text-anchor="middle">B</text><rect class="d-box" x="272" y="100" width="32" height="40" rx="4"/><text class="d-label" x="288.0" y="124.5" text-anchor="middle">B</text><rect class="d-fill" x="308" y="100" width="32" height="40" rx="4"/><text class="d-label" x="324.0" y="124.5" text-anchor="middle">P</text><text class="d-text" x="362" y="125" text-anchor="middle">…</text><rect class="d-muted" x="390" y="100" width="32" height="40" rx="4" style="stroke-dasharray:4 3"/><text class="d-label" x="406.0" y="124.5" text-anchor="middle">B</text><rect class="d-muted" x="426" y="100" width="32" height="40" rx="4" style="stroke-dasharray:4 3"/><text class="d-label" x="442.0" y="124.5" text-anchor="middle">B</text><rect class="d-muted" x="462" y="100" width="32" height="40" rx="4" style="stroke-dasharray:4 3"/><text class="d-label" x="478.0" y="124.5" text-anchor="middle">B</text><rect class="d-accent" x="498" y="100" width="32" height="40" rx="4"/><text class="d-label" x="514.0" y="124.5" text-anchor="middle">CRA</text><rect class="d-box" x="534" y="100" width="32" height="40" rx="4"/><text class="d-label" x="550.0" y="124.5" text-anchor="middle">B</text><rect class="d-box" x="570" y="100" width="32" height="40" rx="4"/><text class="d-label" x="586.0" y="124.5" text-anchor="middle">B</text><rect class="d-box" x="606" y="100" width="32" height="40" rx="4"/><text class="d-label" x="622.0" y="124.5" text-anchor="middle">B</text><rect class="d-fill" x="642" y="100" width="32" height="40" rx="4"/><text class="d-label" x="658.0" y="124.5" text-anchor="middle">P</text><path class="d-line" d="M56 92 V86 H160 V92"/><text x="56" y="76" text-anchor="start"><tspan class="d-mono">--bframes</tspan><tspan class="d-label"> B-frames between anchors</tspan></text><path class="d-line" d="M390 92 V86 H494 V92"/><text class="d-label" x="390" y="76">leading pictures</text><path class="d-line" d="M534 54 V48 H674 V54"/><text x="674" y="36" text-anchor="end"><tspan class="d-mono">--rc-lookahead</tspan><tspan class="d-label"> frames read ahead, also the latency</tspan></text><path class="d-arrow" d="M180 141 Q108 182 36 141" marker-end="url(#gop-ah)"/><text x="108" y="192" text-anchor="middle"><tspan class="d-mono">--ref</tspan><tspan class="d-label"> references per list</tspan></text><path class="d-line" d="M514 141 V156 H400"/><text x="400" y="172" text-anchor="start"><tspan class="d-mono">--no-open-gop</tspan><tspan class="d-label"> an IDR instead, a closed segment</tspan></text><text x="400" y="192" text-anchor="start"><tspan class="d-mono">--radl</tspan><tspan class="d-label"> some leading pictures stay decodable</tspan></text><path class="d-line" d="M36 216 V222 H514 V216"/><text x="275" y="242" text-anchor="middle"><tspan class="d-mono">--keyint</tspan><tspan class="d-label"> key frame to key frame, 250 by default; a scene cut starts a new one</tspan></text></svg>
 <svg class="d-narrow" viewBox="0 0 360 246" role="img" aria-labelledby="gopn-t gopn-d"><title id="gopn-t">What each GOP option controls</title><desc id="gopn-d">A row of frames in display order. An IDR key frame starts it, then runs of three B-frames between P anchors. Three dashed B-frames, the leading pictures, sit just before a CRA key frame. Labels name the option behind each part: --bframes over a B run, --rc-lookahead over the newest frames, --ref on an arrow from a P frame back to the key frame, --no-open-gop and --radl at the CRA, and --keyint under the span from one key frame to the next.</desc><defs><marker id="gopn-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-head" d="M0 0 L10 5 L0 10 z"/></marker></defs><rect class="d-accent" x="8" y="70" width="30" height="36" rx="4"/><text class="d-label" x="23.0" y="92.5" text-anchor="middle">IDR</text><rect class="d-box" x="42" y="70" width="30" height="36" rx="4"/><text class="d-label" x="57.0" y="92.5" text-anchor="middle">B</text><rect class="d-box" x="76" y="70" width="30" height="36" rx="4"/><text class="d-label" x="91.0" y="92.5" text-anchor="middle">B</text><rect class="d-fill" x="110" y="70" width="30" height="36" rx="4"/><text class="d-label" x="125.0" y="92.5" text-anchor="middle">P</text><text class="d-text" x="160" y="93" text-anchor="middle">…</text><rect class="d-muted" x="178" y="70" width="30" height="36" rx="4" style="stroke-dasharray:4 3"/><text class="d-label" x="193.0" y="92.5" text-anchor="middle">B</text><rect class="d-muted" x="212" y="70" width="30" height="36" rx="4" style="stroke-dasharray:4 3"/><text class="d-label" x="227.0" y="92.5" text-anchor="middle">B</text><rect class="d-accent" x="246" y="70" width="30" height="36" rx="4"/><text class="d-label" x="261.0" y="92.5" text-anchor="middle">CRA</text><rect class="d-box" x="280" y="70" width="30" height="36" rx="4"/><text class="d-label" x="295.0" y="92.5" text-anchor="middle">B</text><rect class="d-fill" x="314" y="70" width="30" height="36" rx="4"/><text class="d-label" x="329.0" y="92.5" text-anchor="middle">P</text><path class="d-line" d="M42 64 V58 H106 V64"/><text x="42" y="48" text-anchor="start"><tspan class="d-mono">--bframes</tspan><tspan class="d-label"> between anchors</tspan></text><path class="d-line" d="M280 64 V58 H344 V64"/><text x="344" y="26" text-anchor="end"><tspan class="d-mono">--rc-lookahead</tspan><tspan class="d-label"> reads ahead</tspan></text><path class="d-line" d="M178 108 V114 H242 V108"/><text class="d-label" x="178" y="132">leading pictures</text><path class="d-arrow" d="M125 107 Q74 136 23 107" marker-end="url(#gopn-ah)"/><text x="8" y="150" text-anchor="start"><tspan class="d-mono">--ref</tspan><tspan class="d-label"> refs per list</tspan></text><text x="8" y="174" text-anchor="start"><tspan class="d-mono">--no-open-gop</tspan><tspan class="d-label"> IDR, closed segment</tspan></text><text x="8" y="194" text-anchor="start"><tspan class="d-mono">--radl</tspan><tspan class="d-label"> leading pictures decodable</tspan></text><path class="d-line" d="M23 206 V212 H261 V206"/><text x="8" y="234" text-anchor="start"><tspan class="d-mono">--keyint</tspan><tspan class="d-label"> key frame to key frame</tspan></text></svg>
-<figcaption>A stretch of a stream in display order, with the option behind each part.</figcaption>
+<figcaption>The option behind each part of a stream in display order.</figcaption>
 </figure>
 
 <p class="optchips"><span><a href="options.md#gop-and-references">Options</a></span> <a href="options.md#opt-keyint"><code>--keyint</code></a> <a href="options.md#opt-bframes"><code>--bframes</code></a> <a href="options.md#opt-ref"><code>--ref</code></a> <a href="options.md#opt-rc-lookahead"><code>--rc-lookahead</code></a> <a href="options.md#opt-no-open-gop"><code>--no-open-gop</code></a> <a href="options.md#opt-radl"><code>--radl</code></a> <a href="options.md#opt-no-weightp"><code>--no-weightp</code></a></p>
@@ -213,7 +211,7 @@ Some receivers want more in the stream. One that joins mid-stream needs the para
 
 ## Low latency
 
-`--tune zerolatency` turns off B-frames, the lookahead and the frame-level parallelism that delays output, for one frame of latency. It's the only tune.
+`--tune zerolatency` gives one frame of latency. It turns off B-frames, the lookahead and the frame-level parallelism that delays output.
 
 ```sh
 y265 in.y4m -o out.hevc --tune zerolatency --crf 23
@@ -247,7 +245,7 @@ A few options change what the table gives:
 
 ## HDR
 
-yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8. A stream that says PQ or HLG also gets its own tuning at `medium`, with nothing to set. [HDR](hdr.md) has the command for each format and explains the metadata files.
+yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8. At `medium`, a stream that says PQ or HLG also gets its own tuning without any option. [HDR](hdr.md) has the command for each format and explains the metadata files.
 
 <p class="optchips"><span><a href="options.md#color-and-hdr">Options</a></span> <a href="options.md#opt-transfer"><code>--transfer</code></a> <a href="options.md#opt-colorprim"><code>--colorprim</code></a> <a href="options.md#opt-colormatrix"><code>--colormatrix</code></a> <a href="options.md#opt-master-display"><code>--master-display</code></a> <a href="options.md#opt-max-cll"><code>--max-cll</code></a> <a href="options.md#opt-dhdr10-info"><code>--dhdr10-info</code></a> <a href="options.md#opt-dolby-vision-rpu"><code>--dolby-vision-rpu</code></a> <a href="options.md#opt-dolby-vision-profile"><code>--dolby-vision-profile</code></a> <a href="options.md#opt-hdr-opt"><code>--hdr-opt</code></a></p>
 
@@ -312,15 +310,15 @@ A QP file forces frame types and QPs frame by frame. It can force key frames and
 
 Two tools work on whole shots. Both are opt-in.
 
-A shot window lets a CRF encode plan a whole shot at a time. It works only with CRF and adds latency. It's off by default: in my tests it saved little bitrate and made quality less even from shot to shot.
+A shot window lets a CRF encode plan a whole shot at a time. It works only with CRF and adds latency. In my tests it saved little bitrate and made quality less even from shot to shot.
 
-Shot statistics are one JSON line per shot: where it starts and ends, its bits, its frame types and its complexity. A ladder builder can use them to pick a rate per shot. The stream is the same with them on.
+Shot statistics are one JSON line per shot. A ladder builder can use them to pick a rate per shot. The stream is the same with them on.
 
 <p class="optchips"><span><a href="options.md#shot-aware-options">Options</a></span> <a href="options.md#opt-shot-window"><code>--shot-window</code></a> <a href="options.md#opt-shot-stats"><code>--shot-stats</code></a></p>
 
 ## Identification marks
 
-Each stream has an SEI message that names the encoder, its version, its license and the options the run resolved. `--no-info` drops it.
+Each stream has an SEI message that names the encoder and the options the run resolved. `--no-info` drops it.
 
 The stream also has a fingerprint that survives when the SEI is stripped. It costs no bits and doesn't change the picture. The [fingerprint design note](docs/stream-fingerprint.md) says how to read it back.
 
@@ -384,14 +382,14 @@ The pixel format picks the bit depth. 4:2:0, 4:2:2 and 4:4:4 work at 8 and 10 bi
 
 | not offered | why |
 |---|---|
-| six of x265's preset names | `medium` already beats x265's `medium`, so the list stays at four. See [Pick a preset](#pick-a-preset) |
+| six of x265's preset names | `medium` already beats x265's `medium`, so I kept the list at four. See [Pick a preset](#pick-a-preset) |
 | four of x265's tune names | each has a short reason under [Tune names](#tune-names) |
 | `--intra-refresh` | it serves low-latency links, such as video calls, that avoid key frames. Files and streaming need key frames for seeking anyway |
-| `--scaling-list` | x265 leaves custom quantizer matrices off by default too. yah265 shapes detail through its own perceptual tuning instead |
+| `--scaling-list` | x265 leaves custom quantizer matrices off by default too. yah265 uses its own perceptual tuning instead |
 | interlaced coding | almost all video made today is progressive. I will add it if there is enough interest |
 | 12-bit | 8-bit and 10-bit cover the delivery formats, HDR10, HLG and Dolby Vision included |
 | `--psy-rd`, `--psy-rdoq` | yah265's perceptual tuning is built into its presets, so there's nothing to set |
-| x265's threading options | yah265 sets up its threads by itself. It splits each frame into rows. Working on rows from several frames at once keeps the cores busy without any tuning |
+| x265's threading options | yah265 sets up its threads by itself and keeps the cores busy without any tuning |
 | analysis save and load | they let a bitrate ladder reuse one encode's analysis to save time. yah265 is fast enough to analyze each rung itself |
 | a switch to turn off scene detection | the encoder always looks for scene changes |
 | non-conforming streams | every stream yah265 writes fits a level, so any standard decoder can play it |

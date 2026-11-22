@@ -7,9 +7,9 @@ description: How yah265 is compared with x265, what makes a number valid, how qu
 
 This page has the rules behind the [results](results.md). [How x265 was run](x265-run.md) has the exact commands. yah265 is compared with x265 4.3+1-e9b8812 when both run at `--preset medium`.
 
-Both sides run their own `medium` defaults with no `--tune`. yah265's `medium` adapts by itself to some content, such as screen recordings and handheld footage. x265 has tunes for grain and animation that these measurements don't use. The Homebrew build has no screen-content mode. Any departure from a default is stated beside the result. The main one is that the ladders run both encoders at 6 threads.
+Both sides run their own `medium` defaults with no `--tune`. yah265's `medium` adapts by itself to some content, such as screen recordings and handheld footage. x265 has tunes for grain and animation that I didn't use. The Homebrew build has no screen-content mode. Any departure from a default is stated beside the result. The main one is that the ladders run both encoders at 6 threads.
 
-The test set, the goals, the limits and the report format come from one specification that yah265 shares with its sibling encoders, yah264 and yaav1.
+The test set and the limits come from one specification that yah265 shares with its sibling encoders, yah264 and yaav1.
 
 ## Words this page uses
 
@@ -72,21 +72,21 @@ An encoder can look faster, or score higher, just because it wrote a bigger file
 <figcaption>One cell's matched point. The curves are a sketch.</figcaption>
 </figure>
 
-x265 runs first, at its default rate factor of CRF 28. I then adjust yah265's CRF until its file is within 1% of x265's size, trying whole CRFs first and then a fraction. Speed and quality are both read at that one point.
+x265 runs first, at its default rate factor of CRF 28. I then adjust yah265's CRF until its file is within 1% of x265's size. Speed and quality are both read at that one point.
 
 x265 writes a different file at one thread than at its default threading. So G1 gets its own x265 encode and its own size match.
 
 ## Timing
 
 - Both encoders read the same frames on standard input from one feeder.
-- The feeder alone must deliver at least 1.5 times the faster encoder's frame rate. A cell below that is feeder-bound and its ratio is void.
+- The feeder alone must deliver at least 1.5 times the faster encoder's frame rate. I don't count a cell below that.
 - Rounds are interleaved. The order of the two encoders reverses on alternate rounds. The result is the median wall time.
 - The machine must be quiet, judged on total CPU across all cores. No other work runs during a timed leg.
 - Each run prints its output's md5.
 
 G3 is the goal a user sees, because it times both encoders as shipped. G1 and G2 switch the hand-written SIMD off on both sides to compare the algorithms alone. Those two are engineering checks, because x265 isn't meant to run without its assembly.
 
-Because G1 and G2 would take many hours at one thread on the 2-minute and 10-minute cells, they're timed on 30-second windows instead. A window starts every three minutes. yah265 is size-matched again over the windows. If the total misses by more than 5%, the result isn't counted.
+Because G1 and G2 would take many hours at one thread on the 2-minute and 10-minute cells, they're timed on 30-second windows instead. A window starts every three minutes. yah265 is size-matched again over the windows. If the total misses by more than 5%, I don't count the result.
 
 ## The test media
 
@@ -97,13 +97,11 @@ Because G1 and G2 would take many hours at one thread on the 2-minute and 10-min
 | L | six open-licensed films at 720p, 1080p and 4K | 600 seconds from a recorded offset past the opening card, cut at the last frame before the end credits |
 | C | a film scan, sports and screen content | quality counts toward the verdict. Speed is only shown |
 
-The start and end frames are recorded.
-
 The headline on the home page covers the size-matched CRF cells of tiers S, M and L on the Mac at G3. Capped VBR timings have their own table. Tier C's timings are reported with its quality.
 
 The set has no held-out content, because the development clips were windows of these same titles.
 
-Each ten-minute excerpt has to represent its whole title. I checked each excerpt's mix of detail and motion against its whole title. Two excerpts moved their offsets to match.
+Because each ten-minute excerpt has to represent its whole title, I checked each one's mix of detail and motion against the title's. I moved the offsets of two excerpts to match.
 
 The smaller sizes of each film are scaled down from the master with VideoToolbox. Everything is fed as 8-bit 4:2:0 Y4M.
 
@@ -144,7 +142,7 @@ A script picks the frames on Results by a fixed rule. It scores each frame by th
 
 Each picture size and clip length is judged separately for each goal. It passes when both speed numbers meet the limit and quality holds too. Full parity means all three goals pass at each picture size and clip length, on each machine. Tier C's speed is shown outside that count.
 
-The lookahead's depth is part of the measurement. yah265's own depth is swept around x265's default under CRF and VBR. The sweep covers live action, animation and 60p content at 1080p and 4K. x265 stays at its default 20 throughout. Each result states both depths. No measurement uses shot-based or chunked encoding.
+The lookahead's depth is part of the measurement. I swept yah265's own depth around x265's default under CRF and VBR. The sweep covers live action, animation and 60p content at 1080p and 4K. x265 stays at its default 20 throughout. No measurement uses shot-based or chunked encoding.
 
 ## The ladders
 

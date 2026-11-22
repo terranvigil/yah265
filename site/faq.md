@@ -25,11 +25,11 @@ Yes. yah265's `medium` is tuned for VMAF v1, the only quality metric these pages
 
 ## You tuned on the clips you test on.
 
-Yes. I developed on parts of the same titles, so nothing in the test set is held out. Treat the results as what the encoder does on this set. The test that matters is your own content. [Check it yourself](check-it-yourself.md) walks through it.
+Yes. Nothing in the test set is held out, because I developed on parts of the same titles. Treat the results as what the encoder does on this set. The test that matters is your own content. [Check it yourself](check-it-yourself.md) walks through it.
 
 ## Does the lead hold beyond medium?
 
-I only claim `medium` against `medium`, the preset most people run. The [guide](guide.md#pick-a-preset) explains why yah265 keeps four presets.
+I only claim `medium` against `medium`, the preset most people run. The [guide](guide.md#pick-a-preset) explains why yah265 has four presets.
 
 ## Why time x265 without its assembly?
 
@@ -45,12 +45,12 @@ No. The headline is the Mac's. yah265 also leads on an Intel Xeon and on an AWS 
 
 ## Does the average hide bad frames?
 
-It can. [Results](results.md#the-worst-frames) shows one clip frame by frame for that reason. The worst 5% of its frames sit beside the mean. It also compares each short clip's lowest frame. At CIF, yah265's lowest frame is behind x265's.
+It can. [Results](results.md#the-worst-frames) shows one clip frame by frame, with the worst 5% of its frames beside the mean. It also compares each short clip's lowest frame. At CIF, yah265's lowest frame is behind x265's.
 
 ## Is the VMAF setup standard?
 
-The scorer is Netflix's libvmaf with the `vmaf_v1.0.16` models. A picture smaller than 1080p is scaled up to display size before scoring, as Netflix's guidance for that model says. [The methodology](methodology.md#scoring-quality) names the commit, the models and the frame stride.
+The scorer is Netflix's libvmaf with the `vmaf_v1.0.16` models. A picture smaller than 1080p is scaled up to display size before scoring, as Netflix's guidance for that model says. [The methodology](methodology.md#scoring-quality) has the exact setup.
 
 ## How do I check a number?
 
-Each chart links its data as CSV and names the script that drew it. The tables come from the same data, and the site's build fails if a page disagrees with it. To take a measurement yourself, start with [Check it yourself](check-it-yourself.md).
+Each chart's caption links to the chart's data as CSV and names the script that drew the chart. The tables come from the same data. To take a measurement yourself, start with [Check it yourself](check-it-yourself.md).
