@@ -45,6 +45,7 @@
 #include "common/cpu.h"
 #include "encoder/arm/neon.h"   /* self-guarded; nothing off aarch64 */
 #include "encoder/x86/avx2.h"   /* self-guarded */
+#include "encoder/x86/avx512.h"
 #include "encoder/x86/sse42.h"   /* self-guarded */
 #include "encoder/rdoq.h"
 #include "encoder/transform.h"
@@ -446,6 +447,11 @@ int n265_rdoq_rtn(int16_t *rtn, double *all_zero, uint64_t *sb_nz,
         return n265_rdoq_rtn_neon(rtn, all_zero, sb_nz, coef, log2n, q,
                                   add, qbits, czero);
 #endif
+#if N265_AVX512_RDOQ
+    if (n265_rdoq_avx512_wide(log2n) && n265_avx512_on(N265_ASM_QUANT))
+        return n265_rdoq_rtn_avx512(rtn, all_zero, sb_nz, coef, log2n, q,
+                                    add, qbits, czero);
+#endif
 #if N265_AVX2_RDOQ
     if (n265_avx2_on(N265_ASM_QUANT))
         return n265_rdoq_rtn_avx2(rtn, all_zero, sb_nz, coef, log2n, q,
@@ -480,6 +486,10 @@ uint64_t n265_rdoq_sb_nz(const int16_t *blk, int log2n)
 #if N265_NEON_RDOQ
     if (n265_asm_on(N265_ASM_QUANT))
         return n265_rdoq_sb_nz_neon(blk, log2n);
+#endif
+#if N265_AVX512_RDOQ
+    if (n265_rdoq_avx512_wide(log2n) && n265_avx512_on(N265_ASM_QUANT))
+        return n265_rdoq_sb_nz_avx512(blk, log2n);
 #endif
 #if N265_AVX2_RDOQ
     if (n265_avx2_on(N265_ASM_QUANT))
