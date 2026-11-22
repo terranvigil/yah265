@@ -248,7 +248,7 @@ def chart_faster(title, sub, desc, panels, rows, series, whisker):
                              f"x2='{X(tf(worst)):.1f}' y2='{y + dy + 5:.1f}' class='l{j + 1}' "
                              f"stroke-width='2'/>")
                 o.append(marker(j, X(tf(med)), y + dy, f"s{j + 1}", 5))
-    o.append(T(W / 2, H - 12, "times faster than x265 at the same file size (right is faster)",
+    o.append(T(W / 2, H - 12, "times faster than x265 at the same file size",
                12.5, "t2", "middle"))
     o.append("</svg>")
     return "\n".join(o)

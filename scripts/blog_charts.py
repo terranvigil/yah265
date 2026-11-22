@@ -837,7 +837,7 @@ def chart_cells(pl):
                  f"class='{'base' if v == 1 else 'grid'}' stroke-width='{1.5 if v == 1 else 1}'/>")
         o.append(T(X(v), H - B + 20, "1x (x265)" if v == 1 else f"{v:g}x", 12, "t2", "middle"))
         v += 0.5
-    o.append(T((L + W - R) / 2, H - 14, "times faster than x265 (right is faster)", 13, "t2",
+    o.append(T((L + W - R) / 2, H - 14, "times faster than x265", 13, "t2",
                "middle"))
     lo = min((v, n, k) for k, vs in vals.items() for v, n in vs)
     hi = max((v, n, k) for k, vs in vals.items() for v, n in vs)
@@ -891,7 +891,7 @@ def chart_arch(sps, date):
                  f"class='{cls}' stroke-width='{1.5 if v == 1 else 1}'{dash}/>")
         o.append(T(X(v), H - B + 20, "1x (x265)" if v == 1 else f"{v:g}x", 12, "t2", "middle"))
         v += 0.5
-    o.append(T((L + W - R) / 2, H - 14, "times faster than x265 (right is faster)", 13, "t2", "middle"))
+    o.append(T((L + W - R) / 2, H - 14, "times faster than x265", 13, "t2", "middle"))
     for i, (c, t) in enumerate(rows):
         y = Tp + rowh * (i + 0.5)
         o.append(T(L - 12, y + 4, f"{RES[c]} {TIER_LABEL[t]}", pick(13, 12), "t1", "end"))

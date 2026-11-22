@@ -30,7 +30,7 @@ The quality limit is that yah265 may need at most 1.0% more bits than x265 for t
 
 A cell is one clip at one picture size. A tier is a clip length: S is short clips, M is 2-minute segments, L is 10-minute films.
 
-Speed is written as times faster. It's x265's encode time divided by yah265's when both write a file of the same size. On the speed charts right is faster.
+Speed is written as times faster. It's x265's encode time divided by yah265's when both write a file of the same size.
 
 Speed cells read median / slowest clip.
 

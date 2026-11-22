@@ -152,7 +152,7 @@ def chart_home(cm, n_all):
              "preset medium with SIMD on all cores.")
     o.append(bc.T(24, 38, title, 21, weight="600"))
     o.append(bc.T(24, 62, "Median times faster at the same file size. Both encoders at preset "
-                          "medium, SIMD on all cores. Right is faster.", 14, "t2"))
+                          "medium, SIMD on all cores.", 14, "t2"))
     if not bc.NARROW:
         o.append(bc.T(X(1), Tp + 22, "x265 = 1x", 12.5, "t2", "middle"))
     y = Tp
