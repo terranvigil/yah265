@@ -134,11 +134,25 @@ static inline int n265_quant_avx512_wide(int log2n)
 #define n265_quant_avx512 n265_quant_avx2
 #endif
 
-/* ---- families with no AVX-512 kernel ------------------------------- */
+/* ---- rdoq (N265_ASM_QUANT) ----------------------------------------- */
+#if N265_AVX512_RDOQ
+int n265_rdoq_rtn_avx512(int16_t *rtn, double *all_zero, uint64_t *sb_nz,
+                         const int16_t *coef, int log2n, int q, int64_t add,
+                         int qbits, int czero);
+uint64_t n265_rdoq_sb_nz_avx512(const int16_t *blk, int log2n);
+
+static inline int n265_rdoq_avx512_wide(int log2n)
+{
+    return log2n >= 3;
+}
+#else
 #undef n265_rdoq_rtn_avx512
 #define n265_rdoq_rtn_avx512 n265_rdoq_rtn_avx2
 #undef n265_rdoq_sb_nz_avx512
 #define n265_rdoq_sb_nz_avx512 n265_rdoq_sb_nz_avx2
+#endif
+
+/* ---- families with no AVX-512 kernel ------------------------------- */
 #undef n265_csbf_map_avx512
 #define n265_csbf_map_avx512 n265_csbf_map_avx2
 #undef n265_coeff_group_avx512
@@ -149,6 +163,14 @@ static inline int n265_quant_avx512_wide(int log2n)
 #define n265_intra_pred_avx512 n265_intra_pred_avx2
 #undef n265_filter_refs_avx512
 #define n265_filter_refs_avx512 n265_filter_refs_avx2
+#undef n265_sao_eo_stats_avx512
+#define n265_sao_eo_stats_avx512 n265_sao_eo_stats_avx2
+#undef n265_sao_eo_apply_avx512
+#define n265_sao_eo_apply_avx512 n265_sao_eo_apply_avx2
+#undef n265_sao_bo_apply_avx512
+#define n265_sao_bo_apply_avx512 n265_sao_bo_apply_avx2
+#undef n265_sao_band_stats_avx512
+#define n265_sao_band_stats_avx512 n265_sao_band_stats_avx2
 #undef n265_dbk_luma_v_avx512
 #define n265_dbk_luma_v_avx512 n265_dbk_luma_v_avx2
 #undef n265_dbk_luma_h_avx512
@@ -157,13 +179,5 @@ static inline int n265_quant_avx512_wide(int log2n)
 #define n265_dbk_chroma_v_avx512 n265_dbk_chroma_v_avx2
 #undef n265_dbk_chroma_h_avx512
 #define n265_dbk_chroma_h_avx512 n265_dbk_chroma_h_avx2
-#undef n265_sao_band_stats_avx512
-#define n265_sao_band_stats_avx512 n265_sao_band_stats_avx2
-#undef n265_sao_eo_stats_avx512
-#define n265_sao_eo_stats_avx512 n265_sao_eo_stats_avx2
-#undef n265_sao_eo_apply_avx512
-#define n265_sao_eo_apply_avx512 n265_sao_eo_apply_avx2
-#undef n265_sao_bo_apply_avx512
-#define n265_sao_bo_apply_avx512 n265_sao_bo_apply_avx2
 
 #endif /* N265_X86_AVX512_H */

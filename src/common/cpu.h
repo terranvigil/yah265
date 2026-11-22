@@ -270,7 +270,8 @@ static inline int n265_avx2_on(uint32_t cls)
 #define N265_ASM_PORTED_AVX512 ( \
     (N265_AVX512_TRANSFORM ? (N265_ASM_DCT | N265_ASM_QUANT) : 0u) | \
     (N265_AVX512_SATD      ? (uint32_t)N265_ASM_SATD : 0u) | \
-    (N265_AVX512_MC        ? (uint32_t)N265_ASM_MC : 0u))
+    (N265_AVX512_MC        ? (uint32_t)N265_ASM_MC : 0u) | \
+    (N265_AVX512_RDOQ      ? (uint32_t)N265_ASM_QUANT : 0u))
 
 static inline int n265_avx512_on(uint32_t cls)
 {
