@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <sys/stat.h>
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
@@ -22,6 +23,7 @@
 #include "yah265.h"
 #include "ctl_log.h"
 #include "hdr_dyn.h"
+#include "tvmaf.h"
 
 /* internal knobs, resolved from the library (not yet public API) */
 void n265_encoder_set_dump_decode(n265_encoder *e, FILE *f);
@@ -1078,6 +1080,20 @@ static void usage(FILE *out)
         "  --crf <f>             constant rate factor, same range as --qp; overrides\n"
         "                        --qp. It accounts for frame rate: 1.8 QP coarser per\n"
         "                        doubling, neutral at 25 fps.\n"
+        "  --target-vmaf <f>     a VMAF score in place of --crf: search for the CRF\n"
+        "                        that reaches it, encode at that CRF and report the\n"
+        "                        score and size. VMAF v1, or HDR-VMAF on a PQ or HLG\n"
+        "                        stream; needs libvmaf's vmaf tool and ffmpeg. Works\n"
+        "                        with a VBV cap. Searches a clip of 60 s or less on\n"
+        "                        every frame, a longer one on 12 windows.\n"
+        "  --target-vmaf-tol <f> how close counts as reached, in VMAF points (0.5)\n"
+        "  --target-vmaf-floor   pick the smallest file at or above the target, not\n"
+        "                        the closest score\n"
+        "  --target-vmaf-sample <full|s>  search on every frame, or on s seconds\n"
+        "                        of windows (default 60; every frame when shorter)\n"
+        "  --no-target-vmaf-verify  don't score the final file when the search\n"
+        "                        didn't already score its bytes\n"
+        "  --target-vmaf-json <file>  the report, as JSON\n"
         "  --bitrate <k>         average bitrate in kbit/s, one pass; overrides --crf\n"
         "  --vbv-maxrate <k>     decoder buffer fill rate in kbit/s. With --vbv-bufsize\n"
         "                        it caps --bitrate or --crf and writes HRD parameters.\n"
@@ -1118,7 +1134,10 @@ static void usage(FILE *out)
         "\n"
         "Structure\n"
         "  --keyint <n>          maximum key frame interval (default 250). A scene cut\n"
-        "                        restarts the count.\n"
+        "                        restarts the count, except under --no-scenecut.\n"
+        "  --no-scenecut         key frames only on frames 0, keyint, 2*keyint and so\n"
+        "                        on. A scene cut places none, so the rungs of a ladder\n"
+        "                        line up. --scenecut is the default.\n"
         "  --shot-scan <file>    scan the input for shots and write a shot list, then\n"
         "                        exit. The scan runs at one size, so every resolution\n"
         "                        of a source gets the same list.\n"
@@ -2133,7 +2152,8 @@ static int gp_place(gp_job *j, const unsigned char *cut, int b)
 
 static int gp_run(const n265_api *a, y4m_t *y, const char *in_path,
                   const n265_param *p, int W,
-                  int T, int threads_arg, int keyint, long max_frames, int abr_on,
+                  int T, int threads_arg, int keyint, int key_grid,
+                  long max_frames, int abr_on,
                   double bitrate_kbps, int vbv_on, int repeat_hdr,
                   FILE *fout, FILE *fdump, int want_met, long *nframes,
                   double met[6], long *nmet, int *nseg_out, int *k_out,
@@ -2155,6 +2175,14 @@ static int gp_run(const n265_api *a, y4m_t *y, const char *in_path,
     j->nls = nls;
     if (nls)
         j->cuts = 1;
+    /* --no-scenecut: every segment starts on a keyint multiple, so each
+     * instance's own grid is the stream's */
+    if (key_grid && keyint > 0) {
+        j->cuts = 0;
+        j->L = j->L / keyint * keyint;
+        while (j->L < 16 || j->L < keyint)
+            j->L += keyint;
+    }
     long win = (long)((j->W + 1.5) * j->L);
     j->window = gp_env_int(getenv("N265_GOP_WINDOW"), (int)win);
     if (j->window < 2L * j->L)
@@ -2407,6 +2435,540 @@ static int gp_run(const n265_api *a, y4m_t *y, const char *in_path,
     return rc;
 }
 
+/* ---- target-quality encoding (--target-vmaf) ----
+ * The search's trial encodes run here, through the same library calls as
+ * the final encode, on windows of the input read by their own handles. */
+#define TV_MAX_TRIALS 160
+#define TV_WINDOWS 12
+#define TV_FULL_SECS 60.0
+
+typedef struct {
+    double crf, vmaf, kbps, secs;
+    long bytes;
+    uint64_t hash;
+} tv_trial;
+
+typedef struct {
+    int on;
+    tv_params prm;
+    double sample_secs;         /* <0 auto, 0 every frame */
+    int verify;
+    const char *json_path;
+    const n265_api *a;
+    n265_config *cfg;
+    const y4m_t *src;
+    const char *path;
+    off_t base, rec;
+    long range;                 /* frames the encode covers */
+    long (*win)[2];
+    int nwin;
+    long nsample;
+    char wd[1024];
+    tv_scorer sc;
+    tv_trial trial[TV_MAX_TRIALS];
+    int ntrial;
+    tv_result res;
+    double t_search, t_final0;
+} tv_job;
+
+static tv_job g_tv;
+
+static double tv_now(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec + ts.tv_nsec * 1e-9;
+}
+
+static int tv_file_hash(const char *path, uint64_t *h, long *bytes)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f)
+        return -1;
+    unsigned char b[1 << 16];
+    size_t n;
+    *h = 14695981039346656037ull;
+    *bytes = 0;
+    while ((n = fread(b, 1, sizeof b, f)) > 0) {
+        for (size_t i = 0; i < n; i++)
+            *h = (*h ^ b[i]) * 1099511628211ull;
+        *bytes += (long)n;
+    }
+    fclose(f);
+    return 0;
+}
+
+static double tv_fps(const tv_job *t)
+{
+    return (double)t->src->fps_num / t->src->fps_den;
+}
+
+static int tv_reader_open(const tv_job *t, y4m_t *r, long start)
+{
+    const y4m_t *y = t->src;
+    memset(r, 0, sizeof *r);
+    r->w = y->w;
+    r->h = y->h;
+    r->fps_num = y->fps_num;
+    r->fps_den = y->fps_den;
+    r->depth = y->depth;
+    r->out_depth = y->out_depth;
+    r->csp = y->csp;
+    r->raw = y->raw;
+    r->dither = y->dither;
+    r->f = fopen(t->path, "rb");
+    if (!r->f)
+        return -1;
+    if (src_geom(r, "") != 0)
+        return -1;
+    return fseeko(r->f, t->base + (off_t)start * t->rec, SEEK_SET);
+}
+
+/* the crf into the config, and the config into p */
+static int tv_apply_crf(const n265_api *a, n265_config *cfg, const y4m_t *y,
+                        n265_param *p, double crf)
+{
+    char v[32];
+    snprintf(v, sizeof v, "%.2f", crf);
+    if (a->config_parse(cfg, "crf", v) != 0)
+        return -1;
+    a->param_default(p);
+    p->width = y->w;
+    p->height = y->h;
+    p->csp = y->csp;
+    p->fps_num = y->fps_num;
+    p->fps_den = y->fps_den;
+    return a->config_apply(cfg, p);
+}
+
+static int tv_encode(tv_job *t, double crf, const char *out_path)
+{
+    const n265_api *a = t->a;
+    n265_param p;
+    if (tv_apply_crf(a, t->cfg, t->src, &p, crf) != 0)
+        return -1;
+    FILE *fo = fopen(out_path, "wb");
+    if (!fo)
+        return -1;
+    n265_encoder *enc = a->encoder_open(&p);
+    if (!enc) {
+        fclose(fo);
+        return -1;
+    }
+    int rc = 0;
+    long pts = 0;
+    n265_nal *nal;
+    int nnal;
+    for (int w = 0; w < t->nwin && !rc; w++) {
+        y4m_t r;
+        if (tv_reader_open(t, &r, t->win[w][0]) != 0) {
+            gp_reader_close(&r);
+            rc = -1;
+            break;
+        }
+        for (long k = 0; k < t->win[w][1]; k++) {
+            if (y4m_read(&r) != 1) {
+                rc = -1;
+                break;
+            }
+            n265_picture pic = {
+                .plane = { r.plane[0], r.plane[1], r.plane[2] },
+                .stride = { r.w, r.w >> r.csx, r.w >> r.csx },
+                .pts = pts++,
+            };
+            if (a->encoder_encode(enc, &nal, &nnal, &pic) < 0) {
+                rc = -1;
+                break;
+            }
+            for (int i = 0; i < nnal; i++)
+                fwrite(nal[i].payload, 1, (size_t)nal[i].size, fo);
+        }
+        gp_reader_close(&r);
+    }
+    while (!rc) {
+        int r2 = a->encoder_encode(enc, &nal, &nnal, NULL);
+        if (r2 <= 0 && nnal == 0)
+            break;
+        for (int i = 0; i < nnal; i++)
+            fwrite(nal[i].payload, 1, (size_t)nal[i].size, fo);
+    }
+    a->encoder_close(enc);
+    if (fclose(fo) != 0)
+        rc = -1;
+    return rc;
+}
+
+/* the source frames of the windows, as y4m at the file's own depth */
+static int tv_write_ref(void *ctx, FILE *to)
+{
+    const tv_job *t = ctx;
+    const y4m_t *y = t->src;
+    const char *cs = y->csp == N265_CSP_I444 ? "444"
+                   : y->csp == N265_CSP_I422 ? "422" : "420";
+    fprintf(to, "YUV4MPEG2 W%d H%d F%d:%d Ip A1:1 C%s%s\n", y->w, y->h,
+            y->fps_num, y->fps_den, cs, y->depth > 8 ? "p10" : "");
+    FILE *f = fopen(t->path, "rb");
+    unsigned char *buf = malloc((size_t)t->rec);
+    int rc = f && buf ? 0 : -1;
+    for (int w = 0; w < t->nwin && !rc; w++) {
+        if (fseeko(f, t->base + (off_t)t->win[w][0] * t->rec, SEEK_SET)) {
+            rc = -1;
+            break;
+        }
+        for (long k = 0; k < t->win[w][1]; k++) {
+            if (fread(buf, 1, (size_t)t->rec, f) != (size_t)t->rec ||
+                (y->raw && fputs("FRAME\n", to) == EOF) ||
+                fwrite(buf, 1, (size_t)t->rec, to) != (size_t)t->rec) {
+                rc = -1;
+                break;
+            }
+        }
+    }
+    free(buf);
+    if (f)
+        fclose(f);
+    return rc;
+}
+
+static int tv_score_file(tv_job *t, const char *bs, double *vmaf)
+{
+    long nf = 0;
+    if (tv_score_stream(&t->sc, t->wd, bs, tv_write_ref, t, vmaf, &nf) < 0)
+        return -1;
+    long want = 0;
+    for (int w = 0; w < t->nwin; w++)
+        want += t->win[w][1];
+    if (nf != want) {
+        fprintf(stderr, "y265: target-vmaf: scored %ld frames, expected "
+                "%ld\n", nf, want);
+        return -1;
+    }
+    return 0;
+}
+
+static int tv_trial_fn(void *ctx, double crf, tv_score *out)
+{
+    tv_job *t = ctx;
+    if (t->ntrial >= TV_MAX_TRIALS)
+        return -1;
+    char bs[1100];
+    snprintf(bs, sizeof bs, "%s/trial.hevc", t->wd);
+    double t0 = tv_now();
+    tv_trial *tr = &t->trial[t->ntrial];
+    if (tv_encode(t, crf, bs) != 0) {
+        fprintf(stderr, "y265: target-vmaf: the trial encode at crf %.2f "
+                "failed\n", crf);
+        unlink(bs);
+        return -1;
+    }
+    int rc = tv_file_hash(bs, &tr->hash, &tr->bytes) != 0 ||
+             tv_score_file(t, bs, &tr->vmaf) != 0 ? -1 : 0;
+    unlink(bs);
+    if (rc)
+        return -1;
+    tr->crf = crf;
+    tr->kbps = tr->bytes * 8.0 / (t->nsample / tv_fps(t)) / 1000.0;
+    tr->secs = tv_now() - t0;
+    t->ntrial++;
+    fprintf(stderr, "y265: target-vmaf: crf %6.2f -> %6.2f  (%.1f kbps, "
+            "%.1f s)\n", crf, tr->vmaf, tr->kbps, tr->secs);
+    out->vmaf = tr->vmaf;
+    out->kbps = tr->kbps;
+    out->bytes = tr->bytes;
+    return 0;
+}
+
+static const char *tv_home_path(char *buf, size_t n, const char *rel)
+{
+    const char *home = getenv("HOME");
+    snprintf(buf, n, "%s/%s", home ? home : "", rel);
+    return buf;
+}
+
+/* the env override, else a per-user install if present, else `dflt` */
+static const char *tv_tool(const char *e, const char *home_rel,
+                           const char *dflt, char *buf, size_t n)
+{
+    if (e && *e)
+        return e;
+    if (access(tv_home_path(buf, n, home_rel), X_OK) == 0)
+        return buf;
+    return dflt;
+}
+
+/* refusals, the scorer and the windows; 0, or the exit code */
+static int tv_prepare(tv_job *t, const n265_api *a, n265_config *cfg,
+                      const y4m_t *y, const char *in_path, long max_frames,
+                      int threads, const char *conflict, int live_ctl)
+{
+    static char vbin[1024], mdir[1024];
+    double cv;
+#define CFG(k) (a->config_get(cfg, (k), &cv) == 0 ? cv : -1.0)
+    const int transfer = (int)CFG("transfer"), atc = (int)CFG("atc-sei");
+    const int hdr_opt = (int)CFG("hdr-opt");
+#undef CFG
+    if (conflict) {
+        fprintf(stderr, "y265: --target-vmaf picks the CRF itself, so it "
+                "can't be combined with --%s (a VBV cap, --vbv-maxrate and "
+                "--vbv-bufsize, is fine)\n", conflict);
+        return 2;
+    }
+    if (live_ctl) {
+        fprintf(stderr, "y265: --target-vmaf can't be combined with live "
+                "control\n");
+        return 2;
+    }
+    if (t->prm.target <= 0.0 || t->prm.target >= 100.0) {
+        fprintf(stderr, "y265: --target-vmaf takes a score between 0 and "
+                "100\n");
+        return 2;
+    }
+    t->a = a;
+    t->cfg = cfg;
+    t->src = y;
+    t->path = in_path;
+    if (!strcmp(in_path, "-") ||
+        !gp_seekable(y, &t->base, &t->rec, &t->range)) {
+        fprintf(stderr, "y265: --target-vmaf reads the input several times, "
+                "so it needs a regular file (a y4m with bare FRAME headers, "
+                "or raw), not a pipe\n");
+        return 2;
+    }
+    if (max_frames >= 0 && max_frames < t->range)
+        t->range = max_frames;
+    if (t->range < 1) {
+        fprintf(stderr, "y265: --target-vmaf: no frames to code\n");
+        return 2;
+    }
+
+    /* the metric: HDR-VMAF on a PQ or HLG stream, VMAF v1 otherwise */
+    tv_scorer *s = &t->sc;
+    memset(s, 0, sizeof *s);
+    s->hlg = transfer == 18 || atc == 18;
+    s->hdr = transfer == 16 || s->hlg;
+    if (hdr_opt == 1 && !s->hdr) {
+        fprintf(stderr, "y265: --target-vmaf with --hdr-opt needs the "
+                "stream's transfer, to score it on HDR-VMAF: add --transfer "
+                "smpte2084 or arib-std-b67\n");
+        return 2;
+    }
+    const char *md;
+    if (s->hdr) {
+        s->vmaf_bin = tv_tool(getenv("N265_VMAF_HDR_BIN"),
+                              ".local/opt/vmaf-hdr/bin/vmaf", NULL, vbin,
+                              sizeof vbin);
+        md = getenv("N265_VMAF_HDR_MODEL_DIR");
+        s->model_dir = md && *md ? md
+                     : tv_home_path(mdir, sizeof mdir, ".local/share/vmaf-hdr");
+    } else {
+        s->vmaf_bin = tv_tool(getenv("N265_VMAF_BIN"), ".local/opt/vmaf-v1/bin/vmaf",
+                              "vmaf", vbin, sizeof vbin);
+        md = getenv("N265_VMAF_MODEL_DIR");
+        s->model_dir = md && *md ? md
+                     : tv_home_path(mdir, sizeof mdir,
+                                    ".local/share/vmaf/model");
+    }
+    const char *ff = getenv("N265_FFMPEG");
+    s->ffmpeg_bin = ff && *ff ? ff : "ffmpeg";
+    const char *vt = getenv("N265_VMAF_THREADS");
+    long ncpu = sysconf(_SC_NPROCESSORS_ONLN);
+    s->threads = vt && atoi(vt) > 0 ? atoi(vt)
+               : threads > 0 ? threads : (int)(ncpu > 16 ? 16 : ncpu);
+    s->w = y->w;
+    s->h = y->h;
+    s->enc_depth = y->out_depth;
+    s->fps = tv_fps(t);
+    if (s->hdr && !s->vmaf_bin) {
+        fprintf(stderr, "y265: --target-vmaf on a %s stream scores HDR-VMAF, "
+                "and no HDR-VMAF build was found: set N265_VMAF_HDR_BIN to "
+                "a libvmaf vmaf tool with the --color_* options (SDR VMAF "
+                "v1 would misread PQ and HLG)\n", s->hlg ? "HLG" : "PQ");
+        return 2;
+    }
+    char model[1024];
+    if (tv_model_path(s, model, sizeof model) < 0 || access(model, R_OK)) {
+        fprintf(stderr, "y265: --target-vmaf needs the %s model %s: set %s "
+                "to the directory holding %s/\n", s->hdr ? "HDR-VMAF" :
+                "VMAF v1", model, s->hdr ? "N265_VMAF_HDR_MODEL_DIR" :
+                "N265_VMAF_MODEL_DIR", s->hdr ? "hdr_vmaf_v1.1.8" :
+                "vmaf_v1.0.16");
+        return 2;
+    }
+
+    /* the windows: every frame, or TV_WINDOWS evenly spaced */
+    double secs = t->range / s->fps;
+    double budget = t->sample_secs < 0 ? TV_FULL_SECS : t->sample_secs;
+    t->win = calloc(TV_WINDOWS, sizeof *t->win);
+    if (!t->win)
+        return 1;
+    long len = (long)(budget * s->fps / TV_WINDOWS + 0.5);
+    if (t->sample_secs == 0 || secs <= budget || len < 1 ||
+        len * TV_WINDOWS >= t->range) {
+        t->nwin = 1;
+        t->win[0][0] = 0;
+        t->win[0][1] = t->range;
+    } else {
+        t->nwin = TV_WINDOWS;
+        for (int k = 0; k < TV_WINDOWS; k++) {
+            long c = (long)((k + 0.5) * t->range / TV_WINDOWS);
+            long st = c - len / 2;
+            st = st < 0 ? 0 : st + len > t->range ? t->range - len : st;
+            t->win[k][0] = st;
+            t->win[k][1] = len;
+        }
+    }
+    t->nsample = 0;
+    for (int w = 0; w < t->nwin; w++)
+        t->nsample += t->win[w][1];
+
+    const char *td = getenv("TMPDIR");
+    snprintf(t->wd, sizeof t->wd, "%s/y265-tvmaf-XXXXXX",
+             td && *td ? td : "/tmp");
+    if (!mkdtemp(t->wd)) {
+        fprintf(stderr, "y265: target-vmaf: cannot make a scratch directory "
+                "%s: %s\n", t->wd, strerror(errno));
+        t->wd[0] = 0;
+        return 1;
+    }
+    return 0;
+}
+
+static const char *tv_metric(const tv_job *t)
+{
+    return t->sc.hdr ? "HDR-VMAF" : "VMAF v1";
+}
+
+static const char *tv_scaling(const tv_job *t)
+{
+    return t->sc.hdr ? (t->sc.hlg ? ", HLG scored as PQ" : ", native size")
+         : tv_upscaled(t->sc.w, t->sc.h) ? ", scaled up to fit 1920x1080"
+         : ", native size";
+}
+
+static void tv_cleanup(tv_job *t)
+{
+    if (t->wd[0])
+        rmdir(t->wd);
+    t->wd[0] = 0;
+    free(t->win);
+    t->win = NULL;
+}
+
+/* the search, then the chosen crf into cfg and p; 0, or the exit code */
+static int tv_run(tv_job *t, n265_param *p)
+{
+    fprintf(stderr, "y265: target-vmaf %.2f on %s (%s%s): searching %ld of "
+            "%ld frames%s\n", t->prm.target, tv_metric(t),
+            tv_model_name(&t->sc), tv_scaling(t), t->nsample, t->range,
+            t->nwin > 1 ? " in 12 windows" : "");
+    double t0 = tv_now();
+    if (tv_search(&t->prm, tv_trial_fn, t, &t->res) != 0) {
+        fprintf(stderr, "y265: target-vmaf: the search failed\n");
+        tv_cleanup(t);
+        return 1;
+    }
+    t->t_search = tv_now() - t0;
+    t->t_final0 = tv_now();
+    if (tv_apply_crf(t->a, t->cfg, t->src, p, t->res.crf) != 0)
+        return 2;
+    return 0;
+}
+
+static const tv_trial *tv_chosen(const tv_job *t)
+{
+    for (int i = t->ntrial - 1; i >= 0; i--)
+        if (fabs(t->trial[i].crf - t->res.crf) < 1e-9)
+            return &t->trial[i];
+    return NULL;
+}
+
+/* after the final encode: measure it and print the report; the exit code */
+static int tv_report(tv_job *t, const char *out_path, long nframes)
+{
+    double t_final = tv_now() - t->t_final0, t_measure = 0.0;
+    uint64_t h = 0;
+    long bytes = 0;
+    int rc = 0;
+    if (tv_file_hash(out_path, &h, &bytes) != 0) {
+        fprintf(stderr, "y265: target-vmaf: cannot read %s back\n", out_path);
+        tv_cleanup(t);
+        return 1;
+    }
+    const tv_trial *c = tv_chosen(t);
+    int same = t->nwin == 1 && c && c->hash == h && c->bytes == bytes;
+    double measured = NAN;
+    const char *how = "not measured (--no-target-vmaf-verify)";
+    if (same) {
+        measured = c->vmaf;
+        how = "on the whole file (the search scored these same bytes)";
+    } else if (t->verify) {
+        double m0 = tv_now();
+        t->nwin = 1;
+        t->win[0][0] = 0;
+        t->win[0][1] = nframes;
+        fprintf(stderr, "y265: target-vmaf: measuring the whole file\n");
+        if (tv_score_file(t, out_path, &measured) != 0) {
+            measured = NAN;
+            how = "the measurement failed";
+            rc = 1;
+        } else {
+            how = "on the whole file";
+        }
+        t_measure = tv_now() - m0;
+    }
+    double kbps = bytes * 8.0 / (nframes / tv_fps(t)) / 1000.0;
+    fprintf(stderr, "y265: target-vmaf %.2f: crf %.2f (%s)\n", t->prm.target,
+            t->res.crf, tv_status_name(t->res.status));
+    fprintf(stderr, "y265:   metric  %s, %s%s\n", tv_metric(t),
+            tv_model_name(&t->sc), tv_scaling(t));
+    fprintf(stderr, "y265:   search  %d trial encode%s on %ld of %ld frames\n",
+            t->res.trials, t->res.trials == 1 ? "" : "s", t->nsample,
+            t->range);
+    if (isnan(measured))
+        fprintf(stderr, "y265:   score   predicted %.2f, %s\n",
+                t->res.s.vmaf, how);
+    else
+        fprintf(stderr, "y265:   score   predicted %.2f, measured %.2f %s\n",
+                t->res.s.vmaf, measured, how);
+    fprintf(stderr, "y265:   size    %ld bytes, %.1f kbps\n", bytes, kbps);
+    fprintf(stderr, "y265:   time    search %.1f s, final encode %.1f s",
+            t->t_search, t_final);
+    if (t_measure > 0)
+        fprintf(stderr, ", measurement %.1f s", t_measure);
+    fprintf(stderr, "\n");
+    if (t->json_path) {
+        FILE *j = fopen(t->json_path, "w");
+        if (!j) {
+            fprintf(stderr, "y265: cannot open %s: %s\n", t->json_path,
+                    strerror(errno));
+            rc = 1;
+        } else {
+            fprintf(j, "{\"target\": %.4f, \"crf\": %.2f, \"status\": \"%s\", "
+                    "\"metric\": \"%s\", \"model\": \"%s\", \"predicted\": "
+                    "%.4f, \"measured\": ", t->prm.target, t->res.crf,
+                    tv_status_name(t->res.status), tv_metric(t),
+                    tv_model_name(&t->sc), t->res.s.vmaf);
+            if (isnan(measured))
+                fprintf(j, "null");
+            else
+                fprintf(j, "%.4f", measured);
+            fprintf(j, ", \"same_bytes\": %s, \"bytes\": %ld, \"kbps\": %.3f, "
+                    "\"frames\": %ld, \"sample_frames\": %ld, \"search_s\": "
+                    "%.3f, \"final_s\": %.3f, \"measure_s\": %.3f, "
+                    "\"trials\": [", same ? "true" : "false", bytes, kbps,
+                    nframes, t->nsample, t->t_search, t_final, t_measure);
+            for (int i = 0; i < t->ntrial; i++)
+                fprintf(j, "%s{\"crf\": %.2f, \"vmaf\": %.4f, \"kbps\": %.3f, "
+                        "\"s\": %.3f}", i ? ", " : "", t->trial[i].crf,
+                        t->trial[i].vmaf, t->trial[i].kbps, t->trial[i].secs);
+            fprintf(j, "]}\n");
+            fclose(j);
+        }
+    }
+    tv_cleanup(t);
+    return rc;
+}
+
 /* What the command line handles itself: the input, the outputs, the
  * reports and the schedules. Every coding option goes to the library's
  * parser (n265_config_parse), which the ffmpeg wrapper calls too. */
@@ -2420,6 +2982,9 @@ typedef struct {
     int out_depth, in_w, in_h, in_csp, in_depth, in_fps_num, in_fps_den;
     int dither, csv_level, gop_par, verbose, show_config;
     int threads, want_psnr, want_ssim;
+    double tv_target, tv_tol, tv_sample;
+    int tv_floor, tv_noverify;
+    const char *tv_json, *tv_conflict;
 } cli_opts;
 
 /* -1 to go on, or the exit code */
@@ -2432,10 +2997,54 @@ static int cli_parse(const n265_api *a, n265_config *cfg, int argc,
     o->in_csp = -1;
     o->csv_level = -1;
     o->ctl_fd = -1;
+    o->tv_sample = -1.0;
     for (int i = 1; i < argc; i++) {
         const int argi = i;
-        int mine = 1;
-        if (!strcmp(argv[i], "-o") && i + 1 < argc) {
+        int mine = 1, unnoted = 0;
+        if (!strncmp(argv[i], "--target-vmaf", 13) ||
+            !strcmp(argv[i], "--no-target-vmaf-verify")) {
+            /* the stream is the --crf stream it picks, so these stay out
+             * of the identification SEI */
+            unnoted = 1;
+            const char *v = i + 1 < argc ? argv[i + 1] : NULL;
+            char *end = NULL;
+            if (!strcmp(argv[i], "--target-vmaf-floor")) {
+                o->tv_floor = 1;
+            } else if (!strcmp(argv[i], "--no-target-vmaf-verify")) {
+                o->tv_noverify = 1;
+            } else if (!v) {
+                fprintf(stderr, "y265: %s needs a value\n", argv[i]);
+                return 2;
+            } else if (!strcmp(argv[i], "--target-vmaf")) {
+                o->tv_target = strtod(argv[++i], &end);
+                if (*end || !(o->tv_target > 0.0 && o->tv_target < 100.0)) {
+                    fprintf(stderr, "y265: --target-vmaf takes a score "
+                            "between 0 and 100\n");
+                    return 2;
+                }
+            } else if (!strcmp(argv[i], "--target-vmaf-tol")) {
+                o->tv_tol = strtod(argv[++i], &end);
+                if (*end || !(o->tv_tol > 0.0 && o->tv_tol <= 10.0)) {
+                    fprintf(stderr, "y265: --target-vmaf-tol takes VMAF "
+                            "points, above 0 and up to 10\n");
+                    return 2;
+                }
+            } else if (!strcmp(argv[i], "--target-vmaf-sample")) {
+                ++i;
+                o->tv_sample = !strcmp(v, "full") ? 0.0 : strtod(v, &end);
+                if (strcmp(v, "full") && (*end || !(o->tv_sample >= 1.0))) {
+                    fprintf(stderr, "y265: --target-vmaf-sample is full or "
+                            "a number of seconds (1 or more)\n");
+                    return 2;
+                }
+            } else if (!strcmp(argv[i], "--target-vmaf-json")) {
+                o->tv_json = argv[++i];
+            } else {
+                fprintf(stderr, "y265: unknown option %s\n", argv[i]);
+                usage(stderr);
+                return 2;
+            }
+        } else if (!strcmp(argv[i], "-o") && i + 1 < argc) {
             o->out_path = argv[++i];
         } else if (!strcmp(argv[i], "--frames") && i + 1 < argc) {
             o->max_frames = atol(argv[++i]);
@@ -2527,7 +3136,8 @@ static int cli_parse(const n265_api *a, n265_config *cfg, int argc,
         }
         if (mine) {
             /* still named in the identification SEI, in order */
-            a->config_note(cfg, argv[argi], i > argi ? argv[i] : NULL);
+            if (!unnoted)
+                a->config_note(cfg, argv[argi], i > argi ? argv[i] : NULL);
             continue;
         }
         /* a coding option, by its long name (-w and -t are the two short
@@ -2544,6 +3154,15 @@ static int cli_parse(const n265_api *a, n265_config *cfg, int argc,
         const char *val = tv ? argv[++i] : NULL;
         if (a->config_parse(cfg, name, val) != 0)
             return 2;
+        {
+            static const char *const rc_named[] = {
+                "crf", "qp", "bitrate", "pass", "lossless", "pcm", "zones",
+                "qpfile", "hw", NULL
+            };
+            for (int k = 0; rc_named[k] && !o->tv_conflict; k++)
+                if (!strcmp(name, rc_named[k]))
+                    o->tv_conflict = rc_named[k];
+        }
         if (!strcmp(name, "threads"))
             o->threads = atoi(val);
         else if (!strcmp(name, "psnr"))
@@ -3458,7 +4077,14 @@ int main(int argc, char **argv)
     const double vbv_bufsize = CFG("vbv-bufsize");
     const int hw = (int)CFG("hw");
     const int intra_refresh = (int)CFG("intra-refresh");
+    const int key_grid = !(int)CFG("scenecut");
 #undef CFG
+    if (key_grid && o.shot_list) {
+        fprintf(stderr, "y265: --shot-list puts a key frame on each listed "
+                "shot and --no-scenecut keeps them on the --keyint grid; "
+                "pick one\n");
+        return 2;
+    }
     const char *qpfile_path = a->config_get_str(cfg, "qpfile");
     const char *zones_spec = a->config_get_str(cfg, "zones");
     const char *h10p_path = a->config_get_str(cfg, "dhdr10-info");
@@ -3505,6 +4131,26 @@ int main(int argc, char **argv)
     /* --verbose is N265_LEVEL_TRACE by another name */
     if (verbose)
         setenv("N265_LEVEL_TRACE", "1", 0);
+    if (o.tv_target > 0.0 && !show_config) {
+        tv_job *t = &g_tv;
+        t->on = 1;
+        tv_params_default(&t->prm);
+        t->prm.target = o.tv_target;
+        if (o.tv_tol > 0.0)
+            t->prm.tol = o.tv_tol;
+        t->prm.floor = o.tv_floor;
+        t->sample_secs = o.tv_sample;
+        t->verify = !o.tv_noverify;
+        t->json_path = o.tv_json;
+        int trc = tv_prepare(t, a, cfg, &y, in_path, max_frames, threads,
+                             o.tv_conflict, o.ctl_path || o.ctl_fd >= 0);
+        if (!trc)
+            trc = tv_run(t, &p);
+        if (trc) {
+            tv_cleanup(t);
+            return trc;
+        }
+    }
     if (hw) {
         const char *why = dump_path ? "--dump-recon"
                         : dump_decode_path ? "--dump-recon-decode"
@@ -3572,7 +4218,7 @@ int main(int argc, char **argv)
             double gmet[6] = { 0, 0, 0, 0, 0, 0 };
             int gseg = 0, gk = 0;
             int grc = gp_run(a, &y, fin != stdin ? in_path : NULL, &p,
-                             gop_par, (int)nt, threads, keyint,
+                             gop_par, (int)nt, threads, keyint, key_grid,
                              max_frames, bitrate > 0.0, bitrate, vbv_on,
                              repeat_hdr, gout, gdump, want_psnr || want_ssim,
                              &gn, gmet, &gnm, &gseg, &gk,
@@ -3609,7 +4255,10 @@ int main(int argc, char **argv)
                              : y.csp == N265_CSP_I422 ? "4:2:2" : "4:2:0";
             fprintf(stderr, "y265: %ld frames, %dx%d %s %d-bit\n", gn, y.w,
                     y.h, gfmt, y.depth);
-            return dyn_check(gn);
+            int grc2 = dyn_check(gn);
+            if (g_tv.on && tv_report(&g_tv, out_path, gn) && !grc2)
+                grc2 = 1;
+            return grc2;
         }
     }
     ctl_file cfile = { 0 };
@@ -3819,5 +4468,8 @@ int main(int argc, char **argv)
     else
         fprintf(stderr, "y265: %ld frames, %dx%d %s %d-bit\n", n, y.w, y.h,
                 fmt, y.depth);
-    return dyn_check(n);
+    int drc = dyn_check(n);
+    if (g_tv.on && tv_report(&g_tv, out_path, n) && !drc)
+        drc = 1;
+    return drc;
 }

@@ -434,6 +434,7 @@ yah265_dep = declare_dependency(
 # names the header gives it are the 8-bit library's; the Main10 entry
 # points it declares for itself, suffixed.
 y265 = executable('y265' + depth_suffix, 'cli/y265.c', 'cli/hdr_dyn.c',
+  'cli/tvmaf.c',
   c_args : ['-UN265_BIT_DEPTH', '-DN265_BIT_DEPTH=8'],
   link_with : [lib8_static, lib10_static],
   include_directories : inc,

@@ -59,6 +59,7 @@ To see both in motion, open the [comparison players](https://terranvigil.github.
 
 - Encodes through ffmpeg as `libyah265`, or from a pipe with [its own command line](start.md#build-y265).
 - CRF, capped CRF, VBR, CBR, ABR and two-pass [rate modes](guide.md#pick-a-rate-mode).
+- [Target quality](guide.md#target-quality): ask for a VMAF score instead of a CRF.
 - Main, Main10, 4:4:4 and 4:2:2 [profiles](guide.md#set-the-bit-depth-and-profile) from one binary.
 - [HDR10, HDR10+, HLG and Dolby Vision profile 8](hdr.md).
 - [Shot statistics](guide.md#planning-by-shot): a report per shot that a script turns into each shot's best rungs for a ladder.
@@ -70,7 +71,6 @@ To see both in motion, open the [comparison players](https://terranvigil.github.
 - [Homebrew install](start.md#install-with-homebrew): `brew install terranvigil/yah265/ffmpeg-yah265`, with recipes for Tdarr and Jellyfin.
 - [SIMD](architectures.md) on arm64 and x86-64.
 - x265's [option names](options.md) for shared features.
-- Target quality: ask for a VMAF score instead of a CRF. [coming soon]
 - Encode reports: one page per encode with bitrate, QP, shots and what yah265 detected. [coming soon]
 - Farm mode: split one encode across several machines. [coming soon]
 

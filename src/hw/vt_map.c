@@ -35,6 +35,7 @@ static const n265_hw_opt table[] = {
     { "open-gop",       N265_HWC_IGNORED, "the GOP structure is the hardware's" },
     { "no-open-gop",    N265_HWC_IGNORED, "the GOP structure is the hardware's" },
     { "radl",           N265_HWC_IGNORED, "the GOP structure is the hardware's" },
+    { "no-scenecut",    N265_HWC_IGNORED, "the hardware places its own key frames" },
     { "rc-lookahead",   N265_HWC_IGNORED, NULL },
     { "cutree",         N265_HWC_IGNORED, NULL },
     { "aq",             N265_HWC_IGNORED, NULL },

@@ -1,4 +1,4 @@
-# y265 0.0.1, release build 3b063215
+# y265 0.0.1, release build 9d02c44b
 usage: y265 [options] <input.y4m|input.yuv|->
        y265 bench <video> [options]   compare with x265 on your clip
 
@@ -57,6 +57,20 @@ Rate control
   --crf <f>             constant rate factor, same range as --qp; overrides
                         --qp. It accounts for frame rate: 1.8 QP coarser per
                         doubling, neutral at 25 fps.
+  --target-vmaf <f>     a VMAF score in place of --crf: search for the CRF
+                        that reaches it, encode at that CRF and report the
+                        score and size. VMAF v1, or HDR-VMAF on a PQ or HLG
+                        stream; needs libvmaf's vmaf tool and ffmpeg. Works
+                        with a VBV cap. Searches a clip of 60 s or less on
+                        every frame, a longer one on 12 windows.
+  --target-vmaf-tol <f> how close counts as reached, in VMAF points (0.5)
+  --target-vmaf-floor   pick the smallest file at or above the target, not
+                        the closest score
+  --target-vmaf-sample <full|s>  search on every frame, or on s seconds
+                        of windows (default 60; every frame when shorter)
+  --no-target-vmaf-verify  don't score the final file when the search
+                        didn't already score its bytes
+  --target-vmaf-json <file>  the report, as JSON
   --bitrate <k>         average bitrate in kbit/s, one pass; overrides --crf
   --vbv-maxrate <k>     decoder buffer fill rate in kbit/s. With --vbv-bufsize
                         it caps --bitrate or --crf and writes HRD parameters.
@@ -95,7 +109,10 @@ Rate control
 
 Structure
   --keyint <n>          maximum key frame interval (default 250). A scene cut
-                        restarts the count.
+                        restarts the count, except under --no-scenecut.
+  --no-scenecut         key frames only on frames 0, keyint, 2*keyint and so
+                        on. A scene cut places none, so the rungs of a ladder
+                        line up. --scenecut is the default.
   --shot-scan <file>    scan the input for shots and write a shot list, then
                         exit. The scan runs at one size, so every resolution
                         of a source gets the same list.

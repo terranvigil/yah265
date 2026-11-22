@@ -51,6 +51,7 @@ void n265_set_vbv(double maxrate, double bufsize, double init);
 int n265_hw_mode(void);
 void n265_set_hw_opts(int veto, const char *warn);
 void n265_set_intra_refresh(int on);
+void n265_set_scenecut(int on);
 
 #define QP_BD_OFF (6 * (N265_BIT_DEPTH - 8))
 
@@ -78,6 +79,7 @@ static const struct { const char *name; int val; } opt_tab[] = {
     { "psnr", 0 }, { "ssim", 0 }, { "threads", 1 },
     { "ref", 1 }, { "b-adapt", 1 }, { "keyint", 1 },
     { "open-gop", 0 }, { "no-open-gop", 0 }, { "radl", 1 },
+    { "scenecut", 0 }, { "no-scenecut", 0 },
     { "bframes", 1 }, { "aq", 1 }, { "rc-lookahead", 1 }, { "cutree", 1 },
     { "ctu", 1 }, { "rdoq-level", 1 }, { "tu-inter-depth", 1 },
     { "tu-intra-depth", 1 }, { "cbqpoffs", 1 }, { "crqpoffs", 1 },
@@ -120,9 +122,10 @@ struct n265_config {
     double vbv_maxrate, vbv_bufsize, vbv_init;
     int hash;
     int weightp, weightb;
-    int open_gop, radl, intra_refresh;
+    int open_gop, radl, intra_refresh, scenecut;
     int sig_videoformat, sig_range, sig_overscan;
     int sig_colorprim, sig_transfer, sig_colormatrix, sig_chromaloc;
+    int res_transfer;           /* after the signal-type preset */
     int vsp[N265_VSP_NFIELD], vsp_md_on, had_vsp;
     uint32_t vsp_md[10];
     int tune[N265_TUNE_NFIELD];
@@ -192,6 +195,7 @@ n265_config *n265_config_new(void)
     c->vbv_init = 0.9;
     c->weightp = -1; c->weightb = -1;
     c->open_gop = 1;
+    c->scenecut = 1;
     c->sig_videoformat = c->sig_range = c->sig_overscan = -1;
     c->sig_colorprim = c->sig_transfer = c->sig_colormatrix = -1;
     c->sig_chromaloc = -1;
@@ -448,6 +452,10 @@ static int parse_one(n265_config *c, const char *k, const char *v)
         c->open_gop = 1;
     } else if (IS("no-open-gop")) {
         c->open_gop = 0;
+    } else if (IS("scenecut")) {
+        c->scenecut = 1;
+    } else if (IS("no-scenecut")) {
+        c->scenecut = 0;
     } else if (IS("radl")) {
         c->radl = atoi(v);
     } else if (IS("bframes")) {
@@ -940,6 +948,11 @@ int n265_config_apply(n265_config *c, n265_param *p)
     n265_set_badapt(badapt);
     n265_set_la(lookahead, cutree);
     n265_set_shot_window(c->shot_window);
+    if (c->shot_keys && !c->scenecut) {
+        fprintf(stderr, "y265: --shot-keys puts a key frame on each cut and "
+                "--no-scenecut keeps them off cuts; pick one\n");
+        FAIL;
+    }
     n265_set_shot_keys(c->shot_keys);
     n265_set_pass(c->pass, c->stats_path);
     n265_set_threads(c->threads);
@@ -1079,6 +1092,7 @@ int n265_config_apply(n265_config *c, n265_param *p)
     }
     n265_set_gop(open_gop, c->radl);
     n265_set_intra_refresh(c->intra_refresh);
+    n265_set_scenecut(c->scenecut);
     /* the window is signaled in chroma units (7.4.3.2.1) */
     if (c->win_on) {
         if ((c->win_l & ((1 << csx) - 1)) || (c->win_r & ((1 << csx) - 1)) ||
@@ -1113,6 +1127,7 @@ int n265_config_apply(n265_config *c, n265_param *p)
             have_md = 1;
         }
     }
+    c->res_transfer = sig_transfer;
     n265_set_vui_colour(c->sig_videoformat, sig_range, sig_colorprim,
                         sig_transfer, sig_colormatrix, sig_chromaloc,
                         c->sig_overscan);
@@ -1232,9 +1247,14 @@ int n265_config_get(const n265_config *c, const char *key, double *v)
     K("ssim", c->want_ssim)
     K("open-gop", c->open_gop)
     K("intra-refresh", c->intra_refresh)
+    K("scenecut", c->scenecut)
     K("dolby-vision-profile", c->dv_profile)
     K("depth", N265_BIT_DEPTH)
     K("hw", c->hw_on ? n265_hw_mode() : N265_HW_OFF)
+    K("transfer", c->applied ? c->res_transfer : c->sig_transfer)
+    K("atc-sei", c->atc)
+    K("hdr-opt", c->hdr_opt)
+    K("lossless", c->lossless)
 #undef K
     return -1;
 }

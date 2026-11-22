@@ -183,6 +183,14 @@ unit_shotlist = executable('unit_shotlist', 'unit/shotlist_test.c',
   dependencies : yah265_dep)
 test('shotlist', unit_shotlist)
 
+# The --target-vmaf CRF search against synthetic CRF-to-VMAF curves, and
+# the model it picks per class.
+unit_tvmaf = executable('unit_tvmaf',
+  ['unit/tvmaf_test.c', '../cli/tvmaf.c'],
+  include_directories : include_directories('../cli'),
+  dependencies : m_dep)
+test('tvmaf', unit_tvmaf)
+
 # Live control (src/encoder/ctl.c): every refusal code, the struct
 # versioning, the landing frames and submission-time independence,
 # through the public API on a synthetic clip.
@@ -196,3 +204,9 @@ test('ctl', unit_ctl, timeout : 120)
 # lines not fed yet.
 test('cli_ctl', find_program('cli_ctl_test.sh'), args : [y265],
   timeout : 120)
+
+# --no-scenecut: key frames on the --keyint grid only, at two sizes, with
+# the qpfile and live-control keys still landing (synthetic multi-shot clip)
+unit_scenecut = executable('unit_scenecut', 'unit/scenecut_test.c',
+  dependencies : yah265_dep)
+test('scenecut', unit_scenecut, timeout : 120)

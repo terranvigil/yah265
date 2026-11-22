@@ -194,7 +194,7 @@ The [encoding guide](guide.md#pick-a-rate-mode) covers the rate modes and the ff
 
 ## Pick a quality
 
-`-crf` sets the quality and lets the file size follow the content. A lower number gives a better picture and a bigger file. I'd start at 25, then move by two or three at a time until the picture is good enough. To skip the trial and error, my [dynamic-crf](https://github.com/terranvigil/dynamic-crf) tool searches for the CRF that reaches a VMAF score you choose.
+`-crf` sets the quality and lets the file size follow the content. A lower number gives a better picture and a bigger file. I'd start at 25, then move by two or three at a time until the picture is good enough. To skip the trial and error, y265's [`--target-vmaf`](guide.md#target-quality) finds the CRF that reaches a VMAF score you choose.
 
 The CRF scale is yah265's own. A number that suited x265 won't give the same file size here. [Coming from x265](from-x265.md) has a CRF translation table. For a target size or bitrate, see the guide's [rate modes](guide.md#pick-a-rate-mode).
 
