@@ -7,7 +7,7 @@ description: Short answers to the hard questions about yah265's comparison with 
 
 These are the questions I'd ask if someone else published this site.
 
-## Is this x265 with the names changed?
+## Does yah265 use any x265 code?
 
 No. I wrote yah265 from the ITU-T H.265 specification and from published papers. No third-party encoder code is used. I did reuse code from my own [yah264](https://terranvigil.github.io/yah264/) project. x265 was used for comparison only.
 
@@ -17,7 +17,7 @@ x265 4.3 at `--preset medium`. [How x265 was run](x265-run.md) includes the buil
 
 ## Is the headline cherry-picked?
 
-No. It covers every CRF cell in the test set that was timed on the Mac as shipped, provided its two files match in size within 1%. Capped VBR has its own tables because its files share a target bitrate where the headline cells share a size. The content-type clips are timed in their own table beside their quality. A cell that breaks a validity rule is marked in the report and stays out of every statistic, whichever way it points. Every figure on this site also leaves out the reports' rows for two titles that aren't in the set. [The methodology](methodology.md#what-makes-a-number-valid) has the rules.
+No. It covers every CRF cell in the test set that was timed on the Mac as shipped, provided its two files match in size within 1%. Capped VBR has its own tables because its files share a target bitrate where the headline cells share a size. The content-type clips are timed in their own table beside their quality. A cell that breaks a validity rule is marked in the report and stays out of the statistics. [The methodology](methodology.md#what-makes-a-number-valid) has the rules.
 
 ## You tuned for the metric you score with.
 
@@ -29,7 +29,7 @@ Yes. The test set has no held-out content, because the clips I developed on were
 
 ## Does the lead hold beyond medium?
 
-I only claim `medium` against `medium`, the preset most people run. Every speed and quality result on this site compares those two. The [guide](guide.md#pick-a-preset) explains why yah265 keeps four presets.
+I only claim `medium` against `medium`, the preset most people run. The speed and quality results on this site compare those two. The [guide](guide.md#pick-a-preset) explains why yah265 keeps four presets.
 
 ## Why time x265 without its assembly?
 
@@ -53,4 +53,4 @@ The scorer is Netflix's libvmaf with the `vmaf_v1.0.16` models. A picture smalle
 
 ## How do I check a number?
 
-Under every chart a line names its source file and the script that drew it, beside a link to its data as CSV. A script writes every table from the same files. The site's build fails when a page disagrees with the data. To take a reading yourself, start with [Check it yourself](check-it-yourself.md).
+Under each chart a line names its source file and the script that drew it, beside a link to its data as CSV. A script writes the tables from the same files. The site's build fails when a page disagrees with the data. To take a reading yourself, start with [Check it yourself](check-it-yourself.md).

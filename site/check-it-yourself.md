@@ -201,7 +201,7 @@ Under VBR, check the bitrate each encoder reached against its target before comp
 | `--vbr-wall` | the timed VBR leg |
 | `--credits` | the end-credits rows |
 | `--report` | writes the report from the recorded rows |
-| `--plan` | prints every command and the estimated hours without running anything |
+| `--plan` | prints the commands and the estimated hours without running anything |
 
 `--tier`, `--classes`, `--cells` and `--goals` narrow a run. Print the plan before anything else:
 

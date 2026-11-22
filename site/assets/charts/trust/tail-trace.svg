@@ -1,5 +1,5 @@
 <svg xmlns='http://www.w3.org/2000/svg' width='900' height='470' viewBox='0 0 900 470' role='img'>
-<title>On the clip's worst 5% of frames yah265 scores 2.0 VMAF v1 points higher</title><desc>VMAF v1 of every frame of a 90-second Tears of Steel clip at 1080p, for two encodes of the same size. The yah265 line sits above the x265 line through most of the low stretches.</desc>
+<title>On the clip's worst 5% of frames yah265 scores 2.0 VMAF v1 points higher</title><desc>VMAF v1 per frame of a 90-second Tears of Steel clip at 1080p, for two encodes of the same size. The yah265 line sits above the x265 line through most of the low stretches.</desc>
 <style>
 .bg{fill:#ffffff}.t1{fill:#212529}.t2{fill:#495057}.grid{stroke:#e9ecef}
 .base{stroke:#868e96}.ring{stroke:#ffffff}.med{stroke:#212529}.band{fill:#f1f3f5}
@@ -16,7 +16,7 @@ text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-
 </style>
 <rect width='100%' height='100%' class='bg'/>
 <text x='24.0' y='40.0' font-size='22' class='t1' text-anchor='start' font-weight='600'>On the clip's worst 5% of frames yah265 scores 2.0 VMAF v1 points higher</text>
-<text x='24.0' y='64.0' font-size='14' class='t2' text-anchor='start'>Every frame of a 90-second Tears of Steel clip at 1080p, from two files of the same size.</text>
+<text x='24.0' y='64.0' font-size='14' class='t2' text-anchor='start'>a 90-second Tears of Steel clip at 1080p frame by frame, from two files of the same size.</text>
 <circle cx='30.0' cy='86.0' r='5.5' class='s1 ring' stroke-width='2'/>
 <text x='42.0' y='91.0' font-size='13' class='t2' text-anchor='start'>yah265</text>
 <rect x='109.0' y='81.0' width='9.9' height='9.9' rx='1.5' class='sx ring' stroke-width='2'/>

@@ -1,11 +1,11 @@
 ---
 title: How x265 was run - yah265
-description: The x265 version and build behind every comparison, with the command for each goal and the threads, lookahead and instruction sets each encoder ran with.
+description: The x265 version and build behind the comparisons, with the command for each goal and the threads, lookahead and instruction sets each encoder ran with.
 ---
 
 # How x265 was run
 
-Every comparison on this site is against x265 <!--trust:x265-version-->4.3+1-e9b8812<!--/trust:x265-version-->. This page gives the build on each machine, the command for each kind of reading and the settings each encoder ran with. A script writes the tables and the commands from the parity reports and the code that timed the runs.
+The comparisons on this site are against x265 <!--trust:x265-version-->4.3+1-e9b8812<!--/trust:x265-version-->. This page gives the build on each machine, the command for each kind of reading and the settings each encoder ran with. A script writes the tables and the commands from the parity reports and the code that timed the runs.
 
 x265 always runs `--preset medium` with no `--tune`. Everything else is its default unless a table below says otherwise. [The methodology](methodology.md) explains why each reading is taken the way it is.
 
@@ -35,7 +35,7 @@ cat tears_1080p.y4m | x265 --input - --y4m --preset medium --crf 28 --log-level 
 cat tears_1080p.y4m | y265 - --crf 24.88 -o yah265.hevc
 ```
 
-**G2: plain C on every core**
+**G2: plain C on all cores**
 
 ```sh
 cat tears_1080p.y4m | x265 --input - --y4m --preset medium --crf 28 --no-asm --log-level error -o x265.hevc
@@ -95,7 +95,7 @@ x265's pictures change with its frame-thread count. On the 18-core Mac its own c
 | x265 | 20 | 20 | its `medium` |
 <!--/trust:x265-lookahead-->
 
-x265 stays at its default depth in every reading. yah265's own depth was swept around it. [Results](results.md#lookahead-depth) has that sweep.
+x265 stays at its default depth throughout. yah265's own depth was swept around it. [Results](results.md#lookahead-depth) has that sweep.
 
 ## What x265 wasn't given
 

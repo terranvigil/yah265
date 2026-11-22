@@ -151,7 +151,7 @@ y265 in.y4m -o /dev/null --pass 1 --stats in.stats --crf 23
 y265 in.y4m -o out.hevc --pass 2 --stats in.stats --bitrate 3000
 ```
 
-The first pass measures every frame. The second plans the whole file before it codes one. Pass 2 needs `--bitrate` and the same source. Pass 1 can run any mode at any preset. Two-pass doesn't combine with `--gop-parallel`.
+The first pass measures each frame. The second plans the whole file before it codes one. Pass 2 needs `--bitrate` and the same source. Pass 1 can run any mode at any preset. Two-pass doesn't combine with `--gop-parallel`.
 
 <p class="optchips"><span><a href="options.md#rate-control">Options</a></span> <a href="options.md#opt-crf"><code>--crf</code></a> <a href="options.md#opt-bitrate"><code>--bitrate</code></a> <a href="options.md#opt-vbv-maxrate"><code>--vbv-maxrate</code></a> <a href="options.md#opt-vbv-bufsize"><code>--vbv-bufsize</code></a> <a href="options.md#opt-vbv-init"><code>--vbv-init</code></a> <a href="options.md#opt-max-ausize-factor"><code>--max-ausize-factor</code></a> <a href="options.md#opt-strict-cbr"><code>--strict-cbr</code></a> <a href="options.md#opt-crf-max"><code>--crf-max</code></a> <a href="options.md#opt-pass"><code>--pass</code></a> <a href="options.md#opt-stats"><code>--stats</code></a> <a href="options.md#opt-qp"><code>--qp</code></a></p>
 
@@ -162,7 +162,7 @@ The first pass measures every frame. The second plans the whole file before it c
 | preset | coding tree at 1080p | lookahead at 1080p | what it's for |
 |---|---|---|---|
 | `fast` | 32x32 | 12 frames | more speed for a little quality |
-| `medium` | 64x64 | 20 frames | the default. Every published result uses it |
+| `medium` | 64x64 | 20 frames | the default. The published results use it |
 | `slow` | 64x64 | 20 frames | more analysis per block |
 | `slower` | 64x64 | 25 frames | more analysis and a second reference |
 
@@ -184,7 +184,7 @@ The command prints the resolved configuration and exits without encoding.
 
 For the rate, a streaming encode usually wants [capped CRF](#capped-crf) or [capped VBR](#capped-vbr). What's left to decide is where the key frames fall, because a player seeks to a key frame and a packager cuts its segments at one.
 
-A key frame arrives every 250 frames by default, and at every scene cut. Between anchors, up to seven B-frames sit in a pyramid. The lookahead shortens a run where motion is high.
+A key frame arrives every 250 frames by default, and at each scene cut. Between anchors, up to seven B-frames sit in a pyramid. The lookahead shortens a run where motion is high.
 
 By default the periodic key frame is a CRA with an open GOP. The B-frames just before it, its leading pictures, may predict across it to save bits. A player that seeks to the CRA drops them. Packagers that need closed segments can ask for an IDR instead.
 
@@ -207,7 +207,7 @@ y265 in.y4m -o out.hevc --crf 23 --vbv-maxrate 4500 --vbv-bufsize 6000 \
 
 The key frame gap is the longest a segment can run. Because a scene cut starts a new count, key frames don't fall on a fixed grid. To put one on a frame you choose, list it in a QP file, as [Steering an encode](#steering-an-encode) describes.
 
-Some receivers want more in the stream. One that joins mid-stream needs the parameter sets repeated at every key frame. Others look for access unit delimiters or a recovery point message at each key frame.
+Some receivers want more in the stream. One that joins mid-stream needs the parameter sets repeated at key frames. Others look for access unit delimiters or a recovery point message at each key frame.
 
 <p class="optchips"><span><a href="options.md#stream-structure-and-sei">Options</a></span> <a href="options.md#opt-repeat-headers"><code>--repeat-headers</code></a> <a href="options.md#opt-aud"><code>--aud</code></a> <a href="options.md#opt-idr-recovery-sei"><code>--idr-recovery-sei</code></a> <a href="options.md#opt-qpfile"><code>--qpfile</code></a></p>
 
@@ -304,7 +304,7 @@ Zones count in display order. No two may overlap.
 
 A QP file forces frame types and QPs frame by frame. It takes key frames and intra frames but refuses a P or B type, because the B-frame run belongs to the lookahead.
 
-Two pairs of bounds hold the rate control inside a range. One pair bounds the frame quantizer in every mode. The other bounds the rate factor of a CRF encode.
+Two pairs of bounds hold the rate control inside a range. One pair bounds the frame quantizer in any mode. The other bounds the rate factor of a CRF encode.
 
 <p class="optchips"><span><a href="options.md#steering-an-encode-by-frame">Options</a></span> <a href="options.md#opt-zones"><code>--zones</code></a> <a href="options.md#opt-qpfile"><code>--qpfile</code></a> <a href="options.md#opt-qpmin"><code>--qpmin</code></a> <a href="options.md#opt-qpmax"><code>--qpmax</code></a> <a href="options.md#opt-crf-min"><code>--crf-min</code></a> <a href="options.md#opt-crf-max"><code>--crf-max</code></a></p>
 
@@ -320,7 +320,7 @@ Shot statistics are one JSON line per shot: where it starts and ends, its bits, 
 
 ## Identification marks
 
-Every stream has an SEI message that names the encoder, its version, its license and the options the run resolved. Because it holds no clock, no path and no thread count, one command writes one message on any machine. `--no-info` drops it.
+Each stream has an SEI message that names the encoder, its version, its license and the options the run resolved. Because it holds no clock, no path and no thread count, one command writes one message on any machine. `--no-info` drops it.
 
 The stream also has a fingerprint that survives when the SEI is stripped. In a few places HEVC lets an encoder write the same motion two ways at the same cost in bits. yah265 picks between them by a fixed rule. The mark costs no bits and changes no picture. The [fingerprint design note](docs/stream-fingerprint.md) says how to read it back.
 
@@ -374,8 +374,8 @@ The pixel format picks the bit depth. 4:2:0, 4:2:2 and 4:4:4 work at 8 and 10 bi
 | analysis | adaptive quantization, lookahead bit allocation, rate-distortion optimized quantization, screen content detection |
 | HDR | HDR10, HDR10+, HLG, Dolby Vision profiles 8.1, 8.2 and 8.4, HDR tuning at `medium` |
 | filters | film grain SEI, coefficient noise reduction, a temporal filter, dither |
-| signaling | every VUI color flag, picture hash SEI, recovery point SEI, access unit delimiters, repeated headers |
-| threads | one pool on every core, segment-parallel encoding |
+| signaling | the VUI color flags, picture hash SEI, recovery point SEI, access unit delimiters, repeated headers |
+| threads | one pool on all cores, segment-parallel encoding |
 | speed | SIMD on arm64 and x86-64, picked at run time. [Architectures](architectures.md) has the list |
 | front ends | the `y265` command line and the `libyah265` encoder in ffmpeg |
 | reports | CSV statistics, per-shot statistics, the resolved configuration |
@@ -389,10 +389,10 @@ The pixel format picks the bit depth. 4:2:0, 4:2:2 and 4:4:4 work at 8 and 10 bi
 | `--intra-refresh` | it serves low-latency links, such as video calls, that avoid key frames. Files and streaming need key frames for seeking anyway |
 | `--scaling-list` | x265 leaves custom quantizer matrices off by default too. yah265 shapes detail through its own perceptual tuning instead |
 | interlaced coding | almost all video made today is progressive. I will add it if there is enough interest |
-| 12-bit | 8-bit and 10-bit cover every delivery format, HDR10, HLG and Dolby Vision included |
+| 12-bit | 8-bit and 10-bit cover the delivery formats, HDR10, HLG and Dolby Vision included |
 | `--psy-rd`, `--psy-rdoq` | yah265's perceptual tuning is built into its presets, so there's nothing to set |
-| x265's threading options | yah265 sets up its threads by itself. It splits each frame into rows. Working on rows from several frames at once keeps every core busy without any tuning |
-| analysis save and load | they let a bitrate ladder reuse one encode's analysis to save time. yah265 is fast enough to analyze every rung itself |
+| x265's threading options | yah265 sets up its threads by itself. It splits each frame into rows. Working on rows from several frames at once keeps the cores busy without any tuning |
+| analysis save and load | they let a bitrate ladder reuse one encode's analysis to save time. yah265 is fast enough to analyze each rung itself |
 | a switch to turn off scene detection | the encoder always looks for scene changes |
 | non-conforming streams | every stream yah265 writes fits a level, so any standard decoder can play it |
 | Dolby Vision profile 5 | its base layer uses a color space nothing in this toolchain can produce or check |

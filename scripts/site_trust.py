@@ -114,7 +114,7 @@ def commands(mac_rows):
 
     blocks = [
         ("G3: both encoders as shipped", pair(3, "crf", pl.ps.REF_CRF, float(crf))),
-        ("G2: plain C on every core", pair(2, "crf", pl.ps.REF_CRF, float(crf))),
+        ("G2: plain C on all cores", pair(2, "crf", pl.ps.REF_CRF, float(crf))),
         ("G1: plain C on one thread", pair(1, "crf", pl.ps.REF_CRF, float(crf))),
         ("Capped VBR as shipped", pair("VBR", "vbr", kbps, kbps)),
         ("The untimed rate ladders and size solve",
@@ -365,11 +365,11 @@ def chart_trace(sc, clip):
     ta, tb = tail_of(sc["yah265"]), tail_of(sc["x265"])
     title = (f"On the clip's worst {TAIL_SHARE:.0%} of frames yah265 scores "
              f"{ta[1] - tb[1]:.1f} VMAF v1 points higher")
-    o = bc.head(W, H, title, "VMAF v1 of every frame of a 90-second Tears of Steel clip at 1080p, "
+    o = bc.head(W, H, title, "VMAF v1 per frame of a 90-second Tears of Steel clip at 1080p, "
                              "for two encodes of the same size. The yah265 line sits above the "
                              "x265 line through most of the low stretches.")
     o.append(bc.T(24, 40, title, 22, weight="600"))
-    o.append(bc.T(24, 64, f"Every frame of {clip['clip_label']}, from two files of the same size.",
+    o.append(bc.T(24, 64, f"{clip['clip_label']} frame by frame, from two files of the same size.",
                   14, "t2"))
     bc.legend(o, [(0, "s1", "yah265"), (1, "sx", "x265")])
     for v in range(lo, hi + 1, 2):
@@ -564,7 +564,7 @@ def main():
                                      "each x265 CRF from 23 to 32. The median line runs about two "
                                      "below the same-number diagonal. A few animated films are on or "
                                      "above it."),
-        "fig-trace": figure("tail-trace", "Line chart of VMAF v1 for every frame of a 90-second clip, "
+        "fig-trace": figure("tail-trace", "Line chart of VMAF v1 per frame of a 90-second clip, "
                                           "one line per encoder. The yah265 line is above the x265 "
                                           "line in most of the low stretches."),
         "tears-table": tears_table(sc, clip),

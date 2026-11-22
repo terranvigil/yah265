@@ -1,6 +1,6 @@
 ---
 title: Shell test - yah265
-description: Every component of the site shell on one page, for checking both themes and a phone width.
+description: The components of the site shell on one page, for checking both themes and a phone width.
 ---
 
 # Shell test
@@ -70,7 +70,7 @@ This page is off the nav and out of the search index. It shows each piece of the
 <text class="d-mono" x="8" y="384">d-mono --threads 1</text>
 <text class="d-text d-accent" x="8" y="408">d-accent</text>
 </svg>
-<figcaption>Every class from the diagram contract, drawn once.</figcaption>
+<figcaption>Each class from the diagram contract, drawn once.</figcaption>
 </figure>
 
 ## Code blocks

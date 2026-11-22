@@ -12,17 +12,17 @@ yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8 as Main 10 HEVC. Eac
 | format | base stream | added to it |
 |---|---|---|
 | HDR10 | PQ transfer, BT.2020 primaries and matrix | mastering display (ST 2086), MaxCLL and MaxFALL |
-| HDR10+ | HDR10 | an ST 2094-40 message with every picture |
+| HDR10+ | HDR10 | an ST 2094-40 message per picture |
 | HLG | HLG transfer, BT.2020 primaries and matrix | nothing |
-| Dolby Vision 8.1 | HDR10 | an RPU with every picture |
-| Dolby Vision 8.2 | SDR BT.709, coded 10-bit | an RPU with every picture |
-| Dolby Vision 8.4 | HLG | an RPU with every picture |
+| Dolby Vision 8.1 | HDR10 | an RPU per picture |
+| Dolby Vision 8.2 | SDR BT.709, coded 10-bit | an RPU per picture |
+| Dolby Vision 8.4 | HLG | an RPU per picture |
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 240" role="img" aria-labelledby="hdr-lay-t hdr-lay-d">
 <title id="hdr-lay-t">Which HDR format is built on which base stream</title>
 <desc id="hdr-lay-d">The three base streams are HDR10, HLG and SDR BT.709, drawn in a row. HDR10+ and Dolby Vision 8.1 each add per-picture metadata to HDR10. Dolby Vision 8.4 adds it to HLG. Dolby Vision 8.2 adds it to SDR BT.709.</desc>
-<text class="d-label" x="20" y="22">Metadata with every picture</text>
+<text class="d-label" x="20" y="22">Per-picture metadata</text>
 <rect class="d-box" x="20" y="36" width="140" height="52" rx="6"/>
 <text class="d-text" x="90" y="58" text-anchor="middle">HDR10+</text>
 <text class="d-label" x="90" y="77" text-anchor="middle">ST 2094-40</text>
@@ -246,7 +246,7 @@ The two warnings still encode. A delivery is normally buffer-constrained, althou
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 250" role="img" aria-labelledby="hdr-fig-t hdr-fig-d">
 <title id="hdr-fig-t">Where each piece of HDR signaling goes in the stream</title>
-<desc id="hdr-fig-d">A stream drawn as a row of pictures. The color flags are in the sequence parameter set at the start. The mastering display and light level messages come at each key frame. An HDR10+ message and a Dolby Vision RPU come with every picture.</desc>
+<desc id="hdr-fig-d">A stream drawn as a row of pictures. The color flags are in the sequence parameter set at the start. The mastering display and light level messages come at each key frame. An HDR10+ message and a Dolby Vision RPU come with each picture.</desc>
 <rect class="d-accent" x="10" y="100" width="90" height="56" rx="6"/>
 <text class="d-text" x="55" y="124" text-anchor="middle">SPS</text>
 <text class="d-label" x="55" y="144" text-anchor="middle">VUI</text>
@@ -263,11 +263,11 @@ The two warnings still encode. A delivery is normally buffer-constrained, althou
 <text class="d-label" x="10" y="24">Once per stream</text>
 <text class="d-label" x="10" y="44">transfer, primaries, matrix</text>
 <line class="d-arrow" x1="55" y1="54" x2="55" y2="98"/>
-<text class="d-label" x="200" y="24">At every key frame</text>
+<text class="d-label" x="200" y="24">At each key frame</text>
 <text class="d-label" x="200" y="44">mastering display, light level</text>
 <line class="d-arrow" x1="210" y1="54" x2="180" y2="98"/>
 <line class="d-arrow" x1="380" y1="54" x2="520" y2="98"/>
-<text class="d-label" x="360" y="222" text-anchor="middle">With every picture: an HDR10+ message and a Dolby Vision RPU</text>
+<text class="d-label" x="360" y="222" text-anchor="middle">With each picture: an HDR10+ message and a Dolby Vision RPU</text>
 <line class="d-line" x1="175" y1="190" x2="645" y2="190"/>
 <line class="d-arrow" x1="175" y1="190" x2="175" y2="158"/>
 <line class="d-arrow" x1="295" y1="190" x2="295" y2="158"/>
@@ -277,7 +277,7 @@ The two warnings still encode. A delivery is normally buffer-constrained, althou
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 360" role="img" aria-labelledby="hdr-fig-t-n hdr-fig-d-n">
 <title id="hdr-fig-t-n">Where each piece of HDR signaling goes in the stream</title>
-<desc id="hdr-fig-d-n">A stream drawn as a column of pictures. The color flags are in the sequence parameter set at the start. The mastering display and light level messages come at each key frame. An HDR10+ message and a Dolby Vision RPU come with every picture.</desc>
+<desc id="hdr-fig-d-n">A stream drawn as a column of pictures. The color flags are in the sequence parameter set at the start. The mastering display and light level messages come at each key frame. An HDR10+ message and a Dolby Vision RPU come with each picture.</desc>
 <rect class="d-accent" x="40" y="8" width="110" height="52" rx="6"/>
 <text class="d-text" x="95" y="32" text-anchor="middle">SPS</text>
 <text class="d-label" x="95" y="51" text-anchor="middle">VUI</text>
@@ -295,7 +295,7 @@ The two warnings still encode. A delivery is normally buffer-constrained, althou
 <text class="d-label" x="196" y="40">transfer, primaries,</text>
 <text class="d-label" x="196" y="56">matrix</text>
 <line class="d-arrow" x1="190" y1="34" x2="152" y2="34"/>
-<text class="d-label" x="196" y="146">At every key frame</text>
+<text class="d-label" x="196" y="146">At each key frame</text>
 <text class="d-label" x="196" y="164">mastering display,</text>
 <text class="d-label" x="196" y="180">light level</text>
 <line class="d-arrow" x1="190" y1="148" x2="152" y2="94"/>
@@ -306,7 +306,7 @@ The two warnings still encode. A delivery is normally buffer-constrained, althou
 <line class="d-arrow" x1="20" y1="184" x2="38" y2="184"/>
 <line class="d-arrow" x1="20" y1="230" x2="38" y2="230"/>
 <line class="d-arrow" x1="20" y1="276" x2="38" y2="276"/>
-<text class="d-label" x="8" y="336">With every picture: an HDR10+ message</text>
+<text class="d-label" x="8" y="336">With each picture: an HDR10+ message</text>
 <text class="d-label" x="8" y="352">and a Dolby Vision RPU</text>
 </svg>
 <figcaption>Static HDR10 metadata repeats at key frames so a player can join mid-stream. Dynamic metadata travels with each picture.</figcaption>
@@ -321,7 +321,7 @@ HDR10+ and Dolby Vision describe the content scene by scene. yah265 doesn't meas
 
 Entry *i* of either file goes with frame *i* of the input, whatever order the encoder codes the pictures in. `--seek` skips entries along with frames. `--gop-parallel` gives each segment its own part of the file. If a file runs out before the input does, the encode still writes the stream. It then exits with an error, because pictures without metadata break HDR10+ or Dolby Vision playback from that point. A metadata NAL lost to a failed allocation fails the run the same way. A file with entries left over gets a warning. The usual reason is a `--frames` run over part of a title.
 
-Both readers check what they read. HDR10+ values must fall inside the HDR10+ profiles' ranges. Every RPU's header must say profile 8. Either file can come from a pipe.
+Both readers check what they read. HDR10+ values must fall inside the HDR10+ profiles' ranges. An RPU's header must say profile 8. Either file can come from a pipe.
 
 ## Tuning for HDR
 
@@ -329,7 +329,7 @@ Both readers check what they read. HDR10+ values must fall inside the HDR10+ pro
 
 | picture size | what `medium` does on HDR |
 |---|---|
-| every size | codes chroma six quantizer steps finer than luma, and drops the extra psy weight it gives dark blocks on SDR |
+| any size | codes chroma six quantizer steps finer than luma, and drops the extra psy weight it gives dark blocks on SDR |
 | 720p and up | keeps the full intra mode search that SDR gives up for speed |
 | 4K | keeps the intra transform split too |
 
@@ -341,7 +341,7 @@ A switch forces the tuning on for any stream, or off for an HDR one. Chroma offs
 
 ## Quality on HDR content
 
-<figure class="chart"><img src="assets/charts/front/hdr-bd.svg" alt="Bars of the share of bitrate yah265 saves against x265 at equal HDR-VMAF on Sol Levante, Sparks and an HLG clip at 1080p and 4K. Every bar is a saving. The savings are smaller against x265 with its PQ tuning on, and smallest on Sol Levante."></figure>
+<figure class="chart"><img src="assets/charts/front/hdr-bd.svg" alt="Bars of the share of bitrate yah265 saves against x265 at equal HDR-VMAF on Sol Levante, Sparks and an HLG clip at 1080p and 4K. All the bars are savings. The savings are smaller against x265 with its PQ tuning on, and smallest on Sol Levante."></figure>
 
 I scored both encoders with Netflix's HDR-VMAF v1.1.8. The table gives yah265's BD-rate against x265, where a negative number is the share of bitrate yah265 saves at equal quality.
 
@@ -371,7 +371,7 @@ I wouldn't read the HLG clip's lead as a lead on all HLG, because the clip is ea
 
 The PQ titles are from Netflix Open Content: Sol Levante is 24p animation, Sparks 60p live action. The HLG clip is the EBU / DVB 8K HLG test clip, published by DVB under CC BY 4.0 (credit EBU / DVB). Frames 600 to 899 of its 37 Mbit/s rendition, around the clip's one cut, were scaled down with HLG and BT.2020 kept.
 
-Both encoders ran `medium` with the same signaling. yah265 ran at `--threads 4`. x265 ran at `--pools 6 --frame-threads 4` on the PQ titles and `--pools 4 --frame-threads 4` on the HLG clip. Scores use HDR-VMAF's 3H model at 1080p and its 1.5H model at 4K, in the high frame rate variant at 50 fps and above. Because HDR-VMAF has no HLG transfer, the HLG reference and every decoded picture go through the same HLG to PQ conversion at a 1000-nit peak before scoring.
+Both encoders ran `medium` with the same signaling. yah265 ran at `--threads 4`. x265 ran at `--pools 6 --frame-threads 4` on the PQ titles and `--pools 4 --frame-threads 4` on the HLG clip. Scores use HDR-VMAF's 3H model at 1080p and its 1.5H model at 4K, in the high frame rate variant at 50 fps and above. Because HDR-VMAF has no HLG transfer, the HLG reference and the decoded pictures go through the same HLG to PQ conversion at a 1000-nit peak before scoring.
 
 Each encoder ran its own CRF ladder, because the two scales don't line up on this material:
 
@@ -383,7 +383,7 @@ Each encoder ran its own CRF ladder, because the two scales don't line up on thi
 | EBU / DVB HLG | 6 seconds, 50 fps | 20 to 35 in steps of 3 | 20 to 32 in steps of 3 |
 <!--/gen:hdr-ladder-table-->
 
-yah265's six rungs cover 95% or more of x265's HDR-VMAF range in every cell. The [HDR ladder script](scripts/hdr_bd.py) runs the ladders and the BD reading.
+yah265's six rungs cover 95% or more of x265's HDR-VMAF range in each cell. The [HDR ladder script](scripts/hdr_bd.py) runs the ladders and the BD reading.
 
 ### Banding
 
@@ -394,7 +394,7 @@ Banding was read with HDR-VMAF's PQ CAMBI. Sol Levante's flat gradients band on 
 - A CRF encode with `--dhdr10-info` and `--dolby-vision-rpu` gives the same NAL units, byte for byte, as the same encode without them run through `hdr10plus_tool inject` and `dovi_tool inject-rpu`. Only two things differ. The tools add an access unit delimiter to each picture. The encoder's version SEI names the extra options.
 - `dovi_tool extract-rpu` and `hdr10plus_tool extract` on an encode give back the input metadata exactly. That holds with B-frames reordering the pictures, with `--seek`, and across `--gop-parallel` segments.
 - The ST 2094-40 writer reproduces a profile B message from a real HDR10+ stream byte for byte. A unit test holds it to that.
-- ffmpeg parses the HDR10+ message and the Dolby Vision RPU of every frame. It decodes the streams with errors fatal.
+- ffmpeg parses the HDR10+ message and the Dolby Vision RPU of each frame. It decodes the streams with errors fatal.
 - The Dolby Vision test uses Netflix's own grade for Sol Levante. That's the Dolby Vision XML published with it under CC BY 4.0, turned into profile 8.1 RPUs by `dovi_tool`.
 - Without these options the output is byte-identical to the encoder before they existed. The one exception is `--temporal-layers`, where the NAL units written with each picture now take that picture's temporal layer.
 - With the options, a CRF encode codes the same pictures. Under a bitrate or VBV target the metadata's bytes count toward it like any other part of the access unit. The rate control therefore spends slightly less on the pictures.

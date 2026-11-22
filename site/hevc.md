@@ -9,17 +9,17 @@ HEVC is the video coding standard that ITU-T publishes as H.265. This page walks
 
 ## How video encoding works
 
-Raw video is far too large to store or send. Every picture is a grid of samples, with one plane of luma for brightness and two of chroma for color. An encoder shrinks the video by sending only what a decoder can't guess for itself.
+Raw video is far too large to store or send. A picture is a grid of samples, with one plane of luma for brightness and two of chroma for color. An encoder shrinks the video by sending only what a decoder can't guess for itself.
 
-The guess is called a prediction. The encoder cuts each picture into blocks. It predicts every block from samples the decoder already has. Those samples come from the same picture (intra prediction) or from an earlier decoded picture (inter prediction). It then subtracts the prediction from the real block. The leftover is called the residual. The better the prediction, the smaller it is.
+The guess is called a prediction. The encoder cuts each picture into blocks. It predicts each block from samples the decoder already has. Those samples come from the same picture (intra prediction) or from an earlier decoded picture (inter prediction). It then subtracts the prediction from the real block. The leftover is called the residual. The better the prediction, the smaller it is.
 
 The residual then goes through a transform that turns a block of samples into a block of frequencies. Most of the block's energy ends up in a few of them. Quantization divides each frequency by a step size, then rounds the result. Because that rounding is the only step that loses picture detail, the step size is the quality control. A number called the quantization parameter (QP) sets it. Last, an entropy coder writes the prediction choices and the rounded values in as few bits as it can.
 
 The encoder also does the decoder's half of the work. It rebuilds each block from the rounded values exactly as a decoder will. Because later blocks are predicted from the rebuilt picture, the two sides predict from the same samples.
 
 <figure class="diagram">
-<svg class="d-wide" viewBox="0 0 720 350" role="img" aria-label="The prediction loop every block goes through">
-<title>The prediction loop every block goes through</title>
+<svg class="d-wide" viewBox="0 0 720 350" role="img" aria-label="The prediction loop a block goes through">
+<title>The prediction loop a block goes through</title>
 <desc>A source block has a prediction subtracted from it. The residual is transformed, quantized and entropy coded into the bitstream. The quantized residual is also undone and added back to the prediction to rebuild the block. Intra prediction reads the rebuilt block before the in-loop filters. Inter prediction reads decoded pictures after them.</desc>
 <rect class="d-box" x="20" y="30" width="110" height="40" rx="6"/>
 <text class="d-label" x="75" y="54.5" text-anchor="middle">Source block</text>
@@ -60,7 +60,7 @@ The encoder also does the decoder's half of the work. It rebuilds each block fro
 <text class="d-label" x="245" y="193" text-anchor="middle">intra</text>
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 390" role="img" aria-labelledby="loop-fig-t-n loop-fig-d-n">
-<title id="loop-fig-t-n">The prediction loop every block goes through</title>
+<title id="loop-fig-t-n">The prediction loop a block goes through</title>
 <desc id="loop-fig-d-n">A source block has a prediction subtracted from it. The residual is transformed, quantized and entropy coded into the bitstream. The quantized residual is also undone and added back to the prediction to rebuild the block. Intra prediction reads the rebuilt block before the in-loop filters. Inter prediction reads decoded pictures after them.</desc>
 <rect class="d-box" x="8" y="10" width="110" height="40" rx="6"/>
 <text class="d-label" x="63" y="34.5" text-anchor="middle">Source block</text>
@@ -104,7 +104,7 @@ The encoder also does the decoder's half of the work. It rebuilds each block fro
 <path class="d-arrow d-muted" d="M232 180 V134"/>
 <text class="d-label" x="238" y="162" text-anchor="start">intra</text>
 </svg>
-<figcaption>Every block goes around this loop. The lower half is the decoder's work, done inside the encoder so both predict from the same samples.</figcaption>
+<figcaption>Each block goes around this loop. The lower half is the decoder's work, done inside the encoder so both predict from the same samples.</figcaption>
 </figure>
 
 Pictures come in three kinds. A decoder can start from an I picture because it uses only intra prediction. A P picture also predicts from earlier pictures. A B picture can predict from two pictures at once. One of them may be shown later than the B picture itself.
@@ -122,7 +122,7 @@ HEVC came after H.264 with the same steps. What grew is the number of choices at
 | filters inside the loop | deblocking | deblocking, then sample adaptive offset |
 | entropy coder | CAVLC or CABAC | CABAC only |
 
-The larger block matters most. A patch of sky in a 4K picture is thousands of samples of nearly the same color. One large block describes it in a handful of bits. The price is paid by the encoder, because every extra choice is something it has to consider.
+The larger block matters most. A patch of sky in a 4K picture is thousands of samples of nearly the same color. One large block describes it in a handful of bits. The price is paid by the encoder, because each extra choice is something it has to consider.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 262" role="img" aria-label="The same 64x64 area in H.264 and in HEVC">
@@ -264,7 +264,7 @@ A decoder can only start at a key picture. HEVC has two main kinds. After an IDR
 
 B pictures are usually arranged as a pyramid. The middle picture of a group is coded first from the pictures at either end. Each half is then filled in the same way. That's why pictures are decoded in a different order from the one they're shown in.
 
-Every slice also has a reference picture set, the list of pictures the decoder has to keep for later prediction. A decoder that joins late or loses a packet still knows exactly which pictures it should have.
+Each slice also has a reference picture set, the list of pictures the decoder has to keep for later prediction. A decoder that joins late or loses a packet still knows exactly which pictures it should have.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 306" role="img" aria-label="A B-picture pyramid and an open GOP">
@@ -824,7 +824,7 @@ Intra prediction fills a block from the decoded samples just above it and to its
 <figcaption>Each angular mode copies the highlighted neighbor samples into the block along one of these directions. The fan is denser near horizontal and vertical.</figcaption>
 </figure>
 
-Naming one of 35 modes would cost five bits or more on every block if the standard didn't shorten it. It builds a list of three most probable modes from the blocks above and to the left. A mode on the list costs about two bits. Chroma can reuse the mode that luma chose.
+Naming one of 35 modes would cost five bits or more per block if the standard didn't shorten it. It builds a list of three most probable modes from the blocks above and to the left. A mode on the list costs about two bits. Chroma can reuse the mode that luma chose.
 
 ## Inter prediction and merge
 
@@ -974,7 +974,7 @@ The quantizer's step size doubles every six QP steps. At 8 bits the QP runs from
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 250" role="img" aria-label="What the transform and the quantizer do to an 8x8 block">
 <title>What the transform and the quantizer do to an 8x8 block</title>
-<desc>Three 8 by 8 grids. In the first every cell is filled: a residual has a value at every sample. In the second the filled cells collect in the top left corner: after the transform most of the energy sits in a few low frequencies. In the third only five cells in the top left hold numbers and the other 59 are zero: quantization rounded the small values away.</desc>
+<desc>Three 8 by 8 grids. In the first all the cells are filled: a residual has a value at each sample. In the second the filled cells collect in the top left corner: after the transform most of the energy sits in a few low frequencies. In the third only five cells in the top left hold numbers and the other 59 are zero: quantization rounded the small values away.</desc>
 <rect class="d-fill" x="40" y="50" width="20" height="20" rx="0"/>
 <rect class="d-fill" x="60" y="50" width="20" height="20" rx="0"/>
 <rect class="d-fill" x="80" y="50" width="20" height="20" rx="0"/>
@@ -1179,13 +1179,13 @@ The quantizer's step size doubles every six QP steps. At 8 bits the QP runs from
 <text class="d-label" x="120" y="34" text-anchor="middle">residual samples</text>
 <text class="d-label" x="360" y="34" text-anchor="middle">frequency coefficients</text>
 <text class="d-label" x="600" y="34" text-anchor="middle">after rounding</text>
-<text class="d-label" x="120" y="234" text-anchor="middle">every sample holds something</text>
+<text class="d-label" x="120" y="234" text-anchor="middle">each sample holds something</text>
 <text class="d-label" x="360" y="234" text-anchor="middle">the energy collects at top left</text>
 <text class="d-label" x="600" y="234" text-anchor="middle">five values left, the rest are zero</text>
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 580" role="img" aria-labelledby="xform-fig-t-n xform-fig-d-n">
 <title id="xform-fig-t-n">What the transform and the quantizer do to an 8x8 block</title>
-<desc id="xform-fig-d-n">Three 8 by 8 grids. In the first every cell is filled: a residual has a value at every sample. In the second the filled cells collect in the top left corner: after the transform most of the energy sits in a few low frequencies. In the third only five cells in the top left hold numbers and the other 59 are zero: quantization rounded the small values away.</desc>
+<desc id="xform-fig-d-n">Three 8 by 8 grids. In the first all the cells are filled: a residual has a value at each sample. In the second the filled cells collect in the top left corner: after the transform most of the energy sits in a few low frequencies. In the third only five cells in the top left hold numbers and the other 59 are zero: quantization rounded the small values away.</desc>
 <rect class="d-fill" x="12" y="10" width="20" height="20" rx="0"/>
 <rect class="d-fill" x="32" y="10" width="20" height="20" rx="0"/>
 <rect class="d-fill" x="52" y="10" width="20" height="20" rx="0"/>
@@ -1384,7 +1384,7 @@ The quantizer's step size doubles every six QP steps. At 8 bits the QP runs from
 <text class="d-mono" x="22" y="444.5" text-anchor="middle">2</text>
 <text class="d-mono" x="42" y="444.5" text-anchor="middle">-1</text>
 <text class="d-label" x="188" y="72" text-anchor="start">residual samples</text>
-<text class="d-label" x="188" y="96" text-anchor="start">every sample</text>
+<text class="d-label" x="188" y="96" text-anchor="start">each sample</text>
 <text class="d-label" x="188" y="112" text-anchor="start">holds something</text>
 <text class="d-label" x="188" y="272" text-anchor="start">frequency coefficients</text>
 <text class="d-label" x="188" y="296" text-anchor="start">the energy collects</text>
@@ -1527,7 +1527,7 @@ A decoder doesn't have to support the whole standard. A profile names the tools 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 228" role="img" aria-label="Where chroma samples sit in the three chroma formats">
 <title>Where chroma samples sit in the three chroma formats</title>
-<desc>Three 4 by 4 grids of luma samples drawn as circles, with chroma positions drawn as squares. In 4:2:0 there is one chroma position for every two by two group of luma samples. In 4:2:2 there is one for every two luma samples along a row. In 4:4:4 every luma sample has one.</desc>
+<desc>Three 4 by 4 grids of luma samples drawn as circles, with chroma positions drawn as squares. In 4:2:0 there is one chroma position per two by two group of luma samples. In 4:2:2 there is one per two luma samples along a row. In 4:4:4 each luma sample has one.</desc>
 <text class="d-mono" x="115" y="28" text-anchor="middle">4:2:0</text>
 <circle class="d-box" cx="58" cy="60" r="7"/>
 <circle class="d-box" cx="96" cy="60" r="7"/>
@@ -1613,7 +1613,7 @@ A decoder doesn't have to support the whole standard. A profile names the tools 
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 184" role="img" aria-labelledby="chroma-fig-t-n chroma-fig-d-n">
 <title id="chroma-fig-t-n">Where chroma samples sit in the three chroma formats</title>
-<desc id="chroma-fig-d-n">Three 4 by 4 grids of luma samples drawn as circles, with chroma positions drawn as squares. In 4:2:0 there is one chroma position for every two by two group of luma samples. In 4:2:2 there is one for every two luma samples along a row. In 4:4:4 every luma sample has one.</desc>
+<desc id="chroma-fig-d-n">Three 4 by 4 grids of luma samples drawn as circles, with chroma positions drawn as squares. In 4:2:0 there is one chroma position per two by two group of luma samples. In 4:2:2 there is one per two luma samples along a row. In 4:4:4 each luma sample has one.</desc>
 <text class="d-mono" x="60" y="24" text-anchor="middle">4:2:0</text>
 <circle class="d-box" cx="21" cy="48" r="6"/>
 <circle class="d-box" cx="47" cy="48" r="6"/>
@@ -1709,12 +1709,12 @@ HDR needs no new coding tool. An HDR stream is a 10-bit stream with fields that 
 
 ## What the standard doesn't say
 
-The specification defines what every bit of a stream means. It also says what a decoder must do with it. Every conforming decoder produces the same pictures from the same stream, down to the last sample. The standard says nothing about how an encoder arrives at the stream.
+The specification defines what each bit of a stream means. It also says what a decoder must do with it. Every conforming decoder produces the same pictures from the same stream, down to the last sample. The standard says nothing about how an encoder arrives at the stream.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 250" role="img" aria-label="What the standard fixes and what it leaves open">
 <title>What the standard fixes and what it leaves open</title>
-<desc>The encoder is drawn as a dashed box labeled left open, holding the choices the standard doesn't make: picture types, tree splits, modes and motion vectors, coefficient rounding, quantizers and threading. An arrow labeled bitstream leads to the decoder, drawn as a solid box labeled specified, which gives the same pictures on every decoder.</desc>
+<desc>The encoder is drawn as a dashed box labeled left open, holding the choices the standard doesn't make: picture types, tree splits, modes and motion vectors, coefficient rounding, quantizers and threading. An arrow labeled bitstream leads to the decoder, drawn as a solid box labeled specified, which gives the same pictures on any decoder.</desc>
 <rect class="d-dash" x="20" y="30" width="290" height="200" rx="8"/>
 <text class="d-text" x="165" y="56" text-anchor="middle">Encoder: left open</text>
 <text class="d-label" x="165" y="86" text-anchor="middle">which pictures are I, P or B</text>
@@ -1725,18 +1725,18 @@ The specification defines what every bit of a stream means. It also says what a 
 <text class="d-label" x="165" y="206" text-anchor="middle">how to use many cores</text>
 <line class="d-arrow d-accent" x1="310" y1="130" x2="448" y2="130"/>
 <text class="d-label" x="379" y="112" text-anchor="middle">bitstream</text>
-<text class="d-label" x="379" y="150" text-anchor="middle">every bit's</text>
+<text class="d-label" x="379" y="150" text-anchor="middle">each bit's</text>
 <text class="d-label" x="379" y="167" text-anchor="middle">meaning is fixed</text>
 <rect class="d-box" x="450" y="30" width="250" height="200" rx="8"/>
 <text class="d-text" x="575" y="56" text-anchor="middle">Decoder: specified</text>
 <text class="d-label" x="575" y="100" text-anchor="middle">one legal way to read</text>
-<text class="d-label" x="575" y="118" text-anchor="middle">every bit</text>
+<text class="d-label" x="575" y="118" text-anchor="middle">each bit</text>
 <text class="d-label" x="575" y="160" text-anchor="middle">the same pictures</text>
-<text class="d-label" x="575" y="178" text-anchor="middle">from every decoder</text>
+<text class="d-label" x="575" y="178" text-anchor="middle">from any decoder</text>
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 424" role="img" aria-labelledby="open-fig-t-n open-fig-d-n">
 <title id="open-fig-t-n">What the standard fixes and what it leaves open</title>
-<desc id="open-fig-d-n">The encoder is drawn as a dashed box labeled left open, holding the choices the standard doesn't make: picture types, tree splits, modes and motion vectors, coefficient rounding, quantizers and threading. An arrow labeled bitstream leads to the decoder, drawn as a solid box labeled specified, which gives the same pictures on every decoder.</desc>
+<desc id="open-fig-d-n">The encoder is drawn as a dashed box labeled left open, holding the choices the standard doesn't make: picture types, tree splits, modes and motion vectors, coefficient rounding, quantizers and threading. An arrow labeled bitstream leads to the decoder, drawn as a solid box labeled specified, which gives the same pictures on any decoder.</desc>
 <rect class="d-dash" x="10" y="10" width="340" height="196" rx="8"/>
 <text class="d-text" x="180" y="36" text-anchor="middle">Encoder: left open</text>
 <text class="d-label" x="180" y="66" text-anchor="middle">which pictures are I, P or B</text>
@@ -1747,14 +1747,14 @@ The specification defines what every bit of a stream means. It also says what a 
 <text class="d-label" x="180" y="176" text-anchor="middle">how to use many cores</text>
 <line class="d-arrow d-accent" x1="180" y1="206" x2="180" y2="262"/>
 <text class="d-label" x="170" y="238" text-anchor="end">bitstream</text>
-<text class="d-label" x="192" y="230" text-anchor="start">every bit's</text>
+<text class="d-label" x="192" y="230" text-anchor="start">each bit's</text>
 <text class="d-label" x="192" y="246" text-anchor="start">meaning is fixed</text>
 <rect class="d-box" x="10" y="264" width="340" height="150" rx="8"/>
 <text class="d-text" x="180" y="290" text-anchor="middle">Decoder: specified</text>
 <text class="d-label" x="180" y="326" text-anchor="middle">one legal way to read</text>
-<text class="d-label" x="180" y="344" text-anchor="middle">every bit</text>
+<text class="d-label" x="180" y="344" text-anchor="middle">each bit</text>
 <text class="d-label" x="180" y="378" text-anchor="middle">the same pictures</text>
-<text class="d-label" x="180" y="396" text-anchor="middle">from every decoder</text>
+<text class="d-label" x="180" y="396" text-anchor="middle">from any decoder</text>
 </svg>
 <figcaption>The standard defines the bitstream and the decoder. Everything inside the dashed box is an encoder's own business.</figcaption>
 </figure>

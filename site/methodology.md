@@ -100,13 +100,13 @@ Because G1 and G2 would take many hours at one thread on the 2-minute and 10-min
 | L | six open-licensed films at 720p, 1080p and 4K | 600 seconds from a recorded offset past the opening card, cut at the last frame before the end credits |
 | C | a film scan, sports and screen content | quality counts toward the verdict. Speed is only shown |
 
-Every start and end frame is recorded. The reports in the repository also hold rows for two titles that aren't in this set. Every figure on the site is computed without them.
+The start and end frames are recorded. The reports in the repository also hold rows for two titles that aren't in this set. The figures on the site are computed without them.
 
 The headline on the home page covers the size-matched CRF cells of tiers S, M and L on the Mac at G3. The capped VBR timings are reported in their own table, because they share a target bitrate where those cells share a size. Tier C's timings are reported with its quality.
 
 The set has no held-out content, because the development clips were windows of these same titles.
 
-Each ten-minute excerpt has to represent its whole title. A scene scan classes every shot by detail and motion. The excerpt's share of each class may differ from the whole title's by about 10% at most. Two excerpts moved their offsets to meet that.
+Each ten-minute excerpt has to represent its whole title. A scene scan classes each shot by detail and motion. The excerpt's share of each class may differ from the whole title's by about 10% at most. Two excerpts moved their offsets to meet that.
 
 The smaller sizes of each film are scaled down from the master with VideoToolbox. Everything is fed as 8-bit 4:2:0 Y4M.
 
@@ -128,7 +128,7 @@ Scoring runs at 10 bits. The model follows the picture:
 | above 1080p | `vmaf_v1.0.16_1d5h_2160`, for one and a half |
 | 50 fps and up | the `_hfr` variant of either |
 
-Every frame is scored at the matched point. The ladders score every frame on tier M and every third frame on tier L. The stride is odd because an even stride lines up with an encoder's B-frame pattern. When I measured that, it moved BD-rate by 1.3 to 6 points.
+All frames are scored at the matched point. The ladders score all frames on tier M and every third frame on tier L. The stride is odd because an even stride lines up with an encoder's B-frame pattern. When I measured that, it moved BD-rate by 1.3 to 6 points.
 
 ## The bar
 
@@ -137,13 +137,13 @@ Every frame is scored at the matched point. The ladders score every frame on tie
 | speed, per class, tier and goal | median ratio at or under 1.00, slowest clip at or under 1.15 |
 | quality at the matched point | median VMAF v1 difference no worse than -0.5 |
 | any single cell | no more than 1.0 VMAF v1 behind, size within 1% |
-| ladders, tiers M and L | BD-rate on VMAF v1 at or under +1.0% on every curve, at CRF and at VBR |
-| VBR tracking, tiers M and L | every rung within ±10% of its target over the whole cell |
+| ladders, tiers M and L | BD-rate on VMAF v1 at or under +1.0% on each curve, at CRF and at VBR |
+| VBR tracking, tiers M and L | each rung within ±10% of its target over the whole cell |
 | VBR speed, tiers M and L | G3 only, held to the same speed bar |
 
-The unit of passing is a combination of class, tier and goal, for example 1080p at tier M for G3. A combination passes when its median ratio and its slowest ratio both meet the bar and quality holds for that class and tier too. Because this site writes a speed as times faster, the same bar reads 1.00x for the median and 0.87x for the slowest clip. Full parity means every goal passes in every class, at every tier, on every machine. Tier C's speed is shown outside that count.
+The unit of passing is a combination of class, tier and goal, for example 1080p at tier M for G3. A combination passes when its median ratio and its slowest ratio both meet the bar and quality holds for that class and tier too. Because this site writes a speed as times faster, the same bar reads 1.00x for the median and 0.87x for the slowest clip. Full parity means all three goals pass in each class and tier, on each machine. Tier C's speed is shown outside that count.
 
-The lookahead's depth is part of the reading. yah265's own depth is swept around x265's default under CRF and VBR. The sweep covers live action, animation and 60p content at 1080p and 4K. x265 stays at its default 20 throughout. Every reading states both depths. Shot-based and chunked encoding never enter a reading.
+The lookahead's depth is part of the reading. yah265's own depth is swept around x265's default under CRF and VBR. The sweep covers live action, animation and 60p content at 1080p and 4K. x265 stays at its default 20 throughout. Each reading states both depths. Shot-based and chunked encoding never enter a reading.
 
 ## The ladders
 
@@ -157,6 +157,6 @@ A cell counts only when five things hold:
 - the feeder kept up
 - both encoders read the same input the same way
 - the sizes matched within 1%
-- every run's output md5 was printed
+- each run's output md5 was printed
 
 A cell that fails one of these is marked with the reason in the report. Its number stays out of the class statistics.

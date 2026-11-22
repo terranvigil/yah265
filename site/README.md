@@ -1,6 +1,6 @@
 # The documentation site
 
-Every page of the yah265 site is built from this directory. Edit the
+The yah265 site is built from this directory. Edit the
 markdown, rebuild and look at it.
 
 ## Editing
@@ -25,7 +25,7 @@ file on GitHub.
 
 ## What the build checks
 
-Every build ends with a link check. It fails when:
+A build ends with a link check. It fails when:
 
 - an internal link names a page that wasn't built
 - a `#fragment` names an id the page doesn't have
@@ -38,7 +38,7 @@ Every build ends with a link check. It fails when:
 to an untracked file, and on a stale chart. It learns that a chart is stale
 by running each chart script with `--check`.
 
-`make docs-recipes` runs every `sh` block in the README and the pages on a
+`make docs-recipes` runs the `sh` blocks in the README and the pages on a
 tiny clip, with `build/y265` and the ffmpeg that `scripts/build-ffmpeg.sh`
 builds. `scripts/docs_recipes.py --list` shows what each block gets: run,
 skipped with its reason, or waiting on a tool.
@@ -63,8 +63,8 @@ skipped with its reason, or waiting on a tool.
 | `faq.md` | A skeptic's questions |
 | `blog.md` | Blog. `scripts/blog_charts.py` fills its figures and draws `assets/blog/` |
 | `methodology.md` | Methodology. Results links to it and the nav leaves it out |
-| `shell-test.md` | Every shell component on one page. It's off the nav and out of the search index |
-| `_layout.html` | the shell every page is poured into |
+| `shell-test.md` | The shell components on one page. It's off the nav and out of the search index |
+| `_layout.html` | the shell the pages are poured into |
 | `assets/site.css` | styles, with the color tokens listed at the top |
 | `assets/site.js` | copy buttons, heading links and search |
 
@@ -83,11 +83,11 @@ top bar, the side rail and the previous and next links all follow it.
 
 A chart is an image inside `<figure class="chart">`. The image file holds
 both its light and its dark colors because a page's styles can't reach
-into an image. Each chart script draws every chart twice, once 900 units
+into an image. Each chart script draws its charts twice, once 900 units
 wide and once 480 units wide as `name-narrow.svg`. A page names the wide
 one. The builder hands a phone the narrow one.
 
-Speed is written as times faster on every chart and table, and right is
+Speed is written as times faster on the charts and tables, and right is
 faster. A chart script reads the parity rows through
 `blog_charts.report_rows()`, which leaves out the titles on
 `blog_charts.EXCLUDED`. The headline figures come from
@@ -115,7 +115,7 @@ phone. The build fails on a diagram with only one. It takes color only from thes
 | `d-mono` | small monospace text |
 
 Add `wide` to a figure's class to let it use the full column on a desktop.
-Tables already do. A fenced block marked `sh` gets a tinted prompt. Every
+Tables already do. A fenced block marked `sh` gets a tinted prompt. A
 block's copy button leaves a leading `$` out.
 
 The site follows the reader's light or dark setting. It loads no fonts,

@@ -31,9 +31,9 @@ The new ffmpeg is at `build-ffmpeg/ffmpeg/ffmpeg`. [Build and first encode](star
 
 ## Speed on three machines
 
-<figure class="chart"><img src="assets/charts/front/home-speed.svg" alt="Bars of how many times faster yah265 runs than x265 at CIF, 720p, 1080p and 4K on an Apple M5 Max, an Intel Xeon and an AWS Graviton4. Every bar passes the 1x line that marks x265."></figure>
+<figure class="chart"><img src="assets/charts/front/home-speed.svg" alt="Bars of how many times faster yah265 runs than x265 at CIF, 720p, 1080p and 4K on an Apple M5 Max, an Intel Xeon and an AWS Graviton4. The bars all pass the 1x line that marks x265."></figure>
 
-On this site "faster" compares wall time for files of the same size. Both encoders run `--preset medium` with SIMD on every core. Right is faster on every speed chart.
+On this site "faster" compares wall time for files of the same size. Both encoders run `--preset medium` with SIMD on all cores. Right is faster on the speed charts.
 
 ## Side by side at the same size
 
@@ -60,7 +60,7 @@ To see both in motion, open the [comparison players](https://terranvigil.github.
 - Main, Main10, 4:4:4 and 4:2:2 [profiles](guide.md#set-the-bit-depth-and-profile) from one binary.
 - [HDR10, HDR10+, HLG and Dolby Vision profile 8](hdr.md).
 - SIMD on arm64 and x86-64. [Architectures](architectures.md) lists what runs where.
-- x265's option names for shared features. [Options](options.md) lists every one.
+- x265's option names for shared features. [Options](options.md) lists them.
 
 ## Results in brief
 
@@ -93,11 +93,11 @@ Of the project's three speed goals, G3 is the one a user sees, because it times 
 | G2: algorithm only, plain C on all cores | 2.56x to 4.35x | 2.22x to 4.76x | 2.08x to 4.35x |
 <!--/gen:goal-table-->
 
-[Results](results.md) has every table and chart. [A skeptic's questions](faq.md) answers the objections I'd raise myself.
+[Results](results.md) has the tables and charts. [A skeptic's questions](faq.md) answers the objections I'd raise myself.
 
 ## Why I built it
 
-I've worked in video ingestion, encoding, packaging and delivery for nearly 20 years. The primary goal is always the same: Optimize for cost in terms of compute, storage and bandwidth while achieving the highest quality possible. This is the HEVC codec I would have dreamed of 10 years ago. I've gone after every dimension I cared about.
+I've worked in video ingestion, encoding, packaging and delivery for nearly 20 years. The primary goal is always the same: Optimize for cost in terms of compute, storage and bandwidth while achieving the highest quality possible. This is the HEVC codec I would have dreamed of 10 years ago. I've gone after the dimensions I cared about.
 
 ## A family
 

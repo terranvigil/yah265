@@ -1,6 +1,6 @@
 ---
 title: Design - yah265
-description: How yah265 makes the choices the HEVC standard leaves open, from the lookahead to the checks every change passes.
+description: How yah265 makes the choices the HEVC standard leaves open, from the lookahead to the checks a change passes.
 ---
 
 # Design
@@ -9,7 +9,7 @@ The HEVC standard defines a legal stream. Because it leaves the encoding to the 
 
 ## Search order comes first
 
-HEVC moved most of an encoder's cost into search. A coding tree can split from 64x64 down to 8x8. Every node offers merge, motion search, 35 intra modes and a transform tree of its own. The pixel work per decoded sample stayed close to H.264's. So I treat the order in which candidates are tried as the encoder's real architecture, along with how early the losers are dropped. I designed that ladder first, then built the coding tools on it.
+HEVC moved most of an encoder's cost into search. A coding tree can split from 64x64 down to 8x8. Each node offers merge, motion search, 35 intra modes and a transform tree of its own. The pixel work per decoded sample stayed close to H.264's. So I treat the order in which candidates are tried as the encoder's real architecture, along with how early the losers are dropped. I designed that ladder first, then built the coding tools on it.
 
 ## The pipeline
 
@@ -107,13 +107,13 @@ The hot loops have vector versions for arm64 and x86-64 that the encoder picks a
 
 ## Validating the bitstream
 
-A stream is only useful when every decoder rebuilds the pictures the encoder believes it wrote. The encoder predicts each block from its own rebuilt pictures. If a decoder's picture differs by one sample, every block predicted from that sample inherits the error. The error then spreads from picture to picture until the next key picture.
+A stream is only useful when any decoder rebuilds the pictures the encoder believes it wrote. The encoder predicts each block from its own rebuilt pictures. If a decoder's picture differs by one sample, the blocks predicted from that sample inherit the error. The error then spreads from picture to picture until the next key picture.
 
 So the test is exact equality. Every conformance encode goes through two independent decoders, ffmpeg and libde265. Each decoder's output has to match, sample for sample, the rebuilt pictures that the encoder writes out under `--dump-recon`. I use two because a mistake that one decoder tolerates may fail in the other. [Check it yourself](check-it-yourself.md) shows how to run the same comparison on your own encode.
 
 ## Lookahead
 
-Every frame passes through a lookahead queue before it's coded. The queue keeps a half-resolution copy of each frame, estimates costs on small blocks and remembers the motion search between each pair of frames. That one search feeds everything that needs motion before the real encode. It decides frame types, scene cuts and how many B-frames to run. It also drives weighted prediction and the propagation step that lowers the quantizer on blocks that later frames predict from.
+A frame passes through a lookahead queue before it's coded. The queue keeps a half-resolution copy of each frame, estimates costs on small blocks and remembers the motion search between each pair of frames. That one search feeds everything that needs motion before the real encode. It decides frame types, scene cuts and how many B-frames to run. It also drives weighted prediction and the propagation step that lowers the quantizer on blocks that later frames predict from.
 
 A scene cut has to be a jump in cost. One high reading isn't enough, because a film transferred with a pulldown cadence would then read as a run of cuts. Because the key frame period restarts at a cut, a periodic key frame never follows a cut closely.
 
@@ -123,12 +123,12 @@ I swept the lookahead's depth on the test set instead of inheriting a number. Th
 
 ## Mode decision
 
-Each coding tree unit runs a staged decision. Merge and skip candidates go first. A block that's already coded well enough leaves there. Every block size that survives gets one motion search for the whole block. A cheap Hadamard cost ranks the candidates. Only the winner pays for a full rate-distortion trial through the entropy coder's bit estimator.
+Each coding tree unit runs a staged decision. Merge and skip candidates go first. A block that's already coded well enough leaves there. A block size that survives gets one motion search for the whole block. A cheap Hadamard cost ranks the candidates. Only the winner pays for a full rate-distortion trial through the entropy coder's bit estimator.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 294" role="img" aria-label="The decision ladder for one block">
 <title>The decision ladder for one block</title>
-<desc>A funnel in three stages. Every candidate enters at the top: merge candidates, one motion search per block size and the intra modes. Stage one tries merge and skip, and a block that is already coded well leaves there as a skip. Stage two ranks the survivors by a cheap Hadamard cost and drops the losers. Stage three gives one candidate a full rate-distortion trial, and the winner goes into the frame's records.</desc>
+<desc>A funnel in three stages. The candidates enter at the top: merge candidates, one motion search per block size and the intra modes. Stage one tries merge and skip, and a block that is already coded well leaves there as a skip. Stage two ranks the survivors by a cheap Hadamard cost and drops the losers. Stage three gives one candidate a full rate-distortion trial, and the winner goes into the frame's records.</desc>
 <polygon class="d-fill" points="115,40 545,40 500,96 160,96"/>
 <polygon class="d-fill" points="160,106 500,106 450,162 210,162"/>
 <polygon class="d-accent" points="210,172 450,172 415,228 245,228"/>
@@ -146,15 +146,15 @@ Each coding tree unit runs a staged decision. Merge and skip candidates go first
 <text class="d-label" x="606" y="138" text-anchor="start">losers dropped</text>
 <line class="d-arrow" x1="330" y1="228" x2="330" y2="262"/>
 <text class="d-label" x="330" y="280" text-anchor="middle">the winner goes into the frame's records</text>
-<text class="d-label" x="30" y="72" text-anchor="start">every</text>
-<text class="d-label" x="30" y="88" text-anchor="start">candidate</text>
+<text class="d-label" x="30" y="72" text-anchor="start">all</text>
+<text class="d-label" x="30" y="88" text-anchor="start">candidates</text>
 <text class="d-label" x="60" y="138" text-anchor="start">survivors</text>
 <text class="d-label" x="130" y="204" text-anchor="start">one</text>
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 404" role="img" aria-labelledby="design-ladder-n-t design-ladder-n-d">
 <title id="design-ladder-n-t">The decision ladder for one block</title>
-<desc id="design-ladder-n-d">A funnel in three stages. Every candidate enters at the top: merge candidates, one motion search per block size and the intra modes. Stage one tries merge and skip, and a block that is already coded well leaves there as a skip. Stage two ranks the survivors by a cheap Hadamard cost and drops the losers. Stage three gives one candidate a full rate-distortion trial, and the winner goes into the frame's records.</desc>
-<text class="d-label" x="180" y="20" text-anchor="middle">every candidate: merge candidates,</text>
+<desc id="design-ladder-n-d">A funnel in three stages. The candidates enter at the top: merge candidates, one motion search per block size and the intra modes. Stage one tries merge and skip, and a block that is already coded well leaves there as a skip. Stage two ranks the survivors by a cheap Hadamard cost and drops the losers. Stage three gives one candidate a full rate-distortion trial, and the winner goes into the frame's records.</desc>
+<text class="d-label" x="180" y="20" text-anchor="middle">all candidates: merge candidates,</text>
 <text class="d-label" x="180" y="38" text-anchor="middle">one motion search per block size, intra modes</text>
 <line class="d-arrow" x1="180" y1="46" x2="180" y2="64"/>
 <polygon class="d-fill" points="8,66 352,66 322,134 38,134"/>
@@ -247,7 +247,7 @@ Both gates ramp in with the planned quantizer so that the file size moves smooth
 
 ## Motion search
 
-Motion search answers one question per block: where in the reference picture does this block best come from? The answer is priced as well as matched. Every candidate vector is charged for the bits it would cost to write. A slightly worse match that's cheap to code can win.
+Motion search answers one question per block: where in the reference picture does this block best come from? The answer is priced as well as matched. Each candidate vector is charged for the bits it would cost to write. A slightly worse match that's cheap to code can win.
 
 The search starts from the vectors the block's neighbors used, since those are the ones the decoder can nearly guess. From the best of them it walks whole-sample positions, then refines to half and quarter samples. Small pictures walk a unit diamond. From 720p up the walk is a hexagon that finishes with the diamond, because on large pictures with fine texture the diamond alone can stop at a poor match.
 
@@ -259,7 +259,7 @@ The search is never restricted to suit the threading. A vector may point anywher
 
 The transforms, intra prediction, the interpolation filters, deblocking and SAO are the specification's. Each has a C reference.
 
-The freedom is in the rounding. Rate-distortion optimized quantization (RDOQ) asks of each coefficient whether rounding it down saves more bits than it costs in distortion. Ours is closed-form and linear in the number of coefficients. Because it works together with sign data hiding, nothing is tried and rolled back. At `medium` it runs once per coded block in the final encode. `slow` and `slower` run it in every decision.
+The freedom is in the rounding. Rate-distortion optimized quantization (RDOQ) asks of each coefficient whether rounding it down saves more bits than it costs in distortion. Ours is closed-form and linear in the number of coefficients. Because it works together with sign data hiding, nothing is tried and rolled back. At `medium` it runs once per coded block in the final encode. `slow` and `slower` run it in all decisions.
 
 ## Entropy coding
 
@@ -269,12 +269,12 @@ Each picture is coded as one slice with no wavefront substreams and no tiles. Th
 
 ## Rate control
 
-Rate control turns what you asked for into a quantizer for every block. yah265 covers fixed QP, CRF, ABR, VBR, CBR, capped CRF and two-pass. The [encoding guide](guide.md#pick-a-rate-mode) says when to use each.
+Rate control turns what you asked for into a quantizer for each block. yah265 covers fixed QP, CRF, ABR, VBR, CBR, capped CRF and two-pass. The [encoding guide](guide.md#pick-a-rate-mode) says when to use each.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 290" role="img" aria-label="Which planner each rate mode uses">
 <title>Which planner each rate mode uses</title>
-<desc>Seven rate modes on the left feed three planners. Fixed QP uses the quantizer you gave. CRF, capped CRF and capped VBR use the quality planner, which sets a base QP from the lookahead's cost. ABR, CBR and the second pass of two-pass use the rate loop, which sets a QP from the bits spent so far. Capped CRF, capped VBR and CBR then pass through the buffer model. Every path ends at the per-block offsets that set each block's QP.</desc>
+<desc>Seven rate modes on the left feed three planners. Fixed QP uses the quantizer you gave. CRF, capped CRF and capped VBR use the quality planner, which sets a base QP from the lookahead's cost. ABR, CBR and the second pass of two-pass use the rate loop, which sets a QP from the bits spent so far. Capped CRF, capped VBR and CBR then pass through the buffer model. All paths end at the per-block offsets that set each block's QP.</desc>
 <rect class="d-box" x="20" y="30" width="150" height="28" rx="6"/>
 <text class="d-label" x="95" y="48.5" text-anchor="middle">fixed QP</text>
 <line class="d-arrow d-muted" x1="170" y1="44" x2="228" y2="44"/>
@@ -322,7 +322,7 @@ Rate control turns what you asked for into a quantizer for every block. yah265 c
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 444" role="img" aria-labelledby="design-rate-n-t design-rate-n-d">
 <title id="design-rate-n-t">Which planner each rate mode uses</title>
-<desc id="design-rate-n-d">Seven rate modes on the left feed three planners. Fixed QP uses the quantizer you gave. CRF, capped CRF and capped VBR use the quality planner, which sets a base QP from the lookahead's cost. ABR, CBR and the second pass of two-pass use the rate loop, which sets a QP from the bits spent so far. Capped CRF, capped VBR and CBR then pass through the buffer model. Every path ends at the per-block offsets that set each block's QP.</desc>
+<desc id="design-rate-n-d">Seven rate modes on the left feed three planners. Fixed QP uses the quantizer you gave. CRF, capped CRF and capped VBR use the quality planner, which sets a base QP from the lookahead's cost. ABR, CBR and the second pass of two-pass use the rate loop, which sets a QP from the bits spent so far. Capped CRF, capped VBR and CBR then pass through the buffer model. All paths end at the per-block offsets that set each block's QP.</desc>
 <rect class="d-box" x="8" y="8" width="112" height="28" rx="6"/>
 <text class="d-label" x="64" y="26.5" text-anchor="middle">fixed QP</text>
 <line class="d-arrow d-muted" x1="120" y1="22" x2="148" y2="22"/>
@@ -369,13 +369,13 @@ Rate control turns what you asked for into a quantizer for every block. yah265 c
 <figcaption>Capped VBR sits with CRF on the quality planner. The buffer model only sees the modes that have a buffer.</figcaption>
 </figure>
 
-CRF plans a fractional base QP for each frame from the lookahead's cost estimate, on a scale that moves with the frame rate. Two per-block adjustments follow in every mode. Adaptive quantization shifts bits toward blocks where the eye sees errors. The lookahead's propagation step lowers the QP on blocks that later frames predict from.
+CRF plans a fractional base QP for each frame from the lookahead's cost estimate, on a scale that moves with the frame rate. Two per-block adjustments follow in all modes. Adaptive quantization shifts bits toward blocks where the eye sees errors. The lookahead's propagation step lowers the QP on blocks that later frames predict from.
 
 A loop that chases a bitrate frame by frame makes quality swing. So VBR whose maxrate sits above its target runs on the quality planner with a level that moves slowly. It keeps one operating point over the whole encode. When the file runs well under its target, the level moves back toward the target at a limited rate.
 
 A buffer adds a hard limit that planning alone can't guarantee. A brake inside the picture holds each picture to what the decoder's buffer can take. Capped CRF has its own brake and a guard that prices the frame against the buffer before coding it. As a last resort, a block the brake can't pay for at the coarsest quantizer is coded as a skip.
 
-[VBR](results.md#vbr) has the rate-tracking and speed results. With several frames in flight the rate loop can't see every earlier frame's size in time. [Threading](threading.md#rate-control-with-frames-in-flight) covers what that changes.
+[VBR](results.md#vbr) has the rate-tracking and speed results. With several frames in flight the rate loop can't see all the earlier frames' sizes in time. [Threading](threading.md#rate-control-with-frames-in-flight) covers what that changes.
 
 ## References
 
@@ -383,7 +383,7 @@ One engine handles the reference picture sets and the decoded picture buffer. Be
 
 ## What medium does at each size
 
-Every result on this site was read at `medium`, the default preset. It changes with the picture, because a choice that pays at 4K can cost quality at CIF.
+The results on this site were read at `medium`, the default preset. It changes with the picture, because a choice that pays at 4K can cost quality at CIF.
 
 | picture | coding tree | lookahead | whole-sample search | references per list | chroma QP offset | dark psy strength |
 |---|---|---|---|--:|--:|--:|
@@ -396,7 +396,7 @@ The values are what `--show-config` prints for an 8-bit SDR input at each size. 
 
 ## Tuning for VMAF v1
 
-Every quality result on this site is scored with VMAF v1. Several of `medium`'s choices come from what that metric measures.
+The quality results on this site are scored with VMAF v1. Several of `medium`'s choices come from what that metric measures.
 
 - VMAF v1 reads banding. Without a psy term the rate-distortion decision codes faint grain in dark areas to flat steps. From 720p up the psy strength therefore rises on dark, smooth 16x16 blocks.
 - It scores chroma. It also scores a small picture scaled up to display size, where the chroma loss shows. Chroma gets more bits than luma's quantizer alone would give it. Inter chroma coefficients round less harshly. Both chroma quantizers also run finer than luma's.
@@ -406,7 +406,7 @@ Every quality result on this site is scored with VMAF v1. Several of `medium`'s 
 
 ## Checks every change passes
 
-Every change passes these before it merges.
+A change passes these before it merges.
 
 - Two decoders decode each conformance encode. Both must match the encoder's own pictures, as [Validating the bitstream](#validating-the-bitstream) describes.
 - Two runs at `--threads 1` must give the same bytes. Across thread counts a mismatch is reported as a warning.
@@ -416,4 +416,4 @@ Every change passes these before it merges.
 
 ## Written from the specification
 
-The encoder is written from the ITU-T H.265 specification. Published papers supplied the algorithms. Two reference decoders check every stream. The command line uses x265's option names for the features both encoders share. The [encoding guide](guide.md#left-out-on-purpose) lists the options it refuses. The [contribution rules](CONTRIBUTING.md) have the full policy.
+The encoder is written from the ITU-T H.265 specification. Published papers supplied the algorithms. Two reference decoders check the streams. The command line uses x265's option names for the features both encoders share. The [encoding guide](guide.md#left-out-on-purpose) lists the options it refuses. The [contribution rules](CONTRIBUTING.md) have the full policy.

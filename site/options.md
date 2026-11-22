@@ -1,6 +1,6 @@
 ---
 title: Options - yah265
-description: Every option of the y265 command line, grouped by what it's for, with its default.
+description: The options of the y265 command line, grouped by what they're for, with their defaults.
 ---
 
 # Options
@@ -55,7 +55,7 @@ Many switches also take a `--no-` form that turns them off. "The preset's" means
 | <span id="opt-cbqpoffs"></span>`--cbqpoffs <n>` | the preset's | Cb quantizer offset from luma, -12 to 12. A negative value spends more bits on chroma. |
 | <span id="opt-crqpoffs"></span>`--crqpoffs <n>` | the preset's | The same for Cr. |
 | <span id="opt-lossless"></span>`--lossless` | off | Lossless coding. Rate control, AQ and the loop filters are off. |
-| <span id="opt-pcm"></span>`--pcm` | off | Code every block as raw samples. A test mode with very large output. |
+| <span id="opt-pcm"></span>`--pcm` | off | Code each block as raw samples. A test mode with very large output. |
 
 ## Steering an encode by frame
 
@@ -86,7 +86,7 @@ Many switches also take a `--no-` form that turns them off. "The preset's" means
 | <span id="opt-ctu"></span>`--ctu <16\|32\|64>` | the preset's | Coding tree block size: 16, 32 or 64. |
 | <span id="opt-tu-inter-depth"></span>`--tu-inter-depth <1..4>` | `2` | Transform tree levels an inter block may use, 1 to 4. |
 | <span id="opt-tu-intra-depth"></span>`--tu-intra-depth <1..4>` | `2` | Transform tree levels an intra block may use, 1 to 4. |
-| <span id="opt-rdoq-level"></span>`--rdoq-level <0\|1\|2>` | the preset's | Rate-distortion optimized quantization: `0` off, `1` at the final encode of a block, `2` in every decision. |
+| <span id="opt-rdoq-level"></span>`--rdoq-level <0\|1\|2>` | the preset's | Rate-distortion optimized quantization: `0` off, `1` at the final encode of a block, `2` in all decisions. |
 
 ## Threads
 
@@ -125,14 +125,14 @@ Many switches also take a `--no-` form that turns them off. "The preset's" means
 
 | option | default | what it does |
 |---|---|---|
-| <span id="opt-repeat-headers"></span>`--repeat-headers` | off | Write the parameter sets at every key frame, for a receiver that joins mid-stream. |
-| <span id="opt-aud"></span>`--aud` | off | An access unit delimiter at the head of every picture. |
+| <span id="opt-repeat-headers"></span>`--repeat-headers` | off | Write the parameter sets at each key frame, for a receiver that joins mid-stream. |
+| <span id="opt-aud"></span>`--aud` | off | An access unit delimiter at the head of each picture. |
 | <span id="opt-eos"></span>`--eos` | off | An end-of-sequence NAL before each IDR after the first and at the end of the stream. |
 | <span id="opt-eob"></span>`--eob` | off | An end-of-bitstream NAL as the last NAL. |
 | <span id="opt-no-info"></span><span id="opt-info"></span>`--no-info` | info on | Drop the SEI message naming the encoder, its version and its options. `--info` keeps it. |
 | <span id="opt-no-fingerprint"></span><span id="opt-fingerprint"></span>`--no-fingerprint` | fingerprint on | Drop the stream fingerprint, the mark that survives when SEI messages are stripped. |
 | <span id="opt-hash"></span>`--hash <0-3>` | `0` | A hash of each decoded picture in an SEI message: `1` MD5, `2` CRC, `3` checksum. |
-| <span id="opt-idr-recovery-sei"></span>`--idr-recovery-sei` | off | A recovery point SEI at every key frame. |
+| <span id="opt-idr-recovery-sei"></span>`--idr-recovery-sei` | off | A recovery point SEI at each key frame. |
 | <span id="opt-pic-struct"></span>`--pic-struct <n>` | off | The picture timing SEI's pic_struct, 0 to 12. `7` doubles a frame and `8` triples it. Needs a buffer. |
 | <span id="opt-hrd-concat"></span>`--hrd-concat` | off | Mark the first key frame as spliced onto another stream. Needs a buffer. |
 | <span id="opt-temporal-layers"></span>`--temporal-layers` | off | Put unreferenced B-frames in a second temporal layer. A player can then drop them and halve the frame rate. |

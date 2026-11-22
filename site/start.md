@@ -147,13 +147,13 @@ That's the command you'd give x265 with one word changed. `out.mp4` plays in any
 <figcaption>Everything else on the command line stays as it was.</figcaption>
 </figure>
 
-Always pass a rate option. With none, the encoder runs a test mode that codes every frame at one fixed quantizer. For streaming I'd use capped CRF. It adds a peak rate and a buffer to the CRF command:
+Always pass a rate option. With none, the encoder runs a test mode that codes each frame at one fixed quantizer. For streaming I'd use capped CRF. It adds a peak rate and a buffer to the CRF command:
 
 ```sh
 ffmpeg -i in.mp4 -c:v libyah265 -preset medium -crf 25 -maxrate 4500k -bufsize 6000k out.mp4
 ```
 
-The encoding guide covers [every rate mode](guide.md#pick-a-rate-mode) and the [ffmpeg options the encoder takes](guide.md#from-ffmpeg).
+The encoding guide covers [the rate modes](guide.md#pick-a-rate-mode) and the [ffmpeg options the encoder takes](guide.md#from-ffmpeg).
 
 ## Pick a quality
 
@@ -169,7 +169,7 @@ The CRF scale is yah265's own. A number that suited x265 won't give the same fil
 make build-rel
 ```
 
-That leaves the encoder at `build-rel/y265`. The binary is named `y265`, though the project is yah265. One binary codes every bit depth and picks the depth from its input.
+That leaves the encoder at `build-rel/y265`. The binary is named `y265`, though the project is yah265. One binary codes both bit depths and picks the depth from its input.
 
 `y265` turns Y4M or raw YUV into a raw HEVC stream. ffmpeg can feed it any source through a pipe:
 
@@ -200,7 +200,7 @@ ffmpeg -i out.hevc -f rawvideo decoded.yuv
 cmp recon.yuv decoded.yuv
 ```
 
-`cmp` prints nothing when every sample matches. The project runs this check on every stream in its tests, against ffmpeg and against libde265.
+`cmp` prints nothing when all the samples match. The project runs this check on every stream in its tests, against ffmpeg and against libde265.
 
 ## Build ffmpeg by hand
 
@@ -221,6 +221,6 @@ The first line installs the library, its header and its pkg-config file. The sec
 ## Next
 
 - The [encoding guide](guide.md) covers rate modes, presets, threads and what ships.
-- [Options](options.md) lists every `y265` option with its default.
+- [Options](options.md) lists the `y265` options with their defaults.
 - [HDR](hdr.md) covers HDR10, HDR10+, HLG and Dolby Vision.
 - [Check it yourself](check-it-yourself.md) reruns a published result on your machine.

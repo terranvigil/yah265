@@ -1,5 +1,5 @@
 <svg xmlns='http://www.w3.org/2000/svg' width='480' height='660' viewBox='0 0 480 660' role='img'>
-<title>All 95 of yah265's VBR rungs come within 10% of their target</title><desc>Dot plot of VBR rate error per rung for every real-title cell, yah265 and x265.</desc>
+<title>All 95 of yah265's VBR rungs come within 10% of their target</title><desc>Dot plot of VBR rate error per rung for the real-title cells, yah265 and x265.</desc>
 <style>
 .bg{fill:#ffffff}.t1{fill:#212529}.t2{fill:#495057}.grid{stroke:#e9ecef}
 .base{stroke:#868e96}.ring{stroke:#ffffff}.med{stroke:#212529}.band{fill:#f1f3f5}

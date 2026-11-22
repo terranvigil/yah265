@@ -15,7 +15,7 @@ text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-
 .note{fill:#ff8a5c}.wash{fill:#45200f}}
 </style>
 <rect width='100%' height='100%' class='bg'/>
-<text x='24.0' y='40.0' font-size='22' class='t1' text-anchor='start' font-weight='600'>Faster than x265 on all three machines, in every class</text>
+<text x='24.0' y='40.0' font-size='22' class='t1' text-anchor='start' font-weight='600'>Faster than x265 on all three machines, in each class</text>
 <text x='24.0' y='64.0' font-size='14' class='t2' text-anchor='start'>Median times faster than x265 medium at the same file size, SIMD on all cores (G3). Parity report of 2026-11-14.</text>
 <circle cx='30.0' cy='86.0' r='5.5' class='s1 ring' stroke-width='2'/>
 <text x='42.0' y='91.0' font-size='13' class='t2' text-anchor='start'>Mac, NEON</text>

@@ -1,5 +1,5 @@
 <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 480 532' role='img'>
-<title>yah265 needs fewer bits than x265 for the same HDR-VMAF on every cell</title><desc>Bars of the share of bitrate yah265 saves at equal HDR-VMAF, per title and picture size, against x265 and against x265 with its PQ tuning on.</desc>
+<title>yah265 needs fewer bits than x265 for the same HDR-VMAF on each cell</title><desc>Bars of the share of bitrate yah265 saves at equal HDR-VMAF, per title and picture size, against x265 and against x265 with its PQ tuning on.</desc>
 <style>
 .bg{fill:#ffffff}.t1{fill:#212529}.t2{fill:#495057}.grid{stroke:#e9ecef}
 .base{stroke:#868e96}.ring{stroke:#ffffff}.med{stroke:#212529}.band{fill:#f1f3f5}
@@ -16,7 +16,7 @@ text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-
 </style>
 <rect width='100%' height='100%' class='bg'/>
 <text x='20' y='30' font-size='18' class='t1' font-weight='600'>yah265 needs fewer bits than x265 for the</text>
-<text x='20' y='53' font-size='18' class='t1' font-weight='600'>same HDR-VMAF on every cell</text>
+<text x='20' y='53' font-size='18' class='t1' font-weight='600'>same HDR-VMAF on each cell</text>
 <text x='20' y='73' font-size='12.5' class='t2'>Share of bitrate saved at equal HDR-VMAF v1.1.8. Both encoders at</text>
 <text x='20' y='90' font-size='12.5' class='t2'>preset medium. Longer is better.</text>
 <g transform='translate(0 26)'>

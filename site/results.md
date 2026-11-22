@@ -5,7 +5,7 @@ description: yah265 against x265 medium on speed, quality and file size, from CI
 
 # Results
 
-Every reading on this page compares yah265 with x265 4.3 when both run at `--preset medium`. A script builds the tables and charts from the recorded runs. Its check fails when the page and the data disagree.
+The readings on this page compare yah265 with x265 4.3 when both run at `--preset medium`. A script builds the tables and charts from the recorded runs. Its check fails when the page and the data disagree.
 
 The first two rows are the headline. They cover the CRF cells timed on the Mac as shipped, where yah265's file is within 1% of x265's size.
 
@@ -28,7 +28,7 @@ The first two rows are the headline. They cover the CRF cells timed on the Mac a
 
 A cell is one clip at one picture size. A class is a picture size. A tier is a clip length. Cells are grouped by both.
 
-Speed is written as times faster. It's x265's encode time divided by yah265's when both write a file of the same size. On every speed chart right is faster.
+Speed is written as times faster. It's x265's encode time divided by yah265's when both write a file of the same size. On the speed charts right is faster.
 
 A speed cell in a table holds the median over the group's clips, then the slowest clip. A group passes when its median is at least 1.00x and its slowest clip is at least 0.87x, as long as its quality holds too.
 
@@ -101,7 +101,7 @@ On the 2-minute and 10-minute cells, G1 and G2 are timed on 30-second windows. A
 
 ## Each ten-minute film
 
-<figure class="chart"><img src="assets/blog/films.svg" alt="Paired bars of encode time per ten-minute film at 1080p and at 4K. On every film the yah265 bar is the shorter one."></figure>
+<figure class="chart"><img src="assets/blog/films.svg" alt="Paired bars of encode time per ten-minute film at 1080p and at 4K. On each film the yah265 bar is the shorter one."></figure>
 
 Each film runs from its start frame to its last story frame. The table has the Mac's speed for each film at each goal, in times faster.
 
@@ -135,7 +135,7 @@ Each film runs from its start frame to its last story frame. The table has the M
 ## By machine
 
 <!--gen:fig-machines-->
-<figure class="chart"><img src="assets/charts/results/machines.svg" alt="Against x265 as shipped, every group is at least 1.25x faster."></figure>
+<figure class="chart"><img src="assets/charts/results/machines.svg" alt="Against x265 as shipped, all groups are at least 1.25x faster."></figure>
 <!--/gen:fig-machines-->
 
 The same medians from each machine's slowest group to its fastest:
@@ -240,7 +240,7 @@ AVX2 against AVX2 is the closest pairing on the page. Because both capped tiers 
 <figure class="chart"><img src="assets/charts/results/quality.svg" alt="yah265 scores higher than x265 at the same file size in every class and tier."></figure>
 <!--/gen:fig-quality-->
 
-The chart and table show yah265's VMAF v1 score minus x265's at the matched file size. The bar is a median no worse than -0.5 with no single cell more than 1.0 behind. Every cell's size is within 1% of x265's.
+The chart and table show yah265's VMAF v1 score minus x265's at the matched file size. The bar is a median no worse than -0.5 with no single cell more than 1.0 behind. Each cell's size is within 1% of x265's.
 
 <!--gen:quality-->
 | class | tier | median | smallest lead | on |
@@ -299,14 +299,14 @@ Scores aside, you can just look at the two encodes. The clip is 90 seconds of Te
 
 The [comparison players](https://terranvigil.github.io/yah265-compare/) play both encodes in motion: 30 seconds of Nocturne in 4K, 30 seconds of Sparks at 1080p and a scrolling Wikipedia page. Each lets you switch encodes and jump to the frames where they differ most.
 
-A script picked these frames by a fixed rule. It scored every frame by the mean of the two encoders' VMAF v1, then took the lowest frame in a low-scoring shot. To place the crop, it measured both encodes against the reference block by block. The crop is the window where their losses differ most, whichever encode is ahead. The reference is a near-transparent copy of the source.
+A script picked these frames by a fixed rule. It scored each frame by the mean of the two encoders' VMAF v1, then took the lowest frame in a low-scoring shot. To place the crop, it measured both encodes against the reference block by block. The crop is the window where their losses differ most, whichever encode is ahead. The reference is a near-transparent copy of the source.
 
 ## The worst frames
 
 Because an average can hide a bad stretch, this section looks at the low end of the same Tears of Steel clip. The chart follows it frame by frame.
 
 <!--trust:fig-trace-->
-<figure class="chart"><img src="assets/charts/trust/tail-trace.svg" alt="Line chart of VMAF v1 for every frame of a 90-second clip, one line per encoder. The yah265 line is above the x265 line in most of the low stretches."></figure>
+<figure class="chart"><img src="assets/charts/trust/tail-trace.svg" alt="Line chart of VMAF v1 per frame of a 90-second clip, one line per encoder. The yah265 line is above the x265 line in most of the low stretches."></figure>
 <!--/trust:fig-trace-->
 
 <!--trust:tears-table-->
@@ -318,7 +318,7 @@ Because an average can hide a bad stretch, this section looks at the low end of 
 | file size | 15.95 MB | 15.88 MB | +0.4% |
 <!--/trust:tears-table-->
 
-Both files came from ffmpeg at `medium`, with <!--trust:tears-crfs-->`-crf 25` for yah265 and `-crf 25.3` for x265<!--/trust:tears-crfs-->. Every frame was scored. yah265's lead on the worst 5% of the frames is wider than its lead on the average.
+Both files came from ffmpeg at `medium`, with <!--trust:tears-crfs-->`-crf 25` for yah265 and `-crf 25.3` for x265<!--/trust:tears-crfs-->. All frames were scored. yah265's lead on the worst 5% of the frames is wider than its lead on the average.
 
 Each cell also records the score of its lowest frame. For the short clips and the two-minute segments, the table sets yah265's lead on that frame beside its lead on the mean.
 
@@ -336,15 +336,15 @@ At CIF yah265's lowest frame is behind x265's on two of the three clips, althoug
 
 ## Quality across the rate range
 
-One matched point says little about the rest of the curve. So every 2-minute and 10-minute cell also runs a ladder. A ladder is the same clip coded at five quality settings on both encoders.
+One matched point says little about the rest of the curve. So each 2-minute and 10-minute cell also runs a ladder. A ladder is the same clip coded at five quality settings on both encoders.
 
 <!--gen:fig-curves-->
 <figure class="chart"><img src="assets/charts/results/curves.svg" alt="yah265 needs fewer bits than x265 on 19 of 19 real-title cells at CRF."></figure>
 <!--/gen:fig-curves-->
 
-BD-rate turns each pair of curves into one number: how much more or less bitrate yah265 needs for the same VMAF v1 score. Negative means fewer bits. The bar is +1.0% on every curve.
+BD-rate turns each pair of curves into one number: how much more or less bitrate yah265 needs for the same VMAF v1 score. Negative means fewer bits. The bar is +1.0% on any curve.
 
-<figure class="chart"><img src="assets/blog/bdrate.svg" alt="Dot plot of BD-rate against x265 on VMAF v1 for every real-title cell at CRF and capped VBR. Every dot sits left of the bar."></figure>
+<figure class="chart"><img src="assets/blog/bdrate.svg" alt="Dot plot of BD-rate against x265 on VMAF v1 for the real-title cells at CRF and capped VBR. All the dots sit left of the bar."></figure>
 
 <!--gen:bd-summary-->
 | over the ladders | value |
@@ -363,7 +363,7 @@ Each ladder is set up the same way:
 - Both encoders run at 6 threads with a 20-frame lookahead.
 
 <details class="data" markdown="1">
-<summary>BD-rate of every ladder</summary>
+<summary>BD-rate of each ladder</summary>
 
 <!--gen:bd-->
 | cell | tier | CRF BD-rate | VBR BD-rate |
@@ -393,14 +393,14 @@ Each ladder is set up the same way:
 
 ## VBR
 
-VBR has to hit its bitrate as well as look good. The bar puts every rung of yah265's within ±10% of its target over the whole cell. x265's rungs are drawn for comparison.
+VBR has to hit its bitrate as well as look good. The bar puts each rung of yah265's within ±10% of its target over the whole cell. x265's rungs are drawn for comparison.
 
 <!--gen:fig-tracking-->
 <figure class="chart"><img src="assets/charts/results/tracking.svg" alt="All 95 of yah265's VBR rungs come within 10% of their target."></figure>
 <!--/gen:fig-tracking-->
 
 <details class="data" markdown="1">
-<summary>VBR rate against target, every cell</summary>
+<summary>VBR rate against target, per cell</summary>
 
 <!--gen:vbr-track-->
 | cell | tier | yah265, five rungs | x265, five rungs |
@@ -443,7 +443,7 @@ VBR speed is read at G3 only. Each real-title cell runs one rung at the bitrate 
 <!--/gen:vbr-machines-->
 
 <details class="data" markdown="1">
-<summary>VBR encode time on the Mac, every cell</summary>
+<summary>VBR encode time on the Mac, per cell</summary>
 
 <!--gen:vbr-wall-->
 | cell | tier | target kbit/s | speed | yah265 against target | x265 against target |
@@ -480,7 +480,7 @@ I swept yah265's lookahead on a few cells instead of inheriting x265's depth. ya
 <!--/gen:fig-lookahead-->
 
 <details class="data" markdown="1">
-<summary>The lookahead sweep, every cell</summary>
+<summary>The lookahead sweep, per cell</summary>
 
 <!--gen:lookahead-->
 | cell | mode | yah265 at 12 | yah265 at 20 | yah265 at 30 |
@@ -501,7 +501,7 @@ I swept yah265's lookahead on a few cells instead of inheriting x265's depth. ya
 
 ## Content types
 
-Tier C is the content that codecs tend to handle unevenly: a scan of a 1924 film with heavy grain, four sports clips and three screen recordings. The tier ran on the Mac, where x265 ran its `medium` defaults on every clip with no `--tune`. yah265's `medium` detects screen content and handheld footage by itself. Those two detectors were built on clips in this tier.
+Tier C is the content that codecs tend to handle unevenly: a scan of a 1924 film with heavy grain, four sports clips and three screen recordings. The tier ran on the Mac, where x265 ran its `medium` defaults on all the clips with no `--tune`. yah265's `medium` detects screen content and handheld footage by itself. Those two detectors were built on clips in this tier.
 
 <!--gen:fig-tierc-->
 <figure class="chart"><img src="assets/charts/results/tierc.svg" alt="All 15 content-type curves with a BD-rate need fewer bits than x265."></figure>
@@ -535,4 +535,4 @@ HDR quality is read on its own metric, HDR-VMAF. The [HDR page](hdr.md) has thos
 
 ## The full record
 
-Every run behind this page is in <!--gen:report-all-->[the all-architecture report](docs/parity/PARITY-REPORT-yah265-all-isa-2026-11-14.md)<!--/gen:report-all-->.
+The runs behind this page are in <!--gen:report-all-->[the all-architecture report](docs/parity/PARITY-REPORT-yah265-all-isa-2026-11-14.md)<!--/gen:report-all-->.

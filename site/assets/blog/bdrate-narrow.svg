@@ -1,5 +1,5 @@
 <svg xmlns='http://www.w3.org/2000/svg' width='480' height='660' viewBox='0 0 480 660' role='img'>
-<title>A median 10.2% fewer bits for the same VMAF v1</title><desc>BD-rate against x265 medium on VMAF v1 for every rate ladder, CRF and capped VBR.</desc>
+<title>A median 10.2% fewer bits for the same VMAF v1</title><desc>BD-rate against x265 medium on VMAF v1 for the rate ladders, CRF and capped VBR.</desc>
 <style>
 .bg{fill:#ffffff}.t1{fill:#212529}.t2{fill:#495057}.grid{stroke:#e9ecef}
 .base{stroke:#868e96}.ring{stroke:#ffffff}.med{stroke:#212529}.band{fill:#f1f3f5}

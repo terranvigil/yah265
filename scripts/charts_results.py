@@ -272,7 +272,7 @@ def chart_speed(sp):
 def chart_machines(sps):
     rows = B.speed_rows(sps.values())
     meds = [v[0] for sp in sps.values() for v in sp.values()]
-    title = f"Against x265 as shipped, every group is at least {tf(max(meds)):.2f}x faster"
+    title = f"Against x265 as shipped, all groups are at least {tf(max(meds)):.2f}x faster"
     panels = [(GOAL_LABEL[g], {((c, t), j): sps[m][(c, t, g)][:2] for j, m in enumerate(MACHINES)
                                for c, t in rows if (c, t, g) in sps[m]}) for g in GOAL_ORDER]
     return title, chart_faster(
@@ -332,7 +332,7 @@ def chart_curves(lad, cells, bds):
     title = f"yah265 needs fewer bits than x265 on {above} of {len(cells)} real-title cells at CRF"
     o = head(W, H, title, "VMAF v1 against bitrate on five CRF rungs per encoder (CRF 20 to 32). "
              "Up and left is better. Each panel has its own scales.",
-             "Small multiples of VMAF v1 against bitrate for every two-minute and ten-minute "
+             "Small multiples of VMAF v1 against bitrate for the two-minute and ten-minute "
              "cell, yah265 and x265 at preset medium.")
     o.append(marker(0, 30, 86, "s1", 5.5))
     o.append(T(42, 91, "yah265", 13, "t2"))
@@ -390,7 +390,7 @@ def chart_tracking(cells, tr):
              f"rungs come within {TRACK_BAR:g}% of their target")
     o = head(W, H, title, "Achieved bitrate against the target over the whole cell, five rungs "
              f"per encoder. The shaded band is yah265's ±{TRACK_BAR:g}% bar.",
-             "Dot plot of VBR rate error per rung for every real-title cell, yah265 and x265.")
+             "Dot plot of VBR rate error per rung for the real-title cells, yah265 and x265.")
     B.legend(o, [(0, "s1", "yah265"), (1, "sx", "x265")])
     o.append(f"<rect x='{X(-TRACK_BAR):.1f}' y='{Tp - 8}' width='{X(TRACK_BAR) - X(-TRACK_BAR):.1f}' "
              f"height='{H - B_ - Tp + 8}' class='band'/>")
@@ -501,7 +501,7 @@ def chart_tierc(tc):
         o.append(T(L - 12, y + 14, content, 11, "t2", "end"))
         if vbr is None:
             o.append(T(X(0) - 10, y + 15, B.pick("VBR: no shared score range, yah265 above at "
-                       "every rung", "VBR: no shared range, yah265 above"), 11, "t2", "end"))
+                       "each rung", "VBR: no shared range, yah265 above"), 11, "t2", "end"))
         else:
             o.append(f"<line x1='{X(min(crf, vbr)):.1f}' y1='{y}' x2='{X(max(crf, vbr)):.1f}' "
                      f"y2='{y}' class='span' stroke-width='2'/>")

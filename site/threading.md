@@ -5,7 +5,7 @@ description: How yah265 spreads an encode over many cores, what a row of blocks 
 
 # Threading
 
-yah265 uses every core by default. This page explains how the work is divided, what limits it and which outputs repeat from run to run. [Design](design.md#the-pipeline) has the pipeline this page takes apart.
+yah265 uses all the cores by default. This page explains how the work is divided, what limits it and which outputs repeat from run to run. [Design](design.md#the-pipeline) has the pipeline this page takes apart.
 
 ## Rows are the unit of work
 
@@ -20,7 +20,7 @@ Inside a frame, a block needs its left, upper and upper-right neighbors to be fi
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 226" role="img" aria-labelledby="thr-wave-w-t thr-wave-w-d">
 <title id="thr-wave-w-t">Rows of one frame coded at the same time, each two units behind the row above</title>
-<desc id="thr-wave-w-d">One frame drawn as a grid of coding tree units, five rows deep. Every row is partly coded and has one unit being coded now. Each row's unit is two columns to the left of the one in the row above. The coded area is a staircase. For the unit being coded in the third row, three finished units are marked with a dashed outline: the one to its left, the one above it and the one above and to its right.</desc>
+<desc id="thr-wave-w-d">One frame drawn as a grid of coding tree units, five rows deep. All five rows are partly coded and each has one unit being coded now. Each row's unit is two columns to the left of the one in the row above. The coded area is a staircase. For the unit being coded in the third row, three finished units are marked with a dashed outline: the one to its left, the one above it and the one above and to its right.</desc>
 <rect class="d-fill" x="20" y="24" width="32" height="32" rx="0"/>
 <rect class="d-fill" x="52" y="24" width="32" height="32" rx="0"/>
 <rect class="d-fill" x="84" y="24" width="32" height="32" rx="0"/>
@@ -107,7 +107,7 @@ Inside a frame, a block needs its left, upper and upper-right neighbors to be fi
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 330" role="img" aria-labelledby="thr-wave-n-t thr-wave-n-d">
 <title id="thr-wave-n-t">Rows of one frame coded at the same time, each two units behind the row above</title>
-<desc id="thr-wave-n-d">One frame drawn as a grid of coding tree units, five rows deep. Every row is partly coded and has one unit being coded now. Each row's unit is two columns to the left of the one in the row above. The coded area is a staircase. For the unit being coded in the third row, three finished units are marked with a dashed outline: the one to its left, the one above it and the one above and to its right.</desc>
+<desc id="thr-wave-n-d">One frame drawn as a grid of coding tree units, five rows deep. All five rows are partly coded and each has one unit being coded now. Each row's unit is two columns to the left of the one in the row above. The coded area is a staircase. For the unit being coded in the third row, three finished units are marked with a dashed outline: the one to its left, the one above it and the one above and to its right.</desc>
 <rect class="d-fill" x="10" y="10" width="34" height="34" rx="0"/>
 <rect class="d-fill" x="44" y="10" width="34" height="34" rx="0"/>
 <rect class="d-fill" x="78" y="10" width="34" height="34" rx="0"/>
@@ -286,7 +286,7 @@ A row in a P or B frame predicts from other frames. It can start as soon as each
 <text class="d-label" x="180" y="462" text-anchor="middle">outlined rows: what the highlighted block's</text>
 <text class="d-label" x="180" y="480" text-anchor="middle">motion search can reach in its reference</text>
 </svg>
-<figcaption>A row can run as soon as the outlined rows are finished in every reference. It doesn't wait for the whole reference frame.</figcaption>
+<figcaption>A row can run as soon as the outlined rows are finished in all its references. It doesn't wait for the whole reference frame.</figcaption>
 </figure>
 
 The start rule is only a good guess. Whenever a block is about to touch a reference picture, the encoder checks that the rows it will read are published. If they aren't, the block waits while its worker picks up work from an older frame. Waits always point at older frames. Because the oldest frame never waits on another, the pool can't lock up.
@@ -504,20 +504,20 @@ All of that scales with the picture. At 4K a driver that did all of it alone wou
 <text class="d-label" x="180" y="470" text-anchor="middle">shaded bars: the same step's items, run by</text>
 <text class="d-label" x="180" y="488" text-anchor="middle">workers that had nothing else to do</text>
 </svg>
-<figcaption>The split changes when the analysis finishes. Because every sum is still added up in its old order, the results are the same numbers.</figcaption>
+<figcaption>The split changes when the analysis finishes. Because each sum is still added up in its old order, the results are the same numbers.</figcaption>
 </figure>
 
 The split isn't always a win. Because the hand-off costs more than it saves on small pictures, each step keeps a running time for both forms so that it can use the faster one.
 
 ## Input
 
-Reading the source is work too. Above one thread a separate thread reads frames ahead into a small buffer so that a slow disk or a slow decoder upstream doesn't add its time to every frame. At `--threads 1` the read stays inline.
+Reading the source is work too. Above one thread a separate thread reads frames ahead into a small buffer so that a slow disk or a slow decoder upstream doesn't add its time to each frame. At `--threads 1` the read stays inline.
 
 ## What stays identical
 
-At `--threads 1`, two runs of the same command are promised to write the same bytes. Every change has to pass a check of it before it merges.
+At `--threads 1`, two runs of the same command are promised to write the same bytes. A change has to pass a check of it before it merges.
 
-Above one thread, identical output is checked and reported. The design aims for it. A task reads only values that are fixed by the input and the settings. The schedule decides when a task runs, never what it reads. Every round of checks compares streams across thread counts and across repeated runs. A mismatch is recorded as a warning with its cause.
+Above one thread, identical output is checked and reported. The design aims for it. A task reads only values that are fixed by the input and the settings. The schedule decides when a task runs, never what it reads. A round of checks compares streams across thread counts and across repeated runs. A mismatch is recorded as a warning with its cause.
 
 Capped VBR is different by design. Above one thread its stream differs from the one-thread stream, for the reason in the next section.
 
@@ -527,7 +527,7 @@ Rate decisions are made in coding order on the driver, one frame at a time, befo
 
 Because fixed QP and CRF need nothing from earlier frames, their frames overlap freely. A mode that targets a bitrate wants to know how many bits the earlier frames really took. Plain ABR waits for them. Because its frames run one after another, only the rows inside a frame run in parallel.
 
-Capped VBR doesn't wait. Above one thread it plans each frame from the actual sizes of frames up to eight back and from the planned sizes of the ones still in flight. Its speed is kept that way, at the price of a stream that differs from the one-thread stream. A buffer shorter than 1.2 seconds of maxrate is the exception. Because frames in flight would overdraw a buffer that shallow, the encoder waits there at every thread count and writes the one-thread stream.
+Capped VBR doesn't wait. Above one thread it plans each frame from the actual sizes of frames up to eight back and from the planned sizes of the ones still in flight. Its speed is kept that way, at the price of a stream that differs from the one-thread stream. A buffer shorter than 1.2 seconds of maxrate is the exception. Because frames in flight would overdraw a buffer that shallow, the encoder waits there at any thread count and writes the one-thread stream.
 
 ## Segment-parallel encoding
 

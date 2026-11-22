@@ -145,7 +145,7 @@ def chart_home(cm, n_all):
     xmax = max(2.0, int(top * 2 + 1.999) / 2)
     X = lambda v: L + v / xmax * (W - L - R)
     H = Tp + len(bc.MACHINES) * (ph + rowh * len(classes)) + bc.pick(50, 82)
-    title = "yah265 is faster than x265 at every picture size on all three machines"
+    title = "yah265 is faster than x265 at each picture size on all three machines"
     o = head(W, H, title,
              "Bars of the median times faster than x265 at the same file size, per picture "
              "size, on an Apple M5 Max, an Intel Xeon and an AWS Graviton4. Both encoders at "
@@ -181,7 +181,7 @@ def chart_home(cm, n_all):
     while v <= xmax + 1e-9:
         o.append(bc.T(X(v), y + 20, "0" if v == 0 else f"{v:g}x", 12, "t2", "middle"))
         v += bc.pick(0.5, 1.0)
-    bc.note(o, bc.pick(X(0), 24), y + 40, f"Median over every valid cell of a size: short clips, "
+    bc.note(o, bc.pick(X(0), 24), y + 40, f"Median over the valid cells of a size: short clips, "
             f"two-minute segments and ten-minute films. {n_all} cells in all.", 12, "t2", W - 48)
     o.append("</svg>")
     return "\n".join(o)
@@ -203,7 +203,7 @@ def chart_hdr(data):
     xmax = (int(top / 10) + 1) * 10
     X = lambda v: L + v / xmax * (W - L - R)
     H = Tp + sum(ph + rowh * len(rs) for _, rs in panels) + 34
-    title = "yah265 needs fewer bits than x265 for the same HDR-VMAF on every cell"
+    title = "yah265 needs fewer bits than x265 for the same HDR-VMAF on each cell"
     o = head(W, H, title,
              "Bars of the share of bitrate yah265 saves at equal HDR-VMAF, per title and "
              "picture size, against x265 and against x265 with its PQ tuning on.")
@@ -323,7 +323,7 @@ GROUPS = [
         ("--cbqpoffs", "the preset's", "Cb quantizer offset from luma, -12 to 12. A negative value spends more bits on chroma."),
         ("--crqpoffs", "the preset's", "The same for Cr."),
         ("--lossless", "off", "Lossless coding. Rate control, AQ and the loop filters are off."),
-        ("--pcm", "off", "Code every block as raw samples. A test mode with very large output."),
+        ("--pcm", "off", "Code each block as raw samples. A test mode with very large output."),
     ]),
     ("Steering an encode by frame", [
         ("--qpfile", "none", "Force frame types and QPs from a file, one `<frame> <type> [<qp>]` line each. Types are `I`, `K`, `i` and `-`."),
@@ -345,7 +345,7 @@ GROUPS = [
         ("--ctu", "the preset's", "Coding tree block size: 16, 32 or 64."),
         ("--tu-inter-depth", "`2`", "Transform tree levels an inter block may use, 1 to 4."),
         ("--tu-intra-depth", "`2`", "Transform tree levels an intra block may use, 1 to 4."),
-        ("--rdoq-level", "the preset's", "Rate-distortion optimized quantization: `0` off, `1` at the final encode of a block, `2` in every decision."),
+        ("--rdoq-level", "the preset's", "Rate-distortion optimized quantization: `0` off, `1` at the final encode of a block, `2` in all decisions."),
     ]),
     ("Threads", [
         ("--threads", "`0`", "Worker threads. `0` starts one per online CPU. At `1`, two runs of a command write the same bytes. Above one thread the stream can differ between runs."),
@@ -369,14 +369,14 @@ GROUPS = [
         ("--selective-mcstf", "off", "Skip the filter on pictures that measure clean."),
     ]),
     ("Stream structure and SEI", [
-        ("--repeat-headers", "off", "Write the parameter sets at every key frame, for a receiver that joins mid-stream."),
-        ("--aud", "off", "An access unit delimiter at the head of every picture."),
+        ("--repeat-headers", "off", "Write the parameter sets at each key frame, for a receiver that joins mid-stream."),
+        ("--aud", "off", "An access unit delimiter at the head of each picture."),
         ("--eos", "off", "An end-of-sequence NAL before each IDR after the first and at the end of the stream."),
         ("--eob", "off", "An end-of-bitstream NAL as the last NAL."),
         ("--no-info", "info on", "Drop the SEI message naming the encoder, its version and its options. `--info` keeps it."),
         ("--no-fingerprint", "fingerprint on", "Drop the stream fingerprint, the mark that survives when SEI messages are stripped."),
         ("--hash", "`0`", "A hash of each decoded picture in an SEI message: `1` MD5, `2` CRC, `3` checksum."),
-        ("--idr-recovery-sei", "off", "A recovery point SEI at every key frame."),
+        ("--idr-recovery-sei", "off", "A recovery point SEI at each key frame."),
         ("--pic-struct", "off", "The picture timing SEI's pic_struct, 0 to 12. `7` doubles a frame and `8` triples it. Needs a buffer."),
         ("--hrd-concat", "off", "Mark the first key frame as spliced onto another stream. Needs a buffer."),
         ("--temporal-layers", "off", "Put unreferenced B-frames in a second temporal layer. A player can then drop them and halve the frame rate."),

@@ -877,7 +877,7 @@ def chart_arch(sps, date):
     o = head(W, H, "yah265 is faster than x265 on all three machines",
              "Median times faster than x265 medium at G3, SIMD on all cores, per class and "
              "tier, on an Apple M5 Max, an x86-64 Xeon and a Graviton4.")
-    o.append(T(24, 40, "Faster than x265 on all three machines, in every class", 22, weight="600"))
+    o.append(T(24, 40, "Faster than x265 on all three machines, in each class", 22, weight="600"))
     o.append(T(24, 64, f"Median times faster than x265 medium at the same file size, SIMD on "
                        f"all cores (G3). Parity report of {date}.", 14, "t2"))
     legend(o, [(i, f"s{i + 1}", MACHINE_LABEL[m]) for i, m in enumerate(MACHINES)])
@@ -988,7 +988,7 @@ def chart_bd(lad, date):
     X = lambda v: L + (v - x0) / (x1 - x0) * (W - L - R)
     medv = st.median(allv)
     o = head(W, H, f"A median {abs(medv):.1f}% fewer bits for the same VMAF v1",
-             "BD-rate against x265 medium on VMAF v1 for every rate ladder, CRF and capped VBR.")
+             "BD-rate against x265 medium on VMAF v1 for the rate ladders, CRF and capped VBR.")
     o.append(T(24, 40, f"A median {abs(medv):.1f}% fewer bits for the same quality", 22, weight="600"))
     o.append(T(24, 64, f"BD-rate against x265 medium on VMAF v1, {len(allv)} rate ladders on real "
                        f"titles. Left of zero needs fewer bits. Report of {date}.", 14, "t2"))

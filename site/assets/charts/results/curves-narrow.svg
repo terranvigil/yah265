@@ -1,5 +1,5 @@
 <svg xmlns='http://www.w3.org/2000/svg' width='480' height='1852' viewBox='0 0 480 1852' role='img'>
-<title>yah265 needs fewer bits than x265 on 19 of 19 real-title cells at CRF</title><desc>Small multiples of VMAF v1 against bitrate for every two-minute and ten-minute cell, yah265 and x265 at preset medium.</desc>
+<title>yah265 needs fewer bits than x265 on 19 of 19 real-title cells at CRF</title><desc>Small multiples of VMAF v1 against bitrate for the two-minute and ten-minute cell, yah265 and x265 at preset medium.</desc>
 <style>
 .bg{fill:#ffffff}.t1{fill:#212529}.t2{fill:#495057}.grid{stroke:#e9ecef}
 .base{stroke:#868e96}.ring{stroke:#ffffff}.med{stroke:#212529}.band{fill:#f1f3f5}
