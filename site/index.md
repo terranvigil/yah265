@@ -106,7 +106,7 @@ I've worked in video ingestion, encoding, packaging and delivery for nearly 20 y
 
 ## A family
 
-I wrote yah265 from the ITU-T H.265 specification to see whether a new encoder could pass x265 at its default preset on speed and on VMAF v1 together. The [launch post](blog.md) tells the full story.
+I wrote yah265 from the ITU-T H.265 specification to see whether a new encoder could pass x265 at its default preset on speed and on VMAF v1 together. [Here's the full story.](blog.md)
 
 yah265 is the second of three sibling encoders. [yah264](https://terranvigil.github.io/yah264/) met the same goals against x264 first. yaav1 is coming soon!
 
