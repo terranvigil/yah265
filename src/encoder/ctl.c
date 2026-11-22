@@ -42,9 +42,6 @@ n265_ctl *n265_ctl_new(const n265_encoder *e)
         c->slot[i].disp = -1;
     c->qp_min = e->qpmin;
     c->qp_max = e->qpmax;
-    c->q_kbps = e->abr_on ? e->abr_bitrate / 1000.0 : 0.0;
-    c->q_maxrate = e->vbv.on ? e->vbv.maxrate / 1000.0 : 0.0;
-    c->q_bufsize = e->vbv.on ? e->vbv.bufsize / 1000.0 : 0.0;
     c->cbr = e->abr_on && e->vbv.on &&
              !(e->vbv.maxrate > e->abr_bitrate * 1.0001);
     c->fps = e->param.fps_num > 0 && e->param.fps_den > 0
@@ -346,6 +343,61 @@ static int zone_overlaps(const n265_encoder *e, int64_t first, int64_t last)
     return 0;
 }
 
+static void qp_fold(int *lo, int *hi, const n265_control_t *ev)
+{
+    if (ev->qp_min >= 0)
+        *lo = ev->qp_min;
+    if (ev->qp_max >= 0)
+        *hi = ev->qp_max;
+}
+
+/* The rate state an event landing on frame f meets: what is in force
+ * now, then every queued RATE named at or before f, in queue order. */
+typedef struct { double k, m, b; } rate_state;
+
+static void rate_fold(rate_state *s, const n265_control_t *ev)
+{
+    if (ev->bitrate_kbps)
+        s->k = ev->bitrate_kbps;
+    if (ev->vbv_maxrate_kbps)
+        s->m = ev->vbv_maxrate_kbps;
+    if (ev->vbv_bufsize_kbit)
+        s->b = ev->vbv_bufsize_kbit;
+}
+
+static rate_state rate_at(const n265_encoder *e, int64_t f)
+{
+    const n265_ctl *c = e->ctl;
+    rate_state s = { e->abr_on ? e->abr_bitrate / 1000.0 : 0.0,
+                     e->vbv.on ? e->vbv.maxrate / 1000.0 : 0.0,
+                     e->vbv.on ? e->vbv.bufsize / 1000.0 : 0.0 };
+    for (int i = 0; i < c->nrq && c->rq[i].frame <= f; i++)
+        if (c->rq[i].kind == N265_CTL_RATE)
+            rate_fold(&s, &c->rq[i]);
+    return s;
+}
+
+/* the mode, HRD and level rules for one resolved rate state */
+static int rate_valid(const n265_encoder *e, const rate_state *s)
+{
+    const n265_ctl *c = e->ctl;
+    if (e->abr_on && e->vbv.on) {
+        int cbr_now = !(s->m > s->k * 1.0001);
+        if (c->cbr ? !cbr_now || s->m < s->k * 0.9999 : cbr_now)
+            return N265_CTL_EMODE;
+    }
+    if (e->hrd_on && (s->m * 1000.0 > (double)e->hrd_bit_rate_bits ||
+                      s->k * 1000.0 > (double)e->hrd_bit_rate_bits ||
+                      s->b * 1000.0 > (double)e->hrd_cpb_size_bits))
+        return N265_CTL_EHRD;
+    double br = (s->k > s->m ? s->k : s->m) * 1000.0;
+    if ((e->level.max_br > 0 && br > (double)e->level.max_br) ||
+        (e->vbv.on && e->level.max_cpb > 0 &&
+         s->b * 1000.0 > (double)e->level.max_cpb))
+        return N265_CTL_ELEVEL;
+    return N265_CTL_OK;
+}
+
 static int check(n265_encoder *e, n265_control_t *v)
 {
     n265_ctl *c = e->ctl;
@@ -368,28 +420,22 @@ static int check(n265_encoder *e, n265_control_t *v)
         /* a CBR declaration pads the stream back up to its rate */
         if (e->hrd_on && e->strict_cbr)
             return N265_CTL_EHRD;
-        double nk = v->bitrate_kbps ? v->bitrate_kbps : c->q_kbps;
-        double nm = v->vbv_maxrate_kbps ? v->vbv_maxrate_kbps : c->q_maxrate;
-        double nb = v->vbv_bufsize_kbit ? v->vbv_bufsize_kbit : c->q_bufsize;
+        /* CBR: the cap follows the target, and the event carries what it
+         * resolves to so the echo replays it */
         if (c->cbr && v->bitrate_kbps && !v->vbv_maxrate_kbps)
-            nm = nk;
-        if (e->abr_on && e->vbv.on) {
-            int cbr_now = !(nm > nk * 1.0001);
-            if (c->cbr ? !cbr_now || nm < nk * 0.9999 : cbr_now)
-                return N265_CTL_EMODE;
-        }
-        if (e->hrd_on && (nm * 1000.0 > (double)e->hrd_bit_rate_bits ||
-                          nk * 1000.0 > (double)e->hrd_bit_rate_bits ||
-                          nb * 1000.0 > (double)e->hrd_cpb_size_bits))
-            return N265_CTL_EHRD;
-        double br = (nk > nm ? nk : nm) * 1000.0;
-        if ((e->level.max_br > 0 && br > (double)e->level.max_br) ||
-            (e->vbv.on && e->level.max_cpb > 0 &&
-             nb * 1000.0 > (double)e->level.max_cpb))
-            return N265_CTL_ELEVEL;
-        /* the event carries what it resolves to, so the echo replays it */
-        if (c->cbr && v->bitrate_kbps && !v->vbv_maxrate_kbps)
-            v->vbv_maxrate_kbps = (int)nm;
+            v->vbv_maxrate_kbps = v->bitrate_kbps;
+        rate_state s = rate_at(e, v->frame);
+        rate_fold(&s, v);
+        int r = rate_valid(e, &s);
+        if (r != N265_CTL_OK)
+            return r;
+        /* ...and every later queued RATE must still hold on top of it */
+        for (int i = 0; i < c->nrq; i++)
+            if (c->rq[i].frame > v->frame && c->rq[i].kind == N265_CTL_RATE) {
+                rate_fold(&s, &c->rq[i]);
+                if ((r = rate_valid(e, &s)) != N265_CTL_OK)
+                    return r;
+            }
         return N265_CTL_OK;
     }
     case N265_CTL_CRF:
@@ -405,18 +451,22 @@ static int check(n265_encoder *e, n265_control_t *v)
         if (v->qp_min < -1 || v->qp_min > 51 || v->qp_max < -1 ||
             v->qp_max > 51 || (v->qp_min < 0 && v->qp_max < 0))
             return N265_CTL_EINVAL;
-        int lo = v->qp_min >= 0 ? v->qp_min : c->qp_min;
-        int hi = v->qp_max >= 0 ? v->qp_max : c->qp_max;
-        for (int i = 0; i < c->nfq; i++)
-            if (c->fq[i].kind == N265_CTL_QP_LIMITS &&
-                c->fq[i].frame <= v->frame) {
-                if (v->qp_min < 0 && c->fq[i].qp_min >= 0)
-                    lo = c->fq[i].qp_min;
-                if (v->qp_max < 0 && c->fq[i].qp_max >= 0)
-                    hi = c->fq[i].qp_max;
-            }
+        /* the limits in force at its frame, then at every later queued
+         * QP_LIMITS on top of it */
+        int lo = c->qp_min, hi = c->qp_max;
+        for (int i = 0; i < c->nfq && c->fq[i].frame <= v->frame; i++)
+            if (c->fq[i].kind == N265_CTL_QP_LIMITS)
+                qp_fold(&lo, &hi, &c->fq[i]);
+        qp_fold(&lo, &hi, v);
         if (lo > hi)
             return N265_CTL_EINVAL;
+        for (int i = 0; i < c->nfq; i++)
+            if (c->fq[i].frame > v->frame &&
+                c->fq[i].kind == N265_CTL_QP_LIMITS) {
+                qp_fold(&lo, &hi, &c->fq[i]);
+                if (lo > hi)
+                    return N265_CTL_EINVAL;
+            }
         /* the buffer may need the QPs above a ceiling */
         if (e->hrd_on && v->qp_max >= 0 && v->qp_max < 51)
             return N265_CTL_EHRD;
@@ -462,14 +512,6 @@ int n265_encoder_control(n265_encoder *e, n265_control_t *ev)
     if (v.kind == N265_CTL_RATE || v.kind == N265_CTL_CRF) {
         if (q_insert(&c->rq, &c->nrq, &c->crq, &v) < 0)
             return N265_CTL_ENOMEM;
-        if (v.kind == N265_CTL_RATE) {
-            if (v.bitrate_kbps)
-                c->q_kbps = v.bitrate_kbps;
-            if (v.vbv_maxrate_kbps)
-                c->q_maxrate = v.vbv_maxrate_kbps;
-            if (v.vbv_bufsize_kbit)
-                c->q_bufsize = v.vbv_bufsize_kbit;
-        }
     } else {
         if (v.kind == N265_CTL_ZONE) {
             if (c->nz == c->cz) {

@@ -88,5 +88,21 @@ for clip in $CLIPS; do
         fi
     done
 done
+# --control-out order: a RATE at 100 then a KEY at 120 apply backwards
+# (the key at its push, the rate at a later anchor's decision), and a tie
+# on frame 100 keeps hand-in order. Submitted out of order on a
+# descriptor, the log comes back sorted and replays to the same bytes.
+src=$CORPUS/foreman_cif.y4m
+echo "control-out order"
+printf '%s\n' '120 key' '100 rate bitrate=300' '100 key' '60 qp min=20' \
+    > "$T/ord.in"
+printf '%s\n' '#livectl 1' '60 qp min=20' '100 rate bitrate=300' '100 key' \
+    '120 key' > "$T/ord.want"
+"$NEW" "$src" --frames 140 --threads 1 --bitrate 500 -o "$T/o1.hevc" \
+    --control-fd 3 --control-out "$T/ord.out" 3< "$T/ord.in" 2>/dev/null
+same "sorted, ties in hand-in order" "$T/ord.want" "$T/ord.out"
+"$NEW" "$src" --frames 140 --threads 1 --bitrate 500 -o "$T/o2.hevc" \
+    --control "$T/ord.out" 2>/dev/null
+same "replay" "$T/o1.hevc" "$T/o2.hevc"
 [ $fail = 0 ] && echo "ctl_identity: OK" || echo "ctl_identity: FAIL"
 exit $fail

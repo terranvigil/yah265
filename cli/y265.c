@@ -2516,10 +2516,58 @@ typedef struct {
     char buf[8192];
     size_t len;
     FILE *out;
-    /* applied events for --control-out, written sorted by named frame */
-    struct ctl_rec { int64_t frame; char text[256]; } *rec;
+    /* applied events for --control-out, written sorted by named frame
+     * and, within a frame, in the order handed in (`seq`) */
+    struct ctl_rec { int64_t frame; long seq; char text[256]; } *rec;
     int nrec, crec;
+    /* every accepted event, in hand-in order, to find an applied one's */
+    n265_control_t *sub;
+    char *used;
+    int nsub, csub;
 } ctl_cli;
+
+static int ctl_send(ctl_cli *c, n265_control_t *v)
+{
+    int r = c->a->encoder_control(c->enc, v);
+    if (r < 0 || !c->out)
+        return r;
+    if (c->nsub == c->csub) {
+        int nc = c->csub ? 2 * c->csub : 64;
+        n265_control_t *s = realloc(c->sub, (size_t)nc * sizeof *s);
+        char *u = s ? realloc(c->used, (size_t)nc) : NULL;
+        if (s)
+            c->sub = s;
+        if (!u)
+            return r;
+        c->used = u;
+        c->csub = nc;
+    }
+    c->sub[c->nsub] = *v;
+    c->used[c->nsub++] = 0;
+    return r;
+}
+
+static int ctl_same(const n265_control_t *a, const n265_control_t *b)
+{
+    return a->kind == b->kind && a->frame == b->frame &&
+           a->bitrate_kbps == b->bitrate_kbps &&
+           a->vbv_maxrate_kbps == b->vbv_maxrate_kbps &&
+           a->vbv_bufsize_kbit == b->vbv_bufsize_kbit && a->crf == b->crf &&
+           a->qp_min == b->qp_min && a->qp_max == b->qp_max &&
+           a->last == b->last && a->qp_offset == b->qp_offset;
+}
+
+/* the hand-in position of an applied event; equal events are
+ * interchangeable, so the first unclaimed match is the one */
+static long ctl_seq(ctl_cli *c, const n265_control_t *v)
+{
+    for (int i = 0; i < c->nsub; i++)
+        if (!c->used[i] && ctl_same(&c->sub[i], v)) {
+            c->used[i] = 1;
+            return i;
+        }
+    return c->nsub;
+}
 
 static void ctl_from_log(const n265_api *a, const struct ctl_log_event *l,
                          n265_control_t *v)
@@ -2633,7 +2681,7 @@ static int ctl_submit_file(ctl_cli *c, const char *path, const ctl_file *cf)
     for (int i = 0; i < cf->n; i++) {
         n265_control_t v;
         ctl_from_log(c->a, &cf->ev[i], &v);
-        int r = c->a->encoder_control(c->enc, &v);
+        int r = ctl_send(c, &v);
         if (r < 0) {
             fprintf(stderr, "y265: --control %s:%ld: %s\n", path,
                     cf->line[i], c->a->control_strerror(r));
@@ -2666,7 +2714,7 @@ static int ctl_fd_line(ctl_cli *c, const char *ln)
         return 0;
     n265_control_t v;
     ctl_from_log(c->a, &ev, &v);
-    r = c->a->encoder_control(c->enc, &v);
+    r = ctl_send(c, &v);
     if (r == N265_CTL_ELATE)
         fprintf(stderr, "y265: --control-fd line %ld skipped: frame %lld "
                 "has already been handed in\n", c->line,
@@ -2744,6 +2792,7 @@ static void ctl_drain(ctl_cli *c)
                 c->crec = nc;
             }
             c->rec[c->nrec].frame = ev[i].frame;
+            c->rec[c->nrec].seq = ctl_seq(c, &ev[i]);
             memcpy(c->rec[c->nrec++].text, line, sizeof line);
         }
     } while (n == 16);
@@ -2751,12 +2800,13 @@ static void ctl_drain(ctl_cli *c)
 
 /* Application order can run backwards in frame (a rate event lands at a
  * later anchor than a key named after it), and --control wants frames
- * that never decrease: a stable sort by named frame keeps the order of
- * events on one frame, which is all a replay reads. */
+ * that never decrease. */
 static int ctl_write_out(ctl_cli *c)
 {
     for (int i = 1; i < c->nrec; i++)
-        for (int k = i; k > 0 && c->rec[k].frame < c->rec[k - 1].frame; k--) {
+        for (int k = i; k > 0 && (c->rec[k].frame < c->rec[k - 1].frame ||
+                                  (c->rec[k].frame == c->rec[k - 1].frame &&
+                                   c->rec[k].seq < c->rec[k - 1].seq)); k--) {
             struct ctl_rec t = c->rec[k];
             c->rec[k] = c->rec[k - 1];
             c->rec[k - 1] = t;
@@ -2764,6 +2814,8 @@ static int ctl_write_out(ctl_cli *c)
     for (int i = 0; i < c->nrec; i++)
         fprintf(c->out, "%s\n", c->rec[i].text);
     free(c->rec);
+    free(c->sub);
+    free(c->used);
     return fclose(c->out);
 }
 
@@ -3105,7 +3157,19 @@ int main(int argc, char **argv)
         a->set_csv(enc, csv_path, csv_level);
     if (o.fstats_path)
         a->set_frame_stats(enc, o.fstats_path);
-    ctl_cli cc = { a, enc, o.ctl_fd, 0, 0, { 0 }, 0, NULL, NULL, 0, 0 };
+    ctl_cli cc = { 0 };
+    cc.a = a;
+    cc.enc = enc;
+    cc.fd = o.ctl_fd;
+    if (o.ctl_out_path) {
+        cc.out = fopen(o.ctl_out_path, "w");
+        if (!cc.out) {
+            fprintf(stderr, "y265: cannot open %s: %s\n", o.ctl_out_path,
+                    strerror(errno));
+            return 1;
+        }
+        fprintf(cc.out, "#livectl %d\n", CTL_LOG_VERSION);
+    }
     if (o.ctl_path) {
         int r = ctl_submit_file(&cc, o.ctl_path, &cfile);
         free(cfile.ev);
@@ -3120,15 +3184,6 @@ int main(int argc, char **argv)
                     strerror(errno));
             return 2;
         }
-    }
-    if (o.ctl_out_path) {
-        cc.out = fopen(o.ctl_out_path, "w");
-        if (!cc.out) {
-            fprintf(stderr, "y265: cannot open %s: %s\n", o.ctl_out_path,
-                    strerror(errno));
-            return 1;
-        }
-        fprintf(cc.out, "#livectl %d\n", CTL_LOG_VERSION);
     }
     FILE *fdump = NULL;
     if (dump_path) {

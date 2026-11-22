@@ -327,6 +327,53 @@ static void test_abr(void)
     CHECK(ctl(e, N265_CTL_RATE, 0, &v) == N265_CTL_EHRD);
     n265_encoder_close(e);
 
+    /* each event is checked against the state at its own frame, and may
+     * not break a later queued one */
+    e = open_with("bitrate=500:vbv-maxrate=750:vbv-bufsize=750:threads=1:"
+                  "no-hrd");
+    CHECK(e);
+    n265_control_init(&v, 0);
+    v.bitrate_kbps = 300;
+    v.vbv_maxrate_kbps = 400;
+    CHECK(ctl(e, N265_CTL_RATE, 20, &v) == N265_CTL_OK);
+    n265_control_init(&v, 0);
+    v.vbv_maxrate_kbps = 450;   /* under frame 10's bitrate of 500 */
+    CHECK(ctl(e, N265_CTL_RATE, 10, &v) == N265_CTL_EMODE);
+    v.vbv_maxrate_kbps = 600;
+    CHECK(ctl(e, N265_CTL_RATE, 10, &v) == N265_CTL_OK);
+    n265_control_init(&v, 0);
+    v.bitrate_kbps = 350;       /* frame 30 rides frame 20's maxrate 400 */
+    CHECK(ctl(e, N265_CTL_RATE, 30, &v) == N265_CTL_OK);
+    v.bitrate_kbps = 450;
+    CHECK(ctl(e, N265_CTL_RATE, 30, &v) == N265_CTL_EMODE);
+    n265_control_init(&v, 0);
+    v.vbv_maxrate_kbps = 900;   /* frame 40 alone: 350/900 holds */
+    CHECK(ctl(e, N265_CTL_RATE, 40, &v) == N265_CTL_OK);
+    n265_control_init(&v, 0);
+    v.bitrate_kbps = 380;       /* under frame 20's maxrate of 400 */
+    CHECK(ctl(e, N265_CTL_RATE, 25, &v) == N265_CTL_OK);
+    n265_control_init(&v, 0);
+    v.vbv_maxrate_kbps = 360;   /* valid at 35 over 350, breaks nothing */
+    CHECK(ctl(e, N265_CTL_RATE, 35, &v) == N265_CTL_OK);
+    n265_control_init(&v, 0);
+    v.bitrate_kbps = 370;       /* valid at 32 (370 < 400), but frame 35's
+                                 * maxrate 360 would then sit under it */
+    CHECK(ctl(e, N265_CTL_RATE, 32, &v) == N265_CTL_EMODE);
+    n265_control_init(&v, 0);
+    v.qp_max = 35;
+    CHECK(ctl(e, N265_CTL_QP_LIMITS, 20, &v) == N265_CTL_OK);
+    n265_control_init(&v, 0);
+    v.qp_min = 40;              /* fine at 10, breaks frame 20's ceiling */
+    CHECK(ctl(e, N265_CTL_QP_LIMITS, 10, &v) == N265_CTL_EINVAL);
+    v.qp_min = 30;
+    CHECK(ctl(e, N265_CTL_QP_LIMITS, 10, &v) == N265_CTL_OK);
+    n265_control_init(&v, 0);
+    v.qp_max = 28;              /* under frame 10's floor of 30 */
+    CHECK(ctl(e, N265_CTL_QP_LIMITS, 15, &v) == N265_CTL_EINVAL);
+    v.qp_max = 32;
+    CHECK(ctl(e, N265_CTL_QP_LIMITS, 15, &v) == N265_CTL_OK);
+    n265_encoder_close(e);
+
     /* a CBR declaration refuses every RATE */
     e = open_with("bitrate=500:vbv-maxrate=500:vbv-bufsize=500:"
                   "strict-cbr:threads=1");

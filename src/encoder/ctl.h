@@ -39,8 +39,6 @@ typedef struct n265_ctl {
     struct n265_ctl_zone *zones;
     int nz, cz;
     int qp_min, qp_max;         /* in force at the next push */
-    /* what the accepted events leave in force, for validation */
-    double q_kbps, q_maxrate, q_bufsize;
     int cbr;                    /* opened with maxrate equal to the bitrate */
     double fps;
     struct n265_ctl_slot *slot;
