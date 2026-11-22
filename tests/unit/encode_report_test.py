@@ -82,6 +82,11 @@ class ReportTest(unittest.TestCase):
         k = er.rolling_kbps([{"bytes": 1000}] * 60, 30.0)
         self.assertAlmostEqual(k[0], 240.0)
         self.assertAlmostEqual(k[-1], 240.0)
+        # the opening intra picture is spread over the first full second
+        k = er.rolling_kbps([{"bytes": 30000}] + [{"bytes": 0}] * 59, 30.0)
+        self.assertAlmostEqual(k[0], 240.0)
+        self.assertAlmostEqual(k[29], 240.0)
+        self.assertAlmostEqual(k[30], 0.0)
 
     def test_bucket_keeps_the_mean(self):
         b = er.bucket(list(range(10000)), 100)

@@ -27,6 +27,7 @@ import argparse
 import base64
 import html
 import json
+import math
 import os
 import re
 import shutil
@@ -170,15 +171,18 @@ def build_shots(frames, fps):
 
 
 def rolling_kbps(frames, fps):
-    """Bitrate over a one-second window ending at each frame."""
-    win = max(1, int(round(fps)))
-    out, acc = [], 0
-    for i, r in enumerate(frames):
-        acc += r["bytes"]
-        if i >= win:
-            acc -= frames[i - win]["bytes"]
-        n = min(i + 1, win)
-        out.append(acc * 8 * fps / n / 1000.0)
+    """Bitrate over the one-second window ending at each frame. The first
+    second reads the first full window, so the opening intra picture
+    doesn't read as a one-frame rate."""
+    n = len(frames)
+    win = max(1, min(n, int(round(fps))))
+    pre = [0]
+    for r in frames:
+        pre.append(pre[-1] + r["bytes"])
+    out = []
+    for i in range(n):
+        a = max(0, min(i - win + 1, n - win))
+        out.append((pre[a + win] - pre[a]) * 8 * fps / win / 1000.0)
     return out
 
 
@@ -199,7 +203,6 @@ def bucket(values, n_out):
 def nice_max(v):
     if v <= 0:
         return 1.0
-    import math
     e = 10 ** math.floor(math.log10(v))
     for m in (1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10):
         if m * e >= v:
@@ -337,15 +340,14 @@ def y_labels(ymax, ticks, unit=""):
 
 def x_labels(n, fps):
     dur = n / fps
-    import math
-    target = 6
-    raw = dur / target
+    raw = dur / 6
     steps = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600]
     step = next((s for s in steps if s >= raw), steps[-1])
     out = []
     t = 0.0
     while t <= dur + 1e-9:
-        out.append(f'<span style="left:{t * fps / n * 100:.2f}%">'
+        end = ' class="end"' if t > 0 and dur - t < step / 2 else ""
+        out.append(f'<span{end} style="left:{t * fps / n * 100:.2f}%">'
                    f'{fmt_time(t)}</span>')
         t += step
     return f'<div class="xlab">{"".join(out)}</div>'
@@ -438,6 +440,7 @@ font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
 .xlab span{position:absolute;transform:translateX(-50%);font-size:11px;
 color:var(--muted);white-space:nowrap}
 .xlab span:first-child{transform:none}
+.xlab span.end{transform:translateX(-100%)}
 .area{position:absolute;inset:0}
 .brow .area{position:relative;inset:auto;flex:1;height:18px}
 svg.plot,svg.band{position:absolute;inset:0;width:100%;height:100%;
@@ -841,8 +844,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     frames = load_frames(a.frames)
     cfg = load_config(a.config)
-    title = a.title or (os.path.basename(a.stream) if a.stream
-                        else os.path.basename(a.frames))
+    title = os.path.basename(a.title or a.stream or a.frames)
     page = render(frames, cfg, title, a.fps,
                   None if a.no_thumbs else a.stream, a.thumb_width,
                   a.max_thumbs)
