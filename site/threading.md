@@ -289,9 +289,9 @@ A row in a P or B frame predicts from other frames. It can start as soon as each
 <figcaption>A row can run as soon as the outlined rows are finished in all its references. It doesn't wait for the whole reference frame.</figcaption>
 </figure>
 
-The start rule is only a good guess. Whenever a block is about to touch a reference picture, the encoder checks that the rows it will read are published. If they aren't, the block waits while its worker picks up work from an older frame. Waits always point at older frames. Because the oldest frame never waits on another, the pool can't lock up.
+Before a block reads a reference picture, the encoder checks that the rows it needs are done. If they aren't, the block waits and its worker takes other work.
 
-Forbidding motion vectors that point too far down the reference is another way to make frames overlap. Because that narrows what the encoder can choose, I chose waiting instead. A vector may point anywhere the standard allows.
+Another way is to limit how far down a motion vector may point. That costs quality, so I chose waiting instead.
 
 ## Frames in flight
 
@@ -299,10 +299,9 @@ One frame can't keep a large pool busy, because only so many of its rows can run
 
 | picture | frames in flight |
 |---|--:|
-| too small to fill the pool with two frames, such as CIF | 8 |
-| 720p | 8 |
-| 1080p and 4K on the 64x64 tree | 12 |
-| anything else | 6 |
+| CIF and 720p | 8 |
+| 1080p and 4K | 12 |
+| other sizes | 6 |
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 350" role="img" aria-label="Twelve frames in flight, reference frames first">
@@ -380,7 +379,7 @@ One frame can't keep a large pool busy, because only so many of its rows can run
 <figcaption>A sketch of the schedule on a 64x64 tree, drawn to show the order. The bar lengths aren't measured.</figcaption>
 </figure>
 
-Two rules keep a deep queue moving. Frames that others predict from get workers first, since later frames are waiting on their rows. On wide pictures a row gives up its worker when it finds the row above too close.
+Two rules keep a deep queue moving. Frames that others predict from get workers first, since later frames are waiting on their rows. On wide pictures a row that catches up with the row above gives its worker to another row.
 
 More frames in flight need more memory, because each one holds its own pictures.
 
@@ -507,7 +506,7 @@ All of that scales with the picture. At 4K a driver that did all of it alone wou
 <figcaption>The split changes when the analysis finishes. Because each sum is still added up in its old order, the results are the same numbers.</figcaption>
 </figure>
 
-The split isn't always a win. Because the hand-off costs more than it saves on small pictures, each step keeps a running time for both forms so that it can use the faster one.
+The split isn't always a win. On small pictures the hand-off costs more than it saves, so each step times both ways and uses the faster one.
 
 ## Input
 
@@ -517,7 +516,7 @@ Reading the source is work too. Above one thread a separate thread reads frames 
 
 At `--threads 1`, two runs of the same command are promised to write the same bytes. A change has to pass a check of it before it merges.
 
-Above one thread, identical output is checked and reported. The design aims for it. A task reads only values that are fixed by the input and the settings. The schedule decides when a task runs, never what it reads. A round of checks compares streams across thread counts and across repeated runs. A mismatch is recorded as a warning with its cause.
+Above one thread, identical output is the aim but not a promise. It's checked, and a mismatch is a warning.
 
 Capped VBR is different by design. Above one thread its stream differs from the one-thread stream, for the reason in the next section.
 
@@ -527,7 +526,7 @@ Rate decisions are made in coding order on the driver, one frame at a time, befo
 
 Because fixed QP and CRF need nothing from earlier frames, their frames overlap freely. A mode that targets a bitrate wants to know how many bits the earlier frames really took. Plain ABR waits for them. Because its frames run one after another, only the rows inside a frame run in parallel.
 
-Capped VBR doesn't wait. Above one thread it plans each frame from the actual sizes of frames up to eight back and from the planned sizes of the ones still in flight. Its speed is kept that way, at the price of a stream that differs from the one-thread stream. A buffer shorter than 1.2 seconds of maxrate is the exception. Because frames in flight would overdraw a buffer that shallow, the encoder waits there at any thread count and writes the one-thread stream.
+Capped VBR doesn't wait. It plans each frame from the frames that have finished and estimates the rest. That keeps it fast, but its stream differs from the one-thread stream. With a buffer under 1.2 seconds of maxrate it waits, as plain ABR does.
 
 ## Segment-parallel encoding
 
@@ -565,6 +564,6 @@ The chart shows how much each encoder gains from the Mac's cores. It compares th
 | 4K | 5.8x | 8.4x | 1 |
 <!--/gen:threads-table-->
 
-Up to 1080p yah265 gains more from the cores than x265 does. At 4K it gains less. On a machine with many cores the driver sets the pace of a 4K encode, because part of its work is a chain in which each frame's analysis reads the previous frame's result. These rows were timed before the driver's analysis was split over the pool.
+Up to 1080p yah265 gains more from the cores than x265 does. At 4K it gains less. There the driver thread is the bottleneck, because part of its work has to run one frame after another. These rows were timed before the driver's analysis was split over the pool.
 
 [Results](results.md#speed) has the wall-time comparisons with x265 at one thread and on all cores.

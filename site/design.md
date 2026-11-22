@@ -9,7 +9,7 @@ The HEVC standard defines a legal stream. Because it leaves the encoding to the 
 
 ## Search order comes first
 
-HEVC moved most of an encoder's cost into search. A coding tree can split from 64x64 down to 8x8. Each node offers merge, motion search, 35 intra modes and a transform tree of its own. The pixel work per decoded sample stayed close to H.264's. So I treat the order in which candidates are tried as the encoder's real architecture, along with how early the losers are dropped. I designed that ladder first, then built the coding tools on it.
+HEVC moved most of an encoder's cost into search. A coding tree can split from 64x64 down to 8x8. Each node offers merge, motion search, 35 intra modes and a transform tree of its own. The pixel work per decoded sample stayed close to H.264's. So the order candidates are tried in, and how early the losers are dropped, is the heart of the design. I designed that first.
 
 ## The pipeline
 
@@ -115,9 +115,9 @@ So the test is exact equality. Every conformance encode goes through two indepen
 
 A frame passes through a lookahead queue before it's coded. The queue keeps a half-resolution copy of each frame, estimates costs on small blocks and remembers the motion search between each pair of frames. That one search feeds everything that needs motion before the real encode. It decides frame types, scene cuts and how many B-frames to run. It also drives weighted prediction and the propagation step that lowers the quantizer on blocks that later frames predict from.
 
-A scene cut has to be a jump in cost. One high value isn't enough, because a film transferred with a pulldown cadence would then read as a run of cuts. Because the key frame period restarts at a cut, a periodic key frame never follows a cut closely.
+A scene cut has to be a jump in cost, not just one high value. The key frame period restarts at a cut, so a periodic key frame doesn't land right after one.
 
-The lookahead also recognizes two kinds of content that need different handling. A scroll in a screen recording defeats a search that expects small motion. A frame typed as screen content therefore gets its scroll measured, then handed to the motion search. Handheld footage of fine texture jitters from frame to frame. There the encoder decides more carefully while it keeps its long runs of B-frames. [Content types](results.md#content-types) has the measurements for both.
+The lookahead also recognizes two kinds of content that need different handling. A scroll in a screen recording defeats a search that expects small motion. So on screen content the encoder measures the scroll first and gives it to the motion search. Handheld footage of fine texture jitters from frame to frame. There the encoder spends more effort on each decision. [Content types](results.md#content-types) has the measurements for both.
 
 I swept the lookahead's depth on the test set instead of inheriting a number. The depths `medium` runs are in [the table below](#what-medium-does-at-each-size). [Lookahead depth](results.md#lookahead-depth) has the sweep.
 
@@ -251,7 +251,7 @@ Motion search answers one question per block: where in the reference picture doe
 
 The search starts from the vectors the block's neighbors used, since those are the ones the decoder can nearly guess. From the best of them it walks whole-sample positions, then refines to half and quarter samples. Small pictures walk a unit diamond. From 720p up the walk is a hexagon that finishes with the diamond, because on large pictures with fine texture the diamond alone can stop at a poor match.
 
-At 4K each list has a second reference picture. Because a full search of it would double the work, the second reference only prices the predicted vectors and the first reference's winner scaled to it.
+At 4K each list has a second reference picture. A full search of it would double the work, so the second reference gets a short search around a few likely vectors.
 
 The search is never restricted to suit the threading. A vector may point anywhere the standard allows. The schedule waits for the reference rows it needs ([What a row waits for](threading.md#what-a-row-waits-for)).
 
@@ -259,7 +259,7 @@ The search is never restricted to suit the threading. A vector may point anywher
 
 The transforms, intra prediction, the interpolation filters, deblocking and SAO are the specification's. Each has a C reference.
 
-The freedom is in the rounding. Rate-distortion optimized quantization (RDOQ) asks of each coefficient whether rounding it down saves more bits than it costs in distortion. Ours is closed-form and linear in the number of coefficients. Because it works together with sign data hiding, nothing is tried and rolled back. At `medium` it runs once per coded block in the final encode. `slow` and `slower` run it in all decisions.
+The freedom is in the rounding. Rate-distortion optimized quantization (RDOQ) asks of each coefficient whether rounding it down saves more bits than it costs in distortion. yah265's version runs in one pass, with nothing tried and rolled back. At `medium` it runs once per coded block in the final encode. `slow` and `slower` run it in all decisions.
 
 ## Entropy coding
 
@@ -371,15 +371,15 @@ Rate control turns what you asked for into a quantizer for each block. yah265 co
 
 CRF plans a fractional base QP for each frame from the lookahead's cost estimate, on a scale that moves with the frame rate. Two per-block adjustments follow in all modes. Adaptive quantization shifts bits toward blocks where the eye sees errors. The lookahead's propagation step lowers the QP on blocks that later frames predict from.
 
-A loop that chases a bitrate frame by frame makes quality swing. So VBR whose maxrate sits above its target runs on the quality planner with a level that moves slowly. It keeps one operating point over the whole encode. When the file runs well under its target, the level moves back toward the target at a limited rate.
+Chasing a bitrate frame by frame makes quality swing. So capped VBR plans by quality, like CRF, and corrects toward its target slowly.
 
-A buffer adds a hard limit that planning alone can't guarantee. A brake inside the picture holds each picture to what the decoder's buffer can take. Capped CRF has its own brake and a guard that prices the frame against the buffer before coding it. As a last resort, a block the brake can't pay for at the coarsest quantizer is coded as a skip.
+A buffer adds a hard limit that planning alone can't guarantee. While a picture is being coded, the encoder coarsens it if it's about to overrun the buffer. As a last resort it codes blocks as skips.
 
 [VBR](results.md#vbr) has the rate-tracking and speed results. With several frames in flight the rate loop can't see all the earlier frames' sizes in time. [Threading](threading.md#rate-control-with-frames-in-flight) covers what that changes.
 
 ## References
 
-One engine handles the reference picture sets and the decoded picture buffer. Because the encoder derives its reference lists from the set it writes, by the decoder's own rule, the two can't disagree. B-frames are coded as a pyramid. Open GOP is the default. The key frame period codes a CRA with leading pictures.
+One engine handles the reference picture sets and the decoded picture buffer. The encoder builds its reference lists the way a decoder does, so the two can't disagree. B-frames are coded as a pyramid. Open GOP is the default. Periodic key frames are CRA pictures.
 
 ## What medium does at each size
 
@@ -409,7 +409,7 @@ The quality results on this site are scored with VMAF v1. Several of `medium`'s 
 - Two decoders decode each conformance encode. Both must match the encoder's own pictures, as [Validating the bitstream](#validating-the-bitstream) describes.
 - Two runs at `--threads 1` must give the same bytes. Across thread counts a mismatch is reported as a warning.
 - Each SIMD kernel is tested against its C reference by a tool called checkasm, under AddressSanitizer too.
-- A change that moves streams gets an environment setting that undoes it. The check compares that setting's output with the previous commit's, byte for byte, to show that nothing else moved.
+- A change that alters the output gets a setting that turns it off. With it off, the output must match the previous commit byte for byte.
 - A change that loses quality or speed doesn't ship.
 
 ## Written from the specification

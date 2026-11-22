@@ -186,7 +186,7 @@ The larger block matters most. A patch of sky in a 4K picture is thousands of sa
 
 An HEVC stream is a row of packets called NAL units. Each one starts with a two-byte header that says what kind it is.
 
-Three kinds hold settings and no picture data. The video parameter set (VPS) describes the stream as a whole. Below it, the sequence parameter set (SPS) holds the picture size, the bit depth and which tools are switched on. Settings that can change from picture to picture go in the picture parameter set (PPS). The picture data itself travels in slices, where a slice is a run of blocks that can be decoded without the picture's other slices. The last kind, supplemental enhancement information (SEI), holds extras such as HDR metadata that a decoder may ignore.
+Three kinds hold settings and no picture data. The video parameter set (VPS) describes the stream as a whole. Below it, the sequence parameter set (SPS) holds the picture size, the bit depth and which tools are switched on. Settings that can change from picture to picture go in the picture parameter set (PPS). The picture data itself travels in slices. A slice is a run of blocks that can be decoded by itself. The last kind, supplemental enhancement information (SEI), holds extras such as HDR metadata that a decoder may ignore.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 214" role="img" aria-label="The NAL units at the start of a stream">
@@ -260,7 +260,7 @@ Three kinds hold settings and no picture data. The video parameter set (VPS) des
 <figcaption>A stream is a row of NAL units. A slice holds picture data. It points back at the parameter sets it needs.</figcaption>
 </figure>
 
-A decoder can only start at a key picture. HEVC has two main kinds. After an IDR picture, nothing refers to anything that came before it. A CRA picture (clean random access) lets some pictures that are shown before it predict across it, from both sides. Those are called leading pictures. A group of pictures that ends this way is an open GOP. It costs fewer bits than a closed one because the pictures just before the key picture still get two references.
+A decoder can only start at a key picture. HEVC has two main kinds. After an IDR picture, nothing refers to anything that came before it. A CRA picture (clean random access) lets the pictures shown just before it predict from it too. That's an open GOP. It costs fewer bits than a closed one.
 
 B pictures are usually arranged as a pyramid. The middle picture of a group is coded first from the pictures at either end. Each half is then filled in the same way. That's why pictures are decoded in a different order from the one they're shown in.
 
@@ -967,7 +967,7 @@ A block in a B picture can average a prediction from each of its two reference l
 
 ## Transforms and quantization
 
-The residual is transformed in square blocks from 4x4 to 32x32 samples. The transform is an integer version of the discrete cosine transform, apart from one case. A 4x4 intra luma block uses a sine transform because its residual grows with distance from the predicting edge.
+The residual is transformed in square blocks from 4x4 to 32x32 samples. The transform is an integer version of the discrete cosine transform, apart from one case. A 4x4 intra luma block uses a sine transform instead.
 
 The quantizer's step size doubles every six QP steps. At 8 bits the QP runs from 0 to 51. Because the QP can change from block to block inside a picture, an encoder can spend bits where the eye will see them.
 
@@ -1472,7 +1472,7 @@ One slice has to be decoded in order because the context models carry over from 
 
 Quantizing each block on its own leaves visible steps at block edges. Two filters repair the rebuilt picture before it's shown or used as a reference. They're called in-loop filters because later pictures predict from the filtered result. The encoder has to apply exactly what the decoder will.
 
-Deblocking runs first. For each block edge on an 8x8 grid it decides how strong a step the coding could have caused there. It then smooths a few samples on each side. Sample adaptive offset (SAO) runs second. For each CTU the encoder can send a few small corrections. One kind is added to samples in a chosen brightness band. The other is added to samples that form a local peak or valley along a chosen direction. Ringing next to a hard edge in the picture looks like that.
+Deblocking runs first. For each block edge on an 8x8 grid it decides how strong a step the coding could have caused there. It then smooths a few samples on each side. Sample adaptive offset (SAO) runs second. For each CTU the encoder can send a few small corrections. One kind is added to samples in a chosen brightness band. The other smooths small peaks and valleys, such as the ringing next to a hard edge.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 232" role="img" aria-label="One row of samples across a block edge, before and after each filter">

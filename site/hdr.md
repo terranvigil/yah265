@@ -128,9 +128,9 @@ ffmpeg -i master.mov -pix_fmt yuv420p10le \
   -tag:v hvc1 out.mp4
 ```
 
-`libyah265` writes the color flags from the tags on the frames ffmpeg hands it. A master that is already tagged PQ and BT.2020 needs no `setparams`. The filter is there for a source with missing tags, because ffmpeg's output flags `-color_primaries` and `-color_trc` didn't reach the encoder in the ffmpeg 8 build I tested.
+`libyah265` writes the color flags from the tags on the frames ffmpeg hands it. A master that is already tagged PQ and BT.2020 needs no `setparams`. The filter is there for a source with missing tags. ffmpeg's `-color_primaries` and `-color_trc` flags didn't reach the encoder in the ffmpeg 8 build I tested.
 
-The mastering display and the light level reach the stream only through `-yah265-params`. ffmpeg by itself copies a source's values into the MP4's `mdcv` and `clli` boxes. A file can therefore show them when the stream inside has none.
+The mastering display and the light level reach the stream only through `-yah265-params`. Without it, ffmpeg writes those values to the MP4 container only, not to the stream.
 
 HDR10+ and Dolby Vision read metadata files. The parameter list refuses those two options. Encode HDR10+ and Dolby Vision with `y265`.
 
@@ -187,7 +187,7 @@ ffprobe -v error -select_streams v:0 -read_intervals '%+#1' -show_frames \
   -of default=nw=1 master.mov
 ```
 
-On an HDR10 master the side data has a mastering display block and a light level block. ffprobe prints each value as a fraction. When the denominators are 50000 for the chromaticities and 10000 for the luminances, the numerators are the option's values as they stand.
+On an HDR10 master the side data has a mastering display block and a light level block. ffprobe prints each value as a fraction. Use the numerators as they are when the denominators are 50000 (chromaticities) and 10000 (luminances).
 
 | ffprobe field | goes in |
 |---|---|
@@ -239,7 +239,7 @@ A command line that would mislabel a dynamic format is refused before it writes 
 | Dolby Vision without a VBV | warning |
 | Dolby Vision 8.1 without `--master-display` | warning |
 
-The two warnings still encode. A delivery is normally buffer-constrained, although a CRF encode is still valid. Because an 8.1 base layer is a complete HDR10 stream, it should have a mastering display.
+The two warnings still encode.
 
 ## Where the signaling goes in the stream
 
@@ -319,7 +319,7 @@ HDR10+ and Dolby Vision describe the content scene by scene. yah265 doesn't meas
 - `--dhdr10-info` reads the JSON that [hdr10plus_tool](https://github.com/quietvoid/hdr10plus_tool) writes. `hdr10plus_tool extract master.hevc -o meta.json` makes one. Profile A and profile B with a Bézier tone curve both work. Each takes one window per picture.
 - `--dolby-vision-rpu` reads the RPU file that [dovi_tool](https://github.com/quietvoid/dovi_tool) writes. That's `dovi_tool extract-rpu` from an existing Dolby Vision stream, or `dovi_tool generate` from a colorist's Dolby Vision XML.
 
-Entry *i* of either file goes with frame *i* of the input, whatever order the encoder codes the pictures in. `--seek` skips entries along with frames. `--gop-parallel` gives each segment its own part of the file. If a file runs out before the input does, the encode still writes the stream. It then exits with an error, because pictures without metadata break HDR10+ or Dolby Vision playback from that point. A metadata NAL lost to a failed allocation fails the run the same way. A file with entries left over gets a warning. The usual reason is a `--frames` run over part of a title.
+Entry *i* of either file goes with frame *i* of the input. `--seek` skips entries along with frames. If a file runs out before the input does, the encode exits with an error. A file with entries left over gets a warning.
 
 Both readers check what they read. HDR10+ values must fall inside the HDR10+ profiles' ranges. An RPU's header must say profile 8. Either file can come from a pipe.
 
@@ -333,7 +333,7 @@ Both readers check what they read. HDR10+ values must fall inside the HDR10+ pro
 | 720p and up | keeps the full intra mode search that SDR gives up for speed |
 | 4K | keeps the intra transform split too |
 
-Chroma gets the finer steps because wide-gamut chroma stays in a narrow band around its midpoint. At luma's quantizer it loses far more than SDR chroma does.
+Chroma gets the finer steps because HDR chroma loses far more than SDR chroma at the same quantizer.
 
 A switch forces the tuning on for any stream, or off for an HDR one. Chroma offsets you set yourself still win.
 
@@ -358,7 +358,7 @@ I scored both encoders with Netflix's HDR-VMAF v1.1.8. The table gives yah265's 
 
 yah265 is ahead on every cell. The margin is thinnest on Sol Levante against x265 with its `--hdr10-opt` option on.
 
-I wouldn't read the HLG clip's lead as a lead on all HLG, because the clip is easy material. It's two near-static shots from a source that is itself an HEVC encode. The downscale averages away most of the noise that was left. The next table shows what the tuning alone is worth on it.
+Don't read the HLG clip's lead as a lead on all HLG. The clip is easy material: two near-static shots. The next table shows what the tuning alone is worth on it.
 
 <!--gen:hdr-tuning-table-->
 | HLG clip | tuned, against x265 | untuned, against x265 | tuned against untuned |
@@ -371,7 +371,7 @@ I wouldn't read the HLG clip's lead as a lead on all HLG, because the clip is ea
 
 The PQ titles are from Netflix Open Content: Sol Levante is 24p animation, Sparks 60p live action. The HLG clip is the EBU / DVB 8K HLG test clip, published by DVB under CC BY 4.0 (credit EBU / DVB). Frames 600 to 899 of its 37 Mbit/s rendition, around the clip's one cut, were scaled down with HLG and BT.2020 kept.
 
-Both encoders ran `medium` with the same signaling. yah265 ran at `--threads 4`. x265 ran at `--pools 6 --frame-threads 4` on the PQ titles and `--pools 4 --frame-threads 4` on the HLG clip. Scores use HDR-VMAF's 3H model at 1080p and its 1.5H model at 4K, in the high frame rate variant at 50 fps and above. Because HDR-VMAF has no HLG transfer, the HLG reference and the decoded pictures go through the same HLG to PQ conversion at a 1000-nit peak before scoring.
+Both encoders ran `medium` with the same signaling. Scores use HDR-VMAF's 3H model at 1080p and its 1.5H model at 4K, in the high frame rate variant at 50 fps and above. HDR-VMAF has no HLG mode, so the HLG clip is converted to PQ before scoring.
 
 Each encoder ran its own CRF ladder, because the two scales don't line up on this material:
 
@@ -387,14 +387,13 @@ yah265's six rungs cover 95% or more of x265's HDR-VMAF range in each cell. The 
 
 ### Banding
 
-Banding was read with HDR-VMAF's PQ CAMBI. Sol Levante's flat gradients band on both encoders at the lower rates. There yah265's worst frames read lower than x265's at the same bitrate. yah265's mean reads slightly higher on all three titles, because `medium` turns off the dark psy weight on HDR. Both encoders stay far below the level where banding shows. The [HDR notes](docs/hdr.md) have the CAMBI figures.
+Banding was read with HDR-VMAF's PQ CAMBI. Sol Levante's flat gradients band on both encoders at the lower rates. There yah265's worst frames band less than x265's at the same bitrate. On average yah265 bands slightly more on all three titles. Both encoders stay far below the level where banding shows. The [HDR notes](docs/hdr.md) have the CAMBI figures.
 
 ## How it was checked
 
-- A CRF encode with `--dhdr10-info` and `--dolby-vision-rpu` gives the same NAL units, byte for byte, as the same encode without them run through `hdr10plus_tool inject` and `dovi_tool inject-rpu`. Only two things differ. The tools add an access unit delimiter to each picture. The encoder's version SEI names the extra options.
+- A CRF encode with `--dhdr10-info` and `--dolby-vision-rpu` matches what `hdr10plus_tool inject` and `dovi_tool inject-rpu` produce from the same encode without them.
 - `dovi_tool extract-rpu` and `hdr10plus_tool extract` on an encode give back the input metadata exactly. That holds with B-frames reordering the pictures, with `--seek`, and across `--gop-parallel` segments.
 - The ST 2094-40 writer reproduces a profile B message from a real HDR10+ stream byte for byte. A unit test holds it to that.
 - ffmpeg parses the HDR10+ message and the Dolby Vision RPU of each frame. It decodes the streams with errors fatal.
 - The Dolby Vision test uses Netflix's own grade for Sol Levante. That's the Dolby Vision XML published with it under CC BY 4.0, turned into profile 8.1 RPUs by `dovi_tool`.
-- Without these options the output is byte-identical to the encoder before they existed. The one exception is `--temporal-layers`, where the NAL units written with each picture now take that picture's temporal layer.
-- With the options, a CRF encode codes the same pictures. Under a bitrate or VBV target the metadata's bytes count toward it like any other part of the access unit. The rate control therefore spends slightly less on the pictures.
+- The metadata doesn't change the pictures of a CRF encode. Under a bitrate target its bytes count toward the target.

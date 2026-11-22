@@ -13,7 +13,7 @@ On this page "2x faster" means half the wall time for a file of the same size.
 
 An encoder's speed has three layers. The test set times each one.
 
-The first layer is the algorithm, meaning how few candidates the encoder has to try. Because nothing gets help from the hardware at one thread in plain C, that run measures the algorithm alone. Threading is the second layer. The third is SIMD, short for single instruction, multiple data, where one instruction does the same arithmetic on many samples at once. The small hot functions that use it are called kernels. A typical one sums the differences between two blocks.
+The first layer is the algorithm: how few candidates the encoder has to try. A run on one thread in plain C measures it alone. Threading is the second layer. The third is SIMD, short for single instruction, multiple data, where one instruction does the same arithmetic on many samples at once. The small hot functions that use it are called kernels. A typical one sums the differences between two blocks.
 
 <figure class="chart wide">
 <img src="assets/charts/internals/machines.svg" alt="Dot plot of how many times faster yah265 is than x265 at the same file size, in three panels: one thread in plain C, then all cores in plain C, then all cores with SIMD. Each panel has nine rows for picture size and clip length. Each row has a marker for each of three machines. All the markers are to the right of the 1x line.">
@@ -33,9 +33,9 @@ yah265's lead is widest in plain C and narrowest with SIMD on. [What SIMD buys](
 | AVX2 (x86-64) | Xeon 8488C | short clips | checkasm, C-path comparison at 8 and 10 bits |
 | SSE4.2 (x86-64) | Xeon 8488C, Rosetta, QEMU's Nehalem model | short clips | checkasm in all three places, C-path comparison, fast conformance |
 
-The whole test set means all picture sizes and clip lengths. For the AVX2 and SSE4.2 timings both encoders were capped at that tier. The AVX2 kernels ran both inside the AVX-512 encodes and capped alone. Both ways wrote the same streams. The SSE4.2 checks caught a deliberate break in each kernel family.
+The whole test set means all picture sizes and clip lengths. For the AVX2 and SSE4.2 timings both encoders were capped at that tier.
 
-The rows follow the coverage table of the [all-architecture parity report](docs/parity/PARITY-REPORT-yah265-all-isa-2026-11-14.md). checkasm is the test program that holds each kernel to its C reference. The C-path comparison encodes the same clip with the kernels on and with them off, then compares the two streams byte for byte.
+checkasm is the test program that holds each kernel to its C reference. The C-path comparison encodes the same clip with the kernels on and with them off, then compares the two streams byte for byte.
 
 ## Which kernels each tier has
 
@@ -189,7 +189,7 @@ The chart shows how much faster each encoder gets when its kernels are switched 
 | 4K | 1.44x / 2.55x | 1.80x / 3.59x | 1.66x / 2.36x | 1 |
 <!--/gen:simd-table-->
 
-SIMD speeds x265 up more than it speeds yah265 up, on all three machines at each size. Although yah265 starts further ahead in plain C, its lead is smaller once the kernels are on. I'd expect part of the reason to be work that has no kernels. The driver's per-frame analysis is scalar C in yah265 ([The lookahead and the driver](threading.md#the-lookahead-and-the-driver)).
+SIMD speeds x265 up more than it speeds yah265 up, on all three machines at each size. So yah265's lead is smaller once the kernels are on. Part of the reason is probably that some of yah265's work has no kernels.
 
 The higher tiers add little on top of the base ones at encode level. The [SVE notes](docs/sve.md) have the kernel-by-kernel timings on arm64.
 
@@ -215,15 +215,15 @@ Each cell is the median over a size's short clips, then the slowest clip.
 
 yah265 stays ahead at both caps. AVX2 against AVX2 is the closest pairing, because x265 gains more from AVX2 than yah265 does. yah265 wrote the same stream at all three tiers on every clip.
 
-A capped Xeon isn't an AVX2-only CPU. Its cores, caches and clock speeds are its own. A machine that really stops at AVX2 will read different wall times. What this run settles is the ratio when both encoders use one instruction set.
+A capped Xeon isn't a real AVX2-only CPU, so wall times on one will differ. This test shows the ratio when both encoders use one instruction set.
 
 ## How ARM and x86 differ
 
 The arm64 machines write the same streams as each other. A Graviton writes the Mac's stream byte for byte, apart from one title whose source frames were decoded differently on the cloud machine.
 
-x86 writes a different stream from arm64 at `medium`. On arm64 the compiler fuses a floating-point multiply and add into one instruction, because that instruction is always present there. Baseline x86-64 can't assume it. The streams differ because some of the encoder's floating-point results then differ. I chose to leave that as it is. Quality on x86 was checked by encoding three rate curves again there. [By machine](results.md#by-machine) has the comparison. Within x86, the tiers write the same stream.
+x86 writes a slightly different stream from arm64 at `medium`, because the compiler rounds some floating-point math differently there. I checked quality on x86 by running three rate ladders again. [By machine](results.md#by-machine) has the comparison. Within x86, the tiers write the same stream.
 
-The register widths differ too. NEON is always 128 bits wide. Each of the three x86 tiers has a fixed width of its own. SVE's width belongs to the CPU. Because Graviton4 and Graviton3 differ in it, the SVE kernels are written to work at any width.
+The register widths differ too. NEON is always 128 bits wide. Each of the three x86 tiers has a fixed width of its own. SVE's width depends on the CPU, so the SVE kernels work at any width.
 
 The last difference is where each tier can be tested. The Mac runs NEON natively. It runs the SSE4.2 and AVX2 builds under emulation, where their correctness checks can run. AVX-512 and SVE need real hardware. Those tiers were built, checked and timed on rented cloud machines.
 
