@@ -1149,6 +1149,13 @@ int n265_config_apply(n265_config *c, n265_param *p)
         fprintf(stderr, "y265: WARNING %s at 8 bits will show banding: "
                 "give a 10-bit input or add --output-depth 10\n",
                 sig_transfer == 16 ? "PQ" : "HLG");
+    /* HDR10 metadata on a stream that says neither PQ nor HLG is written
+     * but means nothing to a player */
+    if ((have_md || c->maxcll >= 0) &&
+        !(sig_transfer == 16 || sig_transfer == 18 || c->atc == 18))
+        fprintf(stderr, "y265: WARNING --master-display and --max-cll "
+                "describe HDR, but the stream isn't marked PQ or HLG: add "
+                "--transfer smpte2084 or arib-std-b67\n");
 
     if (hw_resolve(c) != 0)
         FAIL;
