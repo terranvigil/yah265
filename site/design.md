@@ -406,8 +406,6 @@ The quality results on this site are scored with VMAF v1. Several of `medium`'s 
 
 ## Checks every change passes
 
-A change passes these before it merges.
-
 - Two decoders decode each conformance encode. Both must match the encoder's own pictures, as [Validating the bitstream](#validating-the-bitstream) describes.
 - Two runs at `--threads 1` must give the same bytes. Across thread counts a mismatch is reported as a warning.
 - Each SIMD kernel is tested against its C reference by a tool called checkasm, under AddressSanitizer too.

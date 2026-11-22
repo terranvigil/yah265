@@ -177,8 +177,6 @@ Parity on the Mac wasn't the finish line, because a parity claim has to hold on 
 
 ## The tables behind the charts
 
-The tables here are filled by the script that draws the charts.
-
 ### The cells behind the headline
 
 <!--gen:headline-table-->
