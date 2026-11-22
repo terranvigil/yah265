@@ -2057,6 +2057,15 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     { const char *v = n265_env("N265_CRF_DC_MEM"); if (v) e->dc_mem = atof(v); }
     e->dc_win = 12.0;
     { const char *v = n265_env("N265_CRF_DC_WIN"); if (v) e->dc_win = atof(v); }
+    /* the window's three guards against an opening unlike the file
+     * (phase 14 item 63, dispatch_frame). 0 0 0 is main's window. */
+    e->dc_lvl0 = 0.0;
+    e->dc_n0 = 0.0;
+    { const char *v = n265_env("N265_CRF_DC_BLACK"); e->dc_black = v ? atof(v) : 20.0; }
+    { const char *v = n265_env("N265_CRF_DC_BOUND"); e->dc_bound = v ? atof(v) : 5.0; }
+    { const char *v = n265_env("N265_CRF_DC_RETAKE"); e->dc_retake = v ? atof(v) : 4.0; }
+    { const char *v = n265_env("N265_CRF_DC_LOW"); e->dc_low = v ? atof(v) : 3.0; }
+    e->dc_run = e->dc_run_sum = 0.0;
     /* ABR overrides CRF: the rate factor is solved, not given. The
      * fractional base QP rides with it - see encode_frame. */
     e->abr_on = g_bitrate > 0.0 && e->mode != N265_MODE_PCM;
@@ -6594,8 +6603,11 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
             int ng = gcols * grows;
             double *lv = malloc((size_t)ng * sizeof(double));
             double avg = 0;
-            /* the grid's mean luma, for N265_HDR_LQP alone */
-            double *lm = e->hdr_lqp != 0.0
+            /* the grid's mean luma, for N265_HDR_LQP and for the CRF
+             * window's black test while that window is open */
+            int dc_blk = e->crf_on && !e->crf_legacy && e->dc_anchor == 3 &&
+                         e->dc_black > 0.0 && e->dc_n < e->dc_win;
+            double *lm = e->hdr_lqp != 0.0 || dc_blk
                        ? malloc((size_t)ng * sizeof(double)) : NULL;
             /* The flat-frame protecting sign's second field and its content
              * census (N265_AQ_FLAT_THR, phase 10 item 3; see the flat branch
@@ -6744,12 +6756,71 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                         e->dc_n = 0.0;
                     /* the running form (1) never stops accumulating; the
                      * window forms (2, 3) stop at dc_win frames and hold */
-                    if (e->dc_anchor == 1 || e->dc_n < e->dc_win) {
+                    /* N265_CRF_DC_BLACK (phase 14 item 63): a frame whose
+                     * mean luma is under it says nothing about the file's
+                     * level, and a dark opening frozen as the anchor put
+                     * every later frame several QP coarse. It stays out of
+                     * the window, which keeps filling until dc_win frames
+                     * that aren't black have been seen. Until the first
+                     * one, the black frames' own mean is the level, so
+                     * they sit on the crf number as before, and a file
+                     * that never leaves black is main's stream. */
+                    int black = 0;
+                    if (lm && dc_blk) {
+                        double ym = 0.0;
+                        for (int i = 0; i < ng; i++)
+                            ym += lm[i];
+                        black = ym / ng <
+                                e->dc_black * (double)(1 << BIT_DEPTH_SHIFT);
+                    }
+                    if (black) {
+                        if (e->dc_n0 < e->dc_win) {
+                            e->dc_lvl0 += (avg_dc - e->dc_lvl0) / (e->dc_n0 + 1.0);
+                            e->dc_n0 += 1.0;
+                        }
+                    } else if (e->dc_anchor == 1 || e->dc_n < e->dc_win) {
                         e->dc_lvl += (avg_dc - e->dc_lvl) / (e->dc_n + 1.0);
                         if (e->dc_n < e->dc_mem)
                             e->dc_n += 1.0;
                     }
-                    anchor = e->dc_lvl;
+                    double lvl = e->dc_n > 0.0 ? e->dc_lvl : e->dc_lvl0;
+                    /* N265_CRF_DC_BOUND (item 63): the level is held to
+                     * within this of the absolute anchor, so no opening,
+                     * however unlike the rest of the file, can move the
+                     * whole file's scale by more */
+                    if (e->dc_bound > 0.0) {
+                        if (lvl < anchor - e->dc_bound)
+                            lvl = anchor - e->dc_bound;
+                        else if (lvl > anchor + e->dc_bound)
+                            lvl = anchor + e->dc_bound;
+                    }
+                    /* N265_CRF_DC_RETAKE (item 63): once the window has
+                     * closed, dc_win frames in a row that each read more
+                     * than this above the level re-take it from those
+                     * frames, from the next frame on. An opening that was
+                     * a fade out of black froze a level the rest of the
+                     * file never came near (Sparks: 0.3 against 6.2 for
+                     * eight seconds), and the next twenty frames say so
+                     * at once. It only ever raises the level, and only a
+                     * level more than N265_CRF_DC_LOW under the absolute
+                     * anchor: an opening that was a real scene keeps the
+                     * file's across-shot allocation even when a later
+                     * shot is far busier (cosmos's last 72 s). */
+                    if (e->dc_retake > 0.0 && e->dc_anchor == 3 &&
+                        e->dc_n >= e->dc_win && !black &&
+                        lvl < anchor - e->dc_low) {
+                        if (avg_dc - lvl > e->dc_retake) {
+                            e->dc_run_sum += avg_dc;
+                            e->dc_run += 1.0;
+                            if (e->dc_run >= e->dc_win) {
+                                e->dc_lvl = e->dc_run_sum / e->dc_run;
+                                e->dc_run = e->dc_run_sum = 0.0;
+                            }
+                        } else {
+                            e->dc_run = e->dc_run_sum = 0.0;
+                        }
+                    }
+                    anchor = lvl;
                 }
                 double dcs = v ? atof(v) : 1.0;
                 /* N265_AQ_BPULL (phase 14 item 44): yah264's B-frame pull,
@@ -6941,7 +7012,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                     if (off > aqc) off = aqc;
                     else if (off < -aqc) off = -aqc;
                 }
-                if (lm)
+                if (lm && e->hdr_lqp != 0.0)
                     off += e->hdr_lqp * hdr_luma_dqp(lm, i, fw, pool, gcols,
                                                      grows);
                 int o;

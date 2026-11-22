@@ -10,54 +10,114 @@ The tiers:
 
 In the default column, "presence" means the reader is a boolean: unset is off and any value arms it. "unset" means the value names a file or a string, and unset is off. `= N265_X` means the default is another knob's resolved value.
 
-## default (118)
+## default (206)
 
 | knob | default | reader |
 |---|---|---|
+| `N265_2P_CLAMP` | 6.0 | src/encoder/encoder.c:759 |
+| `N265_2P_GAIN` | 0.25 | src/encoder/rc.c:347 |
+| `N265_2P_TRUST` | 2.0 | src/encoder/encoder.c:766 |
+| `N265_ABR_COPEN` | 1 | src/encoder/rc.c:330 |
+| `N265_ABR_CTF` | 1 | src/encoder/rc.c:334 |
+| `N265_ABR_FBMAX` | 6.0 | src/encoder/rc.c:181 |
+| `N265_ABR_FBSTEP` | 1 | src/encoder/rc.c:332 |
+| `N265_ABR_HORIZON` | 6.0 | src/encoder/rc.c:173 |
+| `N265_ABR_IBRAKE` | 1 | src/encoder/rc.c:331 |
+| `N265_ABR_IGAIN` | 0.085 | src/encoder/rc.c:179 |
+| `N265_ABR_IMAX` | 8.0 | src/encoder/rc.c:180 |
+| `N265_ABR_LVL` | 2.0 | src/encoder/rc.c:360 |
+| `N265_ABR_MEAS` | 1 | src/encoder/rc.c:316 |
+| `N265_ABR_OPENSTEP` | 6.0 | src/encoder/rc.c:178 |
+| `N265_ABR_QCOMP` | 0.6 | src/encoder/rc.c:172 |
 | `N265_ABR_SB` | 1.7 | src/encoder/rc.c:359 |
 | `N265_ABR_SBR` | 4.0 | src/encoder/rc.c:358 |
+| `N265_ABR_SI` | 25.4 | src/encoder/rc.c:356 |
+| `N265_ABR_SMEM` | 16.0 | src/encoder/rc.c:177 |
 | `N265_ABR_SP` | 13.3 | src/encoder/rc.c:357 |
-| `N265_AQ2_ABR` | 1 | src/encoder/encoder.c:2005 |
-| `N265_AQ2_GMAX` | 1.0 | src/encoder/encoder.c:2010 |
-| `N265_AQ2_GMIN` | 0.7 | src/encoder/encoder.c:2009 |
-| `N265_AQ2_SPOW` | 1.0 | src/encoder/encoder.c:2008 |
-| `N265_AQ2_SREF` | 2.5 | src/encoder/encoder.c:2006 |
+| `N265_ABR_STEP` | 1.0 | src/encoder/rc.c:176 |
+| `N265_ABR_TCAP` | 1 | src/encoder/rc.c:328 |
+| `N265_ABR_WMEM` | 1000.0 | src/encoder/rc.c:315 |
+| `N265_AQ2_ABR` | 1 | src/encoder/encoder.c:2158 |
+| `N265_AQ2_GMAX` | 1.0 | src/encoder/encoder.c:2163 |
+| `N265_AQ2_GMIN` | 0.7 | src/encoder/encoder.c:2162 |
+| `N265_AQ2_SPOW` | 1.0 | src/encoder/encoder.c:2161 |
+| `N265_AQ2_SREF` | 2.5 | src/encoder/encoder.c:2159 |
+| `N265_AQ_ANCHOR` | 6.4 | src/encoder/encoder.c:6704 |
+| `N265_AQ_CLAMP` | 3.0 | src/encoder/encoder.c:6854 |
+| `N265_AQ_FLOOR` | 4 | src/encoder/encoder.c:6655 |
+| `N265_AQ_POOL` | 1 | src/encoder/encoder.c:2667 |
+| `N265_AQ_SIGNAL` | 1 | src/encoder/encoder.c:2151 |
+| `N265_AQ_STR` | 0.7 | src/encoder/encoder.c:2146 |
 | `N265_BADAPT_MVCAP` | 4 | src/encoder/la.c:567 |
 | `N265_BADAPT_MVGATE` | 20 | src/encoder/la.c:602 |
-| `N265_CB64_GATEQ_REF` | -1 | src/encoder/ctu.c:3497 |
-| `N265_CB64_SKIPGATE_REF` | -1 | src/encoder/ctu.c:3462 |
-| `N265_CCRF_BRAKE` | 1 under capped CRF, else unread | src/encoder/rc.c:393 |
-| `N265_CCRF_BRAKE_FILL` | 0.8 under capped CRF, else unread | src/encoder/rc.c:407 |
-| `N265_CCRF_BRK_R0` | 1.25 | src/encoder/rc.c:394 |
-| `N265_CCRF_GUARD` | 1.3 under capped CRF, else 0 | src/encoder/rc.c:401 |
-| `N265_CCRF_SKIP` | 1 under capped CRF, else 0 | src/encoder/rc.c:396 |
-| `N265_CCRF_SKIP_FILL` | 0.8 | src/encoder/rc.c:397 |
-| `N265_CCRF_SKIP_SATQ` | 51.0 | src/encoder/rc.c:398 |
-| `N265_CCRF_SKIP_WARM` | 4.0 | src/encoder/rc.c:399 |
-| `N265_CLAIM_PRIO` | 1 | src/encoder/encoder.c:6943 |
-| `N265_CRF_DC_MEM` | 1000.0 | src/encoder/encoder.c:1911 |
-| `N265_CRF_DUR` | 0.3 | src/encoder/encoder.c:1881 |
-| `N265_CRF_DUR_FPS` | 25.0 | src/encoder/encoder.c:1882 |
+| `N265_BADAPT_REFW` | 128.0 | src/encoder/encoder.c:8724 |
+| `N265_BADAPT_THR` | 0.35 | src/encoder/encoder.c:8723 |
+| `N265_BI_GATE` | 4 | src/encoder/ctu.c:3813 |
+| `N265_B_INTRA_MARGIN` | 30 | src/encoder/ctu.c:3747 |
+| `N265_CB64_GATE` | 1 | src/encoder/ctu.c:3714 |
+| `N265_CB64_GATEQ_REF` | -1 | src/encoder/ctu.c:3491 |
+| `N265_CB64_SKIPGATE_REF` | -1 | src/encoder/ctu.c:3456 |
+| `N265_CBF_FAST` | 2 | src/encoder/ctu.c:2252 |
+| `N265_CCRF_BRAKE` | 1 under capped CRF, else unread | src/encoder/rc.c:392 |
+| `N265_CCRF_BRAKE_FILL` | 0.8 under capped CRF, else unread | src/encoder/rc.c:406 |
+| `N265_CCRF_BRK_R0` | 1.25 | src/encoder/rc.c:393 |
+| `N265_CCRF_GUARD` | 1.3 under capped CRF, else 0 | src/encoder/rc.c:400 |
+| `N265_CCRF_SKIP` | 1 under capped CRF, else 0 | src/encoder/rc.c:395 |
+| `N265_CCRF_SKIP_FILL` | 0.8 | src/encoder/rc.c:396 |
+| `N265_CCRF_SKIP_SATQ` | 51.0 | src/encoder/rc.c:397 |
+| `N265_CCRF_SKIP_WARM` | 4.0 | src/encoder/rc.c:398 |
+| `N265_CHROMA_PRED` | 1 | src/encoder/ctu.c:129 |
+| `N265_CLAIM_PRIO` | 1 | src/encoder/encoder.c:7168 |
+| `N265_CPRED_GATE` | 2 | src/encoder/ctu.c:3223 |
+| `N265_CRF_DC_ANCHOR` | 3 | src/encoder/encoder.c:2053 |
+| `N265_CRF_DC_BLACK` | 20.0 | src/encoder/encoder.c:2064 |
+| `N265_CRF_DC_BOUND` | 5.0 | src/encoder/encoder.c:2065 |
+| `N265_CRF_DC_LOW` | 3.0 | src/encoder/encoder.c:2067 |
+| `N265_CRF_DC_MEM` | 1000.0 | src/encoder/encoder.c:2057 |
+| `N265_CRF_DC_RETAKE` | 4.0 | src/encoder/encoder.c:2066 |
+| `N265_CRF_DC_WIN` | 12.0 | src/encoder/encoder.c:2059 |
+| `N265_CRF_DUR` | 0.3 | src/encoder/encoder.c:2027 |
+| `N265_CRF_DUR_FPS` | 25.0 | src/encoder/encoder.c:2028 |
+| `N265_CRF_SHIFT` | 5.4 | src/encoder/encoder.c:5592 |
+| `N265_CT_FRAMEW` | 1.0 | src/encoder/encoder.c:2086 |
+| `N265_CT_FRAME_LEVEL` | 1 | src/encoder/la.c:2383 |
 | `N265_CT_MVRATE` | 16 | src/encoder/la.c:643 |
-| `N265_DRV_PAR` | 1 | src/encoder/encoder.c:2982 |
-| `N265_FGC_CHROMA` | 1 | src/encoder/grain.c:133 |
-| `N265_FGC_CORE` | 1.0 | src/encoder/grain.c:143 |
-| `N265_FGC_FRAMES` | 1 | src/encoder/grain.c:121 |
-| `N265_FGC_MIN` | 1.0 | src/encoder/grain.c:181 |
-| `N265_FGC_PCT` | 25 | src/encoder/grain.c:109 |
-| `N265_FGC_RATIO` | 2.0 | src/encoder/grain.c:167 |
-| `N265_GATE_SCALE` | 100 | src/encoder/ctu.c:2272 |
-| `N265_HDR_FULL` | 1 on PQ and HLG at medium | src/encoder/preset.c:1216 |
-| `N265_HW_SC` | 1 (with --hw) | src/encoder/encoder.c:1834 |
-| `N265_INTRA_FAST` | 0 | src/encoder/ctu.c:1707 |
-| `N265_INTRA_FAST_W` | 1280 | src/encoder/ctu.c:1745 |
-| `N265_JIT_COH` | 0.75 | src/encoder/la.c:958 |
-| `N265_JIT_IC` | 720.0 | src/encoder/la.c:965 |
-| `N265_JIT_J` | 2.2 | src/encoder/la.c:951 |
-| `N265_JIT_RDOQ` | 1 | src/encoder/encoder.c:2147 |
-| `N265_JIT_WIN` | 24 | src/encoder/la.c:940 |
-| `N265_KEY_RESET` | 1 | src/encoder/encoder.c:8097 |
-| `N265_LAMBDA` | 0.68 | src/encoder/ctu.c:2025 |
+| `N265_CT_QPW` | 2.0 | src/encoder/encoder.c:2078 |
+| `N265_CT_UP_GATE` | 0.24 | src/encoder/encoder.c:2121 |
+| `N265_CUTREE_STR` | 2.0 | src/encoder/encoder.c:2077 |
+| `N265_DECIMATE` | 15 | src/encoder/rdoq.c:316 |
+| `N265_DRV_PAR` | 1 | src/encoder/encoder.c:3134 |
+| `N265_ES_THR` | 100 | src/encoder/la.c:1936 |
+| `N265_FGC_CHROMA` | 1 | src/encoder/grain.c:132 |
+| `N265_FGC_CORE` | 1.0 | src/encoder/grain.c:142 |
+| `N265_FGC_FRAMES` | 1 | src/encoder/grain.c:120 |
+| `N265_FGC_MIN` | 1.0 | src/encoder/grain.c:180 |
+| `N265_FGC_PCT` | 25 | src/encoder/grain.c:108 |
+| `N265_FGC_RATIO` | 2.0 | src/encoder/grain.c:166 |
+| `N265_FLAT_GATE` | 10 | src/encoder/la.c:140 |
+| `N265_GATE_SCALE` | 100 | src/encoder/ctu.c:2268 |
+| `N265_HDR_FULL` | 1 on PQ and HLG at medium | src/encoder/preset.c:1195 |
+| `N265_HD_QP` | 27 | src/encoder/encoder.c:5568 |
+| `N265_HF2` | 3 | src/encoder/encoder.c:4260 |
+| `N265_HF2_TPP` | 150 | src/encoder/encoder.c:4288 |
+| `N265_HF2_TPP14` | 190 | src/encoder/encoder.c:4299 |
+| `N265_HFCACHE` | 1 | src/encoder/encoder.c:4197 |
+| `N265_INTRA_ADAPT_K` | 32 | src/encoder/encoder.c:2274 |
+| `N265_INTRA_ADAPT_THR` | 100 | src/encoder/encoder.c:2277 |
+| `N265_INTRA_FAST` | 0 | src/encoder/ctu.c:1704 |
+| `N265_INTRA_FAST_W` | 1280 | src/encoder/ctu.c:1742 |
+| `N265_INTRA_GATE` | 7 | src/encoder/ctu.c:2404 |
+| `N265_INTRA_MIN` | 4 | src/encoder/encoder.c:8264 |
+| `N265_INTRA_RD_N` | 3 | src/encoder/ctu.c:4714 |
+| `N265_INTRA_REUSE` | 1 | src/encoder/ctu.c:4809 |
+| `N265_JIT_COH` | 0.75 | src/encoder/la.c:957 |
+| `N265_JIT_IC` | 720.0 | src/encoder/la.c:964 |
+| `N265_JIT_J` | 2.2 | src/encoder/la.c:950 |
+| `N265_JIT_RDOQ` | 1 | src/encoder/encoder.c:2300 |
+| `N265_JIT_WIN` | 24 | src/encoder/la.c:939 |
+| `N265_KEY_RESET` | 1 | src/encoder/encoder.c:8322 |
+| `N265_LAMBDA` | 0.68 | src/encoder/ctu.c:2022 |
+| `N265_LA_MEPRED` | 1 | src/encoder/la.c:834 |
 | `N265_MCSTF_CLEAN` | 1.5 | src/encoder/mcstf.c:98 |
 | `N265_MCSTF_CUT` | 3.0 | src/encoder/mcstf.c:257 |
 | `N265_MCSTF_MODEL` | 2 | src/encoder/mcstf.c:241 |
@@ -73,27 +133,49 @@ In the default column, "presence" means the reader is a boolean: unset is off an
 | `N265_MCSTF_SMIN` | 0.25 | src/encoder/mcstf.c:245 |
 | `N265_MCSTF_STR` | 1.0 | src/encoder/mcstf.c:261 |
 | `N265_MCSTF_SUBPEL` | 2.0 | src/encoder/mcstf.c:255 |
-| `N265_MERGE_PICK_RATE` | 0 | src/encoder/ctu.c:5753 |
+| `N265_MERGE_PICK_RATE` | 0 | src/encoder/ctu.c:5747 |
+| `N265_MERGE_RD_N` | 5 | src/encoder/ctu.c:3784 |
 | `N265_ME_PATTERN` | 0 | src/encoder/mv.c:896 |
-| `N265_PB_STEP` | 1.0 | src/encoder/encoder.c:5446 |
-| `N265_PSY_DARK_M` | 64.0 | src/encoder/encoder.c:2167 |
-| `N265_PSY_DARK_QHI` | 40.0 | src/encoder/encoder.c:2165 |
-| `N265_PSY_DARK_QW` | 12.0 | src/encoder/encoder.c:2166 |
-| `N265_PSY_DARK_V` | 16.0 | src/encoder/encoder.c:2168 |
+| `N265_MIN_KEYINT` | 4 | src/encoder/encoder.c:8246 |
+| `N265_NO_AMP` | 1 | src/encoder/encoder.c:2196 |
+| `N265_NO_RECT` | 1 | src/encoder/encoder.c:2194 |
+| `N265_PART_GATE` | 2 | src/encoder/ctu.c:2486 |
+| `N265_PB_STEP` | 1.0 | src/encoder/encoder.c:5609 |
+| `N265_PSY_DARK_M` | 64.0 | src/encoder/encoder.c:2320 |
+| `N265_PSY_DARK_QHI` | 40.0 | src/encoder/encoder.c:2318 |
+| `N265_PSY_DARK_QW` | 12.0 | src/encoder/encoder.c:2319 |
+| `N265_PSY_DARK_V` | 16.0 | src/encoder/encoder.c:2321 |
+| `N265_QP_ROUND1` | 1 | src/encoder/encoder.c:2153 |
+| `N265_QP_TDITHER` | 1 | src/encoder/encoder.c:2680 |
 | `N265_RC_MVRATE` | 32 | src/encoder/rc.c:136 |
-| `N265_RDOQ` | 1 | src/encoder/encoder.c:2143 |
+| `N265_RDOQ` | 1 | src/encoder/encoder.c:2296 |
+| `N265_RDOQ_LAM` | 100 | src/encoder/rdoq.c:310 |
 | `N265_RDOQ_UP` | 1 | src/encoder/rdoq.c:298 |
-| `N265_READAHEAD_MB` | 64 | cli/y265.c:878 |
-| `N265_ROW_YIELD` | 5000 where 2 * min(rows, (cols + 1) / 2) > threads > 1, else 0 | src/encoder/encoder.c:3132 |
+| `N265_READAHEAD_MB` | 64 | cli/y265.c:880 |
+| `N265_RECT_FLAT` | 1 | src/encoder/ctu.c:2564 |
+| `N265_RECT_RANK` | 50 | src/encoder/ctu.c:2529 |
+| `N265_REF_LAG_HINT` | -1 | src/encoder/encoder.c:7146 |
+| `N265_ROW_YIELD` | 5000 where 2 * min(rows, (cols + 1) / 2) > threads > 1, else 0 | src/encoder/encoder.c:3284 |
+| `N265_RSKIP` | 2 | src/encoder/ctu.c:2165 |
+| `N265_SAO_ANIM` | 1 | src/encoder/sao.c:473 |
+| `N265_SAO_BIAS` | 100 | src/encoder/sao.c:519 |
+| `N265_SAO_CHROMA` | 1 | src/encoder/sao.c:674 |
+| `N265_SBH_RD` | 2 | src/encoder/rdoq.c:289 |
 | `N265_SCREEN` | 0 | src/encoder/la.c:287 |
-| `N265_SC_FAILW` | 0.40 | src/encoder/la.c:683 |
-| `N265_SC_FAILW_SPIKE` | 1.6 | src/encoder/la.c:700 |
-| `N265_SC_JUMP` | 0.10 | src/encoder/la.c:730 |
-| `N265_SC_SPIKE` | 1.8 | src/encoder/la.c:814 |
-| `N265_TREE_K` | 12 | src/encoder/encoder.c:3062 |
-| `N265_TREE_SLOTS` | K - 6 (with the switched HD or UHD tree only) | src/encoder/encoder.c:3147 |
-| `N265_TT_SKIP_INTER` | 0 | src/encoder/ctu.c:2196 |
-| `N265_UHD_CVBR` | 1 under capped VBR at UHD at medium | src/encoder/preset.c:1229 |
+| `N265_SC_FAILW` | 0.40 | src/encoder/la.c:682 |
+| `N265_SC_FAILW_SPIKE` | 1.6 | src/encoder/la.c:699 |
+| `N265_SC_HOLD` | 1 | src/encoder/la.c:467 |
+| `N265_SC_JUMP` | 0.10 | src/encoder/la.c:729 |
+| `N265_SC_SPIKE` | 1.8 | src/encoder/la.c:813 |
+| `N265_SKIP_THR` | 2 | src/encoder/ctu.c:2065 |
+| `N265_SUBME` | 3 | src/encoder/mv.c:674 |
+| `N265_SUBPEL_DEDUP` | 1 | src/encoder/mv.c:119 |
+| `N265_TREE_K` | 12 | src/encoder/encoder.c:3214 |
+| `N265_TREE_RAMP` | 4.0 | src/encoder/encoder.c:2424 |
+| `N265_TREE_SLOTS` | K - 6 (with the switched HD or UHD tree only) | src/encoder/encoder.c:3299 |
+| `N265_TT_SKIP_INTER` | 0 | src/encoder/ctu.c:2192 |
+| `N265_UHD_CVBR` | 1 under capped VBR at UHD at medium | src/encoder/preset.c:1208 |
+| `N265_UHD_QP` | 29 | src/encoder/encoder.c:5548 |
 | `N265_VBR_CMEM` | 1 | src/encoder/rc.c:326 |
 | `N265_VBR_CTKEEP` | 1 under capped VBR, else 0 | src/encoder/rc.c:249 |
 | `N265_VBR_DEFPT` | 0.08 | src/encoder/rc.c:285 |
@@ -116,330 +198,252 @@ In the default column, "presence" means the reader is a boolean: unset is off an
 | `N265_VBR_FBW` | 2.0 under capped VBR, else 0 | src/encoder/rc.c:244 |
 | `N265_VBR_FILLGOAL` | 0.5 | src/encoder/rc.c:314 |
 | `N265_VBR_FILLQ` | 6.0 | src/encoder/rc.c:313 |
-| `N265_VBR_LAG` | 7 (VBR, threads > 1) | src/encoder/encoder.c:3093 |
-| `N265_VBR_LAG_BUFS` | 1.2 | src/encoder/encoder.c:3102 |
-| `N265_VBR_LAG_CAL` | 0.1 | src/encoder/encoder.c:3163 |
-| `N265_VBR_LAG_LOW` | 0.5 | src/encoder/encoder.c:3169 |
-| `N265_VBR_LAG_PEND` | 1 | src/encoder/encoder.c:3186 |
-| `N265_VBR_LAG_POSTI_RAISE` | 3.0 | src/encoder/encoder.c:3181 |
-| `N265_VBR_LAG_WARM` | 2 * (lag + 1) | src/encoder/encoder.c:3161 |
+| `N265_VBR_LAG` | 7 (VBR, threads > 1) | src/encoder/encoder.c:3245 |
+| `N265_VBR_LAG_BUFS` | 1.2 | src/encoder/encoder.c:3254 |
+| `N265_VBR_LAG_CAL` | 0.1 | src/encoder/encoder.c:3315 |
+| `N265_VBR_LAG_LOW` | 0.5 | src/encoder/encoder.c:3321 |
+| `N265_VBR_LAG_PEND` | 1 | src/encoder/encoder.c:3338 |
+| `N265_VBR_LAG_POSTI_RAISE` | 3.0 | src/encoder/encoder.c:3333 |
+| `N265_VBR_LAG_WARM` | 2 * (lag + 1) | src/encoder/encoder.c:3313 |
 | `N265_VBR_OVW` | 0.75 under capped VBR, else 0 | src/encoder/rc.c:248 |
 | `N265_VBR_SPENDFILL` | 0.4 | src/encoder/rc.c:271 |
 | `N265_VBR_SPENDHI` | 0.8 | src/encoder/rc.c:272 |
 | `N265_VBR_VLVL` | 0.1 | src/encoder/rc.c:303 |
+| `N265_VBV_BRAKE_FILL` | 0.9 | src/encoder/rc.c:404 |
+| `N265_VBV_BRAKE_K0` | 0.05 | src/encoder/rc.c:401 |
 | `N265_VBV_DECAY` | 0.0625 | src/encoder/rc.c:369 |
-| `N265_VBV_LOOKAHEAD` | 1 | src/encoder/encoder.c:2667 |
+| `N265_VBV_HRD` | 1 | src/encoder/encoder.c:2911 |
+| `N265_VBV_LOOKAHEAD` | 1 | src/encoder/encoder.c:2819 |
 | `N265_VBV_OWN` | 3 under capped VBR, else 0 | src/encoder/rc.c:250 |
-| `N265_VBV_RESERVE` | 0.2 | src/encoder/encoder.c:2674 |
-| `N265_VBV_SAFE` | 0.85 | src/encoder/encoder.c:2660 |
-
-## instrument (203)
-
-| knob | default | reader |
-|---|---|---|
-| `N265_2P_CLAMP` | 6.0 | src/encoder/encoder.c:757 |
-| `N265_2P_GAIN` | 0.25 | src/encoder/rc.c:347 |
-| `N265_2P_QCOMP` | = N265_ABR_QCOMP | src/encoder/encoder.c:755 |
-| `N265_2P_TRACE` | presence | src/encoder/encoder.c:772 |
-| `N265_2P_TRUST` | 2.0 | src/encoder/encoder.c:764 |
-| `N265_ABR_CMEM` | ? | src/encoder/rc.c:325 |
-| `N265_ABR_COPEN` | 1 | src/encoder/rc.c:330 |
-| `N265_ABR_CSEED` | 0.0 | src/encoder/rc.c:329 |
-| `N265_ABR_CTF` | 1 | src/encoder/rc.c:334 |
-| `N265_ABR_FBMAX` | 6.0 | src/encoder/rc.c:181 |
-| `N265_ABR_FBSTEP` | 1 | src/encoder/rc.c:332 |
-| `N265_ABR_FBUP` | = N265_VBR_FBUP under capped VBR (item 37), 1.5 under another VBV, else = N265_ABR_FBMAX | src/encoder/rc.c:215 |
-| `N265_ABR_FLATC` | 17.0 under a VBV, else 0 | src/encoder/rc.c:403 |
-| `N265_ABR_HORIZON` | 6.0 | src/encoder/rc.c:173 |
-| `N265_ABR_IBRAKE` | 1 | src/encoder/rc.c:331 |
-| `N265_ABR_IGAIN` | 0.085 | src/encoder/rc.c:179 |
-| `N265_ABR_IMAX` | 8.0 | src/encoder/rc.c:180 |
-| `N265_ABR_IOFF` | 0.0 | src/encoder/rc.c:335 |
-| `N265_ABR_IOFF_CT` | 1.0 under a VBV without N265_VBR_CTKEEP, else 0 | src/encoder/rc.c:336 |
-| `N265_ABR_LVL` | 2.0 | src/encoder/rc.c:360 |
-| `N265_ABR_MEAS` | 1 | src/encoder/rc.c:316 |
-| `N265_ABR_MGUARD` | 0.0 | src/encoder/rc.c:317 |
-| `N265_ABR_OPENI` | 0 | src/encoder/rc.c:333 |
-| `N265_ABR_OPENSTEP` | 6.0 | src/encoder/rc.c:178 |
-| `N265_ABR_PLANERR` | 0 | src/encoder/rc.c:218 |
-| `N265_ABR_QCOMP` | 0.6 | src/encoder/rc.c:172 |
-| `N265_ABR_SI` | 25.4 | src/encoder/rc.c:356 |
-| `N265_ABR_SMEM` | 16.0 | src/encoder/rc.c:177 |
-| `N265_ABR_STEP` | 1.0 | src/encoder/rc.c:176 |
-| `N265_ABR_TCAP` | 1 | src/encoder/rc.c:328 |
-| `N265_ABR_WMEM` | 1000.0 | src/encoder/rc.c:315 |
-| `N265_API_DEFER` | presence | src/encoder/encoder.c:3257 |
-| `N265_AQ2_TRACE` | presence | src/encoder/encoder.c:6732 |
-| `N265_AQ_ANCHOR` | 6.4 | src/encoder/encoder.c:6538 |
-| `N265_AQ_CLAMP` | 3.0 | src/encoder/encoder.c:6629 |
-| `N265_AQ_CLAMP_FLAT` | 0.0 | src/encoder/encoder.c:6659 |
-| `N265_AQ_DC` | ? | src/encoder/encoder.c:6538 |
-| `N265_AQ_FLAT_SIGN` | 0 | src/encoder/encoder.c:1999 |
-| `N265_AQ_FLOOR` | 4 | src/encoder/encoder.c:6489 |
-| `N265_AQ_POOL` | 1 | src/encoder/encoder.c:2514 |
-| `N265_AQ_SIGNAL` | 1 | src/encoder/encoder.c:1998 |
-| `N265_AQ_STR` | 0.7 | src/encoder/encoder.c:1992 |
-| `N265_AQ_TRACE` | presence | src/encoder/encoder.c:6737 |
-| `N265_ASM_OFF` | unset | src/common/cpu.c:200 |
-| `N265_BADAPT_REFW` | 128.0 | src/encoder/encoder.c:8500 |
-| `N265_BADAPT_THR` | 0.35 | src/encoder/encoder.c:8499 |
-| `N265_BADAPT_TRACE` | presence | src/encoder/la.c:1814 |
-| `N265_BI_GATE` | 4 | src/encoder/ctu.c:3819 |
-| `N265_BI_REFINE` | 0 | src/encoder/ctu.c:3771 |
-| `N265_BRUN_TRACE` | presence | src/encoder/la.c:850 |
-| `N265_B_INTRA_MARGIN` | 30 | src/encoder/ctu.c:3753 |
-| `N265_CB64_AMVP` | 0 | src/encoder/ctu.c:3738 |
-| `N265_CB64_GATE` | 1 | src/encoder/ctu.c:3720 |
-| `N265_CB64_PROF` | presence | src/encoder/ctu.c:3691 |
-| `N265_CB64_SKIPGATE` | 0 | src/encoder/ctu.c:3444 |
-| `N265_CB64_SPLITGATE` | 0 | src/encoder/ctu.c:3589 |
-| `N265_CB64_TRACE` | presence | src/encoder/ctu.c:195 |
-| `N265_CBF_FAST` | 2 | src/encoder/ctu.c:2256 |
-| `N265_CBIT_TRACE` | presence | src/encoder/encoder.c:2113 |
-| `N265_CHROMA_PRED` | 1 | src/encoder/ctu.c:130 |
-| `N265_CHROMA_W` | 0 | src/encoder/ctu.c:65 |
-| `N265_CPRED_GATE` | 2 | src/encoder/ctu.c:3228 |
-| `N265_CPRED_TRACE` | presence | src/encoder/ctu.c:5561 |
-| `N265_CPU_MAX` | unset | src/common/cpu.c:197 |
-| `N265_CRF_DC_ANCHOR` | 3 | src/encoder/encoder.c:1907 |
-| `N265_CRF_DC_WIN` | 12.0 | src/encoder/encoder.c:1913 |
-| `N265_CRF_SHIFT` | 5.4 | src/encoder/encoder.c:5429 |
-| `N265_CT_CENTRE` | 0 | src/encoder/la.c:2336 |
-| `N265_CT_FRAMEW` | 1.0 | src/encoder/encoder.c:1931 |
-| `N265_CT_FRAMEW_FLAT` | = N265_CT_QPW | src/encoder/encoder.c:1935 |
-| `N265_CT_FRAME_CLAMP` | 0 | src/encoder/encoder.c:1939 |
-| `N265_CT_FRAME_LEVEL` | 1 | src/encoder/la.c:2385 |
-| `N265_CT_FRAME_SHOT` | 0 | src/encoder/encoder.c:1941 |
-| `N265_CT_FRAME_UP` | 0 | src/encoder/encoder.c:1949 |
-| `N265_CT_QPW` | 2.0 | src/encoder/encoder.c:1923 |
-| `N265_CT_TRACE` | presence | src/encoder/la.c:2479 |
-| `N265_CT_UP_GATE` | 0.24 | src/encoder/encoder.c:1967 |
-| `N265_CUTREE_STR` | 2.0 | src/encoder/encoder.c:1922 |
-| `N265_CU_STATS` | presence | src/encoder/encoder.c:2109 |
-| `N265_CU_TRACE` | unset | src/encoder/encoder.c:1602 |
-| `N265_DBF_BETA` | 0 | src/encoder/encoder.c:2534 |
-| `N265_DBF_TC` | 0 | src/encoder/encoder.c:2535 |
-| `N265_DECGRAD_TRACE` | presence | src/encoder/rdoq.c:363 |
-| `N265_DECIMATE` | 15 | src/encoder/rdoq.c:316 |
-| `N265_DECIMATE_GRAD` | = N265_DECIMATE | src/encoder/rdoq.c:330 |
-| `N265_DEPTH_BOUND` | 0 | src/encoder/ctu.c:2617 |
-| `N265_DEPTH_DUMP` | unset | src/encoder/encoder.c:1589 |
-| `N265_DPB_HOLD` | 0 | src/encoder/encoder.c:1025 |
-| `N265_DPB_TRACE` | presence | src/encoder/encoder.c:2087 |
-| `N265_DUP_FAST` | 0 | src/encoder/la.c:860 |
-| `N265_DUP_THR` | 0.0 | src/encoder/la.c:898 |
-| `N265_DUP_TRACE` | presence | src/encoder/la.c:870 |
-| `N265_ES_THR` | 100 | src/encoder/la.c:1937 |
-| `N265_FGC_TRACE` | presence | src/encoder/grain.c:192 |
-| `N265_FLAT_GATE` | 10 | src/encoder/la.c:140 |
-| `N265_FLAT_TRACE` | presence | src/encoder/encoder.c:6398 |
-| `N265_FORCE_NONIDR` | -1 | src/encoder/encoder.c:8050 |
-| `N265_FP_CENSUS` | presence | src/encoder/encoder.c:2110 |
-| `N265_FULLPEL` | presence | src/encoder/mv.c:113 |
-| `N265_GOP_TRACE` | presence | cli/y265.c:2037 |
-| `N265_HD_QP` | 27 | src/encoder/encoder.c:5405 |
-| `N265_HF2` | 3 | src/encoder/encoder.c:4099 |
-| `N265_HF2_TPP` | 150 | src/encoder/encoder.c:4127 |
-| `N265_HF2_TPP14` | 190 | src/encoder/encoder.c:4138 |
-| `N265_HF2_TRACE` | presence | src/encoder/encoder.c:4150 |
-| `N265_HFCACHE` | 1 | src/encoder/encoder.c:4035 |
-| `N265_INTER_NXN` | 0 | src/encoder/ctu.c:4761 |
-| `N265_INTRA_ADAPT_K` | 32 | src/encoder/encoder.c:2121 |
-| `N265_INTRA_ADAPT_THR` | 100 | src/encoder/encoder.c:2124 |
-| `N265_INTRA_GATE` | 7 | src/encoder/ctu.c:2409 |
-| `N265_INTRA_MIN` | 4 | src/encoder/encoder.c:8039 |
-| `N265_INTRA_MPM` | 0 | src/encoder/ctu.c:4731 |
-| `N265_INTRA_ORACLE` | 0 | src/encoder/ctu.c:2438 |
-| `N265_INTRA_RD_N` | 3 | src/encoder/ctu.c:4720 |
-| `N265_INTRA_REUSE` | 1 | src/encoder/ctu.c:4815 |
-| `N265_INTRA_RSKIP` | 0 | src/encoder/ctu.c:2182 |
-| `N265_INTRA_TRY_TRACE` | presence | src/encoder/ctu.c:1648 |
-| `N265_INTRA_WIN_TRACE` | presence | src/encoder/encoder.c:2114 |
-| `N265_I_INTRA` | 0 | src/encoder/ctu.c:4747 |
-| `N265_JIT_TRACE` | presence | src/encoder/la.c:932 |
-| `N265_LA_MEPRED` | 1 | src/encoder/la.c:835 |
-| `N265_LA_MVSTAT` | presence | src/encoder/la.c:1493 |
-| `N265_LA_PROF` | presence | src/encoder/encoder.c:3262 |
-| `N265_LEVEL_TRACE` | presence | src/encoder/encoder.c:2954 |
-| `N265_MAX_FRAME_WORK` | 6 with --bframes >= 2, else 4 | src/encoder/encoder.c:2984 |
-| `N265_MCSTF_TRACE` | presence | src/encoder/mcstf.c:126 |
-| `N265_MEREUSE_TRACE` | presence | src/encoder/encoder.c:2111 |
-| `N265_MERGE_RD_N` | 5 | src/encoder/ctu.c:3790 |
-| `N265_MERGE_TRACE` | -1 | src/encoder/mv.c:107 |
-| `N265_ME_SATD` | 0 | src/encoder/ctu.c:3359 |
-| `N265_MIN_KEYINT` | 4 | src/encoder/encoder.c:8021 |
-| `N265_MODE_HIST` | presence | src/encoder/sao.c:419 |
-| `N265_MVD_BITS` | 0 | src/encoder/ctu.c:3347 |
-| `N265_NO_AMP` | 1 | src/encoder/encoder.c:2043 |
-| `N265_NO_RECT` | 1 | src/encoder/encoder.c:2041 |
-| `N265_NO_SAO` | presence | src/encoder/encoder.c:2108 |
-| `N265_NO_SPLIT` | presence | src/encoder/ctu.c:183 |
-| `N265_NR_INTER` | 0 | src/encoder/encoder.c:2444 |
-| `N265_NR_INTRA` | 0 | src/encoder/encoder.c:2442 |
-| `N265_OPENGOP_CUT` | 0 | src/encoder/encoder.c:1090 |
-| `N265_OPENGOP_NOBARRIER` | 0 | src/encoder/encoder.c:1097 |
-| `N265_PART_GATE` | 2 | src/encoder/ctu.c:2491 |
-| `N265_PB_CASCADE` | auto | src/encoder/encoder.c:1973 |
-| `N265_PB_CASCADE_FLAT` | auto | src/encoder/encoder.c:1982 |
-| `N265_PSY` | 0.0 | src/encoder/encoder.c:2148 |
-| `N265_QP_FRAC` | = --bitrate or CRF+frame term | src/encoder/encoder.c:2495 |
-| `N265_QP_FRAC_FLAT` | 0 | src/encoder/encoder.c:2508 |
-| `N265_QP_MAP_TRACE` | unset | src/encoder/encoder.c:6868 |
-| `N265_QP_ROUND1` | 1 | src/encoder/encoder.c:2000 |
-| `N265_QP_TDITHER` | 1 | src/encoder/encoder.c:2527 |
-| `N265_QP_TRACE` | presence | src/encoder/encoder.c:6891 |
-| `N265_RC_LAG` | presence | src/encoder/encoder.c:3092 |
-| `N265_RC_TRACE` | presence | src/encoder/encoder.c:772 |
-| `N265_RDOQ_ADAPT` | 0 | src/encoder/rdoq.c:304 |
-| `N265_RDOQ_LAM` | 100 | src/encoder/rdoq.c:310 |
-| `N265_RDOQ_LAT_SZ` | 0 | src/encoder/ctu.c:1014 |
-| `N265_RDOQ_TRACE` | presence | src/encoder/ctu.c:864 |
-| `N265_RECT_FLAT` | 1 | src/encoder/ctu.c:2569 |
-| `N265_RECT_RANK` | 50 | src/encoder/ctu.c:2534 |
-| `N265_REF_LAG_HINT` | -1 | src/encoder/encoder.c:6921 |
-| `N265_RSKIP` | 2 | src/encoder/ctu.c:2169 |
-| `N265_SAO_ANIM` | 1 | src/encoder/sao.c:475 |
-| `N265_SAO_BIAS` | 100 | src/encoder/sao.c:522 |
-| `N265_SAO_CHROMA` | 1 | src/encoder/sao.c:677 |
-| `N265_SAO_GATE` | 0 | src/encoder/sao.c:726 |
-| `N265_SAO_QPLAM` | 0 | src/encoder/sao.c:512 |
-| `N265_SAO_TRACE` | unset | src/encoder/sao.c:819 |
-| `N265_SAO_TYPES` | 0 | src/encoder/sao.c:438 |
-| `N265_SATD8` | 0 | src/encoder/satd.c:138 |
-| `N265_SBH_RD` | 2 | src/encoder/rdoq.c:289 |
-| `N265_SC_FORCE` | ? | src/encoder/la.c:769 |
-| `N265_SC_HOLD` | 1 | src/encoder/la.c:467 |
-| `N265_SC_TRACE` | presence | src/encoder/la.c:1659 |
-| `N265_SERIAL_PROF` | 0 | src/encoder/encoder.c:3259 |
-| `N265_SHOT_STATS` | unset | src/encoder/encoder.c:2133 |
-| `N265_SHOT_TRACE` | presence | src/encoder/encoder.c:8376 |
-| `N265_SHOT_WINDOW` | 0 | src/encoder/encoder.c:2313 |
-| `N265_SKIP_EXIT` | 0 | src/encoder/ctu.c:2307 |
-| `N265_SKIP_THR` | 2 | src/encoder/ctu.c:2068 |
-| `N265_STALL_TRACE` | presence | src/encoder/encoder.c:3748 |
-| `N265_SUBME` | 3 | src/encoder/mv.c:674 |
-| `N265_SUBPEL_DEDUP` | 1 | src/encoder/mv.c:119 |
-| `N265_SUBPEL_GATE` | 0 | src/encoder/mv.c:746 |
-| `N265_SUBPEL_TRACE` | presence | src/encoder/ctu.c:3959 |
-| `N265_SZ_TRACE` | presence | src/encoder/encoder.c:2756 |
-| `N265_TASK_TRACE` | unset | src/encoder/ttrace.c:31 |
-| `N265_TREE_RAMP` | 4.0 | src/encoder/encoder.c:2271 |
-| `N265_UHD_QP` | 29 | src/encoder/encoder.c:5385 |
-| `N265_VBR_OFFB` | 0.0 | src/encoder/encoder.c:2757 |
-| `N265_VBR_OPEN` | 0 | src/encoder/rc.c:439 |
-| `N265_VBR_SZM` | 0 | src/encoder/rc.c:419 |
-| `N265_VBV_BRAKE` | 1 under --bitrate with a VBV, else 0 | src/encoder/rc.c:373 |
-| `N265_VBV_BRAKE_FILL` | 0.9 | src/encoder/rc.c:405 |
-| `N265_VBV_BRAKE_K0` | 0.05 | src/encoder/rc.c:402 |
-| `N265_VBV_HRD` | 1 | src/encoder/encoder.c:2759 |
-| `N265_VBV_SCPRED` | 0.5 under --bitrate, else 1.0 | src/encoder/rc.c:408 |
-| `N265_VBV_TRACE` | presence | src/encoder/encoder.c:2755 |
-| `N265_WEIGHTB` | 0 | src/encoder/encoder.c:2583 |
-| `N265_WEIGHTP` | 0 | src/encoder/encoder.c:2581 |
+| `N265_VBV_RESERVE` | 0.2 | src/encoder/encoder.c:2826 |
+| `N265_VBV_SAFE` | 0.85 | src/encoder/encoder.c:2812 |
 | `N265_WP_GAIN` | 4 | src/encoder/wp.c:78 |
 | `N265_WP_REFS` | 5 | src/encoder/wp.c:117 |
-| `N265_WP_TRACE` | 0 | src/encoder/wp.c:51 |
 | `N265_WP_WIN` | 40 | src/encoder/wp.c:101 |
 
-## arm (98)
+## instrument (49)
 
 | knob | default | reader |
 |---|---|---|
+| `N265_2P_TRACE` | presence | src/encoder/encoder.c:774 |
+| `N265_AQ2_TRACE` | presence | src/encoder/encoder.c:6957 |
+| `N265_AQ_TRACE` | presence | src/encoder/encoder.c:6962 |
+| `N265_BADAPT_TRACE` | presence | src/encoder/la.c:1813 |
+| `N265_BRUN_TRACE` | presence | src/encoder/la.c:849 |
+| `N265_CB64_PROF` | presence | src/encoder/ctu.c:3685 |
+| `N265_CB64_TRACE` | presence | src/encoder/ctu.c:194 |
+| `N265_CBIT_TRACE` | presence | src/encoder/encoder.c:2266 |
+| `N265_CPRED_TRACE` | presence | src/encoder/ctu.c:5555 |
+| `N265_CT_TRACE` | presence | src/encoder/la.c:2476 |
+| `N265_CU_STATS` | presence | src/encoder/encoder.c:2262 |
+| `N265_CU_TRACE` | unset | src/encoder/encoder.c:1605 |
+| `N265_DECGRAD_TRACE` | presence | src/encoder/rdoq.c:362 |
+| `N265_DEPTH_DUMP` | unset | src/encoder/encoder.c:1592 |
+| `N265_DPB_TRACE` | presence | src/encoder/encoder.c:2240 |
+| `N265_DUP_TRACE` | presence | src/encoder/la.c:869 |
+| `N265_FGC_TRACE` | presence | src/encoder/grain.c:191 |
+| `N265_FLAT_TRACE` | presence | src/encoder/encoder.c:6561 |
+| `N265_FORCE_NONIDR` | -1 | src/encoder/encoder.c:8275 |
+| `N265_FP_CENSUS` | presence | src/encoder/encoder.c:2263 |
+| `N265_GOP_TRACE` | presence | cli/y265.c:2049 |
+| `N265_HF2_TRACE` | presence | src/encoder/encoder.c:4311 |
+| `N265_INTRA_ORACLE` | 0 | src/encoder/ctu.c:2433 |
+| `N265_INTRA_TRY_TRACE` | presence | src/encoder/ctu.c:1645 |
+| `N265_INTRA_WIN_TRACE` | presence | src/encoder/encoder.c:2267 |
+| `N265_JIT_TRACE` | presence | src/encoder/la.c:931 |
+| `N265_LA_MVSTAT` | presence | src/encoder/la.c:1492 |
+| `N265_LA_PROF` | presence | src/encoder/encoder.c:3414 |
+| `N265_LEVEL_TRACE` | presence | src/encoder/encoder.c:3106 |
+| `N265_MCSTF_TRACE` | presence | src/encoder/mcstf.c:126 |
+| `N265_MEREUSE_TRACE` | presence | src/encoder/encoder.c:2264 |
+| `N265_MERGE_TRACE` | -1 | src/encoder/mv.c:107 |
+| `N265_NO_SPLIT` | presence | src/encoder/ctu.c:182 |
+| `N265_QP_MAP_TRACE` | unset | src/encoder/encoder.c:7093 |
+| `N265_QP_TRACE` | presence | src/encoder/encoder.c:7116 |
+| `N265_RC_TRACE` | presence | src/encoder/encoder.c:774 |
+| `N265_RDOQ_TRACE` | presence | src/encoder/ctu.c:861 |
+| `N265_SAO_TRACE` | unset | src/encoder/sao.c:814 |
+| `N265_SC_FORCE` | ? | src/encoder/la.c:768 |
+| `N265_SC_TRACE` | presence | src/encoder/la.c:1658 |
+| `N265_SERIAL_PROF` | 0 | src/encoder/encoder.c:3411 |
+| `N265_SHOT_STATS` | unset | src/encoder/encoder.c:2286 |
+| `N265_SHOT_TRACE` | presence | src/encoder/encoder.c:8600 |
+| `N265_STALL_TRACE` | presence | src/encoder/encoder.c:3910 |
+| `N265_SUBPEL_TRACE` | presence | src/encoder/ctu.c:3953 |
+| `N265_SZ_TRACE` | presence | src/encoder/encoder.c:2908 |
+| `N265_TASK_TRACE` | unset | src/encoder/ttrace.c:31 |
+| `N265_VBV_TRACE` | presence | src/encoder/encoder.c:2907 |
+| `N265_WP_TRACE` | 0 | src/encoder/wp.c:51 |
+
+## arm (168)
+
+| knob | default | reader |
+|---|---|---|
+| `N265_2P_QCOMP` | = N265_ABR_QCOMP | src/encoder/encoder.c:757 |
+| `N265_ABR_CMEM` | ? | src/encoder/rc.c:325 |
+| `N265_ABR_CSEED` | 0.0 | src/encoder/rc.c:329 |
+| `N265_ABR_FBUP` | = N265_VBR_FBUP under capped VBR (item 37), 1.5 under another VBV, else = N265_ABR_FBMAX | src/encoder/rc.c:215 |
+| `N265_ABR_FLATC` | 17.0 under a VBV, else 0 | src/encoder/rc.c:402 |
+| `N265_ABR_IOFF` | 0.0 | src/encoder/rc.c:335 |
+| `N265_ABR_IOFF_CT` | 1.0 under a VBV without N265_VBR_CTKEEP, else 0 | src/encoder/rc.c:336 |
 | `N265_ABR_IOFF_MAX` | 6.0 | src/encoder/rc.c:338 |
-| `N265_AQ` | presence | src/encoder/encoder.c:2173 |
-| `N265_AQ2` | 0 | src/encoder/encoder.c:2003 |
-| `N265_AQ2_FLAT` | 0 | src/encoder/encoder.c:2004 |
-| `N265_AQ2_MREF` | 0.0 | src/encoder/encoder.c:2007 |
-| `N265_AQ_BPULL` | 0.0 | src/encoder/encoder.c:2011 |
-| `N265_AQ_BPULL_ABR` | 0.0 | src/encoder/encoder.c:2015 |
-| `N265_AQ_BPULL_NR` | 0 | src/encoder/encoder.c:2012 |
-| `N265_AQ_FLAT` | presence | src/encoder/encoder.c:6425 |
-| `N265_AQ_FLAT_THR` | = ungated | src/encoder/encoder.c:6698 |
-| `N265_BADAPT_DEG` | 1.6 | src/encoder/encoder.c:8556 |
-| `N265_BADAPT_FASTW` | 0.0 | src/encoder/encoder.c:8508 |
-| `N265_BADAPT_MVMIN` | 0.0 | src/encoder/encoder.c:8509 |
-| `N265_CB64_GATEQ` | 0 | src/encoder/ctu.c:3483 |
-| `N265_CBQPOFFS` | 0 | src/encoder/encoder.c:2547 |
-| `N265_CDZ` | 0 | src/encoder/ctu.c:1035 |
-| `N265_CHROMA_W_PCT` | 100 | src/encoder/ctu.c:71 |
-| `N265_CPRED_W` | 100 | src/encoder/ctu.c:3201 |
-| `N265_CRF_LEGACY` | 0 | src/encoder/encoder.c:1878 |
-| `N265_CRQPOFFS` | 0 | src/encoder/encoder.c:2549 |
-| `N265_CT_LAMBDA` | 0.0 | src/encoder/encoder.c:1924 |
+| `N265_ABR_MGUARD` | 0.0 | src/encoder/rc.c:317 |
+| `N265_ABR_OPENI` | 0 | src/encoder/rc.c:333 |
+| `N265_ABR_PLANERR` | 0 | src/encoder/rc.c:218 |
+| `N265_API_DEFER` | presence | src/encoder/encoder.c:3409 |
+| `N265_AQ` | presence | src/encoder/encoder.c:2326 |
+| `N265_AQ2` | 0 | src/encoder/encoder.c:2156 |
+| `N265_AQ2_FLAT` | 0 | src/encoder/encoder.c:2157 |
+| `N265_AQ2_MREF` | 0.0 | src/encoder/encoder.c:2160 |
+| `N265_AQ_BPULL` | 0.0 | src/encoder/encoder.c:2164 |
+| `N265_AQ_BPULL_ABR` | 0.0 | src/encoder/encoder.c:2168 |
+| `N265_AQ_BPULL_NR` | 0 | src/encoder/encoder.c:2165 |
+| `N265_AQ_CLAMP_FLAT` | 0.0 | src/encoder/encoder.c:6884 |
+| `N265_AQ_DC` | ? | src/encoder/encoder.c:6704 |
+| `N265_AQ_FLAT` | presence | src/encoder/encoder.c:6588 |
+| `N265_AQ_FLAT_SIGN` | 0 | src/encoder/encoder.c:2152 |
+| `N265_AQ_FLAT_THR` | = ungated | src/encoder/encoder.c:6923 |
+| `N265_ASM_OFF` | unset | src/common/cpu.c:200 |
+| `N265_BADAPT_DEG` | 1.6 | src/encoder/encoder.c:8780 |
+| `N265_BADAPT_FASTW` | 0.0 | src/encoder/encoder.c:8732 |
+| `N265_BADAPT_MVMIN` | 0.0 | src/encoder/encoder.c:8733 |
+| `N265_BI_REFINE` | 0 | src/encoder/ctu.c:3765 |
+| `N265_CB64_AMVP` | 0 | src/encoder/ctu.c:3732 |
+| `N265_CB64_GATEQ` | 0 | src/encoder/ctu.c:3477 |
+| `N265_CB64_SKIPGATE` | 0 | src/encoder/ctu.c:3438 |
+| `N265_CB64_SPLITGATE` | 0 | src/encoder/ctu.c:3583 |
+| `N265_CBQPOFFS` | 0 | src/encoder/encoder.c:2700 |
+| `N265_CDZ` | 0 | src/encoder/ctu.c:1032 |
+| `N265_CHROMA_W` | 0 | src/encoder/ctu.c:64 |
+| `N265_CHROMA_W_PCT` | 100 | src/encoder/ctu.c:70 |
+| `N265_CPRED_W` | 100 | src/encoder/ctu.c:3196 |
+| `N265_CPU_MAX` | unset | src/common/cpu.c:197 |
+| `N265_CRF_LEGACY` | 0 | src/encoder/encoder.c:2024 |
+| `N265_CRQPOFFS` | 0 | src/encoder/encoder.c:2702 |
+| `N265_CT_CENTRE` | 0 | src/encoder/la.c:2335 |
+| `N265_CT_FRAMEW_FLAT` | = N265_CT_QPW | src/encoder/encoder.c:2090 |
+| `N265_CT_FRAME_CLAMP` | 0 | src/encoder/encoder.c:2094 |
+| `N265_CT_FRAME_SHOT` | 0 | src/encoder/encoder.c:2096 |
+| `N265_CT_FRAME_UP` | 0 | src/encoder/encoder.c:2104 |
+| `N265_CT_LAMBDA` | 0.0 | src/encoder/encoder.c:2079 |
+| `N265_DBF_BETA` | 0 | src/encoder/encoder.c:2687 |
+| `N265_DBF_TC` | 0 | src/encoder/encoder.c:2688 |
+| `N265_DECIMATE_GRAD` | = N265_DECIMATE | src/encoder/rdoq.c:329 |
+| `N265_DEPTH_BOUND` | 0 | src/encoder/ctu.c:2612 |
+| `N265_DPB_HOLD` | 0 | src/encoder/encoder.c:1029 |
+| `N265_DUP_FAST` | 0 | src/encoder/la.c:859 |
+| `N265_DUP_THR` | 0.0 | src/encoder/la.c:897 |
 | `N265_EST_MODE` | 0 | src/encoder/est.c:24 |
-| `N265_GOP_CUTS` | 1 | cli/y265.c:2061 |
-| `N265_GOP_K` | (--threads / N) + 1, at least 3 | cli/y265.c:2089 |
-| `N265_GOP_LEN` | = --keyint | cli/y265.c:2058 |
-| `N265_GOP_RELIEF` | 1 | cli/y265.c:2088 |
-| `N265_GOP_SEEK` | 1 | cli/y265.c:2090 |
-| `N265_GOP_VBV_IN` | 0.5 | cli/y265.c:2079 |
-| `N265_GOP_VBV_OUT` | 0.6 | cli/y265.c:2080 |
-| `N265_GOP_WINDOW` | (N + 1.5) x N265_GOP_LEN | cli/y265.c:2063 |
-| `N265_HDR_CQP` | 0.0 | src/encoder/encoder.c:2563 |
-| `N265_HDR_CQP_CB` | ? | src/encoder/encoder.c:2566 |
-| `N265_HDR_CQP_CR` | ? | src/encoder/encoder.c:2567 |
-| `N265_HDR_LQP` | 0.0 | src/encoder/encoder.c:2172 |
-| `N265_HW` | off; overrides --hw | src/encoder/encoder.c:1810 |
-| `N265_INTRA_B_MODES` | 0 | src/encoder/ctu.c:1612 |
-| `N265_INTRA_FAST_FLAT` | 0 | src/encoder/ctu.c:1755 |
-| `N265_INTRA_FAST_QP` | 0 | src/encoder/ctu.c:1720 |
-| `N265_INTRA_FAST_STEP` | 4 | src/encoder/ctu.c:1730 |
-| `N265_IRANK` | 0 | src/encoder/ctu.c:1789 |
-| `N265_JIT` | 0 | src/encoder/la.c:925 |
-| `N265_KEY_DEFER` | 0 | src/encoder/encoder.c:8112 |
-| `N265_K_CAP` | 0 | src/encoder/encoder.c:3074 |
-| `N265_MCSTF` | 0 | src/encoder/encoder.c:2383 |
-| `N265_MCSTF_CTF` | 1.0 | src/encoder/encoder.c:2400 |
-| `N265_MCSTF_CTSC` | 1.0 | src/encoder/encoder.c:2402 |
+| `N265_FULLPEL` | presence | src/encoder/mv.c:113 |
+| `N265_GOP_CUTS` | 1 | cli/y265.c:2073 |
+| `N265_GOP_K` | (--threads / N) + 1, at least 3 | cli/y265.c:2101 |
+| `N265_GOP_LEN` | = --keyint | cli/y265.c:2070 |
+| `N265_GOP_RELIEF` | 1 | cli/y265.c:2100 |
+| `N265_GOP_SEEK` | 1 | cli/y265.c:2102 |
+| `N265_GOP_VBV_IN` | 0.5 | cli/y265.c:2091 |
+| `N265_GOP_VBV_OUT` | 0.6 | cli/y265.c:2092 |
+| `N265_GOP_WINDOW` | (N + 1.5) x N265_GOP_LEN | cli/y265.c:2075 |
+| `N265_HDR_CQP` | 0.0 | src/encoder/encoder.c:2716 |
+| `N265_HDR_CQP_CB` | ? | src/encoder/encoder.c:2719 |
+| `N265_HDR_CQP_CR` | ? | src/encoder/encoder.c:2720 |
+| `N265_HDR_LQP` | 0.0 | src/encoder/encoder.c:2325 |
+| `N265_HW` | off | src/encoder/encoder.c:1810 |
+| `N265_HW_SC` | ? | src/encoder/encoder.c:1834 |
+| `N265_INTER_NXN` | 0 | src/encoder/ctu.c:4755 |
+| `N265_INTRA_B_MODES` | 0 | src/encoder/ctu.c:1609 |
+| `N265_INTRA_FAST_FLAT` | 0 | src/encoder/ctu.c:1752 |
+| `N265_INTRA_FAST_QP` | 0 | src/encoder/ctu.c:1717 |
+| `N265_INTRA_FAST_STEP` | 4 | src/encoder/ctu.c:1727 |
+| `N265_INTRA_MPM` | 0 | src/encoder/ctu.c:4725 |
+| `N265_INTRA_RSKIP` | 0 | src/encoder/ctu.c:2178 |
+| `N265_IRANK` | 0 | src/encoder/ctu.c:1786 |
+| `N265_I_INTRA` | 0 | src/encoder/ctu.c:4741 |
+| `N265_JIT` | 0 | src/encoder/la.c:924 |
+| `N265_KEY_DEFER` | 0 | src/encoder/encoder.c:8337 |
+| `N265_K_CAP` | 0 | src/encoder/encoder.c:3226 |
+| `N265_MAX_FRAME_WORK` | 6 with --bframes >= 2, else 4 | src/encoder/encoder.c:3136 |
+| `N265_MCSTF` | 0 | src/encoder/encoder.c:2536 |
+| `N265_MCSTF_CTF` | 1.0 | src/encoder/encoder.c:2553 |
+| `N265_MCSTF_CTSC` | 1.0 | src/encoder/encoder.c:2555 |
 | `N265_MCSTF_DC` | 0 | src/encoder/mcstf.c:259 |
-| `N265_MCSTF_QPB` | 0.0 | src/encoder/encoder.c:2396 |
-| `N265_MCSTF_QPB_I` | 0 | src/encoder/encoder.c:2398 |
-| `N265_MCSTF_RANGE` | 2 | src/encoder/encoder.c:2388 |
-| `N265_MEREUSE` | 0 | src/encoder/encoder.c:2112 |
-| `N265_NO_AMVP` | presence | src/encoder/ctu.c:177 |
-| `N265_NO_EARLYSKIP` | presence | src/encoder/ctu.c:189 |
-| `N265_NO_GATES` | presence | src/encoder/ctu.c:171 |
-| `N265_NO_TMVP` | presence | src/encoder/encoder.c:3981 |
+| `N265_MCSTF_QPB` | 0.0 | src/encoder/encoder.c:2549 |
+| `N265_MCSTF_QPB_I` | 0 | src/encoder/encoder.c:2551 |
+| `N265_MCSTF_RANGE` | 2 | src/encoder/encoder.c:2541 |
+| `N265_MEREUSE` | 0 | src/encoder/encoder.c:2265 |
+| `N265_ME_SATD` | 0 | src/encoder/ctu.c:3354 |
+| `N265_MODE_HIST` | presence | src/encoder/sao.c:418 |
+| `N265_MVD_BITS` | 0 | src/encoder/ctu.c:3342 |
+| `N265_NO_AMVP` | presence | src/encoder/ctu.c:176 |
+| `N265_NO_EARLYSKIP` | presence | src/encoder/ctu.c:188 |
+| `N265_NO_GATES` | presence | src/encoder/ctu.c:170 |
+| `N265_NO_SAO` | presence | src/encoder/encoder.c:2261 |
+| `N265_NO_TMVP` | presence | src/encoder/encoder.c:4143 |
+| `N265_NR_INTER` | 0 | src/encoder/encoder.c:2597 |
+| `N265_NR_INTRA` | 0 | src/encoder/encoder.c:2595 |
 | `N265_OLD_BS` | presence | src/encoder/deblock.c:296 |
-| `N265_PSY_DARK` | 0.0 | src/encoder/encoder.c:2164 |
-| `N265_PSY_DARK_LO` | 0.0 | src/encoder/encoder.c:2171 |
-| `N265_RDOQ_TAIL` | 0 | src/encoder/rdoq.c:506 |
-| `N265_RD_PROXY` | 0 | src/encoder/ctu.c:5920 |
-| `N265_REF2_LITE` | 0 | src/encoder/ctu.c:3520 |
-| `N265_REF2_ROLE` | 0 | src/encoder/encoder.c:8937 |
+| `N265_OPENGOP_CUT` | 0 | src/encoder/encoder.c:1093 |
+| `N265_OPENGOP_NOBARRIER` | 0 | src/encoder/encoder.c:1100 |
+| `N265_PB_CASCADE` | auto | src/encoder/encoder.c:2127 |
+| `N265_PB_CASCADE_FLAT` | auto | src/encoder/encoder.c:2136 |
+| `N265_PSY` | 0.0 | src/encoder/encoder.c:2301 |
+| `N265_PSY_DARK` | 0.0 | src/encoder/encoder.c:2317 |
+| `N265_PSY_DARK_LO` | 0.0 | src/encoder/encoder.c:2324 |
+| `N265_QP_FRAC` | = --bitrate or CRF+frame term | src/encoder/encoder.c:2648 |
+| `N265_QP_FRAC_FLAT` | 0 | src/encoder/encoder.c:2661 |
+| `N265_RC_LAG` | presence | src/encoder/encoder.c:3244 |
+| `N265_RDOQ_ADAPT` | 0 | src/encoder/rdoq.c:304 |
+| `N265_RDOQ_LAT_SZ` | 0 | src/encoder/ctu.c:1011 |
+| `N265_RDOQ_TAIL` | 0 | src/encoder/rdoq.c:505 |
+| `N265_RD_PROXY` | 0 | src/encoder/ctu.c:5914 |
+| `N265_REF2_LITE` | 0 | src/encoder/ctu.c:3514 |
+| `N265_REF2_ROLE` | 0 | src/encoder/encoder.c:9161 |
 | `N265_RUNG_GATE` | -2 | src/encoder/mv.c:803 |
 | `N265_RUNG_RERANK` | 0 | src/encoder/mv.c:819 |
-| `N265_SC_CONJ` | 3 | src/encoder/ctu.c:2128 |
-| `N265_SC_FLOOR` | 0.0 | src/encoder/la.c:737 |
-| `N265_SHOT_CLAMP` | 2.0 | src/encoder/encoder.c:2332 |
-| `N265_SHOT_EMA` | 0.5 | src/encoder/encoder.c:2337 |
-| `N265_SHOT_K` | 1.0 | src/encoder/encoder.c:2331 |
-| `N265_STATIC_COMMIT` | 0 | src/encoder/ctu.c:2104 |
+| `N265_SAO_GATE` | 0 | src/encoder/sao.c:722 |
+| `N265_SAO_QPLAM` | 0 | src/encoder/sao.c:509 |
+| `N265_SAO_TYPES` | 0 | src/encoder/sao.c:437 |
+| `N265_SATD8` | 0 | src/encoder/satd.c:138 |
+| `N265_SC_CONJ` | 3 | src/encoder/ctu.c:2125 |
+| `N265_SC_FLOOR` | 0.0 | src/encoder/la.c:736 |
+| `N265_SHOT_CLAMP` | 2.0 | src/encoder/encoder.c:2485 |
+| `N265_SHOT_EMA` | 0.5 | src/encoder/encoder.c:2490 |
+| `N265_SHOT_K` | 1.0 | src/encoder/encoder.c:2484 |
+| `N265_SHOT_WINDOW` | 0 | src/encoder/encoder.c:2466 |
+| `N265_SKIP_EXIT` | 0 | src/encoder/ctu.c:2303 |
+| `N265_STATIC_COMMIT` | 0 | src/encoder/ctu.c:2101 |
 | `N265_SUBME_RUNG` | 0 | src/encoder/mv.c:789 |
 | `N265_SUBPEL_AXIS` | 0 | src/encoder/mv.c:884 |
+| `N265_SUBPEL_GATE` | 0 | src/encoder/mv.c:746 |
 | `N265_SUBPEL_RATE` | 0 | src/encoder/mv.c:702 |
-| `N265_TD_DIST` | 0 | src/encoder/ctu.c:999 |
-| `N265_TT_SKIP_INTRA` | 0 | src/encoder/ctu.c:2206 |
-| `N265_TT_SKIP_QP` | 0 | src/encoder/ctu.c:2218 |
-| `N265_UHD_REF2` | ? | src/encoder/preset.c:1436 |
+| `N265_TD_DIST` | 0 | src/encoder/ctu.c:996 |
+| `N265_TT_SKIP_INTRA` | 0 | src/encoder/ctu.c:2202 |
+| `N265_TT_SKIP_QP` | 0 | src/encoder/ctu.c:2214 |
+| `N265_UHD_REF2` | ? | src/encoder/preset.c:1415 |
 | `N265_VBR_DEFPT_SPEND` | 0.0 | src/encoder/rc.c:296 |
-| `N265_VBR_LAG_GFLOOR` | 0.0 | src/encoder/encoder.c:3173 |
-| `N265_VBR_LAG_GRAW` | 0 | src/encoder/encoder.c:3175 |
-| `N265_VBR_LAG_GUARD` | 0.0 | src/encoder/encoder.c:3171 |
-| `N265_VBR_LAG_POSTI` | 0 | src/encoder/encoder.c:3179 |
-| `N265_VBR_OPEN_AB` | -1.238 | src/encoder/rc.c:443 |
-| `N265_VBR_OPEN_ABR` | -0.806 | src/encoder/rc.c:442 |
-| `N265_VBR_OPEN_AI` | -7.027 | src/encoder/rc.c:440 |
-| `N265_VBR_OPEN_AP` | 2.084 | src/encoder/rc.c:441 |
-| `N265_VBR_OPEN_BB` | 1.224 | src/encoder/rc.c:447 |
-| `N265_VBR_OPEN_BBR` | 1.374 | src/encoder/rc.c:446 |
-| `N265_VBR_OPEN_BI` | 2.157 | src/encoder/rc.c:444 |
-| `N265_VBR_OPEN_BP` | 1.249 | src/encoder/rc.c:445 |
-| `N265_VBR_OPEN_G` | -1.429 | src/encoder/rc.c:448 |
+| `N265_VBR_LAG_GFLOOR` | 0.0 | src/encoder/encoder.c:3325 |
+| `N265_VBR_LAG_GRAW` | 0 | src/encoder/encoder.c:3327 |
+| `N265_VBR_LAG_GUARD` | 0.0 | src/encoder/encoder.c:3323 |
+| `N265_VBR_LAG_POSTI` | 0 | src/encoder/encoder.c:3331 |
+| `N265_VBR_OFFB` | 0.0 | src/encoder/encoder.c:2909 |
+| `N265_VBR_OPEN` | 0 | src/encoder/rc.c:437 |
+| `N265_VBR_OPEN_AB` | -1.238 | src/encoder/rc.c:441 |
+| `N265_VBR_OPEN_ABR` | -0.806 | src/encoder/rc.c:440 |
+| `N265_VBR_OPEN_AI` | -7.027 | src/encoder/rc.c:438 |
+| `N265_VBR_OPEN_AP` | 2.084 | src/encoder/rc.c:439 |
+| `N265_VBR_OPEN_BB` | 1.224 | src/encoder/rc.c:445 |
+| `N265_VBR_OPEN_BBR` | 1.374 | src/encoder/rc.c:444 |
+| `N265_VBR_OPEN_BI` | 2.157 | src/encoder/rc.c:442 |
+| `N265_VBR_OPEN_BP` | 1.249 | src/encoder/rc.c:443 |
+| `N265_VBR_OPEN_G` | -1.429 | src/encoder/rc.c:446 |
 | `N265_VBR_SPEND` | 0.0 | src/encoder/rc.c:270 |
-| `N265_VBR_SZM_GMIN` | 0.7 | src/encoder/rc.c:427 |
-| `N265_VBR_SZM_LAM` | 0.9 | src/encoder/rc.c:420 |
-| `N265_VBR_SZM_SIMPLE` | 150.0 | src/encoder/rc.c:429 |
-| `N265_VBR_SZM_STATIC` | 17.0 | src/encoder/rc.c:428 |
-| `N265_VBR_SZM_Z` | 2.0 | src/encoder/rc.c:421 |
-| `N265_VBR_SZM_ZLAG` | 1.0 | src/encoder/rc.c:426 |
+| `N265_VBR_SZM` | 0 | src/encoder/rc.c:417 |
+| `N265_VBR_SZM_GMIN` | 0.7 | src/encoder/rc.c:425 |
+| `N265_VBR_SZM_LAM` | 0.9 | src/encoder/rc.c:418 |
+| `N265_VBR_SZM_SIMPLE` | 150.0 | src/encoder/rc.c:427 |
+| `N265_VBR_SZM_STATIC` | 17.0 | src/encoder/rc.c:426 |
+| `N265_VBR_SZM_Z` | 2.0 | src/encoder/rc.c:419 |
+| `N265_VBR_SZM_ZLAG` | 1.0 | src/encoder/rc.c:424 |
+| `N265_VBV_BRAKE` | 1 under --bitrate with a VBV, else 0 | src/encoder/rc.c:373 |
+| `N265_VBV_SCPRED` | 0.5 under --bitrate, else 1.0 | src/encoder/rc.c:407 |
+| `N265_WEIGHTB` | 0 | src/encoder/encoder.c:2736 |
+| `N265_WEIGHTP` | 0 | src/encoder/encoder.c:2734 |
