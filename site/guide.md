@@ -223,7 +223,7 @@ Without the tune, the latency is the lookahead depth in frames. Two opt-in tools
 
 ## Live control
 
-Coming soon: changing the bitrate, CRF or key frames while an encode runs. You'll send events from a file or a pipe, each naming the frame it lands on. From ffmpeg, forced key frames and mid-stream bitrate changes will work the same way. yah264 shares the same event format.
+Coming soon: changing the bitrate, CRF or key frames while an encode runs. Each change comes from a file or a pipe and names the frame it applies to. From ffmpeg, forced key frames and mid-stream bitrate changes will work the same way. yah264 uses the same format.
 
 ## Set the bit depth and profile
 
@@ -320,7 +320,7 @@ Shot statistics are one JSON line per shot. A ladder builder can use them to pic
 
 <p class="optchips"><span><a href="options.md#shot-aware-options">Options</a></span> <a href="options.md#opt-shot-window"><code>--shot-window</code></a> <a href="options.md#opt-shot-stats"><code>--shot-stats</code></a></p>
 
-Coming soon: a scan that finds the shots once, a key frame at the start of each shot so every rung of a ladder switches at the same frames, and a quality setting per shot from the scan. It runs in one pass.
+Coming soon: one scan that finds the shots and gives each one a key frame and its own quality setting. Every rung of a ladder will switch at the same frames.
 
 ## Identification marks
 
