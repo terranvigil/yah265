@@ -17,7 +17,9 @@
 #include <malloc/malloc.h>
 #endif
 #include <limits.h>
+#include <spawn.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include "yah265.h"
@@ -1292,6 +1294,9 @@ static void usage(FILE *out)
         "  --shot-stats <file>   write per-shot statistics as JSON Lines\n"
         "  --frame-stats <file>  write one JSON line per coded frame, with the live\n"
         "                        control events that took effect on it\n"
+        "  --report <file>       write an HTML report of the encode: rate, QP,\n"
+        "                        frame types, shots, buffer and detections\n"
+        "                        (runs encode_report.py; needs python3)\n"
         "  --verbose, -v         print the resolved configuration, level and tier,\n"
         "                        then encode\n"
         "  --show-config         print the resolved configuration and exit\n"
@@ -2977,6 +2982,7 @@ typedef struct {
     const char *dump_decode_path, *csv_path;
     const char *shot_scan, *shot_list;
     const char *fstats_path, *ctl_path, *ctl_out_path;
+    const char *report_path;
     int ctl_fd;
     long max_frames, seek;
     int out_depth, in_w, in_h, in_csp, in_depth, in_fps_num, in_fps_den;
@@ -3081,6 +3087,8 @@ static int cli_parse(const n265_api *a, n265_config *cfg, int argc,
             o->csv_path = argv[++i];
         } else if (!strcmp(argv[i], "--frame-stats") && i + 1 < argc) {
             o->fstats_path = argv[++i];
+        } else if (!strcmp(argv[i], "--report") && i + 1 < argc) {
+            o->report_path = argv[++i];
         } else if (!strcmp(argv[i], "--control") && i + 1 < argc) {
             o->ctl_path = argv[++i];
         } else if (!strcmp(argv[i], "--control-out") && i + 1 < argc) {
@@ -3889,6 +3897,77 @@ static int run_bench(int argc, char **argv)
     return 2;
 }
 
+/* ---- --report: the stats go to a scratch directory and
+ * encode_report.py turns them into one HTML page ---- */
+static int report_prepare(char *dir, char *frames, char *cfg, size_t n)
+{
+    const char *tmp = getenv("TMPDIR");
+    snprintf(dir, n, "%s/y265-report-XXXXXX", tmp && *tmp ? tmp : "/tmp");
+    if (!mkdtemp(dir)) {
+        fprintf(stderr, "y265: --report: cannot make a scratch directory "
+                "%s: %s\n", dir, strerror(errno));
+        return -1;
+    }
+    snprintf(frames, n, "%s/frames.jsonl", dir);
+    snprintf(cfg, n, "%s/config.txt", dir);
+    return 0;
+}
+
+static int report_find_script(const char *argv0, char *out, size_t n)
+{
+    const char *env = getenv("N265_REPORT_SCRIPT");
+    if (env && *env) {
+        snprintf(out, n, "%s", env);
+        return access(out, R_OK) == 0 ? 0 : -1;
+    }
+    char dir[PATH_MAX];
+    if (self_path(argv0, dir) < 0)
+        return -1;
+    char *slash = strrchr(dir, '/');
+    if (slash)
+        *slash = '\0';
+    /* beside an installed y265, the share directory, then the source
+     * tree's scripts/ for a binary run out of its build directory */
+    const char *rel[] = { "", "/../share/yah265", "/../scripts", NULL };
+    for (int i = 0; rel[i]; i++) {
+        snprintf(out, n, "%s%s/encode_report.py", dir, rel[i]);
+        if (access(out, R_OK) == 0)
+            return 0;
+    }
+    return -1;
+}
+
+extern char **environ;
+
+static void report_run(const char *argv0, const char *html,
+                       const char *frames, const char *cfg, const char *dir,
+                       const char *stream, const char *input)
+{
+    char script[PATH_MAX];
+    if (report_find_script(argv0, script, sizeof script) < 0) {
+        fprintf(stderr, "y265: --report: encode_report.py not found beside "
+                "y265 (set N265_REPORT_SCRIPT); the stats are in %s\n", dir);
+        return;
+    }
+    char *args[] = { "python3", script, "--frames", (char *)frames,
+                     "--config", (char *)cfg, "--stream", (char *)stream,
+                     "--title", (char *)input, "-o", (char *)html, NULL };
+    pid_t pid;
+    int st = 0;
+    if (posix_spawnp(&pid, "python3", NULL, NULL, args, environ) != 0 ||
+        waitpid(pid, &st, 0) < 0 || !WIFEXITED(st) || WEXITSTATUS(st)) {
+        fprintf(stderr, "y265: --report: the report was not written; the "
+                "stats are in %s\n", dir);
+        return;
+    }
+    /* the scratch files go; a --frame-stats the user named stays */
+    if (!strncmp(frames, dir, strlen(dir)))
+        unlink(frames);
+    unlink(cfg);
+    rmdir(dir);
+    fprintf(stderr, "y265: report written to %s\n", html);
+}
+
 int main(int argc, char **argv)
 {
     if (argc > 1 && !strcmp(argv[1], "bench"))
@@ -4156,6 +4235,7 @@ int main(int argc, char **argv)
                         : dump_decode_path ? "--dump-recon-decode"
                         : csv_path ? "--csv"
                         : o.fstats_path ? "--frame-stats"
+                        : o.report_path ? "--report"
                         : shot_path ? "--shot-stats"
                         : o.shot_list ? "--shot-list" : NULL;
         if (why) {
@@ -4187,6 +4267,7 @@ int main(int argc, char **argv)
             : zones_spec ? "--zones numbers frames from the stream's start"
             : csv_path ? "--csv is one encoder's log"
             : o.fstats_path ? "--frame-stats is one encoder's log"
+            : o.report_path ? "--report reads one encoder's log"
             : (o.ctl_path || o.ctl_fd >= 0)
               ? "live control numbers frames from the stream's start"
             : shot_path ? "--shot-stats is one encoder's log"
@@ -4312,6 +4393,19 @@ int main(int argc, char **argv)
     free(shot_starts);
     if (csv_path)
         a->set_csv(enc, csv_path, csv_level);
+    char rep_dir[PATH_MAX] = "", rep_frames[PATH_MAX] = "";
+    char rep_cfg[PATH_MAX] = "";
+    if (o.report_path) {
+        if (report_prepare(rep_dir, rep_frames, rep_cfg, sizeof rep_dir) < 0)
+            return 1;
+        if (!o.fstats_path)
+            o.fstats_path = rep_frames;
+        FILE *cf = fopen(rep_cfg, "w");
+        if (cf) {
+            a->show_config(enc, cf, y.depth);
+            fclose(cf);
+        }
+    }
     if (o.fstats_path)
         a->set_frame_stats(enc, o.fstats_path);
     if (o.ctl_out_path) {
@@ -4471,5 +4565,8 @@ int main(int argc, char **argv)
     int drc = dyn_check(n);
     if (g_tv.on && tv_report(&g_tv, out_path, n) && !drc)
         drc = 1;
+    if (o.report_path && drc == 0)
+        report_run(argv[0], o.report_path, o.fstats_path, rep_cfg, rep_dir,
+                   out_path, in_path);
     return drc;
 }

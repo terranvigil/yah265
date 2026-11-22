@@ -203,6 +203,7 @@
 #define n265_la_pop                  n265_la_pop_10
 #define n265_la_push                 n265_la_push_10
 #define n265_la_scenecut             n265_la_scenecut_10
+#define n265_la_scenecut_why         n265_la_scenecut_why_10
 #define n265_la_set_anchor           n265_la_set_anchor_10
 #define n265_la_warm                 n265_la_warm_10
 #define n265_lambda_mode_q8          n265_lambda_mode_q8_10

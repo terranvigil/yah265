@@ -249,7 +249,7 @@ static int opt_drop(const char *k)
     static const char * const drop[] = {
         "o", "dump-recon", "dump-recon-decode", "csv", "csv-log-level",
         "shot-stats", "shot-scan", "psnr", "ssim", "verbose", "v", "threads",
-        "gop-parallel", "frame-stats", "control", "control-fd",
+        "gop-parallel", "frame-stats", "report", "control", "control-fd",
         "control-out",
         "show-config", "version", "help", "h",
         "info", "no-info",
