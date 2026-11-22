@@ -59,6 +59,8 @@ To see both in motion, open the [comparison players](https://terranvigil.github.
 - CRF, capped CRF, VBR, CBR, ABR and two-pass. The [encoding guide](guide.md#pick-a-rate-mode) says when to pick each.
 - Main, Main10, 4:4:4 and 4:2:2 [profiles](guide.md#set-the-bit-depth-and-profile) from one binary.
 - [HDR10, HDR10+, HLG and Dolby Vision profile 8](hdr.md).
+- Shot-aware encoding: a shot window, per-shot statistics and a script that prints each shot's convex hull. [Planning by shot](guide.md#planning-by-shot) shows how.
+- [Low latency](guide.md#low-latency) for live: `--tune zerolatency` gives one frame of latency.
 - SIMD on arm64 and x86-64. [Architectures](architectures.md) lists what runs where.
 - x265's option names for shared features. [Options](options.md) lists them.
 
