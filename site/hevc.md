@@ -5,7 +5,7 @@ description: What each tool in the H.265 standard does and which choices the sta
 
 # The HEVC standard
 
-HEVC is the video coding standard that ITU-T publishes as H.265. This page explains what it specifies for a reader who has never opened the specification. [Design](design.md) covers how yah265 makes the choices the standard leaves to an encoder.
+HEVC is the video coding standard that ITU-T publishes as H.265. This page explains what it specifies for a reader who has never opened the specification. See [Design](design.md) for how yah265 makes the choices the standard leaves to an encoder.
 
 ## How video encoding works
 
@@ -1705,7 +1705,7 @@ A decoder doesn't have to support the whole standard. A profile names the tools 
 
 A level caps the picture size, the frame rate and the bitrate so that a decoder knows how much it has to handle. Each level comes in a Main tier and a High tier with a larger bitrate cap.
 
-HDR needs no new coding tool. An HDR stream is a 10-bit stream with fields that say how to read its samples: the color primaries, the transfer function and the mastering display's range. Those fields live in the SPS and in SEI messages. [HDR](hdr.md) covers what yah265 writes. The [encoding guide](guide.md#set-the-bit-depth-and-profile) lists the profiles yah265 codes.
+HDR needs no new coding tool. An HDR stream is a 10-bit stream with fields that say how to read its samples: the color primaries, the transfer function and the mastering display's range. Those fields live in the SPS and in SEI messages. See [HDR](hdr.md) for what yah265 writes and the [encoding guide](guide.md#set-the-bit-depth-and-profile) for the profiles it codes.
 
 ## What the standard doesn't say
 
@@ -1769,4 +1769,4 @@ Two encoders can write legal streams of the same size from the same source. The 
 - Which pictures are kept as references: [References](design.md#references).
 - How the work is spread over many cores: [Threading](threading.md).
 
-The standard also gives an encoder no way to know that its stream is legal. [Validating the bitstream](design.md#validating-the-bitstream) covers how yah265 checks.
+The standard also gives an encoder no way to know that its stream is legal. See [Validating the bitstream](design.md#validating-the-bitstream) for how yah265 checks.

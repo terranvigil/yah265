@@ -90,7 +90,7 @@ An average can hide a bad stretch. Here is that clip frame by frame, from both f
 <figure class="chart"><img src="assets/charts/trust/tail-trace.svg" alt="Line chart of VMAF v1 per frame of a 90-second clip, one line per encoder. The yah265 line is above the x265 line in most of the low stretches."></figure>
 <!--/trust:fig-trace-->
 
-yah265's lead is wider on the clip's worst frames than on its average. [Results](results.md#the-worst-frames) has the figures.
+yah265's lead is wider on the clip's [worst frames](results.md#the-worst-frames) than on its average.
 
 ## The same result through ffmpeg
 

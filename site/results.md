@@ -24,7 +24,7 @@ The first two rows are the headline. They cover the Mac's CRF encodes where the 
 
 To see the two encodes in motion, [watch them side by side](compare.md).
 
-The quality limit is that yah265 may need at most 1.0% more bits than x265 for the same VMAF v1. [The methodology](methodology.md) sets out each limit and the rules that make a number valid. [How x265 was run](x265-run.md) has its build and the command for each goal. [Check it yourself](check-it-yourself.md) shows how to take the same measurements on your own machine.
+The quality limit is that yah265 may need at most 1.0% more bits than x265 for the same VMAF v1. [The methodology](methodology.md) sets out each limit and the rules that make a number valid. See [How x265 was run](x265-run.md) for its build and the command for each goal, and [Check it yourself](check-it-yourself.md) to take the same measurements on your own machine.
 
 ## What the numbers mean
 
@@ -293,7 +293,7 @@ Scores aside, you can just look at the two encodes. The clip is 90 seconds of Te
 
 The [comparison players](https://terranvigil.github.io/yah265-compare/) play both encodes in motion: 30 seconds of Nocturne in 4K, 30 seconds of Sparks at 1080p and a scrolling Wikipedia page. Each lets you switch encodes and jump to the frames where they differ most.
 
-A script picked the frames and crops by a fixed rule: low-scoring frames, cropped where the two encodes differ most. [Methodology](methodology.md#the-frames-shown-side-by-side) has the rule.
+A script picked the frames and crops by a [fixed rule](methodology.md#the-frames-shown-side-by-side): low-scoring frames, cropped where the two encodes differ most.
 
 ## The worst frames
 
@@ -525,7 +525,7 @@ The four speeds with an asterisk were timed before yah265's `medium` gained its 
 
 ## HDR
 
-HDR quality is read on its own metric, HDR-VMAF. The [HDR page](hdr.md) has those tables.
+HDR quality is read on its own metric, HDR-VMAF. See the [HDR page](hdr.md) for those tables.
 
 ## The full record
 
