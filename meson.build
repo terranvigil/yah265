@@ -13,7 +13,14 @@ cpu_family = host_machine.cpu_family()
 
 # libm implicit on macOS/clang, explicit on Linux/gcc
 m_dep = cc.find_library('m', required : false)
-threads_dep = dependency('threads')
+# emscripten: no threads, so the page needs no cross-origin isolation
+is_wasm = host_machine.system() == 'emscripten'
+if is_wasm
+  threads_dep = declare_dependency()
+  add_project_arguments('-DN265_NO_THREADS=1', language : 'c')
+else
+  threads_dep = dependency('threads')
+endif
 
 add_project_arguments('-D_GNU_SOURCE', language : 'c')
 
@@ -71,6 +78,7 @@ lib_sources = [
   'src/encoder/grain.c',
   'src/encoder/metrics.c',
   'src/encoder/rcfile.c',
+  'src/encoder/shotlist.c',
   'src/encoder/hash.c',
   'src/encoder/signal.c',
   'src/encoder/headers.c',
@@ -78,6 +86,8 @@ lib_sources = [
   'src/encoder/preset.c',
   'src/encoder/config.c',
   'src/encoder/encoder.c',
+  'src/encoder/ctl.c',
+  'cli/ctl_log.c',
   'src/encoder/ttrace.c',
   'src/hw/vt_map.c',
   'src/hw/sc.c',
@@ -209,7 +219,7 @@ if cpu_family == 'x86_64'
       x86_sse42_families_10 += f
     endif
   endforeach
-  foreach f : ['satd', 'mc', 'transform']  # the AVX-512 Main10 list
+  foreach f : ['satd', 'mc', 'transform', 'rdoq']  # the AVX-512 Main10 list
     if f in x86_avx512_families_8
       x86_avx512_families_10 += f
     endif
@@ -377,12 +387,14 @@ shared_objs = [libyah265_static.extract_all_objects(recursive : true)]
 if is_8bit
   shared_objs += libyah265_other.extract_all_objects(recursive : true)
 endif
+if not is_wasm
 libyah265 = shared_library('yah265' + depth_suffix,
   objects : shared_objs,
   dependencies : [m_dep, threads_dep, vt_dep],
   version : meson.project_version(),
   soversion : '0',
   install : true)
+endif
 
 lib8_static  = is_8bit ? libyah265_static : libyah265_other
 lib10_static = is_8bit ? libyah265_other : libyah265_static
@@ -396,6 +408,7 @@ if is_8bit
   install_headers('include/yah265.h')
 endif
 
+if not is_wasm
 pkg = import('pkgconfig')
 pkg.generate(libyah265,
   name : 'yah265' + depth_suffix,
@@ -404,6 +417,7 @@ pkg.generate(libyah265,
   url : 'https://github.com/terranvigil/yah265',
   extra_cflags : is_8bit ? [] : ['-DN265_BIT_DEPTH=@0@'.format(bit_depth)],
   subdirs : '.')
+endif
 
 # What tests/ links: this build's depth, with the Main10 namespace force
 # included where that depth is 10, so checkasm and the unit tests see the
@@ -424,14 +438,33 @@ y265 = executable('y265' + depth_suffix, 'cli/y265.c', 'cli/hdr_dyn.c',
   link_with : [lib8_static, lib10_static],
   include_directories : inc,
   dependencies : [m_dep, threads_dep, vt_dep],
+  # under emscripten it runs in node on the real file system, for timing
+  link_args : is_wasm ? ['-sNODERAWFS=1', '-sALLOW_MEMORY_GROWTH=1',
+                         '-sMAXIMUM_MEMORY=4gb', '-sSTACK_SIZE=4mb'] : [],
   install : true)
 
 # n265 was the command line's name before it was y265. The build tree
 # keeps it as a link so the gates, the board and the harnesses still run.
+if not is_wasm
 n265 = custom_target('n265-alias',
   input : y265,
   output : 'n265' + depth_suffix,
   command : ['ln', '-sf', 'y265' + depth_suffix, '@OUTPUT@'],
   build_by_default : true)
+endif
 
-subdir('tests')
+if not is_wasm
+# `y265 bench` execs this helper from beside the binary
+configure_file(input : 'scripts/y265_bench.py', output : 'y265-bench',
+  copy : true)
+if is_8bit
+  install_data('scripts/y265_bench.py', install_dir : get_option('bindir'),
+    rename : 'y265-bench', install_mode : 'rwxr-xr-x')
+endif
+endif
+
+if is_wasm
+  subdir('playground/wasm')
+else
+  subdir('tests')
+endif

@@ -187,7 +187,7 @@ def chart_machines(sps):
                 close = [k for k in bc.MACHINES if k in got and abs(got[k] - got[m]) < 0.12]
                 dy = 0 if len(close) == 1 else (close.index(m) - (len(close) - 1) / 2) * 9
                 o.append(bc.marker(j, X(got[m]), y + dy, f"s{j + 1}", 5))
-    o.append(bc.T((L + W - R) / 2, H - 14, "times faster than x265 (1x is level, right is faster)",
+    o.append(bc.T((L + W - R) / 2, H - 14, "times faster than x265 (1x is level)",
                   13, "t2", "middle"))
     o.append("</svg>")
     return "\n".join(o)
@@ -298,7 +298,7 @@ def chart_capped(cap):
                  f"class='{cls}'{dash}/>")
         o.append(bc.T(X(v), H - B + 20, "1x (x265)" if v == 1 else f"{v:g}x", 12, "t2", "middle"))
         v += 0.5
-    o.append(bc.T((L + W - R) / 2, H - 14, "times faster than x265 (right is faster)", 13, "t2",
+    o.append(bc.T((L + W - R) / 2, H - 14, "times faster than x265", 13, "t2",
                   "middle"))
     for i, c in enumerate(classes):
         y = Tp + rowh * (i + 0.5)

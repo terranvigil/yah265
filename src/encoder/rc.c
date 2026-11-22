@@ -157,6 +157,13 @@ double n265_rc_cplx(struct n265_encoder *e, int i, int cls)
      * this item is about. Charging it into the value as well was measured
      * and is not shipped. */
     double c = pc < ic ? (double)f->pcost_sum : ic;
+    /* --intra-refresh: the column is coded intra */
+    int j = n265_ir_pos(e, f->display_idx);
+    if (j >= 0 && e->ctb_cols > 0) {
+        long C = e->ctb_cols, P = e->keyint;
+        double s = (double)((j + 1) * C / P - j * C / P) / (double)C;
+        c = (1.0 - s) * c + s * ic;
+    }
     return c > 1.0 ? c : 1.0;
 }
 

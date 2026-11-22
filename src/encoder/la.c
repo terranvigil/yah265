@@ -1638,6 +1638,10 @@ int n265_la_scenecut(struct n265_encoder *e, int i)
     if (i >= la->count || la->f[i].display_idx == 0)
         return 0;
     const la_frame *f = &la->f[i];
+    /* --shot-list: the list is the only source of cuts, so every rung of
+     * a ladder cuts at the same frames */
+    if (e->shotl_on)
+        return n265_shotl_has(e, f->display_idx);
     /* cut when inter fails to undercut intra AND the ratio spikes over
      * its running level - a steady high ratio (grain, foliage) is not a
      * scene change */

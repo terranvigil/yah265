@@ -1,0 +1,17 @@
+# meson cross file for the playground's WebAssembly build. emcc must be
+# on PATH: `make wasm` sources ~/src/build/emsdk/emsdk_env.sh first.
+[binaries]
+c = 'emcc'
+ar = 'emar'
+ranlib = 'emranlib'
+strip = 'emstrip'
+
+[built-in options]
+c_args = ['-O3']
+c_link_args = ['-O3']
+
+[host_machine]
+system = 'emscripten'
+cpu_family = 'wasm32'
+cpu = 'wasm32'
+endian = 'little'

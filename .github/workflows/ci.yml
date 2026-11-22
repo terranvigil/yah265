@@ -34,6 +34,51 @@ jobs:
       - name: asan/ubsan
         run: DEC265=$PWD/dec265-bin/dec265 make asan
 
+  # The AVX-512 tier under Intel SDE: the hosted runners may lack AVX-512,
+  # so checkasm runs on an emulated Sapphire Rapids at both depths.
+  avx512-sde:
+    runs-on: ubuntu-latest
+    env:
+      SDE_VERSION: 10.13.1
+      SDE_TARBALL: sde-external-10.13.1-2026-07-28-lin.tar.xz
+      # Intel's published SHA-256 for that tarball
+      SDE_SHA256: 94e97d623fec54385686e1e7ba65ebc9941748c05ee451423948334892bf2b50
+    steps:
+      - uses: actions/checkout@v4
+      - name: deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y meson ninja-build
+      - name: cache sde
+        id: cache-sde
+        uses: actions/cache@v4
+        with:
+          path: sde-dl
+          key: sde-${{ env.SDE_VERSION }}
+      - name: download sde
+        if: steps.cache-sde.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p sde-dl
+          curl -fsSL -o "sde-dl/$SDE_TARBALL" \
+            "https://github.com/petarpetrovt/setup-sde/releases/download/binaries/$SDE_TARBALL"
+      - name: unpack sde
+        run: |
+          echo "$SDE_SHA256  sde-dl/$SDE_TARBALL" | sha256sum -c -
+          mkdir -p sde && tar -xJf "sde-dl/$SDE_TARBALL" -C sde --strip-components 1
+      - name: build checkasm
+        run: |
+          meson setup build-sde
+          meson setup build10-sde -Dbit_depth=10
+          ninja -C build-sde tests/checkasm
+          ninja -C build10-sde tests/checkasm
+      - name: checkasm under sde -spr
+        run: |
+          for b in build-sde build10-sde; do
+            ./sde/sde64 -spr -- "$b/tests/checkasm" | tee "$b/checkasm.log"
+            grep -q 'checking avx512' "$b/checkasm.log"
+            if grep -q FAIL "$b/checkasm.log"; then exit 1; fi
+          done
+
   macos:
     runs-on: macos-latest
     steps:

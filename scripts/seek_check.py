@@ -35,9 +35,15 @@ caller passes in - in conformance.sh that is the file the recon match
 already agreed with, so a seek that matches it matches the encoder's own
 reconstruction.
 
+With --all-irap it cuts at every IRAP in turn, IDRs included, and
+--expect-starts names display frames that must each start one of those
+cuts. That is the check for --shot-list: every listed shot start is a
+place a decoder can begin.
+
 usage:
   seek_check.py <stream.265> <full-decode.yuv> --geometry WxH
                 [--csp 420|422|444] [--depth 8|10] [--cra N]
+                [--all-irap [--expect-starts 0,150,300]]
                 [--ffmpeg path] [--dec265 path] [--keep DIR]
 """
 import argparse
@@ -91,8 +97,8 @@ def poc_lsb(rbsp, irap):
     return int(bits[p:p + 8], 2)
 
 
-def cut(d, want):
-    """Cut at the `want`th CRA.
+def cut(d, want, types=(CRA_NUT,)):
+    """Cut at the `want`th picture whose NAL type is in `types` (a CRA).
 
     Returns (bytes, cra poc lsb, radl count, kept count) - `kept` being
     how many pictures a decoder starting here is required to OUTPUT: the
@@ -107,7 +113,7 @@ def cut(d, want):
             heads += d[ns[k][0]:end]
     seen = 0
     for k, (sc, po, t) in enumerate(ns):
-        if t != CRA_NUT:
+        if t not in types or (po + 2 < len(d) and not d[po + 2] & 0x80):
             continue
         seen += 1
         if seen != want:
@@ -133,8 +139,10 @@ def cut(d, want):
             elif t2 in (RASL_N, RASL_R):
                 drop += 1
         kept = sum(1 for _, _, t2 in ns[k:] if t2 <= VCL_MAX) - drop
-        return ((b"" if have_sets else heads) + d[ns[b][0]:],
-                poc_lsb(d[po + 2:po + 12], True), radl, kept)
+        # an IDR's slice header carries no POC: it is 0 by definition
+        poc = poc_lsb(d[po + 2:po + 12], True) if t == CRA_NUT else 0
+        return ((b"" if have_sets else heads) + d[ns[b][0]:], poc, radl,
+                kept)
     return None, None, None, None
 
 
@@ -166,6 +174,11 @@ def main():
     ap.add_argument("--keep", help="write the cut stream and decodes here")
     ap.add_argument("--expect-radl", type=int, default=0,
                     help="fail when the encode named --radl but the cut has no RADL")
+    ap.add_argument("--all-irap", action="store_true",
+                    help="cut at every IRAP, IDR or CRA, and check each")
+    ap.add_argument("--expect-starts",
+                    help="with --all-irap: display frames that must each "
+                         "start a cut, comma-separated")
     a = ap.parse_args()
 
     w, h = (int(x) for x in a.geometry.lower().split("x"))
@@ -175,6 +188,8 @@ def main():
            ("444", 10): "yuv444p10le"}[(a.csp, a.depth)]
 
     d = open(a.stream, "rb").read()
+    if a.all_irap:
+        return all_irap(a, d, fs, pix)
     ncra = sum(1 for _, _, t in nals(d) if t == CRA_NUT)
     if ncra == 0:
         print("seek_check: no CRA in the stream - nothing to seek to",
@@ -249,6 +264,62 @@ def main():
 
     print(f"seek_check: CRA {which}/{ncra} at POC lsb {cra}, {radl} RADL, "
           f"{len(want)} frames from display {start}, both decoders exact")
+    return 0
+
+
+def decode_check(a, stream, want, fs, pix, tmp):
+    """Both decoders on a cut stream against `want`; None, or the failure."""
+    cutpath = os.path.join(tmp, "seek.265")
+    ffout = os.path.join(tmp, "seek.ff.yuv")
+    deout = os.path.join(tmp, "seek.de.yuv")
+    open(cutpath, "wb").write(stream)
+    r = subprocess.run([a.ffmpeg, "-loglevel", "error", "-flags", "output_corrupt",
+                        "-i", cutpath, "-pix_fmt", pix, "-f", "rawvideo", ffout,
+                        "-y"], capture_output=True)
+    if r.returncode != 0 or not os.path.exists(ffout):
+        return "ffmpeg refused the cut stream: " + r.stderr.decode()[:200]
+    if frames(ffout, fs) != want:
+        return f"ffmpeg did not give the {len(want)} expected frames"
+    r = subprocess.run([a.dec265, "-q", "-o", deout, cutpath],
+                       capture_output=True)
+    if r.returncode != 0 or not os.path.exists(deout):
+        return "dec265 refused the cut stream: " + r.stderr.decode()[:200]
+    hs = lambda fr: sorted(hashlib.md5(x).hexdigest() for x in fr)
+    if hs(frames(deout, fs)) != hs(want):
+        return f"dec265 did not give the {len(want)} expected frames"
+    return None
+
+
+def all_irap(a, d, fs, pix):
+    full = frames(a.full, fs)
+    n = sum(1 for _, po, t in nals(d)
+            if t in IRAP and po + 2 < len(d) and d[po + 2] & 0x80)
+    tmp = a.keep or tempfile.mkdtemp(prefix="seekchk")
+    os.makedirs(tmp, exist_ok=True)
+    starts = []
+    for k in range(1, n + 1):
+        stream, _, _, kept = cut(d, k, tuple(IRAP))
+        start = len(full) - kept
+        if start < 0:
+            print(f"seek_check: IRAP {k}: {kept} output pictures, the full "
+                  f"decode has {len(full)}", file=sys.stderr)
+            return 2
+        why = decode_check(a, stream, full[start:], fs, pix, tmp)
+        if why:
+            print(f"seek_check: IRAP {k}/{n} at display {start}: {why}",
+                  file=sys.stderr)
+            return 1
+        starts.append(start)
+    miss = []
+    if a.expect_starts:
+        want = [int(x) for x in a.expect_starts.split(",") if x.strip()]
+        miss = [x for x in want if x not in starts]
+    if miss:
+        print(f"seek_check: no IRAP starts at display {miss}; the IRAPs start "
+              f"at {starts}", file=sys.stderr)
+        return 1
+    print(f"seek_check: {n} IRAPs, both decoders exact from each; they start "
+          f"at display {' '.join(map(str, starts))}")
     return 0
 
 

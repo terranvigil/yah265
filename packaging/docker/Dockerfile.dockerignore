@@ -1,0 +1,16 @@
+.git
+build*
+local
+.claude
+tests/corpus
+tests/train-corpus
+tests/.golden
+tests/.perfcache
+tests/.crfcache
+site/_build
+scratch
+**/*.y4m
+**/*.yuv
+**/*.hevc
+**/*.265
+**/__pycache__

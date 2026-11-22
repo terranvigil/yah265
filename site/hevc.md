@@ -5,7 +5,7 @@ description: What each tool in the H.265 standard does and which choices the sta
 
 # The HEVC standard
 
-HEVC is the video coding standard that ITU-T publishes as H.265. This page explains what it specifies for a reader who has never opened the specification. [Design](design.md) covers how yah265 makes the choices the standard leaves to an encoder.
+HEVC is the video coding standard that ITU-T publishes as H.265. This page explains what it specifies for a reader who has never opened the specification. See [Design](design.md) for how yah265 makes the choices the standard leaves to an encoder.
 
 ## How video encoding works
 
@@ -107,7 +107,7 @@ The encoder also does the decoder's half of the work. It rebuilds each block fro
 <figcaption>Each block goes around this loop. The lower half is the decoder's work. The encoder does it too so that both predict from the same samples.</figcaption>
 </figure>
 
-Pictures come in three kinds. A decoder can start from an I picture because it uses only intra prediction. A P picture also predicts from earlier pictures. A B picture can predict from two pictures at once. One of them may be shown later than the B picture itself.
+Pictures come in three kinds. A decoder can start from an I picture because it uses only intra prediction. A P picture also predicts from earlier pictures. A B picture can predict from two pictures at once, including one that's shown after it.
 
 ## What HEVC adds
 
@@ -179,14 +179,20 @@ The larger block matters most. A patch of sky in a 4K picture is thousands of sa
 <text class="d-label" x="140" y="396" text-anchor="middle">32x32</text>
 <text class="d-label" x="200" y="376" text-anchor="middle">16</text>
 </svg>
-<figcaption>HEVC spends one large block on a flat area. It splits only where the picture has detail.</figcaption>
+<figcaption>HEVC spends one large block on a flat area and splits only where the picture has detail.</figcaption>
 </figure>
 
 ## Pictures, slices and NAL units
 
 An HEVC stream is a row of packets called NAL units. Each one starts with a two-byte header that says what kind it is.
 
-Three kinds hold settings and no picture data. The video parameter set (VPS) describes the stream as a whole. Below it, the sequence parameter set (SPS) holds the picture size, the bit depth and which tools are switched on. Settings that can change from picture to picture go in the picture parameter set (PPS). The picture data itself travels in slices. A slice is a run of blocks that can be decoded by itself. The last kind, supplemental enhancement information (SEI), holds extras such as HDR metadata that a decoder may ignore.
+Three kinds hold settings and no picture data:
+
+- The video parameter set (VPS) describes the stream as a whole.
+- The sequence parameter set (SPS) holds the picture size, the bit depth and which tools are switched on.
+- The picture parameter set (PPS) holds settings that can change from picture to picture.
+
+The picture data itself travels in slices. A slice is a run of blocks that can be decoded by itself. Supplemental enhancement information (SEI) holds extras such as HDR metadata that a decoder may ignore.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 214" role="img" aria-label="The NAL units at the start of a stream">
@@ -260,7 +266,7 @@ Three kinds hold settings and no picture data. The video parameter set (VPS) des
 <figcaption>A slice holds picture data and points back at the parameter sets it needs.</figcaption>
 </figure>
 
-A decoder can only start at a key picture. HEVC has two main kinds. After an IDR picture, nothing refers to anything that came before it. A CRA picture (clean random access) lets the pictures shown just before it predict from it too. That's an open GOP. It costs fewer bits than a closed one.
+A decoder can only start at a key picture. HEVC has two main kinds. After an IDR picture, nothing refers to anything that came before it. A CRA picture (clean random access) lets the pictures shown just before it predict from it too. The result is an open GOP that costs fewer bits than a closed one.
 
 B pictures are usually arranged as a pyramid. The middle picture of a group is coded first from the pictures at either end. Each half is then filled in the same way. That's why pictures are decoded in a different order from the one they're shown in.
 
@@ -482,7 +488,7 @@ Each slice also has a reference picture set. It lists the pictures the decoder h
 <text class="d-label" x="204" y="452" text-anchor="middle">leading pictures:</text>
 <text class="d-label" x="204" y="468" text-anchor="middle">decoded after the CRA, shown before it</text>
 </svg>
-<figcaption>Arrows point from a picture to the pictures it predicts from. The decoder takes the pictures in the bottom row's order. It shows them in the top row's.</figcaption>
+<figcaption>Arrows point from a picture to the pictures it predicts from. The decoder takes the pictures in the bottom row's order and shows them in the top row's.</figcaption>
 </figure>
 
 ## The coding tree
@@ -608,7 +614,7 @@ Each picture is divided into a grid of coding tree units (CTUs). The stream pick
 <figcaption>Each split is a single flag in the stream. The highlighted 8x8 block is the highlighted leaf.</figcaption>
 </figure>
 
-A coding unit is where the encoder picks intra or inter prediction. Inside it, prediction units (PUs) say how the CU is cut for prediction. An inter CU has eight shapes to pick from, including four uneven ones. Transform units (TUs) say how the residual is cut for the transform, through a second quadtree with sizes from 32x32 down to 4x4.
+A coding unit is where the encoder picks intra or inter prediction. Inside it, prediction units (PUs) say how the CU is cut for prediction. An inter CU has eight partitions to pick from, including four uneven ones. Transform units (TUs) cut the residual for the transform with a second quadtree that runs from 32x32 down to 4x4.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 338" role="img" aria-label="Prediction units and transform units on one coding unit">
@@ -705,12 +711,12 @@ A coding unit is where the encoder picks intra or inter prediction. Inside it, p
 
 ## Intra prediction
 
-Intra prediction fills a block from the decoded samples just above it and to its left. HEVC has 35 ways to do it. Planar fits a smooth surface through the neighbors. DC fills the block with their average. The other 33 are angular modes. Each one extends the neighbor samples into the block along a direction.
+Intra prediction fills a block from the decoded samples just above it and to its left. HEVC has 35 ways to do it. Planar fits a smooth surface through the neighbors and DC fills the block with their average. The other 33 are angular modes that each extend the neighbor samples into the block along a direction.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 336" role="img" aria-label="The 35 intra prediction modes">
 <title>The 35 intra prediction modes</title>
-<desc>On the left a block with the row of decoded samples above it and the column to its left. Each is twice the block's length. On the right a fan of 33 lines from one point, covering half a turn from the lower left through horizontal and vertical to the upper right. Modes 2, 10, 18, 26 and 34 are marked. Planar and DC are modes 0 and 1.</desc>
+<desc>On the left a block with a row of decoded samples above it and a column to its left that are each twice the block's length. On the right a fan of 33 lines from one point, covering half a turn from the lower left through horizontal and vertical to the upper right. Modes 2, 10, 18, 26 and 34 are marked. Planar and DC are modes 0 and 1.</desc>
 <rect class="d-accent" x="66" y="116" width="194" height="14" rx="0"/>
 <rect class="d-accent" x="66" y="130" width="14" height="180" rx="0"/>
 <rect class="d-box" x="80" y="130" width="90" height="90" rx="0"/>
@@ -767,7 +773,7 @@ Intra prediction fills a block from the decoded samples just above it and to its
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 610" role="img" aria-labelledby="intra-fig-t-n intra-fig-d-n">
 <title id="intra-fig-t-n">The 35 intra prediction modes</title>
-<desc id="intra-fig-d-n">On the left a block with the row of decoded samples above it and the column to its left. Each is twice the block's length. On the right a fan of 33 lines from one point, covering half a turn from the lower left through horizontal and vertical to the upper right. Modes 2, 10, 18, 26 and 34 are marked. Planar and DC are modes 0 and 1.</desc>
+<desc id="intra-fig-d-n">On the left a block with a row of decoded samples above it and a column to its left that are each twice the block's length. On the right a fan of 33 lines from one point, covering half a turn from the lower left through horizontal and vertical to the upper right. Modes 2, 10, 18, 26 and 34 are marked. Planar and DC are modes 0 and 1.</desc>
 <rect class="d-accent" x="80" y="28" width="194" height="14" rx="0"/>
 <rect class="d-accent" x="80" y="42" width="14" height="180" rx="0"/>
 <rect class="d-box" x="94" y="42" width="90" height="90" rx="0"/>
@@ -828,7 +834,7 @@ Naming one of 35 modes would cost five bits or more per block. To shorten that, 
 
 ## Inter prediction and merge
 
-Inter prediction copies a block from an earlier decoded picture. A motion vector says where the copy comes from and a reference index says which picture. Vectors are precise to a quarter of a sample. A filter computes the positions between whole samples from eight neighboring samples for luma and four for chroma.
+Inter prediction copies a block from an earlier decoded picture. A motion vector says where the copy comes from and a reference index says which picture. Vectors are precise to a quarter of a sample. A filter computes the positions between whole samples. It reads eight neighboring samples for luma and four for chroma.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 262" role="img" aria-labelledby="mv-fig-t mv-fig-d">
@@ -872,7 +878,9 @@ Inter prediction copies a block from an earlier decoded picture. A motion vector
 <figcaption>The stream holds the vector and which picture it points into. The decoder makes the same copy.</figcaption>
 </figure>
 
-HEVC has two ways to write the motion. Merge writes nothing but an index. The decoder builds a list of up to five candidates from the block's neighbors. The block takes one candidate's vector and reference whole. Skip mode is a merge with no residual, the cheapest block the standard can code. The other way is advanced motion vector prediction (AMVP). There the encoder picks one of two predicted vectors, then codes the difference from it.
+HEVC has two ways to write the motion. Merge writes nothing but an index. The decoder builds a list of up to five candidates from the block's neighbors. The block takes one candidate's vector and reference whole. Skip mode is a merge with no residual, the cheapest block the standard can code.
+
+The other way is advanced motion vector prediction (AMVP). There the encoder picks one of two predicted vectors, then codes the difference from it.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 300" role="img" aria-label="Where merge candidates come from">
@@ -1400,11 +1408,11 @@ The quantizer's step size doubles every six QP steps. At 8 bits the QP runs from
 <figcaption>Because the transform moves a block's energy into a few coefficients, rounding the rest to zero costs little.</figcaption>
 </figure>
 
-Coefficients are coded in groups of 4x4. The coding starts from the last nonzero one, then works back toward the top left. Sign data hiding saves a bit in many groups. The encoder leaves out the sign of one coefficient. The decoder works it out from whether the group's sum is odd or even.
+Coefficients are coded in groups of 4x4. The coding starts from the last nonzero one, then works back toward the top left. Sign data hiding saves a bit in many groups. The encoder leaves out the sign of one coefficient because the decoder can work it out from whether the group's sum is odd or even.
 
 ## Entropy coding
 
-Everything in a slice is written by one coder, context-adaptive binary arithmetic coding (CABAC). Each value is first turned into a string of yes-or-no decisions called bins. For most bins the coder keeps a running estimate of how likely a one is, in a context model chosen by what the bin means. With that estimate an arithmetic coder spends less than a bit on a likely outcome. An unlikely one costs more than a bit.
+Everything in a slice is written by one coder, context-adaptive binary arithmetic coding (CABAC). Each value is first turned into a string of yes-or-no decisions called bins. For most bins a context model keeps a running estimate of how likely a one is. The model is chosen by what the bin means. With that estimate an arithmetic coder spends less than a bit on a likely outcome.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 190" role="img" aria-label="The two paths a bin takes through CABAC">
@@ -1461,18 +1469,20 @@ Everything in a slice is written by one coder, context-adaptive binary arithmeti
 <line class="d-arrow" x1="180" y1="290" x2="180" y2="318"/>
 <text class="d-label" x="180" y="337" text-anchor="middle">bits</text>
 </svg>
-<figcaption>A regular bin is coded with a learned probability. A bypass bin skips the model and costs one whole bit.</figcaption>
+<figcaption>A regular bin is coded with a learned probability while a bypass bin skips the model and costs one whole bit.</figcaption>
 </figure>
 
 Bins with no useful pattern, such as coefficient signs, take the bypass path. There the coder skips the model because it assumes even odds. HEVC groups bypass bins together so that a decoder can read several at once.
 
-One slice has to be decoded in order because the context models carry over from block to block. The standard has two optional tools for decoders that want to work in parallel. Tiles cut the picture into independent rectangles. Wavefront processing gives each row of CTUs its own start point. Both cost some bitrate.
+One slice has to be decoded in order because the context models carry over from block to block. The standard has two optional tools for decoders that want to work in parallel, at some cost in bitrate. Tiles cut the picture into independent rectangles. Wavefront processing gives each row of CTUs its own start point.
 
 ## The in-loop filters
 
 Quantizing each block on its own leaves visible steps at block edges. Two filters repair the rebuilt picture before it's shown or used as a reference. They're called in-loop filters because later pictures predict from the filtered result. The encoder has to apply exactly what the decoder will.
 
-Deblocking runs first. For each block edge on an 8x8 grid it decides how strong a step the coding could have caused there. It then smooths a few samples on each side. Sample adaptive offset (SAO) runs second. For each CTU the encoder can send a few small corrections. One kind is added to samples in a chosen brightness band. The other smooths small peaks and valleys, such as the ringing next to a hard edge.
+Deblocking runs first. For each block edge on an 8x8 grid it decides how strong a step the coding could have caused there. It then smooths a few samples on each side.
+
+Sample adaptive offset (SAO) runs second. For each CTU the encoder can send a few small corrections. One kind is added to samples in a chosen brightness band. The other smooths small peaks and valleys, such as the ringing next to a hard edge.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 232" role="img" aria-label="One row of samples across a block edge, before and after each filter">
@@ -1517,7 +1527,7 @@ Deblocking runs first. For each block edge on an 8x8 grid it decides how strong 
 <path class="d-line d-accent" d="M 40.0 492.9 L 58.7 491.1 L 77.4 486.6 L 96.2 479.4 L 114.9 477.6 L 133.6 474.3 L 152.3 469.6 L 171.0 468.0 L 189.8 467.0 L 208.5 463.0 L 227.2 461.6 L 245.9 458.7 L 264.6 451.5 L 283.4 449.7 L 302.1 445.2 L 320.8 438.0"/>
 <text class="d-label" x="180" y="548" text-anchor="middle">offsets pull it toward the source</text>
 </svg>
-<figcaption>The dashed line is the source. The solid line is the decoded row. The vertical line marks the edge between two blocks.</figcaption>
+<figcaption>The dashed line is the source and the solid line is the decoded row. The vertical line marks the edge between two blocks.</figcaption>
 </figure>
 
 ## Profiles, levels and HDR
@@ -1705,7 +1715,7 @@ A decoder doesn't have to support the whole standard. A profile names the tools 
 
 A level caps the picture size, the frame rate and the bitrate so that a decoder knows how much it has to handle. Each level comes in a Main tier and a High tier with a larger bitrate cap.
 
-HDR needs no new coding tool. An HDR stream is a 10-bit stream with fields that say how to read its samples: the color primaries, the transfer function and the mastering display's range. Those fields live in the SPS and in SEI messages. [HDR](hdr.md) covers what yah265 writes. The [encoding guide](guide.md#set-the-bit-depth-and-profile) lists the profiles yah265 codes.
+HDR needs no new coding tool. An HDR stream is a 10-bit stream with fields that say how to read its samples: the color primaries, the transfer function and the mastering display's range. Those fields live in the SPS and in SEI messages. See [HDR](hdr.md) for what yah265 writes and the [encoding guide](guide.md#set-the-bit-depth-and-profile) for the profiles it codes.
 
 ## What the standard doesn't say
 
@@ -1759,7 +1769,7 @@ The specification defines what each bit of a stream means. It also says what a d
 <figcaption>The standard defines the bitstream and the decoder. Everything inside the dashed box is an encoder's own business.</figcaption>
 </figure>
 
-Two encoders can write legal streams of the same size from the same source. The streams can still differ widely in quality, as can the time taken. All of that difference comes from the open choices. Each of the main ones is listed with the section where yah265 makes it:
+Two encoders can write legal streams of the same size from the same source. The streams can still differ widely in quality, as can the time taken. All of that difference comes from the open choices. These are the main ones and where yah265 makes each:
 
 - Which pictures become key pictures, P pictures and B pictures: [Lookahead](design.md#lookahead).
 - How each CTU is split and which prediction each CU gets: [Mode decision](design.md#mode-decision).
@@ -1769,4 +1779,4 @@ Two encoders can write legal streams of the same size from the same source. The 
 - Which pictures are kept as references: [References](design.md#references).
 - How the work is spread over many cores: [Threading](threading.md).
 
-The standard also gives an encoder no way to know that its stream is legal. [Validating the bitstream](design.md#validating-the-bitstream) covers how yah265 checks.
+The standard also gives an encoder no way to know that its stream is legal. See [Validating the bitstream](design.md#validating-the-bitstream) for how yah265 checks.

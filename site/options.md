@@ -7,7 +7,7 @@ description: The options of the y265 command line, grouped by what they're for, 
 
 This page lists the options `y265` takes. From ffmpeg, the same names go through `-yah265-params` without the dashes, as the guide's [From ffmpeg](guide.md#from-ffmpeg) section shows.
 
-Many switches also take a `--no-` form that turns them off. "The preset's" means the default depends on `--preset` and sometimes on the picture size. Run `y265 --show-config` with your input to see what a run resolves to. The [encoding guide](guide.md) explains how the options fit together.
+Many switches also take a `--no-` form that turns them off. "The preset's" means the default depends on `--preset` and sometimes on the picture size. Run `y265 --show-config` with your input to see what a run resolves to. See the [encoding guide](guide.md) for how they fit together.
 
 <!--gen:options-->
 ## Input and output
@@ -71,6 +71,7 @@ Many switches also take a `--no-` form that turns them off. "The preset's" means
 | <span id="opt-keyint"></span>`--keyint <n>` | `250` | Longest gap between key frames. A scene cut restarts the count. |
 | <span id="opt-open-gop"></span><span id="opt-no-open-gop"></span>`--open-gop` | on | Code the periodic key frame as a CRA and keep the B-frames that straddle it. `--no-open-gop` writes an IDR there. A scene cut is an IDR either way. |
 | <span id="opt-radl"></span>`--radl <n>` | `0` | How many of a CRA's leading pictures stay decodable when playback starts at that CRA. |
+| <span id="opt-intra-refresh"></span>`--intra-refresh` | off | No key frame after the first. A column of intra blocks sweeps the picture every `--keyint` frames, and a decoder can join at the start of any sweep. P-frames and 4:2:0 only. [More](guide.md#intra-refresh) |
 | <span id="opt-bframes"></span>`--bframes <0..15>` | `7` | B-frames between anchors, 0 to 15. Above 7, `--rc-lookahead` must be at least one more. |
 | <span id="opt-b-adapt"></span>`--b-adapt <0-4>` | `1` | How the B run length is chosen: `0` fixed, `1` from motion. `2` to `4` are experimental. |
 | <span id="opt-ref"></span>`--ref <n>` | `1` | References per list, 1 to 5. `slower` uses 2, and so does `medium` at 4K. |
@@ -93,7 +94,7 @@ Many switches also take a `--no-` form that turns them off. "The preset's" means
 | option | default | what it does |
 |---|---|---|
 | <span id="opt-threads"></span>`--threads <n>` | `0` | Worker threads. `0` starts one per online CPU. At `1`, two runs of a command write the same bytes. Above one thread the stream can differ between runs. |
-| <span id="opt-gop-parallel"></span>`--gop-parallel <n>` | `0` | Code a long input as segments on this many encoder instances and join them at key frames. The stream differs from the serial one. |
+| <span id="opt-gop-parallel"></span>`--gop-parallel <n>` | `0` | Code a long input as segments on this many encoder instances and join them at key frames. The stream differs from the serial one. With `--shot-list` the segments start on listed shots. |
 
 ## Hardware
 
@@ -106,6 +107,9 @@ Many switches also take a `--no-` form that turns them off. "The preset's" means
 
 | option | default | what it does |
 |---|---|---|
+| <span id="opt-shot-scan"></span>`--shot-scan <file>` | none | Scan the input for shots and write a shot list, then exit. |
+| <span id="opt-shot-list"></span>`--shot-list <file>` | none | Put a key frame at the start of each listed shot. |
+| <span id="opt-shot-keys"></span>`--shot-keys` | off | Put a key frame on each cut the encoder finds. |
 | <span id="opt-shot-window"></span>`--shot-window <n>` | `0` | Buffer up to this many frames so a whole shot can be planned before it's coded. `--crf` only, at most 300. It adds that many frames of latency. |
 | <span id="opt-shot-stats"></span>`--shot-stats <file>` | none | Write one JSON line of statistics per shot. The stream doesn't change. |
 
@@ -135,6 +139,7 @@ Many switches also take a `--no-` form that turns them off. "The preset's" means
 | <span id="opt-idr-recovery-sei"></span>`--idr-recovery-sei` | off | A recovery point SEI at each key frame. |
 | <span id="opt-pic-struct"></span>`--pic-struct <n>` | off | The picture timing SEI's pic_struct, 0 to 12. `7` doubles a frame and `8` triples it. Needs a buffer. |
 | <span id="opt-hrd-concat"></span>`--hrd-concat` | off | Mark the first key frame as spliced onto another stream. Needs a buffer. |
+| <span id="opt-no-hrd"></span><span id="opt-hrd"></span>`--no-hrd` | off | Leave the HRD timing out of the stream. It's written by default when a buffer and a frame rate are set. A live encode that raises its rate needs this. |
 | <span id="opt-temporal-layers"></span>`--temporal-layers` | off | Put unreferenced B-frames in a second temporal layer. A player can then drop them and halve the frame rate. |
 | <span id="opt-level"></span>`--level <l>` | derived | Signal this level, from `1` to `6.2`. Refused when the stream doesn't fit it. |
 | <span id="opt-high-tier"></span>`--high-tier` | off | Signal the High tier, which exists from level 4 up. |
@@ -172,14 +177,22 @@ Many switches also take a `--no-` form that turns them off. "The preset's" means
 | <span id="opt-ssim"></span>`--ssim` | off | Report SSIM on luma at the end of the run. |
 | <span id="opt-csv"></span>`--csv <file>` | none | Write run statistics to a CSV file. |
 | <span id="opt-csv-log-level"></span>`--csv-log-level <0\|1\|2>` | `0` | `0` writes one row for the run, `1` adds a row per frame, `2` adds the rate control's columns. |
+| <span id="opt-frame-stats"></span>`--frame-stats <file>` | none | Write one JSON line per coded frame. A frame where a live control event took effect also lists that event. The stream doesn't change. |
 | <span id="opt-verbose"></span>`--verbose, -v` | off | Print the resolved configuration at the start of the encode. |
 | <span id="opt-show-config"></span>`--show-config` | off | Print the resolved configuration and exit without encoding. |
 | <span id="opt-version"></span>`--version` |  | Print the version. |
+
+## Live control
+
+| option | default | what it does |
+|---|---|---|
+| <span id="opt-control"></span>`--control <file>` | none | Apply the events in a control log before the encode starts. A bad line or a refused event stops the run. |
+| <span id="opt-control-fd"></span>`--control-fd <n>` | none | Read control log lines from this open descriptor while encoding. A late or refused line is skipped with a warning. |
+| <span id="opt-control-out"></span>`--control-out <file>` | none | Write every event that took effect as a control log. Fed back through `--control`, it gives the same stream at one thread. |
 
 ## Not offered
 
 | option | default | what it does |
 |---|---|---|
-| <span id="opt-intra-refresh"></span>`--intra-refresh` | refused | The encoder stops with an error. [Why](guide.md#left-out-on-purpose) |
 | <span id="opt-scaling-list"></span>`--scaling-list <s>` | refused | The encoder stops with an error. [Why](guide.md#left-out-on-purpose) |
 <!--/gen:options-->

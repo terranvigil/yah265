@@ -15,9 +15,11 @@ yah265 is a new HEVC encoder, written in C. It runs inside ffmpeg under the opti
 
 ## Try it
 
+<p class="callout"><b>New:</b> try yah265 in your browser, with nothing to install. <a href="playground/">Open the playground</a>, or read <a href="playground.html">how it works</a>.</p>
+
 ```sh
 ffmpeg -i in.mp4 -c:v libx265   -preset medium -crf 25 out.mp4   # what you run today
-ffmpeg -i in.mp4 -c:v libyah265 -preset medium -crf 25 out.mp4   # swap one word
+ffmpeg -i in.mp4 -c:v libyah265 -preset medium -crf 25 out.mp4
 ```
 
 Simple command builds that ffmpeg from a clone of the repository:
@@ -27,7 +29,7 @@ git clone https://github.com/terranvigil/yah265 && cd yah265
 scripts/build-ffmpeg.sh
 ```
 
-The new ffmpeg is at `build-ffmpeg/ffmpeg/ffmpeg`. [Build and first encode](start.md) has the details and the `y265` command line.
+The new ffmpeg is at `build-ffmpeg/ffmpeg/ffmpeg`. See [Build and first encode](start.md) for the details and the `y265` command line.
 
 ## Speed on three machines
 
@@ -37,7 +39,7 @@ On this site "faster" compares wall time for files of the same size. Both encode
 
 ## Side by side at the same size
 
-The two encodes below are the same size. Switch between the reference and each of them. This is the frame where yah265's lead is clearest.
+The two encodes below are the same size. Switch between the reference and each of them.
 
 <!--gen:fig-frames-->
 <figure class="compare">
@@ -56,20 +58,25 @@ To see both in motion, open the [comparison players](https://terranvigil.github.
 ## What it does
 
 - Encodes through ffmpeg as `libyah265`, or from a pipe with [its own command line](start.md#build-y265).
-- CRF, capped CRF, VBR, CBR, ABR and two-pass. The [encoding guide](guide.md#pick-a-rate-mode) says when to pick each.
+- CRF, capped CRF, VBR, CBR, ABR and two-pass [rate modes](guide.md#pick-a-rate-mode).
 - Main, Main10, 4:4:4 and 4:2:2 [profiles](guide.md#set-the-bit-depth-and-profile) from one binary.
 - [HDR10, HDR10+, HLG and Dolby Vision profile 8](hdr.md).
-- Shot-aware encoding: a shot window, per-shot statistics and a script that prints each shot's convex hull. [Planning by shot](guide.md#planning-by-shot) shows how.
-- [Low latency](guide.md#low-latency) for live: `--tune zerolatency` gives one frame of latency.
-- [Live control](guide.md#live-control) [coming soon]: change the bitrate, CRF or key frames while an encode runs.
-- [Per-shot encoding](guide.md#planning-by-shot) [coming soon]: a key frame and a quality setting for each shot, from one scan.
-- SIMD on arm64 and x86-64. [Architectures](architectures.md) lists what runs where.
-- x265's option names for shared features. [Options](options.md) lists them.
-- Encodes only. Play or decode its streams with ffmpeg or any HEVC decoder.
+- [Shot statistics](guide.md#planning-by-shot): a report per shot that a script turns into each shot's best rungs for a ladder.
+- [Per-shot key frames](guide.md#planning-by-shot): one scan finds the shots and starts each on a key frame, so every rung of a ladder switches at the same frames.
+- Per-shot quality: a quality setting for each shot, from the same scan. [coming soon]
+- [Live control](guide.md#live-control): change the bitrate, CRF or key frames while an encode runs.
+- [`y265 bench`](bench.md): compare yah265 and x265 on your own clip at the same file size.
+- A [browser playground](playground.md): try yah265 on your own clip without installing anything.
+- [Homebrew install](start.md#install-with-homebrew): `brew install terranvigil/yah265/ffmpeg-yah265`, with recipes for Tdarr and Jellyfin.
+- [SIMD](architectures.md) on arm64 and x86-64.
+- x265's [option names](options.md) for shared features.
+- Target quality: ask for a VMAF score instead of a CRF. [coming soon]
+- Encode reports: one page per encode with bitrate, QP, shots and what yah265 detected. [coming soon]
+- Farm mode: split one encode across several machines. [coming soon]
 
 ## Results in brief
 
-The first table splits the headline by picture size. It counts the clips where the two files match in size within 1%.
+The first table breaks the 1.8x down by picture size. It counts the clips where the two files match in size within 1%.
 
 <!--gen:pooled-table-->
 | size-matched cells on the Mac | count | median | slowest cell |
@@ -88,14 +95,14 @@ The first table splits the headline by picture size. It counts the clips where t
 | bits saved at equal VMAF v1, rate ladders at CRF and capped VBR | 38 | 10.2% |
 <!--/gen:quality-table-->
 
-G3 is the row a user sees: both encoders as shipped. G1 and G2 compare the algorithms with SIMD off.
+I time speed three ways and call each one a goal. [G3](methodology.md#the-three-speed-goals) is the row a user sees: both encoders as shipped. [G1 and G2](methodology.md#the-three-speed-goals) compare the algorithms, with the hand-written SIMD off on both sides.
 
 <!--gen:goal-table-->
 | goal | Apple M5 Max (NEON) | Xeon 8488C (AVX-512) | Graviton4 (SVE2) |
 |---|--:|--:|--:|
-| G3: as shipped, SIMD on all cores | 1.59x to 2.13x | 1.25x to 2.33x | 1.39x to 3.03x |
-| G1: algorithm only, plain C on one thread | 2.17x to 4.00x | 1.49x to 2.94x | 1.52x to 2.94x |
-| G2: algorithm only, plain C on all cores | 2.56x to 4.35x | 2.22x to 4.76x | 2.08x to 4.35x |
+| [G3](methodology.md#the-three-speed-goals): as shipped, SIMD on all cores | 1.59x to 2.13x | 1.25x to 2.33x | 1.39x to 3.03x |
+| [G1](methodology.md#the-three-speed-goals): algorithm only, plain C on one thread | 2.17x to 4.00x | 1.49x to 2.94x | 1.52x to 2.94x |
+| [G2](methodology.md#the-three-speed-goals): algorithm only, plain C on all cores | 2.56x to 4.35x | 2.22x to 4.76x | 2.08x to 4.35x |
 <!--/gen:goal-table-->
 
 [Results](results.md) has the tables and charts. [A skeptic's questions](faq.md) answers the objections I'd raise myself.
@@ -106,7 +113,7 @@ I've worked in video ingestion, encoding, packaging and delivery for nearly 20 y
 
 ## A family
 
-I wrote yah265 from the ITU-T H.265 specification to see whether a new encoder could pass x265 at its default preset on speed and on VMAF v1 together. The [launch post](blog.md) tells the full story.
+I wrote yah265 from the ITU-T H.265 specification to see whether a new encoder could pass x265 at its default preset on speed and on VMAF v1 together. [Here's the full story.](blog.md)
 
 yah265 is the second of three sibling encoders. [yah264](https://terranvigil.github.io/yah264/) met the same goals against x264 first. yaav1 is coming soon!
 

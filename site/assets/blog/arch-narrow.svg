@@ -40,7 +40,7 @@ text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-
 <text x='411.5' y='496.0' font-size='12' class='t2' text-anchor='middle'>3.5x</text>
 <line x1='458.0' y1='108' x2='458.0' y2='476' class='grid' stroke-width='1'/>
 <text x='458.0' y='496.0' font-size='12' class='t2' text-anchor='middle'>4x</text>
-<text x='307.0' y='524.0' font-size='13' class='t2' text-anchor='middle'>times faster than x265 (right is faster)</text>
+<text x='307.0' y='524.0' font-size='13' class='t2' text-anchor='middle'>times faster than x265</text>
 <text x='144.0' y='140.0' font-size='12' class='t1' text-anchor='end'>CIF short clips</text>
 <line x1='219.1' y1='136.0' x2='268.5' y2='136.0' class='span' stroke-width='2'/>
 <circle cx='268.5' cy='136.0' r='6' class='s1 ring' stroke-width='2'/>

@@ -175,3 +175,24 @@ unit_hdr_dyn = executable('unit_hdr_dyn',
   ['unit/hdr_dyn_test.c', '../cli/hdr_dyn.c'],
   include_directories : include_directories('../cli'))
 test('hdr_dyn', unit_hdr_dyn)
+
+# The shot list (--shot-scan / --shot-list): the parser, the writer and
+# the fingerprint refusals that keep a list off an input it wasn't made
+# from. The encoder side is the conformance vector and seek_check.py.
+unit_shotlist = executable('unit_shotlist', 'unit/shotlist_test.c',
+  dependencies : yah265_dep)
+test('shotlist', unit_shotlist)
+
+# Live control (src/encoder/ctl.c): every refusal code, the struct
+# versioning, the landing frames and submission-time independence,
+# through the public API on a synthetic clip.
+unit_ctl = executable('unit_ctl', 'unit/ctl_test.c',
+  include_directories : include_directories('../cli'),
+  dependencies : yah265_dep)
+test('ctl', unit_ctl, timeout : 120)
+
+# The CLI side: a --control file checked whole before any output, room in
+# the queue included, and --control-fd lines checked against the file
+# lines not fed yet.
+test('cli_ctl', find_program('cli_ctl_test.sh'), args : [y265],
+  timeout : 120)

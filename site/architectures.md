@@ -11,16 +11,18 @@ On this page "2x faster" means half the wall time for a file of the same size.
 
 ## Where the speed comes from
 
-An encoder's speed comes from its algorithm, its threading and its SIMD. The test set times each one.
+The test set times the three things an encoder's speed comes from: its algorithm, its threading and its SIMD.
 
-The algorithm decides how few candidates the encoder has to try. A run on one thread in plain C measures it alone. SIMD is short for single instruction, multiple data: one instruction does the same arithmetic on many samples at once. The small hot functions that use it are called kernels. A typical one sums the differences between two blocks.
+The algorithm decides how few candidates the encoder has to try. A run on one thread in plain C measures it alone.
+
+SIMD is short for single instruction, multiple data: one instruction does the same arithmetic on many samples at once. The small hot functions that use it are called kernels. A typical one sums the differences between two blocks.
 
 <figure class="chart wide">
-<img src="assets/charts/internals/machines.svg" alt="Dot plot of how many times faster yah265 is than x265 at the same file size, in three panels: one thread in plain C, then all cores in plain C, then all cores with SIMD. Each panel has nine rows for picture size and clip length. Each row has a marker for each of three machines. All the markers are to the right of the 1x line.">
+<img src="assets/charts/internals/machines.svg" alt="Dot plot of how many times faster yah265 is than x265 at the same file size, in three panels: one thread in plain C, then all cores in plain C, then all cores with SIMD. In each panel, nine rows for picture size and clip length each hold a marker for each of three machines. All the markers are to the right of the 1x line.">
 <figcaption>Each side ran <code>medium</code>. The Mac used all 18 cores. On a cloud machine the two encoders were held to 16.</figcaption>
 </figure>
 
-yah265's lead is widest in plain C and narrowest with SIMD on. [What SIMD buys](#what-simd-buys) explains why. [Results](results.md#by-machine) has the table behind the chart.
+yah265's lead is widest in plain C and [narrowest with SIMD on](#what-simd-buys). See [Results](results.md#by-machine) for the table behind the chart.
 
 ## Supported today
 
@@ -191,7 +193,7 @@ The chart shows how much faster each encoder gets when its kernels are switched 
 
 SIMD speeds x265 up more than it speeds yah265 up, on all three machines at each size. So yah265's lead is smaller once the kernels are on. Part of the reason is probably that some of yah265's work has no kernels.
 
-The higher tiers add little on top of the base ones at encode level. The [SVE notes](docs/sve.md) have the kernel-by-kernel timings on arm64.
+The higher tiers add little on top of the base ones at encode level. See the [SVE notes](docs/sve.md) for the kernel-by-kernel timings on arm64.
 
 ## Capped tiers on x86
 
@@ -213,7 +215,7 @@ Each cell is the median over a size's short clips, then the slowest clip.
 | 4K | 2.22x / 2.22x | 2.00x / 2.00x | 1 |
 <!--/gen:capped-table-->
 
-yah265 stays ahead at both caps. AVX2 against AVX2 is the closest pairing, because x265 gains more from AVX2 than yah265 does. yah265 wrote the same stream at all three tiers on every clip.
+yah265 stays ahead at both caps. AVX2 against AVX2 is the closest pairing, because x265 gains more from AVX2 than yah265 does. yah265 wrote the same stream at all three tiers on all the clips.
 
 Wall times on a real AVX2-only CPU will differ from a capped Xeon's. This test shows the ratio when both encoders use one instruction set.
 
@@ -221,15 +223,15 @@ Wall times on a real AVX2-only CPU will differ from a capped Xeon's. This test s
 
 A Graviton writes the Mac's stream byte for byte. The exception is one title whose source frames were decoded differently on the cloud machine.
 
-x86 writes a slightly different stream from arm64 at `medium`, because the compiler rounds some floating-point math differently there. I checked quality on x86 by running three rate ladders again. [By machine](results.md#by-machine) has the comparison. Within x86, the tiers write the same stream.
+x86 writes a slightly different stream from arm64 at `medium`, because the compiler rounds some floating-point math differently there. I checked quality on x86 by running [three rate ladders](results.md#by-machine) again. Within x86, the tiers write the same stream.
 
 The register widths differ too. NEON is always 128 bits wide. Each of the three x86 tiers has a fixed width of its own. Because SVE's width depends on the CPU, the SVE kernels work at any width.
 
-The last difference is where each tier can be tested. The Mac runs NEON natively. It runs the SSE4.2 and AVX2 builds under emulation, where their correctness checks can run. AVX-512 and SVE need real hardware. I tested those tiers on rented cloud machines.
+The last difference is where each tier can be tested. The Mac runs NEON natively and the SSE4.2 and AVX2 builds under emulation, where their correctness checks can run. Because AVX-512 and SVE need real hardware, I tested those tiers on rented cloud machines.
 
 ## Why intrinsics
 
-The kernels are written with compiler intrinsics. An intrinsic is a C function that stands for one SIMD instruction. There are no assembly files.
+The kernels are written with compiler intrinsics instead of assembly. An intrinsic is a C function that stands for one SIMD instruction.
 
 Because a kernel is C, the address and undefined-behavior sanitizers run on it like on any other code. One source file serves both bit depths, because the 10-bit library compiles the same file again with wider samples. A kernel also takes the same arguments on either architecture. One test can then hold each tier to the same C reference.
 
@@ -237,7 +239,7 @@ Each tier's files are compiled with that tier's instruction set switched on. Eve
 
 ## Checking a kernel yourself
 
-checkasm feeds each kernel and its C reference the same random and worst-case inputs. The outputs have to match. It also puts guard bytes around each buffer to catch a kernel that reads or writes past its block.
+checkasm feeds each kernel and its C reference the same random and worst-case inputs and requires the outputs to match. It also puts guard bytes around each buffer to catch a kernel that reads or writes past its block.
 
 ```sh
 make build

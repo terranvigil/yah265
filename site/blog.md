@@ -15,7 +15,7 @@ It's a new HEVC encoder I wrote in C. Speed is the reason to try it. The chart s
 
 On this page "2x faster" means half the wall time.
 
-## One word changes in your ffmpeg command
+## Switching from x265
 
 You run it the way you run x264 or x265.
 
@@ -32,7 +32,7 @@ A cell is one clip at one resolution. Each dot below is one cell timed on the Ma
 
 <figure class="chart"><img src="assets/blog/cells.svg" alt="Dots on an axis of times faster than x265. Each dot is one timed cell. The dots are in rows for CIF, 720p, 1080p and 4K. All the dots are right of the 1x line."><figcaption>The first table below lists each row's median.</figcaption></figure>
 
-These are the cells behind the headline, from ten-second clips to ten-minute films. In each one I adjusted yah265's CRF until its file matched x265's size. No dot is left of the x265 line. Capped VBR and the content-type clips have their own tables on the [results page](results.md#vbr).
+These are the encodes behind the 1.8x, from ten-second clips to ten-minute films. In each one I adjusted yah265's CRF until its file matched x265's size. No dot is left of the x265 line. Capped VBR and the content-type clips have their own tables on the [results page](results.md#vbr).
 
 ## Three goals and a quality limit
 
@@ -42,17 +42,17 @@ I set three speed goals against x265 at `--preset medium`. Each one compares fil
 
 | goal | yah265 | x265 |
 |---|---|---|
-| G3 | SIMD on all cores | its own assembly on all cores |
-| G1 | plain C on one thread | `--no-asm` on one thread |
-| G2 | plain C on all cores | `--no-asm` on all cores |
+| [G3](methodology.md#the-three-speed-goals) | SIMD on all cores | its own assembly on all cores |
+| [G1](methodology.md#the-three-speed-goals) | plain C on one thread | `--no-asm` on one thread |
+| [G2](methodology.md#the-three-speed-goals) | plain C on all cores | `--no-asm` on all cores |
 
-G3 is the one a user sees. G1 and G2 compare the algorithms with the hand-written SIMD off on both sides. To pass at a picture size and clip length, yah265 must be at least as fast as x265 at the median, with no clip more than 15% slower. On quality, yah265 may need at most 1.0% more bits than x265 for the same VMAF v1.
+[G3](methodology.md#the-three-speed-goals) is the one a user sees. [G1 and G2](methodology.md#the-three-speed-goals) compare the algorithms with the hand-written SIMD off on both sides. To pass at a picture size and clip length, yah265 must be at least as fast as x265 at the median, with no clip more than 15% slower. On quality, yah265 may need at most 1.0% more bits than x265 for the same VMAF v1.
 
 ## The same lead on three machines
 
 I also timed both encoders on an Intel Xeon with AVX-512 and on an AWS Graviton4 with SVE2. Each cloud box held them to the same 16 vCPUs.
 
-<figure class="chart"><img src="assets/blog/arch.svg" alt="Dot plot of the median speedup over x265 at G3 for each resolution and clip length, one marker per machine. The markers all sit right of the 1x line."><figcaption>The G3 table below has each marker's value.</figcaption></figure>
+<figure class="chart"><img src="assets/blog/arch.svg" alt="Dot plot of the median speedup over x265 at G3 for each resolution and clip length, one marker per machine. The markers all sit right of the 1x line."><figcaption>The <a href="methodology.md#the-three-speed-goals">G3</a> table below has each marker's value.</figcaption></figure>
 
 yah265 leads at each picture size and clip length on all three machines and passes all three goals on each. Because plenty of x86 machines have no AVX-512, I timed the short clips again on the Xeon with both encoders held to AVX2 and then to SSE4.2. The lead held at both.
 
@@ -90,7 +90,7 @@ An average can hide a bad stretch. Here is that clip frame by frame, from both f
 <figure class="chart"><img src="assets/charts/trust/tail-trace.svg" alt="Line chart of VMAF v1 per frame of a 90-second clip, one line per encoder. The yah265 line is above the x265 line in most of the low stretches."></figure>
 <!--/trust:fig-trace-->
 
-yah265's lead is wider on the clip's worst frames than on its average. [Results](results.md#the-worst-frames) has the figures.
+yah265's lead is wider on the clip's [worst frames](results.md#the-worst-frames) than on its average.
 
 ## The same result through ffmpeg
 
@@ -177,7 +177,7 @@ Parity on the Mac wasn't the finish line, because a parity claim has to hold on 
 
 ## The tables behind the charts
 
-### The cells behind the headline
+### Where the 1.8x comes from
 
 <!--gen:headline-table-->
 | size-matched cells on the Mac | count | median | slowest cell |
@@ -189,7 +189,7 @@ Parity on the Mac wasn't the finish line, because a parity claim has to hold on 
 | **all** | **30** | **1.8x faster** | Sintel 4K, 10 min, 1.52x faster |
 <!--/gen:headline-table-->
 
-All of these ran on the Mac at CRF with SIMD on all cores. In each one the two files are the same size within 1%. The VMAF v1 lead in the headline is the median over the same cells. yah265 scores higher on <!--gen:dv-cells-->29 of the 30<!--/gen:dv-cells--> of them.
+All of these ran on the Mac at CRF with SIMD on all cores. In each one the two files are the same size within 1%. The +1.23 VMAF v1 lead is the median over the same cells. yah265 scores higher on <!--gen:dv-cells-->29 of the 30<!--/gen:dv-cells--> of them.
 
 ### Each ten-minute film
 
@@ -218,12 +218,12 @@ Each range runs from the slowest median to the fastest. Each median covers one r
 <!--gen:goal-table-->
 | goal | Apple M5 Max (NEON) | Xeon 8488C (AVX-512) | Graviton4 (SVE2) |
 |---|--:|--:|--:|
-| G3: as shipped, SIMD on all cores | 1.59x to 2.13x | 1.25x to 2.33x | 1.39x to 3.03x |
-| G1: algorithm only, plain C on one thread | 2.17x to 4.00x | 1.49x to 2.94x | 1.52x to 2.94x |
-| G2: algorithm only, plain C on all cores | 2.56x to 4.35x | 2.22x to 4.76x | 2.08x to 4.35x |
+| [G3](methodology.md#the-three-speed-goals): as shipped, SIMD on all cores | 1.59x to 2.13x | 1.25x to 2.33x | 1.39x to 3.03x |
+| [G1](methodology.md#the-three-speed-goals): algorithm only, plain C on one thread | 2.17x to 4.00x | 1.49x to 2.94x | 1.52x to 2.94x |
+| [G2](methodology.md#the-three-speed-goals): algorithm only, plain C on all cores | 2.56x to 4.35x | 2.22x to 4.76x | 2.08x to 4.35x |
 <!--/gen:goal-table-->
 
-<!--gen:combos-line-->That's 81 of 81 combinations of machine, picture size, clip length and goal that pass. Bus at CIF on the Xeon is the slowest single clip at G3 on any machine and still runs 1.22x faster.<!--/gen:combos-line-->
+<!--gen:combos-line-->That's 81 of 81 combinations of machine, picture size, clip length and goal that pass. Bus at CIF on the Xeon is the slowest single clip at [G3](methodology.md#the-three-speed-goals) on any machine and still runs 1.22x faster.<!--/gen:combos-line-->
 
 ### G3 by resolution and length
 
@@ -300,7 +300,7 @@ The ladders ran on the Mac. Because Graviton4 writes the same streams as the Mac
 
 The Mac is an Apple M5 Max with 18 cores. The reference is x265 4.3. On all three machines both encoders ran at `medium` and read the same frames from one feeder on standard input.
 
-For each timed CRF encode, I adjusted yah265's CRF until its file was within 1% of x265's size. The headline covers only those encodes. Capped VBR has its own tables. x265 ran its default lookahead of 20 frames. yah265 ran its own `medium` default: 20 frames from 720p up and 12 at CIF.
+For each timed CRF encode, I adjusted yah265's CRF until its file was within 1% of x265's size. The main result covers only those encodes. Capped VBR has its own tables. x265 ran its default lookahead of 20 frames. yah265 ran its own `medium` default: 20 frames from 720p up and 12 at CIF.
 
 Quality is VMAF v1: Netflix's `vmaf_v1.0.16` models on libvmaf 3.x. It's scored at display size. A picture under 1080p is scaled up to fit 1920x1080 first. Each ten-minute film runs from the end of its black opening to the start of its end credits. The headline is the Mac's alone.
 

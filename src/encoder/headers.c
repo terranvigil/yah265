@@ -828,10 +828,10 @@ void n265_write_hash_sei(bitstream_t *bs, const n265_pic_hash *h, int ncomp)
  * rather than a nicety once open GOP lands: with leading pictures that
  * cannot be decoded, the recovery point is the first picture a joiner may
  * output, and there is no other way to say which one that is. */
-void n265_write_recovery_sei(bitstream_t *bs)
+void n265_write_recovery_sei(bitstream_t *bs, int poc_cnt)
 {
     bs_reset(bs);
-    bs_put_se(bs, 0);               /* recovery_poc_cnt */
+    bs_put_se(bs, poc_cnt);         /* recovery_poc_cnt */
     bs_put_bits(bs, 1, 1);          /* exact_match_flag */
     bs_put_bits(bs, 0, 1);          /* broken_link_flag */
     sei_wrap(bs, 0, 6);             /* SEI_TYPE_RECOVERY_POINT */

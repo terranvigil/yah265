@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Playground - yah265</title>
+<meta name="description" content="Encode a short clip with yah265 in your browser and compare it with the source. Nothing is uploaded.">
+<meta property="og:title" content="yah265 playground">
+<meta property="og:description" content="Encode a short clip with yah265 in your browser and compare it with the source. Nothing is uploaded.">
+<meta property="og:image" content="https://terranvigil.github.io/yah265/assets/share/playground.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="bar">
+  <a class="brand" href="../index.html"><picture><source srcset="../assets/yah265-logo-dark.png" media="(prefers-color-scheme: dark)"><img src="../assets/yah265-logo-light.png" alt="yah265" width="909" height="220"></picture></a>
+  <span class="title">Playground</span>
+  <nav><a href="../playground.html">About this page</a> <a href="../index.html">Docs</a></nav>
+</header>
+
+<main>
+  <div class="intro">
+    <h1>Try yah265 in your browser</h1>
+    <p class="lede">Pick a short clip and yah265 encodes it to HEVC right here. Nothing is uploaded.</p>
+  </div>
+
+  <div class="layout">
+    <aside class="panel">
+      <section id="drop" class="drop" tabindex="0" aria-label="Choose a clip">
+        <div id="drop-empty">
+          <p class="drop-main"><strong>Drop a video here</strong></p>
+          <p><label class="button pick">Choose a file<input id="file" class="vh" type="file" accept="video/*,.y4m"></label></p>
+          <p class="or">or <button id="sample" type="button" class="link">try a sample clip</button></p>
+        </div>
+        <div id="drop-clip" hidden>
+          <p class="clip-name" id="clip-name"></p>
+          <p class="clip-meta" id="clip-meta"></p>
+          <p><button id="change" type="button" class="link">Choose another</button></p>
+        </div>
+      </section>
+      <p class="hint">Any clip your browser plays, or an 8-bit 4:2:0 .y4m. It's scaled to fit 1280x720. It encodes up to 10 seconds at 480p, or about 4 at 720p. <a href="../playground.html#what-it-accepts">Limits</a></p>
+
+      <fieldset class="field">
+        <legend>Preset</legend>
+        <div class="seg" id="preset" role="group" aria-label="Preset">
+          <button type="button" data-v="fast" aria-pressed="false">fast</button>
+          <button type="button" data-v="medium" aria-pressed="true">medium</button>
+          <button type="button" data-v="slow" aria-pressed="false">slow</button>
+        </div>
+      </fieldset>
+
+      <div class="field">
+        <label for="crf" class="legend">CRF <output id="crfval" for="crf">28</output></label>
+        <input id="crf" type="range" min="18" max="40" step="1" value="28">
+        <div class="ends"><span>18: best quality, larger file</span><span>40: smallest file</span></div>
+      </div>
+
+      <button id="go" class="primary" type="button" disabled>Encode</button>
+
+      <div class="status">
+        <div class="bar-track" id="track" hidden><div id="bar"></div></div>
+        <p id="msg" aria-live="polite">Loading the encoder...</p>
+      </div>
+    </aside>
+
+    <section class="stage-col">
+      <div class="stage" id="stage">
+        <div class="empty" id="empty">
+          <p>Your clip appears here.<br>The source is on the left and yah265's encode on the right.</p>
+        </div>
+        <canvas id="view" hidden></canvas>
+        <span class="tag left" hidden>Source</span>
+        <span class="tag right" hidden>yah265</span>
+        <div id="split" class="divider" role="slider" tabindex="0" aria-label="Split position" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" hidden><span></span></div>
+      </div>
+
+      <div class="transport" id="transport" hidden>
+        <button id="prev" type="button" class="icon" aria-label="Previous frame">&#9664;&#9646;</button>
+        <button id="play" type="button" class="icon" aria-label="Play">&#9654;</button>
+        <button id="next" type="button" class="icon" aria-label="Next frame">&#9646;&#9654;</button>
+        <input id="seek" type="range" min="0" max="0" value="0" aria-label="Frame">
+        <span id="fno" class="mono">0 / 0</span>
+      </div>
+
+      <div id="result" hidden>
+        <dl class="stats">
+          <div class="hl"><dt>VMAF v1</dt><dd id="s-vmaf">...</dd></div>
+          <div><dt>PSNR-Y</dt><dd id="s-psnr"></dd></div>
+          <div><dt>Size</dt><dd id="s-size"></dd></div>
+          <div><dt>Bitrate</dt><dd id="s-rate"></dd></div>
+          <div><dt>Encode speed</dt><dd id="s-fps"></dd></div>
+          <div><dt>Encode time</dt><dd id="s-time"></dd></div>
+        </dl>
+        <p class="caption" id="caption"></p>
+        <div class="downloads">
+          <a id="dl-mp4" class="button primary" download="yah265.mp4">Download .mp4</a>
+          <a id="dl" class="button" download="yah265.hevc">Download .hevc</a>
+        </div>
+        <p class="caption">The .mp4 plays in most players and in Safari. The .hevc is the raw stream.</p>
+        <p class="caption" id="mp4err" hidden></p>
+      </div>
+    </section>
+  </div>
+
+  <section class="note">
+    <p>This page runs yah265 on one thread, without its SIMD code. The native encoder ran 3 to 6 times faster on one thread, and it uses all of your cores. So this is the slowest yah265 gets.</p>
+    <p>The right side shows the exact frames a decoder makes from the stream, so your browser doesn't need HEVC support. VMAF v1 is scored the way the <a href="../results.html">results</a> are, at 1080p display size.</p>
+    <p class="keys">Keys: Space plays or pauses. Left and Right step one frame. Home and End jump to the ends. Esc cancels an encode.</p>
+    <p class="credit">Sample clip: Big Buck Bunny, (c) Blender Foundation, CC BY 3.0.</p>
+  </section>
+</main>
+<script src="mp4.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -28,6 +28,7 @@ import json
 import os
 import pathlib
 import re
+import hashlib
 import shutil
 import subprocess
 import sys
@@ -54,6 +55,8 @@ NAV = [
     ("Use", "start.html", "Build and first encode"),
     ("Use", "guide.html", "Encoding guide"),
     ("Use", "from-x265.html", "Coming from x265"),
+    ("Use", "playground.html", "Try it in your browser"),
+    ("Use", "bench.html", "Try it on your own clip"),
     ("Use", "options.html", "Options"),
     ("Use", "hdr.html", "HDR"),
     ("Understand", "hevc.html", "The HEVC standard"),
@@ -326,6 +329,26 @@ def build(strict=False):
         shutil.copy2(logo, tmp / "assets" / name)
     # GitHub Pages serving a branch runs Jekyll unless told not to
     (tmp / ".nojekyll").write_text("")
+    # the playground is a static app beside the pages; its encoder module
+    # comes from `make wasm`, which the Pages workflow runs first
+    pg = ROOT / "playground"
+    shutil.copytree(pg, tmp / "playground",
+                    ignore=shutil.ignore_patterns("wasm", "vmaf"))
+    for mod in ("yah265.wasm", "vmaf.wasm"):
+        if not (pg / mod).exists():
+            print(f"warning: playground/{mod} is missing; run `make wasm`")
+    # a version on every URL the page loads, so a browser never mixes a new
+    # page with a cached worker or module from the publish before it; the
+    # scripts pass it on to the workers and the .wasm files
+    h = hashlib.sha256()
+    for f in sorted((tmp / "playground").glob("*.*")):
+        h.update(f.name.encode() + f.read_bytes())
+    v = "?v=" + h.hexdigest()[:10]
+    index = tmp / "playground" / "index.html"
+    page = index.read_text()
+    for ref in ('href="style.css"', 'src="mp4.js"', 'src="app.js"'):
+        page = page.replace(ref, ref[:-1] + v + '"')
+    index.write_text(page)
 
     labels = {h: l for _, h, l in NAV}
     commit = commit_hash()
@@ -516,7 +539,7 @@ def check_links():
                 continue
             path, _, frag = href.partition("#")
             name = path or p.name
-            if path.startswith("assets/"):
+            if path.startswith(("assets/", "playground/")):
                 if not (OUT / path).exists():
                     bad.append(f"{p.name}: {href}")
                 continue

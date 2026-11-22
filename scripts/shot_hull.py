@@ -86,7 +86,27 @@ def q_of(name):
 
 
 def read_sidecar(path):
-    shots = [json.loads(ln) for ln in open(path) if ln.strip()]
+    """One record per shot. A v1 line is a run between intra pictures, so a
+    keyint key frame splits a shot there. A v2 line says which shot it
+    belongs to, and the runs of one shot are joined back into it."""
+    shots = []
+    for ln in open(path):
+        if not ln.strip():
+            continue
+        r = json.loads(ln)
+        if r.get("v", 1) >= 2 and shots and r["shot"] == shots[-1]["shot"]:
+            s = shots[-1]
+            n0 = s["last"] - s["first"] + 1
+            n1 = r["last"] - r["first"] + 1
+            s["qp_base_mean"] = ((s["qp_base_mean"] * n0 + r["qp_base_mean"] * n1)
+                                 / (n0 + n1))
+            for k in ("bytes", "complexity", "flat_frames"):
+                s[k] += r[k]
+            for k in s["frames"]:
+                s["frames"][k] += r["frames"][k]
+            s["last"] = r["last"]
+            continue
+        shots.append(r)
     if not shots:
         sys.exit(f"shot_hull: {path} has no shots")
     return shots
@@ -97,8 +117,8 @@ def parse_shot_list(lines, nframes=None):
     shot's first, and the final shot to nframes - 1."""
     starts = []
     for ln in lines:
-        t = ln.strip()
-        if not t or t.startswith("#"):
+        t = ln.split("#", 1)[0].strip()
+        if not t:
             continue
         if t.startswith("{"):
             j = json.loads(t)
@@ -204,6 +224,11 @@ def selftest():
     check("list, scan form", parse_shot_list(
         ["# shots v1 frames=60 352x288", "0 19 start 1.00",
          "20 44 cut 0.83", "45 59 cut 0.91"]),
+        [(0, 19), (20, 44), (45, 59)])
+    check("list, --shot-scan form", parse_shot_list(
+        ["y265-shots 1", "frames 60", "source 352x288 depth=8",
+         "scan 640x524 min-keyint=4", "shots 3", "0 19 start 1.000",
+         "20 - cut 0.830  # a flash", "45 59 cut 0.910"]),
         [(0, 19), (20, 44), (45, 59)])
     check("list, json", parse_shot_list(
         ['{"first":0,"last":9}', '{"first":10}'], 30), [(0, 9), (10, 29)])

@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "encoder/encoder.h"
 #include "encoder/est.h"
@@ -381,6 +382,7 @@ struct n265_scratch {
      * other's record stream no matter how large the CTB lag is. */
     qt_snap qt_pre[4], qt_won[4];
     qt_snap qt_fpre, qt_fwon;   /* the depth-bound arm, depth 0 only */
+    qt_snap qt_ir;              /* --intra-refresh's fallback */
     /* the CTU's last few full-motion predictions (mc_pred_wh), emptied
      * at every CTU (phase 14 item 40) */
     struct mcc_key { uint64_t pos; mot_t mot; } mcc_k[MCC_N];
@@ -1763,6 +1765,25 @@ static inline int intra_fast(const struct n265_frame_work *e, int log2n)
            (!e->flat || e->pad_w >= intra_fast_flat());
 }
 
+/* --intra-refresh: an intra block whose right edge is the refreshed edge
+ * and whose top is a CTU's would read the unrefreshed CTU above-right
+ * (its above-right samples, and the smoothing of its last top sample).
+ * DC, horizontal and vertical read neither. The block test rounds to the
+ * 8x8 CU so all four NxN PUs agree, which keeps chroma's DM legal too. */
+static int ir_edge_blk(const struct n265_frame_work *e, int x0, int y0, int n)
+{
+    if (!e->ir_on || !e->ir_mode || e->ir_noedge || e->ir_hi >= e->pad_w)
+        return 0;
+    int xe = (x0 + n + 7) & ~7, yt = y0 & ~7;
+    return xe == e->ir_hi && yt > 0 &&
+           (yt & ((1 << e->ctb_log2) - 1)) == 0;
+}
+
+static int ir_edge_mode(int m)
+{
+    return m == INTRA_DC || m == 10 || m == 26;
+}
+
 /* how many predictions a rank over (sub, nsub) evaluates */
 static int rank_nmodes(const struct n265_frame_work *e, const int *sub,
                        int nsub)
@@ -1833,6 +1854,12 @@ static int search_luma_mode_sub(struct n265_frame_work *e, int x0, int y0,
         sub = dc_planar;
         nsub = 2;
     }
+    static const int ir_modes[3] = { INTRA_DC, 10, 26 };
+    int ir_edge = ir_edge_blk(e, x0, y0, n);
+    if (ir_edge) {
+        sub = ir_modes;
+        nsub = 3;
+    }
     int best_mode = 0;
     uint32_t best_cost = UINT32_MAX;
     uint32_t fpc_best = UINT32_MAX;     /* census: the rank's argmin  */
@@ -1841,6 +1868,9 @@ static int search_luma_mode_sub(struct n265_frame_work *e, int x0, int y0,
     int mk[INTRA_RD_MAX];
     int nkc = nk < 1 ? 1 : nk > INTRA_RD_MAX ? INTRA_RD_MAX : nk;
     for (int i = 0; i < nkc; i++) { ck[i] = UINT32_MAX; mk[i] = i < 2 ? i : 26; }
+    if (ir_edge)
+        for (int i = 0; i < nkc; i++)
+            mk[i] = INTRA_DC;
     /* N265_INTRA_FAST (phase 14 item 40): the 35-mode rank as a coarse
      * pass over planar, DC and every fourth angle, then the angles either
      * side of the best angle at distance 2, then at distance 1: 19 modes
@@ -2662,7 +2692,7 @@ static int depth_bound_ctb_skip(void)
  * gate; the CU decision proper re-derives */
 static int want_skip(struct n265_frame_work *e, int x0, int y0, int log2n)
 {
-    if (e->slice_type == 2)
+    if (e->slice_type == 2 || e->ir_mode == 2)
         return 0;
     /* Not under --lossless, for the same reason analyze_cu's static-skip
      * arm is not: this is a prediction-SAD bound, and a quarter of a luma
@@ -4858,8 +4888,11 @@ static int intra_rd_pick(struct n265_frame_work *e, int x0, int y0, int log2n,
            *wcr = &e->sc->ird_bcr;
     uint64_t best_j = UINT64_MAX;
     int best = cands[0];
+    int ir_edge = ir_edge_blk(e, x0, y0, 1 << log2n);
     for (int k = 0; k < ncand; k++) {
         int mode = cands[k];
+        if (ir_edge && !ir_edge_mode(mode))
+            continue;
         int dup = 0;
         for (int q = 0; q < k; q++)
             if (cands[q] == mode)
@@ -5100,8 +5133,10 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
     int nm = merge_rd_n();
     uint32_t ml[MAX_MERGE];         /* luma cost incl. the index rate */
     for (int i = 0; i < nm; i++) {
-        ml[i] = mot_satd_wh(e, g->x, g->y, w, h, mlist[i]) +
-                (uint32_t)(((i + 1) * lam4) >> 4);
+        ml[i] = n265_ir_mot_ok(e, g->x, w, mlist[i])
+                    ? mot_satd_wh(e, g->x, g->y, w, h, mlist[i]) +
+                          (uint32_t)(((i + 1) * lam4) >> 4)
+                    : UINT32_MAX >> 2;
         if (ml[i] < ml[best_m])
             best_m = i;
     }
@@ -5164,6 +5199,9 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
             continue;
         for (int r = 0; r < e->nref[l]; r++) {
             mv_t p[2], mv;
+            if (!n265_ir_ref_ok(e, l, r))
+                continue;
+            e->ir_cref = l == 0 ? r : -1;
             n265_amvp_pu(e, l, r, g, p);
             mv_t seed = p[0];
             /* the seed choice is decided at full pel - n265_me_search
@@ -5333,6 +5371,7 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
          * n265_me_search stays luma. `N265_SUBPEL_RATE == 1` is the same
          * five positions without the chroma term; `acost` carries one
          * only where `cp` put it there, so the two knobs compose. */
+        e->ir_cref = amot.ref[0];
         for (int l = 0; l < 2; l++) {
             if (!(amot.pred & (1 << l)))
                 continue;
@@ -5352,6 +5391,8 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
         }
     }
 
+    if (!n265_ir_mot_ok(e, g->x, w, amot))
+        acost = UINT32_MAX >> 2;
     if (best_mc <= acost) {
         d->merge = 1;
         d->midx = best_m;
@@ -5372,6 +5413,19 @@ static uint32_t search_pu(struct n265_frame_work *e, const pu_geo *g,
         d->mvp_idx[l] = c1 < c0;
     }
     return acost;
+}
+
+/* --intra-refresh: both PUs of a partition inside the bound */
+static int ir_part_ok(const struct n265_frame_work *e, int x0, int y0, int n,
+                      int part, const pu_dec d[2])
+{
+    for (int p = 0; p < 2; p++) {
+        int px, py, pw, ph;
+        n265_pu_rect(part, p, x0, y0, n, &px, &py, &pw, &ph);
+        if (!n265_ir_mot_ok(e, px, pw, d[p].mot))
+            return 0;
+    }
+    return 1;
 }
 
 /* rank one candidate partition: search both PUs in decode order, then
@@ -5755,6 +5809,33 @@ static int merge_pick_sad(struct n265_frame_work *e, int x0, int y0,
 {
     int n = 1 << log2n, cp = chroma_pred(), k = merge_rd_n();
     uint32_t sd[MAX_MERGE], rk[MAX_MERGE], rt[MAX_MERGE] = { 0 };
+    /* --intra-refresh: the cheapest candidate the bound allows, and the
+     * flag when none is */
+    e->ir_mbad = 0;
+    if (e->ir_on && e->ir_mode == 1 && !e->ir_nobound) {
+        int best = -1;
+        uint64_t bc = UINT64_MAX;
+        uint32_t bl = 0;
+        for (int i = 0; i < k; i++) {
+            if (!n265_ir_mot_ok(e, x0, n, mlist[i]))
+                continue;
+            uint32_t l = mot_sad(e, x0, y0, log2n, mlist[i]);
+            uint64_t c = (uint64_t)l +
+                         (cp >= 1 ? cpred_sad(e, x0, y0, n, n, mlist[i]) : 0);
+            if (c < bc) {
+                bc = c;
+                best = i;
+                bl = l;
+            }
+        }
+        if (best < 0) {
+            e->ir_mbad = 1;
+            *luma = UINT32_MAX;
+            return 0;
+        }
+        *luma = bl;
+        return best;
+    }
     if (merge_pick_rate() == 1) {
         int lam4 = ctu_lam_sad_q4(e);
         for (int i = 0; i < k; i++) {
@@ -6308,7 +6389,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
     if (cr)
         e->cu_arm = CU_ARM_MERGE;
 
-    if (e->slice_type != 2) {
+    if (e->slice_type != 2 && e->ir_mode != 2) {
         /* one instance per row lane; analyze_cu shares them across
          * quadtree depths exactly as the statics did */
         tb_ctx *m_tl = &e->sc->m_tl, *m_tcb = &e->sc->m_tcb, *m_tcr = &e->sc->m_tcr;
@@ -6319,6 +6400,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
         uint32_t cand_plain_sad;
         int midx = merge_pick_sad(e, x0, y0, log2n, mlist, &cand_plain_sad);
         mot_t cand = mlist[midx];
+        const int mbad = e->ir_mbad;
         if (cr) {
             cr->cyc_pre = (uint32_t)(cu_tick() - cu_t0);
             cr->cand_sad = cand_plain_sad;
@@ -6341,7 +6423,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
          * prediction that is not exactly the source costs infinity; where
          * it IS exact the same skip is still what wins, at the price of
          * having priced the merge candidate first. */
-        if (!e->lossless &&
+        if (!e->lossless && !mbad &&
             (cand_plain_sad * 8u <= (uint32_t)(n * n * skip_thr8()) ||
              sc_commit(e, x0, y0, n, cand_plain_sad))) {
             skip_cu(e, x0, y0, log2n, cand, midx);
@@ -6399,11 +6481,11 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
              * neither gate could ever fire at Main10 and the 1.2% they
              * are worth would go quietly missing along with the decisions
              * they make. */
-            int gate_amvp = !no_gates_on() &&
+            int gate_amvp = !no_gates_on() && !mbad &&
                 (uint64_t)cand_plain_sad * 800u <
                     ((uint64_t)(n * n) * (unsigned)gate_scale()
                      << BIT_DEPTH_SHIFT);
-            int gate_intra = !no_gates_on() &&
+            int gate_intra = !no_gates_on() && !mbad &&
                 (uint64_t)cand_plain_sad * 400u <
                     ((uint64_t)(n * n) * (unsigned)gate_scale()
                      << BIT_DEPTH_SHIFT);
@@ -6445,13 +6527,18 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                  * `N265_RSKIP`, `N265_SKIP_THR` and the static-skip
                  * commit, all of which read `cand_plain_sad` and are
                  * untouched. */
-                px_c_merge = px_j(mot_satd_wh(e, x0, y0, n, n, cand),
-                                  skip_bits, px_lam4);
+                px_c_merge = mbad ? UINT64_MAX
+                                  : px_j(mot_satd_wh(e, x0, y0, n, n, cand),
+                                         skip_bits, px_lam4);
             } else {
                 /* merge candidate (and the forced-skip variant) */
                 merge_trial(e, x0, y0, log2n, cand, inc, skip_bits, pd, lam,
                             m_tl, m_tcb, m_tcr, &m_any, &d_merge, &d_skip,
                             &j_skip, &j_merge);
+                if (mbad) {
+                    j_skip = j_merge = UINT64_MAX;
+                    m_any = 1;
+                }
                 /* P1 CBF fast: the merge prediction already quantized to
                  * nothing, so every remaining candidate can only re-buy
                  * the same block with more syntax */
@@ -6473,7 +6560,8 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                  * decided - the AMVP search cannot code less than
                  * nothing, and the rect/AMP trials are never entered on a
                  * CU the skip wins anyway. */
-                if (skip_exit() && !e->jit && !gate_amvp && j_skip <= j_merge &&
+                if (skip_exit() && !e->jit && !gate_amvp && !mbad &&
+                    j_skip <= j_merge &&
                     (skip_exit() >= 3 ||
                      d_skip * (skip_exit() == 1 ? 4u : 1u) <=
                          skip_clean_thr(e->cur_ctu_qp, n)))
@@ -6531,6 +6619,9 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                     uint32_t best_c = UINT32_MAX;
                     for (int r = 0; r < e->nref[l]; r++) {
                         mv_t p[2], mv;
+                        if (!n265_ir_ref_ok(e, l, r))
+                            continue;
+                        e->ir_cref = l == 0 ? r : -1;
                         n265_amvp(e, l, r, x0, y0, n, n, p);
                         if (e->mereuse_trace) {
                             if (mvr_prev1_ok[l]) {
@@ -6721,6 +6812,7 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                      * two; splitting it out is what makes it priceable
                      * on a preset that does not run the chroma arm. */
                     int cpr = chroma_pred() >= 2;
+                    e->ir_cref = amot.ref[0];
                     for (int l = 0; l < 2; l++) {
                         if (!(amot.pred & (1 << l)))
                             continue;
@@ -6752,7 +6844,8 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                      (amot.mv[1].x == cand.mv[1].x &&
                       amot.mv[1].y == cand.mv[1].y && amot.ref[1] == cand.ref[1]));
             }
-            int amvp_ok = !gate_amvp && !same_as_cand && !no_amvp_on();
+            int amvp_ok = !gate_amvp && !same_as_cand && !no_amvp_on() &&
+                          n265_ir_mot_ok(e, x0, n, amot);
             if (amvp_ok) {
                 /* the vector actually coded, not the per-list ME winner:
                  * the two are the same only until a bi refinement moves
@@ -6795,6 +6888,10 @@ static uint64_t analyze_cu(struct n265_frame_work *e, int x0, int y0, int log2n)
                     merge_trial(e, x0, y0, log2n, cand, inc, skip_bits, pd,
                                 lam, m_tl, m_tcb, m_tcr, &m_any, &d_merge,
                                 &d_skip, &j_skip, &j_merge);
+                    if (mbad) {
+                        j_skip = j_merge = UINT64_MAX;
+                        m_any = 1;
+                    }
                     if (cbf_fast() >= 2 && !m_any)
                         gate_intra = gate_part = 1;
                 }
@@ -7048,6 +7145,9 @@ intra_gate_done: ;
                     j_intra_adm = j_intra * (uint64_t)(100 + mg) / 100;
             }
             if (j_intra_adm < best) { best = j_intra; kind = 3; }
+            /* --intra-refresh: nothing inter the bound allows */
+            if (e->ir_mode == 1 && best == UINT64_MAX)
+                kind = 3;
 
             /* A4's census reads the SHORTLIST, before the partitions:
              * the three 2Nx2N predictions are the comparison the proxy
@@ -7137,7 +7237,9 @@ intra_gate_done: ;
                 int horiz = ch <= cv;
                 cur->part = horiz ? PART_2NxN : PART_Nx2N;
                 n265_cpy(cur->d, horiz ? dh : dv, sizeof(cur->d));
-                uint64_t jr = rd_part(e, x0, y0, log2n, inc, cur);
+                uint64_t jr = ir_part_ok(e, x0, y0, n, cur->part, cur->d)
+                                  ? rd_part(e, x0, y0, log2n, inc, cur)
+                                  : UINT64_MAX;
                 if (px_on)
                     px_trials++;
                 if (jr < best) {
@@ -7156,7 +7258,10 @@ intra_gate_done: ;
                         uint32_t cb = try_part(e, x0, y0, n, a1, start, db);
                         cur->part = ca <= cb ? a0 : a1;
                         n265_cpy(cur->d, ca <= cb ? da : db, sizeof(cur->d));
-                        uint64_t ja = rd_part(e, x0, y0, log2n, inc, cur);
+                        uint64_t ja =
+                            ir_part_ok(e, x0, y0, n, cur->part, cur->d)
+                                ? rd_part(e, x0, y0, log2n, inc, cur)
+                                : UINT64_MAX;
                         if (px_on)
                             px_trials++;
                         if (ja < best) {
@@ -7296,6 +7401,12 @@ intra_gate_done: ;
         itry(e, ITS_BIG, log2n, 1, (uint64_t)rank_nmodes(e, NULL, 0), 0);
     }
 
+    if (ir_edge_blk(e, x0, y0, n))
+        for (int i = 0; i < (nxn ? 4 : 1); i++)
+            if (!ir_edge_mode(modes[i])) {
+                modes[i] = INTRA_DC;
+                pre_l = pre_cb = pre_cr = NULL;
+            }
     if (!nxn) {
         set_mode_map(e, x0, y0, n, modes[0]);
         tt_analyze(e, modes[0], x0, y0, log2n, pre_l, pre_cb, pre_cr);
@@ -7761,7 +7872,7 @@ static uint64_t quadtree_inner(struct n265_frame_work *e, int x0, int y0,
         split_inc += e->ct_depth[((y0 - 1) >> 2) * e->map_stride +
                                  (x0 >> 2)] > depth;
 
-    if (e->brk_skip) {
+    if (e->brk_skip && !e->ir_mode) {
         uint64_t j;
         if (brk_skip_commit(e, x0, y0, log2n, depth, split_inc, &j)) {
             if (cr) {
@@ -7773,7 +7884,7 @@ static uint64_t quadtree_inner(struct n265_frame_work *e, int x0, int y0,
     }
     /* the duplicate-frame path: this whole picture is already in the
      * DPB, so the node is one skip and the recursion ends here */
-    if ((e->dup_msk[0] | e->dup_msk[1]) && n265_dup_fast()) {
+    if ((e->dup_msk[0] | e->dup_msk[1]) && n265_dup_fast() && !e->ir_mode) {
         uint64_t j;
         if (dup_commit(e, x0, y0, log2n, depth, split_inc, &j)) {
             if (cr) {
@@ -7809,7 +7920,7 @@ static uint64_t quadtree_inner(struct n265_frame_work *e, int x0, int y0,
         uint64_t j_cu2 = UINT64_MAX;
         size_t rec_base2 = e->rec_len;
         if (depth_bound_ctb_skip() && log2n == e->ctb_log2 &&
-            e->slice_type != 2 && e->ref_valid) {
+            e->slice_type != 2 && e->ref_valid && !e->ir_mode) {
             qt_save(e, fpre, x0, y0, n);
             uint32_t b0 = n265_est_bin(&e->est_ctx[CTX_SPLIT_CU + split_inc],
                                        0);
@@ -7876,7 +7987,8 @@ static uint64_t quadtree_inner(struct n265_frame_work *e, int x0, int y0,
      * COMMITS a skip on a distortion bound, and a bound is not zero. Off,
      * the node runs its arms and the RD arbitration prices a lossy skip
      * at infinity, which is the only correct answer there. */
-    if (log2n == 6 && e->slice_type != 2 && !e->lossless && cb64_gate_of(e)) {
+    if (log2n == 6 && e->slice_type != 2 && !e->lossless && cb64_gate_of(e) &&
+        !e->ir_mode) {
         uint64_t j_g, g_ssd = 0, g_thr = 0;
         if (cb64_gate_try(e, x0, y0, log2n, depth, split_inc, lam, &j_g,
                           &g_ssd, &g_thr)) {
@@ -7951,7 +8063,7 @@ static uint64_t quadtree_inner(struct n265_frame_work *e, int x0, int y0,
     /* 64x64 whole-CU skip: prediction-only, so it is legal where the
      * flat-TB inter candidates are not (max TB 32). RD it against the
      * intra/static outcome of arm 1 before trying the split. */
-    if (log2n == 6 && e->slice_type != 2) {
+    if (log2n == 6 && e->slice_type != 2 && !e->ir_mode) {
         qt_snap *ss = &e->sc->qt_won[depth];    /* reuse after the compare */
         qt_save(e, ss, x0, y0, n);
         qt_save_records(e, ss, rec_base);
@@ -8316,6 +8428,62 @@ static void depth_dump_features(struct n265_frame_work *e, int ctb_x,
     }
 }
 
+/* --intra-refresh: does every inter block of the region read only the
+ * refreshed part of its reference */
+static int ir_region_ok(const struct n265_frame_work *e, int x0, int y0,
+                        int n)
+{
+    for (int y = y0; y < y0 + n; y += 4)
+        for (int x = x0; x < x0 + n; x += 4) {
+            int c = (y >> 2) * e->map_stride + (x >> 2);
+            if (e->blk_intra[c])
+                continue;
+            mot_t m;
+            m.pred = e->blk_pred[c];
+            m.ref[0] = e->blk_ref[2 * c];
+            m.ref[1] = e->blk_ref[2 * c + 1];
+            m.mv[0].x = e->blk_mv[4 * c];
+            m.mv[0].y = e->blk_mv[4 * c + 1];
+            m.mv[1].x = e->blk_mv[4 * c + 2];
+            m.mv[1].y = e->blk_mv[4 * c + 3];
+            if (!n265_ir_mot_ok(e, x, 4, m))
+                return 0;
+        }
+    return 1;
+}
+
+/* The quadtree of a refreshed CTU, with a net under every path that
+ * settles a vector: a region one of them took out of bounds is coded
+ * again all intra. */
+static uint64_t ir_quadtree(struct n265_frame_work *e, int x0, int y0,
+                            int log2n, int depth)
+{
+    int n = 1 << log2n;
+    if (x0 + n > e->pad_w || y0 + n > e->pad_h) {
+        uint64_t j = 0;
+        int h = n >> 1;
+        for (int i = 0; i < 4; i++) {
+            int x1 = x0 + (i & 1) * h, y1 = y0 + (i >> 1) * h;
+            if (x1 < e->pad_w && y1 < e->pad_h)
+                j += ir_quadtree(e, x1, y1, log2n - 1, depth + 1);
+        }
+        return j;
+    }
+    qt_snap *sn = &e->sc->qt_ir;
+    qt_save(e, sn, x0, y0, n);
+    uint64_t j = quadtree(e, x0, y0, log2n, depth);
+    if (ir_region_ok(e, x0, y0, n))
+        return j;
+    if (e->ir_trace)
+        fprintf(stderr, "IR fallback poc=%d ctu=(%d,%d) n=%d\n", e->poc,
+                x0, y0, n);
+    qt_restore(e, sn, x0, y0, n);
+    e->ir_mode = 2;
+    j = quadtree(e, x0, y0, log2n, depth);
+    e->ir_mode = 1;
+    return j;
+}
+
 void n265_analyze_ctu(struct n265_frame_work *e, int ctb_x, int ctb_y)
 {
     int ctb_k = ctb_y * e->ctb_cols + ctb_x;
@@ -8344,8 +8512,17 @@ void n265_analyze_ctu(struct n265_frame_work *e, int ctb_x, int ctb_y)
         e->sc->psy_y0 = ctb_y << e->ctb_log2;
         memset(e->sc->psy_src, 0xff, sizeof(e->sc->psy_src));
     }
-    (void)quadtree(e, ctb_x << e->ctb_log2, ctb_y << e->ctb_log2,
-                   e->ctb_log2, 0);
+    e->ir_mode = 0;
+    if (e->ir_on) {
+        int cx = ctb_x << e->ctb_log2;
+        e->ir_mode = cx >= e->ir_hi ? 0 : cx >= e->ir_lo ? 2 : 1;
+    }
+    if (e->ir_mode == 1 && !e->ir_nobound)
+        (void)ir_quadtree(e, ctb_x << e->ctb_log2, ctb_y << e->ctb_log2,
+                          e->ctb_log2, 0);
+    else
+        (void)quadtree(e, ctb_x << e->ctb_log2, ctb_y << e->ctb_log2,
+                       e->ctb_log2, 0);
     if (psy_cache)
         e->sc->psy_x0 = -1;
     if (depth_bound() || e->dd_rec) {  /* what this CTU actually used */

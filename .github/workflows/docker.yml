@@ -1,0 +1,117 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# The ffmpeg + libyah265 image, built natively per arch on every tag and
+# on demand. It pushes to ghcr.io only when told to: the manual `push`
+# input, or the repo variable DOCKER_PUSH=true on a tag. Both are off by
+# default, so a tag only proves the image builds.
+name: docker
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      push:
+        description: push the image to ghcr.io
+        type: boolean
+        default: false
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/yah265
+  PUSH: ${{ (github.event_name == 'workflow_dispatch' && inputs.push) || (github.event_name == 'push' && vars.DOCKER_PUSH == 'true') }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: log in to ghcr.io
+        if: env.PUSH == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: build
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packaging/docker/Dockerfile
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            YAH265_REV=${{ github.sha }}
+            JOBS=4
+          load: ${{ env.PUSH != 'true' }}
+          tags: ${{ env.PUSH != 'true' && 'yah265:test' || '' }}
+          outputs: ${{ env.PUSH == 'true' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', env.IMAGE) || '' }}
+          cache-from: type=gha,scope=${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
+      - name: smoke test
+        if: env.PUSH != 'true'
+        run: |
+          docker run --rm yah265:test -hide_banner -h encoder=libyah265 | head -1
+          docker run --rm -v "$PWD:/work" yah265:test -hide_banner -loglevel error \
+            -f lavfi -i testsrc2=size=320x240:rate=25 -frames:v 24 \
+            -c:v libyah265 -crf 30 smoke.mp4
+          docker run --rm -v "$PWD:/work" --entrypoint ffprobe yah265:test \
+            -v error -show_entries stream=codec_name -of csv=p=0 smoke.mp4 | grep -qx hevc
+      - name: export digest
+        if: env.PUSH == 'true'
+        run: |
+          mkdir -p digests
+          d='${{ steps.build.outputs.digest }}'
+          touch "digests/${d#sha256:}"
+      - uses: actions/upload-artifact@v4
+        if: env.PUSH == 'true'
+        with:
+          name: digest-${{ strategy.job-index }}
+          path: digests/*
+          retention-days: 1
+
+  manifest:
+    needs: build
+    if: (github.event_name == 'workflow_dispatch' && inputs.push) || (github.event_name == 'push' && vars.DOCKER_PUSH == 'true')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digest-*
+          merge-multiple: true
+          path: digests
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+      - name: write the multi-arch manifest
+        working-directory: digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<<"$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "$IMAGE@sha256:%s " *)

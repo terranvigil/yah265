@@ -123,6 +123,11 @@ VNOISE=""
 # byte-for-byte the run it was.
 VFILE=""
 
+# A shot list path for the next run_vector: the source is scanned into it
+# with --shot-scan before the encode, so the vector covers the scan and a
+# list made from the very file it codes. Set by run_vector_scan.
+VSCAN=""
+
 run_vector() {
     # $1 name  $2 WxH  $3 frames  $4 lavfi source  $5 encoder args
     # ("--pcm" makes the reference the source itself; anything else makes
@@ -141,6 +146,9 @@ run_vector() {
     if [ ! -s "$y4m" ]; then
         echo "SUMMARY $name SKIP (source gen failed)"
         return
+    fi
+    if [ -n "$VSCAN" ] && ! "$ENC" "$y4m" --shot-scan "$VSCAN" 2>/dev/null; then
+        echo "SUMMARY $name FAIL (shot scan)"; fail=$((fail+1)); return
     fi
 
     # shellcheck disable=SC2086
@@ -293,6 +301,37 @@ run_vector() {
         fi
         ;;
     esac
+    # --shot-list (per-shot stage A1): every listed shot start has to be a
+    # place a decoder can begin. The seek leg cuts the stream at each IRAP
+    # in turn and both decoders must match the full decode from there,
+    # and every listed start must be one of those cuts.
+    case " $eargs " in
+    *" --shot-list "*)
+        sl=$(printf '%s\n' "$eargs" | sed -n 's/.*--shot-list \([^ ]*\).*/\1/p')
+        starts=$(awk '/^shots /{on=1; next} /^end/{on=0} on{sub(/#.*/, ""); if (NF) printf "%s%s", (n++ ? "," : ""), $1}' "$sl")
+        if ! FFMPEG="$FFMPEG" DEC265="$DEC265" python3 scripts/seek_check.py \
+                "$TMP/$name.hevc" "$TMP/$name.ff.yuv" --geometry "$size" \
+                --csp "$CSP" --depth "$DEPTH" --all-irap \
+                --expect-starts "$starts" >"$TMP/$name.seek" 2>&1; then
+            echo "SUMMARY $name FAIL (seek to a listed shot)"
+            sed -n 1,2p "$TMP/$name.seek" >&2
+            fail=$((fail+1)); return
+        fi
+        ;;
+    esac
+    # --intra-refresh: a decoder that joins at the second sweep start
+    # recovers exactly where the recovery point says it does
+    case " $eargs " in
+    *" --intra-refresh "*)
+        if ! DEC265="$DEC265" python3 scripts/recovery_check.py \
+                --stream "$TMP/$name.hevc" --recon "$TMP/$name.src.yuv" \
+                --size "$size" --nth 2 >"$TMP/$name.rp" 2>&1; then
+            echo "SUMMARY $name FAIL (join at a sweep start)"
+            sed -n 1,2p "$TMP/$name.rp" >&2
+            fail=$((fail+1)); return
+        fi
+        ;;
+    esac
     echo "SUMMARY $name PASS"
     pass=$((pass+1))
 }
@@ -361,6 +400,13 @@ run_vector_file() {
     VFILE=$1; shift
     run_vector "$@"
     VFILE=""
+}
+
+# same vector on an existing file, scanned first into the list path given
+run_vector_scan() {
+    VSCAN=$1; shift
+    run_vector_file "$@"
+    VSCAN=""
 }
 
 # same vector with the dither turned off at the source
@@ -820,6 +866,15 @@ run_vector abr_flat      176x144 16  testsrc2  "--keyint 8 --bitrate 200"
 # the vector carries a stream the buffer really constrained.
 run_vector vbv_abr       352x288 24  testsrc2  "--keyint 12 --bitrate 400 --vbv-maxrate 400 --vbv-bufsize 400 --aq 1 --cutree 1"
 run_vector vbv_crf       352x288 24  testsrc2  "--keyint 12 --crf 28 --vbv-maxrate 500 --vbv-bufsize 250 --aq 1 --cutree 1"
+# live control: a rate step down and up under capped VBR, a requested key
+# frame inside a mini-GOP under open GOP (an IDR), and QP limits, a zone
+# and a CRF change on one stream
+printf '8 rate bitrate=200 maxrate=300 bufsize=300\n16 rate bitrate=400 maxrate=600 bufsize=600\n' > "$TMP/ctl_rate.log"
+printf '11 key\n' > "$TMP/ctl_key.log"
+printf '4 qp min=30 max=40\n10 zone last=17 offset=-4\n12 crf value=24\n18 qp min=0 max=51\n' > "$TMP/ctl_qp.log"
+run_vector ctl_rate_vbr  352x288 24  testsrc2  "--keyint 30 --bitrate 400 --vbv-maxrate 600 --vbv-bufsize 600 --no-hrd --threads 1 --control $TMP/ctl_rate.log"
+run_vector ctl_key_open  352x288 24  testsrc2  "--keyint 8 --open-gop --crf 28 --control $TMP/ctl_key.log"
+run_vector ctl_qp_zone   352x288 24  testsrc2  "--keyint 30 --crf 28 --control $TMP/ctl_qp.log"
 # TWO-PASS (phase 12 item 4). Nothing new is on the WIRE - a planned
 # encode writes the same syntax an ABR one does, down to the fractional
 # base's cu_qp_delta dither - so what these two vectors check is that the
@@ -1241,6 +1296,18 @@ run_vector opengop_radl  352x288 26 testsrc2 "--keyint 8 --bframes 7 --ref 2 --c
 # boundary a NAL earlier and --temporal-layers puts the RASL leaves at
 # TemporalId 1, both of which the cut has to get right.
 run_vector opengop_tools 352x288 32 testsrc2 "--keyint 8 --bframes 7 --ref 3 --crf 26 --aq 1 --cutree 1 --open-gop --repeat-headers --aud --eos --temporal-layers --idr-recovery-sei --hash 1 --threads 4"
+# --intra-refresh: recon match from the start, and a cold join at the
+# second sweep start (run_vector's recovery leg). Natural content, so the
+# vectors reach the refreshed edge; one thread and twelve, three
+# references, a 64x64 tree, and the zerolatency pairing under a buffer.
+run_vector_file tests/corpus/foreman_cif.y4m \
+           ir_foreman 352x288 40 testsrc2 "--intra-refresh --keyint 10 --crf 28 --threads 1"
+run_vector_file tests/corpus/mobile_cif.y4m \
+           ir_mobile 352x288 40 testsrc2 "--intra-refresh --keyint 12 --ref 3 --crf 26 --threads 12"
+run_vector_file tests/corpus/park_joy_720p.y4m \
+           ir_park 1280x720 24 testsrc2 "--intra-refresh --keyint 8 --ctu 64 --crf 30 --threads 12"
+run_vector_file tests/corpus/stefan_cif.y4m \
+           ir_zerolat 352x288 40 testsrc2 "--intra-refresh --tune zerolatency --keyint 10 --bitrate 400 --vbv-maxrate 400 --vbv-bufsize 400 --threads 4"
 run_vector fgc_sei       352x288 20 testsrc2 "--keyint 6 --bframes 3 --aq 1 --cutree 1 --film-grain 1.0 --threads 4"
 run_vector fgc_denoise   352x288 20 testsrc2 "--keyint 6 --bframes 3 --aq 1 --cutree 1 --film-grain 1.0 --film-grain-denoise 1 --threads 12"
 # --nr-intra / --nr-inter (phase 14 item 6): the coefficient-domain noise
@@ -1323,6 +1390,33 @@ run_vector tlayers_only  352x288 20 testsrc2 "--keyint 10 --bframes 7 --qp 32 --
 # --bframes 3, and zerolatency's window of 1 is refused against it by
 # design. It has a vector of its own below.
 run_vector all_nals      352x288 16 testsrc2 "--keyint 8 --bframes 3 --bitrate 700 --vbv-maxrate 700 --vbv-bufsize 700 --strict-cbr --repeat-headers --aud --eos --eob --info --idr-recovery-sei --pic-struct 0 --hrd-concat --temporal-layers --hash 1 --film-grain 1.0 --max-cll 1000,400 --video-signal-type-preset BT2100_PQ_YCC:P3D65x1000n0005 --dup-threshold 0.5 --threads 4"
+
+# Per-shot stage A1: a key frame on each shot. The source is four CIF
+# clips cut together (10, 10, 6 and 8 frames), so it has three hard cuts.
+# shots_scan codes under the list --shot-scan makes of it. shots_hand
+# codes under a written list that also puts a shot two frames in, inside
+# min-keyint, and one in the middle of a clip, with --keyint 12 under open
+# GOP so CRAs fall between the listed IDRs. shots_keys is the no-file
+# form at --ref 2, where a cut inside min-keyint would otherwise be a
+# non-IDR I. run_vector's seek leg checks every IRAP and every listed
+# start with both decoders.
+ms_src="$TMP/shots_src.y4m"
+if "$FFMPEG" -loglevel error -i tests/corpus/foreman_cif.y4m \
+        -i tests/corpus/mobile_cif.y4m -i tests/corpus/akiyo_cif.y4m \
+        -i tests/corpus/bus_cif.y4m -filter_complex \
+        "[0:v]trim=end_frame=10,setpts=N/25/TB[a];[1:v]trim=end_frame=10,setpts=N/25/TB[b];[2:v]trim=end_frame=6,setpts=N/25/TB[c];[3:v]trim=end_frame=8,setpts=N/25/TB[d];[a][b][c][d]concat=n=4:v=1:a=0,setpts=N/25/TB,fps=25" \
+        -y "$ms_src" 2>/dev/null; then
+    run_vector_scan "$TMP/shots_scan.txt" "$ms_src" \
+           shots_scan 352x288 34 testsrc2 "--keyint 100 --bframes 7 --crf 28 --aq 1 --cutree 1 --shot-list $TMP/shots_scan.txt --threads 4"
+    printf 'yah265-shots 1\nshots 6\n0\n2\n10\n15 # mid-clip\n20\n26\nend\n' \
+        > "$TMP/shots_hand.txt"
+    run_vector_file "$ms_src" \
+           shots_hand 352x288 34 testsrc2 "--keyint 12 --bframes 7 --ref 2 --crf 28 --aq 1 --cutree 1 --shot-list $TMP/shots_hand.txt --threads 12"
+    run_vector_file "$ms_src" \
+           shots_keys 352x288 34 testsrc2 "--keyint 100 --bframes 7 --ref 2 --crf 28 --aq 1 --cutree 1 --shot-keys --threads 4"
+else
+    echo "SUMMARY shots_scan SKIP (no tests/corpus)"
+fi
 
 # -t/--tune zerolatency (phase 14 item 15): no B frames, a window of one,
 # no adaptive run length, no cu-tree and one frame in flight. Every one of

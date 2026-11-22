@@ -20,9 +20,11 @@ yah265 is a new HEVC encoder, written in C. It runs inside ffmpeg under the opti
 
 ## Try it
 
+**New:** [try yah265 in your browser](https://terranvigil.github.io/yah265/playground/), with nothing to install.
+
 ```sh
 ffmpeg -i in.mp4 -c:v libx265   -preset medium -crf 25 out.mp4   # what you run today
-ffmpeg -i in.mp4 -c:v libyah265 -preset medium -crf 25 out.mp4   # swap one word
+ffmpeg -i in.mp4 -c:v libyah265 -preset medium -crf 25 out.mp4
 ```
 
 Simple command builds that ffmpeg:
@@ -42,7 +44,7 @@ Always pass a rate option. Without one, the encoder runs a fixed-quantizer test 
 
 To see the difference, [watch the encodes side by side](https://terranvigil.github.io/yah265/compare.html).
 
-The table splits the headline by picture size. It counts the clips where the two files match in size within 1%.
+The table breaks the 1.8x down by picture size. It counts the clips where the two files match in size within 1%.
 
 <!--gen:pooled-table-->
 | size-matched cells on the Mac | count | median | slowest cell |
@@ -61,17 +63,17 @@ The table splits the headline by picture size. It counts the clips where the two
 | bits saved at equal VMAF v1, rate ladders at CRF and capped VBR | 38 | 10.2% |
 <!--/gen:quality-table-->
 
-yah265 is faster on three machines. G3 is the row a user sees: both encoders as shipped. G1 and G2 compare the algorithms with SIMD off.
+yah265 is faster on three machines. I time speed three ways and call each one a goal. [G3](https://terranvigil.github.io/yah265/methodology.html#the-three-speed-goals) is the row a user sees: both encoders as shipped. [G1 and G2](https://terranvigil.github.io/yah265/methodology.html#the-three-speed-goals) compare the algorithms, with the hand-written SIMD off on both sides.
 
 <!--gen:goal-table-->
 | goal | Apple M5 Max (NEON) | Xeon 8488C (AVX-512) | Graviton4 (SVE2) |
 |---|--:|--:|--:|
-| G3: as shipped, SIMD on all cores | 1.59x to 2.13x | 1.25x to 2.33x | 1.39x to 3.03x |
-| G1: algorithm only, plain C on one thread | 2.17x to 4.00x | 1.49x to 2.94x | 1.52x to 2.94x |
-| G2: algorithm only, plain C on all cores | 2.56x to 4.35x | 2.22x to 4.76x | 2.08x to 4.35x |
+| [G3](https://terranvigil.github.io/yah265/methodology.html#the-three-speed-goals): as shipped, SIMD on all cores | 1.59x to 2.13x | 1.25x to 2.33x | 1.39x to 3.03x |
+| [G1](https://terranvigil.github.io/yah265/methodology.html#the-three-speed-goals): algorithm only, plain C on one thread | 2.17x to 4.00x | 1.49x to 2.94x | 1.52x to 2.94x |
+| [G2](https://terranvigil.github.io/yah265/methodology.html#the-three-speed-goals): algorithm only, plain C on all cores | 2.56x to 4.35x | 2.22x to 4.76x | 2.08x to 4.35x |
 <!--/gen:goal-table-->
 
-The [results page](https://terranvigil.github.io/yah265/results.html) has the tables and charts. [Check it yourself](https://terranvigil.github.io/yah265/check-it-yourself.html) shows how to rerun a measurement.
+See the [results page](https://terranvigil.github.io/yah265/results.html) for the tables and charts, and [Check it yourself](https://terranvigil.github.io/yah265/check-it-yourself.html) to rerun a measurement.
 
 ## The y265 command line
 
@@ -86,7 +88,7 @@ It reads Y4M or raw YUV from a file or a pipe. The output is a raw HEVC stream t
 
 ## Hardware option?
 
-On Macs, `--hw videotoolbox` uses Apple's hardware HEVC encoder instead of yah265's own. The table gives the median over ten clips from 720p to 2160p at the same bitrate. The [hardware mode note](docs/hardware-mode.md) has the ten clips.
+On Macs, `--hw videotoolbox` uses Apple's hardware HEVC encoder instead of yah265's own. The table gives the median over [ten clips](docs/hardware-mode.md) from 720p to 2160p at the same bitrate.
 
 | mode | wall time | CPU used | VMAF v1 |
 |---|--:|--:|--:|
@@ -111,32 +113,37 @@ The [encoding guide](https://terranvigil.github.io/yah265/guide.html#planning-by
 
 ## Up next
 
-Coming in the next few days:
-
-- Live control: change the bitrate, CRF or key frames while an encode runs, from a file or a pipe.
-
 The shot tools above grow into a full per-shot ladder:
 
-- Each shot starts on its own key frame so that it can be seeked to, packaged or replaced alone.
 - Each shot gets its own quality setting in one pass, from a scan of the source with no trial encodes.
 - My [veo project](https://github.com/terranvigil/veo) runs the ladder search itself over rungs, convex hull and VMAF. It uses yah265 as its encoder.
 
 ## Documentation
 
-The site is at [terranvigil.github.io/yah265](https://terranvigil.github.io/yah265/).
+**[Docs home](https://terranvigil.github.io/yah265/)**
 
-| page | what's on it |
-|---|---|
-| [Build and first encode](https://terranvigil.github.io/yah265/start.html) | the ffmpeg build, a first encode, building `y265` |
-| [Encoding guide](https://terranvigil.github.io/yah265/guide.html) | rate modes, presets, threads, what ships and what's left out |
-| [Options](https://terranvigil.github.io/yah265/options.html) | the options and their defaults |
-| [HDR](https://terranvigil.github.io/yah265/hdr.html) | HDR10, HDR10+, HLG and Dolby Vision profile 8 |
-| [The HEVC standard](https://terranvigil.github.io/yah265/hevc.html) | how encoding and HEVC work |
-| [Design](https://terranvigil.github.io/yah265/design.html) | how yah265 makes its choices |
-| [Threading](https://terranvigil.github.io/yah265/threading.html) | the many-core pipeline |
-| [Architectures](https://terranvigil.github.io/yah265/architectures.html) | what runs where, and where SIMD speed comes from |
-| [Results](https://terranvigil.github.io/yah265/results.html) | the tables and charts |
-| [Blog](https://terranvigil.github.io/yah265/blog.html) | the launch post |
+Use
+- [Build and first encode](https://terranvigil.github.io/yah265/start.html): the ffmpeg build, a first encode, building `y265`
+- [Encoding guide](https://terranvigil.github.io/yah265/guide.html): rate modes, presets, threads, live control, shots
+- [Coming from x265](https://terranvigil.github.io/yah265/from-x265.html): option names and a CRF translation table
+- [Try it in your browser](https://terranvigil.github.io/yah265/playground.html): the playground, nothing to install
+- [Try it on your own clip](https://terranvigil.github.io/yah265/bench.html): `y265 bench` against x265
+- [Options](https://terranvigil.github.io/yah265/options.html): the options and their defaults
+- [HDR](https://terranvigil.github.io/yah265/hdr.html): HDR10, HDR10+, HLG and Dolby Vision profile 8
+
+Understand
+- [The HEVC standard](https://terranvigil.github.io/yah265/hevc.html): how encoding and HEVC work
+- [Design](https://terranvigil.github.io/yah265/design.html): how yah265 makes its choices
+- [Threading](https://terranvigil.github.io/yah265/threading.html): the many-core pipeline
+- [Architectures](https://terranvigil.github.io/yah265/architectures.html): what runs where
+
+Evidence
+- [Results](https://terranvigil.github.io/yah265/results.html): the tables and charts
+- [Watch the encodes](https://terranvigil.github.io/yah265/compare.html): side-by-side players
+- [How x265 was run](https://terranvigil.github.io/yah265/x265-run.html): the commands and builds
+- [Check it yourself](https://terranvigil.github.io/yah265/check-it-yourself.html): rerun a measurement
+- [A skeptic's questions](https://terranvigil.github.io/yah265/faq.html)
+- [Blog](https://terranvigil.github.io/yah265/blog.html): the launch post
 
 ## Contributing
 

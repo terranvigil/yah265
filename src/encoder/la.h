@@ -172,6 +172,10 @@ typedef struct la_frame {
     /* N265_JIT: camera jitter on fine texture in a window over this
      * frame, and the flag as it stood when the frame was planned */
     uint8_t jit, jit_plan;
+    /* live control, stamped at the push (ctl.c) */
+    uint8_t ctl_key, ctl_zone;
+    int ctl_qpmin, ctl_qpmax;
+    double ctl_zoff;
 } la_frame;
 
 typedef struct n265_la {
@@ -261,6 +265,9 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
 
 /* scenecut test for queued frame index i (display order) */
 int n265_la_scenecut(struct n265_encoder *e, int i);
+
+/* is display index d a listed start under --shot-list (encoder.c) */
+int n265_shotl_has(const struct n265_encoder *e, int d);
 
 /* run cu-tree over the queued window and fill e->ctu_qp_off for queued
  * frame index i */

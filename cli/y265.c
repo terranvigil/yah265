@@ -4,6 +4,7 @@
  */
 
 #include <errno.h>
+#include <fcntl.h>
 #include <math.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -11,12 +12,15 @@
 #include <string.h>
 #include <sys/stat.h>
 #ifdef __APPLE__
+#include <mach-o/dyld.h>
 #include <malloc/malloc.h>
 #endif
+#include <limits.h>
 #include <sys/types.h>
 #include <unistd.h>
 
 #include "yah265.h"
+#include "ctl_log.h"
 #include "hdr_dyn.h"
 
 /* internal knobs, resolved from the library (not yet public API) */
@@ -24,6 +28,16 @@ void n265_encoder_set_dump_decode(n265_encoder *e, FILE *f);
 void n265_encoder_set_dump(n265_encoder *e, FILE *f);
 void n265_encoder_set_shot_stats(n265_encoder *e, const char *path);
 void n265_set_shot_window(int n);
+/* --shot-list / --shot-scan (src/encoder/shotlist.h). The list helpers and
+ * the scan are depth-blind and always run on the 8-bit library. */
+int n265_encoder_set_shot_list(n265_encoder *e, const int *starts, int n);
+#include "encoder/shotlist.h"
+typedef struct n265_shotscan n265_shotscan;
+n265_shotscan *n265_shotscan_open(const n265_param *src);
+int n265_shotscan_push(n265_shotscan *s, const uint8_t *luma, int w, int h,
+                       int depth);
+int n265_shotscan_finish(n265_shotscan *s, n265_shotlist *out);
+void n265_shotscan_close(n265_shotscan *s);
 /* --psnr / --ssim / --csv (phase 14 item 4). The metrics are a read-only
  * tap at retirement, so a stream coded with them on is byte-for-byte the
  * one coded without; the pooled numbers come back through
@@ -57,6 +71,7 @@ void n265_set_sei_opts(int recovery_sei, int pic_struct, int hrd_concat,
 void n265_set_qpfile(const char *path);
 void n265_set_zones(const char *spec);
 void n265_encoder_set_csv(n265_encoder *e, const char *path, int level);
+void n265_encoder_set_frame_stats(n265_encoder *e, const char *path);
 long n265_encoder_metrics(n265_encoder *e, double out[6]);
 long n265_encoder_dyn_lost(const n265_encoder *e);
 /* Two-pass (phase 12 item 4): 1 writes the stats sidecar, 2 plans from it,
@@ -226,6 +241,7 @@ const char *n265_config_get_str_10(const n265_config *c, const char *key);
 void n265_encoder_set_dump_decode_10(n265_encoder *e, FILE *f);
 void n265_encoder_set_dump_10(n265_encoder *e, FILE *f);
 void n265_encoder_set_shot_stats_10(n265_encoder *e, const char *path);
+int n265_encoder_set_shot_list_10(n265_encoder *e, const int *starts, int n);
 void n265_set_shot_window_10(int n);
 void n265_set_pass_10(int pass, const char *stats);
 void n265_set_metrics_10(int psnr, int ssim);
@@ -240,6 +256,15 @@ void n265_set_sei_opts_10(int recovery_sei, int pic_struct, int hrd_concat,
 void n265_set_qpfile_10(const char *path);
 void n265_set_zones_10(const char *spec);
 void n265_encoder_set_csv_10(n265_encoder *e, const char *path, int level);
+void n265_encoder_set_frame_stats_10(n265_encoder *e, const char *path);
+void n265_control_init_10(n265_control_t *ev, int kind);
+const char *n265_control_strerror_10(int err);
+int  n265_encoder_control_10(n265_encoder *e, n265_control_t *ev);
+int  n265_encoder_control_check_10(n265_encoder *e, const n265_control_t *ev,
+                                   int n, int *bad_index);
+int  n265_encoder_status_10(n265_encoder *e, n265_status_t *st);
+int  n265_encoder_controls_applied_10(n265_encoder *e, n265_control_t *out,
+                                      int max);
 long n265_encoder_metrics_10(n265_encoder *e, double out[6]);
 long n265_encoder_dyn_lost_10(const n265_encoder *e);
 const char *n265_encoder_backend_10(const n265_encoder *e);
@@ -308,6 +333,7 @@ typedef struct n265_api {
     void (*set_dump)(n265_encoder *, FILE *);
     void (*set_dump_decode)(n265_encoder *, FILE *);
     void (*set_shot_stats)(n265_encoder *, const char *);
+    int (*set_shot_list)(n265_encoder *, const int *, int);
     /* --psnr / --ssim / --csv (phase 14 item 4) */
     void (*set_metrics)(int, int);
     void (*set_nal_opts)(int, int, int, int, int);
@@ -336,6 +362,14 @@ typedef struct n265_api {
     int  (*config_apply)(n265_config *, n265_param *);
     int  (*config_get)(const n265_config *, const char *, double *);
     const char *(*config_get_str)(const n265_config *, const char *);
+    /* --frame-stats and live control */
+    void (*set_frame_stats)(n265_encoder *, const char *);
+    void (*control_init)(n265_control_t *, int);
+    const char *(*control_strerror)(int);
+    int  (*encoder_control)(n265_encoder *, n265_control_t *);
+    int  (*control_check)(n265_encoder *, const n265_control_t *, int, int *);
+    int  (*controls_applied)(n265_encoder *, n265_control_t *, int);
+    int  (*status)(n265_encoder *, n265_status_t *);
 } n265_api;
 
 static const n265_api api8 = {
@@ -354,7 +388,7 @@ static const n265_api api8 = {
     n265_set_hdr10plus, n265_set_dovi_rpu, n265_set_hdr_opt,
     n265_encoder_open, n265_encoder_encode, n265_encoder_close,
     n265_version_str, n265_encoder_set_dump, n265_encoder_set_dump_decode,
-    n265_encoder_set_shot_stats,
+    n265_encoder_set_shot_stats, n265_encoder_set_shot_list,
     n265_set_metrics, n265_set_nal_opts, n265_set_info_opts,
     n265_set_rc_bounds,
     n265_set_sei_opts, n265_set_qpfile, n265_set_zones,
@@ -362,6 +396,9 @@ static const n265_api api8 = {
     n265_show_config, n265_encoder_dyn_lost, n265_encoder_backend,
     n265_config_new, n265_config_free, n265_config_parse, n265_config_note,
     n265_config_apply, n265_config_get, n265_config_get_str,
+    n265_encoder_set_frame_stats, n265_control_init, n265_control_strerror,
+    n265_encoder_control, n265_encoder_control_check,
+    n265_encoder_controls_applied, n265_encoder_status,
 };
 
 static const n265_api api10 = {
@@ -382,7 +419,7 @@ static const n265_api api10 = {
     n265_encoder_open_10,
     n265_encoder_encode_10, n265_encoder_close_10, n265_version_str_10,
     n265_encoder_set_dump_10, n265_encoder_set_dump_decode_10,
-    n265_encoder_set_shot_stats_10,
+    n265_encoder_set_shot_stats_10, n265_encoder_set_shot_list_10,
     n265_set_metrics_10, n265_set_nal_opts_10, n265_set_info_opts_10,
     n265_set_rc_bounds_10,
     n265_set_sei_opts_10, n265_set_qpfile_10, n265_set_zones_10,
@@ -392,6 +429,10 @@ static const n265_api api10 = {
     n265_config_new_10, n265_config_free_10, n265_config_parse_10,
     n265_config_note_10, n265_config_apply_10, n265_config_get_10,
     n265_config_get_str_10,
+    n265_encoder_set_frame_stats_10, n265_control_init_10,
+    n265_control_strerror_10, n265_encoder_control_10,
+    n265_encoder_control_check_10, n265_encoder_controls_applied_10,
+    n265_encoder_status_10,
 };
 
 /* QpBdOffsetY (7-5), and the clip bound of Clip1Y. Runtime now, off the
@@ -967,7 +1008,8 @@ static void rd_close(rd_ring *q, y4m_t *y)
 static void usage(FILE *out)
 {
     fputs(
-        "usage: y265 [options] <input.y4m|input.yuv|->\n",
+        "usage: y265 [options] <input.y4m|input.yuv|->\n"
+        "       y265 bench <video> [options]   compare with x265 on your clip\n",
         out);
     fputs(
         "\n"
@@ -1014,8 +1056,10 @@ static void usage(FILE *out)
         "  --gop-parallel <n>    code the input as segments on n encoders at once,\n"
         "                        joined at IDRs (default 0, off). Needs more than one\n"
         "                        thread; not with --pass, --qpfile, --zones, --csv,\n"
-        "                        --shot-stats or --hrd-concat. The joined stream\n"
-        "                        carries no HRD timing SEI.\n",
+        "                        --frame-stats, --shot-stats, --hrd-concat or live\n"
+        "                        control. The joined stream carries no HRD timing\n"
+        "                        SEI. With --shot-list the segments start on\n"
+        "                        listed shots.\n",
         out);
     fputs(
         "\n"
@@ -1075,6 +1119,13 @@ static void usage(FILE *out)
         "Structure\n"
         "  --keyint <n>          maximum key frame interval (default 250). A scene cut\n"
         "                        restarts the count.\n"
+        "  --shot-scan <file>    scan the input for shots and write a shot list, then\n"
+        "                        exit. The scan runs at one size, so every resolution\n"
+        "                        of a source gets the same list.\n"
+        "  --shot-list <file>    put a key frame at the start of each listed shot.\n"
+        "                        The encoder's own cut detector is off. The list is\n"
+        "                        refused on an input it wasn't made from.\n"
+        "  --shot-keys           put a key frame on each cut the encoder finds\n"
         "  --open-gop            code periodic key frames as CRA (default);\n"
         "                        --no-open-gop codes IDR. Scene cuts are always IDR.\n"
         "  --radl <n>            leading pictures of a CRA coded as RADL (default 0)\n"
@@ -1106,7 +1157,9 @@ static void usage(FILE *out)
         "  --pcm                 code every CU as I_PCM (lossless, very large)\n"
         "  --lossless            lossless coding: transquant bypass on every CU.\n"
         "                        Rate control, RDOQ, AQ, psy and loop filters are off.\n"
-        "  --intra-refresh       not supported; the refusal says why\n"
+        "  --intra-refresh       no key frame after the first: a column of intra\n"
+        "                        blocks sweeps the picture every --keyint frames,\n"
+        "                        so a decoder can join at any sweep. P frames only\n"
         "  --scaling-list <s>    not supported; the refusal says why\n",
         out);
     fputs(
@@ -1141,6 +1194,9 @@ static void usage(FILE *out)
         "                        doubling, 8 frame tripling). Needs a VBV.\n"
         "  --hrd-concat          mark the first buffering period SEI as a splice\n"
         "                        point. Needs a VBV.\n"
+        "  --no-hrd              leave the HRD timing out of the stream (written by\n"
+        "                        default with a VBV and a frame rate). A live encode\n"
+        "                        that raises its rate needs it.\n"
         "  --temporal-layers     put non-reference B frames in temporal sub-layer 1,\n"
         "                        so a player can drop them to halve the frame rate\n"
         "  --hash <0-3>          decoded picture hash SEI: 0 off (default), 1 MD5,\n"
@@ -1215,10 +1271,22 @@ static void usage(FILE *out)
         "  --csv-log-level <0|1|2>  0 one row per run (default), 1 adds a row per\n"
         "                        frame, 2 adds rate control columns\n"
         "  --shot-stats <file>   write per-shot statistics as JSON Lines\n"
+        "  --frame-stats <file>  write one JSON line per coded frame, with the live\n"
+        "                        control events that took effect on it\n"
         "  --verbose, -v         print the resolved configuration, level and tier,\n"
         "                        then encode\n"
         "  --show-config         print the resolved configuration and exit\n"
         "  --version             print the version\n",
+        out);
+    fputs(
+        "\n"
+        "Live control\n"
+        "  --control <file>      apply the events in a control log, one per line:\n"
+        "                        \"<frame> rate|crf|qp|key|zone <name>=<value>...\"\n"
+        "  --control-fd <n>      read the same lines live from descriptor n, before\n"
+        "                        each frame; \"next\" names the next frame\n"
+        "  --control-out <file>  write every event that took effect, as a log that\n"
+        "                        replays to the same stream through --control\n",
         out);
 }
 
@@ -1377,6 +1445,8 @@ typedef struct gp_job {
     long total;                 /* records in the file past `base` */
     const y4m_t *src;           /* the geometry an instance's reader copies */
     long clipped;               /* the instances' clamp counts */
+    const int *ls;              /* --shot-list starts, input display order */
+    int nls;
     int relief;                 /* N265_GOP_RELIEF */
     int kcap;                   /* N265_GOP_K: frames in flight, at most */
 } gp_job;
@@ -1833,6 +1903,15 @@ static void *gp_worker(void *arg)
             pthread_mutex_unlock(&j->lock);
             break;
         }
+        if (j->nls) {
+            int *rel = malloc((size_t)j->nls * sizeof *rel), nr = 0;
+            for (int k = 0; rel && k < j->nls; k++)
+                if (j->ls[k] > start && j->ls[k] < end)
+                    rel[nr++] = j->ls[k] - start;
+            if (!rel || a->set_shot_list(e, rel, nr) != 0)
+                s->err = 1;
+            free(rel);
+        }
         if (j->vbv && (g > 0 || has_next))
             j->g->set_segment(e, g > 0 ? j->vbv_in : -1.0,
                               has_next ? j->vbv_out : 0.0, end - start);
@@ -2027,7 +2106,7 @@ static int gp_flush(gp_job *j, int *next_out, FILE *fout, FILE *fdump)
 static int gp_place(gp_job *j, const unsigned char *cut, int b)
 {
     int L = j->L;
-    int lo = b + (L * 6 + 9) / 10;
+    int lo = j->nls ? b + 1 : b + (L * 6 + 9) / 10;
     long need = (long)b + L + L / 4 + 1;
     if (!j->eof && j->n_read < need)
         return 0;
@@ -2057,7 +2136,8 @@ static int gp_run(const n265_api *a, y4m_t *y, const char *in_path,
                   int T, int threads_arg, int keyint, long max_frames, int abr_on,
                   double bitrate_kbps, int vbv_on, int repeat_hdr,
                   FILE *fout, FILE *fdump, int want_met, long *nframes,
-                  double met[6], long *nmet, int *nseg_out, int *k_out)
+                  double met[6], long *nmet, int *nseg_out, int *k_out,
+                  const int *ls, int nls)
 {
     gp_job jb, *j = &jb;
     memset(j, 0, sizeof *j);
@@ -2071,6 +2151,10 @@ static int gp_run(const n265_api *a, y4m_t *y, const char *in_path,
     if (j->L < 16)
         j->L = 16;
     j->cuts = gp_env_int(getenv("N265_GOP_CUTS"), 1);
+    j->ls = ls;
+    j->nls = nls;
+    if (nls)
+        j->cuts = 1;
     long win = (long)((j->W + 1.5) * j->L);
     j->window = gp_env_int(getenv("N265_GOP_WINDOW"), (int)win);
     if (j->window < 2L * j->L)
@@ -2105,9 +2189,10 @@ static int gp_run(const n265_api *a, y4m_t *y, const char *in_path,
         fprintf(stderr, "GOP,reader,%s\n", j->seek ? "seek" : "window");
 
     gp_sc sc;
-    int sc_ok = j->cuts && gp_sc_init(&sc, y->w, y->h) == 0;
-    if (!sc_ok)
+    int sc_ok = j->cuts && !nls && gp_sc_init(&sc, y->w, y->h) == 0;
+    if (!sc_ok && !nls)
         j->cuts = 0;
+    int lk = 0;                 /* the next listed start to reach */
     unsigned char *cut = NULL;
     long cut_cap = 0;
     size_t fbytes = j->psz[0] + j->psz[1] + j->psz[2];
@@ -2145,7 +2230,11 @@ static int gp_run(const n265_api *a, y4m_t *y, const char *in_path,
                 cut_cap = nc;
             }
             pthread_mutex_unlock(&j->lock);
-            if (j->cuts) {
+            if (nls) {
+                while (lk < nls && ls[lk] < n)
+                    lk++;
+                cut[n] = lk < nls && ls[lk] == n;
+            } else if (j->cuts) {
                 const void *lu = gp_scan_luma(j, y, n);
                 if (!lu) {
                     fprintf(stderr, "y265: cannot read frame %ld\n", n);
@@ -2198,9 +2287,14 @@ static int gp_run(const n265_api *a, y4m_t *y, const char *in_path,
                 memcpy(d, y->plane[c], j->psz[c]);
                 d += j->psz[c];
             }
-            if (j->cuts)
+            if (nls) {
+                while (lk < nls && ls[lk] < n)
+                    lk++;
+                cut[n] = lk < nls && ls[lk] == n;
+            } else if (j->cuts) {
                 cut[n] = (unsigned char)gp_sc_cut(&sc,
                               gp_sc_push(&sc, f, j->pw[0], j->bps));
+            }
             pthread_mutex_lock(&j->lock);
             j->frm[n] = f;
             j->resident++;
@@ -2319,6 +2413,9 @@ static int gp_run(const n265_api *a, y4m_t *y, const char *in_path,
 typedef struct {
     const char *in_path, *out_path, *dump_path, *shot_path;
     const char *dump_decode_path, *csv_path;
+    const char *shot_scan, *shot_list;
+    const char *fstats_path, *ctl_path, *ctl_out_path;
+    int ctl_fd;
     long max_frames, seek;
     int out_depth, in_w, in_h, in_csp, in_depth, in_fps_num, in_fps_den;
     int dither, csv_level, gop_par, verbose, show_config;
@@ -2334,6 +2431,7 @@ static int cli_parse(const n265_api *a, n265_config *cfg, int argc,
     o->max_frames = -1;
     o->in_csp = -1;
     o->csv_level = -1;
+    o->ctl_fd = -1;
     for (int i = 1; i < argc; i++) {
         const int argi = i;
         int mine = 1;
@@ -2372,6 +2470,21 @@ static int cli_parse(const n265_api *a, n265_config *cfg, int argc,
             }
         } else if (!strcmp(argv[i], "--csv") && i + 1 < argc) {
             o->csv_path = argv[++i];
+        } else if (!strcmp(argv[i], "--frame-stats") && i + 1 < argc) {
+            o->fstats_path = argv[++i];
+        } else if (!strcmp(argv[i], "--control") && i + 1 < argc) {
+            o->ctl_path = argv[++i];
+        } else if (!strcmp(argv[i], "--control-out") && i + 1 < argc) {
+            o->ctl_out_path = argv[++i];
+        } else if (!strcmp(argv[i], "--control-fd") && i + 1 < argc) {
+            char *end;
+            long fd = strtol(argv[++i], &end, 10);
+            if (*end || fd < 0 || fd > 1000000) {
+                fprintf(stderr, "y265: --control-fd takes a descriptor "
+                        "number\n");
+                return 2;
+            }
+            o->ctl_fd = (int)fd;
         } else if (!strcmp(argv[i], "--csv-log-level") && i + 1 < argc) {
             o->csv_level = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--seek") && i + 1 < argc) {
@@ -2396,6 +2509,10 @@ static int cli_parse(const n265_api *a, n265_config *cfg, int argc,
             o->dump_path = argv[++i];
         } else if (!strcmp(argv[i], "--shot-stats") && i + 1 < argc) {
             o->shot_path = argv[++i];
+        } else if (!strcmp(argv[i], "--shot-scan") && i + 1 < argc) {
+            o->shot_scan = argv[++i];
+        } else if (!strcmp(argv[i], "--shot-list") && i + 1 < argc) {
+            o->shot_list = argv[++i];
         } else if (!strcmp(argv[i], "--version")) {
             printf("y265 %s\n", a->version_str());
             return 0;
@@ -2441,6 +2558,161 @@ static int cli_parse(const n265_api *a, n265_config *cfg, int argc,
     return -1;
 }
 
+/* ---- --shot-scan and --shot-list ---- */
+
+/* The fingerprint of the frames this run would code: from where the
+ * reader stands (past --seek), --frames of them at most. The three
+ * sampled frames are read by seeking, so the input has to be a file of
+ * fixed-size records; the reader is left where it stood. */
+static int shot_fp_input(y4m_t *y, long max_frames, n265_shot_fp *fp)
+{
+    off_t base, rec;
+    long total;
+    if (!gp_seekable(y, &base, &rec, &total))
+        return -1;
+    long n = max_frames >= 0 && max_frames < total ? max_frames : total;
+    size_t lb = (size_t)y->w * y->h * (y->depth > 8 ? 2 : 1);
+    uint8_t *buf = malloc(lb);
+    if (!buf || n < 1) {
+        free(buf);
+        return -1;
+    }
+    memset(fp, 0, sizeof *fp);
+    fp->have = 1;
+    fp->frames = n;
+    fp->w = y->w;
+    fp->h = y->h;
+    fp->depth = y->depth;
+    long pick[3] = { 0, n / 2, n - 1 };
+    uint64_t h[3];
+    int rc = 0;
+    for (int k = 0; k < 3 && !rc; k++) {
+        off_t at = base + (off_t)pick[k] * rec + (y->raw ? 0 : 6);
+        if (fseeko(y->f, at, SEEK_SET) != 0 || fread(buf, 1, lb, y->f) != lb)
+            rc = -1;
+        else
+            n265_shot_fp_frame(buf, y->w, y->h, y->depth, &h[k],
+                               fp->thumb[k]);
+    }
+    free(buf);
+    if (fseeko(y->f, base, SEEK_SET) != 0)
+        rc = -1;
+    fp->luma = rc ? 0 : n265_shot_fp_combine(h);
+    return rc;
+}
+
+/* --shot-scan: every frame from where the reader stands through the scan,
+ * and the list to `path`. The input is read once and in order, so a pipe
+ * works; the fingerprint keeps one hash and one thumbnail per frame. */
+static int shot_scan_run(y4m_t *y, long max_frames, const char *path)
+{
+    n265_param sp = { y->w, y->h, N265_CSP_I420, y->fps_num, y->fps_den };
+    n265_shotscan *ss = n265_shotscan_open(&sp);
+    if (!ss) {
+        fprintf(stderr, "y265: --shot-scan: cannot start the scan\n");
+        return 1;
+    }
+    uint64_t *hs = NULL;
+    uint8_t (*th)[64] = NULL;
+    long n = 0, cap = 0;
+    int r = 0, rc = 0;
+    while ((max_frames < 0 || n < max_frames) && (r = y4m_read(y)) > 0) {
+        if (n == cap) {
+            long nc = cap ? 2 * cap : 1024;
+            uint64_t *nh = realloc(hs, (size_t)nc * sizeof *nh);
+            if (nh)
+                hs = nh;
+            uint8_t (*nt)[64] = realloc(th, (size_t)nc * sizeof *nt);
+            if (nt)
+                th = nt;
+            if (!nh || !nt) {
+                rc = 1;
+                break;
+            }
+            cap = nc;
+        }
+        n265_shot_fp_frame(y->frame, y->w, y->h, y->depth, &hs[n], th[n]);
+        if (n265_shotscan_push(ss, y->frame, y->w, y->h, y->depth) != 0) {
+            rc = 1;
+            break;
+        }
+        n++;
+    }
+    if (r < 0) {
+        fprintf(stderr, "y265: truncated input after frame %ld\n", n);
+        rc = 1;
+    }
+    n265_shotlist l;
+    memset(&l, 0, sizeof l);
+    if (!rc && (n < 1 || n265_shotscan_finish(ss, &l) != 0)) {
+        fprintf(stderr, "y265: --shot-scan: no frames to scan\n");
+        rc = 1;
+    }
+    n265_shotscan_close(ss);
+    if (!rc) {
+        long pick[3] = { 0, n / 2, n - 1 };
+        uint64_t h3[3];
+        l.fp.have = 1;
+        l.fp.w = y->w;
+        l.fp.h = y->h;
+        l.fp.depth = y->depth;
+        for (int k = 0; k < 3; k++) {
+            h3[k] = hs[pick[k]];
+            memcpy(l.fp.thumb[k], th[pick[k]], 64);
+        }
+        l.fp.luma = n265_shot_fp_combine(h3);
+        FILE *f = fopen(path, "w");
+        if (!f || n265_shotlist_write(f, &l) != 0 || fclose(f) != 0) {
+            fprintf(stderr, "y265: --shot-scan: cannot write %s\n", path);
+            rc = 1;
+        } else {
+            fprintf(stderr, "y265: --shot-scan: %d shot%s in %ld frames "
+                    "(scanned at %dx%d), written to %s\n", l.n,
+                    l.n == 1 ? "" : "s", n, l.scan_w, l.scan_h, path);
+        }
+    }
+    n265_shotlist_free(&l);
+    free(hs);
+    free(th);
+    return rc;
+}
+
+/* --shot-list: read the list, refuse it on the wrong input, and hand back
+ * the starts after frame 0 */
+static int shot_list_load(y4m_t *y, long max_frames, const char *path,
+                          int **starts, int *n)
+{
+    n265_shotlist l;
+    char err[256];
+    if (n265_shotlist_parse(&l, path, err, sizeof err) != 0) {
+        fprintf(stderr, "y265: --shot-list: %s\n", err);
+        return 2;
+    }
+    n265_shot_fp have;
+    if (shot_fp_input(y, max_frames, &have) != 0) {
+        fprintf(stderr, "y265: --shot-list needs an input file it can seek "
+                "in (raw, or a y4m whose frame headers carry no "
+                "parameters)\n");
+        n265_shotlist_free(&l);
+        return 2;
+    }
+    if (n265_shotlist_check(&l, &have, err, sizeof err) != 0) {
+        fprintf(stderr, "y265: --shot-list: %s; refusing it\n", err);
+        n265_shotlist_free(&l);
+        return 2;
+    }
+    *n = l.n - 1;
+    *starts = malloc((size_t)(l.n > 1 ? l.n - 1 : 1) * sizeof **starts);
+    if (!*starts) {
+        n265_shotlist_free(&l);
+        return 1;
+    }
+    for (int k = 1; k < l.n; k++)
+        (*starts)[k - 1] = l.s[k].first;
+    n265_shotlist_free(&l);
+    return 0;
+}
+
 /* main returns from many places while the encoder still reads the
  * config's strings, so the config is freed once, at exit */
 static n265_config *exit_cfg;
@@ -2452,8 +2724,556 @@ static void free_exit_cfg(void)
         exit_api->config_free(exit_cfg);
 }
 
+
+/* ---- live control: --control, --control-fd, --control-out ---- */
+typedef struct {
+    const n265_api *a;
+    n265_encoder *enc;
+    int fd, eof;
+    long line;
+    char buf[8192];
+    size_t len;
+    FILE *out;
+    /* applied events for --control-out, written sorted by named frame
+     * and, within a frame, in the order handed in (`seq`) */
+    struct ctl_rec { int64_t frame; long seq; char text[256]; } *rec;
+    int nrec, crec;
+    /* every accepted event, in hand-in order, to find an applied one's */
+    n265_control_t *sub;
+    char *used;
+    int nsub, csub;
+    /* the --control file, fed as frames go by from fnext on */
+    const char *fpath;
+    n265_control_t *fev;
+    long *fline;
+    int fn, fnext;
+    /* frames named by the --control-fd events accepted, for the reserve */
+    int64_t *fdf;
+    int nfdf, cfdf;
+} ctl_cli;
+
+/* --control events wait in the CLI and go to the encoder as frames go by:
+ * every event for the frame about to be handed in, then more ahead of it
+ * while the encoder holds fewer than CTL_FEED_WINDOW. CTL_FD_RESERVE more
+ * are kept for --control-fd lines. An event has landed once its frame is
+ * CTL_LAG_SPAN behind the next one in (the lookahead, the shot window and
+ * the frames in flight are far shorter), so the file events naming any
+ * CTL_LAG_SPAN frames together may be at most what the encoder's bound of
+ * 4096 pending leaves. */
+#define CTL_FEED_WINDOW  1024
+#define CTL_FD_RESERVE   1024
+#define CTL_LAG_SPAN     1024
+#define CTL_SPAN_MAX     (4096 - CTL_FEED_WINDOW - CTL_FD_RESERVE)
+
+static int ctl_send(ctl_cli *c, n265_control_t *v)
+{
+    int r = c->a->encoder_control(c->enc, v);
+    if (r < 0 || !c->out)
+        return r;
+    if (c->nsub == c->csub) {
+        int nc = c->csub ? 2 * c->csub : 64;
+        n265_control_t *s = realloc(c->sub, (size_t)nc * sizeof *s);
+        char *u = s ? realloc(c->used, (size_t)nc) : NULL;
+        if (s)
+            c->sub = s;
+        if (!u)
+            return r;
+        c->used = u;
+        c->csub = nc;
+    }
+    c->sub[c->nsub] = *v;
+    c->used[c->nsub++] = 0;
+    return r;
+}
+
+static int ctl_same(const n265_control_t *a, const n265_control_t *b)
+{
+    return a->kind == b->kind && a->frame == b->frame &&
+           a->bitrate_kbps == b->bitrate_kbps &&
+           a->vbv_maxrate_kbps == b->vbv_maxrate_kbps &&
+           a->vbv_bufsize_kbit == b->vbv_bufsize_kbit && a->crf == b->crf &&
+           a->qp_min == b->qp_min && a->qp_max == b->qp_max &&
+           a->last == b->last && a->qp_offset == b->qp_offset;
+}
+
+/* the hand-in position of an applied event; equal events are
+ * interchangeable, so the first unclaimed match is the one */
+static long ctl_seq(ctl_cli *c, const n265_control_t *v)
+{
+    for (int i = 0; i < c->nsub; i++)
+        if (!c->used[i] && ctl_same(&c->sub[i], v)) {
+            c->used[i] = 1;
+            return i;
+        }
+    return c->nsub;
+}
+
+static void ctl_from_log(const n265_api *a, const struct ctl_log_event *l,
+                         n265_control_t *v)
+{
+    a->control_init(v, l->kind);
+    v->frame = l->frame;
+    v->bitrate_kbps = l->bitrate_kbps;
+    v->vbv_maxrate_kbps = l->vbv_maxrate_kbps;
+    v->vbv_bufsize_kbit = l->vbv_bufsize_kbit;
+    v->crf = l->crf;
+    v->qp_min = l->qp_min;
+    v->qp_max = l->qp_max;
+    v->last = l->last;
+    v->qp_offset = l->qp_offset;
+    v->fps_num = l->fps_num;
+    v->fps_den = l->fps_den;
+    memcpy(v->preset, l->preset, sizeof v->preset);
+    v->width = l->width;
+    v->height = l->height;
+}
+
+static void ctl_to_log(const n265_control_t *v, struct ctl_log_event *l)
+{
+    memset(l, 0, sizeof *l);
+    l->kind = v->kind;
+    l->frame = v->frame;
+    l->bitrate_kbps = v->bitrate_kbps;
+    l->vbv_maxrate_kbps = v->vbv_maxrate_kbps;
+    l->vbv_bufsize_kbit = v->vbv_bufsize_kbit;
+    l->crf = v->crf;
+    l->qp_min = v->qp_min;
+    l->qp_max = v->qp_max;
+    l->last = v->last;
+    l->qp_offset = v->qp_offset;
+    l->fps_num = v->fps_num;
+    l->fps_den = v->fps_den;
+    memcpy(l->preset, v->preset, sizeof l->preset);
+    l->width = v->width;
+    l->height = v->height;
+}
+
+typedef struct {
+    struct ctl_log_event *ev;
+    long *line;
+    int n;
+} ctl_file;
+
+/* the whole --control file, parsed before the encoder opens */
+static int ctl_load(const char *path, ctl_file *cf)
+{
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        fprintf(stderr, "y265: cannot read --control %s: %s\n", path,
+                strerror(errno));
+        return -1;
+    }
+    char ln[1100], err[160];
+    long no = 0;
+    int cap = 0, rc = 0;
+    memset(cf, 0, sizeof *cf);
+    while (fgets(ln, sizeof ln, f)) {
+        no++;
+        if (no == 1) {
+            int v = ctl_log_header(ln);
+            if (v < 0 || v > CTL_LOG_VERSION) {
+                fprintf(stderr, "y265: --control %s:1: a #livectl header "
+                        "this reader doesn't know\n", path);
+                rc = -1;
+                break;
+            }
+        }
+        struct ctl_log_event ev;
+        int r = ctl_log_parse(ln, 0, &ev, err, sizeof err);
+        if (r < 0) {
+            fprintf(stderr, "y265: --control %s:%ld: %s\n", path, no, err);
+            rc = -1;
+            break;
+        }
+        if (r == 0)
+            continue;
+        if (cf->n && ev.frame < cf->ev[cf->n - 1].frame) {
+            fprintf(stderr, "y265: --control %s:%ld: frame %lld comes "
+                    "before the line above it\n", path, no,
+                    (long long)ev.frame);
+            rc = -1;
+            break;
+        }
+        if (cf->n == cap) {
+            cap = cap ? 2 * cap : 64;
+            void *a = realloc(cf->ev, (size_t)cap * sizeof *cf->ev);
+            void *b = a ? realloc(cf->line, (size_t)cap * sizeof *cf->line)
+                        : NULL;
+            if (a)
+                cf->ev = a;
+            if (!a || !b) {
+                fprintf(stderr, "y265: --control: out of memory\n");
+                rc = -1;
+                break;
+            }
+            cf->line = b;
+        }
+        cf->ev[cf->n] = ev;
+        cf->line[cf->n++] = no;
+    }
+    fclose(f);
+    return rc;
+}
+
+/* the whole --control file against the open encoder, before any output:
+ * every event as the encoder will see it, and the feed's room */
+static int ctl_check_file(ctl_cli *c, const char *path, const ctl_file *cf)
+{
+    c->fpath = path;
+    c->fev = malloc((size_t)(cf->n ? cf->n : 1) * sizeof *c->fev);
+    c->fline = malloc((size_t)(cf->n ? cf->n : 1) * sizeof *c->fline);
+    if (!c->fev || !c->fline) {
+        fprintf(stderr, "y265: --control: out of memory\n");
+        return -1;
+    }
+    for (int i = 0; i < cf->n; i++) {
+        ctl_from_log(c->a, &cf->ev[i], &c->fev[i]);
+        c->fline[i] = cf->line[i];
+    }
+    c->fn = cf->n;
+    int bad = -1;
+    int r = c->a->control_check(c->enc, c->fev, c->fn, &bad);
+    if (r != 0) {
+        if (bad >= 0)
+            fprintf(stderr, "y265: --control %s:%ld: %s\n", path,
+                    c->fline[bad], c->a->control_strerror(r));
+        else
+            fprintf(stderr, "y265: --control %s: %s\n", path,
+                    c->a->control_strerror(r));
+        return -1;
+    }
+    /* frames never decrease down the file: one pass */
+    for (int i = 0, lo = 0; i < c->fn; i++) {
+        while (c->fev[i].frame - c->fev[lo].frame >= CTL_LAG_SPAN)
+            lo++;
+        if (i - lo + 1 > CTL_SPAN_MAX) {
+            fprintf(stderr, "y265: --control %s:%ld: more than %d events "
+                    "within %d frames: the encoder's queue can't hold "
+                    "them\n", path, c->fline[i], CTL_SPAN_MAX,
+                    CTL_LAG_SPAN);
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static int ctl_status(ctl_cli *c, int64_t *pending, int64_t *next)
+{
+    n265_status_t st;
+    memset(&st, 0, sizeof st);
+    st.size = (int)sizeof st;
+    if (c->a->status(c->enc, &st) < 0)
+        return -1;
+    *pending = st.controls_pending;
+    *next = st.next_frame;
+    return 0;
+}
+
+/* before each hand-in. The file was checked whole, and every --control-fd
+ * event against what is left of it, so only EFULL can come back, and only
+ * ahead of the frame about to go in. */
+static int ctl_feed_file(ctl_cli *c)
+{
+    int64_t q, next;
+    if (c->fnext >= c->fn || ctl_status(c, &q, &next) < 0)
+        return 0;
+    while (c->fnext < c->fn) {
+        int must = c->fev[c->fnext].frame <= next;
+        if (!must && q >= CTL_FEED_WINDOW)
+            break;
+        n265_control_t v = c->fev[c->fnext];
+        int r = ctl_send(c, &v);
+        if (r == N265_CTL_EFULL && !must)
+            break;
+        if (r < 0) {
+            fprintf(stderr, "y265: --control %s:%ld: %s\n", c->fpath,
+                    c->fline[c->fnext], c->a->control_strerror(r));
+            return -1;
+        }
+        c->fnext++;
+        q++;
+    }
+    return 0;
+}
+
+/* an fd event, then the file events not fed yet that it could meet, under
+ * the encoder's own check. *bad is the file event that would be refused,
+ * or -1 when it is the fd event or nothing. */
+static int ctl_fd_check(ctl_cli *c, const n265_control_t *ev, int *bad)
+{
+    int kind = ev->kind;
+    int dep = kind == N265_CTL_RATE || kind == N265_CTL_QP_LIMITS ||
+              kind == N265_CTL_ZONE;
+    int n = 1;
+    if (dep)
+        for (int i = c->fnext; i < c->fn; i++)
+            n += c->fev[i].kind == kind;
+    n265_control_t *v = malloc((size_t)n * sizeof *v);
+    int *at = malloc((size_t)n * sizeof *at);
+    *bad = -1;
+    if (!v || !at) {
+        free(v);
+        free(at);
+        return N265_CTL_ENOMEM;
+    }
+    v[0] = *ev;
+    at[0] = -1;
+    for (int i = c->fnext, k = 1; dep && i < c->fn; i++)
+        if (c->fev[i].kind == kind) {
+            at[k] = i;
+            v[k++] = c->fev[i];
+        }
+    int b = -1;
+    int r = c->a->control_check(c->enc, v, n, &b);
+    if (r != 0 && b > 0)
+        *bad = at[b];
+    free(v);
+    free(at);
+    return r;
+}
+
+/* the reserve: fd events whose frame may not have landed yet */
+static int ctl_fd_room(ctl_cli *c, int64_t next)
+{
+    int w = 0;
+    for (int i = 0; i < c->nfdf; i++)
+        if (c->fdf[i] > next - CTL_LAG_SPAN)
+            c->fdf[w++] = c->fdf[i];
+    c->nfdf = w;
+    return c->nfdf < CTL_FD_RESERVE;
+}
+
+static void ctl_fd_note(ctl_cli *c, int64_t frame)
+{
+    if (c->nfdf == c->cfdf) {
+        int nc = c->cfdf ? 2 * c->cfdf : 64;
+        int64_t *f = realloc(c->fdf, (size_t)nc * sizeof *f);
+        if (!f)
+            return;
+        c->fdf = f;
+        c->cfdf = nc;
+    }
+    c->fdf[c->nfdf++] = frame;
+}
+
+/* one --control-fd line: -1 stops the encode */
+static int ctl_fd_line(ctl_cli *c, const char *ln)
+{
+    char err[160];
+    c->line++;
+    if (c->line == 1) {
+        int v = ctl_log_header(ln);
+        if (v < 0 || v > CTL_LOG_VERSION) {
+            fprintf(stderr, "y265: --control-fd line 1: a #livectl header "
+                    "this reader doesn't know\n");
+            return -1;
+        }
+    }
+    struct ctl_log_event ev;
+    int r = ctl_log_parse(ln, 1, &ev, err, sizeof err);
+    if (r < 0) {
+        fprintf(stderr, "y265: --control-fd line %ld: %s\n", c->line, err);
+        return -1;
+    }
+    if (r == 0)
+        return 0;
+    n265_control_t v;
+    ctl_from_log(c->a, &ev, &v);
+    int64_t q, next;
+    int bad = -1;
+    if (ctl_status(c, &q, &next) < 0 || !ctl_fd_room(c, next))
+        r = N265_CTL_EFULL;
+    else
+        r = ctl_fd_check(c, &v, &bad);
+    if (r == 0) {
+        r = ctl_send(c, &v);
+        if (r == 0)
+            ctl_fd_note(c, v.frame);
+    }
+    if (bad >= 0)
+        fprintf(stderr, "y265: --control-fd line %ld skipped: %s line %ld "
+                "would then be refused: %s\n", c->line, c->fpath,
+                c->fline[bad], c->a->control_strerror(r));
+    else if (r == N265_CTL_ELATE)
+        fprintf(stderr, "y265: --control-fd line %ld skipped: frame %lld "
+                "has already been handed in\n", c->line,
+                (long long)ev.frame);
+    else if (r < 0)
+        fprintf(stderr, "y265: --control-fd line %ld skipped: %s\n",
+                c->line, c->a->control_strerror(r));
+    return 0;
+}
+
+/* the complete lines the descriptor has now, at most 64 a frame */
+static int ctl_fd_poll(ctl_cli *c)
+{
+    int n = 0;
+    while (c->fd >= 0) {
+        char *nl;
+        while (n < 64 && (nl = memchr(c->buf, '\n', c->len))) {
+            *nl = 0;
+            int r = ctl_fd_line(c, c->buf);
+            c->len -= (size_t)(nl + 1 - c->buf);
+            memmove(c->buf, nl + 1, c->len);
+            n++;
+            if (r < 0)
+                return -1;
+        }
+        if (n >= 64)
+            break;
+        if (c->eof) {
+            if (c->len) {
+                c->buf[c->len] = 0;
+                c->len = 0;
+                if (ctl_fd_line(c, c->buf) < 0)
+                    return -1;
+            }
+            c->fd = -1;
+            break;
+        }
+        if (c->len == sizeof c->buf - 1) {
+            fprintf(stderr, "y265: --control-fd line %ld: line too long\n",
+                    c->line + 1);
+            return -1;
+        }
+        ssize_t k = read(c->fd, c->buf + c->len, sizeof c->buf - 1 - c->len);
+        if (k < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+            break;
+        if (k < 0 && errno == EINTR)
+            continue;
+        if (k <= 0)
+            c->eof = 1;
+        else
+            c->len += (size_t)k;
+    }
+    return 0;
+}
+
+static void ctl_drain(ctl_cli *c)
+{
+    n265_control_t ev[16];
+    int n;
+    do {
+        for (int i = 0; i < 16; i++)
+            c->a->control_init(&ev[i], 0);
+        n = c->a->controls_applied(c->enc, ev, 16);
+        if (n < 0) {
+            fprintf(stderr, "y265: the encoder dropped applied control "
+                    "records: --control-out is incomplete\n");
+            n = 16;
+            continue;
+        }
+        for (int i = 0; i < n; i++) {
+            struct ctl_log_event l;
+            char line[256];
+            ctl_to_log(&ev[i], &l);
+            ctl_log_format(&l, line, sizeof line);
+            if (ev[i].applied_frame < 0) {
+                fprintf(stderr, "y265: control \"%s\" never landed: the "
+                        "stream ended first\n", line);
+                continue;
+            }
+            if (!c->out)
+                continue;
+            if (c->nrec == c->crec) {
+                int nc = c->crec ? 2 * c->crec : 64;
+                struct ctl_rec *r = realloc(c->rec, (size_t)nc * sizeof *r);
+                if (!r)
+                    continue;
+                c->rec = r;
+                c->crec = nc;
+            }
+            c->rec[c->nrec].frame = ev[i].frame;
+            c->rec[c->nrec].seq = ctl_seq(c, &ev[i]);
+            memcpy(c->rec[c->nrec++].text, line, sizeof line);
+        }
+    } while (n == 16);
+}
+
+/* Application order can run backwards in frame (a rate event lands at a
+ * later anchor than a key named after it), and --control wants frames
+ * that never decrease. */
+static int ctl_write_out(ctl_cli *c)
+{
+    for (int i = 1; i < c->nrec; i++)
+        for (int k = i; k > 0 && (c->rec[k].frame < c->rec[k - 1].frame ||
+                                  (c->rec[k].frame == c->rec[k - 1].frame &&
+                                   c->rec[k].seq < c->rec[k - 1].seq)); k--) {
+            struct ctl_rec t = c->rec[k];
+            c->rec[k] = c->rec[k - 1];
+            c->rec[k - 1] = t;
+        }
+    for (int i = 0; i < c->nrec; i++)
+        fprintf(c->out, "%s\n", c->rec[i].text);
+    free(c->rec);
+    free(c->sub);
+    free(c->used);
+    return fclose(c->out);
+}
+
+/* `y265 bench ...` runs the y265-bench helper (scripts/y265_bench.py),
+ * telling it which binary to time */
+static int self_path(const char *argv0, char *out)
+{
+    char raw[PATH_MAX];
+#ifdef __APPLE__
+    uint32_t n = sizeof raw;
+    if (_NSGetExecutablePath(raw, &n) == 0 && realpath(raw, out))
+        return 0;
+#else
+    ssize_t n = readlink("/proc/self/exe", raw, sizeof raw - 1);
+    if (n > 0) {
+        raw[n] = 0;
+        if (realpath(raw, out))
+            return 0;
+    }
+#endif
+    return realpath(argv0, out) ? 0 : -1;
+}
+
+static int run_bench(int argc, char **argv)
+{
+    char self[PATH_MAX], helper[PATH_MAX + 32];
+    const char *env = getenv("Y265_BENCH");
+    int found = 0;
+    if (env && *env) {
+        snprintf(helper, sizeof helper, "%s", env);
+        found = 1;
+    } else if (self_path(argv[0], self) == 0) {
+        char *slash = strrchr(self, '/');
+        static const char *const rel[] = { "y265-bench",
+                                           "../scripts/y265_bench.py" };
+        for (int k = 0; k < 2 && !found && slash; k++) {
+            snprintf(helper, sizeof helper, "%.*s/%s",
+                     (int)(slash - self), self, rel[k]);
+            found = access(helper, R_OK) == 0;
+        }
+        setenv("Y265_BIN", self, 1);
+    }
+    if (!found) {
+        fprintf(stderr, "y265: bench needs the y265-bench helper beside the "
+                "y265 binary (or Y265_BENCH set to its path)\n");
+        return 2;
+    }
+    char **av = calloc((size_t)argc + 2, sizeof *av);
+    if (!av)
+        return 1;
+    av[0] = "python3";
+    av[1] = helper;
+    for (int i = 2; i < argc; i++)
+        av[i] = argv[i];
+    execv(helper, av + 1);
+    execvp("python3", av);
+    fprintf(stderr, "y265: bench needs Python 3 on the PATH (%s)\n",
+            strerror(errno));
+    free(av);
+    return 2;
+}
+
 int main(int argc, char **argv)
 {
+    if (argc > 1 && !strcmp(argv[1], "bench"))
+        return run_bench(argc, argv);
     cli_opts o;
     n265_config *cfg = api8.config_new();
     if (!cfg)
@@ -2574,6 +3394,35 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    /* --shot-scan: the 8-bit library at the analysis size, whatever the
+     * input's depth, so every rung's options resolve the same way; the
+     * scan writes its list and the run ends */
+    if (o.shot_scan) {
+        n265_param sp;
+        api8.param_default(&sp);
+        sp.width = N265_SHOTSCAN_W;
+        sp.height = n265_shotscan_h(y.w, y.h);
+        sp.csp = N265_CSP_I420;
+        sp.fps_num = y.fps_num;
+        sp.fps_den = y.fps_den;
+        if (api8.config_apply(cfg, &sp) != 0)
+            return 2;
+        int src = shot_scan_run(&y, max_frames, o.shot_scan);
+        free(y.pix16);
+        free(y.pix8);
+        free(y.frame);
+        if (fin != stdin)
+            fclose(fin);
+        return src;
+    }
+    int *shot_starts = NULL, shot_n = 0;
+    if (o.shot_list) {
+        int lrc = shot_list_load(&y, max_frames, o.shot_list, &shot_starts,
+                                 &shot_n);
+        if (lrc)
+            return lrc;
+    }
+
     /* The dispatch, and it is the whole of it: one table per library,
      * selected by the width the pictures will carry. Everything after
      * this point calls through `a` and does not know which encoder it
@@ -2608,6 +3457,7 @@ int main(int argc, char **argv)
     const double vbv_maxrate = CFG("vbv-maxrate");
     const double vbv_bufsize = CFG("vbv-bufsize");
     const int hw = (int)CFG("hw");
+    const int intra_refresh = (int)CFG("intra-refresh");
 #undef CFG
     const char *qpfile_path = a->config_get_str(cfg, "qpfile");
     const char *zones_spec = a->config_get_str(cfg, "zones");
@@ -2659,7 +3509,9 @@ int main(int argc, char **argv)
         const char *why = dump_path ? "--dump-recon"
                         : dump_decode_path ? "--dump-recon-decode"
                         : csv_path ? "--csv"
-                        : shot_path ? "--shot-stats" : NULL;
+                        : o.fstats_path ? "--frame-stats"
+                        : shot_path ? "--shot-stats"
+                        : o.shot_list ? "--shot-list" : NULL;
         if (why) {
             fprintf(stderr, "y265: --hw: %s has no hardware path (the "
                     "hardware keeps its reconstruction and its decisions)\n",
@@ -2673,6 +3525,11 @@ int main(int argc, char **argv)
     }
     /* --gop-parallel (phase 14 item 42): above one thread only, and not
      * with the options that need one encoder to see the whole input */
+    if (gop_par > 1 && intra_refresh) {
+        fprintf(stderr, "y265: --gop-parallel cannot be combined with "
+                "--intra-refresh, which has no key frames to cut at\n");
+        return 2;
+    }
     if (gop_par > 1 && !show_config) {
         long nt = threads > 0 ? threads : sysconf(_SC_NPROCESSORS_ONLN);
         const char *hrd = getenv("N265_VBV_HRD");
@@ -2683,6 +3540,9 @@ int main(int argc, char **argv)
             : qpfile_path ? "--qpfile numbers frames from the stream's start"
             : zones_spec ? "--zones numbers frames from the stream's start"
             : csv_path ? "--csv is one encoder's log"
+            : o.fstats_path ? "--frame-stats is one encoder's log"
+            : (o.ctl_path || o.ctl_fd >= 0)
+              ? "live control numbers frames from the stream's start"
             : shot_path ? "--shot-stats is one encoder's log"
             : dump_decode_path ? "--dump-recon-decode is one encoder's log"
             : hrd_concat ? "--hrd-concat splices one encoder's stream"
@@ -2715,7 +3575,8 @@ int main(int argc, char **argv)
                              gop_par, (int)nt, threads, keyint,
                              max_frames, bitrate > 0.0, bitrate, vbv_on,
                              repeat_hdr, gout, gdump, want_psnr || want_ssim,
-                             &gn, gmet, &gnm, &gseg, &gk);
+                             &gn, gmet, &gnm, &gseg, &gk,
+                             shot_starts, o.shot_list ? shot_n : 0);
             if (gdump)
                 fclose(gdump);
             if (fclose(gout) != 0 && !grc) {
@@ -2751,6 +3612,9 @@ int main(int argc, char **argv)
             return dyn_check(gn);
         }
     }
+    ctl_file cfile = { 0 };
+    if (o.ctl_path && ctl_load(o.ctl_path, &cfile) < 0)
+        return 2;
     n265_encoder *enc = a->encoder_open(&p);
     if (!enc) {
         fprintf(stderr, "y265: encoder_open failed (dims %dx%d)\n", y.w, y.h);
@@ -2758,6 +3622,19 @@ int main(int argc, char **argv)
     }
     if (hw && strcmp(a->backend(enc), "yah265"))
         fprintf(stderr, "y265: encoder: %s\n", a->backend(enc));
+    ctl_cli cc = { 0 };
+    cc.a = a;
+    cc.enc = enc;
+    cc.fd = o.ctl_fd;
+    if (o.ctl_path) {
+        int r = ctl_check_file(&cc, o.ctl_path, &cfile);
+        free(cfile.ev);
+        free(cfile.line);
+        if (r < 0) {
+            a->encoder_close(enc);
+            return 2;
+        }
+    }
 
     /* --show-config / --verbose (phase 14 item 13). Here, because the
      * table is what the encoder RESOLVED and the level, the tier and the
@@ -2779,8 +3656,32 @@ int main(int argc, char **argv)
 
     if (shot_path)
         a->set_shot_stats(enc, shot_path);
+    if (o.shot_list && a->set_shot_list(enc, shot_starts, shot_n) != 0) {
+        fprintf(stderr, "y265: --shot-list: the encoder refused the list\n");
+        return 1;
+    }
+    free(shot_starts);
     if (csv_path)
         a->set_csv(enc, csv_path, csv_level);
+    if (o.fstats_path)
+        a->set_frame_stats(enc, o.fstats_path);
+    if (o.ctl_out_path) {
+        cc.out = fopen(o.ctl_out_path, "w");
+        if (!cc.out) {
+            fprintf(stderr, "y265: cannot open %s: %s\n", o.ctl_out_path,
+                    strerror(errno));
+            return 1;
+        }
+        fprintf(cc.out, "#livectl %d\n", CTL_LOG_VERSION);
+    }
+    if (cc.fd >= 0) {
+        int fl = fcntl(cc.fd, F_GETFL);
+        if (fl < 0 || fcntl(cc.fd, F_SETFL, fl | O_NONBLOCK) < 0) {
+            fprintf(stderr, "y265: --control-fd %d: %s\n", cc.fd,
+                    strerror(errno));
+            return 2;
+        }
+    }
     FILE *fdump = NULL;
     if (dump_path) {
         fdump = fopen(dump_path, "wb");
@@ -2827,11 +3728,16 @@ int main(int argc, char **argv)
         };
         n265_nal *nal;
         int nnal;
+        if (ctl_feed_file(&cc) < 0)
+            return 2;
+        if (ctl_fd_poll(&cc) < 0)
+            return 1;
         int bytes = a->encoder_encode(enc, &nal, &nnal, &pic);
         if (bytes < 0) {
             fprintf(stderr, "y265: encode failed on frame %ld\n", n);
             return 1;
         }
+        ctl_drain(&cc);
         if (nslot)
             rd_release(&rq);
         for (int i = 0; i < nnal; i++)
@@ -2850,10 +3756,23 @@ int main(int argc, char **argv)
         n265_nal *nal;
         int nnal;
         int r2 = a->encoder_encode(enc, &nal, &nnal, NULL);
+        ctl_drain(&cc);
         if (r2 <= 0 && nnal == 0)
             break;
         for (int i = 0; i < nnal; i++)
             fwrite(nal[i].payload, 1, (size_t)nal[i].size, fout);
+    }
+    for (; cc.fnext < cc.fn; cc.fnext++) {
+        struct ctl_log_event l;
+        char line[256];
+        ctl_to_log(&cc.fev[cc.fnext], &l);
+        ctl_log_format(&l, line, sizeof line);
+        fprintf(stderr, "y265: control \"%s\" never landed: the stream "
+                "ended first\n", line);
+    }
+    if (cc.out && ctl_write_out(&cc) != 0) {
+        fprintf(stderr, "y265: write failed: %s\n", o.ctl_out_path);
+        return 1;
     }
     /* --psnr / --ssim: the pooled numbers, before the encoder is closed
      * and while it still holds them. The pooling is ffmpeg's - the mean

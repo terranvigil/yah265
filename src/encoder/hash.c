@@ -174,7 +174,7 @@ void n265_md5(const uint8_t *data, size_t len, uint8_t out[16])
  * reach past it. */
 #define HASH_CHUNK      1024
 
-/* x265's CRC-16 polynomial is the spec's: x^16 + x^12 + x^5 + 1, run MSB
+/* The CRC-16 polynomial is the spec's: x^16 + x^12 + x^5 + 1, run MSB
  * first over each byte, with sixteen zero bits shifted in at the end so
  * the last byte reaches every stage. */
 static uint16_t crc_byte(uint16_t crc, uint32_t byte)

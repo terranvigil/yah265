@@ -633,6 +633,7 @@ typedef struct n265_frame_work {
      * flush. */
     int cra;
     int irap;
+    int shot_cut;           /* --shot-stats: an intra picture on a cut */
     /* This picture is a LEADING picture of the last CRA: it follows that
      * CRA in decoding order and precedes it in output order. 0 neither,
      * 1 RASL (may reference across the CRA, discarded on a seek to it),
@@ -744,6 +745,18 @@ typedef struct n265_frame_work {
      * NULL when there is no usable collocated picture. */
     struct n265_refpic *col;
     int col_poc;
+    /* --intra-refresh, set at dispatch. ir_on: a P picture inside a
+     * sweep. [ir_lo, ir_hi) is its refresh column in luma x, ir_rhi[r]
+     * how far L0 ref r was refreshed (-1: before the sweep). The margins
+     * are the luma and chroma samples deblocking and SAO may dirty on
+     * the refreshed side of a reference's edge. */
+    int ir_on, ir_lo, ir_hi, ir_start, ir_notmvp;
+    int ir_rhi[N265_MAX_REF];
+    int ir_mgl, ir_mgc, ir_nobound, ir_noedge, ir_trace;
+    /* per CTU, row-private: 0 free, 1 bounded inter, 2 forced intra */
+    int ir_mode;
+    int ir_mbad;            /* the last merge pick broke the bound */
+    int ir_cref;            /* the L0 ref the MV clamp bounds against */
     /* 7.3.6.3's table, derived at dispatch (src/encoder/wp.c).
      *
      * `wp_on` is the PPS flag THAT APPLIES TO THIS SLICE TYPE -
@@ -1025,6 +1038,10 @@ typedef struct n265_frame_work {
      * is an inter trial priced on its coefficients. After the hot fields
      * for the same reason. */
     int td_want;
+    /* live control: the QP limits and live zone this frame was pushed
+     * under (ctl.c) */
+    int ctl_qpmin, ctl_qpmax, ctl_zone;
+    double ctl_zoff;
 } n265_frame_work;
 
 int n265_chroma_qp(int qp_y, int chroma_idc);   /* encoder/transform.h */
@@ -1211,6 +1228,10 @@ struct n265_encoder {
     double crf_dur;
     int dc_anchor;
     double dc_lvl, dc_n, dc_mem, dc_win;
+    double dc_lvl0, dc_n0;  /* the black frames' level, until a frame that isn't */
+    double dc_black, dc_bound, dc_retake;  /* N265_CRF_DC_BLACK / _BOUND / _RETAKE (item 63) */
+    double dc_low;  /* N265_CRF_DC_LOW: _RETAKE acts only on a level this far under the absolute anchor */
+    double dc_run, dc_run_sum;  /* the run of frames above the level, for _RETAKE */
     int abr_on;             /* n265_set_bitrate: the base is the ABR rate factor */
     double abr_bitrate;     /* bits per second                          */
     /* --vbv-maxrate / --vbv-bufsize / --vbv-init: the hypothetical decoder
@@ -1530,6 +1551,11 @@ struct n265_encoder {
     int keyint;
     int bframes;
     int scenecut;
+    /* --shot-list: the listed shot starts, sorted display indices. Under
+     * a list the detector is off and these are the only cuts. */
+    int *shotl;
+    int shotl_n, shotl_on;
+    int shot_keys;          /* --shot-keys: every detected cut is an IDR */
     int la_depth;
     /* How many frames the queue FILLS to before the driver dispatches:
      * `la_depth` at the default, `shot_window` where that is deeper. The
@@ -1615,6 +1641,11 @@ struct n265_encoder {
      * Diagnostic only; never a shipped path. */
     int cra_bar_poc, cra_bar_radl;
     int open_gop;           /* --open-gop: a keyint picture is a CRA */
+    /* --intra-refresh: a sweep of --keyint P pictures; the diagnostic
+     * switches each break one guard */
+    int ir_on;
+    int ir_nobound, ir_nomargin, ir_tmvp, ir_noedge, ir_trace;
+    bitstream_t ir_rec_bs;
     int radl;               /* --radl: leading pictures coded RADL   */
     /* ...and the second barrier `--radl` puts down inside the first: a
      * picture whose POC is at or above `radl_poc` and below `cra_poc`
@@ -1862,7 +1893,7 @@ struct n265_encoder {
     FILE *shot_f;
     struct n265_shot_rec {
         int present;
-        int slice_type, idr, cra, nonref, flat;
+        int slice_type, idr, cra, nonref, flat, cut;
         double qp_base, cplx;
         uint64_t bytes;
     } shot_ring[N265_SHOT_RING];
@@ -1871,6 +1902,7 @@ struct n265_encoder {
     int shot_open;          /* 0 none yet, 1 "start", 2 "idr", 3 "intra",
                              * 4 "cra" */
     int shot_first, shot_last;
+    int shot_cut, shot_idx; /* v2: does the run open a shot, and which */
     int shot_cnt[4];        /* i, p, b_ref, b_leaf */
     int shot_n, shot_flat;
     uint64_t shot_bytes;
@@ -1884,6 +1916,12 @@ struct n265_encoder {
      * offset. */
     int sprof;
     double prof_dispatch, prof_join, prof_retire, prof_emit;
+    /* live control (ctl.c) and --frame-stats */
+    struct n265_ctl *ctl;
+    FILE *fstats;
+    /* the CPB inflow after each coding index's removal, which a RATE
+     * event can change between two frames the lag walk crosses */
+    double vbv_infl[2 * N265_MAX_FRAME_WORK];
 };
 
 /* The cu-tree field's raw per-CTU value carries cutree_str already, so the
@@ -2210,6 +2248,7 @@ void n265_build_lists(struct n265_encoder *e, n265_frame_work *fw, int cur,
  * retirement's answer provably the list builder's. encoder.c is their
  * only caller inside the library. */
 int n265_cra_visible(int cra_poc, int radl_poc, int cur, int p);
+int n265_ir_pos(const n265_encoder *e, int display);
 void n265_ref_used(int cra_poc, int radl_poc, const int *m, int nm, int cur,
                    int is_b, int ref_max, uint8_t *used);
 uint64_t n265_zorder(int x, int y, int pic_w, int ctb_log2);
@@ -2341,6 +2380,11 @@ void n265_encoder_set_shot_stats(n265_encoder *e, const char *path);
 /* --csv <file> --csv-log-level <0|1|2> (phase 14 item 4). Called right
  * after open, like the shot sidecar above. */
 void n265_encoder_set_csv(n265_encoder *e, const char *path, int level);
+/* --frame-stats <file>: one JSON line per coded frame, with the live
+ * control echo */
+void n265_encoder_set_frame_stats(n265_encoder *e, const char *path);
+/* --no-hrd: 0 leaves the HRD timing out of the stream, -1 not given */
+void n265_set_hrd(int on);
 
 /* --qpmin / --qpmax, then the spec's own clip. The user's bounds are
  * APPLIED only where one of them narrowed QpY's range, so at the default
@@ -2360,7 +2404,7 @@ static inline int n265_qp_bound(const struct n265_encoder *e, int q)
  * that identifies the encoder (D.2.6). headers.c. */
 void n265_write_aud(bitstream_t *bs, int pic_type);
 /* recovery_point (D.2.8), the message a random-access player looks for. */
-void n265_write_recovery_sei(bitstream_t *bs);
+void n265_write_recovery_sei(bitstream_t *bs, int poc_cnt);
 void n265_write_info_sei(bitstream_t *bs, const char *ver,
                          const char *opts);
 /* The pooled metrics, for the caller's end-of-run line: psnr Y/U/V, the

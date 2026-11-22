@@ -152,7 +152,7 @@ def chart_home(cm, n_all):
              "preset medium with SIMD on all cores.")
     o.append(bc.T(24, 38, title, 21, weight="600"))
     o.append(bc.T(24, 62, "Median times faster at the same file size. Both encoders at preset "
-                          "medium, SIMD on all cores. Right is faster.", 14, "t2"))
+                          "medium, SIMD on all cores.", 14, "t2"))
     if not bc.NARROW:
         o.append(bc.T(X(1), Tp + 22, "x265 = 1x", 12.5, "t2", "middle"))
     y = Tp
@@ -333,6 +333,7 @@ GROUPS = [
         ("--keyint", "`250`", "Longest gap between key frames. A scene cut restarts the count."),
         ("--open-gop", "on", "Code the periodic key frame as a CRA and keep the B-frames that straddle it. `--no-open-gop` writes an IDR there. A scene cut is an IDR either way."),
         ("--radl", "`0`", "How many of a CRA's leading pictures stay decodable when playback starts at that CRA."),
+        ("--intra-refresh", "off", "No key frame after the first. A column of intra blocks sweeps the picture every `--keyint` frames, and a decoder can join at the start of any sweep. P-frames and 4:2:0 only. [More](guide.md#intra-refresh)"),
         ("--bframes", "`7`", "B-frames between anchors, 0 to 15. Above 7, `--rc-lookahead` must be at least one more."),
         ("--b-adapt", "`1`", "How the B run length is chosen: `0` fixed, `1` from motion. `2` to `4` are experimental."),
         ("--ref", "`1`", "References per list, 1 to 5. `slower` uses 2, and so does `medium` at 4K."),
@@ -349,13 +350,16 @@ GROUPS = [
     ]),
     ("Threads", [
         ("--threads", "`0`", "Worker threads. `0` starts one per online CPU. At `1`, two runs of a command write the same bytes. Above one thread the stream can differ between runs."),
-        ("--gop-parallel", "`0`", "Code a long input as segments on this many encoder instances and join them at key frames. The stream differs from the serial one."),
+        ("--gop-parallel", "`0`", "Code a long input as segments on this many encoder instances and join them at key frames. The stream differs from the serial one. With `--shot-list` the segments start on listed shots."),
     ]),
     ("Hardware", [
         ("--hw", "`off`", "`videotoolbox` encodes with the Mac's HEVC hardware through VideoToolbox. The stream is the hardware's, not this encoder's. Options it can't follow are listed once at the start. `auto` uses this encoder when the hardware isn't there, and `videotoolbox` fails instead."),
         ("--hw-strict", "off", "With `--hw`, refuse to encode when any option you gave can't be followed."),
     ]),
     ("Shot-aware options", [
+        ("--shot-scan", "none", "Scan the input for shots and write a shot list, then exit."),
+        ("--shot-list", "none", "Put a key frame at the start of each listed shot."),
+        ("--shot-keys", "off", "Put a key frame on each cut the encoder finds."),
         ("--shot-window", "`0`", "Buffer up to this many frames so a whole shot can be planned before it's coded. `--crf` only, at most 300. It adds that many frames of latency."),
         ("--shot-stats", "none", "Write one JSON line of statistics per shot. The stream doesn't change."),
     ]),
@@ -379,6 +383,7 @@ GROUPS = [
         ("--idr-recovery-sei", "off", "A recovery point SEI at each key frame."),
         ("--pic-struct", "off", "The picture timing SEI's pic_struct, 0 to 12. `7` doubles a frame and `8` triples it. Needs a buffer."),
         ("--hrd-concat", "off", "Mark the first key frame as spliced onto another stream. Needs a buffer."),
+        ("--no-hrd", "off", "Leave the HRD timing out of the stream. It's written by default when a buffer and a frame rate are set. A live encode that raises its rate needs this."),
         ("--temporal-layers", "off", "Put unreferenced B-frames in a second temporal layer. A player can then drop them and halve the frame rate."),
         ("--level", "derived", "Signal this level, from `1` to `6.2`. Refused when the stream doesn't fit it."),
         ("--high-tier", "off", "Signal the High tier, which exists from level 4 up."),
@@ -410,12 +415,17 @@ GROUPS = [
         ("--ssim", "off", "Report SSIM on luma at the end of the run."),
         ("--csv", "none", "Write run statistics to a CSV file."),
         ("--csv-log-level", "`0`", "`0` writes one row for the run, `1` adds a row per frame, `2` adds the rate control's columns."),
+        ("--frame-stats", "none", "Write one JSON line per coded frame. A frame where a live control event took effect also lists that event. The stream doesn't change."),
         ("--verbose, -v", "off", "Print the resolved configuration at the start of the encode."),
         ("--show-config", "off", "Print the resolved configuration and exit without encoding."),
         ("--version", "", "Print the version."),
     ]),
+    ("Live control", [
+        ("--control", "none", "Apply the events in a control log before the encode starts. A bad line or a refused event stops the run."),
+        ("--control-fd", "none", "Read control log lines from this open descriptor while encoding. A late or refused line is skipped with a warning."),
+        ("--control-out", "none", "Write every event that took effect as a control log. Fed back through `--control`, it gives the same stream at one thread."),
+    ]),
     ("Not offered", [
-        ("--intra-refresh", "refused", "The encoder stops with an error. [Why](guide.md#left-out-on-purpose)"),
         ("--scaling-list", "refused", "The encoder stops with an error. [Why](guide.md#left-out-on-purpose)"),
     ]),
 ]
@@ -437,7 +447,7 @@ SEEN = {
     "--preset": "6354eb7e",
     "-t, --tune": "20fc31ec",
     "--threads": "94de2a57",
-    "--gop-parallel": "f64f8359",
+    "--gop-parallel": "6ba3ce06",
     "--hw": "41d071d2",
     "--hw-strict": "cef62975",
     "--qp": "3feae834",
@@ -477,7 +487,7 @@ SEEN = {
     "--dup-threshold": "d5dd6528",
     "--pcm": "e08d4ca7",
     "--lossless": "817a57bd",
-    "--intra-refresh": "ef457170",
+    "--intra-refresh": "6024bed1",
     "--scaling-list": "ef457170",
     "--film-grain": "1def6b4f",
     "--film-grain-denoise": "63be09fb",
@@ -493,6 +503,7 @@ SEEN = {
     "--idr-recovery-sei": "c891bf08",
     "--pic-struct": "f2e462cf",
     "--hrd-concat": "772bf0a2",
+    "--no-hrd": "46659d51",
     "--temporal-layers": "4b8e7fb0",
     "--hash": "18e106b2",
     "--no-info": "41a3efe3",
@@ -523,10 +534,17 @@ SEEN = {
     "--ssim": "dd5abe61",
     "--csv": "a32552e4",
     "--csv-log-level": "6b411b40",
+    "--shot-scan": "8d986034",
+    "--shot-list": "5d0ba269",
+    "--shot-keys": "536e5b57",
     "--shot-stats": "6b48ef8b",
+    "--frame-stats": "7b42237e",
     "--verbose, -v": "906ee3c9",
     "--show-config": "4e3a0626",
     "--version": "f16a2431",
+    "--control": "afb0197a",
+    "--control-fd": "f97ad926",
+    "--control-out": "b71d68f6",
 }
 
 
@@ -688,7 +706,8 @@ def main():
     for rel in PAGES:
         p = os.path.join(ROOT, rel)
         old = open(p).read()
-        new = fill(rel, old, V)
+        own = {"goal-table": bc.goal_table(sps, bc.GOALS_URL)} if rel == "README.md" else {}
+        new = fill(rel, old, {**V, **own})
         if new != old:
             stale.append(rel)
             if not a.check:

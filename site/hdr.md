@@ -5,9 +5,11 @@ description: How yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8, ho
 
 # HDR
 
-yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8 as Main 10 HEVC. Each one is a 10-bit stream with color flags that say how to read the samples. Most add metadata that tells a display how the pictures were graded. At `--preset medium` the transfer function also changes how the pictures are coded, as [Tuning for HDR](#tuning-for-hdr) describes.
+yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8 as Main 10 HEVC. Each one is a 10-bit stream whose color flags say how to read the samples. Most add metadata that tells a display how the pictures were graded.
 
-## What each format is made of
+At `--preset medium` yah265 also [tunes its coding for HDR](#tuning-for-hdr).
+
+## Formats
 
 | format | base stream | added to it |
 |---|---|---|
@@ -82,8 +84,6 @@ yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8 as Main 10 HEVC. Eac
 <figcaption>A player that doesn't know the per-picture metadata plays the base stream under it.</figcaption>
 </figure>
 
-I left out Dolby Vision profile 5. Its base layer uses a color space that nothing in this toolchain can produce or check.
-
 ## Encoding HDR10
 
 `y265` reads the master through a pipe from ffmpeg:
@@ -96,7 +96,9 @@ ffmpeg -i master.mov -pix_fmt yuv420p10le -strict -1 -f yuv4mpegpipe - |
     --max-cll 1000,400
 ```
 
-Because the two metadata values describe the grade, they come from the master. [Reading the values off a source](#reading-the-values-off-a-source) shows how to get them. The string above is a P3 D65 mastering display.
+Because the mastering display and the light level describe the grade, [read both off the master](#reading-the-values-off-a-source). The string in the command is a P3 D65 mastering display.
+
+<p class="optchips"><span>Options</span> <a href="options.md#opt-colorprim"><code>--colorprim</code></a> <a href="options.md#opt-transfer"><code>--transfer</code></a> <a href="options.md#opt-colormatrix"><code>--colormatrix</code></a> <a href="options.md#opt-master-display"><code>--master-display</code></a> <a href="options.md#opt-max-cll"><code>--max-cll</code></a></p>
 
 | in the command | what it is | unit |
 |---|---|---|
@@ -107,7 +109,7 @@ Because the two metadata values describe the grade, they come from the master. [
 
 ### One name for the color flags
 
-`--video-signal-type-preset` sets the color flags from one name. A mastering display can follow the name after a colon.
+One option sets the color flags from a name. A mastering display can follow the name after a colon.
 
 | name | what it sets |
 |---|---|
@@ -116,7 +118,9 @@ Because the two metadata values describe the grade, they come from the master. [
 | `BT2100_PQ_YCC:P3D65x4000n005` | the same, plus a P3 D65 mastering display from 0.005 to 4000 cd/m² |
 | `BT2100_HLG_YCC` | HLG, BT.2020 primaries and matrix, chroma location 2 |
 
-A color flag given beside the name wins over it. Because the name sets no light level, `--max-cll` still goes beside it.
+A color flag given beside the name wins over it. Because the name sets no light level, give that beside it too.
+
+<p class="optchips"><span>Options</span> <a href="options.md#opt-video-signal-type-preset"><code>--video-signal-type-preset</code></a> <a href="options.md#opt-max-cll"><code>--max-cll</code></a></p>
 
 ### HDR10 from ffmpeg
 
@@ -128,7 +132,7 @@ ffmpeg -i master.mov -pix_fmt yuv420p10le \
   -tag:v hvc1 out.mp4
 ```
 
-`libyah265` writes the color flags from the tags on the frames ffmpeg hands it. A master that is already tagged PQ and BT.2020 needs no `setparams`. The filter is there for a source with missing tags. ffmpeg's `-color_primaries` and `-color_trc` flags didn't reach the encoder in the ffmpeg 8 build I tested.
+`libyah265` takes its color flags from the source's tags. A master already tagged PQ and BT.2020 needs no `setparams`. The filter is for a source with missing tags. ffmpeg's `-color_primaries` and `-color_trc` flags didn't reach the encoder in the ffmpeg 8 build I tested.
 
 On a 10-bit PQ or HLG encode, `libyah265` takes the mastering display and the light level from the source. A value in `-yah265-params`, as in the example, replaces the source's.
 
@@ -152,9 +156,11 @@ ffmpeg -i master.mov -pix_fmt yuv420p10le -strict -1 -f yuv4mpegpipe - |
     --atc-sei arib-std-b67
 ```
 
+<p class="optchips"><span>Options</span> <a href="options.md#opt-transfer"><code>--transfer</code></a> <a href="options.md#opt-colorprim"><code>--colorprim</code></a> <a href="options.md#opt-colormatrix"><code>--colormatrix</code></a> <a href="options.md#opt-atc-sei"><code>--atc-sei</code></a></p>
+
 ## Encoding HDR10+ and Dolby Vision 8.1
 
-The command is HDR10's with a metadata file for each format. Either one works alone.
+The command is HDR10's plus a metadata file for each format you want.
 
 <!-- recipe: skip needs an HDR10+ JSON and a Dolby Vision RPU file -->
 ```sh
@@ -175,7 +181,29 @@ The other two Dolby Vision profiles take the same pair of options over a differe
 | `8.2` | `--transfer bt709 --colorprim bt709 --colormatrix bt709` |
 | `8.4` | either HLG form from the table above |
 
-A raw HEVC stream has nowhere to say "this is Dolby Vision" except the RPUs themselves. A player needs the container to tell it. In MP4 that's the Dolby Vision configuration box, named `dvvC` for profile 8. Matroska has an equivalent. ffmpeg's stream copy from a raw `.hevc` doesn't write that box. A Dolby Vision-aware muxer such as MP4Box or mkvmerge does.
+<p class="optchips"><span>Options</span> <a href="options.md#opt-dhdr10-info"><code>--dhdr10-info</code></a> <a href="options.md#opt-dolby-vision-rpu"><code>--dolby-vision-rpu</code></a> <a href="options.md#opt-dolby-vision-profile"><code>--dolby-vision-profile</code></a></p>
+
+A player learns that a stream is Dolby Vision from its container. Mux the raw stream with a Dolby Vision-aware muxer such as MP4Box or mkvmerge, because ffmpeg's stream copy from a raw `.hevc` leaves the Dolby Vision box out.
+
+## HDR10+ and Dolby Vision metadata
+
+HDR10+ and Dolby Vision describe the content scene by scene. yah265 doesn't measure that. The metadata comes from the grade, in a file or a pipe for each format.
+
+| format | option | file | made with |
+|---|---|---|---|
+| HDR10+ | `--dhdr10-info` | JSON from [hdr10plus_tool](https://github.com/quietvoid/hdr10plus_tool) | `hdr10plus_tool extract master.hevc -o meta.json` |
+| Dolby Vision | `--dolby-vision-rpu` | RPU file from [dovi_tool](https://github.com/quietvoid/dovi_tool) | `dovi_tool extract-rpu` on an existing Dolby Vision stream, or `dovi_tool generate` on a colorist's Dolby Vision XML |
+
+HDR10+ profile A and profile B both work. An RPU must be profile 8.
+
+Entry *i* of either file goes with frame *i* of the input. Frames skipped at the start take their entries with them.
+
+| the file | result |
+|---|---|
+| runs out before the input does | the encode exits with an error |
+| has entries left over | warning |
+
+<p class="optchips"><span>Options</span> <a href="options.md#opt-dhdr10-info"><code>--dhdr10-info</code></a> <a href="options.md#opt-dolby-vision-rpu"><code>--dolby-vision-rpu</code></a> <a href="options.md#opt-seek"><code>--seek</code></a></p>
 
 ## Reading the values off a source
 
@@ -187,7 +215,7 @@ ffprobe -v error -select_streams v:0 -read_intervals '%+#1' -show_frames \
   -of default=nw=1 master.mov
 ```
 
-On an HDR10 master the side data has a mastering display block and a light level block. ffprobe prints each value as a fraction. Use the numerators as they are when the denominators are 50000 (chromaticities) and 10000 (luminances).
+On an HDR10 master the side data has a mastering display block and a light level block. ffprobe prints each value as a fraction. Use the numerators as they are when the denominators are 50000 for chromaticities and 10000 for luminances.
 
 | ffprobe field | goes in |
 |---|---|
@@ -223,7 +251,7 @@ For the dynamic formats, `hdr10plus_tool extract` and `dovi_tool extract-rpu` re
 
 ### Chroma location
 
-BT.2020 and BT.2100 site 4:2:0 chroma top-left. That's `--chromaloc 2`. Set it only when the master's chroma really sits there, because the flag relabels the samples without moving them. The `--video-signal-type-preset` names set it for you.
+BT.2020 and BT.2100 site 4:2:0 chroma top-left, which is `--chromaloc 2`. Set it only when the master's chroma really sits there, because the flag relabels the samples without moving them. The [color flag names](#one-name-for-the-color-flags) set it for you.
 
 ### Flags that contradict the format
 
@@ -310,17 +338,6 @@ A command line that would mislabel a dynamic format is refused before it writes 
 <figcaption>Static HDR10 metadata repeats at key frames so a player can join mid-stream. Dynamic metadata travels with each picture.</figcaption>
 </figure>
 
-## Dynamic metadata comes from a file
-
-HDR10+ and Dolby Vision describe the content scene by scene. yah265 doesn't measure that. The metadata comes from the grade, in the files the two common tools write:
-
-- `--dhdr10-info` reads the JSON that [hdr10plus_tool](https://github.com/quietvoid/hdr10plus_tool) writes. `hdr10plus_tool extract master.hevc -o meta.json` makes one. Profile A and profile B with a Bézier tone curve both work. Each takes one window per picture.
-- `--dolby-vision-rpu` reads the RPU file that [dovi_tool](https://github.com/quietvoid/dovi_tool) writes. That's `dovi_tool extract-rpu` from an existing Dolby Vision stream, or `dovi_tool generate` from a colorist's Dolby Vision XML.
-
-Entry *i* of either file goes with frame *i* of the input. `--seek` skips entries along with frames. If a file runs out before the input does, the encode exits with an error. A file with entries left over gets a warning.
-
-Both readers check what they read. HDR10+ values must fall inside the HDR10+ profiles' ranges. An RPU's header must say profile 8. Either file can come from a pipe.
-
 ## Tuning for HDR
 
 `medium` codes a stream differently once its transfer flag or its alternative transfer SEI names PQ or HLG. The other presets code HDR like SDR.
@@ -354,9 +371,9 @@ I scored both encoders with Netflix's HDR-VMAF v1.1.8. The table gives yah265's 
 | EBU / DVB HLG | HLG | 4K | -34.6% | PQ only |
 <!--/gen:hdr-table-->
 
-yah265 is ahead on every cell. The margin is thinnest on Sol Levante against x265 with its `--hdr10-opt` option on.
+yah265 is ahead in each cell. The margin is thinnest on Sol Levante against x265 with its `--hdr10-opt` option on.
 
-Don't read the HLG clip's lead as a lead on all HLG. The clip is easy material: two near-static shots. The next table shows what the tuning alone is worth on it.
+Don't read the HLG clip's lead as a lead on all HLG, because the clip is two near-static shots. The next table shows what the tuning alone is worth on it.
 
 <!--gen:hdr-tuning-table-->
 | HLG clip | tuned, against x265 | untuned, against x265 | tuned against untuned |
@@ -367,11 +384,20 @@ Don't read the HLG clip's lead as a lead on all HLG. The clip is easy material: 
 
 ### How the HDR measurements were run
 
-The PQ titles are from Netflix Open Content: Sol Levante is 24p animation, Sparks 60p live action. The HLG clip is the EBU / DVB 8K HLG test clip, published by DVB under CC BY 4.0 (credit EBU / DVB). I took frames 600 to 899 of its 37 Mbit/s rendition, around the clip's one cut, and scaled them down with HLG and BT.2020 kept.
+The PQ titles are from Netflix Open Content. Sol Levante is 24p animation and Sparks is 60p live action.
 
-Both encoders ran `medium` with the same signaling. Scores use HDR-VMAF's 3H model at 1080p and its 1.5H model at 4K, in the high frame rate variant at 50 fps and above. Because HDR-VMAF has no HLG mode, I converted the HLG clip to PQ before scoring.
+The HLG clip is the EBU / DVB 8K HLG test clip, published by DVB under CC BY 4.0 (credit EBU / DVB). From its 37 Mbit/s rendition I took frames 600 to 899, around the clip's one cut. I scaled them down with HLG and BT.2020 kept.
 
-Each encoder ran its own CRF ladder, because the two scales don't line up on this material:
+Both encoders ran `medium` with the same signaling.
+
+| scoring | HDR-VMAF setting |
+|---|---|
+| 1080p | the 3H model |
+| 4K | the 1.5H model |
+| 50 fps and above | the high frame rate variant |
+| HLG | converted to PQ first, because HDR-VMAF has no HLG mode |
+
+Each encoder ran its own CRF ladder through the [HDR ladder script](scripts/hdr_bd.py), because the two scales don't line up on this material.
 
 <!--gen:hdr-ladder-table-->
 | title | excerpt | yah265 `--crf` | x265 `--crf` |
@@ -381,16 +407,16 @@ Each encoder ran its own CRF ladder, because the two scales don't line up on thi
 | EBU / DVB HLG | 6 seconds, 50 fps | 20 to 35 in steps of 3 | 20 to 32 in steps of 3 |
 <!--/gen:hdr-ladder-table-->
 
-yah265's six rungs cover 95% or more of x265's HDR-VMAF range in each cell. The [HDR ladder script](scripts/hdr_bd.py) runs the ladders and the BD measurement.
+yah265's ladder covers 95% or more of x265's HDR-VMAF range in each cell.
 
 ### Banding
 
-I measured banding with HDR-VMAF's PQ CAMBI. Sol Levante's flat gradients band on both encoders at the lower rates, where yah265's worst frames band less than x265's at the same bitrate. On average yah265 bands slightly more on all three titles. Both encoders stay far below the level where banding shows. The [HDR notes](docs/hdr.md) have the CAMBI figures.
+I measured banding with HDR-VMAF's PQ CAMBI. Sol Levante's flat gradients band on both encoders at the lower rates, where yah265's worst frames band less than x265's at the same bitrate. On average yah265 bands slightly more on all three titles. Both encoders stay far below the level where banding shows. See the [HDR notes](docs/hdr.md) for the CAMBI figures.
 
 ## How it was checked
 
-- A CRF encode with `--dhdr10-info` and `--dolby-vision-rpu` matches what `hdr10plus_tool inject` and `dovi_tool inject-rpu` produce from the same encode without them.
-- `dovi_tool extract-rpu` and `hdr10plus_tool extract` on an encode give back the input metadata exactly. That holds with B-frames reordering the pictures, with `--seek`, and across `--gop-parallel` segments.
+- A CRF encode given both metadata files matches what `hdr10plus_tool inject` and `dovi_tool inject-rpu` produce from the same encode without them.
+- Extracting the metadata from an encode gives back the input exactly. That holds with B-frames reordering the pictures, with `--seek`, and across `--gop-parallel` segments.
 - The ST 2094-40 writer reproduces a profile B message from a real HDR10+ stream byte for byte.
 - ffmpeg parses the HDR10+ message and the Dolby Vision RPU of each frame, and decodes the streams with errors fatal.
 - The Dolby Vision test uses Netflix's own grade for Sol Levante. That's the Dolby Vision XML published with it under CC BY 4.0, turned into profile 8.1 RPUs by `dovi_tool`.

@@ -117,7 +117,7 @@ Bitrates are in kbit/s, buffer sizes in kbit. When you give a buffer, the stream
 y265 in.y4m -o out.hevc --crf 23
 ```
 
-The CRF scale is yah265's own. A number that suited x265 gives a different size here. Because the scale accounts for the frame rate, one number suits a 24 fps film as well as a 60 fps game capture. Results compares the two encoders [at the same file size](results.md#quality-at-the-same-size).
+The CRF scale is yah265's own. A number that suited x265 gives a different size here. Because the scale accounts for the frame rate, one number suits a 24 fps film as well as a 60 fps game capture. [Results](results.md#quality-at-the-same-size) compares the two encoders at the same file size.
 
 ### Capped CRF
 
@@ -125,7 +125,7 @@ The CRF scale is yah265's own. A number that suited x265 gives a different size 
 y265 in.y4m -o out.hevc --crf 23 --vbv-maxrate 4500 --vbv-bufsize 6000
 ```
 
-For streaming, this is the mode I'd pick. The quality holds until a hard scene would overflow the buffer. The encoder then coarsens that scene to fit. The cap limits the peak rate, not the file size. If `--crf-max` is set too low for the buffer, the buffer can underflow. The encoder reports that at the end of the run.
+For streaming, this is the mode I'd pick. The quality holds until a hard scene would overflow the buffer. The encoder then coarsens that scene to fit. The cap limits the peak rate, not the file size. If `--crf-max` is set too low for the buffer, the buffer can underflow. The encoder reports that at the end of the run. To pick the CRF, my [dynamic-crf](https://github.com/terranvigil/dynamic-crf) tool searches for the one that reaches a VMAF score you choose.
 
 ### Capped VBR
 
@@ -133,7 +133,7 @@ For streaming, this is the mode I'd pick. The quality holds until a hard scene w
 y265 in.y4m -o out.hevc --bitrate 3000 --vbv-maxrate 4500 --vbv-bufsize 6000
 ```
 
-Set the peak above the target so the encoder has room to spend on hard scenes. Results shows [how close each title came to its target and how fast it ran](results.md#vbr).
+Set the peak above the target so the encoder has room to spend on hard scenes. [Results](results.md#vbr) shows how close each title came to its target and how fast it ran.
 
 
 ### CBR
@@ -142,7 +142,7 @@ Set the peak above the target so the encoder has room to spend on hard scenes. R
 y265 in.y4m -o out.hevc --bitrate 3000 --vbv-maxrate 3000 --vbv-bufsize 6000 --strict-cbr
 ```
 
-`--strict-cbr` marks the stream as constant rate. Any picture that comes in under its share is padded with filler data. The run reports how much padding it wrote. This is generally a wasteful mode and generally only useful when targeting older hardware decoders designed for cable/MPEG-TS.
+`--strict-cbr` marks the stream as constant rate. Any picture that comes in under its share is padded with filler data. This is generally a wasteful mode and generally only useful when targeting older hardware decoders designed for cable/MPEG-TS.
 
 ### Two-pass
 
@@ -166,7 +166,7 @@ The first pass measures each frame. The second plans the whole file before it co
 | `slow` | 64x64 | 20 frames | more analysis per block |
 | `slower` | 64x64 | 25 frames | more analysis and a second reference |
 
-`medium` changes with the picture size. A small picture gets a smaller coding tree and a shorter lookahead. 4K gets a second reference. Design has [the whole table](design.md#what-medium-does-at-each-size).
+`medium` changes with the picture size. A small picture gets a smaller coding tree and a shorter lookahead. 4K gets a second reference. [Design](design.md#what-medium-does-at-each-size) has the whole table.
 
 yah265 offers four presets. I kept the list short because its `medium` already runs faster than x265's `medium` and scores higher at the same file size. x265's other preset names give an error that names the nearest preset. I'd use `medium` unless you've measured otherwise on your content.
 
@@ -221,9 +221,20 @@ Without the tune, the latency is the lookahead depth in frames. Two opt-in tools
 
 <p class="optchips"><span><a href="options.md#presets-and-tunes">Options</a></span> <a href="options.md#opt-tune"><code>--tune</code></a> <a href="options.md#opt-rc-lookahead"><code>--rc-lookahead</code></a> <a href="options.md#opt-bframes"><code>--bframes</code></a></p>
 
-## Live control
+### Intra refresh
 
-Coming soon: changing the bitrate, CRF or key frames while an encode runs. Each change comes from a file or a pipe and names the frame it applies to. From ffmpeg, forced key frames and mid-stream bitrate changes will work the same way. yah264 uses the same format.
+A key frame is a big picture. On a tight link it arrives late. `--intra-refresh` sends no key frame after the first. Each frame codes one column of blocks as intra. The column sweeps across the picture every `--keyint` frames.
+
+A receiver can join at the start of any sweep. Its picture is exact once that sweep ends. Each sweep starts with a recovery point message and the parameter sets.
+
+```sh
+y265 in.y4m -o out.hevc --tune zerolatency --intra-refresh --keyint 30 \
+  --bitrate 1500 --vbv-maxrate 1500 --vbv-bufsize 500
+```
+
+It codes P-frames only, from 4:2:0 input. A scene change doesn't add a key frame. A frame you list as a key frame in a QP file is still one. A new sweep starts after it. It can't be combined with `--bframes` above 0, `--open-gop`, `--gop-parallel` or `--pcm`.
+
+<p class="optchips"><span><a href="options.md#gop-and-references">Options</a></span> <a href="options.md#opt-intra-refresh"><code>--intra-refresh</code></a> <a href="options.md#opt-keyint"><code>--keyint</code></a> <a href="options.md#opt-tune"><code>--tune</code></a></p>
 
 ## Set the bit depth and profile
 
@@ -249,7 +260,7 @@ A few options change what the table gives:
 
 ## HDR
 
-yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8. At `medium`, a stream that says PQ or HLG also gets its own tuning without any option. [HDR](hdr.md) has the command for each format and explains the metadata files.
+yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8. At `medium`, a stream that says PQ or HLG also gets its own tuning without any option. See [HDR](hdr.md) for the command for each format and the metadata files.
 
 <p class="optchips"><span><a href="options.md#color-and-hdr">Options</a></span> <a href="options.md#opt-transfer"><code>--transfer</code></a> <a href="options.md#opt-colorprim"><code>--colorprim</code></a> <a href="options.md#opt-colormatrix"><code>--colormatrix</code></a> <a href="options.md#opt-master-display"><code>--master-display</code></a> <a href="options.md#opt-max-cll"><code>--max-cll</code></a> <a href="options.md#opt-dhdr10-info"><code>--dhdr10-info</code></a> <a href="options.md#opt-dolby-vision-rpu"><code>--dolby-vision-rpu</code></a> <a href="options.md#opt-dolby-vision-profile"><code>--dolby-vision-profile</code></a> <a href="options.md#opt-hdr-opt"><code>--hdr-opt</code></a></p>
 
@@ -257,15 +268,15 @@ yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8. At `medium`, a stre
 
 By default the encoder starts one worker per online CPU. Above one thread it also reads its input on a separate thread to keep a slow source from stalling the workers.
 
-At `--threads 1`, two runs of one command write the same bytes. With more threads that isn't promised. [Threading](threading.md#what-stays-identical) has the details.
+At `--threads 1`, two runs of one command write the same bytes. With more threads that [isn't promised](threading.md#what-stays-identical).
 
-A long input can also be coded as segments on several encoder instances at once, then joined at key frames:
+A long input can also be [coded as segments](threading.md#segment-parallel-encoding) on several encoder instances at once, then joined at key frames:
 
 ```sh
 y265 in.y4m -o out.hevc --crf 23 --gop-parallel 4
 ```
 
-The joined stream differs from the serial one and has no HRD timing. [Threading](threading.md#segment-parallel-encoding) explains when it helps.
+The joined stream differs from the serial one and has no HRD timing.
 
 <p class="optchips"><span><a href="options.md#threads">Options</a></span> <a href="options.md#opt-threads"><code>--threads</code></a> <a href="options.md#opt-gop-parallel"><code>--gop-parallel</code></a></p>
 
@@ -312,23 +323,68 @@ A QP file forces frame types and QPs frame by frame. It can force key frames and
 
 ### Planning by shot
 
-Two tools work on whole shots. Both are opt-in.
+Most films are a series of shots that want different settings. yah265 can find the shots once and put a key frame on each. All of this is opt-in. A plain encode is unchanged.
+
+**Find the shots.** `--shot-scan` reads the whole input once and writes a shot list. The scan runs at a fixed size. A 4K source and its 720p rung get the same list.
+
+```sh
+y265 in.y4m --shot-scan shots.txt
+```
+
+**A key frame on each shot.** `--shot-list` puts a key frame at the start of every listed shot. Every rung of a ladder then switches at the same frames. A player can change rung at a shot. A packager can cut there. `--shot-keys` does the same from the encoder's own cut detector, without a file. A key frame per shot cost at most 0.3% in bits on the test set.
+
+```sh
+y265 in.y4m -o 1080p.hevc --crf 24 --shot-list shots.txt
+```
 
 A shot window lets a CRF encode plan a whole shot at a time. It works only with CRF and adds latency. In my tests it saved little bitrate and made quality less even from shot to shot.
 
 Shot statistics are one JSON line per shot. A ladder builder can use them to pick a rate per shot. The stream is the same with them on.
 
-<p class="optchips"><span><a href="options.md#shot-aware-options">Options</a></span> <a href="options.md#opt-shot-window"><code>--shot-window</code></a> <a href="options.md#opt-shot-stats"><code>--shot-stats</code></a></p>
+<p class="optchips"><span><a href="options.md#shot-aware-options">Options</a></span> <a href="options.md#opt-shot-scan"><code>--shot-scan</code></a> <a href="options.md#opt-shot-list"><code>--shot-list</code></a> <a href="options.md#opt-shot-keys"><code>--shot-keys</code></a> <a href="options.md#opt-shot-window"><code>--shot-window</code></a> <a href="options.md#opt-shot-stats"><code>--shot-stats</code></a></p>
 
 **Building a ladder.** The [hull script](scripts/shot_hull.py) scores each shot of several encodes on VMAF v1 and prints each shot's best rungs across resolutions.
 
-Coming soon: one scan that finds the shots and gives each one a key frame and its own quality setting. Every rung of a ladder will switch at the same frames.
+Coming soon: a quality setting for each shot, from the same scan.
+
+## Live control
+
+Live control changes an encode while it runs. You can change the bitrate, the buffer, the CRF and the QP limits, ask for a key frame, or offset the QP over a range of frames.
+
+Each change is one line of a control log. A line names the input frame it applies to, counted from 0:
+
+```
+#livectl 1
+# drop to 2 Mbit/s at 4 s, back up at 12 s (30 fps)
+120 rate bitrate=2000 maxrate=3000 bufsize=3000
+120 key
+360 rate bitrate=6000 maxrate=9000 bufsize=9000
+400 zone last=459 offset=-3
+```
+
+The kinds are `rate`, `crf`, `qp` (`min=`, `max=`), `key` and `zone` (`last=`, `offset=`). A key frame goes on exactly the frame it names. A rate or CRF change applies from the first frame coded at or after that frame. That can be a B frame's anchor a few frames later.
+
+Three options feed and record the log:
+
+- `--control <file>` applies a whole log. A bad line, or a change the encode can't take, stops the run before it starts.
+- `--control-fd <n>` reads lines from an open descriptor while the encode runs. `next` in place of a frame number means the next frame in. A line for a frame that has already gone in is skipped with a warning.
+- `--control-out <file>` writes every change that took effect. Fed back through `--control`, it gives the same stream at one thread.
+
+`--frame-stats` lists each change on the frame where it took effect.
+
+A rate change needs a rate mode that has one: `--bitrate` for the bitrate, a buffer for `maxrate` and `bufsize`. You can't add or remove a buffer mid-stream. Because a stream with a buffer has HRD timing by default, its rate and buffer can only go down from where they started. To raise them later, use `--no-hrd`, or start at your top rate or name a `--level`.
+
+Live control uses one encoder, so `--gop-parallel` codes serially with it.
+
+In ffmpeg, an I frame you force with `-force_key_frames` becomes a key frame. A change to `bit_rate`, `rc_max_rate` or `rc_buffer_size` between two frames becomes a rate change on the next one.
+
+<p class="optchips"><span><a href="options.md#live-control">Options</a></span> <a href="options.md#opt-control"><code>--control</code></a> <a href="options.md#opt-control-fd"><code>--control-fd</code></a> <a href="options.md#opt-control-out"><code>--control-out</code></a> <a href="options.md#opt-frame-stats"><code>--frame-stats</code></a> <a href="options.md#opt-no-hrd"><code>--no-hrd</code></a></p>
 
 ## Identification marks
 
 Each stream has an SEI message that names the encoder and the options the run resolved. `--no-info` drops it.
 
-The stream also has a fingerprint that survives when the SEI is stripped. It costs no bits and doesn't change the picture. The [fingerprint design note](docs/stream-fingerprint.md) says how to read it back.
+The stream also has a fingerprint that survives when the SEI is stripped. It costs no bits and doesn't change the picture. See the [fingerprint design note](docs/stream-fingerprint.md) to read it back.
 
 <p class="optchips"><span><a href="options.md#stream-structure-and-sei">Options</a></span> <a href="options.md#opt-no-info"><code>--no-info</code></a> <a href="options.md#opt-no-fingerprint"><code>--no-fingerprint</code></a></p>
 
@@ -375,7 +431,9 @@ The pixel format picks the bit depth. 4:2:0, 4:2:2 and 4:4:4 work at 8 and 10 bi
 |---|---|
 | profiles | Main, Main10, Main 4:4:4, Main 4:4:4 10, Main 4:2:2 10, lossless |
 | rate control | CRF, capped CRF, capped VBR, CBR with filler, ABR, two-pass, fixed QP, zones, a QP file |
+| live control | rate, buffer, CRF and QP changes, key frames and zones while the encode runs, from a log or a descriptor |
 | buffers | VBV with HRD signaling, a bound on one picture's size, level and tier checks |
+| conformance | every stream fits a level, so any standard decoder can play it |
 | structure | open and closed GOP, hierarchical B-frames, scene cut detection, weighted prediction, temporal layers |
 | analysis | adaptive quantization, lookahead bit allocation, rate-distortion optimized quantization, screen content detection |
 | HDR | HDR10, HDR10+, HLG, Dolby Vision profiles 8.1, 8.2 and 8.4, HDR tuning at `medium` |
@@ -384,24 +442,24 @@ The pixel format picks the bit depth. 4:2:0, 4:2:2 and 4:4:4 work at 8 and 10 bi
 | threads | one pool on all cores, segment-parallel encoding |
 | speed | SIMD on arm64 and x86-64, picked at run time. [Architectures](architectures.md) has the list |
 | front ends | the `y265` command line and the `libyah265` encoder in ffmpeg |
-| reports | CSV statistics, per-shot statistics, the resolved configuration |
+| reports | CSV statistics, per-frame and per-shot JSON statistics, the resolved configuration |
 
 ## Left out on purpose
 
 | not offered | why |
 |---|---|
-| six of x265's preset names | `medium` already beats x265's `medium`, so I kept the list at four. See [Pick a preset](#pick-a-preset) |
+| six of x265's preset names | `medium` already beats x265's `medium`, so I kept four. `y265` maps the other names to the nearest of `fast`, `medium`, `slow` and `slower`. See [Pick a preset](#pick-a-preset) |
 | four of x265's tune names | each has a short reason under [Tune names](#tune-names) |
-| `--intra-refresh` | it serves low-latency links, such as video calls, that avoid key frames. Files and streaming need key frames for seeking anyway |
 | `--scaling-list` | x265 leaves custom quantizer matrices off by default too. yah265 uses its own perceptual tuning instead |
-| interlaced coding | almost all video made today is progressive. I will add it if there is enough interest |
+| interlaced coding | almost all video made today is progressive. Broadcast and cable contribution still use it. If you need it, [open an issue](https://github.com/terranvigil/yah265/issues) |
 | 12-bit | 8-bit and 10-bit cover the delivery formats, HDR10, HLG and Dolby Vision included |
 | `--psy-rd`, `--psy-rdoq` | yah265's perceptual tuning is built into its presets, so there's nothing to set |
-| x265's threading options | yah265 sets up its threads by itself and keeps the cores busy without any tuning |
-| analysis save and load | they let a bitrate ladder reuse one encode's analysis to save time. yah265 is fast enough to analyze each rung itself |
+| x265's threading options | yah265 uses every core by default and needs no tuning. `--threads n` caps it at n |
+| analysis save and load | they let a bitrate ladder reuse one encode's analysis. The per-shot scan coming soon covers the same need |
 | a switch to turn off scene detection | the encoder always looks for scene changes |
-| non-conforming streams | every stream yah265 writes fits a level, so any standard decoder can play it |
-| Dolby Vision profile 5 | its base layer uses a color space nothing in this toolchain can produce or check |
+| Dolby Vision profile 5 | not supported yet. If you need it, [open an issue](https://github.com/terranvigil/yah265/issues) |
+| HEVC screen-content tools (SCC) | few decoders play SCC streams. yah265 gets its screen-recording gains inside the normal profiles, so any HEVC player can show them |
+| MV-HEVC (multiview, as in Apple's spatial video) | not supported yet. If you need it, [open an issue](https://github.com/terranvigil/yah265/issues) |
 
 ### Tune names
 
