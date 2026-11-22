@@ -36,7 +36,7 @@ import sys
 import tempfile
 
 TYPES = ("I", "P", "B")
-SHOT_KEYS = ("scene", "forced", "qpfile")
+SHOT_KEYS = ("scene", "forced", "qpfile", "shot")
 MAX_POINTS = 1600
 # a frame reads dark when this share of its 16x16 blocks is dark and smooth
 DARK_FRAME = 0.25
