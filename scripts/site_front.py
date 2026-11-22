@@ -333,6 +333,7 @@ GROUPS = [
         ("--keyint", "`250`", "Longest gap between key frames. A scene cut restarts the count."),
         ("--open-gop", "on", "Code the periodic key frame as a CRA and keep the B-frames that straddle it. `--no-open-gop` writes an IDR there. A scene cut is an IDR either way."),
         ("--radl", "`0`", "How many of a CRA's leading pictures stay decodable when playback starts at that CRA."),
+        ("--intra-refresh", "off", "No key frame after the first. A column of intra blocks sweeps the picture every `--keyint` frames, and a decoder can join at the start of any sweep. P-frames and 4:2:0 only. [More](guide.md#intra-refresh)"),
         ("--bframes", "`7`", "B-frames between anchors, 0 to 15. Above 7, `--rc-lookahead` must be at least one more."),
         ("--b-adapt", "`1`", "How the B run length is chosen: `0` fixed, `1` from motion. `2` to `4` are experimental."),
         ("--ref", "`1`", "References per list, 1 to 5. `slower` uses 2, and so does `medium` at 4K."),
@@ -415,7 +416,6 @@ GROUPS = [
         ("--version", "", "Print the version."),
     ]),
     ("Not offered", [
-        ("--intra-refresh", "refused", "The encoder stops with an error. [Why](guide.md#left-out-on-purpose)"),
         ("--scaling-list", "refused", "The encoder stops with an error. [Why](guide.md#left-out-on-purpose)"),
     ]),
 ]
@@ -477,7 +477,7 @@ SEEN = {
     "--dup-threshold": "d5dd6528",
     "--pcm": "e08d4ca7",
     "--lossless": "817a57bd",
-    "--intra-refresh": "ef457170",
+    "--intra-refresh": "6024bed1",
     "--scaling-list": "ef457170",
     "--film-grain": "1def6b4f",
     "--film-grain-denoise": "63be09fb",

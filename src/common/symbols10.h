@@ -61,6 +61,10 @@
 #define n265_cabac_terminate         n265_cabac_terminate_10
 #define n265_chroma_qp               n265_chroma_qp_10
 #define n265_clamp_mv                n265_clamp_mv_10
+#define n265_ir_mot_ok               n265_ir_mot_ok_10
+#define n265_ir_ref_ok               n265_ir_ref_ok_10
+#define n265_ir_pos                  n265_ir_pos_10
+#define n265_set_intra_refresh       n265_set_intra_refresh_10
 #define n265_coeff_group             n265_coeff_group_10
 #define n265_coeff_group_neon        n265_coeff_group_neon_10
 #define n265_coeff_group_avx2        n265_coeff_group_avx2_10

@@ -293,6 +293,19 @@ run_vector() {
         fi
         ;;
     esac
+    # --intra-refresh: a decoder that joins at the second sweep start
+    # recovers exactly where the recovery point says it does
+    case " $eargs " in
+    *" --intra-refresh "*)
+        if ! DEC265="$DEC265" python3 scripts/recovery_check.py \
+                --stream "$TMP/$name.hevc" --recon "$TMP/$name.src.yuv" \
+                --size "$size" --nth 2 >"$TMP/$name.rp" 2>&1; then
+            echo "SUMMARY $name FAIL (join at a sweep start)"
+            sed -n 1,2p "$TMP/$name.rp" >&2
+            fail=$((fail+1)); return
+        fi
+        ;;
+    esac
     echo "SUMMARY $name PASS"
     pass=$((pass+1))
 }
@@ -1241,6 +1254,18 @@ run_vector opengop_radl  352x288 26 testsrc2 "--keyint 8 --bframes 7 --ref 2 --c
 # boundary a NAL earlier and --temporal-layers puts the RASL leaves at
 # TemporalId 1, both of which the cut has to get right.
 run_vector opengop_tools 352x288 32 testsrc2 "--keyint 8 --bframes 7 --ref 3 --crf 26 --aq 1 --cutree 1 --open-gop --repeat-headers --aud --eos --temporal-layers --idr-recovery-sei --hash 1 --threads 4"
+# --intra-refresh: recon match from the start, and a cold join at the
+# second sweep start (run_vector's recovery leg). Natural content, so the
+# vectors reach the refreshed edge; one thread and twelve, three
+# references, a 64x64 tree, and the zerolatency pairing under a buffer.
+run_vector_file tests/corpus/foreman_cif.y4m \
+           ir_foreman 352x288 40 testsrc2 "--intra-refresh --keyint 10 --crf 28 --threads 1"
+run_vector_file tests/corpus/mobile_cif.y4m \
+           ir_mobile 352x288 40 testsrc2 "--intra-refresh --keyint 12 --ref 3 --crf 26 --threads 12"
+run_vector_file tests/corpus/park_joy_720p.y4m \
+           ir_park 1280x720 24 testsrc2 "--intra-refresh --keyint 8 --ctu 64 --crf 30 --threads 12"
+run_vector_file tests/corpus/stefan_cif.y4m \
+           ir_zerolat 352x288 40 testsrc2 "--intra-refresh --tune zerolatency --keyint 10 --bitrate 400 --vbv-maxrate 400 --vbv-bufsize 400 --threads 4"
 run_vector fgc_sei       352x288 20 testsrc2 "--keyint 6 --bframes 3 --aq 1 --cutree 1 --film-grain 1.0 --threads 4"
 run_vector fgc_denoise   352x288 20 testsrc2 "--keyint 6 --bframes 3 --aq 1 --cutree 1 --film-grain 1.0 --film-grain-denoise 1 --threads 12"
 # --nr-intra / --nr-inter (phase 14 item 6): the coefficient-domain noise
