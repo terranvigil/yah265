@@ -436,4 +436,12 @@ n265 = custom_target('n265-alias',
   command : ['ln', '-sf', 'y265' + depth_suffix, '@OUTPUT@'],
   build_by_default : true)
 
+# `y265 bench` execs this helper from beside the binary
+configure_file(input : 'scripts/y265_bench.py', output : 'y265-bench',
+  copy : true)
+if is_8bit
+  install_data('scripts/y265_bench.py', install_dir : get_option('bindir'),
+    rename : 'y265-bench', install_mode : 'rwxr-xr-x')
+endif
+
 subdir('tests')

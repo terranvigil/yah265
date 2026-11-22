@@ -56,6 +56,8 @@ test: build
 	python3 scripts/warm_check.py
 	# the parity harness's cell tables, windows and verdict lines (no media)
 	python3 scripts/parity_spec.py --selftest-long
+	# y265 bench's size search and scoring rules (the CIF leg skips without the clip)
+	BIN=$(BUILD)/y265 python3 tests/bench/test_bench.py
 	$(MAKE) smoke10
 
 # The 10-bit leg of `make test`, and it is a SMOKE and not a correctness
