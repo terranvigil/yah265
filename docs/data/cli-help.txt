@@ -1,5 +1,6 @@
-# y265 0.0.1, release build 4b4245d1
+# y265 0.0.1, release build 3b063215
 usage: y265 [options] <input.y4m|input.yuv|->
+       y265 bench <video> [options]   compare with x265 on your clip
 
 The input picks the profile: 8-bit 4:2:0 is coded Main, 10-bit 4:2:0
 Main10, 4:4:4 Main 4:4:4 (or 4:4:4 10), and 4:2:2 Main 4:2:2 10 (HEVC
