@@ -1,18 +1,18 @@
 ---
 title: Check it yourself - yah265
-description: Rerun a speed, size and quality reading of yah265 against x265 on your own machine, one clip at a time or with the full harness.
+description: Rerun a speed, size and quality measurement of yah265 against x265 on your own machine, one clip at a time or with the full harness.
 ---
 
 # Check it yourself
 
-Everything on the [results page](results.md) comes from scripts in the repository. This page shows how to take the same kind of reading on your own machine, from one clip by hand to the full harness.
+Everything on the [results page](results.md) comes from scripts in the repository. This page shows how to take the same kind of measurement on your own machine, from one clip by hand to the full harness.
 
 The harness at the end of this page reruns whole tables from the project's own media library.
 
 ## What you need
 
 - yah265. Build it with `make build-rel`, as [Build and first encode](start.md) describes.
-- x265 as the reference. The results use the Homebrew build of x265 4.3. Because an older x265 on arm64 has much less assembly, it makes a G3 reading look better than it is.
+- x265 as the reference. The results use the Homebrew build of x265 4.3. Because an older x265 on arm64 has much less assembly, it makes a G3 result look better than it is.
 - ffmpeg, to make input and to decode.
 - libde265's `dec265`, for the conformance check.
 - Python 3 with numpy, for `make test` and the harness scripts.
@@ -37,11 +37,11 @@ The first command runs the unit tests and the repository's own checks. The secon
 
 ## One clip by hand
 
-A reading compares the two encoders at the same file size. It then asks which one finished first and which one scores higher on VMAF v1.
+A measurement compares the two encoders at the same file size. It then asks which one finished first and which one scores higher on VMAF v1.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 250" role="img" aria-labelledby="ciy-t ciy-d">
-<title id="ciy-t">The steps of one reading</title>
+<title id="ciy-t">The steps of one measurement</title>
 <desc id="ciy-d">x265 encodes the clip at CRF 28. yah265 encodes it at a trial CRF. If the two files aren't within 1% in size, the CRF moves and yah265 encodes again. Once they match, the two encoders are timed in interleaved rounds and their outputs are scored with VMAF v1.</desc>
 <rect class="d-box" x="10" y="30" width="150" height="60" rx="6"/>
 <text class="d-text" x="85" y="56" text-anchor="middle">x265</text>
@@ -68,7 +68,7 @@ A reading compares the two encoders at the same file size. It then asks which on
 <path class="d-arrow" d="M495,120 H605 V148"/>
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 346" role="img" aria-labelledby="ciy-t-n ciy-d-n">
-<title id="ciy-t-n">The steps of one reading</title>
+<title id="ciy-t-n">The steps of one measurement</title>
 <desc id="ciy-d-n">x265 encodes the clip at CRF 28. yah265 encodes it at a trial CRF. If the two files aren't within 1% in size, the CRF moves and yah265 encodes again. Once they match, the two encoders are timed in interleaved rounds and their outputs are scored with VMAF v1.</desc>
 <rect class="d-box" x="60" y="8" width="180" height="50" rx="6"/>
 <text class="d-text" x="150" y="30" text-anchor="middle">x265</text>
@@ -181,7 +181,7 @@ Four environment variables change a run:
 
 A speed ratio means nothing until the sizes match, because an encoder that writes a larger file had more bits to spend. It should score higher for that reason alone. Check the 1% size match before reading anything else.
 
-At the matched size, compare the two VMAF v1 scores directly. One clip's lead says little about the next clip's. That's why the results page reports the median over a group and the clip with the smallest lead.
+At the matched size, compare the two VMAF v1 scores directly. One clip's lead says little about the next clip's. That's why the results page reports the median over each picture size and clip length, and the clip with the smallest lead.
 
 One matched point is one bitrate. Read the ladder too, because an encoder can lead at CRF 28 and trail at high quality. BD-rate folds the whole ladder into one number. That number covers only the scores both curves reach. Where one encoder's lowest score is above the other's highest, there's no BD-rate to quote and the curves themselves are the answer.
 
@@ -189,7 +189,7 @@ Under VBR, check the bitrate each encoder reached against its target before comp
 
 ## The full harness
 
-`scripts/parity_spec.py` takes the whole parity reading in two halves. The untimed half can share a machine. The timed half needs the machine quiet.
+`scripts/parity_spec.py` takes the whole parity measurement in two halves. The untimed half can share a machine. The timed half needs the machine quiet.
 
 | mode | what it does |
 |---|---|

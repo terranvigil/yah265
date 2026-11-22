@@ -149,13 +149,13 @@ def chart_machines(sps):
     H = Tp + B + (step * 3 - 66 if nw else body)
     x0, x1 = 1.0, max(2.0, int(max(vals) + 0.999))
     o = head(W, H, "yah265 is faster than x265 at all three goals on all three machines",
-                "Median times faster than x265 medium at the same file size, per class and "
-                "tier, for one thread in C, all cores in C and all cores with SIMD, on an "
+                "Median times faster than x265 medium at the same file size, per picture size "
+                "and clip length, for one thread in C, all cores in C and all cores with SIMD, on an "
                 "Apple M5 Max, an x86-64 Xeon and a Graviton4.")
     o.append(bc.T(24, 40, "Faster than x265 at all three goals, on all three machines", 22,
                   weight="600"))
     o.append(bc.T(24, 64, "Median times faster than x265 medium at the same file size, per "
-                          "class and clip length.", 14, "t2"))
+                          "picture size and clip length.", 14, "t2"))
     bc.legend(o, [(i, f"s{i + 1}", bc.MACHINE_LABEL[m]) for i, m in enumerate(bc.MACHINES)])
     for p, goal in enumerate(bc.GOAL_ORDER):
         px = L if nw else L + p * (pw + gap)
@@ -237,10 +237,10 @@ def chart_simd(gain):
     H = Tp + 46 * 4 + 56 + (2 * step if nw else 0)
     o = head(W, H, "SIMD speeds x265 up more than it speeds yah265 up",
                 "All-core wall time in plain C over all-core wall time with SIMD, median "
-                "over each class's short clips, for yah265 and x265 on three machines.")
+                "over each picture size's short clips, for yah265 and x265 on three machines.")
     o.append(bc.T(24, 40, "SIMD speeds x265 up more than it speeds yah265 up", 22, weight="600"))
     o.append(bc.T(24, 64, "All-core wall in plain C over all-core wall with SIMD. Median over "
-                          "each class's short clips, same file size.", 14, "t2"))
+                          "each picture size's short clips, same file size.", 14, "t2"))
     pair_legend(o)
     for p, m in enumerate(bc.MACHINES):
         yb = paired_panel(o, 24 + (0 if nw else p * (pw + 20)), pw, Tp + (p * step if nw else 0),
@@ -259,10 +259,10 @@ def chart_threads(scale, cores):
     H = Tp + 46 * len(scale) + 56
     o = head(W, H, f"What {cores} cores buy each encoder in plain C",
                 "One-thread wall time over all-core wall time in plain C, median over each "
-                "class's short clips on an Apple M5 Max, for yah265 and x265.")
+                "picture size's short clips on an Apple M5 Max, for yah265 and x265.")
     o.append(bc.T(24, 40, f"What {cores} cores buy each encoder in plain C", 22, weight="600"))
     o.append(bc.T(24, 64, "One-thread wall over all-core wall, SIMD off. Median over each "
-                          "class's short clips on the Mac.", 14, "t2"))
+                          "picture size's short clips on the Mac.", 14, "t2"))
     pair_legend(o)
     yb = paired_panel(o, 24, W - 48, Tp, "Apple M5 Max, plain C", scale, xmax)
     o.append(bc.T(W / 2, yb + 42, "times faster on all cores than on one thread", 13, "t2",
@@ -284,7 +284,7 @@ def chart_capped(cap):
     o = head(W, H, "yah265 stays ahead when both encoders are held to one instruction set",
                 "Median times faster than x265 on the short clips with both encoders capped "
                 "at SSE4.2, both at AVX2, and yah265 at AVX-512 against x265 at AVX2, per "
-                "class on one Xeon.")
+                "picture size on one Xeon.")
     o.append(bc.T(24, 40, "Ahead of x265 with both encoders held to one instruction set", 22,
                   weight="600"))
     o.append(bc.T(24, 64, "Median times faster than x265 medium on the short clips, SIMD on 16 "
@@ -318,7 +318,7 @@ def chart_capped(cap):
 # ------------------------------------------------------------------ tables
 
 def table_capped(cap):
-    out = ["| class | " + " | ".join(lab for *_, lab in PAIRS) + " | clips |",
+    out = ["| picture size | " + " | ".join(lab for *_, lab in PAIRS) + " | clips |",
            "|---|" + "--:|" * (len(PAIRS) + 1)]
     for c in bc.CLASSES:
         if c not in cap:
@@ -330,7 +330,7 @@ def table_capped(cap):
 
 
 def table_simd(gain):
-    out = ["| class | " + " | ".join(f"{bc.MACHINE_SHORT[m]}: yah265 / x265" for m in bc.MACHINES)
+    out = ["| picture size | " + " | ".join(f"{bc.MACHINE_SHORT[m]}: yah265 / x265" for m in bc.MACHINES)
            + " | clips |", "|---|" + "--:|" * (len(bc.MACHINES) + 1)]
     for c in bc.CLASSES:
         cells = " | ".join(f"{gain[m][c][0]:.2f}x / {gain[m][c][1]:.2f}x" for m in bc.MACHINES)
@@ -339,7 +339,7 @@ def table_simd(gain):
 
 
 def table_threads(scale):
-    out = ["| class | yah265 | x265 | clips |", "|---|--:|--:|--:|"]
+    out = ["| picture size | yah265 | x265 | clips |", "|---|--:|--:|--:|"]
     for c in bc.CLASSES:
         if c in scale:
             o, x, n = scale[c]

@@ -115,7 +115,7 @@ So the test is exact equality. Every conformance encode goes through two indepen
 
 A frame passes through a lookahead queue before it's coded. The queue keeps a half-resolution copy of each frame, estimates costs on small blocks and remembers the motion search between each pair of frames. That one search feeds everything that needs motion before the real encode. It decides frame types, scene cuts and how many B-frames to run. It also drives weighted prediction and the propagation step that lowers the quantizer on blocks that later frames predict from.
 
-A scene cut has to be a jump in cost. One high reading isn't enough, because a film transferred with a pulldown cadence would then read as a run of cuts. Because the key frame period restarts at a cut, a periodic key frame never follows a cut closely.
+A scene cut has to be a jump in cost. One high value isn't enough, because a film transferred with a pulldown cadence would then read as a run of cuts. Because the key frame period restarts at a cut, a periodic key frame never follows a cut closely.
 
 The lookahead also recognizes two kinds of content that need different handling. A scroll in a screen recording defeats a search that expects small motion. A frame typed as screen content therefore gets its scroll measured, then handed to the motion search. Handheld footage of fine texture jitters from frame to frame. There the encoder decides more carefully while it keeps its long runs of B-frames. [Content types](results.md#content-types) has the measurements for both.
 

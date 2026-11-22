@@ -1,5 +1,5 @@
 <svg xmlns='http://www.w3.org/2000/svg' width='480' height='894' viewBox='0 0 480 894' role='img'>
-<title>SIMD speeds x265 up more than it speeds yah265 up</title><desc>All-core wall time in plain C over all-core wall time with SIMD, median over each class's short clips, for yah265 and x265 on three machines.</desc>
+<title>SIMD speeds x265 up more than it speeds yah265 up</title><desc>All-core wall time in plain C over all-core wall time with SIMD, median over each picture size's short clips, for yah265 and x265 on three machines.</desc>
 <style>
 .bg{fill:#ffffff}.t1{fill:#212529}.t2{fill:#495057}.grid{stroke:#e9ecef}
 .base{stroke:#868e96}.ring{stroke:#ffffff}.med{stroke:#212529}.band{fill:#f1f3f5}
@@ -18,7 +18,7 @@ text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-
 <text x='20' y='30' font-size='18' class='t1' font-weight='600'>SIMD speeds x265 up more than it speeds</text>
 <text x='20' y='53' font-size='18' class='t1' font-weight='600'>yah265 up</text>
 <text x='20' y='73' font-size='12.5' class='t2'>All-core wall in plain C over all-core wall with SIMD. Median over</text>
-<text x='20' y='90' font-size='12.5' class='t2'>each class's short clips, same file size.</text>
+<text x='20' y='90' font-size='12.5' class='t2'>each picture size's short clips, same file size.</text>
 <g transform='translate(0 26)'>
 <rect x='24' y='80' width='12' height='12' rx='2' class='s1'/>
 <text x='42.0' y='91.0' font-size='13' class='t2' text-anchor='start'>yah265</text>

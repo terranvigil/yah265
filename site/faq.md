@@ -37,7 +37,7 @@ Two of the three goals compare the algorithms with SIMD off on both sides. The h
 
 ## Did x265 get its tunes?
 
-Neither encoder gets a `--tune`. yah265's `medium` detects screen recordings and handheld footage by itself. Because no reading uses x265's tunes for grain and animation, the content-type clips compare one set of defaults with another. Their speed is shown without counting toward the verdict.
+Neither encoder gets a `--tune`. yah265's `medium` detects screen recordings and handheld footage by itself. Because no measurement uses x265's tunes for grain and animation, the content-type clips compare one set of defaults with another. Their speed is shown without counting toward the verdict.
 
 ## Is it only fast on a Mac?
 
@@ -53,4 +53,4 @@ The scorer is Netflix's libvmaf with the `vmaf_v1.0.16` models. A picture smalle
 
 ## How do I check a number?
 
-Under each chart a line names its source file and the script that drew it, beside a link to its data as CSV. A script writes the tables from the same files. The site's build fails when a page disagrees with the data. To take a reading yourself, start with [Check it yourself](check-it-yourself.md).
+Under each chart a line names its source file and the script that drew it, beside a link to its data as CSV. A script writes the tables from the same files. The site's build fails when a page disagrees with the data. To take a measurement yourself, start with [Check it yourself](check-it-yourself.md).

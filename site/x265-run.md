@@ -5,9 +5,9 @@ description: The x265 version and build behind the comparisons, with the command
 
 # How x265 was run
 
-The comparisons on this site are against x265 <!--trust:x265-version-->4.3+1-e9b8812<!--/trust:x265-version-->. This page gives the build on each machine, the command for each kind of reading and the settings each encoder ran with. A script writes the tables and the commands from the parity reports and the code that timed the runs.
+The comparisons on this site are against x265 <!--trust:x265-version-->4.3+1-e9b8812<!--/trust:x265-version-->. This page gives the build on each machine, the command for each kind of measurement and the settings each encoder ran with. A script writes the tables and the commands from the parity reports and the code that timed the runs.
 
-x265 always runs `--preset medium` with no `--tune`. Everything else is its default unless a table below says otherwise. [The methodology](methodology.md) explains why each reading is taken the way it is.
+x265 always runs `--preset medium` with no `--tune`. Everything else is its default unless a table below says otherwise. [The methodology](methodology.md) explains why each measurement is taken the way it is.
 
 ## The build on each machine
 
@@ -21,7 +21,7 @@ x265 always runs `--preset medium` with no `--tune`. Everything else is its defa
 The Homebrew build reports `[Mac OS X][clang 21.0.0][64 bit] 8bit+10bit+12bit`.
 <!--/trust:x265-builds-->
 
-On the Mac x265 is the Homebrew package as it installs. On the cloud machines I built it from the 4.3 release tarball with its assembly on. On the Xeon x265's default uses AVX2 while yah265 uses AVX-512. I timed a second x265 arm with its AVX-512 code switched on. I also held both encoders to AVX2, then to SSE4.2. [Results](results.md#by-machine) has all of those readings.
+On the Mac x265 is the Homebrew package as it installs. On the cloud machines I built it from the 4.3 release tarball with its assembly on. On the Xeon x265's default uses AVX2 while yah265 uses AVX-512. I timed a second x265 arm with its AVX-512 code switched on. I also held both encoders to AVX2, then to SSE4.2. [Results](results.md#by-machine) has all of those results.
 
 ## The command for each goal
 
@@ -73,7 +73,7 @@ G1 and G2 switch the hand-written SIMD off on both sides to compare the algorith
 ## Threads and SIMD
 
 <!--trust:x265-threads-->
-| reading | yah265 threads | x265 threads | SIMD |
+| measurement | yah265 threads | x265 threads | SIMD |
 |---|---|---|---|
 | G3 | its default: one worker per CPU | its defaults for pools and frame threads | on |
 | G2 | its default: one worker per CPU | its defaults for pools and frame threads | off: `N265_ASM_OFF=all` and `--no-asm` |
@@ -84,7 +84,7 @@ G1 and G2 switch the hand-written SIMD off on both sides to compare the algorith
 | Xeon held to one tier | `N265_CPU_MAX=sse42` or `avx2` | `--asm sse4.2` or `--asm avx2` | on, capped |
 <!--/trust:x265-threads-->
 
-x265's pictures change with its frame-thread count. On the 18-core Mac its own choice is four. The untimed encodes name four to code the same pictures as the timed default. G1's anchor runs without a pool because its timed run does.
+x265's pictures change with its frame-thread count. On the 18-core Mac its own choice is four. The untimed encodes name four to code the same pictures as the timed default. G1's x265 encode runs without a pool because its timed run does.
 
 ## Lookahead
 
@@ -99,4 +99,4 @@ x265 stays at its default depth throughout. yah265's own depth was swept around 
 
 ## What x265 wasn't given
 
-No reading uses x265's tunes for grain and for animation. The Homebrew build has no screen-content mode. Because yah265's `medium` adapts to some of that content by itself, the content-type clips compare one encoder's defaults with the other's.
+No measurement uses x265's tunes for grain and for animation. The Homebrew build has no screen-content mode. Because yah265's `medium` adapts to some of that content by itself, the content-type clips compare one encoder's defaults with the other's.

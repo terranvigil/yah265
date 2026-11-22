@@ -262,24 +262,26 @@ def chart_speed(sp):
     panels = [(GOAL_LABEL[g], {((c, t), 0): sp[(c, t, g)][:2] for c, t in rows if (c, t, g) in sp})
               for g in GOAL_ORDER]
     return title, chart_faster(
-        title, f"Dot: the median over a group's clips. Tick: its slowest clip. The bar is 1x for "
+        title, f"Dot: a row's median. Tick: its slowest clip. The limit is 1x for "
                f"the median and the dashed {1 / WORST_BAR:.2f}x for the slowest clip.",
         "Dot plot in three panels, one per goal, of how many times faster than x265 medium "
-        "yah265 runs on the Mac for each class and tier, with a whisker to the slowest clip.",
+        "yah265 runs on the Mac for each picture size and clip length, with a whisker to the "
+        "slowest clip.",
         panels, rows, ["Mac"], True)
 
 
 def chart_machines(sps):
     rows = B.speed_rows(sps.values())
     meds = [v[0] for sp in sps.values() for v in sp.values()]
-    title = f"Against x265 as shipped, all groups are at least {tf(max(meds)):.2f}x faster"
+    title = f"Against x265 as shipped, the lowest median is {tf(max(meds)):.2f}x faster"
     panels = [(GOAL_LABEL[g], {((c, t), j): sps[m][(c, t, g)][:2] for j, m in enumerate(MACHINES)
                                for c, t in rows if (c, t, g) in sps[m]}) for g in GOAL_ORDER]
     return title, chart_faster(
-        title, "Median times faster per class and tier. Each machine is timed against x265 on "
-               "the same machine.",
+        title, "Median times faster per picture size and clip length. Each machine is timed "
+               "against x265 on the same machine.",
         "Dot plot in three panels, one per goal, of the median times faster than x265 medium "
-        "for each class and tier on an Apple M5 Max, a Xeon 8488C and a Graviton4.",
+        "for each picture size and clip length on an Apple M5 Max, a Xeon 8488C and a "
+        "Graviton4.",
         panels, rows, [B.MACHINE_LABEL[m] for m in MACHINES], False)
 
 
@@ -293,19 +295,19 @@ def chart_quality(q):
     hi = math.ceil(max(v[0] for v in q.values()) * 2) / 2 + 0.5
     X = lambda v: L + (v - lo) / (hi - lo) * (W - L - R)
     ahead = sum(1 for v in q.values() if v[0] > 0)
-    title = (f"yah265 scores higher than x265 at the same file size in "
-             f"{'every' if ahead == len(q) else f'{ahead} of {len(q)}'} class and tier")
-    o = head(W, H, title, "VMAF v1 at the matched file size, yah265 minus x265. Dot: the "
-             "group's median. Tick: the clip with the smallest lead.",
-             "Dot plot of the median VMAF v1 difference at matched file size per class and "
-             "tier, with a whisker to the smallest lead.")
+    title = (f"yah265 scores higher than x265 at "
+             f"{'every' if ahead == len(q) else f'{ahead} of {len(q)}'} picture size and clip length")
+    o = head(W, H, title, "VMAF v1 at the matched file size, yah265 minus x265. Dot: a "
+             "row's median. Tick: the clip with the smallest lead.",
+             "Dot plot of the median VMAF v1 difference at matched file size per picture size "
+             "and clip length, with a whisker to the smallest lead.")
     v = math.ceil(lo)
     while v <= hi + 1e-9:
         o.append(vline(X(v), Tp - 6, H - B_, "base" if v == 0 else "grid", 1.5 if v == 0 else 1))
         o.append(T(X(v), H - B_ + 20, "0 (x265)" if v == 0 else f"{v:+g}", 12, "t2", "middle"))
         v += 1
-    for bar, lab in ((DV_MEDIAN, B.pick(f"median bar {DV_MEDIAN:g}", f"median {DV_MEDIAN:g}")),
-                     (DV_CELL, B.pick(f"clip bar {DV_CELL:g}", f"clip {DV_CELL:g}"))):
+    for bar, lab in ((DV_MEDIAN, B.pick(f"median limit {DV_MEDIAN:g}", f"median {DV_MEDIAN:g}")),
+                     (DV_CELL, B.pick(f"clip limit {DV_CELL:g}", f"clip {DV_CELL:g}"))):
         o.append(vline(X(bar), Tp - 6, H - B_, "base", 1.5, "2 3"))
         o.append(T(X(bar) - 4, Tp - 10, lab, 11, "t2", "end" if bar == DV_CELL else "start"))
     for i, (c, t) in enumerate(rows):
@@ -389,7 +391,7 @@ def chart_tracking(cells, tr):
     title = (f"{'All' if inside == len(allo) else f'{inside} of'} {len(allo)} of yah265's VBR "
              f"rungs come within {TRACK_BAR:g}% of their target")
     o = head(W, H, title, "Achieved bitrate against the target over the whole cell, five rungs "
-             f"per encoder. The shaded band is yah265's ±{TRACK_BAR:g}% bar.",
+             f"per encoder. The shaded band is yah265's ±{TRACK_BAR:g}% limit.",
              "Dot plot of VBR rate error per rung for the real-title cells, yah265 and x265.")
     B.legend(o, [(0, "s1", "yah265"), (1, "sx", "x265")])
     o.append(f"<rect x='{X(-TRACK_BAR):.1f}' y='{Tp - 8}' width='{X(TRACK_BAR) - X(-TRACK_BAR):.1f}' "
@@ -494,7 +496,8 @@ def chart_tierc(tc):
             continue
         o.append(T(X(v), H - B_ + 20, "0 (x265)" if v == 0 else f"{v:+d}%", 12, "t2", "middle"))
     o.append(vline(X(BD_BAR), Tp - 8, H - B_, "base", 1.5, "2 3"))
-    o.append(T(X(BD_BAR) + 4, Tp - 12, f"bar +{BD_BAR:.1f}%", 11, "t2"))
+    o.append(T(X(BD_BAR) + B.pick(4, -4), Tp - 12, f"limit +{BD_BAR:.1f}%", 11, "t2",
+               B.pick("start", "end")))
     for i, (lab, content, crf, vbr) in enumerate(tc):
         y = Tp + rowh * (i + 0.5)
         o.append(T(L - 12, y, lab, 12.5, "t1", "end"))
@@ -568,9 +571,9 @@ def values(D):
          f"{pl['dv']:+.2f} points"],
         [f"median bits saved at equal VMAF v1, {len(allbd)} rate ladders",
          f"{abs(st.median(allbd)):.1f}%"],
-        ["speed groups inside the bar, three goals on three machines",
+        ["speed passes, per picture size and clip length, three goals on three machines",
          f"{len(ok)} of {len(combos)}"],
-        [f"rate ladders inside the +{BD_BAR:.1f}% BD-rate bar",
+        [f"rate ladders inside the +{BD_BAR:.1f}% BD-rate limit",
          f"{sum(1 for v in allbd if v <= BD_BAR)} of {len(allbd)}"],
         ["capped VBR cells faster than x265 at the same target bitrate, on three machines",
          f"{sum(1 for v in walls if v < MEDIAN_BAR)} of {len(walls)}"],
@@ -615,7 +618,7 @@ def values(D):
     srows = []
     for c, t in B.speed_rows([sp]):
         srows.append([RES[c], TIER_LABEL[t]] + [pair(*sp[(c, t, x)][:2]) for x in GOAL_ORDER])
-    V["speed-mac"] = mdt(["class", "tier", "G3", "G1", "G2"], [L, L, R, R, R], srows)
+    V["speed-mac"] = mdt(["picture size", "clip length", "G3", "G1", "G2"], [L, L, R, R, R], srows)
     frows = []
     for line in open(D["mac_md"]):
         m = re.match(r"- (\S+) \(end frame (\d+)\): G1 (.+?); G2 (.+?); G3 (.+)$", line.rstrip())
@@ -630,30 +633,31 @@ def values(D):
     grid = B.speed_rows(sps.values())
     for g in ("G1", "G2"):
         V[f"machines-{g.lower()}"] = mdt(
-            ["class", "tier", "Mac", "x86-64", "Graviton4"], [L, L, R, R, R],
+            ["picture size", "clip length", "Mac", "x86-64", "Graviton4"], [L, L, R, R, R],
             [mrow(c, t, [sps[m].get((c, t, g)) for m in MACHINES]) for c, t in grid])
     s512 = D["s512"]
     V["machines-g3"] = mdt(
-        ["class", "tier", "Mac", "x86-64", "x86-64 against x265 at `--asm avx512`", "Graviton4"],
+        ["picture size", "clip length", "Mac", "x86-64", "x86-64 against x265 at `--asm avx512`",
+         "Graviton4"],
         [L, L, R, R, R, R],
         [mrow(c, t, [sps["mac"].get((c, t, "G3")), sps["x86"].get((c, t, "G3")),
                      s512.get((c, t, "G3")), sps["g4"].get((c, t, "G3"))]) for c, t in grid])
-    V["graviton3"] = mdt(["class", "Graviton3", "clips"], [L, R, R],
+    V["graviton3"] = mdt(["picture size", "Graviton3", "clips"], [L, R, R],
                          [[RES[c], pair(*D["g3"][c][:2]), D["g3"][c][2]]
                           for c in CLASSES if c in D["g3"]])
     cap = D["cap"]
-    V["capped"] = mdt(["class"] + [lab for *_, lab in B.CAPPED_PAIRS] + ["clips"], [L, R, R, R, R],
+    V["capped"] = mdt(["picture size"] + [lab for *_, lab in B.CAPPED_PAIRS] + ["clips"], [L, R, R, R, R],
                       [[RES[c]] + [pair(*cap[c][k][:2]) for k, *_ in B.CAPPED_PAIRS]
                        + [cap[c]["avx2"][2]] for c in CLASSES if c in cap])
     vkeys = sorted(vbr, key=lambda r: (CLASSES.index(r[0]), TIERS.index(r[1])))
-    V["vbr-machines"] = mdt(["class", "tier", "Mac", "x86-64", "Graviton4", "cells"],
+    V["vbr-machines"] = mdt(["picture size", "clip length", "Mac", "x86-64", "Graviton4", "cells"],
                             [L, L, R, R, R, R],
                             [mrow(c, t, [vbr[(c, t)].get(m) for m in MACHINES]) + [vbr_n[(c, t)]]
                              for c, t in vkeys])
 
     # quality at the same size
     how_q = {(r[0], r[1]): r[5:7] for r in table(isa, "Quality on each machine")[1:]}
-    V["quality"] = mdt(["class", "tier", "median", "smallest lead", "on"], [L, L, R, R, L],
+    V["quality"] = mdt(["picture size", "clip length", "median", "smallest lead", "on"], [L, L, R, R, L],
                        [[RES[c], TIER_LABEL[t], f"{q[(c, t)][0]:+.2f}", f"{q[(c, t)][1]:+.2f}",
                          nice(q[(c, t)][2], c)]
                         for c, t in sorted(q, key=lambda r: (CLASSES.index(r[0]), TIERS.index(r[1])))])
@@ -667,7 +671,7 @@ def values(D):
                             [L, L, R], xrows)
 
     # ladders
-    V["bd"] = mdt(["cell", "tier", "CRF BD-rate", "VBR BD-rate"], [L, L, R, R],
+    V["bd"] = mdt(["cell", "clip length", "CRF BD-rate", "VBR BD-rate"], [L, L, R, R],
                   [[nice(ti, s), TIER_LABEL[t], pct(bds[k][0]), pct(bds[k][1])]
                    for k, ti, s, t in cells])
     tight = max((v, k, i) for k, *_ in cells for i, v in enumerate(bds[k]))
@@ -677,12 +681,12 @@ def values(D):
         ["median BD-rate, capped VBR", pct(st.median(bds[k][1] for k, *_ in cells), 1)],
         ["median BD-rate, both", pct(st.median(allbd), 1)],
         ["ladders where yah265 needs fewer bits", f"{sum(1 for v in allbd if v < 0)} of {len(allbd)}"],
-        [f"closest to the bar: {nice(ti, s)}, {TIER_LABEL[t]}, {'VBR' if tight[2] else 'CRF'}",
+        [f"closest to the quality limit: {nice(ti, s)}, {TIER_LABEL[t]}, {'VBR' if tight[2] else 'CRF'}",
          pct(tight[0])]])
-    V["vbr-track"] = mdt(["cell", "tier", "yah265, five rungs", "x265, five rungs"], [L, L, R, R],
+    V["vbr-track"] = mdt(["cell", "clip length", "yah265, five rungs", "x265, five rungs"], [L, L, R, R],
                          [[nice(ti, s), TIER_LABEL[t], rng(tr[k][0]), rng(tr[k][1])]
                           for k, ti, s, t in cells])
-    V["vbr-wall"] = mdt(["cell", "tier", "target kbit/s", "speed", "yah265 against target",
+    V["vbr-wall"] = mdt(["cell", "clip length", "target kbit/s", "speed", "yah265 against target",
                          "x265 against target"], [L, L, R, R, R, R],
                         [[nice(*split_cell(r[0])), TIER_LABEL[r[1]], r[2], f"{tf(float(r[3])):.2f}x",
                           re.search(r"\((.+?)\)", r[4])[1], re.search(r"\((.+?)\)", r[5])[1]]

@@ -83,7 +83,7 @@ The headline covers the cells in the first table. Each cell is one clip at one p
 | bits saved at equal VMAF v1, rate ladders at CRF and capped VBR | 38 | 10.2% |
 <!--/gen:quality-table-->
 
-Of the project's three speed goals, G3 is the one a user sees: both encoders as shipped. G1 and G2 compare the algorithms with SIMD off on both sides. Each cell is the range of group medians on that machine.
+Of the project's three speed goals, G3 is the one a user sees: both encoders as shipped. G1 and G2 compare the algorithms with SIMD off on both sides. Each cell is the range of medians over each picture size and clip length on that machine.
 
 <!--gen:goal-table-->
 | goal | Apple M5 Max (NEON) | Xeon 8488C (AVX-512) | Graviton4 (SVE2) |

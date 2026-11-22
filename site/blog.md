@@ -11,7 +11,7 @@ image: assets/blog/card.png
 
 It's a new HEVC encoder I wrote in C. Speed is the reason to try it. The chart shows what the difference looks like on real films. Both encoders wrote files of the same size from the same ten-minute films on my Mac at `--preset medium`. yah265 finished all of them first. Each of its files also scored higher on VMAF v1.
 
-<figure class="chart"><img src="assets/blog/films.svg" alt="Paired bars of encode time per ten-minute film at 1080p and at 4K. On each film the yah265 bar is shorter, at a half to two thirds of the x265 bar."><figcaption>The films table below has the same readings.</figcaption></figure>
+<figure class="chart"><img src="assets/blog/films.svg" alt="Paired bars of encode time per ten-minute film at 1080p and at 4K. On each film the yah265 bar is shorter, at a half to two thirds of the x265 bar."><figcaption>The films table below has the same results.</figcaption></figure>
 
 On this page "2x faster" means half the wall time.
 
@@ -34,7 +34,7 @@ A cell is one clip at one resolution. Each dot below is one cell timed on the Ma
 
 These are the cells behind the headline, from ten-second clips to ten-minute films. In each one I adjusted yah265's CRF until its file matched x265's size. No dot is left of the x265 line. Capped VBR and the content-type clips were timed too, although the [results page](results.md#vbr) reports them apart because their files aren't matched in size the same way.
 
-## Three goals and a quality bar
+## Three goals and a quality limit
 
 yah265 is the second of three sibling encoders. [yah264](https://terranvigil.github.io/yah264/) reached the same goals against x264 first. I wrote the encoder from the ITU-T H.265 specification. Every stream it writes has to decode correctly in two independent decoders before a number from it counts.
 
@@ -46,23 +46,23 @@ I set three speed goals against x265 at `--preset medium`. Each one compares fil
 | G1 | plain C on one thread | `--no-asm` on one thread |
 | G2 | plain C on all cores | `--no-asm` on all cores |
 
-G3 is the one a user sees. G1 and G2 compare the algorithms with the hand-written SIMD off on both sides. A goal passes in a group of clips when the median is at least even and the slowest clip is no more than 15% slower. The quality bar is that on any rate ladder of a real film, yah265 may need at most 1.0% more bits than x265 for the same VMAF v1.
+G3 is the one a user sees. G1 and G2 compare the algorithms with the hand-written SIMD off on both sides. A goal passes at each picture size and clip length when the median is at least even and the slowest clip is no more than 15% slower. The quality limit is that on any rate ladder of a real film, yah265 may need at most 1.0% more bits than x265 for the same VMAF v1.
 
 ## The same lead on three machines
 
 I also timed both encoders on an Intel Xeon with AVX-512 and on an AWS Graviton4 with SVE2. Each cloud box held them to the same 16 vCPUs.
 
-<figure class="chart"><img src="assets/blog/arch.svg" alt="Dot plot of the median speedup over x265 at G3 for each resolution and length group, one marker per machine. The markers all sit right of the 1x line."><figcaption>The G3 table below has each marker's value.</figcaption></figure>
+<figure class="chart"><img src="assets/blog/arch.svg" alt="Dot plot of the median speedup over x265 at G3 for each resolution and clip length, one marker per machine. The markers all sit right of the 1x line."><figcaption>The G3 table below has each marker's value.</figcaption></figure>
 
-yah265 leads in each group on all three machines and passes all three goals on each. Because plenty of x86 machines have no AVX-512, I timed the short clips again on the Xeon with both encoders held to AVX2 and then to SSE4.2. The lead held at both.
+yah265 leads at each picture size and clip length on all three machines and passes all three goals on each. Because plenty of x86 machines have no AVX-512, I timed the short clips again on the Xeon with both encoders held to AVX2 and then to SSE4.2. The lead held at both.
 
 ## Smaller files for the same VMAF score
 
 Speed would mean little if the files got bigger. Each real film has a five-rung rate ladder at CRF and another at capped VBR. Both are scored on VMAF v1 at display size.
 
-<figure class="chart"><img src="assets/blog/bdrate.svg" alt="Dot plot of BD-rate against x265 on VMAF v1 for the film cells at CRF and capped VBR. All the dots sit left of the +1.0% bar."></figure>
+<figure class="chart"><img src="assets/blog/bdrate.svg" alt="Dot plot of BD-rate against x265 on VMAF v1 for the film cells at CRF and capped VBR. All the dots sit left of the +1.0% limit."></figure>
 
-Over all the ladders yah265 needs a median <!--gen:bd-median-->10.2%<!--/gen:bd-median--> fewer bits for the same score. None is outside the bar.
+Over all the ladders yah265 needs a median <!--gen:bd-median-->10.2%<!--/gen:bd-median--> fewer bits for the same score. None is outside the quality limit.
 
 <figure class="chart"><img src="assets/blog/curves.svg" alt="Three line charts of VMAF v1 against bitrate on a log scale, for the ladders with the largest, the median and the smallest saving. The yah265 line sits above the x265 line in the first two and close to it in the third."></figure>
 
@@ -123,7 +123,7 @@ ffmpeg -ss 60 -i tearsofsteel_4k.mov -frames:v 1440 -an -vf scale=1920:858:flags
 
 <figure class="chart"><img src="assets/blog/history.svg" alt="Line chart on a log scale of the timed board's median speed against x265 from September to October 2026. Both lines start well below even and end above it."></figure>
 
-The chart is the timed board. It read each milestone commit on the same short clips until the shared test set took over in October. yah265 started out slow. The first reading with SIMD on all cores took <!--gen:hist-g3-first-->15.2x<!--/gen:hist-g3-first--> x265's time.
+The chart is the timed board. It read each milestone commit on the same short clips until the shared test set took over in October. yah265 started out slow. The first measurement with SIMD on all cores took <!--gen:hist-g3-first-->15.2x<!--/gen:hist-g3-first--> x265's time.
 
 ### Correct first, then quality, then speed
 
@@ -163,17 +163,17 @@ The biggest find there was motion search on fine texture. yah265's runs of B-fra
 
 ### VMAF v1
 
-In late October I moved all three encoders from VMAF-NEG to VMAF v1. VMAF v1 reads chroma, banding and motion. One title fell over the bar at once because of chroma. Inter chroma now rounds less aggressively and both chroma quantizers run finer than luma's. Scoring at display size exposed the same loss at CIF, where the chroma setting now reaches too.
+In late October I moved all three encoders from VMAF-NEG to VMAF v1. VMAF v1 reads chroma, banding and motion. One title fell over the quality limit at once because of chroma. Inter chroma now rounds less aggressively and both chroma quantizers run finer than luma's. Scoring at display size exposed the same loss at CIF, where the chroma setting now reaches too.
 
 Then v1's banding feature found dark grain coded to flat steps on StEM2 and Nocturne. Raising the psychovisual strength on dark, smooth blocks fixed both.
 
 ### The input read
 
-One film still failed the speed bar with SIMD on. At 720p it was slower than x265 even though yah265's instruction count was the lowest of any film. The time went to the input. Because the command line read each frame between calls into the encoder, a slow disk added its time to each one. Reading on its own thread fixed it.
+One film still failed on speed with SIMD on. At 720p it was slower than x265 even though yah265's instruction count was the lowest of any film. The time went to the input. Because the command line read each frame between calls into the encoder, a slow disk added its time to each one. Reading on its own thread fixed it.
 
 ### Off the Mac
 
-Parity on the Mac wasn't the finish line, because a parity claim has to hold on all the instruction sets the encoder ships. The x86-64 kernels gained an AVX-512 tier for the transforms and the block-difference sums. The arm64 kernels gained an SVE tier. Each tier is bit-exact with C, as NEON is. Both cloud tables then ran on EC2 spot instances. Each box built both encoders from the same source. yah265 passed all three goals in each group on both machines the first time they were timed.
+Parity on the Mac wasn't the finish line, because a parity claim has to hold on all the instruction sets the encoder ships. The x86-64 kernels gained an AVX-512 tier for the transforms and the block-difference sums. The arm64 kernels gained an SVE tier. Each tier is bit-exact with C, as NEON is. Both cloud tables then ran on EC2 spot instances. Each box built both encoders from the same source. yah265 passed all three goals at each picture size and clip length on both machines the first time they were timed.
 
 ## The tables behind the charts
 
@@ -194,7 +194,7 @@ All of these ran on the Mac at CRF with SIMD on all cores. In each one the two f
 ### Each ten-minute film
 
 <!--gen:films-table-->
-| class | film | x265 | yah265 | faster | VMAF v1 ahead |
+| picture size | film | x265 | yah265 | faster | VMAF v1 ahead |
 |---|---|--:|--:|--:|--:|
 | 1080p | Nocturne | 5.4 min | 3.0 min | 1.79x | +1.21 |
 | 1080p | StEM2 | 2.3 min | 1.3 min | 1.79x | +1.85 |
@@ -213,7 +213,7 @@ All of these ran on the Mac at CRF with SIMD on all cores. In each one the two f
 
 ### The three goals on each machine
 
-Each range runs from the slowest group's median to the fastest's. A group is one resolution in one tier: short clips, two-minute segments or ten-minute films.
+Each range runs from the slowest median to the fastest. Each median covers one resolution at one clip length: short clips, two-minute segments or ten-minute films.
 
 <!--gen:goal-table-->
 | goal | Apple M5 Max (NEON) | Xeon 8488C (AVX-512) | Graviton4 (SVE2) |
@@ -223,14 +223,14 @@ Each range runs from the slowest group's median to the fastest's. A group is one
 | G2: algorithm only, plain C on all cores | 2.56x to 4.35x | 2.22x to 4.76x | 2.08x to 4.35x |
 <!--/gen:goal-table-->
 
-<!--gen:combos-line-->That's 81 of 81 combinations of machine, group and goal inside the bar. Bus at CIF on the Xeon is the slowest single clip at G3 on any machine and still runs 1.22x faster.<!--/gen:combos-line-->
+<!--gen:combos-line-->That's 81 of 81 combinations of machine, picture size, clip length and goal that pass. Bus at CIF on the Xeon is the slowest single clip at G3 on any machine and still runs 1.22x faster.<!--/gen:combos-line-->
 
 ### G3 by resolution and length
 
-The last column is how many VMAF v1 points yah265 scores above x265 when both files are the same size. It's the median over the group, read on the Mac.
+The last column is how many VMAF v1 points yah265 scores above x265 when both files are the same size. It's the median over the row's clips, read on the Mac.
 
 <!--gen:arch-table-->
-| class | tier | Mac, NEON | x86-64, AVX-512 | Graviton4, SVE2 | VMAF v1 ahead at the same size |
+| picture size | clip length | Mac, NEON | x86-64, AVX-512 | Graviton4, SVE2 | VMAF v1 ahead at the same size |
 |---|---|--:|--:|--:|--:|
 | CIF | short clips | 1.96x | 1.43x | 1.82x | +2.33 |
 | 720p | short clips | 1.61x | 1.67x | 2.08x | +2.39 |
@@ -245,10 +245,10 @@ The last column is how many VMAF v1 points yah265 scores above x265 when both fi
 
 ### x86 without AVX-512
 
-Both encoders were held to the same instruction set on the Xeon. Each cell is the median over the short clips of that class.
+Both encoders were held to the same instruction set on the Xeon. Each cell is the median over the short clips of that picture size.
 
 <!--gen:capped-table-->
-| class | both held to SSE4.2 | both held to AVX2 |
+| picture size | both held to SSE4.2 | both held to AVX2 |
 |---|--:|--:|
 | CIF | 1.56x | 1.35x |
 | 720p | 2.00x | 1.56x |
@@ -259,7 +259,7 @@ Both encoders were held to the same instruction set on the Xeon. Each cell is th
 ### Bits saved at the same VMAF v1
 
 <!--gen:quality-table-->
-| rate mode | ladders | median bits saved | ahead of x265 | inside the bar | thinnest margin |
+| rate mode | ladders | median bits saved | ahead of x265 | inside the quality limit | thinnest margin |
 |---|--:|--:|--:|--:|---|
 | CRF | 19 | 12.0% | 19 | 19 | Big Buck Bunny 4K, 10 min, -4.94% |
 | capped VBR | 19 | 9.1% | 19 | 19 | Nocturne 720p, 10 min, -0.41% |
@@ -287,7 +287,7 @@ The ladders ran on the Mac. Graviton4's quality is the Mac's, because it writes 
 | x86-64 | ladders run again, largest difference from the Mac's BD-rate | 3 ladders, 0.03 points |
 <!--/gen:offmac-table-->
 
-### The timed board's first and last readings
+### The timed board's first and last results
 
 <!--gen:board-table-->
 | board median | first timed board | last timed board |

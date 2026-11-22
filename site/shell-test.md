@@ -91,7 +91,7 @@ encoded 240 frames
 
 ## Tables
 
-| class | frames | wall, yah265 | wall, x265 | a long column that makes this table wider than a phone | another wide column of filler words |
+| picture size | frames | wall, yah265 | wall, x265 | a long column that makes this table wider than a phone | another wide column of filler words |
 |---|--:|--:|--:|---|---|
 | CIF | 300 | 0.00 | 0.00 | sample text, with no measured value in it | sample text |
 | 720p | 600 | 0.00 | 0.00 | sample text, with no measured value in it | sample text |

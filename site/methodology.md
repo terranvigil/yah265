@@ -1,28 +1,27 @@
 ---
 title: Methodology - yah265
-description: How yah265 is compared with x265, what makes a number valid, how quality is scored and what each bar is.
+description: How yah265 is compared with x265, what makes a number valid, how quality is scored and what each limit is.
 ---
 
 # Methodology
 
 This page has the rules behind the [results](results.md). [How x265 was run](x265-run.md) has the exact commands. yah265 is compared with x265 4.3+1-e9b8812 when both run at `--preset medium`.
 
-Both sides run their own `medium` defaults with no `--tune`. yah265's `medium` adapts by itself to some content, such as screen recordings and handheld footage. x265 has tunes for grain and animation that these readings don't use. The Homebrew build has no screen-content mode. Any departure from a default is stated beside the reading. The main one is that the ladders run both encoders at 6 threads.
+Both sides run their own `medium` defaults with no `--tune`. yah265's `medium` adapts by itself to some content, such as screen recordings and handheld footage. x265 has tunes for grain and animation that these measurements don't use. The Homebrew build has no screen-content mode. Any departure from a default is stated beside the result. The main one is that the ladders run both encoders at 6 threads.
 
 On the 18-core Mac, x265's auto-detection chose four frame threads. Because x265's pictures change with that count, the untimed encodes pass `--frame-threads 4` by name to code the same pictures as the timed default.
 
-The test set, the goals, the bar and the report format come from one specification that yah265 shares with its sibling encoders, yah264 and yaav1.
+The test set, the goals, the limits and the report format come from one specification that yah265 shares with its sibling encoders, yah264 and yaav1.
 
 ## Words this page uses
 
 - **Cell**: one clip or excerpt at one picture size.
-- **Class**: a picture size. The classes are CIF, 720p, 1080p and 4K.
+- **Picture size**: CIF, 720p, 1080p or 4K.
 - **Tier**: a clip length. S is short clips, M is 2-minute segments and L is 10-minute films. C is a set of content types.
-- **Anchor**: the x265 encode a cell is measured against.
-- **Matched point**: the yah265 encode whose file size is within 1% of the anchor's.
+- **Matched point**: the yah265 encode whose file size is within 1% of the x265 encode's.
 - **Ladder**: the same cell coded at five quality settings, called rungs, on both encoders.
 - **BD-rate**: the average bitrate difference between two ladders at equal quality.
-- **Bar**: the pass mark for a reading.
+- **Quality limit**: yah265 may need at most 1.0% more bits than x265 for the same VMAF v1.
 
 ## The matched point
 
@@ -43,7 +42,7 @@ A faster encoder can look faster only because it spent more bits, or look better
 <line class="d-dash" x1="330" y1="250" x2="330" y2="60"/>
 <circle class="d-box" cx="330" cy="124" r="7"/>
 <circle class="d-accent" cx="330" cy="98" r="7"/>
-<text class="d-label" x="346" y="146">the anchor: x265 at CRF 28</text>
+<text class="d-label" x="346" y="146">x265 at CRF 28</text>
 <line class="d-arrow d-muted" x1="212" y1="98" x2="318" y2="98"/>
 <text class="d-label" x="206" y="92" text-anchor="end">yah265, with its CRF adjusted</text>
 <text class="d-label" x="206" y="108" text-anchor="end">onto the same size</text>
@@ -65,7 +64,7 @@ A faster encoder can look faster only because it spent more bits, or look better
 <circle class="d-box" cx="148.4" cy="104" r="7"/>
 <circle class="d-accent" cx="148.4" cy="78" r="7"/>
 <circle class="d-box" cx="16" cy="272" r="7"/>
-<text class="d-label" x="32" y="277">the anchor: x265 at CRF 28</text>
+<text class="d-label" x="32" y="277">x265 at CRF 28</text>
 <circle class="d-accent" cx="16" cy="296" r="7"/>
 <text class="d-label" x="32" y="301">yah265, with its CRF adjusted to the same size</text>
 <line class="d-dash" x1="16" y1="312" x2="16" y2="342"/>
@@ -77,13 +76,13 @@ A faster encoder can look faster only because it spent more bits, or look better
 
 x265 runs first, at its default rate factor of CRF 28. I then adjust yah265's CRF until its file is within 1% of x265's size, trying whole CRFs first and then a fraction. Speed and quality are both read at that one point.
 
-Each cell has two x265 anchors because x265's pictures change with its frame-thread count. G3 and G2 use the anchor at x265's default threading. G1 uses the one at a single frame thread. yah265's CRF is matched to each one separately.
+Each cell has two x265 encodes because x265's pictures change with its frame-thread count. G3 and G2 use the x265 encode at its default threading. G1 uses the one at a single frame thread. yah265's CRF is matched to each one separately.
 
 ## Timing
 
 - Both encoders read the same frames on standard input from one feeder. Neither ever gets a file path the other doesn't.
 - The feeder alone must deliver at least 1.5 times the faster encoder's frame rate. A cell below that is feeder-bound and its ratio is void.
-- Rounds are interleaved. The order of the two encoders reverses on alternate rounds. The reading is the median wall time.
+- Rounds are interleaved. The order of the two encoders reverses on alternate rounds. The result is the median wall time.
 - The machine must be quiet, judged on total CPU across all cores. No other work runs during a timed leg.
 - Each run prints its output's md5. A run that didn't happen leaves a gap there.
 
@@ -128,22 +127,22 @@ Scoring runs at 10 bits. The model follows the picture:
 | above 1080p | `vmaf_v1.0.16_1d5h_2160`, for one and a half |
 | 50 fps and up | the `_hfr` variant of either |
 
-All frames are scored at the matched point. The ladders score all frames on tier M and every third frame on tier L. The stride is odd because an even stride lines up with an encoder's B-frame pattern. When I measured that, it moved BD-rate by 1.3 to 6 points.
+All frames are scored at the matched point. The ladders score all frames on the 2-minute segments and every third frame on the 10-minute films. The stride is odd because an even stride lines up with an encoder's B-frame pattern. When I measured that, it moved BD-rate by 1.3 to 6 points.
 
-## The bar
+## The limits
 
-| what | bar |
+| what | limit |
 |---|---|
-| speed, per class, tier and goal | median ratio at or under 1.00, slowest clip at or under 1.15 |
+| speed, per picture size, clip length and goal | median ratio at or under 1.00, slowest clip at or under 1.15 |
 | quality at the matched point | median VMAF v1 difference no worse than -0.5 |
 | any single cell | no more than 1.0 VMAF v1 behind, size within 1% |
-| ladders, tiers M and L | BD-rate on VMAF v1 at or under +1.0% on each curve, at CRF and at VBR |
-| VBR tracking, tiers M and L | each rung within ±10% of its target over the whole cell |
-| VBR speed, tiers M and L | G3 only, held to the same speed bar |
+| ladders, 2-minute segments and 10-minute films | BD-rate on VMAF v1 at or under +1.0% on each curve, at CRF and at VBR |
+| VBR tracking, 2-minute segments and 10-minute films | each rung within ±10% of its target over the whole cell |
+| VBR speed, 2-minute segments and 10-minute films | G3 only, held to the same speed limit |
 
-The unit of passing is a combination of class, tier and goal, for example 1080p at tier M for G3. A combination passes when its median ratio and its slowest ratio both meet the bar and quality holds for that class and tier too. Because this site writes a speed as times faster, the same bar reads 1.00x for the median and 0.87x for the slowest clip. Full parity means all three goals pass in each class and tier, on each machine. Tier C's speed is shown outside that count.
+The unit of passing is a combination of picture size, clip length and goal, for example the 2-minute segments at 1080p for G3. A combination passes when its median ratio and its slowest ratio both meet the limit and quality holds for that picture size and clip length too. Because this site writes a speed as times faster, the same limit reads 1.00x for the median and 0.87x for the slowest clip. Full parity means all three goals pass at each picture size and clip length, on each machine. Tier C's speed is shown outside that count.
 
-The lookahead's depth is part of the reading. yah265's own depth is swept around x265's default under CRF and VBR. The sweep covers live action, animation and 60p content at 1080p and 4K. x265 stays at its default 20 throughout. Each reading states both depths. Shot-based and chunked encoding never enter a reading.
+The lookahead's depth is part of the measurement. yah265's own depth is swept around x265's default under CRF and VBR. The sweep covers live action, animation and 60p content at 1080p and 4K. x265 stays at its default 20 throughout. Each result states both depths. Shot-based and chunked encoding never enter a measurement.
 
 ## The ladders
 
@@ -159,4 +158,4 @@ A cell counts only when five things hold:
 - the sizes matched within 1%
 - each run's output md5 was printed
 
-A cell that fails one of these is marked with the reason in the report. I didn't include its number in the class statistics.
+A cell that fails one of these is marked with the reason in the report. I didn't include its number in the statistics for its picture size.

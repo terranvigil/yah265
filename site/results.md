@@ -5,7 +5,7 @@ description: yah265 against x265 medium on speed, quality and file size, from CI
 
 # Results
 
-The readings on this page compare yah265 with x265 4.3 when both run at `--preset medium`. A script builds the tables and charts from the recorded runs. Its check fails when the page and the data disagree.
+The results on this page compare yah265 with x265 4.3 when both run at `--preset medium`. A script builds the tables and charts from the recorded runs. Its check fails when the page and the data disagree.
 
 The first two rows are the headline. They cover the CRF cells timed on the Mac as shipped, where yah265's file is within 1% of x265's size.
 
@@ -15,22 +15,22 @@ The first two rows are the headline. They cover the CRF cells timed on the Mac a
 | median speed on the Mac at the same file size, 30 CRF cells | 1.8x faster |
 | median VMAF v1 lead at the same file size, the same 30 cells | +1.23 points |
 | median bits saved at equal VMAF v1, 38 rate ladders | 10.2% |
-| speed groups inside the bar, three goals on three machines | 81 of 81 |
-| rate ladders inside the +1.0% BD-rate bar | 38 of 38 |
+| speed passes, per picture size and clip length, three goals on three machines | 81 of 81 |
+| rate ladders inside the +1.0% BD-rate limit | 38 of 38 |
 | capped VBR cells faster than x265 at the same target bitrate, on three machines | 57 of 57 |
 | VBR rungs within ±10% of their target | 95 of 95 |
 | content-type clips passing on quality | 9 of 9 |
 <!--/gen:verdict-->
 
-"The bar" is the pass mark a reading has to meet. [The methodology](methodology.md) sets out each bar and the rules that make a number valid. [How x265 was run](x265-run.md) has its build and the command for each goal. [Check it yourself](check-it-yourself.md) shows how to take the same readings on your own machine. The long per-cell tables are folded.
+The quality limit is that yah265 may need at most 1.0% more bits than x265 for the same VMAF v1. [The methodology](methodology.md) sets out each limit and the rules that make a number valid. [How x265 was run](x265-run.md) has its build and the command for each goal. [Check it yourself](check-it-yourself.md) shows how to take the same measurements on your own machine. The long per-cell tables are folded.
 
 ## What the numbers mean
 
-A cell is one clip at one picture size. A class is a picture size. A tier is a clip length. Cells are grouped by both.
+A cell is one clip at one picture size. A tier is a clip length: S is short clips, M is 2-minute segments, L is 10-minute films.
 
 Speed is written as times faster. It's x265's encode time divided by yah265's when both write a file of the same size. On the speed charts right is faster.
 
-A speed cell in a table holds the median over the group's clips, then the slowest clip. A group passes when its median is at least 1.00x and its slowest clip is at least 0.87x, as long as its quality holds too.
+A speed cell in a table holds the median over the clips of one picture size and clip length, then the slowest clip. It passes when the median is at least 1.00x and the slowest clip is at least 0.87x, as long as its quality holds too.
 
 I read speed three ways and call each one a goal. G3 times both encoders as shipped. It's the speed a user sees.
 
@@ -82,7 +82,7 @@ Both encoders read the same 8-bit 4:2:0 frames on standard input from one feeder
 The table has the same numbers as median / slowest clip, in times faster.
 
 <!--gen:speed-mac-->
-| class | tier | G3 | G1 | G2 |
+| picture size | clip length | G3 | G1 | G2 |
 |---|---|--:|--:|--:|
 | CIF | short clips | 1.96x / 1.75x | 2.17x / 2.08x | 3.12x / 2.86x |
 | 720p | short clips | 1.61x / 1.54x | 3.33x / 2.33x | 3.33x / 3.03x |
@@ -135,10 +135,10 @@ Each film runs from its start frame to its last story frame. The table has the M
 ## By machine
 
 <!--gen:fig-machines-->
-<figure class="chart"><img src="assets/charts/results/machines.svg" alt="Against x265 as shipped, all groups are at least 1.25x faster."></figure>
+<figure class="chart"><img src="assets/charts/results/machines.svg" alt="Against x265 as shipped, the lowest median is 1.25x faster."></figure>
 <!--/gen:fig-machines-->
 
-The same medians from each machine's slowest group to its fastest:
+The same medians from each machine's slowest to its fastest:
 
 <!--gen:goal-table-->
 | goal | Apple M5 Max (NEON) | Xeon 8488C (AVX-512) | Graviton4 (SVE2) |
@@ -153,7 +153,7 @@ The next three tables give median / slowest clip for each goal.
 G3, SIMD on all cores:
 
 <!--gen:machines-g3-->
-| class | tier | Mac | x86-64 | x86-64 against x265 at `--asm avx512` | Graviton4 |
+| picture size | clip length | Mac | x86-64 | x86-64 against x265 at `--asm avx512` | Graviton4 |
 |---|---|--:|--:|--:|--:|
 | CIF | short clips | 1.96x / 1.75x | 1.43x / 1.22x | 1.43x / 1.19x | 1.82x / 1.52x |
 | 720p | short clips | 1.61x / 1.54x | 1.67x / 1.33x | 1.61x / 1.30x | 2.08x / 1.75x |
@@ -174,7 +174,7 @@ On the Xeon x265 reports AVX2 as the highest instruction set it uses by default.
 G1, plain C on one thread:
 
 <!--gen:machines-g1-->
-| class | tier | Mac | x86-64 | Graviton4 |
+| picture size | clip length | Mac | x86-64 | Graviton4 |
 |---|---|--:|--:|--:|
 | CIF | short clips | 2.17x / 2.08x | 1.49x / 1.49x | 1.52x / 1.47x |
 | 720p | short clips | 3.33x / 2.33x | 2.27x / 1.64x | 2.33x / 1.69x |
@@ -190,7 +190,7 @@ G1, plain C on one thread:
 G2, plain C on all cores:
 
 <!--gen:machines-g2-->
-| class | tier | Mac | x86-64 | Graviton4 |
+| picture size | clip length | Mac | x86-64 | Graviton4 |
 |---|---|--:|--:|--:|
 | CIF | short clips | 3.12x / 2.86x | 2.27x / 2.04x | 2.50x / 2.22x |
 | 720p | short clips | 3.33x / 3.03x | 3.57x / 2.63x | 3.85x / 2.94x |
@@ -211,7 +211,7 @@ A Graviton3 with 256-bit SVE ran the short clips at G3. Its CIF row has two clip
 <summary>Graviton3, short clips at G3</summary>
 
 <!--gen:graviton3-->
-| class | Graviton3 | clips |
+| picture size | Graviton3 | clips |
 |---|--:|--:|
 | CIF | 1.89x / 1.67x | 2 |
 | 720p | 2.27x / 1.85x | 4 |
@@ -224,7 +224,7 @@ A Graviton3 with 256-bit SVE ran the short clips at G3. Its CIF row has two clip
 The Xeon also ran the short clips at G3 with both encoders capped to one older instruction set, to stand in for a CPU that has no AVX-512.
 
 <!--gen:capped-->
-| class | both at SSE4.2 | both at AVX2 | clips |
+| picture size | both at SSE4.2 | both at AVX2 | clips |
 |---|--:|--:|--:|--:|
 | CIF | 1.56x / 1.33x | 1.35x / 1.14x | 3 |
 | 720p | 2.00x / 1.54x | 1.56x / 1.25x | 4 |
@@ -237,13 +237,13 @@ AVX2 against AVX2 is the closest pairing on the page. Because both capped tiers 
 ## Quality at the same size
 
 <!--gen:fig-quality-->
-<figure class="chart"><img src="assets/charts/results/quality.svg" alt="yah265 scores higher than x265 at the same file size in every class and tier."></figure>
+<figure class="chart"><img src="assets/charts/results/quality.svg" alt="yah265 scores higher than x265 at every picture size and clip length."></figure>
 <!--/gen:fig-quality-->
 
-The chart and table show yah265's VMAF v1 score minus x265's at the matched file size. The bar is a median no worse than -0.5 with no single cell more than 1.0 behind. Each cell's size is within 1% of x265's.
+The chart and table show yah265's VMAF v1 score minus x265's at the matched file size. The limit is a median no worse than -0.5 with no single cell more than 1.0 behind. Each cell's size is within 1% of x265's.
 
 <!--gen:quality-->
-| class | tier | median | smallest lead | on |
+| picture size | clip length | median | smallest lead | on |
 |---|---|--:|--:|---|
 | CIF | short clips | +2.33 | +0.56 | stefan CIF |
 | 720p | short clips | +2.39 | +0.86 | shields 720p |
@@ -342,9 +342,9 @@ One matched point says little about the rest of the curve. So each 2-minute and 
 <figure class="chart"><img src="assets/charts/results/curves.svg" alt="yah265 needs fewer bits than x265 on 19 of 19 real-title cells at CRF."></figure>
 <!--/gen:fig-curves-->
 
-BD-rate turns each pair of curves into one number: how much more or less bitrate yah265 needs for the same VMAF v1 score. Negative means fewer bits. The bar is +1.0% on any curve.
+BD-rate turns each pair of curves into one number: how much more or less bitrate yah265 needs for the same VMAF v1 score. Negative means fewer bits. The quality limit is +1.0% on any curve.
 
-<figure class="chart"><img src="assets/blog/bdrate.svg" alt="Dot plot of BD-rate against x265 on VMAF v1 for the real-title cells at CRF and capped VBR. All the dots sit left of the bar."></figure>
+<figure class="chart"><img src="assets/blog/bdrate.svg" alt="Dot plot of BD-rate against x265 on VMAF v1 for the real-title cells at CRF and capped VBR. All the dots sit left of the quality limit."></figure>
 
 <!--gen:bd-summary-->
 | over the ladders | value |
@@ -353,7 +353,7 @@ BD-rate turns each pair of curves into one number: how much more or less bitrate
 | median BD-rate, capped VBR | -9.1% |
 | median BD-rate, both | -10.2% |
 | ladders where yah265 needs fewer bits | 38 of 38 |
-| closest to the bar: Nocturne 720p, 10-minute films, VBR | -0.4% |
+| closest to the quality limit: Nocturne 720p, 10-minute films, VBR | -0.4% |
 <!--/gen:bd-summary-->
 
 Each ladder is set up the same way:
@@ -366,7 +366,7 @@ Each ladder is set up the same way:
 <summary>BD-rate of each ladder</summary>
 
 <!--gen:bd-->
-| cell | tier | CRF BD-rate | VBR BD-rate |
+| cell | clip length | CRF BD-rate | VBR BD-rate |
 |---|---|--:|--:|
 | Sol Levante 1080p | 2-minute segments | -14.3% | -9.7% |
 | Sol Levante 4K | 2-minute segments | -12.2% | -7.0% |
@@ -393,7 +393,7 @@ Each ladder is set up the same way:
 
 ## VBR
 
-VBR has to hit its bitrate as well as look good. The bar puts each rung of yah265's within ±10% of its target over the whole cell. x265's rungs are drawn for comparison.
+VBR has to hit its bitrate as well as look good. The limit puts each rung of yah265's within ±10% of its target over the whole cell. x265's rungs are drawn for comparison.
 
 <!--gen:fig-tracking-->
 <figure class="chart"><img src="assets/charts/results/tracking.svg" alt="All 95 of yah265's VBR rungs come within 10% of their target."></figure>
@@ -403,7 +403,7 @@ VBR has to hit its bitrate as well as look good. The bar puts each rung of yah26
 <summary>VBR rate against target, per cell</summary>
 
 <!--gen:vbr-track-->
-| cell | tier | yah265, five rungs | x265, five rungs |
+| cell | clip length | yah265, five rungs | x265, five rungs |
 |---|---|--:|--:|
 | Sol Levante 1080p | 2-minute segments | -4.6% to -3.2% | -7.9% to -6.2% |
 | Sol Levante 4K | 2-minute segments | -6.1% to -3.8% | -8.2% to -7.6% |
@@ -433,7 +433,7 @@ VBR has to hit its bitrate as well as look good. The bar puts each rung of yah26
 VBR speed is read at G3 only. Each real-title cell runs one rung at the bitrate x265 reached at CRF 28. The maxrate and buffer are set as in the ladders. I didn't include these timings in the headline, because the two files share a target bitrate where the headline cells share a size. The second table shows how close each encoder came to the target.
 
 <!--gen:vbr-machines-->
-| class | tier | Mac | x86-64 | Graviton4 | cells |
+| picture size | clip length | Mac | x86-64 | Graviton4 | cells |
 |---|---|--:|--:|--:|--:|
 | 720p | 10-minute films | 2.38x / 1.85x | 2.00x / 1.72x | 2.50x / 2.00x | 6 |
 | 1080p | 2-minute segments | 1.69x / 1.69x | 1.23x / 1.23x | 1.39x / 1.39x | 1 |
@@ -446,7 +446,7 @@ VBR speed is read at G3 only. Each real-title cell runs one rung at the bitrate 
 <summary>VBR encode time on the Mac, per cell</summary>
 
 <!--gen:vbr-wall-->
-| cell | tier | target kbit/s | speed | yah265 against target | x265 against target |
+| cell | clip length | target kbit/s | speed | yah265 against target | x265 against target |
 |---|---|--:|--:|--:|--:|
 | Sol Levante 1080p | 2-minute segments | 7863 | 1.69x | -3.8% | -7.1% |
 | Sol Levante 4K | 2-minute segments | 20733 | 1.52x | -4.0% | -8.2% |
@@ -525,7 +525,7 @@ The VMAF v1 lead in the table is read at the same file size.
 
 All nine clips pass on quality. On the three screen recordings yah265's lowest VBR rung scores above x265's highest at a lower bitrate. No BD-rate can be computed there because the two curves share no score range.
 
-Both encoders undershoot their VBR targets on the screen recordings, where the still frames between changes cost almost nothing. Because the ±10% tracking bar applies to the real titles, that column is here for information.
+Both encoders undershoot their VBR targets on the screen recordings, where the still frames between changes cost almost nothing. Because the ±10% tracking limit applies to the real titles, that column is here for information.
 
 Four G3 speeds have an asterisk. They were timed before yah265's `medium` gained its screen-content and handheld detectors. Tier C speed counts toward neither the verdict nor the headline.
 

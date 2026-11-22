@@ -1,5 +1,5 @@
 <svg xmlns='http://www.w3.org/2000/svg' width='900' height='482' viewBox='0 0 900 482' role='img'>
-<title>As shipped, yah265 runs 1.59x to 2.13x faster than x265 on the Mac</title><desc>Dot plot in three panels, one per goal, of how many times faster than x265 medium yah265 runs on the Mac for each class and tier, with a whisker to the slowest clip.</desc>
+<title>As shipped, yah265 runs 1.59x to 2.13x faster than x265 on the Mac</title><desc>Dot plot in three panels, one per goal, of how many times faster than x265 medium yah265 runs on the Mac for each picture size and clip length, with a whisker to the slowest clip.</desc>
 <style>
 .bg{fill:#ffffff}.t1{fill:#212529}.t2{fill:#495057}.grid{stroke:#e9ecef}
 .base{stroke:#868e96}.ring{stroke:#ffffff}.med{stroke:#212529}.band{fill:#f1f3f5}
@@ -16,7 +16,7 @@ text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-
 </style>
 <rect width='100%' height='100%' class='bg'/>
 <text x='24.0' y='40.0' font-size='22' class='t1' text-anchor='start' font-weight='600'>As shipped, yah265 runs 1.59x to 2.13x faster than x265 on the Mac</text>
-<text x='24.0' y='64.0' font-size='14' class='t2' text-anchor='start'>Dot: the median over a group's clips. Tick: its slowest clip. The bar is 1x for the median and the dashed 0.87x for the slowest clip.</text>
+<text x='24.0' y='64.0' font-size='14' class='t2' text-anchor='start'>Dot: a row's median. Tick: its slowest clip. The limit is 1x for the median and the dashed 0.87x for the slowest clip.</text>
 <rect x='24' y='150.0' width='852' height='30' class='band'/>
 <text x='184.0' y='169.0' font-size='13' class='t1' text-anchor='end'>CIF short clips</text>
 <text x='184.0' y='199.0' font-size='13' class='t1' text-anchor='end'>720p short clips</text>

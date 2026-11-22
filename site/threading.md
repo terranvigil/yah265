@@ -557,7 +557,7 @@ The chart shows how much each encoder gains from the Mac's cores. It compares th
 </figure>
 
 <!--gen:threads-table-->
-| class | yah265 | x265 | clips |
+| picture size | yah265 | x265 | clips |
 |---|--:|--:|--:|
 | CIF | 4.1x | 2.9x | 3 |
 | 720p | 7.5x | 6.9x | 4 |

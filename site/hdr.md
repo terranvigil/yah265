@@ -367,7 +367,7 @@ I wouldn't read the HLG clip's lead as a lead on all HLG, because the clip is ea
 | 4K | -34.6% | -23.4% | -15.0% |
 <!--/gen:hdr-tuning-table-->
 
-### How the HDR readings were run
+### How the HDR measurements were run
 
 The PQ titles are from Netflix Open Content: Sol Levante is 24p animation, Sparks 60p live action. The HLG clip is the EBU / DVB 8K HLG test clip, published by DVB under CC BY 4.0 (credit EBU / DVB). Frames 600 to 899 of its 37 Mbit/s rendition, around the clip's one cut, were scaled down with HLG and BT.2020 kept.
 
@@ -383,7 +383,7 @@ Each encoder ran its own CRF ladder, because the two scales don't line up on thi
 | EBU / DVB HLG | 6 seconds, 50 fps | 20 to 35 in steps of 3 | 20 to 32 in steps of 3 |
 <!--/gen:hdr-ladder-table-->
 
-yah265's six rungs cover 95% or more of x265's HDR-VMAF range in each cell. The [HDR ladder script](scripts/hdr_bd.py) runs the ladders and the BD reading.
+yah265's six rungs cover 95% or more of x265's HDR-VMAF range in each cell. The [HDR ladder script](scripts/hdr_bd.py) runs the ladders and the BD measurement.
 
 ### Banding
 

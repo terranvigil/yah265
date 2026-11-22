@@ -216,7 +216,7 @@ def threads_table(facts, look):
         ["Xeon held to one tier", "`N265_CPU_MAX=sse42` or `avx2`", "`--asm sse4.2` or `--asm avx2`",
          "on, capped"],
     ]
-    table = mdt(["reading", "yah265 threads", "x265 threads", "SIMD"], ["---"] * 4, rows)
+    table = mdt(["measurement", "yah265 threads", "x265 threads", "SIMD"], ["---"] * 4, rows)
     la = mdt(["encoder", "lookahead at 720p and up", "lookahead at CIF", "set by"], ["---", "--:", "--:", "---"],
              [["yah265", look[1], look[2], "its `medium`"],
               ["x265", look[3], look[3], "its `medium`"]])

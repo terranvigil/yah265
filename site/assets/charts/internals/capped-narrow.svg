@@ -1,5 +1,5 @@
 <svg xmlns='http://www.w3.org/2000/svg' width='480' height='380' viewBox='0 0 480 380' role='img'>
-<title>yah265 stays ahead when both encoders are held to one instruction set</title><desc>Median times faster than x265 on the short clips with both encoders capped at SSE4.2, both at AVX2, and yah265 at AVX-512 against x265 at AVX2, per class on one Xeon.</desc>
+<title>yah265 stays ahead when both encoders are held to one instruction set</title><desc>Median times faster than x265 on the short clips with both encoders capped at SSE4.2, both at AVX2, and yah265 at AVX-512 against x265 at AVX2, per picture size on one Xeon.</desc>
 <style>
 .bg{fill:#ffffff}.t1{fill:#212529}.t2{fill:#495057}.grid{stroke:#e9ecef}
 .base{stroke:#868e96}.ring{stroke:#ffffff}.med{stroke:#212529}.band{fill:#f1f3f5}

@@ -16,7 +16,7 @@ text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-
 </style>
 <rect width='100%' height='100%' class='bg'/>
 <text x='24.0' y='40.0' font-size='22' class='t1' text-anchor='start' font-weight='600'>All 95 of yah265's VBR rungs come within 10% of their target</text>
-<text x='24.0' y='64.0' font-size='14' class='t2' text-anchor='start'>Achieved bitrate against the target over the whole cell, five rungs per encoder. The shaded band is yah265's ±10% bar.</text>
+<text x='24.0' y='64.0' font-size='14' class='t2' text-anchor='start'>Achieved bitrate against the target over the whole cell, five rungs per encoder. The shaded band is yah265's ±10% limit.</text>
 <circle cx='30.0' cy='86.0' r='5.5' class='s1 ring' stroke-width='2'/>
 <text x='42.0' y='91.0' font-size='13' class='t2' text-anchor='start'>yah265</text>
 <rect x='109.0' y='81.0' width='9.9' height='9.9' rx='1.5' class='sx ring' stroke-width='2'/>

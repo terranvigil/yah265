@@ -33,7 +33,7 @@ yah265's lead is widest in plain C and narrowest with SIMD on. [What SIMD buys](
 | AVX2 (x86-64) | Xeon 8488C | short clips | checkasm, C-path comparison at 8 and 10 bits |
 | SSE4.2 (x86-64) | Xeon 8488C, Rosetta, QEMU's Nehalem model | short clips | checkasm in all three places, C-path comparison, fast conformance |
 
-The whole test set means all classes and tiers. For the AVX2 and SSE4.2 timings both encoders were capped at that tier. The AVX2 kernels ran both inside the AVX-512 encodes and capped alone. Both ways wrote the same streams. The SSE4.2 checks caught a deliberate break in each kernel family.
+The whole test set means all picture sizes and clip lengths. For the AVX2 and SSE4.2 timings both encoders were capped at that tier. The AVX2 kernels ran both inside the AVX-512 encodes and capped alone. Both ways wrote the same streams. The SSE4.2 checks caught a deliberate break in each kernel family.
 
 The rows follow the coverage table of the [all-architecture parity report](docs/parity/PARITY-REPORT-yah265-all-isa-2026-11-14.md). checkasm is the test program that holds each kernel to its C reference. The C-path comparison encodes the same clip with the kernels on and with them off, then compares the two streams byte for byte.
 
@@ -176,12 +176,12 @@ A tier can need more than its name says. The AVX2 tier needs FMA3 and BMI2 as we
 The chart shows how much faster each encoder gets when its kernels are switched on, with all cores busy in both cases.
 
 <figure class="chart wide">
-<img src="assets/charts/internals/simd.svg" alt="Paired bars of all-core wall time in plain C over all-core wall time with SIMD, for yah265 and x265, per picture size on three machines. x265's bar is longer than yah265's in each group. The table below has the values.">
+<img src="assets/charts/internals/simd.svg" alt="Paired bars of all-core wall time in plain C over all-core wall time with SIMD, for yah265 and x265, per picture size on three machines. x265's bar is longer than yah265's in each pair. The table below has the values.">
 <figcaption>Short clips at the same file size.</figcaption>
 </figure>
 
 <!--gen:simd-table-->
-| class | Mac: yah265 / x265 | Xeon: yah265 / x265 | Graviton4: yah265 / x265 | clips |
+| picture size | Mac: yah265 / x265 | Xeon: yah265 / x265 | Graviton4: yah265 / x265 | clips |
 |---|--:|--:|--:|--:|
 | CIF | 1.61x / 2.64x | 1.90x / 3.12x | 1.73x / 2.52x | 3 |
 | 720p | 1.42x / 2.81x | 1.74x / 3.58x | 1.48x / 2.63x | 4 |
@@ -205,7 +205,7 @@ The x86 results above come from a CPU with AVX-512. Many x86 machines stop at AV
 Each cell is the median over a size's short clips, then the slowest clip.
 
 <!--gen:capped-table-->
-| class | both at SSE4.2 | both at AVX2 | clips |
+| picture size | both at SSE4.2 | both at AVX2 | clips |
 |---|--:|--:|--:|
 | CIF | 1.56x / 1.33x | 1.35x / 1.14x | 3 |
 | 720p | 2.00x / 1.54x | 1.56x / 1.25x | 4 |

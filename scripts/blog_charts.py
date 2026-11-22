@@ -875,9 +875,9 @@ def chart_arch(sps, date):
     x1 = max(2.0, int(max(vals) * 2 + 1.999) / 2)
     X = lambda v: L + (v - x0) / (x1 - x0) * (W - L - R)
     o = head(W, H, "yah265 is faster than x265 on all three machines",
-             "Median times faster than x265 medium at G3, SIMD on all cores, per class and "
-             "tier, on an Apple M5 Max, an x86-64 Xeon and a Graviton4.")
-    o.append(T(24, 40, "Faster than x265 on all three machines, in each class", 22, weight="600"))
+             "Median times faster than x265 medium at G3, SIMD on all cores, per picture size "
+             "and clip length, on an Apple M5 Max, an x86-64 Xeon and a Graviton4.")
+    o.append(T(24, 40, "Faster than x265 on all three machines, at each picture size", 22, weight="600"))
     o.append(T(24, 64, f"Median times faster than x265 medium at the same file size, SIMD on "
                        f"all cores (G3). Parity report of {date}.", 14, "t2"))
     legend(o, [(i, f"s{i + 1}", MACHINE_LABEL[m]) for i, m in enumerate(MACHINES)])
@@ -1001,7 +1001,7 @@ def chart_bd(lad, date):
         o.append(T(X(v), H - B + 20, "0 (x265)" if v == 0 else f"{v:+d}%", 12, "t2", "middle"))
     o.append(f"<line x1='{bx:.1f}' y1='{Tp - 8}' x2='{bx:.1f}' y2='{H - B}' class='base' "
              f"stroke-width='1.5' stroke-dasharray='2 3'/>")
-    o.append(T(bx + 4, Tp - 12, f"bar +{BD_BAR:g}%", 11, "t2"))
+    o.append(T(bx + 4, Tp - 12, f"limit +{BD_BAR:g}%", 11, "t2"))
     o.append(T(pick((L + W - R) / 2, W / 2), H - 14, "bitrate change for the same VMAF v1 (left is better)",
                13, "t2", "middle"))
     for i, (title, size, tier, crf, vbr) in enumerate(rows):
@@ -1109,7 +1109,7 @@ def headline_table(pl):
 
 
 def films_table(fl):
-    L = ["| class | film | x265 | yah265 | faster | VMAF v1 ahead |", "|---|---|--:|--:|--:|--:|"]
+    L = ["| picture size | film | x265 | yah265 | faster | VMAF v1 ahead |", "|---|---|--:|--:|--:|--:|"]
     for c in ("1080p", "2160p"):
         rows = sorted(fl[c], key=lambda r: -(r[2] or 0))
         for t, ours, ref, ratio, dv in rows:
@@ -1125,7 +1125,7 @@ def films_table(fl):
 
 
 def capped_table(cap):
-    L = ["| class | both held to SSE4.2 | both held to AVX2 |", "|---|--:|--:|"]
+    L = ["| picture size | both held to SSE4.2 | both held to AVX2 |", "|---|--:|--:|"]
     for c in CLASSES:
         if c in cap:
             L.append(f"| {RES[c]} | {fx(cap[c]['sse42'][0])} | {fx(cap[c]['avx2'][0])} |")
@@ -1133,7 +1133,7 @@ def capped_table(cap):
 
 
 def quality_table(lad):
-    L = ["| rate mode | ladders | median bits saved | ahead of x265 | inside the bar | thinnest margin |",
+    L = ["| rate mode | ladders | median bits saved | ahead of x265 | inside the quality limit | thinnest margin |",
          "|---|--:|--:|--:|--:|---|"]
     sets = [("CRF", [(r[3], r) for r in lad]), ("capped VBR", [(r[4], r) for r in lad])]
     sets.append(("both", sets[0][1] + sets[1][1]))
@@ -1374,8 +1374,8 @@ def values(sps, q, lad, fl, cap, cv, ff, rows, repro, date, report_rel, hist, cr
     V["slowest-cell"] = (f"{TITLE.get(base, base.capitalize())} at {RES[worst[3][0]]} "
                          f"on the {MACHINE_SHORT[worst[2]]}")
     V["slowest-x"] = fx(worst[0])
-    V["combos-line"] = (f"That's {V['combos']} combinations of machine, group and goal inside "
-                        f"the bar. {V['slowest-cell']} is the slowest single clip at G3 "
+    V["combos-line"] = (f"That's {V['combos']} combinations of machine, picture size, clip length "
+                        f"and goal that pass. {V['slowest-cell']} is the slowest single clip at G3 "
                         f"on any machine and still runs {V['slowest-x']} faster.")
     V["goal-table"] = goal_table(sps)
     V["arch-table"] = arch_table(sps, q)
@@ -1440,7 +1440,7 @@ def goal_table(sps):
 
 
 def arch_table(sps, q):
-    L = ["| class | tier | " + " | ".join(MACHINE_LABEL[m] for m in MACHINES)
+    L = ["| picture size | clip length | " + " | ".join(MACHINE_LABEL[m] for m in MACHINES)
          + " | VMAF v1 ahead at the same size |",
          "|---|---|" + "--:|" * (len(MACHINES) + 1)]
     for c, t in speed_rows(sps.values()):

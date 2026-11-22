@@ -59,7 +59,7 @@ The headline covers the cells below. Each cell is one clip at one picture size, 
 | bits saved at equal VMAF v1, rate ladders at CRF and capped VBR | 38 | 10.2% |
 <!--/gen:quality-table-->
 
-Each of the project's three speed goals passes on three machines. G3 is the one a user sees: both encoders as shipped. G1 and G2 compare the algorithms with SIMD off on both sides. The table gives the range of group medians, where a group is one picture size in one length of clip.
+Each of the project's three speed goals passes on three machines. G3 is the one a user sees: both encoders as shipped. G1 and G2 compare the algorithms with SIMD off on both sides. The table gives the range of medians over each picture size and clip length.
 
 <!--gen:goal-table-->
 | goal | Apple M5 Max (NEON) | Xeon 8488C (AVX-512) | Graviton4 (SVE2) |
@@ -69,7 +69,7 @@ Each of the project's three speed goals passes on three machines. G3 is the one 
 | G2: algorithm only, plain C on all cores | 2.56x to 4.35x | 2.22x to 4.76x | 2.08x to 4.35x |
 <!--/gen:goal-table-->
 
-The [results page](https://terranvigil.github.io/yah265/results.html) has the tables and charts. [Check it yourself](https://terranvigil.github.io/yah265/check-it-yourself.html) shows how to rerun a reading.
+The [results page](https://terranvigil.github.io/yah265/results.html) has the tables and charts. [Check it yourself](https://terranvigil.github.io/yah265/check-it-yourself.html) shows how to rerun a measurement.
 
 ## The y265 command line
 

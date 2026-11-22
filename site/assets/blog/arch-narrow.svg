@@ -1,5 +1,5 @@
 <svg xmlns='http://www.w3.org/2000/svg' width='480' height='564' viewBox='0 0 480 564' role='img'>
-<title>yah265 is faster than x265 on all three machines</title><desc>Median times faster than x265 medium at G3, SIMD on all cores, per class and tier, on an Apple M5 Max, an x86-64 Xeon and a Graviton4.</desc>
+<title>yah265 is faster than x265 on all three machines</title><desc>Median times faster than x265 medium at G3, SIMD on all cores, per picture size and clip length, on an Apple M5 Max, an x86-64 Xeon and a Graviton4.</desc>
 <style>
 .bg{fill:#ffffff}.t1{fill:#212529}.t2{fill:#495057}.grid{stroke:#e9ecef}
 .base{stroke:#868e96}.ring{stroke:#ffffff}.med{stroke:#212529}.band{fill:#f1f3f5}
@@ -15,8 +15,8 @@ text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-
 .note{fill:#ff8a5c}.wash{fill:#45200f}}
 </style>
 <rect width='100%' height='100%' class='bg'/>
-<text x='20' y='30' font-size='18' class='t1' font-weight='600'>Faster than x265 on all three machines, in</text>
-<text x='20' y='53' font-size='18' class='t1' font-weight='600'>each class</text>
+<text x='20' y='30' font-size='18' class='t1' font-weight='600'>Faster than x265 on all three machines, at</text>
+<text x='20' y='53' font-size='18' class='t1' font-weight='600'>each picture size</text>
 <text x='20' y='73' font-size='12.5' class='t2'>Median times faster than x265 medium at the same file size, SIMD on</text>
 <text x='20' y='90' font-size='12.5' class='t2'>all cores (G3). Parity report of 2026-11-14.</text>
 <g transform='translate(0 26)'>

@@ -1,5 +1,5 @@
 <svg xmlns='http://www.w3.org/2000/svg' width='480' height='504' viewBox='0 0 480 504' role='img'>
-<title>yah265 scores higher than x265 at the same file size in every class and tier</title><desc>Dot plot of the median VMAF v1 difference at matched file size per class and tier, with a whisker to the smallest lead.</desc>
+<title>yah265 scores higher than x265 at every picture size and clip length</title><desc>Dot plot of the median VMAF v1 difference at matched file size per picture size and clip length, with a whisker to the smallest lead.</desc>
 <style>
 .bg{fill:#ffffff}.t1{fill:#212529}.t2{fill:#495057}.grid{stroke:#e9ecef}
 .base{stroke:#868e96}.ring{stroke:#ffffff}.med{stroke:#212529}.band{fill:#f1f3f5}
@@ -15,10 +15,10 @@ text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-
 .note{fill:#ff8a5c}.wash{fill:#45200f}}
 </style>
 <rect width='100%' height='100%' class='bg'/>
-<text x='20' y='30' font-size='18' class='t1' font-weight='600'>yah265 scores higher than x265 at the same</text>
-<text x='20' y='53' font-size='18' class='t1' font-weight='600'>file size in every class and tier</text>
-<text x='20' y='73' font-size='12.5' class='t2'>VMAF v1 at the matched file size, yah265 minus x265. Dot: the</text>
-<text x='20' y='90' font-size='12.5' class='t2'>group's median. Tick: the clip with the smallest lead.</text>
+<text x='20' y='30' font-size='18' class='t1' font-weight='600'>yah265 scores higher than x265 at every</text>
+<text x='20' y='53' font-size='18' class='t1' font-weight='600'>picture size and clip length</text>
+<text x='20' y='73' font-size='12.5' class='t2'>VMAF v1 at the matched file size, yah265 minus x265. Dot: a row's</text>
+<text x='20' y='90' font-size='12.5' class='t2'>median. Tick: the clip with the smallest lead.</text>
 <g transform='translate(0 26)'>
 <line x1='181.8' y1='104.0' x2='181.8' y2='416.0' class='grid' stroke-width='1'/>
 <text x='181.8' y='436.0' font-size='12' class='t2' text-anchor='middle'>-1</text>
