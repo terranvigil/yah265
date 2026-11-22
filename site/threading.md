@@ -11,7 +11,7 @@ yah265 uses all the cores by default. This page explains how the work is divided
 
 One shared pool of worker threads runs the whole encode. `--threads` sets its size. The default is one worker per CPU.
 
-The unit of work is a row of coding tree units. A frame becomes three tasks per row: encode the row, deblock it, then run SAO and publish the finished row for other frames to predict from. One more task per frame does the entropy coding. It writes the bits from the decisions the rows recorded.
+The unit of work is a row of coding tree units. A frame becomes three tasks per row: encode the row, deblock it, then run SAO and publish the finished row for other frames to predict from. One more task per frame does the entropy coding from the decisions the rows recorded.
 
 Keeping the entropy coder out of the rows keeps the stream simple. HEVC has optional tools that make a stream easier to code in parallel at a cost in bitrate. yah265 writes one slice per picture with none of them. Because the entropy passes of different frames don't depend on each other, they run in parallel as ordinary pool work.
 
@@ -187,7 +187,7 @@ A row in a P or B frame predicts from other frames. It can start as soon as each
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 274" role="img" aria-label="Rows of three frames in flight, and what a row waits for">
 <title>Rows of three frames in flight, and what a row waits for</title>
-<desc>Three frames side by side, each drawn as six rows with a bar for how far each row has been coded. The first frame is a reference and is nearly done. The second predicts from the first and has four rows under way. Each trails the row above. The third predicts from both and has just started. The block being coded in the second frame is joined to an outlined band of three rows in the first frame. Those are the rows its motion search can reach. A block in the third frame is joined to a band of two rows in the second.</desc>
+<desc>Three frames side by side, each drawn as six rows with a bar for how far each row has been coded. The first frame is a reference and is nearly done. The second predicts from the first and has four rows under way in a staircase. Behind it, the third predicts from both and has just started. The block being coded in the second frame is joined to an outlined band of three rows in the first frame. Those are the rows its motion search can reach. A block in the third frame is joined to a band of two rows in the second.</desc>
 <text class="d-label" x="120" y="46" text-anchor="middle">frame 1, a reference</text>
 <rect class="d-muted" x="20" y="60" width="200" height="25" rx="0"/>
 <rect class="d-fill" x="20" y="60" width="200" height="25" rx="0"/>
@@ -235,7 +235,7 @@ A row in a P or B frame predicts from other frames. It can start as soon as each
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 490" role="img" aria-labelledby="thr-rows-n-t thr-rows-n-d">
 <title id="thr-rows-n-t">Rows of three frames in flight, and what a row waits for</title>
-<desc id="thr-rows-n-d">Three frames, each drawn as six rows with a bar for how far each row has been coded. The first frame is a reference and is nearly done. The second predicts from the first and has four rows under way. Each trails the row above. The third predicts from both and has just started. The block being coded in the second frame is joined to an outlined band of three rows in the first frame. Those are the rows its motion search can reach. A block in the third frame is joined to a band of two rows in the second.</desc>
+<desc id="thr-rows-n-d">Three frames, each drawn as six rows with a bar for how far each row has been coded. The first frame is a reference and is nearly done. The second predicts from the first and has four rows under way in a staircase. Behind it, the third predicts from both and has just started. The block being coded in the second frame is joined to an outlined band of three rows in the first frame. Those are the rows its motion search can reach. A block in the third frame is joined to a band of two rows in the second.</desc>
 <rect class="d-muted" x="8" y="12" width="180" height="20" rx="0"/>
 <rect class="d-fill" x="8" y="12" width="180" height="20" rx="0"/>
 <rect class="d-muted" x="8" y="32" width="180" height="20" rx="0"/>
@@ -286,7 +286,7 @@ A row in a P or B frame predicts from other frames. It can start as soon as each
 <text class="d-label" x="180" y="462" text-anchor="middle">outlined rows: what the highlighted block's</text>
 <text class="d-label" x="180" y="480" text-anchor="middle">motion search can reach in its reference</text>
 </svg>
-<figcaption>A row can run as soon as the outlined rows are finished in all its references. It doesn't wait for the whole reference frame.</figcaption>
+<figcaption>A row can run as soon as the outlined rows are finished in all its references.</figcaption>
 </figure>
 
 Before a block reads a reference picture, the encoder checks that the rows it needs are done. If they aren't, the block waits and its worker takes other work.
@@ -522,11 +522,11 @@ Under capped VBR the stream above one thread differs from the one-thread stream 
 
 ## Rate control with frames in flight
 
-Rate decisions are made in coding order on the driver, one frame at a time, before a frame enters the pool. The per-block offsets are fixed at that point too.
+The driver makes rate decisions one frame at a time in coding order, before the frame enters the pool. The per-block offsets are fixed at that point too.
 
 Because fixed QP and CRF need nothing from earlier frames, their frames overlap freely. A mode that targets a bitrate wants to know how many bits the earlier frames really took. Plain ABR waits for them. Because its frames run one after another, only the rows inside a frame run in parallel.
 
-Capped VBR doesn't wait. It plans each frame from the frames that have finished and estimates the rest. That keeps it fast, but its stream differs from the one-thread stream. With a buffer under 1.2 seconds of maxrate it waits, as plain ABR does.
+Instead of waiting, capped VBR plans each frame from the frames that have finished and estimates the rest. That keeps it fast, but its stream differs from the one-thread stream. With a buffer under 1.2 seconds of maxrate it waits, as plain ABR does.
 
 ## Segment-parallel encoding
 
@@ -544,7 +544,7 @@ It's off by default. The joined stream differs from the serial one and has no bu
 | `N265_READAHEAD_MB=0` | turn off the reader thread |
 | `N265_DRV_PAR=0` | keep the driver's analysis on the driver |
 
-The two environment settings don't change the output. They exist for timing one schedule against the other. See the [encoding guide](guide.md#long-inputs-and-many-cores) for advice on which to use.
+The two environment settings don't change the output and exist for timing one schedule against the other. See the [encoding guide](guide.md#long-inputs-and-many-cores) for advice on which to use.
 
 ## Scaling with cores
 
@@ -564,6 +564,6 @@ The chart shows how much each encoder gains from the Mac's cores. It compares th
 | 4K | 5.8x | 8.4x | 1 |
 <!--/gen:threads-table-->
 
-Up to 1080p yah265 gains more from the cores than x265 does. At 4K it gains less. There the driver thread is the bottleneck, because part of its work has to run one frame after another. These rows were timed before the driver's analysis was split over the pool.
+yah265 gains more from the cores than x265 does up to 1080p and less at 4K. At 4K the driver thread is the bottleneck, because part of its work has to run one frame after another. These rows were timed before the driver's analysis was split over the pool.
 
-[Results](results.md#speed) has the wall-time comparisons with x265 at one thread and on all cores.
+See [Results](results.md#speed) for the wall-time comparisons with x265 at one thread and on all cores.
