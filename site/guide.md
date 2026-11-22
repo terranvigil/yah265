@@ -321,6 +321,19 @@ The joined stream differs from the serial one and has no HRD timing.
 
 <p class="optchips"><span>Doesn't combine with</span> <a href="options.md#opt-pass"><code>--pass</code></a> <a href="options.md#opt-qpfile"><code>--qpfile</code></a> <a href="options.md#opt-zones"><code>--zones</code></a> <a href="options.md#opt-csv"><code>--csv</code></a> <a href="options.md#opt-shot-stats"><code>--shot-stats</code></a></p>
 
+### Several machines
+
+Farm mode codes the segments of a `--gop-parallel` encode on several machines and joins them. The file is the one `--gop-parallel` writes on one machine, byte for byte.
+
+```sh
+scripts/farm.py -o out.hevc --worker ssh:box1:2 --worker ssh:box2:2 \
+    --seg-threads 4 -- /share/in.y4m --crf 23
+```
+
+Each `--worker` names a machine and how many segments it codes at once. Every machine needs the same y265 build. The input has to be at the same path on each, such as a network share. Farm mode works with CRF, constant QP and capped CRF, but not with `--bitrate` or `--target-vmaf`.
+
+If a machine fails or stalls, another one takes its segment. If the run stops, the same command picks up where it left off.
+
 ## Hardware encoding on a Mac
 
 On a Mac you can hand the encode to Apple's hardware. The encoder lists any options the hardware can't follow before it starts. The hardware uses a fraction of the CPU and usually less time. At the same bitrate it scores lower, by about four VMAF v1 points at the median. With `--hw auto`, the encoder uses its own path when the hardware isn't there.

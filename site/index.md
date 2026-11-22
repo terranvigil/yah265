@@ -70,9 +70,9 @@ To see both in motion, open the [comparison players](https://terranvigil.github.
 - [Encode reports](guide.md#encode-reports): one page per encode with bitrate, QP, shots and what yah265 detected.
 - A [browser playground](playground.md): try yah265 on your own clip without installing anything.
 - [Homebrew install](start.md#install-with-homebrew): `brew install terranvigil/yah265/ffmpeg-yah265`, with recipes for Tdarr and Jellyfin.
+- [Farm mode](guide.md#several-machines): split one encode across several machines.
 - [SIMD](architectures.md) on arm64 and x86-64.
 - x265's [option names](options.md) for shared features.
-- Farm mode: split one encode across several machines. [coming soon]
 
 ## Results in brief
 
