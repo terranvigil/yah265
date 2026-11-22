@@ -1221,15 +1221,13 @@ def frames_figure(picks, caption):
 
 # Three sentences of FRAMES_ALL say what the crops look like. Look at the
 # crops again and rewrite them whenever scripts/frame_crops.sh picks new ones.
-FRAMES_ONE = ("A hard frame from Tears of Steel at 1080p, where both "
-              "encoders score lowest. The crop shows where the two differ most. yah265 keeps "
-              "more of the texture. Both files are the same size within 0.5%. "
+FRAMES_ONE = ("A hard frame from Tears of Steel at 1080p, at the same file size. yah265 keeps "
+              "more of the texture. "
               '<a href="results.html#side-by-side-at-the-same-size">Results</a> has more.')
 # the crops results.md shows, by index into the picks frame_crops.sh wrote
 RESULTS_PICKS = (0, 2)
-FRAMES_ALL = ("Two hard moments of the clip, where both encoders score low. Each crop shows "
-              "where the two differ most. yah265 keeps more of the texture in the first. "
-              "The second is close. <code>scripts/frame_crops.sh</code> makes the crops.")
+FRAMES_ALL = ("Two hard moments of the clip. yah265 keeps more of the texture in the first. "
+              "The second is close.")
 
 
 def claims(pl, fl, ff):
