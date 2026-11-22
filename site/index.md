@@ -63,6 +63,7 @@ To see both in motion, open the [comparison players](https://terranvigil.github.
 - [Low latency](guide.md#low-latency) for live: `--tune zerolatency` gives one frame of latency.
 - SIMD on arm64 and x86-64. [Architectures](architectures.md) lists what runs where.
 - x265's option names for shared features. [Options](options.md) lists them.
+- Encodes only. Play or decode its streams with ffmpeg or any HEVC decoder.
 
 ## Results in brief
 
