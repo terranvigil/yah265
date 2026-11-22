@@ -22,6 +22,8 @@ The first two rows are the headline. They cover the Mac's CRF encodes where the 
 | content-type clips passing on quality | 9 of 9 |
 <!--/gen:verdict-->
 
+To see the two encodes in motion, [watch them side by side](compare.md).
+
 The quality limit is that yah265 may need at most 1.0% more bits than x265 for the same VMAF v1. [The methodology](methodology.md) sets out each limit and the rules that make a number valid. [How x265 was run](x265-run.md) has its build and the command for each goal. [Check it yourself](check-it-yourself.md) shows how to take the same measurements on your own machine. The long per-cell tables are folded.
 
 ## What the numbers mean

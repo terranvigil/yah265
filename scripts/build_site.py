@@ -61,6 +61,7 @@ NAV = [
     ("Understand", "threading.html", "Threading"),
     ("Understand", "architectures.html", "Architectures"),
     ("Evidence", "results.html", "Results"),
+    ("Evidence", "compare.html", "Watch the encodes"),
     ("Evidence", "x265-run.html", "How x265 was run"),
     ("Evidence", "check-it-yourself.html", "Check it yourself"),
     ("Evidence", "faq.html", "A skeptic's questions"),

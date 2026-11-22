@@ -40,6 +40,8 @@ Always pass a rate option. With none, the encoder runs a fixed-quantizer test mo
 
 "Faster" compares wall time for files of the same size. Both encoders run `--preset medium`. The reference is x265 4.3. The test set runs from short standard clips to ten-minute excerpts of open films, at CIF, 720p, 1080p and 4K.
 
+To see the difference, [watch the encodes side by side](https://terranvigil.github.io/yah265/compare.html).
+
 The table splits the headline by picture size. It counts the clips where the two files match in size within 1%.
 
 <!--gen:pooled-table-->
