@@ -59,8 +59,8 @@ To see both in motion, open the [comparison players](https://terranvigil.github.
 - CRF, capped CRF, VBR, CBR, ABR and two-pass [rate modes](guide.md#pick-a-rate-mode).
 - Main, Main10, 4:4:4 and 4:2:2 [profiles](guide.md#set-the-bit-depth-and-profile) from one binary.
 - [HDR10, HDR10+, HLG and Dolby Vision profile 8](hdr.md).
-- [Shot-aware encoding](guide.md#planning-by-shot): a shot window, per-shot statistics and a script that prints each shot's convex hull.
-- [Per-shot encoding](guide.md#planning-by-shot): a key frame and a quality setting for each shot, from one scan. [coming soon]
+- [Shot statistics](guide.md#planning-by-shot): a report per shot that a script turns into each shot's best rungs for a ladder.
+- [Per-shot encoding](guide.md#planning-by-shot): yah265 finds the shots itself, starts each on a key frame and sets its quality. [coming soon]
 - [Live control](guide.md#live-control): change the bitrate, CRF or key frames while an encode runs. [coming soon]
 - [SIMD](architectures.md) on arm64 and x86-64.
 - x265's [option names](options.md) for shared features.
