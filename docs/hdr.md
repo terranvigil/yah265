@@ -9,7 +9,7 @@ medium the transfer also changes how the pictures are coded, as
 |---|---|---|
 | HDR10 | PQ transfer, BT.2020 primaries and matrix in the VUI, plus the mastering display (ST 2086) and content light level SEI in every key frame | `--transfer smpte2084 --colorprim bt2020 --colormatrix bt2020nc --master-display ... --max-cll ...` |
 | HDR10+ | HDR10, plus an ST 2094-40 message in every picture | HDR10's options and `--dhdr10-info <json>` |
-| HLG | HLG transfer in the VUI, or BT.2020 with an alternative transfer SEI naming HLG for SDR decoders | `--transfer arib-std-b67`, or `--transfer bt2020-10 --atc-sei arib-std-b67` |
+| HLG | HLG transfer and BT.2020 in the VUI. For backward-compatible HLG, the VUI says BT.2020 and an alternative transfer SEI names HLG. An older decoder ignores the SEI and shows SDR. An HLG-aware one reads it | `--transfer arib-std-b67 --colorprim bt2020 --colormatrix bt2020nc`, or the same with `--transfer bt2020-10 --atc-sei arib-std-b67` |
 | Dolby Vision 8.1 | HDR10, plus a Dolby Vision RPU in every picture | HDR10's options and `--dolby-vision-rpu <file> --dolby-vision-profile 8.1` |
 | Dolby Vision 8.2 | SDR BT.709, plus an RPU in every picture | `--transfer bt709 --colorprim bt709 --colormatrix bt709` and the two Dolby Vision options with `8.2` |
 | Dolby Vision 8.4 | HLG, plus an RPU in every picture | HLG's options and the two Dolby Vision options with `8.4` |
@@ -67,7 +67,7 @@ ffmpeg -i master.mov -pix_fmt yuv420p10le -strict -1 -f yuv4mpegpipe - |
 ```
 
 A raw HEVC stream has nowhere to say "this is Dolby Vision" except the RPUs
-themselves. A player needs the container to tell it, in MP4's `dvcC` box or
+themselves. A player needs the container to tell it, in MP4's `dvvC` box or
 Matroska's equivalent. ffmpeg's stream copy from a raw `.hevc` doesn't
 write that box. A Dolby Vision-aware muxer such as MP4Box or mkvmerge does.
 
@@ -142,7 +142,8 @@ Main10 HLG10 in BT.2020, 7680x4320 at 50 fps. The download is the clip's
 hold the clip's one cut. A near-static shot falls on either side of it: a
 harbor in daylight and a sunset over water. They were scaled down to 3840x2160
 and 1920x1080 in 10-bit 4:2:0 with zscale's Lanczos filter, HLG and BT.2020
-kept. Both encoders signal HLG with `--transfer arib-std-b67`. HDR-VMAF has
+kept. Both encoders signal HLG with `--transfer arib-std-b67 --colorprim
+bt2020 --colormatrix bt2020nc`. HDR-VMAF has
 no HLG transfer, so the reference and every decoded picture go through the
 same HLG to PQ conversion at a 1000-nit peak before scoring. At 50 fps the
 score uses the high frame rate model. yah265 ran at `--threads 4`, and x265
