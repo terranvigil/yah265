@@ -61,7 +61,7 @@ To see both in motion, open the [comparison players](https://terranvigil.github.
 - [HDR10, HDR10+, HLG and Dolby Vision profile 8](hdr.md).
 - [Shot statistics](guide.md#planning-by-shot): a report per shot that a script turns into each shot's best rungs for a ladder.
 - [Per-shot encoding](guide.md#planning-by-shot): yah265 finds the shots itself, starts each on a key frame and sets its quality. [coming soon]
-- [Live control](guide.md#live-control): change the bitrate, CRF or key frames while an encode runs. [coming soon]
+- [Live control](guide.md#live-control): change the bitrate, CRF or key frames while an encode runs.
 - [SIMD](architectures.md) on arm64 and x86-64.
 - x265's [option names](options.md) for shared features.
 

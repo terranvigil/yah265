@@ -111,10 +111,6 @@ The [encoding guide](https://terranvigil.github.io/yah265/guide.html#planning-by
 
 ## Up next
 
-Coming in the next few days:
-
-- Live control: change the bitrate, CRF or key frames while an encode runs, from a file or a pipe.
-
 The shot tools above grow into a full per-shot ladder:
 
 - Each shot starts on its own key frame so that it can be seeked to, packaged or replaced alone.

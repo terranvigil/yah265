@@ -142,7 +142,7 @@ Set the peak above the target so the encoder has room to spend on hard scenes. [
 y265 in.y4m -o out.hevc --bitrate 3000 --vbv-maxrate 3000 --vbv-bufsize 6000 --strict-cbr
 ```
 
-`--strict-cbr` marks the stream as constant rate. Any picture that comes in under its share is padded with filler data. The run reports how much padding it wrote. This is generally a wasteful mode and generally only useful when targeting older hardware decoders designed for cable/MPEG-TS.
+`--strict-cbr` marks the stream as constant rate. Any picture that comes in under its share is padded with filler data. This is generally a wasteful mode and generally only useful when targeting older hardware decoders designed for cable/MPEG-TS.
 
 ### Two-pass
 
@@ -235,10 +235,6 @@ y265 in.y4m -o out.hevc --tune zerolatency --intra-refresh --keyint 30 \
 It codes P-frames only, from 4:2:0 input. A scene change doesn't add a key frame. A frame you list as a key frame in a QP file is still one. A new sweep starts after it. It can't be combined with `--bframes` above 0, `--open-gop`, `--gop-parallel` or `--pcm`.
 
 <p class="optchips"><span><a href="options.md#gop-and-references">Options</a></span> <a href="options.md#opt-intra-refresh"><code>--intra-refresh</code></a> <a href="options.md#opt-keyint"><code>--keyint</code></a> <a href="options.md#opt-tune"><code>--tune</code></a></p>
-
-## Live control
-
-Coming soon: changing the bitrate, CRF or key frames while an encode runs. Each change comes from a file or a pipe and names the frame it applies to. From ffmpeg, forced key frames and mid-stream bitrate changes will work the same way. yah264 uses the same format.
 
 ## Set the bit depth and profile
 
@@ -352,7 +348,7 @@ Each change is one line of a control log. A line names the input frame it applie
 400 zone last=459 offset=-3
 ```
 
-The kinds are `rate`, `crf`, `qp` (`min=`, `max=`), `key` and `zone` (`last=`, `offset=`). A key frame lands on exactly the frame it names. A rate or CRF change lands on the first frame coded from that frame on, which can be a B frame's anchor a few frames later.
+The kinds are `rate`, `crf`, `qp` (`min=`, `max=`), `key` and `zone` (`last=`, `offset=`). A key frame goes on exactly the frame it names. A rate or CRF change applies from the first frame coded at or after that frame. That can be a B frame's anchor a few frames later.
 
 Three options feed and record the log:
 
@@ -362,11 +358,11 @@ Three options feed and record the log:
 
 `--frame-stats` lists each change on the frame where it took effect.
 
-A rate change needs a rate mode that has one: `--bitrate` for the bitrate, and a buffer for `maxrate` and `bufsize`. A buffer can't be added or removed mid-stream. When the stream carries HRD timing, which it does by default with a buffer, the rate and buffer may only drop to or below their starting values. `--no-hrd` lifts that. Open at your top rate, or name a `--level`, if you plan to raise the rate.
+A rate change needs a rate mode that has one. The bitrate needs `--bitrate`, and `maxrate` and `bufsize` need a buffer. A buffer can't be added or removed mid-stream. A stream with a buffer has HRD timing by default. With it, the rate and buffer may only drop to or below their starting values. `--no-hrd` lifts that. Open at your top rate, or name a `--level`, if you plan to raise the rate.
 
 Live control uses one encoder, so `--gop-parallel` codes serially with it.
 
-In ffmpeg, an I frame you force (`-force_key_frames`) becomes a key frame, and a change to `bit_rate`, `rc_max_rate` or `rc_buffer_size` between two frames becomes a rate change on the next one. Nothing else is mapped.
+In ffmpeg, an I frame you force with `-force_key_frames` becomes a key frame. A change to `bit_rate`, `rc_max_rate` or `rc_buffer_size` between two frames becomes a rate change on the next one.
 
 <p class="optchips"><span><a href="options.md#live-control">Options</a></span> <a href="options.md#opt-control"><code>--control</code></a> <a href="options.md#opt-control-fd"><code>--control-fd</code></a> <a href="options.md#opt-control-out"><code>--control-out</code></a> <a href="options.md#opt-frame-stats"><code>--frame-stats</code></a> <a href="options.md#opt-no-hrd"><code>--no-hrd</code></a></p>
 
