@@ -56,15 +56,15 @@ To see both in motion, open the [comparison players](https://terranvigil.github.
 ## What it does
 
 - Encodes through ffmpeg as `libyah265`, or from a pipe with [its own command line](start.md#build-y265).
-- CRF, capped CRF, VBR, CBR, ABR and two-pass. The [encoding guide](guide.md#pick-a-rate-mode) says when to pick each.
+- CRF, capped CRF, VBR, CBR, ABR and two-pass [rate modes](guide.md#pick-a-rate-mode).
 - Main, Main10, 4:4:4 and 4:2:2 [profiles](guide.md#set-the-bit-depth-and-profile) from one binary.
 - [HDR10, HDR10+, HLG and Dolby Vision profile 8](hdr.md).
-- Shot-aware encoding: a shot window, per-shot statistics and a script that prints each shot's convex hull. [Planning by shot](guide.md#planning-by-shot) shows how.
+- [Shot-aware encoding](guide.md#planning-by-shot): a shot window, per-shot statistics and a script that prints each shot's convex hull.
 - [Low latency](guide.md#low-latency) for live: `--tune zerolatency` gives one frame of latency.
 - [Live control](guide.md#live-control): change the bitrate, CRF or key frames while an encode runs. [coming soon]
 - [Per-shot encoding](guide.md#planning-by-shot): a key frame and a quality setting for each shot, from one scan. [coming soon]
-- SIMD on arm64 and x86-64. [Architectures](architectures.md) lists what runs where.
-- x265's option names for shared features. [Options](options.md) lists them.
+- [SIMD](architectures.md) on arm64 and x86-64.
+- x265's [option names](options.md) for shared features.
 - Encodes only. Play or decode its streams with ffmpeg or any HEVC decoder.
 
 ## Results in brief
