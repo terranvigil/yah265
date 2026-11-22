@@ -37,6 +37,12 @@ Many switches also take a `--no-` form that turns them off. "The preset's" means
 | option | default | what it does |
 |---|---|---|
 | <span id="opt-crf"></span>`--crf <f>` | off | Constant rate factor. Naming it turns CRF on. It goes 1.8 QP coarser each time the frame rate doubles, and is neutral at 25 fps. |
+| <span id="opt-target-vmaf"></span>`--target-vmaf <f>` | off | A VMAF score to reach, in place of `--crf`. The encoder searches for the CRF that reaches it, encodes at that CRF and reports the score and size. It scores VMAF v1, or HDR-VMAF on a PQ or HLG stream, and needs libvmaf's `vmaf` tool and ffmpeg. It works with a VBV cap. |
+| <span id="opt-target-vmaf-tol"></span>`--target-vmaf-tol <f>` | `0.5` | How close to the target counts as reached, in VMAF points. |
+| <span id="opt-target-vmaf-floor"></span>`--target-vmaf-floor` | off | Pick the smallest file that scores at or above the target, instead of the closest score. |
+| <span id="opt-target-vmaf-sample"></span>`--target-vmaf-sample <full\|s>` | `60` | Search on every frame (`full`), or on this many seconds of the input in 12 windows. A clip no longer than that is searched on every frame. |
+| <span id="opt-no-target-vmaf-verify"></span><span id="opt-target-vmaf-verify"></span>`--no-target-vmaf-verify` | off | Don't score the final file when the search didn't already score those same bytes. |
+| <span id="opt-target-vmaf-json"></span>`--target-vmaf-json <file>` | none | Also write the report as JSON to this file. |
 | <span id="opt-qp"></span>`--qp <n>` | `26` | Fixed QP, 0 to 51 at 8 bits and -12 to 51 at 10. It's the mode when no rate option is given. |
 | <span id="opt-bitrate"></span>`--bitrate <k>` | off | Target mean bitrate in kbit/s, in one pass. It wins over `--crf`. |
 | <span id="opt-vbv-maxrate"></span>`--vbv-maxrate <k>` | off | Decoder buffer fill rate in kbit/s. With `--bitrate` it makes capped VBR, and with `--crf` capped CRF. Needs `--vbv-bufsize`. |
