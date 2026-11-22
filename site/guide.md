@@ -312,15 +312,27 @@ A QP file forces frame types and QPs frame by frame. It can force key frames and
 
 ### Planning by shot
 
-Two tools work on whole shots. Both are opt-in.
+Most films are a series of shots that want different settings. yah265 can find the shots once and put a key frame on each. All of this is opt-in. A plain encode is unchanged.
+
+**Find the shots.** `--shot-scan` reads the whole input once and writes a shot list. The scan runs at a fixed size. A 4K source and its 720p rung get the same list.
+
+```sh
+y265 in.y4m --shot-scan shots.txt
+```
+
+**A key frame on each shot.** `--shot-list` puts a key frame at the start of every listed shot. Every rung of a ladder then switches at the same frames. A player can change rung at a shot. A packager can cut there. `--shot-keys` does the same from the encoder's own cut detector, without a file. A key frame per shot cost at most 0.3% in bits on the test set.
+
+```sh
+y265 in.y4m -o 1080p.hevc --crf 24 --shot-list shots.txt
+```
 
 A shot window lets a CRF encode plan a whole shot at a time. It works only with CRF and adds latency. In my tests it saved little bitrate and made quality less even from shot to shot.
 
 Shot statistics are one JSON line per shot. A ladder builder can use them to pick a rate per shot. The stream is the same with them on.
 
-<p class="optchips"><span><a href="options.md#shot-aware-options">Options</a></span> <a href="options.md#opt-shot-window"><code>--shot-window</code></a> <a href="options.md#opt-shot-stats"><code>--shot-stats</code></a></p>
+<p class="optchips"><span><a href="options.md#shot-aware-options">Options</a></span> <a href="options.md#opt-shot-scan"><code>--shot-scan</code></a> <a href="options.md#opt-shot-list"><code>--shot-list</code></a> <a href="options.md#opt-shot-keys"><code>--shot-keys</code></a> <a href="options.md#opt-shot-window"><code>--shot-window</code></a> <a href="options.md#opt-shot-stats"><code>--shot-stats</code></a></p>
 
-Coming soon: one scan that finds the shots and gives each one a key frame and its own quality setting. Every rung of a ladder will switch at the same frames.
+Coming soon: a quality setting for each shot, from the same scan.
 
 ## Identification marks
 

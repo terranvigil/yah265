@@ -117,7 +117,6 @@ Coming in the next few days:
 
 The shot tools above grow into a full per-shot ladder:
 
-- Each shot starts on its own key frame so that it can be seeked to, packaged or replaced alone.
 - Each shot gets its own quality setting in one pass, from a scan of the source with no trial encodes.
 - The hull script scores rungs at different resolutions against the source, on VMAF v1.
 - My [veo project](https://github.com/terranvigil/veo) runs the ladder search itself over rungs, convex hull and VMAF. It uses yah265 as its encoder.

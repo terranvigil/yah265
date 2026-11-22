@@ -93,7 +93,7 @@ Many switches also take a `--no-` form that turns them off. "The preset's" means
 | option | default | what it does |
 |---|---|---|
 | <span id="opt-threads"></span>`--threads <n>` | `0` | Worker threads. `0` starts one per online CPU. At `1`, two runs of a command write the same bytes. Above one thread the stream can differ between runs. |
-| <span id="opt-gop-parallel"></span>`--gop-parallel <n>` | `0` | Code a long input as segments on this many encoder instances and join them at key frames. The stream differs from the serial one. |
+| <span id="opt-gop-parallel"></span>`--gop-parallel <n>` | `0` | Code a long input as segments on this many encoder instances and join them at key frames. The stream differs from the serial one. With `--shot-list` the segments start on listed shots. |
 
 ## Hardware
 
@@ -106,6 +106,9 @@ Many switches also take a `--no-` form that turns them off. "The preset's" means
 
 | option | default | what it does |
 |---|---|---|
+| <span id="opt-shot-scan"></span>`--shot-scan <file>` | none | Scan the input for shots and write a shot list, then exit. |
+| <span id="opt-shot-list"></span>`--shot-list <file>` | none | Put a key frame at the start of each listed shot. |
+| <span id="opt-shot-keys"></span>`--shot-keys` | off | Put a key frame on each cut the encoder finds. |
 | <span id="opt-shot-window"></span>`--shot-window <n>` | `0` | Buffer up to this many frames so a whole shot can be planned before it's coded. `--crf` only, at most 300. It adds that many frames of latency. |
 | <span id="opt-shot-stats"></span>`--shot-stats <file>` | none | Write one JSON line of statistics per shot. The stream doesn't change. |
 

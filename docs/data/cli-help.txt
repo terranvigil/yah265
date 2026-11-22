@@ -1,4 +1,4 @@
-# y265 0.0.1, release build 7d27cf44
+# y265 0.0.1, release build 33e904a1
 usage: y265 [options] <input.y4m|input.yuv|->
 
 The input picks the profile: 8-bit 4:2:0 is coded Main, 10-bit 4:2:0
@@ -39,7 +39,8 @@ Presets and threads
                         joined at IDRs (default 0, off). Needs more than one
                         thread; not with --pass, --qpfile, --zones, --csv,
                         --shot-stats or --hrd-concat. The joined stream
-                        carries no HRD timing SEI.
+                        carries no HRD timing SEI. With --shot-list the
+                        segments start on listed shots.
 
 Hardware
   --hw <mode>           off (default), auto or videotoolbox: encode with the
@@ -93,6 +94,13 @@ Rate control
 Structure
   --keyint <n>          maximum key frame interval (default 250). A scene cut
                         restarts the count.
+  --shot-scan <file>    scan the input for shots and write a shot list, then
+                        exit. The scan runs at one size, so every resolution
+                        of a source gets the same list.
+  --shot-list <file>    put a key frame at the start of each listed shot.
+                        The encoder's own cut detector is off. The list is
+                        refused on an input it wasn't made from.
+  --shot-keys           put a key frame on each cut the encoder finds
   --open-gop            code periodic key frames as CRA (default);
                         --no-open-gop codes IDR. Scene cuts are always IDR.
   --radl <n>            leading pictures of a CRA coded as RADL (default 0)
