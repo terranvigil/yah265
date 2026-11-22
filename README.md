@@ -71,7 +71,7 @@ yah265 is faster on three machines. G3 is the row a user sees: both encoders as 
 | G2: algorithm only, plain C on all cores | 2.56x to 4.35x | 2.22x to 4.76x | 2.08x to 4.35x |
 <!--/gen:goal-table-->
 
-The [results page](https://terranvigil.github.io/yah265/results.html) has the tables and charts. [Check it yourself](https://terranvigil.github.io/yah265/check-it-yourself.html) shows how to rerun a measurement.
+See the [results page](https://terranvigil.github.io/yah265/results.html) for the tables and charts, and [Check it yourself](https://terranvigil.github.io/yah265/check-it-yourself.html) to rerun a measurement.
 
 ## The y265 command line
 
@@ -86,7 +86,7 @@ It reads Y4M or raw YUV from a file or a pipe. The output is a raw HEVC stream t
 
 ## Hardware option?
 
-On Macs, `--hw videotoolbox` uses Apple's hardware HEVC encoder instead of yah265's own. The table gives the median over ten clips from 720p to 2160p at the same bitrate. The [hardware mode note](docs/hardware-mode.md) has the ten clips.
+On Macs, `--hw videotoolbox` uses Apple's hardware HEVC encoder instead of yah265's own. The table gives the median over [ten clips](docs/hardware-mode.md) from 720p to 2160p at the same bitrate.
 
 | mode | wall time | CPU used | VMAF v1 |
 |---|--:|--:|--:|
@@ -111,7 +111,11 @@ The [encoding guide](https://terranvigil.github.io/yah265/guide.html#planning-by
 
 ## Up next
 
-The next work builds on the shot tools above, toward a full per-shot ladder:
+Coming in the next few days:
+
+- Live control: change the bitrate, CRF or key frames while an encode runs, from a file or a pipe.
+
+The shot tools above grow into a full per-shot ladder:
 
 - Each shot starts on its own key frame so that it can be seeked to, packaged or replaced alone.
 - Each shot gets its own quality setting in one pass, from a scan of the source with no trial encodes.

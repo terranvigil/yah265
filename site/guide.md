@@ -236,6 +236,10 @@ It codes P-frames only, from 4:2:0 input. Scene cuts don't add key frames. A fra
 
 <p class="optchips"><span><a href="options.md#gop-and-references">Options</a></span> <a href="options.md#opt-intra-refresh"><code>--intra-refresh</code></a> <a href="options.md#opt-keyint"><code>--keyint</code></a> <a href="options.md#opt-tune"><code>--tune</code></a></p>
 
+## Live control
+
+Coming soon: changing the bitrate, CRF or key frames while an encode runs. Each change comes from a file or a pipe and names the frame it applies to. From ffmpeg, forced key frames and mid-stream bitrate changes will work the same way. yah264 uses the same format.
+
 ## Set the bit depth and profile
 
 The input picks the profile. No option names it.
@@ -260,7 +264,7 @@ A few options change what the table gives:
 
 ## HDR
 
-yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8. At `medium`, a stream that says PQ or HLG also gets its own tuning without any option. [HDR](hdr.md) has the command for each format and explains the metadata files.
+yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8. At `medium`, a stream that says PQ or HLG also gets its own tuning without any option. See [HDR](hdr.md) for the command for each format and the metadata files.
 
 <p class="optchips"><span><a href="options.md#color-and-hdr">Options</a></span> <a href="options.md#opt-transfer"><code>--transfer</code></a> <a href="options.md#opt-colorprim"><code>--colorprim</code></a> <a href="options.md#opt-colormatrix"><code>--colormatrix</code></a> <a href="options.md#opt-master-display"><code>--master-display</code></a> <a href="options.md#opt-max-cll"><code>--max-cll</code></a> <a href="options.md#opt-dhdr10-info"><code>--dhdr10-info</code></a> <a href="options.md#opt-dolby-vision-rpu"><code>--dolby-vision-rpu</code></a> <a href="options.md#opt-dolby-vision-profile"><code>--dolby-vision-profile</code></a> <a href="options.md#opt-hdr-opt"><code>--hdr-opt</code></a></p>
 
@@ -268,15 +272,15 @@ yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8. At `medium`, a stre
 
 By default the encoder starts one worker per online CPU. Above one thread it also reads its input on a separate thread to keep a slow source from stalling the workers.
 
-At `--threads 1`, two runs of one command write the same bytes. With more threads that isn't promised. [Threading](threading.md#what-stays-identical) has the details.
+At `--threads 1`, two runs of one command write the same bytes. With more threads that [isn't promised](threading.md#what-stays-identical).
 
-A long input can also be coded as segments on several encoder instances at once, then joined at key frames:
+A long input can also be [coded as segments](threading.md#segment-parallel-encoding) on several encoder instances at once, then joined at key frames:
 
 ```sh
 y265 in.y4m -o out.hevc --crf 23 --gop-parallel 4
 ```
 
-The joined stream differs from the serial one and has no HRD timing. [Threading](threading.md#segment-parallel-encoding) explains when it helps.
+The joined stream differs from the serial one and has no HRD timing.
 
 <p class="optchips"><span><a href="options.md#threads">Options</a></span> <a href="options.md#opt-threads"><code>--threads</code></a> <a href="options.md#opt-gop-parallel"><code>--gop-parallel</code></a></p>
 
@@ -331,11 +335,13 @@ Shot statistics are one JSON line per shot. A ladder builder can use them to pic
 
 <p class="optchips"><span><a href="options.md#shot-aware-options">Options</a></span> <a href="options.md#opt-shot-window"><code>--shot-window</code></a> <a href="options.md#opt-shot-stats"><code>--shot-stats</code></a></p>
 
+Coming soon: one scan that finds the shots and gives each one a key frame and its own quality setting. Every rung of a ladder will switch at the same frames.
+
 ## Identification marks
 
 Each stream has an SEI message that names the encoder and the options the run resolved. `--no-info` drops it.
 
-The stream also has a fingerprint that survives when the SEI is stripped. It costs no bits and doesn't change the picture. The [fingerprint design note](docs/stream-fingerprint.md) says how to read it back.
+The stream also has a fingerprint that survives when the SEI is stripped. It costs no bits and doesn't change the picture. See the [fingerprint design note](docs/stream-fingerprint.md) to read it back.
 
 <p class="optchips"><span><a href="options.md#stream-structure-and-sei">Options</a></span> <a href="options.md#opt-no-info"><code>--no-info</code></a> <a href="options.md#opt-no-fingerprint"><code>--no-fingerprint</code></a></p>
 

@@ -27,7 +27,7 @@ git clone https://github.com/terranvigil/yah265 && cd yah265
 scripts/build-ffmpeg.sh
 ```
 
-The new ffmpeg is at `build-ffmpeg/ffmpeg/ffmpeg`. [Build and first encode](start.md) has the details and the `y265` command line.
+The new ffmpeg is at `build-ffmpeg/ffmpeg/ffmpeg`. See [Build and first encode](start.md) for the details and the `y265` command line.
 
 ## Speed on three machines
 
@@ -56,13 +56,14 @@ To see both in motion, open the [comparison players](https://terranvigil.github.
 ## What it does
 
 - Encodes through ffmpeg as `libyah265`, or from a pipe with [its own command line](start.md#build-y265).
-- CRF, capped CRF, VBR, CBR, ABR and two-pass. The [encoding guide](guide.md#pick-a-rate-mode) says when to pick each.
+- CRF, capped CRF, VBR, CBR, ABR and two-pass [rate modes](guide.md#pick-a-rate-mode).
 - Main, Main10, 4:4:4 and 4:2:2 [profiles](guide.md#set-the-bit-depth-and-profile) from one binary.
 - [HDR10, HDR10+, HLG and Dolby Vision profile 8](hdr.md).
-- Shot-aware encoding: a shot window, per-shot statistics and a script that prints each shot's convex hull. [Planning by shot](guide.md#planning-by-shot) shows how.
-- [Low latency](guide.md#low-latency) for live: `--tune zerolatency` gives one frame of latency.
-- SIMD on arm64 and x86-64. [Architectures](architectures.md) lists what runs where.
-- x265's option names for shared features. [Options](options.md) lists them.
+- [Shot-aware encoding](guide.md#planning-by-shot): a shot window, per-shot statistics and a script that prints each shot's convex hull.
+- [Live control](guide.md#live-control): change the bitrate, CRF or key frames while an encode runs. [coming soon]
+- [Per-shot encoding](guide.md#planning-by-shot): a key frame and a quality setting for each shot, from one scan. [coming soon]
+- [SIMD](architectures.md) on arm64 and x86-64.
+- x265's [option names](options.md) for shared features.
 - Encodes only. Play or decode its streams with ffmpeg or any HEVC decoder.
 
 ## Results in brief
@@ -104,7 +105,7 @@ I've worked in video ingestion, encoding, packaging and delivery for nearly 20 y
 
 ## A family
 
-I wrote yah265 from the ITU-T H.265 specification to see whether a new encoder could pass x265 at its default preset on speed and on VMAF v1 together. The [launch post](blog.md) tells the full story.
+I wrote yah265 from the ITU-T H.265 specification to see whether a new encoder could pass x265 at its default preset on speed and on VMAF v1 together. [Here's the full story.](blog.md)
 
 yah265 is the second of three sibling encoders. [yah264](https://terranvigil.github.io/yah264/) met the same goals against x264 first. yaav1 is coming soon!
 

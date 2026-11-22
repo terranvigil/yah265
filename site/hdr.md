@@ -385,7 +385,7 @@ yah265's six rungs cover 95% or more of x265's HDR-VMAF range in each cell. The 
 
 ### Banding
 
-I measured banding with HDR-VMAF's PQ CAMBI. Sol Levante's flat gradients band on both encoders at the lower rates, where yah265's worst frames band less than x265's at the same bitrate. On average yah265 bands slightly more on all three titles. Both encoders stay far below the level where banding shows. The [HDR notes](docs/hdr.md) have the CAMBI figures.
+I measured banding with HDR-VMAF's PQ CAMBI. Sol Levante's flat gradients band on both encoders at the lower rates, where yah265's worst frames band less than x265's at the same bitrate. On average yah265 bands slightly more on all three titles. Both encoders stay far below the level where banding shows. See the [HDR notes](docs/hdr.md) for the CAMBI figures.
 
 ## How it was checked
 

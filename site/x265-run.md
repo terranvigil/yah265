@@ -5,7 +5,7 @@ description: The x265 version and build behind the comparisons and the command f
 
 # How x265 was run
 
-The comparisons on this site are against x265 <!--trust:x265-version-->4.3+1-e9b8812<!--/trust:x265-version-->. x265 always runs `--preset medium` with no `--tune`. Everything else is its default unless a table below says otherwise. [The methodology](methodology.md) explains why each measurement is taken the way it is.
+The comparisons on this site are against x265 <!--trust:x265-version-->4.3+1-e9b8812<!--/trust:x265-version-->. x265 always runs `--preset medium` with no `--tune`. Everything else is its default unless a table below says otherwise. See [the methodology](methodology.md) for why each measurement is taken the way it is.
 
 ## The build on each machine
 
@@ -19,7 +19,7 @@ The comparisons on this site are against x265 <!--trust:x265-version-->4.3+1-e9b
 The Homebrew build reports `[Mac OS X][clang 21.0.0][64 bit] 8bit+10bit+12bit`.
 <!--/trust:x265-builds-->
 
-On the Xeon x265 stops at AVX2 by default while yah265 uses AVX-512. I also timed x265 with its AVX-512 code switched on, then both encoders held to AVX2 and to SSE4.2. [Results](results.md#by-machine) has those timings.
+On the Xeon x265 stops at AVX2 by default while yah265 uses AVX-512. I also [timed x265](results.md#by-machine) with its AVX-512 code switched on, then both encoders held to AVX2 and to SSE4.2.
 
 ## The command for each goal
 
@@ -93,7 +93,7 @@ x265's output depends on its frame-thread count. Because it picks four on the Ma
 | x265 | 20 | 20 | its `medium` |
 <!--/trust:x265-lookahead-->
 
-I kept x265 at its default depth and swept yah265's own depth around it. [Results](results.md#lookahead-depth) has that sweep.
+I kept x265 at its default depth and [swept yah265's own depth](results.md#lookahead-depth) around it.
 
 ## What x265 wasn't given
 
