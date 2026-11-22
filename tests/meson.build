@@ -163,6 +163,10 @@ if python3.found()
   test('bd_rate', python3,
     args : [meson.project_source_root() / 'scripts' / 'bdcompare.py',
             '--selftest'])
+  # the per-shot hull, the shot-list parser and the byte fold; no media
+  test('shot_hull', python3,
+    args : [meson.project_source_root() / 'scripts' / 'shot_hull.py',
+            '--selftest'])
 endif
 
 # The command line's HDR10+ JSON and Dolby Vision RPU readers. The ST

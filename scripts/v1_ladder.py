@@ -13,7 +13,7 @@ per-frame features onto our rate (log rate, between its two bracketing
 rungs), and swaps one feature at a time to x265's: the v1 gain from each
 swap is that feature's share of the gap at matched rate.
 
-Scoring is the parity pipeline's (parity_long.py score_v1): both sides at
+Scoring is the shared scorer's (scripts/v1score.py): both sides at
 10 bits (yuv420p10le), CAMBI told the encode is 8-bit and its coded size
 (cambi.enc_bitdepth=8, enc_width, enc_height), the 3d0h model at 1080p and
 below and 1d5h_2160 above it (the _hfr twins at 50 fps and up), every
@@ -38,17 +38,17 @@ import argparse, hashlib, json, math, os, subprocess, sys, time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 from bdcompare import bd_rate  # noqa: E402
+import v1score as v1s  # noqa: E402
 
-V1 = os.path.expanduser(os.environ.get("V1_BIN", "~/.local/opt/vmaf-v1/bin/vmaf"))
-MD = os.path.expanduser("~/.local/share/vmaf/model/vmaf_v1.0.16")
+V1 = v1s.V1_BIN
+MD = v1s.V1_DIR
 CACHE = os.path.expanduser(os.environ.get("V1_CACHE", "~/.cache/yah265-v1"))
 LOCK = os.path.expanduser("~/.cache/enclab/TIMING_ACTIVE")
 THR = os.environ.get("THREADS", "4")
 BIN = os.environ.get("BIN", os.path.join(ROOT, "build-rel", "y265"))
 FEATS = [("cambi", "cambi"), ("speed_chroma_uv", "chroma"),
          ("integer_adm3", "adm3"), ("integer_motion3", "motion3")]
-# the owner's display rule (10-25), as parity_long.py V1_DISP
-DISP = (1920, 1080)
+DISP = v1s.DISP
 
 
 def geom(src):
@@ -67,22 +67,15 @@ def sha(path):
     return h.hexdigest()[:16]
 
 
-def ff_y4m(inp, frames, up, fifo):
-    """ffmpeg writing INP to FIFO as y4m: 10 bits when UP is set, scaled
-    to fit the display (parity_long.py score_v1's filter) when the picture
-    is smaller than it in both dimensions; native 8 bits otherwise."""
-    vf = []
-    if up == "fit":
-        vf = ["-vf", f"scale={DISP[0]}:{DISP[1]}:flags=bicubic"
-              ":force_original_aspect_ratio=decrease:force_divisible_by=2"]
-    pf = "yuv420p10le" if up else "yuv420p"
+def ff_y4m(inp, frames, fifo):
+    """ffmpeg writing INP to FIFO as native 8-bit y4m."""
     fr = ["-frames:v", str(frames)] if frames else []
     return subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-threads", "2", "-i", inp]
-                            + fr + vf + ["-pix_fmt", pf, "-strict", "-1", "-f",
-                                         "yuv4mpegpipe", fifo], stdin=subprocess.DEVNULL)
+                            + fr + ["-pix_fmt", "yuv420p", "-strict", "-1", "-f",
+                                    "yuv4mpegpipe", fifo], stdin=subprocess.DEVNULL)
 
 
-def vmaf_pass(src, bs, frames, up, args, wd, tag):
+def vmaf_pass(src, bs, frames, args, wd, tag):
     """One libvmaf run, reference and decode each fed by ffmpeg through a
     fifo, so nothing scaled lands on disk."""
     rf, df = os.path.join(wd, tag + ".r.fifo"), os.path.join(wd, tag + ".d.fifo")
@@ -91,8 +84,8 @@ def vmaf_pass(src, bs, frames, up, args, wd, tag):
             os.remove(f)
         os.mkfifo(f)
     vj = os.path.join(wd, tag + ".json")
-    pr = ff_y4m(src, frames, up, rf)
-    pd = ff_y4m(bs, None, up, df)
+    pr = ff_y4m(src, frames, rf)
+    pd = ff_y4m(bs, None, df)
     subprocess.run([V1, "--threads", THR, "-r", rf, "-d", df, "--json", "-o", vj, "-q"]
                    + args, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     pr.wait()
@@ -127,9 +120,7 @@ def rung(src, enc, mode, q, env, flags, binh, frames=None):
         cmd = ["x265", "--input", src, "--preset", "medium"] + rate_args(mode, q) + fl + [
             "--pools", THR, "--frame-threads", "4", "--log-level", "error"]
     dm = disp_mode(w, h)
-    # owner rule: 1d5h_2160 above 1080p, 3d0h at and below it
-    sub = (MD + "_hfr", "vmaf_v1.0.16_hfr_") if fps >= 49.9 else (MD, "vmaf_v1.0.16_")
-    model = os.path.join(sub[0], sub[1] + ("1d5h_2160" if h > 1080 else "3d0h") + ".json")
+    model = v1s.gate_model(w, h, fps)[1]
     k = [cmd, sorted(env.items()), src, binh if enc == "ours" else "x265", "disp:" + dm]
     # before the rule the switch was at 3840x1600 pixels: key the sizes whose
     # model changed (1440p) on it, so their old scores aren't reused, and
@@ -148,10 +139,10 @@ def rung(src, enc, mode, q, env, flags, binh, frames=None):
     e.update(env)
     subprocess.run(cmd + ["-o", bs], env=e, check=True,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    fr = vmaf_pass(src, bs, frames, dm if dm == "fit" else "10", [
-        "--model", f"path={model}:name=v1:cambi.enc_bitdepth=8"
-        f":cambi.enc_width={w}:cambi.enc_height={h}"], CACHE, key + ".v1")
-    fp = vmaf_pass(src, bs, frames, None, ["--no_prediction", "--feature", "psnr"],
+    fr = v1s.score(src, bs, w, h, fps, enc_w=w, enc_h=h, enc_bits=8,
+                   models=[("v1", model)], frames=frames, threads=THR,
+                   display=None if dm == "fit" else (w, h))["frames"]
+    fp = vmaf_pass(src, bs, frames, ["--no_prediction", "--feature", "psnr"],
                    CACHE, key + ".ps")
     keys = list(fr[0]["metrics"])
     cols = {}

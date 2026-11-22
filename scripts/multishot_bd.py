@@ -9,23 +9,29 @@ The ten-clip board is single-shot by construction and cannot see how bits
 move between shots; this encodes the S0 multi-shot sequences
 (local/corpus/<seq>.y4m with a <seq>.cuts file: "<first frame> <name>" per
 shot) at several CRF points for every arm and reports, per sequence,
-BD-VMAF-NEG for every arm pair, the per-shot VMAF-NEG at each point and the
+BD-v1 for every arm pair, the per-shot VMAF v1 at each point and the
 per-shot bit share. Arms are "name=<command template>" with {src} {q} {out};
-"name=env:VAR=val ..." runs our binary (YAH264, default build/n265) under that
+"name=env:VAR=val ..." runs our binary (BIN, default build/y265) under that
 environment with --our-args (default `--crf {q} --aq 1 --cutree 1`, the band's
 operating point), "x265" runs the reference at medium.
 
   scripts/multishot_bd.py --arms flat=env: aqdc=env:N265_AQ_DC=0.4 x265 \\
       --seqs ms_cif_30,ms_720p_50,ms_1080p_25 --points 22,26,30,34
 
-Encodes and VMAF json files are cached under --work by (seq, arm, q); use a
-fresh --work after a rebuild. BD sign: negative = the first arm of the pair
-spends fewer bits at equal VMAF-NEG.
+v1 is scored by scripts/v1score.py, the parity harness's scorer: every
+frame, at display size (fit to 1920x1080 below 1080p), on the model the
+source picks. A shot's score is the mean of the whole-file per-frame array
+over its frames, as shot_hull.py reads it. Encodes and per-frame v1 files
+are cached under --work by (seq, arm, q); use a fresh --work after a
+rebuild. BD sign: negative = the first arm of the pair spends fewer bits
+at equal v1.
 """
 import argparse, json, math, os, shlex, subprocess, sys
 import numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "scripts"))
+import v1score as v1s  # noqa: E402
 
 
 def bd_rate(r_ref, m_ref, r_test, m_test):
@@ -39,10 +45,7 @@ def bd_rate(r_ref, m_ref, r_test, m_test):
     return (math.exp(np.mean(np.polyval(f2, xs) - np.polyval(f1, xs))) - 1) * 100
 
 
-def sizes(path):
-    p = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "frame=pkt_size",
-                        "-of", "csv=p=0", path], capture_output=True, text=True)
-    return [int(x.strip().rstrip(",")) for x in p.stdout.split() if x.strip().rstrip(",").isdigit()]
+sizes = v1s.frame_sizes
 
 
 def main():
@@ -54,13 +57,15 @@ def main():
     ap.add_argument("--work", default=os.path.join(ROOT, "local", "multishot_work"))
     ap.add_argument("--x265", dest="x265", default=os.environ.get("X265", "x265"))
     ap.add_argument("--threads", default="0", help="our --threads (0 = auto)")
+    ap.add_argument("--vmaf-threads", dest="vmaf_threads",
+                    default=os.environ.get("VMAF_THREADS", "4"))
     ap.add_argument("--our-args", dest="our_args", default="--crf {q} --aq 1 --cutree 1",
                     help="the rate-control flags the env: arms encode with. The default is "
                          "the band's CRF operating point; the across-shot term this gate "
                          "measures (N265_AQ_DC) only exists under CRF, and CQP would make "
                          "every arm here byte-identical. '--qp {q}' restores the CQP form.")
     a = ap.parse_args()
-    ours = os.environ.get("YAH264", os.path.join(ROOT, "build", "n265"))
+    ours = os.environ.get("BIN", os.path.join(ROOT, "build", "y265"))
     os.makedirs(a.work, exist_ok=True)
     pts = [int(x) for x in a.points.split(",")]
     arms = {}
@@ -81,27 +86,22 @@ def main():
         for arm, tmpl in arms.items():
             for q in pts:
                 out = os.path.join(a.work, f"{seq}_{arm}_{q}.hevc")
-                js = os.path.join(a.work, f"{seq}_{arm}_{q}.json")
+                js = os.path.join(a.work, f"{seq}_{arm}_{q}.v1.json")
                 if not os.path.exists(js):
                     cmd = tmpl.format(src=shlex.quote(src), q=q, out=shlex.quote(out))
                     r = subprocess.run(cmd, shell=True, capture_output=True, text=True)
                     if r.returncode:
                         sys.exit(f"encode failed: {cmd}\n{r.stderr[-400:]}")
-                    dec = os.path.join(a.work, f"dec_{seq}_{arm}_{q}.y4m")
-                    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", out, "-pix_fmt", "yuv420p", dec], check=True)
-                    r = subprocess.run(["vmaf", "-r", src, "-d", dec, "--json", "-o", js,
-                                        "--model", "version=vmaf_v0.6.1neg:name=vmaf_neg", "--threads", "8"],
-                                       capture_output=True, text=True)
-                    os.unlink(dec)
-                    if r.returncode:
-                        sys.exit(f"vmaf failed on {out}: {r.stderr[-400:]}")
-                per = [f["metrics"]["vmaf_neg"] for f in json.load(open(js))["frames"]]
+                    pf, info = v1s.per_frame(src, out, a.vmaf_threads, cache=False)
+                    with open(js, "w") as f:
+                        json.dump({"frames": pf, **info}, f)
+                per = json.load(open(js))["frames"]
                 sz = sizes(out)
                 n = len(per); b = cuts + [n]
                 shots = [float(np.mean(per[b[i]:b[i + 1]])) for i in range(len(cuts))]
                 share = [sum(sz[b[i]:b[i + 1]]) / max(1, sum(sz)) * 100 for i in range(len(cuts))]
                 res[(arm, q)] = (os.path.getsize(out) * 8, float(np.mean(per)), shots, share)
-                print(f"{seq:12s} {arm:8s} crf{q}: {res[(arm, q)][0] / 1000:9.0f} kbit  NEG {res[(arm, q)][1]:6.2f}"
+                print(f"{seq:12s} {arm:8s} crf{q}: {res[(arm, q)][0] / 1000:9.0f} kbit  v1 {res[(arm, q)][1]:6.2f}"
                       f"  shots " + " ".join(f"{s:5.1f}" for s in shots)
                       + "  share% " + " ".join(f"{s:4.1f}" for s in share), flush=True)
         print(f"{seq}: shots = " + ", ".join(names))
@@ -111,7 +111,7 @@ def main():
                 rr = [res[(r, q)][0] for q in pts]; mr = [res[(r, q)][1] for q in pts]
                 rt = [res[(t, q)][0] for q in pts]; mt = [res[(t, q)][1] for q in pts]
                 bd = bd_rate(rr, mr, rt, mt)
-                print(f"BD-VMAF-NEG {seq} {t} vs {r}: " + (f"{bd:+.2f}%" if bd is not None else "no overlap"), flush=True)
+                print(f"BD-v1 {seq} {t} vs {r}: " + (f"{bd:+.2f}%" if bd is not None else "no overlap"), flush=True)
 
 
 if __name__ == "__main__":

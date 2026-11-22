@@ -72,6 +72,7 @@ import bd_at_rate as bdr                                  # noqa: E402
 import boxlib                                             # noqa: E402
 import media_paths as mp                                  # noqa: E402
 import media_traits as mt                                 # noqa: E402
+import v1score as v1s                                     # noqa: E402
 
 
 def _spec():
@@ -121,18 +122,13 @@ MNAME = "VMAF v1" if GATE == "v1" else "VMAF-NEG"
 # both sides are 8-bit encodes scored at 10 bits; CAMBI must be told the
 # encode's depth or it reads the up-converted picture as a 10-bit encode
 V1_ENC_BITS = 8
-# v1 is scored at display resolution (owner rule 10-25): an encode smaller
-# than 1920x1080 in both dimensions is scaled up, bicubic and aspect kept,
-# to fit 1920x1080, both sides, with CAMBI told the coded size
-V1_DISP = (1920, 1080)
-
-
-def v1_upscaled(w, h):
-    return w < V1_DISP[0] and h < V1_DISP[1]
-
-
-def v1_disp_tag(w, h):
-    return "fit1080" if v1_upscaled(w, h) else "native"
+# v1 is scored at display resolution (owner rule 10-25), by v1score.py's
+# rules: an encode smaller than 1920x1080 in both dimensions is scaled up,
+# bicubic and aspect kept, to fit 1920x1080, both sides, with CAMBI told
+# the coded size
+V1_DISP = v1s.DISP
+v1_upscaled = v1s.upscaled
+v1_disp_tag = v1s.disp_tag
 # the draft spec (yah264, 10-22, owner review pending): the gate model is
 # 1080p 3H, 4K 1.5H at 2160p, the _hfr twin at 50 fps and up; 4K 3H and
 # phone 5H ride along as information. Scored at 10 bits, both sides
@@ -674,55 +670,21 @@ def gate_score(r):
 
 
 def score_v1(cell, bitstream, wd, s, n, stride):
-    """VMAF v1 in a pass of its own: both sides converted to 10 bits
-    (yuv420p10le), the gate model and the informational ones together."""
+    """VMAF v1 in a pass of its own, through v1score.py: both sides
+    converted to 10 bits (yuv420p10le), the gate model and the
+    informational ones together."""
     models, gate, hfr = v1_models(cell)
-    feed = feeder(cell, s, n)
-    dfifo = _fifo(wd, "dec10.fifo")
-    j = os.path.join(wd, "v1.json")
     i = info(cell)
     w, h = i["w"], i["h"]
-    up = (["-vf", f"scale={V1_DISP[0]}:{V1_DISP[1]}:flags=bicubic"
-           ":force_original_aspect_ratio=decrease:force_divisible_by=2"]
-          if v1_upscaled(w, h) else [])
-    up += ["-pix_fmt", "yuv420p10le", "-strict", "-1", "-f", "yuv4mpegpipe"]
-    dec = subprocess.Popen(
-        ["ffmpeg", "-v", "error", "-y", "-threads", FF_THREADS, "-i",
-         bitstream] + up + [dfifo],
-        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-    fp = subprocess.Popen(feed, stdout=subprocess.PIPE,
-                          stderr=subprocess.DEVNULL)
-    cv = subprocess.Popen(["ffmpeg", "-v", "error", "-f", "yuv4mpegpipe",
-                           "-i", "-"] + up + ["-"],
-                          stdin=fp.stdout, stdout=subprocess.PIPE,
-                          stderr=subprocess.DEVNULL)
-    fp.stdout.close()
-    margs = []
-    for m, path in models:
-        margs += ["--model", f"path={path}:name=v1_{m}"
-                  f":cambi.enc_bitdepth={V1_ENC_BITS}"
-                  f":cambi.enc_width={w}:cambi.enc_height={h}"]
-    v = subprocess.run(
-        [V1_BIN, "--threads", VMAF_THREADS, "--subsample", str(stride),
-         "-r", "/dev/stdin", "-d", dfifo, "--json", "-o", j, "-q"] + margs,
-        stdin=cv.stdout, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-    cv.stdout.close()
-    cv.wait()
-    fp.wait()
-    if v.returncode != 0 and dec.poll() is None:
-        dec.kill()
-    dec.wait()
-    os.remove(dfifo)
-    if v.returncode != 0:
-        sys.exit(f"parity_long: vmaf v1 failed on {bitstream}\n  "
-                 f"{v.stderr.decode(errors='replace')[-600:]}")
-    with open(j) as f:
-        jj = json.load(f)
-    os.remove(j)
-    pooled = jj["pooled_metrics"]
+    r = v1s.score(feeder(cell, s, n), bitstream, w, h, fps_of(i),
+                  enc_w=w, enc_h=h, enc_bits=V1_ENC_BITS,
+                  models=[(f"v1_{m}", path) for m, path in models],
+                  stride=stride, threads=VMAF_THREADS, ff_threads=FF_THREADS,
+                  wd=wd, vmaf=V1_BIN)
+    pooled = r["pooled"]
     out = {"v1_gate": gate, "v1_hfr": hfr, "v1_bits": 10,
            "v1_cambi_enc_bits": V1_ENC_BITS, "v1_disp": v1_disp_tag(w, h),
-           "v1_frames": len(jj["frames"])}
+           "v1_frames": len(r["frames"])}
     for m, _ in models:
         pm = pooled[f"v1_{m}"]
         out[f"v1_{m}"] = pm["mean"]
