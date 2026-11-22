@@ -94,14 +94,14 @@ git clone https://github.com/terranvigil/yah265 && cd yah265
 scripts/build-ffmpeg.sh
 ```
 
-Once the script has built the yah265 library, it installs it under `build-ffmpeg/inst`. It then fetches an ffmpeg source tree that has the `libyah265` encoder. The `ffmpeg` and `ffprobe` it builds from that tree go in `build-ffmpeg/ffmpeg`. Two options change that:
+The script builds the yah265 library, fetches an ffmpeg tree that has the `libyah265` encoder and builds it. The new `ffmpeg` and `ffprobe` are in `build-ffmpeg/ffmpeg`. The script takes two options:
 
 | option | what it does |
 |---|---|
 | `--with-x265` | also enables `libx265`, for side-by-side tests |
 | `--prefix DIR` | installs the yah265 library in `DIR` |
 
-The ffmpeg it builds is a GPL binary because yah265 is GPL-2.0-or-later. ffmpeg only links a GPL library when it's configured with `--enable-gpl`.
+The ffmpeg it builds is a GPL binary because yah265 is GPL-2.0-or-later.
 
 ## Your first encode
 
@@ -147,7 +147,7 @@ That's the command you'd give x265 with one word changed. `out.mp4` plays in any
 <figcaption>Everything else on the command line stays as it was.</figcaption>
 </figure>
 
-Always pass a rate option. With none, the encoder runs a test mode that codes each frame at one fixed quantizer. For streaming I'd use capped CRF. It adds a peak rate and a buffer to the CRF command:
+Always pass a rate option. With none, the encoder runs a fixed-quantizer test mode. For streaming I'd use capped CRF. It adds a peak rate and a buffer to the CRF command:
 
 ```sh
 ffmpeg -i in.mp4 -c:v libyah265 -preset medium -crf 25 -maxrate 4500k -bufsize 6000k out.mp4
@@ -159,17 +159,17 @@ The encoding guide covers [the rate modes](guide.md#pick-a-rate-mode) and the [f
 
 `-crf` sets the quality and lets the file size follow the content. A lower number gives a better picture and a bigger file. I'd start at 25, then move by two or three at a time until the picture is good enough.
 
-The CRF scale is yah265's own. A number that suited x265 won't give the same file size here. [Coming from x265](from-x265.md) has a translation table and maps x265's options onto `y265`'s. When you need a size or a bitrate instead, the guide's [rate modes](guide.md#pick-a-rate-mode) cover it.
+The CRF scale is yah265's own. A number that suited x265 won't give the same file size here. [Coming from x265](from-x265.md) has a CRF translation table. For a target size or bitrate, see the guide's [rate modes](guide.md#pick-a-rate-mode).
 
 ## Build y265 on its own
 
-`y265` needs a C11 compiler, Meson, Ninja and Python 3. The reference compiler is clang.
+`y265` needs a C11 compiler, Meson, Ninja and Python 3.
 
 ```sh
 make build-rel
 ```
 
-That leaves the encoder at `build-rel/y265`. The binary is named `y265`, though the project is yah265. One binary codes both bit depths and picks the depth from its input.
+That leaves the encoder at `build-rel/y265`. It codes 8-bit and 10-bit video and picks the depth from its input.
 
 `y265` turns Y4M or raw YUV into a raw HEVC stream. ffmpeg can feed it any source through a pipe:
 
@@ -204,7 +204,7 @@ cmp recon.yuv decoded.yuv
 
 ## Build ffmpeg by hand
 
-The script runs three steps. Run them yourself when you want a different prefix layout or your own ffmpeg configure flags.
+The script runs three steps. Run them yourself when you want your own install path or ffmpeg configure flags.
 
 <details>
 <summary>The manual steps</summary>

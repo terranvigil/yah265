@@ -17,19 +17,19 @@ x265 4.3 at `--preset medium`. [How x265 was run](x265-run.md) includes the buil
 
 ## Is the headline cherry-picked?
 
-No. It covers every CRF cell in the test set. Capped VBR and the content-type clips have their own tables. I didn't include cells that break a validity rule. [The methodology](methodology.md#what-makes-a-number-valid) has the rules.
+No. It covers every CRF cell in the test set. Capped VBR and the content-type clips have their own tables. I didn't include cells that failed a [validity check](methodology.md#what-makes-a-number-valid).
 
 ## You tuned for the metric you score with.
 
-Yes. yah265's `medium` is tuned for VMAF v1, the only quality metric these pages judge by. x265's `medium` has other aims that include its psychovisual options. A lead here is a lead on that one score. Because a score can't settle how two encodes look, [Results](results.md#side-by-side-at-the-same-size) shows frame crops that a script picked by a fixed rule.
+Yes. yah265's `medium` is tuned for VMAF v1, the only quality metric these pages judge by. x265's `medium` has other aims. So a lead here is a lead on that one score. [Results](results.md#side-by-side-at-the-same-size) also shows frame crops so you can judge by eye.
 
 ## You tuned on the clips you test on.
 
-Yes. The test set has no held-out content, because the clips I developed on were windows of the same titles. Treat the results as what the encoder does on this set. The test that matters is your own content. [Check it yourself](check-it-yourself.md) walks through it.
+Yes. I developed on parts of the same titles, so nothing in the test set is held out. Treat the results as what the encoder does on this set. The test that matters is your own content. [Check it yourself](check-it-yourself.md) walks through it.
 
 ## Does the lead hold beyond medium?
 
-I only claim `medium` against `medium`, the preset most people run. The speed and quality results on this site compare those two. The [guide](guide.md#pick-a-preset) explains why yah265 keeps four presets.
+I only claim `medium` against `medium`, the preset most people run. The [guide](guide.md#pick-a-preset) explains why yah265 keeps four presets.
 
 ## Why time x265 without its assembly?
 
@@ -37,7 +37,7 @@ Two of the three goals compare the algorithms with SIMD off on both sides. The h
 
 ## Did x265 get its tunes?
 
-Neither encoder gets a `--tune`. yah265's `medium` detects screen recordings and handheld footage by itself. Because no measurement uses x265's tunes for grain and animation, the content-type clips compare one set of defaults with another. Their speed is shown without counting toward the verdict.
+Neither encoder gets a `--tune`. yah265's `medium` detects screen recordings and handheld footage by itself. x265 has tunes for grain and animation that I didn't use.
 
 ## Is it only fast on a Mac?
 
@@ -45,7 +45,7 @@ No. The headline is the Mac's. yah265 also leads on an Intel Xeon and on an AWS 
 
 ## Does the average hide bad frames?
 
-It can. [Results](results.md#the-worst-frames) shows one clip frame by frame for that reason. The worst 5% of its frames sit beside the mean. It also compares each short clip's lowest frame, including the size where yah265's lowest frame is behind.
+It can. [Results](results.md#the-worst-frames) shows one clip frame by frame for that reason. The worst 5% of its frames sit beside the mean. It also compares each short clip's lowest frame. At CIF, yah265's lowest frame is behind x265's.
 
 ## Is the VMAF setup standard?
 
@@ -53,4 +53,4 @@ The scorer is Netflix's libvmaf with the `vmaf_v1.0.16` models. A picture smalle
 
 ## How do I check a number?
 
-Under each chart a line names its source file and the script that drew it, beside a link to its data as CSV. A script writes the tables from the same files. The site's build fails when a page disagrees with the data. To take a measurement yourself, start with [Check it yourself](check-it-yourself.md).
+Each chart links its data as CSV and names the script that drew it. The tables come from the same data, and the site's build fails if a page disagrees with it. To take a measurement yourself, start with [Check it yourself](check-it-yourself.md).
