@@ -220,7 +220,7 @@ if cpu_family == 'x86_64'
       x86_sse42_families_10 += f
     endif
   endforeach
-  foreach f : ['satd', 'mc', 'transform', 'rdoq']  # the AVX-512 Main10 list
+  foreach f : ['satd', 'mc', 'transform', 'rdoq', 'intra']  # the AVX-512 Main10 list
     if f in x86_avx512_families_8
       x86_avx512_families_10 += f
     endif
