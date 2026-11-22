@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>yah265 playground</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <header>
+    <h1>yah265 playground</h1>
+    <p class="lede">Drop a short clip and yah265 encodes it to HEVC right here in your browser. Nothing is uploaded.</p>
+  </header>
+
+  <section id="drop" class="drop" tabindex="0">
+    <p><strong>Drop a video here</strong> or <label class="pick">choose a file<input id="file" type="file" accept="video/*,.y4m"></label></p>
+    <p class="hint">Any clip your browser can play, or a raw 4:2:0 8-bit .y4m. It's scaled down to fit 1280x720 and read at up to 30 frames a second. I encode the first 10 seconds at 480p, or about 4 seconds at 720p.</p>
+  </section>
+
+  <section class="controls">
+    <label>Preset
+      <select id="preset">
+        <option value="fast">fast</option>
+        <option value="medium" selected>medium</option>
+        <option value="slow">slow</option>
+      </select>
+    </label>
+    <label>CRF <output id="crfval">28</output>
+      <input id="crf" type="range" min="18" max="40" step="1" value="28">
+    </label>
+    <button id="go" disabled>Encode</button>
+  </section>
+
+  <section class="status">
+    <div class="bar"><div id="bar"></div></div>
+    <p id="msg">Loading the encoder...</p>
+  </section>
+
+  <section id="result" hidden>
+    <div class="viewer">
+      <canvas id="view"></canvas>
+      <div id="split" class="split"><span>source</span><span>yah265</span></div>
+    </div>
+    <div class="transport">
+      <button id="play">Play</button>
+      <input id="seek" type="range" min="0" max="0" value="0">
+      <span id="fno">0 / 0</span>
+    </div>
+    <dl class="stats">
+      <div><dt>Size</dt><dd id="s-size"></dd></div>
+      <div><dt>Bitrate</dt><dd id="s-rate"></dd></div>
+      <div><dt>PSNR-Y</dt><dd id="s-psnr"></dd></div>
+      <div><dt>Encode time</dt><dd id="s-time"></dd></div>
+      <div><dt>Speed</dt><dd id="s-fps"></dd></div>
+    </dl>
+    <p><a id="dl" class="button" download="yah265.hevc">Download .hevc</a></p>
+  </section>
+
+  <section class="note">
+    <h2>About the speed</h2>
+    <p>This page runs a WebAssembly build of yah265 on one thread, with none of its SIMD kernels. The native encoder uses NEON, SVE, SSE4.2, AVX2 or AVX-512 and every core you have. On one thread alone, the native build ran 3 to 6 times faster than this page in my tests, and it splits the work over every core. Treat the speed shown here as the slow end for yah265.</p>
+    <p>The picture on the right is the encoder's own reconstruction, the exact frames a decoder would produce from the stream. So no HEVC playback support is needed to see the result.</p>
+  </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

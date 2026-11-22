@@ -16,11 +16,17 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
 #include "threadpool/ntp.h"
+
+/* N265_NO_THREADS: a build with no threads at all (the WebAssembly
+ * playground, where a worker needs SharedArrayBuffer). The pool starts no
+ * worker and the thread that would have waited runs the claimable tasks
+ * itself, in the same claim order, so the stream is the --threads 1 one. */
 
 /* Bounded spin before sleeping, in nanoseconds. A wavefront's waits are
  * short (the row above is two CTBs ahead, not two frames), so the wake
@@ -211,8 +217,10 @@ static _Thread_local int tls_me = -1;
 static _Thread_local int tls_depth;
 static _Thread_local double tls_nested;
 
+#ifndef N265_NO_THREADS
 struct warg { ntp_pool *p; int me; };
 static void *worker(void *arg);
+#endif
 
 /* mu held. Wake exactly one idle worker, if there is one. This is the
  * whole of "per-worker wake slots": making a task claimable used to
@@ -270,6 +278,7 @@ ntp_pool *ntp_open(int nthreads, int max_jobs, int max_lanes)
     for (int i = 0; i < max_lanes; i++)
         p->lane_free[i] = max_lanes - 1 - i;
     p->nlane_free = max_lanes;
+#ifndef N265_NO_THREADS
     for (int i = 0; i < nthreads; i++) {
         struct warg *a = malloc(sizeof(*a));
         if (!a) {
@@ -286,6 +295,7 @@ ntp_pool *ntp_open(int nthreads, int max_jobs, int max_lanes)
             return NULL;
         }
     }
+#endif
     return p;
 }
 
@@ -306,8 +316,10 @@ void ntp_close(ntp_pool *p)
     }
     pthread_cond_broadcast(&p->done);
     pthread_mutex_unlock(&p->mu);
+#ifndef N265_NO_THREADS
     for (int i = 0; i < p->nthreads; i++)
         pthread_join(p->th[i], NULL);
+#endif
     pthread_mutex_destroy(&p->mu);
     pthread_cond_destroy(&p->done);
     for (int i = 0; p->ws && i < p->nthreads; i++)
@@ -447,6 +459,26 @@ static void run_task(ntp_pool *p, struct jslot *js, int idx)
     pthread_cond_broadcast(&p->done);
 }
 
+#ifdef N265_NO_THREADS
+/* mu held. Nobody else will make `pred` true, so run claimable tasks of
+ * jobs older than `limit` here until it is. */
+static void solo_until(ntp_pool *p, uint64_t limit, ntp_pred_fn pred,
+                       void *ctx)
+{
+    while (!pred(ctx)) {
+        int idx = 0;
+        struct jslot *js = claim(p, limit, &idx);
+        if (!js) {
+            fputs("ntp: nothing claimable on the one-thread schedule\n",
+                  stderr);
+            abort();
+        }
+        run_task(p, js, idx);
+    }
+}
+
+static int run_done(void *ctx);
+#else
 static void *worker(void *arg)
 {
     struct warg *a = arg;
@@ -497,6 +529,7 @@ static void *worker(void *arg)
     pthread_mutex_unlock(&p->mu);
     return NULL;
 }
+#endif
 
 void ntp_submit(ntp_pool *p, ntp_job *job)
 {
@@ -552,8 +585,12 @@ void ntp_join(ntp_pool *p, ntp_job *job)
     if (!js)
         return;                 /* ran inline at submit */
     pthread_mutex_lock(&p->mu);
+#ifdef N265_NO_THREADS
+    solo_until(p, UINT64_MAX, run_done, js);
+#else
     while (js->ndone < job->ntask)
         pthread_cond_wait(&p->done, &p->mu);
+#endif
     js->active = 0;
     js->job = NULL;
     pthread_mutex_unlock(&p->mu);
@@ -607,6 +644,19 @@ void ntp_run(ntp_pool *p, ntp_job *job)
         }
         if (js->ndone >= job->ntask)
             break;
+#ifdef N265_NO_THREADS
+        {
+            int k = 0;
+            struct jslot *o = claim(p, UINT64_MAX, &k);
+            if (!o) {
+                fputs("ntp: nothing claimable on the one-thread schedule\n",
+                      stderr);
+                abort();
+            }
+            run_task(p, o, k);
+            continue;
+        }
+#endif
         /* the tasks left are running, and a sleep and wake would cost more
          * than most of them have left to do: spin first */
         double tw = p->prof ? ntp_now() : 0.0;
@@ -631,6 +681,9 @@ static int spin_for(ntp_pred_fn pred, void *ctx)
 {
     if (pred(ctx))
         return 1;
+#ifdef N265_NO_THREADS
+    return 0;
+#endif
     struct timespec t0, t1;
     clock_gettime(CLOCK_MONOTONIC, &t0);
     for (;;) {
@@ -672,6 +725,10 @@ void ntp_wait(ntp_pool *p, unsigned key, ntp_pred_fn pred, void *ctx)
      * sleep, so a spurious wake from a hash collision is free. */
     struct nchan *c = &p->ch[nchan_idx(key)];
     pthread_mutex_lock(&p->mu);
+#ifdef N265_NO_THREADS
+    /* the producer is an earlier task of this job or an older one */
+    solo_until(p, tls_seq ? tls_seq + 1 : UINT64_MAX, pred, ctx);
+#endif
     atomic_fetch_add(&c->nwait, 1);
     while (!pred(ctx))
         pthread_cond_wait(&c->cv, &p->mu);
@@ -699,6 +756,9 @@ void ntp_wait_older(ntp_pool *p, ntp_pred_fn pred, void *ctx)
     }
     uint64_t limit = tls_seq;   /* 0 on the driver: claims nothing */
     pthread_mutex_lock(&p->mu);
+#ifdef N265_NO_THREADS
+    solo_until(p, limit ? limit : UINT64_MAX, pred, ctx);
+#endif
     for (;;) {
         if (pred(ctx))
             break;
