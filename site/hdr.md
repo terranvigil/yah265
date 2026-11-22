@@ -82,8 +82,6 @@ yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8 as Main 10 HEVC. Eac
 <figcaption>A player that doesn't know the per-picture metadata plays the base stream under it.</figcaption>
 </figure>
 
-I left out Dolby Vision profile 5. Its base layer uses a color space that nothing in this toolchain can produce or check.
-
 ## Encoding HDR10
 
 `y265` reads the master through a pipe from ffmpeg:
