@@ -5,13 +5,13 @@ description: What each tool in the H.265 standard does and which choices the sta
 
 # The HEVC standard
 
-HEVC is the video coding standard that ITU-T publishes as H.265. This page walks through what it specifies, one tool at a time, for a reader who has never opened the specification. It starts with the way any video encoder works, because HEVC keeps that plan. The last section lists the choices the standard leaves to an encoder. [Design](design.md) covers how yah265 makes them.
+HEVC is the video coding standard that ITU-T publishes as H.265. This page explains what it specifies for a reader who has never opened the specification. [Design](design.md) covers how yah265 makes the choices the standard leaves to an encoder.
 
 ## How video encoding works
 
-Raw video is far too large to store or send. A picture is a grid of samples, with one plane of luma for brightness and two of chroma for color. An encoder shrinks the video by sending only what a decoder can't guess for itself.
+Raw video is far too large to store or send. A picture is a grid of samples in three planes: one of luma for brightness and two of chroma for color. An encoder shrinks the video by sending only what a decoder can't guess for itself.
 
-The guess is called a prediction. The encoder cuts each picture into blocks. It predicts each block from samples the decoder already has. Those samples come from the same picture (intra prediction) or from an earlier decoded picture (inter prediction). It then subtracts the prediction from the real block. The leftover is called the residual. The better the prediction, the smaller it is.
+The guess is called a prediction. The encoder cuts each picture into blocks and predicts each block from samples the decoder already has. Those samples come from the same picture (intra prediction) or from an earlier decoded picture (inter prediction). The encoder then subtracts the prediction from the real block. The leftover is called the residual. A better prediction leaves a smaller residual.
 
 The residual then goes through a transform that turns a block of samples into a block of frequencies. Most of the block's energy ends up in a few of them. Quantization divides each frequency by a step size, then rounds the result. Because that rounding is the only step that loses picture detail, the step size is the quality control. A number called the quantization parameter (QP) sets it. Last, an entropy coder writes the prediction choices and the rounded values in as few bits as it can.
 
@@ -104,14 +104,14 @@ The encoder also does the decoder's half of the work. It rebuilds each block fro
 <path class="d-arrow d-muted" d="M232 180 V134"/>
 <text class="d-label" x="238" y="162" text-anchor="start">intra</text>
 </svg>
-<figcaption>Each block goes around this loop. The lower half is the decoder's work, done inside the encoder so both predict from the same samples.</figcaption>
+<figcaption>Each block goes around this loop. The lower half is the decoder's work. The encoder does it too so that both predict from the same samples.</figcaption>
 </figure>
 
 Pictures come in three kinds. A decoder can start from an I picture because it uses only intra prediction. A P picture also predicts from earlier pictures. A B picture can predict from two pictures at once. One of them may be shown later than the B picture itself.
 
 ## What HEVC adds
 
-HEVC came after H.264 with the same steps. What grew is the number of choices at each step. The standard's stated goal was the same picture quality as H.264 at about half the bitrate.
+HEVC kept H.264's steps and added choices at each one. The standard's stated goal was the same picture quality as H.264 at about half the bitrate.
 
 | | H.264 | HEVC |
 |---|---|---|
@@ -191,7 +191,7 @@ Three kinds hold settings and no picture data. The video parameter set (VPS) des
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 214" role="img" aria-label="The NAL units at the start of a stream">
 <title>The NAL units at the start of a stream</title>
-<desc>A row of NAL units in stream order: the video, sequence and picture parameter sets, then an SEI message and a slice for the key picture, then slices for a P picture and a B picture. Arrows show each slice naming its picture parameter set, which names its sequence parameter set, which names its video parameter set.</desc>
+<desc>A row of NAL units in stream order: the video, sequence and picture parameter sets, then an SEI message and a slice for the key picture, then slices for a P picture and a B picture. Arrows show each slice naming its picture parameter set. The picture parameter set names its sequence parameter set. The sequence parameter set names its video parameter set.</desc>
 <rect class="d-fill" x="20" y="100" width="70" height="40" rx="6"/>
 <text class="d-mono" x="55" y="124.5" text-anchor="middle">VPS</text>
 <rect class="d-fill" x="100" y="100" width="70" height="40" rx="6"/>
@@ -224,7 +224,7 @@ Three kinds hold settings and no picture data. The video parameter set (VPS) des
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 360" role="img" aria-labelledby="nal-fig-t-n nal-fig-d-n">
 <title id="nal-fig-t-n">The NAL units at the start of a stream</title>
-<desc id="nal-fig-d-n">A row of NAL units in stream order: the video, sequence and picture parameter sets, then an SEI message and a slice for the key picture, then slices for a P picture and a B picture. Arrows show each slice naming its picture parameter set, which names its sequence parameter set, which names its video parameter set.</desc>
+<desc id="nal-fig-d-n">A row of NAL units in stream order: the video, sequence and picture parameter sets, then an SEI message and a slice for the key picture, then slices for a P picture and a B picture. Arrows show each slice naming its picture parameter set. The picture parameter set names its sequence parameter set. The sequence parameter set names its video parameter set.</desc>
 <text class="d-label" x="24" y="18" text-anchor="start">parameter sets</text>
 <path class="d-line d-muted" d="M20 28 H14 V140 H20"/>
 <rect class="d-fill" x="24" y="28" width="160" height="32" rx="6"/>
@@ -257,19 +257,19 @@ Three kinds hold settings and no picture data. The video parameter set (VPS) des
 <text class="d-label" x="262" y="210" text-anchor="start">each slice</text>
 <text class="d-label" x="262" y="226" text-anchor="start">names its PPS</text>
 </svg>
-<figcaption>A stream is a row of NAL units. A slice holds picture data. It points back at the parameter sets it needs.</figcaption>
+<figcaption>A slice holds picture data and points back at the parameter sets it needs.</figcaption>
 </figure>
 
 A decoder can only start at a key picture. HEVC has two main kinds. After an IDR picture, nothing refers to anything that came before it. A CRA picture (clean random access) lets the pictures shown just before it predict from it too. That's an open GOP. It costs fewer bits than a closed one.
 
 B pictures are usually arranged as a pyramid. The middle picture of a group is coded first from the pictures at either end. Each half is then filled in the same way. That's why pictures are decoded in a different order from the one they're shown in.
 
-Each slice also has a reference picture set, the list of pictures the decoder has to keep for later prediction. A decoder that joins late or loses a packet still knows exactly which pictures it should have.
+Each slice also has a reference picture set. It lists the pictures the decoder has to keep for later prediction. A decoder that joins late or loses a packet still knows exactly which pictures it should have.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 306" role="img" aria-label="A B-picture pyramid and an open GOP">
 <title>A B-picture pyramid and an open GOP</title>
-<desc>Seventeen pictures in the order they are shown. Pictures 0 and 8 are an I and a P picture. The seven B pictures between them form a pyramid: picture 4 predicts from 0 and 8, pictures 2 and 6 from their neighbors in the layer above, and the odd pictures from the pictures on either side. Picture 16 is a CRA key picture. Pictures 9 to 15 are leading pictures: they are decoded after the CRA and shown before it, and they predict from both picture 8 and the CRA.</desc>
+<desc>Seventeen pictures in the order they are shown. Pictures 0 and 8 are an I and a P picture. The seven B pictures between them form a pyramid: picture 4 predicts from 0 and 8, pictures 2 and 6 from their neighbors in the layer above, and the odd pictures from the pictures on either side. Picture 16 is a CRA key picture. Pictures 9 to 15 are leading pictures. They are decoded after the CRA and shown before it. They predict from both picture 8 and the CRA.</desc>
 <line class="d-arrow d-muted" x1="232" y1="88" x2="91" y2="74"/>
 <line class="d-arrow d-muted" x1="232" y1="88" x2="373" y2="74"/>
 <line class="d-arrow d-muted" x1="158" y1="132" x2="91" y2="74"/>
@@ -373,7 +373,7 @@ Each slice also has a reference picture set, the list of pictures the decoder ha
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 480" role="img" aria-labelledby="gop-fig-t-n gop-fig-d-n">
 <title id="gop-fig-t-n">A B-picture pyramid and an open GOP</title>
-<desc id="gop-fig-d-n">Seventeen pictures in the order they are shown. Pictures 0 and 8 are an I and a P picture. The seven B pictures between them form a pyramid: picture 4 predicts from 0 and 8, pictures 2 and 6 from their neighbors in the layer above, and the odd pictures from the pictures on either side. Picture 16 is a CRA key picture. Pictures 9 to 15 are leading pictures: they are decoded after the CRA and shown before it, and they predict from both picture 8 and the CRA.</desc>
+<desc id="gop-fig-d-n">Seventeen pictures in the order they are shown. Pictures 0 and 8 are an I and a P picture. The seven B pictures between them form a pyramid: picture 4 predicts from 0 and 8, pictures 2 and 6 from their neighbors in the layer above, and the odd pictures from the pictures on either side. Picture 16 is a CRA key picture. Pictures 9 to 15 are leading pictures. They are decoded after the CRA and shown before it. They predict from both picture 8 and the CRA.</desc>
 <line class="d-arrow d-muted" x1="102" y1="126" x2="75" y2="38"/>
 <line class="d-arrow d-muted" x1="102" y1="126" x2="129" y2="114"/>
 <line class="d-arrow d-muted" x1="136" y1="88" x2="75" y2="38"/>
@@ -492,7 +492,7 @@ Each picture is divided into a grid of coding tree units (CTUs). The stream pick
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 306" role="img" aria-label="A coding tree unit split down to 8x8">
 <title>A coding tree unit split down to 8x8</title>
-<desc>On the left a 64 by 64 block is split into four 32 by 32 blocks. Two of those stay whole. Two are split into 16 by 16 blocks, and one 16 by 16 block is split into four 8 by 8 blocks. On the right the same splits are drawn as a tree with one level per block size.</desc>
+<desc>On the left a 64 by 64 block is split into four 32 by 32 blocks. Two of those stay whole. Two are split into 16 by 16 blocks. One 16 by 16 block is split into four 8 by 8 blocks. On the right the same splits are drawn as a tree with one level per block size.</desc>
 <rect class="d-box" x="30" y="30" width="240" height="240" rx="0"/>
 <line class="d-line" x1="150" y1="30" x2="150" y2="270"/>
 <line class="d-line" x1="30" y1="150" x2="270" y2="150"/>
@@ -549,7 +549,7 @@ Each picture is divided into a grid of coding tree units (CTUs). The stream pick
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 540" role="img" aria-labelledby="ctu-fig-t-n ctu-fig-d-n">
 <title id="ctu-fig-t-n">A coding tree unit split down to 8x8</title>
-<desc id="ctu-fig-d-n">On the left a 64 by 64 block is split into four 32 by 32 blocks. Two of those stay whole. Two are split into 16 by 16 blocks, and one 16 by 16 block is split into four 8 by 8 blocks. On the right the same splits are drawn as a tree with one level per block size.</desc>
+<desc id="ctu-fig-d-n">On the left a 64 by 64 block is split into four 32 by 32 blocks. Two of those stay whole. Two are split into 16 by 16 blocks. One 16 by 16 block is split into four 8 by 8 blocks. On the right the same splits are drawn as a tree with one level per block size.</desc>
 <rect class="d-box" x="80" y="10" width="200" height="200" rx="0"/>
 <line class="d-line" x1="180" y1="10" x2="180" y2="210"/>
 <line class="d-line" x1="80" y1="110" x2="280" y2="110"/>
@@ -608,7 +608,7 @@ Each picture is divided into a grid of coding tree units (CTUs). The stream pick
 <figcaption>Each split is a single flag in the stream. The highlighted 8x8 block is the highlighted leaf.</figcaption>
 </figure>
 
-A coding unit is where the encoder picks intra or inter prediction. Inside it, two more divisions apply. Prediction units (PUs) say how the CU is cut for prediction. An inter CU has eight shapes to pick from, including four uneven ones. Transform units (TUs) say how the residual is cut for the transform, through a second quadtree with sizes from 32x32 down to 4x4.
+A coding unit is where the encoder picks intra or inter prediction. Inside it, prediction units (PUs) say how the CU is cut for prediction. An inter CU has eight shapes to pick from, including four uneven ones. Transform units (TUs) say how the residual is cut for the transform, through a second quadtree with sizes from 32x32 down to 4x4.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 338" role="img" aria-label="Prediction units and transform units on one coding unit">
@@ -710,7 +710,7 @@ Intra prediction fills a block from the decoded samples just above it and to its
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 336" role="img" aria-label="The 35 intra prediction modes">
 <title>The 35 intra prediction modes</title>
-<desc>On the left a block with the row of decoded samples above it and the column to its left, each twice the block's length. On the right a fan of 33 lines from one point, covering half a turn from the lower left through horizontal and vertical to the upper right. Modes 2, 10, 18, 26 and 34 are marked. Planar and DC are modes 0 and 1.</desc>
+<desc>On the left a block with the row of decoded samples above it and the column to its left. Each is twice the block's length. On the right a fan of 33 lines from one point, covering half a turn from the lower left through horizontal and vertical to the upper right. Modes 2, 10, 18, 26 and 34 are marked. Planar and DC are modes 0 and 1.</desc>
 <rect class="d-accent" x="66" y="116" width="194" height="14" rx="0"/>
 <rect class="d-accent" x="66" y="130" width="14" height="180" rx="0"/>
 <rect class="d-box" x="80" y="130" width="90" height="90" rx="0"/>
@@ -767,7 +767,7 @@ Intra prediction fills a block from the decoded samples just above it and to its
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 610" role="img" aria-labelledby="intra-fig-t-n intra-fig-d-n">
 <title id="intra-fig-t-n">The 35 intra prediction modes</title>
-<desc id="intra-fig-d-n">On the left a block with the row of decoded samples above it and the column to its left, each twice the block's length. On the right a fan of 33 lines from one point, covering half a turn from the lower left through horizontal and vertical to the upper right. Modes 2, 10, 18, 26 and 34 are marked. Planar and DC are modes 0 and 1.</desc>
+<desc id="intra-fig-d-n">On the left a block with the row of decoded samples above it and the column to its left. Each is twice the block's length. On the right a fan of 33 lines from one point, covering half a turn from the lower left through horizontal and vertical to the upper right. Modes 2, 10, 18, 26 and 34 are marked. Planar and DC are modes 0 and 1.</desc>
 <rect class="d-accent" x="80" y="28" width="194" height="14" rx="0"/>
 <rect class="d-accent" x="80" y="42" width="14" height="180" rx="0"/>
 <rect class="d-box" x="94" y="42" width="90" height="90" rx="0"/>
@@ -824,16 +824,16 @@ Intra prediction fills a block from the decoded samples just above it and to its
 <figcaption>Each angular mode copies the highlighted neighbor samples into the block along one of these directions. The fan is denser near horizontal and vertical.</figcaption>
 </figure>
 
-Naming one of 35 modes would cost five bits or more per block if the standard didn't shorten it. It builds a list of three most probable modes from the blocks above and to the left. A mode on the list costs about two bits. Chroma can reuse the mode that luma chose.
+Naming one of 35 modes would cost five bits or more per block. To shorten that, the standard builds a list of three most probable modes from the blocks above and to the left. A mode on the list costs about two bits. Chroma can reuse the mode that luma chose.
 
 ## Inter prediction and merge
 
-Inter prediction copies a block from an earlier decoded picture. A motion vector says where the copy comes from. A reference index says which picture. Vectors are precise to a quarter of a sample. Positions between whole samples are computed by a filter over eight neighboring samples for luma and four for chroma.
+Inter prediction copies a block from an earlier decoded picture. A motion vector says where the copy comes from and a reference index says which picture. Vectors are precise to a quarter of a sample. A filter computes the positions between whole samples from eight neighboring samples for luma and four for chroma.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 262" role="img" aria-labelledby="mv-fig-t mv-fig-d">
 <title id="mv-fig-t">A motion vector points at the block to copy</title>
-<desc id="mv-fig-d">Two pictures side by side. In the picture being coded one block is highlighted. In the earlier decoded picture a dashed outline marks the same place, and a motion vector runs from it to a highlighted block down and to the left. That block is copied across as the prediction.</desc>
+<desc id="mv-fig-d">Two pictures side by side. In the picture being coded one block is highlighted. In the earlier decoded picture a dashed outline marks the same place. A motion vector runs from it to a highlighted block down and to the left. That block is copied across as the prediction.</desc>
 <text class="d-label" x="170" y="30" text-anchor="middle">an earlier decoded picture</text>
 <text class="d-label" x="550" y="30" text-anchor="middle">the picture being coded</text>
 <rect class="d-box" x="30" y="44" width="280" height="176" rx="0"/>
@@ -852,7 +852,7 @@ Inter prediction copies a block from an earlier decoded picture. A motion vector
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 472" role="img" aria-labelledby="mv-fig-t-n mv-fig-d-n">
 <title id="mv-fig-t-n">A motion vector points at the block to copy</title>
-<desc id="mv-fig-d-n">Two pictures side by side. In the picture being coded one block is highlighted. In the earlier decoded picture a dashed outline marks the same place, and a motion vector runs from it to a highlighted block down and to the left. That block is copied across as the prediction.</desc>
+<desc id="mv-fig-d-n">Two pictures side by side. In the picture being coded one block is highlighted. In the earlier decoded picture a dashed outline marks the same place. A motion vector runs from it to a highlighted block down and to the left. That block is copied across as the prediction.</desc>
 <text class="d-label" x="180" y="18" text-anchor="middle">an earlier decoded picture</text>
 <rect class="d-box" x="40" y="30" width="280" height="176" rx="0"/>
 <rect class="d-dash" x="160" y="70" width="50" height="50" rx="0"/>
@@ -967,14 +967,14 @@ A block in a B picture can average a prediction from each of its two reference l
 
 ## Transforms and quantization
 
-The residual is transformed in square blocks from 4x4 to 32x32 samples. The transform is an integer version of the discrete cosine transform, apart from one case. A 4x4 intra luma block uses a sine transform instead.
+The residual is transformed in square blocks from 4x4 to 32x32 samples. The transform is an integer version of the discrete cosine transform. A 4x4 intra luma block is the exception and uses a sine transform.
 
 The quantizer's step size doubles every six QP steps. At 8 bits the QP runs from 0 to 51. Because the QP can change from block to block inside a picture, an encoder can spend bits where the eye will see them.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 250" role="img" aria-label="What the transform and the quantizer do to an 8x8 block">
 <title>What the transform and the quantizer do to an 8x8 block</title>
-<desc>Three 8 by 8 grids. In the first all the cells are filled: a residual has a value at each sample. In the second the filled cells collect in the top left corner: after the transform most of the energy sits in a few low frequencies. In the third only five cells in the top left hold numbers and the other 59 are zero: quantization rounded the small values away.</desc>
+<desc>Three 8 by 8 grids. In the first all the cells are filled: a residual has a value at each sample. In the second the filled cells collect in the top left corner: after the transform most of the energy is in a few low frequencies. In the third only five cells in the top left hold numbers and the other 59 are zero: quantization rounded the small values away.</desc>
 <rect class="d-fill" x="40" y="50" width="20" height="20" rx="0"/>
 <rect class="d-fill" x="60" y="50" width="20" height="20" rx="0"/>
 <rect class="d-fill" x="80" y="50" width="20" height="20" rx="0"/>
@@ -1185,7 +1185,7 @@ The quantizer's step size doubles every six QP steps. At 8 bits the QP runs from
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 580" role="img" aria-labelledby="xform-fig-t-n xform-fig-d-n">
 <title id="xform-fig-t-n">What the transform and the quantizer do to an 8x8 block</title>
-<desc id="xform-fig-d-n">Three 8 by 8 grids. In the first all the cells are filled: a residual has a value at each sample. In the second the filled cells collect in the top left corner: after the transform most of the energy sits in a few low frequencies. In the third only five cells in the top left hold numbers and the other 59 are zero: quantization rounded the small values away.</desc>
+<desc id="xform-fig-d-n">Three 8 by 8 grids. In the first all the cells are filled: a residual has a value at each sample. In the second the filled cells collect in the top left corner: after the transform most of the energy is in a few low frequencies. In the third only five cells in the top left hold numbers and the other 59 are zero: quantization rounded the small values away.</desc>
 <rect class="d-fill" x="12" y="10" width="20" height="20" rx="0"/>
 <rect class="d-fill" x="32" y="10" width="20" height="20" rx="0"/>
 <rect class="d-fill" x="52" y="10" width="20" height="20" rx="0"/>
@@ -1400,7 +1400,7 @@ The quantizer's step size doubles every six QP steps. At 8 bits the QP runs from
 <figcaption>Because the transform moves a block's energy into a few coefficients, rounding the rest to zero costs little.</figcaption>
 </figure>
 
-Coefficients are coded in groups of 4x4. The coding starts from the last nonzero one, then works back toward the top left. One trick saves a bit in many groups. In sign data hiding the encoder leaves out the sign of one coefficient. The decoder works it out from whether the group's sum is odd or even.
+Coefficients are coded in groups of 4x4. The coding starts from the last nonzero one, then works back toward the top left. Sign data hiding saves a bit in many groups. The encoder leaves out the sign of one coefficient. The decoder works it out from whether the group's sum is odd or even.
 
 ## Entropy coding
 
@@ -1409,7 +1409,7 @@ Everything in a slice is written by one coder, context-adaptive binary arithmeti
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 190" role="img" aria-label="The two paths a bin takes through CABAC">
 <title>The two paths a bin takes through CABAC</title>
-<desc>A syntax element is binarized into bins. A regular bin goes to a context model that estimates how likely a one is, then to the arithmetic coder, which sends the outcome back to update the estimate. A bypass bin skips the model and goes straight to the arithmetic coder at even odds.</desc>
+<desc>A syntax element is binarized into bins. A regular bin goes to a context model that estimates how likely a one is, then to the arithmetic coder. The arithmetic coder sends the outcome back to update the estimate. A bypass bin skips the model and goes straight to the arithmetic coder at even odds.</desc>
 <text class="d-label" x="60" y="105" text-anchor="middle">syntax</text>
 <text class="d-label" x="60" y="122" text-anchor="middle">element</text>
 <line class="d-arrow" x1="96" y1="110" x2="128" y2="110"/>
@@ -1436,7 +1436,7 @@ Everything in a slice is written by one coder, context-adaptive binary arithmeti
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 346" role="img" aria-labelledby="cabac-fig-t-n cabac-fig-d-n">
 <title id="cabac-fig-t-n">The two paths a bin takes through CABAC</title>
-<desc id="cabac-fig-d-n">A syntax element is binarized into bins. A regular bin goes to a context model that estimates how likely a one is, then to the arithmetic coder, which sends the outcome back to update the estimate. A bypass bin skips the model and goes straight to the arithmetic coder at even odds.</desc>
+<desc id="cabac-fig-d-n">A syntax element is binarized into bins. A regular bin goes to a context model that estimates how likely a one is, then to the arithmetic coder. The arithmetic coder sends the outcome back to update the estimate. A bypass bin skips the model and goes straight to the arithmetic coder at even odds.</desc>
 <text class="d-label" x="180" y="18" text-anchor="middle">syntax element</text>
 <line class="d-arrow" x1="180" y1="26" x2="180" y2="48"/>
 <rect class="d-box" x="120" y="50" width="120" height="40" rx="6"/>
@@ -1477,7 +1477,7 @@ Deblocking runs first. For each block edge on an 8x8 grid it decides how strong 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 232" role="img" aria-label="One row of samples across a block edge, before and after each filter">
 <title>One row of samples across a block edge, before and after each filter</title>
-<desc>Three plots of sixteen samples along one row, with a block edge in the middle and the source drawn as a dashed line. In the rebuilt row the left block sits above the source and the right block below it, leaving a step at the edge. After deblocking the samples near the edge form a ramp. After SAO the whole row sits closer to the source.</desc>
+<desc>Three plots of sixteen samples along one row, with a block edge in the middle and the source drawn as a dashed line. In the rebuilt row a step is left at the edge, where the left block is above the source and the right block below it. After deblocking the samples near the edge form a ramp. After SAO the whole row is closer to the source.</desc>
 <text class="d-label" x="120" y="28" text-anchor="middle">rebuilt</text>
 <line class="d-dash d-muted" x1="119.75" y1="44" x2="119.75" y2="196"/>
 <path class="d-dash" d="M32.0 160.0 L43.7 154.0 L55.4 148.0 L67.1 142.0 L78.8 136.0 L90.5 130.0 L102.2 124.0 L113.9 118.0 L125.6 112.0 L137.3 106.0 L149.0 100.0 L160.7 94.0 L172.4 88.0 L184.1 82.0 L195.8 76.0 L207.5 70.0"/>
@@ -1498,7 +1498,7 @@ Deblocking runs first. For each block edge on an 8x8 grid it decides how strong 
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 552" role="img" aria-labelledby="deblock-fig-t-n deblock-fig-d-n">
 <title id="deblock-fig-t-n">One row of samples across a block edge, before and after each filter</title>
-<desc id="deblock-fig-d-n">Three plots of sixteen samples along one row, with a block edge in the middle and the source drawn as a dashed line. In the rebuilt row the left block sits above the source and the right block below it, leaving a step at the edge. After deblocking the samples near the edge form a ramp. After SAO the whole row sits closer to the source.</desc>
+<desc id="deblock-fig-d-n">Three plots of sixteen samples along one row, with a block edge in the middle and the source drawn as a dashed line. In the rebuilt row a step is left at the edge, where the left block is above the source and the right block below it. After deblocking the samples near the edge form a ramp. After SAO the whole row is closer to the source.</desc>
 <text class="d-label" x="180" y="14" text-anchor="middle">rebuilt</text>
 <line class="d-dash d-muted" x1="180.4" y1="22" x2="180.4" y2="136"/>
 <path class="d-dash" d="M 40.0 109.0 L 58.7 104.5 L 77.4 100.0 L 96.2 95.5 L 114.9 91.0 L 133.6 86.5 L 152.3 82.0 L 171.0 77.5 L 189.8 73.0 L 208.5 68.5 L 227.2 64.0 L 245.9 59.5 L 264.6 55.0 L 283.4 50.5 L 302.1 46.0 L 320.8 41.5"/>
@@ -1522,7 +1522,7 @@ Deblocking runs first. For each block edge on an 8x8 grid it decides how strong 
 
 ## Profiles, levels and HDR
 
-A decoder doesn't have to support the whole standard. A profile names the tools and sample formats a stream may use. Main is 8-bit video with chroma at half resolution in both directions, written 4:2:0. Main 10 allows 10 bits. Other profiles add 4:2:2 and 4:4:4 chroma, where chroma keeps more or all of luma's resolution.
+A decoder doesn't have to support the whole standard. A profile names the tools and sample formats a stream may use. Main is 8-bit video in the 4:2:0 format, where chroma has half of luma's resolution in both directions. Main 10 allows 10 bits. Other profiles add 4:2:2 and 4:4:4 chroma, where chroma keeps more or all of luma's resolution.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 228" role="img" aria-label="Where chroma samples sit in the three chroma formats">
@@ -1703,9 +1703,9 @@ A decoder doesn't have to support the whole standard. A profile names the tools 
 <figcaption>Each patch has sixteen luma samples, drawn as circles. Squares are chroma positions.</figcaption>
 </figure>
 
-A level caps the picture size, the frame rate and the bitrate. A decoder then knows how much it has to handle. Each level comes in a Main tier and a High tier with a larger bitrate cap.
+A level caps the picture size, the frame rate and the bitrate so that a decoder knows how much it has to handle. Each level comes in a Main tier and a High tier with a larger bitrate cap.
 
-HDR needs no new coding tool. An HDR stream is a 10-bit stream with fields that say how to read its samples: the color primaries, the transfer function and the mastering display's range. Those fields live in the SPS and in SEI messages. [HDR](hdr.md) covers what yah265 writes. The [encoding guide](guide.md#set-the-bit-depth-and-profile) lists the profiles it codes.
+HDR needs no new coding tool. An HDR stream is a 10-bit stream with fields that say how to read its samples: the color primaries, the transfer function and the mastering display's range. Those fields live in the SPS and in SEI messages. [HDR](hdr.md) covers what yah265 writes. The [encoding guide](guide.md#set-the-bit-depth-and-profile) lists the profiles yah265 codes.
 
 ## What the standard doesn't say
 
@@ -1714,7 +1714,7 @@ The specification defines what each bit of a stream means. It also says what a d
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 250" role="img" aria-label="What the standard fixes and what it leaves open">
 <title>What the standard fixes and what it leaves open</title>
-<desc>The encoder is drawn as a dashed box labeled left open, holding the choices the standard doesn't make: picture types, tree splits, modes and motion vectors, coefficient rounding, quantizers and threading. An arrow labeled bitstream leads to the decoder, drawn as a solid box labeled specified, which gives the same pictures on any decoder.</desc>
+<desc>The encoder is drawn as a dashed box labeled left open, holding the choices the standard doesn't make: picture types, tree splits, modes and motion vectors, coefficient rounding, quantizers and threading. An arrow labeled bitstream leads to the decoder, drawn as a solid box labeled specified. Any decoder gives the same pictures.</desc>
 <rect class="d-dash" x="20" y="30" width="290" height="200" rx="8"/>
 <text class="d-text" x="165" y="56" text-anchor="middle">Encoder: left open</text>
 <text class="d-label" x="165" y="86" text-anchor="middle">which pictures are I, P or B</text>
@@ -1736,7 +1736,7 @@ The specification defines what each bit of a stream means. It also says what a d
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 424" role="img" aria-labelledby="open-fig-t-n open-fig-d-n">
 <title id="open-fig-t-n">What the standard fixes and what it leaves open</title>
-<desc id="open-fig-d-n">The encoder is drawn as a dashed box labeled left open, holding the choices the standard doesn't make: picture types, tree splits, modes and motion vectors, coefficient rounding, quantizers and threading. An arrow labeled bitstream leads to the decoder, drawn as a solid box labeled specified, which gives the same pictures on any decoder.</desc>
+<desc id="open-fig-d-n">The encoder is drawn as a dashed box labeled left open, holding the choices the standard doesn't make: picture types, tree splits, modes and motion vectors, coefficient rounding, quantizers and threading. An arrow labeled bitstream leads to the decoder, drawn as a solid box labeled specified. Any decoder gives the same pictures.</desc>
 <rect class="d-dash" x="10" y="10" width="340" height="196" rx="8"/>
 <text class="d-text" x="180" y="36" text-anchor="middle">Encoder: left open</text>
 <text class="d-label" x="180" y="66" text-anchor="middle">which pictures are I, P or B</text>
@@ -1759,7 +1759,7 @@ The specification defines what each bit of a stream means. It also says what a d
 <figcaption>The standard defines the bitstream and the decoder. Everything inside the dashed box is an encoder's own business.</figcaption>
 </figure>
 
-Two encoders can write legal streams of the same size from the same source. The streams can still differ widely in quality, as can the time taken. All of that difference comes from the open choices. These are the main ones, with the Design section where yah265 makes each:
+Two encoders can write legal streams of the same size from the same source. The streams can still differ widely in quality, as can the time taken. All of that difference comes from the open choices. Each of the main ones is listed with the section where yah265 makes it:
 
 - Which pictures become key pictures, P pictures and B pictures: [Lookahead](design.md#lookahead).
 - How each CTU is split and which prediction each CU gets: [Mode decision](design.md#mode-decision).

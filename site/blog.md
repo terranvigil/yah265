@@ -24,7 +24,7 @@ ffmpeg -i in.mp4 -c:v libx265  -preset medium -crf 25 out.mp4
 ffmpeg -i in.mp4 -c:v libyah265 -preset medium -crf 25 out.mp4
 ```
 
-The project's own ffmpeg build includes `libyah265`. One command makes that build: `scripts/build-ffmpeg.sh`. [Build and first encode](start.md) walks through it. The same CRF number won't give the same file size as x265, because yah265 has its own CRF scale.
+The project's own ffmpeg build includes `libyah265`. [Build and first encode](start.md) walks through the one command that makes it. The same CRF number won't give the same file size as x265, because yah265 has its own CRF scale.
 
 ## Faster on every cell I timed
 
@@ -82,7 +82,7 @@ Here is the hardest moment of one clip, from two files of the same size.
 </figure>
 <!--/gen:fig-frames-->
 
-A still frame only goes so far. The [comparison players](https://terranvigil.github.io/yah265-compare/) play both encodes in motion at the same file size. You can switch between them and jump to the hardest moments yourself.
+The [comparison players](https://terranvigil.github.io/yah265-compare/) play both encodes in motion at the same file size. You can switch between them and jump to the hardest moments yourself.
 
 An average can hide a bad stretch. Here is that clip frame by frame, from both files.
 
@@ -94,7 +94,7 @@ yah265's lead is wider on the clip's worst frames than on its average. [Results]
 
 ## The same result through ffmpeg
 
-Most people meet an encoder through ffmpeg, as an outside tester would. I ran both encoders from one ffmpeg build with `-preset medium` and default threads. Once yah265 had run at a fixed CRF, x265's CRF was searched until its file came within <!--gen:ff-tol-->2%<!--/gen:ff-tol--> of yah265's. VMAF v1 scored all the frames of both.
+Most people meet an encoder through ffmpeg. I ran both encoders from one ffmpeg build with `-preset medium` and default threads, as an outside tester would. Once yah265 had run at a fixed CRF, I searched x265's CRF until its file came within <!--gen:ff-tol-->2%<!--/gen:ff-tol--> of yah265's. VMAF v1 scored all the frames of both.
 
 <!--gen:ffmpeg-table-->
 | clip | encoder | crf | size | encode time | VMAF v1 |
@@ -127,9 +127,9 @@ The chart tracks median speed against x265 on the same short clips, from Septemb
 
 ### Correct first, then quality, then speed
 
-The first commits built the bitstream layer and a conformance gate before any encoding decision. A stream has to decode to the encoder's own reconstruction through both ffmpeg and libde265. One-thread output has to be byte-identical from run to run. Neither rule ever relaxed.
+The first commits built the bitstream layer and a conformance gate before any encoding decision. A stream has to decode to the encoder's own reconstruction through both ffmpeg and libde265. One-thread output has to be byte-identical from run to run. I never relaxed either rule.
 
-Quality came before speed on purpose. Speed is measured at matched file size, so a quality change moves the speed numbers too. Speed work done first would have had to be redone.
+I did quality before speed on purpose. Because speed is measured at matched file size, a quality change moves the speed numbers too. Speed work done first would have had to be redone.
 
 ### Threads and NEON
 
@@ -143,9 +143,9 @@ By mid-September yah265 had a large quality lead, although it was still slower w
 
 ### Real films disagreed with the short clips
 
-The short clips had yah265 ahead everywhere. Real titles didn't agree. One needed more bits than x265, and Sol Levante took longer to encode.
+The short clips had yah265 ahead everywhere. One real title needed more bits than x265. Sol Levante took longer to encode.
 
-The first problem was block size. At low rates yah265's 32x32 blocks wasted bits, so I added 64x64 blocks at HD and 4K. Sol Levante's time went to intra search inside P and B frames, so I cut that search down. Both changes also gained quality.
+Because yah265's 32x32 blocks wasted bits at low rates, I added 64x64 blocks at HD and 4K. Sol Levante's time went to intra search inside P and B frames, so I cut that search down. Both changes also gained quality.
 
 The bigger tree then ran slower on all cores, because too few frames were being coded at once. Coding twelve at once, with reference frames scheduled first, fixed it.
 
@@ -153,7 +153,7 @@ The bigger tree then ran slower on all cores, because too few frames were being 
 
 When VBR was first measured yah265 trailed x265 on cells where CRF was level or ahead. VBR was also slower than x265 on all cores. Only one picture was ever in flight, because VBR waited for each frame to finish before it planned the next one. Planning from frames up to eight back gave the parallelism back.
 
-That change overran very small buffers, so those now wait for each frame as before. Capped VBR also stopped spending surplus bits on frames that already looked perfect.
+That change overran very small buffers. Those now wait for each frame as before. Capped VBR also stopped spending surplus bits on frames that already looked perfect.
 
 ### A dev set that reads in ten minutes
 
@@ -173,7 +173,7 @@ One film still failed on speed with SIMD on. At 720p it was slower than x265 eve
 
 ### Off the Mac
 
-Parity on the Mac wasn't the finish line, because a parity claim has to hold on all the instruction sets the encoder ships. The x86-64 kernels gained an AVX-512 tier for the transforms and the block-difference sums. The arm64 kernels gained an SVE tier. Each tier is bit-exact with C, as NEON is. Both cloud tables then ran on EC2 spot instances. Each box built both encoders from the same source. yah265 passed all three goals at each picture size and clip length on both machines the first time they were timed.
+Parity on the Mac wasn't the finish line, because a parity claim has to hold on all the instruction sets the encoder ships. The x86-64 kernels gained an AVX-512 tier for the transforms and the block-difference sums. The arm64 kernels gained an SVE tier. Each tier is bit-exact with C, as NEON is. Both cloud tables then ran on EC2 spot instances. yah265 passed all three goals at each picture size and clip length on both machines the first time they were timed.
 
 ## The tables behind the charts
 
@@ -278,7 +278,7 @@ The three curves in the chart are these ladders at CRF.
 
 ### Quality off the Mac
 
-The ladders ran on the Mac. Graviton4 writes the same streams as the Mac in nearly all the timed encodes, so its quality is the same. On x86-64 the streams differ a little, so I ran some ladders again there.
+The ladders ran on the Mac. Because Graviton4 writes the same streams as the Mac in nearly all the timed encodes, its quality is the same. On x86-64 the streams differ a little, so I ran some ladders again there.
 
 <!--gen:offmac-table-->
 | machine | check | result |
@@ -298,13 +298,13 @@ The ladders ran on the Mac. Graviton4 writes the same streams as the Mac in near
 
 ## How it was measured
 
-The Mac is an Apple M5 Max with 18 cores. The reference on all three machines is x265 4.3. On all three machines both encoders ran at `medium`. They read the same frames from one feeder on standard input.
+The Mac is an Apple M5 Max with 18 cores. The reference is x265 4.3. On all three machines both encoders ran at `medium` and read the same frames from one feeder on standard input.
 
 For each timed CRF encode, I adjusted yah265's CRF until its file was within 1% of x265's size. The headline covers only those encodes. Capped VBR has its own tables. x265 ran its default lookahead of 20 frames. yah265 ran its own `medium` default: 20 frames from 720p up and 12 at CIF.
 
-Quality is VMAF v1: Netflix's `vmaf_v1.0.16` models on libvmaf 3.x. It's scored at display size. A picture under 1080p is scaled up to fit 1920x1080 first, CIF included. Each ten-minute film runs from the end of its black opening to the start of its end credits. The headline is the Mac's alone.
+Quality is VMAF v1: Netflix's `vmaf_v1.0.16` models on libvmaf 3.x. It's scored at display size. A picture under 1080p is scaled up to fit 1920x1080 first. Each ten-minute film runs from the end of its black opening to the start of its end credits. The headline is the Mac's alone.
 
-The [results page](results.md) has the tables. The [methodology](methodology.md) has the rules that make a number valid. The figures on this page come from <!--gen:report-link-->[the all-architecture parity report of 2026-11-14](docs/parity/PARITY-REPORT-yah265-all-isa-2026-11-14.md)<!--/gen:report-link--> and the per-machine reports beside it. The charts and figures come from one [script](scripts/blog_charts.py). You can [check it yourself](check-it-yourself.md).
+The [results page](results.md) has the tables. The [methodology](methodology.md) has the rules that make a number valid. The figures on this page come from <!--gen:report-link-->[the all-architecture parity report of 2026-11-14](docs/parity/PARITY-REPORT-yah265-all-isa-2026-11-14.md)<!--/gen:report-link-->. One [script](scripts/blog_charts.py) draws the charts. You can [check it yourself](check-it-yourself.md).
 
 ## Docs
 
