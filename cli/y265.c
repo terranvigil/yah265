@@ -4,6 +4,7 @@
  */
 
 #include <errno.h>
+#include <fcntl.h>
 #include <math.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -17,6 +18,7 @@
 #include <unistd.h>
 
 #include "yah265.h"
+#include "ctl_log.h"
 #include "hdr_dyn.h"
 
 /* internal knobs, resolved from the library (not yet public API) */
@@ -57,6 +59,7 @@ void n265_set_sei_opts(int recovery_sei, int pic_struct, int hrd_concat,
 void n265_set_qpfile(const char *path);
 void n265_set_zones(const char *spec);
 void n265_encoder_set_csv(n265_encoder *e, const char *path, int level);
+void n265_encoder_set_frame_stats(n265_encoder *e, const char *path);
 long n265_encoder_metrics(n265_encoder *e, double out[6]);
 long n265_encoder_dyn_lost(const n265_encoder *e);
 /* Two-pass (phase 12 item 4): 1 writes the stats sidecar, 2 plans from it,
@@ -240,6 +243,12 @@ void n265_set_sei_opts_10(int recovery_sei, int pic_struct, int hrd_concat,
 void n265_set_qpfile_10(const char *path);
 void n265_set_zones_10(const char *spec);
 void n265_encoder_set_csv_10(n265_encoder *e, const char *path, int level);
+void n265_encoder_set_frame_stats_10(n265_encoder *e, const char *path);
+void n265_control_init_10(n265_control_t *ev, int kind);
+const char *n265_control_strerror_10(int err);
+int  n265_encoder_control_10(n265_encoder *e, n265_control_t *ev);
+int  n265_encoder_controls_applied_10(n265_encoder *e, n265_control_t *out,
+                                      int max);
 long n265_encoder_metrics_10(n265_encoder *e, double out[6]);
 long n265_encoder_dyn_lost_10(const n265_encoder *e);
 const char *n265_encoder_backend_10(const n265_encoder *e);
@@ -336,6 +345,12 @@ typedef struct n265_api {
     int  (*config_apply)(n265_config *, n265_param *);
     int  (*config_get)(const n265_config *, const char *, double *);
     const char *(*config_get_str)(const n265_config *, const char *);
+    /* --frame-stats and live control */
+    void (*set_frame_stats)(n265_encoder *, const char *);
+    void (*control_init)(n265_control_t *, int);
+    const char *(*control_strerror)(int);
+    int  (*encoder_control)(n265_encoder *, n265_control_t *);
+    int  (*controls_applied)(n265_encoder *, n265_control_t *, int);
 } n265_api;
 
 static const n265_api api8 = {
@@ -362,6 +377,8 @@ static const n265_api api8 = {
     n265_show_config, n265_encoder_dyn_lost, n265_encoder_backend,
     n265_config_new, n265_config_free, n265_config_parse, n265_config_note,
     n265_config_apply, n265_config_get, n265_config_get_str,
+    n265_encoder_set_frame_stats, n265_control_init, n265_control_strerror,
+    n265_encoder_control, n265_encoder_controls_applied,
 };
 
 static const n265_api api10 = {
@@ -392,6 +409,9 @@ static const n265_api api10 = {
     n265_config_new_10, n265_config_free_10, n265_config_parse_10,
     n265_config_note_10, n265_config_apply_10, n265_config_get_10,
     n265_config_get_str_10,
+    n265_encoder_set_frame_stats_10, n265_control_init_10,
+    n265_control_strerror_10, n265_encoder_control_10,
+    n265_encoder_controls_applied_10,
 };
 
 /* QpBdOffsetY (7-5), and the clip bound of Clip1Y. Runtime now, off the
@@ -1014,8 +1034,9 @@ static void usage(FILE *out)
         "  --gop-parallel <n>    code the input as segments on n encoders at once,\n"
         "                        joined at IDRs (default 0, off). Needs more than one\n"
         "                        thread; not with --pass, --qpfile, --zones, --csv,\n"
-        "                        --shot-stats or --hrd-concat. The joined stream\n"
-        "                        carries no HRD timing SEI.\n",
+        "                        --frame-stats, --shot-stats, --hrd-concat or live\n"
+        "                        control. The joined stream carries no HRD timing\n"
+        "                        SEI.\n",
         out);
     fputs(
         "\n"
@@ -1141,6 +1162,9 @@ static void usage(FILE *out)
         "                        doubling, 8 frame tripling). Needs a VBV.\n"
         "  --hrd-concat          mark the first buffering period SEI as a splice\n"
         "                        point. Needs a VBV.\n"
+        "  --no-hrd              leave the HRD timing out of the stream (written by\n"
+        "                        default with a VBV and a frame rate). A live encode\n"
+        "                        that raises its rate needs it.\n"
         "  --temporal-layers     put non-reference B frames in temporal sub-layer 1,\n"
         "                        so a player can drop them to halve the frame rate\n"
         "  --hash <0-3>          decoded picture hash SEI: 0 off (default), 1 MD5,\n"
@@ -1215,10 +1239,22 @@ static void usage(FILE *out)
         "  --csv-log-level <0|1|2>  0 one row per run (default), 1 adds a row per\n"
         "                        frame, 2 adds rate control columns\n"
         "  --shot-stats <file>   write per-shot statistics as JSON Lines\n"
+        "  --frame-stats <file>  write one JSON line per coded frame, with the live\n"
+        "                        control events that took effect on it\n"
         "  --verbose, -v         print the resolved configuration, level and tier,\n"
         "                        then encode\n"
         "  --show-config         print the resolved configuration and exit\n"
         "  --version             print the version\n",
+        out);
+    fputs(
+        "\n"
+        "Live control\n"
+        "  --control <file>      apply the events in a control log, one per line:\n"
+        "                        \"<frame> rate|crf|qp|key|zone <name>=<value>...\"\n"
+        "  --control-fd <n>      read the same lines live from descriptor n, before\n"
+        "                        each frame; \"next\" names the next frame\n"
+        "  --control-out <file>  write every event that took effect, as a log that\n"
+        "                        replays to the same stream through --control\n",
         out);
 }
 
@@ -2319,6 +2355,8 @@ static int gp_run(const n265_api *a, y4m_t *y, const char *in_path,
 typedef struct {
     const char *in_path, *out_path, *dump_path, *shot_path;
     const char *dump_decode_path, *csv_path;
+    const char *fstats_path, *ctl_path, *ctl_out_path;
+    int ctl_fd;
     long max_frames, seek;
     int out_depth, in_w, in_h, in_csp, in_depth, in_fps_num, in_fps_den;
     int dither, csv_level, gop_par, verbose, show_config;
@@ -2334,6 +2372,7 @@ static int cli_parse(const n265_api *a, n265_config *cfg, int argc,
     o->max_frames = -1;
     o->in_csp = -1;
     o->csv_level = -1;
+    o->ctl_fd = -1;
     for (int i = 1; i < argc; i++) {
         const int argi = i;
         int mine = 1;
@@ -2372,6 +2411,21 @@ static int cli_parse(const n265_api *a, n265_config *cfg, int argc,
             }
         } else if (!strcmp(argv[i], "--csv") && i + 1 < argc) {
             o->csv_path = argv[++i];
+        } else if (!strcmp(argv[i], "--frame-stats") && i + 1 < argc) {
+            o->fstats_path = argv[++i];
+        } else if (!strcmp(argv[i], "--control") && i + 1 < argc) {
+            o->ctl_path = argv[++i];
+        } else if (!strcmp(argv[i], "--control-out") && i + 1 < argc) {
+            o->ctl_out_path = argv[++i];
+        } else if (!strcmp(argv[i], "--control-fd") && i + 1 < argc) {
+            char *end;
+            long fd = strtol(argv[++i], &end, 10);
+            if (*end || fd < 0 || fd > 1000000) {
+                fprintf(stderr, "y265: --control-fd takes a descriptor "
+                        "number\n");
+                return 2;
+            }
+            o->ctl_fd = (int)fd;
         } else if (!strcmp(argv[i], "--csv-log-level") && i + 1 < argc) {
             o->csv_level = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--seek") && i + 1 < argc) {
@@ -2450,6 +2504,234 @@ static void free_exit_cfg(void)
 {
     if (exit_cfg)
         exit_api->config_free(exit_cfg);
+}
+
+
+/* ---- live control: --control, --control-fd, --control-out ---- */
+typedef struct {
+    const n265_api *a;
+    n265_encoder *enc;
+    int fd, eof;
+    long line;
+    char buf[8192];
+    size_t len;
+    FILE *out;
+} ctl_cli;
+
+static void ctl_from_log(const n265_api *a, const struct ctl_log_event *l,
+                         n265_control_t *v)
+{
+    a->control_init(v, l->kind);
+    v->frame = l->frame;
+    v->bitrate_kbps = l->bitrate_kbps;
+    v->vbv_maxrate_kbps = l->vbv_maxrate_kbps;
+    v->vbv_bufsize_kbit = l->vbv_bufsize_kbit;
+    v->crf = l->crf;
+    v->qp_min = l->qp_min;
+    v->qp_max = l->qp_max;
+    v->last = l->last;
+    v->qp_offset = l->qp_offset;
+    v->fps_num = l->fps_num;
+    v->fps_den = l->fps_den;
+    memcpy(v->preset, l->preset, sizeof v->preset);
+    v->width = l->width;
+    v->height = l->height;
+}
+
+static void ctl_to_log(const n265_control_t *v, struct ctl_log_event *l)
+{
+    memset(l, 0, sizeof *l);
+    l->kind = v->kind;
+    l->frame = v->frame;
+    l->bitrate_kbps = v->bitrate_kbps;
+    l->vbv_maxrate_kbps = v->vbv_maxrate_kbps;
+    l->vbv_bufsize_kbit = v->vbv_bufsize_kbit;
+    l->crf = v->crf;
+    l->qp_min = v->qp_min;
+    l->qp_max = v->qp_max;
+    l->last = v->last;
+    l->qp_offset = v->qp_offset;
+    l->fps_num = v->fps_num;
+    l->fps_den = v->fps_den;
+    memcpy(l->preset, v->preset, sizeof l->preset);
+    l->width = v->width;
+    l->height = v->height;
+}
+
+typedef struct {
+    struct ctl_log_event *ev;
+    long *line;
+    int n;
+} ctl_file;
+
+/* the whole --control file, parsed before the encoder opens */
+static int ctl_load(const char *path, ctl_file *cf)
+{
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        fprintf(stderr, "y265: cannot read --control %s: %s\n", path,
+                strerror(errno));
+        return -1;
+    }
+    char ln[1100], err[160];
+    long no = 0;
+    int cap = 0, rc = 0;
+    memset(cf, 0, sizeof *cf);
+    while (fgets(ln, sizeof ln, f)) {
+        no++;
+        if (no == 1) {
+            int v = ctl_log_header(ln);
+            if (v < 0 || v > CTL_LOG_VERSION) {
+                fprintf(stderr, "y265: --control %s:1: a #livectl header "
+                        "this reader doesn't know\n", path);
+                rc = -1;
+                break;
+            }
+        }
+        struct ctl_log_event ev;
+        int r = ctl_log_parse(ln, 0, &ev, err, sizeof err);
+        if (r < 0) {
+            fprintf(stderr, "y265: --control %s:%ld: %s\n", path, no, err);
+            rc = -1;
+            break;
+        }
+        if (r == 0)
+            continue;
+        if (cf->n && ev.frame < cf->ev[cf->n - 1].frame) {
+            fprintf(stderr, "y265: --control %s:%ld: frame %lld comes "
+                    "before the line above it\n", path, no,
+                    (long long)ev.frame);
+            rc = -1;
+            break;
+        }
+        if (cf->n == cap) {
+            cap = cap ? 2 * cap : 64;
+            void *a = realloc(cf->ev, (size_t)cap * sizeof *cf->ev);
+            void *b = a ? realloc(cf->line, (size_t)cap * sizeof *cf->line)
+                        : NULL;
+            if (a)
+                cf->ev = a;
+            if (!a || !b) {
+                fprintf(stderr, "y265: --control: out of memory\n");
+                rc = -1;
+                break;
+            }
+            cf->line = b;
+        }
+        cf->ev[cf->n] = ev;
+        cf->line[cf->n++] = no;
+    }
+    fclose(f);
+    return rc;
+}
+
+static int ctl_submit_file(ctl_cli *c, const char *path, const ctl_file *cf)
+{
+    for (int i = 0; i < cf->n; i++) {
+        n265_control_t v;
+        ctl_from_log(c->a, &cf->ev[i], &v);
+        int r = c->a->encoder_control(c->enc, &v);
+        if (r < 0) {
+            fprintf(stderr, "y265: --control %s:%ld: %s\n", path,
+                    cf->line[i], c->a->control_strerror(r));
+            return -1;
+        }
+    }
+    return 0;
+}
+
+/* one --control-fd line: -1 stops the encode */
+static int ctl_fd_line(ctl_cli *c, const char *ln)
+{
+    char err[160];
+    c->line++;
+    if (c->line == 1) {
+        int v = ctl_log_header(ln);
+        if (v < 0 || v > CTL_LOG_VERSION) {
+            fprintf(stderr, "y265: --control-fd line 1: a #livectl header "
+                    "this reader doesn't know\n");
+            return -1;
+        }
+    }
+    struct ctl_log_event ev;
+    int r = ctl_log_parse(ln, 1, &ev, err, sizeof err);
+    if (r < 0) {
+        fprintf(stderr, "y265: --control-fd line %ld: %s\n", c->line, err);
+        return -1;
+    }
+    if (r == 0)
+        return 0;
+    n265_control_t v;
+    ctl_from_log(c->a, &ev, &v);
+    r = c->a->encoder_control(c->enc, &v);
+    if (r == N265_CTL_ELATE)
+        fprintf(stderr, "y265: --control-fd line %ld skipped: frame %lld "
+                "has already been handed in\n", c->line,
+                (long long)ev.frame);
+    else if (r < 0)
+        fprintf(stderr, "y265: --control-fd line %ld skipped: %s\n",
+                c->line, c->a->control_strerror(r));
+    return 0;
+}
+
+/* every complete line the descriptor has now */
+static int ctl_fd_poll(ctl_cli *c)
+{
+    while (c->fd >= 0 && !c->eof) {
+        ssize_t k = read(c->fd, c->buf + c->len, sizeof c->buf - 1 - c->len);
+        if (k < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+            break;
+        if (k < 0 && errno == EINTR)
+            continue;
+        if (k <= 0) {
+            c->eof = 1;
+            if (c->len) {
+                c->buf[c->len] = 0;
+                c->len = 0;
+                if (ctl_fd_line(c, c->buf) < 0)
+                    return -1;
+            }
+            break;
+        }
+        c->len += (size_t)k;
+        char *p = c->buf, *nl;
+        while ((nl = memchr(p, '\n', c->len - (size_t)(p - c->buf)))) {
+            *nl = 0;
+            if (ctl_fd_line(c, p) < 0)
+                return -1;
+            p = nl + 1;
+        }
+        c->len -= (size_t)(p - c->buf);
+        memmove(c->buf, p, c->len);
+        if (c->len == sizeof c->buf - 1) {
+            fprintf(stderr, "y265: --control-fd line %ld: line too long\n",
+                    c->line + 1);
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static void ctl_drain(ctl_cli *c)
+{
+    n265_control_t ev[16];
+    int n;
+    do {
+        for (int i = 0; i < 16; i++)
+            c->a->control_init(&ev[i], 0);
+        n = c->a->controls_applied(c->enc, ev, 16);
+        for (int i = 0; i < n && c->out; i++) {
+            if (ev[i].applied_frame < 0)
+                continue;
+            struct ctl_log_event l;
+            char line[256];
+            ctl_to_log(&ev[i], &l);
+            ctl_log_format(&l, line, sizeof line);
+            fprintf(c->out, "%s\n", line);
+        }
+    } while (n == 16);
+    if (c->out)
+        fflush(c->out);
 }
 
 int main(int argc, char **argv)
@@ -2659,6 +2941,7 @@ int main(int argc, char **argv)
         const char *why = dump_path ? "--dump-recon"
                         : dump_decode_path ? "--dump-recon-decode"
                         : csv_path ? "--csv"
+                        : o.fstats_path ? "--frame-stats"
                         : shot_path ? "--shot-stats" : NULL;
         if (why) {
             fprintf(stderr, "y265: --hw: %s has no hardware path (the "
@@ -2683,6 +2966,9 @@ int main(int argc, char **argv)
             : qpfile_path ? "--qpfile numbers frames from the stream's start"
             : zones_spec ? "--zones numbers frames from the stream's start"
             : csv_path ? "--csv is one encoder's log"
+            : o.fstats_path ? "--frame-stats is one encoder's log"
+            : (o.ctl_path || o.ctl_fd >= 0)
+              ? "live control numbers frames from the stream's start"
             : shot_path ? "--shot-stats is one encoder's log"
             : dump_decode_path ? "--dump-recon-decode is one encoder's log"
             : hrd_concat ? "--hrd-concat splices one encoder's stream"
@@ -2751,6 +3037,9 @@ int main(int argc, char **argv)
             return dyn_check(gn);
         }
     }
+    ctl_file cfile = { 0 };
+    if (o.ctl_path && ctl_load(o.ctl_path, &cfile) < 0)
+        return 2;
     n265_encoder *enc = a->encoder_open(&p);
     if (!enc) {
         fprintf(stderr, "y265: encoder_open failed (dims %dx%d)\n", y.w, y.h);
@@ -2781,6 +3070,33 @@ int main(int argc, char **argv)
         a->set_shot_stats(enc, shot_path);
     if (csv_path)
         a->set_csv(enc, csv_path, csv_level);
+    if (o.fstats_path)
+        a->set_frame_stats(enc, o.fstats_path);
+    ctl_cli cc = { a, enc, o.ctl_fd, 0, 0, { 0 }, 0, NULL };
+    if (o.ctl_path) {
+        int r = ctl_submit_file(&cc, o.ctl_path, &cfile);
+        free(cfile.ev);
+        free(cfile.line);
+        if (r < 0)
+            return 2;
+    }
+    if (cc.fd >= 0) {
+        int fl = fcntl(cc.fd, F_GETFL);
+        if (fl < 0 || fcntl(cc.fd, F_SETFL, fl | O_NONBLOCK) < 0) {
+            fprintf(stderr, "y265: --control-fd %d: %s\n", cc.fd,
+                    strerror(errno));
+            return 2;
+        }
+    }
+    if (o.ctl_out_path) {
+        cc.out = fopen(o.ctl_out_path, "w");
+        if (!cc.out) {
+            fprintf(stderr, "y265: cannot open %s: %s\n", o.ctl_out_path,
+                    strerror(errno));
+            return 1;
+        }
+        fprintf(cc.out, "#livectl %d\n", CTL_LOG_VERSION);
+    }
     FILE *fdump = NULL;
     if (dump_path) {
         fdump = fopen(dump_path, "wb");
@@ -2827,11 +3143,14 @@ int main(int argc, char **argv)
         };
         n265_nal *nal;
         int nnal;
+        if (ctl_fd_poll(&cc) < 0)
+            return 1;
         int bytes = a->encoder_encode(enc, &nal, &nnal, &pic);
         if (bytes < 0) {
             fprintf(stderr, "y265: encode failed on frame %ld\n", n);
             return 1;
         }
+        ctl_drain(&cc);
         if (nslot)
             rd_release(&rq);
         for (int i = 0; i < nnal; i++)
@@ -2850,10 +3169,15 @@ int main(int argc, char **argv)
         n265_nal *nal;
         int nnal;
         int r2 = a->encoder_encode(enc, &nal, &nnal, NULL);
+        ctl_drain(&cc);
         if (r2 <= 0 && nnal == 0)
             break;
         for (int i = 0; i < nnal; i++)
             fwrite(nal[i].payload, 1, (size_t)nal[i].size, fout);
+    }
+    if (cc.out && fclose(cc.out) != 0) {
+        fprintf(stderr, "y265: write failed: %s\n", o.ctl_out_path);
+        return 1;
     }
     /* --psnr / --ssim: the pooled numbers, before the encoder is closed
      * and while it still holds them. The pooling is ffmpeg's - the mean
