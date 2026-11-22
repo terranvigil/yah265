@@ -102,6 +102,12 @@ def check(a, clip, tmp, tag):
     env = dict(os.environ, N265_GOP_LEN=str(a.gop_len))
     opts = a.opts.split()
     fails = []
+    if a.shots:
+        shots = os.path.join(tmp, f"{tag}.shots")
+        if subprocess.run([a.y265, clip, "--shot-scan", shots],
+                          capture_output=True).returncode:
+            return [f"{tag}: --shot-scan failed"]
+        opts += ["--shot-list", shots]
     ref = os.path.join(tmp, f"{tag}.ref.hevc")
     rc = run([a.y265, clip, "-o", ref] + opts +
              ["--gop-parallel", str(W), "--threads", str(W * K)],
@@ -195,6 +201,9 @@ def main():
     ap.add_argument("--opts", default="--crf 28",
                     help="y265 options for both runs (default --crf 28)")
     ap.add_argument("--faults", action="store_true")
+    ap.add_argument("--shots", action="store_true",
+                    help="scan the clip for shots and pass --shot-list to "
+                         "both runs")
     ap.add_argument("--kill-delay", type=float, default=0.3)
     ap.add_argument("--hang-timeout", type=float, default=20)
     ap.add_argument("--keep", action="store_true",
