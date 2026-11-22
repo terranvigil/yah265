@@ -59,7 +59,7 @@ The headline covers the cells below. Each cell is one clip at one picture size, 
 | bits saved at equal VMAF v1, rate ladders at CRF and capped VBR | 38 | 10.2% |
 <!--/gen:quality-table-->
 
-Each of the project's three speed goals passes on three machines. G3 is the one a user sees, because it times both encoders as shipped. G1 and G2 switch the hand-written SIMD off on both sides to compare the algorithms alone. Read those two rows as engineering checks, because x265 isn't meant to run without its assembly. The table gives the range of group medians, where a group is one picture size in one length of clip.
+Each of the project's three speed goals passes on three machines. G3 is the one a user sees: both encoders as shipped. G1 and G2 compare the algorithms with SIMD off on both sides. The table gives the range of group medians, where a group is one picture size in one length of clip.
 
 <!--gen:goal-table-->
 | goal | Apple M5 Max (NEON) | Xeon 8488C (AVX-512) | Graviton4 (SVE2) |

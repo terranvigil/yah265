@@ -56,7 +56,7 @@ cat tears_1080p.y4m | x265 --input - --y4m --preset medium --bitrate 1279 --vbv-
 cat tears_1080p.y4m | y265 - --bitrate 1279 --vbv-maxrate 1918 --vbv-bufsize 2558 -o yah265.hevc
 ```
 
-**The untimed rate ladders and size solve**
+**The untimed rate ladders and size matching**
 
 ```sh
 cat tears_1080p.y4m | x265 --input - --y4m --preset medium --crf 26 --pools 6 --frame-threads 4 --log-level error -o x265.hevc
@@ -64,11 +64,11 @@ cat tears_1080p.y4m | y265 - --crf 26 --threads 6 -o yah265.hevc
 ```
 <!--/trust:x265-commands-->
 
-x265 runs at CRF <!--trust:x265-ref-crf-->28<!--/trust:x265-ref-crf-->, its default. yah265's CRF is fractional because it's solved until its file is within 1% of x265's size.
+x265 runs at CRF <!--trust:x265-ref-crf-->28<!--/trust:x265-ref-crf-->, its default. yah265's CRF is fractional because I adjusted it until its file was within 1% of x265's size.
 
 For capped VBR both encoders get the same three numbers. The target is the bitrate x265 reached on that cell, at CRF 28 for the timed runs and at each rung for the ladders. The peak is 1.5 times the target and the buffer is twice it.
 
-G1 and G2 switch the hand-written SIMD off on both sides to compare the algorithms alone. Read them as engineering checks, because x265 isn't meant to run without its assembly.
+G1 and G2 switch the hand-written SIMD off on both sides to compare the algorithms alone.
 
 ## Threads and SIMD
 
@@ -79,7 +79,7 @@ G1 and G2 switch the hand-written SIMD off on both sides to compare the algorith
 | G2 | its default: one worker per CPU | its defaults for pools and frame threads | off: `N265_ASM_OFF=all` and `--no-asm` |
 | G1 | `--threads 1` | `--pools none --frame-threads 1` | off: `N265_ASM_OFF=all` and `--no-asm` |
 | capped VBR | its default: one worker per CPU | its defaults for pools and frame threads | on |
-| rate ladders and the size solve | `--threads 6` | `--pools 6 --frame-threads 4` | on |
+| rate ladders and the size matching | `--threads 6` | `--pools 6 --frame-threads 4` | on |
 | cloud machines, G3, G2 and capped VBR | `--threads 16` on 16 CPUs | `--pools 16` on the same 16 CPUs | as the goal says |
 | Xeon held to one tier | `N265_CPU_MAX=sse42` or `avx2` | `--asm sse4.2` or `--asm avx2` | on, capped |
 <!--/trust:x265-threads-->

@@ -42,7 +42,7 @@ I read speed three ways and call each one a goal. G3 times both encoders as ship
 | G2 | plain C | plain C | each encoder's default |
 <!--/gen:goal-defs-->
 
-Plain C is each encoder's own binary with its hand-written SIMD switched off. G1 and G2 compare the algorithms alone. They're engineering checks, because x265 isn't meant to run without its assembly.
+Plain C is each encoder's own binary with its hand-written SIMD switched off. G1 and G2 compare the algorithms alone.
 
 Three machines were timed:
 

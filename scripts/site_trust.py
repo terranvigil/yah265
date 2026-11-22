@@ -117,7 +117,7 @@ def commands(mac_rows):
         ("G2: plain C on all cores", pair(2, "crf", pl.ps.REF_CRF, float(crf))),
         ("G1: plain C on one thread", pair(1, "crf", pl.ps.REF_CRF, float(crf))),
         ("Capped VBR as shipped", pair("VBR", "vbr", kbps, kbps)),
-        ("The untimed rate ladders and size solve",
+        ("The untimed rate ladders and size matching",
          feed + shown_cmd(pl.untimed_cmd("ref", "crf", 26, "x265.hevc")) + "\n"
          + feed + shown_cmd(pl.untimed_cmd("ours", "crf", 26, "yah265.hevc"))),
     ]
@@ -210,7 +210,7 @@ def threads_table(facts, look):
         ["G1", "`--threads 1`", f"`{facts['g1_ref']}`", "off: `N265_ASM_OFF=all` and `--no-asm`"],
         ["capped VBR", "its default: one worker per CPU", "its defaults for pools and frame threads",
          "on"],
-        ["rate ladders and the size solve", f"`--threads {t}`", f"`{facts['solve_ref']}`", "on"],
+        ["rate ladders and the size matching", f"`--threads {t}`", f"`{facts['solve_ref']}`", "on"],
         ["cloud machines, G3, G2 and capped VBR", "`--threads 16` on 16 CPUs",
          "`--pools 16` on the same 16 CPUs", "as the goal says"],
         ["Xeon held to one tier", "`N265_CPU_MAX=sse42` or `avx2`", "`--asm sse4.2` or `--asm avx2`",

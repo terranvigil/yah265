@@ -31,7 +31,7 @@ A faster encoder can look faster only because it spent more bits, or look better
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 300" role="img" aria-labelledby="mp-t mp-d">
 <title id="mp-t">The matched point on two rate curves</title>
-<desc id="mp-d">Two curves of VMAF v1 against file size, one per encoder. A vertical line marks the file size x265 wrote at CRF 28. yah265's CRF is solved until its file reaches that line. The quality difference and the encode times are both read there.</desc>
+<desc id="mp-d">Two curves of VMAF v1 against file size, one per encoder. A vertical line marks the file size x265 wrote at CRF 28. yah265's CRF is adjusted until its file reaches that line. The quality difference and the encode times are both read there.</desc>
 <line class="d-line" x1="80" y1="250" x2="660" y2="250"/>
 <line class="d-line" x1="80" y1="250" x2="80" y2="30"/>
 <text class="d-label" x="370" y="286" text-anchor="middle">file size</text>
@@ -45,14 +45,14 @@ A faster encoder can look faster only because it spent more bits, or look better
 <circle class="d-accent" cx="330" cy="98" r="7"/>
 <text class="d-label" x="346" y="146">the anchor: x265 at CRF 28</text>
 <line class="d-arrow d-muted" x1="212" y1="98" x2="318" y2="98"/>
-<text class="d-label" x="206" y="92" text-anchor="end">yah265, with its CRF solved</text>
+<text class="d-label" x="206" y="92" text-anchor="end">yah265, with its CRF adjusted</text>
 <text class="d-label" x="206" y="108" text-anchor="end">onto the same size</text>
 <text class="d-label" x="330" y="50" text-anchor="middle">same file size, within 1%</text>
 <text class="d-label" x="346" y="170">speed and quality are both read here</text>
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 352" role="img" aria-labelledby="mp-t-n mp-d-n">
 <title id="mp-t-n">The matched point on two rate curves</title>
-<desc id="mp-d-n">Two curves of VMAF v1 against file size, one per encoder. A vertical line marks the file size x265 wrote at CRF 28. yah265's CRF is solved until its file reaches that line. The quality difference and the encode times are both read there.</desc>
+<desc id="mp-d-n">Two curves of VMAF v1 against file size, one per encoder. A vertical line marks the file size x265 wrote at CRF 28. yah265's CRF is adjusted until its file reaches that line. The quality difference and the encode times are both read there.</desc>
 <line class="d-line" x1="40" y1="230" x2="340" y2="230"/>
 <line class="d-line" x1="40" y1="230" x2="40" y2="10"/>
 <text class="d-label" x="190" y="250" text-anchor="middle">file size</text>
@@ -67,7 +67,7 @@ A faster encoder can look faster only because it spent more bits, or look better
 <circle class="d-box" cx="16" cy="272" r="7"/>
 <text class="d-label" x="32" y="277">the anchor: x265 at CRF 28</text>
 <circle class="d-accent" cx="16" cy="296" r="7"/>
-<text class="d-label" x="32" y="301">yah265, with its CRF solved onto the same size</text>
+<text class="d-label" x="32" y="301">yah265, with its CRF adjusted to the same size</text>
 <line class="d-dash" x1="16" y1="312" x2="16" y2="342"/>
 <text class="d-label" x="32" y="325">same file size, within 1%:</text>
 <text class="d-label" x="32" y="342">speed and quality are both read here</text>
@@ -75,9 +75,9 @@ A faster encoder can look faster only because it spent more bits, or look better
 <figcaption>One cell's matched point. The curves are a sketch.</figcaption>
 </figure>
 
-x265 runs first, at its default rate factor of CRF 28. yah265 is then solved onto x265's file size within ±1% by trying integer CRFs, then a fractional one. Speed and quality are both read at that one point.
+x265 runs first, at its default rate factor of CRF 28. I then adjust yah265's CRF until its file is within 1% of x265's size, trying whole CRFs first and then a fraction. Speed and quality are both read at that one point.
 
-Each cell has two x265 anchors because x265's pictures change with its frame-thread count. G3 and G2 use the anchor at x265's default threading. G1 uses the one at a single frame thread. Each anchor gets its own solve of yah265.
+Each cell has two x265 anchors because x265's pictures change with its frame-thread count. G3 and G2 use the anchor at x265's default threading. G1 uses the one at a single frame thread. yah265's CRF is matched to each one separately.
 
 ## Timing
 

@@ -33,7 +33,7 @@ I only claim `medium` against `medium`, the preset most people run. The speed an
 
 ## Why time x265 without its assembly?
 
-Two of the three goals switch the hand-written SIMD off on both sides to compare the algorithms alone. They're engineering checks, because x265 isn't meant to run that way. The headline uses only the third goal, where both encoders run as shipped.
+Two of the three goals compare the algorithms with SIMD off on both sides. The headline uses only the third, where both encoders run as shipped.
 
 ## Did x265 get its tunes?
 

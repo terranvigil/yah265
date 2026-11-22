@@ -92,4 +92,4 @@ The CRF scale is yah265's own. For the same file size, yah265's number is usuall
 
 Because the range is wide, treat the table as a starting point and check the size on your own content. The films don't agree with each other. Sintel needs a higher number than x265's and Big Buck Bunny about the same one. Most of the others need one two to four lower.
 
-The row for 28 is the matched point of the size-matched cells on the Mac, where yah265's CRF was solved onto x265's file. The other rows place x265's size at that CRF on yah265's five-rung ladder for each film. The 23 and 32 rows have fewer cells because a film is left out of a row when the answer falls outside its ladder.
+The row for 28 is the matched point of the size-matched cells on the Mac, where yah265's CRF was adjusted to match x265's file size. The other rows place x265's size at that CRF on yah265's five-rung ladder for each film. The 23 and 32 rows have fewer cells because a film is left out of a row when the answer falls outside its ladder.

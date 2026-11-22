@@ -193,8 +193,8 @@ Under VBR, check the bitrate each encoder reached against its target before comp
 
 | mode | what it does |
 |---|---|
-| `--solve` | encodes the x265 anchors, solves yah265 onto their sizes and scores both |
-| `--time` | times G1, G2 and G3 at the solved points in interleaved rounds |
+| `--solve` | encodes x265, adjusts yah265's CRF to match each file's size and scores both |
+| `--time` | times G1, G2 and G3 at the matched points in interleaved rounds |
 | `--windows`, `--time-windows` | matches and times the 30-second windows on the long cells |
 | `--ladder` | the CRF and VBR ladders on the 2-minute, 10-minute and content-type cells |
 | `--sweep` | the lookahead depth sweep |

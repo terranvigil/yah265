@@ -32,7 +32,7 @@ A cell is one clip at one resolution. Each dot below is one cell timed on the Ma
 
 <figure class="chart"><img src="assets/blog/cells.svg" alt="Dots on an axis of times faster than x265. Each dot is one timed cell. The dots are in rows for CIF, 720p, 1080p and 4K. All the dots are right of the 1x line."><figcaption>The first table below lists each row's median.</figcaption></figure>
 
-These are the cells behind the headline, from ten-second clips to ten-minute films. In each one yah265's CRF is solved onto x265's file size. No dot is left of the x265 line. Capped VBR and the content-type clips were timed too, although the [results page](results.md#vbr) reports them apart because their files aren't matched in size the same way.
+These are the cells behind the headline, from ten-second clips to ten-minute films. In each one I adjusted yah265's CRF until its file matched x265's size. No dot is left of the x265 line. Capped VBR and the content-type clips were timed too, although the [results page](results.md#vbr) reports them apart because their files aren't matched in size the same way.
 
 ## Three goals and a quality bar
 
@@ -46,7 +46,7 @@ I set three speed goals against x265 at `--preset medium`. Each one compares fil
 | G1 | plain C on one thread | `--no-asm` on one thread |
 | G2 | plain C on all cores | `--no-asm` on all cores |
 
-G3 is the one a user sees. G1 and G2 compare the algorithms with the hand-written SIMD off on both sides. I read those two as engineering checks, because x265 isn't meant to run without its assembly. A goal passes in a group of clips when the median is at least even and the slowest clip is no more than 15% slower. The quality bar is that on any rate ladder of a real film, yah265 may need at most 1.0% more bits than x265 for the same VMAF v1.
+G3 is the one a user sees. G1 and G2 compare the algorithms with the hand-written SIMD off on both sides. A goal passes in a group of clips when the median is at least even and the slowest clip is no more than 15% slower. The quality bar is that on any rate ladder of a real film, yah265 may need at most 1.0% more bits than x265 for the same VMAF v1.
 
 ## The same lead on three machines
 
@@ -278,7 +278,7 @@ The three curves in the chart are these ladders at CRF.
 
 ### Quality off the Mac
 
-The ladders ran on the Mac. Graviton4's quality is the Mac's, because it writes the Mac's streams byte for byte in nearly all the timed encodes. The encodes that differ had a different input or a re-solved CRF. On x86-64 the streams move a little because the compiler rounds some floating-point math differently. I ran some ladders again there to see how far.
+The ladders ran on the Mac. Graviton4's quality is the Mac's, because it writes the Mac's streams byte for byte in nearly all the timed encodes. The encodes that differ had a different input or a CRF adjusted again. On x86-64 the streams move a little because the compiler rounds some floating-point math differently. I ran some ladders again there to see how far.
 
 <!--gen:offmac-table-->
 | machine | check | result |
@@ -300,7 +300,7 @@ The ladders ran on the Mac. Graviton4's quality is the Mac's, because it writes 
 
 On the Mac both encoders ran on one Apple M5 Max with 18 cores, where the reference is the Homebrew build of x265 4.3 with its arm64 assembly. The cloud boxes built x265 4.3 from its release tarball with clang. On all three machines both encoders ran at `medium`. They read the same frames from one feeder on standard input.
 
-For a timed CRF reading, yah265 is solved onto x265's file size within 1%. The headline covers only those cells. I didn't include the capped VBR cells, because they're timed at one shared target bitrate without being solved to match. x265 ran its default lookahead of 20 frames. yah265 ran its own `medium` default: 20 frames from 720p up and 12 at CIF.
+For each timed CRF encode, I adjusted yah265's CRF until its file was within 1% of x265's size. The headline covers only those cells. I didn't include the capped VBR cells, because they're timed at one shared target bitrate, not matched in size. x265 ran its default lookahead of 20 frames. yah265 ran its own `medium` default: 20 frames from 720p up and 12 at CIF.
 
 Quality is VMAF v1: Netflix's `vmaf_v1.0.16` models on libvmaf 3.x. It's scored at display size. A picture under 1080p is scaled up to fit 1920x1080 first, CIF included. The ladders score all frames of the two-minute segments and one frame in three of the films. Each ten-minute film runs from the end of its black opening to the start of its end credits. Because cloud wall times are reported apart from the Mac's, the headline is the Mac's alone.
 
