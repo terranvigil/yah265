@@ -15,6 +15,8 @@ yah265 is a new HEVC encoder, written in C. It runs inside ffmpeg under the opti
 
 ## Try it
 
+<p class="callout"><b>New:</b> try yah265 in your browser, with nothing to install. <a href="playground/">Open the playground</a>, or read <a href="playground.html">how it works</a>.</p>
+
 ```sh
 ffmpeg -i in.mp4 -c:v libx265   -preset medium -crf 25 out.mp4   # what you run today
 ffmpeg -i in.mp4 -c:v libyah265 -preset medium -crf 25 out.mp4
@@ -64,7 +66,7 @@ To see both in motion, open the [comparison players](https://terranvigil.github.
 - Per-shot quality: a quality setting for each shot, from the same scan. [coming soon]
 - [Live control](guide.md#live-control): change the bitrate, CRF or key frames while an encode runs.
 - [`y265 bench`](bench.md): compare yah265 and x265 on your own clip at the same file size.
-- A [browser playground](playground/): try yah265 on your own clip without installing anything.
+- A [browser playground](playground.md): try yah265 on your own clip without installing anything.
 - [Homebrew install](start.md#install-with-homebrew): `brew install terranvigil/yah265/ffmpeg-yah265`, with recipes for Tdarr and Jellyfin.
 - [SIMD](architectures.md) on arm64 and x86-64.
 - x265's [option names](options.md) for shared features.

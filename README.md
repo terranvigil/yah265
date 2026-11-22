@@ -20,6 +20,8 @@ yah265 is a new HEVC encoder, written in C. It runs inside ffmpeg under the opti
 
 ## Try it
 
+**New:** [try yah265 in your browser](https://terranvigil.github.io/yah265/playground/), with nothing to install.
+
 ```sh
 ffmpeg -i in.mp4 -c:v libx265   -preset medium -crf 25 out.mp4   # what you run today
 ffmpeg -i in.mp4 -c:v libyah265 -preset medium -crf 25 out.mp4
@@ -125,6 +127,7 @@ Use
 - [Build and first encode](https://terranvigil.github.io/yah265/start.html): the ffmpeg build, a first encode, building `y265`
 - [Encoding guide](https://terranvigil.github.io/yah265/guide.html): rate modes, presets, threads, live control, shots
 - [Coming from x265](https://terranvigil.github.io/yah265/from-x265.html): option names and a CRF translation table
+- [Try it in your browser](https://terranvigil.github.io/yah265/playground.html): the playground, nothing to install
 - [Try it on your own clip](https://terranvigil.github.io/yah265/bench.html): `y265 bench` against x265
 - [Options](https://terranvigil.github.io/yah265/options.html): the options and their defaults
 - [HDR](https://terranvigil.github.io/yah265/hdr.html): HDR10, HDR10+, HLG and Dolby Vision profile 8
