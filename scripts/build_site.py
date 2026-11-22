@@ -54,6 +54,7 @@ NAV = [
     ("Use", "start.html", "Build and first encode"),
     ("Use", "guide.html", "Encoding guide"),
     ("Use", "from-x265.html", "Coming from x265"),
+    ("Use", "bench.html", "Try it on your own clip"),
     ("Use", "options.html", "Options"),
     ("Use", "hdr.html", "HDR"),
     ("Understand", "hevc.html", "The HEVC standard"),
