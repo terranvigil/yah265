@@ -146,7 +146,7 @@ static void test_basics(void)
     CHECK(v.size == (int)sizeof v && v.frame == N265_CTL_NEXT &&
           v.applied_frame == -1 && v.qp_min == -1 && v.qp_max == -1 &&
           v.last == -1);
-    for (int c = 0; c >= -8; c--)
+    for (int c = 0; c >= -9; c--)
         CHECK(n265_control_strerror(c) && *n265_control_strerror(c));
     CHECK(n265_encoder_control(NULL, &v) == N265_CTL_EINVAL);
     CHECK(n265_encoder_controls_applied(NULL, &v, 1) == -1);
@@ -273,6 +273,36 @@ static void test_crf(void)
     n265_control_init(&v, 0);
     v.qp_max = 25;      /* below the queued floor */
     CHECK(ctl(e, N265_CTL_QP_LIMITS, 6, &v) == N265_CTL_EINVAL);
+    n265_encoder_close(e);
+
+    /* a bounded queue: 4096 pending, 65536 pending plus undrained */
+    e = open_with("crf=28:threads=1");
+    CHECK(e);
+    n265_control_init(&v, 0);
+    v.qp_min = 20;
+    int full = 0;
+    for (int i = 0; i < 4096; i++)
+        full |= ctl(e, N265_CTL_QP_LIMITS, 1000 + i, &v) != N265_CTL_OK;
+    CHECK(!full);
+    CHECK(ctl(e, N265_CTL_QP_LIMITS, 9000, &v) == N265_CTL_EFULL);
+    n265_encoder_close(e);
+    e = open_with("crf=28:threads=1");
+    CHECK(e);
+    full = 0;
+    for (int t = 0; t < 16; t++) {
+        for (int i = 0; i < 4096; i++)
+            full |= ctl(e, N265_CTL_QP_LIMITS, t, &v) != N265_CTL_OK;
+        CHECK(feed(e, t, NULL) >= 0);
+    }
+    CHECK(!full);
+    CHECK(ctl(e, N265_CTL_QP_LIMITS, 16, &v) == N265_CTL_EFULL);
+    n265_control_t *out = malloc(1024 * sizeof *out);
+    for (int i = 0; i < 1024; i++)
+        n265_control_init(&out[i], 0);
+    CHECK(n265_encoder_controls_applied(e, out, 1024) == 1024);
+    CHECK(ctl(e, N265_CTL_QP_LIMITS, 16, &v) == N265_CTL_OK);
+    free(out);
+    flush(e, NULL);
     n265_encoder_close(e);
 
     /* capped CRF takes maxrate and bufsize, never a bitrate */

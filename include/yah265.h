@@ -562,6 +562,7 @@ typedef struct n265_control {
 #define N265_CTL_ELEVEL       (-6) /* exceeds the declared level */
 #define N265_CTL_ECONFLICT    (-7) /* overlaps a zone already set */
 #define N265_CTL_ENOMEM       (-8)
+#define N265_CTL_EFULL        (-9) /* the queue is full; resend once events have landed */
 
 /* Zero the event, set its size and kind, land it on the next frame and
  * leave every field unset. */

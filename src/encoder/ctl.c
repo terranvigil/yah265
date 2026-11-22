@@ -190,6 +190,14 @@ static void retarget(n265_encoder *e, const n265_control_t *ev)
         rc->planned_bits = r * (rc->planned_bits - rc->pend_bits) +
                            rc->pend_bits;
         rc->total_bits *= r;
+        /* (f): the carried balance is at most one second of the new
+         * target, the rest forgiven */
+        double owed = nb * ((double)rc->n_coded + (double)rc->pend_n);
+        double spent = rc->total_bits + rc->pend_bits;
+        if (owed - spent > nbps)
+            rc->total_bits = owed - nbps - rc->pend_bits;
+        else if (spent - owed > nbps)
+            rc->total_bits = owed + nbps - rc->pend_bits;
         if (!rc->fbstep)
             rc->rf -= 6.0 * log2(r);
         rc->bits_per_frame = nb;
@@ -326,6 +334,7 @@ const char *n265_control_strerror(int err)
     case N265_CTL_ELEVEL:       return "the change exceeds the stream's declared level";
     case N265_CTL_ECONFLICT:    return "the zone overlaps a zone already set";
     case N265_CTL_ENOMEM:       return "out of memory";
+    case N265_CTL_EFULL:        return "the encoder's control queue is full; resend once events have landed";
     default:                    return "unknown error";
     }
 }
@@ -506,6 +515,9 @@ int n265_encoder_control(n265_encoder *e, n265_control_t *ev)
     else if (v.frame < c->in)
         return N265_CTL_ELATE;
     v.applied_frame = -1;
+    if (c->nfq + c->nrq >= N265_CTL_MAX_PENDING ||
+        c->nfq + c->nrq + c->ndone >= N265_CTL_MAX_RECORD)
+        return N265_CTL_EFULL;
     int r = check(e, &v);
     if (r != N265_CTL_OK)
         return r;

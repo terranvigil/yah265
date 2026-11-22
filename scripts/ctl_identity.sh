@@ -104,5 +104,24 @@ same "sorted, ties in hand-in order" "$T/ord.want" "$T/ord.out"
 "$NEW" "$src" --frames 140 --threads 1 --bitrate 500 -o "$T/o2.hevc" \
     --control "$T/ord.out" 2>/dev/null
 same "replay" "$T/o1.hevc" "$T/o2.hevc"
+# rule (f): a 10x step down in plain ABR forgives all but a second of the
+# carried balance, so the rate is on the new target within about a
+# second. The check is the mean over the two seconds after the step's
+# first half second, within 10% of the target.
+echo "abr 10x step down"
+printf '60 rate bitrate=300\n' > "$T/sd.log"
+"$NEW" "$src" --frames 180 --threads 1 --bitrate 3000 -o "$T/sd.hevc" \
+    --control "$T/sd.log" --frame-stats "$T/sd.jsonl" 2>/dev/null
+kbps=$(python3 -c '
+import json, sys
+by = {l["frame"]: l["bytes"] for l in map(json.loads, open(sys.argv[1]))}
+print(round(sum(by[f] for f in range(75, 135)) * 8 * 30 / 60 / 1000))' \
+    "$T/sd.jsonl")
+if [ "$kbps" -ge 270 ] && [ "$kbps" -le 330 ]; then
+    printf '  %-28s ok (%s kbit/s)\n' "on target within 1 s" "$kbps"
+else
+    printf '  %-28s FAIL (%s kbit/s, target 300)\n' "on target within 1 s" "$kbps"
+    fail=1
+fi
 [ $fail = 0 ] && echo "ctl_identity: OK" || echo "ctl_identity: FAIL"
 exit $fail

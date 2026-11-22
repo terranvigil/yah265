@@ -12,6 +12,10 @@
 
 #include "yah265.h"
 
+/* queued and applied-but-undrained events, at most */
+#define N265_CTL_MAX_PENDING  4096
+#define N265_CTL_MAX_RECORD   65536
+
 struct n265_encoder;
 struct n265_frame_work;
 struct la_frame;

@@ -2725,40 +2725,47 @@ static int ctl_fd_line(ctl_cli *c, const char *ln)
     return 0;
 }
 
-/* every complete line the descriptor has now */
+/* the complete lines the descriptor has now, at most 64 a frame */
 static int ctl_fd_poll(ctl_cli *c)
 {
-    while (c->fd >= 0 && !c->eof) {
-        ssize_t k = read(c->fd, c->buf + c->len, sizeof c->buf - 1 - c->len);
-        if (k < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+    int n = 0;
+    while (c->fd >= 0) {
+        char *nl;
+        while (n < 64 && (nl = memchr(c->buf, '\n', c->len))) {
+            *nl = 0;
+            int r = ctl_fd_line(c, c->buf);
+            c->len -= (size_t)(nl + 1 - c->buf);
+            memmove(c->buf, nl + 1, c->len);
+            n++;
+            if (r < 0)
+                return -1;
+        }
+        if (n >= 64)
             break;
-        if (k < 0 && errno == EINTR)
-            continue;
-        if (k <= 0) {
-            c->eof = 1;
+        if (c->eof) {
             if (c->len) {
                 c->buf[c->len] = 0;
                 c->len = 0;
                 if (ctl_fd_line(c, c->buf) < 0)
                     return -1;
             }
+            c->fd = -1;
             break;
         }
-        c->len += (size_t)k;
-        char *p = c->buf, *nl;
-        while ((nl = memchr(p, '\n', c->len - (size_t)(p - c->buf)))) {
-            *nl = 0;
-            if (ctl_fd_line(c, p) < 0)
-                return -1;
-            p = nl + 1;
-        }
-        c->len -= (size_t)(p - c->buf);
-        memmove(c->buf, p, c->len);
         if (c->len == sizeof c->buf - 1) {
             fprintf(stderr, "y265: --control-fd line %ld: line too long\n",
                     c->line + 1);
             return -1;
         }
+        ssize_t k = read(c->fd, c->buf + c->len, sizeof c->buf - 1 - c->len);
+        if (k < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+            break;
+        if (k < 0 && errno == EINTR)
+            continue;
+        if (k <= 0)
+            c->eof = 1;
+        else
+            c->len += (size_t)k;
     }
     return 0;
 }
