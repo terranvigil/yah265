@@ -419,6 +419,7 @@ The pixel format picks the bit depth. 4:2:0, 4:2:2 and 4:4:4 work at 8 and 10 bi
 | rate control | CRF, capped CRF, capped VBR, CBR with filler, ABR, two-pass, fixed QP, zones, a QP file |
 | live control | rate, buffer, CRF and QP changes, key frames and zones while the encode runs, from a log or a descriptor |
 | buffers | VBV with HRD signaling, a bound on one picture's size, level and tier checks |
+| conformance | every stream fits a level, so any standard decoder can play it |
 | structure | open and closed GOP, hierarchical B-frames, scene cut detection, weighted prediction, temporal layers |
 | analysis | adaptive quantization, lookahead bit allocation, rate-distortion optimized quantization, screen content detection |
 | HDR | HDR10, HDR10+, HLG, Dolby Vision profiles 8.1, 8.2 and 8.4, HDR tuning at `medium` |
@@ -433,17 +434,18 @@ The pixel format picks the bit depth. 4:2:0, 4:2:2 and 4:4:4 work at 8 and 10 bi
 
 | not offered | why |
 |---|---|
-| six of x265's preset names | `medium` already beats x265's `medium`, so I kept the list at four. See [Pick a preset](#pick-a-preset) |
+| six of x265's preset names | `medium` already beats x265's `medium`, so I kept four. `y265` maps the other names to the nearest of `fast`, `medium`, `slow` and `slower`. See [Pick a preset](#pick-a-preset) |
 | four of x265's tune names | each has a short reason under [Tune names](#tune-names) |
 | `--scaling-list` | x265 leaves custom quantizer matrices off by default too. yah265 uses its own perceptual tuning instead |
-| interlaced coding | almost all video made today is progressive. I will add it if there is enough interest |
+| interlaced coding | almost all video made today is progressive. Broadcast and cable contribution still use it. If you need it, [open an issue](https://github.com/terranvigil/yah265/issues) |
 | 12-bit | 8-bit and 10-bit cover the delivery formats, HDR10, HLG and Dolby Vision included |
 | `--psy-rd`, `--psy-rdoq` | yah265's perceptual tuning is built into its presets, so there's nothing to set |
-| x265's threading options | yah265 sets up its threads by itself and keeps the cores busy without any tuning |
-| analysis save and load | they let a bitrate ladder reuse one encode's analysis to save time. yah265 is fast enough to analyze each rung itself |
+| x265's threading options | yah265 uses every core by default and needs no tuning. `--threads n` caps it at n |
+| analysis save and load | they let a bitrate ladder reuse one encode's analysis. The per-shot scan coming soon covers the same need |
 | a switch to turn off scene detection | the encoder always looks for scene changes |
-| non-conforming streams | every stream yah265 writes fits a level, so any standard decoder can play it |
-| Dolby Vision profile 5 | its base layer uses a color space nothing in this toolchain can produce or check |
+| Dolby Vision profile 5 | not supported yet. If you need it, [open an issue](https://github.com/terranvigil/yah265/issues) |
+| HEVC screen-content tools (SCC) | few decoders play SCC streams. yah265 gets its screen-recording gains inside the normal profiles, so any HEVC player can show them |
+| MV-HEVC (multiview, as in Apple's spatial video) | not supported yet. If you need it, [open an issue](https://github.com/terranvigil/yah265/issues) |
 
 ### Tune names
 
