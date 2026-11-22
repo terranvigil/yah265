@@ -108,6 +108,8 @@ def check(a, clip, tmp, tag):
                           capture_output=True).returncode:
             return [f"{tag}: --shot-scan failed"]
         opts += ["--shot-list", shots]
+    if a.no_scenecut:
+        opts += ["--no-scenecut", "--keyint", str(max(a.gop_len // 2, 8))]
     ref = os.path.join(tmp, f"{tag}.ref.hevc")
     rc = run([a.y265, clip, "-o", ref] + opts +
              ["--gop-parallel", str(W), "--threads", str(W * K)],
@@ -201,6 +203,9 @@ def main():
     ap.add_argument("--opts", default="--crf 28",
                     help="y265 options for both runs (default --crf 28)")
     ap.add_argument("--faults", action="store_true")
+    ap.add_argument("--no-scenecut", action="store_true",
+                    help="both runs on the --keyint grid, keyint half of "
+                         "--gop-len")
     ap.add_argument("--shots", action="store_true",
                     help="scan the clip for shots and pass --shot-list to "
                          "both runs")

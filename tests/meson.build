@@ -169,6 +169,10 @@ if python3.found()
     args : [meson.project_source_root() / 'scripts' / 'farm_check.py',
             '--y265', y265.full_path(), '--faults', '--hang-timeout', '15', '--kill-delay', '0.03'],
     depends : y265, timeout : 300)
+  test('farm_grid', python3,
+    args : [meson.project_source_root() / 'scripts' / 'farm_check.py',
+            '--y265', y265.full_path(), '--no-scenecut'],
+    depends : y265, timeout : 120)
 endif
 
 # The command line's HDR10+ JSON and Dolby Vision RPU readers. The ST
