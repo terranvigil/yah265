@@ -13,7 +13,7 @@ No. I wrote yah265 from the ITU-T H.265 specification and from published papers.
 
 ## Which x265, and how was it run?
 
-x265 4.3 at `--preset medium`. [How x265 was run](x265-run.md) has the exact build and the command for each goal.
+x265 4.3 at `--preset medium`. [How x265 was run](x265-run.md) includes the build and the command for each goal.
 
 ## Is the headline cherry-picked?
 
