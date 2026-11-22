@@ -24,6 +24,16 @@ void n265_encoder_set_dump_decode(n265_encoder *e, FILE *f);
 void n265_encoder_set_dump(n265_encoder *e, FILE *f);
 void n265_encoder_set_shot_stats(n265_encoder *e, const char *path);
 void n265_set_shot_window(int n);
+/* --shot-list / --shot-scan (src/encoder/shotlist.h). The list helpers and
+ * the scan are depth-blind and always run on the 8-bit library. */
+int n265_encoder_set_shot_list(n265_encoder *e, const int *starts, int n);
+#include "encoder/shotlist.h"
+typedef struct n265_shotscan n265_shotscan;
+n265_shotscan *n265_shotscan_open(const n265_param *src);
+int n265_shotscan_push(n265_shotscan *s, const uint8_t *luma, int w, int h,
+                       int depth);
+int n265_shotscan_finish(n265_shotscan *s, n265_shotlist *out);
+void n265_shotscan_close(n265_shotscan *s);
 /* --psnr / --ssim / --csv (phase 14 item 4). The metrics are a read-only
  * tap at retirement, so a stream coded with them on is byte-for-byte the
  * one coded without; the pooled numbers come back through
@@ -226,6 +236,7 @@ const char *n265_config_get_str_10(const n265_config *c, const char *key);
 void n265_encoder_set_dump_decode_10(n265_encoder *e, FILE *f);
 void n265_encoder_set_dump_10(n265_encoder *e, FILE *f);
 void n265_encoder_set_shot_stats_10(n265_encoder *e, const char *path);
+int n265_encoder_set_shot_list_10(n265_encoder *e, const int *starts, int n);
 void n265_set_shot_window_10(int n);
 void n265_set_pass_10(int pass, const char *stats);
 void n265_set_metrics_10(int psnr, int ssim);
@@ -308,6 +319,7 @@ typedef struct n265_api {
     void (*set_dump)(n265_encoder *, FILE *);
     void (*set_dump_decode)(n265_encoder *, FILE *);
     void (*set_shot_stats)(n265_encoder *, const char *);
+    int (*set_shot_list)(n265_encoder *, const int *, int);
     /* --psnr / --ssim / --csv (phase 14 item 4) */
     void (*set_metrics)(int, int);
     void (*set_nal_opts)(int, int, int, int, int);
@@ -354,7 +366,7 @@ static const n265_api api8 = {
     n265_set_hdr10plus, n265_set_dovi_rpu, n265_set_hdr_opt,
     n265_encoder_open, n265_encoder_encode, n265_encoder_close,
     n265_version_str, n265_encoder_set_dump, n265_encoder_set_dump_decode,
-    n265_encoder_set_shot_stats,
+    n265_encoder_set_shot_stats, n265_encoder_set_shot_list,
     n265_set_metrics, n265_set_nal_opts, n265_set_info_opts,
     n265_set_rc_bounds,
     n265_set_sei_opts, n265_set_qpfile, n265_set_zones,
@@ -382,7 +394,7 @@ static const n265_api api10 = {
     n265_encoder_open_10,
     n265_encoder_encode_10, n265_encoder_close_10, n265_version_str_10,
     n265_encoder_set_dump_10, n265_encoder_set_dump_decode_10,
-    n265_encoder_set_shot_stats_10,
+    n265_encoder_set_shot_stats_10, n265_encoder_set_shot_list_10,
     n265_set_metrics_10, n265_set_nal_opts_10, n265_set_info_opts_10,
     n265_set_rc_bounds_10,
     n265_set_sei_opts_10, n265_set_qpfile_10, n265_set_zones_10,
@@ -1015,7 +1027,8 @@ static void usage(FILE *out)
         "                        joined at IDRs (default 0, off). Needs more than one\n"
         "                        thread; not with --pass, --qpfile, --zones, --csv,\n"
         "                        --shot-stats or --hrd-concat. The joined stream\n"
-        "                        carries no HRD timing SEI.\n",
+        "                        carries no HRD timing SEI. With --shot-list the\n"
+        "                        segments start on listed shots.\n",
         out);
     fputs(
         "\n"
@@ -1075,6 +1088,13 @@ static void usage(FILE *out)
         "Structure\n"
         "  --keyint <n>          maximum key frame interval (default 250). A scene cut\n"
         "                        restarts the count.\n"
+        "  --shot-scan <file>    scan the input for shots and write a shot list, then\n"
+        "                        exit. The scan runs at one size, so every resolution\n"
+        "                        of a source gets the same list.\n"
+        "  --shot-list <file>    put a key frame at the start of each listed shot.\n"
+        "                        The encoder's own cut detector is off. The list is\n"
+        "                        refused on an input it wasn't made from.\n"
+        "  --shot-keys           put a key frame on each cut the encoder finds\n"
         "  --open-gop            code periodic key frames as CRA (default);\n"
         "                        --no-open-gop codes IDR. Scene cuts are always IDR.\n"
         "  --radl <n>            leading pictures of a CRA coded as RADL (default 0)\n"
@@ -1377,6 +1397,8 @@ typedef struct gp_job {
     long total;                 /* records in the file past `base` */
     const y4m_t *src;           /* the geometry an instance's reader copies */
     long clipped;               /* the instances' clamp counts */
+    const int *ls;              /* --shot-list starts, input display order */
+    int nls;
     int relief;                 /* N265_GOP_RELIEF */
     int kcap;                   /* N265_GOP_K: frames in flight, at most */
 } gp_job;
@@ -1833,6 +1855,15 @@ static void *gp_worker(void *arg)
             pthread_mutex_unlock(&j->lock);
             break;
         }
+        if (j->nls) {
+            int *rel = malloc((size_t)j->nls * sizeof *rel), nr = 0;
+            for (int k = 0; rel && k < j->nls; k++)
+                if (j->ls[k] > start && j->ls[k] < end)
+                    rel[nr++] = j->ls[k] - start;
+            if (!rel || a->set_shot_list(e, rel, nr) != 0)
+                s->err = 1;
+            free(rel);
+        }
         if (j->vbv && (g > 0 || has_next))
             j->g->set_segment(e, g > 0 ? j->vbv_in : -1.0,
                               has_next ? j->vbv_out : 0.0, end - start);
@@ -2027,7 +2058,7 @@ static int gp_flush(gp_job *j, int *next_out, FILE *fout, FILE *fdump)
 static int gp_place(gp_job *j, const unsigned char *cut, int b)
 {
     int L = j->L;
-    int lo = b + (L * 6 + 9) / 10;
+    int lo = j->nls ? b + 1 : b + (L * 6 + 9) / 10;
     long need = (long)b + L + L / 4 + 1;
     if (!j->eof && j->n_read < need)
         return 0;
@@ -2057,7 +2088,8 @@ static int gp_run(const n265_api *a, y4m_t *y, const char *in_path,
                   int T, int threads_arg, int keyint, long max_frames, int abr_on,
                   double bitrate_kbps, int vbv_on, int repeat_hdr,
                   FILE *fout, FILE *fdump, int want_met, long *nframes,
-                  double met[6], long *nmet, int *nseg_out, int *k_out)
+                  double met[6], long *nmet, int *nseg_out, int *k_out,
+                  const int *ls, int nls)
 {
     gp_job jb, *j = &jb;
     memset(j, 0, sizeof *j);
@@ -2071,6 +2103,10 @@ static int gp_run(const n265_api *a, y4m_t *y, const char *in_path,
     if (j->L < 16)
         j->L = 16;
     j->cuts = gp_env_int(getenv("N265_GOP_CUTS"), 1);
+    j->ls = ls;
+    j->nls = nls;
+    if (nls)
+        j->cuts = 1;
     long win = (long)((j->W + 1.5) * j->L);
     j->window = gp_env_int(getenv("N265_GOP_WINDOW"), (int)win);
     if (j->window < 2L * j->L)
@@ -2105,9 +2141,10 @@ static int gp_run(const n265_api *a, y4m_t *y, const char *in_path,
         fprintf(stderr, "GOP,reader,%s\n", j->seek ? "seek" : "window");
 
     gp_sc sc;
-    int sc_ok = j->cuts && gp_sc_init(&sc, y->w, y->h) == 0;
-    if (!sc_ok)
+    int sc_ok = j->cuts && !nls && gp_sc_init(&sc, y->w, y->h) == 0;
+    if (!sc_ok && !nls)
         j->cuts = 0;
+    int lk = 0;                 /* the next listed start to reach */
     unsigned char *cut = NULL;
     long cut_cap = 0;
     size_t fbytes = j->psz[0] + j->psz[1] + j->psz[2];
@@ -2145,7 +2182,11 @@ static int gp_run(const n265_api *a, y4m_t *y, const char *in_path,
                 cut_cap = nc;
             }
             pthread_mutex_unlock(&j->lock);
-            if (j->cuts) {
+            if (nls) {
+                while (lk < nls && ls[lk] < n)
+                    lk++;
+                cut[n] = lk < nls && ls[lk] == n;
+            } else if (j->cuts) {
                 const void *lu = gp_scan_luma(j, y, n);
                 if (!lu) {
                     fprintf(stderr, "y265: cannot read frame %ld\n", n);
@@ -2198,9 +2239,14 @@ static int gp_run(const n265_api *a, y4m_t *y, const char *in_path,
                 memcpy(d, y->plane[c], j->psz[c]);
                 d += j->psz[c];
             }
-            if (j->cuts)
+            if (nls) {
+                while (lk < nls && ls[lk] < n)
+                    lk++;
+                cut[n] = lk < nls && ls[lk] == n;
+            } else if (j->cuts) {
                 cut[n] = (unsigned char)gp_sc_cut(&sc,
                               gp_sc_push(&sc, f, j->pw[0], j->bps));
+            }
             pthread_mutex_lock(&j->lock);
             j->frm[n] = f;
             j->resident++;
@@ -2319,6 +2365,7 @@ static int gp_run(const n265_api *a, y4m_t *y, const char *in_path,
 typedef struct {
     const char *in_path, *out_path, *dump_path, *shot_path;
     const char *dump_decode_path, *csv_path;
+    const char *shot_scan, *shot_list;
     long max_frames, seek;
     int out_depth, in_w, in_h, in_csp, in_depth, in_fps_num, in_fps_den;
     int dither, csv_level, gop_par, verbose, show_config;
@@ -2396,6 +2443,10 @@ static int cli_parse(const n265_api *a, n265_config *cfg, int argc,
             o->dump_path = argv[++i];
         } else if (!strcmp(argv[i], "--shot-stats") && i + 1 < argc) {
             o->shot_path = argv[++i];
+        } else if (!strcmp(argv[i], "--shot-scan") && i + 1 < argc) {
+            o->shot_scan = argv[++i];
+        } else if (!strcmp(argv[i], "--shot-list") && i + 1 < argc) {
+            o->shot_list = argv[++i];
         } else if (!strcmp(argv[i], "--version")) {
             printf("y265 %s\n", a->version_str());
             return 0;
@@ -2439,6 +2490,161 @@ static int cli_parse(const n265_api *a, n265_config *cfg, int argc,
         return 2;
     }
     return -1;
+}
+
+/* ---- --shot-scan and --shot-list ---- */
+
+/* The fingerprint of the frames this run would code: from where the
+ * reader stands (past --seek), --frames of them at most. The three
+ * sampled frames are read by seeking, so the input has to be a file of
+ * fixed-size records; the reader is left where it stood. */
+static int shot_fp_input(y4m_t *y, long max_frames, n265_shot_fp *fp)
+{
+    off_t base, rec;
+    long total;
+    if (!gp_seekable(y, &base, &rec, &total))
+        return -1;
+    long n = max_frames >= 0 && max_frames < total ? max_frames : total;
+    size_t lb = (size_t)y->w * y->h * (y->depth > 8 ? 2 : 1);
+    uint8_t *buf = malloc(lb);
+    if (!buf || n < 1) {
+        free(buf);
+        return -1;
+    }
+    memset(fp, 0, sizeof *fp);
+    fp->have = 1;
+    fp->frames = n;
+    fp->w = y->w;
+    fp->h = y->h;
+    fp->depth = y->depth;
+    long pick[3] = { 0, n / 2, n - 1 };
+    uint64_t h[3];
+    int rc = 0;
+    for (int k = 0; k < 3 && !rc; k++) {
+        off_t at = base + (off_t)pick[k] * rec + (y->raw ? 0 : 6);
+        if (fseeko(y->f, at, SEEK_SET) != 0 || fread(buf, 1, lb, y->f) != lb)
+            rc = -1;
+        else
+            n265_shot_fp_frame(buf, y->w, y->h, y->depth, &h[k],
+                               fp->thumb[k]);
+    }
+    free(buf);
+    if (fseeko(y->f, base, SEEK_SET) != 0)
+        rc = -1;
+    fp->luma = rc ? 0 : n265_shot_fp_combine(h);
+    return rc;
+}
+
+/* --shot-scan: every frame from where the reader stands through the scan,
+ * and the list to `path`. The input is read once and in order, so a pipe
+ * works; the fingerprint keeps one hash and one thumbnail per frame. */
+static int shot_scan_run(y4m_t *y, long max_frames, const char *path)
+{
+    n265_param sp = { y->w, y->h, N265_CSP_I420, y->fps_num, y->fps_den };
+    n265_shotscan *ss = n265_shotscan_open(&sp);
+    if (!ss) {
+        fprintf(stderr, "y265: --shot-scan: cannot start the scan\n");
+        return 1;
+    }
+    uint64_t *hs = NULL;
+    uint8_t (*th)[64] = NULL;
+    long n = 0, cap = 0;
+    int r = 0, rc = 0;
+    while ((max_frames < 0 || n < max_frames) && (r = y4m_read(y)) > 0) {
+        if (n == cap) {
+            long nc = cap ? 2 * cap : 1024;
+            uint64_t *nh = realloc(hs, (size_t)nc * sizeof *nh);
+            if (nh)
+                hs = nh;
+            uint8_t (*nt)[64] = realloc(th, (size_t)nc * sizeof *nt);
+            if (nt)
+                th = nt;
+            if (!nh || !nt) {
+                rc = 1;
+                break;
+            }
+            cap = nc;
+        }
+        n265_shot_fp_frame(y->frame, y->w, y->h, y->depth, &hs[n], th[n]);
+        if (n265_shotscan_push(ss, y->frame, y->w, y->h, y->depth) != 0) {
+            rc = 1;
+            break;
+        }
+        n++;
+    }
+    if (r < 0) {
+        fprintf(stderr, "y265: truncated input after frame %ld\n", n);
+        rc = 1;
+    }
+    n265_shotlist l;
+    memset(&l, 0, sizeof l);
+    if (!rc && (n < 1 || n265_shotscan_finish(ss, &l) != 0)) {
+        fprintf(stderr, "y265: --shot-scan: no frames to scan\n");
+        rc = 1;
+    }
+    n265_shotscan_close(ss);
+    if (!rc) {
+        long pick[3] = { 0, n / 2, n - 1 };
+        uint64_t h3[3];
+        l.fp.have = 1;
+        l.fp.w = y->w;
+        l.fp.h = y->h;
+        l.fp.depth = y->depth;
+        for (int k = 0; k < 3; k++) {
+            h3[k] = hs[pick[k]];
+            memcpy(l.fp.thumb[k], th[pick[k]], 64);
+        }
+        l.fp.luma = n265_shot_fp_combine(h3);
+        FILE *f = fopen(path, "w");
+        if (!f || n265_shotlist_write(f, &l) != 0 || fclose(f) != 0) {
+            fprintf(stderr, "y265: --shot-scan: cannot write %s\n", path);
+            rc = 1;
+        } else {
+            fprintf(stderr, "y265: --shot-scan: %d shot%s in %ld frames "
+                    "(scanned at %dx%d), written to %s\n", l.n,
+                    l.n == 1 ? "" : "s", n, l.scan_w, l.scan_h, path);
+        }
+    }
+    n265_shotlist_free(&l);
+    free(hs);
+    free(th);
+    return rc;
+}
+
+/* --shot-list: read the list, refuse it on the wrong input, and hand back
+ * the starts after frame 0 */
+static int shot_list_load(y4m_t *y, long max_frames, const char *path,
+                          int **starts, int *n)
+{
+    n265_shotlist l;
+    char err[256];
+    if (n265_shotlist_parse(&l, path, err, sizeof err) != 0) {
+        fprintf(stderr, "y265: --shot-list: %s\n", err);
+        return 2;
+    }
+    n265_shot_fp have;
+    if (shot_fp_input(y, max_frames, &have) != 0) {
+        fprintf(stderr, "y265: --shot-list needs an input file it can seek "
+                "in (raw, or a y4m whose frame headers carry no "
+                "parameters)\n");
+        n265_shotlist_free(&l);
+        return 2;
+    }
+    if (n265_shotlist_check(&l, &have, err, sizeof err) != 0) {
+        fprintf(stderr, "y265: --shot-list: %s; refusing it\n", err);
+        n265_shotlist_free(&l);
+        return 2;
+    }
+    *n = l.n - 1;
+    *starts = malloc((size_t)(l.n > 1 ? l.n - 1 : 1) * sizeof **starts);
+    if (!*starts) {
+        n265_shotlist_free(&l);
+        return 1;
+    }
+    for (int k = 1; k < l.n; k++)
+        (*starts)[k - 1] = l.s[k].first;
+    n265_shotlist_free(&l);
+    return 0;
 }
 
 /* main returns from many places while the encoder still reads the
@@ -2574,6 +2780,35 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    /* --shot-scan: the 8-bit library at the analysis size, whatever the
+     * input's depth, so every rung's options resolve the same way; the
+     * scan writes its list and the run ends */
+    if (o.shot_scan) {
+        n265_param sp;
+        api8.param_default(&sp);
+        sp.width = N265_SHOTSCAN_W;
+        sp.height = n265_shotscan_h(y.w, y.h);
+        sp.csp = N265_CSP_I420;
+        sp.fps_num = y.fps_num;
+        sp.fps_den = y.fps_den;
+        if (api8.config_apply(cfg, &sp) != 0)
+            return 2;
+        int src = shot_scan_run(&y, max_frames, o.shot_scan);
+        free(y.pix16);
+        free(y.pix8);
+        free(y.frame);
+        if (fin != stdin)
+            fclose(fin);
+        return src;
+    }
+    int *shot_starts = NULL, shot_n = 0;
+    if (o.shot_list) {
+        int lrc = shot_list_load(&y, max_frames, o.shot_list, &shot_starts,
+                                 &shot_n);
+        if (lrc)
+            return lrc;
+    }
+
     /* The dispatch, and it is the whole of it: one table per library,
      * selected by the width the pictures will carry. Everything after
      * this point calls through `a` and does not know which encoder it
@@ -2659,7 +2894,8 @@ int main(int argc, char **argv)
         const char *why = dump_path ? "--dump-recon"
                         : dump_decode_path ? "--dump-recon-decode"
                         : csv_path ? "--csv"
-                        : shot_path ? "--shot-stats" : NULL;
+                        : shot_path ? "--shot-stats"
+                        : o.shot_list ? "--shot-list" : NULL;
         if (why) {
             fprintf(stderr, "y265: --hw: %s has no hardware path (the "
                     "hardware keeps its reconstruction and its decisions)\n",
@@ -2715,7 +2951,8 @@ int main(int argc, char **argv)
                              gop_par, (int)nt, threads, keyint,
                              max_frames, bitrate > 0.0, bitrate, vbv_on,
                              repeat_hdr, gout, gdump, want_psnr || want_ssim,
-                             &gn, gmet, &gnm, &gseg, &gk);
+                             &gn, gmet, &gnm, &gseg, &gk,
+                             shot_starts, o.shot_list ? shot_n : 0);
             if (gdump)
                 fclose(gdump);
             if (fclose(gout) != 0 && !grc) {
@@ -2779,6 +3016,11 @@ int main(int argc, char **argv)
 
     if (shot_path)
         a->set_shot_stats(enc, shot_path);
+    if (o.shot_list && a->set_shot_list(enc, shot_starts, shot_n) != 0) {
+        fprintf(stderr, "y265: --shot-list: the encoder refused the list\n");
+        return 1;
+    }
+    free(shot_starts);
     if (csv_path)
         a->set_csv(enc, csv_path, csv_level);
     FILE *fdump = NULL;

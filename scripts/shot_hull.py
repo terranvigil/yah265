@@ -87,11 +87,28 @@ def per_frame_neg(bitstream, src):
 
 
 def read_sidecar(path):
+    """One record per shot. A v1 line is a run between intra pictures, so a
+    keyint key frame splits a shot there. A v2 line says which shot it
+    belongs to, and the runs of one shot are joined back into it."""
     shots = []
     for ln in open(path):
         ln = ln.strip()
-        if ln:
-            shots.append(json.loads(ln))
+        if not ln:
+            continue
+        r = json.loads(ln)
+        if r.get("v", 1) >= 2 and shots and r["shot"] == shots[-1]["shot"]:
+            s = shots[-1]
+            n0 = s["last"] - s["first"] + 1
+            n1 = r["last"] - r["first"] + 1
+            s["qp_base_mean"] = ((s["qp_base_mean"] * n0 + r["qp_base_mean"] * n1)
+                                 / (n0 + n1))
+            for k in ("bytes", "complexity", "flat_frames"):
+                s[k] += r[k]
+            for k in s["frames"]:
+                s["frames"][k] += r["frames"][k]
+            s["last"] = r["last"]
+            continue
+        shots.append(r)
     if not shots:
         sys.exit(f"shot_hull: {path} has no shots")
     return shots

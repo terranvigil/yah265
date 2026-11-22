@@ -24,6 +24,7 @@
 #include "hw/vt_map.h"
 
 void n265_set_shot_window(int n);
+void n265_set_shot_keys(int on);
 void n265_set_metrics(int psnr, int ssim);
 void n265_set_nal_opts(int repeat_headers, int aud, int eos, int eob,
                        int info);
@@ -98,7 +99,7 @@ static const struct { const char *name; int val; } opt_tab[] = {
     { "no-hdr-opt", 0 }, { "no-hdr10-opt", 0 },
     { "hdr10", 0 }, { "no-hdr10", 0 }, { "cll", 0 }, { "no-cll", 0 },
     { "atc-sei", 1 }, { "dhdr10-info", 1 }, { "dolby-vision-rpu", 1 },
-    { "dolby-vision-profile", 1 }, { "shot-window", 1 },
+    { "dolby-vision-profile", 1 }, { "shot-window", 1 }, { "shot-keys", 0 },
     { "pass", 1 }, { "stats", 1 }, { "hw", 1 }, { "hw-strict", 0 },
 };
 
@@ -141,7 +142,7 @@ struct n265_config {
     char *qpfile_path, *zones_spec;
     int want_psnr, want_ssim;
     int nref, badapt, lookahead, cutree;
-    int threads, shot_window;
+    int threads, shot_window, shot_keys;
     int pass;
     char *stats_path;
     int rdoq_level, had_rdoq;
@@ -241,7 +242,7 @@ static int opt_drop(const char *k)
 {
     static const char * const drop[] = {
         "o", "dump-recon", "dump-recon-decode", "csv", "csv-log-level",
-        "shot-stats", "psnr", "ssim", "verbose", "v", "threads",
+        "shot-stats", "shot-scan", "psnr", "ssim", "verbose", "v", "threads",
         "gop-parallel",
         "show-config", "version", "help", "h",
         "info", "no-info",
@@ -257,6 +258,7 @@ static int opt_drop(const char *k)
 static int opt_drop_value(const char *k)
 {
     return !strcmp(k, "qpfile") || !strcmp(k, "stats") ||
+           !strcmp(k, "shot-list") ||
            !strcmp(k, "dhdr10-info") || !strcmp(k, "dolby-vision-rpu");
 }
 
@@ -658,6 +660,8 @@ static int parse_one(n265_config *c, const char *k, const char *v)
         }
     } else if (IS("shot-window")) {
         c->shot_window = atoi(v);
+    } else if (IS("shot-keys")) {
+        c->shot_keys = 1;
     } else if (IS("pass")) {
         c->pass = atoi(v);
     } else if (IS("stats")) {
@@ -913,6 +917,7 @@ int n265_config_apply(n265_config *c, n265_param *p)
     n265_set_badapt(badapt);
     n265_set_la(lookahead, cutree);
     n265_set_shot_window(c->shot_window);
+    n265_set_shot_keys(c->shot_keys);
     n265_set_pass(c->pass, c->stats_path);
     n265_set_threads(c->threads);
     if (c->pcm && c->lossless) {

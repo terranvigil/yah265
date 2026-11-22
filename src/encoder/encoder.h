@@ -633,6 +633,7 @@ typedef struct n265_frame_work {
      * flush. */
     int cra;
     int irap;
+    int shot_cut;           /* --shot-stats: an intra picture on a cut */
     /* This picture is a LEADING picture of the last CRA: it follows that
      * CRA in decoding order and precedes it in output order. 0 neither,
      * 1 RASL (may reference across the CRA, discarded on a seek to it),
@@ -1530,6 +1531,11 @@ struct n265_encoder {
     int keyint;
     int bframes;
     int scenecut;
+    /* --shot-list: the listed shot starts, sorted display indices. Under
+     * a list the detector is off and these are the only cuts. */
+    int *shotl;
+    int shotl_n, shotl_on;
+    int shot_keys;          /* --shot-keys: every detected cut is an IDR */
     int la_depth;
     /* How many frames the queue FILLS to before the driver dispatches:
      * `la_depth` at the default, `shot_window` where that is deeper. The
@@ -1862,7 +1868,7 @@ struct n265_encoder {
     FILE *shot_f;
     struct n265_shot_rec {
         int present;
-        int slice_type, idr, cra, nonref, flat;
+        int slice_type, idr, cra, nonref, flat, cut;
         double qp_base, cplx;
         uint64_t bytes;
     } shot_ring[N265_SHOT_RING];
@@ -1871,6 +1877,7 @@ struct n265_encoder {
     int shot_open;          /* 0 none yet, 1 "start", 2 "idr", 3 "intra",
                              * 4 "cra" */
     int shot_first, shot_last;
+    int shot_cut, shot_idx; /* v2: does the run open a shot, and which */
     int shot_cnt[4];        /* i, p, b_ref, b_leaf */
     int shot_n, shot_flat;
     uint64_t shot_bytes;

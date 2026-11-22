@@ -23,6 +23,7 @@
 #include "encoder/rc.h"
 #include "encoder/satd.h"
 #include "encoder/sao.h"
+#include "encoder/shotlist.h"
 #include "encoder/preset.h"
 #include "encoder/ttrace.h"
 #include "hw/sc.h"
@@ -245,6 +246,61 @@ void n265_set_shot_window(int n)
 {
     g_shot_window = n < 0 ? 0 : n > N265_MAX_SHOT_WINDOW
                                     ? N265_MAX_SHOT_WINDOW : n;
+}
+
+/* --shot-keys: every cut the detector finds is an IDR. A cut inside
+ * min-keyint of the last key frame joins the shot before it rather than
+ * becoming a non-IDR I, so a flash does not open a shot. */
+static int g_shot_keys;
+void n265_set_shot_keys(int on);
+void n265_set_shot_keys(int on) { g_shot_keys = on != 0; }
+
+/* --shot-list: the listed starts become the only cuts. Called right after
+ * open, before the first picture, like --shot-stats. The starts are
+ * display indices of this encoder's input; frame 0 is always a key frame
+ * and needs no entry. */
+int n265_encoder_set_shot_list(n265_encoder *e, const int *starts, int n);
+int n265_encoder_set_shot_list(n265_encoder *e, const int *starts, int n)
+{
+    if (!e || e->hw || e->in_display_idx > 0 || n < 0)
+        return -1;
+    free(e->shotl);
+    e->shotl = NULL;
+    e->shotl_n = 0;
+    e->shotl_on = 1;
+    if (n == 0)
+        return 0;
+    e->shotl = malloc((size_t)n * sizeof *e->shotl);
+    if (!e->shotl)
+        return -1;
+    for (int k = 0; k < n; k++) {
+        if (starts[k] < 0 || (k && starts[k] <= starts[k - 1])) {
+            free(e->shotl);
+            e->shotl = NULL;
+            e->shotl_on = 0;
+            return -1;
+        }
+        e->shotl[k] = starts[k];
+    }
+    e->shotl_n = n;
+    return 0;
+}
+
+/* the index of the last listed start at or before display d, or -1 */
+static int shotl_find(const n265_encoder *e, int d)
+{
+    int lo = 0, hi = e->shotl_n - 1, at = -1;
+    while (lo <= hi) {
+        int m = (lo + hi) / 2;
+        if (e->shotl[m] <= d) { at = m; lo = m + 1; } else hi = m - 1;
+    }
+    return at;
+}
+
+int n265_shotl_has(const struct n265_encoder *e, int d)
+{
+    int k = shotl_find(e, d);
+    return k >= 0 && e->shotl[k] == d;
 }
 
 /* --psnr / --ssim (phase 14 item 4). Process-global like every other
@@ -2673,6 +2729,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     e->qp_delta_on = e->mode != N265_MODE_PCM &&
                      (e->aq || e->cutree || e->qp_frac);
     e->scenecut = e->mode != N265_MODE_PCM;
+    e->shot_keys = g_shot_keys;
     /* deblocking offsets: both clamped to the spec's +-6, and both zero by
      * default, which keeps the PPS control block out of the stream */
     { const char *v = n265_env("N265_DBF_BETA"); e->dbf_beta = v ? atoi(v) : 0; }
@@ -3972,6 +4029,7 @@ void n265_encoder_close(n265_encoder *e)
     bs_free(&e->fd_bs);
     n265_qpfile_free(&e->qpf);
     n265_zones_free(&e->zones);
+    free(e->shotl);
     free(e->out);
     free(e);
 }
@@ -7198,11 +7256,13 @@ static void shot_flush(n265_encoder *e)
     if (!e->shot_f || e->shot_n == 0)
         return;
     fprintf(e->shot_f,
-            "{\"v\":1,\"first\":%d,\"last\":%d,\"open\":\"%s\","
+            "{\"v\":2,\"first\":%d,\"last\":%d,\"open\":\"%s\","
+            "\"cut\":%s,\"shot\":%d,"
             "\"frames\":{\"i\":%d,\"p\":%d,\"b_ref\":%d,\"b_leaf\":%d},"
             "\"bytes\":%llu,\"qp_base_mean\":%.4f,\"complexity\":%.0f,"
             "\"flat_frames\":%d}\n",
             e->shot_first, e->shot_last, kind[e->shot_open],
+            e->shot_cut ? "true" : "false", e->shot_idx,
             e->shot_cnt[0], e->shot_cnt[1], e->shot_cnt[2], e->shot_cnt[3],
             (unsigned long long)e->shot_bytes,
             e->shot_qp_sum / (double)e->shot_n, e->shot_cplx, e->shot_flat);
@@ -7216,6 +7276,17 @@ static void shot_fold(n265_encoder *e, const struct n265_shot_rec *r, int d)
     if (r->slice_type == 2 || e->shot_n == 0) {
         int open = r->slice_type != 2 ? 1 : r->idr ? 2 : r->cra ? 4 : 3;
         shot_flush(e);                  /* the previous shot ends here */
+        /* v2: a run opens a shot on the encode's first picture and on a
+         * cut; a keyint key frame only splits the shot it lands in */
+        if (e->shot_open == 0) {
+            e->shot_cut = 1;
+            e->shot_idx = 0;
+        } else {
+            e->shot_cut = r->cut;
+            if (r->cut)
+                e->shot_idx = e->shotl_on ? shotl_find(e, d) + 1
+                                          : e->shot_idx + 1;
+        }
         e->shot_open = e->shot_open == 0 ? 1 : open;
         e->shot_first = d;
         memset(e->shot_cnt, 0, sizeof e->shot_cnt);
@@ -7270,6 +7341,7 @@ static void shot_record(n265_encoder *e, const n265_frame_work *fw,
     r->cra = fw->cra;
     r->nonref = fw->nonref;
     r->flat = fw->flat;
+    r->cut = fw->shot_cut;
     r->qp_base = fw->rc_base;
     r->cplx = fw->rc_cplx;
     r->bytes = (uint64_t)bytes;
@@ -8302,6 +8374,9 @@ static int key_rule(n265_encoder *e, int i, int origin)
         if (qe && qe->type == N265_QPF_IDR)
             return 1;
     }
+    /* a listed start is the user's word, min-keyint or not */
+    if (e->shotl_on && n265_shotl_has(e, d))
+        return 1;
     return e->mode == N265_MODE_PCM || e->keyint == 1 ||
            key_period(e, i, origin) ||
            (e->scenecut && d - origin >= min_keyint(e) &&
@@ -8354,6 +8429,10 @@ static int la_is_cra(n265_encoder *e, int i)
     int d = e->la.f[i].display_idx;
     if (d <= 0)
         return 0;
+    /* a shot start stays an IDR even where the period lands on it */
+    if ((e->shotl_on && n265_shotl_has(e, d)) ||
+        (e->shot_keys && n265_la_scenecut(e, i)))
+        return 0;
     if (key_period(e, i, key_origin(e, i)))
         return 1;
     return la_is_cra_cut() && la_is_key(e, i);
@@ -8398,7 +8477,7 @@ static int la_is_nonidr_i(n265_encoder *e, int i)
     }
     if (d == force_nonidr_env())
         return 1;
-    if (e->ref_max < 2)
+    if (e->ref_max < 2 || e->shot_keys)
         return 0;
     return e->scenecut && d - e->last_intra_display >= intra_min_env() &&
            n265_la_scenecut(e, i);
@@ -8472,7 +8551,7 @@ static int shot_is_opener(n265_encoder *e, int i)
     int d = e->la.f[i].display_idx;
     if (d == force_nonidr_env())
         return 1;
-    return e->ref_max >= 2 && e->scenecut &&
+    return e->ref_max >= 2 && e->scenecut && !e->shot_keys &&
            d - e->last_intra_display >= intra_min_env() &&
            n265_la_scenecut(e, i);
 }
@@ -9100,6 +9179,7 @@ static int drive_scheduler(n265_encoder *e)
     fw->idr = kind == 2;
     fw->cra = kind == 4;
     fw->irap = fw->idr || fw->cra;
+    fw->shot_cut = e->shot_f && slice_type == 2 && n265_la_scenecut(e, li);
     /* Leading picture of the last CRA, and which kind (7.4.2.2): it
      * follows that CRA in decoding order - every picture dispatched
      * after it does - and precedes it in output order. The band
@@ -9569,4 +9649,132 @@ int n265_encoder_headers(n265_encoder *e, n265_nal **nal, int *nnal)
     *nnal = d.nnal;
     free(d.buf);
     return (int)d.len;
+}
+
+/* ---- --shot-scan: the cut detector over a whole input, nothing coded ----
+ *
+ * The scan opens an encoder at the analysis size (N265_SHOTSCAN_W wide,
+ * the source's aspect) and runs only the lookahead's push and its cut
+ * test on each picture, keeping two pictures in the queue. Every rung of
+ * a ladder is resampled to the same size, so the detector reads the same
+ * plane whatever the rung's resolution and the list comes out the same.
+ * A cut inside min-keyint of the shot's start joins the shot, the flash
+ * guard --shot-keys applies. */
+struct n265_shotscan {
+    n265_encoder *e;
+    int aw, ah, mk, last_start;
+    uint8_t *a8;
+    pixel *pl[3];
+    n265_shot *s;
+    int n, cap;
+    long frames;
+};
+
+typedef struct n265_shotscan n265_shotscan;
+n265_shotscan *n265_shotscan_open(const n265_param *src);
+int n265_shotscan_push(n265_shotscan *s, const uint8_t *luma, int w, int h,
+                       int depth);
+int n265_shotscan_finish(n265_shotscan *s, n265_shotlist *out);
+void n265_shotscan_close(n265_shotscan *s);
+
+n265_shotscan *n265_shotscan_open(const n265_param *src)
+{
+    n265_shotscan *s = calloc(1, sizeof *s);
+    if (!s || src->width < 1 || src->height < 1) {
+        free(s);
+        return NULL;
+    }
+    s->aw = N265_SHOTSCAN_W;
+    s->ah = n265_shotscan_h(src->width, src->height);
+    n265_param p = { s->aw, s->ah, N265_CSP_I420, src->fps_num, src->fps_den };
+    s->e = n265_encoder_open(&p);
+    if (!s->e || s->e->hw) {
+        n265_shotscan_close(s);
+        return NULL;
+    }
+    size_t ys = (size_t)s->aw * s->ah, cs = ys / 4;
+    s->a8 = malloc(ys);
+    s->pl[0] = malloc(ys * sizeof(pixel));
+    s->pl[1] = malloc(cs * sizeof(pixel));
+    s->pl[2] = malloc(cs * sizeof(pixel));
+    if (!s->a8 || !s->pl[0] || !s->pl[1] || !s->pl[2]) {
+        n265_shotscan_close(s);
+        return NULL;
+    }
+    for (size_t k = 0; k < cs; k++)
+        s->pl[1][k] = s->pl[2][k] = (pixel)(1 << (N265_BIT_DEPTH - 1));
+    s->mk = min_keyint(s->e);
+    return s;
+}
+
+int n265_shotscan_push(n265_shotscan *s, const uint8_t *luma, int w, int h,
+                       int depth)
+{
+    n265_encoder *e = s->e;
+    n265_shotscan_resample(luma, w, h, depth, s->a8, s->aw, s->ah);
+    size_t ys = (size_t)s->aw * s->ah;
+    for (size_t k = 0; k < ys; k++)
+        s->pl[0][k] = (pixel)(s->a8[k] << (N265_BIT_DEPTH - 8));
+    const pixel *pl[3] = { s->pl[0], s->pl[1], s->pl[2] };
+    int st[3] = { s->aw, s->aw / 2, s->aw / 2 };
+    n265_la_push(e, pl, st);
+    e->in_display_idx++;
+    int i = e->la.count - 1, d = e->la.f[i].display_idx;
+    int cut = d == 0 || (n265_la_scenecut(e, i) && d - s->last_start >= s->mk);
+    if (cut) {
+        if (s->n == s->cap) {
+            int nc = s->cap ? 2 * s->cap : 64;
+            n265_shot *t = realloc(s->s, (size_t)nc * sizeof *t);
+            if (!t)
+                return -1;
+            s->s = t;
+            s->cap = nc;
+        }
+        n265_shot *sh = &s->s[s->n++];
+        sh->first = d;
+        sh->last = -1;
+        sh->kind = d == 0 ? N265_SHOT_START : N265_SHOT_CUT;
+        sh->conf = d == 0 ? -1.0 : (double)e->la.f[i].sc_ratio;
+        if (s->n > 1)
+            s->s[s->n - 2].last = d - 1;
+        s->last_start = d;
+    }
+    while (e->la.count > 1)
+        n265_la_pop(e);
+    s->frames = d + 1;
+    return 0;
+}
+
+/* hands the shots to `out` (the caller adds the fingerprint) */
+int n265_shotscan_finish(n265_shotscan *s, n265_shotlist *out)
+{
+    memset(out, 0, sizeof *out);
+    if (s->n == 0)
+        return -1;
+    s->s[s->n - 1].last = (int)s->frames - 1;
+    out->s = s->s;
+    out->n = s->n;
+    out->fp.frames = s->frames;
+    out->scan_w = s->aw;
+    out->scan_h = s->ah;
+    out->scan_mk = s->mk;
+    s->s = NULL;
+    s->n = s->cap = 0;
+    return 0;
+}
+
+void n265_shotscan_close(n265_shotscan *s)
+{
+    if (!s)
+        return;
+    if (s->e) {
+        while (s->e->la.count > 0)
+            n265_la_pop(s->e);
+        n265_encoder_close(s->e);
+    }
+    free(s->a8);
+    for (int c = 0; c < 3; c++)
+        free(s->pl[c]);
+    free(s->s);
+    free(s);
 }

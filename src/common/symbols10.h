@@ -564,5 +564,21 @@
 #define n265_sum_sq_wh_sve           n265_sum_sq_wh_sve_10
 #define n265_mc_luma_hf_sve          n265_mc_luma_hf_sve_10
 #define n265_mc_luma_14_hf_sve       n265_mc_luma_14_hf_sve_10
+#define n265_set_shot_keys           n265_set_shot_keys_10
+#define n265_encoder_set_shot_list   n265_encoder_set_shot_list_10
+#define n265_shotl_has               n265_shotl_has_10
+#define n265_shotscan_open           n265_shotscan_open_10
+#define n265_shotscan_push           n265_shotscan_push_10
+#define n265_shotscan_finish         n265_shotscan_finish_10
+#define n265_shotscan_close          n265_shotscan_close_10
+#define n265_shotlist_parse_str      n265_shotlist_parse_str_10
+#define n265_shotlist_parse          n265_shotlist_parse_10
+#define n265_shotlist_free           n265_shotlist_free_10
+#define n265_shotlist_write          n265_shotlist_write_10
+#define n265_shotlist_check          n265_shotlist_check_10
+#define n265_shot_fp_frame           n265_shot_fp_frame_10
+#define n265_shot_fp_combine         n265_shot_fp_combine_10
+#define n265_shotscan_h              n265_shotscan_h_10
+#define n265_shotscan_resample       n265_shotscan_resample_10
 
 #endif /* N265_SYMBOLS10_H */

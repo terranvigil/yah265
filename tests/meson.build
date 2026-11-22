@@ -171,3 +171,10 @@ unit_hdr_dyn = executable('unit_hdr_dyn',
   ['unit/hdr_dyn_test.c', '../cli/hdr_dyn.c'],
   include_directories : include_directories('../cli'))
 test('hdr_dyn', unit_hdr_dyn)
+
+# The shot list (--shot-scan / --shot-list): the parser, the writer and
+# the fingerprint refusals that keep a list off an input it wasn't made
+# from. The encoder side is the conformance vector and seek_check.py.
+unit_shotlist = executable('unit_shotlist', 'unit/shotlist_test.c',
+  dependencies : yah265_dep)
+test('shotlist', unit_shotlist)

@@ -262,6 +262,9 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
 /* scenecut test for queued frame index i (display order) */
 int n265_la_scenecut(struct n265_encoder *e, int i);
 
+/* is display index d a listed start under --shot-list (encoder.c) */
+int n265_shotl_has(const struct n265_encoder *e, int d);
+
 /* run cu-tree over the queued window and fill e->ctu_qp_off for queued
  * frame index i */
 void n265_la_cutree(struct n265_encoder *e, struct n265_frame_work *fw,
