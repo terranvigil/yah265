@@ -20,7 +20,7 @@ BUILD ?= build
 # keeps working.
 BUILD10 ?= build10
 
-.PHONY: build build8 build10 build-rel build-x86 test-x86 checkasm-x86-asan conformance-fast-x86 x86-identity build10-x86 checkasm10-x86 checkasm10-x86-asan conformance10-fast-x86 test smoke10 conformance conformance-fast conformance10 conformance10-fast conformance444 conformance444-fast conformance444-10 conformance444-10-fast conformance422 conformance422-fast conformance422-10 conformance422-10-fast provenance asan asan10 asan444 asan422 determ determ-fast determ10 determ444 determ422 board board-quick goal-legs clean checkasm-bench checkasm-asan checkasm10-bench checkasm10-asan clean-scratch docs-recipes
+.PHONY: build build8 build10 build-rel wasm playground-serve build-x86 test-x86 checkasm-x86-asan conformance-fast-x86 x86-identity build10-x86 checkasm10-x86 checkasm10-x86-asan conformance10-fast-x86 test smoke10 conformance conformance-fast conformance10 conformance10-fast conformance444 conformance444-fast conformance444-10 conformance444-10-fast conformance422 conformance422-fast conformance422-10 conformance422-10-fast provenance asan asan10 asan444 asan422 determ determ-fast determ10 determ444 determ422 board board-quick goal-legs clean checkasm-bench checkasm-asan checkasm10-bench checkasm10-asan clean-scratch docs-recipes
 
 build: build8 build10
 
@@ -300,6 +300,22 @@ asan422:
 	ninja -C build-asan
 	N265=build-asan/n265 scripts/conformance.sh --csp422 --fast
 	N265_10=build-asan/n265 scripts/conformance.sh --csp422 --depth10 --fast
+
+# The browser playground (playground/): the encoder as WebAssembly, one
+# thread and the C kernels only, built with the emsdk under $(EMSDK).
+EMSDK ?= $(HOME)/src/build/emsdk
+BUILDWASM ?= build-wasm
+WASM_PATH = $(EMSDK)/upstream/emscripten:$(firstword $(wildcard $(EMSDK)/node/*/bin)):$(PATH)
+wasm:
+	@[ -x $(EMSDK)/upstream/emscripten/emcc ] || { echo "no emsdk at $(EMSDK)"; exit 1; }
+	@[ -d $(BUILDWASM) ] || PATH="$(WASM_PATH)" meson setup $(BUILDWASM) \
+		--cross-file playground/wasm/emscripten.cross -Dbuildtype=release
+	PATH="$(WASM_PATH)" ninja -C $(BUILDWASM)
+	cp $(BUILDWASM)/playground/wasm/yah265.js $(BUILDWASM)/playground/wasm/yah265.wasm playground/
+
+# workers don't load from file://, so the page needs a server
+playground-serve: wasm
+	python3 -m http.server -d playground 8265
 
 clean:
 	rm -rf $(BUILD) $(BUILD10) build-asan build10-asan

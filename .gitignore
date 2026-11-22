@@ -56,3 +56,7 @@ subprojects/packagecache/
 /docs/live-control.md
 /docs/board-operating-point-pin.md
 /docs/instruments.md
+
+# the playground module, copied in by `make wasm`
+/playground/yah265.js
+/playground/yah265.wasm

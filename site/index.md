@@ -69,7 +69,7 @@ To see both in motion, open the [comparison players](https://terranvigil.github.
 - Prebuilt installs: Homebrew, a Docker image and a static ffmpeg, with recipes for Jellyfin and Tdarr. [coming soon]
 - Target quality: ask for a VMAF score instead of a CRF. [coming soon]
 - Encode reports: one page per encode with bitrate, QP, shots and what yah265 detected. [coming soon]
-- A browser playground: try yah265 on your own clip without installing anything. [coming soon]
+- A [browser playground](playground/): try yah265 on your own clip without installing anything.
 - Farm mode: split one encode across several machines. [coming soon]
 
 ## Results in brief

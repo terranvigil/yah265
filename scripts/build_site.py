@@ -327,6 +327,13 @@ def build(strict=False):
         shutil.copy2(logo, tmp / "assets" / name)
     # GitHub Pages serving a branch runs Jekyll unless told not to
     (tmp / ".nojekyll").write_text("")
+    # the playground is a static app beside the pages; its encoder module
+    # comes from `make wasm`, which the Pages workflow runs first
+    pg = ROOT / "playground"
+    shutil.copytree(pg, tmp / "playground",
+                    ignore=shutil.ignore_patterns("wasm"))
+    if not (pg / "yah265.wasm").exists():
+        print("warning: playground/yah265.wasm is missing; run `make wasm`")
 
     labels = {h: l for _, h, l in NAV}
     commit = commit_hash()
@@ -517,7 +524,7 @@ def check_links():
                 continue
             path, _, frag = href.partition("#")
             name = path or p.name
-            if path.startswith("assets/"):
+            if path.startswith(("assets/", "playground/")):
                 if not (OUT / path).exists():
                     bad.append(f"{p.name}: {href}")
                 continue
