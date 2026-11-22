@@ -32,7 +32,7 @@ A cell is one clip at one resolution. Each dot below is one cell timed on the Ma
 
 <figure class="chart"><img src="assets/blog/cells.svg" alt="Dots on an axis of times faster than x265. Each dot is one timed cell. The dots are in rows for CIF, 720p, 1080p and 4K. All the dots are right of the 1x line."><figcaption>The first table below lists each row's median.</figcaption></figure>
 
-These are the cells behind the headline, from ten-second clips to ten-minute films. In each one I adjusted yah265's CRF until its file matched x265's size. No dot is left of the x265 line. Capped VBR and the content-type clips were timed too, although the [results page](results.md#vbr) reports them apart because their files aren't matched in size the same way.
+These are the cells behind the headline, from ten-second clips to ten-minute films. In each one I adjusted yah265's CRF until its file matched x265's size. No dot is left of the x265 line. Capped VBR and the content-type clips have their own tables on the [results page](results.md#vbr).
 
 ## Three goals and a quality limit
 
@@ -46,7 +46,7 @@ I set three speed goals against x265 at `--preset medium`. Each one compares fil
 | G1 | plain C on one thread | `--no-asm` on one thread |
 | G2 | plain C on all cores | `--no-asm` on all cores |
 
-G3 is the one a user sees. G1 and G2 compare the algorithms with the hand-written SIMD off on both sides. A goal passes at each picture size and clip length when the median is at least even and the slowest clip is no more than 15% slower. The quality limit is that on any rate ladder of a real film, yah265 may need at most 1.0% more bits than x265 for the same VMAF v1.
+G3 is the one a user sees. G1 and G2 compare the algorithms with the hand-written SIMD off on both sides. To pass at a picture size and clip length, yah265 must be at least as fast as x265 at the median, with no clip more than 15% slower. On quality, yah265 may need at most 1.0% more bits than x265 for the same VMAF v1.
 
 ## The same lead on three machines
 
@@ -123,17 +123,17 @@ ffmpeg -ss 60 -i tearsofsteel_4k.mov -frames:v 1440 -an -vf scale=1920:858:flags
 
 <figure class="chart"><img src="assets/blog/history.svg" alt="Line chart on a log scale of the timed board's median speed against x265 from September to October 2026. Both lines start well below even and end above it."></figure>
 
-The chart is the timed board. It read each milestone commit on the same short clips until the shared test set took over in October. yah265 started out slow. The first measurement with SIMD on all cores took <!--gen:hist-g3-first-->15.2x<!--/gen:hist-g3-first--> x265's time.
+The chart tracks median speed against x265 on the same short clips, from September into October. yah265 started out slow. The first measurement with SIMD on all cores took <!--gen:hist-g3-first-->15.2x<!--/gen:hist-g3-first--> x265's time.
 
 ### Correct first, then quality, then speed
 
 The first commits built the bitstream layer and a conformance gate before any encoding decision. A stream has to decode to the encoder's own reconstruction through both ffmpeg and libde265. One-thread output has to be byte-identical from run to run. Neither rule ever relaxed.
 
-Quality came before speed on purpose. Because a board read at matched file size moves whenever quality moves, speed work done before quality settles has to be done again.
+Quality came before speed on purpose. Speed is measured at matched file size, so a quality change moves the speed numbers too. Speed work done first would have had to be redone.
 
 ### Threads and NEON
 
-On my 18-core Mac, x265's auto-detection chose four frame threads. About half the cores sat idle at 720p. yah265 runs one shared worker pool whose unit of work is a row of coding tree units. Rows from several frames are in flight at once. A row starts once its reference frames have finished the rows its motion search can reach. Geometry alone sets that wait. Output across thread counts is checked at each gate, though the only identity I promise is one thread from run to run.
+On my 18-core Mac, x265's auto-detection chose four frame threads. About half the cores sat idle at 720p. yah265 runs one shared worker pool whose unit of work is a row of coding tree units. Rows from several frames are in flight at once. A row starts as soon as the rows it predicts from are done.
 
 NEON kernels shipped in rounds the same week. This was the hard goal, because on these clips x265's arm64 assembly makes it about three times as fast as its plain C. Because each of yah265's kernels is bit-exact with its C reference, turning SIMD off changes nothing but the speed. On the chart the SIMD line climbs to under 2x slower within two days.
 
@@ -143,17 +143,17 @@ By mid-September yah265 had a large quality lead, although it was still slower w
 
 ### Real films disagreed with the short clips
 
-The short clips had yah265 ahead everywhere. Two-minute segments of real titles didn't agree, because one needed more bits than x265 and Sol Levante took longer to encode.
+The short clips had yah265 ahead everywhere. Real titles didn't agree. One needed more bits than x265, and Sol Levante took longer to encode.
 
-The first problem was block size. Because yah265's 32x32 coding blocks spent their bits on syntax at low rates, a 64x64 tree with a skip gate went in at HD and 4K. Sol Levante's time went to intra search inside P and B frames. I ranked the intra modes once. Trying 4x4 intra there stopped, as did recursing under intra blocks that almost never split. Both changes also gained quality.
+The first problem was block size. At low rates yah265's 32x32 blocks wasted bits, so I added 64x64 blocks at HD and 4K. Sol Levante's time went to intra search inside P and B frames, so I cut that search down. Both changes also gained quality.
 
-A task trace showed that the bigger tree then cost wall time on all cores because too few frames were in flight. Once a scheduling simulator matched the measured walls within 1%, it pointed at twelve frames in flight with reference frames scheduled first. The check across thread counts still read byte-identical afterward.
+The bigger tree then ran slower on all cores, because too few frames were being coded at once. Coding twelve at once, with reference frames scheduled first, fixed it.
 
 ### VBR started out behind
 
 When VBR was first measured yah265 trailed x265 on cells where CRF was level or ahead. VBR was also slower than x265 on all cores. Only one picture was ever in flight, because VBR waited for each frame to finish before it planned the next one. Planning from frames up to eight back gave the parallelism back.
 
-That change wrote HRD underflows on very shallow buffers. Those buffers now code with no lag, because a stream that underflows its own signaled buffer isn't conformant. Capped VBR then moved onto the CRF path with a slow level. It also stopped spending surplus bits on frames that already looked perfect.
+That change overran very small buffers, so those now wait for each frame as before. Capped VBR also stopped spending surplus bits on frames that already looked perfect.
 
 ### A dev set that reads in ten minutes
 
@@ -278,7 +278,7 @@ The three curves in the chart are these ladders at CRF.
 
 ### Quality off the Mac
 
-The ladders ran on the Mac. Graviton4's quality is the Mac's, because it writes the Mac's streams byte for byte in nearly all the timed encodes. The encodes that differ had a different input or a CRF adjusted again. On x86-64 the streams move a little because the compiler rounds some floating-point math differently. I ran some ladders again there to see how far.
+The ladders ran on the Mac. Graviton4 writes the same streams as the Mac in nearly all the timed encodes, so its quality is the same. On x86-64 the streams differ a little, so I ran some ladders again there.
 
 <!--gen:offmac-table-->
 | machine | check | result |
@@ -298,11 +298,11 @@ The ladders ran on the Mac. Graviton4's quality is the Mac's, because it writes 
 
 ## How it was measured
 
-On the Mac both encoders ran on one Apple M5 Max with 18 cores, where the reference is the Homebrew build of x265 4.3 with its arm64 assembly. The cloud boxes built x265 4.3 from its release tarball with clang. On all three machines both encoders ran at `medium`. They read the same frames from one feeder on standard input.
+The Mac is an Apple M5 Max with 18 cores. The reference on all three machines is x265 4.3. On all three machines both encoders ran at `medium`. They read the same frames from one feeder on standard input.
 
-For each timed CRF encode, I adjusted yah265's CRF until its file was within 1% of x265's size. The headline covers only those cells. I didn't include the capped VBR cells, because they're timed at one shared target bitrate, not matched in size. x265 ran its default lookahead of 20 frames. yah265 ran its own `medium` default: 20 frames from 720p up and 12 at CIF.
+For each timed CRF encode, I adjusted yah265's CRF until its file was within 1% of x265's size. The headline covers only those encodes. Capped VBR has its own tables. x265 ran its default lookahead of 20 frames. yah265 ran its own `medium` default: 20 frames from 720p up and 12 at CIF.
 
-Quality is VMAF v1: Netflix's `vmaf_v1.0.16` models on libvmaf 3.x. It's scored at display size. A picture under 1080p is scaled up to fit 1920x1080 first, CIF included. The ladders score all frames of the two-minute segments and one frame in three of the films. Each ten-minute film runs from the end of its black opening to the start of its end credits. Because cloud wall times are reported apart from the Mac's, the headline is the Mac's alone.
+Quality is VMAF v1: Netflix's `vmaf_v1.0.16` models on libvmaf 3.x. It's scored at display size. A picture under 1080p is scaled up to fit 1920x1080 first, CIF included. Each ten-minute film runs from the end of its black opening to the start of its end credits. The headline is the Mac's alone.
 
 The [results page](results.md) has the tables. The [methodology](methodology.md) has the rules that make a number valid. The figures on this page come from <!--gen:report-link-->[the all-architecture parity report of 2026-11-14](docs/parity/PARITY-REPORT-yah265-all-isa-2026-11-14.md)<!--/gen:report-link--> and the per-machine reports beside it. The charts and figures come from one [script](scripts/blog_charts.py). You can [check it yourself](check-it-yourself.md).
 
