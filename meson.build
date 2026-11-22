@@ -443,6 +443,9 @@ y265 = executable('y265' + depth_suffix, 'cli/y265.c', 'cli/hdr_dyn.c',
   link_args : is_wasm ? ['-sNODERAWFS=1', '-sALLOW_MEMORY_GROWTH=1',
                          '-sMAXIMUM_MEMORY=4gb', '-sSTACK_SIZE=4mb'] : [],
   install : true)
+# --report runs this; y265 looks for it beside itself first
+install_data('scripts/encode_report.py', install_dir : get_option('bindir'),
+  install_mode : 'rwxr-xr-x')
 
 # n265 was the command line's name before it was y265. The build tree
 # keeps it as a link so the gates, the board and the harnesses still run.

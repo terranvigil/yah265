@@ -1,0 +1,10 @@
+y265 [info]: encoder                : yah265 0.0.1, 8-bit
+y265 [info]: input                  : 352x288 4:2:0 8-bit, 30/1 fps
+y265 [info]: profile / level / tier : Main / 2 / main
+y265 [info]: preset                 : medium
+y265 [info]: rate control           : crf 28.00
+y265 [info]: vbv                    : maxrate 500 kbit/s, bufsize 1000 kbit, init 0.90, hrd signalled
+y265 [info]: threads                : 2
+y265 [info]: preset knobs           : 2 rows from `medium`
+y265 [info]:   N265_SCREEN          : 1
+y265 [info]:   N265_PSY_DARK        : 0

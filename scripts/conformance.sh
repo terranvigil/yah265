@@ -1457,5 +1457,44 @@ if [ "$FAST" -eq 0 ]; then
     run_vector intra_qp51  176x144  3  testsrc2  "--qp 51"
 fi
 
+# farm mode (scripts/farm.py): two local workers must write --gop-parallel's
+# stream byte for byte, and both decoders must give --gop-parallel's recon
+run_farm() {
+    name=$1; size=$2; frames=$3; eargs=$4
+    y4m="$TMP/$name.y4m"
+    "$FFMPEG" -loglevel error -f lavfi -i "testsrc2=size=$size:rate=25" \
+        -vf "noise=alls=12:allf=t+u" -frames:v "$frames" $SRCFMT "$y4m" -y \
+        2>/dev/null
+    # shellcheck disable=SC2086
+    N265_GOP_LEN=16 "$ENC" "$y4m" -o "$TMP/$name.hevc" $eargs \
+        --gop-parallel 2 --threads 4 --dump-recon "$TMP/$name.src.yuv" \
+        2>/dev/null || {
+        echo "SUMMARY $name FAIL (gop-parallel encode)"; fail=$((fail+1)); return; }
+    # shellcheck disable=SC2086
+    N265_GOP_LEN=16 python3 scripts/farm.py -o "$TMP/$name.farm.hevc" \
+        --y265 "$ENC" --seg-threads 2 --worker local --worker local \
+        -- "$y4m" $eargs 2>"$TMP/$name.farmerr" || {
+        echo "SUMMARY $name FAIL (farm)"; sed -n 1,5p "$TMP/$name.farmerr" >&2
+        fail=$((fail+1)); return; }
+    cmp -s "$TMP/$name.hevc" "$TMP/$name.farm.hevc" || {
+        echo "SUMMARY $name FAIL (farm differs from --gop-parallel)"
+        fail=$((fail+1)); return; }
+    "$FFMPEG" -loglevel error -i "$TMP/$name.farm.hevc" -f rawvideo \
+        "$TMP/$name.ff.yuv" -y 2>/dev/null
+    cmp -s "$TMP/$name.src.yuv" "$TMP/$name.ff.yuv" || {
+        echo "SUMMARY $name FAIL (ffmpeg recon mismatch)"
+        fail=$((fail+1)); return; }
+    "$DEC265" -q -o "$TMP/$name.de.yuv" "$TMP/$name.farm.hevc" \
+        >/dev/null 2>&1
+    cmp -s "$TMP/$name.src.yuv" "$TMP/$name.de.yuv" || {
+        echo "SUMMARY $name FAIL (dec265 recon mismatch)"
+        fail=$((fail+1)); return; }
+    echo "SUMMARY $name PASS"
+    pass=$((pass+1))
+}
+if [ "$DEPTH" = 8 ] && [ "$CSP" = 420 ]; then
+    run_farm farm_crf 352x288 48 "--crf 28 --bframes 7 --keyint 64"
+fi
+
 echo "conformance: $pass pass, $fail fail"
 [ "$fail" -eq 0 ]

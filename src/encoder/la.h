@@ -265,6 +265,9 @@ void n265_la_push(struct n265_encoder *e, const pixel *const plane[3],
 
 /* scenecut test for queued frame index i (display order) */
 int n265_la_scenecut(struct n265_encoder *e, int i);
+/* ...and which trigger fired, for --frame-stats: the same decision */
+enum { N265_SC_NONE, N265_SC_RATIO, N265_SC_FAILW, N265_SC_FORCED };
+int n265_la_scenecut_why(struct n265_encoder *e, int i);
 
 /* is display index d a listed start under --shot-list (encoder.c) */
 int n265_shotl_has(const struct n265_encoder *e, int d);

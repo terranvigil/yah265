@@ -321,6 +321,19 @@ The joined stream differs from the serial one and has no HRD timing.
 
 <p class="optchips"><span>Doesn't combine with</span> <a href="options.md#opt-pass"><code>--pass</code></a> <a href="options.md#opt-qpfile"><code>--qpfile</code></a> <a href="options.md#opt-zones"><code>--zones</code></a> <a href="options.md#opt-csv"><code>--csv</code></a> <a href="options.md#opt-shot-stats"><code>--shot-stats</code></a></p>
 
+### Several machines
+
+Farm mode codes the segments of a `--gop-parallel` encode on several machines and joins them. The file is the one `--gop-parallel` writes on one machine, byte for byte.
+
+```sh
+scripts/farm.py -o out.hevc --worker ssh:box1:2 --worker ssh:box2:2 \
+    --seg-threads 4 -- /share/in.y4m --crf 23
+```
+
+Each `--worker` names a machine and how many segments it codes at once. Every machine needs the same y265 build. The input has to be at the same path on each, such as a network share. Farm mode works with CRF, constant QP and capped CRF, but not with `--bitrate` or `--target-vmaf`.
+
+If a machine fails or stalls, another one takes its segment. If the run stops, the same command picks up where it left off.
+
 ## Hardware encoding on a Mac
 
 On a Mac you can hand the encode to Apple's hardware. The encoder lists any options the hardware can't follow before it starts. The hardware uses a fraction of the CPU and usually less time. At the same bitrate it scores lower, by about four VMAF v1 points at the median. With `--hw auto`, the encoder uses its own path when the hardware isn't there.
@@ -418,6 +431,18 @@ Live control uses one encoder, so `--gop-parallel` codes serially with it.
 In ffmpeg, an I frame you force with `-force_key_frames` becomes a key frame. A change to `bit_rate`, `rc_max_rate` or `rc_buffer_size` between two frames becomes a rate change on the next one.
 
 <p class="optchips"><span><a href="options.md#live-control">Options</a></span> <a href="options.md#opt-control"><code>--control</code></a> <a href="options.md#opt-control-fd"><code>--control-fd</code></a> <a href="options.md#opt-control-out"><code>--control-out</code></a> <a href="options.md#opt-frame-stats"><code>--frame-stats</code></a> <a href="options.md#opt-no-hrd"><code>--no-hrd</code></a></p>
+
+## Encode reports
+
+`--report` writes one HTML page about an encode:
+
+```sh
+y265 clip.y4m -o clip.hevc --crf 26 --report clip.html
+```
+
+The page has the bitrate and QP over time, the buffer fill when a VBV is set, and a timeline of what the encoder detected: scene cuts, screen content, handheld jitter, dark and flat frames. Each shot gets a card with a thumbnail. Everything is inside the one file, so it opens offline and can be mailed to anyone. Thumbnails need ffmpeg. Without it the page shows gray boxes.
+
+The report doesn't change the stream. `--frame-stats` writes the same per-frame data as JSON lines if you'd rather chart it yourself.
 
 ## Identification marks
 

@@ -658,6 +658,9 @@ typedef struct n265_frame_work {
      * back on the driver, same discipline as fpc above. Output-neutral. */
     int mereuse_trace;
     uint64_t mvr[N265_MVR_COUNT];
+    /* per-row census tallies, summed on the driver at retirement */
+    uint64_t (*fpc_rows)[N265_FPC_COUNT];
+    uint64_t (*mvr_rows)[N265_MVR_COUNT];
     /* N265_MEREUSE arm: the bitmask, and this frame's frozen lowres MVs.
      * The copy is taken on the driver at dispatch (la_mv is a live
      * sliding-window pointer; see its comment), so the arm reads stable
@@ -784,6 +787,10 @@ typedef struct n265_frame_work {
     /* lookahead hand-off, frozen before the frame launches */
     float sc_ratio;         /* lookahead pcost/icost (P3) */
     int jit;                /* lookahead camera-jitter flag (N265_JIT) */
+    int scr;                /* lookahead screen-content type (N265_SCREEN) */
+    /* --frame-stats only, read after the plan decided: which scene-cut
+     * trigger fired (N265_SC_*) and why an intra picture is here */
+    int fs_sc, fs_key;
     int mcstf_filt;         /* --mcstf filtered this picture (item 31) */
     float la_mvabs;         /* lookahead mean |MV| per lowres block (N265_CT_TRACE) */
     const uint16_t *la_icost, *la_pcost;
@@ -902,9 +909,9 @@ typedef struct n265_frame_work {
 
     /* Row progress, shared by every lane working on this frame (a
      * pointer, so the per-row shallow copy shares it rather than
-     * copying it). Watermarks only: a task asks whether it MAY run,
-     * never how far another one has got, so nothing here can reach a
-     * coding decision. */
+     * copying it). Watermarks only, besides qprev: a task asks whether
+     * it MAY run, never how far another one has got, so nothing here can
+     * reach a coding decision. */
     struct n265_prog {
         atomic_int enc_rows;    /* CTB rows fully analyzed */
         atomic_int dbk_rows;    /* ...deblocked  */
@@ -912,9 +919,11 @@ typedef struct n265_frame_work {
                                  * PUBLISHED (the row's TMVP field, P2
                                  * depths and E1 cache are written before
                                  * this advances; G4) */
+        /* qPY_PREV carried by the QP-map fill; here so a row's copy of
+         * the frame doesn't race the deblock task writing it */
+        int qprev;
         atomic_int enc_prog[];  /* CTBs committed per row */
     } *prog;
-    int qprev;                  /* qPY_PREV carried by the QP-map fill */
 
     /* one record stream per CTB row: rows commit independently and the
      * entropy pass replays them in row order */

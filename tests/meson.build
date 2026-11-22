@@ -167,6 +167,19 @@ if python3.found()
   test('shot_hull', python3,
     args : [meson.project_source_root() / 'scripts' / 'shot_hull.py',
             '--selftest'])
+  # the --report page, from a canned --frame-stats file; no encodes
+  test('encode_report', python3,
+    args : [meson.current_source_dir() / 'unit' / 'encode_report_test.py'])
+  # farm mode against --gop-parallel on a synthetic clip, with a worker
+  # killed mid-segment, one hung past the timeout and a resume
+  test('farm', python3,
+    args : [meson.project_source_root() / 'scripts' / 'farm_check.py',
+            '--y265', y265.full_path(), '--faults', '--hang-timeout', '15', '--kill-delay', '0.03'],
+    depends : y265, timeout : 300)
+  test('farm_grid', python3,
+    args : [meson.project_source_root() / 'scripts' / 'farm_check.py',
+            '--y265', y265.full_path(), '--no-scenecut'],
+    depends : y265, timeout : 120)
 endif
 
 # The command line's HDR10+ JSON and Dolby Vision RPU readers. The ST
