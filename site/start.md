@@ -153,7 +153,7 @@ Always pass a rate option. Without one, the encoder runs a fixed-quantizer test 
 ffmpeg -i in.mp4 -c:v libyah265 -preset medium -crf 25 -maxrate 4500k -bufsize 6000k out.mp4
 ```
 
-The encoding guide covers [the rate modes](guide.md#pick-a-rate-mode) and the [ffmpeg options the encoder takes](guide.md#from-ffmpeg).
+The [encoding guide](guide.md#pick-a-rate-mode) covers the rate modes and the ffmpeg options the encoder takes.
 
 ## Pick a quality
 

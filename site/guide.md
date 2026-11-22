@@ -117,7 +117,7 @@ Bitrates are in kbit/s, buffer sizes in kbit. When you give a buffer, the stream
 y265 in.y4m -o out.hevc --crf 23
 ```
 
-The CRF scale is yah265's own. A number that suited x265 gives a different size here. Because the scale accounts for the frame rate, one number suits a 24 fps film as well as a 60 fps game capture. Results compares the two encoders [at the same file size](results.md#quality-at-the-same-size).
+The CRF scale is yah265's own. A number that suited x265 gives a different size here. Because the scale accounts for the frame rate, one number suits a 24 fps film as well as a 60 fps game capture. [Results](results.md#quality-at-the-same-size) compares the two encoders at the same file size.
 
 ### Capped CRF
 
@@ -166,7 +166,7 @@ The first pass measures each frame. The second plans the whole file before it co
 | `slow` | 64x64 | 20 frames | more analysis per block |
 | `slower` | 64x64 | 25 frames | more analysis and a second reference |
 
-`medium` changes with the picture size. A small picture gets a smaller coding tree and a shorter lookahead. 4K gets a second reference. Design has [the whole table](design.md#what-medium-does-at-each-size).
+`medium` changes with the picture size. A small picture gets a smaller coding tree and a shorter lookahead. 4K gets a second reference. [Design](design.md#what-medium-does-at-each-size) has the whole table.
 
 yah265 offers four presets. I kept the list short because its `medium` already runs faster than x265's `medium` and scores higher at the same file size. x265's other preset names give an error that names the nearest preset. I'd use `medium` unless you've measured otherwise on your content.
 
