@@ -14,7 +14,7 @@
   <a href="#license">License</a>
 </p>
 
-<!--gen:headline-->On an Apple M5 Max, yah265 encodes a median 1.8x faster than x265 at the same file size. Its VMAF v1 score is a median 1.23 points higher. Those medians cover the 30 CRF encodes of the test set where the two files match in size within 1%, from short clips to ten-minute films at CIF to 4K. Both encoders ran at preset medium with SIMD on all cores.<!--/gen:headline-->
+<!--gen:headline-->On an Apple M5 Max, yah265 encodes a median 1.8x faster than x265 at the same file size. Its VMAF v1 score is a median 1.23 points higher. That's the median of 30 encodes, from short clips to ten-minute films, at CIF to 4K. Both encoders ran at preset medium with SIMD on all cores.<!--/gen:headline-->
 
 yah265 is a new HEVC encoder, written in C. It runs inside ffmpeg under the options you already use. Its sibling [yah264](https://terranvigil.github.io/yah264/) met the same goals against x264.
 
@@ -40,7 +40,7 @@ Always pass a rate option. With none, the encoder runs a fixed-quantizer test mo
 
 "Faster" compares wall time for files of the same size. Both encoders run `--preset medium`. The reference is x265 4.3. The test set runs from short standard clips to ten-minute excerpts of open films, at CIF, 720p, 1080p and 4K.
 
-The headline covers the cells below. Each cell is one clip at one picture size, coded at CRF on an 18-core Apple M5 Max. A cell counts when yah265's file is within 1% of x265's size. Quality is VMAF v1.
+The table splits the headline by picture size. It counts the clips where the two files match in size within 1%.
 
 <!--gen:pooled-table-->
 | size-matched cells on the Mac | count | median | slowest cell |
@@ -59,7 +59,7 @@ The headline covers the cells below. Each cell is one clip at one picture size, 
 | bits saved at equal VMAF v1, rate ladders at CRF and capped VBR | 38 | 10.2% |
 <!--/gen:quality-table-->
 
-Each of the project's three speed goals passes on three machines. G3 is the one a user sees: both encoders as shipped. G1 and G2 compare the algorithms with SIMD off on both sides. The table gives the range of medians over each picture size and clip length.
+yah265 is faster on three machines. G3 is the row a user sees: both encoders as shipped. G1 and G2 compare the algorithms with SIMD off.
 
 <!--gen:goal-table-->
 | goal | Apple M5 Max (NEON) | Xeon 8488C (AVX-512) | Graviton4 (SVE2) |
@@ -84,7 +84,7 @@ It reads Y4M or raw YUV from a file or a pipe. The output is a raw HEVC stream t
 
 ## Hardware option?
 
-On Macs, `--hw videotoolbox` uses Apple's hardware HEVC encoder instead of yah265's own SIMD build. The table gives the median over ten clips from 720p to 2160p at the same bitrate. The [hardware mode note](docs/hardware-mode.md) has the ten clips.
+On Macs, `--hw videotoolbox` uses Apple's hardware HEVC encoder instead of yah265's own. The table gives the median over ten clips from 720p to 2160p at the same bitrate. The [hardware mode note](docs/hardware-mode.md) has the ten clips.
 
 | mode | wall time | CPU used | VMAF v1 |
 |---|--:|--:|--:|
@@ -92,11 +92,11 @@ On Macs, `--hw videotoolbox` uses Apple's hardware HEVC encoder instead of yah26
 
 ## Shot-aware support
 
-Most video is a sequence of shots that each want different settings. yah265 gives a per-shot pipeline what it needs in a single pass, without changing the default encode.
+Most video is a sequence of shots that each want different settings. yah265 gives a per-shot pipeline what it needs in a single pass.
 
-A shot window lets a CRF encode buffer up to a whole shot and balance its quality against the shots before it. It's off by default because it adds its length in frames of latency.
+A shot window lets a CRF encode buffer up to a whole shot and balance its quality against the shots before it. It's off by default because it adds latency.
 
-Shot statistics write one JSON line per shot as the encode runs and leave the stream as it was. Each line has where the shot starts and ends, its bits, its frame types and its complexity. The hull script takes several encodes of one source with their statistics and scores each shot against the source. It prints each shot's convex hull for a ladder builder to pick a rung from.
+Shot statistics write one JSON line per shot as the encode runs and leave the stream as it was. Each line has where the shot starts and ends, its bits, its frame types and its complexity. The hull script scores each shot of several encodes against the source. It prints each shot's convex hull, which a ladder builder picks rungs from.
 
 ```sh
 y265 in.y4m -o crf22.hevc --crf 22 --shot-stats crf22.jsonl
@@ -137,7 +137,7 @@ The site is at [terranvigil.github.io/yah265](https://terranvigil.github.io/yah2
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) first. The encoder is written from the ITU-T H.265 specification.
 
-A change has to pass the gate before it merges. `make test` runs the tests. `make conformance-fast` decodes every test stream with ffmpeg and with libde265 so that both decodes can be compared with the encoder's own reconstruction. Two runs at `--threads 1` must write the same bytes. A SIMD kernel must match its C reference bit for bit. I don't merge a change that costs speed or quality on the test set.
+A change has to pass the gate before it merges. `make test` runs the tests. `make conformance-fast` decodes the test streams with ffmpeg and libde265. Both must match the encoder's own output. Two runs at `--threads 1` must write the same bytes. A SIMD kernel must match its C reference bit for bit. I don't merge a change that costs speed or quality on the test set.
 
 ## License
 

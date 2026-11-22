@@ -1087,9 +1087,8 @@ def headline(pl):
     all take their figures from the same dict."""
     return (f"On an Apple M5 Max, yah265 encodes a median {headline_times(pl)} faster than "
             f"x265 at the same file size. Its VMAF v1 score is a median {pl['dv']:.2f} points "
-            f"higher. Those medians cover the {pl['n']} CRF encodes of the test set where the "
-            "two files match in size within 1%, from short clips to ten-minute films at CIF "
-            "to 4K. Both encoders ran at preset medium with SIMD on all cores.")
+            f"higher. That's the median of {pl['n']} encodes, from short clips to ten-minute "
+            "films, at CIF to 4K. Both encoders ran at preset medium with SIMD on all cores.")
 
 
 def headline_table(pl):
@@ -1222,7 +1221,7 @@ def frames_figure(picks, caption):
 
 # Three sentences of FRAMES_ALL say what the crops look like. Look at the
 # crops again and rewrite them whenever scripts/frame_crops.sh picks new ones.
-FRAMES_ONE = ("A complex frame of Tears of Steel clip at 1080p, where both "
+FRAMES_ONE = ("A hard frame from Tears of Steel at 1080p, where both "
               "encoders score lowest. The crop shows where the two differ most. yah265 keeps "
               "more of the texture. Both files are the same size within 0.5%. "
               '<a href="results.html#side-by-side-at-the-same-size">Results</a> has more.')
