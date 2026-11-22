@@ -358,7 +358,7 @@ Three options feed and record the log:
 
 `--frame-stats` lists each change on the frame where it took effect.
 
-A rate change needs a rate mode that has one. The bitrate needs `--bitrate`, and `maxrate` and `bufsize` need a buffer. A buffer can't be added or removed mid-stream. A stream with a buffer has HRD timing by default. With it, the rate and buffer may only drop to or below their starting values. `--no-hrd` lifts that. Open at your top rate, or name a `--level`, if you plan to raise the rate.
+A rate change needs a rate mode that has one: `--bitrate` for the bitrate, a buffer for `maxrate` and `bufsize`. You can't add or remove a buffer mid-stream. Because a stream with a buffer has HRD timing by default, its rate and buffer can only go down from where they started. To raise them later, use `--no-hrd`, or start at your top rate or name a `--level`.
 
 Live control uses one encoder, so `--gop-parallel` codes serially with it.
 
