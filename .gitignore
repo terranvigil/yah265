@@ -60,3 +60,5 @@ subprojects/packagecache/
 # the playground module, copied in by `make wasm`
 /playground/yah265.js
 /playground/yah265.wasm
+/playground/vmaf.js
+/playground/vmaf.wasm

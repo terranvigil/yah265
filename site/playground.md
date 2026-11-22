@@ -5,19 +5,22 @@ description: A page that runs yah265 in your browser. Drop a short clip, pick a 
 
 # Try it in your browser
 
-The [playground](playground/) runs yah265 inside your browser, so you can try it without installing anything. Drop a short clip on the page, pick a preset and a CRF, and press Encode. Your clip never leaves your machine.
+The [playground](playground/) runs yah265 inside your browser, so you can try it without installing anything. Drop a short clip on the page, or use the sample clip. Pick a preset and a CRF, and press Encode. Your clip never leaves your machine.
 
 <p class="callout"><a href="playground/">Open the playground</a></p>
 
 ## What you get
 
-When the encode ends, the page shows your source and yah265's output on one picture, split down the middle. Drag the divider to move it. You can play the clip or step through it frame by frame.
+When the encode ends, the page shows your source and yah265's output on one picture, split down the middle. Drag the divider to move it. You can play the clip or step through it frame by frame. Space plays and pauses, and the arrow keys step one frame.
 
 Below the picture it lists:
 
-- the file size and the bitrate
+- VMAF v1 against the source
 - PSNR-Y against the source
-- the encode time and the speed in frames per second
+- the file size and the bitrate
+- the encode speed and time
+
+VMAF v1 runs in the page too, after the encode. It's scored the way the [results](results.md) are: the v1 model, at 10 bits, with the picture scaled up to fit 1920x1080. On a 60-frame 480p test, the page's score and the native `vmaf` tool's were within 0.01 of each other.
 
 Two buttons save the encode. The `.mp4` plays in most video players and in Safari. The `.hevc` is the raw stream, which ffmpeg, VLC and mpv play.
 

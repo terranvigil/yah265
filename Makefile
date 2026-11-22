@@ -312,6 +312,7 @@ wasm:
 		--cross-file playground/wasm/emscripten.cross -Dbuildtype=release
 	PATH="$(WASM_PATH)" ninja -C $(BUILDWASM)
 	cp $(BUILDWASM)/playground/wasm/yah265.js $(BUILDWASM)/playground/wasm/yah265.wasm playground/
+	PATH="$(WASM_PATH)" playground/vmaf/build.sh $(BUILDWASM)/vmaf
 
 # workers don't load from file://, so the page needs a server
 playground-serve: wasm

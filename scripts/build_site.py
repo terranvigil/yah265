@@ -332,9 +332,10 @@ def build(strict=False):
     # comes from `make wasm`, which the Pages workflow runs first
     pg = ROOT / "playground"
     shutil.copytree(pg, tmp / "playground",
-                    ignore=shutil.ignore_patterns("wasm"))
-    if not (pg / "yah265.wasm").exists():
-        print("warning: playground/yah265.wasm is missing; run `make wasm`")
+                    ignore=shutil.ignore_patterns("wasm", "vmaf"))
+    for mod in ("yah265.wasm", "vmaf.wasm"):
+        if not (pg / mod).exists():
+            print(f"warning: playground/{mod} is missing; run `make wasm`")
 
     labels = {h: l for _, h, l in NAV}
     commit = commit_hash()
