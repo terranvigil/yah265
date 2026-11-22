@@ -9,11 +9,11 @@ These are the questions I'd ask if someone else published this site.
 
 ## Is this x265 with the names changed?
 
-No. I wrote yah265 from the ITU-T H.265 specification and from published papers. No code from a third-party encoder goes in. Code from my own yah264 is reused. x265 is the yardstick here: I run its binary, read its documentation and measure its output.
+No. I wrote yah265 from the ITU-T H.265 specification and from published papers. No third-party encoder code is used. I did reuse code from my own [yah264](https://terranvigil.github.io/yah264/) project. x265 was used for comparison only.
 
 ## Which x265, and how was it run?
 
-x265 4.3 at `--preset medium`, as Homebrew ships it on the Mac. The cloud machines built it from the release tarball. [How x265 was run](x265-run.md) has the exact build, the command for each goal, the thread settings and the instruction sets on each machine.
+x265 4.3 at `--preset medium`. [How x265 was run](x265-run.md) has the exact build and the command for each goal.
 
 ## Is the headline cherry-picked?
 
