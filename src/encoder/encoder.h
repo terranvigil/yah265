@@ -1037,6 +1037,10 @@ typedef struct n265_frame_work {
      * is an inter trial priced on its coefficients. After the hot fields
      * for the same reason. */
     int td_want;
+    /* live control: the QP limits and live zone this frame was pushed
+     * under (ctl.c) */
+    int ctl_qpmin, ctl_qpmax, ctl_zone;
+    double ctl_zoff;
 } n265_frame_work;
 
 int n265_chroma_qp(int qp_y, int chroma_idc);   /* encoder/transform.h */
@@ -1905,6 +1909,12 @@ struct n265_encoder {
      * offset. */
     int sprof;
     double prof_dispatch, prof_join, prof_retire, prof_emit;
+    /* live control (ctl.c) and --frame-stats */
+    struct n265_ctl *ctl;
+    FILE *fstats;
+    /* the CPB inflow after each coding index's removal, which a RATE
+     * event can change between two frames the lag walk crosses */
+    double vbv_infl[2 * N265_MAX_FRAME_WORK];
 };
 
 /* The cu-tree field's raw per-CTU value carries cutree_str already, so the
@@ -2363,6 +2373,11 @@ void n265_encoder_set_shot_stats(n265_encoder *e, const char *path);
 /* --csv <file> --csv-log-level <0|1|2> (phase 14 item 4). Called right
  * after open, like the shot sidecar above. */
 void n265_encoder_set_csv(n265_encoder *e, const char *path, int level);
+/* --frame-stats <file>: one JSON line per coded frame, with the live
+ * control echo */
+void n265_encoder_set_frame_stats(n265_encoder *e, const char *path);
+/* --no-hrd: 0 leaves the HRD timing out of the stream, -1 not given */
+void n265_set_hrd(int on);
 
 /* --qpmin / --qpmax, then the spec's own clip. The user's bounds are
  * APPLIED only where one of them narrowed QpY's range, so at the default

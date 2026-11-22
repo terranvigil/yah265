@@ -1,4 +1,4 @@
-# y265 0.0.1, release build bb550783
+# y265 0.0.1, release build f7ea1826
 usage: y265 [options] <input.y4m|input.yuv|->
 
 The input picks the profile: 8-bit 4:2:0 is coded Main, 10-bit 4:2:0
@@ -38,8 +38,9 @@ Presets and threads
   --gop-parallel <n>    code the input as segments on n encoders at once,
                         joined at IDRs (default 0, off). Needs more than one
                         thread; not with --pass, --qpfile, --zones, --csv,
-                        --shot-stats or --hrd-concat. The joined stream
-                        carries no HRD timing SEI.
+                        --frame-stats, --shot-stats, --hrd-concat or live
+                        control. The joined stream carries no HRD timing
+                        SEI.
 
 Hardware
   --hw <mode>           off (default), auto or videotoolbox: encode with the
@@ -157,6 +158,9 @@ Headers and SEI (all off by default unless noted)
                         doubling, 8 frame tripling). Needs a VBV.
   --hrd-concat          mark the first buffering period SEI as a splice
                         point. Needs a VBV.
+  --no-hrd              leave the HRD timing out of the stream (written by
+                        default with a VBV and a frame rate). A live encode
+                        that raises its rate needs it.
   --temporal-layers     put non-reference B frames in temporal sub-layer 1,
                         so a player can drop them to halve the frame rate
   --hash <0-3>          decoded picture hash SEI: 0 off (default), 1 MD5,
@@ -227,7 +231,17 @@ Reporting
   --csv-log-level <0|1|2>  0 one row per run (default), 1 adds a row per
                         frame, 2 adds rate control columns
   --shot-stats <file>   write per-shot statistics as JSON Lines
+  --frame-stats <file>  write one JSON line per coded frame, with the live
+                        control events that took effect on it
   --verbose, -v         print the resolved configuration, level and tier,
                         then encode
   --show-config         print the resolved configuration and exit
   --version             print the version
+
+Live control
+  --control <file>      apply the events in a control log, one per line:
+                        "<frame> rate|crf|qp|key|zone <name>=<value>..."
+  --control-fd <n>      read the same lines live from descriptor n, before
+                        each frame; "next" names the next frame
+  --control-out <file>  write every event that took effect, as a log that
+                        replays to the same stream through --control

@@ -18,6 +18,7 @@
 #include "encoder/deblock.h"
 #include "encoder/encoder.h"
 #include "encoder/est.h"
+#include "encoder/ctl.h"
 #include "encoder/la.h"
 #include "encoder/mc.h"
 #include "encoder/rc.h"
@@ -301,6 +302,9 @@ void n265_set_info_opts(const char *opts)
  * before the item has to be able to turn it off - that is the
  * re-baselining rule in CLAUDE.md, beside --no-info and --no-weightp. */
 static int g_fingerprint = 1;
+static int g_hrd = -1;
+void n265_set_hrd(int on) { g_hrd = on; }
+
 void n265_set_fingerprint(int on);
 void n265_set_fingerprint(int on)
 {
@@ -2950,7 +2954,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
         { const char *v = n265_env("N265_VBR_OFFB");
           e->vbr_offb = v ? atof(v) : 0.0; }
         { const char *v = n265_env("N265_VBV_HRD");
-          e->vbv_hrd = v ? atoi(v) != 0 : 1; }
+          e->vbv_hrd = g_hrd >= 0 ? g_hrd : v ? atoi(v) != 0 : 1; }
         e->vui_timing = g_vui_timing && p->fps_num > 0 && p->fps_den > 0;
         /* The pass-through signaling, as the setters left it (signal.h).
          * It is copied whole and validated nowhere: every field is already
@@ -3563,6 +3567,11 @@ n265_encoder *n265_encoder_open(const n265_param *p)
     n265_rc_open(e);        /* after la_init: it needs the lowres geometry */
     if (twopass_open(e, p) < 0)
         goto fail;
+    for (int i = 0; i < 2 * N265_MAX_FRAME_WORK; i++)
+        e->vbv_infl[i] = e->vbv.inflow;
+    e->ctl = n265_ctl_new(e);
+    if (!e->ctl)
+        goto fail;
     return e;
 
 fail:
@@ -3847,6 +3856,9 @@ void n265_encoder_close(n265_encoder *e)
                          &e->met);
         n265_csv_close(&e->csv);
     }
+    if (e->fstats)
+        fclose(e->fstats);
+    n265_ctl_free(e->ctl);
     /* --pass: the sidecar is finished (pass 3 renames its temporary onto
      * the file it read), and a pass-2 encode that outran its plan says so
      * once, here, rather than per frame. */
@@ -4764,6 +4776,8 @@ static void emit_done(n265_encoder *e, int max, size_t *out_used, int *nnal)
             e->out_cap = cap;
         }
         memcpy(e->out + *out_used, d->buf, d->len);
+        if (d->disp >= 0)
+            n265_ctl_emit(e, d->disp);
         e->au[e->n_au].display_idx = d->disp;
         e->au[e->n_au].first_nal = *nnal;
         e->au[e->n_au].nnal = d->nnal;
@@ -4874,8 +4888,41 @@ static void dump_recon_frame(n265_encoder *e, n265_frame_work *fw)
  *
  * `bytes` is the whole ACCESS UNIT - parameter sets, SEIs and the slice -
  * because that is what the stream costs and what x265's CSV counts. */
+/* --frame-stats: one JSON line per frame, in coding order */
+static void fstats_frame(n265_encoder *e, const n265_frame_work *fw,
+                         size_t bytes)
+{
+    char ctl[4096];
+    int nctl = n265_ctl_echo_take(e, fw->display_idx, ctl, sizeof ctl);
+    fprintf(e->fstats, "{\"frame\": %d, \"type\": \"%c\", \"idr\": %d, "
+            "\"ref\": %d, \"qp\": %d, \"bytes\": %zu, \"poc\": %d, "
+            "\"cidx\": %d",
+            fw->display_idx, fw->slice_type == 2 ? 'I'
+                             : fw->slice_type == 1 ? 'P' : 'B',
+            fw->idr, !fw->nonref, fw->qp, bytes, fw->poc, fw->code_idx);
+    if (e->vbv.on)
+        fprintf(e->fstats, ", \"vbv_fill\": %.0f", e->vbv.fill);
+    if (nctl)
+        fprintf(e->fstats, ", \"control\": [%s]", ctl);
+    fputs("}\n", e->fstats);
+}
+
+void n265_encoder_set_frame_stats(n265_encoder *e, const char *path)
+{
+    if (!e || e->hw)
+        return;
+    if (e->fstats)
+        fclose(e->fstats);
+    e->fstats = fopen(path, "w");
+    if (!e->fstats)
+        fprintf(stderr, "y265: cannot write --frame-stats %s\n", path);
+    e->ctl->echo_on = e->fstats != NULL;
+}
+
 static void metrics_frame(n265_encoder *e, n265_frame_work *fw, size_t bytes)
 {
+    if (e->fstats)
+        fstats_frame(e, fw, bytes);
     if (!e->met.psnr && !e->met.ssim && !e->csv.f)
         return;
     e->met_bytes += (double)bytes;
@@ -6033,6 +6080,9 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
     }
     int slice_type = fw->slice_type, b_depth = fw->b_depth;
     int nonref = fw->nonref, poc = fw->poc;
+    e->qpmin = fw->ctl_qpmin;
+    e->qpmax = fw->ctl_qpmax;
+    e->qp_bounds = e->qpmin > N265_QP_MIN || e->qpmax < N265_QP_MAX;
     /* P2: no CTU of this picture has a decided depth range yet */
     memset(fw->ctu_dmin, 0xff, (size_t)fw->ctb_cols * fw->ctb_rows);
     memset(fw->ctu_dmax, 0xff, (size_t)fw->ctb_cols * fw->ctb_rows);
@@ -6430,6 +6480,8 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
         else if (z && z->b != 1.0)
             base -= 6.0 * log2(z->b);
     }
+    if (fw->ctl_zone)
+        base += fw->ctl_zoff;
     if (e->qpf_on) {
         const n265_qpent *qe = n265_qpfile_at(&e->qpf, fw->display_idx);
         if (qe && qe->qp >= 0.0)
@@ -7599,7 +7651,7 @@ static double vbv_plan_fill_m(const n265_encoder *e, int k, double m)
                 b = raw;
         }
         f -= b;
-        f += e->vbv.inflow;
+        f += e->vbv_infl[j % (2 * N265_MAX_FRAME_WORK)];
         if (f > e->vbv.bufsize)
             f = e->vbv.bufsize;
     }
@@ -8420,10 +8472,11 @@ static int key_rule(n265_encoder *e, int i, int origin)
         if (qe && qe->type == N265_QPF_IDR)
             return 1;
     }
-    /* --intra-refresh: the sweep replaces the period */
+    /* --intra-refresh: the sweep replaces the period; a requested key
+     * still lands */
     if (e->ir_on)
-        return 0;
-    return e->mode == N265_MODE_PCM || e->keyint == 1 ||
+        return e->la.f[i].ctl_key;
+    return e->mode == N265_MODE_PCM || e->keyint == 1 || e->la.f[i].ctl_key ||
            key_period(e, i, origin) ||
            (e->scenecut && d - origin >= min_keyint(e) &&
             n265_la_scenecut(e, i));
@@ -8473,7 +8526,7 @@ static int la_is_cra(n265_encoder *e, int i)
         !e->ref_valid)
         return 0;
     int d = e->la.f[i].display_idx;
-    if (d <= 0)
+    if (d <= 0 || e->la.f[i].ctl_key)
         return 0;
     if (key_period(e, i, key_origin(e, i)))
         return 1;
@@ -9239,6 +9292,10 @@ static int drive_scheduler(n265_encoder *e)
     fw->b_depth = e->plan_depth[e->plan_pos];
     fw->ref_valid = e->ref_valid;
     fw->shot_off = e->shot_window > 0 ? (double)f->shot_off : 0.0;
+    fw->ctl_qpmin = f->ctl_qpmin;
+    fw->ctl_qpmax = f->ctl_qpmax;
+    fw->ctl_zone = f->ctl_zone;
+    fw->ctl_zoff = f->ctl_zoff;
     fw->sc_ratio = f->sc_ratio;     /* lookahead pcost/icost, P3 reads it */
     fw->jit = f->jit_plan;
     fw->rdoq = fw->jit && e->rdoq && e->jit_rdoq ? 1 : e->rdoq;
@@ -9429,6 +9486,20 @@ static int drive_scheduler(n265_encoder *e)
             fw->st_prop = ps;
         }
     }
+    /* live RATE / CRF events land here, with every earlier frame
+     * retired and counted, so the buffer switches at this removal */
+    if (n265_ctl_rate_due(e, fw->display_idx)) {
+        if (e->abr_on || e->vbv.on) {
+            while (e->n_inflight > 0) {
+                e->join_rc++;
+                join_oldest(e);
+            }
+            if (e->rc_defer)
+                rc_apply_upto(e, fw->code_idx - 1);
+        }
+        n265_ctl_rate_apply(e, fw->display_idx);
+    }
+    e->vbv_infl[fw->code_idx % (2 * N265_MAX_FRAME_WORK)] = e->vbv.inflow;
     if (e->abr_on || e->vbv.on) {
         /* A VBV reads the buffer, and the buffer is only a number once
          * every earlier frame's SIZE is one. So capped CRF takes the same
@@ -9550,6 +9621,7 @@ static void push_one(n265_encoder *e, const pixel *const planes[3],
     }
     {
         double t = e->la_prof ? prof_now() : 0.0;
+        n265_ctl_push(e, &e->la.f[e->la.count], e->in_display_idx);
         n265_la_push(e, planes, stride);
         if (e->la_prof) e->prof_push += prof_now() - t;
     }
@@ -9595,6 +9667,7 @@ int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
 
     int ring = (int)(sizeof(e->done) / sizeof(e->done[0]));
     if (pic) {
+        n265_ctl_hand_in(e);
         const pixel *planes[3] = { pic->plane[0], pic->plane[1],
                                    pic->plane[2] };
         /* --mcstf (phase 14 item 6). With the filter on, the picture the
@@ -9662,6 +9735,8 @@ int n265_encoder_encode(n265_encoder *e, n265_nal **nal, int *nnal,
                 e->nal_lost += !pack_nal(d, N265_NAL_EOB, NULL, 0);
             e->n_done++;
         }
+        if (e->la.count == 0 && e->n_inflight == 0)
+            n265_ctl_flush_end(e);
         {
             double t = e->la_prof ? prof_now() : 0.0;
             emit_done(e, e->defer_out ? INT_MAX : 1, &out_used, &count);

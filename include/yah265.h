@@ -117,6 +117,11 @@ typedef uint16_t n265_pixel;
 #define n265_config_apply     N265_API(n265_config_apply)
 #define n265_config_get       N265_API(n265_config_get)
 #define n265_config_get_str   N265_API(n265_config_get_str)
+#define n265_control_init     N265_API(n265_control_init)
+#define n265_control_strerror N265_API(n265_control_strerror)
+#define n265_encoder_control  N265_API(n265_encoder_control)
+#define n265_encoder_controls_applied N265_API(n265_encoder_controls_applied)
+#define n265_encoder_status   N265_API(n265_encoder_status)
 #endif
 
 /* Chroma sampling of input pictures. The value IS chroma_format_idc
@@ -492,6 +497,112 @@ YAH265_API int n265_config_get(const n265_config *c, const char *key,
  * SEI's options clause after apply), or NULL */
 YAH265_API const char *n265_config_get_str(const n265_config *c,
                                            const char *key);
+
+/* ---- live control (site/guide.md, "Live control") ----
+ *
+ * Between encode calls a caller hands the encoder control events. Each
+ * names the input frame it lands on (pictures handed to
+ * n265_encoder_encode, counted from zero) or N265_CTL_NEXT for the next
+ * one. An event may name a frame only while that frame has not been
+ * handed in; after that it is refused with N265_CTL_ELATE, however deep
+ * the pipeline.
+ *
+ *   RATE, CRF   take effect at the rate-control decision of the first
+ *               frame, in coding order, numbered F or later: every frame
+ *               from F on is coded under them, and so is a reordered B
+ *               frame below F that is coded after that decision.
+ *   QP_LIMITS   every frame numbered F or later, exactly.
+ *   KEYFRAME    frame F is an IDR that starts a closed GOP.
+ *   ZONE        every frame F..last, exactly; qp_offset is added to each
+ *               frame's base QP.
+ *
+ * With no events the stream is byte-identical to an encode that never
+ * called these. A recorded log of events replays to the same bytes at
+ * one thread. All five calls run on the thread that calls encode, never
+ * during an encode call.
+ *
+ * Both structs are versioned by `size`, their first field: fields are
+ * only appended, the library reads none past the caller's size and
+ * treats them as unset, and a size below the first version's or above
+ * the library's is refused. Neither touches n265_param. */
+typedef struct n265_control {
+    int     size;               /* sizeof(n265_control_t); n265_control_init sets it */
+    int     kind;               /* N265_CTL_* */
+    int64_t frame;              /* landing input frame, or N265_CTL_NEXT; resolved on return */
+    int64_t applied_frame;      /* out (controls_applied): where it took effect, -1 if never */
+    int     bitrate_kbps;       /* RATE: 0 = unchanged */
+    int     vbv_maxrate_kbps;   /* RATE: 0 = unchanged */
+    int     vbv_bufsize_kbit;   /* RATE: 0 = unchanged */
+    double  crf;                /* CRF */
+    int     qp_min, qp_max;     /* QP_LIMITS: -1 = unchanged */
+    int64_t last;               /* ZONE: last frame, inclusive */
+    double  qp_offset;          /* ZONE */
+    int     fps_num, fps_den;   /* FPS (not supported) */
+    char    preset[32];         /* PRESET (not supported) */
+    int     width, height;      /* RESOLUTION (not supported) */
+} n265_control_t;
+
+#define N265_CTL_NEXT        (-1)
+
+#define N265_CTL_RATE        1
+#define N265_CTL_CRF         2
+#define N265_CTL_QP_LIMITS   3
+#define N265_CTL_KEYFRAME    4
+#define N265_CTL_ZONE        5
+#define N265_CTL_FPS         6    /* refused: N265_CTL_EUNSUPPORTED */
+#define N265_CTL_PRESET      7    /* refused: N265_CTL_EUNSUPPORTED */
+#define N265_CTL_RESOLUTION  8    /* refused: N265_CTL_EUNSUPPORTED */
+
+#define N265_CTL_OK            0
+#define N265_CTL_EINVAL       (-1) /* bad pointer, size or value */
+#define N265_CTL_EUNSUPPORTED (-2) /* this library does not implement the kind */
+#define N265_CTL_ELATE        (-3) /* the landing frame has already been handed in */
+#define N265_CTL_EMODE        (-4) /* does not fit the encode's rate-control mode */
+#define N265_CTL_EHRD         (-5) /* would break the signalled HRD (see --no-hrd) */
+#define N265_CTL_ELEVEL       (-6) /* exceeds the declared level */
+#define N265_CTL_ECONFLICT    (-7) /* overlaps a zone already set */
+#define N265_CTL_ENOMEM       (-8)
+#define N265_CTL_EFULL        (-9) /* the queue is full; resend once events have landed */
+
+/* Zero the event, set its size and kind, land it on the next frame and
+ * leave every field unset. */
+YAH265_API void n265_control_init(n265_control_t *ev, int kind);
+YAH265_API const char *n265_control_strerror(int err);
+
+/* Validate and queue one event. Returns N265_CTL_OK with ev->frame
+ * resolved, or a negative N265_CTL_* code and nothing queued. */
+YAH265_API int n265_encoder_control(n265_encoder *e, n265_control_t *ev);
+
+/* Drain the events that took effect since the last call, in the order
+ * they were applied, each with applied_frame set. After the flush, an
+ * event whose frame never arrived comes back with applied_frame -1.
+ * Returns the count, or -1 on bad arguments. Each out[] entry must have
+ * its size set (the library writes no byte past it); n265_control_init
+ * does that. */
+YAH265_API int n265_encoder_controls_applied(n265_encoder *e,
+                                             n265_control_t *out, int max);
+
+/* Backpressure and the live rate state. Set size, then call between
+ * encode calls. At one thread everything but oldest_age_ms is a function
+ * of the input and the events. Returns 0, or -1 on bad arguments. */
+typedef struct n265_status {
+    int     size;               /* sizeof(n265_status_t) */
+    int64_t frames_in;          /* pictures handed in */
+    int64_t frames_out;         /* coded frames returned */
+    int     queue_depth;        /* frames_in - frames_out */
+    int64_t next_frame;         /* the earliest frame an event can name */
+    double  queue_ms;           /* queue_depth at the open-time frame rate */
+    double  oldest_age_ms;      /* wall time the oldest frame not yet returned has been inside */
+    double  target_kbps;        /* current bitrate target, 0 if none */
+    double  vbv_maxrate_kbps;   /* current buffer, 0 if none */
+    double  vbv_bufsize_kbit;
+    double  vbv_fill_bits;      /* buffer occupancy after the last decided frame */
+    double  budget_bits;        /* what the next frame may spend: the VBV fill, else the ledger surplus, else 0 */
+    double  rate_balance_bits;  /* bitrate mode: target bits minus bits spent (positive = under) */
+    int64_t controls_pending;   /* queued, not yet applied */
+    int64_t controls_applied;   /* applied since open */
+} n265_status_t;
+YAH265_API int n265_encoder_status(n265_encoder *e, n265_status_t *st);
 
 #ifdef __cplusplus
 }

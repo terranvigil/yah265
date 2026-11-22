@@ -29,6 +29,7 @@ void n265_set_nal_opts(int repeat_headers, int aud, int eos, int eob,
                        int info);
 void n265_set_info_opts(const char *opts);
 void n265_set_fingerprint(int on);
+void n265_set_hrd(int on);
 void n265_set_rc_bounds(double crf_min, double crf_max, int qpmin, int qpmax,
                         int strict_cbr, double ausize_factor);
 void n265_set_sei_opts(int recovery_sei, int pic_struct, int hrd_concat,
@@ -72,7 +73,7 @@ static const struct { const char *name; int val; } opt_tab[] = {
     { "repeat-headers", 0 }, { "no-repeat-headers", 0 },
     { "aud", 0 }, { "no-aud", 0 }, { "eos", 0 }, { "no-eos", 0 },
     { "eob", 0 }, { "no-eob", 0 }, { "info", 0 }, { "no-info", 0 },
-    { "fingerprint", 0 }, { "no-fingerprint", 0 },
+    { "fingerprint", 0 }, { "no-fingerprint", 0 }, { "no-hrd", 0 },
     { "psnr", 0 }, { "ssim", 0 }, { "threads", 1 },
     { "ref", 1 }, { "b-adapt", 1 }, { "keyint", 1 },
     { "open-gop", 0 }, { "no-open-gop", 0 }, { "radl", 1 },
@@ -134,7 +135,7 @@ struct n265_config {
     char *h10p_path, *rpu_path;
     int dv_profile;
     int had_crf;
-    int repeat_hdr, aud, eos, eob, info, fingerprint;
+    int repeat_hdr, aud, eos, eob, info, fingerprint, no_hrd;
     int recovery_sei, pic_struct, hrd_concat, tlayers;
     double crf_lo, crf_hi;
     int qpmin, qpmax, strict_cbr, had_qpmin, had_qpmax;
@@ -243,7 +244,8 @@ static int opt_drop(const char *k)
     static const char * const drop[] = {
         "o", "dump-recon", "dump-recon-decode", "csv", "csv-log-level",
         "shot-stats", "psnr", "ssim", "verbose", "v", "threads",
-        "gop-parallel",
+        "gop-parallel", "frame-stats", "control", "control-fd",
+        "control-out",
         "show-config", "version", "help", "h",
         "info", "no-info",
         "preset", "qp", "crf", "bitrate", "hw", "hw-strict", NULL
@@ -422,6 +424,8 @@ static int parse_one(n265_config *c, const char *k, const char *v)
         c->fingerprint = 1;
     } else if (IS("no-fingerprint")) {
         c->fingerprint = 0;
+    } else if (IS("no-hrd")) {
+        c->no_hrd = 1;
     } else if (IS("psnr")) {
         c->want_psnr = 1;
     } else if (IS("ssim")) {
@@ -1041,6 +1045,7 @@ int n265_config_apply(n265_config *c, n265_param *p)
     }
     n265_set_nal_opts(c->repeat_hdr, c->aud, c->eos, c->eob, c->info);
     n265_set_fingerprint(c->fingerprint);
+    n265_set_hrd(c->no_hrd ? 0 : -1);
     /* unnamed, the bounds are the depth's own QpY range and inert */
     int qpmin = c->had_qpmin ? c->qpmin : -qp_bd_off;
     int qpmax = c->had_qpmax ? c->qpmax : 51;
