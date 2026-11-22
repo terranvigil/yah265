@@ -15,7 +15,7 @@ It takes a sample from your file and encodes it with yah265 and with x265 at `--
 
 ## What you need
 
-`y265 bench --check` lists what it found, with an install line for anything missing.
+`y265 bench --check` lists what it found. For anything missing, it prints the install line.
 
 | tool | why | install |
 |---|---|---|
