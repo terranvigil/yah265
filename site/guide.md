@@ -223,7 +223,7 @@ Without the tune, the latency is the lookahead depth in frames. Two opt-in tools
 
 ### Intra refresh
 
-A key frame is a big picture. On a tight link it arrives late. `--intra-refresh` sends no key frame after the first. Each frame codes one column of blocks as intra, and the column sweeps across the picture every `--keyint` frames.
+A key frame is a big picture. On a tight link it arrives late. `--intra-refresh` sends no key frame after the first. Each frame codes one column of blocks as intra. The column sweeps across the picture every `--keyint` frames.
 
 A receiver can join at the start of any sweep. Its picture is exact once that sweep ends. Each sweep starts with a recovery point message and the parameter sets.
 
