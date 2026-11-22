@@ -9,11 +9,16 @@ The HEVC standard defines a legal stream and leaves the encoding to the encoder.
 
 ## Search order comes first
 
-HEVC moved most of an encoder's cost into search. A coding tree can split from 64x64 down to 8x8. Each node offers merge, motion search, 35 intra modes and a transform tree of its own. The pixel work per decoded sample stayed close to H.264's. The design rests on the order candidates are tried in and how early the losers are dropped. I designed that first.
+HEVC moved most of an encoder's cost into search. A coding tree can split from 64x64 down to 8x8. Each node offers merge, motion search, 35 intra modes and a transform tree of its own. The pixel work per decoded sample stayed close to H.264's. So the first thing I designed was the order candidates are tried in and how early the losers are dropped.
 
 ## The pipeline
 
-A frame passes through four stages. A reader thread takes it off the input. The lookahead works out from a small copy what the frame will cost. One thread, called the driver here, decides the frame's type, its references and its planned quantizer. It then hands the frame to a shared pool of workers. In the pool the frame is coded as rows of coding tree units while rows of other frames run beside it. A last pass per frame turns the rows' recorded decisions into bits.
+A frame passes through four stages:
+
+1. A reader thread takes it off the input.
+2. The lookahead works out from a small copy what the frame will cost.
+3. One thread, called the driver here, decides the frame's type, its references and its planned quantizer.
+4. A shared pool of workers codes the frame as rows of coding tree units while rows of other frames run beside it. A last pass per frame turns the rows' recorded decisions into bits.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 298" role="img" aria-label="The path a frame takes through yah265">
@@ -109,21 +114,21 @@ The hot loops have vector versions for [arm64 and x86-64](architectures.md) that
 
 A stream is only useful when any decoder rebuilds the pictures the encoder believes it wrote. The encoder predicts each block from its own rebuilt pictures. If a decoder's picture differs by one sample, the blocks predicted from that sample inherit the error. The error then spreads from picture to picture until the next key picture.
 
-So the test is exact equality. Every conformance encode goes through two independent decoders, ffmpeg and libde265. Each decoder's output has to match, sample for sample, the rebuilt pictures that the encoder writes out under `--dump-recon`. I use two because a mistake that one decoder tolerates may fail in the other. See [Check it yourself](check-it-yourself.md) to run the same comparison on your own encode.
+So the test is exact equality. Each conformance encode goes through two independent decoders, ffmpeg and libde265. Each decoder's output has to match, sample for sample, the pictures the encoder writes with `--dump-recon`. I use two because a mistake that one decoder tolerates may fail in the other. See [Check it yourself](check-it-yourself.md) to run the same comparison on your own encode.
 
 ## Lookahead
 
-A frame passes through a lookahead queue before it's coded. The queue keeps a half-resolution copy of each frame, estimates costs on small blocks and remembers the motion search between each pair of frames. That one search feeds everything that needs motion before the real encode. It decides frame types, scene cuts and how many B-frames to run. It also drives weighted prediction and the propagation step that lowers the quantizer on blocks that later frames predict from.
+A frame passes through a lookahead queue before it's coded. The queue keeps a half-resolution copy of each frame, estimates costs on small blocks and remembers the motion search between each pair of frames. That one search feeds everything that needs motion before the real encode. It decides frame types, scene cuts and how many B-frames to run. It also drives weighted prediction and the [propagation step](#rate-control) of rate control.
 
 The lookahead calls a scene cut only where the cost jumps. The key frame period restarts at a cut so that a periodic key frame doesn't follow right after one.
 
 The lookahead also recognizes [two kinds of content](results.md#content-types) that need different handling. A scroll in a screen recording defeats a search that expects small motion. So on screen content the encoder measures the scroll first and gives it to the motion search. Handheld footage of fine texture jitters from frame to frame. There the encoder spends more effort on each decision.
 
-I [swept the lookahead's depth](results.md#lookahead-depth) on the test set. The depths `medium` runs are in [the table below](#what-medium-does-at-each-size).
+I [swept the lookahead's depth](results.md#lookahead-depth) on the test set to pick [the depths `medium` runs](#what-medium-does-at-each-size).
 
 ## Mode decision
 
-Each coding tree unit runs a staged decision. Merge and skip candidates go first. A block that's already coded well enough leaves there. A block size that survives gets one motion search for the whole block before a cheap Hadamard cost ranks the candidates. Only the winner pays for a full rate-distortion trial through the entropy coder's bit estimator.
+Each coding tree unit runs a staged decision. Merge and skip candidates go first. A block that's already coded well enough leaves there. A block size that survives gets one motion search for the whole block before a cheap Hadamard cost ranks the candidates. Only the winner pays for a full rate-distortion trial.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 294" role="img" aria-label="The decision ladder for one block">
@@ -181,9 +186,11 @@ Each coding tree unit runs a staged decision. Merge and skip candidates go first
 <figcaption>Each stage sees fewer candidates than the one above it, at a higher cost for each.</figcaption>
 </figure>
 
-Pruning decides the speed. A node stops splitting when its neighbors and its own costs say a split won't pay. It also stops under a block that intra already won on an intra-heavy frame. On wide pictures the intra modes of P and B pictures are ranked coarse to fine. Only 19 of the 35 get priced. `medium` leaves out the rectangular and uneven partitions, along with 4x4 intra in P and B pictures. The slower presets turn those back on.
+Pruning decides the speed. A node stops splitting when its neighbors and its own costs say a split won't pay. On an intra-heavy frame it also stops under a block that intra already won. On wide pictures the intra modes of P and B pictures are ranked coarse to fine so that only 19 of the 35 get priced.
 
-The coding tree's size follows the picture. Smaller pictures use 32x32 trees. From 1080p up, `medium` codes 64x64 trees with two gates on the top node.
+`medium` leaves out the rectangular and uneven partitions, along with 4x4 intra in P and B pictures. The slower presets turn those back on.
+
+`medium` codes 32x32 trees below 1080p and 64x64 trees from there up. The 64x64 trees have two gates on the top node.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 260" role="img" aria-label="The two gates on a 64x64 node">
@@ -253,17 +260,15 @@ The search starts from the vectors the block's neighbors used, since those are t
 
 At 4K each list has a second reference picture. Because a full search of it would double the work, the second reference gets a short search around a few likely vectors.
 
-I didn't restrict the search to suit the threading. A vector may point anywhere the standard allows. The schedule waits for the reference rows the vector needs ([What a row waits for](threading.md#what-a-row-waits-for)).
+I didn't restrict the search to suit the threading. A vector may point anywhere the standard allows. The schedule [waits for the reference rows](threading.md#what-a-row-waits-for) the vector needs.
 
 ## Transforms and quantization
 
-The transforms, intra prediction, the interpolation filters, deblocking and SAO are the specification's. Each has a C reference.
-
-The freedom is in the rounding. Rate-distortion optimized quantization (RDOQ) asks of each coefficient whether rounding it down saves more bits than it costs in distortion. yah265's version runs in one pass. At `medium` it runs once per coded block in the final encode. `slow` and `slower` run it in all decisions.
+The transforms, intra prediction, the interpolation filters, deblocking and SAO are the specification's. The freedom is in the rounding. Rate-distortion optimized quantization (RDOQ) asks of each coefficient whether rounding it down saves more bits than it costs in distortion. yah265's version runs in one pass. `medium` runs it once per coded block in the final encode while `slow` and `slower` run it in all decisions.
 
 ## Entropy coding
 
-One CABAC engine drives both the real coder and a fractional-bit estimator. The estimator prices coefficient decisions during the search. Signaling bits come from static tables.
+One CABAC engine drives both the real coder and a fractional-bit estimator. The estimator prices coefficient decisions during the search.
 
 Each picture is coded as one slice with no wavefront substreams and no tiles. Those tools let decoders and encoders work in parallel at a cost in bitrate. Because yah265 gets its parallelism from the schedule, the stream pays nothing for it.
 
@@ -375,11 +380,11 @@ Chasing a bitrate frame by frame makes quality swing. So capped VBR plans by qua
 
 A buffer adds a hard limit that planning alone can't guarantee. While a picture is being coded, the encoder coarsens it if it's about to overrun the buffer. As a last resort it codes blocks as skips.
 
-See [VBR](results.md#vbr) for the rate-tracking and speed results. With [several frames in flight](threading.md#rate-control-with-frames-in-flight) the rate loop can't see all the earlier frames' sizes in time.
+With [several frames in flight](threading.md#rate-control-with-frames-in-flight) the rate loop can't see all the earlier frames' sizes in time. See [VBR](results.md#vbr) for the rate-tracking and speed results.
 
 ## References
 
-One engine handles the reference picture sets and the decoded picture buffer. Because the encoder builds its reference lists the way a decoder does, the two can't disagree. B-frames are coded as a pyramid. Open GOP is the default. Periodic key frames are CRA pictures.
+One engine handles the reference picture sets and the decoded picture buffer. Because the encoder builds its reference lists the way a decoder does, the two can't disagree. B-frames are coded as a pyramid. Open GOP is the default and periodic key frames are CRA pictures.
 
 ## What medium does at each size
 
@@ -392,21 +397,21 @@ The results on this site were measured at `medium`, the default preset. It chang
 | 1080p | 64x64 | 20 frames | hexagon | 1 | -1 | 4 |
 | 4K | 64x64 | 20 frames | hexagon | 2 | -1 | 4 |
 
-The values are what `--show-config` prints for an 8-bit SDR input at each size. A picture between two sizes takes the row its area falls in. HDR input changes the last two columns, as [HDR](hdr.md) describes.
+The values are what `--show-config` prints for an 8-bit SDR input at each size. A picture between two sizes takes the row its area falls in. HDR input [changes the last two columns](hdr.md).
 
 ## Tuning for VMAF v1
 
 The quality results on this site are scored with VMAF v1. Several of `medium`'s choices come from what that metric measures.
 
 - VMAF v1 reads banding. Without a psy term the rate-distortion decision codes faint grain in dark areas to flat steps. From 720p up the psy strength therefore rises on dark, smooth 16x16 blocks.
-- It scores chroma. It also scores a small picture scaled up to display size, where the chroma loss shows. Chroma gets more bits than luma's quantizer alone would give it. Inter chroma coefficients round less harshly. Both chroma quantizers also run finer than luma's.
-- Adaptive quantization scales its strength per frame from the spread of its own field.
+- It scores chroma. It also scores a small picture scaled up to display size, where the chroma loss shows. So inter chroma coefficients round less harshly and both chroma quantizers run finer than luma's.
+- Adaptive quantization scales its strength frame by frame.
 
-[Quality at the same size](results.md#quality-at-the-same-size) and [Quality across the rate range](results.md#quality-across-the-rate-range) hold the results.
+See [Quality at the same size](results.md#quality-at-the-same-size) and [Quality across the rate range](results.md#quality-across-the-rate-range) for the results.
 
 ## Checks every change passes
 
-- Two decoders decode each conformance encode. Both must match the encoder's own pictures, as [Validating the bitstream](#validating-the-bitstream) describes.
+- Each conformance encode is decoded by two decoders that [must match the encoder's own pictures](#validating-the-bitstream).
 - Two runs at `--threads 1` must give the same bytes. Across thread counts a mismatch is reported as a warning.
 - A tool called checkasm tests each SIMD kernel against its C reference.
 - A change that alters the output gets a setting that turns it off. With it off, the output must match the previous commit byte for byte.

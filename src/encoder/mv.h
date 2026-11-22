@@ -159,6 +159,12 @@ uint32_t n265_mc_sad(struct n265_frame_work *e, int list, int ridx, int x0, int 
 void n265_clamp_mv(struct n265_frame_work *e, int x0, int y0, int w, int h,
                    mv_t *mv);
 
+/* --intra-refresh: 1 where a PU at x0, w wide, with this motion reads only
+ * refreshed samples (always 1 outside a bounded CTU), and where L0/L1 ref
+ * `ref` may be searched at all */
+int n265_ir_mot_ok(const struct n265_frame_work *e, int x0, int w, mot_t mot);
+int n265_ir_ref_ok(const struct n265_frame_work *e, int list, int ref);
+
 /* POC-distance MV scaling (8.5.3.2.8), exposed for the MV-reuse census:
  * scale a vector found against a ref at temporal distance `td` to the ref
  * at distance `tb`. */

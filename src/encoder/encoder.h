@@ -745,6 +745,18 @@ typedef struct n265_frame_work {
      * NULL when there is no usable collocated picture. */
     struct n265_refpic *col;
     int col_poc;
+    /* --intra-refresh, set at dispatch. ir_on: a P picture inside a
+     * sweep. [ir_lo, ir_hi) is its refresh column in luma x, ir_rhi[r]
+     * how far L0 ref r was refreshed (-1: before the sweep). The margins
+     * are the luma and chroma samples deblocking and SAO may dirty on
+     * the refreshed side of a reference's edge. */
+    int ir_on, ir_lo, ir_hi, ir_start, ir_notmvp;
+    int ir_rhi[N265_MAX_REF];
+    int ir_mgl, ir_mgc, ir_nobound, ir_noedge, ir_trace;
+    /* per CTU, row-private: 0 free, 1 bounded inter, 2 forced intra */
+    int ir_mode;
+    int ir_mbad;            /* the last merge pick broke the bound */
+    int ir_cref;            /* the L0 ref the MV clamp bounds against */
     /* 7.3.6.3's table, derived at dispatch (src/encoder/wp.c).
      *
      * `wp_on` is the PPS flag THAT APPLIES TO THIS SLICE TYPE -
@@ -1026,6 +1038,10 @@ typedef struct n265_frame_work {
      * is an inter trial priced on its coefficients. After the hot fields
      * for the same reason. */
     int td_want;
+    /* live control: the QP limits and live zone this frame was pushed
+     * under (ctl.c) */
+    int ctl_qpmin, ctl_qpmax, ctl_zone;
+    double ctl_zoff;
 } n265_frame_work;
 
 int n265_chroma_qp(int qp_y, int chroma_idc);   /* encoder/transform.h */
@@ -1625,6 +1641,11 @@ struct n265_encoder {
      * Diagnostic only; never a shipped path. */
     int cra_bar_poc, cra_bar_radl;
     int open_gop;           /* --open-gop: a keyint picture is a CRA */
+    /* --intra-refresh: a sweep of --keyint P pictures; the diagnostic
+     * switches each break one guard */
+    int ir_on;
+    int ir_nobound, ir_nomargin, ir_tmvp, ir_noedge, ir_trace;
+    bitstream_t ir_rec_bs;
     int radl;               /* --radl: leading pictures coded RADL   */
     /* ...and the second barrier `--radl` puts down inside the first: a
      * picture whose POC is at or above `radl_poc` and below `cra_poc`
@@ -1895,6 +1916,12 @@ struct n265_encoder {
      * offset. */
     int sprof;
     double prof_dispatch, prof_join, prof_retire, prof_emit;
+    /* live control (ctl.c) and --frame-stats */
+    struct n265_ctl *ctl;
+    FILE *fstats;
+    /* the CPB inflow after each coding index's removal, which a RATE
+     * event can change between two frames the lag walk crosses */
+    double vbv_infl[2 * N265_MAX_FRAME_WORK];
 };
 
 /* The cu-tree field's raw per-CTU value carries cutree_str already, so the
@@ -2221,6 +2248,7 @@ void n265_build_lists(struct n265_encoder *e, n265_frame_work *fw, int cur,
  * retirement's answer provably the list builder's. encoder.c is their
  * only caller inside the library. */
 int n265_cra_visible(int cra_poc, int radl_poc, int cur, int p);
+int n265_ir_pos(const n265_encoder *e, int display);
 void n265_ref_used(int cra_poc, int radl_poc, const int *m, int nm, int cur,
                    int is_b, int ref_max, uint8_t *used);
 uint64_t n265_zorder(int x, int y, int pic_w, int ctb_log2);
@@ -2352,6 +2380,11 @@ void n265_encoder_set_shot_stats(n265_encoder *e, const char *path);
 /* --csv <file> --csv-log-level <0|1|2> (phase 14 item 4). Called right
  * after open, like the shot sidecar above. */
 void n265_encoder_set_csv(n265_encoder *e, const char *path, int level);
+/* --frame-stats <file>: one JSON line per coded frame, with the live
+ * control echo */
+void n265_encoder_set_frame_stats(n265_encoder *e, const char *path);
+/* --no-hrd: 0 leaves the HRD timing out of the stream, -1 not given */
+void n265_set_hrd(int on);
 
 /* --qpmin / --qpmax, then the spec's own clip. The user's bounds are
  * APPLIED only where one of them narrowed QpY's range, so at the default
@@ -2371,7 +2404,7 @@ static inline int n265_qp_bound(const struct n265_encoder *e, int q)
  * that identifies the encoder (D.2.6). headers.c. */
 void n265_write_aud(bitstream_t *bs, int pic_type);
 /* recovery_point (D.2.8), the message a random-access player looks for. */
-void n265_write_recovery_sei(bitstream_t *bs);
+void n265_write_recovery_sei(bitstream_t *bs, int poc_cnt);
 void n265_write_info_sei(bitstream_t *bs, const char *ver,
                          const char *opts);
 /* The pooled metrics, for the caller's end-of-run line: psnr Y/U/V, the

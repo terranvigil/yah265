@@ -79,6 +79,8 @@ lib_sources = [
   'src/encoder/preset.c',
   'src/encoder/config.c',
   'src/encoder/encoder.c',
+  'src/encoder/ctl.c',
+  'cli/ctl_log.c',
   'src/encoder/ttrace.c',
   'src/hw/vt_map.c',
   'src/hw/sc.c',
@@ -210,7 +212,7 @@ if cpu_family == 'x86_64'
       x86_sse42_families_10 += f
     endif
   endforeach
-  foreach f : ['satd', 'mc', 'transform']  # the AVX-512 Main10 list
+  foreach f : ['satd', 'mc', 'transform', 'rdoq']  # the AVX-512 Main10 list
     if f in x86_avx512_families_8
       x86_avx512_families_10 += f
     endif

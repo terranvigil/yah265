@@ -22,7 +22,7 @@ yah265 is a new HEVC encoder, written in C. It runs inside ffmpeg under the opti
 
 ```sh
 ffmpeg -i in.mp4 -c:v libx265   -preset medium -crf 25 out.mp4   # what you run today
-ffmpeg -i in.mp4 -c:v libyah265 -preset medium -crf 25 out.mp4   # swap one word
+ffmpeg -i in.mp4 -c:v libyah265 -preset medium -crf 25 out.mp4
 ```
 
 Simple command builds that ffmpeg:
@@ -110,10 +110,6 @@ scripts/shot_hull.py --src in.y4m \
 The [encoding guide](https://terranvigil.github.io/yah265/guide.html#planning-by-shot) has the details.
 
 ## Up next
-
-Coming in the next few days:
-
-- Live control: change the bitrate, CRF or key frames while an encode runs, from a file or a pipe.
 
 The shot tools above grow into a full per-shot ladder:
 

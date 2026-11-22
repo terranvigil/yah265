@@ -459,7 +459,7 @@ def check_map():
         cols = line.split("|")
         if len(cols) > 2 and cols[1].strip().startswith("`"):
             for f in flags(cols[1]):
-                if f in have and f not in ("--preset", "--tune", "--intra-refresh", "--scaling-list"):
+                if f in have and f not in ("--preset", "--tune", "--scaling-list"):
                     bad.append(f"site/from-x265.md: {f} is listed as not accepted and is in the y265 help")
     x265 = shutil.which("x265")
     if x265:

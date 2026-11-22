@@ -30,6 +30,7 @@ void n265_set_nal_opts(int repeat_headers, int aud, int eos, int eob,
                        int info);
 void n265_set_info_opts(const char *opts);
 void n265_set_fingerprint(int on);
+void n265_set_hrd(int on);
 void n265_set_rc_bounds(double crf_min, double crf_max, int qpmin, int qpmax,
                         int strict_cbr, double ausize_factor);
 void n265_set_sei_opts(int recovery_sei, int pic_struct, int hrd_concat,
@@ -49,6 +50,7 @@ void n265_set_mcstf(int on, int range, int selective);
 void n265_set_vbv(double maxrate, double bufsize, double init);
 int n265_hw_mode(void);
 void n265_set_hw_opts(int veto, const char *warn);
+void n265_set_intra_refresh(int on);
 
 #define QP_BD_OFF (6 * (N265_BIT_DEPTH - 8))
 
@@ -72,7 +74,7 @@ static const struct { const char *name; int val; } opt_tab[] = {
     { "repeat-headers", 0 }, { "no-repeat-headers", 0 },
     { "aud", 0 }, { "no-aud", 0 }, { "eos", 0 }, { "no-eos", 0 },
     { "eob", 0 }, { "no-eob", 0 }, { "info", 0 }, { "no-info", 0 },
-    { "fingerprint", 0 }, { "no-fingerprint", 0 },
+    { "fingerprint", 0 }, { "no-fingerprint", 0 }, { "no-hrd", 0 },
     { "psnr", 0 }, { "ssim", 0 }, { "threads", 1 },
     { "ref", 1 }, { "b-adapt", 1 }, { "keyint", 1 },
     { "open-gop", 0 }, { "no-open-gop", 0 }, { "radl", 1 },
@@ -118,7 +120,7 @@ struct n265_config {
     double vbv_maxrate, vbv_bufsize, vbv_init;
     int hash;
     int weightp, weightb;
-    int open_gop, radl;
+    int open_gop, radl, intra_refresh;
     int sig_videoformat, sig_range, sig_overscan;
     int sig_colorprim, sig_transfer, sig_colormatrix, sig_chromaloc;
     int vsp[N265_VSP_NFIELD], vsp_md_on, had_vsp;
@@ -134,7 +136,7 @@ struct n265_config {
     char *h10p_path, *rpu_path;
     int dv_profile;
     int had_crf;
-    int repeat_hdr, aud, eos, eob, info, fingerprint;
+    int repeat_hdr, aud, eos, eob, info, fingerprint, no_hrd;
     int recovery_sei, pic_struct, hrd_concat, tlayers;
     double crf_lo, crf_hi;
     int qpmin, qpmax, strict_cbr, had_qpmin, had_qpmax;
@@ -243,7 +245,8 @@ static int opt_drop(const char *k)
     static const char * const drop[] = {
         "o", "dump-recon", "dump-recon-decode", "csv", "csv-log-level",
         "shot-stats", "shot-scan", "psnr", "ssim", "verbose", "v", "threads",
-        "gop-parallel",
+        "gop-parallel", "frame-stats", "control", "control-fd",
+        "control-out",
         "show-config", "version", "help", "h",
         "info", "no-info",
         "preset", "qp", "crf", "bitrate", "hw", "hw-strict", NULL
@@ -423,6 +426,8 @@ static int parse_one(n265_config *c, const char *k, const char *v)
         c->fingerprint = 1;
     } else if (IS("no-fingerprint")) {
         c->fingerprint = 0;
+    } else if (IS("no-hrd")) {
+        c->no_hrd = 1;
     } else if (IS("psnr")) {
         c->want_psnr = 1;
     } else if (IS("ssim")) {
@@ -574,13 +579,7 @@ static int parse_one(n265_config *c, const char *k, const char *v)
         }
         c->had_tune = 1;
     } else if (IS("intra-refresh")) {
-        /* refused: a half-enforced refresh claims a recovery point a
-         * joining decoder cannot honor */
-        fprintf(stderr, "y265: --intra-refresh is not supported: "
-                "inherited motion candidates and intra prediction can "
-                "still read the unrefreshed region, so the recovery "
-                "point would not hold.\n");
-        return N265_CONFIG_BAD_VALUE;
+        c->intra_refresh = 1;
     } else if (IS("dup-threshold")) {
         c->dup_thr = atof(v);
         if (c->dup_thr < 0.0 || c->dup_thr > 255.0) {
@@ -906,6 +905,30 @@ int n265_config_apply(n265_config *c, n265_param *p)
                              : "");
         FAIL;
     }
+    /* --intra-refresh: P frames only, 4:2:0 only, and none of the options
+     * that need key frames or code every block alike */
+    int open_gop = c->open_gop;
+    if (c->intra_refresh) {
+        int named_ogop = 0;
+        for (size_t i = 0; i < N_OPTS; i++)
+            if (c->seen[i] && !strcmp(opt_tab[i].name, "open-gop"))
+                named_ogop = 1;
+        const char *why =
+            had_bframes && bframes > 0 ? "B frames; drop --bframes or set "
+                                         "it to 0"
+            : named_ogop ? "--open-gop, a different random-access scheme"
+            : c->keyint < 2 ? "--keyint below 2, which leaves no sweep"
+            : c->pcm ? "--pcm"
+            : csp != N265_CSP_I420 ? "4:2:2 or 4:4:4 input; it is 4:2:0 only"
+            : NULL;
+        if (why) {
+            fprintf(stderr, "y265: --intra-refresh cannot be combined with "
+                    "%s\n", why);
+            FAIL;
+        }
+        bframes = 0;
+        open_gop = 0;
+    }
     int ctb_log2 = ctu == 16 ? 4 : ctu == 32 ? 5 : 6;
     n265_set_mode(c->pcm ? 1 : 0, c->qp, ctb_log2, c->keyint, bframes,
                   c->aq);
@@ -1027,6 +1050,7 @@ int n265_config_apply(n265_config *c, n265_param *p)
     }
     n265_set_nal_opts(c->repeat_hdr, c->aud, c->eos, c->eob, c->info);
     n265_set_fingerprint(c->fingerprint);
+    n265_set_hrd(c->no_hrd ? 0 : -1);
     /* unnamed, the bounds are the depth's own QpY range and inert */
     int qpmin = c->had_qpmin ? c->qpmin : -qp_bd_off;
     int qpmax = c->had_qpmax ? c->qpmax : 51;
@@ -1053,7 +1077,8 @@ int n265_config_apply(n265_config *c, n265_param *p)
                 "the leading pictures of a CRA)\n");
         FAIL;
     }
-    n265_set_gop(c->open_gop, c->radl);
+    n265_set_gop(open_gop, c->radl);
+    n265_set_intra_refresh(c->intra_refresh);
     /* the window is signaled in chroma units (7.4.3.2.1) */
     if (c->win_on) {
         if ((c->win_l & ((1 << csx) - 1)) || (c->win_r & ((1 << csx) - 1)) ||
@@ -1206,6 +1231,7 @@ int n265_config_get(const n265_config *c, const char *key, double *v)
     K("psnr", c->want_psnr)
     K("ssim", c->want_ssim)
     K("open-gop", c->open_gop)
+    K("intra-refresh", c->intra_refresh)
     K("dolby-vision-profile", c->dv_profile)
     K("depth", N265_BIT_DEPTH)
     K("hw", c->hw_on ? n265_hw_mode() : N265_HW_OFF)

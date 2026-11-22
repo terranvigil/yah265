@@ -172,6 +172,10 @@ typedef struct la_frame {
     /* N265_JIT: camera jitter on fine texture in a window over this
      * frame, and the flag as it stood when the frame was planned */
     uint8_t jit, jit_plan;
+    /* live control, stamped at the push (ctl.c) */
+    uint8_t ctl_key, ctl_zone;
+    int ctl_qpmin, ctl_qpmax;
+    double ctl_zoff;
 } la_frame;
 
 typedef struct n265_la {

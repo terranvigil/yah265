@@ -178,3 +178,11 @@ test('hdr_dyn', unit_hdr_dyn)
 unit_shotlist = executable('unit_shotlist', 'unit/shotlist_test.c',
   dependencies : yah265_dep)
 test('shotlist', unit_shotlist)
+
+# Live control (src/encoder/ctl.c): every refusal code, the struct
+# versioning, the landing frames and submission-time independence,
+# through the public API on a synthetic clip.
+unit_ctl = executable('unit_ctl', 'unit/ctl_test.c',
+  include_directories : include_directories('../cli'),
+  dependencies : yah265_dep)
+test('ctl', unit_ctl, timeout : 120)

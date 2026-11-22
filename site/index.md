@@ -17,7 +17,7 @@ yah265 is a new HEVC encoder, written in C. It runs inside ffmpeg under the opti
 
 ```sh
 ffmpeg -i in.mp4 -c:v libx265   -preset medium -crf 25 out.mp4   # what you run today
-ffmpeg -i in.mp4 -c:v libyah265 -preset medium -crf 25 out.mp4   # swap one word
+ffmpeg -i in.mp4 -c:v libyah265 -preset medium -crf 25 out.mp4
 ```
 
 Simple command builds that ffmpeg from a clone of the repository:
@@ -59,11 +59,17 @@ To see both in motion, open the [comparison players](https://terranvigil.github.
 - CRF, capped CRF, VBR, CBR, ABR and two-pass [rate modes](guide.md#pick-a-rate-mode).
 - Main, Main10, 4:4:4 and 4:2:2 [profiles](guide.md#set-the-bit-depth-and-profile) from one binary.
 - [HDR10, HDR10+, HLG and Dolby Vision profile 8](hdr.md).
-- [Shot-aware encoding](guide.md#planning-by-shot): a shot window, per-shot statistics and a script that prints each shot's convex hull.
-- [Live control](guide.md#live-control): change the bitrate, CRF or key frames while an encode runs. [coming soon]
-- [Per-shot encoding](guide.md#planning-by-shot): a key frame and a quality setting for each shot, from one scan. [coming soon]
+- [Shot statistics](guide.md#planning-by-shot): a report per shot that a script turns into each shot's best rungs for a ladder.
+- [Per-shot encoding](guide.md#planning-by-shot): yah265 finds the shots itself, starts each on a key frame and sets its quality. [coming soon]
+- [Live control](guide.md#live-control): change the bitrate, CRF or key frames while an encode runs.
 - [SIMD](architectures.md) on arm64 and x86-64.
 - x265's [option names](options.md) for shared features.
+- Prebuilt installs: Homebrew, a Docker image and a static ffmpeg, with recipes for Jellyfin and Tdarr. [coming soon]
+- `y265 bench`: compare yah265 and x265 on your own clip at the same file size. [coming soon]
+- Target quality: ask for a VMAF score instead of a CRF. [coming soon]
+- Encode reports: one page per encode with bitrate, QP, shots and what yah265 detected. [coming soon]
+- A browser playground: try yah265 on your own clip without installing anything. [coming soon]
+- Farm mode: split one encode across several machines. [coming soon]
 
 ## Results in brief
 
