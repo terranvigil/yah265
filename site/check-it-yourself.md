@@ -7,12 +7,10 @@ description: Rerun a speed, size and quality measurement of yah265 against x265 
 
 Everything on the [results page](results.md) comes from scripts in the repository. This page shows how to take the same kind of measurement on your own machine, from one clip by hand to the full harness.
 
-The harness at the end of this page reruns whole tables from the project's own media library.
-
 ## What you need
 
 - yah265. Build it with `make build-rel`, as [Build and first encode](start.md) describes.
-- x265 as the reference. The results use the Homebrew build of x265 4.3. Because an older x265 on arm64 has much less assembly, it makes a G3 result look better than it is.
+- x265 as the reference. The results use the Homebrew build of x265 4.3. Don't use an older x265 on arm64. It has much less assembly, which would make yah265 look better than it is.
 - ffmpeg, to make input and to decode.
 - libde265's `dec265`, for the conformance check.
 - Python 3 with numpy, for `make test` and the harness scripts.
@@ -133,9 +131,7 @@ $ cat clip.y4m | x265 --input - --y4m --preset medium --crf 28 \
     --no-asm --pools none --frame-threads 1 -o ref.hevc
 ```
 
-G2 drops `--threads 1` and the two x265 threading options. x265 uses more than one thread unless it gets both `--pools none` and `--frame-threads 1`.
-
-x265's pictures change with its frame-thread count. Because the one-thread run writes a different file, yah265 needs its own size match for G1.
+G2 drops `--threads 1` and the two x265 threading options. x265's one-thread run writes a different file, so match yah265's size again for G1.
 
 A few habits keep the number fair:
 
@@ -151,7 +147,7 @@ $ scripts/v1_ladder.py clip.y4m
 $ scripts/v1_ladder.py clip.y4m --vbr
 ```
 
-The script codes a five-rung ladder on both encoders, at CRF 20, 23, 26, 29 and 32. It then prints yah265's BD-rate on VMAF v1 against x265 medium, where negative means yah265 needs fewer bits for the same score. With `--vbr` both encoders run at the bitrates x265 reached on those rungs, where the maxrate is 1.5 times the target and the buffer is twice the target. Scoring follows the [methodology](methodology.md#scoring-quality).
+The script codes a five-rung ladder on both encoders, at CRF 20, 23, 26, 29 and 32. It then prints yah265's BD-rate on VMAF v1 against x265 medium, where negative means yah265 needs fewer bits for the same score. With `--vbr` both encoders run at the bitrates x265 reached on those rungs. Scoring follows the [methodology](methodology.md#scoring-quality).
 
 This CRF ladder on the foreman CIF clip took 50 seconds on the Mac.
 
@@ -166,7 +162,7 @@ foreman_cif.y4m ours crf : BD-v1 -9.66%
      584  83.686  81.264 +2.422 |   +0.001   -2.185   -0.240   +0.000
 ```
 
-Each row is one yah265 rung, with x265's score read off its curve at the same bitrate. For the last four columns the script swaps one of v1's features at a time from x265's frames onto yah265's. Each column reports what that swap is worth.
+Each row is one yah265 rung beside x265's score at the same bitrate. The last four columns split the gap by VMAF feature.
 
 Four environment variables change a run:
 
@@ -179,11 +175,11 @@ Four environment variables change a run:
 
 ## Reading size and quality together
 
-A speed ratio means nothing until the sizes match, because an encoder that writes a larger file had more bits to spend. It should score higher for that reason alone. Check the 1% size match before reading anything else.
+Speed and quality only compare fairly when the sizes match. Check the 1% size match before reading anything else.
 
 At the matched size, compare the two VMAF v1 scores directly. One clip's lead says little about the next clip's. That's why the results page reports the median over each picture size and clip length, and the clip with the smallest lead.
 
-One matched point is one bitrate. Read the ladder too, because an encoder can lead at CRF 28 and trail at high quality. BD-rate folds the whole ladder into one number. That number covers only the scores both curves reach. Where one encoder's lowest score is above the other's highest, there's no BD-rate to quote and the curves themselves are the answer.
+One matched point is one bitrate. Read the ladder too, because an encoder can lead at CRF 28 and trail at high quality. BD-rate folds the whole ladder into one number. It only works where the two curves overlap in score.
 
 Under VBR, check the bitrate each encoder reached against its target before comparing quality. An encoder that undershoots its target saves bits it was asked to spend.
 
@@ -209,7 +205,7 @@ Under VBR, check the bitrate each encoder reached against its target before comp
 $ scripts/parity_spec.py --plan --tier S
 ```
 
-Because the harness reads the project's own test library, another machine needs the same layout. `YAH265_MEDIA` names the library's root. The recorded rows behind the results are in `docs/data/`. The report counts a ladder only when it came from the binary under test. A report rebuilt with a different binary shows those curves as pending.
+Because the harness reads the project's own test library, another machine needs the same layout. `YAH265_MEDIA` names the library's root. The recorded rows behind the results are in `docs/data/`. If you rebuild the report with a different binary, its ladders show as pending until you run them again.
 
 To check that the results page still matches those rows:
 

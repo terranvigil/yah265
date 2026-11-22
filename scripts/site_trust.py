@@ -175,7 +175,7 @@ def builds(paths, mac_rows):
     need(r"x265 runs its default assembly, which on this CPU stops at AVX2", simd, "x86 report")
     need(r"an arm with x265 `--asm avx512`", simd, "x86 report")
     rows.append(["Intel Xeon 8488C, 16 vCPUs", "the 4.3 release tarball, clang 18, 8-bit",
-                 "its default, which stops at AVX2 on this CPU. A second arm ran `--asm avx512`",
+                 "its default, which stops at AVX2 on this CPU. A second run used `--asm avx512`",
                  "AVX-512 over AVX2"])
     g4 = report_line(g4_md, "Encoder:")
     need(rf"x265 {re.escape(ver)} built on each box from the 4\.3 release tarball \(clang 18, 8-bit\)",
