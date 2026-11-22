@@ -125,6 +125,7 @@ struct n265_config {
     int open_gop, radl, intra_refresh, scenecut;
     int sig_videoformat, sig_range, sig_overscan;
     int sig_colorprim, sig_transfer, sig_colormatrix, sig_chromaloc;
+    int res_transfer;           /* after the signal-type preset */
     int vsp[N265_VSP_NFIELD], vsp_md_on, had_vsp;
     uint32_t vsp_md[10];
     int tune[N265_TUNE_NFIELD];
@@ -1126,6 +1127,7 @@ int n265_config_apply(n265_config *c, n265_param *p)
             have_md = 1;
         }
     }
+    c->res_transfer = sig_transfer;
     n265_set_vui_colour(c->sig_videoformat, sig_range, sig_colorprim,
                         sig_transfer, sig_colormatrix, sig_chromaloc,
                         c->sig_overscan);
@@ -1249,6 +1251,10 @@ int n265_config_get(const n265_config *c, const char *key, double *v)
     K("dolby-vision-profile", c->dv_profile)
     K("depth", N265_BIT_DEPTH)
     K("hw", c->hw_on ? n265_hw_mode() : N265_HW_OFF)
+    K("transfer", c->applied ? c->res_transfer : c->sig_transfer)
+    K("atc-sei", c->atc)
+    K("hdr-opt", c->hdr_opt)
+    K("lossless", c->lossless)
 #undef K
     return -1;
 }

@@ -84,6 +84,12 @@ OFFCLAIM = re.compile(r'(?<!was )(?<!old )[Dd]efault(?:s)?\s+(?:is\s+|stays\s+)?
 # presence-only reader, a string enum, or a literal that is not the last
 # number on the line.
 DEFAULT_OVERRIDES = {
+    # --target-vmaf's tools: paths, read only under the flag
+    "N265_VMAF_BIN": "~/.local/opt/vmaf-v1/bin/vmaf, else vmaf",
+    "N265_VMAF_HDR_BIN": "~/.local/opt/vmaf-hdr/bin/vmaf",
+    "N265_VMAF_MODEL_DIR": "~/.local/share/vmaf/model",
+    "N265_VMAF_HDR_MODEL_DIR": "~/.local/share/vmaf-hdr",
+    "N265_FFMPEG": "ffmpeg", "N265_VMAF_THREADS": "= --threads",
     # phase 14 item 59: on unless 0, read only on a PQ or HLG medium
     "N265_HDR_FULL": "1 on PQ and HLG at medium",
     # phase 14 item 60: on unless 0, read only on a UHD capped-VBR medium
@@ -192,6 +198,9 @@ DEFAULT_OVERRIDES = {
 }
 
 OVERRIDES = {
+    "N265_VMAF_BIN": "instrument", "N265_VMAF_HDR_BIN": "instrument",
+    "N265_VMAF_MODEL_DIR": "instrument", "N265_VMAF_HDR_MODEL_DIR": "instrument",
+    "N265_FFMPEG": "instrument", "N265_VMAF_THREADS": "instrument",
     "N265_HDR_FULL": "default",          # item 59: the env is the escape
     "N265_UHD_CVBR": "default",          # item 60: the env is the escape
     # phase 14 item 42: moot unless --gop-parallel armed the mode, so they
