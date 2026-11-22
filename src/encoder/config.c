@@ -1142,6 +1142,14 @@ int n265_config_apply(n265_config *c, n265_param *p)
                 "HDR10, which carries a mastering display: consider "
                 "--master-display\n");
 
+    /* 8-bit PQ or HLG is legal but bands badly; the input was likely
+     * meant for Main10 */
+    if (depth == 8 && (sig_transfer == 16 || sig_transfer == 18 ||
+                       c->atc == 18))
+        fprintf(stderr, "y265: WARNING %s at 8 bits will show banding: "
+                "give a 10-bit input or add --output-depth 10\n",
+                sig_transfer == 16 ? "PQ" : "HLG");
+
     if (hw_resolve(c) != 0)
         FAIL;
 
