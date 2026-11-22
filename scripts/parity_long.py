@@ -1237,18 +1237,27 @@ def fmt_track(e):
 
 def cred_cell(title):
     """The credits span of a title as a cell of its own: the staged 1080p
-    excerpt from the first credits frame to the census's end."""
+    excerpt (or the master, where none is staged) from the first credits
+    frame to the census's end."""
     sp = credits_span(title)
     if not sp:
         return None
     p = staged_path(title, "1080p")
-    if not p:
-        return None
-    w, h, fps, n = y4m_shape(p)
     c = _mk("L", "1080p", title, "1080p", kind="cred")
     c["key"] = f"cred/1080p/{title}"
-    _INFO[c["key"]] = dict(w=w, h=h, fps=fps, frames=sp[1] - sp[0] + 1,
-                           src="y4m", path=p, start=sp[0], master_start=0)
+    if p:
+        w, h, fps, n = y4m_shape(p)
+        _INFO[c["key"]] = dict(w=w, h=h, fps=fps, frames=sp[1] - sp[0] + 1,
+                               src="y4m", path=p, start=sp[0], master_start=0)
+        return c
+    # no staged excerpt (stem2): decode the span from the master, whose
+    # frame numbers run from the excerpt's offset
+    w, h = full_geom(title, "1080p")
+    st = excerpt_span(title)[0]
+    _INFO[c["key"]] = dict(w=w, h=h, fps=TITLES[title]["fps"],
+                           frames=sp[1] - sp[0] + 1, src="vt",
+                           path=master_path(title), start=st + sp[0],
+                           master_start=st)
     return c
 
 
