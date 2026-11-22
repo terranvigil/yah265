@@ -3,7 +3,7 @@ class Y265 < Formula
   desc "HEVC/H.265 encoder: the y265 command-line tool and the libyah265 library"
   homepage "https://terranvigil.github.io/yah265/"
   url "https://github.com/terranvigil/yah265/archive/refs/tags/v0.0.1.tar.gz"
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  sha256 "53001d28f72da7b54a104a33157de2da6fc56432fcff8db6757a2055d58a366c"
   license "GPL-2.0-or-later"
   head "https://github.com/terranvigil/yah265.git", branch: "main"
 
