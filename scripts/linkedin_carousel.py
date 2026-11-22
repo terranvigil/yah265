@@ -143,6 +143,26 @@ class Slide:
                                  outline=outline, width=S)
 
 
+def squared(slide, glow):
+    """The slide at 4:5 shrunk onto a 1080x1080 page in the same background.
+    LinkedIn fits a document page to its frame's height, so a 4:5 page
+    leaves room at the sides where the neighbouring pages show. A square
+    page fills the frame."""
+    from PIL import Image, ImageChops, ImageDraw, ImageFilter
+    side = H * S * 4 // 5          # 1080 at S = 1
+    im = Image.new("RGB", (W * S, W * S), BG)
+    halo = Image.new("L", im.size, 0)
+    ImageDraw.Draw(halo).ellipse((620 * S, -420 * S, 1500 * S, 380 * S), fill=round(255 * glow))
+    halo = halo.filter(ImageFilter.GaussianBlur(170 * S))
+    im.paste(Image.new("RGB", im.size, NEON), (0, 0), halo)
+    small = slide.resize((W * S * 4 // 5, side), Image.LANCZOS)
+    # only what was drawn on the slide covers the square's own glow
+    diff = ImageChops.difference(small, Image.new("RGB", small.size, BG)).convert("L")
+    mask = diff.point(lambda v: 255 if v > 6 else v * 40)
+    im.paste(small, ((W * S - small.width) // 2, (W * S - side) // 2), mask)
+    return im
+
+
 def scope(pl):
     return (f"On the Mac: the median of {pl['n']} size-matched encodes, CIF to 4K, both at "
             f"preset medium on an Apple M5 Max.")
@@ -256,6 +276,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--out", default=None, help="where to write (default local/launch)")
     ap.add_argument("--text", action="store_true", help="print the slides' words and draw nothing")
+    ap.add_argument("--square", action="store_true", help="1080x1080 slides, which fill LinkedIn's document frame")
     a = ap.parse_args()
     D = r"\d{4}-\d\d-\d\d"
     paths = {"mac": bc.newest(rf"PARITY-REPORT-yah265-{D}\.csv"),
@@ -270,18 +291,20 @@ def main():
     out = a.out or default_out()
     pages = []
     for i, (name, draw, glow) in enumerate(deck, 1):
-        s = Slide(i, len(deck), glow)
+        s = Slide(i, len(deck), 0 if a.square else glow)
         draw(s)
         if a.text:
             print("\n\n".join(s.said) + "\n")
             continue
         from PIL import Image
+        if a.square:
+            s.im = squared(s.im, glow)
         os.makedirs(os.path.join(out, "slides"), exist_ok=True)
-        s.im.resize((W, H), Image.LANCZOS).save(
+        s.im.resize((s.im.width // S, s.im.height // S), Image.LANCZOS).save(
             os.path.join(out, "slides", f"{i:02d}-{name}.png"), optimize=True)
         pages.append(s.im)
     if pages:
-        pdf = os.path.join(out, "yah265-carousel.pdf")
+        pdf = os.path.join(out, "yah265-carousel-square.pdf" if a.square else "yah265-carousel.pdf")
         pages[0].save(pdf, save_all=True, append_images=pages[1:], resolution=72 * S, quality=95,
                       title="yah265", author="yah265")
         print(f"{len(pages)} slides in {pdf}")
