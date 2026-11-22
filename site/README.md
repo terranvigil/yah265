@@ -124,8 +124,8 @@ images.
 
 ## Publishing
 
-Nothing publishes automatically, because GitHub Actions is disabled on this
-repository on purpose. A branch deploy can serve the built site because
+Nothing publishes automatically: GitHub Actions runs the tests but has no
+Pages job. A branch deploy can serve the built site because
 it's plain static HTML with relative links:
 
     scripts/site.sh --strict
@@ -141,7 +141,3 @@ writes a `.nojekyll` file.
 
 The social card needs an absolute address. The builder takes it from
 `SITE_URL`. Change that if the site moves.
-
-The repository is private. Pages on a private repository needs a paid
-GitHub plan. On a personal account the published site is public even
-when the repository isn't.

@@ -221,7 +221,7 @@ A capped Xeon isn't an AVX2-only CPU. Its cores, caches and clock speeds are its
 
 The arm64 machines write the same streams as each other. A Graviton writes the Mac's stream byte for byte, apart from one title whose source frames were decoded differently on the cloud machine.
 
-x86 writes a different stream from arm64 at `medium`. On arm64 the compiler fuses a floating-point multiply and add into one instruction, because that instruction is always present there. Baseline x86-64 can't assume it. The streams differ because some of the encoder's floating-point results then differ. I chose to leave that as it is. Quality on x86 was checked by encoding four rate curves again there. [By machine](results.md#by-machine) has the comparison. Within x86, the tiers write the same stream.
+x86 writes a different stream from arm64 at `medium`. On arm64 the compiler fuses a floating-point multiply and add into one instruction, because that instruction is always present there. Baseline x86-64 can't assume it. The streams differ because some of the encoder's floating-point results then differ. I chose to leave that as it is. Quality on x86 was checked by encoding three rate curves again there. [By machine](results.md#by-machine) has the comparison. Within x86, the tiers write the same stream.
 
 The register widths differ too. NEON is always 128 bits wide. Each of the three x86 tiers has a fixed width of its own. SVE's width belongs to the CPU. Because Graviton4 and Graviton3 differ in it, the SVE kernels are written to work at any width.
 
