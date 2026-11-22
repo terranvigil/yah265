@@ -109,7 +109,7 @@ The ffmpeg it builds is a GPL binary because yah265 is GPL-2.0-or-later.
 build-ffmpeg/ffmpeg/ffmpeg -i in.mp4 -c:v libyah265 -preset medium -crf 25 out.mp4
 ```
 
-That's the command you'd give x265 with one word changed. `out.mp4` plays in anything that plays HEVC.
+That's the command you'd give x265. `out.mp4` plays in anything that plays HEVC.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 132" role="img" aria-labelledby="swap-fig-t swap-fig-d">
