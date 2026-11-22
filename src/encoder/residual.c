@@ -10,6 +10,7 @@
 #include "common/cpu.h"
 #include "encoder/arm/neon.h"
 #include "encoder/x86/avx2.h"   /* self-guarded */
+#include "encoder/x86/avx512.h"
 #include "encoder/x86/sse42.h"   /* self-guarded */
 #include "encoder/residual.h"
 #include "encoder/tables.h"
@@ -210,6 +211,12 @@ void n265_csbf_map(const int16_t *level, int log2n, uint8_t *out)
 #if N265_NEON_COST
     if (n265_asm_on(N265_ASM_QUANT)) {
         n265_csbf_map_neon(level, log2n, out);
+        return;
+    }
+#endif
+#if N265_AVX512_COST
+    if (n265_csbf_map_avx512_wide(log2n) && n265_avx512_on(N265_ASM_QUANT)) {
+        n265_csbf_map_avx512(level, log2n, out);
         return;
     }
 #endif

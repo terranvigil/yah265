@@ -74,6 +74,7 @@
 #define n265_csbf_map                n265_csbf_map_10
 #define n265_csbf_map_neon           n265_csbf_map_neon_10
 #define n265_csbf_map_avx2           n265_csbf_map_avx2_10
+#define n265_csbf_map_avx512         n265_csbf_map_avx512_10
 #define n265_csbf_map_sse42          n265_csbf_map_sse42_10
 #define n265_csbf_map_ref            n265_csbf_map_ref_10
 #define n265_csv_close               n265_csv_close_10
