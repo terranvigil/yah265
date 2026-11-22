@@ -12,8 +12,10 @@
 #include <string.h>
 #include <sys/stat.h>
 #ifdef __APPLE__
+#include <mach-o/dyld.h>
 #include <malloc/malloc.h>
 #endif
+#include <limits.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -999,7 +1001,8 @@ static void rd_close(rd_ring *q, y4m_t *y)
 static void usage(FILE *out)
 {
     fputs(
-        "usage: y265 [options] <input.y4m|input.yuv|->\n",
+        "usage: y265 [options] <input.y4m|input.yuv|->\n"
+        "       y265 bench <video> [options]   compare with x265 on your clip\n",
         out);
     fputs(
         "\n"
@@ -3034,8 +3037,69 @@ static int ctl_write_out(ctl_cli *c)
     return fclose(c->out);
 }
 
+/* `y265 bench ...` runs the y265-bench helper (scripts/y265_bench.py),
+ * telling it which binary to time */
+static int self_path(const char *argv0, char *out)
+{
+    char raw[PATH_MAX];
+#ifdef __APPLE__
+    uint32_t n = sizeof raw;
+    if (_NSGetExecutablePath(raw, &n) == 0 && realpath(raw, out))
+        return 0;
+#else
+    ssize_t n = readlink("/proc/self/exe", raw, sizeof raw - 1);
+    if (n > 0) {
+        raw[n] = 0;
+        if (realpath(raw, out))
+            return 0;
+    }
+#endif
+    return realpath(argv0, out) ? 0 : -1;
+}
+
+static int run_bench(int argc, char **argv)
+{
+    char self[PATH_MAX], helper[PATH_MAX + 32];
+    const char *env = getenv("Y265_BENCH");
+    int found = 0;
+    if (env && *env) {
+        snprintf(helper, sizeof helper, "%s", env);
+        found = 1;
+    } else if (self_path(argv[0], self) == 0) {
+        char *slash = strrchr(self, '/');
+        static const char *const rel[] = { "y265-bench",
+                                           "../scripts/y265_bench.py" };
+        for (int k = 0; k < 2 && !found && slash; k++) {
+            snprintf(helper, sizeof helper, "%.*s/%s",
+                     (int)(slash - self), self, rel[k]);
+            found = access(helper, R_OK) == 0;
+        }
+        setenv("Y265_BIN", self, 1);
+    }
+    if (!found) {
+        fprintf(stderr, "y265: bench needs the y265-bench helper beside the "
+                "y265 binary (or Y265_BENCH set to its path)\n");
+        return 2;
+    }
+    char **av = calloc((size_t)argc + 2, sizeof *av);
+    if (!av)
+        return 1;
+    av[0] = "python3";
+    av[1] = helper;
+    for (int i = 2; i < argc; i++)
+        av[i] = argv[i];
+    execv(helper, av + 1);
+    execvp("python3", av);
+    fprintf(stderr, "y265: bench needs Python 3 on the PATH (%s)\n",
+            strerror(errno));
+    free(av);
+    return 2;
+}
+
 int main(int argc, char **argv)
 {
+    if (argc > 1 && !strcmp(argv[1], "bench"))
+        return run_bench(argc, argv);
     cli_opts o;
     n265_config *cfg = api8.config_new();
     if (!cfg)
