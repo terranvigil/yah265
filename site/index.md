@@ -64,7 +64,6 @@ To see both in motion, open the [comparison players](https://terranvigil.github.
 - [Per-shot encoding](guide.md#planning-by-shot): a key frame and a quality setting for each shot, from one scan. [coming soon]
 - [SIMD](architectures.md) on arm64 and x86-64.
 - x265's [option names](options.md) for shared features.
-- Its streams play in any HEVC player, and ffmpeg decodes them.
 
 ## Results in brief
 
