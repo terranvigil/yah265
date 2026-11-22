@@ -1780,6 +1780,16 @@ static int fw_open(n265_encoder *e, n265_frame_work *fw)
             return -1;
         fw->nr_tally = fw->nr_rows + e->ctb_rows;
     }
+    if (e->fp_census) {
+        fw->fpc_rows = calloc((size_t)e->ctb_rows, sizeof(*fw->fpc_rows));
+        if (!fw->fpc_rows)
+            return -1;
+    }
+    if (e->mereuse_trace) {
+        fw->mvr_rows = calloc((size_t)e->ctb_rows, sizeof(*fw->mvr_rows));
+        if (!fw->mvr_rows)
+            return -1;
+    }
     for (int i = 0; i < 3; i++) {
         int w = i ? e->pad_w >> e->csx : e->pad_w;
         int bh = (1 << e->ctb_log2) >> (i ? e->csy : 0);
@@ -1835,6 +1845,8 @@ static void fw_close(n265_frame_work *fw)
     free(fw->iw_arm_rows);
     free(fw->nr_rows);
     free(fw->nr_off);
+    free(fw->fpc_rows);
+    free(fw->mvr_rows);
     free(fw->prog);
     bs_free(&fw->rbsp);
 }
@@ -1873,12 +1885,10 @@ void n265_row_begin(n265_row_ctx *row, n265_frame_work *fw, int r)
 
 void n265_row_end(n265_row_ctx *row, n265_frame_work *fw, int r)
 {
-    if (fw->fp_census)
-        for (int i = 0; i < N265_FPC_COUNT; i++)
-            fw->fpc[i] += row->c.fpc[i];
-    if (fw->mereuse_trace)
-        for (int i = 0; i < N265_MVR_COUNT; i++)
-            fw->mvr[i] += row->c.mvr[i];
+    if (fw->fpc_rows)
+        memcpy(fw->fpc_rows[r], row->c.fpc, sizeof row->c.fpc);
+    if (fw->mvr_rows)
+        memcpy(fw->mvr_rows[r], row->c.mvr, sizeof row->c.mvr);
     fw->rrec[r].buf = row->c.rec_buf;
     fw->rrec[r].cap = row->c.rec_cap;
     fw->rrec[r].len = row->c.rec_len;
@@ -5668,7 +5678,7 @@ static int job_run(void *ctx, int lane, int idx)
     }
     if (idx < 2 * R) {
         int r = idx - R;
-        n265_qpmap_row(fw, r, &fw->qprev);
+        n265_qpmap_row(fw, r, &p->qprev);
         n265_deblock_row(fw, r);
         atomic_store_explicit(&p->dbk_rows, r + 1, memory_order_release);
         TT_PUT(TT_TASK, 1, fw->code_idx, r, 0, 0, tt_t0, TT_NOW());
@@ -6748,10 +6758,14 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
                  ? 0 : n265_sao_frame_mask(fw);
     /* the census row is per FRAME and a frame_work is pooled, so the
      * counters are cleared here and not in fw_config */
-    if (fw->fp_census)
+    if (fw->fpc_rows) {
         memset(fw->fpc, 0, sizeof fw->fpc);
-    if (fw->mereuse_trace)
+        memset(fw->fpc_rows, 0, (size_t)fw->ctb_rows * sizeof(*fw->fpc_rows));
+    }
+    if (fw->mvr_rows) {
         memset(fw->mvr, 0, sizeof fw->mvr);
+        memset(fw->mvr_rows, 0, (size_t)fw->ctb_rows * sizeof(*fw->mvr_rows));
+    }
     /* N265_RECT_FLAT (ctu.c): the second tool that reads the type. Both
      * branches are written, because a frame_work is pooled and fw_config
      * ran once. */
@@ -7351,11 +7365,11 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
         fw->ref_lag = fw->slice_type == 2 ? 0
             : hint >= 0 ? hint
             : 1 + ((57 + 5 + (1 << fw->ctb_log2) - 1) >> fw->ctb_log2);
-        fw->qprev = fw->qp;
     }
 
     memset(fw->prog, 0, sizeof(*fw->prog) +
                         3 * (size_t)fw->ctb_rows * sizeof(atomic_int));
+    fw->prog->qprev = fw->qp;
     fw->job.ctx = fw;
     fw->job.ntask = 3 * fw->job_R + 1;      /* + the entropy task */
     fw->job.ready = job_ready;
@@ -8084,6 +8098,14 @@ static void join_oldest(n265_encoder *e)
             }
         }
     }
+    if (fw->fpc_rows)
+        for (int r = 0; r < fw->ctb_rows; r++)
+            for (int i = 0; i < N265_FPC_COUNT; i++)
+                fw->fpc[i] += fw->fpc_rows[r][i];
+    if (fw->mvr_rows)
+        for (int r = 0; r < fw->ctb_rows; r++)
+            for (int i = 0; i < N265_MVR_COUNT; i++)
+                fw->mvr[i] += fw->mvr_rows[r][i];
     if (fw->fp_census) {
         /* one CSV row per frame for the fingerprint census (phase 14
          * item 10). Printed here, on the driver, so the rows come out in
