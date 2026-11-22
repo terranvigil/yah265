@@ -192,7 +192,7 @@ ffmpeg -i out.hevc -c copy out.mp4
 
 ## Check the stream
 
-`y265` can write the pictures it expects a decoder to produce. Decode the stream with ffmpeg, then compare the two files:
+This checks that ffmpeg decodes the stream to exactly the pictures y265 encoded:
 
 ```sh
 build-rel/y265 input.y4m -o out.hevc --crf 25 --dump-recon recon.yuv
