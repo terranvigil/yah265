@@ -820,6 +820,15 @@ run_vector abr_flat      176x144 16  testsrc2  "--keyint 8 --bitrate 200"
 # the vector carries a stream the buffer really constrained.
 run_vector vbv_abr       352x288 24  testsrc2  "--keyint 12 --bitrate 400 --vbv-maxrate 400 --vbv-bufsize 400 --aq 1 --cutree 1"
 run_vector vbv_crf       352x288 24  testsrc2  "--keyint 12 --crf 28 --vbv-maxrate 500 --vbv-bufsize 250 --aq 1 --cutree 1"
+# live control: a rate step down and up under capped VBR, a requested key
+# frame inside a mini-GOP under open GOP (an IDR), and QP limits, a zone
+# and a CRF change on one stream
+printf '8 rate bitrate=200 maxrate=300 bufsize=300\n16 rate bitrate=400 maxrate=600 bufsize=600\n' > "$TMP/ctl_rate.log"
+printf '11 key\n' > "$TMP/ctl_key.log"
+printf '4 qp min=30 max=40\n10 zone last=17 offset=-4\n12 crf value=24\n18 qp min=0 max=51\n' > "$TMP/ctl_qp.log"
+run_vector ctl_rate_vbr  352x288 24  testsrc2  "--keyint 30 --bitrate 400 --vbv-maxrate 600 --vbv-bufsize 600 --no-hrd --threads 1 --control $TMP/ctl_rate.log"
+run_vector ctl_key_open  352x288 24  testsrc2  "--keyint 8 --open-gop --crf 28 --control $TMP/ctl_key.log"
+run_vector ctl_qp_zone   352x288 24  testsrc2  "--keyint 30 --crf 28 --control $TMP/ctl_qp.log"
 # TWO-PASS (phase 12 item 4). Nothing new is on the WIRE - a planned
 # encode writes the same syntax an ABR one does, down to the fractional
 # base's cu_qp_delta dither - so what these two vectors check is that the
