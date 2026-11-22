@@ -125,7 +125,7 @@ The CRF scale is yah265's own. A number that suited x265 gives a different size 
 y265 in.y4m -o out.hevc --crf 23 --vbv-maxrate 4500 --vbv-bufsize 6000
 ```
 
-For streaming, this is the mode I'd pick. The quality holds until a hard scene would overflow the buffer. The encoder then coarsens that scene to fit. The cap limits the peak rate, not the file size. If `--crf-max` is set too low for the buffer, the buffer can underflow. The encoder reports that at the end of the run.
+For streaming, this is the mode I'd pick. The quality holds until a hard scene would overflow the buffer. The encoder then coarsens that scene to fit. The cap limits the peak rate, not the file size. If `--crf-max` is set too low for the buffer, the buffer can underflow. The encoder reports that at the end of the run. To pick the CRF, my [dynamic-crf](https://github.com/terranvigil/dynamic-crf) tool searches for the one that reaches a VMAF score you choose.
 
 ### Capped VBR
 
