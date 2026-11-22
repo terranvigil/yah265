@@ -15,7 +15,7 @@ It's a new HEVC encoder I wrote in C. Speed is the reason to try it. The chart s
 
 On this page "2x faster" means half the wall time.
 
-## One word changes in your ffmpeg command
+## Switching from x265
 
 You run it the way you run x264 or x265.
 
