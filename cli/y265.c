@@ -3369,6 +3369,7 @@ typedef struct {
     /* frames named by the --control-fd events accepted, for the reserve */
     int64_t *fdf;
     int nfdf, cfdf;
+    int lost;
 } ctl_cli;
 
 /* --control events wait in the CLI and go to the encoder as frames go by:
@@ -3779,6 +3780,7 @@ static void ctl_drain(ctl_cli *c)
         if (n < 0) {
             fprintf(stderr, "y265: the encoder dropped applied control "
                     "records: --control-out is incomplete\n");
+            c->lost = 1;
             n = 16;
             continue;
         }
@@ -4423,6 +4425,9 @@ int main(int argc, char **argv)
         fprintf(stderr, "y265: write failed: %s\n", o.ctl_out_path);
         return 1;
     }
+    /* a log missing a record would replay to a different stream */
+    if (cc.out && cc.lost)
+        return 1;
     /* --psnr / --ssim: the pooled numbers, before the encoder is closed
      * and while it still holds them. The pooling is ffmpeg's - the mean
      * squared error is summed over frames and the logarithm taken once -
