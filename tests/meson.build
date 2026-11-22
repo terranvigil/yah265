@@ -192,3 +192,9 @@ test('ctl', unit_ctl, timeout : 120)
 # lines not fed yet.
 test('cli_ctl', find_program('cli_ctl_test.sh'), args : [y265],
   timeout : 120)
+
+# --no-scenecut: key frames on the --keyint grid only, at two sizes, with
+# the qpfile and live-control keys still landing (synthetic multi-shot clip)
+unit_scenecut = executable('unit_scenecut', 'unit/scenecut_test.c',
+  dependencies : yah265_dep)
+test('scenecut', unit_scenecut, timeout : 120)

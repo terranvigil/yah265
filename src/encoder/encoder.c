@@ -121,6 +121,7 @@ static int g_keyint = 250;      /* x265 4.3's own default (2026-09-08) */
 static int g_open_gop = 1;
 static int g_radl = 0;
 static int g_intra_refresh = 0;
+static int g_scenecut = 1;     /* 0: --no-scenecut, key frames on the keyint grid only */
 
 /* The full hierarchical run. 3 shipped from 2026-09-07 until the preset
  * ladder priced 7 inside both the fast and the slow chains and found it
@@ -264,7 +265,7 @@ void n265_set_shot_keys(int on) { g_shot_keys = on != 0; }
 int n265_encoder_set_shot_list(n265_encoder *e, const int *starts, int n);
 int n265_encoder_set_shot_list(n265_encoder *e, const int *starts, int n)
 {
-    if (!e || e->hw || e->in_display_idx > 0 || n < 0)
+    if (!e || e->hw || e->in_display_idx > 0 || n < 0 || e->key_grid)
         return -1;
     free(e->shotl);
     e->shotl = NULL;
@@ -762,6 +763,12 @@ void n265_set_intra_refresh(int on);
 void n265_set_intra_refresh(int on)
 {
     g_intra_refresh = on != 0;
+}
+
+void n265_set_scenecut(int on);
+void n265_set_scenecut(int on)
+{
+    g_scenecut = on != 0;
 }
 
 /* --intra-refresh: a picture's place in its sweep, or -1 outside one. The
@@ -2767,6 +2774,7 @@ n265_encoder *n265_encoder_open(const n265_param *p)
                      (e->aq || e->cutree || e->qp_frac);
     e->scenecut = e->mode != N265_MODE_PCM;
     e->shot_keys = g_shot_keys;
+    e->key_grid = !g_scenecut;
     /* --intra-refresh places no key frame at a cut */
     e->ir_on = g_intra_refresh;
     if (e->ir_on) {
@@ -3742,8 +3750,9 @@ void n265_show_config(const n265_encoder *e, FILE *f, int in_depth)
     cfg_row(f, "bframes / b-adapt", "%d / %s", e->bframes,
             e->badapt ? "on" : "off");
     cfg_row(f, "rc-lookahead", "%d frames", e->la_depth);
-    cfg_row(f, "keyint / open-gop", "%d / %s", e->keyint,
-            e->open_gop ? "on" : "off");
+    cfg_row(f, "keyint / open-gop", "%d / %s%s", e->keyint,
+            e->open_gop ? "on" : "off",
+            e->key_grid ? " (no-scenecut: fixed grid)" : "");
     if (e->mode == N265_MODE_PCM)
         cfg_row(f, "rate control", "pcm (the phase-0 I_PCM path)");
     else if (e->lossless)
@@ -8512,7 +8521,7 @@ static int key_defer_env(void)
 static int key_period(n265_encoder *e, int i, int origin)
 {
     int d = e->la.f[i].display_idx;
-    if (!key_reset_env())
+    if (!key_reset_env() || e->key_grid)
         return (d % e->keyint) == 0;
     if (d - origin < e->keyint)
         return 0;
@@ -8553,7 +8562,7 @@ static int key_rule(n265_encoder *e, int i, int origin)
         return e->la.f[i].ctl_key;
     return e->mode == N265_MODE_PCM || e->keyint == 1 || e->la.f[i].ctl_key ||
            key_period(e, i, origin) ||
-           (e->scenecut && d - origin >= min_keyint(e) &&
+           (e->scenecut && !e->key_grid && d - origin >= min_keyint(e) &&
             n265_la_scenecut(e, i));
 }
 

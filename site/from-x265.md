@@ -44,6 +44,7 @@ The same name doesn't promise the same default. [Options](options.md) lists the 
 | `--dup-threshold` | `--dup-threshold` | the unit is different. Start from 0, the default |
 | `--film-grain` | `--film-grain` | x265 takes a file of grain parameters. `y265` estimates the grain itself and takes a strength |
 | `--profile` | none | the input and `--output-depth` pick the profile |
+| `--scenecut <n>` | `--scenecut` | a switch with no threshold. `--no-scenecut` keeps x265's meaning and puts key frames on the `--keyint` grid. See [Key frames for streaming](guide.md#key-frames-for-streaming) |
 <!--/map:renamed-->
 
 ## Options y265 doesn't accept
@@ -61,7 +62,7 @@ The same name doesn't promise the same default. [Options](options.md) lists the 
 | `--rd`, `--me`, `--subme`, `--merange`, `--rect`, `--amp`, `--limit-refs`, `--rskip`, `--early-skip`, `--max-merge` | how hard the encoder searches is the preset's job here | a preset. The [environment knobs](guide.md#environment-knobs) are there for experiments |
 | `--signhide`, `--tskip`, `--strong-intra-smoothing`, `--temporal-mvp` | single coding tools have no switch | a preset |
 | `--sao`, `--no-sao`, `--deblock`, `--no-deblock` | the in-loop filters have no switch | none |
-| `--scenecut`, `--no-scenecut`, `--min-keyint` | [in the guide](guide.md#left-out-on-purpose) | `--keyint` |
+| `--min-keyint` | the encoder sets it from `--keyint` and the frame rate | `--keyint` |
 | `--b-pyramid` | B-frames are always arranged as a pyramid | `--bframes` |
 | `--wpp`, `--slices`, `--lookahead-slices`, `--lookahead-threads` | [in the guide](guide.md#left-out-on-purpose) | `--threads` |
 | `--asm`, `--no-asm` | the SIMD tier is picked at run time | `N265_ASM_OFF=all` in the environment, for testing |

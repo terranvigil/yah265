@@ -1053,6 +1053,10 @@ VENV=""
 # window at all.
 run_vector_graph "$NONIDR_CUT" \
            nonidr_cut_idr_t12 176x144 20 testsrc2 "--keyint 250 --bframes 7 --ref 2 --aq 1 --cutree 1 --threads 12"
+# --no-scenecut: the cut at 10 places no key frame, so the IDRs are 0, 16
+# and 32 only and the cut is coded inside the GOP
+run_vector_graph "testsrc2=size=176x144:rate=25:duration=0.4[a];smptebars=size=176x144:rate=25:duration=1.2[b];[a][b]concat=n=2:v=1:a=0" \
+           nosc_grid_t4 176x144 40 testsrc2 "--keyint 16 --no-scenecut --no-open-gop --bframes 7 --ref 2 --crf 28 --aq 1 --cutree 1 --threads 4"
 # 2026-09-12: the deep window (phase 7 item 3, D3), an OPT-IN mode the
 # default path never takes. --bframes 15 is a mini-GOP of 16 under a
 # five-level pyramid: the first structure in this suite whose reorder
