@@ -1,10 +1,14 @@
-# The N265_* knob census (generated -- edit scripts/knob_census.py OVERRIDES, not this file)
+# The N265_* knob census
 
-Regenerate: `python3 scripts/knob_census.py`. CI check: `--check`.
+This file is generated. Edit the OVERRIDES table in `scripts/knob_census.py`, then regenerate with `python3 scripts/knob_census.py`. CI runs it with `--check`.
 
-Tier meanings: **default** = shipped behavior, the env is its escape; **instrument** = measurement machinery; **arm** = default-off gate or kept refuted arm -- kept deliberately because a refuted arm retains its re-pricing value.
+The tiers:
 
-In the default column, **presence** means the reader is a boolean: unset is off and any value arms it. **unset** means the value names a file or a string and unset is off. `= N265_X` means the default is another knob's resolved value.
+- default: shipped behavior. The env is its escape.
+- instrument: measurement machinery.
+- arm: a default-off gate or a refuted arm. I keep a refuted arm because it can be priced again.
+
+In the default column, "presence" means the reader is a boolean: unset is off and any value arms it. "unset" means the value names a file or a string, and unset is off. `= N265_X` means the default is another knob's resolved value.
 
 ## default (118)
 

@@ -594,18 +594,20 @@ def generate(knobs, instr_doc):
     for name, e in sorted(knobs.items()):
         tiers[tier_of(name, e["default"], instr_doc)].append((name, e))
     with open(OUT, "w") as f:
-        f.write("# The N265_* knob census (generated -- edit "
-                "scripts/knob_census.py OVERRIDES, not this file)\n\n"
-                "Regenerate: `python3 scripts/knob_census.py`. CI check: "
-                "`--check`.\n\nTier meanings: **default** = shipped behavior, "
-                "the env is its escape; **instrument** = measurement "
-                "machinery; **arm** = default-off gate or kept refuted arm -- "
-                "kept deliberately because a refuted arm retains its "
-                "re-pricing value.\n\nIn the default column, **presence** "
-                "means the reader is a boolean: unset is off and any value "
-                "arms it. **unset** means the value names a file or a "
-                "string and unset is off. `= N265_X` means the default is "
-                "another knob's resolved value.\n")
+        f.write("# The N265_* knob census\n\n"
+                "This file is generated. Edit the OVERRIDES table in "
+                "`scripts/knob_census.py`, then regenerate with "
+                "`python3 scripts/knob_census.py`. CI runs it with "
+                "`--check`.\n\nThe tiers:\n\n"
+                "- default: shipped behavior. The env is its escape.\n"
+                "- instrument: measurement machinery.\n"
+                "- arm: a default-off gate or a refuted arm. I keep a "
+                "refuted arm because it can be priced again.\n\n"
+                "In the default column, \"presence\" means the reader is a "
+                "boolean: unset is off and any value arms it. \"unset\" "
+                "means the value names a file or a string, and unset is "
+                "off. `= N265_X` means the default is another knob's "
+                "resolved value.\n")
         for tier in ("default", "instrument", "arm"):
             f.write(f"\n## {tier} ({len(tiers[tier])})\n\n")
             f.write("| knob | default | reader |\n|---|---|---|\n")

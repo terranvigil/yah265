@@ -2,11 +2,10 @@
 
 `--hw videotoolbox` encodes HEVC on the Mac's fixed-function engine through
 VideoToolbox, behind yah265's options. Those options map onto the hardware's
-settings as far as they go, and when the session opens the encoder names
-every one the hardware can't follow. yah265's scene-cut and keyframe
-interval still place the key frames. Because the stream is Apple's, the
-recon-match, conformance, determinism and parity checks don't apply to it
-and their rows never include it.
+settings as far as they go. When the session opens, the encoder names the
+options the hardware can't follow. yah265 still places the key frames.
+Because the stream is Apple's, the recon-match, conformance, determinism and
+parity checks don't apply to it.
 
 ## The mode and the session
 
@@ -104,7 +103,7 @@ ran the hardware at the average bitrate each encode reached. yah265's side
 is the release build at auto threads on the 18-core Mac. Each side ran three
 times and the table takes the median wall and CPU time. VMAF v1 scores both
 by the project's display rule. The [measurement
-CSV](data/hw-videotoolbox.csv) has every column and the [measuring
+CSV](data/hw-videotoolbox.csv) has the other columns. The [measuring
 script](../scripts/hw_measure.py) reproduces it.
 
 | clip | kbit/s | wall, hardware / yah265 | CPU, yah265 / hardware | VMAF v1, hardware minus yah265 | size, hardware / yah265 |
@@ -134,7 +133,7 @@ bits.
 
 | choice | why |
 |---|---|
-| default `--hw off` | `auto` would swap in a different encoder where every check in the tree assumes yah265's |
+| default `--hw off` | `auto` would swap in a different encoder where the checks in the tree assume yah265's |
 | hardware only, never VideoToolbox's software encoder | the mode exists for the hardware's CPU savings. Without the hardware, yah265's own encoder is the software path |
 | the option in the library's parser | the CLI and the ffmpeg wrapper take it the same way with no change to the wrapper |
 | yah265's scene-cut and interval place the key frames | the two streams cut the same way because the key frames fall where the software encoder's do |
