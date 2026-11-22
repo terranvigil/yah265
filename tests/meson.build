@@ -171,3 +171,11 @@ unit_hdr_dyn = executable('unit_hdr_dyn',
   ['unit/hdr_dyn_test.c', '../cli/hdr_dyn.c'],
   include_directories : include_directories('../cli'))
 test('hdr_dyn', unit_hdr_dyn)
+
+# Live control (src/encoder/ctl.c): every refusal code, the struct
+# versioning, the landing frames and submission-time independence,
+# through the public API on a synthetic clip.
+unit_ctl = executable('unit_ctl', 'unit/ctl_test.c',
+  include_directories : include_directories('../cli'),
+  dependencies : yah265_dep)
+test('ctl', unit_ctl, timeout : 120)
