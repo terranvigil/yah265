@@ -133,7 +133,7 @@ For streaming, this is the mode I'd pick. The quality holds until a hard scene w
 y265 in.y4m -o out.hevc --bitrate 3000 --vbv-maxrate 4500 --vbv-bufsize 6000
 ```
 
-Set the peak above the target so the encoder has room to spend on hard scenes. Results shows [how close each title came to its target and how fast it ran](results.md#vbr).
+Set the peak above the target so the encoder has room to spend on hard scenes. [Results](results.md#vbr) shows how close each title came to its target and how fast it ran.
 
 
 ### CBR
