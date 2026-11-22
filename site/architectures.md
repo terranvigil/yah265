@@ -11,9 +11,9 @@ On this page "2x faster" means half the wall time for a file of the same size.
 
 ## Where the speed comes from
 
-An encoder's speed has three layers. The test set times each one.
+An encoder's speed comes from its algorithm, its threading and its SIMD. The test set times each one.
 
-The first layer is the algorithm: how few candidates the encoder has to try. A run on one thread in plain C measures it alone. Threading is the second layer. The third is SIMD, short for single instruction, multiple data, where one instruction does the same arithmetic on many samples at once. The small hot functions that use it are called kernels. A typical one sums the differences between two blocks.
+The algorithm decides how few candidates the encoder has to try. A run on one thread in plain C measures it alone. SIMD is short for single instruction, multiple data: one instruction does the same arithmetic on many samples at once. The small hot functions that use it are called kernels. A typical one sums the differences between two blocks.
 
 <figure class="chart wide">
 <img src="assets/charts/internals/machines.svg" alt="Dot plot of how many times faster yah265 is than x265 at the same file size, in three panels: one thread in plain C, then all cores in plain C, then all cores with SIMD. Each panel has nine rows for picture size and clip length. Each row has a marker for each of three machines. All the markers are to the right of the 1x line.">
@@ -56,7 +56,7 @@ The binary holds all the tiers it was built with. At startup it asks the CPU and
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 304" role="img" aria-label="How a kernel is picked at run time">
 <title>How a kernel is picked at run time</title>
-<desc>Two ladders. On x86-64 the rungs from the bottom are plain C, SSE4.2, AVX2 and AVX-512. On arm64 they are plain C, NEON, NEON with the dot product extension, and SVE or SVE2. At startup the encoder reads what the CPU has, and each kernel runs on the highest rung it has a version for. The setting N265_CPU_MAX stops both ladders at a chosen rung, and N265_ASM_OFF=all sends all kernels back to plain C.</desc>
+<desc>Two ladders. On x86-64 the rungs from the bottom are plain C, SSE4.2, AVX2 and AVX-512. On arm64 they are plain C, NEON, NEON with the dot product extension, and SVE or SVE2. At startup the encoder reads what the CPU has. Each kernel runs on the highest rung it has a version for. The setting N265_CPU_MAX stops both ladders at a chosen rung. N265_ASM_OFF=all sends all kernels back to plain C.</desc>
 <text class="d-text" x="130" y="30" text-anchor="middle">x86-64</text>
 <rect class="d-fill" x="40" y="206" width="180" height="42" rx="6"/>
 <text class="d-label" x="130" y="224" text-anchor="middle">plain C</text>
@@ -106,7 +106,7 @@ The binary holds all the tiers it was built with. At startup it asks the CPU and
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 522" role="img" aria-labelledby="arch-pick-n-t arch-pick-n-d">
 <title id="arch-pick-n-t">How a kernel is picked at run time</title>
-<desc id="arch-pick-n-d">Two ladders. On x86-64 the rungs from the bottom are plain C, SSE4.2, AVX2 and AVX-512. On arm64 they are plain C, NEON, NEON with the dot product extension, and SVE or SVE2. At startup the encoder reads what the CPU has, and each kernel runs on the highest rung it has a version for. The setting N265_CPU_MAX stops both ladders at a chosen rung, and N265_ASM_OFF=all sends all kernels back to plain C.</desc>
+<desc id="arch-pick-n-d">Two ladders. On x86-64 the rungs from the bottom are plain C, SSE4.2, AVX2 and AVX-512. On arm64 they are plain C, NEON, NEON with the dot product extension, and SVE or SVE2. At startup the encoder reads what the CPU has. Each kernel runs on the highest rung it has a version for. The setting N265_CPU_MAX stops both ladders at a chosen rung. N265_ASM_OFF=all sends all kernels back to plain C.</desc>
 <text class="d-label" x="180" y="18" text-anchor="middle">At startup the encoder reads what the CPU has.</text>
 <text class="d-label" x="180" y="36" text-anchor="middle">Each kernel runs on the highest rung</text>
 <text class="d-label" x="180" y="54" text-anchor="middle">it has a version for.</text>
@@ -167,9 +167,9 @@ Two environment settings override the choice without changing a bit of the outpu
 | x86-64 | `c`, `sse42`, `avx2`, `avx512` |
 | arm64 | `c`, `neon`, `dotprod`, `i8mm`, `sve`, `sve2` |
 
-The pure-C results on this site were timed with `N265_ASM_OFF=all`, on the shipping binary with no rebuild.
+The pure-C results on this site were timed with `N265_ASM_OFF=all` on the shipping binary.
 
-A tier can need more than its name says. The AVX2 tier needs FMA3 and BMI2 as well as AVX2. The SSE4.2 tier needs SSSE3 and SSE4.1. SVE is detected on Linux only. No Apple CPU has it.
+A tier can need more than its name says. The AVX2 tier needs FMA3 and BMI2 as well as AVX2. The SSE4.2 tier needs SSSE3 and SSE4.1. SVE is detected on Linux only, since no Apple CPU has it.
 
 ## What SIMD buys
 
@@ -215,23 +215,23 @@ Each cell is the median over a size's short clips, then the slowest clip.
 
 yah265 stays ahead at both caps. AVX2 against AVX2 is the closest pairing, because x265 gains more from AVX2 than yah265 does. yah265 wrote the same stream at all three tiers on every clip.
 
-A capped Xeon isn't a real AVX2-only CPU, so wall times on one will differ. This test shows the ratio when both encoders use one instruction set.
+Wall times on a real AVX2-only CPU will differ from a capped Xeon's. This test shows the ratio when both encoders use one instruction set.
 
 ## How ARM and x86 differ
 
-The arm64 machines write the same streams as each other. A Graviton writes the Mac's stream byte for byte, apart from one title whose source frames were decoded differently on the cloud machine.
+A Graviton writes the Mac's stream byte for byte. The exception is one title whose source frames were decoded differently on the cloud machine.
 
 x86 writes a slightly different stream from arm64 at `medium`, because the compiler rounds some floating-point math differently there. I checked quality on x86 by running three rate ladders again. [By machine](results.md#by-machine) has the comparison. Within x86, the tiers write the same stream.
 
-The register widths differ too. NEON is always 128 bits wide. Each of the three x86 tiers has a fixed width of its own. SVE's width depends on the CPU, so the SVE kernels work at any width.
+The register widths differ too. NEON is always 128 bits wide. Each of the three x86 tiers has a fixed width of its own. Because SVE's width depends on the CPU, the SVE kernels work at any width.
 
-The last difference is where each tier can be tested. The Mac runs NEON natively. It runs the SSE4.2 and AVX2 builds under emulation, where their correctness checks can run. AVX-512 and SVE need real hardware. Those tiers were built, checked and timed on rented cloud machines.
+The last difference is where each tier can be tested. The Mac runs NEON natively. It runs the SSE4.2 and AVX2 builds under emulation, where their correctness checks can run. AVX-512 and SVE need real hardware. I tested those tiers on rented cloud machines.
 
 ## Why intrinsics
 
 The kernels are written with compiler intrinsics. An intrinsic is a C function that stands for one SIMD instruction. There are no assembly files.
 
-That choice gives this project three things. Because a kernel is C, the address and undefined-behavior sanitizers run on it like on any other code. One source file serves both bit depths, because the 10-bit library compiles the same file again with wider samples. A kernel also takes the same arguments on either architecture. One test can then hold each tier to the same C reference.
+Because a kernel is C, the address and undefined-behavior sanitizers run on it like on any other code. One source file serves both bit depths, because the 10-bit library compiles the same file again with wider samples. A kernel also takes the same arguments on either architecture. One test can then hold each tier to the same C reference.
 
 Each tier's files are compiled with that tier's instruction set switched on. Everything else is compiled for the baseline CPU. A kernel can then only be reached through the run-time check.
 

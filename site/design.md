@@ -5,11 +5,11 @@ description: How yah265 makes the choices the HEVC standard leaves open, from th
 
 # Design
 
-The HEVC standard defines a legal stream. Because it leaves the encoding to the encoder, this page covers how yah265 makes those choices. [The HEVC standard](hevc.md) explains the terms used here.
+The HEVC standard defines a legal stream and leaves the encoding to the encoder. This page covers how yah265 makes those choices. [The HEVC standard](hevc.md) explains the terms used here.
 
 ## Search order comes first
 
-HEVC moved most of an encoder's cost into search. A coding tree can split from 64x64 down to 8x8. Each node offers merge, motion search, 35 intra modes and a transform tree of its own. The pixel work per decoded sample stayed close to H.264's. So the order candidates are tried in, and how early the losers are dropped, is the heart of the design. I designed that first.
+HEVC moved most of an encoder's cost into search. A coding tree can split from 64x64 down to 8x8. Each node offers merge, motion search, 35 intra modes and a transform tree of its own. The pixel work per decoded sample stayed close to H.264's. The design rests on the order candidates are tried in and how early the losers are dropped. I designed that first.
 
 ## The pipeline
 
@@ -18,7 +18,7 @@ A frame passes through four stages. A reader thread takes it off the input. The 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 298" role="img" aria-label="The path a frame takes through yah265">
 <title>The path a frame takes through yah265</title>
-<desc>A reader thread hands frames to the lookahead, which keeps a small copy of each and estimates costs and motion. Frame decisions set each frame's type, QP plan and references and dispatch it to a shared worker pool in coding order. In the pool a frame's rows are encoded, deblocked, run through SAO and published, and one entropy pass per frame writes the stream. Published rows feed later frames' prediction, and the bits each frame used feed back to the frame decisions.</desc>
+<desc>A reader thread hands frames to the lookahead. The lookahead keeps a small copy of each and estimates costs and motion. Frame decisions set each frame's type, QP plan and references and dispatch it to a shared worker pool in coding order. In the pool a frame's rows are encoded, deblocked, run through SAO and published. One entropy pass per frame writes the stream. Published rows feed later frames' prediction. The bits each frame used feed back to the frame decisions.</desc>
 <rect class="d-box" x="20" y="30" width="140" height="44" rx="6"/>
 <text class="d-label" x="90" y="48.5" text-anchor="middle">Reader thread</text>
 <text class="d-label" x="90" y="64.5" text-anchor="middle">frames off the pipe</text>
@@ -57,7 +57,7 @@ A frame passes through four stages. A reader thread takes it off the input. The 
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 546" role="img" aria-labelledby="design-path-n-t design-path-n-d">
 <title id="design-path-n-t">The path a frame takes through yah265</title>
-<desc id="design-path-n-d">A reader thread hands frames to the lookahead, which keeps a small copy of each and estimates costs and motion. Frame decisions set each frame's type, QP plan and references and dispatch it to a shared worker pool in coding order. In the pool a frame's rows are encoded, deblocked, run through SAO and published, and one entropy pass per frame writes the stream. Published rows feed later frames' prediction, and the bits each frame used feed back to the frame decisions.</desc>
+<desc id="design-path-n-d">A reader thread hands frames to the lookahead. The lookahead keeps a small copy of each and estimates costs and motion. Frame decisions set each frame's type, QP plan and references and dispatch it to a shared worker pool in coding order. In the pool a frame's rows are encoded, deblocked, run through SAO and published. One entropy pass per frame writes the stream. Published rows feed later frames' prediction. The bits each frame used feed back to the frame decisions.</desc>
 <rect class="d-box" x="64" y="8" width="186" height="44" rx="6"/>
 <text class="d-label" x="157" y="26.5" text-anchor="middle">Reader thread</text>
 <text class="d-label" x="157" y="42.5" text-anchor="middle">frames off the pipe</text>
@@ -101,7 +101,7 @@ A frame passes through four stages. A reader thread takes it off the input. The 
 <figcaption>One thread makes the per-frame decisions. Everything inside the dashed box runs on the worker pool.</figcaption>
 </figure>
 
-The row is the unit of work. A row never waits for a whole frame. [Threading](threading.md) covers what it does wait for, how many frames are in flight and which outputs stay identical across runs.
+The row is the unit of work. A row never waits for a whole frame. [Threading](threading.md) covers what it does wait for and how many frames are in flight.
 
 The hot loops have vector versions for arm64 and x86-64 that the encoder picks at run time. Each one reproduces its C reference byte for byte. [Architectures](architectures.md) lists the instruction sets and what each was tested on.
 
@@ -115,20 +115,20 @@ So the test is exact equality. Every conformance encode goes through two indepen
 
 A frame passes through a lookahead queue before it's coded. The queue keeps a half-resolution copy of each frame, estimates costs on small blocks and remembers the motion search between each pair of frames. That one search feeds everything that needs motion before the real encode. It decides frame types, scene cuts and how many B-frames to run. It also drives weighted prediction and the propagation step that lowers the quantizer on blocks that later frames predict from.
 
-A scene cut has to be a jump in cost, not just one high value. The key frame period restarts at a cut, so a periodic key frame doesn't land right after one.
+The lookahead calls a scene cut only where the cost jumps. The key frame period restarts at a cut so that a periodic key frame doesn't follow right after one.
 
 The lookahead also recognizes two kinds of content that need different handling. A scroll in a screen recording defeats a search that expects small motion. So on screen content the encoder measures the scroll first and gives it to the motion search. Handheld footage of fine texture jitters from frame to frame. There the encoder spends more effort on each decision. [Content types](results.md#content-types) has the measurements for both.
 
-I swept the lookahead's depth on the test set instead of inheriting a number. The depths `medium` runs are in [the table below](#what-medium-does-at-each-size). [Lookahead depth](results.md#lookahead-depth) has the sweep.
+I swept the lookahead's depth on the test set. The depths `medium` runs are in [the table below](#what-medium-does-at-each-size). [Lookahead depth](results.md#lookahead-depth) has the sweep.
 
 ## Mode decision
 
-Each coding tree unit runs a staged decision. Merge and skip candidates go first. A block that's already coded well enough leaves there. A block size that survives gets one motion search for the whole block. A cheap Hadamard cost ranks the candidates. Only the winner pays for a full rate-distortion trial through the entropy coder's bit estimator.
+Each coding tree unit runs a staged decision. Merge and skip candidates go first. A block that's already coded well enough leaves there. A block size that survives gets one motion search for the whole block before a cheap Hadamard cost ranks the candidates. Only the winner pays for a full rate-distortion trial through the entropy coder's bit estimator.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 294" role="img" aria-label="The decision ladder for one block">
 <title>The decision ladder for one block</title>
-<desc>A funnel in three stages. The candidates enter at the top: merge candidates, one motion search per block size and the intra modes. Stage one tries merge and skip, and a block that is already coded well leaves there as a skip. Stage two ranks the survivors by a cheap Hadamard cost and drops the losers. Stage three gives one candidate a full rate-distortion trial, and the winner goes into the frame's records.</desc>
+<desc>A funnel in three stages. Merge candidates, one motion search per block size and the intra modes enter at the top. Stage one tries merge and skip. A block that is already coded well leaves there as a skip. Stage two ranks the survivors by a cheap Hadamard cost and drops the losers. Stage three gives one candidate a full rate-distortion trial. The winner goes into the frame's records.</desc>
 <polygon class="d-fill" points="115,40 545,40 500,96 160,96"/>
 <polygon class="d-fill" points="160,106 500,106 450,162 210,162"/>
 <polygon class="d-accent" points="210,172 450,172 415,228 245,228"/>
@@ -153,7 +153,7 @@ Each coding tree unit runs a staged decision. Merge and skip candidates go first
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 404" role="img" aria-labelledby="design-ladder-n-t design-ladder-n-d">
 <title id="design-ladder-n-t">The decision ladder for one block</title>
-<desc id="design-ladder-n-d">A funnel in three stages. The candidates enter at the top: merge candidates, one motion search per block size and the intra modes. Stage one tries merge and skip, and a block that is already coded well leaves there as a skip. Stage two ranks the survivors by a cheap Hadamard cost and drops the losers. Stage three gives one candidate a full rate-distortion trial, and the winner goes into the frame's records.</desc>
+<desc id="design-ladder-n-d">A funnel in three stages. Merge candidates, one motion search per block size and the intra modes enter at the top. Stage one tries merge and skip. A block that is already coded well leaves there as a skip. Stage two ranks the survivors by a cheap Hadamard cost and drops the losers. Stage three gives one candidate a full rate-distortion trial. The winner goes into the frame's records.</desc>
 <text class="d-label" x="180" y="20" text-anchor="middle">all candidates: merge candidates,</text>
 <text class="d-label" x="180" y="38" text-anchor="middle">one motion search per block size, intra modes</text>
 <line class="d-arrow" x1="180" y1="46" x2="180" y2="64"/>
@@ -247,34 +247,34 @@ Both gates ramp in with the planned quantizer so that the file size moves smooth
 
 ## Motion search
 
-Motion search answers one question per block: where in the reference picture does this block best come from? The answer is priced as well as matched. Each candidate vector is charged for the bits it would cost to write. A slightly worse match that's cheap to code can win.
+Motion search finds where in the reference picture each block best comes from. Each candidate vector is charged for the bits it would cost to write. A slightly worse match that's cheap to code can win.
 
 The search starts from the vectors the block's neighbors used, since those are the ones the decoder can nearly guess. From the best of them it walks whole-sample positions, then refines to half and quarter samples. Small pictures walk a unit diamond. From 720p up the walk is a hexagon that finishes with the diamond, because on large pictures with fine texture the diamond alone can stop at a poor match.
 
-At 4K each list has a second reference picture. A full search of it would double the work, so the second reference gets a short search around a few likely vectors.
+At 4K each list has a second reference picture. Because a full search of it would double the work, the second reference gets a short search around a few likely vectors.
 
-The search is never restricted to suit the threading. A vector may point anywhere the standard allows. The schedule waits for the reference rows it needs ([What a row waits for](threading.md#what-a-row-waits-for)).
+I didn't restrict the search to suit the threading. A vector may point anywhere the standard allows. The schedule waits for the reference rows the vector needs ([What a row waits for](threading.md#what-a-row-waits-for)).
 
 ## Transforms and quantization
 
 The transforms, intra prediction, the interpolation filters, deblocking and SAO are the specification's. Each has a C reference.
 
-The freedom is in the rounding. Rate-distortion optimized quantization (RDOQ) asks of each coefficient whether rounding it down saves more bits than it costs in distortion. yah265's version runs in one pass, with nothing tried and rolled back. At `medium` it runs once per coded block in the final encode. `slow` and `slower` run it in all decisions.
+The freedom is in the rounding. Rate-distortion optimized quantization (RDOQ) asks of each coefficient whether rounding it down saves more bits than it costs in distortion. yah265's version runs in one pass. At `medium` it runs once per coded block in the final encode. `slow` and `slower` run it in all decisions.
 
 ## Entropy coding
 
 One CABAC engine drives both the real coder and a fractional-bit estimator. The estimator prices coefficient decisions during the search. Signaling bits come from static tables.
 
-Each picture is coded as one slice with no wavefront substreams and no tiles. Those tools exist to let decoders and encoders work in parallel, at a cost in bitrate. Because yah265 gets its parallelism from the schedule, the stream pays nothing for it.
+Each picture is coded as one slice with no wavefront substreams and no tiles. Those tools let decoders and encoders work in parallel at a cost in bitrate. Because yah265 gets its parallelism from the schedule, the stream pays nothing for it.
 
 ## Rate control
 
-Rate control turns what you asked for into a quantizer for each block. yah265 covers fixed QP, CRF, ABR, VBR, CBR, capped CRF and two-pass. The [encoding guide](guide.md#pick-a-rate-mode) says when to use each.
+Rate control turns what you asked for into a quantizer for each block. The [encoding guide](guide.md#pick-a-rate-mode) says when to use each rate mode.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 290" role="img" aria-label="Which planner each rate mode uses">
 <title>Which planner each rate mode uses</title>
-<desc>Seven rate modes on the left feed three planners. Fixed QP uses the quantizer you gave. CRF, capped CRF and capped VBR use the quality planner, which sets a base QP from the lookahead's cost. ABR, CBR and the second pass of two-pass use the rate loop, which sets a QP from the bits spent so far. Capped CRF, capped VBR and CBR then pass through the buffer model. All paths end at the per-block offsets that set each block's QP.</desc>
+<desc>Seven rate modes on the left feed three planners. Fixed QP uses the quantizer you gave. CRF, capped CRF and capped VBR use the quality planner, where a base QP comes from the lookahead's cost. ABR, CBR and the second pass of two-pass use the rate loop, where a QP comes from the bits spent so far. Capped CRF, capped VBR and CBR then pass through the buffer model. All paths end at the per-block offsets that set each block's QP.</desc>
 <rect class="d-box" x="20" y="30" width="150" height="28" rx="6"/>
 <text class="d-label" x="95" y="48.5" text-anchor="middle">fixed QP</text>
 <line class="d-arrow d-muted" x1="170" y1="44" x2="228" y2="44"/>
@@ -322,7 +322,7 @@ Rate control turns what you asked for into a quantizer for each block. yah265 co
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 444" role="img" aria-labelledby="design-rate-n-t design-rate-n-d">
 <title id="design-rate-n-t">Which planner each rate mode uses</title>
-<desc id="design-rate-n-d">Seven rate modes on the left feed three planners. Fixed QP uses the quantizer you gave. CRF, capped CRF and capped VBR use the quality planner, which sets a base QP from the lookahead's cost. ABR, CBR and the second pass of two-pass use the rate loop, which sets a QP from the bits spent so far. Capped CRF, capped VBR and CBR then pass through the buffer model. All paths end at the per-block offsets that set each block's QP.</desc>
+<desc id="design-rate-n-d">Seven rate modes on the left feed three planners. Fixed QP uses the quantizer you gave. CRF, capped CRF and capped VBR use the quality planner, where a base QP comes from the lookahead's cost. ABR, CBR and the second pass of two-pass use the rate loop, where a QP comes from the bits spent so far. Capped CRF, capped VBR and CBR then pass through the buffer model. All paths end at the per-block offsets that set each block's QP.</desc>
 <rect class="d-box" x="8" y="8" width="112" height="28" rx="6"/>
 <text class="d-label" x="64" y="26.5" text-anchor="middle">fixed QP</text>
 <line class="d-arrow d-muted" x1="120" y1="22" x2="148" y2="22"/>
@@ -366,10 +366,10 @@ Rate control turns what you asked for into a quantizer for each block. yah265 co
 <text class="d-label" x="180" y="394.5" text-anchor="middle">Per-block offsets, then each block's QP</text>
 <text class="d-label" x="180" y="432" text-anchor="middle">shaded modes pass through the buffer model</text>
 </svg>
-<figcaption>Capped VBR sits with CRF on the quality planner. The buffer model only sees the modes that have a buffer.</figcaption>
+<figcaption>Capped VBR uses the quality planner, as CRF does. The buffer model only sees the modes that have a buffer.</figcaption>
 </figure>
 
-CRF plans a fractional base QP for each frame from the lookahead's cost estimate, on a scale that moves with the frame rate. Two per-block adjustments follow in all modes. Adaptive quantization shifts bits toward blocks where the eye sees errors. The lookahead's propagation step lowers the QP on blocks that later frames predict from.
+CRF plans a fractional base QP for each frame from the lookahead's cost estimate. Two per-block adjustments follow in all modes. Adaptive quantization shifts bits toward blocks where the eye sees errors. The lookahead's propagation step lowers the QP on blocks that later frames predict from.
 
 Chasing a bitrate frame by frame makes quality swing. So capped VBR plans by quality, like CRF, and corrects toward its target slowly.
 
@@ -379,11 +379,11 @@ A buffer adds a hard limit that planning alone can't guarantee. While a picture 
 
 ## References
 
-One engine handles the reference picture sets and the decoded picture buffer. The encoder builds its reference lists the way a decoder does, so the two can't disagree. B-frames are coded as a pyramid. Open GOP is the default. Periodic key frames are CRA pictures.
+One engine handles the reference picture sets and the decoded picture buffer. Because the encoder builds its reference lists the way a decoder does, the two can't disagree. B-frames are coded as a pyramid. Open GOP is the default. Periodic key frames are CRA pictures.
 
 ## What medium does at each size
 
-The results on this site were read at `medium`, the default preset. It changes with the picture, because a choice that pays at 4K can cost quality at CIF.
+The results on this site were measured at `medium`, the default preset. It changes with the picture, because a choice that pays at 4K can cost quality at CIF.
 
 | picture | coding tree | lookahead | whole-sample search | references per list | chroma QP offset | dark psy strength |
 |---|---|---|---|--:|--:|--:|
@@ -408,10 +408,10 @@ The quality results on this site are scored with VMAF v1. Several of `medium`'s 
 
 - Two decoders decode each conformance encode. Both must match the encoder's own pictures, as [Validating the bitstream](#validating-the-bitstream) describes.
 - Two runs at `--threads 1` must give the same bytes. Across thread counts a mismatch is reported as a warning.
-- Each SIMD kernel is tested against its C reference by a tool called checkasm, under AddressSanitizer too.
+- A tool called checkasm tests each SIMD kernel against its C reference.
 - A change that alters the output gets a setting that turns it off. With it off, the output must match the previous commit byte for byte.
 - A change that loses quality or speed doesn't ship.
 
 ## Written from the specification
 
-The encoder is written from the ITU-T H.265 specification. Published papers supplied the algorithms. Two reference decoders check the streams. The command line uses x265's option names for the features both encoders share. The [encoding guide](guide.md#left-out-on-purpose) lists the options it refuses. The [contribution rules](CONTRIBUTING.md) have the full policy.
+I wrote the encoder from the ITU-T H.265 specification and took the algorithms from published papers. Two reference decoders check the streams. The command line uses x265's option names for the features both encoders share. The [encoding guide](guide.md#left-out-on-purpose) lists the options yah265 refuses. The [contribution rules](CONTRIBUTING.md) have the full policy.

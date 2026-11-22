@@ -5,7 +5,7 @@ description: How yah265 spreads an encode over many cores, what a row of blocks 
 
 # Threading
 
-yah265 uses all the cores by default. This page explains how the work is divided, what limits it and which outputs repeat from run to run. [Design](design.md#the-pipeline) has the pipeline this page takes apart.
+yah265 uses all the cores by default. This page explains how the work is divided, what limits it and which outputs repeat from run to run. [Design](design.md#the-pipeline) has the pipeline.
 
 ## Rows are the unit of work
 
@@ -13,7 +13,7 @@ One shared pool of worker threads runs the whole encode. `--threads` sets its si
 
 The unit of work is a row of coding tree units. A frame becomes three tasks per row: encode the row, deblock it, then run SAO and publish the finished row for other frames to predict from. One more task per frame does the entropy coding. It writes the bits from the decisions the rows recorded.
 
-Keeping the entropy coder out of the rows keeps the stream simple. HEVC has optional tools that make a stream easier to code in parallel, at a cost in bitrate. yah265 writes one slice per picture with none of them. Because the entropy passes of different frames don't depend on each other, they run in parallel as ordinary pool work.
+Keeping the entropy coder out of the rows keeps the stream simple. HEVC has optional tools that make a stream easier to code in parallel at a cost in bitrate. yah265 writes one slice per picture with none of them. Because the entropy passes of different frames don't depend on each other, they run in parallel as ordinary pool work.
 
 Inside a frame, a block needs its left, upper and upper-right neighbors to be finished. Each row therefore trails the row above it by two coding tree units.
 
@@ -182,12 +182,12 @@ Inside a frame, a block needs its left, upper and upper-right neighbors to be fi
 
 ## What a row waits for
 
-A row in a P or B frame predicts from other frames. It can start as soon as each reference frame has finished the rows its motion search can reach. That reach is fixed by geometry: the search range, the fractional-sample step and the length of the interpolation filter.
+A row in a P or B frame predicts from other frames. It can start as soon as each reference frame has finished the rows its motion search can reach. The search range and the length of the interpolation filter set that reach.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 274" role="img" aria-label="Rows of three frames in flight, and what a row waits for">
 <title>Rows of three frames in flight, and what a row waits for</title>
-<desc>Three frames side by side, each drawn as six rows with a bar for how far each row has been coded. The first frame is a reference and is nearly done. The second predicts from the first and has four rows under way, each trailing the row above. The third predicts from both and has just started. The block being coded in the second frame is joined to an outlined band of three rows in the first frame, the rows its motion search can reach. A block in the third frame is joined to a band of two rows in the second.</desc>
+<desc>Three frames side by side, each drawn as six rows with a bar for how far each row has been coded. The first frame is a reference and is nearly done. The second predicts from the first and has four rows under way. Each trails the row above. The third predicts from both and has just started. The block being coded in the second frame is joined to an outlined band of three rows in the first frame. Those are the rows its motion search can reach. A block in the third frame is joined to a band of two rows in the second.</desc>
 <text class="d-label" x="120" y="46" text-anchor="middle">frame 1, a reference</text>
 <rect class="d-muted" x="20" y="60" width="200" height="25" rx="0"/>
 <rect class="d-fill" x="20" y="60" width="200" height="25" rx="0"/>
@@ -235,7 +235,7 @@ A row in a P or B frame predicts from other frames. It can start as soon as each
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 490" role="img" aria-labelledby="thr-rows-n-t thr-rows-n-d">
 <title id="thr-rows-n-t">Rows of three frames in flight, and what a row waits for</title>
-<desc id="thr-rows-n-d">Three frames, each drawn as six rows with a bar for how far each row has been coded. The first frame is a reference and is nearly done. The second predicts from the first and has four rows under way, each trailing the row above. The third predicts from both and has just started. The block being coded in the second frame is joined to an outlined band of three rows in the first frame, the rows its motion search can reach. A block in the third frame is joined to a band of two rows in the second.</desc>
+<desc id="thr-rows-n-d">Three frames, each drawn as six rows with a bar for how far each row has been coded. The first frame is a reference and is nearly done. The second predicts from the first and has four rows under way. Each trails the row above. The third predicts from both and has just started. The block being coded in the second frame is joined to an outlined band of three rows in the first frame. Those are the rows its motion search can reach. A block in the third frame is joined to a band of two rows in the second.</desc>
 <rect class="d-muted" x="8" y="12" width="180" height="20" rx="0"/>
 <rect class="d-fill" x="8" y="12" width="180" height="20" rx="0"/>
 <rect class="d-muted" x="8" y="32" width="180" height="20" rx="0"/>
@@ -291,7 +291,7 @@ A row in a P or B frame predicts from other frames. It can start as soon as each
 
 Before a block reads a reference picture, the encoder checks that the rows it needs are done. If they aren't, the block waits and its worker takes other work.
 
-Another way is to limit how far down a motion vector may point. That costs quality, so I chose waiting instead.
+Another way is to limit how far down a motion vector may point. I chose waiting because the limit costs quality.
 
 ## Frames in flight
 
@@ -306,7 +306,7 @@ One frame can't keep a large pool busy, because only so many of its rows can run
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 350" role="img" aria-label="Twelve frames in flight, reference frames first">
 <title>Twelve frames in flight, reference frames first</title>
-<desc>A timeline with one bar per frame in coding order. The bars overlap, and at the marked moment all twelve are being coded at once. Frames that other frames predict from start first. The four B frames that nothing predicts from start last.</desc>
+<desc>A timeline with one bar per frame in coding order. The bars overlap. At the marked moment all twelve are being coded at once. Frames that other frames predict from start first. The four B frames that nothing predicts from start last.</desc>
 <text class="d-mono" x="96" y="55" text-anchor="end">P8</text>
 <rect class="d-accent" x="110" y="44" width="301.6" height="14" rx="3"/>
 <text class="d-mono" x="96" y="75" text-anchor="end">B4</text>
@@ -342,7 +342,7 @@ One frame can't keep a large pool busy, because only so many of its rows can run
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 370" role="img" aria-labelledby="thr-flight-n-t thr-flight-n-d">
 <title id="thr-flight-n-t">Twelve frames in flight, reference frames first</title>
-<desc id="thr-flight-n-d">A timeline with one bar per frame in coding order. The bars overlap, and at the marked moment all twelve are being coded at once. Frames that other frames predict from start first. The four B frames that nothing predicts from start last.</desc>
+<desc id="thr-flight-n-d">A timeline with one bar per frame in coding order. The bars overlap. At the marked moment all twelve are being coded at once. Frames that other frames predict from start first. The four B frames that nothing predicts from start last.</desc>
 <text class="d-mono" x="40" y="55" text-anchor="end">P8</text>
 <rect class="d-accent" x="48.0" y="44" width="168.3" height="14" rx="3"/>
 <text class="d-mono" x="40" y="75" text-anchor="end">B4</text>
@@ -379,20 +379,20 @@ One frame can't keep a large pool busy, because only so many of its rows can run
 <figcaption>A sketch of the schedule on a 64x64 tree, drawn to show the order. The bar lengths aren't measured.</figcaption>
 </figure>
 
-Two rules keep a deep queue moving. Frames that others predict from get workers first, since later frames are waiting on their rows. On wide pictures a row that catches up with the row above gives its worker to another row.
+Frames that others predict from get workers first, since later frames are waiting on their rows. On wide pictures a row that catches up with the row above gives its worker to another row.
 
 More frames in flight need more memory, because each one holds its own pictures.
 
 ## The lookahead and the driver
 
-One thread, the driver, prepares each frame before the pool can start on it. It feeds the lookahead, classifies flat and dark areas, builds the adaptive quantization field, analyzes weighted prediction and runs the propagation step that decides where later frames will look.
+One thread, the driver, prepares each frame before the pool can start on it. It feeds the lookahead and runs the per-frame analysis, such as the adaptive quantization field.
 
-All of that scales with the picture. At 4K a driver that did all of it alone would be slower than the pool. Workers would sit idle while they waited for the next frame. Above one thread the driver therefore cuts each of those steps into items that any free worker can take.
+All of that scales with the picture. At 4K a driver that did all of it alone would be slower than the pool. Workers would sit idle while they waited for the next frame. Above one thread the driver therefore splits each of those steps into items that any free worker can take.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 272" role="img" aria-label="The driver's per-frame analysis, alone and split over the pool">
 <title>The driver's per-frame analysis, alone and split over the pool</title>
-<desc>Two timelines of the work the driver does before it can dispatch a frame: the lookahead push, the flat census, the AQ field, the dark map, the weighted prediction analysis and the cu-tree. On one thread the six steps run end to end. With many threads each step is cut into items that free workers run beside the driver, so each step is shorter and the frame is dispatched sooner.</desc>
+<desc>Two timelines of the work the driver does before it can dispatch a frame: the lookahead push, the flat census, the AQ field, the dark map, the weighted prediction analysis and the cu-tree. On one thread the six steps run end to end. With many threads each step is split into items that free workers run beside the driver. Each step is shorter and the frame is dispatched sooner.</desc>
 <text class="d-label" x="20" y="34" text-anchor="start">one thread: the driver does each step alone</text>
 <rect class="d-box" x="20" y="44" width="134" height="34" rx="6"/>
 <text class="d-label" x="87" y="65.5" text-anchor="middle">push</text>
@@ -447,7 +447,7 @@ All of that scales with the picture. At 4K a driver that did all of it alone wou
 </svg>
 <svg class="d-narrow" viewBox="0 0 360 500" role="img" aria-labelledby="thr-split-n-t thr-split-n-d">
 <title id="thr-split-n-t">The driver's per-frame analysis, alone and split over the pool</title>
-<desc id="thr-split-n-d">Two timelines of the work the driver does before it can dispatch a frame: the lookahead push, the flat census, the AQ field, the dark map, the weighted prediction analysis and the cu-tree. On one thread the six steps run end to end. With many threads each step is cut into items that free workers run beside the driver, so each step is shorter and the frame is dispatched sooner.</desc>
+<desc id="thr-split-n-d">Two timelines of the work the driver does before it can dispatch a frame: the lookahead push, the flat census, the AQ field, the dark map, the weighted prediction analysis and the cu-tree. On one thread the six steps run end to end. With many threads each step is split into items that free workers run beside the driver. Each step is shorter and the frame is dispatched sooner.</desc>
 <text class="d-label" x="8" y="20" text-anchor="start">one thread: the driver</text>
 <text class="d-label" x="8" y="36" text-anchor="start">does each step alone</text>
 <text class="d-label" x="166" y="20" text-anchor="start">many threads: free</text>
@@ -506,19 +506,19 @@ All of that scales with the picture. At 4K a driver that did all of it alone wou
 <figcaption>The split changes when the analysis finishes. Because each sum is still added up in its old order, the results are the same numbers.</figcaption>
 </figure>
 
-The split isn't always a win. On small pictures the hand-off costs more than it saves, so each step times both ways and uses the faster one.
+On small pictures the hand-off costs more than it saves. Each step therefore times both ways and uses the faster one.
 
 ## Input
 
-Reading the source is work too. Above one thread a separate thread reads frames ahead into a small buffer so that a slow disk or a slow decoder upstream doesn't add its time to each frame. At `--threads 1` the read stays inline.
+Above one thread a separate thread reads frames ahead into a small buffer so that a slow disk or a slow decoder upstream doesn't add its time to each frame. At `--threads 1` the encoder reads each frame inline.
 
 ## What stays identical
 
-At `--threads 1`, two runs of the same command are promised to write the same bytes. A change has to pass a check of it before it merges.
+At `--threads 1`, two runs of the same command write the same bytes. I check that before a change merges.
 
-Above one thread, identical output is the aim but not a promise. It's checked, and a mismatch is a warning.
+Above one thread I aim for identical output but don't promise it. A mismatch in the check is a warning.
 
-Capped VBR is different by design. Above one thread its stream differs from the one-thread stream, for the reason in the next section.
+Under capped VBR the stream above one thread differs from the one-thread stream by design. [Rate control with frames in flight](#rate-control-with-frames-in-flight) has the reason.
 
 ## Rate control with frames in flight
 
@@ -532,7 +532,7 @@ Capped VBR doesn't wait. It plans each frame from the frames that have finished 
 
 `--gop-parallel <n>` is a different way to use cores. It cuts a long input at key frame periods. Several encoder instances share the threads to code the segments at once. The segments are joined at IDR pictures into one stream.
 
-It's off by default. The joined stream differs from the serial one and has no buffer timing messages. The option can't be combined with two-pass, zones or a QP file, among others that `--help` lists.
+It's off by default. The joined stream differs from the serial one and has no buffer timing messages. `--help` lists the options it can't be combined with, such as two-pass.
 
 ## Setting it yourself
 
@@ -544,7 +544,7 @@ It's off by default. The joined stream differs from the serial one and has no bu
 | `N265_READAHEAD_MB=0` | turn off the reader thread |
 | `N265_DRV_PAR=0` | keep the driver's analysis on the driver |
 
-The two environment settings move no bit of the output. They exist for timing one schedule against the other. The [encoding guide](guide.md#long-inputs-and-many-cores) has the advice on which to use.
+The two environment settings don't change the output. They exist for timing one schedule against the other. The [encoding guide](guide.md#long-inputs-and-many-cores) has the advice on which to use.
 
 ## Scaling with cores
 
