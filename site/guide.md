@@ -5,7 +5,7 @@ description: How to pick a rate mode, a preset and a thread count in yah265. It 
 
 # Encoding guide
 
-This page is for someone putting yah265 into a pipeline. Commands use `y265`, the project's own command line. The same options work from ffmpeg, as [From ffmpeg](#from-ffmpeg) shows. Most sections end with the options they used. Each option links to its row on [Options](options.md).
+This page is for someone putting yah265 into a pipeline. Commands use `y265`, the project's own command line. The same options work from ffmpeg, as [From ffmpeg](#from-ffmpeg) shows.
 
 ## Pick a rate mode
 
