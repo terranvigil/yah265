@@ -5,7 +5,7 @@ description: Short answers to the hard questions about yah265's comparison with 
 
 # A skeptic's questions
 
-These are the questions I'd ask if someone else published this site. Each short answer links to the data.
+These are the questions I'd ask if someone else published this site.
 
 ## Is this x265 with the names changed?
 
