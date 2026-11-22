@@ -34,7 +34,7 @@ scripts/build-ffmpeg.sh
 
 It needs git, a C compiler, Meson, Ninja, pkg-config and make. The new ffmpeg is at `build-ffmpeg/ffmpeg/ffmpeg`. Add `--with-x265` to build `libx265` into it too, for side-by-side tests. Because yah265 is GPL, the ffmpeg it builds is a GPL binary.
 
-Always pass a rate option. With none, the encoder runs a fixed-quantizer test mode.
+Always pass a rate option. Without one, the encoder runs a fixed-quantizer test mode.
 
 ## Results
 

@@ -147,7 +147,7 @@ That's the command you'd give x265. `out.mp4` plays in anything that plays HEVC.
 <figcaption>Everything else on the command line stays as it was.</figcaption>
 </figure>
 
-Always pass a rate option. With none, the encoder runs a fixed-quantizer test mode. For streaming I'd use capped CRF. It adds a peak rate and a buffer to the CRF command:
+Always pass a rate option. Without one, the encoder runs a fixed-quantizer test mode. For streaming I'd use capped CRF. It adds a peak rate and a buffer to the CRF command:
 
 ```sh
 ffmpeg -i in.mp4 -c:v libyah265 -preset medium -crf 25 -maxrate 4500k -bufsize 6000k out.mp4
