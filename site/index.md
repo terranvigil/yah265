@@ -60,7 +60,6 @@ To see both in motion, open the [comparison players](https://terranvigil.github.
 - Main, Main10, 4:4:4 and 4:2:2 [profiles](guide.md#set-the-bit-depth-and-profile) from one binary.
 - [HDR10, HDR10+, HLG and Dolby Vision profile 8](hdr.md).
 - [Shot-aware encoding](guide.md#planning-by-shot): a shot window, per-shot statistics and a script that prints each shot's convex hull.
-- [Low latency](guide.md#low-latency) for live: `--tune zerolatency` gives one frame of latency.
 - [Live control](guide.md#live-control): change the bitrate, CRF or key frames while an encode runs. [coming soon]
 - [Per-shot encoding](guide.md#planning-by-shot): a key frame and a quality setting for each shot, from one scan. [coming soon]
 - [SIMD](architectures.md) on arm64 and x86-64.
