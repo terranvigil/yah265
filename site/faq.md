@@ -15,7 +15,7 @@ No. I wrote yah265 from the ITU-T H.265 specification and from published papers.
 
 x265 4.3 at `--preset medium`. [How x265 was run](x265-run.md) includes the build and the command for each goal.
 
-## Is the headline cherry-picked?
+## Did you cherry-pick the results?
 
 No. It covers every CRF cell in the test set. Capped VBR and the content-type clips have their own tables. I didn't include cells that failed a [validity check](methodology.md#what-makes-a-number-valid).
 
@@ -33,7 +33,7 @@ I only claim `medium` against `medium`, the preset most people run. See the [gui
 
 ## Why time x265 without its assembly?
 
-Two of the three goals compare the algorithms with SIMD off on both sides. The headline uses only the third, where both encoders run as shipped.
+Two of the three goals compare the algorithms with SIMD off on both sides. The 1.8x figure uses only the third, where both encoders run as shipped.
 
 ## Did x265 get its tunes?
 
@@ -41,7 +41,7 @@ Neither encoder gets a `--tune`. yah265's `medium` detects screen recordings and
 
 ## Is it only fast on a Mac?
 
-No. The headline is the Mac's. yah265 also [leads on an Intel Xeon and on an AWS Graviton4](results.md#by-machine), where the same test set ran. On the Xeon I also held both encoders to AVX2, then to SSE4.2.
+No. The 1.8x and +1.23 figures are the Mac's. yah265 also [leads on an Intel Xeon and on an AWS Graviton4](results.md#by-machine), where the same test set ran. On the Xeon I also held both encoders to AVX2, then to SSE4.2.
 
 ## Does the average hide bad frames?
 

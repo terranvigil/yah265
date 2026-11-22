@@ -7,7 +7,7 @@ description: yah265 against x265 medium on speed, quality and file size, from CI
 
 The results on this page compare yah265 with x265 4.3 when both run at `--preset medium`.
 
-The first two rows are the headline. They cover the Mac's CRF encodes where the two files match in size within 1%.
+The first two rows are the main result. They cover the Mac's CRF encodes where the two files match in size within 1%.
 
 <!--gen:verdict-->
 | what was measured | result |
@@ -424,7 +424,7 @@ VBR has to hit its bitrate as well as look good. Each of yah265's rungs has to c
 
 ### VBR encode time
 
-Both encoders ran as shipped at the same target bitrate. I didn't include these timings in the headline. The second table shows how close each encoder came to the target.
+Both encoders ran as shipped at the same target bitrate. I didn't include these timings in the main result. The second table shows how close each encoder came to the target.
 
 <!--gen:vbr-machines-->
 | picture size | clip length | Mac | x86-64 | Graviton4 | cells |

@@ -32,7 +32,7 @@ A cell is one clip at one resolution. Each dot below is one cell timed on the Ma
 
 <figure class="chart"><img src="assets/blog/cells.svg" alt="Dots on an axis of times faster than x265. Each dot is one timed cell. The dots are in rows for CIF, 720p, 1080p and 4K. All the dots are right of the 1x line."><figcaption>The first table below lists each row's median.</figcaption></figure>
 
-These are the cells behind the headline, from ten-second clips to ten-minute films. In each one I adjusted yah265's CRF until its file matched x265's size. No dot is left of the x265 line. Capped VBR and the content-type clips have their own tables on the [results page](results.md#vbr).
+These are the encodes behind the 1.8x, from ten-second clips to ten-minute films. In each one I adjusted yah265's CRF until its file matched x265's size. No dot is left of the x265 line. Capped VBR and the content-type clips have their own tables on the [results page](results.md#vbr).
 
 ## Three goals and a quality limit
 
@@ -177,7 +177,7 @@ Parity on the Mac wasn't the finish line, because a parity claim has to hold on 
 
 ## The tables behind the charts
 
-### The cells behind the headline
+### Where the 1.8x comes from
 
 <!--gen:headline-table-->
 | size-matched cells on the Mac | count | median | slowest cell |
@@ -189,7 +189,7 @@ Parity on the Mac wasn't the finish line, because a parity claim has to hold on 
 | **all** | **30** | **1.8x faster** | Sintel 4K, 10 min, 1.52x faster |
 <!--/gen:headline-table-->
 
-All of these ran on the Mac at CRF with SIMD on all cores. In each one the two files are the same size within 1%. The VMAF v1 lead in the headline is the median over the same cells. yah265 scores higher on <!--gen:dv-cells-->29 of the 30<!--/gen:dv-cells--> of them.
+All of these ran on the Mac at CRF with SIMD on all cores. In each one the two files are the same size within 1%. The +1.23 VMAF v1 lead is the median over the same cells. yah265 scores higher on <!--gen:dv-cells-->29 of the 30<!--/gen:dv-cells--> of them.
 
 ### Each ten-minute film
 
@@ -300,7 +300,7 @@ The ladders ran on the Mac. Because Graviton4 writes the same streams as the Mac
 
 The Mac is an Apple M5 Max with 18 cores. The reference is x265 4.3. On all three machines both encoders ran at `medium` and read the same frames from one feeder on standard input.
 
-For each timed CRF encode, I adjusted yah265's CRF until its file was within 1% of x265's size. The headline covers only those encodes. Capped VBR has its own tables. x265 ran its default lookahead of 20 frames. yah265 ran its own `medium` default: 20 frames from 720p up and 12 at CIF.
+For each timed CRF encode, I adjusted yah265's CRF until its file was within 1% of x265's size. The main result covers only those encodes. Capped VBR has its own tables. x265 ran its default lookahead of 20 frames. yah265 ran its own `medium` default: 20 frames from 720p up and 12 at CIF.
 
 Quality is VMAF v1: Netflix's `vmaf_v1.0.16` models on libvmaf 3.x. It's scored at display size. A picture under 1080p is scaled up to fit 1920x1080 first. Each ten-minute film runs from the end of its black opening to the start of its end credits. The headline is the Mac's alone.
 

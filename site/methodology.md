@@ -97,7 +97,7 @@ Because G1 and G2 would take many hours at one thread on the 2-minute and 10-min
 | L | six open-licensed films at 720p, 1080p and 4K | 600 seconds from a recorded offset past the opening card, cut at the last frame before the end credits |
 | C | a film scan, sports and screen content | quality counts toward the verdict. Speed is only shown |
 
-The headline on the home page covers the size-matched CRF cells of tiers S, M and L on the Mac at G3. Capped VBR timings have their own table. Tier C's timings are reported with its quality.
+The main result on the home page covers the size-matched CRF cells of tiers S, M and L on the Mac at G3. Capped VBR timings have their own table. Tier C's timings are reported with its quality.
 
 The set has no held-out content, because the development clips were windows of these same titles.
 

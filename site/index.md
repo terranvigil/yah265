@@ -67,7 +67,7 @@ To see both in motion, open the [comparison players](https://terranvigil.github.
 
 ## Results in brief
 
-The first table splits the headline by picture size. It counts the clips where the two files match in size within 1%.
+The first table breaks the 1.8x down by picture size. It counts the clips where the two files match in size within 1%.
 
 <!--gen:pooled-table-->
 | size-matched cells on the Mac | count | median | slowest cell |

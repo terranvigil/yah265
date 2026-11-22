@@ -42,7 +42,7 @@ Always pass a rate option. Without one, the encoder runs a fixed-quantizer test 
 
 To see the difference, [watch the encodes side by side](https://terranvigil.github.io/yah265/compare.html).
 
-The table splits the headline by picture size. It counts the clips where the two files match in size within 1%.
+The table breaks the 1.8x down by picture size. It counts the clips where the two files match in size within 1%.
 
 <!--gen:pooled-table-->
 | size-matched cells on the Mac | count | median | slowest cell |
