@@ -308,7 +308,7 @@ A command line that would mislabel a dynamic format is refused before it writes 
 <figcaption>Static HDR10 metadata repeats at key frames so a player can join mid-stream. Dynamic metadata travels with each picture.</figcaption>
 </figure>
 
-## Dynamic metadata comes from a file
+## HDR10+ and Dolby Vision metadata
 
 HDR10+ and Dolby Vision describe the content scene by scene. yah265 doesn't measure that. The metadata comes from the grade, in the files the two common tools write:
 
