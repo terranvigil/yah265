@@ -64,12 +64,12 @@ To see both in motion, open the [comparison players](https://terranvigil.github.
 - Per-shot quality: a quality setting for each shot, from the same scan. [coming soon]
 - [Live control](guide.md#live-control): change the bitrate, CRF or key frames while an encode runs.
 - [`y265 bench`](bench.md): compare yah265 and x265 on your own clip at the same file size.
+- A [browser playground](playground/): try yah265 on your own clip without installing anything.
 - [SIMD](architectures.md) on arm64 and x86-64.
 - x265's [option names](options.md) for shared features.
 - Prebuilt installs: Homebrew, a Docker image and a static ffmpeg, with recipes for Jellyfin and Tdarr. [coming soon]
 - Target quality: ask for a VMAF score instead of a CRF. [coming soon]
 - Encode reports: one page per encode with bitrate, QP, shots and what yah265 detected. [coming soon]
-- A [browser playground](playground/): try yah265 on your own clip without installing anything.
 - Farm mode: split one encode across several machines. [coming soon]
 
 ## Results in brief
