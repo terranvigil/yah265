@@ -5,7 +5,7 @@ description: How yah265 makes the choices the HEVC standard leaves open, from th
 
 # Design
 
-The HEVC standard defines a legal stream and leaves the encoding to the encoder. This page covers how yah265 makes those choices. [The HEVC standard](hevc.md) explains the terms used here.
+The HEVC standard defines a legal stream and leaves the encoding to the encoder. This page covers how yah265 makes those choices. See [The HEVC standard](hevc.md) for the terms used here.
 
 ## Search order comes first
 
@@ -101,15 +101,15 @@ A frame passes through four stages. A reader thread takes it off the input. The 
 <figcaption>One thread makes the per-frame decisions. Everything inside the dashed box runs on the worker pool.</figcaption>
 </figure>
 
-The row is the unit of work. A row never waits for a whole frame. [Threading](threading.md) covers what it does wait for and how many frames are in flight.
+The row is the unit of work. A row never waits for a whole frame. See [Threading](threading.md) for what it does wait for and how many frames are in flight.
 
-The hot loops have vector versions for arm64 and x86-64 that the encoder picks at run time. Each one reproduces its C reference byte for byte. [Architectures](architectures.md) lists the instruction sets and what each was tested on.
+The hot loops have vector versions for [arm64 and x86-64](architectures.md) that the encoder picks at run time. Each one reproduces its C reference byte for byte.
 
 ## Validating the bitstream
 
 A stream is only useful when any decoder rebuilds the pictures the encoder believes it wrote. The encoder predicts each block from its own rebuilt pictures. If a decoder's picture differs by one sample, the blocks predicted from that sample inherit the error. The error then spreads from picture to picture until the next key picture.
 
-So the test is exact equality. Every conformance encode goes through two independent decoders, ffmpeg and libde265. Each decoder's output has to match, sample for sample, the rebuilt pictures that the encoder writes out under `--dump-recon`. I use two because a mistake that one decoder tolerates may fail in the other. [Check it yourself](check-it-yourself.md) shows how to run the same comparison on your own encode.
+So the test is exact equality. Every conformance encode goes through two independent decoders, ffmpeg and libde265. Each decoder's output has to match, sample for sample, the rebuilt pictures that the encoder writes out under `--dump-recon`. I use two because a mistake that one decoder tolerates may fail in the other. See [Check it yourself](check-it-yourself.md) to run the same comparison on your own encode.
 
 ## Lookahead
 
@@ -117,9 +117,9 @@ A frame passes through a lookahead queue before it's coded. The queue keeps a ha
 
 The lookahead calls a scene cut only where the cost jumps. The key frame period restarts at a cut so that a periodic key frame doesn't follow right after one.
 
-The lookahead also recognizes two kinds of content that need different handling. A scroll in a screen recording defeats a search that expects small motion. So on screen content the encoder measures the scroll first and gives it to the motion search. Handheld footage of fine texture jitters from frame to frame. There the encoder spends more effort on each decision. [Content types](results.md#content-types) has the measurements for both.
+The lookahead also recognizes [two kinds of content](results.md#content-types) that need different handling. A scroll in a screen recording defeats a search that expects small motion. So on screen content the encoder measures the scroll first and gives it to the motion search. Handheld footage of fine texture jitters from frame to frame. There the encoder spends more effort on each decision.
 
-I swept the lookahead's depth on the test set. The depths `medium` runs are in [the table below](#what-medium-does-at-each-size). [Lookahead depth](results.md#lookahead-depth) has the sweep.
+I [swept the lookahead's depth](results.md#lookahead-depth) on the test set. The depths `medium` runs are in [the table below](#what-medium-does-at-each-size).
 
 ## Mode decision
 
@@ -269,7 +269,7 @@ Each picture is coded as one slice with no wavefront substreams and no tiles. Th
 
 ## Rate control
 
-Rate control turns what you asked for into a quantizer for each block. The [encoding guide](guide.md#pick-a-rate-mode) says when to use each rate mode.
+Rate control turns what you asked for into a quantizer for each block. See the [encoding guide](guide.md#pick-a-rate-mode) for when to use each rate mode.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 290" role="img" aria-label="Which planner each rate mode uses">
@@ -375,7 +375,7 @@ Chasing a bitrate frame by frame makes quality swing. So capped VBR plans by qua
 
 A buffer adds a hard limit that planning alone can't guarantee. While a picture is being coded, the encoder coarsens it if it's about to overrun the buffer. As a last resort it codes blocks as skips.
 
-[VBR](results.md#vbr) has the rate-tracking and speed results. With several frames in flight the rate loop can't see all the earlier frames' sizes in time. [Threading](threading.md#rate-control-with-frames-in-flight) covers what that changes.
+See [VBR](results.md#vbr) for the rate-tracking and speed results. With [several frames in flight](threading.md#rate-control-with-frames-in-flight) the rate loop can't see all the earlier frames' sizes in time.
 
 ## References
 
@@ -414,4 +414,4 @@ The quality results on this site are scored with VMAF v1. Several of `medium`'s 
 
 ## Written from the specification
 
-I wrote the encoder from the ITU-T H.265 specification and took the algorithms from published papers. Two reference decoders check the streams. The command line uses x265's option names for the features both encoders share. The [encoding guide](guide.md#left-out-on-purpose) lists the options yah265 refuses. The [contribution rules](CONTRIBUTING.md) have the full policy.
+I wrote the encoder from the ITU-T H.265 specification and took the algorithms from published papers. Two reference decoders check the streams. The command line uses x265's option names for the features both encoders share. See the [encoding guide](guide.md#left-out-on-purpose) for the options yah265 refuses and the [contribution rules](CONTRIBUTING.md) for the full policy.

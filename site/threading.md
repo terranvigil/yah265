@@ -5,7 +5,7 @@ description: How yah265 spreads an encode over many cores, what a row of blocks 
 
 # Threading
 
-yah265 uses all the cores by default. This page explains how the work is divided, what limits it and which outputs repeat from run to run. [Design](design.md#the-pipeline) has the pipeline.
+yah265 uses all the cores by default. This page explains how the work is divided, what limits it and which outputs repeat from run to run. See [Design](design.md#the-pipeline) for the pipeline.
 
 ## Rows are the unit of work
 
@@ -518,7 +518,7 @@ At `--threads 1`, two runs of the same command write the same bytes. I check tha
 
 Above one thread I aim for identical output but don't promise it. A mismatch in the check is a warning.
 
-Under capped VBR the stream above one thread differs from the one-thread stream by design. [Rate control with frames in flight](#rate-control-with-frames-in-flight) has the reason.
+Under capped VBR the stream above one thread differs from the one-thread stream [by design](#rate-control-with-frames-in-flight).
 
 ## Rate control with frames in flight
 
@@ -544,7 +544,7 @@ It's off by default. The joined stream differs from the serial one and has no bu
 | `N265_READAHEAD_MB=0` | turn off the reader thread |
 | `N265_DRV_PAR=0` | keep the driver's analysis on the driver |
 
-The two environment settings don't change the output. They exist for timing one schedule against the other. The [encoding guide](guide.md#long-inputs-and-many-cores) has the advice on which to use.
+The two environment settings don't change the output. They exist for timing one schedule against the other. See the [encoding guide](guide.md#long-inputs-and-many-cores) for advice on which to use.
 
 ## Scaling with cores
 
