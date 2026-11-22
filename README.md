@@ -16,7 +16,7 @@
 
 <!--gen:headline-->On an Apple M5 Max, yah265 encodes a median 1.8x faster than x265 at the same file size. Its VMAF v1 score is a median 1.23 points higher. That's the median of 30 encodes, from short clips to ten-minute films, at CIF to 4K. Both encoders ran at preset medium with SIMD on all cores.<!--/gen:headline-->
 
-yah265 is a new HEVC encoder, written in C. It runs inside ffmpeg under the options you already use. Its sibling [yah264](https://terranvigil.github.io/yah264/) met the same goals against x264.
+yah265 is a new HEVC encoder written in C. It runs inside ffmpeg under the options you already use. Its sibling [yah264](https://terranvigil.github.io/yah264/) met the same goals against x264.
 
 ## Try it
 
@@ -98,7 +98,7 @@ Most video is a sequence of shots that each want different settings. yah265 give
 
 A shot window lets a CRF encode buffer up to a whole shot and balance its quality against the shots before it. It's off by default because it adds latency.
 
-Shot statistics write one JSON line per shot as the encode runs and leave the stream as it was. Each line has where the shot starts and ends, its bits, its frame types and its complexity. The hull script scores each shot of several encodes against the source. It prints each shot's convex hull, which a ladder builder picks rungs from.
+Shot statistics write one JSON line per shot as the encode runs. Each line has where the shot starts and ends, its bits, its frame types and its complexity. The hull script scores each shot of several encodes against the source. It prints each shot's convex hull, which a ladder builder picks rungs from.
 
 ```sh
 y265 in.y4m -o crf22.hevc --crf 22 --shot-stats crf22.jsonl
@@ -113,10 +113,10 @@ The [encoding guide](https://terranvigil.github.io/yah265/guide.html#planning-by
 
 The next work builds on the shot tools above, toward a full per-shot ladder:
 
-- **A key frame on each shot.** Each shot starts on its own key frame so that it can be seeked to, packaged or replaced alone.
-- **Per-shot quality in one pass.** Each shot gets its own quality setting from a scan of the source, with no trial encodes.
-- **Hulls across resolutions.** The hull script scores rungs at different resolutions against the source, on VMAF v1.
-- **A ladder search.** My [veo project](https://github.com/terranvigil/veo) runs the search itself over rungs, convex hull and VMAF. It uses yah265 as its encoder.
+- Each shot starts on its own key frame so that it can be seeked to, packaged or replaced alone.
+- Each shot gets its own quality setting in one pass, from a scan of the source with no trial encodes.
+- The hull script scores rungs at different resolutions against the source, on VMAF v1.
+- My [veo project](https://github.com/terranvigil/veo) runs the ladder search itself over rungs, convex hull and VMAF. It uses yah265 as its encoder.
 
 ## Documentation
 
