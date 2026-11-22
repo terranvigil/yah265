@@ -78,6 +78,8 @@ lib_sources = [
   'src/encoder/preset.c',
   'src/encoder/config.c',
   'src/encoder/encoder.c',
+  'src/encoder/ctl.c',
+  'cli/ctl_log.c',
   'src/encoder/ttrace.c',
   'src/hw/vt_map.c',
   'src/hw/sc.c',
