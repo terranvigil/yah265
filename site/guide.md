@@ -109,7 +109,7 @@ A rate mode decides what stays fixed: the quality, the bitrate or the size.
 <figcaption>Start from whether the bitrate is set for you.</figcaption>
 </figure>
 
-Bitrates are in kbit/s, buffer sizes in kbit. Whenever you give a buffer, the stream describes it in HRD parameters and buffering period SEI so a decoder or a packager can check it.
+Bitrates are in kbit/s, buffer sizes in kbit. When you give a buffer, the stream signals it so a packager can check it.
 
 ### CRF
 
@@ -125,7 +125,7 @@ The CRF scale is yah265's own. A number that suited x265 gives a different size 
 y265 in.y4m -o out.hevc --crf 23 --vbv-maxrate 4500 --vbv-bufsize 6000
 ```
 
-For streaming, this is the mode I'd pick. The quality holds until a hard scene would overflow the buffer. The encoder then coarsens that scene to fit. Plan for two things. You still can't predict the file size, because the cap bounds the peak without bounding the total. A `--crf-max` set too low for the buffer asks for an underflow. The encoder reports one at the end of the run.
+For streaming, this is the mode I'd pick. The quality holds until a hard scene would overflow the buffer. The encoder then coarsens that scene to fit. The cap limits the peak rate, not the file size. If `--crf-max` is set too low for the buffer, the buffer can underflow. The encoder reports that at the end of the run.
 
 ### Capped VBR
 
@@ -133,7 +133,7 @@ For streaming, this is the mode I'd pick. The quality holds until a hard scene w
 y265 in.y4m -o out.hevc --bitrate 3000 --vbv-maxrate 4500 --vbv-bufsize 6000
 ```
 
-Set the peak above the target so the encoder has room to spend on hard scenes. Results shows [how close each title came to its target and how fast it ran](results.md#vbr). Above one thread this mode writes a different stream from `--threads 1`, as [Long inputs and many cores](#long-inputs-and-many-cores) explains.
+Set the peak above the target so the encoder has room to spend on hard scenes. Results shows [how close each title came to its target and how fast it ran](results.md#vbr).
 
 
 ### CBR
@@ -184,11 +184,11 @@ The command prints the resolved configuration and exits without encoding.
 
 For the rate, a streaming encode usually wants [capped CRF](#capped-crf) or [capped VBR](#capped-vbr). What's left to decide is where the key frames fall, because a player seeks to a key frame and a packager cuts its segments at one.
 
-A key frame arrives every 250 frames by default, and at each scene cut. Between anchors, up to seven B-frames sit in a pyramid. The lookahead shortens a run where motion is high.
+A key frame arrives every 250 frames by default, and at each scene cut. Up to seven B-frames run between P-frames, fewer where motion is high.
 
-By default the periodic key frame is a CRA with an open GOP. The B-frames just before it, its leading pictures, may predict across it to save bits. A player that seeks to the CRA drops them. Packagers that need closed segments can ask for an IDR instead.
+By default key frames use an open GOP, which saves bits. If your packager needs closed segments, pass `--no-open-gop`.
 
-How far the encoder looks ahead is also its latency in frames. Weighted prediction for fades is on in P slices from `medium` up.
+The lookahead depth is also the latency in frames.
 
 <figure class="diagram">
 <svg class="d-wide" viewBox="0 0 720 256" role="img" aria-labelledby="gop-t gop-d"><title id="gop-t">What each GOP option controls</title><desc id="gop-d">A row of frames in display order. An IDR key frame starts it, then runs of three B-frames between P anchors. Three dashed B-frames, the leading pictures, sit just before a CRA key frame. Labels name the option behind each part: --bframes over a B run, --rc-lookahead over the newest frames, --ref on an arrow from a P frame back to the key frame, --no-open-gop and --radl at the CRA, and --keyint under the span from one key frame to the next.</desc><defs><marker id="gop-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-head" d="M0 0 L10 5 L0 10 z"/></marker></defs><rect class="d-accent" x="20" y="100" width="32" height="40" rx="4"/><text class="d-label" x="36.0" y="124.5" text-anchor="middle">IDR</text><rect class="d-box" x="56" y="100" width="32" height="40" rx="4"/><text class="d-label" x="72.0" y="124.5" text-anchor="middle">B</text><rect class="d-box" x="92" y="100" width="32" height="40" rx="4"/><text class="d-label" x="108.0" y="124.5" text-anchor="middle">B</text><rect class="d-box" x="128" y="100" width="32" height="40" rx="4"/><text class="d-label" x="144.0" y="124.5" text-anchor="middle">B</text><rect class="d-fill" x="164" y="100" width="32" height="40" rx="4"/><text class="d-label" x="180.0" y="124.5" text-anchor="middle">P</text><rect class="d-box" x="200" y="100" width="32" height="40" rx="4"/><text class="d-label" x="216.0" y="124.5" text-anchor="middle">B</text><rect class="d-box" x="236" y="100" width="32" height="40" rx="4"/><text class="d-label" x="252.0" y="124.5" text-anchor="middle">B</text><rect class="d-box" x="272" y="100" width="32" height="40" rx="4"/><text class="d-label" x="288.0" y="124.5" text-anchor="middle">B</text><rect class="d-fill" x="308" y="100" width="32" height="40" rx="4"/><text class="d-label" x="324.0" y="124.5" text-anchor="middle">P</text><text class="d-text" x="362" y="125" text-anchor="middle">…</text><rect class="d-muted" x="390" y="100" width="32" height="40" rx="4" style="stroke-dasharray:4 3"/><text class="d-label" x="406.0" y="124.5" text-anchor="middle">B</text><rect class="d-muted" x="426" y="100" width="32" height="40" rx="4" style="stroke-dasharray:4 3"/><text class="d-label" x="442.0" y="124.5" text-anchor="middle">B</text><rect class="d-muted" x="462" y="100" width="32" height="40" rx="4" style="stroke-dasharray:4 3"/><text class="d-label" x="478.0" y="124.5" text-anchor="middle">B</text><rect class="d-accent" x="498" y="100" width="32" height="40" rx="4"/><text class="d-label" x="514.0" y="124.5" text-anchor="middle">CRA</text><rect class="d-box" x="534" y="100" width="32" height="40" rx="4"/><text class="d-label" x="550.0" y="124.5" text-anchor="middle">B</text><rect class="d-box" x="570" y="100" width="32" height="40" rx="4"/><text class="d-label" x="586.0" y="124.5" text-anchor="middle">B</text><rect class="d-box" x="606" y="100" width="32" height="40" rx="4"/><text class="d-label" x="622.0" y="124.5" text-anchor="middle">B</text><rect class="d-fill" x="642" y="100" width="32" height="40" rx="4"/><text class="d-label" x="658.0" y="124.5" text-anchor="middle">P</text><path class="d-line" d="M56 92 V86 H160 V92"/><text x="56" y="76" text-anchor="start"><tspan class="d-mono">--bframes</tspan><tspan class="d-label"> B-frames between anchors</tspan></text><path class="d-line" d="M390 92 V86 H494 V92"/><text class="d-label" x="390" y="76">leading pictures</text><path class="d-line" d="M534 54 V48 H674 V54"/><text x="674" y="36" text-anchor="end"><tspan class="d-mono">--rc-lookahead</tspan><tspan class="d-label"> frames read ahead, also the latency</tspan></text><path class="d-arrow" d="M180 141 Q108 182 36 141" marker-end="url(#gop-ah)"/><text x="108" y="192" text-anchor="middle"><tspan class="d-mono">--ref</tspan><tspan class="d-label"> references per list</tspan></text><path class="d-line" d="M514 141 V156 H400"/><text x="400" y="172" text-anchor="start"><tspan class="d-mono">--no-open-gop</tspan><tspan class="d-label"> an IDR instead, a closed segment</tspan></text><text x="400" y="192" text-anchor="start"><tspan class="d-mono">--radl</tspan><tspan class="d-label"> some leading pictures stay decodable</tspan></text><path class="d-line" d="M36 216 V222 H514 V216"/><text x="275" y="242" text-anchor="middle"><tspan class="d-mono">--keyint</tspan><tspan class="d-label"> key frame to key frame, 250 by default; a scene cut starts a new one</tspan></text></svg>
@@ -255,7 +255,7 @@ yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8. A stream that says 
 
 By default the encoder starts one worker per online CPU. Above one thread it also reads its input on a separate thread to keep a slow source from stalling the workers.
 
-What's promised is repeatability at one thread: two runs of one command write the same bytes. Identity across thread counts is checked and reported. Capped VBR is different by design. Because its rate control works with several frames in flight above one thread, it writes a different stream from the one-thread encode. [Threading](threading.md#what-stays-identical) has the details.
+At `--threads 1`, two runs of one command write the same bytes. With more threads that isn't promised. [Threading](threading.md#what-stays-identical) has the details.
 
 A long input can also be coded as segments on several encoder instances at once, then joined at key frames:
 
@@ -271,7 +271,7 @@ The joined stream differs from the serial one and has no HRD timing. [Threading]
 
 ## Hardware encoding on a Mac
 
-On a Mac you can hand the encode to Apple's hardware. Your options carry over as far as the hardware allows, and the encoder lists the ones it can't follow before it starts. yah265's scene-cut detection still decides where the key frames go. The hardware uses a fraction of the CPU and usually less time. At the same bitrate it scores lower, by about four VMAF v1 points at the median. With `auto`, the encoder uses its own path when the hardware isn't there.
+On a Mac you can hand the encode to Apple's hardware. The encoder lists any options the hardware can't follow before it starts. The hardware uses a fraction of the CPU and usually less time. At the same bitrate it scores lower, by about four VMAF v1 points at the median. With `--hw auto`, the encoder uses its own path when the hardware isn't there.
 
 ```sh
 y265 in.y4m -o out.hevc --hw videotoolbox --crf 26
@@ -302,17 +302,17 @@ y265 in.y4m -o out.hevc --crf 23 --zones 0,239,q=30/1200,1439,b=1.5
 
 Zones count in display order. No two may overlap.
 
-A QP file forces frame types and QPs frame by frame. It takes key frames and intra frames but refuses a P or B type, because the B-frame run belongs to the lookahead.
+A QP file forces frame types and QPs frame by frame. It can force key frames and intra frames, but not P or B frames.
 
-Two pairs of bounds hold the rate control inside a range. One pair bounds the frame quantizer in any mode. The other bounds the rate factor of a CRF encode.
+`--qpmin` and `--qpmax` limit the quantizer in any mode. `--crf-min` and `--crf-max` limit a CRF encode.
 
 <p class="optchips"><span><a href="options.md#steering-an-encode-by-frame">Options</a></span> <a href="options.md#opt-zones"><code>--zones</code></a> <a href="options.md#opt-qpfile"><code>--qpfile</code></a> <a href="options.md#opt-qpmin"><code>--qpmin</code></a> <a href="options.md#opt-qpmax"><code>--qpmax</code></a> <a href="options.md#opt-crf-min"><code>--crf-min</code></a> <a href="options.md#opt-crf-max"><code>--crf-max</code></a></p>
 
 ### Planning by shot
 
-Two tools work on whole shots. Both are opt-in, because the default encoder never looks further ahead than its lookahead.
+Two tools work on whole shots. Both are opt-in.
 
-A shot window buffers frames so a CRF encode can plan a whole shot against the shots before it. No other rate mode takes one. The window costs its length in frames of latency, because the encoder holds that many more source pictures in memory. The window stays off because, in my own test on multi-shot sequences, the little bitrate it saved came with quality less even from one shot to the next.
+A shot window lets a CRF encode plan a whole shot at a time. It works only with CRF and adds latency. It's off by default: in my tests it saved little bitrate and made quality less even from shot to shot.
 
 Shot statistics are one JSON line per shot: where it starts and ends, its bits, its frame types and its complexity. A ladder builder can use them to pick a rate per shot. The stream is the same with them on.
 
@@ -320,9 +320,9 @@ Shot statistics are one JSON line per shot: where it starts and ends, its bits, 
 
 ## Identification marks
 
-Each stream has an SEI message that names the encoder, its version, its license and the options the run resolved. Because it holds no clock, no path and no thread count, one command writes one message on any machine. `--no-info` drops it.
+Each stream has an SEI message that names the encoder, its version, its license and the options the run resolved. `--no-info` drops it.
 
-The stream also has a fingerprint that survives when the SEI is stripped. In a few places HEVC lets an encoder write the same motion two ways at the same cost in bits. yah265 picks between them by a fixed rule. The mark costs no bits and changes no picture. The [fingerprint design note](docs/stream-fingerprint.md) says how to read it back.
+The stream also has a fingerprint that survives when the SEI is stripped. It costs no bits and doesn't change the picture. The [fingerprint design note](docs/stream-fingerprint.md) says how to read it back.
 
 <p class="optchips"><span><a href="options.md#stream-structure-and-sei">Options</a></span> <a href="options.md#opt-no-info"><code>--no-info</code></a> <a href="options.md#opt-no-fingerprint"><code>--no-fingerprint</code></a></p>
 
@@ -332,7 +332,7 @@ Settings named `N265_*` in the environment reach tuning parameters the command l
 
 ## From ffmpeg
 
-`libyah265` hands its options to the same parser `y265` uses. An encode from ffmpeg therefore resolves the way the same command line would.
+ffmpeg's options map onto `y265`'s:
 
 | ffmpeg | `y265` | note |
 |---|---|---|
@@ -350,7 +350,7 @@ Settings named `N265_*` in the environment reach tuning parameters the command l
 | `-color_range pc` | `--range full` | |
 | `-yah265-params` | any other coding option | names without the dashes, joined by colons |
 
-Pass `-crf`, because with no rate option the encode is fixed QP 26. That isn't what x265 does with no rate option.
+Always pass a rate option such as `-crf`. Without one the encode is fixed QP 26, which isn't what x265 does.
 
 `-yah265-params` takes the long name of any option on the [Options](options.md) page:
 
@@ -359,7 +359,7 @@ ffmpeg -i in.mp4 -c:v libyah265 -preset medium -crf 25 \
   -yah265-params rc-lookahead=30:no-open-gop out.mp4
 ```
 
-A switch takes no value, or `1` or `0`. A value with a colon in it can't go through the list. `dhdr10-info` and `dolby-vision-rpu` are refused there because they read files. An HDR10+ or Dolby Vision encode therefore goes through `y265`.
+A switch takes no value, or `1` or `0`. HDR10+ and Dolby Vision need `y265`, because their metadata options don't work through `-yah265-params`.
 
 The pixel format picks the bit depth. 4:2:0, 4:2:2 and 4:4:4 work at 8 and 10 bits. `-pix_fmt yuv420p10le` codes 8-bit content as Main10.
 

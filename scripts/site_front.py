@@ -661,7 +661,6 @@ def main():
         "hdr-tuning-table": hdr_tuning_table(hdr),
         "hdr-ladder-table": hdr_ladder_table(hdr),
         "options": opts,
-        "options-build": f"{nopt} entries",
     }
     n_all = sum(v[1] for d in cm.values() for v in d.values())
     charts = bc.render({"home-hero.svg": lambda: chart_hero(pl),

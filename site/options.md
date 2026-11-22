@@ -5,7 +5,7 @@ description: The options of the y265 command line, grouped by what they're for, 
 
 # Options
 
-This page lists every option `y265` takes, in <!--gen:options-build-->103 entries<!--/gen:options-build-->. The option names and arguments come from the encoder's own `--help`. A [script](scripts/site_front.py) fails its check when this page and the help disagree. From ffmpeg, the same names go through `-yah265-params` without the dashes, as the guide's [From ffmpeg](guide.md#from-ffmpeg) section shows.
+This page lists the options `y265` takes. The names and arguments come from the encoder's own `--help`. From ffmpeg, the same names go through `-yah265-params` without the dashes, as the guide's [From ffmpeg](guide.md#from-ffmpeg) section shows.
 
 Many switches also take a `--no-` form that turns them off. "The preset's" means the default depends on `--preset` and sometimes on the picture size. Run `y265 --show-config` with your input to see what a run resolves to. The [encoding guide](guide.md) explains how the options fit together.
 
