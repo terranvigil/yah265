@@ -17,7 +17,7 @@ x265 4.3 at `--preset medium`. [How x265 was run](x265-run.md) includes the buil
 
 ## Is the headline cherry-picked?
 
-No. It covers every CRF cell in the test set that was timed on the Mac as shipped, provided its two files match in size within 1%. Capped VBR has its own tables because its files share a target bitrate where the headline cells share a size. The content-type clips are timed in their own table beside their quality. A cell that breaks a validity rule is marked in the report and stays out of the statistics. [The methodology](methodology.md#what-makes-a-number-valid) has the rules.
+No. It covers every CRF cell in the test set. Capped VBR has its own tables because its files share a target bitrate where the headline cells share a size. The content-type clips are timed in their own table beside their quality. I didn't include cells that break a validity rule. [The methodology](methodology.md#what-makes-a-number-valid) has the rules.
 
 ## You tuned for the metric you score with.
 

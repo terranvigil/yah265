@@ -430,7 +430,7 @@ VBR has to hit its bitrate as well as look good. The bar puts each rung of yah26
 
 ### VBR encode time
 
-VBR speed is read at G3 only. Each real-title cell runs one rung at the bitrate x265 reached at CRF 28. The maxrate and buffer are set as in the ladders. These timings stay out of the headline because the two files share a target bitrate where the headline cells share a size. The second table shows how close each encoder came to the target.
+VBR speed is read at G3 only. Each real-title cell runs one rung at the bitrate x265 reached at CRF 28. The maxrate and buffer are set as in the ladders. I didn't include these timings in the headline, because the two files share a target bitrate where the headline cells share a size. The second table shows how close each encoder came to the target.
 
 <!--gen:vbr-machines-->
 | class | tier | Mac | x86-64 | Graviton4 | cells |

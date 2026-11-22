@@ -300,7 +300,7 @@ The ladders ran on the Mac. Graviton4's quality is the Mac's, because it writes 
 
 On the Mac both encoders ran on one Apple M5 Max with 18 cores, where the reference is the Homebrew build of x265 4.3 with its arm64 assembly. The cloud boxes built x265 4.3 from its release tarball with clang. On all three machines both encoders ran at `medium`. They read the same frames from one feeder on standard input.
 
-For a timed CRF reading, yah265 is solved onto x265's file size within 1%. The headline covers only those cells. The capped VBR cells stay out of it because they're timed at one shared target bitrate without being solved to match. x265 ran its default lookahead of 20 frames. yah265 ran its own `medium` default: 20 frames from 720p up and 12 at CIF.
+For a timed CRF reading, yah265 is solved onto x265's file size within 1%. The headline covers only those cells. I didn't include the capped VBR cells, because they're timed at one shared target bitrate without being solved to match. x265 ran its default lookahead of 20 frames. yah265 ran its own `medium` default: 20 frames from 720p up and 12 at CIF.
 
 Quality is VMAF v1: Netflix's `vmaf_v1.0.16` models on libvmaf 3.x. It's scored at display size. A picture under 1080p is scaled up to fit 1920x1080 first, CIF included. The ladders score all frames of the two-minute segments and one frame in three of the films. Each ten-minute film runs from the end of its black opening to the start of its end credits. Because cloud wall times are reported apart from the Mac's, the headline is the Mac's alone.
 

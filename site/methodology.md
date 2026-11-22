@@ -159,4 +159,4 @@ A cell counts only when five things hold:
 - the sizes matched within 1%
 - each run's output md5 was printed
 
-A cell that fails one of these is marked with the reason in the report. Its number stays out of the class statistics.
+A cell that fails one of these is marked with the reason in the report. I didn't include its number in the class statistics.
