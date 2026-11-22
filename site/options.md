@@ -184,7 +184,8 @@ Many switches also take a `--no-` form that turns them off. "The preset's" means
 | <span id="opt-ssim"></span>`--ssim` | off | Report SSIM on luma at the end of the run. |
 | <span id="opt-csv"></span>`--csv <file>` | none | Write run statistics to a CSV file. |
 | <span id="opt-csv-log-level"></span>`--csv-log-level <0\|1\|2>` | `0` | `0` writes one row for the run, `1` adds a row per frame, `2` adds the rate control's columns. |
-| <span id="opt-frame-stats"></span>`--frame-stats <file>` | none | Write one JSON line per coded frame. A frame where a live control event took effect also lists that event. The stream doesn't change. |
+| <span id="opt-frame-stats"></span>`--frame-stats <file>` | none | Write one JSON line per coded frame. A frame where a live control event took effect also lists that event. Each line also says what the encoder detected, such as scene cuts, screen content and handheld jitter. The stream doesn't change. |
+| <span id="opt-report"></span>`--report <file>` | none | Write an HTML report of the encode, with bitrate, QP, frame types, shots, the buffer and the detections. It runs `encode_report.py`, which needs python3. Thumbnails need ffmpeg. The stream doesn't change. |
 | <span id="opt-verbose"></span>`--verbose, -v` | off | Print the resolved configuration at the start of the encode. |
 | <span id="opt-show-config"></span>`--show-config` | off | Print the resolved configuration and exit without encoding. |
 | <span id="opt-version"></span>`--version` |  | Print the version. |
