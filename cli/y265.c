@@ -2516,6 +2516,9 @@ typedef struct {
     char buf[8192];
     size_t len;
     FILE *out;
+    /* applied events for --control-out, written sorted by named frame */
+    struct ctl_rec { int64_t frame; char text[256]; } *rec;
+    int nrec, crec;
 } ctl_cli;
 
 static void ctl_from_log(const n265_api *a, const struct ctl_log_event *l,
@@ -2720,18 +2723,48 @@ static void ctl_drain(ctl_cli *c)
         for (int i = 0; i < 16; i++)
             c->a->control_init(&ev[i], 0);
         n = c->a->controls_applied(c->enc, ev, 16);
-        for (int i = 0; i < n && c->out; i++) {
-            if (ev[i].applied_frame < 0)
-                continue;
+        for (int i = 0; i < n; i++) {
             struct ctl_log_event l;
             char line[256];
             ctl_to_log(&ev[i], &l);
             ctl_log_format(&l, line, sizeof line);
-            fprintf(c->out, "%s\n", line);
+            if (ev[i].applied_frame < 0) {
+                fprintf(stderr, "y265: control \"%s\" never landed: the "
+                        "stream ended first\n", line);
+                continue;
+            }
+            if (!c->out)
+                continue;
+            if (c->nrec == c->crec) {
+                int nc = c->crec ? 2 * c->crec : 64;
+                struct ctl_rec *r = realloc(c->rec, (size_t)nc * sizeof *r);
+                if (!r)
+                    continue;
+                c->rec = r;
+                c->crec = nc;
+            }
+            c->rec[c->nrec].frame = ev[i].frame;
+            memcpy(c->rec[c->nrec++].text, line, sizeof line);
         }
     } while (n == 16);
-    if (c->out)
-        fflush(c->out);
+}
+
+/* Application order can run backwards in frame (a rate event lands at a
+ * later anchor than a key named after it), and --control wants frames
+ * that never decrease: a stable sort by named frame keeps the order of
+ * events on one frame, which is all a replay reads. */
+static int ctl_write_out(ctl_cli *c)
+{
+    for (int i = 1; i < c->nrec; i++)
+        for (int k = i; k > 0 && c->rec[k].frame < c->rec[k - 1].frame; k--) {
+            struct ctl_rec t = c->rec[k];
+            c->rec[k] = c->rec[k - 1];
+            c->rec[k - 1] = t;
+        }
+    for (int i = 0; i < c->nrec; i++)
+        fprintf(c->out, "%s\n", c->rec[i].text);
+    free(c->rec);
+    return fclose(c->out);
 }
 
 int main(int argc, char **argv)
@@ -3072,7 +3105,7 @@ int main(int argc, char **argv)
         a->set_csv(enc, csv_path, csv_level);
     if (o.fstats_path)
         a->set_frame_stats(enc, o.fstats_path);
-    ctl_cli cc = { a, enc, o.ctl_fd, 0, 0, { 0 }, 0, NULL };
+    ctl_cli cc = { a, enc, o.ctl_fd, 0, 0, { 0 }, 0, NULL, NULL, 0, 0 };
     if (o.ctl_path) {
         int r = ctl_submit_file(&cc, o.ctl_path, &cfile);
         free(cfile.ev);
@@ -3175,7 +3208,7 @@ int main(int argc, char **argv)
         for (int i = 0; i < nnal; i++)
             fwrite(nal[i].payload, 1, (size_t)nal[i].size, fout);
     }
-    if (cc.out && fclose(cc.out) != 0) {
+    if (cc.out && ctl_write_out(&cc) != 0) {
         fprintf(stderr, "y265: write failed: %s\n", o.ctl_out_path);
         return 1;
     }
