@@ -1,4 +1,4 @@
-# y265 0.0.1, release build 3b063215
+# y265 0.0.1, release build 6122236b
 usage: y265 [options] <input.y4m|input.yuv|->
        y265 bench <video> [options]   compare with x265 on your clip
 
@@ -95,7 +95,10 @@ Rate control
 
 Structure
   --keyint <n>          maximum key frame interval (default 250). A scene cut
-                        restarts the count.
+                        restarts the count, except under --no-scenecut.
+  --no-scenecut         key frames only on frames 0, keyint, 2*keyint and so
+                        on. A scene cut places none, so the rungs of a ladder
+                        line up. --scenecut is the default.
   --shot-scan <file>    scan the input for shots and write a shot list, then
                         exit. The scan runs at one size, so every resolution
                         of a source gets the same list.

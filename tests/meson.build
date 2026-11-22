@@ -186,3 +186,9 @@ unit_ctl = executable('unit_ctl', 'unit/ctl_test.c',
   include_directories : include_directories('../cli'),
   dependencies : yah265_dep)
 test('ctl', unit_ctl, timeout : 120)
+
+# --no-scenecut: key frames on the --keyint grid only, at two sizes, with
+# the qpfile and live-control keys still landing (synthetic multi-shot clip)
+unit_scenecut = executable('unit_scenecut', 'unit/scenecut_test.c',
+  dependencies : yah265_dep)
+test('scenecut', unit_scenecut, timeout : 120)

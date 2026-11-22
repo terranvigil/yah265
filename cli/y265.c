@@ -1111,7 +1111,10 @@ static void usage(FILE *out)
         "\n"
         "Structure\n"
         "  --keyint <n>          maximum key frame interval (default 250). A scene cut\n"
-        "                        restarts the count.\n"
+        "                        restarts the count, except under --no-scenecut.\n"
+        "  --no-scenecut         key frames only on frames 0, keyint, 2*keyint and so\n"
+        "                        on. A scene cut places none, so the rungs of a ladder\n"
+        "                        line up. --scenecut is the default.\n"
         "  --shot-scan <file>    scan the input for shots and write a shot list, then\n"
         "                        exit. The scan runs at one size, so every resolution\n"
         "                        of a source gets the same list.\n"
@@ -2126,7 +2129,8 @@ static int gp_place(gp_job *j, const unsigned char *cut, int b)
 
 static int gp_run(const n265_api *a, y4m_t *y, const char *in_path,
                   const n265_param *p, int W,
-                  int T, int threads_arg, int keyint, long max_frames, int abr_on,
+                  int T, int threads_arg, int keyint, int key_grid,
+                  long max_frames, int abr_on,
                   double bitrate_kbps, int vbv_on, int repeat_hdr,
                   FILE *fout, FILE *fdump, int want_met, long *nframes,
                   double met[6], long *nmet, int *nseg_out, int *k_out,
@@ -2148,6 +2152,14 @@ static int gp_run(const n265_api *a, y4m_t *y, const char *in_path,
     j->nls = nls;
     if (nls)
         j->cuts = 1;
+    /* --no-scenecut: every segment starts on a keyint multiple, so each
+     * instance's own grid is the stream's */
+    if (key_grid && keyint > 0) {
+        j->cuts = 0;
+        j->L = j->L / keyint * keyint;
+        while (j->L < 16 || j->L < keyint)
+            j->L += keyint;
+    }
     long win = (long)((j->W + 1.5) * j->L);
     j->window = gp_env_int(getenv("N265_GOP_WINDOW"), (int)win);
     if (j->window < 2L * j->L)
@@ -3284,7 +3296,14 @@ int main(int argc, char **argv)
     const double vbv_bufsize = CFG("vbv-bufsize");
     const int hw = (int)CFG("hw");
     const int intra_refresh = (int)CFG("intra-refresh");
+    const int key_grid = !(int)CFG("scenecut");
 #undef CFG
+    if (key_grid && o.shot_list) {
+        fprintf(stderr, "y265: --shot-list puts a key frame on each listed "
+                "shot and --no-scenecut keeps them on the --keyint grid; "
+                "pick one\n");
+        return 2;
+    }
     const char *qpfile_path = a->config_get_str(cfg, "qpfile");
     const char *zones_spec = a->config_get_str(cfg, "zones");
     const char *h10p_path = a->config_get_str(cfg, "dhdr10-info");
@@ -3398,7 +3417,7 @@ int main(int argc, char **argv)
             double gmet[6] = { 0, 0, 0, 0, 0, 0 };
             int gseg = 0, gk = 0;
             int grc = gp_run(a, &y, fin != stdin ? in_path : NULL, &p,
-                             gop_par, (int)nt, threads, keyint,
+                             gop_par, (int)nt, threads, keyint, key_grid,
                              max_frames, bitrate > 0.0, bitrate, vbv_on,
                              repeat_hdr, gout, gdump, want_psnr || want_ssim,
                              &gn, gmet, &gnm, &gseg, &gk,

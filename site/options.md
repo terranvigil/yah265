@@ -68,8 +68,9 @@ Many switches also take a `--no-` form that turns them off. "The preset's" means
 
 | option | default | what it does |
 |---|---|---|
-| <span id="opt-keyint"></span>`--keyint <n>` | `250` | Longest gap between key frames. A scene cut restarts the count. |
-| <span id="opt-open-gop"></span><span id="opt-no-open-gop"></span>`--open-gop` | on | Code the periodic key frame as a CRA and keep the B-frames that straddle it. `--no-open-gop` writes an IDR there. A scene cut is an IDR either way. |
+| <span id="opt-keyint"></span>`--keyint <n>` | `250` | Longest gap between key frames. A scene cut restarts the count, except under `--no-scenecut`. |
+| <span id="opt-no-scenecut"></span><span id="opt-scenecut"></span>`--no-scenecut` | off | Put key frames only on frames 0, `--keyint`, twice `--keyint` and so on. A scene cut gets none. Every rung of a ladder then has its key frames on the same frames. `--scenecut` turns it back off. [More](guide.md#key-frames-for-streaming) |
+| <span id="opt-open-gop"></span><span id="opt-no-open-gop"></span>`--open-gop` | on | Code the periodic key frame as a CRA and keep the B-frames that straddle it. `--no-open-gop` writes an IDR there. A scene cut is an IDR either way. Under `--no-scenecut` it gets no key frame. |
 | <span id="opt-radl"></span>`--radl <n>` | `0` | How many of a CRA's leading pictures stay decodable when playback starts at that CRA. |
 | <span id="opt-intra-refresh"></span>`--intra-refresh` | off | No key frame after the first. A column of intra blocks sweeps the picture every `--keyint` frames, and a decoder can join at the start of any sweep. P-frames and 4:2:0 only. [More](guide.md#intra-refresh) |
 | <span id="opt-bframes"></span>`--bframes <0..15>` | `7` | B-frames between anchors, 0 to 15. Above 7, `--rc-lookahead` must be at least one more. |

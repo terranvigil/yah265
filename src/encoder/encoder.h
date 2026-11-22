@@ -1556,6 +1556,7 @@ struct n265_encoder {
     int *shotl;
     int shotl_n, shotl_on;
     int shot_keys;          /* --shot-keys: every detected cut is an IDR */
+    int key_grid;           /* --no-scenecut: keys only at multiples of keyint */
     int la_depth;
     /* How many frames the queue FILLS to before the driver dispatches:
      * `la_depth` at the default, `shot_window` where that is deeper. The

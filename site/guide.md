@@ -203,11 +203,35 @@ y265 in.y4m -o out.hevc --crf 23 --vbv-maxrate 4500 --vbv-bufsize 6000 \
   --keyint 120 --no-open-gop
 ```
 
-The key frame gap is the longest a segment can run. Because a scene cut starts a new count, key frames don't fall on a fixed grid. To put one on a frame you choose, list it in a QP file, as [Steering an encode](#steering-an-encode) describes.
+The key frame gap is the longest a segment can run. Because a scene cut starts a new count, key frames don't fall on a fixed grid. To put them on one, use `--no-scenecut`, as [Key frames for streaming](#key-frames-for-streaming) shows. To put one on a frame you choose, list it in a QP file, as [Steering an encode](#steering-an-encode) describes.
 
 Some receivers want more in the stream. One that joins mid-stream needs the parameter sets repeated at key frames. Others look for access unit delimiters or a recovery point message at each key frame.
 
 <p class="optchips"><span><a href="options.md#stream-structure-and-sei">Options</a></span> <a href="options.md#opt-repeat-headers"><code>--repeat-headers</code></a> <a href="options.md#opt-aud"><code>--aud</code></a> <a href="options.md#opt-idr-recovery-sei"><code>--idr-recovery-sei</code></a> <a href="options.md#opt-qpfile"><code>--qpfile</code></a></p>
+
+### Key frames for streaming
+
+An HLS or DASH player switches rungs at segment boundaries. Every rung of a ladder therefore needs its key frames on the same frames. With `--no-scenecut`, key frames fall only on frame 0, `--keyint`, twice `--keyint` and so on, at every resolution. The encoder still detects scene changes but puts no key frame on them. Add `--no-open-gop` too, because packagers want each segment to open on a closed GOP.
+
+Two-second segments at 24 fps:
+
+```sh
+y265 in.y4m -o out_1080p.hevc --crf 23 --vbv-maxrate 4500 --vbv-bufsize 6000 \
+  --keyint 48 --no-scenecut --no-open-gop
+```
+
+The same from ffmpeg:
+
+```sh
+ffmpeg -i in.mp4 -c:v libyah265 -crf 23 -maxrate 4500k -bufsize 6000k \
+  -yah265-params scenecut=0:keyint=48:no-open-gop out_1080p.mp4
+```
+
+A `K` line in a QP file and a live-control key frame still add a key frame where they say. Give every rung the same ones, or the rungs stop lining up.
+
+To line the rungs up on shot starts, pass `--shot-list` in place of `--no-scenecut`, as [Planning by shot](#planning-by-shot) describes.
+
+<p class="optchips"><span><a href="options.md#gop-and-references">Options</a></span> <a href="options.md#opt-no-scenecut"><code>--no-scenecut</code></a> <a href="options.md#opt-keyint"><code>--keyint</code></a> <a href="options.md#opt-no-open-gop"><code>--no-open-gop</code></a></p>
 
 ## Low latency
 
@@ -454,7 +478,6 @@ The pixel format picks the bit depth. 4:2:0, 4:2:2 and 4:4:4 work at 8 and 10 bi
 | `--psy-rd`, `--psy-rdoq` | yah265's perceptual tuning is built into its presets, so there's nothing to set |
 | x265's threading options | yah265 uses every core by default and needs no tuning. `--threads n` caps it at n |
 | analysis save and load | they let a bitrate ladder reuse one encode's analysis. The per-shot scan coming soon covers the same need |
-| a switch to turn off scene detection | the encoder always looks for scene changes |
 | Dolby Vision profile 5 | not supported yet. If you need it, [open an issue](https://github.com/terranvigil/yah265/issues) |
 | HEVC screen-content tools (SCC) | few decoders play SCC streams. yah265 gets its screen-recording gains inside the normal profiles, so any HEVC player can show them |
 | MV-HEVC (multiview, as in Apple's spatial video) | not supported yet. If you need it, [open an issue](https://github.com/terranvigil/yah265/issues) |
