@@ -127,6 +127,10 @@ Scoring runs at 10 bits. The model follows the picture:
 
 All frames are scored at the matched point. The ladders score all frames on the 2-minute segments and every third frame on the 10-minute films. The step is odd because an even one lines up with an encoder's B-frame pattern, which moved BD-rate by 1.3 to 6 points.
 
+### The frames shown side by side
+
+A script picks the frames on Results by a fixed rule. It scores each frame by the mean of the two encoders' VMAF v1, then takes the lowest frame in a low-scoring shot. To place the crop, it measures both encodes against the reference block by block. The crop is the window where their losses differ most. The reference is a near-transparent copy of the source.
+
 ## The limits
 
 | what | limit |

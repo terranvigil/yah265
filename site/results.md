@@ -291,7 +291,7 @@ Scores aside, you can just look at the two encodes. The clip is 90 seconds of Te
 
 The [comparison players](https://terranvigil.github.io/yah265-compare/) play both encodes in motion: 30 seconds of Nocturne in 4K, 30 seconds of Sparks at 1080p and a scrolling Wikipedia page. Each lets you switch encodes and jump to the frames where they differ most.
 
-A script picked these frames by a fixed rule. It scored each frame by the mean of the two encoders' VMAF v1, then took the lowest frame in a low-scoring shot. To place the crop, it measured both encodes against the reference block by block. The crop is the window where their losses differ most. The reference is a near-transparent copy of the source.
+A script picked the frames and crops by a fixed rule: low-scoring frames, cropped where the two encodes differ most. [Methodology](methodology.md#the-frames-shown-side-by-side) has the rule.
 
 ## The worst frames
 
