@@ -130,7 +130,7 @@ ffmpeg -i master.mov -pix_fmt yuv420p10le \
 
 `libyah265` writes the color flags from the tags on the frames ffmpeg hands it. A master that is already tagged PQ and BT.2020 needs no `setparams`. The filter is there for a source with missing tags. ffmpeg's `-color_primaries` and `-color_trc` flags didn't reach the encoder in the ffmpeg 8 build I tested.
 
-The mastering display and the light level reach the stream only through `-yah265-params`. Without it, ffmpeg writes those values to the MP4 container only, not to the stream.
+On a 10-bit PQ or HLG encode, `libyah265` takes the mastering display and the light level from the source. A value in `-yah265-params`, as in the example, replaces the source's.
 
 HDR10+ and Dolby Vision read metadata files. The parameter list refuses those two options. Encode HDR10+ and Dolby Vision with `y265`.
 
