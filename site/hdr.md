@@ -7,7 +7,7 @@ description: How yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8, ho
 
 yah265 writes HDR10, HDR10+, HLG and Dolby Vision profile 8 as Main 10 HEVC. Each one is a 10-bit stream with color flags that say how to read the samples. Most add metadata that tells a display how the pictures were graded. At `--preset medium` the transfer function also changes how the pictures are coded, as [Tuning for HDR](#tuning-for-hdr) describes.
 
-## What each format is made of
+## Formats
 
 | format | base stream | added to it |
 |---|---|---|
