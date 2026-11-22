@@ -5,6 +5,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <math.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -1468,6 +1469,7 @@ typedef struct gp_job {
     int nls;
     int relief;                 /* N265_GOP_RELIEF */
     int kcap;                   /* N265_GOP_K: frames in flight, at most */
+    void (*on_anchor)(int st, double lvl);  /* farm mode's segment 0 */
 } gp_job;
 
 /* --dhdr10-info and --dolby-vision-rpu, read at start-up and indexed from
@@ -2012,6 +2014,8 @@ static void *gp_worker(void *arg)
             if (ast) {
                 j->anchor_state = ast;
                 j->anchor = lvl;
+                if (j->on_anchor)
+                    j->on_anchor(ast, lvl);
             }
             if (!j->seek) {
                 free(j->frm[i]);
@@ -2044,6 +2048,9 @@ static void *gp_worker(void *arg)
             if (j->anchor_state == 0) {
                 j->anchor_state = ast > 0 ? 1 : -1;
                 j->anchor = lvl;
+                /* an aborted segment's level was never read */
+                if (j->on_anchor && !s->err)
+                    j->on_anchor(j->anchor_state, lvl);
             }
             pthread_cond_broadcast(&j->cv);
             pthread_mutex_unlock(&j->lock);
@@ -2150,16 +2157,14 @@ static int gp_place(gp_job *j, const unsigned char *cut, int b)
     return 1;
 }
 
-static int gp_run(const n265_api *a, y4m_t *y, const char *in_path,
-                  const n265_param *p, int W,
-                  int T, int threads_arg, int keyint, int key_grid,
-                  long max_frames, int abr_on,
-                  double bitrate_kbps, int vbv_on, int repeat_hdr,
-                  FILE *fout, FILE *fdump, int want_met, long *nframes,
-                  double met[6], long *nmet, int *nseg_out, int *k_out,
-                  const int *ls, int nls)
+/* the job's settings, shared by --gop-parallel and farm mode so the two
+ * cannot drift apart */
+static void gp_setup(gp_job *j, const n265_api *a, const y4m_t *y,
+                     const char *in_path, const n265_param *p, int W, int T,
+                     int keyint, int key_grid, int abr_on,
+                     double bitrate_kbps, int vbv_on, int repeat_hdr,
+                     int want_dump, int want_met, const int *ls, int nls)
 {
-    gp_job jb, *j = &jb;
     memset(j, 0, sizeof *j);
     j->a = a;
     j->g = a->depth == 10 ? &gp10 : &gp8;
@@ -2196,7 +2201,7 @@ static int gp_run(const n265_api *a, y4m_t *y, const char *in_path,
     j->abr = abr_on;
     j->vbv = vbv_on;
     j->repeat_hdr = repeat_hdr;
-    j->want_dump = fdump != NULL;
+    j->want_dump = want_dump;
     j->want_met = want_met;
     double fps = p->fps_den > 0 ? (double)p->fps_num / p->fps_den : 25.0;
     j->bpf = bitrate_kbps * 1000.0 / (fps > 0.0 ? fps : 25.0);
@@ -2215,6 +2220,21 @@ static int gp_run(const n265_api *a, y4m_t *y, const char *in_path,
               gp_seekable(y, &j->base, &j->rec, &j->total);
     if (getenv("N265_GOP_TRACE"))
         fprintf(stderr, "GOP,reader,%s\n", j->seek ? "seek" : "window");
+}
+
+static int gp_run(const n265_api *a, y4m_t *y, const char *in_path,
+                  const n265_param *p, int W,
+                  int T, int threads_arg, int keyint, int key_grid,
+                  long max_frames, int abr_on,
+                  double bitrate_kbps, int vbv_on, int repeat_hdr,
+                  FILE *fout, FILE *fdump, int want_met, long *nframes,
+                  double met[6], long *nmet, int *nseg_out, int *k_out,
+                  const int *ls, int nls)
+{
+    gp_job jb, *j = &jb;
+    gp_setup(j, a, y, in_path, p, W, T, keyint, key_grid, abr_on,
+             bitrate_kbps, vbv_on, repeat_hdr, fdump != NULL, want_met, ls,
+             nls);
 
     gp_sc sc;
     int sc_ok = j->cuts && !nls && gp_sc_init(&sc, y->w, y->h) == 0;
@@ -2969,6 +2989,281 @@ static int tv_report(tv_job *t, const char *out_path, long nframes)
     return rc;
 }
 
+/* ---------------------------------------------------------------------
+ * Farm mode: one --gop-parallel encode split over several machines.
+ *
+ * A coordinator (scripts/farm.py) asks a worker for the plan
+ * (--farm-plan: the segment table --gop-parallel would build), has
+ * workers code one segment each (--farm-seg) and concatenates their
+ * outputs in order. The plan is gp_place on the boundary detector's marks
+ * and a segment is coded by gp_worker itself, so the joined file is
+ * --gop-parallel's stream at the same threads per instance.
+ *
+ * The one thing a segment takes from another is the CRF opening level,
+ * published by segment 0. Its worker prints it on stderr the moment it is
+ * known, and every later segment is handed it with --farm-anchor. Under
+ * --bitrate one controller runs across segments, which farm mode
+ * refuses. */
+
+#define FARM_PROTO 1
+
+/* FNV-1a 64 of the running executable: workers write one stream only when
+ * they run the same build */
+static int farm_build_hash(uint64_t *h)
+{
+    char path[4096];
+#ifdef __APPLE__
+    uint32_t sz = sizeof path;
+    if (_NSGetExecutablePath(path, &sz) != 0)
+        return -1;
+#else
+    ssize_t n = readlink("/proc/self/exe", path, sizeof path - 1);
+    if (n <= 0)
+        return -1;
+    path[n] = 0;
+#endif
+    FILE *f = fopen(path, "rb");
+    if (!f)
+        return -1;
+    uint64_t x = 0xcbf29ce484222325ull;
+    unsigned char buf[1 << 16];
+    size_t got;
+    while ((got = fread(buf, 1, sizeof buf, f)) > 0)
+        for (size_t i = 0; i < got; i++)
+            x = (x ^ buf[i]) * 0x100000001b3ull;
+    int bad = ferror(f);
+    fclose(f);
+    *h = x;
+    return bad ? -1 : 0;
+}
+
+static int farm_hello(const n265_api *a)
+{
+    uint64_t h;
+    if (farm_build_hash(&h) != 0) {
+        fprintf(stderr, "y265: --farm-hello: cannot read the executable\n");
+        return 1;
+    }
+#if defined(__aarch64__) || defined(__arm64__)
+    const char *arch = "arm64";
+#elif defined(__x86_64__)
+    const char *arch = "x86_64";
+#else
+    const char *arch = "other";
+#endif
+    printf("y265-farm proto=%d version=%s build=%016llx arch=%s\n",
+           FARM_PROTO, a->version_str(), (unsigned long long)h, arch);
+    return 0;
+}
+
+/* the frames the encode covers */
+static long farm_frames(const gp_job *j, long max_frames)
+{
+    return max_frames >= 0 && max_frames < j->total ? max_frames : j->total;
+}
+
+/* --farm-plan: the segment table gp_run would build, on stdout */
+static int farm_plan(gp_job *j, y4m_t *y, long max_frames)
+{
+    gp_sc sc;
+    int sc_ok = j->cuts && !j->nls && gp_sc_init(&sc, y->w, y->h) == 0;
+    if (!sc_ok && !j->nls)
+        j->cuts = 0;
+    unsigned char *cut = NULL;
+    long cut_cap = 0, n = 0;
+    int b = 0, rc = 0, lk = 0;
+    for (;;) {
+        int r;
+        if (max_frames >= 0 && n >= max_frames)
+            r = 0;
+        else if (j->seek)
+            r = n < j->total;
+        else
+            r = y4m_read(y);
+        if (r < 0) {
+            fprintf(stderr, "y265: truncated input after frame %ld\n", n);
+            rc = 1;
+            break;
+        }
+        if (r > 0) {
+            if (n >= cut_cap) {
+                long nc = cut_cap ? 2 * cut_cap : 4096;
+                unsigned char *t = realloc(cut, (size_t)nc);
+                if (!t) {
+                    rc = 1;
+                    break;
+                }
+                memset(t + cut_cap, 0, (size_t)(nc - cut_cap));
+                cut = t;
+                cut_cap = nc;
+            }
+            if (j->nls) {
+                while (lk < j->nls && j->ls[lk] < n)
+                    lk++;
+                cut[n] = lk < j->nls && j->ls[lk] == n;
+            } else if (j->cuts) {
+                const void *lu = j->seek ? gp_scan_luma(j, y, n)
+                                         : (const void *)y->plane[0];
+                if (!lu) {
+                    fprintf(stderr, "y265: cannot read frame %ld\n", n);
+                    rc = 1;
+                    break;
+                }
+                cut[n] = (unsigned char)gp_sc_cut(&sc,
+                              gp_sc_push(&sc, lu, j->pw[0], j->bps));
+            }
+            n++;
+            j->n_read = n;
+        } else {
+            j->eof = 1;
+        }
+        while (!j->final && gp_place(j, cut, b))
+            if (j->nseg)
+                b = j->seg[j->nseg - 1]->end;
+        if (j->eof)
+            break;
+    }
+    if (!rc) {
+        printf("y265-farm-plan %d\nframes %ld\n", FARM_PROTO, n);
+        for (int k = 0; k < j->nseg; k++)
+            printf("seg %d %d %d\n", k, j->seg[k]->start, j->seg[k]->end);
+        rc = fflush(stdout) != 0;
+    }
+    for (int k = 0; k < j->nseg; k++)
+        free(j->seg[k]);
+    free(j->seg);
+    free(cut);
+    if (sc_ok)
+        gp_sc_free(&sc);
+    return rc;
+}
+
+static void farm_print_anchor(int st, double lvl)
+{
+    if (st > 0)
+        fprintf(stderr, "y265-farm: anchor %a\n", lvl);
+    else
+        fprintf(stderr, "y265-farm: anchor none\n");
+    fflush(stderr);
+}
+
+/* --farm-stdin-watch: the coordinator holds stdin open, and its end (a
+ * killed ssh, a dead coordinator) stops the segment */
+static void *farm_watch(void *arg)
+{
+    gp_job *j = arg;
+    char b[256];
+    for (;;) {
+        ssize_t k = read(0, b, sizeof b);
+        if (k > 0 || (k < 0 && errno == EINTR))
+            continue;
+        break;
+    }
+    pthread_mutex_lock(&j->lock);
+    j->abort_ = 1;
+    pthread_cond_broadcast(&j->cv);
+    pthread_mutex_unlock(&j->lock);
+    return NULL;
+}
+
+typedef struct farm_seg_arg {
+    int idx, nseg;
+    long start, end, total;
+} farm_seg_arg;
+
+/* IDX:START:END:NSEG:FRAMES */
+static int farm_seg_parse(const char *v, farm_seg_arg *f)
+{
+    int used = 0;
+    if (sscanf(v, "%d:%ld:%ld:%d:%ld%n", &f->idx, &f->start, &f->end,
+               &f->nseg, &f->total, &used) != 5 || v[used] ||
+        f->idx < 0 || f->idx >= f->nseg || f->start < 0 ||
+        f->end <= f->start || f->end > f->total || f->end > INT_MAX)
+        return -1;
+    return 0;
+}
+
+static int farm_anchor_parse(const char *v, int *st, double *lvl)
+{
+    if (!strcmp(v, "none")) {
+        *st = -1;
+        *lvl = 0.0;
+        return 0;
+    }
+    char *end;
+    *lvl = strtod(v, &end);
+    *st = 1;
+    return *v && !*end ? 0 : -1;
+}
+
+/* --farm-seg: code one segment as gp_run's instance would */
+static int farm_segment(gp_job *j, const farm_seg_arg *f, const char *anchor,
+                        int watch, const char *out_path)
+{
+    if (f->idx > 0 && !anchor) {
+        fprintf(stderr, "y265: --farm-seg %d needs --farm-anchor, which "
+                "segment 0 prints\n", f->idx);
+        return 2;
+    }
+    if (anchor && farm_anchor_parse(anchor, &j->anchor_state, &j->anchor)) {
+        fprintf(stderr, "y265: --farm-anchor is \"none\" or the hex float "
+                "segment 0 printed\n");
+        return 2;
+    }
+    int single = f->nseg == 1;
+    if (!single && j->vbv)
+        setenv("N265_VBV_HRD", "0", 1);
+    if (!single && j->kcap > 0) {
+        char kb[16];
+        snprintf(kb, sizeof kb, "%d", j->kcap);
+        setenv("N265_K_CAP", kb, 0);
+    }
+    /* segment idx sits at its own index: gp_worker reads it from there */
+    for (int k = 0; k <= f->idx; k++)
+        if (gp_seg_push(j, 0, 0, 1) != 0)
+            return 1;
+    for (int k = 0; k < f->idx; k++)
+        j->seg[k]->done = 1;
+    gp_seg *s = j->seg[f->idx];
+    s->start = (int)f->start;
+    s->end = (int)f->end;
+    s->has_next = f->idx < f->nseg - 1;
+    j->next = f->idx;
+    j->final = 1;
+    if (f->idx == 0)
+        j->on_anchor = farm_print_anchor;
+    pthread_t wt;
+    if (watch)
+        pthread_create(&wt, NULL, farm_watch, j);
+    gp_arg ga = { j };
+    gp_worker(&ga);
+    int rc = s->err || j->abort_;
+    if (rc && watch && j->abort_)
+        fprintf(stderr, "y265: --farm-seg %d stopped: stdin closed\n",
+                f->idx);
+    if (!rc) {
+        FILE *fo = strcmp(out_path, "-") ? fopen(out_path, "wb") : stdout;
+        if (!fo || (s->sz && fwrite(s->buf, 1, s->sz, fo) != s->sz) ||
+            (fo == stdout ? fflush(fo) : fclose(fo)) != 0) {
+            fprintf(stderr, "y265: cannot write %s\n", out_path);
+            rc = 1;
+        }
+    }
+    if (!rc)
+        fprintf(stderr, "y265-farm: done %d %ld %zu\n", f->idx,
+                f->end - f->start, s->sz);
+    if (!rc && g_dyn_lost > 0)
+        rc = 1;
+    for (int k = 0; k < j->nseg; k++) {
+        free(j->seg[k]->buf);
+        free(j->seg[k]->rc);
+        free(j->seg[k]);
+    }
+    free(j->seg);
+    /* the watcher may still sit in read(): exit without joining it */
+    return rc;
+}
+
 /* What the command line handles itself: the input, the outputs, the
  * reports and the schedules. Every coding option goes to the library's
  * parser (n265_config_parse), which the ffmpeg wrapper calls too. */
@@ -2985,6 +3280,8 @@ typedef struct {
     double tv_target, tv_tol, tv_sample;
     int tv_floor, tv_noverify;
     const char *tv_json, *tv_conflict;
+    const char *farm_seg, *farm_anchor;     /* farm mode, scripts/farm.py */
+    int farm_plan, farm_watch;
 } cli_opts;
 
 /* -1 to go on, or the exit code */
@@ -3001,6 +3298,23 @@ static int cli_parse(const n265_api *a, n265_config *cfg, int argc,
     for (int i = 1; i < argc; i++) {
         const int argi = i;
         int mine = 1, unnoted = 0;
+        /* farm mode's own flags stay out of the identification SEI, so a
+         * segment's stream is --gop-parallel's */
+        if (!strcmp(argv[i], "--farm-seg") && i + 1 < argc) {
+            o->farm_seg = argv[++i];
+            continue;
+        } else if (!strcmp(argv[i], "--farm-anchor") && i + 1 < argc) {
+            o->farm_anchor = argv[++i];
+            continue;
+        } else if (!strcmp(argv[i], "--farm-plan")) {
+            o->farm_plan = 1;
+            continue;
+        } else if (!strcmp(argv[i], "--farm-stdin-watch")) {
+            o->farm_watch = 1;
+            continue;
+        } else if (!strcmp(argv[i], "--farm-hello")) {
+            return farm_hello(a);
+        }
         if (!strncmp(argv[i], "--target-vmaf", 13) ||
             !strcmp(argv[i], "--no-target-vmaf-verify")) {
             /* the stream is the --crf stream it picks, so these stay out
@@ -4131,6 +4445,11 @@ int main(int argc, char **argv)
     /* --verbose is N265_LEVEL_TRACE by another name */
     if (verbose)
         setenv("N265_LEVEL_TRACE", "1", 0);
+    if (o.tv_target > 0.0 && (o.farm_plan || o.farm_seg)) {
+        fprintf(stderr, "y265: farm mode refused: --target-vmaf searches "
+                "the whole input on one machine\n");
+        return 2;
+    }
     if (o.tv_target > 0.0 && !show_config) {
         tv_job *t = &g_tv;
         t->on = 1;
@@ -4169,6 +4488,79 @@ int main(int argc, char **argv)
                     "since --hw has its own parallelism\n", gop_par);
         gop_par = 0;
     }
+    /* what needs one encoder to see the whole input: --gop-parallel codes
+     * serially and farm mode refuses */
+    const int vbv_on = vbv_maxrate > 0.0 && vbv_bufsize > 0.0;
+    const char *hrd_env = getenv("N265_VBV_HRD");
+    const char *seg_why =
+        pass ? "--pass plans the whole input on one encoder"
+        : qpfile_path ? "--qpfile numbers frames from the stream's start"
+        : zones_spec ? "--zones numbers frames from the stream's start"
+        : csv_path ? "--csv is one encoder's log"
+        : o.fstats_path ? "--frame-stats is one encoder's log"
+        : (o.ctl_path || o.ctl_fd >= 0)
+          ? "live control numbers frames from the stream's start"
+        : shot_path ? "--shot-stats is one encoder's log"
+        : dump_decode_path ? "--dump-recon-decode is one encoder's log"
+        : hrd_concat ? "--hrd-concat splices one encoder's stream"
+        : vbv_on && hrd_env && atoi(hrd_env) ? "N265_VBV_HRD asks for the HRD "
+          "timing SEI, which a joined stream does not carry"
+        : NULL;
+    if (o.farm_plan || o.farm_seg) {
+        const char *why =
+            o.farm_plan && o.farm_seg ? "--farm-plan and --farm-seg are two "
+              "different runs"
+            : intra_refresh ? "--intra-refresh has no key frames to cut at"
+            : hw ? "--hw has no segment path"
+            : seg_why ? seg_why
+            : bitrate > 0.0 ? "--bitrate carries one rate controller across "
+              "segments, which farm mode doesn't do yet"
+            : dump_path ? "--dump-recon isn't collected from workers yet"
+            : want_psnr || want_ssim ? "--psnr and --ssim aren't pooled "
+              "across workers yet"
+            : show_config ? "--show-config codes nothing"
+            : fin == stdin ? "workers read a shared file, not stdin"
+            : NULL;
+        if (why) {
+            fprintf(stderr, "y265: farm mode refused: %s\n", why);
+            return 2;
+        }
+        long nt = threads > 0 ? threads : sysconf(_SC_NPROCESSORS_ONLN);
+        gp_job fj;
+        gp_setup(&fj, a, &y, in_path, &p, 1, (int)nt, keyint, key_grid, 0,
+                 0.0, vbv_on, repeat_hdr, 0, 0, shot_starts,
+                 o.shot_list ? shot_n : 0);
+        int frc;
+        if (o.farm_plan) {
+            frc = farm_plan(&fj, &y, max_frames);
+        } else {
+            farm_seg_arg fa;
+            fj.seek = gp_seekable(&y, &fj.base, &fj.rec, &fj.total);
+            if (farm_seg_parse(o.farm_seg, &fa) != 0) {
+                fprintf(stderr, "y265: --farm-seg is IDX:START:END:NSEG:FRAMES\n");
+                return 2;
+            }
+            if (!fj.seek) {
+                fprintf(stderr, "y265: --farm-seg needs an input file of "
+                        "fixed-size records (raw, or a y4m whose frame "
+                        "headers are all a bare FRAME)\n");
+                return 2;
+            }
+            if (farm_frames(&fj, max_frames) != fa.total) {
+                fprintf(stderr, "y265: --farm-seg: the plan counted %ld "
+                        "frames and this worker's input has %ld\n", fa.total,
+                        farm_frames(&fj, max_frames));
+                return 2;
+            }
+            frc = farm_segment(&fj, &fa, o.farm_anchor, o.farm_watch,
+                               out_path);
+        }
+        if (y.clipped + fj.clipped)
+            fprintf(stderr, "y265: WARNING %ld input samples were above the "
+                    "declared %d-bit range and were clamped\n",
+                    y.clipped + fj.clipped, y.depth);
+        return frc;
+    }
     /* --gop-parallel (phase 14 item 42): above one thread only, and not
      * with the options that need one encoder to see the whole input */
     if (gop_par > 1 && intra_refresh) {
@@ -4178,23 +4570,7 @@ int main(int argc, char **argv)
     }
     if (gop_par > 1 && !show_config) {
         long nt = threads > 0 ? threads : sysconf(_SC_NPROCESSORS_ONLN);
-        const char *hrd = getenv("N265_VBV_HRD");
-        int vbv_on = vbv_maxrate > 0.0 && vbv_bufsize > 0.0;
-        const char *why =
-            nt < 2 ? "it needs more than one thread"
-            : pass ? "--pass plans the whole input on one encoder"
-            : qpfile_path ? "--qpfile numbers frames from the stream's start"
-            : zones_spec ? "--zones numbers frames from the stream's start"
-            : csv_path ? "--csv is one encoder's log"
-            : o.fstats_path ? "--frame-stats is one encoder's log"
-            : (o.ctl_path || o.ctl_fd >= 0)
-              ? "live control numbers frames from the stream's start"
-            : shot_path ? "--shot-stats is one encoder's log"
-            : dump_decode_path ? "--dump-recon-decode is one encoder's log"
-            : hrd_concat ? "--hrd-concat splices one encoder's stream"
-            : vbv_on && hrd && atoi(hrd) ? "N265_VBV_HRD asks for the HRD "
-              "timing SEI, which a joined stream does not carry"
-            : NULL;
+        const char *why = nt < 2 ? "it needs more than one thread" : seg_why;
         if (why) {
             fprintf(stderr, "y265: --gop-parallel %d: coding serially, "
                     "since %s\n", gop_par, why);
