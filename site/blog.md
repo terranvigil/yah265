@@ -42,17 +42,17 @@ I set three speed goals against x265 at `--preset medium`. Each one compares fil
 
 | goal | yah265 | x265 |
 |---|---|---|
-| G3 | SIMD on all cores | its own assembly on all cores |
-| G1 | plain C on one thread | `--no-asm` on one thread |
-| G2 | plain C on all cores | `--no-asm` on all cores |
+| [G3](methodology.md#the-three-speed-goals) | SIMD on all cores | its own assembly on all cores |
+| [G1](methodology.md#the-three-speed-goals) | plain C on one thread | `--no-asm` on one thread |
+| [G2](methodology.md#the-three-speed-goals) | plain C on all cores | `--no-asm` on all cores |
 
-G3 is the one a user sees. G1 and G2 compare the algorithms with the hand-written SIMD off on both sides. To pass at a picture size and clip length, yah265 must be at least as fast as x265 at the median, with no clip more than 15% slower. On quality, yah265 may need at most 1.0% more bits than x265 for the same VMAF v1.
+[G3](methodology.md#the-three-speed-goals) is the one a user sees. [G1 and G2](methodology.md#the-three-speed-goals) compare the algorithms with the hand-written SIMD off on both sides. To pass at a picture size and clip length, yah265 must be at least as fast as x265 at the median, with no clip more than 15% slower. On quality, yah265 may need at most 1.0% more bits than x265 for the same VMAF v1.
 
 ## The same lead on three machines
 
 I also timed both encoders on an Intel Xeon with AVX-512 and on an AWS Graviton4 with SVE2. Each cloud box held them to the same 16 vCPUs.
 
-<figure class="chart"><img src="assets/blog/arch.svg" alt="Dot plot of the median speedup over x265 at G3 for each resolution and clip length, one marker per machine. The markers all sit right of the 1x line."><figcaption>The G3 table below has each marker's value.</figcaption></figure>
+<figure class="chart"><img src="assets/blog/arch.svg" alt="Dot plot of the median speedup over x265 at G3 for each resolution and clip length, one marker per machine. The markers all sit right of the 1x line."><figcaption>The <a href="methodology.md#the-three-speed-goals">G3</a> table below has each marker's value.</figcaption></figure>
 
 yah265 leads at each picture size and clip length on all three machines and passes all three goals on each. Because plenty of x86 machines have no AVX-512, I timed the short clips again on the Xeon with both encoders held to AVX2 and then to SSE4.2. The lead held at both.
 
@@ -218,12 +218,12 @@ Each range runs from the slowest median to the fastest. Each median covers one r
 <!--gen:goal-table-->
 | goal | Apple M5 Max (NEON) | Xeon 8488C (AVX-512) | Graviton4 (SVE2) |
 |---|--:|--:|--:|
-| G3: as shipped, SIMD on all cores | 1.59x to 2.13x | 1.25x to 2.33x | 1.39x to 3.03x |
-| G1: algorithm only, plain C on one thread | 2.17x to 4.00x | 1.49x to 2.94x | 1.52x to 2.94x |
-| G2: algorithm only, plain C on all cores | 2.56x to 4.35x | 2.22x to 4.76x | 2.08x to 4.35x |
+| [G3](methodology.md#the-three-speed-goals): as shipped, SIMD on all cores | 1.59x to 2.13x | 1.25x to 2.33x | 1.39x to 3.03x |
+| [G1](methodology.md#the-three-speed-goals): algorithm only, plain C on one thread | 2.17x to 4.00x | 1.49x to 2.94x | 1.52x to 2.94x |
+| [G2](methodology.md#the-three-speed-goals): algorithm only, plain C on all cores | 2.56x to 4.35x | 2.22x to 4.76x | 2.08x to 4.35x |
 <!--/gen:goal-table-->
 
-<!--gen:combos-line-->That's 81 of 81 combinations of machine, picture size, clip length and goal that pass. Bus at CIF on the Xeon is the slowest single clip at G3 on any machine and still runs 1.22x faster.<!--/gen:combos-line-->
+<!--gen:combos-line-->That's 81 of 81 combinations of machine, picture size, clip length and goal that pass. Bus at CIF on the Xeon is the slowest single clip at [G3](methodology.md#the-three-speed-goals) on any machine and still runs 1.22x faster.<!--/gen:combos-line-->
 
 ### G3 by resolution and length
 

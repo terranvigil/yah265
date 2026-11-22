@@ -61,14 +61,14 @@ The table breaks the 1.8x down by picture size. It counts the clips where the tw
 | bits saved at equal VMAF v1, rate ladders at CRF and capped VBR | 38 | 10.2% |
 <!--/gen:quality-table-->
 
-yah265 is faster on three machines. G3 is the row a user sees: both encoders as shipped. G1 and G2 compare the algorithms with SIMD off.
+yah265 is faster on three machines. I time speed three ways and call each one a goal. [G3](https://terranvigil.github.io/yah265/methodology.html#the-three-speed-goals) is the row a user sees: both encoders as shipped. [G1 and G2](https://terranvigil.github.io/yah265/methodology.html#the-three-speed-goals) compare the algorithms, with the hand-written SIMD off on both sides.
 
 <!--gen:goal-table-->
 | goal | Apple M5 Max (NEON) | Xeon 8488C (AVX-512) | Graviton4 (SVE2) |
 |---|--:|--:|--:|
-| G3: as shipped, SIMD on all cores | 1.59x to 2.13x | 1.25x to 2.33x | 1.39x to 3.03x |
-| G1: algorithm only, plain C on one thread | 2.17x to 4.00x | 1.49x to 2.94x | 1.52x to 2.94x |
-| G2: algorithm only, plain C on all cores | 2.56x to 4.35x | 2.22x to 4.76x | 2.08x to 4.35x |
+| [G3](https://terranvigil.github.io/yah265/methodology.html#the-three-speed-goals): as shipped, SIMD on all cores | 1.59x to 2.13x | 1.25x to 2.33x | 1.39x to 3.03x |
+| [G1](https://terranvigil.github.io/yah265/methodology.html#the-three-speed-goals): algorithm only, plain C on one thread | 2.17x to 4.00x | 1.49x to 2.94x | 1.52x to 2.94x |
+| [G2](https://terranvigil.github.io/yah265/methodology.html#the-three-speed-goals): algorithm only, plain C on all cores | 2.56x to 4.35x | 2.22x to 4.76x | 2.08x to 4.35x |
 <!--/gen:goal-table-->
 
 See the [results page](https://terranvigil.github.io/yah265/results.html) for the tables and charts, and [Check it yourself](https://terranvigil.github.io/yah265/check-it-yourself.html) to rerun a measurement.
