@@ -30,8 +30,7 @@ subprojects/packagecache/
 # the built docs site (scripts/site.sh)
 /site/_build/
 
-# internal working docs and agent config: kept on disk for local sessions,
-# never published (the list and reasons live outside the tree)
+# internal working docs and agent config, kept on disk for local sessions
 /CLAUDE.md
 /.claude/
 /.github/copilot-instructions.md
