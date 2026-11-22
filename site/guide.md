@@ -417,6 +417,18 @@ In ffmpeg, an I frame you force with `-force_key_frames` becomes a key frame. A 
 
 <p class="optchips"><span><a href="options.md#live-control">Options</a></span> <a href="options.md#opt-control"><code>--control</code></a> <a href="options.md#opt-control-fd"><code>--control-fd</code></a> <a href="options.md#opt-control-out"><code>--control-out</code></a> <a href="options.md#opt-frame-stats"><code>--frame-stats</code></a> <a href="options.md#opt-no-hrd"><code>--no-hrd</code></a></p>
 
+## Encode reports
+
+`--report` writes one HTML page about an encode:
+
+```sh
+y265 clip.y4m -o clip.hevc --crf 26 --report clip.html
+```
+
+The page has the bitrate and QP over time, the buffer fill when a VBV is set, and a timeline of what the encoder detected: scene cuts, screen content, handheld jitter, dark and flat frames. Each shot gets a card with a thumbnail. Everything is inside the one file, so it opens offline and can be mailed to anyone. Thumbnails need ffmpeg. Without it the page shows gray boxes.
+
+The report doesn't change the stream. `--frame-stats` writes the same per-frame data as JSON lines if you'd rather chart it yourself.
+
 ## Identification marks
 
 Each stream has an SEI message that names the encoder and the options the run resolved. `--no-info` drops it.
