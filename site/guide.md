@@ -15,6 +15,7 @@ A rate mode decides what stays fixed: the quality, the bitrate or the size.
 |---|---|---|
 | CRF | `--crf` | you want a quality level, whatever size the content needs. It's the right choice for most files |
 | capped CRF | `--crf` with `--vbv-maxrate` and `--vbv-bufsize` | you want CRF under a ceiling that a player or a network sets on the peak rate |
+| target quality | `--target-vmaf` in place of `--crf` | you know the VMAF score you want and want the encoder to find the CRF |
 | capped VBR | `--bitrate` with `--vbv-maxrate` and `--vbv-bufsize` | you have a target bitrate and a peak, as on a streaming ladder |
 | CBR | capped VBR with `--strict-cbr` | the channel runs at a constant rate, as in broadcast |
 | ABR | `--bitrate` alone | you want a mean bitrate where nothing reads the stream through a buffer |
@@ -125,7 +126,21 @@ The CRF scale is yah265's own. A number that suited x265 gives a different size 
 y265 in.y4m -o out.hevc --crf 23 --vbv-maxrate 4500 --vbv-bufsize 6000
 ```
 
-For streaming, this is the mode I'd pick. The quality holds until a hard scene would overflow the buffer. The encoder then coarsens that scene to fit. The cap limits the peak rate, not the file size. If `--crf-max` is set too low for the buffer, the buffer can underflow. The encoder reports that at the end of the run. To pick the CRF, my [dynamic-crf](https://github.com/terranvigil/dynamic-crf) tool searches for the one that reaches a VMAF score you choose.
+For streaming, this is the mode I'd pick. The quality holds until a hard scene would overflow the buffer. The encoder then coarsens that scene to fit. The cap limits the peak rate, not the file size. If `--crf-max` is set too low for the buffer, the buffer can underflow. The encoder reports that at the end of the run. To pick the CRF from a VMAF score, see [Target quality](#target-quality).
+
+### Target quality
+
+Replace `--crf N` with `--target-vmaf S`, where S is the VMAF score you want. Every other option stays the same, a VBV cap and the HDR flags included.
+
+```sh
+y265 in.y4m -o out.hevc --target-vmaf 93
+```
+
+The encoder tries a few CRFs, scores each one and encodes the file at the CRF that comes closest. It prints the CRF it chose, the measured score, the size and how long the search took. The file is the one `--crf` with that number writes. On my test clips the final score came within 0.4 of the target. Because the search costs a few extra encodes, a target run takes several times as long as a CRF run.
+
+Under a VBV cap the search runs under the same cap. If the cap can't reach the score, the report says so and keeps the best CRF it found. On a PQ or HLG stream it scores HDR-VMAF instead of VMAF v1.
+
+A target run needs ffmpeg and libvmaf's `vmaf` tool. The input has to be a file, because the search reads it more than once. It can't be combined with `--qp`, `--bitrate` or two-pass. With ffmpeg, run the search with y265 and pass the CRF it prints to `-crf`.
 
 ### Capped VBR
 
