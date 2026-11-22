@@ -87,7 +87,7 @@ There are two ways to run yah265. Most people use it through ffmpeg, as the `lib
 
 ## Build ffmpeg with yah265
 
-You need git, a C compiler, Meson, Ninja, pkg-config and make. One command builds everything from a clone of the repository:
+You need git, a C compiler, Meson, Ninja, pkg-config and make. The following command builds everything:
 
 ```sh
 git clone https://github.com/terranvigil/yah265 && cd yah265
