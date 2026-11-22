@@ -61,8 +61,8 @@ To see both in motion, open the [comparison players](https://terranvigil.github.
 - [HDR10, HDR10+, HLG and Dolby Vision profile 8](hdr.md).
 - Shot-aware encoding: a shot window, per-shot statistics and a script that prints each shot's convex hull. [Planning by shot](guide.md#planning-by-shot) shows how.
 - [Low latency](guide.md#low-latency) for live: `--tune zerolatency` gives one frame of latency.
-- [Live control](guide.md#live-control) [coming soon]: change the bitrate, CRF or key frames while an encode runs.
-- [Per-shot encoding](guide.md#planning-by-shot) [coming soon]: a key frame and a quality setting for each shot, from one scan.
+- [Live control](guide.md#live-control): change the bitrate, CRF or key frames while an encode runs. [coming soon]
+- [Per-shot encoding](guide.md#planning-by-shot): a key frame and a quality setting for each shot, from one scan. [coming soon]
 - SIMD on arm64 and x86-64. [Architectures](architectures.md) lists what runs where.
 - x265's option names for shared features. [Options](options.md) lists them.
 - Encodes only. Play or decode its streams with ffmpeg or any HEVC decoder.
