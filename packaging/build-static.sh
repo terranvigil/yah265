@@ -98,7 +98,15 @@ if [ -z "$ffsrc" ]; then
 fi
 ffsrc="$(cd "$ffsrc" && pwd)"
 ffrev="$(git -C "$ffsrc" rev-parse HEAD 2>/dev/null || echo "$ffref")"
+# a shallow clone has no tags, so -version would print a bare hash
+if [ ! -f "$ffsrc/VERSION" ] && [ -f "$ffsrc/RELEASE" ]; then
+  echo "$(cat "$ffsrc/RELEASE")-yah265-${ffrev:0:12}" >"$ffsrc/VERSION"
+fi
 
+extralibs="-lyah265-10 -lm -lpthread"
+# yah265.pc doesn't list the frameworks the hardware mode links
+[ "$osname" = macos ] && extralibs="$extralibs -framework VideoToolbox \
+-framework CoreMedia -framework CoreVideo -framework CoreFoundation"
 cfg=(
   --prefix="$work/ffinst"
   --enable-gpl --enable-libyah265
@@ -107,7 +115,7 @@ cfg=(
   --disable-doc --disable-debug --disable-ffplay
   --pkg-config-flags=--static
   --extra-ldflags="-L$prefix/lib"
-  --extra-libs="-lyah265-10 -lm -lpthread"
+  --extra-libs="$extralibs"
 )
 if [ "$osname" = linux ]; then
   cfg+=(--extra-ldflags=-static)
@@ -224,5 +232,5 @@ fi
 
 tar -czf "$work/bundle/$name.tar.gz" -C "$work/bundle" "$name"
 
-"$out/bin/ffmpeg" -hide_banner -h encoder=libyah265 | head -1
+"$out/bin/ffmpeg" -hide_banner -h encoder=libyah265 | sed -n 1p
 echo "bundle: $work/bundle/$name.tar.gz"

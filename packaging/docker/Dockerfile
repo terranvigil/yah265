@@ -18,7 +18,7 @@ ARG TARGETARCH
 ARG JOBS=8
 ARG YAH265_REV=unknown
 ARG FFMPEG_REF=
-RUN apk add --no-cache build-base meson ninja pkgconf git curl tar \
+RUN apk add --no-cache bash build-base meson ninja pkgconf git curl tar \
         zlib-dev zlib-static linux-headers python3 \
     && if [ "$TARGETARCH" = amd64 ]; then apk add --no-cache nasm; fi
 WORKDIR /src
