@@ -223,16 +223,16 @@ Without the tune, the latency is the lookahead depth in frames. Two opt-in tools
 
 ### Intra refresh
 
-A key frame is a big picture, and on a tight link it arrives late. `--intra-refresh` sends no key frame after the first. Each frame codes one column of blocks as intra, and the column sweeps across the picture every `--keyint` frames.
+A key frame is a big picture. On a tight link it arrives late. `--intra-refresh` sends no key frame after the first. Each frame codes one column of blocks as intra, and the column sweeps across the picture every `--keyint` frames.
 
-A receiver can join at the start of any sweep. Its picture is exact once that sweep ends. Each sweep start carries a recovery point message and the parameter sets.
+A receiver can join at the start of any sweep. Its picture is exact once that sweep ends. Each sweep starts with a recovery point message and the parameter sets.
 
 ```sh
 y265 in.y4m -o out.hevc --tune zerolatency --intra-refresh --keyint 30 \
   --bitrate 1500 --vbv-maxrate 1500 --vbv-bufsize 500
 ```
 
-It codes P-frames only, from 4:2:0 input. Scene cuts don't add key frames. A frame you list as a key frame in a QP file is still one, and a new sweep starts after it. It can't be combined with `--bframes` above 0, `--open-gop`, `--gop-parallel` or `--pcm`.
+It codes P-frames only, from 4:2:0 input. A scene change doesn't add a key frame. A frame you list as a key frame in a QP file is still one. A new sweep starts after it. It can't be combined with `--bframes` above 0, `--open-gop`, `--gop-parallel` or `--pcm`.
 
 <p class="optchips"><span><a href="options.md#gop-and-references">Options</a></span> <a href="options.md#opt-intra-refresh"><code>--intra-refresh</code></a> <a href="options.md#opt-keyint"><code>--keyint</code></a> <a href="options.md#opt-tune"><code>--tune</code></a></p>
 
