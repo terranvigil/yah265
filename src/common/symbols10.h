@@ -182,6 +182,7 @@
 #define n265_intra_pred              n265_intra_pred_10
 #define n265_intra_pred_neon         n265_intra_pred_neon_10
 #define n265_intra_pred_avx2         n265_intra_pred_avx2_10
+#define n265_intra_pred_avx512       n265_intra_pred_avx512_10
 #define n265_intra_pred_sse42        n265_intra_pred_sse42_10
 #define n265_intra_pred_ref          n265_intra_pred_ref_10
 #define n265_intra_refs              n265_intra_refs_10

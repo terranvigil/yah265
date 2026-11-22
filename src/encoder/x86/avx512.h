@@ -169,6 +169,23 @@ static inline int n265_csbf_map_avx512_wide(int log2n)
 #undef n265_sbh_adjust_avx512
 #define n265_sbh_adjust_avx512 n265_sbh_adjust_avx2
 
+/* ---- intra (N265_ASM_INTRA) ---------------------------------------- */
+#if N265_AVX512_INTRA
+void n265_intra_pred_avx512(pixel *dst, int dst_stride, const pixel *refs,
+                            int log2n, int mode, int c_idx);
+
+/* angular and planar (mode 0) at 16x16 and 32x32; DC (mode 1) stays AVX2 */
+static inline int n265_intra_pred_avx512_wide(int log2n, int mode)
+{
+    return log2n >= 4 && mode != 1;
+}
+#else
+#undef n265_intra_pred_avx512
+#define n265_intra_pred_avx512 n265_intra_pred_avx2
+#endif
+#undef n265_filter_refs_avx512
+#define n265_filter_refs_avx512 n265_filter_refs_avx2
+
 /* ---- sao (N265_ASM_SAO) -------------------------------------------- */
 #if N265_AVX512_SAO
 void n265_sao_eo_stats_avx512(const pixel *src, const pixel *cur,
@@ -190,10 +207,6 @@ void n265_sao_bo_apply_avx512(pixel *dst, const pixel *in, int n, int pos,
 #define n265_sao_band_stats_avx512 n265_sao_band_stats_avx2
 
 /* ---- families with no AVX-512 kernel ------------------------------- */
-#undef n265_intra_pred_avx512
-#define n265_intra_pred_avx512 n265_intra_pred_avx2
-#undef n265_filter_refs_avx512
-#define n265_filter_refs_avx512 n265_filter_refs_avx2
 #undef n265_dbk_luma_v_avx512
 #define n265_dbk_luma_v_avx512 n265_dbk_luma_v_avx2
 #undef n265_dbk_luma_h_avx512

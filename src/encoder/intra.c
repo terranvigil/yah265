@@ -9,6 +9,7 @@
 #include "encoder/intra.h"
 #include "encoder/arm/neon.h"   /* self-guarded */
 #include "encoder/x86/avx2.h"   /* self-guarded */
+#include "encoder/x86/avx512.h"
 #include "encoder/x86/sse42.h"   /* self-guarded */
 
 static inline int abs_int(int v) { return v < 0 ? -v : v; }
@@ -494,6 +495,13 @@ void n265_intra_pred(pixel *dst, int dst_stride, const pixel *refs,
      * the predicate moves time and nothing else. */
     if (n265_asm_on(N265_ASM_INTRA)) {
         n265_intra_pred_neon(dst, dst_stride, refs, log2n, mode, c_idx);
+        return;
+    }
+#endif
+#if N265_AVX512_INTRA
+    if (n265_intra_pred_avx512_wide(log2n, mode) &&
+        n265_avx512_on(N265_ASM_INTRA)) {
+        n265_intra_pred_avx512(dst, dst_stride, refs, log2n, mode, c_idx);
         return;
     }
 #endif
