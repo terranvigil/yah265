@@ -320,6 +320,8 @@ Shot statistics are one JSON line per shot. A ladder builder can use them to pic
 
 <p class="optchips"><span><a href="options.md#shot-aware-options">Options</a></span> <a href="options.md#opt-shot-window"><code>--shot-window</code></a> <a href="options.md#opt-shot-stats"><code>--shot-stats</code></a></p>
 
+**Building a ladder.** The [hull script](scripts/shot_hull.py) scores each shot of several encodes on VMAF v1 and prints each shot's best rungs across resolutions.
+
 Coming soon: one scan that finds the shots and gives each one a key frame and its own quality setting. Every rung of a ladder will switch at the same frames.
 
 ## Identification marks

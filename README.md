@@ -98,13 +98,13 @@ Most video is a sequence of shots that each want different settings. yah265 give
 
 A shot window lets a CRF encode buffer up to a whole shot and balance its quality against the shots before it. It's off by default because it adds latency.
 
-Shot statistics write one JSON line per shot as the encode runs. Each line has where the shot starts and ends, its bits, its frame types and its complexity. The hull script scores each shot of several encodes against the source. It prints each shot's convex hull, which a ladder builder picks rungs from.
+Shot statistics write one JSON line per shot as the encode runs. Each line has where the shot starts and ends, its bits, its frame types and its complexity. The hull script scores each shot of several encodes against the source on VMAF v1. The encodes can be at different resolutions. It prints each shot's convex hull across all of them, which a ladder builder picks rungs from.
 
 ```sh
 y265 in.y4m -o crf22.hevc --crf 22 --shot-stats crf22.jsonl
-y265 in.y4m -o crf28.hevc --crf 28 --shot-stats crf28.jsonl
+y265 in540.y4m -o 540p.hevc --crf 28 --shot-stats 540p.jsonl
 scripts/shot_hull.py --src in.y4m \
-    --enc crf22=crf22.hevc:crf22.jsonl --enc crf28=crf28.hevc:crf28.jsonl
+    --enc crf22=crf22.hevc:crf22.jsonl --enc 540p=540p.hevc:540p.jsonl
 ```
 
 The [encoding guide](https://terranvigil.github.io/yah265/guide.html#planning-by-shot) has the details.
@@ -119,7 +119,6 @@ The shot tools above grow into a full per-shot ladder:
 
 - Each shot starts on its own key frame so that it can be seeked to, packaged or replaced alone.
 - Each shot gets its own quality setting in one pass, from a scan of the source with no trial encodes.
-- The hull script scores rungs at different resolutions against the source, on VMAF v1.
 - My [veo project](https://github.com/terranvigil/veo) runs the ladder search itself over rungs, convex hull and VMAF. It uses yah265 as its encoder.
 
 ## Documentation
