@@ -5,7 +5,7 @@ description: Comparison players that show yah265 and x265 encodes side by side, 
 
 # Watch the encodes
 
-Scores only go so far. These players show a yah265 encode and an x265 encode of the same clip, made at the same file size, in motion. Switch between them, drag the split, and jump to the moments where they differ most.
+Scores only go so far. These players show a yah265 encode and an x265 encode of the same clip in motion. The two files are the same size. Switch between them, drag the split, and jump to the moments where they differ most.
 
 | clip | what to look at |
 |---|---|
@@ -17,4 +17,4 @@ Zoom in to see the difference. At its fit size the player shrinks the picture, w
 
 All three are on [one page](https://terranvigil.github.io/yah265-compare/). Nocturne needs a fast connection.
 
-Nocturne and Sparks are (c) Netflix, Inc., Netflix Open Content, CC BY 4.0. The Wikipedia recording is CC0 1.0, and the page text is Wikipedia's, CC BY-SA 4.0.
+Nocturne and Sparks are (c) Netflix, Inc., Netflix Open Content, CC BY 4.0. The Wikipedia recording is CC0 1.0. Its page text is Wikipedia's, CC BY-SA 4.0.
