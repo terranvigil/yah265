@@ -28,6 +28,7 @@ import json
 import os
 import pathlib
 import re
+import hashlib
 import shutil
 import subprocess
 import sys
@@ -336,6 +337,18 @@ def build(strict=False):
     for mod in ("yah265.wasm", "vmaf.wasm"):
         if not (pg / mod).exists():
             print(f"warning: playground/{mod} is missing; run `make wasm`")
+    # a version on every URL the page loads, so a browser never mixes a new
+    # page with a cached worker or module from the publish before it; the
+    # scripts pass it on to the workers and the .wasm files
+    h = hashlib.sha256()
+    for f in sorted((tmp / "playground").glob("*.*")):
+        h.update(f.name.encode() + f.read_bytes())
+    v = "?v=" + h.hexdigest()[:10]
+    index = tmp / "playground" / "index.html"
+    page = index.read_text()
+    for ref in ('href="style.css"', 'src="mp4.js"', 'src="app.js"'):
+        page = page.replace(ref, ref[:-1] + v + '"')
+    index.write_text(page)
 
     labels = {h: l for _, h, l in NAV}
     commit = commit_hash()

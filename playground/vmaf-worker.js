@@ -7,12 +7,13 @@
 //   {type: 'ready'} | {type: 'pushed', n} | {type: 'score', value} | {type: 'error', message}
 'use strict';
 
-importScripts('vmaf.js');
+const VER = self.location.search;
+importScripts('vmaf.js' + VER);
 
 let m = null, n = 0;
 const queue = [];
 
-createVmaf({ locateFile: (p) => p, print: () => {}, printErr: () => {} }).then((mod) => {
+createVmaf({ locateFile: (p) => p + VER, print: () => {}, printErr: () => {} }).then((mod) => {
   m = mod;
   postMessage({ type: 'ready' });
   while (queue.length) handle(queue.shift());

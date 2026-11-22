@@ -10,6 +10,8 @@ const PIXEL_BUDGET = 854 * 480 * 300;
 // frames read ahead of the encoder before the reader waits
 const AHEAD = 8;
 const SAMPLE = 'samples/bbb-480p.mp4';
+// the site build's version tag (?v=...), passed on to the workers
+const VER = document.currentScript ? new URL(document.currentScript.src).search : '';
 
 const $ = (id) => document.getElementById(id);
 const ui = {
@@ -20,7 +22,7 @@ const ui = {
   stage: $('stage'), empty: $('empty'), view: $('view'), split: $('split'),
   transport: $('transport'), play: $('play'), prev: $('prev'), next: $('next'),
   seek: $('seek'), fno: $('fno'), result: $('result'), caption: $('caption'),
-  dl: $('dl'), dlMp4: $('dl-mp4'), vmaf: $('s-vmaf'),
+  dl: $('dl'), dlMp4: $('dl-mp4'), mp4err: $('mp4err'), vmaf: $('s-vmaf'),
 };
 
 // what a test harness reads
@@ -52,7 +54,7 @@ function fail(text) {
 }
 
 function startWorker() {
-  worker = new Worker('worker.js');
+  worker = new Worker('worker.js' + VER);
   worker.onmessage = (e) => onWorker(e.data);
   worker.onerror = (e) => fail('The encoder failed to load: ' + (e.message || 'unknown error'));
 }
@@ -399,8 +401,11 @@ function finish(m) {
                           src.w, src.h, src.fpsNum, src.fpsDen);
     setUrl(ui.dlMp4, new Blob([mp4], { type: 'video/mp4' }));
     ui.dlMp4.hidden = false;
+    ui.mp4err.hidden = true;
   } catch (e) {
     ui.dlMp4.hidden = true;
+    ui.mp4err.textContent = 'The .mp4 could not be made (' + e.message + '). Reload the page and encode again.';
+    ui.mp4err.hidden = false;
   }
   $('s-size').textContent = fmtBytes(m.bytes);
   $('s-rate').textContent = stats.kbps.toFixed(0) + ' kbit/s';
@@ -429,7 +434,7 @@ function scoreVmaf(s) {
   ui.vmaf.textContent = '...';
   // a fresh worker each time, so pairs left from an older score can't mix in
   if (vworker) vworker.terminate();
-  vworker = new Worker('vmaf-worker.js');
+  vworker = new Worker('vmaf-worker.js' + VER);
   // the project's rule: below 1920x1080 in both dimensions, scale up to fit it
   let ow = s.w, oh = s.h;
   if (s.w < 1920 && s.h < 1080) {

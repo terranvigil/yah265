@@ -10,7 +10,8 @@
 // aus: Int32Array buffer, (display index, bytes) per access unit in coding order
 'use strict';
 
-importScripts('yah265.js');
+const VER = self.location.search;
+importScripts('yah265.js' + VER);
 
 let mod = null;
 let api = null;
@@ -22,7 +23,7 @@ function fail(message) {
 }
 
 createYah265({
-  locateFile: (p) => p,
+  locateFile: (p) => p + VER,
   print: () => {},
   printErr: (t) => { if (st) st.log.push(t); },
 }).then((m) => {
