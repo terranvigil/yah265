@@ -221,6 +221,10 @@ Without the tune, the latency is the lookahead depth in frames. Two opt-in tools
 
 <p class="optchips"><span><a href="options.md#presets-and-tunes">Options</a></span> <a href="options.md#opt-tune"><code>--tune</code></a> <a href="options.md#opt-rc-lookahead"><code>--rc-lookahead</code></a> <a href="options.md#opt-bframes"><code>--bframes</code></a></p>
 
+## Live control
+
+Coming soon: changing the bitrate, CRF or key frames while an encode runs. You'll send events from a file or a pipe, each naming the frame it lands on. From ffmpeg, forced key frames and mid-stream bitrate changes will work the same way. yah264 shares the same event format.
+
 ## Set the bit depth and profile
 
 The input picks the profile. No option names it.
@@ -315,6 +319,8 @@ A shot window lets a CRF encode plan a whole shot at a time. It works only with 
 Shot statistics are one JSON line per shot. A ladder builder can use them to pick a rate per shot. The stream is the same with them on.
 
 <p class="optchips"><span><a href="options.md#shot-aware-options">Options</a></span> <a href="options.md#opt-shot-window"><code>--shot-window</code></a> <a href="options.md#opt-shot-stats"><code>--shot-stats</code></a></p>
+
+Coming soon: a scan that finds the shots once, a key frame at the start of each shot so every rung of a ladder switches at the same frames, and a quality setting per shot from the scan. It runs in one pass.
 
 ## Identification marks
 
