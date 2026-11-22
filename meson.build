@@ -79,6 +79,7 @@ lib_sources = [
   'src/encoder/metrics.c',
   'src/encoder/rcfile.c',
   'src/encoder/shotlist.c',
+  'src/encoder/shotplan.c',
   'src/encoder/hash.c',
   'src/encoder/signal.c',
   'src/encoder/headers.c',

@@ -36,7 +36,10 @@ void n265_set_shot_window(int n);
 /* --shot-list / --shot-scan (src/encoder/shotlist.h). The list helpers and
  * the scan are depth-blind and always run on the 8-bit library. */
 int n265_encoder_set_shot_list(n265_encoder *e, const int *starts, int n);
+int n265_encoder_set_shot_plan(n265_encoder *e, const double *off, int n,
+                               int model, const char **why);
 #include "encoder/shotlist.h"
+#include "encoder/shotplan.h"
 typedef struct n265_shotscan n265_shotscan;
 n265_shotscan *n265_shotscan_open(const n265_param *src);
 int n265_shotscan_push(n265_shotscan *s, const uint8_t *luma, int w, int h,
@@ -247,6 +250,8 @@ void n265_encoder_set_dump_decode_10(n265_encoder *e, FILE *f);
 void n265_encoder_set_dump_10(n265_encoder *e, FILE *f);
 void n265_encoder_set_shot_stats_10(n265_encoder *e, const char *path);
 int n265_encoder_set_shot_list_10(n265_encoder *e, const int *starts, int n);
+int n265_encoder_set_shot_plan_10(n265_encoder *e, const double *off, int n,
+                                  int model, const char **why);
 void n265_set_shot_window_10(int n);
 void n265_set_pass_10(int pass, const char *stats);
 void n265_set_metrics_10(int psnr, int ssim);
@@ -339,6 +344,8 @@ typedef struct n265_api {
     void (*set_dump_decode)(n265_encoder *, FILE *);
     void (*set_shot_stats)(n265_encoder *, const char *);
     int (*set_shot_list)(n265_encoder *, const int *, int);
+    int (*set_shot_plan)(n265_encoder *, const double *, int, int,
+                         const char **);
     /* --psnr / --ssim / --csv (phase 14 item 4) */
     void (*set_metrics)(int, int);
     void (*set_nal_opts)(int, int, int, int, int);
@@ -394,6 +401,7 @@ static const n265_api api8 = {
     n265_encoder_open, n265_encoder_encode, n265_encoder_close,
     n265_version_str, n265_encoder_set_dump, n265_encoder_set_dump_decode,
     n265_encoder_set_shot_stats, n265_encoder_set_shot_list,
+    n265_encoder_set_shot_plan,
     n265_set_metrics, n265_set_nal_opts, n265_set_info_opts,
     n265_set_rc_bounds,
     n265_set_sei_opts, n265_set_qpfile, n265_set_zones,
@@ -425,6 +433,7 @@ static const n265_api api10 = {
     n265_encoder_encode_10, n265_encoder_close_10, n265_version_str_10,
     n265_encoder_set_dump_10, n265_encoder_set_dump_decode_10,
     n265_encoder_set_shot_stats_10, n265_encoder_set_shot_list_10,
+    n265_encoder_set_shot_plan_10,
     n265_set_metrics_10, n265_set_nal_opts_10, n265_set_info_opts_10,
     n265_set_rc_bounds_10,
     n265_set_sei_opts_10, n265_set_qpfile_10, n265_set_zones_10,
@@ -1147,6 +1156,10 @@ static void usage(FILE *out)
         "  --shot-list <file>    put a key frame at the start of each listed shot.\n"
         "                        The encoder's own cut detector is off. The list is\n"
         "                        refused on an input it wasn't made from.\n"
+        "  --shot-plan <file>    --shot-list, plus a quality level for each shot from\n"
+        "                        the scan's features: each shot's QP moves so a bit\n"
+        "                        buys the same VMAF in every shot. --crf only, with\n"
+        "                        or without a VBV.\n"
         "  --shot-keys           put a key frame on each cut the encoder finds\n"
         "  --open-gop            code periodic key frames as CRA (default);\n"
         "                        --no-open-gop codes IDR. Scene cuts are always IDR.\n"
@@ -3275,7 +3288,7 @@ static int farm_segment(gp_job *j, const farm_seg_arg *f, const char *anchor,
 typedef struct {
     const char *in_path, *out_path, *dump_path, *shot_path;
     const char *dump_decode_path, *csv_path;
-    const char *shot_scan, *shot_list;
+    const char *shot_scan, *shot_list, *shot_plan;
     const char *fstats_path, *ctl_path, *ctl_out_path;
     const char *report_path;
     int ctl_fd;
@@ -3444,6 +3457,8 @@ static int cli_parse(const n265_api *a, n265_config *cfg, int argc,
             o->shot_scan = argv[++i];
         } else if (!strcmp(argv[i], "--shot-list") && i + 1 < argc) {
             o->shot_list = argv[++i];
+        } else if (!strcmp(argv[i], "--shot-plan") && i + 1 < argc) {
+            o->shot_plan = argv[++i];
         } else if (!strcmp(argv[i], "--version")) {
             printf("y265 %s\n", a->version_str());
             return 0;
@@ -3621,7 +3636,7 @@ static int shot_scan_run(y4m_t *y, long max_frames, const char *path)
 /* --shot-list: read the list, refuse it on the wrong input, and hand back
  * the starts after frame 0 */
 static int shot_list_load(y4m_t *y, long max_frames, const char *path,
-                          int **starts, int *n)
+                          int **starts, int *n, n265_shotlist *keep)
 {
     n265_shotlist l;
     char err[256];
@@ -3650,7 +3665,10 @@ static int shot_list_load(y4m_t *y, long max_frames, const char *path,
     }
     for (int k = 1; k < l.n; k++)
         (*starts)[k - 1] = l.s[k].first;
-    n265_shotlist_free(&l);
+    if (keep)
+        *keep = l;
+    else
+        n265_shotlist_free(&l);
     return 0;
 }
 
@@ -4430,9 +4448,19 @@ int main(int argc, char **argv)
         return src;
     }
     int *shot_starts = NULL, shot_n = 0;
+    n265_shotlist plan_list;
+    memset(&plan_list, 0, sizeof plan_list);
+    if (o.shot_plan) {
+        if (o.shot_list && strcmp(o.shot_list, o.shot_plan)) {
+            fprintf(stderr, "y265: --shot-plan reads its shots from its own "
+                    "list; --shot-list names another\n");
+            return 2;
+        }
+        o.shot_list = o.shot_plan;
+    }
     if (o.shot_list) {
         int lrc = shot_list_load(&y, max_frames, o.shot_list, &shot_starts,
-                                 &shot_n);
+                                 &shot_n, o.shot_plan ? &plan_list : NULL);
         if (lrc)
             return lrc;
     }
@@ -4474,6 +4502,23 @@ int main(int argc, char **argv)
     const int intra_refresh = (int)CFG("intra-refresh");
     const int key_grid = !(int)CFG("scenecut");
 #undef CFG
+    double *shot_off = NULL;
+    if (o.shot_plan) {
+        char perr[256];
+        shot_off = malloc((size_t)plan_list.n * sizeof *shot_off);
+        if (!shot_off || n265_shotplan(&plan_list, shot_off, perr,
+                                       sizeof perr) != 0) {
+            fprintf(stderr, "y265: --shot-plan: %s\n",
+                    shot_off ? perr : "out of memory");
+            return 2;
+        }
+        if (bitrate > 0.0) {
+            fprintf(stderr, "y265: --shot-plan plans a quality level per "
+                    "shot, and --bitrate's rate control would undo it; use "
+                    "--crf, with a VBV for a cap\n");
+            return 2;
+        }
+    }
     if (key_grid && o.shot_list) {
         fprintf(stderr, "y265: --shot-list puts a key frame on each listed "
                 "shot and --no-scenecut keeps them on the --keyint grid; "
@@ -4526,6 +4571,11 @@ int main(int argc, char **argv)
     /* --verbose is N265_LEVEL_TRACE by another name */
     if (verbose)
         setenv("N265_LEVEL_TRACE", "1", 0);
+    if (o.tv_target > 0.0 && o.shot_plan) {
+        fprintf(stderr, "y265: --target-vmaf searches one CRF for the whole "
+                "input, and --shot-plan moves it per shot; pick one\n");
+        return 2;
+    }
     if (o.tv_target > 0.0 && (o.farm_plan || o.farm_seg)) {
         fprintf(stderr, "y265: farm mode refused: --target-vmaf searches "
                 "the whole input on one machine\n");
@@ -4584,6 +4634,8 @@ int main(int argc, char **argv)
         : (o.ctl_path || o.ctl_fd >= 0)
           ? "live control numbers frames from the stream's start"
         : shot_path ? "--shot-stats is one encoder's log"
+        : o.shot_plan ? "--shot-plan's offsets are numbered from the "
+          "stream's start"
         : dump_decode_path ? "--dump-recon-decode is one encoder's log"
         : hrd_concat ? "--hrd-concat splices one encoder's stream"
         : vbv_on && hrd_env && atoi(hrd_env) ? "N265_VBV_HRD asks for the HRD "
@@ -4769,6 +4821,24 @@ int main(int argc, char **argv)
         return 1;
     }
     free(shot_starts);
+    if (shot_off) {
+        const char *why = "";
+        if (a->set_shot_plan(enc, shot_off, plan_list.n, N265_SHOTPLAN_MODEL,
+                             &why) != 0) {
+            fprintf(stderr, "y265: --shot-plan refused: %s\n", why);
+            return 2;
+        }
+        double lo = 0.0, hi = 0.0;
+        for (int k = 0; k < plan_list.n; k++) {
+            lo = shot_off[k] < lo ? shot_off[k] : lo;
+            hi = shot_off[k] > hi ? shot_off[k] : hi;
+        }
+        fprintf(stderr, "y265: --shot-plan: %d shot%s, QP offsets %+.2f to "
+                "%+.2f (model %d)\n", plan_list.n,
+                plan_list.n == 1 ? "" : "s", lo, hi, N265_SHOTPLAN_MODEL);
+        free(shot_off);
+        n265_shotlist_free(&plan_list);
+    }
     if (csv_path)
         a->set_csv(enc, csv_path, csv_level);
     char rep_dir[PATH_MAX] = "", rep_frames[PATH_MAX] = "";

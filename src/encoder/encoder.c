@@ -289,6 +289,44 @@ int n265_encoder_set_shot_list(n265_encoder *e, const int *starts, int n)
     return 0;
 }
 
+/* --shot-plan: a base-QP offset per shot of the list set just before it,
+ * off[0] for the shot at frame 0. CRF and capped CRF only: ABR's rate
+ * loop would undo the offsets. */
+int n265_encoder_set_shot_plan(n265_encoder *e, const double *off, int n,
+                               int model, const char **why);
+int n265_encoder_set_shot_plan(n265_encoder *e, const double *off, int n,
+                               int model, const char **why)
+{
+    const char *w = NULL;
+    if (!e || e->hw || e->in_display_idx > 0 || !e->shotl_on ||
+        n != e->shotl_n + 1)
+        w = "it needs the shot list it was made from";
+    else if (e->abr_on)
+        w = "it plans a quality level per shot, and --bitrate's rate "
+            "control would undo it; use --crf, with a VBV for a cap";
+    else if (!e->crf_on)
+        w = "it moves the base QP, which --qp fixes; use --crf";
+    else if (e->shot_window > 0)
+        w = "--shot-window plans the same base offset; pick one";
+    if (w) {
+        if (why)
+            *why = w;
+        return -1;
+    }
+    double *p = malloc((size_t)n * sizeof *p);
+    if (!p) {
+        if (why)
+            *why = "out of memory";
+        return -1;
+    }
+    for (int k = 0; k < n; k++)
+        p[k] = off[k];
+    free(e->shotp);
+    e->shotp = p;
+    e->shotp_model = model;
+    return 0;
+}
+
 /* the index of the last listed start at or before display d, or -1 */
 static int shotl_find(const n265_encoder *e, int d)
 {
@@ -4112,6 +4150,7 @@ void n265_encoder_close(n265_encoder *e)
     n265_qpfile_free(&e->qpf);
     n265_zones_free(&e->zones);
     free(e->shotl);
+    free(e->shotp);
     free(e->out);
     free(e);
 }
@@ -7489,12 +7528,16 @@ static void shot_flush(n265_encoder *e)
             "\"cut\":%s,\"shot\":%d,"
             "\"frames\":{\"i\":%d,\"p\":%d,\"b_ref\":%d,\"b_leaf\":%d},"
             "\"bytes\":%llu,\"qp_base_mean\":%.4f,\"complexity\":%.0f,"
-            "\"flat_frames\":%d}\n",
+            "\"flat_frames\":%d",
             e->shot_first, e->shot_last, kind[e->shot_open],
             e->shot_cut ? "true" : "false", e->shot_idx,
             e->shot_cnt[0], e->shot_cnt[1], e->shot_cnt[2], e->shot_cnt[3],
             (unsigned long long)e->shot_bytes,
             e->shot_qp_sum / (double)e->shot_n, e->shot_cplx, e->shot_flat);
+    if (e->shotp)
+        fprintf(e->shot_f, ",\"plan\":{\"model\":%d,\"off\":%.4f}",
+                e->shotp_model, e->shotp[e->shot_idx]);
+    fputs("}\n", e->shot_f);
     fflush(e->shot_f);
     e->shot_n = 0;
 }
@@ -9468,7 +9511,9 @@ static int drive_scheduler(n265_encoder *e)
     fw->display_idx = f->display_idx;
     fw->b_depth = e->plan_depth[e->plan_pos];
     fw->ref_valid = e->ref_valid;
-    fw->shot_off = e->shot_window > 0 ? (double)f->shot_off : 0.0;
+    fw->shot_off = e->shot_window > 0 ? (double)f->shot_off
+                 : e->shotp ? e->shotp[shotl_find(e, f->display_idx) + 1]
+                 : 0.0;
     fw->ctl_qpmin = f->ctl_qpmin;
     fw->ctl_qpmax = f->ctl_qpmax;
     fw->ctl_zone = f->ctl_zone;
@@ -10002,13 +10047,26 @@ int n265_encoder_headers(n265_encoder *e, n265_nal **nal, int *nnal)
  * a ladder is resampled to the same size, so the detector reads the same
  * plane whatever the rung's resolution and the list comes out the same.
  * A cut inside min-keyint of the shot's start joins the shot, the flash
- * guard --shot-keys applies. */
+ * guard --shot-keys applies.
+ *
+ * The scan also sums what --shot-plan reads about each shot (shotplan.c
+ * names them). Every term is a function of the analysis plane and the
+ * lookahead's costs on it, summed in frame order, so a list is the same
+ * at every thread count and for every rung of a ladder. */
+typedef struct shot_acc {
+    double n, n_inter;
+    double lic, lbest, lbest2;  /* log2 intra and best cost, and its square */
+    double best_inter, ic_inter;
+    double mv, lvm, lvsd, flat, dark, luma;
+} shot_acc;
+
 struct n265_shotscan {
     n265_encoder *e;
     int aw, ah, mk, last_start;
     uint8_t *a8;
     pixel *pl[3];
     n265_shot *s;
+    shot_acc *acc;
     int n, cap;
     long frames;
 };
@@ -10050,6 +10108,81 @@ n265_shotscan *n265_shotscan_open(const n265_param *src)
     return s;
 }
 
+/* thresholds on a 16x16 block of the 8-bit analysis plane: flat is a
+ * variance under 4, dark-smooth (where banding shows) a mean under 64
+ * with a variance under 16 */
+#define SCAN_FLAT_VAR 4
+#define SCAN_DARK_MEAN 64
+#define SCAN_DARK_VAR 16
+
+/* adds queued frame i to the current shot's sums; `inter` is 0 on the
+ * shot's first frame, whose inter cost is against another shot */
+static void shotscan_acc(n265_shotscan *s, int i, int inter)
+{
+    const n265_la *la = &s->e->la;
+    const la_frame *f = &la->f[i];
+    shot_acc *a = &s->acc[s->n - 1];
+    int nb = la->bw * la->bh;
+    uint64_t best = 0;
+    for (int k = 0; k < nb; k++)
+        best += f->pcost[k] < f->icost[k] ? f->pcost[k] : f->icost[k];
+    double ic = (double)f->icost_sum / nb, bc = (double)best / nb;
+    double lb = log2(1.0 + bc);
+    a->n += 1.0;
+    a->lic += log2(1.0 + ic);
+    a->lbest += lb;
+    a->lbest2 += lb * lb;
+    if (inter) {
+        a->n_inter += 1.0;
+        a->best_inter += (double)best;
+        a->ic_inter += (double)f->icost_sum;
+        a->mv += (double)f->mvabs_sum / nb;
+    }
+    int bx = s->aw / 16, by = s->ah / 16, nbl = bx * by;
+    double sl = 0.0, sl2 = 0.0, luma = 0.0;
+    int flat = 0, dark = 0;
+    for (int y = 0; y < by; y++)
+        for (int x = 0; x < bx; x++) {
+            const uint8_t *p = s->a8 + (size_t)y * 16 * s->aw + x * 16;
+            uint32_t sum = 0, sq = 0;
+            for (int r = 0; r < 16; r++, p += s->aw)
+                for (int c = 0; c < 16; c++) {
+                    sum += p[c];
+                    sq += (uint32_t)p[c] * p[c];
+                }
+            uint32_t var = (sq - sum * sum / 256) / 256, mean = sum / 256;
+            double lv = log2(1.0 + var);
+            sl += lv;
+            sl2 += lv * lv;
+            luma += mean;
+            flat += var < SCAN_FLAT_VAR;
+            dark += mean < SCAN_DARK_MEAN && var < SCAN_DARK_VAR;
+        }
+    double m = sl / nbl, sd2 = sl2 / nbl - m * m;
+    a->lvm += m;
+    a->lvsd += sd2 > 0.0 ? sqrt(sd2) : 0.0;
+    a->flat += (double)flat / nbl;
+    a->dark += (double)dark / nbl;
+    a->luma += luma / nbl / 255.0;
+}
+
+/* the sums of one shot as the list's features, in shotplan.c's order */
+static void shotscan_feat(const shot_acc *a, double *f)
+{
+    double n = a->n, sd2 = a->lbest2 / n - (a->lbest / n) * (a->lbest / n);
+    f[0] = a->lic / n;
+    f[1] = a->lbest / n;
+    f[2] = a->ic_inter > 0.0 ? a->best_inter / a->ic_inter : 1.0;
+    f[3] = log2(1.0 + (a->n_inter > 0.0 ? a->mv / a->n_inter : 0.0));
+    f[4] = sd2 > 0.0 ? sqrt(sd2) : 0.0;
+    f[5] = a->lvsd / n;
+    f[6] = a->lvm / n;
+    f[7] = a->flat / n;
+    f[8] = a->dark / n;
+    f[9] = a->luma / n;
+    f[10] = log2(n);
+}
+
 int n265_shotscan_push(n265_shotscan *s, const uint8_t *luma, int w, int h,
                        int depth)
 {
@@ -10068,12 +10201,18 @@ int n265_shotscan_push(n265_shotscan *s, const uint8_t *luma, int w, int h,
         if (s->n == s->cap) {
             int nc = s->cap ? 2 * s->cap : 64;
             n265_shot *t = realloc(s->s, (size_t)nc * sizeof *t);
-            if (!t)
+            if (t)
+                s->s = t;
+            shot_acc *ta = realloc(s->acc, (size_t)nc * sizeof *ta);
+            if (ta)
+                s->acc = ta;
+            if (!t || !ta)
                 return -1;
-            s->s = t;
             s->cap = nc;
         }
+        memset(&s->acc[s->n], 0, sizeof s->acc[s->n]);
         n265_shot *sh = &s->s[s->n++];
+        memset(sh, 0, sizeof *sh);
         sh->first = d;
         sh->last = -1;
         sh->kind = d == 0 ? N265_SHOT_START : N265_SHOT_CUT;
@@ -10082,6 +10221,7 @@ int n265_shotscan_push(n265_shotscan *s, const uint8_t *luma, int w, int h,
             s->s[s->n - 2].last = d - 1;
         s->last_start = d;
     }
+    shotscan_acc(s, i, !cut);
     while (e->la.count > 1)
         n265_la_pop(e);
     s->frames = d + 1;
@@ -10095,6 +10235,11 @@ int n265_shotscan_finish(n265_shotscan *s, n265_shotlist *out)
     if (s->n == 0)
         return -1;
     s->s[s->n - 1].last = (int)s->frames - 1;
+    for (int k = 0; k < s->n; k++) {
+        shotscan_feat(&s->acc[k], s->s[k].feat);
+        s->s[k].has_feat = 1;
+    }
+    out->feat_ver = N265_SHOTFEAT_VER;
     out->s = s->s;
     out->n = s->n;
     out->fp.frames = s->frames;
@@ -10119,5 +10264,6 @@ void n265_shotscan_close(n265_shotscan *s)
     for (int c = 0; c < 3; c++)
         free(s->pl[c]);
     free(s->s);
+    free(s->acc);
     free(s);
 }

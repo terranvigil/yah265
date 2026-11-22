@@ -1418,6 +1418,14 @@ if "$FFMPEG" -loglevel error -i tests/corpus/foreman_cif.y4m \
            shots_hand 352x288 34 testsrc2 "--keyint 12 --bframes 7 --ref 2 --crf 28 --aq 1 --cutree 1 --shot-list $TMP/shots_hand.txt --threads 12"
     run_vector_file "$ms_src" \
            shots_keys 352x288 34 testsrc2 "--keyint 100 --bframes 7 --ref 2 --crf 28 --aq 1 --cutree 1 --shot-keys --threads 4"
+    # Per-shot stage A2: --shot-plan from the scan's own list, and a hand
+    # list whose offsets move the base 4 QP each way under a capped CRF.
+    run_vector_scan "$TMP/shots_plan.txt" "$ms_src" \
+           shots_plan 352x288 34 testsrc2 "--keyint 100 --bframes 7 --crf 28 --aq 1 --cutree 1 --shot-plan $TMP/shots_plan.txt --threads 4"
+    printf 'yah265-shots 2\nshots 4\n0 qp=-4\n10 qp=4\n20 qp=-2.5\n26 qp=1.25\nend\n' \
+        > "$TMP/shots_planh.txt"
+    run_vector_file "$ms_src" \
+           shots_plan_vbv 352x288 34 testsrc2 "--keyint 100 --bframes 7 --crf 24 --vbv-maxrate 900 --vbv-bufsize 600 --aq 1 --cutree 1 --shot-plan $TMP/shots_planh.txt --threads 12"
 else
     echo "SUMMARY shots_scan SKIP (no tests/corpus)"
 fi

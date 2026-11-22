@@ -14,6 +14,7 @@
 #include <unistd.h>
 
 #include "encoder/shotlist.h"
+#include "encoder/shotplan.h"
 
 static int fails;
 
@@ -64,7 +65,21 @@ static void parse_refused(void)
     static const struct { const char *text, *why; } bad[] = {
         { "", "empty" },
         { "yah264-scan 1\nshots 1\n0\nend\n", "another tool's magic" },
-        { "yah265-shots 2\nshots 1\n0\nend\n", "a later version" },
+        { "yah265-shots 3\nshots 1\n0\nend\n", "a later version" },
+        { "yah265-shots 1\nshots 1\n0 qp=1\nend\n", "qp= in version 1" },
+        { "yah265-shots 2\nshots 1\n0 f=1,2,3,4,5,6,7,8,9,10,11\nend\n",
+          "features without a features line" },
+        { "yah265-shots 2\nfeatures 1\nshots 1\n0 f=1,2,3\nend\n",
+          "too few features" },
+        { "yah265-shots 2\nfeatures 1\nshots 1\n"
+          "0 f=1,2,3,4,5,6,7,8,9,10,11,12\nend\n", "too many features" },
+        { "yah265-shots 2\nshots 1\n0 qp=13\nend\n", "an offset past 12" },
+        { "yah265-shots 2\nshots 1\n0 qp=x\nend\n", "a word for an offset" },
+        { "yah265-shots 2\nshots 1\n0 qp=1 qp=2\nend\n", "two offsets" },
+        { "yah265-shots 2\nshots 1\n0 qp=1 99\nend\n",
+          "a field after an offset" },
+        { "yah265-shots 2\nshots 1\nqp=1\nend\n", "an offset alone" },
+        { "yah265-shots 2\nshots 1\n0 w=1\nend\n", "an unknown field" },
         { "yah265-shots 1\nshots 1\n5\nend\n", "first shot not at 0" },
         { "yah265-shots 1\nshots 2\n0\n0\nend\n", "a repeated start" },
         { "yah265-shots 1\nshots 3\n0\n50\n20\nend\n", "out of order" },
@@ -137,9 +152,10 @@ static void roundtrip_and_refusals(void)
 {
     n265_shotlist l;
     memset(&l, 0, sizeof l);
-    n265_shot s[3] = { { 0, 39, N265_SHOT_START, -1.0 },
-                       { 40, 89, N265_SHOT_CUT, 0.912 },
-                       { 90, 119, N265_SHOT_HAND, -1.0 } };
+    n265_shot s[3] = {
+        { .first = 0, .last = 39, .kind = N265_SHOT_START, .conf = -1.0 },
+        { .first = 40, .last = 89, .kind = N265_SHOT_CUT, .conf = 0.912 },
+        { .first = 90, .last = 119, .kind = N265_SHOT_HAND, .conf = -1.0 } };
     l.s = s;
     l.n = 3;
     fingerprint(&l.fp, 640, 360, 0);
@@ -256,9 +272,83 @@ static void frame_math(void)
     CHECK(up[0] == 30 && up[3] == 60, "column box %d %d", up[0], up[3]);
 }
 
+/* version 2: the scan's features and a hand offset, and the plan */
+static void plan_fields(void)
+{
+    n265_shotlist l;
+    char err[256] = "";
+    const char *t =
+        "yah265-shots 2\n"
+        "frames 100\n"
+        "features 1\n"
+        "shots 3\n"
+        "0 39 start - f=9,8,0.3,1,0.2,3,6,0.1,0,0.5,5.32\n"
+        "40 49 cut 2.0 f=10,9,0.5,2,0.2,3,7,0,0,0.4,3.32\n"
+        "50 99 cut 1.5 f=8,6,0.1,0.5,0.1,3,5,0.3,0.2,0.3,5.64\n"
+        "end\n";
+    CHECK(n265_shotlist_parse_str(&l, t, err, sizeof err) == 0,
+          "a scan's list was refused: %s", err);
+    CHECK(l.n == 3 && l.feat_ver == 1 && l.s[2].has_feat && !l.s[2].has_qp &&
+          l.s[1].feat[0] == 10.0 && l.s[2].feat[10] == 5.64, "features");
+    double off[3] = { 9, 9, 9 };
+    CHECK(n265_shotplan(&l, off, err, sizeof err) == 0,
+          "the plan refused features: %s", err);
+    double m = 0.0;
+    for (int k = 0; k < 3; k++) {
+        CHECK(off[k] >= -N265_SHOTPLAN_CLAMP && off[k] <= N265_SHOTPLAN_CLAMP,
+              "shot %d's offset %f is past the clamp", k, off[k]);
+        m += off[k] * (l.s[k].last - l.s[k].first + 1);
+    }
+    CHECK(m > -1e-9 && m < 1e-9, "the offsets are not centred (%f)", m);
+    CHECK(off[1] == off[0], "a 10-frame shot did not take the offset of the "
+          "shot before it");
+
+    /* the writer keeps the features */
+    char path[] = "/tmp/n265_plan_XXXXXX";
+    int fd = mkstemp(path);
+    FILE *f = fd >= 0 ? fdopen(fd, "w") : NULL;
+    CHECK(f && n265_shotlist_write(f, &l) == 0, "write failed");
+    if (f)
+        fclose(f);
+    n265_shotlist r;
+    CHECK(n265_shotlist_parse(&r, path, err, sizeof err) == 0,
+          "the writer's list was refused: %s", err);
+    unlink(path);
+    if (r.n == 3) {
+        double o2[3];
+        CHECK(n265_shotplan(&r, o2, err, sizeof err) == 0 &&
+              !memcmp(o2, off, sizeof off), "the plan moved on a round trip");
+        n265_shotlist_free(&r);
+    }
+    n265_shotlist_free(&l);
+
+    /* hand offsets are taken as written */
+    CHECK(n265_shotlist_parse_str(&l, "yah265-shots 2\nshots 2\n0 qp=-1.5\n"
+                                  "30 - hand - qp=2\nend\n", err,
+                                  sizeof err) == 0, "%s", err);
+    CHECK(n265_shotplan(&l, off, err, sizeof err) == 0 &&
+          off[0] == -1.5 && off[1] == 2.0, "hand offsets moved");
+    n265_shotlist_free(&l);
+
+    /* and refused when the list says too little */
+    CHECK(n265_shotlist_parse_str(&l, "yah265-shots 2\nshots 2\n0 qp=1\n"
+                                  "30\nend\n", err, sizeof err) == 0, "%s",
+          err);
+    CHECK(n265_shotplan(&l, off, err, sizeof err) != 0 && err[0],
+          "accepted offsets on some shots and not others");
+    n265_shotlist_free(&l);
+    CHECK(n265_shotlist_parse_str(&l, "yah265-shots 1\nshots 2\n0\n30\n"
+                                  "end\n", err, sizeof err) == 0, "%s", err);
+    err[0] = '\0';
+    CHECK(n265_shotplan(&l, off, err, sizeof err) != 0 && err[0],
+          "planned a list with no features");
+    n265_shotlist_free(&l);
+}
+
 int main(void)
 {
     parse_ok();
+    plan_fields();
     parse_refused();
     roundtrip_and_refusals();
     frame_math();

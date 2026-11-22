@@ -389,15 +389,21 @@ y265 in.y4m --shot-scan shots.txt
 y265 in.y4m -o 1080p.hevc --crf 24 --shot-list shots.txt
 ```
 
+**A quality level for each shot.** `--shot-plan` reads the same list and moves each shot's QP up or down. Shots where bits buy little VMAF get fewer of them. Shots where bits buy more get those bits. The moves come from what the scan measured about each shot. The title's average QP stays where `--crf` put it. It works with `--crf`, with or without a VBV. On eight film excerpts it saved a median 1.2% of the bits at the same VMAF v1.
+
+```sh
+y265 in.y4m -o 1080p.hevc --crf 24 --shot-plan shots.txt
+```
+
+A ladder tool can write its own offsets into the list as `qp=` on each shot line. The encoder then uses them as written.
+
 A shot window lets a CRF encode plan a whole shot at a time. It works only with CRF and adds latency. In my tests it saved little bitrate and made quality less even from shot to shot.
 
 Shot statistics are one JSON line per shot. A ladder builder can use them to pick a rate per shot. The stream is the same with them on.
 
-<p class="optchips"><span><a href="options.md#shot-aware-options">Options</a></span> <a href="options.md#opt-shot-scan"><code>--shot-scan</code></a> <a href="options.md#opt-shot-list"><code>--shot-list</code></a> <a href="options.md#opt-shot-keys"><code>--shot-keys</code></a> <a href="options.md#opt-shot-window"><code>--shot-window</code></a> <a href="options.md#opt-shot-stats"><code>--shot-stats</code></a></p>
+<p class="optchips"><span><a href="options.md#shot-aware-options">Options</a></span> <a href="options.md#opt-shot-scan"><code>--shot-scan</code></a> <a href="options.md#opt-shot-list"><code>--shot-list</code></a> <a href="options.md#opt-shot-plan"><code>--shot-plan</code></a> <a href="options.md#opt-shot-keys"><code>--shot-keys</code></a> <a href="options.md#opt-shot-window"><code>--shot-window</code></a> <a href="options.md#opt-shot-stats"><code>--shot-stats</code></a></p>
 
 **Building a ladder.** The [hull script](scripts/shot_hull.py) scores each shot of several encodes on VMAF v1 and prints each shot's best rungs across resolutions.
-
-Coming soon: a quality setting for each shot, from the same scan.
 
 ## Live control
 

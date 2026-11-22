@@ -93,12 +93,38 @@ static int kind_parse(const char *s)
          : !strcmp(s, "hand") ? N265_SHOT_HAND : -1;
 }
 
+/* one key=value field of a shot line: f= (the scan's features, which need
+ * the features line before them) or qp= */
+static int shot_kv(n265_shot *s, const char *t, int feat_ver)
+{
+    char *e;
+    if (!strncmp(t, "qp=", 3) && !s->has_qp) {
+        s->qp = strtod(t + 3, &e);
+        if (e == t + 3 || *e || !(s->qp >= -12.0 && s->qp <= 12.0))
+            return -1;
+        s->has_qp = 1;
+        return 0;
+    }
+    if (!strncmp(t, "f=", 2) && feat_ver > 0 && !s->has_feat) {
+        const char *p = t + 2;
+        for (int k = 0; k < N265_SHOTFEAT_N; k++) {
+            s->feat[k] = strtod(p, &e);
+            if (e == p || *e != (k < N265_SHOTFEAT_N - 1 ? ',' : '\0'))
+                return -1;
+            p = e + 1;
+        }
+        s->has_feat = 1;
+        return 0;
+    }
+    return -1;
+}
+
 int n265_shotlist_parse_str(n265_shotlist *l, const char *text, char *err,
                             size_t cap)
 {
     memset(l, 0, sizeof *l);
     const char *p = text;
-    char ln[512];
+    char ln[1024];
     int lineno = 0, ver = 0, nshots = -1, nthumb = 0;
     char magic[32];
     if (next_line(&p, ln, sizeof ln, &lineno) != 0 ||
@@ -108,9 +134,9 @@ int n265_shotlist_parse_str(n265_shotlist *l, const char *text, char *err,
                N265_SHOTLIST_MAGIC, N265_SHOTLIST_VERSION);
         return -1;
     }
-    if (ver != N265_SHOTLIST_VERSION) {
-        seterr(err, cap, "shot list version %d; this build reads version %d",
-               ver, N265_SHOTLIST_VERSION);
+    if (ver < 1 || ver > N265_SHOTLIST_VERSION) {
+        seterr(err, cap, "shot list version %d; this build reads versions 1 "
+               "to %d", ver, N265_SHOTLIST_VERSION);
         return -1;
     }
     int have_luma = 0, have_src = 0;
@@ -150,6 +176,11 @@ int n265_shotlist_parse_str(n265_shotlist *l, const char *text, char *err,
             if (sscanf(v, "%dx%d min-keyint=%d", &l->scan_w, &l->scan_h,
                        &l->scan_mk) != 3)
                 goto malformed;
+        } else if (!strcmp(key, "features") && ver >= 2) {
+            char *e;
+            l->feat_ver = (int)strtol(v, &e, 10);
+            if (e == v || *e || l->feat_ver < 1)
+                goto malformed;
         } else if (!strcmp(key, "shots")) {
             char *e;
             nshots = (int)strtol(v, &e, 10);
@@ -186,11 +217,22 @@ int n265_shotlist_parse_str(n265_shotlist *l, const char *text, char *err,
             goto bad;
         }
         n265_shot *s = &l->s[k];
+        /* up to four positional fields, then key=value fields */
         char a[4][32];
-        char extra[2];
-        int nf = sscanf(ln, "%31s %31s %31s %31s %1s", a[0], a[1], a[2],
-                        a[3], extra);
-        if (nf < 1 || nf > 4)
+        int nf = 0;
+        char *save = NULL;
+        for (char *t = strtok_r(ln, " \t", &save); t;
+             t = strtok_r(NULL, " \t", &save)) {
+            if (strchr(t, '=')) {
+                if (ver < 2 || !nf || shot_kv(s, t, l->feat_ver) != 0)
+                    goto malformed;
+                continue;
+            }
+            if (nf == 4 || s->has_feat || s->has_qp || strlen(t) >= 32)
+                goto malformed;
+            strcpy(a[nf++], t);
+        }
+        if (nf < 1)
             goto malformed;
         char *e;
         long first = strtol(a[0], &e, 10);
@@ -309,7 +351,10 @@ int n265_shotlist_parse(n265_shotlist *l, const char *path, char *err,
 int n265_shotlist_write(FILE *f, const n265_shotlist *l)
 {
     static const char *const kind[] = { "start", "cut", "hand" };
-    fprintf(f, "%s %d\n", N265_SHOTLIST_MAGIC, N265_SHOTLIST_VERSION);
+    int v2 = 0;
+    for (int k = 0; k < l->n; k++)
+        v2 |= l->s[k].has_feat || l->s[k].has_qp;
+    fprintf(f, "%s %d\n", N265_SHOTLIST_MAGIC, v2 ? 2 : 1);
     if (l->fp.frames > 0)
         fprintf(f, "frames %ld\n", l->fp.frames);
     if (l->fp.have) {
@@ -325,6 +370,8 @@ int n265_shotlist_write(FILE *f, const n265_shotlist *l)
     if (l->scan_w > 0)
         fprintf(f, "scan %dx%d min-keyint=%d\n", l->scan_w, l->scan_h,
                 l->scan_mk);
+    if (v2 && l->feat_ver > 0)
+        fprintf(f, "features %d\n", l->feat_ver);
     fprintf(f, "shots %d\n", l->n);
     for (int k = 0; k < l->n; k++) {
         const n265_shot *s = &l->s[k];
@@ -333,9 +380,15 @@ int n265_shotlist_write(FILE *f, const n265_shotlist *l)
         else
             fprintf(f, "%d - %s", s->first, kind[s->kind]);
         if (s->conf >= 0.0)
-            fprintf(f, " %.3f\n", s->conf);
+            fprintf(f, " %.3f", s->conf);
         else
-            fputs(" -\n", f);
+            fputs(" -", f);
+        if (s->has_feat && l->feat_ver > 0)
+            for (int j = 0; j < N265_SHOTFEAT_N; j++)
+                fprintf(f, "%s%.6g", j ? "," : " f=", s->feat[j]);
+        if (s->has_qp)
+            fprintf(f, " qp=%.4f", s->qp);
+        fputc('\n', f);
     }
     fputs("end\n", f);
     return ferror(f) ? -1 : 0;

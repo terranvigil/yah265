@@ -589,6 +589,8 @@
 #define n265_mc_luma_14_hf_sve       n265_mc_luma_14_hf_sve_10
 #define n265_set_shot_keys           n265_set_shot_keys_10
 #define n265_encoder_set_shot_list   n265_encoder_set_shot_list_10
+#define n265_encoder_set_shot_plan   n265_encoder_set_shot_plan_10
+#define n265_shotplan                n265_shotplan_10
 #define n265_shotl_has               n265_shotl_has_10
 #define n265_shotscan_open           n265_shotscan_open_10
 #define n265_shotscan_push           n265_shotscan_push_10

@@ -366,6 +366,7 @@ GROUPS = [
     ("Shot-aware options", [
         ("--shot-scan", "none", "Scan the input for shots and write a shot list, then exit."),
         ("--shot-list", "none", "Put a key frame at the start of each listed shot."),
+        ("--shot-plan", "none", "Do what `--shot-list` does, and give each shot its own quality level from the scan. `--crf` only, with or without a VBV. A list whose shots carry `qp=` offsets is used as written."),
         ("--shot-keys", "off", "Put a key frame on each cut the encoder finds."),
         ("--shot-window", "`0`", "Buffer up to this many frames so a whole shot can be planned before it's coded. `--crf` only, at most 300. It adds that many frames of latency."),
         ("--shot-stats", "none", "Write one JSON line of statistics per shot. The stream doesn't change."),
@@ -551,6 +552,7 @@ SEEN = {
     "--csv-log-level": "6b411b40",
     "--shot-scan": "8d986034",
     "--shot-list": "5d0ba269",
+    "--shot-plan": "8e6ccd1b",
     "--shot-keys": "536e5b57",
     "--shot-stats": "6b48ef8b",
     "--frame-stats": "7b42237e",

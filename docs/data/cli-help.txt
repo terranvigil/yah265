@@ -1,4 +1,4 @@
-# y265 0.0.1, release build 841c08bf
+# y265 0.0.1, release build 39f01318
 usage: y265 [options] <input.y4m|input.yuv|->
        y265 bench <video> [options]   compare with x265 on your clip
 
@@ -119,6 +119,10 @@ Structure
   --shot-list <file>    put a key frame at the start of each listed shot.
                         The encoder's own cut detector is off. The list is
                         refused on an input it wasn't made from.
+  --shot-plan <file>    --shot-list, plus a quality level for each shot from
+                        the scan's features: each shot's QP moves so a bit
+                        buys the same VMAF in every shot. --crf only, with
+                        or without a VBV.
   --shot-keys           put a key frame on each cut the encoder finds
   --open-gop            code periodic key frames as CRA (default);
                         --no-open-gop codes IDR. Scene cuts are always IDR.

@@ -24,6 +24,15 @@
  * A shot line is "first [last [kind [confidence]]]". A hand-written list
  * may give the first frame alone; the last is then the frame before the
  * next shot. Every line but the magic, "shots" and "end" is optional.
+ *
+ * Version 2 adds two optional fields after those, for --shot-plan:
+ *
+ *   features 1                      before "shots": the feature set
+ *   150 299 cut 0.912 f=8.1,7.3,... the scan's features for the shot
+ *   150 299 cut 0.912 qp=-1.25      a base-QP offset, given by hand
+ *
+ * A list that carries neither is written as version 1, so a list made
+ * for --shot-list alone still reads in a build from before them.
  */
 
 #ifndef N265_SHOTLIST_H
@@ -34,7 +43,10 @@
 #include <stdio.h>
 
 #define N265_SHOTLIST_MAGIC "yah265-shots"
-#define N265_SHOTLIST_VERSION 1
+#define N265_SHOTLIST_VERSION 2
+/* the per-shot features the scan writes (shotplan.c reads them) */
+#define N265_SHOTFEAT_VER 1
+#define N265_SHOTFEAT_N 11
 /* the scan's analysis width: its lowres plane is 320 samples wide, the
  * width the b-adapt motion term is normalized to */
 #define N265_SHOTSCAN_W 640
@@ -56,6 +68,9 @@ typedef struct n265_shot {
     int first, last;        /* last is -1 where the list left it open */
     int kind;
     double conf;            /* negative: not given */
+    int has_feat, has_qp;
+    double feat[N265_SHOTFEAT_N];
+    double qp;              /* --shot-plan's offset, where the list gives it */
 } n265_shot;
 
 typedef struct n265_shotlist {
@@ -63,6 +78,7 @@ typedef struct n265_shotlist {
     int n;
     n265_shot_fp fp;
     int scan_w, scan_h, scan_mk;    /* the scan line, 0 when absent */
+    int feat_ver;                   /* the features line, 0 when absent */
 } n265_shotlist;
 
 int n265_shotlist_parse_str(n265_shotlist *l, const char *text, char *err,

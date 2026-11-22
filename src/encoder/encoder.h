@@ -1564,6 +1564,9 @@ struct n265_encoder {
      * a list the detector is off and these are the only cuts. */
     int *shotl;
     int shotl_n, shotl_on;
+    /* --shot-plan: shotl_n + 1 base offsets, one a shot; NULL when off */
+    double *shotp;
+    int shotp_model;
     int shot_keys;          /* --shot-keys: every detected cut is an IDR */
     int key_grid;           /* --no-scenecut: keys only at multiples of keyint */
     int la_depth;
