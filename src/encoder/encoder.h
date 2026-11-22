@@ -1212,6 +1212,10 @@ struct n265_encoder {
     double crf_dur;
     int dc_anchor;
     double dc_lvl, dc_n, dc_mem, dc_win;
+    double dc_lvl0, dc_n0;  /* the black frames' level, until a frame that isn't */
+    double dc_black, dc_bound, dc_retake;  /* N265_CRF_DC_BLACK / _BOUND / _RETAKE (item 63) */
+    double dc_low;  /* N265_CRF_DC_LOW: _RETAKE acts only on a level this far under the absolute anchor */
+    double dc_run, dc_run_sum;  /* the run of frames above the level, for _RETAKE */
     int abr_on;             /* n265_set_bitrate: the base is the ABR rate factor */
     double abr_bitrate;     /* bits per second                          */
     /* --vbv-maxrate / --vbv-bufsize / --vbv-init: the hypothetical decoder

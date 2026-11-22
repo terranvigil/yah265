@@ -15,7 +15,7 @@ No. I wrote yah265 from the ITU-T H.265 specification and from published papers.
 
 x265 4.3 at `--preset medium`. [How x265 was run](x265-run.md) includes the build and the command for each goal.
 
-## Is the headline cherry-picked?
+## Did you cherry-pick the results?
 
 No. It covers every CRF cell in the test set. Capped VBR and the content-type clips have their own tables. I didn't include cells that failed a [validity check](methodology.md#what-makes-a-number-valid).
 
@@ -25,15 +25,15 @@ Yes. yah265's `medium` is tuned for VMAF v1, the only quality metric these pages
 
 ## You tuned on the clips you test on.
 
-Yes. Nothing in the test set is held out, because I developed on parts of the same titles. Treat the results as what the encoder does on this set. The test that matters is your own content. [Check it yourself](check-it-yourself.md) walks through it.
+Yes. Nothing in the test set is held out, because I developed on parts of the same titles. Treat the results as what the encoder does on this set. The test that matters is [your own content](check-it-yourself.md).
 
 ## Does the lead hold beyond medium?
 
-I only claim `medium` against `medium`, the preset most people run. The [guide](guide.md#pick-a-preset) explains why yah265 has four presets.
+I only claim `medium` against `medium`, the preset most people run. See the [guide](guide.md#pick-a-preset) for why yah265 has four presets.
 
 ## Why time x265 without its assembly?
 
-Two of the three goals compare the algorithms with SIMD off on both sides. The headline uses only the third, where both encoders run as shipped.
+Two of the three goals compare the algorithms with SIMD off on both sides. The 1.8x figure uses only the third, where both encoders run as shipped.
 
 ## Did x265 get its tunes?
 
@@ -41,7 +41,7 @@ Neither encoder gets a `--tune`. yah265's `medium` detects screen recordings and
 
 ## Is it only fast on a Mac?
 
-No. The headline is the Mac's. yah265 also leads on an Intel Xeon and on an AWS Graviton4, where the same test set ran. On the Xeon I also held both encoders to AVX2, then to SSE4.2. [Results](results.md#by-machine) has each machine's table.
+No. The 1.8x and +1.23 figures are the Mac's. yah265 also [leads on an Intel Xeon and on an AWS Graviton4](results.md#by-machine), where the same test set ran. On the Xeon I also held both encoders to AVX2, then to SSE4.2.
 
 ## Does the average hide bad frames?
 
@@ -49,7 +49,7 @@ It can. [Results](results.md#the-worst-frames) shows one clip frame by frame, wi
 
 ## Is the VMAF setup standard?
 
-The scorer is Netflix's libvmaf with the `vmaf_v1.0.16` models. A picture smaller than 1080p is scaled up to display size before scoring, as Netflix's guidance for that model says. [The methodology](methodology.md#scoring-quality) has the exact setup.
+The [scorer](methodology.md#scoring-quality) is Netflix's libvmaf with the `vmaf_v1.0.16` models. A picture smaller than 1080p is scaled up to display size before scoring, as Netflix's guidance for that model says.
 
 ## How do I check a number?
 

@@ -121,9 +121,9 @@ $ time (cat clip.y4m | build-rel/y265 - -o ours.hevc --crf 24)
 $ time (cat clip.y4m | x265 --input - --y4m --preset medium --crf 28 -o ref.hevc)
 ```
 
-Divide x265's `real` time by yah265's. That's the G3 speed the results page reports.
+Divide x265's `real` time by yah265's. That's the [G3](methodology.md#the-three-speed-goals) speed the results page reports.
 
-For G1, run each encoder in plain C on one thread:
+For [G1](methodology.md#the-three-speed-goals), run each encoder in plain C on one thread:
 
 ```sh
 $ cat clip.y4m | N265_ASM_OFF=all build-rel/y265 - -o ours.hevc --crf 24 --threads 1
@@ -131,7 +131,7 @@ $ cat clip.y4m | x265 --input - --y4m --preset medium --crf 28 \
     --no-asm --pools none --frame-threads 1 -o ref.hevc
 ```
 
-G2 drops `--threads 1` and the two x265 threading options. Because x265's one-thread run writes a different file, match yah265's size again for G1.
+[G2](methodology.md#the-three-speed-goals) drops `--threads 1` and the two x265 threading options. Because x265's one-thread run writes a different file, match yah265's size again for [G1](methodology.md#the-three-speed-goals).
 
 A few habits keep the number fair:
 
@@ -190,7 +190,7 @@ Under VBR, check the bitrate each encoder reached against its target before comp
 | mode | what it does |
 |---|---|
 | `--solve` | encodes x265, adjusts yah265's CRF to match each file's size and scores both |
-| `--time` | times G1, G2 and G3 at the matched points in interleaved rounds |
+| `--time` | times [G1, G2 and G3](methodology.md#the-three-speed-goals) at the matched points in interleaved rounds |
 | `--windows`, `--time-windows` | matches and times the 30-second windows on the long cells |
 | `--ladder` | the CRF and VBR ladders on the 2-minute, 10-minute and content-type cells |
 | `--sweep` | the lookahead depth sweep |

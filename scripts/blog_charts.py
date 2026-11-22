@@ -68,6 +68,8 @@ TITLE = {"chimera": "Chimera", "sollevante": "Sol Levante",
          "skater227": "Skater", "ducks": "Ducks take off",
          "crowd_run": "Crowd run", "park_joy": "Park joy"}
 GOAL_ORDER = ["G3", "G1", "G2"]
+GOALS_HREF = "methodology.md#the-three-speed-goals"
+GOALS_URL = "https://terranvigil.github.io/yah265/methodology.html#the-three-speed-goals"
 GOAL_LONG = {"G3": "G3: as shipped, SIMD on all cores",
              "G1": "G1: algorithm only, plain C on one thread",
              "G2": "G2: algorithm only, plain C on all cores"}
@@ -835,7 +837,7 @@ def chart_cells(pl):
                  f"class='{'base' if v == 1 else 'grid'}' stroke-width='{1.5 if v == 1 else 1}'/>")
         o.append(T(X(v), H - B + 20, "1x (x265)" if v == 1 else f"{v:g}x", 12, "t2", "middle"))
         v += 0.5
-    o.append(T((L + W - R) / 2, H - 14, "times faster than x265 (right is faster)", 13, "t2",
+    o.append(T((L + W - R) / 2, H - 14, "times faster than x265", 13, "t2",
                "middle"))
     lo = min((v, n, k) for k, vs in vals.items() for v, n in vs)
     hi = max((v, n, k) for k, vs in vals.items() for v, n in vs)
@@ -889,7 +891,7 @@ def chart_arch(sps, date):
                  f"class='{cls}' stroke-width='{1.5 if v == 1 else 1}'{dash}/>")
         o.append(T(X(v), H - B + 20, "1x (x265)" if v == 1 else f"{v:g}x", 12, "t2", "middle"))
         v += 0.5
-    o.append(T((L + W - R) / 2, H - 14, "times faster than x265 (right is faster)", 13, "t2", "middle"))
+    o.append(T((L + W - R) / 2, H - 14, "times faster than x265", 13, "t2", "middle"))
     for i, (c, t) in enumerate(rows):
         y = Tp + rowh * (i + 0.5)
         o.append(T(L - 12, y + 4, f"{RES[c]} {TIER_LABEL[t]}", pick(13, 12), "t1", "end"))
@@ -1372,7 +1374,7 @@ def values(sps, q, lad, fl, cap, cv, ff, rows, repro, date, report_rel, hist, cr
                          f"on the {MACHINE_SHORT[worst[2]]}")
     V["slowest-x"] = fx(worst[0])
     V["combos-line"] = (f"That's {V['combos']} combinations of machine, picture size, clip length "
-                        f"and goal that pass. {V['slowest-cell']} is the slowest single clip at G3 "
+                        f"and goal that pass. {V['slowest-cell']} is the slowest single clip at {glink('G3')} "
                         f"on any machine and still runs {V['slowest-x']} faster.")
     V["goal-table"] = goal_table(sps)
     V["arch-table"] = arch_table(sps, q)
@@ -1423,7 +1425,11 @@ def values(sps, q, lad, fl, cap, cv, ff, rows, repro, date, report_rel, hist, cr
     return V
 
 
-def goal_table(sps):
+def glink(g, href=GOALS_HREF):
+    return f"[{g}]({href})"
+
+
+def goal_table(sps, href=GOALS_HREF):
     L = ["| goal | " + " | ".join(MACHINE_LONG[m] for m in MACHINES) + " |",
          "|---|" + "--:|" * len(MACHINES)]
     lab = GOAL_LONG
@@ -1432,7 +1438,7 @@ def goal_table(sps):
         for m in MACHINES:
             meds = [v[0] for (c, t, gg), v in sps[m].items() if gg == g]
             cells.append(frange(meds) if meds else "not measured")
-        L.append(f"| {lab[g]} | " + " | ".join(cells) + " |")
+        L.append(f"| {glink(g, href)}{lab[g][len(g):]} | " + " | ".join(cells) + " |")
     return "\n".join(L)
 
 

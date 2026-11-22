@@ -7,7 +7,7 @@ description: The options of the y265 command line, grouped by what they're for, 
 
 This page lists the options `y265` takes. From ffmpeg, the same names go through `-yah265-params` without the dashes, as the guide's [From ffmpeg](guide.md#from-ffmpeg) section shows.
 
-Many switches also take a `--no-` form that turns them off. "The preset's" means the default depends on `--preset` and sometimes on the picture size. Run `y265 --show-config` with your input to see what a run resolves to. The [encoding guide](guide.md) explains how the options fit together.
+Many switches also take a `--no-` form that turns them off. "The preset's" means the default depends on `--preset` and sometimes on the picture size. Run `y265 --show-config` with your input to see what a run resolves to. See the [encoding guide](guide.md) for how they fit together.
 
 <!--gen:options-->
 ## Input and output

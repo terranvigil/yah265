@@ -21,6 +21,20 @@ The test set and the limits come from one specification that yah265 shares with 
 - **BD-rate**: the average bitrate difference between two ladders at equal quality.
 - **Quality limit**: yah265 may need at most 1.0% more bits than x265 for the same VMAF v1.
 
+## The three speed goals
+
+I time yah265 against x265 three ways and call each one a goal.
+
+| goal | what runs | why |
+|---|---|---|
+| G3 | both encoders as shipped, with SIMD on all cores | the speed a user sees |
+| G1 | both encoders in plain C on one thread | compares the algorithms alone |
+| G2 | both encoders in plain C on all cores | compares the algorithms and their threading |
+
+G3 is the goal a user sees, because it times both encoders as shipped. The main result on the [home page](index.md) is G3.
+
+G1 and G2 switch the hand-written SIMD off on both sides to compare the algorithms alone. Those two are engineering checks, because x265 isn't meant to run without its assembly.
+
 ## The matched point
 
 An encoder can look faster, or score higher, just because it wrote a bigger file. Matching the file size rules that out.
@@ -74,7 +88,7 @@ An encoder can look faster, or score higher, just because it wrote a bigger file
 
 x265 runs first, at its default rate factor of CRF 28. I then adjust yah265's CRF until its file is within 1% of x265's size. Speed and quality are both read at that one point.
 
-x265 writes a different file at one thread than at its default threading. So G1 gets its own x265 encode and its own size match.
+x265 writes a different file at one thread than at its default threading. So [G1](#the-three-speed-goals) gets its own x265 encode and its own size match.
 
 ## Timing
 
@@ -84,9 +98,7 @@ x265 writes a different file at one thread than at its default threading. So G1 
 - The machine must be quiet, judged on total CPU across all cores. No other work runs during a timed leg.
 - Each run prints its output's md5.
 
-G3 is the goal a user sees, because it times both encoders as shipped. G1 and G2 switch the hand-written SIMD off on both sides to compare the algorithms alone. Those two are engineering checks, because x265 isn't meant to run without its assembly.
-
-Because G1 and G2 would take many hours at one thread on the 2-minute and 10-minute cells, they're timed on 30-second windows instead. A window starts every three minutes. yah265 is size-matched again over the windows. If the total misses by more than 5%, I don't count the result.
+Because [G1 and G2](#the-three-speed-goals) would take many hours at one thread on the 2-minute and 10-minute cells, they're timed on 30-second windows instead. A window starts every three minutes. yah265 is size-matched again over the windows. If the total misses by more than 5%, I don't count the result.
 
 ## The test media
 
@@ -97,7 +109,7 @@ Because G1 and G2 would take many hours at one thread on the 2-minute and 10-min
 | L | six open-licensed films at 720p, 1080p and 4K | 600 seconds from a recorded offset past the opening card, cut at the last frame before the end credits |
 | C | a film scan, sports and screen content | quality counts toward the verdict. Speed is only shown |
 
-The headline on the home page covers the size-matched CRF cells of tiers S, M and L on the Mac at G3. Capped VBR timings have their own table. Tier C's timings are reported with its quality.
+The main result on the home page covers the size-matched CRF cells of tiers S, M and L on the Mac at [G3](#the-three-speed-goals). Capped VBR timings have their own table. Tier C's timings are reported with its quality.
 
 The set has no held-out content, because the development clips were windows of these same titles.
 
@@ -138,7 +150,7 @@ A script picks the frames on Results by a fixed rule. It scores each frame by th
 | any single cell | no more than 1.0 VMAF v1 behind, size within 1% |
 | ladders, 2-minute segments and 10-minute films | BD-rate on VMAF v1 at or under +1.0% on each curve, at CRF and at VBR |
 | VBR tracking, 2-minute segments and 10-minute films | each rung within ±10% of its target over the whole cell |
-| VBR speed, 2-minute segments and 10-minute films | G3 only, held to the same speed limit |
+| VBR speed, 2-minute segments and 10-minute films | [G3](#the-three-speed-goals) only, held to the same speed limit |
 
 Each picture size and clip length is judged separately for each goal. It passes when both speed numbers meet the limit and quality holds too. Full parity means all three goals pass at each picture size and clip length, on each machine. Tier C's speed is shown outside that count.
 

@@ -182,5 +182,5 @@ text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-
 <circle cx='750.8' cy='437.0' r='5' class='s1 ring' stroke-width='2'/>
 <rect x='764.3' y='428.0' width='9.0' height='9.0' rx='1.5' class='s2 ring' stroke-width='2'/>
 <polygon points='763.9,435.2 770.2,441.5 763.9,447.8 757.7,441.5' class='s3 ring' stroke-width='2'/>
-<text x='513.0' y='502.0' font-size='13' class='t2' text-anchor='middle'>times faster than x265 (1x is level, right is faster)</text>
+<text x='513.0' y='502.0' font-size='13' class='t2' text-anchor='middle'>times faster than x265 (1x is level)</text>
 </svg>
