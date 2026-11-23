@@ -775,8 +775,9 @@ double n265_vbv_crf_base(struct n265_encoder *e, int cls, double cplx,
  * bits x qscale constant, holds over a few QP and not over a decade of
  * rate: 10x fewer bits takes 10-13 QP on the corpus, not the law's 20.
  * So a large step moves the point by two thirds of the law's answer and
- * then reads the slope off the coded frames: one group of an anchor and
- * its B frames before the step against one after, twice at most. */
+ * then reads the slope off the coded frames: whole groups of an anchor
+ * and its B frames before the step against as many after, a quarter
+ * second at least each side, twice at most. */
 
 static int ls_anchor(int cls)
 {
@@ -854,20 +855,29 @@ double n265_rc_rate_step(struct n265_encoder *e, double r, int take)
     if (rc->pend_n > s)
         s = (int)rc->pend_n;
     rc->ls_s = s < 40 ? s : 40;
-    double seen = rc->total_bits + rc->pend_bits;
-    rc->ls_bal = rc->bits_per_frame * ((double)rc->n_coded + rc->pend_n) -
-                 seen;
-    rc->ls_pbal = rc->planned_bits - seen;
-    /* group A: the last whole one ending s frames or more before */
-    long pa = -1, ea = -1, prev = -1;
-    for (long i = ls_lo(rc); i < land; i++) {
-        if (!ls_anchor(rc->hist[i % RC_HIST].cls))
-            continue;
-        if (prev >= 0 && i - 1 <= land - 1 - rc->ls_s) {
-            pa = prev;
-            ea = i - 1;
+    int m = (int)lround(0.25 * rc->fps);
+    rc->ls_m = m > rc->ls_s ? m : rc->ls_s;
+    /* group A: whole groups back from the last one whose last frame is s
+     * frames or more before the landing (inclusive), until it holds
+     * ls_m frames */
+    long anc[RC_HIST];
+    int na = 0;
+    for (long i = ls_lo(rc); i < land; i++)
+        if (ls_anchor(rc->hist[i % RC_HIST].cls))
+            anc[na++] = i;
+    long pa = -1, ea = -1;
+    int j1 = -1;
+    for (int j = 0; j + 1 < na; j++)
+        if (anc[j + 1] - 1 <= land - rc->ls_s)
+            j1 = j;
+    if (j1 >= 0) {
+        int j0 = j1;
+        while (j0 > 0 && anc[j1 + 1] - anc[j0] < rc->ls_m)
+            j0--;
+        if (anc[j1 + 1] - anc[j0] >= rc->ls_m) {
+            pa = anc[j0];
+            ea = anc[j1 + 1] - 1;
         }
-        prev = i;
     }
     rc->ls_state = 1;
     if (pa < 0 || !ls_group(rc, pa, ea, &rc->ls_ba, &rc->ls_qa))
@@ -886,13 +896,15 @@ static void ls_poll(struct n265_encoder *e)
     n265_rc *rc = &e->rc;
     long R = rc->hist_cnt;
     long p = -1, n = -1;
+    /* group B: whole groups on from the first anchor at ls_bmin until it
+     * holds ls_m frames; whole once the anchor after it is reached */
     for (long i = rc->ls_bmin > ls_lo(rc) ? rc->ls_bmin : ls_lo(rc); i < R;
          i++) {
         if (!ls_anchor(rc->hist[i % RC_HIST].cls))
             continue;
         if (p < 0) {
             p = i;
-        } else {
+        } else if (i - p >= rc->ls_m) {
             n = i;
             break;
         }
@@ -900,7 +912,8 @@ static void ls_poll(struct n265_encoder *e)
     if (p < 0)
         return;
     if (n < 0) {
-        if (rc->pend_n > 0)     /* this anchor is not the next frame */
+        /* this anchor ends it only if it is the next frame */
+        if (rc->pend_n > 0 || R - p < rc->ls_m)
             return;
         n = R;
     }
@@ -910,19 +923,18 @@ static void ls_poll(struct n265_encoder *e)
         ls_end(rc);
         return;
     }
+    /* a slope outside [1, 3] is noise between unlike groups, not a
+     * reading: the last one stands */
     double dqq = qb - rc->ls_qa;
-    if (fabs(dqq) >= 3.0)
-        rc->ls_a = -6.0 * log2(bb / rc->ls_ba) / dqq;
-    rc->ls_a = rc->ls_a < 1.0 ? 1.0 : rc->ls_a > 3.0 ? 3.0 : rc->ls_a;
+    if (fabs(dqq) >= 3.0) {
+        double a = -6.0 * log2(bb / rc->ls_ba) / dqq;
+        if (a >= 1.0 && a <= 3.0)
+            rc->ls_a = a;
+    }
     double dq = 6.0 / rc->ls_a * log2(bb / rc->bits_per_frame);
     ls_scale(rc, dq);
     if (!rc->fbstep)
         rc->rf += dq;
-    /* the carried balance back to what the landing left */
-    rc->total_bits = rc->bits_per_frame *
-                         ((double)rc->n_coded + rc->pend_n) -
-                     rc->pend_bits - rc->ls_bal;
-    rc->planned_bits = rc->total_bits + rc->pend_bits + rc->ls_pbal;
     if (rc->trace)
         fprintf(stderr, "RC refit %d B=[%ld,%ld] b=%.0f q=%.3f a=%.3f "
                 "move=%+.3f\n", rc->ls_nref + 1, p, n - 1, bb, qb, rc->ls_a,

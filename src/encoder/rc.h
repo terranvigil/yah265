@@ -300,9 +300,9 @@ typedef struct n265_rc {
     long hist_cnt;              /* frames retired, = the next one's index */
     int ls_on, ls_vbvup;        /* N265_LS, N265_LS_VBVUP */
     int ls_state;               /* 0 idle, 1 refitting, 2 short memory */
-    int ls_nref, ls_s, ls_mem_n;
+    int ls_nref, ls_s, ls_m, ls_mem_n;
     long ls_astart, ls_bmin, ls_mem_end;
-    double ls_qa, ls_ba, ls_a, ls_bal, ls_pbal;
+    double ls_qa, ls_ba, ls_a;
 } n265_rc;
 
 /* configure from the encoder's params (called once, at open) */
