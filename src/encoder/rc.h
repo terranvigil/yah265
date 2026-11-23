@@ -31,7 +31,10 @@ enum {
  * QP, not 6. */
 #define RC_SZK 10                /* I, P, B depth 1-4 x referenced/leaf */
 #define RC_SZC 3                 /* static, simple, complex */
-#define RC_HIST 192              /* > two groups and twice the largest s */
+/* the large-step ring: two runs (round(0.25 fps) + 40 frames each at
+ * most) and four times the largest s, which holds up to 544 fps; above
+ * that a refit whose runs don't fit stops, as for a missing run */
+#define RC_HIST 512
 typedef struct n265_szfit {
     double A[9], b[3];          /* decayed normal equations */
     double n;                   /* observations taken */

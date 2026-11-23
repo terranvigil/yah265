@@ -93,37 +93,53 @@ grep -q '^5 zone' "$T/d.out" && bad "the skipped fd zone landed"
 [ "$(grep -c '^1 key$' "$T/d.out")" = 1100 ] ||
     bad "not every file key landed"
 
-# rule (b) v1.2: a RATE step past 3x moves the operating point by two
-# thirds of the law and refits it from coded groups; a smaller step and a
-# step up under CBR don't
+# rule (b), contract v1.3: a RATE step past 3x moves the operating point
+# and refits it from coded runs; a smaller step and a step up under CBR
+# don't, and runs at the QP clamp or inside the first second don't refit.
+# The texture shifts each frame so its base sits mid-range.
+python3 -c "
+import sys
+w = sys.stdout.buffer
+w.write(b'YUV4MPEG2 W64 H64 F30:1 Ip A1:1 C420\n')
+for f in range(120):
+    w.write(b'FRAME\n')
+    w.write(bytes(((x * 7 + y * 13 + f * 3 + (x * y) % 17) * 5) % 200 + 28
+                  for y in range(64) for x in range(64)))
+    w.write(bytes([128]) * 2048)
+" > "$T/tex.y4m"
 {
     printf 'YUV4MPEG2 W64 H64 F30:1 Ip A1:1 C420\n'
-    for i in $(seq 120); do
+    for _ in $(seq 120); do
         printf 'FRAME\n'
-        head -c 4096 /dev/zero | LC_ALL=C tr '\0' "\\$(printf '%03o' $((i + 40)))"
-        head -c 2048 /dev/zero | LC_ALL=C tr '\0' '\200'
+        head -c 6144 /dev/zero | LC_ALL=C tr '\0' '\200'
     done
-} > "$T/ramp.y4m"
-step() {    # log args... -> the trace's step and refit lines
-    printf '%s\n' "$1" > "$T/step.log"
-    shift
-    N265_RC_TRACE=1 "$Y265" "$T/ramp.y4m" --threads 1 --level 4.1 \
+} > "$T/flat.y4m"
+step() {    # input log args... -> the trace's step and refit lines
+    printf '%s\n' "$2" > "$T/step.log"
+    local in=$1
+    shift 2
+    N265_RC_TRACE=1 "$Y265" "$T/$in.y4m" --threads 1 --level 4.1 \
         -o "$T/s.hevc" --control "$T/step.log" "$@" 2>&1 |
         grep -E '^RC (step|refit)'
 }
-n=$(step '60 rate bitrate=20' --bitrate 200 | grep -c '^RC refit')
+n=$(step tex '60 rate bitrate=60' --bitrate 600 | grep -c '^RC refit')
 [ "$n" = 2 ] || bad "a 10x step down refit $n times, not 2"
-step '60 rate bitrate=2000' --bitrate 200 | grep -q '^RC step' ||
+step tex '60 rate bitrate=6000' --bitrate 600 | grep -q '^RC step' ||
     bad "a 10x step up did not move"
-step '60 rate bitrate=100' --bitrate 200 | grep -q . && bad "a 2x step moved"
-step '60 rate bitrate=2000 maxrate=3000 bufsize=4000' --bitrate 200 \
-    --vbv-maxrate 300 --vbv-bufsize 400 --no-hrd | grep -q '^RC step' ||
+step tex '60 rate bitrate=300' --bitrate 600 | grep -q . &&
+    bad "a 2x step moved"
+step tex '60 rate bitrate=6000 maxrate=9000 bufsize=12000' --bitrate 600 \
+    --vbv-maxrate 900 --vbv-bufsize 1200 --no-hrd | grep -q '^RC step' ||
     bad "a capped VBR step up did not move"
-step '60 rate bitrate=2000 maxrate=2000 bufsize=2000' --bitrate 200 \
-    --vbv-maxrate 200 --vbv-bufsize 200 --no-hrd | grep -q . &&
+step tex '60 rate bitrate=6000 maxrate=6000 bufsize=6000' --bitrate 600 \
+    --vbv-maxrate 600 --vbv-bufsize 600 --no-hrd | grep -q . &&
     bad "a CBR step up moved"
-step '20 rate bitrate=20' --bitrate 200 | grep -q '^RC refit' &&
+step tex '20 rate bitrate=60' --bitrate 600 | grep -q '^RC refit' &&
     bad "a step with under a run of history refit"
+step flat '60 rate bitrate=20' --bitrate 200 | grep -q '^RC refit' &&
+    bad "a step from the QP floor refit"
+step tex '60 rate bitrate=60' --bitrate 600 --bframes 0 |
+    grep -q 'A=\[52,59\]' || bad "--bframes 0: run A does not end at 59"
 
 [ $fail = 0 ] && echo "cli_ctl_test: OK"
 exit $fail

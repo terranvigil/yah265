@@ -836,6 +836,15 @@ static int ls_group(const n265_rc *rc, long p, long end, double *b, double *q)
     return 1;
 }
 
+/* a run whose mean base sits at the QP clamp says nothing about the
+ * slope: its bits are what the clamp let through */
+static int ls_clamped(const struct n265_encoder *e, double q)
+{
+    double lo = e->qp_bounds ? (double)e->qpmin : (double)N265_QP_MIN;
+    double hi = e->qp_bounds ? (double)e->qpmax : 51.0;
+    return !(q > lo + 0.5 && q < hi - 0.5);
+}
+
 static int ls_cut(const n265_rc *rc, long lo, long hi)
 {
     for (long i = lo; i <= hi; i++)
@@ -884,11 +893,14 @@ double n265_rc_rate_step(struct n265_encoder *e, double r, int take)
     /* group A: whole groups back from the last one whose last frame is s
      * frames or more before the landing (inclusive), until it holds
      * ls_m frames */
-    long anc[RC_HIST];
+    long anc[RC_HIST + 1];
     int na = 0;
     for (long i = ls_lo(rc); i < land; i++)
         if (ls_anchor(rc->hist[i % RC_HIST].cls))
             anc[na++] = i;
+    /* the landing frame is an anchor and closes the group before it, the
+     * one run A ends with when s is 1 (--bframes 0) */
+    anc[na++] = land;
     long pa = -1, ea = -1;
     int j1 = -1;
     for (int j = 0; j + 1 < na; j++)
@@ -907,7 +919,8 @@ double n265_rc_rate_step(struct n265_encoder *e, double r, int take)
     /* a group A reaching into the opening (the first N265_LS_OPEN
      * seconds coded, where the point is still the prior's) is missing */
     int have_a = pa >= 0 && pa >= lround(rc->ls_open * rc->fps) &&
-                 ls_group(rc, pa, ea, &rc->ls_ba, &rc->ls_qa);
+                 ls_group(rc, pa, ea, &rc->ls_ba, &rc->ls_qa) &&
+                 !ls_clamped(e, rc->ls_qa);
     /* N265_LS_QRAMP: the first move by the base before the step, where
      * bits fall near the law at a low one. 1 reads the operating point,
      * 2 the base group A was coded at (the point where there is none) */
@@ -916,8 +929,10 @@ double n265_rc_rate_step(struct n265_encoder *e, double r, int take)
         double q0 = rc->ls_qramp == 2 && have_a
                         ? rc->ls_qa
                         : qp_of_qscale(rc->cplxr / (rc->bits_per_frame / r));
-        double t = (q0 - rc->ls_qlo) / (rc->ls_qhi - rc->ls_qlo);
-        a0 = 1.0 + 0.5 * (t < 0.0 ? 0.0 : t > 1.0 ? 1.0 : t);
+        if (rc->ls_qhi > rc->ls_qlo) {
+            double t = (q0 - rc->ls_qlo) / (rc->ls_qhi - rc->ls_qlo);
+            a0 = 1.0 + 0.5 * (!(t >= 0.0) ? 0.0 : t > 1.0 ? 1.0 : t);
+        }
     }
     double dq = law / a0;
     ls_scale(rc, dq - law);     /* the new budget already moved it by law */
@@ -926,10 +941,15 @@ double n265_rc_rate_step(struct n265_encoder *e, double r, int take)
         ls_end(rc);
     rc->ls_astart = pa;
     rc->ls_bmin = land + rc->ls_s;
-    if (rc->trace)
-        fprintf(stderr, "RC step r=%.4g a0=%.3f move=%+.3f s=%d A=[%ld,%ld] "
-                "b=%.0f q=%.3f\n", r, a0, dq, rc->ls_s, pa, ea, rc->ls_ba,
-                rc->ls_qa);
+    if (rc->trace) {
+        fprintf(stderr, "RC step r=%.4g a0=%.3f move=%+.3f s=%d ", r, a0, dq,
+                rc->ls_s);
+        if (have_a)
+            fprintf(stderr, "A=[%ld,%ld] b=%.0f q=%.3f\n", pa, ea, rc->ls_ba,
+                    rc->ls_qa);
+        else
+            fprintf(stderr, "A=- b=- q=-\n");
+    }
     return dq;
 }
 
@@ -962,7 +982,7 @@ static void ls_poll(struct n265_encoder *e)
     }
     double bb, qb;
     if (rc->ls_astart < ls_lo(rc) || !ls_group(rc, p, n - 1, &bb, &qb) ||
-        ls_cut(rc, rc->ls_astart, n - 1)) {
+        ls_clamped(e, qb) || ls_cut(rc, rc->ls_astart, n - 1)) {
         ls_end(rc);
         return;
     }
