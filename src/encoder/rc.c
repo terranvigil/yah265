@@ -1422,6 +1422,13 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
      * alone, which is the right split - the loop may not SPEND on an intra
      * frame to chase a surplus, and this is not the loop spending. */
     rf = base + fb - ctf_off - ioff;
+    /* --shot-plan under capped VBR: where the feedback and the shot's
+     * offset (added after this returns) push the same way, the frame takes
+     * the larger of the two, not their sum. Stacked, a finer shot coded
+     * while the loop spends a surplus went far past where v1 still pays. */
+    if (rc->splan && fb != 0.0 && rc->cur_soff != 0.0 &&
+        (fb < 0.0) == (rc->cur_soff < 0.0))
+        rf -= fabs(fb) < fabs(rc->cur_soff) ? fb : rc->cur_soff;
     double rf_want = rf;
     if (!rc->fbstep) {
         if (rf > rc->rf + step)
@@ -1476,8 +1483,8 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
         if (rc->vlvl_a > 0.0) {
             int nclamp = e->vbv.clamped;
             double p0, a0;
-            double dq0 = vbv_dqp(e, cls, cplx, rc->cur_icplx, rf + ctf,
-                                 &p0, &a0);
+            double dq0 = vbv_dqp(e, cls, cplx, rc->cur_icplx,
+                                 rf + ctf + rc->cur_soff, &p0, &a0);
             e->vbv.clamped = nclamp;
             rc->vlvl += rc->vlvl_a * (dq0 - rc->vlvl);
             rf += rc->vlvl;
@@ -1496,8 +1503,9 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
          * price the frame as `pred x 2^(-dqp/6)`, and pred is already at
          * the level */
         double rf0 = rf;
-        double dq = vbv_dqp(e, cls, cplx, rc->cur_icplx, rf + ctf,
-                            &rc->last_vbv_pred, &rc->last_vbv_allow);
+        double dq = vbv_dqp(e, cls, cplx, rc->cur_icplx,
+                            rf + ctf + rc->cur_soff, &rc->last_vbv_pred,
+                            &rc->last_vbv_allow);
         rf += dq;           /* never negative: the clamp is one-sided */
         if (rf > 51.0)
             rf = 51.0;
@@ -1525,7 +1533,8 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
 }
 
 void n265_rc_done(struct n265_encoder *e, int cls, double cplx, double rf_used,
-                  double bits, double planned, double ctf, double ioff)
+                  double bits, double planned, double ctf, double ioff,
+                  double soff)
 {
     n265_rc *rc = &e->rc;
     if (rc->pend_n > 0) {
@@ -1587,7 +1596,8 @@ void n265_rc_done(struct n265_encoder *e, int cls, double cplx, double rf_used,
      * plus its cu-tree frame term, as a CRF frame is, so the ledger reads
      * it at the level - its coded base less the term - and converges on
      * the term-free level that spends the target. */
-    double c = bits * qscale_of_qp(rf_used + ioff - (rc->ctkeep ? ctf : 0.0));
+    double c = bits * qscale_of_qp(rf_used + ioff - (rc->ctkeep ? ctf : 0.0)
+                                   - soff);
     /* the same mean with the frame's own cu-tree term folded in, so the ratio
      * of the two is the term's file-weighted level (rc.h, n265_rc_next). It
      * rides every branch below, hold included, because a level over a

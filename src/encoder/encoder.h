@@ -1695,7 +1695,7 @@ struct n265_encoder {
     int rc_applied;         /* coding indices below this are applied */
     struct n265_rc_ret {
         int cls, brk, szk;
-        double cplx, rf_used, bits, planned, ctf, ioff, brk_x;
+        double cplx, rf_used, bits, planned, ctf, ioff, soff, brk_x;
     } rc_ret[2 * N265_MAX_FRAME_WORK];
     double vbv_fa[2 * N265_MAX_FRAME_WORK];
     double vbv_est[2 * N265_MAX_FRAME_WORK];

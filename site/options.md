@@ -116,7 +116,7 @@ Many switches also take a `--no-` form that turns them off. "The preset's" means
 |---|---|---|
 | <span id="opt-shot-scan"></span>`--shot-scan <file>` | none | Scan the input for shots and write a shot list, then exit. |
 | <span id="opt-shot-list"></span>`--shot-list <file>` | none | Put a key frame at the start of each listed shot. |
-| <span id="opt-shot-plan"></span>`--shot-plan <file>` | none | Do what `--shot-list` does, and give each shot its own quality level from the scan. `--crf` only, with or without a VBV. A list whose shots carry `qp=` offsets is used as written. |
+| <span id="opt-shot-plan"></span>`--shot-plan <file>` | none | Do what `--shot-list` does, and give each shot its own quality level from the scan. `--crf`, with or without a VBV, or `--bitrate` with a VBV whose maxrate is above it. A list whose shots carry `qp=` offsets is used as written. |
 | <span id="opt-shot-keys"></span>`--shot-keys` | off | Put a key frame on each cut the encoder finds. |
 | <span id="opt-shot-window"></span>`--shot-window <n>` | `0` | Buffer up to this many frames so a whole shot can be planned before it's coded. `--crf` only, at most 300. It adds that many frames of latency. |
 | <span id="opt-shot-stats"></span>`--shot-stats <file>` | none | Write one JSON line of statistics per shot. The stream doesn't change. |

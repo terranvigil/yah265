@@ -266,6 +266,10 @@ typedef struct n265_rc {
                                  * complexity, inter frames */
     double cplxr_s, cplxr_sn;   /* the operating point's short-memory twin */
     double cplxr_smem;          /* N265_VBR_DEFPT_MEM: its memory, frames */
+    /* --shot-plan: on under capped VBR, and the frame's base-QP offset,
+     * which the encoder adds to this loop's answer */
+    int splan;
+    double cur_soff;
     double vlvl_a;              /* N265_VBR_VLVL: the clamp level's rate (0.1), 0 off */
     double vlvl;                /* ...the level, in QP */
     double fillq, fillgoal;     /* N265_VBR_FILLQ / _FILLGOAL: the raise at an
@@ -294,9 +298,11 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf);
  * `ctf` the cu-tree frame term inside that base, and `ioff` the planned intra
  * offset inside it - the one term the operating point has to take back OUT,
  * because the point is the mean of `bits x qscale(base)` and the offset is a
- * deliberate discount the plan has already paid for. */
+ * deliberate discount the plan has already paid for. `soff` is the shot
+ * plan's offset inside it, taken out the same way. */
 void n265_rc_done(struct n265_encoder *e, int cls, double cplx, double rf_used,
-                  double bits, double planned, double ctf, double ioff);
+                  double bits, double planned, double ctf, double ioff,
+                  double soff);
 
 /* the class of a frame, from the fields encode_frame already carries */
 int n265_rc_class(int slice_type, int nonref);

@@ -290,21 +290,23 @@ int n265_encoder_set_shot_list(n265_encoder *e, const int *starts, int n)
 }
 
 /* --shot-plan: a base-QP offset per shot of the list set just before it,
- * off[0] for the shot at frame 0. CRF and capped CRF only: ABR's rate
- * loop would undo the offsets. */
+ * off[0] for the shot at frame 0. CRF, capped CRF and capped VBR. */
 int n265_encoder_set_shot_plan(n265_encoder *e, const double *off, int n,
                                int model, const char **why);
 int n265_encoder_set_shot_plan(n265_encoder *e, const double *off, int n,
                                int model, const char **why)
 {
     const char *w = NULL;
+    int cvbr = e && e->abr_on && e->vbv.on && !e->strict_cbr &&
+               e->vbv.maxrate > e->abr_bitrate * 1.0001;
     if (!e || e->hw || e->in_display_idx > 0 || !e->shotl_on ||
         n != e->shotl_n + 1)
         w = "it needs the shot list it was made from";
-    else if (e->abr_on)
-        w = "it plans a quality level per shot, and --bitrate's rate "
-            "control would undo it; use --crf, with a VBV for a cap";
-    else if (!e->crf_on)
+    else if (e->abr_on && !cvbr)
+        w = "it plans a quality level per shot, which --bitrate holds only "
+            "under a VBV whose maxrate is above the target; use --crf, or "
+            "add --vbv-maxrate and --vbv-bufsize";
+    else if (!e->crf_on && !e->abr_on)
         w = "it moves the base QP, which --qp fixes; use --crf";
     else if (e->shot_window > 0)
         w = "--shot-window plans the same base offset; pick one";
@@ -324,6 +326,7 @@ int n265_encoder_set_shot_plan(n265_encoder *e, const double *off, int n,
     free(e->shotp);
     e->shotp = p;
     e->shotp_model = model;
+    e->rc.splan = cvbr;
     return 0;
 }
 
@@ -6332,6 +6335,7 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
             if (e->rc.pend_use_est)
                 e->rc.pend_est = vbv_pend_est(e, fw->code_idx);
         }
+        e->rc.cur_soff = fw->shot_off;
         e->rc_rf = n265_rc_next(e, fw->rc_cls, fw->rc_cplx, ctf);
         fw->rc_planned = e->rc.last_planned;
         /* item 28: under ABR there is no planned base at open (the rate
@@ -6372,7 +6376,8 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
              * coded at (item 32), not the clamp's pessimistic one */
             if (e->rc.szm == 1)
                 fw->brk_plan = n265_szm_pred(&e->rc, fw->rc_cls, fw->szk,
-                                             fw->rc_cplx, e->rc_rf + ctf,
+                                             fw->rc_cplx,
+                                             e->rc_rf + ctf + fw->shot_off,
                                              NULL, NULL);
             /* The brake is the backstop and not a second clamp: it holds
              * the picture to what the buffer really holds, not to the
@@ -6400,13 +6405,14 @@ static void dispatch_frame(n265_encoder *e, n265_frame_work *fw)
             int c = fw->rc_cls;
             fw->sz_mpred = e->vbv.on
                 ? n265_szm_pred(&e->rc, fw->rc_cls, fw->szk, fw->rc_cplx,
-                                e->rc_rf + ctf, NULL, NULL) : 0.0;
+                                e->rc_rf + ctf + fw->shot_off, NULL, NULL)
+                : 0.0;
             fw->sz_lagcal = e->vbv_ecal_k > 0.0 && e->vbv_ecal_n[c]
                                 ? exp(e->vbv_ecal[c]) : 1.0;
         }
         if (e->rc_defer && e->vbv.on) {
             e->vbv_est[fw->code_idx % (2 * N265_MAX_FRAME_WORK)] =
-                e->rc.szm ? szm_lag_est(e, fw, e->rc_rf + ctf)
+                e->rc.szm ? szm_lag_est(e, fw, e->rc_rf + ctf + fw->shot_off)
                           : fw->vbv_pred * exp2(-fw->vbv_dqp / 6.0);
             e->vbv_cls[fw->code_idx % (2 * N265_MAX_FRAME_WORK)] =
                 fw->rc_cls;
@@ -7773,7 +7779,7 @@ static void rc_apply_upto(n265_encoder *e, int upto)
                          rr->bits);
         if (e->abr_on || e->rc.trace || e->vbv.on)
             n265_rc_done(e, rr->cls, rr->cplx, rr->rf_used, rr->bits,
-                         rr->planned, rr->ctf, rr->ioff);
+                         rr->planned, rr->ctf, rr->ioff, rr->soff);
     }
 }
 
@@ -8373,13 +8379,14 @@ static void join_oldest(n265_encoder *e)
         rr->planned = fw->rc_planned;
         rr->ctf = fw->rc_ctf;
         rr->ioff = fw->rc_ioff;
+        rr->soff = fw->shot_off;
     } else if (e->abr_on || e->rc.trace || e->vbv.on) {
         if (e->abr_on && e->vbv.on)
             n265_szm_add(&e->rc, fw->rc_cls, fw->szk, fw->rc_cplx,
                          fw->rc_base, (double)d->len * 8.0);
         n265_rc_done(e, fw->rc_cls, fw->rc_cplx, fw->rc_base,
                      (double)d->len * 8.0, fw->rc_planned, fw->rc_ctf,
-                     fw->rc_ioff);
+                     fw->rc_ioff, fw->shot_off);
     }
     /* --pass 1 (and --pass 3, which refreshes what it planned from): one
      * line per frame in CODING order, which is retirement order. It reads

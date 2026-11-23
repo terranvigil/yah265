@@ -1158,8 +1158,9 @@ static void usage(FILE *out)
         "                        refused on an input it wasn't made from.\n"
         "  --shot-plan <file>    --shot-list, plus a quality level for each shot from\n"
         "                        the scan's features: each shot's QP moves so a bit\n"
-        "                        buys the same VMAF in every shot. --crf only, with\n"
-        "                        or without a VBV.\n"
+        "                        buys the same VMAF in every shot. --crf, with or\n"
+        "                        without a VBV, or --bitrate with a VBV whose maxrate\n"
+        "                        is above it.\n"
         "  --shot-keys           put a key frame on each cut the encoder finds\n"
         "  --open-gop            code periodic key frames as CRA (default);\n"
         "                        --no-open-gop codes IDR. Scene cuts are always IDR.\n"
@@ -4528,10 +4529,9 @@ int main(int argc, char **argv)
                     shot_off ? perr : "out of memory");
             return 2;
         }
-        if (bitrate > 0.0) {
-            fprintf(stderr, "y265: --shot-plan plans a quality level per "
-                    "shot, and --bitrate's rate control would undo it; use "
-                    "--crf, with a VBV for a cap\n");
+        if (pass) {
+            fprintf(stderr, "y265: --shot-plan and --pass both plan the "
+                    "whole input; pick one\n");
             return 2;
         }
     }
