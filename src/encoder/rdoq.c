@@ -487,10 +487,6 @@ uint64_t n265_rdoq_sb_nz(const int16_t *blk, int log2n)
     if (n265_asm_on(N265_ASM_QUANT))
         return n265_rdoq_sb_nz_neon(blk, log2n);
 #endif
-#if N265_AVX512_RDOQ
-    if (n265_rdoq_avx512_wide(log2n) && n265_avx512_on(N265_ASM_QUANT))
-        return n265_rdoq_sb_nz_avx512(blk, log2n);
-#endif
 #if N265_AVX2_RDOQ
     if (n265_avx2_on(N265_ASM_QUANT))
         return n265_rdoq_sb_nz_avx2(blk, log2n);

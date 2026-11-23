@@ -139,7 +139,6 @@ static inline int n265_quant_avx512_wide(int log2n)
 int n265_rdoq_rtn_avx512(int16_t *rtn, double *all_zero, uint64_t *sb_nz,
                          const int16_t *coef, int log2n, int q, int64_t add,
                          int qbits, int czero);
-uint64_t n265_rdoq_sb_nz_avx512(const int16_t *blk, int log2n);
 
 static inline int n265_rdoq_avx512_wide(int log2n)
 {
@@ -148,9 +147,9 @@ static inline int n265_rdoq_avx512_wide(int log2n)
 #else
 #undef n265_rdoq_rtn_avx512
 #define n265_rdoq_rtn_avx512 n265_rdoq_rtn_avx2
+#endif
 #undef n265_rdoq_sb_nz_avx512
 #define n265_rdoq_sb_nz_avx512 n265_rdoq_sb_nz_avx2
-#endif
 
 /* ---- families with no AVX-512 kernel ------------------------------- */
 #undef n265_csbf_map_avx512

@@ -92,24 +92,3 @@ int n265_rdoq_rtn_avx512(int16_t *rtn, double *all_zero, uint64_t *sb_nz,
     *sb_nz = m;
     return m != 0;
 }
-
-uint64_t n265_rdoq_sb_nz_avx512(const int16_t *blk, int log2n)
-{
-    const int n = 1 << log2n, sb_dim = n >> 2;
-    uint64_t m = 0;
-
-    if (n == 4) {
-        __m256i v = _mm256_loadu_si256((const __m256i *)blk);
-        return !_mm256_testz_si256(v, v);
-    }
-    const int per = n >> 3;
-    for (int sy = 0; sy < sb_dim; sy++) {
-        const int16_t *p = blk + (size_t)sy * 4 * n;
-        __m512i o = _mm512_loadu_si512(p);
-        for (int i = 1; i < per; i++)
-            o = _mm512_or_si512(o, _mm512_loadu_si512(p + 32 * i));
-        m |= (uint64_t)sb_bits((uint32_t)_mm512_test_epi16_mask(o, o), n)
-             << (sy * sb_dim);
-    }
-    return m;
-}
