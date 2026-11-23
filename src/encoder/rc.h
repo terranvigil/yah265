@@ -291,7 +291,7 @@ typedef struct n265_rc {
     double open_step;           /* extra step allowed over the opening */
     int nblk;                   /* lowres 8x8 blocks per frame        */
     int trace;
-    /* Live control's large RATE step (contract v1.2, rule (b)): a ring of
+    /* Live control's large RATE step (contract v1.3, rule (b)): a ring of
      * retired frames in coding order, and the refit procedure's state. */
     struct n265_rc_obs {
         int cls, cut;
@@ -334,7 +334,7 @@ void n265_rc_note(struct n265_encoder *e, int cls, double rf_used,
 
 /* Live control's RATE retarget, after the ledger has been scaled: a step
  * with r < 1/3 or r > 3 moves the operating point by 6 log2(1/r) / 1.5
- * and starts the refit (contract v1.2, rule (b)), unless `take` is 0;
+ * and starts the refit (contract v1.3, rule (b)), unless `take` is 0;
  * any other step ends a procedure under way. Returns the QP the
  * operating point moved by. */
 double n265_rc_rate_step(struct n265_encoder *e, double r, int take);

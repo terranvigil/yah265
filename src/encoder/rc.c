@@ -461,7 +461,7 @@ void n265_rc_open(struct n265_encoder *e)
     rc->op_g = abr_tunable("N265_VBR_OPEN_G", -1.429);
     rc->trace = n265_env("N265_RC_TRACE") != NULL;
     rc->rf = 26.0;
-    /* live control's large step (contract v1.2). N265_LS_VBVUP: a
+    /* live control's large step (contract v1.3). N265_LS_VBVUP: a
      * buffered step up takes it under capped VBR at 1, under CBR too
      * at 2, never at 0 */
     rc->ls_on = (int)abr_tunable("N265_LS", 1);
@@ -481,15 +481,16 @@ void n265_rc_open(struct n265_encoder *e)
     rc->ls_qhi = abr_tunable("N265_LS_QHI", 21.0);
     rc->ls_rail = abr_tunable("N265_LS_RAIL", 0.0);
     /* N265_LS_OPEN: a run A reaching into the first that many seconds
-     * coded is missing (0: off). Measured and left off: it helped plain
-     * ABR's step at 1 s and cost capped VBR's.
+     * coded is missing (0: off). On with no buffer: plain ABR's step down
+     * at 1 s goes 9.5% -> 5.0% in its first second. Under a buffer it
+     * cost capped VBR's step at 1 s (18.7% -> 26.1%), so it is off there.
      * N265_LS_CAP: while refitting, the carried balance is held to that
      * many seconds of the target, inside rule (f)'s one. With no buffer
      * it takes ABR's step up after 12 s low from 39.7% to 20.8% in the
      * second second and moves nothing else the wrong way; under a buffer
      * (N265_LS_CAP_VBV) it costs capped VBR's steps up 4-10 points in
      * the first second, so it is off there. */
-    rc->ls_open = abr_tunable("N265_LS_OPEN", 0.0);
+    rc->ls_open = abr_tunable("N265_LS_OPEN", e->vbv.on ? 0.0 : 1.0);
     rc->ls_cap = e->vbv.on ? abr_tunable("N265_LS_CAP_VBV", 0.0)
                            : abr_tunable("N265_LS_CAP", 0.25);
 }
@@ -795,7 +796,7 @@ double n265_vbv_crf_base(struct n265_encoder *e, int cls, double cplx,
     return q;
 }
 
-/* ---- live control's large RATE step (contract v1.2, rule (b)) ----
+/* ---- live control's large RATE step (contract v1.3, rule (b)) ----
  *
  * The bits-versus-quantizer law the operating point is written in,
  * bits x qscale constant, holds over a few QP and not over a decade of

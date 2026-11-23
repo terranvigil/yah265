@@ -1,5 +1,5 @@
 /*
- * Live control (include/yah265.h, the shared contract v1). See ctl.h.
+ * Live control (include/yah265.h, the shared contract v1.3). See ctl.h.
  * Copyright (c) 2026, the yah265 authors. GPL-2.0-or-later; see LICENSE.
  */
 

@@ -1,5 +1,5 @@
 /*
- * Unit tests: live control (src/encoder/ctl.c, the shared contract v1).
+ * Unit tests: live control (src/encoder/ctl.c, the shared contract v1.3).
  * Every refusal code, the struct versioning, NEXT, ELATE, the flush's
  * applied_frame -1, the landing frames, and submission-time independence
  * at one thread, all through the public API on a small synthetic clip.
