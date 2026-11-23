@@ -35,6 +35,31 @@ grep -q 'conflict.log:3:' "$T/a.err" || bad "the refusal names no line"
 [ ! -e "$T/a.hevc" ] && [ ! -e "$T/a.out" ] ||
     bad "the refused run wrote output"
 
+# every other way a file can fail stops the run the same way, with no
+# output of any kind: a malformed line, a real that isn't a plain
+# decimal, an unknown header, frames out of order, and an event the
+# encode's mode refuses (a bitrate under CRF, a QP floor under CQP)
+stops() {   # name, file contents, expected line, encoder args...
+    local name=$1 body=$2 want=$3
+    shift 3
+    printf '%s' "$body" > "$T/$name.log"
+    rm -f "$T/$name".*.out
+    "$Y265" "$T/in.y4m" --threads 1 "$@" -o "$T/$name.hevc.out" \
+        --control "$T/$name.log" --control-out "$T/$name.ctl.out" \
+        --frame-stats "$T/$name.fs.out" --dump-recon "$T/$name.yuv.out" \
+        2> "$T/$name.err"
+    [ $? = 2 ] || bad "$name: the run did not stop with status 2"
+    grep -q "$name.log:$want:" "$T/$name.err" ||
+        bad "$name: the message names no line $want: $(head -1 "$T/$name.err")"
+    ! ls "$T/$name".*.out >/dev/null 2>&1 || bad "$name: the run wrote output"
+}
+stops malformed $'5 key\n8 bogus x=1\n' 2 --crf 28
+stops exponent $'5 key\n9 crf value=2.5e1\n' 2 --crf 28
+stops header $'#livectl 99\n5 key\n' 1 --crf 28
+stops order $'9 key\n5 key\n' 2 --crf 28
+stops emode $'5 key\n7 crf value=24\n9 rate bitrate=300\n' 3 --crf 28
+stops cqp $'2 key\n4 qp min=20\n' 2 --qp 30
+
 # more events in one lag span than the queue keeps room for: refused at
 # load, naming the first line over; one fewer encodes
 for _ in $(seq 2048); do echo '3 key'; done > "$T/full.log"

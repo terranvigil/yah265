@@ -4795,11 +4795,28 @@ int main(int argc, char **argv)
         }
     }
     ctl_file cfile = { 0 };
-    if (o.ctl_path && ctl_load(o.ctl_path, &cfile) < 0)
+    if (o.ctl_path && ctl_load(o.ctl_path, &cfile) < 0) {
+        free(cfile.ev);
+        free(cfile.line);
+        free(shot_starts);
+        free(y.pix16);
+        free(y.pix8);
+        free(y.frame);
+        if (fin != stdin)
+            fclose(fin);
         return 2;
+    }
     n265_encoder *enc = a->encoder_open(&p);
     if (!enc) {
         fprintf(stderr, "y265: encoder_open failed (dims %dx%d)\n", y.w, y.h);
+        free(cfile.ev);
+        free(cfile.line);
+        free(shot_starts);
+        free(y.pix16);
+        free(y.pix8);
+        free(y.frame);
+        if (fin != stdin)
+            fclose(fin);
         return 1;
     }
     if (hw && strcmp(a->backend(enc), "yah265"))
