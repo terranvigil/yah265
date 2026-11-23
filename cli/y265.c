@@ -2968,6 +2968,10 @@ static int tv_report(tv_job *t, const char *out_path, long nframes)
     else
         fprintf(stderr, "y265:   score   predicted %.2f, measured %.2f %s\n",
                 t->res.s.vmaf, measured, how);
+    if (t->res.status == TV_PLATEAU)
+        fprintf(stderr, "y265:   note    more bits stopped raising the score, so "
+                "%.2f is the most these settings reach. A VBV cap does this; "
+                "raise --vbv-maxrate to go higher\n", t->res.s.vmaf);
     fprintf(stderr, "y265:   size    %ld bytes, %.1f kbps\n", bytes, kbps);
     fprintf(stderr, "y265:   time    search %.1f s, final encode %.1f s",
             t->t_search, t_final);

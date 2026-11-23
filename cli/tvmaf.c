@@ -58,7 +58,7 @@ const char *tv_status_name(tv_status s)
         "converged", "bracketed",
         "target exceeded at the worst-quality bound",
         "target unreachable at the best-quality bound",
-        "plateau: quality stopped rising as the CRF fell (a VBV cap?)",
+        "plateau: quality stopped rising as the CRF fell",
     };
     return (unsigned)s < sizeof n / sizeof n[0] ? n[s] : "?";
 }
