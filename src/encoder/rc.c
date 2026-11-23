@@ -466,6 +466,20 @@ void n265_rc_open(struct n265_encoder *e)
      * at 2, never at 0 */
     rc->ls_on = (int)abr_tunable("N265_LS", 1);
     rc->ls_vbvup = (int)abr_tunable("N265_LS_VBVUP", 1);
+    /* the slope a refit accepts (N265_LS_AMIN), and the first move's
+     * divisor by the starting base: 1 at N265_LS_QLO and below, ramping
+     * to 1.5 at N265_LS_QHI (N265_LS_QRAMP 0: 1.5 everywhere). Sintel's
+     * 10x step down misses by +64% in its first second at 0, +31% with
+     * the base read off the operating point (1), and +7% with it read
+     * off group A's coded base (2): the feedback had held the coded base
+     * 6 QP under the point.
+     * N265_LS_RAIL widens the feedback's rails during the procedure
+     * (0: off) */
+    rc->ls_amin = abr_tunable("N265_LS_AMIN", 1.0);
+    rc->ls_qramp = (int)abr_tunable("N265_LS_QRAMP", 2);
+    rc->ls_qlo = abr_tunable("N265_LS_QLO", 15.0);
+    rc->ls_qhi = abr_tunable("N265_LS_QHI", 21.0);
+    rc->ls_rail = abr_tunable("N265_LS_RAIL", 0.0);
 }
 
 /* the predicted bits x qscale of a frame. The complexity is normalized per
@@ -846,10 +860,7 @@ double n265_rc_rate_step(struct n265_encoder *e, double r, int take)
         rc->ls_state = 0;
         return law;
     }
-    double dq = law / 1.5;
-    ls_scale(rc, dq - law);     /* the new budget already moved it by law */
     rc->ls_nref = 0;
-    rc->ls_a = 1.5;
     long land = rc->hist_cnt;
     int s = e->bframes + 1;
     if (rc->pend_n > s)
@@ -880,13 +891,29 @@ double n265_rc_rate_step(struct n265_encoder *e, double r, int take)
         }
     }
     rc->ls_state = 1;
-    if (pa < 0 || !ls_group(rc, pa, ea, &rc->ls_ba, &rc->ls_qa))
+    int have_a = pa >= 0 && ls_group(rc, pa, ea, &rc->ls_ba, &rc->ls_qa);
+    /* N265_LS_QRAMP: the first move by the base before the step, where
+     * bits fall near the law at a low one. 1 reads the operating point,
+     * 2 the base group A was coded at (the point where there is none) */
+    double a0 = 1.5;
+    if (rc->ls_qramp && rc->cplxr > 0.0) {
+        double q0 = rc->ls_qramp == 2 && have_a
+                        ? rc->ls_qa
+                        : qp_of_qscale(rc->cplxr / (rc->bits_per_frame / r));
+        double t = (q0 - rc->ls_qlo) / (rc->ls_qhi - rc->ls_qlo);
+        a0 = 1.0 + 0.5 * (t < 0.0 ? 0.0 : t > 1.0 ? 1.0 : t);
+    }
+    double dq = law / a0;
+    ls_scale(rc, dq - law);     /* the new budget already moved it by law */
+    rc->ls_a = a0;
+    if (!have_a)
         ls_end(rc);
     rc->ls_astart = pa;
     rc->ls_bmin = land + rc->ls_s;
     if (rc->trace)
-        fprintf(stderr, "RC step r=%.4g move=%+.3f s=%d A=[%ld,%ld] b=%.0f "
-                "q=%.3f\n", r, dq, rc->ls_s, pa, ea, rc->ls_ba, rc->ls_qa);
+        fprintf(stderr, "RC step r=%.4g a0=%.3f move=%+.3f s=%d A=[%ld,%ld] "
+                "b=%.0f q=%.3f\n", r, a0, dq, rc->ls_s, pa, ea, rc->ls_ba,
+                rc->ls_qa);
     return dq;
 }
 
@@ -928,7 +955,7 @@ static void ls_poll(struct n265_encoder *e)
     double dqq = qb - rc->ls_qa;
     if (fabs(dqq) >= 3.0) {
         double a = -6.0 * log2(bb / rc->ls_ba) / dqq;
-        if (a >= 1.0 && a <= 3.0)
+        if (a >= rc->ls_amin && a <= 3.0)
             rc->ls_a = a;
     }
     double dq = 6.0 / rc->ls_a * log2(bb / rc->bits_per_frame);
@@ -1301,11 +1328,15 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
         if (tmax > pbits)
             pbits = tmax;
     }
+    /* N265_LS_RAIL: a large step's feedback may reach further while
+     * the refit and its short memory run */
+    int ls_wide = rc->ls_rail > 0.0 && rc->ls_state != 0;
+    double chi = ls_wide ? exp2(rc->ls_rail / 6.0) : 2.0;
     double corr = 1.0 + err / pbits;
-    if (corr < 0.5)
-        corr = 0.5;
-    else if (corr > 2.0)
-        corr = 2.0;
+    if (corr < 1.0 / chi)
+        corr = 1.0 / chi;
+    else if (corr > chi)
+        corr = chi;
     double corrb = 1.0 + errb / hbits;
     if (corrb < 0.5)
         corrb = 0.5;
@@ -1417,8 +1448,13 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
     } else {
         rc->defpt_railq = fine;
     }
-    if (fb > rc->fbup)
-        fb = rc->fbup;
+    double up = rc->fbup;
+    if (ls_wide) {
+        up = up > rc->ls_rail ? up : rc->ls_rail;
+        fine = fine > rc->ls_rail ? fine : rc->ls_rail;
+    }
+    if (fb > up)
+        fb = up;
     else if (fb < -fine)
         fb = -fine;
 
