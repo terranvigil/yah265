@@ -4170,10 +4170,22 @@ static int ctl_write_out(ctl_cli *c)
         }
     for (int i = 0; i < c->nrec; i++)
         fprintf(c->out, "%s\n", c->rec[i].text);
+    int rc = fclose(c->out);
+    c->out = NULL;
+    return rc;
+}
+
+static void ctl_cli_free(ctl_cli *c)
+{
+    if (c->out)
+        fclose(c->out);
     free(c->rec);
     free(c->sub);
     free(c->used);
-    return fclose(c->out);
+    free(c->fev);
+    free(c->fline);
+    free(c->fdf);
+    memset(c, 0, sizeof *c);
 }
 
 /* `y265 bench ...` runs the y265-bench helper (scripts/y265_bench.py),
@@ -4698,6 +4710,12 @@ int main(int argc, char **argv)
             fprintf(stderr, "y265: WARNING %ld input samples were above the "
                     "declared %d-bit range and were clamped\n",
                     y.clipped + fj.clipped, y.depth);
+        free(shot_starts);
+        free(y.pix16);
+        free(y.pix8);
+        free(y.frame);
+        if (fin != stdin)
+            fclose(fin);
         return frc;
     }
     /* --gop-parallel (phase 14 item 42): above one thread only, and not
@@ -4795,7 +4813,14 @@ int main(int argc, char **argv)
         free(cfile.ev);
         free(cfile.line);
         if (r < 0) {
+            ctl_cli_free(&cc);
             a->encoder_close(enc);
+            free(shot_starts);
+            free(y.pix16);
+            free(y.pix8);
+            free(y.frame);
+            if (fin != stdin)
+                fclose(fin);
             return 2;
         }
     }
@@ -4965,12 +4990,15 @@ int main(int argc, char **argv)
         fprintf(stderr, "y265: control \"%s\" never landed: the stream "
                 "ended first\n", line);
     }
-    if (cc.out && ctl_write_out(&cc) != 0) {
+    /* a log missing a record would replay to a different stream */
+    int ctl_lost = cc.out && cc.lost;
+    int ctl_wrc = cc.out ? ctl_write_out(&cc) : 0;
+    ctl_cli_free(&cc);
+    if (ctl_wrc != 0) {
         fprintf(stderr, "y265: write failed: %s\n", o.ctl_out_path);
         return 1;
     }
-    /* a log missing a record would replay to a different stream */
-    if (cc.out && cc.lost)
+    if (ctl_lost)
         return 1;
     /* --psnr / --ssim: the pooled numbers, before the encoder is closed
      * and while it still holds them. The pooling is ffmpeg's - the mean

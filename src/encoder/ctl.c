@@ -655,7 +655,8 @@ int n265_encoder_controls_applied(n265_encoder *e, n265_control_t *out,
         out[i].size = sz;
     }
     c->ndone -= n;
-    memmove(c->done, c->done + n, (size_t)c->ndone * sizeof *c->done);
+    if (c->ndone > 0)
+        memmove(c->done, c->done + n, (size_t)c->ndone * sizeof *c->done);
     return n;
 }
 
