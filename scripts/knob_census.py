@@ -84,6 +84,9 @@ OFFCLAIM = re.compile(r'(?<!was )(?<!old )[Dd]efault(?:s)?\s+(?:is\s+|stays\s+)?
 # presence-only reader, a string enum, or a literal that is not the last
 # number on the line.
 DEFAULT_OVERRIDES = {
+    # live control's large RATE step (contract v1.3): mode-dependent
+    "N265_LS_OPEN": "1 with no buffer, else 0",
+    "N265_LS_CAP": "0.25 with no buffer", "N265_LS_CAP_VBV": "0 under a buffer",
     # --target-vmaf's tools: paths, read only under the flag
     "N265_VMAF_BIN": "~/.local/opt/vmaf-v1/bin/vmaf, else vmaf",
     "N265_VMAF_HDR_BIN": "~/.local/opt/vmaf-hdr/bin/vmaf",
@@ -198,6 +201,11 @@ DEFAULT_OVERRIDES = {
 }
 
 OVERRIDES = {
+    # live control's large RATE step: N265_LS=0 is the escape
+    "N265_LS": "default", "N265_LS_QRAMP": "default", "N265_LS_QLO": "default",
+    "N265_LS_QHI": "default", "N265_LS_VBVUP": "default",
+    "N265_LS_OPEN": "default", "N265_LS_CAP": "default",
+    "N265_LS_AMIN": "default", "N265_LS_CAP_VBV": "arm", "N265_LS_RAIL": "arm",
     "N265_VMAF_BIN": "instrument", "N265_VMAF_HDR_BIN": "instrument",
     "N265_VMAF_MODEL_DIR": "instrument", "N265_VMAF_HDR_MODEL_DIR": "instrument",
     "N265_FFMPEG": "instrument", "N265_VMAF_THREADS": "instrument",
