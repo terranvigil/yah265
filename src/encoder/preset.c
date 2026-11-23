@@ -794,6 +794,7 @@ static const struct kv med_tab_uhd[] = {
     /* phase 14 item 58: HD only (tab_hd answers first) */
     { "N265_CB64_GATEQ", "0" },
     { "N265_CB64_GATEQ_REF", "0" },
+    { "N265_CB64_FLATPIC", "0" },    /* HD only, as item 58 */
     /* phase 14 item 51, at HD and UHD (and med_tab_720 at 720p): VMAF
      * v1 scores chroma and weighs it steeply, and Chimera was over the
      * v1 bar. Inter chroma rounds at 1/3 instead of the 1/6 deadzone,
@@ -847,6 +848,12 @@ static const struct kv med_tab_hd[] = {
      * N265_CB64_GATEQ_REF=0` is the escape. */
     { "N265_CB64_GATEQ", "125" },
     { "N265_CB64_GATEQ_REF", "150" },
+    /* on a picture flat everywhere (the black between credits cards) the
+     * skip gate passes only an exact-zero residual; it had kept the last
+     * card's ghost. stem2's credits go 96.80 -> 97.11 v1 at the same
+     * bytes, and the story windows around such pictures pool -0.46%
+     * BD-v1, none worse. `N265_CB64_FLATPIC=0` is the escape. */
+    { "N265_CB64_FLATPIC", "1" },
     /* phase 14 item 62: on a handheld camera's jitter over fine texture
      * (la.c's N265_JIT window) the b-adapt rule doesn't end the run, the
      * merge-first skip exit is off and the lattice runs in every RD

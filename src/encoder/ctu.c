@@ -3496,6 +3496,19 @@ static int cb64_gate_of(const struct n265_frame_work *e)
     return e->nonref ? cb64_skipgate() : cb64_skipgate_ref();
 }
 
+/* N265_CB64_FLATPIC: 1 lets the skip gate pass only an exact-zero
+ * residual on a picture whose every 16x16 block is flat. On black
+ * between credits cards the gate kept the last card's ghost. 0 is off. */
+static int cb64_flatpic(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_CB64_FLATPIC");
+        v = s ? atoi(s) : 0;
+    }
+    return v;
+}
+
 /* N265_CB64_GATEQ (phase 14 item 58): the skip gate also bounds each
  * 32x32 quadrant, at this percentage of a quarter of the node's bound.
  * A node whose residual sits in one corner passes the whole-node bound
@@ -7812,6 +7825,8 @@ static int cb64_gate_try(struct n265_frame_work *e, int x0, int y0,
     if (ssd * 1024u * 65536u > (uint64_t)cb64_gate_of(e) *
                                (uint64_t)e->tree_w16 * thr)
         return 0;
+    if (ssd && cb64_flatpic() && e->flat_pct >= 100)
+        return 0;
     if (cb64_gateq_of(e)) {
         double qb = (double)cb64_gate_of(e) * e->tree_w16 * (double)thr /
                     (1024.0 * 65536.0) / 4.0 * cb64_gateq_of(e) / 100.0;
@@ -8575,7 +8590,7 @@ void n265_ctu_warm(void)
     (void)intra_fast_qp(); (void)intra_fast_step(); (void)tt_skip_qp();
     (void)intra_fast_w(); (void)intra_fast_flat();
     (void)cb64_gate(); (void)cb64_amvp(); (void)b_intra_margin();
-    (void)cb64_prof_on(); (void)cb64_skipgate(); (void)cb64_skipgate_ref(); (void)cb64_gateq(); (void)cb64_gateq_ref(); (void)ref2_lite();
+    (void)cb64_prof_on(); (void)cb64_skipgate(); (void)cb64_skipgate_ref(); (void)cb64_flatpic(); (void)cb64_gateq(); (void)cb64_gateq_ref(); (void)ref2_lite();
     (void)bi_refine_iters(); (void)merge_rd_n(); (void)merge_pick_rate(); (void)cb64_splitgate(); (void)bi_gate();
     (void)bi_gate_margin(); (void)intra_rd_n(); (void)intra_rd_mpm();
     (void)i_intra(); (void)chroma_w_on(); (void)chroma_w_pct();
