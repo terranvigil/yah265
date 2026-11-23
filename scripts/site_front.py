@@ -688,7 +688,7 @@ def main():
     hdr = json.load(open(HDR))
     opts, build, nopt = options_tables()
     V = {
-        "headline": bc.headline(pl),
+        "headline": bc.headline(pl, lad),
         "fig-frames": bc.frames_figure((0,), bc.FRAMES_ONE),
         "pooled-table": bc.headline_table(pl),
         "quality-table": quality_table(pl, lad),

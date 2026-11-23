@@ -1083,14 +1083,17 @@ def frange(meds):
     return f"{fx(max(meds))} to {fx(min(meds))}"
 
 
-def headline(pl):
-    """The site's one headline sentence, from headline_cells(). The home
-    page, the README, the launch post, the results page and the social card
-    all take their figures from the same dict."""
+def headline(pl, lad):
+    """The site's headline: speed at the same file size from headline_cells(),
+    and bits saved at the same VMAF v1 from the BD ladders(). The home page,
+    the README and the launch post all print it."""
+    allv = [r[3] for r in lad] + [r[4] for r in lad]
     return (f"On an Apple M5 Max, yah265 encodes a median {headline_times(pl)} faster than "
-            f"x265 at the same file size. Its VMAF v1 score is a median {pl['dv']:.2f} points "
-            f"higher. That's the median of {pl['n']} encodes, from short clips to ten-minute "
-            "films, at CIF to 4K. Both encoders ran at preset medium with SIMD on all cores.")
+            f"x265 at the same file size. For the same VMAF v1 score it needs a median "
+            f"{abs(st.median(allv)):.0f}% fewer bits. The speed is the median of {pl['n']} "
+            f"encodes and the savings the median of {len(allv)} rate ladders. They run from "
+            "short clips to ten-minute films, at CIF to 4K. Both encoders ran at preset medium "
+            "with SIMD on all cores.")
 
 
 def headline_table(pl):
@@ -1329,7 +1332,7 @@ def draw_card(path, pl, fl):
 
 def values(sps, q, lad, fl, cap, cv, ff, rows, repro, date, report_rel, hist, cred, pl):
     V = {}
-    V["headline"] = headline(pl)
+    V["headline"] = headline(pl, lad)
     V["fig-frames"] = frames_figure((0,), FRAMES_ONE)
     V["headline-table"] = headline_table(pl)
     V["dv-cells"] = f"{pl['dv_ahead']} of the {pl['dv_n']}"
