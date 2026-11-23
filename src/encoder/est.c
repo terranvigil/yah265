@@ -22,7 +22,10 @@ int n265_est_mode;
 void n265_est_warm(void)
 {
     const char *v = n265_env("N265_EST_MODE");
-    n265_est_mode = v ? atoi(v) : 0;
+    int m = v ? atoi(v) : 0;
+    /* another encoder in this process may be reading it */
+    if (n265_est_mode != m)
+        n265_est_mode = m;
 }
 
 uint16_t n265_est_bits_mps[64], n265_est_bits_lps[64];

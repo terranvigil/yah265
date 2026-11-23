@@ -1258,9 +1258,15 @@ const char *n265_env(const char *name)
  * dimension puts the table back to resolution-blind. */
 void n265_preset_uhd(int width, int height)
 {
-    g_uhd = res_class(width, height);
-    g_720 = g_uhd == 0 && width > 0 && height > 0 &&
-            (long)width * (long)height >= N265_720_SAMPLES;
+    int cls = res_class(width, height);
+    int c720 = cls == 0 && width > 0 && height > 0 &&
+               (long)width * (long)height >= N265_720_SAMPLES;
+    /* store only on change: a --gop-parallel segment's open runs while
+     * the other segments' workers read these */
+    if (g_uhd != cls)
+        g_uhd = cls;
+    if (g_720 != c720)
+        g_720 = c720;
 }
 
 int n265_preset_res_class(void)
@@ -1270,7 +1276,9 @@ int n265_preset_res_class(void)
 
 void n265_preset_hdr(int kind)
 {
-    g_hdr = kind == 1 || kind == 2 ? kind : 0;
+    int k = kind == 1 || kind == 2 ? kind : 0;
+    if (g_hdr != k)
+        g_hdr = k;
 }
 
 int n265_preset_hdr_kind(void)
@@ -1280,7 +1288,8 @@ int n265_preset_hdr_kind(void)
 
 void n265_preset_cvbr(int on)
 {
-    g_cvbr = on != 0;
+    if (g_cvbr != (on != 0))
+        g_cvbr = on != 0;
 }
 
 /* ---- reading the selected rung back out (phase 14 item 13) ----------
