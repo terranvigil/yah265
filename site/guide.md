@@ -444,6 +444,8 @@ Three options feed and record the log:
 
 A rate change needs a rate mode that has one: `--bitrate` for the bitrate, a buffer for `maxrate` and `bufsize`. You can't add or remove a buffer mid-stream. Because a stream with a buffer has HRD timing by default, its rate and buffer can only go down from where they started. To raise them later, use `--no-hrd`, or start at your top rate or name a `--level`.
 
+Under capped VBR, the encoder aims each rate change at its new bitrate from that frame on. Any balance left from before the change is paid back slowly, at 2% of the new rate.
+
 Live control uses one encoder, so `--gop-parallel` codes serially with it.
 
 In ffmpeg, an I frame you force with `-force_key_frames` becomes a key frame. A change to `bit_rate`, `rc_max_rate` or `rc_buffer_size` between two frames becomes a rate change on the next one.

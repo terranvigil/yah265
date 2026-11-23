@@ -279,6 +279,14 @@ typedef struct n265_rc {
                                  * from none to whole (0: off) */
     double lcx_avg, lcx_n;      /* running mean of log per-block complexity
                                  * over inter frames */
+    /* live control, capped VBR only (n265_rc_next): after a RATE step the
+     * carried balance is repaid at `ctlpay` of the new rate, and the slow
+     * feedback's window and deficit rail count from the step */
+    double ctlpay;              /* N265_VBR_CTLPAY: the share (0.02), 0 off */
+    int ctlseg;                 /* N265_VBR_CTLSEG: count from the step (1), 0 off */
+    int stepped;                /* ...a RATE step has landed */
+    double carry;               /* ...the balance at the last step, bits */
+    double step_n0;             /* ...the frames counted then */
     double open_step;           /* extra step allowed over the opening */
     int nblk;                   /* lowres 8x8 blocks per frame        */
     int trace;

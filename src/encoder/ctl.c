@@ -211,8 +211,16 @@ static void retarget(n265_encoder *e, const n265_control_t *ev)
             rc->total_bits = owed + nbps - rc->pend_bits;
         if (!rc->fbstep)
             rc->rf -= 6.0 * log2(r);
+        int moved = nb != rc->bits_per_frame;
         rc->bits_per_frame = nb;
         e->abr_bitrate = nbps;
+        if (moved && (rc->ctlpay > 0.0 || rc->ctlseg)) {
+            rc->stepped = 1;
+            rc->step_n0 = (double)rc->n_coded + (double)rc->pend_n;
+            rc->carry = rc->ctlpay > 0.0 ? rc->total_bits + rc->pend_bits -
+                                           nb * rc->step_n0
+                                         : 0.0;
+        }
     }
     if (!e->vbv.on)
         return;

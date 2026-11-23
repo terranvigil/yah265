@@ -178,6 +178,8 @@ In the default column, "presence" means the reader is a boolean: unset is off an
 | `N265_UHD_QP` | 29 | src/encoder/encoder.c:5743 |
 | `N265_VBR_CMEM` | 1 | src/encoder/rc.c:333 |
 | `N265_VBR_CTKEEP` | 1 under capped VBR, else 0 | src/encoder/rc.c:256 |
+| `N265_VBR_CTLPAY` | 0.02 | src/encoder/rc.c:326 |
+| `N265_VBR_CTLSEG` | 1 | src/encoder/rc.c:327 |
 | `N265_VBR_DEFPT` | 0.08 | src/encoder/rc.c:292 |
 | `N265_VBR_DEFPT_CAP` | 6.0 | src/encoder/rc.c:299 |
 | `N265_VBR_DEFPT_HOLD` | 2.0 | src/encoder/rc.c:302 |

@@ -123,5 +123,23 @@ else
     printf '  %-28s FAIL (%s kbit/s, target 300)\n' "on target within 1 s" "$kbps"
     fail=1
 fi
+# capped VBR, a 2x step down and back up on a 1 s buffer: the up segment
+# lands within 10% of its target with no underflow (N265_VBR_CTLPAY and
+# _CTLSEG; it landed 19% under before them)
+echo "capped vbr step back up"
+printf '%s\n' '100 rate bitrate=250 maxrate=375 bufsize=375' \
+    '200 rate bitrate=500 maxrate=750 bufsize=750' > "$T/up.log"
+up=$(python3 "$ROOT/scripts/ctl_vbv_check.py" --enc "$NEW" --log "$T/up.log" \
+     "$src" --frames 300 -- --threads 1 --no-hrd --bitrate 500 \
+     --vbv-maxrate 750 --vbv-bufsize 750)
+st=$?
+kbps=$(printf '%s\n' "$up" | sed -n 's/.*segment: .* \([0-9]*\) kbit\/s$/\1/p' | tail -1)
+if [ $st = 0 ] && [ -n "$kbps" ] && [ "$kbps" -ge 450 ] && [ "$kbps" -le 550 ]; then
+    printf '  %-28s ok (%s kbit/s)\n' "on target, no underflow" "$kbps"
+else
+    printf '  %-28s FAIL (%s kbit/s, target 500, status %s)\n' \
+        "on target, no underflow" "$kbps" "$st"
+    fail=1
+fi
 [ $fail = 0 ] && echo "ctl_identity: OK" || echo "ctl_identity: FAIL"
 exit $fail

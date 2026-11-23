@@ -319,6 +319,14 @@ void n265_rc_open(struct n265_encoder *e)
      * BD improves (-3.95% -> -4.72%). 0 is off. */
     rc->fillq = cvbr ? abr_tunable("N265_VBR_FILLQ", 6.0) : 0.0;
     rc->fillgoal = abr_tunable("N265_VBR_FILLGOAL", 0.5);
+    /* N265_VBR_CTLPAY / N265_VBR_CTLSEG (n265_rc_next): after a live RATE
+     * step, the pace its carried balance is repaid at as a share of the
+     * new rate, and whether the slow feedback counts from the step. 0 is
+     * off for each. */
+    rc->ctlpay = cvbr ? abr_tunable("N265_VBR_CTLPAY", 0.02) : 0.0;
+    rc->ctlseg = cvbr ? (int)abr_tunable("N265_VBR_CTLSEG", 1) : 0;
+    rc->stepped = 0;
+    rc->carry = rc->step_n0 = 0.0;
     rc->w_mem = abr_tunable("N265_ABR_WMEM", 1000.0);
     rc->meas = (int)abr_tunable("N265_ABR_MEAS", 1);
     rc->mguard = abr_tunable("N265_ABR_MGUARD", 0.0);
@@ -995,6 +1003,21 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
                               : (rc->planerr ? rc->planned_bits
                                              : rc->bits_per_frame * nseen));
     double errb = seen - (twop ? plan_seen : rc->bits_per_frame * nseen);
+    /* N265_VBR_CTLPAY: the balance a RATE step carries over is repaid at
+     * `ctlpay` of the new rate. Answered by the feedback, it was repaid in
+     * a second or two: foreman's step back up landed 13-22% under. */
+    if (rc->carry != 0.0 && !twop) {
+        double left = fabs(rc->carry) -
+                      rc->ctlpay * rc->bits_per_frame * (nseen - rc->step_n0);
+        if (left > 0.0)
+            errb -= rc->carry > 0.0 ? left : -left;
+        else
+            rc->carry = 0.0;
+    }
+    /* N265_VBR_CTLSEG: the slow window and the deficit rail count from the
+     * step. Counted from frame 0, chimera 720p's step back up never won
+     * back a black stretch and landed 11% under. */
+    double nseg = rc->stepped && rc->ctlseg ? nseen - rc->step_n0 : nseen;
     /* The horizon is in FRAMES and the frame's share of it is `T / (bpf x
      * H)`, which the qscale solve then cancels - so the loop asks this one
      * frame to move `err * T / (bpf * H)` bits. On a frame worth more than
@@ -1103,7 +1126,7 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
      * overspend early on. */
     if (rc->fbw > 0.0 && !twop) {
         double bps = rc->bits_per_frame * rc->fps;
-        double t = rc->fps > 0.0 ? nseen / rc->fps : 0.0;
+        double t = rc->fps > 0.0 ? nseg / rc->fps : 0.0;
         double win = rc->fbw * bps * sqrt(t > rc->fbt0 ? t : rc->fbt0);
         if (rc->ovw > 0.0 && e->vbv.on) {
             double cap = rc->ovw * e->vbv.bufsize;
@@ -1133,8 +1156,8 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
      * whose ratio is noise. 0 is item 38's rail at every deficit. */
     double fine = rc->fbfine;
     if (rc->fbtrk > 0.0 && rc->fbtrk_max > fine && rc->fps > 0.0 &&
-        nseen > 2.0 * rc->fps && rc->bits_per_frame > 0.0) {
-        double def = -errb / (rc->bits_per_frame * nseen);
+        nseg > 2.0 * rc->fps && rc->bits_per_frame > 0.0) {
+        double def = -errb / (rc->bits_per_frame * nseg);
         double s = (def - rc->fbtrk) / (rc->fbtrk_w > 0.0 ? rc->fbtrk_w : 1e-9);
         s = s < 0.0 ? 0.0 : s > 1.0 ? 1.0 : s;
         fine += s * (rc->fbtrk_max - fine);
