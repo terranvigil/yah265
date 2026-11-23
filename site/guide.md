@@ -140,7 +140,19 @@ The encoder tries a few CRFs, scores each one and encodes the file at the CRF th
 
 Under a VBV cap the search runs under the same cap. If the cap can't reach the score, the report says so and keeps the best CRF it found. On a PQ or HLG stream it scores HDR-VMAF instead of VMAF v1.
 
-A target run needs ffmpeg and libvmaf's `vmaf` tool. The input has to be a file, because the search reads it more than once. It can't be combined with `--qp`, `--bitrate` or two-pass. With ffmpeg, run the search with y265 and pass the CRF it prints to `-crf`.
+A clip longer than 60 seconds is searched on 12 short windows spread through it, which add up to 60 seconds. The final file is then scored whole, and the report shows both the predicted and the measured score.
+
+VMAF isn't built into y265. During the search y265 runs ffmpeg and libvmaf's `vmaf` tool as separate programs and streams the frames to them, so they have to be installed. It finds them like this:
+
+| what | set with | otherwise |
+|---|---|---|
+| the `vmaf` tool | `N265_VMAF_BIN` | `~/.local/opt/vmaf-v1/bin/vmaf`, then `vmaf` on your PATH |
+| the VMAF v1 model files | `N265_VMAF_MODEL_DIR` | `~/.local/share/vmaf/model` |
+| ffmpeg | `N265_FFMPEG` | `ffmpeg` on your PATH |
+
+The model files are the `vmaf_v1.0.16` and `vmaf_v1.0.16_hfr` folders from Netflix's [vmaf repository](https://github.com/Netflix/vmaf). HDR-VMAF has its own pair, `N265_VMAF_HDR_BIN` and `N265_VMAF_HDR_MODEL_DIR`.
+
+The input has to be a file, because the search reads it more than once. It can't be combined with `--qp`, `--bitrate` or two-pass. With ffmpeg, run the search with y265 and pass the CRF it prints to `-crf`.
 
 ### Capped VBR
 
@@ -389,7 +401,7 @@ y265 in.y4m --shot-scan shots.txt
 y265 in.y4m -o 1080p.hevc --crf 24 --shot-list shots.txt
 ```
 
-**A quality level for each shot.** `--shot-plan` reads the same list and moves each shot's QP up or down. Shots where bits buy little VMAF get fewer of them. Shots where bits buy more get those bits. The moves come from what the scan measured about each shot. The title's average QP stays where `--crf` put it. It works with `--crf`, with or without a VBV. On eight film excerpts it saved a median 1.2% of the bits at the same VMAF v1.
+**A quality level for each shot.** `--shot-plan` reads the same list and moves each shot's QP up or down. Shots where bits buy little VMAF get fewer of them. Shots where bits buy more get those bits. The moves come from what the scan measured about each shot. The title's average QP stays where `--crf` put it. It also puts the key frames `--shot-list` does. It works with `--crf`, with or without a VBV, but not yet with `--bitrate`. On eight film excerpts it saved a median 1.2% of the bits at the same VMAF v1.
 
 ```sh
 y265 in.y4m -o 1080p.hevc --crf 24 --shot-plan shots.txt

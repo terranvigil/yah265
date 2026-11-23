@@ -36,6 +36,8 @@ scripts/build-ffmpeg.sh
 
 It needs git, a C compiler, Meson, Ninja, pkg-config and make. The new ffmpeg is at `build-ffmpeg/ffmpeg/ffmpeg`. Add `--with-x265` to build `libx265` into it too, for side-by-side tests. Because yah265 is GPL, the ffmpeg it builds is a GPL binary.
 
+On macOS or Linux with Homebrew, `brew install terranvigil/yah265/ffmpeg-yah265` installs the same ffmpeg as `ffmpeg-yah265`.
+
 Always pass a rate option. Without one, the encoder runs a fixed-quantizer test mode.
 
 ## Results
@@ -98,6 +100,8 @@ On Macs, `--hw videotoolbox` uses Apple's hardware HEVC encoder instead of yah26
 
 Most video is a sequence of shots that each want different settings. yah265 gives a per-shot pipeline what it needs in a single pass.
 
+A shot scan reads the source once and writes a shot list. Encoding every rung with that list puts a key frame on each shot, so all rungs switch at the same frames.
+
 A shot window lets a CRF encode buffer up to a whole shot and balance its quality against the shots before it. It's off by default because it adds latency.
 
 Shot statistics write one JSON line per shot as the encode runs. Each line has where the shot starts and ends, its bits, its frame types and its complexity. The hull script scores each shot of several encodes against the source on VMAF v1. The encodes can be at different resolutions. It prints each shot's convex hull across all of them, which a ladder builder picks rungs from.
@@ -126,7 +130,7 @@ The shot tools above grow into a full per-shot ladder:
 
 Use
 - [Build and first encode](https://terranvigil.github.io/yah265/start.html): the ffmpeg build, a first encode, building `y265`
-- [Encoding guide](https://terranvigil.github.io/yah265/guide.html): rate modes, presets, threads, live control, shots
+- [Encoding guide](https://terranvigil.github.io/yah265/guide.html): rate modes, target quality, presets, threads, live control, shots, farm mode, encode reports
 - [Coming from x265](https://terranvigil.github.io/yah265/from-x265.html): option names and a CRF translation table
 - [Try it in your browser](https://terranvigil.github.io/yah265/playground.html): the playground, nothing to install
 - [Try it on your own clip](https://terranvigil.github.io/yah265/bench.html): `y265 bench` against x265
