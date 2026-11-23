@@ -36,7 +36,8 @@ the ladder lane beside it), against x265 medium:
             cells, CRF and VBR, against x265 at its default 20.
   credits   per title at 1080p, the credits span coded on its own: x265 at
             CRF 28 and ours at the cell's matched CRF, five rungs each side
-            for the size at equal PSNR-Y. Supplementary, never a gate.
+            for the size at equal PSNR-Y and at equal v1, and BD on both.
+            Supplementary, never a gate.
   report    PARITY-REPORT-yah265-<date>.md and .csv, section for section
             yah264's 10-12 page, with the 27-combination count.
 
@@ -118,6 +119,9 @@ V1_ON = os.environ.get("PL_V1", "1") == "1" and os.path.exists(V1_BIN)
 # scores VMAF-NEG v0.6.1, for comparison with rows measured before it
 V0_ON = os.environ.get("PL_V0", "0") == "1" or not V1_ON
 GATE = "v1" if V1_ON else "neg"
+# the credits rows carry v1 beside PSNR-Y (v1 by the same display and model
+# rules as every other row); PL_CRED_V1=0 keeps them PSNR-Y only
+CRED_V1 = V1_ON and os.environ.get("PL_CRED_V1", "1") == "1"
 MNAME = "VMAF v1" if GATE == "v1" else "VMAF-NEG"
 # both sides are 8-bit encodes scored at 10 bits; CAMBI must be told the
 # encode's depth or it reads the up-converted picture as a 10-bit encode
@@ -693,12 +697,14 @@ def score_v1(cell, bitstream, wd, s, n, stride):
     return out
 
 
-def score(cell, bitstream, wd, s=0, n=None, stride=1, psnr_only=False):
+def score(cell, bitstream, wd, s=0, n=None, stride=1, psnr_only=False,
+          v1=False):
     """VMAF-NEG, PSNR-Y and the 5.2a columns of a bitstream against the
     frames it was made from: the same feeder into libvmaf's stdin, the
     bitstream decoded by ffmpeg into a fifo. Nothing lands on disk. A short
     count is recorded (frames_ok false), not fatal. psnr_only runs libvmaf
-    with no model (the credits rows)."""
+    with no model; with v1 as well, the v1 pass follows it (the credits
+    rows)."""
     check_stride(stride)
     i = info(cell)
     n = n or i["frames"] - s
@@ -754,6 +760,8 @@ def score(cell, bitstream, wd, s=0, n=None, stride=1, psnr_only=False):
                    neg_low1=sum(low) / len(low) if low else None,
                    neg_first1s=sum(first) / len(first) if first else None,
                    vmaf=pooled["vmaf"]["mean"] if "vmaf" in pooled else None)
+    if psnr_only and v1 and V1_ON:
+        out.update(score_v1(cell, bitstream, wd, s, n, stride))
     if not psnr_only:
         if V1_ON:
             out.update(score_v1(cell, bitstream, wd, s, n, stride))
@@ -812,7 +820,7 @@ def now():
 
 
 def measure(cell, arm, mode, q, s=0, n=None, prof="solve", depth=None,
-            stride=None, psnr_only=False, log=print):
+            stride=None, psnr_only=False, log=print, v1=False):
     """One untimed encode of frames s..s+n, memoized on the feeder, the
     command and the binary: bytes, md5, kbps, and the scores when `stride`
     is given. The bitstream is deleted; only its numbers are kept."""
@@ -827,7 +835,8 @@ def measure(cell, arm, mode, q, s=0, n=None, prof="solve", depth=None,
     m = jload(MEMO).get(key)
     want_score = stride is not None
     if m and (not want_score or (m.get("stride") == stride and
-                                 (psnr_only or has_gate(m, cell)))):
+                                 ((psnr_only and not v1)
+                                  or has_gate(m, cell)))):
         return m
     wd = tempfile.mkdtemp(prefix="pl.", dir=ensure_work())
     try:
@@ -846,7 +855,8 @@ def measure(cell, arm, mode, q, s=0, n=None, prof="solve", depth=None,
                "mode": mode, "q": q, "threads": THREADS, "prof": prof,
                "depth": depth or (OUR_DEPTH if arm == "ours" else REF_DEPTH)}
         if want_score:
-            rec.update(score(cell, out, wd, s, n, stride, psnr_only))
+            rec.update(score(cell, out, wd, s, n, stride, psnr_only,
+                             v1=v1))
     finally:
         subprocess.run(["rm", "-rf", wd])
     jput(MEMO, key, rec)
@@ -1242,25 +1252,28 @@ def do_credits(args):
             ladder_rung_cred(c, "ref", q)
         for q in RUNGS + (pt["ours_crf"],):
             ladder_rung_cred(c, "ours", q)
+    print("\n".join(credits_lines()))
 
 
 def ladder_rung_cred(cell, arm, q):
     k = lad_key(cell, "cred", arm, q, OUR_DEPTH if arm == "ours" else
                 REF_DEPTH)
-    if k in jload(LAD_PATH):
+    have = jload(LAD_PATH).get(k)
+    if have and (not CRED_V1 or has_gate(have, cell)):
         return
-    r = measure(cell, arm, "crf", q, stride=1, psnr_only=True)
-    jput(LAD_PATH, k, {"bytes": r["bytes"], "kbps": r["kbps"],
-                       "psnr_y": r["psnr_y"], "frames": r["frames"],
-                       "frames_ok": r["frames_ok"], "q": q, "date": r["date"],
-                       "md5": r["md5"]})
+    r = measure(cell, arm, "crf", q, stride=1, psnr_only=True, v1=CRED_V1)
+    rec = {"bytes": r["bytes"], "kbps": r["kbps"], "psnr_y": r["psnr_y"],
+           "frames": r["frames"], "frames_ok": r["frames_ok"], "q": q,
+           "date": r["date"], "md5": r["md5"]}
+    rec.update({x: v for x, v in r.items() if x.startswith("v1_")})
+    jput(LAD_PATH, k, rec)
 
 
-def size_at(pts, y):
-    """Bytes on an encoder's own curve at PSNR-Y y, interpolated in log
+def size_at(pts, y, m="psnr_y"):
+    """Bytes on an encoder's own curve at metric m = y, interpolated in log
     bytes: (value, extrapolated?)."""
-    pts = sorted(pts, key=lambda p: p["psnr_y"])
-    ys = [p["psnr_y"] for p in pts]
+    pts = sorted(pts, key=lambda p: p[m])
+    ys = [p[m] for p in pts]
     lb = [math.log(p["bytes"]) for p in pts]
     if ys[0] <= y <= ys[-1]:
         for a in range(len(ys) - 1):
@@ -1297,10 +1310,55 @@ def credits_rows():
             continue
         a, ea = size_at(os_ + [mp], x28["psnr_y"])
         b, eb = size_at(xs + [x28], mp["psnr_y"])
-        out.append((t, sp, dict(x=x28, o=mp, crf=pt["ours_crf"],
-                                at_ref=(100 * (a / x28["bytes"] - 1), ea),
-                                at_ours=(100 * (mp["bytes"] / b - 1), eb))))
+        d = dict(x=x28, o=mp, crf=pt["ours_crf"],
+                 at_ref=(100 * (a / x28["bytes"] - 1), ea),
+                 at_ours=(100 * (mp["bytes"] / b - 1), eb),
+                 bd_y=bd.bd_rate([r["kbps"] for r in xs],
+                                 [r["psnr_y"] for r in xs],
+                                 [r["kbps"] for r in os_],
+                                 [r["psnr_y"] for r in os_]))
+        if all(has_gate(r, c) for r in xs + os_ + [x28, mp]):
+            g = f"v1_{x28['v1_gate']}"
+            a, ea = size_at(os_ + [mp], x28[g], g)
+            b, eb = size_at(xs + [x28], mp[g], g)
+            d.update(v1=(x28[g], mp[g]),
+                     v1_at_ref=(100 * (a / x28["bytes"] - 1), ea),
+                     v1_at_ours=(100 * (mp["bytes"] / b - 1), eb),
+                     bd_v1=bd.bd_rate([r["kbps"] for r in xs],
+                                      [r[g] for r in xs],
+                                      [r["kbps"] for r in os_],
+                                      [r[g] for r in os_]))
+        out.append((t, sp, d))
     return out
+
+
+def credits_lines():
+    """The credits table, PSNR-Y and (where every rung carries it) v1."""
+    L = ["| title | span (excerpt frames) | x265 CRF 28 bytes / Y / v1 | "
+         "ours (matched crf) bytes / Y / v1 | ours size at x265's Y | "
+         "ours size vs x265 at ours' Y | BD-PSNR-Y | ours size at x265's "
+         "v1 | ours size vs x265 at ours' v1 | BD-v1 |",
+         "|---|---|---|---|---|---|---|---|---|---|"]
+
+    def pc(v):
+        return f"{v[0]:+.1f}%{' extr' if v[1] else ''}"
+
+    def bdp(v):
+        return "-" if v is None else f"{v:+.1f}%"
+    for t, sp, d in credits_rows():
+        if d is None:
+            L.append(f"| {t} | {sp[0]}-{sp[1]} | pending |" + " |" * 7)
+            continue
+        v1x, v1o = d.get("v1", (None, None))
+        f1 = (lambda v: "" if v is None else f" / {v:.2f}")
+        L.append(f"| {t} | {sp[0]}-{sp[1]} | {d['x']['bytes'] / 1e6:.2f} MB "
+                 f"/ {d['x']['psnr_y']:.2f}{f1(v1x)} | "
+                 f"({ps._fmt_q(d['crf'])}) {d['o']['bytes'] / 1e6:.2f} MB / "
+                 f"{d['o']['psnr_y']:.2f}{f1(v1o)} | {pc(d['at_ref'])} | "
+                 f"{pc(d['at_ours'])} | {bdp(d['bd_y'])} | "
+                 + (f"{pc(d['v1_at_ref'])} | {pc(d['v1_at_ours'])} | "
+                    f"{bdp(d['bd_v1'])} |" if "v1" in d else "- | - | - |"))
+    return L
 
 # --------------------------------------------------------------- timed
 
@@ -1865,8 +1923,9 @@ def do_plan(args):
             cnt = 2 * len(RUNGS) + 2
             secs = cnt / 2 * (est(c, n, "G3", "ours", model, True) +
                               est(c, n, "G3", "ref", model, True)) + \
-                cnt * score_s(c, n, 1) / 4
-            add("credits rows (PSNR-Y only)", cnt, cnt, secs)
+                cnt * score_s(c, n, 1) / (1 if CRED_V1 else 4)
+            add("credits rows (PSNR-Y and v1)" if CRED_V1 else
+                "credits rows (PSNR-Y only)", cnt, cnt, secs)
     print("## Totals (estimates)\n")
     print(f"cells: {tot['cells']}")
     print(f"{'item':<34} {'encodes':>8} {'scored':>7} {'hours':>7} "
@@ -2553,30 +2612,11 @@ def write_full_report(date):
     L.append("Every tier L cell stops at its last story frame. The credits "
              "that follow are coded on their own, at 1080p: x265 at CRF "
              f"{REF_CRF}, ours at the cell's matched crf, five rungs each "
-             "side for the size at equal PSNR-Y (PSNR-Y on every frame; no "
-             "VMAF-NEG BD on credits). \"extr\" = extrapolated beyond the "
-             "measured points.")
-    L.append("| title | span (excerpt frames) | x265 CRF 28 bytes / Y | ours "
-             "(matched crf) bytes / Y | ours size at x265's Y | ours size vs "
-             "x265 at ours' Y | reading |")
-    L.append("|---|---|---|---|---|---|---|")
-    for t, sp, d in credits_rows():
-        if d is None:
-            L.append(f"| {t} | {sp[0]}-{sp[1]} | pending | | | | |")
-            continue
-        a, ea = d["at_ref"]
-        b, eb = d["at_ours"]
-        if (a > 0) != (b > 0) and ea and eb:
-            rd = "no overlap; figure extrapolated"
-        elif a > 1.0 or b > 1.0:
-            rd = "**behind**"
-        else:
-            rd = "ahead"
-        L.append(f"| {t} | {sp[0]}-{sp[1]} | {d['x']['bytes'] / 1e6:.2f} MB "
-                 f"/ {d['x']['psnr_y']:.2f} | ({ps._fmt_q(d['crf'])}) "
-                 f"{d['o']['bytes'] / 1e6:.2f} MB / {d['o']['psnr_y']:.2f} | "
-                 f"{a:+.1f}%{' extr' if ea else ''} | "
-                 f"{b:+.1f}%{' extr' if eb else ''} | {rd} |")
+             "side for the size at equal PSNR-Y and at equal v1 (both on "
+             "every frame; v1 by the display and model rules of every "
+             "other row). BD is over the five rungs. \"extr\" = "
+             "extrapolated beyond the measured points.")
+    L += credits_lines()
 
     titles = sorted({c["title"] for c in cells if c["tier"] in ("L", "C")})
     cc_ = [f"{t} {CONTENT_CLASS[t]}" for t in titles if t in CONTENT_CLASS]

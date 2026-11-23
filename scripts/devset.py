@@ -83,17 +83,19 @@ SCORES = os.path.join(CACHE, "scores.json")
 _score = pl.score
 
 
-def score_memo(cell, bitstream, wd, s=0, n=None, stride=1, psnr_only=False):
+def score_memo(cell, bitstream, wd, s=0, n=None, stride=1, psnr_only=False,
+               v1=False):
     """parity_long's score, memoized on the bitstream's md5 and the frames
     it is scored against: an arm that leaves a cell's stream alone pays
     the encode and not the libvmaf run."""
     k = "|".join((pl.file_md5(bitstream), pl.feed_sig(pl.feeder(cell, s, n)),
-                  str(stride), str(psnr_only), str(pl.SSIM_PASS)))
+                  str(stride), str(psnr_only), str(pl.SSIM_PASS))
+                 + (("v1",) if v1 else ()))
     have = pl.jload(SCORES).get(k)
-    if have and (psnr_only or pl.has_gate(have, cell)):
+    if have and ((psnr_only and not v1) or pl.has_gate(have, cell)):
         return have
     return pl.jput(SCORES, k, _score(cell, bitstream, wd, s, n, stride,
-                                     psnr_only))
+                                     psnr_only, v1=v1))
 
 
 pl.score = score_memo
