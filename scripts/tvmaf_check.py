@@ -79,7 +79,7 @@ def recheck(src, bs, frames):
     """parity_long's v1 chain, the gate model, every frame."""
     w, h, fps = geom(src)
     hfr = fps >= 49.9
-    m = "1d5h_2160" if w * h > 1920 * 1080 else "3d0h"
+    m = "1d5h_2160" if h > 1080 else "3d0h"
     model = (f"{V1_DIR}/vmaf_v1.0.16_hfr/vmaf_v1.0.16_hfr_{m}.json" if hfr
              else f"{V1_DIR}/vmaf_v1.0.16/vmaf_v1.0.16_{m}.json")
     scale = ("scale=1920:1080:flags=bicubic:force_original_aspect_ratio"

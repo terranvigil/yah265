@@ -272,9 +272,9 @@ int tv_upscaled(int w, int h)
     return w < 1920 && h < 1080;
 }
 
-static int above_1080p(int w, int h)
+static int above_1080p(int h)
 {
-    return (long)w * h > 1920L * 1080;
+    return h > 1080;
 }
 
 const char *tv_model_name(const tv_scorer *s)
@@ -283,7 +283,7 @@ const char *tv_model_name(const tv_scorer *s)
     int hfr = s->fps >= 49.9;
     snprintf(buf, sizeof buf, "%s%s_%s",
              s->hdr ? "hdr_vmaf_v1.1.8" : "vmaf_v1.0.16", hfr ? "_hfr" : "",
-             above_1080p(s->w, s->h) ? "1d5h_2160" : "3d0h");
+             above_1080p(s->h) ? "1d5h_2160" : "3d0h");
     return buf;
 }
 
