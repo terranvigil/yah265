@@ -113,7 +113,7 @@ scripts/shot_hull.py --src in.y4m \
     --enc crf22=crf22.hevc:crf22.jsonl --enc 540p=540p.hevc:540p.jsonl
 ```
 
-A shot plan gives each shot its own quality level in one pass, from a scan of the source with no trial encodes. It runs under CRF and capped CRF.
+A shot plan gives each shot its own quality level in one pass, from a scan of the source with no trial encodes. It runs under CRF, capped CRF and capped VBR.
 
 The [encoding guide](https://terranvigil.github.io/yah265/guide.html#planning-by-shot) has the details.
 
@@ -121,7 +121,6 @@ The [encoding guide](https://terranvigil.github.io/yah265/guide.html#planning-by
 
 The shot tools above grow into a full per-shot ladder:
 
-- The shot plan under VBR as well as CRF.
 - My [veo project](https://github.com/terranvigil/veo) runs the ladder search itself over rungs, convex hull and VMAF. It uses yah265 as its encoder.
 
 ## Documentation

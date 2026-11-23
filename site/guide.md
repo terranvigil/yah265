@@ -401,7 +401,7 @@ y265 in.y4m --shot-scan shots.txt
 y265 in.y4m -o 1080p.hevc --crf 24 --shot-list shots.txt
 ```
 
-**A quality level for each shot.** `--shot-plan` reads the same list and moves each shot's QP up or down. Shots where bits buy little VMAF get fewer of them. Shots where bits buy more get those bits. The moves come from what the scan measured about each shot. The title's average QP stays where `--crf` put it. It also puts the key frames `--shot-list` does. It works with `--crf`, with or without a VBV, and with `--bitrate` under a VBV whose maxrate is above it. On eight film excerpts it saved a median 1.2% of the bits at the same VMAF v1.
+**A quality level for each shot.** `--shot-plan` reads the same list and moves each shot's QP up or down. Shots where bits buy little VMAF get fewer of them. Shots where bits buy more get those bits. The moves come from what the scan measured about each shot. The title's average QP stays where `--crf` put it. It also puts the key frames `--shot-list` does. It works with `--crf`, with or without a VBV, and with `--bitrate` under a VBV whose maxrate is above it. On eight film excerpts it saved a median 1.2% of the bits at the same VMAF v1 under CRF, and 0.5% under capped VBR.
 
 ```sh
 y265 in.y4m -o 1080p.hevc --crf 24 --shot-plan shots.txt
