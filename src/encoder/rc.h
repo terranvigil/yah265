@@ -31,6 +31,7 @@ enum {
  * QP, not 6. */
 #define RC_SZK 10                /* I, P, B depth 1-4 x referenced/leaf */
 #define RC_SZC 3                 /* static, simple, complex */
+#define RC_HIST 192              /* > two groups and twice the largest s */
 typedef struct n265_szfit {
     double A[9], b[3];          /* decayed normal equations */
     double n;                   /* observations taken */
@@ -290,6 +291,18 @@ typedef struct n265_rc {
     double open_step;           /* extra step allowed over the opening */
     int nblk;                   /* lowres 8x8 blocks per frame        */
     int trace;
+    /* Live control's large RATE step (contract v1.2, rule (b)): a ring of
+     * retired frames in coding order, and the refit procedure's state. */
+    struct n265_rc_obs {
+        int cls, cut;
+        double q, bits;
+    } hist[RC_HIST];
+    long hist_cnt;              /* frames retired, = the next one's index */
+    int ls_on, ls_vbvup;        /* N265_LS, N265_LS_VBVUP */
+    int ls_state;               /* 0 idle, 1 refitting, 2 short memory */
+    int ls_nref, ls_s, ls_mem_n;
+    long ls_astart, ls_bmin, ls_mem_end;
+    double ls_qa, ls_ba, ls_a, ls_bal, ls_pbal;
 } n265_rc;
 
 /* configure from the encoder's params (called once, at open) */
@@ -311,6 +324,18 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf);
 void n265_rc_done(struct n265_encoder *e, int cls, double cplx, double rf_used,
                   double bits, double planned, double ctf, double ioff,
                   double soff);
+
+/* a frame retired, after its n265_rc_done, with n265_rc_done's `rf_used`
+ * and `ctf`; `cut` is whether the lookahead cut there */
+void n265_rc_note(struct n265_encoder *e, int cls, double rf_used,
+                  double ctf, double bits, int cut);
+
+/* Live control's RATE retarget, after the ledger has been scaled: a step
+ * with r < 1/3 or r > 3 moves the operating point by 6 log2(1/r) / 1.5
+ * and starts the refit (contract v1.2, rule (b)), unless `take` is 0;
+ * any other step ends a procedure under way. Returns the QP the
+ * operating point moved by. */
+double n265_rc_rate_step(struct n265_encoder *e, double r, int take);
 
 /* the class of a frame, from the fields encode_frame already carries */
 int n265_rc_class(int slice_type, int nonref);

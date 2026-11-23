@@ -190,7 +190,8 @@ int n265_ctl_rate_due(const n265_encoder *e, int64_t d)
 
 /* The RATE retarget (contract section 5). Everything before this frame
  * is coded and counted, so the ledger's running sums are the coded
- * frames' and both scale by r; the content models stay. */
+ * frames' and both scale by r. The content models stay; a step past 3x
+ * either way moves and refits the operating point (rc.c). */
 static void retarget(n265_encoder *e, const n265_control_t *ev)
 {
     n265_rc *rc = &e->rc;
@@ -209,8 +210,10 @@ static void retarget(n265_encoder *e, const n265_control_t *ev)
             rc->total_bits = owed - nbps - rc->pend_bits;
         else if (spent - owed > nbps)
             rc->total_bits = owed + nbps - rc->pend_bits;
-        if (!rc->fbstep)
-            rc->rf -= 6.0 * log2(r);
+        if (rc->trace)
+            fprintf(stderr, "RC retarget r=%.4g coded=%ld in_flight=%ld "
+                    "balance=%.0f\n", r, rc->n_coded, rc->pend_n,
+                    owed - spent);
         int moved = nb != rc->bits_per_frame;
         rc->bits_per_frame = nb;
         e->abr_bitrate = nbps;
@@ -221,6 +224,17 @@ static void retarget(n265_encoder *e, const n265_control_t *ev)
                                            nb * rc->step_n0
                                          : 0.0;
         }
+        /* a buffered step up takes the refit under capped VBR only:
+         * measured, it cuts the first second's error there by two
+         * thirds, and under CBR it costs foreman and sintel what it
+         * buys park_joy */
+        int take = !e->vbv.on || r < 1.0 ||
+                   rc->ls_vbvup >= (e->ctl->cbr ? 2 : 1);
+        double dq = n265_rc_rate_step(e, r, take);
+        if (!rc->fbstep)
+            rc->rf += dq;
+    } else {
+        rc->ls_state = 0;       /* any other rate change ends a refit */
     }
     if (!e->vbv.on)
         return;

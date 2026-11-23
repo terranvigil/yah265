@@ -1120,6 +1120,8 @@ int n265_encoder_rc_import(n265_encoder *e, const void *buf,
     e->rc = b->rc;
     e->rc.trace = keep.trace;
     e->rc.pend_use_est = keep.pend_use_est;
+    e->rc.hist_cnt = 0;
+    e->rc.ls_state = 0;
     e->rc.pend_bits = 0.0;
     e->rc.pend_n = 0;
     e->rc.pend_est = 0.0;
@@ -7780,6 +7782,7 @@ static void rc_apply_upto(n265_encoder *e, int upto)
         if (e->abr_on || e->rc.trace || e->vbv.on)
             n265_rc_done(e, rr->cls, rr->cplx, rr->rf_used, rr->bits,
                          rr->planned, rr->ctf, rr->ioff, rr->soff);
+        n265_rc_note(e, rr->cls, rr->rf_used, rr->ctf, rr->bits, rr->cut);
     }
 }
 
@@ -8380,6 +8383,7 @@ static void join_oldest(n265_encoder *e)
         rr->ctf = fw->rc_ctf;
         rr->ioff = fw->rc_ioff;
         rr->soff = fw->shot_off;
+        rr->cut = fw->rc_cut;
     } else if (e->abr_on || e->rc.trace || e->vbv.on) {
         if (e->abr_on && e->vbv.on)
             n265_szm_add(&e->rc, fw->rc_cls, fw->szk, fw->rc_cplx,
@@ -8387,6 +8391,8 @@ static void join_oldest(n265_encoder *e)
         n265_rc_done(e, fw->rc_cls, fw->rc_cplx, fw->rc_base,
                      (double)d->len * 8.0, fw->rc_planned, fw->rc_ctf,
                      fw->rc_ioff, fw->shot_off);
+        n265_rc_note(e, fw->rc_cls, fw->rc_base, fw->rc_ctf,
+                     (double)d->len * 8.0, fw->rc_cut);
     }
     /* --pass 1 (and --pass 3, which refreshes what it planned from): one
      * line per frame in CODING order, which is retirement order. It reads
@@ -9530,6 +9536,8 @@ static int drive_scheduler(n265_encoder *e)
     fw->rdoq = fw->jit && e->rdoq && e->jit_rdoq ? 1 : e->rdoq;
     fw->scr = f->scr;
     fw->fs_sc = e->fstats ? n265_la_scenecut_why(e, li) : N265_SC_NONE;
+    fw->rc_cut = e->abr_on &&
+                 n265_la_scenecut_why(e, li) != N265_SC_NONE;
     fw->fs_key = e->fstats && slice_type == 2
                      ? fs_key_why(e, f, kind, fw->fs_sc) : FS_KEY_NONE;
     fw->mcstf_filt = f->mcstf_filt;

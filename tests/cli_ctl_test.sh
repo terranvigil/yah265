@@ -93,5 +93,37 @@ grep -q '^5 zone' "$T/d.out" && bad "the skipped fd zone landed"
 [ "$(grep -c '^1 key$' "$T/d.out")" = 1100 ] ||
     bad "not every file key landed"
 
+# rule (b) v1.2: a RATE step past 3x moves the operating point by two
+# thirds of the law and refits it from coded groups; a smaller step and a
+# step up under CBR don't
+{
+    printf 'YUV4MPEG2 W64 H64 F30:1 Ip A1:1 C420\n'
+    for i in $(seq 90); do
+        printf 'FRAME\n'
+        head -c 4096 /dev/zero | LC_ALL=C tr '\0' "\\$(printf '%03o' $((i + 40)))"
+        head -c 2048 /dev/zero | LC_ALL=C tr '\0' '\200'
+    done
+} > "$T/ramp.y4m"
+step() {    # log args... -> the trace's step and refit lines
+    printf '%s\n' "$1" > "$T/step.log"
+    shift
+    N265_RC_TRACE=1 "$Y265" "$T/ramp.y4m" --threads 1 --level 4.1 \
+        -o "$T/s.hevc" --control "$T/step.log" "$@" 2>&1 |
+        grep -E '^RC (step|refit)'
+}
+n=$(step '40 rate bitrate=20' --bitrate 200 | grep -c '^RC refit')
+[ "$n" = 2 ] || bad "a 10x step down refit $n times, not 2"
+step '40 rate bitrate=2000' --bitrate 200 | grep -q '^RC step' ||
+    bad "a 10x step up did not move"
+step '40 rate bitrate=100' --bitrate 200 | grep -q . && bad "a 2x step moved"
+step '40 rate bitrate=2000 maxrate=3000 bufsize=4000' --bitrate 200 \
+    --vbv-maxrate 300 --vbv-bufsize 400 --no-hrd | grep -q '^RC step' ||
+    bad "a capped VBR step up did not move"
+step '40 rate bitrate=2000 maxrate=2000 bufsize=2000' --bitrate 200 \
+    --vbv-maxrate 200 --vbv-bufsize 200 --no-hrd | grep -q . &&
+    bad "a CBR step up moved"
+step '3 rate bitrate=20' --bitrate 200 | grep -q '^RC refit' &&
+    bad "a step with no group before it refit"
+
 [ $fail = 0 ] && echo "cli_ctl_test: OK"
 exit $fail

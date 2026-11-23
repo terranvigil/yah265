@@ -296,7 +296,9 @@
 #define n265_rc_done                 n265_rc_done_10
 #define n265_rc_future_idr           n265_rc_future_idr_10
 #define n265_rc_next                 n265_rc_next_10
+#define n265_rc_note                 n265_rc_note_10
 #define n265_rc_open                 n265_rc_open_10
+#define n265_rc_rate_step            n265_rc_rate_step_10
 #define n265_rc_warm                 n265_rc_warm_10
 #define n265_set_hw_opts             n265_set_hw_opts_10
 #define n265_szm_add                 n265_szm_add_10

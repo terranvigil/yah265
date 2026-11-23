@@ -982,6 +982,7 @@ typedef struct n265_frame_work {
                              * (N265_ABR_IOFF), which the measured operating
                              * point takes back out. 0 on inter frames, 0 at
                              * the default, 0 whenever ABR is off. */
+    int rc_cut;             /* the lookahead cut here (ABR only) */
     /* The VBV's hand-off, frozen at dispatch with everything else here
      * and spent at retirement, where the coded size is known and the
      * trace line is written. All three are 0 with the mode off, which is
@@ -1694,7 +1695,7 @@ struct n265_encoder {
     int rc_defer;
     int rc_applied;         /* coding indices below this are applied */
     struct n265_rc_ret {
-        int cls, brk, szk;
+        int cls, brk, szk, cut;
         double cplx, rf_used, bits, planned, ctf, ioff, soff, brk_x;
     } rc_ret[2 * N265_MAX_FRAME_WORK];
     double vbv_fa[2 * N265_MAX_FRAME_WORK];

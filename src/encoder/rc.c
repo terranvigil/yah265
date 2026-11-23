@@ -461,6 +461,11 @@ void n265_rc_open(struct n265_encoder *e)
     rc->op_g = abr_tunable("N265_VBR_OPEN_G", -1.429);
     rc->trace = n265_env("N265_RC_TRACE") != NULL;
     rc->rf = 26.0;
+    /* live control's large step (contract v1.2). N265_LS_VBVUP: a
+     * buffered step up takes it under capped VBR at 1, under CBR too
+     * at 2, never at 0 */
+    rc->ls_on = (int)abr_tunable("N265_LS", 1);
+    rc->ls_vbvup = (int)abr_tunable("N265_LS_VBVUP", 1);
 }
 
 /* the predicted bits x qscale of a frame. The complexity is normalized per
@@ -764,6 +769,208 @@ double n265_vbv_crf_base(struct n265_encoder *e, int cls, double cplx,
     return q;
 }
 
+/* ---- live control's large RATE step (contract v1.2, rule (b)) ----
+ *
+ * The bits-versus-quantizer law the operating point is written in,
+ * bits x qscale constant, holds over a few QP and not over a decade of
+ * rate: 10x fewer bits takes 10-13 QP on the corpus, not the law's 20.
+ * So a large step moves the point by two thirds of the law's answer and
+ * then reads the slope off the coded frames: one group of an anchor and
+ * its B frames before the step against one after, twice at most. */
+
+static int ls_anchor(int cls)
+{
+    return cls == RC_I || cls == RC_P;
+}
+
+static long ls_lo(const n265_rc *rc)
+{
+    return rc->hist_cnt > RC_HIST ? rc->hist_cnt - RC_HIST : 0;
+}
+
+/* mean bits and base of [p, end], intra frames left out */
+static int ls_group(const n265_rc *rc, long p, long end, double *b, double *q)
+{
+    double sb = 0.0, sq = 0.0;
+    int n = 0;
+    for (long i = p; i <= end; i++) {
+        const struct n265_rc_obs *o = &rc->hist[i % RC_HIST];
+        if (o->cls == RC_I)
+            continue;
+        sb += o->bits;
+        sq += o->q;
+        n++;
+    }
+    if (n == 0)
+        return 0;
+    *b = sb / n;
+    *q = sq / n;
+    return 1;
+}
+
+static int ls_cut(const n265_rc *rc, long lo, long hi)
+{
+    for (long i = lo; i <= hi; i++)
+        if (rc->hist[i % RC_HIST].cut)
+            return 1;
+    return 0;
+}
+
+/* the operating point, which the base is solved from, by dq QP */
+static void ls_scale(n265_rc *rc, double dq)
+{
+    double k = exp2(dq / 6.0);
+    rc->cplxr *= k;
+    rc->cplxr_s *= k;
+    rc->ctf_x *= k;
+    rc->ctf_c *= k;
+    rc->copen_bits *= k;
+    rc->copen_x *= k;
+    rc->copen_c *= k;
+}
+
+static void ls_end(n265_rc *rc)
+{
+    int n = (int)lround(rc->fps);
+    rc->ls_mem_n = n < 1 ? 1 : n;
+    rc->ls_mem_end = rc->hist_cnt + 2L * rc->ls_mem_n;
+    rc->ls_state = 2;
+}
+
+double n265_rc_rate_step(struct n265_encoder *e, double r, int take)
+{
+    n265_rc *rc = &e->rc;
+    double law = -6.0 * log2(r);
+    if (!(r < 1.0 / 3.0 || r > 3.0) || !rc->ls_on || !take) {
+        rc->ls_state = 0;
+        return law;
+    }
+    double dq = law / 1.5;
+    ls_scale(rc, dq - law);     /* the new budget already moved it by law */
+    rc->ls_nref = 0;
+    rc->ls_a = 1.5;
+    long land = rc->hist_cnt;
+    int s = e->bframes + 1;
+    if (rc->pend_n > s)
+        s = (int)rc->pend_n;
+    rc->ls_s = s < 40 ? s : 40;
+    double seen = rc->total_bits + rc->pend_bits;
+    rc->ls_bal = rc->bits_per_frame * ((double)rc->n_coded + rc->pend_n) -
+                 seen;
+    rc->ls_pbal = rc->planned_bits - seen;
+    /* group A: the last whole one ending s frames or more before */
+    long pa = -1, ea = -1, prev = -1;
+    for (long i = ls_lo(rc); i < land; i++) {
+        if (!ls_anchor(rc->hist[i % RC_HIST].cls))
+            continue;
+        if (prev >= 0 && i - 1 <= land - 1 - rc->ls_s) {
+            pa = prev;
+            ea = i - 1;
+        }
+        prev = i;
+    }
+    rc->ls_state = 1;
+    if (pa < 0 || !ls_group(rc, pa, ea, &rc->ls_ba, &rc->ls_qa))
+        ls_end(rc);
+    rc->ls_astart = pa;
+    rc->ls_bmin = land + rc->ls_s;
+    if (rc->trace)
+        fprintf(stderr, "RC step r=%.4g move=%+.3f s=%d A=[%ld,%ld] b=%.0f "
+                "q=%.3f\n", r, dq, rc->ls_s, pa, ea, rc->ls_ba, rc->ls_qa);
+    return dq;
+}
+
+/* at an anchor's decision: refit once all of group B is counted */
+static void ls_poll(struct n265_encoder *e)
+{
+    n265_rc *rc = &e->rc;
+    long R = rc->hist_cnt;
+    long p = -1, n = -1;
+    for (long i = rc->ls_bmin > ls_lo(rc) ? rc->ls_bmin : ls_lo(rc); i < R;
+         i++) {
+        if (!ls_anchor(rc->hist[i % RC_HIST].cls))
+            continue;
+        if (p < 0) {
+            p = i;
+        } else {
+            n = i;
+            break;
+        }
+    }
+    if (p < 0)
+        return;
+    if (n < 0) {
+        if (rc->pend_n > 0)     /* this anchor is not the next frame */
+            return;
+        n = R;
+    }
+    double bb, qb;
+    if (rc->ls_astart < ls_lo(rc) || !ls_group(rc, p, n - 1, &bb, &qb) ||
+        ls_cut(rc, rc->ls_astart, n - 1)) {
+        ls_end(rc);
+        return;
+    }
+    double dqq = qb - rc->ls_qa;
+    if (fabs(dqq) >= 3.0)
+        rc->ls_a = -6.0 * log2(bb / rc->ls_ba) / dqq;
+    rc->ls_a = rc->ls_a < 1.0 ? 1.0 : rc->ls_a > 3.0 ? 3.0 : rc->ls_a;
+    double dq = 6.0 / rc->ls_a * log2(bb / rc->bits_per_frame);
+    ls_scale(rc, dq);
+    if (!rc->fbstep)
+        rc->rf += dq;
+    /* the carried balance back to what the landing left */
+    rc->total_bits = rc->bits_per_frame *
+                         ((double)rc->n_coded + rc->pend_n) -
+                     rc->pend_bits - rc->ls_bal;
+    rc->planned_bits = rc->total_bits + rc->pend_bits + rc->ls_pbal;
+    if (rc->trace)
+        fprintf(stderr, "RC refit %d B=[%ld,%ld] b=%.0f q=%.3f a=%.3f "
+                "move=%+.3f\n", rc->ls_nref + 1, p, n - 1, bb, qb, rc->ls_a,
+                dq);
+    if (++rc->ls_nref == 2) {
+        ls_end(rc);
+        return;
+    }
+    rc->ls_astart = p;
+    rc->ls_qa = qb;
+    rc->ls_ba = bb;
+    rc->ls_bmin = R + rc->pend_n + rc->ls_s;
+}
+
+void n265_rc_note(struct n265_encoder *e, int cls, double rf_used,
+                  double ctf, double bits, int cut)
+{
+    n265_rc *rc = &e->rc;
+    struct n265_rc_obs *o = &rc->hist[rc->hist_cnt % RC_HIST];
+    o->cls = cls;
+    o->cut = cut;
+    o->q = rf_used - (rc->ctkeep ? ctf : 0.0);
+    o->bits = bits;
+    rc->hist_cnt++;
+    if (rc->ls_state != 2)
+        return;
+    if (rc->hist_cnt > rc->ls_mem_end) {
+        rc->ls_state = 0;
+        return;
+    }
+    /* short memory: the long means and the balance follow the last second */
+    double m = (double)rc->ls_mem_n;
+    if (rc->cplxr_n > m)
+        rc->cplxr_n = m;
+    if (rc->cplxr_sn > m)
+        rc->cplxr_sn = m;
+    if (rc->ctf_n > m)
+        rc->ctf_n = m;
+    if (rc->w_n > m)
+        rc->w_n = m;
+    double k = 1.0 - exp(-1.0 / m);
+    double seen = rc->total_bits + rc->pend_bits;
+    double owed = rc->bits_per_frame * ((double)rc->n_coded + rc->pend_n);
+    double pbal = rc->planned_bits - seen;
+    rc->total_bits += (owed - seen) * k;
+    rc->planned_bits = rc->total_bits + rc->pend_bits + pbal * (1.0 - k);
+}
+
 double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
 {
     n265_rc *rc = &e->rc;
@@ -898,6 +1105,8 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
             fprintf(stderr, "RC open window=%d bpf=%.0f rf0=%.3f\n",
                     n, rc->bits_per_frame, rc->rf);
     }
+    if (rc->ls_state == 1 && (cls == RC_I || cls == RC_P))
+        ls_poll(e);
 
     /* the term's measured LEVEL, in QP: `-6 log2` of the file-weighted mean of
      * `2^(-term/6)` (rc.h). Nothing in the shipped path rides on it - the
