@@ -31,7 +31,7 @@ yah265's lead is widest in plain C and [narrowest with SIMD on](#what-simd-buys)
 | NEON (arm64) | Apple M5 Max, Graviton4, Graviton3 | all-core SIMD speed on all three | checkasm, C-path comparison, conformance |
 | SVE2, 128-bit (arm64) | Graviton4 | the whole test set | checkasm, streams identical to the Mac's |
 | SVE, 256-bit (arm64) | Graviton3 | short clips only | timed streams identical to the Mac's |
-| AVX-512 (x86-64) | Xeon 8488C | the whole test set | checkasm at all three x86 tiers |
+| AVX-512 (x86-64) | Xeon 8488C | the whole test set | checkasm at all three x86 tiers, on the Xeon and under Intel's SDE emulator in CI; C-path comparison |
 | AVX2 (x86-64) | Xeon 8488C | short clips | checkasm, C-path comparison at 8 and 10 bits |
 | SSE4.2 (x86-64) | Xeon 8488C, Rosetta, QEMU's Nehalem model | short clips | checkasm in all three places, C-path comparison, fast conformance |
 
@@ -46,7 +46,7 @@ Eight kernel families have NEON, AVX2 and SSE4.2 versions. A kernel ships at the
 | tier | kernel families |
 |---|---|
 | NEON, AVX2, SSE4.2 | the block-difference metrics, the transforms with the quantizer, intra prediction, coefficient costing, RDOQ, motion compensation, deblocking, SAO |
-| AVX-512 | the block-difference metrics, the transforms |
+| AVX-512 | the block-difference metrics, the transforms with the quantizer, RDOQ, intra prediction |
 | SVE | the block-difference metrics, one interpolation pass |
 
 On an AVX-512 CPU the other families run their AVX2 kernels.
