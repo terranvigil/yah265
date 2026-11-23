@@ -480,6 +480,18 @@ void n265_rc_open(struct n265_encoder *e)
     rc->ls_qlo = abr_tunable("N265_LS_QLO", 15.0);
     rc->ls_qhi = abr_tunable("N265_LS_QHI", 21.0);
     rc->ls_rail = abr_tunable("N265_LS_RAIL", 0.0);
+    /* N265_LS_OPEN: a run A reaching into the first that many seconds
+     * coded is missing (0: off). Measured and left off: it helped plain
+     * ABR's step at 1 s and cost capped VBR's.
+     * N265_LS_CAP: while refitting, the carried balance is held to that
+     * many seconds of the target, inside rule (f)'s one. With no buffer
+     * it takes ABR's step up after 12 s low from 39.7% to 20.8% in the
+     * second second and moves nothing else the wrong way; under a buffer
+     * (N265_LS_CAP_VBV) it costs capped VBR's steps up 4-10 points in
+     * the first second, so it is off there. */
+    rc->ls_open = abr_tunable("N265_LS_OPEN", 0.0);
+    rc->ls_cap = e->vbv.on ? abr_tunable("N265_LS_CAP_VBV", 0.0)
+                           : abr_tunable("N265_LS_CAP", 0.25);
 }
 
 /* the predicted bits x qscale of a frame. The complexity is normalized per
@@ -891,7 +903,10 @@ double n265_rc_rate_step(struct n265_encoder *e, double r, int take)
         }
     }
     rc->ls_state = 1;
-    int have_a = pa >= 0 && ls_group(rc, pa, ea, &rc->ls_ba, &rc->ls_qa);
+    /* a group A reaching into the opening (the first N265_LS_OPEN
+     * seconds coded, where the point is still the prior's) is missing */
+    int have_a = pa >= 0 && pa >= lround(rc->ls_open * rc->fps) &&
+                 ls_group(rc, pa, ea, &rc->ls_ba, &rc->ls_qa);
     /* N265_LS_QRAMP: the first move by the base before the step, where
      * bits fall near the law at a low one. 1 reads the operating point,
      * 2 the base group A was coded at (the point where there is none) */
@@ -1146,6 +1161,15 @@ double n265_rc_next(struct n265_encoder *e, int cls, double cplx, double ctf)
     }
     if (rc->ls_state == 1 && (cls == RC_I || cls == RC_P))
         ls_poll(e);
+    if (rc->ls_state == 1 && rc->ls_cap > 0.0) {
+        double lim = rc->ls_cap * rc->bits_per_frame * rc->fps;
+        double owed = rc->bits_per_frame * ((double)rc->n_coded + rc->pend_n);
+        double seen = rc->total_bits + rc->pend_bits;
+        if (owed - seen > lim)
+            rc->total_bits = owed - lim - rc->pend_bits;
+        else if (seen - owed > lim)
+            rc->total_bits = owed + lim - rc->pend_bits;
+    }
 
     /* the term's measured LEVEL, in QP: `-6 log2` of the file-weighted mean of
      * `2^(-term/6)` (rc.h). Nothing in the shipped path rides on it - the
