@@ -696,12 +696,24 @@ def do_time(args):
     # the spec's feeder rule decides whether a cell is timed at all: a
     # cell whose feeder is under FEED_MARGIN x the faster arm's fps in an
     # earlier block is not timed again (its ratio would be void)
-    prior = {}
+    # a tier M title is bare and names a cell at 1080p and at 2160p, and
+    # the runs file has no class: a run counts for a cell only when its
+    # bytes are within 10% of that cell's solved point, or the 1080p walls
+    # bar the 2160p cell
+    prior_runs = []
     for r in read_csv(RUNS_PATH):
         w = fnum(r["wall_s"])
         if w and r["md5"] != "FAILED":
-            k = (r["tier"], r["title"], r["goal"])
-            prior[k] = min(prior.get(k, w), w)
+            prior_runs.append(((r["tier"], r["title"], r["goal"]),
+                               fnum(r["bytes"]), w))
+
+    def prior_wall(c, g):
+        pt = pts.get(f"{key_of(c)}/{'ft1' if g == 1 else 'def'}", {})
+        near = [x for x in (pt.get("ours_bytes"), pt.get("ref_bytes")) if x]
+        ws = [w for k, b, w in prior_runs if k == (c[0], c[2], f"G{g}")
+              and (not near or (b and any(abs(b / x - 1) < 0.10
+                                          for x in near)))]
+        return min(ws) if ws else None
 
     all_cells = cells
     for g in goals:
@@ -717,7 +729,7 @@ def do_time(args):
         fails = {key_of(c): [] for c in cells}
         bound = {}                       # cell -> the fps that voided it
         for c in cells:
-            pw = prior.get((c[0], c[2], f"G{g}"))
+            pw = prior_wall(c, g)
             fr = y4m_info(src_of(c))[3]
             if pw and feed[key_of(c)] < FEED_MARGIN * fr / pw:
                 bound[key_of(c)] = fr / pw
