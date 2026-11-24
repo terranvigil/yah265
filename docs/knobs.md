@@ -96,7 +96,7 @@ In the default column, "presence" means the reader is a boolean: unset is off an
 | `N265_FGC_RATIO` | 2.0 | src/encoder/grain.c:166 |
 | `N265_FLAT_GATE` | 10 | src/encoder/la.c:140 |
 | `N265_GATE_SCALE` | 100 | src/encoder/ctu.c:2298 |
-| `N265_HDR_FULL` | 1 on PQ and HLG at medium | src/encoder/preset.c:1202 |
+| `N265_HDR_FULL` | 1 on PQ and HLG at medium | src/encoder/preset.c:1208 |
 | `N265_HD_QP` | 27 | src/encoder/encoder.c:5817 |
 | `N265_HF2` | 3 | src/encoder/encoder.c:4435 |
 | `N265_HF2_TPP` | 150 | src/encoder/encoder.c:4463 |
@@ -182,7 +182,7 @@ In the default column, "presence" means the reader is a boolean: unset is off an
 | `N265_TREE_RAMP` | 4.0 | src/encoder/encoder.c:2568 |
 | `N265_TREE_SLOTS` | K - 6 (with the switched HD or UHD tree only) | src/encoder/encoder.c:3462 |
 | `N265_TT_SKIP_INTER` | 0 | src/encoder/ctu.c:2222 |
-| `N265_UHD_CVBR` | 1 under capped VBR at UHD at medium | src/encoder/preset.c:1215 |
+| `N265_UHD_CVBR` | 1 under capped VBR at UHD at medium | src/encoder/preset.c:1221 |
 | `N265_UHD_QP` | 29 | src/encoder/encoder.c:5797 |
 | `N265_VBR_CMEM` | 1 | src/encoder/rc.c:341 |
 | `N265_VBR_CTKEEP` | 1 under capped VBR, else 0 | src/encoder/rc.c:256 |
@@ -228,7 +228,7 @@ In the default column, "presence" means the reader is a boolean: unset is off an
 | `N265_VBV_RESERVE` | 0.2 | src/encoder/encoder.c:2989 |
 | `N265_VBV_SAFE` | 0.85 | src/encoder/encoder.c:2975 |
 | `N265_WP_GAIN` | 4 | src/encoder/wp.c:78 |
-| `N265_WP_REFS` | 5 | src/encoder/wp.c:117 |
+| `N265_WP_REFS` | 5 | src/encoder/wp.c:143 |
 | `N265_WP_WIN` | 40 | src/encoder/wp.c:101 |
 
 ## instrument (56)
@@ -292,7 +292,7 @@ In the default column, "presence" means the reader is a boolean: unset is off an
 | `N265_VMAF_THREADS` | = --threads | cli/y265.c:2812 |
 | `N265_WP_TRACE` | 0 | src/encoder/wp.c:51 |
 
-## arm (176)
+## arm (177)
 
 | knob | default | reader |
 |---|---|---|
@@ -443,7 +443,7 @@ In the default column, "presence" means the reader is a boolean: unset is off an
 | `N265_TD_DIST` | 0 | src/encoder/ctu.c:998 |
 | `N265_TT_SKIP_INTRA` | 0 | src/encoder/ctu.c:2232 |
 | `N265_TT_SKIP_QP` | 0 | src/encoder/ctu.c:2244 |
-| `N265_UHD_REF2` | ? | src/encoder/preset.c:1431 |
+| `N265_UHD_REF2` | ? | src/encoder/preset.c:1437 |
 | `N265_VBR_DEFPT_SPEND` | 0.0 | src/encoder/rc.c:303 |
 | `N265_VBR_LAG_GFLOOR` | 0.0 | src/encoder/encoder.c:3488 |
 | `N265_VBR_LAG_GRAW` | 0 | src/encoder/encoder.c:3490 |
@@ -472,3 +472,4 @@ In the default column, "presence" means the reader is a boolean: unset is off an
 | `N265_VBV_SCPRED` | 0.5 under --bitrate, else 1.0 | src/encoder/rc.c:422 |
 | `N265_WEIGHTB` | 0 | src/encoder/encoder.c:2899 |
 | `N265_WEIGHTP` | 0 | src/encoder/encoder.c:2897 |
+| `N265_WP_TIES` | 0 | src/encoder/wp.c:117 |

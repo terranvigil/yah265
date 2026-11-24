@@ -106,6 +106,32 @@ static int wp_block_win(void)
     return v;
 }
 
+/* N265_WP_TIES: a luma map whose fixed point is at or under this level
+ * (8-bit) is a fade to or from black, and the black it leaves as it was
+ * is no evidence either way: those blocks stay out of the block test. On
+ * a credits card that black is most of the picture. 0 is off. */
+static int wp_ties(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = n265_env("N265_WP_TIES");
+        v = s ? atoi(s) : 0;
+        if (v < 0) v = 0;
+        if (v > 255) v = 255;
+    }
+    return v;
+}
+
+/* 1 when the map w / 2^d, o holds a level at or under N265_WP_TIES */
+static int black_anchored(int w, int d, int o)
+{
+    int one = 1 << d;
+    if (!wp_ties() || w == one)
+        return 0;
+    double x = (double)o / (1.0 - (double)w / one);
+    return x >= 0.0 && x <= wp_ties();
+}
+
 /* How many references per list the estimator looks at. The table can
  * carry a weight for every one, but the second and third references of a
  * list are a second and third analysis for a picture the search rarely
@@ -411,9 +437,9 @@ static void sad_sweep(n265_encoder *e, const pixel *cur, const pixel *ref,
  * One extra pass over the two planes, after the offset sweep has chosen
  * its candidate, and only on a map that has already passed the total. */
 static int block_win_pct(const pixel *cur, const pixel *ref, int lw, int lh,
-                         int w, int d, int o)
+                         int w, int d, int o, int drop_ties, int *all_pct)
 {
-    int nb = 0, win = 0;
+    int nb = 0, win = 0, ties = 0;
     for (int by = 0; by + 8 <= lh; by += 8)
         for (int bx = 0; bx + 8 <= lw; bx += 8) {
             uint32_t su = 0, sw = 0;
@@ -430,8 +456,14 @@ static int block_win_pct(const pixel *cur, const pixel *ref, int lw, int lh,
             nb++;
             if (sw < su)
                 win++;
+            else if (sw == su)
+                ties++;
         }
-    return nb ? (int)((100L * win) / nb) : 100;
+    int all = nb ? (int)((100L * win) / nb) : 100;
+    int moved = nb > ties ? (int)((100L * win) / (nb - ties)) : 0;
+    if (all_pct)
+        *all_pct = all;
+    return drop_ties ? moved : all;
 }
 
 /* One (component, reference) candidate, before the denominator is
@@ -560,11 +592,12 @@ void n265_wp_analyse(n265_encoder *e, n265_frame_work *fw)
                     continue;
                 if (ss.w[k] < bs) { bs = ss.w[k]; bk = k; }
             }
-            int fired = 0, bwin = -1;
+            int fired = 0, bwin = -1, balt = -1;
             if (bk >= 0 && bs + (ss.un >> wp_gain_shift()) < ss.un) {
                 int o = (int)ol + bk - 2;
                 bwin = block_win_pct(e->wp_cur[0], rp->wp_low[0],
-                                     e->la.lw, e->la.lh, w, ld, o);
+                                     e->la.lw, e->la.lh, w, ld, o,
+                                     black_anchored(w, ld, o), &balt);
                 if (bwin >= wp_block_win() && (w != (1 << ld) || o != 0)) {
                     wp->on[0] = 1;
                     wp->w[0] = w;
@@ -575,14 +608,16 @@ void n265_wp_analyse(n265_encoder *e, n265_frame_work *fw)
             }
             if (n265_wp_trace())
                 fprintf(stderr,
-                        "WP poc=%d %s l%d r%d(poc=%d) sc=%.3f luma scale=%.4f off=%.2f"
-                        " -> w=%d/%d o=%d sad %llu -> %llu win %d%%  %s\n",
-                        fw->poc, fw->slice_type == 0 ? "B" : "P", l, r,
+                        "WP poc=%d d=%d %s l%d r%d(poc=%d) sc=%.3f luma scale=%.4f off=%.2f"
+                        " -> w=%d/%d o=%d sad %llu -> %llu win %d%% (all blocks %d%%)  %s%s\n",
+                        fw->poc, fw->display_idx, fw->slice_type == 0 ? "B" : "P", l, r,
                         rp->poc, (double)fw->sc_ratio,
                         cl[l][r].scale, cl[l][r].off, (int)w,
                         1 << ld, (int)(bk >= 0 ? ol + bk - 2 : ol),
                         (unsigned long long)ss.un, (unsigned long long)bs,
-                        bwin, fired ? "FIRE" : "-");
+                        bwin, balt, fired ? "FIRE" : "-",
+                        bwin >= 0 && (bwin >= wp_block_win()) !=
+                        (balt >= wp_block_win()) ? " FADE" : "");
 
             /* chroma. ONE flag covers Cb and Cr (7.3.6.3), so the two
              * are decided together on the sum of their SADs; signaling
@@ -625,9 +660,11 @@ void n265_wp_analyse(n265_encoder *e, n265_frame_work *fw)
             int cwin = -1;
             if (cwd + (cun >> wp_gain_shift()) < cun) {
                 int n0 = block_win_pct(e->wp_cur[1], rp->wp_low[1],
-                                       e->wp_cw, e->wp_ch, cw[0], cd, co[0]);
+                                       e->wp_cw, e->wp_ch, cw[0], cd, co[0],
+                                       0, NULL);
                 int n1 = block_win_pct(e->wp_cur[2], rp->wp_low[2],
-                                       e->wp_cw, e->wp_ch, cw[1], cd, co[1]);
+                                       e->wp_cw, e->wp_ch, cw[1], cd, co[1],
+                                       0, NULL);
                 cwin = (n0 + n1) / 2;
             }
             if (cwin >= wp_block_win() &&
@@ -655,5 +692,6 @@ void n265_wp_warm(void)
 {
     (void)wp_gain_shift();
     (void)wp_block_win();
+    (void)wp_ties();
     (void)wp_max_refs();
 }

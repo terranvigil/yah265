@@ -311,6 +311,12 @@ static const struct kv med_tab[] = {
      * backwards. The compiled-in default is 0, so fast and faster are
      * untouched and `--no-weightp` is the escape. */
     { "N265_WEIGHTP",    "1" },
+    /* fades to and from black: a luma map that holds black (fixed point at
+     * level 24 or under) is judged only on the blocks it changes, so the
+     * black around a credits card no longer refuses it. stem2's credits
+     * +43.0% -> -37.5% BD-v1 against x265; tier M and tier D don't move.
+     * `N265_WP_TIES=0` is the escape. */
+    { "N265_WP_TIES",    "24" },
     /* phase 14 item 30: the 2Nx2N merge pick prices the index it will
      * write, as the PU search already does. At a high QP most CUs are
      * skips and the index is most of what a skip costs: on the Meridian
