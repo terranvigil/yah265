@@ -8,8 +8,8 @@
 - x86-64: Intel Xeon Platinum 8488C (Sapphire Rapids) on EC2 m7i and c7i spot, AVX-512 over AVX2.
 - Graviton4: Neoverse V2 on EC2 c8g and r8g spot, NEON and SVE2 at 128 bits.
 - Graviton3: Neoverse V1 on c7g.4xlarge, SVE at 256 bits. A second line, tier S G3 only.
-- Measured: Mac timed legs 2026-09-26 20:02 to 2026-11-12 14:07. Tier C on the Mac 2026-11-13 23:24 to 2026-11-14 03:17 EST, on a9b880c8. Items 61 and 62 re-measured four tier C clips on 2026-11-14, on their own binaries. Cloud 2026-11-12 23:10 to 2026-11-14 04:00 UTC. The capped SSE4.2 and AVX2 run on the x86 box 2026-11-15 20:27 to 20:52 UTC, on main d771c4a.
-- Sources: the three reports PARITY-REPORT-yah265-2026-11-12, PARITY-REPORT-yah265-x86-2026-11-13 and PARITY-REPORT-yah265-graviton-2026-11-13 with their CSVs. The cloud records are in docs/data/cloud-tables-2026-11-13/.
+- Measured: Mac timed legs 2026-09-26 20:02 to 2026-11-12 14:07. Tier C on the Mac 2026-11-13 23:24 to 2026-11-14 03:17 EST, on a9b880c8. Items 61 and 62 re-measured four tier C clips on 2026-11-14, on their own binaries. Cloud 2026-11-12 23:10 to 2026-11-14 04:00 UTC. The capped SSE4.2 and AVX2 run on the x86 box 2026-11-15 20:27 to 20:52 UTC, on main d771c4a. The four meridian cells on the Mac 2026-11-24 22:11 to 22:35 EST, on main 61f4eab9.
+- Sources: the three reports PARITY-REPORT-yah265-2026-11-24 (the Mac, with the meridian cells; 2026-11-12 before it), PARITY-REPORT-yah265-x86-2026-11-13 and PARITY-REPORT-yah265-graviton-2026-11-13 with their CSVs. The cloud records are in docs/data/cloud-tables-2026-11-13/.
 
 The new measurements on this page are tier C, on the Mac, and the four clips items 61 and 62 moved. Their points, ladders and timed rows are in docs/data/parity-spec-points.json, parity-spec-ladders.json and parity-spec.csv.
 
@@ -59,7 +59,7 @@ The tightest timed cell anywhere is the Mac's meridian_1080p tier L VBR wall at 
 | 720p | L | 0.24 / 0.31 | 0.27 / 0.29 | 0.25 / 0.28 | 7 / 7 / 7 |
 | 1080p | S | 0.30 / 0.34 | 0.38 / 0.43 | 0.42 / 0.46 | 3 / 3 / 3 |
 | 1080p | M | 0.33 / 0.37 | 0.39 / 0.45 | 0.42 / 0.48 | 3 / 3 / 3 |
-| 1080p | L | 0.30 / 0.31 | 0.36 / 0.39 | 0.38 / 0.41 | 6 / 7 / 7 |
+| 1080p | L | 0.30 / 0.31 | 0.36 / 0.39 | 0.38 / 0.41 | 7 / 7 / 7 |
 | 2160p | S | 0.32 / 0.35 | 0.21 / 0.21 | 0.21 / 0.23 | 2 / 2 / 2 |
 | 2160p | M | 0.32 / 0.39 | 0.27 / 0.39 | 0.29 / 0.45 | 3 / 3 / 3 |
 | 2160p | L | 0.35 / 0.38 | 0.31 / 0.33 | 0.33 / 0.36 | 6 / 6 / 6 |
@@ -71,12 +71,12 @@ On x86 ours dispatches AVX-512 for the satd and transform families and AVX2 for 
 |---|---|---|---|---|---|---|---|
 | CIF | S | 0.51 / 0.57 | 0.70 / 0.82 | 0.70 / 0.84 | 0.55 / 0.66 | 0.53 / 0.60 (2 of 3) | 3 / 3 / 3 |
 | 720p | S | 0.62 / 0.65 | 0.60 / 0.75 | 0.62 / 0.77 | 0.48 / 0.57 | 0.45 / 0.54 | 4 / 4 / 4 |
-| 720p | L | 0.47 / 0.56 | 0.53 / 0.56 | 0.54 / 0.57 | 0.42 / 0.46 | - | 6 / 7 / 7 |
+| 720p | L | 0.47 / 0.56 | 0.53 / 0.56 | 0.54 / 0.57 | 0.42 / 0.46 | - | 7 / 7 / 7 |
 | 1080p | S | 0.52 / 0.56 | 0.74 / 0.80 | 0.77 / 0.83 | 0.68 / 0.71 | 0.62 / 0.66 | 3 / 3 / 3 |
 | 1080p | M | 0.59 / 0.66 | 0.74 / 0.80 | 0.75 / 0.82 | 0.64 / 0.72 | - | 3 / 3 / 3 |
-| 1080p | L | 0.57 / 0.59 | 0.68 / 0.71 | 0.70 / 0.73 | 0.59 / 0.64 | - | 6 / 7 / 7 |
+| 1080p | L | 0.56 / 0.59 | 0.68 / 0.71 | 0.70 / 0.73 | 0.59 / 0.64 | - | 7 / 7 / 7 |
 | 2160p | S | 0.62 / 0.63 | 0.41 / 0.43 | 0.41 / 0.44 | 0.31 / 0.33 | 0.31 / 0.34 | 2 / 2 / 2 |
-| 2160p | M | 0.56 / 0.60 | 0.53 / 0.67 | 0.54 / 0.69 | 0.47 / 0.63 | - | 2 / 3 / 3 |
+| 2160p | M | 0.53 / 0.60 | 0.53 / 0.67 | 0.54 / 0.69 | 0.47 / 0.63 | - | 3 / 3 / 3 |
 | 2160p | L | 0.58 / 0.66 | 0.59 / 0.62 | 0.60 / 0.63 | 0.49 / 0.54 | - | 6 / 6 / 6 |
 | 720p | C | 0.47 / 0.47 | - | - | - | - | 1 / - / - (not gating) |
 | 1080p | C | 0.53 / 0.54 | - | - | - | - | 7 / - / - (not gating; 4 timed on a9b880c8 before items 61 and 62) |
@@ -192,13 +192,13 @@ The bar is absolute and applies to ours. x265 misses it on chimera at both sizes
 
 ## Caveats
 **Mac**
-- Four Mac cells are void because the feeder couldn't keep 1.5x ahead: meridian_2160p tier M G3, meridian_720p tier L G3, and meridian_1080p tier L G2 and G3. The medians leave them out. That's why 2160p-M G3 counts 2 of 3 cells on the Mac. 720p-L G3, 1080p-L G2 and 1080p-L G3 count 6 of 7. All four pass on the cloud boxes, whose feeders kept up.
+- Four Mac cells were void at first because the feeder couldn't keep 1.5x ahead: meridian_2160p tier M G3, meridian_720p tier L G3, and meridian_1080p tier L G2 and G3. They were timed again on 2026-11-24 on main 61f4eab9, with the tier L sources staged on the internal disk. They read 0.30, 0.40, 0.18 and 0.37, all valid, and the medians now count them.
 - Many Mac rows come from older binaries. Tier L's G1 and G2 windows, eleven tier L G3 cells and fifteen VBR walls ran on 12de49f2 (a74e541). That binary predates the deblock and SAO SIMD. Since that SIMD made the encoder about 0.3% faster, those ratios are slightly conservative. The ladders came from 12de49f2 and a759f17f. Each carried row names its source binary in docs/data. Identity cmps showed the streams byte-identical before any row was carried.
 - Those eleven tier L G3 cells keep the crf solved on an older binary still, 4d51b17 (061abf3). Their timed encodes held the 1% size match.
 - On 2026-11-12 the Mac's rows were carried again, from ab8a99eb to a9b880c8 (main 504fdda). identity_ab read 28 of 28 SAME. Six whole cells matched as well, across CRF, capped CRF and VBR.
 - On 2026-11-14 they were carried once more, from a9b880c8 to 3ee7824e (main d771c4a), leaving out the four clips items 61 and 62 moved. Those four came over from the items' own binaries. Before the carry, a bitstream cmp of the two release builds read SAME on three tier S clips at one thread, on chimera_1080p's tier M G1 window at its crf, and on a capped-VBR skater227 rung. One rung of each moved clip, re-encoded on that build, matched its recorded md5. The rows went first to 7eea345a, a worktree build of the same source without NDEBUG, then to 3ee7824e, main's release build with NDEBUG as a9b880c8 had it. The two write the same streams (foreman_cif, wikipedia and worldcup_far checked).
 - The Mac read tier M G1 and G2 on the whole segment. That predates the rule for 30 s windows.
-- Tier L G1 and G2 come from one run each on every machine. The Mac's only single-run G3 rows are two of the void meridian cells.
+- Tier L G1 and G2 come from one run each on every machine.
 - The credits rows for stem2 and bbb are still pending. On tears' credits we're behind, at +5.9% size at equal PSNR-Y (extrapolated). Credits are supplementary and don't gate.
 - End credits can type as screen content under item 61. A first form of its detector read bbb's credit roll at up to 22% of tested blocks, against a 3% threshold. The credits rows above predate item 61, so the next credits run may move.
 
