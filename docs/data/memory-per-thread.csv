@@ -1,0 +1,45 @@
+date,commit,machine,class,size,mode,rate_args,preset,threads,frames,peak_rss_mib,peak_footprint_mib,wall_s,bytes,source
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,720p,1280x720,crf,--crf 26,medium,1,240,165,160,38.13,122698,meridian_720p_90s.y4m --seek 1782
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,720p,1280x720,crf,--crf 26,medium,2,240,240,235,40.45,122698,meridian_720p_90s.y4m --seek 1782
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,720p,1280x720,crf,--crf 26,medium,4,240,243,238,39.34,122698,meridian_720p_90s.y4m --seek 1782
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,720p,1280x720,crf,--crf 26,medium,8,240,246,241,46.29,122698,meridian_720p_90s.y4m --seek 1782
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,720p,1280x720,crf,--crf 26,medium,12,240,249,244,42.78,122698,meridian_720p_90s.y4m --seek 1782
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,1080p,1920x1080,crf,--crf 26,medium,1,240,460,455,5.28,222652,meridian_1080p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,1080p,1920x1080,crf,--crf 26,medium,2,240,560,555,2.66,222652,meridian_1080p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,1080p,1920x1080,crf,--crf 26,medium,4,240,567,562,2.14,222652,meridian_1080p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,1080p,1920x1080,crf,--crf 26,medium,8,240,572,567,1.37,222652,meridian_1080p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,1080p,1920x1080,crf,--crf 26,medium,12,240,564,559,1.35,222652,meridian_1080p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,2160p,3840x2160,crf,--crf 26,medium,1,240,1324,1320,23.85,655375,meridian_2160p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,2160p,3840x2160,crf,--crf 26,medium,2,240,1827,1823,9.58,655375,meridian_2160p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,2160p,3840x2160,crf,--crf 26,medium,4,240,1840,1836,9.35,655375,meridian_2160p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,2160p,3840x2160,crf,--crf 26,medium,8,240,1842,1838,6.01,655375,meridian_2160p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,2160p,3840x2160,crf,--crf 26,medium,12,240,1831,1828,5.08,655375,meridian_2160p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,1080p,1920x1080,vbr,--bitrate 3000 --vbv-maxrate 4500 --vbv-bufsize 6000,medium,1,240,390,386,19.50,1450590,meridian_1080p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,1080p,1920x1080,vbr,--bitrate 3000 --vbv-maxrate 4500 --vbv-bufsize 6000,medium,2,240,551,547,12.69,1443543,meridian_1080p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,1080p,1920x1080,vbr,--bitrate 3000 --vbv-maxrate 4500 --vbv-bufsize 6000,medium,4,240,562,558,8.76,1443543,meridian_1080p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,1080p,1920x1080,vbr,--bitrate 3000 --vbv-maxrate 4500 --vbv-bufsize 6000,medium,8,240,564,559,3.43,1443543,meridian_1080p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,1080p,1920x1080,vbr,--bitrate 3000 --vbv-maxrate 4500 --vbv-bufsize 6000,medium,12,240,565,560,3.03,1443543,meridian_1080p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,720p,1280x720,crf,--crf 26,medium,1,900,170,165,32.68,365865,meridian_720p_90s.y4m --seek 1782
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,720p,1280x720,crf,--crf 26,medium,2,900,257,252,46.61,365865,meridian_720p_90s.y4m --seek 1782
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,720p,1280x720,crf,--crf 26,medium,4,900,254,250,36.70,365865,meridian_720p_90s.y4m --seek 1782
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,720p,1280x720,crf,--crf 26,medium,8,900,257,253,17.69,365865,meridian_720p_90s.y4m --seek 1782
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,720p,1280x720,crf,--crf 26,medium,12,900,259,254,42.81,365865,meridian_720p_90s.y4m --seek 1782
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,1080p,1920x1080,crf,--crf 26,medium,1,900,484,479,20.81,679424,meridian_1080p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,1080p,1920x1080,crf,--crf 26,medium,2,900,601,597,8.65,679424,meridian_1080p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,1080p,1920x1080,crf,--crf 26,medium,4,900,610,605,6.12,679424,meridian_1080p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,1080p,1920x1080,crf,--crf 26,medium,8,900,614,609,6.47,679424,meridian_1080p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,1080p,1920x1080,crf,--crf 26,medium,12,900,612,607,3.70,679424,meridian_1080p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,2160p,3840x2160,crf,--crf 26,medium,1,900,1413,1409,84.42,2078169,meridian_2160p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,2160p,3840x2160,crf,--crf 26,medium,2,900,1991,1987,36.30,2078169,meridian_2160p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,2160p,3840x2160,crf,--crf 26,medium,4,900,1999,1995,21.64,2078169,meridian_2160p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,2160p,3840x2160,crf,--crf 26,medium,8,900,2005,2001,21.72,2078169,meridian_2160p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,2160p,3840x2160,crf,--crf 26,medium,12,900,2002,1999,15.15,2078169,meridian_2160p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,1080p,1920x1080,vbr,--bitrate 3000 --vbv-maxrate 4500 --vbv-bufsize 6000,medium,1,900,424,419,49.93,5352590,meridian_1080p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,1080p,1920x1080,vbr,--bitrate 3000 --vbv-maxrate 4500 --vbv-bufsize 6000,medium,2,900,587,582,27.84,5351420,meridian_1080p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,1080p,1920x1080,vbr,--bitrate 3000 --vbv-maxrate 4500 --vbv-bufsize 6000,medium,4,900,594,589,17.04,5351420,meridian_1080p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,1080p,1920x1080,vbr,--bitrate 3000 --vbv-maxrate 4500 --vbv-bufsize 6000,medium,8,900,600,596,13.82,5351420,meridian_1080p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,1080p,1920x1080,vbr,--bitrate 3000 --vbv-maxrate 4500 --vbv-bufsize 6000,medium,12,900,602,597,8.71,5351420,meridian_1080p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,1080p,1920x1080,crf,--crf 26,medium,8,1800,644,,7.78,,meridian_1080p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,2160p,3840x2160,crf,--crf 26,medium,8,1800,2035,,29.59,,meridian_2160p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,1080p,1920x1080,crf,--crf 26,medium,8,3553,661,,13.91,,meridian_1080p_90s_from1782.y4m
+2026-11-24,721b7c5,Apple M5 Max 18-core 64 GB,2160p,3840x2160,crf,--crf 26,medium,8,3553,2083,,59.19,,meridian_2160p_90s_from1782.y4m
