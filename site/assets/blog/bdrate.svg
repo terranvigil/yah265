@@ -16,7 +16,7 @@ text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-
 </style>
 <rect width='100%' height='100%' class='bg'/>
 <text x='24.0' y='40.0' font-size='22' class='t1' text-anchor='start' font-weight='600'>A median 10.2% fewer bits for the same quality</text>
-<text x='24.0' y='64.0' font-size='14' class='t2' text-anchor='start'>BD-rate against x265 medium on VMAF v1, 38 rate ladders on real titles. Left of zero needs fewer bits. Report of 2026-11-12.</text>
+<text x='24.0' y='64.0' font-size='14' class='t2' text-anchor='start'>BD-rate against x265 medium on VMAF v1, 38 rate ladders on real titles. Left of zero needs fewer bits. Report of 2026-11-24.</text>
 <circle cx='30.0' cy='86.0' r='5.5' class='s1 ring' stroke-width='2'/>
 <text x='42.0' y='91.0' font-size='13' class='t2' text-anchor='start'>CRF</text>
 <rect x='88.0' y='81.0' width='9.9' height='9.9' rx='1.5' class='s2 ring' stroke-width='2'/>

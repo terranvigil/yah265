@@ -4,7 +4,7 @@
   "script": "scripts/blog_charts.py",
   "sources": [
    [
-    "docs/parity/PARITY-REPORT-yah265-2026-11-12.csv",
+    "docs/parity/PARITY-REPORT-yah265-2026-11-24.csv",
     "the Mac parity report (rows)"
    ],
    [
@@ -22,7 +22,7 @@
   "script": "scripts/blog_charts.py",
   "sources": [
    [
-    "docs/parity/PARITY-REPORT-yah265-2026-11-12.md",
+    "docs/parity/PARITY-REPORT-yah265-2026-11-24.md",
     "the Mac parity report"
    ]
   ]
@@ -32,7 +32,7 @@
   "script": "scripts/blog_charts.py",
   "sources": [
    [
-    "docs/parity/PARITY-REPORT-yah265-2026-11-12.csv",
+    "docs/parity/PARITY-REPORT-yah265-2026-11-24.csv",
     "the Mac parity report (rows)"
    ]
   ]
@@ -52,7 +52,7 @@
   "script": "scripts/blog_charts.py",
   "sources": [
    [
-    "docs/parity/PARITY-REPORT-yah265-2026-11-12.csv",
+    "docs/parity/PARITY-REPORT-yah265-2026-11-24.csv",
     "the Mac parity report (rows)"
    ]
   ]
