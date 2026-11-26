@@ -9,6 +9,7 @@
                       the option map against the captured y265 help
   site/results.md     the worst frames beside the averages
   site/blog.md        the per-frame trace of the Tears of Steel clip
+  site/methodology.md the corpus table, from docs/data/corpus.json
 
 A page keeps each generated part between <!--trust:NAME--> marks. The
 commands come from the harness's own builders (scripts/parity_long.py),
@@ -47,7 +48,9 @@ TEARS_CLIP = os.path.join(ROOT, "docs/data/tears-clip.json")
 POINTS = os.path.join(ROOT, "docs/data/parity-spec-points.json")
 VBRWALL = os.path.join(ROOT, "docs/data/parity-spec-vbrwall.csv")
 HELP = os.path.join(ROOT, "docs/data/cli-help.txt")
-PAGES = ["site/x265-run.md", "site/from-x265.md", "site/results.md", "site/blog.md"]
+CORPUS = os.path.join(ROOT, "docs/data/corpus.json")
+PAGES = ["site/x265-run.md", "site/from-x265.md", "site/results.md", "site/blog.md",
+         "site/methodology.md"]
 MAP_PAGE = os.path.join(ROOT, "site/from-x265.md")
 GEN = re.compile(r"<!--trust:([a-z0-9-]+)-->(.*?)<!--/trust:\1-->", re.S)
 
@@ -93,16 +96,21 @@ def example_point(mac_rows):
     return m[1], int(v["k"])
 
 
-def commands(mac_rows):
-    """One block per goal, from the builders the harness timed with."""
+def harness():
     try:
         import numpy  # noqa: F401
     except ImportError:
         # the harness loads its scene scanner at import, which needs numpy.
-        # the command builders don't, and the site's venv has no numpy
+        # the command builders and cell tables don't, and the site's venv has no numpy
         import types
         sys.modules.setdefault("media_traits", types.ModuleType("media_traits"))
     import parity_long as pl
+    return pl
+
+
+def commands(mac_rows):
+    """One block per goal, from the builders the harness timed with."""
+    pl = harness()
     crf, kbps = example_point(mac_rows)
     feed = "cat tears_1080p.y4m | "
 
@@ -422,6 +430,82 @@ def low_table(lf):
                 "cells ahead on their lowest frame"], ["---", "--:", "--:", "--:", "--:"], rows)
 
 
+# ------------------------------------------------------------- the corpus
+
+TIER_ORDER = "SMLC"
+
+
+def fps_text(f):
+    n, d = (int(x) for x in f.split("/"))
+    return f"{n / d:.3f}".rstrip("0").rstrip(".")
+
+
+def length_text(secs):
+    if secs < 60:
+        return f"{secs:.1f} s"
+    m, s = divmod(round(secs), 60)
+    return f"{m}:{s:02d}"
+
+
+def corpus():
+    """The corpus file, checked cell for cell against the harness's own tables
+    and the frame counts and sizes its matched points recorded."""
+    c = json.load(open(CORPUS))
+    pl = harness()
+    want = {(t, cl, ti) for t, cl, ti, _ in pl.ps.CELLS if t == "S"}
+    want |= {(x["tier"], x["cls"], x["title"]) for x in pl.all_cells()}
+    have = [(x["tier"], x["class"], x["title"]) for x in c["cells"]]
+    bad = [f"not in the harness: {k}" for k in have if k not in want]
+    bad += [f"missing: {k}" for k in sorted(want) if k not in have]
+    bad += [f"listed twice: {k}" for k in set(have) if have.count(k) > 1]
+    pts = json.load(open(POINTS))
+    for x in c["cells"]:
+        k = f"{x['tier']}/{x['class']}/{x['title']}"
+        if x["title"] not in c["titles"]:
+            bad.append(f"{k}: no title entry")
+        p = pts.get(k + "/def")
+        if not p:
+            bad.append(f"{k}: no matched point")
+        elif p["frames"] != x["frames"] or p["size"] != x["size"]:
+            bad.append(f"{k}: {x['frames']} frames at {x['size']} here, the point has "
+                       f"{p['frames']} at {p['size']}")
+        if x["tier"] == "L":
+            n, d = (int(v) for v in x["fps"].split("/"))
+            start = pl.excerpt_span(x["title"])[0]
+            if start != round(x["start_s"] * n / d):
+                bad.append(f"{k}: starts at {x['start_s']} s, the harness at frame {start}")
+    bad += [f"{t['name']}: no license entry {t['license']}"
+            for t in c["titles"].values() if t["license"] not in c["licenses"]]
+    if bad:
+        die(f"{os.path.relpath(CORPUS, ROOT)} and the harness disagree:\n  " + "\n  ".join(bad))
+    return c
+
+
+def corpus_table(c):
+    """One row per title and tier with its picture sizes together, less the
+    excluded titles."""
+    groups = {}
+    for x in c["cells"]:
+        if bc.shown(x["title"]):
+            groups.setdefault((x["tier"], x["title"]), []).append(x)
+    rows = []
+    for (tier, ti), xs in sorted(groups.items(), key=lambda g: TIER_ORDER.index(g[0][0])):
+        x, t = xs[0], c["titles"][ti]
+        lic = c["licenses"][t["license"]]
+        n, d = (int(v) for v in x["fps"].split("/"))
+        if x["within"] == "clip" and not x["start_s"]:
+            used = f"all {x['frames']:,}"
+        else:
+            at = length_text(x["start_s"]) if x["start_s"] >= 60 else f"{x['start_s']:g} s"
+            used = f"{x['frames']:,} from {at} into the {x['within']}"
+        link = f"[{lic['name']}]({lic['url']})"
+        rows.append([t["name"], tier, ", ".join(y["size"] for y in xs), fps_text(x["fps"]),
+                     length_text(x["frames"] * d / n), used, f"[{t['source']}]({t['url']})",
+                     link if lic["open"] else f"**No open license.** {link}"])
+    return mdt(["clip", "tier", "picture size", "fps", "length", "frames used", "source", "license"],
+               ["---", "---", "---", "--:", "--:", "---", "---", "---"], rows)
+
+
 def figure(name, alt):
     return f'<figure class="chart"><img src="{REL}/{name}.svg" alt="{bc.esc(alt)}"></figure>'
 
@@ -571,6 +655,7 @@ def main():
         "tears-crfs": (f"`-crf {clip['encoders']['yah265']['crf']}` for yah265 and "
                        f"`-crf {clip['encoders']['x265']['crf']}` for x265"),
         "low-table": low_table(lf),
+        "corpus-table": corpus_table(corpus()),
     }
     stale = bc.publish_data(OUT, "site_trust.py", {
         "crf-map": ([paths["mac"], bc.LADDERS],

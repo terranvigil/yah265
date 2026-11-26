@@ -106,7 +106,7 @@ Because [G1 and G2](#the-three-speed-goals) would take many hours at one thread 
 |---|---|---|
 | S | eleven standard clips from CIF to 4K | each clip whole |
 | M | Sol Levante at 1080p and 4K | from the first non-black frame to the end |
-| L | six open-licensed films at 720p, 1080p and 4K | 600 seconds from a recorded offset past the opening card, cut at the last frame before the end credits |
+| L | six films at 720p, 1080p and 4K | 600 seconds from a recorded offset past the opening card, cut at the last frame before the end credits |
 | C | a film scan, sports and screen content | quality counts toward the verdict. Speed is only shown |
 
 The main result on the home page covers the size-matched CRF cells of tiers S, M and L on the Mac at [G3](#the-three-speed-goals). Capped VBR timings have their own table. Tier C's timings are reported with its quality.
@@ -116,6 +116,46 @@ The set has no held-out content, because the development clips were windows of t
 Because each ten-minute excerpt has to represent its whole title, I checked each one's mix of detail and motion against the title's. I moved the offsets of two excerpts to match.
 
 The smaller sizes of each film are scaled down from the master with VideoToolbox. Everything is fed as 8-bit 4:2:0 Y4M.
+
+### Each clip and its license
+
+Most of the clips have an open license. The standard short test clips have research-use terms instead. StEM2's license allows benchmarking and publishing results but isn't an open license. The table marks each clip without one.
+
+<details class="data" markdown="1">
+<summary>Each clip, its source and its license</summary>
+
+<!--trust:corpus-table-->
+| clip | tier | picture size | fps | length | frames used | source | license |
+|---|---|---|--:|--:|---|---|---|
+| Foreman | S | 352x288 | 29.97 | 10.0 s | all 300 | [Xiph derf collection](https://media.xiph.org/video/derf/) | **No open license.** [research-use terms](https://media.xiph.org/video/derf/) |
+| Bus | S | 352x288 | 30 | 5.0 s | all 150 | [Xiph derf collection](https://media.xiph.org/video/derf/) | **No open license.** [research-use terms](https://media.xiph.org/video/derf/) |
+| Stefan | S | 352x288 | 29.97 | 3.0 s | all 90 | [Xiph derf collection](https://media.xiph.org/video/derf/) | **No open license.** [research-use terms](https://media.xiph.org/video/derf/) |
+| Ducks Take Off | S | 1280x720 | 50 | 10.0 s | all 500 | [SVT HD test set, from Xiph](https://media.xiph.org/video/derf/) | **No open license.** [research-use terms](https://media.xiph.org/video/derf/) |
+| Park Joy | S | 1280x720 | 50 | 10.0 s | all 500 | [SVT HD test set, from Xiph](https://media.xiph.org/video/derf/) | **No open license.** [research-use terms](https://media.xiph.org/video/derf/) |
+| FourPeople | S | 1280x720 | 60 | 10.0 s | all 601 | [JCT-VC test set, from Xiph](https://media.xiph.org/video/derf/) | **No open license.** [research-use terms](https://media.xiph.org/video/derf/) |
+| Shields | S | 1280x720 | 50 | 10.1 s | all 504 | [SVT HD test set, from Xiph](https://media.xiph.org/video/derf/) | **No open license.** [research-use terms](https://media.xiph.org/video/derf/) |
+| Sunflower | S | 1920x1080 | 25 | 20.0 s | all 500 | [TUM 1080p set, from Xiph](https://media.xiph.org/video/derf/) | **No open license.** [research-use terms](https://media.xiph.org/video/derf/) |
+| Pedestrian Area | S | 1920x1080 | 25 | 15.0 s | all 375 | [TUM 1080p set, from Xiph](https://media.xiph.org/video/derf/) | **No open license.** [research-use terms](https://media.xiph.org/video/derf/) |
+| Riverbed | S | 1920x1080 | 25 | 10.0 s | all 250 | [TUM 1080p set, from Xiph](https://media.xiph.org/video/derf/) | **No open license.** [research-use terms](https://media.xiph.org/video/derf/) |
+| Big Buck Bunny | S | 3840x2160 | 30 | 10.0 s | 300 from 1:00 into the film | [Blender Foundation](https://peach.blender.org/) | [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) |
+| Sol Levante | M | 1920x1080, 3840x2160 | 24 | 1:44 | 2,494 from 8.04 s into the segment | [Netflix Open Content](https://opencontent.netflix.com/) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| Tears of Steel | L | 1280x572, 1920x858, 3840x1714 | 24 | 8:48 | 12,672 from 1:00 into the film | [Blender Foundation](https://mango.blender.org/) | [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) |
+| StEM2, The Mission | L | 1280x720, 1920x1080, 3840x2160 | 24 | 8:59 | 12,940 from 3:55 into the film | [American Society of Cinematographers, from ASWF](https://dpel.aswf.io/asc-stem2/) | **No open license.** [ASWF Digital Assets License 1.1](https://dpel.aswf.io/asc-stem2/) |
+| Sintel | L | 1280x546, 1920x818, 4096x1744 | 24 | 9:09 | 13,178 from 3:15 into the film | [Blender Foundation](https://durian.blender.org/) | [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) |
+| Big Buck Bunny | L | 1280x720, 1920x1080, 3840x2160 | 30 | 7:44 | 13,929 from 30 s into the film | [Blender Foundation](https://peach.blender.org/) | [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) |
+| Cosmos Laundromat | L | 1280x536, 1920x804 | 24 | 9:32 | 13,724 from 30 s into the film | [Blender Foundation](https://gooseberry.blender.org/) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| Nocturne, film-grain version | L | 1280x720, 1920x1080, 3840x2160 | 60 | 9:32 | 34,320 from 50 s into the film | [Netflix Open Content](https://opencontent.netflix.com/) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| The Lash of the Whip (1924) | C | 1280x960, 1440x1080 | 24 | 10:00 | 14,400 from 40 s into the film | [Library of Congress film scan](https://www.loc.gov/item/2023600652/) | [Public domain in the US](https://www.loc.gov/item/2023600652/) |
+| WorldCup | C | 1920x1080 | 30 | 4.3 s | all 130 | [AOM test set, from Xiph](https://media.xiph.org/video/aomctc/test_set/a2_2k/) | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) |
+| WorldCup far | C | 1920x1080 | 30 | 4.3 s | all 130 | [AOM test set, from Xiph](https://media.xiph.org/video/aomctc/test_set/a2_2k/) | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) |
+| Skater227 | C | 1920x1080 | 30 | 4.3 s | all 130 | [AOM test set, from Xiph](https://media.xiph.org/video/aomctc/test_set/a2_2k/) | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) |
+| El Fuente, Boxing Practice | C | 4096x2160 | 60 | 4.2 s | all 254 | [Netflix Open Content](https://opencontent.netflix.com/) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| Wikipedia | C | 1920x1080 | 30 | 4.3 s | all 130 | [AOM screen-content set, from Xiph](https://media.xiph.org/video/aomctc/test_set/b2_scc/) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| Debugging | C | 1920x1080 | 30 | 4.3 s | all 130 | [AOM screen-content set, from Xiph](https://media.xiph.org/video/aomctc/test_set/b2_scc/) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| Spreadsheet | C | 1920x1080 | 30 | 4.3 s | all 130 | [AOM screen-content set, from Xiph](https://media.xiph.org/video/aomctc/test_set/b2_scc/) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+<!--/trust:corpus-table-->
+
+</details>
 
 ## Scoring quality
 
