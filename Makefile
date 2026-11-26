@@ -20,7 +20,7 @@ BUILD ?= build
 # keeps working.
 BUILD10 ?= build10
 
-.PHONY: build build8 build10 build-rel wasm playground-serve build-x86 test-x86 checkasm-x86-asan conformance-fast-x86 x86-identity build10-x86 checkasm10-x86 checkasm10-x86-asan conformance10-fast-x86 test smoke10 conformance conformance-fast conformance10 conformance10-fast conformance444 conformance444-fast conformance444-10 conformance444-10-fast conformance422 conformance422-fast conformance422-10 conformance422-10-fast provenance asan asan10 asan444 asan422 determ determ-fast determ10 determ444 determ422 board board-quick goal-legs clean checkasm-bench checkasm-asan checkasm10-bench checkasm10-asan clean-scratch docs-recipes
+.PHONY: build build8 build10 build-rel wasm playground-serve build-x86 test-x86 checkasm-x86-asan conformance-fast-x86 x86-identity build10-x86 checkasm10-x86 checkasm10-x86-asan conformance10-fast-x86 test smoke10 conformance conformance-fast conformance10 conformance10-fast conformance444 conformance444-fast conformance444-10 conformance444-10-fast conformance422 conformance422-fast conformance422-10 conformance422-10-fast provenance asan asan10 asan444 asan422 determ determ-fast determ10 determ444 determ422 board board-quick goal-legs clean checkasm-bench checkasm-asan checkasm10-bench checkasm10-asan clean-scratch docs-recipes results results-plan
 
 build: build8 build10
 
@@ -335,3 +335,12 @@ clean-scratch:
 FFMPEG_DIR ?= build-ffmpeg/ffmpeg
 docs-recipes: build
 	scripts/docs_recipes.py --y265 $(BUILD)/y265 --ffmpeg-dir $(FFMPEG_DIR) $(RECIPES_FLAGS)
+
+# Rerun the Mac's results page from scratch: the parity harness, its
+# report, the page scripts and the strict site build. Many hours of box
+# time. results-plan checks that every step resolves and runs nothing.
+results:
+	scripts/results_rerun.py
+
+results-plan:
+	scripts/results_rerun.py --dry-run

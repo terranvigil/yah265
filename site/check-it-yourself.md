@@ -212,3 +212,18 @@ To check that the results page still matches those rows:
 ```sh
 $ scripts/charts_results.py --check
 ```
+
+## Rerun the whole results page
+
+One command reruns the Mac's results from scratch. Check its plan first:
+
+```sh
+$ make results-plan
+$ make results
+```
+
+`make results-plan` encodes nothing. It checks that each step will start and prints the harness's estimate of the hours. `make results` builds the release binary and runs each harness mode in the table above. Its timed steps wait until the machine is quiet. It then writes the report, refills the pages from it and builds the site with every check. From scratch the run takes about two weeks of box time.
+
+A run stops at the first step that fails and prints its number. `scripts/results_rerun.py --from N` resumes at that step.
+
+The x86 and Graviton4 rows come from cloud runs, which the command doesn't repeat. The all-architecture summary and the launch post are written by hand from the reports. The page scripts check the new data against both. They also check the yah265 and x265 builds that the [chart script](scripts/blog_charts.py) names as the ones whose ladders count. After a rerun on a new binary, the page steps stop at those checks and name what disagrees. Update the summary, the post and the two builds, then resume.
