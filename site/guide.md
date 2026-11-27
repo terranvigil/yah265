@@ -142,6 +142,8 @@ Under a VBV cap the search runs under the same cap. If the cap can't reach the s
 
 A clip longer than 60 seconds is searched on 12 short windows spread through it, which add up to 60 seconds. The final file is then scored whole, and the report shows both the predicted and the measured score.
 
+`--target-vmaf-floor` picks the smallest file that scores at or above the target. The windows can score a little higher than the whole file. A long clip can then come in under the target. When it does, the encoder encodes the file again at a lower CRF and scores it again, up to 3 times. It sizes each step from how the score moved during the search. One step is usually enough. The report lists each step with its CRF, score and time. If the file still misses after the third, the run fails. The best file is kept.
+
 VMAF isn't built into y265. During the search y265 runs ffmpeg and libvmaf's `vmaf` tool as separate programs and streams the frames to them, so they have to be installed. It finds them like this:
 
 | what | set with | otherwise |

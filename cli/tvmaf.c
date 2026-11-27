@@ -260,6 +260,64 @@ done:
     return rc;
 }
 
+/* ---- the whole-file correction (floor mode) ---- */
+
+#define TV_FIX_MAXD 4.0         /* CRF, one correction at most */
+
+static double fix_slope(double c0, double v0, double c1, double v1)
+{
+    if (fabs(c1 - c0) < 1e-9)
+        return 0.0;
+    double k = (g_logit(v1) - g_logit(v0)) / (c1 - c0);
+    return k > TV_MIN_SLOPE ? 0.0 : k;
+}
+
+double tv_fix_next(const tv_params *p, const tv_point *whole, int nwhole,
+                   const tv_point *trials, int ntrials)
+{
+    if (nwhole < 1)
+        return -1.0;
+    const tv_point *w = &whole[nwhole - 1];
+    if (w->crf <= p->crf_lo + 1e-9)
+        return -1.0;
+
+    /* d logit / d CRF: the whole file's own, else the search's nearest
+     * two samples, else the prior */
+    double k = 0.0;
+    if (nwhole >= 2)
+        k = fix_slope(whole[nwhole - 2].crf, whole[nwhole - 2].vmaf,
+                      w->crf, w->vmaf);
+    if (k == 0.0 && ntrials >= 2) {
+        int a = -1, b = -1;
+        for (int i = 0; i < ntrials; i++) {
+            double d = fabs(trials[i].crf - w->crf);
+            if (a < 0 || d < fabs(trials[a].crf - w->crf)) {
+                b = a;
+                a = i;
+            } else if ((b < 0 || d < fabs(trials[b].crf - w->crf)) &&
+                       fabs(trials[i].crf - trials[a].crf) > 1e-9) {
+                b = i;
+            }
+        }
+        if (b >= 0)
+            k = fix_slope(trials[a].crf, trials[a].vmaf, trials[b].crf,
+                          trials[b].vmaf);
+    }
+    if (k == 0.0)
+        k = p->prior_slope;
+
+    /* aim at the middle of the floor's window, rounded toward quality */
+    double d = (g_logit(p->target + p->tol / 2) - g_logit(w->vmaf)) / -k;
+    d = d < p->step ? p->step : d > TV_FIX_MAXD ? TV_FIX_MAXD : d;
+    double i = floor((w->crf - d - p->crf_lo) / p->step + 1e-9);
+    double next = p->crf_lo + (i < 0 ? 0 : i) * p->step;
+    next = round(next * 1e6) / 1e6;
+    for (int j = 0; j < nwhole; j++)
+        if (next >= whole[j].crf - 1e-9)
+            return -1.0;
+    return next;
+}
+
 /* ---- the scorer ---- */
 
 static const char *const hlg_to_pq =

@@ -203,6 +203,9 @@ unit_tvmaf = executable('unit_tvmaf',
   include_directories : include_directories('../cli'),
   dependencies : m_dep)
 test('tvmaf', unit_tvmaf)
+# the floor's whole-file correction, through the CLI with a scripted scorer
+test('cli_tvmaf_floor', find_program('cli_tvmaf_floor_test.sh'),
+  args : [y265], timeout : 120)
 
 # Live control (src/encoder/ctl.c): every refusal code, the struct
 # versioning, the landing frames and submission-time independence,

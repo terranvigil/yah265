@@ -1100,7 +1100,9 @@ static void usage(FILE *out)
         "                        every frame, a longer one on 12 windows.\n"
         "  --target-vmaf-tol <f> how close counts as reached, in VMAF points (0.5)\n"
         "  --target-vmaf-floor   pick the smallest file at or above the target, not\n"
-        "                        the closest score\n"
+        "                        the closest score. A file that scores under it is\n"
+        "                        encoded again at a lower CRF, up to 3 times, and\n"
+        "                        the run fails if it still misses\n"
         "  --target-vmaf-sample <full|s>  search on every frame, or on s seconds\n"
         "                        of windows (default 60; every frame when shorter)\n"
         "  --no-target-vmaf-verify  don't score the final file when the search\n"
@@ -2508,9 +2510,17 @@ typedef struct {
     int ntrial;
     tv_result res;
     double t_search, t_final0;
+    int argc;                   /* for the floor's re-encodes */
+    char **argv;
+    tv_point fix[TV_FIX_STEPS + 1]; /* whole-file scores, the final encode first */
+    double fix_enc[TV_FIX_STEPS + 1], fix_score[TV_FIX_STEPS + 1];
+    int nfix;
+    int corrected;
 } tv_job;
 
 static tv_job g_tv;
+static int self_path(const char *argv0, char *out);
+extern char **environ;
 
 static double tv_now(void)
 {
@@ -2921,6 +2931,140 @@ static const tv_trial *tv_chosen(const tv_job *t)
     return NULL;
 }
 
+/* this run's own command line at `crf`, less the --target-vmaf options */
+static int tv_fix_encode(const tv_job *t, double crf)
+{
+    char self[PATH_MAX], v[32];
+    char **av = calloc((size_t)t->argc + 3, sizeof *av);
+    if (!av)
+        return -1;
+    int n = 0;
+    av[n++] = self_path(t->argv[0], self) == 0 ? self : t->argv[0];
+    for (int i = 1; i < t->argc; i++) {
+        const char *s = t->argv[i];
+        if (!strcmp(s, "--target-vmaf-floor") ||
+            !strcmp(s, "--no-target-vmaf-verify"))
+            continue;
+        if (!strncmp(s, "--target-vmaf", 13)) {
+            i++;
+            continue;
+        }
+        av[n++] = t->argv[i];
+    }
+    snprintf(v, sizeof v, "%.2f", crf);
+    av[n++] = "--crf";
+    av[n++] = v;
+    av[n] = NULL;
+    pid_t pid;
+    int st = 0;
+    int rc = posix_spawnp(&pid, av[0], NULL, NULL, av, environ) ? -1 : 0;
+    free(av);
+    if (rc)
+        return -1;
+    while (waitpid(pid, &st, 0) < 0)
+        if (errno != EINTR)
+            return -1;
+    return WIFEXITED(st) && WEXITSTATUS(st) == 0 ? 0 : -1;
+}
+
+/* floor mode: while the whole file scores under the target, encode it
+ * again toward quality and score it again, keeping the best file at
+ * out_path. 0 when the floor is met, 1 when it is not, -1 on an error. */
+static int tv_fix(tv_job *t, const char *out_path, long nframes,
+                  double *measured)
+{
+    const double target = t->prm.target;
+    char bak[PATH_MAX + 16];
+    snprintf(bak, sizeof bak, "%s.tvfloor", out_path);
+    tv_point tr[TV_MAX_TRIALS];
+    for (int i = 0; i < t->ntrial; i++) {
+        tr[i].crf = t->trial[i].crf;
+        tr[i].vmaf = t->trial[i].vmaf;
+    }
+    t->nfix = 1;
+    t->fix[0].crf = t->res.crf;
+    t->fix[0].vmaf = *measured;
+    t->fix_enc[0] = t->fix_score[0] = 0.0;
+    t->nwin = 1;
+    t->win[0][0] = 0;
+    t->win[0][1] = nframes;
+    if (t->res.status == TV_PLATEAU)
+        return 1;
+    int best = 0, have_bak = 0, rc = 1;
+    for (;;) {
+        const tv_point *cur = &t->fix[t->nfix - 1];
+        if (cur->vmaf >= target) {
+            rc = 0;
+            break;
+        }
+        double crf = t->nfix > TV_FIX_STEPS ? -1.0
+                   : tv_fix_next(&t->prm, t->fix, t->nfix, tr, t->ntrial);
+        if (crf < 0)
+            break;
+        /* set the best file so far aside */
+        if (!have_bak || cur->vmaf > t->fix[best].vmaf) {
+            if (rename(out_path, bak) != 0) {
+                fprintf(stderr, "y265: target-vmaf: cannot move %s aside: "
+                        "%s\n", out_path, strerror(errno));
+                rc = -1;
+                break;
+            }
+            have_bak = 1;
+            best = t->nfix - 1;
+        } else {
+            unlink(out_path);
+        }
+        int k = t->nfix;
+        if (k == 1)
+            fprintf(stderr, "y265: target-vmaf: the whole file scores %.2f, "
+                    "under %.2f: encoding it again toward quality, at most "
+                    "%d times\n", cur->vmaf, target, TV_FIX_STEPS);
+        fprintf(stderr, "y265: target-vmaf: correction %d: crf %.2f\n", k,
+                crf);
+        double t0 = tv_now(), v;
+        if (tv_fix_encode(t, crf) != 0) {
+            fprintf(stderr, "y265: target-vmaf: the encode at crf %.2f "
+                    "failed\n", crf);
+            rc = -1;
+            break;
+        }
+        double t1 = tv_now();
+        if (tv_score_file(t, out_path, &v) != 0) {
+            rc = -1;
+            break;
+        }
+        t->fix[k].crf = crf;
+        t->fix[k].vmaf = v;
+        t->fix_enc[k] = t1 - t0;
+        t->fix_score[k] = tv_now() - t1;
+        t->nfix++;
+        t->corrected = 1;
+        fprintf(stderr, "y265: target-vmaf: correction %d: crf %.2f -> %.2f "
+                "on the whole file (encode %.1f s, score %.1f s)\n", k, crf,
+                v, t->fix_enc[k], t->fix_score[k]);
+    }
+    int keep = t->nfix - 1;
+    if (have_bak && (rc < 0 || (rc > 0 &&
+                                 t->fix[best].vmaf >= t->fix[keep].vmaf))) {
+        if (rename(bak, out_path) != 0) {
+            fprintf(stderr, "y265: target-vmaf: cannot put %s back: %s\n",
+                    out_path, strerror(errno));
+            return -1;
+        }
+        if (rc > 0 && best != keep)
+            fprintf(stderr, "y265: target-vmaf: kept the crf %.2f file, the "
+                    "best one; any --csv, --frame-stats, --dump-recon or "
+                    "--report output is from the crf %.2f encode\n",
+                    t->fix[best].crf, t->fix[keep].crf);
+        keep = best;
+    } else if (have_bak) {
+        unlink(bak);
+    }
+    t->res.crf = t->fix[keep].crf;
+    *measured = t->fix[keep].vmaf;
+    return rc;
+}
+
 /* after the final encode: measure it and print the report; the exit code */
 static int tv_report(tv_job *t, const char *out_path, long nframes)
 {
@@ -2955,6 +3099,22 @@ static int tv_report(tv_job *t, const char *out_path, long nframes)
         }
         t_measure = tv_now() - m0;
     }
+    int missed = 0;
+    double predicted_crf = t->res.crf, t_fix = 0.0;
+    if (t->prm.floor && !isnan(measured) && measured < t->prm.target) {
+        double f0 = tv_now();
+        int fr = tv_fix(t, out_path, nframes, &measured);
+        t_fix = tv_now() - f0;
+        missed = fr > 0;
+        if (fr != 0)
+            rc = 1;
+        if (tv_file_hash(out_path, &h, &bytes) != 0) {
+            fprintf(stderr, "y265: target-vmaf: cannot read %s back\n",
+                    out_path);
+            tv_cleanup(t);
+            return 1;
+        }
+    }
     double kbps = bytes * 8.0 / (nframes / tv_fps(t)) / 1000.0;
     fprintf(stderr, "y265: target-vmaf %.2f: crf %.2f (%s)\n", t->prm.target,
             t->res.crf, tv_status_name(t->res.status));
@@ -2969,6 +3129,21 @@ static int tv_report(tv_job *t, const char *out_path, long nframes)
     else
         fprintf(stderr, "y265:   score   predicted %.2f, measured %.2f %s\n",
                 t->res.s.vmaf, measured, how);
+    if (t->nfix > 1) {
+        fprintf(stderr, "y265:   correct");
+        for (int k = 0; k < t->nfix; k++)
+            fprintf(stderr, "%s crf %.2f -> %.2f", k ? "," : "",
+                    t->fix[k].crf, t->fix[k].vmaf);
+        fprintf(stderr, " (the search's pick first)\n");
+    }
+    if (missed)
+        fprintf(stderr, "y265:   missed  the floor: the file scores %.2f at crf "
+                "%.2f, under %.2f, %s. The file is kept\n", measured,
+                t->res.crf, t->prm.target,
+                t->res.status == TV_PLATEAU ? "and more bits stopped "
+                "raising the score"
+                : t->res.crf <= t->prm.crf_lo + 1e-9 ? "at the best-quality "
+                "bound" : "after the most re-encodes allowed");
     if (t->res.status == TV_PLATEAU)
         fprintf(stderr, "y265:   note    more bits stopped raising the score, so "
                 "%.2f is the most these settings reach. A VBV cap does this; "
@@ -2978,6 +3153,8 @@ static int tv_report(tv_job *t, const char *out_path, long nframes)
             t->t_search, t_final);
     if (t_measure > 0)
         fprintf(stderr, ", measurement %.1f s", t_measure);
+    if (t_fix > 0)
+        fprintf(stderr, ", corrections %.1f s", t_fix);
     fprintf(stderr, "\n");
     if (t->json_path) {
         FILE *j = fopen(t->json_path, "w");
@@ -2997,9 +3174,22 @@ static int tv_report(tv_job *t, const char *out_path, long nframes)
                 fprintf(j, "%.4f", measured);
             fprintf(j, ", \"same_bytes\": %s, \"bytes\": %ld, \"kbps\": %.3f, "
                     "\"frames\": %ld, \"sample_frames\": %ld, \"search_s\": "
-                    "%.3f, \"final_s\": %.3f, \"measure_s\": %.3f, "
-                    "\"trials\": [", same ? "true" : "false", bytes, kbps,
+                    "%.3f, \"final_s\": %.3f, \"measure_s\": %.3f, ",
+                    same ? "true" : "false", bytes, kbps,
                     nframes, t->nsample, t->t_search, t_final, t_measure);
+            if (t->prm.floor) {
+                fprintf(j, "\"floor_met\": %s, \"search_crf\": %.2f, "
+                        "\"fix_s\": %.3f, \"corrections\": [",
+                        !isnan(measured) && measured >= t->prm.target
+                        ? "true" : "false", predicted_crf, t_fix);
+                for (int k = 1; k < t->nfix; k++)
+                    fprintf(j, "%s{\"crf\": %.2f, \"vmaf\": %.4f, "
+                            "\"encode_s\": %.3f, \"score_s\": %.3f}",
+                            k > 1 ? ", " : "", t->fix[k].crf,
+                            t->fix[k].vmaf, t->fix_enc[k], t->fix_score[k]);
+                fprintf(j, "], ");
+            }
+            fprintf(j, "\"trials\": [");
             for (int i = 0; i < t->ntrial; i++)
                 fprintf(j, "%s{\"crf\": %.2f, \"vmaf\": %.4f, \"kbps\": %.3f, "
                         "\"s\": %.3f}", i ? ", " : "", t->trial[i].crf,
@@ -4288,8 +4478,6 @@ static int report_find_script(const char *argv0, char *out, size_t n)
     return -1;
 }
 
-extern char **environ;
-
 static void report_run(const char *argv0, const char *html,
                        const char *frames, const char *cfg, const char *dir,
                        const char *stream, const char *input)
@@ -4608,6 +4796,14 @@ int main(int argc, char **argv)
         t->sample_secs = o.tv_sample;
         t->verify = !o.tv_noverify;
         t->json_path = o.tv_json;
+        t->argc = argc;
+        t->argv = argv;
+        if (o.tv_floor && o.tv_noverify) {
+            fprintf(stderr, "y265: --target-vmaf-floor measures the whole "
+                    "file to hold the floor, so it can't be combined with "
+                    "--no-target-vmaf-verify\n");
+            return 2;
+        }
         int trc = tv_prepare(t, a, cfg, &y, in_path, max_frames, threads,
                              o.tv_conflict, o.ctl_path || o.ctl_fd >= 0);
         if (!trc)
@@ -5065,8 +5261,14 @@ int main(int argc, char **argv)
     int drc = dyn_check(n);
     if (g_tv.on && tv_report(&g_tv, out_path, n) && !drc)
         drc = 1;
-    if (o.report_path && drc == 0)
+    if (o.report_path && g_tv.corrected) {
+        /* the last re-encode wrote its own report */
+        unlink(rep_frames);
+        unlink(rep_cfg);
+        rmdir(rep_dir);
+    } else if (o.report_path && drc == 0) {
         report_run(argv[0], o.report_path, o.fstats_path, rep_cfg, rep_dir,
                    out_path, in_path);
+    }
     return drc;
 }

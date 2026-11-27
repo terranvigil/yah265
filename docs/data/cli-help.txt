@@ -65,7 +65,9 @@ Rate control
                         every frame, a longer one on 12 windows.
   --target-vmaf-tol <f> how close counts as reached, in VMAF points (0.5)
   --target-vmaf-floor   pick the smallest file at or above the target, not
-                        the closest score
+                        the closest score. A file that scores under it is
+                        encoded again at a lower CRF, up to 3 times, and
+                        the run fails if it still misses
   --target-vmaf-sample <full|s>  search on every frame, or on s seconds
                         of windows (default 60; every frame when shorter)
   --no-target-vmaf-verify  don't score the final file when the search

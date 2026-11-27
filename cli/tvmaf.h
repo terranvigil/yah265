@@ -42,9 +42,21 @@ typedef struct {
     int trials;
 } tv_result;
 
+/* floor mode re-encodes the whole file at most this many times */
+#define TV_FIX_STEPS 3
+
+typedef struct {
+    double crf, vmaf;
+} tv_point;
+
 void tv_params_default(tv_params *p);
 const char *tv_status_name(tv_status s);
 int tv_search(const tv_params *p, tv_score_fn fn, void *ctx, tv_result *out);
+/* the next CRF for a whole file that scored under the floor, or -1 at the
+ * best-quality bound. `whole` holds the whole-file misses, the lowest CRF
+ * last; `trials` the search's sample scores, for the slope. */
+double tv_fix_next(const tv_params *p, const tv_point *whole, int nwhole,
+                   const tv_point *trials, int ntrials);
 
 /* the external VMAF chain: v1 as scripts/parity_long.py scores it, or
  * HDR-VMAF as scripts/hdr_bd.py does */
