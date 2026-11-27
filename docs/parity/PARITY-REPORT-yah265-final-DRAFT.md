@@ -1,9 +1,8 @@
 # yah265 parity report, final (DRAFT, 2026-11-27)
 
-> DRAFT. Two jobs are still running: the cloud tier C rerun and the
-> whole-file correction for `--target-vmaf-floor`. Their places are marked
-> **[PLACEHOLDER: ...]** below. Nothing else in this page waits on them.
-> Every number here is copied from origin/main 80f43919: PARITY-REPORT-yah265-2026-11-24
+> DRAFT. One job is still running: the cloud tier C rerun. Its places are
+> marked **[PLACEHOLDER: ...]** below. Nothing else in this page waits on it.
+> Every number here is copied from origin/main 01f36802: PARITY-REPORT-yah265-2026-11-24
 > (the Mac), PARITY-REPORT-yah265-all-isa-2026-11-14 (x86-64 and Graviton,
 > with the Mac column updated 11-24), the credits and fades reports of
 > 11-23 and 11-24, and docs/data. No new encode was run for this draft.
@@ -195,13 +194,15 @@ Against dynamic-crf on the 1080p story cells of four tier L films, v1 85 and
 | tears | 93 | 23.25 / 93.15 / 1611 / 172 | 22 / 94.26 / 1922 / 230 |
 | nocturne | 85 | 20.25 / 86.61 / 4931 / 554 | 21 / 85.64 / 4151 / 1249 |
 | nocturne | 93 | 13.5 / 94.17 / 43004 / 1516 | 14 / 93.66 / 36886 / 2325 |
-| meridian | 85 | 25.25 / 84.47 / 517 / 327 | 22 / 87.88 / 857 / 606 |
+| meridian | 85 | 24.50 / 85.31 / 580 / not re-timed | 22 / 87.88 / 857 / 606 |
 | meridian | 93 | 14.75 / 93.42 / 3318 / 394 | 13 / 94.38 / 4723 / 711 |
 
-Under the floor policy meridian at 85 lands 0.53 under its target on the
-whole file. **[PLACEHOLDER: --target-vmaf-floor whole-file correction. Add
-the corrected meridian 85 row (and any other row it moves), say whether every
-floor row now lands at or above its target, and name the commit.]**
+Every floor row now lands at or above its target on the whole file. The
+search picks its CRF on windows, and windows can read above the whole film.
+Since 01f36802, a whole file under the floor is encoded again at a lower CRF,
+up to 3 times, and the run fails if it still misses. Meridian at 85 was
+crf 25.25 at 84.47. One correction takes it to crf 24.50 at 85.31, and the
+file grows from 35.4 MB to 39.7 MB. No other row was under, so none moved.
 
 ## Changed since the 2026-11-24 report
 Encoder changes after the gating rows' binary (3ee7824e). None was re-timed;
@@ -212,6 +213,7 @@ each one's own gates are in its commit.
 - Per-shot quality (`--shot-plan`, opt-in) ships under CRF, capped CRF and capped VBR (3d74ca79, eade6661). Under capped VBR, ten titles read median -0.54% BD-v1 against flat, worst +0.61%.
 - Live control v1.3: a capped-VBR step back up lands on its target (fdd98093), and a RATE step past 3x refits from the coded runs (559604d5, 999c1198). A stream with no events is main's byte for byte.
 - AVX-512 intra prediction at 16x16 and 32x32 (d6c042a8) and the RDOQ family (b558ceb1; rdoq_sb_nz stays on AVX2). Bit-exact; checkasm runs the AVX-512 tier under Intel SDE in CI. x86 G3 above was timed before them, so it's conservative.
+- `--target-vmaf-floor` holds on the whole file: a file under the floor is encoded again at a lower CRF, up to 3 times, and the run fails if it still misses (01f36802). The floor now refuses `--no-target-vmaf-verify`.
 - Correctness: the second TSan report (knob globals under `--gop-parallel`) is fixed (105e07d1), and CI's LeakSanitizer failures are fixed (0724cee8). No stream moved.
 - Data: the four void meridian cells timed (da165269), peak RSS per thread count (61f4eab9), credits on v1 (b14e7bb1), a corpus table (73fe1a10), `make results` to rerun the Mac's results page (edc6af1f), and target-vmaf against dynamic-crf (80f43919).
 
