@@ -3702,6 +3702,12 @@ static int cli_parse(const n265_api *a, n265_config *cfg, int argc,
         else if (!strcmp(name, "ssim"))
             o->want_ssim = 1;
     }
+    if (o->tv_target > 0.0 && o->tv_floor && o->tv_noverify) {
+        fprintf(stderr, "y265: --target-vmaf-floor measures the whole "
+                "file to hold the floor, so it can't be combined with "
+                "--no-target-vmaf-verify\n");
+        return 2;
+    }
     if (!o->in_path) {
         usage(stderr);
         return 2;
@@ -4798,12 +4804,6 @@ int main(int argc, char **argv)
         t->json_path = o.tv_json;
         t->argc = argc;
         t->argv = argv;
-        if (o.tv_floor && o.tv_noverify) {
-            fprintf(stderr, "y265: --target-vmaf-floor measures the whole "
-                    "file to hold the floor, so it can't be combined with "
-                    "--no-target-vmaf-verify\n");
-            return 2;
-        }
         int trc = tv_prepare(t, a, cfg, &y, in_path, max_frames, threads,
                              o.tv_conflict, o.ctl_path || o.ctl_fd >= 0);
         if (!trc)
