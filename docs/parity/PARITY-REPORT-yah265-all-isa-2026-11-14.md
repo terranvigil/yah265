@@ -32,7 +32,7 @@ Quality:               PASS in every class of tiers S, M and L: Mac ladders 52 o
 Tier C quality:        PASS in 720p-C, 1080p-C and 2160p-C, 9 of 9 clips; 15 of 15 BD curves inside the bar, and the 3 screen VBR curves sit wholly above x265's
 VBR tracking:          PASS, every measured tier M and L rung of ours inside +-10% on every machine
 Full parity:           yes on NEON, AVX-512 and SVE2: 81 of 81 gating combinations (27 per machine), 78 of 78 VBR walls, tier C quality 9 of 9
-Not measured:          SSE4.2 and AVX2 beyond tier S G3, a CPU that stops at AVX2 or SSE4.2 in silicon, Graviton3 beyond tier S G3, tier C off the Mac, tier C G1 and G2
+Not measured:          SSE4.2 and AVX2 beyond tier S G3, a CPU that stops at AVX2 or SSE4.2 in silicon, Graviton3 beyond tier S G3, tier C G1 and G2, tier C lash1924_1080p on x86
 ```
 
 The tightest timed cell anywhere is the Mac's meridian_1080p tier L VBR wall at 0.85. On x86 the tightest G3 cell is bus_cif at 0.82, or 0.84 against x265 at `--asm avx512`. Every median and every worst sits at least 0.15 inside its bar. I'd sign off full parity on NEON, AVX-512 and SVE2 from this table, tier C included. SSE4.2 and AVX2 I'd sign off on tier S. G1 and G2 are pure C and already timed, so G3 is the only goal a tier can move. Tiers M and L weren't run capped. On tier S the AVX2 cap costs at most 0.12 against the AVX-512 ratio, and x86's worst tier M or L G3 cell is 0.80. So I'd expect them to pass, but that's an estimate.
@@ -235,7 +235,7 @@ The bar is absolute and applies to ours. x265 misses it on chimera at both sizes
 - The Graviton report said ours dispatches SVE2 on Graviton3. The V1 has no SVE2, so it runs SVE at 256 bits. Fixed.
 
 ## Not measured
-- Tier C off the Mac. x86 and Graviton would read the same quality by the same argument as the gating set (reproduction and stream identity), but no tier C cell ran there.
+- Tier C G3 for lash1924_1080p on x86: AWS reclaimed both boxes during that cell. Tier C G3 ran off the Mac on 2026-11-27 (Xeon 8488C median 0.81, EPYC 9R14 0.70, Graviton4 0.69); the tables are in the x86 and Graviton reports. Its quality off the Mac rests on reproduction and stream identity, as the gating set's does.
 - Tier C G1 and G2 on any machine, and G3 for the four clips items 61 and 62 moved on the binary that moved them. Tier C speed doesn't gate.
 - SSE4.2 and AVX2 on tiers M and L, and on a CPU that stops at either tier in silicon. Tier S G3 at both caps is in the G3 section.
 - Graviton3 G1, G2, tiers M and L, and VBR.

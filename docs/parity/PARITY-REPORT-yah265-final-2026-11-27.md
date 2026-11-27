@@ -1,16 +1,16 @@
-# yah265 parity report, final (DRAFT, 2026-11-27)
+# yah265 parity report, final (2026-11-27)
 
-> DRAFT. One job is still running: the cloud tier C rerun. Its places are
-> marked **[PLACEHOLDER: ...]** below. Nothing else in this page waits on it.
-> Every number here is copied from origin/main 01f36802: PARITY-REPORT-yah265-2026-11-24
+> Every number here is copied from main cd485883: PARITY-REPORT-yah265-2026-11-24
 > (the Mac), PARITY-REPORT-yah265-all-isa-2026-11-14 (x86-64 and Graviton,
-> with the Mac column updated 11-24), the credits and fades reports of
-> 11-23 and 11-24, and docs/data. No new encode was run for this draft.
+> with the Mac column updated 11-24), the tier C sections of 2026-11-27 in the
+> x86 and Graviton reports, the credits and fades reports of 11-23 and 11-24,
+> and docs/data.
 
 - Encoder: yah265 n265, preset medium. Gating rows rest on release build 3ee7824e (main d771c4a) and the binaries carried to it by identity. The four meridian cells timed on 2026-11-24 ran on main 61f4eab9.
 - Reference: x265 4.3+1-e9b8812, preset medium. Homebrew's build on the Mac; the 4.3 release tarball built with clang 18 on each cloud box.
 - Mac: Apple M5 Max, 18 cores, macOS 26.6.2, arm64 NEON. Timed legs 2026-09-26 20:02 to 2026-11-24 22:35.
 - x86-64: Intel Xeon Platinum 8488C (Sapphire Rapids), EC2 spot, AVX-512 over AVX2. 2026-11-12 to 2026-11-15.
+- AMD EPYC 9R14: Zen 4, EC2 spot, AVX-512, tier C G3 only, 2026-11-27.
 - Graviton4: Neoverse V2, EC2 spot, SVE2 at 128 bits over NEON. Graviton3: Neoverse V1, SVE at 256 bits, tier S G3 only.
 - Lookahead: ours 20 at 720p and up and 12 at CIF; x265 20 (each medium's own) on every machine, unless a row says otherwise.
 - Durations: tier S short clips, tier M 2-minute real-title segments, tier L 10-minute excerpts (end credits excluded, black openings skipped), tier C content types (outside the speed gate).
@@ -32,7 +32,7 @@ Quality:               PASS in all 12 class-tiers on the Mac, tier C included; 5
 VBR wall (G3):         PASS, 26 of 26 cells on each of the three machines
 VBR tracking:          PASS, every tier M and L rung of ours inside +-10% on every machine
 Full parity:           yes on NEON, AVX-512 and SVE2: 81 of 81 gating combinations (27 per machine), 78 of 78 VBR walls
-Tier C speed:          not gating. G3 inside the bar on the Mac; G1, G2 and off-Mac [PLACEHOLDER: cloud tier C rerun]
+Tier C speed:          not gating. G3 inside the bar on the Mac, Xeon 8488C, EPYC 9R14 and Graviton4; G1 and G2 not measured
 ```
 
 Every gating median and worst sits at least 0.15 inside its bar. The tightest
@@ -49,15 +49,15 @@ BD-v1 (x86 reproduction +0.78%).
 | CIF | S | 0.46 / 0.48 | 0.67 / 0.67 | 0.66 / 0.68 | PASS |
 | 720p | S | 0.30 / 0.43 | 0.44 / 0.61 | 0.43 / 0.59 | PASS |
 | 720p | L | 0.28 / 0.32 | 0.42 / 0.43 | 0.43 / 0.45 | PASS |
-| 720p | C | - | [PLACEHOLDER] | [PLACEHOLDER] | not gating |
+| 720p | C | - | - | - | not gating |
 | 1080p | S | 0.32 / 0.37 | 0.45 / 0.53 | 0.45 / 0.55 | PASS |
 | 1080p | M | 0.35 / 0.40 | 0.53 / 0.53 | 0.53 / 0.54 | PASS |
 | 1080p | L | 0.32 / 0.36 | 0.46 / 0.49 | 0.47 / 0.51 | PASS |
-| 1080p | C | - | [PLACEHOLDER] | [PLACEHOLDER] | not gating |
+| 1080p | C | - | - | - | not gating |
 | 2160p | S | 0.23 / 0.25 | 0.33 / 0.34 | 0.33 / 0.34 | PASS |
 | 2160p | M | 0.30 / 0.36 | 0.42 / 0.47 | 0.44 / 0.49 | PASS |
 | 2160p | L | 0.30 / 0.32 | 0.43 / 0.45 | 0.45 / 0.47 | PASS |
-| 2160p | C | - | [PLACEHOLDER] | [PLACEHOLDER] | not gating |
+| 2160p | C | - | - | - | not gating |
 
 ### G2, pure C, all cores
 | class | tier | Mac | x86-64 | Graviton4 | verdict |
@@ -65,15 +65,15 @@ BD-v1 (x86 reproduction +0.78%).
 | CIF | S | 0.32 / 0.35 | 0.44 / 0.49 | 0.40 / 0.45 | PASS |
 | 720p | S | 0.30 / 0.33 | 0.28 / 0.38 | 0.26 / 0.34 | PASS |
 | 720p | L | 0.24 / 0.31 | 0.27 / 0.29 | 0.25 / 0.28 | PASS |
-| 720p | C | - | [PLACEHOLDER] | [PLACEHOLDER] | not gating |
+| 720p | C | - | - | - | not gating |
 | 1080p | S | 0.30 / 0.34 | 0.38 / 0.43 | 0.42 / 0.46 | PASS |
 | 1080p | M | 0.33 / 0.37 | 0.39 / 0.45 | 0.42 / 0.48 | PASS |
 | 1080p | L | 0.30 / 0.31 | 0.36 / 0.39 | 0.38 / 0.41 | PASS |
-| 1080p | C | - | [PLACEHOLDER] | [PLACEHOLDER] | not gating |
+| 1080p | C | - | - | - | not gating |
 | 2160p | S | 0.32 / 0.35 | 0.21 / 0.21 | 0.21 / 0.23 | PASS |
 | 2160p | M | 0.32 / 0.39 | 0.27 / 0.39 | 0.29 / 0.45 | PASS |
 | 2160p | L | 0.35 / 0.38 | 0.31 / 0.33 | 0.33 / 0.36 | PASS |
-| 2160p | C | - | [PLACEHOLDER] | [PLACEHOLDER] | not gating |
+| 2160p | C | - | - | - | not gating |
 
 ### G3, SIMD, all cores
 | class | tier | Mac | x86-64 | x86-64 vs x265 avx512 | Graviton4 | Graviton3 | verdict |
@@ -81,19 +81,24 @@ BD-v1 (x86 reproduction +0.78%).
 | CIF | S | 0.51 / 0.57 | 0.70 / 0.82 | 0.70 / 0.84 | 0.55 / 0.66 | 0.53 / 0.60 (2 of 3) | PASS |
 | 720p | S | 0.62 / 0.65 | 0.60 / 0.75 | 0.62 / 0.77 | 0.48 / 0.57 | 0.45 / 0.54 | PASS |
 | 720p | L | 0.47 / 0.56 | 0.53 / 0.56 | 0.54 / 0.57 | 0.42 / 0.46 | - | PASS |
-| 720p | C | 0.47 / 0.47 | [PLACEHOLDER] | [PLACEHOLDER] | [PLACEHOLDER] | - | not gating |
+| 720p | C | 0.47 / 0.47 | 0.69 / 0.69 | 0.71 / 0.71 | 0.61 / 0.61 | - | not gating |
 | 1080p | S | 0.52 / 0.56 | 0.74 / 0.80 | 0.77 / 0.83 | 0.68 / 0.71 | 0.62 / 0.66 | PASS |
 | 1080p | M | 0.59 / 0.66 | 0.74 / 0.80 | 0.75 / 0.82 | 0.64 / 0.72 | - | PASS |
 | 1080p | L | 0.56 / 0.59 | 0.68 / 0.71 | 0.70 / 0.73 | 0.59 / 0.64 | - | PASS |
-| 1080p | C | 0.53 / 0.54 | [PLACEHOLDER] | [PLACEHOLDER] | [PLACEHOLDER] | - | not gating |
+| 1080p | C | 0.53 / 0.54 | 0.88 / 1.03 (6 of 7) | 0.89 / 1.06 (6 of 7) | 0.73 / 0.99 | - | not gating |
 | 2160p | S | 0.62 / 0.63 | 0.41 / 0.43 | 0.41 / 0.44 | 0.31 / 0.33 | 0.31 / 0.34 | PASS |
 | 2160p | M | 0.53 / 0.60 | 0.53 / 0.67 | 0.54 / 0.69 | 0.47 / 0.63 | - | PASS |
 | 2160p | L | 0.58 / 0.66 | 0.59 / 0.62 | 0.60 / 0.63 | 0.49 / 0.54 | - | PASS |
-| 2160p | C | 0.28 / 0.28 | [PLACEHOLDER] | [PLACEHOLDER] | [PLACEHOLDER] | - | not gating |
+| 2160p | C | 0.28 / 0.28 | 0.40 / 0.40 | 0.42 / 0.42 | 0.38 / 0.38 | - | not gating |
 
-The Mac's 1080p-C G3 includes four clips timed on a9b880c8, before items 61
-and 62 moved them. **[PLACEHOLDER: fresh G3 for wikipedia, spreadsheet,
-debugging and worldcup_far from the cloud tier C rerun, if it times them.]**
+Tier C off the Mac was timed on 2026-11-27 on 4d0d13a4, so it includes items
+61 and 62. The Mac's 1080p-C G3 still includes four clips timed on a9b880c8,
+before those items moved them (wikipedia, spreadsheet, debugging and
+worldcup_far). AWS reclaimed both x86 boxes during lash1924_1080p, so x86
+1080p-C is over 6 of its 7 clips. An AMD EPYC 9R14 (Zen 4) ran tier C beside
+the Xeon: 720p 0.63, 1080p 0.77 / 0.99 (6 of 7), 2160p 0.32. The slowest tier C
+cell on every machine is wikipedia_1080p (Xeon 1.03, EPYC 0.99, Graviton4
+0.99), inside the 1.15 worst bar.
 
 ### G3 at a capped instruction set (x86-64, tier S only)
 Both encoders held to one tier: ours under `N265_CPU_MAX`, x265 under `--asm`.
@@ -124,15 +129,15 @@ Tier S has no ladder under the spec.
 | CIF | S | +2.33 / +0.56 | -0.68 | stefan_cif | n/a | inferred | identical streams | PASS |
 | 720p | S | +2.39 / +0.86 | -0.29 | shields_720p | n/a | inferred | identical streams | PASS |
 | 720p | L | +1.67 / +0.61 | -0.42 | bbb_720p | -0.41% (nocturne VBR) | inferred | identical streams | PASS |
-| 720p | C | +2.55 / +2.55 | -0.07 | lash1924_720p | -26.04% (lash1924 VBR) | [PLACEHOLDER] | [PLACEHOLDER] | PASS |
+| 720p | C | +2.55 / +2.55 | -0.07 | lash1924_720p | -26.04% (lash1924 VBR) | inferred | identical streams | PASS |
 | 1080p | S | +0.61 / -0.05 | -0.59 | sunflower_1080p | n/a | inferred | identical streams | PASS |
 | 1080p | M | +1.96 / +0.63 | -0.40 | chimera_1080p | -4.83% (chimera VBR) | reproduced | identical streams | PASS |
 | 1080p | L | +1.08 / +0.70 | -0.81 | bbb_1080p | -6.88% (nocturne VBR) | reproduced | identical streams | PASS |
-| 1080p | C | +2.53 / +0.14 | -0.90 | worldcup_far_1080p | -2.22% (worldcup_far CRF) | [PLACEHOLDER] | [PLACEHOLDER] | PASS |
+| 1080p | C | +2.53 / +0.14 | -0.90 | worldcup_far_1080p | -2.22% (worldcup_far CRF) | inferred | identical streams | PASS |
 | 2160p | S | +1.86 / +1.22 | -0.49 | bbb_2160p | n/a | inferred | identical streams | PASS |
 | 2160p | M | +1.40 / +0.06 | -0.48 | chimera_2160p | +0.70% (chimera VBR) | reproduced (+0.78%) | identical streams | PASS |
 | 2160p | L | +1.18 / +0.44 | -0.54 | bbb_2160p | -4.59% (bbb VBR) | inferred | identical except nocturne | PASS |
-| 2160p | C | -0.24 / -0.24 | -0.68 | boxing_2160p | -3.81% (boxing CRF) | [PLACEHOLDER] | [PLACEHOLDER] | PASS |
+| 2160p | C | -0.24 / -0.24 | -0.68 | boxing_2160p | -3.81% (boxing CRF) | inferred | identical streams | PASS |
 
 Soft cells (median passes, a cell between -0.5 and -1.0 VMAF v1): none.
 
@@ -217,13 +222,13 @@ each one's own gates are in its commit.
 - Correctness: the second TSan report (knob globals under `--gop-parallel`) is fixed (105e07d1), and CI's LeakSanitizer failures are fixed (0724cee8). No stream moved.
 - Data: the four void meridian cells timed (da165269), peak RSS per thread count (61f4eab9), credits on v1 (b14e7bb1), a corpus table (73fe1a10), `make results` to rerun the Mac's results page (edc6af1f), and target-vmaf against dynamic-crf (80f43919).
 
-Last 24 hours on main (2026-11-26): data and site only. No encoder change.
+Last 24 hours on main (2026-11-27): the `--target-vmaf-floor` correction (CLI only; no stream from a plain encode moves) and the cloud tier C G3 run.
 
-**[PLACEHOLDER: cloud tier C rerun — what it measured, on which machines and binary, and whether tier C G1/G2 pass.]**
+- Tier C G3 off the Mac (7e71a725, cd485883): Xeon 8488C median 0.81 over 8 clips, EPYC 9R14 0.70 over 8, Graviton4 0.69 over 9, each at 16 threads on 4d0d13a4, size-matched on each box. Worst is wikipedia_1080p on all three (1.03, 0.99, 0.99). G1 and G2 weren't run on tier C.
 
 ## Not valid or not measured
-- Tier C G1 and G2 on any machine, tier C off the Mac, and fresh G3 for the four clips items 61 and 62 moved. **[PLACEHOLDER: strike what the cloud tier C rerun covers.]** Tier C speed doesn't gate.
-- SSE4.2 and AVX2 capped on tiers M and L, and any CPU that stops at AVX2 or SSE4.2 in silicon. No AMD x86 CPU.
+- Tier C G1 and G2 on any machine. Tier C G3 for lash1924_1080p on x86, and fresh Mac G3 for the four clips items 61 and 62 moved. Tier C speed doesn't gate.
+- SSE4.2 and AVX2 capped on tiers M and L, and any CPU that stops at AVX2 or SSE4.2 in silicon. No AMD x86 CPU outside tier C.
 - Graviton3 G1, G2, tiers M and L, and VBR.
 - Full BD ladders on x86 beyond the four reproduced curves, and on Graviton (stream identity stands in).
 - HDR rescore of Meridian and Chimera from the 10-bit PQ masters. The HDR rows on the site are not this report's.
@@ -231,4 +236,4 @@ Last 24 hours on main (2026-11-26): data and site only. No encoder change.
 - Memory at `--threads auto` (18 workers). Peak RSS is measured at 1-12 threads only.
 - An x86 TSan rerun at 4 and 16 threads with both race fixes in.
 - Tier M G1 and G2 on the Mac were read on the whole segment, before the 30 s window rule. Tier L G1 and G2 come from one run each on every machine.
-- The gating rows were measured on 3ee7824e (Mac) and 504fdda (cloud). main (80f43919) carries the stream-moving changes listed above. They leave tiers S, M and D byte-identical, apart from tier M and L pictures that are all flat or fade to black. Those were measured as story windows, not as whole re-timed cells.
+- The gating rows were measured on 3ee7824e (Mac) and 504fdda (cloud). main (cd485883) carries the stream-moving changes listed above. They leave tiers S, M and D byte-identical, apart from tier M and L pictures that are all flat or fade to black. Those were measured as story windows, not as whole re-timed cells.
