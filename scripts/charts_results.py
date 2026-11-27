@@ -705,6 +705,15 @@ def values(D):
                         rng(D["ctr"][r[0]]), f"{tf(float(r[5].split()[0])):.2f}x"
                         + (" \\*" if "(" in r[5] else "")]
                        for r, (_, _, crf, vbr) in zip(tc, D["tc"])])
+    cc = D["cc"]
+    V["tier-c-machines"] = mdt(
+        ["clip", "Mac"] + [lab for _, lab in B.CONTENT_BOXES],
+        [L, R] + [R] * len(B.CONTENT_BOXES),
+        [[nice(*split_cell(r[0])), f"{tf(float(r[5].split()[0])):.2f}x" + (" \\*" if "(" in r[5] else "")]
+         + [f"{tf(cc[b][split_cell(r[0])[::-1]][0]):.2f}x" if split_cell(r[0])[::-1] in cc[b]
+            else "not matched" if split_cell(r[0])[::-1] in D["cm"][b]
+            else "not measured" for b, _ in B.CONTENT_BOXES]
+         for r in tc])
 
     # figures
     mac_csv = link(os.path.relpath(D["paths"]["mac"], ROOT), "the Mac report's rows")
@@ -757,6 +766,15 @@ def gather():
     if not g3:
         sys.exit("no Graviton3 records (docs/data/cloud-tables-*/records/g3S.jsonl)")
     D["g3"] = B.graviton3(g3[-1])
+    crec = B.content_records()
+    D["cc"], D["cm"] = B.content_cloud(crec), B.content_measured(crec)
+    printed = {}
+    for m in ("x86", "g4"):
+        printed.update(B.content_printed(paths[m][:-4] + ".md"))
+    got = {(b, *k): v[0] for b, d in D["cc"].items() for k, v in d.items()}
+    if got != printed:
+        sys.exit(f"tier C cloud ratios: {got} from {os.path.relpath(crec, ROOT)}, "
+                 f"the reports print {printed}")
     check_reading(D["isa"], paths, mac_md, g3[-1])
     lad = D["lad"] = load_ladders()
     lines = B.ladders(mac_md)

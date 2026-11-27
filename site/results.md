@@ -523,6 +523,22 @@ Both encoders undershoot their VBR targets on the screen recordings, where the s
 
 The four speeds with an asterisk were timed before yah265's `medium` gained its screen and handheld detectors.
 
+Three cloud machines also timed the tier at [G3](methodology.md#the-three-speed-goals): the Xeon, an AMD EPYC 9R14 and Graviton4. The EPYC is Zen 4 with AVX-512. Each ran the current `medium`, with both encoders held to 16 vCPUs. yah265's CRF was solved onto x265's file size on each machine. AWS reclaimed the Xeon and the EPYC before they finished Lash of the Whip 1080p. That clip isn't measured on them.
+
+<!--gen:tier-c-machines-->
+| clip | Mac | Xeon 8488C | EPYC 9R14 | Graviton4 |
+|---|--:|--:|--:|--:|
+| Lash of the Whip 720p | 2.13x | 1.45x | 1.59x | 1.64x |
+| Lash of the Whip 1080p | 1.85x | not measured | not measured | 1.45x |
+| World Cup 1080p | 1.92x | 1.35x | 1.61x | 1.52x |
+| World Cup, far camera 1080p | 1.89x \* | 1.12x | 1.30x | 1.37x |
+| Skater 1080p | 2.00x | 1.43x | 1.59x | 1.54x |
+| boxing 4K | 3.57x | 2.50x | 3.12x | 2.63x |
+| wikipedia 1080p | 1.89x \* | 0.97x | 1.01x | 1.01x |
+| debugging 1080p | 1.96x \* | 1.10x | 1.22x | 1.20x |
+| spreadsheet 1080p | 1.89x \* | 1.14x | 1.32x | 1.32x |
+<!--/gen:tier-c-machines-->
+
 ## HDR
 
 HDR quality is read on its own metric, HDR-VMAF. See the [HDR page](hdr.md) for those tables.

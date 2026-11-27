@@ -301,3 +301,43 @@ This is the first full x86 table. The 2026-11-11 probe timed three tier S cells 
 - Tier M G1 and G2 are read on the Mac's matched 30 s windows here (the spec's rule). The Mac's tier M rows read the whole segment.
 - Spot reclaims: when a box was reclaimed part-way through a goal, the next box reran that goal whole. No row mixes boxes.
 - G1 arms ran eight at a time on separate cores, so at all-core turbo. Both arms ran under the same load and the ratio holds, but the walls are slower than a lone one-thread run.
+
+
+## Tier C (content types), G3
+Measured in the cloud on 2026-11-27, 17:16 to 18:01 UTC, on AWS EC2 spot in us-east-2. The Xeon 8488C ran on a c7i.8xlarge. The AMD EPYC 9R14 is Zen 4 and ran on a c7a.8xlarge. Both boxes ran Ubuntu 24.04 on kernel 7.0. Ours is n265 4d0d13a4 at `medium`. x265 is 4.3+1-e9b8812 at `medium`. Each box built both encoders with clang 18. Each encoder ran on 16 vCPUs: ours at `--threads 16`, x265 at `--pools 16`. The EPYC has no SMT. Its 16 vCPUs are 16 cores.
+
+The seven short clips are the Mac's Y4M files. Each box checked them by md5. The lash1924 frames are not the Mac's. Each box decoded them in software with ffmpeg 6.1, from a stream-copied ProRes span of the master. Both encoders read the same frames. Our CRF was solved onto this x265's file size on each box.
+
+The two boxes write the same streams. At one thread SIMD matches C on foreman_cif 306b4a86, WorldCup e89e97b4 and Wikipedia b9d30c60. checkasm passed on sse4.2, avx2 and avx512 with 0 failures.
+
+AWS reclaimed both boxes during the last cell, lash1924_1080p. Each had run one round of ours and no round of x265. That cell is unmeasured here, not zero.
+
+On some clips the feed check read the file cold, at 15-79 fps. That's under 1.5x our rate. The timed arms ran faster than that. They must have read from the page cache. A slow feeder would hold back the faster arm, which is ours. No ratio here overstates our lead. Tier C's speed is shown but doesn't count toward the verdict.
+
+Xeon 8488C: median 0.81, worst 1.03 (wikipedia_1080p), over 8 clips. Unmeasured: lash1924_1080p.
+
+| cell | Xeon 8488C ours s | x265 s | Xeon 8488C ratio | x265 --asm avx512 s | ratio vs avx512 | dsize | ours crf (solved here) | feed fps | rounds | valid |
+|---|---|---|---|---|---|---|---|---|---|---|
+| lash1924_720p | 147.24 | 214.02 | 0.69 | 206.78 | 0.71 | +0.34% | 24.91 | 527.4 | 2 | yes |
+| lash1924_1080p | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | no |
+| worldcup_1080p | 2.15 | 2.89 | 0.74 | 2.81 | 0.77 | -0.12% | 25.59 | 66.7 | 3 | yes |
+| worldcup_far_1080p | 2.57 | 2.90 | 0.89 | 2.83 | 0.91 | +0.14% | 26.09 | 66.6 | 3 | yes |
+| skater227_1080p | 2.30 | 3.28 | 0.70 | 3.17 | 0.72 | +0.03% | 26.07 | 66.9 | 3 | yes |
+| boxing_2160p | 8.13 | 20.37 | 0.40 | 19.38 | 0.42 | +0.05% | 26.6 | 15.4 | 3 | yes |
+| wikipedia_1080p | 1.76 | 1.71 | 1.03 | 1.67 | 1.06 | +0.28% | 13.29 | 1720.7 | 3 | yes |
+| debugging_1080p | 1.35 | 1.48 | 0.91 | 1.45 | 0.93 | -0.20% | 24.65 | 79.1 | 3 | yes |
+| spreadsheet_1080p | 1.62 | 1.84 | 0.88 | 1.85 | 0.88 | +0.03% | 20.05 | 686.1 | 3 | yes |
+
+EPYC 9R14: median 0.70, worst 0.99 (wikipedia_1080p), over 8 clips. Unmeasured: lash1924_1080p.
+
+| cell | EPYC 9R14 ours s | x265 s | EPYC 9R14 ratio | x265 --asm avx512 s | ratio vs avx512 | dsize | ours crf (solved here) | feed fps | rounds | valid |
+|---|---|---|---|---|---|---|---|---|---|---|
+| lash1924_720p | 91.83 | 145.25 | 0.63 | 145.23 | 0.63 | +0.34% | 24.91 | 469.0 | 2 | yes |
+| lash1924_1080p | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | no |
+| worldcup_1080p | 1.42 | 2.29 | 0.62 | 2.29 | 0.62 | -0.12% | 25.59 | 1020.1 | 3 | yes |
+| worldcup_far_1080p | 1.63 | 2.11 | 0.77 | 2.12 | 0.77 | +0.14% | 26.09 | 78.4 | 3 | yes |
+| skater227_1080p | 1.52 | 2.43 | 0.63 | 2.47 | 0.62 | +0.03% | 26.07 | 78.5 | 3 | yes |
+| boxing_2160p | 5.32 | 16.78 | 0.32 | 18.06 | 0.29 | +0.05% | 26.6 | 18.4 | 3 | yes |
+| wikipedia_1080p | 1.40 | 1.42 | 0.99 | 1.42 | 0.99 | +0.28% | 13.29 | 1021.3 | 3 | yes |
+| debugging_1080p | 1.04 | 1.27 | 0.82 | 1.27 | 0.82 | -0.20% | 24.65 | 78.1 | 3 | yes |
+| spreadsheet_1080p | 1.14 | 1.49 | 0.76 | 1.51 | 0.76 | +0.03% | 20.05 | 78.3 | 3 | yes |

@@ -270,3 +270,27 @@ This is the first full Graviton table. The 2026-11-12 SVE probe timed three tier
 - Tier M G1 and G2 are read on the Mac's matched 30 s windows (the spec's rule). The Mac's tier M rows read the whole segment.
 - Spot reclaims: when a box was reclaimed part-way through a goal, the next box reran that goal whole. No row mixes boxes. Tier S G1 and G2 ran on c8g.12xlarge and its G3 on r8g.8xlarge.
 - G1 arms ran eight at a time on separate cores. Both arms ran under the same load, so the ratio holds.
+
+
+## Tier C (content types), G3
+Measured in the cloud on 2026-11-27, 17:16 to 17:49 UTC, on AWS EC2 spot in us-east-2. Graviton4 ran on a c8g.8xlarge with Ubuntu 24.04 on kernel 7.0. Ours is n265 4d0d13a4 at `medium`. x265 is 4.3+1-e9b8812 at `medium`. The box built both encoders with clang 18. Each encoder ran on 16 cores: ours at `--threads 16`, x265 at `--pools 16`.
+
+The seven short clips are the Mac's Y4M files. The box checked them by md5. The lash1924 frames are not the Mac's. The box decoded them in software with ffmpeg 6.1, from a stream-copied ProRes span of the master. Both encoders read the same frames. Our CRF was solved onto this x265's file size.
+
+Our one-thread streams match the Mac's at 4d0d13a4. SIMD matches C on foreman_cif 29b92aba, WorldCup b739bcfc and Wikipedia 003bfd1c. checkasm passed on neon, dotprod, sve and sve2 with 0 failures. All nine cells finished.
+
+On some clips the feed check read the file cold, at 19-82 fps. That's under 1.5x our rate. The timed arms ran faster than that. They must have read from the page cache. A slow feeder would hold back the faster arm, which is ours. No ratio here overstates our lead. Tier C's speed is shown but doesn't count toward the verdict.
+
+Graviton4: median 0.69, worst 0.99 (wikipedia_1080p), over 9 clips.
+
+| cell | Graviton4 ours s | x265 s | Graviton4 ratio | dsize | ours crf (solved here) | feed fps | rounds | valid |
+|---|---|---|---|---|---|---|---|---|
+| lash1924_720p | 91.95 | 149.76 | 0.61 | +0.32% | 24.91 | 602.7 | 2 | yes |
+| lash1924_1080p | 114.53 | 166.12 | 0.69 | -0.03% | 25.12 | 3129.4 | 2 | yes |
+| worldcup_1080p | 1.31 | 1.98 | 0.66 | -0.09% | 25.59 | 2404.1 | 3 | yes |
+| worldcup_far_1080p | 1.53 | 2.11 | 0.73 | +0.00% | 26.09 | 81.9 | 3 | yes |
+| skater227_1080p | 1.46 | 2.27 | 0.65 | +0.04% | 26.07 | 82.0 | 3 | yes |
+| boxing_2160p | 5.22 | 13.59 | 0.38 | -0.05% | 26.6 | 19.2 | 3 | yes |
+| wikipedia_1080p | 1.28 | 1.29 | 0.99 | -0.61% | 13.29 | 2359.4 | 3 | yes |
+| debugging_1080p | 0.94 | 1.13 | 0.83 | -0.13% | 24.65 | 82.0 | 3 | yes |
+| spreadsheet_1080p | 1.04 | 1.38 | 0.76 | +0.02% | 20.05 | 81.7 | 3 | yes |

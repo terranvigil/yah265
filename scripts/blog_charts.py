@@ -291,6 +291,92 @@ def capped_run(path, report_md):
     return out
 
 
+# the cloud boxes that timed tier C, in the site's column order
+CONTENT_BOXES = [("x86C", "Xeon 8488C"), ("amdC", "EPYC 9R14"), ("g4C", "Graviton4")]
+
+
+def content_records():
+    """The newest cloud run that timed tier C (its records directory)."""
+    rs = sorted(glob.glob(os.path.join(ROOT, "docs/data/cloud-tables-*/records/amdC.jsonl")))
+    if not rs:
+        sys.exit("no tier C cloud records (docs/data/cloud-tables-*/records/amdC.jsonl)")
+    return os.path.dirname(rs[-1])
+
+
+def content_walls(path):
+    """(cell, arm) -> [(wall, bytes)] at G3, each cell read only from the
+    last host that ran it: a box reclaimed part-way leaves rounds that a
+    replacement may run again."""
+    recs = [r for r in map(json.loads, open(path))
+            if r.get("goal") == "G3" and "wall_s" in r and r.get("rc") == 0]
+    last = {r["cell"]: r.get("box") for r in recs}
+    walls = {}
+    for r in recs:
+        if r.get("box") == last[r["cell"]]:
+            walls.setdefault((r["cell"], r["arm"]), []).append((r["wall_s"], r.get("bytes")))
+    return walls
+
+
+def paired(ours, ref):
+    return bool(ours) and len(ours) == len(ref)
+
+
+def content_measured(rec_dir):
+    """box -> the (class, title) clips with a complete ours/ref pair."""
+    out = {}
+    for box, _ in CONTENT_BOXES:
+        walls = content_walls(os.path.join(rec_dir, f"{box}.jsonl"))
+        out[box] = {record_title(c.removesuffix("_r")) for c, a in walls
+                    if a == "ours" and paired(walls[(c, a)], walls.get((c, "ref"), []))}
+    return out
+
+
+def content_cloud(rec_dir, size_bar=1.0):
+    """box -> {(class, title): (ratio, ratio against x265 --asm avx512 or
+    None, dsize %, rounds)} at G3 on tier C, from the cloud records: per
+    clip and arm the median wall over its rounds. A clip with no complete
+    ours/ref pair is unmeasured and left out, and so is one whose two files
+    differ by more than size_bar percent, as in the reports."""
+    out = {}
+    for box, _ in CONTENT_BOXES:
+        walls = content_walls(os.path.join(rec_dir, f"{box}.jsonl"))
+        acc = {}
+        for cell in sorted({c for c, _ in walls}):
+            cls, title = record_title(cell.removesuffix("_r"))
+            ours, ref = walls.get((cell, "ours"), []), walls.get((cell, "ref"), [])
+            if not paired(ours, ref):
+                continue
+            mo = st.median(w for w, _ in ours)
+            ds = 100 * (st.median(b for _, b in ours) / st.median(b for _, b in ref) - 1)
+            if abs(ds) > size_bar:
+                continue
+            r512 = walls.get((cell, "ref512"))
+            acc[(cls, title)] = (round(mo / st.median(w for w, _ in ref), 2),
+                                 round(mo / st.median(w for w, _ in r512), 2) if r512 else None,
+                                 round(ds, 2), min(len(ours), len(ref)))
+        out[box] = acc
+    return out
+
+
+def content_printed(md_path):
+    """(box, class, title) -> ratio from the tier C table a cloud report
+    prints, for checking content_cloud's read."""
+    out, on, cols = {}, False, []
+    for line in open(md_path):
+        if line.startswith("## "):
+            on = line.startswith("## Tier C")
+        elif on and line.startswith("| cell"):
+            cols = [x.strip() for x in line.strip().strip("|").split("|")]
+        elif on and line.startswith("| ") and not line.startswith("|---"):
+            c = [x.strip() for x in line.strip().strip("|").split("|")]
+            title, cls = c[0].rsplit("_", 1)
+            for box, lab in CONTENT_BOXES:
+                col = f"{lab} ratio"
+                if col in cols and fnum(c[cols.index(col)]) is not None:
+                    out[(box, cls, title)] = float(c[cols.index(col)])
+    return out
+
+
 def headline_cells(mac_rows):
     """The site's headline, and the only place it is computed. It covers the
     size-matched cells timed on the Mac as shipped: the valid G3 rows of

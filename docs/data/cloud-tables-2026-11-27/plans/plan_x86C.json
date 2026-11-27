@@ -1,0 +1,324 @@
+{
+ "box": "x86C",
+ "hub": "127.0.0.1",
+ "itype": "x86",
+ "cells": [
+  {
+   "key": "C/1080p/debugging",
+   "tier": "C",
+   "cls": "1080p",
+   "title": "debugging",
+   "name": "C_1080p_debugging_r",
+   "frames": 130,
+   "fps": 30.0,
+   "points": {
+    "ft1": {
+     "ours_crf": 25.97,
+     "ref_crf": 28,
+     "ours_bytes": 621706,
+     "ref_bytes": 620191,
+     "ours_md5": "fb3edd8fb2d4710ffa711c7be19491ce",
+     "bin": "3ee7824ee8159f24"
+    },
+    "def": {
+     "ours_crf": 24.65,
+     "ref_crf": 28,
+     "ours_bytes": 674089,
+     "ref_bytes": 674955,
+     "ours_md5": "b8be1a3f665b618b63ec5e5edb93243e",
+     "bin": "3ee7824ee8159f24"
+    }
+   },
+   "goals": [
+    "G3"
+   ],
+   "src": {
+    "kind": "y4m",
+    "file": "c/Debugging_1920x1080_30fps_8bit_420.y4m",
+    "skip": 0
+   },
+   "check": {
+    "file_md5": "894eebe772ff66c44e73ac6db5f64bc2"
+   },
+   "resolve": true
+  },
+  {
+   "key": "C/1080p/wikipedia",
+   "tier": "C",
+   "cls": "1080p",
+   "title": "wikipedia",
+   "name": "C_1080p_wikipedia_r",
+   "frames": 130,
+   "fps": 30.0,
+   "points": {
+    "ft1": {
+     "ours_crf": 25.02,
+     "ref_crf": 28,
+     "ours_bytes": 599242,
+     "ref_bytes": 601622,
+     "ours_md5": "51bec0f40b84908d469b6bee12f18d08",
+     "bin": "3ee7824ee8159f24"
+    },
+    "def": {
+     "ours_crf": 13.29,
+     "ref_crf": 28,
+     "ours_bytes": 1408127,
+     "ref_bytes": 1416792,
+     "ours_md5": "c9b0a74328e65ffc8258cfb017574870",
+     "bin": "3ee7824ee8159f24"
+    }
+   },
+   "goals": [
+    "G3"
+   ],
+   "src": {
+    "kind": "y4m",
+    "file": "c/Wikipedia_1920x1080p30.y4m",
+    "skip": 0
+   },
+   "check": {
+    "file_md5": "73f1a07a9205f4496f7dbd1b0cc3ab10"
+   },
+   "resolve": true
+  },
+  {
+   "key": "C/1080p/spreadsheet",
+   "tier": "C",
+   "cls": "1080p",
+   "title": "spreadsheet",
+   "name": "C_1080p_spreadsheet_r",
+   "frames": 130,
+   "fps": 30.0,
+   "points": {
+    "ft1": {
+     "ours_crf": 26.47,
+     "ref_crf": 28,
+     "ours_bytes": 957759,
+     "ref_bytes": 959112,
+     "ours_md5": "da1e72ffda8c2235ad0f237057af41a2",
+     "bin": "3ee7824ee8159f24"
+    },
+    "def": {
+     "ours_crf": 20.05,
+     "ref_crf": 28,
+     "ours_bytes": 1719106,
+     "ref_bytes": 1718849,
+     "ours_md5": "0d1fc8528c76d0edbfff290b9eb73de1",
+     "bin": "3ee7824ee8159f24"
+    }
+   },
+   "goals": [
+    "G3"
+   ],
+   "src": {
+    "kind": "y4m",
+    "file": "c/Spreadsheet_1920x1080_30fps_8bit_420_130f.y4m",
+    "skip": 0
+   },
+   "check": {
+    "file_md5": "c8656a9bd40eb3493cbf8300faa5c5a7"
+   },
+   "resolve": true
+  },
+  {
+   "key": "C/1080p/worldcup",
+   "tier": "C",
+   "cls": "1080p",
+   "title": "worldcup",
+   "name": "C_1080p_worldcup_r",
+   "frames": 130,
+   "fps": 30.0,
+   "points": {
+    "def": {
+     "ours_crf": 25.59,
+     "ref_crf": 28,
+     "ours_bytes": 1366504,
+     "ref_bytes": 1367785,
+     "ours_md5": "c5183e3ea9ddb5e552a624b8d127d93b",
+     "bin": "3ee7824ee8159f24"
+    }
+   },
+   "goals": [
+    "G3"
+   ],
+   "src": {
+    "kind": "y4m",
+    "file": "c/WorldCup_1920x1080_30p.y4m",
+    "skip": 0
+   },
+   "check": {
+    "file_md5": "a001d0da92125138093dfb94931c1337"
+   },
+   "resolve": true
+  },
+  {
+   "key": "C/1080p/worldcup_far",
+   "tier": "C",
+   "cls": "1080p",
+   "title": "worldcup_far",
+   "name": "C_1080p_worldcup_far_r",
+   "frames": 130,
+   "fps": 30.0,
+   "points": {
+    "ft1": {
+     "ours_crf": 26.13,
+     "ref_crf": 28,
+     "ours_bytes": 1993290,
+     "ref_bytes": 1998025,
+     "ours_md5": "557f139b37e39250c2becf9986fb3361",
+     "bin": "3ee7824ee8159f24"
+    },
+    "def": {
+     "ours_crf": 26.09,
+     "ref_crf": 28,
+     "ours_bytes": 2005774,
+     "ref_bytes": 2005760,
+     "ours_md5": "40eb922001752dd1fe263977fee7454f",
+     "bin": "3ee7824ee8159f24"
+    }
+   },
+   "goals": [
+    "G3"
+   ],
+   "src": {
+    "kind": "y4m",
+    "file": "c/WorldCup_far_1920x1080_30p.y4m",
+    "skip": 0
+   },
+   "check": {
+    "file_md5": "6d87c49d487c1479d524bdbd2e6549dd"
+   },
+   "resolve": true
+  },
+  {
+   "key": "C/1080p/skater227",
+   "tier": "C",
+   "cls": "1080p",
+   "title": "skater227",
+   "name": "C_1080p_skater227_r",
+   "frames": 130,
+   "fps": 30.0,
+   "points": {
+    "def": {
+     "ours_crf": 26.07,
+     "ref_crf": 28,
+     "ours_bytes": 736542,
+     "ref_bytes": 736227,
+     "ours_md5": "fe71487858ac7c98b2962ff55c2b39b4",
+     "bin": "3ee7824ee8159f24"
+    }
+   },
+   "goals": [
+    "G3"
+   ],
+   "src": {
+    "kind": "y4m",
+    "file": "c/Skater227_1920x1080_30fps_8bit.y4m",
+    "skip": 0
+   },
+   "check": {
+    "file_md5": "340b38fff4e5c605ba10d840036f4dc2"
+   },
+   "resolve": true
+  },
+  {
+   "key": "C/2160p/boxing",
+   "tier": "C",
+   "cls": "2160p",
+   "title": "boxing",
+   "name": "C_2160p_boxing_r",
+   "frames": 254,
+   "fps": 60.0,
+   "points": {
+    "def": {
+     "ours_crf": 26.6,
+     "ref_crf": 28,
+     "ours_bytes": 3138941,
+     "ref_bytes": 3140599,
+     "ours_md5": "3a498c8e52935646cdc928e2f7bc23e3",
+     "bin": "3ee7824ee8159f24"
+    }
+   },
+   "goals": [
+    "G3"
+   ],
+   "src": {
+    "kind": "y4m",
+    "file": "c/BoxingPractice_4096x2160_60fps_8bit.y4m",
+    "skip": 0
+   },
+   "check": {
+    "file_md5": "3c7a6b15f1fe0b90d11bff73335ac371"
+   },
+   "resolve": true
+  },
+  {
+   "key": "C/720p/lash1924",
+   "tier": "C",
+   "cls": "720p",
+   "title": "lash1924",
+   "name": "C_720p_lash1924_r",
+   "frames": 14400,
+   "fps": 24.0,
+   "points": {
+    "def": {
+     "ours_crf": 24.91,
+     "ref_crf": 28,
+     "ours_bytes": 98135473,
+     "ref_bytes": 98000124,
+     "ours_md5": "c73101dfb99b0921787b3e99bc2a3685",
+     "bin": "3ee7824ee8159f24"
+    }
+   },
+   "goals": [
+    "G3"
+   ],
+   "rounds": {
+    "G3": 2
+   },
+   "src": {
+    "kind": "dec",
+    "file": "ll/lash_38_604.mov",
+    "skip": 48,
+    "hdr": "YUV4MPEG2 W1280 H960 F24:1 Ip A1:1 C420jpeg XYSCSS=420JPEG XCOLORRANGE=LIMITED",
+    "vf": "scale=1280:960"
+   },
+   "stage": true,
+   "resolve": true
+  },
+  {
+   "key": "C/1080p/lash1924",
+   "tier": "C",
+   "cls": "1080p",
+   "title": "lash1924",
+   "name": "C_1080p_lash1924_r",
+   "frames": 14400,
+   "fps": 24.0,
+   "points": {
+    "def": {
+     "ours_crf": 25.12,
+     "ref_crf": 28,
+     "ours_bytes": 125064476,
+     "ref_bytes": 125035358,
+     "ours_md5": "2e78964b531220d6a4b962d423e40ddf",
+     "bin": "3ee7824ee8159f24"
+    }
+   },
+   "goals": [
+    "G3"
+   ],
+   "rounds": {
+    "G3": 2
+   },
+   "src": {
+    "kind": "dec",
+    "file": "ll/lash_38_604.mov",
+    "skip": 48,
+    "hdr": "YUV4MPEG2 W1440 H1080 F24:1 Ip A1:1 C420jpeg XYSCSS=420JPEG XCOLORRANGE=LIMITED"
+   },
+   "stage": true,
+   "resolve": true
+  }
+ ],
+ "halt_when_done": false
+}
