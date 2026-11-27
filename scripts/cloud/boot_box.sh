@@ -10,7 +10,10 @@ NAME=$1; PLAN=$2
 D=$(cd "$(dirname "$0")" && pwd)
 ST=${FLEET_STATE:-$HOME/src/yah265/local/cloudtab-2026-11-13/state}
 IP=$(python3 -c "import json;print(json.load(open('$ST/$NAME.json'))['ip'])")
-HUB=$(python3 -c "import json;print(json.load(open('$PLAN'))['hub'])")
+# SETUP_HUB: where setup pulls the source and media from, when that isn't
+# the plan's records hub (a plan whose hub is 127.0.0.1 keeps its records
+# on the box itself and needs no other box once set up)
+HUB=${SETUP_HUB:-$(python3 -c "import json;print(json.load(open('$PLAN'))['hub'])")}
 O=(-i "$ST/key.pem" -o IdentitiesOnly=yes -o UserKnownHostsFile="$ST/known_hosts" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20)
 for i in $(seq 30); do ssh "${O[@]}" ubuntu@$IP true 2>/dev/null && break; sleep 10; done
 ssh "${O[@]}" ubuntu@$IP 'mkdir -p ~/.ssh ~/t/cloud'

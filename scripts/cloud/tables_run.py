@@ -18,7 +18,8 @@ matched points). The method is parity_spec.py / parity_long.py's:
        buffer 2x, the whole cell.
 
 Rounds as the Mac's: G1 2, G2 3, G3 3 on tiers S and M; G1 1, G2 1 on
-tier L windows; G3 2 and VBR 2 on tier L; VBR 2 on tier M. Arm order
+tier L windows; G3 2 and VBR 2 on tier L; VBR 2 on tier M; G3 3 on the
+tier C clips and 2 on its lash excerpts. Arm order
 alternates by round. Medians are taken on the Mac.
 
 The box: the encoders are pinned to 16 vCPUs (eight cores and their
@@ -57,7 +58,14 @@ G1_LANES = 8
 FEEDCHECK_SECS = 60.0
 ROUNDS = {("S", "G1"): 2, ("S", "G2"): 3, ("S", "G3"): 3,
           ("M", "G1"): 2, ("M", "G2"): 3, ("M", "G3"): 3, ("M", "VBR"): 2,
-          ("L", "G1"): 1, ("L", "G2"): 1, ("L", "G3"): 2, ("L", "VBR"): 2}
+          ("L", "G1"): 1, ("L", "G2"): 1, ("L", "G3"): 2, ("L", "VBR"): 2,
+          ("C", "G3"): 3}
+
+
+def n_rounds(c, goal):
+    """The Mac's round count; a cell may name its own (tier C's lash
+    excerpts run two, as tier L's G3)."""
+    return c.get("rounds", {}).get(goal) or ROUNDS[(c["tier"], goal)]
 
 
 def sh(cmd, **kw):
@@ -124,7 +132,7 @@ def load_done(plan):
             for goal in c["goals"]:
                 arms = g_arms(plan, goal)
                 want = {(c["name"], goal, rnd, a, wi)
-                        for rnd in range(1, ROUNDS[(c["tier"], goal)] + 1)
+                        for rnd in range(1, n_rounds(c, goal) + 1)
                         for a in arms
                         for wi in range(len(spans(c, goal)))}
                 if not want <= _done:
@@ -359,6 +367,13 @@ def prep(plan, c):
         c["src"] = {"kind": "y4m", "file": wf, "skip": 0}
     elif k in _done or not c.get("check"):
         pass
+    elif c["check"].get("file_md5"):
+        got = md5_of(src_path(c))
+        record(plan, {"kind": "run", "cell": c["name"], "goal": "prep",
+                      "round": 0, "arm": "check", "rc": 0, "file_md5": got,
+                      "want_md5": c["check"]["file_md5"],
+                      "same": got == c["check"]["file_md5"]})
+        push(plan)
     else:
         chk = c["check"]
         md5f = os.path.join(WORK, f"{c['name']}.md5")
@@ -466,7 +481,7 @@ def g1(plan, cells):
         if "G1" not in c["goals"]:
             continue
         sp = spans(c, "G1")
-        for rnd in range(1, ROUNDS[(c["tier"], "G1")] + 1):
+        for rnd in range(1, n_rounds(c, "G1") + 1):
             arms = ["ours", "ref"] if rnd % 2 else ["ref", "ours"]
             for wi, (s, n) in enumerate(sp):
                 for arm in arms:
@@ -542,7 +557,7 @@ def default_legs(plan, c, goal):
         return
     sp = spans(c, goal)
     arms = g_arms(plan, goal)
-    rounds = ROUNDS[(c["tier"], goal)]
+    rounds = n_rounds(c, goal)
     staged = goal == "G2" and c.get("windows")
     src0 = (window_file(c, 0) if staged else
             src_path(c) if c["src"]["kind"] == "y4m" else None)

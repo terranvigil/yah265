@@ -42,6 +42,28 @@ MASTER = {"tears": ("m/tearsofsteel_4k.mov", 1440),
           "stem2": ("m/stem2_uhd_hevc_q90.mp4", 5640),
           "sintel": ("m/Sintel.2010.4k.mkv", 4680),
           "bbb": ("m/bbb_sunflower_2160p_30fps_normal.mp4", 900)}
+C_CLIPS = [("worldcup", "1080p", "WorldCup_1920x1080_30p.y4m"),
+           ("worldcup_far", "1080p", "WorldCup_far_1920x1080_30p.y4m"),
+           ("skater227", "1080p", "Skater227_1920x1080_30fps_8bit.y4m"),
+           ("boxing", "2160p", "BoxingPractice_4096x2160_60fps_8bit.y4m"),
+           ("wikipedia", "1080p", "Wikipedia_1920x1080p30.y4m"),
+           ("debugging", "1080p", "Debugging_1920x1080_30fps_8bit_420.y4m"),
+           ("spreadsheet", "1080p",
+            "Spreadsheet_1920x1080_30fps_8bit_420_130f.y4m")]
+# md5 of the whole Mac file (~/media/tier_c_int), checked after the unpack
+C_MD5 = {"WorldCup_1920x1080_30p.y4m": "a001d0da92125138093dfb94931c1337",
+         "WorldCup_far_1920x1080_30p.y4m": "6d87c49d487c1479d524bdbd2e6549dd",
+         "Skater227_1920x1080_30fps_8bit.y4m": "340b38fff4e5c605ba10d840036f4dc2",
+         "BoxingPractice_4096x2160_60fps_8bit.y4m":
+             "3c7a6b15f1fe0b90d11bff73335ac371",
+         "Wikipedia_1920x1080p30.y4m": "73f1a07a9205f4496f7dbd1b0cc3ab10",
+         "Debugging_1920x1080_30fps_8bit_420.y4m":
+             "894eebe772ff66c44e73ac6db5f64bc2",
+         "Spreadsheet_1920x1080_30fps_8bit_420_130f.y4m":
+             "c8656a9bd40eb3493cbf8300faa5c5a7"}
+# lash1924's master from 38 s, stream-copied (ProRes is all intra), and the
+# frames to drop before the excerpt's first (master frame 960, 40 s)
+LASH_SPAN = ("ll/lash_38_604.mov", 48)
 
 
 def jl(path):
@@ -192,6 +214,34 @@ def catalog(manifests):
                                 "skip": 0, "hdr": m["hdr"]},
                         "check": {"plane_md5": m["plane_md5"],
                                   "frames": m["frames"]}}
+    # tier C: the Mac's Y4M clips sent raw (zstd on the wire), and lash1924's
+    # 600 s excerpt decoded on the box from a stream-copied ProRes span of
+    # the master. That decode is ffmpeg's, not the Mac's, so the lash frames
+    # are not the Mac's; both encoders still read the same frames.
+    for t, cls, fn in C_CLIPS:
+        k = f"C/{cls}/{t}"
+        p = pts[f"{k}/def"]
+        cells[k] = {"key": k, "tier": "C", "cls": cls, "title": t,
+                    "name": f"C_{cls}_{t}", "frames": p["frames"],
+                    "fps": p["fps"],
+                    "points": {a: pt(k, a) for a in ("ft1", "def")
+                               if pts.get(f"{k}/{a}")},
+                    "goals": ["G3"],
+                    "src": {"kind": "y4m", "file": f"c/{fn}", "skip": 0},
+                    "check": {"file_md5": C_MD5.get(fn)}}
+    for cls, w, h in (("720p", 1280, 960), ("1080p", 1440, 1080)):
+        k = f"C/{cls}/lash1924"
+        p = pts[f"{k}/def"]
+        src = {"kind": "dec", "file": LASH_SPAN[0], "skip": LASH_SPAN[1],
+               "hdr": f"YUV4MPEG2 W{w} H{h} F24:1 Ip A1:1 C420jpeg "
+                      "XYSCSS=420JPEG XCOLORRANGE=LIMITED"}
+        if cls == "720p":
+            src["vf"] = f"scale={w}:{h}"
+        cells[k] = {"key": k, "tier": "C", "cls": cls, "title": "lash1924",
+                    "name": f"C_{cls}_lash1924", "frames": p["frames"],
+                    "fps": p["fps"], "points": {"def": pt(k, "def")},
+                    "goals": ["G3"], "rounds": {"G3": 2}, "src": src,
+                    "stage": True}
     return cells
 
 
